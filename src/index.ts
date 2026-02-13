@@ -7,7 +7,6 @@ export * as Matrix3 from "./maths/Matrix3";
 export * as Matrix4 from "./maths/Matrix4";
 export * as CommonMath from "./maths/Common";
 export * as Color from "./utils/Color";
-export * as Rendering from "./utils/Rendering";
 export { SimpleModel } from "./models/SimpleModel";
 export { ModelFactory } from "./models/ModelFactory";
 export type {

@@ -58,10 +58,7 @@ async function init() {
 	const scale = targetRadius / duck.boundingSphere.radius;
 
 	duck.transform.scale.set(scale, scale, scale);
-
-	const localBottom = duck.getWorldBoundingBox().min.y;
-
-	duck.transform.position.y = -localBottom;
+	duck.transform.position.y = -duck.getWorldBoundingBox().min.y;
 
 	scene.addModel(duck);
 

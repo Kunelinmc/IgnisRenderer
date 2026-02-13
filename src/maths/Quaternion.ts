@@ -49,28 +49,16 @@ export class Quaternion {
 		);
 	}
 
-	/**
-	 * 四元数球面线性插值 (Spherical Linear Interpolation)
-	 * @param {Quaternion} q1 起始四元数
-	 * @param {Quaternion} q2 目标四元数
-	 * @param {number} t 插值因子 [0, 1]
-	 * @returns {Quaternion} 插值结果
-	 */
 	public static slerp(q1: Quaternion, q2: Quaternion, t: number): Quaternion {
-		// 确保 t 在 [0, 1] 范围内
 		t = Math.max(0, Math.min(1, t));
-
-		// 计算两个四元数的点积
 		let dot = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
 
-		// 如果点积为负，反转其中一个四元数以保证最短路径插值
 		let q2Adjusted = q2;
 		if (dot < 0) {
 			dot = -dot;
 			q2Adjusted = new Quaternion(-q2.x, -q2.y, -q2.z, -q2.w);
 		}
 
-		// 如果两个四元数非常接近，使用线性插值避免数值问题
 		if (dot > 0.9995) {
 			const result = new Quaternion(
 				q1.x + t * (q2Adjusted.x - q1.x),
@@ -81,9 +69,8 @@ export class Quaternion {
 			return result.normalize();
 		}
 
-		// 计算插值参数
-		const theta0 = Math.acos(dot); // 两个四元数之间的夹角
-		const theta = theta0 * t; // 插值后的夹角
+		const theta0 = Math.acos(dot);
+		const theta = theta0 * t;
 		const sinTheta0 = Math.sin(theta0);
 		const sinTheta = Math.sin(theta);
 
@@ -102,10 +89,8 @@ export class Quaternion {
 		const { x, y, z } = point;
 		const q = this;
 
-		// 转换为四元数形式
 		const p = new Quaternion(x, y, z, 0);
 
-		// 计算旋转: q * p * q^-1
 		const qConjugate = new Quaternion(-q.x, -q.y, -q.z, q.w);
 		const temp = Quaternion.multiply(q, p);
 		const result = Quaternion.multiply(temp, qConjugate);
