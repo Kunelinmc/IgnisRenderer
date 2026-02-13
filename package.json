@@ -1,7 +1,7 @@
 {
 	"name": "ignisrenderer",
 	"version": "1.0.0",
-	"description": "",
+	"description": "A high-performance 3D software rendering engine built entirely from scratch in TypeScript, implementing a complete graphics pipeline on the CPU.",
 	"main": "index.js",
 	"directories": {
 		"test": "tests"
@@ -15,8 +15,27 @@
 		"test:winding": "npx tsx tests/test_model_factory_winding.mjs",
 		"test:sparse": "npx tsx tests/test_sparse_accessor.mjs"
 	},
-	"keywords": [],
-	"author": "",
+	"keywords": [
+		"renderer",
+		"software-renderer",
+		"3d",
+		"typescript",
+		"graphics",
+		"pbr",
+		"shading",
+		"glTF",
+		"rasterization",
+		"cpu-rendering"
+	],
+	"author": "Kunelinmc",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Kunelinmc/IgnisRenderer.git"
+	},
+	"bugs": {
+		"url": "https://github.com/Kunelinmc/IgnisRenderer/issues"
+	},
+	"homepage": "https://github.com/Kunelinmc/IgnisRenderer#readme",
 	"license": "MIT",
 	"type": "module",
 	"devDependencies": {
