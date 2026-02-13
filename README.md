@@ -71,7 +71,7 @@ The renderer is organized into modular components:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/IgnisRenderer.git
+   git clone https://github.com/Kunelinmc/IgnisRenderer.git
    cd IgnisRenderer
    ```
 2. Install dependencies:
