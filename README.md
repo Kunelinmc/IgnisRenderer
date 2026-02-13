@@ -128,7 +128,3 @@ async function main() {
 ## 📜 License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
-
----
-
-_Made with 🔥 by [Your Name/IGNIS]_
