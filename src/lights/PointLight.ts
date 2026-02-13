@@ -33,7 +33,7 @@ export class PointLight extends Light<LightType.Point> {
 		const dz = lightPos.z - point.z;
 		const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-		if (distance === 0 || distance > this.range) return null;
+		if (distance > this.range) return null;
 
 		// Smooth distance attenuation: ensures light hits 0 at distance === range
 		const distanceFactor = distance / this.range;
@@ -54,7 +54,10 @@ export class PointLight extends Light<LightType.Point> {
 				g: this.color.g * this.intensity * attenuation,
 				b: this.color.b * this.intensity * attenuation,
 			},
-			direction: { x: dx / distance, y: dy / distance, z: dz / distance },
+			direction:
+				distance > 0 ?
+					{ x: dx / distance, y: dy / distance, z: dz / distance }
+				:	{ x: 0, y: 1, z: 0 },
 		};
 	}
 }

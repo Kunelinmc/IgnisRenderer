@@ -7,7 +7,13 @@
 		"test": "tests"
 	},
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"dev": "vite",
+		"test": "npx tsx tests/run_all.mjs",
+		"test:lighting": "npx tsx tests/test_lighting.mjs",
+		"test:pointspot": "npx tsx tests/test_point_spot_lighting.mjs",
+		"test:sh": "npx tsx tests/test_sh_lighting_regression.mjs",
+		"test:winding": "npx tsx tests/test_model_factory_winding.mjs",
+		"test:sparse": "npx tsx tests/test_sparse_accessor.mjs"
 	},
 	"keywords": [],
 	"author": "",

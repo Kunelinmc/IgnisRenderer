@@ -22,8 +22,8 @@ async function init() {
 	renderer.params.enableLighting = true;
 	renderer.params.enableSH = true;
 	renderer.params.enableShadows = true;
-	renderer.params.enableVolumetric = false;
 	renderer.params.enableReflection = true;
+	renderer.params.enableVolumetric = false;
 
 	scene.addLight(
 		new AmbientLight({
@@ -59,11 +59,9 @@ async function init() {
 
 	duck.transform.scale.set(scale, scale, scale);
 
-	const distance = targetRadius / 2;
-
 	const localBottom = duck.getWorldBoundingBox().min.y;
 
-	duck.transform.position.y = -localBottom - distance;
+	duck.transform.position.y = -localBottom;
 
 	scene.addModel(duck);
 
@@ -80,14 +78,12 @@ async function init() {
 			doubleSided: true,
 			mirrorPlane: {
 				normal: { x: 0, y: 1, z: 0 },
-				constant: distance,
+				constant: 0,
 			},
 			reflectivity: 0.5,
 			reflectionBlur: 2,
 		})
 	);
-
-	plane.transform.position.y = -distance;
 
 	scene.addModel(plane);
 

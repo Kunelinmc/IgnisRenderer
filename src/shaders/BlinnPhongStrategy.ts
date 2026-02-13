@@ -61,7 +61,7 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			const L = Vector3.normalize(contrib.direction);
 			const NdotL = Math.max(0, Vector3.dot(N, L));
 
-			let shadow = 1.0;
+			let shadow = { r: 1, g: 1, b: 1 };
 			if (context.enableShadows && isShadowCastingLight(light)) {
 				const shadowMap = context.renderer.shadowMaps.get(light);
 				if (shadowMap) {
@@ -76,18 +76,18 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			};
 
 			// Diffuse
-			diffR += radiance.r * NdotL * shadow;
-			diffG += radiance.g * NdotL * shadow;
-			diffB += radiance.b * NdotL * shadow;
+			diffR += radiance.r * NdotL * shadow.r;
+			diffG += radiance.g * NdotL * shadow.g;
+			diffB += radiance.b * NdotL * shadow.b;
 
 			// Specular
 			const H = Vector3.normalize(Vector3.add(L, V));
 			const NdotH = Math.max(0, Vector3.dot(N, H));
 			const specFactor = NdotL > 0 ? Math.pow(NdotH, surface.shininess) : 0;
 
-			specR += radiance.r * specFactor * shadow;
-			specG += radiance.g * specFactor * shadow;
-			specB += radiance.b * specFactor * shadow;
+			specR += radiance.r * specFactor * shadow.r;
+			specG += radiance.g * specFactor * shadow.g;
+			specB += radiance.b * specFactor * shadow.b;
 		}
 
 		const specColor = {

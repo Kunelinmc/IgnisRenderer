@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { ModelFactory } from "../src/models/ModelFactory";
-import * as Vector3 from "../src/maths/Vector3";
+import { ModelFactory } from "../src/models/ModelFactory.ts";
+import { Vector3 } from "../src/maths/Vector3.ts";
 
 function assertWindingMatchesFaceNormal(name, model) {
 	let reversed = 0;

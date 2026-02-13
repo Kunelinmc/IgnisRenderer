@@ -106,9 +106,12 @@ export class SpotLight extends Light<LightType.Spot> {
 		const dz = lightPos.z - point.z;
 		const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-		if (distance === 0 || distance > this.range) return null;
+		if (distance > this.range) return null;
 
-		const L = { x: dx / distance, y: dy / distance, z: dz / distance };
+		const L =
+			distance > 0 ?
+				{ x: dx / distance, y: dy / distance, z: dz / distance }
+			:	{ x: 0, y: 1, z: 0 };
 		const lightToPoint = { x: -L.x, y: -L.y, z: -L.z };
 		const cosTheta = Vector3.dot(lightToPoint, lightDir);
 

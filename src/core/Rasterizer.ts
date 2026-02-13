@@ -28,6 +28,11 @@ export interface RasterizerLike {
 		overrideSize?: { width: number; height: number }
 	): void;
 	drawDepthTriangle(pts: ProjectedVertex[], shadowMap: ShadowMap): void;
+	drawTransmissionTriangle(
+		pts: ProjectedVertex[],
+		face: ProjectedFace,
+		shadowMap: ShadowMap
+	): void;
 }
 
 interface CachedVertex {
@@ -228,6 +233,105 @@ export class Rasterizer implements RasterizerLike {
 				const idx = row + x;
 				if (z < buffer[idx]) {
 					buffer[idx] = z;
+				}
+				z += dz;
+			}
+		}
+	}
+
+	public drawTransmissionTriangle(
+		pts: ProjectedVertex[],
+		face: ProjectedFace,
+		shadowMap: ShadowMap
+	): void {
+		const { size, buffer, transmissionBuffer } = shadowMap;
+		const material = face.material;
+		if (!material || !transmissionBuffer) return;
+
+		// Extract material color and opacity
+		let r = 1,
+			g = 1,
+			b = 1;
+		const opacity = material.opacity ?? 1;
+
+		if (material.type === "PBR") {
+			const pbr = material as any;
+			r = pbr.albedo.r / 255;
+			g = pbr.albedo.g / 255;
+			b = pbr.albedo.b / 255;
+		} else if (material.type === "Phong") {
+			const phong = material as any;
+			r = phong.diffuse.r / 255;
+			g = phong.diffuse.g / 255;
+			b = phong.diffuse.b / 255;
+		}
+
+		// Calculate transmission multiplier: Color * Opacity + White * (1 - Opacity)
+		// This means: more opaque -> more color; more transparent -> more white passes
+		const transR = r * opacity + (1 - opacity);
+		const transG = g * opacity + (1 - opacity);
+		const transB = b * opacity + (1 - opacity);
+
+		let [vTop, vMid, vBot] = pts;
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+		if (vMid.y > vBot.y) [vMid, vBot] = [vBot, vMid];
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+
+		const minY = Math.max(0, Math.ceil(vTop.y - 0.5));
+		const maxY = Math.min(size - 1, Math.floor(vBot.y - 0.5));
+		if (minY > maxY) return;
+
+		for (let y = minY; y <= maxY; y++) {
+			const py = y + 0.5;
+			let leftX, leftZ, rightX, rightZ;
+
+			if (py < vMid.y) {
+				const dy1 = vMid.y - vTop.y;
+				const t1 = dy1 === 0 ? 0 : (py - vTop.y) / dy1;
+				leftX = vTop.x + (vMid.x - vTop.x) * t1;
+				leftZ = vTop.z + (vMid.z - vTop.z) * t1;
+
+				const dy2 = vBot.y - vTop.y;
+				const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
+				rightX = vTop.x + (vBot.x - vTop.x) * t2;
+				rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+			} else {
+				const dy1 = vBot.y - vMid.y;
+				const t1 = dy1 === 0 ? 0 : (py - vMid.y) / dy1;
+				leftX = vMid.x + (vBot.x - vMid.x) * t1;
+				leftZ = vMid.z + (vBot.z - vMid.z) * t1;
+
+				const dy2 = vBot.y - vTop.y;
+				const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
+				rightX = vTop.x + (vBot.x - vTop.x) * t2;
+				rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+			}
+
+			if (leftX > rightX) {
+				[leftX, rightX] = [rightX, leftX];
+				[leftZ, rightZ] = [rightZ, leftZ];
+			}
+
+			const startX = Math.max(0, Math.ceil(leftX - 0.5));
+			const endX = Math.min(size - 1, Math.floor(rightX - 0.5));
+			if (endX < startX) continue;
+
+			const spanWidth = rightX - leftX;
+			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+			const dz = (rightZ - leftZ) * spanInv;
+			const dx = startX + 0.5 - leftX;
+			let z = leftZ + dx * dz;
+
+			const row = y * size;
+			for (let x = startX; x <= endX; x++) {
+				const idx = row + x;
+				// IMPORTANT: Transparent objects Only attenuate light if they are IN FRONT of the opaque depth
+				// and they are in front of the light (z > 0 in light space)
+				if (z < buffer[idx]) {
+					const cIdx = idx * 3;
+					transmissionBuffer[cIdx] *= transR;
+					transmissionBuffer[cIdx + 1] *= transG;
+					transmissionBuffer[cIdx + 2] *= transB;
 				}
 				z += dz;
 			}

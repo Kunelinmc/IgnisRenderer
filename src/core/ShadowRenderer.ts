@@ -195,14 +195,17 @@ export class ShadowRenderer {
 			const lightDir = shadowMap.latestLightDir;
 			const shadowMapSize = shadowMap.size;
 
+			// Pass 1: Opaque objects (Depth Map)
 			for (const model of renderer.scene.models) {
 				const modelMatrix = Projector.getModelMatrix(model);
-
-				// MVP = VP * Model
 				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
 				Matrix4.normalMatrix(modelMatrix, this._normalMatrix);
 
 				for (const face of model.faces) {
+					const material = face.material;
+					const alphaMode = material?.alphaMode;
+					if (alphaMode === "BLEND" || alphaMode === "MASK") continue;
+
 					const worldNormal =
 						face.normal ?? Vector3.calculateNormal(face.vertices);
 
@@ -213,77 +216,106 @@ export class ShadowRenderer {
 					).normalize();
 
 					const dot = Vector3.dot(this._tempVec3, lightDir);
-					const material = face.material;
 					const isDoubleSided = material?.doubleSided;
 
 					if (!isDoubleSided && dot > 0) continue;
 
-					// Ensure pool is large enough
-					while (this._projectedVertsPool.length < face.vertices.length) {
-						this._projectedVertsPool.push({
-							x: 0,
-							y: 0,
-							z: 0,
-							w: 0,
-							world: { x: 0, y: 0, z: 0 },
-						});
-					}
-					while (this._clipInputPool.length < face.vertices.length) {
-						this._clipInputPool.push({
-							x: 0,
-							y: 0,
-							z: 0,
-							w: 0,
-						});
-					}
+					const projected = this._projectFace(face, shadowMapSize);
+					if (!projected) continue;
 
-					const count = face.vertices.length;
-					for (let i = 0; i < count; i++) {
-						const v = face.vertices[i];
-						const p = Matrix4.transformPoint(this._mvpMatrix, v);
-						const clipV = this._clipInputPool[i];
-						clipV.x = p.x;
-						clipV.y = p.y;
-						clipV.z = p.z;
-						clipV.w = p.w;
-					}
-
-					const clippedVerts = this._clipToLightFrustum(
-						this._clipInputPool,
-						count
-					);
-					const clippedCount = clippedVerts.length;
-					if (clippedCount < 3) continue;
-
-					while (this._projectedVertsPool.length < clippedCount) {
-						this._projectedVertsPool.push({
-							x: 0,
-							y: 0,
-							z: 0,
-							w: 0,
-							world: { x: 0, y: 0, z: 0 },
-						});
-					}
-
-					const activeVerts = this._projectedVertsPool;
-					for (let i = 0; i < clippedCount; i++) {
-						const clipV = clippedVerts[i];
-						const outV = activeVerts[i];
-						const invW = 1 / clipV.w;
-						outV.x = (clipV.x * invW * 0.5 + 0.5) * shadowMapSize;
-						outV.y = (0.5 - clipV.y * invW * 0.5) * shadowMapSize;
-						outV.z = clipV.z * invW;
-						outV.w = invW;
-					}
-
-					for (let i = 1; i < clippedCount - 1; i++) {
+					for (let i = 1; i < projected.length - 1; i++) {
 						renderer.rasterizer.drawDepthTriangle(
-							[activeVerts[0], activeVerts[i], activeVerts[i + 1]],
+							[projected[0], projected[i], projected[i + 1]],
+							shadowMap
+						);
+					}
+				}
+			}
+
+			// Pass 2: Transparent objects (Transmission Map/Colored Shadows)
+			for (const model of renderer.scene.models) {
+				const modelMatrix = Projector.getModelMatrix(model);
+				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
+
+				for (const face of model.faces) {
+					const material = face.material;
+					if (material?.alphaMode !== "BLEND") continue;
+
+					const projected = this._projectFace(face, shadowMapSize);
+					if (!projected) continue;
+
+					for (let i = 1; i < projected.length - 1; i++) {
+						renderer.rasterizer.drawTransmissionTriangle(
+							[projected[0], projected[i], projected[i + 1]],
+							face as any,
 							shadowMap
 						);
 					}
 				}
 			}
 		}
+	}
+
+	private _projectFace(
+		face: any,
+		shadowMapSize: number
+	): ProjectedVertex[] | null {
+		// Ensure pool is large enough
+		while (this._projectedVertsPool.length < face.vertices.length) {
+			this._projectedVertsPool.push({
+				x: 0,
+				y: 0,
+				z: 0,
+				w: 0,
+				world: { x: 0, y: 0, z: 0 },
+			});
+		}
+		while (this._clipInputPool.length < face.vertices.length) {
+			this._clipInputPool.push({
+				x: 0,
+				y: 0,
+				z: 0,
+				w: 0,
+			});
+		}
+
+		const count = face.vertices.length;
+		for (let i = 0; i < count; i++) {
+			const v = face.vertices[i];
+			const p = Matrix4.transformPoint(this._mvpMatrix, v);
+			const clipV = this._clipInputPool[i];
+			clipV.x = p.x;
+			clipV.y = p.y;
+			clipV.z = p.z;
+			clipV.w = p.w;
+		}
+
+		const clippedVerts = this._clipToLightFrustum(this._clipInputPool, count);
+		const clippedCount = clippedVerts.length;
+		if (clippedCount < 3) return null;
+
+		while (this._projectedVertsPool.length < clippedCount) {
+			this._projectedVertsPool.push({
+				x: 0,
+				y: 0,
+				z: 0,
+				w: 0,
+				world: { x: 0, y: 0, z: 0 },
+			});
+		}
+
+		const activeVerts = this._projectedVertsPool;
+		for (let i = 0; i < clippedCount; i++) {
+			const clipV = clippedVerts[i];
+			const outV = activeVerts[i];
+			const invW = 1 / clipV.w;
+			outV.x = (clipV.x * invW * 0.5 + 0.5) * shadowMapSize;
+			outV.y = (0.5 - clipV.y * invW * 0.5) * shadowMapSize;
+			outV.z = clipV.z * invW;
+			outV.w = invW;
+		}
+
+		// return a view of the pool
+		return activeVerts.slice(0, clippedCount);
 	}
 }

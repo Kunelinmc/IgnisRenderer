@@ -18,10 +18,10 @@ export type {
 	BoundingSphere,
 	BoundingBox,
 } from "./core/types";
-export { Renderer, type VolumetricOptions } from "./core/Renderer";
+export { Renderer } from "./core/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
 export { Rasterizer } from "./core/Rasterizer";
-export { PostProcessor } from "./core/PostProcessor";
+export { PostProcessor, type VolumetricOptions } from "./core/PostProcessor";
 export { Scene } from "./core/Scene";
 export { Camera } from "./cameras/Camera";
 export { OrbitCamera } from "./cameras/OrbitCamera";

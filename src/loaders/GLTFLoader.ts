@@ -435,7 +435,7 @@ export class GLTFLoader extends Loader {
 				(buf.byteOffset + byteOffset) % elementSize === 0 &&
 				stride === numComponents * elementSize;
 
-			if (isAligned && !acc.normalized) {
+			if (isAligned && !acc.normalized && !acc.sparse) {
 				const byteLength = acc.count * stride;
 				const Constructor = this.getTypedArrayConstructor(acc.componentType);
 				return new Constructor(

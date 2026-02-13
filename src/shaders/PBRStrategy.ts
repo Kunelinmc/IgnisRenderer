@@ -86,7 +86,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				b: Math.pow(contrib.color.b / 255, 2.2),
 			};
 
-			let shadow = 1.0;
+			let shadow = { r: 1, g: 1, b: 1 };
 			if (context.enableShadows && isShadowCastingLight(light)) {
 				const shadowMap = context.renderer.shadowMaps.get(light);
 				if (shadowMap) {
@@ -121,11 +121,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			};
 
 			totalR +=
-				((kD.r * alb.r) / Math.PI + specular.r) * radiance.r * NdotL * shadow;
+				((kD.r * alb.r) / Math.PI + specular.r) * radiance.r * NdotL * shadow.r;
 			totalG +=
-				((kD.g * alb.g) / Math.PI + specular.g) * radiance.g * NdotL * shadow;
+				((kD.g * alb.g) / Math.PI + specular.g) * radiance.g * NdotL * shadow.g;
 			totalB +=
-				((kD.b * alb.b) / Math.PI + specular.b) * radiance.b * NdotL * shadow;
+				((kD.b * alb.b) / Math.PI + specular.b) * radiance.b * NdotL * shadow.b;
 		}
 
 		// Improved Ambient/IBL
