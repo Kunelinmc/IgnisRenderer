@@ -43,6 +43,7 @@ export class LitShader<
 		viewDir.x = this._context.cameraPos.x - world.x;
 		viewDir.y = this._context.cameraPos.y - world.y;
 		viewDir.z = this._context.cameraPos.z - world.z;
+		Vector3.normalizeInPlace(viewDir);
 
 		// Flip normal for double-sided materials when viewing from the back side
 		if (this._face.material?.doubleSided) {

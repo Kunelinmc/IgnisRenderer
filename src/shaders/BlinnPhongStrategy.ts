@@ -17,8 +17,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		surface: PhongSurfaceProperties,
 		context: ShaderContext
 	): RGB {
-		const N = Vector3.normalize(normal);
-		const V = Vector3.normalize(viewDir);
+		// N and V are already normalized in LitShader
+		const N = normal;
+		const V = viewDir;
 		const useSHAmbient = context.enableSH && !!context.shAmbientCoeffs;
 
 		let ambR = 0,
@@ -31,12 +32,18 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			specG = 0,
 			specB = 0;
 
+		const alb = {
+			r: Math.pow(surface.albedo.r / 255, 2.2),
+			g: Math.pow(surface.albedo.g / 255, 2.2),
+			b: Math.pow(surface.albedo.b / 255, 2.2),
+		};
+
 		// Ambient IBL or simple
 		if (useSHAmbient && context.shAmbientCoeffs) {
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
-			ambR = irr.r;
-			ambG = irr.g;
-			ambB = irr.b;
+			ambR = Math.pow(irr.r / 255, 2.2);
+			ambG = Math.pow(irr.g / 255, 2.2);
+			ambB = Math.pow(irr.b / 255, 2.2);
 		}
 
 		for (const light of context.lights) {
@@ -45,9 +52,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 			if (contrib.type === "ambient") {
 				if (useSHAmbient) continue;
-				ambR += contrib.color.r;
-				ambG += contrib.color.g;
-				ambB += contrib.color.b;
+				ambR += Math.pow(contrib.color.r / 255, 2.2);
+				ambG += Math.pow(contrib.color.g / 255, 2.2);
+				ambB += Math.pow(contrib.color.b / 255, 2.2);
 				continue;
 			}
 
@@ -62,29 +69,42 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 				}
 			}
 
+			const radiance = {
+				r: Math.pow(contrib.color.r / 255, 2.2),
+				g: Math.pow(contrib.color.g / 255, 2.2),
+				b: Math.pow(contrib.color.b / 255, 2.2),
+			};
+
 			// Diffuse
-			diffR += contrib.color.r * NdotL * shadow;
-			diffG += contrib.color.g * NdotL * shadow;
-			diffB += contrib.color.b * NdotL * shadow;
+			diffR += radiance.r * NdotL * shadow;
+			diffG += radiance.g * NdotL * shadow;
+			diffB += radiance.b * NdotL * shadow;
 
 			// Specular
 			const H = Vector3.normalize(Vector3.add(L, V));
 			const NdotH = Math.max(0, Vector3.dot(N, H));
 			const specFactor = NdotL > 0 ? Math.pow(NdotH, surface.shininess) : 0;
 
-			specR += contrib.color.r * specFactor * shadow;
-			specG += contrib.color.g * specFactor * shadow;
-			specB += contrib.color.b * specFactor * shadow;
+			specR += radiance.r * specFactor * shadow;
+			specG += radiance.g * specFactor * shadow;
+			specB += radiance.b * specFactor * shadow;
 		}
 
-		const specColor = surface.specular;
+		const specColor = {
+			r: Math.pow(surface.specular.r / 255, 2.2),
+			g: Math.pow(surface.specular.g / 255, 2.2),
+			b: Math.pow(surface.specular.b / 255, 2.2),
+		};
+
+		const finalR = alb.r * (ambR + diffR) + specR * specColor.r;
+		const finalG = alb.g * (ambG + diffG) + specG * specColor.g;
+		const finalB = alb.b * (ambB + diffB) + specB * specColor.b;
+
+		// No Tone mapping for Blinn-Phong to keep it simple/classic, but back to sRGB
 		return {
-			r:
-				(surface.albedo.r * (ambR + diffR)) / 255 + (specR * specColor.r) / 255,
-			g:
-				(surface.albedo.g * (ambG + diffG)) / 255 + (specG * specColor.g) / 255,
-			b:
-				(surface.albedo.b * (ambB + diffB)) / 255 + (specB * specColor.b) / 255,
+			r: Math.min(255, Math.pow(finalR, 1.0 / 2.2) * 255),
+			g: Math.min(255, Math.pow(finalG, 1.0 / 2.2) * 255),
+			b: Math.min(255, Math.pow(finalB, 1.0 / 2.2) * 255),
 		};
 	}
 }
