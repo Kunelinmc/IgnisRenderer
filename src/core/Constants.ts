@@ -31,7 +31,7 @@ export class PostProcessConstants {
 	static readonly NOISE_REFERENCE_WIDTH = 1920;
 	static readonly MIN_GAMMA = 0.01;
 	static readonly MAX_GAMMA = 8.0;
-	static readonly DEFAULT_GAMMA = 2.2;
+	static readonly DEFAULT_GAMMA = 1.8;
 	static readonly MAX_EXPOSURE = 8;
 }
 
@@ -39,7 +39,7 @@ export class PostProcessConstants {
  * Volumetric lighting and atmospheric scattering constants.
  */
 export class VolumetricConstants {
-	static readonly SIGMA_T_SCALE = 0.005;
+	static readonly SIGMA_T_SCALE = 0.02;
 	static readonly MIN_RAY_DISTANCE = 0.1;
 	static readonly MIN_RAY_DIR_Z = 1e-6;
 	static readonly MIN_ADAPTIVE_SAMPLE_COUNT = 8;
@@ -52,7 +52,8 @@ export class VolumetricConstants {
 	static readonly MIN_SHADOW_SAMPLE_INTERVAL = 1;
 	static readonly MAX_SHADOW_SAMPLE_INTERVAL = 32;
 	static readonly MIN_BILATERAL_DEPTH_SIGMA = 1e-4;
-	static readonly MAX_WEIGHT = 4;
+	static readonly MAX_WEIGHT = 10;
+	static readonly DEFAULT_WEIGHT = 4.0;
 	static readonly MAX_AIR_DENSITY = 10;
 	static readonly TRANSMITTANCE_EARLY_EXIT = 0.001;
 	static readonly GRID_SAMPLE_JITTER_STRENGTH = 0.75;
@@ -60,18 +61,6 @@ export class VolumetricConstants {
 	static readonly SCENE_BOUNDS_FADE_END_MULTIPLIER = 1.8;
 	static readonly SCENE_DEPTH_LIMIT_MULTIPLIER = 1.6;
 	static readonly MIN_SCENE_BOUNDS_RADIUS = 1.0;
-	static readonly MIN_RADIAL_SAMPLES = 8;
-	static readonly MAX_RADIAL_SAMPLES = 128;
-	static readonly DEFAULT_RADIAL_SAMPLES = 48;
-	static readonly MIN_RADIAL_DENSITY = 0.1;
-	static readonly MAX_RADIAL_DENSITY = 2.5;
-	static readonly DEFAULT_RADIAL_DENSITY = 0.9;
-	static readonly MIN_RADIAL_DECAY = 0.7;
-	static readonly MAX_RADIAL_DECAY = 1.0;
-	static readonly DEFAULT_RADIAL_DECAY = 0.95;
-	static readonly DEFAULT_RADIAL_OFFSCREEN_MARGIN = 0.3;
-	static readonly MIN_RADIAL_OFFSCREEN_MARGIN = 0.0;
-	static readonly MAX_RADIAL_OFFSCREEN_MARGIN = 1.0;
 }
 
 /**

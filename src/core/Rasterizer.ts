@@ -1,5 +1,5 @@
 import { Material } from "../materials/Material";
-import { CoreConstants } from "./Constants";
+import { CoreConstants, PostProcessConstants } from "./Constants";
 import {
 	FlatLitShader,
 	LitShader,
@@ -387,6 +387,7 @@ export class Rasterizer implements RasterizerLike {
 			enableShadows: !!this._renderer.params.enableShadows,
 			enableSH: !!this._renderer.params.enableSH,
 			enableLighting: isLightingEnabled,
+			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};
 		shader.initialize(face, shaderContext);
 

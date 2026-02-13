@@ -31,11 +31,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambientLightG = 0,
 			ambientLightB = 0;
 
+		const gamma = context.gamma;
+		const invGamma = 1.0 / gamma;
+
 		// 1. Linear Workflow: Convert inputs to Linear Space
 		const alb = {
-			r: Math.pow(surface.albedo.r / 255, 2.2),
-			g: Math.pow(surface.albedo.g / 255, 2.2),
-			b: Math.pow(surface.albedo.b / 255, 2.2),
+			r: Math.pow(surface.albedo.r / 255, gamma),
+			g: Math.pow(surface.albedo.g / 255, gamma),
+			b: Math.pow(surface.albedo.b / 255, gamma),
 		};
 		const metal = surface.metalness;
 		const rough = surface.roughness;
@@ -43,9 +46,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Common PBR practice: non-metals have a base F0 of 0.04
 		const F0_NON_METAL = 0.04;
 		const f0_norm = {
-			r: Math.pow(surface.f0.r / 255, 2.2),
-			g: Math.pow(surface.f0.g / 255, 2.2),
-			b: Math.pow(surface.f0.b / 255, 2.2),
+			r: Math.pow(surface.f0.r / 255, gamma),
+			g: Math.pow(surface.f0.g / 255, gamma),
+			b: Math.pow(surface.f0.b / 255, gamma),
 		};
 
 		// Metalness workflow: metals have albedo as F0, non-metals use a small constant or f0 param
@@ -56,9 +59,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 
 		const emissive = {
-			r: Math.pow(surface.emissive.r / 255, 2.2),
-			g: Math.pow(surface.emissive.g / 255, 2.2),
-			b: Math.pow(surface.emissive.b / 255, 2.2),
+			r: Math.pow(surface.emissive.r / 255, gamma),
+			g: Math.pow(surface.emissive.g / 255, gamma),
+			b: Math.pow(surface.emissive.b / 255, gamma),
 		};
 
 		for (const light of context.lights) {
@@ -68,9 +71,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			if (contrib.type === "ambient") {
 				if (!useSHAmbient) {
 					// Convert ambient light to linear
-					ambientLightR += Math.pow(contrib.color.r / 255, 2.2);
-					ambientLightG += Math.pow(contrib.color.g / 255, 2.2);
-					ambientLightB += Math.pow(contrib.color.b / 255, 2.2);
+					ambientLightR += Math.pow(contrib.color.r / 255, gamma);
+					ambientLightG += Math.pow(contrib.color.g / 255, gamma);
+					ambientLightB += Math.pow(contrib.color.b / 255, gamma);
 				}
 				continue;
 			}
@@ -81,9 +84,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			const H = Vector3.normalize(Vector3.add(L, V));
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, 2.2),
-				g: Math.pow(contrib.color.g / 255, 2.2),
-				b: Math.pow(contrib.color.b / 255, 2.2),
+				r: Math.pow(contrib.color.r / 255, gamma),
+				g: Math.pow(contrib.color.g / 255, gamma),
+				b: Math.pow(contrib.color.b / 255, gamma),
 			};
 
 			let shadow = { r: 1, g: 1, b: 1 };
@@ -136,9 +139,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		if (useSHAmbient && context.shAmbientCoeffs) {
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
 			const irrNorm = {
-				r: Math.pow(irr.r / 255, 2.2),
-				g: Math.pow(irr.g / 255, 2.2),
-				b: Math.pow(irr.b / 255, 2.2),
+				r: Math.pow(irr.r / 255, gamma),
+				g: Math.pow(irr.g / 255, gamma),
+				b: Math.pow(irr.b / 255, gamma),
 			};
 
 			const kD_amb = 1.0 - metal;
@@ -163,7 +166,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			};
 			if (ambientLightR + ambientLightG + ambientLightB === 0) {
 				// Constant low ambient if no lights
-				const fallback = Math.pow(0.05, 2.2);
+				const fallback = Math.pow(0.05, gamma);
 				ambientCol.r = fallback;
 				ambientCol.g = fallback;
 				ambientCol.b = fallback;
@@ -191,9 +194,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 		// 3. Convert back to sRGB for 8-bit output
 		return {
-			r: Math.pow(finalR, 1.0 / 2.2) * 255,
-			g: Math.pow(finalG, 1.0 / 2.2) * 255,
-			b: Math.pow(finalB, 1.0 / 2.2) * 255,
+			r: Math.pow(finalR, invGamma) * 255,
+			g: Math.pow(finalG, invGamma) * 255,
+			b: Math.pow(finalB, invGamma) * 255,
 		};
 	}
 

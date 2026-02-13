@@ -16,6 +16,7 @@ export interface ShaderContext {
 	enableShadows: boolean;
 	enableSH: boolean;
 	enableLighting: boolean;
+	gamma: number;
 }
 
 export interface FragmentInput {

@@ -1,6 +1,6 @@
+import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { RGB } from "../utils/Color";
-import { Matrix4 } from "../maths/Matrix4";
 
 export enum LightType {
 	Ambient = "ambient",

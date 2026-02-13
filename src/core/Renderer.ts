@@ -10,6 +10,7 @@ import { ShadowRenderer } from "./ShadowRenderer";
 import { ReflectionRenderer } from "./ReflectionRenderer";
 import { Rasterizer } from "./Rasterizer";
 import { PostProcessor } from "./PostProcessor";
+import { PostProcessConstants } from "./Constants";
 import { LightType, type ShadowCastingLight } from "../lights";
 import type { SHCoefficients } from "../maths/types";
 import type { PostProcessorLike, VolumetricOptions } from "./PostProcessor";
@@ -50,7 +51,6 @@ export class Renderer extends EventEmitter {
 		enableVolumetric: boolean;
 		volumetricOptions: VolumetricOptions;
 		enableGamma: boolean;
-		gamma: number;
 		enableReflection: boolean;
 		worldMatrix?: Matrix4;
 	};
@@ -93,7 +93,6 @@ export class Renderer extends EventEmitter {
 			enableVolumetric: false,
 			volumetricOptions: {},
 			enableGamma: true,
-			gamma: 1.8,
 			enableReflection: true,
 			worldMatrix: Matrix4.identity(),
 		};
@@ -299,7 +298,7 @@ export class Renderer extends EventEmitter {
 			this._postProcessor.applyGamma(
 				this._offscreenCtx,
 				this._offscreenCanvas,
-				this.params.gamma,
+				PostProcessConstants.DEFAULT_GAMMA,
 				pixels
 			);
 		}

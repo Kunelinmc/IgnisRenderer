@@ -32,18 +32,21 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			specG = 0,
 			specB = 0;
 
+		const gamma = context.gamma;
+		const invGamma = 1.0 / gamma;
+
 		const alb = {
-			r: Math.pow(surface.albedo.r / 255, 2.2),
-			g: Math.pow(surface.albedo.g / 255, 2.2),
-			b: Math.pow(surface.albedo.b / 255, 2.2),
+			r: Math.pow(surface.albedo.r / 255, gamma),
+			g: Math.pow(surface.albedo.g / 255, gamma),
+			b: Math.pow(surface.albedo.b / 255, gamma),
 		};
 
 		// Ambient IBL or simple
 		if (useSHAmbient && context.shAmbientCoeffs) {
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
-			ambR = Math.pow(irr.r / 255, 2.2);
-			ambG = Math.pow(irr.g / 255, 2.2);
-			ambB = Math.pow(irr.b / 255, 2.2);
+			ambR = Math.pow(irr.r / 255, gamma);
+			ambG = Math.pow(irr.g / 255, gamma);
+			ambB = Math.pow(irr.b / 255, gamma);
 		}
 
 		for (const light of context.lights) {
@@ -52,9 +55,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 			if (contrib.type === "ambient") {
 				if (useSHAmbient) continue;
-				ambR += Math.pow(contrib.color.r / 255, 2.2);
-				ambG += Math.pow(contrib.color.g / 255, 2.2);
-				ambB += Math.pow(contrib.color.b / 255, 2.2);
+				ambR += Math.pow(contrib.color.r / 255, gamma);
+				ambG += Math.pow(contrib.color.g / 255, gamma);
+				ambB += Math.pow(contrib.color.b / 255, gamma);
 				continue;
 			}
 
@@ -70,9 +73,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			}
 
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, 2.2),
-				g: Math.pow(contrib.color.g / 255, 2.2),
-				b: Math.pow(contrib.color.b / 255, 2.2),
+				r: Math.pow(contrib.color.r / 255, gamma),
+				g: Math.pow(contrib.color.g / 255, gamma),
+				b: Math.pow(contrib.color.b / 255, gamma),
 			};
 
 			// Diffuse
@@ -91,9 +94,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		}
 
 		const specColor = {
-			r: Math.pow(surface.specular.r / 255, 2.2),
-			g: Math.pow(surface.specular.g / 255, 2.2),
-			b: Math.pow(surface.specular.b / 255, 2.2),
+			r: Math.pow(surface.specular.r / 255, gamma),
+			g: Math.pow(surface.specular.g / 255, gamma),
+			b: Math.pow(surface.specular.b / 255, gamma),
 		};
 
 		const finalR = alb.r * (ambR + diffR) + specR * specColor.r;
@@ -102,9 +105,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 		// No Tone mapping for Blinn-Phong to keep it simple/classic, but back to sRGB
 		return {
-			r: Math.min(255, Math.pow(finalR, 1.0 / 2.2) * 255),
-			g: Math.min(255, Math.pow(finalG, 1.0 / 2.2) * 255),
-			b: Math.min(255, Math.pow(finalB, 1.0 / 2.2) * 255),
+			r: Math.min(255, Math.pow(finalR, invGamma) * 255),
+			g: Math.min(255, Math.pow(finalG, invGamma) * 255),
+			b: Math.min(255, Math.pow(finalB, invGamma) * 255),
 		};
 	}
 }

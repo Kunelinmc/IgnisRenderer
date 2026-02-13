@@ -1,7 +1,8 @@
 import { SH } from "../maths/SH";
+import { Light, LightType, type LightContribution } from "./Light";
+import { PostProcessConstants } from "../core/Constants";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { Texture } from "../core/Texture";
-import { Light, LightType, type LightContribution } from "./Light";
 
 /**
  * LightProbe provides irregular or environment lighting via Spherical Harmonics
@@ -82,9 +83,10 @@ export class LightProbe extends Light<LightType.LightProbe> {
 				const idx = (j * width + i) * 4;
 
 				// Convert texture sRGB values to linear and keep engine-wide 0..255 light units.
-				const r = Math.pow(data[idx] / 255, 2.2) * 255;
-				const g = Math.pow(data[idx + 1] / 255, 2.2) * 255;
-				const b = Math.pow(data[idx + 2] / 255, 2.2) * 255;
+				const gamma = PostProcessConstants.DEFAULT_GAMMA;
+				const r = Math.pow(data[idx] / 255, gamma) * 255;
+				const g = Math.pow(data[idx + 1] / 255, gamma) * 255;
+				const b = Math.pow(data[idx + 2] / 255, gamma) * 255;
 
 				for (let k = 0; k < 9; k++) {
 					const bK = basis[k] * weight;
