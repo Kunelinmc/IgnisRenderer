@@ -12,6 +12,9 @@ import { Rasterizer } from "./Rasterizer";
 import { PostProcessor } from "./PostProcessor";
 import { LightType, type ShadowCastingLight } from "../lights";
 import type { SHCoefficients } from "../maths/types";
+import type { PostProcessorLike, VolumetricOptions } from "./PostProcessor";
+import type { RasterizerLike } from "./Rasterizer";
+import type { IModel, ProjectedFace } from "./types";
 
 /**
  * CORE RENDERING CONVENTIONS:
@@ -21,57 +24,6 @@ import type { SHCoefficients } from "../maths/types";
  * - Depth Buffer: Stores linear camera-space depth (positive distance from camera plane)
  * - Screen Space: (0,0) at top-left, (W,H) at bottom-right, pixel centers at +0.5
  */
-
-import type { IModel, ProjectedFace, ProjectedVertex } from "./types";
-
-export interface VolumetricOptions {
-	samples?: number;
-	downsample?: number;
-	weight?: number;
-	exposure?: number;
-	airDensity?: number;
-	anisotropy?: number;
-	maxRayDistance?: number;
-	scatteringAlbedo?: number;
-	shadowSampleInterval?: number;
-	isLinearDepth?: boolean;
-	adaptiveSteps?: boolean;
-	useBilateralUpscale?: boolean;
-	bilateralDepthSigma?: number;
-	[key: string]: unknown;
-}
-
-interface RasterizerLike {
-	drawTriangle(
-		pts: ProjectedVertex[],
-		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
-		isTransparent?: boolean,
-		overrideSize?: { width: number; height: number }
-	): void;
-	drawDepthTriangle(pts: ProjectedVertex[], shadowMap: ShadowMap): void;
-}
-
-interface PostProcessorLike {
-	applyFXAA(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels?: Uint8ClampedArray
-	): void;
-	applyVolumetricLight(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels?: Uint8ClampedArray,
-		depthBuffer?: Float32Array | null,
-		options?: VolumetricOptions
-	): void;
-	applyGamma(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		gamma?: number,
-		pixels?: Uint8ClampedArray
-	): void;
-}
 
 export class Renderer extends EventEmitter {
 	public canvas: HTMLCanvasElement;
@@ -113,8 +65,8 @@ export class Renderer extends EventEmitter {
 	public rasterizer: RasterizerLike;
 	public reflectionRenderer: ReflectionRenderer;
 
-	private shadowRenderer: ShadowRenderer;
-	private postProcessor: PostProcessorLike;
+	private _shadowRenderer: ShadowRenderer;
+	private _postProcessor: PostProcessorLike;
 
 	constructor(canvas: HTMLCanvasElement, camera: Camera | null = null) {
 		super();
@@ -164,9 +116,9 @@ export class Renderer extends EventEmitter {
 		this.camera.updateMatrices();
 
 		this.rasterizer = new Rasterizer(this);
-		this.shadowRenderer = new ShadowRenderer(this);
+		this._shadowRenderer = new ShadowRenderer(this);
 		this.reflectionRenderer = new ReflectionRenderer(this);
-		this.postProcessor = new PostProcessor(this);
+		this._postProcessor = new PostProcessor(this);
 	}
 
 	public init(): void {
@@ -259,7 +211,7 @@ export class Renderer extends EventEmitter {
 			}
 		}
 
-		this.shadowRenderer.render();
+		this._shadowRenderer.render();
 		if (this.params.enableReflection) {
 			this.reflectionRenderer.render();
 		}
@@ -326,7 +278,7 @@ export class Renderer extends EventEmitter {
 		}
 
 		if (this.params.enableFXAA) {
-			this.postProcessor.applyFXAA(
+			this._postProcessor.applyFXAA(
 				this._offscreenCtx,
 				this._offscreenCanvas,
 				pixels
@@ -334,7 +286,7 @@ export class Renderer extends EventEmitter {
 		}
 
 		if (this.params.enableVolumetric) {
-			this.postProcessor.applyVolumetricLight(
+			this._postProcessor.applyVolumetricLight(
 				this._offscreenCtx,
 				this._offscreenCanvas,
 				pixels,
@@ -344,7 +296,7 @@ export class Renderer extends EventEmitter {
 		}
 
 		if (this.params.enableGamma) {
-			this.postProcessor.applyGamma(
+			this._postProcessor.applyGamma(
 				this._offscreenCtx,
 				this._offscreenCanvas,
 				this.params.gamma,

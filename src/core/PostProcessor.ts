@@ -1,4 +1,4 @@
-import type { Renderer, VolumetricOptions } from "./Renderer";
+import type { Renderer } from "./Renderer";
 import {
 	type DirectionalLight,
 	type PointLight,
@@ -9,6 +9,44 @@ import {
 import type { IVector3 } from "../maths/types";
 import { Matrix4 } from "../maths/Matrix4";
 import { PostProcessConstants, VolumetricConstants } from "./Constants";
+
+export interface PostProcessorLike {
+	applyFXAA(
+		ctx: CanvasRenderingContext2D,
+		canvas: HTMLCanvasElement,
+		pixels?: Uint8ClampedArray
+	): void;
+	applyVolumetricLight(
+		ctx: CanvasRenderingContext2D,
+		canvas: HTMLCanvasElement,
+		pixels?: Uint8ClampedArray,
+		depthBuffer?: Float32Array | null,
+		options?: VolumetricOptions
+	): void;
+	applyGamma(
+		ctx: CanvasRenderingContext2D,
+		canvas: HTMLCanvasElement,
+		gamma?: number,
+		pixels?: Uint8ClampedArray
+	): void;
+}
+
+export interface VolumetricOptions {
+	samples?: number;
+	downsample?: number;
+	weight?: number;
+	exposure?: number;
+	airDensity?: number;
+	anisotropy?: number;
+	maxRayDistance?: number;
+	scatteringAlbedo?: number;
+	shadowSampleInterval?: number;
+	isLinearDepth?: boolean;
+	adaptiveSteps?: boolean;
+	useBilateralUpscale?: boolean;
+	bilateralDepthSigma?: number;
+	[key: string]: unknown;
+}
 
 interface CameraBasis {
 	right: IVector3;
@@ -25,7 +63,7 @@ type VolumetricLight = DirectionalLight | PointLight | SpotLight;
 /**
  * PostProcessor handles various image-space effects like FXAA, Volumetric Lighting, and Gamma Correction.
  */
-export class PostProcessor {
+export class PostProcessor implements PostProcessorLike {
 	private _gammaLUT: Uint8Array;
 	private _lastGamma: number;
 	private _prevScatterBuf: Float32Array | null;

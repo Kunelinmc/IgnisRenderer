@@ -19,6 +19,17 @@ import type { ShadowMap } from "../utils/ShadowMapping";
 import type { Renderer } from "./Renderer";
 import type { ProjectedVertex, ProjectedFace } from "./types";
 
+export interface RasterizerLike {
+	drawTriangle(
+		pts: ProjectedVertex[],
+		face: ProjectedFace,
+		pixels: Uint8ClampedArray,
+		isTransparent?: boolean,
+		overrideSize?: { width: number; height: number }
+	): void;
+	drawDepthTriangle(pts: ProjectedVertex[], shadowMap: ShadowMap): void;
+}
+
 interface CachedVertex {
 	x: number;
 	y: number;
@@ -55,7 +66,7 @@ interface EdgeInterpolationResult {
  * - Perspective Correction: Attributes are multiplied by 1/w before interpolation and recovered per-pixel.
  * - Shading: Supports Flat, Gouraud, Phong, and PBR shading models.
  */
-export class Rasterizer {
+export class Rasterizer implements RasterizerLike {
 	private _renderer: Renderer;
 	private _vertsCache: CachedVertex[];
 	private _defaultMaterial: Material;

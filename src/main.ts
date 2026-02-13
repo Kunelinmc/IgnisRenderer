@@ -28,7 +28,7 @@ async function init() {
 	scene.addLight(
 		new AmbientLight({
 			color: { r: 255, g: 255, b: 255 },
-			intensity: 0.5,
+			intensity: 0.3,
 		})
 	);
 
@@ -36,7 +36,7 @@ async function init() {
 		new DirectionalLight({
 			color: { r: 255, g: 255, b: 255 },
 			dir: { x: -1, y: -1, z: -1 },
-			intensity: 1.2,
+			intensity: 2,
 		})
 	);
 
@@ -61,10 +61,8 @@ async function init() {
 
 	const distance = targetRadius / 2;
 
-	// 获取缩放后的本地包围盒底部
 	const localBottom = duck.getWorldBoundingBox().min.y;
 
-	// 设置鸭子的位置，使其底部正好在 -distance 处（对应平面位置）
 	duck.transform.position.y = -localBottom - distance;
 
 	scene.addModel(duck);
