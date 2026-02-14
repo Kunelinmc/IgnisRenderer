@@ -15,7 +15,7 @@ export class Camera {
 	public viewMatrix: Matrix4;
 	public projectionMatrix: Matrix4;
 	public viewProjectionMatrix: Matrix4;
-	private frustumPlanes: Plane[];
+	private _frustumPlanes: Plane[];
 
 	constructor() {
 		this.position = new Vector3(0, 0, 0);
@@ -32,7 +32,7 @@ export class Camera {
 		this.projectionMatrix = Matrix4.identity();
 		this.viewProjectionMatrix = Matrix4.identity();
 
-		this.frustumPlanes = [
+		this._frustumPlanes = [
 			new Plane(),
 			new Plane(),
 			new Plane(),
@@ -100,63 +100,69 @@ export class Camera {
 	public extractFrustumPlanes(): void {
 		const m = this.viewProjectionMatrix.elements;
 
-		this.frustumPlanes[0]
+		// 0: Left (Row 3 + Row 0)
+		this._frustumPlanes[0]
 			.set(
-				m[0][3] + m[0][0],
-				m[1][3] + m[1][0],
-				m[2][3] + m[2][0],
-				m[3][3] + m[3][0]
+				m[3][0] + m[0][0],
+				m[3][1] + m[0][1],
+				m[3][2] + m[0][2],
+				m[3][3] + m[0][3]
 			)
 			.normalize();
 
-		this.frustumPlanes[1]
+		// 1: Right (Row 3 - Row 0)
+		this._frustumPlanes[1]
 			.set(
-				m[0][3] - m[0][0],
-				m[1][3] - m[1][0],
-				m[2][3] - m[2][0],
-				m[3][3] - m[3][0]
+				m[3][0] - m[0][0],
+				m[3][1] - m[0][1],
+				m[3][2] - m[0][2],
+				m[3][3] - m[0][3]
 			)
 			.normalize();
 
-		this.frustumPlanes[2]
+		// 2: Bottom (Row 3 + Row 1)
+		this._frustumPlanes[2]
 			.set(
-				m[0][3] + m[0][1],
-				m[1][3] + m[1][1],
-				m[2][3] + m[2][1],
-				m[3][3] + m[3][1]
+				m[3][0] + m[1][0],
+				m[3][1] + m[1][1],
+				m[3][2] + m[1][2],
+				m[3][3] + m[1][3]
 			)
 			.normalize();
 
-		this.frustumPlanes[3]
+		// 3: Top (Row 3 - Row 1)
+		this._frustumPlanes[3]
 			.set(
-				m[0][3] - m[0][1],
-				m[1][3] - m[1][1],
-				m[2][3] - m[2][1],
-				m[3][3] - m[3][1]
+				m[3][0] - m[1][0],
+				m[3][1] - m[1][1],
+				m[3][2] - m[1][2],
+				m[3][3] - m[1][3]
 			)
 			.normalize();
 
-		this.frustumPlanes[4]
+		// 4: Near (Row 3 + Row 2)
+		this._frustumPlanes[4]
 			.set(
-				m[0][3] + m[0][2],
-				m[1][3] + m[1][2],
-				m[2][3] + m[2][2],
-				m[3][3] + m[3][2]
+				m[3][0] + m[2][0],
+				m[3][1] + m[2][1],
+				m[3][2] + m[2][2],
+				m[3][3] + m[2][3]
 			)
 			.normalize();
 
-		this.frustumPlanes[5]
+		// 5: Far (Row 3 - Row 2)
+		this._frustumPlanes[5]
 			.set(
-				m[0][3] - m[0][2],
-				m[1][3] - m[1][2],
-				m[2][3] - m[2][2],
-				m[3][3] - m[3][2]
+				m[3][0] - m[2][0],
+				m[3][1] - m[2][1],
+				m[3][2] - m[2][2],
+				m[3][3] - m[2][3]
 			)
 			.normalize();
 	}
 
 	public isPointInFrustum(point: IVector3): boolean {
-		for (const plane of this.frustumPlanes) {
+		for (const plane of this._frustumPlanes) {
 			if (plane.distanceToPoint(point) < 0) {
 				return false;
 			}
@@ -165,7 +171,7 @@ export class Camera {
 	}
 
 	public isSphereInFrustum(center: IVector3, radius: number): boolean {
-		for (const plane of this.frustumPlanes) {
+		for (const plane of this._frustumPlanes) {
 			const distance = plane.distanceToPoint(center);
 			if (distance < -radius) {
 				return false;
@@ -175,7 +181,7 @@ export class Camera {
 	}
 
 	public isAABBInFrustum(min: IVector3, max: IVector3): boolean {
-		for (const plane of this.frustumPlanes) {
+		for (const plane of this._frustumPlanes) {
 			const px = plane.normal.x > 0 ? max.x : min.x;
 			const py = plane.normal.y > 0 ? max.y : min.y;
 			const pz = plane.normal.z > 0 ? max.z : min.z;
