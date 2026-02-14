@@ -53,7 +53,7 @@ async function init() {
 		}
 	);
 
-	const model = await loader.load("./assets/truck.glb");
+	const model = await loader.load("./assets/duck.glb");
 
 	const targetRadius = 120;
 	const scale = targetRadius / model.boundingSphere.radius;
