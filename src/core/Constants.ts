@@ -17,6 +17,7 @@ export class CoreConstants {
  */
 export class RenderConstants {
 	static readonly REFLECTION_BUFFER_ALPHA = 255;
+	static readonly REFLECTION_TRANSPARENT_THRESHOLD = 0.99;
 	static readonly MIN_CLIP_W = 1e-6;
 	static readonly MIN_NDC_DEPTH = -1.0;
 	static readonly MAX_NDC_DEPTH = 1.0;
@@ -31,7 +32,7 @@ export class PostProcessConstants {
 	static readonly NOISE_REFERENCE_WIDTH = 1920;
 	static readonly MIN_GAMMA = 0.01;
 	static readonly MAX_GAMMA = 8.0;
-	static readonly DEFAULT_GAMMA = 1.8;
+	static readonly DEFAULT_GAMMA = 2.2;
 	static readonly MAX_EXPOSURE = 8;
 }
 

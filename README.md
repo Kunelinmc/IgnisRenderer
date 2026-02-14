@@ -104,7 +104,7 @@ import {
 
 async function main() {
 	const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 10 });
+	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 });
 	const renderer = new Renderer(canvas, camera);
 	const scene = new Scene();
 
@@ -113,14 +113,15 @@ async function main() {
 
 	// Load a Model
 	const loader = new GLTFLoader();
-	const duck = await loader.load("./assets/duck.glb");
-	scene.addModel(duck);
+	const model = await loader.load("./assets/duck.glb");
+	scene.addModel(model);
 
 	// Initialize and Render
 	renderer.scene = scene;
 	renderer.init();
-	renderer.invalidate(); // Trigger a redraw
 }
+
+main();
 ```
 
 ---

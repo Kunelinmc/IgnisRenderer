@@ -1,3 +1,5 @@
+import { Matrix4 } from "../maths/Matrix4";
+import { PostProcessConstants, VolumetricConstants } from "./Constants";
 import type { Renderer } from "./Renderer";
 import {
 	type DirectionalLight,
@@ -7,12 +9,6 @@ import {
 	isShadowCastingLight,
 } from "../lights";
 import type { IVector3 } from "../maths/types";
-import { Matrix4 } from "../maths/Matrix4";
-import {
-	PostProcessConstants,
-	RenderConstants,
-	VolumetricConstants,
-} from "./Constants";
 
 export interface PostProcessorLike {
 	applyFXAA(

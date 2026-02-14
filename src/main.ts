@@ -7,6 +7,7 @@ import {
 	GLTFLoader,
 	PhongMaterial,
 	ModelFactory,
+	UnlitMaterial,
 } from "./index";
 
 async function init() {
@@ -36,7 +37,7 @@ async function init() {
 		new DirectionalLight({
 			color: { r: 255, g: 255, b: 255 },
 			dir: { x: -1, y: -1, z: -1 },
-			intensity: 2,
+			intensity: 1.4,
 		})
 	);
 
@@ -52,15 +53,15 @@ async function init() {
 		}
 	);
 
-	const duck = await loader.load("./assets/duck.glb");
+	const model = await loader.load("./assets/truck.glb");
 
 	const targetRadius = 120;
-	const scale = targetRadius / duck.boundingSphere.radius;
+	const scale = targetRadius / model.boundingSphere.radius;
 
-	duck.transform.scale.set(scale, scale, scale);
-	duck.transform.position.y = -duck.getWorldBoundingBox().min.y;
+	model.transform.scale.set(scale, scale, scale);
+	model.transform.position.y = -model.getWorldBoundingBox().min.y;
 
-	scene.addModel(duck);
+	scene.addModel(model);
 
 	const plane = ModelFactory.createPlane(
 		{
@@ -85,7 +86,7 @@ async function init() {
 	scene.addModel(plane);
 
 	renderer.updateSH();
-	renderer.invalidate();
+	renderer.requestRender();
 	renderer.init();
 
 	let isDragging = false;
@@ -100,7 +101,7 @@ async function init() {
 		if (!isDragging) return;
 		camera.rotate(e.clientX - lastMouse.x, e.clientY - lastMouse.y);
 		lastMouse = { x: e.clientX, y: e.clientY };
-		renderer.invalidate();
+		renderer.requestRender();
 	});
 
 	window.addEventListener("mouseup", () => {
@@ -112,7 +113,7 @@ async function init() {
 		(e) => {
 			e.preventDefault();
 			camera.zoom(e.deltaY);
-			renderer.invalidate();
+			renderer.requestRender();
 		},
 		{ passive: false }
 	);
@@ -134,7 +135,7 @@ async function init() {
 			const touch = e.touches[0];
 			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
 			lastMouse = { x: touch.clientX, y: touch.clientY };
-			renderer.invalidate();
+			renderer.requestRender();
 		},
 		{ passive: false }
 	);

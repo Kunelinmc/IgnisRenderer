@@ -22,8 +22,6 @@ interface PlaneAggregateInfo {
 	filters: Record<string, any>; // Filter name -> max parameter value
 }
 
-const REFLECTION_TRANSPARENT_THRESHOLD = 0.99;
-
 export class ReflectionRenderer {
 	private _renderer: Renderer;
 	private _depthBuffer: Float32Array | null = null;
@@ -315,7 +313,7 @@ export class ReflectionRenderer {
 					if (
 						alphaMode === "BLEND" ||
 						(explicitAlphaMode === undefined &&
-							alpha < REFLECTION_TRANSPARENT_THRESHOLD)
+							alpha < RenderConstants.REFLECTION_TRANSPARENT_THRESHOLD)
 					) {
 						transparentFaces.push(face);
 					} else {

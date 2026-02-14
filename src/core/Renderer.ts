@@ -177,7 +177,7 @@ export class Renderer extends EventEmitter {
 		this.depthBuffer.fill(Infinity);
 	}
 
-	public invalidate(): void {
+	public requestRender(): void {
 		this.params.cacheInvalid = true;
 	}
 

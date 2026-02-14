@@ -2,10 +2,10 @@ import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
 import { Projector } from "./Projector";
 import { isShadowCastingLight } from "../lights";
-import type { Renderer } from "./Renderer";
-import type { ProjectedVertex } from "./types";
 import { ShadowMap } from "../utils/ShadowMapping";
 import { ShadowConstants } from "./Constants";
+import type { Renderer } from "./Renderer";
+import type { ProjectedVertex } from "./types";
 
 interface ClipVertex {
 	x: number;
