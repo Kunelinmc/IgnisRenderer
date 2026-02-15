@@ -7,7 +7,6 @@ import {
 	GLTFLoader,
 	PhongMaterial,
 	ModelFactory,
-	UnlitMaterial,
 } from "./index";
 
 async function init() {
