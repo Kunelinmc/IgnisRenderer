@@ -14,7 +14,7 @@ export class Projector {
 		renderer: Renderer,
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number }
-	): void {
+	): ProjectedFace[] {
 		const targetWidth = overrideSize?.width ?? renderer.canvas.width;
 		const targetHeight = overrideSize?.height ?? renderer.canvas.height;
 
@@ -234,7 +234,52 @@ export class Projector {
 			projectedFaces.push(projectedFace);
 		}
 
-		model.projectedFaces = projectedFaces;
+		return projectedFaces;
+	}
+
+	/**
+	 * Picks a face at the given screen coordinates from a list of projected faces.
+	 * @param projectedFaces - The list of projected faces to search.
+	 * @param px - The x-coordinate in screen space.
+	 * @param py - The y-coordinate in screen space.
+	 * @returns The nearest projected face at the given point, or null if none.
+	 */
+	public static getFaceAtPoint(
+		projectedFaces: ProjectedFace[],
+		px: number,
+		py: number
+	): ProjectedFace | null {
+		let nearestFace: ProjectedFace | null = null;
+		let minZ = Infinity;
+
+		for (const face of projectedFaces) {
+			const verts = face.projected;
+			if (!verts || verts.length < 3) continue;
+
+			let inside = false;
+			for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+				const xi = verts[i].x!,
+					yi = verts[i].y!;
+				const xj = verts[j].x!,
+					yj = verts[j].y!;
+
+				const intersect =
+					yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+
+				if (intersect) inside = !inside;
+			}
+
+			if (inside) {
+				const avgZ =
+					verts.reduce((sum, p) => sum + (p.z || 0), 0) / verts.length;
+				if (avgZ < minZ) {
+					minZ = avgZ;
+					nearestFace = face;
+				}
+			}
+		}
+
+		return nearestFace;
 	}
 
 	/**

@@ -279,9 +279,9 @@ export class ReflectionRenderer {
 
 			// Render scene with mirrored camera
 			for (const model of renderer.scene.models) {
-				Projector.projectModel(model, renderer, true, buffer);
+				const faces = Projector.projectModel(model, renderer, true, buffer);
 
-				for (const face of model.projectedFaces) {
+				for (const face of faces) {
 					// skip if same plane
 					if (face.material && face.material.mirrorPlane) {
 						const mp = face.material.mirrorPlane;

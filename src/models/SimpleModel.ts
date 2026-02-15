@@ -26,7 +26,6 @@ export interface ModelFace extends IFace {
  */
 export class SimpleModel extends EventEmitter implements IModel {
 	public faces: ModelFace[];
-	public projectedFaces: ProjectedFace[];
 	public transform: {
 		rotation: Vector3;
 		position: Vector3;
@@ -38,7 +37,6 @@ export class SimpleModel extends EventEmitter implements IModel {
 	constructor(faces: ModelFace[] = []) {
 		super();
 		this.faces = faces;
-		this.projectedFaces = [];
 
 		this.transform = {
 			rotation: new Vector3(0, 0, 0),
@@ -120,40 +118,6 @@ export class SimpleModel extends EventEmitter implements IModel {
 				}
 			}
 		}
-	}
-
-	public getFaceAtPoint(px: number, py: number): ProjectedFace | null {
-		let nearestFace: ProjectedFace | null = null;
-		let minZ = Infinity;
-
-		for (const face of this.projectedFaces) {
-			const verts = face.projected;
-			if (!verts || verts.length < 3) continue;
-
-			let inside = false;
-			for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
-				const xi = verts[i].x!,
-					yi = verts[i].y!;
-				const xj = verts[j].x!,
-					yj = verts[j].y!;
-
-				const intersect =
-					yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
-
-				if (intersect) inside = !inside;
-			}
-
-			if (inside) {
-				const avgZ =
-					verts.reduce((sum, p) => sum + (p.z || 0), 0) / verts.length;
-				if (avgZ < minZ) {
-					minZ = avgZ;
-					nearestFace = face;
-				}
-			}
-		}
-
-		return nearestFace;
 	}
 
 	private _calculateBoundingSphere(): BoundingSphere {

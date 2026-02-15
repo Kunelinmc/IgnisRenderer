@@ -65,9 +65,7 @@ export interface BoundingBox {
 
 export interface IModel {
 	faces: IFace[];
-	projectedFaces: ProjectedFace[];
 	transform: ITransform;
 	boundingSphere: BoundingSphere;
 	boundingBox: BoundingBox;
-	getFaceAtPoint(x: number, y: number): ProjectedFace | null;
 }

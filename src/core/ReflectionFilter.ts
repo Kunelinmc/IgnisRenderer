@@ -67,7 +67,7 @@ export class BlurFilter extends ReflectionFilter<number> {
 				temp[outIdx] = (rSum / count) | 0;
 				temp[outIdx + 1] = (gSum / count) | 0;
 				temp[outIdx + 2] = (bSum / count) | 0;
-				temp[outIdx + 3] = pixels[outIdx + 3]; // keep alpha as-is (same as your current behavior)
+				temp[outIdx + 3] = pixels[outIdx + 3]; // keep alpha as-is
 
 				// Slide window: remove left, add right (clamped)
 				const leftX = x - radius;
@@ -198,7 +198,6 @@ export class RippleFilter extends ReflectionFilter<number> {
 				let sx = (x + dx) | 0; // floor for positive; can be off by 1 for negative
 				let sy = (dyBase + dy) | 0;
 
-				// If dx/dy can go negative, use Math.floor to match your original exactly:
 				// let sx = Math.floor(x + dx);
 				// let sy = Math.floor(y + dy);
 

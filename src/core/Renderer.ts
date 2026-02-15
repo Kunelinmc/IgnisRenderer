@@ -68,6 +68,8 @@ export class Renderer extends EventEmitter {
 	private _shadowRenderer: ShadowRenderer;
 	private _postProcessor: PostProcessorLike;
 
+	private _projectedModels: Map<IModel, ProjectedFace[]> = new Map();
+
 	constructor(canvas: HTMLCanvasElement, camera: Camera | null = null) {
 		super();
 		this.canvas = canvas;
@@ -140,7 +142,10 @@ export class Renderer extends EventEmitter {
 		let minDepth = Infinity;
 
 		for (const model of this.scene.models) {
-			const face = model.getFaceAtPoint(canvasX, canvasY);
+			const faces = this._projectedModels.get(model);
+			if (!faces) continue;
+
+			const face = Projector.getFaceAtPoint(faces, canvasX, canvasY);
 			if (face) {
 				const depth = face.depthInfo.avg;
 				if (depth < minDepth) {
@@ -153,6 +158,9 @@ export class Renderer extends EventEmitter {
 		return nearestModel;
 	}
 
+	/**
+	 * Resizes the canvas and updates the renderer's parameters.
+	 */
 	public resizeCanvas(): void {
 		const rect = this.canvas.getBoundingClientRect();
 		this._sf = window.devicePixelRatio || 1;
@@ -177,6 +185,9 @@ export class Renderer extends EventEmitter {
 		this.depthBuffer.fill(Infinity);
 	}
 
+	/**
+	 * Requests a render of the scene.
+	 */
 	public requestRender(): void {
 		this.params.cacheInvalid = true;
 	}
@@ -226,14 +237,16 @@ export class Renderer extends EventEmitter {
 		);
 		const pixels = imageData.data;
 
+		this._projectedModels.clear();
 		for (const model of this.scene.models) {
-			Projector.projectModel(model, this);
+			const faces = Projector.projectModel(model, this);
+			this._projectedModels.set(model, faces);
 		}
 
 		const opaqueFaces: ProjectedFace[] = [];
 		const transparentFaces: ProjectedFace[] = [];
 		for (const model of this.scene.models) {
-			const faces = model.projectedFaces;
+			const faces = this._projectedModels.get(model) || [];
 			for (let i = 0, len = faces.length; i < len; i++) {
 				const face = faces[i];
 				const alpha = face.color?.a ?? face.material?.opacity ?? 1;
