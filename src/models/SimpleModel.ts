@@ -6,7 +6,6 @@ import type {
 	IModel,
 	IVertex,
 	IFace,
-	ProjectedFace,
 	BoundingSphere,
 	BoundingBox,
 } from "../core/types";

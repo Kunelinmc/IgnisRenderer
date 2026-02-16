@@ -102,7 +102,7 @@ import {
 	GLTFLoader,
 	OrbitCamera,
 	DirectionalLight,
-} from "./src";
+} from "./index";
 
 async function main() {
 	const canvas = document.getElementById("canvas") as HTMLCanvasElement;
