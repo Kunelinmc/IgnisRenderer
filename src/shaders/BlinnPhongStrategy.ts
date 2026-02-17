@@ -53,12 +53,13 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		for (const light of context.lights) {
 			const contrib = light.computeContribution(world);
 			if (!contrib) continue;
+			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient") {
 				if (useSHAmbient) continue;
-				ambR += Math.pow(contrib.color.r / 255, gamma);
-				ambG += Math.pow(contrib.color.g / 255, gamma);
-				ambB += Math.pow(contrib.color.b / 255, gamma);
+				ambR += Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
+				ambG += Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
+				ambB += Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
 				continue;
 			}
 
@@ -74,9 +75,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			}
 
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, gamma),
-				g: Math.pow(contrib.color.g / 255, gamma),
-				b: Math.pow(contrib.color.b / 255, gamma),
+				r: Math.pow(contrib.color.r / 255, gamma) * lightIntensity,
+				g: Math.pow(contrib.color.g / 255, gamma) * lightIntensity,
+				b: Math.pow(contrib.color.b / 255, gamma) * lightIntensity,
 			};
 
 			// Diffuse

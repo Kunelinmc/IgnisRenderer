@@ -14,11 +14,8 @@ export class AmbientLight extends Light<LightType.Ambient> {
 	public computeContribution(_point: IVector3): LightContribution {
 		return {
 			type: "ambient",
-			color: {
-				r: this.color.r * this.intensity,
-				g: this.color.g * this.intensity,
-				b: this.color.b * this.intensity,
-			},
+			color: this.color,
+			intensity: this.intensity,
 		};
 	}
 }

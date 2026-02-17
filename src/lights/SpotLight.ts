@@ -145,11 +145,8 @@ export class SpotLight extends Light<LightType.Spot> {
 
 		return {
 			type: "direct",
-			color: {
-				r: this.color.r * this.intensity * attenuation * spotIntensity,
-				g: this.color.g * this.intensity * attenuation * spotIntensity,
-				b: this.color.b * this.intensity * attenuation * spotIntensity,
-			},
+			color: this.color,
+			intensity: this.intensity * attenuation * spotIntensity,
 			direction: L,
 		};
 	}

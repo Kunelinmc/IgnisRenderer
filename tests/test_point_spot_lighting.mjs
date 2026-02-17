@@ -30,12 +30,13 @@ function testPointLightEdgeCases() {
 		"Contribution at distance 0 should not be null"
 	);
 	assertColorClose(atSource.color, { r: 100, g: 100, b: 100 });
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
 	assert.ok(atSource.direction, "Should have a direction even at distance 0");
 
 	// Case 2: Just inside range
 	const inside = light.computeContribution({ x: 10 + 49.9, y: 10, z: 10 });
 	assert.notEqual(inside, null);
-	assert.ok(inside.color.r > 0);
+	assert.ok((inside.intensity ?? 0) > 0);
 
 	// Case 3: Just outside range
 	const outside = light.computeContribution({ x: 10 + 50.1, y: 10, z: 10 });
@@ -47,6 +48,7 @@ function testPointLightEdgeCases() {
 	const atNewSource = light.computeContribution({ x: 0, y: 0, z: 0 });
 	assert.notEqual(atNewSource, null);
 	assertColorClose(atNewSource.color, { r: 100, g: 100, b: 100 });
+	assert.ok(Math.abs((atNewSource.intensity ?? 0) - 1) < 1e-6);
 }
 
 function testSpotLightEdgeCases() {
@@ -64,6 +66,7 @@ function testSpotLightEdgeCases() {
 	const atSource = light.computeContribution({ x: 0, y: 10, z: 0 });
 	assert.notEqual(atSource, null);
 	assertColorClose(atSource.color, { r: 100, g: 100, b: 100 });
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
 
 	// Case 2: On the axis
 	const onAxis = light.computeContribution({ x: 0, y: 0, z: 0 });
@@ -74,7 +77,7 @@ function testSpotLightEdgeCases() {
 	const inPenumbra = light.computeContribution({ x: 7, y: 0, z: 0 });
 	assert.notEqual(inPenumbra, null);
 	assert.ok(
-		inPenumbra.color.r < onAxis.color.r,
+		(inPenumbra.intensity ?? 0) < (onAxis.intensity ?? 0),
 		"Penumbra should be dimmer than axis"
 	);
 

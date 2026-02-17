@@ -69,13 +69,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		for (const light of context.lights) {
 			const contrib = light.computeContribution(world);
 			if (!contrib) continue;
+			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient") {
 				if (!useSHAmbient) {
 					// Convert ambient light to linear
-					ambientLightR += Math.pow(contrib.color.r / 255, gamma);
-					ambientLightG += Math.pow(contrib.color.g / 255, gamma);
-					ambientLightB += Math.pow(contrib.color.b / 255, gamma);
+					ambientLightR += Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
+					ambientLightG += Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
+					ambientLightB += Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
 				}
 				continue;
 			}
@@ -86,9 +87,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			const H = Vector3.normalize(Vector3.add(L, V));
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, gamma),
-				g: Math.pow(contrib.color.g / 255, gamma),
-				b: Math.pow(contrib.color.b / 255, gamma),
+				r: Math.pow(contrib.color.r / 255, gamma) * lightIntensity,
+				g: Math.pow(contrib.color.g / 255, gamma) * lightIntensity,
+				b: Math.pow(contrib.color.b / 255, gamma) * lightIntensity,
 			};
 
 			let shadow = { r: 1, g: 1, b: 1 };

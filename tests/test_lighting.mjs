@@ -25,7 +25,8 @@ function testAmbient() {
 	});
 	const contribution = light.computeContribution({ x: 0, y: 0, z: 0 });
 	assert.equal(contribution.type, "ambient");
-	assertColorClose(contribution.color, { r: 50, g: 50, b: 50 });
+	assertColorClose(contribution.color, { r: 100, g: 100, b: 100 });
+	assert.ok(Math.abs((contribution.intensity ?? 0) - 0.5) < 1e-6);
 }
 
 function testDirectional() {
@@ -42,6 +43,7 @@ function testDirectional() {
 	// L vector points TOWARDS light source (opposite of light direction)
 	assert.ok(contribution.direction.y > 0.999);
 	assertColorClose(contribution.color, { r: 255, g: 255, b: 255 });
+	assert.ok(Math.abs((contribution.intensity ?? 0) - 1) < 1e-6);
 
 	// With world rotation
 	const rotation = Matrix4.rotationFromEuler(Math.PI / 2, 0, 0); // Rotate 90 deg around X. Y becomes Z.
@@ -83,11 +85,12 @@ function testPoint() {
 		"PointLight at distance 0 should not be null"
 	);
 	assertColorClose(atSource.color, { r: 10, g: 10, b: 10 });
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
 
 	const closer = light.computeContribution({ x: 0, y: 5, z: 0 });
 	const further = light.computeContribution({ x: 0, y: 0, z: 0 });
 	assert.ok(
-		closer.color.r > further.color.r,
+		(closer.intensity ?? 0) > (further.intensity ?? 0),
 		"Closer point should have higher intensity"
 	);
 

@@ -49,11 +49,8 @@ export class PointLight extends Light<LightType.Point> {
 
 		return {
 			type: "direct",
-			color: {
-				r: this.color.r * this.intensity * attenuation,
-				g: this.color.g * this.intensity * attenuation,
-				b: this.color.b * this.intensity * attenuation,
-			},
+			color: this.color,
+			intensity: this.intensity * attenuation,
 			direction:
 				distance > 0 ?
 					{ x: dx / distance, y: dy / distance, z: dz / distance }

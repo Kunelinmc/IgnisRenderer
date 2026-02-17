@@ -34,7 +34,12 @@ export interface LightParams {
  */
 export interface LightContribution {
 	type: "ambient" | "direct";
-	color: RGB; // Effective color after intensity, attenuation, and cone factors
+	// Base light color in display (sRGB-like) domain.
+	// Linear intensity/attenuation is carried separately by `intensity`.
+	color: RGB;
+	// Scalar intensity in linear domain. Includes light intensity and any
+	// distance/cone attenuation terms. Defaults to 1 when omitted.
+	intensity?: number;
 	direction?: IVector3; // Direction towards the light (L vector)
 }
 

@@ -538,6 +538,7 @@ export class PostProcessor implements PostProcessorLike {
 						const contrib = L.computeContribution(samplePoint);
 						if (!contrib || contrib.type !== "direct" || !contrib.direction)
 							continue;
+						const lightIntensity = contrib.intensity ?? 1.0;
 
 						const cacheIndex = cellIndex * lightCount + li;
 						let vis = visibilityCache[cacheIndex];
@@ -569,9 +570,9 @@ export class PostProcessor implements PostProcessorLike {
 						);
 						const scatter = phase * sigmaS * weight * sceneFalloff;
 
-						r += contrib.color.r * vis * scatter;
-						g += contrib.color.g * vis * scatter;
-						b += contrib.color.b * vis * scatter;
+						r += contrib.color.r * lightIntensity * vis * scatter;
+						g += contrib.color.g * lightIntensity * vis * scatter;
+						b += contrib.color.b * lightIntensity * vis * scatter;
 					}
 
 					const idx = sliceBase + (y * gridW + x) * 3;

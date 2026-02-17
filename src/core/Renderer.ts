@@ -404,7 +404,12 @@ export class Renderer extends EventEmitter {
 					const contrib = light.computeContribution({ x: 0, y: 0, z: 0 });
 					if (contrib) {
 						const dir = Vector3.normalize(contrib.direction!);
-						const lightSH = SH.projectDirectionalLight(dir, contrib.color);
+						const intensity = contrib.intensity ?? 1.0;
+						const lightSH = SH.projectDirectionalLight(dir, {
+							r: contrib.color.r * intensity,
+							g: contrib.color.g * intensity,
+							b: contrib.color.b * intensity,
+						});
 						totalSH = SH.addCoeffs(totalSH, lightSH);
 					}
 				}

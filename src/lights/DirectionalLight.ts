@@ -63,11 +63,8 @@ export class DirectionalLight extends Light<LightType.Directional> {
 
 		return {
 			type: "direct",
-			color: {
-				r: this.color.r * this.intensity,
-				g: this.color.g * this.intensity,
-				b: this.color.b * this.intensity,
-			},
+			color: this.color,
+			intensity: this.intensity,
 			direction: { x: -dir.x, y: -dir.y, z: -dir.z },
 		};
 	}
