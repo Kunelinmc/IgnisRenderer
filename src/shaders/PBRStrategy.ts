@@ -2,6 +2,7 @@ import { Vector3 } from "../maths/Vector3";
 import { SH } from "../maths/SH";
 import { isShadowCastingLight } from "../lights";
 import { LightingConstants } from "../core/Constants";
+import { clamp } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import type {
@@ -36,19 +37,19 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 		// 1. Linear Workflow: Convert inputs to Linear Space
 		const alb = {
-			r: Math.pow(surface.albedo.r / 255, gamma),
-			g: Math.pow(surface.albedo.g / 255, gamma),
-			b: Math.pow(surface.albedo.b / 255, gamma),
+			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
 		};
 		const metal = surface.metalness;
-		const rough = surface.roughness;
+		const rough = clamp(surface.roughness, 0.04, 1.0);
 
 		// Common PBR practice: non-metals have a base F0 of 0.04
 		const F0_NON_METAL = 0.04;
 		const f0_norm = {
-			r: Math.pow(surface.f0.r / 255, gamma),
-			g: Math.pow(surface.f0.g / 255, gamma),
-			b: Math.pow(surface.f0.b / 255, gamma),
+			r: Math.pow(Math.max(0, surface.f0.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.f0.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.f0.b / 255), gamma),
 		};
 
 		// Metalness workflow: metals have albedo as F0, non-metals use a small constant or f0 param
@@ -59,9 +60,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 
 		const emissive = {
-			r: Math.pow(surface.emissive.r / 255, gamma),
-			g: Math.pow(surface.emissive.g / 255, gamma),
-			b: Math.pow(surface.emissive.b / 255, gamma),
+			r: Math.pow(Math.max(0, surface.emissive.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.emissive.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.emissive.b / 255), gamma),
 		};
 
 		for (const light of context.lights) {
@@ -187,16 +188,16 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		let finalG = totalG + ambG + emissive.g;
 		let finalB = totalB + ambB + emissive.b;
 
-		// 2. Tone Mapping (Simple Reinhard)
-		finalR = finalR / (finalR + 1.0);
-		finalG = finalG / (finalG + 1.0);
-		finalB = finalB / (finalB + 1.0);
+		// 2. Tone Mapping (ACES Approximation)
+		finalR = this._acesFilm(finalR);
+		finalG = this._acesFilm(finalG);
+		finalB = this._acesFilm(finalB);
 
 		// 3. Convert back to sRGB for 8-bit output
 		return {
-			r: Math.pow(finalR, invGamma) * 255,
-			g: Math.pow(finalG, invGamma) * 255,
-			b: Math.pow(finalB, invGamma) * 255,
+			r: clamp(Math.pow(finalR, invGamma) * 255, 0, 255),
+			g: clamp(Math.pow(finalG, invGamma) * 255, 0, 255),
+			b: clamp(Math.pow(finalB, invGamma) * 255, 0, 255),
 		};
 	}
 
@@ -235,5 +236,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			g: F0.g + (1.0 - F0.g) * f,
 			b: F0.b + (1.0 - F0.b) * f,
 		};
+	}
+
+	private _acesFilm(x: number): number {
+		const a = 2.51;
+		const b = 0.03;
+		const c = 2.43;
+		const d = 0.59;
+		const e = 0.14;
+		return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0, 1.0);
 	}
 }

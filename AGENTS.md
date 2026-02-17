@@ -10,18 +10,25 @@ This file provides collaboration guidance for AI/code agents working in this rep
 
 - Prefer minimal, incremental changes that are easy to review.
 - Avoid unrelated refactors.
-- If a change could affect runtime behavior, explain the impact in the response.
+- If a change could affect runtime behavior, performance, or public APIs, explicitly explain the impact and potential risks.
 - If tests exist, prefer running or updating them when changes are non-trivial.
+- Do not introduce new architectural patterns or abstractions unless clearly justified by the task.
+- Prefer consistency with existing designs over theoretical improvements.
+- When requirements are ambiguous, ask a focused clarifying question instead of making broad assumptions.
 
 ## Conventions
 
 - Use existing coding style and patterns.
 - Avoid hardcoding magic numbers or strings; use named constants for values with specific significance.
 - Keep comments concise and meaningful.
+- Do not add comments that merely restate the code.
+- Focus on intent, constraints, and non-obvious decisions.
 - Default to ASCII in new content unless the file already uses Unicode.
 - Use English for code comments and commit messages.
 - Prefer explicit type-only imports using `import type { Foo } from './foo'` to avoid unintended runtime dependencies.
 - Avoid type assertions (as) unless necessary; never use double assertions (as unknown as).
+- Avoid modifying files unrelated to the task.
+- If multiple files must be changed, keep the change set minimal and cohesive.
 
 ## Naming & Type Standards
 
@@ -39,7 +46,7 @@ This file provides collaboration guidance for AI/code agents working in this rep
 
 - **Interface**: Use for object structures and API contracts.
 - **Type**: Use for union types, intersection types, or primitive aliases.
-- **Strictness**: Avoid `any`. Use `unknown` if the type is truly unknown, or better, define a generic or a specific interface.
+- **Strictness**: Avoid `any`. Use `unknown` if the type is truly unknown, or better, define a generic or a specific interface. Prefer improving type definitions over bypassing the type system.
 - **Centralization**: Common types should be defined in a module-level `types.ts` (e.g., `src/maths/types.ts` for engine-wide math types) to avoid redundant definitions.
 
 ### Documentation
@@ -47,6 +54,24 @@ This file provides collaboration guidance for AI/code agents working in this rep
 - Use JSDoc for public classes and methods.
 - Keep documentation up-to-date with code changes.
 
+## Error Handling
+
+- Do not swallow errors silently
+- Prefer typed error objects
+- Avoid throwing raw strings
+
+## Testing Policy
+
+- Do not remove tests to make code pass
+- Update tests only if behavior change is intentional
+
 ## Contact/Approval
 
 - If a task has unclear requirements, ask a brief clarifying question.
+
+## Design Philosophy
+
+- Explicit over implicit
+- Composition over inheritance
+- Fail fast on invalid input
+- Keep core modules dependency-light

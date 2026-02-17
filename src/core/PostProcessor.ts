@@ -8,6 +8,7 @@ import {
 	LightType,
 	isShadowCastingLight,
 } from "../lights";
+import { clamp } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 
 export interface PostProcessorLike {
@@ -184,10 +185,6 @@ export class PostProcessor implements PostProcessorLike {
 		return t * t * (3 - 2 * t);
 	}
 
-	private _clamp(value: number, min: number, max: number): number {
-		return Math.max(min, Math.min(max, value));
-	}
-
 	private _toFiniteNumber(value: unknown, fallback: number): number {
 		if (typeof value === "number" && Number.isFinite(value)) return value;
 		return fallback;
@@ -200,7 +197,7 @@ export class PostProcessor implements PostProcessorLike {
 	): number {
 		if (distanceSq <= fadeStartSq) return 1.0;
 		if (distanceSq >= fadeEndSq) return 0.0;
-		const t = this._clamp(
+		const t = clamp(
 			(distanceSq - fadeStartSq) / Math.max(fadeEndSq - fadeStartSq, 1e-6),
 			0,
 			1
@@ -382,7 +379,7 @@ export class PostProcessor implements PostProcessorLike {
 
 		// Consolidate options with range protection
 		const ds = Math.round(
-			this._clamp(
+			clamp(
 				this._toFiniteNumber(
 					options.downsample,
 					VolumetricConstants.DEFAULT_DOWN_SAMPLE
@@ -394,7 +391,7 @@ export class PostProcessor implements PostProcessorLike {
 		const gridW = Math.ceil(w / ds);
 		const gridH = Math.ceil(h / ds);
 		const gridD = Math.round(
-			this._clamp(
+			clamp(
 				this._toFiniteNumber(
 					options.samples,
 					VolumetricConstants.DEFAULT_SAMPLES
@@ -404,27 +401,27 @@ export class PostProcessor implements PostProcessorLike {
 			)
 		);
 
-		const weight = this._clamp(
+		const weight = clamp(
 			this._toFiniteNumber(options.weight, VolumetricConstants.DEFAULT_WEIGHT),
 			0,
 			VolumetricConstants.MAX_WEIGHT
 		);
-		const exposure = this._clamp(
+		const exposure = clamp(
 			this._toFiniteNumber(options.exposure, 1.0),
 			0,
 			PostProcessConstants.MAX_EXPOSURE
 		);
-		const airDensity = this._clamp(
+		const airDensity = clamp(
 			this._toFiniteNumber(options.airDensity, 1.0),
 			0,
 			VolumetricConstants.MAX_AIR_DENSITY
 		);
-		const anisotropy = this._clamp(
+		const anisotropy = clamp(
 			this._toFiniteNumber(options.anisotropy, 0.4),
 			-0.99,
 			0.99
 		);
-		const scatteringAlbedo = this._clamp(
+		const scatteringAlbedo = clamp(
 			this._toFiniteNumber(options.scatteringAlbedo, 0.8),
 			0,
 			1
@@ -447,7 +444,7 @@ export class PostProcessor implements PostProcessorLike {
 
 		const shadowsEnabled = this.renderer.params.enableShadows;
 		const shadowInterval = Math.round(
-			this._clamp(
+			clamp(
 				this._toFiniteNumber(options.shadowSampleInterval, 1),
 				VolumetricConstants.MIN_SHADOW_SAMPLE_INTERVAL,
 				VolumetricConstants.MAX_SHADOW_SAMPLE_INTERVAL
@@ -472,7 +469,7 @@ export class PostProcessor implements PostProcessorLike {
 			cameraPos.y - sceneCenter.y,
 			cameraPos.z - sceneCenter.z
 		);
-		const infinityDepthLimit = this._clamp(
+		const infinityDepthLimit = clamp(
 			camToCenter +
 				sceneRadius * VolumetricConstants.SCENE_DEPTH_LIMIT_MULTIPLIER,
 			near,
@@ -510,8 +507,8 @@ export class PostProcessor implements PostProcessorLike {
 						) -
 							0.5) *
 						jitterStrength;
-					const px = Math.round(this._clamp(sampleXCenter + jitterX, 0, w - 1));
-					const py = Math.round(this._clamp(sampleYCenter + jitterY, 0, h - 1));
+					const px = Math.round(clamp(sampleXCenter + jitterX, 0, w - 1));
+					const py = Math.round(clamp(sampleYCenter + jitterY, 0, h - 1));
 					const ray = this._getWorldRayFromPixel(px, py, w, h, basis);
 
 					const samplePoint = {
@@ -567,7 +564,7 @@ export class PostProcessor implements PostProcessorLike {
 							ray.y * contrib.direction.y +
 							ray.z * contrib.direction.z;
 						const phase = this._henyeyGreenstein(
-							this._clamp(viewDotLight, -1, 1),
+							clamp(viewDotLight, -1, 1),
 							anisotropy
 						);
 						const scatter = phase * sigmaS * weight * sceneFalloff;
@@ -591,12 +588,8 @@ export class PostProcessor implements PostProcessorLike {
 
 		for (let y = 0; y < gridH; y++) {
 			for (let x = 0; x < gridW; x++) {
-				const screenPX = Math.round(
-					this._clamp((x + 0.5) * ds - 0.5, 0, w - 1)
-				);
-				const screenPY = Math.round(
-					this._clamp((y + 0.5) * ds - 0.5, 0, h - 1)
-				);
+				const screenPX = Math.round(clamp((x + 0.5) * ds - 0.5, 0, w - 1));
+				const screenPY = Math.round(clamp((y + 0.5) * ds - 0.5, 0, h - 1));
 				const depthRaw = depthBuffer[screenPY * w + screenPX];
 				const depth = this._linearizeDepth(
 					depthRaw,
@@ -846,7 +839,7 @@ export class PostProcessor implements PostProcessorLike {
 			imageData = ctx.getImageData(0, 0, w, h);
 			pixels = imageData.data;
 		}
-		const safeGamma = this._clamp(
+		const safeGamma = clamp(
 			this._toFiniteNumber(gamma, PostProcessConstants.DEFAULT_GAMMA),
 			PostProcessConstants.MIN_GAMMA,
 			PostProcessConstants.MAX_GAMMA

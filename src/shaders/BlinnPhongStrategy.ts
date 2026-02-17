@@ -1,6 +1,7 @@
 import { Vector3 } from "../maths/Vector3";
 import { SH } from "../maths/SH";
 import { isShadowCastingLight } from "../lights";
+import { clamp } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import type {
@@ -36,9 +37,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		const invGamma = 1.0 / gamma;
 
 		const alb = {
-			r: Math.pow(surface.albedo.r / 255, gamma),
-			g: Math.pow(surface.albedo.g / 255, gamma),
-			b: Math.pow(surface.albedo.b / 255, gamma),
+			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
 		};
 
 		// Ambient IBL or simple
@@ -94,9 +95,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		}
 
 		const specColor = {
-			r: Math.pow(surface.specular.r / 255, gamma),
-			g: Math.pow(surface.specular.g / 255, gamma),
-			b: Math.pow(surface.specular.b / 255, gamma),
+			r: Math.pow(Math.max(0, surface.specular.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.specular.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.specular.b / 255), gamma),
 		};
 
 		const finalR = alb.r * (ambR + diffR) + specR * specColor.r;
@@ -105,9 +106,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 		// No Tone mapping for Blinn-Phong to keep it simple/classic, but back to sRGB
 		return {
-			r: Math.min(255, Math.pow(finalR, invGamma) * 255),
-			g: Math.min(255, Math.pow(finalG, invGamma) * 255),
-			b: Math.min(255, Math.pow(finalB, invGamma) * 255),
+			r: clamp(Math.pow(Math.max(0, finalR), invGamma) * 255, 0, 255),
+			g: clamp(Math.pow(Math.max(0, finalG), invGamma) * 255, 0, 255),
+			b: clamp(Math.pow(Math.max(0, finalB), invGamma) * 255, 0, 255),
 		};
 	}
 }
