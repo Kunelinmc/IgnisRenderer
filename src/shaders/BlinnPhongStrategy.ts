@@ -45,9 +45,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		// Ambient IBL or simple
 		if (useSHAmbient && context.shAmbientCoeffs) {
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
-			ambR = Math.pow(irr.r / 255, gamma);
-			ambG = Math.pow(irr.g / 255, gamma);
-			ambB = Math.pow(irr.b / 255, gamma);
+			ambR = irr.r / 255;
+			ambG = irr.g / 255;
+			ambB = irr.b / 255;
 		}
 
 		for (const light of context.lights) {
@@ -105,6 +105,14 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		const finalB = alb.b * (ambB + diffB) + specB * specColor.b;
 
 		// No Tone mapping for Blinn-Phong to keep it simple/classic, but back to sRGB
+		if (context.enableGamma) {
+			return {
+				r: clamp(Math.max(0, finalR) * 255, 0, 255),
+				g: clamp(Math.max(0, finalG) * 255, 0, 255),
+				b: clamp(Math.max(0, finalB) * 255, 0, 255),
+			};
+		}
+
 		return {
 			r: clamp(Math.pow(Math.max(0, finalR), invGamma) * 255, 0, 255),
 			g: clamp(Math.pow(Math.max(0, finalG), invGamma) * 255, 0, 255),

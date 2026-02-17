@@ -386,6 +386,7 @@ export class Rasterizer implements RasterizerLike {
 			shAmbientCoeffs: this._renderer.shAmbientCoeffs,
 			enableShadows: !!this._renderer.params.enableShadows,
 			enableSH: !!this._renderer.params.enableSH,
+			enableGamma: !!this._renderer.params.enableGamma,
 			enableLighting: isLightingEnabled,
 			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};

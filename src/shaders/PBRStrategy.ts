@@ -41,7 +41,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
 			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
 		};
-		const metal = surface.metalness;
+		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
 
 		// Common PBR practice: non-metals have a base F0 of 0.04
@@ -59,10 +59,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			b: (1 - metal) * Math.max(F0_NON_METAL, f0_norm.b) + metal * alb.b,
 		};
 
+		const emissiveScale = surface.emissiveIntensity ?? 1.0;
 		const emissive = {
-			r: Math.pow(Math.max(0, surface.emissive.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.emissive.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.emissive.b / 255), gamma),
+			r: Math.pow(Math.max(0, surface.emissive.r / 255), gamma) * emissiveScale,
+			g: Math.pow(Math.max(0, surface.emissive.g / 255), gamma) * emissiveScale,
+			b: Math.pow(Math.max(0, surface.emissive.b / 255), gamma) * emissiveScale,
 		};
 
 		for (const light of context.lights) {
@@ -139,26 +140,30 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 		if (useSHAmbient && context.shAmbientCoeffs) {
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
-			const irrNorm = {
-				r: Math.pow(irr.r / 255, gamma),
-				g: Math.pow(irr.g / 255, gamma),
-				b: Math.pow(irr.b / 255, gamma),
+			const irrLinear = {
+				r: irr.r / 255,
+				g: irr.g / 255,
+				b: irr.b / 255,
 			};
 
-			const kD_amb = 1.0 - metal;
-			ambR = irrNorm.r * alb.r * kD_amb;
-			ambG = irrNorm.g * alb.g * kD_amb;
-			ambB = irrNorm.b * alb.b * kD_amb;
+			const F_amb = this._FresnelSchlick(NdotV, realF0);
+			const kD_amb = {
+				r: (1.0 - F_amb.r) * (1.0 - metal),
+				g: (1.0 - F_amb.g) * (1.0 - metal),
+				b: (1.0 - F_amb.b) * (1.0 - metal),
+			};
+			ambR = irrLinear.r * alb.r * kD_amb.r;
+			ambG = irrLinear.g * alb.g * kD_amb.g;
+			ambB = irrLinear.b * alb.b * kD_amb.b;
 
 			// Simplified Specular IBL fallback
 			const specFactor = Math.max(
 				LightingConstants.PBR_SPEC_FALLBACK,
 				(1.0 - rough) * 0.5
 			);
-			const F_amb = this._FresnelSchlick(NdotV, realF0);
-			ambR += irrNorm.r * F_amb.r * specFactor;
-			ambG += irrNorm.g * F_amb.g * specFactor;
-			ambB += irrNorm.b * F_amb.b * specFactor;
+			ambR += irrLinear.r * F_amb.r * specFactor;
+			ambG += irrLinear.g * F_amb.g * specFactor;
+			ambB += irrLinear.b * F_amb.b * specFactor;
 		} else {
 			const ambientCol = {
 				r: ambientLightR,
@@ -194,6 +199,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		finalB = this._acesFilm(finalB);
 
 		// 3. Convert back to sRGB for 8-bit output
+		if (context.enableGamma) {
+			return {
+				r: clamp(finalR * 255, 0, 255),
+				g: clamp(finalG * 255, 0, 255),
+				b: clamp(finalB * 255, 0, 255),
+			};
+		}
+
 		return {
 			r: clamp(Math.pow(finalR, invGamma) * 255, 0, 255),
 			g: clamp(Math.pow(finalG, invGamma) * 255, 0, 255),

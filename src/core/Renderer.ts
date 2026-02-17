@@ -339,6 +339,7 @@ export class Renderer extends EventEmitter {
 			ambientG = 0,
 			ambientB = 0;
 		let hasAmbient = false;
+		const gamma = PostProcessConstants.DEFAULT_GAMMA;
 
 		const worldMatrix = this.params.worldMatrix || Matrix4.identity();
 
@@ -350,9 +351,9 @@ export class Renderer extends EventEmitter {
 				if (light.type === LightType.Ambient) {
 					const color = light.color || { r: 255, g: 255, b: 255 };
 					const intensity = light.intensity ?? 1;
-					ambientR += color.r * intensity;
-					ambientG += color.g * intensity;
-					ambientB += color.b * intensity;
+					ambientR += Math.pow(color.r / 255, gamma) * 255 * intensity;
+					ambientG += Math.pow(color.g / 255, gamma) * 255 * intensity;
+					ambientB += Math.pow(color.b / 255, gamma) * 255 * intensity;
 					hasAmbient = true;
 				} else if (light.type === LightType.LightProbe) {
 					const probeSH = light.sh;
@@ -372,9 +373,11 @@ export class Renderer extends EventEmitter {
 			ambientProbeSH[0].g === 0 &&
 			ambientProbeSH[0].b === 0
 		) {
-			ambientR = 51;
-			ambientG = 51;
-			ambientB = 51;
+			const fallbackSrgb = 51 / 255;
+			const fallbackLinear = Math.pow(fallbackSrgb, gamma) * 255;
+			ambientR = fallbackLinear;
+			ambientG = fallbackLinear;
+			ambientB = fallbackLinear;
 		}
 
 		ambientProbeSH[0].r += ambientR / Math.PI / 0.282095;

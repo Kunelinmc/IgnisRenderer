@@ -6,6 +6,7 @@ export interface PBRMaterialParams extends MaterialParams {
 	roughness?: number;
 	metalness?: number;
 	emissive?: RGB;
+	emissiveIntensity?: number;
 	f0?: RGB;
 	metallicRoughnessMap?: TextureLike;
 	normalMap?: TextureLike;
@@ -18,6 +19,7 @@ export class PBRMaterial extends Material {
 	public roughness: number;
 	public metalness: number;
 	public emissive: RGB;
+	public emissiveIntensity: number;
 	public f0: RGB;
 	public metallicRoughnessMap: TextureLike;
 	public normalMap: TextureLike;
@@ -31,6 +33,7 @@ export class PBRMaterial extends Material {
 		this.roughness = params.roughness !== undefined ? params.roughness : 0.5;
 		this.metalness = params.metalness !== undefined ? params.metalness : 0.0;
 		this.emissive = params.emissive || { r: 0, g: 0, b: 0 };
+		this.emissiveIntensity = params.emissiveIntensity ?? 1.0;
 		this.f0 = params.f0 || { r: 0.04 * 255, g: 0.04 * 255, b: 0.04 * 255 };
 
 		this.metallicRoughnessMap = params.metallicRoughnessMap || null;

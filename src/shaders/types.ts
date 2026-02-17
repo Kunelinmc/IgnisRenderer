@@ -15,6 +15,7 @@ export interface ShaderContext {
 	shAmbientCoeffs: SHCoefficients | null;
 	enableShadows: boolean;
 	enableSH: boolean;
+	enableGamma: boolean;
 	enableLighting: boolean;
 	gamma: number;
 }
@@ -45,6 +46,7 @@ export interface BaseSurfaceProperties {
 	opacity: number;
 	normal: IVector3;
 	emissive: RGB;
+	emissiveIntensity: number;
 }
 
 export interface PBRSurfaceProperties extends BaseSurfaceProperties {

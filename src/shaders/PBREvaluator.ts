@@ -10,6 +10,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		opacity: 1,
 		normal: { x: 0, y: 0, z: 1 },
 		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1.0,
 		roughness: 0,
 		metalness: 0,
 		f0: { r: 0, g: 0, b: 0 },
@@ -52,6 +53,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.f0.r = f0.r;
 		res.f0.g = f0.g;
 		res.f0.b = f0.b;
+		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 
 		return res;
 	}

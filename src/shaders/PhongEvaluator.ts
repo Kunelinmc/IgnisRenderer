@@ -10,6 +10,7 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		opacity: 1,
 		normal: { x: 0, y: 0, z: 1 },
 		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1.0,
 		specular: { r: 0, g: 0, b: 0 },
 		shininess: 0,
 	};

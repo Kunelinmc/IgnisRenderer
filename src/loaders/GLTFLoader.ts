@@ -196,6 +196,11 @@ export class GLTFLoader extends Loader {
 			if (m.alphaMode !== undefined) (material as any).alphaMode = m.alphaMode;
 			if (m.alphaCutoff !== undefined)
 				(material as any).alphaCutoff = m.alphaCutoff;
+			// KHR_materials_emissive_strength extension
+			if (m.extensions?.KHR_materials_emissive_strength) {
+				material.emissiveIntensity =
+					m.extensions.KHR_materials_emissive_strength.emissiveStrength ?? 1.0;
+			}
 			return material;
 		});
 	}
