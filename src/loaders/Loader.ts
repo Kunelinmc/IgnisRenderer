@@ -14,6 +14,16 @@ export interface ParseProgressEvent {
 	total: number;
 	message: string;
 }
+export interface LoaderEvents {
+	loadstart: [LoadStartEvent];
+	progress: [ProgressEvent];
+	parsestart: [];
+	parseprogress: [ParseProgressEvent];
+	load: [any];
+	error: [any];
+	[key: string]: any[];
+}
+
 /**
  * Base Loader class that provides event emission capabilities.
  * Emits:
@@ -23,8 +33,12 @@ export interface ParseProgressEvent {
  * - 'parseprogress': { current, total, message } during parsing
  * - 'load': When loading and parsing is complete
  * - 'error': When an error occurs
+/**
+ * Base Loader class that provides event emission capabilities.
  */
-export class Loader extends EventEmitter {
+export class Loader<
+	E extends LoaderEvents = LoaderEvents,
+> extends EventEmitter<E> {
 	constructor() {
 		super();
 	}
@@ -33,13 +47,13 @@ export class Loader extends EventEmitter {
 	 * @protected
 	 */
 	protected async _fetchWithProgress(url: string): Promise<ArrayBuffer> {
-		this.emit("loadstart", { url } as LoadStartEvent);
+		(this as any).emit("loadstart", { url });
 		const response = await fetch(url);
 		if (!response.ok) {
 			const error = new Error(
 				`Failed to load: ${response.statusText} (${url})`
 			);
-			this.emit("error", error);
+			(this as any).emit("error", error);
 			throw error;
 		}
 		const contentLength = response.headers.get("content-length");
@@ -47,10 +61,10 @@ export class Loader extends EventEmitter {
 		if (isNaN(total) || !response.body) {
 			// Fallback if no content-length or body stream not available
 			const buffer = await response.arrayBuffer();
-			this.emit("progress", {
+			(this as any).emit("progress", {
 				loaded: buffer.byteLength,
 				total: buffer.byteLength,
-			} as ProgressEvent);
+			});
 			return buffer;
 		}
 		const reader = response.body.getReader();
@@ -62,7 +76,7 @@ export class Loader extends EventEmitter {
 			if (value) {
 				chunks.push(value);
 				loaded += value.length;
-				this.emit("progress", { loaded, total, url } as ProgressEvent);
+				(this as any).emit("progress", { loaded, total, url });
 			}
 		}
 		const buffer = new Uint8Array(loaded);

@@ -4,9 +4,15 @@ import {
 	type ModelVertex,
 } from "../models/SimpleModel";
 import { PBRMaterial, BasicMaterial } from "../materials";
-import { Loader } from "./Loader";
+import { Loader, type LoaderEvents } from "./Loader";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Texture } from "../core/Texture";
+
+export interface GLTFLoaderEvents extends LoaderEvents {
+	load: [SimpleModel];
+	parsestart: [];
+	parseend: [SimpleModel];
+}
 
 const MAGIC_glTF = 0x46546c67;
 const CHUNK_TYPE_JSON = 0x4e4f534a;
@@ -21,10 +27,11 @@ const TYPE_SCALAR = "SCALAR";
 const TYPE_VEC2 = "VEC2";
 const TYPE_VEC3 = "VEC3";
 const TYPE_VEC4 = "VEC4";
+
 /**
  * GLTFLoader handles both .glb (binary) and .gltf (JSON + external bins) formats.
  */
-export class GLTFLoader extends Loader {
+export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	constructor() {
 		super();
 	}

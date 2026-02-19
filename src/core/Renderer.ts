@@ -26,7 +26,14 @@ import type { IModel, ProjectedFace } from "./types";
  * - Screen Space: (0,0) at top-left, (W,H) at bottom-right, pixel centers at +0.5
  */
 
-export class Renderer extends EventEmitter {
+export interface RendererEvents {
+	tick: [{ now: number; deltaTime: number }];
+	framestart: [{ now: number; deltaTime: number }];
+	frameend: [{ now: number; deltaTime: number }];
+	[key: string]: any[];
+}
+
+export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
 	private _ctx: CanvasRenderingContext2D;
 

@@ -42,15 +42,12 @@ async function init() {
 
 	const loader = new GLTFLoader();
 
-	loader.on(
-		"progress",
-		(event: { loaded: number; total: number; url: string }) => {
-			const { loaded, total, url } = event;
-			if (!total) return;
-			const percent = ((loaded / total) * 100).toFixed(1);
-			console.log(`[Loading] ${url}: ${percent}%`);
-		}
-	);
+	loader.on("progress", (event) => {
+		const { loaded, total, url } = event;
+		if (!total) return;
+		const percent = ((loaded / total) * 100).toFixed(1);
+		console.log(`[Loading] ${url}: ${percent}%`);
+	});
 
 	const model = await loader.load("./assets/duck.glb");
 
