@@ -2,15 +2,18 @@
 import { Projector } from "./Projector";
 import type { IVector3 } from "../maths/types";
 import type { SceneLight } from "../lights";
+import type { Texture } from "./Texture";
 import type { IModel, BoundingSphere } from "./types";
 
 export class Scene {
 	public models: IModel[];
 	public lights: SceneLight[];
+	public skybox: Texture | null;
 
 	constructor() {
 		this.models = [];
 		this.lights = [];
+		this.skybox = null;
 	}
 
 	public addModel(model: IModel): IModel {

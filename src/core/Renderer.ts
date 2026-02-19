@@ -59,6 +59,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		volumetricOptions: VolumetricOptions;
 		enableGamma: boolean;
 		enableReflection: boolean;
+		enableSkybox: boolean;
 		worldMatrix?: Matrix4;
 	};
 
@@ -103,6 +104,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			volumetricOptions: {},
 			enableGamma: true,
 			enableReflection: true,
+			enableSkybox: true,
 			worldMatrix: Matrix4.identity(),
 		};
 
@@ -244,6 +246,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		);
 		const pixels = imageData.data;
 
+		if (this.params.enableSkybox && this.scene.skybox) {
+			this.renderSkybox(pixels);
+		}
+
 		this._projectedModels.clear();
 		for (const model of this.scene.models) {
 			const faces = Projector.projectModel(model, this);
@@ -333,6 +339,63 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		});
 
 		requestAnimationFrame((time) => this.renderScene(time));
+	}
+
+	/**
+	 * Renders the skybox into the pixel buffer.
+	 * @param pixels - The pixel buffer to render into.
+	 */
+	public renderSkybox(pixels: Uint8ClampedArray): void {
+		const skybox = this.scene.skybox;
+		if (!skybox) return;
+
+		const w = this.canvas.width;
+		const h = this.canvas.height;
+		const camera = this.camera;
+
+		const view = camera.viewMatrix.elements;
+		// Camera basis in world space (rows of the orthonormal view matrix)
+		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
+		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
+		const backward = { x: view[2][0], y: view[2][1], z: view[2][2] };
+
+		const fovRad = (camera.fov * Math.PI) / 180;
+		const tanHalfFov = Math.tan(fovRad * 0.5);
+		const aspect = camera.aspectRatio || w / h;
+
+		for (let y = 0; y < h; y++) {
+			const ndcY = 1 - ((y + 0.5) / h) * 2;
+			const cy = ndcY * tanHalfFov;
+			const rowBase = y * w * 4;
+
+			for (let x = 0; x < w; x++) {
+				const ndcX = ((x + 0.5) / w) * 2 - 1;
+				const cx = ndcX * aspect * tanHalfFov;
+
+				// Camera direction: dir = right*cx + up*cy - backward
+				const dirX = right.x * cx + up.x * cy - backward.x;
+				const dirY = right.y * cx + up.y * cy - backward.y;
+				const dirZ = right.z * cx + up.z * cy - backward.z;
+
+				const invLen = 1.0 / Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+				const dx = dirX * invLen;
+				const dy = dirY * invLen;
+				const dz = dirZ * invLen;
+
+				// Equirectangular mapping
+				const phi = Math.atan2(dx, dz);
+				const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
+				const u = (phi + Math.PI) / (2 * Math.PI);
+				const v = theta / Math.PI;
+
+				const color = skybox.sample(u, v);
+				const idx = rowBase + x * 4;
+				pixels[idx] = color.r;
+				pixels[idx + 1] = color.g;
+				pixels[idx + 2] = color.b;
+				pixels[idx + 3] = 255;
+			}
+		}
 	}
 
 	/**
