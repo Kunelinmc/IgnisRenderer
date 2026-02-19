@@ -78,9 +78,9 @@ export class LightingConstants {
  * Shadow mapping specific constants.
  */
 export class ShadowConstants {
-	static readonly MIN_CLIP_W = RenderConstants.MIN_CLIP_W;
-	static readonly MIN_NDC_DEPTH = RenderConstants.MIN_NDC_DEPTH;
-	static readonly MAX_NDC_DEPTH = RenderConstants.MAX_NDC_DEPTH;
+	static readonly MIN_CLIP_W = 1e-6;
+	static readonly MIN_NDC_DEPTH = -1.0;
+	static readonly MAX_NDC_DEPTH = 1.0;
 
 	static readonly CLIP_PLANE_MIN_W = 0;
 	static readonly CLIP_PLANE_LEFT = 1;

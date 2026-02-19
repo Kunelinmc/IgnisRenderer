@@ -572,9 +572,9 @@ export class Rasterizer implements RasterizerLike {
 									(vx * nx + vy * ny + vz * nz) / (vLen * nLen)
 								);
 								// Fresnel Schlick: R = R0 + (1-R0)(1-cos)^5
-								// We simplify: f = (1 - dot)^3
-								const fresnelFactor = Math.pow(1.0 - dot, 3);
-								reflectivity *= 0.1 + 0.9 * fresnelFactor;
+								const R0 = material.reflectivity;
+								const fresnelFactor = R0 + (1 - R0) * Math.pow(1 - dot, 5);
+								reflectivity = fresnelFactor;
 							}
 
 							const invRef = 1 - reflectivity;
