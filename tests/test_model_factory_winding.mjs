@@ -32,6 +32,18 @@ function run() {
 		"Cylinder",
 		ModelFactory.createCylinder({ x: 0, y: 0, z: 0 }, 1, 2, 24)
 	);
+	assertWindingMatchesFaceNormal(
+		"Torus",
+		ModelFactory.createTorus({ x: 0, y: 0, z: 0 }, 2, 0.5, 16, 32)
+	);
+	assertWindingMatchesFaceNormal(
+		"Tube",
+		ModelFactory.createTube({ x: 0, y: 0, z: 0 }, 1, 2, 4, 16)
+	);
+	assertWindingMatchesFaceNormal(
+		"Cone",
+		ModelFactory.createCone({ x: 0, y: 0, z: 0 }, 1, 2, 16)
+	);
 	console.log("ModelFactory winding tests passed.");
 }
 
