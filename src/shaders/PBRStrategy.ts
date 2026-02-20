@@ -11,6 +11,24 @@ import type {
 	ShaderContext,
 } from "./types";
 
+/**
+ * Cook-Torrance PBR lighting strategy.
+ *
+ * Color pipeline:
+ *   sRGB material inputs (albedo, f0, emissive) [0-255]
+ *     → gamma decode: pow(x/255, gamma) → linear [0-1]
+ *     → all BRDF math in linear space
+ *     → ACES tone map: scene-linear → display-linear [0-1]
+ *     → scale to [0-255] and return
+ *     → PostProcessor.applyGamma does pow(x, 1/gamma) for final sRGB output
+ *
+ * Internal conventions:
+ * - All colors processed in this method are in **linear space [0-1]** unless noted.
+ * - RGB inputs from materials/lights are assumed sRGB-encoded [0-255] and decoded via pow(x/255, gamma).
+ * - SH coefficients are pre-converted to linear space in Renderer.updateSH(), so SH irradiance
+ *   output only needs normalization (/255), NOT additional gamma decoding.
+ * - The output RGB [0-255] is in display-linear space (post tone map, pre gamma encode).
+ */
 export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	public calculate(
 		world: IVector3,
@@ -22,6 +40,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Inputs N and V are already normalized in LitShader
 		const N = normal;
 		const V = viewDir;
+		// Clamp to small positive value to avoid division-by-zero in Cook-Torrance denominator.
+		// This same NdotV is shared with _GeometrySmith to keep G and denominator consistent.
 		const NdotV = Math.max(Vector3.dot(N, V), LightingConstants.PBR_MIN_NDOTV);
 		const useSHAmbient = context.enableSH && !!context.shAmbientCoeffs;
 
@@ -34,7 +54,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 		const gamma = context.gamma;
 
-		// 1. Linear Workflow: Convert inputs to Linear Space
+		// 1. Linear Workflow: Decode sRGB material inputs → linear [0-1]
+		// Material colors (albedo, f0, emissive) arrive as sRGB-encoded [0-255].
+		// pow(x/255, gamma) approximates the sRGB EOTF (gamma ≈ 2.2).
 		const alb = {
 			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
 			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
@@ -44,8 +66,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const rough = clamp(surface.roughness, 0.04, 1.0);
 		const occlusion = clamp(surface.occlusion, 0.0, 1.0);
 
-		// Common PBR practice: non-metals have a base F0 of 0.04
+		// Common PBR practice: non-metals have a base F0 of 0.04 (linear reflectance)
 		const F0_NON_METAL = 0.04;
+		// f0 input is sRGB [0-255], decode to linear [0-1]
 		const f0_norm = {
 			r: Math.pow(Math.max(0, surface.f0.r / 255), gamma),
 			g: Math.pow(Math.max(0, surface.f0.g / 255), gamma),
@@ -59,6 +82,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			b: (1 - metal) * Math.max(F0_NON_METAL, f0_norm.b) + metal * alb.b,
 		};
 
+		// Emissive: sRGB [0-255] → linear, then scaled by intensity.
+		// Emissive is additive and bypasses ambient occlusion.
 		const emissiveScale = surface.emissiveIntensity ?? 1.0;
 		const emissive = {
 			r: Math.pow(Math.max(0, surface.emissive.r / 255), gamma) * emissiveScale,
@@ -73,19 +98,25 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			if (contrib.type === "ambient") {
 				if (!useSHAmbient) {
-					// Convert ambient light to linear
-					ambientLightR += Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
-					ambientLightG += Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
-					ambientLightB += Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
+					// Ambient light color: sRGB [0-255] → linear [0-1].
+					// Accumulated in linear space; applied in the ambient term below.
+					// Skipped when SH ambient is active (SH replaces flat ambient).
+					ambientLightR +=
+						Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
+					ambientLightG +=
+						Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
+					ambientLightB +=
+						Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
 				}
 				continue;
 			}
 
 			const L = Vector3.normalize(contrib.direction);
 			const NdotL = Math.max(Vector3.dot(N, L), 0);
-			if (NdotL <= 0) continue;
+			if (NdotL <= 0) continue; // Back-facing to this light; NdotL > 0 guaranteed below
 
 			const H = Vector3.normalize(Vector3.add(L, V));
+			// Direct light radiance: sRGB [0-255] → linear [0-1], scaled by intensity
 			const radiance = {
 				r: Math.pow(contrib.color.r / 255, gamma) * lightIntensity,
 				g: Math.pow(contrib.color.g / 255, gamma) * lightIntensity,
@@ -102,7 +133,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			// Cook-Torrance math
 			const NDF = this._DistributionGGX(N, H, rough);
-			const G = this._GeometrySmith(N, V, L, rough);
+			const G = this._GeometrySmith(NdotV, NdotL, rough);
 			const F = this._FresnelSchlick(Math.max(Vector3.dot(H, V), 0), realF0);
 
 			const nominator = {
@@ -140,6 +171,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambB = 0;
 
 		if (useSHAmbient && context.shAmbientCoeffs) {
+			// SH coefficients were pre-converted to linear space in Renderer.updateSH(),
+			// so calculateIrradiance returns linear values scaled to [0-255].
+			// Only normalization (/255) is needed here — no gamma decode.
 			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
 			const irrLinear = {
 				r: irr.r / 255,
@@ -172,7 +206,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				b: ambientLightB,
 			};
 			if (ambientLightR + ambientLightG + ambientLightB === 0) {
-				// Constant low ambient if no lights
+				// Fallback ambient when no ambient lights exist.
+				// 0.05 is a sRGB reference value; decode to linear for consistency.
 				const fallback = Math.pow(0.05, gamma);
 				ambientCol.r = fallback;
 				ambientCol.g = fallback;
@@ -193,17 +228,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		ambG *= occlusion;
 		ambB *= occlusion;
 
-		// Final Combined Linear Color
+		// Final combined scene-linear color (unbounded HDR range)
 		let finalR = totalR + ambR + emissive.r;
 		let finalG = totalG + ambG + emissive.g;
 		let finalB = totalB + ambB + emissive.b;
 
-		// 2. Tone Mapping (ACES Approximation)
+		// 2. Tone Mapping (Narkowicz ACES approximation)
+		// Maps scene-linear HDR → display-linear [0-1]
 		finalR = this._acesFilm(finalR);
 		finalG = this._acesFilm(finalG);
 		finalB = this._acesFilm(finalB);
 
-		// 3. Shader output stays in linear space; gamma encode happens in post-process.
+		// 3. Scale to [0-255] and return.
+		// Output is display-linear (post tone map, pre gamma encode).
+		// PostProcessor.applyGamma() will apply pow(x, 1/gamma) for final sRGB output.
 		return {
 			r: clamp(finalR * 255, 0, 255),
 			g: clamp(finalG * 255, 0, 255),
@@ -222,23 +260,21 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		return nom / Math.max(denom, LightingConstants.GGX_EPSILON);
 	}
 
-	private _GeometrySmith(
-		N: IVector3,
-		V: IVector3,
-		L: IVector3,
-		roughness: number
-	) {
+	/**
+	 * Schlick-GGX geometry function (Smith's method).
+	 * Uses the direct lighting remapping: k = (roughness + 1)² / 8.
+	 * NdotV and NdotL are pre-clamped by the caller (NdotV ≥ PBR_MIN_NDOTV, NdotL > 0)
+	 * to stay consistent with the Cook-Torrance denominator.
+	 */
+	private _GeometrySmith(NdotV: number, NdotL: number, roughness: number) {
 		const r = roughness + 1.0;
 		const k = (r * r) / 8.0;
-		const G1V =
-			Math.max(Vector3.dot(N, V), 0) /
-			(Math.max(Vector3.dot(N, V), 0) * (1.0 - k) + k);
-		const G1L =
-			Math.max(Vector3.dot(N, L), 0) /
-			(Math.max(Vector3.dot(N, L), 0) * (1.0 - k) + k);
+		const G1V = NdotV / (NdotV * (1.0 - k) + k);
+		const G1L = NdotL / (NdotL * (1.0 - k) + k);
 		return G1V * G1L;
 	}
 
+	/** Schlick's approximation for Fresnel reflectance. F0 is in linear space. */
 	private _FresnelSchlick(cosTheta: number, F0: RGB) {
 		const f = Math.pow(Math.max(1.0 - cosTheta, 0), 5.0);
 		return {
@@ -248,6 +284,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 	}
 
+	/** Narkowicz ACES fitted curve. Input: scene-linear HDR. Output: display-linear [0-1]. */
 	private _acesFilm(x: number): number {
 		const a = 2.51;
 		const b = 0.03;
