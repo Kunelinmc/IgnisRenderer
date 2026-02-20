@@ -12,7 +12,7 @@ export type TextureWrap = "Repeat" | "Clamp" | "MirroredRepeat";
  * Texture class to store image data and metadata for UV mapping.
  */
 export class Texture {
-	data: Uint8ClampedArray | null;
+	data: Uint8ClampedArray | Float32Array | Uint8Array | null;
 	width: number;
 	height: number;
 	wrapS: TextureWrap;
@@ -23,7 +23,7 @@ export class Texture {
 	repeat: IVector2;
 
 	constructor(
-		data: Uint8ClampedArray | null = null,
+		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
 		width: number = 0,
 		height: number = 0
 	) {
@@ -73,6 +73,15 @@ export class Texture {
 		if (y >= this.height) y = this.height - 1;
 
 		const idx = (y * this.width + x) << 2;
+
+		if (this.data instanceof Float32Array) {
+			return {
+				r: Math.max(0, Math.min(255, this.data[idx] * 255)),
+				g: Math.max(0, Math.min(255, this.data[idx + 1] * 255)),
+				b: Math.max(0, Math.min(255, this.data[idx + 2] * 255)),
+				a: 255,
+			};
+		}
 
 		return {
 			r: this.data[idx],
