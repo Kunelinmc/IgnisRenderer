@@ -1,12 +1,13 @@
-export * as Vector2 from "./maths/Vector2";
-export * as Vector3 from "./maths/Vector3";
-export * as Vector4 from "./maths/Vector4";
-export * as Box2 from "./maths/Box2";
-export * as Box3 from "./maths/Box3";
-export * as Matrix3 from "./maths/Matrix3";
-export * as Matrix4 from "./maths/Matrix4";
-export * as CommonMath from "./maths/Common";
-export * as Color from "./utils/Color";
+export { Vector2 } from "./maths/Vector2";
+export { Vector3 } from "./maths/Vector3";
+export { Vector4 } from "./maths/Vector4";
+export { Box2 } from "./maths/Box2";
+export { Box3 } from "./maths/Box3";
+export { Matrix3 } from "./maths/Matrix3";
+export { Matrix4 } from "./maths/Matrix4";
+export * from "./maths/Common";
+export * from "./maths/types";
+export * from "./utils/Color";
 export { SimpleModel } from "./models/SimpleModel";
 export { ModelFactory } from "./models/ModelFactory";
 export type {
