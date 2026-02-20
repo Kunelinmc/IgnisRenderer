@@ -23,6 +23,7 @@ export { Rasterizer } from "./core/Rasterizer";
 export { PostProcessor, type VolumetricOptions } from "./core/PostProcessor";
 export { Scene } from "./core/Scene";
 export { Camera } from "./cameras/Camera";
+export { OrthographicCamera } from "./cameras/OrthographicCamera";
 export { OrbitCamera } from "./cameras/OrbitCamera";
 export { FPSCamera } from "./cameras/FPSCamera";
 export {
