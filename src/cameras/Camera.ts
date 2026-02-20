@@ -86,21 +86,7 @@ export class Camera {
 	}
 
 	public calculateProjectionMatrix(): Matrix4 {
-		const fovRad = (this.fov * Math.PI) / 180;
-		const f = 1.0 / Math.tan(fovRad / 2);
-		const range = this.near - this.far;
-
-		return new Matrix4([
-			[f / this.aspectRatio, 0, 0, 0],
-			[0, f, 0, 0],
-			[
-				0,
-				0,
-				(this.far + this.near) / range,
-				(2 * this.far * this.near) / range,
-			],
-			[0, 0, -1, 0],
-		]);
+		return Matrix4.perspective(this.fov, this.aspectRatio, this.near, this.far);
 	}
 
 	public extractFrustumPlanes(): void {
