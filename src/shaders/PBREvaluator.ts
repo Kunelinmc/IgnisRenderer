@@ -14,6 +14,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		roughness: 0,
 		metalness: 0,
 		f0: { r: 0, g: 0, b: 0 },
+		occlusion: 1.0,
 	};
 
 	public evaluate(
@@ -24,6 +25,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		const mat = this.material as PBRMaterial;
 		let albedo = mat.albedo || { r: 255, g: 255, b: 255 };
 		let alpha = mat.opacity ?? 1;
+		let roughness = mat.roughness ?? 0.5;
+		let metalness = mat.metalness ?? 0.0;
+		let occlusion = 1.0;
 
 		const tex = this._sampleMainMap(u, v);
 		if (tex) {
@@ -38,14 +42,41 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		if (mat.alphaMode === "MASK" && alpha < (mat.alphaCutoff ?? 0.5))
 			return null;
 
+		const metallicRoughnessTex = this._sampleTextureMap(
+			mat.metallicRoughnessMap,
+			u,
+			v
+		);
+		if (metallicRoughnessTex) {
+			// glTF metallicRoughness texture channels:
+			// G = roughness, B = metallic
+			roughness *= metallicRoughnessTex.g / 255;
+			metalness *= metallicRoughnessTex.b / 255;
+		}
+
+		let emissive = mat.emissive || { r: 0, g: 0, b: 0 };
+		const emissiveTex = this._sampleTextureMap(mat.emissiveMap, u, v);
+		if (emissiveTex) {
+			emissive = {
+				r: (emissive.r * emissiveTex.r) / 255,
+				g: (emissive.g * emissiveTex.g) / 255,
+				b: (emissive.b * emissiveTex.b) / 255,
+			};
+		}
+
+		const occlusionTex = this._sampleTextureMap(mat.occlusionMap, u, v);
+		if (occlusionTex) {
+			// glTF occlusion is stored in R channel and affects indirect light.
+			occlusion = occlusionTex.r / 255;
+		}
+
 		const res = this._cachedResult;
 		res.albedo.r = albedo.r;
 		res.albedo.g = albedo.g;
 		res.albedo.b = albedo.b;
 		res.opacity = alpha;
-		res.roughness = mat.roughness ?? 0.5;
-		res.metalness = mat.metalness ?? 0.0;
-		const emissive = mat.emissive || { r: 0, g: 0, b: 0 };
+		res.roughness = Math.max(0, Math.min(1, roughness));
+		res.metalness = Math.max(0, Math.min(1, metalness));
 		res.emissive.r = emissive.r;
 		res.emissive.g = emissive.g;
 		res.emissive.b = emissive.b;
@@ -54,6 +85,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.f0.g = f0.g;
 		res.f0.b = f0.b;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
+		res.occlusion = Math.max(0, Math.min(1, occlusion));
 
 		return res;
 	}

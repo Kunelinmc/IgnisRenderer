@@ -11,6 +11,7 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		normal: { x: 0, y: 0, z: 1 },
 		emissive: { r: 0, g: 0, b: 0 },
 		emissiveIntensity: 1.0,
+		ambient: { r: 0, g: 0, b: 0 },
 		specular: { r: 0, g: 0, b: 0 },
 		shininess: 0,
 	};
@@ -42,6 +43,10 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		res.albedo.g = color.g;
 		res.albedo.b = color.b;
 		res.opacity = alpha;
+		const ambient = mat.ambient || mat.diffuse || { r: 255, g: 255, b: 255 };
+		res.ambient.r = ambient.r;
+		res.ambient.g = ambient.g;
+		res.ambient.b = ambient.b;
 		const spec = mat.specular || { r: 255, g: 255, b: 255 };
 		res.specular.r = spec.r;
 		res.specular.g = spec.g;

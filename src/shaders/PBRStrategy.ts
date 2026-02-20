@@ -33,7 +33,6 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambientLightB = 0;
 
 		const gamma = context.gamma;
-		const invGamma = 1.0 / gamma;
 
 		// 1. Linear Workflow: Convert inputs to Linear Space
 		const alb = {
@@ -43,6 +42,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
+		const occlusion = clamp(surface.occlusion, 0.0, 1.0);
 
 		// Common PBR practice: non-metals have a base F0 of 0.04
 		const F0_NON_METAL = 0.04;
@@ -189,6 +189,10 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambB += ambientCol.b * realF0.b * specFactor;
 		}
 
+		ambR *= occlusion;
+		ambG *= occlusion;
+		ambB *= occlusion;
+
 		// Final Combined Linear Color
 		let finalR = totalR + ambR + emissive.r;
 		let finalG = totalG + ambG + emissive.g;
@@ -199,19 +203,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		finalG = this._acesFilm(finalG);
 		finalB = this._acesFilm(finalB);
 
-		// 3. Convert back to sRGB for 8-bit output
-		if (context.enableGamma) {
-			return {
-				r: clamp(finalR * 255, 0, 255),
-				g: clamp(finalG * 255, 0, 255),
-				b: clamp(finalB * 255, 0, 255),
-			};
-		}
-
+		// 3. Shader output stays in linear space; gamma encode happens in post-process.
 		return {
-			r: clamp(Math.pow(finalR, invGamma) * 255, 0, 255),
-			g: clamp(Math.pow(finalG, invGamma) * 255, 0, 255),
-			b: clamp(Math.pow(finalB, invGamma) * 255, 0, 255),
+			r: clamp(finalR * 255, 0, 255),
+			g: clamp(finalG * 255, 0, 255),
+			b: clamp(finalB * 255, 0, 255),
 		};
 	}
 

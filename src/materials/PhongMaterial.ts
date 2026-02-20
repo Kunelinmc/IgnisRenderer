@@ -19,7 +19,11 @@ export class PhongMaterial extends Material {
 		this.type = "Phong";
 		this.diffuse = params.diffuse || { r: 255, g: 255, b: 255 };
 		this.specular = params.specular || { r: 255, g: 255, b: 255 };
-		this.ambient = params.ambient || { r: 0, g: 0, b: 0 };
+		this.ambient = params.ambient || {
+			r: this.diffuse.r,
+			g: this.diffuse.g,
+			b: this.diffuse.b,
+		};
 		this.shininess = params.shininess || 32;
 	}
 }

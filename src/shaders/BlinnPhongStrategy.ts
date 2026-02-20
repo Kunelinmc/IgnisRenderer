@@ -34,12 +34,16 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			specB = 0;
 
 		const gamma = context.gamma;
-		const invGamma = 1.0 / gamma;
 
 		const alb = {
 			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
 			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
 			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
+		};
+		const ambColor = {
+			r: Math.pow(Math.max(0, surface.ambient.r / 255), gamma),
+			g: Math.pow(Math.max(0, surface.ambient.g / 255), gamma),
+			b: Math.pow(Math.max(0, surface.ambient.b / 255), gamma),
 		};
 
 		// Ambient IBL or simple
@@ -101,23 +105,15 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			b: Math.pow(Math.max(0, surface.specular.b / 255), gamma),
 		};
 
-		const finalR = alb.r * (ambR + diffR) + specR * specColor.r;
-		const finalG = alb.g * (ambG + diffG) + specG * specColor.g;
-		const finalB = alb.b * (ambB + diffB) + specB * specColor.b;
+		const finalR = ambR * ambColor.r + diffR * alb.r + specR * specColor.r;
+		const finalG = ambG * ambColor.g + diffG * alb.g + specG * specColor.g;
+		const finalB = ambB * ambColor.b + diffB * alb.b + specB * specColor.b;
 
-		// No Tone mapping for Blinn-Phong to keep it simple/classic, but back to sRGB
-		if (context.enableGamma) {
-			return {
-				r: clamp(Math.max(0, finalR) * 255, 0, 255),
-				g: clamp(Math.max(0, finalG) * 255, 0, 255),
-				b: clamp(Math.max(0, finalB) * 255, 0, 255),
-			};
-		}
-
+		// Shader output stays in linear space; optional gamma encode happens in post-process
 		return {
-			r: clamp(Math.pow(Math.max(0, finalR), invGamma) * 255, 0, 255),
-			g: clamp(Math.pow(Math.max(0, finalG), invGamma) * 255, 0, 255),
-			b: clamp(Math.pow(Math.max(0, finalB), invGamma) * 255, 0, 255),
+			r: clamp(Math.max(0, finalR) * 255, 0, 255),
+			g: clamp(Math.max(0, finalG) * 255, 0, 255),
+			b: clamp(Math.max(0, finalB) * 255, 0, 255),
 		};
 	}
 }

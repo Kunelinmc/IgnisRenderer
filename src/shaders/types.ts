@@ -53,10 +53,12 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	roughness: number;
 	metalness: number;
 	f0: RGB;
+	occlusion: number;
 }
 
 export interface PhongSurfaceProperties extends BaseSurfaceProperties {
 	type: "phong";
+	ambient: RGB;
 	specular: RGB;
 	shininess: number;
 }
