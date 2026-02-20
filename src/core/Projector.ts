@@ -2,6 +2,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
 import type { IModel, IVertex, ProjectedVertex, ProjectedFace } from "./types";
 import type { Renderer } from "./Renderer";
+import { CameraType } from "../cameras/Camera";
 
 export class Projector {
 	/**
@@ -158,7 +159,7 @@ export class Projector {
 			);
 
 			const v0 = clippedVerts[0].view;
-			const isOrthographic = (renderer.camera as any).isOrthographicCamera;
+			const isOrthographic = renderer.camera.type === CameraType.Orthographic;
 
 			// For perspective, we check if the face is looking away from the camera origin (v0 - 0)
 			// For orthographic, we check if the face normal is looking away from the view direction (0, 0, -1)

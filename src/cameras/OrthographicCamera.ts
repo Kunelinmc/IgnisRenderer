@@ -1,4 +1,4 @@
-import { Camera } from "./Camera";
+import { Camera, CameraType } from "./Camera";
 import { Matrix4 } from "../maths/Matrix4";
 
 /**
@@ -7,10 +7,10 @@ import { Matrix4 } from "../maths/Matrix4";
 export class OrthographicCamera extends Camera {
 	/** Provide the vertical size of the visible area. The horizontal size is computed via the aspect ratio. */
 	public size: number = 100;
-	public isOrthographicCamera = true;
 
 	constructor(size: number = 100) {
 		super();
+		this.type = CameraType.Orthographic;
 		this.size = size;
 
 		this.updateMatrices();

@@ -1,7 +1,7 @@
 import { Vector3 } from "../maths/Vector3";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
-import { Camera } from "../cameras/Camera";
+import { Camera, CameraType } from "../cameras/Camera";
 import { Scene } from "./Scene";
 import { EventEmitter } from "./EventEmitter";
 import { ShadowMap } from "../utils/ShadowMapping";
@@ -359,7 +359,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
 		const backward = { x: view[2][0], y: view[2][1], z: view[2][2] };
 
-		const isOrthographic = (camera as any).isOrthographicCamera;
+		const isOrthographic = camera.type === CameraType.Orthographic;
 		const fovRad = (camera.fov * Math.PI) / 180;
 		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
 		const aspect = camera.aspectRatio || w / h;

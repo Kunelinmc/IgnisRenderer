@@ -4,7 +4,13 @@ import { Vector3 } from "../maths/Vector3";
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 
+export enum CameraType {
+	Perspective = "perspective",
+	Orthographic = "orthographic",
+}
+
 export class Camera {
+	public type: CameraType = CameraType.Perspective;
 	public position: Vector3;
 	public quaternion: Quaternion;
 	public up: Vector3;
