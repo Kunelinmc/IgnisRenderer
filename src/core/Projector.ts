@@ -152,14 +152,21 @@ export class Projector {
 
 			if (clippedVerts.length < 3) continue;
 
-			// 2. Backface culling in camera space (Corrected for perspective)
+			// 2. Backface culling in camera space
 			const cullNormal = Vector3.calculateNormal(
 				clippedVerts.map((v) => v.view)
 			);
 
 			const v0 = clippedVerts[0].view;
+			const isOrthographic = (renderer.camera as any).isOrthographicCamera;
+
+			// For perspective, we check if the face is looking away from the camera origin (v0 - 0)
+			// For orthographic, we check if the face normal is looking away from the view direction (0, 0, -1)
 			const dot =
-				cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
+				isOrthographic ?
+					-cullNormal.z
+				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
+
 			const material = face.material;
 			const isDoubleSided = material?.doubleSided || face.doubleSided;
 

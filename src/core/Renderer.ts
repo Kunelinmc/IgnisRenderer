@@ -359,8 +359,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
 		const backward = { x: view[2][0], y: view[2][1], z: view[2][2] };
 
+		const isOrthographic = (camera as any).isOrthographicCamera;
 		const fovRad = (camera.fov * Math.PI) / 180;
-		const tanHalfFov = Math.tan(fovRad * 0.5);
+		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
 		const aspect = camera.aspectRatio || w / h;
 
 		for (let y = 0; y < h; y++) {
