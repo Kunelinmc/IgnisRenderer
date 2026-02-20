@@ -60,6 +60,50 @@ The renderer is organized into modular components:
 - **`cameras/`**: Viewport and projection management.
 - **`lights/`**: Light source definitions and property management.
 
+### 🔄 Rendering Pipeline Flow
+
+```mermaid
+graph TD
+    A([Target Frame Render]) --> B[Update Camera & Lights Matrices]
+    B --> C{Pre-Passes}
+    C -->|If enabled| D[Shadow Mapping]
+    C -->|If enabled| E[Planar Reflections]
+    C --> F[Clear Color & Depth Buffers]
+    D --> F
+    E --> F
+
+    F --> G[Render Skybox]
+    G --> H[Begin Vertex Processing]
+
+    subgraph 1. Geometry Pipeline [Projector]
+        H --> I[Model/World/View Transform]
+        I --> J[Near Plane Clipping]
+        J --> K[Camera Space Backface Culling]
+        K --> L[Screen Space Projection]
+    end
+
+    L --> M[Separate Opaque & Transparent Faces]
+    M --> N[Draw Opaque Triangles]
+    N --> O[Draw Transparent Triangles]
+
+    subgraph 2. Rasterization Pipeline [Rasterizer]
+        O --> P[Scanline Interpolation]
+        P --> Q[Perspective Correct Texturing & Z-Test]
+        Q --> R[Fragment Shading - PBR/Phong/Unlit]
+    end
+
+    R --> S{Post-Processing}
+
+    S -.->|Optional| T[FXAA]
+    S -.->|Optional| U[Volumetric Lighting]
+    S -.->|Optional| V[Gamma Correction]
+
+    T -.-> W
+    U -.-> W
+    V -.-> W
+    S --> W([Blit to Final Canvas])
+```
+
 ---
 
 ## 🚦 Getting Started
