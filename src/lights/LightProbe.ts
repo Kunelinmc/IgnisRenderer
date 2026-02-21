@@ -1,6 +1,6 @@
 import { SH } from "../maths/SH";
+import { sRGBToLinear } from "../maths/Common";
 import { Light, LightType, type LightContribution } from "./Light";
-import { PostProcessConstants } from "../core/Constants";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { Texture } from "../core/Texture";
 
@@ -83,20 +83,19 @@ export class LightProbe extends Light<LightType.LightProbe> {
 				const idx = (j * width + i) * 4;
 
 				// Convert texture values to linear and keep engine-wide 0..255 light units.
-				// HDR data is already linear; sRGB (Uint8) needs gamma removal.
+				// HDR data is already linear; sRGB (Uint8) needs sRGB EOTF decode.
 				const isLinear =
 					envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
-				const gamma = PostProcessConstants.DEFAULT_GAMMA;
 				const r =
-					isLinear ? data[idx] * 255 : Math.pow(data[idx] / 255, gamma) * 255;
+					isLinear ? data[idx] * 255 : sRGBToLinear(data[idx] / 255) * 255;
 				const g =
 					isLinear ?
 						data[idx + 1] * 255
-					:	Math.pow(data[idx + 1] / 255, gamma) * 255;
+					:	sRGBToLinear(data[idx + 1] / 255) * 255;
 				const b =
 					isLinear ?
 						data[idx + 2] * 255
-					:	Math.pow(data[idx + 2] / 255, gamma) * 255;
+					:	sRGBToLinear(data[idx + 2] / 255) * 255;
 
 				for (let k = 0; k < 9; k++) {
 					const bK = basis[k] * weight;

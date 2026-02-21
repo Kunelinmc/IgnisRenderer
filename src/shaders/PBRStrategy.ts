@@ -2,7 +2,7 @@ import { Vector3 } from "../maths/Vector3";
 import { SH } from "../maths/SH";
 import { isShadowCastingLight } from "../lights";
 import { LightingConstants } from "../core/Constants";
-import { clamp } from "../maths/Common";
+import { clamp, sRGBToLinear } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import type {
@@ -16,18 +16,19 @@ import type {
  *
  * Color pipeline:
  *   sRGB material inputs (albedo, f0, emissive) [0-255]
- *     → gamma decode: pow(x/255, gamma) → linear [0-1]
+ *     → sRGB EOTF decode: sRGBToLinear(x/255) → linear [0-1]
  *     → all BRDF math in linear space
  *     → ACES tone map: scene-linear → display-linear [0-1]
  *     → scale to [0-255] and return
- *     → PostProcessor.applyGamma does pow(x, 1/gamma) for final sRGB output
+ *     → PostProcessor.applyGamma applies the sRGB OETF for final sRGB output
  *
  * Internal conventions:
  * - All colors processed in this method are in **linear space [0-1]** unless noted.
- * - RGB inputs from materials/lights are assumed sRGB-encoded [0-255] and decoded via pow(x/255, gamma).
+ * - RGB inputs from materials/lights are assumed sRGB-encoded [0-255] and decoded
+ *   via sRGBToLinear() — the exact IEC 61966-2-1 piecewise transfer function.
  * - SH coefficients are pre-converted to linear space in Renderer.updateSH(), so SH irradiance
- *   output only needs normalization (/255), NOT additional gamma decoding.
- * - The output RGB [0-255] is in display-linear space (post tone map, pre gamma encode).
+ *   output only needs normalization (/255), NOT additional sRGB decoding.
+ * - The output RGB [0-255] is in display-linear space (post tone map, pre sRGB encode).
  */
 export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	public calculate(
@@ -52,15 +53,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambientLightG = 0,
 			ambientLightB = 0;
 
-		const gamma = context.gamma;
-
 		// 1. Linear Workflow: Decode sRGB material inputs → linear [0-1]
 		// Material colors (albedo, f0, emissive) arrive as sRGB-encoded [0-255].
-		// pow(x/255, gamma) approximates the sRGB EOTF (gamma ≈ 2.2).
+		// sRGBToLinear() applies the exact IEC 61966-2-1 piecewise EOTF.
 		const alb = {
-			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
+			r: sRGBToLinear(Math.max(0, surface.albedo.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.albedo.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.albedo.b / 255)),
 		};
 		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
@@ -72,9 +71,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const F0_NON_METAL = 0.04;
 		// f0 input is sRGB [0-255], decode to linear [0-1]
 		const f0_norm = {
-			r: Math.pow(Math.max(0, surface.f0.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.f0.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.f0.b / 255), gamma),
+			r: sRGBToLinear(Math.max(0, surface.f0.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.f0.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.f0.b / 255)),
 		};
 
 		// Metalness workflow: metals have albedo as F0, non-metals use a small constant or f0 param
@@ -88,9 +87,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Emissive is additive and bypasses ambient occlusion.
 		const emissiveScale = surface.emissiveIntensity ?? 1.0;
 		const emissive = {
-			r: Math.pow(Math.max(0, surface.emissive.r / 255), gamma) * emissiveScale,
-			g: Math.pow(Math.max(0, surface.emissive.g / 255), gamma) * emissiveScale,
-			b: Math.pow(Math.max(0, surface.emissive.b / 255), gamma) * emissiveScale,
+			r: sRGBToLinear(Math.max(0, surface.emissive.r / 255)) * emissiveScale,
+			g: sRGBToLinear(Math.max(0, surface.emissive.g / 255)) * emissiveScale,
+			b: sRGBToLinear(Math.max(0, surface.emissive.b / 255)) * emissiveScale,
 		};
 
 		for (const light of context.lights) {
@@ -103,12 +102,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					// Ambient light color: sRGB [0-255] → linear [0-1].
 					// Accumulated in linear space; applied in the ambient term below.
 					// Skipped when SH ambient is active (SH replaces flat ambient).
-					ambientLightR +=
-						Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
-					ambientLightG +=
-						Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
-					ambientLightB +=
-						Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
+					ambientLightR += sRGBToLinear(contrib.color.r / 255) * lightIntensity;
+					ambientLightG += sRGBToLinear(contrib.color.g / 255) * lightIntensity;
+					ambientLightB += sRGBToLinear(contrib.color.b / 255) * lightIntensity;
 				}
 				continue;
 			}
@@ -120,9 +116,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const H = Vector3.normalize(Vector3.add(L, V));
 			// Direct light radiance: sRGB [0-255] → linear [0-1], scaled by intensity
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, gamma) * lightIntensity,
-				g: Math.pow(contrib.color.g / 255, gamma) * lightIntensity,
-				b: Math.pow(contrib.color.b / 255, gamma) * lightIntensity,
+				r: sRGBToLinear(contrib.color.r / 255) * lightIntensity,
+				g: sRGBToLinear(contrib.color.g / 255) * lightIntensity,
+				b: sRGBToLinear(contrib.color.b / 255) * lightIntensity,
 			};
 
 			let shadow = { r: 1, g: 1, b: 1 };
@@ -269,20 +265,28 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			if (ambientLightR + ambientLightG + ambientLightB === 0) {
 				// Fallback ambient when no ambient lights exist.
 				// 0.05 is a sRGB reference value; decode to linear for consistency.
-				const fallback = Math.pow(0.05, gamma);
+				const fallback = sRGBToLinear(0.05);
 				ambientCol.r = fallback;
 				ambientCol.g = fallback;
 				ambientCol.b = fallback;
 			}
+
+			// Fresnel-based kD for ambient diffuse (consistent with SH branch)
+			const F_amb = this._FresnelSchlick(NdotV, realF0);
+			const kD_amb = {
+				r: (1.0 - F_amb.r) * (1.0 - metal),
+				g: (1.0 - F_amb.g) * (1.0 - metal),
+				b: (1.0 - F_amb.b) * (1.0 - metal),
+			};
 
 			// Clearcoat for simple ambient
 			const ccAmbFresnel =
 				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
 			const baseAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
 
-			ambR = ambientCol.r * alb.r * (1 - metal) * baseAttenuationAmb;
-			ambG = ambientCol.g * alb.g * (1 - metal) * baseAttenuationAmb;
-			ambB = ambientCol.b * alb.b * (1 - metal) * baseAttenuationAmb;
+			ambR = ambientCol.r * alb.r * kD_amb.r * baseAttenuationAmb;
+			ambG = ambientCol.g * alb.g * kD_amb.g * baseAttenuationAmb;
+			ambB = ambientCol.b * alb.b * kD_amb.b * baseAttenuationAmb;
 
 			const specFactor = LightingConstants.PBR_SPEC_FALLBACK;
 			const ccSpecFactor = Math.max(
@@ -317,8 +321,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		finalB = this._acesFilm(finalB);
 
 		// 3. Scale to [0-255] and return.
-		// Output is display-linear (post tone map, pre gamma encode).
-		// PostProcessor.applyGamma() will apply pow(x, 1/gamma) for final sRGB output.
+		// Output is display-linear (post tone map, pre sRGB encode).
+		// PostProcessor.applyGamma() will apply the sRGB OETF for final sRGB output.
 		return {
 			r: clamp(finalR * 255, 0, 255),
 			g: clamp(finalG * 255, 0, 255),
@@ -369,16 +373,18 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 	/**
 	 * Geometry function for clearcoat using Schlick-GGX (Smith's method).
-	 * Uses the same direct lighting remapping as the base layer: k = (roughness + 1)² / 8.
-	 * clearcoatRoughness controls the geometric shadowing/masking of the clearcoat layer.
+	 * Uses the isotropic remapping k = α² / 2 (where α = roughness²),
+	 * per the Filament/glTF clearcoat convention. This differs from the base
+	 * layer's direct lighting remapping k = (roughness + 1)² / 8, and better
+	 * models the smooth, isotropic nature of the clearcoat layer.
 	 */
 	private _GeometrySmithClearcoat(
 		NdotV: number,
 		NdotL: number,
 		roughness: number
 	) {
-		const r = roughness + 1.0;
-		const k = (r * r) / 8.0;
+		const a = roughness * roughness;
+		const k = a / 2.0;
 		const G1V = NdotV / (NdotV * (1.0 - k) + k);
 		const G1L = NdotL / (NdotL * (1.0 - k) + k);
 		return G1V * G1L;

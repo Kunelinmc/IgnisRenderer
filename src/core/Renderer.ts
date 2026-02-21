@@ -11,6 +11,7 @@ import { ReflectionRenderer } from "./ReflectionRenderer";
 import { Rasterizer } from "./Rasterizer";
 import { PostProcessor } from "./PostProcessor";
 import { PostProcessConstants } from "./Constants";
+import { sRGBToLinear } from "../maths/Common";
 import { LightType, type ShadowCastingLight } from "../lights";
 import type { SHCoefficients } from "../maths/types";
 import type { PostProcessorLike, VolumetricOptions } from "./PostProcessor";
@@ -258,6 +259,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		const opaqueFaces: ProjectedFace[] = [];
 		const transparentFaces: ProjectedFace[] = [];
+
 		for (const model of this.scene.models) {
 			const faces = this._projectedModels.get(model) || [];
 			for (let i = 0, len = faces.length; i < len; i++) {
@@ -410,7 +412,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ambientG = 0,
 			ambientB = 0;
 		let hasAmbient = false;
-		const gamma = PostProcessConstants.DEFAULT_GAMMA;
 
 		const worldMatrix = this.params.worldMatrix || Matrix4.identity();
 
@@ -422,9 +423,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				if (light.type === LightType.Ambient) {
 					const color = light.color || { r: 255, g: 255, b: 255 };
 					const intensity = light.intensity ?? 1;
-					ambientR += Math.pow(color.r / 255, gamma) * 255 * intensity;
-					ambientG += Math.pow(color.g / 255, gamma) * 255 * intensity;
-					ambientB += Math.pow(color.b / 255, gamma) * 255 * intensity;
+					ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
+					ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
+					ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
 					hasAmbient = true;
 				} else if (light.type === LightType.LightProbe) {
 					const probeSH = light.sh;
@@ -445,7 +446,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ambientProbeSH[0].b === 0
 		) {
 			const fallbackSrgb = 51 / 255;
-			const fallbackLinear = Math.pow(fallbackSrgb, gamma) * 255;
+			const fallbackLinear = sRGBToLinear(fallbackSrgb) * 255;
 			ambientR = fallbackLinear;
 			ambientG = fallbackLinear;
 			ambientB = fallbackLinear;

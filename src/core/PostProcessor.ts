@@ -8,7 +8,7 @@ import {
 	LightType,
 	isShadowCastingLight,
 } from "../lights";
-import { clamp } from "../maths/Common";
+import { clamp, linearToSRGB } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 
 export interface PostProcessorLike {
@@ -65,8 +65,8 @@ type VolumetricLight = DirectionalLight | PointLight | SpotLight;
  * PostProcessor handles various image-space effects like FXAA, Volumetric Lighting, and Gamma Correction.
  */
 export class PostProcessor implements PostProcessorLike {
-	private _gammaLUT: Uint8Array;
-	private _lastGamma: number;
+	private _sRGBLUT: Uint8Array;
+	private _lutBuilt: boolean;
 	private _prevScatterBuf: Float32Array | null;
 	private _frameIndex: number;
 	private _fxaaOutput?: Uint8ClampedArray;
@@ -80,8 +80,8 @@ export class PostProcessor implements PostProcessorLike {
 
 	constructor(renderer: Renderer) {
 		this.renderer = renderer;
-		this._gammaLUT = new Uint8Array(256);
-		this._lastGamma = -1;
+		this._sRGBLUT = new Uint8Array(256);
+		this._lutBuilt = false;
 		this._prevScatterBuf = null;
 		this._prevVolumetricBuf = null;
 		this._frameIndex = 0;
@@ -818,19 +818,18 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
-	private _updateGammaLUT(gamma: number): void {
-		if (this._lastGamma === gamma) return;
-		const invGamma = 1.0 / gamma;
+	private _buildSRGBLUT(): void {
+		if (this._lutBuilt) return;
 		for (let i = 0; i < 256; i++) {
-			this._gammaLUT[i] = Math.pow(i / 255.0, invGamma) * 255.0;
+			this._sRGBLUT[i] = Math.round(linearToSRGB(i / 255.0) * 255.0);
 		}
-		this._lastGamma = gamma;
+		this._lutBuilt = true;
 	}
 
 	public applyGamma(
 		ctx: CanvasRenderingContext2D,
 		canvas: HTMLCanvasElement,
-		gamma: number = PostProcessConstants.DEFAULT_GAMMA,
+		_gamma: number = PostProcessConstants.DEFAULT_GAMMA,
 		pixels: Uint8ClampedArray | null = null
 	): void {
 		const w = canvas.width,
@@ -840,13 +839,8 @@ export class PostProcessor implements PostProcessorLike {
 			imageData = ctx.getImageData(0, 0, w, h);
 			pixels = imageData.data;
 		}
-		const safeGamma = clamp(
-			this._toFiniteNumber(gamma, PostProcessConstants.DEFAULT_GAMMA),
-			PostProcessConstants.MIN_GAMMA,
-			PostProcessConstants.MAX_GAMMA
-		);
-		this._updateGammaLUT(safeGamma);
-		const lut = this._gammaLUT;
+		this._buildSRGBLUT();
+		const lut = this._sRGBLUT;
 		for (let i = 0; i < pixels.length; i += 4) {
 			pixels[i] = lut[pixels[i]];
 			pixels[i + 1] = lut[pixels[i + 1]];

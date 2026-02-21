@@ -1,7 +1,7 @@
 import { Vector3 } from "../maths/Vector3";
 import { SH } from "../maths/SH";
 import { isShadowCastingLight } from "../lights";
-import { clamp } from "../maths/Common";
+import { clamp, sRGBToLinear } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import type {
@@ -33,17 +33,15 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			specG = 0,
 			specB = 0;
 
-		const gamma = context.gamma;
-
 		const alb = {
-			r: Math.pow(Math.max(0, surface.albedo.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.albedo.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.albedo.b / 255), gamma),
+			r: sRGBToLinear(Math.max(0, surface.albedo.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.albedo.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.albedo.b / 255)),
 		};
 		const ambColor = {
-			r: Math.pow(Math.max(0, surface.ambient.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.ambient.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.ambient.b / 255), gamma),
+			r: sRGBToLinear(Math.max(0, surface.ambient.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.ambient.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.ambient.b / 255)),
 		};
 
 		// Ambient IBL or simple
@@ -61,9 +59,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 			if (contrib.type === "ambient") {
 				if (useSHAmbient) continue;
-				ambR += Math.pow(contrib.color.r / 255, gamma) * lightIntensity;
-				ambG += Math.pow(contrib.color.g / 255, gamma) * lightIntensity;
-				ambB += Math.pow(contrib.color.b / 255, gamma) * lightIntensity;
+				ambR += sRGBToLinear(contrib.color.r / 255) * lightIntensity;
+				ambG += sRGBToLinear(contrib.color.g / 255) * lightIntensity;
+				ambB += sRGBToLinear(contrib.color.b / 255) * lightIntensity;
 				continue;
 			}
 
@@ -79,9 +77,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			}
 
 			const radiance = {
-				r: Math.pow(contrib.color.r / 255, gamma) * lightIntensity,
-				g: Math.pow(contrib.color.g / 255, gamma) * lightIntensity,
-				b: Math.pow(contrib.color.b / 255, gamma) * lightIntensity,
+				r: sRGBToLinear(contrib.color.r / 255) * lightIntensity,
+				g: sRGBToLinear(contrib.color.g / 255) * lightIntensity,
+				b: sRGBToLinear(contrib.color.b / 255) * lightIntensity,
 			};
 
 			// Diffuse
@@ -100,9 +98,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		}
 
 		const specColor = {
-			r: Math.pow(Math.max(0, surface.specular.r / 255), gamma),
-			g: Math.pow(Math.max(0, surface.specular.g / 255), gamma),
-			b: Math.pow(Math.max(0, surface.specular.b / 255), gamma),
+			r: sRGBToLinear(Math.max(0, surface.specular.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.specular.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.specular.b / 255)),
 		};
 
 		const finalR = ambR * ambColor.r + diffR * alb.r + specR * specColor.r;
