@@ -15,6 +15,8 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		metalness: 0,
 		f0: { r: 0, g: 0, b: 0 },
 		occlusion: 1.0,
+		clearcoat: 0.0,
+		clearcoatRoughness: 0.0,
 	};
 
 	public evaluate(
@@ -86,6 +88,11 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.f0.b = f0.b;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 		res.occlusion = Math.max(0, Math.min(1, occlusion));
+		res.clearcoat = mat.clearcoat ?? 0.0;
+		res.clearcoatRoughness = Math.max(
+			0,
+			Math.min(1, mat.clearcoatRoughness ?? 0.0)
+		);
 
 		return res;
 	}

@@ -12,6 +12,8 @@ export interface PBRMaterialParams extends MaterialParams {
 	normalMap?: TextureLike;
 	emissiveMap?: TextureLike;
 	occlusionMap?: TextureLike;
+	clearcoat?: number;
+	clearcoatRoughness?: number;
 }
 
 export class PBRMaterial extends Material {
@@ -25,6 +27,8 @@ export class PBRMaterial extends Material {
 	public normalMap: TextureLike;
 	public emissiveMap: TextureLike;
 	public occlusionMap: TextureLike;
+	public clearcoat: number;
+	public clearcoatRoughness: number;
 
 	constructor(params: PBRMaterialParams = {}) {
 		super({ ...params, shading: "PBR" });
@@ -40,5 +44,7 @@ export class PBRMaterial extends Material {
 		this.normalMap = params.normalMap || null;
 		this.emissiveMap = params.emissiveMap || null;
 		this.occlusionMap = params.occlusionMap || null;
+		this.clearcoat = params.clearcoat ?? 0.0;
+		this.clearcoatRoughness = params.clearcoatRoughness ?? 0.0;
 	}
 }

@@ -65,6 +65,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
 		const occlusion = clamp(surface.occlusion, 0.0, 1.0);
+		const clearcoat = clamp(surface.clearcoat, 0.0, 1.0);
+		const clearcoatRoughness = clamp(surface.clearcoatRoughness, 0.04, 1.0);
 
 		// Common PBR practice: non-metals have a base F0 of 0.04 (linear reflectance)
 		const F0_NON_METAL = 0.04;
@@ -157,12 +159,50 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				b: (1 - kS.b) * (1 - metal),
 			};
 
+			// Clearcoat calculations
+			let ccSpecular = { r: 0, g: 0, b: 0 };
+			let ccFresnel = { r: 0, g: 0, b: 0 };
+			if (clearcoat > 0) {
+				const HdotV = Math.max(Vector3.dot(H, V), 0);
+				const NDF_cc = this._DistributionGGX(N, H, clearcoatRoughness);
+				const G_cc = this._GeometrySmithClearcoat(
+					NdotV,
+					NdotL,
+					clearcoatRoughness
+				);
+				const F_cc = this._FresnelSchlickScalar(HdotV, 0.04);
+				ccFresnel = { r: F_cc, g: F_cc, b: F_cc };
+
+				const ccDenom = 4 * NdotV * NdotL + LightingConstants.PBR_DENOM_EPSILON;
+				const ccValue = (NDF_cc * G_cc * F_cc) / ccDenom;
+				ccSpecular = { r: ccValue, g: ccValue, b: ccValue };
+			}
+
+			// Attenuate base layer by (1 - F_cc * clearcoat)
+			const baseAttenuation = {
+				r: 1.0 - ccFresnel.r * clearcoat,
+				g: 1.0 - ccFresnel.g * clearcoat,
+				b: 1.0 - ccFresnel.b * clearcoat,
+			};
+
 			totalR +=
-				((kD.r * alb.r) / Math.PI + specular.r) * radiance.r * NdotL * shadow.r;
+				(((kD.r * alb.r) / Math.PI + specular.r) * baseAttenuation.r +
+					ccSpecular.r * clearcoat) *
+				radiance.r *
+				NdotL *
+				shadow.r;
 			totalG +=
-				((kD.g * alb.g) / Math.PI + specular.g) * radiance.g * NdotL * shadow.g;
+				(((kD.g * alb.g) / Math.PI + specular.g) * baseAttenuation.g +
+					ccSpecular.g * clearcoat) *
+				radiance.g *
+				NdotL *
+				shadow.g;
 			totalB +=
-				((kD.b * alb.b) / Math.PI + specular.b) * radiance.b * NdotL * shadow.b;
+				(((kD.b * alb.b) / Math.PI + specular.b) * baseAttenuation.b +
+					ccSpecular.b * clearcoat) *
+				radiance.b *
+				NdotL *
+				shadow.b;
 		}
 
 		// Improved Ambient/IBL
@@ -187,18 +227,39 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				g: (1.0 - F_amb.g) * (1.0 - metal),
 				b: (1.0 - F_amb.b) * (1.0 - metal),
 			};
-			ambR = irrLinear.r * alb.r * kD_amb.r;
-			ambG = irrLinear.g * alb.g * kD_amb.g;
-			ambB = irrLinear.b * alb.b * kD_amb.b;
+
+			// Clearcoat Ambient
+			let ccAmbFresnel = 0;
+			let ccAmbSpec = 0;
+			if (clearcoat > 0) {
+				ccAmbFresnel = this._FresnelSchlickScalar(NdotV, 0.04);
+				const ccSpecFactor = Math.max(
+					LightingConstants.PBR_SPEC_FALLBACK,
+					(1.0 - clearcoatRoughness) * 0.5
+				);
+				ccAmbSpec = ccAmbFresnel * ccSpecFactor;
+			}
+
+			const baseAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
+
+			ambR = irrLinear.r * alb.r * kD_amb.r * baseAttenuationAmb;
+			ambG = irrLinear.g * alb.g * kD_amb.g * baseAttenuationAmb;
+			ambB = irrLinear.b * alb.b * kD_amb.b * baseAttenuationAmb;
 
 			// Simplified Specular IBL fallback
 			const specFactor = Math.max(
 				LightingConstants.PBR_SPEC_FALLBACK,
 				(1.0 - rough) * 0.5
 			);
-			ambR += irrLinear.r * F_amb.r * specFactor;
-			ambG += irrLinear.g * F_amb.g * specFactor;
-			ambB += irrLinear.b * F_amb.b * specFactor;
+			ambR +=
+				irrLinear.r * F_amb.r * specFactor * baseAttenuationAmb +
+				irrLinear.r * ccAmbSpec * clearcoat;
+			ambG +=
+				irrLinear.g * F_amb.g * specFactor * baseAttenuationAmb +
+				irrLinear.g * ccAmbSpec * clearcoat;
+			ambB +=
+				irrLinear.b * F_amb.b * specFactor * baseAttenuationAmb +
+				irrLinear.b * ccAmbSpec * clearcoat;
 		} else {
 			const ambientCol = {
 				r: ambientLightR,
@@ -214,14 +275,30 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				ambientCol.b = fallback;
 			}
 
-			ambR = ambientCol.r * alb.r * (1 - metal);
-			ambG = ambientCol.g * alb.g * (1 - metal);
-			ambB = ambientCol.b * alb.b * (1 - metal);
+			// Clearcoat for simple ambient
+			const ccAmbFresnel =
+				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
+			const baseAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
+
+			ambR = ambientCol.r * alb.r * (1 - metal) * baseAttenuationAmb;
+			ambG = ambientCol.g * alb.g * (1 - metal) * baseAttenuationAmb;
+			ambB = ambientCol.b * alb.b * (1 - metal) * baseAttenuationAmb;
 
 			const specFactor = LightingConstants.PBR_SPEC_FALLBACK;
-			ambR += ambientCol.r * realF0.r * specFactor;
-			ambG += ambientCol.g * realF0.g * specFactor;
-			ambB += ambientCol.b * realF0.b * specFactor;
+			const ccSpecFactor = Math.max(
+				LightingConstants.PBR_SPEC_FALLBACK,
+				(1.0 - clearcoatRoughness) * 0.5
+			);
+
+			ambR +=
+				ambientCol.r * realF0.r * specFactor * baseAttenuationAmb +
+				ambientCol.r * ccAmbFresnel * ccSpecFactor * clearcoat;
+			ambG +=
+				ambientCol.g * realF0.g * specFactor * baseAttenuationAmb +
+				ambientCol.g * ccAmbFresnel * ccSpecFactor * clearcoat;
+			ambB +=
+				ambientCol.b * realF0.b * specFactor * baseAttenuationAmb +
+				ambientCol.b * ccAmbFresnel * ccSpecFactor * clearcoat;
 		}
 
 		ambR *= occlusion;
@@ -282,6 +359,29 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			g: F0.g + (1.0 - F0.g) * f,
 			b: F0.b + (1.0 - F0.b) * f,
 		};
+	}
+
+	/** Schlick Fresnel for a single scalar value (useful for Clearcoat F0=0.04). */
+	private _FresnelSchlickScalar(cosTheta: number, F0: number) {
+		const f = Math.pow(Math.max(1.0 - cosTheta, 0), 5.0);
+		return F0 + (1.0 - F0) * f;
+	}
+
+	/**
+	 * Geometry function for clearcoat using Schlick-GGX (Smith's method).
+	 * Uses the same direct lighting remapping as the base layer: k = (roughness + 1)² / 8.
+	 * clearcoatRoughness controls the geometric shadowing/masking of the clearcoat layer.
+	 */
+	private _GeometrySmithClearcoat(
+		NdotV: number,
+		NdotL: number,
+		roughness: number
+	) {
+		const r = roughness + 1.0;
+		const k = (r * r) / 8.0;
+		const G1V = NdotV / (NdotV * (1.0 - k) + k);
+		const G1L = NdotL / (NdotL * (1.0 - k) + k);
+		return G1V * G1L;
 	}
 
 	/** Narkowicz ACES fitted curve. Input: scene-linear HDR. Output: display-linear [0-1]. */

@@ -54,6 +54,8 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	metalness: number;
 	f0: RGB;
 	occlusion: number;
+	clearcoat: number;
+	clearcoatRoughness: number;
 }
 
 export interface PhongSurfaceProperties extends BaseSurfaceProperties {
