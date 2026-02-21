@@ -34,7 +34,7 @@ export class HDRLoader extends Loader {
 			this.emit("error", error);
 			console.error(`HDRLoader: Failed to load ${url}`, error);
 			// Return a simple 1x1 black HDR texture on error
-			return new Texture(new Float32Array([0, 0, 0, 1]), 1, 1);
+			return new Texture(new Float32Array([0, 0, 0, 1]), 1, 1, "HDR");
 		}
 	}
 
@@ -169,6 +169,6 @@ export class HDRLoader extends Loader {
 			}
 		}
 
-		return new Texture(floatData, width, height);
+		return new Texture(floatData, width, height, "HDR");
 	}
 }
