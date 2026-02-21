@@ -44,7 +44,8 @@ export abstract class BaseEvaluator<
 		ty = Math.max(0, Math.min(map.height - 1, ty));
 
 		const idx = (ty * map.width + tx) << 2;
-		if (map.data instanceof Float32Array) {
+		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
+			// HDR / Linear textures store floating-point data; scale to [0-255]
 			const r = map.data[idx] ?? 0;
 			const g = map.data[idx + 1] ?? 0;
 			const b = map.data[idx + 2] ?? 0;

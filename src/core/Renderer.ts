@@ -247,7 +247,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const pixels = imageData.data;
 
 		if (this.params.enableSkybox && this.scene.skybox) {
-			this.renderSkybox(pixels);
+			this._renderSkybox(pixels);
 		}
 
 		this._projectedModels.clear();
@@ -345,7 +345,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 * Renders the skybox into the pixel buffer.
 	 * @param pixels - The pixel buffer to render into.
 	 */
-	public renderSkybox(pixels: Uint8ClampedArray): void {
+	private _renderSkybox(pixels: Uint8ClampedArray): void {
 		const skybox = this.scene.skybox;
 		if (!skybox) return;
 

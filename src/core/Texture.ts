@@ -9,6 +9,14 @@ export type TextureFilter =
 export type TextureWrap = "Repeat" | "Clamp" | "MirroredRepeat";
 
 /**
+ * Describes the color space of texture data.
+ * - `"sRGB"`: Standard sRGB-encoded data (typical for 8-bit images loaded via canvas/browser).
+ * - `"Linear"`: Linear color space data (e.g. normal maps, metallic-roughness maps that store non-color data).
+ * - `"HDR"`: High dynamic range linear data (e.g. .hdr environment maps with Float32Array values in [0, ∞)).
+ */
+export type TextureColorSpace = "sRGB" | "Linear" | "HDR";
+
+/**
  * Texture class to store image data and metadata for UV mapping.
  */
 export class Texture {
@@ -21,11 +29,17 @@ export class Texture {
 	magFilter: TextureFilter;
 	offset: IVector2;
 	repeat: IVector2;
+	/**
+	 * The color space of this texture's data.
+	 * Used by samplers and lighting to decide whether gamma decode is needed.
+	 */
+	colorSpace: TextureColorSpace;
 
 	constructor(
 		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
 		width: number = 0,
-		height: number = 0
+		height: number = 0,
+		colorSpace: TextureColorSpace = "sRGB"
 	) {
 		this.data = data;
 		this.width = width;
@@ -36,6 +50,7 @@ export class Texture {
 		this.magFilter = "Linear";
 		this.offset = { x: 0, y: 0 };
 		this.repeat = { x: 1, y: 1 };
+		this.colorSpace = colorSpace;
 	}
 
 	/**
@@ -74,7 +89,8 @@ export class Texture {
 
 		const idx = (y * this.width + x) << 2;
 
-		if (this.data instanceof Float32Array) {
+		if (this.colorSpace === "HDR") {
+			// HDR textures store linear floating-point data; scale to [0-255]
 			return {
 				r: Math.max(0, Math.min(255, this.data[idx] * 255)),
 				g: Math.max(0, Math.min(255, this.data[idx + 1] * 255)),

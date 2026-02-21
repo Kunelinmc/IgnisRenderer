@@ -36,7 +36,7 @@ export {
 	PBRMaterial,
 } from "./materials";
 export * from "./lights";
-export { Texture } from "./core/Texture";
+export { Texture, type TextureColorSpace } from "./core/Texture";
 export { TextureLoader } from "./loaders/TextureLoader";
 export { OBJLoader } from "./loaders/OBJLoader";
 export { GLTFLoader } from "./loaders/GLTFLoader";

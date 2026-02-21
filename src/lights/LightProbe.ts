@@ -83,17 +83,18 @@ export class LightProbe extends Light<LightType.LightProbe> {
 				const idx = (j * width + i) * 4;
 
 				// Convert texture values to linear and keep engine-wide 0..255 light units.
-				// HDR (Float32Array) is already linear; sRGB (Uint8) needs gamma removal.
-				const isHDR = data instanceof Float32Array;
+				// HDR data is already linear; sRGB (Uint8) needs gamma removal.
+				const isLinear =
+					envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
 				const gamma = PostProcessConstants.DEFAULT_GAMMA;
 				const r =
-					isHDR ? data[idx] * 255 : Math.pow(data[idx] / 255, gamma) * 255;
+					isLinear ? data[idx] * 255 : Math.pow(data[idx] / 255, gamma) * 255;
 				const g =
-					isHDR ?
+					isLinear ?
 						data[idx + 1] * 255
 					:	Math.pow(data[idx + 1] / 255, gamma) * 255;
 				const b =
-					isHDR ?
+					isLinear ?
 						data[idx + 2] * 255
 					:	Math.pow(data[idx + 2] / 255, gamma) * 255;
 
