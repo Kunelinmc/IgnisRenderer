@@ -8,6 +8,11 @@ export interface PBRMaterialParams extends MaterialParams {
 	metalness?: number;
 	emissive?: RGB;
 	emissiveIntensity?: number;
+	ior?: number;
+	specularFactor?: number;
+	specularColor?: RGB;
+	specularMap?: TextureLike;
+	specularColorMap?: TextureLike;
 	/**
 	 * @deprecated Use reflectance instead.
 	 */
@@ -33,11 +38,16 @@ export class PBRMaterial extends Material {
 	public metalness: number;
 	public emissive: RGB;
 	public emissiveIntensity: number;
+	private _ior?: number;
+	public specularFactor: number;
+	public specularColor: RGB;
 	public reflectance: number;
 	public metallicRoughnessMap: TextureLike;
 	public normalMap: TextureLike;
 	public emissiveMap: TextureLike;
 	public occlusionMap: TextureLike;
+	public specularMap: TextureLike;
+	public specularColorMap: TextureLike;
 	public clearcoat: number;
 	public clearcoatRoughness: number;
 
@@ -54,6 +64,26 @@ export class PBRMaterial extends Material {
 		return clamp(Math.sqrt(f0Linear / 0.16), 0, 1);
 	}
 
+	private static _reflectanceFromIor(ior: number): number {
+		const safeIor = Math.max(1.0, ior);
+		const f0 = Math.pow((safeIor - 1) / (safeIor + 1), 2);
+		return clamp(Math.sqrt(f0 / 0.16), 0, 1);
+	}
+
+	public get ior(): number | undefined {
+		return this._ior;
+	}
+
+	public set ior(value: number | undefined) {
+		if (value === undefined) {
+			this._ior = undefined;
+			return;
+		}
+		const safeIor = Math.max(1.0, value);
+		this._ior = safeIor;
+		this.reflectance = PBRMaterial._reflectanceFromIor(safeIor);
+	}
+
 	constructor(params: PBRMaterialParams = {}) {
 		super({ ...params, shading: "PBR" });
 		this.type = "PBR";
@@ -67,16 +97,28 @@ export class PBRMaterial extends Material {
 		this.emissive = params.emissive || { r: 0, g: 0, b: 0 };
 		this.emissiveIntensity = params.emissiveIntensity ?? 1.0;
 
-		const reflectance =
-			params.reflectance !== undefined ? params.reflectance
-			: params.f0 ? PBRMaterial._reflectanceFromLegacyF0(params.f0)
-			: 0.5;
+		this.specularFactor = params.specularFactor ?? 1.0;
+		this.specularColor = params.specularColor || { r: 255, g: 255, b: 255 };
+
+		let reflectance = 0.5;
+		if (params.ior !== undefined) {
+			reflectance = PBRMaterial._reflectanceFromIor(params.ior);
+		} else if (params.reflectance !== undefined) {
+			reflectance = params.reflectance;
+		} else if (params.f0) {
+			reflectance = PBRMaterial._reflectanceFromLegacyF0(params.f0);
+		}
+
 		this.reflectance = clamp(reflectance, 0, 1);
+		this._ior = undefined;
+		this.ior = params.ior;
 
 		this.metallicRoughnessMap = params.metallicRoughnessMap || null;
 		this.normalMap = params.normalMap || null;
 		this.emissiveMap = params.emissiveMap || null;
 		this.occlusionMap = params.occlusionMap || null;
+		this.specularMap = params.specularMap || null;
+		this.specularColorMap = params.specularColorMap || null;
 
 		this.clearcoat = clamp(params.clearcoat ?? 0.0, 0, 1);
 		// Default clearcoatRoughness to 0.01 to avoid infinite specular spikes and aliasing
