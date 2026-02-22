@@ -64,6 +64,8 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	roughness: number;
 	metalness: number;
 	reflectance: number;
+	specularFactor: number;
+	specularColor: RGB;
 	occlusion: number;
 	clearcoat: number;
 	clearcoatRoughness: number;
