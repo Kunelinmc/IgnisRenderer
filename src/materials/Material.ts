@@ -33,7 +33,6 @@ export class Material {
 	public alphaCutoff: number;
 	public map: TextureLike;
 	public reflectivity: number;
-	public fresnel: boolean;
 	public mirrorPlane: MirrorPlane | null;
 
 	constructor(params: MaterialParams = {}) {
@@ -48,7 +47,6 @@ export class Material {
 		this.map = params.map ?? null;
 
 		this.reflectivity = params.reflectivity ?? 0;
-		this.fresnel = params.fresnel ?? false;
 		this.mirrorPlane = params.mirrorPlane ?? null;
 	}
 }
