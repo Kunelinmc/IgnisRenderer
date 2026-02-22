@@ -12,6 +12,7 @@ const tests = [
 	"test_lighting_shader_semantics.mjs",
 	"test_model_factory_winding.mjs",
 	"test_sparse_accessor.mjs",
+	"test_pbr_textures.mjs",
 ];
 
 let failed = false;
