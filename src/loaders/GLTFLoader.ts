@@ -3,7 +3,12 @@ import {
 	type ModelFace,
 	type ModelVertex,
 } from "../models/SimpleModel";
-import { PBRMaterial, BasicMaterial } from "../materials";
+import {
+	PBRMaterial,
+	BasicMaterial,
+	UnlitMaterial,
+	type Material,
+} from "../materials";
 import { Loader, type LoaderEvents } from "./Loader";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Texture } from "../core/Texture";
@@ -182,11 +187,33 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	public parseMaterials(
 		json: any,
 		textures: (Texture | null)[] = []
-	): PBRMaterial[] {
+	): Material[] {
 		if (!json.materials) return [];
 		return json.materials.map((m: any) => {
 			const pbr = m.pbrMetallicRoughness || {};
 			const baseColor = pbr.baseColorFactor || [1, 1, 1, 1];
+
+			if (m.extensions?.KHR_materials_unlit) {
+				const unlitMat = new UnlitMaterial({
+					diffuse: {
+						r: baseColor[0] * 255,
+						g: baseColor[1] * 255,
+						b: baseColor[2] * 255,
+					},
+					opacity: baseColor[3],
+					doubleSided: m.doubleSided || false,
+				});
+				if (pbr.baseColorTexture !== undefined) {
+					const tex = this._getMaterialTexture(pbr.baseColorTexture, textures);
+					if (tex) unlitMat.map = tex;
+				}
+				if (m.alphaMode !== undefined)
+					(unlitMat as any).alphaMode = m.alphaMode;
+				if (m.alphaCutoff !== undefined)
+					(unlitMat as any).alphaCutoff = m.alphaCutoff;
+				return unlitMat;
+			}
+
 			const material = new PBRMaterial({
 				albedo: {
 					r: baseColor[0] * 255,
@@ -195,8 +222,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				},
 				opacity: baseColor[3],
 				roughness:
-					pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 0.5,
-				metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 0.0,
+					pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1.0,
+				metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1.0,
 				emissive:
 					m.emissiveFactor ?
 						{
@@ -238,6 +265,46 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				material.emissiveIntensity =
 					m.extensions.KHR_materials_emissive_strength.emissiveStrength ?? 1.0;
 			}
+			// KHR_materials_ior extension
+			if (m.extensions?.KHR_materials_ior) {
+				material.ior = m.extensions.KHR_materials_ior.ior ?? 1.5;
+			}
+			// KHR_materials_specular extension
+			if (m.extensions?.KHR_materials_specular) {
+				const specExt = m.extensions.KHR_materials_specular;
+				if (specExt.specularFactor !== undefined) {
+					material.specularFactor = Math.max(
+						0,
+						Math.min(1, specExt.specularFactor)
+					);
+				}
+				if (specExt.specularColorFactor !== undefined) {
+					const specColorFactor = specExt.specularColorFactor;
+					material.specularColor = {
+						r:
+							Math.max(0, Math.min(1, specColorFactor[0] ?? 1.0)) * 255,
+						g:
+							Math.max(0, Math.min(1, specColorFactor[1] ?? 1.0)) * 255,
+						b:
+							Math.max(0, Math.min(1, specColorFactor[2] ?? 1.0)) * 255,
+					};
+				}
+				if (specExt.specularTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						specExt.specularTexture,
+						textures
+					);
+					if (tex) material.specularMap = tex;
+				}
+				if (specExt.specularColorTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						specExt.specularColorTexture,
+						textures
+					);
+					if (tex) material.specularColorMap = tex;
+				}
+			}
+
 			return material;
 		});
 	}
@@ -317,7 +384,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		nodeIdx: number,
 		parentMatrix: Matrix4,
 		buffers: Uint8Array[],
-		materials: PBRMaterial[]
+		materials: Material[]
 	): ModelFace[] {
 		if (nodeIdx === undefined || !json.nodes || !json.nodes[nodeIdx]) return [];
 		const node = json.nodes[nodeIdx];
@@ -365,7 +432,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		json: any,
 		primitive: any,
 		buffers: Uint8Array[],
-		materials: PBRMaterial[],
+		materials: Material[],
 		worldMatrix: Matrix4
 	): ModelFace[] {
 		const attrs = primitive.attributes;
