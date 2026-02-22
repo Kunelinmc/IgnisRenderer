@@ -267,7 +267,6 @@ export class Projector {
 				center,
 				normal: transformedFaceNormal,
 				depthInfo: faceDepthInfo,
-				modelDepth: -Matrix4.transformPoint(viewMatrix, worldCenter).z,
 			};
 			projectedFaces.push(projectedFace);
 		}

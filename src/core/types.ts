@@ -37,7 +37,6 @@ export interface ProjectedFace extends IFace {
 	projected: ProjectedVertex[];
 	center: IVector3;
 	depthInfo: DepthInfo;
-	modelDepth: number;
 }
 
 export interface ProjectedPoint {

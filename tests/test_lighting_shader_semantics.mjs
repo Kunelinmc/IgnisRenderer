@@ -102,7 +102,6 @@ function testPBRNormalMapFallbackWithoutTangent() {
 		projected: [],
 		center: { x: 0, y: 0, z: 0 },
 		depthInfo: { min: 0, max: 0, avg: 0 },
-		modelDepth: 0,
 	}
 	const input = {
 		zCam: 1,
