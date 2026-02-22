@@ -5,7 +5,7 @@ import type { FragmentInput, SurfaceProperties } from "./types";
 
 export class UnlitShader extends BaseShader<SurfaceProperties> {
 	public shade(input: FragmentInput): RGB | null {
-		const surface = this._evaluator.evaluate(input.u, input.v, this._face);
+		const surface = this._evaluator.evaluate(input, this._face);
 		if (!surface) return null;
 		this._lastOpacity = surface.opacity;
 

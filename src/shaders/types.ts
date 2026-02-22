@@ -1,4 +1,4 @@
-import type { IVector3, SHCoefficients } from "../maths/types";
+import type { IVector3, IVector4, SHCoefficients } from "../maths/types";
 import type { Renderer } from "../core/Renderer";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { ProjectedFace } from "../core/types";
@@ -21,23 +21,14 @@ export interface ShaderContext {
 
 export interface FragmentInput {
 	zCam: number;
-	worldX: number;
-	worldY: number;
-	worldZ: number;
-	normalX: number;
-	normalY: number;
-	normalZ: number;
+	world: IVector3;
+	normal: IVector3;
+	tangent: IVector4;
 	u: number;
 	v: number;
-	lar?: number;
-	lag?: number;
-	lab?: number;
-	ldr?: number;
-	ldg?: number;
-	ldb?: number;
-	lsr?: number;
-	lsg?: number;
-	lsb?: number;
+	lightAmbient?: RGB;
+	lightDiffuse?: RGB;
+	lightSpecular?: RGB;
 }
 
 export interface BaseSurfaceProperties {
@@ -71,7 +62,7 @@ export interface IMaterialEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
 > {
 	setMaterial(material: Material): void;
-	evaluate(u: number, v: number, face: ProjectedFace): T | null;
+	evaluate(input: FragmentInput, face: ProjectedFace): T | null;
 }
 
 export interface ILightingStrategy<

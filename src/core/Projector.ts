@@ -57,6 +57,22 @@ export class Projector {
 			return a || b || null;
 		};
 
+		const interpolateTangent = (
+			a: IVertex["tangent"],
+			b: IVertex["tangent"],
+			t: number
+		): IVertex["tangent"] => {
+			if (a && b) {
+				const txyz = Vector3.normalize({
+					x: a.x + (b.x - a.x) * t,
+					y: a.y + (b.y - a.y) * t,
+					z: a.z + (b.z - a.z) * t,
+				});
+				return { x: txyz.x, y: txyz.y, z: txyz.z, w: a.w };
+			}
+			return a || b || null;
+		};
+
 		for (const face of model.faces) {
 			const worldVerts: IVertex[] = [];
 			const viewVerts: IVertex[] = [];
@@ -68,6 +84,13 @@ export class Projector {
 					v.normal ?
 						Vector3.normalize(Matrix4.transformNormal(normalMat, v.normal))
 					:	null;
+				let tWorld = null;
+				if (v.tangent) {
+					const tNorm = Vector3.normalize(
+						Matrix4.transformNormal(normalMat, v.tangent)
+					);
+					tWorld = { x: tNorm.x, y: tNorm.y, z: tNorm.z, w: v.tangent.w };
+				}
 				const worldV: IVertex = {
 					x: pWorld.x,
 					y: pWorld.y,
@@ -75,6 +98,7 @@ export class Projector {
 					u: v.u,
 					v: v.v,
 					normal: nWorld,
+					tangent: tWorld,
 				};
 				worldVerts.push(worldV);
 
@@ -86,6 +110,7 @@ export class Projector {
 					u: v.u,
 					v: v.v,
 					normal: nWorld,
+					tangent: tWorld,
 				});
 			}
 
@@ -116,6 +141,7 @@ export class Projector {
 								u: interpolateUV(v1.u, v2.u, t),
 								v: interpolateUV(v1.v, v2.v, t),
 								normal: interpolateNormal(v1.normal, v2.normal, t),
+								tangent: interpolateTangent(v1.tangent, v2.tangent, t),
 							},
 							world: {
 								x: w1.x + (w2.x - w1.x) * t,
@@ -124,6 +150,7 @@ export class Projector {
 								u: interpolateUV(w1.u, w2.u, t),
 								v: interpolateUV(w1.v, w2.v, t),
 								normal: interpolateNormal(w1.normal, w2.normal, t),
+								tangent: interpolateTangent(w1.tangent, w2.tangent, t),
 							},
 						});
 					}
@@ -137,6 +164,7 @@ export class Projector {
 							u: interpolateUV(v1.u, v2.u, t),
 							v: interpolateUV(v1.v, v2.v, t),
 							normal: interpolateNormal(v1.normal, v2.normal, t),
+							tangent: interpolateTangent(v1.tangent, v2.tangent, t),
 						},
 						world: {
 							x: w1.x + (w2.x - w1.x) * t,
@@ -145,6 +173,7 @@ export class Projector {
 							u: interpolateUV(w1.u, w2.u, t),
 							v: interpolateUV(w1.v, w2.v, t),
 							normal: interpolateNormal(w1.normal, w2.normal, t),
+							tangent: interpolateTangent(w1.tangent, w2.tangent, t),
 						},
 					});
 					clippedVerts.push({ view: v2, world: w2 });
@@ -192,6 +221,7 @@ export class Projector {
 					u: v.view.u,
 					v: v.view.v,
 					normal: v.view.normal,
+					tangent: v.view.tangent,
 					world: v.world,
 				});
 			}

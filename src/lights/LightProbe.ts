@@ -1,5 +1,5 @@
 import { SH } from "../maths/SH";
-import { sRGBToLinear } from "../maths/Common";
+import { linearToSRGB, sRGBToLinear } from "../maths/Common";
 import { Light, LightType, type LightContribution } from "./Light";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { Texture } from "../core/Texture";
@@ -9,6 +9,7 @@ import type { Texture } from "../core/Texture";
  */
 export class LightProbe extends Light<LightType.LightProbe> {
 	public sh: SHCoefficients;
+	private static readonly DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 	constructor(sh: SHCoefficients | null = null, intensity = 1.0) {
 		super(LightType.LightProbe, { intensity });
@@ -23,12 +24,26 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	 * fundamentally depends on the normal.
 	 */
 	public computeContribution(_point: IVector3): LightContribution | null {
-		// SH contributions are typically handled separately in the lighting loop
-		// because they require the surface normal which isn't in this base API yet.
-		// For now, we return a base ambient color or null to avoid incorrect results.
+		const dc = this.sh[0];
+		const irrR = Math.max(0, dc.r * LightProbe.DC_IRRADIANCE_SCALE);
+		const irrG = Math.max(0, dc.g * LightProbe.DC_IRRADIANCE_SCALE);
+		const irrB = Math.max(0, dc.b * LightProbe.DC_IRRADIANCE_SCALE);
+
+		if (irrR <= 0 && irrG <= 0 && irrB <= 0) return null;
+
+		const toSrgb255 = (linear255: number): number => {
+			const linear01 = Math.max(0, linear255 / 255);
+			return linearToSRGB(Math.min(1, linear01)) * 255;
+		};
+
 		return {
 			type: "ambient",
-			color: { r: 0, g: 0, b: 0 },
+			color: {
+				r: toSrgb255(irrR),
+				g: toSrgb255(irrG),
+				b: toSrgb255(irrB),
+			},
+			intensity: this.intensity,
 		};
 	}
 

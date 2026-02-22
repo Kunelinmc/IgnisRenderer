@@ -1,4 +1,4 @@
-import type { IVector3 } from "../maths/types";
+import type { IVector3, IVector4 } from "../maths/types";
 import type { RGBA } from "../utils/Color";
 
 import type { Material } from "../materials/Material";
@@ -7,6 +7,7 @@ export interface IVertex extends IVector3 {
 	u?: number;
 	v?: number;
 	normal?: IVector3 | null;
+	tangent?: IVector4 | null;
 }
 
 export interface IFace {
@@ -28,6 +29,7 @@ export interface ProjectedVertex extends IVector3 {
 	u?: number;
 	v?: number;
 	normal?: IVector3 | null;
+	tangent?: IVector4 | null;
 	world: IVertex;
 }
 

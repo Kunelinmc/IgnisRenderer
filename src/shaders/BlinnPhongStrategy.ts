@@ -21,7 +21,11 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		// N and V are already normalized in LitShader
 		const N = normal;
 		const V = viewDir;
-		const useSHAmbient = context.enableSH && !!context.shAmbientCoeffs;
+		const shAmbient = context.shAmbientCoeffs;
+		const hasSHAmbient =
+			!!shAmbient &&
+			(shAmbient[0].r !== 0 || shAmbient[0].g !== 0 || shAmbient[0].b !== 0);
+		const useSHAmbient = context.enableSH && hasSHAmbient;
 
 		let ambR = 0,
 			ambG = 0,
@@ -45,8 +49,8 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		};
 
 		// Ambient IBL or simple
-		if (useSHAmbient && context.shAmbientCoeffs) {
-			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
+		if (useSHAmbient && shAmbient) {
+			const irr = SH.calculateIrradiance(N, shAmbient);
 			ambR = irr.r / 255;
 			ambG = irr.g / 255;
 			ambB = irr.b / 255;

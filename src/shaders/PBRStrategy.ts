@@ -41,10 +41,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Inputs N and V are already normalized in LitShader
 		const N = normal;
 		const V = viewDir;
+		const shAmbient = context.shAmbientCoeffs;
+		const hasSHAmbient =
+			!!shAmbient &&
+			(shAmbient[0].r !== 0 || shAmbient[0].g !== 0 || shAmbient[0].b !== 0);
 		// Clamp to small positive value to avoid division-by-zero in Cook-Torrance denominator.
 		// This same NdotV is shared with _GeometrySmith to keep G and denominator consistent.
 		const NdotV = Math.max(Vector3.dot(N, V), LightingConstants.PBR_MIN_NDOTV);
-		const useSHAmbient = context.enableSH && !!context.shAmbientCoeffs;
+		const useSHAmbient = context.enableSH && hasSHAmbient;
 
 		let totalR = 0,
 			totalG = 0,
@@ -206,11 +210,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambG = 0,
 			ambB = 0;
 
-		if (useSHAmbient && context.shAmbientCoeffs) {
+		if (useSHAmbient && shAmbient) {
 			// SH coefficients were pre-converted to linear space in Renderer.updateSH(),
 			// so calculateIrradiance returns linear values scaled to [0-255].
 			// Only normalization (/255) is needed here — no gamma decode.
-			const irr = SH.calculateIrradiance(N, context.shAmbientCoeffs);
+			const irr = SH.calculateIrradiance(N, shAmbient);
 			const irrLinear = {
 				r: irr.r / 255,
 				g: irr.g / 255,

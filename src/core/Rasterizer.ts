@@ -18,6 +18,8 @@ import {
 import type { ShadowMap } from "../utils/ShadowMapping";
 import type { Renderer } from "./Renderer";
 import type { ProjectedVertex, ProjectedFace } from "./types";
+import type { IVector3, IVector4 } from "../maths/types";
+import type { Texture } from "./Texture";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -27,7 +29,11 @@ export interface RasterizerLike {
 		isTransparent?: boolean,
 		overrideSize?: { width: number; height: number }
 	): void;
-	drawDepthTriangle(pts: ProjectedVertex[], shadowMap: ShadowMap): void;
+	drawDepthTriangle(
+		pts: ProjectedVertex[],
+		shadowMap: ShadowMap,
+		material?: Material
+	): void;
 	drawTransmissionTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
@@ -40,12 +46,9 @@ interface CachedVertex {
 	y: number;
 	z: number;
 	iz: number;
-	worldOx: number;
-	worldOy: number;
-	worldOz: number;
-	normalOx: number;
-	normalOy: number;
-	normalOz: number;
+	worldO: IVector3;
+	normalO: IVector3;
+	tangentO: IVector4;
 	uO: number;
 	vO: number;
 }
@@ -53,12 +56,9 @@ interface CachedVertex {
 interface EdgeInterpolationResult {
 	x: number;
 	iz: number;
-	worldOx: number;
-	worldOy: number;
-	worldOz: number;
-	normalOx: number;
-	normalOy: number;
-	normalOz: number;
+	worldO: IVector3;
+	normalO: IVector3;
+	tangentO: IVector4;
 	uO: number;
 	vO: number;
 }
@@ -86,16 +86,12 @@ export class Rasterizer implements RasterizerLike {
 	private _edgeRes2: EdgeInterpolationResult = this._createEdgeRes();
 	private _fragmentInput: FragmentInput = {
 		zCam: 0,
-		worldX: 0,
-		worldY: 0,
-		worldZ: 0,
-		normalX: 0,
-		normalY: 0,
-		normalZ: 0,
+		world: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: 0 },
+		tangent: { x: 0, y: 0, z: 0, w: 0 },
 		u: 0,
 		v: 0,
 	};
-
 	constructor(renderer: Renderer) {
 		this._renderer = renderer;
 		this._defaultMaterial = new Material();
@@ -104,12 +100,9 @@ export class Rasterizer implements RasterizerLike {
 			y: 0,
 			z: 0,
 			iz: 0,
-			worldOx: 0,
-			worldOy: 0,
-			worldOz: 0,
-			normalOx: 0,
-			normalOy: 0,
-			normalOz: 0,
+			worldO: { x: 0, y: 0, z: 0 },
+			normalO: { x: 0, y: 0, z: 0 },
+			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
 			vO: 0,
 		}));
@@ -122,12 +115,9 @@ export class Rasterizer implements RasterizerLike {
 		return {
 			x: 0,
 			iz: 0,
-			worldOx: 0,
-			worldOy: 0,
-			worldOz: 0,
-			normalOx: 0,
-			normalOy: 0,
-			normalOz: 0,
+			worldO: { x: 0, y: 0, z: 0 },
+			normalO: { x: 0, y: 0, z: 0 },
+			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
 			vO: 0,
 		};
@@ -175,8 +165,59 @@ export class Rasterizer implements RasterizerLike {
 		return shader!;
 	}
 
-	public drawDepthTriangle(pts: ProjectedVertex[], shadowMap: ShadowMap): void {
+	private _sampleTextureAlpha(map: Texture, u: number, v: number): number {
+		let uu = u * map.repeat.x + map.offset.x;
+		let vv = v * map.repeat.y + map.offset.y;
+
+		if (map.wrapS === "Repeat") uu = uu - Math.floor(uu);
+		else if (map.wrapS === "MirroredRepeat") {
+			const iter = Math.floor(uu);
+			uu = uu - iter;
+			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
+		} else uu = Math.max(0, Math.min(1, uu));
+
+		if (map.wrapT === "Repeat") vv = vv - Math.floor(vv);
+		else if (map.wrapT === "MirroredRepeat") {
+			const iter = Math.floor(vv);
+			vv = vv - iter;
+			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
+		} else vv = Math.max(0, Math.min(1, vv));
+
+		let tx = Math.floor(uu * map.width);
+		let ty = Math.floor(vv * map.height);
+
+		tx = Math.max(0, Math.min(map.width - 1, tx));
+		ty = Math.max(0, Math.min(map.height - 1, ty));
+
+		const idx = (ty * map.width + tx) << 2;
+		const alphaValue = map.data?.[idx + 3];
+		if (alphaValue === undefined) return 1.0;
+
+		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
+			return Math.max(0, Math.min(1, alphaValue as number));
+		}
+
+		return Math.max(0, Math.min(1, (alphaValue as number) / 255));
+	}
+
+	public drawDepthTriangle(
+		pts: ProjectedVertex[],
+		shadowMap: ShadowMap,
+		material?: Material
+	): void {
 		const { size, buffer } = shadowMap;
+		const alphaMode = material?.alphaMode;
+		const maskTexture =
+			alphaMode === "MASK" &&
+			material?.map &&
+			material.map.data &&
+			material.map.width > 0 &&
+			material.map.height > 0 ?
+				material.map
+			:	null;
+		const useMask = maskTexture !== null;
+		const alphaCutoff = material?.alphaCutoff ?? 0.5;
+		const opacity = material?.opacity ?? 1;
 
 		let [vTop, vMid, vBot] = pts;
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
@@ -187,35 +228,130 @@ export class Rasterizer implements RasterizerLike {
 		const maxY = Math.min(size - 1, Math.floor(vBot.y - 0.5));
 		if (minY > maxY) return;
 
+		if (!useMask) {
+			for (let y = minY; y <= maxY; y++) {
+				const py = y + 0.5;
+				let leftX, leftZ, rightX, rightZ;
+
+				if (py < vMid.y) {
+					const dy1 = vMid.y - vTop.y;
+					const t1 = dy1 === 0 ? 0 : (py - vTop.y) / dy1;
+					leftX = vTop.x + (vMid.x - vTop.x) * t1;
+					leftZ = vTop.z + (vMid.z - vTop.z) * t1;
+
+					const dy2 = vBot.y - vTop.y;
+					const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
+					rightX = vTop.x + (vBot.x - vTop.x) * t2;
+					rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+				} else {
+					const dy1 = vBot.y - vMid.y;
+					const t1 = dy1 === 0 ? 0 : (py - vMid.y) / dy1;
+					leftX = vMid.x + (vBot.x - vMid.x) * t1;
+					leftZ = vMid.z + (vBot.z - vMid.z) * t1;
+
+					const dy2 = vBot.y - vTop.y;
+					const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
+					rightX = vTop.x + (vBot.x - vTop.x) * t2;
+					rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+				}
+
+				if (leftX > rightX) {
+					[leftX, rightX] = [rightX, leftX];
+					[leftZ, rightZ] = [rightZ, leftZ];
+				}
+
+				const startX = Math.max(0, Math.ceil(leftX - 0.5));
+				const endX = Math.min(size - 1, Math.floor(rightX - 0.5));
+				if (endX < startX) continue;
+
+				const spanWidth = rightX - leftX;
+				const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+				const dz = (rightZ - leftZ) * spanInv;
+				const dx = startX + 0.5 - leftX;
+				let z = leftZ + dx * dz;
+
+				const row = y * size;
+				for (let x = startX; x <= endX; x++) {
+					const idx = row + x;
+					if (z < buffer[idx]) {
+						buffer[idx] = z;
+					}
+					z += dz;
+				}
+			}
+			return;
+		}
+
+		const pTop = {
+			x: vTop.x,
+			y: vTop.y,
+			z: vTop.z,
+			iz: vTop.w,
+			uO: (vTop.u ?? 0) * vTop.w,
+			vO: (vTop.v ?? 0) * vTop.w,
+		};
+		const pMid = {
+			x: vMid.x,
+			y: vMid.y,
+			z: vMid.z,
+			iz: vMid.w,
+			uO: (vMid.u ?? 0) * vMid.w,
+			vO: (vMid.v ?? 0) * vMid.w,
+		};
+		const pBot = {
+			x: vBot.x,
+			y: vBot.y,
+			z: vBot.z,
+			iz: vBot.w,
+			uO: (vBot.u ?? 0) * vBot.w,
+			vO: (vBot.v ?? 0) * vBot.w,
+		};
+
 		for (let y = minY; y <= maxY; y++) {
 			const py = y + 0.5;
-			let leftX, leftZ, rightX, rightZ;
+			let leftX, leftZ, leftIz, leftUO, leftVO;
+			let rightX, rightZ, rightIz, rightUO, rightVO;
 
-			if (py < vMid.y) {
-				const dy1 = vMid.y - vTop.y;
-				const t1 = dy1 === 0 ? 0 : (py - vTop.y) / dy1;
-				leftX = vTop.x + (vMid.x - vTop.x) * t1;
-				leftZ = vTop.z + (vMid.z - vTop.z) * t1;
+			if (py < pMid.y) {
+				const dy1 = pMid.y - pTop.y;
+				const t1 = dy1 === 0 ? 0 : (py - pTop.y) / dy1;
+				leftX = pTop.x + (pMid.x - pTop.x) * t1;
+				leftZ = pTop.z + (pMid.z - pTop.z) * t1;
+				leftIz = pTop.iz + (pMid.iz - pTop.iz) * t1;
+				leftUO = pTop.uO + (pMid.uO - pTop.uO) * t1;
+				leftVO = pTop.vO + (pMid.vO - pTop.vO) * t1;
 
-				const dy2 = vBot.y - vTop.y;
-				const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
-				rightX = vTop.x + (vBot.x - vTop.x) * t2;
-				rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+				const dy2 = pBot.y - pTop.y;
+				const t2 = dy2 === 0 ? 0 : (py - pTop.y) / dy2;
+				rightX = pTop.x + (pBot.x - pTop.x) * t2;
+				rightZ = pTop.z + (pBot.z - pTop.z) * t2;
+				rightIz = pTop.iz + (pBot.iz - pTop.iz) * t2;
+				rightUO = pTop.uO + (pBot.uO - pTop.uO) * t2;
+				rightVO = pTop.vO + (pBot.vO - pTop.vO) * t2;
 			} else {
-				const dy1 = vBot.y - vMid.y;
-				const t1 = dy1 === 0 ? 0 : (py - vMid.y) / dy1;
-				leftX = vMid.x + (vBot.x - vMid.x) * t1;
-				leftZ = vMid.z + (vBot.z - vMid.z) * t1;
+				const dy1 = pBot.y - pMid.y;
+				const t1 = dy1 === 0 ? 0 : (py - pMid.y) / dy1;
+				leftX = pMid.x + (pBot.x - pMid.x) * t1;
+				leftZ = pMid.z + (pBot.z - pMid.z) * t1;
+				leftIz = pMid.iz + (pBot.iz - pMid.iz) * t1;
+				leftUO = pMid.uO + (pBot.uO - pMid.uO) * t1;
+				leftVO = pMid.vO + (pBot.vO - pMid.vO) * t1;
 
-				const dy2 = vBot.y - vTop.y;
-				const t2 = dy2 === 0 ? 0 : (py - vTop.y) / dy2;
-				rightX = vTop.x + (vBot.x - vTop.x) * t2;
-				rightZ = vTop.z + (vBot.z - vTop.z) * t2;
+				const dy2 = pBot.y - pTop.y;
+				const t2 = dy2 === 0 ? 0 : (py - pTop.y) / dy2;
+				rightX = pTop.x + (pBot.x - pTop.x) * t2;
+				rightZ = pTop.z + (pBot.z - pTop.z) * t2;
+				rightIz = pTop.iz + (pBot.iz - pTop.iz) * t2;
+				rightUO = pTop.uO + (pBot.uO - pTop.uO) * t2;
+				rightVO = pTop.vO + (pBot.vO - pTop.vO) * t2;
 			}
 
 			if (leftX > rightX) {
 				[leftX, rightX] = [rightX, leftX];
 				[leftZ, rightZ] = [rightZ, leftZ];
+				[leftIz, rightIz] = [rightIz, leftIz];
+				[leftUO, rightUO] = [rightUO, leftUO];
+				[leftVO, rightVO] = [rightVO, leftVO];
 			}
 
 			const startX = Math.max(0, Math.ceil(leftX - 0.5));
@@ -225,16 +361,36 @@ export class Rasterizer implements RasterizerLike {
 			const spanWidth = rightX - leftX;
 			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
 			const dz = (rightZ - leftZ) * spanInv;
+			const diz = (rightIz - leftIz) * spanInv;
+			const duO = (rightUO - leftUO) * spanInv;
+			const dvO = (rightVO - leftVO) * spanInv;
 			const dx = startX + 0.5 - leftX;
 			let z = leftZ + dx * dz;
+			let iz = leftIz + dx * diz;
+			let uO = leftUO + dx * duO;
+			let vO = leftVO + dx * dvO;
 
 			const row = y * size;
 			for (let x = startX; x <= endX; x++) {
 				const idx = row + x;
 				if (z < buffer[idx]) {
-					buffer[idx] = z;
+					const safeIz =
+						Math.abs(iz) > CoreConstants.EPSILON ? iz
+						: iz >= 0 ? CoreConstants.EPSILON
+						: -CoreConstants.EPSILON;
+					const invIz = 1 / safeIz;
+					const u = uO * invIz;
+					const v = vO * invIz;
+					const alpha =
+						this._sampleTextureAlpha(maskTexture, u, v) * opacity;
+					if (alpha >= alphaCutoff) {
+						buffer[idx] = z;
+					}
 				}
 				z += dz;
+				iz += diz;
+				uO += duO;
+				vO += dvO;
 			}
 		}
 	}
@@ -348,12 +504,16 @@ export class Rasterizer implements RasterizerLike {
 		const t = dy === 0 ? 0 : (y - vA.y) / dy;
 		res.x = vA.x + (vB.x - vA.x) * t;
 		res.iz = vA.iz + (vB.iz - vA.iz) * t;
-		res.worldOx = vA.worldOx + (vB.worldOx - vA.worldOx) * t;
-		res.worldOy = vA.worldOy + (vB.worldOy - vA.worldOy) * t;
-		res.worldOz = vA.worldOz + (vB.worldOz - vA.worldOz) * t;
-		res.normalOx = vA.normalOx + (vB.normalOx - vA.normalOx) * t;
-		res.normalOy = vA.normalOy + (vB.normalOy - vA.normalOy) * t;
-		res.normalOz = vA.normalOz + (vB.normalOz - vA.normalOz) * t;
+		res.worldO.x = vA.worldO.x + (vB.worldO.x - vA.worldO.x) * t;
+		res.worldO.y = vA.worldO.y + (vB.worldO.y - vA.worldO.y) * t;
+		res.worldO.z = vA.worldO.z + (vB.worldO.z - vA.worldO.z) * t;
+		res.normalO.x = vA.normalO.x + (vB.normalO.x - vA.normalO.x) * t;
+		res.normalO.y = vA.normalO.y + (vB.normalO.y - vA.normalO.y) * t;
+		res.normalO.z = vA.normalO.z + (vB.normalO.z - vA.normalO.z) * t;
+		res.tangentO.x = vA.tangentO.x + (vB.tangentO.x - vA.tangentO.x) * t;
+		res.tangentO.y = vA.tangentO.y + (vB.tangentO.y - vA.tangentO.y) * t;
+		res.tangentO.z = vA.tangentO.z + (vB.tangentO.z - vA.tangentO.z) * t;
+		res.tangentO.w = vA.tangentO.w + (vB.tangentO.w - vA.tangentO.w) * t;
 		res.uO = vA.uO + (vB.uO - vA.uO) * t;
 		res.vO = vA.vO + (vB.vO - vA.vO) * t;
 	}
@@ -408,6 +568,7 @@ export class Rasterizer implements RasterizerLike {
 			const p = pts[i];
 			const world = p.world ?? { x: 0, y: 0, z: 0 };
 			const normal = p.normal ?? face.normal ?? { x: 0, y: 0, z: 1 };
+			const tangent = p.tangent ?? { x: 0, y: 0, z: 0, w: 0 };
 			const iz = p.w;
 
 			const v = verts[i];
@@ -415,12 +576,16 @@ export class Rasterizer implements RasterizerLike {
 			v.y = p.y;
 			v.z = p.z;
 			v.iz = iz;
-			v.worldOx = world.x * iz;
-			v.worldOy = world.y * iz;
-			v.worldOz = world.z * iz;
-			v.normalOx = normal.x * iz;
-			v.normalOy = normal.y * iz;
-			v.normalOz = normal.z * iz;
+			v.worldO.x = world.x * iz;
+			v.worldO.y = world.y * iz;
+			v.worldO.z = world.z * iz;
+			v.normalO.x = normal.x * iz;
+			v.normalO.y = normal.y * iz;
+			v.normalO.z = normal.z * iz;
+			v.tangentO.x = tangent.x * iz;
+			v.tangentO.y = tangent.y * iz;
+			v.tangentO.z = tangent.z * iz;
+			v.tangentO.w = tangent.w; // w component of tangent is not perspective corrected
 			v.uO = (p.u ?? 0) * iz;
 			v.vO = (p.v ?? 0) * iz;
 		}
@@ -461,23 +626,31 @@ export class Rasterizer implements RasterizerLike {
 			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
 
 			const diz = (right.iz - left.iz) * spanInv;
-			const dWorldOx = (right.worldOx - left.worldOx) * spanInv;
-			const dWorldOy = (right.worldOy - left.worldOy) * spanInv;
-			const dWorldOz = (right.worldOz - left.worldOz) * spanInv;
-			const dNormalOx = (right.normalOx - left.normalOx) * spanInv;
-			const dNormalOy = (right.normalOy - left.normalOy) * spanInv;
-			const dNormalOz = (right.normalOz - left.normalOz) * spanInv;
+			const dWorldOx = (right.worldO.x - left.worldO.x) * spanInv;
+			const dWorldOy = (right.worldO.y - left.worldO.y) * spanInv;
+			const dWorldOz = (right.worldO.z - left.worldO.z) * spanInv;
+			const dNormalOx = (right.normalO.x - left.normalO.x) * spanInv;
+			const dNormalOy = (right.normalO.y - left.normalO.y) * spanInv;
+			const dNormalOz = (right.normalO.z - left.normalO.z) * spanInv;
+			const dTangentOx = (right.tangentO.x - left.tangentO.x) * spanInv;
+			const dTangentOy = (right.tangentO.y - left.tangentO.y) * spanInv;
+			const dTangentOz = (right.tangentO.z - left.tangentO.z) * spanInv;
+			const dTangentOw = (right.tangentO.w - left.tangentO.w) * spanInv;
 			const duO = (right.uO - left.uO) * spanInv;
 			const dvO = (right.vO - left.vO) * spanInv;
 
 			const dx = startX + 0.5 - left.x;
 			let iz = left.iz + dx * diz;
-			let worldOx = left.worldOx + dx * dWorldOx;
-			let worldOy = left.worldOy + dx * dWorldOy;
-			let worldOz = left.worldOz + dx * dWorldOz;
-			let normalOx = left.normalOx + dx * dNormalOx;
-			let normalOy = left.normalOy + dx * dNormalOy;
-			let normalOz = left.normalOz + dx * dNormalOz;
+			let worldOx = left.worldO.x + dx * dWorldOx;
+			let worldOy = left.worldO.y + dx * dWorldOy;
+			let worldOz = left.worldO.z + dx * dWorldOz;
+			let normalOx = left.normalO.x + dx * dNormalOx;
+			let normalOy = left.normalO.y + dx * dNormalOy;
+			let normalOz = left.normalO.z + dx * dNormalOz;
+			let tangentOx = left.tangentO.x + dx * dTangentOx;
+			let tangentOy = left.tangentO.y + dx * dTangentOy;
+			let tangentOz = left.tangentO.z + dx * dTangentOz;
+			let tangentOw = left.tangentO.w + dx * dTangentOw;
 			let uO = left.uO + dx * duO;
 			let vO = left.vO + dx * dvO;
 
@@ -494,12 +667,16 @@ export class Rasterizer implements RasterizerLike {
 
 				if (zCam > 0 && zCam < depthBuffer[bufIdx]) {
 					input.zCam = zCam;
-					input.worldX = worldOx * zCam;
-					input.worldY = worldOy * zCam;
-					input.worldZ = worldOz * zCam;
-					input.normalX = normalOx * zCam;
-					input.normalY = normalOy * zCam;
-					input.normalZ = normalOz * zCam;
+					input.world.x = worldOx * zCam;
+					input.world.y = worldOy * zCam;
+					input.world.z = worldOz * zCam;
+					input.normal.x = normalOx * zCam;
+					input.normal.y = normalOy * zCam;
+					input.normal.z = normalOz * zCam;
+					input.tangent.x = tangentOx * zCam;
+					input.tangent.y = tangentOy * zCam;
+					input.tangent.z = tangentOz * zCam;
+					input.tangent.w = tangentOw;
 					input.u = uO * zCam;
 					input.v = vO * zCam;
 
@@ -524,12 +701,12 @@ export class Rasterizer implements RasterizerLike {
 								const freq = 0.5;
 								const dist = material.distortion * 5;
 								offsetX =
-									Math.sin(input.worldX * freq + time) *
-									Math.cos(input.worldZ * freq + time) *
+									Math.sin(input.world.x * freq + time) *
+									Math.cos(input.world.z * freq + time) *
 									dist;
 								offsetY =
-									Math.cos(input.worldX * freq + time) *
-									Math.sin(input.worldZ * freq + time) *
+									Math.cos(input.world.x * freq + time) *
+									Math.sin(input.world.z * freq + time) *
 									dist;
 							}
 
@@ -554,15 +731,15 @@ export class Rasterizer implements RasterizerLike {
 
 							if (material.fresnel) {
 								// View vector V = normalize(cameraPos - worldPos)
-								const vx = camPos.x - input.worldX;
-								const vy = camPos.y - input.worldY;
-								const vz = camPos.z - input.worldZ;
+								const vx = camPos.x - input.world.x;
+								const vy = camPos.y - input.world.y;
+								const vz = camPos.z - input.world.z;
 								const vLen =
 									Math.sqrt(vx * vx + vy * vy + vz * vz) ||
 									CoreConstants.EPSILON;
-								const nx = input.normalX;
-								const ny = input.normalY;
-								const nz = input.normalZ;
+								const nx = input.normal.x;
+								const ny = input.normal.y;
+								const nz = input.normal.z;
 								const nLen =
 									Math.sqrt(nx * nx + ny * ny + nz * nz) ||
 									CoreConstants.EPSILON;
@@ -614,6 +791,10 @@ export class Rasterizer implements RasterizerLike {
 				normalOx += dNormalOx;
 				normalOy += dNormalOy;
 				normalOz += dNormalOz;
+				tangentOx += dTangentOx;
+				tangentOy += dTangentOy;
+				tangentOz += dTangentOz;
+				tangentOw += dTangentOw;
 				uO += duO;
 				vO += dvO;
 			}

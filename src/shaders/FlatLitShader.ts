@@ -18,12 +18,13 @@ export class FlatLitShader<
 				zCam: 0,
 				u: 0,
 				v: 0,
-				worldX: face.center.x,
-				worldY: face.center.y,
-				worldZ: face.center.z,
-				normalX: face.normal?.x ?? 0,
-				normalY: face.normal?.y ?? 0,
-				normalZ: face.normal?.z ?? 1,
+				world: { x: face.center.x, y: face.center.y, z: face.center.z },
+				normal: {
+					x: face.normal?.x ?? 0,
+					y: face.normal?.y ?? 0,
+					z: face.normal?.z ?? 1,
+				},
+				tangent: { x: 1, y: 0, z: 0, w: 1 },
 			});
 			if (color) {
 				this._faceColorStorage.r = color.r;

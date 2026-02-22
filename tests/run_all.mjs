@@ -9,6 +9,7 @@ const tests = [
 	"test_lighting.mjs",
 	"test_point_spot_lighting.mjs",
 	"test_sh_lighting_regression.mjs",
+	"test_lighting_shader_semantics.mjs",
 	"test_model_factory_winding.mjs",
 	"test_sparse_accessor.mjs",
 ];

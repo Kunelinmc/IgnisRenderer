@@ -1,7 +1,8 @@
 import { BaseEvaluator } from "./BaseEvaluator";
 import type { PhongMaterial } from "../materials";
 import type { ProjectedFace } from "../core/types";
-import type { PhongSurfaceProperties } from "./types";
+import type { PhongSurfaceProperties, FragmentInput } from "./types";
+import { Vector3 } from "../maths/Vector3";
 
 export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 	private _cachedResult: PhongSurfaceProperties = {
@@ -17,10 +18,11 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 	};
 
 	public evaluate(
-		u: number,
-		v: number,
+		input: FragmentInput,
 		face: ProjectedFace
 	): PhongSurfaceProperties | null {
+		const u = input.u;
+		const v = input.v;
 		const mat = this.material as PhongMaterial;
 		let color = mat.diffuse || { r: 255, g: 255, b: 255 };
 		let alpha = mat.opacity ?? 1;
@@ -52,6 +54,11 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		res.specular.g = spec.g;
 		res.specular.b = spec.b;
 		res.shininess = mat.shininess || 32;
+
+		res.normal.x = input.normal.x;
+		res.normal.y = input.normal.y;
+		res.normal.z = input.normal.z;
+		Vector3.normalizeInPlace(res.normal);
 
 		return res;
 	}

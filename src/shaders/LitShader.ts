@@ -24,19 +24,19 @@ export class LitShader<
 	}
 
 	public shade(input: FragmentInput): RGB | null {
-		const surface = this._evaluator.evaluate(input.u, input.v, this._face);
+		const surface = this._evaluator.evaluate(input, this._face);
 		if (!surface) return null;
 		this._lastOpacity = surface.opacity;
 
 		const world = this._world;
-		world.x = input.worldX;
-		world.y = input.worldY;
-		world.z = input.worldZ;
+		world.x = input.world.x;
+		world.y = input.world.y;
+		world.z = input.world.z;
 
 		const normal = this._normal;
-		normal.x = input.normalX;
-		normal.y = input.normalY;
-		normal.z = input.normalZ;
+		normal.x = surface.normal.x;
+		normal.y = surface.normal.y;
+		normal.z = surface.normal.z;
 		Vector3.normalizeInPlace(normal);
 
 		const viewDir = this._viewDir;

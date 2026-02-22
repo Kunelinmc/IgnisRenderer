@@ -12,6 +12,8 @@ interface ClipVertex {
 	y: number;
 	z: number;
 	w: number;
+	u: number;
+	v: number;
 }
 
 export class ShadowRenderer {
@@ -48,20 +50,24 @@ export class ShadowRenderer {
 		x: number,
 		y: number,
 		z: number,
-		w: number
+		w: number,
+		uCoord: number = 0,
+		vCoord: number = 0
 	): ClipVertex {
-		let v = this._clipVertsPool[this._clipPoolCursor];
-		if (!v) {
-			v = { x: 0, y: 0, z: 0, w: 0 };
-			this._clipVertsPool.push(v);
+		let clipVert = this._clipVertsPool[this._clipPoolCursor];
+		if (!clipVert) {
+			clipVert = { x: 0, y: 0, z: 0, w: 0, u: 0, v: 0 };
+			this._clipVertsPool.push(clipVert);
 		}
 
-		v.x = x;
-		v.y = y;
-		v.z = z;
-		v.w = w;
+		clipVert.x = x;
+		clipVert.y = y;
+		clipVert.z = z;
+		clipVert.w = w;
+		clipVert.u = uCoord;
+		clipVert.v = vCoord;
 		this._clipPoolCursor++;
-		return v;
+		return clipVert;
 	}
 
 	private _clipDistance(v: ClipVertex, plane: number): number {
@@ -111,13 +117,17 @@ export class ShadowRenderer {
 						prev.x + (curr.x - prev.x) * t,
 						prev.y + (curr.y - prev.y) * t,
 						prev.z + (curr.z - prev.z) * t,
-						prev.w + (curr.w - prev.w) * t
+						prev.w + (curr.w - prev.w) * t,
+						prev.u + (curr.u - prev.u) * t,
+						prev.v + (curr.v - prev.v) * t
 					)
 				);
 			}
 
 			if (currInside) {
-				output.push(this._allocClipVertex(curr.x, curr.y, curr.z, curr.w));
+				output.push(
+					this._allocClipVertex(curr.x, curr.y, curr.z, curr.w, curr.u, curr.v)
+				);
 			}
 
 			prev = curr;
@@ -136,7 +146,9 @@ export class ShadowRenderer {
 
 		for (let i = 0; i < count; i++) {
 			const v = input[i];
-			this._clipScratchA.push(this._allocClipVertex(v.x, v.y, v.z, v.w));
+			this._clipScratchA.push(
+				this._allocClipVertex(v.x, v.y, v.z, v.w, v.u, v.v)
+			);
 		}
 
 		let inPoly = this._clipScratchA;
@@ -204,7 +216,7 @@ export class ShadowRenderer {
 				for (const face of model.faces) {
 					const material = face.material;
 					const alphaMode = material?.alphaMode;
-					if (alphaMode === "BLEND" || alphaMode === "MASK") continue;
+					if (alphaMode === "BLEND") continue;
 
 					const worldNormal =
 						face.normal ?? Vector3.calculateNormal(face.vertices);
@@ -226,7 +238,8 @@ export class ShadowRenderer {
 					for (let i = 1; i < projected.length - 1; i++) {
 						renderer.rasterizer.drawDepthTriangle(
 							[projected[0], projected[i], projected[i + 1]],
-							shadowMap
+							shadowMap,
+							material
 						);
 					}
 				}
@@ -276,6 +289,8 @@ export class ShadowRenderer {
 				y: 0,
 				z: 0,
 				w: 0,
+				u: 0,
+				v: 0,
 			});
 		}
 
@@ -288,6 +303,8 @@ export class ShadowRenderer {
 			clipV.y = p.y;
 			clipV.z = p.z;
 			clipV.w = p.w;
+			clipV.u = v.u ?? 0;
+			clipV.v = v.v ?? 0;
 		}
 
 		const clippedVerts = this._clipToLightFrustum(this._clipInputPool, count);
@@ -313,6 +330,8 @@ export class ShadowRenderer {
 			outV.y = (0.5 - clipV.y * invW * 0.5) * shadowMapSize;
 			outV.z = clipV.z * invW;
 			outV.w = invW;
+			outV.u = clipV.u;
+			outV.v = clipV.v;
 		}
 
 		// return a view of the pool

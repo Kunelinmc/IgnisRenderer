@@ -1,7 +1,11 @@
 import type { RGBA } from "../utils/Color";
 import type { Material } from "../materials";
 import type { ProjectedFace } from "../core/types";
-import type { IMaterialEvaluator, SurfaceProperties } from "./types";
+import type {
+	IMaterialEvaluator,
+	SurfaceProperties,
+	FragmentInput,
+} from "./types";
 
 export abstract class BaseEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
@@ -70,5 +74,5 @@ export abstract class BaseEvaluator<
 		return this._sampleTextureMap(this.material.map, u, v);
 	}
 
-	abstract evaluate(u: number, v: number, face: ProjectedFace): T | null;
+	abstract evaluate(input: FragmentInput, face: ProjectedFace): T | null;
 }

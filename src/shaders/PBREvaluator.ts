@@ -1,7 +1,8 @@
 import { BaseEvaluator } from "./BaseEvaluator";
 import type { PBRMaterial } from "../materials";
 import type { ProjectedFace } from "../core/types";
-import type { PBRSurfaceProperties } from "./types";
+import type { PBRSurfaceProperties, FragmentInput } from "./types";
+import { Vector3 } from "../maths/Vector3";
 
 export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 	private _cachedResult: PBRSurfaceProperties = {
@@ -20,10 +21,11 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 	};
 
 	public evaluate(
-		u: number,
-		v: number,
+		input: FragmentInput,
 		face: ProjectedFace
 	): PBRSurfaceProperties | null {
+		const u = input.u;
+		const v = input.v;
 		const mat = this.material as PBRMaterial;
 		let albedo = mat.albedo || { r: 255, g: 255, b: 255 };
 		let alpha = mat.opacity ?? 1;
@@ -93,6 +95,67 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			0,
 			Math.min(1, mat.clearcoatRoughness ?? 0.0)
 		);
+
+		const normal = res.normal;
+		normal.x = input.normal.x;
+		normal.y = input.normal.y;
+		normal.z = input.normal.z;
+
+		const normalTex = this._sampleTextureMap(mat.normalMap, u, v);
+		if (normalTex) {
+			const N = { x: normal.x, y: normal.y, z: normal.z };
+			Vector3.normalizeInPlace(N);
+
+			const tangentLenSq =
+				input.tangent.x * input.tangent.x +
+				input.tangent.y * input.tangent.y +
+				input.tangent.z * input.tangent.z;
+			const hasValidTangent =
+				tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
+
+			if (hasValidTangent) {
+				const tNormX = (normalTex.r / 255) * 2 - 1;
+				const tNormY = (normalTex.g / 255) * 2 - 1;
+				const tNormZ = (normalTex.b / 255) * 2 - 1;
+
+				// Gram-Schmidt: keep T orthogonal to N to avoid invalid TBN on skewed assets.
+				const ndotT =
+					N.x * input.tangent.x +
+					N.y * input.tangent.y +
+					N.z * input.tangent.z;
+				let tx = input.tangent.x - N.x * ndotT;
+				let ty = input.tangent.y - N.y * ndotT;
+				let tz = input.tangent.z - N.z * ndotT;
+				const tLen = Math.hypot(tx, ty, tz);
+
+				if (tLen > 1e-6) {
+					const invTLen = 1 / tLen;
+					tx *= invTLen;
+					ty *= invTLen;
+					tz *= invTLen;
+
+					const handedness = input.tangent.w < 0 ? -1 : 1;
+					const bx = (N.y * tz - N.z * ty) * handedness;
+					const by = (N.z * tx - N.x * tz) * handedness;
+					const bz = (N.x * ty - N.y * tx) * handedness;
+
+					normal.x = tx * tNormX + bx * tNormY + N.x * tNormZ;
+					normal.y = ty * tNormX + by * tNormY + N.y * tNormZ;
+					normal.z = tz * tNormX + bz * tNormY + N.z * tNormZ;
+					Vector3.normalizeInPlace(normal);
+				} else {
+					normal.x = N.x;
+					normal.y = N.y;
+					normal.z = N.z;
+				}
+			} else {
+				normal.x = N.x;
+				normal.y = N.y;
+				normal.z = N.z;
+			}
+		} else {
+			Vector3.normalizeInPlace(normal);
+		}
 
 		return res;
 	}

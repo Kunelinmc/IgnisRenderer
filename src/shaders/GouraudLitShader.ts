@@ -9,31 +9,22 @@ import type { FragmentInput, PhongSurfaceProperties } from "./types";
 export class GouraudLitShader extends LitShader<PhongSurfaceProperties> {
 	public shade(input: FragmentInput): RGB | null {
 		const surface = this._evaluator.evaluate(
-			input.u,
-			input.v,
+			input,
 			this._face
 		) as PhongSurfaceProperties | null;
 		if (!surface) return null;
 
 		const res = this._cachedColor;
 
-		const lar = input.lar ?? 0;
-		const lag = input.lag ?? 0;
-		const lab = input.lab ?? 0;
-
-		const ldr = input.ldr ?? 0;
-		const ldg = input.ldg ?? 0;
-		const ldb = input.ldb ?? 0;
-
-		const lsr = input.lsr ?? 0;
-		const lsg = input.lsg ?? 0;
-		const lsb = input.lsb ?? 0;
+		const la = input.lightAmbient || { r: 0, g: 0, b: 0 };
+		const ld = input.lightDiffuse || { r: 0, g: 0, b: 0 };
+		const ls = input.lightSpecular || { r: 0, g: 0, b: 0 };
 
 		const { albedo, specular } = surface;
 
-		const dr = (albedo.r * (lar + ldr)) / 255 + (lsr * specular.r) / 255;
-		const dg = (albedo.g * (lag + ldg)) / 255 + (lsg * specular.g) / 255;
-		const db = (albedo.b * (lab + ldb)) / 255 + (lsb * specular.b) / 255;
+		const dr = (albedo.r * (la.r + ld.r)) / 255 + (ls.r * specular.r) / 255;
+		const dg = (albedo.g * (la.g + ld.g)) / 255 + (ls.g * specular.g) / 255;
+		const db = (albedo.b * (la.b + ld.b)) / 255 + (ls.b * specular.b) / 255;
 
 		// Clamp to 0..255 (byte RGB)
 		res.r =

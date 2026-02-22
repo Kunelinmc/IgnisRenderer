@@ -349,6 +349,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			attrs.NORMAL !== undefined ?
 				this.getAccessorData(json, buffers, attrs.NORMAL)
 			:	null;
+		const tangents =
+			attrs.TANGENT !== undefined ?
+				this.getAccessorData(json, buffers, attrs.TANGENT)
+			:	null;
 		const uvs =
 			attrs.TEXCOORD_0 !== undefined ?
 				this.getAccessorData(json, buffers, attrs.TEXCOORD_0)
@@ -402,6 +406,17 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					const normalMat = Matrix4.normalMatrix(worldMatrix);
 					const tNorm = Matrix4.transformNormal(normalMat, norm);
 					v.normal = { x: tNorm.x!, y: tNorm.y!, z: tNorm.z! };
+				}
+				if (tangents) {
+					const tang = {
+						x: tangents[idx * 4],
+						y: tangents[idx * 4 + 1],
+						z: tangents[idx * 4 + 2],
+					};
+					const w = tangents[idx * 4 + 3];
+					const normalMat = Matrix4.normalMatrix(worldMatrix);
+					const tTang = Matrix4.transformNormal(normalMat, tang);
+					v.tangent = { x: tTang.x!, y: tTang.y!, z: tTang.z!, w };
 				}
 				fv.push(v);
 			}
