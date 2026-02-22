@@ -166,8 +166,20 @@ export class Rasterizer implements RasterizerLike {
 	}
 
 	private _sampleTextureAlpha(map: Texture, u: number, v: number): number {
-		let uu = u * map.repeat.x + map.offset.x;
-		let vv = v * map.repeat.y + map.offset.y;
+		let uu = u * map.repeat.x;
+		let vv = v * map.repeat.y;
+
+		if (map.rotation !== 0) {
+			const c = Math.cos(map.rotation);
+			const s = Math.sin(map.rotation);
+			const ru = uu * c - vv * s;
+			const rv = uu * s + vv * c;
+			uu = ru;
+			vv = rv;
+		}
+
+		uu += map.offset.x;
+		vv += map.offset.y;
 
 		if (map.wrapS === "Repeat") uu = uu - Math.floor(uu);
 		else if (map.wrapS === "MirroredRepeat") {

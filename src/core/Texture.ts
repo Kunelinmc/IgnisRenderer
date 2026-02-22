@@ -29,6 +29,7 @@ export class Texture {
 	magFilter: TextureFilter;
 	offset: IVector2;
 	repeat: IVector2;
+	rotation: number;
 	/**
 	 * The color space of this texture's data.
 	 * Used by samplers and lighting to decide whether gamma decode is needed.
@@ -50,7 +51,25 @@ export class Texture {
 		this.magFilter = "Linear";
 		this.offset = { x: 0, y: 0 };
 		this.repeat = { x: 1, y: 1 };
+		this.rotation = 0;
 		this.colorSpace = colorSpace;
+	}
+
+	public clone(): Texture {
+		const cloned = new Texture(
+			this.data,
+			this.width,
+			this.height,
+			this.colorSpace
+		);
+		cloned.wrapS = this.wrapS;
+		cloned.wrapT = this.wrapT;
+		cloned.minFilter = this.minFilter;
+		cloned.magFilter = this.magFilter;
+		cloned.offset = { ...this.offset };
+		cloned.repeat = { ...this.repeat };
+		cloned.rotation = this.rotation;
+		return cloned;
 	}
 
 	/**
@@ -59,29 +78,44 @@ export class Texture {
 	public sample(u: number, v: number): RGBA {
 		if (!this.data) return { r: 255, g: 255, b: 255, a: 255 };
 
+		let uu = u * this.repeat.x;
+		let vv = v * this.repeat.y;
+
+		if (this.rotation !== 0) {
+			const c = Math.cos(this.rotation);
+			const s = Math.sin(this.rotation);
+			const ru = uu * c - vv * s;
+			const rv = uu * s + vv * c;
+			uu = ru;
+			vv = rv;
+		}
+
+		uu += this.offset.x;
+		vv += this.offset.y;
+
 		// Handle wrapping
 		if (this.wrapS === "Repeat") {
-			u = u - Math.floor(u);
+			uu = uu - Math.floor(uu);
 		} else if (this.wrapS === "MirroredRepeat") {
-			const iter = Math.floor(u);
-			u = u - iter;
-			if (Math.abs(iter) % 2 === 1) u = 1.0 - u;
+			const iter = Math.floor(uu);
+			uu = uu - iter;
+			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
 		} else {
-			u = Math.max(0, Math.min(1, u));
+			uu = Math.max(0, Math.min(1, uu));
 		}
 
 		if (this.wrapT === "Repeat") {
-			v = v - Math.floor(v);
+			vv = vv - Math.floor(vv);
 		} else if (this.wrapT === "MirroredRepeat") {
-			const iter = Math.floor(v);
-			v = v - iter;
-			if (Math.abs(iter) % 2 === 1) v = 1.0 - v;
+			const iter = Math.floor(vv);
+			vv = vv - iter;
+			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
 		} else {
-			v = Math.max(0, Math.min(1, v));
+			vv = Math.max(0, Math.min(1, vv));
 		}
 
-		let x = Math.floor(u * this.width);
-		let y = Math.floor(v * this.height);
+		let x = Math.floor(uu * this.width);
+		let y = Math.floor(vv * this.height);
 
 		// Clamp to valid range
 		if (x >= this.width) x = this.width - 1;

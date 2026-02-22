@@ -152,6 +152,33 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		return new Uint8Array(arrayBuffer);
 	}
 
+	private _getMaterialTexture(
+		texInfo: any,
+		textures: (Texture | null)[]
+	): Texture | null {
+		if (texInfo === undefined) return null;
+		const texIdx = texInfo.index;
+		const tex = textures[texIdx];
+		if (!tex) return null;
+
+		const transform = texInfo.extensions?.KHR_texture_transform;
+		if (!transform) return tex; // If no transform, we can just return the texture reference
+
+		const cloned = tex.clone();
+		if (transform.offset !== undefined) {
+			cloned.offset.x = transform.offset[0];
+			cloned.offset.y = transform.offset[1];
+		}
+		if (transform.scale !== undefined) {
+			cloned.repeat.x = transform.scale[0];
+			cloned.repeat.y = transform.scale[1];
+		}
+		if (transform.rotation !== undefined) {
+			cloned.rotation = transform.rotation;
+		}
+		return cloned;
+	}
+
 	public parseMaterials(
 		json: any,
 		textures: (Texture | null)[] = []
@@ -181,24 +208,27 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				doubleSided: m.doubleSided || false,
 			});
 			if (pbr.baseColorTexture !== undefined) {
-				const texIdx = pbr.baseColorTexture.index;
-				if (textures[texIdx]) material.map = textures[texIdx];
+				const tex = this._getMaterialTexture(pbr.baseColorTexture, textures);
+				if (tex) material.map = tex;
 			}
 			if (pbr.metallicRoughnessTexture !== undefined) {
-				const texIdx = pbr.metallicRoughnessTexture.index;
-				if (textures[texIdx]) material.metallicRoughnessMap = textures[texIdx];
+				const tex = this._getMaterialTexture(
+					pbr.metallicRoughnessTexture,
+					textures
+				);
+				if (tex) material.metallicRoughnessMap = tex;
 			}
 			if (m.normalTexture !== undefined) {
-				const texIdx = m.normalTexture.index;
-				if (textures[texIdx]) material.normalMap = textures[texIdx];
+				const tex = this._getMaterialTexture(m.normalTexture, textures);
+				if (tex) material.normalMap = tex;
 			}
 			if (m.emissiveTexture !== undefined) {
-				const texIdx = m.emissiveTexture.index;
-				if (textures[texIdx]) material.emissiveMap = textures[texIdx];
+				const tex = this._getMaterialTexture(m.emissiveTexture, textures);
+				if (tex) material.emissiveMap = tex;
 			}
 			if (m.occlusionTexture !== undefined) {
-				const texIdx = m.occlusionTexture.index;
-				if (textures[texIdx]) material.occlusionMap = textures[texIdx];
+				const tex = this._getMaterialTexture(m.occlusionTexture, textures);
+				if (tex) material.occlusionMap = tex;
 			}
 			if (m.alphaMode !== undefined) (material as any).alphaMode = m.alphaMode;
 			if (m.alphaCutoff !== undefined)
