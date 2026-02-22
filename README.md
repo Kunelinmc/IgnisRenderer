@@ -7,6 +7,8 @@
 
 **IgnisRenderer** is a high-performance 3D software rendering engine built entirely from scratch in TypeScript. It implements the complete graphics pipeline on the CPU, bypassing WebGL/WebGPU to provide a deep understanding of how modern 3D rendering works at its core.
 
+[**Live Demo 🚀**](https://leafy-swan-6c1cbc.netlify.app/)
+
 ![IgnisRenderer Screenshot](./assets/screenshot.png)
 
 ---
