@@ -208,11 +208,13 @@ export class Rasterizer implements RasterizerLike {
 		const { size, buffer } = shadowMap;
 		const alphaMode = material?.alphaMode;
 		const maskTexture =
-			alphaMode === "MASK" &&
-			material?.map &&
-			material.map.data &&
-			material.map.width > 0 &&
-			material.map.height > 0 ?
+			(
+				alphaMode === "MASK" &&
+				material?.map &&
+				material.map.data &&
+				material.map.width > 0 &&
+				material.map.height > 0
+			) ?
 				material.map
 			:	null;
 		const useMask = maskTexture !== null;
@@ -381,8 +383,7 @@ export class Rasterizer implements RasterizerLike {
 					const invIz = 1 / safeIz;
 					const u = uO * invIz;
 					const v = vO * invIz;
-					const alpha =
-						this._sampleTextureAlpha(maskTexture, u, v) * opacity;
+					const alpha = this._sampleTextureAlpha(maskTexture, u, v) * opacity;
 					if (alpha >= alphaCutoff) {
 						buffer[idx] = z;
 					}
@@ -693,28 +694,9 @@ export class Rasterizer implements RasterizerLike {
 						const refBuffer =
 							this._renderer.reflectionRenderer.reflectionBuffers.get(key);
 						if (refBuffer) {
-							// 1. Distortion (Ripples)
-							let offsetX = 0;
-							let offsetY = 0;
-							if (material.distortion > 0) {
-								const time = (this._renderer.lastTime || 0) * 0.002;
-								const freq = 0.5;
-								const dist = material.distortion * 5;
-								offsetX =
-									Math.sin(input.world.x * freq + time) *
-									Math.cos(input.world.z * freq + time) *
-									dist;
-								offsetY =
-									Math.cos(input.world.x * freq + time) *
-									Math.sin(input.world.z * freq + time) *
-									dist;
-							}
-
 							// Sample from reflection buffer with coordinate scaling
-							let refX = Math.floor((x + offsetX) * (refBuffer.width / width));
-							let refY = Math.floor(
-								(y + offsetY) * (refBuffer.height / height)
-							);
+							let refX = Math.floor(x * (refBuffer.width / width));
+							let refY = Math.floor(y * (refBuffer.height / height));
 
 							// Clamp to buffer bounds
 							refX = Math.max(0, Math.min(refBuffer.width - 1, refX));
@@ -723,37 +705,7 @@ export class Rasterizer implements RasterizerLike {
 							const refIdx = (refY * refBuffer.width + refX) << 2;
 							const refData = refBuffer.imageData.data;
 
-							// 2. Fresnel effect
-							let reflectivity = Math.max(
-								0,
-								Math.min(1, material.reflectivity)
-							);
-
-							if (material.fresnel) {
-								// View vector V = normalize(cameraPos - worldPos)
-								const vx = camPos.x - input.world.x;
-								const vy = camPos.y - input.world.y;
-								const vz = camPos.z - input.world.z;
-								const vLen =
-									Math.sqrt(vx * vx + vy * vy + vz * vz) ||
-									CoreConstants.EPSILON;
-								const nx = input.normal.x;
-								const ny = input.normal.y;
-								const nz = input.normal.z;
-								const nLen =
-									Math.sqrt(nx * nx + ny * ny + nz * nz) ||
-									CoreConstants.EPSILON;
-
-								// Dot product (N dot V)
-								const dot = Math.abs(
-									(vx * nx + vy * ny + vz * nz) / (vLen * nLen)
-								);
-								// Fresnel Schlick: R = R0 + (1-R0)(1-cos)^5
-								const R0 = material.reflectivity;
-								const fresnelFactor = R0 + (1 - R0) * Math.pow(1 - dot, 5);
-								reflectivity = fresnelFactor;
-							}
-
+							const reflectivity = material.reflectivity;
 							const invRef = 1 - reflectivity;
 							finalColor = {
 								r: finalColor.r * invRef + refData[refIdx] * reflectivity,

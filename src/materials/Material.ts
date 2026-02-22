@@ -20,7 +20,6 @@ export interface MaterialParams {
 	map?: TextureLike;
 	reflectivity?: number;
 	reflectionBlur?: number;
-	distortion?: number;
 	fresnel?: boolean;
 	mirrorPlane?: MirrorPlane;
 }
@@ -36,7 +35,6 @@ export class Material {
 	public map: TextureLike;
 	public reflectivity: number;
 	public reflectionBlur: number;
-	public distortion: number;
 	public fresnel: boolean;
 	public mirrorPlane: MirrorPlane | null;
 
@@ -52,8 +50,6 @@ export class Material {
 		this.map = params.map ?? null;
 
 		this.reflectivity = params.reflectivity ?? 0;
-		this.reflectionBlur = params.reflectionBlur ?? 0;
-		this.distortion = params.distortion ?? 0;
 		this.fresnel = params.fresnel ?? false;
 		this.mirrorPlane = params.mirrorPlane ?? null;
 	}

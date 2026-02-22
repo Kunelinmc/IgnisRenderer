@@ -110,12 +110,6 @@ export class ReflectionRenderer {
 							material.reflectionBlur
 						);
 					}
-					if (material.distortion) {
-						info.filters.ripple = Math.max(
-							info.filters.ripple || 0,
-							material.distortion
-						);
-					}
 				}
 			}
 		}
