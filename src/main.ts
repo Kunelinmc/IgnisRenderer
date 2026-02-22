@@ -75,7 +75,6 @@ async function init() {
 				constant: 0,
 			},
 			reflectivity: 0.5,
-			reflectionBlur: 2,
 		})
 	);
 
