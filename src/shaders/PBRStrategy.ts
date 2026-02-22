@@ -73,8 +73,26 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 		// Dielectric F0 from reflectance (0.5 -> 0.04)
 		const reflectance = clamp(surface.reflectance, 0.0, 1.0);
-		const f0Val = 0.16 * reflectance * reflectance;
-		const f0_norm = { r: f0Val, g: f0Val, b: f0Val };
+		const baseF0Val = 0.16 * reflectance * reflectance;
+
+		const specularFactor = clamp(surface.specularFactor ?? 1.0, 0.0, 1.0);
+		const specColorInput = surface.specularColor ?? {
+			r: 255,
+			g: 255,
+			b: 255,
+		};
+		// KHR_materials_specular color is defined in linear space.
+		const specColor = {
+			r: clamp(specColorInput.r / 255, 0, 1),
+			g: clamp(specColorInput.g / 255, 0, 1),
+			b: clamp(specColorInput.b / 255, 0, 1),
+		};
+
+		const f0_norm = {
+			r: Math.min(baseF0Val * specColor.r * specularFactor, 1.0),
+			g: Math.min(baseF0Val * specColor.g * specularFactor, 1.0),
+			b: Math.min(baseF0Val * specColor.b * specularFactor, 1.0),
+		};
 
 		// Metalness workflow: metals have albedo as F0, non-metals use f0 computed from reflectance
 		const realF0 = {

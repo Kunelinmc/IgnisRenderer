@@ -3,6 +3,7 @@ import type { PBRMaterial, Material } from "../materials";
 import type { ProjectedFace } from "../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../maths/Vector3";
+import { clamp, sRGBToLinear } from "../maths/Common";
 
 export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 	private _mat!: PBRMaterial;
@@ -16,14 +17,16 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		roughness: 0,
 		metalness: 0,
 		reflectance: 0.5,
+		specularFactor: 1.0,
+		specularColor: { r: 255, g: 255, b: 255 },
 		occlusion: 1.0,
 		clearcoat: 0.0,
 		clearcoatRoughness: 0.0,
 	};
 
 	constructor(material: Material) {
-		super(material)
-		this._mat = material as PBRMaterial
+		super(material);
+		this._mat = material as PBRMaterial;
 	}
 
 	public compile(material: Material): void {
@@ -85,6 +88,41 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			occlusion = occlusionTex.r / 255;
 		}
 
+		let specFactor = mat.specularFactor ?? 1.0;
+		const specTex = this._sampleTextureMap(mat.specularMap, u, v);
+		if (specTex) {
+			specFactor *= specTex.a;
+		}
+
+		const specColorInput = mat.specularColor || { r: 255, g: 255, b: 255 };
+		let specColorLinear = {
+			r: clamp(specColorInput.r / 255, 0, 1),
+			g: clamp(specColorInput.g / 255, 0, 1),
+			b: clamp(specColorInput.b / 255, 0, 1),
+		};
+		const specColorTex = this._sampleTextureMap(mat.specularColorMap, u, v);
+		if (specColorTex) {
+			const colorSpace = mat.specularColorMap?.colorSpace ?? "sRGB";
+			const texLinear =
+				colorSpace === "Linear" || colorSpace === "HDR" ?
+					{
+						r: clamp(specColorTex.r / 255, 0, 1),
+						g: clamp(specColorTex.g / 255, 0, 1),
+						b: clamp(specColorTex.b / 255, 0, 1),
+					}
+				:	{
+						r: sRGBToLinear(clamp(specColorTex.r / 255, 0, 1)),
+						g: sRGBToLinear(clamp(specColorTex.g / 255, 0, 1)),
+						b: sRGBToLinear(clamp(specColorTex.b / 255, 0, 1)),
+					};
+
+			specColorLinear = {
+				r: specColorLinear.r * texLinear.r,
+				g: specColorLinear.g * texLinear.g,
+				b: specColorLinear.b * texLinear.b,
+			};
+		}
+
 		const res = this._cachedResult;
 		res.albedo.r = albedo.r;
 		res.albedo.g = albedo.g;
@@ -96,6 +134,10 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.emissive.g = emissive.g;
 		res.emissive.b = emissive.b;
 		res.reflectance = mat.reflectance ?? 0.5;
+		res.specularFactor = clamp(specFactor, 0, 1);
+		res.specularColor.r = clamp(specColorLinear.r, 0, 1) * 255;
+		res.specularColor.g = clamp(specColorLinear.g, 0, 1) * 255;
+		res.specularColor.b = clamp(specColorLinear.b, 0, 1) * 255;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 		res.occlusion = Math.max(0, Math.min(1, occlusion));
 		res.clearcoat = mat.clearcoat ?? 0.0;
