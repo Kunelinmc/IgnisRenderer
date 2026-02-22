@@ -196,6 +196,18 @@ function testNormalMapHandedness() {
 	assertVectorClose(surface.normal, expectedVec);
 }
 
+function testLegacyF0Compatibility() {
+	console.log("Testing legacy f0 parameter compatibility...");
+	const material = new PBRMaterial({
+		f0: { r: 0, g: 0, b: 0 },
+	});
+
+	assert.ok(
+		Math.abs(material.reflectance - 0.5) < 1e-6,
+		"Legacy f0 should map to dielectric baseline reflectance"
+	);
+}
+
 function run() {
 	try {
 		console.log("Starting PBR Texture Maps Tests...");
@@ -205,6 +217,7 @@ function run() {
 		testOcclusionMap();
 		testNormalMap();
 		testNormalMapHandedness();
+		testLegacyF0Compatibility();
 		console.log("✅ All PBR texture tests passed!");
 	} catch (e) {
 		console.error("❌ Test Failed:");

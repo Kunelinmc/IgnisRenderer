@@ -1,4 +1,9 @@
-import type { IVector3, IVector4, SHCoefficients } from "../maths/types";
+import type {
+	IVector3,
+	IVector4,
+	SHCoefficients,
+	IVector2,
+} from "../maths/types";
 import type { Renderer } from "../core/Renderer";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { ProjectedFace } from "../core/types";
@@ -17,6 +22,21 @@ export interface ShaderContext {
 	enableGamma: boolean;
 	enableLighting: boolean;
 	gamma: number;
+}
+
+export interface FragmentOutput {
+	color: RGB;
+	depth?: number;
+	motionVector?: IVector2;
+}
+
+export interface IBRDF {
+	evaluate(
+		surface: SurfaceProperties,
+		lightDir: IVector3,
+		viewDir: IVector3,
+		normal: IVector3
+	): RGB;
 }
 
 export interface FragmentInput {
@@ -43,7 +63,7 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	type: "pbr";
 	roughness: number;
 	metalness: number;
-	f0: RGB;
+	reflectance: number;
 	occlusion: number;
 	clearcoat: number;
 	clearcoatRoughness: number;
@@ -61,7 +81,11 @@ export type SurfaceProperties = PBRSurfaceProperties | PhongSurfaceProperties;
 export interface IMaterialEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
 > {
+	/**
+	 * @deprecated Use compile(material) instead.
+	 */
 	setMaterial(material: Material): void;
+	compile(material: Material): void;
 	evaluate(input: FragmentInput, face: ProjectedFace): T | null;
 }
 
@@ -81,5 +105,5 @@ export interface IShader {
 	setEvaluator(evaluator: IMaterialEvaluator): void;
 	initialize(face: ProjectedFace, context: ShaderContext): void;
 	getOpacity(): number;
-	shade(input: FragmentInput): RGB | null;
+	shade(input: FragmentInput): FragmentOutput | null;
 }

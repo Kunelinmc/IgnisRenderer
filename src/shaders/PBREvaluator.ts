@@ -1,10 +1,11 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PBRMaterial } from "../materials";
+import type { PBRMaterial, Material } from "../materials";
 import type { ProjectedFace } from "../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../maths/Vector3";
 
 export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
+	private _mat!: PBRMaterial;
 	private _cachedResult: PBRSurfaceProperties = {
 		type: "pbr",
 		albedo: { r: 0, g: 0, b: 0 },
@@ -14,11 +15,21 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		emissiveIntensity: 1.0,
 		roughness: 0,
 		metalness: 0,
-		f0: { r: 0, g: 0, b: 0 },
+		reflectance: 0.5,
 		occlusion: 1.0,
 		clearcoat: 0.0,
 		clearcoatRoughness: 0.0,
 	};
+
+	constructor(material: Material) {
+		super(material)
+		this._mat = material as PBRMaterial
+	}
+
+	public compile(material: Material): void {
+		super.compile(material);
+		this._mat = material as PBRMaterial;
+	}
 
 	public evaluate(
 		input: FragmentInput,
@@ -26,7 +37,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 	): PBRSurfaceProperties | null {
 		const u = input.u;
 		const v = input.v;
-		const mat = this.material as PBRMaterial;
+		const mat = this._mat;
 		let albedo = mat.albedo || { r: 255, g: 255, b: 255 };
 		let alpha = mat.opacity ?? 1;
 		let roughness = mat.roughness ?? 0.5;
@@ -84,10 +95,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.emissive.r = emissive.r;
 		res.emissive.g = emissive.g;
 		res.emissive.b = emissive.b;
-		const f0 = mat.f0 || { r: 10, g: 10, b: 10 };
-		res.f0.r = f0.r;
-		res.f0.g = f0.g;
-		res.f0.b = f0.b;
+		res.reflectance = mat.reflectance ?? 0.5;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 		res.occlusion = Math.max(0, Math.min(1, occlusion));
 		res.clearcoat = mat.clearcoat ?? 0.0;
@@ -120,9 +128,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 				// Gram-Schmidt: keep T orthogonal to N to avoid invalid TBN on skewed assets.
 				const ndotT =
-					N.x * input.tangent.x +
-					N.y * input.tangent.y +
-					N.z * input.tangent.z;
+					N.x * input.tangent.x + N.y * input.tangent.y + N.z * input.tangent.z;
 				let tx = input.tangent.x - N.x * ndotT;
 				let ty = input.tangent.y - N.y * ndotT;
 				let tz = input.tangent.z - N.z * ndotT;

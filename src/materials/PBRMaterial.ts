@@ -1,5 +1,6 @@
 import type { RGB } from "../utils/Color";
 import { Material, type MaterialParams, type TextureLike } from "./Material";
+import { clamp, sRGBToLinear } from "../maths/Common";
 
 export interface PBRMaterialParams extends MaterialParams {
 	albedo?: RGB;
@@ -7,7 +8,11 @@ export interface PBRMaterialParams extends MaterialParams {
 	metalness?: number;
 	emissive?: RGB;
 	emissiveIntensity?: number;
+	/**
+	 * @deprecated Use reflectance instead.
+	 */
 	f0?: RGB;
+	reflectance?: number;
 	metallicRoughnessMap?: TextureLike;
 	normalMap?: TextureLike;
 	emissiveMap?: TextureLike;
@@ -22,13 +27,21 @@ export class PBRMaterial extends Material {
 	public metalness: number;
 	public emissive: RGB;
 	public emissiveIntensity: number;
-	public f0: RGB;
+	public reflectance: number;
 	public metallicRoughnessMap: TextureLike;
 	public normalMap: TextureLike;
 	public emissiveMap: TextureLike;
 	public occlusionMap: TextureLike;
 	public clearcoat: number;
 	public clearcoatRoughness: number;
+
+	private static _reflectanceFromLegacyF0(f0: RGB): number {
+		const r = sRGBToLinear(clamp(f0.r / 255, 0, 1));
+		const g = sRGBToLinear(clamp(f0.g / 255, 0, 1));
+		const b = sRGBToLinear(clamp(f0.b / 255, 0, 1));
+		const f0Linear = clamp(0.2126 * r + 0.7152 * g + 0.0722 * b, 0.04, 1);
+		return clamp(Math.sqrt(f0Linear / 0.16), 0, 1);
+	}
 
 	constructor(params: PBRMaterialParams = {}) {
 		super({ ...params, shading: "PBR" });
@@ -38,7 +51,13 @@ export class PBRMaterial extends Material {
 		this.metalness = params.metalness !== undefined ? params.metalness : 0.0;
 		this.emissive = params.emissive || { r: 0, g: 0, b: 0 };
 		this.emissiveIntensity = params.emissiveIntensity ?? 1.0;
-		this.f0 = params.f0 || { r: 0.04 * 255, g: 0.04 * 255, b: 0.04 * 255 };
+		const reflectance =
+			params.reflectance !== undefined ?
+				params.reflectance
+			:	params.f0 ?
+				PBRMaterial._reflectanceFromLegacyF0(params.f0)
+			:	0.5;
+		this.reflectance = clamp(reflectance, 0, 1);
 
 		this.metallicRoughnessMap = params.metallicRoughnessMap || null;
 		this.normalMap = params.normalMap || null;

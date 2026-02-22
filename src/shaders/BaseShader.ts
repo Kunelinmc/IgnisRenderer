@@ -2,6 +2,7 @@ import type { RGB } from "../utils/Color";
 import type { ProjectedFace } from "../core/types";
 import type {
 	FragmentInput,
+	FragmentOutput,
 	IMaterialEvaluator,
 	IShader,
 	ShaderContext,
@@ -14,6 +15,7 @@ export abstract class BaseShader<
 	protected _face!: ProjectedFace;
 	protected _context!: ShaderContext;
 	protected _cachedColor: RGB = { r: 0, g: 0, b: 0 };
+	protected _cachedOutput: FragmentOutput = { color: this._cachedColor };
 	protected _lastOpacity = 1;
 
 	constructor(protected _evaluator: IMaterialEvaluator<T>) {}
@@ -31,5 +33,5 @@ export abstract class BaseShader<
 		return this._lastOpacity;
 	}
 
-	abstract shade(input: FragmentInput): RGB | null;
+	abstract shade(input: FragmentInput): FragmentOutput | null;
 }

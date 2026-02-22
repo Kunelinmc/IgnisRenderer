@@ -71,20 +71,16 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const clearcoat = clamp(surface.clearcoat, 0.0, 1.0);
 		const clearcoatRoughness = clamp(surface.clearcoatRoughness, 0.04, 1.0);
 
-		// Common PBR practice: non-metals have a base F0 of 0.04 (linear reflectance)
-		const F0_NON_METAL = 0.04;
-		// f0 input is sRGB [0-255], decode to linear [0-1]
-		const f0_norm = {
-			r: sRGBToLinear(Math.max(0, surface.f0.r / 255)),
-			g: sRGBToLinear(Math.max(0, surface.f0.g / 255)),
-			b: sRGBToLinear(Math.max(0, surface.f0.b / 255)),
-		};
+		// Dielectric F0 from reflectance (0.5 -> 0.04)
+		const reflectance = clamp(surface.reflectance, 0.0, 1.0);
+		const f0Val = 0.16 * reflectance * reflectance;
+		const f0_norm = { r: f0Val, g: f0Val, b: f0Val };
 
-		// Metalness workflow: metals have albedo as F0, non-metals use a small constant or f0 param
+		// Metalness workflow: metals have albedo as F0, non-metals use f0 computed from reflectance
 		const realF0 = {
-			r: (1 - metal) * Math.max(F0_NON_METAL, f0_norm.r) + metal * alb.r,
-			g: (1 - metal) * Math.max(F0_NON_METAL, f0_norm.g) + metal * alb.g,
-			b: (1 - metal) * Math.max(F0_NON_METAL, f0_norm.b) + metal * alb.b,
+			r: (1 - metal) * f0_norm.r + metal * alb.r,
+			g: (1 - metal) * f0_norm.g + metal * alb.g,
+			b: (1 - metal) * f0_norm.b + metal * alb.b,
 		};
 
 		// Emissive: sRGB [0-255] → linear, then scaled by intensity.

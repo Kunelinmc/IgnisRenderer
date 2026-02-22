@@ -1,12 +1,17 @@
 import { LitShader } from "./LitShader";
 import type { RGB } from "../utils/Color";
 import type { ProjectedFace } from "../core/types";
-import type { FragmentInput, ShaderContext, SurfaceProperties } from "./types";
+import type {
+	FragmentInput,
+	FragmentOutput,
+	ShaderContext,
+	SurfaceProperties,
+} from "./types";
 
 export class FlatLitShader<
 	T extends SurfaceProperties = SurfaceProperties,
 > extends LitShader<T> {
-	private _faceColor: RGB | null = null;
+	private _faceOutput: FragmentOutput | null = null;
 	private _faceColorStorage: RGB = { r: 0, g: 0, b: 0 };
 	private _faceOpacity = 1;
 
@@ -14,7 +19,7 @@ export class FlatLitShader<
 		super.initialize(face, context);
 		const map = face.material?.map;
 		if (!map) {
-			const color = this.shade({
+			const output = this.shade({
 				zCam: 0,
 				u: 0,
 				v: 0,
@@ -26,26 +31,26 @@ export class FlatLitShader<
 				},
 				tangent: { x: 1, y: 0, z: 0, w: 1 },
 			});
-			if (color) {
-				this._faceColorStorage.r = color.r;
-				this._faceColorStorage.g = color.g;
-				this._faceColorStorage.b = color.b;
-				this._faceColor = this._faceColorStorage;
+			if (output) {
+				this._faceColorStorage.r = output.color.r;
+				this._faceColorStorage.g = output.color.g;
+				this._faceColorStorage.b = output.color.b;
+				this._faceOutput = { color: this._faceColorStorage };
 				this._faceOpacity = this.getOpacity();
 			} else {
-				this._faceColor = null;
+				this._faceOutput = null;
 				this._faceOpacity = 0;
 			}
 		} else {
-			this._faceColor = null;
+			this._faceOutput = null;
 			this._faceOpacity = 1;
 		}
 	}
 
-	public shade(input: FragmentInput): RGB | null {
-		if (this._faceColor) {
+	public shade(input: FragmentInput): FragmentOutput | null {
+		if (this._faceOutput) {
 			this._lastOpacity = this._faceOpacity;
-			return this._faceColor;
+			return this._faceOutput;
 		}
 		return super.shade(input);
 	}

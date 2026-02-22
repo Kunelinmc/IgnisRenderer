@@ -4,6 +4,7 @@ import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import type {
 	FragmentInput,
+	FragmentOutput,
 	ILightingStrategy,
 	IMaterialEvaluator,
 	SurfaceProperties,
@@ -23,7 +24,7 @@ export class LitShader<
 		super(evaluator);
 	}
 
-	public shade(input: FragmentInput): RGB | null {
+	public shade(input: FragmentInput): FragmentOutput | null {
 		const surface = this._evaluator.evaluate(input, this._face);
 		if (!surface) return null;
 		this._lastOpacity = surface.opacity;
@@ -66,6 +67,6 @@ export class LitShader<
 		res.r = litColor.r;
 		res.g = litColor.g;
 		res.b = litColor.b;
-		return res;
+		return this._cachedOutput;
 	}
 }

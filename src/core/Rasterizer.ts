@@ -126,7 +126,7 @@ export class Rasterizer implements RasterizerLike {
 	private _getShader(shading: string, material: Material): IShader {
 		const isPBR = shading === "PBR" || material.type === "PBR";
 		const evaluator = isPBR ? this._pbrEvaluator : this._phongEvaluator;
-		evaluator.setMaterial(material);
+		evaluator.compile(material);
 
 		const key = `${shading}_${isPBR ? "PBR" : "Phong"}`;
 		let shader = this._shaderCache.get(key);
@@ -681,7 +681,9 @@ export class Rasterizer implements RasterizerLike {
 					input.u = uO * zCam;
 					input.v = vO * zCam;
 
-					let finalColor = shader.shade(input);
+					const finalOutput = shader.shade(input);
+					let finalColor = finalOutput?.color;
+					const shadedDepth = finalOutput?.depth ?? zCam;
 
 					if (
 						finalColor &&
@@ -715,14 +717,18 @@ export class Rasterizer implements RasterizerLike {
 						}
 					}
 
-					if (finalColor) {
+					if (
+						finalColor &&
+						shadedDepth > 0 &&
+						shadedDepth < depthBuffer[bufIdx]
+					) {
 						const idx = bufIdx << 2;
 						if (!isTransparent) {
 							pixels[idx] = finalColor.r;
 							pixels[idx + 1] = finalColor.g;
 							pixels[idx + 2] = finalColor.b;
 							pixels[idx + 3] = CoreConstants.OPAQUE_ALPHA;
-							depthBuffer[bufIdx] = zCam;
+							depthBuffer[bufIdx] = shadedDepth;
 						} else {
 							const faceAlpha = face.color?.a ?? 1;
 							const shaderAlpha = shader.getOpacity();

@@ -1,13 +1,17 @@
 import { LitShader } from "./LitShader";
 import type { RGB } from "../utils/Color";
-import type { FragmentInput, PhongSurfaceProperties } from "./types";
+import type {
+	FragmentInput,
+	FragmentOutput,
+	PhongSurfaceProperties,
+} from "./types";
 
 /**
  * @deprecated Gouraud shading is being phased out in favor of pixel-rate shading.
  * Use LitShader with BlinnPhongStrategy for better quality.
  */
 export class GouraudLitShader extends LitShader<PhongSurfaceProperties> {
-	public shade(input: FragmentInput): RGB | null {
+	public shade(input: FragmentInput): FragmentOutput | null {
 		const surface = this._evaluator.evaluate(
 			input,
 			this._face
@@ -40,6 +44,6 @@ export class GouraudLitShader extends LitShader<PhongSurfaceProperties> {
 			: db > 255 ? 255
 			: db;
 
-		return res;
+		return this._cachedOutput;
 	}
 }

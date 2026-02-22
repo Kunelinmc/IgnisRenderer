@@ -1,10 +1,11 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PhongMaterial } from "../materials";
+import type { PhongMaterial, Material } from "../materials";
 import type { ProjectedFace } from "../core/types";
 import type { PhongSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../maths/Vector3";
 
 export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
+	private _mat!: PhongMaterial;
 	private _cachedResult: PhongSurfaceProperties = {
 		type: "phong",
 		albedo: { r: 0, g: 0, b: 0 },
@@ -17,13 +18,23 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		shininess: 0,
 	};
 
+	constructor(material: Material) {
+		super(material)
+		this._mat = material as PhongMaterial
+	}
+
+	public compile(material: Material): void {
+		super.compile(material);
+		this._mat = material as PhongMaterial;
+	}
+
 	public evaluate(
 		input: FragmentInput,
 		face: ProjectedFace
 	): PhongSurfaceProperties | null {
 		const u = input.u;
 		const v = input.v;
-		const mat = this.material as PhongMaterial;
+		const mat = this._mat;
 		let color = mat.diffuse || { r: 255, g: 255, b: 255 };
 		let alpha = mat.opacity ?? 1;
 
