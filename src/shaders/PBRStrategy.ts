@@ -295,13 +295,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			);
 
 			ambR +=
-				ambientCol.r * realF0.r * specFactor * baseAttenuationAmb +
+				ambientCol.r * F_amb.r * specFactor * baseAttenuationAmb +
 				ambientCol.r * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambG +=
-				ambientCol.g * realF0.g * specFactor * baseAttenuationAmb +
+				ambientCol.g * F_amb.g * specFactor * baseAttenuationAmb +
 				ambientCol.g * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambB +=
-				ambientCol.b * realF0.b * specFactor * baseAttenuationAmb +
+				ambientCol.b * F_amb.b * specFactor * baseAttenuationAmb +
 				ambientCol.b * ccAmbFresnel * ccSpecFactor * clearcoat;
 		}
 
