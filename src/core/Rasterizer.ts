@@ -586,7 +586,7 @@ export class Rasterizer implements RasterizerLike {
 			v.tangentO.x = tangent.x * iz;
 			v.tangentO.y = tangent.y * iz;
 			v.tangentO.z = tangent.z * iz;
-			v.tangentO.w = tangent.w; // w component of tangent is not perspective corrected
+			v.tangentO.w = tangent.w * iz;
 			v.uO = (p.u ?? 0) * iz;
 			v.vO = (p.v ?? 0) * iz;
 		}
@@ -677,7 +677,7 @@ export class Rasterizer implements RasterizerLike {
 					input.tangent.x = tangentOx * zCam;
 					input.tangent.y = tangentOy * zCam;
 					input.tangent.z = tangentOz * zCam;
-					input.tangent.w = tangentOw;
+					input.tangent.w = tangentOw * zCam;
 					input.u = uO * zCam;
 					input.v = vO * zCam;
 
