@@ -16,7 +16,7 @@ export abstract class BaseEvaluator<
 	 * @deprecated Use compile(material) instead.
 	 */
 	public setMaterial(material: Material): void {
-		this.compile(material)
+		this.compile(material);
 	}
 
 	public compile(material: Material): void {
@@ -31,8 +31,20 @@ export abstract class BaseEvaluator<
 		if (!map || !map.data) return null;
 		if (map.width <= 0 || map.height <= 0) return null;
 
-		let uu = u * map.repeat.x + map.offset.x;
-		let vv = v * map.repeat.y + map.offset.y;
+		let uu = u * map.repeat.x;
+		let vv = v * map.repeat.y;
+
+		if (map.rotation !== 0) {
+			const c = Math.cos(map.rotation);
+			const s = Math.sin(map.rotation);
+			const ru = uu * c - vv * s;
+			const rv = uu * s + vv * c;
+			uu = ru;
+			vv = rv;
+		}
+
+		uu += map.offset.x;
+		vv += map.offset.y;
 
 		if (map.wrapS === "Repeat") uu = uu - Math.floor(uu);
 		else if (map.wrapS === "MirroredRepeat") {
