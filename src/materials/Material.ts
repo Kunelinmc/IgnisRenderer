@@ -19,7 +19,6 @@ export interface MaterialParams {
 	alphaCutoff?: number;
 	map?: TextureLike;
 	reflectivity?: number;
-	reflectionBlur?: number;
 	fresnel?: boolean;
 	mirrorPlane?: MirrorPlane;
 }
@@ -34,7 +33,6 @@ export class Material {
 	public alphaCutoff: number;
 	public map: TextureLike;
 	public reflectivity: number;
-	public reflectionBlur: number;
 	public fresnel: boolean;
 	public mirrorPlane: MirrorPlane | null;
 

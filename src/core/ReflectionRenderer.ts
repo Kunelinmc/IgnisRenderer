@@ -2,12 +2,6 @@ import { Matrix4 } from "../maths/Matrix4";
 import { Plane } from "../maths/Plane";
 import { Projector } from "./Projector";
 import { RenderConstants } from "./Constants";
-import {
-	ReflectionFilter,
-	ReflectionFilterContext,
-	BlurFilter,
-	RippleFilter,
-} from "./ReflectionFilter";
 import type { Renderer } from "./Renderer";
 import type { ProjectedFace, ProjectedVertex } from "./types";
 
@@ -19,7 +13,6 @@ interface ReflectionBuffer {
 
 interface PlaneAggregateInfo {
 	plane: Plane;
-	filters: Record<string, any>; // Filter name -> max parameter value
 }
 
 export class ReflectionRenderer {
@@ -28,10 +21,6 @@ export class ReflectionRenderer {
 	private _planesPool: Map<string, Plane> = new Map();
 	private _imageDataPool: Map<string, ImageData[]> = new Map();
 
-	// Registry of available filters
-	private _filterRegistry: Map<string, ReflectionFilter> = new Map();
-
-	// Map of mirror plane stringified to reflection buffer
 	public reflectionBuffers: Map<string, ReflectionBuffer> = new Map();
 
 	// Allows scaling the resolution of reflection buffers for performance vs quality tradeoff
@@ -39,18 +28,6 @@ export class ReflectionRenderer {
 
 	constructor(renderer: Renderer) {
 		this._renderer = renderer;
-		// Register default filters
-		this.registerFilter("blur", new BlurFilter());
-		this.registerFilter("ripple", new RippleFilter());
-	}
-
-	/**
-	 * Registers a new filter that can be applied to reflections.
-	 * @param name - Unique name for the filter.
-	 * @param filter - The filter implementation.
-	 */
-	public registerFilter(name: string, filter: ReflectionFilter): void {
-		this._filterRegistry.set(name, filter);
 	}
 
 	public render(): void {
@@ -72,9 +49,6 @@ export class ReflectionRenderer {
 
 			// Render reflection
 			this._renderReflectionForPlane(info.plane, buffer);
-
-			// Apply filters
-			this._applyFilters(info, buffer);
 		}
 
 		// 3. Cleanup stale buffers and planes
@@ -98,17 +72,8 @@ export class ReflectionRenderer {
 						}
 						info = {
 							plane: this._planesPool.get(key)!,
-							filters: {},
 						};
 						infos.set(key, info);
-					}
-
-					// Aggregate filter parameters (e.g., take the maximum)
-					if (material.reflectionBlur) {
-						info.filters.blur = Math.max(
-							info.filters.blur || 0,
-							material.reflectionBlur
-						);
 					}
 				}
 			}
@@ -141,26 +106,6 @@ export class ReflectionRenderer {
 		}
 
 		return buffer;
-	}
-
-	private _applyFilters(
-		info: PlaneAggregateInfo,
-		buffer: ReflectionBuffer
-	): void {
-		const context: ReflectionFilterContext = {
-			renderer: this._renderer,
-			plane: info.plane,
-			imageData: buffer.imageData,
-			width: buffer.width,
-			height: buffer.height,
-		};
-
-		for (const [filterName, params] of Object.entries(info.filters)) {
-			const filter = this._filterRegistry.get(filterName);
-			if (filter) {
-				filter.apply(context, params);
-			}
-		}
 	}
 
 	private _clearBuffers(): void {
@@ -331,6 +276,7 @@ export class ReflectionRenderer {
 			}
 
 			transparentFaces.sort((a, b) => b.depthInfo.avg - a.depthInfo.avg);
+
 			for (const face of transparentFaces) {
 				const projected = face.projected;
 				for (let i = 1; i < projected.length - 1; i++) {
