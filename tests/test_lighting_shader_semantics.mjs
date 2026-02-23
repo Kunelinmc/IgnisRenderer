@@ -214,7 +214,7 @@ function testLightProbeFallbackContributionFromDC() {
 		contribution,
 		"LightProbe should provide ambient fallback from SH DC term"
 	);
-	assert.equal(contribution.type, "ambient");
+	assert.equal(contribution.type, "irradiance");
 	assert.ok(Math.abs((contribution.intensity ?? 0) - 0.75) < 1e-6);
 	assert.ok(contribution.color.r > 0 || contribution.color.g > 0);
 }

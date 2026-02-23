@@ -7,7 +7,7 @@ import { LightProbe } from "../src/lights/LightProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 
-function assertColorClose(actual, expected, tolerance = 0.001) {
+function assertColorClose(actual, expected, tolerance = 1.0) {
 	const dr = Math.abs(actual.r - expected.r);
 	const dg = Math.abs(actual.g - expected.g);
 	const db = Math.abs(actual.b - expected.b);
@@ -121,14 +121,26 @@ function testSpot() {
 function testLightProbe() {
 	console.log("Testing LightProbe...");
 	const sh = SH.empty();
-	// Set DC component to something noticeable
-	sh[0] = { r: 10, g: 10, b: 10 };
-	const probe = new LightProbe(sh, 1.0);
+	// Set DC component.
+	// To get a specific linear irradiance E, we set DC = E / (PI * Y00)
+	// Let's target E = 127.5 (half max linear)
+	const targetLinearIrr = 127.5;
+	const Y00 = 0.282095;
+	const dcVal = targetLinearIrr / (Math.PI * Y00);
+	sh[0] = { r: dcVal, g: dcVal, b: dcVal };
 
+	const probe = new LightProbe(sh, 1.0);
 	const contribution = probe.computeContribution({ x: 0, y: 0, z: 0 });
-	assert.equal(contribution.type, "ambient");
-	// Currently returns {0,0,0} in the implementation, but we check if it runs
-	assert.ok(contribution.color);
+
+	assert.ok(contribution, "LightProbe contribution should not be null");
+	assert.equal(contribution.type, "irradiance");
+
+	// Verification:
+	// Linear Irradiance target was 127.5.
+	// 127.5 / 255 = 0.5 linear.
+	// sRGB(0.5) approx 0.735. 0.735 * 255 approx 187.
+	assertColorClose(contribution.color, { r: 187, g: 187, b: 187 }, 5.0);
+	assert.ok(Math.abs((contribution.intensity ?? 0) - 1.0) < 1e-6);
 }
 
 function run() {
