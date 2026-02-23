@@ -35,17 +35,14 @@ export class PointLight extends Light<LightType.Point> {
 
 		if (distance > this.range) return null;
 
-		// Smooth distance attenuation: ensures light hits 0 at distance === range
-		const distanceFactor = distance / this.range;
-		const smoothFactor = Math.max(0, 1 - distanceFactor * distanceFactor);
-
-		// Combine with standard attenuation model
-		const constant = 1.0;
-		const linear = 0.007;
-		const quadratic = 0.0002;
-		const attenuation =
-			(1.0 / (constant + linear * distance + quadratic * distance * distance)) *
-			(smoothFactor * smoothFactor);
+		// Physically-based distance attenuation: inverse square law with smooth windowing
+		// This uses the formula: attenuation = max(0, 1 - (d/r)^4)^2 / (d^2 + 1)
+		// The +1 in the denominator prevents the singularity at d=0.
+		const distanceSq = distance * distance;
+		const rangeSq = this.range * this.range;
+		const rangeFactor = distanceSq / rangeSq;
+		const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
+		const attenuation = (smoothFactor * smoothFactor) / (distanceSq + 1.0);
 
 		return {
 			type: "direct",

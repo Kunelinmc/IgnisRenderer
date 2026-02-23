@@ -131,17 +131,14 @@ export class SpotLight extends Light<LightType.Spot> {
 			Math.min(1, (cosTheta - outerCutoff) / (epsilon || 1e-6))
 		);
 
-		const constant = 1.0;
-		const linear = 0.007;
-		const quadratic = 0.0002;
-
-		// Smooth distance attenuation factor that reaches 0 at this.range
-		const distanceFactor = distance / this.range;
-		const smoothFactor = Math.max(0, 1 - distanceFactor * distanceFactor);
-
-		const attenuation =
-			(1.0 / (constant + linear * distance + quadratic * distance * distance)) *
-			(smoothFactor * smoothFactor);
+		// Physically-based distance attenuation: inverse square law with smooth windowing
+		// This uses the formula: attenuation = max(0, 1 - (d/r)^4)^2 / (d^2 + 1)
+		// The +1 in the denominator prevents the singularity at d=0.
+		const distanceSq = distance * distance;
+		const rangeSq = this.range * this.range;
+		const rangeFactor = distanceSq / rangeSq;
+		const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
+		const attenuation = (smoothFactor * smoothFactor) / (distanceSq + 1.0);
 
 		return {
 			type: "direct",
