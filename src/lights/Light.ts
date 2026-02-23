@@ -33,7 +33,7 @@ export interface LightParams {
  * Result of a light's contribution to a specific point in the scene
  */
 export interface LightContribution {
-	type: "ambient" | "direct";
+	type: "ambient" | "direct" | "irradiance";
 	// Base light color in display (sRGB-like) domain.
 	// Linear intensity/attenuation is carried separately by `intensity`.
 	color: RGB;

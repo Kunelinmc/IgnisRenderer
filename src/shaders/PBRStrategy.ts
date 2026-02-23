@@ -115,7 +115,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			if (!contrib) continue;
 			const lightIntensity = contrib.intensity ?? 1.0;
 
-			if (contrib.type === "ambient") {
+			if (contrib.type === "ambient" || contrib.type === "irradiance") {
 				if (!useSHAmbient) {
 					// Ambient light color: sRGB [0-255] → linear [0-1].
 					// Accumulated in linear space; applied in the ambient term below.

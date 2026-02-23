@@ -37,7 +37,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		};
 
 		return {
-			type: "ambient",
+			type: "irradiance",
 			color: {
 				r: toSrgb255(irrR),
 				g: toSrgb255(irrG),
