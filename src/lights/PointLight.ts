@@ -10,7 +10,6 @@ import {
 
 export interface PointLightParams extends LightParams {
 	position?: IVector3;
-	pos?: IVector3;
 	range?: number;
 }
 
@@ -20,12 +19,12 @@ export class PointLight extends Light<LightType.Point> {
 
 	constructor(params: PointLightParams = {}) {
 		super(LightType.Point, params);
-		this.position = params.position ?? params.pos ?? { x: 0, y: 0, z: 0 };
+		this.position = params.position ?? { x: 0, y: 0, z: 0 };
 		this.range = params.range ?? 1000;
 	}
 
 	public computeContribution(surface: SurfacePoint): LightContribution | null {
-		const position = this._requireSurfacePosition(surface)
+		const position = this._requireSurfacePosition(surface);
 		let lightPos = this.position;
 		const p = Matrix4.transformPoint(this.worldMatrix, lightPos);
 		lightPos = { x: p.x, y: p.y, z: p.z };

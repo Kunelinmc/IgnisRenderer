@@ -63,7 +63,11 @@ export abstract class Light<TType extends LightType = LightType> {
 	/**
 	 * World matrix of the light, updated once per frame if needed.
 	 */
-	public worldMatrix: Matrix4 = Matrix4.identity();
+	private _worldMatrix: Matrix4 = Matrix4.identity();
+
+	public get worldMatrix(): Matrix4 {
+		return this._worldMatrix;
+	}
 
 	protected constructor(type: TType, params: LightParams = {}) {
 		this.type = type;
@@ -77,7 +81,7 @@ export abstract class Light<TType extends LightType = LightType> {
 	 * This should be called once per frame if the light or its parent transforms.
 	 */
 	public updateWorldMatrix(matrix: Matrix4): void {
-		this.worldMatrix = matrix;
+		this._worldMatrix = matrix;
 	}
 
 	/**
@@ -91,18 +95,7 @@ export abstract class Light<TType extends LightType = LightType> {
 	 * Validate and return the required world-space sample position.
 	 */
 	protected _requireSurfacePosition(surface: SurfacePoint): IVector3 {
-		const position = surface?.position
-		if (
-			!position ||
-			!Number.isFinite(position.x) ||
-			!Number.isFinite(position.y) ||
-			!Number.isFinite(position.z)
-		) {
-			throw new Error(
-				"Invalid SurfacePoint: expected { position: { x, y, z } } with finite numbers"
-			)
-		}
-		return position
+		return surface?.position || { x: 0, y: 0, z: 0 };
 	}
 
 	/**

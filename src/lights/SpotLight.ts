@@ -14,7 +14,6 @@ import {
 
 export interface SpotLightParams extends LightParams {
 	position?: IVector3;
-	pos?: IVector3;
 	dir?: IVector3;
 	angle?: number;
 	innerAngle?: number;
@@ -81,7 +80,7 @@ export class SpotLight extends Light<LightType.Spot> {
 
 	constructor(params: SpotLightParams = {}) {
 		super(LightType.Spot, params);
-		this.position = params.position ?? params.pos ?? { x: 0, y: 0, z: 0 };
+		this.position = params.position ?? { x: 0, y: 0, z: 0 };
 		this.dir = params.dir ?? { x: 0, y: -1, z: 0 };
 		this.angle = params.angle ?? Math.PI / 4;
 		this.innerAngle = params.innerAngle;
@@ -93,7 +92,7 @@ export class SpotLight extends Light<LightType.Spot> {
 	}
 
 	public computeContribution(surface: SurfacePoint): LightContribution | null {
-		const position = this._requireSurfacePosition(surface)
+		const position = this._requireSurfacePosition(surface);
 		let lightPos = this.position;
 		let lightDir = this.dir;
 
