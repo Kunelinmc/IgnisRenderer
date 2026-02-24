@@ -36,8 +36,10 @@ class DirectionalShadowCaster implements ShadowCaster {
 			z: center.z - dir.z * radius * 1.5,
 		};
 
+		// Use world Y as up by default, flip to Z if direction is nearly vertical.
+		// Threshold increased from 0.9 to 0.999 to prevent premature popping.
 		const up =
-			Math.abs(dir.y) > 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+			Math.abs(dir.y) < 0.999 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
 		const view = Matrix4.lookAt(lightPos, center, up);
 
 		const size = radius * 1.2;

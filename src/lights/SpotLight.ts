@@ -38,8 +38,10 @@ class SpotShadowCaster implements ShadowCaster {
 
 		dir = Vector3.normalize(dir);
 		const target = { x: pos.x + dir.x, y: pos.y + dir.y, z: pos.z + dir.z };
+		// Use world Y as up by default, flip to Z if direction is nearly vertical.
+		// Threshold increased from 0.9 to 0.999 to prevent premature popping.
 		const up =
-			Math.abs(dir.y) > 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+			Math.abs(dir.y) < 0.999 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
 
 		const view = Matrix4.lookAt(pos, target, up);
 
@@ -48,8 +50,7 @@ class SpotShadowCaster implements ShadowCaster {
 			Vector3.sub(pos, ctx.sceneBounds.center)
 		);
 		const autoFar = distanceToCenter + ctx.sceneBounds.radius;
-		let far =
-			this.light.hasCustomShadowRange ? this.light.range : Math.max(autoFar, 0);
+		let far = Math.min(this.light.range, Math.max(autoFar, 0));
 		far = Math.max(ShadowConstants.MIN_SHADOW_FAR, far);
 
 		const nearCandidate = distanceToCenter - ctx.sceneBounds.radius;
@@ -76,7 +77,6 @@ export class SpotLight extends Light<LightType.Spot> {
 	public innerAngle?: number;
 	public penumbra: number;
 	public range: number;
-	public hasCustomShadowRange: boolean;
 
 	constructor(params: SpotLightParams = {}) {
 		super(LightType.Spot, params);
@@ -85,7 +85,6 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.angle = params.angle ?? Math.PI / 4;
 		this.innerAngle = params.innerAngle;
 		this.penumbra = params.penumbra ?? 0;
-		this.hasCustomShadowRange = params.range !== undefined;
 		this.range = params.range ?? 1000;
 		this.shadow = new SpotShadowCaster(this);
 		this.castShadow = true;

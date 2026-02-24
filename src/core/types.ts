@@ -65,6 +65,7 @@ export interface BoundingBox {
 }
 
 export interface IModel {
+	readonly id: string;
 	faces: IFace[];
 	transform: ITransform;
 	boundingSphere: BoundingSphere;
