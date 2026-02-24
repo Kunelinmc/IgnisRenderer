@@ -86,14 +86,41 @@ async function init() {
 
 	let isDragging = false;
 	let lastMouse = { x: 0, y: 0 };
+	let lastPinchDistance = 0;
+	let idleTimeout: any = null;
+	let isInteracting = false;
+
+	const startInteraction = () => {
+		if (!isInteracting) {
+			isInteracting = true;
+			renderer.params.enableLighting = false;
+			renderer.params.enableShadows = false;
+			renderer.params.enableReflection = false;
+		}
+		if (idleTimeout) clearTimeout(idleTimeout);
+	};
+
+	const stopInteraction = () => {
+		if (idleTimeout) clearTimeout(idleTimeout);
+		idleTimeout = setTimeout(() => {
+			isInteracting = false;
+			renderer.params.enableLighting = true;
+			renderer.params.enableShadows = true;
+			renderer.params.enableReflection = true;
+			renderer.requestRender();
+			idleTimeout = null;
+		}, 300);
+	};
 
 	canvas.addEventListener("mousedown", (e) => {
+		startInteraction();
 		isDragging = true;
 		lastMouse = { x: e.clientX, y: e.clientY };
 	});
 
 	window.addEventListener("mousemove", (e) => {
 		if (!isDragging) return;
+		startInteraction();
 		camera.rotate(e.clientX - lastMouse.x, e.clientY - lastMouse.y);
 		lastMouse = { x: e.clientX, y: e.clientY };
 		renderer.requestRender();
@@ -101,14 +128,17 @@ async function init() {
 
 	window.addEventListener("mouseup", () => {
 		isDragging = false;
+		stopInteraction();
 	});
 
 	canvas.addEventListener(
 		"wheel",
 		(e) => {
 			e.preventDefault();
+			startInteraction();
 			camera.zoom(e.deltaY);
 			renderer.requestRender();
+			stopInteraction();
 		},
 		{ passive: false }
 	);
@@ -116,9 +146,17 @@ async function init() {
 	canvas.addEventListener(
 		"touchstart",
 		(e) => {
-			if (e.touches.length !== 1) return;
-			isDragging = true;
-			lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+			e.preventDefault();
+			startInteraction();
+			if (e.touches.length === 1) {
+				isDragging = true;
+				lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+			} else if (e.touches.length === 2) {
+				isDragging = false;
+				const dx = e.touches[0].clientX - e.touches[1].clientX;
+				const dy = e.touches[0].clientY - e.touches[1].clientY;
+				lastPinchDistance = Math.sqrt(dx * dx + dy * dy);
+			}
 		},
 		{ passive: false }
 	);
@@ -126,17 +164,37 @@ async function init() {
 	canvas.addEventListener(
 		"touchmove",
 		(e) => {
-			if (!isDragging || e.touches.length !== 1) return;
-			const touch = e.touches[0];
-			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
-			lastMouse = { x: touch.clientX, y: touch.clientY };
-			renderer.requestRender();
+			e.preventDefault();
+			startInteraction();
+			if (e.touches.length === 1 && isDragging) {
+				const touch = e.touches[0];
+				camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
+				lastMouse = { x: touch.clientX, y: touch.clientY };
+				renderer.requestRender();
+			} else if (e.touches.length === 2) {
+				const dx = e.touches[0].clientX - e.touches[1].clientX;
+				const dy = e.touches[0].clientY - e.touches[1].clientY;
+				const distance = Math.sqrt(dx * dx + dy * dy);
+
+				if (lastPinchDistance > 0) {
+					const delta = distance - lastPinchDistance;
+					camera.zoom(-delta);
+					renderer.requestRender();
+				}
+				lastPinchDistance = distance;
+			}
 		},
 		{ passive: false }
 	);
 
-	canvas.addEventListener("touchend", () => {
+	canvas.addEventListener("touchend", (e) => {
 		isDragging = false;
+		lastPinchDistance = 0;
+		if (e.touches.length === 1) {
+			isDragging = true;
+			lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+		}
+		stopInteraction();
 	});
 
 	window.addEventListener("resize", () => {
