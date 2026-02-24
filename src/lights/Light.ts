@@ -1,6 +1,7 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { RGB } from "../utils/Color";
+import { IdGenerator } from "../utils/IdGenerator";
 
 export enum LightType {
 	Ambient = "ambient",
@@ -43,18 +44,13 @@ export interface LightContribution {
 	direction?: IVector3; // Direction towards the light (L vector)
 }
 
-export interface LightProbeLike {
-	type: LightType.LightProbe;
-	sh: SHCoefficients;
-	intensity: number;
-}
-
 export interface SurfacePoint {
 	position: IVector3;
 	normal?: IVector3;
 }
 
 export abstract class Light<TType extends LightType = LightType> {
+	public readonly id: string;
 	public readonly type: TType;
 	public color: RGB;
 	public intensity: number;
@@ -70,6 +66,7 @@ export abstract class Light<TType extends LightType = LightType> {
 	}
 
 	protected constructor(type: TType, params: LightParams = {}) {
+		this.id = IdGenerator.nextId("light");
 		this.type = type;
 		this.color = params.color ?? { r: 255, g: 255, b: 255 };
 		this.intensity = params.intensity ?? 1.0;

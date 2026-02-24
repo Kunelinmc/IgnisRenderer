@@ -1,6 +1,7 @@
 import { EventEmitter } from "../core/EventEmitter";
 import { Vector3 } from "../maths/Vector3";
 import { Matrix4 } from "../maths/Matrix4";
+import { IdGenerator } from "../utils/IdGenerator";
 import type { IVector3, Point } from "../maths/types";
 import type {
 	IModel,
@@ -24,6 +25,7 @@ export interface ModelFace extends IFace {
  * A simple model that can be used to store and render 3D models.
  */
 export class SimpleModel extends EventEmitter implements IModel {
+	public readonly id: string;
 	public faces: ModelFace[];
 	public transform: {
 		rotation: Vector3;
@@ -35,6 +37,7 @@ export class SimpleModel extends EventEmitter implements IModel {
 
 	constructor(faces: ModelFace[] = []) {
 		super();
+		this.id = IdGenerator.nextId("model");
 		this.faces = faces;
 
 		this.transform = {
