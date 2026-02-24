@@ -23,7 +23,9 @@ function testPointLightEdgeCases() {
 	});
 
 	// Case 1: Exactly at the light position (Distance 0)
-	const atSource = light.computeContribution({ x: 10, y: 10, z: 10 });
+	const atSource = light.computeContribution({
+		position: { x: 10, y: 10, z: 10 },
+	});
 	assert.notEqual(
 		atSource,
 		null,
@@ -34,18 +36,22 @@ function testPointLightEdgeCases() {
 	assert.ok(atSource.direction, "Should have a direction even at distance 0");
 
 	// Case 2: Just inside range
-	const inside = light.computeContribution({ x: 10 + 49.9, y: 10, z: 10 });
+	const inside = light.computeContribution({
+		position: { x: 10 + 49.9, y: 10, z: 10 },
+	});
 	assert.notEqual(inside, null);
 	assert.ok((inside.intensity ?? 0) > 0);
 
 	// Case 3: Just outside range
-	const outside = light.computeContribution({ x: 10 + 50.1, y: 10, z: 10 });
+	const outside = light.computeContribution({
+		position: { x: 10 + 50.1, y: 10, z: 10 },
+	});
 	assert.equal(outside, null, "Should be null outside range");
 
 	// Case 4: With world transformation
 	const transform = Matrix4.fromTranslation([-10, -10, -10]); // Move light to origin
 	light.updateWorldMatrix(transform);
-	const atNewSource = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const atNewSource = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.notEqual(atNewSource, null);
 	assertColorClose(atNewSource.color, { r: 100, g: 100, b: 100 });
 	assert.ok(Math.abs((atNewSource.intensity ?? 0) - 1) < 1e-6);
@@ -63,18 +69,18 @@ function testSpotLightEdgeCases() {
 	});
 
 	// Case 1: At source (distance 0)
-	const atSource = light.computeContribution({ x: 0, y: 10, z: 0 });
+	const atSource = light.computeContribution({ position: { x: 0, y: 10, z: 0 } });
 	assert.notEqual(atSource, null);
 	assertColorClose(atSource.color, { r: 100, g: 100, b: 100 });
 	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
 
 	// Case 2: On the axis
-	const onAxis = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const onAxis = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.notEqual(onAxis, null);
 
 	// Case 3: In penumbra (between inner and outer)
 	// Outer is 45 deg, inner is 22.5 deg. At y=0 (dist 10), x=7 is ~35 deg
-	const inPenumbra = light.computeContribution({ x: 7, y: 0, z: 0 });
+	const inPenumbra = light.computeContribution({ position: { x: 7, y: 0, z: 0 } });
 	assert.notEqual(inPenumbra, null);
 	assert.ok(
 		(inPenumbra.intensity ?? 0) < (onAxis.intensity ?? 0),
@@ -84,7 +90,7 @@ function testSpotLightEdgeCases() {
 	// Case 4: Rotation
 	const rotation = Matrix4.rotationFromEuler(0, 0, Math.PI / 2); // Rotate 90 deg around Z. Dir -Y becomes +X
 	light.updateWorldMatrix(rotation);
-	const hit = light.computeContribution({ x: 10, y: 10, z: 0 }); // 10 units in +X from position (0,10,0)
+	const hit = light.computeContribution({ position: { x: 10, y: 10, z: 0 } }); // 10 units in +X from position (0,10,0)
 	assert.notEqual(
 		hit,
 		null,

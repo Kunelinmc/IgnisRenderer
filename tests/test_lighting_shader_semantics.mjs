@@ -208,7 +208,7 @@ function testLightProbeFallbackContributionFromDC() {
 	sh[0] = { r: 120, g: 60, b: 0 };
 
 	const probe = new LightProbe(sh, 0.75);
-	const contribution = probe.computeContribution({ x: 0, y: 0, z: 0 });
+	const contribution = probe.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 
 	assert.ok(
 		contribution,

@@ -23,7 +23,7 @@ function testAmbient() {
 		color: { r: 100, g: 100, b: 100 },
 		intensity: 0.5,
 	});
-	const contribution = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const contribution = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.equal(contribution.type, "ambient");
 	assertColorClose(contribution.color, { r: 100, g: 100, b: 100 });
 	assert.ok(Math.abs((contribution.intensity ?? 0) - 0.5) < 1e-6);
@@ -38,7 +38,7 @@ function testDirectional() {
 	});
 
 	// Base contribution
-	const contribution = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const contribution = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.equal(contribution.type, "direct");
 	// L vector points TOWARDS light source (opposite of light direction)
 	assert.ok(contribution.direction.y > 0.999);
@@ -48,7 +48,9 @@ function testDirectional() {
 	// With world rotation
 	const rotation = Matrix4.rotationFromEuler(Math.PI / 2, 0, 0); // Rotate 90 deg around X. Y becomes Z.
 	light.updateWorldMatrix(rotation);
-	const contributionRotated = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const contributionRotated = light.computeContribution({
+		position: { x: 0, y: 0, z: 0 },
+	});
 	// Original dir (0, -1, 0) rotated by 90 around X becomes (0, 0, -1)
 	// L should be (0, 0, 1)
 	assert.ok(contributionRotated.direction.z > 0.999);
@@ -73,12 +75,12 @@ function testPoint() {
 	});
 
 	// Directly under
-	const contribution = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const contribution = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.notEqual(contribution, null);
 	assert.ok(contribution.direction.y > 0.999);
 
 	// Fade with distance
-	const atSource = light.computeContribution({ x: 0, y: 10, z: 0 });
+	const atSource = light.computeContribution({ position: { x: 0, y: 10, z: 0 } });
 	assert.notEqual(
 		atSource,
 		null,
@@ -87,15 +89,15 @@ function testPoint() {
 	assertColorClose(atSource.color, { r: 10, g: 10, b: 10 });
 	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
 
-	const closer = light.computeContribution({ x: 0, y: 5, z: 0 });
-	const further = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const closer = light.computeContribution({ position: { x: 0, y: 5, z: 0 } });
+	const further = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.ok(
 		(closer.intensity ?? 0) > (further.intensity ?? 0),
 		"Closer point should have higher intensity"
 	);
 
 	// Out of range
-	const outRange = light.computeContribution({ x: 0, y: 200, z: 0 });
+	const outRange = light.computeContribution({ position: { x: 0, y: 200, z: 0 } });
 	assert.equal(outRange, null);
 }
 
@@ -110,11 +112,11 @@ function testSpot() {
 	});
 
 	// In center of cone
-	const center = light.computeContribution({ x: 0, y: 0, z: 0 });
+	const center = light.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 	assert.notEqual(center, null);
 
 	// Outside cone
-	const outside = light.computeContribution({ x: 20, y: 0, z: 0 }); // dist 10 down, x=20 is far outside 45 deg cone
+	const outside = light.computeContribution({ position: { x: 20, y: 0, z: 0 } }); // dist 10 down, x=20 is far outside 45 deg cone
 	assert.equal(outside, null);
 }
 
@@ -130,7 +132,7 @@ function testLightProbe() {
 	sh[0] = { r: dcVal, g: dcVal, b: dcVal };
 
 	const probe = new LightProbe(sh, 1.0);
-	const contribution = probe.computeContribution({ x: 0, y: 0, z: 0 });
+	const contribution = probe.computeContribution({ position: { x: 0, y: 0, z: 0 } });
 
 	assert.ok(contribution, "LightProbe contribution should not be null");
 	assert.equal(contribution.type, "irradiance");
