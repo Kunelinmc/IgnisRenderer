@@ -473,7 +473,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		if (this.scene.lights) {
 			for (const light of this.scene.lights) {
 				if (light.type === LightType.Directional) {
-					const contrib = light.computeContribution({ x: 0, y: 0, z: 0 });
+					const contrib = light.computeContribution({
+						position: { x: 0, y: 0, z: 0 },
+					});
 					if (contrib) {
 						const dir = Vector3.normalize(contrib.direction!);
 						const intensity = contrib.intensity ?? 1.0;

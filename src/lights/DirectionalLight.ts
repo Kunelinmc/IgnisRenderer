@@ -6,6 +6,7 @@ import {
 	LightType,
 	type LightParams,
 	type LightContribution,
+	type SurfacePoint,
 	type ShadowCaster,
 	type ShadowCameraResult,
 } from "./Light";
@@ -56,7 +57,7 @@ export class DirectionalLight extends Light<LightType.Directional> {
 		this.castShadow = true;
 	}
 
-	public computeContribution(_point: IVector3): LightContribution {
+	public computeContribution(_surface: SurfacePoint): LightContribution {
 		let dir = this.dir;
 		dir = Matrix4.transformDirection(this.worldMatrix, dir);
 		dir = Vector3.normalize(dir);

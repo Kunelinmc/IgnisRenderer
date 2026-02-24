@@ -57,7 +57,7 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		}
 
 		for (const light of context.lights) {
-			const contrib = light.computeContribution(world);
+			const contrib = light.computeContribution({ position: world, normal: N });
 			if (!contrib) continue;
 			const lightIntensity = contrib.intensity ?? 1.0;
 

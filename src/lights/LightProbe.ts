@@ -1,6 +1,11 @@
 import { SH } from "../maths/SH";
 import { linearToSRGB, sRGBToLinear } from "../maths/Common";
-import { Light, LightType, type LightContribution } from "./Light";
+import {
+	Light,
+	LightType,
+	type LightContribution,
+	type SurfacePoint,
+} from "./Light";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import type { Texture } from "../core/Texture";
 
@@ -23,11 +28,22 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	 * NOTE: Standard computeContribution takes a point, but SH irradiance
 	 * fundamentally depends on the normal.
 	 */
-	public computeContribution(_point: IVector3): LightContribution | null {
-		const dc = this.sh[0];
-		const irrR = Math.max(0, dc.r * LightProbe.DC_IRRADIANCE_SCALE);
-		const irrG = Math.max(0, dc.g * LightProbe.DC_IRRADIANCE_SCALE);
-		const irrB = Math.max(0, dc.b * LightProbe.DC_IRRADIANCE_SCALE);
+	public computeContribution(surface: SurfacePoint): LightContribution | null {
+		let irrR = 0,
+			irrG = 0,
+			irrB = 0;
+
+		if (surface.normal) {
+			const irr = SH.calculateIrradiance(surface.normal, this.sh);
+			irrR = Math.max(0, irr.r);
+			irrG = Math.max(0, irr.g);
+			irrB = Math.max(0, irr.b);
+		} else {
+			const dc = this.sh[0];
+			irrR = Math.max(0, dc.r * LightProbe.DC_IRRADIANCE_SCALE);
+			irrG = Math.max(0, dc.g * LightProbe.DC_IRRADIANCE_SCALE);
+			irrB = Math.max(0, dc.b * LightProbe.DC_IRRADIANCE_SCALE);
+		}
 
 		if (irrR <= 0 && irrG <= 0 && irrB <= 0) return null;
 

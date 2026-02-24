@@ -3,6 +3,7 @@ import {
 	LightType,
 	type LightParams,
 	type LightContribution,
+	type SurfacePoint,
 } from "./Light";
 import type { IVector3 } from "../maths/types";
 
@@ -11,7 +12,7 @@ export class AmbientLight extends Light<LightType.Ambient> {
 		super(LightType.Ambient, params);
 	}
 
-	public computeContribution(_point: IVector3): LightContribution {
+	public computeContribution(_surface: SurfacePoint): LightContribution {
 		return {
 			type: "ambient",
 			color: this.color,

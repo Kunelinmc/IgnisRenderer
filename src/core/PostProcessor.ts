@@ -535,7 +535,7 @@ export class PostProcessor implements PostProcessorLike {
 
 					for (let li = 0; li < lightCount; li++) {
 						const L = volLights[li];
-						const contrib = L.computeContribution(samplePoint);
+						const contrib = L.computeContribution({ position: samplePoint });
 						if (!contrib || contrib.type !== "direct" || !contrib.direction)
 							continue;
 						const lightIntensity = contrib.intensity ?? 1.0;

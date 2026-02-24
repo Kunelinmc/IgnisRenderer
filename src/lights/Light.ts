@@ -49,6 +49,11 @@ export interface LightProbeLike {
 	intensity: number;
 }
 
+export interface SurfacePoint {
+	position: IVector3;
+	normal?: IVector3;
+}
+
 export abstract class Light<TType extends LightType = LightType> {
 	public readonly type: TType;
 	public color: RGB;
@@ -80,7 +85,25 @@ export abstract class Light<TType extends LightType = LightType> {
 	 * Uses the internal worldMatrix for shared world-space calculations.
 	 * Returns null if the light has no effect (e.g., out of range or outside cone).
 	 */
-	abstract computeContribution(point: IVector3): LightContribution | null;
+	abstract computeContribution(surface: SurfacePoint): LightContribution | null;
+
+	/**
+	 * Validate and return the required world-space sample position.
+	 */
+	protected _requireSurfacePosition(surface: SurfacePoint): IVector3 {
+		const position = surface?.position
+		if (
+			!position ||
+			!Number.isFinite(position.x) ||
+			!Number.isFinite(position.y) ||
+			!Number.isFinite(position.z)
+		) {
+			throw new Error(
+				"Invalid SurfacePoint: expected { position: { x, y, z } } with finite numbers"
+			)
+		}
+		return position
+	}
 
 	/**
 	 * Reference to shadow caster logic if this light supports it.

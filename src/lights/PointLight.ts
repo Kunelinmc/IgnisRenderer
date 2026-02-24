@@ -5,6 +5,7 @@ import {
 	LightType,
 	type LightParams,
 	type LightContribution,
+	type SurfacePoint,
 } from "./Light";
 
 export interface PointLightParams extends LightParams {
@@ -23,14 +24,15 @@ export class PointLight extends Light<LightType.Point> {
 		this.range = params.range ?? 1000;
 	}
 
-	public computeContribution(point: IVector3): LightContribution | null {
+	public computeContribution(surface: SurfacePoint): LightContribution | null {
+		const position = this._requireSurfacePosition(surface)
 		let lightPos = this.position;
 		const p = Matrix4.transformPoint(this.worldMatrix, lightPos);
 		lightPos = { x: p.x, y: p.y, z: p.z };
 
-		const dx = lightPos.x - point.x;
-		const dy = lightPos.y - point.y;
-		const dz = lightPos.z - point.z;
+		const dx = lightPos.x - position.x;
+		const dy = lightPos.y - position.y;
+		const dz = lightPos.z - position.z;
 		const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
 		if (distance > this.range) return null;
