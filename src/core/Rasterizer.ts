@@ -699,6 +699,7 @@ export class Rasterizer implements RasterizerLike {
 
 					if (
 						finalColor &&
+						this._renderer.params.enableReflection &&
 						material.reflectivity > 0 &&
 						material.mirrorPlane &&
 						isCameraOnFrontSide
