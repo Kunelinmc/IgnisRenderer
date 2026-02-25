@@ -69,7 +69,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	 * @returns A new LightProbe instance
 	 */
 	public static fromEnvironmentMap(envMap: Texture): LightProbe {
-		return LightProbe._projectEnvironmentMap(envMap);
+		return LightProbe._projectEquirectToSH(envMap);
 	}
 
 	/**
@@ -77,7 +77,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	 * @param envMap Equirectangular environment texture
 	 * @returns A new LightProbe instance with computed coefficients
 	 */
-	private static _projectEnvironmentMap(envMap: Texture): LightProbe {
+	private static _projectEquirectToSH(envMap: Texture): LightProbe {
 		if (!envMap || !envMap.data) {
 			return new LightProbe();
 		}

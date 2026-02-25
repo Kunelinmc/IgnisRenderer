@@ -122,13 +122,13 @@ export class SpotLight extends Light<LightType.Spot> {
 			iAngle = this.angle * (1 - this.penumbra);
 		}
 		const innerCutoff = Math.cos(iAngle);
-		const epsilon = innerCutoff - outerCutoff;
+		const cutoffRange = innerCutoff - outerCutoff;
 
 		if (cosTheta < outerCutoff) return null;
 
 		const spotIntensity = Math.max(
 			0,
-			Math.min(1, (cosTheta - outerCutoff) / (epsilon || 1e-6))
+			Math.min(1, (cosTheta - outerCutoff) / (cutoffRange || 1e-6))
 		);
 
 		// Physically-based distance attenuation: inverse square law with smooth windowing

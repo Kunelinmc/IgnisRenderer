@@ -27,14 +27,12 @@ class DirectionalShadowCaster implements ShadowCaster {
 		dir = Matrix4.transformDirection(worldMatrix, dir);
 		dir = Vector3.normalize(dir);
 
-		const center = sceneBounds.center;
-		const radius = sceneBounds.radius;
+		const { center, radius } = sceneBounds;
 
-		const lightPos = {
-			x: center.x - dir.x * radius * 1.5,
-			y: center.y - dir.y * radius * 1.5,
-			z: center.z - dir.z * radius * 1.5,
-		};
+		// Offset light position far enough to include the whole scene volume.
+		// Using 1.5x radius provides a buffer to avoid clipping.
+		const shadowDistance = radius * 1.5;
+		const lightPos = Vector3.sub(center, Vector3.scale(dir, shadowDistance));
 
 		// Use world Y as up by default, flip to Z if direction is nearly vertical.
 		// Threshold increased from 0.9 to 0.999 to prevent premature popping.
@@ -42,8 +40,15 @@ class DirectionalShadowCaster implements ShadowCaster {
 			Math.abs(dir.y) < 0.999 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
 		const view = Matrix4.lookAt(lightPos, center, up);
 
-		const size = radius * 1.2;
-		const projection = Matrix4.ortho(-size, size, -size, size, 0, radius * 3);
+		const size = radius * 1.2; // Provide a margin to ensure full scene coverage
+		const projection = Matrix4.ortho(
+			-size,
+			size,
+			-size,
+			size,
+			0,
+			shadowDistance * 2
+		);
 
 		return { view, projection, lightDir: dir };
 	}
