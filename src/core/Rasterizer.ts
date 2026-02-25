@@ -11,6 +11,7 @@ import {
 	type IShader,
 	type ShaderContext,
 	type IMaterialEvaluator,
+	type ILightingStrategy,
 	type FragmentInput,
 	type PhongSurfaceProperties,
 	type PBRSurfaceProperties,
@@ -76,9 +77,9 @@ export class Rasterizer implements RasterizerLike {
 	private _vertsCache: CachedVertex[];
 	private _defaultMaterial: Material;
 
-	// Shader & Evaluator cache
-	private _phongEvaluator: PhongEvaluator;
-	private _pbrEvaluator: PBREvaluator;
+	// Shader, Strategy & Evaluator registries
+	private _evaluators: Map<string, IMaterialEvaluator> = new Map();
+	private _strategies: Map<string, ILightingStrategy> = new Map();
 	private _shaderCache: Map<string, IShader> = new Map();
 
 	// Pre-allocated objects for zero-allocation rendering
@@ -107,8 +108,15 @@ export class Rasterizer implements RasterizerLike {
 			vO: 0,
 		}));
 
-		this._phongEvaluator = new PhongEvaluator(this._defaultMaterial);
-		this._pbrEvaluator = new PBREvaluator(this._defaultMaterial);
+		this._initShaderSystem();
+	}
+
+	private _initShaderSystem(): void {
+		this._evaluators.set("Phong", new PhongEvaluator(this._defaultMaterial));
+		this._evaluators.set("PBR", new PBREvaluator(this._defaultMaterial));
+
+		this._strategies.set("Phong", new BlinnPhongStrategy());
+		this._strategies.set("PBR", new PBRStrategy());
 	}
 
 	private _createEdgeRes(): EdgeInterpolationResult {
@@ -125,44 +133,54 @@ export class Rasterizer implements RasterizerLike {
 
 	private _getShader(shading: string, material: Material): IShader {
 		const isPBR = shading === "PBR" || material.type === "PBR";
-		const evaluator = isPBR ? this._pbrEvaluator : this._phongEvaluator;
+		const evaluatorType = isPBR ? "PBR" : "Phong";
+
+		const evaluator = this._evaluators.get(evaluatorType)!;
+		const strategy = this._strategies.get(evaluatorType)!;
+
 		evaluator.compile(material);
 
-		const key = `${shading}_${isPBR ? "PBR" : "Phong"}`;
+		const key = `${shading}_${evaluatorType}`;
 		let shader = this._shaderCache.get(key);
 
 		if (!shader) {
-			if (isPBR) {
-				if (shading === "Unlit") {
-					shader = new UnlitShader(evaluator);
-				} else {
-					shader = new LitShader(
-						new PBRStrategy(),
-						evaluator as IMaterialEvaluator<PBRSurfaceProperties>
-					);
-				}
-			} else {
-				const strategy = new BlinnPhongStrategy();
-				if (shading === "Unlit") {
-					shader = new UnlitShader(evaluator);
-				} else if (shading === "Flat") {
-					shader = new FlatLitShader(
-						strategy,
-						evaluator as IMaterialEvaluator<PhongSurfaceProperties>
-					);
-				} else {
-					shader = new LitShader(
-						strategy,
-						evaluator as IMaterialEvaluator<PhongSurfaceProperties>
-					);
-				}
-			}
-			this._shaderCache.set(key, shader!);
+			shader = this._createShaderInstance(shading, evaluator, strategy, isPBR);
+			this._shaderCache.set(key, shader);
 		} else {
 			shader.setEvaluator(evaluator);
 		}
 
-		return shader!;
+		return shader;
+	}
+
+	private _createShaderInstance(
+		shading: string,
+		evaluator: IMaterialEvaluator,
+		strategy: ILightingStrategy,
+		isPBR: boolean
+	): IShader {
+		if (shading === "Unlit") {
+			return new UnlitShader(evaluator);
+		}
+
+		if (isPBR) {
+			return new LitShader(
+				strategy as ILightingStrategy<PBRSurfaceProperties>,
+				evaluator as IMaterialEvaluator<PBRSurfaceProperties>
+			);
+		}
+
+		if (shading === "Flat") {
+			return new FlatLitShader(
+				strategy as ILightingStrategy<PhongSurfaceProperties>,
+				evaluator as IMaterialEvaluator<PhongSurfaceProperties>
+			);
+		}
+
+		return new LitShader(
+			strategy as ILightingStrategy<PhongSurfaceProperties>,
+			evaluator as IMaterialEvaluator<PhongSurfaceProperties>
+		);
 	}
 
 	private _sampleTextureAlpha(map: Texture, u: number, v: number): number {
