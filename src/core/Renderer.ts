@@ -248,7 +248,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const pixels = imageData.data;
 
 		if (this.params.enableSkybox && this.scene.skybox) {
-			this._renderSkybox(pixels);
+			this.renderSkybox(pixels);
 		}
 
 		this._projectedModels.clear();
@@ -347,12 +347,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 * Renders the skybox into the pixel buffer.
 	 * @param pixels - The pixel buffer to render into.
 	 */
-	private _renderSkybox(pixels: Uint8ClampedArray): void {
+	public renderSkybox(
+		pixels: Uint8ClampedArray,
+		width?: number,
+		height?: number
+	): void {
 		const skybox = this.scene.skybox;
 		if (!skybox) return;
 
-		const w = this.canvas.width;
-		const h = this.canvas.height;
+		const w = width ?? this.canvas.width;
+		const h = height ?? this.canvas.height;
 		const camera = this.camera;
 
 		const view = camera.viewMatrix.elements;
@@ -364,7 +368,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const isOrthographic = camera.type === CameraType.Orthographic;
 		const fovRad = (camera.fov * Math.PI) / 180;
 		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
-		const aspect = camera.aspectRatio || w / h;
+		const aspect =
+			width && height ? width / height : camera.aspectRatio || w / h;
 
 		for (let y = 0; y < h; y++) {
 			const ndcY = 1 - ((y + 0.5) / h) * 2;

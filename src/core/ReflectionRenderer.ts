@@ -145,9 +145,14 @@ export class ReflectionRenderer {
 	): void {
 		const renderer = this._renderer;
 		const pixels = buffer.imageData.data;
-		pixels.fill(0); // Clear
-		for (let i = 3; i < pixels.length; i += 4) {
-			pixels[i] = RenderConstants.REFLECTION_BUFFER_ALPHA;
+
+		if (renderer.params.enableSkybox && renderer.scene.skybox) {
+			renderer.renderSkybox(pixels, buffer.width, buffer.height);
+		} else {
+			pixels.fill(0); // Clear
+			for (let i = 3; i < pixels.length; i += 4) {
+				pixels[i] = RenderConstants.REFLECTION_BUFFER_ALPHA;
+			}
 		}
 
 		// Backup camera state
