@@ -19,10 +19,8 @@ interface ClipVertex {
 export class ShadowRenderer {
 	private _renderer: Renderer;
 
-	// Cache matrices to avoid allocation per frame/model
 	private _mvpMatrix = Matrix4.identity();
-	private _normalMatrix = Matrix4.identity();
-	private _tempVec3 = new Vector3();
+	private _lightDirModel = new Vector3();
 
 	// Vertex pool to reduce object creation during projection
 	private _projectedVertsPool: ProjectedVertex[] = [];
@@ -209,25 +207,32 @@ export class ShadowRenderer {
 
 			// Pass 1: Opaque objects (Depth Map)
 			for (const model of renderer.scene.models) {
+				// Optimization 1: Cull model against light frustum
+				if (!this._isModelInFrustum(model, vpMatrix)) continue;
+
 				const modelMatrix = Projector.getModelMatrix(model);
 				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
-				Matrix4.normalMatrix(modelMatrix, this._normalMatrix);
+
+				// Optimization 2: Model-space lighting
+				// Get model-space light direction to avoid transforming normals
+				const inv3x3 = Matrix4.inverse3x3(modelMatrix);
+				if (!inv3x3) continue;
+
+				// L_model = transformNormal(transpose(normalMatrix), L_world)
+				// transpose(normalMatrix) = transpose(transpose(inv3x3)) = inv3x3
+				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
 
 				for (const face of model.faces) {
 					const material = face.material;
 					const alphaMode = material?.alphaMode;
 					if (alphaMode === "BLEND") continue;
 
-					const worldNormal =
-						face.normal ?? Vector3.calculateNormal(face.vertices);
+					// Cache face normal
+					if (!face.normal) {
+						face.normal = Vector3.calculateNormal(face.vertices);
+					}
 
-					Matrix4.transformNormal(
-						this._normalMatrix,
-						worldNormal,
-						this._tempVec3
-					).normalize();
-
-					const dot = Vector3.dot(this._tempVec3, lightDir);
+					const dot = Vector3.dot(face.normal, this._lightDirModel);
 					const isDoubleSided = material?.doubleSided;
 
 					if (!isDoubleSided && dot > 0) continue;
@@ -247,6 +252,8 @@ export class ShadowRenderer {
 
 			// Pass 2: Transparent objects (Transmission Map/Colored Shadows)
 			for (const model of renderer.scene.models) {
+				if (!this._isModelInFrustum(model, vpMatrix)) continue;
+
 				const modelMatrix = Projector.getModelMatrix(model);
 				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
 
@@ -269,12 +276,50 @@ export class ShadowRenderer {
 		}
 	}
 
+	private _isModelInFrustum(model: any, vpMatrix: Matrix4): boolean {
+		if (!model.boundingBox) return true;
+
+		// Simple AABB vs Frustum check using clip codes for the 8 corners
+		const box = model.boundingBox;
+		const corners = [
+			{ x: box.min.x, y: box.min.y, z: box.min.z },
+			{ x: box.max.x, y: box.min.y, z: box.min.z },
+			{ x: box.min.x, y: box.max.y, z: box.min.z },
+			{ x: box.max.x, y: box.max.y, z: box.min.z },
+			{ x: box.min.x, y: box.min.y, z: box.max.z },
+			{ x: box.max.x, y: box.min.y, z: box.max.z },
+			{ x: box.min.x, y: box.max.y, z: box.max.z },
+			{ x: box.max.x, y: box.max.y, z: box.max.z },
+		];
+
+		let initialOutCodes = -1;
+		for (const corner of corners) {
+			const p = Matrix4.transformPoint(vpMatrix, corner);
+			let code = 0;
+			if (p.w < ShadowConstants.MIN_CLIP_W) code |= 1;
+			if (p.x < -p.w) code |= 2;
+			if (p.x > p.w) code |= 4;
+			if (p.y < -p.w) code |= 8;
+			if (p.y > p.w) code |= 16;
+			if (p.z < -p.w) code |= 32;
+			if (p.z > p.w) code |= 64;
+
+			if (code === 0) return true; // At least one corner is inside
+			initialOutCodes &= code;
+		}
+
+		// If initialOutCodes is non-zero, all corners are on the outside of at least one common plane
+		return initialOutCodes === 0;
+	}
+
 	private _projectFace(
 		face: any,
 		shadowMapSize: number
 	): ProjectedVertex[] | null {
+		const count = face.vertices.length;
+
 		// Ensure pool is large enough
-		while (this._projectedVertsPool.length < face.vertices.length) {
+		while (this._projectedVertsPool.length < count) {
 			this._projectedVertsPool.push({
 				x: 0,
 				y: 0,
@@ -283,7 +328,7 @@ export class ShadowRenderer {
 				world: { x: 0, y: 0, z: 0 },
 			});
 		}
-		while (this._clipInputPool.length < face.vertices.length) {
+		while (this._clipInputPool.length < count) {
 			this._clipInputPool.push({
 				x: 0,
 				y: 0,
@@ -294,7 +339,10 @@ export class ShadowRenderer {
 			});
 		}
 
-		const count = face.vertices.length;
+		let allInside = true;
+		let combinedOutCodes = 0;
+		let initialOutCodes = -1; // All ones
+
 		for (let i = 0; i < count; i++) {
 			const v = face.vertices[i];
 			const p = Matrix4.transformPoint(this._mvpMatrix, v);
@@ -305,11 +353,40 @@ export class ShadowRenderer {
 			clipV.w = p.w;
 			clipV.u = v.u ?? 0;
 			clipV.v = v.v ?? 0;
+
+			// Compute clip codes
+			let code = 0;
+			if (clipV.w < ShadowConstants.MIN_CLIP_W) code |= 1; // W
+			if (clipV.x < -clipV.w) code |= 2; // Left
+			if (clipV.x > clipV.w) code |= 4; // Right
+			if (clipV.y < -clipV.w) code |= 8; // Bottom
+			if (clipV.y > clipV.w) code |= 16; // Top
+			if (clipV.z < -clipV.w) code |= 32; // Near
+			if (clipV.z > clipV.w) code |= 64; // Far
+
+			if (code !== 0) allInside = false;
+			combinedOutCodes |= code;
+			if (initialOutCodes === -1) initialOutCodes = code;
+			else initialOutCodes &= code;
 		}
 
-		const clippedVerts = this._clipToLightFrustum(this._clipInputPool, count);
-		const clippedCount = clippedVerts.length;
-		if (clippedCount < 3) return null;
+		// Trivial rejection: all vertices are outside at least one common plane
+		if (initialOutCodes !== 0) return null;
+
+		let clippedVerts: ClipVertex[];
+		let clippedCount: number;
+
+		if (allInside) {
+			// Trivial acceptance: all vertices are inside
+			clippedVerts = this._clipInputPool;
+			clippedCount = count;
+		} else {
+			// Need clipping
+			const result = this._clipToLightFrustum(this._clipInputPool, count);
+			clippedVerts = result;
+			clippedCount = result.length;
+			if (clippedCount < 3) return null;
+		}
 
 		while (this._projectedVertsPool.length < clippedCount) {
 			this._projectedVertsPool.push({
