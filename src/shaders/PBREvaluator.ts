@@ -55,9 +55,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		// Select UV set for main map
 		const albedoUV =
-			mat.albedoMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.albedoMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const tex = this._sampleTextureMap(mat.map, albedoUV.u, albedoUV.v);
 		if (tex) {
 			// Texture is sRGB, decode to linear before multiplying with linear factor
@@ -78,9 +78,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			return null;
 
 		const mrUV =
-			mat.metallicRoughnessMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.metallicRoughnessMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const metallicRoughnessTex = this._sampleTextureMap(
 			mat.metallicRoughnessMap,
 			mrUV.u,
@@ -95,9 +95,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let emissive = mat.emissive || { r: 0, g: 0, b: 0 };
 		const emissiveUV =
-			mat.emissiveMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.emissiveMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const emissiveTex = this._sampleTextureMap(
 			mat.emissiveMap,
 			emissiveUV.u,
@@ -118,9 +118,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		const occlusionUV =
-			mat.occlusionMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.occlusionMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const occlusionTex = this._sampleTextureMap(
 			mat.occlusionMap,
 			occlusionUV.u,
@@ -134,9 +134,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let specFactor = mat.specularFactor ?? 1.0;
 		const specUV =
-			mat.specularMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.specularMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const specTex = this._sampleTextureMap(mat.specularMap, specUV.u, specUV.v);
 		if (specTex) {
 			specFactor *= specTex.a;
@@ -149,9 +149,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			b: Math.max(0, specColorInput.b / 255),
 		};
 		const specColorUV =
-			mat.specularColorMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.specularColorMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const specColorTex = this._sampleTextureMap(
 			mat.specularColorMap,
 			specColorUV.u,
@@ -160,17 +160,17 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		if (specColorTex) {
 			const colorSpace = mat.specularColorMap?.colorSpace ?? "sRGB";
 			const texLinear =
-				colorSpace === "Linear" || colorSpace === "HDR" ?
-					{
-						r: Math.max(0, specColorTex.r / 255),
-						g: Math.max(0, specColorTex.g / 255),
-						b: Math.max(0, specColorTex.b / 255),
-					}
-				:	{
-						r: sRGBToLinear(Math.max(0, specColorTex.r / 255)),
-						g: sRGBToLinear(Math.max(0, specColorTex.g / 255)),
-						b: sRGBToLinear(Math.max(0, specColorTex.b / 255)),
-					};
+				colorSpace === "Linear" || colorSpace === "HDR"
+					? {
+							r: Math.max(0, specColorTex.r / 255),
+							g: Math.max(0, specColorTex.g / 255),
+							b: Math.max(0, specColorTex.b / 255),
+						}
+					: {
+							r: sRGBToLinear(Math.max(0, specColorTex.r / 255)),
+							g: sRGBToLinear(Math.max(0, specColorTex.g / 255)),
+							b: sRGBToLinear(Math.max(0, specColorTex.b / 255)),
+						};
 
 			specColorLinear = {
 				r: specColorLinear.r * texLinear.r,
@@ -185,9 +185,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			b: Math.max(0, mat.sheenColorFactor.b / 255),
 		};
 		const sheenColorUV =
-			mat.sheenColorMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.sheenColorMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const sheenColorTex = this._sampleTextureMap(
 			mat.sheenColorMap,
 			sheenColorUV.u,
@@ -206,9 +206,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let sheenRoughness = mat.sheenRoughnessFactor;
 		const sheenRoughnessUV =
-			mat.sheenRoughnessMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.sheenRoughnessMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const sheenRoughnessTex = this._sampleTextureMap(
 			mat.sheenRoughnessMap,
 			sheenRoughnessUV.u,
@@ -220,9 +220,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let transmission = mat.transmissionFactor;
 		const transmissionUV =
-			mat.transmissionMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.transmissionMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const transmissionTex = this._sampleTextureMap(
 			mat.transmissionMap,
 			transmissionUV.u,
@@ -234,9 +234,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let thickness = mat.thicknessFactor;
 		const thicknessUV =
-			mat.thicknessMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.thicknessMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const thicknessTex = this._sampleTextureMap(
 			mat.thicknessMap,
 			thicknessUV.u,
@@ -285,9 +285,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		normal.z = input.normal.z;
 
 		const normUV =
-			mat.normalMapUV === 1 ?
-				{ u: input.u2, v: input.v2 }
-			:	{ u: input.u, v: input.v };
+			mat.normalMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
 		const normalTex = this._sampleTextureMap(mat.normalMap, normUV.u, normUV.v);
 		if (normalTex) {
 			const N = { x: normal.x, y: normal.y, z: normal.z };

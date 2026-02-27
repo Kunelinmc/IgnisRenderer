@@ -80,10 +80,9 @@ export class Projector {
 			for (let i = 0; i < faceVertices.length; i++) {
 				const v = faceVertices[i];
 				const pWorld = Matrix4.transformPoint(modelMatrix, v);
-				const nWorld =
-					v.normal ?
-						Vector3.normalize(Matrix4.transformNormal(normalMat, v.normal))
-					:	null;
+				const nWorld = v.normal
+					? Vector3.normalize(Matrix4.transformNormal(normalMat, v.normal))
+					: null;
 				let tWorld = null;
 				if (v.tangent) {
 					const tNorm = Vector3.normalize(
@@ -204,10 +203,9 @@ export class Projector {
 
 			// For perspective, we check if the face is looking away from the camera origin (v0 - 0)
 			// For orthographic, we check if the face normal is looking away from the view direction (0, 0, -1)
-			const dot =
-				isOrthographic ?
-					-cullNormal.z
-				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
+			const dot = isOrthographic
+				? -cullNormal.z
+				: cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
 
 			const material = face.material;
 			const isDoubleSided = material?.doubleSided || face.doubleSided;
@@ -269,10 +267,9 @@ export class Projector {
 			center.y /= cvLen;
 			center.z /= cvLen;
 
-			const transformedFaceNormal =
-				face.normal ?
-					Vector3.normalize(Matrix4.transformNormal(normalMat, face.normal))
-				:	Vector3.calculateNormal(worldVerts);
+			const transformedFaceNormal = face.normal
+				? Vector3.normalize(Matrix4.transformNormal(normalMat, face.normal))
+				: Vector3.calculateNormal(worldVerts);
 
 			const projectedFace: ProjectedFace = {
 				...face,

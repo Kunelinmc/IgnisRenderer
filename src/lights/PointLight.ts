@@ -50,9 +50,9 @@ export class PointLight extends Light<LightType.Point> {
 			color: this.color,
 			intensity: this.intensity * attenuation,
 			direction:
-				distance > 0 ?
-					{ x: dx / distance, y: dy / distance, z: dz / distance }
-				:	{ x: 0, y: 1, z: 0 },
+				distance > 0
+					? { x: dx / distance, y: dy / distance, z: dz / distance }
+					: { x: 0, y: 1, z: 0 },
 		};
 	}
 }

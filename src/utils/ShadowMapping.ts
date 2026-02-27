@@ -191,15 +191,14 @@ export class ShadowMap {
 		const maxBias = params.shadowMaxBias ?? 0.05;
 
 		// Note: Slope bias is only effective with a surface normal
-		const bias =
-			normal ?
-				Math.min(
+		const bias = normal
+			? Math.min(
 					maxBias,
 					constantBias +
 						slopeBias * (1.0 - Vector3.dot(Vector3.normalize(normal), L)) +
 						texelBias
 				)
-			:	Math.min(maxBias, constantBias + texelBias);
+			: Math.min(maxBias, constantBias + texelBias);
 
 		const samples = Math.max(1, Math.floor(params.shadowPCF ?? 1));
 		const texelSize = 1.0 / size;

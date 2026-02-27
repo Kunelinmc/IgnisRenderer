@@ -5,7 +5,6 @@ import {
 	type LightContribution,
 	type SurfacePoint,
 } from "./Light";
-import type { IVector3 } from "../maths/types";
 
 export class AmbientLight extends Light<LightType.Ambient> {
 	constructor(params: LightParams = {}) {

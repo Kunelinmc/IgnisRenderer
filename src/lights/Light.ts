@@ -1,5 +1,5 @@
 import { Matrix4 } from "../maths/Matrix4";
-import type { IVector3, SHCoefficients } from "../maths/types";
+import type { IVector3 } from "../maths/types";
 import type { RGB } from "../utils/Color";
 import { IdGenerator } from "../utils/IdGenerator";
 

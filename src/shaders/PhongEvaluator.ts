@@ -19,8 +19,8 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 	};
 
 	constructor(material: Material) {
-		super(material)
-		this._mat = material as PhongMaterial
+		super(material);
+		this._mat = material as PhongMaterial;
 	}
 
 	public compile(material: Material): void {

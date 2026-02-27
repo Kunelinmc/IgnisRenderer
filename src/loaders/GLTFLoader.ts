@@ -3,12 +3,7 @@ import {
 	type ModelFace,
 	type ModelVertex,
 } from "../models/SimpleModel";
-import {
-	PBRMaterial,
-	BasicMaterial,
-	UnlitMaterial,
-	type Material,
-} from "../materials";
+import { PBRMaterial, UnlitMaterial, type Material } from "../materials";
 import { Loader, type LoaderEvents } from "./Loader";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Texture } from "../core/Texture";

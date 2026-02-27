@@ -1,6 +1,5 @@
 import { BaseShader } from "./BaseShader";
-import { clamp, sRGBToLinear } from "../maths/Common";
-import type { RGB } from "../utils/Color";
+import { clamp } from "../maths/Common";
 import type { FragmentInput, FragmentOutput, SurfaceProperties } from "./types";
 
 export class UnlitShader extends BaseShader<SurfaceProperties> {
