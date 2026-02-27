@@ -61,9 +61,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Material colors (albedo, f0, emissive) arrive as sRGB-encoded [0-255].
 		// sRGBToLinear() applies the exact IEC 61966-2-1 piecewise EOTF.
 		const alb = {
-			r: sRGBToLinear(Math.max(0, surface.albedo.r / 255)),
-			g: sRGBToLinear(Math.max(0, surface.albedo.g / 255)),
-			b: sRGBToLinear(Math.max(0, surface.albedo.b / 255)),
+			r: Math.max(0, surface.albedo.r / 255),
+			g: Math.max(0, surface.albedo.g / 255),
+			b: Math.max(0, surface.albedo.b / 255),
 		};
 		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
@@ -75,7 +75,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const reflectance = clamp(surface.reflectance, 0.0, 1.0);
 		const baseF0Val = 0.16 * reflectance * reflectance;
 
-		const specularFactor = clamp(surface.specularFactor ?? 1.0, 0.0, 1.0);
+		const specularFactor = surface.specularFactor ?? 1.0;
 		const specColorInput = surface.specularColor ?? {
 			r: 255,
 			g: 255,
@@ -83,9 +83,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 		// KHR_materials_specular color is defined in linear space.
 		const specColor = {
-			r: clamp(specColorInput.r / 255, 0, 1),
-			g: clamp(specColorInput.g / 255, 0, 1),
-			b: clamp(specColorInput.b / 255, 0, 1),
+			r: specColorInput.r / 255,
+			g: specColorInput.g / 255,
+			b: specColorInput.b / 255,
 		};
 
 		const f0_norm = {
@@ -105,9 +105,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		// Emissive is additive and bypasses ambient occlusion.
 		const emissiveScale = surface.emissiveIntensity ?? 1.0;
 		const emissive = {
-			r: sRGBToLinear(Math.max(0, surface.emissive.r / 255)) * emissiveScale,
-			g: sRGBToLinear(Math.max(0, surface.emissive.g / 255)) * emissiveScale,
-			b: sRGBToLinear(Math.max(0, surface.emissive.b / 255)) * emissiveScale,
+			r: (surface.emissive.r / 255) * emissiveScale,
+			g: (surface.emissive.g / 255) * emissiveScale,
+			b: (surface.emissive.b / 255) * emissiveScale,
 		};
 
 		for (const light of context.lights) {

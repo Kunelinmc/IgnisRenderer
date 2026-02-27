@@ -11,9 +11,9 @@ export class UnlitShader extends BaseShader<SurfaceProperties> {
 
 		const res = this._cachedColor;
 		// Shader output stays in linear space; sRGB encode happens in post-process.
-		res.r = clamp(sRGBToLinear(surface.albedo.r / 255) * 255, 0, 255);
-		res.g = clamp(sRGBToLinear(surface.albedo.g / 255) * 255, 0, 255);
-		res.b = clamp(sRGBToLinear(surface.albedo.b / 255) * 255, 0, 255);
+		res.r = clamp(surface.albedo.r, 0, 255);
+		res.g = clamp(surface.albedo.g, 0, 255);
+		res.b = clamp(surface.albedo.b, 0, 255);
 		return this._cachedOutput;
 	}
 }

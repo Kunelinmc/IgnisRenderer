@@ -32,6 +32,9 @@ const TYPE_SCALAR = "SCALAR";
 const TYPE_VEC2 = "VEC2";
 const TYPE_VEC3 = "VEC3";
 const TYPE_VEC4 = "VEC4";
+const TYPE_MAT2 = "MAT2";
+const TYPE_MAT3 = "MAT3";
+const TYPE_MAT4 = "MAT4";
 
 /**
  * GLTFLoader handles both .glb (binary) and .gltf (JSON + external bins) formats.
@@ -167,21 +170,33 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (!tex) return null;
 
 		const transform = texInfo.extensions?.KHR_texture_transform;
-		if (!transform) return tex; // If no transform, we can just return the texture reference
 
+		// ALWAYS clone here to avoid shared sampler settings between textures
 		const cloned = tex.clone();
-		if (transform.offset !== undefined) {
-			cloned.offset.x = transform.offset[0];
-			cloned.offset.y = transform.offset[1];
-		}
-		if (transform.scale !== undefined) {
-			cloned.repeat.x = transform.scale[0];
-			cloned.repeat.y = transform.scale[1];
-		}
-		if (transform.rotation !== undefined) {
-			cloned.rotation = transform.rotation;
+
+		if (transform) {
+			if (transform.offset !== undefined) {
+				cloned.offset.x = transform.offset[0];
+				cloned.offset.y = transform.offset[1];
+			}
+			if (transform.scale !== undefined) {
+				cloned.repeat.x = transform.scale[0];
+				cloned.repeat.y = transform.scale[1];
+			}
+			if (transform.rotation !== undefined) {
+				cloned.rotation = transform.rotation;
+			}
 		}
 		return cloned;
+	}
+
+	private _getTexCoord(texInfo: any): number {
+		if (!texInfo) return 0;
+		let uv = texInfo.texCoord ?? 0;
+		if (texInfo.extensions?.KHR_texture_transform?.texCoord !== undefined) {
+			uv = texInfo.extensions.KHR_texture_transform.texCoord;
+		}
+		return uv;
 	}
 
 	public parseMaterials(
@@ -236,26 +251,49 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			});
 			if (pbr.baseColorTexture !== undefined) {
 				const tex = this._getMaterialTexture(pbr.baseColorTexture, textures);
-				if (tex) material.map = tex;
+				if (tex) {
+					material.map = tex;
+					material.albedoMapUV = this._getTexCoord(pbr.baseColorTexture);
+				}
 			}
 			if (pbr.metallicRoughnessTexture !== undefined) {
 				const tex = this._getMaterialTexture(
 					pbr.metallicRoughnessTexture,
 					textures
 				);
-				if (tex) material.metallicRoughnessMap = tex;
+				if (tex) {
+					material.metallicRoughnessMap = tex;
+					material.metallicRoughnessMapUV = this._getTexCoord(
+						pbr.metallicRoughnessTexture
+					);
+				}
 			}
 			if (m.normalTexture !== undefined) {
 				const tex = this._getMaterialTexture(m.normalTexture, textures);
-				if (tex) material.normalMap = tex;
+				if (tex) {
+					material.normalMap = tex;
+					material.normalMapUV = this._getTexCoord(m.normalTexture);
+					if (m.normalTexture.scale !== undefined) {
+						material.normalScale = m.normalTexture.scale;
+					}
+				}
 			}
 			if (m.emissiveTexture !== undefined) {
 				const tex = this._getMaterialTexture(m.emissiveTexture, textures);
-				if (tex) material.emissiveMap = tex;
+				if (tex) {
+					material.emissiveMap = tex;
+					material.emissiveMapUV = this._getTexCoord(m.emissiveTexture);
+				}
 			}
 			if (m.occlusionTexture !== undefined) {
 				const tex = this._getMaterialTexture(m.occlusionTexture, textures);
-				if (tex) material.occlusionMap = tex;
+				if (tex) {
+					material.occlusionMap = tex;
+					material.occlusionMapUV = this._getTexCoord(m.occlusionTexture);
+					if (m.occlusionTexture.strength !== undefined) {
+						material.occlusionStrength = m.occlusionTexture.strength;
+					}
+				}
 			}
 			if (m.alphaMode !== undefined) (material as any).alphaMode = m.alphaMode;
 			if (m.alphaCutoff !== undefined)
@@ -273,20 +311,14 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			if (m.extensions?.KHR_materials_specular) {
 				const specExt = m.extensions.KHR_materials_specular;
 				if (specExt.specularFactor !== undefined) {
-					material.specularFactor = Math.max(
-						0,
-						Math.min(1, specExt.specularFactor)
-					);
+					material.specularFactor = specExt.specularFactor;
 				}
 				if (specExt.specularColorFactor !== undefined) {
 					const specColorFactor = specExt.specularColorFactor;
 					material.specularColor = {
-						r:
-							Math.max(0, Math.min(1, specColorFactor[0] ?? 1.0)) * 255,
-						g:
-							Math.max(0, Math.min(1, specColorFactor[1] ?? 1.0)) * 255,
-						b:
-							Math.max(0, Math.min(1, specColorFactor[2] ?? 1.0)) * 255,
+						r: (specColorFactor[0] ?? 1.0) * 255,
+						g: (specColorFactor[1] ?? 1.0) * 255,
+						b: (specColorFactor[2] ?? 1.0) * 255,
 					};
 				}
 				if (specExt.specularTexture !== undefined) {
@@ -350,32 +382,39 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (!json.textures) return [];
 		return json.textures.map((t: any) => {
 			const texture = images[t.source];
-			if (texture && t.sampler !== undefined) {
-				const sampler = json.samplers[t.sampler];
-				if (sampler.magFilter === 9728) texture.magFilter = "Nearest";
-				else if (sampler.magFilter === 9729) texture.magFilter = "Linear";
-				const minFilters: Record<number, string> = {
-					9728: "Nearest",
-					9729: "Linear",
-					9984: "NearestMipmapNearest",
-					9985: "LinearMipmapNearest",
-					9986: "NearestMipmapLinear",
-					9987: "LinearMipmapLinear",
-				};
-				if (sampler.minFilter !== undefined)
-					texture.minFilter = minFilters[sampler.minFilter] || "Linear";
-				const wrapModes: Record<number, "Repeat" | "Clamp" | "MirroredRepeat"> =
-					{
+			if (texture) {
+				// Clone to avoid sharing sampler/transform state between textures
+				const tex = texture.clone();
+				if (t.sampler !== undefined) {
+					const sampler = json.samplers[t.sampler];
+					if (sampler.magFilter === 9728) tex.magFilter = "Nearest";
+					else if (sampler.magFilter === 9729) tex.magFilter = "Linear";
+					const minFilters: Record<number, string> = {
+						9728: "Nearest",
+						9729: "Linear",
+						9984: "NearestMipmapNearest",
+						9985: "LinearMipmapNearest",
+						9986: "NearestMipmapLinear",
+						9987: "LinearMipmapLinear",
+					};
+					if (sampler.minFilter !== undefined)
+						tex.minFilter = minFilters[sampler.minFilter] || "Linear";
+					const wrapModes: Record<
+						number,
+						"Repeat" | "Clamp" | "MirroredRepeat"
+					> = {
 						33071: "Clamp",
 						10497: "Repeat",
 						33648: "MirroredRepeat",
 					};
-				if (sampler.wrapS !== undefined)
-					texture.wrapS = wrapModes[sampler.wrapS] || "Repeat";
-				if (sampler.wrapT !== undefined)
-					texture.wrapT = wrapModes[sampler.wrapT] || "Repeat";
+					if (sampler.wrapS !== undefined)
+						tex.wrapS = wrapModes[sampler.wrapS] || "Repeat";
+					if (sampler.wrapT !== undefined)
+						tex.wrapT = wrapModes[sampler.wrapT] || "Repeat";
+				}
+				return tex;
 			}
-			return texture;
+			return null;
 		});
 	}
 
@@ -439,7 +478,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		const material =
 			primitive.material !== undefined && materials[primitive.material] ?
 				materials[primitive.material]
-			:	new BasicMaterial();
+			:	new PBRMaterial();
 		if (attrs.POSITION === undefined) return [];
 		const positions = this.getAccessorData(json, buffers, attrs.POSITION);
 		const normals =
@@ -450,9 +489,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			attrs.TANGENT !== undefined ?
 				this.getAccessorData(json, buffers, attrs.TANGENT)
 			:	null;
-		const uvs =
+		const uvs0 =
 			attrs.TEXCOORD_0 !== undefined ?
 				this.getAccessorData(json, buffers, attrs.TEXCOORD_0)
+			:	null;
+		const uvs1 =
+			attrs.TEXCOORD_1 !== undefined ?
+				this.getAccessorData(json, buffers, attrs.TEXCOORD_1)
 			:	null;
 		const colors =
 			attrs.COLOR_0 !== undefined ?
@@ -477,12 +520,19 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				};
 				const tPos = Matrix4.transformPoint(worldMatrix, pos);
 				const v: ModelVertex = { x: tPos.x!, y: tPos.y!, z: tPos.z! };
-				if (uvs) {
-					v.u = uvs[idx * 2];
-					v.v = uvs[idx * 2 + 1];
+				if (uvs0) {
+					v.u = uvs0[idx * 2];
+					v.v = uvs0[idx * 2 + 1];
 				} else {
 					v.u = 0;
 					v.v = 0;
+				}
+				if (uvs1) {
+					v.u2 = uvs1[idx * 2];
+					v.v2 = uvs1[idx * 2 + 1];
+				} else {
+					v.u2 = 0;
+					v.v2 = 0;
 				}
 				if (colors) {
 					const acc = json.accessors[attrs.COLOR_0];
@@ -531,6 +581,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				[TYPE_VEC2]: 2,
 				[TYPE_VEC3]: 3,
 				[TYPE_VEC4]: 4,
+				[TYPE_MAT2]: 4,
+				[TYPE_MAT3]: 9,
+				[TYPE_MAT4]: 16,
 			} as Record<string, number>
 		)[acc.type];
 		let elementSize = (

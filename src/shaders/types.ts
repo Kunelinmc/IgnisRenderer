@@ -46,6 +46,8 @@ export interface FragmentInput {
 	tangent: IVector4;
 	u: number;
 	v: number;
+	u2: number;
+	v2: number;
 	lightAmbient?: RGB;
 	lightDiffuse?: RGB;
 	lightSpecular?: RGB;

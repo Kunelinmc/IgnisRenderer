@@ -52,6 +52,8 @@ interface CachedVertex {
 	tangentO: IVector4;
 	uO: number;
 	vO: number;
+	u2O: number;
+	v2O: number;
 }
 
 interface EdgeInterpolationResult {
@@ -62,6 +64,8 @@ interface EdgeInterpolationResult {
 	tangentO: IVector4;
 	uO: number;
 	vO: number;
+	u2O: number;
+	v2O: number;
 }
 
 /**
@@ -92,6 +96,8 @@ export class Rasterizer implements RasterizerLike {
 		tangent: { x: 0, y: 0, z: 0, w: 0 },
 		u: 0,
 		v: 0,
+		u2: 0,
+		v2: 0,
 	};
 	constructor(renderer: Renderer) {
 		this._renderer = renderer;
@@ -106,6 +112,8 @@ export class Rasterizer implements RasterizerLike {
 			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
 			vO: 0,
+			u2O: 0,
+			v2O: 0,
 		}));
 
 		this._initShaderSystem();
@@ -128,6 +136,8 @@ export class Rasterizer implements RasterizerLike {
 			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
 			vO: 0,
+			u2O: 0,
+			v2O: 0,
 		};
 	}
 
@@ -547,6 +557,8 @@ export class Rasterizer implements RasterizerLike {
 		res.tangentO.w = vA.tangentO.w + (vB.tangentO.w - vA.tangentO.w) * t;
 		res.uO = vA.uO + (vB.uO - vA.uO) * t;
 		res.vO = vA.vO + (vB.vO - vA.vO) * t;
+		res.u2O = vA.u2O + (vB.u2O - vA.u2O) * t;
+		res.v2O = vA.v2O + (vB.v2O - vA.v2O) * t;
 	}
 
 	public drawTriangle(
@@ -619,6 +631,8 @@ export class Rasterizer implements RasterizerLike {
 			v.tangentO.w = tangent.w * iz;
 			v.uO = (p.u ?? 0) * iz;
 			v.vO = (p.v ?? 0) * iz;
+			v.u2O = (p.u2 ?? 0) * iz;
+			v.v2O = (p.v2 ?? 0) * iz;
 		}
 
 		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
@@ -669,6 +683,8 @@ export class Rasterizer implements RasterizerLike {
 			const dTangentOw = (right.tangentO.w - left.tangentO.w) * spanInv;
 			const duO = (right.uO - left.uO) * spanInv;
 			const dvO = (right.vO - left.vO) * spanInv;
+			const du2O = (right.u2O - left.u2O) * spanInv;
+			const dv2O = (right.v2O - left.v2O) * spanInv;
 
 			const dx = startX + 0.5 - left.x;
 			let iz = left.iz + dx * diz;
@@ -684,6 +700,8 @@ export class Rasterizer implements RasterizerLike {
 			let tangentOw = left.tangentO.w + dx * dTangentOw;
 			let uO = left.uO + dx * duO;
 			let vO = left.vO + dx * dvO;
+			let u2O = left.u2O + dx * du2O;
+			let v2O = left.v2O + dx * dv2O;
 
 			const bufRow = y * width;
 			const input = this._fragmentInput;
@@ -710,6 +728,8 @@ export class Rasterizer implements RasterizerLike {
 					input.tangent.w = tangentOw * zCam;
 					input.u = uO * zCam;
 					input.v = vO * zCam;
+					input.u2 = u2O * zCam;
+					input.v2 = v2O * zCam;
 
 					const finalOutput = shader.shade(input);
 					let finalColor = finalOutput?.color;

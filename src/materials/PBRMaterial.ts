@@ -26,8 +26,17 @@ export interface PBRMaterialParams extends MaterialParams {
 	albedoMap?: TextureLike;
 	metallicRoughnessMap?: TextureLike;
 	normalMap?: TextureLike;
+	normalScale?: number;
 	emissiveMap?: TextureLike;
 	occlusionMap?: TextureLike;
+	occlusionStrength?: number;
+	albedoMapUV?: number;
+	metallicRoughnessMapUV?: number;
+	normalMapUV?: number;
+	emissiveMapUV?: number;
+	occlusionMapUV?: number;
+	specularMapUV?: number;
+	specularColorMapUV?: number;
 	clearcoat?: number;
 	clearcoatRoughness?: number;
 }
@@ -44,10 +53,19 @@ export class PBRMaterial extends Material {
 	public reflectance: number;
 	public metallicRoughnessMap: TextureLike;
 	public normalMap: TextureLike;
+	public normalScale: number;
 	public emissiveMap: TextureLike;
 	public occlusionMap: TextureLike;
+	public occlusionStrength: number;
+	public albedoMapUV: number;
+	public metallicRoughnessMapUV: number;
+	public normalMapUV: number;
+	public emissiveMapUV: number;
+	public occlusionMapUV: number;
 	public specularMap: TextureLike;
 	public specularColorMap: TextureLike;
+	public specularMapUV: number;
+	public specularColorMapUV: number;
 	public clearcoat: number;
 	public clearcoatRoughness: number;
 
@@ -115,10 +133,19 @@ export class PBRMaterial extends Material {
 
 		this.metallicRoughnessMap = params.metallicRoughnessMap || null;
 		this.normalMap = params.normalMap || null;
+		this.normalScale = params.normalScale ?? 1.0;
 		this.emissiveMap = params.emissiveMap || null;
 		this.occlusionMap = params.occlusionMap || null;
+		this.occlusionStrength = params.occlusionStrength ?? 1.0;
+		this.albedoMapUV = params.albedoMapUV ?? 0;
+		this.metallicRoughnessMapUV = params.metallicRoughnessMapUV ?? 0;
+		this.normalMapUV = params.normalMapUV ?? 0;
+		this.emissiveMapUV = params.emissiveMapUV ?? 0;
+		this.occlusionMapUV = params.occlusionMapUV ?? 0;
 		this.specularMap = params.specularMap || null;
+		this.specularMapUV = params.specularMapUV ?? 0;
 		this.specularColorMap = params.specularColorMap || null;
+		this.specularColorMapUV = params.specularColorMapUV ?? 0;
 
 		this.clearcoat = clamp(params.clearcoat ?? 0.0, 0, 1);
 		// Default clearcoatRoughness to 0.01 to avoid infinite specular spikes and aliasing

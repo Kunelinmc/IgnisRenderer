@@ -6,6 +6,8 @@ import type { Material } from "../materials/Material";
 export interface IVertex extends IVector3 {
 	u?: number;
 	v?: number;
+	u2?: number;
+	v2?: number;
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
 }
@@ -28,6 +30,8 @@ export interface ProjectedVertex extends IVector3 {
 	w: number;
 	u?: number;
 	v?: number;
+	u2?: number;
+	v2?: number;
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
 	world: IVertex;

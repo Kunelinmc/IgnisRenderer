@@ -47,12 +47,23 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		let metalness = mat.metalness ?? 0.0;
 		let occlusion = 1.0;
 
-		const tex = this._sampleMainMap(u, v);
+		// Select UV set for main map
+		const albedoUV =
+			mat.albedoMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const tex = this._sampleTextureMap(mat.map, albedoUV.u, albedoUV.v);
 		if (tex) {
+			// Texture is sRGB, decode to linear before multiplying with linear factor
+			const texLinear = {
+				r: sRGBToLinear(tex.r / 255),
+				g: sRGBToLinear(tex.g / 255),
+				b: sRGBToLinear(tex.b / 255),
+			};
 			albedo = {
-				r: (albedo.r * tex.r) / 255,
-				g: (albedo.g * tex.g) / 255,
-				b: (albedo.b * tex.b) / 255,
+				r: albedo.r * texLinear.r,
+				g: albedo.g * texLinear.g,
+				b: albedo.b * texLinear.b,
 			};
 			alpha *= tex.a;
 		}
@@ -60,10 +71,14 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		if (mat.alphaMode === "MASK" && alpha < (mat.alphaCutoff ?? 0.5))
 			return null;
 
+		const mrUV =
+			mat.metallicRoughnessMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
 		const metallicRoughnessTex = this._sampleTextureMap(
 			mat.metallicRoughnessMap,
-			u,
-			v
+			mrUV.u,
+			mrUV.v
 		);
 		if (metallicRoughnessTex) {
 			// glTF metallicRoughness texture channels:
@@ -73,47 +88,82 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		let emissive = mat.emissive || { r: 0, g: 0, b: 0 };
-		const emissiveTex = this._sampleTextureMap(mat.emissiveMap, u, v);
+		const emissiveUV =
+			mat.emissiveMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const emissiveTex = this._sampleTextureMap(
+			mat.emissiveMap,
+			emissiveUV.u,
+			emissiveUV.v
+		);
 		if (emissiveTex) {
+			// Emissive textures are sRGB in glTF
+			const texLinear = {
+				r: sRGBToLinear(emissiveTex.r / 255),
+				g: sRGBToLinear(emissiveTex.g / 255),
+				b: sRGBToLinear(emissiveTex.b / 255),
+			};
 			emissive = {
-				r: (emissive.r * emissiveTex.r) / 255,
-				g: (emissive.g * emissiveTex.g) / 255,
-				b: (emissive.b * emissiveTex.b) / 255,
+				r: emissive.r * texLinear.r,
+				g: emissive.g * texLinear.g,
+				b: emissive.b * texLinear.b,
 			};
 		}
 
-		const occlusionTex = this._sampleTextureMap(mat.occlusionMap, u, v);
+		const occlusionUV =
+			mat.occlusionMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const occlusionTex = this._sampleTextureMap(
+			mat.occlusionMap,
+			occlusionUV.u,
+			occlusionUV.v
+		);
 		if (occlusionTex) {
 			// glTF occlusion is stored in R channel and affects indirect light.
-			occlusion = occlusionTex.r / 255;
+			occlusion =
+				1.0 + (mat.occlusionStrength ?? 1.0) * (occlusionTex.r / 255 - 1.0);
 		}
 
 		let specFactor = mat.specularFactor ?? 1.0;
-		const specTex = this._sampleTextureMap(mat.specularMap, u, v);
+		const specUV =
+			mat.specularMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const specTex = this._sampleTextureMap(mat.specularMap, specUV.u, specUV.v);
 		if (specTex) {
 			specFactor *= specTex.a;
 		}
 
 		const specColorInput = mat.specularColor || { r: 255, g: 255, b: 255 };
 		let specColorLinear = {
-			r: clamp(specColorInput.r / 255, 0, 1),
-			g: clamp(specColorInput.g / 255, 0, 1),
-			b: clamp(specColorInput.b / 255, 0, 1),
+			r: Math.max(0, specColorInput.r / 255),
+			g: Math.max(0, specColorInput.g / 255),
+			b: Math.max(0, specColorInput.b / 255),
 		};
-		const specColorTex = this._sampleTextureMap(mat.specularColorMap, u, v);
+		const specColorUV =
+			mat.specularColorMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const specColorTex = this._sampleTextureMap(
+			mat.specularColorMap,
+			specColorUV.u,
+			specColorUV.v
+		);
 		if (specColorTex) {
 			const colorSpace = mat.specularColorMap?.colorSpace ?? "sRGB";
 			const texLinear =
 				colorSpace === "Linear" || colorSpace === "HDR" ?
 					{
-						r: clamp(specColorTex.r / 255, 0, 1),
-						g: clamp(specColorTex.g / 255, 0, 1),
-						b: clamp(specColorTex.b / 255, 0, 1),
+						r: Math.max(0, specColorTex.r / 255),
+						g: Math.max(0, specColorTex.g / 255),
+						b: Math.max(0, specColorTex.b / 255),
 					}
 				:	{
-						r: sRGBToLinear(clamp(specColorTex.r / 255, 0, 1)),
-						g: sRGBToLinear(clamp(specColorTex.g / 255, 0, 1)),
-						b: sRGBToLinear(clamp(specColorTex.b / 255, 0, 1)),
+						r: sRGBToLinear(Math.max(0, specColorTex.r / 255)),
+						g: sRGBToLinear(Math.max(0, specColorTex.g / 255)),
+						b: sRGBToLinear(Math.max(0, specColorTex.b / 255)),
 					};
 
 			specColorLinear = {
@@ -135,9 +185,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.emissive.b = emissive.b;
 		res.reflectance = mat.reflectance ?? 0.5;
 		res.specularFactor = clamp(specFactor, 0, 1);
-		res.specularColor.r = clamp(specColorLinear.r, 0, 1) * 255;
-		res.specularColor.g = clamp(specColorLinear.g, 0, 1) * 255;
-		res.specularColor.b = clamp(specColorLinear.b, 0, 1) * 255;
+		res.specularColor.r = Math.max(0, specColorLinear.r) * 255;
+		res.specularColor.g = Math.max(0, specColorLinear.g) * 255;
+		res.specularColor.b = Math.max(0, specColorLinear.b) * 255;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 		res.occlusion = Math.max(0, Math.min(1, occlusion));
 		res.clearcoat = mat.clearcoat ?? 0.0;
@@ -151,7 +201,11 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		normal.y = input.normal.y;
 		normal.z = input.normal.z;
 
-		const normalTex = this._sampleTextureMap(mat.normalMap, u, v);
+		const normUV =
+			mat.normalMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const normalTex = this._sampleTextureMap(mat.normalMap, normUV.u, normUV.v);
 		if (normalTex) {
 			const N = { x: normal.x, y: normal.y, z: normal.z };
 			Vector3.normalizeInPlace(N);
@@ -164,8 +218,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 				tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
 
 			if (hasValidTangent) {
-				const tNormX = (normalTex.r / 255) * 2 - 1;
-				const tNormY = (normalTex.g / 255) * 2 - 1;
+				const normalScale = mat.normalScale ?? 1.0;
+				const tNormX = ((normalTex.r / 255) * 2 - 1) * normalScale;
+				const tNormY = ((normalTex.g / 255) * 2 - 1) * normalScale;
 				const tNormZ = (normalTex.b / 255) * 2 - 1;
 
 				// Gram-Schmidt: keep T orthogonal to N to avoid invalid TBN on skewed assets.

@@ -18,7 +18,11 @@ function reflectanceFromIor(ior) {
 
 function testUnlitExtensionParsing() {
 	const loader = new GLTFLoader();
-	const baseTex = new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
+	const baseTex = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1
+	);
 
 	const materials = loader.parseMaterials(
 		{
@@ -49,7 +53,8 @@ function testUnlitExtensionParsing() {
 	assert.equal(mat.doubleSided, true);
 	assert.equal(mat.alphaMode, "MASK");
 	approx(mat.alphaCutoff, 0.25);
-	assert.equal(mat.map, baseTex);
+	assert.ok(mat.map !== baseTex);
+	assert.equal(mat.map.data, baseTex.data);
 }
 
 function testIorExtensionUpdatesReflectance() {
@@ -83,7 +88,11 @@ function testPBRMaterialIorSetterSyncsReflectance() {
 function testSpecularExtensionParsing() {
 	const loader = new GLTFLoader();
 	const specTex = new Texture(new Uint8ClampedArray([0, 0, 0, 128]), 1, 1);
-	const specColorTex = new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
+	const specColorTex = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1
+	);
 
 	const materials = loader.parseMaterials(
 		{
@@ -111,8 +120,10 @@ function testSpecularExtensionParsing() {
 	approx(mat.specularColor.r, 127.5);
 	approx(mat.specularColor.g, 63.75);
 	approx(mat.specularColor.b, 255);
-	assert.equal(mat.specularMap, specTex);
-	assert.equal(mat.specularColorMap, specColorTex);
+	assert.ok(mat.specularMap !== specTex);
+	assert.equal(mat.specularMap.data, specTex.data);
+	assert.ok(mat.specularColorMap !== specColorTex);
+	assert.equal(mat.specularColorMap.data, specColorTex.data);
 }
 
 function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
@@ -176,7 +187,10 @@ function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 		context
 	);
 
-	assert.ok(full.r > half.r, "Expected full specularColor to be brighter than half");
+	assert.ok(
+		full.r > half.r,
+		"Expected full specularColor to be brighter than half"
+	);
 	const ratio = half.r / full.r;
 	assert.ok(
 		ratio > 0.3 && ratio < 0.6,
