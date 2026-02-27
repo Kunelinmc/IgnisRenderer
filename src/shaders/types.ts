@@ -71,6 +71,12 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	occlusion: number;
 	clearcoat: number;
 	clearcoatRoughness: number;
+	sheenColor: RGB;
+	sheenRoughness: number;
+	transmission: number;
+	thickness: number;
+	attenuationDistance: number;
+	attenuationColor: RGB;
 }
 
 export interface PhongSurfaceProperties extends BaseSurfaceProperties {

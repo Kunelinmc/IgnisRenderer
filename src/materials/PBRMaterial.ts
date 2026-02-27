@@ -39,6 +39,20 @@ export interface PBRMaterialParams extends MaterialParams {
 	specularColorMapUV?: number;
 	clearcoat?: number;
 	clearcoatRoughness?: number;
+	sheenColorFactor?: RGB;
+	sheenColorMap?: TextureLike;
+	sheenRoughnessFactor?: number;
+	sheenRoughnessMap?: TextureLike;
+	sheenColorMapUV?: number;
+	sheenRoughnessMapUV?: number;
+	transmissionFactor?: number;
+	transmissionMap?: TextureLike;
+	transmissionMapUV?: number;
+	thicknessFactor?: number;
+	thicknessMap?: TextureLike;
+	thicknessMapUV?: number;
+	attenuationDistance?: number;
+	attenuationColor?: RGB;
 }
 
 export class PBRMaterial extends Material {
@@ -68,6 +82,23 @@ export class PBRMaterial extends Material {
 	public specularColorMapUV: number;
 	public clearcoat: number;
 	public clearcoatRoughness: number;
+
+	public sheenColorFactor: RGB;
+	public sheenColorMap: TextureLike;
+	public sheenRoughnessFactor: number;
+	public sheenRoughnessMap: TextureLike;
+	public sheenColorMapUV: number;
+	public sheenRoughnessMapUV: number;
+
+	public transmissionFactor: number;
+	public transmissionMap: TextureLike;
+	public transmissionMapUV: number;
+
+	public thicknessFactor: number;
+	public thicknessMap: TextureLike;
+	public thicknessMapUV: number;
+	public attenuationDistance: number;
+	public attenuationColor: RGB;
 
 	/**
 	 * Converts legacy sRGB F0 color to a physical reflectance value.
@@ -150,6 +181,27 @@ export class PBRMaterial extends Material {
 		this.clearcoat = clamp(params.clearcoat ?? 0.0, 0, 1);
 		// Default clearcoatRoughness to 0.01 to avoid infinite specular spikes and aliasing
 		this.clearcoatRoughness = clamp(params.clearcoatRoughness ?? 0.01, 0, 1);
+
+		this.sheenColorFactor = params.sheenColorFactor || { r: 0, g: 0, b: 0 };
+		this.sheenColorMap = params.sheenColorMap || null;
+		this.sheenRoughnessFactor = clamp(params.sheenRoughnessFactor ?? 0.0, 0, 1);
+		this.sheenRoughnessMap = params.sheenRoughnessMap || null;
+		this.sheenColorMapUV = params.sheenColorMapUV ?? 0;
+		this.sheenRoughnessMapUV = params.sheenRoughnessMapUV ?? 0;
+
+		this.transmissionFactor = clamp(params.transmissionFactor ?? 0.0, 0, 1);
+		this.transmissionMap = params.transmissionMap || null;
+		this.transmissionMapUV = params.transmissionMapUV ?? 0;
+
+		this.thicknessFactor = Math.max(params.thicknessFactor ?? 0.0, 0);
+		this.thicknessMap = params.thicknessMap || null;
+		this.thicknessMapUV = params.thicknessMapUV ?? 0;
+		this.attenuationDistance = params.attenuationDistance ?? Infinity;
+		this.attenuationColor = params.attenuationColor || {
+			r: 255,
+			g: 255,
+			b: 255,
+		};
 
 		// In PBR, we use reflectance/metalness. Base Material's reflectivity is disabled here.
 		this.reflectivity = 0;

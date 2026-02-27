@@ -22,6 +22,12 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		occlusion: 1.0,
 		clearcoat: 0.0,
 		clearcoatRoughness: 0.0,
+		sheenColor: { r: 0, g: 0, b: 0 },
+		sheenRoughness: 0.0,
+		transmission: 0.0,
+		thickness: 0.0,
+		attenuationDistance: Infinity,
+		attenuationColor: { r: 255, g: 255, b: 255 },
 	};
 
 	constructor(material: Material) {
@@ -173,6 +179,73 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			};
 		}
 
+		let sheenColorLinear = {
+			r: Math.max(0, mat.sheenColorFactor.r / 255),
+			g: Math.max(0, mat.sheenColorFactor.g / 255),
+			b: Math.max(0, mat.sheenColorFactor.b / 255),
+		};
+		const sheenColorUV =
+			mat.sheenColorMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const sheenColorTex = this._sampleTextureMap(
+			mat.sheenColorMap,
+			sheenColorUV.u,
+			sheenColorUV.v
+		);
+		if (sheenColorTex) {
+			sheenColorLinear = {
+				r:
+					sheenColorLinear.r * sRGBToLinear(Math.max(0, sheenColorTex.r / 255)),
+				g:
+					sheenColorLinear.g * sRGBToLinear(Math.max(0, sheenColorTex.g / 255)),
+				b:
+					sheenColorLinear.b * sRGBToLinear(Math.max(0, sheenColorTex.b / 255)),
+			};
+		}
+
+		let sheenRoughness = mat.sheenRoughnessFactor;
+		const sheenRoughnessUV =
+			mat.sheenRoughnessMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const sheenRoughnessTex = this._sampleTextureMap(
+			mat.sheenRoughnessMap,
+			sheenRoughnessUV.u,
+			sheenRoughnessUV.v
+		);
+		if (sheenRoughnessTex) {
+			sheenRoughness *= sheenRoughnessTex.a / 255;
+		}
+
+		let transmission = mat.transmissionFactor;
+		const transmissionUV =
+			mat.transmissionMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const transmissionTex = this._sampleTextureMap(
+			mat.transmissionMap,
+			transmissionUV.u,
+			transmissionUV.v
+		);
+		if (transmissionTex) {
+			transmission *= transmissionTex.r / 255;
+		}
+
+		let thickness = mat.thicknessFactor;
+		const thicknessUV =
+			mat.thicknessMapUV === 1 ?
+				{ u: input.u2, v: input.v2 }
+			:	{ u: input.u, v: input.v };
+		const thicknessTex = this._sampleTextureMap(
+			mat.thicknessMap,
+			thicknessUV.u,
+			thicknessUV.v
+		);
+		if (thicknessTex) {
+			thickness *= thicknessTex.g / 255;
+		}
+
 		const res = this._cachedResult;
 		res.albedo.r = albedo.r;
 		res.albedo.g = albedo.g;
@@ -195,6 +268,16 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			0,
 			Math.min(1, mat.clearcoatRoughness ?? 0.0)
 		);
+		res.sheenColor.r = Math.max(0, sheenColorLinear.r) * 255;
+		res.sheenColor.g = Math.max(0, sheenColorLinear.g) * 255;
+		res.sheenColor.b = Math.max(0, sheenColorLinear.b) * 255;
+		res.sheenRoughness = Math.max(0, Math.min(1, sheenRoughness));
+		res.transmission = Math.max(0, Math.min(1, transmission));
+		res.thickness = Math.max(0, thickness);
+		res.attenuationDistance = mat.attenuationDistance;
+		res.attenuationColor.r = mat.attenuationColor.r;
+		res.attenuationColor.g = mat.attenuationColor.g;
+		res.attenuationColor.b = mat.attenuationColor.b;
 
 		const normal = res.normal;
 		normal.x = input.normal.x;

@@ -23,6 +23,8 @@ export class FlatLitShader<
 				zCam: 0,
 				u: 0,
 				v: 0,
+				u2: 0,
+				v2: 0,
 				world: { x: face.center.x, y: face.center.y, z: face.center.z },
 				normal: {
 					x: face.normal?.x ?? 0,
