@@ -239,14 +239,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				roughness:
 					pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1.0,
 				metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1.0,
-				emissive:
-					m.emissiveFactor ?
-						{
+				emissive: m.emissiveFactor
+					? {
 							r: m.emissiveFactor[0] * 255,
 							g: m.emissiveFactor[1] * 255,
 							b: m.emissiveFactor[2] * 255,
 						}
-					:	{ r: 0, g: 0, b: 0 },
+					: { r: 0, g: 0, b: 0 },
 				doubleSided: m.doubleSided || false,
 			});
 			if (pbr.baseColorTexture !== undefined) {
@@ -336,6 +335,94 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					if (tex) material.specularColorMap = tex;
 				}
 			}
+			// KHR_materials_sheen extension
+			if (m.extensions?.KHR_materials_sheen) {
+				const sheenExt = m.extensions.KHR_materials_sheen;
+				if (sheenExt.sheenColorFactor !== undefined) {
+					const f = sheenExt.sheenColorFactor;
+					material.sheenColorFactor = {
+						r: (f[0] ?? 0) * 255,
+						g: (f[1] ?? 0) * 255,
+						b: (f[2] ?? 0) * 255,
+					};
+				}
+				if (sheenExt.sheenRoughnessFactor !== undefined) {
+					material.sheenRoughnessFactor = sheenExt.sheenRoughnessFactor;
+				}
+				if (sheenExt.sheenColorTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						sheenExt.sheenColorTexture,
+						textures
+					);
+					if (tex) {
+						material.sheenColorMap = tex;
+						material.sheenColorMapUV = this._getTexCoord(
+							sheenExt.sheenColorTexture
+						);
+					}
+				}
+				if (sheenExt.sheenRoughnessTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						sheenExt.sheenRoughnessTexture,
+						textures
+					);
+					if (tex) {
+						material.sheenRoughnessMap = tex;
+						material.sheenRoughnessMapUV = this._getTexCoord(
+							sheenExt.sheenRoughnessTexture
+						);
+					}
+				}
+			}
+			// KHR_materials_transmission extension
+			if (m.extensions?.KHR_materials_transmission) {
+				const transExt = m.extensions.KHR_materials_transmission;
+				if (transExt.transmissionFactor !== undefined) {
+					material.transmissionFactor = transExt.transmissionFactor;
+				}
+				if (transExt.transmissionTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						transExt.transmissionTexture,
+						textures
+					);
+					if (tex) {
+						material.transmissionMap = tex;
+						material.transmissionMapUV = this._getTexCoord(
+							transExt.transmissionTexture
+						);
+					}
+				}
+			}
+			// KHR_materials_volume extension
+			if (m.extensions?.KHR_materials_volume) {
+				const volExt = m.extensions.KHR_materials_volume;
+				if (volExt.thicknessFactor !== undefined) {
+					material.thicknessFactor = volExt.thicknessFactor;
+				}
+				if (volExt.thicknessTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						volExt.thicknessTexture,
+						textures
+					);
+					if (tex) {
+						material.thicknessMap = tex;
+						material.thicknessMapUV = this._getTexCoord(
+							volExt.thicknessTexture
+						);
+					}
+				}
+				if (volExt.attenuationDistance !== undefined) {
+					material.attenuationDistance = volExt.attenuationDistance;
+				}
+				if (volExt.attenuationColor !== undefined) {
+					const f = volExt.attenuationColor;
+					material.attenuationColor = {
+						r: (f[0] ?? 1) * 255,
+						g: (f[1] ?? 1) * 255,
+						b: (f[2] ?? 1) * 255,
+					};
+				}
+			}
 
 			return material;
 		});
@@ -365,9 +452,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					return loader.loadFromBlob(blob);
 				} else if (img.uri) {
 					const url =
-						img.uri.startsWith("data:") || img.uri.startsWith("http") ?
-							img.uri
-						:	baseURL + img.uri;
+						img.uri.startsWith("data:") || img.uri.startsWith("http")
+							? img.uri
+							: baseURL + img.uri;
 					return loader.load(url);
 				}
 				return null;
@@ -476,35 +563,35 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	): ModelFace[] {
 		const attrs = primitive.attributes;
 		const material =
-			primitive.material !== undefined && materials[primitive.material] ?
-				materials[primitive.material]
-			:	new PBRMaterial();
+			primitive.material !== undefined && materials[primitive.material]
+				? materials[primitive.material]
+				: new PBRMaterial();
 		if (attrs.POSITION === undefined) return [];
 		const positions = this.getAccessorData(json, buffers, attrs.POSITION);
 		const normals =
-			attrs.NORMAL !== undefined ?
-				this.getAccessorData(json, buffers, attrs.NORMAL)
-			:	null;
+			attrs.NORMAL !== undefined
+				? this.getAccessorData(json, buffers, attrs.NORMAL)
+				: null;
 		const tangents =
-			attrs.TANGENT !== undefined ?
-				this.getAccessorData(json, buffers, attrs.TANGENT)
-			:	null;
+			attrs.TANGENT !== undefined
+				? this.getAccessorData(json, buffers, attrs.TANGENT)
+				: null;
 		const uvs0 =
-			attrs.TEXCOORD_0 !== undefined ?
-				this.getAccessorData(json, buffers, attrs.TEXCOORD_0)
-			:	null;
+			attrs.TEXCOORD_0 !== undefined
+				? this.getAccessorData(json, buffers, attrs.TEXCOORD_0)
+				: null;
 		const uvs1 =
-			attrs.TEXCOORD_1 !== undefined ?
-				this.getAccessorData(json, buffers, attrs.TEXCOORD_1)
-			:	null;
+			attrs.TEXCOORD_1 !== undefined
+				? this.getAccessorData(json, buffers, attrs.TEXCOORD_1)
+				: null;
 		const colors =
-			attrs.COLOR_0 !== undefined ?
-				this.getAccessorData(json, buffers, attrs.COLOR_0)
-			:	null;
+			attrs.COLOR_0 !== undefined
+				? this.getAccessorData(json, buffers, attrs.COLOR_0)
+				: null;
 		const indices =
-			primitive.indices !== undefined ?
-				this.getAccessorData(json, buffers, primitive.indices)
-			:	null;
+			primitive.indices !== undefined
+				? this.getAccessorData(json, buffers, primitive.indices)
+				: null;
 		const faces: ModelFace[] = [];
 		const faceCount = Math.floor(
 			(indices ? indices.length : positions.length / 3) / 3
