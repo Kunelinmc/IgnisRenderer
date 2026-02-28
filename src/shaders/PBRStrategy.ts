@@ -233,7 +233,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			}
 
 			let sheenSpecular = { r: 0, g: 0, b: 0 };
-			let albedoSheenScaling = 1.0;
+			let albedoSheenScaling = { r: 1.0, g: 1.0, b: 1.0 };
 			if (maxSheenColor > 0) {
 				const NdotH = Math.max(Vector3.dot(N, H), 0);
 				const sheenNDF = this._DistributionCharlie(NdotH, sheenRoughness);
@@ -243,19 +243,21 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					g: sheenColor.g * sheenNDF * sheenV,
 					b: sheenColor.b * sheenNDF * sheenV,
 				};
-				// Approximate energy conservation for sheen
-				const sheenFresnel =
-					maxSheenColor +
-					(1.0 - maxSheenColor) *
-						Math.pow(1.0 - Math.max(Vector3.dot(H, V), 0), 5);
-				albedoSheenScaling = Math.max(0, 1.0 - sheenFresnel);
+				// Per-channel sheen fresnel for energy conservation
+				const HdotV = Math.max(Vector3.dot(H, V), 0);
+				const sheenFresnel = this._FresnelSchlick(HdotV, sheenColor);
+				albedoSheenScaling = {
+					r: Math.max(0, 1.0 - sheenFresnel.r),
+					g: Math.max(0, 1.0 - sheenFresnel.g),
+					b: Math.max(0, 1.0 - sheenFresnel.b),
+				};
 			}
 
 			// Attenuate base layer by clearcoat and sheen
 			const baseAttenuation = {
-				r: (1.0 - ccFresnel.r * clearcoat) * albedoSheenScaling,
-				g: (1.0 - ccFresnel.g * clearcoat) * albedoSheenScaling,
-				b: (1.0 - ccFresnel.b * clearcoat) * albedoSheenScaling,
+				r: (1.0 - ccFresnel.r * clearcoat) * albedoSheenScaling.r,
+				g: (1.0 - ccFresnel.g * clearcoat) * albedoSheenScaling.g,
+				b: (1.0 - ccFresnel.b * clearcoat) * albedoSheenScaling.b,
 			};
 
 			totalR +=
@@ -316,12 +318,15 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				ccAmbSpec = ccAmbFresnel * ccSpecFactor;
 			}
 
-			const baseAttenuationAmb =
-				(1.0 - ccAmbFresnel * clearcoat) * (1.0 - maxSheenColor * 0.5);
+			const baseAttenuationAmb = {
+				r: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.r * 0.5),
+				g: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.g * 0.5),
+				b: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.b * 0.5),
+			};
 
-			ambR = irrLinear.r * alb.r * kD_amb.r * baseAttenuationAmb;
-			ambG = irrLinear.g * alb.g * kD_amb.g * baseAttenuationAmb;
-			ambB = irrLinear.b * alb.b * kD_amb.b * baseAttenuationAmb;
+			ambR = irrLinear.r * alb.r * kD_amb.r * baseAttenuationAmb.r;
+			ambG = irrLinear.g * alb.g * kD_amb.g * baseAttenuationAmb.g;
+			ambB = irrLinear.b * alb.b * kD_amb.b * baseAttenuationAmb.b;
 
 			// Simplified Specular IBL fallback
 			const specFactor = Math.max(
@@ -329,13 +334,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				(1.0 - rough) * 0.5
 			);
 			ambR +=
-				irrLinear.r * F_amb.r * specFactor * baseAttenuationAmb +
+				irrLinear.r * F_amb.r * specFactor * baseAttenuationAmb.r +
 				irrLinear.r * ccAmbSpec * clearcoat;
 			ambG +=
-				irrLinear.g * F_amb.g * specFactor * baseAttenuationAmb +
+				irrLinear.g * F_amb.g * specFactor * baseAttenuationAmb.g +
 				irrLinear.g * ccAmbSpec * clearcoat;
 			ambB +=
-				irrLinear.b * F_amb.b * specFactor * baseAttenuationAmb +
+				irrLinear.b * F_amb.b * specFactor * baseAttenuationAmb.b +
 				irrLinear.b * ccAmbSpec * clearcoat;
 
 			// Sheen ambient fallback
@@ -374,12 +379,15 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			// Clearcoat for simple ambient
 			const ccAmbFresnel =
 				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
-			const baseAttenuationAmb =
-				(1.0 - ccAmbFresnel * clearcoat) * (1.0 - maxSheenColor * 0.5);
+			const baseAttenuationAmb = {
+				r: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.r * 0.5),
+				g: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.g * 0.5),
+				b: (1.0 - ccAmbFresnel * clearcoat) * (1.0 - sheenColor.b * 0.5),
+			};
 
-			ambR = ambientCol.r * alb.r * kD_amb.r * baseAttenuationAmb;
-			ambG = ambientCol.g * alb.g * kD_amb.g * baseAttenuationAmb;
-			ambB = ambientCol.b * alb.b * kD_amb.b * baseAttenuationAmb;
+			ambR = ambientCol.r * alb.r * kD_amb.r * baseAttenuationAmb.r;
+			ambG = ambientCol.g * alb.g * kD_amb.g * baseAttenuationAmb.g;
+			ambB = ambientCol.b * alb.b * kD_amb.b * baseAttenuationAmb.b;
 
 			const specFactor = LightingConstants.PBR_SPEC_FALLBACK;
 			const ccSpecFactor = Math.max(
@@ -388,13 +396,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			);
 
 			ambR +=
-				ambientCol.r * F_amb.r * specFactor * baseAttenuationAmb +
+				ambientCol.r * F_amb.r * specFactor * baseAttenuationAmb.r +
 				ambientCol.r * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambG +=
-				ambientCol.g * F_amb.g * specFactor * baseAttenuationAmb +
+				ambientCol.g * F_amb.g * specFactor * baseAttenuationAmb.g +
 				ambientCol.g * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambB +=
-				ambientCol.b * F_amb.b * specFactor * baseAttenuationAmb +
+				ambientCol.b * F_amb.b * specFactor * baseAttenuationAmb.b +
 				ambientCol.b * ccAmbFresnel * ccSpecFactor * clearcoat;
 
 			// Sheen ambient fallback
