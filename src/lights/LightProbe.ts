@@ -9,6 +9,7 @@ import {
 	type SurfacePoint,
 } from "./Light";
 import type { SHCoefficients, IVector3 } from "../maths/types";
+import { hammersley, importanceSampleGGX } from "../maths/Sampling";
 
 /**
  * LightProbe provides irregular or environment lighting via Spherical Harmonics (diffuse)
@@ -223,8 +224,8 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		let prefilteredColor = { r: 0, g: 0, b: 0 };
 
 		for (let i = 0; i < sampleCount; i++) {
-			const xi = this._hammersley(i, sampleCount);
-			const H = this._importanceSampleGGX(xi, N, roughness);
+			const xi = hammersley(i, sampleCount);
+			const H = importanceSampleGGX(xi, N, roughness);
 			const V = N; // Approximation: V = N
 			const NdotH = Math.max(Vector3.dot(N, H), 0);
 			const L = Vector3.normalize({
@@ -262,48 +263,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		}
 
 		return prefilteredColor;
-	}
-
-	private static _hammersley(i: number, n: number): { x: number; y: number } {
-		let bits = i;
-		bits = (bits << 16) | (bits >>> 16);
-		bits = ((bits & 0x55555555) << 1) | ((bits & 0xaaaaaaaa) >>> 1);
-		bits = ((bits & 0x33333333) << 2) | ((bits & 0xcccccccc) >>> 2);
-		bits = ((bits & 0x0f0f0f0f) << 4) | ((bits & 0xf0f0f0f0) >>> 4);
-		bits = ((bits & 0x00ff00ff) << 8) | ((bits & 0xff00ff00) >>> 8);
-		const fraction = (bits >>> 0) * 2.3283064365386963e-10;
-		return { x: i / n, y: fraction };
-	}
-
-	private static _importanceSampleGGX(
-		xi: { x: number; y: number },
-		N: IVector3,
-		roughness: number
-	): IVector3 {
-		const a = roughness * roughness;
-		const a2 = a * a;
-		const phi = 2.0 * Math.PI * xi.x;
-		const cosTheta = Math.sqrt((1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y));
-		const sinTheta = Math.sqrt(1.0 - cosTheta * cosTheta);
-
-		const H = {
-			x: Math.cos(phi) * sinTheta,
-			y: Math.sin(phi) * sinTheta,
-			z: cosTheta,
-		};
-
-		const up =
-			Math.abs(N.y) < 0.999 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
-		const tangent = Vector3.normalize(Vector3.cross(up, N));
-		const bitangent = Vector3.cross(N, tangent);
-
-		const worldH = {
-			x: tangent.x * H.x + bitangent.x * H.y + N.x * H.z,
-			y: tangent.y * H.x + bitangent.y * H.y + N.y * H.z,
-			z: tangent.z * H.x + bitangent.z * H.y + N.z * H.z,
-		};
-
-		return Vector3.normalize(worldH);
 	}
 
 	/**

@@ -114,6 +114,23 @@ export class Vector3 implements IVector3 {
 		v.z *= invLen;
 	}
 
+	public reflect(n: IVector3): this {
+		const dot = this.dot(n);
+		this.x = this.x - 2 * dot * n.x;
+		this.y = this.y - 2 * dot * n.y;
+		this.z = this.z - 2 * dot * n.z;
+		return this;
+	}
+
+	public static reflect(v: IVector3, n: IVector3): Vector3 {
+		const dot = Vector3.dot(v, n);
+		return new Vector3(
+			v.x - 2 * dot * n.x,
+			v.y - 2 * dot * n.y,
+			v.z - 2 * dot * n.z
+		);
+	}
+
 	public static calculateNormal(vertices: IVector3[]): Vector3 {
 		if (vertices.length < 3) return new Vector3(0, 0, 1);
 
