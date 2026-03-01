@@ -27,8 +27,13 @@ export class RenderConstants {
  * Post-processing effects constants (FXAA, Gamma, etc.).
  */
 export class PostProcessConstants {
-	static readonly FXAA_EDGE_THRESHOLD_MIN = 8;
-	static readonly FXAA_EDGE_THRESHOLD_MULTIPLIER = 0.125;
+	static readonly FXAA_EDGE_THRESHOLD_MIN = 0.03125;
+	static readonly FXAA_EDGE_THRESHOLD_MULTIPLIER = 0.166;
+	static readonly FXAA_SUBPIX_QUALITY = 0.75;
+	static readonly FXAA_ITERATIONS = 12;
+	static readonly FXAA_QUALITY: number[] = [
+		1.0, 1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 2.0, 2.0, 4.0, 8.0,
+	];
 	static readonly NOISE_REFERENCE_WIDTH = 1920;
 	static readonly MIN_GAMMA = 0.01;
 	static readonly MAX_GAMMA = 8.0;
@@ -62,6 +67,7 @@ export class VolumetricConstants {
 	static readonly SCENE_BOUNDS_FADE_END_MULTIPLIER = 1.8;
 	static readonly SCENE_DEPTH_LIMIT_MULTIPLIER = 1.6;
 	static readonly MIN_SCENE_BOUNDS_RADIUS = 1.0;
+	static readonly TEMPORAL_ACCUMULATION_FACTOR = 0.95;
 }
 
 /**

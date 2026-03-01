@@ -330,14 +330,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			);
 		}
 
-		if (this.params.enableFXAA) {
-			this._postProcessor.applyFXAA(
-				this._offscreenCtx,
-				this._offscreenCanvas,
-				pixels
-			);
-		}
-
 		if (this.params.enableVolumetric) {
 			this._postProcessor.applyVolumetricLight(
 				this._offscreenCtx,
@@ -345,6 +337,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				pixels,
 				this.depthBuffer,
 				this.params.volumetricOptions
+			);
+		}
+
+		if (this.params.enableFXAA) {
+			this._postProcessor.applyFXAA(
+				this._offscreenCtx,
+				this._offscreenCanvas,
+				pixels
 			);
 		}
 

@@ -86,7 +86,7 @@ type VolumetricLight = DirectionalLight | PointLight | SpotLight;
 export class PostProcessor implements PostProcessorLike {
 	private _sRGBLUT: Uint8Array;
 	private _lutBuilt: boolean;
-	private _prevScatterBuf: Float32Array | null;
+	private _prevScatterBuf: Float32Array | null; // Temp for scatter filter
 	private _frameIndex: number;
 	private _fxaaOutput?: Uint8ClampedArray;
 	private _lumaBuf?: Float32Array;
@@ -94,6 +94,13 @@ export class PostProcessor implements PostProcessorLike {
 	private _ssaoKernel: IVector3[] = [];
 	private _ssaoNoise: IVector3[] = [];
 	private _ssaoBuffer: Float32Array | null = null;
+	private _ssaoBlurTemp: Float32Array | null = null;
+
+	// Volumetric lighting persistent buffers
+	private _scatterGrid: Float32Array | null = null;
+	private _visibilityCache: Float32Array | null = null;
+	private _scatterBuf: Float32Array | null = null;
+	private _lowDepthBuf: Float32Array | null = null;
 
 	// Temporal accumulation buffers
 	private _prevVolumetricBuf: Float32Array | null = null;
@@ -252,6 +259,83 @@ export class PostProcessor implements PostProcessorLike {
 		return fallback;
 	}
 
+	private _samplePreviousVolumetric(
+		worldPos: IVector3,
+		gridW: number,
+		gridH: number,
+		prevViewProj: Matrix4,
+		prevVolumetricBuf: Float32Array,
+		outCol: { r: number; g: number; b: number }
+	): boolean {
+		const ndc = Matrix4.transformPoint(prevViewProj, {
+			x: worldPos.x,
+			y: worldPos.y,
+			z: worldPos.z,
+			w: 1,
+		});
+		if (Math.abs(ndc.w!) < 1e-6) return false;
+
+		const invW = 1.0 / ndc.w!;
+		const nx = ndc.x! * invW;
+		const ny = ndc.y! * invW;
+		const nz = ndc.z! * invW;
+
+		if (nx < -1 || nx > 1 || ny < -1 || ny > 1 || nz < -1 || nz > 1)
+			return false;
+
+		const u = nx * 0.5 + 0.5;
+		const v = 0.5 - ny * 0.5;
+
+		const gx = u * gridW - 0.5;
+		const gy = v * gridH - 0.5;
+
+		const x1 = Math.floor(gx);
+		const y1 = Math.floor(gy);
+		const x2 = Math.min(x1 + 1, gridW - 1);
+		const y2 = Math.min(y1 + 1, gridH - 1);
+
+		const tx = gx - x1;
+		const ty = gy - y1;
+
+		const i1 = (y1 * gridW + x1) * 3;
+		const i2 = (y1 * gridW + x2) * 3;
+		const i3 = (y2 * gridW + x1) * 3;
+		const i4 = (y2 * gridW + x2) * 3;
+
+		const w1 = (1 - tx) * (1 - ty);
+		const w2 = tx * (1 - ty);
+		const w3 = (1 - tx) * ty;
+		const w4 = tx * ty;
+
+		outCol.r =
+			prevVolumetricBuf[i1] * w1 +
+			prevVolumetricBuf[i2] * w2 +
+			prevVolumetricBuf[i3] * w3 +
+			prevVolumetricBuf[i4] * w4;
+		outCol.g =
+			prevVolumetricBuf[i1 + 1] * w1 +
+			prevVolumetricBuf[i2 + 1] * w2 +
+			prevVolumetricBuf[i3 + 1] * w3 +
+			prevVolumetricBuf[i4 + 1] * w4;
+		outCol.b =
+			prevVolumetricBuf[i1 + 2] * w1 +
+			prevVolumetricBuf[i2 + 2] * w2 +
+			prevVolumetricBuf[i3 + 2] * w3 +
+			prevVolumetricBuf[i4 + 2] * w4;
+
+		return true;
+	}
+
+	private _ensureFloat32Buffer(
+		buffer: Float32Array | null,
+		size: number
+	): Float32Array {
+		if (!buffer || buffer.length !== size) {
+			return new Float32Array(size);
+		}
+		return buffer;
+	}
+
 	private _computeSceneFalloff(
 		distanceSq: number,
 		fadeStartSq: number,
@@ -324,6 +408,79 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
+	private _sampleBilinear(
+		pixels: Uint8ClampedArray,
+		w: number,
+		h: number,
+		x: number,
+		y: number,
+		outCol: { r: number; g: number; b: number; a: number }
+	): void {
+		const x1 = Math.floor(x);
+		const y1 = Math.floor(y);
+		const x2 = Math.min(x1 + 1, w - 1);
+		const y2 = Math.min(y1 + 1, h - 1);
+
+		const tx = x - x1;
+		const ty = y - y1;
+
+		const i1 = (y1 * w + x1) << 2;
+		const i2 = (y1 * w + x2) << 2;
+		const i3 = (y2 * w + x1) << 2;
+		const i4 = (y2 * w + x2) << 2;
+
+		const w1 = (1 - tx) * (1 - ty);
+		const w2 = tx * (1 - ty);
+		const w3 = (1 - tx) * ty;
+		const w4 = tx * ty;
+
+		outCol.r =
+			pixels[i1] * w1 + pixels[i2] * w2 + pixels[i3] * w3 + pixels[i4] * w4;
+		outCol.g =
+			pixels[i1 + 1] * w1 +
+			pixels[i2 + 1] * w2 +
+			pixels[i3 + 1] * w3 +
+			pixels[i4 + 1] * w4;
+		outCol.b =
+			pixels[i1 + 2] * w1 +
+			pixels[i2 + 2] * w2 +
+			pixels[i3 + 2] * w3 +
+			pixels[i4 + 2] * w4;
+		outCol.a =
+			pixels[i1 + 3] * w1 +
+			pixels[i2 + 3] * w2 +
+			pixels[i3 + 3] * w3 +
+			pixels[i4 + 3] * w4;
+	}
+
+	private _getLumaBilinear(
+		luma: Float32Array,
+		w: number,
+		h: number,
+		x: number,
+		y: number
+	): number {
+		const x1 = Math.floor(x);
+		const y1 = Math.floor(y);
+		const x2 = Math.min(x1 + 1, w - 1);
+		const y2 = Math.min(y1 + 1, h - 1);
+
+		const tx = x - x1;
+		const ty = y - y1;
+
+		const i1 = y1 * w + x1;
+		const i2 = y1 * w + x2;
+		const i3 = y2 * w + x1;
+		const i4 = y2 * w + x2;
+
+		return (
+			luma[i1] * (1 - tx) * (1 - ty) +
+			luma[i2] * tx * (1 - ty) +
+			luma[i3] * (1 - tx) * ty +
+			luma[i4] * tx * ty
+		);
+	}
+
 	public applyFXAA(
 		ctx: CanvasRenderingContext2D,
 		canvas: HTMLCanvasElement,
@@ -342,66 +499,160 @@ export class PostProcessor implements PostProcessorLike {
 			this._fxaaOutput = new Uint8ClampedArray(pixels.length);
 		}
 		const output = this._fxaaOutput;
-		output.set(pixels);
 
 		const lumaSize = w * h;
 		if (!this._lumaBuf || this._lumaBuf.length !== lumaSize) {
 			this._lumaBuf = new Float32Array(lumaSize);
 		}
-		const lumaBuf = this._lumaBuf;
+		const luma = this._lumaBuf;
 
+		// 1. Calculate Perceptual Luma (0.0 - 1.0)
 		for (let i = 0, len = pixels.length; i < len; i += 4) {
-			lumaBuf[i >> 2] =
-				0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+			const r = pixels[i] / 255.0;
+			const g = pixels[i + 1] / 255.0;
+			const b = pixels[i + 2] / 255.0;
+			// Rec. 709 luma with square root for perceptual linear-to-gamma approximation
+			luma[i >> 2] = Math.sqrt(0.2126 * r + 0.7152 * g + 0.0722 * b);
 		}
 
-		for (let y = 1; y < h - 1; y++) {
+		const thresholdMin = PostProcessConstants.FXAA_EDGE_THRESHOLD_MIN;
+		const thresholdMul = PostProcessConstants.FXAA_EDGE_THRESHOLD_MULTIPLIER;
+		const subpixQual = PostProcessConstants.FXAA_SUBPIX_QUALITY;
+		const qual = PostProcessConstants.FXAA_QUALITY;
+		const iterations = qual.length;
+
+		const outCol = { r: 0, g: 0, b: 0, a: 0 };
+
+		for (let y = 0; y < h; y++) {
 			const row = y * w;
-			for (let x = 1; x < w - 1; x++) {
+			for (let x = 0; x < w; x++) {
 				const i = row + x;
 				const idx = i << 2;
-				const lCenter = lumaBuf[i];
-				const lU = lumaBuf[i - w];
-				const lD = lumaBuf[i + w];
-				const lL = lumaBuf[i - 1];
-				const lR = lumaBuf[i + 1];
+				const L = luma[i];
 
-				let lMin = Math.min(lCenter, lU, lD, lL, lR);
-				let lMax = Math.max(lCenter, lU, lD, lL, lR);
-				const lRange = lMax - lMin;
+				// Neighbor lumas
+				const Ln = y > 0 ? luma[i - w] : L;
+				const Ls = y < h - 1 ? luma[i + w] : L;
+				const Le = x < w - 1 ? luma[i + 1] : L;
+				const Lw = x > 0 ? luma[i - 1] : L;
 
-				if (
-					lRange <
-					Math.max(
-						PostProcessConstants.FXAA_EDGE_THRESHOLD_MIN,
-						lMax * PostProcessConstants.FXAA_EDGE_THRESHOLD_MULTIPLIER
-					)
-				) {
+				const Lmin = Math.min(L, Ln, Ls, Le, Lw);
+				const Lmax = Math.max(L, Ln, Ls, Le, Lw);
+				const Lrange = Lmax - Lmin;
+
+				if (Lrange < Math.max(thresholdMin, Lmax * thresholdMul)) {
+					output[idx] = pixels[idx];
+					output[idx + 1] = pixels[idx + 1];
+					output[idx + 2] = pixels[idx + 2];
+					output[idx + 3] = pixels[idx + 3];
 					continue;
 				}
 
-				const iU = (i - w) << 2;
-				const iD = (i + w) << 2;
-				const iL = (i - 1) << 2;
-				const iR = (i + 1) << 2;
+				// Edge detection - proceding with FXAA 3.11 logic
+				const Lnw = y > 0 && x > 0 ? luma[i - w - 1] : Ln;
+				const Lne = y > 0 && x < w - 1 ? luma[i - w + 1] : Ln;
+				const Lsw = y < h - 1 && x > 0 ? luma[i + w - 1] : Ls;
+				const Lse = y < h - 1 && x < w - 1 ? luma[i + w + 1] : Ls;
 
-				output[idx] =
-					(pixels[idx] + pixels[iU] + pixels[iD] + pixels[iL] + pixels[iR]) *
-					0.2;
-				output[idx + 1] =
-					(pixels[idx + 1] +
-						pixels[iU + 1] +
-						pixels[iD + 1] +
-						pixels[iL + 1] +
-						pixels[iR + 1]) *
-					0.2;
-				output[idx + 2] =
-					(pixels[idx + 2] +
-						pixels[iU + 2] +
-						pixels[iD + 2] +
-						pixels[iL + 2] +
-						pixels[iR + 2]) *
-					0.2;
+				const LedgesRU = Ln + Ls;
+				const LedgesLV = Le + Lw;
+
+				// Subpixel aliasing removal
+				let Lfiltered = 2.0 * (LedgesRU + LedgesLV);
+				Lfiltered += Lne + Lnw + Lse + Lsw;
+				Lfiltered /= 12.0;
+				const subpixOffset1 = Math.abs(Lfiltered - L);
+				const subpixOffset2 = clamp(subpixOffset1 / Lrange, 0.0, 1.0);
+				const subpixOffsetFinal =
+					(-2.0 * subpixOffset2 + 3.0) * subpixOffset2 * subpixOffset2;
+				const subpixOffset = subpixOffsetFinal * subpixOffsetFinal * subpixQual;
+
+				// Edge orientation
+				const edgeHorz =
+					Math.abs(-2.0 * Lw + Lnw + Lsw) +
+					Math.abs(-2.0 * L + Ln + Ls) * 2.0 +
+					Math.abs(-2.0 * Le + Lne + Lse);
+				const edgeVert =
+					Math.abs(-2.0 * Ln + Lnw + Lne) +
+					Math.abs(-2.0 * L + Lw + Le) * 2.0 +
+					Math.abs(-2.0 * Ls + Lsw + Lse);
+				const isHorz = edgeHorz >= edgeVert;
+
+				// Select step direction
+				const L1 = isHorz ? Ln : Lw;
+				const L2 = isHorz ? Ls : Le;
+				const gradient1 = Math.abs(L1 - L);
+				const gradient2 = Math.abs(L2 - L);
+
+				const is1Steeper = gradient1 >= gradient2;
+				const gradientScaled = 0.25 * Math.max(gradient1, gradient2);
+
+				const stepSign = is1Steeper ? -1 : 1;
+				const Ledge = is1Steeper ? (L1 + L) * 0.5 : (L2 + L) * 0.5;
+
+				// Span Search
+				let posN_x = x,
+					posN_y = y;
+				if (isHorz) posN_y += stepSign * 0.5;
+				else posN_x += stepSign * 0.5;
+
+				let posP_x = posN_x,
+					posP_y = posN_y;
+				const off_x = isHorz ? 1 : 0;
+				const off_y = isHorz ? 0 : 1;
+
+				let doneN = false,
+					doneP = false;
+				let lEndN = 0,
+					lEndP = 0;
+				for (let j = 0; j < iterations; j++) {
+					if (!doneN) {
+						lEndN = this._getLumaBilinear(luma, w, h, posN_x, posN_y);
+						if (Math.abs(lEndN - Ledge) >= gradientScaled) doneN = true;
+					}
+					if (!doneP) {
+						lEndP = this._getLumaBilinear(luma, w, h, posP_x, posP_y);
+						if (Math.abs(lEndP - Ledge) >= gradientScaled) doneP = true;
+					}
+					if (doneN && doneP) break;
+					if (!doneN) {
+						posN_x -= off_x * qual[j];
+						posN_y -= off_y * qual[j];
+					}
+					if (!doneP) {
+						posP_x += off_x * qual[j];
+						posP_y += off_y * qual[j];
+					}
+				}
+
+				const distN = isHorz ? x - posN_x : y - posN_y;
+				const distP = isHorz ? posP_x - x : posP_y - y;
+
+				const isNDistSmaller = distN < distP;
+				const distMin = Math.min(distN, distP);
+				const lEndMin = isNDistSmaller ? lEndN : lEndP;
+
+				const lDiff = L - Ledge;
+				const isLPositive = lDiff >= 0;
+				const isEndPositive = lEndMin - Ledge >= 0;
+				const reachedProperly = isEndPositive !== isLPositive;
+
+				let edgeOffset = -distMin / (distN + distP) + 0.5;
+				if (!reachedProperly) edgeOffset = 0.0;
+
+				const pixelOffset = Math.max(subpixOffset, edgeOffset);
+
+				// Sample final color
+				let finalX = x,
+					finalY = y;
+				if (isHorz) finalY += stepSign * pixelOffset;
+				else finalX += stepSign * pixelOffset;
+
+				this._sampleBilinear(pixels, w, h, finalX, finalY, outCol);
+				output[idx] = outCol.r;
+				output[idx + 1] = outCol.g;
+				output[idx + 2] = outCol.b;
+				output[idx + 3] = outCol.a;
 			}
 		}
 
@@ -539,10 +790,20 @@ export class PostProcessor implements PostProcessorLike {
 		);
 
 		// 1. Light Injection Grid
-		const scatterGrid = new Float32Array(gridW * gridH * gridD * 3);
+		this._scatterGrid = this._ensureFloat32Buffer(
+			this._scatterGrid,
+			gridW * gridH * gridD * 3
+		);
+		const scatterGrid = this._scatterGrid;
+
 		const lightCount = volLights.length;
-		const visibilityCache = new Float32Array(gridW * gridH * lightCount);
+		this._visibilityCache = this._ensureFloat32Buffer(
+			this._visibilityCache,
+			gridW * gridH * lightCount
+		);
+		const visibilityCache = this._visibilityCache;
 		visibilityCache.fill(1.0);
+
 		this._frameIndex++;
 		const jitterStrength = ds * VolumetricConstants.GRID_SAMPLE_JITTER_STRENGTH;
 		const jitterSeedOffsetX = 131;
@@ -587,7 +848,13 @@ export class PostProcessor implements PostProcessorLike {
 						sceneFadeStartSq,
 						sceneFadeEndSq
 					);
-					if (sceneFalloff <= 0) continue;
+					if (sceneFalloff <= 0) {
+						const idx = sliceBase + (y * gridW + x) * 3;
+						scatterGrid[idx] = 0;
+						scatterGrid[idx + 1] = 0;
+						scatterGrid[idx + 2] = 0;
+						continue;
+					}
 
 					let r = 0,
 						g = 0,
@@ -646,8 +913,22 @@ export class PostProcessor implements PostProcessorLike {
 		}
 
 		// 2. Integration along rays
-		const scatterBuf = new Float32Array(gridW * gridH * 3);
-		const lowDepthBuf = new Float32Array(gridW * gridH);
+		this._scatterBuf = this._ensureFloat32Buffer(
+			this._scatterBuf,
+			gridW * gridH * 3
+		);
+		this._lowDepthBuf = this._ensureFloat32Buffer(
+			this._lowDepthBuf,
+			gridW * gridH
+		);
+		const scatterBuf = this._scatterBuf;
+		const lowDepthBuf = this._lowDepthBuf;
+
+		const currentViewProj = camera.viewProjectionMatrix;
+		const prevViewProj = this._prevViewProj;
+		const prevVolBuf = this._prevVolumetricBuf;
+		const historyWeight = VolumetricConstants.TEMPORAL_ACCUMULATION_FACTOR;
+		const tempCol = { r: 0, g: 0, b: 0 };
 
 		for (let y = 0; y < gridH; y++) {
 			for (let x = 0; x < gridW; x++) {
@@ -690,14 +971,62 @@ export class PostProcessor implements PostProcessorLike {
 				}
 
 				const bIdx = (y * gridW + x) * 3;
-				scatterBuf[bIdx] = accumR * exposure;
-				scatterBuf[bIdx + 1] = accumG * exposure;
-				scatterBuf[bIdx + 2] = accumB * exposure;
+				let finalR = accumR * exposure;
+				let finalG = accumG * exposure;
+				let finalB = accumB * exposure;
+
+				// Temporal accumulation
+				if (
+					prevViewProj &&
+					prevVolBuf &&
+					prevVolBuf.length === scatterBuf.length
+				) {
+					const ray = this._getWorldRayFromPixel(
+						screenPX,
+						screenPY,
+						w,
+						h,
+						basis
+					);
+					const worldPos = {
+						x: cameraPos.x + ray.x * depthLimit,
+						y: cameraPos.y + ray.y * depthLimit,
+						z: cameraPos.z + ray.z * depthLimit,
+					};
+					if (
+						this._samplePreviousVolumetric(
+							worldPos,
+							gridW,
+							gridH,
+							prevViewProj,
+							prevVolBuf,
+							tempCol
+						)
+					) {
+						finalR = finalR * (1 - historyWeight) + tempCol.r * historyWeight;
+						finalG = finalG * (1 - historyWeight) + tempCol.g * historyWeight;
+						finalB = finalB * (1 - historyWeight) + tempCol.b * historyWeight;
+					}
+				}
+
+				scatterBuf[bIdx] = finalR;
+				scatterBuf[bIdx + 1] = finalG;
+				scatterBuf[bIdx + 2] = finalB;
 				lowDepthBuf[y * gridW + x] = depthLimit;
 			}
 		}
 
 		this._filterScatterBuffer(scatterBuf, gridW, gridH);
+
+		// Store history
+		if (
+			!this._prevVolumetricBuf ||
+			this._prevVolumetricBuf.length !== scatterBuf.length
+		) {
+			this._prevVolumetricBuf = new Float32Array(scatterBuf.length);
+		}
+		this._prevVolumetricBuf.set(scatterBuf);
+		this._prevViewProj = currentViewProj.clone();
 
 		// 3. Upscale and Combine
 		if (options.useBilateralUpscale !== false) {
@@ -941,10 +1270,11 @@ export class PostProcessor implements PostProcessorLike {
 
 					if (screenX >= 0 && screenX < w && screenY >= 0 && screenY < h) {
 						const sampleDepth = depthBuffer[screenY * w + screenX];
+						const samplePosDepth = -samplePos.z;
 						const rangeCheck =
-							Math.abs(posView.z - sampleDepth) < radius ? 1.0 : 0.0;
+							Math.abs(originDepth - sampleDepth) < radius ? 1.0 : 0.0;
 						occlusion +=
-							(sampleDepth <= samplePos.z - bias ? 1.0 : 0.0) * rangeCheck;
+							(sampleDepth <= samplePosDepth - bias ? 1.0 : 0.0) * rangeCheck;
 					}
 				}
 
@@ -984,7 +1314,11 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	private _ssaoBlur(buffer: Float32Array, w: number, h: number): void {
-		const temp = new Float32Array(buffer.length);
+		this._ssaoBlurTemp = this._ensureFloat32Buffer(
+			this._ssaoBlurTemp,
+			buffer.length
+		);
+		const temp = this._ssaoBlurTemp;
 		temp.set(buffer);
 
 		const blurSize = 2;
