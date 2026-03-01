@@ -36,6 +36,12 @@ export class Texture {
 	 */
 	colorSpace: TextureColorSpace;
 
+	/**
+	 * Mipmaps for the texture, used for pre-filtered environment maps (roughness levels).
+	 * mipmaps[0] is the base texture (same as this.data).
+	 */
+	mipmaps: (Uint8ClampedArray | Float32Array | Uint8Array)[];
+
 	constructor(
 		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
 		width: number = 0,
@@ -53,6 +59,7 @@ export class Texture {
 		this.repeat = { x: 1, y: 1 };
 		this.rotation = 0;
 		this.colorSpace = colorSpace;
+		this.mipmaps = data ? [data] : [];
 	}
 
 	public clone(): Texture {
@@ -76,7 +83,23 @@ export class Texture {
 	 * Samples the texture at given UV coordinates.
 	 */
 	public sample(u: number, v: number): RGBA {
-		if (!this.data) return { r: 255, g: 255, b: 255, a: 255 };
+		return this.sampleLevel(u, v, 0);
+	}
+
+	/**
+	 * Samples the texture at given UV coordinates and mipmap level.
+	 */
+	public sampleLevel(u: number, v: number, level: number = 0): RGBA {
+		if (this.mipmaps.length === 0) return { r: 255, g: 255, b: 255, a: 255 };
+
+		const maxLevel = this.mipmaps.length - 1;
+		const l = Math.max(0, Math.min(maxLevel, level));
+
+		const lWidth = Math.max(1, this.width >> Math.floor(l));
+		const lHeight = Math.max(1, this.height >> Math.floor(l));
+		const data = this.mipmaps[Math.floor(l)];
+
+		if (!data) return { r: 255, g: 255, b: 255, a: 255 };
 
 		let uu = u * this.repeat.x;
 		let vv = v * this.repeat.y;
@@ -114,30 +137,29 @@ export class Texture {
 			vv = Math.max(0, Math.min(1, vv));
 		}
 
-		let x = Math.floor(uu * this.width);
-		let y = Math.floor(vv * this.height);
+		let x = Math.floor(uu * lWidth);
+		let y = Math.floor(vv * lHeight);
 
 		// Clamp to valid range
-		if (x >= this.width) x = this.width - 1;
-		if (y >= this.height) y = this.height - 1;
+		if (x >= lWidth) x = lWidth - 1;
+		if (y >= lHeight) y = lHeight - 1;
 
-		const idx = (y * this.width + x) << 2;
+		const idx = (y * lWidth + x) << 2;
 
 		if (this.colorSpace === "HDR") {
-			// HDR textures store linear floating-point data; scale to [0-255]
 			return {
-				r: Math.max(0, Math.min(255, this.data[idx] * 255)),
-				g: Math.max(0, Math.min(255, this.data[idx + 1] * 255)),
-				b: Math.max(0, Math.min(255, this.data[idx + 2] * 255)),
+				r: Math.max(0, Math.min(255, data[idx] * 255)),
+				g: Math.max(0, Math.min(255, data[idx + 1] * 255)),
+				b: Math.max(0, Math.min(255, data[idx + 2] * 255)),
 				a: 255,
 			};
 		}
 
 		return {
-			r: this.data[idx],
-			g: this.data[idx + 1],
-			b: this.data[idx + 2],
-			a: this.data[idx + 3],
+			r: data[idx],
+			g: data[idx + 1],
+			b: data[idx + 2],
+			a: data[idx + 3],
 		};
 	}
 }

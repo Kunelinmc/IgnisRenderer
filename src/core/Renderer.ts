@@ -10,7 +10,7 @@ import { ShadowRenderer } from "./ShadowRenderer";
 import { ReflectionRenderer } from "./ReflectionRenderer";
 import { Rasterizer } from "./Rasterizer";
 import { PostProcessor } from "./PostProcessor";
-import { PostProcessConstants } from "./Constants";
+import { LightingConstants, PostProcessConstants } from "./Constants";
 import { sRGBToLinear } from "../maths/Common";
 import { LightType, type ShadowCastingLight } from "../lights";
 import type { SHCoefficients } from "../maths/types";
@@ -435,7 +435,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				} else if (light.type === LightType.LightProbe) {
 					const probeSH = light.sh;
 					const intensity = light.intensity ?? 1;
-					for (let i = 0; i < 9; i++) {
+					const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
+					for (let i = 0; i < coeffCount; i++) {
 						ambientProbeSH[i].r += probeSH[i].r * intensity;
 						ambientProbeSH[i].g += probeSH[i].g * intensity;
 						ambientProbeSH[i].b += probeSH[i].b * intensity;
@@ -450,8 +451,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ambientProbeSH[0].g === 0 &&
 			ambientProbeSH[0].b === 0
 		) {
-			const fallbackSrgb = 51 / 255;
-			const fallbackLinear = sRGBToLinear(fallbackSrgb) * 255;
+			const fallbackLinear =
+				LightingConstants.PBR_AMBIENT_FALLBACK_LINEAR * 255;
 			ambientR = fallbackLinear;
 			ambientG = fallbackLinear;
 			ambientB = fallbackLinear;

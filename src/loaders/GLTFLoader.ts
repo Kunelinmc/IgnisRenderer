@@ -157,7 +157,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 
 	private _getMaterialTexture(
 		texInfo: any,
-		textures: (Texture | null)[]
+		textures: (Texture | null)[],
+		colorSpace?: Texture["colorSpace"]
 	): Texture | null {
 		if (texInfo === undefined) return null;
 		const texIdx = texInfo.index;
@@ -168,6 +169,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 
 		// ALWAYS clone here to avoid shared sampler settings between textures
 		const cloned = tex.clone();
+		if (colorSpace) cloned.colorSpace = colorSpace;
 
 		if (transform) {
 			if (transform.offset !== undefined) {
@@ -214,7 +216,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					doubleSided: m.doubleSided || false,
 				});
 				if (pbr.baseColorTexture !== undefined) {
-					const tex = this._getMaterialTexture(pbr.baseColorTexture, textures);
+					const tex = this._getMaterialTexture(
+						pbr.baseColorTexture,
+						textures,
+						"sRGB"
+					);
 					if (tex) unlitMat.map = tex;
 				}
 				if (m.alphaMode !== undefined)
@@ -244,7 +250,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				doubleSided: m.doubleSided || false,
 			});
 			if (pbr.baseColorTexture !== undefined) {
-				const tex = this._getMaterialTexture(pbr.baseColorTexture, textures);
+				const tex = this._getMaterialTexture(
+					pbr.baseColorTexture,
+					textures,
+					"sRGB"
+				);
 				if (tex) {
 					material.map = tex;
 					material.albedoMapUV = this._getTexCoord(pbr.baseColorTexture);
@@ -253,7 +263,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			if (pbr.metallicRoughnessTexture !== undefined) {
 				const tex = this._getMaterialTexture(
 					pbr.metallicRoughnessTexture,
-					textures
+					textures,
+					"Linear"
 				);
 				if (tex) {
 					material.metallicRoughnessMap = tex;
@@ -263,7 +274,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				}
 			}
 			if (m.normalTexture !== undefined) {
-				const tex = this._getMaterialTexture(m.normalTexture, textures);
+				const tex = this._getMaterialTexture(
+					m.normalTexture,
+					textures,
+					"Linear"
+				);
 				if (tex) {
 					material.normalMap = tex;
 					material.normalMapUV = this._getTexCoord(m.normalTexture);
@@ -273,14 +288,22 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				}
 			}
 			if (m.emissiveTexture !== undefined) {
-				const tex = this._getMaterialTexture(m.emissiveTexture, textures);
+				const tex = this._getMaterialTexture(
+					m.emissiveTexture,
+					textures,
+					"sRGB"
+				);
 				if (tex) {
 					material.emissiveMap = tex;
 					material.emissiveMapUV = this._getTexCoord(m.emissiveTexture);
 				}
 			}
 			if (m.occlusionTexture !== undefined) {
-				const tex = this._getMaterialTexture(m.occlusionTexture, textures);
+				const tex = this._getMaterialTexture(
+					m.occlusionTexture,
+					textures,
+					"Linear"
+				);
 				if (tex) {
 					material.occlusionMap = tex;
 					material.occlusionMapUV = this._getTexCoord(m.occlusionTexture);
@@ -318,14 +341,16 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				if (specExt.specularTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						specExt.specularTexture,
-						textures
+						textures,
+						"Linear"
 					);
 					if (tex) material.specularMap = tex;
 				}
 				if (specExt.specularColorTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						specExt.specularColorTexture,
-						textures
+						textures,
+						"sRGB"
 					);
 					if (tex) material.specularColorMap = tex;
 				}
@@ -347,7 +372,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				if (sheenExt.sheenColorTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						sheenExt.sheenColorTexture,
-						textures
+						textures,
+						"sRGB"
 					);
 					if (tex) {
 						material.sheenColorMap = tex;
@@ -359,7 +385,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				if (sheenExt.sheenRoughnessTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						sheenExt.sheenRoughnessTexture,
-						textures
+						textures,
+						"Linear"
 					);
 					if (tex) {
 						material.sheenRoughnessMap = tex;
@@ -378,7 +405,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				if (transExt.transmissionTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						transExt.transmissionTexture,
-						textures
+						textures,
+						"Linear"
 					);
 					if (tex) {
 						material.transmissionMap = tex;
@@ -397,7 +425,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				if (volExt.thicknessTexture !== undefined) {
 					const tex = this._getMaterialTexture(
 						volExt.thicknessTexture,
-						textures
+						textures,
+						"Linear"
 					);
 					if (tex) {
 						material.thicknessMap = tex;

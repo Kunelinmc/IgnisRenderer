@@ -15,7 +15,9 @@ import {
 	type FragmentInput,
 	type PhongSurfaceProperties,
 	type PBRSurfaceProperties,
+	IBLBRDF,
 } from "../shaders";
+import { LightType, LightProbe } from "../lights";
 import type { ShadowMap } from "../utils/ShadowMapping";
 import type { Renderer } from "./Renderer";
 import type { ProjectedVertex, ProjectedFace } from "./types";
@@ -234,7 +236,11 @@ export class Rasterizer implements RasterizerLike {
 		if (alphaValue === undefined) return 1.0;
 
 		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
-			return Math.max(0, Math.min(1, alphaValue as number));
+			if (map.data instanceof Float32Array) {
+				return Math.max(0, Math.min(1, alphaValue as number));
+			}
+
+			return Math.max(0, Math.min(1, (alphaValue as number) / 255));
 		}
 
 		return Math.max(0, Math.min(1, (alphaValue as number) / 255));
@@ -248,15 +254,13 @@ export class Rasterizer implements RasterizerLike {
 		const { size, buffer } = shadowMap;
 		const alphaMode = material?.alphaMode;
 		const maskTexture =
-			(
-				alphaMode === "MASK" &&
-				material?.map &&
-				material.map.data &&
-				material.map.width > 0 &&
-				material.map.height > 0
-			) ?
-				material.map
-			:	null;
+			alphaMode === "MASK" &&
+			material?.map &&
+			material.map.data &&
+			material.map.width > 0 &&
+			material.map.height > 0
+				? material.map
+				: null;
 		const useMask = maskTexture !== null;
 		const alphaCutoff = material?.alphaCutoff ?? 0.5;
 		const opacity = material?.opacity ?? 1;
@@ -417,9 +421,11 @@ export class Rasterizer implements RasterizerLike {
 				const idx = row + x;
 				if (z < buffer[idx]) {
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON ? iz
-						: iz >= 0 ? CoreConstants.EPSILON
-						: -CoreConstants.EPSILON;
+						Math.abs(iz) > CoreConstants.EPSILON
+							? iz
+							: iz >= 0
+								? CoreConstants.EPSILON
+								: -CoreConstants.EPSILON;
 					const invIz = 1 / safeIz;
 					const u = uO * invIz;
 					const v = vO * invIz;
@@ -581,12 +587,26 @@ export class Rasterizer implements RasterizerLike {
 		const shading = isLightingEnabled ? shadingModel : "Unlit";
 
 		const shader = this._getShader(shading, material);
+		let envSpecularMap = null;
+		const lights = this._renderer.scene.lights;
+		for (const light of lights) {
+			if (light.type === LightType.LightProbe) {
+				const probe = light as LightProbe;
+				if (probe.prefilteredMap) {
+					envSpecularMap = probe.prefilteredMap;
+					break;
+				}
+			}
+		}
+
 		const shaderContext: ShaderContext = {
 			renderer: this._renderer,
 			cameraPos: this._renderer.camera.position,
-			lights: this._renderer.scene.lights,
+			lights: lights,
 			worldMatrix: this._renderer.params.worldMatrix,
 			shAmbientCoeffs: this._renderer.shAmbientCoeffs,
+			envSpecularMap: envSpecularMap,
+			brdfLUT: IBLBRDF.getLUT(),
 			enableShadows: !!this._renderer.params.enableShadows,
 			enableSH: !!this._renderer.params.enableSH,
 			enableGamma: !!this._renderer.params.enableGamma,
@@ -709,9 +729,11 @@ export class Rasterizer implements RasterizerLike {
 			for (let x = startX; x <= endX; x++) {
 				const bufIdx = bufRow + x;
 				const safeIz =
-					Math.abs(iz) > CoreConstants.EPSILON ? iz
-					: iz >= 0 ? CoreConstants.EPSILON
-					: -CoreConstants.EPSILON;
+					Math.abs(iz) > CoreConstants.EPSILON
+						? iz
+						: iz >= 0
+							? CoreConstants.EPSILON
+							: -CoreConstants.EPSILON;
 				const zCam = 1 / safeIz;
 
 				if (zCam > 0 && zCam < depthBuffer[bufIdx]) {
@@ -829,10 +851,9 @@ export class Rasterizer implements RasterizerLike {
 		if (!depthBuffer) return;
 
 		const wireColor = { r: 255, g: 255, b: 255 };
-		const alpha =
-			isTransparent ?
-				Math.max(0, Math.min(1, face.color?.a ?? material.opacity ?? 1))
-			:	1;
+		const alpha = isTransparent
+			? Math.max(0, Math.min(1, face.color?.a ?? material.opacity ?? 1))
+			: 1;
 
 		const drawLine = (p0: ProjectedVertex, p1: ProjectedVertex) => {
 			const x0 = p0.x,
@@ -862,9 +883,11 @@ export class Rasterizer implements RasterizerLike {
 				if (px >= 0 && px < width && py >= 0 && py < height) {
 					const bufIdx = py * width + px;
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON ? iz
-						: iz >= 0 ? CoreConstants.EPSILON
-						: -CoreConstants.EPSILON;
+						Math.abs(iz) > CoreConstants.EPSILON
+							? iz
+							: iz >= 0
+								? CoreConstants.EPSILON
+								: -CoreConstants.EPSILON;
 					const zCam = 1 / safeIz;
 
 					if (

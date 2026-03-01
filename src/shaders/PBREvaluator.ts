@@ -49,9 +49,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		const mat = this._mat;
 		const baseAlbedo = mat.albedo || { r: 255, g: 255, b: 255 };
 		let albedo = {
-			r: sRGBToLinear(baseAlbedo.r / 255) * 255,
-			g: sRGBToLinear(baseAlbedo.g / 255) * 255,
-			b: sRGBToLinear(baseAlbedo.b / 255) * 255,
+			r: clamp(baseAlbedo.r, 0, 255),
+			g: clamp(baseAlbedo.g, 0, 255),
+			b: clamp(baseAlbedo.b, 0, 255),
 		};
 		let alpha = mat.opacity ?? 1;
 		let roughness = mat.roughness ?? 0.5;
@@ -65,11 +65,20 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 				: { u: input.u, v: input.v };
 		const tex = this._sampleTextureMap(mat.map, albedoUV.u, albedoUV.v);
 		if (tex) {
-			// Texture is sRGB, decode to linear before multiplying with linear factor
+			const colorSpace = mat.map?.colorSpace ?? "sRGB";
 			const texLinear = {
-				r: sRGBToLinear(tex.r / 255),
-				g: sRGBToLinear(tex.g / 255),
-				b: sRGBToLinear(tex.b / 255),
+				r:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, tex.r / 255)
+						: sRGBToLinear(Math.max(0, tex.r / 255)),
+				g:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, tex.g / 255)
+						: sRGBToLinear(Math.max(0, tex.g / 255)),
+				b:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, tex.b / 255)
+						: sRGBToLinear(Math.max(0, tex.b / 255)),
 			};
 			albedo = {
 				r: albedo.r * texLinear.r,
@@ -100,9 +109,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		const baseEmissive = mat.emissive || { r: 0, g: 0, b: 0 };
 		let emissive = {
-			r: sRGBToLinear(baseEmissive.r / 255) * 255,
-			g: sRGBToLinear(baseEmissive.g / 255) * 255,
-			b: sRGBToLinear(baseEmissive.b / 255) * 255,
+			r: clamp(baseEmissive.r, 0, 255),
+			g: clamp(baseEmissive.g, 0, 255),
+			b: clamp(baseEmissive.b, 0, 255),
 		};
 		const emissiveUV =
 			mat.emissiveMapUV === 1
@@ -114,11 +123,20 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			emissiveUV.v
 		);
 		if (emissiveTex) {
-			// Emissive textures are sRGB in glTF
+			const colorSpace = mat.emissiveMap?.colorSpace ?? "sRGB";
 			const texLinear = {
-				r: sRGBToLinear(emissiveTex.r / 255),
-				g: sRGBToLinear(emissiveTex.g / 255),
-				b: sRGBToLinear(emissiveTex.b / 255),
+				r:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, emissiveTex.r / 255)
+						: sRGBToLinear(Math.max(0, emissiveTex.r / 255)),
+				g:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, emissiveTex.g / 255)
+						: sRGBToLinear(Math.max(0, emissiveTex.g / 255)),
+				b:
+					colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, emissiveTex.b / 255)
+						: sRGBToLinear(Math.max(0, emissiveTex.b / 255)),
 			};
 			emissive = {
 				r: emissive.r * texLinear.r,
@@ -154,9 +172,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		const specColorInput = mat.specularColor || { r: 255, g: 255, b: 255 };
 		let specColorLinear = {
-			r: Math.max(0, specColorInput.r / 255),
-			g: Math.max(0, specColorInput.g / 255),
-			b: Math.max(0, specColorInput.b / 255),
+			r: clamp(specColorInput.r, 0, 255) / 255,
+			g: clamp(specColorInput.g, 0, 255) / 255,
+			b: clamp(specColorInput.b, 0, 255) / 255,
 		};
 		const specColorUV =
 			mat.specularColorMapUV === 1
@@ -190,9 +208,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		let sheenColorLinear = {
-			r: sRGBToLinear(Math.max(0, mat.sheenColorFactor.r / 255)),
-			g: sRGBToLinear(Math.max(0, mat.sheenColorFactor.g / 255)),
-			b: sRGBToLinear(Math.max(0, mat.sheenColorFactor.b / 255)),
+			r: clamp(mat.sheenColorFactor.r, 0, 255) / 255,
+			g: clamp(mat.sheenColorFactor.g, 0, 255) / 255,
+			b: clamp(mat.sheenColorFactor.b, 0, 255) / 255,
 		};
 		const sheenColorUV =
 			mat.sheenColorMapUV === 1
@@ -204,13 +222,23 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			sheenColorUV.v
 		);
 		if (sheenColorTex) {
+			const colorSpace = mat.sheenColorMap?.colorSpace ?? "sRGB";
 			sheenColorLinear = {
 				r:
-					sheenColorLinear.r * sRGBToLinear(Math.max(0, sheenColorTex.r / 255)),
+					sheenColorLinear.r *
+					(colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, sheenColorTex.r / 255)
+						: sRGBToLinear(Math.max(0, sheenColorTex.r / 255))),
 				g:
-					sheenColorLinear.g * sRGBToLinear(Math.max(0, sheenColorTex.g / 255)),
+					sheenColorLinear.g *
+					(colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, sheenColorTex.g / 255)
+						: sRGBToLinear(Math.max(0, sheenColorTex.g / 255))),
 				b:
-					sheenColorLinear.b * sRGBToLinear(Math.max(0, sheenColorTex.b / 255)),
+					sheenColorLinear.b *
+					(colorSpace === "Linear" || colorSpace === "HDR"
+						? Math.max(0, sheenColorTex.b / 255)
+						: sRGBToLinear(Math.max(0, sheenColorTex.b / 255))),
 			};
 		}
 
@@ -225,7 +253,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			sheenRoughnessUV.v
 		);
 		if (sheenRoughnessTex) {
-			sheenRoughness *= sheenRoughnessTex.a / 255;
+			sheenRoughness *= sheenRoughnessTex.a;
 		}
 
 		let transmission = mat.transmissionFactor;
@@ -257,15 +285,15 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		const res = this._cachedResult;
-		res.albedo.r = albedo.r;
-		res.albedo.g = albedo.g;
-		res.albedo.b = albedo.b;
+		res.albedo.r = clamp(albedo.r, 0, 255);
+		res.albedo.g = clamp(albedo.g, 0, 255);
+		res.albedo.b = clamp(albedo.b, 0, 255);
 		res.opacity = alpha;
 		res.roughness = Math.max(0, Math.min(1, roughness));
 		res.metalness = Math.max(0, Math.min(1, metalness));
-		res.emissive.r = emissive.r;
-		res.emissive.g = emissive.g;
-		res.emissive.b = emissive.b;
+		res.emissive.r = Math.max(0, emissive.r);
+		res.emissive.g = Math.max(0, emissive.g);
+		res.emissive.b = Math.max(0, emissive.b);
 		res.reflectance = mat.reflectance ?? 0.5;
 		res.specularFactor = clamp(specFactor, 0, 1);
 		res.specularColor.r = Math.max(0, specColorLinear.r) * 255;
@@ -285,9 +313,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.transmission = Math.max(0, Math.min(1, transmission));
 		res.thickness = Math.max(0, thickness);
 		res.attenuationDistance = mat.attenuationDistance;
-		res.attenuationColor.r = mat.attenuationColor.r;
-		res.attenuationColor.g = mat.attenuationColor.g;
-		res.attenuationColor.b = mat.attenuationColor.b;
+		res.attenuationColor.r = clamp(mat.attenuationColor.r, 0, 255);
+		res.attenuationColor.g = clamp(mat.attenuationColor.g, 0, 255);
+		res.attenuationColor.b = clamp(mat.attenuationColor.b, 0, 255);
 
 		const normal = res.normal;
 		normal.x = input.normal.x;

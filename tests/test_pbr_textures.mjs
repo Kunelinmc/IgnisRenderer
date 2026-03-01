@@ -24,9 +24,9 @@ function createMockInput() {
 	};
 }
 
-function create1x1Texture(r, g, b, a = 255) {
+function create1x1Texture(r, g, b, a = 255, colorSpace = "sRGB") {
 	const data = new Uint8ClampedArray([r, g, b, a]);
-	return new Texture(data, 1, 1);
+	return new Texture(data, 1, 1, colorSpace);
 }
 
 function assertColorClose(actual, expected, tolerance = 0.001) {
@@ -104,6 +104,22 @@ function testEmissiveMap() {
 	const surface = evaluator.evaluate(input, face);
 	assert.ok(surface);
 	assertColorClose(surface.emissive, { r: 0, g: 255, b: 0 });
+}
+
+function testEmissiveFactorUsesLinear255Semantics() {
+	console.log("Testing Emissive Factor linear 0..255 semantics...");
+	const material = new PBRMaterial({
+		emissive: { r: 128, g: 64, b: 32 },
+	});
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+
+	assertColorClose(surface.emissive, { r: 128, g: 64, b: 32 });
 }
 
 function testOcclusionMap() {
@@ -208,16 +224,37 @@ function testLegacyF0Compatibility() {
 	);
 }
 
+function testSheenRoughnessMapUsesNormalizedAlpha() {
+	console.log("Testing Sheen Roughness map alpha normalization...");
+	const material = new PBRMaterial({
+		sheenRoughnessFactor: 1.0,
+	});
+	material.sheenRoughnessMap = create1x1Texture(0, 0, 0, 128, "Linear");
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	assert.ok(
+		Math.abs(surface.sheenRoughness - 128 / 255) < 0.001,
+		`Expected sheen roughness near ${128 / 255}, got ${surface.sheenRoughness}`
+	);
+}
+
 function run() {
 	try {
 		console.log("Starting PBR Texture Maps Tests...");
 		testAlbedoMap();
 		testMetallicRoughnessMap();
 		testEmissiveMap();
+		testEmissiveFactorUsesLinear255Semantics();
 		testOcclusionMap();
 		testNormalMap();
 		testNormalMapHandedness();
 		testLegacyF0Compatibility();
+		testSheenRoughnessMapUsesNormalizedAlpha();
 		console.log("✅ All PBR texture tests passed!");
 	} catch (e) {
 		console.error("❌ Test Failed:");

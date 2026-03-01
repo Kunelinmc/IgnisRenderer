@@ -10,27 +10,37 @@ import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
+import { Renderer } from "../src/core/Renderer.ts";
 import { ShadowMap } from "../src/utils/ShadowMapping.ts";
 import { Rasterizer } from "../src/core/Rasterizer.ts";
 
-function createBaseContext(enableSH = true) {
+function createContext(overrides = {}) {
 	return {
 		renderer: { shadowMaps: new Map() },
 		cameraPos: { x: 0, y: 0, z: 1 },
+		lights: [],
+		worldMatrix: undefined,
+		shAmbientCoeffs: null,
+		enableShadows: false,
+		enableSH: true,
+		enableGamma: false,
+		enableLighting: true,
+		gamma: 2.2,
+		...overrides,
+	};
+}
+
+function createBaseContext(enableSH = true) {
+	return createContext({
 		lights: [
 			new AmbientLight({
 				color: { r: 255, g: 255, b: 255 },
 				intensity: 1.0,
 			}),
 		],
-		worldMatrix: undefined,
 		shAmbientCoeffs: SH.empty(),
-		enableShadows: false,
 		enableSH,
-		enableGamma: false,
-		enableLighting: true,
-		gamma: 2.2,
-	};
+	});
 }
 
 function testSHAmbientGateForBlinnPhong() {
@@ -91,6 +101,226 @@ function testSHAmbientGateForPBR() {
 	assert.ok(
 		color.r > 1 && color.g > 1 && color.b > 1,
 		"PBR should still receive ambient when SH is enabled but empty"
+	);
+}
+
+function testPBRFallbackAmbientUsesLinearBrightness() {
+	const strategy = new PBRStrategy();
+	const fallbackLinear = 0.05;
+	const sh = SH.empty();
+	const dc = (fallbackLinear * 255) / (Math.PI * 0.282095);
+	sh[0] = { r: dc, g: dc, b: dc };
+
+	const surface = {
+		type: "pbr",
+		albedo: { r: 255, g: 255, b: 255 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 1,
+		metalness: 0,
+		reflectance: 0.5,
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+	};
+
+	const fallbackColor = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		surface,
+		createContext({ enableSH: false })
+	);
+
+	const shColor = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		surface,
+		createContext({ enableSH: true, shAmbientCoeffs: sh })
+	);
+
+	assert.ok(
+		Math.abs(fallbackColor.r - shColor.r) < 0.5 &&
+			Math.abs(fallbackColor.g - shColor.g) < 0.5 &&
+			Math.abs(fallbackColor.b - shColor.b) < 0.5,
+		"PBR fallback ambient should use the same linear brightness as an equivalent SH fallback"
+	);
+}
+
+function testPBRSHAmbientSpecularTracksReflectionDirection() {
+	const strategy = new PBRStrategy();
+	const sh = SH.projectDirectionalLight(
+		{ x: 1, y: 0, z: 0 },
+		{ r: 255, g: 255, b: 255 }
+	);
+	const context = createContext({
+		enableSH: true,
+		shAmbientCoeffs: sh,
+	});
+	const surface = {
+		type: "pbr",
+		albedo: { r: 0, g: 0, b: 0 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 0.04,
+		metalness: 0,
+		reflectance: 1,
+		specularFactor: 1,
+		specularColor: { r: 255, g: 255, b: 255 },
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+	};
+
+	const aligned = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: -1, y: 0, z: 0 },
+		surface,
+		context
+	);
+
+	const misaligned = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 1, y: 0, z: 0 },
+		surface,
+		context
+	);
+
+	assert.ok(
+		aligned.r > misaligned.r * 1.2,
+		"SH ambient specular fallback should respond to the reflection direction, not only the surface normal"
+	);
+}
+
+function testClearcoatAttenuatesAmbientSheen() {
+	const strategy = new PBRStrategy();
+	const context = createContext({
+		enableSH: false,
+		lights: [
+			new AmbientLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 0.25,
+			}),
+		],
+	});
+	const baseSurface = {
+		type: "pbr",
+		albedo: { r: 0, g: 0, b: 0 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 1,
+		metalness: 0,
+		reflectance: 0,
+		occlusion: 1,
+		clearcoatRoughness: 0.04,
+		sheenRoughness: 0.04,
+	};
+
+	const noSheen = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 1, y: 0, z: 0 },
+		{
+			...baseSurface,
+			clearcoat: 0,
+			sheenColor: { r: 0, g: 0, b: 0 },
+		},
+		context
+	);
+
+	const openSheen = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 1, y: 0, z: 0 },
+		{
+			...baseSurface,
+			clearcoat: 0,
+			sheenColor: { r: 255, g: 0, b: 0 },
+		},
+		context
+	);
+
+	const coatedNoSheen = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 1, y: 0, z: 0 },
+		{
+			...baseSurface,
+			clearcoat: 1,
+			sheenColor: { r: 0, g: 0, b: 0 },
+		},
+		context
+	);
+
+	const coatedSheen = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 1, y: 0, z: 0 },
+		{
+			...baseSurface,
+			clearcoat: 1,
+			sheenColor: { r: 255, g: 0, b: 0 },
+		},
+		context
+	);
+
+	const openBoost = openSheen.r - noSheen.r;
+	const coatedBoost = coatedSheen.r - coatedNoSheen.r;
+
+	assert.ok(
+		coatedBoost < openBoost * 0.5,
+		"Clearcoat should attenuate the ambient sheen contribution from the layer below it"
+	);
+}
+
+function testTransmissionVolumeAttenuationColorsAmbientLight() {
+	const strategy = new PBRStrategy();
+	const context = createContext({
+		enableSH: false,
+		lights: [
+			new AmbientLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 1.0,
+			}),
+		],
+	});
+	const color = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			type: "pbr",
+			albedo: { r: 255, g: 255, b: 255 },
+			opacity: 1,
+			normal: { x: 0, y: 0, z: 1 },
+			emissive: { r: 0, g: 0, b: 0 },
+			emissiveIntensity: 1,
+			roughness: 1,
+			metalness: 0,
+			reflectance: 0,
+			occlusion: 1,
+			clearcoat: 0,
+			clearcoatRoughness: 0,
+			transmission: 1,
+			thickness: 1,
+			attenuationDistance: 1,
+			attenuationColor: { r: 0, g: 0, b: 255 },
+		},
+		context
+	);
+
+	assert.ok(
+		color.b > 1 && color.r < color.b * 0.25 && color.g < color.b * 0.25,
+		"Transmission volume attenuation should tint ambient light with the attenuation color"
 	);
 }
 
@@ -284,15 +514,228 @@ function testMaskShadowDepthWriteUsesAlphaCutoff() {
 	);
 }
 
+function testTransmissionOnlyRespondsToBackLighting() {
+	const strategy = new PBRStrategy();
+	const surface = {
+		type: "pbr",
+		albedo: { r: 255, g: 255, b: 255 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 1,
+		metalness: 0,
+		reflectance: 0,
+		specularFactor: 0,
+		specularColor: { r: 255, g: 255, b: 255 },
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+		sheenColor: { r: 0, g: 0, b: 0 },
+		sheenRoughness: 0,
+		transmission: 1,
+		thickness: 0,
+		attenuationDistance: Infinity,
+		attenuationColor: { r: 255, g: 255, b: 255 },
+	};
+
+	const noLight = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		surface,
+		createContext({ enableSH: false, lights: [] })
+	);
+
+	const frontLit = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		surface,
+		createContext({
+			enableSH: false,
+			lights: [
+				{
+					computeContribution: () => ({
+						type: "direct",
+						color: { r: 255, g: 255, b: 255 },
+						intensity: 1,
+						direction: { x: 0, y: 0, z: 1 },
+					}),
+				},
+			],
+		})
+	);
+
+	const backLit = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		surface,
+		createContext({
+			enableSH: false,
+			lights: [
+				{
+					computeContribution: () => ({
+						type: "direct",
+						color: { r: 255, g: 255, b: 255 },
+						intensity: 1,
+						direction: { x: 0, y: 0, z: -1 },
+					}),
+				},
+			],
+		})
+	);
+
+	assert.ok(
+		Math.abs(frontLit.r - noLight.r) < 0.5,
+		"Front lighting should not create a fake transmission lobe"
+	);
+	assert.ok(
+		backLit.r > frontLit.r + 50,
+		"Back lighting should drive the transmission term"
+	);
+}
+
+function testMetalnessSuppressesTransmission() {
+	const strategy = new PBRStrategy();
+	const context = createContext({
+		enableSH: false,
+		lights: [
+			{
+				computeContribution: () => ({
+					type: "direct",
+					color: { r: 255, g: 255, b: 255 },
+					intensity: 1,
+					direction: { x: 0, y: 0, z: -1 },
+				}),
+			},
+		],
+	});
+	const baseSurface = {
+		type: "pbr",
+		albedo: { r: 255, g: 255, b: 255 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 1,
+		reflectance: 0,
+		specularFactor: 0,
+		specularColor: { r: 255, g: 255, b: 255 },
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+		sheenColor: { r: 0, g: 0, b: 0 },
+		sheenRoughness: 0,
+		transmission: 1,
+		thickness: 0,
+		attenuationDistance: Infinity,
+		attenuationColor: { r: 255, g: 255, b: 255 },
+	};
+
+	const dielectric = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{ ...baseSurface, metalness: 0 },
+		context
+	);
+	const metal = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{ ...baseSurface, metalness: 1 },
+		context
+	);
+
+	assert.ok(
+		dielectric.r > metal.r + 50,
+		"Metalness should suppress the transmission energy budget"
+	);
+}
+
+function testTransmissionVolumeAttenuationUsesLinear255Color() {
+	const strategy = new PBRStrategy();
+	const color = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			type: "pbr",
+			albedo: { r: 255, g: 255, b: 255 },
+			opacity: 1,
+			normal: { x: 0, y: 0, z: 1 },
+			emissive: { r: 0, g: 0, b: 0 },
+			emissiveIntensity: 1,
+			roughness: 1,
+			metalness: 0,
+			reflectance: 0,
+			specularFactor: 0,
+			specularColor: { r: 255, g: 255, b: 255 },
+			occlusion: 1,
+			clearcoat: 0,
+			clearcoatRoughness: 0,
+			sheenColor: { r: 0, g: 0, b: 0 },
+			sheenRoughness: 0,
+			transmission: 1,
+			thickness: 1,
+			attenuationDistance: 1,
+			attenuationColor: { r: 128, g: 128, b: 128 },
+		},
+		createContext({
+			enableSH: false,
+			lights: [
+				new AmbientLight({
+					color: { r: 255, g: 255, b: 255 },
+					intensity: 1.0,
+				}),
+			],
+		})
+	);
+
+	assert.ok(
+		Math.abs(color.r - 128) < 1.5,
+		`Expected mid-gray attenuation near 128, got ${color.r}`
+	);
+}
+
+function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
+	const probe = new LightProbe(SH.empty(), 1);
+	probe.sh[0] = { r: 10, g: 0, b: 0 };
+	probe.sh[15] = { r: 7, g: 3, b: 1 };
+
+	const fakeRenderer = {
+		params: { worldMatrix: undefined },
+		scene: { lights: [probe] },
+		shAmbientCoeffs: SH.empty(),
+		shCoeffs: SH.empty(),
+	};
+
+	Renderer.prototype.updateSH.call(fakeRenderer);
+
+	assert.equal(fakeRenderer.shAmbientCoeffs[15].r, 7);
+	assert.equal(fakeRenderer.shAmbientCoeffs[15].g, 3);
+	assert.equal(fakeRenderer.shAmbientCoeffs[15].b, 1);
+}
+
 function run() {
 	try {
 		testSHAmbientGateForBlinnPhong();
 		testSHAmbientGateForPBR();
+		testPBRFallbackAmbientUsesLinearBrightness();
+		testPBRSHAmbientSpecularTracksReflectionDirection();
+		testClearcoatAttenuatesAmbientSheen();
+		testTransmissionVolumeAttenuationColorsAmbientLight();
 		testPBRNormalMapFallbackWithoutTangent();
 		testEvaluatorMaterialApiCompatibility();
 		testPhongEvaluatorDirectEvaluate();
 		testLightProbeFallbackContributionFromDC();
 		testMaskShadowDepthWriteUsesAlphaCutoff();
+		testTransmissionOnlyRespondsToBackLighting();
+		testMetalnessSuppressesTransmission();
+		testTransmissionVolumeAttenuationUsesLinear255Color();
+		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
 		console.error("❌ Shader semantics test failed");

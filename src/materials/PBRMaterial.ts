@@ -3,13 +3,23 @@ import { Material, type MaterialParams, type TextureLike } from "./Material";
 import { clamp, sRGBToLinear } from "../maths/Common";
 
 export interface PBRMaterialParams extends MaterialParams {
+	/**
+	 * Linear albedo factor stored in 0..255 units.
+	 * Color textures apply their own color-space decode before modulation.
+	 */
 	albedo?: RGB;
 	roughness?: number;
 	metalness?: number;
+	/**
+	 * Linear emissive factor stored in 0..255 units.
+	 */
 	emissive?: RGB;
 	emissiveIntensity?: number;
 	ior?: number;
 	specularFactor?: number;
+	/**
+	 * Linear specular color factor stored in 0..255 units.
+	 */
 	specularColor?: RGB;
 	specularMap?: TextureLike;
 	specularColorMap?: TextureLike;
@@ -39,6 +49,9 @@ export interface PBRMaterialParams extends MaterialParams {
 	specularColorMapUV?: number;
 	clearcoat?: number;
 	clearcoatRoughness?: number;
+	/**
+	 * Linear sheen color factor stored in 0..255 units.
+	 */
 	sheenColorFactor?: RGB;
 	sheenColorMap?: TextureLike;
 	sheenRoughnessFactor?: number;
@@ -52,6 +65,9 @@ export interface PBRMaterialParams extends MaterialParams {
 	thicknessMap?: TextureLike;
 	thicknessMapUV?: number;
 	attenuationDistance?: number;
+	/**
+	 * Linear volume attenuation color stored in 0..255 units.
+	 */
 	attenuationColor?: RGB;
 }
 

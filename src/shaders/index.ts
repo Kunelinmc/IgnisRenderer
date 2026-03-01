@@ -9,3 +9,4 @@ export * from "./UnlitShader";
 export * from "./LitShader";
 export * from "./FlatLitShader";
 export * from "./GouraudLitShader";
+export * from "./IBLBRDF";

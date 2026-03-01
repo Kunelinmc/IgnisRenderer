@@ -4,6 +4,7 @@ import type {
 	SHCoefficients,
 	IVector2,
 } from "../maths/types";
+import type { Texture } from "../core/Texture";
 import type { Renderer } from "../core/Renderer";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { ProjectedFace } from "../core/types";
@@ -17,6 +18,8 @@ export interface ShaderContext {
 	lights: SceneLight[];
 	worldMatrix?: Matrix4;
 	shAmbientCoeffs: SHCoefficients | null;
+	envSpecularMap: Texture | null;
+	brdfLUT: Texture | null;
 	enableShadows: boolean;
 	enableSH: boolean;
 	enableGamma: boolean;

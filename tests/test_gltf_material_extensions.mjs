@@ -3,6 +3,7 @@ import { GLTFLoader } from "../src/loaders/GLTFLoader.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PBRStrategy } from "../src/shaders/PBRStrategy.ts";
+import { PBREvaluator } from "../src/shaders/PBREvaluator.ts";
 
 function approx(actual, expected, epsilon = 1e-6) {
 	assert.ok(
@@ -198,6 +199,110 @@ function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 	);
 }
 
+function testLinearFactorsStayLinearAcrossLoaderAndEvaluator() {
+	const loader = new GLTFLoader();
+	const [mat] = loader.parseMaterials({
+		materials: [
+			{
+				pbrMetallicRoughness: {
+					baseColorFactor: [0.5, 0.25, 1.0, 1.0],
+				},
+				emissiveFactor: [0.5, 0.25, 1.0],
+				extensions: {
+					KHR_materials_sheen: {
+						sheenColorFactor: [0.5, 0.25, 1.0],
+					},
+					KHR_materials_volume: {
+						attenuationColor: [0.5, 0.25, 1.0],
+						attenuationDistance: 2.0,
+					},
+				},
+			},
+		],
+	});
+
+	const evaluator = new PBREvaluator(mat);
+	const face = {
+		vertices: [],
+		projected: [],
+		center: { x: 0, y: 0, z: 0 },
+		depthInfo: { min: 0, max: 0, avg: 0 },
+	};
+	const input = {
+		zCam: 1,
+		world: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: 1 },
+		tangent: { x: 1, y: 0, z: 0, w: 1 },
+		u: 0,
+		v: 0,
+		u2: 0,
+		v2: 0,
+	};
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	approx(surface.albedo.r, 127.5);
+	approx(surface.albedo.g, 63.75);
+	approx(surface.albedo.b, 255);
+	approx(surface.emissive.r, 127.5);
+	approx(surface.emissive.g, 63.75);
+	approx(surface.emissive.b, 255);
+	approx(surface.sheenColor.r, 127.5);
+	approx(surface.sheenColor.g, 63.75);
+	approx(surface.sheenColor.b, 255);
+	approx(surface.attenuationColor.r, 127.5);
+	approx(surface.attenuationColor.g, 63.75);
+	approx(surface.attenuationColor.b, 255);
+}
+
+function testGLTFMaterialTexturesUseExpectedColorSpaces() {
+	const loader = new GLTFLoader();
+	const makeTexture = () =>
+		new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
+
+	const textures = Array.from({ length: 10 }, makeTexture);
+	const [mat] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: { index: 0 },
+						metallicRoughnessTexture: { index: 1 },
+					},
+					normalTexture: { index: 2 },
+					emissiveTexture: { index: 3 },
+					occlusionTexture: { index: 4 },
+					extensions: {
+						KHR_materials_specular: {
+							specularTexture: { index: 5 },
+							specularColorTexture: { index: 6 },
+						},
+						KHR_materials_sheen: {
+							sheenColorTexture: { index: 7 },
+							sheenRoughnessTexture: { index: 8 },
+						},
+						KHR_materials_transmission: {
+							transmissionTexture: { index: 9 },
+						},
+					},
+				},
+			],
+		},
+		textures
+	);
+
+	assert.equal(mat.map?.colorSpace, "sRGB");
+	assert.equal(mat.metallicRoughnessMap?.colorSpace, "Linear");
+	assert.equal(mat.normalMap?.colorSpace, "Linear");
+	assert.equal(mat.emissiveMap?.colorSpace, "sRGB");
+	assert.equal(mat.occlusionMap?.colorSpace, "Linear");
+	assert.equal(mat.specularMap?.colorSpace, "Linear");
+	assert.equal(mat.specularColorMap?.colorSpace, "sRGB");
+	assert.equal(mat.sheenColorMap?.colorSpace, "sRGB");
+	assert.equal(mat.sheenRoughnessMap?.colorSpace, "Linear");
+	assert.equal(mat.transmissionMap?.colorSpace, "Linear");
+}
+
 function run() {
 	try {
 		console.log("Starting glTF material extensions tests...");
@@ -206,6 +311,8 @@ function run() {
 		testPBRMaterialIorSetterSyncsReflectance();
 		testSpecularExtensionParsing();
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();
+		testLinearFactorsStayLinearAcrossLoaderAndEvaluator();
+		testGLTFMaterialTexturesUseExpectedColorSpaces();
 		console.log("✅ glTF material extensions tests passed");
 	} catch (error) {
 		console.error("❌ glTF material extensions test failed");

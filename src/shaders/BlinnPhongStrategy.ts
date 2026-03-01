@@ -22,9 +22,7 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 		const N = normal;
 		const V = viewDir;
 		const shAmbient = context.shAmbientCoeffs;
-		const hasSHAmbient =
-			!!shAmbient &&
-			(shAmbient[0].r !== 0 || shAmbient[0].g !== 0 || shAmbient[0].b !== 0);
+		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
 		const useSHAmbient = context.enableSH && hasSHAmbient;
 
 		let ambR = 0,
@@ -117,5 +115,15 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			g: clamp(Math.max(0, finalG) * 255, 0, 255),
 			b: clamp(Math.max(0, finalB) * 255, 0, 255),
 		};
+	}
+
+	private _hasNonZeroSH(coeffs: ShaderContext["shAmbientCoeffs"]): boolean {
+		if (!coeffs) return false
+
+		for (const coeff of coeffs) {
+			if (coeff.r !== 0 || coeff.g !== 0 || coeff.b !== 0) return true
+		}
+
+		return false
 	}
 }

@@ -68,15 +68,17 @@ export abstract class BaseEvaluator<
 
 		const idx = (ty * map.width + tx) << 2;
 		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
-			// HDR / Linear textures store floating-point data; scale to [0-255]
-			const r = map.data[idx] ?? 0;
-			const g = map.data[idx + 1] ?? 0;
-			const b = map.data[idx + 2] ?? 0;
+			const isFloat = map.data instanceof Float32Array;
+			const colorScale = isFloat ? 255 : 1;
+			const alphaRaw = map.data[idx + 3];
 			return {
-				r: Math.max(0, Math.min(255, r * 255)),
-				g: Math.max(0, Math.min(255, g * 255)),
-				b: Math.max(0, Math.min(255, b * 255)),
-				a: map.data[idx + 3] ?? 1,
+				r: Math.max(0, Math.min(255, (map.data[idx] ?? 0) * colorScale)),
+				g: Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale)),
+				b: Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale)),
+				a:
+					alphaRaw === undefined ? 1
+					: isFloat ? Math.max(0, Math.min(1, alphaRaw))
+					: Math.max(0, Math.min(1, alphaRaw / 255)),
 			};
 		}
 

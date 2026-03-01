@@ -71,6 +71,7 @@ export class LightingConstants {
 	static readonly PBR_MIN_NDOTV = 0.001;
 	static readonly PBR_DENOM_EPSILON = 0.0001;
 	static readonly PBR_SPEC_FALLBACK = 0.02;
+	static readonly PBR_AMBIENT_FALLBACK_LINEAR = 0.05;
 	static readonly GGX_EPSILON = 1e-6;
 }
 
