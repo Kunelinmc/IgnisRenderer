@@ -344,7 +344,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 						textures,
 						"Linear"
 					);
-					if (tex) material.specularMap = tex;
+					if (tex) {
+						material.specularMap = tex;
+						material.specularMapUV = this._getTexCoord(specExt.specularTexture);
+					}
 				}
 				if (specExt.specularColorTexture !== undefined) {
 					const tex = this._getMaterialTexture(
@@ -352,7 +355,65 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 						textures,
 						"sRGB"
 					);
-					if (tex) material.specularColorMap = tex;
+					if (tex) {
+						material.specularColorMap = tex;
+						material.specularColorMapUV = this._getTexCoord(
+							specExt.specularColorTexture
+						);
+					}
+				}
+			}
+			// KHR_materials_clearcoat extension
+			if (m.extensions?.KHR_materials_clearcoat) {
+				const clearExt = m.extensions.KHR_materials_clearcoat;
+				if (clearExt.clearcoatFactor !== undefined) {
+					material.clearcoat = clearExt.clearcoatFactor;
+				}
+				if (clearExt.clearcoatRoughnessFactor !== undefined) {
+					material.clearcoatRoughness = clearExt.clearcoatRoughnessFactor;
+				}
+				if (clearExt.clearcoatTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						clearExt.clearcoatTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.clearcoatMap = tex;
+						material.clearcoatMapUV = this._getTexCoord(
+							clearExt.clearcoatTexture
+						);
+					}
+				}
+				if (clearExt.clearcoatRoughnessTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						clearExt.clearcoatRoughnessTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.clearcoatRoughnessMap = tex;
+						material.clearcoatRoughnessMapUV = this._getTexCoord(
+							clearExt.clearcoatRoughnessTexture
+						);
+					}
+				}
+				if (clearExt.clearcoatNormalTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						clearExt.clearcoatNormalTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.clearcoatNormalMap = tex;
+						material.clearcoatNormalMapUV = this._getTexCoord(
+							clearExt.clearcoatNormalTexture
+						);
+						if (clearExt.clearcoatNormalTexture.scale !== undefined) {
+							material.clearcoatNormalScale =
+								clearExt.clearcoatNormalTexture.scale;
+						}
+					}
 				}
 			}
 			// KHR_materials_sheen extension

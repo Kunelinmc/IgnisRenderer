@@ -74,6 +74,7 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	occlusion: number;
 	clearcoat: number;
 	clearcoatRoughness: number;
+	clearcoatNormal: IVector3;
 	sheenColor: RGB;
 	sheenRoughness: number;
 	transmission: number;

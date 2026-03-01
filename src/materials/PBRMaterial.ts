@@ -48,7 +48,14 @@ export interface PBRMaterialParams extends MaterialParams {
 	specularMapUV?: number;
 	specularColorMapUV?: number;
 	clearcoat?: number;
+	clearcoatMap?: TextureLike;
 	clearcoatRoughness?: number;
+	clearcoatRoughnessMap?: TextureLike;
+	clearcoatNormalMap?: TextureLike;
+	clearcoatNormalScale?: number;
+	clearcoatMapUV?: number;
+	clearcoatRoughnessMapUV?: number;
+	clearcoatNormalMapUV?: number;
 	/**
 	 * Linear sheen color factor stored in 0..255 units.
 	 */
@@ -97,7 +104,14 @@ export class PBRMaterial extends Material {
 	public specularMapUV: number;
 	public specularColorMapUV: number;
 	public clearcoat: number;
+	public clearcoatMap: TextureLike;
 	public clearcoatRoughness: number;
+	public clearcoatRoughnessMap: TextureLike;
+	public clearcoatNormalMap: TextureLike;
+	public clearcoatNormalScale: number;
+	public clearcoatMapUV: number;
+	public clearcoatRoughnessMapUV: number;
+	public clearcoatNormalMapUV: number;
 
 	public sheenColorFactor: RGB;
 	public sheenColorMap: TextureLike;
@@ -195,8 +209,15 @@ export class PBRMaterial extends Material {
 		this.specularColorMapUV = params.specularColorMapUV ?? 0;
 
 		this.clearcoat = clamp(params.clearcoat ?? 0.0, 0, 1);
+		this.clearcoatMap = params.clearcoatMap || null;
+		this.clearcoatMapUV = params.clearcoatMapUV ?? 0;
 		// Default clearcoatRoughness to 0.01 to avoid infinite specular spikes and aliasing
 		this.clearcoatRoughness = clamp(params.clearcoatRoughness ?? 0.01, 0, 1);
+		this.clearcoatRoughnessMap = params.clearcoatRoughnessMap || null;
+		this.clearcoatRoughnessMapUV = params.clearcoatRoughnessMapUV ?? 0;
+		this.clearcoatNormalMap = params.clearcoatNormalMap || null;
+		this.clearcoatNormalMapUV = params.clearcoatNormalMapUV ?? 0;
+		this.clearcoatNormalScale = params.clearcoatNormalScale ?? 1.0;
 
 		this.sheenColorFactor = params.sheenColorFactor || { r: 0, g: 0, b: 0 };
 		this.sheenColorMap = params.sheenColorMap || null;

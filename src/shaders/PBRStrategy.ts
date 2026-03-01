@@ -172,8 +172,15 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			let diffuse = { r: 0, g: 0, b: 0 };
 			let clearcoatAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
 			let baseLayerAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
+
+			const Nc = surface.clearcoatNormal;
+			const NcdotV = Math.max(
+				Vector3.dot(Nc, V),
+				LightingConstants.PBR_MIN_NDOTV
+			);
+
 			const clearcoatTransmissionFresnel =
-				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
+				clearcoat > 0 ? this._FresnelSchlickScalar(NcdotV, 0.04) : 0;
 			const transmissionAttenuation = {
 				r: 1.0 - clearcoatTransmissionFresnel * clearcoat,
 				g: 1.0 - clearcoatTransmissionFresnel * clearcoat,
@@ -210,20 +217,24 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 				let ccFresnel = { r: 0, g: 0, b: 0 };
 				if (clearcoat > 0) {
-					const HdotV = Math.max(Vector3.dot(H, V), 0);
-					const ndfCc = this._DistributionGGX(N, H, clearcoatRoughness);
-					const gCc = this._GeometrySmithClearcoat(
-						NdotV,
-						NdotL,
-						clearcoatRoughness
-					);
-					const fCc = this._FresnelSchlickScalar(HdotV, 0.04);
-					ccFresnel = { r: fCc, g: fCc, b: fCc };
+					const NcdotL = Math.max(Vector3.dot(Nc, L), 0);
+					if (NcdotL > 0) {
+						const Hcc = Vector3.normalize(Vector3.add(L, V));
+						const HccdotV = Math.max(Vector3.dot(Hcc, V), 0);
+						const ndfCc = this._DistributionGGX(Nc, Hcc, clearcoatRoughness);
+						const gCc = this._GeometrySmithClearcoat(
+							NcdotV,
+							NcdotL,
+							clearcoatRoughness
+						);
+						const fCc = this._FresnelSchlickScalar(HccdotV, 0.04);
+						ccFresnel = { r: fCc, g: fCc, b: fCc };
 
-					const ccDenom =
-						4 * NdotV * NdotL + LightingConstants.PBR_DENOM_EPSILON;
-					const ccValue = (ndfCc * gCc * fCc) / ccDenom;
-					ccSpecular = { r: ccValue, g: ccValue, b: ccValue };
+						const ccDenom =
+							4 * NcdotV * NcdotL + LightingConstants.PBR_DENOM_EPSILON;
+						const ccValue = (ndfCc * gCc * fCc) / ccDenom;
+						ccSpecular = { r: ccValue, g: ccValue, b: ccValue };
+					}
 				}
 
 				let albedoSheenScaling = { r: 1.0, g: 1.0, b: 1.0 };
@@ -333,14 +344,24 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			let ccAmbSpecB = 0;
 
 			if (clearcoat > 0) {
-				ccAmbFresnel = this._FresnelSchlickScalar(NdotV, 0.04);
+				const Nc = surface.clearcoatNormal ?? N;
+				const NcdotV = Math.max(
+					Vector3.dot(Nc, V),
+					LightingConstants.PBR_MIN_NDOTV
+				);
+				ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
 				if (context.envSpecularMap && context.brdfLUT) {
+					const ccReflectionDir = this._reflectViewDirection(
+						Nc,
+						V,
+						Vector3.dot(Nc, V)
+					);
 					const ccPrefiltered = this._samplePrefiltered(
-						reflectionDir,
+						ccReflectionDir,
 						clearcoatRoughness,
 						context.envSpecularMap
 					);
-					const ccBrdf = context.brdfLUT.sample(NdotV, clearcoatRoughness);
+					const ccBrdf = context.brdfLUT.sample(NcdotV, clearcoatRoughness);
 					ccAmbSpecR = ccPrefiltered.r * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecG = ccPrefiltered.g * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecB = ccPrefiltered.b * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);

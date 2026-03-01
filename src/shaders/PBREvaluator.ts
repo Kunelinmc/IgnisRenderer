@@ -22,6 +22,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		occlusion: 1.0,
 		clearcoat: 0.0,
 		clearcoatRoughness: 0.0,
+		clearcoatNormal: { x: 0, y: 0, z: 1 },
 		sheenColor: { r: 0, g: 0, b: 0 },
 		sheenRoughness: 0.0,
 		transmission: 0.0,
@@ -256,6 +257,35 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		if (sheenRoughnessTex) {
 			sheenRoughness *= sheenRoughnessTex.a;
 		}
+		sheenRoughness = clamp(sheenRoughness, 0, 1);
+
+		let clearcoat = mat.clearcoat ?? 0.0;
+		const clearcoatUV =
+			mat.clearcoatMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
+		const clearcoatTex = this._sampleTextureMap(
+			mat.clearcoatMap,
+			clearcoatUV.u,
+			clearcoatUV.v
+		);
+		if (clearcoatTex) {
+			clearcoat *= clearcoatTex.r / 255;
+		}
+
+		let clearcoatRoughness = mat.clearcoatRoughness ?? 0.01;
+		const ccRoughnessUV =
+			mat.clearcoatRoughnessMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
+		const ccRoughnessTex = this._sampleTextureMap(
+			mat.clearcoatRoughnessMap,
+			ccRoughnessUV.u,
+			ccRoughnessUV.v
+		);
+		if (ccRoughnessTex) {
+			clearcoatRoughness *= ccRoughnessTex.g / 255;
+		}
 
 		let transmission = mat.transmissionFactor;
 		const transmissionUV =
@@ -302,11 +332,8 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.specularColor.b = Math.max(0, specColorLinear.b) * 255;
 		res.emissiveIntensity = mat.emissiveIntensity ?? 1.0;
 		res.occlusion = Math.max(0, Math.min(1, occlusion));
-		res.clearcoat = mat.clearcoat ?? 0.0;
-		res.clearcoatRoughness = Math.max(
-			0,
-			Math.min(1, mat.clearcoatRoughness ?? 0.0)
-		);
+		res.clearcoat = clamp(clearcoat, 0, 1);
+		res.clearcoatRoughness = clamp(clearcoatRoughness, 0, 1);
 		res.sheenColor.r = Math.max(0, sheenColorLinear.r) * 255;
 		res.sheenColor.g = Math.max(0, sheenColorLinear.g) * 255;
 		res.sheenColor.b = Math.max(0, sheenColorLinear.b) * 255;
@@ -381,6 +408,77 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			}
 		} else {
 			Vector3.normalizeInPlace(normal);
+		}
+
+		// Evaluate Clearcoat Normal mapping if applicable
+		let clearcoatNormal = res.clearcoatNormal;
+		clearcoatNormal.x = input.normal.x;
+		clearcoatNormal.y = input.normal.y;
+		clearcoatNormal.z = input.normal.z;
+
+		const ccNormUV =
+			mat.clearcoatNormalMapUV === 1
+				? { u: input.u2, v: input.v2 }
+				: { u: input.u, v: input.v };
+		const clearcoatNormalTex = this._sampleTextureMap(
+			mat.clearcoatNormalMap,
+			ccNormUV.u,
+			ccNormUV.v
+		);
+		if (clearcoatNormalTex) {
+			const N = {
+				x: clearcoatNormal.x,
+				y: clearcoatNormal.y,
+				z: clearcoatNormal.z,
+			};
+			Vector3.normalizeInPlace(N);
+			const tangentLenSq =
+				input.tangent.x * input.tangent.x +
+				input.tangent.y * input.tangent.y +
+				input.tangent.z * input.tangent.z;
+			const hasValidTangent =
+				tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
+			if (hasValidTangent) {
+				const clearcoatNormalScale = mat.clearcoatNormalScale ?? 1.0;
+				const tNormX =
+					((clearcoatNormalTex.r / 255) * 2 - 1) * clearcoatNormalScale;
+				const tNormY =
+					((clearcoatNormalTex.g / 255) * 2 - 1) * clearcoatNormalScale;
+				const tNormZ = (clearcoatNormalTex.b / 255) * 2 - 1;
+				const ndotT =
+					N.x * input.tangent.x + N.y * input.tangent.y + N.z * input.tangent.z;
+				let tx = input.tangent.x - N.x * ndotT;
+				let ty = input.tangent.y - N.y * ndotT;
+				let tz = input.tangent.z - N.z * ndotT;
+				const tLen = Math.hypot(tx, ty, tz);
+				if (tLen > 1e-6) {
+					const invTLen = 1 / tLen;
+					tx *= invTLen;
+					ty *= invTLen;
+					tz *= invTLen;
+					const handedness = input.tangent.w < 0 ? -1 : 1;
+					const bx = (N.y * tz - N.z * ty) * handedness;
+					const by = (N.z * tx - N.x * tz) * handedness;
+					const bz = (N.x * ty - N.y * tx) * handedness;
+					clearcoatNormal.x = tx * tNormX + bx * tNormY + N.x * tNormZ;
+					clearcoatNormal.y = ty * tNormX + by * tNormY + N.y * tNormZ;
+					clearcoatNormal.z = tz * tNormX + bz * tNormY + N.z * tNormZ;
+					Vector3.normalizeInPlace(clearcoatNormal);
+				} else {
+					clearcoatNormal.x = N.x;
+					clearcoatNormal.y = N.y;
+					clearcoatNormal.z = N.z;
+				}
+			} else {
+				clearcoatNormal.x = N.x;
+				clearcoatNormal.y = N.y;
+				clearcoatNormal.z = N.z;
+			}
+		} else {
+			// Default to base normal if no clearcoat normal map is provided
+			clearcoatNormal.x = normal.x;
+			clearcoatNormal.y = normal.y;
+			clearcoatNormal.z = normal.z;
 		}
 
 		return res;

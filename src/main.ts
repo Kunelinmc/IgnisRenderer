@@ -28,7 +28,7 @@ async function init() {
 	scene.addLight(
 		new AmbientLight({
 			color: { r: 255, g: 255, b: 255 },
-			intensity: 0.3,
+			intensity: 0.5,
 		})
 	);
 
@@ -36,7 +36,7 @@ async function init() {
 		new DirectionalLight({
 			color: { r: 255, g: 255, b: 255 },
 			dir: { x: -1, y: -1, z: -1 },
-			intensity: 1.4,
+			intensity: 2.5,
 		})
 	);
 
