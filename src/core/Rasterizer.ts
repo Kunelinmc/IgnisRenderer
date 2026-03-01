@@ -840,6 +840,8 @@ export class Rasterizer implements RasterizerLike {
 				tangentOw += dTangentOw;
 				uO += duO;
 				vO += dvO;
+				u2O += du2O;
+				v2O += dv2O;
 			}
 		}
 
