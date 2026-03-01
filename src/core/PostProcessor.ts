@@ -1,5 +1,10 @@
 import { Matrix4 } from "../maths/Matrix4";
-import { PostProcessConstants, VolumetricConstants } from "./Constants";
+import { Vector3 } from "../maths/Vector3";
+import {
+	PostProcessConstants,
+	VolumetricConstants,
+	SSAOConstants,
+} from "./Constants";
 import type { Renderer } from "./Renderer";
 import {
 	type DirectionalLight,
@@ -30,6 +35,12 @@ export interface PostProcessorLike {
 		gamma?: number,
 		pixels?: Uint8ClampedArray
 	): void;
+	applySSAO(
+		pixels: Uint8ClampedArray,
+		depthBuffer: Float32Array | null,
+		normalBuffer: Float32Array | null,
+		options?: SSAOOptions
+	): void;
 }
 
 export interface VolumetricOptions {
@@ -46,6 +57,14 @@ export interface VolumetricOptions {
 	adaptiveSteps?: boolean;
 	useBilateralUpscale?: boolean;
 	bilateralDepthSigma?: number;
+	[key: string]: unknown;
+}
+
+export interface SSAOOptions {
+	samples?: number;
+	radius?: number;
+	bias?: number;
+	intensity?: number;
 	[key: string]: unknown;
 }
 
@@ -72,6 +91,10 @@ export class PostProcessor implements PostProcessorLike {
 	private _fxaaOutput?: Uint8ClampedArray;
 	private _lumaBuf?: Float32Array;
 
+	private _ssaoKernel: IVector3[] = [];
+	private _ssaoNoise: IVector3[] = [];
+	private _ssaoBuffer: Float32Array | null = null;
+
 	// Temporal accumulation buffers
 	private _prevVolumetricBuf: Float32Array | null = null;
 	private _prevViewProj: Matrix4 | null = null;
@@ -85,6 +108,45 @@ export class PostProcessor implements PostProcessorLike {
 		this._prevScatterBuf = null;
 		this._prevVolumetricBuf = null;
 		this._frameIndex = 0;
+		this._initSSAOKernel();
+	}
+
+	private _initSSAOKernel(): void {
+		for (let i = 0; i < SSAOConstants.DEFAULT_SAMPLES; i++) {
+			const sample = {
+				x: Math.random() * 2 - 1,
+				y: Math.random() * 2 - 1,
+				z: Math.random(), // Hemisphere
+			};
+			const isLen = Math.hypot(sample.x, sample.y, sample.z) || 1;
+			sample.x /= isLen;
+			sample.y /= isLen;
+			sample.z /= isLen;
+
+			// Scale samples to be more grouped towards the origin
+			let scale = i / SSAOConstants.DEFAULT_SAMPLES;
+			scale = 0.1 + scale * scale * (1.0 - 0.1);
+			sample.x *= scale;
+			sample.y *= scale;
+			sample.z *= scale;
+
+			this._ssaoKernel.push(sample);
+		}
+
+		// Noise texture for SSAO rotations
+		for (
+			let i = 0;
+			i < SSAOConstants.NOISE_SIZE * SSAOConstants.NOISE_SIZE;
+			i++
+		) {
+			const noise = {
+				x: Math.random() * 2 - 1,
+				y: Math.random() * 2 - 1,
+				z: 0.0,
+			};
+			const isLen = Math.hypot(noise.x, noise.y, noise.z) || 1;
+			this._ssaoNoise.push({ x: noise.x / isLen, y: noise.y / isLen, z: 0.0 });
+		}
 	}
 
 	private _getPrimaryDirectionalLight(): DirectionalLight | null {
@@ -763,6 +825,184 @@ export class PostProcessor implements PostProcessorLike {
 				pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
 				pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
 				pixels[idx + 3] = 255;
+			}
+		}
+	}
+
+	public applySSAO(
+		pixels: Uint8ClampedArray,
+		depthBuffer: Float32Array | null,
+		normalBuffer: Float32Array | null,
+		options: SSAOOptions = {}
+	): void {
+		if (!depthBuffer || !normalBuffer) return;
+
+		const w = this.renderer.canvas.width;
+		const h = this.renderer.canvas.height;
+		const radius = options.radius ?? SSAOConstants.DEFAULT_RADIUS;
+		const bias = options.bias ?? SSAOConstants.DEFAULT_BIAS;
+		const intensity = options.intensity ?? SSAOConstants.DEFAULT_INTENSITY;
+
+		if (!this._ssaoBuffer || this._ssaoBuffer.length !== w * h) {
+			this._ssaoBuffer = new Float32Array(w * h);
+		}
+		const ssaoBuffer = this._ssaoBuffer;
+
+		const camera = this.renderer.camera;
+		const projection = camera.projectionMatrix.elements;
+		const near = camera.near;
+		const far = camera.far;
+
+		// 1. SSAO calculation
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				const idx = y * w + x;
+				const originDepth = depthBuffer[idx];
+				if (originDepth === Infinity || originDepth <= 0) {
+					ssaoBuffer[idx] = 1.0;
+					continue;
+				}
+
+				// Reconstruct view-space position
+				const ndcX = (x / w) * 2 - 1;
+				const ndcY = 1 - (y / h) * 2;
+				const posView = this._reconstructViewPos(ndcX, ndcY, originDepth);
+
+				const nIdx = idx * 3;
+				const normal = {
+					x: normalBuffer[nIdx],
+					y: normalBuffer[nIdx + 1],
+					z: normalBuffer[nIdx + 2],
+				};
+
+				// Random rotation from noise
+				const noiseIdx =
+					(y % SSAOConstants.NOISE_SIZE) * SSAOConstants.NOISE_SIZE +
+					(x % SSAOConstants.NOISE_SIZE);
+				const randomVec = this._ssaoNoise[noiseIdx];
+
+				// Gram-Schmidt process to create tangent basis
+				const tangent = {
+					x: randomVec.x - normal.x * Vector3.dot(randomVec, normal),
+					y: randomVec.y - normal.y * Vector3.dot(randomVec, normal),
+					z: randomVec.z - normal.z * Vector3.dot(randomVec, normal),
+				};
+				const tangentLen = Math.hypot(tangent.x, tangent.y, tangent.z) || 1;
+				tangent.x /= tangentLen;
+				tangent.y /= tangentLen;
+				tangent.z /= tangentLen;
+
+				const bitangent = Vector3.cross(normal, tangent);
+				const TBN = [
+					[tangent.x, bitangent.x, normal.x],
+					[tangent.y, bitangent.y, normal.y],
+					[tangent.z, bitangent.z, normal.z],
+				];
+
+				let occlusion = 0;
+				for (let i = 0; i < SSAOConstants.DEFAULT_SAMPLES; i++) {
+					const sample = this._ssaoKernel[i];
+					// World to view space sample
+					const sampleViewOffset = {
+						x:
+							TBN[0][0] * sample.x +
+							TBN[0][1] * sample.y +
+							TBN[0][2] * sample.z,
+						y:
+							TBN[1][0] * sample.x +
+							TBN[1][1] * sample.y +
+							TBN[1][2] * sample.z,
+						z:
+							TBN[2][0] * sample.x +
+							TBN[2][1] * sample.y +
+							TBN[2][2] * sample.z,
+					};
+
+					const samplePos = {
+						x: posView.x + sampleViewOffset.x * radius,
+						y: posView.y + sampleViewOffset.y * radius,
+						z: posView.z + sampleViewOffset.z * radius,
+					};
+
+					// Project sample position to screen space
+					const offsetNDC = {
+						x:
+							(projection[0][0] * samplePos.x +
+								projection[0][2] * samplePos.z) /
+							-samplePos.z,
+						y:
+							(projection[1][1] * samplePos.y +
+								projection[1][2] * samplePos.z) /
+							-samplePos.z,
+					};
+
+					const screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * w - 0.5);
+					const screenY = Math.round((0.5 - offsetNDC.y * 0.5) * h - 0.5);
+
+					if (screenX >= 0 && screenX < w && screenY >= 0 && screenY < h) {
+						const sampleDepth = depthBuffer[screenY * w + screenX];
+						const rangeCheck =
+							Math.abs(posView.z - sampleDepth) < radius ? 1.0 : 0.0;
+						occlusion +=
+							(sampleDepth <= samplePos.z - bias ? 1.0 : 0.0) * rangeCheck;
+					}
+				}
+
+				occlusion =
+					1.0 - (occlusion / SSAOConstants.DEFAULT_SAMPLES) * intensity;
+				ssaoBuffer[idx] = occlusion;
+			}
+		}
+
+		// 2. Blur SSAO to reduce noise
+		this._ssaoBlur(ssaoBuffer, w, h);
+
+		// 3. Apply to pixels
+		for (let i = 0, len = w * h; i < len; i++) {
+			const factor = ssaoBuffer[i];
+			const idx = i << 2;
+			pixels[idx] *= factor;
+			pixels[idx + 1] *= factor;
+			pixels[idx + 2] *= factor;
+		}
+	}
+
+	private _reconstructViewPos(
+		ndcX: number,
+		ndcY: number,
+		zView: number
+	): IVector3 {
+		const camera = this.renderer.camera;
+		const fovRad = (camera.fov * Math.PI) / 180;
+		const tanHalfFov = Math.tan(fovRad * 0.5);
+		const aspect = camera.aspectRatio;
+
+		const xView = ndcX * aspect * tanHalfFov * zView;
+		const yView = ndcY * tanHalfFov * zView;
+
+		return { x: xView, y: yView, z: -zView };
+	}
+
+	private _ssaoBlur(buffer: Float32Array, w: number, h: number): void {
+		const temp = new Float32Array(buffer.length);
+		temp.set(buffer);
+
+		const blurSize = 2;
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				let sum = 0;
+				let count = 0;
+				for (let dy = -blurSize; dy <= blurSize; dy++) {
+					for (let dx = -blurSize; dx <= blurSize; dx++) {
+						const nx = x + dx;
+						const ny = y + dy;
+						if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+							sum += temp[ny * w + nx];
+							count++;
+						}
+					}
+				}
+				buffer[y * w + x] = sum / count;
 			}
 		}
 	}

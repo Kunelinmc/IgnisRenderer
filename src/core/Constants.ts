@@ -97,3 +97,14 @@ export class ShadowConstants {
 	static readonly MIN_SHADOW_FAR = 0.02;
 	static readonly SHADOW_NEAR_FAR_GAP = 0.01;
 }
+
+/**
+ * Screen Space Ambient Occlusion (SSAO) constants.
+ */
+export class SSAOConstants {
+	static readonly DEFAULT_SAMPLES = 16;
+	static readonly DEFAULT_RADIUS = 8.0;
+	static readonly DEFAULT_BIAS = 0.1;
+	static readonly DEFAULT_INTENSITY = 1.0;
+	static readonly NOISE_SIZE = 4;
+}

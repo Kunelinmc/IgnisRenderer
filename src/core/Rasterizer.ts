@@ -1,4 +1,5 @@
 import { Material } from "../materials/Material";
+import { Matrix4 } from "../maths/Matrix4";
 import { CoreConstants, PostProcessConstants } from "./Constants";
 import {
 	FlatLitShader,
@@ -317,6 +318,7 @@ export class Rasterizer implements RasterizerLike {
 				let z = leftZ + dx * dz;
 
 				const row = y * size;
+				const viewMat = this._renderer.camera.viewMatrix;
 				for (let x = startX; x <= endX; x++) {
 					const idx = row + x;
 					if (z < buffer[idx]) {
@@ -580,6 +582,7 @@ export class Rasterizer implements RasterizerLike {
 		const material = face.material ?? this._defaultMaterial;
 
 		if (!depthBuffer) return;
+		const viewMat = this._renderer.camera.viewMatrix;
 
 		const verts = this._vertsCache;
 		const shadingModel = material.shading || "Flat";
@@ -800,8 +803,17 @@ export class Rasterizer implements RasterizerLike {
 							pixels[idx] = finalColor.r;
 							pixels[idx + 1] = finalColor.g;
 							pixels[idx + 2] = finalColor.b;
-							pixels[idx + 3] = CoreConstants.OPAQUE_ALPHA;
+							pixels[idx + 3] = 255;
 							depthBuffer[bufIdx] = shadedDepth;
+
+							if (this._renderer.normalBuffer) {
+								const nIdx = bufIdx * 3;
+								const nView = Matrix4.transformNormal(viewMat, input.normal);
+								const nLen = Math.hypot(nView.x, nView.y, nView.z) || 1;
+								this._renderer.normalBuffer[nIdx] = nView.x / nLen;
+								this._renderer.normalBuffer[nIdx + 1] = nView.y / nLen;
+								this._renderer.normalBuffer[nIdx + 2] = nView.z / nLen;
+							}
 						} else {
 							const faceAlpha = face.color?.a ?? 1;
 							const shaderAlpha = shader.getOpacity();

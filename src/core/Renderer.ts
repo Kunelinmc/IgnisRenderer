@@ -14,7 +14,11 @@ import { LightingConstants, PostProcessConstants } from "./Constants";
 import { sRGBToLinear } from "../maths/Common";
 import { LightType, type ShadowCastingLight } from "../lights";
 import type { SHCoefficients } from "../maths/types";
-import type { PostProcessorLike, VolumetricOptions } from "./PostProcessor";
+import type {
+	PostProcessorLike,
+	VolumetricOptions,
+	SSAOOptions,
+} from "./PostProcessor";
 import type { RasterizerLike } from "./Rasterizer";
 import type { IModel, ProjectedFace } from "./types";
 
@@ -46,6 +50,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	/** Depth buffer storing linear camera-space distance (near to far) */
 	public depthBuffer: Float32Array | null;
 
+	/** Normal buffer storing view-space normals (XYZ) */
+	public normalBuffer: Float32Array | null;
+
 	private _offscreenCanvas: HTMLCanvasElement;
 	private _offscreenCtx: CanvasRenderingContext2D;
 
@@ -61,6 +68,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		enableGamma: boolean;
 		enableReflection: boolean;
 		enableSkybox: boolean;
+		enableSSAO: boolean;
+		ssaoOptions: SSAOOptions;
 		worldMatrix?: Matrix4;
 	};
 
@@ -89,6 +98,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._deltaTime = 0;
 
 		this.depthBuffer = null;
+		this.normalBuffer = null;
 		this._offscreenCanvas = document.createElement("canvas");
 		this._offscreenCtx = this._offscreenCanvas.getContext("2d", {
 			willReadFrequently: true,
@@ -106,6 +116,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableGamma: true,
 			enableReflection: true,
 			enableSkybox: true,
+			enableSSAO: false,
+			ssaoOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 
@@ -178,7 +190,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.canvas.height = rect.height * this._sf;
 		this._offscreenCanvas.width = this.canvas.width;
 		this._offscreenCanvas.height = this.canvas.height;
-		this._clearDepthBuffer();
+		this._clearBuffers();
 		this.params.cacheInvalid = true;
 
 		if (this.camera) {
@@ -187,12 +199,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
-	private _clearDepthBuffer(): void {
+	private _clearBuffers(): void {
 		const size = this.canvas.width * this.canvas.height;
 		if (!this.depthBuffer || this.depthBuffer.length !== size) {
 			this.depthBuffer = new Float32Array(size);
 		}
 		this.depthBuffer.fill(Infinity);
+
+		if (!this.normalBuffer || this.normalBuffer.length !== size * 3) {
+			this.normalBuffer = new Float32Array(size * 3);
+		}
+		this.normalBuffer.fill(0);
 	}
 
 	/**
@@ -237,7 +254,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		this._offscreenCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-		this._clearDepthBuffer();
+		this._clearBuffers();
 
 		const imageData = this._offscreenCtx.getImageData(
 			0,
@@ -302,6 +319,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					true
 				);
 			}
+		}
+
+		if (this.params.enableSSAO) {
+			this._postProcessor.applySSAO(
+				pixels,
+				this.depthBuffer,
+				this.normalBuffer,
+				this.params.ssaoOptions
+			);
 		}
 
 		if (this.params.enableFXAA) {
