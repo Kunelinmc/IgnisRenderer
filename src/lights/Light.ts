@@ -9,6 +9,7 @@ export enum LightType {
 	Point = "point",
 	Spot = "spot",
 	LightProbe = "lightProbe",
+	RectArea = "rectArea",
 }
 
 export interface ShadowCameraResult {
