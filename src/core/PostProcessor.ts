@@ -88,6 +88,7 @@ type VolumetricLight = DirectionalLight | PointLight | SpotLight;
 export class PostProcessor implements PostProcessorLike {
 	private _sRGBLUT: Uint8Array;
 	private _lutBuilt: boolean;
+	private _lastGamma: number;
 	private _prevScatterBuf: Float32Array | null; // Temp for scatter filter
 	private _frameIndex: number;
 	private _fxaaOutput?: Uint8ClampedArray;
@@ -114,6 +115,7 @@ export class PostProcessor implements PostProcessorLike {
 		this.renderer = renderer;
 		this._sRGBLUT = new Uint8Array(256);
 		this._lutBuilt = false;
+		this._lastGamma = -1;
 		this._prevScatterBuf = null;
 		this._prevVolumetricBuf = null;
 		this._frameIndex = 0;
@@ -1457,18 +1459,28 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
-	private _buildSRGBLUT(): void {
-		if (this._lutBuilt) return;
+	private _buildSRGBLUT(gamma: number): void {
+		if (this._lutBuilt && this._lastGamma === gamma) return;
+
+		const isStandardSRGB = Math.abs(gamma - 2.2) < 0.001;
+		const invGamma = 1.0 / gamma;
+
 		for (let i = 0; i < 256; i++) {
-			this._sRGBLUT[i] = Math.round(linearToSRGB(i / 255.0) * 255.0);
+			const x = i / 255.0;
+			if (isStandardSRGB) {
+				this._sRGBLUT[i] = Math.round(linearToSRGB(x) * 255.0);
+			} else {
+				this._sRGBLUT[i] = Math.round(Math.pow(x, invGamma) * 255.0);
+			}
 		}
 		this._lutBuilt = true;
+		this._lastGamma = gamma;
 	}
 
 	public applyGamma(
 		ctx: CanvasRenderingContext2D,
 		canvas: HTMLCanvasElement,
-		_gamma: number = PostProcessConstants.DEFAULT_GAMMA,
+		gamma: number = PostProcessConstants.DEFAULT_GAMMA,
 		pixels: Uint8ClampedArray | null = null
 	): void {
 		const w = canvas.width,
@@ -1478,7 +1490,7 @@ export class PostProcessor implements PostProcessorLike {
 			imageData = ctx.getImageData(0, 0, w, h);
 			pixels = imageData.data;
 		}
-		this._buildSRGBLUT();
+		this._buildSRGBLUT(gamma);
 		const lut = this._sRGBLUT;
 		for (let i = 0; i < pixels.length; i += 4) {
 			pixels[i] = lut[pixels[i]];
