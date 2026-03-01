@@ -85,23 +85,39 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const { width, height, data } = envMap;
 		const sh = SH.empty();
 
-		// Integration step sizes
-		const dTheta = Math.PI / height;
-		const dPhi = (2 * Math.PI) / width;
+		// Added: Downsampling logic for performance optimization.
+		// SH coefficients capture very low-frequency lighting, so high-resolution
+		// environment maps are not necessary for projection. We cap the resolution
+		// to 128x64 to significantly reduce computation for large textures.
+		const MAX_WIDTH = 128;
+		const MAX_HEIGHT = 64;
+
+		const sampleWidth = Math.min(width, MAX_WIDTH);
+		const sampleHeight = Math.min(height, MAX_HEIGHT);
+
+		const stepX = width / sampleWidth;
+		const stepY = height / sampleHeight;
+
+		// Integration step sizes based on sample resolution
+		const dTheta = Math.PI / sampleHeight;
+		const dPhi = (2 * Math.PI) / sampleWidth;
 
 		let totalWeight = 0;
 
 		// Perform numerical integration over the sphere
 		// L_lm = ∫ L(s) * Y_lm(s) * dΩ
 		// dΩ = sin(θ) * dθ * dφ
-		for (let j = 0; j < height; j++) {
-			const theta = (j + 0.5) * dTheta;
+		for (let sj = 0; sj < sampleHeight; sj++) {
+			const theta = (sj + 0.5) * dTheta;
 			const sinTheta = Math.sin(theta);
 			const cosTheta = Math.cos(theta);
 			const weight = sinTheta * dTheta * dPhi;
 
-			for (let i = 0; i < width; i++) {
-				const phi = (i + 0.5) * dPhi;
+			// Map back to original texture Y coordinate
+			const j = Math.floor((sj + 0.5) * stepY);
+
+			for (let si = 0; si < sampleWidth; si++) {
+				const phi = (si + 0.5) * dPhi;
 
 				// Convert spherical coordinates to cartesian direction
 				// Latitude θ maps to Y axis (UP), Longitude φ maps to XZ plane
@@ -111,6 +127,8 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 				const basis = SH.evalBasis({ x, y, z });
 
+				// Map back to original texture X coordinate
+				const i = Math.floor((si + 0.5) * stepX);
 				const idx = (j * width + i) * 4;
 
 				// Convert texture values to linear and keep engine-wide 0..255 light units.
@@ -127,7 +145,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 					? data[idx + 2] * 255
 					: sRGBToLinear(data[idx + 2] / 255) * 255;
 
-				for (let k = 0; k < 9; k++) {
+				for (let k = 0; k < sh.length; k++) {
 					const bK = basis[k] * weight;
 					sh[k].r += r * bK;
 					sh[k].g += g * bK;
@@ -143,7 +161,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		// Also normalize by totalWeight to compensate for discrete sum approximation.
 		const normFactor = (4 * Math.PI) / totalWeight;
 
-		for (let k = 0; k < 9; k++) {
+		for (let k = 0; k < sh.length; k++) {
 			sh[k].r *= normFactor;
 			sh[k].g *= normFactor;
 			sh[k].b *= normFactor;
@@ -170,7 +188,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const sourceIntensity =
 			source instanceof LightProbe ? source.intensity : this.intensity;
 
-		for (let i = 0; i < 9; i++) {
+		for (let i = 0; i < this.sh.length; i++) {
 			this.sh[i].r = sourceSH[i].r;
 			this.sh[i].g = sourceSH[i].g;
 			this.sh[i].b = sourceSH[i].b;

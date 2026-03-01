@@ -10,30 +10,57 @@ export class SH {
 	/**
 	 * Compute SH basis functions for a given direction vector (normal)
 	 * @param {IVector3} n - Direction vector {x, y, z}, must be normalized
-	 * @returns {number[]} 9 SH basis values
+	 * @returns {number[]} 16 SH basis values (L=0..3)
 	 */
 	public static evalBasis(n: IVector3): number[] {
 		const { x, y, z } = n;
-		// Basis constants from Peter-Pike Sloan's paper or similar sources
-		// Adjusted for Y-up coordinate system (Y is the polar axis)
+		// Basis constants adjusted for Y-up coordinate system
+		// L=0
 		const Y00 = 0.282095;
+
+		// L=1
 		const Y1_1 = 0.488603 * x; // m = -1
 		const Y10 = 0.488603 * y; // m = 0 (UP)
 		const Y11 = 0.488603 * z; // m = 1
+
+		// L=2
 		const Y2_2 = 1.092548 * x * z; // m = -2
 		const Y2_1 = 1.092548 * x * y; // m = -1
 		const Y20 = 0.315392 * (3 * y * y - 1); // m = 0
 		const Y21 = 1.092548 * y * z; // m = 1
 		const Y22 = 0.546274 * (x * x - z * z); // m = 2
 
-		return [Y00, Y1_1, Y10, Y11, Y2_2, Y2_1, Y20, Y21, Y22];
+		// L=3
+		const Y3_3 = 0.590835 * x * (x * x - 3 * z * z); // m = -3
+		const Y3_2 = 2.893641 * x * y * z; // m = -2
+		const Y3_1 = 0.457619 * x * (5 * y * y - 1); // m = -1
+		const Y30 = 0.373176 * y * (5 * y * y - 3); // m = 0
+		const Y31 = 0.457619 * z * (5 * y * y - 1); // m = 1
+		const Y32 = 1.446821 * y * (x * x - z * z); // m = 2
+		const Y33 = 0.590835 * z * (3 * x * x - z * z); // m = 3
+
+		return [
+			Y00,
+			Y1_1,
+			Y10,
+			Y11,
+			Y2_2,
+			Y2_1,
+			Y20,
+			Y21,
+			Y22,
+			Y3_3,
+			Y3_2,
+			Y3_1,
+			Y30,
+			Y31,
+			Y32,
+			Y33,
+		];
 	}
 
 	/**
 	 * Project a directional light source into SH coefficients
-	 * @param {IVector3} dir - Direction vector {x, y, z} towards the light
-	 * @param {RGB} color - Light color {r, g, b}
-	 * @returns {SHCoefficients} 9 SH coefficients, each is {r, g, b}
 	 */
 	public static projectDirectionalLight(
 		dir: IVector3,
@@ -50,23 +77,42 @@ export class SH {
 	/**
 	 * Reconstruct irradiance from SH coefficients
 	 * @param {IVector3} n - Surface normal {x, y, z}
-	 * @param {SHCoefficients} coeffs - 9 SH coefficients
+	 * @param {SHCoefficients} coeffs - 16 SH coefficients
 	 * @returns {RGB} Irradiance color {r, g, b}
 	 */
 	public static calculateIrradiance(n: IVector3, coeffs: SHCoefficients): RGB {
 		const basis = this.evalBasis(n);
 
 		// Convolution constants for diffuse irradiance
-		const c1 = Math.PI; // pi
-		const c2 = (2 * Math.PI) / 3; // 2pi/3
-		const c3 = Math.PI / 4; // pi/4
+		const c1 = Math.PI; // Band 0
+		const c2 = (2 * Math.PI) / 3; // Band 1
+		const c3 = Math.PI / 4; // Band 2
+		const c4 = 0; // Band 3 (Odd bands > 1 have zero Lambertian response)
 
-		const factors = [c1, c2, c2, c2, c3, c3, c3, c3, c3];
+		const factors = [
+			c1,
+			c2,
+			c2,
+			c2,
+			c3,
+			c3,
+			c3,
+			c3,
+			c3,
+			c4,
+			c4,
+			c4,
+			c4,
+			c4,
+			c4,
+			c4,
+		];
 
 		let r = 0,
 			g = 0,
 			b = 0;
-		for (let i = 0; i < 9; i++) {
+		const numCoeffs = Math.min(factors.length, coeffs.length);
+		for (let i = 0; i < numCoeffs; i++) {
 			const weight = basis[i] * factors[i];
 			r += coeffs[i].r * weight;
 			g += coeffs[i].g * weight;
@@ -87,12 +133,15 @@ export class SH {
 		a: SHCoefficients,
 		b: SHCoefficients
 	): SHCoefficients {
+		const len = Math.max(a.length, b.length);
 		const result: RGB[] = [];
-		for (let i = 0; i < 9; i++) {
+		for (let i = 0; i < len; i++) {
+			const rgbA = a[i] || { r: 0, g: 0, b: 0 };
+			const rgbB = b[i] || { r: 0, g: 0, b: 0 };
 			result.push({
-				r: a[i].r + b[i].r,
-				g: a[i].g + b[i].g,
-				b: a[i].b + b[i].b,
+				r: rgbA.r + rgbB.r,
+				g: rgbA.g + rgbB.g,
+				b: rgbA.b + rgbB.b,
 			});
 		}
 		return result as SHCoefficients;
@@ -100,9 +149,11 @@ export class SH {
 
 	/**
 	 * Create empty (zero) SH coefficients
+	 * @param orderSH The order of SH (e.g. 3 for L=3, 16 coefficients)
 	 */
-	public static empty(): SHCoefficients {
-		return Array.from({ length: 9 }, () => ({
+	public static empty(orderSH = 3): SHCoefficients {
+		const count = (orderSH + 1) * (orderSH + 1);
+		return Array.from({ length: count }, () => ({
 			r: 0,
 			g: 0,
 			b: 0,
@@ -110,12 +161,11 @@ export class SH {
 	}
 
 	/**
-	 * Serialize SH coefficients to a flat array for storage or transmission
-	 * and deserialize back to RGB[] format
+	 * Serialize SH coefficients to a flat array
 	 */
 	public static serialize(coeffs: SHCoefficients): number[] {
 		const flat: number[] = [];
-		for (let i = 0; i < 9; i++) {
+		for (let i = 0; i < coeffs.length; i++) {
 			flat.push(coeffs[i].r, coeffs[i].g, coeffs[i].b);
 		}
 		return flat;
@@ -126,7 +176,8 @@ export class SH {
 	 */
 	public static deserialize(flat: number[]): SHCoefficients {
 		const coeffs: RGB[] = [];
-		for (let i = 0; i < 9; i++) {
+		const count = Math.floor(flat.length / 3);
+		for (let i = 0; i < count; i++) {
 			coeffs.push({
 				r: flat[i * 3],
 				g: flat[i * 3 + 1],
