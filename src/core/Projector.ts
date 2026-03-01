@@ -235,6 +235,7 @@ export class Projector {
 					normal: v.view.normal,
 					tangent: v.view.tangent,
 					world: v.world,
+					zView: v.view.z,
 				});
 			}
 

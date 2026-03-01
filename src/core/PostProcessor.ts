@@ -15,6 +15,8 @@ import {
 } from "../lights";
 import { clamp, linearToSRGB } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
+import { CameraType } from "../cameras/Camera";
+import type { OrthographicCamera } from "../cameras/OrthographicCamera";
 
 export interface PostProcessorLike {
 	applyFXAA(
@@ -190,6 +192,18 @@ export class PostProcessor implements PostProcessorLike {
 		basis: CameraBasis
 	): WorldRay {
 		const camera = this.renderer.camera;
+
+		if (camera.type === CameraType.Orthographic) {
+			// In orthographic camera, rays are constant (pointing forward)
+			// World forward is -basis.backward
+			return {
+				x: -basis.backward.x,
+				y: -basis.backward.y,
+				z: -basis.backward.z,
+				camDirZ: -1,
+			};
+		}
+
 		const fovRad = (camera.fov * Math.PI) / 180;
 		const tanHalfFov = Math.tan(fovRad * 0.5);
 		const aspect = camera.aspectRatio || w / h;
@@ -834,10 +848,26 @@ export class PostProcessor implements PostProcessorLike {
 					const py = Math.round(clamp(sampleYCenter + jitterY, 0, h - 1));
 					const ray = this._getWorldRayFromPixel(px, py, w, h, basis);
 
+					const ndcX = ((px + 0.5) / w) * 2 - 1;
+					const ndcY = 1 - ((py + 0.5) / h) * 2;
+					const posView = this._reconstructViewPos(ndcX, ndcY, dist);
+
 					const samplePoint = {
-						x: cameraPos.x + ray.x * dist,
-						y: cameraPos.y + ray.y * dist,
-						z: cameraPos.z + ray.z * dist,
+						x:
+							cameraPos.x +
+							basis.right.x * posView.x +
+							basis.up.x * posView.y +
+							basis.backward.x * posView.z,
+						y:
+							cameraPos.y +
+							basis.right.y * posView.x +
+							basis.up.y * posView.y +
+							basis.backward.y * posView.z,
+						z:
+							cameraPos.z +
+							basis.right.z * posView.x +
+							basis.up.z * posView.y +
+							basis.backward.z * posView.z,
 					};
 
 					const sceneDx = samplePoint.x - sceneCenter.x;
@@ -988,10 +1018,26 @@ export class PostProcessor implements PostProcessorLike {
 						h,
 						basis
 					);
+					const ndcX = ((screenPX + 0.5) / w) * 2 - 1;
+					const ndcY = 1 - ((screenPY + 0.5) / h) * 2;
+					const posView = this._reconstructViewPos(ndcX, ndcY, depthLimit);
+
 					const worldPos = {
-						x: cameraPos.x + ray.x * depthLimit,
-						y: cameraPos.y + ray.y * depthLimit,
-						z: cameraPos.z + ray.z * depthLimit,
+						x:
+							cameraPos.x +
+							basis.right.x * posView.x +
+							basis.up.x * posView.y +
+							basis.backward.x * posView.z,
+						y:
+							cameraPos.y +
+							basis.right.y * posView.x +
+							basis.up.y * posView.y +
+							basis.backward.y * posView.z,
+						z:
+							cameraPos.z +
+							basis.right.z * posView.x +
+							basis.up.z * posView.y +
+							basis.backward.z * posView.z,
 					};
 					if (
 						this._samplePreviousVolumetric(
@@ -1254,19 +1300,26 @@ export class PostProcessor implements PostProcessorLike {
 					};
 
 					// Project sample position to screen space
-					const offsetNDC = {
-						x:
-							(projection[0][0] * samplePos.x +
-								projection[0][2] * samplePos.z) /
-							-samplePos.z,
-						y:
-							(projection[1][1] * samplePos.y +
-								projection[1][2] * samplePos.z) /
-							-samplePos.z,
-					};
-
-					const screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * w - 0.5);
-					const screenY = Math.round((0.5 - offsetNDC.y * 0.5) * h - 0.5);
+					let screenX: number, screenY: number;
+					if (camera.type === CameraType.Orthographic) {
+						const ndcX = projection[0][0] * samplePos.x + projection[0][3];
+						const ndcY = projection[1][1] * samplePos.y + projection[1][3];
+						screenX = Math.round((ndcX * 0.5 + 0.5) * w - 0.5);
+						screenY = Math.round((0.5 - ndcY * 0.5) * h - 0.5);
+					} else {
+						const offsetNDC = {
+							x:
+								(projection[0][0] * samplePos.x +
+									projection[0][2] * samplePos.z) /
+								-samplePos.z,
+							y:
+								(projection[1][1] * samplePos.y +
+									projection[1][2] * samplePos.z) /
+								-samplePos.z,
+						};
+						screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * w - 0.5);
+						screenY = Math.round((0.5 - offsetNDC.y * 0.5) * h - 0.5);
+					}
 
 					if (screenX >= 0 && screenX < w && screenY >= 0 && screenY < h) {
 						const sampleDepth = depthBuffer[screenY * w + screenX];
@@ -1303,6 +1356,18 @@ export class PostProcessor implements PostProcessorLike {
 		zView: number
 	): IVector3 {
 		const camera = this.renderer.camera;
+
+		if (camera.type === CameraType.Orthographic) {
+			const orthoCam = camera as OrthographicCamera;
+			const halfHeight = orthoCam.size / 2;
+			const halfWidth = halfHeight * camera.aspectRatio;
+
+			const xView = ndcX * halfWidth;
+			const yView = ndcY * halfHeight;
+
+			return { x: xView, y: yView, z: -zView };
+		}
+
 		const fovRad = (camera.fov * Math.PI) / 180;
 		const tanHalfFov = Math.tan(fovRad * 0.5);
 		const aspect = camera.aspectRatio;

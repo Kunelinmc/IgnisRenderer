@@ -57,6 +57,7 @@ interface CachedVertex {
 	vO: number;
 	u2O: number;
 	v2O: number;
+	zCamO: number;
 }
 
 interface EdgeInterpolationResult {
@@ -69,6 +70,7 @@ interface EdgeInterpolationResult {
 	vO: number;
 	u2O: number;
 	v2O: number;
+	zCamO: number;
 }
 
 /**
@@ -117,6 +119,7 @@ export class Rasterizer implements RasterizerLike {
 			vO: 0,
 			u2O: 0,
 			v2O: 0,
+			zCamO: 0,
 		}));
 
 		this._initShaderSystem();
@@ -141,6 +144,7 @@ export class Rasterizer implements RasterizerLike {
 			vO: 0,
 			u2O: 0,
 			v2O: 0,
+			zCamO: 0,
 		};
 	}
 
@@ -567,6 +571,7 @@ export class Rasterizer implements RasterizerLike {
 		res.vO = vA.vO + (vB.vO - vA.vO) * t;
 		res.u2O = vA.u2O + (vB.u2O - vA.u2O) * t;
 		res.v2O = vA.v2O + (vB.v2O - vA.v2O) * t;
+		res.zCamO = vA.zCamO + (vB.zCamO - vA.zCamO) * t;
 	}
 
 	public drawTriangle(
@@ -656,6 +661,17 @@ export class Rasterizer implements RasterizerLike {
 			v.vO = (p.v ?? 0) * iz;
 			v.u2O = (p.u2 ?? 0) * iz;
 			v.v2O = (p.v2 ?? 0) * iz;
+
+			// Reconstruct linear depth (positive camera-space distance) for depth buffer.
+			// For perspective, iz = 1/w = 1/depth, so linearDepth * iz = 1.
+			// For orthographic, iz = 1, so linearDepth * iz = linearDepth.
+			const linearDepth =
+				p.zView !== undefined
+					? -p.zView
+					: p.world.z !== undefined
+						? -p.world.z
+						: 0;
+			v.zCamO = linearDepth * iz;
 		}
 
 		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
@@ -708,6 +724,7 @@ export class Rasterizer implements RasterizerLike {
 			const dvO = (right.vO - left.vO) * spanInv;
 			const du2O = (right.u2O - left.u2O) * spanInv;
 			const dv2O = (right.v2O - left.v2O) * spanInv;
+			const dzCamO = (right.zCamO - left.zCamO) * spanInv;
 
 			const dx = startX + 0.5 - left.x;
 			let iz = left.iz + dx * diz;
@@ -725,6 +742,7 @@ export class Rasterizer implements RasterizerLike {
 			let vO = left.vO + dx * dvO;
 			let u2O = left.u2O + dx * du2O;
 			let v2O = left.v2O + dx * dv2O;
+			let zCamO = left.zCamO + dx * dzCamO;
 
 			const bufRow = y * width;
 			const input = this._fragmentInput;
@@ -739,7 +757,8 @@ export class Rasterizer implements RasterizerLike {
 							: -CoreConstants.EPSILON;
 				const zCam = 1 / safeIz;
 
-				if (zCam > 0 && zCam < depthBuffer[bufIdx]) {
+				// Use w for early z-test check, but final shade depth uses linear depth
+				if (zCam > 0) {
 					input.zCam = zCam;
 					input.world.x = worldOx * zCam;
 					input.world.y = worldOy * zCam;
@@ -755,74 +774,78 @@ export class Rasterizer implements RasterizerLike {
 					input.v = vO * zCam;
 					input.u2 = u2O * zCam;
 					input.v2 = v2O * zCam;
+					input.zCam = zCamO * zCam;
 
-					const finalOutput = shader.shade(input);
-					let finalColor = finalOutput?.color;
-					const shadedDepth = finalOutput?.depth ?? zCam;
+					const zCamValue = input.zCam;
+					if (zCamValue > 0 && zCamValue < depthBuffer[bufIdx]) {
+						const finalOutput = shader.shade(input);
+						let finalColor = finalOutput?.color;
+						const shadedDepth = finalOutput?.depth ?? zCamValue;
 
-					if (
-						finalColor &&
-						this._renderer.params.enableReflection &&
-						material.reflectivity > 0 &&
-						material.mirrorPlane &&
-						isCameraOnFrontSide
-					) {
-						const p = material.mirrorPlane;
-						const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
-						const refBuffer =
-							this._renderer.reflectionRenderer.reflectionBuffers.get(key);
-						if (refBuffer) {
-							// Sample from reflection buffer with coordinate scaling
-							let refX = Math.floor(x * (refBuffer.width / width));
-							let refY = Math.floor(y * (refBuffer.height / height));
+						if (
+							finalColor &&
+							this._renderer.params.enableReflection &&
+							material.reflectivity > 0 &&
+							material.mirrorPlane &&
+							isCameraOnFrontSide
+						) {
+							const p = material.mirrorPlane;
+							const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
+							const refBuffer =
+								this._renderer.reflectionRenderer.reflectionBuffers.get(key);
+							if (refBuffer) {
+								// Sample from reflection buffer with coordinate scaling
+								let refX = Math.floor(x * (refBuffer.width / width));
+								let refY = Math.floor(y * (refBuffer.height / height));
 
-							// Clamp to buffer bounds
-							refX = Math.max(0, Math.min(refBuffer.width - 1, refX));
-							refY = Math.max(0, Math.min(refBuffer.height - 1, refY));
+								// Clamp to buffer bounds
+								refX = Math.max(0, Math.min(refBuffer.width - 1, refX));
+								refY = Math.max(0, Math.min(refBuffer.height - 1, refY));
 
-							const refIdx = (refY * refBuffer.width + refX) << 2;
-							const refData = refBuffer.imageData.data;
+								const refIdx = (refY * refBuffer.width + refX) << 2;
+								const refData = refBuffer.imageData.data;
 
-							const reflectivity = material.reflectivity;
-							const invRef = 1 - reflectivity;
-							finalColor = {
-								r: finalColor.r * invRef + refData[refIdx] * reflectivity,
-								g: finalColor.g * invRef + refData[refIdx + 1] * reflectivity,
-								b: finalColor.b * invRef + refData[refIdx + 2] * reflectivity,
-							};
-						}
-					}
-
-					if (
-						finalColor &&
-						shadedDepth > 0 &&
-						shadedDepth < depthBuffer[bufIdx]
-					) {
-						const idx = bufIdx << 2;
-						if (!isTransparent) {
-							pixels[idx] = finalColor.r;
-							pixels[idx + 1] = finalColor.g;
-							pixels[idx + 2] = finalColor.b;
-							pixels[idx + 3] = 255;
-							depthBuffer[bufIdx] = shadedDepth;
-
-							if (this._renderer.normalBuffer) {
-								const nIdx = bufIdx * 3;
-								const nView = Matrix4.transformNormal(viewMat, input.normal);
-								const nLen = Math.hypot(nView.x, nView.y, nView.z) || 1;
-								this._renderer.normalBuffer[nIdx] = nView.x / nLen;
-								this._renderer.normalBuffer[nIdx + 1] = nView.y / nLen;
-								this._renderer.normalBuffer[nIdx + 2] = nView.z / nLen;
+								const reflectivity = material.reflectivity;
+								const invRef = 1 - reflectivity;
+								finalColor = {
+									r: finalColor.r * invRef + refData[refIdx] * reflectivity,
+									g: finalColor.g * invRef + refData[refIdx + 1] * reflectivity,
+									b: finalColor.b * invRef + refData[refIdx + 2] * reflectivity,
+								};
 							}
-						} else {
-							const faceAlpha = face.color?.a ?? 1;
-							const shaderAlpha = shader.getOpacity();
-							const alpha = Math.max(0, Math.min(1, faceAlpha * shaderAlpha));
-							const invA = 1 - alpha;
-							pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
-							pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
-							pixels[idx + 2] = finalColor.b * alpha + pixels[idx + 2] * invA;
-							pixels[idx + 3] = CoreConstants.OPAQUE_ALPHA;
+						}
+
+						if (
+							finalColor &&
+							shadedDepth > 0 &&
+							shadedDepth < depthBuffer[bufIdx]
+						) {
+							depthBuffer[bufIdx] = shadedDepth;
+							const idx = bufIdx << 2;
+							if (!isTransparent) {
+								pixels[idx] = finalColor.r;
+								pixels[idx + 1] = finalColor.g;
+								pixels[idx + 2] = finalColor.b;
+								pixels[idx + 3] = 255;
+
+								if (this._renderer.normalBuffer) {
+									const nIdx = bufIdx * 3;
+									const nView = Matrix4.transformNormal(viewMat, input.normal);
+									const nLen = Math.hypot(nView.x, nView.y, nView.z) || 1;
+									this._renderer.normalBuffer[nIdx] = nView.x / nLen;
+									this._renderer.normalBuffer[nIdx + 1] = nView.y / nLen;
+									this._renderer.normalBuffer[nIdx + 2] = nView.z / nLen;
+								}
+							} else {
+								const faceAlpha = face.color?.a ?? 1;
+								const shaderAlpha = shader.getOpacity();
+								const alpha = Math.max(0, Math.min(1, faceAlpha * shaderAlpha));
+								const invA = 1 - alpha;
+								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
+								pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
+								pixels[idx + 2] = finalColor.b * alpha + pixels[idx + 2] * invA;
+								pixels[idx + 3] = CoreConstants.OPAQUE_ALPHA;
+							}
 						}
 					}
 				}
