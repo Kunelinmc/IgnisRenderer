@@ -47,7 +47,12 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		const u = input.u;
 		const v = input.v;
 		const mat = this._mat;
-		let albedo = mat.albedo || { r: 255, g: 255, b: 255 };
+		const baseAlbedo = mat.albedo || { r: 255, g: 255, b: 255 };
+		let albedo = {
+			r: sRGBToLinear(baseAlbedo.r / 255) * 255,
+			g: sRGBToLinear(baseAlbedo.g / 255) * 255,
+			b: sRGBToLinear(baseAlbedo.b / 255) * 255,
+		};
 		let alpha = mat.opacity ?? 1;
 		let roughness = mat.roughness ?? 0.5;
 		let metalness = mat.metalness ?? 0.0;
@@ -93,7 +98,12 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			metalness *= metallicRoughnessTex.b / 255;
 		}
 
-		let emissive = mat.emissive || { r: 0, g: 0, b: 0 };
+		const baseEmissive = mat.emissive || { r: 0, g: 0, b: 0 };
+		let emissive = {
+			r: sRGBToLinear(baseEmissive.r / 255) * 255,
+			g: sRGBToLinear(baseEmissive.g / 255) * 255,
+			b: sRGBToLinear(baseEmissive.b / 255) * 255,
+		};
 		const emissiveUV =
 			mat.emissiveMapUV === 1
 				? { u: input.u2, v: input.v2 }
@@ -180,9 +190,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		let sheenColorLinear = {
-			r: Math.max(0, mat.sheenColorFactor.r / 255),
-			g: Math.max(0, mat.sheenColorFactor.g / 255),
-			b: Math.max(0, mat.sheenColorFactor.b / 255),
+			r: sRGBToLinear(Math.max(0, mat.sheenColorFactor.r / 255)),
+			g: sRGBToLinear(Math.max(0, mat.sheenColorFactor.g / 255)),
+			b: sRGBToLinear(Math.max(0, mat.sheenColorFactor.b / 255)),
 		};
 		const sheenColorUV =
 			mat.sheenColorMapUV === 1

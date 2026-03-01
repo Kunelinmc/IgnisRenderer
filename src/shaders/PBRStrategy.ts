@@ -15,8 +15,9 @@ import type {
  * Cook-Torrance PBR lighting strategy.
  *
  * Color pipeline:
- *   sRGB material inputs (albedo, f0, emissive) [0-255]
- *     → sRGB EOTF decode: sRGBToLinear(x/255) → linear [0-1]
+ *   sRGB material inputs (albedo, emissive, sheen) [0-255]
+ *     → sRGB EOTF decode: PBREvaluator decodes to linear [0-255]
+ *     → Strategy normalizes: linear / 255 → linear [0-1]
  *     → all BRDF math in linear space
  *     → ACES tone map: scene-linear → display-linear [0-1]
  *     → scale to [0-255] and return
@@ -24,8 +25,8 @@ import type {
  *
  * Internal conventions:
  * - All colors processed in this method are in **linear space [0-1]** unless noted.
- * - RGB inputs from materials/lights are assumed sRGB-encoded [0-255] and decoded
- *   via sRGBToLinear() — the exact IEC 61966-2-1 piecewise transfer function.
+ * - RGB inputs (surface.albedo, surface.emissive) are assumed linear [0-255]
+ *   (already decoded by PBREvaluator) and only normalized (/255).
  * - SH coefficients are pre-converted to linear space in Renderer.updateSH(), so SH irradiance
  *   output only needs normalization (/255), NOT additional sRGB decoding.
  * - The output RGB [0-255] is in display-linear space (post tone map, pre sRGB encode).
@@ -57,9 +58,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambientLightG = 0,
 			ambientLightB = 0;
 
-		// 1. Linear Workflow: Decode sRGB material inputs → linear [0-1]
-		// Material colors (albedo, f0, emissive) arrive as sRGB-encoded [0-255].
-		// sRGBToLinear() applies the exact IEC 61966-2-1 piecewise EOTF.
+		// 1. Linear Workflow: Normalize linear material inputs → [0-1]
+		// Material colors (albedo, emissive, sheen) arrive pre-decoded by PBREvaluator.
+		// We only need to normalize from [0-255] to [0-1].
 		const alb = {
 			r: Math.max(0, surface.albedo.r / 255),
 			g: Math.max(0, surface.albedo.g / 255),
