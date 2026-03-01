@@ -25,6 +25,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		sheenColor: { r: 0, g: 0, b: 0 },
 		sheenRoughness: 0.0,
 		transmission: 0.0,
+		ior: 1.5,
 		thickness: 0.0,
 		attenuationDistance: Infinity,
 		attenuationColor: { r: 255, g: 255, b: 255 },
@@ -311,6 +312,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.sheenColor.b = Math.max(0, sheenColorLinear.b) * 255;
 		res.sheenRoughness = Math.max(0, Math.min(1, sheenRoughness));
 		res.transmission = Math.max(0, Math.min(1, transmission));
+		res.ior = mat.ior ?? 1.5;
 		res.thickness = Math.max(0, thickness);
 		res.attenuationDistance = mat.attenuationDistance;
 		res.attenuationColor.r = clamp(mat.attenuationColor.r, 0, 255);

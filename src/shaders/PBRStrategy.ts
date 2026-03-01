@@ -309,15 +309,22 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			};
 
 			const Famb = this._FresnelSchlick(NdotV, realF0);
+			const refractionDir =
+				transmission > 0 ? this._refract(V, N, surface.ior) : null;
+
+			// Handle Total Internal Reflection (TIR)
+			const isTIR = transmission > 0 && refractionDir === null;
+			const effectiveFamb = isTIR ? { r: 1, g: 1, b: 1 } : Famb;
+
 			const kDamb = {
-				r: (1.0 - Famb.r) * (1.0 - metal) * (1.0 - transmission),
-				g: (1.0 - Famb.g) * (1.0 - metal) * (1.0 - transmission),
-				b: (1.0 - Famb.b) * (1.0 - metal) * (1.0 - transmission),
+				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * (1.0 - transmission),
+				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * (1.0 - transmission),
+				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * (1.0 - transmission),
 			};
 			const kTamb = {
-				r: (1.0 - Famb.r) * (1.0 - metal) * transmission,
-				g: (1.0 - Famb.g) * (1.0 - metal) * transmission,
-				b: (1.0 - Famb.b) * (1.0 - metal) * transmission,
+				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * transmission,
+				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * transmission,
+				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * transmission,
 			};
 
 			let ccAmbFresnel = 0;
@@ -360,24 +367,34 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambG = irrLinear.g * alb.g * kDamb.g * baseAttenuationAmb.g;
 			ambB = irrLinear.b * alb.b * kDamb.b * baseAttenuationAmb.b;
 
-			ambR +=
-				irrLinear.r *
-				alb.r *
-				kTamb.r *
-				volumeAttenuation.r *
-				clearcoatAttenuationAmb;
-			ambG +=
-				irrLinear.g *
-				alb.g *
-				kTamb.g *
-				volumeAttenuation.g *
-				clearcoatAttenuationAmb;
-			ambB +=
-				irrLinear.b *
-				alb.b *
-				kTamb.b *
-				volumeAttenuation.b *
-				clearcoatAttenuationAmb;
+			if (transmission > 0 && refractionDir) {
+				const transmRadiance = context.envSpecularMap
+					? this._samplePrefiltered(
+							refractionDir,
+							rough,
+							context.envSpecularMap
+						)
+					: this._sampleSHRadiance(refractionDir, shAmbient!);
+
+				ambR +=
+					transmRadiance.r *
+					alb.r *
+					kTamb.r *
+					volumeAttenuation.r *
+					clearcoatAttenuationAmb;
+				ambG +=
+					transmRadiance.g *
+					alb.g *
+					kTamb.g *
+					volumeAttenuation.g *
+					clearcoatAttenuationAmb;
+				ambB +=
+					transmRadiance.b *
+					alb.b *
+					kTamb.b *
+					volumeAttenuation.b *
+					clearcoatAttenuationAmb;
+			}
 
 			if (context.envSpecularMap && context.brdfLUT) {
 				const prefiltered = this._samplePrefiltered(
@@ -388,11 +405,17 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				// LUT stores scale at R (red), bias at G (green)
 				const brdf = context.brdfLUT.sample(NdotV, rough);
 				const specR =
-					prefiltered.r * (Famb.r * brdf.r + brdf.g) * clearcoatAttenuationAmb;
+					prefiltered.r *
+					(effectiveFamb.r * brdf.r + brdf.g) *
+					clearcoatAttenuationAmb;
 				const specG =
-					prefiltered.g * (Famb.g * brdf.r + brdf.g) * clearcoatAttenuationAmb;
+					prefiltered.g *
+					(effectiveFamb.g * brdf.r + brdf.g) *
+					clearcoatAttenuationAmb;
 				const specB =
-					prefiltered.b * (Famb.b * brdf.r + brdf.g) * clearcoatAttenuationAmb;
+					prefiltered.b *
+					(effectiveFamb.b * brdf.r + brdf.g) *
+					clearcoatAttenuationAmb;
 
 				ambR += specR + ccAmbSpecR * clearcoat;
 				ambG += specG + ccAmbSpecG * clearcoat;
@@ -403,13 +426,22 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					(1.0 - rough) * 0.5
 				);
 				ambR +=
-					specRadianceLinear.r * Famb.r * specFactor * clearcoatAttenuationAmb +
+					specRadianceLinear.r *
+						effectiveFamb.r *
+						specFactor *
+						clearcoatAttenuationAmb +
 					ccAmbSpecR * clearcoat;
 				ambG +=
-					specRadianceLinear.g * Famb.g * specFactor * clearcoatAttenuationAmb +
+					specRadianceLinear.g *
+						effectiveFamb.g *
+						specFactor *
+						clearcoatAttenuationAmb +
 					ccAmbSpecG * clearcoat;
 				ambB +=
-					specRadianceLinear.b * Famb.b * specFactor * clearcoatAttenuationAmb +
+					specRadianceLinear.b *
+						effectiveFamb.b *
+						specFactor *
+						clearcoatAttenuationAmb +
 					ccAmbSpecB * clearcoat;
 			}
 
@@ -453,15 +485,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				b: ambientCol.b / Math.PI,
 			};
 			const Famb = this._FresnelSchlick(NdotV, realF0);
+			const refractionDir =
+				transmission > 0 ? this._refract(V, N, surface.ior) : null;
+			const isTIR = transmission > 0 && refractionDir === null;
+			const effectiveFamb = isTIR ? { r: 1, g: 1, b: 1 } : Famb;
+
 			const kDamb = {
-				r: (1.0 - Famb.r) * (1.0 - metal) * (1.0 - transmission),
-				g: (1.0 - Famb.g) * (1.0 - metal) * (1.0 - transmission),
-				b: (1.0 - Famb.b) * (1.0 - metal) * (1.0 - transmission),
+				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * (1.0 - transmission),
+				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * (1.0 - transmission),
+				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * (1.0 - transmission),
 			};
 			const kTamb = {
-				r: (1.0 - Famb.r) * (1.0 - metal) * transmission,
-				g: (1.0 - Famb.g) * (1.0 - metal) * transmission,
-				b: (1.0 - Famb.b) * (1.0 - metal) * transmission,
+				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * transmission,
+				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * transmission,
+				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * transmission,
 			};
 
 			const ccAmbFresnel =
@@ -477,24 +514,30 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambG = ambientCol.g * alb.g * kDamb.g * baseAttenuationAmb.g;
 			ambB = ambientCol.b * alb.b * kDamb.b * baseAttenuationAmb.b;
 
-			ambR +=
-				ambientCol.r *
-				alb.r *
-				kTamb.r *
-				volumeAttenuation.r *
-				clearcoatAttenuationAmb;
-			ambG +=
-				ambientCol.g *
-				alb.g *
-				kTamb.g *
-				volumeAttenuation.g *
-				clearcoatAttenuationAmb;
-			ambB +=
-				ambientCol.b *
-				alb.b *
-				kTamb.b *
-				volumeAttenuation.b *
-				clearcoatAttenuationAmb;
+			if (transmission > 0 && refractionDir) {
+				// Fallback: use SH/Ambient color for refraction if no map, but sample SH if possible?
+				// Here we just use the ambient color tilted by albedo.
+				// However, if we have a skybox, maybe we can sample it?
+				// But fallback usually means we don't have high-res maps.
+				ambR +=
+					ambientCol.r *
+					alb.r *
+					kTamb.r *
+					volumeAttenuation.r *
+					clearcoatAttenuationAmb;
+				ambG +=
+					ambientCol.g *
+					alb.g *
+					kTamb.g *
+					volumeAttenuation.g *
+					clearcoatAttenuationAmb;
+				ambB +=
+					ambientCol.b *
+					alb.b *
+					kTamb.b *
+					volumeAttenuation.b *
+					clearcoatAttenuationAmb;
+			}
 
 			const specFactor = Math.max(
 				LightingConstants.PBR_SPEC_FALLBACK,
@@ -506,13 +549,22 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			);
 
 			ambR +=
-				ambientRadiance.r * Famb.r * specFactor * clearcoatAttenuationAmb +
+				ambientRadiance.r *
+					effectiveFamb.r *
+					specFactor *
+					clearcoatAttenuationAmb +
 				ambientRadiance.r * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambG +=
-				ambientRadiance.g * Famb.g * specFactor * clearcoatAttenuationAmb +
+				ambientRadiance.g *
+					effectiveFamb.g *
+					specFactor *
+					clearcoatAttenuationAmb +
 				ambientRadiance.g * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambB +=
-				ambientRadiance.b * Famb.b * specFactor * clearcoatAttenuationAmb +
+				ambientRadiance.b *
+					effectiveFamb.b *
+					specFactor *
+					clearcoatAttenuationAmb +
 				ambientRadiance.b * ccAmbFresnel * ccSpecFactor * clearcoat;
 
 			if (maxSheenColor > 0) {
@@ -606,6 +658,33 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 		Vector3.normalizeInPlace(reflected);
 		return reflected;
+	}
+
+	private _refract(V: IVector3, N: IVector3, ior: number): IVector3 | null {
+		const cosThetaI = Vector3.dot(V, N); // V points towards camera, so this is cosTheta with N
+		let eta, n;
+		if (cosThetaI > 0) {
+			// Outside
+			eta = 1.0 / ior;
+			n = N;
+		} else {
+			// Inside
+			eta = ior;
+			n = { x: -N.x, y: -N.y, z: -N.z };
+		}
+
+		const absCosThetaI = Math.abs(cosThetaI);
+		const sin2ThetaT = eta * eta * (1.0 - absCosThetaI * absCosThetaI);
+		if (sin2ThetaT > 1.0) return null; // Total internal reflection
+
+		const cosThetaT = Math.sqrt(1.0 - sin2ThetaT);
+		const refraction = {
+			x: eta * -V.x + (eta * absCosThetaI - cosThetaT) * n.x,
+			y: eta * -V.y + (eta * absCosThetaI - cosThetaT) * n.y,
+			z: eta * -V.z + (eta * absCosThetaI - cosThetaT) * n.z,
+		};
+		Vector3.normalizeInPlace(refraction);
+		return refraction;
 	}
 
 	private _sampleSHRadiance(direction: IVector3, coeffs: SHCoefficients): RGB {
