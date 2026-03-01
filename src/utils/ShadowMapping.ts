@@ -19,7 +19,20 @@ export interface ShadowParams {
 	shadowMaxBias?: number;
 	shadowPCF?: number;
 	shadowStrength?: number;
+
+	// PCSS (Percentage-Closer Soft Shadows) extensions
+	shadowRadius?: number; // Maximum radius for PCF/Search (in texels). > 0 enables PCSS.
+	shadowSamples?: number; // Number of samples for PCF block (default 16)
+	shadowSearchSamples?: number; // Number of samples for Blocker search (default 16)
+
 	[key: string]: unknown;
+}
+
+function getVogelSample(index: number, numSamples: number, theta: number) {
+	const goldenAngle = 2.400049405230919;
+	const r = Math.sqrt((index + 0.5) / numSamples);
+	const angle = index * goldenAngle + theta;
+	return { x: r * Math.cos(angle), y: r * Math.sin(angle) };
 }
 
 export type ShadowCameraMatrix = Matrix4;
@@ -28,6 +41,7 @@ export interface ShadowMapContext {
 	worldPoint: IVector3;
 	normal?: IVector3 | null;
 	viewProjectionMatrix: Matrix4 | null;
+	projectionMatrix?: Matrix4 | null;
 	latestLightDir: IVector3;
 	buffer: Float32Array;
 	transmissionBuffer?: Float32Array;
@@ -107,6 +121,7 @@ export class ShadowMap {
 			worldPoint,
 			normal,
 			viewProjectionMatrix: this.viewProjectionMatrix,
+			projectionMatrix: this.projectionMatrix,
 			latestLightDir: this.latestLightDir,
 			buffer: this.buffer,
 			transmissionBuffer: this.transmissionBuffer,
@@ -190,6 +205,19 @@ export class ShadowMap {
 		const texelBias = (params.shadowTexelBias ?? 1.0) * (2.0 / size);
 		const maxBias = params.shadowMaxBias ?? 0.05;
 
+		// For perspective: d = m23 / (ndcZ + m22)
+		// For ortho: d = (m23 - ndcZ) / m22
+		const m = ctx.projectionMatrix ? ctx.projectionMatrix.elements : null;
+		const isPerspective = m ? Math.abs(m[3][2] + 1.0) < 1e-6 : false;
+
+		const linearizeDepth = (ndcZ: number): number => {
+			if (!m) return ndcZ;
+			if (isPerspective) {
+				return m[2][3] / (ndcZ + m[2][2]);
+			}
+			return (m[2][3] - ndcZ) / m[2][2];
+		};
+
 		// Note: Slope bias is only effective with a surface normal
 		const bias = normal
 			? Math.min(
@@ -204,15 +232,141 @@ export class ShadowMap {
 		const texelSize = 1.0 / size;
 		const strength = Math.max(0, Math.min(1, params.shadowStrength ?? 1.0));
 
+		const pcfRadiusParams = params.shadowRadius ?? 0;
+
 		let visibilityR = 0;
 		let visibilityG = 0;
 		let visibilityB = 0;
 		let validSampleCount = 0;
 
-		for (let y = -samples; y <= samples; y++) {
-			for (let x = -samples; x <= samples; x++) {
-				const su = u + x * texelSize;
-				const sv = v + y * texelSize;
+		if (pcfRadiusParams > 0) {
+			// PCSS / Poisson Disk Soft Shadow
+			// Interleaved gradient noise for per-pixel rotation
+			const theta =
+				(worldPoint.x * 12.9898 +
+					worldPoint.y * 78.233 +
+					worldPoint.z * 37.719) %
+				(Math.PI * 2);
+
+			const numSearchSamples = Math.floor(params.shadowSearchSamples ?? 16);
+			const numSamples = Math.floor(params.shadowSamples ?? 16);
+			const maxRadiusUV = pcfRadiusParams * texelSize;
+
+			// 1. Blocker search
+			let numBlockers = 0;
+			let avgBlockerDepth = 0;
+			for (let i = 0; i < numSearchSamples; i++) {
+				const offset = getVogelSample(i, numSearchSamples, theta);
+				const su = u + offset.x * maxRadiusUV;
+				const sv = v + offset.y * maxRadiusUV;
+				if (su >= 0 && su <= 1 && sv >= 0 && sv <= 1) {
+					const tx = Math.max(
+						0,
+						Math.min(size - 1, Math.floor(su * (size - 1)))
+					);
+					const ty = Math.max(
+						0,
+						Math.min(size - 1, Math.floor(sv * (size - 1)))
+					);
+					const shadowDepth = buffer[ty * size + tx];
+					if (currentDepth - bias > shadowDepth) {
+						numBlockers++;
+						avgBlockerDepth += shadowDepth;
+					}
+				}
+			}
+
+			if (numBlockers > 0) {
+				avgBlockerDepth /= numBlockers;
+
+				// 2. Penumbra size estimation
+				// We use linear depth to get a physically meaningful ratio
+				const linCurrent = linearizeDepth(currentDepth);
+				const linBlocker = linearizeDepth(avgBlockerDepth);
+
+				let penumbraRatio = 1.0;
+				if (linCurrent > linBlocker) {
+					// Traditional PCSS ratio: (d_receiver - d_blocker) / d_blocker
+					// For orthographic lights, we use a constant factor as they don't have a 1/d divergence
+					const divergence = isPerspective ? linBlocker || 1e-6 : 100.0; // 100 is an arbitrary scale for ortho
+					penumbraRatio = (linCurrent - linBlocker) / divergence;
+					penumbraRatio = Math.max(0.0, Math.min(1.0, penumbraRatio));
+				} else {
+					penumbraRatio = 0;
+				}
+
+				const filterRadiusUV = maxRadiusUV * penumbraRatio;
+
+				// If penumbra is tiny, skip filtering and just return unshadowed or colored
+				if (filterRadiusUV < texelSize * 0.1) {
+					return this._calculateShadowFactor({
+						...ctx,
+						params: { ...params, shadowRadius: 0 },
+					});
+				}
+
+				// 3. PCF Filtering with Vogel Disk
+				for (let i = 0; i < numSamples; i++) {
+					const offset = getVogelSample(i, numSamples, theta);
+					const su = u + offset.x * filterRadiusUV;
+					const sv = v + offset.y * filterRadiusUV;
+					if (su < 0 || su > 1 || sv < 0 || sv > 1) continue;
+
+					const tx = Math.max(
+						0,
+						Math.min(size - 1, Math.floor(su * (size - 1)))
+					);
+					const ty = Math.max(
+						0,
+						Math.min(size - 1, Math.floor(sv * (size - 1)))
+					);
+					const idx = ty * size + tx;
+					const shadowDepth = buffer[idx];
+
+					validSampleCount++;
+
+					const isOccluded = currentDepth - bias > shadowDepth;
+					if (isOccluded) {
+						visibilityR += 1.0 - strength;
+						visibilityG += 1.0 - strength;
+						visibilityB += 1.0 - strength;
+						continue;
+					}
+
+					let transSampleR = 1.0;
+					let transSampleG = 1.0;
+					let transSampleB = 1.0;
+					if (transmissionBuffer) {
+						const cIdx = idx * 3;
+						transSampleR = transmissionBuffer[cIdx];
+						transSampleG = transmissionBuffer[cIdx + 1];
+						transSampleB = transmissionBuffer[cIdx + 2];
+					}
+
+					visibilityR += 1.0 - strength + strength * transSampleR;
+					visibilityG += 1.0 - strength + strength * transSampleG;
+					visibilityB += 1.0 - strength + strength * transSampleB;
+				}
+			} else {
+				// No blockers found, unshadowed
+				return { r: 1.0, g: 1.0, b: 1.0 };
+			}
+		} else {
+			// Fallback: Vogel Disk PCF for smoother fixed-size soft shadows
+			const theta =
+				(worldPoint.x * 12.9898 +
+					worldPoint.y * 78.233 +
+					worldPoint.z * 37.719) %
+				(Math.PI * 2);
+
+			const pcfRadius = params.shadowPCF ?? 1.5; // Fixed radius in texels
+			const numSamples = Math.floor(params.shadowSamples ?? 16);
+			const radiusUV = pcfRadius * texelSize;
+
+			for (let i = 0; i < numSamples; i++) {
+				const offset = getVogelSample(i, numSamples, theta);
+				const su = u + offset.x * radiusUV;
+				const sv = v + offset.y * radiusUV;
 				if (su < 0 || su > 1 || sv < 0 || sv > 1) continue;
 
 				const tx = Math.max(0, Math.min(size - 1, Math.floor(su * (size - 1))));
