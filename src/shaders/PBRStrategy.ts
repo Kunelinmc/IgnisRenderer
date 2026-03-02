@@ -361,7 +361,10 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 						clearcoatRoughness,
 						context.envSpecularMap
 					);
-					const ccBrdf = context.brdfLUT.sample(NcdotV, clearcoatRoughness);
+					const ccBrdf = context.brdfLUT.sample(
+						NcdotV,
+						Math.sqrt(clearcoatRoughness)
+					);
 					ccAmbSpecR = ccPrefiltered.r * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecG = ccPrefiltered.g * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecB = ccPrefiltered.b * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
@@ -424,7 +427,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					context.envSpecularMap
 				);
 				// LUT stores scale at R (red), bias at G (green)
-				const brdf = context.brdfLUT.sample(NdotV, rough);
+				const brdf = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
 				const specR =
 					prefiltered.r *
 					(effectiveFamb.r * brdf.r + brdf.g) *

@@ -9,7 +9,8 @@ import {
 	type SurfacePoint,
 } from "./Light";
 import type { SHCoefficients, IVector3 } from "../maths/types";
-import { hammersley, importanceSampleGGX } from "../maths/Sampling";
+import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
+import { lerp } from "../maths/Common";
 
 /**
  * LightProbe provides irregular or environment lighting via Spherical Harmonics (diffuse)
@@ -175,10 +176,9 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const prefiltered = new Texture(null, baseWidth, baseHeight, "HDR");
 		prefiltered.mipmaps = [];
 
-		const SAMPLE_COUNT = 256;
-
 		for (let level = 0; level < maxMipLevels; level++) {
 			const roughness = level / (maxMipLevels - 1);
+			const sampleCount = Math.floor(lerp(1024, 64, roughness));
 			const w = Math.max(1, baseWidth >> level);
 			const h = Math.max(1, baseHeight >> level);
 			const data = new Float32Array(w * h * 4);
@@ -198,7 +198,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 						envMap,
 						N,
 						roughness,
-						SAMPLE_COUNT
+						sampleCount
 					);
 					const idx = (j * w + i) * 4;
 					data[idx] = radiance.r;
@@ -225,8 +225,8 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 		for (let i = 0; i < sampleCount; i++) {
 			const xi = hammersley(i, sampleCount);
-			const H = importanceSampleGGX(xi, N, roughness);
 			const V = N; // Approximation: V = N
+			const H = importanceSampleGGX_VNDF(xi, V, N, roughness);
 			const NdotH = Math.max(Vector3.dot(N, H), 0);
 			const L = Vector3.normalize({
 				x: 2.0 * NdotH * H.x - V.x,

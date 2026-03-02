@@ -1,6 +1,7 @@
 import { Texture } from "../core/Texture";
 import { Vector3 } from "../maths/Vector3";
-import { hammersley, importanceSampleGGX } from "../maths/Sampling";
+import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
+import { lerp } from "../maths/Common";
 
 /**
  * Split-Sum Approximation for IBL Specular.
@@ -17,13 +18,15 @@ export class IBLBRDF {
 
 	private static _generateBRDFLUT(width: number, height: number): Texture {
 		const data = new Float32Array(width * height * 4);
-		const SAMPLE_COUNT = 512;
 
 		for (let j = 0; j < height; j++) {
-			const roughness = (j + 0.5) / height;
+			// Square distribution for better resolution in smooth areas
+			const roughness = Math.pow((j + 0.5) / height, 2);
+			const sampleCount = Math.floor(lerp(1024, 64, roughness));
+
 			for (let i = 0; i < width; i++) {
 				const NdotV = (i + 0.5) / width;
-				const res = this._integrateBRDF(NdotV, roughness, SAMPLE_COUNT);
+				const res = this._integrateBRDF(NdotV, roughness, sampleCount);
 				const idx = (j * width + i) * 4;
 				data[idx] = res.x;
 				data[idx + 1] = res.y;
@@ -41,7 +44,7 @@ export class IBLBRDF {
 		sampleCount: number
 	): { x: number; y: number } {
 		const V = {
-			x: Math.sqrt(1.0 - NdotV * NdotV),
+			x: Math.sqrt(Math.max(0.0, 1.0 - NdotV * NdotV)),
 			y: 0.0,
 			z: NdotV,
 		};
@@ -51,9 +54,9 @@ export class IBLBRDF {
 
 		for (let i = 0; i < sampleCount; i++) {
 			const xi = hammersley(i, sampleCount);
-			const H = importanceSampleGGX(xi, N, roughness);
+			// Use VNDF sampling for better convergence
+			const H = importanceSampleGGX_VNDF(xi, V, N, roughness);
 
-			// Outgoing light direction L reflected from V across H
 			const dotVH = Vector3.dot(V, H);
 			const L = {
 				x: 2.0 * dotVH * H.x - V.x,
@@ -62,20 +65,27 @@ export class IBLBRDF {
 			};
 
 			const NdotL = Math.max(L.z, 0.0);
-			const NdotH = Math.max(H.z, 0.0);
 			const VdotH = Math.max(dotVH, 0.0);
 
 			if (NdotL > 0) {
 				const G = this._geometrySmith(NdotV, NdotL, roughness);
-				const G_Vis = (G * VdotH) / (NdotH * NdotV);
+				const G1V = this._geometrySchlickG1(NdotV, roughness);
+
+				// For VNDF, the weight is G / G1V
+				const weight = G / G1V;
 				const Fc = Math.pow(1.0 - VdotH, 5.0);
 
-				A += (1.0 - Fc) * G_Vis;
-				B += Fc * G_Vis;
+				A += (1.0 - Fc) * weight;
+				B += Fc * weight;
 			}
 		}
 
 		return { x: A / sampleCount, y: B / sampleCount };
+	}
+
+	private static _geometrySchlickG1(NdotV: number, roughness: number): number {
+		const k = (roughness * roughness) / 2.0;
+		return NdotV / (NdotV * (1.0 - k) + k);
 	}
 
 	private static _geometrySmith(

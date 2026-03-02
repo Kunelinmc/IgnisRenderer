@@ -16,6 +16,10 @@ export function clamp(val: number, min = 0, max = 1): number {
 	return Math.max(min, Math.min(max, val));
 }
 
+export function lerp(a: number, b: number, t: number): number {
+	return a + (b - a) * clamp(t, 0, 1);
+}
+
 /**
  * sRGB EOTF (Electro-Optical Transfer Function) — decode sRGB to linear.
  *

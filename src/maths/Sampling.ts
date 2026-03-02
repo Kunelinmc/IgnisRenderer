@@ -53,3 +53,76 @@ export function importanceSampleGGX(
 
 	return Vector3.normalize(worldH);
 }
+/**
+ * GGX VNDF (Visible Normal Distribution Function) importance sampling.
+ * Based on "Sampling the GGX Distribution of Visible Normals" by Eric Heitz.
+ */
+export function importanceSampleGGX_VNDF(
+	xi: { x: number; y: number },
+	V: IVector3,
+	N: IVector3,
+	roughness: number
+): IVector3 {
+	const alpha = roughness * roughness;
+
+	// 1. Construct tangent space
+	const up =
+		Math.abs(N.y) < 0.999 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
+	const tangent = Vector3.normalize(Vector3.cross(up, N));
+	const bitangent = Vector3.cross(N, tangent);
+
+	// 2. Transform View direction to local space
+	const Ve = {
+		x: Vector3.dot(V, tangent),
+		y: Vector3.dot(V, bitangent),
+		z: Vector3.dot(V, N),
+	};
+
+	// 3. Section 3.2: transforming the view direction to the stretched cosine hemisphere
+	const Vh = Vector3.normalize({
+		x: alpha * Ve.x,
+		y: alpha * Ve.y,
+		z: Ve.z,
+	});
+
+	// 4. Section 3.1: orthonormal basis (with special case for Vh.z == 1)
+	const lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+	const T1 =
+		lensq > 0
+			? { x: -Vh.y / Math.sqrt(lensq), y: Vh.x / Math.sqrt(lensq), z: 0 }
+			: { x: 1, y: 0, z: 0 };
+	const T2 = Vector3.cross(Vh, T1);
+
+	// 5. Section 3.4: parameterization of the projected area
+	const r = Math.sqrt(xi.x);
+	const phi = 2.0 * Math.PI * xi.y;
+	const t1 = r * Math.cos(phi);
+	let t2 = r * Math.sin(phi);
+	const s = 0.5 * (1.0 + Vh.z);
+	t2 = (1.0 - s) * Math.sqrt(1.0 - t1 * t1) + s * t2;
+
+	// 6. Section 3.5: reproduction of the sampled horizon-clipped normal
+	const Nh = Vector3.add(
+		Vector3.scale(T1, t1),
+		Vector3.add(
+			Vector3.scale(T2, t2),
+			Vector3.scale(Vh, Math.sqrt(Math.max(0.0, 1.0 - t1 * t1 - t2 * t2)))
+		)
+	);
+
+	// 7. Section 3.6: transforming the normal back to the ellipsoid configuration
+	const Ne = Vector3.normalize({
+		x: alpha * Nh.x,
+		y: alpha * Nh.y,
+		z: Math.max(0.0, Nh.z),
+	});
+
+	// 8. Local to world space
+	const worldH = {
+		x: tangent.x * Ne.x + bitangent.x * Ne.y + N.x * Ne.z,
+		y: tangent.y * Ne.x + bitangent.y * Ne.y + N.y * Ne.z,
+		z: tangent.z * Ne.x + bitangent.z * Ne.y + N.z * Ne.z,
+	};
+
+	return Vector3.normalize(worldH);
+}
