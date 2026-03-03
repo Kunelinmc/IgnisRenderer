@@ -14,6 +14,11 @@ export class OrbitCamera extends Camera {
 	public maxDistance: number;
 	public lookSensitivity: number;
 	public zoomSensitivity: number;
+	public autoAdjustClipPlanes: boolean;
+	public clipNearFactor: number;
+	public clipNearMin: number;
+	public clipFarFactor: number;
+	public clipFarMin: number;
 
 	constructor(target: IVector3 = new Vector3(0, 0, 0), distance = 400) {
 		super();
@@ -29,6 +34,12 @@ export class OrbitCamera extends Camera {
 
 		this.lookSensitivity = 0.005;
 		this.zoomSensitivity = 0.5;
+		
+		this.autoAdjustClipPlanes = true;
+		this.clipNearFactor = 0.002;
+		this.clipNearMin = 0.1;
+		this.clipFarFactor = 3.0;
+		this.clipFarMin = 1000;
 
 		this.updatePosition();
 	}
@@ -50,6 +61,7 @@ export class OrbitCamera extends Camera {
 			this.target.z + z
 		);
 
+		this._updateClipPlanes();
 		this.updateMatrices();
 	}
 
@@ -72,5 +84,23 @@ export class OrbitCamera extends Camera {
 	public setTarget(newTarget: IVector3): void {
 		this.target = new Vector3(newTarget.x, newTarget.y, newTarget.z);
 		this.updatePosition();
+	}
+
+	private _updateClipPlanes(): void {
+		if (!this.autoAdjustClipPlanes) {
+			return;
+		}
+
+		const nextFar = Math.max(
+			this.clipFarMin,
+			this.distance * this.clipFarFactor
+		);
+		const nextNear = Math.max(
+			this.clipNearMin,
+			this.distance * this.clipNearFactor
+		);
+
+		this.near = Math.min(nextNear, nextFar - 1);
+		this.far = Math.max(this.near + 1, nextFar);
 	}
 }

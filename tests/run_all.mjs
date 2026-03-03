@@ -14,6 +14,7 @@ const tests = [
 	"test_sparse_accessor.mjs",
 	"test_gltf_material_extensions.mjs",
 	"test_pbr_textures.mjs",
+	"test_orbit_camera.mjs",
 	"test_webgpu_bridge.mjs",
 ];
 
