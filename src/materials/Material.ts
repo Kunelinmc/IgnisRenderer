@@ -10,6 +10,7 @@ export interface MirrorPlane {
 }
 
 export interface MaterialParams {
+	name?: string;
 	type?: string;
 	shading?: ShadingModel;
 	opacity?: number;
@@ -20,9 +21,14 @@ export interface MaterialParams {
 	map?: TextureLike;
 	reflectivity?: number;
 	mirrorPlane?: MirrorPlane;
+	vertexCode?: string;
+	vertexJS?: any;
+	fragmentCode?: string;
+	fragmentJS?: any;
 }
 
 export class Material {
+	public name: string;
 	public type: string;
 	public shading: ShadingModel;
 	public opacity: number;
@@ -34,7 +40,13 @@ export class Material {
 	public reflectivity: number;
 	public mirrorPlane: MirrorPlane | null;
 
+	public vertexCode: string;
+	public vertexJS: any;
+	public fragmentCode: string;
+	public fragmentJS: any;
+
 	constructor(params: MaterialParams = {}) {
+		this.name = params.name ?? "Untitled";
 		this.type = params.type ?? "Basic";
 		this.shading = params.shading ?? "Flat";
 		this.opacity = params.opacity ?? 1;
@@ -47,5 +59,10 @@ export class Material {
 
 		this.reflectivity = params.reflectivity ?? 0;
 		this.mirrorPlane = params.mirrorPlane ?? null;
+
+		this.vertexCode = params.vertexCode ?? "";
+		this.vertexJS = params.vertexJS ?? null;
+		this.fragmentCode = params.fragmentCode ?? "";
+		this.fragmentJS = params.fragmentJS ?? null;
 	}
 }

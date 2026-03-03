@@ -5,11 +5,11 @@ import { Camera, CameraType } from "../cameras/Camera";
 import { Scene } from "./Scene";
 import { EventEmitter } from "./EventEmitter";
 import { ShadowMap } from "../utils/ShadowMapping";
-import { Projector } from "./Projector";
+import { Projector } from "./software/Projector";
 import { ShadowRenderer } from "./ShadowRenderer";
-import { ReflectionRenderer } from "./ReflectionRenderer";
-import { Rasterizer } from "./Rasterizer";
-import { PostProcessor } from "./PostProcessor";
+import { ReflectionRenderer } from "./software/ReflectionRenderer";
+import { PostProcessor } from "./software/PostProcessor";
+import { Rasterizer, type RasterizerLike } from "./software/Rasterizer";
 import { LightingConstants, PostProcessConstants } from "./Constants";
 import { sRGBToLinear } from "../maths/Common";
 import { LightType, type ShadowCastingLight } from "../lights";
@@ -18,17 +18,17 @@ import type {
 	PostProcessorLike,
 	VolumetricOptions,
 	SSAOOptions,
-} from "./PostProcessor";
-import type { RasterizerLike } from "./Rasterizer";
+} from "./software/PostProcessor";
 import type { IModel, ProjectedFace } from "./types";
+
+// RAL Imports
+import { IDevice } from "./ral/IDevice";
+import { ResourceManager } from "./bridge/ResourceManager";
+import { resolveWebGPUFeatureState } from "./bridge/webgpuUtils";
 
 /**
  * CORE RENDERING CONVENTIONS:
- * - Coordinate System: Right-Handed (X: Right, Y: Up, Z: Towards Viewer)
- * - World Space: Standard Cartesian units
- * - View Space: Eye at origin, -Z is forward
- * - Depth Buffer: Stores linear camera-space depth (positive distance from camera plane)
- * - Screen Space: (0,0) at top-left, (W,H) at bottom-right, pixel centers at +0.5
+ * - Backend-Agnostic Orchestrator
  */
 
 export interface RendererEvents {
@@ -40,21 +40,17 @@ export interface RendererEvents {
 
 export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
-	private _ctx: CanvasRenderingContext2D;
+	public pixels: Uint8ClampedArray;
+	public depthBuffer: Float32Array;
+	public normalBuffer: Float32Array | null;
+	private _ctx: CanvasRenderingContext2D | null;
+	private _device: IDevice;
+	private _resourceManager: ResourceManager;
+	private _warnings: Set<string>;
 
 	private _sf: number;
 	private _deltaTime: number;
-
 	public lastTime: number;
-
-	/** Depth buffer storing linear camera-space distance (near to far) */
-	public depthBuffer: Float32Array | null;
-
-	/** Normal buffer storing view-space normals (XYZ) */
-	public normalBuffer: Float32Array | null;
-
-	private _offscreenCanvas: HTMLCanvasElement;
-	private _offscreenCtx: CanvasRenderingContext2D;
 
 	public params: {
 		offset: { x: number; y: number };
@@ -77,32 +73,38 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public shCoeffs: SHCoefficients;
 	public shAmbientCoeffs: SHCoefficients;
 
-	public scene: Scene;
+	public scene: Scene = new Scene();
 	public camera: Camera;
-
 	public rasterizer: RasterizerLike;
-	public reflectionRenderer: ReflectionRenderer;
 
 	private _shadowRenderer: ShadowRenderer;
 	private _postProcessor: PostProcessorLike;
+	public reflectionRenderer: ReflectionRenderer;
 
-	private _projectedModels: Map<IModel, ProjectedFace[]> = new Map();
-
-	constructor(canvas: HTMLCanvasElement, camera: Camera | null = null) {
+	constructor(
+		device: IDevice,
+		canvas: HTMLCanvasElement,
+		camera: Camera | null = null
+	) {
 		super();
+		this._device = device;
 		this.canvas = canvas;
-		this._ctx = canvas.getContext("2d")!;
+		this._ctx =
+			this._device.type === "software" ? canvas.getContext("2d") : null;
+		this._warnings = new Set();
+		this.pixels = new Uint8ClampedArray(0);
+		this.depthBuffer = new Float32Array(0);
+
+		if (this._device.type === "software" && (this._device as any).setRenderer) {
+			(this._device as any).setRenderer(this);
+		}
+
+		this._resourceManager = new ResourceManager(device);
 		this._sf = window.devicePixelRatio || 1;
 
 		this.lastTime = 0;
 		this._deltaTime = 0;
-
-		this.depthBuffer = null;
 		this.normalBuffer = null;
-		this._offscreenCanvas = document.createElement("canvas");
-		this._offscreenCtx = this._offscreenCanvas.getContext("2d", {
-			willReadFrequently: true,
-		})!;
 
 		this.params = {
 			offset: { x: 0, y: 0 },
@@ -122,168 +124,196 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		};
 
 		this.shadowMaps = new Map();
-
 		this.shCoeffs = SH.empty();
 		this.shAmbientCoeffs = SH.empty();
 
-		this.scene = new Scene();
 		this.camera = camera || new Camera();
-
-		// Initial camera setup if not provided
 		if (!camera) {
 			this.camera.position.set(0, 200, 200);
 			this.camera.fov = 60;
 		}
 
-		this.camera.aspectRatio = this.canvas.width / this.canvas.height;
+		this.camera.aspectRatio = this._getSafeAspectRatio(
+			this.canvas.width,
+			this.canvas.height
+		);
 		this.camera.updateMatrices();
 
-		this.rasterizer = new Rasterizer(this);
-		this._shadowRenderer = new ShadowRenderer(this);
-		this.reflectionRenderer = new ReflectionRenderer(this);
-		this._postProcessor = new PostProcessor(this);
+		this.rasterizer =
+			((this._device as any)._rasterizer as RasterizerLike) ??
+			new Rasterizer(this as any);
+		this._shadowRenderer = new ShadowRenderer(this as any);
+		this.reflectionRenderer = new ReflectionRenderer(this as any);
+		this._postProcessor = new PostProcessor(this as any);
 	}
 
-	public init(): void {
+	public async init(): Promise<void> {
+		await this._device.init();
+		await this._resourceManager.init();
 		this.resizeCanvas();
 		requestAnimationFrame((time) => this.renderScene(time));
 	}
 
-	/**
-	 * Picks a model at the given screen coordinates.
-	 * @param {number} x - The x-coordinate of the screen.
-	 * @param {number} y - The y-coordinate of the screen.
-	 * @returns {IModel | null} The model at the given screen coordinates, or null if no model is found.
-	 */
-	public pick(x: number, y: number): IModel | null {
-		const rect = this.canvas.getBoundingClientRect();
-		const canvasX = (x - rect.left) * this._sf;
-		const canvasY = (y - rect.top) * this._sf;
-
-		let nearestModel: IModel | null = null;
-		let minDepth = Infinity;
-
-		for (const model of this.scene.models) {
-			const faces = this._projectedModels.get(model);
-			if (!faces) continue;
-
-			const face = Projector.getFaceAtPoint(faces, canvasX, canvasY);
-			if (face) {
-				const depth = face.depthInfo.avg;
-				if (depth < minDepth) {
-					minDepth = depth;
-					nearestModel = model;
-				}
-			}
-		}
-
-		return nearestModel;
-	}
-
-	/**
-	 * Resizes the canvas and updates the renderer's parameters.
-	 */
 	public resizeCanvas(): void {
 		const rect = this.canvas.getBoundingClientRect();
 		this._sf = window.devicePixelRatio || 1;
 		this.canvas.width = rect.width * this._sf;
 		this.canvas.height = rect.height * this._sf;
-		this._offscreenCanvas.width = this.canvas.width;
-		this._offscreenCanvas.height = this.canvas.height;
-		this._clearBuffers();
+
+		if (this._device.type === "software") {
+			this._ctx = this._ctx ?? this.canvas.getContext("2d");
+			this.pixels = new Uint8ClampedArray(
+				this.canvas.width * this.canvas.height * 4
+			);
+			this.depthBuffer = new Float32Array(
+				this.canvas.width * this.canvas.height
+			);
+			this.depthBuffer.fill(Infinity);
+			this.normalBuffer = new Float32Array(
+				this.canvas.width * this.canvas.height * 3
+			);
+		}
+
+		this._device.resize(this.canvas.width, this.canvas.height);
 		this.params.cacheInvalid = true;
 
 		if (this.camera) {
-			this.camera.aspectRatio = this.canvas.width / this.canvas.height;
+			this.camera.aspectRatio = this._getSafeAspectRatio(
+				this.canvas.width,
+				this.canvas.height
+			);
 			this.camera.updateMatrices();
 		}
 	}
 
-	private _clearBuffers(): void {
-		const size = this.canvas.width * this.canvas.height;
-		if (!this.depthBuffer || this.depthBuffer.length !== size) {
-			this.depthBuffer = new Float32Array(size);
-		}
-		this.depthBuffer.fill(Infinity);
-
-		if (!this.normalBuffer || this.normalBuffer.length !== size * 3) {
-			this.normalBuffer = new Float32Array(size * 3);
-		}
-		this.normalBuffer.fill(0);
+	private _getSafeAspectRatio(width: number, height: number): number {
+		return Math.max(width, 1) / Math.max(height, 1);
 	}
 
-	/**
-	 * Requests a render of the scene.
-	 */
 	public requestRender(): void {
 		this.params.cacheInvalid = true;
 	}
 
-	public renderScene(now: number): void {
+	public get backendType(): IDevice["type"] {
+		return this._device.type;
+	}
+
+	public warnOnce(key: string, message: string): void {
+		if (this._warnings.has(key)) return;
+		this._warnings.add(key);
+		console.warn(message);
+	}
+
+	public async renderScene(now: number): Promise<void> {
 		this._deltaTime = now - (this.lastTime || now);
 		this.lastTime = now;
 
 		this.emit("tick", { now, deltaTime: this._deltaTime });
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
 
-		if (!this.params.cacheInvalid) {
-			this.emit("frameend", {
-				now,
-				deltaTime: this._deltaTime,
-			});
+		if (!this.params.cacheInvalid && this._device.type !== "software") {
+			this.emit("frameend", { now, deltaTime: this._deltaTime });
 			requestAnimationFrame((time) => this.renderScene(time));
 			return;
 		}
 
 		this.params.cacheInvalid = false;
-
-		// Keep camera matrices current for every rendering pass (shadow/reflection/main).
 		this.camera.updateMatrices();
 
-		// Update light matrices once per frame
-		if (this.scene.lights) {
-			const worldMat = this.params.worldMatrix || Matrix4.identity();
-			for (const light of this.scene.lights) {
-				light.updateWorldMatrix(worldMat);
-			}
+		const worldMatrix = this.params.worldMatrix || Matrix4.identity();
+		for (const light of this.scene.lights) {
+			light.updateWorldMatrix(worldMatrix);
 		}
 
-		this._shadowRenderer.render();
+		if (this._device.type === "software") {
+			await this._renderSoftwareScene();
+			this.emit("frameend", { now, deltaTime: this._deltaTime });
+			requestAnimationFrame((time) => this.renderScene(time));
+			return;
+		}
+
+		await this._renderWebGPUScene();
+
+		this.emit("frameend", { now, deltaTime: this._deltaTime });
+		requestAnimationFrame((time) => this.renderScene(time));
+	}
+
+	private async _renderWebGPUScene(): Promise<void> {
+		const featureState = resolveWebGPUFeatureState(this.params);
+
+		if (featureState.enableShadows) {
+			this._shadowRenderer.render();
+		}
+
+		this._resourceManager.prepareWebGPUFrame(this, featureState);
+
+		const encoder = this._device.createCommandEncoder();
+		encoder.beginRenderPass({
+			colorAttachments: [
+				{
+					view: null,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: null,
+				depthClearValue: 1,
+				depthLoadOp: "clear",
+				depthStoreOp: "store",
+			},
+		});
+
+		for (const model of this.scene.models) {
+			const resources = await this._resourceManager.getWebGPUDrawResources(
+				model,
+				this
+			);
+			if (!resources) continue;
+
+			encoder.setPipeline(resources.pipeline);
+			encoder.setBindingGroup(0, resources.frameBinding);
+			encoder.setBindingGroup(1, resources.modelBinding);
+			encoder.setVertexBuffer(0, resources.vertexBuffer);
+			encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+			encoder.drawIndexed(resources.indexCount);
+		}
+
+		encoder.endRenderPass();
+		this._device.submit([encoder.finish()]);
+	}
+
+	private async _renderSoftwareScene(): Promise<void> {
+		if (!this._ctx) {
+			throw new Error("Software renderer requires a 2D canvas context.");
+		}
+
+		if (!this.pixels || !this.depthBuffer) return;
+
+		if (this.params.enableShadows) {
+			this._shadowRenderer.render();
+		}
 		if (this.params.enableReflection) {
 			this.reflectionRenderer.render();
 		}
 
-		this._offscreenCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-		this._clearBuffers();
-
-		const imageData = this._offscreenCtx.getImageData(
-			0,
-			0,
-			this.canvas.width,
-			this.canvas.height
-		);
-		const pixels = imageData.data;
+		this._clearSoftwareBuffers();
 
 		if (this.params.enableSkybox && this.scene.skybox) {
-			this.renderSkybox(pixels);
-		}
-
-		this._projectedModels.clear();
-		for (const model of this.scene.models) {
-			const faces = Projector.projectModel(model, this);
-			this._projectedModels.set(model, faces);
+			this.renderSkybox(this.pixels);
 		}
 
 		const opaqueFaces: ProjectedFace[] = [];
 		const transparentFaces: ProjectedFace[] = [];
 
 		for (const model of this.scene.models) {
-			const faces = this._projectedModels.get(model) || [];
-			for (let i = 0, len = faces.length; i < len; i++) {
-				const face = faces[i];
+			const faces = Projector.projectModel(model, this);
+			for (const face of faces) {
 				const alpha = face.color?.a ?? face.material?.opacity ?? 1;
 				const explicitAlphaMode = face.material?.alphaMode;
 				const alphaMode = explicitAlphaMode || "OPAQUE";
+
 				if (
 					alphaMode === "BLEND" ||
 					(explicitAlphaMode === undefined && alpha < 0.99)
@@ -301,21 +331,20 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				this.rasterizer.drawTriangle(
 					[projected[0], projected[i], projected[i + 1]],
 					face,
-					pixels,
+					this.pixels,
 					false
 				);
 			}
 		}
 
 		transparentFaces.sort((a, b) => b.depthInfo.avg - a.depthInfo.avg);
-
 		for (const face of transparentFaces) {
 			const projected = face.projected;
 			for (let i = 1; i < projected.length - 1; i++) {
 				this.rasterizer.drawTriangle(
 					[projected[0], projected[i], projected[i + 1]],
 					face,
-					pixels,
+					this.pixels,
 					true
 				);
 			}
@@ -323,56 +352,44 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		if (this.params.enableSSAO) {
 			this._postProcessor.applySSAO(
-				pixels,
+				this.pixels,
 				this.depthBuffer,
 				this.normalBuffer,
 				this.params.ssaoOptions
 			);
 		}
 
-		if (this.params.enableVolumetric) {
-			this._postProcessor.applyVolumetricLight(
-				this._offscreenCtx,
-				this._offscreenCanvas,
-				pixels,
-				this.depthBuffer,
-				this.params.volumetricOptions
-			);
-		}
-
-		if (this.params.enableFXAA) {
-			this._postProcessor.applyFXAA(
-				this._offscreenCtx,
-				this._offscreenCanvas,
-				pixels
-			);
-		}
-
 		if (this.params.enableGamma) {
 			this._postProcessor.applyGamma(
-				this._offscreenCtx,
-				this._offscreenCanvas,
+				this._ctx,
+				this.canvas,
 				PostProcessConstants.DEFAULT_GAMMA,
-				pixels
+				this.pixels
 			);
 		}
 
-		this._offscreenCtx.putImageData(imageData, 0, 0);
-		this._ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-		this._ctx.drawImage(this._offscreenCanvas, 0, 0);
-
-		this.emit("frameend", {
-			now,
-			deltaTime: this._deltaTime,
-		});
-
-		requestAnimationFrame((time) => this.renderScene(time));
+		const imageData = this._ctx.createImageData(
+			this.canvas.width,
+			this.canvas.height
+		);
+		imageData.data.set(this.pixels);
+		this._ctx.putImageData(imageData, 0, 0);
 	}
 
-	/**
-	 * Renders the skybox into the pixel buffer.
-	 * @param pixels - The pixel buffer to render into.
-	 */
+	private _clearSoftwareBuffers(): void {
+		const size = this.canvas.width * this.canvas.height;
+		for (let i = 0; i < size; i++) {
+			const idx = i << 2;
+			this.pixels[idx] = 0;
+			this.pixels[idx + 1] = 0;
+			this.pixels[idx + 2] = 0;
+			this.pixels[idx + 3] = 255;
+		}
+
+		this.depthBuffer.fill(Infinity);
+		this.normalBuffer?.fill(0);
+	}
+
 	public renderSkybox(
 		pixels: Uint8ClampedArray,
 		width?: number,
@@ -384,13 +401,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const w = width ?? this.canvas.width;
 		const h = height ?? this.canvas.height;
 		const camera = this.camera;
-
 		const view = camera.viewMatrix.elements;
-		// Camera basis in world space (rows of the orthonormal view matrix)
 		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
 		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
 		const backward = { x: view[2][0], y: view[2][1], z: view[2][2] };
-
 		const isOrthographic = camera.type === CameraType.Orthographic;
 		const fovRad = (camera.fov * Math.PI) / 180;
 		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
@@ -405,23 +419,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			for (let x = 0; x < w; x++) {
 				const ndcX = ((x + 0.5) / w) * 2 - 1;
 				const cx = ndcX * aspect * tanHalfFov;
-
-				// Camera direction: dir = right*cx + up*cy - backward
 				const dirX = right.x * cx + up.x * cy - backward.x;
 				const dirY = right.y * cx + up.y * cy - backward.y;
 				const dirZ = right.z * cx + up.z * cy - backward.z;
-
-				const invLen = 1.0 / Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+				const invLen = 1 / Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
 				const dx = dirX * invLen;
 				const dy = dirY * invLen;
 				const dz = dirZ * invLen;
-
-				// Equirectangular mapping
 				const phi = Math.atan2(dx, dz);
 				const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
 				const u = (phi + Math.PI) / (2 * Math.PI);
 				const v = theta / Math.PI;
-
 				const color = skybox.sample(u, v);
 				const idx = rowBase + x * 4;
 				pixels[idx] = color.r;
@@ -432,11 +440,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
-	/**
-	 * Updates the Spherical Harmonics (SH) coefficients based on the current lights in the scene.
-	 * IMPORTANT: This must be called AFTER all lights are added to the scene (scene.addLight)
-	 * and whenever dynamic lights change their intensity or direction.
-	 */
+	// ... Other methods (updateSH, etc.) kept for metadata logic
 	public updateSH(): void {
 		let ambientProbeSH: SHCoefficients = SH.empty();
 		let ambientR = 0,
@@ -448,7 +452,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		if (this.scene.lights) {
 			for (const light of this.scene.lights) {
-				// Update light's world matrix once per frame/update
 				light.updateWorldMatrix(worldMatrix);
 
 				if (light.type === LightType.Ambient) {
@@ -459,7 +462,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
 					hasAmbient = true;
 				} else if (light.type === LightType.LightProbe) {
-					const probeSH = light.sh;
+					const probeSH = (light as any).sh;
 					const intensity = light.intensity ?? 1;
 					const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 					for (let i = 0; i < coeffCount; i++) {
@@ -488,14 +491,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		ambientProbeSH[0].g += ambientG / Math.PI / 0.282095;
 		ambientProbeSH[0].b += ambientB / Math.PI / 0.282095;
 
-		// Keep an ambient/probe-only SH set for PBR ambient IBL
 		this.shAmbientCoeffs = ambientProbeSH.map((c) => ({
 			r: c.r,
 			g: c.g,
 			b: c.b,
 		})) as SHCoefficients;
 
-		// Full SH (includes directional), kept for compatibility/debug tooling.
 		let totalSH: SHCoefficients = this.shAmbientCoeffs.map((c) => ({
 			r: c.r,
 			g: c.g,
@@ -508,8 +509,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					const contrib = light.computeContribution({
 						position: { x: 0, y: 0, z: 0 },
 					});
-					if (contrib) {
-						const dir = Vector3.normalize(contrib.direction!);
+					if (contrib?.direction) {
+						const dir = Vector3.normalize(contrib.direction);
 						const intensity = contrib.intensity ?? 1.0;
 						const lightSH = SH.projectDirectionalLight(dir, {
 							r: contrib.color.r * intensity,
@@ -521,6 +522,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				}
 			}
 		}
+
 		this.shCoeffs = totalSH;
 	}
 }

@@ -20,8 +20,8 @@ export type {
 } from "./core/types";
 export { Renderer } from "./core/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
-export { Rasterizer } from "./core/Rasterizer";
-export { PostProcessor, type VolumetricOptions } from "./core/PostProcessor";
+export { Rasterizer } from "./core/software/Rasterizer";
+export { PostProcessor, type VolumetricOptions } from "./core/software/PostProcessor";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";

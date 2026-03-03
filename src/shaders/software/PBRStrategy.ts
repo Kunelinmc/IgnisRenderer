@@ -1,11 +1,11 @@
-import { Vector3 } from "../maths/Vector3";
-import { SH } from "../maths/SH";
-import { Texture } from "../core/Texture";
-import { isShadowCastingLight } from "../lights";
-import { LightingConstants } from "../core/Constants";
-import { clamp, sRGBToLinear } from "../maths/Common";
-import type { IVector3, SHCoefficients } from "../maths/types";
-import type { RGB } from "../utils/Color";
+import { Vector3 } from "../../maths/Vector3";
+import { SH } from "../../maths/SH";
+import { Texture } from "../../core/Texture";
+import { isShadowCastingLight } from "../../lights";
+import { LightingConstants } from "../../core/Constants";
+import { clamp, sRGBToLinear } from "../../maths/Common";
+import type { IVector3, SHCoefficients } from "../../maths/types";
+import type { RGB } from "../../utils/Color";
 import type {
 	ILightingStrategy,
 	PBRSurfaceProperties,
@@ -173,7 +173,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			let clearcoatAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
 			let baseLayerAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
 
-			const Nc = surface.clearcoatNormal;
+			const Nc = surface.clearcoatNormal ?? N;
 			const NcdotV = Math.max(
 				Vector3.dot(Nc, V),
 				LightingConstants.PBR_MIN_NDOTV

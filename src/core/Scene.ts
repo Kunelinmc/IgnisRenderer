@@ -1,5 +1,5 @@
 ﻿import { Matrix4 } from "../maths/Matrix4";
-import { Projector } from "./Projector";
+import { getModelMatrix } from "./modelMatrix";
 import type { IVector3 } from "../maths/types";
 import type { SceneLight } from "../lights";
 import type { Texture } from "./Texture";
@@ -64,7 +64,7 @@ export class Scene {
 				);
 
 			const worldCenter = Matrix4.transformPoint(
-				Projector.getModelMatrix(model),
+				getModelMatrix(model),
 				model.boundingSphere.center
 			);
 

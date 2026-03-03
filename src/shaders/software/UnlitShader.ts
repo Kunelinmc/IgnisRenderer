@@ -1,5 +1,5 @@
 import { BaseShader } from "./BaseShader";
-import { clamp } from "../maths/Common";
+import { clamp } from "../../maths/Common";
 import type { FragmentInput, FragmentOutput, SurfaceProperties } from "./types";
 
 export class UnlitShader extends BaseShader<SurfaceProperties> {

@@ -1,6 +1,6 @@
-import { Material } from "../materials/Material";
-import { Matrix4 } from "../maths/Matrix4";
-import { CoreConstants, PostProcessConstants } from "./Constants";
+import { Material } from "../../materials/Material";
+import { Matrix4 } from "../../maths/Matrix4";
+import { CoreConstants, PostProcessConstants } from "../Constants";
 import {
 	FlatLitShader,
 	LitShader,
@@ -17,13 +17,13 @@ import {
 	type PhongSurfaceProperties,
 	type PBRSurfaceProperties,
 	IBLBRDF,
-} from "../shaders";
-import { LightType, LightProbe } from "../lights";
-import type { ShadowMap } from "../utils/ShadowMapping";
-import type { Renderer } from "./Renderer";
-import type { ProjectedVertex, ProjectedFace } from "./types";
-import type { IVector3, IVector4 } from "../maths/types";
-import type { Texture } from "./Texture";
+} from "../../shaders";
+import { LightType, LightProbe } from "../../lights";
+import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { Renderer } from "../Renderer";
+import type { ProjectedVertex, ProjectedFace } from "../types";
+import type { IVector3, IVector4 } from "../../maths/types";
+import type { Texture } from "../Texture";
 
 export interface RasterizerLike {
 	drawTriangle(

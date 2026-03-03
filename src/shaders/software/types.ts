@@ -3,14 +3,14 @@ import type {
 	IVector4,
 	SHCoefficients,
 	IVector2,
-} from "../maths/types";
-import type { Texture } from "../core/Texture";
-import type { Renderer } from "../core/Renderer";
-import type { Matrix4 } from "../maths/Matrix4";
-import type { ProjectedFace } from "../core/types";
-import type { Material } from "../materials";
-import type { RGB } from "../utils/Color";
-import type { SceneLight } from "../lights";
+} from "../../maths/types";
+import type { Texture } from "../../core/Texture";
+import type { Renderer } from "../../core/Renderer";
+import type { Matrix4 } from "../../maths/Matrix4";
+import type { ProjectedFace } from "../../core/types";
+import type { Material } from "../../materials";
+import type { RGB } from "../../utils/Color";
+import type { SceneLight } from "../../lights";
 
 export interface ShaderContext {
 	renderer: Renderer;

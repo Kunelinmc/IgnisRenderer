@@ -1,9 +1,9 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Plane } from "../maths/Plane";
+import { Matrix4 } from "../../maths/Matrix4";
+import { Plane } from "../../maths/Plane";
 import { Projector } from "./Projector";
-import { RenderConstants } from "./Constants";
-import type { Renderer } from "./Renderer";
-import type { ProjectedFace, ProjectedVertex } from "./types";
+import { RenderConstants } from "../Constants";
+import type { Renderer } from "../Renderer";
+import type { ProjectedFace, ProjectedVertex } from "../types";
 
 interface ReflectionBuffer {
 	imageData: ImageData;
@@ -40,8 +40,13 @@ export class ReflectionRenderer {
 		}
 
 		const { width, height } = this._renderer.canvas;
-		const scaledWidth = Math.floor(width * this.resolutionScale);
-		const scaledHeight = Math.floor(height * this.resolutionScale);
+		if (width <= 0 || height <= 0) {
+			this._clearBuffers();
+			return;
+		}
+
+		const scaledWidth = Math.max(1, Math.floor(width * this.resolutionScale));
+		const scaledHeight = Math.max(1, Math.floor(height * this.resolutionScale));
 
 		// 2. Render and process each plane
 		for (const [key, info] of planeInfos) {

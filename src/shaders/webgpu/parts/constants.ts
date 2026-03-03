@@ -1,0 +1,27 @@
+export const WEBGPU_SCENE_SHADER_CONSTANTS = /* wgsl */ `
+const PI: f32 = 3.14159265359;
+const EPSILON: f32 = 0.000001;
+const PBR_MIN_NDOTV: f32 = 0.001;
+const PBR_SPEC_FALLBACK: f32 = 0.02;
+const PBR_AMBIENT_FALLBACK_LINEAR: f32 = 0.05;
+
+const SHADING_PHONG: u32 = 0u;
+const SHADING_PBR: u32 = 1u;
+const SHADING_UNLIT: u32 = 2u;
+const SHADING_FLAT: u32 = 3u;
+
+const TEX_BASE_COLOR: u32 = 0u;
+const TEX_METALLIC_ROUGHNESS: u32 = 1u;
+const TEX_NORMAL: u32 = 2u;
+const TEX_EMISSIVE: u32 = 3u;
+const TEX_OCCLUSION: u32 = 4u;
+const TEX_SPECULAR: u32 = 5u;
+const TEX_SPECULAR_COLOR: u32 = 6u;
+const TEX_CLEARCOAT: u32 = 7u;
+const TEX_CLEARCOAT_ROUGHNESS: u32 = 8u;
+const TEX_CLEARCOAT_NORMAL: u32 = 9u;
+const TEX_SHEEN_COLOR: u32 = 10u;
+const TEX_SHEEN_ROUGHNESS: u32 = 11u;
+const TEX_TRANSMISSION: u32 = 12u;
+const TEX_THICKNESS: u32 = 13u;
+`

@@ -1,9 +1,9 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PBRMaterial, Material } from "../materials";
-import type { ProjectedFace } from "../core/types";
+import type { PBRMaterial, Material } from "../../materials";
+import type { ProjectedFace } from "../../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
-import { Vector3 } from "../maths/Vector3";
-import { clamp, sRGBToLinear } from "../maths/Common";
+import { Vector3 } from "../../maths/Vector3";
+import { clamp, sRGBToLinear } from "../../maths/Common";
 
 export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 	private _mat!: PBRMaterial;

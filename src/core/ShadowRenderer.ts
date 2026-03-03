@@ -1,9 +1,9 @@
 import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
-import { Projector } from "./Projector";
 import { isShadowCastingLight } from "../lights";
 import { ShadowMap } from "../utils/ShadowMapping";
 import { ShadowConstants } from "./Constants";
+import { getModelMatrix } from "./modelMatrix";
 import type { Renderer } from "./Renderer";
 import type { ProjectedVertex } from "./types";
 
@@ -207,10 +207,11 @@ export class ShadowRenderer {
 
 			// Pass 1: Opaque objects (Depth Map)
 			for (const model of renderer.scene.models) {
-				// Optimization 1: Cull model against light frustum
-				if (!this._isModelInFrustum(model, vpMatrix)) continue;
+				const modelMatrix = getModelMatrix(model);
 
-				const modelMatrix = Projector.getModelMatrix(model);
+				// Optimization 1: Cull model against light frustum
+				if (!this._isModelInFrustum(model, vpMatrix, modelMatrix)) continue;
+
 				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
 
 				// Optimization 2: Model-space lighting
@@ -252,9 +253,9 @@ export class ShadowRenderer {
 
 			// Pass 2: Transparent objects (Transmission Map/Colored Shadows)
 			for (const model of renderer.scene.models) {
-				if (!this._isModelInFrustum(model, vpMatrix)) continue;
+				const modelMatrix = getModelMatrix(model);
+				if (!this._isModelInFrustum(model, vpMatrix, modelMatrix)) continue;
 
-				const modelMatrix = Projector.getModelMatrix(model);
 				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
 
 				for (const face of model.faces) {
@@ -276,7 +277,11 @@ export class ShadowRenderer {
 		}
 	}
 
-	private _isModelInFrustum(model: any, vpMatrix: Matrix4): boolean {
+	private _isModelInFrustum(
+		model: any,
+		vpMatrix: Matrix4,
+		modelMatrix: Matrix4
+	): boolean {
 		if (!model.boundingBox) return true;
 
 		// Simple AABB vs Frustum check using clip codes for the 8 corners
@@ -294,7 +299,8 @@ export class ShadowRenderer {
 
 		let initialOutCodes = -1;
 		for (const corner of corners) {
-			const p = Matrix4.transformPoint(vpMatrix, corner);
+			const worldCorner = Matrix4.transformPoint(modelMatrix, corner);
+			const p = Matrix4.transformPoint(vpMatrix, worldCorner);
 			let code = 0;
 			if (p.w < ShadowConstants.MIN_CLIP_W) code |= 1;
 			if (p.x < -p.w) code |= 2;

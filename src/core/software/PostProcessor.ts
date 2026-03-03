@@ -1,22 +1,22 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Vector3 } from "../maths/Vector3";
+import { Matrix4 } from "../../maths/Matrix4";
+import { Vector3 } from "../../maths/Vector3";
 import {
 	PostProcessConstants,
 	VolumetricConstants,
 	SSAOConstants,
-} from "./Constants";
-import type { Renderer } from "./Renderer";
+} from "../Constants";
+import type { Renderer } from "../Renderer";
 import {
 	type DirectionalLight,
 	type PointLight,
 	type SpotLight,
 	LightType,
 	isShadowCastingLight,
-} from "../lights";
-import { clamp, linearToSRGB } from "../maths/Common";
-import type { IVector3 } from "../maths/types";
-import { CameraType } from "../cameras/Camera";
-import type { OrthographicCamera } from "../cameras/OrthographicCamera";
+} from "../../lights";
+import { clamp, linearToSRGB } from "../../maths/Common";
+import type { IVector3 } from "../../maths/types";
+import { CameraType } from "../../cameras/Camera";
+import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
 
 export interface PostProcessorLike {
 	applyFXAA(
@@ -302,8 +302,8 @@ export class PostProcessor implements PostProcessorLike {
 		const u = nx * 0.5 + 0.5;
 		const v = 0.5 - ny * 0.5;
 
-		const gx = u * gridW - 0.5;
-		const gy = v * gridH - 0.5;
+		const gx = clamp(u * gridW - 0.5, 0, gridW - 1);
+		const gy = clamp(v * gridH - 0.5, 0, gridH - 1);
 
 		const x1 = Math.floor(gx);
 		const y1 = Math.floor(gy);
@@ -432,13 +432,15 @@ export class PostProcessor implements PostProcessorLike {
 		y: number,
 		outCol: { r: number; g: number; b: number; a: number }
 	): void {
-		const x1 = Math.floor(x);
-		const y1 = Math.floor(y);
+		const sx = clamp(x, 0, w - 1);
+		const sy = clamp(y, 0, h - 1);
+		const x1 = Math.floor(sx);
+		const y1 = Math.floor(sy);
 		const x2 = Math.min(x1 + 1, w - 1);
 		const y2 = Math.min(y1 + 1, h - 1);
 
-		const tx = x - x1;
-		const ty = y - y1;
+		const tx = sx - x1;
+		const ty = sy - y1;
 
 		const i1 = (y1 * w + x1) << 2;
 		const i2 = (y1 * w + x2) << 2;
@@ -476,13 +478,15 @@ export class PostProcessor implements PostProcessorLike {
 		x: number,
 		y: number
 	): number {
-		const x1 = Math.floor(x);
-		const y1 = Math.floor(y);
+		const sx = clamp(x, 0, w - 1);
+		const sy = clamp(y, 0, h - 1);
+		const x1 = Math.floor(sx);
+		const y1 = Math.floor(sy);
 		const x2 = Math.min(x1 + 1, w - 1);
 		const y2 = Math.min(y1 + 1, h - 1);
 
-		const tx = x - x1;
-		const ty = y - y1;
+		const tx = sx - x1;
+		const ty = sy - y1;
 
 		const i1 = y1 * w + x1;
 		const i2 = y1 * w + x2;

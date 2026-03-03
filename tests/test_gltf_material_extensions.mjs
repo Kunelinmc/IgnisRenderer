@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { GLTFLoader } from "../src/loaders/GLTFLoader.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
-import { PBRStrategy } from "../src/shaders/PBRStrategy.ts";
-import { PBREvaluator } from "../src/shaders/PBREvaluator.ts";
+import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
+import { PBREvaluator } from "../src/shaders/software/PBREvaluator.ts";
 
 function approx(actual, expected, epsilon = 1e-6) {
 	assert.ok(

@@ -1,5 +1,5 @@
-import type { RGB } from "../utils/Color";
-import type { ProjectedFace } from "../core/types";
+import type { RGB } from "../../utils/Color";
+import type { ProjectedFace } from "../../core/types";
 import type {
 	FragmentInput,
 	FragmentOutput,

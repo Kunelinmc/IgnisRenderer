@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { PBREvaluator } from "../src/shaders/PBREvaluator.ts";
+import { PBREvaluator } from "../src/shaders/software/PBREvaluator.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Vector3 } from "../src/maths/Vector3.ts";

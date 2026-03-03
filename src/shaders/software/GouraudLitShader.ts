@@ -1,5 +1,5 @@
 import { LitShader } from "./LitShader";
-import type { RGB } from "../utils/Color";
+import type { RGB } from "../../utils/Color";
 import type {
 	FragmentInput,
 	FragmentOutput,

@@ -6,24 +6,21 @@ import {
 	OrbitCamera,
 	GLTFLoader,
 	PhongMaterial,
+	PBRMaterial,
 	ModelFactory,
 } from "./index";
+import { SoftwareBackend } from "./core/backend/SoftwareBackend";
+import { WebGPUBackend } from "./core/backend/WebGPUBackend";
+
+interface RendererBootstrap {
+	canvas: HTMLCanvasElement;
+	renderer: Renderer;
+}
 
 async function init() {
-	const canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
-
+	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
 	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500);
-
-	const renderer = new Renderer(canvas, camera);
 	const scene = new Scene();
-
-	renderer.scene = scene;
-
-	renderer.params.enableLighting = true;
-	renderer.params.enableSH = true;
-	renderer.params.enableShadows = true;
-	renderer.params.enableReflection = true;
-	renderer.params.enableVolumetric = false;
 
 	scene.addLight(
 		new AmbientLight({
@@ -41,61 +38,124 @@ async function init() {
 	);
 
 	const loader = new GLTFLoader();
-
-	loader.on("progress", (event) => {
-		const { loaded, total, url } = event;
-		if (!total) return;
-		const percent = ((loaded / total) * 100).toFixed(1);
-		console.log(`[Loading] ${url}: ${percent}%`);
-	});
-
 	const model = await loader.load("./assets/duck.glb");
 
 	const targetRadius = 120;
 	const scale = targetRadius / model.boundingSphere.radius;
-
 	model.transform.scale.set(scale, scale, scale);
 	model.transform.position.y = -model.getWorldBoundingBox().min.y;
-
 	scene.addModel(model);
 
-	const plane = ModelFactory.createPlane(
-		{
-			x: 0,
-			y: 0,
-			z: 0,
-		},
-		400,
-		400,
-		new PhongMaterial({
-			diffuse: { r: 255, g: 255, b: 255 },
-			doubleSided: true,
-			mirrorPlane: {
-				normal: { x: 0, y: 1, z: 0 },
-				constant: 0,
-			},
-			reflectivity: 0.5,
-		})
+	scene.addModel(
+		ModelFactory.createPlane(
+			{ x: 0, y: 0, z: 0 },
+			400,
+			400,
+			new PBRMaterial({
+				albedo: { r: 255, g: 255, b: 255 },
+				doubleSided: true,
+				mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+				reflectivity: 0.5,
+			})
+		)
 	);
 
-	scene.addModel(plane);
+	const bootstrap = await createRenderer(canvas, camera, scene);
+	canvas = bootstrap.canvas;
+	const renderer = bootstrap.renderer;
 
 	renderer.updateSH();
 	renderer.requestRender();
-	renderer.init();
 
+	bindControls(canvas, camera, renderer);
+	window.addEventListener("resize", () => {
+		renderer.resizeCanvas();
+		renderer.requestRender();
+	});
+}
+
+async function createRenderer(
+	canvas: HTMLCanvasElement,
+	camera: OrbitCamera,
+	scene: Scene
+): Promise<RendererBootstrap> {
+	if (navigator.gpu) {
+		const webgpuRenderer = new Renderer(
+			new WebGPUBackend(canvas),
+			canvas,
+			camera
+		);
+		webgpuRenderer.scene = scene;
+		configureRenderer(webgpuRenderer);
+
+		try {
+			await webgpuRenderer.init();
+			console.info("Using WebGPU backend");
+			return {
+				canvas,
+				renderer: webgpuRenderer,
+			};
+		} catch (error) {
+			console.warn(
+				"WebGPU initialization failed, falling back to software.",
+				error
+			);
+			canvas = replaceCanvas(canvas);
+		}
+	}
+
+	const softwareRenderer = new Renderer(
+		new SoftwareBackend({ canvas } as any),
+		canvas,
+		camera
+	);
+	softwareRenderer.scene = scene;
+	configureRenderer(softwareRenderer);
+	await softwareRenderer.init();
+	console.info("Using software backend");
+
+	return {
+		canvas,
+		renderer: softwareRenderer,
+	};
+}
+
+function configureRenderer(renderer: Renderer): void {
+	renderer.params.enableLighting = true;
+	renderer.params.enableGamma = true;
+
+	if (renderer.backendType === "webgpu") {
+		renderer.params.enableSH = false;
+		renderer.params.enableShadows = true;
+		renderer.params.enableReflection = false;
+		renderer.params.enableSkybox = false;
+		renderer.params.enableSSAO = false;
+		renderer.params.enableVolumetric = false;
+		return;
+	}
+
+	renderer.params.enableSH = true;
+	renderer.params.enableShadows = true;
+	renderer.params.enableReflection = true;
+}
+
+function bindControls(
+	canvas: HTMLCanvasElement,
+	camera: OrbitCamera,
+	renderer: Renderer
+): void {
 	let isDragging = false;
 	let lastMouse = { x: 0, y: 0 };
 
-	canvas.addEventListener("mousedown", (e) => {
+	canvas.addEventListener("mousedown", (event) => {
 		isDragging = true;
-		lastMouse = { x: e.clientX, y: e.clientY };
+		lastMouse = { x: event.clientX, y: event.clientY };
 	});
 
-	window.addEventListener("mousemove", (e) => {
+	window.addEventListener("mousemove", (event) => {
 		if (!isDragging) return;
-		camera.rotate(e.clientX - lastMouse.x, e.clientY - lastMouse.y);
-		lastMouse = { x: e.clientX, y: e.clientY };
+		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y);
+		lastMouse = { x: event.clientX, y: event.clientY };
 		renderer.requestRender();
 	});
 
@@ -105,9 +165,9 @@ async function init() {
 
 	canvas.addEventListener(
 		"wheel",
-		(e) => {
-			e.preventDefault();
-			camera.zoom(e.deltaY);
+		(event) => {
+			event.preventDefault();
+			camera.zoom(event.deltaY);
 			renderer.requestRender();
 		},
 		{ passive: false }
@@ -115,19 +175,22 @@ async function init() {
 
 	canvas.addEventListener(
 		"touchstart",
-		(e) => {
-			if (e.touches.length !== 1) return;
+		(event) => {
+			if (event.touches.length !== 1) return;
 			isDragging = true;
-			lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+			lastMouse = {
+				x: event.touches[0].clientX,
+				y: event.touches[0].clientY,
+			};
 		},
 		{ passive: false }
 	);
 
 	canvas.addEventListener(
 		"touchmove",
-		(e) => {
-			if (!isDragging || e.touches.length !== 1) return;
-			const touch = e.touches[0];
+		(event) => {
+			if (!isDragging || event.touches.length !== 1) return;
+			const touch = event.touches[0];
 			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
 			lastMouse = { x: touch.clientX, y: touch.clientY };
 			renderer.requestRender();
@@ -138,10 +201,15 @@ async function init() {
 	canvas.addEventListener("touchend", () => {
 		isDragging = false;
 	});
+}
 
-	window.addEventListener("resize", () => {
-		renderer.resizeCanvas();
-	});
+function replaceCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+	const replacement = canvas.cloneNode(false) as HTMLCanvasElement;
+	replacement.id = canvas.id;
+	replacement.className = canvas.className;
+	replacement.style.cssText = canvas.style.cssText;
+	canvas.replaceWith(replacement);
+	return replacement;
 }
 
 init().catch((error) => {

@@ -1,8 +1,9 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Vector3 } from "../maths/Vector3";
-import type { IModel, IVertex, ProjectedVertex, ProjectedFace } from "./types";
-import type { Renderer } from "./Renderer";
-import { CameraType } from "../cameras/Camera";
+import { Matrix4 } from "../../maths/Matrix4";
+import { Vector3 } from "../../maths/Vector3";
+import { CameraType } from "../../cameras/Camera";
+import { getModelMatrix } from "../modelMatrix";
+import type { IModel, IVertex, ProjectedVertex, ProjectedFace } from "../types";
+import type { Renderer } from "../Renderer";
 
 export class Projector {
 	/**
@@ -19,7 +20,7 @@ export class Projector {
 		const targetWidth = overrideSize?.width ?? renderer.canvas.width;
 		const targetHeight = overrideSize?.height ?? renderer.canvas.height;
 
-		const modelMatrix = Projector.getModelMatrix(model);
+		const modelMatrix = getModelMatrix(model);
 		const viewMatrix = renderer.camera.viewMatrix;
 		const projectionMatrix = renderer.camera.projectionMatrix;
 
@@ -218,7 +219,9 @@ export class Projector {
 			const projectedVerts: ProjectedVertex[] = [];
 			for (const v of clippedVerts) {
 				const p = Matrix4.transformPoint(projectionMatrix, v.view);
-				const w = p.w || 1e-6;
+				const rawW = p.w ?? 0;
+				const w =
+					Math.abs(rawW) > 1e-6 ? rawW : rawW >= 0 ? 1e-6 : -1e-6;
 				const ndcX = p.x / w;
 				const ndcY = p.y / w;
 				const ndcZ = p.z / w;
@@ -337,27 +340,6 @@ export class Projector {
 	 * @returns {number[][]}
 	 */
 	public static getModelMatrix(model: IModel): Matrix4 {
-		const transform = model.transform;
-		const scaleMatrix = [
-			[transform.scale.x, 0, 0, 0],
-			[0, transform.scale.y, 0, 0],
-			[0, 0, transform.scale.z, 0],
-			[0, 0, 0, 1],
-		];
-		const rotationMatrix = Matrix4.rotationFromEuler(
-			transform.rotation.x,
-			transform.rotation.y,
-			transform.rotation.z
-		);
-		const translationMatrix = [
-			[1, 0, 0, transform.position.x],
-			[0, 1, 0, transform.position.y],
-			[0, 0, 1, transform.position.z],
-			[0, 0, 0, 1],
-		];
-		return Matrix4.multiply(
-			new Matrix4(translationMatrix),
-			Matrix4.multiply(rotationMatrix, new Matrix4(scaleMatrix))
-		);
+		return getModelMatrix(model);
 	}
 }

@@ -1,6 +1,6 @@
-import type { RGBA } from "../utils/Color";
-import type { Material } from "../materials";
-import type { ProjectedFace } from "../core/types";
+import type { RGBA } from "../../utils/Color";
+import type { Material } from "../../materials";
+import type { ProjectedFace } from "../../core/types";
 import type {
 	IMaterialEvaluator,
 	SurfaceProperties,

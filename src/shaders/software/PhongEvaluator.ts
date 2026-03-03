@@ -1,8 +1,8 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PhongMaterial, Material } from "../materials";
-import type { ProjectedFace } from "../core/types";
+import type { PhongMaterial, Material } from "../../materials";
+import type { ProjectedFace } from "../../core/types";
 import type { PhongSurfaceProperties, FragmentInput } from "./types";
-import { Vector3 } from "../maths/Vector3";
+import { Vector3 } from "../../maths/Vector3";
 
 export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 	private _mat!: PhongMaterial;
