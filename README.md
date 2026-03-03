@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite)
 
-**IgnisRenderer** is a high-performance 3D software rendering engine built entirely from scratch in TypeScript. It implements the complete graphics pipeline on the CPU, bypassing WebGL/WebGPU to provide a deep understanding of how modern 3D rendering works at its core.
+**IgnisRenderer** is a versatile 3D rendering engine built from scratch in TypeScript. It features a dual-core architecture: a high-performance **CPU Scanline Rasterizer** for a deep dive into graphics fundamentals, and a modern **WebGPU Hardware-Accelerated Pipeline** for real-time performance.
 
 [**Live Demo 🚀**](https://ignis-renderer-demo.netlify.app/)
 
@@ -14,6 +14,11 @@
 ---
 
 ## 🚀 Key Features
+
+### 🎮 Dual Rendering Backends
+
+- **Software Backend (CPU)**: A complete graphics pipeline implemented from scratch on the CPU, including vertex transformation, clipping, and triangle rasterization.
+- **WebGPU Backend (GPU)**: A modern, hardware-accelerated pipeline leveraging the WebGPU API for high-performance real-time rendering.
 
 ### 🛠️ Rendering Core
 
@@ -40,8 +45,15 @@
   - **Fresnel Effect**: View-dependent reflectivity.
   - **Blur & Distortion**: Simulated surface roughness and ripple effects.
 - **Post-Processing Pipeline**:
-  - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges.
+  - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges (Software).
   - **Tone Mapping**: Exposure control and Gamma correction (v2.2 convention).
+
+### ⚡ WebGPU Implementation
+
+- **Programmable Pipeline**: Custom WGSL shaders for high-performance vertex and fragment processing.
+- **Dynamic Resource Management**: Efficient allocation and binding of GPU buffers, textures, and samplers.
+- **Modern Abstraction Layer**: Standardized Render Abstraction Layer (RAL) that makes switching between CPU and GPU backends seamless.
+- **Real-time Shadows**: Hardware-accelerated depth mapping and shadow evaluation.
 
 ### 📦 Assets & Interaction
 
@@ -55,8 +67,11 @@
 
 The renderer is organized into modular components:
 
-- **`core/`**: The engine heartbeat. Contains the `Renderer`, `Scene`, `Rasterizer`, and `Projector`.
-- **`shaders/`**: Pluggable shading strategies and material evaluators.
+- **`core/`**: The engine heartbeat.
+  - **`backend/`**: Implementations for `SoftwareBackend` and `WebGPUBackend`.
+  - **`ral/`**: Render Abstraction Layer defining the common interface for all rendering devices.
+  - **`Renderer`**: The high-level orchestrator.
+- **`shaders/`**: Pluggable shading strategies and WGSL shader modules.
 - **`maths/`**: A custom, optimized mathematical library for 3D operations (Vectors, Matrices, Quaternions).
 - **`loaders/`**: Asynchronous asset loaders for textures and 3D models.
 - **`cameras/`**: Viewport and projection management.
@@ -67,43 +82,29 @@ The renderer is organized into modular components:
 ```mermaid
 graph TD
     A([Target Frame Render]) --> B[Update Camera & Lights Matrices]
-    B --> C{Pre-Passes}
-    C -->|If enabled| D[Shadow Mapping]
-    C -->|If enabled| E[Planar Reflections]
-    C --> F[Clear Color & Depth Buffers]
-    D --> F
-    E --> F
+    B --> C{Backend?}
 
-    F --> G[Render Skybox]
-    G --> H[Begin Vertex Processing]
-
-    subgraph 1. Geometry Pipeline [Projector]
-        H --> I[Model/World/View Transform]
-        I --> J[Near Plane Clipping]
-        J --> K[Camera Space Backface Culling]
-        K --> L[Screen Space Projection]
+    subgraph Software Pipeline
+        C -->|Software| D[Shadow/Reflection Pre-Passes]
+        D --> E[Geometry Processing - Clipping/Culling]
+        E --> F[Scanline Rasterization]
+        F --> G[Software Fragment Shading]
     end
 
-    L --> M[Separate Opaque & Transparent Faces]
-    M --> N[Draw Opaque Triangles]
-    N --> O[Draw Transparent Triangles]
-
-    subgraph 2. Rasterization Pipeline [Rasterizer]
-        O --> P[Scanline Interpolation]
-        P --> Q[Perspective Correct Texturing & Z-Test]
-        Q --> R[Fragment Shading - PBR/Phong/Unlit]
+    subgraph WebGPU Pipeline
+        C -->|WebGPU| H[GPU Buffer/Binding Updates]
+        H --> I[WebGPU Render Pass]
+        I --> J[Hardware Geometry & Shading]
     end
 
-    R --> S{Post-Processing}
+    G --> K{Post-Processing}
+    J --> K
 
-    S -.->|Optional| T[FXAA]
-    S -.->|Optional| U[Volumetric Lighting]
-    S -.->|Optional| V[Gamma Correction]
+    K -.->|Optional| L[FXAA]
+    K -.->|Optional| M[Gamma Correction]
 
-    T -.-> W
-    U -.-> W
-    V -.-> W
-    S --> W([Blit to Final Canvas])
+    L --> N([Blit to Final Canvas])
+    M --> N
 ```
 
 ---
@@ -148,13 +149,21 @@ import {
 	GLTFLoader,
 	OrbitCamera,
 	DirectionalLight,
-} from "./index";
+	WebGPUBackend,
+	SoftwareBackend,
+} from "ignis-renderer";
 
 async function main() {
 	const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 });
-	const renderer = new Renderer(canvas, camera);
 	const scene = new Scene();
+
+	// Choose Backend: WebGPU or Software
+	const backend = navigator.gpu
+		? new WebGPUBackend(canvas)
+		: new SoftwareBackend(canvas);
+
+	const renderer = new Renderer(backend, canvas, camera);
 
 	// Add Lighting
 	scene.addLight(new DirectionalLight({ dir: { x: -1, y: -1, z: -1 } }));
