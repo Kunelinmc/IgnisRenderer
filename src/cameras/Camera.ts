@@ -18,6 +18,8 @@ export class Camera {
 	public aspectRatio: number;
 	public near: number;
 	public far: number;
+	/** Provide the vertical size of the visible area for orthographic projection. */
+	public size: number = 100;
 	public viewMatrix: Matrix4;
 	public projectionMatrix: Matrix4;
 	public viewProjectionMatrix: Matrix4;
@@ -86,6 +88,20 @@ export class Camera {
 	}
 
 	public calculateProjectionMatrix(): Matrix4 {
+		if (this.type === CameraType.Orthographic) {
+			const halfHeight = this.size / 2;
+			const halfWidth = halfHeight * this.aspectRatio;
+
+			return Matrix4.ortho(
+				-halfWidth,
+				halfWidth,
+				-halfHeight,
+				halfHeight,
+				this.near,
+				this.far
+			);
+		}
+
 		return Matrix4.perspective(this.fov, this.aspectRatio, this.near, this.far);
 	}
 
