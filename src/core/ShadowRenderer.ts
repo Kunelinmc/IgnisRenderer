@@ -3,10 +3,10 @@ import { Matrix4 } from "../maths/Matrix4";
 import { isShadowCastingLight } from "../lights";
 import { ShadowMap } from "../utils/ShadowMapping";
 import { ShadowConstants } from "./constants";
+import { Projector } from "./software/Projector";
 import type { Renderer } from "./Renderer";
 import type { IVertex, ProjectedVertex } from "./types";
 import type { PreparedScene, ResolvedFeatureState } from "./pipeline/types";
-import { CpuTriangleStream } from "./software/CpuTriangleStream";
 
 interface ClipVertex {
 	x: number;
@@ -81,7 +81,7 @@ export class ShadowRenderer {
 
 				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
 
-				for (const face of CpuTriangleStream.getPacketFaces(packet)) {
+				for (const face of Projector.getPacketFaces(packet)) {
 					const dot = Vector3.dot(
 						face.normal ?? Vector3.calculateNormal(face.vertices),
 						this._lightDirModel
@@ -102,7 +102,7 @@ export class ShadowRenderer {
 			for (const packet of frame.shadowTransmitterPackets) {
 				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
 
-				for (const face of CpuTriangleStream.getPacketFaces(packet)) {
+				for (const face of Projector.getPacketFaces(packet)) {
 					const projected = this._projectFace(face.vertices, shadowMapSize);
 					if (!projected) continue;
 

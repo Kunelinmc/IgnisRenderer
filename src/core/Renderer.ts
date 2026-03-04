@@ -4,7 +4,6 @@ import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import type { SHCoefficients } from "../maths/types";
 import { ShadowMap } from "../utils/ShadowMapping";
 import { LightingConstants } from "./constants";
 import { EventEmitter } from "./EventEmitter";
@@ -12,16 +11,17 @@ import { Scene } from "./Scene";
 import { ShadowRenderer } from "./ShadowRenderer";
 import { Rasterizer, type RasterizerLike } from "./software/Rasterizer";
 import { ReflectionRenderer } from "./software/ReflectionRenderer";
+import { PostProcessor } from "./software/PostProcessor";
+import { resolveFeatureState } from "./pipeline/FeatureResolver";
+import { FramePlanner } from "./pipeline/FramePlanner";
+import { PreparedSceneBuilder } from "./pipeline/PreparedSceneBuilder";
+import type { SHCoefficients } from "../maths/types";
 import type {
 	PostProcessorLike,
 	SSAOOptions,
 	VolumetricOptions,
 } from "./software/PostProcessor";
-import { PostProcessor } from "./software/PostProcessor";
 import type { IRenderBackend } from "./backend/IRenderBackend";
-import { resolveFeatureState } from "./pipeline/FeatureResolver";
-import { FramePlanner } from "./pipeline/FramePlanner";
-import { PreparedSceneBuilder } from "./pipeline/PreparedSceneBuilder";
 import type {
 	FramePassStage,
 	PreparedScene,

@@ -1,6 +1,6 @@
+import { Projector } from "../Projector";
 import type { DrawPacket } from "../../pipeline/types";
 import type { Renderer } from "../../Renderer";
-import { CpuProjector } from "../CpuProjector";
 
 export class SoftwareMainPass {
 	private _renderer: Renderer;
@@ -11,7 +11,7 @@ export class SoftwareMainPass {
 
 	public render(packets: DrawPacket[], transparent: boolean): void {
 		for (const packet of packets) {
-			const faces = CpuProjector.projectPacket(packet, this._renderer);
+			const faces = Projector.projectPacket(packet, this._renderer);
 			if (transparent) {
 				faces.sort((left, right) => right.depthInfo.avg - left.depthInfo.avg);
 			}
