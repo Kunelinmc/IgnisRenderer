@@ -409,6 +409,41 @@ export class Matrix4 {
 		return m;
 	}
 
+	public static fromTransform(transform: {
+		position: IVector3;
+		rotation: IVector3;
+		scale: IVector3;
+	}): Matrix4 {
+		const rotation = Matrix4.rotationFromEuler(
+			transform.rotation.x,
+			transform.rotation.y,
+			transform.rotation.z
+		).elements;
+		const { position, scale } = transform;
+
+		return new Matrix4([
+			[
+				rotation[0][0] * scale.x,
+				rotation[0][1] * scale.y,
+				rotation[0][2] * scale.z,
+				position.x,
+			],
+			[
+				rotation[1][0] * scale.x,
+				rotation[1][1] * scale.y,
+				rotation[1][2] * scale.z,
+				position.y,
+			],
+			[
+				rotation[2][0] * scale.x,
+				rotation[2][1] * scale.y,
+				rotation[2][2] * scale.z,
+				position.z,
+			],
+			[0, 0, 0, 1],
+		]);
+	}
+
 	/**
 	 * Creates a deep copy of this matrix.
 	 */

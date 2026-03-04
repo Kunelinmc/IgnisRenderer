@@ -2,7 +2,6 @@ import type { Camera } from "../../cameras/Camera";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 import type { Renderer } from "../Renderer";
-import { getModelMatrix } from "../modelMatrix";
 import type { IModel, IPrimitive } from "../types";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
@@ -68,7 +67,7 @@ export class PreparedSceneBuilder {
 		model: IModel,
 		camera: Camera
 	): DrawPacket[] {
-		const worldMatrix = getModelMatrix(model);
+		const worldMatrix = Matrix4.fromTransform(model.transform);
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
 		const cameraSpaceCenter = Matrix4.transformPoint(
 			camera.viewMatrix,

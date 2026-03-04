@@ -14,7 +14,6 @@ import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { SimpleModel } from "../src/models/SimpleModel.ts";
-import { getModelMatrix } from "../src/core/modelMatrix.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -123,14 +122,15 @@ function createModel(materials) {
 
 function createPacket(model) {
 	const primitive = model.primitives[0];
+	const worldMatrix = Matrix4.fromTransform(model.transform);
 	return {
 		id: `${model.id}:${primitive.id}`,
 		model,
 		primitive,
 		material: primitive.material,
 		geometry: primitive.geometry,
-		worldMatrix: getModelMatrix(model),
-		normalMatrix: Matrix4.normalMatrix(getModelMatrix(model)),
+		worldMatrix,
+		normalMatrix: Matrix4.normalMatrix(worldMatrix),
 		worldBounds: primitive.boundingSphere,
 		sortDepth: 1,
 		pipelineKey: "test",
@@ -169,6 +169,35 @@ function testMatrixPackingAndDepthRemap() {
 	);
 	assert.equal(remapClipSpaceDepth(-1, 1), 0);
 	assert.equal(remapClipSpaceDepth(1, 1), 1);
+}
+
+function testTransformComposition() {
+	const transform = {
+		position: { x: 3, y: -2, z: 5 },
+		rotation: { x: Math.PI / 4, y: Math.PI / 6, z: -Math.PI / 3 },
+		scale: { x: 2, y: 3, z: 4 },
+	};
+	const expected = Matrix4.multiply(
+		Matrix4.fromTranslation([
+			transform.position.x,
+			transform.position.y,
+			transform.position.z,
+		]),
+		Matrix4.multiply(
+			Matrix4.rotationFromEuler(
+				transform.rotation.x,
+				transform.rotation.y,
+				transform.rotation.z
+			),
+			Matrix4.fromScale([
+				transform.scale.x,
+				transform.scale.y,
+				transform.scale.z,
+			])
+		)
+	);
+
+	assert.deepEqual(Matrix4.fromTransform(transform).elements, expected.elements);
 }
 
 function testMaterialAdaptation() {
@@ -325,6 +354,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 
 async function run() {
 	testMatrixPackingAndDepthRemap();
+	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
 	testSceneShaderCoverage();

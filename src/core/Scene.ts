@@ -3,7 +3,6 @@ import type { SceneLight } from '../lights'
 import type { IVector3 } from '../maths/types'
 import type { Texture } from './Texture'
 import type { BoundingSphere, IModel } from './types'
-import { getModelMatrix } from './modelMatrix'
 
 export class Scene {
 	public models: IModel[]
@@ -92,7 +91,7 @@ export class Scene {
 				)
 
 			const worldCenter = Matrix4.transformPoint(
-				getModelMatrix(model),
+				Matrix4.fromTransform(model.transform),
 				model.boundingSphere.center
 			)
 

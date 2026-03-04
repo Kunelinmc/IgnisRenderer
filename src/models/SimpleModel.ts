@@ -46,27 +46,7 @@ export class SimpleModel extends EventEmitter implements IModel {
 
 	public getWorldBoundingBox(): BoundingBox {
 		const box = this.boundingBox
-		const transform = this.transform
-
-		const scaleMat = Matrix4.fromScale([
-			transform.scale.x,
-			transform.scale.y,
-			transform.scale.z,
-		])
-		const rotMat = Matrix4.rotationFromEuler(
-			transform.rotation.x,
-			transform.rotation.y,
-			transform.rotation.z
-		)
-		const transMat = Matrix4.fromTranslation([
-			transform.position.x,
-			transform.position.y,
-			transform.position.z,
-		])
-		const modelMatrix = Matrix4.multiply(
-			transMat,
-			Matrix4.multiply(rotMat, scaleMat)
-		)
+		const modelMatrix = Matrix4.fromTransform(this.transform)
 
 		const corners: IVector3[] = [
 			{ x: box.min.x, y: box.min.y, z: box.min.z },

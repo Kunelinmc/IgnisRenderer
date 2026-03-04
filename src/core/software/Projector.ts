@@ -1,7 +1,6 @@
 import { CameraType } from "../../cameras/Camera";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
-import { getModelMatrix } from "../modelMatrix";
 import type {
 	IModel,
 	ProjectedFace,
@@ -24,7 +23,7 @@ export class Projector {
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number }
 	): ProjectedFace[] {
-		const worldMatrix = getModelMatrix(model);
+		const worldMatrix = Matrix4.fromTransform(model.transform);
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix);
 		const packetCameraCenter = Matrix4.transformPoint(
 			context.camera.viewMatrix,
@@ -281,10 +280,6 @@ export class Projector {
 		}
 
 		return nearestFace;
-	}
-
-	public static getModelMatrix(model: IModel): Matrix4 {
-		return getModelMatrix(model);
 	}
 }
 
