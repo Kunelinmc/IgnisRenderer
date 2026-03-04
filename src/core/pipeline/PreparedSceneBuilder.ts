@@ -53,6 +53,8 @@ export class PreparedSceneBuilder {
 			sceneBounds: renderer.scene.getBounds(),
 			lights: renderer.scene.lights.slice(),
 			camera: renderer.camera,
+			skybox: renderer.scene.skybox,
+			models: renderer.scene.models.slice(),
 			shadowMaps: renderer.shadowMaps,
 			opaquePackets,
 			transparentPackets,

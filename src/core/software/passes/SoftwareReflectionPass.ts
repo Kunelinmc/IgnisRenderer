@@ -1,14 +1,15 @@
-import type { PreparedScene } from "../../pipeline/types";
-import type { Renderer } from "../../Renderer";
+import type { FrameContext } from "../../pipeline/types";
+import type { Rasterizer } from "../Rasterizer";
+import { ReflectionRenderer } from "../ReflectionRenderer";
 
 export class SoftwareReflectionPass {
-	private _renderer: Renderer;
+	private _reflectionRenderer: ReflectionRenderer;
 
-	constructor(renderer: Renderer) {
-		this._renderer = renderer;
+	constructor(rasterizer: Rasterizer) {
+		this._reflectionRenderer = new ReflectionRenderer(rasterizer);
 	}
 
-	public render(_frame: PreparedScene): void {
-		this._renderer.reflectionRenderer.render();
+	public render(context: FrameContext): void {
+		this._reflectionRenderer.render(context);
 	}
 }

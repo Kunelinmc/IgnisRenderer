@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { GLTFLoader } from "../src/loaders/GLTFLoader.ts";
 import { Texture } from "../src/core/Texture.ts";
+import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
 import { PBREvaluator } from "../src/shaders/software/PBREvaluator.ts";
@@ -133,13 +134,10 @@ function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 		renderer: { shadowMaps: new Map() },
 		cameraPos: { x: 0, y: 0, z: 1 },
 		lights: [
-			{
-				computeContribution: () => ({
-					type: "ambient",
-					color: { r: 255, g: 255, b: 255 },
-					intensity: 10.0,
-				}),
-			},
+			new AmbientLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 10.0,
+			}),
 		],
 		worldMatrix: undefined,
 		shAmbientCoeffs: null,

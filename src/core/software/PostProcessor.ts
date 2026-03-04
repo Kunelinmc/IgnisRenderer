@@ -7,6 +7,8 @@ import {
 } from "../constants";
 import type { Renderer } from "../Renderer";
 import {
+	createLightContribution,
+	evaluateLightContribution,
 	type DirectionalLight,
 	type PointLight,
 	type SpotLight,
@@ -17,58 +19,24 @@ import { clamp, linearToSRGB } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";
 import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
+import type {
+	SSAOOptions,
+	VolumetricOptions,
+	FramePassStage,
+	FrameContext,
+} from "../pipeline/types";
 
 export interface PostProcessorLike {
-	applyFXAA(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels?: Uint8ClampedArray
-	): void;
+	applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void;
 	applyVolumetricLight(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels?: Uint8ClampedArray,
-		depthBuffer?: Float32Array | null,
-		options?: VolumetricOptions
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D
 	): void;
-	applyGamma(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		gamma?: number,
-		pixels?: Uint8ClampedArray
-	): void;
-	applySSAO(
-		pixels: Uint8ClampedArray,
-		depthBuffer: Float32Array | null,
-		normalBuffer: Float32Array | null,
-		options?: SSAOOptions
-	): void;
+	applyGamma(context: FrameContext, ctx: CanvasRenderingContext2D): void;
+	applySSAO(context: FrameContext): void;
 }
 
-export interface VolumetricOptions {
-	samples?: number;
-	downsample?: number;
-	weight?: number;
-	exposure?: number;
-	airDensity?: number;
-	anisotropy?: number;
-	maxRayDistance?: number;
-	scatteringAlbedo?: number;
-	shadowSampleInterval?: number;
-	isLinearDepth?: boolean;
-	adaptiveSteps?: boolean;
-	useBilateralUpscale?: boolean;
-	bilateralDepthSigma?: number;
-	[key: string]: unknown;
-}
-
-export interface SSAOOptions {
-	samples?: number;
-	radius?: number;
-	bias?: number;
-	intensity?: number;
-	[key: string]: unknown;
-}
+// Feature options moved to types.ts
 
 interface CameraBasis {
 	right: IVector3;
@@ -177,8 +145,8 @@ export class PostProcessor implements PostProcessorLike {
 		return primary;
 	}
 
-	private _getCameraBasis(): CameraBasis {
-		const view = this.renderer.camera.viewMatrix.elements;
+	private _getCameraBasis(context: FrameContext): CameraBasis {
+		const view = context.camera.viewMatrix.elements;
 		return {
 			right: { x: view[0][0], y: view[0][1], z: view[0][2] },
 			up: { x: view[1][0], y: view[1][1], z: view[1][2] },
@@ -191,9 +159,10 @@ export class PostProcessor implements PostProcessorLike {
 		py: number,
 		w: number,
 		h: number,
-		basis: CameraBasis
+		basis: CameraBasis,
+		context: FrameContext
 	): WorldRay {
-		const camera = this.renderer.camera;
+		const camera = context.camera;
 
 		if (camera.type === CameraType.Orthographic) {
 			// In orthographic camera, rays are constant (pointing forward)
@@ -501,13 +470,9 @@ export class PostProcessor implements PostProcessorLike {
 		);
 	}
 
-	public applyFXAA(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels: Uint8ClampedArray | null = null
-	): void {
-		const w = canvas.width;
-		const h = canvas.height;
+	public applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void {
+		const { width: w, height: h } = context.attachments;
+		let pixels = context.attachments.pixels;
 		let imageData: ImageData | null = null;
 
 		if (!pixels) {
@@ -685,15 +650,21 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	public applyVolumetricLight(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		pixels: Uint8ClampedArray | null = null,
-		depthBuffer: Float32Array | null = null,
-		options: VolumetricOptions = {}
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D
 	): void {
-		if (!depthBuffer) return;
+		const depthBuffer = context.attachments.depthBuffer;
+		const options = context.features.volumetricOptions || {};
+		const maxRayDistance = Math.max(
+			VolumetricConstants.MIN_RAY_DISTANCE,
+			this._toFiniteNumber(options.maxRayDistance, 500)
+		);
 
-		const lights = this.renderer.scene?.lights || [];
+		const { width: w, height: h } = context.attachments;
+		const pixels = context.attachments.pixels;
+		if (!pixels || !context.attachments.depthBuffer) return;
+
+		const lights = context.scene.lights || [];
 		const volLights = lights.filter(
 			(light): light is VolumetricLight =>
 				light.type === LightType.Directional ||
@@ -701,14 +672,16 @@ export class PostProcessor implements PostProcessorLike {
 				light.type === LightType.Spot
 		);
 		if (volLights.length === 0) return;
+		const sampleSurface = { position: { x: 0, y: 0, z: 0 } };
+		const lightContribution = createLightContribution();
 
-		const w = canvas.width;
-		const h = canvas.height;
 		let imageData: ImageData | null = null;
-		if (!pixels) {
-			imageData = ctx.getImageData(0, 0, w, h);
-			pixels = imageData.data;
-		}
+
+		const camera = context.camera;
+		const cameraPos = camera.position;
+		const basis = this._getCameraBasis(context);
+		const near = camera.near || 0.1;
+		const far = Math.min(camera.far || 1000, maxRayDistance);
 
 		// Consolidate options with range protection
 		const ds = Math.round(
@@ -760,17 +733,7 @@ export class PostProcessor implements PostProcessorLike {
 			1
 		);
 
-		// Use maxRayDistance consistently to limit total depth
-		const maxRayDistance = Math.max(
-			VolumetricConstants.MIN_RAY_DISTANCE,
-			this._toFiniteNumber(options.maxRayDistance, 500)
-		);
-
-		const camera = this.renderer.camera;
-		const cameraPos = camera.position;
-		const basis = this._getCameraBasis();
-		const near = camera.near || 0.1;
-		const far = Math.min(camera.far || 1000, maxRayDistance);
+		// ... usage continues
 
 		const sigmaT = airDensity * VolumetricConstants.SIGMA_T_SCALE;
 		const sigmaS = sigmaT * scatteringAlbedo;
@@ -784,7 +747,7 @@ export class PostProcessor implements PostProcessorLike {
 			)
 		);
 
-		const sceneBounds = this.renderer.scene.getBounds();
+		const sceneBounds = context.scene.sceneBounds;
 		const sceneCenter = sceneBounds.center;
 		const sceneRadius = Math.max(
 			sceneBounds.radius,
@@ -796,6 +759,8 @@ export class PostProcessor implements PostProcessorLike {
 			sceneRadius * VolumetricConstants.SCENE_BOUNDS_FADE_END_MULTIPLIER;
 		const sceneFadeStartSq = sceneFadeStart * sceneFadeStart;
 		const sceneFadeEndSq = sceneFadeEnd * sceneFadeEnd;
+
+		// ... usage continues
 
 		const camToCenter = Math.hypot(
 			cameraPos.x - sceneCenter.x,
@@ -852,7 +817,7 @@ export class PostProcessor implements PostProcessorLike {
 						jitterStrength;
 					const px = Math.round(clamp(sampleXCenter + jitterX, 0, w - 1));
 					const py = Math.round(clamp(sampleYCenter + jitterY, 0, h - 1));
-					const ray = this._getWorldRayFromPixel(px, py, w, h, basis);
+					const ray = this._getWorldRayFromPixel(px, py, w, h, basis, context);
 
 					const ndcX = ((px + 0.5) / w) * 2 - 1;
 					const ndcY = 1 - ((py + 0.5) / h) * 2;
@@ -875,6 +840,9 @@ export class PostProcessor implements PostProcessorLike {
 							basis.up.z * posView.y +
 							basis.backward.z * posView.z,
 					};
+					sampleSurface.position.x = samplePoint.x;
+					sampleSurface.position.y = samplePoint.y;
+					sampleSurface.position.z = samplePoint.z;
 
 					const sceneDx = samplePoint.x - sceneCenter.x;
 					const sceneDy = samplePoint.y - sceneCenter.y;
@@ -900,7 +868,11 @@ export class PostProcessor implements PostProcessorLike {
 
 					for (let li = 0; li < lightCount; li++) {
 						const L = volLights[li];
-						const contrib = L.computeContribution({ position: samplePoint });
+						const contrib = evaluateLightContribution(
+							L,
+							sampleSurface,
+							lightContribution
+						);
 						if (!contrib || contrib.type !== "direct" || !contrib.direction)
 							continue;
 						const lightIntensity = contrib.intensity ?? 1.0;
@@ -1022,7 +994,8 @@ export class PostProcessor implements PostProcessorLike {
 						screenPY,
 						w,
 						h,
-						basis
+						basis,
+						context
 					);
 					const ndcX = ((screenPX + 0.5) / w) * 2 - 1;
 					const ndcY = 1 - ((screenPY + 0.5) / h) * 2;
@@ -1210,16 +1183,14 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
-	public applySSAO(
-		pixels: Uint8ClampedArray,
-		depthBuffer: Float32Array | null,
-		normalBuffer: Float32Array | null,
-		options: SSAOOptions = {}
-	): void {
+	public applySSAO(context: FrameContext): void {
+		const depthBuffer = context.attachments.depthBuffer;
+		const normalBuffer = context.attachments.normalBuffer;
+		const options = context.features.ssaoOptions || {};
 		if (!depthBuffer || !normalBuffer) return;
 
-		const w = this.renderer.canvas.width;
-		const h = this.renderer.canvas.height;
+		const w = context.attachments.width;
+		const h = context.attachments.height;
 		const radius = options.radius ?? SSAOConstants.DEFAULT_RADIUS;
 		const bias = options.bias ?? SSAOConstants.DEFAULT_BIAS;
 		const intensity = options.intensity ?? SSAOConstants.DEFAULT_INTENSITY;
@@ -1229,7 +1200,7 @@ export class PostProcessor implements PostProcessorLike {
 		}
 		const ssaoBuffer = this._ssaoBuffer;
 
-		const camera = this.renderer.camera;
+		const camera = context.camera;
 		const projection = camera.projectionMatrix.elements;
 		const near = camera.near;
 		const far = camera.far;
@@ -1347,6 +1318,7 @@ export class PostProcessor implements PostProcessorLike {
 		this._ssaoBlur(ssaoBuffer, w, h);
 
 		// 3. Apply to pixels
+		const pixels = context.attachments.pixels;
 		for (let i = 0, len = w * h; i < len; i++) {
 			const factor = ssaoBuffer[i];
 			const idx = i << 2;
@@ -1482,18 +1454,17 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	public applyGamma(
-		ctx: CanvasRenderingContext2D,
-		canvas: HTMLCanvasElement,
-		gamma: number = PostProcessConstants.DEFAULT_GAMMA,
-		pixels: Uint8ClampedArray | null = null
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D
 	): void {
-		const w = canvas.width,
-			h = canvas.height;
+		const w = context.attachments.width,
+			h = context.attachments.height;
+		const gamma = context.features.enableGamma
+			? PostProcessConstants.DEFAULT_GAMMA
+			: 1.0; // Simplification, usually from features
+		let pixels = context.attachments.pixels;
 		let imageData: ImageData | null = null;
-		if (!pixels) {
-			imageData = ctx.getImageData(0, 0, w, h);
-			pixels = imageData.data;
-		}
+
 		this._buildSRGBLUT(gamma);
 		const lut = this._sRGBLUT;
 		for (let i = 0; i < pixels.length; i += 4) {

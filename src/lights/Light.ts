@@ -31,25 +31,6 @@ export interface LightParams {
 	castShadow?: boolean;
 }
 
-/**
- * Result of a light's contribution to a specific point in the scene
- */
-export interface LightContribution {
-	type: "ambient" | "direct" | "irradiance";
-	// Base light color in display (sRGB-like) domain.
-	// Linear intensity/attenuation is carried separately by `intensity`.
-	color: RGB;
-	// Scalar intensity in linear domain. Includes light intensity and any
-	// distance/cone attenuation terms. Defaults to 1 when omitted.
-	intensity?: number;
-	direction?: IVector3; // Direction towards the light (L vector)
-}
-
-export interface SurfacePoint {
-	position: IVector3;
-	normal?: IVector3;
-}
-
 export abstract class Light<TType extends LightType = LightType> {
 	public readonly id: string;
 	public readonly type: TType;
@@ -80,20 +61,6 @@ export abstract class Light<TType extends LightType = LightType> {
 	 */
 	public updateWorldMatrix(matrix: Matrix4): void {
 		this._worldMatrix = matrix;
-	}
-
-	/**
-	 * Compute the light's contribution to a specific point.
-	 * Uses the internal worldMatrix for shared world-space calculations.
-	 * Returns null if the light has no effect (e.g., out of range or outside cone).
-	 */
-	abstract computeContribution(surface: SurfacePoint): LightContribution | null;
-
-	/**
-	 * Validate and return the required world-space sample position.
-	 */
-	protected _requireSurfacePosition(surface: SurfacePoint): IVector3 {
-		return surface?.position || { x: 0, y: 0, z: 0 };
 	}
 
 	/**

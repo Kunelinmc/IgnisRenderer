@@ -10,12 +10,13 @@ import type { Matrix4 } from "../../maths/Matrix4";
 import type { ProjectedFace } from "../../core/types";
 import type { Material } from "../../materials";
 import type { RGB } from "../../utils/Color";
-import type { SceneLight } from "../../lights";
+import type { SceneLight, ShadowCastingLight } from "../../lights";
+import type { ShadowMap } from "../../utils/ShadowMapping";
 
 export interface ShaderContext {
-	renderer: Renderer;
 	cameraPos: IVector3;
 	lights: SceneLight[];
+	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
 	worldMatrix?: Matrix4;
 	shAmbientCoeffs: SHCoefficients | null;
 	envSpecularMap: Texture | null;

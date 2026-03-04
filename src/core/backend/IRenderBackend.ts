@@ -1,7 +1,7 @@
 import type {
+	FrameAttachments,
+	FrameContext,
 	FramePass,
-	PreparedScene,
-	ResolvedFeatureState,
 } from "../pipeline/types";
 
 export interface BackendCapabilities {
@@ -18,10 +18,8 @@ export interface IRenderBackend {
 	readonly capabilities: BackendCapabilities;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	resize(width: number, height: number): void;
-	beginFrame(
-		frame: PreparedScene,
-		features: ResolvedFeatureState
-	): void | Promise<void>;
-	executePass(pass: FramePass, frame: PreparedScene): void | Promise<void>;
+	getAttachments(width: number, height: number): FrameAttachments;
+	beginFrame(context: FrameContext): void | Promise<void>;
+	executePass(pass: FramePass, context: FrameContext): void | Promise<void>;
 	endFrame(): void | Promise<void>;
 }

@@ -1,13 +1,14 @@
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
 import type {
+	FrameContext,
 	FramePass,
-	PreparedScene,
 	ResolvedFeatureState,
 } from "../pipeline/types";
 import { Rasterizer } from "../software/Rasterizer";
 import { SoftwareMainPass } from "../software/passes/SoftwareMainPass";
 import { SoftwareReflectionPass } from "../software/passes/SoftwareReflectionPass";
+import { SkyboxRenderer } from "../software/SkyboxRenderer";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
@@ -26,9 +27,12 @@ export class SoftwareBackend implements IRenderBackend {
 	private _mainPass: SoftwareMainPass | null = null;
 	private _reflectionPass: SoftwareReflectionPass | null = null;
 	private _resolvedFeatures: ResolvedFeatureState | null = null;
+	private _framePixelsShared = false;
+	private _pixels: Uint8ClampedArray | null = null;
+	private _depthBuffer: Float32Array | null = null;
+	private _normalBuffer: Float32Array | null = null;
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
-	private _framePixelsShared = false;
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this._ctx = canvas.getContext("2d");
@@ -36,10 +40,29 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public setRenderer(renderer: Renderer): void {
 		this._renderer = renderer;
-		this._rasterizer = new Rasterizer(renderer);
-		this._mainPass = new SoftwareMainPass(renderer);
-		this._reflectionPass = new SoftwareReflectionPass(renderer);
-		renderer.rasterizer = this._rasterizer;
+		this._rasterizer = new Rasterizer();
+		this._mainPass = new SoftwareMainPass(this._rasterizer);
+		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
+	}
+
+	public getAttachments(width: number, height: number): any {
+		if (
+			!this._pixels ||
+			this._pixels.length !== width * height * 4 ||
+			!this._depthBuffer ||
+			this._depthBuffer.length !== width * height
+		) {
+			this._pixels = new Uint8ClampedArray(width * height * 4);
+			this._depthBuffer = new Float32Array(width * height);
+			this._normalBuffer = new Float32Array(width * height * 3);
+		}
+		return {
+			pixels: this._pixels,
+			depthBuffer: this._depthBuffer,
+			normalBuffer: this._normalBuffer,
+			width,
+			height,
+		};
 	}
 
 	public resize(_width: number, _height: number): void {
@@ -48,15 +71,10 @@ export class SoftwareBackend implements IRenderBackend {
 		this._framePixelsShared = false;
 	}
 
-	public beginFrame(
-		_frame: PreparedScene,
-		features: ResolvedFeatureState
-	): void {
-		this._resolvedFeatures = features;
-		if (!this._renderer) return;
-
-		const pixels = this._renderer.pixels;
-		const size = this._renderer.canvas.width * this._renderer.canvas.height;
+	public beginFrame(context: FrameContext): void {
+		this._resolvedFeatures = context.features;
+		const pixels = context.attachments.pixels!;
+		const size = pixels.length >> 2;
 		for (let i = 0; i < size; i++) {
 			const index = i << 2;
 			pixels[index] = 0;
@@ -64,63 +82,49 @@ export class SoftwareBackend implements IRenderBackend {
 			pixels[index + 2] = 0;
 			pixels[index + 3] = 255;
 		}
-		this._renderer.depthBuffer.fill(Infinity);
-		this._renderer.normalBuffer?.fill(0);
+		context.attachments.depthBuffer.fill(Infinity);
+		context.attachments.normalBuffer?.fill(0);
 
-		if (features.enableSkybox && this._renderer.scene.skybox) {
-			this._renderer.renderSkybox(this._renderer.pixels);
+		if (context.features.enableSkybox && context.scene.skybox) {
+			SkyboxRenderer.render(
+				context.scene.skybox,
+				pixels,
+				context.camera,
+				context.attachments.width,
+				context.attachments.height
+			);
 		}
 	}
 
-	public executePass(pass: FramePass, frame: PreparedScene): void {
+	public executePass(pass: FramePass, context: FrameContext): void {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
 			case "reflection":
-				this._reflectionPass.render(frame);
+				this._reflectionPass.render(context);
 				break;
 			case "main-opaque":
-				this._mainPass.render(frame.opaquePackets, false);
+				this._mainPass.render(context, context.scene.opaquePackets, false);
 				break;
 			case "main-transparent":
-				this._mainPass.render(frame.transparentPackets, true);
+				this._mainPass.render(context, context.scene.transparentPackets, true);
 				break;
 			case "ssao":
-				this._renderer.postProcessor.applySSAO(
-					this._renderer.pixels,
-					this._renderer.depthBuffer,
-					this._renderer.normalBuffer,
-					this._renderer.features.ssaoOptions
-				);
+				this._renderer.postProcessor.applySSAO(context);
 				break;
 			case "volumetric":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyVolumetricLight(
-						this._ctx,
-						this._renderer.canvas,
-						this._renderer.pixels,
-						this._renderer.depthBuffer,
-						this._renderer.features.volumetricOptions
-					);
+					this._renderer.postProcessor.applyVolumetricLight(context, this._ctx);
 				}
 				break;
 			case "fxaa":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyFXAA(
-						this._ctx,
-						this._renderer.canvas,
-						this._renderer.pixels
-					);
+					this._renderer.postProcessor.applyFXAA(context, this._ctx);
 				}
 				break;
 			case "gamma":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyGamma(
-						this._ctx,
-						this._renderer.canvas,
-						undefined,
-						this._renderer.pixels
-					);
+					this._renderer.postProcessor.applyGamma(context, this._ctx);
 				}
 				break;
 		}
@@ -136,7 +140,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _getFrameImageData(renderer: Renderer): ImageData {
 		const width = renderer.canvas.width;
 		const height = renderer.canvas.height;
-		const pixels = renderer.pixels;
+		const pixels = this._pixels!;
 
 		if (
 			!this._frameImageData ||

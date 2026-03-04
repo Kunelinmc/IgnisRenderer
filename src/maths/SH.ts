@@ -1,6 +1,6 @@
 /**
  * Spherical Harmonics (SH) utility functions
- * Using 2nd order SH (L=2, 9 coefficients)
+ * Using 3rd order SH (L=3, 16 coefficients)
  */
 
 import type { IVector3, SHCoefficients } from "./types";

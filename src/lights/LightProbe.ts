@@ -1,13 +1,8 @@
 import { SH } from "../maths/SH";
 import { Texture } from "../core/Texture";
 import { Vector3 } from "../maths/Vector3";
-import { linearToSRGB, sRGBToLinear } from "../maths/Common";
-import {
-	Light,
-	LightType,
-	type LightContribution,
-	type SurfacePoint,
-} from "./Light";
+import { sRGBToLinear } from "../maths/Common";
+import { Light, LightType } from "./Light";
 import type { SHCoefficients, IVector3 } from "../maths/types";
 import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
 import { lerp } from "../maths/Common";
@@ -19,7 +14,6 @@ import { lerp } from "../maths/Common";
 export class LightProbe extends Light<LightType.LightProbe> {
 	public sh: SHCoefficients;
 	public prefilteredMap: Texture | null = null;
-	private static readonly DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 	constructor(
 		sh: SHCoefficients | null = null,
@@ -111,47 +105,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		}
 
 		return new LightProbe(sh);
-	}
-
-	/**
-	 * Compute the light's contribution. For a LightProbe, this is usually
-	 * used as an ambient-like contribution based on the surface normal.
-	 * NOTE: Standard computeContribution takes a point, but SH irradiance
-	 * fundamentally depends on the normal.
-	 */
-	public computeContribution(surface: SurfacePoint): LightContribution | null {
-		let irrR = 0,
-			irrG = 0,
-			irrB = 0;
-
-		if (surface.normal) {
-			const irr = SH.calculateIrradiance(surface.normal, this.sh);
-			irrR = Math.max(0, irr.r);
-			irrG = Math.max(0, irr.g);
-			irrB = Math.max(0, irr.b);
-		} else {
-			const dc = this.sh[0];
-			irrR = Math.max(0, dc.r * LightProbe.DC_IRRADIANCE_SCALE);
-			irrG = Math.max(0, dc.g * LightProbe.DC_IRRADIANCE_SCALE);
-			irrB = Math.max(0, dc.b * LightProbe.DC_IRRADIANCE_SCALE);
-		}
-
-		if (irrR <= 0 && irrG <= 0 && irrB <= 0) return null;
-
-		const toSrgb255 = (linear255: number): number => {
-			const linear01 = Math.max(0, linear255 / 255);
-			return linearToSRGB(Math.min(1, linear01)) * 255;
-		};
-
-		return {
-			type: "irradiance",
-			color: {
-				r: toSrgb255(irrR),
-				g: toSrgb255(irrG),
-				b: toSrgb255(irrB),
-			},
-			intensity: this.intensity,
-		};
 	}
 
 	/**

@@ -1,7 +1,12 @@
 import { Vector3 } from "../../maths/Vector3";
 import { SH } from "../../maths/SH";
 import { Texture } from "../../core/Texture";
-import { isShadowCastingLight } from "../../lights";
+import {
+	createLightContribution,
+	evaluateLightContribution,
+	isShadowCastingLight,
+	type SurfacePoint,
+} from "../../lights";
 import { LightingConstants } from "../../core/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
@@ -21,6 +26,12 @@ import type {
  * linear 0..255 for the renderer's existing gamma pass.
  */
 export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
+	private _surfacePoint: SurfacePoint = {
+		position: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: 1 },
+	};
+	private _lightContribution = createLightContribution();
+
 	public calculate(
 		world: IVector3,
 		normal: IVector3,
@@ -43,6 +54,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		let ambientLightR = 0,
 			ambientLightG = 0,
 			ambientLightB = 0;
+		const surfacePoint = this._surfacePoint;
+		surfacePoint.position.x = world.x;
+		surfacePoint.position.y = world.y;
+		surfacePoint.position.z = world.z;
+		surfacePoint.normal!.x = N.x;
+		surfacePoint.normal!.y = N.y;
+		surfacePoint.normal!.z = N.z;
 
 		const alb = {
 			r: Math.max(0, surface.albedo.r / 255),
@@ -123,7 +141,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		};
 
 		for (const light of context.lights) {
-			const contrib = light.computeContribution({ position: world, normal: N });
+			const contrib = evaluateLightContribution(
+				light,
+				surfacePoint,
+				this._lightContribution
+			);
 			if (!contrib) continue;
 			const lightIntensity = contrib.intensity ?? 1.0;
 
@@ -150,7 +172,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			let shadow = { r: 1, g: 1, b: 1 };
 			if (context.enableShadows && isShadowCastingLight(light)) {
-				const shadowMap = context.renderer.shadowMaps.get(light);
+				const shadowMap = context.shadowMaps.get(light);
 				if (shadowMap) {
 					shadow = shadowMap.getShadowFactor(world, N);
 				}

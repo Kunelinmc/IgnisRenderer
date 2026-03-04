@@ -18,11 +18,20 @@ import {
 	type PBRSurfaceProperties,
 	IBLBRDF,
 } from "../../shaders";
-import { LightType, LightProbe } from "../../lights";
+import {
+	LightType,
+	LightProbe,
+	type SceneLight,
+	type ShadowCastingLight,
+} from "../../lights";
 import type { ShadowMap } from "../../utils/ShadowMapping";
 import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../types";
-import type { IVector3, IVector4 } from "../../maths/types";
+import {
+	type IVector3,
+	type IVector4,
+	type SHCoefficients,
+} from "../../maths/types";
 import type { Texture } from "../Texture";
 
 export interface RasterizerLike {
@@ -30,8 +39,8 @@ export interface RasterizerLike {
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
 		pixels: Uint8ClampedArray,
-		isTransparent?: boolean,
-		overrideSize?: { width: number; height: number }
+		context: RasterizerContext,
+		isTransparent?: boolean
 	): void;
 	drawDepthTriangle(
 		pts: ProjectedVertex[],
@@ -81,8 +90,35 @@ interface EdgeInterpolationResult {
  * - Perspective Correction: Attributes are multiplied by 1/w before interpolation and recovered per-pixel.
  * - Shading: Supports Flat, Gouraud, Phong, and PBR shading models.
  */
+export interface RasterizerContext {
+	width: number;
+	height: number;
+	depthBuffer: Float32Array;
+	normalBuffer?: Float32Array | null;
+	camera: {
+		position: IVector3;
+		viewMatrix: Matrix4;
+	};
+	lights: SceneLight[];
+	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	shAmbientCoeffs: SHCoefficients | null;
+	features: {
+		enableLighting: boolean;
+		enableSH: boolean;
+		enableShadows: boolean;
+		enableGamma: boolean;
+		enableReflection: boolean;
+		worldMatrix?: Matrix4;
+	};
+	reflectionRenderer?: {
+		reflectionBuffers: Map<string, any>;
+	};
+}
+
+/**
+ * Rasterizer handles the scanline conversion of projected triangles to pixels.
+ */
 export class Rasterizer implements RasterizerLike {
-	private _renderer: Renderer;
 	private _vertsCache: CachedVertex[];
 	private _defaultMaterial: Material;
 
@@ -104,8 +140,7 @@ export class Rasterizer implements RasterizerLike {
 		u2: 0,
 		v2: 0,
 	};
-	constructor(renderer: Renderer) {
-		this._renderer = renderer;
+	constructor() {
 		this._defaultMaterial = new Material();
 		this._vertsCache = Array.from({ length: 3 }, () => ({
 			x: 0,
@@ -322,7 +357,6 @@ export class Rasterizer implements RasterizerLike {
 				let z = leftZ + dx * dz;
 
 				const row = y * size;
-				const viewMat = this._renderer.camera.viewMatrix;
 				for (let x = startX; x <= endX; x++) {
 					const idx = row + x;
 					if (z < buffer[idx]) {
@@ -578,25 +612,23 @@ export class Rasterizer implements RasterizerLike {
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
 		pixels: Uint8ClampedArray,
-		isTransparent: boolean = false,
-		overrideSize?: { width: number; height: number }
+		context: RasterizerContext,
+		isTransparent: boolean = false
 	): void {
-		const width = overrideSize?.width ?? this._renderer.canvas.width;
-		const height = overrideSize?.height ?? this._renderer.canvas.height;
-		const depthBuffer = this._renderer.depthBuffer;
+		const { width, height, depthBuffer } = context;
 		const material = face.material ?? this._defaultMaterial;
 
 		if (!depthBuffer) return;
-		const viewMat = this._renderer.camera.viewMatrix;
+		const viewMat = context.camera.viewMatrix;
 
 		const verts = this._vertsCache;
 		const shadingModel = material.shading || "Flat";
-		const isLightingEnabled = this._renderer.features.enableLighting !== false;
+		const isLightingEnabled = context.features.enableLighting !== false;
 		const shading = isLightingEnabled ? shadingModel : "Unlit";
 
 		const shader = this._getShader(shading, material);
 		let envSpecularMap = null;
-		const lights = this._renderer.scene.lights;
+		const lights = context.lights;
 		for (const light of lights) {
 			if (light.type === LightType.LightProbe) {
 				const probe = light as LightProbe;
@@ -608,22 +640,22 @@ export class Rasterizer implements RasterizerLike {
 		}
 
 		const shaderContext: ShaderContext = {
-			renderer: this._renderer,
-			cameraPos: this._renderer.camera.position,
+			cameraPos: context.camera.position,
 			lights: lights,
-			worldMatrix: this._renderer.features.worldMatrix,
-			shAmbientCoeffs: this._renderer.shAmbientCoeffs,
+			shadowMaps: context.shadowMaps,
+			worldMatrix: context.features.worldMatrix,
+			shAmbientCoeffs: context.shAmbientCoeffs,
 			envSpecularMap: envSpecularMap,
 			brdfLUT: IBLBRDF.getLUT(),
-			enableShadows: !!this._renderer.features.enableShadows,
-			enableSH: !!this._renderer.features.enableSH,
-			enableGamma: !!this._renderer.features.enableGamma,
+			enableShadows: !!context.features.enableShadows,
+			enableSH: !!context.features.enableSH,
+			enableGamma: !!context.features.enableGamma,
 			enableLighting: isLightingEnabled,
 			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};
 		shader.initialize(face, shaderContext);
 
-		const camPos = this._renderer.camera.position;
+		const camPos = context.camera.position;
 		let isCameraOnFrontSide = true;
 		if (material.mirrorPlane) {
 			const p = material.mirrorPlane;
@@ -784,15 +816,16 @@ export class Rasterizer implements RasterizerLike {
 
 						if (
 							finalColor &&
-							this._renderer.features.enableReflection &&
+							context.features.enableReflection &&
 							material.reflectivity > 0 &&
 							material.mirrorPlane &&
-							isCameraOnFrontSide
+							isCameraOnFrontSide &&
+							context.reflectionRenderer
 						) {
 							const p = material.mirrorPlane;
 							const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
 							const refBuffer =
-								this._renderer.reflectionRenderer.reflectionBuffers.get(key);
+								context.reflectionRenderer.reflectionBuffers.get(key);
 							if (refBuffer) {
 								// Sample from reflection buffer with coordinate scaling
 								let refX = Math.floor(x * (refBuffer.width / width));
@@ -828,13 +861,13 @@ export class Rasterizer implements RasterizerLike {
 								pixels[idx + 2] = finalColor.b;
 								pixels[idx + 3] = 255;
 
-								if (this._renderer.normalBuffer) {
+								if (context.normalBuffer) {
 									const nIdx = bufIdx * 3;
 									const nView = Matrix4.transformNormal(viewMat, input.normal);
 									const nLen = Math.hypot(nView.x, nView.y, nView.z) || 1;
-									this._renderer.normalBuffer[nIdx] = nView.x / nLen;
-									this._renderer.normalBuffer[nIdx + 1] = nView.y / nLen;
-									this._renderer.normalBuffer[nIdx + 2] = nView.z / nLen;
+									context.normalBuffer[nIdx] = nView.x / nLen;
+									context.normalBuffer[nIdx + 1] = nView.y / nLen;
+									context.normalBuffer[nIdx + 2] = nView.z / nLen;
 								}
 							} else {
 								const faceAlpha = face.color?.a ?? 1;
@@ -869,7 +902,7 @@ export class Rasterizer implements RasterizerLike {
 		}
 
 		if (material.wireframe) {
-			this._drawWireframe(pts, face, pixels, isTransparent, overrideSize);
+			this._drawWireframe(pts, face, pixels, context, isTransparent);
 		}
 	}
 
@@ -877,12 +910,10 @@ export class Rasterizer implements RasterizerLike {
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
 		pixels: Uint8ClampedArray,
-		isTransparent: boolean = false,
-		overrideSize?: { width: number; height: number }
+		context: RasterizerContext,
+		isTransparent: boolean = false
 	): void {
-		const width = overrideSize?.width ?? this._renderer.canvas.width;
-		const height = overrideSize?.height ?? this._renderer.canvas.height;
-		const depthBuffer = this._renderer.depthBuffer;
+		const { width, height, depthBuffer } = context;
 		const material = face.material ?? this._defaultMaterial;
 
 		if (!depthBuffer) return;

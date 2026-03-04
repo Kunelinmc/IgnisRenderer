@@ -6,7 +6,12 @@ import { ShadowConstants } from "./constants";
 import { Projector } from "./software/Projector";
 import type { Renderer } from "./Renderer";
 import type { IVertex, ProjectedVertex } from "./types";
-import type { PreparedScene, ResolvedFeatureState } from "./pipeline/types";
+import type { Rasterizer } from "./software/Rasterizer";
+import type {
+	FrameContext,
+	PreparedScene,
+	ResolvedFeatureState,
+} from "./pipeline/types";
 
 interface ClipVertex {
 	x: number;
@@ -19,6 +24,7 @@ interface ClipVertex {
 
 export class ShadowRenderer {
 	private _renderer: Renderer;
+	private _rasterizer: Rasterizer;
 	private _mvpMatrix = Matrix4.identity();
 	private _lightDirModel = new Vector3();
 	private _projectedVertsPool: ProjectedVertex[] = [];
@@ -28,8 +34,9 @@ export class ShadowRenderer {
 	private _clipScratchA: ClipVertex[] = [];
 	private _clipScratchB: ClipVertex[] = [];
 
-	constructor(renderer: Renderer) {
+	constructor(renderer: Renderer, rasterizer: Rasterizer) {
 		this._renderer = renderer;
+		this._rasterizer = rasterizer;
 		for (let i = 0; i < 4; i++) {
 			this._projectedVertsPool.push({
 				x: 0,
@@ -41,28 +48,31 @@ export class ShadowRenderer {
 		}
 	}
 
-	public render(frame: PreparedScene, features: ResolvedFeatureState): void {
+	public render(context: FrameContext): void {
+		const features = context.features;
 		if (!features.enableShadows) return;
 
-		const renderer = this._renderer;
+		const frame = context.scene;
+		const shadowMaps = context.shadowMaps;
 		const shadowLights = frame.lights.filter(isShadowCastingLight);
+
 		if (shadowLights.length === 0) {
-			renderer.shadowMaps.clear();
+			shadowMaps.clear();
 			return;
 		}
 
-		for (const [light] of renderer.shadowMaps) {
+		for (const [light] of shadowMaps) {
 			if (!shadowLights.includes(light)) {
-				renderer.shadowMaps.delete(light);
+				shadowMaps.delete(light);
 			}
 		}
 
-		const worldMatrix = renderer.features.worldMatrix;
+		const worldMatrix = context.worldMatrix;
 		for (const shadowLight of shadowLights) {
-			let shadowMap = renderer.shadowMaps.get(shadowLight);
+			let shadowMap = shadowMaps.get(shadowLight);
 			if (!shadowMap) {
 				shadowMap = new ShadowMap();
-				renderer.shadowMaps.set(shadowLight, shadowMap);
+				shadowMaps.set(shadowLight, shadowMap);
 			}
 
 			shadowMap.setLightCamera(shadowLight, frame.sceneBounds, worldMatrix);
@@ -91,7 +101,7 @@ export class ShadowRenderer {
 					const projected = this._projectFace(face.vertices, shadowMapSize);
 					if (!projected) continue;
 
-					renderer.rasterizer.drawDepthTriangle(
+					this._rasterizer.drawDepthTriangle(
 						projected,
 						shadowMap,
 						packet.material
@@ -106,7 +116,7 @@ export class ShadowRenderer {
 					const projected = this._projectFace(face.vertices, shadowMapSize);
 					if (!projected) continue;
 
-					renderer.rasterizer.drawTransmissionTriangle(
+					this._rasterizer.drawTransmissionTriangle(
 						projected,
 						{
 							...face,

@@ -6,8 +6,6 @@ import {
 	Light,
 	LightType,
 	type LightParams,
-	type LightContribution,
-	type SurfacePoint,
 	type ShadowCaster,
 	type ShadowCameraResult,
 } from "./Light";
@@ -88,63 +86,5 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.range = params.range ?? 1000;
 		this.shadow = new SpotShadowCaster(this);
 		this.castShadow = true;
-	}
-
-	public computeContribution(surface: SurfacePoint): LightContribution | null {
-		const position = this._requireSurfacePosition(surface);
-		let lightPos = this.position;
-		let lightDir = this.dir;
-
-		const p = Matrix4.transformPoint(this.worldMatrix, lightPos);
-		lightPos = { x: p.x, y: p.y, z: p.z };
-		lightDir = Matrix4.transformDirection(this.worldMatrix, lightDir);
-
-		lightDir = Vector3.normalize(lightDir);
-
-		const dx = lightPos.x - position.x;
-		const dy = lightPos.y - position.y;
-		const dz = lightPos.z - position.z;
-		const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-		if (distance > this.range) return null;
-
-		const L =
-			distance > 0
-				? { x: dx / distance, y: dy / distance, z: dz / distance }
-				: { x: 0, y: 1, z: 0 };
-		const lightToPoint = { x: -L.x, y: -L.y, z: -L.z };
-		const cosTheta = Vector3.dot(lightToPoint, lightDir);
-
-		// angle is the outer cutoff, innerAngle (or penumbra) defines the inner cutoff
-		const outerCutoff = Math.cos(this.angle);
-		let iAngle = this.innerAngle;
-		if (iAngle === undefined) {
-			iAngle = this.angle * (1 - this.penumbra);
-		}
-		const innerCutoff = Math.cos(iAngle);
-		const cutoffRange = innerCutoff - outerCutoff;
-
-		if (cosTheta < outerCutoff) return null;
-
-		const spotIntensity = Math.max(
-			0,
-			Math.min(1, (cosTheta - outerCutoff) / (cutoffRange || 1e-6))
-		);
-
-		// Physically-based distance attenuation: inverse square law with smooth windowing
-		// This uses the formula: attenuation = max(0, 1 - (d/r)^4)^2 / (d^2 + 1)
-		// The +1 in the denominator prevents the singularity at d=0.
-		const distanceSq = distance * distance;
-		const rangeSq = this.range * this.range;
-		const rangeFactor = distanceSq / rangeSq;
-		const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
-		const attenuation = (smoothFactor * smoothFactor) / (distanceSq + 1.0);
-
-		return {
-			type: "direct",
-			color: this.color,
-			intensity: this.intensity * attenuation * spotIntensity,
-			direction: L,
-		};
 	}
 }

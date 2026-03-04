@@ -5,8 +5,6 @@ import {
 	Light,
 	LightType,
 	type LightParams,
-	type LightContribution,
-	type SurfacePoint,
 	type ShadowCaster,
 	type ShadowCameraResult,
 } from "./Light";
@@ -62,18 +60,5 @@ export class DirectionalLight extends Light<LightType.Directional> {
 		this.dir = params.dir ?? { x: 0, y: -1, z: 0 };
 		this.shadow = new DirectionalShadowCaster(this);
 		this.castShadow = true;
-	}
-
-	public computeContribution(_surface: SurfacePoint): LightContribution {
-		let dir = this.dir;
-		dir = Matrix4.transformDirection(this.worldMatrix, dir);
-		dir = Vector3.normalize(dir);
-
-		return {
-			type: "direct",
-			color: this.color,
-			intensity: this.intensity,
-			direction: { x: -dir.x, y: -dir.y, z: -dir.z },
-		};
 	}
 }

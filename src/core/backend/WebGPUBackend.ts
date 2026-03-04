@@ -6,11 +6,7 @@ import {
 } from "../ral/ICommandEncoder";
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
-import type {
-	FramePass,
-	PreparedScene,
-	ResolvedFeatureState,
-} from "../pipeline/types";
+import type { FrameContext, FramePass } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { RenderResources } from "../resources/RenderResources";
 import {
@@ -66,6 +62,13 @@ export class WebGPUBackend implements IRenderBackend {
 		this._renderer = renderer;
 	}
 
+	public getAttachments(width: number, height: number): any {
+		return {
+			width,
+			height,
+		};
+	}
+
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this.canvas = canvas;
 
@@ -115,27 +118,24 @@ export class WebGPUBackend implements IRenderBackend {
 		this._recreateDepthTexture();
 	}
 
-	public beginFrame(
-		frame: PreparedScene,
-		features: ResolvedFeatureState
-	): void {
+	public beginFrame(context: FrameContext): void {
 		if (!this._resources || !this._frameExecutor) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
-		this._resources.prepareFrame(frame, features);
+		this._resources.prepareFrame(context);
 		this._frameExecutor.beginFrame();
 	}
 
 	public executePass(
 		pass: FramePass,
-		frame: PreparedScene
+		context: FrameContext
 	): Promise<void> | void {
 		if (!this._frameExecutor) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
-		return this._frameExecutor.executePass(pass, frame);
+		return this._frameExecutor.executePass(pass, context);
 	}
 
 	public endFrame(): void {

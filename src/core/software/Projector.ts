@@ -9,9 +9,7 @@ import type {
 	IVertex,
 	PrimitiveFace,
 } from "../types";
-import type { Renderer } from "../Renderer";
-import type { DrawPacket } from "../pipeline/types";
-import { Matrix4 as Matrix4Class } from "../../maths/Matrix4";
+import type { DrawPacket, FrameContext } from "../pipeline/types";
 import { GeometryBuilder } from "../geometry/GeometryBuilder";
 
 interface ClippedVertexPair {
@@ -22,15 +20,15 @@ interface ClippedVertexPair {
 export class Projector {
 	public static projectModel(
 		model: IModel,
-		renderer: Renderer,
+		context: FrameContext,
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number }
 	): ProjectedFace[] {
 		const worldMatrix = getModelMatrix(model);
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix);
-		const packetCameraCenter = Matrix4Class.transformPoint(
-			renderer.camera.viewMatrix,
-			Matrix4Class.transformPoint(worldMatrix, model.boundingSphere.center)
+		const packetCameraCenter = Matrix4.transformPoint(
+			context.camera.viewMatrix,
+			Matrix4.transformPoint(worldMatrix, model.boundingSphere.center)
 		);
 		const sortDepth = -packetCameraCenter.z;
 
@@ -51,20 +49,20 @@ export class Projector {
 			}));
 
 		return packets.flatMap((packet) =>
-			this.projectPacket(packet, renderer, flipCulling, overrideSize)
+			this.projectPacket(packet, context, flipCulling, overrideSize)
 		);
 	}
 
 	public static projectPacket(
 		packet: DrawPacket,
-		renderer: Renderer,
+		context: FrameContext,
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number }
 	): ProjectedFace[] {
-		const targetWidth = overrideSize?.width ?? renderer.canvas.width;
-		const targetHeight = overrideSize?.height ?? renderer.canvas.height;
-		const projectionMatrix = renderer.camera.projectionMatrix;
-		const viewMatrix = renderer.camera.viewMatrix;
+		const targetWidth = overrideSize?.width ?? context.attachments.width;
+		const targetHeight = overrideSize?.height ?? context.attachments.height;
+		const projectionMatrix = context.camera.projectionMatrix;
+		const viewMatrix = context.camera.viewMatrix;
 		const projectedFaces: ProjectedFace[] = [];
 
 		for (const face of this.getPacketFaces(packet)) {
@@ -121,14 +119,14 @@ export class Projector {
 				});
 			}
 
-			const clippedVerts = clipFaceToNearPlane(viewVerts, worldVerts, renderer);
+			const clippedVerts = clipFaceToNearPlane(viewVerts, worldVerts, context);
 			if (clippedVerts.length < 3) continue;
 
 			const cullNormal = Vector3.calculateNormal(
 				clippedVerts.map((vertex) => vertex.view)
 			);
 			const v0 = clippedVerts[0].view;
-			const isOrthographic = renderer.camera.type === CameraType.Orthographic;
+			const isOrthographic = context.camera.type === CameraType.Orthographic;
 			const dot = isOrthographic
 				? -cullNormal.z
 				: cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
@@ -293,9 +291,9 @@ export class Projector {
 function clipFaceToNearPlane(
 	viewVerts: IVertex[],
 	worldVerts: IVertex[],
-	renderer: Renderer
+	context: FrameContext
 ): ClippedVertexPair[] {
-	const nearZ = -renderer.camera.near;
+	const nearZ = -context.camera.near;
 	const clippedVerts: ClippedVertexPair[] = [];
 
 	for (let i = 0; i < viewVerts.length; i++) {

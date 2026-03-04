@@ -30,16 +30,43 @@ export interface DrawPacket {
 	passFlags: number;
 }
 
+import type { Texture } from "../Texture";
+
 export interface PreparedScene {
 	sceneBounds: BoundingSphere;
 	lights: SceneLight[];
 	camera: Camera;
+	skybox?: Texture | null;
+	models: IModel[];
 	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
 	opaquePackets: DrawPacket[];
 	transparentPackets: DrawPacket[];
 	shadowCasterPackets: DrawPacket[];
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
+}
+
+import type { SHCoefficients } from "../../maths/types";
+
+export interface FrameAttachments {
+	pixels?: Uint8ClampedArray;
+	depthBuffer?: Float32Array;
+	normalBuffer?: Float32Array | null;
+	width: number;
+	height: number;
+}
+
+export interface FrameContext {
+	readonly camera: Camera;
+	readonly attachments: FrameAttachments;
+	readonly features: ResolvedFeatureState;
+	readonly shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	readonly scene: PreparedScene;
+	readonly shCoeffs: SHCoefficients;
+	readonly shAmbientCoeffs: SHCoefficients;
+	readonly worldMatrix: Matrix4;
+	/** Pass-specific transient data */
+	readonly transient: Map<string, any>;
 }
 
 export type FramePassStage =
@@ -56,6 +83,31 @@ export interface FramePass {
 	stage: FramePassStage;
 	executor: "shared" | "backend";
 	enabled: boolean;
+}
+
+export interface VolumetricOptions {
+	samples?: number;
+	downsample?: number;
+	weight?: number;
+	exposure?: number;
+	airDensity?: number;
+	anisotropy?: number;
+	maxRayDistance?: number;
+	scatteringAlbedo?: number;
+	shadowSampleInterval?: number;
+	isLinearDepth?: boolean;
+	adaptiveSteps?: boolean;
+	useBilateralUpscale?: boolean;
+	bilateralDepthSigma?: number;
+	[key: string]: unknown;
+}
+
+export interface SSAOOptions {
+	samples?: number;
+	radius?: number;
+	bias?: number;
+	intensity?: number;
+	[key: string]: unknown;
 }
 
 export interface FeatureWarning {
@@ -86,4 +138,6 @@ export interface ResolvedFeatureState {
 	enableVolumetric: boolean;
 	enableFXAA: boolean;
 	warnings: FeatureWarning[];
+	ssaoOptions?: SSAOOptions;
+	volumetricOptions?: VolumetricOptions;
 }

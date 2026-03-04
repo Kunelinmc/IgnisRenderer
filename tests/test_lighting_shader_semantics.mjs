@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
+import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { evaluateLightContribution } from "../src/lights/index.ts";
 import { SH } from "../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../src/shaders/software/BlinnPhongStrategy.ts";
 import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
@@ -438,7 +440,9 @@ function testLightProbeFallbackContributionFromDC() {
 	sh[0] = { r: 120, g: 60, b: 0 };
 
 	const probe = new LightProbe(sh, 0.75);
-	const contribution = probe.computeContribution({ position: { x: 0, y: 0, z: 0 } });
+	const contribution = evaluateLightContribution(probe, {
+		position: { x: 0, y: 0, z: 0 },
+	});
 
 	assert.ok(
 		contribution,
@@ -555,14 +559,11 @@ function testTransmissionOnlyRespondsToBackLighting() {
 		createContext({
 			enableSH: false,
 			lights: [
-				{
-					computeContribution: () => ({
-						type: "direct",
-						color: { r: 255, g: 255, b: 255 },
-						intensity: 1,
-						direction: { x: 0, y: 0, z: 1 },
-					}),
-				},
+				new DirectionalLight({
+					color: { r: 255, g: 255, b: 255 },
+					intensity: 1,
+					dir: { x: 0, y: 0, z: -1 },
+				}),
 			],
 		})
 	);
@@ -575,14 +576,11 @@ function testTransmissionOnlyRespondsToBackLighting() {
 		createContext({
 			enableSH: false,
 			lights: [
-				{
-					computeContribution: () => ({
-						type: "direct",
-						color: { r: 255, g: 255, b: 255 },
-						intensity: 1,
-						direction: { x: 0, y: 0, z: -1 },
-					}),
-				},
+				new DirectionalLight({
+					color: { r: 255, g: 255, b: 255 },
+					intensity: 1,
+					dir: { x: 0, y: 0, z: 1 },
+				}),
 			],
 		})
 	);
@@ -602,14 +600,11 @@ function testMetalnessSuppressesTransmission() {
 	const context = createContext({
 		enableSH: false,
 		lights: [
-			{
-				computeContribution: () => ({
-					type: "direct",
-					color: { r: 255, g: 255, b: 255 },
-					intensity: 1,
-					direction: { x: 0, y: 0, z: -1 },
-				}),
-			},
+			new DirectionalLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 1,
+				dir: { x: 0, y: 0, z: 1 },
+			}),
 		],
 	});
 	const baseSurface = {

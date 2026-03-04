@@ -1,5 +1,10 @@
 import { Camera, CameraType } from "../cameras/Camera";
-import { LightType, type ShadowCastingLight } from "../lights";
+import {
+	createLightContribution,
+	evaluateLightContribution,
+	LightType,
+	type ShadowCastingLight,
+} from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
@@ -11,22 +16,23 @@ import { Scene } from "./Scene";
 import { ShadowRenderer } from "./ShadowRenderer";
 import { Rasterizer, type RasterizerLike } from "./software/Rasterizer";
 import { ReflectionRenderer } from "./software/ReflectionRenderer";
-import { PostProcessor } from "./software/PostProcessor";
 import { resolveFeatureState } from "./pipeline/FeatureResolver";
 import { FramePlanner } from "./pipeline/FramePlanner";
 import { PreparedSceneBuilder } from "./pipeline/PreparedSceneBuilder";
 import type { SHCoefficients } from "../maths/types";
 import type {
-	PostProcessorLike,
 	SSAOOptions,
 	VolumetricOptions,
-} from "./software/PostProcessor";
-import type { IRenderBackend } from "./backend/IRenderBackend";
-import type {
+	FrameContext,
 	FramePassStage,
 	PreparedScene,
 	ResolvedFeatureState,
 } from "./pipeline/types";
+import {
+	PostProcessor,
+	type PostProcessorLike,
+} from "./software/PostProcessor";
+import type { IRenderBackend } from "./backend/IRenderBackend";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
@@ -52,9 +58,6 @@ export interface RendererFeatures {
 
 export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
-	public pixels: Uint8ClampedArray;
-	public depthBuffer: Float32Array;
-	public normalBuffer: Float32Array | null;
 	public readonly backend: IRenderBackend;
 	public readonly features: RendererFeatures;
 	public shadowMaps: Map<ShadowCastingLight, ShadowMap>;
@@ -62,8 +65,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public shAmbientCoeffs: SHCoefficients;
 	public scene: Scene;
 	public camera: Camera;
-	public rasterizer: RasterizerLike;
-	public reflectionRenderer: ReflectionRenderer;
 	public lastTime: number;
 
 	private _warnings: Set<string>;
@@ -71,7 +72,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _deltaTime: number;
 	private _frameDirty: boolean;
 	private _shadowRenderer: ShadowRenderer;
-	private _postProcessor: PostProcessorLike;
+	private _postProcessor: PostProcessor;
 
 	constructor(
 		backend: IRenderBackend,
@@ -81,9 +82,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		super();
 		this.backend = backend;
 		this.canvas = canvas;
-		this.pixels = new Uint8ClampedArray(0);
-		this.depthBuffer = new Float32Array(0);
-		this.normalBuffer = null;
 		this._warnings = new Set();
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
@@ -109,9 +107,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shAmbientCoeffs = SH.empty();
 		this.scene = new Scene();
 		this.camera = camera || new Camera();
-		this.rasterizer = new Rasterizer(this);
-		this.reflectionRenderer = new ReflectionRenderer(this);
-		this._shadowRenderer = new ShadowRenderer(this);
+		this._shadowRenderer = new ShadowRenderer(this, new Rasterizer());
 		this._postProcessor = new PostProcessor(this);
 		this.lastTime = 0;
 
@@ -143,19 +139,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this.canvas.width = rect.width * this._deviceScaleFactor;
 		this.canvas.height = rect.height * this._deviceScaleFactor;
-
-		if (this.backend.type === "software") {
-			this.pixels = new Uint8ClampedArray(
-				this.canvas.width * this.canvas.height * 4
-			);
-			this.depthBuffer = new Float32Array(
-				this.canvas.width * this.canvas.height
-			);
-			this.depthBuffer.fill(Infinity);
-			this.normalBuffer = new Float32Array(
-				this.canvas.width * this.canvas.height * 3
-			);
-		}
 
 		this.backend.resize(this.canvas.width, this.canvas.height);
 		this._frameDirty = true;
@@ -214,21 +197,37 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		const frame = PreparedSceneBuilder.build(this);
+		const attachments = this.backend.getAttachments(
+			this.canvas.width,
+			this.canvas.height
+		);
+		const context: FrameContext = {
+			camera: this.camera,
+			attachments: attachments,
+			features: resolved,
+			shadowMaps: this.shadowMaps,
+			scene: frame,
+			shCoeffs: this.shCoeffs,
+			shAmbientCoeffs: this.shAmbientCoeffs,
+			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+			transient: new Map(),
+		};
+
 		const framePlan = FramePlanner.build(frame, resolved);
 
 		// Execute shared passes (CPU-based) before beginFrame so their results (like shadow maps)
 		// are available for backend resource preparation.
 		for (const pass of framePlan) {
 			if (pass.enabled && pass.executor === "shared") {
-				await this._executeSharedPass(pass.stage, frame, resolved);
+				await this._executeSharedPass(pass.stage, context);
 			}
 		}
 
-		await this.backend.beginFrame(frame, resolved);
+		await this.backend.beginFrame(context);
 		for (const pass of framePlan) {
 			if (!pass.enabled || pass.executor === "shared") continue;
 
-			await this.backend.executePass(pass, frame);
+			await this.backend.executePass(pass, context);
 		}
 		await this.backend.endFrame();
 
@@ -238,56 +237,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	public get postProcessor(): PostProcessorLike {
 		return this._postProcessor;
-	}
-
-	public renderSkybox(
-		pixels: Uint8ClampedArray,
-		width?: number,
-		height?: number
-	): void {
-		const skybox = this.scene.skybox;
-		if (!skybox) return;
-
-		const w = width ?? this.canvas.width;
-		const h = height ?? this.canvas.height;
-		const camera = this.camera;
-		const view = camera.viewMatrix.elements;
-		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
-		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
-		const backward = { x: view[2][0], y: view[2][1], z: view[2][2] };
-		const isOrthographic = camera.type === CameraType.Orthographic;
-		const fovRad = (camera.fov * Math.PI) / 180;
-		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
-		const aspect =
-			width && height ? width / height : camera.aspectRatio || w / h;
-
-		for (let y = 0; y < h; y++) {
-			const ndcY = 1 - ((y + 0.5) / h) * 2;
-			const cy = ndcY * tanHalfFov;
-			const rowBase = y * w * 4;
-
-			for (let x = 0; x < w; x++) {
-				const ndcX = ((x + 0.5) / w) * 2 - 1;
-				const cx = ndcX * aspect * tanHalfFov;
-				const dirX = right.x * cx + up.x * cy - backward.x;
-				const dirY = right.y * cx + up.y * cy - backward.y;
-				const dirZ = right.z * cx + up.z * cy - backward.z;
-				const invLen = 1 / Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
-				const dx = dirX * invLen;
-				const dy = dirY * invLen;
-				const dz = dirZ * invLen;
-				const phi = Math.atan2(dx, dz);
-				const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
-				const u = (phi + Math.PI) / (2 * Math.PI);
-				const v = theta / Math.PI;
-				const color = skybox.sample(u, v);
-				const idx = rowBase + x * 4;
-				pixels[idx] = color.r;
-				pixels[idx + 1] = color.g;
-				pixels[idx + 2] = color.b;
-				pixels[idx + 3] = 255;
-			}
-		}
 	}
 
 	public updateSH(): void {
@@ -363,13 +312,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			g: coefficient.g,
 			b: coefficient.b,
 		})) as SHCoefficients;
+		const lightContribution = createLightContribution();
 
 		for (const light of this.scene.lights) {
 			if (light.type !== LightType.Directional) continue;
 
-			const contribution = light.computeContribution({
-				position: { x: 0, y: 0, z: 0 },
-			});
+			const contribution = evaluateLightContribution(
+				light,
+				{ position: { x: 0, y: 0, z: 0 } },
+				lightContribution
+			);
 			if (!contribution?.direction) continue;
 
 			const direction = Vector3.normalize(contribution.direction);
@@ -387,11 +339,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private async _executeSharedPass(
 		stage: FramePassStage,
-		frame: PreparedScene,
-		resolved: ResolvedFeatureState
+		context: FrameContext
 	): Promise<void> {
 		if (stage !== "shadow") return;
-		this._shadowRenderer.render(frame, resolved);
+		this._shadowRenderer.render(context);
 	}
 
 	private _getSafeAspectRatio(width: number, height: number): number {

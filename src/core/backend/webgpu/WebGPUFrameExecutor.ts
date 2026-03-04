@@ -1,8 +1,4 @@
-import type {
-	DrawPacket,
-	FramePass,
-	PreparedScene,
-} from "../../pipeline/types";
+import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
 import type { RenderResources } from "../../resources/RenderResources";
 import type { WebGPUBackend } from "../WebGPUBackend";
 
@@ -22,17 +18,17 @@ export class WebGPUFrameExecutor {
 
 	public async executePass(
 		pass: FramePass,
-		frame: PreparedScene
+		context: FrameContext
 	): Promise<void> {
 		if (!this._encoder) return;
 
 		if (pass.stage === "main-opaque") {
-			await this._recordMainPass(frame.opaquePackets, true);
+			await this._recordMainPass(context.scene.opaquePackets, true);
 			return;
 		}
 
 		if (pass.stage === "main-transparent") {
-			await this._recordMainPass(frame.transparentPackets, false);
+			await this._recordMainPass(context.scene.transparentPackets, false);
 		}
 	}
 

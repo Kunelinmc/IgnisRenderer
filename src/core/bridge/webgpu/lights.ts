@@ -1,7 +1,10 @@
 import { sRGBToLinear, clamp } from '../../../maths/Common'
-import { Matrix4 } from '../../../maths/Matrix4'
-import { Vector3 } from '../../../maths/Vector3'
 import {
+	getDirectionalLightWorldDirection,
+	getPointLightWorldPosition,
+	getSpotLightInnerAngle,
+	getSpotLightWorldDirection,
+	getSpotLightWorldPosition,
 	LightType,
 	type AmbientLight,
 	type DirectionalLight,
@@ -91,9 +94,7 @@ function collectDirectionalLight(
 		return
 	}
 
-	const direction = Vector3.normalize(
-		Matrix4.transformDirection(light.worldMatrix, light.dir)
-	)
+	const direction = getDirectionalLightWorldDirection(light)
 
 	state.directionalLights.push({
 		direction: [-direction.x, -direction.y, -direction.z],
@@ -118,7 +119,7 @@ function collectPointLight(
 		return
 	}
 
-	const position = Matrix4.transformPoint(light.worldMatrix, light.position)
+	const position = getPointLightWorldPosition(light)
 	state.pointLights.push({
 		position: [position.x, position.y, position.z],
 		range: Math.max(light.range, 0.001),
@@ -137,12 +138,10 @@ function collectSpotLight(
 		return
 	}
 
-	const position = Matrix4.transformPoint(light.worldMatrix, light.position)
-	const direction = Vector3.normalize(
-		Matrix4.transformDirection(light.worldMatrix, light.dir)
-	)
+	const position = getSpotLightWorldPosition(light)
+	const direction = getSpotLightWorldDirection(light)
 	const outerAngle = light.angle
-	const innerAngle = light.innerAngle ?? outerAngle * (1 - light.penumbra)
+	const innerAngle = getSpotLightInnerAngle(light)
 
 	state.spotLights.push({
 		position: [position.x, position.y, position.z],

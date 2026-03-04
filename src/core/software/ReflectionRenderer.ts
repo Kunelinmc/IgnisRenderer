@@ -2,8 +2,10 @@ import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
 import { Projector } from "./Projector";
 import { RenderConstants } from "../constants";
-import type { Renderer } from "../Renderer";
+import type { FrameContext } from "../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../types";
+import type { Rasterizer } from "./Rasterizer";
+import { SkyboxRenderer } from "./SkyboxRenderer";
 
 interface ReflectionBuffer {
 	imageData: ImageData;
@@ -16,7 +18,7 @@ interface PlaneAggregateInfo {
 }
 
 export class ReflectionRenderer {
-	private _renderer: Renderer;
+	private _rasterizer: Rasterizer;
 	private _depthBuffer: Float32Array | null = null;
 	private _planesPool: Map<string, Plane> = new Map();
 	private _imageDataPool: Map<string, ImageData[]> = new Map();
@@ -26,20 +28,20 @@ export class ReflectionRenderer {
 	// Allows scaling the resolution of reflection buffers for performance vs quality tradeoff
 	public resolutionScale: number = 0.5;
 
-	constructor(renderer: Renderer) {
-		this._renderer = renderer;
+	constructor(rasterizer: Rasterizer) {
+		this._rasterizer = rasterizer;
 	}
 
-	public render(): void {
+	public render(context: FrameContext): void {
 		// 1. Collect all unique mirror planes and their aggregate filter settings
-		const planeInfos = this._collectPlaneInfos();
+		const planeInfos = this._collectPlaneInfos(context);
 
 		if (planeInfos.size === 0) {
 			this._clearBuffers();
 			return;
 		}
 
-		const { width, height } = this._renderer.canvas;
+		const { width, height } = context.attachments;
 		if (width <= 0 || height <= 0) {
 			this._clearBuffers();
 			return;
@@ -53,17 +55,19 @@ export class ReflectionRenderer {
 			const buffer = this._prepareBuffer(key, scaledWidth, scaledHeight);
 
 			// Render reflection
-			this._renderReflectionForPlane(info.plane, buffer);
+			this._renderReflectionForPlane(info.plane, buffer, context);
 		}
 
 		// 3. Cleanup stale buffers and planes
 		this._cleanupStaleResources(planeInfos);
 	}
 
-	private _collectPlaneInfos(): Map<string, PlaneAggregateInfo> {
+	private _collectPlaneInfos(
+		context: FrameContext
+	): Map<string, PlaneAggregateInfo> {
 		const infos = new Map<string, PlaneAggregateInfo>();
 
-		for (const model of this._renderer.scene.models) {
+		for (const model of context.scene.models) {
 			for (const primitive of model.primitives) {
 				const material = primitive.material;
 				if (material && material.mirrorPlane) {
@@ -146,13 +150,19 @@ export class ReflectionRenderer {
 
 	private _renderReflectionForPlane(
 		plane: Plane,
-		buffer: ReflectionBuffer
+		buffer: ReflectionBuffer,
+		context: FrameContext
 	): void {
-		const renderer = this._renderer;
 		const pixels = buffer.imageData.data;
 
-		if (renderer.features.enableSkybox && renderer.scene.skybox) {
-			renderer.renderSkybox(pixels, buffer.width, buffer.height);
+		if (context.features.enableSkybox && context.scene.skybox) {
+			SkyboxRenderer.render(
+				context.scene.skybox,
+				pixels,
+				context.camera,
+				buffer.width,
+				buffer.height
+			);
 		} else {
 			pixels.fill(0); // Clear
 			for (let i = 3; i < pixels.length; i += 4) {
@@ -161,13 +171,14 @@ export class ReflectionRenderer {
 		}
 
 		// Backup camera state
-		const originalViewMatrix = renderer.camera.viewMatrix;
-		const originalProjectionMatrix = renderer.camera.projectionMatrix;
-		const originalViewProjMatrix = renderer.camera.viewProjectionMatrix;
+		const camera = context.camera;
+		const originalViewMatrix = camera.viewMatrix;
+		const originalProjectionMatrix = camera.projectionMatrix;
+		const originalViewProjMatrix = camera.viewProjectionMatrix;
 		const originalCameraPosition = {
-			x: renderer.camera.position.x,
-			y: renderer.camera.position.y,
-			z: renderer.camera.position.z,
+			x: camera.position.x,
+			y: camera.position.y,
+			z: camera.position.z,
 		};
 
 		// 1. Calculate Reflection Matrix
@@ -179,7 +190,7 @@ export class ReflectionRenderer {
 
 		// 2. Set Mirror Camera: ViewMirror = ViewMain * R
 		const mirrorViewMatrix = Matrix4.multiply(originalViewMatrix, reflectMat);
-		renderer.camera.viewMatrix = mirrorViewMatrix;
+		camera.viewMatrix = mirrorViewMatrix;
 
 		// 3. Oblique Near Plane Clipping
 		const mirrorProjMatrix = originalProjectionMatrix.clone();
@@ -208,12 +219,12 @@ export class ReflectionRenderer {
 			constant: clipPlaneConstant,
 		});
 
-		renderer.camera.projectionMatrix = mirrorProjMatrix;
-		renderer.camera.viewProjectionMatrix = Matrix4.multiply(
+		camera.projectionMatrix = mirrorProjMatrix;
+		camera.viewProjectionMatrix = Matrix4.multiply(
 			mirrorProjMatrix,
 			mirrorViewMatrix
 		);
-		renderer.camera.position.copy(mirroredPosition);
+		camera.position.copy(mirroredPosition);
 
 		try {
 			const bufferSize = buffer.width * buffer.height;
@@ -227,8 +238,8 @@ export class ReflectionRenderer {
 			const transparentFaces: ProjectedFace[] = [];
 
 			// Render scene with mirrored camera
-			for (const model of renderer.scene.models) {
-				const faces = Projector.projectModel(model, renderer, true, buffer);
+			for (const model of context.scene.models) {
+				const faces = Projector.projectModel(model, context, true, buffer);
 
 				for (const face of faces) {
 					// skip if same plane
@@ -280,6 +291,7 @@ export class ReflectionRenderer {
 						pixels,
 						depthBuffer,
 						buffer,
+						context,
 						false
 					);
 				}
@@ -296,16 +308,17 @@ export class ReflectionRenderer {
 						pixels,
 						depthBuffer,
 						buffer,
+						context,
 						true
 					);
 				}
 			}
 		} finally {
 			// Restore camera
-			renderer.camera.viewMatrix = originalViewMatrix;
-			renderer.camera.projectionMatrix = originalProjectionMatrix;
-			renderer.camera.viewProjectionMatrix = originalViewProjMatrix;
-			renderer.camera.position.copy(originalCameraPosition);
+			camera.viewMatrix = originalViewMatrix;
+			camera.projectionMatrix = originalProjectionMatrix;
+			camera.viewProjectionMatrix = originalViewProjMatrix;
+			camera.position.copy(originalCameraPosition);
 		}
 	}
 
@@ -315,21 +328,37 @@ export class ReflectionRenderer {
 		pixels: Uint8ClampedArray,
 		depthBuffer: Float32Array,
 		overrideSize: { width: number; height: number },
+		context: FrameContext,
 		isTransparent: boolean
 	): void {
-		const oldDepth = this._renderer.depthBuffer;
-		this._renderer.depthBuffer = depthBuffer;
-		try {
-			this._renderer.rasterizer.drawTriangle(
-				pts,
-				face,
-				pixels,
-				isTransparent,
-				overrideSize
-			);
-		} finally {
-			this._renderer.depthBuffer = oldDepth;
-		}
+		const rasterizerContext = {
+			width: overrideSize.width,
+			height: overrideSize.height,
+			depthBuffer,
+			camera: {
+				position: context.camera.position,
+				viewMatrix: context.camera.viewMatrix,
+			},
+			lights: context.scene.lights,
+			shadowMaps: context.shadowMaps,
+			shAmbientCoeffs: context.shAmbientCoeffs,
+			features: {
+				enableLighting: context.features.enableLighting,
+				enableSH: context.features.enableSH,
+				enableShadows: context.features.enableShadows,
+				enableGamma: context.features.enableGamma,
+				enableReflection: context.features.enableReflection,
+				worldMatrix: context.worldMatrix,
+			},
+		};
+
+		this._rasterizer.drawTriangle(
+			pts,
+			face,
+			pixels,
+			rasterizerContext,
+			isTransparent
+		);
 	}
 
 	private _getImageDataFromPool(

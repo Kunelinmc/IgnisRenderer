@@ -1,5 +1,9 @@
 import type { Renderer } from "../Renderer";
-import type { DrawPacket, PreparedScene } from "../pipeline/types";
+import type {
+	DrawPacket,
+	FrameContext,
+	PreparedScene,
+} from "../pipeline/types";
 import type { ResolvedFeatureState } from "../pipeline/types";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
 import {
@@ -58,10 +62,8 @@ export class RenderResources {
 		await this._pipelineLibrary.init();
 	}
 
-	public prepareFrame(
-		frame: PreparedScene,
-		features: ResolvedFeatureState
-	): void {
+	public prepareFrame(context: FrameContext): void {
+		const { scene, features } = context;
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
@@ -75,17 +77,17 @@ export class RenderResources {
 		};
 
 		this._lightingState = collectWebGPULighting(
-			frame.lights,
+			scene.lights,
 			features.enableLighting,
 			features.enableShadows,
-			frame.shadowMaps
+			scene.shadowMaps
 		);
 		for (const warning of this._lightingState.warnings) {
 			this._renderer.warnOnce(warning.key, warning.message);
 		}
 
 		this._shadowAtlases.prepare(this._lightingState);
-		this._frameBindings.prepare(frame, this._lightingState, featureState);
+		this._frameBindings.prepare(scene, this._lightingState, featureState);
 	}
 
 	public async getDrawResources(
