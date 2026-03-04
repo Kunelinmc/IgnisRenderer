@@ -140,7 +140,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _getFrameImageData(renderer: Renderer): ImageData {
 		const width = renderer.canvas.width;
 		const height = renderer.canvas.height;
-		const pixels = this._pixels!;
+		const pixels = this._resolveFramePixels(renderer);
 
 		if (
 			!this._frameImageData ||
@@ -157,6 +157,21 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 
 		return this._frameImageData;
+	}
+
+	private _resolveFramePixels(renderer: Renderer): Uint8ClampedArray {
+		const legacyPixels = (
+			renderer as Renderer & {
+				pixels?: Uint8ClampedArray | null;
+			}
+		).pixels;
+		const pixels = this._pixels || legacyPixels;
+
+		if (!pixels) {
+			throw new Error("Software backend frame buffer is not initialized.");
+		}
+
+		return pixels;
 	}
 
 	private _createFrameImageData(

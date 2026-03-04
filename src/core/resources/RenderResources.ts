@@ -62,8 +62,19 @@ export class RenderResources {
 		await this._pipelineLibrary.init();
 	}
 
-	public prepareFrame(context: FrameContext): void {
-		const { scene, features } = context;
+	public prepareFrame(context: FrameContext): void;
+	public prepareFrame(
+		scene: PreparedScene,
+		features: ResolvedFeatureState
+	): void;
+	public prepareFrame(
+		contextOrScene: FrameContext | PreparedScene,
+		featuresArg?: ResolvedFeatureState
+	): void {
+		const { scene, features } = this._resolveFrameInputs(
+			contextOrScene,
+			featuresArg
+		);
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
@@ -89,6 +100,43 @@ export class RenderResources {
 		this._shadowAtlases.prepare(this._lightingState);
 		this._frameBindings.prepare(scene, this._lightingState, featureState);
 		this._materialBindings.beginFrame();
+	}
+
+	private _resolveFrameInputs(
+		contextOrScene: FrameContext | PreparedScene,
+		featuresArg?: ResolvedFeatureState
+	): {
+		scene: PreparedScene;
+		features: ResolvedFeatureState;
+	} {
+		if (this._isFrameContext(contextOrScene)) {
+			return {
+				scene: contextOrScene.scene,
+				features: contextOrScene.features,
+			};
+		}
+
+		if (!featuresArg) {
+			throw new Error(
+				"RenderResources.prepareFrame() requires a resolved feature state."
+			);
+		}
+
+		return {
+			scene: contextOrScene,
+			features: featuresArg,
+		};
+	}
+
+	private _isFrameContext(
+		value: FrameContext | PreparedScene
+	): value is FrameContext {
+		return (
+			"scene" in value &&
+			"features" in value &&
+			"attachments" in value &&
+			"transient" in value
+		);
 	}
 
 	public async getDrawResources(
