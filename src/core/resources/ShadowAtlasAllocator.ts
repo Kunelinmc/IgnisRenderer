@@ -1,5 +1,6 @@
 import type { WebGPULightingState } from "../bridge/webgpu";
 import { alignTo } from "../bridge/webgpu";
+import { clamp } from "../../maths/Common";
 import type { ShadowMap } from "../../utils/ShadowMapping";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../ral/types";
@@ -155,8 +156,4 @@ function createShadowAtlasUploadData(
 		width: atlasWidth,
 		height: atlasHeight,
 	};
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.max(min, Math.min(max, value));
 }

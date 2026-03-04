@@ -1,4 +1,5 @@
 import { Material } from "../../materials/Material";
+import { IdGenerator } from "../../utils/IdGenerator";
 import type {
 	BoundingBox,
 	BoundingSphere,
@@ -8,7 +9,6 @@ import type {
 } from "../types";
 import type { RGBA } from "../../utils/Color";
 import type { IVector3 } from "../../maths/types";
-import { IdGenerator } from "../../utils/IdGenerator";
 
 export interface GeometryFaceVertex extends IVertex {
 	[key: string]: unknown;

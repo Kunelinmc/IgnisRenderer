@@ -21,10 +21,6 @@ export interface MaterialParams {
 	map?: TextureLike;
 	reflectivity?: number;
 	mirrorPlane?: MirrorPlane;
-	vertexCode?: string;
-	vertexJS?: any;
-	fragmentCode?: string;
-	fragmentJS?: any;
 }
 
 export class Material {
