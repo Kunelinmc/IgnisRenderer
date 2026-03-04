@@ -40,11 +40,6 @@ export class Material {
 	public reflectivity: number;
 	public mirrorPlane: MirrorPlane | null;
 
-	public vertexCode: string;
-	public vertexJS: any;
-	public fragmentCode: string;
-	public fragmentJS: any;
-
 	constructor(params: MaterialParams = {}) {
 		this.name = params.name ?? "Untitled";
 		this.type = params.type ?? "Basic";
@@ -59,10 +54,5 @@ export class Material {
 
 		this.reflectivity = params.reflectivity ?? 0;
 		this.mirrorPlane = params.mirrorPlane ?? null;
-
-		this.vertexCode = params.vertexCode ?? "";
-		this.vertexJS = params.vertexJS ?? null;
-		this.fragmentCode = params.fragmentCode ?? "";
-		this.fragmentJS = params.fragmentJS ?? null;
 	}
 }
