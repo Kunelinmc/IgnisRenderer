@@ -1,8 +1,19 @@
 import type { Texture } from "../core/Texture";
 
 export type TextureLike = Texture | null;
-export type ShadingModel = "Flat" | "Gouraud" | "Phong" | "PBR" | "Unlit";
-export type AlphaMode = "OPAQUE" | "MASK" | "BLEND";
+export enum ShadingModel {
+	Flat = "Flat",
+	Gouraud = "Gouraud",
+	Phong = "Phong",
+	PBR = "PBR",
+	Unlit = "Unlit",
+}
+
+export enum AlphaMode {
+	Opaque = "OPAQUE",
+	Mask = "MASK",
+	Blend = "BLEND",
+}
 
 export interface MirrorPlane {
 	normal: { x: number; y: number; z: number };
@@ -39,12 +50,12 @@ export class Material {
 	constructor(params: MaterialParams = {}) {
 		this.name = params.name ?? "Untitled";
 		this.type = params.type ?? "Basic";
-		this.shading = params.shading ?? "Flat";
+		this.shading = params.shading ?? ShadingModel.Flat;
 		this.opacity = params.opacity ?? 1;
 		this.doubleSided = params.doubleSided ?? false;
 		this.wireframe = params.wireframe ?? false;
 
-		this.alphaMode = params.alphaMode ?? "OPAQUE";
+		this.alphaMode = params.alphaMode ?? AlphaMode.Opaque;
 		this.alphaCutoff = params.alphaCutoff ?? 0.5;
 		this.map = params.map ?? null;
 

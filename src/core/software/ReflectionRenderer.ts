@@ -6,6 +6,7 @@ import type { FrameContext } from "../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../types";
 import type { Rasterizer } from "./Rasterizer";
 import { SkyboxRenderer } from "./SkyboxRenderer";
+import { AlphaMode } from "../../materials/Material";
 
 interface ReflectionBuffer {
 	imageData: ImageData;
@@ -269,9 +270,9 @@ export class ReflectionRenderer {
 					const alpha = face.color?.a ?? face.material?.opacity ?? 1;
 					if (alpha < 0.1) continue;
 					const explicitAlphaMode = face.material?.alphaMode;
-					const alphaMode = explicitAlphaMode || "OPAQUE";
+					const alphaMode = explicitAlphaMode || AlphaMode.Opaque;
 					if (
-						alphaMode === "BLEND" ||
+						alphaMode === AlphaMode.Blend ||
 						(explicitAlphaMode === undefined &&
 							alpha < RenderConstants.REFLECTION_TRANSPARENT_THRESHOLD)
 					) {

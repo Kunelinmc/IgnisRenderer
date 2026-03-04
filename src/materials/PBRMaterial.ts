@@ -1,5 +1,10 @@
 import type { RGB } from "../utils/Color";
-import { Material, type MaterialParams, type TextureLike } from "./Material";
+import {
+	Material,
+	type MaterialParams,
+	type TextureLike,
+	ShadingModel,
+} from "./Material";
 import { clamp, sRGBToLinear } from "../maths/Common";
 
 export interface PBRMaterialParams extends MaterialParams {
@@ -164,7 +169,7 @@ export class PBRMaterial extends Material {
 	}
 
 	constructor(params: PBRMaterialParams = {}) {
-		super({ ...params, shading: "PBR" });
+		super({ ...params, shading: ShadingModel.PBR });
 		this.type = "PBR";
 
 		// Map albedoMap alias if present

@@ -1,5 +1,5 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PBRMaterial, Material } from "../../materials";
+import { type PBRMaterial, type Material, AlphaMode } from "../../materials";
 import type { ProjectedFace } from "../../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../../maths/Vector3";
@@ -90,7 +90,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			alpha *= tex.a;
 		}
 
-		if (mat.alphaMode === "MASK" && alpha < (mat.alphaCutoff ?? 0.5))
+		if (mat.alphaMode === AlphaMode.Mask && alpha < (mat.alphaCutoff ?? 0.5))
 			return null;
 
 		const mrUV =

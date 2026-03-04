@@ -1,5 +1,5 @@
 import type { RGB } from "../utils/Color";
-import { Material, type MaterialParams } from "./Material";
+import { Material, type MaterialParams, ShadingModel } from "./Material";
 
 export interface PhongMaterialParams extends MaterialParams {
 	diffuse?: RGB;
@@ -15,7 +15,7 @@ export class PhongMaterial extends Material {
 	public shininess: number;
 
 	constructor(params: PhongMaterialParams = {}) {
-		super({ ...params, shading: "Phong" });
+		super({ ...params, shading: ShadingModel.Phong });
 		this.type = "Phong";
 		this.diffuse = params.diffuse || { r: 255, g: 255, b: 255 };
 		this.specular = params.specular || { r: 255, g: 255, b: 255 };

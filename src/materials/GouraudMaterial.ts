@@ -1,5 +1,5 @@
 import type { RGB } from "../utils/Color";
-import { Material } from "./Material";
+import { Material, ShadingModel } from "./Material";
 import type { PhongMaterialParams } from "./PhongMaterial";
 
 export class GouraudMaterial extends Material {
@@ -9,7 +9,7 @@ export class GouraudMaterial extends Material {
 	public shininess: number;
 
 	constructor(params: PhongMaterialParams = {}) {
-		super({ ...params, shading: "Gouraud" });
+		super({ ...params, shading: ShadingModel.Gouraud });
 		this.type = "Gouraud";
 		this.diffuse = params.diffuse || { r: 255, g: 255, b: 255 };
 		this.specular = params.specular || { r: 255, g: 255, b: 255 };

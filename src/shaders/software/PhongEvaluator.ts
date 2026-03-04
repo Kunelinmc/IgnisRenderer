@@ -1,5 +1,5 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import type { PhongMaterial, Material } from "../../materials";
+import { type PhongMaterial, type Material, AlphaMode } from "../../materials";
 import type { ProjectedFace } from "../../core/types";
 import type { PhongSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../../maths/Vector3";
@@ -48,7 +48,7 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 			alpha *= tex.a;
 		}
 
-		if (mat.alphaMode === "MASK" && alpha < (mat.alphaCutoff ?? 0.5))
+		if (mat.alphaMode === AlphaMode.Mask && alpha < (mat.alphaCutoff ?? 0.5))
 			return null;
 
 		const res = this._cachedResult;

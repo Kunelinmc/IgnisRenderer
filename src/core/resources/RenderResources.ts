@@ -4,6 +4,7 @@ import type {
 	FrameContext,
 	PreparedScene,
 } from "../pipeline/types";
+import { AlphaMode } from "../../materials/Material";
 import type { ResolvedFeatureState } from "../pipeline/types";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
 import {
@@ -142,7 +143,7 @@ export class RenderResources {
 	public async getDrawResources(
 		packet: DrawPacket
 	): Promise<WebGPUDrawResources | null> {
-		if (packet.material.alphaMode === "BLEND") {
+		if (packet.material.alphaMode === AlphaMode.Blend) {
 			this._renderer.warnOnce(
 				`webgpu-material-blend:${packet.material.type}:${packet.material.name}`,
 				`WebGPU backend does not support alpha blend materials yet; skipping ${packet.material.name}`

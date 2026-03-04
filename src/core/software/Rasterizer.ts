@@ -1,4 +1,4 @@
-import { Material } from "../../materials/Material";
+import { Material, ShadingModel, AlphaMode } from "../../materials/Material";
 import { Matrix4 } from "../../maths/Matrix4";
 import { CoreConstants, PostProcessConstants } from "../constants";
 import {
@@ -161,11 +161,17 @@ export class Rasterizer implements RasterizerLike {
 	}
 
 	private _initShaderSystem(): void {
-		this._evaluators.set("Phong", new PhongEvaluator(this._defaultMaterial));
-		this._evaluators.set("PBR", new PBREvaluator(this._defaultMaterial));
+		this._evaluators.set(
+			ShadingModel.Phong,
+			new PhongEvaluator(this._defaultMaterial)
+		);
+		this._evaluators.set(
+			ShadingModel.PBR,
+			new PBREvaluator(this._defaultMaterial)
+		);
 
-		this._strategies.set("Phong", new BlinnPhongStrategy());
-		this._strategies.set("PBR", new PBRStrategy());
+		this._strategies.set(ShadingModel.Phong, new BlinnPhongStrategy());
+		this._strategies.set(ShadingModel.PBR, new PBRStrategy());
 	}
 
 	private _createEdgeRes(): EdgeInterpolationResult {
@@ -184,8 +190,8 @@ export class Rasterizer implements RasterizerLike {
 	}
 
 	private _getShader(shading: string, material: Material): IShader {
-		const isPBR = shading === "PBR" || material.type === "PBR";
-		const evaluatorType = isPBR ? "PBR" : "Phong";
+		const isPBR = shading === ShadingModel.PBR || material.type === "PBR";
+		const evaluatorType = isPBR ? ShadingModel.PBR : ShadingModel.Phong;
 
 		const evaluator = this._evaluators.get(evaluatorType)!;
 		const strategy = this._strategies.get(evaluatorType)!;
@@ -211,7 +217,7 @@ export class Rasterizer implements RasterizerLike {
 		strategy: ILightingStrategy,
 		isPBR: boolean
 	): IShader {
-		if (shading === "Unlit") {
+		if (shading === ShadingModel.Unlit) {
 			return new UnlitShader(evaluator);
 		}
 
@@ -222,7 +228,7 @@ export class Rasterizer implements RasterizerLike {
 			);
 		}
 
-		if (shading === "Flat") {
+		if (shading === ShadingModel.Flat) {
 			return new FlatLitShader(
 				strategy as ILightingStrategy<PhongSurfaceProperties>,
 				evaluator as IMaterialEvaluator<PhongSurfaceProperties>
@@ -294,7 +300,7 @@ export class Rasterizer implements RasterizerLike {
 		const { size, buffer } = shadowMap;
 		const alphaMode = material?.alphaMode;
 		const maskTexture =
-			alphaMode === "MASK" &&
+			alphaMode === AlphaMode.Mask &&
 			material?.map &&
 			material.map.data &&
 			material.map.width > 0 &&
@@ -622,9 +628,9 @@ export class Rasterizer implements RasterizerLike {
 		const viewMat = context.camera.viewMatrix;
 
 		const verts = this._vertsCache;
-		const shadingModel = material.shading || "Flat";
+		const shadingModel = material.shading || ShadingModel.Flat;
 		const isLightingEnabled = context.features.enableLighting !== false;
-		const shading = isLightingEnabled ? shadingModel : "Unlit";
+		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
 
 		const shader = this._getShader(shading, material);
 		let envSpecularMap = null;

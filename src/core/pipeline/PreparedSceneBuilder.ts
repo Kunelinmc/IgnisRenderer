@@ -3,6 +3,7 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 import type { Renderer } from "../Renderer";
 import type { IModel, IPrimitive } from "../types";
+import { AlphaMode } from "../../materials/Material";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
@@ -104,8 +105,8 @@ export class PreparedSceneBuilder {
 		modelDepth: number
 	): DrawPacket {
 		const material = primitive.material;
-		const alphaMode = material.alphaMode ?? "OPAQUE";
-		const isTransparent = alphaMode === "BLEND";
+		const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
+		const isTransparent = alphaMode === AlphaMode.Blend;
 		const isReflective =
 			material.reflectivity > 0 && material.mirrorPlane !== null;
 
@@ -148,7 +149,7 @@ export class PreparedSceneBuilder {
 			pipelineKey: [
 				material.type,
 				material.shading,
-				material.alphaMode ?? "OPAQUE",
+				material.alphaMode ?? AlphaMode.Opaque,
 				material.doubleSided ? "double" : "single",
 			].join(":"),
 			passFlags,
