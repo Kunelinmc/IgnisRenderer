@@ -7,6 +7,7 @@ import { TextureFormat, TextureUsage, type IRenderTexture } from "../ral/types";
 interface ShadowAtlas {
 	tileSize: number;
 	texture: IRenderTexture;
+	uploadBuffer: Uint8Array;
 }
 
 export class ShadowAtlasAllocator {
@@ -64,6 +65,11 @@ export class ShadowAtlasAllocator {
 		let atlas = current;
 		if (!atlas || atlas.tileSize !== tileSize) {
 			atlas?.texture.destroy();
+
+			const atlasWidth = tileSize * 2;
+			const atlasHeight = tileSize * 2;
+			const bytesPerRow = alignTo(atlasWidth * 4, 256);
+
 			atlas = {
 				tileSize,
 				texture: this._backend.createTexture({
@@ -73,13 +79,18 @@ export class ShadowAtlasAllocator {
 					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
 					label,
 				}),
+				uploadBuffer: new Uint8Array(bytesPerRow * atlasHeight),
 			};
 		}
 
-		const upload = createShadowAtlasUploadData(shadows, tileSize);
+		const upload = createShadowAtlasUploadData(
+			shadows,
+			tileSize,
+			atlas.uploadBuffer
+		);
 		this._backend.writeTexture(
 			atlas.texture,
-			new Uint8Array(upload.data),
+			upload.data as any,
 			{
 				bytesPerRow: upload.bytesPerRow,
 				rowsPerImage: upload.height,
@@ -97,7 +108,8 @@ export class ShadowAtlasAllocator {
 
 function createShadowAtlasUploadData(
 	shadows: Array<{ enabled: boolean; shadowMap: ShadowMap | null }>,
-	tileSize: number
+	tileSize: number,
+	data: Uint8Array
 ): {
 	data: Uint8Array;
 	bytesPerRow: number;
@@ -107,7 +119,7 @@ function createShadowAtlasUploadData(
 	const atlasWidth = tileSize * 2;
 	const atlasHeight = tileSize * 2;
 	const bytesPerRow = alignTo(atlasWidth * 4, 256);
-	const data = new Uint8Array(bytesPerRow * atlasHeight).fill(255);
+	data.fill(255);
 
 	for (let shadowIndex = 0; shadowIndex < shadows.length; shadowIndex++) {
 		const shadow = shadows[shadowIndex];

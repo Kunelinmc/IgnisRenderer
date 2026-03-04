@@ -21,16 +21,29 @@ interface MaterialBindingEntry {
 	pipeline: IRenderPipeline | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
+	lastUsedFrame: number;
 }
 
 export class MaterialBindingCache {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
 	private _cache = new Map<string, MaterialBindingEntry>();
+	private _currentFrame = 0;
 
 	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
 		this._backend = backend;
 		this._layouts = layouts;
+	}
+
+	public beginFrame(): void {
+		this._currentFrame++;
+
+		for (const [key, entry] of this._cache.entries()) {
+			if (entry.lastUsedFrame < this._currentFrame - 5) {
+				entry.uniformBuffer.destroy();
+				this._cache.delete(key);
+			}
+		}
 	}
 
 	public getBinding(
@@ -52,8 +65,11 @@ export class MaterialBindingCache {
 				pipeline: null,
 				textures: [],
 				samplers: [],
+				lastUsedFrame: this._currentFrame,
 			};
 			this._cache.set(packet.id, cached);
+		} else {
+			cached.lastUsedFrame = this._currentFrame;
 		}
 
 		const uniformData = packModelUniformData(

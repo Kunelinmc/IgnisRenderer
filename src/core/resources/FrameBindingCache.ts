@@ -2,6 +2,7 @@ import type {
 	IBindingGroup,
 	IRenderBuffer,
 	IRenderPipeline,
+	IRenderTexture,
 } from "../ral/types";
 import { BufferUsage } from "../ral/types";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
@@ -23,6 +24,8 @@ export class FrameBindingCache {
 	private _shadowAtlases: ShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
 	private _cache = new Map<IRenderPipeline, IBindingGroup>();
+	private _lastDirectionalAtlas: IRenderTexture | null = null;
+	private _lastSpotAtlas: IRenderTexture | null = null;
 
 	constructor(
 		backend: WebGPUBackend,
@@ -57,7 +60,18 @@ export class FrameBindingCache {
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
-		this._cache.clear();
+
+		const currentDirectional = this._shadowAtlases.directionalAtlas;
+		const currentSpot = this._shadowAtlases.spotAtlas;
+
+		if (
+			this._lastDirectionalAtlas !== currentDirectional ||
+			this._lastSpotAtlas !== currentSpot
+		) {
+			this._cache.clear();
+			this._lastDirectionalAtlas = currentDirectional;
+			this._lastSpotAtlas = currentSpot;
+		}
 	}
 
 	public getBinding(pipeline: IRenderPipeline): IBindingGroup {

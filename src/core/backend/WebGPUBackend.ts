@@ -258,6 +258,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 		return {
 			label: desc.label,
+			destroy: () => {},
 			_gpuResource: gpuModule,
 		} as InternalShaderModule;
 	}
@@ -316,6 +317,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 		return {
 			label: desc.label,
+			destroy: () => {},
 			_gpuResource: gpuPipeline,
 		} as InternalRenderPipeline;
 	}
@@ -332,6 +334,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 		return {
 			label: desc.label,
+			destroy: () => {},
 			_gpuResource: gpuPipeline,
 		} as InternalComputePipeline;
 	}
@@ -363,6 +366,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 		return {
 			label: desc.label,
+			destroy: () => {},
 			_gpuResource: gpuBindGroup,
 		} as InternalBindingGroup;
 	}
@@ -458,7 +462,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		const gpuTexture = this.context.getCurrentTexture();
-		const gpuView = gpuTexture.createView();
+		const gpuView = this.getCurrentColorView();
 		return {
 			width: this.canvas.width,
 			height: this.canvas.height,
@@ -471,7 +475,10 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public getCanvasDepthTexture(): IRenderTexture {
 		if (!this._depthTexture) {
-			throw new Error("Depth texture not initialized");
+			// fallback/safeguard for 0-dimension canvas
+			throw new Error(
+				"Depth texture not initialized (possibly zero dimension canvas)"
+			);
 		}
 		return this._depthTexture;
 	}
@@ -515,6 +522,10 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		if (this.canvas.width <= 0 || this.canvas.height <= 0) {
+			if (this._depthTexture) {
+				this._depthTexture.destroy();
+				this._depthTexture = null;
+			}
 			return;
 		}
 

@@ -88,6 +88,7 @@ export class RenderResources {
 
 		this._shadowAtlases.prepare(this._lightingState);
 		this._frameBindings.prepare(scene, this._lightingState, featureState);
+		this._materialBindings.beginFrame();
 	}
 
 	public async getDrawResources(
