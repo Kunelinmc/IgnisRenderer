@@ -37,6 +37,10 @@ export interface IDevice {
 	/** Command Recording */
 	createCommandEncoder(): ICommandEncoder;
 
+	/** Get the current backbuffer/canvas textures */
+	getCanvasColorTexture(): IRenderTexture;
+	getCanvasDepthTexture(): IRenderTexture;
+
 	/** Execution & Submission */
 	writeBuffer(buffer: IRenderBuffer, data: ArrayBuffer, offset?: number): void;
 	writeTexture(

@@ -591,7 +591,7 @@ export class Rasterizer implements RasterizerLike {
 
 		const verts = this._vertsCache;
 		const shadingModel = material.shading || "Flat";
-		const isLightingEnabled = this._renderer.params.enableLighting !== false;
+		const isLightingEnabled = this._renderer.features.enableLighting !== false;
 		const shading = isLightingEnabled ? shadingModel : "Unlit";
 
 		const shader = this._getShader(shading, material);
@@ -611,13 +611,13 @@ export class Rasterizer implements RasterizerLike {
 			renderer: this._renderer,
 			cameraPos: this._renderer.camera.position,
 			lights: lights,
-			worldMatrix: this._renderer.params.worldMatrix,
+			worldMatrix: this._renderer.features.worldMatrix,
 			shAmbientCoeffs: this._renderer.shAmbientCoeffs,
 			envSpecularMap: envSpecularMap,
 			brdfLUT: IBLBRDF.getLUT(),
-			enableShadows: !!this._renderer.params.enableShadows,
-			enableSH: !!this._renderer.params.enableSH,
-			enableGamma: !!this._renderer.params.enableGamma,
+			enableShadows: !!this._renderer.features.enableShadows,
+			enableSH: !!this._renderer.features.enableSH,
+			enableGamma: !!this._renderer.features.enableGamma,
 			enableLighting: isLightingEnabled,
 			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};
@@ -784,7 +784,7 @@ export class Rasterizer implements RasterizerLike {
 
 						if (
 							finalColor &&
-							this._renderer.params.enableReflection &&
+							this._renderer.features.enableReflection &&
 							material.reflectivity > 0 &&
 							material.mirrorPlane &&
 							isCameraOnFrontSide

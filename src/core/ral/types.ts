@@ -94,6 +94,7 @@ export interface ShaderModuleDesc {
 }
 
 export interface PipelineDesc {
+	layout?: any;
 	vertex: {
 		module: IShaderModule;
 		entryPoint: string;
@@ -186,26 +187,36 @@ export interface IShaderModule {
 export interface IRenderBuffer {
 	readonly size: number;
 	destroy(): void;
+	/** Internal backend resource handle */
+	_gpuResource?: any;
+	_cpuData?: ArrayBuffer;
 }
 
 export interface IRenderTexture {
 	readonly width: number;
 	readonly height: number;
 	destroy(): void;
+	/** Internal backend resource handle */
+	_gpuResource?: any;
+	_cpuPixels?: Uint8ClampedArray;
 }
 
 export interface ISampler {
 	readonly label?: string;
+	_gpuResource?: any;
 }
 
 export interface IRenderPipeline {
 	readonly label?: string;
+	_gpuResource?: any;
 }
 
 export interface IBindingGroup {
 	readonly label?: string;
+	_gpuResource?: any;
 }
 
 export interface IComputePipeline {
 	readonly label?: string;
+	_gpuResource?: any;
 }

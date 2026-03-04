@@ -8,26 +8,26 @@ import {
 	PhongMaterial,
 	PBRMaterial,
 	ModelFactory,
-} from "./index";
-import { SoftwareBackend } from "./core/backend/SoftwareBackend";
-import { WebGPUBackend } from "./core/backend/WebGPUBackend";
+} from './index'
+import { SoftwareBackend } from './core/backend/SoftwareBackend'
+import { WebGPUBackend } from './core/backend/WebGPUBackend'
 
 interface RendererBootstrap {
-	canvas: HTMLCanvasElement;
-	renderer: Renderer;
+	canvas: HTMLCanvasElement
+	renderer: Renderer
 }
 
 async function init() {
-	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500);
-	const scene = new Scene();
+	let canvas = document.getElementById('canvas3d') as HTMLCanvasElement
+	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500)
+	const scene = new Scene()
 
 	scene.addLight(
 		new AmbientLight({
 			color: { r: 255, g: 255, b: 255 },
 			intensity: 0.5,
 		})
-	);
+	)
 
 	scene.addLight(
 		new DirectionalLight({
@@ -35,16 +35,16 @@ async function init() {
 			dir: { x: -1, y: -1, z: -1 },
 			intensity: 2.5,
 		})
-	);
+	)
 
-	const loader = new GLTFLoader();
-	const model = await loader.load("./assets/duck.glb");
+	const loader = new GLTFLoader()
+	const model = await loader.load('./assets/duck.glb')
 
-	const targetRadius = 120;
-	const scale = targetRadius / model.boundingSphere.radius;
-	model.transform.scale.set(scale, scale, scale);
-	model.transform.position.y = -model.getWorldBoundingBox().min.y;
-	scene.addModel(model);
+	const targetRadius = 120
+	const scale = targetRadius / model.boundingSphere.radius
+	model.transform.scale.set(scale, scale, scale)
+	model.transform.position.y = -model.getWorldBoundingBox().min.y
+	scene.addModel(model)
 
 	scene.addModel(
 		ModelFactory.createPlane(
@@ -58,20 +58,20 @@ async function init() {
 				reflectivity: 0.5,
 			})
 		)
-	);
+	)
 
-	const bootstrap = await createRenderer(canvas, camera, scene);
-	canvas = bootstrap.canvas;
-	const renderer = bootstrap.renderer;
+	const bootstrap = await createRenderer(canvas, camera, scene)
+	canvas = bootstrap.canvas
+	const renderer = bootstrap.renderer
 
-	renderer.updateSH();
-	renderer.requestRender();
+	renderer.updateSH()
+	renderer.requestRender()
 
-	bindControls(canvas, camera, renderer);
-	window.addEventListener("resize", () => {
-		renderer.resizeCanvas();
-		renderer.requestRender();
-	});
+	bindControls(canvas, camera, renderer)
+	window.addEventListener('resize', () => {
+		renderer.resizeCanvas()
+		renderer.requestRender()
+	})
 }
 
 async function createRenderer(
@@ -80,63 +80,54 @@ async function createRenderer(
 	scene: Scene
 ): Promise<RendererBootstrap> {
 	if (navigator.gpu) {
-		const webgpuRenderer = new Renderer(
-			new WebGPUBackend(canvas),
-			canvas,
-			camera
-		);
-		webgpuRenderer.scene = scene;
-		configureRenderer(webgpuRenderer);
+		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera)
+		webgpuRenderer.scene = scene
+		configureRenderer(webgpuRenderer)
 
 		try {
-			await webgpuRenderer.init();
-			console.info("Using WebGPU backend");
+			await webgpuRenderer.init()
+			console.info('Using WebGPU backend')
 			return {
 				canvas,
 				renderer: webgpuRenderer,
-			};
+			}
 		} catch (error) {
 			console.warn(
-				"WebGPU initialization failed, falling back to software.",
+				'WebGPU initialization failed, falling back to software.',
 				error
-			);
-			canvas = replaceCanvas(canvas);
+			)
 		}
 	}
 
-	const softwareRenderer = new Renderer(
-		new SoftwareBackend({ canvas } as any),
-		canvas,
-		camera
-	);
-	softwareRenderer.scene = scene;
-	configureRenderer(softwareRenderer);
-	await softwareRenderer.init();
-	console.info("Using software backend");
+	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera)
+	softwareRenderer.scene = scene
+	configureRenderer(softwareRenderer)
+	await softwareRenderer.init()
+	console.info('Using software backend')
 
 	return {
 		canvas,
 		renderer: softwareRenderer,
-	};
+	}
 }
 
 function configureRenderer(renderer: Renderer): void {
-	renderer.params.enableLighting = true;
-	renderer.params.enableGamma = true;
+	renderer.features.enableLighting = true
+	renderer.features.enableGamma = true
 
-	if (renderer.backendType === "webgpu") {
-		renderer.params.enableSH = false;
-		renderer.params.enableShadows = true;
-		renderer.params.enableReflection = false;
-		renderer.params.enableSkybox = false;
-		renderer.params.enableSSAO = false;
-		renderer.params.enableVolumetric = false;
-		return;
+	if (renderer.backendType === 'webgpu') {
+		renderer.features.enableSH = false
+		renderer.features.enableShadows = true
+		renderer.features.enableReflection = false
+		renderer.features.enableSkybox = false
+		renderer.features.enableSSAO = false
+		renderer.features.enableVolumetric = false
+		return
 	}
 
-	renderer.params.enableSH = true;
-	renderer.params.enableShadows = true;
-	renderer.params.enableReflection = true;
+	renderer.features.enableSH = true
+	renderer.features.enableShadows = true
+	renderer.features.enableReflection = true
 }
 
 function bindControls(
@@ -144,74 +135,65 @@ function bindControls(
 	camera: OrbitCamera,
 	renderer: Renderer
 ): void {
-	let isDragging = false;
-	let lastMouse = { x: 0, y: 0 };
+	let isDragging = false
+	let lastMouse = { x: 0, y: 0 }
 
-	canvas.addEventListener("mousedown", (event) => {
-		isDragging = true;
-		lastMouse = { x: event.clientX, y: event.clientY };
-	});
+	canvas.addEventListener('mousedown', (event) => {
+		isDragging = true
+		lastMouse = { x: event.clientX, y: event.clientY }
+	})
 
-	window.addEventListener("mousemove", (event) => {
-		if (!isDragging) return;
-		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y);
-		lastMouse = { x: event.clientX, y: event.clientY };
-		renderer.requestRender();
-	});
+	window.addEventListener('mousemove', (event) => {
+		if (!isDragging) return
+		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y)
+		lastMouse = { x: event.clientX, y: event.clientY }
+		renderer.requestRender()
+	})
 
-	window.addEventListener("mouseup", () => {
-		isDragging = false;
-	});
+	window.addEventListener('mouseup', () => {
+		isDragging = false
+	})
 
 	canvas.addEventListener(
-		"wheel",
+		'wheel',
 		(event) => {
-			event.preventDefault();
-			camera.zoom(event.deltaY);
-			renderer.requestRender();
+			event.preventDefault()
+			camera.zoom(event.deltaY)
+			renderer.requestRender()
 		},
 		{ passive: false }
-	);
+	)
 
 	canvas.addEventListener(
-		"touchstart",
+		'touchstart',
 		(event) => {
-			if (event.touches.length !== 1) return;
-			isDragging = true;
+			if (event.touches.length !== 1) return
+			isDragging = true
 			lastMouse = {
 				x: event.touches[0].clientX,
 				y: event.touches[0].clientY,
-			};
+			}
 		},
 		{ passive: false }
-	);
+	)
 
 	canvas.addEventListener(
-		"touchmove",
+		'touchmove',
 		(event) => {
-			if (!isDragging || event.touches.length !== 1) return;
-			const touch = event.touches[0];
-			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
-			lastMouse = { x: touch.clientX, y: touch.clientY };
-			renderer.requestRender();
+			if (!isDragging || event.touches.length !== 1) return
+			const touch = event.touches[0]
+			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y)
+			lastMouse = { x: touch.clientX, y: touch.clientY }
+			renderer.requestRender()
 		},
 		{ passive: false }
-	);
+	)
 
-	canvas.addEventListener("touchend", () => {
-		isDragging = false;
-	});
-}
-
-function replaceCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
-	const replacement = canvas.cloneNode(false) as HTMLCanvasElement;
-	replacement.id = canvas.id;
-	replacement.className = canvas.className;
-	replacement.style.cssText = canvas.style.cssText;
-	canvas.replaceWith(replacement);
-	return replacement;
+	canvas.addEventListener('touchend', () => {
+		isDragging = false
+	})
 }
 
 init().catch((error) => {
-	console.error("Failed to initialize scene:", error);
-});
+	console.error('Failed to initialize scene:', error)
+})

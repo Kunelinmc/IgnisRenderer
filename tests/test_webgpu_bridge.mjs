@@ -1,28 +1,48 @@
 import assert from 'node:assert/strict'
-import { ResourceManager } from '../src/core/bridge/ResourceManager.ts'
+import { RenderResources } from '../src/core/resources/RenderResources.ts'
 import { WEBGPU_SCENE_SHADER } from '../src/core/bridge/webgpuShaders.ts'
 import {
 	createWebGPUMaterialUniformData,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
-	resolveWebGPUFeatureState,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 } from '../src/core/bridge/webgpuUtils.ts'
+import { resolveFeatureState } from '../src/core/pipeline/FeatureResolver.ts'
 import { BufferUsage } from '../src/core/ral/types.ts'
 import { Matrix4 } from '../src/maths/Matrix4.ts'
 import { PBRMaterial } from '../src/materials/PBRMaterial.ts'
 import { PhongMaterial } from '../src/materials/PhongMaterial.ts'
 import { UnlitMaterial } from '../src/materials/UnlitMaterial.ts'
 import { SimpleModel } from '../src/models/SimpleModel.ts'
+import { getModelMatrix } from '../src/core/modelMatrix.ts'
+
+globalThis.GPUShaderStage ??= {
+	VERTEX: 1,
+	FRAGMENT: 2,
+}
 
 class FakeDevice {
+	constructor() {
+		this.bufferDescs = []
+	}
+
+	createBindGroupLayout(desc) {
+		return { desc }
+	}
+
+	createPipelineLayout(desc) {
+		this.lastPipelineLayout = { desc }
+		return this.lastPipelineLayout
+	}
+}
+
+class FakeBackend {
 	constructor() {
 		this.type = 'webgpu'
 		this.canvasFormat = 'rgba8unorm'
 		this.bufferDescs = []
+		this.device = new FakeDevice()
 	}
-
-	async init() {}
 
 	createBuffer(desc) {
 		this.bufferDescs.push(desc)
@@ -46,7 +66,7 @@ class FakeDevice {
 		return { label: desc.label, desc }
 	}
 
-	createShaderModule(desc) {
+	async createShaderModule(desc) {
 		return { label: desc.label, desc }
 	}
 
@@ -54,16 +74,8 @@ class FakeDevice {
 		return { label: desc.label, desc }
 	}
 
-	createComputePipeline(desc) {
-		return { label: desc.label, desc }
-	}
-
 	createBindingGroup(desc) {
 		return { label: desc.label, desc }
-	}
-
-	createCommandEncoder() {
-		throw new Error('Not needed in this test')
 	}
 
 	writeBuffer(buffer, data) {
@@ -73,19 +85,15 @@ class FakeDevice {
 	writeTexture(texture, data, layout, size) {
 		texture.lastWrite = { data, layout, size }
 	}
-
-	copyTextureToTexture() {}
-	submit() {}
-	resize() {}
 }
 
-function createModel(material) {
-	return new SimpleModel([
-		{
+function createModel(materials) {
+	return SimpleModel.fromFaces(
+		materials.map((material, index) => ({
 			material,
 			vertices: [
 				{
-					x: 0,
+					x: index,
 					y: 0,
 					z: 0,
 					u: 0,
@@ -93,7 +101,7 @@ function createModel(material) {
 					normal: { x: 0, y: 0, z: 1 },
 				},
 				{
-					x: 1,
+					x: index + 1,
 					y: 0,
 					z: 0,
 					u: 1,
@@ -101,7 +109,7 @@ function createModel(material) {
 					normal: { x: 0, y: 0, z: 1 },
 				},
 				{
-					x: 0,
+					x: index,
 					y: 1,
 					z: 0,
 					u: 0,
@@ -109,8 +117,42 @@ function createModel(material) {
 					normal: { x: 0, y: 0, z: 1 },
 				},
 			],
+		}))
+	)
+}
+
+function createPacket(model) {
+	const primitive = model.primitives[0]
+	return {
+		id: `${model.id}:${primitive.id}`,
+		model,
+		primitive,
+		material: primitive.material,
+		geometry: primitive.geometry,
+		worldMatrix: getModelMatrix(model),
+		normalMatrix: Matrix4.normalMatrix(getModelMatrix(model)),
+		worldBounds: primitive.boundingSphere,
+		sortDepth: 1,
+		pipelineKey: 'test',
+		passFlags: 0,
+	}
+}
+
+function createFrame(packet) {
+	return {
+		sceneBounds: packet.model.boundingSphere,
+		lights: [],
+		camera: {
+			viewProjectionMatrix: Matrix4.identity(),
+			position: { x: 0, y: 0, z: 5 },
 		},
-	])
+		shadowMaps: new Map(),
+		opaquePackets: [packet],
+		transparentPackets: [],
+		shadowCasterPackets: [],
+		shadowTransmitterPackets: [],
+		reflectivePackets: [],
+	}
 }
 
 function testMatrixPackingAndDepthRemap() {
@@ -163,16 +205,27 @@ function testMaterialAdaptation() {
 }
 
 function testFeatureGate() {
-	const featureState = resolveWebGPUFeatureState({
-		enableLighting: true,
-		enableGamma: true,
-		enableSH: true,
-		enableShadows: true,
-		enableReflection: true,
-		enableSkybox: true,
-		enableSSAO: true,
-		enableVolumetric: true,
-	})
+	const featureState = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableSH: true,
+			enableShadows: true,
+			enableReflection: true,
+			enableSkybox: true,
+			enableSSAO: true,
+			enableVolumetric: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			volumetric: false,
+		},
+		'webgpu'
+	)
 
 	assert.equal(featureState.enableLighting, true)
 	assert.equal(featureState.enableGamma, true)
@@ -200,57 +253,70 @@ function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes('textureLoad(directionalShadowAtlas'))
 }
 
-async function testResourceManagerUsesCopyDstForWebGPUUploads() {
-	const device = new FakeDevice()
-	const resourceManager = new ResourceManager(device)
-	const model = createModel(
+async function testRenderResourcesUseCopyDstForUploads() {
+	const backend = new FakeBackend()
+	const renderer = {
+		warnOnce() {},
+	}
+	const model = createModel([
 		new PBRMaterial({
 			albedo: { r: 255, g: 255, b: 255 },
-		})
+		}),
+	])
+	const packet = createPacket(model)
+	const frame = createFrame(packet)
+	const resources = new RenderResources(renderer, backend)
+
+	await resources.init()
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				volumetric: false,
+			},
+			'webgpu'
+		)
 	)
 
-	resourceManager.getGeometry(model)
-	resourceManager.prepareWebGPUFrame(
-		{
-			scene: { lights: [] },
-			camera: {
-				viewProjectionMatrix: Matrix4.identity(),
-				position: { x: 0, y: 0, z: 5 },
-			},
-			warnOnce() {},
-		},
-		resolveWebGPUFeatureState({})
-	)
-	const draw = await resourceManager.getWebGPUDrawResources(model, {
-		warnOnce() {},
-	})
+	const draw = await resources.getDrawResources(packet)
 
 	assert.ok(draw)
 	assert.equal(draw.frameBinding.desc.entries.length, 3)
 	assert.equal(draw.modelBinding.desc.entries.length, 29)
+	assert.equal(draw.pipeline.desc.layout, backend.device.lastPipelineLayout)
 	assert.ok(
-		device.bufferDescs.some(
+		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Vertex) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
 	)
 	assert.ok(
-		device.bufferDescs.some(
+		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Index) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
 	)
 	assert.ok(
-		device.bufferDescs.some(
+		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Uniform) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
 	)
 	assert.ok(
-		device.bufferDescs.some(
+		backend.bufferDescs.some(
 			(desc) => desc.size === WEBGPU_FRAME_UNIFORM_FLOATS * 4
 		)
 	)
@@ -261,7 +327,7 @@ async function run() {
 	testMaterialAdaptation()
 	testFeatureGate()
 	testSceneShaderCoverage()
-	await testResourceManagerUsesCopyDstForWebGPUUploads()
+	await testRenderResourcesUseCopyDstForUploads()
 	console.log('WebGPU bridge tests passed')
 }
 

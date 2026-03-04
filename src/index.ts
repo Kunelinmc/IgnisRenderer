@@ -13,7 +13,8 @@ export { ModelFactory } from "./models/ModelFactory";
 export type {
 	IModel,
 	IVertex,
-	IFace,
+	IPrimitive,
+	IPrimitiveGeometry,
 	ITransform,
 	BoundingSphere,
 	BoundingBox,

@@ -775,7 +775,7 @@ export class PostProcessor implements PostProcessorLike {
 		const sigmaT = airDensity * VolumetricConstants.SIGMA_T_SCALE;
 		const sigmaS = sigmaT * scatteringAlbedo;
 
-		const shadowsEnabled = this.renderer.params.enableShadows;
+		const shadowsEnabled = this.renderer.features.enableShadows;
 		const shadowInterval = Math.round(
 			clamp(
 				this._toFiniteNumber(options.shadowSampleInterval, 1),

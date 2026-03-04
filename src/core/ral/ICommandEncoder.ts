@@ -1,5 +1,6 @@
 import {
 	IRenderBuffer,
+	IRenderTexture,
 	IRenderPipeline,
 	IComputePipeline,
 	IBindingGroup,
@@ -60,14 +61,14 @@ export interface RenderPassDesc {
 }
 
 export interface ColorAttachment {
-	view: any; // RenderTargetView
+	view?: IRenderTexture; // Optional, defaults to canvas if null/undefined
 	clearValue?: { r: number; g: number; b: number; a: number };
 	loadOp: "clear" | "load";
 	storeOp: "store" | "discard";
 }
 
 export interface DepthStencilAttachment {
-	view: any;
+	view?: IRenderTexture;
 	depthClearValue?: number;
 	depthLoadOp?: "clear" | "load";
 	depthStoreOp?: "store" | "discard";

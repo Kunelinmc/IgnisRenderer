@@ -1,6 +1,6 @@
-import { SimpleModel, ModelFace, ModelVertex } from "./SimpleModel";
-import type { IVector3 } from "../maths/types";
-import type { Material } from "../materials";
+import { SimpleModel, type ModelFace, type ModelVertex } from './SimpleModel'
+import type { IVector3 } from '../maths/types'
+import type { Material } from '../materials'
 
 export class ModelFactory {
 	/**
@@ -80,7 +80,7 @@ export class ModelFactory {
 			material,
 		}));
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -266,7 +266,7 @@ export class ModelFactory {
 			}
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -353,7 +353,7 @@ export class ModelFactory {
 			});
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -415,7 +415,7 @@ export class ModelFactory {
 				material,
 			},
 		];
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -516,7 +516,7 @@ export class ModelFactory {
 			}
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -656,7 +656,7 @@ export class ModelFactory {
 			});
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}
@@ -756,7 +756,7 @@ export class ModelFactory {
 			});
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		model.transform.position.copy(base);
 		return model;
 	}

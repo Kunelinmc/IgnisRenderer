@@ -64,8 +64,8 @@ export class ReflectionRenderer {
 		const infos = new Map<string, PlaneAggregateInfo>();
 
 		for (const model of this._renderer.scene.models) {
-			for (const face of model.faces) {
-				const material = face.material;
+			for (const primitive of model.primitives) {
+				const material = primitive.material;
 				if (material && material.mirrorPlane) {
 					const p = material.mirrorPlane;
 					const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
@@ -151,7 +151,7 @@ export class ReflectionRenderer {
 		const renderer = this._renderer;
 		const pixels = buffer.imageData.data;
 
-		if (renderer.params.enableSkybox && renderer.scene.skybox) {
+		if (renderer.features.enableSkybox && renderer.scene.skybox) {
 			renderer.renderSkybox(pixels, buffer.width, buffer.height);
 		} else {
 			pixels.fill(0); // Clear

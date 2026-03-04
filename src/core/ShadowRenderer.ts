@@ -1,38 +1,35 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Vector3 } from "../maths/Vector3";
-import { isShadowCastingLight } from "../lights";
-import { ShadowMap } from "../utils/ShadowMapping";
-import { ShadowConstants } from "./Constants";
-import { getModelMatrix } from "./modelMatrix";
-import type { Renderer } from "./Renderer";
-import type { ProjectedVertex } from "./types";
+import { Vector3 } from '../maths/Vector3'
+import { Matrix4 } from '../maths/Matrix4'
+import { isShadowCastingLight } from '../lights'
+import { ShadowMap } from '../utils/ShadowMapping'
+import { ShadowConstants } from './Constants'
+import type { Renderer } from './Renderer'
+import type { IVertex, ProjectedVertex } from './types'
+import type { PreparedScene, ResolvedFeatureState } from './pipeline/types'
+import { CpuTriangleStream } from './software/CpuTriangleStream'
 
 interface ClipVertex {
-	x: number;
-	y: number;
-	z: number;
-	w: number;
-	u: number;
-	v: number;
+	x: number
+	y: number
+	z: number
+	w: number
+	u: number
+	v: number
 }
 
 export class ShadowRenderer {
-	private _renderer: Renderer;
-
-	private _mvpMatrix = Matrix4.identity();
-	private _lightDirModel = new Vector3();
-
-	// Vertex pool to reduce object creation during projection
-	private _projectedVertsPool: ProjectedVertex[] = [];
-	private _clipInputPool: ClipVertex[] = [];
-	private _clipVertsPool: ClipVertex[] = [];
-	private _clipPoolCursor = 0;
-	private _clipScratchA: ClipVertex[] = [];
-	private _clipScratchB: ClipVertex[] = [];
+	private _renderer: Renderer
+	private _mvpMatrix = Matrix4.identity()
+	private _lightDirModel = new Vector3()
+	private _projectedVertsPool: ProjectedVertex[] = []
+	private _clipInputPool: ClipVertex[] = []
+	private _clipVertsPool: ClipVertex[] = []
+	private _clipPoolCursor = 0
+	private _clipScratchA: ClipVertex[] = []
+	private _clipScratchB: ClipVertex[] = []
 
 	constructor(renderer: Renderer) {
-		this._renderer = renderer;
-		// Initialize pool with some capacity
+		this._renderer = renderer
 		for (let i = 0; i < 4; i++) {
 			this._projectedVertsPool.push({
 				x: 0,
@@ -40,7 +37,76 @@ export class ShadowRenderer {
 				z: 0,
 				w: 0,
 				world: { x: 0, y: 0, z: 0 },
-			});
+			})
+		}
+	}
+
+	public render(frame: PreparedScene, features: ResolvedFeatureState): void {
+		if (!features.enableShadows) return
+
+		const renderer = this._renderer
+		const shadowLights = frame.lights.filter(isShadowCastingLight)
+		if (shadowLights.length === 0) {
+			renderer.shadowMaps.clear()
+			return
+		}
+
+		for (const [light] of renderer.shadowMaps) {
+			if (!shadowLights.includes(light)) {
+				renderer.shadowMaps.delete(light)
+			}
+		}
+
+		const worldMatrix = renderer.features.worldMatrix
+		for (const shadowLight of shadowLights) {
+			let shadowMap = renderer.shadowMaps.get(shadowLight)
+			if (!shadowMap) {
+				shadowMap = new ShadowMap()
+				renderer.shadowMaps.set(shadowLight, shadowMap)
+			}
+
+			shadowMap.setLightCamera(shadowLight, frame.sceneBounds, worldMatrix)
+			shadowMap.clear()
+
+			const vpMatrix = shadowMap.viewProjectionMatrix
+			if (!vpMatrix) continue
+
+			const lightDir = shadowMap.latestLightDir
+			const shadowMapSize = shadowMap.size
+
+			for (const packet of frame.shadowCasterPackets) {
+				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix)
+				const inv3x3 = Matrix4.inverse3x3(packet.worldMatrix)
+				if (!inv3x3) continue
+
+				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel)
+
+				for (const face of CpuTriangleStream.getPacketFaces(packet)) {
+					const dot = Vector3.dot(face.normal ?? Vector3.calculateNormal(face.vertices), this._lightDirModel)
+					if (!packet.material.doubleSided && dot > 0) continue
+
+					const projected = this._projectFace(face.vertices, shadowMapSize)
+					if (!projected) continue
+
+					renderer.rasterizer.drawDepthTriangle(projected, shadowMap, packet.material)
+				}
+			}
+
+			for (const packet of frame.shadowTransmitterPackets) {
+				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix)
+
+				for (const face of CpuTriangleStream.getPacketFaces(packet)) {
+					const projected = this._projectFace(face.vertices, shadowMapSize)
+					if (!projected) continue
+
+					renderer.rasterizer.drawTransmissionTriangle(projected, {
+						...face,
+						projected,
+						center: packet.worldBounds.center,
+						depthInfo: { min: 0, max: 0, avg: 0 },
+					}, shadowMap)
+				}
+			}
 		}
 	}
 
@@ -52,40 +118,40 @@ export class ShadowRenderer {
 		uCoord: number = 0,
 		vCoord: number = 0
 	): ClipVertex {
-		let clipVert = this._clipVertsPool[this._clipPoolCursor];
+		let clipVert = this._clipVertsPool[this._clipPoolCursor]
 		if (!clipVert) {
-			clipVert = { x: 0, y: 0, z: 0, w: 0, u: 0, v: 0 };
-			this._clipVertsPool.push(clipVert);
+			clipVert = { x: 0, y: 0, z: 0, w: 0, u: 0, v: 0 }
+			this._clipVertsPool.push(clipVert)
 		}
 
-		clipVert.x = x;
-		clipVert.y = y;
-		clipVert.z = z;
-		clipVert.w = w;
-		clipVert.u = uCoord;
-		clipVert.v = vCoord;
-		this._clipPoolCursor++;
-		return clipVert;
+		clipVert.x = x
+		clipVert.y = y
+		clipVert.z = z
+		clipVert.w = w
+		clipVert.u = uCoord
+		clipVert.v = vCoord
+		this._clipPoolCursor++
+		return clipVert
 	}
 
-	private _clipDistance(v: ClipVertex, plane: number): number {
+	private _clipDistance(vertex: ClipVertex, plane: number): number {
 		switch (plane) {
 			case ShadowConstants.CLIP_PLANE_MIN_W:
-				return v.w - ShadowConstants.MIN_CLIP_W;
+				return vertex.w - ShadowConstants.MIN_CLIP_W
 			case ShadowConstants.CLIP_PLANE_LEFT:
-				return v.x + v.w;
+				return vertex.x + vertex.w
 			case ShadowConstants.CLIP_PLANE_RIGHT:
-				return -v.x + v.w;
+				return -vertex.x + vertex.w
 			case ShadowConstants.CLIP_PLANE_BOTTOM:
-				return v.y + v.w;
+				return vertex.y + vertex.w
 			case ShadowConstants.CLIP_PLANE_TOP:
-				return -v.y + v.w;
+				return -vertex.y + vertex.w
 			case ShadowConstants.CLIP_PLANE_NEAR:
-				return v.z + v.w;
+				return vertex.z + vertex.w
 			case ShadowConstants.CLIP_PLANE_FAR:
-				return -v.z + v.w;
+				return -vertex.z + vertex.w
 			default:
-				return -1;
+				return -1
 		}
 	}
 
@@ -94,237 +160,87 @@ export class ShadowRenderer {
 		output: ClipVertex[],
 		plane: number
 	): void {
-		output.length = 0;
-		if (input.length === 0) return;
+		output.length = 0
+		if (input.length === 0) return
 
-		let prev = input[input.length - 1];
-		let prevDist = this._clipDistance(prev, plane);
-		let prevInside = prevDist >= 0;
+		let previous = input[input.length - 1]
+		let previousDistance = this._clipDistance(previous, plane)
+		let previousInside = previousDistance >= 0
 
 		for (let i = 0; i < input.length; i++) {
-			const curr = input[i];
-			const currDist = this._clipDistance(curr, plane);
-			const currInside = currDist >= 0;
+			const current = input[i]
+			const currentDistance = this._clipDistance(current, plane)
+			const currentInside = currentDistance >= 0
 
-			if (currInside !== prevInside) {
-				const denom = prevDist - currDist;
+			if (currentInside !== previousInside) {
+				const denominator = previousDistance - currentDistance
 				const t =
-					Math.abs(denom) > ShadowConstants.CLIP_EPSILON ? prevDist / denom : 0;
+					Math.abs(denominator) > ShadowConstants.CLIP_EPSILON
+						? previousDistance / denominator
+						: 0
 				output.push(
 					this._allocClipVertex(
-						prev.x + (curr.x - prev.x) * t,
-						prev.y + (curr.y - prev.y) * t,
-						prev.z + (curr.z - prev.z) * t,
-						prev.w + (curr.w - prev.w) * t,
-						prev.u + (curr.u - prev.u) * t,
-						prev.v + (curr.v - prev.v) * t
+						previous.x + (current.x - previous.x) * t,
+						previous.y + (current.y - previous.y) * t,
+						previous.z + (current.z - previous.z) * t,
+						previous.w + (current.w - previous.w) * t,
+						previous.u + (current.u - previous.u) * t,
+						previous.v + (current.v - previous.v) * t
 					)
-				);
+				)
 			}
 
-			if (currInside) {
+			if (currentInside) {
 				output.push(
-					this._allocClipVertex(curr.x, curr.y, curr.z, curr.w, curr.u, curr.v)
-				);
+					this._allocClipVertex(
+						current.x,
+						current.y,
+						current.z,
+						current.w,
+						current.u,
+						current.v
+					)
+				)
 			}
 
-			prev = curr;
-			prevDist = currDist;
-			prevInside = currInside;
+			previous = current
+			previousDistance = currentDistance
+			previousInside = currentInside
 		}
 	}
 
-	private _clipToLightFrustum(
-		input: ClipVertex[],
-		count: number
-	): ClipVertex[] {
-		this._clipPoolCursor = 0;
-		this._clipScratchA.length = 0;
-		this._clipScratchB.length = 0;
+	private _clipToLightFrustum(input: ClipVertex[], count: number): ClipVertex[] {
+		this._clipPoolCursor = 0
+		this._clipScratchA.length = 0
+		this._clipScratchB.length = 0
 
 		for (let i = 0; i < count; i++) {
-			const v = input[i];
+			const vertex = input[i]
 			this._clipScratchA.push(
-				this._allocClipVertex(v.x, v.y, v.z, v.w, v.u, v.v)
-			);
+				this._allocClipVertex(vertex.x, vertex.y, vertex.z, vertex.w, vertex.u, vertex.v)
+			)
 		}
 
-		let inPoly = this._clipScratchA;
-		let outPoly = this._clipScratchB;
+		let inPolygon = this._clipScratchA
+		let outPolygon = this._clipScratchB
 
 		for (let plane = 0; plane < ShadowConstants.CLIP_PLANE_COUNT; plane++) {
-			this._clipAgainstPlane(inPoly, outPoly, plane);
-			if (outPoly.length < 3) {
-				return outPoly;
-			}
-
-			const tmp = inPoly;
-			inPoly = outPoly;
-			outPoly = tmp;
+			this._clipAgainstPlane(inPolygon, outPolygon, plane)
+			if (outPolygon.length < 3) return outPolygon
+			const temp = inPolygon
+			inPolygon = outPolygon
+			outPolygon = temp
 		}
 
-		return inPoly;
-	}
-
-	/**
-	 * Renders the shadow pass for the scene.
-	 */
-	public render(): void {
-		const renderer = this._renderer;
-		if (!renderer.params.enableShadows) return;
-
-		const shadowLights = renderer.scene.lights.filter(isShadowCastingLight);
-		if (shadowLights.length === 0) {
-			renderer.shadowMaps.clear();
-			return;
-		}
-
-		// Clean up shadow maps for lights that no longer exist
-		for (const [light] of renderer.shadowMaps) {
-			if (!shadowLights.includes(light)) {
-				renderer.shadowMaps.delete(light);
-			}
-		}
-
-		const bounds = renderer.scene.getBounds();
-		const worldMatrix = renderer.params.worldMatrix;
-
-		for (const shadowLight of shadowLights) {
-			let shadowMap = renderer.shadowMaps.get(shadowLight);
-			if (!shadowMap) {
-				shadowMap = new ShadowMap();
-				renderer.shadowMaps.set(shadowLight, shadowMap);
-			}
-
-			shadowMap.setLightCamera(shadowLight, bounds, worldMatrix);
-			shadowMap.clear();
-
-			const vpMatrix = shadowMap.viewProjectionMatrix;
-			if (!vpMatrix) continue;
-
-			const lightDir = shadowMap.latestLightDir;
-			const shadowMapSize = shadowMap.size;
-
-			// Pass 1: Opaque objects (Depth Map)
-			for (const model of renderer.scene.models) {
-				const modelMatrix = getModelMatrix(model);
-
-				// Optimization 1: Cull model against light frustum
-				if (!this._isModelInFrustum(model, vpMatrix, modelMatrix)) continue;
-
-				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
-
-				// Optimization 2: Model-space lighting
-				// Get model-space light direction to avoid transforming normals
-				const inv3x3 = Matrix4.inverse3x3(modelMatrix);
-				if (!inv3x3) continue;
-
-				// L_model = transformNormal(transpose(normalMatrix), L_world)
-				// transpose(normalMatrix) = transpose(transpose(inv3x3)) = inv3x3
-				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
-
-				for (const face of model.faces) {
-					const material = face.material;
-					const alphaMode = material?.alphaMode;
-					if (alphaMode === "BLEND") continue;
-
-					// Cache face normal
-					if (!face.normal) {
-						face.normal = Vector3.calculateNormal(face.vertices);
-					}
-
-					const dot = Vector3.dot(face.normal, this._lightDirModel);
-					const isDoubleSided = material?.doubleSided;
-
-					if (!isDoubleSided && dot > 0) continue;
-
-					const projected = this._projectFace(face, shadowMapSize);
-					if (!projected) continue;
-
-					for (let i = 1; i < projected.length - 1; i++) {
-						renderer.rasterizer.drawDepthTriangle(
-							[projected[0], projected[i], projected[i + 1]],
-							shadowMap,
-							material
-						);
-					}
-				}
-			}
-
-			// Pass 2: Transparent objects (Transmission Map/Colored Shadows)
-			for (const model of renderer.scene.models) {
-				const modelMatrix = getModelMatrix(model);
-				if (!this._isModelInFrustum(model, vpMatrix, modelMatrix)) continue;
-
-				Matrix4.multiply(vpMatrix, modelMatrix, this._mvpMatrix);
-
-				for (const face of model.faces) {
-					const material = face.material;
-					if (material?.alphaMode !== "BLEND") continue;
-
-					const projected = this._projectFace(face, shadowMapSize);
-					if (!projected) continue;
-
-					for (let i = 1; i < projected.length - 1; i++) {
-						renderer.rasterizer.drawTransmissionTriangle(
-							[projected[0], projected[i], projected[i + 1]],
-							face as any,
-							shadowMap
-						);
-					}
-				}
-			}
-		}
-	}
-
-	private _isModelInFrustum(
-		model: any,
-		vpMatrix: Matrix4,
-		modelMatrix: Matrix4
-	): boolean {
-		if (!model.boundingBox) return true;
-
-		// Simple AABB vs Frustum check using clip codes for the 8 corners
-		const box = model.boundingBox;
-		const corners = [
-			{ x: box.min.x, y: box.min.y, z: box.min.z },
-			{ x: box.max.x, y: box.min.y, z: box.min.z },
-			{ x: box.min.x, y: box.max.y, z: box.min.z },
-			{ x: box.max.x, y: box.max.y, z: box.min.z },
-			{ x: box.min.x, y: box.min.y, z: box.max.z },
-			{ x: box.max.x, y: box.min.y, z: box.max.z },
-			{ x: box.min.x, y: box.max.y, z: box.max.z },
-			{ x: box.max.x, y: box.max.y, z: box.max.z },
-		];
-
-		let initialOutCodes = -1;
-		for (const corner of corners) {
-			const worldCorner = Matrix4.transformPoint(modelMatrix, corner);
-			const p = Matrix4.transformPoint(vpMatrix, worldCorner);
-			let code = 0;
-			if (p.w < ShadowConstants.MIN_CLIP_W) code |= 1;
-			if (p.x < -p.w) code |= 2;
-			if (p.x > p.w) code |= 4;
-			if (p.y < -p.w) code |= 8;
-			if (p.y > p.w) code |= 16;
-			if (p.z < -p.w) code |= 32;
-			if (p.z > p.w) code |= 64;
-
-			if (code === 0) return true; // At least one corner is inside
-			initialOutCodes &= code;
-		}
-
-		// If initialOutCodes is non-zero, all corners are on the outside of at least one common plane
-		return initialOutCodes === 0;
+		return inPolygon
 	}
 
 	private _projectFace(
-		face: any,
+		vertices: IVertex[],
 		shadowMapSize: number
 	): ProjectedVertex[] | null {
-		const count = face.vertices.length;
+		const count = vertices.length
 
-		// Ensure pool is large enough
 		while (this._projectedVertsPool.length < count) {
 			this._projectedVertsPool.push({
 				x: 0,
@@ -332,7 +248,7 @@ export class ShadowRenderer {
 				z: 0,
 				w: 0,
 				world: { x: 0, y: 0, z: 0 },
-			});
+			})
 		}
 		while (this._clipInputPool.length < count) {
 			this._clipInputPool.push({
@@ -342,56 +258,53 @@ export class ShadowRenderer {
 				w: 0,
 				u: 0,
 				v: 0,
-			});
+			})
 		}
 
-		let allInside = true;
-		let combinedOutCodes = 0;
-		let initialOutCodes = -1; // All ones
+		let allInside = true
+		let initialOutCodes = -1
 
 		for (let i = 0; i < count; i++) {
-			const v = face.vertices[i];
-			const p = Matrix4.transformPoint(this._mvpMatrix, v);
-			const clipV = this._clipInputPool[i];
-			clipV.x = p.x;
-			clipV.y = p.y;
-			clipV.z = p.z;
-			clipV.w = p.w;
-			clipV.u = v.u ?? 0;
-			clipV.v = v.v ?? 0;
+			const vertex = vertices[i]
+			const projected = Matrix4.transformPoint(this._mvpMatrix, vertex)
+			const clipVertex = this._clipInputPool[i]
+			clipVertex.x = projected.x
+			clipVertex.y = projected.y
+			clipVertex.z = projected.z
+			clipVertex.w = projected.w
+			clipVertex.u = vertex.u ?? 0
+			clipVertex.v = vertex.v ?? 0
 
-			// Compute clip codes
-			let code = 0;
-			if (clipV.w < ShadowConstants.MIN_CLIP_W) code |= 1; // W
-			if (clipV.x < -clipV.w) code |= 2; // Left
-			if (clipV.x > clipV.w) code |= 4; // Right
-			if (clipV.y < -clipV.w) code |= 8; // Bottom
-			if (clipV.y > clipV.w) code |= 16; // Top
-			if (clipV.z < -clipV.w) code |= 32; // Near
-			if (clipV.z > clipV.w) code |= 64; // Far
+			let code = 0
+			if (clipVertex.w < ShadowConstants.MIN_CLIP_W) code |= 1
+			if (clipVertex.x < -clipVertex.w) code |= 2
+			if (clipVertex.x > clipVertex.w) code |= 4
+			if (clipVertex.y < -clipVertex.w) code |= 8
+			if (clipVertex.y > clipVertex.w) code |= 16
+			if (clipVertex.z < -clipVertex.w) code |= 32
+			if (clipVertex.z > clipVertex.w) code |= 64
 
-			if (code !== 0) allInside = false;
-			combinedOutCodes |= code;
-			if (initialOutCodes === -1) initialOutCodes = code;
-			else initialOutCodes &= code;
+			if (code !== 0) allInside = false
+			if (initialOutCodes === -1) {
+				initialOutCodes = code
+			} else {
+				initialOutCodes &= code
+			}
 		}
 
-		// Trivial rejection: all vertices are outside at least one common plane
-		if (initialOutCodes !== 0) return null;
+		if (initialOutCodes !== 0) return null
 
-		let clippedVerts: ClipVertex[];
-		let clippedCount: number;
+		let clippedVertices: ClipVertex[]
+		let clippedCount: number
 
 		if (allInside) {
-			// Trivial acceptance: all vertices are inside
-			clippedVerts = this._clipInputPool;
-			clippedCount = count;
+			clippedVertices = this._clipInputPool
+			clippedCount = count
 		} else {
-			// Need clipping
-			const result = this._clipToLightFrustum(this._clipInputPool, count);
-			clippedVerts = result;
-			clippedCount = result.length;
-			if (clippedCount < 3) return null;
+			const result = this._clipToLightFrustum(this._clipInputPool, count)
+			clippedVertices = result
+			clippedCount = result.length
+			if (clippedCount < 3) return null
 		}
 
 		while (this._projectedVertsPool.length < clippedCount) {
@@ -401,23 +314,22 @@ export class ShadowRenderer {
 				z: 0,
 				w: 0,
 				world: { x: 0, y: 0, z: 0 },
-			});
+			})
 		}
 
-		const activeVerts = this._projectedVertsPool;
+		const activeVertices = this._projectedVertsPool
 		for (let i = 0; i < clippedCount; i++) {
-			const clipV = clippedVerts[i];
-			const outV = activeVerts[i];
-			const invW = 1 / clipV.w;
-			outV.x = (clipV.x * invW * 0.5 + 0.5) * shadowMapSize;
-			outV.y = (0.5 - clipV.y * invW * 0.5) * shadowMapSize;
-			outV.z = clipV.z * invW;
-			outV.w = invW;
-			outV.u = clipV.u;
-			outV.v = clipV.v;
+			const clipVertex = clippedVertices[i]
+			const outputVertex = activeVertices[i]
+			const invW = 1 / clipVertex.w
+			outputVertex.x = (clipVertex.x * invW * 0.5 + 0.5) * shadowMapSize
+			outputVertex.y = (0.5 - clipVertex.y * invW * 0.5) * shadowMapSize
+			outputVertex.z = clipVertex.z * invW
+			outputVertex.w = invW
+			outputVertex.u = clipVertex.u
+			outputVertex.v = clipVertex.v
 		}
 
-		// return a view of the pool
-		return activeVerts.slice(0, clippedCount);
+		return activeVertices.slice(0, clippedCount)
 	}
 }

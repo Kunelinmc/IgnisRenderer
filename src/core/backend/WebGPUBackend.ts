@@ -1,10 +1,22 @@
 /// <reference types="@webgpu/types" />
-import { ComputePassDesc } from "../ral/ICommandEncoder";
-import { ICommandEncoder, RenderPassDesc } from "../ral/ICommandEncoder";
-import { IDevice } from "../ral/IDevice";
+import {
+	type ComputePassDesc,
+	type ICommandEncoder,
+	type RenderPassDesc,
+} from "../ral/ICommandEncoder";
+import type { Renderer } from "../Renderer";
+import type { IRenderBackend } from "./IRenderBackend";
+import type {
+	FramePass,
+	PreparedScene,
+	ResolvedFeatureState,
+} from "../pipeline/types";
+import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
+import { RenderResources } from "../resources/RenderResources";
 import {
 	BufferUsage,
 	type BindingGroupDesc,
+	type BufferDesc,
 	type ComputePipelineDesc,
 	type IBindingGroup,
 	type IComputePipeline,
@@ -13,6 +25,7 @@ import {
 	type IRenderTexture,
 	type ISampler,
 	type IShaderModule,
+	type IndexFormat,
 	type PipelineDesc,
 	type SamplerDesc,
 	type ShaderModuleDesc,
@@ -20,16 +33,20 @@ import {
 	type TextureDesc,
 	TextureFormat,
 	TextureUsage,
-	type BufferDesc,
-	type IndexFormat,
 } from "../ral/types";
 
-/**
- * WebGPUBackend: Implementation of RAL using the WebGPU API.
- */
-export class WebGPUBackend implements IDevice {
+export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
-	public readonly canvas: HTMLCanvasElement;
+	public readonly capabilities = {
+		sh: false,
+		shadows: true,
+		reflection: false,
+		skybox: false,
+		ssao: false,
+		volumetric: false,
+	};
+
+	public canvas: HTMLCanvasElement | null = null;
 	public context: GPUCanvasContext | null = null;
 	public device!: GPUDevice;
 	public queue!: GPUQueue;
@@ -37,12 +54,21 @@ export class WebGPUBackend implements IDevice {
 
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
+	private _renderer: Renderer | null = null;
+	private _resources: RenderResources | null = null;
+	private _frameExecutor: WebGPUFrameExecutor | null = null;
 
-	constructor(canvas: HTMLCanvasElement) {
-		this.canvas = canvas;
+	constructor(canvas?: HTMLCanvasElement) {
+		this.canvas = canvas ?? null;
 	}
 
-	public async init(): Promise<void> {
+	public setRenderer(renderer: Renderer): void {
+		this._renderer = renderer;
+	}
+
+	public async init(canvas: HTMLCanvasElement): Promise<void> {
+		this.canvas = canvas;
+
 		if (!navigator.gpu) {
 			throw new Error("WebGPU not supported on this browser.");
 		}
@@ -63,12 +89,57 @@ export class WebGPUBackend implements IDevice {
 
 		this.queue = this.device.queue;
 		this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-		this.context = this.canvas.getContext("webgpu");
+		this.context = canvas.getContext("webgpu");
 		if (!this.context) {
 			throw new Error("Failed to acquire WebGPU canvas context.");
 		}
+
 		this._configureContext();
 		this._recreateDepthTexture();
+
+		if (!this._renderer) {
+			throw new Error("WebGPU backend requires a renderer before init().");
+		}
+
+		this._resources = new RenderResources(this._renderer, this);
+		await this._resources.init();
+		this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+	}
+
+	public resize(_width: number, _height: number): void {
+		if (!this.device || !this.context || !this.canvas) {
+			return;
+		}
+
+		this._configureContext();
+		this._recreateDepthTexture();
+	}
+
+	public beginFrame(
+		frame: PreparedScene,
+		features: ResolvedFeatureState
+	): void {
+		if (!this._resources || !this._frameExecutor) {
+			throw new Error("WebGPU backend has not been initialized.");
+		}
+
+		this._resources.prepareFrame(frame, features);
+		this._frameExecutor.beginFrame();
+	}
+
+	public executePass(
+		pass: FramePass,
+		frame: PreparedScene
+	): Promise<void> | void {
+		if (!this._frameExecutor) {
+			throw new Error("WebGPU backend has not been initialized.");
+		}
+
+		return this._frameExecutor.executePass(pass, frame);
+	}
+
+	public endFrame(): void {
+		this._frameExecutor?.endFrame();
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
@@ -157,7 +228,7 @@ export class WebGPUBackend implements IDevice {
 		this.device.pushErrorScope("validation");
 
 		const gpuPipeline = this.device.createRenderPipeline({
-			layout: "auto",
+			layout: desc.layout ?? "auto",
 			vertex: {
 				module: (desc.vertex.module as any)._gpuResource ?? desc.vertex.module,
 				entryPoint: desc.vertex.entryPoint,
@@ -265,7 +336,7 @@ export class WebGPUBackend implements IDevice {
 
 	public writeBuffer(
 		buffer: IRenderBuffer,
-		data: ArrayBuffer,
+		data: BufferSource,
 		offset: number = 0
 	): void {
 		this.queue.writeBuffer((buffer as any)._gpuResource, offset, data);
@@ -338,13 +409,28 @@ export class WebGPUBackend implements IDevice {
 		});
 	}
 
-	public resize(_width: number, _height: number): void {
-		if (!this.device || !this.context) {
-			return;
+	public getCanvasColorTexture(): IRenderTexture {
+		if (!this.context || !this.canvas) {
+			throw new Error("WebGPU not initialized");
 		}
 
-		this._configureContext();
-		this._recreateDepthTexture();
+		const gpuTexture = this.context.getCurrentTexture();
+		const gpuView = gpuTexture.createView();
+		return {
+			width: this.canvas.width,
+			height: this.canvas.height,
+			destroy: () => {},
+			_gpuResource: gpuTexture,
+			_gpuTexture: gpuTexture,
+			_gpuView: gpuView,
+		} as any;
+	}
+
+	public getCanvasDepthTexture(): IRenderTexture {
+		if (!this._depthTexture) {
+			throw new Error("Depth texture not initialized");
+		}
+		return this._depthTexture;
 	}
 
 	public getCurrentColorView(): GPUTextureView {
@@ -368,7 +454,7 @@ export class WebGPUBackend implements IDevice {
 	}
 
 	private _configureContext(): void {
-		if (!this.context) {
+		if (!this.context || !this.canvas) {
 			return;
 		}
 
@@ -381,7 +467,11 @@ export class WebGPUBackend implements IDevice {
 	}
 
 	private _recreateDepthTexture(): void {
-		if (!this.device || this.canvas.width <= 0 || this.canvas.height <= 0) {
+		if (!this.device || !this.canvas) {
+			return;
+		}
+
+		if (this.canvas.width <= 0 || this.canvas.height <= 0) {
 			return;
 		}
 
@@ -462,7 +552,9 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 	public beginRenderPass(desc: RenderPassDesc): void {
 		this._passEncoder = this._encoder.beginRenderPass({
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
-				view: attachment.view ?? this._backend.getCurrentColorView(),
+				view:
+					(attachment.view as any)?._gpuView ??
+					this._backend.getCurrentColorView(),
 				clearValue: attachment.clearValue,
 				loadOp: attachment.loadOp,
 				storeOp: attachment.storeOp,
@@ -470,7 +562,7 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 			depthStencilAttachment: desc.depthStencilAttachment
 				? {
 						view:
-							desc.depthStencilAttachment.view ??
+							(desc.depthStencilAttachment.view as any)?._gpuView ??
 							this._backend.getCurrentDepthView(),
 						depthClearValue: desc.depthStencilAttachment.depthClearValue ?? 1,
 						depthLoadOp: desc.depthStencilAttachment.depthLoadOp ?? "clear",

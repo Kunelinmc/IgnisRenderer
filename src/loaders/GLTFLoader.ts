@@ -2,11 +2,11 @@ import {
 	SimpleModel,
 	type ModelFace,
 	type ModelVertex,
-} from "../models/SimpleModel";
-import { PBRMaterial, UnlitMaterial, type Material } from "../materials";
-import { Loader, type LoaderEvents } from "./Loader";
-import { Matrix4 } from "../maths/Matrix4";
-import type { Texture } from "../core/Texture";
+} from '../models/SimpleModel'
+import { PBRMaterial, UnlitMaterial, type Material } from '../materials'
+import { Loader, type LoaderEvents } from './Loader'
+import { Matrix4 } from '../maths/Matrix4'
+import type { Texture } from '../core/Texture'
 
 export interface GLTFLoaderEvents extends LoaderEvents {
 	load: [SimpleModel];
@@ -141,7 +141,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				}
 			}
 		}
-		const model = new SimpleModel(allFaces);
+		const model = SimpleModel.fromFaces(allFaces)
 		this.emit("parseend", model);
 		return model;
 	}

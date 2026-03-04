@@ -2,9 +2,9 @@ import {
 	SimpleModel,
 	type ModelFace,
 	type ModelVertex,
-} from "../models/SimpleModel";
-import { Loader, type ParseProgressEvent } from "./Loader";
-import type { IVector3 } from "../maths/types";
+} from '../models/SimpleModel'
+import { Loader, type ParseProgressEvent } from './Loader'
+import type { IVector3 } from '../maths/types'
 
 /**
  * OBJLoader parses .obj files and creates SimpleModel objects.
@@ -113,7 +113,7 @@ export class OBJLoader extends Loader {
 			}
 		}
 
-		const model = new SimpleModel(faces);
+		const model = SimpleModel.fromFaces(faces)
 		this.emit("parseend", model);
 		return model;
 	}
