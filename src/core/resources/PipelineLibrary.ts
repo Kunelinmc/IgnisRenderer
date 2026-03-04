@@ -1,5 +1,5 @@
 import { WEBGPU_SCENE_SHADER } from "../../shaders/webgpu/sceneShader";
-import { createWebGPUMaterialUniformData } from "../bridge/webgpuUtils";
+import { createWebGPUMaterialUniformData } from "../bridge/webgpu";
 import type { Material } from "../../materials/Material";
 import type { IRenderPipeline, IShaderModule } from "../ral/types";
 import { TextureFormat } from "../ral/types";

@@ -10,10 +10,9 @@ import type { WebGPUBackend } from "../backend/WebGPUBackend";
 import type { DrawPacket } from "../pipeline/types";
 import {
 	WEBGPU_MODEL_UNIFORM_FLOATS,
-	createWebGPUMaterialUniformData,
 	packModelUniformData,
 	type WebGPUMaterialUniformData,
-} from "../bridge/webgpuUtils";
+} from "../bridge/webgpu";
 import type { WebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
 
 interface MaterialBindingEntry {

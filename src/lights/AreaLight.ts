@@ -1,7 +1,7 @@
 import { Vector3 } from "../maths/Vector3";
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
-import { ShadowConstants } from "../core/Constants";
+import { ShadowConstants } from "../core/constants";
 import {
 	Light,
 	LightType,

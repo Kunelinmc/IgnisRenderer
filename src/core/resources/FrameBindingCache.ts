@@ -10,7 +10,7 @@ import {
 	packFrameUniformData,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
-} from "../bridge/webgpuUtils";
+} from "../bridge/webgpu";
 import type { PreparedScene } from "../pipeline/types";
 import { TextureRegistry } from "./TextureRegistry";
 import { ShadowAtlasAllocator } from "./ShadowAtlasAllocator";

@@ -1,7 +1,7 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
 import { Projector } from "./Projector";
-import { RenderConstants } from "../Constants";
+import { RenderConstants } from "../constants";
 import type { Renderer } from "../Renderer";
 import type { ProjectedFace, ProjectedVertex } from "../types";
 

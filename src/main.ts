@@ -5,7 +5,6 @@ import {
 	DirectionalLight,
 	OrbitCamera,
 	GLTFLoader,
-	PhongMaterial,
 	PBRMaterial,
 	ModelFactory,
 } from "./index";

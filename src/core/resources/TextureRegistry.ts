@@ -8,11 +8,7 @@ import {
 	type ISampler,
 } from "../ral/types";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import {
-	alignTo,
-	createTextureUploadData,
-	WEBGPU_TEXTURE_SLOT,
-} from "../bridge/webgpuUtils";
+import { createTextureUploadData, WEBGPU_TEXTURE_SLOT } from "../bridge/webgpu";
 
 export class TextureRegistry {
 	private _backend: WebGPUBackend;

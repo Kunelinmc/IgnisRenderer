@@ -1,56 +1,56 @@
-import assert from 'node:assert/strict'
-import { RenderResources } from '../src/core/resources/RenderResources.ts'
-import { WEBGPU_SCENE_SHADER } from '../src/core/bridge/webgpuShaders.ts'
+import assert from "node:assert/strict";
+import { RenderResources } from "../src/core/resources/RenderResources.ts";
+import { WEBGPU_SCENE_SHADER } from "../src/shaders/webgpu/sceneShader.ts";
 import {
 	createWebGPUMaterialUniformData,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
-} from '../src/core/bridge/webgpuUtils.ts'
-import { resolveFeatureState } from '../src/core/pipeline/FeatureResolver.ts'
-import { BufferUsage } from '../src/core/ral/types.ts'
-import { Matrix4 } from '../src/maths/Matrix4.ts'
-import { PBRMaterial } from '../src/materials/PBRMaterial.ts'
-import { PhongMaterial } from '../src/materials/PhongMaterial.ts'
-import { UnlitMaterial } from '../src/materials/UnlitMaterial.ts'
-import { SimpleModel } from '../src/models/SimpleModel.ts'
-import { getModelMatrix } from '../src/core/modelMatrix.ts'
+} from "../src/core/bridge/webgpu";
+import { resolveFeatureState } from "../src/core/pipeline/FeatureResolver.ts";
+import { BufferUsage } from "../src/core/ral/types.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
+import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
+import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
+import { SimpleModel } from "../src/models/SimpleModel.ts";
+import { getModelMatrix } from "../src/core/modelMatrix.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
 	FRAGMENT: 2,
-}
+};
 
 class FakeDevice {
 	constructor() {
-		this.bufferDescs = []
+		this.bufferDescs = [];
 	}
 
 	createBindGroupLayout(desc) {
-		return { desc }
+		return { desc };
 	}
 
 	createPipelineLayout(desc) {
-		this.lastPipelineLayout = { desc }
-		return this.lastPipelineLayout
+		this.lastPipelineLayout = { desc };
+		return this.lastPipelineLayout;
 	}
 }
 
 class FakeBackend {
 	constructor() {
-		this.type = 'webgpu'
-		this.canvasFormat = 'rgba8unorm'
-		this.bufferDescs = []
-		this.device = new FakeDevice()
+		this.type = "webgpu";
+		this.canvasFormat = "rgba8unorm";
+		this.bufferDescs = [];
+		this.device = new FakeDevice();
 	}
 
 	createBuffer(desc) {
-		this.bufferDescs.push(desc)
+		this.bufferDescs.push(desc);
 		return {
 			size: desc.size,
 			desc,
 			destroy() {},
-		}
+		};
 	}
 
 	createTexture(desc) {
@@ -59,31 +59,31 @@ class FakeBackend {
 			height: desc.height,
 			desc,
 			destroy() {},
-		}
+		};
 	}
 
 	createSampler(desc) {
-		return { label: desc.label, desc }
+		return { label: desc.label, desc };
 	}
 
 	async createShaderModule(desc) {
-		return { label: desc.label, desc }
+		return { label: desc.label, desc };
 	}
 
 	createPipeline(desc) {
-		return { label: desc.label, desc }
+		return { label: desc.label, desc };
 	}
 
 	createBindingGroup(desc) {
-		return { label: desc.label, desc }
+		return { label: desc.label, desc };
 	}
 
 	writeBuffer(buffer, data) {
-		buffer.lastWrite = data
+		buffer.lastWrite = data;
 	}
 
 	writeTexture(texture, data, layout, size) {
-		texture.lastWrite = { data, layout, size }
+		texture.lastWrite = { data, layout, size };
 	}
 }
 
@@ -118,11 +118,11 @@ function createModel(materials) {
 				},
 			],
 		}))
-	)
+	);
 }
 
 function createPacket(model) {
-	const primitive = model.primitives[0]
+	const primitive = model.primitives[0];
 	return {
 		id: `${model.id}:${primitive.id}`,
 		model,
@@ -133,9 +133,9 @@ function createPacket(model) {
 		normalMatrix: Matrix4.normalMatrix(getModelMatrix(model)),
 		worldBounds: primitive.boundingSphere,
 		sortDepth: 1,
-		pipelineKey: 'test',
+		pipelineKey: "test",
 		passFlags: 0,
-	}
+	};
 }
 
 function createFrame(packet) {
@@ -152,7 +152,7 @@ function createFrame(packet) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
-	}
+	};
 }
 
 function testMatrixPackingAndDepthRemap() {
@@ -161,13 +161,14 @@ function testMatrixPackingAndDepthRemap() {
 		[5, 6, 7, 8],
 		[9, 10, 11, 12],
 		[13, 14, 15, 16],
-	])
+	]);
 
-	assert.deepEqual(Array.from(packMatrix4ForWGSL(matrix)), [
-		1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15, 4, 8, 12, 16,
-	])
-	assert.equal(remapClipSpaceDepth(-1, 1), 0)
-	assert.equal(remapClipSpaceDepth(1, 1), 1)
+	assert.deepEqual(
+		Array.from(packMatrix4ForWGSL(matrix)),
+		[1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15, 4, 8, 12, 16]
+	);
+	assert.equal(remapClipSpaceDepth(-1, 1), 0);
+	assert.equal(remapClipSpaceDepth(1, 1), 1);
 }
 
 function testMaterialAdaptation() {
@@ -176,32 +177,32 @@ function testMaterialAdaptation() {
 		roughness: 0.25,
 		metalness: 0.75,
 		reflectance: 0.6,
-	})
-	const pbrData = createWebGPUMaterialUniformData(pbr)
-	assert.ok(Math.abs(pbrData.baseColorFactor[0] - 128 / 255) < 1e-6)
-	assert.ok(Math.abs(pbrData.surfaceParams0[0] - 0.25) < 1e-6)
-	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6)
-	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6)
-	assert.equal(pbrData.textureSlots.length, 14)
+	});
+	const pbrData = createWebGPUMaterialUniformData(pbr);
+	assert.ok(Math.abs(pbrData.baseColorFactor[0] - 128 / 255) < 1e-6);
+	assert.ok(Math.abs(pbrData.surfaceParams0[0] - 0.25) < 1e-6);
+	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6);
+	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6);
+	assert.equal(pbrData.textureSlots.length, 14);
 
 	const phong = new PhongMaterial({
 		diffuse: { r: 128, g: 128, b: 128 },
 		specular: { r: 255, g: 128, b: 64 },
 		shininess: 24,
-	})
-	const phongData = createWebGPUMaterialUniformData(phong)
+	});
+	const phongData = createWebGPUMaterialUniformData(phong);
 	assert.ok(
 		phongData.baseColorFactor[0] > 0.2 && phongData.baseColorFactor[0] < 0.22
-	)
-	assert.equal(phongData.materialFlags[0], 0)
-	assert.equal(phongData.phongAmbientShininess[3], 24)
-	assert.ok(phongData.phongSpecularShading[0] > 0.9)
+	);
+	assert.equal(phongData.materialFlags[0], 0);
+	assert.equal(phongData.phongAmbientShininess[3], 24);
+	assert.ok(phongData.phongSpecularShading[0] > 0.9);
 
 	const unlit = new UnlitMaterial({
 		diffuse: { r: 255, g: 32, b: 16 },
-	})
-	const unlitData = createWebGPUMaterialUniformData(unlit)
-	assert.equal(unlitData.materialFlags[0], 2)
+	});
+	const unlitData = createWebGPUMaterialUniformData(unlit);
+	assert.equal(unlitData.materialFlags[0], 2);
 }
 
 function testFeatureGate() {
@@ -224,50 +225,50 @@ function testFeatureGate() {
 			ssao: false,
 			volumetric: false,
 		},
-		'webgpu'
-	)
+		"webgpu"
+	);
 
-	assert.equal(featureState.enableLighting, true)
-	assert.equal(featureState.enableGamma, true)
-	assert.equal(featureState.enableSH, false)
-	assert.equal(featureState.enableShadows, true)
-	assert.equal(featureState.enableReflection, false)
-	assert.equal(featureState.enableSkybox, false)
-	assert.equal(featureState.enableSSAO, false)
-	assert.equal(featureState.enableVolumetric, false)
-	assert.ok(featureState.warnings.length >= 5)
+	assert.equal(featureState.enableLighting, true);
+	assert.equal(featureState.enableGamma, true);
+	assert.equal(featureState.enableSH, false);
+	assert.equal(featureState.enableShadows, true);
+	assert.equal(featureState.enableReflection, false);
+	assert.equal(featureState.enableSkybox, false);
+	assert.equal(featureState.enableSSAO, false);
+	assert.equal(featureState.enableVolumetric, false);
+	assert.ok(featureState.warnings.length >= 5);
 }
 
 function testSceneShaderCoverage() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			'let pointCount = u32(frame.lightCounts.y + 0.5);'
+			"let pointCount = u32(frame.lightCounts.y + 0.5);"
 		)
-	)
+	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			'frame.pointLights[i].positionRange.xyz - input.worldPosition'
+			"frame.pointLights[i].positionRange.xyz - input.worldPosition"
 		)
-	)
-	assert.ok(WEBGPU_SCENE_SHADER.includes('sampleDirectionalShadowVisibility'))
-	assert.ok(WEBGPU_SCENE_SHADER.includes('textureLoad(directionalShadowAtlas'))
+	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(directionalShadowAtlas"));
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {
-	const backend = new FakeBackend()
+	const backend = new FakeBackend();
 	const renderer = {
 		warnOnce() {},
-	}
+	};
 	const model = createModel([
 		new PBRMaterial({
 			albedo: { r: 255, g: 255, b: 255 },
 		}),
-	])
-	const packet = createPacket(model)
-	const frame = createFrame(packet)
-	const resources = new RenderResources(renderer, backend)
+	]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new RenderResources(renderer, backend);
 
-	await resources.init()
+	await resources.init();
 	resources.prepareFrame(
 		frame,
 		resolveFeatureState(
@@ -284,51 +285,51 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				ssao: false,
 				volumetric: false,
 			},
-			'webgpu'
+			"webgpu"
 		)
-	)
+	);
 
-	const draw = await resources.getDrawResources(packet)
+	const draw = await resources.getDrawResources(packet);
 
-	assert.ok(draw)
-	assert.equal(draw.frameBinding.desc.entries.length, 3)
-	assert.equal(draw.modelBinding.desc.entries.length, 29)
-	assert.equal(draw.pipeline.desc.layout, backend.device.lastPipelineLayout)
+	assert.ok(draw);
+	assert.equal(draw.frameBinding.desc.entries.length, 3);
+	assert.equal(draw.modelBinding.desc.entries.length, 29);
+	assert.equal(draw.pipeline.desc.layout, backend.device.lastPipelineLayout);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Vertex) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
-	)
+	);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Index) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
-	)
+	);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) =>
 				(desc.usage & BufferUsage.Uniform) !== 0 &&
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
-	)
+	);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) => desc.size === WEBGPU_FRAME_UNIFORM_FLOATS * 4
 		)
-	)
+	);
 }
 
 async function run() {
-	testMatrixPackingAndDepthRemap()
-	testMaterialAdaptation()
-	testFeatureGate()
-	testSceneShaderCoverage()
-	await testRenderResourcesUseCopyDstForUploads()
-	console.log('WebGPU bridge tests passed')
+	testMatrixPackingAndDepthRemap();
+	testMaterialAdaptation();
+	testFeatureGate();
+	testSceneShaderCoverage();
+	await testRenderResourcesUseCopyDstForUploads();
+	console.log("WebGPU bridge tests passed");
 }
 
-await run()
+await run();

@@ -1,5 +1,5 @@
-import type { WebGPULightingState } from "../bridge/webgpuUtils";
-import { alignTo } from "../bridge/webgpuUtils";
+import type { WebGPULightingState } from "../bridge/webgpu";
+import { alignTo } from "../bridge/webgpu";
 import type { ShadowMap } from "../../utils/ShadowMapping";
 import type { WebGPUBackend } from "../backend/WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../ral/types";

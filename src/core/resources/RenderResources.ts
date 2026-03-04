@@ -7,7 +7,7 @@ import {
 	createWebGPUMaterialUniformData,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
-} from "../bridge/webgpuUtils";
+} from "../bridge/webgpu";
 import { createWebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
 import { FrameBindingCache } from "./FrameBindingCache";
 import { GeometryRegistry } from "./GeometryRegistry";
@@ -75,10 +75,10 @@ export class RenderResources {
 		};
 
 		this._lightingState = collectWebGPULighting(
-			frame.lights as any,
+			frame.lights,
 			features.enableLighting,
 			features.enableShadows,
-			frame.shadowMaps as any
+			frame.shadowMaps
 		);
 		for (const warning of this._lightingState.warnings) {
 			this._renderer.warnOnce(warning.key, warning.message);
