@@ -6,7 +6,11 @@ import {
 } from "../ral/ICommandEncoder";
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
-import type { FrameContext, FramePass } from "../pipeline/types";
+import type {
+	FrameAttachments,
+	FrameContext,
+	FramePass,
+} from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { RenderResources } from "../resources/RenderResources";
 import {
@@ -30,6 +34,40 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "../ral/types";
+
+interface InternalRenderBuffer extends IRenderBuffer {
+	_gpuResource: GPUBuffer;
+}
+
+interface InternalTexture extends IRenderTexture {
+	_gpuResource: GPUTexture;
+	_gpuTexture: GPUTexture;
+	_gpuView: GPUTextureView;
+}
+
+interface InternalSampler extends ISampler {
+	_gpuResource: GPUSampler;
+}
+
+interface InternalShaderModule extends IShaderModule {
+	_gpuResource: GPUShaderModule;
+}
+
+interface InternalRenderPipeline extends IRenderPipeline {
+	_gpuResource: GPURenderPipeline;
+}
+
+interface InternalComputePipeline extends IComputePipeline {
+	_gpuResource: GPUComputePipeline;
+}
+
+interface InternalBindingGroup extends IBindingGroup {
+	_gpuResource: GPUBindGroup;
+}
+
+interface InternalCommandBuffer {
+	_gpuCommandBuffer: GPUCommandBuffer;
+}
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
@@ -62,7 +100,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._renderer = renderer;
 	}
 
-	public getAttachments(width: number, height: number): any {
+	public getAttachments(width: number, height: number): FrameAttachments {
 		return {
 			width,
 			height,
@@ -153,7 +191,7 @@ export class WebGPUBackend implements IRenderBackend {
 			size: desc.size,
 			destroy: () => gpuBuffer.destroy(),
 			_gpuResource: gpuBuffer,
-		} as any;
+		} as InternalRenderBuffer;
 	}
 
 	public createTexture(desc: TextureDesc): IRenderTexture {
@@ -172,7 +210,7 @@ export class WebGPUBackend implements IRenderBackend {
 			_gpuResource: gpuTexture,
 			_gpuTexture: gpuTexture,
 			_gpuView: gpuView,
-		} as any;
+		} as InternalTexture;
 	}
 
 	public createSampler(desc: SamplerDesc): ISampler {
@@ -188,7 +226,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			label: desc.label,
 			_gpuResource: gpuSampler,
-		} as any;
+		} as InternalSampler;
 	}
 
 	public async createShaderModule(
@@ -221,7 +259,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			label: desc.label,
 			_gpuResource: gpuModule,
-		} as any;
+		} as InternalShaderModule;
 	}
 
 	public createPipeline(desc: PipelineDesc): IRenderPipeline {
@@ -230,7 +268,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const gpuPipeline = this.device.createRenderPipeline({
 			layout: desc.layout ?? "auto",
 			vertex: {
-				module: (desc.vertex.module as any)._gpuResource ?? desc.vertex.module,
+				module: (desc.vertex.module as InternalShaderModule)._gpuResource,
 				entryPoint: desc.vertex.entryPoint,
 				buffers:
 					desc.vertex.buffers?.map((buffer) => ({
@@ -245,9 +283,7 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			fragment: desc.fragment
 				? {
-						module:
-							(desc.fragment.module as any)._gpuResource ??
-							desc.fragment.module,
+						module: (desc.fragment.module as InternalShaderModule)._gpuResource,
 						entryPoint: desc.fragment.entryPoint,
 						targets: desc.fragment.targets.map((target) => ({
 							format: target.format as GPUTextureFormat,
@@ -281,15 +317,14 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			label: desc.label,
 			_gpuResource: gpuPipeline,
-		} as any;
+		} as InternalRenderPipeline;
 	}
 
 	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
 		const gpuPipeline = this.device.createComputePipeline({
 			layout: "auto",
 			compute: {
-				module:
-					(desc.compute.module as any)._gpuResource ?? desc.compute.module,
+				module: (desc.compute.module as InternalShaderModule)._gpuResource,
 				entryPoint: desc.compute.entryPoint,
 			},
 			label: desc.label,
@@ -298,16 +333,18 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			label: desc.label,
 			_gpuResource: gpuPipeline,
-		} as any;
+		} as InternalComputePipeline;
 	}
 
 	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
-		const pipeline = (desc.pipeline as any)?._gpuResource as
-			| GPURenderPipeline
-			| undefined;
+		const pipeline = (
+			desc.pipeline as InternalRenderPipeline | InternalComputePipeline
+		)?._gpuResource;
 		const layout =
 			(desc.layout as GPUBindGroupLayout | undefined) ??
-			pipeline?.getBindGroupLayout(desc.layoutIndex ?? 0);
+			(pipeline as GPURenderPipeline | GPUComputePipeline)?.getBindGroupLayout(
+				desc.layoutIndex ?? 0
+			);
 
 		if (!layout) {
 			throw new Error(
@@ -327,7 +364,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			label: desc.label,
 			_gpuResource: gpuBindGroup,
-		} as any;
+		} as InternalBindingGroup;
 	}
 
 	public createCommandEncoder(): ICommandEncoder {
@@ -339,7 +376,11 @@ export class WebGPUBackend implements IRenderBackend {
 		data: BufferSource,
 		offset: number = 0
 	): void {
-		this.queue.writeBuffer((buffer as any)._gpuResource, offset, data);
+		this.queue.writeBuffer(
+			(buffer as InternalRenderBuffer)._gpuResource,
+			offset,
+			data
+		);
 	}
 
 	public writeTexture(
@@ -350,7 +391,9 @@ export class WebGPUBackend implements IRenderBackend {
 	): void {
 		this.queue.writeTexture(
 			{
-				texture: (texture as any)._gpuTexture ?? (texture as any)._gpuResource,
+				texture:
+					(texture as InternalTexture)._gpuTexture ??
+					(texture as InternalTexture)._gpuResource,
 			},
 			data,
 			{
@@ -380,15 +423,15 @@ export class WebGPUBackend implements IRenderBackend {
 		commandEncoder.copyTextureToTexture(
 			{
 				texture:
-					(source.texture as any)._gpuTexture ??
-					(source.texture as any)._gpuResource,
+					(source.texture as InternalTexture)._gpuTexture ??
+					(source.texture as InternalTexture)._gpuResource,
 				origin: source.origin,
 				aspect: source.aspect,
 			},
 			{
 				texture:
-					(destination.texture as any)._gpuTexture ??
-					(destination.texture as any)._gpuResource,
+					(destination.texture as InternalTexture)._gpuTexture ??
+					(destination.texture as InternalTexture)._gpuResource,
 				origin: destination.origin,
 				aspect: destination.aspect,
 			},
@@ -398,7 +441,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this.queue.submit([commandEncoder.finish()]);
 	}
 
-	public submit(commands: any[]): void {
+	public submit(commands: InternalCommandBuffer[]): void {
 		this.device.pushErrorScope("validation");
 		this.queue.submit(commands.map((command) => command._gpuCommandBuffer));
 		this._currentCanvasView = null;
@@ -423,7 +466,7 @@ export class WebGPUBackend implements IRenderBackend {
 			_gpuResource: gpuTexture,
 			_gpuTexture: gpuTexture,
 			_gpuView: gpuView,
-		} as any;
+		} as InternalTexture;
 	}
 
 	public getCanvasDepthTexture(): IRenderTexture {
@@ -450,7 +493,7 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU depth texture is not initialized.");
 		}
 
-		return (this._depthTexture as any)._gpuView;
+		return (this._depthTexture as InternalTexture)._gpuView;
 	}
 
 	private _configureContext(): void {
@@ -486,16 +529,19 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _mapBindingResource(resource: any): GPUBindingResource {
-		if (resource?._gpuView) {
-			return resource._gpuView;
+		if ((resource as InternalTexture)?._gpuView) {
+			return (resource as InternalTexture)._gpuView;
 		}
 
-		if (resource?._gpuTexture) {
-			return resource._gpuTexture.createView();
+		if ((resource as InternalTexture)?._gpuTexture) {
+			return (resource as InternalTexture)._gpuTexture.createView();
 		}
 
-		if (typeof resource?.size === "number" && resource?._gpuResource) {
-			return { buffer: resource._gpuResource };
+		if (
+			typeof resource?.size === "number" &&
+			(resource as InternalRenderBuffer)?._gpuResource
+		) {
+			return { buffer: (resource as InternalRenderBuffer)._gpuResource };
 		}
 
 		if (resource?._gpuResource) {
@@ -553,7 +599,7 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		this._passEncoder = this._encoder.beginRenderPass({
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
 				view:
-					(attachment.view as any)?._gpuView ??
+					(attachment.view as InternalTexture)?._gpuView ??
 					this._backend.getCurrentColorView(),
 				clearValue: attachment.clearValue,
 				loadOp: attachment.loadOp,
@@ -562,7 +608,7 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 			depthStencilAttachment: desc.depthStencilAttachment
 				? {
 						view:
-							(desc.depthStencilAttachment.view as any)?._gpuView ??
+							(desc.depthStencilAttachment.view as InternalTexture)?._gpuView ??
 							this._backend.getCurrentDepthView(),
 						depthClearValue: desc.depthStencilAttachment.depthClearValue ?? 1,
 						depthLoadOp: desc.depthStencilAttachment.depthLoadOp ?? "clear",
@@ -581,7 +627,7 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 
 	public setComputePipeline(pipeline: IComputePipeline): void {
 		(this._passEncoder as GPUComputePassEncoder | null)?.setPipeline(
-			(pipeline as any)._gpuResource
+			(pipeline as InternalComputePipeline)._gpuResource
 		);
 	}
 
@@ -600,26 +646,26 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 
 	public setPipeline(pipeline: IRenderPipeline): void {
 		(this._passEncoder as GPURenderPassEncoder | null)?.setPipeline(
-			(pipeline as any)._gpuResource
+			(pipeline as InternalRenderPipeline)._gpuResource
 		);
 	}
 
 	public setBindingGroup(index: number, group: IBindingGroup): void {
 		(
 			this._passEncoder as GPURenderPassEncoder | GPUComputePassEncoder | null
-		)?.setBindGroup(index, (group as any)._gpuResource);
+		)?.setBindGroup(index, (group as InternalBindingGroup)._gpuResource);
 	}
 
 	public setVertexBuffer(slot: number, buffer: IRenderBuffer): void {
 		(this._passEncoder as GPURenderPassEncoder | null)?.setVertexBuffer(
 			slot,
-			(buffer as any)._gpuResource
+			(buffer as InternalRenderBuffer)._gpuResource
 		);
 	}
 
 	public setIndexBuffer(buffer: IRenderBuffer, format: IndexFormat): void {
 		(this._passEncoder as GPURenderPassEncoder | null)?.setIndexBuffer(
-			(buffer as any)._gpuResource,
+			(buffer as InternalRenderBuffer)._gpuResource,
 			format
 		);
 	}
@@ -653,7 +699,7 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		this._passEncoder = null;
 	}
 
-	public finish(): any {
+	public finish(): InternalCommandBuffer {
 		return {
 			_gpuCommandBuffer: this._encoder.finish(),
 		};
