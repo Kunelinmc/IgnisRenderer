@@ -11,6 +11,7 @@ const tests = [
 	"test_sh_lighting_regression.mjs",
 	"test_lighting_shader_semantics.mjs",
 	"test_backend_capabilities.mjs",
+	"test_layer_boundaries.mjs",
 	"test_frame_planner.mjs",
 	"test_model_factory_winding.mjs",
 	"test_render_list_builder.mjs",

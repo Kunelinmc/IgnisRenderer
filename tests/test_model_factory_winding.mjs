@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { ModelFactory } from '../src/models/ModelFactory.ts'
-import { GeometryBuilder } from '../src/core/geometry/GeometryBuilder.ts'
+import { GeometryBuilder } from '../src/models/GeometryBuilder.ts'
 import { Vector3 } from '../src/maths/Vector3.ts'
 
 function assertWindingMatchesPrimitiveNormals(name, model) {

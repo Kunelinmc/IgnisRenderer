@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { RenderResources } from "../src/core/resources/RenderResources.ts";
+import { WebGPURenderResources } from "../src/core/backend/webgpu/WebGPURenderResources.ts";
 import { WEBGPU_SCENE_SHADER } from "../src/shaders/webgpu/sceneShader.ts";
 import {
 	createWebGPUMaterialUniformData,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
-} from "../src/core/bridge/webgpu";
+} from "../src/core/backend/webgpu/index.ts";
 import { resolveFeatureState } from "../src/core/pipeline/FeatureResolver.ts";
-import { BufferUsage } from "../src/core/ral/types.ts";
+import { BufferUsage } from "../src/core/backend/types.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
@@ -295,7 +295,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new RenderResources(renderer, backend);
+	const resources = new WebGPURenderResources(renderer, backend);
 
 	await resources.init();
 	resources.prepareFrame(
