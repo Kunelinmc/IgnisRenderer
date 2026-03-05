@@ -1,6 +1,7 @@
 import { Material, ShadingModel, AlphaMode } from "../../../materials/Material";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { CoreConstants, PostProcessConstants } from "./constants";
+import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	FlatLitShader,
 	LitShader,
@@ -16,7 +17,6 @@ import {
 	type FragmentInput,
 	type PhongSurfaceProperties,
 	type PBRSurfaceProperties,
-	IBLBRDF,
 } from "../../../shaders";
 import {
 	LightType,

@@ -1,7 +1,7 @@
 import { LightType } from "../../../lights";
 import type { LightProbe, SceneLight } from "../../../lights";
 import type { SHCoefficients } from "../../../maths/types";
-import { IBLBRDF } from "../../../shaders/software/IBLBRDF";
+import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import type { PreparedScene } from "../../pipeline/types";
 
 import type { WebGPUEnvironmentState, WebGPUWarning } from "./types";
