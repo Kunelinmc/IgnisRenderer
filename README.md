@@ -7,27 +7,27 @@
 
 **IgnisRenderer** is a versatile 3D rendering engine built from scratch in TypeScript. It features a dual-core architecture: a high-performance **CPU Scanline Rasterizer** for a deep dive into graphics fundamentals, and a modern **WebGPU Hardware-Accelerated Pipeline** for real-time performance.
 
-[**Live Demo ðŸš€**](https://ignis-renderer-demo.netlify.app/)
+[**Live Demo ??**](https://ignis-renderer-demo.netlify.app/)
 
 ![IgnisRenderer Screenshot](./assets/screenshot.png)
 
 ---
 
-## ðŸš€ Key Features
+## ?? Key Features
 
-### ðŸŽ® Dual Rendering Backends
+### ?Ž® Dual Rendering Backends
 
 - **Software Backend (CPU)**: A complete graphics pipeline implemented from scratch on the CPU, including vertex transformation, clipping, and triangle rasterization.
 - **WebGPU Backend (GPU)**: A modern, hardware-accelerated pipeline leveraging the WebGPU API for high-performance real-time rendering.
 
-### ðŸ› ï¸ Rendering Core
+### ??ï¸?Rendering Core
 
 - **Scanline Rasterizer**: High-quality triangle rasterization with sub-pixel precision.
 - **Perspective Correction**: Accurate interpolation of world coordinates, normals, and texture coordinates (UVs) across triangle faces.
 - **Sophisticated Clipping**: Full 3D clipping against the camera frustum using homogeneous coordinates.
 - **Optimized Pipeline**: Minimal allocation during rendering to ensure smooth performance on the CPU.
 
-### ðŸ’¡ Lighting & Shading
+### ?’¡ Lighting & Shading
 
 - **Physically Based Rendering (PBR)**: Implements industry-standard GGX microfacet distribution and Schlick-Fresnel approximations.
 - **Multiple Shading Models**:
@@ -38,7 +38,7 @@
 - **Dynamic Lighting**: Support for `AmbientLight`, `DirectionalLight`, and `PointLight`.
 - **Spherical Harmonics (SH)**: Global ambient lighting approximation for realistic environmental influence.
 
-### âœ¨ Advanced Visual Effects
+### ??Advanced Visual Effects
 
 - **Real-time Shadows**: Dynamic shadow mapping with depth bias and frustum-fitted light cameras.
 - **Planar Reflections**: High-quality mirror reflections with support for:
@@ -48,14 +48,14 @@
   - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges (Software).
   - **Tone Mapping**: Exposure control and Gamma correction (v2.2 convention).
 
-### âš¡ WebGPU Implementation
+### ??WebGPU Implementation
 
 - **Programmable Pipeline**: Custom WGSL shaders for high-performance vertex and fragment processing.
 - **Dynamic Resource Management**: Efficient allocation and binding of GPU buffers, textures, and samplers.
 - **Modern Abstraction Layer**: Standardized Render Abstraction Layer (RAL) that makes switching between CPU and GPU backends seamless.
 - **Real-time Shadows**: Hardware-accelerated depth mapping and shadow evaluation.
 
-### ðŸ“¦ Assets & Interaction
+### ?“¦ Assets & Interaction
 
 - **Model Loaders**: Built-in support for `glTF 2.0` (`.gltf`, `.glb`) and `OBJ` formats.
 - **Orbit Camera**: Intuitive 3D navigation with mouse and touch support (Rotate, Zoom, Pan).
@@ -63,21 +63,34 @@
 
 ---
 
-## ðŸ› ï¸ Architecture Overview
+## ??ï¸?Architecture Overview
 
 The renderer is organized into modular components:
 
-- **`core/`**: The engine heartbeat.
-  - **`backend/`**: Implementations for `SoftwareBackend` and `WebGPUBackend`.
-  - **`ral/`**: Render Abstraction Layer defining the common interface for all rendering devices.
-  - **`Renderer`**: The high-level orchestrator.
+- **Definition Layer**
+  - **`lights/`** and **`materials/`** store only domain definitions.
+  - Pipeline-specific logic is intentionally kept out of these folders.
+- **Pipeline Layer (`core/`)**
+  - **`Renderer`**: high-level frame orchestration.
+  - **`pipeline/`**: frame planning and shared pipeline transforms/helpers.
+  - **`software/`**: CPU pipeline implementation.
+  - **`backend/`**: backend abstractions plus backend-specific implementations.
+    - `backend/webgpu/` contains WebGPU bridge/packing/resources implementation.
 - **`shaders/`**: Pluggable shading strategies and WGSL shader modules.
 - **`maths/`**: A custom, optimized mathematical library for 3D operations (Vectors, Matrices, Quaternions).
 - **`loaders/`**: Asynchronous asset loaders for textures and 3D models.
 - **`cameras/`**: Viewport and projection management.
-- **`lights/`**: Light source definitions and property management.
+- **`models/`**: Geometry construction and model composition.
 
-### ðŸ”„ Rendering Pipeline Flow
+### Internal Path Changes
+
+Deep internal imports were reorganized and are **breaking** for private paths:
+
+- `core/bridge/webgpu/*` -> `core/backend/webgpu/*`
+- `core/resources/*` -> `core/backend/webgpu/*`
+- `core/ral/*` -> `core/backend/*`
+- `core/geometry/GeometryBuilder` -> `models/GeometryBuilder`
+### ?? Rendering Pipeline Flow
 
 ```mermaid
 graph TD
@@ -109,7 +122,7 @@ graph TD
 
 ---
 
-## ðŸš¦ Getting Started
+## ?š¦ Getting Started
 
 ### Prerequisites
 
@@ -140,7 +153,7 @@ Then open `http://localhost:5173` in your browser.
 
 ---
 
-## ðŸ“– Usage Example
+## ?? Usage Example
 
 ```typescript
 import {
@@ -183,6 +196,7 @@ main();
 
 ---
 
-## ðŸ“œ License
+## ?? License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+
