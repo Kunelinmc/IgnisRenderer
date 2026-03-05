@@ -7,27 +7,27 @@
 
 **IgnisRenderer** is a versatile 3D rendering engine built from scratch in TypeScript. It features a dual-core architecture: a high-performance **CPU Scanline Rasterizer** for a deep dive into graphics fundamentals, and a modern **WebGPU Hardware-Accelerated Pipeline** for real-time performance.
 
-[**Live Demo ??**](https://ignis-renderer-demo.netlify.app/)
+[**Live Demo**](https://ignis-renderer-demo.netlify.app/)
 
 ![IgnisRenderer Screenshot](./assets/screenshot.png)
 
 ---
 
-## ?? Key Features
+## Key Features
 
-### ?Ž® Dual Rendering Backends
+### Dual Rendering Backends
 
 - **Software Backend (CPU)**: A complete graphics pipeline implemented from scratch on the CPU, including vertex transformation, clipping, and triangle rasterization.
 - **WebGPU Backend (GPU)**: A modern, hardware-accelerated pipeline leveraging the WebGPU API for high-performance real-time rendering.
 
-### ??ï¸?Rendering Core
+### Rendering Core
 
 - **Scanline Rasterizer**: High-quality triangle rasterization with sub-pixel precision.
 - **Perspective Correction**: Accurate interpolation of world coordinates, normals, and texture coordinates (UVs) across triangle faces.
 - **Sophisticated Clipping**: Full 3D clipping against the camera frustum using homogeneous coordinates.
 - **Optimized Pipeline**: Minimal allocation during rendering to ensure smooth performance on the CPU.
 
-### ?’¡ Lighting & Shading
+### Lighting & Shading
 
 - **Physically Based Rendering (PBR)**: Implements industry-standard GGX microfacet distribution and Schlick-Fresnel approximations.
 - **Multiple Shading Models**:
@@ -38,7 +38,7 @@
 - **Dynamic Lighting**: Support for `AmbientLight`, `DirectionalLight`, and `PointLight`.
 - **Spherical Harmonics (SH)**: Global ambient lighting approximation for realistic environmental influence.
 
-### ??Advanced Visual Effects
+### Advanced Visual Effects
 
 - **Real-time Shadows**: Dynamic shadow mapping with depth bias and frustum-fitted light cameras.
 - **Planar Reflections**: High-quality mirror reflections with support for:
@@ -48,14 +48,14 @@
   - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges (Software).
   - **Tone Mapping**: Exposure control and Gamma correction (v2.2 convention).
 
-### ??WebGPU Implementation
+### WebGPU Implementation
 
 - **Programmable Pipeline**: Custom WGSL shaders for high-performance vertex and fragment processing.
 - **Dynamic Resource Management**: Efficient allocation and binding of GPU buffers, textures, and samplers.
 - **Modern Abstraction Layer**: Standardized Render Abstraction Layer (RAL) that makes switching between CPU and GPU backends seamless.
 - **Real-time Shadows**: Hardware-accelerated depth mapping and shadow evaluation.
 
-### ?“¦ Assets & Interaction
+### Assets & Interaction
 
 - **Model Loaders**: Built-in support for `glTF 2.0` (`.gltf`, `.glb`) and `OBJ` formats.
 - **Orbit Camera**: Intuitive 3D navigation with mouse and touch support (Rotate, Zoom, Pan).
@@ -63,7 +63,7 @@
 
 ---
 
-## ??ï¸?Architecture Overview
+## Architecture Overview
 
 The renderer is organized into modular components:
 
@@ -90,7 +90,8 @@ Deep internal imports were reorganized and are **breaking** for private paths:
 - `core/resources/*` -> `core/backend/webgpu/*`
 - `core/ral/*` -> `core/backend/*`
 - `core/geometry/GeometryBuilder` -> `models/GeometryBuilder`
-### ?? Rendering Pipeline Flow
+
+### Rendering Pipeline Flow
 
 ```mermaid
 graph TD
@@ -122,7 +123,7 @@ graph TD
 
 ---
 
-## ?š¦ Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -153,7 +154,7 @@ Then open `http://localhost:5173` in your browser.
 
 ---
 
-## ?? Usage Example
+## Usage Example
 
 ```typescript
 import {
@@ -196,7 +197,7 @@ main();
 
 ---
 
-## ?? License
+## License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
