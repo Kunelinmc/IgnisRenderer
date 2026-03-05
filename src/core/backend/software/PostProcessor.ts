@@ -16,7 +16,7 @@ import {
 import {
 	createLightContribution,
 	evaluateLightContribution,
-} from "./lighting/LightEvaluator";
+} from "./LightEvaluator";
 import { clamp, linearToSRGB } from "../../../maths/Common";
 import type { IVector3 } from "../../../maths/types";
 import { CameraType } from "../../../cameras/Camera";

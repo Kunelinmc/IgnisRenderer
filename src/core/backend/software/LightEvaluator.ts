@@ -1,23 +1,23 @@
-import { linearToSRGB } from "../../../../maths/Common";
-import { Matrix4 } from "../../../../maths/Matrix4";
-import { SH } from "../../../../maths/SH";
-import { Vector3 } from "../../../../maths/Vector3";
-import type { IVector3 } from "../../../../maths/types";
-import type { RGB } from "../../../../utils/Color";
-import { LightType } from "../../../../lights/Light";
-import type { AmbientLight } from "../../../../lights/AmbientLight";
-import type { AreaLight } from "../../../../lights/AreaLight";
-import type { DirectionalLight } from "../../../../lights/DirectionalLight";
-import type { PointLight } from "../../../../lights/PointLight";
-import type { LightProbe } from "../../../../lights/LightProbe";
-import type { SpotLight } from "../../../../lights/SpotLight";
+import { linearToSRGB } from "../../../maths/Common";
+import { Matrix4 } from "../../../maths/Matrix4";
+import { SH } from "../../../maths/SH";
+import { Vector3 } from "../../../maths/Vector3";
+import type { IVector3 } from "../../../maths/types";
+import type { RGB } from "../../../utils/Color";
+import { LightType } from "../../../lights/Light";
+import type { AmbientLight } from "../../../lights/AmbientLight";
+import type { AreaLight } from "../../../lights/AreaLight";
+import type { DirectionalLight } from "../../../lights/DirectionalLight";
+import type { PointLight } from "../../../lights/PointLight";
+import type { LightProbe } from "../../../lights/LightProbe";
+import type { SpotLight } from "../../../lights/SpotLight";
 import {
 	getDirectionalLightWorldDirection,
 	getPointLightWorldPosition,
 	getSpotLightInnerAngle,
 	getSpotLightWorldDirection,
 	getSpotLightWorldPosition,
-} from "../../../pipeline/LightTransforms";
+} from "../../pipeline/LightTransforms";
 
 type SceneLight =
 	| AmbientLight
