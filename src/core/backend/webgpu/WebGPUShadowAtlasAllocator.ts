@@ -1,9 +1,9 @@
-import type { WebGPULightingState } from "../bridge/webgpu";
-import { alignTo } from "../bridge/webgpu";
-import { clamp } from "../../maths/Common";
-import type { ShadowMap } from "../../utils/ShadowMapping";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import { TextureFormat, TextureUsage, type IRenderTexture } from "../ral/types";
+import type { WebGPULightingState } from "./";
+import { alignTo } from "./";
+import { clamp } from "../../../maths/Common";
+import type { ShadowMap } from "../../../utils/ShadowMapping";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 
 interface ShadowAtlas {
 	tileSize: number;
@@ -11,7 +11,7 @@ interface ShadowAtlas {
 	uploadBuffer: Uint8Array;
 }
 
-export class ShadowAtlasAllocator {
+export class WebGPUShadowAtlasAllocator {
 	private _backend: WebGPUBackend;
 	private _directionalAtlas: ShadowAtlas | null = null;
 	private _spotAtlas: ShadowAtlas | null = null;

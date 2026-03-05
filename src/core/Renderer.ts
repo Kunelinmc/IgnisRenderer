@@ -3,10 +3,6 @@ import {
 	LightType,
 	type ShadowCastingLight,
 } from "../lights";
-import {
-	createLightContribution,
-	evaluateLightContribution,
-} from "./software/lighting/LightEvaluator";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
@@ -18,6 +14,7 @@ import { Scene } from "./Scene";
 import { resolveFeatureState } from "./pipeline/FeatureResolver";
 import { FramePlanner } from "./pipeline/FramePlanner";
 import { PreparedSceneBuilder } from "./pipeline/PreparedSceneBuilder";
+import { getDirectionalLightWorldDirection } from "./pipeline/LightTransforms";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	SSAOOptions,
@@ -307,24 +304,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			g: coefficient.g,
 			b: coefficient.b,
 		})) as SHCoefficients;
-		const lightContribution = createLightContribution();
 
 		for (const light of this.scene.lights) {
 			if (light.type !== LightType.Directional) continue;
 
-			const contribution = evaluateLightContribution(
-				light,
-				{ position: { x: 0, y: 0, z: 0 } },
-				lightContribution
-			);
-			if (!contribution?.direction) continue;
-
-			const direction = Vector3.normalize(contribution.direction);
-			const intensity = contribution.intensity ?? 1;
+			const worldDirection = getDirectionalLightWorldDirection(light);
+			const direction = Vector3.normalize({
+				x: -worldDirection.x,
+				y: -worldDirection.y,
+				z: -worldDirection.z,
+			});
+			const intensity = light.intensity ?? 1;
 			const lightSH = SH.projectDirectionalLight(direction, {
-				r: contribution.color.r * intensity,
-				g: contribution.color.g * intensity,
-				b: contribution.color.b * intensity,
+				r: light.color.r * intensity,
+				g: light.color.g * intensity,
+				b: light.color.b * intensity,
 			});
 			totalSH = SH.addCoeffs(totalSH, lightSH);
 		}

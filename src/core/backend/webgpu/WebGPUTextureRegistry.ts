@@ -1,4 +1,4 @@
-import type { Texture } from "../Texture";
+import type { Texture } from "../../Texture";
 import {
 	AddressMode,
 	FilterMode,
@@ -6,11 +6,11 @@ import {
 	TextureUsage,
 	type IRenderTexture,
 	type ISampler,
-} from "../ral/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import { createTextureUploadData, WEBGPU_TEXTURE_SLOT } from "../bridge/webgpu";
+} from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import { createTextureUploadData, WEBGPU_TEXTURE_SLOT } from "./";
 
-export class TextureRegistry {
+export class WebGPUTextureRegistry {
 	private _backend: WebGPUBackend;
 	private _textureCache = new WeakMap<Texture, IRenderTexture>();
 	private _samplerCache = new WeakMap<Texture, ISampler>();

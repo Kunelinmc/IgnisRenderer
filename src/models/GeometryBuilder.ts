@@ -1,14 +1,14 @@
-import { Material } from "../../materials/Material";
-import { IdGenerator } from "../../utils/IdGenerator";
+import { Material } from "../materials/Material";
+import { IdGenerator } from "../utils/IdGenerator";
 import type {
 	BoundingBox,
 	BoundingSphere,
 	IPrimitive,
 	IPrimitiveGeometry,
 	IVertex,
-} from "../types";
-import type { RGBA } from "../../utils/Color";
-import type { IVector3 } from "../../maths/types";
+} from "../core/types";
+import type { RGBA } from "../utils/Color";
+import type { IVector3 } from "../maths/types";
 
 export interface GeometryFaceVertex extends IVertex {
 	[key: string]: unknown;

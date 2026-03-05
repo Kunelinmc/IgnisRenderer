@@ -1,23 +1,23 @@
-import type { IPrimitive } from "../types";
-import { BufferUsage, type IRenderBuffer } from "../ral/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import { GeometryBuilder } from "../geometry/GeometryBuilder";
+import type { IPrimitive } from "../../types";
+import { BufferUsage, type IRenderBuffer } from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import { GeometryBuilder } from "../../../models/GeometryBuilder";
 
-export interface GeometryHandle {
+export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;
 	indexBuffer: IRenderBuffer;
 	indexCount: number;
 }
 
-export class GeometryRegistry {
+export class WebGPUGeometryRegistry {
 	private _backend: WebGPUBackend;
-	private _cache = new WeakMap<IPrimitive, GeometryHandle>();
+	private _cache = new WeakMap<IPrimitive, WebGPUGeometryHandle>();
 
 	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 	}
 
-	public getGeometry(primitive: IPrimitive): GeometryHandle {
+	public getGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
 		let cached = this._cache.get(primitive);
 		if (!cached) {
 			cached = this._uploadGeometry(primitive);
@@ -26,7 +26,7 @@ export class GeometryRegistry {
 		return cached;
 	}
 
-	private _uploadGeometry(primitive: IPrimitive): GeometryHandle {
+	private _uploadGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
 		const geometry = primitive.geometry;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
 		const vertexData = new Float32Array(vertexCount * 14);

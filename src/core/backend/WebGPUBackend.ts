@@ -3,7 +3,7 @@ import {
 	type ComputePassDesc,
 	type ICommandEncoder,
 	type RenderPassDesc,
-} from "../ral/ICommandEncoder";
+} from "./ICommandEncoder";
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
 import type {
@@ -12,7 +12,7 @@ import type {
 	FramePass,
 } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
-import { RenderResources } from "../resources/RenderResources";
+import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import { Rasterizer } from "../software/Rasterizer";
 import { SoftwareShadowPass } from "../software/passes/SoftwareShadowPass";
 import {
@@ -35,7 +35,7 @@ import {
 	type TextureDesc,
 	TextureFormat,
 	TextureUsage,
-} from "../ral/types";
+} from "./types";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -95,7 +95,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
 	private _renderer: Renderer | null = null;
-	private _resources: RenderResources | null = null;
+	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _sharedShadowPass: SoftwareShadowPass | null = null;
 
@@ -150,7 +150,7 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend requires a renderer before init().");
 		}
 
-		this._resources = new RenderResources(this._renderer, this);
+		this._resources = new WebGPURenderResources(this._renderer, this);
 		await this._resources.init();
 		this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
 	}

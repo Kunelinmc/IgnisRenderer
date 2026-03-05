@@ -3,25 +3,25 @@ import type {
 	IRenderBuffer,
 	IRenderPipeline,
 	IRenderTexture,
-} from "../ral/types";
-import { BufferUsage } from "../ral/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
+} from "../types";
+import { BufferUsage } from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 	packFrameUniformData,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
-} from "../bridge/webgpu";
-import type { PreparedScene } from "../pipeline/types";
-import { TextureRegistry } from "./TextureRegistry";
-import { ShadowAtlasAllocator } from "./ShadowAtlasAllocator";
-import type { WebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
+} from "./";
+import type { PreparedScene } from "../../pipeline/types";
+import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
+import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
-export class FrameBindingCache {
+export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
-	private _textureRegistry: TextureRegistry;
-	private _shadowAtlases: ShadowAtlasAllocator;
+	private _textureRegistry: WebGPUTextureRegistry;
+	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
 	private _cache = new Map<IRenderPipeline, IBindingGroup>();
 	private _lastDirectionalAtlas: IRenderTexture | null = null;
@@ -30,8 +30,8 @@ export class FrameBindingCache {
 	constructor(
 		backend: WebGPUBackend,
 		layouts: WebGPUPipelineLayouts,
-		textureRegistry: TextureRegistry,
-		shadowAtlases: ShadowAtlasAllocator
+		textureRegistry: WebGPUTextureRegistry,
+		shadowAtlases: WebGPUShadowAtlasAllocator
 	) {
 		this._backend = backend;
 		this._layouts = layouts;

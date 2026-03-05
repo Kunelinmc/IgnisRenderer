@@ -1,14 +1,14 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
-import type { RenderResources } from "../../resources/RenderResources";
+import type { WebGPURenderResources } from "./WebGPURenderResources";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import { ICommandEncoder } from "../../ral/ICommandEncoder";
+import { ICommandEncoder } from "../ICommandEncoder";
 
 export class WebGPUFrameExecutor {
 	private _backend: WebGPUBackend;
-	private _resources: RenderResources;
+	private _resources: WebGPURenderResources;
 	private _encoder: ICommandEncoder | null = null;
 
-	constructor(backend: WebGPUBackend, resources: RenderResources) {
+	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 	}

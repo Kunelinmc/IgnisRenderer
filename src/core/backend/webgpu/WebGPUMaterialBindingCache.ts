@@ -5,15 +5,15 @@ import {
 	type IRenderPipeline,
 	type IRenderTexture,
 	type ISampler,
-} from "../ral/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import type { DrawPacket } from "../pipeline/types";
+} from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import type { DrawPacket } from "../../pipeline/types";
 import {
 	WEBGPU_MODEL_UNIFORM_FLOATS,
 	packModelUniformData,
 	type WebGPUMaterialUniformData,
-} from "../bridge/webgpu";
-import type { WebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
+} from "./";
+import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
 interface MaterialBindingEntry {
 	uniformBuffer: IRenderBuffer;
@@ -24,7 +24,7 @@ interface MaterialBindingEntry {
 	lastUsedFrame: number;
 }
 
-export class MaterialBindingCache {
+export class WebGPUMaterialBindingCache {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
 	private _cache = new Map<string, MaterialBindingEntry>();

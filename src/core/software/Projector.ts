@@ -9,7 +9,7 @@ import type {
 	PrimitiveFace,
 } from "../types";
 import type { DrawPacket, FrameContext } from "../pipeline/types";
-import { GeometryBuilder } from "../geometry/GeometryBuilder";
+import { GeometryBuilder } from "../../models/GeometryBuilder";
 
 interface ClippedVertexPair {
 	view: IVertex;

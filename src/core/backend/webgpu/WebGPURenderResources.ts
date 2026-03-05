@@ -1,25 +1,25 @@
-import type { Renderer } from "../Renderer";
+import type { Renderer } from "../../Renderer";
 import type {
 	DrawPacket,
 	FrameContext,
 	PreparedScene,
-} from "../pipeline/types";
-import { AlphaMode } from "../../materials/Material";
-import type { ResolvedFeatureState } from "../pipeline/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
+} from "../../pipeline/types";
+import { AlphaMode } from "../../../materials/Material";
+import type { ResolvedFeatureState } from "../../pipeline/types";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
-} from "../bridge/webgpu";
-import { createWebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
-import { FrameBindingCache } from "./FrameBindingCache";
-import { GeometryRegistry } from "./GeometryRegistry";
-import { MaterialBindingCache } from "./MaterialBindingCache";
-import { PipelineLibrary } from "./PipelineLibrary";
-import { ShadowAtlasAllocator } from "./ShadowAtlasAllocator";
-import { TextureRegistry } from "./TextureRegistry";
+} from "./";
+import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
+import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
+import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
+import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
+import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -30,33 +30,36 @@ export interface WebGPUDrawResources {
 	indexCount: number;
 }
 
-export class RenderResources {
+export class WebGPURenderResources {
 	private _renderer: Renderer;
 	private _backend: WebGPUBackend;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
-	private _geometryRegistry: GeometryRegistry;
-	private _textureRegistry: TextureRegistry;
-	private _shadowAtlases: ShadowAtlasAllocator;
-	private _pipelineLibrary: PipelineLibrary;
-	private _frameBindings: FrameBindingCache;
-	private _materialBindings: MaterialBindingCache;
+	private _geometryRegistry: WebGPUGeometryRegistry;
+	private _textureRegistry: WebGPUTextureRegistry;
+	private _shadowAtlases: WebGPUShadowAtlasAllocator;
+	private _pipelineLibrary: WebGPUPipelineLibrary;
+	private _frameBindings: WebGPUFrameBindingCache;
+	private _materialBindings: WebGPUMaterialBindingCache;
 	private _lightingState: WebGPULightingState | null = null;
 
 	constructor(renderer: Renderer, backend: WebGPUBackend) {
 		this._renderer = renderer;
 		this._backend = backend;
 		this._layouts = createWebGPUPipelineLayouts(backend.device);
-		this._geometryRegistry = new GeometryRegistry(backend);
-		this._textureRegistry = new TextureRegistry(backend);
-		this._shadowAtlases = new ShadowAtlasAllocator(backend);
-		this._pipelineLibrary = new PipelineLibrary(backend, this._layouts);
-		this._frameBindings = new FrameBindingCache(
+		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
+		this._textureRegistry = new WebGPUTextureRegistry(backend);
+		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
+		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts);
+		this._frameBindings = new WebGPUFrameBindingCache(
 			backend,
 			this._layouts,
 			this._textureRegistry,
 			this._shadowAtlases
 		);
-		this._materialBindings = new MaterialBindingCache(backend, this._layouts);
+		this._materialBindings = new WebGPUMaterialBindingCache(
+			backend,
+			this._layouts
+		);
 	}
 
 	public async init(): Promise<void> {
@@ -119,7 +122,7 @@ export class RenderResources {
 
 		if (!featuresArg) {
 			throw new Error(
-				"RenderResources.prepareFrame() requires a resolved feature state."
+				"WebGPURenderResources.prepareFrame() requires a resolved feature state."
 			);
 		}
 

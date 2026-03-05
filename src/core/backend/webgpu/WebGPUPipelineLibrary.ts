@@ -1,12 +1,12 @@
-import { WEBGPU_SCENE_SHADER } from "../../shaders/webgpu/sceneShader";
-import { createWebGPUMaterialUniformData } from "../bridge/webgpu";
-import { TextureFormat } from "../ral/types";
-import type { Material } from "../../materials/Material";
-import type { IRenderPipeline, IShaderModule } from "../ral/types";
-import type { WebGPUBackend } from "../backend/WebGPUBackend";
-import type { WebGPUPipelineLayouts } from "../backend/webgpu/WebGPUPipelineLayouts";
+import { WEBGPU_SCENE_SHADER } from "../../../shaders/webgpu/sceneShader";
+import { createWebGPUMaterialUniformData } from "./";
+import { TextureFormat } from "../types";
+import type { Material } from "../../../materials/Material";
+import type { IRenderPipeline, IShaderModule } from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
-export class PipelineLibrary {
+export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
 	private _sceneShaderModule: IShaderModule | null = null;

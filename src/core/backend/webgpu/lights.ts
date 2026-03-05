@@ -14,7 +14,7 @@ import {
 	getSpotLightInnerAngle,
 	getSpotLightWorldDirection,
 	getSpotLightWorldPosition,
-} from '../../software/lighting/LightEvaluator'
+} from '../../pipeline/LightTransforms'
 import type { RGB } from '../../../utils/Color'
 import type { ShadowMap } from '../../../utils/ShadowMapping'
 

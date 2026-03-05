@@ -1,5 +1,5 @@
 import { EventEmitter } from '../core/EventEmitter'
-import { GeometryBuilder, type GeometryFace } from '../core/geometry/GeometryBuilder'
+import { GeometryBuilder, type GeometryFace } from './GeometryBuilder'
 import { Matrix4 } from '../maths/Matrix4'
 import type { IVector3 } from '../maths/types'
 import { Vector3 } from '../maths/Vector3'
