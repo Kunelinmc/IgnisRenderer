@@ -7,6 +7,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	reflection: "feature-reflection",
 	skybox: "feature-skybox",
 	ssao: "feature-ssao",
+	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
 };
 
@@ -16,6 +17,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	reflection: "planar reflections",
 	skybox: "skybox rendering",
 	ssao: "SSAO",
+	ssr: "SSR",
 	volumetric: "volumetric effects",
 };
 
@@ -30,6 +32,9 @@ export function resolveFeatureState(
 		enableLighting: request.enableLighting !== false,
 		enableGamma: request.enableGamma !== false,
 		enableFXAA: request.enableFXAA === true,
+		ssrOptions: request.ssrOptions ?? {},
+		ssaoOptions: request.ssaoOptions ?? {},
+		volumetricOptions: request.volumetricOptions ?? {},
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
 			capabilities.sh,
@@ -62,6 +67,13 @@ export function resolveFeatureState(
 			request.enableSSAO,
 			capabilities.ssao,
 			"ssao",
+			backendType,
+			warnings
+		),
+		enableSSR: resolveBooleanFeature(
+			request.enableSSR,
+			capabilities.ssr,
+			"ssr",
 			backendType,
 			warnings
 		),

@@ -23,9 +23,17 @@ export { Renderer } from "./core/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
 export { SoftwareBackend } from "./core/backend/SoftwareBackend";
 export { WebGPUBackend } from "./core/backend/WebGPUBackend";
+export type {
+	WebGPUPostProcessPassPlugin,
+	WebGPUPostProcessPassKind,
+} from "./core/backend/webgpu/WebGPUPostProcessGraph";
 export { Rasterizer } from "./core/backend/software/Rasterizer";
 export { PostProcessor } from "./core/backend/software/PostProcessor";
-export type { VolumetricOptions } from "./core/pipeline/types";
+export type {
+	SSROptions,
+	SSAOOptions,
+	VolumetricOptions,
+} from "./core/pipeline/types";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";

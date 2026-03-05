@@ -7,6 +7,8 @@ import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
+export type WebGPUSceneTargetMode = "single" | "mrt";
+
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
@@ -15,7 +17,7 @@ export class WebGPUPipelineLibrary {
 	private _skyboxPipeline: IRenderPipeline | null = null;
 	private _materialPipelineCache = new WeakMap<
 		Material,
-		{ key: string; pipeline: IRenderPipeline }
+		{ key: string; mode: WebGPUSceneTargetMode; pipeline: IRenderPipeline }
 	>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 
@@ -25,24 +27,40 @@ export class WebGPUPipelineLibrary {
 	}
 
 	public async init(): Promise<void> {
-		await Promise.all([this._getSceneShaderModule(), this._getSkyboxShaderModule()]);
+		await Promise.all([
+			this._getSceneShaderModule(),
+			this._getSkyboxShaderModule(),
+		]);
 	}
 
-	public async getPipeline(material: Material): Promise<IRenderPipeline> {
+	public async getPipeline(
+		material: Material,
+		mode: WebGPUSceneTargetMode = "mrt"
+	): Promise<IRenderPipeline> {
 		const materialData = createWebGPUMaterialUniformData(material);
 		const cached = this._materialPipelineCache.get(material);
-		if (cached && cached.key === materialData.pipelineKey) {
+		if (
+			cached &&
+			cached.key === materialData.pipelineKey &&
+			cached.mode === mode
+		) {
 			return cached.pipeline;
 		}
 
-		let pipeline = this._pipelineCache.get(materialData.pipelineKey);
+		const cacheKey = `${materialData.pipelineKey}|${mode}`;
+		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
-			pipeline = await this._createPipeline(material, materialData.pipelineKey);
-			this._pipelineCache.set(materialData.pipelineKey, pipeline);
+			pipeline = await this._createPipeline(
+				material,
+				materialData.pipelineKey,
+				mode
+			);
+			this._pipelineCache.set(cacheKey, pipeline);
 		}
 
 		this._materialPipelineCache.set(material, {
 			key: materialData.pipelineKey,
+			mode,
 			pipeline,
 		});
 
@@ -51,12 +69,25 @@ export class WebGPUPipelineLibrary {
 
 	private async _createPipeline(
 		material: Material,
-		pipelineKey: string
+		pipelineKey: string,
+		mode: WebGPUSceneTargetMode
 	): Promise<IRenderPipeline> {
 		const shaderModule = await this._getSceneShaderModule();
+		const fragmentTargets =
+			mode === "mrt"
+				? [
+						{ format: TextureFormat.RGBA16Float },
+						{ format: TextureFormat.RGBA8Unorm },
+						{ format: TextureFormat.RGBA16Float },
+						{ format: TextureFormat.RGBA16Float },
+						{ format: TextureFormat.RGBA16Float },
+					]
+				: [{ format: this._backend.canvasFormat as any }];
+		const fragmentEntryPoint = mode === "mrt" ? "fsMain" : "fsMainSingle";
+
 		return this._backend.createPipeline({
 			layout: this._layouts.scenePipelineLayout,
-			label: `WebGPUScenePipeline_${pipelineKey}`,
+			label: `WebGPUScenePipeline_${pipelineKey}_${mode}`,
 			vertex: {
 				module: shaderModule,
 				entryPoint: "vsMain",
@@ -75,8 +106,8 @@ export class WebGPUPipelineLibrary {
 			},
 			fragment: {
 				module: shaderModule,
-				entryPoint: "fsMain",
-				targets: [{ format: this._backend.canvasFormat as any }],
+				entryPoint: fragmentEntryPoint,
+				targets: fragmentTargets as any,
 			},
 			primitive: {
 				topology: "triangle-list" as any,
@@ -84,7 +115,7 @@ export class WebGPUPipelineLibrary {
 				frontFace: "ccw",
 			},
 			depthStencil: {
-				format: TextureFormat.Depth24Plus,
+				format: TextureFormat.Depth32Float,
 				depthWriteEnabled: true,
 				depthCompare: "less",
 			},

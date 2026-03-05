@@ -92,7 +92,17 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT = /* wgsl */ `
 	ambientLight *= occlusion;
 
 	let finalLinear = max(directLight + ambientLight + emissive, vec3<f32>(0.0));
-	let outputColor = encodeOutput(finalLinear);
-	return vec4<f32>(clamp(outputColor, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
+	return buildSceneOutput(
+		finalLinear,
+		alpha,
+		albedo,
+		pbrNormal,
+		roughness,
+		metalness,
+		emissive,
+		occlusion,
+		motion,
+		linearDepth
+	);
 }
 `

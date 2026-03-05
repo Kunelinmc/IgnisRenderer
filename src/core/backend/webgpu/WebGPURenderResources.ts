@@ -20,6 +20,7 @@ import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
 import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
+import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 
@@ -50,6 +51,7 @@ export class WebGPURenderResources {
 	private _lightingState: WebGPULightingState | null = null;
 	private _featureState: WebGPUFeatureState | null = null;
 	private _environmentState: WebGPUEnvironmentState | null = null;
+	private _sceneTargetMode: WebGPUSceneTargetMode = "mrt";
 
 	constructor(renderer: Renderer, backend: WebGPUBackend) {
 		this._renderer = renderer;
@@ -75,6 +77,10 @@ export class WebGPURenderResources {
 		await this._pipelineLibrary.init();
 	}
 
+	public setSceneTargetMode(mode: WebGPUSceneTargetMode): void {
+		this._sceneTargetMode = mode;
+	}
+
 	public prepareFrame(context: FrameContext): void;
 	public prepareFrame(
 		scene: PreparedScene,
@@ -93,10 +99,11 @@ export class WebGPURenderResources {
 			enableGamma: features.enableGamma,
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
-			enableReflection: false,
+			enableReflection: features.enableReflection,
 			enableSkybox: features.enableSkybox,
-			enableSSAO: false,
-			enableVolumetric: false,
+			enableSSAO: features.enableSSAO,
+			enableSSR: features.enableSSR,
+			enableVolumetric: features.enableVolumetric,
 			warnings: [],
 		};
 		this._featureState = featureState;
@@ -188,7 +195,10 @@ export class WebGPURenderResources {
 		}
 
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-		const pipeline = await this._pipelineLibrary.getPipeline(packet.material);
+		const pipeline = await this._pipelineLibrary.getPipeline(
+			packet.material,
+			this._sceneTargetMode
+		);
 		const textures = materialData.textureSlots.map((slot, index) =>
 			this._textureRegistry.getTextureForSlot(slot.map, index)
 		);

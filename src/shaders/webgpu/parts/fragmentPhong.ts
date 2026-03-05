@@ -103,7 +103,17 @@ export const WEBGPU_SCENE_FRAGMENT_PHONG = /* wgsl */ `
 		}
 
 		let finalLinear = ambient + direct + emissive;
-		let outputColor = encodeOutput(finalLinear);
-		return vec4<f32>(clamp(outputColor, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
+		return buildSceneOutput(
+			finalLinear,
+			alpha,
+			baseColor,
+			normal,
+			1.0,
+			0.0,
+			emissive,
+			1.0,
+			motion,
+			linearDepth
+		);
 	}
 `

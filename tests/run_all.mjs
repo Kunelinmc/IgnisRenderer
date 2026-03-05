@@ -21,6 +21,7 @@ const tests = [
 	"test_pbr_textures.mjs",
 	"test_orbit_camera.mjs",
 	"test_webgpu_bridge.mjs",
+	"test_webgpu_post_graph.mjs",
 ];
 
 let failed = false;

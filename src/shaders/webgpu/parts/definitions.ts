@@ -23,6 +23,7 @@ struct ShadowData {
 
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
+	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
 	skyboxBasisRight: vec4<f32>,
 	skyboxBasisUp: vec4<f32>,
@@ -42,6 +43,7 @@ struct FrameUniforms {
 
 struct ModelUniforms {
 	modelMatrix: mat4x4<f32>,
+	prevModelMatrix: mat4x4<f32>,
 	normalMatrix: mat4x4<f32>,
 	baseColorFactor: vec4<f32>,
 	emissiveFactor: vec4<f32>,
@@ -74,6 +76,16 @@ struct VertexOutput {
 	@location(2) uv: vec2<f32>,
 	@location(3) worldTangent: vec4<f32>,
 	@location(4) uv2: vec2<f32>,
+	@location(5) currentClip: vec4<f32>,
+	@location(6) prevClip: vec4<f32>,
+}
+
+struct SceneFragmentOutput {
+	@location(0) sceneColor: vec4<f32>,
+	@location(1) gAlbedoAlpha: vec4<f32>,
+	@location(2) gNormalRoughMetal: vec4<f32>,
+	@location(3) gEmissiveOcclusion: vec4<f32>,
+	@location(4) gMotionDepth: vec4<f32>,
 }
 
 struct RefractionResult {

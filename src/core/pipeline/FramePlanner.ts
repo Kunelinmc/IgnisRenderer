@@ -6,6 +6,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"main-opaque",
 	"main-transparent",
 	"ssao",
+	"ssr",
 	"volumetric",
 	"fxaa",
 	"gamma",
@@ -41,6 +42,8 @@ function shouldEnablePass(
 			return frame.transparentPackets.length > 0;
 		case "ssao":
 			return features.enableSSAO;
+		case "ssr":
+			return features.enableSSR;
 		case "volumetric":
 			return features.enableVolumetric;
 		case "fxaa":

@@ -21,6 +21,7 @@ interface MaterialBindingEntry {
 	pipeline: IRenderPipeline | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
+	prevModelMatrix: DrawPacket["worldMatrix"] | null;
 	lastUsedFrame: number;
 }
 
@@ -65,6 +66,7 @@ export class WebGPUMaterialBindingCache {
 				pipeline: null,
 				textures: [],
 				samplers: [],
+				prevModelMatrix: null,
 				lastUsedFrame: this._currentFrame,
 			};
 			this._cache.set(packet.id, cached);
@@ -75,12 +77,14 @@ export class WebGPUMaterialBindingCache {
 		const uniformData = packModelUniformData(
 			packet.worldMatrix,
 			packet.normalMatrix as any,
-			materialData
+			materialData,
+			cached.prevModelMatrix ?? packet.worldMatrix
 		);
 		this._backend.writeBuffer(
 			cached.uniformBuffer,
 			new Float32Array(uniformData)
 		);
+		cached.prevModelMatrix = packet.worldMatrix.clone();
 
 		if (
 			!cached.bindingGroup ||

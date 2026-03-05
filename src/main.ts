@@ -120,6 +120,7 @@ function configureRenderer(renderer: Renderer): void {
 		renderer.features.enableReflection = false;
 		renderer.features.enableSkybox = true;
 		renderer.features.enableSSAO = false;
+		renderer.features.enableSSR = false;
 		renderer.features.enableVolumetric = false;
 		return;
 	}

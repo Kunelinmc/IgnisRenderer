@@ -10,6 +10,9 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 	let worldTangent = (model.normalMatrix * vec4<f32>(input.tangent.xyz, 0.0)).xyz;
 	var clipPosition = frame.viewProjection * worldPosition;
 	clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;
+	let prevWorldPosition = model.prevModelMatrix * vec4<f32>(input.position, 1.0);
+	var prevClipPosition = frame.prevViewProjection * prevWorldPosition;
+	prevClipPosition.z = prevClipPosition.z * 0.5 + prevClipPosition.w * 0.5;
 
 	output.position = clipPosition;
 	output.worldPosition = worldPosition.xyz;
@@ -20,6 +23,8 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 		input.tangent.w
 	);
 	output.uv2 = input.uv2;
+	output.currentClip = clipPosition;
+	output.prevClip = prevClipPosition;
 	return output;
 }
 `

@@ -75,6 +75,7 @@ export type FramePassStage =
 	| "main-opaque"
 	| "main-transparent"
 	| "ssao"
+	| "ssr"
 	| "volumetric"
 	| "fxaa"
 	| "gamma";
@@ -110,6 +111,16 @@ export interface SSAOOptions {
 	[key: string]: unknown;
 }
 
+export interface SSROptions {
+	maxSteps?: number;
+	maxDistance?: number;
+	thickness?: number;
+	stride?: number;
+	intensity?: number;
+	historyWeight?: number;
+	[key: string]: unknown;
+}
+
 export interface FeatureWarning {
 	key: string;
 	message: string;
@@ -123,8 +134,12 @@ export interface RendererFeatureRequest {
 	enableReflection?: boolean;
 	enableSkybox?: boolean;
 	enableSSAO?: boolean;
+	enableSSR?: boolean;
 	enableVolumetric?: boolean;
 	enableFXAA?: boolean;
+	ssrOptions?: SSROptions;
+	ssaoOptions?: SSAOOptions;
+	volumetricOptions?: VolumetricOptions;
 }
 
 export interface ResolvedFeatureState {
@@ -135,9 +150,11 @@ export interface ResolvedFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableSSR: boolean;
 	enableVolumetric: boolean;
 	enableFXAA: boolean;
 	warnings: FeatureWarning[];
+	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
 	volumetricOptions?: VolumetricOptions;
 }

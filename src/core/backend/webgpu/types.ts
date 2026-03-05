@@ -64,6 +64,7 @@ export interface WebGPUFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableSSR: boolean;
 	enableVolumetric: boolean;
 	warnings: WebGPUWarning[];
 }
@@ -105,6 +106,7 @@ export interface WebGPUMaterialUniformData {
 
 export interface WebGPUFrameUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];
+	prevViewProjectionMatrix: Matrix4 | number[][];
 	cameraPosition: IVector3;
 	skyboxRight: WebGPUVec3;
 	skyboxUp: WebGPUVec3;

@@ -13,6 +13,11 @@ import type {
 } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
+import type { WebGPUPostProcessPassPlugin } from "./webgpu/WebGPUPostProcessGraph";
+import {
+	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_MRT_COLOR_TARGET_COUNT,
+} from "./webgpu/constants";
 import { Rasterizer } from "./software/Rasterizer";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import {
@@ -82,8 +87,9 @@ export class WebGPUBackend implements IRenderBackend {
 		shadows: true,
 		reflection: false,
 		skybox: true,
-		ssao: false,
-		volumetric: false,
+		ssao: true,
+		ssr: true,
+		volumetric: true,
 	};
 
 	public canvas: HTMLCanvasElement | null = null;
@@ -98,6 +104,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _sharedShadowPass: SoftwareShadowPass | null = null;
+	private _pendingPostProcessPasses = new Map<
+		string,
+		WebGPUPostProcessPassPlugin
+	>();
 
 	constructor(canvas?: HTMLCanvasElement) {
 		this.canvas = canvas ?? null;
@@ -128,7 +138,26 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		try {
-			this.device = await adapter.requestDevice();
+			const requiredLimits: Record<string, number> = {};
+			if (
+				(adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_MRT_COLOR_TARGET_COUNT
+			) {
+				requiredLimits.maxColorAttachments = WEBGPU_MRT_COLOR_TARGET_COUNT;
+			}
+			if (
+				(adapter.limits?.maxColorAttachmentBytesPerSample ?? 0) >=
+				WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
+			) {
+				requiredLimits.maxColorAttachmentBytesPerSample =
+					WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
+			}
+
+			this.device = await adapter.requestDevice({
+				requiredLimits:
+					Object.keys(requiredLimits).length > 0
+						? (requiredLimits as any)
+						: undefined,
+			});
 			this.device.lost.then((info) => {
 				console.error(`WebGPU device was lost: ${info.message}`);
 			});
@@ -153,6 +182,9 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resources = new WebGPURenderResources(this._renderer, this);
 		await this._resources.init();
 		this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+		for (const pass of this._pendingPostProcessPasses.values()) {
+			this._frameExecutor.registerPostProcessPass(pass);
+		}
 	}
 
 	public resize(_width: number, _height: number): void {
@@ -170,7 +202,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._resources.prepareFrame(context);
-		this._frameExecutor.beginFrame();
+		this._frameExecutor.beginFrame(context);
 	}
 
 	public executeSharedPass(pass: FramePass, context: FrameContext): void {
@@ -189,8 +221,18 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._frameExecutor.executePass(pass, context);
 	}
 
-	public endFrame(): void {
-		this._frameExecutor?.endFrame();
+	public async endFrame(): Promise<void> {
+		await this._frameExecutor?.endFrame();
+	}
+
+	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
+		this._pendingPostProcessPasses.set(pass.id, pass);
+		this._frameExecutor?.registerPostProcessPass(pass);
+	}
+
+	public unregisterPostProcessPass(id: string): void {
+		this._pendingPostProcessPasses.delete(id);
+		this._frameExecutor?.unregisterPostProcessPass(id);
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {

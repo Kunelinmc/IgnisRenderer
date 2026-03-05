@@ -56,11 +56,13 @@ export function packFrameUniformData(
 ): Float32Array {
 	const data = new Float32Array(WEBGPU_FRAME_UNIFORM_FLOATS);
 	const viewProjection = packMatrix4ForWGSL(input.viewProjectionMatrix);
+	const prevViewProjection = packMatrix4ForWGSL(input.prevViewProjectionMatrix);
 
 	data.set(viewProjection, 0);
+	data.set(prevViewProjection, 16);
 	data.set(
 		[input.cameraPosition.x, input.cameraPosition.y, input.cameraPosition.z, 1],
-		16
+		32
 	);
 	data.set(
 		[
@@ -69,7 +71,7 @@ export function packFrameUniformData(
 			input.skyboxRight[2],
 			input.skyboxTanHalfFov,
 		],
-		20
+		36
 	);
 	data.set(
 		[
@@ -78,7 +80,7 @@ export function packFrameUniformData(
 			input.skyboxUp[2],
 			input.skyboxAspect,
 		],
-		24
+		40
 	);
 	data.set(
 		[
@@ -87,11 +89,11 @@ export function packFrameUniformData(
 			input.skyboxBackward[2],
 			input.skyboxIsOrthographic ? 1 : 0,
 		],
-		28
+		44
 	);
 	data.set(
 		[input.ambientColor[0], input.ambientColor[1], input.ambientColor[2], 1],
-		32
+		48
 	);
 	data.set(
 		[
@@ -100,7 +102,7 @@ export function packFrameUniformData(
 			input.spotLights.length,
 			0,
 		],
-		36
+		52
 	);
 	data.set(
 		[
@@ -109,7 +111,7 @@ export function packFrameUniformData(
 			input.enableShadows ? 1 : 0,
 			0,
 		],
-		40
+		56
 	);
 	data.set(
 		[
@@ -118,14 +120,14 @@ export function packFrameUniformData(
 			input.hasSkybox ? 1 : 0,
 			input.hasEnvSpecular ? 1 : 0,
 		],
-		44
+		60
 	);
 	data.set(
 		[input.hasBRDFLUT ? 1 : 0, Math.max(0, input.envSpecularMaxMipLevel), 0, 0],
-		48
+		64
 	);
 
-	let offset = 52;
+	let offset = 68;
 	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
 		const light = input.directionalLights[i];
 		if (light) {
@@ -240,41 +242,43 @@ export function packFrameUniformData(
 }
 
 export function remapClipSpaceDepth(clipZ: number, clipW: number): number {
-	return clipZ * 0.5 + clipW * 0.5
+	return clipZ * 0.5 + clipW * 0.5;
 }
 
 export function packModelUniformData(
 	modelMatrix: Matrix4 | number[][],
 	normalMatrix: Matrix3Arr | Matrix4,
-	materialData: WebGPUMaterialUniformData
+	materialData: WebGPUMaterialUniformData,
+	prevModelMatrix: Matrix4 | number[][]
 ): Float32Array {
-	const data = new Float32Array(WEBGPU_MODEL_UNIFORM_FLOATS)
+	const data = new Float32Array(WEBGPU_MODEL_UNIFORM_FLOATS);
 
-	data.set(packMatrix4ForWGSL(modelMatrix), 0)
-	data.set(packNormalMatrix4ForWGSL(normalMatrix), 16)
-	data.set(materialData.baseColorFactor, 32)
-	data.set(materialData.emissiveFactor, 36)
-	data.set(materialData.surfaceParams0, 40)
-	data.set(materialData.surfaceParams1, 44)
-	data.set(materialData.surfaceParams2, 48)
-	data.set(materialData.surfaceParams3, 52)
-	data.set(materialData.specularColorFactor, 56)
-	data.set(materialData.phongAmbientShininess, 60)
-	data.set(materialData.phongSpecularShading, 64)
-	data.set(materialData.sheenColorClearcoatNormalScale, 68)
-	data.set(materialData.attenuationColor, 72)
-	data.set(materialData.materialFlags, 76)
+	data.set(packMatrix4ForWGSL(modelMatrix), 0);
+	data.set(packMatrix4ForWGSL(prevModelMatrix), 16);
+	data.set(packNormalMatrix4ForWGSL(normalMatrix), 32);
+	data.set(materialData.baseColorFactor, 48);
+	data.set(materialData.emissiveFactor, 52);
+	data.set(materialData.surfaceParams0, 56);
+	data.set(materialData.surfaceParams1, 60);
+	data.set(materialData.surfaceParams2, 64);
+	data.set(materialData.surfaceParams3, 68);
+	data.set(materialData.specularColorFactor, 72);
+	data.set(materialData.phongAmbientShininess, 76);
+	data.set(materialData.phongSpecularShading, 80);
+	data.set(materialData.sheenColorClearcoatNormalScale, 84);
+	data.set(materialData.attenuationColor, 88);
+	data.set(materialData.materialFlags, 92);
 
-	let offset = 80
+	let offset = 96;
 	for (const slot of materialData.textureSlots) {
-		data.set(slot.transformA, offset)
-		offset += 4
+		data.set(slot.transformA, offset);
+		offset += 4;
 	}
 
 	for (const slot of materialData.textureSlots) {
-		data.set(slot.transformB, offset)
-		offset += 4
+		data.set(slot.transformB, offset);
+		offset += 4;
 	}
 
-	return data
+	return data;
 }

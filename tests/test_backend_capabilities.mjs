@@ -12,6 +12,7 @@ function run() {
 		reflection: true,
 		skybox: true,
 		ssao: true,
+		ssr: false,
 		volumetric: true,
 	})
 
@@ -20,8 +21,9 @@ function run() {
 		shadows: true,
 		reflection: false,
 		skybox: true,
-		ssao: false,
-		volumetric: false,
+		ssao: true,
+		ssr: true,
+		volumetric: true,
 	})
 
 	testSoftwareBackendReusesFrameImageData()

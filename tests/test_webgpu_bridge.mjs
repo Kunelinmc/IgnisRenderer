@@ -258,6 +258,7 @@ function testFeatureGate() {
 			enableReflection: true,
 			enableSkybox: true,
 			enableSSAO: true,
+			enableSSR: true,
 			enableVolumetric: true,
 		},
 		{
@@ -266,6 +267,7 @@ function testFeatureGate() {
 			reflection: false,
 			skybox: false,
 			ssao: false,
+			ssr: false,
 			volumetric: false,
 		},
 		"webgpu"
@@ -278,8 +280,12 @@ function testFeatureGate() {
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableSkybox, false);
 	assert.equal(featureState.enableSSAO, false);
+	assert.equal(featureState.enableSSR, false);
 	assert.equal(featureState.enableVolumetric, false);
-	assert.ok(featureState.warnings.length >= 5);
+	assert.ok(featureState.ssaoOptions);
+	assert.ok(featureState.ssrOptions);
+	assert.ok(featureState.volumetricOptions);
+	assert.ok(featureState.warnings.length >= 6);
 }
 
 function testSceneShaderCoverage() {
@@ -298,18 +304,19 @@ function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
 }
 
 function createTinyTexture(mips = 1) {
-	const texture = new Texture(
-		new Float32Array([1, 1, 1, 1]),
-		1,
-		1,
-		"HDR"
+	const texture = new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR");
+	texture.mipmaps = Array.from(
+		{ length: mips },
+		() => new Float32Array([1, 1, 1, 1])
 	);
-	texture.mipmaps = Array.from({ length: mips }, () => new Float32Array([1, 1, 1, 1]));
 	return texture;
 }
 
@@ -390,6 +397,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				reflection: false,
 				skybox: false,
 				ssao: false,
+				ssr: false,
 				volumetric: false,
 			},
 			"webgpu"
@@ -402,6 +410,17 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.equal(draw.frameBinding.desc.entries.length, 4);
 	assert.equal(draw.modelBinding.desc.entries.length, 29);
 	assert.equal(draw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
+	assert.equal(draw.pipeline.desc.fragment.targets.length, 5);
+	assert.deepEqual(
+		draw.pipeline.desc.fragment.targets.map((target) => target.format),
+		[
+			"rgba16float",
+			"rgba8unorm",
+			"rgba16float",
+			"rgba16float",
+			"rgba16float",
+		]
+	);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) =>
@@ -445,6 +464,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		reflection: false,
 		skybox: true,
 		ssao: false,
+		ssr: false,
 		volumetric: false,
 	};
 

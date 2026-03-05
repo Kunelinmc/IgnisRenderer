@@ -9,6 +9,7 @@ import { WEBGPU_SCENE_FRAGMENT_PBR_DIRECTIONAL } from "./parts/fragmentPbrDirect
 import { WEBGPU_SCENE_FRAGMENT_PBR_POINT } from "./parts/fragmentPbrPoint";
 import { WEBGPU_SCENE_FRAGMENT_PBR_SPOT } from "./parts/fragmentPbrSpot";
 import { WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT } from "./parts/fragmentPbrAmbient";
+import { WEBGPU_SCENE_FRAGMENT_SINGLE_TARGET } from "./parts/fragmentSingleTarget";
 
 export const WEBGPU_SCENE_SHADER = [
 	WEBGPU_SCENE_SHADER_CONSTANTS,
@@ -22,4 +23,5 @@ export const WEBGPU_SCENE_SHADER = [
 	WEBGPU_SCENE_FRAGMENT_PBR_POINT,
 	WEBGPU_SCENE_FRAGMENT_PBR_SPOT,
 	WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT,
+	WEBGPU_SCENE_FRAGMENT_SINGLE_TARGET,
 ].join("\n\n");

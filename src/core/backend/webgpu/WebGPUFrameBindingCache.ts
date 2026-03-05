@@ -32,6 +32,9 @@ export class WebGPUFrameBindingCache {
 	private _envSpecularTexture: IRenderTexture | null = null;
 	private _skyboxSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
+	private _prevViewProjection:
+		| PreparedScene["camera"]["viewProjectionMatrix"]
+		| null = null;
 
 	constructor(
 		backend: WebGPUBackend,
@@ -57,12 +60,19 @@ export class WebGPUFrameBindingCache {
 		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
 		const aspect = frame.camera.aspectRatio || 1;
 		const frameUniform = this._getFrameUniformBuffer();
+		const prevViewProjection =
+			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
 		const frameData = packFrameUniformData({
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
+			prevViewProjectionMatrix: prevViewProjection,
 			cameraPosition: frame.camera.position,
 			skyboxRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
 			skyboxUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
-			skyboxBackward: [viewElements[2][0], viewElements[2][1], viewElements[2][2]],
+			skyboxBackward: [
+				viewElements[2][0],
+				viewElements[2][1],
+				viewElements[2][2],
+			],
 			skyboxTanHalfFov: tanHalfFov,
 			skyboxAspect: aspect,
 			skyboxIsOrthographic: isOrthographic,
@@ -85,13 +95,19 @@ export class WebGPUFrameBindingCache {
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
+		this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
 
 		const currentShadowAtlas = this._shadowAtlases.atlas;
 		const currentSkybox = environmentState.skyboxTexture
-			? this._textureRegistry.getTextureForSlot(environmentState.skyboxTexture, 0)
+			? this._textureRegistry.getTextureForSlot(
+					environmentState.skyboxTexture,
+					0
+				)
 			: this._textureRegistry.getWhiteTexture();
 		const currentSkyboxSampler = environmentState.skyboxTexture
-			? this._textureRegistry.getSamplerForTexture(environmentState.skyboxTexture)
+			? this._textureRegistry.getSamplerForTexture(
+					environmentState.skyboxTexture
+				)
 			: this._textureRegistry.getWhiteSampler();
 		const currentEnvSpecular = environmentState.envSpecularTexture
 			? this._textureRegistry.getTextureForSlot(
@@ -131,17 +147,20 @@ export class WebGPUFrameBindingCache {
 					{ binding: 0, resource: this._getFrameUniformBuffer() },
 					{
 						binding: 1,
-						resource: this._shadowAtlas ?? this._textureRegistry.getWhiteTexture(),
+						resource:
+							this._shadowAtlas ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 2,
 						resource:
-							this._envSpecularTexture ?? this._textureRegistry.getWhiteTexture(),
+							this._envSpecularTexture ??
+							this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 3,
 						resource:
-							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
+							this._envSpecularSampler ??
+							this._textureRegistry.getWhiteSampler(),
 					},
 				],
 			});
@@ -159,11 +178,13 @@ export class WebGPUFrameBindingCache {
 					{ binding: 0, resource: this._getFrameUniformBuffer() },
 					{
 						binding: 1,
-						resource: this._skyboxTexture ?? this._textureRegistry.getWhiteTexture(),
+						resource:
+							this._skyboxTexture ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 2,
-						resource: this._skyboxSampler ?? this._textureRegistry.getWhiteSampler(),
+						resource:
+							this._skyboxSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
 				],
 			});

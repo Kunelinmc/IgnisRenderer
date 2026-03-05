@@ -173,7 +173,50 @@ fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResul
 }
 
 fn encodeOutput(color: vec3<f32>) -> vec3<f32> {
-	return select(color, linearToSrgb(color), frame.options.y > 0.5);
+	return color;
+}
+
+fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
+	let n = safeNormalize(normal, vec3<f32>(0.0, 0.0, 1.0));
+	return n.xy * 0.5 + vec2<f32>(0.5, 0.5);
+}
+
+fn buildSceneOutput(
+	sceneLinear: vec3<f32>,
+	alpha: f32,
+	albedo: vec3<f32>,
+	worldNormal: vec3<f32>,
+	roughness: f32,
+	metalness: f32,
+	emissive: vec3<f32>,
+	occlusion: f32,
+	motion: vec2<f32>,
+	linearDepth: f32
+) -> SceneFragmentOutput {
+	var output: SceneFragmentOutput;
+	output.sceneColor = vec4<f32>(
+		clamp(sceneLinear, vec3<f32>(0.0), vec3<f32>(65504.0)),
+		clamp(alpha, 0.0, 1.0)
+	);
+	output.gAlbedoAlpha = vec4<f32>(
+		clamp(albedo, vec3<f32>(0.0), vec3<f32>(1.0)),
+		clamp(alpha, 0.0, 1.0)
+	);
+	output.gNormalRoughMetal = vec4<f32>(
+		encodeNormalForGBuffer(worldNormal),
+		clamp(roughness, 0.0, 1.0),
+		clamp(metalness, 0.0, 1.0)
+	);
+	output.gEmissiveOcclusion = vec4<f32>(
+		clamp(emissive, vec3<f32>(0.0), vec3<f32>(65504.0)),
+		clamp(occlusion, 0.0, 1.0)
+	);
+	output.gMotionDepth = vec4<f32>(
+		clamp(motion, vec2<f32>(-1.0), vec2<f32>(1.0)),
+		max(linearDepth, 0.0),
+		0.0
+	);
+	return output;
 }
 
 fn useSHAmbient() -> bool {

@@ -25,9 +25,13 @@ function run() {
 		enableReflection: false,
 		enableSkybox: false,
 		enableSSAO: false,
+		enableSSR: false,
 		enableVolumetric: false,
 		enableFXAA: true,
 		warnings: [],
+		ssrOptions: {},
+		ssaoOptions: {},
+		volumetricOptions: {},
 	}
 
 	const frame = createFrame({
@@ -41,6 +45,7 @@ function run() {
 			...baseResolved,
 			enableReflection: true,
 			enableSSAO: true,
+			enableSSR: true,
 			enableVolumetric: true,
 		}
 	)
@@ -53,6 +58,7 @@ function run() {
 			'main-opaque',
 			'main-transparent',
 			'ssao',
+			'ssr',
 			'volumetric',
 			'fxaa',
 			'gamma',
@@ -66,6 +72,7 @@ function run() {
 		true
 	)
 	assert.equal(plan.find((pass) => pass.stage === 'ssao')?.enabled, true)
+	assert.equal(plan.find((pass) => pass.stage === 'ssr')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'volumetric')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'fxaa')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'gamma')?.enabled, true)
