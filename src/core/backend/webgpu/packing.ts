@@ -7,14 +7,15 @@ import {
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_MODEL_UNIFORM_FLOATS,
-} from './constants'
+	WEBGPU_SH_COEFFICIENT_COUNT,
+} from "./constants";
 import type {
 	WebGPUFrameUniformInput,
 	WebGPUMaterialUniformData,
-} from './types'
+} from "./types";
 
 export function packMatrix4ForWGSL(matrix: Matrix4 | number[][]): Float32Array {
-	const elements = matrix instanceof Matrix4 ? matrix.elements : matrix
+	const elements = matrix instanceof Matrix4 ? matrix.elements : matrix;
 
 	return new Float32Array([
 		elements[0][0],
@@ -33,38 +34,65 @@ export function packMatrix4ForWGSL(matrix: Matrix4 | number[][]): Float32Array {
 		elements[1][3],
 		elements[2][3],
 		elements[3][3],
-	])
+	]);
 }
 
 export function packNormalMatrix4ForWGSL(
 	normalMatrix: Matrix3Arr | Matrix4
 ): Float32Array {
 	const rows =
-		normalMatrix instanceof Matrix4 ? normalMatrix.elements : normalMatrix
+		normalMatrix instanceof Matrix4 ? normalMatrix.elements : normalMatrix;
 
 	return packMatrix4ForWGSL([
 		[rows[0][0], rows[0][1], rows[0][2], 0],
 		[rows[1][0], rows[1][1], rows[1][2], 0],
 		[rows[2][0], rows[2][1], rows[2][2], 0],
 		[0, 0, 0, 1],
-	])
+	]);
 }
 
 export function packFrameUniformData(
 	input: WebGPUFrameUniformInput
 ): Float32Array {
-	const data = new Float32Array(WEBGPU_FRAME_UNIFORM_FLOATS)
-	const viewProjection = packMatrix4ForWGSL(input.viewProjectionMatrix)
+	const data = new Float32Array(WEBGPU_FRAME_UNIFORM_FLOATS);
+	const viewProjection = packMatrix4ForWGSL(input.viewProjectionMatrix);
 
-	data.set(viewProjection, 0)
+	data.set(viewProjection, 0);
 	data.set(
 		[input.cameraPosition.x, input.cameraPosition.y, input.cameraPosition.z, 1],
 		16
-	)
+	);
+	data.set(
+		[
+			input.skyboxRight[0],
+			input.skyboxRight[1],
+			input.skyboxRight[2],
+			input.skyboxTanHalfFov,
+		],
+		20
+	);
+	data.set(
+		[
+			input.skyboxUp[0],
+			input.skyboxUp[1],
+			input.skyboxUp[2],
+			input.skyboxAspect,
+		],
+		24
+	);
+	data.set(
+		[
+			input.skyboxBackward[0],
+			input.skyboxBackward[1],
+			input.skyboxBackward[2],
+			input.skyboxIsOrthographic ? 1 : 0,
+		],
+		28
+	);
 	data.set(
 		[input.ambientColor[0], input.ambientColor[1], input.ambientColor[2], 1],
-		20
-	)
+		32
+	);
 	data.set(
 		[
 			input.directionalLights.length,
@@ -72,8 +100,8 @@ export function packFrameUniformData(
 			input.spotLights.length,
 			0,
 		],
-		24
-	)
+		36
+	);
 	data.set(
 		[
 			input.enableLighting ? 1 : 0,
@@ -81,41 +109,54 @@ export function packFrameUniformData(
 			input.enableShadows ? 1 : 0,
 			0,
 		],
-		28
-	)
+		40
+	);
+	data.set(
+		[
+			input.enableSH ? 1 : 0,
+			input.hasSHAmbient ? 1 : 0,
+			input.hasSkybox ? 1 : 0,
+			input.hasEnvSpecular ? 1 : 0,
+		],
+		44
+	);
+	data.set(
+		[input.hasBRDFLUT ? 1 : 0, Math.max(0, input.envSpecularMaxMipLevel), 0, 0],
+		48
+	);
 
-	let offset = 32
+	let offset = 52;
 	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
-		const light = input.directionalLights[i]
+		const light = input.directionalLights[i];
 		if (light) {
 			data.set(
 				[light.direction[0], light.direction[1], light.direction[2], 0],
 				offset
-			)
-			data.set([light.color[0], light.color[1], light.color[2], 0], offset + 4)
+			);
+			data.set([light.color[0], light.color[1], light.color[2], 0], offset + 4);
 		}
-		offset += 8
+		offset += 8;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_POINT_LIGHTS; i++) {
-		const light = input.pointLights[i]
+		const light = input.pointLights[i];
 		if (light) {
 			data.set(
 				[light.position[0], light.position[1], light.position[2], light.range],
 				offset
-			)
-			data.set([light.color[0], light.color[1], light.color[2], 0], offset + 4)
+			);
+			data.set([light.color[0], light.color[1], light.color[2], 0], offset + 4);
 		}
-		offset += 8
+		offset += 8;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
-		const light = input.spotLights[i]
+		const light = input.spotLights[i];
 		if (light) {
 			data.set(
 				[light.position[0], light.position[1], light.position[2], light.range],
 				offset
-			)
+			);
 			data.set(
 				[
 					light.direction[0],
@@ -124,19 +165,19 @@ export function packFrameUniformData(
 					light.outerCos,
 				],
 				offset + 4
-			)
+			);
 			data.set(
 				[light.color[0], light.color[1], light.color[2], light.innerCos],
 				offset + 8
-			)
+			);
 		}
-		offset += 12
+		offset += 12;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
-		const shadow = input.directionalShadows[i]
+		const shadow = input.directionalShadows[i];
 		if (shadow?.enabled && shadow.viewProjectionMatrix) {
-			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset)
+			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset);
 		}
 
 		data.set(
@@ -147,7 +188,7 @@ export function packFrameUniformData(
 				shadow?.normalBiasMin ?? 0,
 			],
 			offset + 16
-		)
+		);
 		data.set(
 			[
 				shadow?.pcfRadius ?? 0,
@@ -156,14 +197,14 @@ export function packFrameUniformData(
 				shadow?.atlasTileSize ?? 0,
 			],
 			offset + 20
-		)
-		offset += 24
+		);
+		offset += 24;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
-		const shadow = input.spotShadows[i]
+		const shadow = input.spotShadows[i];
 		if (shadow?.enabled && shadow.viewProjectionMatrix) {
-			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset)
+			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset);
 		}
 
 		data.set(
@@ -174,7 +215,7 @@ export function packFrameUniformData(
 				shadow?.normalBiasMin ?? 0,
 			],
 			offset + 16
-		)
+		);
 		data.set(
 			[
 				shadow?.pcfRadius ?? 0,
@@ -183,11 +224,19 @@ export function packFrameUniformData(
 				shadow?.atlasTileSize ?? 0,
 			],
 			offset + 20
-		)
-		offset += 24
+		);
+		offset += 24;
 	}
 
-	return data
+	for (let i = 0; i < WEBGPU_SH_COEFFICIENT_COUNT; i++) {
+		const coefficient = input.shAmbientCoeffs?.[i];
+		if (coefficient) {
+			data.set([coefficient.r, coefficient.g, coefficient.b, 0], offset);
+		}
+		offset += 4;
+	}
+
+	return data;
 }
 
 export function remapClipSpaceDepth(clipZ: number, clipW: number): number {

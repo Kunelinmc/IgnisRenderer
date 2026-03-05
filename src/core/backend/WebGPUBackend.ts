@@ -78,10 +78,10 @@ export class WebGPUBackend implements IRenderBackend {
 		shadow: "shared",
 	} as const;
 	public readonly capabilities = {
-		sh: false,
+		sh: true,
 		shadows: true,
 		reflection: false,
-		skybox: false,
+		skybox: true,
 		ssao: false,
 		volumetric: false,
 	};
@@ -212,6 +212,7 @@ export class WebGPUBackend implements IRenderBackend {
 			size: [desc.width, desc.height, 1],
 			format: desc.format as GPUTextureFormat,
 			usage: this._mapTextureUsage(desc.usage),
+			mipLevelCount: Math.max(1, desc.mipLevelCount ?? 1),
 			label: desc.label,
 		});
 		const gpuView = gpuTexture.createView();
@@ -411,6 +412,7 @@ export class WebGPUBackend implements IRenderBackend {
 				texture:
 					(texture as InternalTexture)._gpuTexture ??
 					(texture as InternalTexture)._gpuResource,
+				mipLevel: Math.max(0, desc.mipLevel ?? 0),
 			},
 			data,
 			{

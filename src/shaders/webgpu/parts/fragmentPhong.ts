@@ -3,7 +3,11 @@ export const WEBGPU_SCENE_FRAGMENT_PHONG = /* wgsl */ `
 		let phongSpecular = model.phongSpecularShading.rgb;
 		let shininess = max(model.phongAmbientShininess.a, 0.0);
 
-		var ambient = frame.ambientColor.rgb * phongAmbient;
+		var ambientBase = frame.ambientColor.rgb;
+		if (useSHAmbient()) {
+			ambientBase = calculateIrradianceFromSH(normal) / 255.0;
+		}
+		var ambient = ambientBase * phongAmbient;
 		var direct = vec3<f32>(0.0);
 
 		let directionalCount = u32(frame.lightCounts.x + 0.5);

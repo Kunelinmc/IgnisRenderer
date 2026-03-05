@@ -8,7 +8,7 @@ import {
 	type ISampler,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import { createTextureUploadData, WEBGPU_TEXTURE_SLOT } from "./";
+import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
 
 export class WebGPUTextureRegistry {
 	private _backend: WebGPUBackend;
@@ -35,28 +35,33 @@ export class WebGPUTextureRegistry {
 
 		let cached = this._textureCache.get(texture);
 		if (!cached) {
+			const mipLevelCount = Math.max(1, texture.mipmaps.length || 1);
 			cached = this._backend.createTexture({
 				width: texture.width,
 				height: texture.height,
 				format: TextureFormat.RGBA8Unorm,
 				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+				mipLevelCount,
 				label: `Texture_${slotIndex}_${texture.width}x${texture.height}`,
 			});
 
-			const upload = createTextureUploadData(texture);
-			this._backend.writeTexture(
-				cached,
-				new Uint8Array(upload.data),
-				{
-					bytesPerRow: upload.bytesPerRow,
-					rowsPerImage: upload.height,
-				},
-				{
-					width: upload.width,
-					height: upload.height,
-					depthOrArrayLayers: 1,
-				}
-			);
+			const uploads = createTextureMipUploadLevels(texture);
+			for (const upload of uploads) {
+				this._backend.writeTexture(
+					cached,
+					new Uint8Array(upload.data),
+					{
+						bytesPerRow: upload.bytesPerRow,
+						rowsPerImage: upload.height,
+						mipLevel: upload.mipLevel,
+					},
+					{
+						width: upload.width,
+						height: upload.height,
+						depthOrArrayLayers: 1,
+					}
+				);
+			}
 			this._textureCache.set(texture, cached);
 		}
 

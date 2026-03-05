@@ -1,4 +1,5 @@
 import { WEBGPU_SCENE_SHADER } from "../../../shaders/webgpu/sceneShader";
+import { WEBGPU_SKYBOX_SHADER } from "../../../shaders/webgpu/skyboxShader";
 import { createWebGPUMaterialUniformData } from "./";
 import { TextureFormat } from "../types";
 import type { Material } from "../../../materials/Material";
@@ -10,6 +11,8 @@ export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
 	private _sceneShaderModule: IShaderModule | null = null;
+	private _skyboxShaderModule: IShaderModule | null = null;
+	private _skyboxPipeline: IRenderPipeline | null = null;
 	private _materialPipelineCache = new WeakMap<
 		Material,
 		{ key: string; pipeline: IRenderPipeline }
@@ -22,7 +25,7 @@ export class WebGPUPipelineLibrary {
 	}
 
 	public async init(): Promise<void> {
-		await this._getSceneShaderModule();
+		await Promise.all([this._getSceneShaderModule(), this._getSkyboxShaderModule()]);
 	}
 
 	public async getPipeline(material: Material): Promise<IRenderPipeline> {
@@ -52,7 +55,7 @@ export class WebGPUPipelineLibrary {
 	): Promise<IRenderPipeline> {
 		const shaderModule = await this._getSceneShaderModule();
 		return this._backend.createPipeline({
-			layout: this._layouts.pipelineLayout,
+			layout: this._layouts.scenePipelineLayout,
 			label: `WebGPUScenePipeline_${pipelineKey}`,
 			vertex: {
 				module: shaderModule,
@@ -88,6 +91,39 @@ export class WebGPUPipelineLibrary {
 		} as any);
 	}
 
+	public async getSkyboxPipeline(): Promise<IRenderPipeline> {
+		if (this._skyboxPipeline) {
+			return this._skyboxPipeline;
+		}
+
+		const shaderModule = await this._getSkyboxShaderModule();
+		this._skyboxPipeline = this._backend.createPipeline({
+			layout: this._layouts.skyboxPipelineLayout,
+			label: "WebGPUSkyboxPipeline",
+			vertex: {
+				module: shaderModule,
+				entryPoint: "vsMain",
+			},
+			fragment: {
+				module: shaderModule,
+				entryPoint: "fsMain",
+				targets: [{ format: this._backend.canvasFormat as any }],
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			depthStencil: {
+				format: TextureFormat.Depth24Plus,
+				depthWriteEnabled: false,
+				depthCompare: "always",
+			},
+		} as any);
+
+		return this._skyboxPipeline;
+	}
+
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
 		if (!this._sceneShaderModule) {
 			this._sceneShaderModule = await this._backend.createShaderModule({
@@ -97,5 +133,16 @@ export class WebGPUPipelineLibrary {
 		}
 
 		return this._sceneShaderModule;
+	}
+
+	private async _getSkyboxShaderModule(): Promise<IShaderModule> {
+		if (!this._skyboxShaderModule) {
+			this._skyboxShaderModule = await this._backend.createShaderModule({
+				code: WEBGPU_SKYBOX_SHADER,
+				label: "WebGPUSkyboxShader",
+			});
+		}
+
+		return this._skyboxShaderModule;
 	}
 }

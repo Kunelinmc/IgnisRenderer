@@ -8,8 +8,10 @@ import { AlphaMode } from "../../../materials/Material";
 import type { ResolvedFeatureState } from "../../pipeline/types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
+	collectWebGPUEnvironment,
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
+	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
 } from "./";
@@ -30,6 +32,11 @@ export interface WebGPUDrawResources {
 	indexCount: number;
 }
 
+export interface WebGPUSkyboxDrawResources {
+	pipeline: any;
+	frameBinding: any;
+}
+
 export class WebGPURenderResources {
 	private _renderer: Renderer;
 	private _backend: WebGPUBackend;
@@ -41,6 +48,8 @@ export class WebGPURenderResources {
 	private _frameBindings: WebGPUFrameBindingCache;
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _lightingState: WebGPULightingState | null = null;
+	private _featureState: WebGPUFeatureState | null = null;
+	private _environmentState: WebGPUEnvironmentState | null = null;
 
 	constructor(renderer: Renderer, backend: WebGPUBackend) {
 		this._renderer = renderer;
@@ -75,25 +84,27 @@ export class WebGPURenderResources {
 		contextOrScene: FrameContext | PreparedScene,
 		featuresArg?: ResolvedFeatureState
 	): void {
-		const { scene, features } = this._resolveFrameInputs(
+		const { scene, features, shAmbientCoeffs } = this._resolveFrameInputs(
 			contextOrScene,
 			featuresArg
 		);
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
-			enableSH: false,
+			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: false,
-			enableSkybox: false,
+			enableSkybox: features.enableSkybox,
 			enableSSAO: false,
 			enableVolumetric: false,
 			warnings: [],
 		};
+		this._featureState = featureState;
 
 		this._lightingState = collectWebGPULighting(
 			scene.lights,
 			features.enableLighting,
+			features.enableSH,
 			features.enableShadows,
 			scene.shadowMaps
 		);
@@ -101,8 +112,22 @@ export class WebGPURenderResources {
 			this._renderer.warnOnce(warning.key, warning.message);
 		}
 
+		this._environmentState = collectWebGPUEnvironment(
+			scene,
+			featureState.enableSH,
+			shAmbientCoeffs
+		);
+		for (const warning of this._environmentState.warnings) {
+			this._renderer.warnOnce(warning.key, warning.message);
+		}
+
 		this._shadowAtlases.prepare(this._lightingState);
-		this._frameBindings.prepare(scene, this._lightingState, featureState);
+		this._frameBindings.prepare(
+			scene,
+			this._lightingState,
+			this._environmentState,
+			featureState
+		);
 		this._materialBindings.beginFrame();
 	}
 
@@ -112,11 +137,13 @@ export class WebGPURenderResources {
 	): {
 		scene: PreparedScene;
 		features: ResolvedFeatureState;
+		shAmbientCoeffs: FrameContext["shAmbientCoeffs"] | null;
 	} {
 		if (this._isFrameContext(contextOrScene)) {
 			return {
 				scene: contextOrScene.scene,
 				features: contextOrScene.features,
+				shAmbientCoeffs: contextOrScene.shAmbientCoeffs,
 			};
 		}
 
@@ -129,6 +156,7 @@ export class WebGPURenderResources {
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
+			shAmbientCoeffs: null,
 		};
 	}
 
@@ -167,7 +195,7 @@ export class WebGPURenderResources {
 		const samplers = materialData.textureSlots.map((slot) =>
 			this._textureRegistry.getSamplerForTexture(slot.map)
 		);
-		const frameBinding = this._frameBindings.getBinding(pipeline);
+		const frameBinding = this._frameBindings.getSceneBinding();
 		const modelBinding = this._materialBindings.getBinding(
 			packet,
 			pipeline,
@@ -183,6 +211,23 @@ export class WebGPURenderResources {
 			vertexBuffer: geometry.vertexBuffer,
 			indexBuffer: geometry.indexBuffer,
 			indexCount: geometry.indexCount,
+		};
+	}
+
+	public async getSkyboxResources(): Promise<WebGPUSkyboxDrawResources | null> {
+		if (
+			!this._featureState?.enableSkybox ||
+			!this._environmentState?.skyboxTexture
+		) {
+			return null;
+		}
+
+		const pipeline = await this._pipelineLibrary.getSkyboxPipeline();
+		const frameBinding = this._frameBindings.getSkyboxBinding();
+
+		return {
+			pipeline,
+			frameBinding,
 		};
 	}
 }

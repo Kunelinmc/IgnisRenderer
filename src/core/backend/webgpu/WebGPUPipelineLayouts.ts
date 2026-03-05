@@ -1,14 +1,16 @@
 export interface WebGPUPipelineLayouts {
-	frameBindGroupLayout: GPUBindGroupLayout;
+	sceneFrameBindGroupLayout: GPUBindGroupLayout;
+	skyboxFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayout: GPUBindGroupLayout;
-	pipelineLayout: GPUPipelineLayout;
+	scenePipelineLayout: GPUPipelineLayout;
+	skyboxPipelineLayout: GPUPipelineLayout;
 }
 
 export function createWebGPUPipelineLayouts(
 	device: GPUDevice
 ): WebGPUPipelineLayouts {
-	const frameBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUFrameBindGroupLayout",
+	const sceneFrameBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUSceneFrameBindGroupLayout",
 		entries: [
 			{
 				binding: 0,
@@ -24,6 +26,31 @@ export function createWebGPUPipelineLayouts(
 				binding: 2,
 				visibility: GPUShaderStage.FRAGMENT,
 				texture: { sampleType: "float" },
+			},
+			{
+				binding: 3,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
+			},
+		],
+	});
+	const skyboxFrameBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUSkyboxFrameBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform" },
+			},
+			{
+				binding: 1,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 2,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
 			},
 		],
 	});
@@ -54,14 +81,20 @@ export function createWebGPUPipelineLayouts(
 		entries: modelEntries,
 	});
 
-	const pipelineLayout = device.createPipelineLayout({
+	const scenePipelineLayout = device.createPipelineLayout({
 		label: "WebGPUScenePipelineLayout",
-		bindGroupLayouts: [frameBindGroupLayout, modelBindGroupLayout],
+		bindGroupLayouts: [sceneFrameBindGroupLayout, modelBindGroupLayout],
+	});
+	const skyboxPipelineLayout = device.createPipelineLayout({
+		label: "WebGPUSkyboxPipelineLayout",
+		bindGroupLayouts: [skyboxFrameBindGroupLayout],
 	});
 
 	return {
-		frameBindGroupLayout,
+		sceneFrameBindGroupLayout,
+		skyboxFrameBindGroupLayout,
 		modelBindGroupLayout,
-		pipelineLayout,
+		scenePipelineLayout,
+		skyboxPipelineLayout,
 	};
 }

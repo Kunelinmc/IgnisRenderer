@@ -63,6 +63,15 @@ export class WebGPUFrameExecutor {
 			},
 		});
 
+		if (clearAttachments) {
+			const skyboxResources = await this._resources.getSkyboxResources();
+			if (skyboxResources) {
+				this._encoder.setPipeline(skyboxResources.pipeline);
+				this._encoder.setBindingGroup(0, skyboxResources.frameBinding);
+				this._encoder.draw(3);
+			}
+		}
+
 		for (const packet of packets) {
 			const resources = await this._resources.getDrawResources(packet);
 			if (!resources) continue;

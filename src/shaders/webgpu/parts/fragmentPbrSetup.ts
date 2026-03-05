@@ -139,7 +139,7 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_SETUP = /* wgsl */ `
 	let f0Norm = min(vec3<f32>(baseF0) * specularColor * specularFactor, vec3<f32>(1.0));
 	let realF0 = mix(f0Norm, albedo, vec3<f32>(metalness));
 	let nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
-	let _reflectionDir = reflectViewDirection(pbrNormal, viewDir);
+	let reflectionDir = reflectViewDirection(pbrNormal, viewDir);
 	let maxSheenColor = max(max(sheenColor.x, sheenColor.y), sheenColor.z);
 
 	var volumeAttenuation = vec3<f32>(1.0);

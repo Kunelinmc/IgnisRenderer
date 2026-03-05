@@ -1,18 +1,20 @@
 import type {
 	IBindingGroup,
 	IRenderBuffer,
-	IRenderPipeline,
 	IRenderTexture,
+	ISampler,
 } from "../types";
 import { BufferUsage } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 	packFrameUniformData,
+	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
 } from "./";
 import type { PreparedScene } from "../../pipeline/types";
+import { CameraType } from "../../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -23,9 +25,13 @@ export class WebGPUFrameBindingCache {
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
-	private _cache = new Map<IRenderPipeline, IBindingGroup>();
-	private _lastDirectionalAtlas: IRenderTexture | null = null;
-	private _lastSpotAtlas: IRenderTexture | null = null;
+	private _sceneBinding: IBindingGroup | null = null;
+	private _skyboxBinding: IBindingGroup | null = null;
+	private _shadowAtlas: IRenderTexture | null = null;
+	private _skyboxTexture: IRenderTexture | null = null;
+	private _envSpecularTexture: IRenderTexture | null = null;
+	private _skyboxSampler: ISampler | null = null;
+	private _envSpecularSampler: ISampler | null = null;
 
 	constructor(
 		backend: WebGPUBackend,
@@ -42,13 +48,26 @@ export class WebGPUFrameBindingCache {
 	public prepare(
 		frame: PreparedScene,
 		lightingState: WebGPULightingState,
+		environmentState: WebGPUEnvironmentState,
 		features: WebGPUFeatureState
 	): void {
+		const viewElements = frame.camera.viewMatrix.elements;
+		const isOrthographic = frame.camera.type === CameraType.Orthographic;
+		const fovRad = (frame.camera.fov * Math.PI) / 180;
+		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
+		const aspect = frame.camera.aspectRatio || 1;
 		const frameUniform = this._getFrameUniformBuffer();
 		const frameData = packFrameUniformData({
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
 			cameraPosition: frame.camera.position,
+			skyboxRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
+			skyboxUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
+			skyboxBackward: [viewElements[2][0], viewElements[2][1], viewElements[2][2]],
+			skyboxTanHalfFov: tanHalfFov,
+			skyboxAspect: aspect,
+			skyboxIsOrthographic: isOrthographic,
 			ambientColor: lightingState.ambientColor,
+			shAmbientCoeffs: environmentState.shAmbientCoeffs,
 			directionalLights: lightingState.directionalLights,
 			directionalShadows: lightingState.directionalShadows,
 			pointLights: lightingState.pointLights,
@@ -57,48 +76,100 @@ export class WebGPUFrameBindingCache {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
 			enableShadows: features.enableShadows,
+			enableSH: environmentState.enableSH,
+			hasSHAmbient: environmentState.hasSHAmbient,
+			hasSkybox: !!environmentState.skyboxTexture,
+			hasEnvSpecular: !!environmentState.envSpecularTexture,
+			hasBRDFLUT: !!environmentState.brdfLUTTexture,
+			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
 
-		const currentDirectional = this._shadowAtlases.directionalAtlas;
-		const currentSpot = this._shadowAtlases.spotAtlas;
+		const currentShadowAtlas = this._shadowAtlases.atlas;
+		const currentSkybox = environmentState.skyboxTexture
+			? this._textureRegistry.getTextureForSlot(environmentState.skyboxTexture, 0)
+			: this._textureRegistry.getWhiteTexture();
+		const currentSkyboxSampler = environmentState.skyboxTexture
+			? this._textureRegistry.getSamplerForTexture(environmentState.skyboxTexture)
+			: this._textureRegistry.getWhiteSampler();
+		const currentEnvSpecular = environmentState.envSpecularTexture
+			? this._textureRegistry.getTextureForSlot(
+					environmentState.envSpecularTexture,
+					0
+				)
+			: this._textureRegistry.getWhiteTexture();
+		const currentEnvSpecularSampler = environmentState.envSpecularTexture
+			? this._textureRegistry.getSamplerForTexture(
+					environmentState.envSpecularTexture
+				)
+			: this._textureRegistry.getWhiteSampler();
 
 		if (
-			this._lastDirectionalAtlas !== currentDirectional ||
-			this._lastSpotAtlas !== currentSpot
+			this._shadowAtlas !== currentShadowAtlas ||
+			this._skyboxTexture !== currentSkybox ||
+			this._envSpecularTexture !== currentEnvSpecular ||
+			this._skyboxSampler !== currentSkyboxSampler ||
+			this._envSpecularSampler !== currentEnvSpecularSampler
 		) {
-			this._cache.clear();
-			this._lastDirectionalAtlas = currentDirectional;
-			this._lastSpotAtlas = currentSpot;
+			this._sceneBinding = null;
+			this._skyboxBinding = null;
+			this._shadowAtlas = currentShadowAtlas;
+			this._skyboxTexture = currentSkybox;
+			this._envSpecularTexture = currentEnvSpecular;
+			this._skyboxSampler = currentSkyboxSampler;
+			this._envSpecularSampler = currentEnvSpecularSampler;
 		}
 	}
 
-	public getBinding(pipeline: IRenderPipeline): IBindingGroup {
-		let cached = this._cache.get(pipeline);
-		if (!cached) {
-			cached = this._backend.createBindingGroup({
-				label: `FrameBinding_${pipeline.label ?? "scene"}`,
-				layout: this._layouts.frameBindGroupLayout,
+	public getSceneBinding(): IBindingGroup {
+		if (!this._sceneBinding) {
+			this._sceneBinding = this._backend.createBindingGroup({
+				label: "FrameBinding_scene",
+				layout: this._layouts.sceneFrameBindGroupLayout,
 				entries: [
 					{ binding: 0, resource: this._getFrameUniformBuffer() },
 					{
 						binding: 1,
-						resource:
-							this._shadowAtlases.directionalAtlas ??
-							this._textureRegistry.getWhiteTexture(),
+						resource: this._shadowAtlas ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 2,
 						resource:
-							this._shadowAtlases.spotAtlas ??
-							this._textureRegistry.getWhiteTexture(),
+							this._envSpecularTexture ?? this._textureRegistry.getWhiteTexture(),
+					},
+					{
+						binding: 3,
+						resource:
+							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
 				],
 			});
-			this._cache.set(pipeline, cached);
 		}
-		return cached;
+
+		return this._sceneBinding;
+	}
+
+	public getSkyboxBinding(): IBindingGroup {
+		if (!this._skyboxBinding) {
+			this._skyboxBinding = this._backend.createBindingGroup({
+				label: "FrameBinding_skybox",
+				layout: this._layouts.skyboxFrameBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: this._getFrameUniformBuffer() },
+					{
+						binding: 1,
+						resource: this._skyboxTexture ?? this._textureRegistry.getWhiteTexture(),
+					},
+					{
+						binding: 2,
+						resource: this._skyboxSampler ?? this._textureRegistry.getWhiteSampler(),
+					},
+				],
+			});
+		}
+
+		return this._skyboxBinding;
 	}
 
 	private _getFrameUniformBuffer(): IRenderBuffer {

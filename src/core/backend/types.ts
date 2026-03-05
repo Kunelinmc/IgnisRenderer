@@ -83,6 +83,7 @@ export interface TextureDesc {
 	height: number;
 	format: TextureFormat;
 	usage: TextureUsage;
+	mipLevelCount?: number;
 	label?: string;
 }
 
@@ -137,6 +138,7 @@ export interface TextureDataLayout {
 	offset?: number;
 	bytesPerRow?: number;
 	rowsPerImage?: number;
+	mipLevel?: number;
 }
 
 export interface VertexBufferLayout {

@@ -24,14 +24,20 @@ struct ShadowData {
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
+	skyboxBasisRight: vec4<f32>,
+	skyboxBasisUp: vec4<f32>,
+	skyboxBasisBackward: vec4<f32>,
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<f32>,
 	options: vec4<f32>,
+	environmentOptionsA: vec4<f32>,
+	environmentOptionsB: vec4<f32>,
 	directionalLights: array<DirectionalLightData, 4>,
 	pointLights: array<PointLightData, 4>,
 	spotLights: array<SpotLightData, 4>,
 	directionalShadows: array<ShadowData, 4>,
 	spotShadows: array<ShadowData, 4>,
+	shAmbientCoeffs: array<vec4<f32>, 16>,
 }
 
 struct ModelUniforms {
@@ -76,8 +82,9 @@ struct RefractionResult {
 }
 
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
-@group(0) @binding(1) var directionalShadowAtlas: texture_2d<f32>;
-@group(0) @binding(2) var spotShadowAtlas: texture_2d<f32>;
+@group(0) @binding(1) var shadowAtlas: texture_2d<f32>;
+@group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
+@group(0) @binding(3) var envSpecularSampler: sampler;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

@@ -1,5 +1,5 @@
 import type { Matrix4 } from "../../../maths/Matrix4";
-import type { IVector3 } from "../../../maths/types";
+import type { IVector3, SHCoefficients } from "../../../maths/types";
 import type { ShadowMap } from "../../../utils/ShadowMapping";
 import type { Texture } from "../../Texture";
 
@@ -68,6 +68,17 @@ export interface WebGPUFeatureState {
 	warnings: WebGPUWarning[];
 }
 
+export interface WebGPUEnvironmentState {
+	shAmbientCoeffs: SHCoefficients | null;
+	enableSH: boolean;
+	hasSHAmbient: boolean;
+	skyboxTexture: Texture | null;
+	envSpecularTexture: Texture | null;
+	brdfLUTTexture: Texture | null;
+	envSpecularMaxMipLevel: number;
+	warnings: WebGPUWarning[];
+}
+
 export interface WebGPUTextureSlotData {
 	map: Texture | null;
 	transformA: [number, number, number, number];
@@ -95,7 +106,14 @@ export interface WebGPUMaterialUniformData {
 export interface WebGPUFrameUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];
 	cameraPosition: IVector3;
+	skyboxRight: WebGPUVec3;
+	skyboxUp: WebGPUVec3;
+	skyboxBackward: WebGPUVec3;
+	skyboxTanHalfFov: number;
+	skyboxAspect: number;
+	skyboxIsOrthographic: boolean;
 	ambientColor: WebGPULightingState["ambientColor"];
+	shAmbientCoeffs: SHCoefficients | null;
 	directionalLights: WebGPULightingState["directionalLights"];
 	directionalShadows: WebGPULightingState["directionalShadows"];
 	pointLights: WebGPULightingState["pointLights"];
@@ -104,4 +122,10 @@ export interface WebGPUFrameUniformInput {
 	enableLighting: boolean;
 	enableGamma: boolean;
 	enableShadows: boolean;
+	enableSH: boolean;
+	hasSHAmbient: boolean;
+	hasSkybox: boolean;
+	hasEnvSpecular: boolean;
+	hasBRDFLUT: boolean;
+	envSpecularMaxMipLevel: number;
 }

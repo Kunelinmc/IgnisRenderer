@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { WebGPURenderResources } from "../src/core/backend/webgpu/WebGPURenderResources.ts";
 import { WEBGPU_SCENE_SHADER } from "../src/shaders/webgpu/sceneShader.ts";
+import { WEBGPU_SKYBOX_SHADER } from "../src/shaders/webgpu/skyboxShader.ts";
 import {
+	collectWebGPUEnvironment,
+	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
@@ -9,9 +12,12 @@ import {
 } from "../src/core/backend/webgpu/index.ts";
 import { resolveFeatureState } from "../src/core/pipeline/FeatureResolver.ts";
 import { BufferUsage } from "../src/core/backend/types.ts";
+import { LightProbe } from "../src/lights/LightProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
+import { Texture } from "../src/core/Texture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { SimpleModel } from "../src/models/SimpleModel.ts";
 
@@ -23,6 +29,7 @@ globalThis.GPUShaderStage ??= {
 class FakeDevice {
 	constructor() {
 		this.bufferDescs = [];
+		this.pipelineLayouts = [];
 	}
 
 	createBindGroupLayout(desc) {
@@ -30,8 +37,10 @@ class FakeDevice {
 	}
 
 	createPipelineLayout(desc) {
-		this.lastPipelineLayout = { desc };
-		return this.lastPipelineLayout;
+		const layout = { desc };
+		this.pipelineLayouts.push(layout);
+		this.lastPipelineLayout = layout;
+		return layout;
 	}
 }
 
@@ -144,8 +153,13 @@ function createFrame(packet) {
 		lights: [],
 		camera: {
 			viewProjectionMatrix: Matrix4.identity(),
+			viewMatrix: Matrix4.identity(),
 			position: { x: 0, y: 0, z: 5 },
+			fov: 60,
+			aspectRatio: 1,
+			type: "perspective",
 		},
+		skybox: null,
 		shadowMaps: new Map(),
 		opaquePackets: [packet],
 		transparentPackets: [],
@@ -280,7 +294,71 @@ function testSceneShaderCoverage() {
 		)
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(directionalShadowAtlas"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
+}
+
+function createTinyTexture(mips = 1) {
+	const texture = new Texture(
+		new Float32Array([1, 1, 1, 1]),
+		1,
+		1,
+		"HDR"
+	);
+	texture.mipmaps = Array.from({ length: mips }, () => new Float32Array([1, 1, 1, 1]));
+	return texture;
+}
+
+function testEnvironmentCollection() {
+	const skybox = createTinyTexture(1);
+	const probeMap = createTinyTexture(3);
+	const sh = SH.empty();
+	sh[0] = { r: 10, g: 10, b: 10 };
+	const probeA = new LightProbe(SH.empty(), 1.0, probeMap);
+	const probeB = new LightProbe(SH.empty(), 1.0, createTinyTexture(2));
+
+	const prioritized = collectWebGPUEnvironment(
+		{
+			skybox,
+			lights: [probeA, probeB],
+		},
+		true,
+		sh
+	);
+	assert.equal(prioritized.skyboxTexture, skybox);
+	assert.equal(prioritized.envSpecularTexture, probeMap);
+	assert.equal(prioritized.envSpecularMaxMipLevel, 2);
+	assert.equal(prioritized.hasSHAmbient, true);
+	assert.ok(prioritized.brdfLUTTexture);
+
+	const fallback = collectWebGPUEnvironment(
+		{
+			skybox: null,
+			lights: [probeA, probeB],
+		},
+		true,
+		sh
+	);
+	assert.equal(fallback.skyboxTexture, probeMap);
+	assert.equal(fallback.envSpecularTexture, probeMap);
+}
+
+function testLightProbeDCAmbientFallbackWhenSHDisabled() {
+	const sh = SH.empty();
+	sh[0] = { r: 120, g: 60, b: 30 };
+	const probe = new LightProbe(sh, 0.75);
+	const withoutSH = collectWebGPULighting([probe], true, false);
+	assert.ok(withoutSH.ambientColor[0] > 0);
+	assert.ok(withoutSH.ambientColor[1] > 0);
+
+	const withSH = collectWebGPULighting([probe], true, true);
+	assert.equal(withSH.ambientColor[0], 0);
+	assert.equal(withSH.ambientColor[1], 0);
+	assert.equal(withSH.ambientColor[2], 0);
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {
@@ -321,9 +399,9 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	const draw = await resources.getDrawResources(packet);
 
 	assert.ok(draw);
-	assert.equal(draw.frameBinding.desc.entries.length, 3);
+	assert.equal(draw.frameBinding.desc.entries.length, 4);
 	assert.equal(draw.modelBinding.desc.entries.length, 29);
-	assert.equal(draw.pipeline.desc.layout, backend.device.lastPipelineLayout);
+	assert.equal(draw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
 	assert.ok(
 		backend.bufferDescs.some(
 			(desc) =>
@@ -352,13 +430,96 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 }
 
+async function testWebGPUEnvironmentCombinationsRegression() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const baseScene = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const caps = {
+		sh: true,
+		shadows: true,
+		reflection: false,
+		skybox: true,
+		ssao: false,
+		volumetric: false,
+	};
+
+	const shAmbient = SH.empty();
+	shAmbient[0] = { r: 12, g: 12, b: 12 };
+	const probeMap = createTinyTexture(2);
+	const probe = new LightProbe(SH.empty(), 1.0, probeMap);
+
+	const cases = [
+		{
+			skybox: createTinyTexture(1),
+			lights: [probe],
+			enableSH: true,
+			expectSkybox: true,
+		},
+		{
+			skybox: null,
+			lights: [probe],
+			enableSH: true,
+			expectSkybox: true,
+		},
+		{
+			skybox: null,
+			lights: [],
+			enableSH: false,
+			expectSkybox: false,
+		},
+	];
+
+	for (const scenario of cases) {
+		const scene = {
+			...baseScene,
+			skybox: scenario.skybox,
+			lights: scenario.lights,
+		};
+		const features = resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableSH: scenario.enableSH,
+				enableShadows: true,
+				enableSkybox: true,
+			},
+			caps,
+			"webgpu"
+		);
+		resources.prepareFrame({
+			camera: scene.camera,
+			attachments: { width: 16, height: 16 },
+			features,
+			shadowMaps: scene.shadowMaps,
+			scene,
+			shCoeffs: SH.empty(),
+			shAmbientCoeffs: scenario.enableSH ? shAmbient : SH.empty(),
+			worldMatrix: Matrix4.identity(),
+			transient: new Map(),
+		});
+
+		const skyboxResources = await resources.getSkyboxResources();
+		assert.equal(!!skyboxResources, scenario.expectSkybox);
+		const draw = await resources.getDrawResources(packet);
+		assert.ok(draw);
+	}
+}
+
 async function run() {
 	testMatrixPackingAndDepthRemap();
 	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
 	testSceneShaderCoverage();
+	testEnvironmentCollection();
+	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	await testRenderResourcesUseCopyDstForUploads();
+	await testWebGPUEnvironmentCombinationsRegression();
 	console.log("WebGPU bridge tests passed");
 }
 

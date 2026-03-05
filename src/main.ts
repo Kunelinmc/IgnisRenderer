@@ -115,10 +115,10 @@ function configureRenderer(renderer: Renderer): void {
 	renderer.features.enableGamma = true;
 
 	if (renderer.backendType === "webgpu") {
-		renderer.features.enableSH = false;
+		renderer.features.enableSH = true;
 		renderer.features.enableShadows = true;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableSkybox = true;
 		renderer.features.enableSSAO = false;
 		renderer.features.enableVolumetric = false;
 		return;

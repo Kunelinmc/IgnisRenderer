@@ -1,10 +1,17 @@
 export const WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT = /* wgsl */ `
+	let shAmbientEnabled = useSHAmbient();
 	var ambientColor = frame.ambientColor.rgb;
 	if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
 		ambientColor = vec3<f32>(PBR_AMBIENT_FALLBACK_LINEAR);
 	}
 
-	let ambientRadiance = ambientColor / PI;
+	var diffuseAmbient = ambientColor;
+	var specularAmbientRadiance = ambientColor / PI;
+	if (shAmbientEnabled) {
+		diffuseAmbient = calculateIrradianceFromSH(pbrNormal) / 255.0;
+		specularAmbientRadiance = sampleSHRadiance(reflectionDir) / 255.0;
+	}
+
 	let fAmbient = fresnelSchlick(nDotV, realF0);
 	let refractionResult = refractViewDirection(viewDir, pbrNormal, ior);
 	let isTIR = transmission > 0.0 && refractionResult.valid < 0.5;
@@ -23,10 +30,16 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT = /* wgsl */ `
 	let baseAmbientAttenuation =
 		vec3<f32>(clearcoatAmbientAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
 
-	var ambientLight = ambientColor * albedo * kdAmbient * baseAmbientAttenuation;
+	var ambientLight = diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
 	if (transmission > 0.0 && refractionResult.valid > 0.5) {
+		var transmissionRadiance = ambientColor;
+		if (hasEnvSpecular()) {
+			transmissionRadiance = sampleEnvironmentSpecular(refractionResult.direction, roughness);
+		} else if (shAmbientEnabled) {
+			transmissionRadiance = sampleSHRadiance(refractionResult.direction) / 255.0;
+		}
 		ambientLight +=
-			ambientColor *
+			transmissionRadiance *
 			albedo *
 			ktAmbient *
 			volumeAttenuation *
@@ -35,17 +48,42 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT = /* wgsl */ `
 
 	let specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
 	let clearcoatAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - clearcoatRoughness) * 0.5);
-	ambientLight +=
-		ambientRadiance *
-		effectiveFAmbient *
-		specularAmbientFactor *
-		clearcoatAmbientAttenuation;
-	ambientLight += ambientRadiance * ccAmbientFresnel * clearcoatAmbientFactor * clearcoat;
+	if (hasEnvSpecular()) {
+		let prefiltered = sampleEnvironmentSpecular(reflectionDir, roughness);
+		let brdf = sampleBRDFLUT(nDotV, roughness);
+		ambientLight +=
+			prefiltered *
+			(effectiveFAmbient * brdf.x + vec3<f32>(brdf.y)) *
+			clearcoatAmbientAttenuation;
+
+		let clearcoatNdotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
+		let clearcoatReflectionDir = reflectViewDirection(clearcoatNormal, viewDir);
+		let clearcoatPrefiltered = sampleEnvironmentSpecular(
+			clearcoatReflectionDir,
+			clearcoatRoughness
+		);
+		let clearcoatBrdf = sampleBRDFLUT(clearcoatNdotV, clearcoatRoughness);
+		ambientLight +=
+			clearcoatPrefiltered *
+			(ccAmbientFresnel * clearcoatBrdf.x + clearcoatBrdf.y) *
+			clearcoat;
+	} else {
+		ambientLight +=
+			specularAmbientRadiance *
+			effectiveFAmbient *
+			specularAmbientFactor *
+			clearcoatAmbientAttenuation;
+		ambientLight +=
+			specularAmbientRadiance *
+			ccAmbientFresnel *
+			clearcoatAmbientFactor *
+			clearcoat;
+	}
 
 	if (maxSheenColor > 0.0) {
 		let sheenAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - max(sheenRoughness, 0.04)) * 0.5);
 		ambientLight +=
-			ambientRadiance *
+			specularAmbientRadiance *
 			sheenColor *
 			sheenAmbientFactor *
 			clearcoatAmbientAttenuation;

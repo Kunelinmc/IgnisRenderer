@@ -3,6 +3,7 @@ import {
 	LightType,
 	type AmbientLight,
 	type DirectionalLight,
+	type LightProbe,
 	type PointLight,
 	type SceneLight,
 	type ShadowCastingLight,
@@ -33,6 +34,7 @@ import type {
 export function collectWebGPULighting(
 	lights: SceneLight[],
 	enableLighting: boolean,
+	enableSH: boolean,
 	enableShadows: boolean = false,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): WebGPULightingState {
@@ -52,6 +54,9 @@ export function collectWebGPULighting(
 				break
 			case LightType.Spot:
 				collectSpotLight(state, light, enableShadows, shadowMaps)
+				break
+			case LightType.LightProbe:
+				accumulateLightProbeFallbackAmbient(state, light, enableSH)
 				break
 			default:
 				state.warnings.push(createUnsupportedLightWarning(light))
@@ -81,6 +86,25 @@ function accumulateAmbientLight(
 	state.ambientColor[0] += sRGBToLinear(light.color.r / 255) * light.intensity
 	state.ambientColor[1] += sRGBToLinear(light.color.g / 255) * light.intensity
 	state.ambientColor[2] += sRGBToLinear(light.color.b / 255) * light.intensity
+}
+
+function accumulateLightProbeFallbackAmbient(
+	state: WebGPULightingState,
+	light: LightProbe,
+	enableSH: boolean
+): void {
+	if (enableSH) return
+
+	const dc = light.sh[0]
+	if (!dc) return
+
+	const irradianceScale = Math.PI * 0.282095
+	state.ambientColor[0] +=
+		(Math.max(0, dc.r * irradianceScale) / 255) * light.intensity
+	state.ambientColor[1] +=
+		(Math.max(0, dc.g * irradianceScale) / 255) * light.intensity
+	state.ambientColor[2] +=
+		(Math.max(0, dc.b * irradianceScale) / 255) * light.intensity
 }
 
 function collectDirectionalLight(

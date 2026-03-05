@@ -16,10 +16,10 @@ function run() {
 	})
 
 	assert.deepEqual(webgpu.capabilities, {
-		sh: false,
+		sh: true,
 		shadows: true,
 		reflection: false,
-		skybox: false,
+		skybox: true,
 		ssao: false,
 		volumetric: false,
 	})

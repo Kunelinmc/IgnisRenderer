@@ -176,6 +176,114 @@ fn encodeOutput(color: vec3<f32>) -> vec3<f32> {
 	return select(color, linearToSrgb(color), frame.options.y > 0.5);
 }
 
+fn useSHAmbient() -> bool {
+	return frame.environmentOptionsA.x > 0.5 && frame.environmentOptionsA.y > 0.5;
+}
+
+fn hasEnvSpecular() -> bool {
+	return frame.environmentOptionsA.w > 0.5;
+}
+
+fn hasBRDFLUT() -> bool {
+	return frame.environmentOptionsB.x > 0.5;
+}
+
+fn envSpecularMaxMipLevel() -> f32 {
+	return max(frame.environmentOptionsB.y, 0.0);
+}
+
+fn evalSHBasis(direction: vec3<f32>) -> array<f32, 16> {
+	let x = direction.x;
+	let y = direction.y;
+	let z = direction.z;
+
+	let y00 = 0.282095;
+	let y1_1 = 0.488603 * x;
+	let y10 = 0.488603 * y;
+	let y11 = 0.488603 * z;
+	let y2_2 = 1.092548 * x * z;
+	let y2_1 = 1.092548 * x * y;
+	let y20 = 0.315392 * (3.0 * y * y - 1.0);
+	let y21 = 1.092548 * y * z;
+	let y22 = 0.546274 * (x * x - z * z);
+	let y3_3 = 0.590835 * x * (x * x - 3.0 * z * z);
+	let y3_2 = 2.893641 * x * y * z;
+	let y3_1 = 0.457619 * x * (5.0 * y * y - 1.0);
+	let y30 = 0.373176 * y * (5.0 * y * y - 3.0);
+	let y31 = 0.457619 * z * (5.0 * y * y - 1.0);
+	let y32 = 1.446821 * y * (x * x - z * z);
+	let y33 = 0.590835 * z * (3.0 * x * x - z * z);
+
+	return array<f32, 16>(
+		y00,
+		y1_1,
+		y10,
+		y11,
+		y2_2,
+		y2_1,
+		y20,
+		y21,
+		y22,
+		y3_3,
+		y3_2,
+		y3_1,
+		y30,
+		y31,
+		y32,
+		y33
+	);
+}
+
+fn calculateIrradianceFromSH(normal: vec3<f32>) -> vec3<f32> {
+	let basis = evalSHBasis(normal);
+	let c1 = PI;
+	let c2 = (2.0 * PI) / 3.0;
+	let c3 = PI / 4.0;
+	var result = vec3<f32>(0.0);
+	for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+		var factor = select(0.0, c3, i >= 4u && i < 9u);
+		factor = select(factor, c2, i >= 1u && i < 4u);
+		factor = select(factor, c1, i == 0u);
+		result += frame.shAmbientCoeffs[i].xyz * basis[i] * factor;
+	}
+	return max(result, vec3<f32>(0.0));
+}
+
+fn sampleSHRadiance(direction: vec3<f32>) -> vec3<f32> {
+	let basis = evalSHBasis(direction);
+	var result = vec3<f32>(0.0);
+	for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+		result += frame.shAmbientCoeffs[i].xyz * basis[i];
+	}
+	return max(result, vec3<f32>(0.0));
+}
+
+fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
+	let phi = atan2(direction.x, direction.z);
+	let theta = acos(clamp(direction.y, -1.0, 1.0));
+	return vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
+}
+
+fn sampleEnvironmentSpecular(direction: vec3<f32>, roughness: f32) -> vec3<f32> {
+	if (!hasEnvSpecular()) {
+		return vec3<f32>(0.0);
+	}
+
+	let uv = directionToEquirectUV(safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0)));
+	let level = clamp(roughness, 0.0, 1.0) * envSpecularMaxMipLevel();
+	return textureSampleLevel(envSpecularTexture, envSpecularSampler, uv, level).rgb;
+}
+
+fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {
+	let nv = clamp(nDotV, 0.0, 1.0);
+	let r = clamp(roughness, 0.0, 1.0);
+	let a = r * r;
+	let k = a * 0.5;
+	let visibility = nv / max(nv * (1.0 - k) + k, 0.0001);
+	let grazingBias = pow(1.0 - nv, 5.0) * (0.04 + (1.0 - r) * 0.2);
+	return vec2<f32>(visibility, grazingBias);
+}
+
 fn decodePackedShadowDepth(packed: vec4<f32>) -> f32 {
 	let bytes = round(clamp(packed, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0);
 	let value =
@@ -194,12 +302,8 @@ fn clampShadowTexelCoord(coord: vec2<i32>, size: i32) -> vec2<i32> {
 	);
 }
 
-fn loadShadowTexel(shadowType: u32, coord: vec2<i32>) -> vec4<f32> {
-	if (shadowType == 0u) {
-		return textureLoad(directionalShadowAtlas, coord, 0);
-	}
-
-	return textureLoad(spotShadowAtlas, coord, 0);
+fn loadShadowTexel(coord: vec2<i32>) -> vec4<f32> {
+	return textureLoad(shadowAtlas, coord, 0);
 }
 
 fn sampleShadowVisibility(
@@ -247,9 +351,10 @@ fn sampleShadowVisibility(
 
 	let pcfRadius = max(shadowData.paramsB.x, 1.0);
 	let texelPosition = shadowUv * vec2<f32>(f32(shadowSize - 1), f32(shadowSize - 1));
+	let tileRow = select(0, 1, shadowType == 1u);
 	let tileOffset = vec2<i32>(
-		i32(index % 2u) * atlasTileSize,
-		i32(index / 2u) * atlasTileSize
+		i32(index) * atlasTileSize,
+		tileRow * atlasTileSize
 	);
 	var visible = 0.0;
 	var sampleCount = 0.0;
@@ -267,7 +372,7 @@ fn sampleShadowVisibility(
 				shadowSize
 			);
 			let sampleDepth = decodePackedShadowDepth(
-				loadShadowTexel(shadowType, tileOffset + sampleCoord)
+				loadShadowTexel(tileOffset + sampleCoord)
 			);
 			visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
 			sampleCount += 1.0;
