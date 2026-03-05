@@ -1,12 +1,12 @@
-import { Vector3 } from "../../../maths/Vector3";
-import { Matrix4 } from "../../../maths/Matrix4";
-import { isShadowCastingLight } from "../../../lights";
-import { ShadowMap } from "../../../utils/ShadowMapping";
-import { ShadowConstants } from "../../constants";
+import { Vector3 } from "../../../../maths/Vector3";
+import { Matrix4 } from "../../../../maths/Matrix4";
+import { isShadowCastingLight } from "../../../../lights";
+import { ShadowMap } from "../../../../utils/ShadowMapping";
+import { ShadowConstants } from "../../../constants";
 import { Projector } from "../Projector";
-import type { IVertex, ProjectedVertex } from "../../types";
+import type { IVertex, ProjectedVertex } from "../../../types";
 import type { Rasterizer } from "../Rasterizer";
-import type { FrameContext } from "../../pipeline/types";
+import type { FrameContext } from "../../../pipeline/types";
 
 interface ClipVertex {
 	x: number;

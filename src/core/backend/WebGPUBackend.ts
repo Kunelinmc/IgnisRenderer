@@ -13,8 +13,8 @@ import type {
 } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
-import { Rasterizer } from "../software/Rasterizer";
-import { SoftwareShadowPass } from "../software/passes/SoftwareShadowPass";
+import { Rasterizer } from "./software/Rasterizer";
+import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import {
 	BufferUsage,
 	type BindingGroupDesc,

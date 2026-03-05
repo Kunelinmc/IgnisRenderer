@@ -1,32 +1,32 @@
-import { Matrix4 } from "../../maths/Matrix4";
-import { Vector3 } from "../../maths/Vector3";
+import { Matrix4 } from "../../../maths/Matrix4";
+import { Vector3 } from "../../../maths/Vector3";
 import {
 	PostProcessConstants,
 	VolumetricConstants,
 	SSAOConstants,
-} from "../constants";
-import type { Renderer } from "../Renderer";
+} from "../../constants";
+import type { Renderer } from "../../Renderer";
 import {
 	type DirectionalLight,
 	type PointLight,
 	type SpotLight,
 	LightType,
 	isShadowCastingLight,
-} from "../../lights";
+} from "../../../lights";
 import {
 	createLightContribution,
 	evaluateLightContribution,
 } from "./lighting/LightEvaluator";
-import { clamp, linearToSRGB } from "../../maths/Common";
-import type { IVector3 } from "../../maths/types";
-import { CameraType } from "../../cameras/Camera";
-import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
+import { clamp, linearToSRGB } from "../../../maths/Common";
+import type { IVector3 } from "../../../maths/types";
+import { CameraType } from "../../../cameras/Camera";
+import type { OrthographicCamera } from "../../../cameras/OrthographicCamera";
 import type {
 	SSAOOptions,
 	VolumetricOptions,
 	FramePassStage,
 	FrameContext,
-} from "../pipeline/types";
+} from "../../pipeline/types";
 
 export interface PostProcessorLike {
 	applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void;

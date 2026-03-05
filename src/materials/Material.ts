@@ -1,6 +1,7 @@
 import type { Texture } from "../core/Texture";
 
 export type TextureLike = Texture | null;
+
 export enum ShadingModel {
 	Flat = "Flat",
 	Gouraud = "Gouraud",

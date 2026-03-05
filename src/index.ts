@@ -21,8 +21,10 @@ export type {
 } from "./core/types";
 export { Renderer } from "./core/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
-export { Rasterizer } from "./core/software/Rasterizer";
-export { PostProcessor } from "./core/software/PostProcessor";
+export { SoftwareBackend } from "./core/backend/SoftwareBackend";
+export { WebGPUBackend } from "./core/backend/WebGPUBackend";
+export { Rasterizer } from "./core/backend/software/Rasterizer";
+export { PostProcessor } from "./core/backend/software/PostProcessor";
 export type { VolumetricOptions } from "./core/pipeline/types";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";

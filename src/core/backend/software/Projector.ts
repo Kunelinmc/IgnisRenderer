@@ -1,15 +1,15 @@
-import { CameraType } from "../../cameras/Camera";
-import { Matrix4 } from "../../maths/Matrix4";
-import { Vector3 } from "../../maths/Vector3";
+import { CameraType } from "../../../cameras/Camera";
+import { Matrix4 } from "../../../maths/Matrix4";
+import { Vector3 } from "../../../maths/Vector3";
 import type {
 	IModel,
 	ProjectedFace,
 	ProjectedVertex,
 	IVertex,
 	PrimitiveFace,
-} from "../types";
-import type { DrawPacket, FrameContext } from "../pipeline/types";
-import { GeometryBuilder } from "../../models/GeometryBuilder";
+} from "../../types";
+import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import { GeometryBuilder } from "../../../models/GeometryBuilder";
 
 interface ClippedVertexPair {
 	view: IVertex;

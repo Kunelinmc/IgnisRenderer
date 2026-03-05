@@ -4,7 +4,7 @@ import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
-import { evaluateLightContribution } from "../src/core/software/lighting/LightEvaluator.ts";
+import { evaluateLightContribution } from "../src/core/backend/software/lighting/LightEvaluator.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 

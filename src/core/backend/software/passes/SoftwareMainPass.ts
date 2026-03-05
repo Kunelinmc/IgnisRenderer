@@ -1,5 +1,5 @@
 import { Projector } from "../Projector";
-import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type { Rasterizer } from "../Rasterizer";
 
 export class SoftwareMainPass {

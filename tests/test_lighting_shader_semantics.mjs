@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
-import { evaluateLightContribution } from "../src/core/software/lighting/LightEvaluator.ts";
+import { evaluateLightContribution } from "../src/core/backend/software/lighting/LightEvaluator.ts";
 import { SH } from "../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../src/shaders/software/BlinnPhongStrategy.ts";
 import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
@@ -14,7 +14,7 @@ import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/core/Renderer.ts";
 import { ShadowMap } from "../src/utils/ShadowMapping.ts";
-import { Rasterizer } from "../src/core/software/Rasterizer.ts";
+import { Rasterizer } from "../src/core/backend/software/Rasterizer.ts";
 
 function createContext(overrides = {}) {
 	return {

@@ -1,6 +1,6 @@
-import type { Camera } from "../../cameras/Camera";
-import { CameraType } from "../../cameras/Camera";
-import type { Texture } from "../Texture";
+import type { Camera } from "../../../cameras/Camera";
+import { CameraType } from "../../../cameras/Camera";
+import type { Texture } from "../../Texture";
 
 export class SkyboxRenderer {
 	public static render(

@@ -101,6 +101,7 @@ function run() {
 		'src/core/resources',
 		'src/core/ral',
 		'src/core/geometry',
+		'src/core/software',
 	]) {
 		if (existsSync(join(rootDir, oldDir))) {
 			violations.push(`legacy directory still exists: ${oldDir}`)

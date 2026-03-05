@@ -1,12 +1,12 @@
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
 import type { FrameContext, FramePass } from "../pipeline/types";
-import { Rasterizer } from "../software/Rasterizer";
-import { PostProcessor } from "../software/PostProcessor";
-import { SoftwareMainPass } from "../software/passes/SoftwareMainPass";
-import { SoftwareReflectionPass } from "../software/passes/SoftwareReflectionPass";
-import { SoftwareShadowPass } from "../software/passes/SoftwareShadowPass";
-import { SkyboxRenderer } from "../software/SkyboxRenderer";
+import { Rasterizer } from "./software/Rasterizer";
+import { PostProcessor } from "./software/PostProcessor";
+import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
+import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
+import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
+import { SkyboxRenderer } from "./software/SkyboxRenderer";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";

@@ -73,8 +73,8 @@ The renderer is organized into modular components:
 - **Pipeline Layer (`core/`)**
   - **`Renderer`**: high-level frame orchestration.
   - **`pipeline/`**: frame planning and shared pipeline transforms/helpers.
-  - **`software/`**: CPU pipeline implementation.
   - **`backend/`**: backend abstractions plus backend-specific implementations.
+    - `backend/software/` contains CPU pipeline implementation.
     - `backend/webgpu/` contains WebGPU bridge/packing/resources implementation.
 - **`shaders/`**: Pluggable shading strategies and WGSL shader modules.
 - **`maths/`**: A custom, optimized mathematical library for 3D operations (Vectors, Matrices, Quaternions).
@@ -89,6 +89,7 @@ Deep internal imports were reorganized and are **breaking** for private paths:
 - `core/bridge/webgpu/*` -> `core/backend/webgpu/*`
 - `core/resources/*` -> `core/backend/webgpu/*`
 - `core/ral/*` -> `core/backend/*`
+- `core/software/*` -> `core/backend/software/*`
 - `core/geometry/GeometryBuilder` -> `models/GeometryBuilder`
 
 ### Rendering Pipeline Flow
