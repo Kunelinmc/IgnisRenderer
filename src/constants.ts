@@ -1,5 +1,5 @@
 /**
- * Shared constants for the core rendering pipeline.
+ * Shared constants for the rendering pipeline.
  */
 
 /**

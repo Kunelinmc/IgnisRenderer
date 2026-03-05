@@ -1,7 +1,7 @@
 import { Matrix4 } from "../../../maths/Matrix4";
 import { Plane } from "../../../maths/Plane";
 import { Projector } from "./Projector";
-import { RenderConstants } from "../../constants";
+import { RenderConstants } from "../../../constants";
 import type { FrameContext } from "../../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../../types";
 import type { Rasterizer } from "./Rasterizer";

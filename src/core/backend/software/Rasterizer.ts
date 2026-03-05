@@ -1,6 +1,6 @@
 import { Material, ShadingModel, AlphaMode } from "../../../materials/Material";
 import { Matrix4 } from "../../../maths/Matrix4";
-import { CoreConstants, PostProcessConstants } from "../../constants";
+import { CoreConstants, PostProcessConstants } from "../../../constants";
 import {
 	FlatLitShader,
 	LitShader,
