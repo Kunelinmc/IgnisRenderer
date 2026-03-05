@@ -27,7 +27,7 @@ export type Matrix4Arr = number[][];
 export type Matrix3Arr = number[][];
 
 /**
- * Spherical Harmonics coefficients for 2nd order (L=2)
- * Contains exactly 9 RGB coefficients.
+ * Spherical Harmonics coefficients for 3nd order (L=3)
+ * Contains exactly 16 RGB coefficients.
  */
 export type SHCoefficients = RGB[];
