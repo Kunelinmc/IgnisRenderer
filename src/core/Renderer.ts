@@ -1,10 +1,12 @@
-import { Camera, CameraType } from "../cameras/Camera";
+import { Camera } from "../cameras/Camera";
 import {
-	createLightContribution,
-	evaluateLightContribution,
 	LightType,
 	type ShadowCastingLight,
 } from "../lights";
+import {
+	createLightContribution,
+	evaluateLightContribution,
+} from "./software/lighting/LightEvaluator";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
@@ -13,9 +15,6 @@ import { ShadowMap } from "../utils/ShadowMapping";
 import { LightingConstants } from "./constants";
 import { EventEmitter } from "./EventEmitter";
 import { Scene } from "./Scene";
-import { ShadowRenderer } from "./ShadowRenderer";
-import { Rasterizer, type RasterizerLike } from "./software/Rasterizer";
-import { ReflectionRenderer } from "./software/ReflectionRenderer";
 import { resolveFeatureState } from "./pipeline/FeatureResolver";
 import { FramePlanner } from "./pipeline/FramePlanner";
 import { PreparedSceneBuilder } from "./pipeline/PreparedSceneBuilder";
@@ -24,14 +23,7 @@ import type {
 	SSAOOptions,
 	VolumetricOptions,
 	FrameContext,
-	FramePassStage,
-	PreparedScene,
-	ResolvedFeatureState,
 } from "./pipeline/types";
-import {
-	PostProcessor,
-	type PostProcessorLike,
-} from "./software/PostProcessor";
 import type { IRenderBackend } from "./backend/IRenderBackend";
 
 export interface RendererEvents {
@@ -71,8 +63,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
-	private _shadowRenderer: ShadowRenderer;
-	private _postProcessor: PostProcessor;
 
 	constructor(
 		backend: IRenderBackend,
@@ -107,8 +97,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shAmbientCoeffs = SH.empty();
 		this.scene = new Scene();
 		this.camera = camera || new Camera();
-		this._shadowRenderer = new ShadowRenderer(this, new Rasterizer());
-		this._postProcessor = new PostProcessor(this);
 		this.lastTime = 0;
 
 		if (!camera) {
@@ -173,7 +161,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.emit("tick", { now, deltaTime: this._deltaTime });
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
 
-		if (!this._frameDirty && this.backend.type !== "software") {
+		if (!this._frameDirty && this.backend.frameScheduling === "on-demand") {
 			this.emit("frameend", { now, deltaTime: this._deltaTime });
 			requestAnimationFrame((time) => this.renderScene(time));
 			return;
@@ -213,13 +201,24 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			transient: new Map(),
 		};
 
-		const framePlan = FramePlanner.build(frame, resolved);
+		const framePlan = FramePlanner.build(
+			frame,
+			resolved,
+			this.backend.passExecutors
+		);
 
-		// Execute shared passes (CPU-based) before beginFrame so their results (like shadow maps)
-		// are available for backend resource preparation.
+		// Execute shared passes before beginFrame so their results are available
+		// for backend resource preparation.
 		for (const pass of framePlan) {
 			if (pass.enabled && pass.executor === "shared") {
-				await this._executeSharedPass(pass.stage, context);
+				if (!this.backend.executeSharedPass) {
+					this.warnOnce(
+						`${this.backend.type}-shared-pass-${pass.stage}`,
+						`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
+					);
+					continue;
+				}
+				await this.backend.executeSharedPass(pass, context);
 			}
 		}
 
@@ -233,10 +232,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
 		requestAnimationFrame((time) => this.renderScene(time));
-	}
-
-	public get postProcessor(): PostProcessorLike {
-		return this._postProcessor;
 	}
 
 	public updateSH(): void {
@@ -335,14 +330,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		this.shCoeffs = totalSH;
-	}
-
-	private async _executeSharedPass(
-		stage: FramePassStage,
-		context: FrameContext
-	): Promise<void> {
-		if (stage !== "shadow") return;
-		this._shadowRenderer.render(context);
 	}
 
 	private _getSafeAspectRatio(width: number, height: number): number {

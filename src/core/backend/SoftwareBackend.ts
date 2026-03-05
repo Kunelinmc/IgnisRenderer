@@ -1,17 +1,19 @@
 import type { Renderer } from "../Renderer";
 import type { IRenderBackend } from "./IRenderBackend";
-import type {
-	FrameContext,
-	FramePass,
-	ResolvedFeatureState,
-} from "../pipeline/types";
+import type { FrameContext, FramePass } from "../pipeline/types";
 import { Rasterizer } from "../software/Rasterizer";
+import { PostProcessor } from "../software/PostProcessor";
 import { SoftwareMainPass } from "../software/passes/SoftwareMainPass";
 import { SoftwareReflectionPass } from "../software/passes/SoftwareReflectionPass";
+import { SoftwareShadowPass } from "../software/passes/SoftwareShadowPass";
 import { SkyboxRenderer } from "../software/SkyboxRenderer";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
+	public readonly frameScheduling = "always";
+	public readonly passExecutors = {
+		shadow: "shared",
+	} as const;
 	public readonly capabilities = {
 		sh: true,
 		shadows: true,
@@ -25,8 +27,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
+	private _shadowPass: SoftwareShadowPass | null = null;
 	private _reflectionPass: SoftwareReflectionPass | null = null;
-	private _resolvedFeatures: ResolvedFeatureState | null = null;
+	private _postProcessor: PostProcessor | null = null;
 	private _framePixelsShared = false;
 	private _pixels: Uint8ClampedArray | null = null;
 	private _depthBuffer: Float32Array | null = null;
@@ -41,8 +44,10 @@ export class SoftwareBackend implements IRenderBackend {
 	public setRenderer(renderer: Renderer): void {
 		this._renderer = renderer;
 		this._rasterizer = new Rasterizer();
+		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
 		this._mainPass = new SoftwareMainPass(this._rasterizer);
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
+		this._postProcessor = new PostProcessor(renderer);
 	}
 
 	public getAttachments(width: number, height: number): any {
@@ -72,7 +77,6 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._resolvedFeatures = context.features;
 		const pixels = context.attachments.pixels!;
 		const size = pixels.length >> 2;
 		for (let i = 0; i < size; i++) {
@@ -96,6 +100,11 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
+	public executeSharedPass(pass: FramePass, context: FrameContext): void {
+		if (pass.stage !== "shadow") return;
+		this._shadowPass?.render(context);
+	}
+
 	public executePass(pass: FramePass, context: FrameContext): void {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
@@ -110,21 +119,21 @@ export class SoftwareBackend implements IRenderBackend {
 				this._mainPass.render(context, context.scene.transparentPackets, true);
 				break;
 			case "ssao":
-				this._renderer.postProcessor.applySSAO(context);
+				this._postProcessor?.applySSAO(context);
 				break;
 			case "volumetric":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyVolumetricLight(context, this._ctx);
+					this._postProcessor?.applyVolumetricLight(context, this._ctx);
 				}
 				break;
 			case "fxaa":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyFXAA(context, this._ctx);
+					this._postProcessor?.applyFXAA(context, this._ctx);
 				}
 				break;
 			case "gamma":
 				if (this._ctx) {
-					this._renderer.postProcessor.applyGamma(context, this._ctx);
+					this._postProcessor?.applyGamma(context, this._ctx);
 				}
 				break;
 		}

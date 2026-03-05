@@ -13,6 +13,8 @@ import type {
 } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { RenderResources } from "../resources/RenderResources";
+import { Rasterizer } from "../software/Rasterizer";
+import { SoftwareShadowPass } from "../software/passes/SoftwareShadowPass";
 import {
 	BufferUsage,
 	type BindingGroupDesc,
@@ -71,6 +73,10 @@ interface InternalCommandBuffer {
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
+	public readonly frameScheduling = "on-demand";
+	public readonly passExecutors = {
+		shadow: "shared",
+	} as const;
 	public readonly capabilities = {
 		sh: false,
 		shadows: true,
@@ -91,6 +97,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _renderer: Renderer | null = null;
 	private _resources: RenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
+	private _sharedShadowPass: SoftwareShadowPass | null = null;
 
 	constructor(canvas?: HTMLCanvasElement) {
 		this.canvas = canvas ?? null;
@@ -98,6 +105,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public setRenderer(renderer: Renderer): void {
 		this._renderer = renderer;
+		this._sharedShadowPass = new SoftwareShadowPass(new Rasterizer());
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {
@@ -163,6 +171,11 @@ export class WebGPUBackend implements IRenderBackend {
 
 		this._resources.prepareFrame(context);
 		this._frameExecutor.beginFrame();
+	}
+
+	public executeSharedPass(pass: FramePass, context: FrameContext): void {
+		if (pass.stage !== "shadow") return;
+		this._sharedShadowPass?.render(context);
 	}
 
 	public executePass(

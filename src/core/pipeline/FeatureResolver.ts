@@ -22,7 +22,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 export function resolveFeatureState(
 	request: RendererFeatureRequest,
 	capabilities: BackendCapabilities,
-	backendType: "software" | "webgpu"
+	backendType: string
 ): ResolvedFeatureState {
 	const warnings: ResolvedFeatureState["warnings"] = [];
 
@@ -80,7 +80,7 @@ function resolveBooleanFeature(
 	requested: boolean | undefined,
 	supported: boolean,
 	feature: keyof BackendCapabilities,
-	backendType: "software" | "webgpu",
+	backendType: string,
 	warnings: ResolvedFeatureState["warnings"]
 ): boolean {
 	const enabled = requested === true;

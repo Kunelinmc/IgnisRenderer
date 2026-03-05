@@ -2,11 +2,13 @@ import { Vector3 } from "../../maths/Vector3";
 import { SH } from "../../maths/SH";
 import { Texture } from "../../core/Texture";
 import {
+	isShadowCastingLight,
+} from "../../lights";
+import {
 	createLightContribution,
 	evaluateLightContribution,
-	isShadowCastingLight,
 	type SurfacePoint,
-} from "../../lights";
+} from "../../core/software/lighting/LightEvaluator";
 import { LightingConstants } from "../../core/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";

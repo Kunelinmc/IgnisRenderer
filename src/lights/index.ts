@@ -7,7 +7,6 @@ import { LightProbe } from "./LightProbe";
 import { AreaLight } from "./AreaLight";
 
 export * from "./Light";
-export * from "./LightEvaluator";
 export * from "./AmbientLight";
 export * from "./DirectionalLight";
 export * from "./PointLight";

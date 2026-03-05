@@ -14,11 +14,12 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 export class FramePlanner {
 	public static build(
 		frame: PreparedScene,
-		features: ResolvedFeatureState
+		features: ResolvedFeatureState,
+		executors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>
 	): FramePass[] {
 		return FRAME_PASS_ORDER.map((stage) => ({
 			stage,
-			executor: stage === "shadow" ? "shared" : "backend",
+			executor: executors?.[stage] ?? "backend",
 			enabled: shouldEnablePass(stage, frame, features),
 		}));
 	}

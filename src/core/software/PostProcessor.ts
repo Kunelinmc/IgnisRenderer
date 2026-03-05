@@ -7,14 +7,16 @@ import {
 } from "../constants";
 import type { Renderer } from "../Renderer";
 import {
-	createLightContribution,
-	evaluateLightContribution,
 	type DirectionalLight,
 	type PointLight,
 	type SpotLight,
 	LightType,
 	isShadowCastingLight,
 } from "../../lights";
+import {
+	createLightContribution,
+	evaluateLightContribution,
+} from "./lighting/LightEvaluator";
 import { clamp, linearToSRGB } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";

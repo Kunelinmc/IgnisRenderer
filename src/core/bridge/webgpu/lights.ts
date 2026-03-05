@@ -1,10 +1,5 @@
 import { sRGBToLinear, clamp } from '../../../maths/Common'
 import {
-	getDirectionalLightWorldDirection,
-	getPointLightWorldPosition,
-	getSpotLightInnerAngle,
-	getSpotLightWorldDirection,
-	getSpotLightWorldPosition,
 	LightType,
 	type AmbientLight,
 	type DirectionalLight,
@@ -13,6 +8,13 @@ import {
 	type ShadowCastingLight,
 	type SpotLight,
 } from '../../../lights'
+import {
+	getDirectionalLightWorldDirection,
+	getPointLightWorldPosition,
+	getSpotLightInnerAngle,
+	getSpotLightWorldDirection,
+	getSpotLightWorldPosition,
+} from '../../software/lighting/LightEvaluator'
 import type { RGB } from '../../../utils/Color'
 import type { ShadowMap } from '../../../utils/ShadowMapping'
 
