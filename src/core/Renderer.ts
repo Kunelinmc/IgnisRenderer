@@ -8,7 +8,7 @@ import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
 import { ShadowMap } from "../utils/ShadowMapping";
-import { LightingConstants } from "../constants";
+import { LightingConstants } from "./pipeline/constants";
 import { EventEmitter } from "./EventEmitter";
 import { Scene } from "./Scene";
 import { resolveFeatureState } from "./pipeline/FeatureResolver";

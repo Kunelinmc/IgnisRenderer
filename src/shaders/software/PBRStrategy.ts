@@ -9,7 +9,7 @@ import {
 	evaluateLightContribution,
 	type SurfacePoint,
 } from "../../core/backend/software/LightEvaluator";
-import { LightingConstants } from "../../constants";
+import { LightingConstants } from "../../core/pipeline/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { RGB } from "../../utils/Color";

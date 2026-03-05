@@ -2,7 +2,7 @@
  * Shadow Mapping utilities
  */
 
-import { ShadowConstants } from "../constants";
+import { ShadowConstants } from "../core/pipeline/constants";
 
 import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";

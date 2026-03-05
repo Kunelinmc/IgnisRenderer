@@ -77,7 +77,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **Order**: Row-major conceptual storage: `elements[row][col]`.
 - **Transformation**: `lookAt` creates a system where -Z is forward.
 - **Normal Matrix**: Use the transpose of the inverse of the top-left 3x3 of the model matrix.
-- **Constants**: Use `src/core/constants.ts` or local static constants. Avoid magic numbers.
+- **Constants**: Use `src/core/backend/software/constants.ts` for software backend constants and `src/core/pipeline/constants.ts` for pipeline-shared lighting/shadow constants. Avoid magic numbers.
 
 ## Implementation Guidelines
 

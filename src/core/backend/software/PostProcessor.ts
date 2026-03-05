@@ -4,7 +4,7 @@ import {
 	PostProcessConstants,
 	VolumetricConstants,
 	SSAOConstants,
-} from "../../../constants";
+} from "./constants";
 import type { Renderer } from "../../Renderer";
 import {
 	type DirectionalLight,
