@@ -181,6 +181,9 @@ export class WebGPUFrameExecutor {
 			case "main-transparent":
 				await this._recordMainPass(context.scene.transparentPackets, false);
 				return;
+			case "particles":
+				await this._recordParticlePass(context);
+				return;
 		}
 
 		if (POST_PROCESS_STAGES.has(pass.stage) && !this._postGraphExecuted) {
@@ -832,10 +835,7 @@ export class WebGPUFrameExecutor {
 				{
 					view: this._frameTargets.sceneColorMain,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp:
-						clearAttachments && !skyboxDrawn
-							? "clear"
-							: "load",
+					loadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -866,10 +866,7 @@ export class WebGPUFrameExecutor {
 			depthStencilAttachment: {
 				view: this._frameTargets.depth,
 				depthClearValue: 1,
-				depthLoadOp:
-					clearAttachments && !skyboxDrawn
-						? "clear"
-						: "load",
+				depthLoadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
 				depthStoreOp: "store",
 			},
 		});
@@ -936,6 +933,33 @@ export class WebGPUFrameExecutor {
 		}
 
 		this._encoder.endRenderPass();
+	}
+
+	private async _recordParticlePass(context: FrameContext): Promise<void> {
+		if (!this._encoder) return;
+
+		if (this._mrtEnabled && this._frameTargets) {
+			await this._resources.renderParticles(
+				this._encoder,
+				context,
+				{
+					color: this._frameTargets.sceneColorMain,
+					depth: this._frameTargets.depth,
+				},
+				"mrt"
+			);
+			return;
+		}
+
+		await this._resources.renderParticles(
+			this._encoder,
+			context,
+			{
+				color: this._backend.getCanvasColorTexture(),
+				depth: this._backend.getCanvasDepthTexture(),
+			},
+			"single"
+		);
 	}
 }
 

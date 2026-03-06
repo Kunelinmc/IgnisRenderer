@@ -48,6 +48,7 @@ export {
 	UnlitMaterial,
 	PBRMaterial,
 } from "./materials";
+export * from "./particles";
 export * from "./lights";
 export { Texture, type TextureColorSpace } from "./core/Texture";
 export { TextureLoader } from "./loaders/TextureLoader";

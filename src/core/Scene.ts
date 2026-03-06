@@ -1,5 +1,6 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { SceneLight } from "../lights";
+import type { ParticleSystem } from "../particles";
 import type { IVector3 } from "../maths/types";
 import type { Texture } from "./Texture";
 import type { BoundingSphere, IModel } from "./types";
@@ -7,6 +8,7 @@ import type { BoundingSphere, IModel } from "./types";
 export class Scene {
 	public models: IModel[];
 	public lights: SceneLight[];
+	public particleSystems: ParticleSystem[];
 	public skybox: Texture | null;
 	private _version: number;
 	private _boundsCache: BoundingSphere | null;
@@ -15,6 +17,7 @@ export class Scene {
 	constructor() {
 		this.models = [];
 		this.lights = [];
+		this.particleSystems = [];
 		this.skybox = null;
 		this._version = 0;
 		this._boundsCache = null;
@@ -58,6 +61,30 @@ export class Scene {
 	public clear(): void {
 		this.models = [];
 		this.lights = [];
+		this.particleSystems = [];
+		this.invalidate();
+	}
+
+	public addParticleSystem(system: ParticleSystem): ParticleSystem {
+		this.particleSystems.push(system);
+		this.invalidate();
+		return system;
+	}
+
+	public removeParticleSystem(system: ParticleSystem): boolean {
+		const index = this.particleSystems.indexOf(system);
+		if (index === -1) {
+			return false;
+		}
+
+		this.particleSystems.splice(index, 1);
+		this.invalidate();
+		return true;
+	}
+
+	public clearParticleSystems(): void {
+		if (this.particleSystems.length === 0) return;
+		this.particleSystems = [];
 		this.invalidate();
 	}
 

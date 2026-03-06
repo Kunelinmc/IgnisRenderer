@@ -17,6 +17,8 @@ const tests = [
 	"test_model_factory_winding.mjs",
 	"test_render_list_builder.mjs",
 	"test_scene_bounds_cache.mjs",
+	"test_particle_simulation_stage.mjs",
+	"test_renderer_particle_stage.mjs",
 	"test_sparse_accessor.mjs",
 	"test_gltf_material_extensions.mjs",
 	"test_pbr_textures.mjs",

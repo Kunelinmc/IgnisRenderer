@@ -5,6 +5,7 @@ function createFrame(overrides = {}) {
 	return {
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 1 },
 		lights: [],
+		particleSystems: [],
 		camera: null,
 		shadowMaps: new Map(),
 		opaquePackets: [{}],
@@ -37,6 +38,7 @@ function run() {
 	}
 
 	const frame = createFrame({
+		particleSystems: [{}],
 		shadowCasterPackets: [{}],
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
@@ -56,10 +58,12 @@ function run() {
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
 		[
+			'particle-sim',
 			'shadow',
 			'reflection',
 			'main-opaque',
 			'main-transparent',
+			'particles',
 			'ssao',
 			'taa',
 			'ssr',
@@ -68,6 +72,7 @@ function run() {
 			'gamma',
 		]
 	)
+	assert.equal(plan.find((pass) => pass.stage === 'particle-sim')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'shadow')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'reflection')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'main-opaque')?.enabled, true)
@@ -75,6 +80,7 @@ function run() {
 		plan.find((pass) => pass.stage === 'main-transparent')?.enabled,
 		true
 	)
+	assert.equal(plan.find((pass) => pass.stage === 'particles')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'ssao')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'taa')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'ssr')?.enabled, true)
@@ -83,6 +89,10 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === 'gamma')?.enabled, true)
 
 	const disabledPlan = FramePlanner.build(createFrame(), baseResolved)
+	assert.equal(
+		disabledPlan.find((pass) => pass.stage === 'particle-sim')?.enabled,
+		false
+	)
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === 'shadow')?.enabled,
 		false
@@ -94,6 +104,14 @@ function run() {
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === 'reflection')?.enabled,
 		false
+	)
+	assert.equal(
+		disabledPlan.find((pass) => pass.stage === 'particles')?.enabled,
+		false
+	)
+	assert.equal(
+		plan.find((pass) => pass.stage === 'particle-sim')?.executor,
+		'shared'
 	)
 
 	console.log('Frame planner tests passed')

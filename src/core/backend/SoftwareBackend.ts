@@ -4,6 +4,7 @@ import type { FrameContext, FramePass } from "../pipeline/types";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
+import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import { SkyboxRenderer } from "./software/SkyboxRenderer";
@@ -12,6 +13,7 @@ export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "always";
 	public readonly passExecutors = {
+		"particle-sim": "shared",
 		shadow: "shared",
 	} as const;
 	public readonly capabilities = {
@@ -29,6 +31,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
+	private _particlePass: SoftwareParticlePass | null = null;
 	private _shadowPass: SoftwareShadowPass | null = null;
 	private _reflectionPass: SoftwareReflectionPass | null = null;
 	private _postProcessor: PostProcessor | null = null;
@@ -48,6 +51,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._rasterizer = new Rasterizer();
 		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
 		this._mainPass = new SoftwareMainPass(this._rasterizer);
+		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
 		this._postProcessor = new PostProcessor(renderer);
 	}
@@ -119,6 +123,9 @@ export class SoftwareBackend implements IRenderBackend {
 				break;
 			case "main-transparent":
 				this._mainPass.render(context, context.scene.transparentPackets, true);
+				break;
+			case "particles":
+				this._particlePass?.render(context);
 				break;
 			case "ssao":
 				this._postProcessor?.applySSAO(context);

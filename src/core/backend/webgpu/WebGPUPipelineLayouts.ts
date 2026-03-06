@@ -2,8 +2,10 @@ export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	skyboxFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayout: GPUBindGroupLayout;
+	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayout: GPUPipelineLayout;
 	skyboxPipelineLayout: GPUPipelineLayout;
+	particlePipelineLayout: GPUPipelineLayout;
 }
 
 export function createWebGPUPipelineLayouts(
@@ -80,6 +82,21 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUModelBindGroupLayout",
 		entries: modelEntries,
 	});
+	const particleBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUParticleBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 1,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
+			},
+		],
+	});
 
 	const scenePipelineLayout = device.createPipelineLayout({
 		label: "WebGPUScenePipelineLayout",
@@ -89,12 +106,18 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUSkyboxPipelineLayout",
 		bindGroupLayouts: [skyboxFrameBindGroupLayout],
 	});
+	const particlePipelineLayout = device.createPipelineLayout({
+		label: "WebGPUParticlePipelineLayout",
+		bindGroupLayouts: [sceneFrameBindGroupLayout, particleBindGroupLayout],
+	});
 
 	return {
 		sceneFrameBindGroupLayout,
 		skyboxFrameBindGroupLayout,
 		modelBindGroupLayout,
+		particleBindGroupLayout,
 		scenePipelineLayout,
 		skyboxPipelineLayout,
+		particlePipelineLayout,
 	};
 }

@@ -1,11 +1,22 @@
 import type { Renderer } from "../../Renderer";
+import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import type {
 	DrawPacket,
 	FrameContext,
+	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
 import { AlphaMode } from "../../../materials/Material";
+import { ParticleBlendMode } from "../../../particles";
 import type { ResolvedFeatureState } from "../../pipeline/types";
+import type { ICommandEncoder } from "../ICommandEncoder";
+import {
+	BufferUsage,
+	TextureFormat,
+	type IRenderBuffer,
+	type IRenderPipeline,
+	type IShaderModule,
+} from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	collectWebGPUEnvironment,
@@ -24,6 +35,7 @@ import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
+import { WEBGPU_PARTICLE_SHADER } from "../../../shaders/webgpu/particleShader";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -37,6 +49,11 @@ export interface WebGPUDrawResources {
 export interface WebGPUSkyboxDrawResources {
 	pipeline: any;
 	frameBinding: any;
+}
+
+export interface WebGPUParticlePassTargets {
+	color: any;
+	depth: any;
 }
 
 export class WebGPURenderResources {
@@ -54,6 +71,18 @@ export class WebGPURenderResources {
 	private _featureState: WebGPUFeatureState | null = null;
 	private _environmentState: WebGPUEnvironmentState | null = null;
 	private _sceneTargetMode: WebGPUSceneTargetMode = "mrt";
+	private _particleShaderModule: IShaderModule | null = null;
+	private _particleQuadBuffer: IRenderBuffer | null = null;
+	private _particleInstanceBuffer: IRenderBuffer | null = null;
+	private _particleInstanceCapacity = 0;
+	private _particlePipelineAlpha = new Map<
+		WebGPUSceneTargetMode,
+		IRenderPipeline
+	>();
+	private _particlePipelineAdditive = new Map<
+		WebGPUSceneTargetMode,
+		IRenderPipeline
+	>();
 
 	constructor(renderer: Renderer, backend: WebGPUBackend) {
 		this._renderer = renderer;
@@ -260,5 +289,264 @@ export class WebGPURenderResources {
 			pipeline,
 			frameBinding,
 		};
+	}
+
+	public async renderParticles(
+		encoder: ICommandEncoder,
+		context: FrameContext,
+		targets: WebGPUParticlePassTargets,
+		mode: WebGPUSceneTargetMode
+	): Promise<void> {
+		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
+			| ParticleRenderBatch[]
+			| undefined;
+		if (!batches || batches.length === 0) return;
+
+		const drawBatches = batches.filter((batch) => batch.particles.length > 0);
+		if (drawBatches.length === 0) return;
+
+		const totalParticles = drawBatches.reduce(
+			(sum, batch) => sum + batch.particles.length,
+			0
+		);
+		if (totalParticles <= 0) return;
+
+		await this._ensureParticleResources(mode, totalParticles);
+		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return;
+
+		const floatsPerInstance = 16;
+		const instanceData = new Float32Array(totalParticles * floatsPerInstance);
+		const drawRanges: Array<{
+			batch: ParticleRenderBatch;
+			firstInstance: number;
+			instanceCount: number;
+		}> = [];
+
+		let particleOffset = 0;
+		for (const batch of drawBatches) {
+			const firstInstance = particleOffset;
+			for (const particle of batch.particles) {
+				const offset = particleOffset * floatsPerInstance;
+				instanceData[offset] = particle.position.x;
+				instanceData[offset + 1] = particle.position.y;
+				instanceData[offset + 2] = particle.position.z;
+				instanceData[offset + 3] = Math.max(0.001, particle.size);
+
+				instanceData[offset + 4] = particle.color.r / 255;
+				instanceData[offset + 5] = particle.color.g / 255;
+				instanceData[offset + 6] = particle.color.b / 255;
+				instanceData[offset + 7] = Math.max(0, Math.min(1, particle.color.a));
+
+				instanceData[offset + 8] = particle.uvRect.u0;
+				instanceData[offset + 9] = particle.uvRect.v0;
+				instanceData[offset + 10] = particle.uvRect.u1;
+				instanceData[offset + 11] = particle.uvRect.v1;
+
+				instanceData[offset + 12] = particle.rotation;
+				instanceData[offset + 13] = batch.receiveShadows ? 1 : 0;
+				instanceData[offset + 14] = 0;
+				instanceData[offset + 15] = 0;
+				particleOffset++;
+			}
+
+			drawRanges.push({
+				batch,
+				firstInstance,
+				instanceCount: batch.particles.length,
+			});
+		}
+
+		this._backend.writeBuffer(this._particleInstanceBuffer, instanceData);
+		const frameBinding = this._frameBindings.getSceneBinding();
+		const alphaPipeline = this._particlePipelineAlpha.get(mode);
+		const additivePipeline = this._particlePipelineAdditive.get(mode);
+		if (!alphaPipeline || !additivePipeline) return;
+
+		encoder.beginRenderPass({
+			label: mode === "mrt" ? "WebGPUParticlesMRT" : "WebGPUParticlesSingle",
+			colorAttachments: [
+				{
+					view: targets.color,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: targets.depth,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		encoder.setBindingGroup(0, frameBinding);
+		encoder.setVertexBuffer(0, this._particleQuadBuffer);
+		encoder.setVertexBuffer(1, this._particleInstanceBuffer);
+
+		for (const range of drawRanges) {
+			const texture = this._textureRegistry.getTextureForSlot(
+				range.batch.texture,
+				0
+			);
+			const sampler = this._textureRegistry.getSamplerForTexture(
+				range.batch.texture
+			);
+			const particleBinding = this._backend.createBindingGroup({
+				layout: this._layouts.particleBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: texture },
+					{ binding: 1, resource: sampler },
+				],
+				label: `ParticleBinding_${range.batch.systemId}`,
+			});
+			const pipeline =
+				range.batch.blendMode === ParticleBlendMode.Additive
+					? additivePipeline
+					: alphaPipeline;
+			encoder.setPipeline(pipeline);
+			encoder.setBindingGroup(1, particleBinding);
+			encoder.draw(6, range.instanceCount, 0, range.firstInstance);
+		}
+
+		encoder.endRenderPass();
+	}
+
+	private async _ensureParticleResources(
+		mode: WebGPUSceneTargetMode,
+		totalParticles: number
+	): Promise<void> {
+		if (!this._particleShaderModule) {
+			this._particleShaderModule = await this._backend.createShaderModule({
+				label: "WebGPUParticleShader",
+				code: WEBGPU_PARTICLE_SHADER,
+			});
+		}
+
+		if (!this._particleQuadBuffer) {
+			const quadVertices = new Float32Array([
+				-0.5, -0.5, 0, 1, 0.5, -0.5, 1, 1, 0.5, 0.5, 1, 0, -0.5, -0.5, 0, 1,
+				0.5, 0.5, 1, 0, -0.5, 0.5, 0, 0,
+			]);
+			this._particleQuadBuffer = this._backend.createBuffer({
+				size: quadVertices.byteLength,
+				usage: BufferUsage.Vertex | BufferUsage.CopyDst,
+				label: "WebGPUParticleQuad",
+			});
+			this._backend.writeBuffer(this._particleQuadBuffer, quadVertices);
+		}
+
+		this._ensureParticleInstanceBuffer(totalParticles);
+		this._ensureParticlePipeline(mode, ParticleBlendMode.Alpha);
+		this._ensureParticlePipeline(mode, ParticleBlendMode.Additive);
+	}
+
+	private _ensureParticleInstanceBuffer(totalParticles: number): void {
+		if (totalParticles <= this._particleInstanceCapacity) return;
+
+		const nextCapacity = Math.max(
+			256,
+			1 << Math.ceil(Math.log2(Math.max(1, totalParticles)))
+		);
+		this._particleInstanceBuffer?.destroy();
+		this._particleInstanceBuffer = this._backend.createBuffer({
+			size: nextCapacity * 16 * 4,
+			usage: BufferUsage.Vertex | BufferUsage.CopyDst,
+			label: "WebGPUParticleInstances",
+		});
+		this._particleInstanceCapacity = nextCapacity;
+	}
+
+	private _ensureParticlePipeline(
+		mode: WebGPUSceneTargetMode,
+		blendMode: ParticleBlendMode
+	): void {
+		const cache =
+			blendMode === ParticleBlendMode.Additive
+				? this._particlePipelineAdditive
+				: this._particlePipelineAlpha;
+		if (cache.has(mode) || !this._particleShaderModule) return;
+
+		const blend =
+			blendMode === ParticleBlendMode.Additive
+				? {
+						color: {
+							srcFactor: "src-alpha",
+							dstFactor: "one",
+							operation: "add",
+						},
+						alpha: {
+							srcFactor: "one",
+							dstFactor: "one",
+							operation: "add",
+						},
+					}
+				: {
+						color: {
+							srcFactor: "src-alpha",
+							dstFactor: "one-minus-src-alpha",
+							operation: "add",
+						},
+						alpha: {
+							srcFactor: "one",
+							dstFactor: "one-minus-src-alpha",
+							operation: "add",
+						},
+					};
+		const colorFormat =
+			mode === "mrt"
+				? TextureFormat.RGBA16Float
+				: (this._backend.canvasFormat as any);
+		const depthFormat =
+			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
+
+		const pipeline = this._backend.createPipeline({
+			layout: this._layouts.particlePipelineLayout,
+			label: `WebGPUParticlePipeline_${blendMode}_${mode}`,
+			vertex: {
+				module: this._particleShaderModule,
+				entryPoint: "vsMain",
+				buffers: [
+					{
+						arrayStride: 16,
+						stepMode: "vertex",
+						attributes: [
+							{ shaderLocation: 0, offset: 0, format: "float32x2" },
+							{ shaderLocation: 1, offset: 8, format: "float32x2" },
+						],
+					},
+					{
+						arrayStride: 64,
+						stepMode: "instance",
+						attributes: [
+							{ shaderLocation: 2, offset: 0, format: "float32x4" },
+							{ shaderLocation: 3, offset: 16, format: "float32x4" },
+							{ shaderLocation: 4, offset: 32, format: "float32x4" },
+							{ shaderLocation: 5, offset: 48, format: "float32" },
+							{ shaderLocation: 6, offset: 52, format: "float32" },
+						],
+					},
+				],
+			},
+			fragment: {
+				module: this._particleShaderModule,
+				entryPoint: "fsMain",
+				targets: [
+					{
+						format: colorFormat,
+						blend,
+					},
+				],
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			depthStencil: {
+				format: depthFormat,
+				depthWriteEnabled: false,
+				depthCompare: "less",
+			},
+		} as any);
+		cache.set(mode, pipeline);
 	}
 }

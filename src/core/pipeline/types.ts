@@ -1,8 +1,10 @@
 import type { Camera } from "../../cameras/Camera";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
+import type { ParticleBlendMode, ParticleSystem } from "../../particles";
 import type { Material } from "../../materials/Material";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { Matrix3Arr } from "../../maths/types";
+import type { IVector3, Matrix3Arr, SHCoefficients } from "../../maths/types";
+import type { RGBA } from "../../utils/Color";
 import type { ShadowMap } from "../../utils/ShadowMapping";
 import type {
 	BoundingSphere,
@@ -32,9 +34,36 @@ export interface DrawPacket {
 
 import type { Texture } from "../Texture";
 
+export const PARTICLE_TRANSIENT_BATCHES_KEY = "pipeline:particle-batches";
+
+export interface ParticleUVRect {
+	u0: number;
+	v0: number;
+	u1: number;
+	v1: number;
+}
+
+export interface ParticleRenderItem {
+	position: IVector3;
+	size: number;
+	color: RGBA;
+	rotation: number;
+	depth: number;
+	uvRect: ParticleUVRect;
+}
+
+export interface ParticleRenderBatch {
+	systemId: string;
+	blendMode: ParticleBlendMode;
+	texture: Texture | null;
+	receiveShadows: boolean;
+	particles: ParticleRenderItem[];
+}
+
 export interface PreparedScene {
 	sceneBounds: BoundingSphere;
 	lights: SceneLight[];
+	particleSystems: ParticleSystem[];
 	camera: Camera;
 	skybox?: Texture | null;
 	models: IModel[];
@@ -45,8 +74,6 @@ export interface PreparedScene {
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
 }
-
-import type { SHCoefficients } from "../../maths/types";
 
 export interface FrameAttachments {
 	pixels?: Uint8ClampedArray;
@@ -70,10 +97,12 @@ export interface FrameContext {
 }
 
 export type FramePassStage =
+	| "particle-sim"
 	| "shadow"
 	| "reflection"
 	| "main-opaque"
 	| "main-transparent"
+	| "particles"
 	| "ssao"
 	| "taa"
 	| "ssr"

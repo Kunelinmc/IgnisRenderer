@@ -1,10 +1,12 @@
 import type { FramePass, PreparedScene, ResolvedFeatureState } from "./types";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
+	"particle-sim",
 	"shadow",
 	"reflection",
 	"main-opaque",
 	"main-transparent",
+	"particles",
 	"ssao",
 	"taa",
 	"ssr",
@@ -21,7 +23,8 @@ export class FramePlanner {
 	): FramePass[] {
 		return FRAME_PASS_ORDER.map((stage) => ({
 			stage,
-			executor: executors?.[stage] ?? "backend",
+			executor:
+				executors?.[stage] ?? (stage === "particle-sim" ? "shared" : "backend"),
 			enabled: shouldEnablePass(stage, frame, features),
 		}));
 	}
@@ -33,6 +36,8 @@ function shouldEnablePass(
 	features: ResolvedFeatureState
 ): boolean {
 	switch (stage) {
+		case "particle-sim":
+			return (frame.particleSystems?.length ?? 0) > 0;
 		case "shadow":
 			return features.enableShadows && frame.shadowCasterPackets.length > 0;
 		case "reflection":
@@ -41,6 +46,8 @@ function shouldEnablePass(
 			return true;
 		case "main-transparent":
 			return frame.transparentPackets.length > 0;
+		case "particles":
+			return (frame.particleSystems?.length ?? 0) > 0;
 		case "ssao":
 			return features.enableSSAO;
 		case "taa":

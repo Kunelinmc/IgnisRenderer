@@ -78,6 +78,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
+		"particle-sim": "shared",
 		shadow: "shared",
 	} as const;
 	public readonly capabilities = {
