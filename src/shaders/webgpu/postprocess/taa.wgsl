@@ -55,7 +55,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 	var hist = textureSampleLevel(historyColor, linearSampler, prevUv, 0.0);
 	let histYCoCg = clamp(rgbToYCoCg(hist.rgb), minYCoCg - vec3<f32>(params.varianceClampGamma), maxYCoCg + vec3<f32>(params.varianceClampGamma));
-	hist.rgb = max(yCoCgToRgb(histYCoCg), vec3<f32>(0.0));
+	hist = vec4<f32>(max(yCoCgToRgb(histYCoCg), vec3<f32>(0.0)), hist.a);
 	let currDepth = textureLoad(motionDepth, coord, 0).z;
 	let prevDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).z;
 	let relDepthDiff = abs(currDepth - prevDepth) / max(max(currDepth, prevDepth), 1e-4);
@@ -70,7 +70,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let up = textureLoad(currentColor, vec2<i32>(coord.x, max(coord.y - 1, 0)), 0);
 	let down = textureLoad(currentColor, vec2<i32>(coord.x, min(coord.y + 1, i32(size.y) - 1)), 0);
 	let blur = (left + right + up + down) * 0.25;
-	outC.rgb = max(outC.rgb + (outC.rgb - blur.rgb) * params.sharpen, vec3<f32>(0.0));
+	outC = vec4<f32>(max(outC.rgb + (outC.rgb - blur.rgb) * params.sharpen, vec3<f32>(0.0)), outC.a);
 	textureStore(outColor, coord, outC);
 	textureStore(outHistory, coord, outC);
 }
