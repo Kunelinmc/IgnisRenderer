@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_SHADER_CONSTANTS = /* wgsl */ `
 const PI: f32 = 3.14159265359;
 const EPSILON: f32 = 0.000001;
 const PBR_MIN_NDOTV: f32 = 0.001;
@@ -24,4 +23,3 @@ const TEX_SHEEN_COLOR: u32 = 10u;
 const TEX_SHEEN_ROUGHNESS: u32 = 11u;
 const TEX_TRANSMISSION: u32 = 12u;
 const TEX_THICKNESS: u32 = 13u;
-`;

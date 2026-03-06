@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_VERTEX_STAGE = /* wgsl */ `
 @vertex
 fn vsMain(input: VertexInput) -> VertexOutput {
 	var output: VertexOutput;
@@ -41,4 +40,3 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 	output.prevClip = prevClipPosition;
 	return output;
 }
-`;

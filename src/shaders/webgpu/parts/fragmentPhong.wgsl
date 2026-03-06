@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_FRAGMENT_PHONG = /* wgsl */ `
 		let phongAmbient = model.phongAmbientShininess.rgb;
 		let phongSpecular = model.phongSpecularShading.rgb;
 		let shininess = max(model.phongAmbientShininess.a, 0.0);
@@ -116,4 +115,3 @@ export const WEBGPU_SCENE_FRAGMENT_PHONG = /* wgsl */ `
 			linearDepth
 		);
 	}
-`;

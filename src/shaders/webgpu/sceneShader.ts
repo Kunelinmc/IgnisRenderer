@@ -1,15 +1,15 @@
-import { WEBGPU_SCENE_SHADER_CONSTANTS } from "./parts/constants";
-import { WEBGPU_SCENE_SHADER_DEFINITIONS } from "./parts/definitions";
-import { WEBGPU_SCENE_SHADER_UTILS } from "./parts/utils";
-import { WEBGPU_SCENE_VERTEX_STAGE } from "./parts/vertexStage";
-import { WEBGPU_SCENE_FRAGMENT_PRELUDE } from "./parts/fragmentPrelude";
-import { WEBGPU_SCENE_FRAGMENT_PHONG } from "./parts/fragmentPhong";
-import { WEBGPU_SCENE_FRAGMENT_PBR_SETUP } from "./parts/fragmentPbrSetup";
-import { WEBGPU_SCENE_FRAGMENT_PBR_DIRECTIONAL } from "./parts/fragmentPbrDirectional";
-import { WEBGPU_SCENE_FRAGMENT_PBR_POINT } from "./parts/fragmentPbrPoint";
-import { WEBGPU_SCENE_FRAGMENT_PBR_SPOT } from "./parts/fragmentPbrSpot";
-import { WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT } from "./parts/fragmentPbrAmbient";
-import { WEBGPU_SCENE_FRAGMENT_SINGLE_TARGET } from "./parts/fragmentSingleTarget";
+import WEBGPU_SCENE_SHADER_CONSTANTS from "./parts/constants.wgsl?raw";
+import WEBGPU_SCENE_SHADER_DEFINITIONS from "./parts/definitions.wgsl?raw";
+import WEBGPU_SCENE_SHADER_UTILS from "./parts/utils.wgsl?raw";
+import WEBGPU_SCENE_VERTEX_STAGE from "./parts/vertexStage.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PRELUDE from "./parts/fragmentPrelude.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PHONG from "./parts/fragmentPhong.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PBR_SETUP from "./parts/fragmentPbrSetup.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PBR_DIRECTIONAL from "./parts/fragmentPbrDirectional.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PBR_POINT from "./parts/fragmentPbrPoint.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PBR_SPOT from "./parts/fragmentPbrSpot.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_PBR_AMBIENT from "./parts/fragmentPbrAmbient.wgsl?raw";
+import WEBGPU_SCENE_FRAGMENT_SINGLE_TARGET from "./parts/fragmentSingleTarget.wgsl?raw";
 
 export const WEBGPU_SCENE_SHADER = [
 	WEBGPU_SCENE_SHADER_CONSTANTS,

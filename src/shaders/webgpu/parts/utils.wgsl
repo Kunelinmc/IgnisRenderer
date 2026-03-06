@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_SHADER_UTILS = /* wgsl */ `
 fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
@@ -455,4 +454,3 @@ fn sampleSpotShadowVisibility(
 		lightDirection
 	);
 }
-`;

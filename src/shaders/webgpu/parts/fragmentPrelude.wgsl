@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_FRAGMENT_PRELUDE = /* wgsl */ `
 fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
@@ -65,4 +64,3 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 	}
 
 	if (shadingMode == SHADING_PHONG || shadingMode == SHADING_FLAT) {
-`;

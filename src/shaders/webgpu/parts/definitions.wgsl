@@ -1,4 +1,3 @@
-export const WEBGPU_SCENE_SHADER_DEFINITIONS = /* wgsl */ `
 struct DirectionalLightData {
 	direction: vec4<f32>,
 	color: vec4<f32>,
@@ -128,4 +127,3 @@ struct RefractionResult {
 @group(1) @binding(26) var transmissionSampler: sampler;
 @group(1) @binding(27) var thicknessTexture: texture_2d<f32>;
 @group(1) @binding(28) var thicknessSampler: sampler;
-`;
