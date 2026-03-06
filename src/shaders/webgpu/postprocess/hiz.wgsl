@@ -9,8 +9,8 @@ fn csInit(@builtin(global_invocation_id) gid: vec3<u32>) {
 	textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(d, 0.0, 0.0, 1.0));
 }
 
-@group(1) @binding(0) var srcTex: texture_2d<f32>;
-@group(1) @binding(1) var dstTex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var dstTex: texture_storage_2d<rgba16float, write>;
 
 fn minPos(a: f32, b: f32) -> f32 {
 	if (a <= 0.0) { return max(b, 0.0); }

@@ -29,12 +29,12 @@ struct ComposeParams {
 	_pad0: vec2<f32>,
 }
 
-@group(1) @binding(0) var composeScene: texture_2d<f32>;
-@group(1) @binding(1) var composeSSR: texture_2d<f32>;
-@group(1) @binding(2) var composeMotionDepth: texture_2d<f32>;
-@group(1) @binding(3) var composeSampler: sampler;
-@group(1) @binding(4) var<uniform> composeParams: ComposeParams;
-@group(1) @binding(5) var composeOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(0) var composeScene: texture_2d<f32>;
+@group(0) @binding(1) var composeSSR: texture_2d<f32>;
+@group(0) @binding(2) var composeMotionDepth: texture_2d<f32>;
+@group(0) @binding(3) var composeSampler: sampler;
+@group(0) @binding(4) var<uniform> composeParams: ComposeParams;
+@group(0) @binding(5) var composeOut: texture_storage_2d<rgba16float, write>;
 
 fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let xy = encoded * 2.0 - vec2<f32>(1.0, 1.0);

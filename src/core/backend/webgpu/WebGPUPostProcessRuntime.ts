@@ -361,7 +361,7 @@ export class WebGPUPostProcessRuntime {
 			const dstH = Math.max(1, srcH >> 1);
 			binding = this._backend.createBindingGroup({
 				pipeline: this._hizReducePipeline,
-				layoutIndex: 1,
+				layoutIndex: 0,
 				entries: [
 					{ binding: 0, resource: hiZMips[mip - 1] },
 					{ binding: 1, resource: hiZMips[mip] },
@@ -442,7 +442,7 @@ export class WebGPUPostProcessRuntime {
 		);
 		binding = this._backend.createBindingGroup({
 			pipeline: this._ssrComposePipeline,
-			layoutIndex: 1,
+			layoutIndex: 0,
 			entries: [
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.ssrRaw },

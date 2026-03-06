@@ -1,10 +1,10 @@
-import { loadSkyboxShaderSource } from './shaderSource'
+import { loadSkyboxShaderSource } from "./shaderSource";
 
-let _skyboxShaderPromise: Promise<string> | null = null
+let _skyboxShaderPromise: Promise<string> | null = null;
 
 export function getWebGPUSkyboxShader(): Promise<string> {
 	if (!_skyboxShaderPromise) {
-		_skyboxShaderPromise = loadSkyboxShaderSource()
+		_skyboxShaderPromise = loadSkyboxShaderSource();
 	}
-	return _skyboxShaderPromise
+	return _skyboxShaderPromise;
 }
