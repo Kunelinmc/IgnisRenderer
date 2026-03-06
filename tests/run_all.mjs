@@ -24,6 +24,7 @@ const tests = [
 	"test_webgpu_bridge.mjs",
 	"test_webgpu_post_graph.mjs",
 	"test_webgpu_postprocess_math.mjs",
+	"test_webgpu_postprocess_runtime.mjs",
 ];
 
 let failed = false;
