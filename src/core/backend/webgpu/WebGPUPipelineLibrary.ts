@@ -14,7 +14,7 @@ export class WebGPUPipelineLibrary {
 	private _layouts: WebGPUPipelineLayouts;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _skyboxShaderModule: IShaderModule | null = null;
-	private _skyboxPipeline: IRenderPipeline | null = null;
+	private _skyboxPipelines = new Map<WebGPUSceneTargetMode, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<
 		Material,
 		{ key: string; mode: WebGPUSceneTargetMode; pipeline: IRenderPipeline }
@@ -122,15 +122,22 @@ export class WebGPUPipelineLibrary {
 		} as any);
 	}
 
-	public async getSkyboxPipeline(): Promise<IRenderPipeline> {
-		if (this._skyboxPipeline) {
-			return this._skyboxPipeline;
+	public async getSkyboxPipeline(
+		mode: WebGPUSceneTargetMode = "single"
+	): Promise<IRenderPipeline> {
+		const cached = this._skyboxPipelines.get(mode);
+		if (cached) {
+			return cached;
 		}
 
 		const shaderModule = await this._getSkyboxShaderModule();
-		this._skyboxPipeline = this._backend.createPipeline({
+		const targetFormat =
+			mode === "mrt" ? TextureFormat.RGBA16Float : (this._backend.canvasFormat as any);
+		const depthFormat =
+			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
+		const pipeline = this._backend.createPipeline({
 			layout: this._layouts.skyboxPipelineLayout,
-			label: "WebGPUSkyboxPipeline",
+			label: `WebGPUSkyboxPipeline_${mode}`,
 			vertex: {
 				module: shaderModule,
 				entryPoint: "vsMain",
@@ -138,7 +145,7 @@ export class WebGPUPipelineLibrary {
 			fragment: {
 				module: shaderModule,
 				entryPoint: "fsMain",
-				targets: [{ format: this._backend.canvasFormat as any }],
+				targets: [{ format: targetFormat }],
 			},
 			primitive: {
 				topology: "triangle-list" as any,
@@ -146,13 +153,13 @@ export class WebGPUPipelineLibrary {
 				frontFace: "ccw",
 			},
 			depthStencil: {
-				format: TextureFormat.Depth24Plus,
+				format: depthFormat,
 				depthWriteEnabled: false,
 				depthCompare: "always",
 			},
 		} as any);
-
-		return this._skyboxPipeline;
+		this._skyboxPipelines.set(mode, pipeline);
+		return pipeline;
 	}
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {

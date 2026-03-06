@@ -251,7 +251,9 @@ export class WebGPURenderResources {
 			return null;
 		}
 
-		const pipeline = await this._pipelineLibrary.getSkyboxPipeline();
+		const pipeline = await this._pipelineLibrary.getSkyboxPipeline(
+			this._sceneTargetMode
+		);
 		const frameBinding = this._frameBindings.getSkyboxBinding();
 
 		return {

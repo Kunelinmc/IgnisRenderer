@@ -14,6 +14,7 @@ import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/core/Renderer.ts";
 import { Rasterizer } from "../src/core/backend/software/Rasterizer.ts";
+import { LightingConstants } from "../src/core/pipeline/constants.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -724,6 +725,27 @@ function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 	assert.equal(fakeRenderer.shAmbientCoeffs[15].b, 1);
 }
 
+function testRendererUpdateSHNormalizesBakedLightProbeCoeffs() {
+	const probe = new LightProbe(SH.empty(), 1);
+	probe.sh[0] = { r: 10, g: 0, b: 0 };
+	probe.sh[15] = { r: 7, g: 3, b: 1 };
+	probe.prefilteredMap = new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR");
+
+	const fakeRenderer = {
+		params: { worldMatrix: undefined },
+		scene: { lights: [probe] },
+		shAmbientCoeffs: SH.empty(),
+		shCoeffs: SH.empty(),
+	};
+
+	Renderer.prototype.updateSH.call(fakeRenderer);
+
+	const scale = LightingConstants.BAKED_LIGHT_PROBE_SH_SCALE;
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].r - 7 * scale) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].g - 3 * scale) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].b - 1 * scale) < 1e-6);
+}
+
 function run() {
 	try {
 		testSHAmbientGateForBlinnPhong();
@@ -741,6 +763,7 @@ function run() {
 		testMetalnessSuppressesTransmission();
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
+		testRendererUpdateSHNormalizesBakedLightProbeCoeffs();
 		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
 		console.error("❌ Shader semantics test failed");

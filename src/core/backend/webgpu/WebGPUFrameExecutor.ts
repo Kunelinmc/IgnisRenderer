@@ -797,13 +797,45 @@ export class WebGPUFrameExecutor {
 			return;
 		}
 
+		let skyboxDrawn = false;
+		if (clearAttachments) {
+			const skyboxResources = await this._resources.getSkyboxResources();
+			if (skyboxResources) {
+				this._encoder.beginRenderPass({
+					label: "WebGPUSkyboxMRT",
+					colorAttachments: [
+						{
+							view: this._frameTargets.sceneColorMain,
+							clearValue: { r: 0, g: 0, b: 0, a: 1 },
+							loadOp: "clear",
+							storeOp: "store",
+						},
+					],
+					depthStencilAttachment: {
+						view: this._frameTargets.depth,
+						depthClearValue: 1,
+						depthLoadOp: "clear",
+						depthStoreOp: "store",
+					},
+				});
+				this._encoder.setPipeline(skyboxResources.pipeline);
+				this._encoder.setBindingGroup(0, skyboxResources.frameBinding);
+				this._encoder.draw(3);
+				this._encoder.endRenderPass();
+				skyboxDrawn = true;
+			}
+		}
+
 		this._encoder.beginRenderPass({
 			label: clearAttachments ? "WebGPUMainMRT_Clear" : "WebGPUMainMRT_Load",
 			colorAttachments: [
 				{
 					view: this._frameTargets.sceneColorMain,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp:
+						clearAttachments && !skyboxDrawn
+							? "clear"
+							: "load",
 					storeOp: "store",
 				},
 				{
@@ -834,7 +866,10 @@ export class WebGPUFrameExecutor {
 			depthStencilAttachment: {
 				view: this._frameTargets.depth,
 				depthClearValue: 1,
-				depthLoadOp: clearAttachments ? "clear" : "load",
+				depthLoadOp:
+					clearAttachments && !skyboxDrawn
+						? "clear"
+						: "load",
 				depthStoreOp: "store",
 			},
 		});

@@ -330,6 +330,8 @@ function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("prevViewProjection"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("taaJitterCurrentPrev"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
 }
 

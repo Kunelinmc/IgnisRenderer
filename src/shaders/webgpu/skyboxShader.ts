@@ -25,6 +25,7 @@ struct ShadowData {
 
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
+	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
 	skyboxBasisRight: vec4<f32>,
 	skyboxBasisUp: vec4<f32>,
@@ -34,6 +35,7 @@ struct FrameUniforms {
 	options: vec4<f32>,
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
+	taaJitterCurrentPrev: vec4<f32>,
 	directionalLights: array<DirectionalLightData, 4>,
 	pointLights: array<PointLightData, 4>,
 	spotLights: array<SpotLightData, 4>,
