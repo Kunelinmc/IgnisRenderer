@@ -34,7 +34,7 @@ export class OrbitCamera extends Camera {
 
 		this.lookSensitivity = 0.005;
 		this.zoomSensitivity = 0.5;
-		
+
 		this.autoAdjustClipPlanes = true;
 		this.clipNearFactor = 0.002;
 		this.clipNearMin = 0.1;
