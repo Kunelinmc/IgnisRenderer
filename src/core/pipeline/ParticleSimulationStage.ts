@@ -315,11 +315,12 @@ export class ParticleSimulationStage {
 			if (depth <= 0) continue;
 
 			const lifeT = Math.max(0, Math.min(1, particle.age / particle.lifetime));
-			const size = this._sampleNumberGradient(
+			const sizeMultiplier = this._sampleNumberGradient(
 				system.sizeOverLifetime,
 				lifeT,
-				particle.startSize
+				1
 			);
+			const size = particle.startSize * Math.max(0, sizeMultiplier);
 			const color = this._sampleColorGradient(
 				system.colorOverLifetime,
 				lifeT,

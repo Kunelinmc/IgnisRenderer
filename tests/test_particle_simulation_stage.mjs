@@ -121,7 +121,7 @@ function testGradientAndAtlas() {
 			bursts: [{ time: 0, count: 1 }],
 			lifetimeRange: [2, 2],
 			speedRange: [0, 0],
-			sizeRange: [1, 1],
+			sizeRange: [4, 4],
 		},
 		sizeOverLifetime: [
 			{ t: 0, value: 1 },
@@ -137,7 +137,7 @@ function testGradientAndAtlas() {
 	stage.execute(context, 1000)
 	const particle = getBatches(context)[0]?.particles?.[0]
 	assert.ok(particle)
-	assert.ok(Math.abs(particle.size - 2) < 1e-6)
+	assert.ok(Math.abs(particle.size - 8) < 1e-6)
 	assert.ok(Math.abs(particle.color.r - 127.5) < 1e-6)
 	assert.ok(Math.abs(particle.color.b - 127.5) < 1e-6)
 	assert.ok(Math.abs(particle.color.a - 0.75) < 1e-6)

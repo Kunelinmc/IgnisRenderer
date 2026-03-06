@@ -114,7 +114,7 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 @fragment
 fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
 	let sampled = textureSample(particleTexture, particleSampler, input.uv);
-	let color = sampled * input.color;
+	var color = sampled * input.color;
 	if (color.a <= 0.001) {
 		discard;
 	}
