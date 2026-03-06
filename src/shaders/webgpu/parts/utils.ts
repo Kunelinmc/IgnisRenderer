@@ -396,18 +396,27 @@ fn sampleShadowVisibility(
 		for (var x: i32 = -1; x <= 1; x = x + 1) {
 			let samplePosition =
 				texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
+			if (
+				samplePosition.x < 0.0 ||
+				samplePosition.x > f32(shadowSize - 1) ||
+				samplePosition.y < 0.0 ||
+				samplePosition.y > f32(shadowSize - 1)
+			) {
+				continue;
+			}
 			let roundedSamplePosition = round(samplePosition);
-			let sampleCoord = clampShadowTexelCoord(
-				vec2<i32>(
-					i32(roundedSamplePosition.x),
-					i32(roundedSamplePosition.y)
-				),
-				shadowSize
+			let sampleCoord = vec2<i32>(
+				i32(roundedSamplePosition.x),
+				i32(roundedSamplePosition.y)
 			);
 			let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
 			visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
 			sampleCount += 1.0;
 		}
+	}
+
+	if (sampleCount < 1.0) {
+		return 1.0;
 	}
 
 	let filteredVisibility = visible / max(sampleCount, 1.0);

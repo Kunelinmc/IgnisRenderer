@@ -231,9 +231,13 @@ function resolveWebGPUShadowData(
 
 	const size = Math.max(1, shadowMap.size | 0)
 	const texelBias = (shadowMap.params.shadowTexelBias ?? 1.0) * (2.0 / size)
+	const slopeBias = shadowMap.params.shadowSlopeBias ?? 0.03
 	const maxBias = shadowMap.params.shadowMaxBias ?? 0.05
 	const depthBias =
-		Math.min(maxBias, (shadowMap.params.shadowBias ?? 0.008) + texelBias) * 0.5
+		Math.min(
+			maxBias,
+			(shadowMap.params.shadowBias ?? 0.008) + texelBias + slopeBias
+		)
 	const pcfRadius =
 		shadowMap.params.shadowRadius && shadowMap.params.shadowRadius > 0
 			? shadowMap.params.shadowRadius
