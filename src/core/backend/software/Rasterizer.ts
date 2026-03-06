@@ -33,6 +33,7 @@ import {
 	type SHCoefficients,
 } from "../../../maths/types";
 import type { Texture } from "../../Texture";
+import type { SoftwareShadowRenderTarget } from "./shadows";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -44,13 +45,13 @@ export interface RasterizerLike {
 	): void;
 	drawDepthTriangle(
 		pts: ProjectedVertex[],
-		shadowMap: ShadowMap,
+		shadowTarget: SoftwareShadowRenderTarget,
 		material?: Material
 	): void;
 	drawTransmissionTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		shadowMap: ShadowMap
+		shadowTarget: SoftwareShadowRenderTarget
 	): void;
 }
 
@@ -101,6 +102,7 @@ export interface RasterizerContext {
 	};
 	lights: SceneLight[];
 	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
 	features: {
 		enableLighting: boolean;
@@ -294,10 +296,11 @@ export class Rasterizer implements RasterizerLike {
 
 	public drawDepthTriangle(
 		pts: ProjectedVertex[],
-		shadowMap: ShadowMap,
+		shadowTarget: SoftwareShadowRenderTarget,
 		material?: Material
 	): void {
-		const { size, buffer } = shadowMap;
+		const size = shadowTarget.size;
+		const buffer = shadowTarget.depthBuffer;
 		const alphaMode = material?.alphaMode;
 		const maskTexture =
 			alphaMode === AlphaMode.Mask &&
@@ -491,9 +494,11 @@ export class Rasterizer implements RasterizerLike {
 	public drawTransmissionTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		shadowMap: ShadowMap
+		shadowTarget: SoftwareShadowRenderTarget
 	): void {
-		const { size, buffer, transmissionBuffer } = shadowMap;
+		const size = shadowTarget.size;
+		const buffer = shadowTarget.depthBuffer;
+		const transmissionBuffer = shadowTarget.transmissionBuffer;
 		const material = face.material;
 		if (!material || !transmissionBuffer) return;
 
@@ -649,6 +654,7 @@ export class Rasterizer implements RasterizerLike {
 			cameraPos: context.camera.position,
 			lights: lights,
 			shadowMaps: context.shadowMaps,
+			sampleShadow: context.sampleShadow,
 			worldMatrix: context.features.worldMatrix,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			envSpecularMap: envSpecularMap,

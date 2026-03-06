@@ -301,6 +301,8 @@ function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("texture_depth_2d"));
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));

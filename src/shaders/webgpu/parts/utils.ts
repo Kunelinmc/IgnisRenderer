@@ -327,16 +327,6 @@ fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {
 	return vec2<f32>(visibility, grazingBias);
 }
 
-fn decodePackedShadowDepth(packed: vec4<f32>) -> f32 {
-	let bytes = round(clamp(packed, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0);
-	let value =
-		bytes.x * 16777216.0 +
-		bytes.y * 65536.0 +
-		bytes.z * 256.0 +
-		bytes.w;
-	return clamp(value / 4294967295.0, 0.0, 1.0);
-}
-
 fn clampShadowTexelCoord(coord: vec2<i32>, size: i32) -> vec2<i32> {
 	let maxCoord = max(size - 1, 0);
 	return vec2<i32>(
@@ -345,7 +335,7 @@ fn clampShadowTexelCoord(coord: vec2<i32>, size: i32) -> vec2<i32> {
 	);
 }
 
-fn loadShadowTexel(coord: vec2<i32>) -> vec4<f32> {
+fn loadShadowDepthTexel(coord: vec2<i32>) -> f32 {
 	return textureLoad(shadowAtlas, coord, 0);
 }
 
@@ -414,9 +404,7 @@ fn sampleShadowVisibility(
 				),
 				shadowSize
 			);
-			let sampleDepth = decodePackedShadowDepth(
-				loadShadowTexel(tileOffset + sampleCoord)
-			);
+			let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
 			visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
 			sampleCount += 1.0;
 		}

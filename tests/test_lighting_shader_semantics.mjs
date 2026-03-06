@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
-import { evaluateLightContribution } from "../src/core/backend/software/lighting/LightEvaluator.ts";
+import { evaluateLightContribution } from "../src/core/backend/software/LightEvaluator.ts";
 import { SH } from "../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../src/shaders/software/BlinnPhongStrategy.ts";
 import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
@@ -13,7 +13,6 @@ import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/core/Renderer.ts";
-import { ShadowMap } from "../src/utils/ShadowMapping.ts";
 import { Rasterizer } from "../src/core/backend/software/Rasterizer.ts";
 
 function createContext(overrides = {}) {
@@ -455,7 +454,16 @@ function testLightProbeFallbackContributionFromDC() {
 
 function testMaskShadowDepthWriteUsesAlphaCutoff() {
 	const rasterizer = new Rasterizer({});
-	const shadowMap = new ShadowMap(8);
+	const shadowTarget = {
+		size: 8,
+		depthBuffer: new Float32Array(64),
+		transmissionBuffer: new Float32Array(64 * 3),
+	};
+
+	const clearShadowTarget = () => {
+		shadowTarget.depthBuffer.fill(Infinity);
+		shadowTarget.transmissionBuffer.fill(1);
+	};
 
 	const makeTri = () => [
 		{
@@ -494,9 +502,11 @@ function testMaskShadowDepthWriteUsesAlphaCutoff() {
 		map: new Texture(new Uint8ClampedArray([255, 255, 255, 0]), 1, 1),
 	});
 
-	shadowMap.clear();
-	rasterizer.drawDepthTriangle(makeTri(), shadowMap, maskMaterial);
-	const wroteTransparent = shadowMap.buffer.some((d) => Number.isFinite(d));
+	clearShadowTarget();
+	rasterizer.drawDepthTriangle(makeTri(), shadowTarget, maskMaterial);
+	const wroteTransparent = shadowTarget.depthBuffer.some((d) =>
+		Number.isFinite(d)
+	);
 	assert.equal(
 		wroteTransparent,
 		false,
@@ -508,9 +518,9 @@ function testMaskShadowDepthWriteUsesAlphaCutoff() {
 		1,
 		1
 	);
-	shadowMap.clear();
-	rasterizer.drawDepthTriangle(makeTri(), shadowMap, maskMaterial);
-	const wroteOpaque = shadowMap.buffer.some((d) => Number.isFinite(d));
+	clearShadowTarget();
+	rasterizer.drawDepthTriangle(makeTri(), shadowTarget, maskMaterial);
+	const wroteOpaque = shadowTarget.depthBuffer.some((d) => Number.isFinite(d));
 	assert.equal(
 		wroteOpaque,
 		true,

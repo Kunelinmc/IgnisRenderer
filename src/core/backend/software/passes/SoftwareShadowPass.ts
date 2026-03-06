@@ -1,12 +1,22 @@
 import { Vector3 } from "../../../../maths/Vector3";
 import { Matrix4 } from "../../../../maths/Matrix4";
 import { isShadowCastingLight } from "../../../../lights";
-import { ShadowMap } from "../../../../utils/ShadowMapping";
 import { ShadowConstants } from "../../../pipeline/constants";
+import {
+	syncShadowMapRegistry,
+	updateShadowMapMetadata,
+} from "../../../pipeline/ShadowMetadata";
 import { Projector } from "../Projector";
 import type { IVertex, ProjectedVertex } from "../../../types";
 import type { Rasterizer } from "../Rasterizer";
 import type { FrameContext } from "../../../pipeline/types";
+import {
+	clearSoftwareShadowRenderTarget,
+	ensureSoftwareShadowRenderTarget,
+	setSoftwareShadowRuntimeMap,
+	syncSoftwareShadowRuntimeMap,
+	type SoftwareShadowRuntimeMap,
+} from "../shadows";
 
 interface ClipVertex {
 	x: number;
@@ -27,6 +37,7 @@ export class SoftwareShadowPass {
 	private _clipPoolCursor = 0;
 	private _clipScratchA: ClipVertex[] = [];
 	private _clipScratchB: ClipVertex[] = [];
+	private _runtimeShadowMaps: SoftwareShadowRuntimeMap = new Map();
 
 	constructor(rasterizer: Rasterizer) {
 		this._rasterizer = rasterizer;
@@ -43,39 +54,42 @@ export class SoftwareShadowPass {
 
 	public render(context: FrameContext): void {
 		const features = context.features;
-		if (!features.enableShadows) return;
+		if (!features.enableShadows) {
+			this._runtimeShadowMaps.clear();
+			setSoftwareShadowRuntimeMap(context.transient, this._runtimeShadowMaps);
+			return;
+		}
 
 		const frame = context.scene;
 		const shadowMaps = context.shadowMaps;
 		const shadowLights = frame.lights.filter(isShadowCastingLight);
+		syncShadowMapRegistry(shadowMaps, shadowLights);
+		syncSoftwareShadowRuntimeMap(this._runtimeShadowMaps, shadowLights);
+		setSoftwareShadowRuntimeMap(context.transient, this._runtimeShadowMaps);
 
 		if (shadowLights.length === 0) {
-			shadowMaps.clear();
+			this._runtimeShadowMaps.clear();
 			return;
-		}
-
-		for (const [light] of shadowMaps) {
-			if (!shadowLights.includes(light)) {
-				shadowMaps.delete(light);
-			}
 		}
 
 		const worldMatrix = context.worldMatrix;
 		for (const shadowLight of shadowLights) {
-			let shadowMap = shadowMaps.get(shadowLight);
-			if (!shadowMap) {
-				shadowMap = new ShadowMap();
-				shadowMaps.set(shadowLight, shadowMap);
-			}
+			const shadowMap = shadowMaps.get(shadowLight);
+			if (!shadowMap) continue;
 
-			shadowMap.setLightCamera(shadowLight, frame.sceneBounds, worldMatrix);
-			shadowMap.clear();
+			updateShadowMapMetadata(shadowMap, shadowLight, frame.sceneBounds, worldMatrix);
 
 			const vpMatrix = shadowMap.viewProjectionMatrix;
 			if (!vpMatrix) continue;
 
 			const lightDir = shadowMap.latestLightDir;
 			const shadowMapSize = shadowMap.size;
+			const shadowRuntime = ensureSoftwareShadowRenderTarget(
+				this._runtimeShadowMaps,
+				shadowLight,
+				shadowMapSize
+			);
+			clearSoftwareShadowRenderTarget(shadowRuntime);
 
 			for (const packet of frame.shadowCasterPackets) {
 				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
@@ -96,7 +110,7 @@ export class SoftwareShadowPass {
 
 					this._rasterizer.drawDepthTriangle(
 						projected,
-						shadowMap,
+						shadowRuntime,
 						packet.material
 					);
 				}
@@ -117,7 +131,7 @@ export class SoftwareShadowPass {
 							center: packet.worldBounds.center,
 							depthInfo: { min: 0, max: 0, avg: 0 },
 						},
-						shadowMap
+						shadowRuntime
 					);
 				}
 			}

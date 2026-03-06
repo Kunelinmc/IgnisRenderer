@@ -20,7 +20,7 @@ export function createWebGPUPipelineLayouts(
 			{
 				binding: 1,
 				visibility: GPUShaderStage.FRAGMENT,
-				texture: { sampleType: "float" },
+				texture: { sampleType: "depth" },
 			},
 			{
 				binding: 2,

@@ -95,11 +95,12 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			const NdotL = Math.max(0, Vector3.dot(N, L));
 
 			let shadow = { r: 1, g: 1, b: 1 };
-			if (context.enableShadows && isShadowCastingLight(light)) {
-				const shadowMap = context.shadowMaps.get(light);
-				if (shadowMap) {
-					shadow = shadowMap.getShadowFactor(world, N);
-				}
+			if (
+				context.enableShadows &&
+				isShadowCastingLight(light) &&
+				context.sampleShadow
+			) {
+				shadow = context.sampleShadow(light, world, N);
 			}
 
 			const radiance = {

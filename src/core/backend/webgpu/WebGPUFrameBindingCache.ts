@@ -148,7 +148,7 @@ export class WebGPUFrameBindingCache {
 					{
 						binding: 1,
 						resource:
-							this._shadowAtlas ?? this._textureRegistry.getWhiteTexture(),
+							this._shadowAtlas ?? this._shadowAtlases.ensureAtlasForTileSize(1),
 					},
 					{
 						binding: 2,

@@ -7,6 +7,10 @@ import type { ProjectedFace, ProjectedVertex } from "../../types";
 import type { Rasterizer } from "./Rasterizer";
 import { SkyboxRenderer } from "./SkyboxRenderer";
 import { AlphaMode } from "../../../materials/Material";
+import {
+	createSoftwareShadowSampler,
+	getSoftwareShadowRuntimeMap,
+} from "./shadows";
 
 interface ReflectionBuffer {
 	imageData: ImageData;
@@ -332,6 +336,12 @@ export class ReflectionRenderer {
 		context: FrameContext,
 		isTransparent: boolean
 	): void {
+		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
+		const sampleShadow = createSoftwareShadowSampler(
+			context.shadowMaps,
+			runtimeMap
+		);
+
 		const rasterizerContext = {
 			width: overrideSize.width,
 			height: overrideSize.height,
@@ -342,6 +352,7 @@ export class ReflectionRenderer {
 			},
 			lights: context.scene.lights,
 			shadowMaps: context.shadowMaps,
+			sampleShadow,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			features: {
 				enableLighting: context.features.enableLighting,

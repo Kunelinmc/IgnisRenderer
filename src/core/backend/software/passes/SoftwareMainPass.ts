@@ -1,6 +1,10 @@
 import { Projector } from "../Projector";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type { Rasterizer } from "../Rasterizer";
+import {
+	createSoftwareShadowSampler,
+	getSoftwareShadowRuntimeMap,
+} from "../shadows";
 
 export class SoftwareMainPass {
 	private _rasterizer: Rasterizer;
@@ -14,6 +18,12 @@ export class SoftwareMainPass {
 		packets: DrawPacket[],
 		transparent: boolean
 	): void {
+		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
+		const sampleShadow = createSoftwareShadowSampler(
+			context.shadowMaps,
+			runtimeMap
+		);
+
 		const rasterizerContext = {
 			width: context.attachments.width,
 			height: context.attachments.height,
@@ -25,6 +35,7 @@ export class SoftwareMainPass {
 			},
 			lights: context.scene.lights,
 			shadowMaps: context.shadowMaps,
+			sampleShadow,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			features: {
 				enableLighting: context.features.enableLighting,

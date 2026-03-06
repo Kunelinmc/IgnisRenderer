@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
-import { evaluateLightContribution } from "../src/core/backend/software/lighting/LightEvaluator.ts";
+import { evaluateLightContribution } from "../src/core/backend/software/LightEvaluator.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 
 function assertColorClose(actual, expected, tolerance = 0.001) {

@@ -17,6 +17,11 @@ export interface ShaderContext {
 	cameraPos: IVector3;
 	lights: SceneLight[];
 	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	sampleShadow?: (
+		light: ShadowCastingLight,
+		worldPoint: IVector3,
+		normal?: IVector3 | null
+	) => RGB;
 	worldMatrix?: Matrix4;
 	shAmbientCoeffs: SHCoefficients | null;
 	envSpecularMap: Texture | null;

@@ -22,6 +22,7 @@ import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 
 export interface WebGPUDrawResources {
@@ -48,6 +49,7 @@ export class WebGPURenderResources {
 	private _pipelineLibrary: WebGPUPipelineLibrary;
 	private _frameBindings: WebGPUFrameBindingCache;
 	private _materialBindings: WebGPUMaterialBindingCache;
+	private _shadowPass: WebGPUShadowPass;
 	private _lightingState: WebGPULightingState | null = null;
 	private _featureState: WebGPUFeatureState | null = null;
 	private _environmentState: WebGPUEnvironmentState | null = null;
@@ -71,10 +73,19 @@ export class WebGPURenderResources {
 			backend,
 			this._layouts
 		);
+		this._shadowPass = new WebGPUShadowPass(
+			backend,
+			this._geometryRegistry,
+			this._shadowAtlases
+		);
 	}
 
 	public async init(): Promise<void> {
 		await this._pipelineLibrary.init();
+	}
+
+	public renderShadows(context: FrameContext): void {
+		this._shadowPass.render(context);
 	}
 
 	public setSceneTargetMode(mode: WebGPUSceneTargetMode): void {

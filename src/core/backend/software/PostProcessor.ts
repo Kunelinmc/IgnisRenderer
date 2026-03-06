@@ -17,6 +17,10 @@ import {
 	createLightContribution,
 	evaluateLightContribution,
 } from "./LightEvaluator";
+import {
+	createSoftwareShadowSampler,
+	getSoftwareShadowRuntimeMap,
+} from "./shadows";
 import { clamp, linearToSRGB } from "../../../maths/Common";
 import type { IVector3 } from "../../../maths/types";
 import { CameraType } from "../../../cameras/Camera";
@@ -741,6 +745,10 @@ export class PostProcessor implements PostProcessorLike {
 		const sigmaS = sigmaT * scatteringAlbedo;
 
 		const shadowsEnabled = this.renderer.features.enableShadows;
+		const shadowSampler = createSoftwareShadowSampler(
+			context.shadowMaps,
+			getSoftwareShadowRuntimeMap(context.transient)
+		);
 		const shadowInterval = Math.round(
 			clamp(
 				this._toFiniteNumber(options.shadowSampleInterval, 1),
@@ -882,14 +890,10 @@ export class PostProcessor implements PostProcessorLike {
 						const cacheIndex = cellIndex * lightCount + li;
 						let vis = visibilityCache[cacheIndex];
 						if (shadowsEnabled && isShadowCastingLight(L)) {
-							const sm = this.renderer.shadowMaps.get(L);
-							if (sm && (shouldSampleShadow || z === 0)) {
+							if (shouldSampleShadow || z === 0) {
 								// Note: Passing null as normal for volume points to use volume-specific bias
-								const shadow = sm.getShadowFactor(samplePoint, null);
+								const shadow = shadowSampler(L, samplePoint, null);
 								vis = (shadow.r + shadow.g + shadow.b) / 3;
-								visibilityCache[cacheIndex] = vis;
-							} else if (!sm) {
-								vis = 1.0;
 								visibilityCache[cacheIndex] = vis;
 							}
 						} else {
