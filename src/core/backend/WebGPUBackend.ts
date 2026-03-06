@@ -653,8 +653,8 @@ export class WebGPUBackend implements IRenderBackend {
 class WebGPUCommandEncoder implements ICommandEncoder {
 	private _encoder: GPUCommandEncoder;
 	private _backend: WebGPUBackend;
-	private _passEncoder: GPURenderPassEncoder | GPUComputePassEncoder | null =
-		null;
+	private _renderPass: GPURenderPassEncoder | null = null;
+	private _computePass: GPUComputePassEncoder | null = null;
 
 	constructor(encoder: GPUCommandEncoder, backend: WebGPUBackend) {
 		this._encoder = encoder;
@@ -662,12 +662,13 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
-		this._passEncoder = this._encoder.beginRenderPass({
+		this._renderPass = this._encoder.beginRenderPass({
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
 				view:
 					(attachment.view as InternalTexture)?._gpuView ??
 					this._backend.getCurrentColorView(),
-				clearValue: attachment.clearValue,
+				clearValue:
+					attachment.loadOp === "clear" ? attachment.clearValue : undefined,
 				loadOp: attachment.loadOp,
 				storeOp: attachment.storeOp,
 			})),
@@ -676,7 +677,10 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 						view:
 							(desc.depthStencilAttachment.view as InternalTexture)?._gpuView ??
 							this._backend.getCurrentDepthView(),
-						depthClearValue: desc.depthStencilAttachment.depthClearValue ?? 1,
+						depthClearValue:
+							(desc.depthStencilAttachment.depthLoadOp ?? "clear") === "clear"
+								? (desc.depthStencilAttachment.depthClearValue ?? 1)
+								: undefined,
 						depthLoadOp: desc.depthStencilAttachment.depthLoadOp ?? "clear",
 						depthStoreOp: desc.depthStencilAttachment.depthStoreOp ?? "store",
 					}
@@ -686,51 +690,50 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public beginComputePass(desc?: ComputePassDesc): void {
-		this._passEncoder = this._encoder.beginComputePass({
+		this._computePass = this._encoder.beginComputePass({
 			label: desc?.label,
 		});
 	}
 
 	public setComputePipeline(pipeline: IComputePipeline): void {
-		(this._passEncoder as GPUComputePassEncoder | null)?.setPipeline(
+		this._computePass?.setPipeline(
 			(pipeline as InternalComputePipeline)._gpuResource
 		);
 	}
 
 	public dispatchWorkgroups(x: number, y: number = 1, z: number = 1): void {
-		(this._passEncoder as GPUComputePassEncoder | null)?.dispatchWorkgroups(
-			x,
-			y,
-			z
-		);
+		this._computePass?.dispatchWorkgroups(x, y, z);
 	}
 
 	public endComputePass(): void {
-		this._passEncoder?.end();
-		this._passEncoder = null;
+		this._computePass?.end();
+		this._computePass = null;
 	}
 
 	public setPipeline(pipeline: IRenderPipeline): void {
-		(this._passEncoder as GPURenderPassEncoder | null)?.setPipeline(
+		this._renderPass?.setPipeline(
 			(pipeline as InternalRenderPipeline)._gpuResource
 		);
 	}
 
 	public setBindingGroup(index: number, group: IBindingGroup): void {
-		(
-			this._passEncoder as GPURenderPassEncoder | GPUComputePassEncoder | null
-		)?.setBindGroup(index, (group as InternalBindingGroup)._gpuResource);
+		const groupResource = (group as InternalBindingGroup)._gpuResource;
+		if (this._renderPass) {
+			this._renderPass.setBindGroup(index, groupResource);
+		} else if (this._computePass) {
+			this._computePass.setBindGroup(index, groupResource);
+		}
 	}
 
 	public setVertexBuffer(slot: number, buffer: IRenderBuffer): void {
-		(this._passEncoder as GPURenderPassEncoder | null)?.setVertexBuffer(
+		this._renderPass?.setVertexBuffer(
 			slot,
 			(buffer as InternalRenderBuffer)._gpuResource
 		);
 	}
 
 	public setIndexBuffer(buffer: IRenderBuffer, format: IndexFormat): void {
-		(this._passEncoder as GPURenderPassEncoder | null)?.setIndexBuffer(
+		this._renderPass?.setIndexBuffer(
 			(buffer as InternalRenderBuffer)._gpuResource,
 			format
 		);
@@ -739,33 +742,40 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 	public drawIndexed(
 		indexCount: number,
 		instanceCount: number = 1,
-		firstIndex: number = 0
+		firstIndex: number = 0,
+		baseVertex: number = 0,
+		firstInstance: number = 0
 	): void {
-		(this._passEncoder as GPURenderPassEncoder | null)?.drawIndexed(
+		this._renderPass?.drawIndexed(
 			indexCount,
 			instanceCount,
-			firstIndex
+			firstIndex,
+			baseVertex,
+			firstInstance
 		);
 	}
 
 	public draw(
 		vertexCount: number,
 		instanceCount: number = 1,
-		firstVertex: number = 0
+		firstVertex: number = 0,
+		firstInstance: number = 0
 	): void {
-		(this._passEncoder as GPURenderPassEncoder | null)?.draw(
+		this._renderPass?.draw(
 			vertexCount,
 			instanceCount,
-			firstVertex
+			firstVertex,
+			firstInstance
 		);
 	}
 
 	public endRenderPass(): void {
-		this._passEncoder?.end();
-		this._passEncoder = null;
+		this._renderPass?.end();
+		this._renderPass = null;
 	}
 
 	public finish(): InternalCommandBuffer {
+		if (this._renderPass || this._computePass) throw Error("Pass still active");
 		return {
 			_gpuCommandBuffer: this._encoder.finish(),
 		};

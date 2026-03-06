@@ -32,11 +32,18 @@ export interface ICommandEncoder {
 	drawIndexed(
 		indexCount: number,
 		instanceCount?: number,
-		firstIndex?: number
+		firstIndex?: number,
+		baseVertex?: number,
+		firstInstance?: number
 	): void;
 
 	/** Standard non-indexed draw call */
-	draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void;
+	draw(
+		vertexCount: number,
+		instanceCount?: number,
+		firstVertex?: number,
+		firstInstance?: number
+	): void;
 
 	/** End the current render pass */
 	endRenderPass(): void;
