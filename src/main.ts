@@ -7,6 +7,9 @@ import {
 	GLTFLoader,
 	PBRMaterial,
 	ModelFactory,
+	ParticleSystem,
+	ParticleBlendMode,
+	ParticleSpaceMode,
 } from "./index";
 import { SoftwareBackend } from "./core/backend/SoftwareBackend";
 import { WebGPUBackend } from "./core/backend/WebGPUBackend";
@@ -57,6 +60,63 @@ async function init() {
 				reflectivity: 0.5,
 			})
 		)
+	);
+
+	// Add a magical fountain
+	scene.addParticleSystem(
+		new ParticleSystem({
+			name: "fountain",
+			maxParticles: 5000,
+			position: { x: -120, y: 0, z: 120 },
+			emit: {
+				rate: 300,
+				direction: { x: 0, y: 1, z: 0 },
+				spread: 0.15,
+				speedRange: [60, 100],
+				sizeRange: [5, 12],
+				startColor: { r: 100, g: 200, b: 255, a: 0.8 },
+			},
+			gravity: { x: 0, y: -120, z: 0 },
+			sizeOverLifetime: [
+				{ t: 0, value: 1.0 },
+				{ t: 1, value: 0.2 },
+			],
+			colorOverLifetime: [
+				{ t: 0, value: { r: 100, g: 200, b: 255, a: 0.8 } },
+				{ t: 0.8, value: { r: 150, g: 220, b: 255, a: 0.4 } },
+				{ t: 1, value: { r: 200, g: 240, b: 255, a: 0 } },
+			],
+		})
+	);
+
+	// Add a mystical flame
+	scene.addParticleSystem(
+		new ParticleSystem({
+			name: "fire",
+			maxParticles: 2000,
+			position: { x: 120, y: 10, z: -120 },
+			blendMode: ParticleBlendMode.Additive,
+			emit: {
+				rate: 150,
+				direction: { x: 0, y: 1, z: 0 },
+				spread: 0.3,
+				speedRange: [20, 40],
+				sizeRange: [5, 12],
+				startColor: { r: 255, g: 200, b: 50, a: 1 },
+			},
+			gravity: { x: 0, y: 10, z: 0 }, // Upward buoyancy
+			sizeOverLifetime: [
+				{ t: 0, value: 0.2 },
+				{ t: 0.2, value: 1.0 },
+				{ t: 1, value: 0.5 },
+			],
+			colorOverLifetime: [
+				{ t: 0, value: { r: 255, g: 255, b: 200, a: 1 } },
+				{ t: 0.3, value: { r: 255, g: 150, b: 0, a: 0.8 } },
+				{ t: 0.6, value: { r: 200, g: 50, b: 0, a: 0.5 } },
+				{ t: 1, value: { r: 50, g: 0, b: 0, a: 0 } },
+			],
+		})
 	);
 
 	const bootstrap = await createRenderer(canvas, camera, scene);
