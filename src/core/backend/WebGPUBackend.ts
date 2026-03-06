@@ -86,6 +86,7 @@ export class WebGPUBackend implements IRenderBackend {
 		reflection: false,
 		skybox: true,
 		ssao: true,
+		taa: true,
 		ssr: true,
 		volumetric: true,
 	};

@@ -126,8 +126,9 @@ export function packFrameUniformData(
 		[input.hasBRDFLUT ? 1 : 0, Math.max(0, input.envSpecularMaxMipLevel), 0, 0],
 		64
 	);
+	data.set(input.taaJitterCurrentPrev, 68);
 
-	let offset = 68;
+	let offset = 72;
 	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
 		const light = input.directionalLights[i];
 		if (light) {

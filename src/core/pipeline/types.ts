@@ -75,6 +75,7 @@ export type FramePassStage =
 	| "main-opaque"
 	| "main-transparent"
 	| "ssao"
+	| "taa"
 	| "ssr"
 	| "volumetric"
 	| "fxaa"
@@ -108,6 +109,9 @@ export interface SSAOOptions {
 	radius?: number;
 	bias?: number;
 	intensity?: number;
+	downsample?: number;
+	blurRadius?: number;
+	blurSharpness?: number;
 	[key: string]: unknown;
 }
 
@@ -118,6 +122,20 @@ export interface SSROptions {
 	stride?: number;
 	intensity?: number;
 	historyWeight?: number;
+	downsample?: number;
+	binarySearchSteps?: number;
+	edgeFade?: number;
+	maxRoughness?: number;
+	[key: string]: unknown;
+}
+
+export interface TAAOptions {
+	jitterScale?: number;
+	historyWeight?: number;
+	disocclusionDepthThreshold?: number;
+	motionFactor?: number;
+	varianceClampGamma?: number;
+	sharpen?: number;
 	[key: string]: unknown;
 }
 
@@ -134,11 +152,13 @@ export interface RendererFeatureRequest {
 	enableReflection?: boolean;
 	enableSkybox?: boolean;
 	enableSSAO?: boolean;
+	enableTAA?: boolean;
 	enableSSR?: boolean;
 	enableVolumetric?: boolean;
 	enableFXAA?: boolean;
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
+	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 }
 
@@ -150,11 +170,13 @@ export interface ResolvedFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
 	enableFXAA: boolean;
 	warnings: FeatureWarning[];
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
+	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 }

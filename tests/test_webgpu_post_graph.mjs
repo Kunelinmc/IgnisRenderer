@@ -10,12 +10,14 @@ function createFeatures(overrides = {}) {
 		enableReflection: false,
 		enableSkybox: false,
 		enableSSAO: true,
+		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
 		enableFXAA: true,
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
+		taaOptions: {},
 		volumetricOptions: {},
 		...overrides,
 	}
@@ -36,7 +38,8 @@ function createPass(id, dependsOn, key) {
 function testPostGraphOrder() {
 	const graph = new WebGPUPostProcessGraph([
 		createPass('ssao', [], 'enableSSAO'),
-		createPass('ssr', ['ssao'], 'enableSSR'),
+		createPass('taa', ['ssao'], 'enableTAA'),
+		createPass('ssr', ['taa'], 'enableSSR'),
 		createPass('volumetric', ['ssr'], 'enableVolumetric'),
 		createPass('fxaa', ['volumetric'], 'enableFXAA'),
 		createPass('gamma', ['fxaa'], 'enableGamma'),
@@ -48,7 +51,7 @@ function testPostGraphOrder() {
 
 	assert.deepEqual(
 		order.map((pass) => pass.id),
-		['ssao', 'ssr', 'volumetric', 'fxaa', 'gamma']
+		['ssao', 'taa', 'ssr', 'volumetric', 'fxaa', 'gamma']
 	)
 	assert.equal(warnings.length, 0)
 }
@@ -56,7 +59,8 @@ function testPostGraphOrder() {
 function testEnabledSubsetShrinksDependencyChain() {
 	const graph = new WebGPUPostProcessGraph([
 		createPass('ssao', [], 'enableSSAO'),
-		createPass('ssr', ['ssao'], 'enableSSR'),
+		createPass('taa', ['ssao'], 'enableTAA'),
+		createPass('ssr', ['taa'], 'enableSSR'),
 		createPass('volumetric', ['ssr'], 'enableVolumetric'),
 		createPass('fxaa', ['volumetric'], 'enableFXAA'),
 		createPass('gamma', ['fxaa'], 'enableGamma'),
@@ -65,6 +69,7 @@ function testEnabledSubsetShrinksDependencyChain() {
 	const order = graph.getExecutionOrder(
 		createFeatures({
 			enableSSAO: false,
+			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
 			enableFXAA: false,

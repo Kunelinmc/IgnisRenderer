@@ -1,5 +1,6 @@
 import type { Matrix4 } from "../../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../../maths/types";
+import type { TAAOptions } from "../../pipeline/types";
 import type { ShadowMap } from "../../../utils/ShadowMapping";
 import type { Texture } from "../../Texture";
 
@@ -64,8 +65,10 @@ export interface WebGPUFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	taaOptions?: TAAOptions;
 	warnings: WebGPUWarning[];
 }
 
@@ -130,4 +133,5 @@ export interface WebGPUFrameUniformInput {
 	hasEnvSpecular: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;
+	taaJitterCurrentPrev: [number, number, number, number];
 }

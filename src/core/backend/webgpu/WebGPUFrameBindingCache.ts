@@ -18,6 +18,7 @@ import { CameraType } from "../../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import { computeHaltonJitterNDC } from "./postProcessMath";
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
@@ -35,6 +36,9 @@ export class WebGPUFrameBindingCache {
 	private _prevViewProjection:
 		| PreparedScene["camera"]["viewProjectionMatrix"]
 		| null = null;
+	private _taaFrameIndex = 0;
+	private _taaJitterCurrent: [number, number] = [0, 0];
+	private _taaEnabledLastFrame = false;
 
 	constructor(
 		backend: WebGPUBackend,
@@ -52,7 +56,9 @@ export class WebGPUFrameBindingCache {
 		frame: PreparedScene,
 		lightingState: WebGPULightingState,
 		environmentState: WebGPUEnvironmentState,
-		features: WebGPUFeatureState
+		features: WebGPUFeatureState,
+		renderWidth: number,
+		renderHeight: number
 	): void {
 		const viewElements = frame.camera.viewMatrix.elements;
 		const isOrthographic = frame.camera.type === CameraType.Orthographic;
@@ -62,6 +68,12 @@ export class WebGPUFrameBindingCache {
 		const frameUniform = this._getFrameUniformBuffer();
 		const prevViewProjection =
 			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
+		const taaJitter = this._computeTAAJitter(
+			features,
+			isOrthographic,
+			renderWidth,
+			renderHeight
+		);
 		const frameData = packFrameUniformData({
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
 			prevViewProjectionMatrix: prevViewProjection,
@@ -92,6 +104,7 @@ export class WebGPUFrameBindingCache {
 			hasEnvSpecular: !!environmentState.envSpecularTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
+			taaJitterCurrentPrev: taaJitter,
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
@@ -136,6 +149,44 @@ export class WebGPUFrameBindingCache {
 			this._skyboxSampler = currentSkyboxSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 		}
+	}
+
+	private _computeTAAJitter(
+		features: WebGPUFeatureState,
+		isOrthographic: boolean,
+		renderWidth: number,
+		renderHeight: number
+	): [number, number, number, number] {
+		if (
+			!features.enableTAA ||
+			isOrthographic ||
+			renderWidth <= 0 ||
+			renderHeight <= 0
+		) {
+			this._taaJitterCurrent = [0, 0];
+			this._taaFrameIndex = 0;
+			this._taaEnabledLastFrame = false;
+			return [0, 0, 0, 0];
+		}
+
+		const prevJitter = this._taaEnabledLastFrame
+			? this._taaJitterCurrent
+			: [0, 0];
+		const jitterScale =
+			typeof features.taaOptions?.jitterScale === "number" &&
+			Number.isFinite(features.taaOptions.jitterScale)
+				? Math.max(0, features.taaOptions.jitterScale)
+				: 1;
+		const nextJitter = computeHaltonJitterNDC(
+			this._taaFrameIndex,
+			renderWidth,
+			renderHeight,
+			jitterScale
+		);
+		this._taaJitterCurrent = nextJitter;
+		this._taaFrameIndex = (this._taaFrameIndex + 1) % 8;
+		this._taaEnabledLastFrame = true;
+		return [nextJitter[0], nextJitter[1], prevJitter[0], prevJitter[1]];
 	}
 
 	public getSceneBinding(): IBindingGroup {

@@ -9,9 +9,23 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 	);
 	let worldTangent = (model.normalMatrix * vec4<f32>(input.tangent.xyz, 0.0)).xyz;
 	var clipPosition = frame.viewProjection * worldPosition;
+	let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;
+	clipPosition = vec4<f32>(
+		clipPosition.x + currJitter.x,
+		clipPosition.y + currJitter.y,
+		clipPosition.z,
+		clipPosition.w
+	);
 	clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;
 	let prevWorldPosition = model.prevModelMatrix * vec4<f32>(input.position, 1.0);
 	var prevClipPosition = frame.prevViewProjection * prevWorldPosition;
+	let prevJitter = frame.taaJitterCurrentPrev.zw * prevClipPosition.w;
+	prevClipPosition = vec4<f32>(
+		prevClipPosition.x + prevJitter.x,
+		prevClipPosition.y + prevJitter.y,
+		prevClipPosition.z,
+		prevClipPosition.w
+	);
 	prevClipPosition.z = prevClipPosition.z * 0.5 + prevClipPosition.w * 0.5;
 
 	output.position = clipPosition;

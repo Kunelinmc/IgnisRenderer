@@ -25,12 +25,14 @@ function run() {
 		enableReflection: false,
 		enableSkybox: false,
 		enableSSAO: false,
+		enableTAA: false,
 		enableSSR: false,
 		enableVolumetric: false,
 		enableFXAA: true,
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
+		taaOptions: {},
 		volumetricOptions: {},
 	}
 
@@ -45,6 +47,7 @@ function run() {
 			...baseResolved,
 			enableReflection: true,
 			enableSSAO: true,
+			enableTAA: true,
 			enableSSR: true,
 			enableVolumetric: true,
 		}
@@ -58,6 +61,7 @@ function run() {
 			'main-opaque',
 			'main-transparent',
 			'ssao',
+			'taa',
 			'ssr',
 			'volumetric',
 			'fxaa',
@@ -72,6 +76,7 @@ function run() {
 		true
 	)
 	assert.equal(plan.find((pass) => pass.stage === 'ssao')?.enabled, true)
+	assert.equal(plan.find((pass) => pass.stage === 'taa')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'ssr')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'volumetric')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'fxaa')?.enabled, true)

@@ -12,9 +12,10 @@ function run() {
 		reflection: true,
 		skybox: true,
 		ssao: true,
+		taa: false,
 		ssr: false,
 		volumetric: true,
-	})
+	});
 
 	assert.deepEqual(webgpu.capabilities, {
 		sh: true,
@@ -22,9 +23,10 @@ function run() {
 		reflection: false,
 		skybox: true,
 		ssao: true,
+		taa: true,
 		ssr: true,
 		volumetric: true,
-	})
+	});
 
 	testSoftwareBackendReusesFrameImageData()
 

@@ -258,6 +258,7 @@ function testFeatureGate() {
 			enableReflection: true,
 			enableSkybox: true,
 			enableSSAO: true,
+			enableTAA: true,
 			enableSSR: true,
 			enableVolumetric: true,
 		},
@@ -267,6 +268,7 @@ function testFeatureGate() {
 			reflection: false,
 			skybox: false,
 			ssao: false,
+			taa: false,
 			ssr: false,
 			volumetric: false,
 		},
@@ -280,12 +282,27 @@ function testFeatureGate() {
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableSkybox, false);
 	assert.equal(featureState.enableSSAO, false);
+	assert.equal(featureState.enableTAA, false);
 	assert.equal(featureState.enableSSR, false);
 	assert.equal(featureState.enableVolumetric, false);
 	assert.ok(featureState.ssaoOptions);
+	assert.ok(featureState.taaOptions);
 	assert.ok(featureState.ssrOptions);
 	assert.ok(featureState.volumetricOptions);
-	assert.ok(featureState.warnings.length >= 6);
+	assert.equal(featureState.ssaoOptions.downsample, 2);
+	assert.equal(featureState.ssaoOptions.blurRadius, 2);
+	assert.equal(featureState.ssaoOptions.blurSharpness, 8);
+	assert.equal(featureState.taaOptions.jitterScale, 1);
+	assert.equal(featureState.taaOptions.historyWeight, 0.9);
+	assert.equal(featureState.taaOptions.disocclusionDepthThreshold, 0.02);
+	assert.equal(featureState.taaOptions.motionFactor, 80);
+	assert.equal(featureState.taaOptions.varianceClampGamma, 1);
+	assert.equal(featureState.taaOptions.sharpen, 0.1);
+	assert.equal(featureState.ssrOptions.downsample, 2);
+	assert.equal(featureState.ssrOptions.binarySearchSteps, 6);
+	assert.equal(featureState.ssrOptions.edgeFade, 0.12);
+	assert.equal(featureState.ssrOptions.maxRoughness, 0.85);
+	assert.ok(featureState.warnings.length >= 7);
 }
 
 function testSceneShaderCoverage() {
@@ -399,6 +416,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				reflection: false,
 				skybox: false,
 				ssao: false,
+				taa: false,
 				ssr: false,
 				volumetric: false,
 			},
@@ -466,6 +484,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		reflection: false,
 		skybox: true,
 		ssao: false,
+		taa: false,
 		ssr: false,
 		volumetric: false,
 	};

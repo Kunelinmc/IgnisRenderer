@@ -19,6 +19,7 @@ import type { SHCoefficients } from "../maths/types";
 import type {
 	SSAOOptions,
 	SSROptions,
+	TAAOptions,
 	VolumetricOptions,
 	FrameContext,
 } from "./pipeline/types";
@@ -39,12 +40,14 @@ export interface RendererFeatures {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
 	enableFXAA: boolean;
 	ssrOptions: SSROptions;
 	volumetricOptions: VolumetricOptions;
 	ssaoOptions: SSAOOptions;
+	taaOptions: TAAOptions;
 	worldMatrix: Matrix4;
 }
 
@@ -85,12 +88,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableReflection: true,
 			enableSkybox: true,
 			enableSSAO: false,
+			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
 			enableFXAA: false,
 			ssrOptions: {},
 			volumetricOptions: {},
 			ssaoOptions: {},
+			taaOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 

@@ -7,13 +7,24 @@ export type WebGPUPostProcessPassKind = "compute" | "render";
 
 export interface WebGPUFrameTargets {
 	sceneColor: IRenderTexture;
+	sceneColorMain: IRenderTexture;
+	postPing: IRenderTexture;
+	postPong: IRenderTexture;
 	gAlbedoAlpha: IRenderTexture;
 	gNormalRoughMetal: IRenderTexture;
 	gEmissiveOcclusion: IRenderTexture;
 	gMotionDepth: IRenderTexture;
 	depth: IRenderTexture;
+	aoRaw: IRenderTexture;
+	aoBlur: IRenderTexture;
+	ssrRaw: IRenderTexture;
+	hiZ: IRenderTexture;
 	historyRead: IRenderTexture;
 	historyWrite: IRenderTexture;
+	ssrHistoryRead: IRenderTexture;
+	ssrHistoryWrite: IRenderTexture;
+	motionHistoryRead: IRenderTexture;
+	motionHistoryWrite: IRenderTexture;
 }
 
 export interface WebGPUPostProcessPassContext {

@@ -32,6 +32,7 @@ export { PostProcessor } from "./core/backend/software/PostProcessor";
 export type {
 	SSROptions,
 	SSAOOptions,
+	TAAOptions,
 	VolumetricOptions,
 } from "./core/pipeline/types";
 export { Scene } from "./core/Scene";

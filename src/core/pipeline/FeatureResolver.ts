@@ -1,5 +1,75 @@
 import type { BackendCapabilities } from "../backend/IRenderBackend";
-import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
+import type {
+	RendererFeatureRequest,
+	ResolvedFeatureState,
+	SSAOOptions,
+	SSROptions,
+	TAAOptions,
+	VolumetricOptions,
+} from "./types";
+
+const DEFAULT_SSAO_OPTIONS: Required<
+	Pick<
+		SSAOOptions,
+		"samples" | "radius" | "bias" | "intensity" | "downsample" | "blurRadius" | "blurSharpness"
+	>
+> = {
+	samples: 16,
+	radius: 8,
+	bias: 0.1,
+	intensity: 1,
+	downsample: 2,
+	blurRadius: 2,
+	blurSharpness: 8,
+};
+
+const DEFAULT_TAA_OPTIONS: Required<
+	Pick<
+		TAAOptions,
+		| "jitterScale"
+		| "historyWeight"
+		| "disocclusionDepthThreshold"
+		| "motionFactor"
+		| "varianceClampGamma"
+		| "sharpen"
+	>
+> = {
+	jitterScale: 1,
+	historyWeight: 0.9,
+	disocclusionDepthThreshold: 0.02,
+	motionFactor: 80,
+	varianceClampGamma: 1,
+	sharpen: 0.1,
+};
+
+const DEFAULT_SSR_OPTIONS: Required<
+	Pick<
+		SSROptions,
+		| "downsample"
+		| "maxSteps"
+		| "binarySearchSteps"
+		| "maxDistance"
+		| "thickness"
+		| "stride"
+		| "intensity"
+		| "historyWeight"
+		| "edgeFade"
+		| "maxRoughness"
+	>
+> = {
+	downsample: 2,
+	maxSteps: 64,
+	binarySearchSteps: 6,
+	maxDistance: 100,
+	thickness: 0.2,
+	stride: 1,
+	intensity: 1,
+	historyWeight: 0.85,
+	edgeFade: 0.12,
+	maxRoughness: 0.85,
+};
+
+const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = {};
 
 const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	sh: "feature-sh",
@@ -7,6 +77,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	reflection: "feature-reflection",
 	skybox: "feature-skybox",
 	ssao: "feature-ssao",
+	taa: "feature-taa",
 	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
 };
@@ -17,6 +88,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	reflection: "planar reflections",
 	skybox: "skybox rendering",
 	ssao: "SSAO",
+	taa: "TAA",
 	ssr: "SSR",
 	volumetric: "volumetric effects",
 };
@@ -32,9 +104,13 @@ export function resolveFeatureState(
 		enableLighting: request.enableLighting !== false,
 		enableGamma: request.enableGamma !== false,
 		enableFXAA: request.enableFXAA === true,
-		ssrOptions: request.ssrOptions ?? {},
-		ssaoOptions: request.ssaoOptions ?? {},
-		volumetricOptions: request.volumetricOptions ?? {},
+		ssrOptions: { ...DEFAULT_SSR_OPTIONS, ...(request.ssrOptions ?? {}) },
+		ssaoOptions: { ...DEFAULT_SSAO_OPTIONS, ...(request.ssaoOptions ?? {}) },
+		taaOptions: { ...DEFAULT_TAA_OPTIONS, ...(request.taaOptions ?? {}) },
+		volumetricOptions: {
+			...DEFAULT_VOLUMETRIC_OPTIONS,
+			...(request.volumetricOptions ?? {}),
+		},
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
 			capabilities.sh,
@@ -67,6 +143,13 @@ export function resolveFeatureState(
 			request.enableSSAO,
 			capabilities.ssao,
 			"ssao",
+			backendType,
+			warnings
+		),
+		enableTAA: resolveBooleanFeature(
+			request.enableTAA,
+			capabilities.taa,
+			"taa",
 			backendType,
 			warnings
 		),

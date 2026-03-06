@@ -101,7 +101,8 @@ export class WebGPURenderResources {
 		contextOrScene: FrameContext | PreparedScene,
 		featuresArg?: ResolvedFeatureState
 	): void {
-		const { scene, features, shAmbientCoeffs } = this._resolveFrameInputs(
+		const { scene, features, shAmbientCoeffs, renderWidth, renderHeight } =
+			this._resolveFrameInputs(
 			contextOrScene,
 			featuresArg
 		);
@@ -113,8 +114,10 @@ export class WebGPURenderResources {
 			enableReflection: features.enableReflection,
 			enableSkybox: features.enableSkybox,
 			enableSSAO: features.enableSSAO,
+			enableTAA: features.enableTAA,
 			enableSSR: features.enableSSR,
 			enableVolumetric: features.enableVolumetric,
+			taaOptions: features.taaOptions,
 			warnings: [],
 		};
 		this._featureState = featureState;
@@ -144,7 +147,9 @@ export class WebGPURenderResources {
 			scene,
 			this._lightingState,
 			this._environmentState,
-			featureState
+			featureState,
+			renderWidth,
+			renderHeight
 		);
 		this._materialBindings.beginFrame();
 	}
@@ -156,12 +161,16 @@ export class WebGPURenderResources {
 		scene: PreparedScene;
 		features: ResolvedFeatureState;
 		shAmbientCoeffs: FrameContext["shAmbientCoeffs"] | null;
+		renderWidth: number;
+		renderHeight: number;
 	} {
 		if (this._isFrameContext(contextOrScene)) {
 			return {
 				scene: contextOrScene.scene,
 				features: contextOrScene.features,
 				shAmbientCoeffs: contextOrScene.shAmbientCoeffs,
+				renderWidth: Math.max(1, contextOrScene.attachments.width || 1),
+				renderHeight: Math.max(1, contextOrScene.attachments.height || 1),
 			};
 		}
 
@@ -175,6 +184,8 @@ export class WebGPURenderResources {
 			scene: contextOrScene,
 			features: featuresArg,
 			shAmbientCoeffs: null,
+			renderWidth: 1,
+			renderHeight: 1,
 		};
 	}
 

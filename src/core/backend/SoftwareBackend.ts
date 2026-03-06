@@ -20,6 +20,7 @@ export class SoftwareBackend implements IRenderBackend {
 		reflection: true,
 		skybox: true,
 		ssao: true,
+		taa: false,
 		ssr: false,
 		volumetric: true,
 	};
@@ -121,6 +122,8 @@ export class SoftwareBackend implements IRenderBackend {
 				break;
 			case "ssao":
 				this._postProcessor?.applySSAO(context);
+				break;
+			case "taa":
 				break;
 			case "ssr":
 				break;

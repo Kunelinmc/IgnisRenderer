@@ -23,6 +23,7 @@ const tests = [
 	"test_orbit_camera.mjs",
 	"test_webgpu_bridge.mjs",
 	"test_webgpu_post_graph.mjs",
+	"test_webgpu_postprocess_math.mjs",
 ];
 
 let failed = false;

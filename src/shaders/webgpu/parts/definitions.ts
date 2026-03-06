@@ -33,6 +33,7 @@ struct FrameUniforms {
 	options: vec4<f32>,
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
+	taaJitterCurrentPrev: vec4<f32>,
 	directionalLights: array<DirectionalLightData, 4>,
 	pointLights: array<PointLightData, 4>,
 	spotLights: array<SpotLightData, 4>,

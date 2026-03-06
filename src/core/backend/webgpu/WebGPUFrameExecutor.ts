@@ -25,9 +25,11 @@ import {
 	type WebGPUPostProcessPassContext,
 	type WebGPUPostProcessPassPlugin,
 } from './WebGPUPostProcessGraph'
+import { WebGPUPostProcessRuntime } from './WebGPUPostProcessRuntime'
 
 const POST_PROCESS_STAGES = new Set<FramePass['stage']>([
 	'ssao',
+	'taa',
 	'ssr',
 	'volumetric',
 	'fxaa',
@@ -86,16 +88,30 @@ export class WebGPUFrameExecutor {
 	private _frameTargets: WebGPUFrameTargets | null = null
 	private _targetWidth = 0
 	private _targetHeight = 0
-	private _historyA: IRenderTexture | null = null
-	private _historyB: IRenderTexture | null = null
+	private _targetSSAODownsample = 2
+	private _targetSSRDownsample = 2
+	private _taaHistoryA: IRenderTexture | null = null
+	private _taaHistoryB: IRenderTexture | null = null
+	private _ssrHistoryA: IRenderTexture | null = null
+	private _ssrHistoryB: IRenderTexture | null = null
+	private _motionHistoryA: IRenderTexture | null = null
+	private _motionHistoryB: IRenderTexture | null = null
 	private _postGraphExecuted = false
 	private _hasPresentedInFrame = false
-	private _historyValid = false
-	private _historyFlip = false
+	private _taaHistoryValid = false
+	private _taaHistoryFlip = false
+	private _taaHistoryUpdated = false
+	private _ssrHistoryValid = false
+	private _ssrHistoryFlip = false
+	private _ssrHistoryUpdated = false
+	private _motionHistoryValid = false
+	private _motionHistoryFlip = false
 	private _mrtEnabled = true
 	private _mrtSupportChecked = false
+	private _featureHistoryKey = ''
 	private _warnedKeys = new Set<string>()
 	private _postGraph: WebGPUPostProcessGraph
+	private _postRuntime: WebGPUPostProcessRuntime
 	private _presentShaderModule: IShaderModule | null = null
 	private _presentPipeline: IRenderPipeline | null = null
 	private _presentSampler: ISampler | null = null
@@ -106,6 +122,10 @@ export class WebGPUFrameExecutor {
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend
 		this._resources = resources
+		this._postRuntime = new WebGPUPostProcessRuntime(
+			backend,
+			(key, message) => this._warnOnce(key, message)
+		)
 		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses())
 	}
 
@@ -114,10 +134,26 @@ export class WebGPUFrameExecutor {
 		this._encoder = this._backend.createCommandEncoder()
 		this._postGraphExecuted = false
 		this._hasPresentedInFrame = false
+		this._taaHistoryUpdated = false
+		this._ssrHistoryUpdated = false
 
 		this._ensureMRTSupport()
+		this._handleFeatureHistoryTransitions(context)
 		if (this._mrtEnabled) {
-			this._ensureFrameTargets(context.attachments.width, context.attachments.height)
+			const ssaoDownsample = clampDownsample(
+				context.features.ssaoOptions?.downsample,
+				2
+			)
+			const ssrDownsample = clampDownsample(
+				context.features.ssrOptions?.downsample,
+				2
+			)
+			this._ensureFrameTargets(
+				context.attachments.width,
+				context.attachments.height,
+				ssaoDownsample,
+				ssrDownsample
+			)
 			this._resources.setSceneTargetMode('mrt')
 		} else {
 			this._destroyFrameTargets()
@@ -164,8 +200,6 @@ export class WebGPUFrameExecutor {
 		}
 
 		const encoder = this._encoder
-		const historySource = this._mrtEnabled ? this._frameTargets?.sceneColor : null
-		const historyTarget = this._mrtEnabled ? this._frameTargets?.historyWrite : null
 		const width = this._targetWidth
 		const height = this._targetHeight
 
@@ -173,16 +207,36 @@ export class WebGPUFrameExecutor {
 		this._encoder = null
 		this._frameContext = null
 
-		if (historySource && historyTarget && width > 0 && height > 0) {
+		const motionSource = this._mrtEnabled ? this._frameTargets?.gMotionDepth : null
+		const motionTarget = this._mrtEnabled
+			? this._frameTargets?.motionHistoryWrite
+			: null
+		if (motionSource && motionTarget && width > 0 && height > 0) {
 			this._backend.copyTextureToTexture(
-				{ texture: historySource },
-				{ texture: historyTarget },
+				{ texture: motionSource },
+				{ texture: motionTarget },
 				{ width, height, depthOrArrayLayers: 1 }
 			)
-			this._historyValid = true
-			this._historyFlip = !this._historyFlip
+			this._motionHistoryValid = true
+			this._motionHistoryFlip = !this._motionHistoryFlip
 			if (this._frameTargets) {
-				this._applyHistoryFlip(this._frameTargets)
+				this._applyMotionHistoryFlip(this._frameTargets)
+			}
+		}
+
+		if (this._taaHistoryUpdated) {
+			this._taaHistoryValid = true
+			this._taaHistoryFlip = !this._taaHistoryFlip
+			if (this._frameTargets) {
+				this._applyTAAHistoryFlip(this._frameTargets)
+			}
+		}
+
+		if (this._ssrHistoryUpdated) {
+			this._ssrHistoryValid = true
+			this._ssrHistoryFlip = !this._ssrHistoryFlip
+			if (this._frameTargets) {
+				this._applySSRHistoryFlip(this._frameTargets)
 			}
 		}
 	}
@@ -194,14 +248,43 @@ export class WebGPUFrameExecutor {
 				kind: 'compute',
 				dependsOn: [],
 				isEnabled: (features) => features.enableSSAO,
-				execute: async () => {},
+				execute: async (ctx) => {
+					await this._postRuntime.executeSSAO(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext
+					)
+				},
+			},
+			{
+				id: 'taa',
+				kind: 'compute',
+				dependsOn: ['ssao'],
+				isEnabled: (features) => features.enableTAA,
+				execute: async (ctx) => {
+					const historyValid = this._taaHistoryValid && this._motionHistoryValid
+					this._taaHistoryUpdated = await this._postRuntime.executeTAA(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext,
+						historyValid
+					)
+				},
 			},
 			{
 				id: 'ssr',
 				kind: 'compute',
-				dependsOn: ['ssao'],
+				dependsOn: ['taa'],
 				isEnabled: (features) => features.enableSSR,
-				execute: async () => {},
+				execute: async (ctx) => {
+					const historyValid = this._ssrHistoryValid && this._motionHistoryValid
+					this._ssrHistoryUpdated = await this._postRuntime.executeSSR(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext,
+						historyValid
+					)
+				},
 			},
 			{
 				id: 'volumetric',
@@ -215,7 +298,9 @@ export class WebGPUFrameExecutor {
 				kind: 'compute',
 				dependsOn: ['volumetric'],
 				isEnabled: (features) => features.enableFXAA,
-				execute: async () => {},
+				execute: async (ctx) => {
+					await this._postRuntime.executeFXAA(ctx.encoder, ctx.targets)
+				},
 			},
 			{
 				id: 'gamma',
@@ -262,7 +347,12 @@ export class WebGPUFrameExecutor {
 		}
 	}
 
-	private _ensureFrameTargets(width: number, height: number): void {
+	private _ensureFrameTargets(
+		width: number,
+		height: number,
+		ssaoDownsample: number,
+		ssrDownsample: number
+	): void {
 		if (width <= 0 || height <= 0) {
 			this._destroyFrameTargets()
 			return
@@ -271,18 +361,30 @@ export class WebGPUFrameExecutor {
 		if (
 			this._frameTargets &&
 			this._targetWidth === width &&
-			this._targetHeight === height
+			this._targetHeight === height &&
+			this._targetSSAODownsample === ssaoDownsample &&
+			this._targetSSRDownsample === ssrDownsample
 		) {
-			this._applyHistoryFlip(this._frameTargets)
+			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain
+			this._applyTAAHistoryFlip(this._frameTargets)
+			this._applySSRHistoryFlip(this._frameTargets)
+			this._applyMotionHistoryFlip(this._frameTargets)
 			return
 		}
 
 		this._destroyFrameTargets()
 		this._targetWidth = width
 		this._targetHeight = height
-		this._historyValid = false
+		this._targetSSAODownsample = ssaoDownsample
+		this._targetSSRDownsample = ssrDownsample
+		this._taaHistoryValid = false
+		this._ssrHistoryValid = false
+		this._motionHistoryValid = false
+		this._taaHistoryFlip = false
+		this._ssrHistoryFlip = false
+		this._motionHistoryFlip = false
 
-		const sceneColor = this._backend.createTexture({
+		const sceneColorMain = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
@@ -291,7 +393,21 @@ export class WebGPUFrameExecutor {
 				TextureUsage.TextureBinding |
 				TextureUsage.CopySrc |
 				TextureUsage.CopyDst,
-			label: 'WebGPUSceneColor',
+			label: 'WebGPUSceneColorMain',
+		})
+		const postPing = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUPostPing',
+		})
+		const postPong = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUPostPong',
 		})
 		const gAlbedoAlpha = this._backend.createTexture({
 			width,
@@ -318,7 +434,10 @@ export class WebGPUFrameExecutor {
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+			usage:
+				TextureUsage.RenderAttachment |
+				TextureUsage.TextureBinding |
+				TextureUsage.CopySrc,
 			label: 'WebGPUGBuffer_MotionDepth',
 		})
 		const depth = this._backend.createTexture({
@@ -332,64 +451,199 @@ export class WebGPUFrameExecutor {
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
-			usage:
-				TextureUsage.RenderAttachment |
-				TextureUsage.TextureBinding |
-				TextureUsage.CopySrc |
-				TextureUsage.CopyDst,
-			label: 'WebGPUHistoryA',
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUTAAHistoryA',
 		})
 		const historyB = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
-			usage:
-				TextureUsage.RenderAttachment |
-				TextureUsage.TextureBinding |
-				TextureUsage.CopySrc |
-				TextureUsage.CopyDst,
-			label: 'WebGPUHistoryB',
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUTAAHistoryB',
+		})
+		const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample))
+		const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample))
+		const ssrRaw = this._backend.createTexture({
+			width: ssrWidth,
+			height: ssrHeight,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUSSRRaw',
+		})
+		const ssrHistoryA = this._backend.createTexture({
+			width: ssrWidth,
+			height: ssrHeight,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUSSRHistoryA',
+		})
+		const ssrHistoryB = this._backend.createTexture({
+			width: ssrWidth,
+			height: ssrHeight,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUSSRHistoryB',
+		})
+		const motionHistoryA = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+			label: 'WebGPUMotionHistoryA',
+		})
+		const motionHistoryB = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+			label: 'WebGPUMotionHistoryB',
+		})
+		const aoRaw = this._backend.createTexture({
+			width: Math.max(1, Math.floor(width / ssaoDownsample)),
+			height: Math.max(1, Math.floor(height / ssaoDownsample)),
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUSSAORaw',
+		})
+		const aoBlur = this._backend.createTexture({
+			width: Math.max(1, Math.floor(width / ssaoDownsample)),
+			height: Math.max(1, Math.floor(height / ssaoDownsample)),
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUSSAOBlur',
+		})
+		const hiZ = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			mipLevelCount: Math.floor(Math.log2(Math.max(width, height))) + 1,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: 'WebGPUHiZDepth',
 		})
 
 		this._frameTargets = {
-			sceneColor,
+			sceneColor: sceneColorMain,
+			sceneColorMain,
+			postPing,
+			postPong,
 			gAlbedoAlpha,
 			gNormalRoughMetal,
 			gEmissiveOcclusion,
 			gMotionDepth,
 			depth,
+			aoRaw,
+			aoBlur,
+			ssrRaw,
+			hiZ,
 			historyRead: historyA,
 			historyWrite: historyB,
+			ssrHistoryRead: ssrHistoryA,
+			ssrHistoryWrite: ssrHistoryB,
+			motionHistoryRead: motionHistoryA,
+			motionHistoryWrite: motionHistoryB,
 		}
-		this._historyA = historyA
-		this._historyB = historyB
-		this._applyHistoryFlip(this._frameTargets)
+		this._taaHistoryA = historyA
+		this._taaHistoryB = historyB
+		this._ssrHistoryA = ssrHistoryA
+		this._ssrHistoryB = ssrHistoryB
+		this._motionHistoryA = motionHistoryA
+		this._motionHistoryB = motionHistoryB
+		this._applyTAAHistoryFlip(this._frameTargets)
+		this._applySSRHistoryFlip(this._frameTargets)
+		this._applyMotionHistoryFlip(this._frameTargets)
 	}
 
-	private _applyHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._historyA || !this._historyB) return
-		targets.historyRead = this._historyFlip ? this._historyB : this._historyA
-		targets.historyWrite = this._historyFlip ? this._historyA : this._historyB
+	private _applyTAAHistoryFlip(targets: WebGPUFrameTargets): void {
+		if (!this._taaHistoryA || !this._taaHistoryB) return
+		targets.historyRead = this._taaHistoryFlip
+			? this._taaHistoryB
+			: this._taaHistoryA
+		targets.historyWrite = this._taaHistoryFlip
+			? this._taaHistoryA
+			: this._taaHistoryB
+	}
+
+	private _applySSRHistoryFlip(targets: WebGPUFrameTargets): void {
+		if (!this._ssrHistoryA || !this._ssrHistoryB) return
+		targets.ssrHistoryRead = this._ssrHistoryFlip
+			? this._ssrHistoryB
+			: this._ssrHistoryA
+		targets.ssrHistoryWrite = this._ssrHistoryFlip
+			? this._ssrHistoryA
+			: this._ssrHistoryB
+	}
+
+	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
+		if (!this._motionHistoryA || !this._motionHistoryB) return
+		targets.motionHistoryRead = this._motionHistoryFlip
+			? this._motionHistoryB
+			: this._motionHistoryA
+		targets.motionHistoryWrite = this._motionHistoryFlip
+			? this._motionHistoryA
+			: this._motionHistoryB
 	}
 
 	private _destroyFrameTargets(): void {
 		if (!this._frameTargets) return
-		this._frameTargets.sceneColor.destroy()
-		this._frameTargets.gAlbedoAlpha.destroy()
-		this._frameTargets.gNormalRoughMetal.destroy()
-		this._frameTargets.gEmissiveOcclusion.destroy()
-		this._frameTargets.gMotionDepth.destroy()
-		this._frameTargets.depth.destroy()
-		this._frameTargets.historyRead.destroy()
-		this._frameTargets.historyWrite.destroy()
+		const textures = new Set<IRenderTexture>([
+			this._frameTargets.sceneColorMain,
+			this._frameTargets.postPing,
+			this._frameTargets.postPong,
+			this._frameTargets.gAlbedoAlpha,
+			this._frameTargets.gNormalRoughMetal,
+			this._frameTargets.gEmissiveOcclusion,
+			this._frameTargets.gMotionDepth,
+			this._frameTargets.depth,
+			this._frameTargets.aoRaw,
+			this._frameTargets.aoBlur,
+			this._frameTargets.ssrRaw,
+			this._frameTargets.hiZ,
+			this._frameTargets.historyRead,
+			this._frameTargets.historyWrite,
+			this._frameTargets.ssrHistoryRead,
+			this._frameTargets.ssrHistoryWrite,
+			this._frameTargets.motionHistoryRead,
+			this._frameTargets.motionHistoryWrite,
+		])
+		for (const texture of textures) {
+			texture.destroy()
+		}
 		this._frameTargets = null
-		this._historyA = null
-		this._historyB = null
+		this._taaHistoryA = null
+		this._taaHistoryB = null
+		this._ssrHistoryA = null
+		this._ssrHistoryB = null
+		this._motionHistoryA = null
+		this._motionHistoryB = null
 		this._presentBinding = null
 		this._presentBindingSource = null
 		this._targetWidth = 0
 		this._targetHeight = 0
-		this._historyValid = false
+		this._targetSSAODownsample = 2
+		this._targetSSRDownsample = 2
+		this._taaHistoryValid = false
+		this._ssrHistoryValid = false
+		this._motionHistoryValid = false
+		this._taaHistoryFlip = false
+		this._ssrHistoryFlip = false
+		this._motionHistoryFlip = false
+	}
+
+	private _handleFeatureHistoryTransitions(context: FrameContext): void {
+		const historyKey =
+			`mrt:${this._mrtEnabled ? 1 : 0}` +
+			`|ssao:${context.features.enableSSAO ? 1 : 0}` +
+			`|taa:${context.features.enableTAA ? 1 : 0}` +
+			`|ssr:${context.features.enableSSR ? 1 : 0}` +
+			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
+			`|fxaa:${context.features.enableFXAA ? 1 : 0}`
+
+		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {
+			this._taaHistoryValid = false
+			this._ssrHistoryValid = false
+			this._motionHistoryValid = false
+		}
+		this._featureHistoryKey = historyKey
 	}
 
 	private _warnOnce(key: string, message: string): void {
@@ -404,7 +658,15 @@ export class WebGPUFrameExecutor {
 			return
 		}
 
-		context.transient.set('webgpu-history-valid', this._historyValid)
+		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain
+		context.transient.set(
+			'webgpu-taa-history-valid',
+			this._taaHistoryValid && this._motionHistoryValid
+		)
+		context.transient.set(
+			'webgpu-ssr-history-valid',
+			this._ssrHistoryValid && this._motionHistoryValid
+		)
 		const postContext: WebGPUPostProcessPassContext = {
 			backend: this._backend,
 			encoder: this._encoder,
@@ -538,7 +800,7 @@ export class WebGPUFrameExecutor {
 			label: clearAttachments ? 'WebGPUMainMRT_Clear' : 'WebGPUMainMRT_Load',
 			colorAttachments: [
 				{
-					view: this._frameTargets.sceneColor,
+					view: this._frameTargets.sceneColorMain,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
 					loadOp: clearAttachments ? 'clear' : 'load',
 					storeOp: 'store',
@@ -639,4 +901,11 @@ export class WebGPUFrameExecutor {
 
 		this._encoder.endRenderPass()
 	}
+}
+
+function clampDownsample(value: unknown, fallback: number): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		return fallback
+	}
+	return Math.min(8, Math.max(1, Math.floor(value)))
 }
