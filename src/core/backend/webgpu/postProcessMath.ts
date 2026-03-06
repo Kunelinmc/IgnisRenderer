@@ -1,4 +1,4 @@
-export const TAA_HALTON_SAMPLE_COUNT = 8;
+export const TAA_HALTON_SAMPLE_COUNT = 16;
 
 export function halton(index: number, base: number): number {
 	if (base <= 1) {
@@ -27,10 +27,13 @@ export function computeHaltonJitterNDC(
 	const safeSampleCount = Math.max(1, Math.floor(sampleCount));
 	const clampedScale =
 		Number.isFinite(jitterScale) && jitterScale >= 0 ? jitterScale : 1;
-	const sampleIndex =
-		(Math.max(0, Math.floor(frameIndex)) % safeSampleCount) + 1;
-	const jitterX = halton(sampleIndex, 2) - 0.5;
-	const jitterY = halton(sampleIndex, 3) - 0.5;
+	const safeFrameIndex = Math.max(0, Math.floor(frameIndex));
+	const sampleIndex = (safeFrameIndex % safeSampleCount) + 1;
+	const cycleIndex = Math.floor(safeFrameIndex / safeSampleCount);
+	const rotationX = fract(cycleIndex * 0.7548776662466927);
+	const rotationY = fract(cycleIndex * 0.5698402909980532);
+	const jitterX = wrapUnit(halton(sampleIndex, 2) + rotationX) - 0.5;
+	const jitterY = wrapUnit(halton(sampleIndex, 3) + rotationY) - 0.5;
 	return [
 		(jitterX * 2 * clampedScale) / safeWidth,
 		(jitterY * 2 * clampedScale) / safeHeight,
@@ -96,6 +99,12 @@ export function clampHistoryToNeighborhoodYCoCg(
 	let maxY = Number.NEGATIVE_INFINITY;
 	let maxCo = Number.NEGATIVE_INFINITY;
 	let maxCg = Number.NEGATIVE_INFINITY;
+	let sumY = 0;
+	let sumCo = 0;
+	let sumCg = 0;
+	let sumSqY = 0;
+	let sumSqCo = 0;
+	let sumSqCg = 0;
 	for (const rgb of neighborhood) {
 		const ycocg = rgbToYCoCg(rgb);
 		minY = Math.min(minY, ycocg[0]);
@@ -104,12 +113,49 @@ export function clampHistoryToNeighborhoodYCoCg(
 		maxY = Math.max(maxY, ycocg[0]);
 		maxCo = Math.max(maxCo, ycocg[1]);
 		maxCg = Math.max(maxCg, ycocg[2]);
+		sumY += ycocg[0];
+		sumCo += ycocg[1];
+		sumCg += ycocg[2];
+		sumSqY += ycocg[0] * ycocg[0];
+		sumSqCo += ycocg[1] * ycocg[1];
+		sumSqCg += ycocg[2] * ycocg[2];
 	}
+	const invCount = 1 / neighborhood.length;
+	const meanY = sumY * invCount;
+	const meanCo = sumCo * invCount;
+	const meanCg = sumCg * invCount;
+	const sigmaY = Math.sqrt(Math.max(sumSqY * invCount - meanY * meanY, 0));
+	const sigmaCo = Math.sqrt(Math.max(sumSqCo * invCount - meanCo * meanCo, 0));
+	const sigmaCg = Math.sqrt(Math.max(sumSqCg * invCount - meanCg * meanCg, 0));
+	const varMinY = meanY - sigmaY * gamma;
+	const varMinCo = meanCo - sigmaCo * gamma;
+	const varMinCg = meanCg - sigmaCg * gamma;
+	const varMaxY = meanY + sigmaY * gamma;
+	const varMaxCo = meanCo + sigmaCo * gamma;
+	const varMaxCg = meanCg + sigmaCg * gamma;
+	const clipMinY = Math.max(minY, varMinY);
+	const clipMinCo = Math.max(minCo, varMinCo);
+	const clipMinCg = Math.max(minCg, varMinCg);
+	const clipMaxY = Math.min(maxY, varMaxY);
+	const clipMaxCo = Math.min(maxCo, varMaxCo);
+	const clipMaxCg = Math.min(maxCg, varMaxCg);
 	const historyYCoCg = rgbToYCoCg(historyRgb);
 	const clamped: [number, number, number] = [
-		clamp(historyYCoCg[0], minY - gamma, maxY + gamma),
-		clamp(historyYCoCg[1], minCo - gamma, maxCo + gamma),
-		clamp(historyYCoCg[2], minCg - gamma, maxCg + gamma),
+		clamp(
+			historyYCoCg[0],
+			Math.min(clipMinY, clipMaxY),
+			Math.max(clipMinY, clipMaxY)
+		),
+		clamp(
+			historyYCoCg[1],
+			Math.min(clipMinCo, clipMaxCo),
+			Math.max(clipMinCo, clipMaxCo)
+		),
+		clamp(
+			historyYCoCg[2],
+			Math.min(clipMinCg, clipMaxCg),
+			Math.max(clipMinCg, clipMaxCg)
+		),
 	];
 	const rgb = yCoCgToRgb(clamped);
 	return [Math.max(0, rgb[0]), Math.max(0, rgb[1]), Math.max(0, rgb[2])];
@@ -216,4 +262,13 @@ function clamp(value: number, minValue: number, maxValue: number): number {
 
 function clampInt(value: number, minValue: number, maxValue: number): number {
 	return Math.min(Math.max(value | 0, minValue), maxValue);
+}
+
+function fract(value: number): number {
+	return value - Math.floor(value);
+}
+
+function wrapUnit(value: number): number {
+	const f = fract(value);
+	return f < 0 ? f + 1 : f;
 }

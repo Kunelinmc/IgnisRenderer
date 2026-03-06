@@ -18,7 +18,10 @@ import { CameraType } from "../../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import { computeHaltonJitterNDC } from "./postProcessMath";
+import {
+	computeHaltonJitterNDC,
+	TAA_HALTON_SAMPLE_COUNT,
+} from "./postProcessMath";
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
@@ -184,7 +187,7 @@ export class WebGPUFrameBindingCache {
 			jitterScale
 		);
 		this._taaJitterCurrent = nextJitter;
-		this._taaFrameIndex = (this._taaFrameIndex + 1) % 8;
+		this._taaFrameIndex = (this._taaFrameIndex + 1) % TAA_HALTON_SAMPLE_COUNT;
 		this._taaEnabledLastFrame = true;
 		return [nextJitter[0], nextJitter[1], prevJitter[0], prevJitter[1]];
 	}

@@ -19,7 +19,10 @@ function testHaltonSequenceAndJitterRange() {
 
 	const jA = computeHaltonJitterNDC(5, 1920, 1080, 1);
 	const jB = computeHaltonJitterNDC(5, 1920, 1080, 1);
+	const jCycleA = computeHaltonJitterNDC(0, 1920, 1080, 1, 16);
+	const jCycleB = computeHaltonJitterNDC(16, 1920, 1080, 1, 16);
 	assert.deepEqual(jA, jB);
+	assert.notDeepEqual(jCycleA, jCycleB);
 	assert.ok(Number.isFinite(jA[0]) && Number.isFinite(jA[1]));
 	assert.ok(Math.abs(jA[0]) <= 1 / 1920);
 	assert.ok(Math.abs(jA[1]) <= 1 / 1080);
@@ -56,6 +59,15 @@ function testTAANeighborhoodClamp() {
 	assert.ok(clampedYCoCg[0] >= minY && clampedYCoCg[0] <= maxY);
 	assert.ok(clampedYCoCg[1] >= minCo && clampedYCoCg[1] <= maxCo);
 	assert.ok(clampedYCoCg[2] >= minCg && clampedYCoCg[2] <= maxCg);
+
+	const meanNeighborhood = [
+		[0.2, 0.2, 0.2],
+		[0.8, 0.8, 0.8],
+	];
+	const toMean = clampHistoryToNeighborhoodYCoCg([5, 5, 5], meanNeighborhood, 0);
+	assert.ok(Math.abs(toMean[0] - 0.5) < 1e-6);
+	assert.ok(Math.abs(toMean[1] - 0.5) < 1e-6);
+	assert.ok(Math.abs(toMean[2] - 0.5) < 1e-6);
 }
 
 function testHiZBuildAndSSRHitMiss() {

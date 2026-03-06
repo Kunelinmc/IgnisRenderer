@@ -78,9 +78,10 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 	let backward = frame.skyboxBasisBackward.xyz;
 	let tanHalfFov = frame.skyboxBasisRight.w;
 	let aspect = frame.skyboxBasisUp.w;
+	let jitteredNdc = input.ndc + frame.taaJitterCurrentPrev.xy;
 
-	let cx = input.ndc.x * aspect * tanHalfFov;
-	let cy = input.ndc.y * tanHalfFov;
+	let cx = jitteredNdc.x * aspect * tanHalfFov;
+	let cy = jitteredNdc.y * tanHalfFov;
 	let direction = normalize(right * cx + up * cy - backward);
 
 	let phi = atan2(direction.x, direction.z);
