@@ -35,7 +35,7 @@ import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
-import { WEBGPU_PARTICLE_SHADER } from "../../../shaders/webgpu/particleShader";
+import { getWebGPUParticleShader } from "../../../shaders/webgpu/particleShader";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -415,9 +415,10 @@ export class WebGPURenderResources {
 		totalParticles: number
 	): Promise<void> {
 		if (!this._particleShaderModule) {
+			const shaderCode = await getWebGPUParticleShader();
 			this._particleShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUParticleShader",
-				code: WEBGPU_PARTICLE_SHADER,
+				code: shaderCode,
 			});
 		}
 

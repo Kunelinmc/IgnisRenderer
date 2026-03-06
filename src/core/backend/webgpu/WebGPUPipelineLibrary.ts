@@ -1,5 +1,5 @@
-import { WEBGPU_SCENE_SHADER } from "../../../shaders/webgpu/sceneShader";
-import { WEBGPU_SKYBOX_SHADER } from "../../../shaders/webgpu/skyboxShader";
+import { getWebGPUSceneShader } from "../../../shaders/webgpu/sceneShader";
+import { getWebGPUSkyboxShader } from "../../../shaders/webgpu/skyboxShader";
 import { createWebGPUMaterialUniformData } from "./";
 import { TextureFormat } from "../types";
 import type { Material } from "../../../materials/Material";
@@ -164,8 +164,9 @@ export class WebGPUPipelineLibrary {
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
 		if (!this._sceneShaderModule) {
+			const shaderCode = await getWebGPUSceneShader();
 			this._sceneShaderModule = await this._backend.createShaderModule({
-				code: WEBGPU_SCENE_SHADER,
+				code: shaderCode,
 				label: "WebGPUSceneShader",
 			});
 		}
@@ -175,8 +176,9 @@ export class WebGPUPipelineLibrary {
 
 	private async _getSkyboxShaderModule(): Promise<IShaderModule> {
 		if (!this._skyboxShaderModule) {
+			const shaderCode = await getWebGPUSkyboxShader();
 			this._skyboxShaderModule = await this._backend.createShaderModule({
-				code: WEBGPU_SKYBOX_SHADER,
+				code: shaderCode,
 				label: "WebGPUSkyboxShader",
 			});
 		}

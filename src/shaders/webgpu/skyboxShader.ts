@@ -1,2 +1,10 @@
-import skyboxShader from "./skyboxShader.wgsl?raw";
-export const WEBGPU_SKYBOX_SHADER = skyboxShader;
+import { loadSkyboxShaderSource } from './shaderSource'
+
+let _skyboxShaderPromise: Promise<string> | null = null
+
+export function getWebGPUSkyboxShader(): Promise<string> {
+	if (!_skyboxShaderPromise) {
+		_skyboxShaderPromise = loadSkyboxShaderSource()
+	}
+	return _skyboxShaderPromise
+}

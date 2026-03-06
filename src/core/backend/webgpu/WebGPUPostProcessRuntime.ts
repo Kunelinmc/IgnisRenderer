@@ -18,13 +18,7 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
-
-import SSAO_SHADER from "../../../shaders/webgpu/postprocess/ssao.wgsl?raw";
-import TAA_SHADER from "../../../shaders/webgpu/postprocess/taa.wgsl?raw";
-import HIZ_SHADER from "../../../shaders/webgpu/postprocess/hiz.wgsl?raw";
-import SSR_SHADER from "../../../shaders/webgpu/postprocess/ssr.wgsl?raw";
-import FXAA_SHADER from "../../../shaders/webgpu/postprocess/fxaa.wgsl?raw";
-import COPY_SHADER from "../../../shaders/webgpu/postprocess/copy.wgsl?raw";
+import { loadPostProcessShaderPart } from "../../../shaders/webgpu/shaderSource";
 
 interface InternalTexture extends IRenderTexture {
 	_gpuTexture?: any;
@@ -558,11 +552,13 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureSSAOResources(): Promise<void> {
 		await this._ensureCommonResources();
-		if (!this._ssaoModule)
+		if (!this._ssaoModule) {
+			const shaderCode = await loadPostProcessShaderPart("ssao");
 			this._ssaoModule = await this._backend.createShaderModule({
 				label: "WebGPUSSAOShader",
-				code: SSAO_SHADER,
+				code: shaderCode,
 			});
+		}
 		if (!this._ssaoRawPipeline)
 			this._ssaoRawPipeline = this._backend.createComputePipeline({
 				label: "WebGPUSSAORawPipeline",
@@ -588,11 +584,13 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureTAAResources(): Promise<void> {
 		await this._ensureCommonResources();
-		if (!this._taaModule)
+		if (!this._taaModule) {
+			const shaderCode = await loadPostProcessShaderPart("taa");
 			this._taaModule = await this._backend.createShaderModule({
 				label: "WebGPUTAAShader",
-				code: TAA_SHADER,
+				code: shaderCode,
 			});
+		}
 		if (!this._taaPipeline)
 			this._taaPipeline = this._backend.createComputePipeline({
 				label: "WebGPUTAAPipeline",
@@ -608,16 +606,20 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureSSRResources(): Promise<void> {
 		await this._ensureCommonResources();
-		if (!this._hizModule)
+		if (!this._hizModule) {
+			const hizShaderCode = await loadPostProcessShaderPart("hiz");
 			this._hizModule = await this._backend.createShaderModule({
 				label: "WebGPUHiZShader",
-				code: HIZ_SHADER,
+				code: hizShaderCode,
 			});
-		if (!this._ssrModule)
+		}
+		if (!this._ssrModule) {
+			const ssrShaderCode = await loadPostProcessShaderPart("ssr");
 			this._ssrModule = await this._backend.createShaderModule({
 				label: "WebGPUSSRShader",
-				code: SSR_SHADER,
+				code: ssrShaderCode,
 			});
+		}
 		if (!this._hizInitPipeline)
 			this._hizInitPipeline = this._backend.createComputePipeline({
 				label: "WebGPUHiZInitPipeline",
@@ -654,11 +656,13 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureFXAAResources(): Promise<void> {
 		await this._ensureCommonResources();
-		if (!this._fxaaModule)
+		if (!this._fxaaModule) {
+			const shaderCode = await loadPostProcessShaderPart("fxaa");
 			this._fxaaModule = await this._backend.createShaderModule({
 				label: "WebGPUFXAAShader",
-				code: FXAA_SHADER,
+				code: shaderCode,
 			});
+		}
 		if (!this._fxaaPipeline)
 			this._fxaaPipeline = this._backend.createComputePipeline({
 				label: "WebGPUFXAAPipeline",
@@ -673,11 +677,13 @@ export class WebGPUPostProcessRuntime {
 	}
 
 	private async _ensureCopyResources(): Promise<void> {
-		if (!this._copyModule)
+		if (!this._copyModule) {
+			const shaderCode = await loadPostProcessShaderPart("copy");
 			this._copyModule = await this._backend.createShaderModule({
 				label: "WebGPUCopyShader",
-				code: COPY_SHADER,
+				code: shaderCode,
 			});
+		}
 		if (!this._copyPipeline)
 			this._copyPipeline = this._backend.createComputePipeline({
 				label: "WebGPUCopyPipeline",

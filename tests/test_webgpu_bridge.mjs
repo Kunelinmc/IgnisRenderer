@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { WebGPURenderResources } from "../src/core/backend/webgpu/WebGPURenderResources.ts";
-import { WEBGPU_SCENE_SHADER } from "../src/shaders/webgpu/sceneShader.ts";
-import { WEBGPU_SKYBOX_SHADER } from "../src/shaders/webgpu/skyboxShader.ts";
+import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts";
+import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
+import { getWebGPUSkyboxShader } from "../src/shaders/webgpu/skyboxShader.ts";
 import {
 	collectWebGPUEnvironment,
 	collectWebGPULighting,
@@ -308,7 +309,10 @@ function testFeatureGate() {
 	assert.ok(featureState.warnings.length >= 7);
 }
 
-function testSceneShaderCoverage() {
+async function testSceneShaderCoverage() {
+	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader()
+	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader()
+
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			"let pointCount = u32(frame.lightCounts.y + 0.5);"
@@ -333,6 +337,26 @@ function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("prevViewProjection"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("taaJitterCurrentPrev"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
+}
+
+async function testParticleShaderDepthConsistency() {
+	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader()
+
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;"
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;"
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"let currentDepth = ndc.z * 0.5 + 0.5;"
+		)
+	);
 }
 
 function createTinyTexture(mips = 1) {
@@ -555,7 +579,8 @@ async function run() {
 	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
-	testSceneShaderCoverage();
+	await testSceneShaderCoverage();
+	await testParticleShaderDepthConsistency();
 	testEnvironmentCollection();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	await testRenderResourcesUseCopyDstForUploads();
