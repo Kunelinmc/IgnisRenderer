@@ -199,7 +199,8 @@ export class WebGPUFrameBindingCache {
 					{
 						binding: 1,
 						resource:
-							this._shadowAtlas ?? this._shadowAtlases.ensureAtlasForTileSize(1),
+							this._shadowAtlas ??
+							this._shadowAtlases.ensureAtlasForTileSize(1),
 					},
 					{
 						binding: 2,

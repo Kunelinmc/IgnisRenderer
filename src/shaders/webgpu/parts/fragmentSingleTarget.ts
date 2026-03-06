@@ -8,4 +8,4 @@ fn fsMain(input: VertexOutput) -> SceneFragmentOutput {
 fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	return shadeScene(input).sceneColor;
 }
-`
+`;

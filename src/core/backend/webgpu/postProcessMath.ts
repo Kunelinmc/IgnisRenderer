@@ -1,18 +1,18 @@
-export const TAA_HALTON_SAMPLE_COUNT = 8
+export const TAA_HALTON_SAMPLE_COUNT = 8;
 
 export function halton(index: number, base: number): number {
 	if (base <= 1) {
-		throw new Error(`Halton base must be > 1, received ${base}`)
+		throw new Error(`Halton base must be > 1, received ${base}`);
 	}
-	let result = 0
-	let fraction = 1 / base
-	let i = Math.max(0, Math.floor(index))
+	let result = 0;
+	let fraction = 1 / base;
+	let i = Math.max(0, Math.floor(index));
 	while (i > 0) {
-		result += fraction * (i % base)
-		i = Math.floor(i / base)
-		fraction /= base
+		result += fraction * (i % base);
+		i = Math.floor(i / base);
+		fraction /= base;
 	}
-	return result
+	return result;
 }
 
 export function computeHaltonJitterNDC(
@@ -22,25 +22,26 @@ export function computeHaltonJitterNDC(
 	jitterScale: number = 1,
 	sampleCount: number = TAA_HALTON_SAMPLE_COUNT
 ): [number, number] {
-	const safeWidth = Math.max(1, Math.floor(width))
-	const safeHeight = Math.max(1, Math.floor(height))
-	const safeSampleCount = Math.max(1, Math.floor(sampleCount))
+	const safeWidth = Math.max(1, Math.floor(width));
+	const safeHeight = Math.max(1, Math.floor(height));
+	const safeSampleCount = Math.max(1, Math.floor(sampleCount));
 	const clampedScale =
-		Number.isFinite(jitterScale) && jitterScale >= 0 ? jitterScale : 1
-	const sampleIndex = ((Math.max(0, Math.floor(frameIndex)) % safeSampleCount) + 1)
-	const jitterX = halton(sampleIndex, 2) - 0.5
-	const jitterY = halton(sampleIndex, 3) - 0.5
+		Number.isFinite(jitterScale) && jitterScale >= 0 ? jitterScale : 1;
+	const sampleIndex =
+		(Math.max(0, Math.floor(frameIndex)) % safeSampleCount) + 1;
+	const jitterX = halton(sampleIndex, 2) - 0.5;
+	const jitterY = halton(sampleIndex, 3) - 0.5;
 	return [
 		(jitterX * 2 * clampedScale) / safeWidth,
 		(jitterY * 2 * clampedScale) / safeHeight,
-	]
+	];
 }
 
 export function reprojectHistoryUv(
 	uv: [number, number],
 	motion: [number, number]
 ): [number, number] {
-	return [uv[0] - motion[0] * 0.5, uv[1] + motion[1] * 0.5]
+	return [uv[0] - motion[0] * 0.5, uv[1] + motion[1] * 0.5];
 }
 
 export function isDepthHistoryCompatible(
@@ -49,28 +50,32 @@ export function isDepthHistoryCompatible(
 	threshold: number
 ): boolean {
 	const safeThreshold =
-		Number.isFinite(threshold) && threshold >= 0 ? threshold : 0
-	if (!(currentDepth > 0) || !(previousDepth > 0)) return false
+		Number.isFinite(threshold) && threshold >= 0 ? threshold : 0;
+	if (!(currentDepth > 0) || !(previousDepth > 0)) return false;
 	const relativeDiff =
 		Math.abs(currentDepth - previousDepth) /
-		Math.max(Math.max(currentDepth, previousDepth), 1e-4)
-	return relativeDiff <= safeThreshold
+		Math.max(Math.max(currentDepth, previousDepth), 1e-4);
+	return relativeDiff <= safeThreshold;
 }
 
-export function rgbToYCoCg(rgb: [number, number, number]): [number, number, number] {
-	const co = rgb[0] - rgb[2]
-	const t = rgb[2] + co * 0.5
-	const cg = rgb[1] - t
-	const y = t + cg * 0.5
-	return [y, co, cg]
+export function rgbToYCoCg(
+	rgb: [number, number, number]
+): [number, number, number] {
+	const co = rgb[0] - rgb[2];
+	const t = rgb[2] + co * 0.5;
+	const cg = rgb[1] - t;
+	const y = t + cg * 0.5;
+	return [y, co, cg];
 }
 
-export function yCoCgToRgb(yCoCg: [number, number, number]): [number, number, number] {
-	const t = yCoCg[0] - yCoCg[2] * 0.5
-	const g = yCoCg[2] + t
-	const b = t - yCoCg[1] * 0.5
-	const r = b + yCoCg[1]
-	return [r, g, b]
+export function yCoCgToRgb(
+	yCoCg: [number, number, number]
+): [number, number, number] {
+	const t = yCoCg[0] - yCoCg[2] * 0.5;
+	const g = yCoCg[2] + t;
+	const b = t - yCoCg[1] * 0.5;
+	const r = b + yCoCg[1];
+	return [r, g, b];
 }
 
 export function clampHistoryToNeighborhoodYCoCg(
@@ -79,65 +84,68 @@ export function clampHistoryToNeighborhoodYCoCg(
 	varianceClampGamma: number
 ): [number, number, number] {
 	if (neighborhood.length === 0) {
-		return historyRgb
+		return historyRgb;
 	}
 	const gamma =
 		Number.isFinite(varianceClampGamma) && varianceClampGamma >= 0
 			? varianceClampGamma
-			: 0
-	let minY = Number.POSITIVE_INFINITY
-	let minCo = Number.POSITIVE_INFINITY
-	let minCg = Number.POSITIVE_INFINITY
-	let maxY = Number.NEGATIVE_INFINITY
-	let maxCo = Number.NEGATIVE_INFINITY
-	let maxCg = Number.NEGATIVE_INFINITY
+			: 0;
+	let minY = Number.POSITIVE_INFINITY;
+	let minCo = Number.POSITIVE_INFINITY;
+	let minCg = Number.POSITIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	let maxCo = Number.NEGATIVE_INFINITY;
+	let maxCg = Number.NEGATIVE_INFINITY;
 	for (const rgb of neighborhood) {
-		const ycocg = rgbToYCoCg(rgb)
-		minY = Math.min(minY, ycocg[0])
-		minCo = Math.min(minCo, ycocg[1])
-		minCg = Math.min(minCg, ycocg[2])
-		maxY = Math.max(maxY, ycocg[0])
-		maxCo = Math.max(maxCo, ycocg[1])
-		maxCg = Math.max(maxCg, ycocg[2])
+		const ycocg = rgbToYCoCg(rgb);
+		minY = Math.min(minY, ycocg[0]);
+		minCo = Math.min(minCo, ycocg[1]);
+		minCg = Math.min(minCg, ycocg[2]);
+		maxY = Math.max(maxY, ycocg[0]);
+		maxCo = Math.max(maxCo, ycocg[1]);
+		maxCg = Math.max(maxCg, ycocg[2]);
 	}
-	const historyYCoCg = rgbToYCoCg(historyRgb)
+	const historyYCoCg = rgbToYCoCg(historyRgb);
 	const clamped: [number, number, number] = [
 		clamp(historyYCoCg[0], minY - gamma, maxY + gamma),
 		clamp(historyYCoCg[1], minCo - gamma, maxCo + gamma),
 		clamp(historyYCoCg[2], minCg - gamma, maxCg + gamma),
-	]
-	const rgb = yCoCgToRgb(clamped)
-	return [Math.max(0, rgb[0]), Math.max(0, rgb[1]), Math.max(0, rgb[2])]
+	];
+	const rgb = yCoCgToRgb(clamped);
+	return [Math.max(0, rgb[0]), Math.max(0, rgb[1]), Math.max(0, rgb[2])];
 }
 
 export interface HiZMipLevel {
-	width: number
-	height: number
-	data: Float32Array
+	width: number;
+	height: number;
+	data: Float32Array;
 }
 
 export function buildHiZMipMinLevel(level: HiZMipLevel): HiZMipLevel {
-	const outWidth = Math.max(1, level.width >> 1)
-	const outHeight = Math.max(1, level.height >> 1)
-	const out = new Float32Array(outWidth * outHeight)
+	const outWidth = Math.max(1, level.width >> 1);
+	const outHeight = Math.max(1, level.height >> 1);
+	const out = new Float32Array(outWidth * outHeight);
 	for (let y = 0; y < outHeight; y++) {
 		for (let x = 0; x < outWidth; x++) {
-			const x0 = clampInt(x * 2, 0, level.width - 1)
-			const x1 = clampInt(x * 2 + 1, 0, level.width - 1)
-			const y0 = clampInt(y * 2, 0, level.height - 1)
-			const y1 = clampInt(y * 2 + 1, 0, level.height - 1)
-			const d00 = level.data[y0 * level.width + x0]
-			const d10 = level.data[y0 * level.width + x1]
-			const d01 = level.data[y1 * level.width + x0]
-			const d11 = level.data[y1 * level.width + x1]
-			out[y * outWidth + x] = minPositive(minPositive(d00, d10), minPositive(d01, d11))
+			const x0 = clampInt(x * 2, 0, level.width - 1);
+			const x1 = clampInt(x * 2 + 1, 0, level.width - 1);
+			const y0 = clampInt(y * 2, 0, level.height - 1);
+			const y1 = clampInt(y * 2 + 1, 0, level.height - 1);
+			const d00 = level.data[y0 * level.width + x0];
+			const d10 = level.data[y0 * level.width + x1];
+			const d01 = level.data[y1 * level.width + x0];
+			const d11 = level.data[y1 * level.width + x1];
+			out[y * outWidth + x] = minPositive(
+				minPositive(d00, d10),
+				minPositive(d01, d11)
+			);
 		}
 	}
 	return {
 		width: outWidth,
 		height: outHeight,
 		data: out,
-	}
+	};
 }
 
 export function buildHiZMinChain(
@@ -151,11 +159,14 @@ export function buildHiZMinChain(
 			height: Math.max(1, Math.floor(height)),
 			data: depth.slice(),
 		},
-	]
-	while (levels[levels.length - 1].width > 1 || levels[levels.length - 1].height > 1) {
-		levels.push(buildHiZMipMinLevel(levels[levels.length - 1]))
+	];
+	while (
+		levels[levels.length - 1].width > 1 ||
+		levels[levels.length - 1].height > 1
+	) {
+		levels.push(buildHiZMipMinLevel(levels[levels.length - 1]));
 	}
-	return levels
+	return levels;
 }
 
 export function traceSSRDepthHit(
@@ -167,42 +178,42 @@ export function traceSSRDepthHit(
 	maxSteps: number,
 	thickness: number
 ): { hit: boolean; hitUv: [number, number] | null } {
-	const safeStep = Math.max(stepSize, 1e-4)
-	const safeThickness = Math.max(0, thickness)
-	let uvX = originUv[0]
-	let uvY = originUv[1]
-	let rayDepth = originDepth
+	const safeStep = Math.max(stepSize, 1e-4);
+	const safeThickness = Math.max(0, thickness);
+	let uvX = originUv[0];
+	let uvY = originUv[1];
+	let rayDepth = originDepth;
 	for (let i = 0; i < Math.max(1, Math.floor(maxSteps)); i++) {
-		uvX += directionUv[0] * safeStep
-		uvY += directionUv[1] * safeStep
-		rayDepth += safeStep
+		uvX += directionUv[0] * safeStep;
+		uvY += directionUv[1] * safeStep;
+		rayDepth += safeStep;
 		if (uvX < 0 || uvX > 1 || uvY < 0 || uvY > 1) {
-			return { hit: false, hitUv: null }
+			return { hit: false, hitUv: null };
 		}
-		const sceneDepth = sampleDepthNearest(depth, uvX, uvY)
+		const sceneDepth = sampleDepthNearest(depth, uvX, uvY);
 		if (sceneDepth > 0 && rayDepth >= sceneDepth - safeThickness) {
-			return { hit: true, hitUv: [uvX, uvY] }
+			return { hit: true, hitUv: [uvX, uvY] };
 		}
 	}
-	return { hit: false, hitUv: null }
+	return { hit: false, hitUv: null };
 }
 
 function sampleDepthNearest(level: HiZMipLevel, u: number, v: number): number {
-	const x = clampInt(Math.round(u * (level.width - 1)), 0, level.width - 1)
-	const y = clampInt(Math.round(v * (level.height - 1)), 0, level.height - 1)
-	return level.data[y * level.width + x]
+	const x = clampInt(Math.round(u * (level.width - 1)), 0, level.width - 1);
+	const y = clampInt(Math.round(v * (level.height - 1)), 0, level.height - 1);
+	return level.data[y * level.width + x];
 }
 
 function minPositive(a: number, b: number): number {
-	if (a <= 0) return Math.max(0, b)
-	if (b <= 0) return Math.max(0, a)
-	return Math.min(a, b)
+	if (a <= 0) return Math.max(0, b);
+	if (b <= 0) return Math.max(0, a);
+	return Math.min(a, b);
 }
 
 function clamp(value: number, minValue: number, maxValue: number): number {
-	return Math.min(Math.max(value, minValue), maxValue)
+	return Math.min(Math.max(value, minValue), maxValue);
 }
 
 function clampInt(value: number, minValue: number, maxValue: number): number {
-	return Math.min(Math.max(value | 0, minValue), maxValue)
+	return Math.min(Math.max(value | 0, minValue), maxValue);
 }

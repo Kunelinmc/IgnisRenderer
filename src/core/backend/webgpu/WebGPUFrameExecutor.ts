@@ -1,5 +1,5 @@
-import type { DrawPacket, FrameContext, FramePass } from '../../pipeline/types'
-import type { ICommandEncoder } from '../ICommandEncoder'
+import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
+import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,
 	BufferUsage,
@@ -12,29 +12,29 @@ import {
 	type IRenderTexture,
 	type ISampler,
 	type IShaderModule,
-} from '../types'
-import type { WebGPUBackend } from '../WebGPUBackend'
-import type { WebGPURenderResources } from './WebGPURenderResources'
+} from "../types";
+import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPURenderResources } from "./WebGPURenderResources";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
-} from './constants'
+} from "./constants";
 import {
 	WebGPUPostProcessGraph,
 	type WebGPUFrameTargets,
 	type WebGPUPostProcessPassContext,
 	type WebGPUPostProcessPassPlugin,
-} from './WebGPUPostProcessGraph'
-import { WebGPUPostProcessRuntime } from './WebGPUPostProcessRuntime'
+} from "./WebGPUPostProcessGraph";
+import { WebGPUPostProcessRuntime } from "./WebGPUPostProcessRuntime";
 
-const POST_PROCESS_STAGES = new Set<FramePass['stage']>([
-	'ssao',
-	'taa',
-	'ssr',
-	'volumetric',
-	'fxaa',
-	'gamma',
-])
+const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
+	"ssao",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fxaa",
+	"gamma",
+]);
 
 const WEBGPU_PRESENT_SHADER = /* wgsl */ `
 struct PresentParams {
@@ -78,165 +78,166 @@ fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 	let outputColor = select(linearColor, gammaColor, presentParams.applyGamma > 0.5);
 	return vec4<f32>(clamp(outputColor, vec3<f32>(0.0), vec3<f32>(1.0)), sampled.a);
 }
-`
+`;
 
 export class WebGPUFrameExecutor {
-	private _backend: WebGPUBackend
-	private _resources: WebGPURenderResources
-	private _encoder: ICommandEncoder | null = null
-	private _frameContext: FrameContext | null = null
-	private _frameTargets: WebGPUFrameTargets | null = null
-	private _targetWidth = 0
-	private _targetHeight = 0
-	private _targetSSAODownsample = 2
-	private _targetSSRDownsample = 2
-	private _taaHistoryA: IRenderTexture | null = null
-	private _taaHistoryB: IRenderTexture | null = null
-	private _ssrHistoryA: IRenderTexture | null = null
-	private _ssrHistoryB: IRenderTexture | null = null
-	private _motionHistoryA: IRenderTexture | null = null
-	private _motionHistoryB: IRenderTexture | null = null
-	private _postGraphExecuted = false
-	private _hasPresentedInFrame = false
-	private _taaHistoryValid = false
-	private _taaHistoryFlip = false
-	private _taaHistoryUpdated = false
-	private _ssrHistoryValid = false
-	private _ssrHistoryFlip = false
-	private _ssrHistoryUpdated = false
-	private _motionHistoryValid = false
-	private _motionHistoryFlip = false
-	private _mrtEnabled = true
-	private _mrtSupportChecked = false
-	private _featureHistoryKey = ''
-	private _warnedKeys = new Set<string>()
-	private _postGraph: WebGPUPostProcessGraph
-	private _postRuntime: WebGPUPostProcessRuntime
-	private _presentShaderModule: IShaderModule | null = null
-	private _presentPipeline: IRenderPipeline | null = null
-	private _presentSampler: ISampler | null = null
-	private _presentParamsBuffer: IRenderBuffer | null = null
-	private _presentBinding: IBindingGroup | null = null
-	private _presentBindingSource: IRenderTexture | null = null
+	private _backend: WebGPUBackend;
+	private _resources: WebGPURenderResources;
+	private _encoder: ICommandEncoder | null = null;
+	private _frameContext: FrameContext | null = null;
+	private _frameTargets: WebGPUFrameTargets | null = null;
+	private _targetWidth = 0;
+	private _targetHeight = 0;
+	private _targetSSAODownsample = 2;
+	private _targetSSRDownsample = 2;
+	private _taaHistoryA: IRenderTexture | null = null;
+	private _taaHistoryB: IRenderTexture | null = null;
+	private _ssrHistoryA: IRenderTexture | null = null;
+	private _ssrHistoryB: IRenderTexture | null = null;
+	private _motionHistoryA: IRenderTexture | null = null;
+	private _motionHistoryB: IRenderTexture | null = null;
+	private _postGraphExecuted = false;
+	private _hasPresentedInFrame = false;
+	private _taaHistoryValid = false;
+	private _taaHistoryFlip = false;
+	private _taaHistoryUpdated = false;
+	private _ssrHistoryValid = false;
+	private _ssrHistoryFlip = false;
+	private _ssrHistoryUpdated = false;
+	private _motionHistoryValid = false;
+	private _motionHistoryFlip = false;
+	private _mrtEnabled = true;
+	private _mrtSupportChecked = false;
+	private _featureHistoryKey = "";
+	private _warnedKeys = new Set<string>();
+	private _postGraph: WebGPUPostProcessGraph;
+	private _postRuntime: WebGPUPostProcessRuntime;
+	private _presentShaderModule: IShaderModule | null = null;
+	private _presentPipeline: IRenderPipeline | null = null;
+	private _presentSampler: ISampler | null = null;
+	private _presentParamsBuffer: IRenderBuffer | null = null;
+	private _presentBinding: IBindingGroup | null = null;
+	private _presentBindingSource: IRenderTexture | null = null;
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
-		this._backend = backend
-		this._resources = resources
-		this._postRuntime = new WebGPUPostProcessRuntime(
-			backend,
-			(key, message) => this._warnOnce(key, message)
-		)
-		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses())
+		this._backend = backend;
+		this._resources = resources;
+		this._postRuntime = new WebGPUPostProcessRuntime(backend, (key, message) =>
+			this._warnOnce(key, message)
+		);
+		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._frameContext = context
-		this._encoder = this._backend.createCommandEncoder()
-		this._postGraphExecuted = false
-		this._hasPresentedInFrame = false
-		this._taaHistoryUpdated = false
-		this._ssrHistoryUpdated = false
+		this._frameContext = context;
+		this._encoder = this._backend.createCommandEncoder();
+		this._postGraphExecuted = false;
+		this._hasPresentedInFrame = false;
+		this._taaHistoryUpdated = false;
+		this._ssrHistoryUpdated = false;
 
-		this._ensureMRTSupport()
-		this._handleFeatureHistoryTransitions(context)
+		this._ensureMRTSupport();
+		this._handleFeatureHistoryTransitions(context);
 		if (this._mrtEnabled) {
 			const ssaoDownsample = clampDownsample(
 				context.features.ssaoOptions?.downsample,
 				2
-			)
+			);
 			const ssrDownsample = clampDownsample(
 				context.features.ssrOptions?.downsample,
 				2
-			)
+			);
 			this._ensureFrameTargets(
 				context.attachments.width,
 				context.attachments.height,
 				ssaoDownsample,
 				ssrDownsample
-			)
-			this._resources.setSceneTargetMode('mrt')
+			);
+			this._resources.setSceneTargetMode("mrt");
 		} else {
-			this._destroyFrameTargets()
-			this._resources.setSceneTargetMode('single')
+			this._destroyFrameTargets();
+			this._resources.setSceneTargetMode("single");
 		}
 	}
 
 	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
-		this._postGraph.registerPass(pass)
+		this._postGraph.registerPass(pass);
 	}
 
 	public unregisterPostProcessPass(id: string): void {
-		this._postGraph.unregisterPass(id)
+		this._postGraph.unregisterPass(id);
 	}
 
 	public async executePass(
 		pass: FramePass,
 		context: FrameContext
 	): Promise<void> {
-		if (!this._encoder) return
+		if (!this._encoder) return;
 
 		switch (pass.stage) {
-			case 'main-opaque':
-				await this._recordMainPass(context.scene.opaquePackets, true)
-				return
-			case 'main-transparent':
-				await this._recordMainPass(context.scene.transparentPackets, false)
-				return
+			case "main-opaque":
+				await this._recordMainPass(context.scene.opaquePackets, true);
+				return;
+			case "main-transparent":
+				await this._recordMainPass(context.scene.transparentPackets, false);
+				return;
 		}
 
 		if (POST_PROCESS_STAGES.has(pass.stage) && !this._postGraphExecuted) {
-			await this._runPostGraph(context)
+			await this._runPostGraph(context);
 		}
 	}
 
 	public async endFrame(): Promise<void> {
-		if (!this._encoder) return
+		if (!this._encoder) return;
 
 		if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
 			await this._presentToCanvas(
 				this._frameTargets.sceneColor,
 				this._frameContext?.features.enableGamma !== false
-			)
+			);
 		}
 
-		const encoder = this._encoder
-		const width = this._targetWidth
-		const height = this._targetHeight
+		const encoder = this._encoder;
+		const width = this._targetWidth;
+		const height = this._targetHeight;
 
-		this._backend.submit([encoder.finish()])
-		this._encoder = null
-		this._frameContext = null
+		this._backend.submit([encoder.finish()]);
+		this._encoder = null;
+		this._frameContext = null;
 
-		const motionSource = this._mrtEnabled ? this._frameTargets?.gMotionDepth : null
+		const motionSource = this._mrtEnabled
+			? this._frameTargets?.gMotionDepth
+			: null;
 		const motionTarget = this._mrtEnabled
 			? this._frameTargets?.motionHistoryWrite
-			: null
+			: null;
 		if (motionSource && motionTarget && width > 0 && height > 0) {
 			this._backend.copyTextureToTexture(
 				{ texture: motionSource },
 				{ texture: motionTarget },
 				{ width, height, depthOrArrayLayers: 1 }
-			)
-			this._motionHistoryValid = true
-			this._motionHistoryFlip = !this._motionHistoryFlip
+			);
+			this._motionHistoryValid = true;
+			this._motionHistoryFlip = !this._motionHistoryFlip;
 			if (this._frameTargets) {
-				this._applyMotionHistoryFlip(this._frameTargets)
+				this._applyMotionHistoryFlip(this._frameTargets);
 			}
 		}
 
 		if (this._taaHistoryUpdated) {
-			this._taaHistoryValid = true
-			this._taaHistoryFlip = !this._taaHistoryFlip
+			this._taaHistoryValid = true;
+			this._taaHistoryFlip = !this._taaHistoryFlip;
 			if (this._frameTargets) {
-				this._applyTAAHistoryFlip(this._frameTargets)
+				this._applyTAAHistoryFlip(this._frameTargets);
 			}
 		}
 
 		if (this._ssrHistoryUpdated) {
-			this._ssrHistoryValid = true
-			this._ssrHistoryFlip = !this._ssrHistoryFlip
+			this._ssrHistoryValid = true;
+			this._ssrHistoryFlip = !this._ssrHistoryFlip;
 			if (this._frameTargets) {
-				this._applySSRHistoryFlip(this._frameTargets)
+				this._applySSRHistoryFlip(this._frameTargets);
 			}
 		}
 	}
@@ -244,8 +245,8 @@ export class WebGPUFrameExecutor {
 	private _createDefaultPasses(): WebGPUPostProcessPassPlugin[] {
 		return [
 			{
-				id: 'ssao',
-				kind: 'compute',
+				id: "ssao",
+				kind: "compute",
 				dependsOn: [],
 				isEnabled: (features) => features.enableSSAO,
 				execute: async (ctx) => {
@@ -253,97 +254,97 @@ export class WebGPUFrameExecutor {
 						ctx.encoder,
 						ctx.targets,
 						ctx.frameContext
-					)
+					);
 				},
 			},
 			{
-				id: 'taa',
-				kind: 'compute',
-				dependsOn: ['ssao'],
+				id: "taa",
+				kind: "compute",
+				dependsOn: ["ssao"],
 				isEnabled: (features) => features.enableTAA,
 				execute: async (ctx) => {
-					const historyValid = this._taaHistoryValid && this._motionHistoryValid
+					const historyValid =
+						this._taaHistoryValid && this._motionHistoryValid;
 					this._taaHistoryUpdated = await this._postRuntime.executeTAA(
 						ctx.encoder,
 						ctx.targets,
 						ctx.frameContext,
 						historyValid
-					)
+					);
 				},
 			},
 			{
-				id: 'ssr',
-				kind: 'compute',
-				dependsOn: ['taa'],
+				id: "ssr",
+				kind: "compute",
+				dependsOn: ["taa"],
 				isEnabled: (features) => features.enableSSR,
 				execute: async (ctx) => {
-					const historyValid = this._ssrHistoryValid && this._motionHistoryValid
+					const historyValid =
+						this._ssrHistoryValid && this._motionHistoryValid;
 					this._ssrHistoryUpdated = await this._postRuntime.executeSSR(
 						ctx.encoder,
 						ctx.targets,
 						ctx.frameContext,
 						historyValid
-					)
+					);
 				},
 			},
 			{
-				id: 'volumetric',
-				kind: 'compute',
-				dependsOn: ['ssr'],
+				id: "volumetric",
+				kind: "compute",
+				dependsOn: ["ssr"],
 				isEnabled: (features) => features.enableVolumetric,
 				execute: async () => {},
 			},
 			{
-				id: 'fxaa',
-				kind: 'compute',
-				dependsOn: ['volumetric'],
+				id: "fxaa",
+				kind: "compute",
+				dependsOn: ["volumetric"],
 				isEnabled: (features) => features.enableFXAA,
 				execute: async (ctx) => {
-					await this._postRuntime.executeFXAA(ctx.encoder, ctx.targets)
+					await this._postRuntime.executeFXAA(ctx.encoder, ctx.targets);
 				},
 			},
 			{
-				id: 'gamma',
-				kind: 'render',
-				dependsOn: ['fxaa'],
+				id: "gamma",
+				kind: "render",
+				dependsOn: ["fxaa"],
 				isEnabled: (features) => features.enableGamma,
 				execute: async (ctx) => {
-					await this._presentToCanvas(ctx.targets.sceneColor, true)
+					await this._presentToCanvas(ctx.targets.sceneColor, true);
 				},
 			},
-		]
+		];
 	}
 
 	private _ensureMRTSupport(): void {
-		if (this._mrtSupportChecked) return
-		this._mrtSupportChecked = true
+		if (this._mrtSupportChecked) return;
+		this._mrtSupportChecked = true;
 
 		const maxColorAttachments =
-			this._backend.device?.limits?.maxColorAttachments ?? 8
+			this._backend.device?.limits?.maxColorAttachments ?? 8;
 		const maxColorAttachmentBytesPerSample =
-			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32
+			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
 
 		if (
 			maxColorAttachments >= WEBGPU_MRT_COLOR_TARGET_COUNT &&
 			maxColorAttachmentBytesPerSample >= WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
 		) {
-			return
+			return;
 		}
 
-		this._mrtEnabled = false
+		this._mrtEnabled = false;
 		if (maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT) {
 			this._warnOnce(
-				'webgpu-mrt-disabled-attachments',
+				"webgpu-mrt-disabled-attachments",
 				`WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`
-			)
+			);
 		}
-		if (
-			maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
-		) {
+		if (maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE) {
 			this._warnOnce(
-				'webgpu-mrt-disabled-bytes',
+				"webgpu-mrt-disabled-bytes",
 				`WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`
-			)
+			);
 		}
 	}
 
@@ -354,8 +355,8 @@ export class WebGPUFrameExecutor {
 		ssrDownsample: number
 	): void {
 		if (width <= 0 || height <= 0) {
-			this._destroyFrameTargets()
-			return
+			this._destroyFrameTargets();
+			return;
 		}
 
 		if (
@@ -365,24 +366,24 @@ export class WebGPUFrameExecutor {
 			this._targetSSAODownsample === ssaoDownsample &&
 			this._targetSSRDownsample === ssrDownsample
 		) {
-			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain
-			this._applyTAAHistoryFlip(this._frameTargets)
-			this._applySSRHistoryFlip(this._frameTargets)
-			this._applyMotionHistoryFlip(this._frameTargets)
-			return
+			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
+			this._applyTAAHistoryFlip(this._frameTargets);
+			this._applySSRHistoryFlip(this._frameTargets);
+			this._applyMotionHistoryFlip(this._frameTargets);
+			return;
 		}
 
-		this._destroyFrameTargets()
-		this._targetWidth = width
-		this._targetHeight = height
-		this._targetSSAODownsample = ssaoDownsample
-		this._targetSSRDownsample = ssrDownsample
-		this._taaHistoryValid = false
-		this._ssrHistoryValid = false
-		this._motionHistoryValid = false
-		this._taaHistoryFlip = false
-		this._ssrHistoryFlip = false
-		this._motionHistoryFlip = false
+		this._destroyFrameTargets();
+		this._targetWidth = width;
+		this._targetHeight = height;
+		this._targetSSAODownsample = ssaoDownsample;
+		this._targetSSRDownsample = ssrDownsample;
+		this._taaHistoryValid = false;
+		this._ssrHistoryValid = false;
+		this._motionHistoryValid = false;
+		this._taaHistoryFlip = false;
+		this._ssrHistoryFlip = false;
+		this._motionHistoryFlip = false;
 
 		const sceneColorMain = this._backend.createTexture({
 			width,
@@ -393,43 +394,43 @@ export class WebGPUFrameExecutor {
 				TextureUsage.TextureBinding |
 				TextureUsage.CopySrc |
 				TextureUsage.CopyDst,
-			label: 'WebGPUSceneColorMain',
-		})
+			label: "WebGPUSceneColorMain",
+		});
 		const postPing = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUPostPing',
-		})
+			label: "WebGPUPostPing",
+		});
 		const postPong = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUPostPong',
-		})
+			label: "WebGPUPostPong",
+		});
 		const gAlbedoAlpha = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA8Unorm,
 			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: 'WebGPUGBuffer_AlbedoAlpha',
-		})
+			label: "WebGPUGBuffer_AlbedoAlpha",
+		});
 		const gNormalRoughMetal = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: 'WebGPUGBuffer_NormalRoughMetal',
-		})
+			label: "WebGPUGBuffer_NormalRoughMetal",
+		});
 		const gEmissiveOcclusion = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: 'WebGPUGBuffer_EmissiveOcclusion',
-		})
+			label: "WebGPUGBuffer_EmissiveOcclusion",
+		});
 		const gMotionDepth = this._backend.createTexture({
 			width,
 			height,
@@ -438,88 +439,88 @@ export class WebGPUFrameExecutor {
 				TextureUsage.RenderAttachment |
 				TextureUsage.TextureBinding |
 				TextureUsage.CopySrc,
-			label: 'WebGPUGBuffer_MotionDepth',
-		})
+			label: "WebGPUGBuffer_MotionDepth",
+		});
 		const depth = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.Depth32Float,
 			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: 'WebGPUDepthSampleable',
-		})
+			label: "WebGPUDepthSampleable",
+		});
 		const historyA = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUTAAHistoryA',
-		})
+			label: "WebGPUTAAHistoryA",
+		});
 		const historyB = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUTAAHistoryB',
-		})
-		const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample))
-		const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample))
+			label: "WebGPUTAAHistoryB",
+		});
+		const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample));
+		const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample));
 		const ssrRaw = this._backend.createTexture({
 			width: ssrWidth,
 			height: ssrHeight,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUSSRRaw',
-		})
+			label: "WebGPUSSRRaw",
+		});
 		const ssrHistoryA = this._backend.createTexture({
 			width: ssrWidth,
 			height: ssrHeight,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUSSRHistoryA',
-		})
+			label: "WebGPUSSRHistoryA",
+		});
 		const ssrHistoryB = this._backend.createTexture({
 			width: ssrWidth,
 			height: ssrHeight,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUSSRHistoryB',
-		})
+			label: "WebGPUSSRHistoryB",
+		});
 		const motionHistoryA = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-			label: 'WebGPUMotionHistoryA',
-		})
+			label: "WebGPUMotionHistoryA",
+		});
 		const motionHistoryB = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-			label: 'WebGPUMotionHistoryB',
-		})
+			label: "WebGPUMotionHistoryB",
+		});
 		const aoRaw = this._backend.createTexture({
 			width: Math.max(1, Math.floor(width / ssaoDownsample)),
 			height: Math.max(1, Math.floor(height / ssaoDownsample)),
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUSSAORaw',
-		})
+			label: "WebGPUSSAORaw",
+		});
 		const aoBlur = this._backend.createTexture({
 			width: Math.max(1, Math.floor(width / ssaoDownsample)),
 			height: Math.max(1, Math.floor(height / ssaoDownsample)),
 			format: TextureFormat.RGBA16Float,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUSSAOBlur',
-		})
+			label: "WebGPUSSAOBlur",
+		});
 		const hiZ = this._backend.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA16Float,
 			mipLevelCount: Math.floor(Math.log2(Math.max(width, height))) + 1,
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: 'WebGPUHiZDepth',
-		})
+			label: "WebGPUHiZDepth",
+		});
 
 		this._frameTargets = {
 			sceneColor: sceneColorMain,
@@ -541,50 +542,50 @@ export class WebGPUFrameExecutor {
 			ssrHistoryWrite: ssrHistoryB,
 			motionHistoryRead: motionHistoryA,
 			motionHistoryWrite: motionHistoryB,
-		}
-		this._taaHistoryA = historyA
-		this._taaHistoryB = historyB
-		this._ssrHistoryA = ssrHistoryA
-		this._ssrHistoryB = ssrHistoryB
-		this._motionHistoryA = motionHistoryA
-		this._motionHistoryB = motionHistoryB
-		this._applyTAAHistoryFlip(this._frameTargets)
-		this._applySSRHistoryFlip(this._frameTargets)
-		this._applyMotionHistoryFlip(this._frameTargets)
+		};
+		this._taaHistoryA = historyA;
+		this._taaHistoryB = historyB;
+		this._ssrHistoryA = ssrHistoryA;
+		this._ssrHistoryB = ssrHistoryB;
+		this._motionHistoryA = motionHistoryA;
+		this._motionHistoryB = motionHistoryB;
+		this._applyTAAHistoryFlip(this._frameTargets);
+		this._applySSRHistoryFlip(this._frameTargets);
+		this._applyMotionHistoryFlip(this._frameTargets);
 	}
 
 	private _applyTAAHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._taaHistoryA || !this._taaHistoryB) return
+		if (!this._taaHistoryA || !this._taaHistoryB) return;
 		targets.historyRead = this._taaHistoryFlip
 			? this._taaHistoryB
-			: this._taaHistoryA
+			: this._taaHistoryA;
 		targets.historyWrite = this._taaHistoryFlip
 			? this._taaHistoryA
-			: this._taaHistoryB
+			: this._taaHistoryB;
 	}
 
 	private _applySSRHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._ssrHistoryA || !this._ssrHistoryB) return
+		if (!this._ssrHistoryA || !this._ssrHistoryB) return;
 		targets.ssrHistoryRead = this._ssrHistoryFlip
 			? this._ssrHistoryB
-			: this._ssrHistoryA
+			: this._ssrHistoryA;
 		targets.ssrHistoryWrite = this._ssrHistoryFlip
 			? this._ssrHistoryA
-			: this._ssrHistoryB
+			: this._ssrHistoryB;
 	}
 
 	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._motionHistoryA || !this._motionHistoryB) return
+		if (!this._motionHistoryA || !this._motionHistoryB) return;
 		targets.motionHistoryRead = this._motionHistoryFlip
 			? this._motionHistoryB
-			: this._motionHistoryA
+			: this._motionHistoryA;
 		targets.motionHistoryWrite = this._motionHistoryFlip
 			? this._motionHistoryA
-			: this._motionHistoryB
+			: this._motionHistoryB;
 	}
 
 	private _destroyFrameTargets(): void {
-		if (!this._frameTargets) return
+		if (!this._frameTargets) return;
 		const textures = new Set<IRenderTexture>([
 			this._frameTargets.sceneColorMain,
 			this._frameTargets.postPing,
@@ -604,29 +605,29 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.ssrHistoryWrite,
 			this._frameTargets.motionHistoryRead,
 			this._frameTargets.motionHistoryWrite,
-		])
+		]);
 		for (const texture of textures) {
-			texture.destroy()
+			texture.destroy();
 		}
-		this._frameTargets = null
-		this._taaHistoryA = null
-		this._taaHistoryB = null
-		this._ssrHistoryA = null
-		this._ssrHistoryB = null
-		this._motionHistoryA = null
-		this._motionHistoryB = null
-		this._presentBinding = null
-		this._presentBindingSource = null
-		this._targetWidth = 0
-		this._targetHeight = 0
-		this._targetSSAODownsample = 2
-		this._targetSSRDownsample = 2
-		this._taaHistoryValid = false
-		this._ssrHistoryValid = false
-		this._motionHistoryValid = false
-		this._taaHistoryFlip = false
-		this._ssrHistoryFlip = false
-		this._motionHistoryFlip = false
+		this._frameTargets = null;
+		this._taaHistoryA = null;
+		this._taaHistoryB = null;
+		this._ssrHistoryA = null;
+		this._ssrHistoryB = null;
+		this._motionHistoryA = null;
+		this._motionHistoryB = null;
+		this._presentBinding = null;
+		this._presentBindingSource = null;
+		this._targetWidth = 0;
+		this._targetHeight = 0;
+		this._targetSSAODownsample = 2;
+		this._targetSSRDownsample = 2;
+		this._taaHistoryValid = false;
+		this._ssrHistoryValid = false;
+		this._motionHistoryValid = false;
+		this._taaHistoryFlip = false;
+		this._ssrHistoryFlip = false;
+		this._motionHistoryFlip = false;
 	}
 
 	private _handleFeatureHistoryTransitions(context: FrameContext): void {
@@ -636,103 +637,103 @@ export class WebGPUFrameExecutor {
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
 			`|ssr:${context.features.enableSSR ? 1 : 0}` +
 			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
-			`|fxaa:${context.features.enableFXAA ? 1 : 0}`
+			`|fxaa:${context.features.enableFXAA ? 1 : 0}`;
 
 		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {
-			this._taaHistoryValid = false
-			this._ssrHistoryValid = false
-			this._motionHistoryValid = false
+			this._taaHistoryValid = false;
+			this._ssrHistoryValid = false;
+			this._motionHistoryValid = false;
 		}
-		this._featureHistoryKey = historyKey
+		this._featureHistoryKey = historyKey;
 	}
 
 	private _warnOnce(key: string, message: string): void {
-		if (this._warnedKeys.has(key)) return
-		this._warnedKeys.add(key)
-		console.warn(message)
+		if (this._warnedKeys.has(key)) return;
+		this._warnedKeys.add(key);
+		console.warn(message);
 	}
 
 	private async _runPostGraph(context: FrameContext): Promise<void> {
-		this._postGraphExecuted = true
+		this._postGraphExecuted = true;
 		if (!this._mrtEnabled || !this._frameTargets || !this._encoder) {
-			return
+			return;
 		}
 
-		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain
+		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		context.transient.set(
-			'webgpu-taa-history-valid',
+			"webgpu-taa-history-valid",
 			this._taaHistoryValid && this._motionHistoryValid
-		)
+		);
 		context.transient.set(
-			'webgpu-ssr-history-valid',
+			"webgpu-ssr-history-valid",
 			this._ssrHistoryValid && this._motionHistoryValid
-		)
+		);
 		const postContext: WebGPUPostProcessPassContext = {
 			backend: this._backend,
 			encoder: this._encoder,
 			frameContext: context,
 			targets: this._frameTargets,
-		}
+		};
 		const executed = await this._postGraph.execute(
 			postContext,
 			context.features,
 			(key, message) => this._warnOnce(key, message)
-		)
-		context.transient.set('webgpu-post-order', executed)
+		);
+		context.transient.set("webgpu-post-order", executed);
 
-		if (!executed.includes('gamma')) {
+		if (!executed.includes("gamma")) {
 			await this._presentToCanvas(
 				this._frameTargets.sceneColor,
 				context.features.enableGamma !== false
-			)
+			);
 		}
 	}
 
 	private async _ensurePresentResources(): Promise<void> {
 		if (!this._presentShaderModule) {
 			this._presentShaderModule = await this._backend.createShaderModule({
-				label: 'WebGPUPresentShader',
+				label: "WebGPUPresentShader",
 				code: WEBGPU_PRESENT_SHADER,
-			})
+			});
 		}
 
 		if (!this._presentPipeline) {
 			this._presentPipeline = this._backend.createPipeline({
-				label: 'WebGPUPresentPipeline',
+				label: "WebGPUPresentPipeline",
 				vertex: {
 					module: this._presentShaderModule,
-					entryPoint: 'vsMain',
+					entryPoint: "vsMain",
 				},
 				fragment: {
 					module: this._presentShaderModule,
-					entryPoint: 'fsMain',
+					entryPoint: "fsMain",
 					targets: [{ format: this._backend.canvasFormat as any }],
 				},
 				primitive: {
-					topology: 'triangle-list' as any,
-					cullMode: 'none',
-					frontFace: 'ccw',
+					topology: "triangle-list" as any,
+					cullMode: "none",
+					frontFace: "ccw",
 				},
-			} as any)
+			} as any);
 		}
 
 		if (!this._presentSampler) {
 			this._presentSampler = this._backend.createSampler({
-				label: 'WebGPUPresentSampler',
+				label: "WebGPUPresentSampler",
 				magFilter: FilterMode.Linear,
 				minFilter: FilterMode.Linear,
 				mipmapFilter: FilterMode.Linear,
 				addressModeU: AddressMode.ClampToEdge,
 				addressModeV: AddressMode.ClampToEdge,
-			})
+			});
 		}
 
 		if (!this._presentParamsBuffer) {
 			this._presentParamsBuffer = this._backend.createBuffer({
-				label: 'WebGPUPresentParams',
+				label: "WebGPUPresentParams",
 				size: 16,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			})
+			});
 		}
 	}
 
@@ -740,20 +741,20 @@ export class WebGPUFrameExecutor {
 		source: IRenderTexture,
 		applyGamma: boolean
 	): Promise<void> {
-		if (!this._encoder) return
-		await this._ensurePresentResources()
+		if (!this._encoder) return;
+		await this._ensurePresentResources();
 		if (
 			!this._presentPipeline ||
 			!this._presentSampler ||
 			!this._presentParamsBuffer
 		) {
-			return
+			return;
 		}
 
 		this._backend.writeBuffer(
 			this._presentParamsBuffer,
 			new Float32Array([2.2, applyGamma ? 1 : 0, 0, 0])
-		)
+		);
 
 		if (!this._presentBinding || this._presentBindingSource !== source) {
 			this._presentBinding = this._backend.createBindingGroup({
@@ -764,148 +765,148 @@ export class WebGPUFrameExecutor {
 					{ binding: 1, resource: this._presentSampler },
 					{ binding: 2, resource: this._presentParamsBuffer },
 				],
-				label: 'WebGPUPresentBinding',
-			})
-			this._presentBindingSource = source
+				label: "WebGPUPresentBinding",
+			});
+			this._presentBindingSource = source;
 		}
 
 		this._encoder.beginRenderPass({
-			label: 'WebGPUPresentPass',
+			label: "WebGPUPresentPass",
 			colorAttachments: [
 				{
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: 'clear',
-					storeOp: 'store',
+					loadOp: "clear",
+					storeOp: "store",
 				},
 			],
-		})
-		this._encoder.setPipeline(this._presentPipeline)
-		this._encoder.setBindingGroup(0, this._presentBinding)
-		this._encoder.draw(3)
-		this._encoder.endRenderPass()
-		this._hasPresentedInFrame = true
+		});
+		this._encoder.setPipeline(this._presentPipeline);
+		this._encoder.setBindingGroup(0, this._presentBinding);
+		this._encoder.draw(3);
+		this._encoder.endRenderPass();
+		this._hasPresentedInFrame = true;
 	}
 
 	private async _recordMainPass(
 		packets: DrawPacket[],
 		clearAttachments: boolean
 	): Promise<void> {
-		if (!this._encoder) return
+		if (!this._encoder) return;
 		if (!this._mrtEnabled || !this._frameTargets) {
-			await this._recordLegacyMainPass(packets, clearAttachments)
-			return
+			await this._recordLegacyMainPass(packets, clearAttachments);
+			return;
 		}
 
 		this._encoder.beginRenderPass({
-			label: clearAttachments ? 'WebGPUMainMRT_Clear' : 'WebGPUMainMRT_Load',
+			label: clearAttachments ? "WebGPUMainMRT_Clear" : "WebGPUMainMRT_Load",
 			colorAttachments: [
 				{
 					view: this._frameTargets.sceneColorMain,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 				{
 					view: this._frameTargets.gAlbedoAlpha,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 				{
 					view: this._frameTargets.gNormalRoughMetal,
 					clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 				{
 					view: this._frameTargets.gEmissiveOcclusion,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 				{
 					view: this._frameTargets.gMotionDepth,
 					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
 				view: this._frameTargets.depth,
 				depthClearValue: 1,
-				depthLoadOp: clearAttachments ? 'clear' : 'load',
-				depthStoreOp: 'store',
+				depthLoadOp: clearAttachments ? "clear" : "load",
+				depthStoreOp: "store",
 			},
-		})
+		});
 
 		for (const packet of packets) {
-			const resources = await this._resources.getDrawResources(packet)
-			if (!resources) continue
+			const resources = await this._resources.getDrawResources(packet);
+			if (!resources) continue;
 
-			this._encoder.setPipeline(resources.pipeline)
-			this._encoder.setBindingGroup(0, resources.frameBinding)
-			this._encoder.setBindingGroup(1, resources.modelBinding)
-			this._encoder.setVertexBuffer(0, resources.vertexBuffer)
-			this._encoder.setIndexBuffer(resources.indexBuffer, 'uint32')
-			this._encoder.drawIndexed(resources.indexCount)
+			this._encoder.setPipeline(resources.pipeline);
+			this._encoder.setBindingGroup(0, resources.frameBinding);
+			this._encoder.setBindingGroup(1, resources.modelBinding);
+			this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+			this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+			this._encoder.drawIndexed(resources.indexCount);
 		}
 
-		this._encoder.endRenderPass()
+		this._encoder.endRenderPass();
 	}
 
 	private async _recordLegacyMainPass(
 		packets: DrawPacket[],
 		clearAttachments: boolean
 	): Promise<void> {
-		if (!this._encoder) return
-		const colorTexture = this._backend.getCanvasColorTexture()
-		const depthTexture = this._backend.getCanvasDepthTexture()
+		if (!this._encoder) return;
+		const colorTexture = this._backend.getCanvasColorTexture();
+		const depthTexture = this._backend.getCanvasDepthTexture();
 
 		this._encoder.beginRenderPass({
 			colorAttachments: [
 				{
 					view: colorTexture,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? 'clear' : 'load',
-					storeOp: 'store',
+					loadOp: clearAttachments ? "clear" : "load",
+					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
 				view: depthTexture,
 				depthClearValue: 1,
-				depthLoadOp: clearAttachments ? 'clear' : 'load',
-				depthStoreOp: 'store',
+				depthLoadOp: clearAttachments ? "clear" : "load",
+				depthStoreOp: "store",
 			},
-		})
+		});
 
 		if (clearAttachments) {
-			const skyboxResources = await this._resources.getSkyboxResources()
+			const skyboxResources = await this._resources.getSkyboxResources();
 			if (skyboxResources) {
-				this._encoder.setPipeline(skyboxResources.pipeline)
-				this._encoder.setBindingGroup(0, skyboxResources.frameBinding)
-				this._encoder.draw(3)
+				this._encoder.setPipeline(skyboxResources.pipeline);
+				this._encoder.setBindingGroup(0, skyboxResources.frameBinding);
+				this._encoder.draw(3);
 			}
 		}
 
 		for (const packet of packets) {
-			const resources = await this._resources.getDrawResources(packet)
-			if (!resources) continue
+			const resources = await this._resources.getDrawResources(packet);
+			if (!resources) continue;
 
-			this._encoder.setPipeline(resources.pipeline)
-			this._encoder.setBindingGroup(0, resources.frameBinding)
-			this._encoder.setBindingGroup(1, resources.modelBinding)
-			this._encoder.setVertexBuffer(0, resources.vertexBuffer)
-			this._encoder.setIndexBuffer(resources.indexBuffer, 'uint32')
-			this._encoder.drawIndexed(resources.indexCount)
+			this._encoder.setPipeline(resources.pipeline);
+			this._encoder.setBindingGroup(0, resources.frameBinding);
+			this._encoder.setBindingGroup(1, resources.modelBinding);
+			this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+			this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+			this._encoder.drawIndexed(resources.indexCount);
 		}
 
-		this._encoder.endRenderPass()
+		this._encoder.endRenderPass();
 	}
 }
 
 function clampDownsample(value: unknown, fallback: number): number {
-	if (typeof value !== 'number' || !Number.isFinite(value)) {
-		return fallback
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
 	}
-	return Math.min(8, Math.max(1, Math.floor(value)))
+	return Math.min(8, Math.max(1, Math.floor(value)));
 }

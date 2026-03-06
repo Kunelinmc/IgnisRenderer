@@ -77,7 +77,12 @@ export class SoftwareShadowPass {
 			const shadowMap = shadowMaps.get(shadowLight);
 			if (!shadowMap) continue;
 
-			updateShadowMapMetadata(shadowMap, shadowLight, frame.sceneBounds, worldMatrix);
+			updateShadowMapMetadata(
+				shadowMap,
+				shadowLight,
+				frame.sceneBounds,
+				worldMatrix
+			);
 
 			const vpMatrix = shadowMap.viewProjectionMatrix;
 			if (!vpMatrix) continue;

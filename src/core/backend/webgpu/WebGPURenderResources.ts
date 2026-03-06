@@ -102,10 +102,7 @@ export class WebGPURenderResources {
 		featuresArg?: ResolvedFeatureState
 	): void {
 		const { scene, features, shAmbientCoeffs, renderWidth, renderHeight } =
-			this._resolveFrameInputs(
-			contextOrScene,
-			featuresArg
-		);
+			this._resolveFrameInputs(contextOrScene, featuresArg);
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,

@@ -1,8 +1,4 @@
-import {
-	Light,
-	LightType,
-	type LightParams,
-} from "./Light";
+import { Light, LightType, type LightParams } from "./Light";
 
 export class AmbientLight extends Light<LightType.Ambient> {
 	constructor(params: LightParams = {}) {

@@ -128,4 +128,4 @@ struct RefractionResult {
 @group(1) @binding(26) var transmissionSampler: sampler;
 @group(1) @binding(27) var thicknessTexture: texture_2d<f32>;
 @group(1) @binding(28) var thicknessSampler: sampler;
-`
+`;

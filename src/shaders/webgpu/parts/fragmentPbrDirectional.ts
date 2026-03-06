@@ -83,4 +83,4 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_DIRECTIONAL = /* wgsl */ `
 			transmittedDiffuse * transmissionAttenuation * nDotLTransmission
 		) * radiance * shadow;
 	}
-`
+`;

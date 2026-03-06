@@ -41,4 +41,4 @@ fn vsMain(input: VertexInput) -> VertexOutput {
 	output.prevClip = prevClipPosition;
 	return output;
 }
-`
+`;

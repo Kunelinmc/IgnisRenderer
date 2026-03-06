@@ -1,9 +1,5 @@
 import type { IVector3 } from "../maths/types";
-import {
-	Light,
-	LightType,
-	type LightParams,
-} from "./Light";
+import { Light, LightType, type LightParams } from "./Light";
 
 export interface PointLightParams extends LightParams {
 	position?: IVector3;

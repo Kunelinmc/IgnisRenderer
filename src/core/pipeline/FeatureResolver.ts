@@ -11,7 +11,13 @@ import type {
 const DEFAULT_SSAO_OPTIONS: Required<
 	Pick<
 		SSAOOptions,
-		"samples" | "radius" | "bias" | "intensity" | "downsample" | "blurRadius" | "blurSharpness"
+		| "samples"
+		| "radius"
+		| "bias"
+		| "intensity"
+		| "downsample"
+		| "blurRadius"
+		| "blurSharpness"
 	>
 > = {
 	samples: 16,

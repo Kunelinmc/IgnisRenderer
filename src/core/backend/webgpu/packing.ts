@@ -1,5 +1,5 @@
-import { Matrix4 } from '../../../maths/Matrix4'
-import type { Matrix3Arr } from '../../../maths/types'
+import { Matrix4 } from "../../../maths/Matrix4";
+import type { Matrix3Arr } from "../../../maths/types";
 
 import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,

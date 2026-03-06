@@ -149,4 +149,4 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_SETUP = /* wgsl */ `
 	}
 
 	var directLight = vec3<f32>(0.0);
-`
+`;

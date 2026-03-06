@@ -24,4 +24,4 @@ const TEX_SHEEN_COLOR: u32 = 10u;
 const TEX_SHEEN_ROUGHNESS: u32 = 11u;
 const TEX_TRANSMISSION: u32 = 12u;
 const TEX_THICKNESS: u32 = 13u;
-`
+`;

@@ -1,4 +1,4 @@
-import { sRGBToLinear, clamp } from '../../../maths/Common'
+import { sRGBToLinear, clamp } from "../../../maths/Common";
 import {
 	LightType,
 	type AmbientLight,
@@ -8,28 +8,28 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 	type SpotLight,
-} from '../../../lights'
+} from "../../../lights";
 import {
 	getDirectionalLightWorldDirection,
 	getPointLightWorldPosition,
 	getSpotLightInnerAngle,
 	getSpotLightWorldDirection,
 	getSpotLightWorldPosition,
-} from '../../pipeline/LightTransforms'
-import type { RGB } from '../../../utils/Color'
-import type { ShadowMap } from '../../../utils/ShadowMapping'
+} from "../../pipeline/LightTransforms";
+import type { RGB } from "../../../utils/Color";
+import type { ShadowMap } from "../../../utils/ShadowMapping";
 
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_SPOT_LIGHTS,
-} from './constants'
+} from "./constants";
 import type {
 	WebGPULightingState,
 	WebGPUShadowData,
 	WebGPUVec3,
 	WebGPUWarning,
-} from './types'
+} from "./types";
 
 export function collectWebGPULighting(
 	lights: SceneLight[],
@@ -38,33 +38,33 @@ export function collectWebGPULighting(
 	enableShadows: boolean = false,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): WebGPULightingState {
-	const state = createEmptyWebGPULightingState()
-	if (!enableLighting) return state
+	const state = createEmptyWebGPULightingState();
+	if (!enableLighting) return state;
 
 	for (const light of lights) {
 		switch (light.type) {
 			case LightType.Ambient:
-				accumulateAmbientLight(state, light)
-				break
+				accumulateAmbientLight(state, light);
+				break;
 			case LightType.Directional:
-				collectDirectionalLight(state, light, enableShadows, shadowMaps)
-				break
+				collectDirectionalLight(state, light, enableShadows, shadowMaps);
+				break;
 			case LightType.Point:
-				collectPointLight(state, light)
-				break
+				collectPointLight(state, light);
+				break;
 			case LightType.Spot:
-				collectSpotLight(state, light, enableShadows, shadowMaps)
-				break
+				collectSpotLight(state, light, enableShadows, shadowMaps);
+				break;
 			case LightType.LightProbe:
-				accumulateLightProbeFallbackAmbient(state, light, enableSH)
-				break
+				accumulateLightProbeFallbackAmbient(state, light, enableSH);
+				break;
 			default:
-				state.warnings.push(createUnsupportedLightWarning(light))
-				break
+				state.warnings.push(createUnsupportedLightWarning(light));
+				break;
 		}
 	}
 
-	return state
+	return state;
 }
 
 function createEmptyWebGPULightingState(): WebGPULightingState {
@@ -76,16 +76,16 @@ function createEmptyWebGPULightingState(): WebGPULightingState {
 		spotLights: [],
 		spotShadows: [],
 		warnings: [],
-	}
+	};
 }
 
 function accumulateAmbientLight(
 	state: WebGPULightingState,
 	light: AmbientLight
 ): void {
-	state.ambientColor[0] += sRGBToLinear(light.color.r / 255) * light.intensity
-	state.ambientColor[1] += sRGBToLinear(light.color.g / 255) * light.intensity
-	state.ambientColor[2] += sRGBToLinear(light.color.b / 255) * light.intensity
+	state.ambientColor[0] += sRGBToLinear(light.color.r / 255) * light.intensity;
+	state.ambientColor[1] += sRGBToLinear(light.color.g / 255) * light.intensity;
+	state.ambientColor[2] += sRGBToLinear(light.color.b / 255) * light.intensity;
 }
 
 function accumulateLightProbeFallbackAmbient(
@@ -93,18 +93,18 @@ function accumulateLightProbeFallbackAmbient(
 	light: LightProbe,
 	enableSH: boolean
 ): void {
-	if (enableSH) return
+	if (enableSH) return;
 
-	const dc = light.sh[0]
-	if (!dc) return
+	const dc = light.sh[0];
+	if (!dc) return;
 
-	const irradianceScale = Math.PI * 0.282095
+	const irradianceScale = Math.PI * 0.282095;
 	state.ambientColor[0] +=
-		(Math.max(0, dc.r * irradianceScale) / 255) * light.intensity
+		(Math.max(0, dc.r * irradianceScale) / 255) * light.intensity;
 	state.ambientColor[1] +=
-		(Math.max(0, dc.g * irradianceScale) / 255) * light.intensity
+		(Math.max(0, dc.g * irradianceScale) / 255) * light.intensity;
 	state.ambientColor[2] +=
-		(Math.max(0, dc.b * irradianceScale) / 255) * light.intensity
+		(Math.max(0, dc.b * irradianceScale) / 255) * light.intensity;
 }
 
 function collectDirectionalLight(
@@ -115,23 +115,23 @@ function collectDirectionalLight(
 ): void {
 	if (state.directionalLights.length >= WEBGPU_MAX_DIRECTIONAL_LIGHTS) {
 		state.warnings.push(
-			createLightLimitWarning('directional', WEBGPU_MAX_DIRECTIONAL_LIGHTS)
-		)
-		return
+			createLightLimitWarning("directional", WEBGPU_MAX_DIRECTIONAL_LIGHTS)
+		);
+		return;
 	}
 
-	const direction = getDirectionalLightWorldDirection(light)
+	const direction = getDirectionalLightWorldDirection(light);
 
 	state.directionalLights.push({
 		direction: [-direction.x, -direction.y, -direction.z],
 		color: toLinearLightColor(light.color, light.intensity),
-	})
+	});
 	state.directionalShadows.push(
 		resolveWebGPUShadowData(
 			enableShadows,
 			shadowMaps?.get(light as ShadowCastingLight)
 		)
-	)
+	);
 }
 
 function collectPointLight(
@@ -140,17 +140,17 @@ function collectPointLight(
 ): void {
 	if (state.pointLights.length >= WEBGPU_MAX_POINT_LIGHTS) {
 		state.warnings.push(
-			createLightLimitWarning('point', WEBGPU_MAX_POINT_LIGHTS)
-		)
-		return
+			createLightLimitWarning("point", WEBGPU_MAX_POINT_LIGHTS)
+		);
+		return;
 	}
 
-	const position = getPointLightWorldPosition(light)
+	const position = getPointLightWorldPosition(light);
 	state.pointLights.push({
 		position: [position.x, position.y, position.z],
 		range: Math.max(light.range, 0.001),
 		color: toLinearLightColor(light.color, light.intensity),
-	})
+	});
 }
 
 function collectSpotLight(
@@ -160,14 +160,16 @@ function collectSpotLight(
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): void {
 	if (state.spotLights.length >= WEBGPU_MAX_SPOT_LIGHTS) {
-		state.warnings.push(createLightLimitWarning('spot', WEBGPU_MAX_SPOT_LIGHTS))
-		return
+		state.warnings.push(
+			createLightLimitWarning("spot", WEBGPU_MAX_SPOT_LIGHTS)
+		);
+		return;
 	}
 
-	const position = getSpotLightWorldPosition(light)
-	const direction = getSpotLightWorldDirection(light)
-	const outerAngle = light.angle
-	const innerAngle = getSpotLightInnerAngle(light)
+	const position = getSpotLightWorldPosition(light);
+	const direction = getSpotLightWorldDirection(light);
+	const outerAngle = light.angle;
+	const innerAngle = getSpotLightInnerAngle(light);
 
 	state.spotLights.push({
 		position: [position.x, position.y, position.z],
@@ -176,13 +178,13 @@ function collectSpotLight(
 		outerCos: Math.cos(outerAngle),
 		innerCos: Math.cos(innerAngle),
 		color: toLinearLightColor(light.color, light.intensity),
-	})
+	});
 	state.spotShadows.push(
 		resolveWebGPUShadowData(
 			enableShadows,
 			shadowMaps?.get(light as ShadowCastingLight)
 		)
-	)
+	);
 }
 
 function createLightLimitWarning(
@@ -192,14 +194,14 @@ function createLightLimitWarning(
 	return {
 		key: `webgpu-${kind}-limit`,
 		message: `WebGPU backend supports at most ${maxCount} ${kind} lights; extra lights are ignored`,
-	}
+	};
 }
 
 function createUnsupportedLightWarning(light: SceneLight): WebGPUWarning {
 	return {
 		key: `webgpu-light-${light.type}`,
 		message: `WebGPU backend does not support ${light.type} lights yet; ignoring them for now`,
-	}
+	};
 }
 
 function toLinearLightColor(color: RGB, intensity: number): WebGPUVec3 {
@@ -207,7 +209,7 @@ function toLinearLightColor(color: RGB, intensity: number): WebGPUVec3 {
 		sRGBToLinear(color.r / 255) * intensity,
 		sRGBToLinear(color.g / 255) * intensity,
 		sRGBToLinear(color.b / 255) * intensity,
-	]
+	];
 }
 
 function resolveWebGPUShadowData(
@@ -226,22 +228,21 @@ function resolveWebGPUShadowData(
 			shadowMapSize: 0,
 			atlasTileSize: 0,
 			shadowMap: null,
-		}
+		};
 	}
 
-	const size = Math.max(1, shadowMap.size | 0)
-	const texelBias = (shadowMap.params.shadowTexelBias ?? 1.0) * (2.0 / size)
-	const slopeBias = shadowMap.params.shadowSlopeBias ?? 0.03
-	const maxBias = shadowMap.params.shadowMaxBias ?? 0.05
-	const depthBias =
-		Math.min(
-			maxBias,
-			(shadowMap.params.shadowBias ?? 0.008) + texelBias + slopeBias
-		)
+	const size = Math.max(1, shadowMap.size | 0);
+	const texelBias = (shadowMap.params.shadowTexelBias ?? 1.0) * (2.0 / size);
+	const slopeBias = shadowMap.params.shadowSlopeBias ?? 0.03;
+	const maxBias = shadowMap.params.shadowMaxBias ?? 0.05;
+	const depthBias = Math.min(
+		maxBias,
+		(shadowMap.params.shadowBias ?? 0.008) + texelBias + slopeBias
+	);
 	const pcfRadius =
 		shadowMap.params.shadowRadius && shadowMap.params.shadowRadius > 0
 			? shadowMap.params.shadowRadius
-			: Math.max(1, shadowMap.params.shadowPCF ?? 1)
+			: Math.max(1, shadowMap.params.shadowPCF ?? 1);
 
 	return {
 		enabled: true,
@@ -254,5 +255,5 @@ function resolveWebGPUShadowData(
 		shadowMapSize: size,
 		atlasTileSize: size,
 		shadowMap,
-	}
+	};
 }

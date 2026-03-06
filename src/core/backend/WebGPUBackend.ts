@@ -137,7 +137,8 @@ export class WebGPUBackend implements IRenderBackend {
 		try {
 			const requiredLimits: Record<string, number> = {};
 			if (
-				(adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_MRT_COLOR_TARGET_COUNT
+				(adapter.limits?.maxColorAttachments ?? 0) >=
+				WEBGPU_MRT_COLOR_TARGET_COUNT
 			) {
 				requiredLimits.maxColorAttachments = WEBGPU_MRT_COLOR_TARGET_COUNT;
 			}

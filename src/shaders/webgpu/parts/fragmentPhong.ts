@@ -116,4 +116,4 @@ export const WEBGPU_SCENE_FRAGMENT_PHONG = /* wgsl */ `
 			linearDepth
 		);
 	}
-`
+`;

@@ -105,4 +105,4 @@ export const WEBGPU_SCENE_FRAGMENT_PBR_SPOT = /* wgsl */ `
 			transmittedDiffuse * transmissionAttenuation * nDotLTransmission
 		) * radiance * shadow;
 	}
-`
+`;

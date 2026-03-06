@@ -211,7 +211,10 @@ function testTransformComposition() {
 		)
 	);
 
-	assert.deepEqual(Matrix4.fromTransform(transform).elements, expected.elements);
+	assert.deepEqual(
+		Matrix4.fromTransform(transform).elements,
+		expected.elements
+	);
 }
 
 function testMaterialAdaptation() {
@@ -433,13 +436,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.equal(draw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
 		draw.pipeline.desc.fragment.targets.map((target) => target.format),
-		[
-			"rgba16float",
-			"rgba8unorm",
-			"rgba16float",
-			"rgba16float",
-			"rgba16float",
-		]
+		["rgba16float", "rgba8unorm", "rgba16float", "rgba16float", "rgba16float"]
 	);
 	assert.ok(
 		backend.bufferDescs.some(

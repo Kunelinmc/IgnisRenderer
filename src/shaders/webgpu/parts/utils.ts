@@ -455,4 +455,4 @@ fn sampleSpotShadowVisibility(
 		lightDirection
 	);
 }
-`
+`;

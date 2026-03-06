@@ -321,7 +321,10 @@ export class WebGPUShadowPass {
 		}
 	}
 
-	private _nextDrawBindGroup(): { buffer: GPUBuffer; group: GPUBindGroup } | null {
+	private _nextDrawBindGroup(): {
+		buffer: GPUBuffer;
+		group: GPUBindGroup;
+	} | null {
 		if (!this._bindGroupLayout) return null;
 
 		const slot = this._drawResourceCursor++;

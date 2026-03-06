@@ -1,8 +1,5 @@
 import { Camera } from "../cameras/Camera";
-import {
-	LightType,
-	type ShadowCastingLight,
-} from "../lights";
+import { LightType, type ShadowCastingLight } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";

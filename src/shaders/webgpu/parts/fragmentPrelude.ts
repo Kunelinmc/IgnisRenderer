@@ -65,4 +65,4 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 	}
 
 	if (shadingMode == SHADING_PHONG || shadingMode == SHADING_FLAT) {
-`
+`;
