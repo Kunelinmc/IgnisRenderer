@@ -69,6 +69,7 @@ export class WebGPUPostProcessRuntime {
 	private _ssrTraceGroupLayout0: GPUBindGroupLayout | null = null;
 	private _ssrTracePipelineLayout: GPUPipelineLayout | null = null;
 	private _frameBindGroupLayout: GPUBindGroupLayout | null = null;
+	private _ssrFrameIndex: number = 0;
 
 	constructor(
 		backend: WebGPUBackend,
@@ -374,6 +375,7 @@ export class WebGPUPostProcessRuntime {
 			srcW = dstW;
 			srcH = dstH;
 		}
+		this._ssrFrameIndex = (this._ssrFrameIndex + 1) % 1024;
 		this._backend.writeBuffer(
 			this._ssrTraceParams,
 			new Float32Array([
@@ -394,7 +396,7 @@ export class WebGPUPostProcessRuntime {
 				finiteOr(options.historyWeight, DEFAULT_SSR_OPTIONS.historyWeight),
 				historyValid ? 1 : 0,
 				0.02,
-				0,
+				this._ssrFrameIndex, // frameIndex for blue-noise jitter
 				0,
 			])
 		);
