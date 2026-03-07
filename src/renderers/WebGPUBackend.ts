@@ -80,7 +80,6 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
 		"particle-sim": "shared",
-		shadow: "shared",
 	} as const;
 	public readonly capabilities = {
 		sh: true,
@@ -204,11 +203,6 @@ export class WebGPUBackend implements IRenderBackend {
 
 		this._resources.prepareFrame(context);
 		this._frameExecutor.beginFrame(context);
-	}
-
-	public executeSharedPass(pass: FramePass, context: FrameContext): void {
-		if (pass.stage !== "shadow") return;
-		this._resources?.renderShadows(context);
 	}
 
 	public executePass(

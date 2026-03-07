@@ -81,21 +81,6 @@ export class WebGPUShadowPass {
 
 		const frame = context.scene;
 		const shadowMaps = context.shadowMaps;
-		const shadowLights = frame.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(shadowMaps, shadowLights);
-
-		for (const light of shadowLights) {
-			const shadowMap = shadowMaps.get(light);
-			if (!shadowMap) continue;
-
-			updateShadowMapMetadata(
-				shadowMap,
-				light,
-				frame.sceneBounds,
-				context.worldMatrix
-			);
-		}
-
 		const slots = this._collectShadowSlots(frame, shadowMaps);
 		const maxShadowSize = getMaxShadowSize(slots);
 		const atlasTileSize = Math.max(1, maxShadowSize);

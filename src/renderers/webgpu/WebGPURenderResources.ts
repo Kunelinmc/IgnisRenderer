@@ -35,6 +35,11 @@ import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
+import {
+	syncShadowMapRegistry,
+	updateShadowMapMetadata,
+} from "../../pipeline/ShadowMetadata";
+import { isShadowCastingLight } from "../../lights";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShader } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";
@@ -153,6 +158,26 @@ export class WebGPURenderResources {
 			warnings: [],
 		};
 		this._featureState = featureState;
+
+		const shadowLights = scene.lights.filter(isShadowCastingLight);
+		syncShadowMapRegistry(scene.shadowMaps, shadowLights);
+		if (features.enableShadows) {
+			for (const light of shadowLights) {
+				const shadowMap = scene.shadowMaps.get(light);
+				if (shadowMap) {
+					const worldMatrix = this._isFrameContext(contextOrScene)
+						? contextOrScene.worldMatrix
+						: null;
+
+					updateShadowMapMetadata(
+						shadowMap,
+						light,
+						scene.sceneBounds,
+						worldMatrix!
+					);
+				}
+			}
+		}
 
 		this._lightingState = collectWebGPULighting(
 			scene.lights,

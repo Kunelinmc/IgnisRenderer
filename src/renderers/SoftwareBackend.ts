@@ -1,7 +1,4 @@
-import type {
-	IRenderBackend,
-	RendererBackendBridge,
-} from "./IRenderBackend";
+import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import type { FrameContext, FramePass } from "../pipeline/types";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
@@ -10,13 +7,17 @@ import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import { SkyboxRenderer } from "./software/SkyboxRenderer";
+import { isShadowCastingLight } from "../lights";
+import {
+	syncShadowMapRegistry,
+	updateShadowMapMetadata,
+} from "../pipeline/ShadowMetadata";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "always";
 	public readonly passExecutors = {
 		"particle-sim": "shared",
-		shadow: "shared",
 	} as const;
 	public readonly capabilities = {
 		sh: true,
@@ -97,6 +98,20 @@ export class SoftwareBackend implements IRenderBackend {
 		context.attachments.depthBuffer.fill(Infinity);
 		context.attachments.normalBuffer?.fill(0);
 
+		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
+		syncShadowMapRegistry(context.shadowMaps, shadowLights);
+		for (const shadowLight of shadowLights) {
+			const shadowMap = context.shadowMaps.get(shadowLight);
+			if (shadowMap) {
+				updateShadowMapMetadata(
+					shadowMap,
+					shadowLight,
+					context.scene.sceneBounds,
+					context.worldMatrix
+				);
+			}
+		}
+
 		if (context.features.enableSkybox && context.scene.skybox) {
 			SkyboxRenderer.render(
 				context.scene.skybox,
@@ -108,15 +123,13 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
-	public executeSharedPass(pass: FramePass, context: FrameContext): void {
-		if (pass.stage !== "shadow") return;
-		this._shadowPass?.render(context);
-	}
-
 	public executePass(pass: FramePass, context: FrameContext): void {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
+			case "shadow":
+				this._shadowPass?.render(context);
+				break;
 			case "reflection":
 				this._reflectionPass.render(context);
 				break;

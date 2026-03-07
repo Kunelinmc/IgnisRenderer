@@ -2,10 +2,6 @@ import { Vector3 } from "../../../maths/Vector3";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { isShadowCastingLight } from "../../../lights";
 import { ShadowConstants } from "../../../core/constants";
-import {
-	syncShadowMapRegistry,
-	updateShadowMapMetadata,
-} from "../../../pipeline/ShadowMetadata";
 import { Projector } from "../Projector";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
 import type { Rasterizer } from "../Rasterizer";
@@ -63,7 +59,6 @@ export class SoftwareShadowPass {
 		const frame = context.scene;
 		const shadowMaps = context.shadowMaps;
 		const shadowLights = frame.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(shadowMaps, shadowLights);
 		syncSoftwareShadowRuntimeMap(this._runtimeShadowMaps, shadowLights);
 		setSoftwareShadowRuntimeMap(context.transient, this._runtimeShadowMaps);
 
@@ -72,17 +67,9 @@ export class SoftwareShadowPass {
 			return;
 		}
 
-		const worldMatrix = context.worldMatrix;
 		for (const shadowLight of shadowLights) {
 			const shadowMap = shadowMaps.get(shadowLight);
 			if (!shadowMap) continue;
-
-			updateShadowMapMetadata(
-				shadowMap,
-				shadowLight,
-				frame.sceneBounds,
-				worldMatrix
-			);
 
 			const vpMatrix = shadowMap.viewProjectionMatrix;
 			if (!vpMatrix) continue;

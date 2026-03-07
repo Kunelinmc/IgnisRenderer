@@ -208,6 +208,9 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder) return;
 
 		switch (pass.stage) {
+			case "shadow":
+				this._resources.renderShadows(context);
+				return;
 			case "main-opaque":
 				await this._recordMainPass(context.scene.opaquePackets, true);
 				return;
