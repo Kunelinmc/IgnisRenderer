@@ -36,6 +36,7 @@ import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShader } from "../../../shaders/webgpu/particleShader";
+import { clamp } from "../../../maths/Common";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -335,7 +336,7 @@ export class WebGPURenderResources {
 				instanceData[offset + 4] = particle.color.r / 255;
 				instanceData[offset + 5] = particle.color.g / 255;
 				instanceData[offset + 6] = particle.color.b / 255;
-				instanceData[offset + 7] = Math.max(0, Math.min(1, particle.color.a));
+				instanceData[offset + 7] = clamp(particle.color.a);
 
 				instanceData[offset + 8] = particle.uvRect.u0;
 				instanceData[offset + 9] = particle.uvRect.v0;

@@ -8,7 +8,9 @@ import {
 	type ParticleSubEmitterConfig,
 	type ParticleSystem,
 } from "../../particles";
+import { clamp } from "../../maths/Common";
 import type { RGBA } from "../../utils/Color";
+
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
@@ -314,7 +316,7 @@ export class ParticleSimulationStage {
 			const depth = -cameraSpace.z;
 			if (depth <= 0) continue;
 
-			const lifeT = Math.max(0, Math.min(1, particle.age / particle.lifetime));
+			const lifeT = clamp(particle.age / particle.lifetime);
 			const sizeMultiplier = this._sampleNumberGradient(
 				system.sizeOverLifetime,
 				lifeT,
@@ -484,8 +486,8 @@ export class ParticleSimulationStage {
 		restitution: number | undefined,
 		damping: number | undefined
 	): void {
-		const rest = clamp01(restitution ?? DEFAULT_RESTITUTION);
-		const damp = clamp01(damping ?? DEFAULT_DAMPING);
+		const rest = clamp(restitution ?? DEFAULT_RESTITUTION);
+		const damp = clamp(damping ?? DEFAULT_DAMPING);
 		const velocity = particle.velocity;
 		const vn =
 			velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z;
@@ -668,10 +670,6 @@ export class ParticleSimulationStage {
 		this._runtimeBySystemId.set(system.id, runtime);
 		return runtime;
 	}
-}
-
-function clamp01(value: number): number {
-	return Math.max(0, Math.min(1, value));
 }
 
 function normalizeVector(source: IVector3): IVector3 {

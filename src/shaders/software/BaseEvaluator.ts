@@ -6,6 +6,7 @@ import type {
 	SurfaceProperties,
 	FragmentInput,
 } from "./types";
+import { clamp } from "../../maths/Common";
 
 export abstract class BaseEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
@@ -51,14 +52,14 @@ export abstract class BaseEvaluator<
 			const iter = Math.floor(uu);
 			uu = uu - iter;
 			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
-		} else uu = Math.max(0, Math.min(1, uu));
+		} else uu = clamp(uu);
 
 		if (map.wrapT === "Repeat") vv = vv - Math.floor(vv);
 		else if (map.wrapT === "MirroredRepeat") {
 			const iter = Math.floor(vv);
 			vv = vv - iter;
 			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
-		} else vv = Math.max(0, Math.min(1, vv));
+		} else vv = clamp(vv);
 
 		let tx = Math.floor(uu * map.width);
 		let ty = Math.floor(vv * map.height);
@@ -76,9 +77,11 @@ export abstract class BaseEvaluator<
 				g: Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale)),
 				b: Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale)),
 				a:
-					alphaRaw === undefined ? 1
-					: isFloat ? Math.max(0, Math.min(1, alphaRaw))
-					: Math.max(0, Math.min(1, alphaRaw / 255)),
+					alphaRaw === undefined
+						? 1
+						: isFloat
+							? clamp(alphaRaw)
+							: clamp(alphaRaw / 255),
 			};
 		}
 

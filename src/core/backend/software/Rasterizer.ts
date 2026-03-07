@@ -18,6 +18,7 @@ import {
 	type PhongSurfaceProperties,
 	type PBRSurfaceProperties,
 } from "../../../shaders";
+import { clamp } from "../../../maths/Common";
 import {
 	LightType,
 	LightProbe,
@@ -264,14 +265,14 @@ export class Rasterizer implements RasterizerLike {
 			const iter = Math.floor(uu);
 			uu = uu - iter;
 			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
-		} else uu = Math.max(0, Math.min(1, uu));
+		} else uu = clamp(uu);
 
 		if (map.wrapT === "Repeat") vv = vv - Math.floor(vv);
 		else if (map.wrapT === "MirroredRepeat") {
 			const iter = Math.floor(vv);
 			vv = vv - iter;
 			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
-		} else vv = Math.max(0, Math.min(1, vv));
+		} else vv = clamp(vv);
 
 		let tx = Math.floor(uu * map.width);
 		let ty = Math.floor(vv * map.height);
@@ -285,13 +286,13 @@ export class Rasterizer implements RasterizerLike {
 
 		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
 			if (map.data instanceof Float32Array) {
-				return Math.max(0, Math.min(1, alphaValue as number));
+				return clamp(alphaValue as number);
 			}
 
-			return Math.max(0, Math.min(1, (alphaValue as number) / 255));
+			return clamp((alphaValue as number) / 255);
 		}
 
-		return Math.max(0, Math.min(1, (alphaValue as number) / 255));
+		return clamp((alphaValue as number) / 255);
 	}
 
 	public drawDepthTriangle(
@@ -884,7 +885,7 @@ export class Rasterizer implements RasterizerLike {
 							} else {
 								const faceAlpha = face.color?.a ?? 1;
 								const shaderAlpha = shader.getOpacity();
-								const alpha = Math.max(0, Math.min(1, faceAlpha * shaderAlpha));
+								const alpha = clamp(faceAlpha * shaderAlpha);
 								const invA = 1 - alpha;
 								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
 								pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
@@ -932,7 +933,7 @@ export class Rasterizer implements RasterizerLike {
 
 		const wireColor = { r: 255, g: 255, b: 255 };
 		const alpha = isTransparent
-			? Math.max(0, Math.min(1, face.color?.a ?? material.opacity ?? 1))
+			? clamp(face.color?.a ?? material.opacity ?? 1)
 			: 1;
 
 		const drawLine = (p0: ProjectedVertex, p1: ProjectedVertex) => {

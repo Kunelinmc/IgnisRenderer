@@ -13,6 +13,7 @@ import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
 } from "../shadows";
+import { clamp } from "../../../../maths/Common";
 
 const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
 
@@ -84,7 +85,7 @@ export class SoftwareParticlePass {
 			batch.receiveShadows && context.features.enableShadows
 				? this._resolveShadowVisibility(context, particle, sampleShadow)
 				: 1;
-		const baseAlpha = clamp01(particle.color.a);
+		const baseAlpha = clamp(particle.color.a);
 		const rotation = particle.rotation;
 		const cosRot = Math.cos(rotation);
 		const sinRot = Math.sin(rotation);
@@ -182,13 +183,9 @@ export class SoftwareParticlePass {
 		for (const light of context.scene.lights) {
 			if (!isShadowCastingLight(light)) continue;
 			const sampled = sampleShadow(light, particle.position, null);
-			const shadow = clamp01((sampled.r + sampled.g + sampled.b) / 3);
+			const shadow = clamp((sampled.r + sampled.g + sampled.b) / 3);
 			visibility *= shadow;
 		}
-		return clamp01(visibility);
+		return clamp(visibility);
 	}
-}
-
-function clamp01(value: number): number {
-	return Math.max(0, Math.min(1, value));
 }

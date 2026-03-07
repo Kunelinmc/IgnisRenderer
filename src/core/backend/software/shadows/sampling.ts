@@ -5,6 +5,7 @@ import type { RGB } from "../../../../utils/Color";
 import type { ShadowMap, ShadowParams } from "../../../../utils/ShadowMapping";
 import { ShadowConstants } from "../../../pipeline/constants";
 import type { SoftwareShadowRenderTarget } from "./types";
+import { clamp } from "../../../../maths/Common";
 
 interface SoftwareShadowSampleContext {
 	worldPoint: IVector3;
@@ -109,7 +110,7 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 			)
 		: Math.min(maxBias, constantBias + texelBias);
 
-	const strength = Math.max(0, Math.min(1, params.shadowStrength ?? 1.0));
+	const strength = clamp(params.shadowStrength ?? 1.0);
 	const pcfRadiusParams = params.shadowRadius ?? 0;
 	const texelSize = 1.0 / size;
 
@@ -241,9 +242,9 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 
 	const invCount = 1.0 / validSampleCount;
 	return {
-		r: Math.max(0, Math.min(1, visibilityR * invCount)),
-		g: Math.max(0, Math.min(1, visibilityG * invCount)),
-		b: Math.max(0, Math.min(1, visibilityB * invCount)),
+		r: clamp(visibilityR * invCount),
+		g: clamp(visibilityG * invCount),
+		b: clamp(visibilityB * invCount),
 	};
 }
 

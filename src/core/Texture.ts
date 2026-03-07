@@ -1,5 +1,6 @@
 import type { IVector2 } from "../maths/types";
 import type { RGBA } from "../utils/Color";
+import { clamp } from "../maths/Common";
 
 export type TextureFilter =
 	| "Nearest"
@@ -124,7 +125,7 @@ export class Texture {
 			uu = uu - iter;
 			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
 		} else {
-			uu = Math.max(0, Math.min(1, uu));
+			uu = clamp(uu);
 		}
 
 		if (this.wrapT === "Repeat") {
@@ -134,7 +135,7 @@ export class Texture {
 			vv = vv - iter;
 			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
 		} else {
-			vv = Math.max(0, Math.min(1, vv));
+			vv = clamp(vv);
 		}
 
 		let x = Math.floor(uu * lWidth);

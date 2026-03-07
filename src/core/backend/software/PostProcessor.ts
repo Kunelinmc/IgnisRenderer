@@ -241,7 +241,7 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	private _smoothstep(edge0: number, edge1: number, x: number): number {
-		const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+		const t = clamp((x - edge0) / (edge1 - edge0));
 		return t * t * (3 - 2 * t);
 	}
 
@@ -1103,12 +1103,12 @@ export class PostProcessor implements PostProcessorLike {
 			const fy = (y + 0.5) / ds - 0.5;
 			const ly0 = Math.max(0, Math.floor(fy)),
 				ly1 = Math.min(lowH - 1, ly0 + 1),
-				ty = Math.max(0, Math.min(1, fy - ly0));
+				ty = clamp(fy - ly0);
 			for (let x = 0; x < w; x++) {
 				const fx = (x + 0.5) / ds - 0.5;
 				const lx0 = Math.max(0, Math.floor(fx)),
 					lx1 = Math.min(lowW - 1, lx0 + 1),
-					tx = Math.max(0, Math.min(1, fx - lx0));
+					tx = clamp(fx - lx0);
 
 				// Fix: ensure currentDepth is also linearized for proper relative difference comparison
 				let currentDepth = depthBuffer[y * w + x];
@@ -1403,12 +1403,12 @@ export class PostProcessor implements PostProcessorLike {
 			const fy = (y + 0.5) / ds - 0.5;
 			const ly0 = Math.max(0, Math.floor(fy)),
 				ly1 = Math.min(lowH - 1, ly0 + 1),
-				ty = Math.max(0, Math.min(1, fy - ly0));
+				ty = clamp(fy - ly0);
 			for (let x = 0; x < w; x++) {
 				const fx = (x + 0.5) / ds - 0.5;
 				const lx0 = Math.max(0, Math.floor(fx)),
 					lx1 = Math.min(lowW - 1, lx0 + 1),
-					tx = Math.max(0, Math.min(1, fx - lx0));
+					tx = clamp(fx - lx0);
 				const i00 = (ly0 * lowW + lx0) * 3,
 					i10 = (ly0 * lowW + lx1) * 3,
 					i01 = (ly1 * lowW + lx0) * 3,

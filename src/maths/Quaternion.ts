@@ -1,4 +1,5 @@
 import type { IVector3 } from "./types";
+import { clamp } from "../maths/Common";
 
 export class Quaternion {
 	x: number;
@@ -50,7 +51,7 @@ export class Quaternion {
 	}
 
 	public static slerp(q1: Quaternion, q2: Quaternion, t: number): Quaternion {
-		t = Math.max(0, Math.min(1, t));
+		t = clamp(t);
 		let dot = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
 
 		let q2Adjusted = q2;
