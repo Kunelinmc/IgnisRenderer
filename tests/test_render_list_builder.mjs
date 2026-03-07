@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
-import { Scene } from "../src/core/Scene.ts";
-import { PreparedSceneBuilder } from "../src/core/pipeline/PreparedSceneBuilder.ts";
+import { Scene } from "../src/engine/Scene.ts";
+import { PreparedSceneBuilder } from "../src/pipeline/PreparedSceneBuilder.ts";
 import { Material } from "../src/materials/Material.ts";
 import { SimpleModel } from "../src/models/SimpleModel.ts";
 

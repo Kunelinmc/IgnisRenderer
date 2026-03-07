@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUPostProcessRuntime } from "../src/core/backend/webgpu/WebGPUPostProcessRuntime.ts";
+import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 
 class FakeBackend {
 	constructor() {

@@ -7,7 +7,7 @@ import {
 	createLightContribution,
 	evaluateLightContribution,
 	type SurfacePoint,
-} from "../../core/backend/software/LightEvaluator";
+} from "../../renderers/software/LightEvaluator";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import type { RGB } from "../../utils/Color";

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Scene } from "../src/core/Scene.ts";
+import { Scene } from "../src/engine/Scene.ts";
 import { Material } from "../src/materials/Material.ts";
 import { SimpleModel } from "../src/models/SimpleModel.ts";
 

@@ -5,7 +5,7 @@ import type {
 	IVector2,
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
-import type { Renderer } from "../../core/Renderer";
+import type { Renderer } from "../../renderers/Renderer";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { ProjectedFace } from "../../core/types";
 import type { Material } from "../../materials";

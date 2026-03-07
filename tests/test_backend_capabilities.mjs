@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { SoftwareBackend } from '../src/core/backend/SoftwareBackend.ts'
-import { WebGPUBackend } from '../src/core/backend/WebGPUBackend.ts'
+import { SoftwareBackend } from '../src/renderers/SoftwareBackend.ts'
+import { WebGPUBackend } from '../src/renderers/WebGPUBackend.ts'
+import { WebGLBackend } from '../src/renderers/webgl/WebGLBackend.ts'
 
 function run() {
 	const software = new SoftwareBackend()
 	const webgpu = new WebGPUBackend()
+	const webgl = new WebGLBackend()
 
 	assert.deepEqual(software.capabilities, {
 		sh: true,
@@ -26,6 +28,17 @@ function run() {
 		taa: true,
 		ssr: true,
 		volumetric: true,
+	});
+
+	assert.deepEqual(webgl.capabilities, {
+		sh: false,
+		shadows: false,
+		reflection: false,
+		skybox: false,
+		ssao: false,
+		taa: false,
+		ssr: false,
+		volumetric: false,
 	});
 
 	testSoftwareBackendReusesFrameImageData()

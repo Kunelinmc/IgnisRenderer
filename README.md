@@ -97,12 +97,18 @@ The renderer is organized into modular components:
 - **Definition Layer**
   - **`lights/`** and **`materials/`** store only domain definitions.
   - Pipeline-specific logic is intentionally kept out of these folders.
-- **Pipeline Layer (`core/`)**
-  - **`Renderer`**: high-level frame orchestration.
-  - **`pipeline/`**: frame planning and shared pipeline transforms/helpers.
-  - **`backend/`**: backend abstractions plus backend-specific implementations.
-    - `backend/software/` contains CPU pipeline implementation.
-    - `backend/webgpu/` contains WebGPU bridge/packing/resources implementation.
+- **Engine Layer (`engine/`)**
+  - **`Renderer`** and **`Scene`** handle frame orchestration and scene-level coordination.
+- **Core Layer (`core/`)**
+  - Shared runtime primitives and types (e.g. `Texture`, `EventEmitter`, model types).
+  - Shared constants (`core/constants`) used across layers.
+- **Pipeline Layer (`pipeline/`)**
+  - Frame planning, feature resolution, scene preparation, and shared pipeline stages.
+- **Renderer Layer (`renderers/`)**
+  - Backend contracts (`IRenderBackend`, command interfaces, backend-agnostic resource types).
+  - `renderers/software/` contains the CPU pipeline implementation.
+  - `renderers/webgpu/` contains WebGPU bridge/packing/resources implementation.
+  - `renderers/webgl/` currently provides a stub backend for future expansion.
 - **`shaders/`**: Pluggable shading strategies and WGSL shader modules.
 - **`maths/`**: A custom, optimized mathematical library for 3D operations (Vectors, Matrices, Quaternions).
 - **`loaders/`**: Asynchronous asset loaders for textures and 3D models.
@@ -113,10 +119,11 @@ The renderer is organized into modular components:
 
 Deep internal imports were reorganized and are **breaking** for private paths:
 
-- `core/bridge/webgpu/*` -> `core/backend/webgpu/*`
-- `core/resources/*` -> `core/backend/webgpu/*`
-- `core/ral/*` -> `core/backend/*`
-- `core/software/*` -> `core/backend/software/*`
+- `core/backend/*` -> `renderers/*`
+- `core/pipeline/*` -> `pipeline/*`
+- `core/Renderer` -> `engine/Renderer`
+- `core/Scene` -> `engine/Scene`
+- `core/pipeline/constants` -> `core/constants`
 - `core/geometry/GeometryBuilder` -> `models/GeometryBuilder`
 
 ### Rendering Pipeline Flow

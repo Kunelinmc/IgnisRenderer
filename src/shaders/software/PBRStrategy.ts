@@ -8,8 +8,8 @@ import {
 	createLightContribution,
 	evaluateLightContribution,
 	type SurfacePoint,
-} from "../../core/backend/software/LightEvaluator";
-import { LightingConstants } from "../../core/pipeline/constants";
+} from "../../renderers/software/LightEvaluator";
+import { LightingConstants } from "../../core/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { RGB } from "../../utils/Color";

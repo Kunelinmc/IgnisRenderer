@@ -9,10 +9,9 @@ import {
 	ModelFactory,
 	ParticleSystem,
 	ParticleBlendMode,
-	ParticleSpaceMode,
 } from "./index";
-import { SoftwareBackend } from "./core/backend/SoftwareBackend";
-import { WebGPUBackend } from "./core/backend/WebGPUBackend";
+import { SoftwareBackend } from "./renderers/SoftwareBackend";
+import { WebGPUBackend } from "./renderers/WebGPUBackend";
 
 interface RendererBootstrap {
 	canvas: HTMLCanvasElement;

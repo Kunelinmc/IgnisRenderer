@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { FramePlanner } from '../src/core/pipeline/FramePlanner.ts'
+import { FramePlanner } from '../src/pipeline/FramePlanner.ts'
 
 function createFrame(overrides = {}) {
 	return {

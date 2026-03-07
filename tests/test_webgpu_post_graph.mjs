@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUPostProcessGraph } from "../src/core/backend/webgpu/WebGPUPostProcessGraph.ts";
+import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
 
 function createFeatures(overrides = {}) {
 	return {

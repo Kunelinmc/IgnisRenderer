@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPURenderResources } from "../src/core/backend/webgpu/WebGPURenderResources.ts";
+import { WebGPURenderResources } from "../src/renderers/webgpu/WebGPURenderResources.ts";
 import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts";
 import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
 import { getWebGPUSkyboxShader } from "../src/shaders/webgpu/skyboxShader.ts";
@@ -10,9 +10,9 @@ import {
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
-} from "../src/core/backend/webgpu/index.ts";
-import { resolveFeatureState } from "../src/core/pipeline/FeatureResolver.ts";
-import { BufferUsage } from "../src/core/backend/types.ts";
+} from "../src/renderers/webgpu/index.ts";
+import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
+import { BufferUsage } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";

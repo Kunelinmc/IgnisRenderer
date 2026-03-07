@@ -19,23 +19,24 @@ export type {
 	BoundingSphere,
 	BoundingBox,
 } from "./core/types";
-export { Renderer } from "./core/Renderer";
+export { Renderer } from "./renderers/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
-export { SoftwareBackend } from "./core/backend/SoftwareBackend";
-export { WebGPUBackend } from "./core/backend/WebGPUBackend";
+export { SoftwareBackend } from "./renderers/SoftwareBackend";
+export { WebGPUBackend } from "./renderers/WebGPUBackend";
+export { WebGLBackend } from "./renderers/webgl/WebGLBackend";
 export type {
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessPassKind,
-} from "./core/backend/webgpu/WebGPUPostProcessGraph";
-export { Rasterizer } from "./core/backend/software/Rasterizer";
-export { PostProcessor } from "./core/backend/software/PostProcessor";
+} from "./renderers/webgpu/WebGPUPostProcessGraph";
+export { Rasterizer } from "./renderers/software/Rasterizer";
+export { PostProcessor } from "./renderers/software/PostProcessor";
 export type {
 	SSROptions,
 	SSAOOptions,
 	TAAOptions,
 	VolumetricOptions,
-} from "./core/pipeline/types";
-export { Scene } from "./core/Scene";
+} from "./pipeline/types";
+export { Scene } from "./renderers/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";
 export { OrbitCamera } from "./cameras/OrbitCamera";

@@ -63,7 +63,9 @@ function run() {
 			const disallowedLegacyPath =
 				specifier.includes("core/bridge") ||
 				specifier.includes("core/resources") ||
-				specifier.includes("core/ral");
+				specifier.includes("core/ral") ||
+				specifier.includes("core/backend") ||
+				specifier.includes("core/pipeline");
 			if (disallowedLegacyPath) {
 				violations.push(`${relPath} imports legacy path "${specifier}"`);
 			}
@@ -73,9 +75,7 @@ function run() {
 				relPath.startsWith("src/materials/") ||
 				relPath.startsWith("src/particles/");
 			if (inDefinitionLayer) {
-				const touchesPipelineImpl =
-					specifier.includes("core/software") ||
-					specifier.includes("core/backend");
+				const touchesPipelineImpl = specifier.includes("renderers/");
 				if (touchesPipelineImpl) {
 					violations.push(
 						`${relPath} imports runtime pipeline logic "${specifier}"`
@@ -84,9 +84,12 @@ function run() {
 			}
 
 			const inWebGPUBackendLayer = relPath.startsWith(
-				"src/core/backend/webgpu/"
+				"src/renderers/webgpu/"
 			);
-			if (inWebGPUBackendLayer && specifier.includes("software/lighting")) {
+			const touchesSoftwareLighting =
+				specifier.includes("renderers/software/LightEvaluator") ||
+				specifier.includes("software/LightEvaluator");
+			if (inWebGPUBackendLayer && touchesSoftwareLighting) {
 				violations.push(
 					`${relPath} imports software lighting implementation "${specifier}"`
 				);
@@ -100,6 +103,8 @@ function run() {
 		"src/core/ral",
 		"src/core/geometry",
 		"src/core/software",
+		"src/core/backend",
+		"src/core/pipeline",
 	]) {
 		if (existsSync(join(rootDir, oldDir))) {
 			violations.push(`legacy directory still exists: ${oldDir}`);
