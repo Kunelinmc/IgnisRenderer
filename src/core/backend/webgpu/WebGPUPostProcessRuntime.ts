@@ -1,9 +1,9 @@
 import { CameraType } from "../../../cameras/Camera";
-import type {
-	FrameContext,
-	SSAOOptions,
-	SSROptions,
-	TAAOptions,
+import type { FrameContext } from "../../pipeline/types";
+import {
+	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_SSR_OPTIONS,
+	DEFAULT_TAA_OPTIONS,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -21,76 +21,11 @@ import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
 import { loadPostProcessShaderPart } from "../../../shaders/webgpu/shaderSource";
 
 interface InternalTexture extends IRenderTexture {
-	_gpuTexture?: any;
-	_gpuResource?: any;
+	_gpuTexture?: GPUTexture;
+	_gpuResource?: GPUTexture;
 }
 
 const WORKGROUP_SIZE = 8;
-
-const DEFAULT_SSAO: Required<
-	Pick<
-		SSAOOptions,
-		| "samples"
-		| "radius"
-		| "bias"
-		| "intensity"
-		| "downsample"
-		| "blurRadius"
-		| "blurSharpness"
-	>
-> = {
-	samples: 16,
-	radius: 8,
-	bias: 0.1,
-	intensity: 1,
-	downsample: 2,
-	blurRadius: 2,
-	blurSharpness: 8,
-};
-
-const DEFAULT_TAA: Required<
-	Pick<
-		TAAOptions,
-		| "historyWeight"
-		| "disocclusionDepthThreshold"
-		| "motionFactor"
-		| "varianceClampGamma"
-		| "sharpen"
-	>
-> = {
-	historyWeight: 0.9,
-	disocclusionDepthThreshold: 0.02,
-	motionFactor: 80,
-	varianceClampGamma: 1,
-	sharpen: 0.1,
-};
-
-const DEFAULT_SSR: Required<
-	Pick<
-		SSROptions,
-		| "downsample"
-		| "maxSteps"
-		| "binarySearchSteps"
-		| "maxDistance"
-		| "thickness"
-		| "stride"
-		| "intensity"
-		| "historyWeight"
-		| "edgeFade"
-		| "maxRoughness"
-	>
-> = {
-	downsample: 2,
-	maxSteps: 64,
-	binarySearchSteps: 6,
-	maxDistance: 100,
-	thickness: 0.2,
-	stride: 1,
-	intensity: 1,
-	historyWeight: 0.85,
-	edgeFade: 0.12,
-	maxRoughness: 0.85,
-};
 
 const DEFAULT_FXAA = {
 	edgeThresholdMin: 0.03125,
@@ -123,7 +58,7 @@ export class WebGPUPostProcessRuntime {
 	private _fxaaParams: IRenderBuffer | null = null;
 	private _copyModule: IShaderModule | null = null;
 	private _copyPipeline: IComputePipeline | null = null;
-	private _hizViewCache = new WeakMap<object, any[]>();
+	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
 
 	constructor(
 		backend: WebGPUBackend,
@@ -148,13 +83,16 @@ export class WebGPUPostProcessRuntime {
 			return;
 		}
 		const options = frameContext.features.ssaoOptions ?? {};
-		const radius = finiteOr(options.radius, DEFAULT_SSAO.radius);
-		const bias = finiteOr(options.bias, DEFAULT_SSAO.bias);
-		const intensity = finiteOr(options.intensity, DEFAULT_SSAO.intensity);
-		const blurRadius = finiteOr(options.blurRadius, DEFAULT_SSAO.blurRadius);
+		const radius = finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius);
+		const bias = finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias);
+		const intensity = finiteOr(options.intensity, DEFAULT_SSAO_OPTIONS.intensity);
+		const blurRadius = finiteOr(
+			options.blurRadius,
+			DEFAULT_SSAO_OPTIONS.blurRadius
+		);
 		const blurSharpness = finiteOr(
 			options.blurSharpness,
-			DEFAULT_SSAO.blurSharpness
+			DEFAULT_SSAO_OPTIONS.blurSharpness
 		);
 		const fullInvW = 1 / Math.max(targets.sceneColor.width, 1);
 		const fullInvH = 1 / Math.max(targets.sceneColor.height, 1);
@@ -268,14 +206,17 @@ export class WebGPUPostProcessRuntime {
 			new Float32Array([
 				invW,
 				invH,
-				finiteOr(options.historyWeight, DEFAULT_TAA.historyWeight),
+				finiteOr(options.historyWeight, DEFAULT_TAA_OPTIONS.historyWeight),
 				finiteOr(
 					options.disocclusionDepthThreshold,
-					DEFAULT_TAA.disocclusionDepthThreshold
+					DEFAULT_TAA_OPTIONS.disocclusionDepthThreshold
 				),
-				finiteOr(options.motionFactor, DEFAULT_TAA.motionFactor),
-				finiteOr(options.varianceClampGamma, DEFAULT_TAA.varianceClampGamma),
-				finiteOr(options.sharpen, DEFAULT_TAA.sharpen),
+				finiteOr(options.motionFactor, DEFAULT_TAA_OPTIONS.motionFactor),
+				finiteOr(
+					options.varianceClampGamma,
+					DEFAULT_TAA_OPTIONS.varianceClampGamma
+				),
+				finiteOr(options.sharpen, DEFAULT_TAA_OPTIONS.sharpen),
 				historyValid ? 1 : 0,
 				0, // _pad0
 				0, // alignment padding to 40 bytes
@@ -385,16 +326,19 @@ export class WebGPUPostProcessRuntime {
 			new Float32Array([
 				1 / Math.max(targets.ssrRaw.width, 1),
 				1 / Math.max(targets.ssrRaw.height, 1),
-				finiteOr(options.maxDistance, DEFAULT_SSR.maxDistance),
-				finiteOr(options.thickness, DEFAULT_SSR.thickness),
-				finiteOr(options.stride, DEFAULT_SSR.stride),
-				finiteOr(options.intensity, DEFAULT_SSR.intensity),
-				finiteOr(options.maxRoughness, DEFAULT_SSR.maxRoughness),
-				finiteOr(options.edgeFade, DEFAULT_SSR.edgeFade),
-				finiteOr(options.maxSteps, DEFAULT_SSR.maxSteps),
-				finiteOr(options.binarySearchSteps, DEFAULT_SSR.binarySearchSteps),
+				finiteOr(options.maxDistance, DEFAULT_SSR_OPTIONS.maxDistance),
+				finiteOr(options.thickness, DEFAULT_SSR_OPTIONS.thickness),
+				finiteOr(options.stride, DEFAULT_SSR_OPTIONS.stride),
+				finiteOr(options.intensity, DEFAULT_SSR_OPTIONS.intensity),
+				finiteOr(options.maxRoughness, DEFAULT_SSR_OPTIONS.maxRoughness),
+				finiteOr(options.edgeFade, DEFAULT_SSR_OPTIONS.edgeFade),
+				finiteOr(options.maxSteps, DEFAULT_SSR_OPTIONS.maxSteps),
+				finiteOr(
+					options.binarySearchSteps,
+					DEFAULT_SSR_OPTIONS.binarySearchSteps
+				),
 				hiZMips.length - 1,
-				finiteOr(options.historyWeight, DEFAULT_SSR.historyWeight),
+				finiteOr(options.historyWeight, DEFAULT_SSR_OPTIONS.historyWeight),
 				historyValid ? 1 : 0,
 				0.02,
 				0,
@@ -691,7 +635,7 @@ export class WebGPUPostProcessRuntime {
 			});
 	}
 
-	private _getHiZMipViews(texture: IRenderTexture): any[] {
+	private _getHiZMipViews(texture: IRenderTexture): GPUTextureView[] {
 		const cached = this._hizViewCache.get(texture as object);
 		if (cached) return cached;
 		const gpuTexture =
@@ -700,7 +644,7 @@ export class WebGPUPostProcessRuntime {
 		if (!gpuTexture?.createView) return [];
 		const mipCount =
 			Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
-		const views: any[] = [];
+		const views: GPUTextureView[] = [];
 		for (let i = 0; i < mipCount; i++) {
 			views.push(gpuTexture.createView({ baseMipLevel: i, mipLevelCount: 1 }));
 		}

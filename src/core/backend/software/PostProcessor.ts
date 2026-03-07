@@ -5,7 +5,7 @@ import {
 	VolumetricConstants,
 	SSAOConstants,
 } from "./constants";
-import type { Renderer } from "../../Renderer";
+import type { RendererBackendBridge } from "../IRenderBackend";
 import {
 	type DirectionalLight,
 	type PointLight,
@@ -83,9 +83,9 @@ export class PostProcessor implements PostProcessorLike {
 	private _prevVolumetricBuf: Float32Array | null = null;
 	private _prevViewProj: Matrix4 | null = null;
 
-	public renderer: Renderer;
+	public renderer: RendererBackendBridge;
 
-	constructor(renderer: Renderer) {
+	constructor(renderer: RendererBackendBridge) {
 		this.renderer = renderer;
 		this._sRGBLUT = new Uint8Array(256);
 		this._lutBuilt = false;

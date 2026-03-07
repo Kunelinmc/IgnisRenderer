@@ -1,4 +1,8 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
+import {
+	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_SSR_OPTIONS,
+} from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,
@@ -88,8 +92,8 @@ export class WebGPUFrameExecutor {
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _targetWidth = 0;
 	private _targetHeight = 0;
-	private _targetSSAODownsample = 2;
-	private _targetSSRDownsample = 2;
+	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
+	private _targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 	private _taaHistoryA: IRenderTexture | null = null;
 	private _taaHistoryB: IRenderTexture | null = null;
 	private _ssrHistoryA: IRenderTexture | null = null;
@@ -141,11 +145,11 @@ export class WebGPUFrameExecutor {
 		if (this._mrtEnabled) {
 			const ssaoDownsample = clampDownsample(
 				context.features.ssaoOptions?.downsample,
-				2
+				DEFAULT_SSAO_OPTIONS.downsample
 			);
 			const ssrDownsample = clampDownsample(
 				context.features.ssrOptions?.downsample,
-				2
+				DEFAULT_SSR_OPTIONS.downsample
 			);
 			this._ensureFrameTargets(
 				context.attachments.width,
@@ -623,8 +627,8 @@ export class WebGPUFrameExecutor {
 		this._presentBindingSource = null;
 		this._targetWidth = 0;
 		this._targetHeight = 0;
-		this._targetSSAODownsample = 2;
-		this._targetSSRDownsample = 2;
+		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
+		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
 		this._motionHistoryValid = false;

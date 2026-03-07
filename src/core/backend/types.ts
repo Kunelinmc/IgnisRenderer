@@ -164,6 +164,8 @@ export type VertexFormat =
 	| "uint32x4"
 	| "unorm8x4";
 
+export type BackendResourceHandle = unknown;
+
 export interface ColorTargetState {
 	format: TextureFormat;
 	blend?: any;
@@ -190,7 +192,7 @@ export interface IRenderBuffer {
 	readonly size: number;
 	destroy(): void;
 	/** Internal backend resource handle */
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 	_cpuData?: ArrayBuffer;
 }
 
@@ -199,26 +201,26 @@ export interface IRenderTexture {
 	readonly height: number;
 	destroy(): void;
 	/** Internal backend resource handle */
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 	_cpuPixels?: Uint8ClampedArray;
 }
 
 export interface ISampler {
 	readonly label?: string;
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 }
 
 export interface IRenderPipeline {
 	readonly label?: string;
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 }
 
 export interface IBindingGroup {
 	readonly label?: string;
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 }
 
 export interface IComputePipeline {
 	readonly label?: string;
-	_gpuResource?: any;
+	_gpuResource?: BackendResourceHandle;
 }

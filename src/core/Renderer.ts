@@ -116,11 +116,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.canvas.height
 		);
 		this.camera.updateMatrices();
-
-		const backendWithRenderer = this.backend as IRenderBackend & {
-			setRenderer?: (renderer: Renderer) => void;
-		};
-		backendWithRenderer.setRenderer?.(this);
+		this.backend.setRenderer?.(this);
 	}
 
 	public async init(): Promise<void> {
@@ -257,19 +253,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		let ambientG = 0;
 		let ambientB = 0;
 		let hasAmbient = false;
-
-		const featureWorldMatrix = (
-			this as Renderer & {
-				params?: { worldMatrix?: Matrix4 };
-			}
-		).features?.worldMatrix;
-		const legacyWorldMatrix = (
-			this as Renderer & {
-				params?: { worldMatrix?: Matrix4 };
-			}
-		).params?.worldMatrix;
-		const worldMatrix =
-			featureWorldMatrix || legacyWorldMatrix || Matrix4.identity();
+		const worldMatrix = this.features?.worldMatrix || Matrix4.identity();
 
 		for (const light of this.scene.lights) {
 			light.updateWorldMatrix(worldMatrix);

@@ -58,7 +58,11 @@ export interface ICommandEncoder {
 	endComputePass(): void;
 
 	/** Finish recording and return a command buffer object */
-	finish(): any;
+	finish(): ICommandBuffer;
+}
+
+export interface ICommandBuffer {
+	readonly _backendCommandBuffer?: unknown;
 }
 
 export interface RenderPassDesc {

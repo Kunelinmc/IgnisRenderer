@@ -168,6 +168,73 @@ export interface TAAOptions {
 	[key: string]: unknown;
 }
 
+export const DEFAULT_SSAO_OPTIONS: Required<
+	Pick<
+		SSAOOptions,
+		| "samples"
+		| "radius"
+		| "bias"
+		| "intensity"
+		| "downsample"
+		| "blurRadius"
+		| "blurSharpness"
+	>
+> = {
+	samples: 16,
+	radius: 8,
+	bias: 0.1,
+	intensity: 1,
+	downsample: 2,
+	blurRadius: 2,
+	blurSharpness: 8,
+}
+
+export const DEFAULT_TAA_OPTIONS: Required<
+	Pick<
+		TAAOptions,
+		| "jitterScale"
+		| "historyWeight"
+		| "disocclusionDepthThreshold"
+		| "motionFactor"
+		| "varianceClampGamma"
+		| "sharpen"
+	>
+> = {
+	jitterScale: 1,
+	historyWeight: 0.9,
+	disocclusionDepthThreshold: 0.02,
+	motionFactor: 80,
+	varianceClampGamma: 1,
+	sharpen: 0.1,
+}
+
+export const DEFAULT_SSR_OPTIONS: Required<
+	Pick<
+		SSROptions,
+		| "downsample"
+		| "maxSteps"
+		| "binarySearchSteps"
+		| "maxDistance"
+		| "thickness"
+		| "stride"
+		| "intensity"
+		| "historyWeight"
+		| "edgeFade"
+		| "maxRoughness"
+	>
+> = {
+	downsample: 2,
+	maxSteps: 64,
+	binarySearchSteps: 6,
+	maxDistance: 100,
+	thickness: 0.2,
+	stride: 1,
+	intensity: 1,
+	historyWeight: 0.85,
+	edgeFade: 0.12,
+	maxRoughness: 0.85,
+}
+
 export interface FeatureWarning {
 	key: string;
 	message: string;

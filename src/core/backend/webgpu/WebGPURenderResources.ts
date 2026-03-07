@@ -1,4 +1,4 @@
-import type { Renderer } from "../../Renderer";
+import type { RendererBackendBridge } from "../IRenderBackend";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import type {
 	DrawPacket,
@@ -58,7 +58,7 @@ export interface WebGPUParticlePassTargets {
 }
 
 export class WebGPURenderResources {
-	private _renderer: Renderer;
+	private _renderer: RendererBackendBridge;
 	private _backend: WebGPUBackend;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -85,7 +85,7 @@ export class WebGPURenderResources {
 		IRenderPipeline
 	>();
 
-	constructor(renderer: Renderer, backend: WebGPUBackend) {
+	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
 		this._renderer = renderer;
 		this._backend = backend;
 		this._layouts = createWebGPUPipelineLayouts(backend.device);

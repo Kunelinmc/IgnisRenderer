@@ -1,5 +1,7 @@
-import type { Renderer } from "../Renderer";
-import type { IRenderBackend } from "./IRenderBackend";
+import type {
+	IRenderBackend,
+	RendererBackendBridge,
+} from "./IRenderBackend";
 import type { FrameContext, FramePass } from "../pipeline/types";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
@@ -27,7 +29,7 @@ export class SoftwareBackend implements IRenderBackend {
 		volumetric: true,
 	};
 
-	private _renderer: Renderer | null = null;
+	private _renderer: RendererBackendBridge | null = null;
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
@@ -46,7 +48,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._ctx = canvas.getContext("2d");
 	}
 
-	public setRenderer(renderer: Renderer): void {
+	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
 		this._rasterizer = new Rasterizer();
 		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
@@ -159,7 +161,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._ctx.putImageData(imageData, 0, 0);
 	}
 
-	private _getFrameImageData(renderer: Renderer): ImageData {
+	private _getFrameImageData(renderer: RendererBackendBridge): ImageData {
 		const width = renderer.canvas.width;
 		const height = renderer.canvas.height;
 		const pixels = this._resolveFramePixels(renderer);
@@ -181,9 +183,11 @@ export class SoftwareBackend implements IRenderBackend {
 		return this._frameImageData;
 	}
 
-	private _resolveFramePixels(renderer: Renderer): Uint8ClampedArray {
+	private _resolveFramePixels(
+		renderer: RendererBackendBridge
+	): Uint8ClampedArray {
 		const legacyPixels = (
-			renderer as Renderer & {
+			renderer as RendererBackendBridge & {
 				pixels?: Uint8ClampedArray | null;
 			}
 		).pixels;

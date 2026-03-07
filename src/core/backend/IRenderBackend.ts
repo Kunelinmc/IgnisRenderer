@@ -1,3 +1,5 @@
+import type { Camera } from "../../cameras/Camera";
+import type { SceneLight } from "../../lights";
 import type {
 	FrameAttachments,
 	FrameContext,
@@ -22,11 +24,21 @@ export interface BackendCapabilities {
 	volumetric: boolean;
 }
 
+export interface RendererBackendBridge {
+	readonly canvas: HTMLCanvasElement;
+	readonly camera: Camera;
+	readonly scene: { lights: SceneLight[] };
+	readonly features: { enableShadows: boolean };
+	warnOnce(key: string, message: string): void;
+	pixels?: Uint8ClampedArray | null;
+}
+
 export interface IRenderBackend {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
 	readonly frameScheduling: FrameSchedulingMode;
 	readonly passExecutors?: PassExecutorMap;
+	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	resize(width: number, height: number): void;
 	getAttachments(width: number, height: number): FrameAttachments;

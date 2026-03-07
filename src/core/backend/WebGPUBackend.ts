@@ -1,11 +1,14 @@
 /// <reference types="@webgpu/types" />
 import {
 	type ComputePassDesc,
+	type ICommandBuffer,
 	type ICommandEncoder,
 	type RenderPassDesc,
 } from "./ICommandEncoder";
-import type { Renderer } from "../Renderer";
-import type { IRenderBackend } from "./IRenderBackend";
+import type {
+	IRenderBackend,
+	RendererBackendBridge,
+} from "./IRenderBackend";
 import type {
 	FrameAttachments,
 	FrameContext,
@@ -71,6 +74,7 @@ interface InternalBindingGroup extends IBindingGroup {
 }
 
 interface InternalCommandBuffer {
+	_backendCommandBuffer?: GPUCommandBuffer;
 	_gpuCommandBuffer: GPUCommandBuffer;
 }
 
@@ -100,7 +104,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
-	private _renderer: Renderer | null = null;
+	private _renderer: RendererBackendBridge | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _pendingPostProcessPasses = new Map<
@@ -112,7 +116,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this.canvas = canvas ?? null;
 	}
 
-	public setRenderer(renderer: Renderer): void {
+	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
 	}
 
@@ -501,9 +505,13 @@ export class WebGPUBackend implements IRenderBackend {
 		this.queue.submit([commandEncoder.finish()]);
 	}
 
-	public submit(commands: InternalCommandBuffer[]): void {
+	public submit(commands: ICommandBuffer[]): void {
 		this.device.pushErrorScope("validation");
-		this.queue.submit(commands.map((command) => command._gpuCommandBuffer));
+		this.queue.submit(
+			commands.map((command) =>
+				this._toInternalCommandBuffer(command)._gpuCommandBuffer
+			)
+		);
 		this._currentCanvasView = null;
 		this.device.popErrorScope().then((error) => {
 			if (error) {
@@ -648,6 +656,16 @@ export class WebGPUBackend implements IRenderBackend {
 			flags |= GPUTextureUsage.STORAGE_BINDING;
 		}
 		return flags;
+	}
+
+	private _toInternalCommandBuffer(
+		command: ICommandBuffer
+	): InternalCommandBuffer {
+		const internal = command as InternalCommandBuffer;
+		if (!internal._gpuCommandBuffer) {
+			throw new Error("Invalid command buffer for WebGPU submit().");
+		}
+		return internal;
 	}
 }
 
