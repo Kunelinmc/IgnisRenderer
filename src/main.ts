@@ -126,6 +126,7 @@ async function init() {
 	renderer.requestRender();
 
 	bindControls(canvas, camera, renderer);
+
 	window.addEventListener("resize", () => {
 		renderer.resizeCanvas();
 		renderer.requestRender();
@@ -139,7 +140,7 @@ async function createRenderer(
 ): Promise<RendererBootstrap> {
 	if (navigator.gpu) {
 		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
-		webgpuRenderer.scene = scene;
+		webgpuRenderer.setScene(scene);
 		configureRenderer(webgpuRenderer);
 
 		try {
@@ -158,7 +159,7 @@ async function createRenderer(
 	}
 
 	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
-	softwareRenderer.scene = scene;
+	softwareRenderer.setScene(scene);
 	configureRenderer(softwareRenderer);
 	await softwareRenderer.init();
 	console.info("Using software backend");
@@ -170,16 +171,14 @@ async function createRenderer(
 }
 
 function configureRenderer(renderer: Renderer): void {
-	renderer.features.enableLighting = true;
-	renderer.features.enableGamma = true;
-
 	if (renderer.backendType === "webgpu") {
 		renderer.features.enableSH = true;
 		renderer.features.enableShadows = true;
 		renderer.features.enableReflection = false;
 		renderer.features.enableSkybox = true;
 		renderer.features.enableSSAO = false;
-		renderer.features.enableTAA = true;
+		renderer.features.enableTAA = false;
+		renderer.features.enableFXAA = true;
 		renderer.features.enableSSR = false;
 		renderer.features.enableVolumetric = false;
 		return;
