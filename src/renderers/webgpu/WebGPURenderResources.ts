@@ -13,6 +13,7 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	BufferUsage,
 	TextureFormat,
+	type IBindingGroup,
 	type IRenderBuffer,
 	type IRenderPipeline,
 	type IShaderModule,
@@ -83,6 +84,10 @@ export class WebGPURenderResources {
 	private _particlePipelineAdditive = new Map<
 		WebGPUSceneTargetMode,
 		IRenderPipeline
+	>();
+	private _particleBindingCache = new Map<
+		string,
+		{ group: IBindingGroup; texture: any; sampler: any }
 	>();
 
 	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
@@ -391,14 +396,30 @@ export class WebGPURenderResources {
 			const sampler = this._textureRegistry.getSamplerForTexture(
 				range.batch.texture
 			);
-			const particleBinding = this._backend.createBindingGroup({
-				layout: this._layouts.particleBindGroupLayout,
-				entries: [
-					{ binding: 0, resource: texture },
-					{ binding: 1, resource: sampler },
-				],
-				label: `ParticleBinding_${range.batch.systemId}`,
-			});
+			const cacheKey = `particle_${range.batch.systemId}`;
+			const cachedBinding = this._particleBindingCache.get(cacheKey);
+			let particleBinding: IBindingGroup;
+			if (
+				cachedBinding &&
+				cachedBinding.texture === texture &&
+				cachedBinding.sampler === sampler
+			) {
+				particleBinding = cachedBinding.group;
+			} else {
+				particleBinding = this._backend.createBindingGroup({
+					layout: this._layouts.particleBindGroupLayout,
+					entries: [
+						{ binding: 0, resource: texture },
+						{ binding: 1, resource: sampler },
+					],
+					label: `ParticleBinding_${range.batch.systemId}`,
+				});
+				this._particleBindingCache.set(cacheKey, {
+					group: particleBinding,
+					texture,
+					sampler,
+				});
+			}
 			const pipeline =
 				range.batch.blendMode === ParticleBlendMode.Additive
 					? additivePipeline

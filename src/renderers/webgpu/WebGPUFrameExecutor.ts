@@ -172,6 +172,33 @@ export class WebGPUFrameExecutor {
 		this._postGraph.unregisterPass(id);
 	}
 
+	/**
+	 * Force frame targets to be rebuilt on the next beginFrame().
+	 * Call on canvas resize so the post-process pipeline picks up
+	 * the new dimensions.
+	 */
+	public invalidateFrameTargets(): void {
+		this._destroyFrameTargets();
+		this._postRuntime.invalidateBindings();
+	}
+
+	/**
+	 * Release all GPU resources held by this executor.
+	 */
+	public destroy(): void {
+		this._destroyFrameTargets();
+		this._postRuntime.invalidateBindings();
+		this._presentShaderModule = null;
+		this._presentPipeline = null;
+		this._presentSampler = null;
+		this._presentParamsBuffer?.destroy();
+		this._presentParamsBuffer = null;
+		this._presentBinding = null;
+		this._presentBindingSource = null;
+		this._encoder = null;
+		this._frameContext = null;
+	}
+
 	public async executePass(
 		pass: FramePass,
 		context: FrameContext

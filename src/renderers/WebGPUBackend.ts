@@ -5,10 +5,7 @@ import {
 	type ICommandEncoder,
 	type RenderPassDesc,
 } from "./ICommandEncoder";
-import type {
-	IRenderBackend,
-	RendererBackendBridge,
-} from "./IRenderBackend";
+import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import type {
 	FrameAttachments,
 	FrameContext,
@@ -197,6 +194,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 		this._configureContext();
 		this._recreateDepthTexture();
+		this._frameExecutor?.invalidateFrameTargets();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -236,6 +234,21 @@ export class WebGPUBackend implements IRenderBackend {
 	public unregisterPostProcessPass(id: string): void {
 		this._pendingPostProcessPasses.delete(id);
 		this._frameExecutor?.unregisterPostProcessPass(id);
+	}
+
+	public destroy(): void {
+		this._frameExecutor?.destroy();
+		this._frameExecutor = null;
+		this._resources = null;
+		this._depthTexture?.destroy();
+		this._depthTexture = null;
+		this._currentCanvasView = null;
+		this._pendingPostProcessPasses.clear();
+		if (this.context) {
+			this.context.unconfigure();
+			this.context = null;
+		}
+		this.device?.destroy();
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
@@ -508,8 +521,8 @@ export class WebGPUBackend implements IRenderBackend {
 	public submit(commands: ICommandBuffer[]): void {
 		this.device.pushErrorScope("validation");
 		this.queue.submit(
-			commands.map((command) =>
-				this._toInternalCommandBuffer(command)._gpuCommandBuffer
+			commands.map(
+				(command) => this._toInternalCommandBuffer(command)._gpuCommandBuffer
 			)
 		);
 		this._currentCanvasView = null;
@@ -525,8 +538,8 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU not initialized");
 		}
 
-		const gpuTexture = this.context.getCurrentTexture();
 		const gpuView = this.getCurrentColorView();
+		const gpuTexture = this.context.getCurrentTexture();
 		return {
 			width: this.canvas.width,
 			height: this.canvas.height,

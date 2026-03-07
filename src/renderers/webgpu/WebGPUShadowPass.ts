@@ -158,6 +158,7 @@ export class WebGPUShadowPass {
 
 		passEncoder.end();
 		this._backend.queue.submit([commandEncoder.finish()]);
+		this._trimDrawResources();
 	}
 
 	private _drawShadowCasters(
@@ -355,6 +356,22 @@ export class WebGPUShadowPass {
 		}
 
 		return { buffer, group };
+	}
+
+	private _trimDrawResources(): void {
+		const used = this._drawResourceCursor;
+		const allocated = this._drawUniformBuffers.length;
+		// Trim when usage drops below 1/3 of allocated capacity and there
+		// are at least 16 excess slots, to avoid trimming on small
+		// fluctuations.
+		if (allocated > 16 && used < allocated / 3) {
+			const keep = Math.max(used, 8);
+			for (let i = keep; i < allocated; i++) {
+				this._drawUniformBuffers[i]?.destroy();
+			}
+			this._drawUniformBuffers.length = keep;
+			this._drawBindGroups.length = keep;
+		}
 	}
 }
 

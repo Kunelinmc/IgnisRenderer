@@ -41,6 +41,7 @@ export interface IRenderBackend {
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	resize(width: number, height: number): void;
+	destroy?(): void;
 	getAttachments(width: number, height: number): FrameAttachments;
 	beginFrame(context: FrameContext): void | Promise<void>;
 	executeSharedPass?(

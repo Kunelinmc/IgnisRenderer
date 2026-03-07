@@ -19,6 +19,7 @@ import {
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
 import { loadPostProcessShaderPart } from "../../shaders/webgpu/shaderSource";
+import type { IBindingGroup } from "../types";
 
 interface InternalTexture extends IRenderTexture {
 	_gpuTexture?: GPUTexture;
@@ -32,6 +33,11 @@ const DEFAULT_FXAA = {
 	edgeThresholdMultiplier: 0.166,
 	subpixQuality: 0.75,
 };
+
+interface CachedBindGroup {
+	group: IBindingGroup;
+	resources: readonly unknown[];
+}
 
 export class WebGPUPostProcessRuntime {
 	private _backend: WebGPUBackend;
@@ -59,6 +65,7 @@ export class WebGPUPostProcessRuntime {
 	private _copyModule: IShaderModule | null = null;
 	private _copyPipeline: IComputePipeline | null = null;
 	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
+	private _bindGroupCache = new Map<string, CachedBindGroup>();
 
 	constructor(
 		backend: WebGPUBackend,
@@ -66,6 +73,43 @@ export class WebGPUPostProcessRuntime {
 	) {
 		this._backend = backend;
 		this._warn = warn;
+	}
+
+	/**
+	 * Invalidate all cached bind groups. Call when frame targets are
+	 * destroyed/rebuilt (e.g. on resize) so stale texture references are
+	 * not reused.
+	 */
+	public invalidateBindings(): void {
+		this._bindGroupCache.clear();
+	}
+
+	private _getCachedBindGroup(
+		key: string,
+		pipeline: IComputePipeline,
+		entries: Array<{ binding: number; resource: any }>,
+		label: string
+	): IBindingGroup {
+		const resources = entries.map((e) => e.resource);
+		const cached = this._bindGroupCache.get(key);
+		if (cached && cached.resources.length === resources.length) {
+			let match = true;
+			for (let i = 0; i < resources.length; i++) {
+				if (cached.resources[i] !== resources[i]) {
+					match = false;
+					break;
+				}
+			}
+			if (match) return cached.group;
+		}
+		const group = this._backend.createBindingGroup({
+			pipeline,
+			layoutIndex: 0,
+			entries,
+			label,
+		});
+		this._bindGroupCache.set(key, { group, resources });
+		return group;
 	}
 	public async executeSSAO(
 		encoder: ICommandEncoder,
@@ -85,7 +129,10 @@ export class WebGPUPostProcessRuntime {
 		const options = frameContext.features.ssaoOptions ?? {};
 		const radius = finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius);
 		const bias = finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias);
-		const intensity = finiteOr(options.intensity, DEFAULT_SSAO_OPTIONS.intensity);
+		const intensity = finiteOr(
+			options.intensity,
+			DEFAULT_SSAO_OPTIONS.intensity
+		);
 		const blurRadius = finiteOr(
 			options.blurRadius,
 			DEFAULT_SSAO_OPTIONS.blurRadius
@@ -115,18 +162,18 @@ export class WebGPUPostProcessRuntime {
 				0,
 			])
 		);
-		let binding = this._backend.createBindingGroup({
-			pipeline: this._ssaoRawPipeline,
-			layoutIndex: 0,
-			entries: [
+		let binding = this._getCachedBindGroup(
+			"ssao-raw",
+			this._ssaoRawPipeline,
+			[
 				{ binding: 0, resource: targets.gNormalRoughMetal },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: this._sampler },
 				{ binding: 3, resource: this._ssaoParams },
 				{ binding: 4, resource: targets.aoRaw },
 			],
-			label: "WebGPUSSAO_RawBinding",
-		});
+			"WebGPUSSAO_RawBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSAO_Raw" });
 		encoder.setComputePipeline(this._ssaoRawPipeline);
 		encoder.setBindingGroup(0, binding);
@@ -136,18 +183,18 @@ export class WebGPUPostProcessRuntime {
 			1
 		);
 		encoder.endComputePass();
-		binding = this._backend.createBindingGroup({
-			pipeline: this._ssaoBlurPipeline,
-			layoutIndex: 0,
-			entries: [
+		binding = this._getCachedBindGroup(
+			"ssao-blur",
+			this._ssaoBlurPipeline,
+			[
 				{ binding: 0, resource: targets.aoRaw },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: this._sampler },
 				{ binding: 3, resource: this._ssaoParams },
 				{ binding: 4, resource: targets.aoBlur },
 			],
-			label: "WebGPUSSAO_BlurBinding",
-		});
+			"WebGPUSSAO_BlurBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSAO_Blur" });
 		encoder.setComputePipeline(this._ssaoBlurPipeline);
 		encoder.setBindingGroup(0, binding);
@@ -162,18 +209,18 @@ export class WebGPUPostProcessRuntime {
 			targets.sceneColor === targets.postPing
 				? targets.postPong
 				: targets.postPing;
-		binding = this._backend.createBindingGroup({
-			pipeline: this._ssaoCombinePipeline,
-			layoutIndex: 0,
-			entries: [
+		binding = this._getCachedBindGroup(
+			`ssao-combine-${combineTarget === targets.postPing ? "ping" : "pong"}`,
+			this._ssaoCombinePipeline,
+			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.aoBlur },
 				{ binding: 2, resource: this._sampler },
 				{ binding: 3, resource: this._ssaoParams },
 				{ binding: 4, resource: combineTarget },
 			],
-			label: "WebGPUSSAO_CombineBinding",
-		});
+			"WebGPUSSAO_CombineBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSAO_Combine" });
 		encoder.setComputePipeline(this._ssaoCombinePipeline);
 		encoder.setBindingGroup(0, binding);
@@ -222,10 +269,10 @@ export class WebGPUPostProcessRuntime {
 				0, // alignment padding to 40 bytes
 			])
 		);
-		const binding = this._backend.createBindingGroup({
-			pipeline: this._taaPipeline,
-			layoutIndex: 0,
-			entries: [
+		const binding = this._getCachedBindGroup(
+			`taa-${taaTarget === targets.postPing ? "ping" : "pong"}`,
+			this._taaPipeline,
+			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.historyRead },
 				{ binding: 2, resource: targets.gMotionDepth },
@@ -235,8 +282,8 @@ export class WebGPUPostProcessRuntime {
 				{ binding: 6, resource: taaTarget },
 				{ binding: 7, resource: targets.historyWrite },
 			],
-			label: "WebGPUTAA_Binding",
-		});
+			"WebGPUTAA_Binding"
+		);
 		encoder.beginComputePass({ label: "WebGPUTAA" });
 		encoder.setComputePipeline(this._taaPipeline);
 		encoder.setBindingGroup(0, binding);
@@ -277,15 +324,15 @@ export class WebGPUPostProcessRuntime {
 		const options = frameContext.features.ssrOptions ?? {};
 		const hiZMips = this._getHiZMipViews(targets.hiZ);
 		if (hiZMips.length === 0) return false;
-		let binding = this._backend.createBindingGroup({
-			pipeline: this._hizInitPipeline,
-			layoutIndex: 0,
-			entries: [
+		let binding = this._getCachedBindGroup(
+			"hiz-init",
+			this._hizInitPipeline,
+			[
 				{ binding: 0, resource: targets.gMotionDepth },
 				{ binding: 1, resource: hiZMips[0] },
 			],
-			label: "WebGPUSSR_HiZInitBinding",
-		});
+			"WebGPUSSR_HiZInitBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSR_HiZInit" });
 		encoder.setComputePipeline(this._hizInitPipeline);
 		encoder.setBindingGroup(0, binding);
@@ -300,15 +347,15 @@ export class WebGPUPostProcessRuntime {
 		for (let mip = 1; mip < hiZMips.length; mip++) {
 			const dstW = Math.max(1, srcW >> 1);
 			const dstH = Math.max(1, srcH >> 1);
-			binding = this._backend.createBindingGroup({
-				pipeline: this._hizReducePipeline,
-				layoutIndex: 0,
-				entries: [
+			binding = this._getCachedBindGroup(
+				`hiz-reduce-${mip}`,
+				this._hizReducePipeline,
+				[
 					{ binding: 0, resource: hiZMips[mip - 1] },
 					{ binding: 1, resource: hiZMips[mip] },
 				],
-				label: `WebGPUSSR_HiZReduceBinding_${mip}`,
-			});
+				`WebGPUSSR_HiZReduceBinding_${mip}`
+			);
 			encoder.beginComputePass({ label: `WebGPUSSR_HiZReduce_${mip}` });
 			encoder.setComputePipeline(this._hizReducePipeline);
 			encoder.setBindingGroup(0, binding);
@@ -345,10 +392,10 @@ export class WebGPUPostProcessRuntime {
 				0,
 			])
 		);
-		binding = this._backend.createBindingGroup({
-			pipeline: this._ssrTracePipeline,
-			layoutIndex: 0,
-			entries: [
+		binding = this._getCachedBindGroup(
+			"ssr-trace",
+			this._ssrTracePipeline,
+			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.gNormalRoughMetal },
 				{ binding: 2, resource: targets.gMotionDepth },
@@ -359,8 +406,8 @@ export class WebGPUPostProcessRuntime {
 				{ binding: 7, resource: this._ssrTraceParams },
 				{ binding: 8, resource: targets.ssrRaw },
 			],
-			label: "WebGPUSSR_TraceBinding",
-		});
+			"WebGPUSSR_TraceBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSR_TraceTemporal" });
 		encoder.setComputePipeline(this._ssrTracePipeline);
 		encoder.setBindingGroup(0, binding);
@@ -384,10 +431,10 @@ export class WebGPUPostProcessRuntime {
 				0,
 			])
 		);
-		binding = this._backend.createBindingGroup({
-			pipeline: this._ssrComposePipeline,
-			layoutIndex: 0,
-			entries: [
+		binding = this._getCachedBindGroup(
+			`ssr-compose-${composeTarget === targets.postPing ? "ping" : "pong"}`,
+			this._ssrComposePipeline,
+			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.ssrRaw },
 				{ binding: 2, resource: targets.gMotionDepth },
@@ -395,8 +442,8 @@ export class WebGPUPostProcessRuntime {
 				{ binding: 4, resource: this._ssrComposeParams },
 				{ binding: 5, resource: composeTarget },
 			],
-			label: "WebGPUSSR_ComposeBinding",
-		});
+			"WebGPUSSR_ComposeBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUSSR_Compose" });
 		encoder.setComputePipeline(this._ssrComposePipeline);
 		encoder.setBindingGroup(0, binding);
@@ -431,17 +478,17 @@ export class WebGPUPostProcessRuntime {
 				0,
 			])
 		);
-		const binding = this._backend.createBindingGroup({
-			pipeline: this._fxaaPipeline,
-			layoutIndex: 0,
-			entries: [
+		const binding = this._getCachedBindGroup(
+			`fxaa-${target === targets.postPing ? "ping" : "pong"}`,
+			this._fxaaPipeline,
+			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: this._sampler },
 				{ binding: 2, resource: this._fxaaParams },
 				{ binding: 3, resource: target },
 			],
-			label: "WebGPUFXAA_Binding",
-		});
+			"WebGPUFXAA_Binding"
+		);
 		encoder.beginComputePass({ label: "WebGPUFXAA" });
 		encoder.setComputePipeline(this._fxaaPipeline);
 		encoder.setBindingGroup(0, binding);
@@ -462,15 +509,15 @@ export class WebGPUPostProcessRuntime {
 		if (src === dst) return;
 		await this._ensureCopyResources();
 		if (!this._copyPipeline) return;
-		const binding = this._backend.createBindingGroup({
-			pipeline: this._copyPipeline,
-			layoutIndex: 0,
-			entries: [
+		const binding = this._getCachedBindGroup(
+			`copy-${src === dst ? "same" : "diff"}`,
+			this._copyPipeline,
+			[
 				{ binding: 0, resource: src },
 				{ binding: 1, resource: dst },
 			],
-			label: "WebGPUPost_CopyBinding",
-		});
+			"WebGPUPost_CopyBinding"
+		);
 		encoder.beginComputePass({ label: "WebGPUPost_Copy" });
 		encoder.setComputePipeline(this._copyPipeline);
 		encoder.setBindingGroup(0, binding);
