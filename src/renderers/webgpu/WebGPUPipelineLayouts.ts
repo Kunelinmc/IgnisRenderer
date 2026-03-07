@@ -16,22 +16,25 @@ export function createWebGPUPipelineLayouts(
 		entries: [
 			{
 				binding: 0,
-				visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
 				buffer: { type: "uniform" },
 			},
 			{
 				binding: 1,
-				visibility: GPUShaderStage.FRAGMENT,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "depth" },
 			},
 			{
 				binding: 2,
-				visibility: GPUShaderStage.FRAGMENT,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "float" },
 			},
 			{
 				binding: 3,
-				visibility: GPUShaderStage.FRAGMENT,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				sampler: { type: "filtering" },
 			},
 		],

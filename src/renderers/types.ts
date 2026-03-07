@@ -131,6 +131,7 @@ export interface ComputePipelineDesc {
 		module: IShaderModule;
 		entryPoint: string;
 	};
+	layout?: any;
 	label?: string;
 }
 
@@ -216,6 +217,11 @@ export interface IRenderPipeline {
 }
 
 export interface IBindingGroup {
+	readonly label?: string;
+	_gpuResource?: BackendResourceHandle;
+}
+
+export interface IComputePipeline {
 	readonly label?: string;
 	_gpuResource?: BackendResourceHandle;
 }

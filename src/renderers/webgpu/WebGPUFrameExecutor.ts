@@ -126,8 +126,10 @@ export class WebGPUFrameExecutor {
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
-		this._postRuntime = new WebGPUPostProcessRuntime(backend, (key, message) =>
-			this._warnOnce(key, message)
+		this._postRuntime = new WebGPUPostProcessRuntime(
+			backend,
+			(key, message) => this._warnOnce(key, message),
+			resources.sceneFrameLayout
 		);
 		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
 	}
@@ -319,7 +321,8 @@ export class WebGPUFrameExecutor {
 						ctx.encoder,
 						ctx.targets,
 						ctx.frameContext,
-						historyValid
+						historyValid,
+						this._resources.getFrameBinding()
 					);
 				},
 			},

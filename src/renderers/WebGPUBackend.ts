@@ -396,7 +396,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
 		const gpuPipeline = this.device.createComputePipeline({
-			layout: "auto",
+			layout: desc.layout ?? "auto",
 			compute: {
 				module: (desc.compute.module as InternalShaderModule)._gpuResource,
 				entryPoint: desc.compute.entryPoint,

@@ -66,13 +66,18 @@ export class WebGPUPostProcessRuntime {
 	private _copyPipeline: IComputePipeline | null = null;
 	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
+	private _ssrTraceGroupLayout0: GPUBindGroupLayout | null = null;
+	private _ssrTracePipelineLayout: GPUPipelineLayout | null = null;
+	private _frameBindGroupLayout: GPUBindGroupLayout | null = null;
 
 	constructor(
 		backend: WebGPUBackend,
-		warn: (key: string, message: string) => void
+		warn: (key: string, message: string) => void,
+		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
 		this._backend = backend;
 		this._warn = warn;
+		this._frameBindGroupLayout = frameBindGroupLayout || null;
 	}
 
 	/**
@@ -301,7 +306,8 @@ export class WebGPUPostProcessRuntime {
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
 		frameContext: FrameContext,
-		historyValid: boolean
+		historyValid: boolean,
+		frameBinding: IBindingGroup
 	): Promise<boolean> {
 		if (frameContext.camera.type === CameraType.Orthographic) {
 			this._warn(
@@ -411,6 +417,7 @@ export class WebGPUPostProcessRuntime {
 		encoder.beginComputePass({ label: "WebGPUSSR_TraceTemporal" });
 		encoder.setComputePipeline(this._ssrTracePipeline);
 		encoder.setBindingGroup(0, binding);
+		encoder.setBindingGroup(1, frameBinding);
 		encoder.dispatchWorkgroups(
 			ceilDiv(targets.ssrRaw.width, WORKGROUP_SIZE),
 			ceilDiv(targets.ssrRaw.height, WORKGROUP_SIZE),
@@ -621,11 +628,73 @@ export class WebGPUPostProcessRuntime {
 				label: "WebGPUHiZReducePipeline",
 				compute: { module: this._hizModule, entryPoint: "csReduce" },
 			});
-		if (!this._ssrTracePipeline)
-			this._ssrTracePipeline = this._backend.createComputePipeline({
-				label: "WebGPUSSRTracePipeline",
-				compute: { module: this._ssrModule, entryPoint: "csTrace" },
-			});
+		if (!this._ssrTracePipeline) {
+			const device = this._backend.device;
+			if (device && this._frameBindGroupLayout) {
+				this._ssrTraceGroupLayout0 = device.createBindGroupLayout({
+					label: "WebGPUSSRTrace_GroupLayout0",
+					entries: [
+						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{
+							binding: 1,
+							visibility: GPUShaderStage.COMPUTE,
+							texture: {},
+						},
+						{
+							binding: 2,
+							visibility: GPUShaderStage.COMPUTE,
+							texture: {},
+						},
+						{ binding: 3, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{
+							binding: 4,
+							visibility: GPUShaderStage.COMPUTE,
+							texture: {},
+						},
+						{
+							binding: 5,
+							visibility: GPUShaderStage.COMPUTE,
+							texture: {},
+						},
+						{
+							binding: 6,
+							visibility: GPUShaderStage.COMPUTE,
+							sampler: {},
+						},
+						{
+							binding: 7,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "uniform" },
+						},
+						{
+							binding: 8,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: {
+								format: "rgba16float",
+								access: "write-only",
+							},
+						},
+					],
+				});
+				this._ssrTracePipelineLayout = device.createPipelineLayout({
+					label: "WebGPUSSRTrace_PipelineLayout",
+					bindGroupLayouts: [
+						this._ssrTraceGroupLayout0,
+						this._frameBindGroupLayout,
+					],
+				});
+				this._ssrTracePipeline = this._backend.createComputePipeline({
+					label: "WebGPUSSRTracePipeline",
+					layout: this._ssrTracePipelineLayout,
+					compute: { module: this._ssrModule!, entryPoint: "csTrace" },
+				});
+			} else {
+				this._ssrTracePipeline = this._backend.createComputePipeline({
+					label: "WebGPUSSRTracePipeline",
+					compute: { module: this._ssrModule!, entryPoint: "csTrace" },
+				});
+			}
+		}
 		if (!this._ssrComposePipeline)
 			this._ssrComposePipeline = this._backend.createComputePipeline({
 				label: "WebGPUSSRComposePipeline",

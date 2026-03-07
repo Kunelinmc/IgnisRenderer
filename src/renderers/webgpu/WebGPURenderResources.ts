@@ -186,6 +186,14 @@ export class WebGPURenderResources {
 		this._materialBindings.beginFrame();
 	}
 
+	public getFrameBinding(): IBindingGroup {
+		return this._frameBindings.getSceneBinding();
+	}
+
+	public get sceneFrameLayout(): GPUBindGroupLayout {
+		return this._layouts.sceneFrameBindGroupLayout;
+	}
+
 	private _resolveFrameInputs(
 		contextOrScene: FrameContext | PreparedScene,
 		featuresArg?: ResolvedFeatureState

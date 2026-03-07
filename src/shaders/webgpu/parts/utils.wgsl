@@ -176,8 +176,11 @@ fn encodeOutput(color: vec3<f32>) -> vec3<f32> {
 }
 
 fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
-	let n = safeNormalize(normal, vec3<f32>(0.0, 0.0, 1.0));
-	return n.xy * 0.5 + vec2<f32>(0.5, 0.5);
+	let right = frame.skyboxBasisRight.xyz;
+	let up = frame.skyboxBasisUp.xyz;
+	let backward = frame.skyboxBasisBackward.xyz;
+	let vn = vec3<f32>(dot(normal, right), dot(normal, up), dot(normal, backward));
+	return vn.xy * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
 fn buildSceneOutput(

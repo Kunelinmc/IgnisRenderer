@@ -41,7 +41,7 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 		input.uv2
 	);
 	let emissive = model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
-	let linearDepth = length(frame.cameraPosition.xyz - input.worldPosition);
+	let linearDepth = dot(frame.cameraPosition.xyz - input.worldPosition, frame.skyboxBasisBackward.xyz);
 	let invCurrentW = 1.0 / max(abs(input.currentClip.w), EPSILON);
 	let invPrevW = 1.0 / max(abs(input.prevClip.w), EPSILON);
 	let currentNdc = input.currentClip.xy * invCurrentW;
