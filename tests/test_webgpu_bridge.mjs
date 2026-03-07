@@ -21,6 +21,9 @@ import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { SimpleModel } from "../src/models/SimpleModel.ts";
+import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
+import { ParticleBlendMode } from "../src/particles/types.ts";
+import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -31,10 +34,13 @@ class FakeDevice {
 	constructor() {
 		this.bufferDescs = [];
 		this.pipelineLayouts = [];
+		this.bindGroupLayouts = [];
 	}
 
 	createBindGroupLayout(desc) {
-		return { desc };
+		const layout = { desc };
+		this.bindGroupLayouts.push(layout);
+		return layout;
 	}
 
 	createPipelineLayout(desc) {
@@ -50,6 +56,8 @@ class FakeBackend {
 		this.type = "webgpu";
 		this.canvasFormat = "rgba8unorm";
 		this.bufferDescs = [];
+		this.pipelines = [];
+		this.bindingGroups = [];
 		this.device = new FakeDevice();
 	}
 
@@ -80,11 +88,15 @@ class FakeBackend {
 	}
 
 	createPipeline(desc) {
-		return { label: desc.label, desc };
+		const pipeline = { label: desc.label, desc };
+		this.pipelines.push(pipeline);
+		return pipeline;
 	}
 
 	createBindingGroup(desc) {
-		return { label: desc.label, desc };
+		const bindingGroup = { label: desc.label, desc };
+		this.bindingGroups.push(bindingGroup);
+		return bindingGroup;
 	}
 
 	writeBuffer(buffer, data) {
@@ -94,6 +106,15 @@ class FakeBackend {
 	writeTexture(texture, data, layout, size) {
 		texture.lastWrite = { data, layout, size };
 	}
+}
+
+class FakeRenderEncoder {
+	beginRenderPass() {}
+	setBindingGroup() {}
+	setVertexBuffer() {}
+	setPipeline() {}
+	draw() {}
+	endRenderPass() {}
 }
 
 function createModel(materials) {
@@ -357,6 +378,18 @@ async function testParticleShaderDepthConsistency() {
 			"let currentDepth = ndc.z * 0.5 + 0.5;"
 		)
 	);
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleUVTransform"));
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes("@group(1) @binding(2) var<uniform>")
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"input.uv.x * particleUVTransform.transformA.x"
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes("rotatedUV + particleUVTransform.transformA.zw")
+	);
 }
 
 function createTinyTexture(mips = 1) {
@@ -456,12 +489,14 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	const draw = await resources.getDrawResources(packet);
 
 	assert.ok(draw);
-	assert.equal(draw.frameBinding.desc.entries.length, 4);
-	assert.equal(draw.modelBinding.desc.entries.length, 29);
-	assert.equal(draw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
-	assert.equal(draw.pipeline.desc.fragment.targets.length, 5);
+	const firstDraw = draw[0];
+	assert.ok(firstDraw);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 4);
+	assert.equal(firstDraw.modelBinding.desc.entries.length, 29);
+	assert.equal(firstDraw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
+	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
-		draw.pipeline.desc.fragment.targets.map((target) => target.format),
+		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
 		["rgba16float", "rgba8unorm", "rgba16float", "rgba16float", "rgba16float"]
 	);
 	assert.ok(
@@ -574,6 +609,117 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	}
 }
 
+async function testParticleUVLayoutAndUniformBinding() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+		},
+		"webgpu"
+	);
+
+	resources.prepareFrame(frame, features);
+
+	const texture = new Texture(new Uint8Array([255, 255, 255, 255]), 1, 1, "sRGB");
+	texture.repeat = { x: 2, y: 3 };
+	texture.offset = { x: 0.25, y: -0.5 };
+	texture.rotation = Math.PI / 4;
+
+	const context = {
+		camera: frame.camera,
+		attachments: { width: 16, height: 16 },
+		features,
+		shadowMaps: frame.shadowMaps,
+		scene: {
+			...frame,
+			particleSystems: [],
+		},
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		transient: new Map([
+			[
+				PARTICLE_TRANSIENT_BATCHES_KEY,
+				[
+					{
+						systemId: "particleSystem-test",
+						blendMode: ParticleBlendMode.Alpha,
+						texture,
+						receiveShadows: true,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 1,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+				],
+			],
+		]),
+	};
+
+	const encoder = new FakeRenderEncoder();
+	const renderTarget = { width: 16, height: 16, destroy() {} };
+	await resources.renderParticles(
+		encoder,
+		context,
+		{ color: renderTarget, depth: renderTarget },
+		"single"
+	);
+
+	const particleLayout = backend.device.bindGroupLayouts.find(
+		(layout) => layout.desc.label === "WebGPUParticleBindGroupLayout"
+	);
+	assert.ok(particleLayout);
+	assert.equal(particleLayout.desc.entries.length, 3);
+
+	const particlePipeline = backend.pipelines.find((pipeline) =>
+		String(pipeline.label).startsWith("WebGPUParticlePipeline_")
+	);
+	assert.ok(particlePipeline);
+	assert.deepEqual(particlePipeline.desc.vertex.buffers, WEBGPU_PARTICLE_VERTEX_LAYOUTS);
+
+	const particleBinding = backend.bindingGroups.find(
+		(binding) => binding.label === "ParticleBinding_particleSystem-test"
+	);
+	assert.ok(particleBinding);
+	assert.equal(particleBinding.desc.entries.length, 3);
+
+	const uvBuffer = particleBinding.desc.entries[2].resource;
+	assert.ok(uvBuffer?.lastWrite);
+	const uvTransform = Array.from(uvBuffer.lastWrite);
+	assert.equal(uvTransform.length, 8);
+	assert.ok(Math.abs(uvTransform[0] - 2) < 1e-6);
+	assert.ok(Math.abs(uvTransform[1] - 3) < 1e-6);
+	assert.ok(Math.abs(uvTransform[2] - 0.25) < 1e-6);
+	assert.ok(Math.abs(uvTransform[3] + 0.5) < 1e-6);
+	assert.ok(Math.abs(uvTransform[4] - Math.cos(Math.PI / 4)) < 1e-6);
+	assert.ok(Math.abs(uvTransform[5] - Math.sin(Math.PI / 4)) < 1e-6);
+}
+
 async function run() {
 	testMatrixPackingAndDepthRemap();
 	testTransformComposition();
@@ -585,6 +731,7 @@ async function run() {
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUEnvironmentCombinationsRegression();
+	await testParticleUVLayoutAndUniformBinding();
 	console.log("WebGPU bridge tests passed");
 }
 

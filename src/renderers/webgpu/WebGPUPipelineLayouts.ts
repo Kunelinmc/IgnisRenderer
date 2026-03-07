@@ -1,3 +1,9 @@
+import {
+	WEBGPU_PARTICLE_BINDING_SAMPLER,
+	WEBGPU_PARTICLE_BINDING_TEXTURE,
+	WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
+} from "./particleLayout";
+
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	skyboxFrameBindGroupLayout: GPUBindGroupLayout;
@@ -89,14 +95,19 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUParticleBindGroupLayout",
 		entries: [
 			{
-				binding: 0,
+				binding: WEBGPU_PARTICLE_BINDING_TEXTURE,
 				visibility: GPUShaderStage.FRAGMENT,
 				texture: { sampleType: "float" },
 			},
 			{
-				binding: 1,
+				binding: WEBGPU_PARTICLE_BINDING_SAMPLER,
 				visibility: GPUShaderStage.FRAGMENT,
 				sampler: { type: "filtering" },
+			},
+			{
+				binding: WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform" },
 			},
 		],
 	});

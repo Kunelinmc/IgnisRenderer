@@ -116,6 +116,8 @@ export class SoftwareParticlePass {
 				let texA = 255;
 				if (batch.texture) {
 					const uvRect = particle.uvRect;
+					// Keep particle UV composition consistent with WebGPU:
+					// atlas rect first, then Texture.sample() applies repeat/rotation/offset.
 					const atlasU = uvRect.u0 + (uvRect.u1 - uvRect.u0) * u;
 					const atlasV = uvRect.v0 + (uvRect.v1 - uvRect.v0) * v;
 					const sampled = batch.texture.sample(atlasU, atlasV);

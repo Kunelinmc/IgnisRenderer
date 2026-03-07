@@ -41,6 +41,11 @@ struct ParticleVertexOutput {
 	@location(3) receiveShadow: f32,
 }
 
+struct ParticleUVTransform {
+	transformA: vec4<f32>, // xy: repeat, zw: offset
+	transformB: vec4<f32>, // x: cos(rotation), y: sin(rotation)
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
@@ -48,6 +53,7 @@ struct ParticleVertexOutput {
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
+@group(1) @binding(2) var<uniform> particleUVTransform: ParticleUVTransform;
 
 @vertex
 fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
@@ -123,7 +129,21 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 
 @fragment
 fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
-	let sampled = textureSample(particleTexture, particleSampler, input.uv);
+	let scaledUV = vec2<f32>(
+		input.uv.x * particleUVTransform.transformA.x,
+		input.uv.y * particleUVTransform.transformA.y
+	);
+	let rotatedUV = vec2<f32>(
+		scaledUV.x * particleUVTransform.transformB.x -
+			scaledUV.y * particleUVTransform.transformB.y,
+		scaledUV.x * particleUVTransform.transformB.y +
+			scaledUV.y * particleUVTransform.transformB.x
+	);
+	let sampled = textureSample(
+		particleTexture,
+		particleSampler,
+		rotatedUV + particleUVTransform.transformA.zw
+	);
 	var color = sampled * input.color;
 	if (color.a <= 0.001) {
 		discard;

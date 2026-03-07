@@ -43,6 +43,16 @@ import { isShadowCastingLight } from "../../lights";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShader } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";
+import {
+	WEBGPU_PARTICLE_BINDING_SAMPLER,
+	WEBGPU_PARTICLE_BINDING_TEXTURE,
+	WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
+	WEBGPU_PARTICLE_INSTANCE_FLOATS,
+	WEBGPU_PARTICLE_INSTANCE_STRIDE,
+	WEBGPU_PARTICLE_QUAD_VERTICES,
+	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
+	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
+} from "./particleLayout";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -92,7 +102,12 @@ export class WebGPURenderResources {
 	>();
 	private _particleBindingCache = new Map<
 		string,
-		{ group: IBindingGroup; texture: any; sampler: any }
+		{
+			group: IBindingGroup;
+			texture: any;
+			sampler: any;
+			uvTransformBuffer: IRenderBuffer;
+		}
 	>();
 
 	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
@@ -397,7 +412,7 @@ export class WebGPURenderResources {
 		await this._ensureParticleResources(mode, totalParticles);
 		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return;
 
-		const floatsPerInstance = 16;
+		const floatsPerInstance = WEBGPU_PARTICLE_INSTANCE_FLOATS;
 		const instanceData = new Float32Array(totalParticles * floatsPerInstance);
 		const drawRanges: Array<{
 			batch: ParticleRenderBatch;
@@ -475,6 +490,13 @@ export class WebGPURenderResources {
 			);
 			const cacheKey = `particle_${range.batch.systemId}`;
 			const cachedBinding = this._particleBindingCache.get(cacheKey);
+			const uvTransformBuffer =
+				cachedBinding?.uvTransformBuffer ??
+				this._backend.createBuffer({
+					size: WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
+					usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+					label: `ParticleUVTransform_${range.batch.systemId}`,
+				});
 			let particleBinding: IBindingGroup;
 			if (
 				cachedBinding &&
@@ -486,8 +508,18 @@ export class WebGPURenderResources {
 				particleBinding = this._backend.createBindingGroup({
 					layout: this._layouts.particleBindGroupLayout,
 					entries: [
-						{ binding: 0, resource: texture },
-						{ binding: 1, resource: sampler },
+						{
+							binding: WEBGPU_PARTICLE_BINDING_TEXTURE,
+							resource: texture,
+						},
+						{
+							binding: WEBGPU_PARTICLE_BINDING_SAMPLER,
+							resource: sampler,
+						},
+						{
+							binding: WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
+							resource: uvTransformBuffer,
+						},
 					],
 					label: `ParticleBinding_${range.batch.systemId}`,
 				});
@@ -495,8 +527,13 @@ export class WebGPURenderResources {
 					group: particleBinding,
 					texture,
 					sampler,
+					uvTransformBuffer,
 				});
 			}
+			const uvTransformData = this._createParticleUVTransformData(
+				range.batch.texture
+			);
+			this._backend.writeBuffer(uvTransformBuffer, uvTransformData);
 			const pipeline =
 				range.batch.blendMode === ParticleBlendMode.Additive
 					? additivePipeline
@@ -522,16 +559,15 @@ export class WebGPURenderResources {
 		}
 
 		if (!this._particleQuadBuffer) {
-			const quadVertices = new Float32Array([
-				-0.5, -0.5, 0, 1, 0.5, -0.5, 1, 1, 0.5, 0.5, 1, 0, -0.5, -0.5, 0, 1,
-				0.5, 0.5, 1, 0, -0.5, 0.5, 0, 0,
-			]);
 			this._particleQuadBuffer = this._backend.createBuffer({
-				size: quadVertices.byteLength,
+				size: WEBGPU_PARTICLE_QUAD_VERTICES.byteLength,
 				usage: BufferUsage.Vertex | BufferUsage.CopyDst,
 				label: "WebGPUParticleQuad",
 			});
-			this._backend.writeBuffer(this._particleQuadBuffer, quadVertices);
+			this._backend.writeBuffer(
+				this._particleQuadBuffer,
+				WEBGPU_PARTICLE_QUAD_VERTICES
+			);
 		}
 
 		this._ensureParticleInstanceBuffer(totalParticles);
@@ -548,7 +584,7 @@ export class WebGPURenderResources {
 		);
 		this._particleInstanceBuffer?.destroy();
 		this._particleInstanceBuffer = this._backend.createBuffer({
-			size: nextCapacity * 16 * 4,
+			size: nextCapacity * WEBGPU_PARTICLE_INSTANCE_STRIDE,
 			usage: BufferUsage.Vertex | BufferUsage.CopyDst,
 			label: "WebGPUParticleInstances",
 		});
@@ -604,27 +640,7 @@ export class WebGPURenderResources {
 			vertex: {
 				module: this._particleShaderModule,
 				entryPoint: "vsMain",
-				buffers: [
-					{
-						arrayStride: 16,
-						stepMode: "vertex",
-						attributes: [
-							{ shaderLocation: 0, offset: 0, format: "float32x2" },
-							{ shaderLocation: 1, offset: 8, format: "float32x2" },
-						],
-					},
-					{
-						arrayStride: 64,
-						stepMode: "instance",
-						attributes: [
-							{ shaderLocation: 2, offset: 0, format: "float32x4" },
-							{ shaderLocation: 3, offset: 16, format: "float32x4" },
-							{ shaderLocation: 4, offset: 32, format: "float32x4" },
-							{ shaderLocation: 5, offset: 48, format: "float32" },
-							{ shaderLocation: 6, offset: 52, format: "float32" },
-						],
-					},
-				],
+				buffers: WEBGPU_PARTICLE_VERTEX_LAYOUTS,
 			},
 			fragment: {
 				module: this._particleShaderModule,
@@ -648,5 +664,25 @@ export class WebGPURenderResources {
 			},
 		} as any);
 		cache.set(mode, pipeline);
+	}
+
+	private _createParticleUVTransformData(texture: ParticleRenderBatch["texture"]) {
+		const repeatX = texture?.repeat.x ?? 1;
+		const repeatY = texture?.repeat.y ?? 1;
+		const offsetX = texture?.offset.x ?? 0;
+		const offsetY = texture?.offset.y ?? 0;
+		const rotation = texture?.rotation ?? 0;
+		const cosRotation = Math.cos(rotation);
+		const sinRotation = Math.sin(rotation);
+		return new Float32Array([
+			repeatX,
+			repeatY,
+			offsetX,
+			offsetY,
+			cosRotation,
+			sinRotation,
+			0,
+			0,
+		]);
 	}
 }
