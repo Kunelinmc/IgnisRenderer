@@ -7,7 +7,7 @@ import { sRGBToLinear } from "../maths/Common";
 import { ShadowMap } from "../utils/ShadowMapping";
 import { LightingConstants } from "../core/constants";
 import { EventEmitter } from "../core/EventEmitter";
-import { Scene } from "./Scene";
+import { Scene } from "../core/Scene";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { FramePlanner } from "../pipeline/FramePlanner";
 import { ParticleSimulationStage } from "../pipeline/ParticleSimulationStage";

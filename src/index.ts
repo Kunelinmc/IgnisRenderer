@@ -36,7 +36,7 @@ export type {
 	TAAOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
-export { Scene } from "./renderers/Scene";
+export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";
 export { OrbitCamera } from "./cameras/OrbitCamera";

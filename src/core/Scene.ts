@@ -2,8 +2,8 @@ import { Matrix4 } from "../maths/Matrix4";
 import type { SceneLight } from "../lights";
 import type { ParticleSystem } from "../particles";
 import type { IVector3 } from "../maths/types";
-import type { Texture } from "../core/Texture";
-import type { BoundingSphere, IModel } from "../core/types";
+import type { Texture } from "./Texture";
+import type { BoundingSphere, IModel } from "./types";
 
 export class Scene {
 	public models: IModel[];
