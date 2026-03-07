@@ -147,6 +147,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.scene.invalidate();
 	}
 
+	public setScene(scene: Scene): void {
+		this.scene = scene;
+		this.scene.invalidate();
+	}
+
 	public get backendType(): IRenderBackend["type"] {
 		return this.backend.type;
 	}
