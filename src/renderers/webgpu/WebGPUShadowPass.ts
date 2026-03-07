@@ -1,3 +1,4 @@
+import { Frustum } from "../../maths/Frustum";
 import {
 	LightType,
 	isShadowCastingLight,
@@ -65,6 +66,7 @@ export class WebGPUShadowPass {
 	private _drawUniformBuffers: GPUBuffer[] = [];
 	private _drawBindGroups: GPUBindGroup[] = [];
 	private _drawResourceCursor = 0;
+	private _frustum = new Frustum();
 
 	constructor(
 		backend: WebGPUBackend,
@@ -134,6 +136,9 @@ export class WebGPUShadowPass {
 				this._shadowViewProjectionMatrix
 			);
 
+			// Update frustum for current shadow map
+			this._frustum.setFromMatrix(slot.shadowMap.viewProjectionMatrix!);
+
 			this._drawShadowCasters(
 				passEncoder,
 				frame.shadowCasterPackets,
@@ -152,6 +157,16 @@ export class WebGPUShadowPass {
 		viewProjectionMatrix: Matrix4
 	): void {
 		for (const packet of packets) {
+			// Per-light Frustum Culling
+			if (
+				!this._frustum.intersectsSphere(
+					packet.worldBounds.center,
+					packet.worldBounds.radius
+				)
+			) {
+				continue;
+			}
+
 			const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 			const vertexBuffer = (
 				geometry.vertexBuffer as { _gpuResource?: GPUBuffer }

@@ -26,10 +26,19 @@ export class PreparedSceneBuilder {
 
 			const packets = this._buildModelPackets(model, renderer.camera);
 			for (const packet of packets) {
+				const visibleInCamera = renderer.camera.isSphereInFrustum(
+					packet.worldBounds.center,
+					packet.worldBounds.radius
+				);
+
 				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
-					transparentPackets.push(packet);
+					if (visibleInCamera) {
+						transparentPackets.push(packet);
+					}
 				} else {
-					opaquePackets.push(packet);
+					if (visibleInCamera) {
+						opaquePackets.push(packet);
+					}
 				}
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
@@ -41,7 +50,9 @@ export class PreparedSceneBuilder {
 				}
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_REFLECTIVE) {
-					reflectivePackets.push(packet);
+					if (visibleInCamera) {
+						reflectivePackets.push(packet);
+					}
 				}
 			}
 		}
