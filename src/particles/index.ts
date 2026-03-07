@@ -1,2 +1,2 @@
-export * from './types'
-export * from './ParticleSystem'
+export * from "./types";
+export * from "./ParticleSystem";

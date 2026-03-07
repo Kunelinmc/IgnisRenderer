@@ -10,10 +10,6 @@ import type {
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
-import {
-	syncShadowMapRegistry,
-	updateShadowMapMetadata,
-} from "../../pipeline/ShadowMetadata";
 import type { ShadowMap } from "../../utils/ShadowMapping";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
@@ -310,7 +306,7 @@ export class WebGPUShadowPass {
 				},
 				primitive: {
 					topology: "triangle-list",
-					cullMode: "none",
+					cullMode: "back",
 					frontFace: "ccw",
 				},
 				depthStencil: {

@@ -113,7 +113,7 @@ export class WebGPUPipelineLibrary {
 			},
 			primitive: {
 				topology: (isWireframe ? "line-list" : "triangle-list") as any,
-				cullMode: isWireframe ? "none" : material.doubleSided ? "none" : "back",
+				cullMode: isWireframe ? "none" : (material.cullMode as any),
 				frontFace: "ccw",
 			},
 			depthStencil: {

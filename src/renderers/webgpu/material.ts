@@ -116,7 +116,7 @@ export function createWebGPUMaterialUniformData(
 		],
 		textureSlots,
 		pipelineKey: [
-			material.doubleSided ? "double" : "single",
+			material.cullMode,
 			alphaModeMask
 				? "mask"
 				: alphaMode === AlphaMode.Blend

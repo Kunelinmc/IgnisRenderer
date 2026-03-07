@@ -16,6 +16,12 @@ export enum AlphaMode {
 	Blend = "BLEND",
 }
 
+export enum CullMode {
+	None = "none",
+	Front = "front",
+	Back = "back",
+}
+
 export interface MirrorPlane {
 	normal: { x: number; y: number; z: number };
 	constant: number;
@@ -27,6 +33,7 @@ export interface MaterialParams {
 	shading?: ShadingModel;
 	opacity?: number;
 	doubleSided?: boolean;
+	cullMode?: CullMode;
 	wireframe?: boolean;
 	alphaMode?: AlphaMode;
 	alphaCutoff?: number;
@@ -41,6 +48,7 @@ export class Material {
 	public shading: ShadingModel;
 	public opacity: number;
 	public doubleSided: boolean;
+	public cullMode: CullMode;
 	public wireframe: boolean;
 	public alphaMode: AlphaMode;
 	public alphaCutoff: number;
@@ -54,6 +62,8 @@ export class Material {
 		this.shading = params.shading ?? ShadingModel.Flat;
 		this.opacity = params.opacity ?? 1;
 		this.doubleSided = params.doubleSided ?? false;
+		this.cullMode =
+			params.cullMode ?? (this.doubleSided ? CullMode.None : CullMode.Back);
 		this.wireframe = params.wireframe ?? false;
 
 		this.alphaMode = params.alphaMode ?? AlphaMode.Opaque;
