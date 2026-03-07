@@ -10,7 +10,9 @@ const WEBGL_STUB_ERROR_MESSAGE =
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
-	public readonly passExecutors = {} as const;
+	public readonly passExecutors = {
+		"particle-sim": "backend",
+	} as const;
 	public readonly capabilities = {
 		sh: false,
 		shadows: false,

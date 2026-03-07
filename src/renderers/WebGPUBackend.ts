@@ -11,9 +11,11 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
+import { PARTICLE_SIM_DELTA_TIME_MS_KEY } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import type { WebGPUPostProcessPassPlugin } from "./webgpu/WebGPUPostProcessGraph";
+import { DefaultParticleSimulator } from "./particles/DefaultParticleSimulator";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
@@ -79,7 +81,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
-		"particle-sim": "shared",
+		"particle-sim": "backend",
 	} as const;
 	public readonly capabilities = {
 		sh: true,
@@ -103,6 +105,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _renderer: RendererBackendBridge | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
+	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _pendingPostProcessPasses = new Map<
 		string,
 		WebGPUPostProcessPassPlugin
@@ -181,6 +184,10 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resources = new WebGPURenderResources(this._renderer, this);
 		await this._resources.init();
 		this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+		this._particleSimulator = new DefaultParticleSimulator({
+			backendTag: this.type,
+			maxParticlesPerSystem: 300000,
+		});
 		for (const pass of this._pendingPostProcessPasses.values()) {
 			this._frameExecutor.registerPostProcessPass(pass);
 		}
@@ -201,6 +208,7 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
+		this._particleSimulator?.beginFrame(context);
 		this._resources.prepareFrame(context);
 		this._frameExecutor.beginFrame(context);
 	}
@@ -213,11 +221,21 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
+		if (pass.stage === "particle-sim") {
+			this._particleSimulator?.simulate(
+				context,
+				this._resolveParticleDeltaTime(context)
+			);
+			this._particleSimulator?.emitRenderBatches(context);
+			return;
+		}
+
 		return this._frameExecutor.executePass(pass, context);
 	}
 
 	public async endFrame(): Promise<void> {
 		await this._frameExecutor?.endFrame();
+		this._particleSimulator?.endFrame();
 	}
 
 	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
@@ -673,6 +691,14 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("Invalid command buffer for WebGPU submit().");
 		}
 		return internal;
+	}
+
+	private _resolveParticleDeltaTime(context: FrameContext): number {
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY);
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			return 0;
+		}
+		return Math.max(0, value);
 	}
 }
 

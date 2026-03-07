@@ -111,7 +111,7 @@ function run() {
 	)
 	assert.equal(
 		plan.find((pass) => pass.stage === 'particle-sim')?.executor,
-		'shared'
+		'backend'
 	)
 
 	console.log('Frame planner tests passed')

@@ -1,5 +1,9 @@
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
-import type { FrameContext, FramePass } from "../pipeline/types";
+import {
+	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	type FrameContext,
+	type FramePass,
+} from "../pipeline/types";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
@@ -12,12 +16,12 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
-
+import { DefaultParticleSimulator } from "./particles/DefaultParticleSimulator";
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "always";
 	public readonly passExecutors = {
-		"particle-sim": "shared",
+		"particle-sim": "backend",
 	} as const;
 	public readonly capabilities = {
 		sh: true,
@@ -44,6 +48,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _normalBuffer: Float32Array | null = null;
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
+	private _particleSimulator: DefaultParticleSimulator | null = null;
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this._ctx = canvas.getContext("2d");
@@ -57,6 +62,9 @@ export class SoftwareBackend implements IRenderBackend {
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
 		this._postProcessor = new PostProcessor(renderer);
+		this._particleSimulator = new DefaultParticleSimulator({
+			backendTag: this.type,
+		});
 	}
 
 	public getAttachments(width: number, height: number): any {
@@ -86,6 +94,8 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._particleSimulator?.beginFrame(context);
+
 		const pixels = context.attachments.pixels!;
 		const size = pixels.length >> 2;
 		for (let i = 0; i < size; i++) {
@@ -127,6 +137,13 @@ export class SoftwareBackend implements IRenderBackend {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
+			case "particle-sim":
+				this._particleSimulator?.simulate(
+					context,
+					this._resolveParticleDeltaTime(context)
+				);
+				this._particleSimulator?.emitRenderBatches(context);
+				break;
 			case "shadow":
 				this._shadowPass?.render(context);
 				break;
@@ -170,8 +187,18 @@ export class SoftwareBackend implements IRenderBackend {
 	public endFrame(): void {
 		if (!this._renderer || !this._ctx) return;
 
+		this._particleSimulator?.endFrame();
+
 		const imageData = this._getFrameImageData(this._renderer);
 		this._ctx.putImageData(imageData, 0, 0);
+	}
+
+	private _resolveParticleDeltaTime(context: FrameContext): number {
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY);
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			return 0;
+		}
+		return Math.max(0, value);
 	}
 
 	private _getFrameImageData(renderer: RendererBackendBridge): ImageData {

@@ -10,9 +10,9 @@ import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { FramePlanner } from "../pipeline/FramePlanner";
-import { ParticleSimulationStage } from "../pipeline/ParticleSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
+import { PARTICLE_SIM_DELTA_TIME_MS_KEY } from "../pipeline/types";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	SSAOOptions,
@@ -64,7 +64,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
-	private _particleSimulationStage: ParticleSimulationStage;
 
 	constructor(
 		backend: IRenderBackend,
@@ -78,7 +77,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
 		this._frameDirty = true;
-		this._particleSimulationStage = new ParticleSimulationStage();
 
 		this.features = {
 			enableLighting: true,
@@ -202,6 +200,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.canvas.width,
 			this.canvas.height
 		);
+		const transient = new Map<string, any>();
+		transient.set(PARTICLE_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
 		const context: FrameContext = {
 			camera: this.camera,
 			attachments: attachments,
@@ -211,7 +211,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			shCoeffs: this.shCoeffs,
 			shAmbientCoeffs: this.shAmbientCoeffs,
 			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
-			transient: new Map(),
+			transient,
 		};
 
 		const framePlan = FramePlanner.build(
@@ -224,11 +224,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		// for backend resource preparation.
 		for (const pass of framePlan) {
 			if (pass.enabled && pass.executor === "shared") {
-				if (pass.stage === "particle-sim") {
-					this._particleSimulationStage.execute(context, this._deltaTime);
-					continue;
-				}
-
 				if (!this.backend.executeSharedPass) {
 					this.warnOnce(
 						`${this.backend.type}-shared-pass-${pass.stage}`,

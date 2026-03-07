@@ -215,12 +215,145 @@ function testCollisionAndSubEmitter() {
 	}
 }
 
+function testLODScalesSimulationAndRenderSubset() {
+	const stage = new ParticleSimulationStage()
+	const system = new ParticleSystem({
+		maxParticles: 10,
+		position: { x: 0, y: 0, z: -200 },
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 8 }],
+			lifetimeRange: [5, 5],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+			spawnRadius: 0,
+		},
+		lod: {
+			enabled: true,
+			hysteresisFrames: 0,
+			levels: [
+				{
+					distance: 16,
+					projectedSize: 128,
+					simulationIntervalFrames: 1,
+					spawnScale: 1,
+					maxParticlesScale: 1,
+					renderSortRatio: 1,
+				},
+				{
+					distance: Number.POSITIVE_INFINITY,
+					projectedSize: 0,
+					simulationIntervalFrames: 2,
+					spawnScale: 0.5,
+					maxParticlesScale: 0.5,
+					renderSortRatio: 0.5,
+				},
+			],
+		},
+	})
+
+	const context = createContext([system])
+	stage.execute(context, 16)
+	let particles = getBatches(context)[0]?.particles ?? []
+	assert.equal(particles.length, 0)
+
+	stage.execute(context, 16)
+	particles = getBatches(context)[0]?.particles ?? []
+	assert.equal(particles.length, 2)
+}
+
+function testLODHysteresis() {
+	const stage = new ParticleSimulationStage()
+	const system = new ParticleSystem({
+		maxParticles: 128,
+		position: { x: 0, y: 0, z: 8 },
+		emit: {
+			rate: 10,
+			bursts: [],
+			lifetimeRange: [10, 10],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+		lod: {
+			enabled: true,
+			hysteresisFrames: 2,
+			levels: [
+				{
+					distance: 16,
+					projectedSize: 16,
+					simulationIntervalFrames: 1,
+					spawnScale: 1,
+					maxParticlesScale: 1,
+					renderSortRatio: 1,
+				},
+				{
+					distance: Number.POSITIVE_INFINITY,
+					projectedSize: 0,
+					simulationIntervalFrames: 1,
+					spawnScale: 0,
+					maxParticlesScale: 1,
+					renderSortRatio: 1,
+				},
+			],
+		},
+	})
+
+	const context = createContext([system])
+	stage.execute(context, 1000)
+	let total = getBatches(context)[0]?.particles?.length ?? 0
+	assert.equal(total, 10)
+
+	system.position.z = -200
+	stage.execute(context, 1000)
+	total = getBatches(context)[0]?.particles?.length ?? 0
+	assert.equal(total, 20)
+
+	stage.execute(context, 1000)
+	total = getBatches(context)[0]?.particles?.length ?? 0
+	assert.equal(total, 20)
+}
+
+function testStrictFailureWhenLODStillOverBudget() {
+	const stage = new ParticleSimulationStage()
+	const system = new ParticleSystem({
+		maxParticles: 8,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 1 }],
+			lifetimeRange: [2, 2],
+			speedRange: [0, 0],
+		},
+		lod: {
+			enabled: true,
+			hysteresisFrames: 0,
+			levels: [
+				{
+					distance: Number.POSITIVE_INFINITY,
+					projectedSize: 0,
+					simulationIntervalFrames: 1,
+					spawnScale: 1,
+					maxParticlesScale: 2,
+					renderSortRatio: 1,
+				},
+			],
+		},
+	})
+	const context = createContext([system])
+	assert.throws(
+		() => stage.execute(context, 16),
+		/required=16 available=8/
+	)
+}
+
 function run() {
 	testDeterministicSeed()
 	testRateAndBurstSpawn()
 	testGradientAndAtlas()
 	testLocalSpaceFollowsSystemPosition()
 	testCollisionAndSubEmitter()
+	testLODScalesSimulationAndRenderSubset()
+	testLODHysteresis()
+	testStrictFailureWhenLODStillOverBudget()
 	console.log('Particle simulation stage tests passed')
 }
 

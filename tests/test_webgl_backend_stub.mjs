@@ -8,7 +8,9 @@ async function run() {
 
 	assert.equal(backend.type, "webgl");
 	assert.equal(backend.frameScheduling, "on-demand");
-	assert.deepEqual(backend.passExecutors, {});
+	assert.deepEqual(backend.passExecutors, {
+		"particle-sim": "backend",
+	});
 	assert.deepEqual(backend.capabilities, {
 		sh: false,
 		shadows: false,

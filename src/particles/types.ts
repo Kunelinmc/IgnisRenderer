@@ -84,6 +84,21 @@ export interface ParticleSubEmitterConfig {
 	sizeRange?: [number, number];
 }
 
+export interface ParticleLODLevel {
+	distance: number;
+	projectedSize: number;
+	simulationIntervalFrames: number;
+	spawnScale: number;
+	maxParticlesScale: number;
+	renderSortRatio: number;
+}
+
+export interface ParticleLODSettings {
+	enabled?: boolean;
+	hysteresisFrames?: number;
+	levels: ParticleLODLevel[];
+}
+
 export interface ParticleSystemParams {
 	name?: string;
 	visible?: boolean;
@@ -101,4 +116,5 @@ export interface ParticleSystemParams {
 	colliders?: ParticleCollider[];
 	subEmitter?: ParticleSubEmitterConfig | null;
 	receiveShadows?: boolean;
+	lod?: ParticleLODSettings;
 }

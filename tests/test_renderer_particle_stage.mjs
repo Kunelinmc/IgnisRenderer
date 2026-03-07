@@ -2,8 +2,12 @@ import assert from 'node:assert/strict'
 import { Renderer } from '../src/engine/Renderer.ts'
 import { Camera } from '../src/cameras/Camera.ts'
 import { Matrix4 } from '../src/maths/Matrix4.ts'
+import { ParticleSimulationStage } from '../src/pipeline/ParticleSimulationStage.ts'
 import { ParticleSystem } from '../src/particles/ParticleSystem.ts'
-import { PARTICLE_TRANSIENT_BATCHES_KEY } from '../src/pipeline/types.ts'
+import {
+	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+} from '../src/pipeline/types.ts'
 
 class StubBackend {
 	constructor() {
@@ -25,6 +29,7 @@ class StubBackend {
 		this.sharedStages = []
 		this.executedStages = []
 		this.particleBatchCount = 0
+		this.particleStage = new ParticleSimulationStage()
 	}
 
 	async init() {}
@@ -49,6 +54,12 @@ class StubBackend {
 
 	executePass(pass, context) {
 		this.executedStages.push(pass.stage)
+		if (pass.stage === 'particle-sim') {
+			this.particleStage.execute(
+				context,
+				context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY) ?? 0
+			)
+		}
 		if (pass.stage === 'particles') {
 			const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? []
 			this.particleBatchCount = batches.length
@@ -96,6 +107,7 @@ async function run() {
 		await renderer.renderScene(32)
 
 		assert.equal(backend.sharedStages.includes('particle-sim'), false)
+		assert.ok(backend.executedStages.includes('particle-sim'))
 		assert.ok(backend.executedStages.includes('main-opaque'))
 		assert.ok(backend.executedStages.includes('particles'))
 		assert.ok(backend.particleBatchCount > 0)

@@ -21,13 +21,12 @@ export class FramePlanner {
 		features: ResolvedFeatureState,
 		executors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>
 	): FramePass[] {
-		return FRAME_PASS_ORDER.map((stage) => ({
-			stage,
-			executor:
-				executors?.[stage] ?? (stage === "particle-sim" ? "shared" : "backend"),
-			enabled: shouldEnablePass(stage, frame, features),
-		}));
-	}
+	return FRAME_PASS_ORDER.map((stage) => ({
+		stage,
+		executor: executors?.[stage] ?? "backend",
+		enabled: shouldEnablePass(stage, frame, features),
+	}));
+}
 }
 
 function shouldEnablePass(

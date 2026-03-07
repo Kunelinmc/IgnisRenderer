@@ -41,6 +41,10 @@ function run() {
 		volumetric: false,
 	});
 
+	assert.equal(software.passExecutors["particle-sim"], "backend")
+	assert.equal(webgpu.passExecutors["particle-sim"], "backend")
+	assert.equal(webgl.passExecutors["particle-sim"], "backend")
+
 	testSoftwareBackendReusesFrameImageData()
 
 	console.log('Backend capability tests passed')
