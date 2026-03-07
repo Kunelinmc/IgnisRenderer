@@ -35,31 +35,32 @@ export class WebGPUPipelineLibrary {
 
 	public async getPipeline(
 		material: Material,
-		mode: WebGPUSceneTargetMode = "mrt"
+		mode: WebGPUSceneTargetMode = "single",
+		isWireframe = false
 	): Promise<IRenderPipeline> {
-		const materialData = createWebGPUMaterialUniformData(material);
+		const { pipelineKey, materialFlags } = createWebGPUMaterialUniformData(
+			material,
+			isWireframe
+		);
 		const cached = this._materialPipelineCache.get(material);
-		if (
-			cached &&
-			cached.key === materialData.pipelineKey &&
-			cached.mode === mode
-		) {
+		if (cached && cached.key === pipelineKey && cached.mode === mode) {
 			return cached.pipeline;
 		}
 
-		const cacheKey = `${materialData.pipelineKey}|${mode}`;
+		const cacheKey = `${pipelineKey}|${mode}`;
 		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
 				material,
-				materialData.pipelineKey,
-				mode
+				pipelineKey,
+				mode,
+				isWireframe
 			);
 			this._pipelineCache.set(cacheKey, pipeline);
 		}
 
 		this._materialPipelineCache.set(material, {
-			key: materialData.pipelineKey,
+			key: pipelineKey,
 			mode,
 			pipeline,
 		});
@@ -70,7 +71,8 @@ export class WebGPUPipelineLibrary {
 	private async _createPipeline(
 		material: Material,
 		pipelineKey: string,
-		mode: WebGPUSceneTargetMode
+		mode: WebGPUSceneTargetMode,
+		isWireframe: boolean
 	): Promise<IRenderPipeline> {
 		const shaderModule = await this._getSceneShaderModule();
 		const fragmentTargets =
@@ -110,8 +112,8 @@ export class WebGPUPipelineLibrary {
 				targets: fragmentTargets as any,
 			},
 			primitive: {
-				topology: "triangle-list" as any,
-				cullMode: material.doubleSided ? "none" : "back",
+				topology: (isWireframe ? "line-list" : "triangle-list") as any,
+				cullMode: isWireframe ? "none" : material.doubleSided ? "none" : "back",
 				frontFace: "ccw",
 			},
 			depthStencil: {
@@ -132,7 +134,9 @@ export class WebGPUPipelineLibrary {
 
 		const shaderModule = await this._getSkyboxShaderModule();
 		const targetFormat =
-			mode === "mrt" ? TextureFormat.RGBA16Float : (this._backend.canvasFormat as any);
+			mode === "mrt"
+				? TextureFormat.RGBA16Float
+				: (this._backend.canvasFormat as any);
 		const depthFormat =
 			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
 		const pipeline = this._backend.createPipeline({

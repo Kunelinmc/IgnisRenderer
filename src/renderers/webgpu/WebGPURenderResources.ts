@@ -242,7 +242,7 @@ export class WebGPURenderResources {
 
 	public async getDrawResources(
 		packet: DrawPacket
-	): Promise<WebGPUDrawResources | null> {
+	): Promise<WebGPUDrawResources[] | null> {
 		if (packet.material.alphaMode === AlphaMode.Blend) {
 			this._renderer.warnOnce(
 				`webgpu-material-blend:${packet.material.type}:${packet.material.name}`,
@@ -251,39 +251,83 @@ export class WebGPURenderResources {
 			return null;
 		}
 
-		const materialData = createWebGPUMaterialUniformData(packet.material);
-		for (const warning of materialData.warnings) {
+		const results: WebGPUDrawResources[] = [];
+		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
+		const frameBinding = this._frameBindings.getSceneBinding();
+
+		// ----- SOLID OBJECT -----
+		const solidMaterialData = createWebGPUMaterialUniformData(
+			packet.material,
+			false
+		);
+		for (const warning of solidMaterialData.warnings) {
 			this._renderer.warnOnce(warning.key, warning.message);
 		}
 
-		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-		const pipeline = await this._pipelineLibrary.getPipeline(
+		const solidPipeline = await this._pipelineLibrary.getPipeline(
 			packet.material,
-			this._sceneTargetMode
+			this._sceneTargetMode,
+			false
 		);
-		const textures = materialData.textureSlots.map((slot, index) =>
+		const solidTextures = solidMaterialData.textureSlots.map((slot, index) =>
 			this._textureRegistry.getTextureForSlot(slot.map, index)
 		);
-		const samplers = materialData.textureSlots.map((slot) =>
+		const solidSamplers = solidMaterialData.textureSlots.map((slot) =>
 			this._textureRegistry.getSamplerForTexture(slot.map)
 		);
-		const frameBinding = this._frameBindings.getSceneBinding();
-		const modelBinding = this._materialBindings.getBinding(
+		const solidModelBinding = this._materialBindings.getBinding(
 			packet,
-			pipeline,
-			materialData,
-			textures,
-			samplers
+			solidPipeline,
+			solidMaterialData,
+			solidTextures,
+			solidSamplers
 		);
 
-		return {
-			pipeline,
+		results.push({
+			pipeline: solidPipeline,
 			frameBinding,
-			modelBinding,
+			modelBinding: solidModelBinding,
 			vertexBuffer: geometry.vertexBuffer,
 			indexBuffer: geometry.indexBuffer,
 			indexCount: geometry.indexCount,
-		};
+		});
+
+		// ----- WIREFRAME OVERLAY -----
+		if (packet.material.wireframe) {
+			const wireMaterialData = createWebGPUMaterialUniformData(
+				packet.material,
+				true
+			);
+			const wirePipeline = await this._pipelineLibrary.getPipeline(
+				packet.material,
+				this._sceneTargetMode,
+				true
+			);
+			const wireTextures = wireMaterialData.textureSlots.map((slot, index) =>
+				this._textureRegistry.getTextureForSlot(slot.map, index)
+			);
+			const wireSamplers = wireMaterialData.textureSlots.map((slot) =>
+				this._textureRegistry.getSamplerForTexture(slot.map)
+			);
+			const wireModelBinding = this._materialBindings.getBinding(
+				packet,
+				wirePipeline,
+				wireMaterialData,
+				wireTextures,
+				wireSamplers
+			);
+
+			results.push({
+				pipeline: wirePipeline,
+				frameBinding,
+				modelBinding: wireModelBinding,
+				vertexBuffer: geometry.vertexBuffer,
+				indexBuffer: geometry.wireframeIndexBuffer,
+				indexCount: geometry.wireframeIndexCount,
+			});
+		}
+
+		return results;
 	}
 
 	public async getSkyboxResources(): Promise<WebGPUSkyboxDrawResources | null> {

@@ -906,15 +906,17 @@ export class WebGPUFrameExecutor {
 		});
 
 		for (const packet of packets) {
-			const resources = await this._resources.getDrawResources(packet);
-			if (!resources) continue;
+			const resourcesList = await this._resources.getDrawResources(packet);
+			if (!resourcesList) continue;
 
-			this._encoder.setPipeline(resources.pipeline);
-			this._encoder.setBindingGroup(0, resources.frameBinding);
-			this._encoder.setBindingGroup(1, resources.modelBinding);
-			this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-			this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-			this._encoder.drawIndexed(resources.indexCount);
+			for (const resources of resourcesList) {
+				this._encoder.setPipeline(resources.pipeline);
+				this._encoder.setBindingGroup(0, resources.frameBinding);
+				this._encoder.setBindingGroup(1, resources.modelBinding);
+				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+				this._encoder.drawIndexed(resources.indexCount);
+			}
 		}
 
 		this._encoder.endRenderPass();
@@ -955,15 +957,17 @@ export class WebGPUFrameExecutor {
 		}
 
 		for (const packet of packets) {
-			const resources = await this._resources.getDrawResources(packet);
-			if (!resources) continue;
+			const resourcesList = await this._resources.getDrawResources(packet);
+			if (!resourcesList) continue;
 
-			this._encoder.setPipeline(resources.pipeline);
-			this._encoder.setBindingGroup(0, resources.frameBinding);
-			this._encoder.setBindingGroup(1, resources.modelBinding);
-			this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-			this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-			this._encoder.drawIndexed(resources.indexCount);
+			for (const resources of resourcesList) {
+				this._encoder.setPipeline(resources.pipeline);
+				this._encoder.setBindingGroup(0, resources.frameBinding);
+				this._encoder.setBindingGroup(1, resources.modelBinding);
+				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+				this._encoder.drawIndexed(resources.indexCount);
+			}
 		}
 
 		this._encoder.endRenderPass();

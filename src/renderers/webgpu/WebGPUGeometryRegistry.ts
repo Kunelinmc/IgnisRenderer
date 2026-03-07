@@ -7,6 +7,8 @@ export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;
 	indexBuffer: IRenderBuffer;
 	indexCount: number;
+	wireframeIndexBuffer: IRenderBuffer;
+	wireframeIndexCount: number;
 }
 
 export class WebGPUGeometryRegistry {
@@ -57,6 +59,22 @@ export class WebGPUGeometryRegistry {
 			vertexData[base + 13] = geometry.uv1?.[sourceUv + 1] ?? 0;
 		}
 
+		const indexCount = geometry.indices.length;
+		const triangleCount = Math.floor(indexCount / 3);
+		const wireframeIndices = new Uint32Array(triangleCount * 6);
+		let wIdx = 0;
+		for (let i = 0; i < indexCount; i += 3) {
+			const i0 = geometry.indices[i];
+			const i1 = geometry.indices[i + 1];
+			const i2 = geometry.indices[i + 2];
+			wireframeIndices[wIdx++] = i0;
+			wireframeIndices[wIdx++] = i1;
+			wireframeIndices[wIdx++] = i1;
+			wireframeIndices[wIdx++] = i2;
+			wireframeIndices[wIdx++] = i2;
+			wireframeIndices[wIdx++] = i0;
+		}
+
 		const vertexBuffer = this._backend.createBuffer({
 			size: vertexData.byteLength,
 			usage: BufferUsage.Vertex | BufferUsage.CopyDst,
@@ -67,14 +85,22 @@ export class WebGPUGeometryRegistry {
 			usage: BufferUsage.Index | BufferUsage.CopyDst,
 			label: `IndexBuffer_${primitive.id}`,
 		});
+		const wireframeIndexBuffer = this._backend.createBuffer({
+			size: wireframeIndices.byteLength,
+			usage: BufferUsage.Index | BufferUsage.CopyDst,
+			label: `WireframeIndexBuffer_${primitive.id}`,
+		});
 
 		this._backend.writeBuffer(vertexBuffer, new Float32Array(vertexData));
 		this._backend.writeBuffer(indexBuffer, new Uint32Array(geometry.indices));
+		this._backend.writeBuffer(wireframeIndexBuffer, wireframeIndices);
 
 		return {
 			vertexBuffer,
 			indexBuffer,
-			indexCount: geometry.indices.length,
+			indexCount,
+			wireframeIndexBuffer,
+			wireframeIndexCount: wireframeIndices.length,
 		};
 	}
 }

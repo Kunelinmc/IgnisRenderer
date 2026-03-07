@@ -54,13 +54,14 @@ export class WebGPUMaterialBindingCache {
 		textures: IRenderTexture[],
 		samplers: ISampler[]
 	): IBindingGroup {
-		let cached = this._cache.get(packet.id);
+		const cacheKey = `${packet.id}-${materialData.pipelineKey}`;
+		let cached = this._cache.get(cacheKey);
 		if (!cached) {
 			cached = {
 				uniformBuffer: this._backend.createBuffer({
 					size: WEBGPU_MODEL_UNIFORM_FLOATS * 4,
 					usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-					label: `ModelUniform_${packet.id}`,
+					label: `ModelUniform_${cacheKey}`,
 				}),
 				bindingGroup: null,
 				pipeline: null,
@@ -69,7 +70,7 @@ export class WebGPUMaterialBindingCache {
 				prevModelMatrix: null,
 				lastUsedFrame: this._currentFrame,
 			};
-			this._cache.set(packet.id, cached);
+			this._cache.set(cacheKey, cached);
 		} else {
 			cached.lastUsedFrame = this._currentFrame;
 		}
@@ -100,7 +101,7 @@ export class WebGPUMaterialBindingCache {
 				entries.push({ binding: 2 + i * 2, resource: samplers[i] });
 			}
 			cached.bindingGroup = this._backend.createBindingGroup({
-				label: `ModelBinding_${packet.id}`,
+				label: `ModelBinding_${cacheKey}`,
 				layout: this._layouts.modelBindGroupLayout,
 				entries,
 			});

@@ -4,13 +4,18 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 	let doubleSided = model.materialFlags.z > 0.5;
 	let enableLighting = frame.options.x > 0.5;
 
-	let baseSample = sampleColorTexture(
-		baseColorTexture,
-		baseColorSampler,
-		TEX_BASE_COLOR,
-		input.uv,
-		input.uv2
-	);
+	let isWireframe = model.materialFlags.w > 0.5;
+	var baseSample = vec4<f32>(1.0);
+	if (!isWireframe) {
+		baseSample = sampleColorTexture(
+			baseColorTexture,
+			baseColorSampler,
+			TEX_BASE_COLOR,
+			input.uv,
+			input.uv2
+		);
+	}
+
 	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
 	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
 

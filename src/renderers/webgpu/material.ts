@@ -14,7 +14,8 @@ import type {
 } from "./types";
 
 export function createWebGPUMaterialUniformData(
-	material: Material
+	material: Material,
+	isWireframe = false
 ): WebGPUMaterialUniformData {
 	const warnings: WebGPUWarning[] = [];
 	const mat = material as any;
@@ -111,7 +112,7 @@ export function createWebGPUMaterialUniformData(
 			shadingMode,
 			alphaModeMask,
 			material.doubleSided ? 1 : 0,
-			0,
+			isWireframe ? 1 : 0,
 		],
 		textureSlots,
 		pipelineKey: [
@@ -121,7 +122,8 @@ export function createWebGPUMaterialUniformData(
 				: alphaMode === AlphaMode.Blend
 					? "blend"
 					: "opaque",
-		].join(":"),
+			isWireframe ? "wireframe" : "solid",
+		].join("-"),
 		warnings,
 	};
 }
