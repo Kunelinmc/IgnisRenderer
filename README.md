@@ -20,6 +20,24 @@
 - **Software Backend (CPU)**: A complete graphics pipeline implemented from scratch on the CPU, including vertex transformation, clipping, and triangle rasterization.
 - **WebGPU Backend (GPU)**: A modern, hardware-accelerated pipeline leveraging the WebGPU API for high-performance real-time rendering.
 
+### Backend Feature Comparison
+
+| Feature                 | Software Backend (CPU) | WebGPU Backend (GPU) |
+| :---------------------- | :--------------------: | :------------------: |
+| **Rasterization**       |  Scanline (Sub-pixel)  | Hardware Accelerated |
+| **PBR Rendering**       |           ✅           |          ✅          |
+| **Dynamic Shadows**     |           ✅           |          ✅          |
+| **Planar Reflections**  |           ✅           |          ❌          |
+| **SSAO**                |           ✅           |          ✅          |
+| **TAA (Temporal AA)**   |           ❌           |          ✅          |
+| **SSR (Reflections)**   |           ❌           |          ✅          |
+| **Volumetric Effects**  |           ✅           |          ✅          |
+| **Particle System**     |        ✅ (CPU)        |   ✅ (GPU Compute)   |
+| **FXAA**                |           ✅           |          ✅          |
+| **Skybox Rendering**    |           ✅           |          ✅          |
+| **Spherical Harmonics** |           ✅           |          ✅          |
+| **Coordinate Clipping** |    ✅ (Homogeneous)    |    ✅ (Hardware)     |
+
 ### Rendering Core
 
 - **Scanline Rasterizer**: High-quality triangle rasterization with sub-pixel precision.
@@ -44,8 +62,17 @@
 - **Planar Reflections**: High-quality mirror reflections with support for:
   - **Fresnel Effect**: View-dependent reflectivity.
   - **Blur & Distortion**: Simulated surface roughness and ripple effects.
+- **Particle System**:
+  - **Dual-Simulation Core**: GPU-accelerated compute shaders (WebGPU) or optimized CPU simulation (Software).
+  - **Dynamic Properties**: Real-time interpolation of size and color (RGBA) over lifetime.
+  - **Physics & Collisions**: Integrated gravity and collision support with Planes, Spheres, and AABBs.
+  - **Sub-Emitters**: Capability to spawn nested systems for complex cascading effects.
 - **Post-Processing Pipeline**:
-  - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges (Software).
+  - **SSAO**: Screen Space Ambient Occlusion for realistic depth and contact shadows.
+  - **TAA**: Temporal Anti-Aliasing for ultra-smooth edges and stability (WebGPU).
+  - **SSR**: Screen Space Reflections for dynamic environmental reflections (WebGPU).
+  - **Volumetric Light**: High-quality light shafts and atmospheric scattering.
+  - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges.
   - **Tone Mapping**: Exposure control and Gamma correction (v2.2 convention).
 
 ### WebGPU Implementation
@@ -201,4 +228,3 @@ main();
 ## License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
-
