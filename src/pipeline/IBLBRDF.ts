@@ -11,7 +11,7 @@ export class IBLBRDF {
 
 	public static getLUT(): Texture {
 		if (!this._lut) {
-			this._lut = this._generateBRDFLUT(128, 128);
+			this._lut = this._generateBRDFLUT(64, 64);
 		}
 		return this._lut;
 	}
@@ -22,7 +22,7 @@ export class IBLBRDF {
 		for (let j = 0; j < height; j++) {
 			// Square distribution for better resolution in smooth areas
 			const roughness = Math.pow((j + 0.5) / height, 2);
-			const sampleCount = Math.floor(lerp(1024, 64, roughness));
+			const sampleCount = Math.floor(lerp(128, 32, roughness));
 
 			for (let i = 0; i < width; i++) {
 				const NdotV = (i + 0.5) / width;
