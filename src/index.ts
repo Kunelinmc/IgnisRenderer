@@ -9,7 +9,7 @@ export * from "./maths/Common";
 export * from "./maths/types";
 export * from "./utils/Color";
 export { Node } from "./core/Node";
-export { MeshAsset, MeshInstance } from "./meshes";
+export { MeshAsset, MeshInstance, MeshFactory } from "./meshes";
 export type {
 	IVertex,
 	IPrimitive,

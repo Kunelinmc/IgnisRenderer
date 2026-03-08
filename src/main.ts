@@ -13,25 +13,25 @@ import {
 	Scene,
 	SoftwareBackend,
 	WebGPUBackend,
-} from './index'
+} from "./index";
 
 interface RendererBootstrap {
-	canvas: HTMLCanvasElement
-	renderer: Renderer
+	canvas: HTMLCanvasElement;
+	renderer: Renderer;
 }
 
 async function init() {
-	let canvas = document.getElementById('canvas3d') as HTMLCanvasElement
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500)
-	const scene = new Scene()
-	scene.add(camera)
+	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
+	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500);
+	const scene = new Scene();
+	scene.add(camera);
 
 	scene.add(
 		new AmbientLight({
 			color: { r: 255, g: 255, b: 255 },
 			intensity: 0.5,
 		})
-	)
+	);
 
 	scene.add(
 		new DirectionalLight({
@@ -39,18 +39,18 @@ async function init() {
 			direction: { x: -1, y: -1, z: -1 },
 			intensity: 2.5,
 		})
-	)
+	);
 
-	const loader = new GLTFLoader()
-	const gltfRoot = await loader.load('./assets/duck.glb')
-	scene.add(gltfRoot)
-	scaleLoadedMeshToTargetRadius(gltfRoot, scene, 120)
+	const loader = new GLTFLoader();
+	const gltfRoot = await loader.load("./assets/duck.glb");
+	scene.add(gltfRoot);
+	scaleLoadedMeshToTargetRadius(gltfRoot, scene, 120);
 
-	scene.add(createGroundPlane())
+	scene.add(createGroundPlane());
 
 	scene.add(
 		new ParticleSystem({
-			name: 'fountain',
+			name: "fountain",
 			maxParticles: 5000,
 			position: { x: -120, y: 0, z: 120 },
 			emit: {
@@ -74,11 +74,11 @@ async function init() {
 				{ t: 1, value: { r: 200, g: 240, b: 255, a: 0 } },
 			],
 		})
-	)
+	);
 
 	scene.add(
 		new ParticleSystem({
-			name: 'fire',
+			name: "fire",
 			maxParticles: 2000,
 			position: { x: 120, y: 10, z: -120 },
 			blendMode: ParticleBlendMode.Additive,
@@ -105,32 +105,32 @@ async function init() {
 				{ t: 1, value: { r: 50, g: 0, b: 0, a: 0 } },
 			],
 		})
-	)
+	);
 
-	const bootstrap = await createRenderer(canvas, camera, scene)
-	canvas = bootstrap.canvas
-	const renderer = bootstrap.renderer
+	const bootstrap = await createRenderer(canvas, camera, scene);
+	canvas = bootstrap.canvas;
+	const renderer = bootstrap.renderer;
 
-	renderer.updateSH()
-	renderer.requestRender()
+	renderer.updateSH();
+	renderer.requestRender();
 
-	bindControls(canvas, camera, renderer)
+	bindControls(canvas, camera, renderer);
 
-	window.addEventListener('resize', () => {
-		renderer.resizeCanvas()
-		renderer.requestRender()
-	})
+	window.addEventListener("resize", () => {
+		renderer.resizeCanvas();
+		renderer.requestRender();
+	});
 }
 
 function createGroundPlane(): MeshInstance {
-	const size = 400
-	const half = size / 2
+	const size = 400;
+	const half = size / 2;
 	const material = new PBRMaterial({
 		albedo: { r: 255, g: 255, b: 255 },
 		doubleSided: true,
 		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
 		reflectivity: 0.5,
-	})
+	});
 	const mesh = MeshAsset.fromFaces([
 		{
 			material,
@@ -148,11 +148,11 @@ function createGroundPlane(): MeshInstance {
 				{ x: -half, y: 0, z: half, u: 0, v: 1, normal: { x: 0, y: 1, z: 0 } },
 			],
 		},
-	])
+	]);
 	return new MeshInstance({
 		mesh,
-		name: 'ground',
-	})
+		name: "ground",
+	});
 }
 
 function scaleLoadedMeshToTargetRadius(
@@ -160,20 +160,54 @@ function scaleLoadedMeshToTargetRadius(
 	scene: Scene,
 	targetRadius: number
 ): void {
-	const meshes: MeshInstance[] = []
+	const meshes: MeshInstance[] = [];
 	root.traverse((node) => {
 		if (node instanceof MeshInstance) {
-			meshes.push(node)
+			meshes.push(node);
 		}
-	})
-	const primary = meshes[0]
-	if (!primary) return
+	});
+	if (meshes.length === 0) return;
 
-	const scale = targetRadius / Math.max(primary.mesh.boundingSphere.radius, 1e-6)
-	primary.scale.set(scale, scale, scale)
-	primary.updateLocalMatrix()
-	scene.updateWorldMatrices()
-	primary.position.y = -primary.getWorldBoundingBox().min.y
+	// Update matrices to get correct world bounds
+	scene.updateWorldMatrices();
+
+	let minX = Infinity;
+	let minY = Infinity;
+	let minZ = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	let maxZ = -Infinity;
+
+	for (const mesh of meshes) {
+		const box = mesh.getWorldBoundingBox();
+		minX = Math.min(minX, box.min.x);
+		minY = Math.min(minY, box.min.y);
+		minZ = Math.min(minZ, box.min.z);
+		maxX = Math.max(maxX, box.max.x);
+		maxY = Math.max(maxY, box.max.y);
+		maxZ = Math.max(maxZ, box.max.z);
+	}
+
+	const sizeX = maxX - minX;
+	const sizeY = maxY - minY;
+	const sizeZ = maxZ - minZ;
+	const currentRadius =
+		Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) / 2;
+
+	const scale = targetRadius / Math.max(currentRadius, 1e-6);
+	root.scale.set(scale, scale, scale);
+	root.updateLocalMatrix();
+	scene.updateWorldMatrices();
+
+	// Reposition root so the bottom of its collective bounding box is at y = 0
+	let finalMinY = Infinity;
+	for (const mesh of meshes) {
+		finalMinY = Math.min(finalMinY, mesh.getWorldBoundingBox().min.y);
+	}
+
+	root.position.y -= finalMinY;
+	root.updateLocalMatrix();
+	scene.updateWorldMatrices();
 }
 
 async function createRenderer(
@@ -182,54 +216,54 @@ async function createRenderer(
 	scene: Scene
 ): Promise<RendererBootstrap> {
 	if (navigator.gpu) {
-		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera)
-		webgpuRenderer.setScene(scene)
-		configureRenderer(webgpuRenderer)
+		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
+		webgpuRenderer.setScene(scene);
+		configureRenderer(webgpuRenderer);
 
 		try {
-			await webgpuRenderer.init()
-			console.info('Using WebGPU backend')
+			await webgpuRenderer.init();
+			console.info("Using WebGPU backend");
 			return {
 				canvas,
 				renderer: webgpuRenderer,
-			}
+			};
 		} catch (error) {
 			console.warn(
-				'WebGPU initialization failed, falling back to software.',
+				"WebGPU initialization failed, falling back to software.",
 				error
-			)
+			);
 		}
 	}
 
-	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera)
-	softwareRenderer.setScene(scene)
-	configureRenderer(softwareRenderer)
-	await softwareRenderer.init()
-	console.info('Using software backend')
+	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
+	softwareRenderer.setScene(scene);
+	configureRenderer(softwareRenderer);
+	await softwareRenderer.init();
+	console.info("Using software backend");
 
 	return {
 		canvas,
 		renderer: softwareRenderer,
-	}
+	};
 }
 
 function configureRenderer(renderer: Renderer): void {
-	if (renderer.backendType === 'webgpu') {
-		renderer.features.enableSH = true
-		renderer.features.enableShadows = true
-		renderer.features.enableReflection = false
-		renderer.features.enableSkybox = true
-		renderer.features.enableSSAO = false
-		renderer.features.enableTAA = false
-		renderer.features.enableFXAA = true
-		renderer.features.enableSSR = false
-		renderer.features.enableVolumetric = false
-		return
+	if (renderer.backendType === "webgpu") {
+		renderer.features.enableSH = true;
+		renderer.features.enableShadows = true;
+		renderer.features.enableReflection = false;
+		renderer.features.enableSkybox = true;
+		renderer.features.enableSSAO = false;
+		renderer.features.enableTAA = false;
+		renderer.features.enableFXAA = true;
+		renderer.features.enableSSR = false;
+		renderer.features.enableVolumetric = false;
+		return;
 	}
 
-	renderer.features.enableSH = true
-	renderer.features.enableShadows = true
-	renderer.features.enableReflection = true
+	renderer.features.enableSH = true;
+	renderer.features.enableShadows = true;
+	renderer.features.enableReflection = true;
 }
 
 function bindControls(
@@ -237,65 +271,65 @@ function bindControls(
 	camera: OrbitCamera,
 	renderer: Renderer
 ): void {
-	let isDragging = false
-	let lastMouse = { x: 0, y: 0 }
+	let isDragging = false;
+	let lastMouse = { x: 0, y: 0 };
 
-	canvas.addEventListener('mousedown', (event) => {
-		isDragging = true
-		lastMouse = { x: event.clientX, y: event.clientY }
-	})
+	canvas.addEventListener("mousedown", (event) => {
+		isDragging = true;
+		lastMouse = { x: event.clientX, y: event.clientY };
+	});
 
-	window.addEventListener('mousemove', (event) => {
-		if (!isDragging) return
-		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y)
-		lastMouse = { x: event.clientX, y: event.clientY }
-		renderer.requestRender()
-	})
+	window.addEventListener("mousemove", (event) => {
+		if (!isDragging) return;
+		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y);
+		lastMouse = { x: event.clientX, y: event.clientY };
+		renderer.requestRender();
+	});
 
-	window.addEventListener('mouseup', () => {
-		isDragging = false
-	})
+	window.addEventListener("mouseup", () => {
+		isDragging = false;
+	});
 
 	canvas.addEventListener(
-		'wheel',
+		"wheel",
 		(event) => {
-			event.preventDefault()
-			camera.zoom(event.deltaY)
-			renderer.requestRender()
+			event.preventDefault();
+			camera.zoom(event.deltaY);
+			renderer.requestRender();
 		},
 		{ passive: false }
-	)
+	);
 
 	canvas.addEventListener(
-		'touchstart',
+		"touchstart",
 		(event) => {
-			if (event.touches.length !== 1) return
-			isDragging = true
+			if (event.touches.length !== 1) return;
+			isDragging = true;
 			lastMouse = {
 				x: event.touches[0].clientX,
 				y: event.touches[0].clientY,
-			}
+			};
 		},
 		{ passive: false }
-	)
+	);
 
 	canvas.addEventListener(
-		'touchmove',
+		"touchmove",
 		(event) => {
-			if (!isDragging || event.touches.length !== 1) return
-			const touch = event.touches[0]
-			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y)
-			lastMouse = { x: touch.clientX, y: touch.clientY }
-			renderer.requestRender()
+			if (!isDragging || event.touches.length !== 1) return;
+			const touch = event.touches[0];
+			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
+			lastMouse = { x: touch.clientX, y: touch.clientY };
+			renderer.requestRender();
 		},
 		{ passive: false }
-	)
+	);
 
-	canvas.addEventListener('touchend', () => {
-		isDragging = false
-	})
+	canvas.addEventListener("touchend", () => {
+		isDragging = false;
+	});
 }
 
 init().catch((error) => {
-	console.error('Failed to initialize scene:', error)
-})
+	console.error("Failed to initialize scene:", error);
+});

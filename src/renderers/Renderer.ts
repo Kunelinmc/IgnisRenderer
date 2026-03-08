@@ -102,7 +102,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shAmbientCoeffs = SH.empty();
 		this.scene = new Scene();
 		this.camera = camera || new Camera();
-		this.scene.add(this.camera);
+
+		// Only add to the default internal scene if the camera doesn't already have a parent.
+		// This prevents the constructor from "stealing" a camera that the user has already
+		// placed in their own scene graph.
+		if (!this.camera.parent) {
+			this.scene.add(this.camera);
+		}
+
 		this.lastTime = 0;
 
 		if (!camera) {
@@ -147,21 +154,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public setScene(scene: Scene): void {
-		if (!scene.contains(this.camera)) {
-			throw new Error(
-				"Renderer camera must be in the scene graph before setScene()"
-			);
-		}
 		this.scene = scene;
 		this.scene.invalidate();
 	}
 
 	public setCamera(camera: Camera): void {
-		if (!this.scene.contains(camera)) {
-			throw new Error(
-				"Renderer camera must be in the scene graph before setCamera()"
-			);
-		}
 		this.camera = camera;
 		this.scene.invalidate();
 	}
