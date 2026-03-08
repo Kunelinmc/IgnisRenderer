@@ -41,6 +41,57 @@ export class Quaternion {
 		);
 	}
 
+	public static fromRotationMatrix(matrix: number[][]): Quaternion {
+		const m00 = matrix[0][0];
+		const m01 = matrix[0][1];
+		const m02 = matrix[0][2];
+		const m10 = matrix[1][0];
+		const m11 = matrix[1][1];
+		const m12 = matrix[1][2];
+		const m20 = matrix[2][0];
+		const m21 = matrix[2][1];
+		const m22 = matrix[2][2];
+		const trace = m00 + m11 + m22;
+
+		if (trace > 0) {
+			const s = Math.sqrt(trace + 1) * 2;
+			return new Quaternion(
+				(m21 - m12) / s,
+				(m02 - m20) / s,
+				(m10 - m01) / s,
+				0.25 * s
+			).normalize();
+		}
+
+		if (m00 > m11 && m00 > m22) {
+			const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+			return new Quaternion(
+				0.25 * s,
+				(m01 + m10) / s,
+				(m02 + m20) / s,
+				(m21 - m12) / s
+			).normalize();
+		}
+
+		if (m11 > m22) {
+			const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+			return new Quaternion(
+				(m01 + m10) / s,
+				0.25 * s,
+				(m12 + m21) / s,
+				(m02 - m20) / s
+			).normalize();
+		}
+
+		const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+		return new Quaternion(
+			(m02 + m20) / s,
+			(m12 + m21) / s,
+			0.25 * s,
+			(m10 - m01) / s
+		).normalize();
+	}
+
 	public static multiply(q1: Quaternion, q2: Quaternion): Quaternion {
 		return new Quaternion(
 			q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,

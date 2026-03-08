@@ -1,12 +1,13 @@
-import assert from "node:assert/strict";
-import { Camera } from "../src/cameras/Camera.ts";
-import { Scene } from "../src/engine/Scene.ts";
-import { PreparedSceneBuilder } from "../src/pipeline/PreparedSceneBuilder.ts";
-import { Material } from "../src/materials/Material.ts";
-import { SimpleModel } from "../src/models/SimpleModel.ts";
+import assert from 'node:assert/strict'
+import { Camera } from '../src/cameras/Camera.ts'
+import { Scene } from '../src/core/Scene.ts'
+import { PreparedSceneBuilder } from '../src/pipeline/PreparedSceneBuilder.ts'
+import { Material } from '../src/materials/Material.ts'
+import { MeshAsset } from '../src/meshes/MeshAsset.ts'
+import { MeshInstance } from '../src/meshes/MeshInstance.ts'
 
-function createTriangleModel(material) {
-	return SimpleModel.fromFaces([
+function createTriangleMesh(material) {
+	return MeshAsset.fromFaces([
 		{
 			material,
 			vertices: [
@@ -36,73 +37,75 @@ function createTriangleModel(material) {
 				},
 			],
 		},
-	]);
+	])
 }
 
 function run() {
-	const camera = new Camera();
-	camera.position.set(0, 0, 5);
-	camera.updateMatrices();
+	const scene = new Scene()
+	const camera = new Camera()
+	camera.position.set(0, 0, 5)
+	scene.add(camera)
+	scene.updateWorldMatrices()
+	camera.updateMatrices()
 
 	const opaqueMaterial = new Material({
-		name: "Opaque",
-		alphaMode: "OPAQUE",
-	});
+		name: 'Opaque',
+		alphaMode: 'OPAQUE',
+	})
 	const transparentMaterial = new Material({
-		name: "Transparent",
-		alphaMode: "BLEND",
-	});
+		name: 'Transparent',
+		alphaMode: 'BLEND',
+	})
 	const reflectiveMaterial = new Material({
-		name: "Reflective",
-		alphaMode: "OPAQUE",
+		name: 'Reflective',
+		alphaMode: 'OPAQUE',
 		reflectivity: 0.7,
 		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
-	});
+	})
 
-	const sharedOpaquePrimitive =
-		createTriangleModel(opaqueMaterial).primitives[0];
-	const sharedTransparentPrimitive =
-		createTriangleModel(transparentMaterial).primitives[0];
-	const reflectiveModel = createTriangleModel(reflectiveMaterial);
+	const opaqueMesh = createTriangleMesh(opaqueMaterial)
+	const transparentMesh = createTriangleMesh(transparentMaterial)
+	const reflectiveMesh = createTriangleMesh(reflectiveMaterial)
 
-	const nearOpaque = new SimpleModel([sharedOpaquePrimitive]);
-	nearOpaque.transform.position.z = 0;
-	const farOpaque = new SimpleModel([sharedOpaquePrimitive]);
-	farOpaque.transform.position.z = -4;
+	const nearOpaque = scene.add(new MeshInstance({ mesh: opaqueMesh, name: 'nearOpaque' }))
+	nearOpaque.position.z = 0
+	const farOpaque = scene.add(new MeshInstance({ mesh: opaqueMesh, name: 'farOpaque' }))
+	farOpaque.position.z = -4
+	const nearTransparent = scene.add(
+		new MeshInstance({ mesh: transparentMesh, name: 'nearTransparent' })
+	)
+	nearTransparent.position.z = -1
+	const farTransparent = scene.add(
+		new MeshInstance({ mesh: transparentMesh, name: 'farTransparent' })
+	)
+	farTransparent.position.z = -6
+	const reflective = scene.add(
+		new MeshInstance({ mesh: reflectiveMesh, name: 'reflective' })
+	)
+	reflective.position.x = 3
 
-	const nearTransparent = new SimpleModel([sharedTransparentPrimitive]);
-	nearTransparent.transform.position.z = -1;
-	const farTransparent = new SimpleModel([sharedTransparentPrimitive]);
-	farTransparent.transform.position.z = -6;
-
-	reflectiveModel.transform.position.x = 3;
-
-	const scene = new Scene();
-	scene.addModel(farOpaque);
-	scene.addModel(nearOpaque);
-	scene.addModel(nearTransparent);
-	scene.addModel(farTransparent);
-	scene.addModel(reflectiveModel);
+	scene.updateWorldMatrices()
+	camera.updateMatrices()
 
 	const frame = PreparedSceneBuilder.build({
 		scene,
 		camera,
 		shadowMaps: new Map(),
-	});
+	})
 
-	assert.equal(frame.opaquePackets.length, 3);
-	assert.equal(frame.transparentPackets.length, 2);
-	assert.equal(frame.reflectivePackets.length, 1);
-	assert.equal(frame.shadowCasterPackets.length, 3);
-	assert.equal(frame.shadowTransmitterPackets.length, 2);
+	assert.equal(frame.opaquePackets.length, 3)
+	assert.equal(frame.transparentPackets.length, 2)
+	assert.equal(frame.reflectivePackets.length, 1)
+	assert.equal(frame.shadowCasterPackets.length, 3)
+	assert.equal(frame.shadowTransmitterPackets.length, 2)
 
-	assert.equal(frame.opaquePackets[0].model.id, nearOpaque.id);
-	assert.equal(frame.opaquePackets[1].model.id, farOpaque.id);
-	assert.equal(frame.transparentPackets[0].model.id, farTransparent.id);
-	assert.equal(frame.transparentPackets[1].model.id, nearTransparent.id);
-	assert.equal(frame.reflectivePackets[0].model.id, reflectiveModel.id);
+	assert.equal(frame.opaquePackets[0].meshInstance.id, nearOpaque.id)
+	assert.equal(frame.opaquePackets[1].meshInstance.id, farOpaque.id)
+	assert.equal(frame.transparentPackets[0].meshInstance.id, farTransparent.id)
+	assert.equal(frame.transparentPackets[1].meshInstance.id, nearTransparent.id)
+	assert.equal(frame.reflectivePackets[0].meshInstance.id, reflective.id)
 
-	console.log("Render list builder tests passed");
+	console.log('Render list builder tests passed')
 }
 
-run();
+run()

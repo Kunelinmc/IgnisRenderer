@@ -1,17 +1,29 @@
+import { Loader, type LoaderEvents } from "./Loader";
+import { PBRMaterial, UnlitMaterial, type Material } from "../materials";
+import type { Texture } from "../core/Texture";
+import { Node } from "../core/Node";
+import { Matrix4 } from "../maths/Matrix4";
+import { Quaternion } from "../maths/Quaternion";
+import { Camera, CameraType } from "../cameras/Camera";
+import { OrthographicCamera } from "../cameras/OrthographicCamera";
 import {
-	SimpleModel,
-	type ModelFace,
-	type ModelVertex,
-} from '../models/SimpleModel'
-import { PBRMaterial, UnlitMaterial, type Material } from '../materials'
-import { Loader, type LoaderEvents } from './Loader'
-import { Matrix4 } from '../maths/Matrix4'
-import type { Texture } from '../core/Texture'
+	AmbientLight,
+	DirectionalLight,
+	PointLight,
+	SpotLight,
+	type SceneLight,
+} from "../lights";
+import {	
+	MeshAsset,
+	MeshInstance,
+	type MeshFace,
+	type MeshVertex,
+} from "../meshes";
 
 export interface GLTFLoaderEvents extends LoaderEvents {
-	load: [SimpleModel];
+	load: [Node];
 	parsestart: [];
-	parseend: [SimpleModel];
+	parseend: [Node];
 }
 
 const MAGIC_glTF = 0x46546c67;
@@ -41,13 +53,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	/**
 	 * Loads a glTF or GLB model from a URL.
 	 */
-	public async load(url: string): Promise<SimpleModel> {
+	public async load(url: string): Promise<Node> {
 		try {
 			const buffer = await this._fetchWithProgress(url);
 			const baseURL = url.substring(0, url.lastIndexOf("/") + 1);
-			const model = await this.parse(buffer, baseURL);
-			this.emit("load", model);
-			return model;
+			const root = await this.parse(buffer, baseURL);
+			this.emit("load", root);
+			return root;
 		} catch (error) {
 			this.emit("error", error);
 			throw error;
@@ -56,10 +68,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	/**
 	 * Parses glTF/GLB data.
 	 */
-	public async parse(
-		data: ArrayBuffer,
-		baseURL: string = ""
-	): Promise<SimpleModel> {
+	public async parse(data: ArrayBuffer, baseURL: string = ""): Promise<Node> {
 		this.emit("parsestart");
 		const dataView = new DataView(data);
 		let json: any = null;
@@ -110,19 +119,24 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		const textures = this.parseTextures(json, images);
 		// Pre-parse materials
 		const materials = this.parseMaterials(json, textures);
-		let allFaces: ModelFace[] = [];
+		const root = new Node({
+			idPrefix: "node",
+			name: "gltfRoot",
+		});
+		const lights = json.extensions?.KHR_lights_punctual?.lights ?? [];
+
 		const sceneIdx = json.scene !== undefined ? json.scene : 0;
 		const scene = json.scenes && json.scenes[sceneIdx];
 		if (scene && scene.nodes) {
 			for (const nodeIdx of scene.nodes) {
-				const faces = this.parseNode(
+				const node = this.parseNodeTree(
 					json,
 					nodeIdx,
-					Matrix4.identity(),
 					buffers,
-					materials
+					materials,
+					lights
 				);
-				allFaces = allFaces.concat(faces);
+				root.addChild(node);
 			}
 		} else if (json.nodes) {
 			for (let i = 0; i < json.nodes.length; i++) {
@@ -130,20 +144,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					(n: any) => n.children && n.children.includes(i)
 				);
 				if (!isChild) {
-					const faces = this.parseNode(
-						json,
-						i,
-						Matrix4.identity(),
-						buffers,
-						materials
-					);
-					allFaces = allFaces.concat(faces);
+					const node = this.parseNodeTree(json, i, buffers, materials, lights);
+					root.addChild(node);
 				}
 			}
 		}
-		const model = SimpleModel.fromFaces(allFaces)
-		this.emit("parseend", model);
-		return model;
+		this.emit("parseend", root);
+		return root;
 	}
 
 	private async _loadBuffer(uri: string, baseURL: string): Promise<Uint8Array> {
@@ -590,62 +597,86 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		});
 	}
 
-	public parseNode(
+	public parseNodeTree(
 		json: any,
 		nodeIdx: number,
-		parentMatrix: Matrix4,
+		buffers: Uint8Array[],
+		materials: Material[],
+		lights: any[]
+	): Node {
+		if (nodeIdx === undefined || !json.nodes || !json.nodes[nodeIdx]) {
+			return new Node({
+				name: "emptyNode",
+			});
+		}
+		const nodeDef = json.nodes[nodeIdx];
+		const container = new Node({
+			name: nodeDef.name ?? `node_${nodeIdx}`,
+		});
+		this._applyNodeTransform(nodeDef, container);
+
+		if (
+			nodeDef.mesh !== undefined &&
+			json.meshes &&
+			json.meshes[nodeDef.mesh]
+		) {
+			const mesh = this.parseMesh(json, nodeDef.mesh, buffers, materials);
+			if (mesh) {
+				container.addChild(
+					new MeshInstance({
+						mesh,
+						name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
+					})
+				);
+			}
+		}
+
+		if (nodeDef.camera !== undefined && json.cameras?.[nodeDef.camera]) {
+			const camera = this.parseCamera(json.cameras[nodeDef.camera]);
+			container.addChild(camera);
+		}
+
+		const light = this.parseNodeLight(nodeDef, lights);
+		if (light) {
+			container.addChild(light);
+		}
+
+		if (nodeDef.children) {
+			for (const childIdx of nodeDef.children) {
+				container.addChild(
+					this.parseNodeTree(json, childIdx, buffers, materials, lights)
+				);
+			}
+		}
+
+		return container;
+	}
+
+	public parseMesh(
+		json: any,
+		meshIndex: number,
 		buffers: Uint8Array[],
 		materials: Material[]
-	): ModelFace[] {
-		if (nodeIdx === undefined || !json.nodes || !json.nodes[nodeIdx]) return [];
-		const node = json.nodes[nodeIdx];
-		let localMatrix = Matrix4.identity();
-		if (node.matrix) {
-			localMatrix = Matrix4.fromArray(node.matrix);
-		} else {
-			if (node.translation)
-				localMatrix = Matrix4.multiply(
-					localMatrix,
-					Matrix4.fromTranslation(node.translation)
-				);
-			if (node.rotation)
-				localMatrix = Matrix4.multiply(
-					localMatrix,
-					Matrix4.fromQuaternion(node.rotation)
-				);
-			if (node.scale)
-				localMatrix = Matrix4.multiply(
-					localMatrix,
-					Matrix4.fromScale(node.scale)
-				);
+	): MeshAsset | null {
+		const meshDef = json.meshes?.[meshIndex];
+		if (!meshDef?.primitives || meshDef.primitives.length === 0) {
+			return null;
 		}
-		const worldMatrix = Matrix4.multiply(parentMatrix, localMatrix);
-		let faces: ModelFace[] = [];
-		if (node.mesh !== undefined && json.meshes && json.meshes[node.mesh]) {
-			const mesh = json.meshes[node.mesh];
-			for (const primitive of mesh.primitives) {
-				faces = faces.concat(
-					this.parsePrimitive(json, primitive, buffers, materials, worldMatrix)
-				);
-			}
+		let faces: MeshFace[] = [];
+		for (const primitive of meshDef.primitives) {
+			faces = faces.concat(
+				this.parsePrimitive(json, primitive, buffers, materials)
+			);
 		}
-		if (node.children) {
-			for (const childIdx of node.children) {
-				faces = faces.concat(
-					this.parseNode(json, childIdx, worldMatrix, buffers, materials)
-				);
-			}
-		}
-		return faces;
+		return MeshAsset.fromFaces(faces);
 	}
 
 	public parsePrimitive(
 		json: any,
 		primitive: any,
 		buffers: Uint8Array[],
-		materials: Material[],
-		worldMatrix: Matrix4
-	): ModelFace[] {
+		materials: Material[]
+	): MeshFace[] {
 		const attrs = primitive.attributes;
 		const material =
 			primitive.material !== undefined && materials[primitive.material]
@@ -677,21 +708,19 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			primitive.indices !== undefined
 				? this.getAccessorData(json, buffers, primitive.indices)
 				: null;
-		const faces: ModelFace[] = [];
+		const faces: MeshFace[] = [];
 		const faceCount = Math.floor(
 			(indices ? indices.length : positions.length / 3) / 3
 		);
 		for (let i = 0; i < faceCount; i++) {
-			const fv: ModelVertex[] = [];
+			const fv: MeshVertex[] = [];
 			for (let j = 0; j < 3; j++) {
 				const idx = indices ? indices[i * 3 + j] : i * 3 + j;
-				const pos = {
+				const v: MeshVertex = {
 					x: positions[idx * 3],
 					y: positions[idx * 3 + 1],
 					z: positions[idx * 3 + 2],
 				};
-				const tPos = Matrix4.transformPoint(worldMatrix, pos);
-				const v: ModelVertex = { x: tPos.x!, y: tPos.y!, z: tPos.z! };
 				if (uvs0) {
 					v.u = uvs0[idx * 2];
 					v.v = uvs0[idx * 2 + 1];
@@ -717,31 +746,131 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					};
 				}
 				if (normals) {
-					const norm = {
+					v.normal = {
 						x: normals[idx * 3],
 						y: normals[idx * 3 + 1],
 						z: normals[idx * 3 + 2],
 					};
-					const normalMat = Matrix4.normalMatrix(worldMatrix);
-					const tNorm = Matrix4.transformNormal(normalMat, norm);
-					v.normal = { x: tNorm.x!, y: tNorm.y!, z: tNorm.z! };
 				}
 				if (tangents) {
-					const tang = {
+					v.tangent = {
 						x: tangents[idx * 4],
 						y: tangents[idx * 4 + 1],
 						z: tangents[idx * 4 + 2],
+						w: tangents[idx * 4 + 3],
 					};
-					const w = tangents[idx * 4 + 3];
-					const normalMat = Matrix4.normalMatrix(worldMatrix);
-					const tTang = Matrix4.transformNormal(normalMat, tang);
-					v.tangent = { x: tTang.x!, y: tTang.y!, z: tTang.z!, w };
 				}
 				fv.push(v);
 			}
 			faces.push({ vertices: fv, normal: undefined, material });
 		}
 		return faces;
+	}
+
+	public parseCamera(cameraDef: any): Camera {
+		if (cameraDef.type === "orthographic") {
+			const size = (cameraDef.orthographic?.ymag ?? 1) * 2;
+			const camera = new OrthographicCamera(size);
+			camera.type = CameraType.Orthographic;
+			camera.near = cameraDef.orthographic?.znear ?? camera.near;
+			camera.far = cameraDef.orthographic?.zfar ?? camera.far;
+			camera.updateMatrices();
+			return camera;
+		}
+
+		const camera = new Camera();
+		camera.type = CameraType.Perspective;
+		const perspective = cameraDef.perspective ?? {};
+		camera.fov = ((perspective.yfov ?? Math.PI / 3) * 180) / Math.PI;
+		if (perspective.aspectRatio !== undefined) {
+			camera.aspectRatio = perspective.aspectRatio;
+		}
+		camera.near = perspective.znear ?? camera.near;
+		camera.far = perspective.zfar ?? camera.far;
+		camera.updateMatrices();
+		return camera;
+	}
+
+	public parseNodeLight(nodeDef: any, lights: any[]): SceneLight | null {
+		const lightIndex = nodeDef.extensions?.KHR_lights_punctual?.light;
+		if (lightIndex === undefined) return null;
+		const lightDef = lights?.[lightIndex];
+		if (!lightDef) return null;
+
+		const colorFactor = lightDef.color ?? [1, 1, 1];
+		const color = {
+			r: (colorFactor[0] ?? 1) * 255,
+			g: (colorFactor[1] ?? 1) * 255,
+			b: (colorFactor[2] ?? 1) * 255,
+		};
+		const intensity = lightDef.intensity ?? 1;
+		switch (lightDef.type) {
+			case "directional":
+				return new DirectionalLight({
+					color,
+					intensity,
+					direction: { x: 0, y: 0, z: -1 },
+				});
+			case "point":
+				return new PointLight({
+					color,
+					intensity,
+					range: lightDef.range ?? 1000,
+				});
+			case "spot":
+				return new SpotLight({
+					color,
+					intensity,
+					range: lightDef.range ?? 1000,
+					direction: { x: 0, y: 0, z: -1 },
+					innerAngle: lightDef.spot?.innerConeAngle ?? 0,
+					angle: lightDef.spot?.outerConeAngle ?? Math.PI / 4,
+				});
+			default:
+				return new AmbientLight({
+					color,
+					intensity,
+				});
+		}
+	}
+
+	private _applyNodeTransform(nodeDef: any, target: Node): void {
+		if (nodeDef.matrix) {
+			const matrix = Matrix4.fromArray(nodeDef.matrix);
+			const decomposed = decomposeTRS(matrix);
+			target.position.copy(decomposed.position);
+			target.quaternion = decomposed.quaternion;
+			target.scale.copy(decomposed.scale);
+			target.updateLocalMatrix();
+			return;
+		}
+
+		if (nodeDef.translation) {
+			target.position.set(
+				nodeDef.translation[0] ?? 0,
+				nodeDef.translation[1] ?? 0,
+				nodeDef.translation[2] ?? 0
+			);
+		}
+
+		if (nodeDef.rotation) {
+			target.quaternion = new Quaternion(
+				nodeDef.rotation[0] ?? 0,
+				nodeDef.rotation[1] ?? 0,
+				nodeDef.rotation[2] ?? 0,
+				nodeDef.rotation[3] ?? 1
+			).normalize();
+		}
+
+		if (nodeDef.scale) {
+			target.scale.set(
+				nodeDef.scale[0] ?? 1,
+				nodeDef.scale[1] ?? 1,
+				nodeDef.scale[2] ?? 1
+			);
+		}
+
+		target.updateLocalMatrix();
 	}
 
 	public getAccessorData(json: any, buffers: Uint8Array[], index: number): any {
@@ -941,4 +1070,33 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				return value;
 		}
 	}
+}
+
+function decomposeTRS(matrix: Matrix4): {
+	position: { x: number; y: number; z: number };
+	quaternion: Quaternion;
+	scale: { x: number; y: number; z: number };
+} {
+	const m = matrix.elements;
+	const position = {
+		x: m[0][3],
+		y: m[1][3],
+		z: m[2][3],
+	};
+	const scale = {
+		x: Math.hypot(m[0][0], m[1][0], m[2][0]) || 1,
+		y: Math.hypot(m[0][1], m[1][1], m[2][1]) || 1,
+		z: Math.hypot(m[0][2], m[1][2], m[2][2]) || 1,
+	};
+	const rotationMatrix = [
+		[m[0][0] / scale.x, m[0][1] / scale.y, m[0][2] / scale.z],
+		[m[1][0] / scale.x, m[1][1] / scale.y, m[1][2] / scale.z],
+		[m[2][0] / scale.x, m[2][1] / scale.y, m[2][2] / scale.z],
+	];
+
+	return {
+		position,
+		quaternion: Quaternion.fromRotationMatrix(rotationMatrix),
+		scale,
+	};
 }

@@ -1,7 +1,7 @@
 import type { IPrimitive } from "../../core/types";
 import { BufferUsage, type IRenderBuffer } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import { GeometryBuilder } from "../../models/GeometryBuilder";
+import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 
 export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;

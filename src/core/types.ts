@@ -22,12 +22,6 @@ export interface IPrimitiveGeometry {
 	indices: Uint32Array;
 }
 
-export interface ITransform {
-	position: IVector3;
-	rotation: IVector3;
-	scale: IVector3;
-}
-
 export interface BoundingSphere {
 	center: IVector3;
 	radius: number;
@@ -89,13 +83,4 @@ export interface ProjectedPoint {
 	depth: number;
 	world: IVector3;
 	iz: number;
-}
-
-export interface IModel {
-	readonly id: string;
-	primitives: IPrimitive[];
-	transform: ITransform;
-	boundingSphere: BoundingSphere;
-	boundingBox: BoundingBox;
-	visible: boolean;
 }

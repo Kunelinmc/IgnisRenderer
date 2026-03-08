@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { Renderer } from '../src/engine/Renderer.ts'
+import { Renderer } from '../src/renderers/Renderer.ts'
 import { Camera } from '../src/cameras/Camera.ts'
 import { Matrix4 } from '../src/maths/Matrix4.ts'
 import { ParticleSimulationStage } from '../src/pipeline/ParticleSimulationStage.ts'
@@ -101,7 +101,7 @@ async function run() {
 				speedRange: [0, 0],
 			},
 		})
-		renderer.scene.addParticleSystem(system)
+		renderer.scene.add(system)
 
 		await renderer.renderScene(16)
 		await renderer.renderScene(32)

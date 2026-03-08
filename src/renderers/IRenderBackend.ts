@@ -27,7 +27,7 @@ export interface BackendCapabilities {
 export interface RendererBackendBridge {
 	readonly canvas: HTMLCanvasElement;
 	readonly camera: Camera;
-	readonly scene: { lights: SceneLight[] };
+	readonly scene: { getLights(): SceneLight[] };
 	readonly features: { enableShadows: boolean };
 	warnOnce(key: string, message: string): void;
 	pixels?: Uint8ClampedArray | null;

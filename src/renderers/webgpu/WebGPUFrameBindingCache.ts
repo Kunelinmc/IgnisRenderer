@@ -80,7 +80,7 @@ export class WebGPUFrameBindingCache {
 		const frameData = packFrameUniformData({
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
 			prevViewProjectionMatrix: prevViewProjection,
-			cameraPosition: frame.camera.position,
+			cameraPosition: frame.camera.getWorldPosition(),
 			skyboxRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
 			skyboxUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
 			skyboxBackward: [

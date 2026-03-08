@@ -252,23 +252,16 @@ function evaluateAreaLight(
 ): LightContribution | null {
 	const surfacePos = requireSurfacePosition(surface);
 	const worldMatrix = light.worldMatrix;
-	const center = Matrix4.transformPoint(worldMatrix, light.position);
-	const rotationMatrix = Matrix4.rotationFromEuler(
-		light.rotation.x,
-		light.rotation.y,
-		light.rotation.z
+	const center = Matrix4.transformPoint(worldMatrix, { x: 0, y: 0, z: 0 });
+	const right = Vector3.normalize(
+		Matrix4.transformDirection(worldMatrix, { x: 1, y: 0, z: 0 })
 	);
-	const localRight = { x: 1, y: 0, z: 0 };
-	const localUp = { x: 0, y: 0, z: 1 };
-	const localNormal = { x: 0, y: 1, z: 0 };
-
-	let right = Matrix4.transformDirection(rotationMatrix, localRight);
-	let up = Matrix4.transformDirection(rotationMatrix, localUp);
-	let normal = Matrix4.transformDirection(rotationMatrix, localNormal);
-
-	right = Vector3.normalize(Matrix4.transformDirection(worldMatrix, right));
-	up = Vector3.normalize(Matrix4.transformDirection(worldMatrix, up));
-	normal = Vector3.normalize(Matrix4.transformDirection(worldMatrix, normal));
+	const up = Vector3.normalize(
+		Matrix4.transformDirection(worldMatrix, { x: 0, y: 0, z: 1 })
+	);
+	const normal = Vector3.normalize(
+		Matrix4.transformDirection(worldMatrix, { x: 0, y: 1, z: 0 })
+	);
 
 	const relPos = Vector3.sub(surfacePos, center);
 	const distToPlane = Vector3.dot(relPos, normal);

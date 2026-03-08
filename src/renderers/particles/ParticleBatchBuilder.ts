@@ -26,7 +26,7 @@ export class ParticleBatchBuilder {
 	): ParticleRenderBatch {
 		const particles: ParticleRenderItem[] = [];
 		const cameraView = context.camera.viewMatrix;
-		const systemPosition = system.position;
+		const systemPosition = system.getWorldPosition();
 
 		for (const particle of runtime.particles) {
 			const worldPosition =

@@ -11,7 +11,7 @@ export function getDirectionalLightWorldDirection(
 ): IVector3 {
 	const direction = out ?? { x: 0, y: 0, z: 0 };
 	const transformed = Vector3.normalize(
-		Matrix4.transformDirection(light.worldMatrix, light.dir)
+		Matrix4.transformDirection(light.worldMatrix, light.direction)
 	);
 	direction.x = transformed.x;
 	direction.y = transformed.y;
@@ -24,7 +24,11 @@ export function getPointLightWorldPosition(
 	out?: IVector3
 ): IVector3 {
 	const position = out ?? { x: 0, y: 0, z: 0 };
-	const transformed = Matrix4.transformPoint(light.worldMatrix, light.position);
+	const transformed = Matrix4.transformPoint(light.worldMatrix, {
+		x: 0,
+		y: 0,
+		z: 0,
+	});
 	position.x = transformed.x;
 	position.y = transformed.y;
 	position.z = transformed.z;
@@ -36,7 +40,11 @@ export function getSpotLightWorldPosition(
 	out?: IVector3
 ): IVector3 {
 	const position = out ?? { x: 0, y: 0, z: 0 };
-	const transformed = Matrix4.transformPoint(light.worldMatrix, light.position);
+	const transformed = Matrix4.transformPoint(light.worldMatrix, {
+		x: 0,
+		y: 0,
+		z: 0,
+	});
 	position.x = transformed.x;
 	position.y = transformed.y;
 	position.z = transformed.z;
@@ -49,7 +57,7 @@ export function getSpotLightWorldDirection(
 ): IVector3 {
 	const direction = out ?? { x: 0, y: 0, z: 0 };
 	const transformed = Vector3.normalize(
-		Matrix4.transformDirection(light.worldMatrix, light.dir)
+		Matrix4.transformDirection(light.worldMatrix, light.direction)
 	);
 	direction.x = transformed.x;
 	direction.y = transformed.y;

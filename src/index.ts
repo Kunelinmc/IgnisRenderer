@@ -8,14 +8,12 @@ export { Matrix4 } from "./maths/Matrix4";
 export * from "./maths/Common";
 export * from "./maths/types";
 export * from "./utils/Color";
-export { SimpleModel } from "./models/SimpleModel";
-export { ModelFactory } from "./models/ModelFactory";
+export { Node } from "./core/Node";
+export { MeshAsset, MeshInstance } from "./meshes";
 export type {
-	IModel,
 	IVertex,
 	IPrimitive,
 	IPrimitiveGeometry,
-	ITransform,
 	BoundingSphere,
 	BoundingBox,
 } from "./core/types";

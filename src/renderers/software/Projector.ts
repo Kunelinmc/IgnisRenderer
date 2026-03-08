@@ -2,14 +2,14 @@ import { CameraType } from "../../cameras/Camera";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
 import type {
-	IModel,
 	ProjectedFace,
 	ProjectedVertex,
 	IVertex,
 	PrimitiveFace,
 } from "../../core/types";
+import { MeshInstance } from "../../meshes";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
-import { GeometryBuilder } from "../../models/GeometryBuilder";
+import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 
 interface ClippedVertexPair {
 	view: IVertex;
@@ -18,24 +18,28 @@ interface ClippedVertexPair {
 
 export class Projector {
 	public static projectModel(
-		model: IModel,
+		meshInstance: MeshInstance,
 		context: FrameContext,
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number }
 	): ProjectedFace[] {
-		const worldMatrix = Matrix4.fromTransform(model.transform);
+		const worldMatrix = meshInstance.worldMatrix;
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix);
 		const packetCameraCenter = Matrix4.transformPoint(
 			context.camera.viewMatrix,
-			Matrix4.transformPoint(worldMatrix, model.boundingSphere.center)
+			Matrix4.transformPoint(
+				worldMatrix,
+				meshInstance.mesh.boundingSphere.center
+			)
 		);
 		const sortDepth = -packetCameraCenter.z;
 
-		const packets: DrawPacket[] = model.primitives
+		const packets: DrawPacket[] = meshInstance.mesh.primitives
 			.filter((primitive) => primitive.visible !== false)
 			.map((primitive) => ({
-				id: `${model.id}:${primitive.id}`,
-				model,
+				id: `${meshInstance.id}:${primitive.id}`,
+				meshInstance,
+				mesh: meshInstance.mesh,
 				primitive,
 				material: primitive.material,
 				geometry: primitive.geometry,

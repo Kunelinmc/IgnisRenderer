@@ -117,8 +117,7 @@ export class SoftwareBackend implements IRenderBackend {
 				updateShadowMapMetadata(
 					shadowMap,
 					shadowLight,
-					context.scene.sceneBounds,
-					context.worldMatrix
+					context.scene.sceneBounds
 				);
 			}
 		}

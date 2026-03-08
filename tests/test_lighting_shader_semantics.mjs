@@ -12,7 +12,7 @@ import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
-import { Renderer } from "../src/engine/Renderer.ts";
+import { Renderer } from "../src/renderers/Renderer.ts";
 import { Rasterizer } from "../src/renderers/software/Rasterizer.ts";
 import { LightingConstants } from "../src/core/constants.ts";
 
@@ -573,7 +573,7 @@ function testTransmissionOnlyRespondsToBackLighting() {
 				new DirectionalLight({
 					color: { r: 255, g: 255, b: 255 },
 					intensity: 1,
-					dir: { x: 0, y: 0, z: -1 },
+					direction: { x: 0, y: 0, z: -1 },
 				}),
 			],
 		})
@@ -590,7 +590,7 @@ function testTransmissionOnlyRespondsToBackLighting() {
 				new DirectionalLight({
 					color: { r: 255, g: 255, b: 255 },
 					intensity: 1,
-					dir: { x: 0, y: 0, z: 1 },
+					direction: { x: 0, y: 0, z: 1 },
 				}),
 			],
 		})
@@ -614,7 +614,7 @@ function testMetalnessSuppressesTransmission() {
 			new DirectionalLight({
 				color: { r: 255, g: 255, b: 255 },
 				intensity: 1,
-				dir: { x: 0, y: 0, z: 1 },
+				direction: { x: 0, y: 0, z: 1 },
 			}),
 		],
 	});
@@ -713,7 +713,7 @@ function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },
-		scene: { lights: [probe] },
+		scene: { getLights: () => [probe] },
 		shAmbientCoeffs: SH.empty(),
 		shCoeffs: SH.empty(),
 	};
@@ -733,7 +733,7 @@ function testRendererUpdateSHNormalizesBakedLightProbeCoeffs() {
 
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },
-		scene: { lights: [probe] },
+		scene: { getLights: () => [probe] },
 		shAmbientCoeffs: SH.empty(),
 		shCoeffs: SH.empty(),
 	};
@@ -764,9 +764,9 @@ function run() {
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		testRendererUpdateSHNormalizesBakedLightProbeCoeffs();
-		console.log("✅ Shader semantics tests passed");
+		console.log("??Shader semantics tests passed");
 	} catch (error) {
-		console.error("❌ Shader semantics test failed");
+		console.error("??Shader semantics test failed");
 		console.error(error);
 		process.exit(1);
 	}

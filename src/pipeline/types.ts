@@ -8,10 +8,10 @@ import type { RGBA } from "../utils/Color";
 import type { ShadowMap } from "../utils/ShadowMapping";
 import type {
 	BoundingSphere,
-	IModel,
 	IPrimitive,
 	IPrimitiveGeometry,
 } from "../core/types";
+import type { MeshAsset, MeshInstance } from "../meshes";
 
 export const DRAW_PACKET_FLAG_TRANSPARENT = 1 << 0;
 export const DRAW_PACKET_FLAG_SHADOW_CASTER = 1 << 1;
@@ -20,7 +20,8 @@ export const DRAW_PACKET_FLAG_REFLECTIVE = 1 << 3;
 
 export interface DrawPacket {
 	readonly id: string;
-	model: IModel;
+	meshInstance: MeshInstance;
+	mesh: MeshAsset;
 	primitive: IPrimitive;
 	material: Material;
 	geometry: IPrimitiveGeometry;
@@ -67,7 +68,7 @@ export interface PreparedScene {
 	particleSystems: ParticleSystem[];
 	camera: Camera;
 	skybox?: Texture | null;
-	models: IModel[];
+	meshInstances: MeshInstance[];
 	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
 	opaquePackets: DrawPacket[];
 	transparentPackets: DrawPacket[];

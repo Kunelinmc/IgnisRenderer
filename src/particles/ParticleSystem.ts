@@ -1,5 +1,5 @@
+import { Node } from "../core/Node";
 import type { IVector3 } from "../maths/types";
-import { IdGenerator } from "../utils/IdGenerator";
 import {
 	ParticleBlendMode,
 	ParticleSpaceMode,
@@ -82,17 +82,13 @@ const DEFAULT_LOD: ParticleLODSettings = {
 	levels: DEFAULT_LOD_LEVELS,
 };
 
-export class ParticleSystem {
-	public readonly id: string;
-	public name: string;
-	public visible: boolean;
+export class ParticleSystem extends Node {
 	public maxParticles: number;
 	public seed: number;
 	public space: ParticleSpaceMode;
 	public blendMode: ParticleBlendMode;
 	public texture: Texture | null;
 	public atlas: ParticleAtlas | null;
-	public position: IVector3;
 	public gravity: IVector3;
 	public emit: ParticleEmitterParams;
 	public sizeOverLifetime: ParticleGradientKey<number>[];
@@ -103,16 +99,18 @@ export class ParticleSystem {
 	public lod: ParticleLODSettings;
 
 	constructor(params: ParticleSystemParams = {}) {
-		this.id = IdGenerator.nextId("particleSystem");
-		this.name = params.name ?? this.id;
-		this.visible = params.visible ?? true;
+		super({
+			idPrefix: "particleSystem",
+			name: params.name,
+			visible: params.visible,
+			position: params.position,
+		});
 		this.maxParticles = Math.max(1, params.maxParticles ?? 2000);
 		this.seed = Math.max(1, Math.floor(params.seed ?? 1337));
 		this.space = params.space ?? ParticleSpaceMode.Local;
 		this.blendMode = params.blendMode ?? ParticleBlendMode.Alpha;
 		this.texture = params.texture ?? null;
 		this.atlas = params.atlas ?? null;
-		this.position = cloneVector(params.position ?? { x: 0, y: 0, z: 0 });
 		this.gravity = cloneVector(params.gravity ?? DEFAULT_GRAVITY);
 		this.emit = {
 			...DEFAULT_EMITTER,

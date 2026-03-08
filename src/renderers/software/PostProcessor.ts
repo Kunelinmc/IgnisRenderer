@@ -135,7 +135,7 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	private _getPrimaryDirectionalLight(): DirectionalLight | null {
-		const lights = this.renderer.scene?.lights || [];
+		const lights = this.renderer.scene?.getLights?.() || [];
 		let primary: DirectionalLight | null = null;
 		let maxIntensity = -Infinity;
 
@@ -684,7 +684,7 @@ export class PostProcessor implements PostProcessorLike {
 		let imageData: ImageData | null = null;
 
 		const camera = context.camera;
-		const cameraPos = camera.position;
+		const cameraPos = camera.getWorldPosition();
 		const basis = this._getCameraBasis(context);
 		const near = camera.near || 0.1;
 		const far = Math.min(camera.far || 1000, maxRayDistance);

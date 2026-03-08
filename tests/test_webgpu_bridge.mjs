@@ -20,7 +20,8 @@ import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
-import { SimpleModel } from "../src/models/SimpleModel.ts";
+import { MeshAsset } from "../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../src/meshes/MeshInstance.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
@@ -118,7 +119,7 @@ class FakeRenderEncoder {
 }
 
 function createModel(materials) {
-	return SimpleModel.fromFaces(
+	const mesh = MeshAsset.fromFaces(
 		materials.map((material, index) => ({
 			material,
 			vertices: [
@@ -149,14 +150,17 @@ function createModel(materials) {
 			],
 		}))
 	);
+	return new MeshInstance({ mesh });
 }
 
 function createPacket(model) {
-	const primitive = model.primitives[0];
-	const worldMatrix = Matrix4.fromTransform(model.transform);
+	model.updateWorldMatrix(model.parent?.worldMatrix);
+	const primitive = model.mesh.primitives[0];
+	const worldMatrix = model.worldMatrix;
 	return {
 		id: `${model.id}:${primitive.id}`,
-		model,
+		meshInstance: model,
+		mesh: model.mesh,
 		primitive,
 		material: primitive.material,
 		geometry: primitive.geometry,
@@ -170,18 +174,23 @@ function createPacket(model) {
 }
 
 function createFrame(packet) {
+	const cameraPosition = { x: 0, y: 0, z: 5 };
 	return {
-		sceneBounds: packet.model.boundingSphere,
+		sceneBounds: packet.mesh.boundingSphere,
 		lights: [],
 		camera: {
 			viewProjectionMatrix: Matrix4.identity(),
 			viewMatrix: Matrix4.identity(),
-			position: { x: 0, y: 0, z: 5 },
+			position: cameraPosition,
+			getWorldPosition() {
+				return this.position;
+			},
 			fov: 60,
 			aspectRatio: 1,
 			type: "perspective",
 		},
 		skybox: null,
+		meshInstances: [packet.meshInstance],
 		shadowMaps: new Map(),
 		opaquePackets: [packet],
 		transparentPackets: [],

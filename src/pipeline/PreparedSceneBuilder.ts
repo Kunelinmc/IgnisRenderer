@@ -1,9 +1,10 @@
 import type { Camera } from "../cameras/Camera";
+import { AlphaMode } from "../materials/Material";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Renderer } from "../renderers/Renderer";
-import type { IModel, IPrimitive } from "../core/types";
-import { AlphaMode } from "../materials/Material";
+import type { IPrimitive } from "../core/types";
+import { MeshInstance } from "../meshes";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
@@ -20,11 +21,12 @@ export class PreparedSceneBuilder {
 		const shadowCasterPackets: DrawPacket[] = [];
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
+		const meshInstances = renderer.scene.getMeshInstances();
 
-		for (const model of renderer.scene.models) {
-			if (model.visible === false) continue;
+		for (const meshInstance of meshInstances) {
+			if (meshInstance.visible === false) continue;
 
-			const packets = this._buildModelPackets(model, renderer.camera);
+			const packets = this._buildMeshPackets(meshInstance, renderer.camera);
 			for (const packet of packets) {
 				const visibleInCamera = renderer.camera.isSphereInFrustum(
 					packet.worldBounds.center,
@@ -35,10 +37,8 @@ export class PreparedSceneBuilder {
 					if (visibleInCamera) {
 						transparentPackets.push(packet);
 					}
-				} else {
-					if (visibleInCamera) {
-						opaquePackets.push(packet);
-					}
+				} else if (visibleInCamera) {
+					opaquePackets.push(packet);
 				}
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
@@ -62,11 +62,11 @@ export class PreparedSceneBuilder {
 
 		return {
 			sceneBounds: renderer.scene.getBounds(),
-			lights: renderer.scene.lights.slice(),
-			particleSystems: renderer.scene.particleSystems.slice(),
+			lights: renderer.scene.getLights(),
+			particleSystems: renderer.scene.getParticleSystems(),
 			camera: renderer.camera,
 			skybox: renderer.scene.skybox,
-			models: renderer.scene.models.slice(),
+			meshInstances,
 			shadowMaps: renderer.shadowMaps,
 			opaquePackets,
 			transparentPackets,
@@ -76,45 +76,43 @@ export class PreparedSceneBuilder {
 		};
 	}
 
-	private static _buildModelPackets(
-		model: IModel,
+	private static _buildMeshPackets(
+		meshInstance: MeshInstance,
 		camera: Camera
 	): DrawPacket[] {
-		const worldMatrix = Matrix4.fromTransform(model.transform);
+		const worldMatrix = meshInstance.worldMatrix;
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
 		const cameraSpaceCenter = Matrix4.transformPoint(
 			camera.viewMatrix,
-			Matrix4.transformPoint(worldMatrix, model.boundingSphere.center)
+			Matrix4.transformPoint(
+				worldMatrix,
+				meshInstance.mesh.boundingSphere.center
+			)
 		);
-		const modelDepth = -cameraSpaceCenter.z;
-		const worldScale =
-			Math.max(
-				Math.abs(model.transform.scale.x),
-				Math.abs(model.transform.scale.y),
-				Math.abs(model.transform.scale.z)
-			) || 1;
+		const meshDepth = -cameraSpaceCenter.z;
+		const worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
 
-		return model.primitives
+		return meshInstance.mesh.primitives
 			.filter((primitive) => primitive.visible !== false)
 			.map((primitive) =>
 				this._createPacket(
-					model,
+					meshInstance,
 					primitive,
 					worldMatrix,
 					normalMatrix,
 					worldScale,
-					modelDepth
+					meshDepth
 				)
 			);
 	}
 
 	private static _createPacket(
-		model: IModel,
+		meshInstance: MeshInstance,
 		primitive: IPrimitive,
 		worldMatrix: Matrix4,
 		normalMatrix: Matrix3Arr,
 		worldScale: number,
-		modelDepth: number
+		meshDepth: number
 	): DrawPacket {
 		const material = primitive.material;
 		const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
@@ -142,8 +140,9 @@ export class PreparedSceneBuilder {
 		);
 
 		return {
-			id: `${model.id}:${primitive.id}`,
-			model,
+			id: `${meshInstance.id}:${primitive.id}`,
+			meshInstance,
+			mesh: meshInstance.mesh,
 			primitive,
 			material,
 			geometry: primitive.geometry,
@@ -157,7 +156,7 @@ export class PreparedSceneBuilder {
 				},
 				radius: primitive.boundingSphere.radius * worldScale,
 			},
-			sortDepth: modelDepth,
+			sortDepth: meshDepth,
 			pipelineKey: [
 				material.type,
 				material.shading,
@@ -193,4 +192,12 @@ function compareTransparentPackets(
 	}
 
 	return left.id.localeCompare(right.id);
+}
+
+function getMaxScaleFromMatrix(matrix: Matrix4): number {
+	const elements = matrix.elements;
+	const sx = Math.hypot(elements[0][0], elements[1][0], elements[2][0]);
+	const sy = Math.hypot(elements[0][1], elements[1][1], elements[2][1]);
+	const sz = Math.hypot(elements[0][2], elements[1][2], elements[2][2]);
+	return Math.max(sx, sy, sz);
 }

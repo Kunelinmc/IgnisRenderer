@@ -102,6 +102,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shAmbientCoeffs = SH.empty();
 		this.scene = new Scene();
 		this.camera = camera || new Camera();
+		this.scene.add(this.camera);
 		this.lastTime = 0;
 
 		if (!camera) {
@@ -146,7 +147,22 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public setScene(scene: Scene): void {
+		if (!scene.contains(this.camera)) {
+			throw new Error(
+				"Renderer camera must be in the scene graph before setScene()"
+			);
+		}
 		this.scene = scene;
+		this.scene.invalidate();
+	}
+
+	public setCamera(camera: Camera): void {
+		if (!this.scene.contains(camera)) {
+			throw new Error(
+				"Renderer camera must be in the scene graph before setCamera()"
+			);
+		}
+		this.camera = camera;
 		this.scene.invalidate();
 	}
 
@@ -167,7 +183,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.emit("tick", { now, deltaTime: this._deltaTime });
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
 
-		const hasParticleSystems = this.scene.particleSystems.length > 0;
+		const hasParticleSystems = this.scene.getParticleSystems().length > 0;
 		if (
 			!this._frameDirty &&
 			this.backend.frameScheduling === "on-demand" &&
@@ -179,8 +195,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		this._frameDirty = false;
+		this.scene.updateWorldMatrices();
+		if (!this.scene.contains(this.camera)) {
+			throw new Error(
+				"Renderer camera must remain in the scene graph during rendering"
+			);
+		}
 		this.camera.updateMatrices();
-		this._updateLightWorldMatrices();
 
 		if (this.features.enableSH) {
 			this.updateSH();
@@ -253,11 +274,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		let ambientG = 0;
 		let ambientB = 0;
 		let hasAmbient = false;
-		const worldMatrix = this.features?.worldMatrix || Matrix4.identity();
-
-		for (const light of this.scene.lights) {
-			light.updateWorldMatrix(worldMatrix);
-
+		for (const light of this.scene.getLights()) {
 			if (light.type === LightType.Ambient) {
 				const color = light.color || { r: 255, g: 255, b: 255 };
 				const intensity = light.intensity ?? 1;
@@ -313,7 +330,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			b: coefficient.b,
 		})) as SHCoefficients;
 
-		for (const light of this.scene.lights) {
+		for (const light of this.scene.getLights()) {
 			if (light.type !== LightType.Directional) continue;
 
 			const worldDirection = getDirectionalLightWorldDirection(light);
@@ -336,12 +353,5 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private _getSafeAspectRatio(width: number, height: number): number {
 		return Math.max(width, 1) / Math.max(height, 1);
-	}
-
-	private _updateLightWorldMatrices(): void {
-		const worldMatrix = this.features.worldMatrix || Matrix4.identity();
-		for (const light of this.scene.lights) {
-			light.updateWorldMatrix(worldMatrix);
-		}
 	}
 }

@@ -30,7 +30,7 @@ export class SoftwareMainPass {
 			depthBuffer: context.attachments.depthBuffer!,
 			normalBuffer: context.attachments.normalBuffer,
 			camera: {
-				position: context.camera.position,
+				position: context.camera.getWorldPosition(),
 				viewMatrix: context.camera.viewMatrix,
 			},
 			lights: context.scene.lights,

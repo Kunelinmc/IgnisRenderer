@@ -1,96 +1,97 @@
 import { Matrix4 } from "../maths/Matrix4";
-import type { SceneLight } from "../lights";
-import type { ParticleSystem } from "../particles";
 import type { IVector3 } from "../maths/types";
 import type { Texture } from "./Texture";
-import type { BoundingSphere, IModel } from "./types";
+import { Node } from "./Node";
+import type { BoundingSphere } from "./types";
+import { MeshInstance } from "../meshes";
+import type { SceneLight } from "../lights";
+import { Camera } from "../cameras/Camera";
+import { ParticleSystem } from "../particles";
 
 export class Scene {
-	public models: IModel[];
-	public lights: SceneLight[];
-	public particleSystems: ParticleSystem[];
+	public readonly root: Node;
 	public skybox: Texture | null;
+
 	private _version: number;
-	private _boundsCache: BoundingSphere | null;
-	private _boundsVersion: number;
 
 	constructor() {
-		this.models = [];
-		this.lights = [];
-		this.particleSystems = [];
+		this.root = new Node({
+			idPrefix: "scene",
+			name: "sceneRoot",
+		});
 		this.skybox = null;
 		this._version = 0;
-		this._boundsCache = null;
-		this._boundsVersion = -1;
 	}
 
-	public addModel(model: IModel): IModel {
-		this.models.push(model);
+	public add<T extends Node>(node: T): T {
+		this.root.addChild(node);
 		this.invalidate();
-		return model;
+		return node;
 	}
 
-	public removeModel(model: IModel): boolean {
-		const index = this.models.indexOf(model);
-		if (index === -1) {
-			return false;
+	public remove(node: Node): boolean {
+		const removed = node.parent ? node.parent.removeChild(node) : false;
+		if (removed) {
+			this.invalidate();
 		}
-
-		this.models.splice(index, 1);
-		this.invalidate();
-		return true;
-	}
-
-	public addLight(light: SceneLight): SceneLight {
-		this.lights.push(light);
-		this.invalidate();
-		return light;
-	}
-
-	public removeLight(light: SceneLight): boolean {
-		const index = this.lights.indexOf(light);
-		if (index === -1) {
-			return false;
-		}
-
-		this.lights.splice(index, 1);
-		this.invalidate();
-		return true;
+		return removed;
 	}
 
 	public clear(): void {
-		this.models = [];
-		this.lights = [];
-		this.particleSystems = [];
-		this.invalidate();
-	}
-
-	public addParticleSystem(system: ParticleSystem): ParticleSystem {
-		this.particleSystems.push(system);
-		this.invalidate();
-		return system;
-	}
-
-	public removeParticleSystem(system: ParticleSystem): boolean {
-		const index = this.particleSystems.indexOf(system);
-		if (index === -1) {
-			return false;
+		if (this.root.children.length === 0) return;
+		for (const child of [...this.root.children]) {
+			this.root.removeChild(child);
 		}
-
-		this.particleSystems.splice(index, 1);
 		this.invalidate();
-		return true;
 	}
 
-	public clearParticleSystems(): void {
-		if (this.particleSystems.length === 0) return;
-		this.particleSystems = [];
-		this.invalidate();
+	public contains(node: Node): boolean {
+		if (node === this.root) return true;
+		let found = false;
+		this.traverse((current) => {
+			if (current === node) {
+				found = true;
+			}
+		});
+		return found;
+	}
+
+	public traverse(visitor: (node: Node) => void): void {
+		for (const child of this.root.children) {
+			child.traverse(visitor);
+		}
+	}
+
+	public getMeshInstances(): MeshInstance[] {
+		return this._collectByType((node): node is MeshInstance => {
+			return node instanceof MeshInstance;
+		});
+	}
+
+	public getLights(): SceneLight[] {
+		return this._collectByType((node): node is SceneLight => {
+			return hasLightType(node);
+		});
+	}
+
+	public getCameras(): Camera[] {
+		return this._collectByType((node): node is Camera => {
+			return node instanceof Camera;
+		});
+	}
+
+	public getParticleSystems(): ParticleSystem[] {
+		return this._collectByType((node): node is ParticleSystem => {
+			return node instanceof ParticleSystem;
+		});
+	}
+
+	public updateWorldMatrices(): void {
+		this.root.updateWorldMatrix();
 	}
 
 	public invalidate(): void {
 		this._version++;
-		this._boundsCache = null;
 	}
 
 	public get version(): number {
@@ -98,42 +99,25 @@ export class Scene {
 	}
 
 	public getBounds(): BoundingSphere {
-		if (this._boundsCache && this._boundsVersion === this._version) {
-			return this._boundsCache;
-		}
-
 		let min: IVector3 = { x: Infinity, y: Infinity, z: Infinity };
 		let max: IVector3 = { x: -Infinity, y: -Infinity, z: -Infinity };
 
-		for (const model of this.models) {
-			if (model.visible === false) continue;
+		for (const meshInstance of this.getMeshInstances()) {
+			if (meshInstance.visible === false) continue;
+			const worldBounds = meshInstance.getWorldBoundingSphere();
+			const center = worldBounds.center;
+			const radius = worldBounds.radius;
 
-			const transform = model.transform;
-			const radius =
-				model.boundingSphere.radius *
-				Math.max(
-					Math.abs(transform.scale.x),
-					Math.abs(transform.scale.y),
-					Math.abs(transform.scale.z)
-				);
-
-			const worldCenter = Matrix4.transformPoint(
-				Matrix4.fromTransform(model.transform),
-				model.boundingSphere.center
-			);
-
-			min.x = Math.min(min.x, worldCenter.x - radius);
-			min.y = Math.min(min.y, worldCenter.y - radius);
-			min.z = Math.min(min.z, worldCenter.z - radius);
-			max.x = Math.max(max.x, worldCenter.x + radius);
-			max.y = Math.max(max.y, worldCenter.y + radius);
-			max.z = Math.max(max.z, worldCenter.z + radius);
+			min.x = Math.min(min.x, center.x - radius);
+			min.y = Math.min(min.y, center.y - radius);
+			min.z = Math.min(min.z, center.z - radius);
+			max.x = Math.max(max.x, center.x + radius);
+			max.y = Math.max(max.y, center.y + radius);
+			max.z = Math.max(max.z, center.z + radius);
 		}
 
 		if (min.x === Infinity) {
-			this._boundsCache = { center: { x: 0, y: 0, z: 0 }, radius: 100 };
-			this._boundsVersion = this._version;
-			return this._boundsCache;
+			return { center: { x: 0, y: 0, z: 0 }, radius: 100 };
 		}
 
 		const center: IVector3 = {
@@ -149,9 +133,23 @@ export class Scene {
 		const radius =
 			Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z) / 2;
 
-		this._boundsCache = { center, radius };
-		this._boundsVersion = this._version;
-
-		return this._boundsCache;
+		return { center, radius };
 	}
+
+	private _collectByType<T extends Node>(
+		predicate: (node: Node) => node is T
+	): T[] {
+		const result: T[] = [];
+		this.traverse((node) => {
+			if (predicate(node)) {
+				result.push(node);
+			}
+		});
+		return result;
+	}
+}
+
+function hasLightType(value: unknown): value is SceneLight {
+	if (!value || typeof value !== "object") return false;
+	return "type" in value && "intensity" in value && "color" in value;
 }

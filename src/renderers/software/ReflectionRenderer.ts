@@ -71,24 +71,25 @@ export class ReflectionRenderer {
 		context: FrameContext
 	): Map<string, PlaneAggregateInfo> {
 		const infos = new Map<string, PlaneAggregateInfo>();
+		const packets = context.scene.opaquePackets.concat(
+			context.scene.transparentPackets
+		);
 
-		for (const model of context.scene.models) {
-			for (const primitive of model.primitives) {
-				const material = primitive.material;
-				if (material && material.mirrorPlane) {
-					const p = material.mirrorPlane;
-					const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
+		for (const packet of packets) {
+			const material = packet.material;
+			if (material && material.mirrorPlane) {
+				const p = material.mirrorPlane;
+				const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
 
-					let info = infos.get(key);
-					if (!info) {
-						if (!this._planesPool.has(key)) {
-							this._planesPool.set(key, new Plane(p.normal, p.constant));
-						}
-						info = {
-							plane: this._planesPool.get(key)!,
-						};
-						infos.set(key, info);
+				let info = infos.get(key);
+				if (!info) {
+					if (!this._planesPool.has(key)) {
+						this._planesPool.set(key, new Plane(p.normal, p.constant));
 					}
+					info = {
+						plane: this._planesPool.get(key)!,
+					};
+					infos.set(key, info);
 				}
 			}
 		}
@@ -181,9 +182,7 @@ export class ReflectionRenderer {
 		const originalProjectionMatrix = camera.projectionMatrix;
 		const originalViewProjMatrix = camera.viewProjectionMatrix;
 		const originalCameraPosition = {
-			x: camera.position.x,
-			y: camera.position.y,
-			z: camera.position.z,
+			...camera.getWorldPosition(),
 		};
 
 		// 1. Calculate Reflection Matrix
@@ -243,8 +242,11 @@ export class ReflectionRenderer {
 			const transparentFaces: ProjectedFace[] = [];
 
 			// Render scene with mirrored camera
-			for (const model of context.scene.models) {
-				const faces = Projector.projectModel(model, context, true, buffer);
+			const packets = context.scene.opaquePackets.concat(
+				context.scene.transparentPackets
+			);
+			for (const packet of packets) {
+				const faces = Projector.projectPacket(packet, context, true, buffer);
 
 				for (const face of faces) {
 					// skip if same plane
@@ -347,7 +349,7 @@ export class ReflectionRenderer {
 			height: overrideSize.height,
 			depthBuffer,
 			camera: {
-				position: context.camera.position,
+				position: context.camera.getWorldPosition(),
 				viewMatrix: context.camera.viewMatrix,
 			},
 			lights: context.scene.lights,

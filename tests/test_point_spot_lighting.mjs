@@ -65,7 +65,7 @@ function testSpotLightEdgeCases() {
 	const light = new SpotLight({
 		color: { r: 100, g: 100, b: 100 },
 		position: { x: 0, y: 10, z: 0 },
-		dir: { x: 0, y: -1, z: 0 },
+		direction: { x: 0, y: -1, z: 0 },
 		angle: Math.PI / 4, // 45 deg
 		range: 100,
 		penumbra: 0.5, // inner angle is 22.5 deg
@@ -113,9 +113,9 @@ function run() {
 	try {
 		testPointLightEdgeCases();
 		testSpotLightEdgeCases();
-		console.log("✅ Point and Spot light edge case tests passed!");
+		console.log("??Point and Spot light edge case tests passed!");
 	} catch (e) {
-		console.error("❌ Test Failed:");
+		console.error("??Test Failed:");
 		console.error(e);
 		process.exit(1);
 	}

@@ -36,7 +36,7 @@ function testDirectional() {
 	console.log("Testing DirectionalLight...");
 	const light = new DirectionalLight({
 		color: { r: 255, g: 255, b: 255 },
-		dir: { x: 0, y: -1, z: 0 },
+		direction: { x: 0, y: -1, z: 0 },
 		intensity: 1,
 	});
 
@@ -121,7 +121,7 @@ function testSpot() {
 	const light = new SpotLight({
 		color: { r: 20, g: 20, b: 20 },
 		position: { x: 0, y: 10, z: 0 },
-		dir: { x: 0, y: -1, z: 0 },
+		direction: { x: 0, y: -1, z: 0 },
 		angle: Math.PI / 4, // 45 deg
 		range: 100,
 	});
@@ -174,9 +174,9 @@ function run() {
 		testPoint();
 		testSpot();
 		testLightProbe();
-		console.log("✅ All lighting tests passed!");
+		console.log("??All lighting tests passed!");
 	} catch (e) {
-		console.error("❌ Test Failed:");
+		console.error("??Test Failed:");
 		console.error(e);
 		process.exit(1);
 	}

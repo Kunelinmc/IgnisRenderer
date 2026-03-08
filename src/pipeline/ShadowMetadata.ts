@@ -35,8 +35,7 @@ export function syncShadowMapRegistry(
 export function updateShadowMapMetadata(
 	shadowMap: ShadowMap,
 	light: ShadowCastingLight,
-	sceneBounds: SceneBounds,
-	worldMatrix: Matrix4
+	sceneBounds: SceneBounds
 ): void {
 	if (!light.shadow) {
 		resetShadowMapMetadata(shadowMap);
@@ -45,7 +44,7 @@ export function updateShadowMapMetadata(
 
 	const config = light.shadow.setupShadowCamera({
 		sceneBounds,
-		worldMatrix: worldMatrix ?? light.worldMatrix,
+		worldMatrix: light.worldMatrix,
 	});
 	if (!config) {
 		resetShadowMapMetadata(shadowMap);

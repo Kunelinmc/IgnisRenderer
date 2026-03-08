@@ -235,7 +235,7 @@ export class ParticleSimulationCore {
 			? overrides.position
 			: system.space === ParticleSpaceMode.Local
 				? { x: 0, y: 0, z: 0 }
-				: system.position;
+				: system.getWorldPosition();
 
 		return {
 			position: {

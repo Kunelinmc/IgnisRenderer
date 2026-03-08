@@ -1,70 +1,56 @@
 import {
-	Renderer,
-	Scene,
 	AmbientLight,
 	DirectionalLight,
-	OrbitCamera,
 	GLTFLoader,
+	MeshAsset,
+	MeshInstance,
+	Node,
+	OrbitCamera,
 	PBRMaterial,
-	ModelFactory,
-	ParticleSystem,
 	ParticleBlendMode,
+	ParticleSystem,
+	Renderer,
+	Scene,
 	SoftwareBackend,
 	WebGPUBackend,
-} from "./index";
+} from './index'
 
 interface RendererBootstrap {
-	canvas: HTMLCanvasElement;
-	renderer: Renderer;
+	canvas: HTMLCanvasElement
+	renderer: Renderer
 }
 
 async function init() {
-	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500);
-	const scene = new Scene();
+	let canvas = document.getElementById('canvas3d') as HTMLCanvasElement
+	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500)
+	const scene = new Scene()
+	scene.add(camera)
 
-	scene.addLight(
+	scene.add(
 		new AmbientLight({
 			color: { r: 255, g: 255, b: 255 },
 			intensity: 0.5,
 		})
-	);
+	)
 
-	scene.addLight(
+	scene.add(
 		new DirectionalLight({
 			color: { r: 255, g: 255, b: 255 },
-			dir: { x: -1, y: -1, z: -1 },
+			direction: { x: -1, y: -1, z: -1 },
 			intensity: 2.5,
 		})
-	);
+	)
 
-	const loader = new GLTFLoader();
-	const model = await loader.load("./assets/duck.glb");
+	const loader = new GLTFLoader()
+	const gltfRoot = await loader.load('./assets/duck.glb')
+	scene.add(gltfRoot)
+	scaleLoadedMeshToTargetRadius(gltfRoot, scene, 120)
 
-	const targetRadius = 120;
-	const scale = targetRadius / model.boundingSphere.radius;
-	model.transform.scale.set(scale, scale, scale);
-	model.transform.position.y = -model.getWorldBoundingBox().min.y;
-	scene.addModel(model);
+	scene.add(createGroundPlane())
 
-	scene.addModel(
-		ModelFactory.createPlane(
-			{ x: 0, y: 0, z: 0 },
-			400,
-			400,
-			new PBRMaterial({
-				albedo: { r: 255, g: 255, b: 255 },
-				doubleSided: true,
-				mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
-				reflectivity: 0.5,
-			})
-		)
-	);
-
-	// Add a magical fountain
-	scene.addParticleSystem(
+	scene.add(
 		new ParticleSystem({
-			name: "fountain",
+			name: 'fountain',
 			maxParticles: 5000,
 			position: { x: -120, y: 0, z: 120 },
 			emit: {
@@ -88,12 +74,11 @@ async function init() {
 				{ t: 1, value: { r: 200, g: 240, b: 255, a: 0 } },
 			],
 		})
-	);
+	)
 
-	// Add a mystical flame
-	scene.addParticleSystem(
+	scene.add(
 		new ParticleSystem({
-			name: "fire",
+			name: 'fire',
 			maxParticles: 2000,
 			position: { x: 120, y: 10, z: -120 },
 			blendMode: ParticleBlendMode.Additive,
@@ -107,7 +92,7 @@ async function init() {
 				rotationRange: [0, Math.PI * 2],
 				angularVelocityRange: [-3, 3],
 			},
-			gravity: { x: 0, y: 10, z: 0 }, // Upward buoyancy
+			gravity: { x: 0, y: 10, z: 0 },
 			sizeOverLifetime: [
 				{ t: 0, value: 0.2 },
 				{ t: 0.2, value: 1.0 },
@@ -120,21 +105,75 @@ async function init() {
 				{ t: 1, value: { r: 50, g: 0, b: 0, a: 0 } },
 			],
 		})
-	);
+	)
 
-	const bootstrap = await createRenderer(canvas, camera, scene);
-	canvas = bootstrap.canvas;
-	const renderer = bootstrap.renderer;
+	const bootstrap = await createRenderer(canvas, camera, scene)
+	canvas = bootstrap.canvas
+	const renderer = bootstrap.renderer
 
-	renderer.updateSH();
-	renderer.requestRender();
+	renderer.updateSH()
+	renderer.requestRender()
 
-	bindControls(canvas, camera, renderer);
+	bindControls(canvas, camera, renderer)
 
-	window.addEventListener("resize", () => {
-		renderer.resizeCanvas();
-		renderer.requestRender();
-	});
+	window.addEventListener('resize', () => {
+		renderer.resizeCanvas()
+		renderer.requestRender()
+	})
+}
+
+function createGroundPlane(): MeshInstance {
+	const size = 400
+	const half = size / 2
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		doubleSided: true,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+		reflectivity: 0.5,
+	})
+	const mesh = MeshAsset.fromFaces([
+		{
+			material,
+			vertices: [
+				{ x: -half, y: 0, z: -half, u: 0, v: 0, normal: { x: 0, y: 1, z: 0 } },
+				{ x: half, y: 0, z: -half, u: 1, v: 0, normal: { x: 0, y: 1, z: 0 } },
+				{ x: half, y: 0, z: half, u: 1, v: 1, normal: { x: 0, y: 1, z: 0 } },
+			],
+		},
+		{
+			material,
+			vertices: [
+				{ x: -half, y: 0, z: -half, u: 0, v: 0, normal: { x: 0, y: 1, z: 0 } },
+				{ x: half, y: 0, z: half, u: 1, v: 1, normal: { x: 0, y: 1, z: 0 } },
+				{ x: -half, y: 0, z: half, u: 0, v: 1, normal: { x: 0, y: 1, z: 0 } },
+			],
+		},
+	])
+	return new MeshInstance({
+		mesh,
+		name: 'ground',
+	})
+}
+
+function scaleLoadedMeshToTargetRadius(
+	root: Node,
+	scene: Scene,
+	targetRadius: number
+): void {
+	const meshes: MeshInstance[] = []
+	root.traverse((node) => {
+		if (node instanceof MeshInstance) {
+			meshes.push(node)
+		}
+	})
+	const primary = meshes[0]
+	if (!primary) return
+
+	const scale = targetRadius / Math.max(primary.mesh.boundingSphere.radius, 1e-6)
+	primary.scale.set(scale, scale, scale)
+	primary.updateLocalMatrix()
+	scene.updateWorldMatrices()
+	primary.position.y = -primary.getWorldBoundingBox().min.y
 }
 
 async function createRenderer(
@@ -143,54 +182,54 @@ async function createRenderer(
 	scene: Scene
 ): Promise<RendererBootstrap> {
 	if (navigator.gpu) {
-		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
-		webgpuRenderer.setScene(scene);
-		configureRenderer(webgpuRenderer);
+		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera)
+		webgpuRenderer.setScene(scene)
+		configureRenderer(webgpuRenderer)
 
 		try {
-			await webgpuRenderer.init();
-			console.info("Using WebGPU backend");
+			await webgpuRenderer.init()
+			console.info('Using WebGPU backend')
 			return {
 				canvas,
 				renderer: webgpuRenderer,
-			};
+			}
 		} catch (error) {
 			console.warn(
-				"WebGPU initialization failed, falling back to software.",
+				'WebGPU initialization failed, falling back to software.',
 				error
-			);
+			)
 		}
 	}
 
-	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
-	softwareRenderer.setScene(scene);
-	configureRenderer(softwareRenderer);
-	await softwareRenderer.init();
-	console.info("Using software backend");
+	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera)
+	softwareRenderer.setScene(scene)
+	configureRenderer(softwareRenderer)
+	await softwareRenderer.init()
+	console.info('Using software backend')
 
 	return {
 		canvas,
 		renderer: softwareRenderer,
-	};
+	}
 }
 
 function configureRenderer(renderer: Renderer): void {
-	if (renderer.backendType === "webgpu") {
-		renderer.features.enableSH = true;
-		renderer.features.enableShadows = true;
-		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = true;
-		renderer.features.enableSSAO = false;
-		renderer.features.enableTAA = false;
-		renderer.features.enableFXAA = true;
-		renderer.features.enableSSR = false;
-		renderer.features.enableVolumetric = false;
-		return;
+	if (renderer.backendType === 'webgpu') {
+		renderer.features.enableSH = true
+		renderer.features.enableShadows = true
+		renderer.features.enableReflection = false
+		renderer.features.enableSkybox = true
+		renderer.features.enableSSAO = false
+		renderer.features.enableTAA = false
+		renderer.features.enableFXAA = true
+		renderer.features.enableSSR = false
+		renderer.features.enableVolumetric = false
+		return
 	}
 
-	renderer.features.enableSH = true;
-	renderer.features.enableShadows = true;
-	renderer.features.enableReflection = true;
+	renderer.features.enableSH = true
+	renderer.features.enableShadows = true
+	renderer.features.enableReflection = true
 }
 
 function bindControls(
@@ -198,65 +237,65 @@ function bindControls(
 	camera: OrbitCamera,
 	renderer: Renderer
 ): void {
-	let isDragging = false;
-	let lastMouse = { x: 0, y: 0 };
+	let isDragging = false
+	let lastMouse = { x: 0, y: 0 }
 
-	canvas.addEventListener("mousedown", (event) => {
-		isDragging = true;
-		lastMouse = { x: event.clientX, y: event.clientY };
-	});
+	canvas.addEventListener('mousedown', (event) => {
+		isDragging = true
+		lastMouse = { x: event.clientX, y: event.clientY }
+	})
 
-	window.addEventListener("mousemove", (event) => {
-		if (!isDragging) return;
-		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y);
-		lastMouse = { x: event.clientX, y: event.clientY };
-		renderer.requestRender();
-	});
+	window.addEventListener('mousemove', (event) => {
+		if (!isDragging) return
+		camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y)
+		lastMouse = { x: event.clientX, y: event.clientY }
+		renderer.requestRender()
+	})
 
-	window.addEventListener("mouseup", () => {
-		isDragging = false;
-	});
+	window.addEventListener('mouseup', () => {
+		isDragging = false
+	})
 
 	canvas.addEventListener(
-		"wheel",
+		'wheel',
 		(event) => {
-			event.preventDefault();
-			camera.zoom(event.deltaY);
-			renderer.requestRender();
+			event.preventDefault()
+			camera.zoom(event.deltaY)
+			renderer.requestRender()
 		},
 		{ passive: false }
-	);
+	)
 
 	canvas.addEventListener(
-		"touchstart",
+		'touchstart',
 		(event) => {
-			if (event.touches.length !== 1) return;
-			isDragging = true;
+			if (event.touches.length !== 1) return
+			isDragging = true
 			lastMouse = {
 				x: event.touches[0].clientX,
 				y: event.touches[0].clientY,
-			};
+			}
 		},
 		{ passive: false }
-	);
+	)
 
 	canvas.addEventListener(
-		"touchmove",
+		'touchmove',
 		(event) => {
-			if (!isDragging || event.touches.length !== 1) return;
-			const touch = event.touches[0];
-			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y);
-			lastMouse = { x: touch.clientX, y: touch.clientY };
-			renderer.requestRender();
+			if (!isDragging || event.touches.length !== 1) return
+			const touch = event.touches[0]
+			camera.rotate(touch.clientX - lastMouse.x, touch.clientY - lastMouse.y)
+			lastMouse = { x: touch.clientX, y: touch.clientY }
+			renderer.requestRender()
 		},
 		{ passive: false }
-	);
+	)
 
-	canvas.addEventListener("touchend", () => {
-		isDragging = false;
-	});
+	canvas.addEventListener('touchend', () => {
+		isDragging = false
+	})
 }
 
 init().catch((error) => {
-	console.error("Failed to initialize scene:", error);
-});
+	console.error('Failed to initialize scene:', error)
+})

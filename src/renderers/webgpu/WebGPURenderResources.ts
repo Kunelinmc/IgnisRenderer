@@ -180,16 +180,7 @@ export class WebGPURenderResources {
 			for (const light of shadowLights) {
 				const shadowMap = scene.shadowMaps.get(light);
 				if (shadowMap) {
-					const worldMatrix = this._isFrameContext(contextOrScene)
-						? contextOrScene.worldMatrix
-						: null;
-
-					updateShadowMapMetadata(
-						shadowMap,
-						light,
-						scene.sceneBounds,
-						worldMatrix!
-					);
+					updateShadowMapMetadata(shadowMap, light, scene.sceneBounds);
 				}
 			}
 		}

@@ -49,6 +49,9 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 			this._runtimeBySystemId.clear();
 			return;
 		}
+		for (const system of particleSystems) {
+			system.updateWorldMatrix(system.parent?.worldMatrix);
+		}
 
 		const activeIds = new Set(particleSystems.map((system) => system.id));
 		for (const systemId of this._runtimeBySystemId.keys()) {
@@ -67,6 +70,7 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 
 		const totalDt = Math.max(0, deltaTimeMs * MS_TO_SECONDS);
 		for (const system of particleSystems) {
+			system.updateWorldMatrix(system.parent?.worldMatrix);
 			const runtime = this._getSystemRuntime(system);
 			runtime.frameIndex++;
 
@@ -259,9 +263,11 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		system: ParticleSystem,
 		context: FrameContext
 	): number {
-		const dx = system.position.x - context.camera.position.x;
-		const dy = system.position.y - context.camera.position.y;
-		const dz = system.position.z - context.camera.position.z;
+		const systemPosition = system.getWorldPosition();
+		const cameraPosition = context.camera.getWorldPosition();
+		const dx = systemPosition.x - cameraPosition.x;
+		const dy = systemPosition.y - cameraPosition.y;
+		const dz = systemPosition.z - cameraPosition.z;
 		return Math.hypot(dx, dy, dz);
 	}
 
