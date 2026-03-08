@@ -5,233 +5,158 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite)
 
-**IgnisRenderer** is a versatile 3D rendering engine built from scratch in TypeScript. It features a dual-core architecture: a high-performance **CPU Scanline Rasterizer** for a deep dive into graphics fundamentals, and a modern **WebGPU Hardware-Accelerated Pipeline** for real-time performance.
+IgnisRenderer is a TypeScript 3D renderer with dual backends:
 
-[**Live Demo**](https://ignis-renderer-demo.netlify.app/)
+- **SoftwareBackend**: CPU rasterization pipeline
+- **WebGPUBackend**: hardware-accelerated pipeline
+
+The current major architecture is a **Scene Graph** with
+`Node` + `MeshAsset`/`MeshInstance`.
+
+[Live Demo](https://ignis-renderer-demo.netlify.app/)
 
 ![IgnisRenderer Screenshot](./assets/screenshot.png)
 
----
+## Highlights
 
-## Key Features
+- Scene graph transforms with parent-child hierarchy
+- Shared mesh resources via `MeshAsset`
+- Per-node mesh placement via `MeshInstance`
+- Lights, cameras, and particle systems as scene nodes
+- glTF/GLB and OBJ loading into scene graph nodes
+- Software and WebGPU pipelines using the same prepared scene contracts
 
-### Dual Rendering Backends
+## Scene Graph Model
 
-- **Software Backend (CPU)**: A complete graphics pipeline implemented from scratch on the CPU, including vertex transformation, clipping, and triangle rasterization.
-- **WebGPU Backend (GPU)**: A modern, hardware-accelerated pipeline leveraging the WebGPU API for high-performance real-time rendering.
+- `Node`: transform + hierarchy (`position`, `quaternion`, `scale`,
+  `localMatrix`, `worldMatrix`)
+- `MeshAsset`: primitives and local bounds (resource)
+- `MeshInstance extends Node`: references one `MeshAsset`
+- `Light extends Node`
+- `Camera extends Node`
+- `ParticleSystem extends Node`
 
-### Backend Feature Comparison
+`Scene` API:
 
-| Feature                 | Software Backend (CPU) | WebGPU Backend (GPU) |
-| :---------------------- | :--------------------: | :------------------: |
-| **Rasterization**       |  Scanline (Sub-pixel)  | Hardware Accelerated |
-| **PBR Rendering**       |           ✅           |          ✅          |
-| **Dynamic Shadows**     |           ✅           |          ✅          |
-| **Planar Reflections**  |           ✅           |          ❌          |
-| **SSAO**                |           ✅           |          ✅          |
-| **TAA (Temporal AA)**   |           ❌           |          ✅          |
-| **SSR (Reflections)**   |           ❌           |          ✅          |
-| **Volumetric Effects**  |           ✅           |          ✅          |
-| **Particle System**     |        ✅ (CPU)        |   ✅ (GPU Compute)   |
-| **FXAA**                |           ✅           |          ✅          |
-| **Skybox Rendering**    |           ✅           |          ✅          |
-| **Spherical Harmonics** |           ✅           |          ✅          |
-| **Coordinate Clipping** |    ✅ (Homogeneous)    |    ✅ (Hardware)     |
+- `scene.add(node)`
+- `scene.remove(node)`
+- `scene.traverse(visitor)`
+- `scene.contains(node)`
+- `scene.getMeshInstances()/getLights()/getCameras()/getParticleSystems()`
 
-### Rendering Core
-
-- **Scanline Rasterizer**: High-quality triangle rasterization with sub-pixel precision.
-- **Perspective Correction**: Accurate interpolation of world coordinates, normals, and texture coordinates (UVs) across triangle faces.
-- **Sophisticated Clipping**: Full 3D clipping against the camera frustum using homogeneous coordinates.
-- **Optimized Pipeline**: Minimal allocation during rendering to ensure smooth performance on the CPU.
-
-### Lighting & Shading
-
-- **Physically Based Rendering (PBR)**: Implements industry-standard GGX microfacet distribution and Schlick-Fresnel approximations.
-- **Multiple Shading Models**:
-  - **PBR Strategy**: Realistic material response to lighting.
-  - **Blinn-Phong**: Classic specular highlight model.
-  - **Gouraud & Flat**: Efficient interpolation-based or per-face shading.
-  - **Unlit**: Direct color rendering without lighting calculations.
-- **Dynamic Lighting**: Support for `AmbientLight`, `DirectionalLight`, and `PointLight`.
-- **Spherical Harmonics (SH)**: Global ambient lighting approximation for realistic environmental influence.
-
-### Advanced Visual Effects
-
-- **Real-time Shadows**: Dynamic shadow mapping with depth bias and frustum-fitted light cameras.
-- **Planar Reflections**: High-quality mirror reflections with support for:
-  - **Fresnel Effect**: View-dependent reflectivity.
-  - **Blur & Distortion**: Simulated surface roughness and ripple effects.
-- **Particle System**:
-  - **Dual-Simulation Core**: GPU-accelerated compute shaders (WebGPU) or optimized CPU simulation (Software).
-  - **Dynamic Properties**: Real-time interpolation of size and color (RGBA) over lifetime.
-  - **Physics & Collisions**: Integrated gravity and collision support with Planes, Spheres, and AABBs.
-  - **Sub-Emitters**: Capability to spawn nested systems for complex cascading effects.
-- **Post-Processing Pipeline**:
-  - **SSAO**: Screen Space Ambient Occlusion for realistic depth and contact shadows.
-  - **TAA**: Temporal Anti-Aliasing for ultra-smooth edges and stability (WebGPU).
-  - **SSR**: Screen Space Reflections for dynamic environmental reflections (WebGPU).
-  - **Volumetric Light**: High-quality light shafts and atmospheric scattering.
-  - **FXAA**: Fast Approximate Anti-Aliasing for smooth edges.
-  - **Tone Mapping**: Exposure control and Gamma correction (v2.2 convention).
-
-### WebGPU Implementation
-
-- **Programmable Pipeline**: Custom WGSL shaders for high-performance vertex and fragment processing.
-- **Dynamic Resource Management**: Efficient allocation and binding of GPU buffers, textures, and samplers.
-- **Modern Abstraction Layer**: Standardized Render Abstraction Layer (RAL) that makes switching between CPU and GPU backends seamless.
-- **Real-time Shadows**: Hardware-accelerated depth mapping and shadow evaluation.
-
-### Assets & Interaction
-
-- **Model Loaders**: Built-in support for `glTF 2.0` (`.gltf`, `.glb`) and `OBJ` formats.
-- **Orbit Camera**: Intuitive 3D navigation with mouse and touch support (Rotate, Zoom, Pan).
-- **Material System**: Flexible material properties including diffuse, specular, roughness, metalness, and reflection planes.
-
----
-
-## Architecture Overview
-
-The renderer is organized into modular components:
-
-- **Definition Layer**
-  - **`lights/`** and **`materials/`** store only domain definitions.
-  - Pipeline-specific logic is intentionally kept out of these folders.
-- **Engine Layer (`engine/`)**
-  - **`Renderer`** and **`Scene`** handle frame orchestration and scene-level coordination.
-- **Core Layer (`core/`)**
-  - Shared runtime primitives and types (e.g. `Texture`, `EventEmitter`, model types).
-  - Shared constants (`core/constants`) used across layers.
-- **Pipeline Layer (`pipeline/`)**
-  - Frame planning, feature resolution, scene preparation, and shared pipeline stages.
-- **Renderer Layer (`renderers/`)**
-  - Backend contracts (`IRenderBackend`, command interfaces, backend-agnostic resource types).
-  - `renderers/software/` contains the CPU pipeline implementation.
-  - `renderers/webgpu/` contains WebGPU bridge/packing/resources implementation.
-  - `renderers/webgl/` currently provides a stub backend for future expansion.
-- **`shaders/`**: Pluggable shading strategies and WGSL shader modules.
-- **`maths/`**: A custom, optimized mathematical library for 3D operations (Vectors, Matrices, Quaternions).
-- **`loaders/`**: Asynchronous asset loaders for textures and 3D models.
-- **`cameras/`**: Viewport and projection management.
-- **`models/`**: Geometry construction and model composition.
-
-### Internal Path Changes
-
-Deep internal imports were reorganized and are **breaking** for private paths:
-
-- `core/backend/*` -> `renderers/*`
-- `core/pipeline/*` -> `pipeline/*`
-- `core/Renderer` -> `engine/Renderer`
-- `core/Scene` -> `engine/Scene`
-- `core/pipeline/constants` -> `core/constants`
-- `core/geometry/GeometryBuilder` -> `models/GeometryBuilder`
-
-### Rendering Pipeline Flow
-
-```mermaid
-graph TD
-    A([Target Frame Render]) --> B[Update Camera & Lights Matrices]
-    B --> C{Backend?}
-
-    subgraph Software Pipeline
-        C -->|Software| D[Shadow/Reflection Pre-Passes]
-        D --> E[Geometry Processing - Clipping/Culling]
-        E --> F[Scanline Rasterization]
-        F --> G[Software Fragment Shading]
-    end
-
-    subgraph WebGPU Pipeline
-        C -->|WebGPU| H[GPU Buffer/Binding Updates]
-        H --> I[WebGPU Render Pass]
-        I --> J[Hardware Geometry & Shading]
-    end
-
-    G --> K{Post-Processing}
-    J --> K
-
-    K -.->|Optional| L[FXAA]
-    K -.->|Optional| M[Gamma Correction]
-
-    L --> N([Blit to Final Canvas])
-    M --> N
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- [npm](https://www.npmjs.com/)
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Kunelinmc/IgnisRenderer.git
-   cd IgnisRenderer
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Development
-
-Launch the Vite development server:
-
-```bash
-npx vite
-```
-
-Then open `http://localhost:5173` in your browser.
-
----
-
-## Usage Example
+## Quick Start
 
 ```typescript
 import {
+	AmbientLight,
+	DirectionalLight,
+	GLTFLoader,
+	MeshFactory,
+	OrbitCamera,
+	PBRMaterial,
 	Renderer,
 	Scene,
-	GLTFLoader,
-	OrbitCamera,
-	DirectionalLight,
-	WebGPUBackend,
 	SoftwareBackend,
-} from "ignis-renderer";
+	WebGPUBackend,
+} from 'ignisrenderer'
 
-async function main() {
-	const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 });
-	const scene = new Scene();
+async function main(canvas: HTMLCanvasElement) {
+	const scene = new Scene()
+	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500)
+	scene.add(camera)
 
-	// Choose Backend: WebGPU or Software
-	const backend = navigator.gpu
-		? new WebGPUBackend(canvas)
-		: new SoftwareBackend(canvas);
+	scene.add(
+		new AmbientLight({
+			color: { r: 255, g: 255, b: 255 },
+			intensity: 0.3,
+		})
+	)
 
-	const renderer = new Renderer(backend, canvas, camera);
+	scene.add(
+		new DirectionalLight({
+			direction: { x: -1, y: -1, z: -1 },
+			intensity: 2,
+		})
+	)
 
-	// Add Lighting
-	scene.addLight(new DirectionalLight({ dir: { x: -1, y: -1, z: -1 } }));
+	const loader = new GLTFLoader()
+	const gltfRoot = await loader.load('./assets/duck.glb')
+	scene.add(gltfRoot)
 
-	// Load a Model
-	const loader = new GLTFLoader();
-	const model = await loader.load("./assets/duck.glb");
-	scene.addModel(model);
+	const ground = MeshFactory.createPlane(
+		{ x: 0, y: 0, z: 0 },
+		400,
+		400,
+		new PBRMaterial({ albedo: { r: 255, g: 255, b: 255 } })
+	)
+	scene.add(ground)
 
-	// Initialize and Render
-	renderer.scene = scene;
-	renderer.init();
+	const backend = navigator.gpu ? new WebGPUBackend() : new SoftwareBackend()
+	const renderer = new Renderer(backend, canvas, camera)
+
+	// Camera must belong to the active scene graph.
+	renderer.setScene(scene)
+	renderer.setCamera(camera)
+
+	await renderer.init()
 }
-
-main();
 ```
 
----
+## Loader Behavior
+
+- `GLTFLoader` / `GLBLoader` return a `Node` root.
+- glTF hierarchy is preserved.
+- Node transforms are not baked into mesh vertices.
+- glTF cameras and `KHR_lights_punctual` are parsed as scene nodes.
+- `OBJLoader` returns a root node containing mesh instances.
+
+## Breaking Changes (Scene Graph Release)
+
+- Removed old model API:
+  - `SimpleModel`
+  - `IModel`
+  - `ModelFactory`
+- Removed split scene insertion API:
+  - `scene.addModel(...)`
+  - `scene.addLight(...)`
+  - `scene.addParticleSystem(...)`
+- Use `scene.add(node)` for all node types.
+- `DirectionalLight`/`SpotLight` use `direction` in local space.
+- Rendering packets are instance-oriented (`meshInstance + meshAsset`).
+
+## Project Structure
+
+- `src/core/`: `Node`, `Scene`, shared runtime primitives
+- `src/meshes/`: `MeshAsset`, `MeshInstance`, mesh construction helpers
+- `src/pipeline/`: feature resolution, frame planning, prepared scene building
+- `src/renderers/`: backend interface and software/webgpu implementations
+- `src/shaders/`: software shader logic and WGSL modules
+- `src/loaders/`: glTF/GLB/OBJ/texture/HDR loaders
+- `src/maths/`: vectors, matrices, quaternions, frustum and SH math
+
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+Run tests:
+
+```bash
+npm test
+```
+
+Targeted suites:
+
+```bash
+npm run test:lighting
+npm run test:pointspot
+npm run test:sh
+npm run test:winding
+npm run test:sparse
+```
 
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
