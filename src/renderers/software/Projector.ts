@@ -10,6 +10,7 @@ import type {
 import { MeshInstance } from "../../meshes";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
+import { ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY } from "../../simulation/animation/types";
 
 interface ClippedVertexPair {
 	view: IVertex;
@@ -68,7 +69,7 @@ export class Projector {
 		const viewMatrix = context.camera.viewMatrix;
 		const projectedFaces: ProjectedFace[] = [];
 
-		for (const face of this.getPacketFaces(packet)) {
+		for (const face of this.getPacketFacesWithContext(packet, context)) {
 			const worldVerts: IVertex[] = [];
 			const viewVerts: IVertex[] = [];
 
@@ -247,6 +248,37 @@ export class Projector {
 			});
 		}
 
+		return faces;
+	}
+
+	public static getPacketFacesWithContext(
+		packet: DrawPacket,
+		context: FrameContext
+	): PrimitiveFace[] {
+		const overrides = context.transient.get(
+			ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
+		) as Map<string, { positions?: Float32Array; normals?: Float32Array; tangents?: Float32Array }> | undefined;
+		const geometryOverride = overrides?.get(packet.primitive.id);
+		const triangleCount = (packet.geometry.indices.length / 3) | 0;
+		const faces: PrimitiveFace[] = [];
+		for (
+			let triangleIndex = 0;
+			triangleIndex < triangleCount;
+			triangleIndex++
+		) {
+			const vertices = GeometryBuilder.createVerticesForTriangle(
+				packet.primitive,
+				triangleIndex,
+				geometryOverride
+			);
+			faces.push({
+				primitive: packet.primitive,
+				material: packet.material,
+				vertices,
+				normal: Vector3.calculateNormal(vertices),
+				doubleSided: packet.material.doubleSided,
+			});
+		}
 		return faces;
 	}
 

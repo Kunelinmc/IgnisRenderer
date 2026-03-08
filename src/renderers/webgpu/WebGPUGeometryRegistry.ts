@@ -9,6 +9,10 @@ export interface WebGPUGeometryHandle {
 	indexCount: number;
 	wireframeIndexBuffer: IRenderBuffer;
 	wireframeIndexCount: number;
+	vertexCount: number;
+	morphTargetCount: number;
+	morphPositionBuffer: IRenderBuffer | null;
+	morphNormalBuffer: IRenderBuffer | null;
 }
 
 export class WebGPUGeometryRegistry {
@@ -31,13 +35,14 @@ export class WebGPUGeometryRegistry {
 	private _uploadGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
 		const geometry = primitive.geometry;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
-		const vertexData = new Float32Array(vertexCount * 14);
+		const vertexData = new Float32Array(vertexCount * 30);
 
 		for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
 			const sourcePosition = vertexIndex * 3;
 			const sourceUv = vertexIndex * 2;
 			const sourceTangent = vertexIndex * 4;
-			const base = vertexIndex * 14;
+			const sourceJoint = vertexIndex * 4;
+			const base = vertexIndex * 30;
 
 			vertexData[base] = geometry.positions[sourcePosition];
 			vertexData[base + 1] = geometry.positions[sourcePosition + 1];
@@ -57,6 +62,26 @@ export class WebGPUGeometryRegistry {
 
 			vertexData[base + 12] = geometry.uv1?.[sourceUv] ?? 0;
 			vertexData[base + 13] = geometry.uv1?.[sourceUv + 1] ?? 0;
+
+			vertexData[base + 14] = Number(geometry.joints0?.[sourceJoint] ?? 0);
+			vertexData[base + 15] = Number(geometry.joints0?.[sourceJoint + 1] ?? 0);
+			vertexData[base + 16] = Number(geometry.joints0?.[sourceJoint + 2] ?? 0);
+			vertexData[base + 17] = Number(geometry.joints0?.[sourceJoint + 3] ?? 0);
+
+			vertexData[base + 18] = geometry.weights0?.[sourceJoint] ?? 0;
+			vertexData[base + 19] = geometry.weights0?.[sourceJoint + 1] ?? 0;
+			vertexData[base + 20] = geometry.weights0?.[sourceJoint + 2] ?? 0;
+			vertexData[base + 21] = geometry.weights0?.[sourceJoint + 3] ?? 0;
+
+			vertexData[base + 22] = Number(geometry.joints1?.[sourceJoint] ?? 0);
+			vertexData[base + 23] = Number(geometry.joints1?.[sourceJoint + 1] ?? 0);
+			vertexData[base + 24] = Number(geometry.joints1?.[sourceJoint + 2] ?? 0);
+			vertexData[base + 25] = Number(geometry.joints1?.[sourceJoint + 3] ?? 0);
+
+			vertexData[base + 26] = geometry.weights1?.[sourceJoint] ?? 0;
+			vertexData[base + 27] = geometry.weights1?.[sourceJoint + 1] ?? 0;
+			vertexData[base + 28] = geometry.weights1?.[sourceJoint + 2] ?? 0;
+			vertexData[base + 29] = geometry.weights1?.[sourceJoint + 3] ?? 0;
 		}
 
 		const indexCount = geometry.indices.length;
@@ -95,12 +120,63 @@ export class WebGPUGeometryRegistry {
 		this._backend.writeBuffer(indexBuffer, new Uint32Array(geometry.indices));
 		this._backend.writeBuffer(wireframeIndexBuffer, wireframeIndices);
 
+		const morphTargets = geometry.morphTargets ?? [];
+		const morphTargetCount = Math.min(8, morphTargets.length);
+		let morphPositionBuffer: IRenderBuffer | null = null;
+		let morphNormalBuffer: IRenderBuffer | null = null;
+		if (morphTargetCount > 0) {
+			const morphPositionData = new Float32Array(
+				morphTargetCount * vertexCount * 4
+			);
+			const morphNormalData = new Float32Array(
+				morphTargetCount * vertexCount * 4
+			);
+
+			for (let targetIndex = 0; targetIndex < morphTargetCount; targetIndex++) {
+				const target = morphTargets[targetIndex];
+				for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
+					const offset = (targetIndex * vertexCount + vertexIndex) * 4;
+					const positionOffset = vertexIndex * 3;
+					morphPositionData[offset] = target.positions?.[positionOffset] ?? 0;
+					morphPositionData[offset + 1] =
+						target.positions?.[positionOffset + 1] ?? 0;
+					morphPositionData[offset + 2] =
+						target.positions?.[positionOffset + 2] ?? 0;
+					morphPositionData[offset + 3] = 0;
+
+					morphNormalData[offset] = target.normals?.[positionOffset] ?? 0;
+					morphNormalData[offset + 1] =
+						target.normals?.[positionOffset + 1] ?? 0;
+					morphNormalData[offset + 2] =
+						target.normals?.[positionOffset + 2] ?? 0;
+					morphNormalData[offset + 3] = 0;
+				}
+			}
+
+			morphPositionBuffer = this._backend.createBuffer({
+				size: morphPositionData.byteLength,
+				usage: BufferUsage.Storage | BufferUsage.CopyDst,
+				label: `MorphPositionBuffer_${primitive.id}`,
+			});
+			morphNormalBuffer = this._backend.createBuffer({
+				size: morphNormalData.byteLength,
+				usage: BufferUsage.Storage | BufferUsage.CopyDst,
+				label: `MorphNormalBuffer_${primitive.id}`,
+			});
+			this._backend.writeBuffer(morphPositionBuffer, morphPositionData);
+			this._backend.writeBuffer(morphNormalBuffer, morphNormalData);
+		}
+
 		return {
 			vertexBuffer,
 			indexBuffer,
 			indexCount,
 			wireframeIndexBuffer,
 			wireframeIndexCount: wireframeIndices.length,
+			vertexCount,
+			morphTargetCount,
+			morphPositionBuffer,
+			morphNormalBuffer,
 		};
 	}
 }

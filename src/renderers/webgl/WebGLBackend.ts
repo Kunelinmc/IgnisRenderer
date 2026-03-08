@@ -11,6 +11,7 @@ export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
+		"animation-sim": "shared",
 		"particle-sim": "backend",
 	} as const;
 	public readonly capabilities = {

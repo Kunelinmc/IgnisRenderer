@@ -1,6 +1,7 @@
 import type { FramePass, PreparedScene, ResolvedFeatureState } from "./types";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
+	"animation-sim",
 	"particle-sim",
 	"shadow",
 	"reflection",
@@ -35,6 +36,8 @@ function shouldEnablePass(
 	features: ResolvedFeatureState
 ): boolean {
 	switch (stage) {
+		case "animation-sim":
+			return frame.hasActiveAnimations;
 		case "particle-sim":
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "shadow":

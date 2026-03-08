@@ -10,6 +10,16 @@ export interface IVertex extends IVector3 {
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
 	color?: RGBA;
+	joints0?: [number, number, number, number];
+	weights0?: [number, number, number, number];
+	joints1?: [number, number, number, number];
+	weights1?: [number, number, number, number];
+}
+
+export interface MorphTargetGeometry {
+	positions?: Float32Array | null;
+	normals?: Float32Array | null;
+	tangents?: Float32Array | null;
 }
 
 export interface IPrimitiveGeometry {
@@ -19,6 +29,11 @@ export interface IPrimitiveGeometry {
 	uv0?: Float32Array | null;
 	uv1?: Float32Array | null;
 	colors?: Float32Array | null;
+	joints0?: Uint16Array | Uint32Array | null;
+	weights0?: Float32Array | null;
+	joints1?: Uint16Array | Uint32Array | null;
+	weights1?: Float32Array | null;
+	morphTargets?: MorphTargetGeometry[] | null;
 	indices: Uint32Array;
 }
 

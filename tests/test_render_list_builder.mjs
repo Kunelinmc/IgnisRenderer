@@ -91,6 +91,11 @@ function run() {
 		scene,
 		camera,
 		shadowMaps: new Map(),
+		animationSystem: {
+			hasActiveActions() {
+				return false
+			},
+		},
 	})
 
 	assert.equal(frame.opaquePackets.length, 3)

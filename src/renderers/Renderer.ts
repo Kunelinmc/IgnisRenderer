@@ -10,9 +10,14 @@ import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { FramePlanner } from "../pipeline/FramePlanner";
+import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
-import { PARTICLE_SIM_DELTA_TIME_MS_KEY } from "../pipeline/types";
+import {
+	ANIMATION_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+} from "../pipeline/types";
+import { AnimationSystem } from "../animation/AnimationSystem";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	SSAOOptions,
@@ -52,6 +57,7 @@ export interface RendererFeatures {
 export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
 	public readonly backend: IRenderBackend;
+	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public shadowMaps: Map<ShadowCastingLight, ShadowMap>;
 	public shCoeffs: SHCoefficients;
@@ -59,11 +65,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public scene: Scene;
 	public camera: Camera;
 	public lastTime: number;
+	public animationAutoRender: boolean;
 
 	private _warnings: Set<string>;
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
+	private _animationStage: AnimationSimulationStage;
 
 	constructor(
 		backend: IRenderBackend,
@@ -72,11 +80,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	) {
 		super();
 		this.backend = backend;
+		this.animationSystem = new AnimationSystem();
 		this.canvas = canvas;
 		this._warnings = new Set();
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
 		this._frameDirty = true;
+		this.animationAutoRender = true;
+		this._animationStage = new AnimationSimulationStage(this.animationSystem);
 
 		this.features = {
 			enableLighting: true,
@@ -183,10 +194,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
 
 		const hasParticleSystems = this.scene.getParticleSystems().length > 0;
+		const hasActiveAnimations = this.animationSystem.hasActiveActions();
 		if (
 			!this._frameDirty &&
 			this.backend.frameScheduling === "on-demand" &&
-			!hasParticleSystems
+			!hasParticleSystems &&
+			!(this.animationAutoRender && hasActiveAnimations)
 		) {
 			this.emit("frameend", { now, deltaTime: this._deltaTime });
 			requestAnimationFrame((time) => this.renderScene(time));
@@ -194,6 +207,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		this._frameDirty = false;
+		const transient = new Map<string, any>();
+		transient.set(PARTICLE_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
+		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
+		this._animationStage.execute(
+			{
+				scene: this.scene,
+				transient,
+			},
+			this._deltaTime
+		);
 		this.scene.updateWorldMatrices();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
@@ -216,8 +239,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.canvas.width,
 			this.canvas.height
 		);
-		const transient = new Map<string, any>();
-		transient.set(PARTICLE_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
 		const context: FrameContext = {
 			camera: this.camera,
 			attachments: attachments,
@@ -240,6 +261,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		// for backend resource preparation.
 		for (const pass of framePlan) {
 			if (pass.enabled && pass.executor === "shared") {
+				if (pass.stage === "animation-sim") {
+					continue;
+				}
 				if (!this.backend.executeSharedPass) {
 					this.warnOnce(
 						`${this.backend.type}-shared-pass-${pass.stage}`,

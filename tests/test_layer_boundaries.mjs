@@ -73,7 +73,8 @@ function run() {
 			const inDefinitionLayer =
 				relPath.startsWith("src/lights/") ||
 				relPath.startsWith("src/materials/") ||
-				relPath.startsWith("src/particles/");
+				relPath.startsWith("src/particles/") ||
+				relPath.startsWith("src/animation/");
 			if (inDefinitionLayer) {
 				const touchesPipelineImpl =
 					specifier.includes("renderers/") ||

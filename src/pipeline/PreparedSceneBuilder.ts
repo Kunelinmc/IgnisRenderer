@@ -28,10 +28,15 @@ export class PreparedSceneBuilder {
 
 			const packets = this._buildMeshPackets(meshInstance, renderer.camera);
 			for (const packet of packets) {
-				const visibleInCamera = renderer.camera.isSphereInFrustum(
-					packet.worldBounds.center,
-					packet.worldBounds.radius
-				);
+				const animatedPacket =
+					!!meshInstance.skeleton ||
+					(packet.geometry.morphTargets?.length ?? 0) > 0;
+				const visibleInCamera = animatedPacket
+					? true
+					: renderer.camera.isSphereInFrustum(
+							packet.worldBounds.center,
+							packet.worldBounds.radius
+						);
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 					if (visibleInCamera) {
@@ -64,6 +69,7 @@ export class PreparedSceneBuilder {
 			sceneBounds: renderer.scene.getBounds(),
 			lights: renderer.scene.getLights(),
 			particleSystems: renderer.scene.getParticleSystems(),
+			hasActiveAnimations: renderer.animationSystem.hasActiveActions(),
 			camera: renderer.camera,
 			skybox: renderer.scene.skybox,
 			meshInstances,

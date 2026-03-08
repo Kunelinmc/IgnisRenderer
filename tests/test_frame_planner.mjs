@@ -6,6 +6,7 @@ function createFrame(overrides = {}) {
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 1 },
 		lights: [],
 		particleSystems: [],
+		hasActiveAnimations: false,
 		camera: null,
 		shadowMaps: new Map(),
 		opaquePackets: [{}],
@@ -58,6 +59,7 @@ function run() {
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
 		[
+			'animation-sim',
 			'particle-sim',
 			'shadow',
 			'reflection',
@@ -73,6 +75,10 @@ function run() {
 		]
 	)
 	assert.equal(plan.find((pass) => pass.stage === 'particle-sim')?.enabled, true)
+	assert.equal(
+		plan.find((pass) => pass.stage === 'animation-sim')?.enabled,
+		false
+	)
 	assert.equal(plan.find((pass) => pass.stage === 'shadow')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'reflection')?.enabled, true)
 	assert.equal(plan.find((pass) => pass.stage === 'main-opaque')?.enabled, true)
@@ -89,6 +95,10 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === 'gamma')?.enabled, true)
 
 	const disabledPlan = FramePlanner.build(createFrame(), baseResolved)
+	assert.equal(
+		disabledPlan.find((pass) => pass.stage === 'animation-sim')?.enabled,
+		false
+	)
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === 'particle-sim')?.enabled,
 		false

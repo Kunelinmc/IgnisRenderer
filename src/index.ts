@@ -47,6 +47,7 @@ export {
 	UnlitMaterial,
 	PBRMaterial,
 } from "./materials";
+export * from "./animation";
 export * from "./particles";
 export * from "./lights";
 export { Texture, type TextureColorSpace } from "./core/Texture";

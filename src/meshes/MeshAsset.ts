@@ -15,12 +15,19 @@ export type MeshFace = GeometryFace;
 export class MeshAsset {
 	public readonly id: string;
 	public primitives: IPrimitive[];
+	public defaultMorphWeights: Float32Array[];
 	public boundingSphere: BoundingSphere;
 	public boundingBox: BoundingBox;
 
-	constructor(primitives: IPrimitive[] = []) {
+	constructor(
+		primitives: IPrimitive[] = [],
+		defaultMorphWeights: Float32Array[] = []
+	) {
 		this.id = IdGenerator.nextId("mesh");
 		this.primitives = primitives;
+		this.defaultMorphWeights = defaultMorphWeights.map(
+			(weights) => new Float32Array(weights)
+		);
 		this.boundingBox = GeometryBuilder.computeModelBoundingBox(this.primitives);
 		this.boundingSphere = GeometryBuilder.computeModelBoundingSphere(
 			this.primitives,

@@ -176,9 +176,10 @@ export class GeometryBuilder {
 
 	public static createVerticesForTriangle(
 		primitive: IPrimitive,
-		triangleIndex: number
+		triangleIndex: number,
+		overrides?: Partial<IPrimitiveGeometry>
 	): IVertex[] {
-		const geometry = primitive.geometry;
+		const geometry = mergeGeometry(primitive.geometry, overrides);
 		const indices = geometry.indices;
 		const baseIndex = triangleIndex * 3;
 
@@ -449,6 +450,67 @@ export class GeometryBuilder {
 			};
 		}
 
+		if (geometry.joints0) {
+			const base = index * 4;
+			vertex.joints0 = [
+				geometry.joints0[base],
+				geometry.joints0[base + 1],
+				geometry.joints0[base + 2],
+				geometry.joints0[base + 3],
+			];
+		}
+
+		if (geometry.weights0) {
+			const base = index * 4;
+			vertex.weights0 = [
+				geometry.weights0[base],
+				geometry.weights0[base + 1],
+				geometry.weights0[base + 2],
+				geometry.weights0[base + 3],
+			];
+		}
+
+		if (geometry.joints1) {
+			const base = index * 4;
+			vertex.joints1 = [
+				geometry.joints1[base],
+				geometry.joints1[base + 1],
+				geometry.joints1[base + 2],
+				geometry.joints1[base + 3],
+			];
+		}
+
+		if (geometry.weights1) {
+			const base = index * 4;
+			vertex.weights1 = [
+				geometry.weights1[base],
+				geometry.weights1[base + 1],
+				geometry.weights1[base + 2],
+				geometry.weights1[base + 3],
+			];
+		}
+
 		return vertex;
 	}
+}
+
+function mergeGeometry(
+	base: IPrimitiveGeometry,
+	override?: Partial<IPrimitiveGeometry>
+): IPrimitiveGeometry {
+	if (!override) return base;
+	return {
+		positions: override.positions ?? base.positions,
+		normals: override.normals ?? base.normals,
+		tangents: override.tangents ?? base.tangents,
+		uv0: override.uv0 ?? base.uv0,
+		uv1: override.uv1 ?? base.uv1,
+		colors: override.colors ?? base.colors,
+		joints0: override.joints0 ?? base.joints0,
+		weights0: override.weights0 ?? base.weights0,
+		joints1: override.joints1 ?? base.joints1,
+		weights1: override.weights1 ?? base.weights1,
+		morphTargets: override.morphTargets ?? base.morphTargets,
+		indices: override.indices ?? base.indices,
+	};
 }

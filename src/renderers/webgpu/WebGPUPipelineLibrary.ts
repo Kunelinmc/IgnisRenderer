@@ -1,6 +1,7 @@
 import { getWebGPUSceneShader } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUSkyboxShader } from "../../shaders/webgpu/skyboxShader";
 import { createWebGPUMaterialUniformData } from "./";
+import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { TextureFormat } from "../types";
 import type { Material } from "../../materials/Material";
 import type { IRenderPipeline, IShaderModule } from "../types";
@@ -95,7 +96,7 @@ export class WebGPUPipelineLibrary {
 				entryPoint: "vsMain",
 				buffers: [
 					{
-						arrayStride: 56,
+						arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
 						attributes: [
 							{ format: "float32x3", offset: 0, shaderLocation: 0 },
 							{ format: "float32x2", offset: 24, shaderLocation: 1 },

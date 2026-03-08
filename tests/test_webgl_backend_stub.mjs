@@ -9,6 +9,7 @@ async function run() {
 	assert.equal(backend.type, "webgl");
 	assert.equal(backend.frameScheduling, "on-demand");
 	assert.deepEqual(backend.passExecutors, {
+		"animation-sim": "shared",
 		"particle-sim": "backend",
 	});
 	assert.deepEqual(backend.capabilities, {

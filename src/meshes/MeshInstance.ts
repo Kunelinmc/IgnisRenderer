@@ -3,13 +3,18 @@ import type { IVector3 } from "../maths/types";
 import { Node, type NodeParams } from "../core/Node";
 import { MeshAsset } from "./MeshAsset";
 import type { BoundingBox, BoundingSphere } from "../core/types";
+import type { Skeleton } from "../animation/Skeleton";
 
 export interface MeshInstanceParams extends NodeParams {
 	mesh: MeshAsset;
+	skeleton?: Skeleton | null;
+	morphWeights?: ArrayLike<number>[];
 }
 
 export class MeshInstance extends Node {
 	public mesh: MeshAsset;
+	public skeleton: Skeleton | null;
+	public morphWeights: Float32Array[];
 
 	constructor(params: MeshInstanceParams) {
 		super({
@@ -17,6 +22,12 @@ export class MeshInstance extends Node {
 			idPrefix: "meshInstance",
 		});
 		this.mesh = params.mesh;
+		this.skeleton = params.skeleton ?? null;
+		this.morphWeights =
+			params.morphWeights?.map((weights) => new Float32Array(weights)) ??
+			this.mesh.defaultMorphWeights.map(
+				(weights) => new Float32Array(weights)
+			);
 	}
 
 	public getWorldBoundingSphere(out?: BoundingSphere): BoundingSphere {

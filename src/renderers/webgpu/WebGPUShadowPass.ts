@@ -15,6 +15,7 @@ import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_SPOT_LIGHTS,
+	WEBGPU_SCENE_VERTEX_STRIDE,
 } from "./constants";
 import type { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
@@ -293,7 +294,7 @@ export class WebGPUShadowPass {
 					entryPoint: "vsMain",
 					buffers: [
 						{
-							arrayStride: 56,
+							arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
 							attributes: [
 								{
 									shaderLocation: 0,

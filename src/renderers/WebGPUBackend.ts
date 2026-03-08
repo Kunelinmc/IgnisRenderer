@@ -81,6 +81,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
+		"animation-sim": "shared",
 		"particle-sim": "backend",
 	} as const;
 	public readonly capabilities = {
@@ -219,6 +220,10 @@ export class WebGPUBackend implements IRenderBackend {
 	): Promise<void> | void {
 		if (!this._frameExecutor) {
 			throw new Error("WebGPU backend has not been initialized.");
+		}
+
+		if (pass.stage === "animation-sim") {
+			return;
 		}
 
 		if (pass.stage === "particle-sim") {

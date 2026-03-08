@@ -22,6 +22,7 @@ export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "always";
 	public readonly passExecutors = {
+		"animation-sim": "shared",
 		"particle-sim": "backend",
 	} as const;
 	public readonly capabilities = {
@@ -137,6 +138,8 @@ export class SoftwareBackend implements IRenderBackend {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
+			case "animation-sim":
+				break;
 			case "particle-sim":
 				this._particleSimulator?.simulate(
 					context,

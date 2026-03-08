@@ -16,9 +16,16 @@ import {
 import {	
 	MeshAsset,
 	MeshInstance,
-	type MeshFace,
-	type MeshVertex,
 } from "../meshes";
+import { GeometryBuilder } from "../meshes/GeometryBuilder";
+import type { IPrimitive, IPrimitiveGeometry, MorphTargetGeometry } from "../core/types";
+import { IdGenerator } from "../utils/IdGenerator";
+import {
+	AnimationClip,
+	type GLTFAnimationBundle,
+	KeyframeTrack,
+	Skeleton,
+} from "../animation";
 
 export interface GLTFLoaderEvents extends LoaderEvents {
 	load: [Node];
@@ -43,12 +50,33 @@ const TYPE_MAT2 = "MAT2";
 const TYPE_MAT3 = "MAT3";
 const TYPE_MAT4 = "MAT4";
 
+interface GLTFParseContext {
+	nodeByIndex: Map<number, Node>;
+	nodePathByIndex: Map<number, string>;
+	pathToNode: Map<string, Node>;
+	meshInstanceByNodeIndex: Map<number, MeshInstance>;
+	pathToMeshInstance: Map<string, MeshInstance>;
+	pendingSkinByInstance: Map<MeshInstance, number>;
+	meshCache: Map<number, MeshAsset | null>;
+	skeletonBySkinIndex: Map<number, Skeleton>;
+}
+
 /**
  * GLTFLoader handles both .glb (binary) and .gltf (JSON + external bins) formats.
  */
 export class GLTFLoader extends Loader<GLTFLoaderEvents> {
+	private _lastAnimationBundle: GLTFAnimationBundle | null = null;
+
 	constructor() {
 		super();
+	}
+
+	public getLastAnimationBundle(): GLTFAnimationBundle | null {
+		return this._lastAnimationBundle;
+	}
+
+	public clearLastAnimationBundle(): void {
+		this._lastAnimationBundle = null;
 	}
 	/**
 	 * Loads a glTF or GLB model from a URL.
@@ -119,6 +147,18 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		const textures = this.parseTextures(json, images);
 		// Pre-parse materials
 		const materials = this.parseMaterials(json, textures);
+		this._lastAnimationBundle = null;
+
+		const context: GLTFParseContext = {
+			nodeByIndex: new Map(),
+			nodePathByIndex: new Map(),
+			pathToNode: new Map(),
+			meshInstanceByNodeIndex: new Map(),
+			pathToMeshInstance: new Map(),
+			pendingSkinByInstance: new Map(),
+			meshCache: new Map(),
+			skeletonBySkinIndex: new Map(),
+		};
 		const root = new Node({
 			idPrefix: "node",
 			name: "gltfRoot",
@@ -134,7 +174,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					nodeIdx,
 					buffers,
 					materials,
-					lights
+					lights,
+					context,
+					"/gltfRoot"
 				);
 				root.addChild(node);
 			}
@@ -144,11 +186,42 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					(n: any) => n.children && n.children.includes(i)
 				);
 				if (!isChild) {
-					const node = this.parseNodeTree(json, i, buffers, materials, lights);
+					const node = this.parseNodeTree(
+						json,
+						i,
+						buffers,
+						materials,
+						lights,
+						context,
+						"/gltfRoot"
+					);
 					root.addChild(node);
 				}
 			}
 		}
+
+		const skeletons = this.parseSkins(json, buffers, context);
+		const clips = this.parseAnimations(json, buffers, context);
+		this._lastAnimationBundle = {
+			clips,
+			skeletons,
+			morphBindings: Array.from(context.pathToMeshInstance.entries())
+				.filter(([, instance]) =>
+					instance.morphWeights.some((weights) => weights.length > 0)
+				)
+				.map(([path, instance]) => ({
+					path,
+					instance,
+					targetCount: instance.morphWeights[0]?.length ?? 0,
+				})),
+			nodePathMap: Object.fromEntries(
+				Array.from(context.pathToNode.entries()).map(([path, node]) => [
+					path,
+					node.id,
+				])
+			),
+		};
+
 		this.emit("parseend", root);
 		return root;
 	}
@@ -602,7 +675,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		nodeIdx: number,
 		buffers: Uint8Array[],
 		materials: Material[],
-		lights: any[]
+		lights: any[],
+		context: GLTFParseContext,
+		parentPath: string
 	): Node {
 		if (nodeIdx === undefined || !json.nodes || !json.nodes[nodeIdx]) {
 			return new Node({
@@ -610,24 +685,45 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			});
 		}
 		const nodeDef = json.nodes[nodeIdx];
+		const nodeName = nodeDef.name ?? `node_${nodeIdx}`;
+		const nodePath = `${parentPath}/${sanitizePathSegment(nodeName)}_${nodeIdx}`;
 		const container = new Node({
-			name: nodeDef.name ?? `node_${nodeIdx}`,
+			name: nodeName,
 		});
 		this._applyNodeTransform(nodeDef, container);
+		context.nodeByIndex.set(nodeIdx, container);
+		context.nodePathByIndex.set(nodeIdx, nodePath);
+		context.pathToNode.set(nodePath, container);
 
 		if (
 			nodeDef.mesh !== undefined &&
 			json.meshes &&
 			json.meshes[nodeDef.mesh]
 		) {
-			const mesh = this.parseMesh(json, nodeDef.mesh, buffers, materials);
+			const mesh = this.parseMesh(
+				json,
+				nodeDef.mesh,
+				buffers,
+				materials,
+				context
+			);
 			if (mesh) {
-				container.addChild(
-					new MeshInstance({
-						mesh,
-						name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
-					})
-				);
+				const meshInstance = new MeshInstance({
+					mesh,
+					name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
+					morphWeights:
+						nodeDef.weights !== undefined
+							? mesh.defaultMorphWeights.map((weights) =>
+									applyMorphWeightOverride(weights, nodeDef.weights)
+								)
+							: undefined,
+				});
+				container.addChild(meshInstance);
+				context.meshInstanceByNodeIndex.set(nodeIdx, meshInstance);
+				context.pathToMeshInstance.set(nodePath, meshInstance);
+				if (nodeDef.skin !== undefined) {
+					context.pendingSkinByInstance.set(meshInstance, nodeDef.skin);
+				}
 			}
 		}
 
@@ -644,7 +740,15 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (nodeDef.children) {
 			for (const childIdx of nodeDef.children) {
 				container.addChild(
-					this.parseNodeTree(json, childIdx, buffers, materials, lights)
+					this.parseNodeTree(
+						json,
+						childIdx,
+						buffers,
+						materials,
+						lights,
+						context,
+						nodePath
+					)
 				);
 			}
 		}
@@ -656,19 +760,42 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		json: any,
 		meshIndex: number,
 		buffers: Uint8Array[],
-		materials: Material[]
+		materials: Material[],
+		context: GLTFParseContext
 	): MeshAsset | null {
+		if (context.meshCache.has(meshIndex)) {
+			return context.meshCache.get(meshIndex) ?? null;
+		}
+
 		const meshDef = json.meshes?.[meshIndex];
 		if (!meshDef?.primitives || meshDef.primitives.length === 0) {
+			context.meshCache.set(meshIndex, null);
 			return null;
 		}
-		let faces: MeshFace[] = [];
-		for (const primitive of meshDef.primitives) {
-			faces = faces.concat(
-				this.parsePrimitive(json, primitive, buffers, materials)
+		const primitives: IPrimitive[] = [];
+		const defaultMorphWeights: Float32Array[] = [];
+		for (const primitiveDef of meshDef.primitives) {
+			const primitive = this.parsePrimitive(
+				json,
+				primitiveDef,
+				buffers,
+				materials
+			);
+			if (!primitive) continue;
+			primitives.push(primitive);
+			const targetCount = primitive.geometry.morphTargets?.length ?? 0;
+			defaultMorphWeights.push(
+				resolveDefaultMorphWeights(meshDef.weights, targetCount)
 			);
 		}
-		return MeshAsset.fromFaces(faces);
+		if (primitives.length === 0) {
+			context.meshCache.set(meshIndex, null);
+			return null;
+		}
+
+		const mesh = new MeshAsset(primitives, defaultMorphWeights);
+		context.meshCache.set(meshIndex, mesh);
+		return mesh;
 	}
 
 	public parsePrimitive(
@@ -676,95 +803,97 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		primitive: any,
 		buffers: Uint8Array[],
 		materials: Material[]
-	): MeshFace[] {
+	): IPrimitive | null {
 		const attrs = primitive.attributes;
 		const material =
 			primitive.material !== undefined && materials[primitive.material]
 				? materials[primitive.material]
 				: new PBRMaterial();
-		if (attrs.POSITION === undefined) return [];
-		const positions = this.getAccessorData(json, buffers, attrs.POSITION);
+		if (attrs.POSITION === undefined) return null;
+
+		const positions = toFloat32Array(
+			this.getAccessorData(json, buffers, attrs.POSITION)
+		);
+		const vertexCount = (positions.length / 3) | 0;
 		const normals =
 			attrs.NORMAL !== undefined
-				? this.getAccessorData(json, buffers, attrs.NORMAL)
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.NORMAL))
 				: null;
 		const tangents =
 			attrs.TANGENT !== undefined
-				? this.getAccessorData(json, buffers, attrs.TANGENT)
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TANGENT))
 				: null;
-		const uvs0 =
+		const uv0 =
 			attrs.TEXCOORD_0 !== undefined
-				? this.getAccessorData(json, buffers, attrs.TEXCOORD_0)
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_0))
 				: null;
-		const uvs1 =
+		const uv1 =
 			attrs.TEXCOORD_1 !== undefined
-				? this.getAccessorData(json, buffers, attrs.TEXCOORD_1)
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_1))
 				: null;
 		const colors =
 			attrs.COLOR_0 !== undefined
-				? this.getAccessorData(json, buffers, attrs.COLOR_0)
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.COLOR_0))
 				: null;
+		const joints0 =
+			attrs.JOINTS_0 !== undefined
+				? toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_0))
+				: null;
+		const weights0 =
+			attrs.WEIGHTS_0 !== undefined
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_0))
+				: null;
+		const joints1 =
+			attrs.JOINTS_1 !== undefined
+				? toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_1))
+				: null;
+		const weights1 =
+			attrs.WEIGHTS_1 !== undefined
+				? toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_1))
+				: null;
+
 		const indices =
 			primitive.indices !== undefined
-				? this.getAccessorData(json, buffers, primitive.indices)
-				: null;
-		const faces: MeshFace[] = [];
-		const faceCount = Math.floor(
-			(indices ? indices.length : positions.length / 3) / 3
+				? toUint32Array(this.getAccessorData(json, buffers, primitive.indices))
+				: createSequentialIndices(vertexCount);
+
+		const morphTargets = this.parseMorphTargets(
+			json,
+			primitive.targets,
+			buffers
 		);
-		for (let i = 0; i < faceCount; i++) {
-			const fv: MeshVertex[] = [];
-			for (let j = 0; j < 3; j++) {
-				const idx = indices ? indices[i * 3 + j] : i * 3 + j;
-				const v: MeshVertex = {
-					x: positions[idx * 3],
-					y: positions[idx * 3 + 1],
-					z: positions[idx * 3 + 2],
-				};
-				if (uvs0) {
-					v.u = uvs0[idx * 2];
-					v.v = uvs0[idx * 2 + 1];
-				} else {
-					v.u = 0;
-					v.v = 0;
-				}
-				if (uvs1) {
-					v.u2 = uvs1[idx * 2];
-					v.v2 = uvs1[idx * 2 + 1];
-				} else {
-					v.u2 = 0;
-					v.v2 = 0;
-				}
-				if (colors) {
-					const acc = json.accessors[attrs.COLOR_0];
-					const numComponents = acc.type === "VEC3" ? 3 : 4;
-					v.color = {
-						r: colors[idx * numComponents],
-						g: colors[idx * numComponents + 1],
-						b: colors[idx * numComponents + 2],
-						a: numComponents === 4 ? colors[idx * numComponents + 3] : 1.0,
-					};
-				}
-				if (normals) {
-					v.normal = {
-						x: normals[idx * 3],
-						y: normals[idx * 3 + 1],
-						z: normals[idx * 3 + 2],
-					};
-				}
-				if (tangents) {
-					v.tangent = {
-						x: tangents[idx * 4],
-						y: tangents[idx * 4 + 1],
-						z: tangents[idx * 4 + 2],
-						w: tangents[idx * 4 + 3],
-					};
-				}
-				fv.push(v);
-			}
-			faces.push({ vertices: fv, normal: undefined, material });
-		}
-		return faces;
+
+		const geometry: IPrimitiveGeometry = {
+			positions,
+			normals,
+			tangents,
+			uv0,
+			uv1,
+			colors,
+			joints0,
+			weights0,
+			joints1,
+			weights1,
+			morphTargets,
+			indices,
+		};
+
+		const boundingBox = GeometryBuilder.computeBoundingBox(geometry);
+		const boundingSphere = GeometryBuilder.computeBoundingSphere(
+			geometry,
+			boundingBox
+		);
+
+		return {
+			id: IdGenerator.nextId("primitive"),
+			geometry,
+			material,
+			boundingSphere,
+			boundingBox,
+			visible: true,
+			castShadows: true,
+			receiveShadows: true,
+		};
 	}
 
 	public parseCamera(cameraDef: any): Camera {
@@ -832,6 +961,190 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					intensity,
 				});
 		}
+	}
+
+	public parseMorphTargets(
+		json: any,
+		targetDefs: any[] | undefined,
+		buffers: Uint8Array[]
+	): MorphTargetGeometry[] | null {
+		if (!Array.isArray(targetDefs) || targetDefs.length === 0) {
+			return null;
+		}
+
+		return targetDefs.map((targetDef) => ({
+			positions:
+				targetDef.POSITION !== undefined
+					? toFloat32Array(
+							this.getAccessorData(json, buffers, targetDef.POSITION)
+						)
+					: null,
+			normals:
+				targetDef.NORMAL !== undefined
+					? toFloat32Array(this.getAccessorData(json, buffers, targetDef.NORMAL))
+					: null,
+			tangents:
+				targetDef.TANGENT !== undefined
+					? toFloat32Array(
+							this.getAccessorData(json, buffers, targetDef.TANGENT)
+						)
+					: null,
+		}));
+	}
+
+	public parseSkins(
+		json: any,
+		buffers: Uint8Array[],
+		context: GLTFParseContext
+	): Skeleton[] {
+		const skins = json.skins ?? [];
+		const result: Skeleton[] = [];
+		for (let skinIndex = 0; skinIndex < skins.length; skinIndex++) {
+			const skinDef = skins[skinIndex];
+			if (!Array.isArray(skinDef?.joints) || skinDef.joints.length === 0) {
+				continue;
+			}
+
+			const joints = skinDef.joints
+				.map((jointIndex: number) => context.nodeByIndex.get(jointIndex))
+				.filter(Boolean) as Node[];
+			if (joints.length !== skinDef.joints.length) {
+				console.warn(
+					`GLTFLoader: skin ${skinIndex} has missing joint node bindings; skipping`
+				);
+				continue;
+			}
+
+			let inverseBindMatrices: Matrix4[] = [];
+			if (skinDef.inverseBindMatrices !== undefined) {
+				const data = toFloat32Array(
+					this.getAccessorData(json, buffers, skinDef.inverseBindMatrices)
+				);
+				for (let i = 0; i < joints.length; i++) {
+					const offset = i * 16;
+					inverseBindMatrices.push(
+						Matrix4.fromArray(Array.from(data.subarray(offset, offset + 16)))
+					);
+				}
+			}
+
+			if (inverseBindMatrices.length !== joints.length) {
+				inverseBindMatrices = joints.map(() => Matrix4.identity());
+			}
+
+			const skeleton = new Skeleton({
+				name: skinDef.name ?? `skin_${skinIndex}`,
+				joints,
+				inverseBindMatrices,
+			});
+			context.skeletonBySkinIndex.set(skinIndex, skeleton);
+			result.push(skeleton);
+		}
+
+		for (const [instance, skinIndex] of context.pendingSkinByInstance.entries()) {
+			const skeleton = context.skeletonBySkinIndex.get(skinIndex);
+			if (!skeleton) continue;
+			instance.skeleton = skeleton;
+		}
+
+		return result;
+	}
+
+	public parseAnimations(
+		json: any,
+		buffers: Uint8Array[],
+		context: GLTFParseContext
+	): AnimationClip[] {
+		const animations = json.animations ?? [];
+		const clips: AnimationClip[] = [];
+
+		for (let animationIndex = 0; animationIndex < animations.length; animationIndex++) {
+			const animationDef = animations[animationIndex];
+			const tracks: KeyframeTrack[] = [];
+			let duration = 0;
+
+			for (const channel of animationDef.channels ?? []) {
+				const sampler = animationDef.samplers?.[channel.sampler];
+				if (!sampler) continue;
+				const nodeIndex = channel.target?.node;
+				const targetPath = channel.target?.path;
+				if (nodeIndex === undefined || !targetPath) continue;
+
+				const nodePath = context.nodePathByIndex.get(nodeIndex);
+				if (!nodePath) continue;
+
+				const inputTimes = toFloat32Array(
+					this.getAccessorData(json, buffers, sampler.input)
+				);
+				if (inputTimes.length === 0) continue;
+				duration = Math.max(duration, inputTimes[inputTimes.length - 1] ?? 0);
+
+				const outputValues = toFloat32Array(
+					this.getAccessorData(json, buffers, sampler.output)
+				);
+				const interpolation = mapInterpolation(sampler.interpolation);
+				let binding: any = null;
+				let valueSize = 0;
+
+				if (
+					targetPath === "translation" ||
+					targetPath === "rotation" ||
+					targetPath === "scale"
+				) {
+					binding = {
+						targetType: "node",
+						targetPath: nodePath,
+						property: targetPath,
+					};
+					valueSize = targetPath === "rotation" ? 4 : 3;
+				} else if (targetPath === "weights") {
+					if (!context.pathToMeshInstance.has(nodePath)) {
+						console.warn(
+							`GLTFLoader: animation channel targets weights on node ${nodePath} without mesh; ignored`
+						);
+						continue;
+					}
+					binding = {
+						targetType: "morph",
+						targetPath: nodePath,
+						property: "weights",
+					};
+					valueSize =
+						interpolation === "cubic"
+							? Math.floor(outputValues.length / (inputTimes.length * 3))
+							: Math.floor(outputValues.length / inputTimes.length);
+				} else {
+					console.warn(
+						`GLTFLoader: unsupported animation path "${targetPath}" ignored`
+					);
+					continue;
+				}
+
+				if (!Number.isFinite(valueSize) || valueSize <= 0) continue;
+
+				tracks.push(
+					new KeyframeTrack({
+						name: `${animationDef.name ?? `animation_${animationIndex}`}:${targetPath}`,
+						binding,
+						times: inputTimes,
+						values: outputValues,
+						valueSize,
+						interpolation,
+					})
+				);
+			}
+
+			if (tracks.length === 0) continue;
+			clips.push(
+				new AnimationClip({
+					name: animationDef.name ?? `animation_${animationIndex}`,
+					duration,
+					tracks,
+				})
+			);
+		}
+
+		return clips;
 	}
 
 	private _applyNodeTransform(nodeDef: any, target: Node): void {
@@ -1099,4 +1412,95 @@ function decomposeTRS(matrix: Matrix4): {
 		quaternion: Quaternion.fromRotationMatrix(rotationMatrix),
 		scale,
 	};
+}
+
+function sanitizePathSegment(value: string): string {
+	return value.replace(/[^\w\-]+/g, "_");
+}
+
+function resolveDefaultMorphWeights(
+	meshWeights: ArrayLike<number> | undefined,
+	targetCount: number
+): Float32Array {
+	const result = new Float32Array(targetCount);
+	for (let i = 0; i < targetCount; i++) {
+		result[i] = Number(meshWeights?.[i] ?? 0);
+	}
+	return result;
+}
+
+function applyMorphWeightOverride(
+	baseWeights: Float32Array,
+	overrideWeights: ArrayLike<number>
+): Float32Array {
+	const result = new Float32Array(baseWeights);
+	const count = Math.min(result.length, overrideWeights.length);
+	for (let i = 0; i < count; i++) {
+		result[i] = Number(overrideWeights[i] ?? result[i]);
+	}
+	return result;
+}
+
+function mapInterpolation(value: string | undefined) {
+	switch ((value ?? "LINEAR").toUpperCase()) {
+		case "STEP":
+			return "step" as const;
+		case "CUBICSPLINE":
+			return "cubic" as const;
+		case "LINEAR":
+		default:
+			return "linear" as const;
+	}
+}
+
+function toFloat32Array(
+	value:
+		| Float32Array
+		| Uint32Array
+		| Uint16Array
+		| Uint8Array
+		| Int16Array
+		| Int8Array
+		| number[]
+): Float32Array {
+	if (value instanceof Float32Array) return value;
+	return new Float32Array(value as ArrayLike<number>);
+}
+
+function toUint32Array(
+	value:
+		| Uint32Array
+		| Uint16Array
+		| Uint8Array
+		| Int16Array
+		| Int8Array
+		| Float32Array
+		| number[]
+): Uint32Array {
+	if (value instanceof Uint32Array) return value;
+	return new Uint32Array(value as ArrayLike<number>);
+}
+
+function toJointArray(
+	value:
+		| Uint16Array
+		| Uint32Array
+		| Uint8Array
+		| Int16Array
+		| Int8Array
+		| Float32Array
+		| number[]
+): Uint16Array | Uint32Array {
+	if (value instanceof Uint32Array || value instanceof Uint16Array) {
+		return value;
+	}
+	return new Uint16Array(value as ArrayLike<number>);
+}
+
+function createSequentialIndices(vertexCount: number): Uint32Array {
+	const indices = new Uint32Array(vertexCount);
+	for (let i = 0; i < vertexCount; i++) {
+		indices[i] = i;
+	}
+	return indices;
 }

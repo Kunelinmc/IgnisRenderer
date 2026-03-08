@@ -37,6 +37,8 @@ import type { Texture } from "../core/Texture";
 
 export const PARTICLE_TRANSIENT_BATCHES_KEY = "pipeline:particle-batches";
 export const PARTICLE_SIM_DELTA_TIME_MS_KEY = "pipeline:particle-delta-time-ms";
+export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
+	"pipeline:animation-delta-time-ms";
 
 export interface ParticleUVRect {
 	u0: number;
@@ -66,6 +68,7 @@ export interface PreparedScene {
 	sceneBounds: BoundingSphere;
 	lights: SceneLight[];
 	particleSystems: ParticleSystem[];
+	hasActiveAnimations: boolean;
 	camera: Camera;
 	skybox?: Texture | null;
 	meshInstances: MeshInstance[];
@@ -99,6 +102,7 @@ export interface FrameContext {
 }
 
 export type FramePassStage =
+	| "animation-sim"
 	| "particle-sim"
 	| "shadow"
 	| "reflection"
