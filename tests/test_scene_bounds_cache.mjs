@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict'
-import { Scene } from '../src/core/Scene.ts'
-import { Material } from '../src/materials/Material.ts'
-import { MeshAsset } from '../src/meshes/MeshAsset.ts'
-import { MeshInstance } from '../src/meshes/MeshInstance.ts'
+import assert from "node:assert/strict";
+import { Scene } from "../src/core/Scene.ts";
+import { Material } from "../src/materials/Material.ts";
+import { MeshAsset } from "../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../src/meshes/MeshInstance.ts";
 
 function createMeshInstance(x) {
 	const mesh = MeshAsset.fromFaces([
@@ -14,41 +14,41 @@ function createMeshInstance(x) {
 				{ x: 0, y: 1, z: 0, normal: { x: 0, y: 0, z: 1 } },
 			],
 		},
-	])
-	const meshInstance = new MeshInstance({ mesh })
-	meshInstance.position.x = x
-	return meshInstance
+	]);
+	const meshInstance = new MeshInstance({ mesh });
+	meshInstance.position.x = x;
+	return meshInstance;
 }
 
 function run() {
-	const scene = new Scene()
-	const initialVersion = scene.version
-	const firstBounds = scene.getBounds()
-	assert.equal(firstBounds.radius, 100)
+	const scene = new Scene();
+	const initialVersion = scene.version;
+	const firstBounds = scene.getBounds();
+	assert.equal(firstBounds.radius, 100);
 
-	const left = createMeshInstance(-10)
-	const right = createMeshInstance(10)
-	scene.add(left)
-	scene.add(right)
-	scene.updateWorldMatrices()
-	assert.ok(scene.version > initialVersion)
+	const left = createMeshInstance(-10);
+	const right = createMeshInstance(10);
+	scene.add(left);
+	scene.add(right);
+	scene.updateWorldMatrices();
+	assert.ok(scene.version > initialVersion);
 
-	const expanded = scene.getBounds()
-	const repeated = scene.getBounds()
-	assert.deepEqual(expanded, repeated)
-	assert.ok(expanded.radius > 0)
+	const expanded = scene.getBounds();
+	const repeated = scene.getBounds();
+	assert.deepEqual(expanded, repeated);
+	assert.ok(expanded.radius > 0);
 
-	scene.remove(right)
-	scene.updateWorldMatrices()
-	const reduced = scene.getBounds()
-	assert.ok(reduced.radius < expanded.radius)
+	scene.remove(right);
+	scene.updateWorldMatrices();
+	const reduced = scene.getBounds();
+	assert.ok(reduced.radius < expanded.radius);
 
-	scene.clear()
-	scene.updateWorldMatrices()
-	const cleared = scene.getBounds()
-	assert.equal(cleared.radius, 100)
+	scene.clear();
+	scene.updateWorldMatrices();
+	const cleared = scene.getBounds();
+	assert.equal(cleared.radius, 100);
 
-	console.log('Scene bounds tests passed')
+	console.log("Scene bounds tests passed");
 }
 
-run()
+run();

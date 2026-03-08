@@ -64,7 +64,11 @@ function testTAANeighborhoodClamp() {
 		[0.2, 0.2, 0.2],
 		[0.8, 0.8, 0.8],
 	];
-	const toMean = clampHistoryToNeighborhoodYCoCg([5, 5, 5], meanNeighborhood, 0);
+	const toMean = clampHistoryToNeighborhoodYCoCg(
+		[5, 5, 5],
+		meanNeighborhood,
+		0
+	);
 	assert.ok(Math.abs(toMean[0] - 0.5) < 1e-6);
 	assert.ok(Math.abs(toMean[1] - 0.5) < 1e-6);
 	assert.ok(Math.abs(toMean[2] - 0.5) < 1e-6);

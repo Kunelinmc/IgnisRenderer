@@ -342,8 +342,8 @@ function testFeatureGate() {
 }
 
 async function testSceneShaderCoverage() {
-	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader()
-	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader()
+	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
+	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader();
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -376,7 +376,7 @@ async function testSceneShaderCoverage() {
 }
 
 async function testParticleShaderDepthConsistency() {
-	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader()
+	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader();
 
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -389,9 +389,7 @@ async function testParticleShaderDepthConsistency() {
 		)
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			"let currentDepth = ndc.z * 0.5 + 0.5;"
-		)
+		WEBGPU_PARTICLE_SHADER.includes("let currentDepth = ndc.z * 0.5 + 0.5;")
 	);
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleUVTransform"));
 	assert.ok(
@@ -403,7 +401,9 @@ async function testParticleShaderDepthConsistency() {
 		)
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("rotatedUV + particleUVTransform.transformA.zw")
+		WEBGPU_PARTICLE_SHADER.includes(
+			"rotatedUV + particleUVTransform.transformA.zw"
+		)
 	);
 }
 
@@ -529,7 +529,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(firstDraw);
 	assert.equal(firstDraw.frameBinding.desc.entries.length, 4);
 	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
-	assert.equal(firstDraw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
+	assert.equal(
+		firstDraw.pipeline.desc.layout,
+		backend.device.pipelineLayouts[0]
+	);
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
 		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
@@ -543,7 +546,8 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(modelBindingIndices.includes(31));
 	assert.ok(modelBindingIndices.includes(32));
 	assert.ok(modelBindingIndices.includes(33));
-	const sceneVertexAttributes = firstDraw.pipeline.desc.vertex.buffers[0].attributes;
+	const sceneVertexAttributes =
+		firstDraw.pipeline.desc.vertex.buffers[0].attributes;
 	assert.ok(
 		sceneVertexAttributes.some((attribute) => attribute.shaderLocation === 8)
 	);
@@ -687,7 +691,12 @@ async function testParticleUVLayoutAndUniformBinding() {
 
 	resources.prepareFrame(frame, features);
 
-	const texture = new Texture(new Uint8Array([255, 255, 255, 255]), 1, 1, "sRGB");
+	const texture = new Texture(
+		new Uint8Array([255, 255, 255, 255]),
+		1,
+		1,
+		"sRGB"
+	);
 	texture.repeat = { x: 2, y: 3 };
 	texture.offset = { x: 0.25, y: -0.5 };
 	texture.rotation = Math.PI / 4;
@@ -748,7 +757,10 @@ async function testParticleUVLayoutAndUniformBinding() {
 		String(pipeline.label).startsWith("WebGPUParticlePipeline_")
 	);
 	assert.ok(particlePipeline);
-	assert.deepEqual(particlePipeline.desc.vertex.buffers, WEBGPU_PARTICLE_VERTEX_LAYOUTS);
+	assert.deepEqual(
+		particlePipeline.desc.vertex.buffers,
+		WEBGPU_PARTICLE_VERTEX_LAYOUTS
+	);
 
 	const particleBinding = backend.bindingGroups.find(
 		(binding) => binding.label === "ParticleBinding_particleSystem-test"

@@ -729,7 +729,12 @@ function testRendererUpdateSHNormalizesBakedLightProbeCoeffs() {
 	const probe = new LightProbe(SH.empty(), 1);
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
 	probe.sh[15] = { r: 7, g: 3, b: 1 };
-	probe.prefilteredMap = new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR");
+	probe.prefilteredMap = new Texture(
+		new Float32Array([1, 1, 1, 1]),
+		1,
+		1,
+		"HDR"
+	);
 
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },

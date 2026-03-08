@@ -77,8 +77,7 @@ function run() {
 				relPath.startsWith("src/animation/");
 			if (inDefinitionLayer) {
 				const touchesPipelineImpl =
-					specifier.includes("renderers/") ||
-					specifier.includes("simulation/");
+					specifier.includes("renderers/") || specifier.includes("simulation/");
 				if (touchesPipelineImpl) {
 					violations.push(
 						`${relPath} imports runtime pipeline logic "${specifier}"`
@@ -86,9 +85,7 @@ function run() {
 				}
 			}
 
-			const inWebGPUBackendLayer = relPath.startsWith(
-				"src/renderers/webgpu/"
-			);
+			const inWebGPUBackendLayer = relPath.startsWith("src/renderers/webgpu/");
 			const touchesSoftwareLighting =
 				specifier.includes("renderers/software/LightEvaluator") ||
 				specifier.includes("software/LightEvaluator");

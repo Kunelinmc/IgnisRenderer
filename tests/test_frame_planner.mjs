@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict'
-import { FramePlanner } from '../src/pipeline/FramePlanner.ts'
+import assert from "node:assert/strict";
+import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
 
 function createFrame(overrides = {}) {
 	return {
@@ -15,7 +15,7 @@ function createFrame(overrides = {}) {
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
 		...overrides,
-	}
+	};
 }
 
 function run() {
@@ -36,95 +36,98 @@ function run() {
 		ssaoOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
-	}
+	};
 
 	const frame = createFrame({
 		particleSystems: [{}],
 		shadowCasterPackets: [{}],
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
-	})
-	const plan = FramePlanner.build(
-		frame,
-		{
-			...baseResolved,
-			enableReflection: true,
-			enableSSAO: true,
-			enableTAA: true,
-			enableSSR: true,
-			enableVolumetric: true,
-		}
-	)
+	});
+	const plan = FramePlanner.build(frame, {
+		...baseResolved,
+		enableReflection: true,
+		enableSSAO: true,
+		enableTAA: true,
+		enableSSR: true,
+		enableVolumetric: true,
+	});
 
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
 		[
-			'animation-sim',
-			'particle-sim',
-			'shadow',
-			'reflection',
-			'main-opaque',
-			'main-transparent',
-			'particles',
-			'ssao',
-			'taa',
-			'ssr',
-			'volumetric',
-			'fxaa',
-			'gamma',
+			"animation-sim",
+			"particle-sim",
+			"shadow",
+			"reflection",
+			"main-opaque",
+			"main-transparent",
+			"particles",
+			"ssao",
+			"taa",
+			"ssr",
+			"volumetric",
+			"fxaa",
+			"gamma",
 		]
-	)
-	assert.equal(plan.find((pass) => pass.stage === 'particle-sim')?.enabled, true)
+	);
 	assert.equal(
-		plan.find((pass) => pass.stage === 'animation-sim')?.enabled,
-		false
-	)
-	assert.equal(plan.find((pass) => pass.stage === 'shadow')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'reflection')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'main-opaque')?.enabled, true)
-	assert.equal(
-		plan.find((pass) => pass.stage === 'main-transparent')?.enabled,
+		plan.find((pass) => pass.stage === "particle-sim")?.enabled,
 		true
-	)
-	assert.equal(plan.find((pass) => pass.stage === 'particles')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'ssao')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'taa')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'ssr')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'volumetric')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'fxaa')?.enabled, true)
-	assert.equal(plan.find((pass) => pass.stage === 'gamma')?.enabled, true)
+	);
+	assert.equal(
+		plan.find((pass) => pass.stage === "animation-sim")?.enabled,
+		false
+	);
+	assert.equal(plan.find((pass) => pass.stage === "shadow")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "reflection")?.enabled, true);
+	assert.equal(
+		plan.find((pass) => pass.stage === "main-opaque")?.enabled,
+		true
+	);
+	assert.equal(
+		plan.find((pass) => pass.stage === "main-transparent")?.enabled,
+		true
+	);
+	assert.equal(plan.find((pass) => pass.stage === "particles")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "ssao")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "taa")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "ssr")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
 
-	const disabledPlan = FramePlanner.build(createFrame(), baseResolved)
+	const disabledPlan = FramePlanner.build(createFrame(), baseResolved);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'animation-sim')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "animation-sim")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'particle-sim')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "particle-sim")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'shadow')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "shadow")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'main-transparent')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "main-transparent")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'reflection')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "reflection")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === 'particles')?.enabled,
+		disabledPlan.find((pass) => pass.stage === "particles")?.enabled,
 		false
-	)
+	);
 	assert.equal(
-		plan.find((pass) => pass.stage === 'particle-sim')?.executor,
-		'backend'
-	)
+		plan.find((pass) => pass.stage === "particle-sim")?.executor,
+		"backend"
+	);
 
-	console.log('Frame planner tests passed')
+	console.log("Frame planner tests passed");
 }
 
-run()
+run();

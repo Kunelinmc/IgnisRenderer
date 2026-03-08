@@ -106,9 +106,7 @@ async function testFXAARuntimeUsesDedicatedPipeline() {
 	assert.equal(backend.samplers.length, 1);
 	assert.equal(backend.shaderModules.length, 1);
 	assert.equal(backend.shaderModules[0].label, "WebGPUFXAAShader");
-	assert.ok(
-		backend.shaderModules[0].desc.code.includes("fn perceptualLuma")
-	);
+	assert.ok(backend.shaderModules[0].desc.code.includes("fn perceptualLuma"));
 	assert.ok(backend.shaderModules[0].desc.code.includes("FXAA_QUALITY"));
 	assert.equal(backend.computePipelines.length, 1);
 	assert.equal(backend.computePipelines[0].label, "WebGPUFXAAPipeline");
@@ -117,7 +115,10 @@ async function testFXAARuntimeUsesDedicatedPipeline() {
 	assert.equal(backend.buffers[0].desc.size, 24);
 	assert.equal(backend.bindingGroups.length, 1);
 	assert.equal(backend.bindingGroups[0].desc.entries.length, 4);
-	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
 	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, postPong);
 
 	const params = backend.buffers[0].lastWrite;
