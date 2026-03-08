@@ -14,6 +14,7 @@ import {
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
@@ -22,6 +23,7 @@ import { Texture } from "../src/core/Texture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../src/meshes/MeshInstance.ts";
+import { ShadowMap } from "../src/utils/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
@@ -462,6 +464,27 @@ function testLightProbeDCAmbientFallbackWhenSHDisabled() {
 	assert.equal(withSH.ambientColor[2], 0);
 }
 
+function testWebGPUShadowBiasAvoidsSlopeOffset() {
+	const light = new DirectionalLight();
+	const shadowMap = new ShadowMap(1024, {
+		shadowBias: 0.008,
+		shadowSlopeBias: 0.03,
+		shadowTexelBias: 1,
+		shadowMaxBias: 0.05,
+	});
+	shadowMap.viewProjectionMatrix = Matrix4.identity();
+	const state = collectWebGPULighting(
+		[light],
+		true,
+		false,
+		true,
+		new Map([[light, shadowMap]])
+	);
+	const shadow = state.directionalShadows[0];
+	assert.ok(shadow.enabled);
+	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
+}
+
 async function testRenderResourcesUseCopyDstForUploads() {
 	const backend = new FakeBackend();
 	const renderer = {
@@ -754,6 +777,7 @@ async function run() {
 	await testParticleShaderDepthConsistency();
 	testEnvironmentCollection();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
+	testWebGPUShadowBiasAvoidsSlopeOffset();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
