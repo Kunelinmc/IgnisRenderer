@@ -52,6 +52,8 @@ export class SoftwareBackend implements IRenderBackend {
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
+	private _offscreenCanvas: OffscreenCanvas | null = null;
+	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this._ctx = canvas.getContext("2d");
@@ -90,10 +92,20 @@ export class SoftwareBackend implements IRenderBackend {
 		};
 	}
 
-	public resize(_width: number, _height: number): void {
+	public resize(width: number, height: number): void {
 		this._frameImageData = null;
 		this._framePixels = null;
 		this._framePixelsShared = false;
+
+		if (!this._offscreenCanvas) {
+			this._offscreenCanvas = new OffscreenCanvas(width, height);
+			this._offscreenCtx = this._offscreenCanvas.getContext(
+				"2d"
+			) as OffscreenCanvasRenderingContext2D | null;
+		} else {
+			this._offscreenCanvas.width = width;
+			this._offscreenCanvas.height = height;
+		}
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -194,7 +206,14 @@ export class SoftwareBackend implements IRenderBackend {
 		this._particleSimulator?.endFrame();
 
 		const imageData = this._getFrameImageData(this._renderer);
-		this._ctx.putImageData(imageData, 0, 0);
+		if (this._offscreenCtx && this._offscreenCanvas) {
+			this._offscreenCtx.putImageData(imageData, 0, 0);
+			const bitmap = this._offscreenCanvas.transferToImageBitmap();
+			this._ctx.drawImage(bitmap, 0, 0);
+			bitmap.close();
+		} else {
+			this._ctx.putImageData(imageData, 0, 0);
+		}
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {
