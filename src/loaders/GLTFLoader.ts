@@ -13,12 +13,13 @@ import {
 	SpotLight,
 	type SceneLight,
 } from "../lights";
-import {	
-	MeshAsset,
-	MeshInstance,
-} from "../meshes";
+import { MeshAsset, MeshInstance } from "../meshes";
 import { GeometryBuilder } from "../meshes/GeometryBuilder";
-import type { IPrimitive, IPrimitiveGeometry, MorphTargetGeometry } from "../core/types";
+import type {
+	IPrimitive,
+	IPrimitiveGeometry,
+	MorphTargetGeometry,
+} from "../core/types";
 import { IdGenerator } from "../utils/IdGenerator";
 import {
 	AnimationClip,
@@ -981,7 +982,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					: null,
 			normals:
 				targetDef.NORMAL !== undefined
-					? toFloat32Array(this.getAccessorData(json, buffers, targetDef.NORMAL))
+					? toFloat32Array(
+							this.getAccessorData(json, buffers, targetDef.NORMAL)
+						)
 					: null,
 			tangents:
 				targetDef.TANGENT !== undefined
@@ -1041,7 +1044,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			result.push(skeleton);
 		}
 
-		for (const [instance, skinIndex] of context.pendingSkinByInstance.entries()) {
+		for (const [
+			instance,
+			skinIndex,
+		] of context.pendingSkinByInstance.entries()) {
 			const skeleton = context.skeletonBySkinIndex.get(skinIndex);
 			if (!skeleton) continue;
 			instance.skeleton = skeleton;
@@ -1058,7 +1064,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		const animations = json.animations ?? [];
 		const clips: AnimationClip[] = [];
 
-		for (let animationIndex = 0; animationIndex < animations.length; animationIndex++) {
+		for (
+			let animationIndex = 0;
+			animationIndex < animations.length;
+			animationIndex++
+		) {
 			const animationDef = animations[animationIndex];
 			const tracks: KeyframeTrack[] = [];
 			let duration = 0;

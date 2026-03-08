@@ -1,11 +1,8 @@
-import type { FrameContext, FramePass } from "../../pipeline/types"
-import type {
-	IRenderBackend,
-	RendererBackendBridge,
-} from "../IRenderBackend"
+import type { FrameContext, FramePass } from "../../pipeline/types";
+import type { IRenderBackend, RendererBackendBridge } from "../IRenderBackend";
 
 const WEBGL_STUB_ERROR_MESSAGE =
-	"WebGLBackend is a stub and is not implemented yet"
+	"WebGLBackend is a stub and is not implemented yet";
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";

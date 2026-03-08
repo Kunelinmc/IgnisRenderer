@@ -25,9 +25,7 @@ export class MeshInstance extends Node {
 		this.skeleton = params.skeleton ?? null;
 		this.morphWeights =
 			params.morphWeights?.map((weights) => new Float32Array(weights)) ??
-			this.mesh.defaultMorphWeights.map(
-				(weights) => new Float32Array(weights)
-			);
+			this.mesh.defaultMorphWeights.map((weights) => new Float32Array(weights));
 	}
 
 	public getWorldBoundingSphere(out?: BoundingSphere): BoundingSphere {

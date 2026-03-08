@@ -257,7 +257,16 @@ export class Projector {
 	): PrimitiveFace[] {
 		const overrides = context.transient.get(
 			ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
-		) as Map<string, { positions?: Float32Array; normals?: Float32Array; tangents?: Float32Array }> | undefined;
+		) as
+			| Map<
+					string,
+					{
+						positions?: Float32Array;
+						normals?: Float32Array;
+						tangents?: Float32Array;
+					}
+			  >
+			| undefined;
 		const geometryOverride = overrides?.get(packet.primitive.id);
 		const triangleCount = (packet.geometry.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];
