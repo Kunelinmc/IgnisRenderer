@@ -2,7 +2,7 @@ import {
 	AmbientLight,
 	DirectionalLight,
 	GLTFLoader,
-	MeshAsset,
+	MeshFactory,
 	MeshInstance,
 	Node,
 	OrbitCamera,
@@ -46,7 +46,20 @@ async function init() {
 	scene.add(gltfRoot);
 	scaleLoadedMeshToTargetRadius(gltfRoot, scene, 120);
 
-	scene.add(createGroundPlane());
+	const groundMaterial = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		doubleSided: true,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+		reflectivity: 0.5,
+	});
+	const ground = MeshFactory.createPlane(
+		{ x: 0, y: 0, z: 0 },
+		400,
+		400,
+		groundMaterial
+	);
+	ground.name = "ground";
+	scene.add(ground);
 
 	scene.add(
 		new ParticleSystem({
@@ -119,39 +132,6 @@ async function init() {
 	window.addEventListener("resize", () => {
 		renderer.resizeCanvas();
 		renderer.requestRender();
-	});
-}
-
-function createGroundPlane(): MeshInstance {
-	const size = 400;
-	const half = size / 2;
-	const material = new PBRMaterial({
-		albedo: { r: 255, g: 255, b: 255 },
-		doubleSided: true,
-		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
-		reflectivity: 0.5,
-	});
-	const mesh = MeshAsset.fromFaces([
-		{
-			material,
-			vertices: [
-				{ x: -half, y: 0, z: -half, u: 0, v: 0, normal: { x: 0, y: 1, z: 0 } },
-				{ x: half, y: 0, z: -half, u: 1, v: 0, normal: { x: 0, y: 1, z: 0 } },
-				{ x: half, y: 0, z: half, u: 1, v: 1, normal: { x: 0, y: 1, z: 0 } },
-			],
-		},
-		{
-			material,
-			vertices: [
-				{ x: -half, y: 0, z: -half, u: 0, v: 0, normal: { x: 0, y: 1, z: 0 } },
-				{ x: half, y: 0, z: half, u: 1, v: 1, normal: { x: 0, y: 1, z: 0 } },
-				{ x: -half, y: 0, z: half, u: 0, v: 1, normal: { x: 0, y: 1, z: 0 } },
-			],
-		},
-	]);
-	return new MeshInstance({
-		mesh,
-		name: "ground",
 	});
 }
 

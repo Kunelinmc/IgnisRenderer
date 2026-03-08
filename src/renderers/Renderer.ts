@@ -154,11 +154,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public setScene(scene: Scene): void {
+		this._assertCameraInScene(scene, this.camera, "setScene");
 		this.scene = scene;
 		this.scene.invalidate();
 	}
 
 	public setCamera(camera: Camera): void {
+		this._assertCameraInScene(this.scene, camera, "setCamera");
 		this.camera = camera;
 		this.scene.invalidate();
 	}
@@ -193,11 +195,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		this._frameDirty = false;
 		this.scene.updateWorldMatrices();
-		if (!this.scene.contains(this.camera)) {
-			throw new Error(
-				"Renderer camera must remain in the scene graph during rendering"
-			);
-		}
+		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
 
 		if (this.features.enableSH) {
@@ -350,5 +348,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private _getSafeAspectRatio(width: number, height: number): number {
 		return Math.max(width, 1) / Math.max(height, 1);
+	}
+
+	private _assertCameraInScene(
+		scene: Scene,
+		camera: Camera,
+		caller: "setScene" | "setCamera" | "renderScene"
+	): void {
+		if (scene.contains(camera)) return;
+		throw new Error(
+			`Renderer.${caller} requires the active camera to belong to the active scene graph`
+		);
 	}
 }
