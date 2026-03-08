@@ -13,6 +13,7 @@ import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import { SkyboxRenderer } from "./software/SkyboxRenderer";
 import { isShadowCastingLight } from "../lights";
 import {
+	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
@@ -112,14 +113,14 @@ export class SoftwareBackend implements IRenderBackend {
 
 		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
 		syncShadowMapRegistry(context.shadowMaps, shadowLights);
+		const shadowCasterBounds = resolveShadowCasterBounds(
+			context.scene.shadowCasterPackets,
+			context.scene.sceneBounds
+		);
 		for (const shadowLight of shadowLights) {
 			const shadowMap = context.shadowMaps.get(shadowLight);
 			if (shadowMap) {
-				updateShadowMapMetadata(
-					shadowMap,
-					shadowLight,
-					context.scene.sceneBounds
-				);
+				updateShadowMapMetadata(shadowMap, shadowLight, shadowCasterBounds);
 			}
 		}
 

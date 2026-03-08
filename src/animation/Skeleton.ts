@@ -12,6 +12,8 @@ export class Skeleton {
 	public readonly joints: Node[];
 	public readonly inverseBindMatrices: Matrix4[];
 	public readonly jointMatrices: Matrix4[];
+	private readonly _meshWorldInverse: Matrix4;
+	private readonly _relativeJointMatrix: Matrix4;
 
 	constructor(options: SkeletonOptions) {
 		if (options.joints.length !== options.inverseBindMatrices.length) {
@@ -25,14 +27,34 @@ export class Skeleton {
 			matrix.clone()
 		);
 		this.jointMatrices = this.joints.map(() => Matrix4.identity());
+		this._meshWorldInverse = Matrix4.identity();
+		this._relativeJointMatrix = Matrix4.identity();
 	}
 
 	public get jointCount(): number {
 		return this.joints.length;
 	}
 
-	public updateJointMatrices(): void {
+	public updateJointMatrices(meshWorldMatrix?: Matrix4): void {
+		const useMeshRelative =
+			!!meshWorldMatrix &&
+			invertAffineMatrix(meshWorldMatrix, this._meshWorldInverse);
+
 		for (let i = 0; i < this.joints.length; i++) {
+			if (useMeshRelative) {
+				Matrix4.multiply(
+					this._meshWorldInverse,
+					this.joints[i].worldMatrix,
+					this._relativeJointMatrix
+				);
+				Matrix4.multiply(
+					this._relativeJointMatrix,
+					this.inverseBindMatrices[i],
+					this.jointMatrices[i]
+				);
+				continue;
+			}
+
 			Matrix4.multiply(
 				this.joints[i].worldMatrix,
 				this.inverseBindMatrices[i],
@@ -65,4 +87,50 @@ export class Skeleton {
 		}
 		return target;
 	}
+}
+
+function invertAffineMatrix(source: Matrix4, target: Matrix4): boolean {
+	const inverseRotationScale = Matrix4.inverse3x3(source);
+	if (!inverseRotationScale) {
+		return false;
+	}
+
+	const sourceElements = source.elements;
+	const targetElements = target.elements;
+
+	targetElements[0][0] = inverseRotationScale[0][0];
+	targetElements[0][1] = inverseRotationScale[0][1];
+	targetElements[0][2] = inverseRotationScale[0][2];
+	targetElements[1][0] = inverseRotationScale[1][0];
+	targetElements[1][1] = inverseRotationScale[1][1];
+	targetElements[1][2] = inverseRotationScale[1][2];
+	targetElements[2][0] = inverseRotationScale[2][0];
+	targetElements[2][1] = inverseRotationScale[2][1];
+	targetElements[2][2] = inverseRotationScale[2][2];
+
+	const tx = sourceElements[0][3];
+	const ty = sourceElements[1][3];
+	const tz = sourceElements[2][3];
+
+	targetElements[0][3] = -(
+		inverseRotationScale[0][0] * tx +
+		inverseRotationScale[0][1] * ty +
+		inverseRotationScale[0][2] * tz
+	);
+	targetElements[1][3] = -(
+		inverseRotationScale[1][0] * tx +
+		inverseRotationScale[1][1] * ty +
+		inverseRotationScale[1][2] * tz
+	);
+	targetElements[2][3] = -(
+		inverseRotationScale[2][0] * tx +
+		inverseRotationScale[2][1] * ty +
+		inverseRotationScale[2][2] * tz
+	);
+
+	targetElements[3][0] = 0;
+	targetElements[3][1] = 0;
+	targetElements[3][2] = 0;
+	targetElements[3][3] = 1;
+	return true;
 }

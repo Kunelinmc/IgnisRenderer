@@ -90,7 +90,7 @@ export class SoftwareShadowPass {
 
 				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
 
-				for (const face of Projector.getPacketFaces(packet)) {
+				for (const face of Projector.getPacketFacesWithContext(packet, context)) {
 					const dot = Vector3.dot(
 						face.normal ?? Vector3.calculateNormal(face.vertices),
 						this._lightDirModel
@@ -111,7 +111,7 @@ export class SoftwareShadowPass {
 			for (const packet of frame.shadowTransmitterPackets) {
 				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
 
-				for (const face of Projector.getPacketFaces(packet)) {
+				for (const face of Projector.getPacketFacesWithContext(packet, context)) {
 					const projected = this._projectFace(face.vertices, shadowMapSize);
 					if (!projected) continue;
 

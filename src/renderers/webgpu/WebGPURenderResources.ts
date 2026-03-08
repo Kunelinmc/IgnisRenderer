@@ -20,6 +20,12 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
+	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
+	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+	type JointMatrixMap,
+	type MorphWeightMap,
+} from "../../simulation/animation/types";
+import {
 	collectWebGPUEnvironment,
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
@@ -29,13 +35,20 @@ import {
 } from "./";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
-import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
-import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
+import {
+	WebGPUGeometryRegistry,
+	type WebGPUGeometryHandle,
+} from "./WebGPUGeometryRegistry";
+import {
+	WebGPUMaterialBindingCache,
+	type WebGPUModelAnimationBindingState,
+} from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
+	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
@@ -87,6 +100,8 @@ export class WebGPURenderResources {
 	private _lightingState: WebGPULightingState | null = null;
 	private _featureState: WebGPUFeatureState | null = null;
 	private _environmentState: WebGPUEnvironmentState | null = null;
+	private _jointMatrixMap: JointMatrixMap | null = null;
+	private _morphWeightMap: MorphWeightMap | null = null;
 	private _sceneTargetMode: WebGPUSceneTargetMode = "mrt";
 	private _particleShaderModule: IShaderModule | null = null;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
@@ -156,6 +171,20 @@ export class WebGPURenderResources {
 		contextOrScene: FrameContext | PreparedScene,
 		featuresArg?: ResolvedFeatureState
 	): void {
+		if (this._isFrameContext(contextOrScene)) {
+			this._jointMatrixMap =
+				(contextOrScene.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) as
+					| JointMatrixMap
+					| undefined) ?? null;
+			this._morphWeightMap =
+				(contextOrScene.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) as
+					| MorphWeightMap
+					| undefined) ?? null;
+		} else {
+			this._jointMatrixMap = null;
+			this._morphWeightMap = null;
+		}
+
 		const { scene, features, shAmbientCoeffs, renderWidth, renderHeight } =
 			this._resolveFrameInputs(contextOrScene, featuresArg);
 		const featureState: WebGPUFeatureState = {
@@ -176,11 +205,15 @@ export class WebGPURenderResources {
 
 		const shadowLights = scene.lights.filter(isShadowCastingLight);
 		syncShadowMapRegistry(scene.shadowMaps, shadowLights);
+		const shadowCasterBounds = resolveShadowCasterBounds(
+			scene.shadowCasterPackets,
+			scene.sceneBounds
+		);
 		if (features.enableShadows) {
 			for (const light of shadowLights) {
 				const shadowMap = scene.shadowMaps.get(light);
 				if (shadowMap) {
-					updateShadowMapMetadata(shadowMap, light, scene.sceneBounds);
+					updateShadowMapMetadata(shadowMap, light, shadowCasterBounds);
 				}
 			}
 		}
@@ -285,6 +318,7 @@ export class WebGPURenderResources {
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const frameBinding = this._frameBindings.getSceneBinding();
+		const animationState = this._resolveAnimationState(packet, geometry);
 
 		// ----- SOLID OBJECT -----
 		const solidMaterialData = createWebGPUMaterialUniformData(
@@ -311,7 +345,8 @@ export class WebGPURenderResources {
 			solidPipeline,
 			solidMaterialData,
 			solidTextures,
-			solidSamplers
+			solidSamplers,
+			animationState
 		);
 
 		results.push({
@@ -345,7 +380,8 @@ export class WebGPURenderResources {
 				wirePipeline,
 				wireMaterialData,
 				wireTextures,
-				wireSamplers
+				wireSamplers,
+				animationState
 			);
 
 			results.push({
@@ -677,5 +713,53 @@ export class WebGPURenderResources {
 			0,
 			0,
 		]);
+	}
+
+	private _resolveAnimationState(
+		packet: DrawPacket,
+		geometry: WebGPUGeometryHandle
+	): WebGPUModelAnimationBindingState {
+		const runtimeJoint = this._jointMatrixMap?.get(packet.meshInstance.id) ?? null;
+		let jointMatrices: Float32Array | null = null;
+		if (runtimeJoint?.skeleton) {
+			runtimeJoint.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
+			jointMatrices = runtimeJoint.skeleton.toFloat32Array(runtimeJoint.matrices);
+		} else if (packet.meshInstance.skeleton) {
+			packet.meshInstance.skeleton.updateJointMatrices(
+				packet.meshInstance.worldMatrix
+			);
+			jointMatrices = packet.meshInstance.skeleton.toFloat32Array();
+		}
+
+		const runtimeMorph = this._morphWeightMap?.get(packet.primitive.id) ?? null;
+		let morphTargetCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
+		let sourceMorphWeights: Float32Array | null = runtimeMorph?.weights ?? null;
+		if (!sourceMorphWeights || morphTargetCount <= 0) {
+			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
+			const instanceWeights =
+				primitiveIndex >= 0
+					? packet.meshInstance.morphWeights[primitiveIndex]
+					: null;
+			sourceMorphWeights = instanceWeights ?? null;
+			morphTargetCount = sourceMorphWeights?.length ?? 0;
+		}
+
+		morphTargetCount = Math.min(
+			Math.max(0, morphTargetCount),
+			geometry.morphTargetCount
+		);
+		let morphWeights: Float32Array | null = null;
+		if (sourceMorphWeights && morphTargetCount > 0) {
+			morphWeights = new Float32Array(morphTargetCount);
+			morphWeights.set(sourceMorphWeights.subarray(0, morphTargetCount));
+		}
+
+		return {
+			jointMatrices,
+			morphWeights,
+			morphTargetCount,
+			morphPositionBuffer: geometry.morphPositionBuffer,
+			morphNormalBuffer: geometry.morphNormalBuffer,
+		};
 	}
 }

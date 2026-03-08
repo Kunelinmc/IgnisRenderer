@@ -363,6 +363,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(1) @binding(30)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("prevViewProjection"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("taaJitterCurrentPrev"));
@@ -501,12 +505,24 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
 	assert.equal(firstDraw.frameBinding.desc.entries.length, 4);
-	assert.equal(firstDraw.modelBinding.desc.entries.length, 29);
+	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
 	assert.equal(firstDraw.pipeline.desc.layout, backend.device.pipelineLayouts[0]);
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
 		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
 		["rgba16float", "rgba8unorm", "rgba16float", "rgba16float", "rgba16float"]
+	);
+	const modelBindingIndices = firstDraw.modelBinding.desc.entries.map(
+		(entry) => entry.binding
+	);
+	assert.ok(modelBindingIndices.includes(29));
+	assert.ok(modelBindingIndices.includes(30));
+	assert.ok(modelBindingIndices.includes(31));
+	assert.ok(modelBindingIndices.includes(32));
+	assert.ok(modelBindingIndices.includes(33));
+	const sceneVertexAttributes = firstDraw.pipeline.desc.vertex.buffers[0].attributes;
+	assert.ok(
+		sceneVertexAttributes.some((attribute) => attribute.shaderLocation === 8)
 	);
 	assert.ok(
 		backend.bufferDescs.some(

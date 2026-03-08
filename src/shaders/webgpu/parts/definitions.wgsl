@@ -61,12 +61,23 @@ struct ModelUniforms {
 	textureTransformB: array<vec4<f32>, 14>,
 }
 
+struct AnimationParams {
+	jointCount: f32,
+	morphTargetCount: f32,
+	prevJointOffset: f32,
+	prevMorphOffset: f32,
+}
+
 struct VertexInput {
 	@location(0) position: vec3<f32>,
 	@location(1) uv: vec2<f32>,
 	@location(2) normal: vec3<f32>,
 	@location(3) tangent: vec4<f32>,
 	@location(4) uv2: vec2<f32>,
+	@location(5) joints0: vec4<f32>,
+	@location(6) weights0: vec4<f32>,
+	@location(7) joints1: vec4<f32>,
+	@location(8) weights1: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -127,3 +138,8 @@ struct RefractionResult {
 @group(1) @binding(26) var transmissionSampler: sampler;
 @group(1) @binding(27) var thicknessTexture: texture_2d<f32>;
 @group(1) @binding(28) var thicknessSampler: sampler;
+@group(1) @binding(29) var<uniform> animationParams: AnimationParams;
+@group(1) @binding(30) var<storage, read> jointMatrices: array<mat4x4<f32>>;
+@group(1) @binding(31) var<storage, read> morphWeights: array<f32>;
+@group(1) @binding(32) var<storage, read> morphPositionDeltas: array<vec4<f32>>;
+@group(1) @binding(33) var<storage, read> morphNormalDeltas: array<vec4<f32>>;

@@ -207,8 +207,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			clips,
 			skeletons,
 			morphBindings: Array.from(context.pathToMeshInstance.entries())
-				.filter(([, instance]) =>
-					instance.morphWeights.some((weights) => weights.length > 0)
+				.filter(
+					([, instance]) =>
+						instance.skeleton !== undefined ||
+						instance.morphWeights.some((weights) => weights.length > 0)
 				)
 				.map(([path, instance]) => ({
 					path,

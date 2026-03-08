@@ -219,12 +219,13 @@ export class AnimationRuntime {
 					geometry: primitive.geometry,
 					morphWeights: weights,
 					skeleton: instance.skeleton,
+					meshWorldMatrix: instance.worldMatrix,
 				});
 				deformedGeometry.set(primitive.id, override);
 			}
 
 			if (instance.skeleton) {
-				instance.skeleton.updateJointMatrices();
+				instance.skeleton.updateJointMatrices(instance.worldMatrix);
 				jointMatrices.set(instance.id, {
 					skeleton: instance.skeleton,
 					matrices: instance.skeleton.toFloat32Array(),

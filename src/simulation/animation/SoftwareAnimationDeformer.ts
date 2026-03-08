@@ -1,11 +1,13 @@
 import type { IPrimitiveGeometry } from "../../core/types";
 import type { Skeleton } from "../../animation/Skeleton";
+import type { Matrix4 } from "../../maths/Matrix4";
 import type { DeformedGeometryOverride } from "./types";
 
 export interface PrimitiveDeformOptions {
 	geometry: IPrimitiveGeometry;
 	morphWeights?: ArrayLike<number> | null;
 	skeleton?: Skeleton | null;
+	meshWorldMatrix?: Matrix4;
 }
 
 export function deformPrimitiveGeometry(
@@ -36,6 +38,7 @@ export function deformPrimitiveGeometry(
 			tangents,
 			geometry,
 			options.skeleton,
+			options.meshWorldMatrix,
 			vertexCount
 		);
 	}
@@ -86,6 +89,7 @@ function applySkinning(
 	tangents: Float32Array | undefined,
 	geometry: IPrimitiveGeometry,
 	skeleton: Skeleton,
+	meshWorldMatrix: Matrix4 | undefined,
 	vertexCount: number
 ): void {
 	const joints0 = geometry.joints0!;
@@ -93,7 +97,7 @@ function applySkinning(
 	const joints1 = geometry.joints1;
 	const weights1 = geometry.weights1;
 
-	skeleton.updateJointMatrices();
+	skeleton.updateJointMatrices(meshWorldMatrix);
 	const jointMatrices = skeleton.jointMatrices;
 
 	for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {

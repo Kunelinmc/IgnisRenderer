@@ -94,6 +94,34 @@ export function createWebGPUPipelineLayouts(
 		});
 	}
 
+	modelEntries.push(
+		{
+			binding: WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "uniform" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_JOINT_MATRICES,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "read-only-storage" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "read-only-storage" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_MORPH_POSITION,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "read-only-storage" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_MORPH_NORMAL,
+			visibility: GPUShaderStage.VERTEX,
+			buffer: { type: "read-only-storage" },
+		}
+	);
+
 	const modelBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUModelBindGroupLayout",
 		entries: modelEntries,
