@@ -16,7 +16,7 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
-import { DefaultParticleSimulator } from "./particles/DefaultParticleSimulator";
+import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";

@@ -1,5 +1,5 @@
 import type { FrameContext } from "./types";
-import { DefaultParticleSimulator } from "../renderers/particles/DefaultParticleSimulator";
+import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 
 export class ParticleSimulationStage {
 	private _simulator = new DefaultParticleSimulator({

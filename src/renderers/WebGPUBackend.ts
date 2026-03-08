@@ -15,7 +15,7 @@ import { PARTICLE_SIM_DELTA_TIME_MS_KEY } from "../pipeline/types";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import type { WebGPUPostProcessPassPlugin } from "./webgpu/WebGPUPostProcessGraph";
-import { DefaultParticleSimulator } from "./particles/DefaultParticleSimulator";
+import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,

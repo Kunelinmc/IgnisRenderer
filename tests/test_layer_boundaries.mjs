@@ -75,7 +75,9 @@ function run() {
 				relPath.startsWith("src/materials/") ||
 				relPath.startsWith("src/particles/");
 			if (inDefinitionLayer) {
-				const touchesPipelineImpl = specifier.includes("renderers/");
+				const touchesPipelineImpl =
+					specifier.includes("renderers/") ||
+					specifier.includes("simulation/");
 				if (touchesPipelineImpl) {
 					violations.push(
 						`${relPath} imports runtime pipeline logic "${specifier}"`
