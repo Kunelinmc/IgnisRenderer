@@ -127,8 +127,14 @@ export class SoftwareParticlePass {
 					texA = sampled.a;
 				}
 
-				const alpha = baseAlpha * (texA / 255);
-				if (alpha <= 0) continue;
+				// Procedural soft radial falloff (circle mask)
+				const dist = Math.sqrt((u - 0.5) ** 2 + (v - 0.5) ** 2);
+				const radialMask = Math.max(
+					0,
+					1 - Math.min(1, (dist - 0.4) / (0.5 - 0.4))
+				);
+				const alpha = baseAlpha * (texA / 255) * radialMask;
+				if (alpha <= 0.001) continue;
 
 				const srcR = particle.color.r * (texR / 255) * shadowVisibility;
 				const srcG = particle.color.g * (texG / 255) * shadowVisibility;

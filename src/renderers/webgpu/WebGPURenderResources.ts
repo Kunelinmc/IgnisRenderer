@@ -666,7 +666,9 @@ export class WebGPURenderResources {
 		cache.set(mode, pipeline);
 	}
 
-	private _createParticleUVTransformData(texture: ParticleRenderBatch["texture"]) {
+	private _createParticleUVTransformData(
+		texture: ParticleRenderBatch["texture"]
+	) {
 		const repeatX = texture?.repeat.x ?? 1;
 		const repeatY = texture?.repeat.y ?? 1;
 		const offsetX = texture?.offset.x ?? 0;

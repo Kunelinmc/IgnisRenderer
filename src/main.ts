@@ -74,6 +74,8 @@ async function init() {
 				speedRange: [60, 100],
 				sizeRange: [5, 12],
 				startColor: { r: 100, g: 200, b: 255, a: 0.8 },
+				rotationRange: [0, Math.PI * 2],
+				angularVelocityRange: [-2, 2],
 			},
 			gravity: { x: 0, y: -120, z: 0 },
 			sizeOverLifetime: [
@@ -102,6 +104,8 @@ async function init() {
 				speedRange: [20, 40],
 				sizeRange: [5, 12],
 				startColor: { r: 255, g: 200, b: 50, a: 1 },
+				rotationRange: [0, Math.PI * 2],
+				angularVelocityRange: [-3, 3],
 			},
 			gravity: { x: 0, y: 10, z: 0 }, // Upward buoyancy
 			sizeOverLifetime: [

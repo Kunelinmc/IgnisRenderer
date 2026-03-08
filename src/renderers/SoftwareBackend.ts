@@ -17,6 +17,7 @@ import {
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
 import { DefaultParticleSimulator } from "./particles/DefaultParticleSimulator";
+
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "always";

@@ -74,13 +74,13 @@ const DEFAULT_LOD_LEVELS: ParticleLODLevel[] = [
 		maxParticlesScale: 0.35,
 		renderSortRatio: 0.5,
 	},
-]
+];
 
 const DEFAULT_LOD: ParticleLODSettings = {
 	enabled: false,
 	hysteresisFrames: 6,
 	levels: DEFAULT_LOD_LEVELS,
-}
+};
 
 export class ParticleSystem {
 	public readonly id: string;
@@ -206,5 +206,5 @@ function cloneLOD(source: ParticleLODSettings): ParticleLODSettings {
 		enabled: source.enabled ?? false,
 		hysteresisFrames: source.hysteresisFrames ?? 6,
 		levels: (source.levels ?? []).map((level) => ({ ...level })),
-	}
+	};
 }

@@ -39,6 +39,7 @@ struct ParticleVertexOutput {
 	@location(1) color: vec4<f32>,
 	@location(2) worldPosition: vec3<f32>,
 	@location(3) receiveShadow: f32,
+	@location(4) localUV: vec2<f32>,
 }
 
 struct ParticleUVTransform {
@@ -87,6 +88,7 @@ fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
 	output.color = input.instanceColor;
 	output.worldPosition = worldPosition;
 	output.receiveShadow = input.instanceReceiveShadow;
+	output.localUV = input.quadUV;
 	return output;
 }
 
@@ -129,6 +131,10 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 
 @fragment
 fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
+	// Procedural soft radial falloff (circle mask)
+	let dist = distance(input.localUV, vec2<f32>(0.5, 0.5));
+	let radialMask = 1.0 - smoothstep(0.4, 0.5, dist);
+	
 	let scaledUV = vec2<f32>(
 		input.uv.x * particleUVTransform.transformA.x,
 		input.uv.y * particleUVTransform.transformA.y
@@ -144,7 +150,10 @@ fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
 		particleSampler,
 		rotatedUV + particleUVTransform.transformA.zw
 	);
+	
 	var color = sampled * input.color;
+	color.a = color.a * radialMask;
+	
 	if (color.a <= 0.001) {
 		discard;
 	}

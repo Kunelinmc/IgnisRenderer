@@ -188,7 +188,7 @@ export const DEFAULT_SSAO_OPTIONS: Required<
 	downsample: 2,
 	blurRadius: 2,
 	blurSharpness: 8,
-}
+};
 
 export const DEFAULT_TAA_OPTIONS: Required<
 	Pick<
@@ -207,7 +207,7 @@ export const DEFAULT_TAA_OPTIONS: Required<
 	motionFactor: 80,
 	varianceClampGamma: 1,
 	sharpen: 0.1,
-}
+};
 
 export const DEFAULT_SSR_OPTIONS: Required<
 	Pick<
@@ -234,7 +234,7 @@ export const DEFAULT_SSR_OPTIONS: Required<
 	historyWeight: 0.85,
 	edgeFade: 0.12,
 	maxRoughness: 0.85,
-}
+};
 
 export interface FeatureWarning {
 	key: string;
