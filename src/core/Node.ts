@@ -3,6 +3,7 @@ import { Quaternion } from "../maths/Quaternion";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { IdGenerator } from "../utils/IdGenerator";
+import type { BoundingBox } from "./types";
 
 interface QuaternionLike {
 	x: number;
@@ -151,6 +152,40 @@ export class Node {
 		return target;
 	}
 
+	public getWorldBoundingBox(): BoundingBox {
+		let minX = Infinity;
+		let minY = Infinity;
+		let minZ = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		let maxZ = -Infinity;
+
+		this.traverse((node) => {
+			const box = node.getOwnWorldBoundingBox();
+			if (box) {
+				if (box.min.x < minX) minX = box.min.x;
+				if (box.min.y < minY) minY = box.min.y;
+				if (box.min.z < minZ) minZ = box.min.z;
+				if (box.max.x > maxX) maxX = box.max.x;
+				if (box.max.y > maxY) maxY = box.max.y;
+				if (box.max.z > maxZ) maxZ = box.max.z;
+			}
+		});
+
+		if (minX === Infinity) {
+			const pos = this.getWorldPosition();
+			return {
+				min: { x: pos.x, y: pos.y, z: pos.z },
+				max: { x: pos.x, y: pos.y, z: pos.z },
+			};
+		}
+
+		return {
+			min: { x: minX, y: minY, z: minZ },
+			max: { x: maxX, y: maxY, z: maxZ },
+		};
+	}
+
 	public getWorldDirection(localDirection: IVector3, out?: IVector3): IVector3 {
 		const transformed = Matrix4.transformDirection(
 			this.worldMatrix,
@@ -162,6 +197,10 @@ export class Node {
 		target.y = transformed.y / length;
 		target.z = transformed.z / length;
 		return target;
+	}
+
+	protected getOwnWorldBoundingBox(): BoundingBox | null {
+		return null;
 	}
 
 	private _isAncestorOf(candidate: Node): boolean {

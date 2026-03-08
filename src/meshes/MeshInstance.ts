@@ -36,7 +36,7 @@ export class MeshInstance extends Node {
 		return target;
 	}
 
-	public getWorldBoundingBox(): BoundingBox {
+	protected override getOwnWorldBoundingBox(): BoundingBox {
 		const box = this.mesh.boundingBox;
 		const corners: IVector3[] = [
 			{ x: box.min.x, y: box.min.y, z: box.min.z },

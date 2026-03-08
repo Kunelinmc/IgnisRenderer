@@ -140,37 +140,16 @@ function scaleLoadedMeshToTargetRadius(
 	scene: Scene,
 	targetRadius: number
 ): void {
-	const meshes: MeshInstance[] = [];
-	root.traverse((node) => {
-		if (node instanceof MeshInstance) {
-			meshes.push(node);
-		}
-	});
-	if (meshes.length === 0) return;
-
 	// Update matrices to get correct world bounds
 	scene.updateWorldMatrices();
 
-	let minX = Infinity;
-	let minY = Infinity;
-	let minZ = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	let maxZ = -Infinity;
+	const box = root.getWorldBoundingBox();
+	const sizeX = box.max.x - box.min.x;
+	const sizeY = box.max.y - box.min.y;
+	const sizeZ = box.max.z - box.min.z;
 
-	for (const mesh of meshes) {
-		const box = mesh.getWorldBoundingBox();
-		minX = Math.min(minX, box.min.x);
-		minY = Math.min(minY, box.min.y);
-		minZ = Math.min(minZ, box.min.z);
-		maxX = Math.max(maxX, box.max.x);
-		maxY = Math.max(maxY, box.max.y);
-		maxZ = Math.max(maxZ, box.max.z);
-	}
+	if (sizeX === 0 && sizeY === 0 && sizeZ === 0) return;
 
-	const sizeX = maxX - minX;
-	const sizeY = maxY - minY;
-	const sizeZ = maxZ - minZ;
 	const currentRadius =
 		Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) / 2;
 
@@ -180,12 +159,8 @@ function scaleLoadedMeshToTargetRadius(
 	scene.updateWorldMatrices();
 
 	// Reposition root so the bottom of its collective bounding box is at y = 0
-	let finalMinY = Infinity;
-	for (const mesh of meshes) {
-		finalMinY = Math.min(finalMinY, mesh.getWorldBoundingBox().min.y);
-	}
-
-	root.position.y -= finalMinY;
+	const finalBox = root.getWorldBoundingBox();
+	root.position.y -= finalBox.min.y;
 	root.updateLocalMatrix();
 	scene.updateWorldMatrices();
 }
