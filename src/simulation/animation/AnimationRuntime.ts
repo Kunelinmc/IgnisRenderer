@@ -35,7 +35,7 @@ export class AnimationRuntime {
 	>();
 	private _transitionStateByMachine = new WeakMap<
 		AnimationStateMachine,
-		string | null
+		number | null
 	>();
 
 	public update(
@@ -248,9 +248,7 @@ export class AnimationRuntime {
 			stateMachine.update(normalized, deltaSeconds);
 
 			const transition = stateMachine.transitionState;
-			const transitionKey = transition
-				? `${transition.from}->${transition.to}`
-				: null;
+			const transitionKey = transition ? transition.id : null;
 			const previousTransitionKey =
 				this._transitionStateByMachine.get(stateMachine);
 			if (transitionKey && transitionKey !== previousTransitionKey) {

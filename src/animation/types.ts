@@ -39,13 +39,37 @@ export interface AnimationTransitionCondition {
 	value?: number | boolean;
 }
 
-export interface AnimationTransition {
-	from: string;
-	to: string;
+export interface AnimationTransitionCommon {
 	duration: number;
 	hasExitTime?: boolean;
 	exitTime?: number;
 	conditions?: AnimationTransitionCondition[];
+	priority?: number;
+	canInterrupt?: boolean;
+	interruptible?: boolean;
+}
+
+export interface AnimationTransition {
+	from: string;
+	to: string;
+	duration: AnimationTransitionCommon["duration"];
+	hasExitTime?: AnimationTransitionCommon["hasExitTime"];
+	exitTime?: AnimationTransitionCommon["exitTime"];
+	conditions?: AnimationTransitionCommon["conditions"];
+	priority?: AnimationTransitionCommon["priority"];
+	canInterrupt?: AnimationTransitionCommon["canInterrupt"];
+	interruptible?: AnimationTransitionCommon["interruptible"];
+}
+
+export interface AnimationAnyStateTransition {
+	to: string;
+	duration: AnimationTransitionCommon["duration"];
+	hasExitTime?: AnimationTransitionCommon["hasExitTime"];
+	exitTime?: AnimationTransitionCommon["exitTime"];
+	conditions?: AnimationTransitionCommon["conditions"];
+	priority?: AnimationTransitionCommon["priority"];
+	canInterrupt?: AnimationTransitionCommon["canInterrupt"];
+	interruptible?: AnimationTransitionCommon["interruptible"];
 }
 
 export interface BlendTreeChildWeight {
@@ -71,4 +95,13 @@ export interface AnimationStateDefinition {
 	motion: AnimationMotionDefinition;
 	speed?: number;
 	loop?: boolean;
+}
+
+export interface AnimationSubStateMachineDefinition {
+	name: string;
+	states: AnimationStateDefinition[];
+	transitions?: AnimationTransition[];
+	anyStateTransitions?: AnimationAnyStateTransition[];
+	initialState?: string;
+	subStateMachines?: AnimationSubStateMachineDefinition[];
 }

@@ -437,14 +437,16 @@ export class WebGPUShadowPass {
 			this._backend.queue.writeBuffer(
 				entry.jointBuffer,
 				0,
-				state.jointMatrices.subarray(0, jointCount * 16)
+				state.jointMatrices.subarray(0, jointCount * 16) as Float32Array<
+					ArrayBuffer
+				>
 			)
 		}
 		if (morphCount > 0 && state.morphWeights) {
 			this._backend.queue.writeBuffer(
 				entry.morphWeightBuffer,
 				0,
-				state.morphWeights.subarray(0, morphCount)
+				state.morphWeights.subarray(0, morphCount) as Float32Array<ArrayBuffer>
 			)
 		}
 
