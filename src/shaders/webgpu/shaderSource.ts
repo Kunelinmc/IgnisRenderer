@@ -64,81 +64,25 @@ async function loadShader(
 	return cached;
 }
 
+const sceneShaderFiles: Record<SceneShaderPart, string> = {
+	constants: "./parts/constants.wgsl",
+	definitions: "./parts/definitions.wgsl",
+	utils: "./parts/utils.wgsl",
+	vertexStage: "./parts/vertexStage.wgsl",
+	fragmentPrelude: "./parts/fragmentPrelude.wgsl",
+	fragmentPhong: "./parts/fragmentPhong.wgsl",
+	fragmentPbrSetup: "./parts/fragmentPbrSetup.wgsl",
+	fragmentPbrDirectional: "./parts/fragmentPbrDirectional.wgsl",
+	fragmentPbrPoint: "./parts/fragmentPbrPoint.wgsl",
+	fragmentPbrSpot: "./parts/fragmentPbrSpot.wgsl",
+	fragmentPbrAmbient: "./parts/fragmentPbrAmbient.wgsl",
+	fragmentSingleTarget: "./parts/fragmentSingleTarget.wgsl",
+};
+
 export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
-	switch (part) {
-		case "constants":
-			return loadShader(
-				"scene:constants",
-				"./parts/constants.wgsl",
-				() => import("./parts/constants.wgsl?raw")
-			);
-		case "definitions":
-			return loadShader(
-				"scene:definitions",
-				"./parts/definitions.wgsl",
-				() => import("./parts/definitions.wgsl?raw")
-			);
-		case "utils":
-			return loadShader(
-				"scene:utils",
-				"./parts/utils.wgsl",
-				() => import("./parts/utils.wgsl?raw")
-			);
-		case "vertexStage":
-			return loadShader(
-				"scene:vertexStage",
-				"./parts/vertexStage.wgsl",
-				() => import("./parts/vertexStage.wgsl?raw")
-			);
-		case "fragmentPrelude":
-			return loadShader(
-				"scene:fragmentPrelude",
-				"./parts/fragmentPrelude.wgsl",
-				() => import("./parts/fragmentPrelude.wgsl?raw")
-			);
-		case "fragmentPhong":
-			return loadShader(
-				"scene:fragmentPhong",
-				"./parts/fragmentPhong.wgsl",
-				() => import("./parts/fragmentPhong.wgsl?raw")
-			);
-		case "fragmentPbrSetup":
-			return loadShader(
-				"scene:fragmentPbrSetup",
-				"./parts/fragmentPbrSetup.wgsl",
-				() => import("./parts/fragmentPbrSetup.wgsl?raw")
-			);
-		case "fragmentPbrDirectional":
-			return loadShader(
-				"scene:fragmentPbrDirectional",
-				"./parts/fragmentPbrDirectional.wgsl",
-				() => import("./parts/fragmentPbrDirectional.wgsl?raw")
-			);
-		case "fragmentPbrPoint":
-			return loadShader(
-				"scene:fragmentPbrPoint",
-				"./parts/fragmentPbrPoint.wgsl",
-				() => import("./parts/fragmentPbrPoint.wgsl?raw")
-			);
-		case "fragmentPbrSpot":
-			return loadShader(
-				"scene:fragmentPbrSpot",
-				"./parts/fragmentPbrSpot.wgsl",
-				() => import("./parts/fragmentPbrSpot.wgsl?raw")
-			);
-		case "fragmentPbrAmbient":
-			return loadShader(
-				"scene:fragmentPbrAmbient",
-				"./parts/fragmentPbrAmbient.wgsl",
-				() => import("./parts/fragmentPbrAmbient.wgsl?raw")
-			);
-		case "fragmentSingleTarget":
-			return loadShader(
-				"scene:fragmentSingleTarget",
-				"./parts/fragmentSingleTarget.wgsl",
-				() => import("./parts/fragmentSingleTarget.wgsl?raw")
-			);
-	}
+	const path = sceneShaderFiles[part];
+
+	return loadShader(`scene:${part}`, path, () => import(`${path}?raw`));
 }
 
 export function loadSkyboxShaderSource(): Promise<string> {
@@ -157,45 +101,19 @@ export function loadParticleShaderSource(): Promise<string> {
 	);
 }
 
+const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
+	ssao: "./postprocess/ssao.wgsl",
+	taa: "./postprocess/taa.wgsl",
+	hiz: "./postprocess/hiz.wgsl",
+	ssr: "./postprocess/ssr.wgsl",
+	fxaa: "./postprocess/fxaa.wgsl",
+	copy: "./postprocess/copy.wgsl",
+};
+
 export function loadPostProcessShaderPart(
 	part: PostProcessShaderPart
 ): Promise<string> {
-	switch (part) {
-		case "ssao":
-			return loadShader(
-				"post:ssao",
-				"./postprocess/ssao.wgsl",
-				() => import("./postprocess/ssao.wgsl?raw")
-			);
-		case "taa":
-			return loadShader(
-				"post:taa",
-				"./postprocess/taa.wgsl",
-				() => import("./postprocess/taa.wgsl?raw")
-			);
-		case "hiz":
-			return loadShader(
-				"post:hiz",
-				"./postprocess/hiz.wgsl",
-				() => import("./postprocess/hiz.wgsl?raw")
-			);
-		case "ssr":
-			return loadShader(
-				"post:ssr",
-				"./postprocess/ssr.wgsl",
-				() => import("./postprocess/ssr.wgsl?raw")
-			);
-		case "fxaa":
-			return loadShader(
-				"post:fxaa",
-				"./postprocess/fxaa.wgsl",
-				() => import("./postprocess/fxaa.wgsl?raw")
-			);
-		case "copy":
-			return loadShader(
-				"post:copy",
-				"./postprocess/copy.wgsl",
-				() => import("./postprocess/copy.wgsl?raw")
-			);
-	}
+	const path = postProcessShaderFiles[part];
+
+	return loadShader(`post:${part}`, path, () => import(`${path}?raw`));
 }
