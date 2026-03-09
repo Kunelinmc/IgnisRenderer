@@ -82,7 +82,11 @@ const sceneShaderFiles: Record<SceneShaderPart, string> = {
 export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
 	const path = sceneShaderFiles[part];
 
-	return loadShader(`scene:${part}`, path, () => import(`${path}?raw`));
+	return loadShader(
+		`scene:${part}`,
+		path,
+		() => import(`./parts/${part}.wgsl?raw`)
+	);
 }
 
 export function loadSkyboxShaderSource(): Promise<string> {
@@ -115,5 +119,9 @@ export function loadPostProcessShaderPart(
 ): Promise<string> {
 	const path = postProcessShaderFiles[part];
 
-	return loadShader(`post:${part}`, path, () => import(`${path}?raw`));
+	return loadShader(
+		`post:${part}`,
+		path,
+		() => import(`./postprocess/${part}.wgsl?raw`)
+	);
 }
