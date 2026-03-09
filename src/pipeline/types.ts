@@ -241,6 +241,39 @@ export const DEFAULT_SSR_OPTIONS: Required<
 	maxRoughness: 0.85,
 };
 
+export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
+	Pick<
+		VolumetricOptions,
+		| "samples"
+		| "downsample"
+		| "weight"
+		| "exposure"
+		| "airDensity"
+		| "anisotropy"
+		| "maxRayDistance"
+		| "scatteringAlbedo"
+		| "shadowSampleInterval"
+		| "isLinearDepth"
+		| "adaptiveSteps"
+		| "useBilateralUpscale"
+		| "bilateralDepthSigma"
+	>
+> = {
+	samples: 32,
+	downsample: 1,
+	weight: 4,
+	exposure: 1,
+	airDensity: 1,
+	anisotropy: 0.2,
+	maxRayDistance: 300,
+	scatteringAlbedo: 0.9,
+	shadowSampleInterval: 2,
+	isLinearDepth: true,
+	adaptiveSteps: true,
+	useBilateralUpscale: true,
+	bilateralDepthSigma: 0.05,
+};
+
 export interface FeatureWarning {
 	key: string;
 	message: string;

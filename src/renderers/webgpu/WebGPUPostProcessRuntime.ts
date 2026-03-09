@@ -4,6 +4,7 @@ import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
+	DEFAULT_VOLUMETRIC_OPTIONS,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -59,6 +60,9 @@ export class WebGPUPostProcessRuntime {
 	private _ssrComposePipeline: IComputePipeline | null = null;
 	private _ssrTraceParams: IRenderBuffer | null = null;
 	private _ssrComposeParams: IRenderBuffer | null = null;
+	private _volumetricModule: IShaderModule | null = null;
+	private _volumetricPipeline: IComputePipeline | null = null;
+	private _volumetricParams: IRenderBuffer | null = null;
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
@@ -68,6 +72,8 @@ export class WebGPUPostProcessRuntime {
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _ssrTraceGroupLayout0: GPUBindGroupLayout | null = null;
 	private _ssrTracePipelineLayout: GPUPipelineLayout | null = null;
+	private _volumetricGroupLayout0: GPUBindGroupLayout | null = null;
+	private _volumetricPipelineLayout: GPUPipelineLayout | null = null;
 	private _frameBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _ssrFrameIndex: number = 0;
 
@@ -330,51 +336,7 @@ export class WebGPUPostProcessRuntime {
 			return false;
 		const options = frameContext.features.ssrOptions ?? {};
 		const hiZMips = this._getHiZMipViews(targets.hiZ);
-		if (hiZMips.length === 0) return false;
-		let binding = this._getCachedBindGroup(
-			"hiz-init",
-			this._hizInitPipeline,
-			[
-				{ binding: 0, resource: targets.gMotionDepth },
-				{ binding: 1, resource: hiZMips[0] },
-			],
-			"WebGPUSSR_HiZInitBinding"
-		);
-		encoder.beginComputePass({ label: "WebGPUSSR_HiZInit" });
-		encoder.setComputePipeline(this._hizInitPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(targets.hiZ.width, WORKGROUP_SIZE),
-			ceilDiv(targets.hiZ.height, WORKGROUP_SIZE),
-			1
-		);
-		encoder.endComputePass();
-		let srcW = targets.hiZ.width;
-		let srcH = targets.hiZ.height;
-		for (let mip = 1; mip < hiZMips.length; mip++) {
-			const dstW = Math.max(1, srcW >> 1);
-			const dstH = Math.max(1, srcH >> 1);
-			binding = this._getCachedBindGroup(
-				`hiz-reduce-${mip}`,
-				this._hizReducePipeline,
-				[
-					{ binding: 0, resource: hiZMips[mip - 1] },
-					{ binding: 1, resource: hiZMips[mip] },
-				],
-				`WebGPUSSR_HiZReduceBinding_${mip}`
-			);
-			encoder.beginComputePass({ label: `WebGPUSSR_HiZReduce_${mip}` });
-			encoder.setComputePipeline(this._hizReducePipeline);
-			encoder.setBindingGroup(0, binding);
-			encoder.dispatchWorkgroups(
-				ceilDiv(dstW, WORKGROUP_SIZE),
-				ceilDiv(dstH, WORKGROUP_SIZE),
-				1
-			);
-			encoder.endComputePass();
-			srcW = dstW;
-			srcH = dstH;
-		}
+		if (!this._buildHiZ(encoder, targets, hiZMips)) return false;
 		this._ssrFrameIndex = (this._ssrFrameIndex + 1) % 1024;
 		this._backend.writeBuffer(
 			this._ssrTraceParams,
@@ -400,7 +362,7 @@ export class WebGPUPostProcessRuntime {
 				0,
 			])
 		);
-		binding = this._getCachedBindGroup(
+		let binding = this._getCachedBindGroup(
 			"ssr-trace",
 			this._ssrTracePipeline,
 			[
@@ -463,6 +425,147 @@ export class WebGPUPostProcessRuntime {
 		);
 		encoder.endComputePass();
 		targets.sceneColor = composeTarget;
+		return true;
+	}
+
+	public async executeVolumetric(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext,
+		historyValid: boolean,
+		frameBinding: IBindingGroup
+	): Promise<boolean> {
+		if (frameContext.camera.type === CameraType.Orthographic) {
+			this._warn(
+				"webgpu-volumetric-orthographic-disabled",
+				"WebGPU volumetric lighting is disabled for OrthographicCamera in v1"
+			);
+			return false;
+		}
+		await this._ensureVolumetricResources();
+		if (!this._sampler || !this._volumetricPipeline || !this._volumetricParams) {
+			return false;
+		}
+		const hiZMips = this._getHiZMipViews(targets.hiZ);
+		if (!this._buildHiZ(encoder, targets, hiZMips)) return false;
+
+		const options = frameContext.features.volumetricOptions ?? {};
+		const samples = Math.max(
+			1,
+			Math.min(
+				128,
+				finiteOr(options.samples, DEFAULT_VOLUMETRIC_OPTIONS.samples)
+			)
+		);
+		const weight = Math.max(
+			0,
+			finiteOr(options.weight, DEFAULT_VOLUMETRIC_OPTIONS.weight)
+		);
+		const exposure = Math.max(
+			0,
+			finiteOr(options.exposure, DEFAULT_VOLUMETRIC_OPTIONS.exposure)
+		);
+		const airDensity = Math.max(
+			0.001,
+			finiteOr(options.airDensity, DEFAULT_VOLUMETRIC_OPTIONS.airDensity)
+		);
+		const anisotropy = Math.max(
+			-0.95,
+			Math.min(
+				0.95,
+				finiteOr(options.anisotropy, DEFAULT_VOLUMETRIC_OPTIONS.anisotropy)
+			)
+		);
+		const maxRayDistance = Math.max(
+			0.1,
+			finiteOr(
+				options.maxRayDistance,
+				DEFAULT_VOLUMETRIC_OPTIONS.maxRayDistance
+			)
+		);
+		const scatteringAlbedo = Math.max(
+			0,
+			Math.min(
+				1,
+				finiteOr(
+					options.scatteringAlbedo,
+					DEFAULT_VOLUMETRIC_OPTIONS.scatteringAlbedo
+				)
+			)
+		);
+		const shadowSampleInterval = Math.max(
+			1,
+			Math.min(
+				32,
+				finiteOr(
+					options.shadowSampleInterval,
+					DEFAULT_VOLUMETRIC_OPTIONS.shadowSampleInterval
+				)
+			)
+		);
+		const adaptiveSteps = options.adaptiveSteps === false ? 0 : 1;
+		const depthThickness = Math.max(
+			0.01,
+			finiteOr(
+				options.bilateralDepthSigma,
+				DEFAULT_VOLUMETRIC_OPTIONS.bilateralDepthSigma
+			) * 8
+		);
+		const maxMip = Math.max(0, hiZMips.length - 1);
+
+		this._backend.writeBuffer(
+			this._volumetricParams,
+			new Float32Array([
+				1 / Math.max(targets.sceneColor.width, 1),
+				1 / Math.max(targets.sceneColor.height, 1),
+				samples,
+				weight,
+				exposure,
+				airDensity,
+				anisotropy,
+				maxRayDistance,
+				scatteringAlbedo,
+				shadowSampleInterval,
+				adaptiveSteps,
+				depthThickness,
+				maxMip,
+				0.75,
+				historyValid ? 1 : 0,
+				0,
+			])
+		);
+
+		const target =
+			targets.sceneColor === targets.postPong
+				? targets.postPing
+				: targets.postPong;
+		const binding = this._getCachedBindGroup(
+			`volumetric-${target === targets.postPing ? "ping" : "pong"}`,
+			this._volumetricPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: targets.hiZ },
+				{ binding: 3, resource: targets.volumetricHistoryRead },
+				{ binding: 4, resource: targets.motionHistoryRead },
+				{ binding: 5, resource: this._sampler },
+				{ binding: 6, resource: this._volumetricParams },
+				{ binding: 7, resource: target },
+				{ binding: 8, resource: targets.volumetricHistoryWrite },
+			],
+			"WebGPUVolumetric_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUVolumetric" });
+		encoder.setComputePipeline(this._volumetricPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.setBindingGroup(1, frameBinding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
 		return true;
 	}
 
@@ -538,6 +641,62 @@ export class WebGPUPostProcessRuntime {
 		encoder.endComputePass();
 	}
 
+	private _buildHiZ(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		hiZMips: GPUTextureView[]
+	): boolean {
+		if (!this._hizInitPipeline || !this._hizReducePipeline) return false;
+		if (hiZMips.length === 0) return false;
+
+		let binding = this._getCachedBindGroup(
+			"hiz-init",
+			this._hizInitPipeline,
+			[
+				{ binding: 0, resource: targets.gMotionDepth },
+				{ binding: 1, resource: hiZMips[0] },
+			],
+			"WebGPUSSR_HiZInitBinding"
+		);
+		encoder.beginComputePass({ label: "WebGPUSSR_HiZInit" });
+		encoder.setComputePipeline(this._hizInitPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(targets.hiZ.width, WORKGROUP_SIZE),
+			ceilDiv(targets.hiZ.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+
+		let srcW = targets.hiZ.width;
+		let srcH = targets.hiZ.height;
+		for (let mip = 1; mip < hiZMips.length; mip++) {
+			const dstW = Math.max(1, srcW >> 1);
+			const dstH = Math.max(1, srcH >> 1);
+			binding = this._getCachedBindGroup(
+				`hiz-reduce-${mip}`,
+				this._hizReducePipeline,
+				[
+					{ binding: 0, resource: hiZMips[mip - 1] },
+					{ binding: 1, resource: hiZMips[mip] },
+				],
+				`WebGPUSSR_HiZReduceBinding_${mip}`
+			);
+			encoder.beginComputePass({ label: `WebGPUSSR_HiZReduce_${mip}` });
+			encoder.setComputePipeline(this._hizReducePipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(
+				ceilDiv(dstW, WORKGROUP_SIZE),
+				ceilDiv(dstH, WORKGROUP_SIZE),
+				1
+			);
+			encoder.endComputePass();
+			srcW = dstW;
+			srcH = dstH;
+		}
+		return true;
+	}
+
 	private async _ensureCommonResources(): Promise<void> {
 		if (this._sampler) return;
 		this._sampler = this._backend.createSampler({
@@ -604,20 +763,13 @@ export class WebGPUPostProcessRuntime {
 			});
 	}
 
-	private async _ensureSSRResources(): Promise<void> {
+	private async _ensureHiZResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._hizModule) {
 			const hizShaderCode = await loadPostProcessShaderPart("hiz");
 			this._hizModule = await this._backend.createShaderModule({
 				label: "WebGPUHiZShader",
 				code: hizShaderCode,
-			});
-		}
-		if (!this._ssrModule) {
-			const ssrShaderCode = await loadPostProcessShaderPart("ssr");
-			this._ssrModule = await this._backend.createShaderModule({
-				label: "WebGPUSSRShader",
-				code: ssrShaderCode,
 			});
 		}
 		if (!this._hizInitPipeline)
@@ -630,6 +782,17 @@ export class WebGPUPostProcessRuntime {
 				label: "WebGPUHiZReducePipeline",
 				compute: { module: this._hizModule, entryPoint: "csReduce" },
 			});
+	}
+
+	private async _ensureSSRResources(): Promise<void> {
+		await this._ensureHiZResources();
+		if (!this._ssrModule) {
+			const ssrShaderCode = await loadPostProcessShaderPart("ssr");
+			this._ssrModule = await this._backend.createShaderModule({
+				label: "WebGPUSSRShader",
+				code: ssrShaderCode,
+			});
+		}
 		if (!this._ssrTracePipeline) {
 			const device = this._backend.device;
 			if (device && this._frameBindGroupLayout) {
@@ -712,6 +875,81 @@ export class WebGPUPostProcessRuntime {
 			this._ssrComposeParams = this._backend.createBuffer({
 				label: "WebGPUSSRComposeParams",
 				size: 4 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	private async _ensureVolumetricResources(): Promise<void> {
+		await this._ensureHiZResources();
+		if (!this._volumetricModule) {
+			const shaderCode = await loadPostProcessShaderPart("volumetric");
+			this._volumetricModule = await this._backend.createShaderModule({
+				label: "WebGPUVolumetricShader",
+				code: shaderCode,
+			});
+		}
+		if (!this._volumetricPipeline) {
+			const device = this._backend.device;
+			if (device && this._frameBindGroupLayout) {
+				this._volumetricGroupLayout0 = device.createBindGroupLayout({
+					label: "WebGPUVolumetric_GroupLayout0",
+					entries: [
+						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 1, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 3, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 4, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{
+							binding: 5,
+							visibility: GPUShaderStage.COMPUTE,
+							sampler: {},
+						},
+						{
+							binding: 6,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "uniform" },
+						},
+						{
+							binding: 7,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: {
+								format: "rgba16float",
+								access: "write-only",
+							},
+						},
+						{
+							binding: 8,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: {
+								format: "rgba16float",
+								access: "write-only",
+							},
+						},
+					],
+				});
+				this._volumetricPipelineLayout = device.createPipelineLayout({
+					label: "WebGPUVolumetric_PipelineLayout",
+					bindGroupLayouts: [
+						this._volumetricGroupLayout0,
+						this._frameBindGroupLayout,
+					],
+				});
+				this._volumetricPipeline = this._backend.createComputePipeline({
+					label: "WebGPUVolumetricPipeline",
+					layout: this._volumetricPipelineLayout,
+					compute: { module: this._volumetricModule, entryPoint: "csMain" },
+				});
+			} else {
+				this._volumetricPipeline = this._backend.createComputePipeline({
+					label: "WebGPUVolumetricPipeline",
+					compute: { module: this._volumetricModule, entryPoint: "csMain" },
+				});
+			}
+		}
+		if (!this._volumetricParams)
+			this._volumetricParams = this._backend.createBuffer({
+				label: "WebGPUVolumetricParams",
+				size: 16 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}

@@ -98,6 +98,8 @@ export class WebGPUFrameExecutor {
 	private _taaHistoryB: IRenderTexture | null = null;
 	private _ssrHistoryA: IRenderTexture | null = null;
 	private _ssrHistoryB: IRenderTexture | null = null;
+	private _volumetricHistoryA: IRenderTexture | null = null;
+	private _volumetricHistoryB: IRenderTexture | null = null;
 	private _motionHistoryA: IRenderTexture | null = null;
 	private _motionHistoryB: IRenderTexture | null = null;
 	private _postGraphExecuted = false;
@@ -108,6 +110,9 @@ export class WebGPUFrameExecutor {
 	private _ssrHistoryValid = false;
 	private _ssrHistoryFlip = false;
 	private _ssrHistoryUpdated = false;
+	private _volumetricHistoryValid = false;
+	private _volumetricHistoryFlip = false;
+	private _volumetricHistoryUpdated = false;
 	private _motionHistoryValid = false;
 	private _motionHistoryFlip = false;
 	private _mrtEnabled = true;
@@ -141,6 +146,7 @@ export class WebGPUFrameExecutor {
 		this._hasPresentedInFrame = false;
 		this._taaHistoryUpdated = false;
 		this._ssrHistoryUpdated = false;
+		this._volumetricHistoryUpdated = false;
 
 		this._ensureMRTSupport();
 		this._handleFeatureHistoryTransitions(context);
@@ -279,6 +285,14 @@ export class WebGPUFrameExecutor {
 				this._applySSRHistoryFlip(this._frameTargets);
 			}
 		}
+
+		if (this._volumetricHistoryUpdated) {
+			this._volumetricHistoryValid = true;
+			this._volumetricHistoryFlip = !this._volumetricHistoryFlip;
+			if (this._frameTargets) {
+				this._applyVolumetricHistoryFlip(this._frameTargets);
+			}
+		}
 	}
 
 	private _createDefaultPasses(): WebGPUPostProcessPassPlugin[] {
@@ -334,7 +348,18 @@ export class WebGPUFrameExecutor {
 				kind: "compute",
 				dependsOn: ["ssr"],
 				isEnabled: (features) => features.enableVolumetric,
-				execute: async () => {},
+				execute: async (ctx) => {
+					const historyValid =
+						this._volumetricHistoryValid && this._motionHistoryValid;
+					this._volumetricHistoryUpdated =
+						await this._postRuntime.executeVolumetric(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext,
+						historyValid,
+						this._resources.getFrameBinding()
+					);
+				},
 			},
 			{
 				id: "fxaa",
@@ -409,6 +434,7 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 			this._applyTAAHistoryFlip(this._frameTargets);
 			this._applySSRHistoryFlip(this._frameTargets);
+			this._applyVolumetricHistoryFlip(this._frameTargets);
 			this._applyMotionHistoryFlip(this._frameTargets);
 			return;
 		}
@@ -420,9 +446,11 @@ export class WebGPUFrameExecutor {
 		this._targetSSRDownsample = ssrDownsample;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
+		this._volumetricHistoryValid = false;
 		this._motionHistoryValid = false;
 		this._taaHistoryFlip = false;
 		this._ssrHistoryFlip = false;
+		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
 
 		const sceneColorMain = this._backend.createTexture({
@@ -525,6 +553,20 @@ export class WebGPUFrameExecutor {
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
 			label: "WebGPUSSRHistoryB",
 		});
+		const volumetricHistoryA = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: "WebGPUVolumetricHistoryA",
+		});
+		const volumetricHistoryB = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: "WebGPUVolumetricHistoryB",
+		});
 		const motionHistoryA = this._backend.createTexture({
 			width,
 			height,
@@ -580,6 +622,8 @@ export class WebGPUFrameExecutor {
 			historyWrite: historyB,
 			ssrHistoryRead: ssrHistoryA,
 			ssrHistoryWrite: ssrHistoryB,
+			volumetricHistoryRead: volumetricHistoryA,
+			volumetricHistoryWrite: volumetricHistoryB,
 			motionHistoryRead: motionHistoryA,
 			motionHistoryWrite: motionHistoryB,
 		};
@@ -587,10 +631,13 @@ export class WebGPUFrameExecutor {
 		this._taaHistoryB = historyB;
 		this._ssrHistoryA = ssrHistoryA;
 		this._ssrHistoryB = ssrHistoryB;
+		this._volumetricHistoryA = volumetricHistoryA;
+		this._volumetricHistoryB = volumetricHistoryB;
 		this._motionHistoryA = motionHistoryA;
 		this._motionHistoryB = motionHistoryB;
 		this._applyTAAHistoryFlip(this._frameTargets);
 		this._applySSRHistoryFlip(this._frameTargets);
+		this._applyVolumetricHistoryFlip(this._frameTargets);
 		this._applyMotionHistoryFlip(this._frameTargets);
 	}
 
@@ -612,6 +659,16 @@ export class WebGPUFrameExecutor {
 		targets.ssrHistoryWrite = this._ssrHistoryFlip
 			? this._ssrHistoryA
 			: this._ssrHistoryB;
+	}
+
+	private _applyVolumetricHistoryFlip(targets: WebGPUFrameTargets): void {
+		if (!this._volumetricHistoryA || !this._volumetricHistoryB) return;
+		targets.volumetricHistoryRead = this._volumetricHistoryFlip
+			? this._volumetricHistoryB
+			: this._volumetricHistoryA;
+		targets.volumetricHistoryWrite = this._volumetricHistoryFlip
+			? this._volumetricHistoryA
+			: this._volumetricHistoryB;
 	}
 
 	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
@@ -643,6 +700,8 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.historyWrite,
 			this._frameTargets.ssrHistoryRead,
 			this._frameTargets.ssrHistoryWrite,
+			this._frameTargets.volumetricHistoryRead,
+			this._frameTargets.volumetricHistoryWrite,
 			this._frameTargets.motionHistoryRead,
 			this._frameTargets.motionHistoryWrite,
 		]);
@@ -654,6 +713,8 @@ export class WebGPUFrameExecutor {
 		this._taaHistoryB = null;
 		this._ssrHistoryA = null;
 		this._ssrHistoryB = null;
+		this._volumetricHistoryA = null;
+		this._volumetricHistoryB = null;
 		this._motionHistoryA = null;
 		this._motionHistoryB = null;
 		this._presentBinding = null;
@@ -664,9 +725,11 @@ export class WebGPUFrameExecutor {
 		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
+		this._volumetricHistoryValid = false;
 		this._motionHistoryValid = false;
 		this._taaHistoryFlip = false;
 		this._ssrHistoryFlip = false;
+		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
 	}
 
@@ -682,6 +745,7 @@ export class WebGPUFrameExecutor {
 		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {
 			this._taaHistoryValid = false;
 			this._ssrHistoryValid = false;
+			this._volumetricHistoryValid = false;
 			this._motionHistoryValid = false;
 		}
 		this._featureHistoryKey = historyKey;

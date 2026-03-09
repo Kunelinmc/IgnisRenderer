@@ -2,15 +2,13 @@ import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type {
 	RendererFeatureRequest,
 	ResolvedFeatureState,
-	VolumetricOptions,
 } from "./types";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
+	DEFAULT_VOLUMETRIC_OPTIONS,
 } from "./types";
-
-const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = {};
 
 const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	sh: "feature-sh",

@@ -12,7 +12,14 @@ type SceneShaderPart =
 	| "fragmentPbrAmbient"
 	| "fragmentSingleTarget";
 
-type PostProcessShaderPart = "ssao" | "taa" | "hiz" | "ssr" | "fxaa" | "copy";
+type PostProcessShaderPart =
+	| "ssao"
+	| "taa"
+	| "hiz"
+	| "ssr"
+	| "volumetric"
+	| "fxaa"
+	| "copy";
 
 type RawShaderModule = {
 	default: string;
@@ -110,6 +117,7 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	taa: "./postprocess/taa.wgsl",
 	hiz: "./postprocess/hiz.wgsl",
 	ssr: "./postprocess/ssr.wgsl",
+	volumetric: "./postprocess/volumetric.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",
 };
