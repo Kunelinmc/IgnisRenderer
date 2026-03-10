@@ -4,3 +4,4 @@ export * from "./PhongMaterial";
 export * from "./GouraudMaterial";
 export * from "./UnlitMaterial";
 export * from "./PBRMaterial";
+export * from "./ShaderMaterial";

@@ -4,22 +4,35 @@ import { createWebGPUMaterialUniformData } from "./";
 import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { TextureFormat } from "../types";
 import type { Material } from "../../materials/Material";
+import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
 export type WebGPUSceneTargetMode = "single" | "mrt";
 
+interface CachedPipelineEntry {
+	key: string;
+	mode: WebGPUSceneTargetMode;
+	shaderKey: string;
+	pipeline: IRenderPipeline;
+}
+
+interface WebGPUSceneProgram {
+	vertexModule: IShaderModule;
+	fragmentModule: IShaderModule;
+	vertexEntryPoint: string;
+	fragmentEntryPoint: string;
+}
+
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _skyboxShaderModule: IShaderModule | null = null;
+	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _skyboxPipelines = new Map<WebGPUSceneTargetMode, IRenderPipeline>();
-	private _materialPipelineCache = new WeakMap<
-		Material,
-		{ key: string; mode: WebGPUSceneTargetMode; pipeline: IRenderPipeline }
-	>();
+	private _materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 
 	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
@@ -39,21 +52,26 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false
 	): Promise<IRenderPipeline> {
-		const { pipelineKey, materialFlags } = createWebGPUMaterialUniformData(
+		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
 		);
+		const shaderKey = this._getShaderCacheKey(material);
 		const cached = this._materialPipelineCache.get(material);
-		if (cached && cached.key === pipelineKey && cached.mode === mode) {
+		if (
+			cached &&
+			cached.key === pipelineKey &&
+			cached.mode === mode &&
+			cached.shaderKey === shaderKey
+		) {
 			return cached.pipeline;
 		}
 
-		const cacheKey = `${pipelineKey}|${mode}`;
+		const cacheKey = `${pipelineKey}|${mode}|${shaderKey}`;
 		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
 				material,
-				pipelineKey,
 				mode,
 				isWireframe
 			);
@@ -63,6 +81,7 @@ export class WebGPUPipelineLibrary {
 		this._materialPipelineCache.set(material, {
 			key: pipelineKey,
 			mode,
+			shaderKey,
 			pipeline,
 		});
 
@@ -71,11 +90,11 @@ export class WebGPUPipelineLibrary {
 
 	private async _createPipeline(
 		material: Material,
-		pipelineKey: string,
 		mode: WebGPUSceneTargetMode,
 		isWireframe: boolean
 	): Promise<IRenderPipeline> {
-		const shaderModule = await this._getSceneShaderModule();
+		const { pipelineKey } = createWebGPUMaterialUniformData(material, isWireframe);
+		const sceneProgram = await this._resolveSceneProgram(material, mode);
 		const fragmentTargets =
 			mode === "mrt"
 				? [
@@ -86,14 +105,13 @@ export class WebGPUPipelineLibrary {
 						{ format: TextureFormat.RGBA16Float },
 					]
 				: [{ format: this._backend.canvasFormat as any }];
-		const fragmentEntryPoint = mode === "mrt" ? "fsMain" : "fsMainSingle";
 
 		return this._backend.createPipeline({
 			layout: this._layouts.scenePipelineLayout,
 			label: `WebGPUScenePipeline_${pipelineKey}_${mode}`,
 			vertex: {
-				module: shaderModule,
-				entryPoint: "vsMain",
+				module: sceneProgram.vertexModule,
+				entryPoint: sceneProgram.vertexEntryPoint,
 				buffers: [
 					{
 						arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
@@ -112,8 +130,8 @@ export class WebGPUPipelineLibrary {
 				],
 			},
 			fragment: {
-				module: shaderModule,
-				entryPoint: fragmentEntryPoint,
+				module: sceneProgram.fragmentModule,
+				entryPoint: sceneProgram.fragmentEntryPoint,
 				targets: fragmentTargets as any,
 			},
 			primitive: {
@@ -127,6 +145,64 @@ export class WebGPUPipelineLibrary {
 				depthCompare: "less",
 			},
 		} as any);
+	}
+
+	private async _resolveSceneProgram(
+		material: Material,
+		mode: WebGPUSceneTargetMode
+	): Promise<WebGPUSceneProgram> {
+		if (!(material instanceof ShaderMaterial)) {
+			const shaderModule = await this._getSceneShaderModule();
+			return {
+				vertexModule: shaderModule,
+				fragmentModule: shaderModule,
+				vertexEntryPoint: "vsMain",
+				fragmentEntryPoint: mode === "mrt" ? "fsMain" : "fsMainSingle",
+			};
+		}
+
+		const program = material.resolveWebGPUProgram(mode);
+		const shaderCacheKey = material.getWebGPUCacheKey();
+		const vertexModule = await this._getCustomShaderModule(
+			`${shaderCacheKey}:${mode}:vertex`,
+			program.vertexCode,
+			`WebGPUShaderMaterialVertex_${shaderCacheKey}`
+		);
+		const fragmentModule = await this._getCustomShaderModule(
+			`${shaderCacheKey}:${mode}:fragment`,
+			program.fragmentCode,
+			`WebGPUShaderMaterialFragment_${shaderCacheKey}_${mode}`
+		);
+
+		return {
+			vertexModule,
+			fragmentModule,
+			vertexEntryPoint: program.vertexEntryPoint,
+			fragmentEntryPoint: program.fragmentEntryPoint,
+		};
+	}
+
+	private async _getCustomShaderModule(
+		key: string,
+		code: string,
+		label: string
+	): Promise<IShaderModule> {
+		let module = this._customShaderModuleCache.get(key);
+		if (!module) {
+			module = await this._backend.createShaderModule({
+				code,
+				label,
+			});
+			this._customShaderModuleCache.set(key, module);
+		}
+		return module;
+	}
+
+	private _getShaderCacheKey(material: Material): string {
+		if (material instanceof ShaderMaterial) {
+			return `shader:${material.getWebGPUCacheKey()}`;
+		}
+		return "builtin-scene";
 	}
 
 	public async getSkyboxPipeline(

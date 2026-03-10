@@ -46,6 +46,7 @@ export {
 	GouraudMaterial,
 	UnlitMaterial,
 	PBRMaterial,
+	ShaderMaterial,
 } from "./materials";
 export * from "./animation";
 export * from "./particles";
