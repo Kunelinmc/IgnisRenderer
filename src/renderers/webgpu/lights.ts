@@ -27,6 +27,7 @@ import {
 import type {
 	WebGPULightingState,
 	WebGPUShadowData,
+	WebGPUVolumetricLightUniform,
 	WebGPUVec3,
 	WebGPUWarning,
 } from "./types";
@@ -75,6 +76,7 @@ function createEmptyWebGPULightingState(): WebGPULightingState {
 		pointLights: [],
 		spotLights: [],
 		spotShadows: [],
+		volumetricLights: [],
 		warnings: [],
 	};
 }
@@ -113,6 +115,10 @@ function collectDirectionalLight(
 	enableShadows: boolean,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): void {
+	const direction = getDirectionalLightWorldDirection(light);
+	const color = toLinearLightColor(light.color, light.intensity);
+	pushVolumetricDirectionalLight(state, direction, color);
+
 	if (state.directionalLights.length >= WEBGPU_MAX_DIRECTIONAL_LIGHTS) {
 		state.warnings.push(
 			createLightLimitWarning("directional", WEBGPU_MAX_DIRECTIONAL_LIGHTS)
@@ -120,11 +126,9 @@ function collectDirectionalLight(
 		return;
 	}
 
-	const direction = getDirectionalLightWorldDirection(light);
-
 	state.directionalLights.push({
 		direction: [-direction.x, -direction.y, -direction.z],
-		color: toLinearLightColor(light.color, light.intensity),
+		color,
 	});
 	state.directionalShadows.push(
 		resolveWebGPUShadowData(
@@ -138,6 +142,11 @@ function collectPointLight(
 	state: WebGPULightingState,
 	light: PointLight
 ): void {
+	const position = getPointLightWorldPosition(light);
+	const color = toLinearLightColor(light.color, light.intensity);
+	const range = Math.max(light.range, 0.001);
+	pushVolumetricPointLight(state, position, range, color);
+
 	if (state.pointLights.length >= WEBGPU_MAX_POINT_LIGHTS) {
 		state.warnings.push(
 			createLightLimitWarning("point", WEBGPU_MAX_POINT_LIGHTS)
@@ -145,11 +154,10 @@ function collectPointLight(
 		return;
 	}
 
-	const position = getPointLightWorldPosition(light);
 	state.pointLights.push({
 		position: [position.x, position.y, position.z],
-		range: Math.max(light.range, 0.001),
-		color: toLinearLightColor(light.color, light.intensity),
+		range,
+		color,
 	});
 }
 
@@ -159,6 +167,22 @@ function collectSpotLight(
 	enableShadows: boolean,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): void {
+	const position = getSpotLightWorldPosition(light);
+	const direction = getSpotLightWorldDirection(light);
+	const outerAngle = light.angle;
+	const innerAngle = getSpotLightInnerAngle(light);
+	const range = Math.max(light.range, 0.001);
+	const color = toLinearLightColor(light.color, light.intensity);
+	pushVolumetricSpotLight(
+		state,
+		position,
+		range,
+		direction,
+		Math.cos(outerAngle),
+		Math.cos(innerAngle),
+		color
+	);
+
 	if (state.spotLights.length >= WEBGPU_MAX_SPOT_LIGHTS) {
 		state.warnings.push(
 			createLightLimitWarning("spot", WEBGPU_MAX_SPOT_LIGHTS)
@@ -166,18 +190,13 @@ function collectSpotLight(
 		return;
 	}
 
-	const position = getSpotLightWorldPosition(light);
-	const direction = getSpotLightWorldDirection(light);
-	const outerAngle = light.angle;
-	const innerAngle = getSpotLightInnerAngle(light);
-
 	state.spotLights.push({
 		position: [position.x, position.y, position.z],
-		range: Math.max(light.range, 0.001),
+		range,
 		direction: [direction.x, direction.y, direction.z],
 		outerCos: Math.cos(outerAngle),
 		innerCos: Math.cos(innerAngle),
-		color: toLinearLightColor(light.color, light.intensity),
+		color,
 	});
 	state.spotShadows.push(
 		resolveWebGPUShadowData(
@@ -193,7 +212,7 @@ function createLightLimitWarning(
 ): WebGPUWarning {
 	return {
 		key: `webgpu-${kind}-limit`,
-		message: `WebGPU backend supports at most ${maxCount} ${kind} lights; extra lights are ignored`,
+		message: `WebGPU forward shading supports at most ${maxCount} ${kind} lights; extra lights are skipped in main shading`,
 	};
 }
 
@@ -210,6 +229,62 @@ function toLinearLightColor(color: RGB, intensity: number): WebGPUVec3 {
 		sRGBToLinear(color.g / 255) * intensity,
 		sRGBToLinear(color.b / 255) * intensity,
 	];
+}
+
+function pushVolumetricDirectionalLight(
+	state: WebGPULightingState,
+	direction: { x: number; y: number; z: number },
+	color: WebGPUVec3
+): void {
+	const light: WebGPUVolumetricLightUniform = {
+		type: 0,
+		position: [0, 0, 0],
+		range: -1,
+		direction: [-direction.x, -direction.y, -direction.z],
+		outerCos: 0,
+		innerCos: 0,
+		color,
+	};
+	state.volumetricLights.push(light);
+}
+
+function pushVolumetricPointLight(
+	state: WebGPULightingState,
+	position: { x: number; y: number; z: number },
+	range: number,
+	color: WebGPUVec3
+): void {
+	const light: WebGPUVolumetricLightUniform = {
+		type: 1,
+		position: [position.x, position.y, position.z],
+		range,
+		direction: [0, 0, 0],
+		outerCos: -2,
+		innerCos: -2,
+		color,
+	};
+	state.volumetricLights.push(light);
+}
+
+function pushVolumetricSpotLight(
+	state: WebGPULightingState,
+	position: { x: number; y: number; z: number },
+	range: number,
+	direction: { x: number; y: number; z: number },
+	outerCos: number,
+	innerCos: number,
+	color: WebGPUVec3
+): void {
+	const light: WebGPUVolumetricLightUniform = {
+		type: 2,
+		position: [position.x, position.y, position.z],
+		range,
+		direction: [direction.x, direction.y, direction.z],
+		outerCos,
+		innerCos,
+		color,
+	};
+	state.volumetricLights.push(light);
 }
 
 function resolveWebGPUShadowData(

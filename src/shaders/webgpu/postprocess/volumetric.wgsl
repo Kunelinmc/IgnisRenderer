@@ -20,6 +20,16 @@ struct ShadowData {
 	paramsB: vec4<f32>,
 }
 
+struct VolumetricLightData {
+	positionRange: vec4<f32>,
+	directionOuter: vec4<f32>,
+	colorInner: vec4<f32>,
+}
+
+struct VolumetricLightBuffer {
+	lights: array<VolumetricLightData>,
+}
+
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
@@ -56,7 +66,18 @@ struct VolumetricParams {
 	maxMip: f32,
 	jitterStrength: f32,
 	historyValid: f32,
-	_pad0: f32,
+	lightCount: f32,
+	restirCandidates: f32,
+	restirTemporalWeight: f32,
+	restirScaleClamp: f32,
+	frameIndex: f32,
+}
+
+struct Reservoir {
+	lightIndex: i32,
+	selectedWeight: f32,
+	weightSum: f32,
+	sampleCount: f32,
 }
 
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
@@ -68,12 +89,16 @@ struct VolumetricParams {
 @group(0) @binding(6) var<uniform> params: VolumetricParams;
 @group(0) @binding(7) var outColor: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(8) var outHistory: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(9) var volumetricReservoirHistory: texture_2d<f32>;
+@group(0) @binding(10) var outReservoirHistory: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(11) var<storage, read> volumetricLightBuffer: VolumetricLightBuffer;
 
 @group(1) @binding(0) var<uniform> frame: FrameUniforms;
 
 const PI: f32 = 3.14159265359;
 const MAX_VIEW_STEPS: i32 = 96;
 const MAX_SHADOW_STEPS: i32 = 24;
+const MAX_RESTIR_CANDIDATES: i32 = 64;
 const SIGMA_T_SCALE: f32 = 0.02;
 const TEMPORAL_HISTORY_WEIGHT: f32 = 0.88;
 const TEMPORAL_DEPTH_THRESHOLD: f32 = 0.04;
@@ -94,6 +119,11 @@ fn interleavedGradientNoise(pixel: vec2<f32>, frameIndex: f32) -> f32 {
 	let frameOffset = frameIndex * 5.588238;
 	let uv = pixel + frameOffset;
 	return fract(52.9829189 * fract(0.06711056 * uv.x + 0.00583715 * uv.y));
+}
+
+fn randomSample(pixel: vec2<f32>, frameIndex: f32, salt: f32) -> f32 {
+	let shifted = pixel + vec2<f32>(salt * 1.13, salt * 2.71);
+	return interleavedGradientNoise(shifted, frameIndex + salt * 0.77);
 }
 
 fn pointAttenuation(distanceSq: f32, range: f32) -> f32 {
@@ -212,6 +242,145 @@ fn traceHiZShadowCone(
 	return 1.0;
 }
 
+fn emptyReservoir() -> Reservoir {
+	return Reservoir(-1, 0.0, 0.0, 0.0);
+}
+
+fn updateReservoir(
+	reservoir: Reservoir,
+	candidateIndex: i32,
+	candidateWeight: f32,
+	randValue: f32
+) -> Reservoir {
+	var updated = reservoir;
+	let safeWeight = max(candidateWeight, 0.0);
+	if (safeWeight <= 0.0 || candidateIndex < 0) {
+		return updated;
+	}
+	updated.weightSum += safeWeight;
+	updated.sampleCount += 1.0;
+	let replaceChance = safeWeight / max(updated.weightSum, 1e-6);
+	if (randValue < replaceChance) {
+		updated.lightIndex = candidateIndex;
+		updated.selectedWeight = safeWeight;
+	}
+	return updated;
+}
+
+fn isDirectional(light: VolumetricLightData) -> bool {
+	return light.positionRange.w < 0.0;
+}
+
+fn isPoint(light: VolumetricLightData) -> bool {
+	return light.positionRange.w >= 0.0 && light.directionOuter.w < -1.0;
+}
+
+fn estimateLightWeight(
+	light: VolumetricLightData,
+	samplePos: vec3<f32>,
+	rayDir: vec3<f32>,
+	anisotropy: f32
+) -> f32 {
+	var contribution = vec3<f32>(0.0);
+
+	if (isDirectional(light)) {
+		let lightDir = safeNormalize(light.directionOuter.xyz, vec3<f32>(0.0, 1.0, 0.0));
+		let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
+		contribution = light.colorInner.xyz * phase;
+	} else {
+		let toLight = light.positionRange.xyz - samplePos;
+		let distanceSq = dot(toLight, toLight);
+		let distanceValue = sqrt(max(distanceSq, 1e-6));
+		let lightRange = max(light.positionRange.w, 0.001);
+		if (distanceValue > lightRange) {
+			return 0.0;
+		}
+		let lightDir = toLight / distanceValue;
+		var attenuation = pointAttenuation(distanceSq, lightRange);
+		if (!isPoint(light)) {
+			let coneDirection = safeNormalize(light.directionOuter.xyz, vec3<f32>(0.0, -1.0, 0.0));
+			let cone = spotAttenuation(
+				dot(-lightDir, coneDirection),
+				light.directionOuter.w,
+				light.colorInner.w
+			);
+			if (cone <= 0.0) {
+				return 0.0;
+			}
+			attenuation *= cone;
+		}
+		let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
+		contribution = light.colorInner.xyz * attenuation * phase;
+	}
+
+	return max(luma(contribution), 0.0);
+}
+
+fn evaluateLightAtSample(
+	light: VolumetricLightData,
+	samplePos: vec3<f32>,
+	rayDir: vec3<f32>,
+	anisotropy: f32,
+	doShadowSample: bool,
+	cachedVisibility: f32,
+	maxDistance: f32,
+	shadowStepWorld: f32
+) -> vec4<f32> {
+	var visibility = cachedVisibility;
+	var inScatter = vec3<f32>(0.0);
+
+	if (isDirectional(light)) {
+		let lightDir = safeNormalize(light.directionOuter.xyz, vec3<f32>(0.0, 1.0, 0.0));
+		if (doShadowSample) {
+			visibility = traceHiZShadowCone(
+				samplePos + lightDir * params.depthThickness,
+				lightDir,
+				maxDistance,
+				shadowStepWorld
+			);
+		}
+		let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
+		inScatter = light.colorInner.xyz * visibility * phase;
+	} else {
+		let toLight = light.positionRange.xyz - samplePos;
+		let distanceSq = dot(toLight, toLight);
+		let distanceValue = sqrt(max(distanceSq, 1e-6));
+		let lightRange = max(light.positionRange.w, 0.001);
+		if (distanceValue > lightRange) {
+			return vec4<f32>(vec3<f32>(0.0), visibility);
+		}
+
+		let lightDir = toLight / distanceValue;
+		var attenuation = pointAttenuation(distanceSq, lightRange);
+		if (!isPoint(light)) {
+			let coneDirection = safeNormalize(light.directionOuter.xyz, vec3<f32>(0.0, -1.0, 0.0));
+			let cone = spotAttenuation(
+				dot(-lightDir, coneDirection),
+				light.directionOuter.w,
+				light.colorInner.w
+			);
+			if (cone <= 0.0) {
+				return vec4<f32>(vec3<f32>(0.0), visibility);
+			}
+			attenuation *= cone;
+		}
+
+		if (doShadowSample) {
+			visibility = traceHiZShadowCone(
+				samplePos + lightDir * params.depthThickness,
+				lightDir,
+				distanceValue,
+				shadowStepWorld
+			);
+		}
+
+		let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
+		inScatter = light.colorInner.xyz * attenuation * visibility * phase;
+	}
+
+	return vec4<f32>(inScatter, visibility);
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outColor);
@@ -228,8 +397,19 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let maxDistance = select(maxRayDistance, min(depth, maxRayDistance), hasSurface);
 	if (maxDistance <= 0.0) {
 		textureStore(outColor, coord, scene);
+		textureStore(outHistory, coord, vec4<f32>(0.0));
+		textureStore(outReservoirHistory, coord, vec4<f32>(-1.0, 0.0, 0.0, 0.0));
 		return;
 	}
+
+	let safeInvSize = vec2<f32>(
+		max(params.invSize.x, 1e-6),
+		max(params.invSize.y, 1e-6)
+	);
+	let motion = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).xy;
+	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
+	let insidePrev =
+		prevUv.x >= 0.0 && prevUv.x <= 1.0 && prevUv.y >= 0.0 && prevUv.y <= 1.0;
 
 	let baseSteps = i32(clamp(params.samples, 1.0, f32(MAX_VIEW_STEPS)));
 	let adaptiveScale = select(
@@ -249,21 +429,63 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 	let shadowStepWorld = max(stepSize * 2.0, params.depthThickness * 6.0);
 	let anisotropy = clamp(params.anisotropy, -0.95, 0.95);
-	let frameIndex = frame.taaJitterCurrentPrev.x + frame.taaJitterCurrentPrev.y;
 	let jitter =
-		(interleavedGradientNoise(vec2<f32>(gid.xy), frameIndex) - 0.5) *
+		(randomSample(vec2<f32>(gid.xy), params.frameIndex, 1.0) - 0.5) *
 		params.jitterStrength;
 
-	let directionalCount = u32(frame.lightCounts.x + 0.5);
-	let pointCount = u32(frame.lightCounts.y + 0.5);
-	let spotCount = u32(frame.lightCounts.z + 0.5);
+	let totalLights = i32(clamp(params.lightCount, 0.0, 65000.0));
+	let candidateCount = i32(clamp(params.restirCandidates, 1.0, f32(MAX_RESTIR_CANDIDATES)));
+	let referenceT = clamp(maxDistance * 0.45 + stepSize, stepSize, maxDistance);
+	let referencePos = frame.cameraPosition.xyz + rayDir * referenceT;
+	var reservoir = emptyReservoir();
 
-	var directionalVisibility = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
-	var pointVisibility = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
-	var spotVisibility = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
+	if (totalLights > 0) {
+		for (var candidate: i32 = 0; candidate < MAX_RESTIR_CANDIDATES; candidate = candidate + 1) {
+			if (candidate >= candidateCount) { break; }
+			let salt = f32(candidate) + 3.0;
+			let u = randomSample(vec2<f32>(gid.xy), params.frameIndex, salt);
+			let lightIndex = i32(min(floor(u * f32(totalLights)), f32(totalLights - 1)));
+			let light = volumetricLightBuffer.lights[u32(lightIndex)];
+			let candidateWeight = estimateLightWeight(light, referencePos, rayDir, anisotropy);
+			let r = randomSample(vec2<f32>(gid.xy), params.frameIndex, salt + 0.5);
+			reservoir = updateReservoir(reservoir, lightIndex, candidateWeight, r);
+		}
+
+		if (params.historyValid > 0.5 && insidePrev) {
+			let prevCoord = vec2<i32>(
+				i32(clamp(prevUv.x * f32(size.x), 0.0, f32(max(size.x, 1u) - 1u))),
+				i32(clamp(prevUv.y * f32(size.y), 0.0, f32(max(size.y, 1u) - 1u)))
+			);
+			let prevReservoir = textureLoad(volumetricReservoirHistory, prevCoord, 0);
+			let prevIndex = i32(prevReservoir.x + 0.5);
+			if (prevIndex >= 0 && prevIndex < totalLights) {
+				let prevWeight = max(prevReservoir.z, 0.0) * max(params.restirTemporalWeight, 0.0);
+				if (prevWeight > 0.0) {
+					let r = randomSample(vec2<f32>(gid.xy), params.frameIndex, 103.0);
+					reservoir = updateReservoir(reservoir, prevIndex, prevWeight, r);
+				}
+			}
+		}
+	}
+
+	var selectedLightIndex: u32 = 0u;
+	var hasSelectedLight = false;
+	var restirScale = 0.0;
+	if (reservoir.lightIndex >= 0 && reservoir.sampleCount > 0.0 && totalLights > 0) {
+		hasSelectedLight = true;
+		selectedLightIndex = u32(reservoir.lightIndex);
+		let denom = max(reservoir.selectedWeight * reservoir.sampleCount, 1e-6);
+		let normalization = reservoir.weightSum / denom;
+		restirScale = clamp(
+			normalization * f32(totalLights),
+			0.0,
+			max(params.restirScaleClamp, 1.0)
+		);
+	}
 
 	var transmittance = 1.0;
 	var accum = vec3<f32>(0.0);
+	var selectedVisibility = 1.0;
 
 	for (var step: i32 = 0; step < MAX_VIEW_STEPS; step = step + 1) {
 		if (step >= steps) { break; }
@@ -275,88 +497,20 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		let doShadowSample = (step % shadowInterval) == 0;
 		var inScatter = vec3<f32>(0.0);
 
-		for (var i: u32 = 0u; i < 4u; i = i + 1u) {
-			if (i >= directionalCount) { break; }
-			let lightDir = safeNormalize(
-				frame.directionalLights[i].direction.xyz,
-				vec3<f32>(0.0, 1.0, 0.0)
+		if (hasSelectedLight) {
+			let selectedLight = volumetricLightBuffer.lights[selectedLightIndex];
+			let sampled = evaluateLightAtSample(
+				selectedLight,
+				samplePos,
+				rayDir,
+				anisotropy,
+				doShadowSample,
+				selectedVisibility,
+				maxDistance,
+				shadowStepWorld
 			);
-			if (doShadowSample) {
-				directionalVisibility[i] = traceHiZShadowCone(
-					samplePos + lightDir * params.depthThickness,
-					lightDir,
-					maxDistance,
-					shadowStepWorld
-				);
-			}
-			let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
-			inScatter += frame.directionalLights[i].color.xyz * directionalVisibility[i] * phase;
-		}
-
-		for (var i: u32 = 0u; i < 4u; i = i + 1u) {
-			if (i >= pointCount) { break; }
-			let toLight = frame.pointLights[i].positionRange.xyz - samplePos;
-			let distanceSq = dot(toLight, toLight);
-			let distanceValue = sqrt(max(distanceSq, 1e-6));
-			let lightRange = frame.pointLights[i].positionRange.w;
-			if (distanceValue > lightRange || lightRange <= 0.0) {
-				continue;
-			}
-			let lightDir = toLight / distanceValue;
-			if (doShadowSample) {
-				pointVisibility[i] = traceHiZShadowCone(
-					samplePos + lightDir * params.depthThickness,
-					lightDir,
-					distanceValue,
-					shadowStepWorld
-				);
-			}
-			let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
-			let attenuation = pointAttenuation(distanceSq, lightRange);
-			inScatter +=
-				frame.pointLights[i].color.xyz *
-				attenuation *
-				pointVisibility[i] *
-				phase;
-		}
-
-		for (var i: u32 = 0u; i < 4u; i = i + 1u) {
-			if (i >= spotCount) { break; }
-			let toLight = frame.spotLights[i].positionRange.xyz - samplePos;
-			let distanceSq = dot(toLight, toLight);
-			let distanceValue = sqrt(max(distanceSq, 1e-6));
-			let lightRange = frame.spotLights[i].positionRange.w;
-			if (distanceValue > lightRange || lightRange <= 0.0) {
-				continue;
-			}
-			let lightDir = toLight / distanceValue;
-			let coneDirection = safeNormalize(
-				frame.spotLights[i].directionOuter.xyz,
-				vec3<f32>(0.0, -1.0, 0.0)
-			);
-			let cone = spotAttenuation(
-				dot(-lightDir, coneDirection),
-				frame.spotLights[i].directionOuter.w,
-				frame.spotLights[i].colorInner.w
-			);
-			if (cone <= 0.0) {
-				continue;
-			}
-			if (doShadowSample) {
-				spotVisibility[i] = traceHiZShadowCone(
-					samplePos + lightDir * params.depthThickness,
-					lightDir,
-					distanceValue,
-					shadowStepWorld
-				);
-			}
-			let phase = henyeyGreenstein(dot(rayDir, lightDir), anisotropy);
-			let attenuation = pointAttenuation(distanceSq, lightRange) * cone;
-			inScatter +=
-				frame.spotLights[i].colorInner.xyz *
-				attenuation *
-				spotVisibility[i] *
-				phase;
+			selectedVisibility = sampled.w;
+			inScatter = sampled.rgb * restirScale;
 		}
 
 		let extinction = exp(-sigmaT * sampleT);
@@ -373,14 +527,6 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 
 	let volumetricCurrent = max(accum * max(params.exposure, 0.0), vec3<f32>(0.0));
-	let safeInvSize = vec2<f32>(
-		max(params.invSize.x, 1e-6),
-		max(params.invSize.y, 1e-6)
-	);
-	let motion = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).xy;
-	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
-	let insidePrev =
-		prevUv.x >= 0.0 && prevUv.x <= 1.0 && prevUv.y >= 0.0 && prevUv.y <= 1.0;
 	let prevVolumetric = textureSampleLevel(
 		volumetricHistory,
 		linearSampler,
@@ -389,7 +535,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 	let currDepthForHistory = select(maxDistance, depth, hasSurface);
 	let prevDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).z;
-	var depthConfidence = 0.0;
+	var depthConfidence = 1.0;
 	if (hasSurface) {
 		let hasPrevDepth = prevDepth > 0.0;
 		let relDepth =
@@ -416,7 +562,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let relLumaDiff = abs(currLuma - prevLuma) / max(max(currLuma, prevLuma), 1e-3);
 	let colorConfidence = 1.0 - smoothstep(0.15, 0.85, relLumaDiff);
 
-	let validBase = params.historyValid > 0.5 && insidePrev && hasSurface;
+	let validBase = params.historyValid > 0.5 && insidePrev;
 	let historyConfidence = select(
 		0.0,
 		clamp(depthConfidence * reprojectionConfidence * colorConfidence, 0.0, 1.0),
@@ -431,6 +577,17 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let blend = clamp(adaptiveHistory * historyConfidence, 0.0, TEMPORAL_HISTORY_WEIGHT);
 	let volumetric = mix(volumetricCurrent, prevVolumetric.rgb, blend);
 
+	let storedIndex = select(-1.0, f32(reservoir.lightIndex), reservoir.lightIndex >= 0);
+	let storedWeightSum = min(max(reservoir.weightSum, 0.0), 65000.0);
+	let storedSelectedWeight = min(max(reservoir.selectedWeight, 0.0), 65000.0);
+	let storedSampleCount = min(max(reservoir.sampleCount, 0.0), 65000.0);
+
+	textureStore(outReservoirHistory, coord, vec4<f32>(
+		storedIndex,
+		storedWeightSum,
+		storedSelectedWeight,
+		storedSampleCount
+	));
 	textureStore(outHistory, coord, vec4<f32>(volumetric, 1.0));
 	textureStore(
 		outColor,

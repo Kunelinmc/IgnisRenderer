@@ -136,6 +136,9 @@ export interface VolumetricOptions {
 	adaptiveSteps?: boolean;
 	useBilateralUpscale?: boolean;
 	bilateralDepthSigma?: number;
+	restirCandidates?: number;
+	restirTemporalWeight?: number;
+	restirScaleClamp?: number;
 	[key: string]: unknown;
 }
 
@@ -257,6 +260,9 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 		| "adaptiveSteps"
 		| "useBilateralUpscale"
 		| "bilateralDepthSigma"
+		| "restirCandidates"
+		| "restirTemporalWeight"
+		| "restirScaleClamp"
 	>
 > = {
 	samples: 32,
@@ -272,6 +278,9 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 	adaptiveSteps: true,
 	useBilateralUpscale: true,
 	bilateralDepthSigma: 0.05,
+	restirCandidates: 8,
+	restirTemporalWeight: 0.8,
+	restirScaleClamp: 24,
 };
 
 export interface FeatureWarning {

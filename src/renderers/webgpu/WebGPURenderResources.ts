@@ -254,6 +254,10 @@ export class WebGPURenderResources {
 		return this._frameBindings.getSceneBinding();
 	}
 
+	public getLightingState(): WebGPULightingState | null {
+		return this._lightingState;
+	}
+
 	public get sceneFrameLayout(): GPUBindGroupLayout {
 		return this._layouts.sceneFrameBindGroupLayout;
 	}

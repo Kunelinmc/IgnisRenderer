@@ -33,6 +33,17 @@ export interface WebGPUSpotLightUniform extends WebGPUPointLightUniform {
 export type WebGPUDirectionalLight = WebGPUDirectionalLightUniform;
 export type WebGPUPointLight = WebGPUPointLightUniform;
 export type WebGPUSpotLight = WebGPUSpotLightUniform;
+export type WebGPUVolumetricLightType = 0 | 1 | 2;
+
+export interface WebGPUVolumetricLightUniform
+	extends WebGPULightUniformBase {
+	type: WebGPUVolumetricLightType;
+	position: WebGPUVec3;
+	range: number;
+	direction: WebGPUVec3;
+	outerCos: number;
+	innerCos: number;
+}
 
 export interface WebGPUShadowData {
 	enabled: boolean;
@@ -54,6 +65,7 @@ export interface WebGPULightingState {
 	pointLights: WebGPUPointLightUniform[];
 	spotLights: WebGPUSpotLightUniform[];
 	spotShadows: WebGPUShadowData[];
+	volumetricLights: WebGPUVolumetricLightUniform[];
 	warnings: WebGPUWarning[];
 }
 

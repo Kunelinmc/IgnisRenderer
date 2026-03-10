@@ -212,7 +212,7 @@ function configureRenderer(renderer: Renderer): void {
 		renderer.features.enableTAA = false;
 		renderer.features.enableFXAA = true;
 		renderer.features.enableSSR = false;
-		renderer.features.enableVolumetric = false;
+		renderer.features.enableVolumetric = true;
 		return;
 	}
 

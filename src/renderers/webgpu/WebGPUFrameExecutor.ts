@@ -100,6 +100,8 @@ export class WebGPUFrameExecutor {
 	private _ssrHistoryB: IRenderTexture | null = null;
 	private _volumetricHistoryA: IRenderTexture | null = null;
 	private _volumetricHistoryB: IRenderTexture | null = null;
+	private _volumetricReservoirHistoryA: IRenderTexture | null = null;
+	private _volumetricReservoirHistoryB: IRenderTexture | null = null;
 	private _motionHistoryA: IRenderTexture | null = null;
 	private _motionHistoryB: IRenderTexture | null = null;
 	private _postGraphExecuted = false;
@@ -351,13 +353,15 @@ export class WebGPUFrameExecutor {
 				execute: async (ctx) => {
 					const historyValid =
 						this._volumetricHistoryValid && this._motionHistoryValid;
+					const lightingState = this._resources.getLightingState();
 					this._volumetricHistoryUpdated =
 						await this._postRuntime.executeVolumetric(
 						ctx.encoder,
 						ctx.targets,
 						ctx.frameContext,
 						historyValid,
-						this._resources.getFrameBinding()
+						this._resources.getFrameBinding(),
+						lightingState
 					);
 				},
 			},
@@ -567,6 +571,20 @@ export class WebGPUFrameExecutor {
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
 			label: "WebGPUVolumetricHistoryB",
 		});
+		const volumetricReservoirHistoryA = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: "WebGPUVolumetricReservoirHistoryA",
+		});
+		const volumetricReservoirHistoryB = this._backend.createTexture({
+			width,
+			height,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+			label: "WebGPUVolumetricReservoirHistoryB",
+		});
 		const motionHistoryA = this._backend.createTexture({
 			width,
 			height,
@@ -624,6 +642,8 @@ export class WebGPUFrameExecutor {
 			ssrHistoryWrite: ssrHistoryB,
 			volumetricHistoryRead: volumetricHistoryA,
 			volumetricHistoryWrite: volumetricHistoryB,
+			volumetricReservoirHistoryRead: volumetricReservoirHistoryA,
+			volumetricReservoirHistoryWrite: volumetricReservoirHistoryB,
 			motionHistoryRead: motionHistoryA,
 			motionHistoryWrite: motionHistoryB,
 		};
@@ -633,6 +653,8 @@ export class WebGPUFrameExecutor {
 		this._ssrHistoryB = ssrHistoryB;
 		this._volumetricHistoryA = volumetricHistoryA;
 		this._volumetricHistoryB = volumetricHistoryB;
+		this._volumetricReservoirHistoryA = volumetricReservoirHistoryA;
+		this._volumetricReservoirHistoryB = volumetricReservoirHistoryB;
 		this._motionHistoryA = motionHistoryA;
 		this._motionHistoryB = motionHistoryB;
 		this._applyTAAHistoryFlip(this._frameTargets);
@@ -662,13 +684,26 @@ export class WebGPUFrameExecutor {
 	}
 
 	private _applyVolumetricHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._volumetricHistoryA || !this._volumetricHistoryB) return;
+		if (
+			!this._volumetricHistoryA ||
+			!this._volumetricHistoryB ||
+			!this._volumetricReservoirHistoryA ||
+			!this._volumetricReservoirHistoryB
+		) {
+			return;
+		}
 		targets.volumetricHistoryRead = this._volumetricHistoryFlip
 			? this._volumetricHistoryB
 			: this._volumetricHistoryA;
 		targets.volumetricHistoryWrite = this._volumetricHistoryFlip
 			? this._volumetricHistoryA
 			: this._volumetricHistoryB;
+		targets.volumetricReservoirHistoryRead = this._volumetricHistoryFlip
+			? this._volumetricReservoirHistoryB
+			: this._volumetricReservoirHistoryA;
+		targets.volumetricReservoirHistoryWrite = this._volumetricHistoryFlip
+			? this._volumetricReservoirHistoryA
+			: this._volumetricReservoirHistoryB;
 	}
 
 	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
@@ -702,6 +737,8 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.ssrHistoryWrite,
 			this._frameTargets.volumetricHistoryRead,
 			this._frameTargets.volumetricHistoryWrite,
+			this._frameTargets.volumetricReservoirHistoryRead,
+			this._frameTargets.volumetricReservoirHistoryWrite,
 			this._frameTargets.motionHistoryRead,
 			this._frameTargets.motionHistoryWrite,
 		]);
@@ -715,6 +752,8 @@ export class WebGPUFrameExecutor {
 		this._ssrHistoryB = null;
 		this._volumetricHistoryA = null;
 		this._volumetricHistoryB = null;
+		this._volumetricReservoirHistoryA = null;
+		this._volumetricReservoirHistoryB = null;
 		this._motionHistoryA = null;
 		this._motionHistoryB = null;
 		this._presentBinding = null;

@@ -21,6 +21,7 @@ import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
 import { loadPostProcessShaderPart } from "../../shaders/webgpu/shaderSource";
 import type { IBindingGroup } from "../types";
+import type { WebGPULightingState } from "./types";
 
 interface InternalTexture extends IRenderTexture {
 	_gpuTexture?: GPUTexture;
@@ -34,6 +35,9 @@ const DEFAULT_FXAA = {
 	edgeThresholdMultiplier: 0.166,
 	subpixQuality: 0.75,
 };
+
+const VOLUMETRIC_LIGHT_STRIDE_FLOATS = 12;
+const MAX_VOLUMETRIC_LIGHTS = 65000;
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -63,6 +67,9 @@ export class WebGPUPostProcessRuntime {
 	private _volumetricModule: IShaderModule | null = null;
 	private _volumetricPipeline: IComputePipeline | null = null;
 	private _volumetricParams: IRenderBuffer | null = null;
+	private _volumetricLightBuffer: IRenderBuffer | null = null;
+	private _volumetricLightCapacity = 0;
+	private _volumetricFrameIndex = 0;
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
@@ -433,7 +440,8 @@ export class WebGPUPostProcessRuntime {
 		targets: WebGPUFrameTargets,
 		frameContext: FrameContext,
 		historyValid: boolean,
-		frameBinding: IBindingGroup
+		frameBinding: IBindingGroup,
+		lightingState: WebGPULightingState | null
 	): Promise<boolean> {
 		if (frameContext.camera.type === CameraType.Orthographic) {
 			this._warn(
@@ -443,7 +451,13 @@ export class WebGPUPostProcessRuntime {
 			return false;
 		}
 		await this._ensureVolumetricResources();
-		if (!this._sampler || !this._volumetricPipeline || !this._volumetricParams) {
+		const lightCount = this._updateVolumetricLightBuffer(lightingState);
+		if (
+			!this._sampler ||
+			!this._volumetricPipeline ||
+			!this._volumetricParams ||
+			!this._volumetricLightBuffer
+		) {
 			return false;
 		}
 		const hiZMips = this._getHiZMipViews(targets.hiZ);
@@ -512,6 +526,34 @@ export class WebGPUPostProcessRuntime {
 			) * 8
 		);
 		const maxMip = Math.max(0, hiZMips.length - 1);
+		const restirCandidates = Math.max(
+			1,
+			Math.min(
+				64,
+				finiteOr(
+					options["restirCandidates"],
+					DEFAULT_VOLUMETRIC_OPTIONS.restirCandidates
+				)
+			)
+		);
+		const restirTemporalWeight = Math.max(
+			0,
+			Math.min(
+				1,
+				finiteOr(
+					options["restirTemporalWeight"],
+					DEFAULT_VOLUMETRIC_OPTIONS.restirTemporalWeight
+				)
+			)
+		);
+		const restirScaleClamp = Math.max(
+			1,
+			finiteOr(
+				options["restirScaleClamp"],
+				DEFAULT_VOLUMETRIC_OPTIONS.restirScaleClamp
+			)
+		);
+		this._volumetricFrameIndex = (this._volumetricFrameIndex + 1) % 4096;
 
 		this._backend.writeBuffer(
 			this._volumetricParams,
@@ -531,7 +573,11 @@ export class WebGPUPostProcessRuntime {
 				maxMip,
 				0.75,
 				historyValid ? 1 : 0,
-				0,
+				lightCount,
+				restirCandidates,
+				restirTemporalWeight,
+				restirScaleClamp,
+				this._volumetricFrameIndex,
 			])
 		);
 
@@ -552,6 +598,15 @@ export class WebGPUPostProcessRuntime {
 				{ binding: 6, resource: this._volumetricParams },
 				{ binding: 7, resource: target },
 				{ binding: 8, resource: targets.volumetricHistoryWrite },
+				{
+					binding: 9,
+					resource: targets.volumetricReservoirHistoryRead,
+				},
+				{
+					binding: 10,
+					resource: targets.volumetricReservoirHistoryWrite,
+				},
+				{ binding: 11, resource: this._volumetricLightBuffer },
 			],
 			"WebGPUVolumetric_Binding"
 		);
@@ -611,6 +666,79 @@ export class WebGPUPostProcessRuntime {
 		);
 		encoder.endComputePass();
 		targets.sceneColor = target;
+	}
+
+	private _updateVolumetricLightBuffer(
+		lightingState: WebGPULightingState | null
+	): number {
+		const sourceLights = lightingState?.volumetricLights ?? [];
+		const clampedLightCount = Math.min(sourceLights.length, MAX_VOLUMETRIC_LIGHTS);
+		if (sourceLights.length > MAX_VOLUMETRIC_LIGHTS) {
+			this._warn(
+				"webgpu-volumetric-light-count-clamped",
+				`WebGPU volumetric ReSTIR clamps light count to ${MAX_VOLUMETRIC_LIGHTS}; extra lights are skipped`
+			);
+		}
+
+		this._ensureVolumetricLightBufferCapacity(clampedLightCount);
+		if (!this._volumetricLightBuffer) return 0;
+
+		const packedCount = Math.max(1, clampedLightCount);
+		const packed = new Float32Array(
+			packedCount * VOLUMETRIC_LIGHT_STRIDE_FLOATS
+		);
+
+		for (let i = 0; i < clampedLightCount; i++) {
+			const light = sourceLights[i];
+			const base = i * VOLUMETRIC_LIGHT_STRIDE_FLOATS;
+			const isDirectional = light.type === 0;
+			const isSpot = light.type === 2;
+
+			packed[base] = light.position[0];
+			packed[base + 1] = light.position[1];
+			packed[base + 2] = light.position[2];
+			packed[base + 3] = isDirectional
+				? -1
+				: Math.max(light.range, 0.001);
+			packed[base + 4] = light.direction[0];
+			packed[base + 5] = light.direction[1];
+			packed[base + 6] = light.direction[2];
+			packed[base + 7] = isSpot ? light.outerCos : -2;
+			packed[base + 8] = light.color[0];
+			packed[base + 9] = light.color[1];
+			packed[base + 10] = light.color[2];
+			packed[base + 11] = isSpot ? light.innerCos : -2;
+		}
+
+		if (clampedLightCount === 0) {
+			packed[3] = -1;
+		}
+
+		this._backend.writeBuffer(this._volumetricLightBuffer, packed);
+		return clampedLightCount;
+	}
+
+	private _ensureVolumetricLightBufferCapacity(lightCount: number): void {
+		const required = Math.max(1, lightCount);
+		if (
+			this._volumetricLightBuffer &&
+			this._volumetricLightCapacity >= required
+		) {
+			return;
+		}
+
+		let capacity = Math.max(1, this._volumetricLightCapacity);
+		while (capacity < required) {
+			capacity *= 2;
+		}
+
+		this._volumetricLightBuffer?.destroy();
+		this._volumetricLightBuffer = this._backend.createBuffer({
+			label: "WebGPUVolumetricLights",
+			size: capacity * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
+			usage: BufferUsage.Storage | BufferUsage.CopyDst,
+		});
+		this._volumetricLightCapacity = capacity;
 	}
 
 	private async _copyTexture(
@@ -925,6 +1053,20 @@ export class WebGPUPostProcessRuntime {
 								access: "write-only",
 							},
 						},
+						{ binding: 9, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{
+							binding: 10,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: {
+								format: "rgba16float",
+								access: "write-only",
+							},
+						},
+						{
+							binding: 11,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "read-only-storage" },
+						},
 					],
 				});
 				this._volumetricPipelineLayout = device.createPipelineLayout({
@@ -949,7 +1091,7 @@ export class WebGPUPostProcessRuntime {
 		if (!this._volumetricParams)
 			this._volumetricParams = this._backend.createBuffer({
 				label: "WebGPUVolumetricParams",
-				size: 16 * 4,
+				size: 20 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}
