@@ -21,6 +21,8 @@ export type TextureColorSpace = "sRGB" | "Linear" | "HDR";
  * Texture class to store image data and metadata for UV mapping.
  */
 export class Texture {
+	private static _dynamicTextures = new Set<Texture>();
+
 	data: Uint8ClampedArray | Float32Array | Uint8Array | null;
 	width: number;
 	height: number;
@@ -42,6 +44,8 @@ export class Texture {
 	 * mipmaps[0] is the base texture (same as this.data).
 	 */
 	mipmaps: (Uint8ClampedArray | Float32Array | Uint8Array)[];
+	version: number;
+	private _isDynamicTexture: boolean;
 
 	constructor(
 		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
@@ -61,6 +65,8 @@ export class Texture {
 		this.rotation = 0;
 		this.colorSpace = colorSpace;
 		this.mipmaps = data ? [data] : [];
+		this.version = 0;
+		this._isDynamicTexture = false;
 	}
 
 	public clone(): Texture {
@@ -78,6 +84,46 @@ export class Texture {
 		cloned.repeat = { ...this.repeat };
 		cloned.rotation = this.rotation;
 		return cloned;
+	}
+
+	/**
+	 * Marks this texture as changed so render backends can re-upload it.
+	 */
+	public markNeedsUpdate(): void {
+		this.version++;
+	}
+
+	/**
+	 * Per-frame update hook for animated textures (e.g. video).
+	 * Returns true when texture content changed this frame.
+	 */
+	public update(_timeMs: number = 0): boolean {
+		return false;
+	}
+
+	/**
+	 * Releases dynamic-texture bookkeeping.
+	 */
+	public dispose(): void {
+		if (!this._isDynamicTexture) return;
+		Texture._dynamicTextures.delete(this);
+		this._isDynamicTexture = false;
+	}
+
+	protected _registerAsDynamicTexture(): void {
+		if (this._isDynamicTexture) return;
+		this._isDynamicTexture = true;
+		Texture._dynamicTextures.add(this);
+	}
+
+	public static updateDynamicTextures(timeMs: number = 0): boolean {
+		let updated = false;
+		for (const texture of Texture._dynamicTextures) {
+			if (texture.update(timeMs)) {
+				updated = true;
+			}
+		}
+		return updated;
 	}
 
 	/**

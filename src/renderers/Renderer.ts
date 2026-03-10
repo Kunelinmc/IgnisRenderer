@@ -8,6 +8,7 @@ import { ShadowMap } from "../utils/ShadowMapping";
 import { LightingConstants } from "../core/constants";
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
+import { Texture } from "../core/Texture";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { FramePlanner } from "../pipeline/FramePlanner";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
@@ -195,6 +196,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		const hasParticleSystems = this.scene.getParticleSystems().length > 0;
 		const hasActiveAnimations = this.animationSystem.hasActiveActions();
+		const hasDynamicTextureUpdates = Texture.updateDynamicTextures(now);
+		if (hasDynamicTextureUpdates) {
+			this._frameDirty = true;
+		}
 		if (
 			!this._frameDirty &&
 			this.backend.frameScheduling === "on-demand" &&

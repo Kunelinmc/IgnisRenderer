@@ -1,4 +1,5 @@
 import type { Texture } from "../../core/Texture";
+import { VideoTexture } from "../../core/VideoTexture";
 import {
 	AddressMode,
 	FilterMode,
@@ -10,10 +11,16 @@ import {
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
 
+interface TextureCacheEntry {
+	resource: IRenderTexture;
+	mipLevelCount: number;
+}
+
 export class WebGPUTextureRegistry {
 	private _backend: WebGPUBackend;
-	private _textureCache = new WeakMap<Texture, IRenderTexture>();
+	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _samplerCache = new WeakMap<Texture, ISampler>();
+	private _uploadedVersionCache = new WeakMap<Texture, number>();
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
 	private _whiteSampler: ISampler | null = null;
@@ -26,7 +33,10 @@ export class WebGPUTextureRegistry {
 		texture: Texture | null,
 		slotIndex: number
 	): IRenderTexture {
-		if (!texture?.data || texture.width <= 0 || texture.height <= 0) {
+		if (
+			!this._isTextureDimensionValid(texture?.width, texture?.height) ||
+			(!texture?.data && !(texture instanceof VideoTexture))
+		) {
 			return (
 					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
 						slotIndex === WEBGPU_TEXTURE_SLOT.CLEARCOAT_NORMAL
@@ -35,10 +45,18 @@ export class WebGPUTextureRegistry {
 				:	this.getWhiteTexture();
 		}
 
-		let cached = this._textureCache.get(texture);
-		if (!cached) {
-			const mipLevelCount = Math.max(1, texture.mipmaps.length || 1);
-			cached = this._backend.createTexture({
+		const mipLevelCount = Math.max(1, texture.mipmaps.length || 1);
+		let cacheEntry = this._textureCache.get(texture);
+		const shouldRecreateTexture =
+			!cacheEntry ||
+			cacheEntry.resource.width !== texture.width ||
+			cacheEntry.resource.height !== texture.height ||
+			cacheEntry.mipLevelCount !== mipLevelCount;
+
+		if (shouldRecreateTexture) {
+			cacheEntry?.resource.destroy();
+
+			const resource = this._backend.createTexture({
 				width: texture.width,
 				height: texture.height,
 				format: TextureFormat.RGBA8Unorm,
@@ -47,27 +65,44 @@ export class WebGPUTextureRegistry {
 				label: `Texture_${slotIndex}_${texture.width}x${texture.height}`,
 			});
 
-			const uploads = createTextureMipUploadLevels(texture);
-			for (const upload of uploads) {
-				this._backend.writeTexture(
-					cached,
-					new Uint8Array(upload.data),
-					{
-						bytesPerRow: upload.bytesPerRow,
-						rowsPerImage: upload.height,
-						mipLevel: upload.mipLevel,
-					},
-					{
-						width: upload.width,
-						height: upload.height,
-						depthOrArrayLayers: 1,
-					}
-				);
-			}
-			this._textureCache.set(texture, cached);
+			cacheEntry = {
+				resource,
+				mipLevelCount,
+			};
+			this._textureCache.set(texture, cacheEntry);
+			this._uploadedVersionCache.delete(texture);
 		}
 
-		return cached;
+		const uploadedVersion = this._uploadedVersionCache.get(texture);
+		if (uploadedVersion !== texture.version) {
+			const usedVideoFastPath =
+				texture instanceof VideoTexture &&
+				this._tryUploadVideoFrame(texture, cacheEntry.resource);
+
+			if (!usedVideoFastPath) {
+				const uploads = createTextureMipUploadLevels(texture);
+				for (const upload of uploads) {
+					const uploadData = this._toArrayBufferBackedView(upload.data);
+					this._backend.writeTexture(
+						cacheEntry.resource,
+						uploadData,
+						{
+							bytesPerRow: upload.bytesPerRow,
+							rowsPerImage: upload.height,
+							mipLevel: upload.mipLevel,
+						},
+						{
+							width: upload.width,
+							height: upload.height,
+							depthOrArrayLayers: 1,
+						}
+					);
+				}
+			}
+			this._uploadedVersionCache.set(texture, texture.version);
+		}
+
+		return cacheEntry.resource;
 	}
 
 	public getSamplerForTexture(texture: Texture | null): ISampler {
@@ -167,5 +202,76 @@ export class WebGPUTextureRegistry {
 		return value === "Nearest" || value === "NearestMipmapNearest" ?
 				FilterMode.Nearest
 			:	FilterMode.Linear;
+	}
+
+	private _toArrayBufferBackedView(
+		data: Uint8Array
+	): Uint8Array<ArrayBuffer> {
+		if (data.buffer instanceof ArrayBuffer) {
+			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+		}
+		return new Uint8Array(data);
+	}
+
+	private _isTextureDimensionValid(
+		width: number | undefined,
+		height: number | undefined
+	): boolean {
+		return (
+			typeof width === "number" &&
+			typeof height === "number" &&
+			Number.isFinite(width) &&
+			Number.isFinite(height) &&
+			width > 0 &&
+			height > 0
+		);
+	}
+
+	private _tryUploadVideoFrame(
+		texture: VideoTexture,
+		target: IRenderTexture
+	): boolean {
+		if (texture.mipmaps.length > 1) {
+			return false;
+		}
+
+		const queue = (this._backend as any).queue as any;
+		if (!queue || typeof queue.copyExternalImageToTexture !== "function") {
+			return false;
+		}
+
+		const gpuTexture =
+			(target as any)._gpuTexture ?? (target as any)._gpuResource;
+		if (!gpuTexture) {
+			return false;
+		}
+
+		const video = texture.video;
+		if (
+			!video ||
+			video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+			!this._isTextureDimensionValid(video.videoWidth, video.videoHeight)
+		) {
+			return false;
+		}
+
+		try {
+			queue.copyExternalImageToTexture(
+				{
+					source: video,
+				},
+				{
+					texture: gpuTexture,
+				},
+				{
+					width: texture.width,
+					height: texture.height,
+					depthOrArrayLayers: 1,
+				}
+			);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 }

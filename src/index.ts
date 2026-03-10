@@ -52,6 +52,7 @@ export * from "./animation";
 export * from "./particles";
 export * from "./lights";
 export { Texture, type TextureColorSpace } from "./core/Texture";
+export { VideoTexture, type VideoTextureParams } from "./core/VideoTexture";
 export { TextureLoader } from "./loaders/TextureLoader";
 export { OBJLoader } from "./loaders/OBJLoader";
 export { GLTFLoader } from "./loaders/GLTFLoader";

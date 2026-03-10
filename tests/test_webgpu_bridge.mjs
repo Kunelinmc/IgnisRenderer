@@ -27,6 +27,8 @@ import { ShadowMap } from "../src/utils/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
+import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
+import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -61,6 +63,7 @@ class FakeBackend {
 		this.bufferDescs = [];
 		this.pipelines = [];
 		this.bindingGroups = [];
+		this.textureWrites = [];
 		this.device = new FakeDevice();
 	}
 
@@ -107,6 +110,7 @@ class FakeBackend {
 	}
 
 	writeTexture(texture, data, layout, size) {
+		this.textureWrites.push({ texture, data, layout, size });
 		texture.lastWrite = { data, layout, size };
 	}
 }
@@ -780,6 +784,41 @@ async function testParticleUVLayoutAndUniformBinding() {
 	assert.ok(Math.abs(uvTransform[5] - Math.sin(Math.PI / 4)) < 1e-6);
 }
 
+function testDynamicTextureReuploadOnVersionChange() {
+	const backend = new FakeBackend();
+	const registry = new WebGPUTextureRegistry(backend);
+	const texture = new Texture(
+		new Uint8ClampedArray([10, 20, 30, 255]),
+		1,
+		1,
+		"sRGB"
+	);
+
+	const first = registry.getTextureForSlot(
+		texture,
+		WEBGPU_TEXTURE_SLOT.BASE_COLOR
+	);
+	assert.ok(first);
+	assert.equal(backend.textureWrites.length, 1);
+
+	const second = registry.getTextureForSlot(
+		texture,
+		WEBGPU_TEXTURE_SLOT.BASE_COLOR
+	);
+	assert.equal(second, first);
+	assert.equal(backend.textureWrites.length, 1);
+
+	texture.data[0] = 200;
+	texture.markNeedsUpdate();
+
+	const third = registry.getTextureForSlot(
+		texture,
+		WEBGPU_TEXTURE_SLOT.BASE_COLOR
+	);
+	assert.equal(third, first);
+	assert.equal(backend.textureWrites.length, 2);
+}
+
 async function run() {
 	testMatrixPackingAndDepthRemap();
 	testTransformComposition();
@@ -793,6 +832,7 @@ async function run() {
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
+	testDynamicTextureReuploadOnVersionChange();
 	console.log("WebGPU bridge tests passed");
 }
 
