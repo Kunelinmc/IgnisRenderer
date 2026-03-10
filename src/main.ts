@@ -3,7 +3,6 @@ import {
 	DirectionalLight,
 	GLTFLoader,
 	MeshFactory,
-	MeshInstance,
 	Node,
 	OrbitCamera,
 	PBRMaterial,
@@ -212,7 +211,7 @@ function configureRenderer(renderer: Renderer): void {
 		renderer.features.enableTAA = false;
 		renderer.features.enableFXAA = true;
 		renderer.features.enableSSR = false;
-		renderer.features.enableVolumetric = true;
+		renderer.features.enableVolumetric = false;
 		return;
 	}
 

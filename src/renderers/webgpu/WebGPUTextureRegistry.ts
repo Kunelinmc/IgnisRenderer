@@ -27,10 +27,12 @@ export class WebGPUTextureRegistry {
 		slotIndex: number
 	): IRenderTexture {
 		if (!texture?.data || texture.width <= 0 || texture.height <= 0) {
-			return slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
-				slotIndex === WEBGPU_TEXTURE_SLOT.CLEARCOAT_NORMAL
-				? this.getNeutralNormalTexture()
-				: this.getWhiteTexture();
+			return (
+					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
+						slotIndex === WEBGPU_TEXTURE_SLOT.CLEARCOAT_NORMAL
+				) ?
+					this.getNeutralNormalTexture()
+				:	this.getWhiteTexture();
 		}
 
 		let cached = this._textureCache.get(texture);
@@ -162,8 +164,8 @@ export class WebGPUTextureRegistry {
 	}
 
 	private _mapFilterMode(value?: string): FilterMode {
-		return value === "Nearest" || value === "NearestMipmapNearest"
-			? FilterMode.Nearest
-			: FilterMode.Linear;
+		return value === "Nearest" || value === "NearestMipmapNearest" ?
+				FilterMode.Nearest
+			:	FilterMode.Linear;
 	}
 }

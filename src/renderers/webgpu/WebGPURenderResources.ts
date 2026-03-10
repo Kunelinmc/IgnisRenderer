@@ -566,9 +566,9 @@ export class WebGPURenderResources {
 			);
 			this._backend.writeBuffer(uvTransformBuffer, uvTransformData);
 			const pipeline =
-				range.batch.blendMode === ParticleBlendMode.Additive
-					? additivePipeline
-					: alphaPipeline;
+				range.batch.blendMode === ParticleBlendMode.Additive ?
+					additivePipeline
+				:	alphaPipeline;
 			encoder.setPipeline(pipeline);
 			encoder.setBindingGroup(1, particleBinding);
 			encoder.draw(6, range.instanceCount, 0, range.firstInstance);
@@ -627,41 +627,41 @@ export class WebGPURenderResources {
 		blendMode: ParticleBlendMode
 	): void {
 		const cache =
-			blendMode === ParticleBlendMode.Additive
-				? this._particlePipelineAdditive
-				: this._particlePipelineAlpha;
+			blendMode === ParticleBlendMode.Additive ?
+				this._particlePipelineAdditive
+			:	this._particlePipelineAlpha;
 		if (cache.has(mode) || !this._particleShaderModule) return;
 
 		const blend =
-			blendMode === ParticleBlendMode.Additive
-				? {
-						color: {
-							srcFactor: "src-alpha",
-							dstFactor: "one",
-							operation: "add",
-						},
-						alpha: {
-							srcFactor: "one",
-							dstFactor: "one",
-							operation: "add",
-						},
-					}
-				: {
-						color: {
-							srcFactor: "src-alpha",
-							dstFactor: "one-minus-src-alpha",
-							operation: "add",
-						},
-						alpha: {
-							srcFactor: "one",
-							dstFactor: "one-minus-src-alpha",
-							operation: "add",
-						},
-					};
+			blendMode === ParticleBlendMode.Additive ?
+				{
+					color: {
+						srcFactor: "src-alpha",
+						dstFactor: "one",
+						operation: "add",
+					},
+					alpha: {
+						srcFactor: "one",
+						dstFactor: "one",
+						operation: "add",
+					},
+				}
+			:	{
+					color: {
+						srcFactor: "src-alpha",
+						dstFactor: "one-minus-src-alpha",
+						operation: "add",
+					},
+					alpha: {
+						srcFactor: "one",
+						dstFactor: "one-minus-src-alpha",
+						operation: "add",
+					},
+				};
 		const colorFormat =
-			mode === "mrt"
-				? TextureFormat.RGBA16Float
-				: (this._backend.canvasFormat as any);
+			mode === "mrt" ?
+				TextureFormat.RGBA16Float
+			:	(this._backend.canvasFormat as any);
 		const depthFormat =
 			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
 
@@ -723,11 +723,16 @@ export class WebGPURenderResources {
 		packet: DrawPacket,
 		geometry: WebGPUGeometryHandle
 	): WebGPUModelAnimationBindingState {
-		const runtimeJoint = this._jointMatrixMap?.get(packet.meshInstance.id) ?? null;
+		const runtimeJoint =
+			this._jointMatrixMap?.get(packet.meshInstance.id) ?? null;
 		let jointMatrices: Float32Array | null = null;
 		if (runtimeJoint?.skeleton) {
-			runtimeJoint.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
-			jointMatrices = runtimeJoint.skeleton.toFloat32Array(runtimeJoint.matrices);
+			runtimeJoint.skeleton.updateJointMatrices(
+				packet.meshInstance.worldMatrix
+			);
+			jointMatrices = runtimeJoint.skeleton.toFloat32Array(
+				runtimeJoint.matrices
+			);
 		} else if (packet.meshInstance.skeleton) {
 			packet.meshInstance.skeleton.updateJointMatrices(
 				packet.meshInstance.worldMatrix
@@ -741,9 +746,9 @@ export class WebGPURenderResources {
 		if (!sourceMorphWeights || morphTargetCount <= 0) {
 			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
 			const instanceWeights =
-				primitiveIndex >= 0
-					? packet.meshInstance.morphWeights[primitiveIndex]
-					: null;
+				primitiveIndex >= 0 ?
+					packet.meshInstance.morphWeights[primitiveIndex]
+				:	null;
 			sourceMorphWeights = instanceWeights ?? null;
 			morphTargetCount = sourceMorphWeights?.length ?? 0;
 		}

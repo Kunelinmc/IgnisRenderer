@@ -225,9 +225,9 @@ export class WebGPUPostProcessRuntime {
 		encoder.endComputePass();
 
 		const combineTarget =
-			targets.sceneColor === targets.postPing
-				? targets.postPong
-				: targets.postPing;
+			targets.sceneColor === targets.postPing ?
+				targets.postPong
+			:	targets.postPing;
 		binding = this._getCachedBindGroup(
 			`ssao-combine-${combineTarget === targets.postPing ? "ping" : "pong"}`,
 			this._ssaoCombinePipeline,
@@ -262,9 +262,9 @@ export class WebGPUPostProcessRuntime {
 		if (!this._sampler || !this._taaPipeline || !this._taaParams) return false;
 		const options = frameContext.features.taaOptions ?? {};
 		const taaTarget =
-			targets.sceneColor === targets.postPong
-				? targets.postPing
-				: targets.postPong;
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
 		const invW = 1 / Math.max(taaTarget.width, 1);
 		const invH = 1 / Math.max(taaTarget.height, 1);
 		this._backend.writeBuffer(
@@ -397,9 +397,9 @@ export class WebGPUPostProcessRuntime {
 		encoder.endComputePass();
 		await this._copyTexture(encoder, targets.ssrRaw, targets.ssrHistoryWrite);
 		const composeTarget =
-			targets.sceneColor === targets.postPing
-				? targets.postPong
-				: targets.postPing;
+			targets.sceneColor === targets.postPing ?
+				targets.postPong
+			:	targets.postPing;
 		this._backend.writeBuffer(
 			this._ssrComposeParams,
 			new Float32Array([
@@ -582,9 +582,9 @@ export class WebGPUPostProcessRuntime {
 		);
 
 		const target =
-			targets.sceneColor === targets.postPong
-				? targets.postPing
-				: targets.postPong;
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
 		const binding = this._getCachedBindGroup(
 			`volumetric-${target === targets.postPing ? "ping" : "pong"}`,
 			this._volumetricPipeline,
@@ -631,9 +631,9 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureFXAAResources();
 		if (!this._sampler || !this._fxaaPipeline || !this._fxaaParams) return;
 		const target =
-			targets.sceneColor === targets.postPong
-				? targets.postPing
-				: targets.postPong;
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
 		this._backend.writeBuffer(
 			this._fxaaParams,
 			new Float32Array([
@@ -672,7 +672,10 @@ export class WebGPUPostProcessRuntime {
 		lightingState: WebGPULightingState | null
 	): number {
 		const sourceLights = lightingState?.volumetricLights ?? [];
-		const clampedLightCount = Math.min(sourceLights.length, MAX_VOLUMETRIC_LIGHTS);
+		const clampedLightCount = Math.min(
+			sourceLights.length,
+			MAX_VOLUMETRIC_LIGHTS
+		);
 		if (sourceLights.length > MAX_VOLUMETRIC_LIGHTS) {
 			this._warn(
 				"webgpu-volumetric-light-count-clamped",
@@ -697,9 +700,7 @@ export class WebGPUPostProcessRuntime {
 			packed[base] = light.position[0];
 			packed[base + 1] = light.position[1];
 			packed[base + 2] = light.position[2];
-			packed[base + 3] = isDirectional
-				? -1
-				: Math.max(light.range, 0.001);
+			packed[base + 3] = isDirectional ? -1 : Math.max(light.range, 0.001);
 			packed[base + 4] = light.direction[0];
 			packed[base + 5] = light.direction[1];
 			packed[base + 6] = light.direction[2];

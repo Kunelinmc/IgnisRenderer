@@ -308,9 +308,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const probe = light as LightProbe;
 				const probeSH = probe.sh;
 				const intensity = light.intensity ?? 1;
-				const probeScale = probe.prefilteredMap
-					? LightingConstants.BAKED_LIGHT_PROBE_SH_SCALE
-					: 1;
+				const probeScale =
+					probe.prefilteredMap ?
+						LightingConstants.BAKED_LIGHT_PROBE_SH_SCALE
+					:	1;
 				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 				for (let i = 0; i < coeffCount; i++) {
 					ambientProbeSH[i].r += probeSH[i].r * intensity * probeScale;
