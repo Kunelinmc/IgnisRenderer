@@ -75,21 +75,28 @@ export interface SamplerDesc {
 export interface BufferDesc {
 	size: number;
 	usage: BufferUsage;
+	mappedAtCreation?: boolean;
+	initialData?: BufferSource;
 	label?: string;
 }
 
 export interface TextureDesc {
 	width: number;
 	height: number;
+	depthOrArrayLayers?: number;
+	dimension?: "1d" | "2d" | "3d";
+	sampleCount?: number;
 	format: TextureFormat;
 	usage: TextureUsage;
 	mipLevelCount?: number;
+	viewFormats?: TextureFormat[];
 	label?: string;
 }
 
 export interface ShaderModuleDesc {
 	code: string;
 	label?: string;
+	logCompilationInfo?: boolean;
 	/** Optional software implementation of the shader */
 	softwareDelegate?: Function;
 }

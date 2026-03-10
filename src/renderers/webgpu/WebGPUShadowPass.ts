@@ -24,6 +24,7 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SCENE_VERTEX_STRIDE,
 } from './constants'
+import { getWebGPUTexture } from './WebGPUResourceAccess'
 import type {
 	WebGPUGeometryHandle,
 	WebGPUGeometryRegistry,
@@ -256,7 +257,7 @@ export class WebGPUShadowPass {
 		const atlasTileSize = Math.max(1, maxShadowSize)
 		const atlasTexture =
 			this._shadowAtlases.ensureAtlasForTileSize(atlasTileSize)
-		const atlasView = (atlasTexture as { _gpuView?: GPUTextureView })._gpuView
+		const atlasView = getWebGPUTexture(atlasTexture).view
 		if (!atlasView) return
 
 		this._ensurePipelineResources()

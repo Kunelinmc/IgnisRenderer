@@ -9,6 +9,7 @@ import {
 	type ISampler,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
 
 interface TextureCacheEntry {
@@ -235,14 +236,8 @@ export class WebGPUTextureRegistry {
 			return false;
 		}
 
-		const queue = (this._backend as any).queue as any;
+		const queue = this._backend.queue;
 		if (!queue || typeof queue.copyExternalImageToTexture !== "function") {
-			return false;
-		}
-
-		const gpuTexture =
-			(target as any)._gpuTexture ?? (target as any)._gpuResource;
-		if (!gpuTexture) {
 			return false;
 		}
 
@@ -256,6 +251,10 @@ export class WebGPUTextureRegistry {
 		}
 
 		try {
+			const gpuTexture = tryGetWebGPUTextureHandle(target);
+			if (!gpuTexture) {
+				return false;
+			}
 			queue.copyExternalImageToTexture(
 				{
 					source: video,

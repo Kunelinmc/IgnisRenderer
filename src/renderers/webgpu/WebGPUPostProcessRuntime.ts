@@ -22,11 +22,7 @@ import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
 import { loadPostProcessShaderPart } from "../../shaders/webgpu/shaderSource";
 import type { IBindingGroup } from "../types";
 import type { WebGPULightingState } from "./types";
-
-interface InternalTexture extends IRenderTexture {
-	_gpuTexture?: GPUTexture;
-	_gpuResource?: GPUTexture;
-}
+import { getWebGPUTexture } from "./WebGPUResourceAccess";
 
 const WORKGROUP_SIZE = 8;
 
@@ -1137,9 +1133,7 @@ export class WebGPUPostProcessRuntime {
 	private _getHiZMipViews(texture: IRenderTexture): GPUTextureView[] {
 		const cached = this._hizViewCache.get(texture as object);
 		if (cached) return cached;
-		const gpuTexture =
-			(texture as InternalTexture)._gpuTexture ??
-			(texture as InternalTexture)._gpuResource;
+		const gpuTexture = getWebGPUTexture(texture).texture;
 		if (!gpuTexture?.createView) return [];
 		const mipCount =
 			Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
