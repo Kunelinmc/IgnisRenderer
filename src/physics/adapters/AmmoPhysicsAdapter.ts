@@ -515,17 +515,25 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		let detachedShape = true;
 		if (body) {
 			if (this._isCompoundShape(body.shape)) {
-				detachedShape = this._invoke(body.shape, ["removeChildShape"], [
-					[collider.ammoShape],
-				]);
+				detachedShape = this._invoke(
+					body.shape,
+					["removeChildShape"],
+					[[collider.ammoShape]]
+				);
 			}
 			body.colliderIds.delete(colliderId);
 
-			if (!this._isCompoundShape(body.shape) && body.shape === collider.ammoShape) {
+			if (
+				!this._isCompoundShape(body.shape) &&
+				body.shape === collider.ammoShape
+			) {
 				const replacement = this._createFallbackShape();
 				body.shape = replacement;
 				this._invoke(body.rigidBody, ["setCollisionShape"], [[replacement]]);
-			} else if (this._isCompoundShape(body.shape) && body.colliderIds.size === 0) {
+			} else if (
+				this._isCompoundShape(body.shape) &&
+				body.colliderIds.size === 0
+			) {
 				const oldShape = body.shape;
 				const replacement = this._createFallbackShape();
 				body.shape = replacement;
@@ -535,7 +543,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._refreshBodyMassProperties(body);
 		}
 		world.colliders.delete(colliderId);
-		if (collider.childTransform) this._destroyAmmoObject(collider.childTransform);
+		if (collider.childTransform)
+			this._destroyAmmoObject(collider.childTransform);
 		if (detachedShape && (!body || body.shape !== collider.ammoShape)) {
 			this._destroyAmmoObject(collider.ammoShape);
 		}
@@ -567,10 +576,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._invoke(
 				world.world,
 				["addConstraint"],
-				[
-					[nativeJoint.constraint, disableCollision],
-					[nativeJoint.constraint],
-				]
+				[[nativeJoint.constraint, disableCollision], [nativeJoint.constraint]]
 			);
 		}
 		world.joints.set(jointId, {
@@ -801,7 +807,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			const collider = world.colliders.get(colliderId);
 			if (!collider) continue;
 			world.colliders.delete(colliderId);
-			if (collider.childTransform) this._destroyAmmoObject(collider.childTransform);
+			if (collider.childTransform)
+				this._destroyAmmoObject(collider.childTransform);
 			if (collider.ammoShape && collider.ammoShape !== body.shape) {
 				this._destroyAmmoObject(collider.ammoShape);
 			}
@@ -1049,7 +1056,11 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 					ownedObjects
 				);
 			if (hinge && descriptor.limits) {
-				this._invoke(hinge, ["setLimit"], [[descriptor.limits[0], descriptor.limits[1]]]);
+				this._invoke(
+					hinge,
+					["setLimit"],
+					[[descriptor.limits[0], descriptor.limits[1]]]
+				);
 			}
 			return { constraint: hinge, ownedObjects };
 		}
@@ -1253,7 +1264,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			bodyId,
 			colliderId: collider.id,
 			point,
-			normal: Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
+			normal:
+				Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
 			distance,
 			fraction,
 			isTrigger: collider.isTrigger,
@@ -1351,7 +1363,10 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		const invoked = this._invoke(
 			world.world,
 			["convexSweepTest"],
-			[[shape, from, to, callback, 0], [shape, from, to, callback]]
+			[
+				[shape, from, to, callback, 0],
+				[shape, from, to, callback],
+			]
 		);
 		if (!invoked || !this._readHitStatus(callback)) {
 			this._destroyAmmoObject(callback);
@@ -1407,7 +1422,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			bodyId,
 			colliderId: collider.id,
 			point,
-			normal: Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
+			normal:
+				Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
 			distance: fraction * maxDistance,
 			fraction,
 			isTrigger: collider.isTrigger,
@@ -1576,7 +1592,10 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		return false;
 	}
 
-	private _resolveHitBody(world: AmmoWorldState, collisionObject: unknown): AmmoBodyState | null {
+	private _resolveHitBody(
+		world: AmmoWorldState,
+		collisionObject: unknown
+	): AmmoBodyState | null {
 		if (!collisionObject) return null;
 		for (const body of world.bodies.values()) {
 			if (body.rigidBody === collisionObject) return body;
@@ -1857,7 +1876,8 @@ function computeShapeRadius(shape: ColliderShape): number {
 			);
 		case "trimesh": {
 			const vertices = shape.vertices;
-			const length = Array.isArray(vertices) ? vertices.length : vertices.length;
+			const length =
+				Array.isArray(vertices) ? vertices.length : vertices.length;
 			if (length < 3) return 0.5;
 			let maxRadiusSq = 0;
 			for (let i = 0; i < length; i += 3) {
@@ -1904,7 +1924,8 @@ function computeShapeHalfExtents(shape: ColliderShape): IVector3 {
 			};
 		case "trimesh": {
 			const vertices = shape.vertices;
-			const length = Array.isArray(vertices) ? vertices.length : vertices.length;
+			const length =
+				Array.isArray(vertices) ? vertices.length : vertices.length;
 			if (length < 3) {
 				return { x: 0.5, y: 0.5, z: 0.5 };
 			}
@@ -2213,7 +2234,9 @@ function intersectRayAabb(
 	if (entry < 0 || entry > maxDistance) return null;
 	const point = Vector3.add(origin, Vector3.scale(direction, entry));
 	const normal =
-		hitAxis >= 0 ? axisVector(hitAxis, hitNormalSign) : Vector3.scale(direction, -1);
+		hitAxis >= 0 ?
+			axisVector(hitAxis, hitNormalSign)
+		:	Vector3.scale(direction, -1);
 	return { distance: entry, point, normal };
 }
 
