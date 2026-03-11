@@ -291,12 +291,12 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const handle: CharacterControllerHandle = {
 			id: controllerId,
 			worldId: desc.worldId,
-			moveAndSlide: (direction, deltaTimeMs) => {
+			moveAndSlide: (direction, deltaSeconds) => {
 				return this._adapter.moveCharacterController(
 					desc.worldId,
 					controllerId,
 					direction,
-					Math.max(0, deltaTimeMs) / 1000
+					Math.max(0, deltaSeconds)
 				);
 			},
 			jump: (speed) => {
@@ -368,7 +368,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return this._adapter.overlapBox(worldId, query);
 	}
 
-	public step(deltaTimeMs: number, opts: StepOverride = {}): PhysicsStepReport {
+	public step(
+		deltaTimeSeconds: number,
+		opts: StepOverride = {}
+	): PhysicsStepReport {
 		const worldIds = opts.worldIds ?? Array.from(this._worldConfigById.keys());
 		const targetWorlds = worldIds.map((worldId) => {
 			const config = this._requireWorld(worldId);
@@ -387,7 +390,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 
 		this._simulator.beginFrame(simulationContext);
 		const simulation = this._simulator.simulate(simulationContext, {
-			deltaTimeMs,
+			deltaTimeSeconds,
 			override: opts,
 		});
 		this._simulator.endFrame();
@@ -423,7 +426,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				worldId: worldResult.worldId,
 				mode: worldResult.mode,
 				substeps: worldResult.substeps,
-				consumedDeltaMs: worldResult.consumedDeltaMs,
+				consumedDeltaSeconds: worldResult.consumedDeltaSeconds,
 				activeBodies,
 				sleepingBodies,
 				ccdBodies,
@@ -432,8 +435,8 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 
 		const dirty = movedBodyIds.size > 0 || events.length > 0;
 		const report: PhysicsStepReport = {
-			inputDeltaMs: Math.max(0, deltaTimeMs),
-			processedDeltaMs: simulation.processedDeltaMs,
+			inputDeltaSeconds: Math.max(0, deltaTimeSeconds),
+			processedDeltaSeconds: simulation.processedDeltaSeconds,
 			worldReports,
 			events,
 			dirty,

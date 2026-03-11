@@ -41,10 +41,10 @@ function run() {
 	physics.on('triggerStay', (event) => callbackEvents.push(event.type))
 	physics.on('triggerEnd', (event) => callbackEvents.push(event.type))
 
-	physics.step(16)
-	physics.step(16)
+	physics.step(0.016)
+	physics.step(0.016)
 	nodeB.position.z = 10
-	physics.step(16)
+	physics.step(0.016)
 
 	const queued = physics.drainEvents('main')
 	assert.ok(queued.length >= 3)

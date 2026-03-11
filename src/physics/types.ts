@@ -28,9 +28,9 @@ export interface PhysicsTransform {
 
 export interface PhysicsStepConfig {
 	mode?: PhysicsStepMode;
-	fixedDeltaMs?: number;
+	fixedDeltaSeconds?: number;
 	maxSubsteps?: number;
-	maxDeltaMs?: number;
+	maxDeltaSeconds?: number;
 }
 
 export interface PhysicsWorldConfig extends PhysicsStepConfig {
@@ -163,7 +163,7 @@ export interface PhysicsCollisionEvent {
 	worldId: PhysicsWorldId;
 	bodyAId: string;
 	bodyBId: string;
-	timestampMs: number;
+	timestampSeconds: number;
 }
 
 export type PhysicsEvent = PhysicsCollisionEvent;
@@ -234,15 +234,15 @@ export interface PhysicsWorldStepReport {
 	worldId: PhysicsWorldId;
 	mode: PhysicsStepMode;
 	substeps: number;
-	consumedDeltaMs: number;
+	consumedDeltaSeconds: number;
 	activeBodies: number;
 	sleepingBodies: number;
 	ccdBodies: number;
 }
 
 export interface PhysicsStepReport {
-	inputDeltaMs: number;
-	processedDeltaMs: number;
+	inputDeltaSeconds: number;
+	processedDeltaSeconds: number;
 	worldReports: PhysicsWorldStepReport[];
 	events: PhysicsEvent[];
 	dirty: boolean;
@@ -273,7 +273,7 @@ export interface PhysicsJointHandle {
 export interface CharacterControllerHandle {
 	readonly id: string;
 	readonly worldId: PhysicsWorldId;
-	moveAndSlide(direction: IVector3, deltaTimeMs: number): CharacterMoveResult;
+	moveAndSlide(direction: IVector3, deltaSeconds: number): CharacterMoveResult;
 	jump(speed?: number): void;
 	isGrounded(): boolean;
 	setMaxSlope(value: number): void;

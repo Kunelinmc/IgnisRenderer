@@ -5,7 +5,7 @@ import { Matrix4 } from '../src/maths/Matrix4.ts'
 import { ParticleSimulationStage } from '../src/pipeline/ParticleSimulationStage.ts'
 import { ParticleSystem } from '../src/particles/ParticleSystem.ts'
 import {
-	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from '../src/pipeline/types.ts'
 
@@ -57,7 +57,7 @@ class StubBackend {
 		if (pass.stage === 'particle-sim') {
 			this.particleStage.execute(
 				context,
-				context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY) ?? 0
+				context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY) ?? 0
 			)
 		}
 		if (pass.stage === 'particles') {

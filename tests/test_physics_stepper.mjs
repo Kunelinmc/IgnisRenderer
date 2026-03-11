@@ -22,9 +22,9 @@ function testFixedStep() {
 				config: {
 					worldId: 'w1',
 					mode: 'fixed',
-					fixedDeltaMs: 10,
+					fixedDeltaSeconds: 0.01,
 					maxSubsteps: 10,
-					maxDeltaMs: 100,
+					maxDeltaSeconds: 0.1,
 				},
 			},
 		],
@@ -35,7 +35,7 @@ function testFixedStep() {
 	}
 
 	simulator.beginFrame(context)
-	const result = simulator.simulate(context, { deltaTimeMs: 25 })
+	const result = simulator.simulate(context, { deltaTimeSeconds: 0.025 })
 	simulator.endFrame()
 
 	assert.equal(result.worldResults.length, 1)
@@ -54,7 +54,7 @@ function testVariableStep() {
 				config: {
 					worldId: 'w2',
 					mode: 'variable',
-					maxDeltaMs: 20,
+					maxDeltaSeconds: 0.02,
 				},
 			},
 		],
@@ -65,12 +65,12 @@ function testVariableStep() {
 	}
 
 	simulator.beginFrame(context)
-	const result = simulator.simulate(context, { deltaTimeMs: 50 })
+	const result = simulator.simulate(context, { deltaTimeSeconds: 0.05 })
 	simulator.endFrame()
 
 	assert.equal(calls.length, 1)
 	assert.ok(Math.abs(calls[0].deltaSeconds - 0.02) < 1e-9)
-	assert.equal(result.worldResults[0].consumedDeltaMs, 20)
+	assert.equal(result.worldResults[0].consumedDeltaSeconds, 0.02)
 }
 
 function testMaxSubstepsCap() {
@@ -83,9 +83,9 @@ function testMaxSubstepsCap() {
 				config: {
 					worldId: 'w3',
 					mode: 'fixed',
-					fixedDeltaMs: 5,
+					fixedDeltaSeconds: 0.005,
 					maxSubsteps: 3,
-					maxDeltaMs: 100,
+					maxDeltaSeconds: 0.1,
 				},
 			},
 		],
@@ -96,12 +96,12 @@ function testMaxSubstepsCap() {
 	}
 
 	simulator.beginFrame(context)
-	const result = simulator.simulate(context, { deltaTimeMs: 100 })
+	const result = simulator.simulate(context, { deltaTimeSeconds: 0.1 })
 	simulator.endFrame()
 
 	assert.equal(calls.length, 3)
 	assert.equal(result.worldResults[0].substeps, 3)
-	assert.equal(result.worldResults[0].consumedDeltaMs, 15)
+	assert.equal(result.worldResults[0].consumedDeltaSeconds, 0.015)
 }
 
 function run() {

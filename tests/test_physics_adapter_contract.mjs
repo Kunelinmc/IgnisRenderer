@@ -11,7 +11,7 @@ async function runContract(adapter, label) {
 		worldId: 'main',
 		gravity: { x: 0, y: -9.8, z: 0 },
 		mode: 'fixed',
-		fixedDeltaMs: 16,
+		fixedDeltaSeconds: 0.016,
 	})
 
 	const nodeA = new Node({ position: { x: 0, y: 1, z: 0 } })
@@ -74,10 +74,10 @@ async function runContract(adapter, label) {
 		maxSlope: 50,
 		jumpSpeed: 3,
 	})
-	controller.moveAndSlide({ x: 1, y: 0, z: 0 }, 16)
+	controller.moveAndSlide({ x: 1, y: 0, z: 0 }, 0.016)
 	controller.jump(2)
 
-	const report = physics.step(16)
+	const report = physics.step(0.016)
 	assert.equal(report.worldReports.length, 1)
 	assert.equal(report.worldReports[0].worldId, 'main')
 	assert.ok(report.worldReports[0].substeps >= 1)

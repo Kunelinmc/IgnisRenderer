@@ -516,7 +516,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 
 	private _resolveCollisions(world: SimpleWorldState): PhysicsEvent[] {
 		const events: PhysicsEvent[] = [];
-		const nowMs = Date.now();
+		const nowSeconds = Date.now() / 1000;
 		const currentPairs = new Map<string, "collision" | "trigger">();
 		const colliders = Array.from(world.colliders.values());
 
@@ -558,7 +558,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 					worldId: world.config.worldId,
 					bodyAId: left.bodyId,
 					bodyBId: right.bodyId,
-					timestampMs: nowMs,
+					timestampSeconds: nowSeconds,
 				});
 
 				if (!left.isTrigger && !right.isTrigger) {
@@ -581,7 +581,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				worldId: world.config.worldId,
 				bodyAId,
 				bodyBId,
-				timestampMs: nowMs,
+				timestampSeconds: nowSeconds,
 			});
 		}
 

@@ -76,7 +76,7 @@ function testDeterministicSeed() {
 			},
 		});
 		const context = createContext([system]);
-		stage.execute(context, 16);
+		stage.execute(context, 0.016);
 		const particles = getBatches(context)[0]?.particles ?? [];
 		return particles.map((particle) => ({
 			x: Number(particle.position.x.toFixed(6)),
@@ -101,7 +101,7 @@ function testRateAndBurstSpawn() {
 		},
 	});
 	const context = createContext([system]);
-	stage.execute(context, 1000);
+	stage.execute(context, 1);
 	const particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 5);
 }
@@ -134,7 +134,7 @@ function testGradientAndAtlas() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 1000);
+	stage.execute(context, 1);
 	const particle = getBatches(context)[0]?.particles?.[0];
 	assert.ok(particle);
 	assert.ok(Math.abs(particle.size - 8) < 1e-6);
@@ -158,7 +158,7 @@ function testLocalSpaceFollowsSystemPosition() {
 		},
 	});
 	const context = createContext([system]);
-	stage.execute(context, 16);
+	stage.execute(context, 0.016);
 	let particle = getBatches(context)[0]?.particles?.[0];
 	assert.ok(Math.abs(particle.position.x - 4) < 1e-6);
 
@@ -202,12 +202,12 @@ function testCollisionAndSubEmitter() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 50);
+	stage.execute(context, 0.05);
 	let particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 1);
 	assert.ok(particles[0].position.y >= 0);
 
-	stage.execute(context, 100);
+	stage.execute(context, 0.1);
 	particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 2);
 	for (const particle of particles) {
@@ -253,11 +253,11 @@ function testLODScalesSimulationAndRenderSubset() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 16);
+	stage.execute(context, 0.016);
 	let particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 0);
 
-	stage.execute(context, 16);
+	stage.execute(context, 0.016);
 	particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 2);
 }
@@ -299,16 +299,16 @@ function testLODHysteresis() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 1000);
+	stage.execute(context, 1);
 	let total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 10);
 
 	system.position.z = -200;
-	stage.execute(context, 1000);
+	stage.execute(context, 1);
 	total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 20);
 
-	stage.execute(context, 1000);
+	stage.execute(context, 1);
 	total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 20);
 }
@@ -339,7 +339,7 @@ function testStrictFailureWhenLODStillOverBudget() {
 		},
 	});
 	const context = createContext([system]);
-	assert.throws(() => stage.execute(context, 16), /required=16 available=8/);
+	assert.throws(() => stage.execute(context, 0.016), /required=16 available=8/);
 }
 
 function run() {

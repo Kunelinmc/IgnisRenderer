@@ -14,13 +14,13 @@ export interface PhysicsWorldSimulationResult {
 	worldId: string;
 	mode: PhysicsStepMode;
 	substeps: number;
-	consumedDeltaMs: number;
+	consumedDeltaSeconds: number;
 	steps: PhysicsAdapterStepResult[];
 }
 
 export interface PhysicsSimulationResult {
-	inputDeltaMs: number;
-	processedDeltaMs: number;
+	inputDeltaSeconds: number;
+	processedDeltaSeconds: number;
 	worldResults: PhysicsWorldSimulationResult[];
 }
 
@@ -30,6 +30,6 @@ export interface PhysicsSimulationContext {
 }
 
 export interface PhysicsSimulationRequest {
-	deltaTimeMs: number;
+	deltaTimeSeconds: number;
 	override?: StepOverride;
 }

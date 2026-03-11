@@ -101,7 +101,7 @@ function testPhysicsWakeupBridge() {
 			wakeups++
 		},
 	})
-	physics.step(16)
+	physics.step(0.016)
 	assert.ok(wakeups > 0)
 	disconnect()
 }

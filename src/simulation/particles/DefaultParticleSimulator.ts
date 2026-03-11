@@ -9,7 +9,6 @@ import { ParticleSimulationCore } from "./ParticleSimulationCore";
 import type { SystemRuntimeState } from "./types";
 
 const MAX_STEP_SECONDS = 0.1;
-const MS_TO_SECONDS = 1 / 1000;
 
 const FULL_QUALITY_LOD: ParticleLODLevel = Object.freeze({
 	distance: Number.POSITIVE_INFINITY,
@@ -61,14 +60,14 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		}
 	}
 
-	public simulate(context: FrameContext, deltaTimeMs: number): void {
+	public simulate(context: FrameContext, deltaTimeSeconds: number): void {
 		const particleSystems = context.scene.particleSystems ?? [];
 		if (particleSystems.length === 0) {
 			context.transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, []);
 			return;
 		}
 
-		const totalDt = Math.max(0, deltaTimeMs * MS_TO_SECONDS);
+		const totalDt = Math.max(0, deltaTimeSeconds);
 		for (const system of particleSystems) {
 			system.updateWorldMatrix(system.parent?.worldMatrix);
 			const runtime = this._getSystemRuntime(system);

@@ -8,12 +8,12 @@ import type {
 	PhysicsWorldSimulationResult,
 } from "./types";
 
-const DEFAULT_FIXED_DELTA_MS = 1000 / 60;
+const DEFAULT_FIXED_DELTA_SECONDS = 1 / 60;
 const DEFAULT_MAX_SUBSTEPS = 5;
-const DEFAULT_MAX_DELTA_MS = 100;
+const DEFAULT_MAX_DELTA_SECONDS = 0.1;
 
 interface WorldRuntimeState {
-	accumulatorMs: number;
+	accumulatorSeconds: number;
 }
 
 export class DefaultPhysicsSimulator implements IPhysicsSimulator {
@@ -33,7 +33,7 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 		request: PhysicsSimulationRequest
 	): PhysicsSimulationResult {
 		const worldResults: PhysicsWorldSimulationResult[] = [];
-		const inputDeltaMs = Math.max(0, request.deltaTimeMs);
+		const inputDeltaSeconds = Math.max(0, request.deltaTimeSeconds);
 		const scopedWorldIds = new Set(request.override?.worldIds ?? []);
 		const useScope = scopedWorldIds.size > 0;
 
@@ -42,13 +42,13 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 			worldResults.push(this._simulateWorld(context, world, request));
 		}
 
-		const processedDeltaMs = worldResults.reduce((maxValue, item) => {
-			return Math.max(maxValue, item.consumedDeltaMs);
+		const processedDeltaSeconds = worldResults.reduce((maxValue, item) => {
+			return Math.max(maxValue, item.consumedDeltaSeconds);
 		}, 0);
 
 		return {
-			inputDeltaMs,
-			processedDeltaMs,
+			inputDeltaSeconds,
+			processedDeltaSeconds,
 			worldResults,
 		};
 	}
@@ -61,54 +61,54 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 		request: PhysicsSimulationRequest
 	): PhysicsWorldSimulationResult {
 		const config = resolveStepConfig(world.config, request.override);
-		const clampedDeltaMs = Math.min(
-			Math.max(0, request.deltaTimeMs),
-			config.maxDeltaMs
+		const clampedDeltaSeconds = Math.min(
+			Math.max(0, request.deltaTimeSeconds),
+			config.maxDeltaSeconds
 		);
 		const mode = config.mode;
 
 		if (mode === "variable") {
-			if (clampedDeltaMs <= 0) {
+			if (clampedDeltaSeconds <= 0) {
 				return {
 					worldId: world.worldId,
 					mode,
 					substeps: 0,
-					consumedDeltaMs: 0,
+					consumedDeltaSeconds: 0,
 					steps: [],
 				};
 			}
-			const step = context.stepWorld(world.worldId, clampedDeltaMs / 1000);
+			const step = context.stepWorld(world.worldId, clampedDeltaSeconds);
 			return {
 				worldId: world.worldId,
 				mode,
 				substeps: 1,
-				consumedDeltaMs: clampedDeltaMs,
+				consumedDeltaSeconds: clampedDeltaSeconds,
 				steps: [step],
 			};
 		}
 
 		const runtime = this._getRuntime(world.worldId);
-		runtime.accumulatorMs += clampedDeltaMs;
+		runtime.accumulatorSeconds += clampedDeltaSeconds;
 
 		const steps = [];
 		let substeps = 0;
-		let consumedDeltaMs = 0;
+		let consumedDeltaSeconds = 0;
 		while (
-			runtime.accumulatorMs >= config.fixedDeltaMs &&
+			runtime.accumulatorSeconds >= config.fixedDeltaSeconds &&
 			substeps < config.maxSubsteps
 		) {
-			const step = context.stepWorld(world.worldId, config.fixedDeltaMs / 1000);
+			const step = context.stepWorld(world.worldId, config.fixedDeltaSeconds);
 			steps.push(step);
 			substeps++;
-			consumedDeltaMs += config.fixedDeltaMs;
-			runtime.accumulatorMs -= config.fixedDeltaMs;
+			consumedDeltaSeconds += config.fixedDeltaSeconds;
+			runtime.accumulatorSeconds -= config.fixedDeltaSeconds;
 		}
 
 		return {
 			worldId: world.worldId,
 			mode,
 			substeps,
-			consumedDeltaMs,
+			consumedDeltaSeconds,
 			steps,
 		};
 	}
@@ -117,7 +117,7 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 		let runtime = this._runtimeByWorldId.get(worldId);
 		if (runtime) return runtime;
 		runtime = {
-			accumulatorMs: 0,
+			accumulatorSeconds: 0,
 		};
 		this._runtimeByWorldId.set(worldId, runtime);
 		return runtime;
@@ -131,11 +131,11 @@ function resolveStepConfig(
 	const mode = override?.mode ?? worldConfig.mode ?? "fixed";
 	return {
 		mode,
-		fixedDeltaMs: sanitizePositive(
-			override?.fixedDeltaMs ??
-				worldConfig.fixedDeltaMs ??
-				DEFAULT_FIXED_DELTA_MS,
-			DEFAULT_FIXED_DELTA_MS
+		fixedDeltaSeconds: sanitizePositive(
+			override?.fixedDeltaSeconds ??
+				worldConfig.fixedDeltaSeconds ??
+				DEFAULT_FIXED_DELTA_SECONDS,
+			DEFAULT_FIXED_DELTA_SECONDS
 		),
 		maxSubsteps: Math.max(
 			1,
@@ -143,9 +143,11 @@ function resolveStepConfig(
 				override?.maxSubsteps ?? worldConfig.maxSubsteps ?? DEFAULT_MAX_SUBSTEPS
 			)
 		),
-		maxDeltaMs: sanitizePositive(
-			override?.maxDeltaMs ?? worldConfig.maxDeltaMs ?? DEFAULT_MAX_DELTA_MS,
-			DEFAULT_MAX_DELTA_MS
+		maxDeltaSeconds: sanitizePositive(
+			override?.maxDeltaSeconds ??
+				worldConfig.maxDeltaSeconds ??
+				DEFAULT_MAX_DELTA_SECONDS,
+			DEFAULT_MAX_DELTA_SECONDS
 		),
 	};
 }

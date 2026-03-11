@@ -10,7 +10,7 @@ import {
 	type FrameAttachments,
 	type FrameContext,
 	type FramePass,
-	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
@@ -1505,7 +1505,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {
-		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY);
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY);
 		if (typeof value !== "number" || !Number.isFinite(value)) {
 			return 0;
 		}

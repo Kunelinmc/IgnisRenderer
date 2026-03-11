@@ -36,7 +36,8 @@ export interface DrawPacket {
 import type { Texture } from "../core/Texture";
 
 export const PARTICLE_TRANSIENT_BATCHES_KEY = "pipeline:particle-batches";
-export const PARTICLE_SIM_DELTA_TIME_MS_KEY = "pipeline:particle-delta-time-ms";
+export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
+	"pipeline:particle-delta-time-seconds";
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	"pipeline:animation-delta-time-ms";
 

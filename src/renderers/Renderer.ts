@@ -16,7 +16,7 @@ import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
-	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { SHCoefficients } from "../maths/types";
@@ -221,7 +221,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		this._frameDirty = false;
 		const transient = new Map<string, any>();
-		transient.set(PARTICLE_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
+		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
+		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
 		this._animationStage.execute(
 			{

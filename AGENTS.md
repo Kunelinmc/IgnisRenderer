@@ -138,6 +138,15 @@ agents working in the IgnisRenderer repository.
 - Fail fast with explicit `Error` on invalid setup/input.
 - Keep WebGPU validation checks in async-safe paths.
 
+### Time Units (Particle/Physics)
+
+- **Particle simulation** and **Physics simulation** use **seconds** as the
+  only time unit.
+- New API/field names must use `Seconds` suffix (e.g.
+  `deltaTimeSeconds`, `fixedDeltaSeconds`), not `Ms`.
+- If a caller source is in milliseconds (e.g. `requestAnimationFrame` deltas),
+  convert at the boundary once, then pass seconds into Particle/Physics paths.
+
 ## Collaboration Workflow
 
 1. Keep backend-agnostic contracts intact unless task explicitly needs changes.

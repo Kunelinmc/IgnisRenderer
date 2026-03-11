@@ -1,6 +1,6 @@
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import {
-	PARTICLE_SIM_DELTA_TIME_MS_KEY,
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
@@ -217,7 +217,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {
-		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_MS_KEY);
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY);
 		if (typeof value !== "number" || !Number.isFinite(value)) {
 			return 0;
 		}

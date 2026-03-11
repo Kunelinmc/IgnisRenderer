@@ -6,9 +6,9 @@ export class ParticleSimulationStage {
 		backendTag: "shared-adapter",
 	});
 
-	public execute(context: FrameContext, deltaTimeMs: number): void {
+	public execute(context: FrameContext, deltaTimeSeconds: number): void {
 		this._simulator.beginFrame(context);
-		this._simulator.simulate(context, deltaTimeMs);
+		this._simulator.simulate(context, deltaTimeSeconds);
 		this._simulator.emitRenderBatches(context);
 		this._simulator.endFrame();
 	}
