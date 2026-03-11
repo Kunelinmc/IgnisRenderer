@@ -1,3 +1,4 @@
+import type { IVector3 } from "../maths/types";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Node } from "../core/Node";
 import { IdGenerator } from "../utils/IdGenerator";
@@ -30,13 +31,17 @@ import type {
 } from "./types";
 import type {
 	IPhysicsEngineAdapter,
-	PhysicsAdapterBodyState,
 	PhysicsAdapterStepResult,
 } from "./IPhysicsEngineAdapter";
 import { DefaultCollisionGeometryProvider } from "./DefaultCollisionGeometryProvider";
 import { PhysicsBodyNode } from "./PhysicsBodyNode";
 import { SimplePhysicsAdapter } from "./adapters/SimplePhysicsAdapter";
 import { DefaultPhysicsSimulator } from "../simulation/physics/DefaultPhysicsSimulator";
+
+const TRANSFORM_EPSILON = 1e-6;
+const DEFAULT_BROADPHASE_BODY_RADIUS = 0.5;
+const BROADPHASE_CELL_SIZE = 4;
+const BROADPHASE_MAX_DIRTY_CELLS = 512;
 
 export interface PhysicsSystemOptions {
 	adapter?: IPhysicsEngineAdapter;
@@ -46,6 +51,7 @@ export interface PhysicsSystemOptions {
 interface InternalBodyBinding extends PhysicsBodyHandle {
 	body: BodyBinding["body"];
 	colliderIds: Set<string>;
+	broadphaseRadius: number;
 }
 
 interface InternalColliderBinding extends PhysicsColliderHandle {
@@ -66,12 +72,74 @@ interface InternalControllerBinding {
 	handle: CharacterControllerHandle;
 }
 
+interface CachedBodyState {
+	positionX: number;
+	positionY: number;
+	positionZ: number;
+	rotationX: number;
+	rotationY: number;
+	rotationZ: number;
+	rotationW: number;
+	sleeping: boolean;
+}
+
+interface BroadphaseBounds {
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+}
+
+interface BroadphaseRuntimeState {
+	dirtyBodyIds: Set<string>;
+	dirtyCells: Set<string>;
+	dirtyBounds: BroadphaseBounds | null;
+}
+
+interface SleepingIslandState {
+	id: string;
+	bodyIds: Set<string>;
+	dynamicBodyCount: number;
+	sleepingDynamicBodyCount: number;
+}
+
+interface CachedWorldStats {
+	activeBodies: number;
+	sleepingBodies: number;
+	ccdBodies: number;
+}
+
+interface WorldRuntimeState {
+	worldId: string;
+	bodyIds: Set<string>;
+	animationAuthorityBodyIds: Set<string>;
+	dynamicBodyIds: Set<string>;
+	bodyStateCacheById: Map<string, CachedBodyState>;
+	bodyBroadphaseRadiusById: Map<string, number>;
+	sleepByBodyId: Map<string, boolean>;
+	ccdByBodyId: Map<string, boolean>;
+	broadphase: BroadphaseRuntimeState;
+	jointPairKeys: Set<string>;
+	contactPairKeys: Set<string>;
+	activePairKeys: Set<string>;
+	islandIdByBodyId: Map<string, string>;
+	islandsById: Map<string, SleepingIslandState>;
+	awakeIslandIds: Set<string>;
+	islandsDirty: boolean;
+	forceStepNextFrame: boolean;
+	controllerDirty: boolean;
+	cachedStats: CachedWorldStats;
+}
+
 export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _adapter: IPhysicsEngineAdapter;
 	private _geometryProvider: ICollisionGeometryProvider;
 	private _simulator = new DefaultPhysicsSimulator();
 
 	private _worldConfigById = new Map<string, PhysicsWorldConfig>();
+	private _runtimeByWorldId = new Map<string, WorldRuntimeState>();
 	private _bodyById = new Map<string, InternalBodyBinding>();
 	private _bodyIdByNodeId = new Map<string, string>();
 	private _colliderById = new Map<string, InternalColliderBinding>();
@@ -111,6 +179,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			...config,
 			gravity: config.gravity ? { ...config.gravity } : undefined,
 		});
+		this._runtimeByWorldId.set(config.worldId, createWorldRuntime(config.worldId));
 		this._eventQueueByWorld.set(config.worldId, []);
 	}
 
@@ -126,6 +195,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			if (joint.worldId === worldId) {
 				this._adapter.destroyJoint(worldId, joint.id);
 				this._jointById.delete(joint.id);
+				this._unregisterJointPair(worldId, joint.bodyAId, joint.bodyBId);
 			}
 		}
 		for (const controller of Array.from(this._controllerById.values())) {
@@ -136,6 +206,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		}
 		this._adapter.destroyWorld(worldId);
 		this._worldConfigById.delete(worldId);
+		this._runtimeByWorldId.delete(worldId);
 		this._eventQueueByWorld.delete(worldId);
 	}
 
@@ -167,6 +238,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				...binding.body,
 			},
 			colliderIds: new Set(),
+			broadphaseRadius: DEFAULT_BROADPHASE_BODY_RADIUS,
 		};
 		this._adapter.createBody(
 			binding.worldId,
@@ -177,6 +249,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 
 		this._bodyById.set(bodyId, handle);
 		this._bodyIdByNodeId.set(node.id, bodyId);
+		this._registerBodyRuntime(handle);
 
 		for (const collider of binding.colliders ?? []) {
 			this.addCollider(handle, collider);
@@ -198,6 +271,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			if (joint.bodyAId === body.id || joint.bodyBId === body.id) {
 				this._adapter.destroyJoint(joint.worldId, joint.id);
 				this._jointById.delete(jointId);
+				this._unregisterJointPair(joint.worldId, joint.bodyAId, joint.bodyBId);
 			}
 		}
 
@@ -214,6 +288,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		this._adapter.destroyBody(body.worldId, body.id);
 		this._bodyById.delete(body.id);
 		this._bodyIdByNodeId.delete(body.node.id);
+		this._unregisterBodyRuntime(body);
 	}
 
 	public addCollider(
@@ -234,6 +309,8 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		};
 		this._colliderById.set(colliderId, collider);
 		body.colliderIds.add(colliderId);
+		this._updateBodyBroadphaseRadius(body, desc, shape);
+		this._markWorldDirtyForStep(body.worldId);
 		return collider;
 	}
 
@@ -262,6 +339,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			bodyBId: bodyB.id,
 		};
 		this._jointById.set(jointId, handle);
+		this._registerJointPair(desc.worldId, bodyA.id, bodyB.id);
 		return handle;
 	}
 
@@ -292,6 +370,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			id: controllerId,
 			worldId: desc.worldId,
 			moveAndSlide: (direction, deltaSeconds) => {
+				this._markWorldControllerDirty(desc.worldId);
 				return this._adapter.moveCharacterController(
 					desc.worldId,
 					controllerId,
@@ -300,6 +379,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				);
 			},
 			jump: (speed) => {
+				this._markWorldControllerDirty(desc.worldId);
 				this._adapter.jumpCharacterController(
 					desc.worldId,
 					controllerId,
@@ -335,6 +415,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			descriptor: normalized,
 			handle,
 		});
+		this._markWorldDirtyForStep(desc.worldId);
 		return handle;
 	}
 
@@ -378,6 +459,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			return { worldId, config };
 		});
 
+		this._beginStepRuntime(targetWorlds.map((item) => item.worldId));
 		this._syncAnimationAuthorityBodies(
 			targetWorlds.map((item) => item.worldId)
 		);
@@ -385,7 +467,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const simulationContext = {
 			worlds: targetWorlds,
 			stepWorld: (worldId: string, deltaSeconds: number) =>
-				this._adapter.stepWorld(worldId, deltaSeconds),
+				this._stepWorldWithOptimizations(worldId, deltaSeconds),
 		};
 
 		this._simulator.beginFrame(simulationContext);
@@ -401,9 +483,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const dirtyWorldIds = new Set<string>();
 
 		for (const worldResult of simulation.worldResults) {
-			let activeBodies = 0;
-			let sleepingBodies = 0;
-			let ccdBodies = 0;
+			const runtime = this._runtimeByWorldId.get(worldResult.worldId);
+			let activeBodies = runtime?.cachedStats.activeBodies ?? 0;
+			let sleepingBodies = runtime?.cachedStats.sleepingBodies ?? 0;
+			let ccdBodies = runtime?.cachedStats.ccdBodies ?? 0;
 			for (const stepResult of worldResult.steps) {
 				activeBodies = stepResult.activeBodies;
 				sleepingBodies = stepResult.sleepingBodies;
@@ -415,12 +498,19 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 					dirtyWorldIds,
 					worldResult.worldId
 				);
+				this._setWorldCachedStats(worldResult.worldId, {
+					activeBodies: stepResult.activeBodies,
+					sleepingBodies: stepResult.sleepingBodies,
+					ccdBodies: stepResult.ccdBodies,
+				});
 				for (const event of stepResult.events) {
 					events.push(event);
 					this._enqueueEvent(event);
+					this._trackPairActivity(event);
 					dirtyWorldIds.add(event.worldId);
 				}
 			}
+			this._rebuildIslandsIfNeeded(worldResult.worldId);
 
 			worldReports.push({
 				worldId: worldResult.worldId,
@@ -480,16 +570,89 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		};
 	}
 
+	private _beginStepRuntime(worldIds: string[]): void {
+		for (const worldId of worldIds) {
+			const runtime = this._runtimeByWorldId.get(worldId);
+			if (!runtime) continue;
+			this._refreshAnimationAuthorityIndex(runtime);
+			runtime.broadphase.dirtyBodyIds.clear();
+			runtime.broadphase.dirtyCells.clear();
+			runtime.broadphase.dirtyBounds = null;
+		}
+	}
+
+	private _stepWorldWithOptimizations(
+		worldId: string,
+		deltaSeconds: number
+	): PhysicsAdapterStepResult {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) {
+			return this._adapter.stepWorld(worldId, deltaSeconds);
+		}
+		if (deltaSeconds <= 0) {
+			return this._buildSkippedStepResult(runtime);
+		}
+		if (this._canSkipWorldStep(runtime)) {
+			return this._buildSkippedStepResult(runtime);
+		}
+		const result = this._adapter.stepWorld(worldId, deltaSeconds);
+		runtime.forceStepNextFrame = false;
+		runtime.controllerDirty = false;
+		return result;
+	}
+
+	private _canSkipWorldStep(runtime: WorldRuntimeState): boolean {
+		if (runtime.forceStepNextFrame) return false;
+		if (runtime.controllerDirty) return false;
+		if (runtime.broadphase.dirtyBodyIds.size > 0) return false;
+		if (runtime.activePairKeys.size > 0) return false;
+		this._rebuildIslandsIfNeeded(runtime.worldId);
+		return runtime.awakeIslandIds.size === 0;
+	}
+
+	private _buildSkippedStepResult(
+		runtime: WorldRuntimeState
+	): PhysicsAdapterStepResult {
+		return {
+			bodyStates: [],
+			events: [],
+			activeBodies: runtime.cachedStats.activeBodies,
+			sleepingBodies: runtime.cachedStats.sleepingBodies,
+			ccdBodies: runtime.cachedStats.ccdBodies,
+		};
+	}
+
 	private _syncAnimationAuthorityBodies(worldIds: string[]): void {
-		const scoped = new Set(worldIds);
-		for (const body of this._bodyById.values()) {
-			if (!scoped.has(body.worldId)) continue;
-			if (body.authority !== "animation") continue;
-			this._adapter.setBodyTransform(
-				body.worldId,
-				body.id,
-				this._resolveNodeTransform(body.node)
-			);
+		for (const worldId of worldIds) {
+			const runtime = this._runtimeByWorldId.get(worldId);
+			if (!runtime) continue;
+
+			this._refreshAnimationAuthorityIndex(runtime);
+			for (const bodyId of runtime.animationAuthorityBodyIds) {
+				const body = this._bodyById.get(bodyId);
+				if (!body) continue;
+
+				const cache = runtime.bodyStateCacheById.get(body.id);
+				if (cache && !this._hasNodeTransformDelta(cache, body.node)) {
+					continue;
+				}
+
+				const transform = this._resolveNodeTransform(body.node);
+				if (cache) {
+					this._markBroadphaseBodyDirtyFromCache(
+						worldId,
+						body.id,
+						cache,
+						transform,
+						this._resolveBodyBroadphaseRadius(runtime, body)
+					);
+				}
+
+				this._adapter.setBodyTransform(body.worldId, body.id, transform);
+				this._setCachedBodyState(runtime, body.id, transform, false);
+				this._setBodySleepingState(runtime, body.id, false);
+				runtime.forceStepNextFrame = true;
+			}
 		}
 	}
 
@@ -499,52 +662,514 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		dirtyWorldIds: Set<string>,
 		worldId: string
 	): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+
 		for (const state of stepResult.bodyStates) {
 			const body = this._bodyById.get(state.bodyId);
-			if (!body || body.authority !== "physics") continue;
-			if (this._applyNodeTransform(body.node, state)) {
-				movedBodyIds.add(body.id);
-				dirtyWorldIds.add(worldId);
+			if (!body) continue;
+
+			const cache = runtime.bodyStateCacheById.get(body.id);
+			const transformChanged =
+				!cache || this._hasTransformDelta(cache, state.transform);
+
+			this._setBodySleepingState(runtime, body.id, state.sleeping);
+			runtime.ccdByBodyId.set(body.id, state.ccd);
+
+			if (transformChanged && cache) {
+				this._markBroadphaseBodyDirtyFromCache(
+					worldId,
+					body.id,
+					cache,
+					state.transform,
+					this._resolveBodyBroadphaseRadius(runtime, body)
+				);
+			}
+			this._setCachedBodyState(runtime, body.id, state.transform, state.sleeping);
+
+			if (body.authority !== "physics") continue;
+			if (!transformChanged) continue;
+
+			this._applyNodeTransform(body.node, state.transform);
+			movedBodyIds.add(body.id);
+			dirtyWorldIds.add(worldId);
+		}
+	}
+
+	private _setCachedBodyState(
+		runtime: WorldRuntimeState,
+		bodyId: string,
+		transform: PhysicsTransform,
+		sleeping: boolean
+	): void {
+		const existing = runtime.bodyStateCacheById.get(bodyId);
+		if (existing) {
+			existing.positionX = transform.position.x;
+			existing.positionY = transform.position.y;
+			existing.positionZ = transform.position.z;
+			existing.rotationX = transform.rotation[0];
+			existing.rotationY = transform.rotation[1];
+			existing.rotationZ = transform.rotation[2];
+			existing.rotationW = transform.rotation[3];
+			existing.sleeping = sleeping;
+			return;
+		}
+		runtime.bodyStateCacheById.set(bodyId, {
+			positionX: transform.position.x,
+			positionY: transform.position.y,
+			positionZ: transform.position.z,
+			rotationX: transform.rotation[0],
+			rotationY: transform.rotation[1],
+			rotationZ: transform.rotation[2],
+			rotationW: transform.rotation[3],
+			sleeping,
+		});
+	}
+
+	private _hasTransformDelta(
+		cache: CachedBodyState,
+		transform: PhysicsTransform
+	): boolean {
+		return (
+			Math.abs(cache.positionX - transform.position.x) > TRANSFORM_EPSILON ||
+			Math.abs(cache.positionY - transform.position.y) > TRANSFORM_EPSILON ||
+			Math.abs(cache.positionZ - transform.position.z) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationX - transform.rotation[0]) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationY - transform.rotation[1]) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationZ - transform.rotation[2]) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationW - transform.rotation[3]) > TRANSFORM_EPSILON
+		);
+	}
+
+	private _hasNodeTransformDelta(cache: CachedBodyState, node: Node): boolean {
+		return (
+			Math.abs(cache.positionX - node.position.x) > TRANSFORM_EPSILON ||
+			Math.abs(cache.positionY - node.position.y) > TRANSFORM_EPSILON ||
+			Math.abs(cache.positionZ - node.position.z) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationX - node.quaternion.x) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationY - node.quaternion.y) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationZ - node.quaternion.z) > TRANSFORM_EPSILON ||
+			Math.abs(cache.rotationW - node.quaternion.w) > TRANSFORM_EPSILON
+		);
+	}
+
+	private _markBroadphaseBodyDirtyFromCache(
+		worldId: string,
+		bodyId: string,
+		cache: CachedBodyState,
+		transform: PhysicsTransform,
+		radius: number
+	): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+
+		const r = Math.max(0.001, radius);
+		const minX = Math.min(cache.positionX, transform.position.x) - r;
+		const minY = Math.min(cache.positionY, transform.position.y) - r;
+		const minZ = Math.min(cache.positionZ, transform.position.z) - r;
+		const maxX = Math.max(cache.positionX, transform.position.x) + r;
+		const maxY = Math.max(cache.positionY, transform.position.y) + r;
+		const maxZ = Math.max(cache.positionZ, transform.position.z) + r;
+
+		runtime.broadphase.dirtyBodyIds.add(bodyId);
+		this._expandBroadphaseBounds(runtime, minX, minY, minZ, maxX, maxY, maxZ);
+		this._insertDirtyCells(runtime, minX, minY, minZ, maxX, maxY, maxZ);
+	}
+
+	private _expandBroadphaseBounds(
+		runtime: WorldRuntimeState,
+		minX: number,
+		minY: number,
+		minZ: number,
+		maxX: number,
+		maxY: number,
+		maxZ: number
+	): void {
+		if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+		const bounds = runtime.broadphase.dirtyBounds;
+		if (!bounds) {
+			runtime.broadphase.dirtyBounds = {
+				minX,
+				minY,
+				minZ,
+				maxX,
+				maxY,
+				maxZ,
+			};
+			return;
+		}
+		bounds.minX = Math.min(bounds.minX, minX);
+		bounds.minY = Math.min(bounds.minY, minY);
+		bounds.minZ = Math.min(bounds.minZ, minZ);
+		bounds.maxX = Math.max(bounds.maxX, maxX);
+		bounds.maxY = Math.max(bounds.maxY, maxY);
+		bounds.maxZ = Math.max(bounds.maxZ, maxZ);
+	}
+
+	private _insertDirtyCells(
+		runtime: WorldRuntimeState,
+		minX: number,
+		minY: number,
+		minZ: number,
+		maxX: number,
+		maxY: number,
+		maxZ: number
+	): void {
+		if (runtime.broadphase.dirtyCells.has("*")) return;
+
+		const minCellX = Math.floor(minX / BROADPHASE_CELL_SIZE);
+		const minCellY = Math.floor(minY / BROADPHASE_CELL_SIZE);
+		const minCellZ = Math.floor(minZ / BROADPHASE_CELL_SIZE);
+		const maxCellX = Math.floor(maxX / BROADPHASE_CELL_SIZE);
+		const maxCellY = Math.floor(maxY / BROADPHASE_CELL_SIZE);
+		const maxCellZ = Math.floor(maxZ / BROADPHASE_CELL_SIZE);
+
+		const cellCount =
+			(maxCellX - minCellX + 1) *
+			(maxCellY - minCellY + 1) *
+			(maxCellZ - minCellZ + 1);
+
+		if (cellCount > BROADPHASE_MAX_DIRTY_CELLS) {
+			runtime.broadphase.dirtyCells.clear();
+			runtime.broadphase.dirtyCells.add("*");
+			return;
+		}
+
+		for (let x = minCellX; x <= maxCellX; x++) {
+			for (let y = minCellY; y <= maxCellY; y++) {
+				for (let z = minCellZ; z <= maxCellZ; z++) {
+					runtime.broadphase.dirtyCells.add(`${x}|${y}|${z}`);
+				}
 			}
 		}
 	}
 
-	private _applyNodeTransform(
-		node: Node,
-		state: PhysicsAdapterBodyState
-	): boolean {
-		const oldPosition = {
-			x: node.position.x,
-			y: node.position.y,
-			z: node.position.z,
-		};
-		const oldRotation = [
-			node.quaternion.x,
-			node.quaternion.y,
-			node.quaternion.z,
-			node.quaternion.w,
-		];
+	private _setBodySleepingState(
+		runtime: WorldRuntimeState,
+		bodyId: string,
+		sleeping: boolean
+	): void {
+		const previous = runtime.sleepByBodyId.get(bodyId);
+		if (previous === sleeping) return;
+		runtime.sleepByBodyId.set(bodyId, sleeping);
 
-		node.position.set(
-			state.transform.position.x,
-			state.transform.position.y,
-			state.transform.position.z
+		const islandId = runtime.islandIdByBodyId.get(bodyId);
+		if (!islandId) return;
+		const island = runtime.islandsById.get(islandId);
+		if (!island) return;
+
+		const body = this._bodyById.get(bodyId);
+		if (!body) return;
+		if ((body.body.type ?? "dynamic") !== "dynamic") return;
+
+		if (previous === true) {
+			island.sleepingDynamicBodyCount = Math.max(
+				0,
+				island.sleepingDynamicBodyCount - 1
+			);
+		}
+		if (sleeping) {
+			island.sleepingDynamicBodyCount++;
+		}
+
+		if (island.sleepingDynamicBodyCount >= island.dynamicBodyCount) {
+			runtime.awakeIslandIds.delete(islandId);
+		} else {
+			runtime.awakeIslandIds.add(islandId);
+		}
+	}
+
+	private _trackPairActivity(event: PhysicsEvent): void {
+		const runtime = this._runtimeByWorldId.get(event.worldId);
+		if (!runtime) return;
+
+		const pairKey = makeBodyPairKey(event.bodyAId, event.bodyBId);
+		const active =
+			event.type === "collisionBegin" ||
+			event.type === "collisionStay" ||
+			event.type === "triggerBegin" ||
+			event.type === "triggerStay";
+		if (active) runtime.activePairKeys.add(pairKey);
+		else runtime.activePairKeys.delete(pairKey);
+
+		if (!event.type.startsWith("collision")) return;
+		const had = runtime.contactPairKeys.has(pairKey);
+		if (active) runtime.contactPairKeys.add(pairKey);
+		else runtime.contactPairKeys.delete(pairKey);
+		if (had !== runtime.contactPairKeys.has(pairKey)) {
+			runtime.islandsDirty = true;
+		}
+	}
+
+	private _registerBodyRuntime(body: InternalBodyBinding): void {
+		const runtime = this._requireRuntime(body.worldId);
+		runtime.bodyIds.add(body.id);
+		runtime.bodyBroadphaseRadiusById.set(body.id, body.broadphaseRadius);
+		runtime.sleepByBodyId.set(body.id, false);
+		runtime.ccdByBodyId.set(body.id, this._resolveBodyCcd(body));
+		this._setCachedBodyState(
+			runtime,
+			body.id,
+			this._resolveNodeTransform(body.node),
+			false
 		);
-		node.quaternion.x = state.transform.rotation[0];
-		node.quaternion.y = state.transform.rotation[1];
-		node.quaternion.z = state.transform.rotation[2];
-		node.quaternion.w = state.transform.rotation[3];
-		node.updateLocalMatrix();
+		if ((body.body.type ?? "dynamic") === "dynamic") {
+			runtime.dynamicBodyIds.add(body.id);
+		}
+		if (body.authority === "animation") {
+			runtime.animationAuthorityBodyIds.add(body.id);
+		}
+		runtime.islandsDirty = true;
+		runtime.forceStepNextFrame = true;
+		this._recomputeWorldCachedStats(runtime);
+	}
 
-		const moved =
-			Math.abs(oldPosition.x - node.position.x) > 1e-6 ||
-			Math.abs(oldPosition.y - node.position.y) > 1e-6 ||
-			Math.abs(oldPosition.z - node.position.z) > 1e-6 ||
-			Math.abs(oldRotation[0] - node.quaternion.x) > 1e-6 ||
-			Math.abs(oldRotation[1] - node.quaternion.y) > 1e-6 ||
-			Math.abs(oldRotation[2] - node.quaternion.z) > 1e-6 ||
-			Math.abs(oldRotation[3] - node.quaternion.w) > 1e-6;
-		return moved;
+	private _unregisterBodyRuntime(body: InternalBodyBinding): void {
+		const runtime = this._runtimeByWorldId.get(body.worldId);
+		if (!runtime) return;
+
+		const wasSleeping = runtime.sleepByBodyId.get(body.id) === true;
+		runtime.bodyIds.delete(body.id);
+		runtime.animationAuthorityBodyIds.delete(body.id);
+		runtime.dynamicBodyIds.delete(body.id);
+		runtime.bodyStateCacheById.delete(body.id);
+		runtime.bodyBroadphaseRadiusById.delete(body.id);
+		runtime.sleepByBodyId.delete(body.id);
+		runtime.ccdByBodyId.delete(body.id);
+
+		const islandId = runtime.islandIdByBodyId.get(body.id);
+		if (islandId) {
+			const island = runtime.islandsById.get(islandId);
+			if (island) {
+				island.bodyIds.delete(body.id);
+				if ((body.body.type ?? "dynamic") === "dynamic") {
+					island.dynamicBodyCount = Math.max(0, island.dynamicBodyCount - 1);
+					if (wasSleeping) {
+						island.sleepingDynamicBodyCount = Math.max(
+							0,
+							island.sleepingDynamicBodyCount - 1
+						);
+					}
+				}
+				if (island.bodyIds.size === 0) {
+					runtime.islandsById.delete(islandId);
+					runtime.awakeIslandIds.delete(islandId);
+				}
+			}
+		}
+		runtime.islandIdByBodyId.delete(body.id);
+
+		let removedPairs = false;
+		for (const pairSet of [
+			runtime.jointPairKeys,
+			runtime.contactPairKeys,
+			runtime.activePairKeys,
+		]) {
+			for (const pairKey of Array.from(pairSet)) {
+				if (!pairKeyContainsBody(pairKey, body.id)) continue;
+				pairSet.delete(pairKey);
+				removedPairs = true;
+			}
+		}
+		if (removedPairs) runtime.islandsDirty = true;
+		runtime.islandsDirty = true;
+		runtime.forceStepNextFrame = true;
+		this._recomputeWorldCachedStats(runtime);
+	}
+
+	private _refreshAnimationAuthorityIndex(runtime: WorldRuntimeState): void {
+		for (const bodyId of runtime.bodyIds) {
+			const body = this._bodyById.get(bodyId);
+			if (!body || body.worldId !== runtime.worldId) {
+				runtime.animationAuthorityBodyIds.delete(bodyId);
+				continue;
+			}
+			if (body.authority === "animation") {
+				runtime.animationAuthorityBodyIds.add(bodyId);
+			} else {
+				runtime.animationAuthorityBodyIds.delete(bodyId);
+			}
+		}
+	}
+
+	private _registerJointPair(worldId: string, bodyAId: string, bodyBId: string): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		const pairKey = makeBodyPairKey(bodyAId, bodyBId);
+		if (runtime.jointPairKeys.has(pairKey)) return;
+		runtime.jointPairKeys.add(pairKey);
+		runtime.islandsDirty = true;
+		runtime.forceStepNextFrame = true;
+	}
+
+	private _unregisterJointPair(
+		worldId: string,
+		bodyAId: string,
+		bodyBId: string
+	): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		const pairKey = makeBodyPairKey(bodyAId, bodyBId);
+		if (!runtime.jointPairKeys.delete(pairKey)) return;
+		runtime.islandsDirty = true;
+		runtime.forceStepNextFrame = true;
+	}
+
+	private _rebuildIslandsIfNeeded(worldId: string): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime || !runtime.islandsDirty) return;
+
+		runtime.islandIdByBodyId.clear();
+		runtime.islandsById.clear();
+		runtime.awakeIslandIds.clear();
+
+		const adjacency = new Map<string, Set<string>>();
+		for (const bodyId of runtime.bodyIds) {
+			adjacency.set(bodyId, new Set());
+		}
+		for (const pairKey of runtime.jointPairKeys) {
+			this._appendIslandEdge(adjacency, pairKey);
+		}
+		for (const pairKey of runtime.contactPairKeys) {
+			this._appendIslandEdge(adjacency, pairKey);
+		}
+
+		const visited = new Set<string>();
+		let islandIndex = 0;
+
+		for (const bodyId of runtime.bodyIds) {
+			if (visited.has(bodyId)) continue;
+			const islandId = `island:${islandIndex++}`;
+			const pending = [bodyId];
+			const islandBodies = new Set<string>();
+			let dynamicBodyCount = 0;
+			let sleepingDynamicBodyCount = 0;
+
+			while (pending.length > 0) {
+				const next = pending.pop();
+				if (!next || visited.has(next)) continue;
+				visited.add(next);
+				islandBodies.add(next);
+				runtime.islandIdByBodyId.set(next, islandId);
+
+				const body = this._bodyById.get(next);
+				if (body && (body.body.type ?? "dynamic") === "dynamic") {
+					dynamicBodyCount++;
+					if (runtime.sleepByBodyId.get(next) === true) {
+						sleepingDynamicBodyCount++;
+					}
+				}
+
+				const neighbors = adjacency.get(next);
+				if (!neighbors) continue;
+				for (const neighbor of neighbors) {
+					if (!visited.has(neighbor)) {
+						pending.push(neighbor);
+					}
+				}
+			}
+
+			const island: SleepingIslandState = {
+				id: islandId,
+				bodyIds: islandBodies,
+				dynamicBodyCount,
+				sleepingDynamicBodyCount,
+			};
+			runtime.islandsById.set(islandId, island);
+			if (dynamicBodyCount > sleepingDynamicBodyCount) {
+				runtime.awakeIslandIds.add(islandId);
+			}
+		}
+
+		runtime.islandsDirty = false;
+	}
+
+	private _appendIslandEdge(
+		adjacency: Map<string, Set<string>>,
+		pairKey: string
+	): void {
+		const pair = splitPairKey(pairKey);
+		if (!pair) return;
+		const [bodyAId, bodyBId] = pair;
+		const a = adjacency.get(bodyAId);
+		const b = adjacency.get(bodyBId);
+		if (!a || !b) return;
+		a.add(bodyBId);
+		b.add(bodyAId);
+	}
+
+	private _resolveBodyBroadphaseRadius(
+		runtime: WorldRuntimeState,
+		body: InternalBodyBinding
+	): number {
+		return runtime.bodyBroadphaseRadiusById.get(body.id) ?? body.broadphaseRadius;
+	}
+
+	private _updateBodyBroadphaseRadius(
+		body: InternalBodyBinding,
+		desc: ColliderDescriptor,
+		shape: ColliderShape
+	): void {
+		const radius = computeColliderBroadphaseRadius(shape, desc.offset);
+		if (radius <= body.broadphaseRadius) return;
+		body.broadphaseRadius = radius;
+		const runtime = this._runtimeByWorldId.get(body.worldId);
+		if (!runtime) return;
+		runtime.bodyBroadphaseRadiusById.set(body.id, radius);
+	}
+
+	private _resolveBodyCcd(body: InternalBodyBinding): boolean {
+		const world = this._worldConfigById.get(body.worldId);
+		return body.body.ccd ?? world?.enableCCD ?? false;
+	}
+
+	private _markWorldDirtyForStep(worldId: string): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		runtime.forceStepNextFrame = true;
+	}
+
+	private _markWorldControllerDirty(worldId: string): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		runtime.controllerDirty = true;
+		runtime.forceStepNextFrame = true;
+	}
+
+	private _setWorldCachedStats(worldId: string, stats: CachedWorldStats): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		runtime.cachedStats.activeBodies = stats.activeBodies;
+		runtime.cachedStats.sleepingBodies = stats.sleepingBodies;
+		runtime.cachedStats.ccdBodies = stats.ccdBodies;
+	}
+
+	private _recomputeWorldCachedStats(runtime: WorldRuntimeState): void {
+		let sleepingBodies = 0;
+		let ccdBodies = 0;
+		for (const bodyId of runtime.bodyIds) {
+			if (runtime.sleepByBodyId.get(bodyId) === true) sleepingBodies++;
+			if (runtime.ccdByBodyId.get(bodyId) === true) ccdBodies++;
+		}
+		runtime.cachedStats.sleepingBodies = sleepingBodies;
+		runtime.cachedStats.activeBodies = Math.max(
+			0,
+			runtime.bodyIds.size - sleepingBodies
+		);
+		runtime.cachedStats.ccdBodies = ccdBodies;
+	}
+
+	private _applyNodeTransform(node: Node, transform: PhysicsTransform): void {
+		node.position.set(
+			transform.position.x,
+			transform.position.y,
+			transform.position.z
+		);
+		node.quaternion.x = transform.rotation[0];
+		node.quaternion.y = transform.rotation[1];
+		node.quaternion.z = transform.rotation[2];
+		node.quaternion.w = transform.rotation[3];
+		node.updateLocalMatrix();
 	}
 
 	private _enqueueEvent(event: PhysicsEvent): void {
@@ -648,6 +1273,12 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		throw new Error(`Physics world "${worldId}" does not exist`);
 	}
 
+	private _requireRuntime(worldId: string): WorldRuntimeState {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (runtime) return runtime;
+		throw new Error(`Physics world runtime "${worldId}" does not exist`);
+	}
+
 	private _resolveQueryWorldId(worldId?: string): string {
 		if (worldId && worldId.trim().length > 0) {
 			this._requireWorld(worldId);
@@ -692,4 +1323,101 @@ function resolveBinding(
 function isBodyHandle(value: unknown): value is PhysicsBodyHandle {
 	if (!value || typeof value !== "object") return false;
 	return "id" in value && "worldId" in value && "node" in value;
+}
+
+function createWorldRuntime(worldId: string): WorldRuntimeState {
+	return {
+		worldId,
+		bodyIds: new Set(),
+		animationAuthorityBodyIds: new Set(),
+		dynamicBodyIds: new Set(),
+		bodyStateCacheById: new Map(),
+		bodyBroadphaseRadiusById: new Map(),
+		sleepByBodyId: new Map(),
+		ccdByBodyId: new Map(),
+		broadphase: {
+			dirtyBodyIds: new Set(),
+			dirtyCells: new Set(),
+			dirtyBounds: null,
+		},
+		jointPairKeys: new Set(),
+		contactPairKeys: new Set(),
+		activePairKeys: new Set(),
+		islandIdByBodyId: new Map(),
+		islandsById: new Map(),
+		awakeIslandIds: new Set(),
+		islandsDirty: false,
+		forceStepNextFrame: false,
+		controllerDirty: false,
+		cachedStats: {
+			activeBodies: 0,
+			sleepingBodies: 0,
+			ccdBodies: 0,
+		},
+	};
+}
+
+function makeBodyPairKey(left: string, right: string): string {
+	return left < right ? `${left}|${right}` : `${right}|${left}`;
+}
+
+function splitPairKey(pairKey: string): [string, string] | null {
+	const separator = pairKey.indexOf("|");
+	if (separator <= 0 || separator >= pairKey.length - 1) return null;
+	return [pairKey.slice(0, separator), pairKey.slice(separator + 1)];
+}
+
+function pairKeyContainsBody(pairKey: string, bodyId: string): boolean {
+	const pair = splitPairKey(pairKey);
+	if (!pair) return false;
+	return pair[0] === bodyId || pair[1] === bodyId;
+}
+
+function computeColliderBroadphaseRadius(
+	shape: ColliderShape,
+	offset?: IVector3
+): number {
+	const offsetRadius = offset ? Math.hypot(offset.x, offset.y, offset.z) : 0;
+	return computeShapeRadius(shape) + offsetRadius;
+}
+
+function computeShapeRadius(shape: ColliderShape): number {
+	switch (shape.kind) {
+		case "sphere":
+			return Math.max(0.001, shape.radius);
+		case "capsule":
+			return Math.max(0.001, shape.radius + shape.halfHeight);
+		case "cylinder":
+			return Math.max(
+				0.001,
+				Math.sqrt(
+					shape.radius * shape.radius + shape.halfHeight * shape.halfHeight
+				)
+			);
+		case "box":
+			return Math.max(
+				0.001,
+				Math.hypot(
+					shape.halfExtents.x,
+					shape.halfExtents.y,
+					shape.halfExtents.z
+				)
+			);
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length = vertices.length;
+			if (length < 3) return 0.5;
+			let maxRadiusSq = 0;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				const radiusSq = x * x + y * y + z * z;
+				if (radiusSq > maxRadiusSq) maxRadiusSq = radiusSq;
+			}
+			return Math.max(0.001, Math.sqrt(maxRadiusSq));
+		}
+		default:
+			return 0.5;
+	}
 }

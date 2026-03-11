@@ -23,6 +23,7 @@ const tests = [
 	"test_particle_simulation_stage.mjs",
 	"test_physics_stepper.mjs",
 	"test_physics_system_bindings.mjs",
+	"test_physics_system_optimizations.mjs",
 	"test_physics_events.mjs",
 	"test_physics_queries.mjs",
 	"test_physics_adapter_contract.mjs",
