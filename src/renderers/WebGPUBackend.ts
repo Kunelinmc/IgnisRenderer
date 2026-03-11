@@ -34,6 +34,12 @@ import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticl
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
+	WEBGPU_BINDING_GROUP_CACHE_LIMIT,
+	WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES,
+	WEBGPU_PIPELINE_CACHE_LIMIT,
+	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
+	WEBGPU_COPY_BATCH_SIZE,
+	WEBGPU_TIMESTAMP_QUERY_CAPACITY,
 } from "./webgpu/constants";
 import {
 	BufferUsage,
@@ -92,13 +98,6 @@ interface InternalCommandBuffer {
 	_backendCommandBuffer?: GPUCommandBuffer;
 	_gpuCommandBuffer: GPUCommandBuffer;
 }
-
-const WEBGPU_BINDING_GROUP_CACHE_LIMIT = 4096;
-const WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES = 3;
-const WEBGPU_PIPELINE_CACHE_LIMIT = 1024;
-const WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT = 512;
-const WEBGPU_COPY_BATCH_SIZE = 8;
-const WEBGPU_TIMESTAMP_QUERY_CAPACITY = 512;
 
 interface CachedBindingGroupEntry {
 	group: InternalBindingGroup;
@@ -1464,21 +1463,41 @@ export class WebGPUBackend implements IRenderBackend {
 
 	private _mapBufferUsage(usage: number): GPUBufferUsageFlags {
 		let flags = 0;
-		if (usage & BufferUsage.Vertex) flags |= GPUBufferUsage.VERTEX;
-		if (usage & BufferUsage.Index) flags |= GPUBufferUsage.INDEX;
-		if (usage & BufferUsage.Uniform) flags |= GPUBufferUsage.UNIFORM;
-		if (usage & BufferUsage.Storage) flags |= GPUBufferUsage.STORAGE;
-		if (usage & BufferUsage.CopySrc) flags |= GPUBufferUsage.COPY_SRC;
-		if (usage & BufferUsage.CopyDst) flags |= GPUBufferUsage.COPY_DST;
-		if (usage & BufferUsage.MapRead) flags |= GPUBufferUsage.MAP_READ;
-		if (usage & BufferUsage.MapWrite) flags |= GPUBufferUsage.MAP_WRITE;
+		if (usage & BufferUsage.Vertex) {
+			flags |= GPUBufferUsage.VERTEX;
+		}
+		if (usage & BufferUsage.Index) {
+			flags |= GPUBufferUsage.INDEX;
+		}
+		if (usage & BufferUsage.Uniform) {
+			flags |= GPUBufferUsage.UNIFORM;
+		}
+		if (usage & BufferUsage.Storage) {
+			flags |= GPUBufferUsage.STORAGE;
+		}
+		if (usage & BufferUsage.CopySrc) {
+			flags |= GPUBufferUsage.COPY_SRC;
+		}
+		if (usage & BufferUsage.CopyDst) {
+			flags |= GPUBufferUsage.COPY_DST;
+		}
+		if (usage & BufferUsage.MapRead) {
+			flags |= GPUBufferUsage.MAP_READ;
+		}
+		if (usage & BufferUsage.MapWrite) {
+			flags |= GPUBufferUsage.MAP_WRITE;
+		}
 		return flags;
 	}
 
 	private _mapTextureUsage(usage: number): GPUTextureUsageFlags {
 		let flags = 0;
-		if (usage & TextureUsage.CopySrc) flags |= GPUTextureUsage.COPY_SRC;
-		if (usage & TextureUsage.CopyDst) flags |= GPUTextureUsage.COPY_DST;
+		if (usage & TextureUsage.CopySrc) {
+			flags |= GPUTextureUsage.COPY_SRC;
+		}
+		if (usage & TextureUsage.CopyDst) {
+			flags |= GPUTextureUsage.COPY_DST;
+		}
 		if (usage & TextureUsage.TextureBinding) {
 			flags |= GPUTextureUsage.TEXTURE_BINDING;
 		}
