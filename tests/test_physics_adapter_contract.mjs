@@ -261,6 +261,283 @@ function createFakeRapierModule() {
 	return { module, stats }
 }
 
+function createFakeAmmoModule() {
+	const stats = {
+		stepCalls: 0,
+	}
+
+	function readNumberLike(value, key, fallback = 0) {
+		if (!value || typeof value !== 'object') return fallback
+		const member = value[key]
+		if (typeof member === 'number' && Number.isFinite(member)) {
+			return member
+		}
+		if (typeof member === 'function') {
+			try {
+				const result = member.call(value)
+				if (typeof result === 'number' && Number.isFinite(result)) {
+					return result
+				}
+			} catch {}
+		}
+		return fallback
+	}
+
+	class FakeBtVector3 {
+		constructor(x = 0, y = 0, z = 0) {
+			this._x = x
+			this._y = y
+			this._z = z
+		}
+		x() {
+			return this._x
+		}
+		y() {
+			return this._y
+		}
+		z() {
+			return this._z
+		}
+		setValue(x, y, z) {
+			this._x = x ?? 0
+			this._y = y ?? 0
+			this._z = z ?? 0
+		}
+		clone() {
+			return new FakeBtVector3(this._x, this._y, this._z)
+		}
+	}
+
+	class FakeBtQuaternion {
+		constructor(x = 0, y = 0, z = 0, w = 1) {
+			this._x = x
+			this._y = y
+			this._z = z
+			this._w = w
+		}
+		x() {
+			return this._x
+		}
+		y() {
+			return this._y
+		}
+		z() {
+			return this._z
+		}
+		w() {
+			return this._w
+		}
+		clone() {
+			return new FakeBtQuaternion(this._x, this._y, this._z, this._w)
+		}
+	}
+
+	class FakeBtTransform {
+		constructor() {
+			this.setIdentity()
+		}
+		setIdentity() {
+			this._origin = new FakeBtVector3(0, 0, 0)
+			this._rotation = new FakeBtQuaternion(0, 0, 0, 1)
+		}
+		setOrigin(value) {
+			this._origin = new FakeBtVector3(
+				readNumberLike(value, 'x'),
+				readNumberLike(value, 'y'),
+				readNumberLike(value, 'z')
+			)
+		}
+		setRotation(value) {
+			this._rotation = new FakeBtQuaternion(
+				readNumberLike(value, 'x'),
+				readNumberLike(value, 'y'),
+				readNumberLike(value, 'z'),
+				readNumberLike(value, 'w', 1)
+			)
+		}
+		getOrigin() {
+			return this._origin
+		}
+		getRotation() {
+			return this._rotation
+		}
+		clone() {
+			const next = new FakeBtTransform()
+			next.setOrigin(this._origin)
+			next.setRotation(this._rotation)
+			return next
+		}
+	}
+
+	class FakeBtDefaultMotionState {
+		constructor(transform) {
+			this._transform =
+				transform instanceof FakeBtTransform ?
+					transform.clone()
+				:	new FakeBtTransform()
+		}
+		getWorldTransform(out) {
+			if (out && typeof out.setOrigin === 'function') {
+				out.setOrigin(this._transform.getOrigin())
+				out.setRotation(this._transform.getRotation())
+			}
+		}
+		setWorldTransform(transform) {
+			if (transform instanceof FakeBtTransform) {
+				this._transform = transform.clone()
+			}
+		}
+	}
+
+	class FakeShape {
+		calculateLocalInertia(_mass, out) {
+			if (out && typeof out.setValue === 'function') {
+				out.setValue(0, 0, 0)
+			}
+		}
+	}
+
+	class FakeBtSphereShape extends FakeShape {
+		constructor(radius) {
+			super()
+			this.radius = radius
+		}
+	}
+
+	class FakeBtBoxShape extends FakeShape {
+		constructor(halfExtents) {
+			super()
+			this.halfExtents = halfExtents
+		}
+	}
+
+	class FakeBtRigidBodyConstructionInfo {
+		constructor(mass, motionState, shape, localInertia) {
+			this.mass = mass
+			this.motionState = motionState
+			this.shape = shape
+			this.localInertia = localInertia
+		}
+	}
+
+	class FakeBtRigidBody {
+		constructor(info) {
+			this._info = info
+			this._mass = Number.isFinite(info?.mass) ? info.mass : 0
+			this._motionState = info?.motionState
+			this._transform = new FakeBtTransform()
+			if (this._motionState?.getWorldTransform) {
+				this._motionState.getWorldTransform(this._transform)
+			}
+			this._linearVelocity = new FakeBtVector3(0, 0, 0)
+			this._flags = 0
+			this._active = true
+			this._sleeping = false
+		}
+		setWorldTransform(transform) {
+			if (transform instanceof FakeBtTransform) {
+				this._transform = transform.clone()
+				this._motionState?.setWorldTransform?.(this._transform)
+			}
+		}
+		getWorldTransform() {
+			return this._transform
+		}
+		setLinearVelocity(value) {
+			this._linearVelocity = new FakeBtVector3(
+				readNumberLike(value, 'x'),
+				readNumberLike(value, 'y'),
+				readNumberLike(value, 'z')
+			)
+		}
+		getLinearVelocity() {
+			return this._linearVelocity
+		}
+		setAngularVelocity() {}
+		setCollisionFlags(flags) {
+			this._flags = flags ?? 0
+		}
+		getCollisionFlags() {
+			return this._flags
+		}
+		setActivationState() {}
+		setCcdMotionThreshold() {}
+		setCcdSweptSphereRadius() {}
+		activate() {
+			this._active = true
+			this._sleeping = false
+		}
+		isActive() {
+			return this._active
+		}
+		isSleeping() {
+			return this._sleeping
+		}
+	}
+
+	class FakeBtDiscreteDynamicsWorld {
+		constructor() {
+			this._gravity = new FakeBtVector3(0, -9.8, 0)
+			this._bodies = new Set()
+		}
+		setGravity(value) {
+			this._gravity = new FakeBtVector3(
+				readNumberLike(value, 'x'),
+				readNumberLike(value, 'y'),
+				readNumberLike(value, 'z')
+			)
+		}
+		addRigidBody(body) {
+			this._bodies.add(body)
+		}
+		removeRigidBody(body) {
+			this._bodies.delete(body)
+		}
+		stepSimulation(deltaSeconds) {
+			stats.stepCalls++
+			const dt = Math.max(0, Number(deltaSeconds) || 0)
+			for (const body of this._bodies) {
+				if (!body || body._mass <= 0) continue
+				const velocity = body.getLinearVelocity()
+				velocity.setValue(
+					velocity.x() + this._gravity.x() * dt,
+					velocity.y() + this._gravity.y() * dt,
+					velocity.z() + this._gravity.z() * dt
+				)
+				const transform = body.getWorldTransform()
+				const origin = transform.getOrigin()
+				origin.setValue(
+					origin.x() + velocity.x() * dt,
+					origin.y() + velocity.y() * dt,
+					origin.z() + velocity.z() * dt
+				)
+				body.setWorldTransform(transform)
+			}
+		}
+	}
+
+	const module = {
+		btDefaultCollisionConfiguration: class {},
+		btCollisionDispatcher: class {
+			constructor() {}
+		},
+		btDbvtBroadphase: class {},
+		btSequentialImpulseConstraintSolver: class {},
+		btDiscreteDynamicsWorld: FakeBtDiscreteDynamicsWorld,
+		btVector3: FakeBtVector3,
+		btQuaternion: FakeBtQuaternion,
+		btTransform: FakeBtTransform,
+		btDefaultMotionState: FakeBtDefaultMotionState,
+		btRigidBodyConstructionInfo: FakeBtRigidBodyConstructionInfo,
+		btRigidBody: FakeBtRigidBody,
+		btSphereShape: FakeBtSphereShape,
+		btBoxShape: FakeBtBoxShape,
+		destroy: () => {},
+	}
+
+	return { module, stats }
+}
+
 async function runContract(adapter, label, opts = {}) {
 	const physics = new PhysicsSystem({ adapter })
 	await physics.init()
@@ -352,6 +629,7 @@ async function runContract(adapter, label, opts = {}) {
 
 async function run() {
 	const fakeRapier = createFakeRapierModule()
+	const fakeAmmo = createFakeAmmoModule()
 	await runContract(
 		new RapierPhysicsAdapter({
 			moduleLoader: async () => fakeRapier.module,
@@ -369,10 +647,18 @@ async function run() {
 	)
 	await runContract(
 		new AmmoPhysicsAdapter({
-			moduleLoader: async () => ({ fake: true }),
+			moduleLoader: async () => fakeAmmo.module,
 			strict: true,
 		}),
-		'ammo'
+		'ammo',
+		{
+			afterRun: () => {
+				assert.ok(
+					fakeAmmo.stats.stepCalls > 0,
+					'Expected Ammo world.stepSimulation() to be used at least once'
+				)
+			},
+		}
 	)
 }
 
