@@ -5,11 +5,13 @@ import type {
 	PhysicsAdapterStepResult,
 } from "../IPhysicsEngineAdapter";
 import type { IVector3 } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
 import { DEFAULT_GRAVITY } from "../constants";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
 	PhysicsBoxCastQuery,
+	PhysicsQueryFilter,
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapHit,
 	PhysicsOverlapSphereQuery,
@@ -50,18 +52,73 @@ interface AmmoModuleLike {
 	btRigidBody?: new (info: unknown) => unknown;
 	btSphereShape?: new (radius: number) => unknown;
 	btBoxShape?: new (halfExtents: unknown) => unknown;
+	btCapsuleShape?: new (radius: number, height: number) => unknown;
+	btCylinderShape?: new (halfExtents: unknown) => unknown;
+	btCompoundShape?: new () => unknown;
+	btFixedConstraint?: new (
+		bodyA: unknown,
+		bodyB: unknown,
+		frameInA: unknown,
+		frameInB: unknown
+	) => unknown;
+	btHingeConstraint?: new (...args: unknown[]) => unknown;
+	btPoint2PointConstraint?: new (
+		bodyA: unknown,
+		bodyB: unknown,
+		pivotInA: unknown,
+		pivotInB: unknown
+	) => unknown;
+	btGeneric6DofSpringConstraint?: new (
+		bodyA: unknown,
+		bodyB: unknown,
+		frameInA: unknown,
+		frameInB: unknown,
+		useLinearReferenceFrameA?: boolean
+	) => unknown;
+	ClosestRayResultCallback?: new (from: unknown, to: unknown) => unknown;
+	btCollisionWorld_ClosestRayResultCallback?: new (
+		from: unknown,
+		to: unknown
+	) => unknown;
+	ClosestConvexResultCallback?: new (from: unknown, to: unknown) => unknown;
+	btCollisionWorld_ClosestConvexResultCallback?: new (
+		from: unknown,
+		to: unknown
+	) => unknown;
 	destroy?: (target: unknown) => void;
 }
 
 interface AmmoBodyState {
 	id: string;
 	type: RigidBodyType;
+	mass: number;
 	rigidBody: any;
 	motionState: any;
 	constructionInfo: any;
 	shape: any;
 	transform: PhysicsTransform;
 	ccd: boolean;
+	colliderIds: Set<string>;
+}
+
+interface AmmoColliderState {
+	id: string;
+	bodyId: string;
+	descriptor: ColliderDescriptor;
+	shape: ColliderShape;
+	ammoShape: any;
+	childTransform: any;
+	isTrigger: boolean;
+	radius: number;
+	halfExtents: IVector3;
+	offset: IVector3;
+}
+
+interface AmmoJointState {
+	id: string;
+	descriptor: JointDescriptor;
+	constraint: any;
+	ownedObjects: unknown[];
 }
 
 interface AmmoWorldState {
@@ -71,6 +128,20 @@ interface AmmoWorldState {
 	broadphase: any;
 	solver: any;
 	bodies: Map<string, AmmoBodyState>;
+	colliders: Map<string, AmmoColliderState>;
+	joints: Map<string, AmmoJointState>;
+}
+
+interface AmmoQueryCandidate {
+	body: AmmoBodyState;
+	collider: AmmoColliderState;
+	center: IVector3;
+}
+
+interface AmmoQueryHit {
+	distance: number;
+	point: IVector3;
+	normal: IVector3;
 }
 
 export interface AmmoPhysicsAdapterOptions {
@@ -172,6 +243,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				broadphase,
 				solver,
 				bodies: new Map(),
+				colliders: new Map(),
+				joints: new Map(),
 			});
 		} catch (error) {
 			this._delegate.destroyWorld(config.worldId);
@@ -185,6 +258,9 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		if (!this._usingFallback()) {
 			const world = this._worlds.get(worldId);
 			if (world) {
+				for (const jointId of Array.from(world.joints.keys())) {
+					this.destroyJoint(worldId, jointId);
+				}
 				for (const bodyId of Array.from(world.bodies.keys())) {
 					this._destroyAmmoBody(world, bodyId);
 				}
@@ -218,7 +294,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		try {
 			const type = descriptor.type ?? "dynamic";
 			const mass = resolveBodyMass(type, descriptor.mass);
-			const shape = this._createFallbackShape();
+			const shape =
+				this._tryNewAmmo("btCompoundShape") ?? this._createFallbackShape();
 			const transform = this._createAmmoTransform(initialTransform);
 			const motionState = this._newAmmo("btDefaultMotionState", transform);
 			const localInertia = this._createAmmoVector3({ x: 0, y: 0, z: 0 });
@@ -256,12 +333,14 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			world.bodies.set(bodyId, {
 				id: bodyId,
 				type,
+				mass,
 				rigidBody,
 				motionState,
 				constructionInfo,
 				shape,
 				transform: cloneTransform(initialTransform),
 				ccd,
+				colliderIds: new Set(),
 			});
 
 			this._destroyAmmoObject(localInertia);
@@ -316,11 +395,150 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		descriptor: ColliderDescriptor,
 		shape: ColliderShape
 	): void {
-		this._delegate.addCollider(worldId, bodyId, colliderId, descriptor, shape);
+		if (this._usingFallback()) {
+			this._delegate.addCollider(
+				worldId,
+				bodyId,
+				colliderId,
+				descriptor,
+				shape
+			);
+			return;
+		}
+
+		const world = this._requireWorld(worldId);
+		if (world.colliders.has(colliderId)) {
+			throw new Error(
+				`Physics collider "${colliderId}" already exists in "${worldId}"`
+			);
+		}
+		const body = this._requireBody(worldId, bodyId);
+		const ammoShape = this._createAmmoColliderShape(shape);
+		const offset = cloneVector(descriptor.offset ?? { x: 0, y: 0, z: 0 });
+		const isTrigger = descriptor.isTrigger === true;
+		let childTransform: any = null;
+		let attachedToBody = false;
+		const hadColliders = body.colliderIds.size > 0;
+
+		try {
+			if (this._isCompoundShape(body.shape)) {
+				childTransform = this._createAmmoOffsetTransform(offset);
+				this._invokeOrThrow(
+					body.shape,
+					["addChildShape"],
+					[[childTransform, ammoShape]],
+					`Ammo body "${bodyId}" does not expose addChildShape()`
+				);
+				attachedToBody = true;
+			} else if (!hadColliders) {
+				if (!isZeroVector(offset)) {
+					const compound = this._tryNewAmmo("btCompoundShape");
+					if (compound) {
+						childTransform = this._createAmmoOffsetTransform(offset);
+						this._invokeOrThrow(
+							compound,
+							["addChildShape"],
+							[[childTransform, ammoShape]],
+							`Ammo body "${bodyId}" does not expose addChildShape()`
+						);
+						const previousShape = body.shape;
+						body.shape = compound;
+						this._invoke(body.rigidBody, ["setCollisionShape"], [[compound]]);
+						this._destroyAmmoObject(previousShape);
+						attachedToBody = true;
+					}
+				}
+				if (!attachedToBody) {
+					const previousShape = body.shape;
+					body.shape = ammoShape;
+					this._invoke(body.rigidBody, ["setCollisionShape"], [[ammoShape]]);
+					this._destroyAmmoObject(previousShape);
+					attachedToBody = true;
+				}
+			} else {
+				const compound = this._tryNewAmmo("btCompoundShape");
+				if (compound) {
+					const identity = this._newAmmo("btTransform");
+					this._invoke(identity, ["setIdentity"], [[]]);
+					this._invoke(compound, ["addChildShape"], [[identity, body.shape]]);
+					this._destroyAmmoObject(identity);
+
+					childTransform = this._createAmmoOffsetTransform(offset);
+					this._invokeOrThrow(
+						compound,
+						["addChildShape"],
+						[[childTransform, ammoShape]],
+						`Ammo body "${bodyId}" does not expose addChildShape()`
+					);
+					body.shape = compound;
+					this._invoke(body.rigidBody, ["setCollisionShape"], [[compound]]);
+					attachedToBody = true;
+				}
+			}
+
+			this._applyBodyMaterial(body.rigidBody, descriptor);
+			this._refreshBodyMassProperties(body);
+			this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+
+			const collider: AmmoColliderState = {
+				id: colliderId,
+				bodyId,
+				descriptor,
+				shape,
+				ammoShape,
+				childTransform,
+				isTrigger,
+				radius: computeShapeRadius(shape),
+				halfExtents: computeShapeHalfExtents(shape),
+				offset,
+			};
+			world.colliders.set(colliderId, collider);
+			body.colliderIds.add(colliderId);
+		} catch (error) {
+			if (!attachedToBody) this._destroyAmmoObject(ammoShape);
+			if (childTransform) this._destroyAmmoObject(childTransform);
+			throw new Error(
+				`AmmoPhysicsAdapter failed to create collider "${colliderId}" in "${worldId}". Inner error: ${String(error)}`
+			);
+		}
 	}
 
 	public destroyCollider(worldId: string, colliderId: string): void {
-		this._delegate.destroyCollider(worldId, colliderId);
+		if (this._usingFallback()) {
+			this._delegate.destroyCollider(worldId, colliderId);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) return;
+		const body = world.bodies.get(collider.bodyId);
+		let detachedShape = true;
+		if (body) {
+			if (this._isCompoundShape(body.shape)) {
+				detachedShape = this._invoke(body.shape, ["removeChildShape"], [
+					[collider.ammoShape],
+				]);
+			}
+			body.colliderIds.delete(colliderId);
+
+			if (!this._isCompoundShape(body.shape) && body.shape === collider.ammoShape) {
+				const replacement = this._createFallbackShape();
+				body.shape = replacement;
+				this._invoke(body.rigidBody, ["setCollisionShape"], [[replacement]]);
+			} else if (this._isCompoundShape(body.shape) && body.colliderIds.size === 0) {
+				const oldShape = body.shape;
+				const replacement = this._createFallbackShape();
+				body.shape = replacement;
+				this._invoke(body.rigidBody, ["setCollisionShape"], [[replacement]]);
+				if (oldShape !== collider.ammoShape) this._destroyAmmoObject(oldShape);
+			}
+			this._refreshBodyMassProperties(body);
+		}
+		world.colliders.delete(colliderId);
+		if (collider.childTransform) this._destroyAmmoObject(collider.childTransform);
+		if (detachedShape && (!body || body.shape !== collider.ammoShape)) {
+			this._destroyAmmoObject(collider.ammoShape);
+		}
 	}
 
 	public createJoint(
@@ -328,11 +546,62 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		jointId: string,
 		descriptor: JointDescriptor
 	): void {
-		this._delegate.createJoint(worldId, jointId, descriptor);
+		if (this._usingFallback()) {
+			this._delegate.createJoint(worldId, jointId, descriptor);
+			return;
+		}
+
+		const world = this._requireWorld(worldId);
+		if (world.joints.has(jointId)) {
+			throw new Error(
+				`Physics joint "${jointId}" already exists in "${worldId}"`
+			);
+		}
+		const bodyAId = resolveJointBodyId(descriptor.bodyA);
+		const bodyBId = resolveJointBodyId(descriptor.bodyB);
+		const bodyA = this._requireBody(worldId, bodyAId);
+		const bodyB = this._requireBody(worldId, bodyBId);
+		const nativeJoint = this._createAmmoJoint(bodyA, bodyB, descriptor);
+		if (nativeJoint.constraint) {
+			const disableCollision = !(descriptor.collisionEnabled ?? false);
+			this._invoke(
+				world.world,
+				["addConstraint"],
+				[
+					[nativeJoint.constraint, disableCollision],
+					[nativeJoint.constraint],
+				]
+			);
+		}
+		world.joints.set(jointId, {
+			id: jointId,
+			descriptor,
+			constraint: nativeJoint.constraint,
+			ownedObjects: nativeJoint.ownedObjects,
+		});
 	}
 
 	public destroyJoint(worldId: string, jointId: string): void {
-		this._delegate.destroyJoint(worldId, jointId);
+		if (this._usingFallback()) {
+			this._delegate.destroyJoint(worldId, jointId);
+			return;
+		}
+		const world = this._worlds.get(worldId);
+		const joint = world?.joints.get(jointId);
+		if (joint) {
+			if (joint.constraint) {
+				this._invoke(
+					world?.world,
+					["removeConstraint"],
+					[[joint.constraint], [joint.constraint, true]]
+				);
+				this._destroyAmmoObject(joint.constraint);
+			}
+			for (const target of joint.ownedObjects) {
+				this._destroyAmmoObject(target);
+			}
+			world?.joints.delete(jointId);
+		}
 	}
 
 	public createCharacterController(
@@ -403,35 +672,64 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		worldId: string,
 		query: PhysicsRaycastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.raycast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.raycast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return (
+			this._raycastNative(worldId, world, query) ??
+			this._raycastApprox(worldId, world, query)
+		);
 	}
 
 	public sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.sphereCast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.sphereCast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return (
+			this._sphereCastNative(worldId, world, query) ??
+			this._sphereCastApprox(worldId, world, query)
+		);
 	}
 
 	public boxCast(
 		worldId: string,
 		query: PhysicsBoxCastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.boxCast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.boxCast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return (
+			this._boxCastNative(worldId, world, query) ??
+			this._boxCastApprox(worldId, world, query)
+		);
 	}
 
 	public overlapSphere(
 		worldId: string,
 		query: PhysicsOverlapSphereQuery
 	): PhysicsOverlapHit[] {
-		return this._delegate.overlapSphere(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.overlapSphere(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return this._overlapSphereApprox(worldId, world, query);
 	}
 
 	public overlapBox(
 		worldId: string,
 		query: PhysicsOverlapBoxQuery
 	): PhysicsOverlapHit[] {
-		return this._delegate.overlapBox(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.overlapBox(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return this._overlapBoxApprox(worldId, world, query);
 	}
 
 	public stepWorld(
@@ -493,6 +791,22 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 	private _destroyAmmoBody(world: AmmoWorldState, bodyId: string): void {
 		const body = world.bodies.get(bodyId);
 		if (!body) return;
+		for (const [jointId, joint] of world.joints) {
+			const bodyAId = resolveJointBodyId(joint.descriptor.bodyA);
+			const bodyBId = resolveJointBodyId(joint.descriptor.bodyB);
+			if (bodyAId !== bodyId && bodyBId !== bodyId) continue;
+			this.destroyJoint(joint.descriptor.worldId, jointId);
+		}
+		for (const colliderId of Array.from(body.colliderIds)) {
+			const collider = world.colliders.get(colliderId);
+			if (!collider) continue;
+			world.colliders.delete(colliderId);
+			if (collider.childTransform) this._destroyAmmoObject(collider.childTransform);
+			if (collider.ammoShape && collider.ammoShape !== body.shape) {
+				this._destroyAmmoObject(collider.ammoShape);
+			}
+		}
+		body.colliderIds.clear();
 		this._invoke(world.world, ["removeRigidBody"], [[body.rigidBody]]);
 		this._destroyAmmoObject(body.rigidBody);
 		this._destroyAmmoObject(body.motionState);
@@ -585,6 +899,227 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._destroyAmmoObject(g);
 	}
 
+	private _createAmmoColliderShape(shape: ColliderShape): any {
+		switch (shape.kind) {
+			case "sphere":
+				return this._newAmmo("btSphereShape", Math.max(0.001, shape.radius));
+			case "box": {
+				const halfExtents = this._createAmmoVector3({
+					x: Math.max(0.001, Math.abs(shape.halfExtents.x)),
+					y: Math.max(0.001, Math.abs(shape.halfExtents.y)),
+					z: Math.max(0.001, Math.abs(shape.halfExtents.z)),
+				});
+				const colliderShape = this._newAmmo("btBoxShape", halfExtents);
+				this._destroyAmmoObject(halfExtents);
+				return colliderShape;
+			}
+			case "capsule": {
+				const ammo = this._requireAmmo();
+				if (typeof ammo.btCapsuleShape === "function") {
+					return new ammo.btCapsuleShape(
+						Math.max(0.001, shape.radius),
+						Math.max(0, shape.halfHeight) * 2
+					);
+				}
+				return this._newAmmo("btSphereShape", Math.max(0.001, shape.radius));
+			}
+			case "cylinder": {
+				const ammo = this._requireAmmo();
+				const halfExtents = this._createAmmoVector3({
+					x: Math.max(0.001, shape.radius),
+					y: Math.max(0.001, shape.halfHeight),
+					z: Math.max(0.001, shape.radius),
+				});
+				const colliderShape =
+					typeof ammo.btCylinderShape === "function" ?
+						new ammo.btCylinderShape(halfExtents)
+					:	this._newAmmo("btBoxShape", halfExtents);
+				this._destroyAmmoObject(halfExtents);
+				return colliderShape;
+			}
+			case "trimesh":
+				return this._createFallbackShape();
+			default:
+				return this._createFallbackShape();
+		}
+	}
+
+	private _isCompoundShape(shape: any): boolean {
+		if (!shape || typeof shape !== "object") return false;
+		const count = this._readFromGetter(shape, "getNumChildShapes");
+		return typeof count === "number" && Number.isFinite(count);
+	}
+
+	private _createAmmoOffsetTransform(offset: IVector3): any {
+		return this._createAmmoTransform({
+			position: offset,
+			rotation: [0, 0, 0, 1],
+		});
+	}
+
+	private _refreshBodyMassProperties(body: AmmoBodyState): void {
+		if (body.type !== "dynamic" || body.mass <= 0) return;
+		const inertia = this._createAmmoVector3({ x: 0, y: 0, z: 0 });
+		this._invoke(body.shape, ["calculateLocalInertia"], [[body.mass, inertia]]);
+		this._invoke(body.rigidBody, ["setMassProps"], [[body.mass, inertia]]);
+		this._invoke(body.rigidBody, ["updateInertiaTensor"], [[]]);
+		this._destroyAmmoObject(inertia);
+	}
+
+	private _applyBodyMaterial(
+		rigidBody: any,
+		descriptor: ColliderDescriptor
+	): void {
+		const material = descriptor.material;
+		if (!material) return;
+		if (Number.isFinite(material.friction)) {
+			this._invoke(rigidBody, ["setFriction"], [[material.friction]]);
+		}
+		if (Number.isFinite(material.restitution)) {
+			this._invoke(rigidBody, ["setRestitution"], [[material.restitution]]);
+		}
+	}
+
+	private _createAmmoJoint(
+		bodyA: AmmoBodyState,
+		bodyB: AmmoBodyState,
+		descriptor: JointDescriptor
+	): { constraint: any; ownedObjects: unknown[] } {
+		const ownedObjects: unknown[] = [];
+		const anchorA = cloneVector(descriptor.anchorA ?? { x: 0, y: 0, z: 0 });
+		const anchorB = cloneVector(descriptor.anchorB ?? { x: 0, y: 0, z: 0 });
+		const axis = normalizeOptionalDirection(descriptor.axis, {
+			x: 0,
+			y: 1,
+			z: 0,
+		});
+
+		if (descriptor.type === "fixed") {
+			const frameA = this._createAmmoOffsetTransform(anchorA);
+			const frameB = this._createAmmoOffsetTransform(anchorB);
+			ownedObjects.push(frameA, frameB);
+			const fixed =
+				this._tryNewAmmo(
+					"btFixedConstraint",
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					frameA,
+					frameB
+				) ??
+				this._tryCreatePointConstraint(
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					anchorA,
+					anchorB,
+					ownedObjects
+				);
+			return { constraint: fixed, ownedObjects };
+		}
+
+		if (descriptor.type === "hinge") {
+			const pivotA = this._createAmmoVector3(anchorA);
+			const pivotB = this._createAmmoVector3(anchorB);
+			const axisVector = this._createAmmoVector3(axis);
+			ownedObjects.push(pivotA, pivotB, axisVector);
+			const hinge =
+				this._tryNewAmmo(
+					"btHingeConstraint",
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					pivotA,
+					pivotB,
+					axisVector,
+					axisVector,
+					true
+				) ??
+				this._tryNewAmmo(
+					"btHingeConstraint",
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					pivotA,
+					pivotB,
+					axisVector,
+					axisVector
+				) ??
+				this._tryCreatePointConstraint(
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					anchorA,
+					anchorB,
+					ownedObjects
+				);
+			if (hinge && descriptor.limits) {
+				this._invoke(hinge, ["setLimit"], [[descriptor.limits[0], descriptor.limits[1]]]);
+			}
+			return { constraint: hinge, ownedObjects };
+		}
+
+		const frameA = this._createAmmoOffsetTransform(anchorA);
+		const frameB = this._createAmmoOffsetTransform(anchorB);
+		ownedObjects.push(frameA, frameB);
+		const spring = this._tryNewAmmo(
+			"btGeneric6DofSpringConstraint",
+			bodyA.rigidBody,
+			bodyB.rigidBody,
+			frameA,
+			frameB,
+			true
+		);
+		if (spring) {
+			const stiffness = Math.max(0, descriptor.stiffness ?? 25);
+			const damping = Math.max(0, descriptor.damping ?? 3);
+			this._invoke(spring, ["enableSpring"], [[0, true]]);
+			this._invoke(spring, ["setStiffness"], [[0, stiffness]]);
+			this._invoke(spring, ["setDamping"], [[0, damping]]);
+			if (descriptor.limits) {
+				const lower = this._createAmmoVector3({
+					x: descriptor.limits[0],
+					y: descriptor.limits[0],
+					z: descriptor.limits[0],
+				});
+				const upper = this._createAmmoVector3({
+					x: descriptor.limits[1],
+					y: descriptor.limits[1],
+					z: descriptor.limits[1],
+				});
+				ownedObjects.push(lower, upper);
+				this._invoke(spring, ["setLinearLowerLimit"], [[lower]]);
+				this._invoke(spring, ["setLinearUpperLimit"], [[upper]]);
+			}
+			return { constraint: spring, ownedObjects };
+		}
+
+		return {
+			constraint: this._tryCreatePointConstraint(
+				bodyA.rigidBody,
+				bodyB.rigidBody,
+				anchorA,
+				anchorB,
+				ownedObjects
+			),
+			ownedObjects,
+		};
+	}
+
+	private _tryCreatePointConstraint(
+		bodyA: any,
+		bodyB: any,
+		anchorA: IVector3,
+		anchorB: IVector3,
+		ownedObjects: unknown[]
+	): any {
+		const pivotA = this._createAmmoVector3(anchorA);
+		const pivotB = this._createAmmoVector3(anchorB);
+		ownedObjects.push(pivotA, pivotB);
+		return this._tryNewAmmo(
+			"btPoint2PointConstraint",
+			bodyA,
+			bodyB,
+			pivotA,
+			pivotB
+		);
+	}
+
 	private _createFallbackShape(): any {
 		const ammo = this._requireAmmo();
 		if (typeof ammo.btSphereShape === "function") {
@@ -621,6 +1156,463 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		return ammoTransform;
 	}
 
+	private _raycastNative(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit | null {
+		const direction = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		const from = this._createAmmoVector3(query.origin);
+		const to = this._createAmmoVector3(
+			Vector3.add(query.origin, Vector3.scale(direction, maxDistance))
+		);
+		const callback =
+			this._tryNewAmmo("ClosestRayResultCallback", from, to) ??
+			this._tryNewAmmo("btCollisionWorld_ClosestRayResultCallback", from, to);
+		if (!callback) {
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			return null;
+		}
+
+		const invoked = this._invoke(
+			world.world,
+			["rayTest"],
+			[[from, to, callback]]
+		);
+		if (!invoked) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			return null;
+		}
+
+		const hasHit = this._readHitStatus(callback);
+		if (!hasHit) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			return null;
+		}
+
+		const collisionObject =
+			this._readFromGetter(callback, "get_m_collisionObject") ??
+			this._readFromGetter(callback, "m_collisionObject");
+		const body = this._resolveHitBody(world, collisionObject);
+		const bodyId = body?.id;
+		if (!bodyId) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			return null;
+		}
+
+		const collider = this._chooseHitCollider(
+			world,
+			bodyId,
+			query.filter,
+			readAmmoVector3(this._readFromGetter(callback, "get_m_hitPointWorld"))
+		);
+		if (!collider) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			return null;
+		}
+		const point = readAmmoVector3(
+			this._readFromGetter(callback, "get_m_hitPointWorld") ??
+				this._readFromGetter(callback, "m_hitPointWorld")
+		);
+		const normal = readAmmoVector3(
+			this._readFromGetter(callback, "get_m_hitNormalWorld") ??
+				this._readFromGetter(callback, "m_hitNormalWorld")
+		);
+		const fractionRaw =
+			this._readFromGetter(callback, "get_m_closestHitFraction") ??
+			this._readFromGetter(callback, "m_closestHitFraction");
+		const fraction =
+			typeof fractionRaw === "number" && Number.isFinite(fractionRaw) ?
+				Math.min(1, Math.max(0, fractionRaw))
+			:	Math.min(
+					1,
+					Math.max(
+						0,
+						Vector3.length(Vector3.sub(point, query.origin)) / maxDistance
+					)
+				);
+		const distance = fraction * maxDistance;
+
+		this._destroyAmmoObject(callback);
+		this._destroyAmmoObject(from);
+		this._destroyAmmoObject(to);
+		return {
+			worldId,
+			bodyId,
+			colliderId: collider.id,
+			point,
+			normal: Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
+			distance,
+			fraction,
+			isTrigger: collider.isTrigger,
+		};
+	}
+
+	private _sphereCastNative(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsSphereCastQuery
+	): PhysicsQueryHit | null {
+		const radius = Math.max(0, query.radius);
+		const shape = this._tryNewAmmo("btSphereShape", Math.max(0.001, radius));
+		if (!shape) return null;
+		const result = this._convexCastNative(
+			worldId,
+			world,
+			shape,
+			query.center,
+			query.direction,
+			query.maxDistance,
+			query.filter
+		);
+		this._destroyAmmoObject(shape);
+		return result;
+	}
+
+	private _boxCastNative(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsBoxCastQuery
+	): PhysicsQueryHit | null {
+		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const extents = this._createAmmoVector3({
+			x: Math.max(0.001, halfExtents.x),
+			y: Math.max(0.001, halfExtents.y),
+			z: Math.max(0.001, halfExtents.z),
+		});
+		const shape = this._tryNewAmmo("btBoxShape", extents);
+		this._destroyAmmoObject(extents);
+		if (!shape) return null;
+		const result = this._convexCastNative(
+			worldId,
+			world,
+			shape,
+			query.center,
+			query.direction,
+			query.maxDistance,
+			query.filter
+		);
+		this._destroyAmmoObject(shape);
+		return result;
+	}
+
+	private _convexCastNative(
+		worldId: string,
+		world: AmmoWorldState,
+		shape: any,
+		origin: IVector3,
+		direction: IVector3,
+		maxDistanceRaw: number | undefined,
+		filter?: PhysicsQueryFilter
+	): PhysicsQueryHit | null {
+		const ray = normalizeDirection(direction);
+		const maxDistance = sanitizeMaxDistance(maxDistanceRaw);
+		if (maxDistance <= 0) return null;
+
+		const from = this._createAmmoTransform({
+			position: origin,
+			rotation: [0, 0, 0, 1],
+		});
+		const to = this._createAmmoTransform({
+			position: Vector3.add(origin, Vector3.scale(ray, maxDistance)),
+			rotation: [0, 0, 0, 1],
+		});
+		const fromVector = this._createAmmoVector3(origin);
+		const toVector = this._createAmmoVector3(
+			Vector3.add(origin, Vector3.scale(ray, maxDistance))
+		);
+		const callback =
+			this._tryNewAmmo("ClosestConvexResultCallback", fromVector, toVector) ??
+			this._tryNewAmmo(
+				"btCollisionWorld_ClosestConvexResultCallback",
+				fromVector,
+				toVector
+			);
+		if (!callback) {
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			this._destroyAmmoObject(fromVector);
+			this._destroyAmmoObject(toVector);
+			return null;
+		}
+
+		const invoked = this._invoke(
+			world.world,
+			["convexSweepTest"],
+			[[shape, from, to, callback, 0], [shape, from, to, callback]]
+		);
+		if (!invoked || !this._readHitStatus(callback)) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			this._destroyAmmoObject(fromVector);
+			this._destroyAmmoObject(toVector);
+			return null;
+		}
+
+		const collisionObject =
+			this._readFromGetter(callback, "get_m_hitCollisionObject") ??
+			this._readFromGetter(callback, "m_hitCollisionObject");
+		const body = this._resolveHitBody(world, collisionObject);
+		const bodyId = body?.id;
+		if (!bodyId) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			this._destroyAmmoObject(fromVector);
+			this._destroyAmmoObject(toVector);
+			return null;
+		}
+		const point = readAmmoVector3(
+			this._readFromGetter(callback, "get_m_hitPointWorld") ??
+				this._readFromGetter(callback, "m_hitPointWorld")
+		);
+		const collider = this._chooseHitCollider(world, bodyId, filter, point);
+		if (!collider) {
+			this._destroyAmmoObject(callback);
+			this._destroyAmmoObject(from);
+			this._destroyAmmoObject(to);
+			this._destroyAmmoObject(fromVector);
+			this._destroyAmmoObject(toVector);
+			return null;
+		}
+		const normal = readAmmoVector3(
+			this._readFromGetter(callback, "get_m_hitNormalWorld") ??
+				this._readFromGetter(callback, "m_hitNormalWorld")
+		);
+		const fractionRaw =
+			this._readFromGetter(callback, "get_m_closestHitFraction") ??
+			this._readFromGetter(callback, "m_closestHitFraction");
+		const fraction =
+			typeof fractionRaw === "number" && Number.isFinite(fractionRaw) ?
+				Math.min(1, Math.max(0, fractionRaw))
+			:	Math.min(
+					1,
+					Math.max(0, Vector3.length(Vector3.sub(point, origin)) / maxDistance)
+				);
+		const result: PhysicsQueryHit = {
+			worldId,
+			bodyId,
+			colliderId: collider.id,
+			point,
+			normal: Vector3.length(normal) > 1e-8 ? Vector3.normalize(normal) : normal,
+			distance: fraction * maxDistance,
+			fraction,
+			isTrigger: collider.isTrigger,
+		};
+		this._destroyAmmoObject(callback);
+		this._destroyAmmoObject(from);
+		this._destroyAmmoObject(to);
+		this._destroyAmmoObject(fromVector);
+		this._destroyAmmoObject(toVector);
+		return result;
+	}
+
+	private _raycastApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit | null {
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	private _sphereCastApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsSphereCastQuery
+	): PhysicsQueryHit | null {
+		const ray = normalizeDirection(query.direction);
+		const castRadius = Math.max(0, query.radius);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectSphereCastWithCollider(
+				query.center,
+				ray,
+				castRadius,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	private _boxCastApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsBoxCastQuery
+	): PhysicsQueryHit | null {
+		const ray = normalizeDirection(query.direction);
+		const castHalfExtents = sanitizeHalfExtents(query.halfExtents);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectBoxCastWithCollider(
+				query.center,
+				ray,
+				castHalfExtents,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	private _overlapSphereApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsOverlapSphereQuery
+	): PhysicsOverlapHit[] {
+		const radius = Math.max(0, query.radius);
+		const hits: PhysicsOverlapHit[] = [];
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsSphereWithCollider(query.center, radius, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+		return truncateHits(hits, query.maxHits);
+	}
+
+	private _overlapBoxApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsOverlapBoxQuery
+	): PhysicsOverlapHit[] {
+		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryMin = Vector3.sub(query.center, halfExtents);
+		const queryMax = Vector3.add(query.center, halfExtents);
+		const hits: PhysicsOverlapHit[] = [];
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsBoxWithCollider(queryMin, queryMax, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+		return truncateHits(hits, query.maxHits);
+	}
+
+	private _getQueryCandidates(
+		world: AmmoWorldState,
+		filter?: PhysicsQueryFilter
+	): AmmoQueryCandidate[] {
+		const includeBodyIds = toSet(filter?.includeBodyIds);
+		const excludeBodyIds = toSet(filter?.excludeBodyIds);
+		const includeColliderIds = toSet(filter?.includeColliderIds);
+		const excludeColliderIds = toSet(filter?.excludeColliderIds);
+		const includeTriggers = filter?.includeTriggers ?? true;
+		const candidates: AmmoQueryCandidate[] = [];
+		for (const collider of world.colliders.values()) {
+			if (!includeTriggers && collider.isTrigger) continue;
+			if (includeBodyIds && !includeBodyIds.has(collider.bodyId)) continue;
+			if (excludeBodyIds?.has(collider.bodyId)) continue;
+			if (includeColliderIds && !includeColliderIds.has(collider.id)) continue;
+			if (excludeColliderIds?.has(collider.id)) continue;
+			const body = world.bodies.get(collider.bodyId);
+			if (!body) continue;
+			candidates.push({
+				body,
+				collider,
+				center: Vector3.add(body.transform.position, collider.offset),
+			});
+		}
+		return candidates;
+	}
+
+	private _readHitStatus(callback: any): boolean {
+		const variants = [
+			this._readFromGetter(callback, "hasHit"),
+			this._readFromGetter(callback, "get_m_hasHit"),
+			this._readFromGetter(callback, "m_hasHit"),
+		];
+		for (const value of variants) {
+			if (typeof value === "boolean") return value;
+			if (typeof value === "number") return value !== 0;
+		}
+		return false;
+	}
+
+	private _resolveHitBody(world: AmmoWorldState, collisionObject: unknown): AmmoBodyState | null {
+		if (!collisionObject) return null;
+		for (const body of world.bodies.values()) {
+			if (body.rigidBody === collisionObject) return body;
+		}
+		return null;
+	}
+
+	private _chooseHitCollider(
+		world: AmmoWorldState,
+		bodyId: string,
+		filter: PhysicsQueryFilter | undefined,
+		hitPoint: IVector3
+	): AmmoColliderState | null {
+		const includeColliderIds = toSet(filter?.includeColliderIds);
+		const excludeColliderIds = toSet(filter?.excludeColliderIds);
+		const includeTriggers = filter?.includeTriggers ?? true;
+		let selected: AmmoColliderState | null = null;
+		let bestDistance = Infinity;
+		for (const colliderId of world.bodies.get(bodyId)?.colliderIds ?? []) {
+			const collider = world.colliders.get(colliderId);
+			if (!collider) continue;
+			if (!includeTriggers && collider.isTrigger) continue;
+			if (includeColliderIds && !includeColliderIds.has(collider.id)) continue;
+			if (excludeColliderIds?.has(collider.id)) continue;
+			const body = world.bodies.get(bodyId);
+			if (!body) continue;
+			const center = Vector3.add(body.transform.position, collider.offset);
+			const distance = Vector3.length(Vector3.sub(hitPoint, center));
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				selected = collider;
+			}
+		}
+		return selected;
+	}
+
 	private _setVector3(target: any, methods: string[], value: IVector3): void {
 		const vector = this._createAmmoVector3(value);
 		this._invoke(target, methods, [
@@ -634,6 +1626,18 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 	private _newAmmo(name: string, ...args: unknown[]): any {
 		const Ctor = this._requireAmmoCtor(name);
 		return new Ctor(...args);
+	}
+
+	private _tryNewAmmo(name: string, ...args: unknown[]): any {
+		const ammo = this._ammo as Record<string, unknown> | null;
+		if (!ammo) return null;
+		const Ctor = ammo[name];
+		if (typeof Ctor !== "function") return null;
+		try {
+			return new (Ctor as new (...ctorArgs: unknown[]) => any)(...args);
+		} catch {
+			return null;
+		}
 	}
 
 	private _requireAmmoCtor(name: string): new (...args: unknown[]) => any {
@@ -705,6 +1709,13 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		throw new Error(
 			"AmmoPhysicsAdapter is not initialized with a usable Ammo module"
 		);
+	}
+
+	private _requireBody(worldId: string, bodyId: string): AmmoBodyState {
+		const world = this._requireWorld(worldId);
+		const body = world.bodies.get(bodyId);
+		if (body) return body;
+		throw new Error(`Physics body "${bodyId}" does not exist in "${worldId}"`);
 	}
 
 	private _requireWorld(worldId: string): AmmoWorldState {
@@ -794,6 +1805,464 @@ function cloneTransform(transform: PhysicsTransform): PhysicsTransform {
 			transform.rotation[3],
 		],
 	};
+}
+
+function resolveJointBodyId(value: JointDescriptor["bodyA"]): string {
+	if (typeof value === "string") return value;
+	if (value && typeof value === "object" && "id" in value) {
+		return String((value as { id: string }).id);
+	}
+	return "";
+}
+
+function isZeroVector(value: IVector3): boolean {
+	return (
+		Math.abs(value.x) <= 1e-8 &&
+		Math.abs(value.y) <= 1e-8 &&
+		Math.abs(value.z) <= 1e-8
+	);
+}
+
+function normalizeOptionalDirection(
+	value: IVector3 | undefined,
+	fallback: IVector3
+): IVector3 {
+	if (!value) return cloneVector(fallback);
+	const length = Vector3.length(value);
+	if (length <= 1e-8) return cloneVector(fallback);
+	return Vector3.normalize(value);
+}
+
+function computeShapeRadius(shape: ColliderShape): number {
+	switch (shape.kind) {
+		case "sphere":
+			return Math.max(0.001, shape.radius);
+		case "capsule":
+			return Math.max(0.001, shape.radius + shape.halfHeight);
+		case "cylinder":
+			return Math.max(
+				0.001,
+				Math.sqrt(
+					shape.radius * shape.radius + shape.halfHeight * shape.halfHeight
+				)
+			);
+		case "box":
+			return Math.max(
+				0.001,
+				Math.hypot(
+					shape.halfExtents.x,
+					shape.halfExtents.y,
+					shape.halfExtents.z
+				)
+			);
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length = Array.isArray(vertices) ? vertices.length : vertices.length;
+			if (length < 3) return 0.5;
+			let maxRadiusSq = 0;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				const radiusSq = x * x + y * y + z * z;
+				if (radiusSq > maxRadiusSq) maxRadiusSq = radiusSq;
+			}
+			return Math.max(0.001, Math.sqrt(maxRadiusSq));
+		}
+		default:
+			return 0.5;
+	}
+}
+
+function computeShapeHalfExtents(shape: ColliderShape): IVector3 {
+	switch (shape.kind) {
+		case "sphere": {
+			const radius = Math.max(0.001, shape.radius);
+			return { x: radius, y: radius, z: radius };
+		}
+		case "capsule": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: radius + Math.max(0, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "cylinder": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: Math.max(0.001, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "box":
+			return {
+				x: Math.max(0.001, Math.abs(shape.halfExtents.x)),
+				y: Math.max(0.001, Math.abs(shape.halfExtents.y)),
+				z: Math.max(0.001, Math.abs(shape.halfExtents.z)),
+			};
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length = Array.isArray(vertices) ? vertices.length : vertices.length;
+			if (length < 3) {
+				return { x: 0.5, y: 0.5, z: 0.5 };
+			}
+			let minX = Infinity;
+			let minY = Infinity;
+			let minZ = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			let maxZ = -Infinity;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				if (x < minX) minX = x;
+				if (y < minY) minY = y;
+				if (z < minZ) minZ = z;
+				if (x > maxX) maxX = x;
+				if (y > maxY) maxY = y;
+				if (z > maxZ) maxZ = z;
+			}
+			return {
+				x: Math.max(0.001, (maxX - minX) * 0.5),
+				y: Math.max(0.001, (maxY - minY) * 0.5),
+				z: Math.max(0.001, (maxZ - minZ) * 0.5),
+			};
+		}
+		default:
+			return { x: 0.5, y: 0.5, z: 0.5 };
+	}
+}
+
+function toQueryHit(
+	worldId: string,
+	candidate: AmmoQueryCandidate,
+	hit: AmmoQueryHit,
+	maxDistance: number
+): PhysicsQueryHit {
+	return {
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		point: cloneVector(hit.point),
+		normal: cloneVector(hit.normal),
+		distance: hit.distance,
+		fraction:
+			maxDistance > 0 ?
+				Math.min(1, Math.max(0, hit.distance / maxDistance))
+			:	0,
+		isTrigger: candidate.collider.isTrigger,
+	};
+}
+
+function toOverlapHit(
+	worldId: string,
+	candidate: AmmoQueryCandidate
+): PhysicsOverlapHit {
+	return {
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		isTrigger: candidate.collider.isTrigger,
+	};
+}
+
+function truncateHits<T>(hits: T[], maxHits?: number): T[] {
+	if (!Number.isFinite(maxHits) || maxHits === undefined) return hits;
+	const max = Math.max(0, Math.floor(maxHits));
+	if (max === 0) return [];
+	if (hits.length <= max) return hits;
+	return hits.slice(0, max);
+}
+
+function normalizeDirection(direction: IVector3): IVector3 {
+	const length = Vector3.length(direction);
+	if (length <= 1e-8) {
+		throw new Error("Physics query direction must be non-zero");
+	}
+	return Vector3.normalize(direction);
+}
+
+function sanitizeMaxDistance(maxDistance?: number): number {
+	if (maxDistance === undefined) return Infinity;
+	if (!Number.isFinite(maxDistance)) return Infinity;
+	return Math.max(0, maxDistance);
+}
+
+function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
+	return {
+		x: Math.max(0, Math.abs(halfExtents.x)),
+		y: Math.max(0, Math.abs(halfExtents.y)),
+		z: Math.max(0, Math.abs(halfExtents.z)),
+	};
+}
+
+function toSet(values?: string[]): Set<string> | null {
+	if (!values || values.length === 0) return null;
+	return new Set(values);
+}
+
+function intersectRayWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	candidate: AmmoQueryCandidate
+): AmmoQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectRayAabb(origin, direction, maxDistance, min, max);
+		}
+		default:
+			return intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius
+			);
+	}
+}
+
+function intersectSphereCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	radius: number,
+	maxDistance: number,
+	candidate: AmmoQueryCandidate
+): AmmoQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const expandedHalfExtents = {
+				x: candidate.collider.halfExtents.x + radius,
+				y: candidate.collider.halfExtents.y + radius,
+				z: candidate.collider.halfExtents.z + radius,
+			};
+			const min = Vector3.sub(candidate.center, expandedHalfExtents);
+			const max = Vector3.add(candidate.center, expandedHalfExtents);
+			const hit = intersectRayAabb(origin, direction, maxDistance, min, max);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+		default: {
+			const hit = intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius + radius
+			);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+	}
+}
+
+function intersectBoxCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	castHalfExtents: IVector3,
+	maxDistance: number,
+	candidate: AmmoQueryCandidate
+): AmmoQueryHit | null {
+	const expandedHalfExtents = {
+		x: candidate.collider.halfExtents.x + castHalfExtents.x,
+		y: candidate.collider.halfExtents.y + castHalfExtents.y,
+		z: candidate.collider.halfExtents.z + castHalfExtents.z,
+	};
+	const min = Vector3.sub(candidate.center, expandedHalfExtents);
+	const max = Vector3.add(candidate.center, expandedHalfExtents);
+	return intersectRayAabb(origin, direction, maxDistance, min, max);
+}
+
+function intersectsSphereWithCollider(
+	center: IVector3,
+	radius: number,
+	candidate: AmmoQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectsSphereAabb(center, radius, min, max);
+		}
+		default: {
+			const delta = Vector3.sub(center, candidate.center);
+			const radii = radius + candidate.collider.radius;
+			return Vector3.dot(delta, delta) <= radii * radii;
+		}
+	}
+}
+
+function intersectsBoxWithCollider(
+	queryMin: IVector3,
+	queryMax: IVector3,
+	candidate: AmmoQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = Vector3.sub(candidate.center, candidate.collider.halfExtents);
+			const max = Vector3.add(candidate.center, candidate.collider.halfExtents);
+			return intersectsAabb(queryMin, queryMax, min, max);
+		}
+		default:
+			return intersectsSphereAabb(
+				candidate.center,
+				candidate.collider.radius,
+				queryMin,
+				queryMax
+			);
+	}
+}
+
+function intersectRaySphere(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	center: IVector3,
+	radius: number
+): AmmoQueryHit | null {
+	const radiusClamped = Math.max(0.001, radius);
+	const oc = Vector3.sub(origin, center);
+	const b = Vector3.dot(oc, direction);
+	const c = Vector3.dot(oc, oc) - radiusClamped * radiusClamped;
+	if (c > 0 && b > 0) return null;
+	const discriminant = b * b - c;
+	if (discriminant < 0) return null;
+	const sqrtDiscriminant = Math.sqrt(discriminant);
+	let distance = -b - sqrtDiscriminant;
+	if (distance < 0) distance = 0;
+	if (distance > maxDistance) return null;
+
+	const point = Vector3.add(origin, Vector3.scale(direction, distance));
+	const normalCandidate = Vector3.sub(point, center);
+	const normalLength = Math.hypot(
+		normalCandidate.x,
+		normalCandidate.y,
+		normalCandidate.z
+	);
+	const normal =
+		normalLength > 1e-8 ?
+			Vector3.scale(normalCandidate, 1 / normalLength)
+		:	Vector3.scale(direction, -1);
+	return { distance, point, normal };
+}
+
+function intersectRayAabb(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	min: IVector3,
+	max: IVector3
+): AmmoQueryHit | null {
+	let entry = 0;
+	let exit = maxDistance;
+	let hitAxis = -1;
+	let hitNormalSign = 0;
+
+	for (let axis = 0; axis < 3; axis++) {
+		const o = getAxis(origin, axis);
+		const d = getAxis(direction, axis);
+		const minAxis = getAxis(min, axis);
+		const maxAxis = getAxis(max, axis);
+		if (Math.abs(d) <= 1e-8) {
+			if (o < minAxis || o > maxAxis) return null;
+			continue;
+		}
+
+		let t1 = (minAxis - o) / d;
+		let t2 = (maxAxis - o) / d;
+		let normalSign = d > 0 ? -1 : 1;
+		if (t1 > t2) {
+			const temp = t1;
+			t1 = t2;
+			t2 = temp;
+			normalSign *= -1;
+		}
+
+		if (t1 > entry) {
+			entry = t1;
+			hitAxis = axis;
+			hitNormalSign = normalSign;
+		}
+		exit = Math.min(exit, t2);
+		if (entry > exit) return null;
+	}
+
+	if (entry < 0 || entry > maxDistance) return null;
+	const point = Vector3.add(origin, Vector3.scale(direction, entry));
+	const normal =
+		hitAxis >= 0 ? axisVector(hitAxis, hitNormalSign) : Vector3.scale(direction, -1);
+	return { distance: entry, point, normal };
+}
+
+function intersectsSphereAabb(
+	center: IVector3,
+	radius: number,
+	min: IVector3,
+	max: IVector3
+): boolean {
+	const clampedX = Math.max(min.x, Math.min(max.x, center.x));
+	const clampedY = Math.max(min.y, Math.min(max.y, center.y));
+	const clampedZ = Math.max(min.z, Math.min(max.z, center.z));
+	const dx = center.x - clampedX;
+	const dy = center.y - clampedY;
+	const dz = center.z - clampedZ;
+	return dx * dx + dy * dy + dz * dz <= radius * radius;
+}
+
+function intersectsAabb(
+	minA: IVector3,
+	maxA: IVector3,
+	minB: IVector3,
+	maxB: IVector3
+): boolean {
+	return (
+		minA.x <= maxB.x &&
+		maxA.x >= minB.x &&
+		minA.y <= maxB.y &&
+		maxA.y >= minB.y &&
+		minA.z <= maxB.z &&
+		maxA.z >= minB.z
+	);
+}
+
+function getAxis(vector: IVector3, axis: number): number {
+	switch (axis) {
+		case 0:
+			return vector.x;
+		case 1:
+			return vector.y;
+		default:
+			return vector.z;
+	}
+}
+
+function axisVector(axis: number, sign: number): IVector3 {
+	if (axis === 0) return { x: sign, y: 0, z: 0 };
+	if (axis === 1) return { x: 0, y: sign, z: 0 };
+	return { x: 0, y: 0, z: sign };
 }
 
 function readAmmoComponent(
