@@ -1,16 +1,16 @@
-import assert from 'node:assert/strict'
-import { Camera } from '../src/cameras/Camera.ts'
-import { Material } from '../src/materials/Material.ts'
-import { Matrix4 } from '../src/maths/Matrix4.ts'
-import { MeshAsset } from '../src/meshes/MeshAsset.ts'
-import { MeshInstance } from '../src/meshes/MeshInstance.ts'
-import { AnimationClip } from '../src/animation/AnimationClip.ts'
-import { KeyframeTrack } from '../src/animation/KeyframeTrack.ts'
-import { Renderer } from '../src/renderers/Renderer.ts'
+import assert from "node:assert/strict";
+import { Camera } from "../src/cameras/Camera.ts";
+import { Material } from "../src/materials/Material.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { MeshAsset } from "../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../src/meshes/MeshInstance.ts";
+import { AnimationClip } from "../src/animation/AnimationClip.ts";
+import { KeyframeTrack } from "../src/animation/KeyframeTrack.ts";
+import { Renderer } from "../src/renderers/Renderer.ts";
 
 class StubBackend {
 	constructor() {
-		this.type = 'stub'
+		this.type = "stub";
 		this.capabilities = {
 			sh: false,
 			shadows: false,
@@ -20,16 +20,16 @@ class StubBackend {
 			taa: false,
 			ssr: false,
 			volumetric: false,
-		}
-		this.frameScheduling = 'on-demand'
+		};
+		this.frameScheduling = "on-demand";
 		this.passExecutors = {
-			'animation-sim': 'shared',
-			'particle-sim': 'backend',
-		}
-		this.beginFrameCount = 0
-		this.sharedStages = []
-		this.executedStages = []
-		this.mainOpaqueCenters = []
+			"animation-sim": "shared",
+			"particle-sim": "backend",
+		};
+		this.beginFrameCount = 0;
+		this.sharedStages = [];
+		this.executedStages = [];
+		this.mainOpaqueCenters = [];
 	}
 
 	async init() {}
@@ -43,23 +43,23 @@ class StubBackend {
 			pixels: new Uint8ClampedArray(width * height * 4),
 			depthBuffer: new Float32Array(width * height),
 			normalBuffer: new Float32Array(width * height * 3),
-		}
+		};
 	}
 
 	beginFrame() {
-		this.beginFrameCount++
+		this.beginFrameCount++;
 	}
 
 	executeSharedPass(pass) {
-		this.sharedStages.push(pass.stage)
+		this.sharedStages.push(pass.stage);
 	}
 
 	executePass(pass, context) {
-		this.executedStages.push(pass.stage)
-		if (pass.stage === 'main-opaque') {
-			const packet = context.scene.opaquePackets[0]
+		this.executedStages.push(pass.stage);
+		if (pass.stage === "main-opaque") {
+			const packet = context.scene.opaquePackets[0];
 			if (packet) {
-				this.mainOpaqueCenters.push(packet.worldBounds.center.x)
+				this.mainOpaqueCenters.push(packet.worldBounds.center.x);
 			}
 		}
 	}
@@ -98,84 +98,84 @@ function createTriangleMesh() {
 				},
 			],
 		},
-	])
+	]);
 }
 
 async function run() {
-	const originalWindow = globalThis.window
-	const originalRAF = globalThis.requestAnimationFrame
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
 
 	try {
-		globalThis.window = { devicePixelRatio: 1 }
-		globalThis.requestAnimationFrame = () => 0
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
 
-		const backend = new StubBackend()
+		const backend = new StubBackend();
 		const canvas = {
 			width: 320,
 			height: 180,
 			getBoundingClientRect() {
-				return { width: 320, height: 180 }
+				return { width: 320, height: 180 };
 			},
-		}
-		const camera = new Camera()
-		camera.position.set(0, 0, 5)
-		const renderer = new Renderer(backend, canvas, camera)
-		renderer.features.worldMatrix = Matrix4.identity()
-		renderer.features.enableGamma = false
-		renderer.features.enableReflection = false
-		renderer.features.enableSkybox = false
-		renderer.features.enableShadows = false
+		};
+		const camera = new Camera();
+		camera.position.set(0, 0, 5);
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.features.enableGamma = false;
+		renderer.features.enableReflection = false;
+		renderer.features.enableSkybox = false;
+		renderer.features.enableShadows = false;
 
 		const meshInstance = renderer.scene.add(
 			new MeshInstance({
 				mesh: createTriangleMesh(),
-				name: 'animatedMesh',
+				name: "animatedMesh",
 			})
-		)
+		);
 
 		const clip = new AnimationClip({
-			name: 'move',
+			name: "move",
 			duration: 1,
 			tracks: [
 				new KeyframeTrack({
 					binding: {
-						targetType: 'node',
-						targetPath: '/animated',
-						property: 'translation',
+						targetType: "node",
+						targetPath: "/animated",
+						property: "translation",
 					},
 					times: [0, 1],
 					values: [0, 0, 0, 2, 0, 0],
 					valueSize: 3,
-					interpolation: 'linear',
+					interpolation: "linear",
 				}),
 			],
-		})
-		const mixer = renderer.animationSystem.createMixer(renderer.scene.root)
-		mixer.addClip(clip)
-		mixer.bindNode('/animated', meshInstance)
-		mixer.clipAction('move').play()
+		});
+		const mixer = renderer.animationSystem.createMixer(renderer.scene.root);
+		mixer.addClip(clip);
+		mixer.bindNode("/animated", meshInstance);
+		mixer.clipAction("move").play();
 
-		await renderer.renderScene(0)
-		await renderer.renderScene(16)
-		await renderer.renderScene(516)
+		await renderer.renderScene(0);
+		await renderer.renderScene(16);
+		await renderer.renderScene(516);
 
-		assert.equal(backend.beginFrameCount, 3)
-		assert.ok(backend.mainOpaqueCenters.length >= 3)
+		assert.equal(backend.beginFrameCount, 3);
+		assert.ok(backend.mainOpaqueCenters.length >= 3);
 		assert.ok(
 			backend.mainOpaqueCenters[2] > backend.mainOpaqueCenters[1] + 0.9
-		)
-		assert.equal(backend.executedStages.includes('animation-sim'), false)
-		assert.equal(backend.sharedStages.includes('animation-sim'), false)
+		);
+		assert.equal(backend.executedStages.includes("animation-sim"), false);
+		assert.equal(backend.sharedStages.includes("animation-sim"), false);
 
-		renderer.animationAutoRender = false
-		await renderer.renderScene(1016)
-		assert.equal(backend.beginFrameCount, 3)
+		renderer.animationAutoRender = false;
+		await renderer.renderScene(1016);
+		assert.equal(backend.beginFrameCount, 3);
 
-		console.log('Renderer animation stage tests passed')
+		console.log("Renderer animation stage tests passed");
 	} finally {
-		globalThis.window = originalWindow
-		globalThis.requestAnimationFrame = originalRAF
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
 	}
 }
 
-await run()
+await run();

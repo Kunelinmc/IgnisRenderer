@@ -1,72 +1,72 @@
-import assert from 'node:assert/strict'
-import { Node } from '../src/core/Node.ts'
-import { PhysicsSystem } from '../src/physics/PhysicsSystem.ts'
+import assert from "node:assert/strict";
+import { Node } from "../src/core/Node.ts";
+import { PhysicsSystem } from "../src/physics/PhysicsSystem.ts";
 
 function assertAlmostEqual(actual, expected, epsilon = 1e-6) {
 	assert.ok(
 		Math.abs(actual - expected) <= epsilon,
 		`Expected ${actual} to be close to ${expected}`
-	)
+	);
 }
 
 function run() {
-	const physics = new PhysicsSystem()
-	physics.initSync()
+	const physics = new PhysicsSystem();
+	physics.initSync();
 	physics.createWorld({
-		worldId: 'main',
+		worldId: "main",
 		gravity: { x: 0, y: 0, z: 0 },
-		mode: 'variable',
-	})
+		mode: "variable",
+	});
 
 	const sphereBody = physics.attachBody(
 		new Node({ position: { x: 0, y: 0, z: 5 } }),
 		{
-			worldId: 'main',
-			body: { type: 'fixed' },
-			authority: 'physics',
+			worldId: "main",
+			body: { type: "fixed" },
+			authority: "physics",
 		}
-	)
+	);
 	const boxBody = physics.attachBody(
 		new Node({ position: { x: 0, y: 0, z: 8 } }),
 		{
-			worldId: 'main',
-			body: { type: 'fixed' },
-			authority: 'physics',
+			worldId: "main",
+			body: { type: "fixed" },
+			authority: "physics",
 		}
-	)
+	);
 	const triggerBody = physics.attachBody(
 		new Node({ position: { x: 0, y: 0, z: 2 } }),
 		{
-			worldId: 'main',
-			body: { type: 'fixed' },
-			authority: 'physics',
+			worldId: "main",
+			body: { type: "fixed" },
+			authority: "physics",
 		}
-	)
+	);
 
 	const sphereCollider = physics.addCollider(sphereBody, {
-		mode: 'explicit',
-		shape: { kind: 'sphere', radius: 1 },
-	})
+		mode: "explicit",
+		shape: { kind: "sphere", radius: 1 },
+	});
 	const boxCollider = physics.addCollider(boxBody, {
-		mode: 'explicit',
-		shape: { kind: 'box', halfExtents: { x: 1, y: 1, z: 1 } },
-	})
+		mode: "explicit",
+		shape: { kind: "box", halfExtents: { x: 1, y: 1, z: 1 } },
+	});
 	physics.addCollider(triggerBody, {
-		mode: 'explicit',
-		shape: { kind: 'sphere', radius: 0.25 },
+		mode: "explicit",
+		shape: { kind: "sphere", radius: 0.25 },
 		isTrigger: true,
-	})
+	});
 
 	const rayHit = physics.raycast({
 		origin: { x: 0, y: 0, z: 0 },
 		direction: { x: 0, y: 0, z: 1 },
 		maxDistance: 20,
 		filter: { includeTriggers: false },
-	})
-	assert.ok(rayHit)
-	assert.equal(rayHit?.bodyId, sphereBody.id)
-	assert.equal(rayHit?.colliderId, sphereCollider.id)
-	assertAlmostEqual(rayHit.distance, 4)
+	});
+	assert.ok(rayHit);
+	assert.equal(rayHit?.bodyId, sphereBody.id);
+	assert.equal(rayHit?.colliderId, sphereCollider.id);
+	assertAlmostEqual(rayHit.distance, 4);
 
 	const sphereCastHit = physics.sphereCast({
 		center: { x: 0, y: 0, z: 0 },
@@ -74,10 +74,10 @@ function run() {
 		direction: { x: 0, y: 0, z: 1 },
 		maxDistance: 20,
 		filter: { includeTriggers: false },
-	})
-	assert.ok(sphereCastHit)
-	assert.equal(sphereCastHit?.bodyId, sphereBody.id)
-	assertAlmostEqual(sphereCastHit.distance, 3.5)
+	});
+	assert.ok(sphereCastHit);
+	assert.equal(sphereCastHit?.bodyId, sphereBody.id);
+	assertAlmostEqual(sphereCastHit.distance, 3.5);
 
 	const boxCastHit = physics.boxCast({
 		center: { x: 0, y: 0, z: 0 },
@@ -85,37 +85,37 @@ function run() {
 		direction: { x: 0, y: 0, z: 1 },
 		maxDistance: 20,
 		filter: { includeBodyIds: [boxBody.id] },
-	})
-	assert.ok(boxCastHit)
-	assert.equal(boxCastHit?.bodyId, boxBody.id)
-	assertAlmostEqual(boxCastHit.distance, 6.5)
+	});
+	assert.ok(boxCastHit);
+	assert.equal(boxCastHit?.bodyId, boxBody.id);
+	assertAlmostEqual(boxCastHit.distance, 6.5);
 
 	const overlapSphereHits = physics.overlapSphere({
 		center: { x: 0, y: 0, z: 5 },
 		radius: 0.25,
 		filter: { includeTriggers: false },
-	})
-	assert.equal(overlapSphereHits.length, 1)
-	assert.equal(overlapSphereHits[0].bodyId, sphereBody.id)
+	});
+	assert.equal(overlapSphereHits.length, 1);
+	assert.equal(overlapSphereHits[0].bodyId, sphereBody.id);
 
 	const overlapBoxHits = physics.overlapBox({
 		center: { x: 0, y: 0, z: 8 },
 		halfExtents: { x: 0.5, y: 0.5, z: 0.5 },
 		filter: { includeBodyIds: [boxBody.id] },
-	})
-	assert.equal(overlapBoxHits.length, 1)
-	assert.equal(overlapBoxHits[0].bodyId, boxBody.id)
-	assert.equal(overlapBoxHits[0].colliderId, boxCollider.id)
+	});
+	assert.equal(overlapBoxHits.length, 1);
+	assert.equal(overlapBoxHits[0].bodyId, boxBody.id);
+	assert.equal(overlapBoxHits[0].colliderId, boxCollider.id);
 
 	const inferredWorldHit = physics.raycast({
 		origin: { x: 0, y: 0, z: 0 },
 		direction: { x: 0, y: 0, z: 1 },
 		maxDistance: 20,
 		filter: { includeBodyIds: [sphereBody.id], includeTriggers: false },
-	})
-	assert.ok(inferredWorldHit)
+	});
+	assert.ok(inferredWorldHit);
 
-	physics.createWorld({ worldId: 'fx' })
+	physics.createWorld({ worldId: "fx" });
 	assert.throws(
 		() =>
 			physics.raycast({
@@ -124,11 +124,11 @@ function run() {
 				maxDistance: 10,
 			}),
 		/worldId is required/
-	)
+	);
 
-	physics.destroyWorld('fx')
-	physics.destroyWorld('main')
-	console.log('Physics query tests passed')
+	physics.destroyWorld("fx");
+	physics.destroyWorld("main");
+	console.log("Physics query tests passed");
 }
 
-run()
+run();

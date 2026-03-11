@@ -261,16 +261,17 @@ function testSubStateMachineTransitions() {
 				from: "combat",
 				to: "locomotion",
 				duration: 0.05,
-				conditions: [
-					{ parameter: "returnToLocomotion", operator: "trigger" },
-				],
+				conditions: [{ parameter: "returnToLocomotion", operator: "trigger" }],
 			},
 		],
 		initialState: "locomotion",
 	});
 
 	assert.equal(machine.currentStateName, "locomotion/idle");
-	assert.equal(machine.getStateDefinition("locomotion")?.name, "locomotion/idle");
+	assert.equal(
+		machine.getStateDefinition("locomotion")?.name,
+		"locomotion/idle"
+	);
 
 	machine.setParameter("speed", 1);
 	machine.update(0, 0.016);

@@ -1,17 +1,17 @@
-import assert from 'node:assert/strict'
-import { Renderer } from '../src/renderers/Renderer.ts'
-import { Camera } from '../src/cameras/Camera.ts'
-import { Matrix4 } from '../src/maths/Matrix4.ts'
-import { ParticleSimulationStage } from '../src/pipeline/ParticleSimulationStage.ts'
-import { ParticleSystem } from '../src/particles/ParticleSystem.ts'
+import assert from "node:assert/strict";
+import { Renderer } from "../src/renderers/Renderer.ts";
+import { Camera } from "../src/cameras/Camera.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { ParticleSimulationStage } from "../src/pipeline/ParticleSimulationStage.ts";
+import { ParticleSystem } from "../src/particles/ParticleSystem.ts";
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-} from '../src/pipeline/types.ts'
+} from "../src/pipeline/types.ts";
 
 class StubBackend {
 	constructor() {
-		this.type = 'stub'
+		this.type = "stub";
 		this.capabilities = {
 			sh: false,
 			shadows: false,
@@ -21,15 +21,15 @@ class StubBackend {
 			taa: false,
 			ssr: false,
 			volumetric: false,
-		}
-		this.frameScheduling = 'always'
+		};
+		this.frameScheduling = "always";
 		this.passExecutors = {
-			shadow: 'shared',
-		}
-		this.sharedStages = []
-		this.executedStages = []
-		this.particleBatchCount = 0
-		this.particleStage = new ParticleSimulationStage()
+			shadow: "shared",
+		};
+		this.sharedStages = [];
+		this.executedStages = [];
+		this.particleBatchCount = 0;
+		this.particleStage = new ParticleSimulationStage();
 	}
 
 	async init() {}
@@ -43,26 +43,27 @@ class StubBackend {
 			pixels: new Uint8ClampedArray(width * height * 4),
 			depthBuffer: new Float32Array(width * height),
 			normalBuffer: new Float32Array(width * height * 3),
-		}
+		};
 	}
 
 	beginFrame() {}
 
 	executeSharedPass(pass) {
-		this.sharedStages.push(pass.stage)
+		this.sharedStages.push(pass.stage);
 	}
 
 	executePass(pass, context) {
-		this.executedStages.push(pass.stage)
-		if (pass.stage === 'particle-sim') {
+		this.executedStages.push(pass.stage);
+		if (pass.stage === "particle-sim") {
 			this.particleStage.execute(
 				context,
 				context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY) ?? 0
-			)
+			);
 		}
-		if (pass.stage === 'particles') {
-			const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? []
-			this.particleBatchCount = batches.length
+		if (pass.stage === "particles") {
+			const batches =
+				context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? [];
+			this.particleBatchCount = batches.length;
 		}
 	}
 
@@ -70,27 +71,27 @@ class StubBackend {
 }
 
 async function run() {
-	const originalWindow = globalThis.window
-	const originalRAF = globalThis.requestAnimationFrame
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
 
 	try {
-		globalThis.window = { devicePixelRatio: 1 }
-		globalThis.requestAnimationFrame = () => 0
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
 
-		const backend = new StubBackend()
+		const backend = new StubBackend();
 		const canvas = {
 			width: 320,
 			height: 180,
 			getBoundingClientRect() {
-				return { width: 320, height: 180 }
+				return { width: 320, height: 180 };
 			},
-		}
-		const camera = new Camera()
-		const renderer = new Renderer(backend, canvas, camera)
-		renderer.features.worldMatrix = Matrix4.identity()
-		renderer.features.enableGamma = false
-		renderer.features.enableReflection = false
-		renderer.features.enableSkybox = false
+		};
+		const camera = new Camera();
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.features.enableGamma = false;
+		renderer.features.enableReflection = false;
+		renderer.features.enableSkybox = false;
 
 		const system = new ParticleSystem({
 			position: { x: 0, y: 0, z: -5 },
@@ -100,23 +101,23 @@ async function run() {
 				lifetimeRange: [2, 2],
 				speedRange: [0, 0],
 			},
-		})
-		renderer.scene.add(system)
+		});
+		renderer.scene.add(system);
 
-		await renderer.renderScene(16)
-		await renderer.renderScene(32)
+		await renderer.renderScene(16);
+		await renderer.renderScene(32);
 
-		assert.equal(backend.sharedStages.includes('particle-sim'), false)
-		assert.ok(backend.executedStages.includes('particle-sim'))
-		assert.ok(backend.executedStages.includes('main-opaque'))
-		assert.ok(backend.executedStages.includes('particles'))
-		assert.ok(backend.particleBatchCount > 0)
+		assert.equal(backend.sharedStages.includes("particle-sim"), false);
+		assert.ok(backend.executedStages.includes("particle-sim"));
+		assert.ok(backend.executedStages.includes("main-opaque"));
+		assert.ok(backend.executedStages.includes("particles"));
+		assert.ok(backend.particleBatchCount > 0);
 
-		console.log('Renderer particle stage tests passed')
+		console.log("Renderer particle stage tests passed");
 	} finally {
-		globalThis.window = originalWindow
-		globalThis.requestAnimationFrame = originalRAF
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
 	}
 }
 
-await run()
+await run();
