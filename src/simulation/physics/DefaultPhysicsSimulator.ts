@@ -7,10 +7,11 @@ import type {
 	PhysicsSimulationWorldTarget,
 	PhysicsWorldSimulationResult,
 } from "./types";
-
-const DEFAULT_FIXED_DELTA_SECONDS = 1 / 60;
-const DEFAULT_MAX_SUBSTEPS = 5;
-const DEFAULT_MAX_DELTA_SECONDS = 0.1;
+import {
+	DEFAULT_FIXED_DELTA_SECONDS,
+	DEFAULT_MAX_DELTA_SECONDS,
+	DEFAULT_MAX_SUBSTEPS,
+} from "./constants";
 
 interface WorldRuntimeState {
 	accumulatorSeconds: number;

@@ -7,10 +7,8 @@ import {
 	type ParticleSystem,
 } from "../../particles";
 import type { RGBA } from "../../utils/Color";
+import { DEFAULT_DAMPING, DEFAULT_RESTITUTION } from "./constants";
 import type { RuntimeParticle, SystemRuntimeState } from "./types";
-
-const DEFAULT_RESTITUTION = 0.6;
-const DEFAULT_DAMPING = 0.1;
 
 interface SpawnOverrides {
 	position?: IVector3;

@@ -1,5 +1,6 @@
 import type { IVector3 } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
+import { DEFAULT_GRAVITY } from "../constants";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
@@ -79,8 +80,6 @@ interface SimpleQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
-
-const DEFAULT_GRAVITY: IVector3 = { x: 0, y: -9.8, z: 0 };
 
 export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 	public readonly id: string;

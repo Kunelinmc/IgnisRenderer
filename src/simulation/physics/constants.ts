@@ -1,0 +1,3 @@
+export const DEFAULT_FIXED_DELTA_SECONDS = 1 / 60
+export const DEFAULT_MAX_SUBSTEPS = 5
+export const DEFAULT_MAX_DELTA_SECONDS = 0.1

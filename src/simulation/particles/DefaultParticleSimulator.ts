@@ -6,9 +6,8 @@ import {
 import { ParticleBatchBuilder } from "./ParticleBatchBuilder";
 import { type IParticleSimulator } from "./IParticleSimulator";
 import { ParticleSimulationCore } from "./ParticleSimulationCore";
+import { MAX_STEP_SECONDS } from "./constants";
 import type { SystemRuntimeState } from "./types";
-
-const MAX_STEP_SECONDS = 0.1;
 
 const FULL_QUALITY_LOD: ParticleLODLevel = Object.freeze({
 	distance: Number.POSITIVE_INFINITY,
