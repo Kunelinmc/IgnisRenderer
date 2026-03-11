@@ -114,28 +114,32 @@ export class WebGPUFrameBindingCache {
 		this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
 
 		const currentShadowAtlas = this._shadowAtlases.atlas;
-		const currentSkybox = environmentState.skyboxTexture
-			? this._textureRegistry.getTextureForSlot(
+		const currentSkybox =
+			environmentState.skyboxTexture ?
+				this._textureRegistry.getTextureForSlot(
 					environmentState.skyboxTexture,
 					0
 				)
-			: this._textureRegistry.getWhiteTexture();
-		const currentSkyboxSampler = environmentState.skyboxTexture
-			? this._textureRegistry.getSamplerForTexture(
+			:	this._textureRegistry.getWhiteTexture();
+		const currentSkyboxSampler =
+			environmentState.skyboxTexture ?
+				this._textureRegistry.getSamplerForTexture(
 					environmentState.skyboxTexture
 				)
-			: this._textureRegistry.getWhiteSampler();
-		const currentEnvSpecular = environmentState.envSpecularTexture
-			? this._textureRegistry.getTextureForSlot(
+			:	this._textureRegistry.getWhiteSampler();
+		const currentEnvSpecular =
+			environmentState.envSpecularTexture ?
+				this._textureRegistry.getTextureForSlot(
 					environmentState.envSpecularTexture,
 					0
 				)
-			: this._textureRegistry.getWhiteTexture();
-		const currentEnvSpecularSampler = environmentState.envSpecularTexture
-			? this._textureRegistry.getSamplerForTexture(
+			:	this._textureRegistry.getWhiteTexture();
+		const currentEnvSpecularSampler =
+			environmentState.envSpecularTexture ?
+				this._textureRegistry.getSamplerForTexture(
 					environmentState.envSpecularTexture
 				)
-			: this._textureRegistry.getWhiteSampler();
+			:	this._textureRegistry.getWhiteSampler();
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
@@ -172,14 +176,15 @@ export class WebGPUFrameBindingCache {
 			return [0, 0, 0, 0];
 		}
 
-		const prevJitter = this._taaEnabledLastFrame
-			? this._taaJitterCurrent
-			: [0, 0];
+		const prevJitter =
+			this._taaEnabledLastFrame ? this._taaJitterCurrent : [0, 0];
 		const jitterScale =
-			typeof features.taaOptions?.jitterScale === "number" &&
-			Number.isFinite(features.taaOptions.jitterScale)
-				? Math.max(0, features.taaOptions.jitterScale)
-				: 1;
+			(
+				typeof features.taaOptions?.jitterScale === "number" &&
+				Number.isFinite(features.taaOptions.jitterScale)
+			) ?
+				Math.max(0, features.taaOptions.jitterScale)
+			:	1;
 		const nextJitter = computeHaltonJitterNDC(
 			this._taaFrameIndex,
 			renderWidth,

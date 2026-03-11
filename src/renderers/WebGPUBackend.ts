@@ -6,12 +6,12 @@ import {
 	type RenderPassDesc,
 } from "./ICommandEncoder";
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
-import type {
-	FrameAttachments,
-	FrameContext,
-	FramePass,
+import {
+	type FrameAttachments,
+	type FrameContext,
+	type FramePass,
+	PARTICLE_SIM_DELTA_TIME_MS_KEY,
 } from "../pipeline/types";
-import { PARTICLE_SIM_DELTA_TIME_MS_KEY } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
@@ -224,9 +224,9 @@ export class WebGPUBackend implements IRenderBackend {
 				requiredFeatures:
 					requiredFeatures.length > 0 ? requiredFeatures : undefined,
 				requiredLimits:
-					Object.keys(requiredLimits).length > 0
-						? (requiredLimits as any)
-						: undefined,
+					Object.keys(requiredLimits).length > 0 ?
+						(requiredLimits as any)
+					:	undefined,
 			});
 			this.device.lost.then((info) => {
 				console.error(`WebGPU device was lost: ${info.message}`);
@@ -477,11 +477,9 @@ export class WebGPUBackend implements IRenderBackend {
 						);
 						for (const message of info.messages) {
 							const logType =
-								message.type === "error"
-									? "error"
-									: message.type === "warning"
-										? "warn"
-										: "log";
+								message.type === "error" ? "error"
+								: message.type === "warning" ? "warn"
+								: "log";
 							console[logType](
 								`${message.message} (at line ${message.lineNum}, col ${message.linePos})`
 							);
@@ -539,8 +537,9 @@ export class WebGPUBackend implements IRenderBackend {
 								})),
 							})) ?? [],
 					},
-					fragment: desc.fragment
-						? {
+					fragment:
+						desc.fragment ?
+							{
 								module: getWebGPUShaderModule(desc.fragment.module),
 								entryPoint: desc.fragment.entryPoint,
 								targets: desc.fragment.targets.map((target) => ({
@@ -548,20 +547,21 @@ export class WebGPUBackend implements IRenderBackend {
 									blend: target.blend,
 								})),
 							}
-						: undefined,
+						:	undefined,
 					primitive: {
 						topology: desc.primitive?.topology ?? "triangle-list",
 						cullMode: desc.primitive?.cullMode ?? "none",
 						frontFace: desc.primitive?.frontFace ?? "ccw",
 					},
-					depthStencil: desc.depthStencil
-						? {
+					depthStencil:
+						desc.depthStencil ?
+							{
 								format: desc.depthStencil.format as GPUTextureFormat,
 								depthWriteEnabled: desc.depthStencil.depthWriteEnabled,
-								depthCompare:
-									desc.depthStencil.depthCompare as GPUCompareFunction,
+								depthCompare: desc.depthStencil
+									.depthCompare as GPUCompareFunction,
 							}
-						: undefined,
+						:	undefined,
 					label: desc.label,
 				})
 		);
@@ -808,9 +808,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._timestampResults;
 	}
 
-	public createPassTimestampWrites(
-		label: string
-	):
+	public createPassTimestampWrites(label: string):
 		| {
 				querySet: GPUQuerySet;
 				beginningOfPassWriteIndex: number;
@@ -913,7 +911,9 @@ export class WebGPUBackend implements IRenderBackend {
 			parts.push("fs:none");
 		}
 
-		parts.push(`primitive.topology:${desc.primitive?.topology ?? "triangle-list"}`);
+		parts.push(
+			`primitive.topology:${desc.primitive?.topology ?? "triangle-list"}`
+		);
 		parts.push(`primitive.cull:${desc.primitive?.cullMode ?? "none"}`);
 		parts.push(`primitive.front:${desc.primitive?.frontFace ?? "ccw"}`);
 		if (desc.depthStencil) {
@@ -1073,7 +1073,8 @@ export class WebGPUBackend implements IRenderBackend {
 		if (this._bindingGroupCache.size <= WEBGPU_BINDING_GROUP_CACHE_LIMIT) {
 			return;
 		}
-		const toEvict = this._bindingGroupCache.size - WEBGPU_BINDING_GROUP_CACHE_LIMIT;
+		const toEvict =
+			this._bindingGroupCache.size - WEBGPU_BINDING_GROUP_CACHE_LIMIT;
 		let evicted = 0;
 		for (const key of this._bindingGroupCache.keys()) {
 			this._bindingGroupCache.delete(key);
@@ -1136,11 +1137,11 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._copyFlushScheduled = true;
 		const scheduleMicrotask =
-			typeof queueMicrotask === "function" ?
-				queueMicrotask
-			:	(callback: () => void) => {
+			typeof queueMicrotask === "function" ? queueMicrotask : (
+				(callback: () => void) => {
 					void Promise.resolve().then(callback);
-				};
+				}
+			);
 		scheduleMicrotask(() => {
 			if (!this._copyFlushScheduled) {
 				return;
@@ -1203,12 +1204,14 @@ export class WebGPUBackend implements IRenderBackend {
 			});
 			this._timestampResolveBuffer = this.device.createBuffer({
 				label: "WebGPUTimestampResolveBuffer",
-				size: WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
+				size:
+					WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
 				usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
 			});
 			this._timestampReadBuffer = this.device.createBuffer({
 				label: "WebGPUTimestampReadBuffer",
-				size: WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
+				size:
+					WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
 				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
 			});
 			this._timestampSupported = true;
@@ -1314,9 +1317,7 @@ export class WebGPUBackend implements IRenderBackend {
 				this._timestampReadBuffer.unmap();
 			})
 			.catch((error) => {
-				console.warn(
-					`WebGPU timestamp readback failed: ${String(error)}`
-				);
+				console.warn(`WebGPU timestamp readback failed: ${String(error)}`);
 				if (this._timestampReadBuffer) {
 					try {
 						this._timestampReadBuffer.unmap();
@@ -1537,19 +1538,20 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 				loadOp: attachment.loadOp,
 				storeOp: attachment.storeOp,
 			})),
-			depthStencilAttachment: desc.depthStencilAttachment
-				? {
+			depthStencilAttachment:
+				desc.depthStencilAttachment ?
+					{
 						view:
 							tryGetWebGPUTexture(desc.depthStencilAttachment.view)?.view ??
 							this._backend.getCurrentDepthView(),
 						depthClearValue:
-							(desc.depthStencilAttachment.depthLoadOp ?? "clear") === "clear"
-								? (desc.depthStencilAttachment.depthClearValue ?? 1)
-								: undefined,
+							(desc.depthStencilAttachment.depthLoadOp ?? "clear") === "clear" ?
+								(desc.depthStencilAttachment.depthClearValue ?? 1)
+							:	undefined,
 						depthLoadOp: desc.depthStencilAttachment.depthLoadOp ?? "clear",
 						depthStoreOp: desc.depthStencilAttachment.depthStoreOp ?? "store",
 					}
-				: undefined,
+				:	undefined,
 			label: desc.label,
 			timestampWrites,
 		});

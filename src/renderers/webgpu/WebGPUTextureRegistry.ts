@@ -205,9 +205,7 @@ export class WebGPUTextureRegistry {
 			:	FilterMode.Linear;
 	}
 
-	private _toArrayBufferBackedView(
-		data: Uint8Array
-	): Uint8Array<ArrayBuffer> {
+	private _toArrayBufferBackedView(data: Uint8Array): Uint8Array<ArrayBuffer> {
 		if (data.buffer instanceof ArrayBuffer) {
 			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 		}

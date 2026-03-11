@@ -1,14 +1,14 @@
-type ScopeLogLevel = "error" | "warn"
+type ScopeLogLevel = "error" | "warn";
 
 interface ScopeOptions {
-	level?: ScopeLogLevel
+	level?: ScopeLogLevel;
 }
 
 export class WebGPUErrorScopeHelper {
-	private _device: GPUDevice
+	private _device: GPUDevice;
 
 	constructor(device: GPUDevice) {
-		this._device = device
+		this._device = device;
 	}
 
 	public run<T>(
@@ -17,9 +17,9 @@ export class WebGPUErrorScopeHelper {
 		operation: () => T,
 		options?: ScopeOptions
 	): T {
-		this._device.pushErrorScope(filter)
+		this._device.pushErrorScope(filter);
 		try {
-			return operation()
+			return operation();
 		} finally {
 			void this._device
 				.popErrorScope()
@@ -27,8 +27,8 @@ export class WebGPUErrorScopeHelper {
 				.catch((error) => {
 					console.error(
 						`WebGPU ErrorScope pop failed [${label}]: ${String(error)}`
-					)
-				})
+					);
+				});
 		}
 	}
 
@@ -38,17 +38,17 @@ export class WebGPUErrorScopeHelper {
 		operation: () => Promise<T>,
 		options?: ScopeOptions
 	): Promise<T> {
-		this._device.pushErrorScope(filter)
+		this._device.pushErrorScope(filter);
 		try {
-			return await operation()
+			return await operation();
 		} finally {
 			try {
-				const error = await this._device.popErrorScope()
-				this._logScopeResult(filter, label, error, options)
+				const error = await this._device.popErrorScope();
+				this._logScopeResult(filter, label, error, options);
 			} catch (popError) {
 				console.error(
 					`WebGPU ErrorScope pop failed [${label}]: ${String(popError)}`
-				)
+				);
 			}
 		}
 	}
@@ -60,15 +60,15 @@ export class WebGPUErrorScopeHelper {
 		options?: ScopeOptions
 	): void {
 		if (!error) {
-			return
+			return;
 		}
 
-		const logLevel = options?.level ?? "error"
-		const message = `WebGPU ${filter} error [${label}]: ${error.message}`
+		const logLevel = options?.level ?? "error";
+		const message = `WebGPU ${filter} error [${label}]: ${error.message}`;
 		if (logLevel === "warn") {
-			console.warn(message)
-			return
+			console.warn(message);
+			return;
 		}
-		console.error(message)
+		console.error(message);
 	}
 }

@@ -253,12 +253,10 @@ export class WebGPUFrameExecutor {
 		this._encoder = null;
 		this._frameContext = null;
 
-		const motionSource = this._mrtEnabled
-			? this._frameTargets?.gMotionDepth
-			: null;
-		const motionTarget = this._mrtEnabled
-			? this._frameTargets?.motionHistoryWrite
-			: null;
+		const motionSource =
+			this._mrtEnabled ? this._frameTargets?.gMotionDepth : null;
+		const motionTarget =
+			this._mrtEnabled ? this._frameTargets?.motionHistoryWrite : null;
 		if (motionSource && motionTarget && width > 0 && height > 0) {
 			this._backend.copyTextureToTexture(
 				{ texture: motionSource },
@@ -356,13 +354,13 @@ export class WebGPUFrameExecutor {
 					const lightingState = this._resources.getLightingState();
 					this._volumetricHistoryUpdated =
 						await this._postRuntime.executeVolumetric(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext,
-						historyValid,
-						this._resources.getFrameBinding(),
-						lightingState
-					);
+							ctx.encoder,
+							ctx.targets,
+							ctx.frameContext,
+							historyValid,
+							this._resources.getFrameBinding(),
+							lightingState
+						);
 				},
 			},
 			{
@@ -665,22 +663,18 @@ export class WebGPUFrameExecutor {
 
 	private _applyTAAHistoryFlip(targets: WebGPUFrameTargets): void {
 		if (!this._taaHistoryA || !this._taaHistoryB) return;
-		targets.historyRead = this._taaHistoryFlip
-			? this._taaHistoryB
-			: this._taaHistoryA;
-		targets.historyWrite = this._taaHistoryFlip
-			? this._taaHistoryA
-			: this._taaHistoryB;
+		targets.historyRead =
+			this._taaHistoryFlip ? this._taaHistoryB : this._taaHistoryA;
+		targets.historyWrite =
+			this._taaHistoryFlip ? this._taaHistoryA : this._taaHistoryB;
 	}
 
 	private _applySSRHistoryFlip(targets: WebGPUFrameTargets): void {
 		if (!this._ssrHistoryA || !this._ssrHistoryB) return;
-		targets.ssrHistoryRead = this._ssrHistoryFlip
-			? this._ssrHistoryB
-			: this._ssrHistoryA;
-		targets.ssrHistoryWrite = this._ssrHistoryFlip
-			? this._ssrHistoryA
-			: this._ssrHistoryB;
+		targets.ssrHistoryRead =
+			this._ssrHistoryFlip ? this._ssrHistoryB : this._ssrHistoryA;
+		targets.ssrHistoryWrite =
+			this._ssrHistoryFlip ? this._ssrHistoryA : this._ssrHistoryB;
 	}
 
 	private _applyVolumetricHistoryFlip(targets: WebGPUFrameTargets): void {
@@ -692,28 +686,30 @@ export class WebGPUFrameExecutor {
 		) {
 			return;
 		}
-		targets.volumetricHistoryRead = this._volumetricHistoryFlip
-			? this._volumetricHistoryB
-			: this._volumetricHistoryA;
-		targets.volumetricHistoryWrite = this._volumetricHistoryFlip
-			? this._volumetricHistoryA
-			: this._volumetricHistoryB;
-		targets.volumetricReservoirHistoryRead = this._volumetricHistoryFlip
-			? this._volumetricReservoirHistoryB
-			: this._volumetricReservoirHistoryA;
-		targets.volumetricReservoirHistoryWrite = this._volumetricHistoryFlip
-			? this._volumetricReservoirHistoryA
-			: this._volumetricReservoirHistoryB;
+		targets.volumetricHistoryRead =
+			this._volumetricHistoryFlip ?
+				this._volumetricHistoryB
+			:	this._volumetricHistoryA;
+		targets.volumetricHistoryWrite =
+			this._volumetricHistoryFlip ?
+				this._volumetricHistoryA
+			:	this._volumetricHistoryB;
+		targets.volumetricReservoirHistoryRead =
+			this._volumetricHistoryFlip ?
+				this._volumetricReservoirHistoryB
+			:	this._volumetricReservoirHistoryA;
+		targets.volumetricReservoirHistoryWrite =
+			this._volumetricHistoryFlip ?
+				this._volumetricReservoirHistoryA
+			:	this._volumetricReservoirHistoryB;
 	}
 
 	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
 		if (!this._motionHistoryA || !this._motionHistoryB) return;
-		targets.motionHistoryRead = this._motionHistoryFlip
-			? this._motionHistoryB
-			: this._motionHistoryA;
-		targets.motionHistoryWrite = this._motionHistoryFlip
-			? this._motionHistoryA
-			: this._motionHistoryB;
+		targets.motionHistoryRead =
+			this._motionHistoryFlip ? this._motionHistoryB : this._motionHistoryA;
+		targets.motionHistoryWrite =
+			this._motionHistoryFlip ? this._motionHistoryA : this._motionHistoryB;
 	}
 
 	private _destroyFrameTargets(): void {

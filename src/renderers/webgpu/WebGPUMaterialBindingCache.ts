@@ -159,13 +159,13 @@ export class WebGPUMaterialBindingCache {
 			new Float32Array([jointCount, morphCount, jointCapacity, morphCapacity])
 		);
 		cached.prevJointMatrices =
-			jointCount > 0 && animation.jointMatrices
-				? new Float32Array(animation.jointMatrices.subarray(0, jointCount * 16))
-				: null;
+			jointCount > 0 && animation.jointMatrices ?
+				new Float32Array(animation.jointMatrices.subarray(0, jointCount * 16))
+			:	null;
 		cached.prevMorphWeights =
-			morphCount > 0 && animation.morphWeights
-				? new Float32Array(animation.morphWeights.subarray(0, morphCount))
-				: null;
+			morphCount > 0 && animation.morphWeights ?
+				new Float32Array(animation.morphWeights.subarray(0, morphCount))
+			:	null;
 
 		const morphPositionBuffer =
 			animation.morphPositionBuffer ?? this._fallbackStorageBuffer;
@@ -336,12 +336,12 @@ export class WebGPUMaterialBindingCache {
 		}
 
 		const prevSource = prevJointMatrices ?? currentJointMatrices;
-		const prevCount = Math.min(this._resolveJointCount(prevSource), jointCapacity);
+		const prevCount = Math.min(
+			this._resolveJointCount(prevSource),
+			jointCapacity
+		);
 		if (prevSource && prevCount > 0) {
-			result.set(
-				prevSource.subarray(0, prevCount * 16),
-				jointCapacity * 16
-			);
+			result.set(prevSource.subarray(0, prevCount * 16), jointCapacity * 16);
 		}
 
 		return result;

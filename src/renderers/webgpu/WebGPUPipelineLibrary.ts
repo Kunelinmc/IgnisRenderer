@@ -70,11 +70,7 @@ export class WebGPUPipelineLibrary {
 		const cacheKey = `${pipelineKey}|${mode}|${shaderKey}`;
 		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
-			pipeline = await this._createPipeline(
-				material,
-				mode,
-				isWireframe
-			);
+			pipeline = await this._createPipeline(material, mode, isWireframe);
 			this._pipelineCache.set(cacheKey, pipeline);
 		}
 
@@ -93,18 +89,21 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode,
 		isWireframe: boolean
 	): Promise<IRenderPipeline> {
-		const { pipelineKey } = createWebGPUMaterialUniformData(material, isWireframe);
+		const { pipelineKey } = createWebGPUMaterialUniformData(
+			material,
+			isWireframe
+		);
 		const sceneProgram = await this._resolveSceneProgram(material, mode);
 		const fragmentTargets =
-			mode === "mrt"
-				? [
-						{ format: TextureFormat.RGBA16Float },
-						{ format: TextureFormat.RGBA8Unorm },
-						{ format: TextureFormat.RGBA16Float },
-						{ format: TextureFormat.RGBA16Float },
-						{ format: TextureFormat.RGBA16Float },
-					]
-				: [{ format: this._backend.canvasFormat as any }];
+			mode === "mrt" ?
+				[
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA8Unorm },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+				]
+			:	[{ format: this._backend.canvasFormat as any }];
 
 		return this._backend.createPipeline({
 			layout: this._layouts.scenePipelineLayout,
@@ -215,9 +214,9 @@ export class WebGPUPipelineLibrary {
 
 		const shaderModule = await this._getSkyboxShaderModule();
 		const targetFormat =
-			mode === "mrt"
-				? TextureFormat.RGBA16Float
-				: (this._backend.canvasFormat as any);
+			mode === "mrt" ?
+				TextureFormat.RGBA16Float
+			:	(this._backend.canvasFormat as any);
 		const depthFormat =
 			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
 		const pipeline = this._backend.createPipeline({
