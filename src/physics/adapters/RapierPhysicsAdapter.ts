@@ -1,16 +1,22 @@
 import type {
 	IPhysicsEngineAdapter,
+	PhysicsAdapterBodyState,
 	PhysicsAdapterCapabilities,
 	PhysicsAdapterStepResult,
 } from "../IPhysicsEngineAdapter";
 import type { IVector3 } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
+import { DEFAULT_GRAVITY } from "../constants";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
 	PhysicsBoxCastQuery,
+	PhysicsEvent,
+	PhysicsEventType,
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapHit,
 	PhysicsOverlapSphereQuery,
+	PhysicsQueryFilter,
 	PhysicsQueryHit,
 	PhysicsRaycastQuery,
 	PhysicsSphereCastQuery,
@@ -20,8 +26,105 @@ import type {
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
+	RigidBodyType,
 } from "../types";
 import { SimplePhysicsAdapter } from "./SimplePhysicsAdapter";
+
+interface RapierModuleLike {
+	init?: () => Promise<void> | void;
+	World?: new (gravity: unknown) => unknown;
+	Vector3?: new (x: number, y: number, z: number) => unknown;
+	Quaternion?: new (x: number, y: number, z: number, w: number) => unknown;
+	RigidBodyDesc?: {
+		dynamic?: () => unknown;
+		fixed?: () => unknown;
+		kinematicPositionBased?: () => unknown;
+		kinematicVelocityBased?: () => unknown;
+	};
+	ColliderDesc?: {
+		cuboid?: (x: number, y: number, z: number) => unknown;
+		ball?: (radius: number) => unknown;
+		capsule?: (halfHeight: number, radius: number) => unknown;
+		cylinder?: (halfHeight: number, radius: number) => unknown;
+		trimesh?: (vertices: Float32Array, indices: Uint32Array) => unknown;
+	};
+	JointData?: {
+		fixed?: (
+			anchorA: unknown,
+			frameA: unknown,
+			anchorB: unknown,
+			frameB: unknown
+		) => unknown;
+		revolute?: (anchorA: unknown, anchorB: unknown, axis: unknown) => unknown;
+		spring?: (
+			restLength: number,
+			stiffness: number,
+			damping: number,
+			anchorA: unknown,
+			anchorB: unknown
+		) => unknown;
+	};
+}
+
+interface RapierBodyState {
+	id: string;
+	type: RigidBodyType;
+	descriptor: RigidBodyDescriptor;
+	rigidBody: any;
+	sleeping: boolean;
+	ccd: boolean;
+	colliderIds: Set<string>;
+}
+
+interface RapierColliderState {
+	id: string;
+	bodyId: string;
+	descriptor: ColliderDescriptor;
+	shape: ColliderShape;
+	rapierCollider: any;
+	isTrigger: boolean;
+	radius: number;
+	halfExtents: IVector3;
+	offset: IVector3;
+}
+
+interface RapierJointState {
+	id: string;
+	descriptor: JointDescriptor;
+	rapierJoint?: any;
+}
+
+interface RapierControllerState {
+	id: string;
+	bodyId: string;
+	grounded: boolean;
+	maxSlope: number;
+	stepHeight: number;
+	pendingDirection: IVector3;
+	pendingJumpSpeed: number;
+}
+
+interface RapierWorldState {
+	config: PhysicsWorldConfig;
+	world: any;
+	bodies: Map<string, RapierBodyState>;
+	colliders: Map<string, RapierColliderState>;
+	joints: Map<string, RapierJointState>;
+	controllers: Map<string, RapierControllerState>;
+	activePairs: Map<string, "collision" | "trigger">;
+}
+
+interface RapierQueryCandidate {
+	body: RapierBodyState;
+	collider: RapierColliderState;
+	center: IVector3;
+}
+
+interface RapierQueryHit {
+	distance: number;
+	point: IVector3;
+	normal: IVector3;
+}
 
 export interface RapierPhysicsAdapterOptions {
 	moduleLoader?: () => Promise<unknown>;
@@ -37,6 +140,8 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 	private _strict: boolean;
 	private _delegate: IPhysicsEngineAdapter;
 	private _loadedModule: unknown = null;
+	private _rapier: RapierModuleLike | null = null;
+	private _worlds = new Map<string, RapierWorldState>();
 
 	constructor(options: RapierPhysicsAdapterOptions = {}) {
 		this._moduleLoader =
@@ -46,7 +151,10 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._delegate =
 			options.fallbackAdapter ?? new SimplePhysicsAdapter("rapier-fallback");
 		this.capabilities = {
-			...this._delegate.capabilities,
+			joints: true,
+			characterController: true,
+			shapeCast: true,
+			query: true,
 			syncInit: false,
 		};
 	}
@@ -60,8 +168,31 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 					`RapierPhysicsAdapter failed to load "@dimforge/rapier3d-compat". Install it as an optional peer dependency or provide moduleLoader. Inner error: ${String(error)}`
 				);
 			}
+			await this._delegate.init();
+			return;
 		}
-		await this._delegate.init();
+
+		const rapier = resolveRapierModule(this._loadedModule);
+		if (!rapier || !isRapierUsable(rapier)) {
+			await this._delegate.init();
+			return;
+		}
+
+		try {
+			if (typeof rapier.init === "function") {
+				await rapier.init();
+			}
+		} catch (error) {
+			if (this._strict) {
+				throw new Error(
+					`RapierPhysicsAdapter failed to initialize the loaded Rapier module. Inner error: ${String(error)}`
+				);
+			}
+			await this._delegate.init();
+			return;
+		}
+
+		this._rapier = rapier;
 	}
 
 	public initSync(): void {
@@ -71,15 +202,59 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 	}
 
 	public hasWorld(worldId: string): boolean {
-		return this._delegate.hasWorld(worldId);
+		if (this._usingFallback()) return this._delegate.hasWorld(worldId);
+		return this._worlds.has(worldId);
 	}
 
 	public createWorld(config: PhysicsWorldConfig): void {
-		this._delegate.createWorld(config);
+		if (this._usingFallback()) {
+			this._delegate.createWorld(config);
+			return;
+		}
+
+		if (this._worlds.has(config.worldId)) {
+			throw new Error(`Physics world "${config.worldId}" already exists`);
+		}
+
+		const rapier = this._requireRapier();
+		const gravity = cloneVector(config.gravity ?? DEFAULT_GRAVITY);
+		const world = new rapier.World!(
+			this._toRapierVector3(gravity) ?? {
+				x: gravity.x,
+				y: gravity.y,
+				z: gravity.z,
+			}
+		);
+		this._worlds.set(config.worldId, {
+			config: {
+				...config,
+				gravity,
+			},
+			world,
+			bodies: new Map(),
+			colliders: new Map(),
+			joints: new Map(),
+			controllers: new Map(),
+			activePairs: new Map(),
+		});
 	}
 
 	public destroyWorld(worldId: string): void {
-		this._delegate.destroyWorld(worldId);
+		if (this._usingFallback()) {
+			this._delegate.destroyWorld(worldId);
+			return;
+		}
+		const world = this._worlds.get(worldId);
+		if (!world) return;
+		for (const bodyId of Array.from(world.bodies.keys())) {
+			this.destroyBody(worldId, bodyId);
+		}
+		world.joints.clear();
+		world.controllers.clear();
+		world.colliders.clear();
+		world.activePairs.clear();
+		this._invoke(world.world, ["free"], [[]]);
+		this._worlds.delete(worldId);
 	}
 
 	public createBody(
@@ -88,11 +263,108 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		descriptor: RigidBodyDescriptor,
 		initialTransform: PhysicsTransform
 	): void {
-		this._delegate.createBody(worldId, bodyId, descriptor, initialTransform);
+		if (this._usingFallback()) {
+			this._delegate.createBody(worldId, bodyId, descriptor, initialTransform);
+			return;
+		}
+
+		const world = this._requireWorld(worldId);
+		if (world.bodies.has(bodyId)) {
+			throw new Error(
+				`Physics body "${bodyId}" already exists in "${worldId}"`
+			);
+		}
+
+		const rigidBodyDesc = this._createRigidBodyDescriptor(
+			descriptor,
+			initialTransform
+		);
+		const ccdEnabled = descriptor.ccd ?? world.config.enableCCD ?? false;
+		if (ccdEnabled) {
+			this._invoke(rigidBodyDesc, ["setCcdEnabled"], [[true]]);
+		}
+		const rigidBody = world.world.createRigidBody(rigidBodyDesc);
+		if (!rigidBody) {
+			throw new Error(
+				`RapierPhysicsAdapter failed to create body "${bodyId}" in "${worldId}"`
+			);
+		}
+
+		if (descriptor.linearVelocity) {
+			this._setVector3(
+				rigidBody,
+				["setLinvel"],
+				descriptor.linearVelocity,
+				false
+			);
+		}
+		if (descriptor.angularVelocity) {
+			this._setVector3(
+				rigidBody,
+				["setAngvel"],
+				descriptor.angularVelocity,
+				false
+			);
+		}
+
+		world.bodies.set(bodyId, {
+			id: bodyId,
+			type: descriptor.type ?? "dynamic",
+			descriptor: { ...descriptor },
+			rigidBody,
+			sleeping: false,
+			ccd: ccdEnabled,
+			colliderIds: new Set(),
+		});
 	}
 
 	public destroyBody(worldId: string, bodyId: string): void {
-		this._delegate.destroyBody(worldId, bodyId);
+		if (this._usingFallback()) {
+			this._delegate.destroyBody(worldId, bodyId);
+			return;
+		}
+
+		const world = this._requireWorld(worldId);
+		const body = world.bodies.get(bodyId);
+		if (!body) return;
+
+		for (const colliderId of body.colliderIds) {
+			const collider = world.colliders.get(colliderId);
+			if (collider) {
+				this._invoke(
+					world.world,
+					["removeCollider"],
+					[
+						[collider.rapierCollider],
+						[collider.rapierCollider, true],
+						[collider.rapierCollider, true, true],
+					]
+				);
+			}
+			world.colliders.delete(colliderId);
+		}
+		body.colliderIds.clear();
+
+		for (const [jointId, joint] of world.joints) {
+			const descriptor = joint.descriptor;
+			const bodyAId = resolveJointBodyId(descriptor.bodyA);
+			const bodyBId = resolveJointBodyId(descriptor.bodyB);
+			if (bodyAId === bodyId || bodyBId === bodyId) {
+				this.destroyJoint(worldId, jointId);
+			}
+		}
+		for (const [controllerId, controller] of world.controllers) {
+			if (controller.bodyId === bodyId) {
+				world.controllers.delete(controllerId);
+			}
+		}
+
+		this._invoke(
+			world.world,
+			["removeRigidBody"],
+			[[body.rigidBody], [body.rigidBody, true]]
+		);
+		world.bodies.delete(bodyId);
 	}
 
 	public setBodyTransform(
@@ -100,7 +372,33 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		bodyId: string,
 		transform: PhysicsTransform
 	): void {
-		this._delegate.setBodyTransform(worldId, bodyId, transform);
+		if (this._usingFallback()) {
+			this._delegate.setBodyTransform(worldId, bodyId, transform);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		const translation = cloneVector(transform.position);
+		const rotation = cloneQuaternion(transform.rotation);
+		const useKinematicSetters = body.type === "kinematic";
+
+		if (useKinematicSetters) {
+			this._setVector3(
+				body.rigidBody,
+				["setNextKinematicTranslation", "setTranslation"],
+				translation,
+				true
+			);
+			this._setQuaternion(
+				body.rigidBody,
+				["setNextKinematicRotation", "setRotation"],
+				rotation,
+				true
+			);
+		} else {
+			this._setVector3(body.rigidBody, ["setTranslation"], translation, true);
+			this._setQuaternion(body.rigidBody, ["setRotation"], rotation, true);
+		}
+		body.sleeping = false;
 	}
 
 	public setBodyLinearVelocity(
@@ -108,7 +406,13 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		bodyId: string,
 		velocity: IVector3
 	): void {
-		this._delegate.setBodyLinearVelocity(worldId, bodyId, velocity);
+		if (this._usingFallback()) {
+			this._delegate.setBodyLinearVelocity(worldId, bodyId, velocity);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._setVector3(body.rigidBody, ["setLinvel"], velocity, true);
+		body.sleeping = false;
 	}
 
 	public addCollider(
@@ -118,11 +422,99 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		descriptor: ColliderDescriptor,
 		shape: ColliderShape
 	): void {
-		this._delegate.addCollider(worldId, bodyId, colliderId, descriptor, shape);
+		if (this._usingFallback()) {
+			this._delegate.addCollider(
+				worldId,
+				bodyId,
+				colliderId,
+				descriptor,
+				shape
+			);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		if (world.colliders.has(colliderId)) {
+			throw new Error(
+				`Physics collider "${colliderId}" already exists in "${worldId}"`
+			);
+		}
+		const body = this._requireBody(worldId, bodyId);
+		const colliderDesc = this._createColliderDescriptor(shape);
+		const offset = cloneVector(descriptor.offset ?? { x: 0, y: 0, z: 0 });
+		if (descriptor.isTrigger === true) {
+			this._invoke(colliderDesc, ["setSensor"], [[true]]);
+		}
+		this._setVector3(colliderDesc, ["setTranslation"], offset);
+		if (descriptor.material) {
+			if (Number.isFinite(descriptor.material.friction)) {
+				this._invoke(
+					colliderDesc,
+					["setFriction"],
+					[[descriptor.material.friction]]
+				);
+			}
+			if (Number.isFinite(descriptor.material.restitution)) {
+				this._invoke(
+					colliderDesc,
+					["setRestitution"],
+					[[descriptor.material.restitution]]
+				);
+			}
+			if (Number.isFinite(descriptor.material.density)) {
+				this._invoke(
+					colliderDesc,
+					["setDensity"],
+					[[descriptor.material.density]]
+				);
+			}
+		}
+
+		const rapierCollider = world.world.createCollider(
+			colliderDesc,
+			body.rigidBody
+		);
+		if (!rapierCollider) {
+			throw new Error(
+				`RapierPhysicsAdapter failed to create collider "${colliderId}" in "${worldId}"`
+			);
+		}
+
+		const collider: RapierColliderState = {
+			id: colliderId,
+			bodyId,
+			descriptor,
+			shape,
+			rapierCollider,
+			isTrigger: descriptor.isTrigger === true,
+			radius: computeShapeRadius(shape),
+			halfExtents: computeShapeHalfExtents(shape),
+			offset,
+		};
+		world.colliders.set(colliderId, collider);
+		body.colliderIds.add(colliderId);
 	}
 
 	public destroyCollider(worldId: string, colliderId: string): void {
-		this._delegate.destroyCollider(worldId, colliderId);
+		if (this._usingFallback()) {
+			this._delegate.destroyCollider(worldId, colliderId);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) return;
+
+		this._invoke(
+			world.world,
+			["removeCollider"],
+			[
+				[collider.rapierCollider],
+				[collider.rapierCollider, true],
+				[collider.rapierCollider, true, true],
+			]
+		);
+		world.colliders.delete(colliderId);
+		const body = world.bodies.get(collider.bodyId);
+		body?.colliderIds.delete(colliderId);
 	}
 
 	public createJoint(
@@ -130,11 +522,59 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		jointId: string,
 		descriptor: JointDescriptor
 	): void {
-		this._delegate.createJoint(worldId, jointId, descriptor);
+		if (this._usingFallback()) {
+			this._delegate.createJoint(worldId, jointId, descriptor);
+			return;
+		}
+
+		const world = this._requireWorld(worldId);
+		if (world.joints.has(jointId)) {
+			throw new Error(
+				`Physics joint "${jointId}" already exists in "${worldId}"`
+			);
+		}
+
+		const bodyAId = resolveJointBodyId(descriptor.bodyA);
+		const bodyBId = resolveJointBodyId(descriptor.bodyB);
+		const bodyA = this._requireBody(worldId, bodyAId);
+		const bodyB = this._requireBody(worldId, bodyBId);
+		let rapierJoint: any = undefined;
+
+		const jointData = this._createJointData(descriptor);
+		if (jointData) {
+			try {
+				rapierJoint = world.world.createImpulseJoint(
+					jointData,
+					bodyA.rigidBody,
+					bodyB.rigidBody,
+					descriptor.collisionEnabled ?? false
+				);
+			} catch {}
+		}
+
+		world.joints.set(jointId, {
+			id: jointId,
+			descriptor,
+			rapierJoint,
+		});
 	}
 
 	public destroyJoint(worldId: string, jointId: string): void {
-		this._delegate.destroyJoint(worldId, jointId);
+		if (this._usingFallback()) {
+			this._delegate.destroyJoint(worldId, jointId);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const joint = world.joints.get(jointId);
+		if (!joint) return;
+		if (joint.rapierJoint) {
+			this._invoke(
+				world.world,
+				["removeImpulseJoint"],
+				[[joint.rapierJoint, true], [joint.rapierJoint]]
+			);
+		}
+		world.joints.delete(jointId);
 	}
 
 	public createCharacterController(
@@ -142,28 +582,65 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		controllerId: string,
 		descriptor: CharacterControllerDescriptor
 	): void {
-		this._delegate.createCharacterController(worldId, controllerId, descriptor);
+		if (this._usingFallback()) {
+			this._delegate.createCharacterController(
+				worldId,
+				controllerId,
+				descriptor
+			);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		if (world.controllers.has(controllerId)) {
+			throw new Error(
+				`Character controller "${controllerId}" already exists in "${worldId}"`
+			);
+		}
+		const bodyId = resolveBodyId(descriptor.body);
+		this._requireBody(worldId, bodyId);
+		world.controllers.set(controllerId, {
+			id: controllerId,
+			bodyId,
+			grounded: false,
+			maxSlope: Math.max(0, descriptor.maxSlope ?? 60),
+			stepHeight: Math.max(0, descriptor.stepHeight ?? 0.3),
+			pendingDirection: { x: 0, y: 0, z: 0 },
+			pendingJumpSpeed: 0,
+		});
 	}
 
 	public destroyCharacterController(
 		worldId: string,
 		controllerId: string
 	): void {
-		this._delegate.destroyCharacterController(worldId, controllerId);
+		if (this._usingFallback()) {
+			this._delegate.destroyCharacterController(worldId, controllerId);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		world.controllers.delete(controllerId);
 	}
 
 	public moveCharacterController(
 		worldId: string,
 		controllerId: string,
 		direction: IVector3,
-		deltaSeconds: number
+		_deltaSeconds: number
 	): CharacterMoveResult {
-		return this._delegate.moveCharacterController(
-			worldId,
-			controllerId,
-			direction,
-			deltaSeconds
-		);
+		if (this._usingFallback()) {
+			return this._delegate.moveCharacterController(
+				worldId,
+				controllerId,
+				direction,
+				_deltaSeconds
+			);
+		}
+		const controller = this._requireController(worldId, controllerId);
+		controller.pendingDirection = cloneVector(direction);
+		return {
+			grounded: controller.grounded,
+			moved: cloneVector(direction),
+		};
 	}
 
 	public jumpCharacterController(
@@ -171,14 +648,26 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		controllerId: string,
 		speed: number
 	): void {
-		this._delegate.jumpCharacterController(worldId, controllerId, speed);
+		if (this._usingFallback()) {
+			this._delegate.jumpCharacterController(worldId, controllerId, speed);
+			return;
+		}
+		const controller = this._requireController(worldId, controllerId);
+		controller.pendingJumpSpeed = Math.max(0, speed);
 	}
 
 	public isCharacterControllerGrounded(
 		worldId: string,
 		controllerId: string
 	): boolean {
-		return this._delegate.isCharacterControllerGrounded(worldId, controllerId);
+		if (this._usingFallback()) {
+			return this._delegate.isCharacterControllerGrounded(
+				worldId,
+				controllerId
+			);
+		}
+		const controller = this._requireController(worldId, controllerId);
+		return controller.grounded;
 	}
 
 	public setCharacterControllerMaxSlope(
@@ -186,7 +675,16 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		controllerId: string,
 		value: number
 	): void {
-		this._delegate.setCharacterControllerMaxSlope(worldId, controllerId, value);
+		if (this._usingFallback()) {
+			this._delegate.setCharacterControllerMaxSlope(
+				worldId,
+				controllerId,
+				value
+			);
+			return;
+		}
+		const controller = this._requireController(worldId, controllerId);
+		controller.maxSlope = Math.max(0, value);
 	}
 
 	public setCharacterControllerStepHeight(
@@ -194,54 +692,819 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		controllerId: string,
 		value: number
 	): void {
-		this._delegate.setCharacterControllerStepHeight(
-			worldId,
-			controllerId,
-			value
-		);
+		if (this._usingFallback()) {
+			this._delegate.setCharacterControllerStepHeight(
+				worldId,
+				controllerId,
+				value
+			);
+			return;
+		}
+		const controller = this._requireController(worldId, controllerId);
+		controller.stepHeight = Math.max(0, value);
 	}
 
 	public raycast(
 		worldId: string,
 		query: PhysicsRaycastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.raycast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.raycast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
 	}
 
 	public sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.sphereCast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.sphereCast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const castRadius = Math.max(0, query.radius);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectSphereCastWithCollider(
+				query.center,
+				ray,
+				castRadius,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
 	}
 
 	public boxCast(
 		worldId: string,
 		query: PhysicsBoxCastQuery
 	): PhysicsQueryHit | null {
-		return this._delegate.boxCast(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.boxCast(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const castHalfExtents = sanitizeHalfExtents(query.halfExtents);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectBoxCastWithCollider(
+				query.center,
+				ray,
+				castHalfExtents,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
 	}
 
 	public overlapSphere(
 		worldId: string,
 		query: PhysicsOverlapSphereQuery
 	): PhysicsOverlapHit[] {
-		return this._delegate.overlapSphere(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.overlapSphere(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const radius = Math.max(0, query.radius);
+		const hits: PhysicsOverlapHit[] = [];
+
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsSphereWithCollider(query.center, radius, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+
+		return truncateHits(hits, query.maxHits);
 	}
 
 	public overlapBox(
 		worldId: string,
 		query: PhysicsOverlapBoxQuery
 	): PhysicsOverlapHit[] {
-		return this._delegate.overlapBox(worldId, query);
+		if (this._usingFallback()) {
+			return this._delegate.overlapBox(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryMin = Vector3.sub(query.center, halfExtents);
+		const queryMax = Vector3.add(query.center, halfExtents);
+		const hits: PhysicsOverlapHit[] = [];
+
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsBoxWithCollider(queryMin, queryMax, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+
+		return truncateHits(hits, query.maxHits);
 	}
 
 	public stepWorld(
 		worldId: string,
 		deltaSeconds: number
 	): PhysicsAdapterStepResult {
-		return this._delegate.stepWorld(worldId, deltaSeconds);
+		if (this._usingFallback()) {
+			return this._delegate.stepWorld(worldId, deltaSeconds);
+		}
+		const world = this._requireWorld(worldId);
+		const dt = Math.max(0, deltaSeconds);
+
+		this._applyCharacterControllerInputs(world, dt);
+		this._setWorldStepDelta(world, dt);
+		if (dt > 0) {
+			this._invokeOrThrow(
+				world.world,
+				["step"],
+				[[]],
+				`Rapier world "${worldId}" does not expose step()`
+			);
+		}
+
+		const events = this._resolveCollisions(world);
+		const bodyStates: PhysicsAdapterBodyState[] = [];
+		let sleepingBodies = 0;
+		let ccdBodies = 0;
+		for (const body of world.bodies.values()) {
+			const transform = this._readBodyTransform(body.rigidBody);
+			const sleeping = this._readBodySleeping(body);
+			const ccd = this._readBodyCcd(body);
+			body.sleeping = sleeping;
+			if (sleeping) sleepingBodies++;
+			if (ccd) ccdBodies++;
+			bodyStates.push({
+				bodyId: body.id,
+				transform,
+				sleeping,
+				ccd,
+			});
+		}
+
+		return {
+			bodyStates,
+			events,
+			activeBodies: world.bodies.size - sleepingBodies,
+			sleepingBodies,
+			ccdBodies,
+		};
 	}
+
+	private _getQueryCandidates(
+		world: RapierWorldState,
+		filter?: PhysicsQueryFilter
+	): RapierQueryCandidate[] {
+		const includeBodyIds = toSet(filter?.includeBodyIds);
+		const excludeBodyIds = toSet(filter?.excludeBodyIds);
+		const includeColliderIds = toSet(filter?.includeColliderIds);
+		const excludeColliderIds = toSet(filter?.excludeColliderIds);
+		const includeTriggers = filter?.includeTriggers ?? true;
+
+		const candidates: RapierQueryCandidate[] = [];
+		for (const collider of world.colliders.values()) {
+			if (!includeTriggers && collider.isTrigger) continue;
+			if (includeBodyIds && !includeBodyIds.has(collider.bodyId)) continue;
+			if (excludeBodyIds?.has(collider.bodyId)) continue;
+			if (includeColliderIds && !includeColliderIds.has(collider.id)) continue;
+			if (excludeColliderIds?.has(collider.id)) continue;
+			const body = world.bodies.get(collider.bodyId);
+			if (!body) continue;
+			const center = Vector3.add(
+				this._readBodyPosition(body.rigidBody),
+				collider.offset
+			);
+			candidates.push({
+				body,
+				collider,
+				center,
+			});
+		}
+		return candidates;
+	}
+
+	private _resolveCollisions(world: RapierWorldState): PhysicsEvent[] {
+		const events: PhysicsEvent[] = [];
+		const nowSeconds = Date.now() / 1000;
+		const currentPairs = new Map<string, "collision" | "trigger">();
+		const colliders = Array.from(world.colliders.values());
+
+		for (let i = 0; i < colliders.length; i++) {
+			for (let j = i + 1; j < colliders.length; j++) {
+				const left = colliders[i];
+				const right = colliders[j];
+				if (left.bodyId === right.bodyId) continue;
+
+				const leftBody = world.bodies.get(left.bodyId);
+				const rightBody = world.bodies.get(right.bodyId);
+				if (!leftBody || !rightBody) continue;
+
+				const leftCenter = Vector3.add(
+					this._readBodyPosition(leftBody.rigidBody),
+					left.offset
+				);
+				const rightCenter = Vector3.add(
+					this._readBodyPosition(rightBody.rigidBody),
+					right.offset
+				);
+				const distance = Math.hypot(
+					leftCenter.x - rightCenter.x,
+					leftCenter.y - rightCenter.y,
+					leftCenter.z - rightCenter.z
+				);
+				const overlap = left.radius + right.radius - distance;
+				if (overlap <= 0) continue;
+
+				const pairKey = makePairKey(left.bodyId, right.bodyId);
+				const activeBefore = world.activePairs.has(pairKey);
+				const eventKind =
+					left.isTrigger || right.isTrigger ? "trigger" : "collision";
+				currentPairs.set(pairKey, eventKind);
+				const eventType = resolvePairEventType(eventKind, activeBefore);
+
+				events.push({
+					type: eventType,
+					worldId: world.config.worldId,
+					bodyAId: left.bodyId,
+					bodyBId: right.bodyId,
+					timestampSeconds: nowSeconds,
+				});
+
+				if (!left.isTrigger && !right.isTrigger) {
+					this._resolveOverlap(
+						leftBody,
+						rightBody,
+						leftCenter,
+						rightCenter,
+						overlap
+					);
+				}
+			}
+		}
+
+		for (const [previous, previousKind] of world.activePairs) {
+			if (currentPairs.has(previous)) continue;
+			const [bodyAId, bodyBId] = previous.split("|");
+			events.push({
+				type: previousKind === "collision" ? "collisionEnd" : "triggerEnd",
+				worldId: world.config.worldId,
+				bodyAId,
+				bodyBId,
+				timestampSeconds: nowSeconds,
+			});
+		}
+
+		world.activePairs = currentPairs;
+		this._resolveGroundedControllers(world);
+		return events;
+	}
+
+	private _resolveOverlap(
+		leftBody: RapierBodyState,
+		rightBody: RapierBodyState,
+		leftCenter: IVector3,
+		rightCenter: IVector3,
+		overlap: number
+	): void {
+		const separationAxis = Vector3.sub(leftCenter, rightCenter);
+		const length = Vector3.length(separationAxis) || 1;
+		const normal = Vector3.scale(separationAxis, 1 / length);
+		const separation = overlap * 0.5;
+
+		if (leftBody.type === "dynamic") {
+			const position = this._readBodyPosition(leftBody.rigidBody);
+			this._setVector3(
+				leftBody.rigidBody,
+				["setTranslation"],
+				{
+					x: position.x + normal.x * separation,
+					y: position.y + normal.y * separation,
+					z: position.z + normal.z * separation,
+				},
+				true
+			);
+		}
+		if (rightBody.type === "dynamic") {
+			const position = this._readBodyPosition(rightBody.rigidBody);
+			this._setVector3(
+				rightBody.rigidBody,
+				["setTranslation"],
+				{
+					x: position.x - normal.x * separation,
+					y: position.y - normal.y * separation,
+					z: position.z - normal.z * separation,
+				},
+				true
+			);
+		}
+	}
+
+	private _applyCharacterControllerInputs(
+		world: RapierWorldState,
+		deltaSeconds: number
+	): void {
+		for (const controller of world.controllers.values()) {
+			const body = world.bodies.get(controller.bodyId);
+			if (!body) continue;
+
+			const current = this._readBodyPosition(body.rigidBody);
+			const next = {
+				x: current.x + controller.pendingDirection.x * deltaSeconds,
+				y: current.y,
+				z: current.z + controller.pendingDirection.z * deltaSeconds,
+			};
+			if (body.type === "kinematic") {
+				this._setVector3(
+					body.rigidBody,
+					["setNextKinematicTranslation", "setTranslation"],
+					next,
+					true
+				);
+			} else {
+				this._setVector3(body.rigidBody, ["setTranslation"], next, true);
+			}
+
+			if (controller.pendingJumpSpeed > 0) {
+				const linvel = this._readBodyLinearVelocity(body.rigidBody);
+				this._setVector3(
+					body.rigidBody,
+					["setLinvel"],
+					{
+						x: linvel.x,
+						y: controller.pendingJumpSpeed,
+						z: linvel.z,
+					},
+					true
+				);
+				if (body.type === "kinematic") {
+					this._setVector3(
+						body.rigidBody,
+						["setNextKinematicTranslation", "setTranslation"],
+						{
+							x: next.x,
+							y: next.y + controller.pendingJumpSpeed * deltaSeconds,
+							z: next.z,
+						},
+						true
+					);
+				}
+			}
+
+			controller.pendingDirection = { x: 0, y: 0, z: 0 };
+			controller.pendingJumpSpeed = 0;
+		}
+	}
+
+	private _resolveGroundedControllers(world: RapierWorldState): void {
+		for (const controller of world.controllers.values()) {
+			const body = world.bodies.get(controller.bodyId);
+			if (!body) continue;
+			const position = this._readBodyPosition(body.rigidBody);
+			controller.grounded = position.y <= controller.stepHeight;
+		}
+	}
+
+	private _createRigidBodyDescriptor(
+		descriptor: RigidBodyDescriptor,
+		initialTransform: PhysicsTransform
+	): any {
+		const rapier = this._requireRapier();
+		const bodyType = descriptor.type ?? "dynamic";
+		const bodyDescFactory = rapier.RigidBodyDesc;
+		if (!bodyDescFactory) {
+			throw new Error("Loaded Rapier module is missing RigidBodyDesc");
+		}
+
+		let bodyDesc: any = null;
+		switch (bodyType) {
+			case "dynamic":
+				bodyDesc = bodyDescFactory.dynamic?.();
+				break;
+			case "fixed":
+				bodyDesc = bodyDescFactory.fixed?.();
+				break;
+			case "kinematic":
+				bodyDesc =
+					bodyDescFactory.kinematicPositionBased?.() ??
+					bodyDescFactory.kinematicVelocityBased?.();
+				break;
+			default:
+				bodyDesc = bodyDescFactory.dynamic?.();
+				break;
+		}
+		if (!bodyDesc) {
+			throw new Error(
+				"Loaded Rapier module could not create a rigid body descriptor"
+			);
+		}
+
+		this._setVector3(bodyDesc, ["setTranslation"], initialTransform.position);
+		this._setQuaternion(bodyDesc, ["setRotation"], initialTransform.rotation);
+
+		if (Number.isFinite(descriptor.linearDamping)) {
+			this._invoke(
+				bodyDesc,
+				["setLinearDamping"],
+				[[descriptor.linearDamping]]
+			);
+		}
+		if (Number.isFinite(descriptor.angularDamping)) {
+			this._invoke(
+				bodyDesc,
+				["setAngularDamping"],
+				[[descriptor.angularDamping]]
+			);
+		}
+		if (typeof descriptor.canSleep === "boolean") {
+			this._invoke(bodyDesc, ["setCanSleep"], [[descriptor.canSleep]]);
+		}
+		if (descriptor.lockTranslations) {
+			const [x, y, z] = descriptor.lockTranslations;
+			this._invoke(bodyDesc, ["setEnabledTranslations"], [[!x, !y, !z]]);
+			this._invoke(bodyDesc, ["restrictTranslations"], [[x, y, z]]);
+		}
+		if (descriptor.lockRotations) {
+			const [x, y, z] = descriptor.lockRotations;
+			this._invoke(bodyDesc, ["setEnabledRotations"], [[!x, !y, !z]]);
+			this._invoke(bodyDesc, ["restrictRotations"], [[x, y, z]]);
+		}
+
+		return bodyDesc;
+	}
+
+	private _createColliderDescriptor(shape: ColliderShape): any {
+		const rapier = this._requireRapier();
+		const colliderFactory = rapier.ColliderDesc;
+		if (!colliderFactory) {
+			throw new Error("Loaded Rapier module is missing ColliderDesc");
+		}
+		let descriptor: any = null;
+		switch (shape.kind) {
+			case "box":
+				descriptor = colliderFactory.cuboid?.(
+					shape.halfExtents.x,
+					shape.halfExtents.y,
+					shape.halfExtents.z
+				);
+				break;
+			case "sphere":
+				descriptor = colliderFactory.ball?.(shape.radius);
+				break;
+			case "capsule":
+				descriptor = colliderFactory.capsule?.(shape.halfHeight, shape.radius);
+				break;
+			case "cylinder":
+				descriptor = colliderFactory.cylinder?.(shape.halfHeight, shape.radius);
+				break;
+			case "trimesh": {
+				const vertices =
+					shape.vertices instanceof Float32Array ?
+						shape.vertices
+					:	new Float32Array(shape.vertices);
+				const indices =
+					shape.indices instanceof Uint32Array ?
+						shape.indices
+					:	new Uint32Array(shape.indices);
+				descriptor = colliderFactory.trimesh?.(vertices, indices);
+				break;
+			}
+			default:
+				throw new Error(
+					`Unsupported collider shape kind "${(shape as { kind?: unknown }).kind}"`
+				);
+		}
+		if (!descriptor) {
+			throw new Error(
+				`Loaded Rapier module failed to build collider descriptor for "${shape.kind}"`
+			);
+		}
+		return descriptor;
+	}
+
+	private _createJointData(descriptor: JointDescriptor): any {
+		const rapier = this._requireRapier();
+		const jointDataFactory = rapier.JointData;
+		if (!jointDataFactory) return null;
+
+		const anchorA = descriptor.anchorA ?? { x: 0, y: 0, z: 0 };
+		const anchorB = descriptor.anchorB ?? { x: 0, y: 0, z: 0 };
+		const identity = { x: 0, y: 0, z: 0, w: 1 };
+
+		switch (descriptor.type) {
+			case "fixed":
+				return jointDataFactory.fixed?.(
+					this._toRapierVector3(anchorA) ?? anchorA,
+					this._toRapierQuaternion(identity) ?? identity,
+					this._toRapierVector3(anchorB) ?? anchorB,
+					this._toRapierQuaternion(identity) ?? identity
+				);
+			case "hinge": {
+				const axis = normalizeDirection(
+					descriptor.axis ?? { x: 0, y: 1, z: 0 }
+				);
+				return jointDataFactory.revolute?.(
+					this._toRapierVector3(anchorA) ?? anchorA,
+					this._toRapierVector3(anchorB) ?? anchorB,
+					this._toRapierVector3(axis) ?? axis
+				);
+			}
+			case "spring": {
+				const restLength = 0;
+				const stiffness = Math.max(0, descriptor.stiffness ?? 50);
+				const damping = Math.max(0, descriptor.damping ?? 2);
+				return jointDataFactory.spring?.(
+					restLength,
+					stiffness,
+					damping,
+					this._toRapierVector3(anchorA) ?? anchorA,
+					this._toRapierVector3(anchorB) ?? anchorB
+				);
+			}
+			default:
+				return null;
+		}
+	}
+
+	private _readBodyTransform(rigidBody: any): PhysicsTransform {
+		const position = this._readBodyPosition(rigidBody);
+		const rotationLike = this._readFromGetter(rigidBody, "rotation");
+		const rotation = readQuaternion(rotationLike);
+		return {
+			position,
+			rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+		};
+	}
+
+	private _readBodyPosition(rigidBody: any): IVector3 {
+		const value = this._readFromGetter(rigidBody, "translation");
+		return readVector3(value);
+	}
+
+	private _readBodyLinearVelocity(rigidBody: any): IVector3 {
+		const value = this._readFromGetter(rigidBody, "linvel");
+		return readVector3(value);
+	}
+
+	private _readBodySleeping(body: RapierBodyState): boolean {
+		const value = this._readFromGetter(body.rigidBody, "isSleeping");
+		if (typeof value === "boolean") return value;
+		if (body.type !== "dynamic") return false;
+		const velocity = this._readBodyLinearVelocity(body.rigidBody);
+		const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+		return speed < 0.001;
+	}
+
+	private _readBodyCcd(body: RapierBodyState): boolean {
+		const value = this._readFromGetter(body.rigidBody, "isCcdEnabled");
+		return typeof value === "boolean" ? value : body.ccd;
+	}
+
+	private _setWorldStepDelta(
+		world: RapierWorldState,
+		deltaSeconds: number
+	): void {
+		if (deltaSeconds <= 0) return;
+		const raw = world.world as {
+			timestep?: number;
+			integrationParameters?: {
+				dt?: number;
+			};
+		};
+		if (typeof raw.timestep === "number") {
+			raw.timestep = deltaSeconds;
+			return;
+		}
+		if (
+			raw.integrationParameters &&
+			typeof raw.integrationParameters === "object"
+		) {
+			if (typeof raw.integrationParameters.dt === "number") {
+				raw.integrationParameters.dt = deltaSeconds;
+				return;
+			}
+		}
+		this._invoke(world.world, ["setTimestep"], [[deltaSeconds]]);
+	}
+
+	private _toRapierVector3(value: IVector3): unknown {
+		const VectorCtor = this._rapier?.Vector3;
+		if (typeof VectorCtor === "function") {
+			try {
+				return new VectorCtor(value.x, value.y, value.z);
+			} catch {}
+		}
+		return { x: value.x, y: value.y, z: value.z };
+	}
+
+	private _toRapierQuaternion(value: {
+		x: number;
+		y: number;
+		z: number;
+		w: number;
+	}): unknown {
+		const QuaternionCtor = this._rapier?.Quaternion;
+		if (typeof QuaternionCtor === "function") {
+			try {
+				return new QuaternionCtor(value.x, value.y, value.z, value.w);
+			} catch {}
+		}
+		return {
+			x: value.x,
+			y: value.y,
+			z: value.z,
+			w: value.w,
+		};
+	}
+
+	private _setVector3(
+		target: any,
+		methodNames: string[],
+		value: IVector3,
+		wakeUp?: boolean
+	): void {
+		const plain = { x: value.x, y: value.y, z: value.z };
+		const rapierValue = this._toRapierVector3(value);
+		const args: unknown[][] = [];
+		if (wakeUp !== undefined) {
+			args.push([value.x, value.y, value.z, wakeUp]);
+			args.push([plain, wakeUp]);
+			if (rapierValue) args.push([rapierValue, wakeUp]);
+		}
+		args.push([value.x, value.y, value.z]);
+		args.push([plain]);
+		if (rapierValue) args.push([rapierValue]);
+		this._invoke(target, methodNames, args);
+	}
+
+	private _setQuaternion(
+		target: any,
+		methodNames: string[],
+		value:
+			| [number, number, number, number]
+			| {
+					x: number;
+					y: number;
+					z: number;
+					w: number;
+			  },
+		wakeUp?: boolean
+	): void {
+		const plain =
+			Array.isArray(value) ?
+				{
+					x: value[0],
+					y: value[1],
+					z: value[2],
+					w: value[3],
+				}
+			:	value;
+		const rapierValue = this._toRapierQuaternion(plain);
+		const args: unknown[][] = [];
+		if (wakeUp !== undefined) {
+			args.push([plain.x, plain.y, plain.z, plain.w, wakeUp]);
+			args.push([plain, wakeUp]);
+			if (rapierValue) args.push([rapierValue, wakeUp]);
+		}
+		args.push([plain.x, plain.y, plain.z, plain.w]);
+		args.push([plain]);
+		if (rapierValue) args.push([rapierValue]);
+		this._invoke(target, methodNames, args);
+	}
+
+	private _invoke(
+		target: any,
+		methodNames: string[],
+		argVariants: unknown[][]
+	): boolean {
+		if (!target || typeof target !== "object") return false;
+		for (const methodName of methodNames) {
+			const fn = (target as Record<string, unknown>)[methodName];
+			if (typeof fn !== "function") continue;
+			for (const args of argVariants) {
+				try {
+					(fn as (...callArgs: unknown[]) => unknown).apply(target, args);
+					return true;
+				} catch {}
+			}
+		}
+		return false;
+	}
+
+	private _invokeOrThrow(
+		target: any,
+		methodNames: string[],
+		argVariants: unknown[][],
+		errorMessage: string
+	): void {
+		if (this._invoke(target, methodNames, argVariants)) return;
+		throw new Error(errorMessage);
+	}
+
+	private _readFromGetter(target: any, getterName: string): unknown {
+		if (!target || typeof target !== "object") return undefined;
+		const member = (target as Record<string, unknown>)[getterName];
+		if (typeof member === "function") {
+			try {
+				return (member as () => unknown).call(target);
+			} catch {
+				return undefined;
+			}
+		}
+		return member;
+	}
+
+	private _usingFallback(): boolean {
+		return this._rapier === null;
+	}
+
+	private _requireRapier(): RapierModuleLike {
+		if (this._rapier) return this._rapier;
+		throw new Error(
+			"RapierPhysicsAdapter is not initialized with a usable Rapier module"
+		);
+	}
+
+	private _requireWorld(worldId: string): RapierWorldState {
+		const world = this._worlds.get(worldId);
+		if (world) return world;
+		throw new Error(`Physics world "${worldId}" does not exist`);
+	}
+
+	private _requireBody(worldId: string, bodyId: string): RapierBodyState {
+		const world = this._requireWorld(worldId);
+		const body = world.bodies.get(bodyId);
+		if (body) return body;
+		throw new Error(`Physics body "${bodyId}" does not exist in "${worldId}"`);
+	}
+
+	private _requireController(
+		worldId: string,
+		controllerId: string
+	): RapierControllerState {
+		const world = this._requireWorld(worldId);
+		const controller = world.controllers.get(controllerId);
+		if (controller) return controller;
+		throw new Error(
+			`Character controller "${controllerId}" does not exist in "${worldId}"`
+		);
+	}
+}
+
+function resolveRapierModule(loaded: unknown): RapierModuleLike | null {
+	if (!loaded || typeof loaded !== "object") return null;
+	const direct = loaded as RapierModuleLike & { default?: unknown };
+	if (isRapierUsable(direct)) return direct;
+	const fallback = direct.default;
+	if (!fallback || typeof fallback !== "object") return null;
+	return isRapierUsable(fallback as RapierModuleLike) ?
+			(fallback as RapierModuleLike)
+		:	null;
+}
+
+function isRapierUsable(module: RapierModuleLike): boolean {
+	if (!module || typeof module !== "object") return false;
+	if (typeof module.World !== "function") return false;
+	if (!module.RigidBodyDesc || !module.ColliderDesc) return false;
+	if (typeof module.RigidBodyDesc.dynamic !== "function") return false;
+	if (typeof module.ColliderDesc.ball !== "function") return false;
+	return true;
 }
 
 function loadOptionalModule(moduleName: string): Promise<unknown> {
@@ -249,4 +1512,516 @@ function loadOptionalModule(moduleName: string): Promise<unknown> {
 		modulePath: string
 	) => Promise<unknown>;
 	return importer(moduleName);
+}
+
+function resolveBodyId(value: CharacterControllerDescriptor["body"]): string {
+	if (typeof value === "string") return value;
+	if (value && typeof value === "object" && "id" in value) {
+		return String((value as { id: string }).id);
+	}
+	return "";
+}
+
+function resolveJointBodyId(
+	value: JointDescriptor["bodyA"] | JointDescriptor["bodyB"]
+): string {
+	if (typeof value === "string") return value;
+	if (value && typeof value === "object" && "id" in value) {
+		return String((value as { id: string }).id);
+	}
+	return "";
+}
+
+function cloneVector(source: IVector3): IVector3 {
+	return new Vector3().copy(source);
+}
+
+function cloneQuaternion(
+	value: [number, number, number, number]
+): [number, number, number, number] {
+	return [value[0], value[1], value[2], value[3]];
+}
+
+function readVector3(value: unknown): IVector3 {
+	if (!value || typeof value !== "object") return { x: 0, y: 0, z: 0 };
+	const v = value as { x?: number; y?: number; z?: number };
+	return {
+		x: Number.isFinite(v.x) ? v.x : 0,
+		y: Number.isFinite(v.y) ? v.y : 0,
+		z: Number.isFinite(v.z) ? v.z : 0,
+	};
+}
+
+function readQuaternion(value: unknown): {
+	x: number;
+	y: number;
+	z: number;
+	w: number;
+} {
+	if (!value || typeof value !== "object") {
+		return { x: 0, y: 0, z: 0, w: 1 };
+	}
+	const q = value as { x?: number; y?: number; z?: number; w?: number };
+	return {
+		x: Number.isFinite(q.x) ? q.x : 0,
+		y: Number.isFinite(q.y) ? q.y : 0,
+		z: Number.isFinite(q.z) ? q.z : 0,
+		w: Number.isFinite(q.w) ? q.w : 1,
+	};
+}
+
+function computeShapeRadius(shape: ColliderShape): number {
+	switch (shape.kind) {
+		case "sphere":
+			return Math.max(0.001, shape.radius);
+		case "capsule":
+			return Math.max(0.001, shape.radius + shape.halfHeight);
+		case "cylinder":
+			return Math.max(
+				0.001,
+				Math.sqrt(
+					shape.radius * shape.radius + shape.halfHeight * shape.halfHeight
+				)
+			);
+		case "box":
+			return Math.max(
+				0.001,
+				Math.hypot(
+					shape.halfExtents.x,
+					shape.halfExtents.y,
+					shape.halfExtents.z
+				)
+			);
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length =
+				Array.isArray(vertices) ? vertices.length : vertices.length;
+			if (length < 3) return 0.5;
+			let maxRadiusSq = 0;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				const radiusSq = x * x + y * y + z * z;
+				if (radiusSq > maxRadiusSq) maxRadiusSq = radiusSq;
+			}
+			return Math.max(0.001, Math.sqrt(maxRadiusSq));
+		}
+		default:
+			return 0.5;
+	}
+}
+
+function computeShapeHalfExtents(shape: ColliderShape): IVector3 {
+	switch (shape.kind) {
+		case "sphere": {
+			const radius = Math.max(0.001, shape.radius);
+			return { x: radius, y: radius, z: radius };
+		}
+		case "capsule": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: radius + Math.max(0, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "cylinder": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: Math.max(0.001, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "box":
+			return {
+				x: Math.max(0.001, Math.abs(shape.halfExtents.x)),
+				y: Math.max(0.001, Math.abs(shape.halfExtents.y)),
+				z: Math.max(0.001, Math.abs(shape.halfExtents.z)),
+			};
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length =
+				Array.isArray(vertices) ? vertices.length : vertices.length;
+			if (length < 3) {
+				return { x: 0.5, y: 0.5, z: 0.5 };
+			}
+			let minX = Infinity;
+			let minY = Infinity;
+			let minZ = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			let maxZ = -Infinity;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				if (x < minX) minX = x;
+				if (y < minY) minY = y;
+				if (z < minZ) minZ = z;
+				if (x > maxX) maxX = x;
+				if (y > maxY) maxY = y;
+				if (z > maxZ) maxZ = z;
+			}
+			return {
+				x: Math.max(0.001, (maxX - minX) * 0.5),
+				y: Math.max(0.001, (maxY - minY) * 0.5),
+				z: Math.max(0.001, (maxZ - minZ) * 0.5),
+			};
+		}
+		default:
+			return { x: 0.5, y: 0.5, z: 0.5 };
+	}
+}
+
+function toQueryHit(
+	worldId: string,
+	candidate: RapierQueryCandidate,
+	hit: RapierQueryHit,
+	maxDistance: number
+): PhysicsQueryHit {
+	return {
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		point: cloneVector(hit.point),
+		normal: cloneVector(hit.normal),
+		distance: hit.distance,
+		fraction:
+			maxDistance > 0 ?
+				Math.min(1, Math.max(0, hit.distance / maxDistance))
+			:	0,
+		isTrigger: candidate.collider.isTrigger,
+	};
+}
+
+function toOverlapHit(
+	worldId: string,
+	candidate: RapierQueryCandidate
+): PhysicsOverlapHit {
+	return {
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		isTrigger: candidate.collider.isTrigger,
+	};
+}
+
+function truncateHits<T>(hits: T[], maxHits?: number): T[] {
+	if (!Number.isFinite(maxHits) || maxHits === undefined) return hits;
+	const max = Math.max(0, Math.floor(maxHits));
+	if (max === 0) return [];
+	if (hits.length <= max) return hits;
+	return hits.slice(0, max);
+}
+
+function normalizeDirection(direction: IVector3): IVector3 {
+	const length = Vector3.length(direction);
+	if (length <= 1e-8) {
+		throw new Error("Physics query direction must be non-zero");
+	}
+	return Vector3.normalize(direction);
+}
+
+function sanitizeMaxDistance(maxDistance?: number): number {
+	if (maxDistance === undefined) return Infinity;
+	if (!Number.isFinite(maxDistance)) return Infinity;
+	return Math.max(0, maxDistance);
+}
+
+function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
+	return {
+		x: Math.max(0, Math.abs(halfExtents.x)),
+		y: Math.max(0, Math.abs(halfExtents.y)),
+		z: Math.max(0, Math.abs(halfExtents.z)),
+	};
+}
+
+function toSet(values?: string[]): Set<string> | null {
+	if (!values || values.length === 0) return null;
+	return new Set(values);
+}
+
+function intersectRayWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	candidate: RapierQueryCandidate
+): RapierQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectRayAabb(origin, direction, maxDistance, min, max);
+		}
+		default:
+			return intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius
+			);
+	}
+}
+
+function intersectSphereCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	radius: number,
+	maxDistance: number,
+	candidate: RapierQueryCandidate
+): RapierQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const expandedHalfExtents = {
+				x: candidate.collider.halfExtents.x + radius,
+				y: candidate.collider.halfExtents.y + radius,
+				z: candidate.collider.halfExtents.z + radius,
+			};
+			const min = Vector3.sub(candidate.center, expandedHalfExtents);
+			const max = Vector3.add(candidate.center, expandedHalfExtents);
+			const hit = intersectRayAabb(origin, direction, maxDistance, min, max);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+		default: {
+			const hit = intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius + radius
+			);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+	}
+}
+
+function intersectBoxCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	castHalfExtents: IVector3,
+	maxDistance: number,
+	candidate: RapierQueryCandidate
+): RapierQueryHit | null {
+	const expandedHalfExtents = {
+		x: candidate.collider.halfExtents.x + castHalfExtents.x,
+		y: candidate.collider.halfExtents.y + castHalfExtents.y,
+		z: candidate.collider.halfExtents.z + castHalfExtents.z,
+	};
+	const min = Vector3.sub(candidate.center, expandedHalfExtents);
+	const max = Vector3.add(candidate.center, expandedHalfExtents);
+	return intersectRayAabb(origin, direction, maxDistance, min, max);
+}
+
+function intersectsSphereWithCollider(
+	center: IVector3,
+	radius: number,
+	candidate: RapierQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectsSphereAabb(center, radius, min, max);
+		}
+		default: {
+			const delta = Vector3.sub(center, candidate.center);
+			const radii = radius + candidate.collider.radius;
+			return Vector3.dot(delta, delta) <= radii * radii;
+		}
+	}
+}
+
+function intersectsBoxWithCollider(
+	queryMin: IVector3,
+	queryMax: IVector3,
+	candidate: RapierQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = Vector3.sub(candidate.center, candidate.collider.halfExtents);
+			const max = Vector3.add(candidate.center, candidate.collider.halfExtents);
+			return intersectsAabb(queryMin, queryMax, min, max);
+		}
+		default:
+			return intersectsSphereAabb(
+				candidate.center,
+				candidate.collider.radius,
+				queryMin,
+				queryMax
+			);
+	}
+}
+
+function intersectRaySphere(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	center: IVector3,
+	radius: number
+): RapierQueryHit | null {
+	const radiusClamped = Math.max(0.001, radius);
+	const oc = Vector3.sub(origin, center);
+	const b = Vector3.dot(oc, direction);
+	const c = Vector3.dot(oc, oc) - radiusClamped * radiusClamped;
+	if (c > 0 && b > 0) return null;
+
+	const discriminant = b * b - c;
+	if (discriminant < 0) return null;
+	const sqrtDiscriminant = Math.sqrt(discriminant);
+	let distance = -b - sqrtDiscriminant;
+	if (distance < 0) distance = 0;
+	if (distance > maxDistance) return null;
+
+	const point = Vector3.add(origin, Vector3.scale(direction, distance));
+	const normalCandidate = Vector3.sub(point, center);
+	const normalLength = Math.hypot(
+		normalCandidate.x,
+		normalCandidate.y,
+		normalCandidate.z
+	);
+	const normal =
+		normalLength > 1e-8 ?
+			Vector3.scale(normalCandidate, 1 / normalLength)
+		:	Vector3.scale(direction, -1);
+	return { distance, point, normal };
+}
+
+function intersectRayAabb(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	min: IVector3,
+	max: IVector3
+): RapierQueryHit | null {
+	let entry = 0;
+	let exit = maxDistance;
+	let hitAxis = -1;
+	let hitNormalSign = 0;
+
+	for (let axis = 0; axis < 3; axis++) {
+		const o = getAxis(origin, axis);
+		const d = getAxis(direction, axis);
+		const minAxis = getAxis(min, axis);
+		const maxAxis = getAxis(max, axis);
+
+		if (Math.abs(d) <= 1e-8) {
+			if (o < minAxis || o > maxAxis) return null;
+			continue;
+		}
+
+		let t1 = (minAxis - o) / d;
+		let t2 = (maxAxis - o) / d;
+		let normalSign = d > 0 ? -1 : 1;
+		if (t1 > t2) {
+			const temp = t1;
+			t1 = t2;
+			t2 = temp;
+			normalSign = d > 0 ? 1 : -1;
+		}
+
+		if (t1 > entry) {
+			entry = t1;
+			hitAxis = axis;
+			hitNormalSign = normalSign;
+		}
+		exit = Math.min(exit, t2);
+		if (entry > exit) return null;
+	}
+
+	if (entry < 0 || entry > maxDistance) return null;
+	const point = Vector3.add(origin, Vector3.scale(direction, entry));
+	const normal =
+		hitAxis >= 0 ?
+			axisVector(hitAxis, hitNormalSign)
+		:	Vector3.scale(direction, -1);
+	return {
+		distance: entry,
+		point,
+		normal,
+	};
+}
+
+function intersectsSphereAabb(
+	center: IVector3,
+	radius: number,
+	min: IVector3,
+	max: IVector3
+): boolean {
+	const clampedX = Math.max(min.x, Math.min(max.x, center.x));
+	const clampedY = Math.max(min.y, Math.min(max.y, center.y));
+	const clampedZ = Math.max(min.z, Math.min(max.z, center.z));
+	const dx = center.x - clampedX;
+	const dy = center.y - clampedY;
+	const dz = center.z - clampedZ;
+	return dx * dx + dy * dy + dz * dz <= radius * radius;
+}
+
+function intersectsAabb(
+	minA: IVector3,
+	maxA: IVector3,
+	minB: IVector3,
+	maxB: IVector3
+): boolean {
+	return (
+		minA.x <= maxB.x &&
+		maxA.x >= minB.x &&
+		minA.y <= maxB.y &&
+		maxA.y >= minB.y &&
+		minA.z <= maxB.z &&
+		maxA.z >= minB.z
+	);
+}
+
+function getAxis(v: IVector3, axis: number): number {
+	switch (axis) {
+		case 0:
+			return v.x;
+		case 1:
+			return v.y;
+		default:
+			return v.z;
+	}
+}
+
+function axisVector(axis: number, sign: number): IVector3 {
+	if (axis === 0) return { x: sign, y: 0, z: 0 };
+	if (axis === 1) return { x: 0, y: sign, z: 0 };
+	return { x: 0, y: 0, z: sign };
+}
+
+function makePairKey(left: string, right: string): string {
+	return left < right ? `${left}|${right}` : `${right}|${left}`;
+}
+
+function resolvePairEventType(
+	prefix: "collision" | "trigger",
+	activeBefore: boolean
+): PhysicsEventType {
+	if (activeBefore) {
+		return prefix === "collision" ? "collisionStay" : "triggerStay";
+	}
+	return prefix === "collision" ? "collisionBegin" : "triggerBegin";
 }
