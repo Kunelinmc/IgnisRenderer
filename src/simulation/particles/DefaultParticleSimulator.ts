@@ -243,12 +243,14 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 			);
 
 			return {
-				distance: Number.isFinite(level.distance)
-					? Math.max(0, level.distance)
-					: Number.POSITIVE_INFINITY,
-				projectedSize: Number.isFinite(level.projectedSize)
-					? Math.max(0, level.projectedSize)
-					: 0,
+				distance:
+					Number.isFinite(level.distance) ?
+						Math.max(0, level.distance)
+					:	Number.POSITIVE_INFINITY,
+				projectedSize:
+					Number.isFinite(level.projectedSize) ?
+						Math.max(0, level.projectedSize)
+					:	0,
 				simulationIntervalFrames,
 				spawnScale,
 				maxParticlesScale,
@@ -279,9 +281,9 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		const sizeRange = emit.sizeRange ?? [0.5, 1];
 		const maxStartSize = Math.max(0, sizeRange[0], sizeRange[1]);
 		const maxLifetimeScale =
-			system.sizeOverLifetime.length > 0
-				? Math.max(...system.sizeOverLifetime.map((key) => key.value))
-				: 1;
+			system.sizeOverLifetime.length > 0 ?
+				Math.max(...system.sizeOverLifetime.map((key) => key.value))
+			:	1;
 		const estimatedRadius =
 			spawnRadius + maxStartSize + Math.max(0, maxLifetimeScale);
 

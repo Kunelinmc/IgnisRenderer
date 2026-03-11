@@ -90,9 +90,9 @@ export function clampHistoryToNeighborhoodYCoCg(
 		return historyRgb;
 	}
 	const gamma =
-		Number.isFinite(varianceClampGamma) && varianceClampGamma >= 0
-			? varianceClampGamma
-			: 0;
+		Number.isFinite(varianceClampGamma) && varianceClampGamma >= 0 ?
+			varianceClampGamma
+		:	0;
 	let minY = Number.POSITIVE_INFINITY;
 	let minCo = Number.POSITIVE_INFINITY;
 	let minCg = Number.POSITIVE_INFINITY;

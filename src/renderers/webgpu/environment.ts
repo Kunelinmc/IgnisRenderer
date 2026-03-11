@@ -34,9 +34,8 @@ export function collectWebGPUEnvironment(
 		skyboxTexture: scene.skybox ?? envSpecularTexture,
 		envSpecularTexture,
 		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
-		envSpecularMaxMipLevel: hasEnvSpecular
-			? Math.max(0, envSpecularTexture.mipmaps.length - 1)
-			: 0,
+		envSpecularMaxMipLevel:
+			hasEnvSpecular ? Math.max(0, envSpecularTexture.mipmaps.length - 1) : 0,
 		warnings,
 	};
 }

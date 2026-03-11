@@ -30,17 +30,17 @@ export class ParticleBatchBuilder {
 
 		for (const particle of runtime.particles) {
 			const worldPosition =
-				system.space === ParticleSpaceMode.Local
-					? {
-							x: particle.position.x + systemPosition.x,
-							y: particle.position.y + systemPosition.y,
-							z: particle.position.z + systemPosition.z,
-						}
-					: {
-							x: particle.position.x,
-							y: particle.position.y,
-							z: particle.position.z,
-						};
+				system.space === ParticleSpaceMode.Local ?
+					{
+						x: particle.position.x + systemPosition.x,
+						y: particle.position.y + systemPosition.y,
+						z: particle.position.z + systemPosition.z,
+					}
+				:	{
+						x: particle.position.x,
+						y: particle.position.y,
+						z: particle.position.z,
+					};
 
 			const cameraSpace = Matrix4.transformPoint(cameraView, worldPosition);
 			const depth = -cameraSpace.z;
@@ -104,9 +104,9 @@ export class ParticleBatchBuilder {
 
 		const rawFrame = Math.floor(particle.age * fps);
 		const frame =
-			atlas.loop === false
-				? Math.min(frameCount - 1, rawFrame)
-				: ((rawFrame % frameCount) + frameCount) % frameCount;
+			atlas.loop === false ?
+				Math.min(frameCount - 1, rawFrame)
+			:	((rawFrame % frameCount) + frameCount) % frameCount;
 		const column = frame % columns;
 		const row = Math.floor(frame / columns);
 		const u0 = column / columns;

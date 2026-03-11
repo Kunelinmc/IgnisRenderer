@@ -218,22 +218,23 @@ export class ParticleSimulationCore {
 			y: randomDirection.y * speed,
 			z: randomDirection.z * speed,
 		};
-		const velocity = overrides.baseVelocity
-			? {
+		const velocity =
+			overrides.baseVelocity ?
+				{
 					x: spawnedVelocity.x + overrides.baseVelocity.x,
 					y: spawnedVelocity.y + overrides.baseVelocity.y,
 					z: spawnedVelocity.z + overrides.baseVelocity.z,
 				}
-			: spawnedVelocity;
+			:	spawnedVelocity;
 
-		const spawnOffset = overrides.position
-			? { x: 0, y: 0, z: 0 }
-			: this._randomSpawnOffset(runtime, Math.max(0, emit.spawnRadius ?? 0));
-		const spawnBasePosition = overrides.position
-			? overrides.position
-			: system.space === ParticleSpaceMode.Local
-				? { x: 0, y: 0, z: 0 }
-				: system.getWorldPosition();
+		const spawnOffset =
+			overrides.position ?
+				{ x: 0, y: 0, z: 0 }
+			:	this._randomSpawnOffset(runtime, Math.max(0, emit.spawnRadius ?? 0));
+		const spawnBasePosition =
+			overrides.position ? overrides.position
+			: system.space === ParticleSpaceMode.Local ? { x: 0, y: 0, z: 0 }
+			: system.getWorldPosition();
 
 		return {
 			position: {
