@@ -1,7 +1,16 @@
 import type { IVector3 } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
+	PhysicsBoxCastQuery,
+	PhysicsOverlapBoxQuery,
+	PhysicsOverlapHit,
+	PhysicsOverlapSphereQuery,
+	PhysicsQueryFilter,
+	PhysicsQueryHit,
+	PhysicsRaycastQuery,
+	PhysicsSphereCastQuery,
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
@@ -36,6 +45,7 @@ interface SimpleColliderState {
 	shape: ColliderShape;
 	isTrigger: boolean;
 	radius: number;
+	halfExtents: IVector3;
 	offset: IVector3;
 }
 
@@ -58,6 +68,18 @@ interface SimpleWorldState {
 	activePairs: Map<string, "collision" | "trigger">;
 }
 
+interface SimpleQueryCandidate {
+	body: SimpleBodyState;
+	collider: SimpleColliderState;
+	center: IVector3;
+}
+
+interface SimpleQueryHit {
+	distance: number;
+	point: IVector3;
+	normal: IVector3;
+}
+
 const DEFAULT_GRAVITY: IVector3 = { x: 0, y: -9.8, z: 0 };
 
 export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
@@ -70,8 +92,8 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		this.capabilities = {
 			joints: true,
 			characterController: true,
-			shapeCast: false,
-			query: false,
+			shapeCast: true,
+			query: true,
 			syncInit: true,
 		};
 	}
@@ -188,6 +210,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			shape,
 			isTrigger: descriptor.isTrigger === true,
 			radius: computeShapeRadius(shape),
+			halfExtents: computeShapeHalfExtents(shape),
 			offset: cloneVector(descriptor.offset ?? { x: 0, y: 0, z: 0 }),
 		};
 		world.colliders.set(colliderId, collider);
@@ -303,6 +326,126 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		controller.stepHeight = Math.max(0, value);
 	}
 
+	public raycast(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit | null {
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	public sphereCast(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): PhysicsQueryHit | null {
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const castRadius = Math.max(0, query.radius);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectSphereCastWithCollider(
+				query.center,
+				ray,
+				castRadius,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	public boxCast(
+		worldId: string,
+		query: PhysicsBoxCastQuery
+	): PhysicsQueryHit | null {
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const castHalfExtents = sanitizeHalfExtents(query.halfExtents);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return null;
+
+		let bestHit: PhysicsQueryHit | null = null;
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectBoxCastWithCollider(
+				query.center,
+				ray,
+				castHalfExtents,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			const hitResult = toQueryHit(worldId, candidate, hit, maxDistance);
+			if (!bestHit || hitResult.distance < bestHit.distance) {
+				bestHit = hitResult;
+			}
+		}
+		return bestHit;
+	}
+
+	public overlapSphere(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): PhysicsOverlapHit[] {
+		const world = this._requireWorld(worldId);
+		const radius = Math.max(0, query.radius);
+		const hits: PhysicsOverlapHit[] = [];
+
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsSphereWithCollider(query.center, radius, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+
+		return truncateHits(hits, query.maxHits);
+	}
+
+	public overlapBox(
+		worldId: string,
+		query: PhysicsOverlapBoxQuery
+	): PhysicsOverlapHit[] {
+		const world = this._requireWorld(worldId);
+		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryMin = Vector3.sub(query.center, halfExtents);
+		const queryMax = Vector3.add(query.center, halfExtents);
+		const hits: PhysicsOverlapHit[] = [];
+
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			if (!intersectsBoxWithCollider(queryMin, queryMax, candidate)) {
+				continue;
+			}
+			hits.push(toOverlapHit(worldId, candidate));
+		}
+
+		return truncateHits(hits, query.maxHits);
+	}
+
 	public stepWorld(
 		worldId: string,
 		deltaSeconds: number
@@ -387,8 +530,14 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				const rightBody = world.bodies.get(right.bodyId);
 				if (!leftBody || !rightBody) continue;
 
-				const leftCenter = addVec3(leftBody.transform.position, left.offset);
-				const rightCenter = addVec3(rightBody.transform.position, right.offset);
+				const leftCenter = Vector3.add(
+					leftBody.transform.position,
+					left.offset
+				);
+				const rightCenter = Vector3.add(
+					rightBody.transform.position,
+					right.offset
+				);
 				const distance = Math.hypot(
 					leftCenter.x - rightCenter.x,
 					leftCenter.y - rightCenter.y,
@@ -448,11 +597,9 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		rightCenter: IVector3,
 		overlap: number
 	): void {
-		const nx = leftCenter.x - rightCenter.x;
-		const ny = leftCenter.y - rightCenter.y;
-		const nz = leftCenter.z - rightCenter.z;
-		const length = Math.hypot(nx, ny, nz) || 1;
-		const normal = { x: nx / length, y: ny / length, z: nz / length };
+		const separationAxis = Vector3.sub(leftCenter, rightCenter);
+		const length = Vector3.length(separationAxis) || 1;
+		const normal = Vector3.scale(separationAxis, 1 / length);
 		const separation = overlap * 0.5;
 
 		if (leftBody.type === "dynamic") {
@@ -473,6 +620,35 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			if (!body) continue;
 			controller.grounded = body.transform.position.y <= controller.stepHeight;
 		}
+	}
+
+	private _getQueryCandidates(
+		world: SimpleWorldState,
+		filter?: PhysicsQueryFilter
+	): SimpleQueryCandidate[] {
+		const includeBodyIds = toSet(filter?.includeBodyIds);
+		const excludeBodyIds = toSet(filter?.excludeBodyIds);
+		const includeColliderIds = toSet(filter?.includeColliderIds);
+		const excludeColliderIds = toSet(filter?.excludeColliderIds);
+		const includeTriggers = filter?.includeTriggers ?? true;
+
+		const candidates: SimpleQueryCandidate[] = [];
+		for (const collider of world.colliders.values()) {
+			if (!includeTriggers && collider.isTrigger) continue;
+			if (includeBodyIds && !includeBodyIds.has(collider.bodyId)) continue;
+			if (excludeBodyIds?.has(collider.bodyId)) continue;
+			if (includeColliderIds && !includeColliderIds.has(collider.id)) continue;
+			if (excludeColliderIds?.has(collider.id)) continue;
+
+			const body = world.bodies.get(collider.bodyId);
+			if (!body) continue;
+			candidates.push({
+				body,
+				collider,
+				center: Vector3.add(body.transform.position, collider.offset),
+			});
+		}
+		return candidates;
 	}
 
 	private _requireWorld(worldId: string): SimpleWorldState {
@@ -510,7 +686,7 @@ function resolveBodyId(value: CharacterControllerDescriptor["body"]): string {
 }
 
 function cloneVector(source: IVector3): IVector3 {
-	return { x: source.x, y: source.y, z: source.z };
+	return new Vector3().copy(source);
 }
 
 function cloneTransform(transform: PhysicsTransform): PhysicsTransform {
@@ -567,12 +743,403 @@ function computeShapeRadius(shape: ColliderShape): number {
 	}
 }
 
-function addVec3(left: IVector3, right: IVector3): IVector3 {
+function computeShapeHalfExtents(shape: ColliderShape): IVector3 {
+	switch (shape.kind) {
+		case "sphere": {
+			const radius = Math.max(0.001, shape.radius);
+			return { x: radius, y: radius, z: radius };
+		}
+		case "capsule": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: radius + Math.max(0, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "cylinder": {
+			const radius = Math.max(0.001, shape.radius);
+			return {
+				x: radius,
+				y: Math.max(0.001, shape.halfHeight),
+				z: radius,
+			};
+		}
+		case "box":
+			return {
+				x: Math.max(0.001, Math.abs(shape.halfExtents.x)),
+				y: Math.max(0.001, Math.abs(shape.halfExtents.y)),
+				z: Math.max(0.001, Math.abs(shape.halfExtents.z)),
+			};
+		case "trimesh": {
+			const vertices = shape.vertices;
+			const length =
+				Array.isArray(vertices) ? vertices.length : vertices.length;
+			if (length < 3) {
+				return { x: 0.5, y: 0.5, z: 0.5 };
+			}
+			let minX = Infinity;
+			let minY = Infinity;
+			let minZ = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			let maxZ = -Infinity;
+			for (let i = 0; i < length; i += 3) {
+				const x = vertices[i];
+				const y = vertices[i + 1];
+				const z = vertices[i + 2];
+				if (x < minX) minX = x;
+				if (y < minY) minY = y;
+				if (z < minZ) minZ = z;
+				if (x > maxX) maxX = x;
+				if (y > maxY) maxY = y;
+				if (z > maxZ) maxZ = z;
+			}
+			return {
+				x: Math.max(0.001, (maxX - minX) * 0.5),
+				y: Math.max(0.001, (maxY - minY) * 0.5),
+				z: Math.max(0.001, (maxZ - minZ) * 0.5),
+			};
+		}
+		default:
+			return { x: 0.5, y: 0.5, z: 0.5 };
+	}
+}
+
+function toQueryHit(
+	worldId: string,
+	candidate: SimpleQueryCandidate,
+	hit: SimpleQueryHit,
+	maxDistance: number
+): PhysicsQueryHit {
 	return {
-		x: left.x + right.x,
-		y: left.y + right.y,
-		z: left.z + right.z,
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		point: cloneVector(hit.point),
+		normal: cloneVector(hit.normal),
+		distance: hit.distance,
+		fraction:
+			maxDistance > 0 ?
+				Math.min(1, Math.max(0, hit.distance / maxDistance))
+			:	0,
+		isTrigger: candidate.collider.isTrigger,
 	};
+}
+
+function toOverlapHit(
+	worldId: string,
+	candidate: SimpleQueryCandidate
+): PhysicsOverlapHit {
+	return {
+		worldId,
+		bodyId: candidate.body.id,
+		colliderId: candidate.collider.id,
+		isTrigger: candidate.collider.isTrigger,
+	};
+}
+
+function truncateHits<T>(hits: T[], maxHits?: number): T[] {
+	if (!Number.isFinite(maxHits) || maxHits === undefined) return hits;
+	const max = Math.max(0, Math.floor(maxHits));
+	if (max === 0) return [];
+	if (hits.length <= max) return hits;
+	return hits.slice(0, max);
+}
+
+function normalizeDirection(direction: IVector3): IVector3 {
+	const length = Vector3.length(direction);
+	if (length <= 1e-8) {
+		throw new Error("Physics query direction must be non-zero");
+	}
+	return Vector3.normalize(direction);
+}
+
+function sanitizeMaxDistance(maxDistance?: number): number {
+	if (maxDistance === undefined) return Infinity;
+	if (!Number.isFinite(maxDistance)) return Infinity;
+	return Math.max(0, maxDistance);
+}
+
+function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
+	return {
+		x: Math.max(0, Math.abs(halfExtents.x)),
+		y: Math.max(0, Math.abs(halfExtents.y)),
+		z: Math.max(0, Math.abs(halfExtents.z)),
+	};
+}
+
+function toSet(values?: string[]): Set<string> | null {
+	if (!values || values.length === 0) return null;
+	return new Set(values);
+}
+
+function intersectRayWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	candidate: SimpleQueryCandidate
+): SimpleQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectRayAabb(origin, direction, maxDistance, min, max);
+		}
+		default:
+			return intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius
+			);
+	}
+}
+
+function intersectSphereCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	radius: number,
+	maxDistance: number,
+	candidate: SimpleQueryCandidate
+): SimpleQueryHit | null {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const expandedHalfExtents = {
+				x: candidate.collider.halfExtents.x + radius,
+				y: candidate.collider.halfExtents.y + radius,
+				z: candidate.collider.halfExtents.z + radius,
+			};
+			const min = Vector3.sub(candidate.center, expandedHalfExtents);
+			const max = Vector3.add(candidate.center, expandedHalfExtents);
+			const hit = intersectRayAabb(origin, direction, maxDistance, min, max);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+		default: {
+			const hit = intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius + radius
+			);
+			if (!hit) return null;
+			hit.point = Vector3.sub(hit.point, Vector3.scale(hit.normal, radius));
+			return hit;
+		}
+	}
+}
+
+function intersectBoxCastWithCollider(
+	origin: IVector3,
+	direction: IVector3,
+	castHalfExtents: IVector3,
+	maxDistance: number,
+	candidate: SimpleQueryCandidate
+): SimpleQueryHit | null {
+	const expandedHalfExtents = {
+		x: candidate.collider.halfExtents.x + castHalfExtents.x,
+		y: candidate.collider.halfExtents.y + castHalfExtents.y,
+		z: candidate.collider.halfExtents.z + castHalfExtents.z,
+	};
+	const min = Vector3.sub(candidate.center, expandedHalfExtents);
+	const max = Vector3.add(candidate.center, expandedHalfExtents);
+	return intersectRayAabb(origin, direction, maxDistance, min, max);
+}
+
+function intersectsSphereWithCollider(
+	center: IVector3,
+	radius: number,
+	candidate: SimpleQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = {
+				x: candidate.center.x - candidate.collider.halfExtents.x,
+				y: candidate.center.y - candidate.collider.halfExtents.y,
+				z: candidate.center.z - candidate.collider.halfExtents.z,
+			};
+			const max = {
+				x: candidate.center.x + candidate.collider.halfExtents.x,
+				y: candidate.center.y + candidate.collider.halfExtents.y,
+				z: candidate.center.z + candidate.collider.halfExtents.z,
+			};
+			return intersectsSphereAabb(center, radius, min, max);
+		}
+		default: {
+			const delta = Vector3.sub(center, candidate.center);
+			const radii = radius + candidate.collider.radius;
+			return Vector3.dot(delta, delta) <= radii * radii;
+		}
+	}
+}
+
+function intersectsBoxWithCollider(
+	queryMin: IVector3,
+	queryMax: IVector3,
+	candidate: SimpleQueryCandidate
+): boolean {
+	switch (candidate.collider.shape.kind) {
+		case "box": {
+			const min = Vector3.sub(candidate.center, candidate.collider.halfExtents);
+			const max = Vector3.add(candidate.center, candidate.collider.halfExtents);
+			return intersectsAabb(queryMin, queryMax, min, max);
+		}
+		default:
+			return intersectsSphereAabb(
+				candidate.center,
+				candidate.collider.radius,
+				queryMin,
+				queryMax
+			);
+	}
+}
+
+function intersectRaySphere(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	center: IVector3,
+	radius: number
+): SimpleQueryHit | null {
+	const radiusClamped = Math.max(0.001, radius);
+	const oc = Vector3.sub(origin, center);
+	const b = Vector3.dot(oc, direction);
+	const c = Vector3.dot(oc, oc) - radiusClamped * radiusClamped;
+	if (c > 0 && b > 0) return null;
+
+	const discriminant = b * b - c;
+	if (discriminant < 0) return null;
+	const sqrtDiscriminant = Math.sqrt(discriminant);
+	let distance = -b - sqrtDiscriminant;
+	if (distance < 0) distance = 0;
+	if (distance > maxDistance) return null;
+
+	const point = Vector3.add(origin, Vector3.scale(direction, distance));
+	const normalCandidate = Vector3.sub(point, center);
+	const normalLength = Math.hypot(
+		normalCandidate.x,
+		normalCandidate.y,
+		normalCandidate.z
+	);
+	const normal =
+		normalLength > 1e-8 ?
+			Vector3.scale(normalCandidate, 1 / normalLength)
+		:	Vector3.scale(direction, -1);
+	return { distance, point, normal };
+}
+
+function intersectRayAabb(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	min: IVector3,
+	max: IVector3
+): SimpleQueryHit | null {
+	let entry = 0;
+	let exit = maxDistance;
+	let hitAxis = -1;
+	let hitNormalSign = 0;
+
+	for (let axis = 0; axis < 3; axis++) {
+		const o = getAxis(origin, axis);
+		const d = getAxis(direction, axis);
+		const minAxis = getAxis(min, axis);
+		const maxAxis = getAxis(max, axis);
+
+		if (Math.abs(d) <= 1e-8) {
+			if (o < minAxis || o > maxAxis) return null;
+			continue;
+		}
+
+		let t1 = (minAxis - o) / d;
+		let t2 = (maxAxis - o) / d;
+		let normalSign = d > 0 ? -1 : 1;
+		if (t1 > t2) {
+			const temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
+
+		if (t1 > entry) {
+			entry = t1;
+			hitAxis = axis;
+			hitNormalSign = normalSign;
+		}
+		exit = Math.min(exit, t2);
+		if (entry > exit) return null;
+	}
+
+	if (entry < 0 || entry > maxDistance) return null;
+	const point = Vector3.add(origin, Vector3.scale(direction, entry));
+	const normal =
+		hitAxis >= 0 ?
+			axisVector(hitAxis, hitNormalSign)
+		:	Vector3.scale(direction, -1);
+	return {
+		distance: entry,
+		point,
+		normal,
+	};
+}
+
+function intersectsSphereAabb(
+	center: IVector3,
+	radius: number,
+	min: IVector3,
+	max: IVector3
+): boolean {
+	const clampedX = Math.max(min.x, Math.min(max.x, center.x));
+	const clampedY = Math.max(min.y, Math.min(max.y, center.y));
+	const clampedZ = Math.max(min.z, Math.min(max.z, center.z));
+	const dx = center.x - clampedX;
+	const dy = center.y - clampedY;
+	const dz = center.z - clampedZ;
+	return dx * dx + dy * dy + dz * dz <= radius * radius;
+}
+
+function intersectsAabb(
+	minA: IVector3,
+	maxA: IVector3,
+	minB: IVector3,
+	maxB: IVector3
+): boolean {
+	return (
+		minA.x <= maxB.x &&
+		maxA.x >= minB.x &&
+		minA.y <= maxB.y &&
+		maxA.y >= minB.y &&
+		minA.z <= maxB.z &&
+		maxA.z >= minB.z
+	);
+}
+
+function getAxis(v: IVector3, axis: number): number {
+	switch (axis) {
+		case 0:
+			return v.x;
+		case 1:
+			return v.y;
+		default:
+			return v.z;
+	}
+}
+
+function axisVector(axis: number, sign: number): IVector3 {
+	if (axis === 0) return { x: sign, y: 0, z: 0 };
+	if (axis === 1) return { x: 0, y: sign, z: 0 };
+	return { x: 0, y: 0, z: sign };
 }
 
 function makePairKey(left: string, right: string): string {

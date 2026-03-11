@@ -10,10 +10,17 @@ import type {
 	ColliderShape,
 	JointDescriptor,
 	PhysicsBodyHandle,
+	PhysicsBoxCastQuery,
 	PhysicsColliderHandle,
 	PhysicsEvent,
 	PhysicsEvents,
 	PhysicsJointHandle,
+	PhysicsOverlapBoxQuery,
+	PhysicsOverlapHit,
+	PhysicsOverlapSphereQuery,
+	PhysicsQueryHit,
+	PhysicsRaycastQuery,
+	PhysicsSphereCastQuery,
 	PhysicsStepReport,
 	PhysicsTransform,
 	PhysicsWorldConfig,
@@ -331,6 +338,36 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return handle;
 	}
 
+	public raycast(query: PhysicsRaycastQuery): PhysicsQueryHit | null {
+		this._assertCapability("query");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.raycast(worldId, query);
+	}
+
+	public sphereCast(query: PhysicsSphereCastQuery): PhysicsQueryHit | null {
+		this._assertCapability("shapeCast");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.sphereCast(worldId, query);
+	}
+
+	public boxCast(query: PhysicsBoxCastQuery): PhysicsQueryHit | null {
+		this._assertCapability("shapeCast");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.boxCast(worldId, query);
+	}
+
+	public overlapSphere(query: PhysicsOverlapSphereQuery): PhysicsOverlapHit[] {
+		this._assertCapability("query");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.overlapSphere(worldId, query);
+	}
+
+	public overlapBox(query: PhysicsOverlapBoxQuery): PhysicsOverlapHit[] {
+		this._assertCapability("query");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.overlapBox(worldId, query);
+	}
+
 	public step(deltaTimeMs: number, opts: StepOverride = {}): PhysicsStepReport {
 		const worldIds = opts.worldIds ?? Array.from(this._worldConfigById.keys());
 		const targetWorlds = worldIds.map((worldId) => {
@@ -606,6 +643,24 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const world = this._worldConfigById.get(worldId);
 		if (world) return world;
 		throw new Error(`Physics world "${worldId}" does not exist`);
+	}
+
+	private _resolveQueryWorldId(worldId?: string): string {
+		if (worldId && worldId.trim().length > 0) {
+			this._requireWorld(worldId);
+			return worldId;
+		}
+		if (this._worldConfigById.size === 1) {
+			return this._worldConfigById.keys().next().value;
+		}
+		if (this._worldConfigById.size === 0) {
+			throw new Error(
+				"Physics query requires an active world, but no worlds are created"
+			);
+		}
+		throw new Error(
+			"Physics query.worldId is required when multiple worlds are active"
+		);
 	}
 
 	private _assertCapability(

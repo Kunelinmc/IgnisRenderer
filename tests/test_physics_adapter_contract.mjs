@@ -42,6 +42,20 @@ async function runContract(adapter, label) {
 		mode: 'auto-fit',
 		shapePreference: 'box',
 	})
+	const queryHit = physics.raycast({
+		worldId: 'main',
+		origin: { x: 0, y: 1, z: -5 },
+		direction: { x: 0, y: 0, z: 1 },
+		maxDistance: 20,
+	})
+	assert.ok(queryHit)
+	assert.equal(queryHit?.bodyId, bodyA.id)
+	const overlap = physics.overlapSphere({
+		worldId: 'main',
+		center: { x: 0, y: 1, z: 0 },
+		radius: 0.25,
+	})
+	assert.ok(overlap.some((item) => item.bodyId === bodyA.id))
 
 	const joint = physics.createJoint({
 		worldId: 'main',

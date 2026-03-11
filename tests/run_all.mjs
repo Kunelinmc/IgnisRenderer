@@ -24,6 +24,7 @@ const tests = [
 	"test_physics_stepper.mjs",
 	"test_physics_system_bindings.mjs",
 	"test_physics_events.mjs",
+	"test_physics_queries.mjs",
 	"test_physics_adapter_contract.mjs",
 	"test_renderer_animation_stage.mjs",
 	"test_renderer_particle_stage.mjs",

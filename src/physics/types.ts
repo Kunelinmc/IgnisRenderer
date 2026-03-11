@@ -168,6 +168,68 @@ export interface PhysicsCollisionEvent {
 
 export type PhysicsEvent = PhysicsCollisionEvent;
 
+export interface PhysicsQueryFilter {
+	includeTriggers?: boolean;
+	includeBodyIds?: string[];
+	excludeBodyIds?: string[];
+	includeColliderIds?: string[];
+	excludeColliderIds?: string[];
+}
+
+export interface PhysicsQueryBase {
+	worldId?: PhysicsWorldId;
+	filter?: PhysicsQueryFilter;
+	maxHits?: number;
+}
+
+export interface PhysicsRaycastQuery extends PhysicsQueryBase {
+	origin: IVector3;
+	direction: IVector3;
+	maxDistance?: number;
+}
+
+export interface PhysicsSphereCastQuery extends PhysicsQueryBase {
+	center: IVector3;
+	radius: number;
+	direction: IVector3;
+	maxDistance?: number;
+}
+
+export interface PhysicsBoxCastQuery extends PhysicsQueryBase {
+	center: IVector3;
+	halfExtents: IVector3;
+	direction: IVector3;
+	maxDistance?: number;
+}
+
+export interface PhysicsOverlapSphereQuery extends PhysicsQueryBase {
+	center: IVector3;
+	radius: number;
+}
+
+export interface PhysicsOverlapBoxQuery extends PhysicsQueryBase {
+	center: IVector3;
+	halfExtents: IVector3;
+}
+
+export interface PhysicsQueryHit {
+	worldId: PhysicsWorldId;
+	bodyId: string;
+	colliderId: string;
+	point: IVector3;
+	normal: IVector3;
+	distance: number;
+	fraction: number;
+	isTrigger: boolean;
+}
+
+export interface PhysicsOverlapHit {
+	worldId: PhysicsWorldId;
+	bodyId: string;
+	colliderId: string;
+	isTrigger: boolean;
+}
+
 export interface PhysicsWorldStepReport {
 	worldId: PhysicsWorldId;
 	mode: PhysicsStepMode;

@@ -7,6 +7,13 @@ import type { IVector3 } from "../../maths/types";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
+	PhysicsBoxCastQuery,
+	PhysicsOverlapBoxQuery,
+	PhysicsOverlapHit,
+	PhysicsOverlapSphereQuery,
+	PhysicsQueryHit,
+	PhysicsRaycastQuery,
+	PhysicsSphereCastQuery,
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
@@ -191,6 +198,41 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			controllerId,
 			value
 		);
+	}
+
+	public raycast(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit | null {
+		return this._delegate.raycast(worldId, query);
+	}
+
+	public sphereCast(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): PhysicsQueryHit | null {
+		return this._delegate.sphereCast(worldId, query);
+	}
+
+	public boxCast(
+		worldId: string,
+		query: PhysicsBoxCastQuery
+	): PhysicsQueryHit | null {
+		return this._delegate.boxCast(worldId, query);
+	}
+
+	public overlapSphere(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): PhysicsOverlapHit[] {
+		return this._delegate.overlapSphere(worldId, query);
+	}
+
+	public overlapBox(
+		worldId: string,
+		query: PhysicsOverlapBoxQuery
+	): PhysicsOverlapHit[] {
+		return this._delegate.overlapBox(worldId, query);
 	}
 
 	public stepWorld(

@@ -2,6 +2,13 @@ import type { IVector3 } from "../maths/types";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
+	PhysicsBoxCastQuery,
+	PhysicsOverlapBoxQuery,
+	PhysicsOverlapHit,
+	PhysicsOverlapSphereQuery,
+	PhysicsQueryHit,
+	PhysicsRaycastQuery,
+	PhysicsSphereCastQuery,
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
@@ -101,5 +108,16 @@ export interface IPhysicsEngineAdapter {
 		controllerId: string,
 		value: number
 	): void;
+	raycast(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit | null;
+	sphereCast(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): PhysicsQueryHit | null;
+	boxCast(worldId: string, query: PhysicsBoxCastQuery): PhysicsQueryHit | null;
+	overlapSphere(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): PhysicsOverlapHit[];
+	overlapBox(worldId: string, query: PhysicsOverlapBoxQuery): PhysicsOverlapHit[];
 	stepWorld(worldId: string, deltaSeconds: number): PhysicsAdapterStepResult;
 }
