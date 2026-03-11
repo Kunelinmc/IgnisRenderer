@@ -32,6 +32,14 @@ import type { IRenderBackend } from "./IRenderBackend";
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
 	framestart: [{ now: number; deltaTime: number }];
+	postanimation: [
+		{
+			now: number;
+			deltaTime: number;
+			scene: Scene;
+			transient: Map<string, any>;
+		},
+	];
 	frameend: [{ now: number; deltaTime: number }];
 	[key: string]: any[];
 }
@@ -222,6 +230,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			},
 			this._deltaTime
 		);
+		this.emit("postanimation", {
+			now,
+			deltaTime: this._deltaTime,
+			scene: this.scene,
+			transient,
+		});
 		this.scene.updateWorldMatrices();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
