@@ -73,6 +73,7 @@ export interface RenderPassDesc {
 
 export interface ColorAttachment {
 	view?: IRenderTexture; // Optional, defaults to canvas if null/undefined
+	resolveTarget?: IRenderTexture;
 	clearValue?: { r: number; g: number; b: number; a: number };
 	loadOp: "clear" | "load";
 	storeOp: "store" | "discard";

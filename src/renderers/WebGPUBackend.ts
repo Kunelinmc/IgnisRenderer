@@ -40,6 +40,7 @@ import {
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
 	WEBGPU_COPY_BATCH_SIZE,
 	WEBGPU_TIMESTAMP_QUERY_CAPACITY,
+	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
 } from "./webgpu/constants";
 import {
 	BufferUsage,
@@ -168,6 +169,7 @@ export class WebGPUBackend implements IRenderBackend {
 		string,
 		WebGPUPostProcessPassPlugin
 	>();
+	private _msaaSampleCount = 1;
 
 	constructor(canvas?: HTMLCanvasElement) {
 		this.canvas = canvas ?? null;
@@ -238,6 +240,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._errorScopes = new WebGPUErrorScopeHelper(this.device);
 		this.canvasDepthFormat = this._selectCanvasDepthFormat();
 		this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+		this._msaaSampleCount = this._selectMSAASampleCount();
 		this._initTimestampResources();
 		this.context = canvas.getContext("webgpu");
 		if (!this.context) {
@@ -349,6 +352,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._nextResourceId = 1;
 		this._frameSerial = 0;
 		this._pendingPostProcessPasses.clear();
+		this._msaaSampleCount = 1;
 		if (this.context) {
 			this.context.unconfigure();
 			this.context = null;
@@ -516,6 +520,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (cached) {
 			return cached;
 		}
+		const sampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
 
 		const gpuPipeline = this._runValidationScope(
 			`createRenderPipeline:${desc.label ?? "unnamed"}`,
@@ -561,6 +566,9 @@ export class WebGPUBackend implements IRenderBackend {
 									.depthCompare as GPUCompareFunction,
 							}
 						:	undefined,
+					multisample: {
+						count: sampleCount,
+					},
 					label: desc.label,
 				})
 		);
@@ -803,6 +811,10 @@ export class WebGPUBackend implements IRenderBackend {
 		return getWebGPUTexture(this._depthTexture).view;
 	}
 
+	public getMSAASampleCount(): number {
+		return this._msaaSampleCount;
+	}
+
 	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
 		return this._timestampResults;
 	}
@@ -915,6 +927,9 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 		parts.push(`primitive.cull:${desc.primitive?.cullMode ?? "none"}`);
 		parts.push(`primitive.front:${desc.primitive?.frontFace ?? "ccw"}`);
+		parts.push(
+			`multisample.count:${Math.max(1, Math.floor(desc.sampleCount ?? 1))}`
+		);
 		if (desc.depthStencil) {
 			parts.push(`depth.format:${desc.depthStencil.format}`);
 			parts.push(`depth.write:${desc.depthStencil.depthWriteEnabled ? 1 : 0}`);
@@ -1169,6 +1184,67 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 		}
 		return TextureFormat.Depth24Plus;
+	}
+
+	private _selectMSAASampleCount(): number {
+		const preferred = Math.max(
+			1,
+			Math.floor(WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT)
+		);
+		if (preferred <= 1) {
+			return 1;
+		}
+		const candidates = Array.from(new Set([preferred, 4, 2])).filter(
+			(sampleCount) => sampleCount > 1
+		);
+		for (const sampleCount of candidates) {
+			if (this._supportsMSAASampleCount(sampleCount)) {
+				return sampleCount;
+			}
+		}
+		console.warn(
+			`WebGPU MSAA sample counts [${candidates.join(", ")}] are not supported for current render target formats; falling back to 1x`
+		);
+		return 1;
+	}
+
+	private _supportsMSAASampleCount(sampleCount: number): boolean {
+		const count = Math.max(1, Math.floor(sampleCount));
+		if (count <= 1) {
+			return true;
+		}
+		try {
+			const descriptors: GPUTextureDescriptor[] = [
+				{
+					size: [1, 1, 1],
+					sampleCount: count,
+					format: TextureFormat.RGBA16Float as GPUTextureFormat,
+					usage: GPUTextureUsage.RENDER_ATTACHMENT,
+					label: "WebGPUMSAAProbeColor16F",
+				},
+				{
+					size: [1, 1, 1],
+					sampleCount: count,
+					format: TextureFormat.RGBA8Unorm as GPUTextureFormat,
+					usage: GPUTextureUsage.RENDER_ATTACHMENT,
+					label: "WebGPUMSAAProbeColor8",
+				},
+				{
+					size: [1, 1, 1],
+					sampleCount: count,
+					format: TextureFormat.Depth32Float as GPUTextureFormat,
+					usage: GPUTextureUsage.RENDER_ATTACHMENT,
+					label: "WebGPUMSAAProbeDepth",
+				},
+			];
+			for (const descriptor of descriptors) {
+				const probe = this.device.createTexture(descriptor);
+				probe.destroy();
+			}
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	private _initTimestampResources(): void {
@@ -1552,6 +1628,10 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 				view:
 					tryGetWebGPUTexture(attachment.view)?.view ??
 					this._backend.getCurrentColorView(),
+				resolveTarget:
+					attachment.resolveTarget ?
+						tryGetWebGPUTexture(attachment.resolveTarget)?.view
+					:	undefined,
 				clearValue:
 					attachment.loadOp === "clear" ? attachment.clearValue : undefined,
 				loadOp: attachment.loadOp,

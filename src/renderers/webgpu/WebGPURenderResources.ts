@@ -83,6 +83,7 @@ export interface WebGPUSkyboxDrawResources {
 
 export interface WebGPUParticlePassTargets {
 	color: any;
+	colorResolve?: any;
 	depth: any;
 }
 
@@ -496,6 +497,7 @@ export class WebGPURenderResources {
 			colorAttachments: [
 				{
 					view: targets.color,
+					resolveTarget: targets.colorResolve,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
 					loadOp: "load",
 					storeOp: "store",
@@ -664,6 +666,17 @@ export class WebGPURenderResources {
 			:	(this._backend.canvasFormat as any);
 		const depthFormat =
 			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
+		let sampleCount = 1;
+		if (mode === "mrt") {
+			const getter = (this._backend as { getMSAASampleCount?: () => number })
+				.getMSAASampleCount;
+			if (typeof getter === "function") {
+				const resolved = getter.call(this._backend);
+				if (Number.isFinite(resolved)) {
+					sampleCount = Math.max(1, Math.floor(resolved));
+				}
+			}
+		}
 
 		const pipeline = this._backend.createPipeline({
 			layout: this._layouts.particlePipelineLayout,
@@ -693,6 +706,7 @@ export class WebGPURenderResources {
 				depthWriteEnabled: false,
 				depthCompare: "less",
 			},
+			sampleCount,
 		} as any);
 		cache.set(mode, pipeline);
 	}

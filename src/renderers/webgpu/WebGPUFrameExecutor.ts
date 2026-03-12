@@ -84,16 +84,27 @@ fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 }
 `;
 
+interface WebGPUFrameMSAATargets {
+	sceneColorMain: IRenderTexture;
+	gAlbedoAlpha: IRenderTexture;
+	gNormalRoughMetal: IRenderTexture;
+	gEmissiveOcclusion: IRenderTexture;
+	gMotionDepth: IRenderTexture;
+	depth: IRenderTexture;
+}
+
 export class WebGPUFrameExecutor {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
 	private _frameTargets: WebGPUFrameTargets | null = null;
+	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
 	private _targetHeight = 0;
 	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 	private _targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
+	private _targetMSAASampleCount = 1;
 	private _taaHistoryA: IRenderTexture | null = null;
 	private _taaHistoryB: IRenderTexture | null = null;
 	private _ssrHistoryA: IRenderTexture | null = null;
@@ -421,6 +432,7 @@ export class WebGPUFrameExecutor {
 		ssaoDownsample: number,
 		ssrDownsample: number
 	): void {
+		const msaaSampleCount = this._resolveMSAASampleCount();
 		if (width <= 0 || height <= 0) {
 			this._destroyFrameTargets();
 			return;
@@ -431,7 +443,8 @@ export class WebGPUFrameExecutor {
 			this._targetWidth === width &&
 			this._targetHeight === height &&
 			this._targetSSAODownsample === ssaoDownsample &&
-			this._targetSSRDownsample === ssrDownsample
+			this._targetSSRDownsample === ssrDownsample &&
+			this._targetMSAASampleCount === msaaSampleCount
 		) {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 			this._applyTAAHistoryFlip(this._frameTargets);
@@ -446,6 +459,7 @@ export class WebGPUFrameExecutor {
 		this._targetHeight = height;
 		this._targetSSAODownsample = ssaoDownsample;
 		this._targetSSRDownsample = ssrDownsample;
+		this._targetMSAASampleCount = msaaSampleCount;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
 		this._volumetricHistoryValid = false;
@@ -619,6 +633,60 @@ export class WebGPUFrameExecutor {
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
 			label: "WebGPUHiZDepth",
 		});
+		const useMSAA = msaaSampleCount > 1;
+		this._msaaTargets =
+			useMSAA ?
+				{
+					sceneColorMain: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.RGBA16Float,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUSceneColorMainMSAA",
+					}),
+					gAlbedoAlpha: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.RGBA8Unorm,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUGBuffer_AlbedoAlphaMSAA",
+					}),
+					gNormalRoughMetal: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.RGBA16Float,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUGBuffer_NormalRoughMetalMSAA",
+					}),
+					gEmissiveOcclusion: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.RGBA16Float,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUGBuffer_EmissiveOcclusionMSAA",
+					}),
+					gMotionDepth: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.RGBA16Float,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUGBuffer_MotionDepthMSAA",
+					}),
+					depth: this._backend.createTexture({
+						width,
+						height,
+						sampleCount: msaaSampleCount,
+						format: TextureFormat.Depth32Float,
+						usage: TextureUsage.RenderAttachment,
+						label: "WebGPUDepthMSAA",
+					}),
+				}
+			:	null;
 
 		this._frameTargets = {
 			sceneColor: sceneColorMain,
@@ -659,6 +727,19 @@ export class WebGPUFrameExecutor {
 		this._applySSRHistoryFlip(this._frameTargets);
 		this._applyVolumetricHistoryFlip(this._frameTargets);
 		this._applyMotionHistoryFlip(this._frameTargets);
+	}
+
+	private _resolveMSAASampleCount(): number {
+		const getter = (this._backend as { getMSAASampleCount?: () => number })
+			.getMSAASampleCount;
+		if (typeof getter !== "function") {
+			return 1;
+		}
+		const sampleCount = getter.call(this._backend);
+		if (!Number.isFinite(sampleCount)) {
+			return 1;
+		}
+		return Math.max(1, Math.floor(sampleCount));
 	}
 
 	private _applyTAAHistoryFlip(targets: WebGPUFrameTargets): void {
@@ -713,35 +794,45 @@ export class WebGPUFrameExecutor {
 	}
 
 	private _destroyFrameTargets(): void {
-		if (!this._frameTargets) return;
-		const textures = new Set<IRenderTexture>([
-			this._frameTargets.sceneColorMain,
-			this._frameTargets.postPing,
-			this._frameTargets.postPong,
-			this._frameTargets.gAlbedoAlpha,
-			this._frameTargets.gNormalRoughMetal,
-			this._frameTargets.gEmissiveOcclusion,
-			this._frameTargets.gMotionDepth,
-			this._frameTargets.depth,
-			this._frameTargets.aoRaw,
-			this._frameTargets.aoBlur,
-			this._frameTargets.ssrRaw,
-			this._frameTargets.hiZ,
-			this._frameTargets.historyRead,
-			this._frameTargets.historyWrite,
-			this._frameTargets.ssrHistoryRead,
-			this._frameTargets.ssrHistoryWrite,
-			this._frameTargets.volumetricHistoryRead,
-			this._frameTargets.volumetricHistoryWrite,
-			this._frameTargets.volumetricReservoirHistoryRead,
-			this._frameTargets.volumetricReservoirHistoryWrite,
-			this._frameTargets.motionHistoryRead,
-			this._frameTargets.motionHistoryWrite,
-		]);
+		if (!this._frameTargets && !this._msaaTargets) return;
+		const textures = new Set<IRenderTexture>();
+		if (this._frameTargets) {
+			textures.add(this._frameTargets.sceneColorMain);
+			textures.add(this._frameTargets.postPing);
+			textures.add(this._frameTargets.postPong);
+			textures.add(this._frameTargets.gAlbedoAlpha);
+			textures.add(this._frameTargets.gNormalRoughMetal);
+			textures.add(this._frameTargets.gEmissiveOcclusion);
+			textures.add(this._frameTargets.gMotionDepth);
+			textures.add(this._frameTargets.depth);
+			textures.add(this._frameTargets.aoRaw);
+			textures.add(this._frameTargets.aoBlur);
+			textures.add(this._frameTargets.ssrRaw);
+			textures.add(this._frameTargets.hiZ);
+			textures.add(this._frameTargets.historyRead);
+			textures.add(this._frameTargets.historyWrite);
+			textures.add(this._frameTargets.ssrHistoryRead);
+			textures.add(this._frameTargets.ssrHistoryWrite);
+			textures.add(this._frameTargets.volumetricHistoryRead);
+			textures.add(this._frameTargets.volumetricHistoryWrite);
+			textures.add(this._frameTargets.volumetricReservoirHistoryRead);
+			textures.add(this._frameTargets.volumetricReservoirHistoryWrite);
+			textures.add(this._frameTargets.motionHistoryRead);
+			textures.add(this._frameTargets.motionHistoryWrite);
+		}
+		if (this._msaaTargets) {
+			textures.add(this._msaaTargets.sceneColorMain);
+			textures.add(this._msaaTargets.gAlbedoAlpha);
+			textures.add(this._msaaTargets.gNormalRoughMetal);
+			textures.add(this._msaaTargets.gEmissiveOcclusion);
+			textures.add(this._msaaTargets.gMotionDepth);
+			textures.add(this._msaaTargets.depth);
+		}
 		for (const texture of textures) {
 			texture.destroy();
 		}
 		this._frameTargets = null;
+		this._msaaTargets = null;
 		this._taaHistoryA = null;
 		this._taaHistoryB = null;
 		this._ssrHistoryA = null;
@@ -758,6 +849,7 @@ export class WebGPUFrameExecutor {
 		this._targetHeight = 0;
 		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
+		this._targetMSAASampleCount = 1;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
 		this._volumetricHistoryValid = false;
@@ -935,6 +1027,18 @@ export class WebGPUFrameExecutor {
 			await this._recordLegacyMainPass(packets, clearAttachments);
 			return;
 		}
+		const msaaTargets = this._msaaTargets;
+		const sceneColorAttachment =
+			msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain;
+		const gAlbedoAttachment =
+			msaaTargets?.gAlbedoAlpha ?? this._frameTargets.gAlbedoAlpha;
+		const gNormalAttachment =
+			msaaTargets?.gNormalRoughMetal ?? this._frameTargets.gNormalRoughMetal;
+		const gEmissiveAttachment =
+			msaaTargets?.gEmissiveOcclusion ?? this._frameTargets.gEmissiveOcclusion;
+		const gMotionAttachment =
+			msaaTargets?.gMotionDepth ?? this._frameTargets.gMotionDepth;
+		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
 
 		let skyboxDrawn = false;
 		if (clearAttachments) {
@@ -944,14 +1048,16 @@ export class WebGPUFrameExecutor {
 					label: "WebGPUSkyboxMRT",
 					colorAttachments: [
 						{
-							view: this._frameTargets.sceneColorMain,
+							view: sceneColorAttachment,
+							resolveTarget:
+								msaaTargets ? this._frameTargets.sceneColorMain : undefined,
 							clearValue: { r: 0, g: 0, b: 0, a: 1 },
 							loadOp: "clear",
 							storeOp: "store",
 						},
 					],
 					depthStencilAttachment: {
-						view: this._frameTargets.depth,
+						view: depthAttachment,
 						depthClearValue: 1,
 						depthLoadOp: "clear",
 						depthStoreOp: "store",
@@ -969,38 +1075,48 @@ export class WebGPUFrameExecutor {
 			label: clearAttachments ? "WebGPUMainMRT_Clear" : "WebGPUMainMRT_Load",
 			colorAttachments: [
 				{
-					view: this._frameTargets.sceneColorMain,
+					view: sceneColorAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
 					loadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
-					view: this._frameTargets.gAlbedoAlpha,
+					view: gAlbedoAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gAlbedoAlpha : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
 					loadOp: clearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
-					view: this._frameTargets.gNormalRoughMetal,
+					view: gNormalAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gNormalRoughMetal : undefined,
 					clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
 					loadOp: clearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
-					view: this._frameTargets.gEmissiveOcclusion,
+					view: gEmissiveAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gEmissiveOcclusion : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
 					loadOp: clearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
-					view: this._frameTargets.gMotionDepth,
+					view: gMotionAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gMotionDepth : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 0 },
 					loadOp: clearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
-				view: this._frameTargets.depth,
+				view: depthAttachment,
 				depthClearValue: 1,
 				depthLoadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
 				depthStoreOp: "store",
@@ -1079,12 +1195,16 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder) return;
 
 		if (this._mrtEnabled && this._frameTargets) {
+			const msaaTargets = this._msaaTargets;
 			await this._resources.renderParticles(
 				this._encoder,
 				context,
 				{
-					color: this._frameTargets.sceneColorMain,
-					depth: this._frameTargets.depth,
+					color:
+						msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain,
+					colorResolve:
+						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
+					depth: msaaTargets?.depth ?? this._frameTargets.depth,
 				},
 				"mrt"
 			);

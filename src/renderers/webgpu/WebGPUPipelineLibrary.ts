@@ -15,6 +15,7 @@ interface CachedPipelineEntry {
 	key: string;
 	mode: WebGPUSceneTargetMode;
 	shaderKey: string;
+	sampleCount: number;
 	pipeline: IRenderPipeline;
 }
 
@@ -31,7 +32,7 @@ export class WebGPUPipelineLibrary {
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _skyboxShaderModule: IShaderModule | null = null;
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
-	private _skyboxPipelines = new Map<WebGPUSceneTargetMode, IRenderPipeline>();
+	private _skyboxPipelines = new Map<string, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 
@@ -52,6 +53,7 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false
 	): Promise<IRenderPipeline> {
+		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
@@ -62,12 +64,13 @@ export class WebGPUPipelineLibrary {
 			cached &&
 			cached.key === pipelineKey &&
 			cached.mode === mode &&
-			cached.shaderKey === shaderKey
+			cached.shaderKey === shaderKey &&
+			cached.sampleCount === sampleCount
 		) {
 			return cached.pipeline;
 		}
 
-		const cacheKey = `${pipelineKey}|${mode}|${shaderKey}`;
+		const cacheKey = `${pipelineKey}|${mode}|${shaderKey}|msaa:${sampleCount}`;
 		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(material, mode, isWireframe);
@@ -78,6 +81,7 @@ export class WebGPUPipelineLibrary {
 			key: pipelineKey,
 			mode,
 			shaderKey,
+			sampleCount,
 			pipeline,
 		});
 
@@ -89,6 +93,7 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode,
 		isWireframe: boolean
 	): Promise<IRenderPipeline> {
+		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
@@ -143,6 +148,7 @@ export class WebGPUPipelineLibrary {
 				depthWriteEnabled: true,
 				depthCompare: "less",
 			},
+			sampleCount,
 		} as any);
 	}
 
@@ -207,7 +213,9 @@ export class WebGPUPipelineLibrary {
 	public async getSkyboxPipeline(
 		mode: WebGPUSceneTargetMode = "single"
 	): Promise<IRenderPipeline> {
-		const cached = this._skyboxPipelines.get(mode);
+		const sampleCount = this._resolveSampleCount(mode);
+		const cacheKey = `${mode}|msaa:${sampleCount}`;
+		const cached = this._skyboxPipelines.get(cacheKey);
 		if (cached) {
 			return cached;
 		}
@@ -241,9 +249,26 @@ export class WebGPUPipelineLibrary {
 				depthWriteEnabled: false,
 				depthCompare: "always",
 			},
+			sampleCount,
 		} as any);
-		this._skyboxPipelines.set(mode, pipeline);
+		this._skyboxPipelines.set(cacheKey, pipeline);
 		return pipeline;
+	}
+
+	private _resolveSampleCount(mode: WebGPUSceneTargetMode): number {
+		if (mode !== "mrt") {
+			return 1;
+		}
+		const getter = (this._backend as { getMSAASampleCount?: () => number })
+			.getMSAASampleCount;
+		if (typeof getter !== "function") {
+			return 1;
+		}
+		const sampleCount = getter.call(this._backend);
+		if (!Number.isFinite(sampleCount)) {
+			return 1;
+		}
+		return Math.max(1, Math.floor(sampleCount));
 	}
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {

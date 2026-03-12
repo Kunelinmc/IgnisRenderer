@@ -130,6 +130,7 @@ export interface PipelineDesc {
 			| "greater"
 			| "greater-equal";
 	};
+	sampleCount?: number;
 	label?: string;
 }
 
