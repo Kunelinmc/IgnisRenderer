@@ -30,6 +30,7 @@ import {
 	type WebGPUPostProcessPassPlugin,
 } from "./WebGPUPostProcessGraph";
 import { WebGPUPostProcessRuntime } from "./WebGPUPostProcessRuntime";
+import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 
 const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"ssao",
@@ -140,6 +141,8 @@ export class WebGPUFrameExecutor {
 	private _presentParamsBuffer: IRenderBuffer | null = null;
 	private _presentBinding: IBindingGroup | null = null;
 	private _presentBindingSource: IRenderTexture | null = null;
+	private _texturePools = new Map<string, TexturePool>();
+	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
@@ -208,6 +211,7 @@ export class WebGPUFrameExecutor {
 	 */
 	public destroy(): void {
 		this._destroyFrameTargets();
+		this._destroyTexturePools();
 		this._postRuntime.invalidateBindings();
 		this._presentShaderModule = null;
 		this._presentPipeline = null;
@@ -469,222 +473,254 @@ export class WebGPUFrameExecutor {
 		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
 
-		const sceneColorMain = this._backend.createTexture({
+		const sceneColorMain = this._acquirePooledTexture(
+			"scene-color-main",
+			{
+				usage:
+					TextureUsage.RenderAttachment |
+					TextureUsage.TextureBinding |
+					TextureUsage.CopySrc |
+					TextureUsage.CopyDst,
+				label: "WebGPUSceneColorMain",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage:
-				TextureUsage.RenderAttachment |
-				TextureUsage.TextureBinding |
-				TextureUsage.CopySrc |
-				TextureUsage.CopyDst,
-			label: "WebGPUSceneColorMain",
-		});
-		const postPing = this._backend.createTexture({
-			width,
-			height,
-			format: TextureFormat.RGBA16Float,
+			TextureFormat.RGBA16Float
+		);
+		const rgba16StoragePool: TexturePoolOptions = {
 			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUPostPing",
-		});
-		const postPong = this._backend.createTexture({
+			label: "WebGPUStorageRGBA16",
+		};
+		const postPing = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUPostPong",
-		});
-		const gAlbedoAlpha = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const postPong = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA8Unorm,
-			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: "WebGPUGBuffer_AlbedoAlpha",
-		});
-		const gNormalRoughMetal = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const gAlbedoAlpha = this._acquirePooledTexture(
+			"gbuffer-albedo",
+			{
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				label: "WebGPUGBuffer_AlbedoAlpha",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: "WebGPUGBuffer_NormalRoughMetal",
-		});
-		const gEmissiveOcclusion = this._backend.createTexture({
+			TextureFormat.RGBA8Unorm
+		);
+		const gNormalRoughMetal = this._acquirePooledTexture(
+			"gbuffer-rgba16",
+			{
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				label: "WebGPUGBuffer_RGBA16",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: "WebGPUGBuffer_EmissiveOcclusion",
-		});
-		const gMotionDepth = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const gEmissiveOcclusion = this._acquirePooledTexture(
+			"gbuffer-rgba16",
+			{
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				label: "WebGPUGBuffer_RGBA16",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage:
-				TextureUsage.RenderAttachment |
-				TextureUsage.TextureBinding |
-				TextureUsage.CopySrc,
-			label: "WebGPUGBuffer_MotionDepth",
-		});
-		const depth = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const gMotionDepth = this._acquirePooledTexture(
+			"gbuffer-motion-depth",
+			{
+				usage:
+					TextureUsage.RenderAttachment |
+					TextureUsage.TextureBinding |
+					TextureUsage.CopySrc,
+				label: "WebGPUGBuffer_MotionDepth",
+			},
 			width,
 			height,
-			format: TextureFormat.Depth32Float,
-			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-			label: "WebGPUDepthSampleable",
-		});
-		const historyA = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const depth = this._acquirePooledTexture(
+			"depth-sampleable",
+			{
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				label: "WebGPUDepthSampleable",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUTAAHistoryA",
-		});
-		const historyB = this._backend.createTexture({
+			TextureFormat.Depth32Float
+		);
+		const historyA = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUTAAHistoryB",
-		});
+			TextureFormat.RGBA16Float
+		);
+		const historyB = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			width,
+			height,
+			TextureFormat.RGBA16Float
+		);
 		const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample));
 		const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample));
-		const ssrRaw = this._backend.createTexture({
-			width: ssrWidth,
-			height: ssrHeight,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUSSRRaw",
-		});
-		const ssrHistoryA = this._backend.createTexture({
-			width: ssrWidth,
-			height: ssrHeight,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUSSRHistoryA",
-		});
-		const ssrHistoryB = this._backend.createTexture({
-			width: ssrWidth,
-			height: ssrHeight,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUSSRHistoryB",
-		});
-		const volumetricHistoryA = this._backend.createTexture({
+		const ssrRaw = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			ssrWidth,
+			ssrHeight,
+			TextureFormat.RGBA16Float
+		);
+		const ssrHistoryA = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			ssrWidth,
+			ssrHeight,
+			TextureFormat.RGBA16Float
+		);
+		const ssrHistoryB = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			ssrWidth,
+			ssrHeight,
+			TextureFormat.RGBA16Float
+		);
+		const volumetricHistoryA = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUVolumetricHistoryA",
-		});
-		const volumetricHistoryB = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const volumetricHistoryB = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUVolumetricHistoryB",
-		});
-		const volumetricReservoirHistoryA = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const volumetricReservoirHistoryA = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUVolumetricReservoirHistoryA",
-		});
-		const volumetricReservoirHistoryB = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const volumetricReservoirHistoryB = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUVolumetricReservoirHistoryB",
-		});
-		const motionHistoryA = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const motionHistoryA = this._acquirePooledTexture(
+			"motion-history",
+			{
+				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+				label: "WebGPUMotionHistory",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-			label: "WebGPUMotionHistoryA",
-		});
-		const motionHistoryB = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const motionHistoryB = this._acquirePooledTexture(
+			"motion-history",
+			{
+				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+				label: "WebGPUMotionHistory",
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-			label: "WebGPUMotionHistoryB",
-		});
-		const aoRaw = this._backend.createTexture({
-			width: Math.max(1, Math.floor(width / ssaoDownsample)),
-			height: Math.max(1, Math.floor(height / ssaoDownsample)),
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUSSAORaw",
-		});
-		const aoBlur = this._backend.createTexture({
-			width: Math.max(1, Math.floor(width / ssaoDownsample)),
-			height: Math.max(1, Math.floor(height / ssaoDownsample)),
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUSSAOBlur",
-		});
-		const hiZ = this._backend.createTexture({
+			TextureFormat.RGBA16Float
+		);
+		const aoRaw = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			Math.max(1, Math.floor(width / ssaoDownsample)),
+			Math.max(1, Math.floor(height / ssaoDownsample)),
+			TextureFormat.RGBA16Float
+		);
+		const aoBlur = this._acquirePooledTexture(
+			"rgba16-storage",
+			rgba16StoragePool,
+			Math.max(1, Math.floor(width / ssaoDownsample)),
+			Math.max(1, Math.floor(height / ssaoDownsample)),
+			TextureFormat.RGBA16Float
+		);
+		const hiZ = this._acquirePooledTexture(
+			"hiz",
+			{
+				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+				label: "WebGPUHiZDepth",
+				mipLevelCount: (poolWidth, poolHeight) =>
+					Math.floor(Math.log2(Math.max(poolWidth, poolHeight))) + 1,
+			},
 			width,
 			height,
-			format: TextureFormat.RGBA16Float,
-			mipLevelCount: Math.floor(Math.log2(Math.max(width, height))) + 1,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-			label: "WebGPUHiZDepth",
-		});
+			TextureFormat.RGBA16Float
+		);
 		const useMSAA = msaaSampleCount > 1;
+		const msaaPoolKey = `msaa-${msaaSampleCount}`;
+		const msaaPoolOptions: TexturePoolOptions = {
+			usage: TextureUsage.RenderAttachment,
+			sampleCount: msaaSampleCount,
+			label: `WebGPUMSAA_${msaaSampleCount}x`,
+		};
 		this._msaaTargets =
 			useMSAA ?
 				{
-					sceneColorMain: this._backend.createTexture({
+					sceneColorMain: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.RGBA16Float,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUSceneColorMainMSAA",
-					}),
-					gAlbedoAlpha: this._backend.createTexture({
+						TextureFormat.RGBA16Float
+					),
+					gAlbedoAlpha: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.RGBA8Unorm,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUGBuffer_AlbedoAlphaMSAA",
-					}),
-					gNormalRoughMetal: this._backend.createTexture({
+						TextureFormat.RGBA8Unorm
+					),
+					gNormalRoughMetal: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.RGBA16Float,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUGBuffer_NormalRoughMetalMSAA",
-					}),
-					gEmissiveOcclusion: this._backend.createTexture({
+						TextureFormat.RGBA16Float
+					),
+					gEmissiveOcclusion: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.RGBA16Float,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUGBuffer_EmissiveOcclusionMSAA",
-					}),
-					gMotionDepth: this._backend.createTexture({
+						TextureFormat.RGBA16Float
+					),
+					gMotionDepth: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.RGBA16Float,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUGBuffer_MotionDepthMSAA",
-					}),
-					depth: this._backend.createTexture({
+						TextureFormat.RGBA16Float
+					),
+					depth: this._acquirePooledTexture(
+						msaaPoolKey,
+						msaaPoolOptions,
 						width,
 						height,
-						sampleCount: msaaSampleCount,
-						format: TextureFormat.Depth32Float,
-						usage: TextureUsage.RenderAttachment,
-						label: "WebGPUDepthMSAA",
-					}),
+						TextureFormat.Depth32Float
+					),
 				}
 			:	null;
 
@@ -829,7 +865,7 @@ export class WebGPUFrameExecutor {
 			textures.add(this._msaaTargets.depth);
 		}
 		for (const texture of textures) {
-			texture.destroy();
+			this._releasePooledTexture(texture);
 		}
 		this._frameTargets = null;
 		this._msaaTargets = null;
@@ -858,6 +894,41 @@ export class WebGPUFrameExecutor {
 		this._ssrHistoryFlip = false;
 		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
+	}
+
+	private _acquirePooledTexture(
+		poolId: string,
+		options: TexturePoolOptions,
+		width: number,
+		height: number,
+		format: TextureFormat
+	): IRenderTexture {
+		let pool = this._texturePools.get(poolId);
+		if (!pool) {
+			pool = new TexturePool(this._backend, options);
+			this._texturePools.set(poolId, pool);
+		}
+		const texture = pool.acquire(width, height, format);
+		this._texturePoolOwners.set(texture, pool);
+		return texture;
+	}
+
+	private _releasePooledTexture(texture: IRenderTexture): void {
+		const owner = this._texturePoolOwners.get(texture);
+		if (!owner) {
+			texture.destroy();
+			return;
+		}
+		this._texturePoolOwners.delete(texture);
+		owner.release(texture);
+	}
+
+	private _destroyTexturePools(): void {
+		this._texturePoolOwners.clear();
+		for (const pool of this._texturePools.values()) {
+			pool.destroy();
+		}
+		this._texturePools.clear();
 	}
 
 	private _handleFeatureHistoryTransitions(context: FrameContext): void {
