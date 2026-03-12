@@ -516,7 +516,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public createPipeline(desc: PipelineDesc): IRenderPipeline {
 		const cacheKey = this._getRenderPipelineCacheKey(desc);
-		const cached = this._renderPipelineCache.get(cacheKey);
+		const cached = this._getLruCacheEntry(this._renderPipelineCache, cacheKey);
 		if (cached) {
 			return cached;
 		}
@@ -585,7 +585,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
 		const cacheKey = this._getComputePipelineCacheKey(desc);
-		const cached = this._computePipelineCache.get(cacheKey);
+		const cached = this._getLruCacheEntry(this._computePipelineCache, cacheKey);
 		if (cached) {
 			return cached;
 		}
@@ -973,7 +973,10 @@ export class WebGPUBackend implements IRenderBackend {
 			return undefined;
 		}
 		const cacheKey = `${this._getCacheToken(pipeline)}:${layoutIndex}`;
-		const cached = this._pipelineBindGroupLayoutCache.get(cacheKey);
+		const cached = this._getLruCacheEntry(
+			this._pipelineBindGroupLayoutCache,
+			cacheKey
+		);
 		if (cached) {
 			return cached;
 		}
@@ -1064,6 +1067,16 @@ export class WebGPUBackend implements IRenderBackend {
 		id = this._nextResourceId++;
 		this._resourceIds.set(value, id);
 		return id;
+	}
+
+	private _getLruCacheEntry<T>(cache: Map<string, T>, key: string): T | undefined {
+		const cached = cache.get(key);
+		if (cached === undefined && !cache.has(key)) {
+			return undefined;
+		}
+		cache.delete(key);
+		cache.set(key, cached as T);
+		return cached as T;
 	}
 
 	private _trimCache<T>(cache: Map<string, T>, maxSize: number): void {
