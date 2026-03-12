@@ -1343,11 +1343,11 @@ export class PostProcessor implements PostProcessorLike {
 
 		if (camera.type === CameraType.Orthographic) {
 			const orthoCam = camera as OrthographicCamera;
-			const halfHeight = orthoCam.size / 2;
-			const halfWidth = halfHeight * camera.aspectRatio;
-
-			const xView = ndcX * halfWidth;
-			const yView = ndcY * halfHeight;
+			const bounds = orthoCam.getBounds();
+			const xView =
+				((ndcX + 1) * 0.5) * (bounds.right - bounds.left) + bounds.left;
+			const yView =
+				((ndcY + 1) * 0.5) * (bounds.top - bounds.bottom) + bounds.bottom;
 
 			return { x: xView, y: yView, z: -zView };
 		}

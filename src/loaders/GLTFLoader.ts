@@ -901,8 +901,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 
 	public parseCamera(cameraDef: any): Camera {
 		if (cameraDef.type === "orthographic") {
-			const size = (cameraDef.orthographic?.ymag ?? 1) * 2;
-			const camera = new OrthographicCamera(size);
+			const xmag = cameraDef.orthographic?.xmag ?? 1;
+			const ymag = cameraDef.orthographic?.ymag ?? 1;
+			const camera = new OrthographicCamera(ymag * 2);
+			camera.setBounds(-xmag, xmag, -ymag, ymag);
 			camera.type = CameraType.Orthographic;
 			camera.near = cameraDef.orthographic?.znear ?? camera.near;
 			camera.far = cameraDef.orthographic?.zfar ?? camera.far;
