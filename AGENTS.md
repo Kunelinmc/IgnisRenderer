@@ -1,155 +1,88 @@
 # AGENTS.md
 
-This file provides critical context and collaboration guidance for AI/code
-agents working in the IgnisRenderer repository.
+This file provides critical context and collaboration guidance for AI/code agents working in the IgnisRenderer repository.
 
 ## Scope
 
-- **IgnisRenderer** is a high-performance 3D rendering engine built in
-  TypeScript.
+- **IgnisRenderer** is a high-performance 3D rendering engine built in TypeScript.
 - **Rendering Backends**:
-  - **SoftwareBackend**: CPU rasterizer pipeline.
-  - **WebGPUBackend**: hardware-accelerated WebGPU pipeline.
-  - **WebGLBackend**: experimental/stub legacy backend.
-- **Current Core Architecture**: Scene Graph (`Node`) +
-  `MeshAsset`/`MeshInstance`.
+	- **SoftwareBackend**: Multi-threaded CPU rasterizer pipeline with custom PBR shading.
+	- **WebGPUBackend**: Hardware-accelerated pipeline with advanced post-processing features.
+	- **WebGLBackend**: Legacy/stub backend for fallback scenarios.
+- **Core Architecture**: Modular Scene Graph (`Node`) integrated with Animation, Physics, and Particle simulation stages.
 
 ## Build & Test Commands
 
 - **Dev server**: `npm run dev`
+- **Build**: `npm run build`
 - **Run all tests**: `npm test`
 - **Run single test**: `npx tsx tests/<file>.mjs`
-- **Available suites**:
-  - `npm run test:lighting`
-  - `npm run test:pointspot`
-  - `npm run test:sh`
-  - `npm run test:winding`
-  - `npm run test:sparse`
+
+### Specialized Test Suites
+- **Lighting**: `npm run test:lighting`, `npm run test:pointspot`, `npm run test:sh`
+- **Geometry**: `npm run test:winding`, `npm run test:sparse`
+- **Animation**: `npx tsx tests/test_animation_core.mjs`, `npx tsx tests/test_animation_state_blendtree.mjs`
+- **Physics**: `npx tsx tests/test_physics_system_bindings.mjs`, `npx tsx tests/test_physics_adapter_contract.mjs`
+- **WebGPU**: `npx tsx tests/test_webgpu_bridge.mjs`, `npx tsx tests/test_webgpu_post_graph.mjs`
 
 ## Code Style Guidelines
 
 ### Imports & Modules
-
-- **Source files (`src/`)**: use extensionless relative imports.
-  - Correct: `import { Vector3 } from '../maths/Vector3'`
-  - Incorrect: `import { Vector3 } from '../maths/Vector3.ts'`
-- **Test files (`tests/`)**: use `.mjs` or `.ts` extensions.
-  - Correct: `import { Light } from '../src/lights/Light.ts'`
-- Use `import type { ... }` for type-only dependencies.
-- Import grouping: external first, then internal (with a blank line).
+- **Source files (`src/`)**: Use extensionless relative imports. (e.g., `import { Node } from '../core/Node'`)
+- **Test files (`tests/`)**: Use `.mjs` or `.ts` extensions.
+- Use `import type { ... }` for type-only dependencies to optimize build bundles.
+- Import grouping: External dependencies first, then internal modules (separated by a blank line).
 
 ### Formatting
-
-- Indentation: tabs (size 4)
-- Semicolons: omit unless syntactically necessary
-- Strings: single quotes unless interpolation is required
-- Line length: target 80-100 characters
+- **Indentation**: Tabs (size 4)
+- **Semicolons**: Omit unless syntactically necessary.
+- **Strings**: Single quotes unless template interpolation is required.
+- **Line length**: Target 80-100 characters.
 
 ### Naming
-
-- Classes/Interfaces/Types: `PascalCase`
-- Methods/Variables: `camelCase`
-- Constants: `UPPER_SNAKE_CASE`
-- Private members: prefix `_`
-- Files: `PascalCase.ts` for classes, `camelCase.ts` for utility modules
+- **PascalCase**: Classes, Interfaces, Types.
+- **camelCase**: Methods, Variables, Functions.
+- **UPPER_SNAKE_CASE**: Constants.
+- **_prefix**: Private/internal members.
+- **PascalCase.ts**: Files containing classes.
+- **camelCase.ts**: Files for utility/logic modules.
 
 ## Architecture & Conventions
 
-### Scene Graph Model (Breaking)
+### Scene Graph & Simulation
+- **Node**: The fundamental unit of translation, rotation, and scale.
+- **Simulation Logic**: Integrated into the rendering pipeline via dedicated stages:
+	- `AnimationSimulationStage`: Handles mixers, blend trees, and skeletal updates.
+	- `PhysicsSimulationStage`: Syncs `PhysicsBodyNode`s with external physics engines (Rapier3D, Ammo.js).
+	- `ParticleSimulationStage`: Updates particle state before rendering.
+- **Transform Updates**: World matrices are calculated lazily or updated per frame via `scene.updateWorldMatrices()` during traversal.
 
-- `Node` is the base transform unit:
-  - `id/name/parent/children/visible`
-  - `position/quaternion/scale`
-  - `localMatrix/worldMatrix`
-- `MeshAsset`: shared geometry/material resource container (primitives +
-  local bounds).
-- `MeshInstance extends Node`: scene node referencing one `MeshAsset`.
-- `Light`, `Camera`, and `ParticleSystem` all extend `Node`.
-- `DirectionalLight` and `SpotLight` keep `direction` as a **local-space**
-  vector.
+### Advanced Rendering Features
+- **WebGPU Post-Processing Graph**: Supports SSAO, SSR, TAA, FXAA, and Volumetric Lighting.
+- **Pipeline Stages**:
+	1. **Feature Resolution**: Detects requirements (Shadows, IBL, Post-processing).
+	2. **Simulation**: Animation, Particles, Physics.
+	3. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance` and `MeshAsset`.
+	4. **Backend Dispatch**: Software rasterization or GPU command encoding.
 
-### Scene API
+### Mathematics
+- `src/maths/` is the single source of truth for math behavior.
+- **Matrix Rule**: `A.multiply(B)` performs `A = A * B` (in-place).
+- **Coordinate Space**: Right-handed (Y-up, Z-towards viewer).
 
-- Use generic graph operations:
-  - `scene.add(node)`
-  - `scene.remove(node)`
-  - `scene.traverse(visitor)`
-  - `scene.contains(node)`
-- Use typed queries when needed:
-  - `scene.getMeshInstances()`
-  - `scene.getLights()`
-  - `scene.getCameras()`
-  - `scene.getParticleSystems()`
-- Do not reintroduce split entry points like `addModel/addLight/...`.
-
-### Renderer Rules
-
-- Renderer keeps active `camera`, but camera must belong to the active scene
-  graph.
-- `setScene` and `setCamera` validate camera membership and throw on invalid
-  usage.
-- World transforms are updated per frame from scene graph traversal
-  (`scene.updateWorldMatrices()`).
-
-### Loader Rules
-
-- `GLTFLoader`/`GLBLoader` return a `Node` root (not `Model`).
-- Preserve glTF hierarchy; do not bake node transforms into vertex data.
-- Parse glTF cameras and `KHR_lights_punctual` into scene nodes.
-- For multi-attachment glTF nodes (mesh/light/camera), use container nodes.
-- `OBJLoader` also returns a `Node` root with `MeshInstance` children.
-
-### Rendering Pipeline
-
-1. `Renderer` orchestrates frame lifecycle and feature toggles.
-2. `IRenderBackend` abstracts backend APIs.
-3. `FramePlanner` builds pass sequences.
-4. `PreparedSceneBuilder` traverses `MeshInstance` data for draw packets.
-5. Shader implementations:
-   - Software: `src/shaders/software/`
-   - WebGPU: `src/shaders/webgpu/`
-
-### Coordinate Spaces
-
-- World space: right-handed (X right, Y up, Z toward viewer)
-- View space: camera-relative, forward is -Z
-- Clip space: homogeneous `(x, y, z, w)`
-- NDC:
-  - Software: Z in `[-1, 1]`
-  - WebGPU: Z in `[0, 1]`
-- Screen space: origin at top-left
-
-### Performance Patterns
-
-- Software backend: avoid allocations in hot loops.
-- WebGPU backend: minimize state churn, cache pipelines/bind groups.
-- Use typed arrays for large data paths (`Float32Array`, `Uint32Array`).
+### Time Units
+- **ALL simulation logic MUST use seconds**.
+- Variables should be suffixed with `Seconds` (e.g., `deltaTimeSeconds`).
+- Convert from `ms` to `seconds` at the entry points (e.g., in `Renderer` loops).
 
 ## Implementation Guidelines
 
-### Mathematical Truth
-
-- `src/maths/` is source-of-truth for math behavior.
-- Matrix multiply rule: `A.multiply(B)` means `A = A * B`.
-- For normals with non-uniform scale, use `Matrix4.normalMatrix()`.
-
-### Error Handling
-
-- Fail fast with explicit `Error` on invalid setup/input.
-- Keep WebGPU validation checks in async-safe paths.
-
-### Time Units (Particle/Physics)
-
-- **Particle simulation** and **Physics simulation** use **seconds** as the
-  only time unit.
-- New API/field names must use `Seconds` suffix (e.g.
-  `deltaTimeSeconds`, `fixedDeltaSeconds`), not `Ms`.
-- If a caller source is in milliseconds (e.g. `requestAnimationFrame` deltas),
-  convert at the boundary once, then pass seconds into Particle/Physics paths.
+- **Zero-Allocation Loops**: Especially critical in `SoftwareBackend` hot paths (Rasterizer). Use pre-allocated math objects.
+- **Adapter Pattern**: Physics and Animation systems use adapters/plugins to remain engine-agnostic where possible.
+- **Fail Fast**: Throw descriptive errors for invalid scene hierarchies or backend configurations.
+- **WebGPU Safety**: Always check device/pipeline status before submitting commands.
 
 ## Collaboration Workflow
-
-1. Keep backend-agnostic contracts intact unless task explicitly needs changes.
-2. Make minimal, targeted changes for the requested scope.
-3. Document public API changes with brief rationale.
-4. Run `npm test` after renderer/math/pipeline changes.
+1. Maintain backend-agnostic contracts in `src/core/` and `src/pipeline/`.
+2. Ensure new features are accompanied by regression tests in `tests/`.
+3. Update `AGENTS.md` if core architectural patterns change.
