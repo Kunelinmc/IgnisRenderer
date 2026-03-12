@@ -250,15 +250,17 @@ fn updateReservoir(
 	reservoir: Reservoir,
 	candidateIndex: i32,
 	candidateWeight: f32,
+	candidateSampleCount: f32,
 	randValue: f32
 ) -> Reservoir {
 	var updated = reservoir;
 	let safeWeight = max(candidateWeight, 0.0);
-	if (safeWeight <= 0.0 || candidateIndex < 0) {
+	let safeSampleCount = max(candidateSampleCount, 0.0);
+	if (safeWeight <= 0.0 || safeSampleCount <= 0.0 || candidateIndex < 0) {
 		return updated;
 	}
 	updated.weightSum += safeWeight;
-	updated.sampleCount += 1.0;
+	updated.sampleCount += safeSampleCount;
 	let replaceChance = safeWeight / max(updated.weightSum, 1e-6);
 	if (randValue < replaceChance) {
 		updated.lightIndex = candidateIndex;
@@ -273,6 +275,30 @@ fn isDirectional(light: VolumetricLightData) -> bool {
 
 fn isPoint(light: VolumetricLightData) -> bool {
 	return light.positionRange.w >= 0.0 && light.directionOuter.w < -1.0;
+}
+
+fn sampleCandidateLightIndex(
+	candidate: i32,
+	candidateCount: i32,
+	totalLights: i32,
+	pixel: vec2<f32>,
+	frameIndex: f32
+) -> i32 {
+	if (totalLights <= 1) {
+		return 0;
+	}
+	if (candidateCount >= totalLights) {
+		let scramble = i32(
+			min(
+				floor(randomSample(pixel, frameIndex, 2.0) * f32(totalLights)),
+				f32(totalLights - 1)
+			)
+		);
+		return (candidate + scramble) % totalLights;
+	}
+	let jitter = randomSample(pixel, frameIndex, f32(candidate) + 23.0);
+	let u = (f32(candidate) + jitter) / f32(max(candidateCount, 1));
+	return i32(min(floor(u * f32(totalLights)), f32(totalLights - 1)));
 }
 
 fn estimateLightWeight(
@@ -429,26 +455,39 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 	let shadowStepWorld = max(stepSize * 2.0, params.depthThickness * 6.0);
 	let anisotropy = clamp(params.anisotropy, -0.95, 0.95);
+	let pixel = vec2<f32>(gid.xy);
 	let jitter =
-		(randomSample(vec2<f32>(gid.xy), params.frameIndex, 1.0) - 0.5) *
+		(randomSample(pixel, params.frameIndex, 1.0) - 0.5) *
 		params.jitterStrength;
 
 	let totalLights = i32(clamp(params.lightCount, 0.0, 65000.0));
 	let candidateCount = i32(clamp(params.restirCandidates, 1.0, f32(MAX_RESTIR_CANDIDATES)));
+	let effectiveCandidateCount = min(candidateCount, max(totalLights, 1));
 	let referenceT = clamp(maxDistance * 0.45 + stepSize, stepSize, maxDistance);
 	let referencePos = frame.cameraPosition.xyz + rayDir * referenceT;
 	var reservoir = emptyReservoir();
 
 	if (totalLights > 0) {
 		for (var candidate: i32 = 0; candidate < MAX_RESTIR_CANDIDATES; candidate = candidate + 1) {
-			if (candidate >= candidateCount) { break; }
+			if (candidate >= effectiveCandidateCount) { break; }
 			let salt = f32(candidate) + 3.0;
-			let u = randomSample(vec2<f32>(gid.xy), params.frameIndex, salt);
-			let lightIndex = i32(min(floor(u * f32(totalLights)), f32(totalLights - 1)));
+			let lightIndex = sampleCandidateLightIndex(
+				candidate,
+				candidateCount,
+				totalLights,
+				pixel,
+				params.frameIndex
+			);
 			let light = volumetricLightBuffer.lights[u32(lightIndex)];
 			let candidateWeight = estimateLightWeight(light, referencePos, rayDir, anisotropy);
-			let r = randomSample(vec2<f32>(gid.xy), params.frameIndex, salt + 0.5);
-			reservoir = updateReservoir(reservoir, lightIndex, candidateWeight, r);
+			let r = randomSample(pixel, params.frameIndex, salt + 0.5);
+			reservoir = updateReservoir(
+				reservoir,
+				lightIndex,
+				candidateWeight,
+				1.0,
+				r
+			);
 		}
 
 		if (params.historyValid > 0.5 && insidePrev) {
@@ -459,10 +498,37 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 			let prevReservoir = textureLoad(volumetricReservoirHistory, prevCoord, 0);
 			let prevIndex = i32(prevReservoir.x + 0.5);
 			if (prevIndex >= 0 && prevIndex < totalLights) {
-				let prevWeight = max(prevReservoir.z, 0.0) * max(params.restirTemporalWeight, 0.0);
-				if (prevWeight > 0.0) {
-					let r = randomSample(vec2<f32>(gid.xy), params.frameIndex, 103.0);
-					reservoir = updateReservoir(reservoir, prevIndex, prevWeight, r);
+				let prevWeightSum = max(prevReservoir.y, 0.0);
+				let prevSelectedWeight = max(prevReservoir.z, 0.0);
+				let prevSampleCount = max(prevReservoir.w, 0.0);
+				if (
+					prevWeightSum > 0.0 &&
+					prevSelectedWeight > 0.0 &&
+					prevSampleCount > 0.0
+				) {
+					let prevLight = volumetricLightBuffer.lights[u32(prevIndex)];
+					let prevCurrentWeight = estimateLightWeight(
+						prevLight,
+						referencePos,
+						rayDir,
+						anisotropy
+					);
+					let temporalWeight = clamp(params.restirTemporalWeight, 0.0, 1.0);
+					let temporalCandidateWeight =
+						prevCurrentWeight *
+						(prevWeightSum / max(prevSelectedWeight, 1e-6)) *
+						temporalWeight;
+					let temporalSampleCount = prevSampleCount * temporalWeight;
+					if (temporalCandidateWeight > 0.0 && temporalSampleCount > 0.0) {
+						let r = randomSample(pixel, params.frameIndex, 103.0);
+						reservoir = updateReservoir(
+							reservoir,
+							prevIndex,
+							temporalCandidateWeight,
+							temporalSampleCount,
+							r
+						);
+					}
 				}
 			}
 		}
@@ -486,6 +552,9 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	var transmittance = 1.0;
 	var accum = vec3<f32>(0.0);
 	var selectedVisibility = 1.0;
+	var selectedVisibilityValid = false;
+	let stepTransmittance = exp(-sigmaT * stepSize);
+	let stepMidTransmittance = exp(-sigmaT * stepSize * 0.5);
 
 	for (var step: i32 = 0; step < MAX_VIEW_STEPS; step = step + 1) {
 		if (step >= steps) { break; }
@@ -499,29 +568,38 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 		if (hasSelectedLight) {
 			let selectedLight = volumetricLightBuffer.lights[selectedLightIndex];
+			let canCacheVisibility = isDirectional(selectedLight);
+			let shouldTraceShadow =
+				doShadowSample ||
+				!canCacheVisibility ||
+				!selectedVisibilityValid;
+			let cachedVisibility = select(
+				1.0,
+				selectedVisibility,
+				canCacheVisibility && selectedVisibilityValid
+			);
 			let sampled = evaluateLightAtSample(
 				selectedLight,
 				samplePos,
 				rayDir,
 				anisotropy,
-				doShadowSample,
-				selectedVisibility,
+				shouldTraceShadow,
+				cachedVisibility,
 				maxDistance,
 				shadowStepWorld
 			);
 			selectedVisibility = sampled.w;
+			selectedVisibilityValid = true;
 			inScatter = sampled.rgb * restirScale;
 		}
 
-		let extinction = exp(-sigmaT * sampleT);
 		accum +=
 			inScatter *
 			sigmaS *
 			weight *
-			extinction *
-			transmittance *
+			(transmittance * stepMidTransmittance) *
 			stepSize;
-		transmittance *= exp(-sigmaT * stepSize);
+		transmittance *= stepTransmittance;
 
 		if (transmittance < 0.001) { break; }
 	}
