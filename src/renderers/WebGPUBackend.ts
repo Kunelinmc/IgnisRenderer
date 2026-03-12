@@ -1069,7 +1069,10 @@ export class WebGPUBackend implements IRenderBackend {
 		return id;
 	}
 
-	private _getLruCacheEntry<T>(cache: Map<string, T>, key: string): T | undefined {
+	private _getLruCacheEntry<T>(
+		cache: Map<string, T>,
+		key: string
+	): T | undefined {
 		const cached = cache.get(key);
 		if (cached === undefined && !cache.has(key)) {
 			return undefined;
@@ -1200,10 +1203,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _selectMSAASampleCount(): number {
-		const preferred = Math.max(
-			1,
-			Math.floor(WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT)
-		);
+		const preferred = Math.max(1, Math.floor(WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT));
 		if (preferred <= 1) {
 			return 1;
 		}
