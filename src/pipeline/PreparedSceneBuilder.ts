@@ -4,6 +4,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Renderer } from "../renderers/Renderer";
 import type { IPrimitive } from "../core/types";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import { MeshInstance } from "../meshes";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
@@ -125,14 +126,17 @@ export class PreparedSceneBuilder {
 		const isTransparent = alphaMode === AlphaMode.Blend;
 		const isReflective =
 			material.reflectivity > 0 && material.mirrorPlane !== null;
+		const supportsShadowCasting =
+			(primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
+			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
 		let passFlags = 0;
 		if (isTransparent) {
 			passFlags |= DRAW_PACKET_FLAG_TRANSPARENT;
-			if (primitive.castShadows) {
+			if (primitive.castShadows && supportsShadowCasting) {
 				passFlags |= DRAW_PACKET_FLAG_SHADOW_TRANSMITTER;
 			}
-		} else if (primitive.castShadows) {
+		} else if (primitive.castShadows && supportsShadowCasting) {
 			passFlags |= DRAW_PACKET_FLAG_SHADOW_CASTER;
 		}
 

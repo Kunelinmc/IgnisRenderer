@@ -15,10 +15,12 @@ import {
 } from "../lights";
 import { MeshAsset, MeshInstance } from "../meshes";
 import { GeometryBuilder } from "../meshes/GeometryBuilder";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type {
 	IPrimitive,
 	IPrimitiveGeometry,
 	MorphTargetGeometry,
+	PrimitiveDrawTopology,
 } from "../core/types";
 import { IdGenerator } from "../utils/IdGenerator";
 import {
@@ -50,6 +52,13 @@ const TYPE_VEC4 = "VEC4";
 const TYPE_MAT2 = "MAT2";
 const TYPE_MAT3 = "MAT3";
 const TYPE_MAT4 = "MAT4";
+const GLTF_MODE_POINTS = 0;
+const GLTF_MODE_LINES = 1;
+const GLTF_MODE_LINE_LOOP = 2;
+const GLTF_MODE_LINE_STRIP = 3;
+const GLTF_MODE_TRIANGLES = 4;
+const GLTF_MODE_TRIANGLE_STRIP = 5;
+const GLTF_MODE_TRIANGLE_FAN = 6;
 
 interface GLTFParseContext {
 	nodeByIndex: Map<number, Node>;
@@ -855,10 +864,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				? toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_1))
 				: null;
 
-		const indices =
+		const sourceIndices =
 			primitive.indices !== undefined
 				? toUint32Array(this.getAccessorData(json, buffers, primitive.indices))
 				: createSequentialIndices(vertexCount);
+		const mode = primitive.mode;
+		const topology = resolvePrimitiveTopology(mode);
+		const indices = convertPrimitiveIndices(mode, sourceIndices);
 
 		const morphTargets = this.parseMorphTargets(
 			json,
@@ -890,6 +902,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		return {
 			id: IdGenerator.nextId("primitive"),
 			geometry,
+			topology,
 			material,
 			boundingSphere,
 			boundingBox,
@@ -1515,6 +1528,129 @@ function createSequentialIndices(vertexCount: number): Uint32Array {
 	const indices = new Uint32Array(vertexCount);
 	for (let i = 0; i < vertexCount; i++) {
 		indices[i] = i;
+	}
+	return indices;
+}
+
+function resolvePrimitiveTopology(mode: number | undefined): PrimitiveDrawTopology {
+	switch (mode ?? GLTF_MODE_TRIANGLES) {
+		case GLTF_MODE_POINTS:
+			return "point-list";
+		case GLTF_MODE_LINES:
+		case GLTF_MODE_LINE_LOOP:
+		case GLTF_MODE_LINE_STRIP:
+			return "line-list";
+		case GLTF_MODE_TRIANGLES:
+		case GLTF_MODE_TRIANGLE_STRIP:
+		case GLTF_MODE_TRIANGLE_FAN:
+			return DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+		default:
+			throw new Error(`Unsupported glTF primitive mode: ${mode}`);
+	}
+}
+
+function convertPrimitiveIndices(
+	mode: number | undefined,
+	sourceIndices: Uint32Array
+): Uint32Array {
+	const resolvedMode = mode ?? GLTF_MODE_TRIANGLES;
+	switch (resolvedMode) {
+		case GLTF_MODE_POINTS:
+			return sourceIndices;
+		case GLTF_MODE_LINES:
+			return normalizeLineListIndices(sourceIndices);
+		case GLTF_MODE_LINE_LOOP:
+			return convertLineLoopIndices(sourceIndices);
+		case GLTF_MODE_LINE_STRIP:
+			return convertLineStripIndices(sourceIndices);
+		case GLTF_MODE_TRIANGLES:
+			return normalizeTriangleListIndices(sourceIndices);
+		case GLTF_MODE_TRIANGLE_STRIP:
+			return convertTriangleStripIndices(sourceIndices);
+		case GLTF_MODE_TRIANGLE_FAN:
+			return convertTriangleFanIndices(sourceIndices);
+		default:
+			throw new Error(`Unsupported glTF primitive mode: ${mode}`);
+	}
+}
+
+function normalizeLineListIndices(sourceIndices: Uint32Array): Uint32Array {
+	const pairCount = Math.floor(sourceIndices.length / 2);
+	if (pairCount * 2 === sourceIndices.length) {
+		return sourceIndices;
+	}
+	return sourceIndices.slice(0, pairCount * 2);
+}
+
+function convertLineLoopIndices(sourceIndices: Uint32Array): Uint32Array {
+	const pointCount = sourceIndices.length;
+	if (pointCount < 2) return new Uint32Array(0);
+
+	const indices = new Uint32Array(pointCount * 2);
+	let cursor = 0;
+	for (let i = 0; i < pointCount - 1; i++) {
+		indices[cursor++] = sourceIndices[i];
+		indices[cursor++] = sourceIndices[i + 1];
+	}
+	indices[cursor++] = sourceIndices[pointCount - 1];
+	indices[cursor++] = sourceIndices[0];
+	return indices;
+}
+
+function convertLineStripIndices(sourceIndices: Uint32Array): Uint32Array {
+	const pointCount = sourceIndices.length;
+	if (pointCount < 2) return new Uint32Array(0);
+
+	const indices = new Uint32Array((pointCount - 1) * 2);
+	let cursor = 0;
+	for (let i = 0; i < pointCount - 1; i++) {
+		indices[cursor++] = sourceIndices[i];
+		indices[cursor++] = sourceIndices[i + 1];
+	}
+	return indices;
+}
+
+function normalizeTriangleListIndices(sourceIndices: Uint32Array): Uint32Array {
+	const triangleCount = Math.floor(sourceIndices.length / 3);
+	if (triangleCount * 3 === sourceIndices.length) {
+		return sourceIndices;
+	}
+	return sourceIndices.slice(0, triangleCount * 3);
+}
+
+function convertTriangleStripIndices(sourceIndices: Uint32Array): Uint32Array {
+	const pointCount = sourceIndices.length;
+	if (pointCount < 3) return new Uint32Array(0);
+
+	const triangleCount = pointCount - 2;
+	const indices = new Uint32Array(triangleCount * 3);
+	let cursor = 0;
+	for (let i = 0; i < triangleCount; i++) {
+		if ((i & 1) === 0) {
+			indices[cursor++] = sourceIndices[i];
+			indices[cursor++] = sourceIndices[i + 1];
+			indices[cursor++] = sourceIndices[i + 2];
+		} else {
+			indices[cursor++] = sourceIndices[i + 1];
+			indices[cursor++] = sourceIndices[i];
+			indices[cursor++] = sourceIndices[i + 2];
+		}
+	}
+	return indices;
+}
+
+function convertTriangleFanIndices(sourceIndices: Uint32Array): Uint32Array {
+	const pointCount = sourceIndices.length;
+	if (pointCount < 3) return new Uint32Array(0);
+
+	const triangleCount = pointCount - 2;
+	const center = sourceIndices[0];
+	const indices = new Uint32Array(triangleCount * 3);
+	let cursor = 0;
+	for (let i = 1; i < pointCount - 1; i++) {
+		indices[cursor++] = center;
+		indices[cursor++] = sourceIndices[i];
+		indices[cursor++] = sourceIndices[i + 1];
 	}
 	return indices;
 }

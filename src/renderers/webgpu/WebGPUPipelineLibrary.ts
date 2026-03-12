@@ -2,7 +2,9 @@ import { getWebGPUSceneShader } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUSkyboxShader } from "../../shaders/webgpu/skyboxShader";
 import { createWebGPUMaterialUniformData } from "./";
 import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat } from "../types";
+import type { PrimitiveDrawTopology } from "../../core/types";
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
@@ -16,6 +18,7 @@ interface CachedPipelineEntry {
 	mode: WebGPUSceneTargetMode;
 	shaderKey: string;
 	sampleCount: number;
+	topology: PrimitiveDrawTopology;
 	pipeline: IRenderPipeline;
 }
 
@@ -51,7 +54,8 @@ export class WebGPUPipelineLibrary {
 	public async getPipeline(
 		material: Material,
 		mode: WebGPUSceneTargetMode = "single",
-		isWireframe = false
+		isWireframe = false,
+		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
@@ -65,15 +69,23 @@ export class WebGPUPipelineLibrary {
 			cached.key === pipelineKey &&
 			cached.mode === mode &&
 			cached.shaderKey === shaderKey &&
-			cached.sampleCount === sampleCount
+			cached.sampleCount === sampleCount &&
+			cached.topology === topology
 		) {
 			return cached.pipeline;
 		}
 
-		const cacheKey = `${pipelineKey}|${mode}|${shaderKey}|msaa:${sampleCount}`;
+		const cacheKey =
+			`${pipelineKey}|${mode}|${shaderKey}` +
+			`|topology:${topology}|msaa:${sampleCount}`;
 		let pipeline = this._pipelineCache.get(cacheKey);
 		if (!pipeline) {
-			pipeline = await this._createPipeline(material, mode, isWireframe);
+			pipeline = await this._createPipeline(
+				material,
+				mode,
+				isWireframe,
+				topology
+			);
 			this._pipelineCache.set(cacheKey, pipeline);
 		}
 
@@ -82,6 +94,7 @@ export class WebGPUPipelineLibrary {
 			mode,
 			shaderKey,
 			sampleCount,
+			topology,
 			pipeline,
 		});
 
@@ -91,7 +104,8 @@ export class WebGPUPipelineLibrary {
 	private async _createPipeline(
 		material: Material,
 		mode: WebGPUSceneTargetMode,
-		isWireframe: boolean
+		isWireframe: boolean,
+		topology: PrimitiveDrawTopology
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
@@ -109,6 +123,10 @@ export class WebGPUPipelineLibrary {
 					{ format: TextureFormat.RGBA16Float },
 				]
 			:	[{ format: this._backend.canvasFormat as any }];
+
+		const effectiveTopology = isWireframe ? "line-list" : topology;
+		const triangleTopology =
+			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
 		return this._backend.createPipeline({
 			layout: this._layouts.scenePipelineLayout,
@@ -139,8 +157,9 @@ export class WebGPUPipelineLibrary {
 				targets: fragmentTargets as any,
 			},
 			primitive: {
-				topology: (isWireframe ? "line-list" : "triangle-list") as any,
-				cullMode: isWireframe ? "none" : (material.cullMode as any),
+				topology: effectiveTopology as any,
+				cullMode:
+					isWireframe || !triangleTopology ? "none" : (material.cullMode as any),
 				frontFace: "ccw",
 			},
 			depthStencil: {

@@ -1,4 +1,8 @@
-import type { IPrimitive } from "../../core/types";
+import {
+	DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
+	type IPrimitive,
+	type PrimitiveDrawTopology,
+} from "../../core/types";
 import { BufferUsage, type IRenderBuffer } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
@@ -7,6 +11,7 @@ export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;
 	indexBuffer: IRenderBuffer;
 	indexCount: number;
+	topology: PrimitiveDrawTopology;
 	wireframeIndexBuffer: IRenderBuffer;
 	wireframeIndexCount: number;
 	vertexCount: number;
@@ -34,6 +39,7 @@ export class WebGPUGeometryRegistry {
 
 	private _uploadGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
 		const geometry = primitive.geometry;
+		const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
 		const vertexData = new Float32Array(vertexCount * 30);
 
@@ -85,20 +91,10 @@ export class WebGPUGeometryRegistry {
 		}
 
 		const indexCount = geometry.indices.length;
-		const triangleCount = Math.floor(indexCount / 3);
-		const wireframeIndices = new Uint32Array(triangleCount * 6);
-		let wIdx = 0;
-		for (let i = 0; i < indexCount; i += 3) {
-			const i0 = geometry.indices[i];
-			const i1 = geometry.indices[i + 1];
-			const i2 = geometry.indices[i + 2];
-			wireframeIndices[wIdx++] = i0;
-			wireframeIndices[wIdx++] = i1;
-			wireframeIndices[wIdx++] = i1;
-			wireframeIndices[wIdx++] = i2;
-			wireframeIndices[wIdx++] = i2;
-			wireframeIndices[wIdx++] = i0;
-		}
+		const wireframeIndices =
+			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY ?
+				createTriangleWireframeIndices(geometry.indices)
+			:	new Uint32Array(0);
 
 		const vertexBuffer = this._backend.createBuffer({
 			size: vertexData.byteLength,
@@ -111,14 +107,17 @@ export class WebGPUGeometryRegistry {
 			label: `IndexBuffer_${primitive.id}`,
 		});
 		const wireframeIndexBuffer = this._backend.createBuffer({
-			size: wireframeIndices.byteLength,
+			size: Math.max(4, wireframeIndices.byteLength),
 			usage: BufferUsage.Index | BufferUsage.CopyDst,
 			label: `WireframeIndexBuffer_${primitive.id}`,
 		});
 
 		this._backend.writeBuffer(vertexBuffer, new Float32Array(vertexData));
 		this._backend.writeBuffer(indexBuffer, new Uint32Array(geometry.indices));
-		this._backend.writeBuffer(wireframeIndexBuffer, wireframeIndices);
+		this._backend.writeBuffer(
+			wireframeIndexBuffer,
+			wireframeIndices.length > 0 ? wireframeIndices : new Uint32Array([0])
+		);
 
 		const morphTargets = geometry.morphTargets ?? [];
 		const morphTargetCount = Math.min(8, morphTargets.length);
@@ -171,6 +170,7 @@ export class WebGPUGeometryRegistry {
 			vertexBuffer,
 			indexBuffer,
 			indexCount,
+			topology,
 			wireframeIndexBuffer,
 			wireframeIndexCount: wireframeIndices.length,
 			vertexCount,
@@ -179,4 +179,23 @@ export class WebGPUGeometryRegistry {
 			morphNormalBuffer,
 		};
 	}
+}
+
+function createTriangleWireframeIndices(indices: Uint32Array): Uint32Array {
+	const triangleCount = Math.floor(indices.length / 3);
+	const wireframeIndices = new Uint32Array(triangleCount * 6);
+	let cursor = 0;
+	for (let i = 0; i < triangleCount; i++) {
+		const base = i * 3;
+		const i0 = indices[base];
+		const i1 = indices[base + 1];
+		const i2 = indices[base + 2];
+		wireframeIndices[cursor++] = i0;
+		wireframeIndices[cursor++] = i1;
+		wireframeIndices[cursor++] = i1;
+		wireframeIndices[cursor++] = i2;
+		wireframeIndices[cursor++] = i2;
+		wireframeIndices[cursor++] = i0;
+	}
+	return wireframeIndices;
 }

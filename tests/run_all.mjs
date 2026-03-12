@@ -33,6 +33,7 @@ const tests = [
 	"test_renderer_postanimation_hook.mjs",
 	"test_renderer_dynamic_texture_updates.mjs",
 	"test_sparse_accessor.mjs",
+	"test_gltf_primitive_modes.mjs",
 	"test_gltf_material_extensions.mjs",
 	"test_pbr_textures.mjs",
 	"test_shader_material.mjs",

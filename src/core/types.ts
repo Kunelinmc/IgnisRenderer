@@ -2,6 +2,14 @@ import type { IVector3, IVector4 } from "../maths/types";
 import type { RGBA } from "../utils/Color";
 import type { Material } from "../materials/Material";
 
+export type PrimitiveDrawTopology =
+	| "triangle-list"
+	| "line-list"
+	| "point-list";
+
+export const DEFAULT_PRIMITIVE_DRAW_TOPOLOGY: PrimitiveDrawTopology =
+	"triangle-list";
+
 export interface IVertex extends IVector3 {
 	u?: number;
 	v?: number;
@@ -50,6 +58,7 @@ export interface BoundingBox {
 export interface IPrimitive {
 	readonly id: string;
 	geometry: IPrimitiveGeometry;
+	topology?: PrimitiveDrawTopology;
 	material: Material;
 	boundingSphere: BoundingSphere;
 	boundingBox: BoundingBox;

@@ -8,6 +8,7 @@ import type {
 } from "../../pipeline/types";
 import { AlphaMode } from "../../materials/Material";
 import { ParticleBlendMode } from "../../particles";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -322,6 +323,7 @@ export class WebGPURenderResources {
 
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
+		const topology = geometry.topology;
 		const frameBinding = this._frameBindings.getSceneBinding();
 		const animationState = this._resolveAnimationState(packet, geometry);
 
@@ -337,7 +339,8 @@ export class WebGPURenderResources {
 		const solidPipeline = await this._pipelineLibrary.getPipeline(
 			packet.material,
 			this._sceneTargetMode,
-			false
+			false,
+			topology
 		);
 		const solidTextures = solidMaterialData.textureSlots.map((slot, index) =>
 			this._textureRegistry.getTextureForSlot(slot.map, index)
@@ -364,7 +367,10 @@ export class WebGPURenderResources {
 		});
 
 		// ----- WIREFRAME OVERLAY -----
-		if (packet.material.wireframe) {
+		if (
+			packet.material.wireframe &&
+			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		) {
 			const wireMaterialData = createWebGPUMaterialUniformData(
 				packet.material,
 				true
@@ -372,7 +378,8 @@ export class WebGPURenderResources {
 			const wirePipeline = await this._pipelineLibrary.getPipeline(
 				packet.material,
 				this._sceneTargetMode,
-				true
+				true,
+				topology
 			);
 			const wireTextures = wireMaterialData.textureSlots.map((slot, index) =>
 				this._textureRegistry.getTextureForSlot(slot.map, index)

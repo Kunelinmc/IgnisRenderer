@@ -17,6 +17,7 @@ import {
 	type JointMatrixMap,
 	type MorphWeightMap,
 } from "../../simulation/animation/types";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
@@ -336,6 +337,13 @@ export class WebGPUShadowPass {
 		context: FrameContext
 	): void {
 		for (const packet of packets) {
+			if (
+				(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+				DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+			) {
+				continue;
+			}
+
 			// Per-light Frustum Culling
 			if (
 				!this._frustum.intersectsSphere(

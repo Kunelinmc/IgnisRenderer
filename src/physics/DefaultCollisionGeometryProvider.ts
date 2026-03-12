@@ -1,4 +1,5 @@
 import type { Node } from "../core/Node";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import { Matrix4 } from "../maths/Matrix4";
 import { MeshInstance } from "../meshes";
 import type {
@@ -36,6 +37,13 @@ export class DefaultCollisionGeometryProvider implements ICollisionGeometryProvi
 		let vertexOffset = 0;
 
 		for (const primitive of node.mesh.primitives) {
+			if (
+				(primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+				DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+			) {
+				continue;
+			}
+
 			const geometry = primitive.geometry;
 			const positions = geometry.positions;
 			const primitiveIndices = geometry.indices;

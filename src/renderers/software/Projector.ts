@@ -1,6 +1,7 @@
 import { CameraType } from "../../cameras/Camera";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type {
 	ProjectedFace,
 	ProjectedVertex,
@@ -227,6 +228,13 @@ export class Projector {
 	}
 
 	public static getPacketFaces(packet: DrawPacket): PrimitiveFace[] {
+		if (
+			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		) {
+			return [];
+		}
+
 		const triangleCount = (packet.geometry.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];
 
@@ -255,6 +263,13 @@ export class Projector {
 		packet: DrawPacket,
 		context: FrameContext
 	): PrimitiveFace[] {
+		if (
+			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		) {
+			return [];
+		}
+
 		const overrides = context.transient.get(
 			ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
 		) as

@@ -1,5 +1,6 @@
 import { Material } from "../materials/Material";
 import { IdGenerator } from "../utils/IdGenerator";
+import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type {
 	BoundingBox,
 	BoundingSphere,
@@ -283,6 +284,7 @@ export class GeometryBuilder {
 		return {
 			id: IdGenerator.nextId("primitive"),
 			geometry,
+			topology: DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
 			material: group.material,
 			boundingBox,
 			boundingSphere,
