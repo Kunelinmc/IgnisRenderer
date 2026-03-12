@@ -112,11 +112,11 @@ export class WebGPUGeometryRegistry {
 			label: `WireframeIndexBuffer_${primitive.id}`,
 		});
 
-		this._backend.writeBuffer(vertexBuffer, new Float32Array(vertexData));
-		this._backend.writeBuffer(indexBuffer, new Uint32Array(geometry.indices));
+		this._backend.writeBuffer(vertexBuffer, vertexData as any);
+		this._backend.writeBuffer(indexBuffer, geometry.indices as any);
 		this._backend.writeBuffer(
 			wireframeIndexBuffer,
-			wireframeIndices.length > 0 ? wireframeIndices : new Uint32Array([0])
+			(wireframeIndices.length > 0 ? wireframeIndices : new Uint32Array([0])) as any
 		);
 
 		const morphTargets = geometry.morphTargets ?? [];
@@ -162,8 +162,8 @@ export class WebGPUGeometryRegistry {
 				usage: BufferUsage.Storage | BufferUsage.CopyDst,
 				label: `MorphNormalBuffer_${primitive.id}`,
 			});
-			this._backend.writeBuffer(morphPositionBuffer, morphPositionData);
-			this._backend.writeBuffer(morphNormalBuffer, morphNormalData);
+			this._backend.writeBuffer(morphPositionBuffer, morphPositionData as any);
+			this._backend.writeBuffer(morphNormalBuffer, morphNormalData as any);
 		}
 
 		return {
