@@ -21,7 +21,7 @@ export { Renderer } from "./renderers/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
 export { SoftwareBackend } from "./renderers/SoftwareBackend";
 export { WebGPUBackend } from "./renderers/WebGPUBackend";
-export { WebGLBackend } from "./renderers/webgl/WebGLBackend";
+export { WebGLBackend } from "./renderers/WebGLBackend";
 export type {
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessPassKind,
