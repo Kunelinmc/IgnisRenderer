@@ -280,8 +280,6 @@ export class WebGPUPostProcessRuntime {
 				),
 				finiteOr(options.sharpen, DEFAULT_TAA_OPTIONS.sharpen),
 				historyValid ? 1 : 0,
-				0, // _pad0
-				0, // alignment padding to 40 bytes
 			])
 		);
 		const binding = this._getCachedBindGroup(
@@ -883,7 +881,7 @@ export class WebGPUPostProcessRuntime {
 		if (!this._taaParams)
 			this._taaParams = this._backend.createBuffer({
 				label: "WebGPUTAAParams",
-				size: 10 * 4,
+				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}

@@ -6,7 +6,6 @@ struct Params {
 	varianceClampGamma: f32,
 	sharpen: f32,
 	historyValid: f32,
-	_pad0: f32,
 }
 
 @group(0) @binding(0) var currentColor: texture_2d<f32>;
