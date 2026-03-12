@@ -15,6 +15,7 @@ import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
 interface TextureCacheEntry {
 	resource: IRenderTexture;
 	mipLevelCount: number;
+	externalVideoCopyCompatible: boolean;
 }
 
 export class WebGPUTextureRegistry {
@@ -52,16 +53,23 @@ export class WebGPUTextureRegistry {
 			!cacheEntry ||
 			cacheEntry.resource.width !== texture.width ||
 			cacheEntry.resource.height !== texture.height ||
-			cacheEntry.mipLevelCount !== mipLevelCount;
+			cacheEntry.mipLevelCount !== mipLevelCount ||
+			(texture instanceof VideoTexture &&
+				!cacheEntry.externalVideoCopyCompatible);
 
 		if (shouldRecreateTexture) {
 			cacheEntry?.resource.destroy();
+			const externalVideoCopyCompatible = texture instanceof VideoTexture;
+			const usage =
+				TextureUsage.TextureBinding |
+				TextureUsage.CopyDst |
+				(externalVideoCopyCompatible ? TextureUsage.RenderAttachment : 0);
 
 			const resource = this._backend.createTexture({
 				width: texture.width,
 				height: texture.height,
 				format: TextureFormat.RGBA8Unorm,
-				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+				usage,
 				mipLevelCount,
 				label: `Texture_${slotIndex}_${texture.width}x${texture.height}`,
 			});
@@ -69,6 +77,7 @@ export class WebGPUTextureRegistry {
 			cacheEntry = {
 				resource,
 				mipLevelCount,
+				externalVideoCopyCompatible,
 			};
 			this._textureCache.set(texture, cacheEntry);
 			this._uploadedVersionCache.delete(texture);

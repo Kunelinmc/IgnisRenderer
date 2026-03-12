@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { VideoTexture } from "../src/core/VideoTexture.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
+import { TextureUsage } from "../src/renderers/types.ts";
 
 class FakeCanvas2DContext {
 	constructor(frameProvider) {
@@ -96,6 +97,7 @@ class FakeWebGPUBackend {
 	constructor() {
 		this.copyCalls = [];
 		this.writeCalls = [];
+		this.createTextureCalls = [];
 		this.queue = {
 			copyExternalImageToTexture: (...args) => {
 				this.copyCalls.push(args);
@@ -104,6 +106,7 @@ class FakeWebGPUBackend {
 	}
 
 	createTexture(desc) {
+		this.createTextureCalls.push(desc);
 		return {
 			width: desc.width,
 			height: desc.height,
@@ -251,6 +254,14 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 		const registry = new WebGPUTextureRegistry(backend);
 
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.equal(backend.createTextureCalls.length, 1);
+		assert.ok(
+			(backend.createTextureCalls[0].usage & TextureUsage.CopyDst) !== 0
+		);
+		assert.ok(
+			(backend.createTextureCalls[0].usage & TextureUsage.RenderAttachment) !==
+				0
+		);
 		assert.equal(backend.copyCalls.length, 1);
 		assert.equal(backend.writeCalls.length, 0);
 
