@@ -44,7 +44,7 @@ export class Camera extends Node {
 		this.fov = params.fov ?? 60;
 		this.aspectRatio = params.aspectRatio ?? 16 / 9;
 		this.near = params.near ?? 0.1;
-		this.far = params.far ?? 1000;
+		this.far = params.far ?? 5000;
 		this.viewMatrix = Matrix4.identity();
 		this.projectionMatrix = Matrix4.identity();
 		this.viewProjectionMatrix = Matrix4.identity();
