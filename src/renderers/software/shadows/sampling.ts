@@ -2,7 +2,7 @@ import { Matrix4 } from "../../../maths/Matrix4";
 import { Vector3 } from "../../../maths/Vector3";
 import type { IVector3 } from "../../../maths/types";
 import type { RGB } from "../../../utils/Color";
-import type { ShadowMap, ShadowParams } from "../../../utils/ShadowMapping";
+import type { ShadowMap, ShadowParams } from "../../../lights/ShadowMapping";
 import { ShadowConstants } from "../../../core/constants";
 import type { SoftwareShadowRenderTarget } from "./types";
 import { clamp } from "../../../maths/Common";
@@ -101,14 +101,15 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		return (m[2][3] - zNdc) / m[2][2];
 	};
 
-	const bias = normal
-		? Math.min(
+	const bias =
+		normal ?
+			Math.min(
 				maxBias,
 				constantBias +
 					slopeBias * (1.0 - Vector3.dot(Vector3.normalize(normal), L)) +
 					texelBias
 			)
-		: Math.min(maxBias, constantBias + texelBias);
+		:	Math.min(maxBias, constantBias + texelBias);
 
 	const strength = clamp(params.shadowStrength ?? 1.0);
 	const pcfRadiusParams = params.shadowRadius ?? 0;

@@ -1,4 +1,4 @@
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 import type { WebGPULightingState } from "./";

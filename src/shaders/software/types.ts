@@ -11,7 +11,7 @@ import type { ProjectedFace } from "../../core/types";
 import type { Material } from "../../materials";
 import type { RGB } from "../../utils/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 
 export interface ShaderContext {
 	cameraPos: IVector3;

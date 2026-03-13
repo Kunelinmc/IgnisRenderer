@@ -1,7 +1,7 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { TAAOptions } from "../../pipeline/types";
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { Texture } from "../../core/Texture";
 
 export interface WebGPUWarning {
@@ -35,8 +35,7 @@ export type WebGPUPointLight = WebGPUPointLightUniform;
 export type WebGPUSpotLight = WebGPUSpotLightUniform;
 export type WebGPUVolumetricLightType = 0 | 1 | 2;
 
-export interface WebGPUVolumetricLightUniform
-	extends WebGPULightUniformBase {
+export interface WebGPUVolumetricLightUniform extends WebGPULightUniformBase {
 	type: WebGPUVolumetricLightType;
 	position: WebGPUVec3;
 	range: number;

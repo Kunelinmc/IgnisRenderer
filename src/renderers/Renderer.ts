@@ -4,7 +4,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import { ShadowMap } from "../utils/ShadowMapping";
+import { ShadowMap } from "../lights/ShadowMapping";
 import { LightingConstants } from "../core/constants";
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";

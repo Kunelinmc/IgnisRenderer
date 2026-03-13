@@ -1,7 +1,7 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 import type { ShadowCastingLight } from "../lights";
-import { ShadowMap } from "../utils/ShadowMapping";
+import { ShadowMap } from "../lights/ShadowMapping";
 import type { DrawPacket } from "./types";
 
 interface SceneBounds {

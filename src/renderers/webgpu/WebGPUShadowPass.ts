@@ -10,7 +10,7 @@ import type {
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,

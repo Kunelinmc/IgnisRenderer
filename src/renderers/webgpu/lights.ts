@@ -17,7 +17,7 @@ import {
 	getSpotLightWorldPosition,
 } from "../../pipeline/LightTransforms";
 import type { RGB } from "../../utils/Color";
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
@@ -314,9 +314,9 @@ function resolveWebGPUShadowData(
 		(shadowMap.params.shadowBias ?? 0.008) + texelBias
 	);
 	const pcfRadius =
-		shadowMap.params.shadowRadius && shadowMap.params.shadowRadius > 0
-			? shadowMap.params.shadowRadius
-			: Math.max(1, shadowMap.params.shadowPCF ?? 1);
+		shadowMap.params.shadowRadius && shadowMap.params.shadowRadius > 0 ?
+			shadowMap.params.shadowRadius
+		:	Math.max(1, shadowMap.params.shadowPCF ?? 1);
 
 	return {
 		enabled: true,

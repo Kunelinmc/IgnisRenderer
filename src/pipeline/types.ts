@@ -5,7 +5,7 @@ import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../utils/Color";
-import type { ShadowMap } from "../utils/ShadowMapping";
+import type { ShadowMap } from "../lights/ShadowMapping";
 import type {
 	BoundingSphere,
 	IPrimitive,

@@ -1,7 +1,7 @@
 import type { IVector3 } from "../../../maths/types";
 import type { RGB } from "../../../utils/Color";
 import type { ShadowCastingLight } from "../../../lights";
-import type { ShadowMap } from "../../../utils/ShadowMapping";
+import type { ShadowMap } from "../../../lights/ShadowMapping";
 import { sampleSoftwareShadow } from "./sampling";
 import {
 	SOFTWARE_SHADOW_RUNTIME_KEY,

@@ -25,7 +25,7 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
-import type { ShadowMap } from "../../utils/ShadowMapping";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {
@@ -304,13 +304,15 @@ export class Rasterizer implements RasterizerLike {
 		const buffer = shadowTarget.depthBuffer;
 		const alphaMode = material?.alphaMode;
 		const maskTexture =
-			alphaMode === AlphaMode.Mask &&
-			material?.map &&
-			material.map.data &&
-			material.map.width > 0 &&
-			material.map.height > 0
-				? material.map
-				: null;
+			(
+				alphaMode === AlphaMode.Mask &&
+				material?.map &&
+				material.map.data &&
+				material.map.width > 0 &&
+				material.map.height > 0
+			) ?
+				material.map
+			:	null;
 		const useMask = maskTexture !== null;
 		const alphaCutoff = material?.alphaCutoff ?? 0.5;
 		const opacity = material?.opacity ?? 1;
@@ -471,11 +473,9 @@ export class Rasterizer implements RasterizerLike {
 				const idx = row + x;
 				if (z < buffer[idx]) {
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON
-							? iz
-							: iz >= 0
-								? CoreConstants.EPSILON
-								: -CoreConstants.EPSILON;
+						Math.abs(iz) > CoreConstants.EPSILON ? iz
+						: iz >= 0 ? CoreConstants.EPSILON
+						: -CoreConstants.EPSILON;
 					const invIz = 1 / safeIz;
 					const u = uO * invIz;
 					const v = vO * invIz;
@@ -711,11 +711,9 @@ export class Rasterizer implements RasterizerLike {
 			// For perspective, iz = 1/w = 1/depth, so linearDepth * iz = 1.
 			// For orthographic, iz = 1, so linearDepth * iz = linearDepth.
 			const linearDepth =
-				p.zView !== undefined
-					? -p.zView
-					: p.world.z !== undefined
-						? -p.world.z
-						: 0;
+				p.zView !== undefined ? -p.zView
+				: p.world.z !== undefined ? -p.world.z
+				: 0;
 			v.zCamO = linearDepth * iz;
 		}
 
@@ -795,11 +793,9 @@ export class Rasterizer implements RasterizerLike {
 			for (let x = startX; x <= endX; x++) {
 				const bufIdx = bufRow + x;
 				const safeIz =
-					Math.abs(iz) > CoreConstants.EPSILON
-						? iz
-						: iz >= 0
-							? CoreConstants.EPSILON
-							: -CoreConstants.EPSILON;
+					Math.abs(iz) > CoreConstants.EPSILON ? iz
+					: iz >= 0 ? CoreConstants.EPSILON
+					: -CoreConstants.EPSILON;
 				const zCam = 1 / safeIz;
 
 				// Use w for early z-test check, but final shade depth uses linear depth
@@ -932,9 +928,8 @@ export class Rasterizer implements RasterizerLike {
 		if (!depthBuffer) return;
 
 		const wireColor = { r: 255, g: 255, b: 255 };
-		const alpha = isTransparent
-			? clamp(face.color?.a ?? material.opacity ?? 1)
-			: 1;
+		const alpha =
+			isTransparent ? clamp(face.color?.a ?? material.opacity ?? 1) : 1;
 
 		const drawLine = (p0: ProjectedVertex, p1: ProjectedVertex) => {
 			const x0 = p0.x,
@@ -964,11 +959,9 @@ export class Rasterizer implements RasterizerLike {
 				if (px >= 0 && px < width && py >= 0 && py < height) {
 					const bufIdx = py * width + px;
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON
-							? iz
-							: iz >= 0
-								? CoreConstants.EPSILON
-								: -CoreConstants.EPSILON;
+						Math.abs(iz) > CoreConstants.EPSILON ? iz
+						: iz >= 0 ? CoreConstants.EPSILON
+						: -CoreConstants.EPSILON;
 					const zCam = 1 / safeIz;
 
 					if (
