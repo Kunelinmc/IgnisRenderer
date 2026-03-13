@@ -37,11 +37,12 @@ import { DefaultCollisionGeometryProvider } from "./DefaultCollisionGeometryProv
 import { PhysicsBodyNode } from "./PhysicsBodyNode";
 import { SimplePhysicsAdapter } from "./adapters/SimplePhysicsAdapter";
 import { DefaultPhysicsSimulator } from "../simulation/physics/DefaultPhysicsSimulator";
-
-const TRANSFORM_EPSILON = 1e-6;
-const DEFAULT_BROADPHASE_BODY_RADIUS = 0.5;
-const BROADPHASE_CELL_SIZE = 4;
-const BROADPHASE_MAX_DIRTY_CELLS = 512;
+import {
+	BROADPHASE_CELL_SIZE,
+	BROADPHASE_MAX_DIRTY_CELLS,
+	DEFAULT_BROADPHASE_BODY_RADIUS,
+	TRANSFORM_EPSILON,
+} from "./constants";
 
 export interface PhysicsSystemOptions {
 	adapter?: IPhysicsEngineAdapter;
@@ -179,7 +180,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			...config,
 			gravity: config.gravity ? { ...config.gravity } : undefined,
 		});
-		this._runtimeByWorldId.set(config.worldId, createWorldRuntime(config.worldId));
+		this._runtimeByWorldId.set(
+			config.worldId,
+			createWorldRuntime(config.worldId)
+		);
 		this._eventQueueByWorld.set(config.worldId, []);
 	}
 
@@ -685,7 +689,12 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 					this._resolveBodyBroadphaseRadius(runtime, body)
 				);
 			}
-			this._setCachedBodyState(runtime, body.id, state.transform, state.sleeping);
+			this._setCachedBodyState(
+				runtime,
+				body.id,
+				state.transform,
+				state.sleeping
+			);
 
 			if (body.authority !== "physics") continue;
 			if (!transformChanged) continue;
@@ -992,7 +1001,11 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		}
 	}
 
-	private _registerJointPair(worldId: string, bodyAId: string, bodyBId: string): void {
+	private _registerJointPair(
+		worldId: string,
+		bodyAId: string,
+		bodyBId: string
+	): void {
 		const runtime = this._runtimeByWorldId.get(worldId);
 		if (!runtime) return;
 		const pairKey = makeBodyPairKey(bodyAId, bodyBId);
@@ -1102,7 +1115,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		runtime: WorldRuntimeState,
 		body: InternalBodyBinding
 	): number {
-		return runtime.bodyBroadphaseRadiusById.get(body.id) ?? body.broadphaseRadius;
+		return (
+			runtime.bodyBroadphaseRadiusById.get(body.id) ?? body.broadphaseRadius
+		);
 	}
 
 	private _updateBodyBroadphaseRadius(
