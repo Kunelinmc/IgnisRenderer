@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGLBackend } from "../src/renderers/webgl/WebGLBackend.ts";
+import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 
 const STUB_MESSAGE = "WebGLBackend is a stub and is not implemented yet";
 

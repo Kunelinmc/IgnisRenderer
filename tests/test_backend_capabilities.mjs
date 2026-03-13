@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { SoftwareBackend } from "../src/renderers/SoftwareBackend.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
-import { WebGLBackend } from "../src/renderers/webgl/WebGLBackend.ts";
+import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 
 function run() {
 	const software = new SoftwareBackend();
