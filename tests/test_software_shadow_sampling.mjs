@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { ShadowMap } from "../src/utils/ShadowMapping.ts";
+import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { sampleSoftwareShadow } from "../src/renderers/software/shadows/sampling.ts";
 
 function createShadowFixture(overrides = {}, size = 4) {
