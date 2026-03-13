@@ -966,16 +966,6 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 					bodyBId: right.bodyId,
 					timestampSeconds: nowSeconds,
 				});
-
-				if (!left.isTrigger && !right.isTrigger) {
-					this._resolveOverlap(
-						leftBody,
-						rightBody,
-						leftCenter,
-						rightCenter,
-						overlap
-					);
-				}
 			}
 		}
 
@@ -1363,13 +1353,17 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		const rapierValue = this._toRapierVector3(value);
 		const args: unknown[][] = [];
 		if (wakeUp !== undefined) {
-			args.push([value.x, value.y, value.z, wakeUp]);
 			args.push([plain, wakeUp]);
 			if (rapierValue) args.push([rapierValue, wakeUp]);
+			args.push([value.x, value.y, value.z, wakeUp]);
+			args.push([plain]);
+			if (rapierValue) args.push([rapierValue]);
+			args.push([value.x, value.y, value.z]);
+		} else {
+			args.push([value.x, value.y, value.z]);
+			args.push([plain]);
+			if (rapierValue) args.push([rapierValue]);
 		}
-		args.push([value.x, value.y, value.z]);
-		args.push([plain]);
-		if (rapierValue) args.push([rapierValue]);
 		this._invoke(target, methodNames, args);
 	}
 
@@ -1398,13 +1392,15 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		const rapierValue = this._toRapierQuaternion(plain);
 		const args: unknown[][] = [];
 		if (wakeUp !== undefined) {
-			args.push([plain.x, plain.y, plain.z, plain.w, wakeUp]);
 			args.push([plain, wakeUp]);
 			if (rapierValue) args.push([rapierValue, wakeUp]);
 		}
-		args.push([plain.x, plain.y, plain.z, plain.w]);
 		args.push([plain]);
 		if (rapierValue) args.push([rapierValue]);
+		if (wakeUp !== undefined) {
+			args.push([plain.x, plain.y, plain.z, plain.w, wakeUp]);
+		}
+		args.push([plain.x, plain.y, plain.z, plain.w]);
 		this._invoke(target, methodNames, args);
 	}
 
