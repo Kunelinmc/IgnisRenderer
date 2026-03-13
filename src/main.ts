@@ -172,7 +172,7 @@ async function createRenderer(
 	if (navigator.gpu) {
 		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
 		webgpuRenderer.setScene(scene);
-		configureRenderer(webgpuRenderer);
+		webgpuRenderer.features.enableTAA = true;
 
 		try {
 			await webgpuRenderer.init();
@@ -191,7 +191,6 @@ async function createRenderer(
 
 	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
 	softwareRenderer.setScene(scene);
-	configureRenderer(softwareRenderer);
 	await softwareRenderer.init();
 	console.info("Using software backend");
 
@@ -201,24 +200,6 @@ async function createRenderer(
 	};
 }
 
-function configureRenderer(renderer: Renderer): void {
-	if (renderer.backendType === "webgpu") {
-		renderer.features.enableSH = true;
-		renderer.features.enableShadows = true;
-		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = true;
-		renderer.features.enableSSAO = false;
-		renderer.features.enableTAA = false;
-		renderer.features.enableFXAA = true;
-		renderer.features.enableSSR = false;
-		renderer.features.enableVolumetric = false;
-		return;
-	}
-
-	renderer.features.enableSH = true;
-	renderer.features.enableShadows = true;
-	renderer.features.enableReflection = true;
-}
 
 function bindControls(
 	canvas: HTMLCanvasElement,
