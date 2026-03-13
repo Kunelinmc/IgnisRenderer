@@ -209,7 +209,8 @@ export class WebGPURenderResources {
 		syncShadowMapRegistry(scene.shadowMaps, shadowLights);
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			scene.shadowCasterPackets,
-			scene.sceneBounds
+			scene.sceneBounds,
+			scene.camera
 		);
 		if (features.enableShadows) {
 			for (const light of shadowLights) {

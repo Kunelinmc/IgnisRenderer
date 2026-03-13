@@ -17,6 +17,7 @@ const tests = [
 	"test_frame_planner.mjs",
 	"test_model_factory_winding.mjs",
 	"test_render_list_builder.mjs",
+	"test_shadow_metadata_bounds.mjs",
 	"test_orthographic_camera_bounds.mjs",
 	"test_scene_bounds_cache.mjs",
 	"test_animation_core.mjs",

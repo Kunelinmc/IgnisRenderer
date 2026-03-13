@@ -127,7 +127,8 @@ export class SoftwareBackend implements IRenderBackend {
 		syncShadowMapRegistry(context.shadowMaps, shadowLights);
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			context.scene.shadowCasterPackets,
-			context.scene.sceneBounds
+			context.scene.sceneBounds,
+			context.scene.camera
 		);
 		for (const shadowLight of shadowLights) {
 			const shadowMap = context.shadowMaps.get(shadowLight);

@@ -9,15 +9,99 @@ interface SceneBounds {
 	radius: number;
 }
 
+interface ShadowBoundsCamera {
+	isSphereInFrustum?: (center: IVector3, radius: number) => boolean;
+	getWorldPosition?: (target?: IVector3) => IVector3;
+	position?: IVector3;
+}
+
+const _tmpShadowBoundsCameraPosition: IVector3 = { x: 0, y: 0, z: 0 };
+
 function hasFiniteRadius(bounds: SceneBounds): boolean {
 	return Number.isFinite(bounds.radius) && bounds.radius > 1e-6;
 }
 
+function resolveCameraPosition(camera: ShadowBoundsCamera): IVector3 | null {
+	if (typeof camera.getWorldPosition === "function") {
+		return camera.getWorldPosition(_tmpShadowBoundsCameraPosition);
+	}
+
+	const { position } = camera;
+	if (!position) return null;
+	if (
+		!Number.isFinite(position.x) ||
+		!Number.isFinite(position.y) ||
+		!Number.isFinite(position.z)
+	) {
+		return null;
+	}
+
+	_tmpShadowBoundsCameraPosition.x = position.x;
+	_tmpShadowBoundsCameraPosition.y = position.y;
+	_tmpShadowBoundsCameraPosition.z = position.z;
+	return _tmpShadowBoundsCameraPosition;
+}
+
+function resolveShadowBoundsPackets(
+	shadowCasterPackets: DrawPacket[],
+	camera?: ShadowBoundsCamera | null
+): DrawPacket[] {
+	if (!camera || shadowCasterPackets.length === 0) {
+		return shadowCasterPackets;
+	}
+	if (typeof camera.isSphereInFrustum !== "function") {
+		return shadowCasterPackets;
+	}
+
+	const visiblePackets: DrawPacket[] = [];
+	const cameraPosition = resolveCameraPosition(camera);
+	let nearestPacket: DrawPacket | null = null;
+	let nearestDistanceSquared = Infinity;
+
+	for (const packet of shadowCasterPackets) {
+		const center = packet.worldBounds.center;
+		const radius = Math.max(0, packet.worldBounds.radius);
+		const inFrustum = camera.isSphereInFrustum(center, radius);
+
+		if (inFrustum) {
+			visiblePackets.push(packet);
+			continue;
+		}
+
+		if (!cameraPosition) continue;
+
+		const dx = center.x - cameraPosition.x;
+		const dy = center.y - cameraPosition.y;
+		const dz = center.z - cameraPosition.z;
+		const distanceSquared = dx * dx + dy * dy + dz * dz;
+		if (distanceSquared < nearestDistanceSquared) {
+			nearestDistanceSquared = distanceSquared;
+			nearestPacket = packet;
+		}
+	}
+
+	if (visiblePackets.length > 0) {
+		return visiblePackets;
+	}
+
+	if (nearestPacket) {
+		return [nearestPacket];
+	}
+
+	return shadowCasterPackets;
+}
+
 export function resolveShadowCasterBounds(
 	shadowCasterPackets: DrawPacket[],
-	fallbackBounds: SceneBounds
+	fallbackBounds: SceneBounds,
+	camera?: ShadowBoundsCamera | null
 ): SceneBounds {
-	if (shadowCasterPackets.length === 0 || !hasFiniteRadius(fallbackBounds)) {
+	const packetsForBounds = resolveShadowBoundsPackets(
+		shadowCasterPackets,
+		camera
+	);
+
+	if (packetsForBounds.length === 0 || !hasFiniteRadius(fallbackBounds)) {
 		return fallbackBounds;
 	}
 
@@ -28,7 +112,7 @@ export function resolveShadowCasterBounds(
 	let maxY = -Infinity;
 	let maxZ = -Infinity;
 
-	for (const packet of shadowCasterPackets) {
+	for (const packet of packetsForBounds) {
 		const center = packet.worldBounds.center;
 		const radius = Math.max(0, packet.worldBounds.radius);
 		minX = Math.min(minX, center.x - radius);
