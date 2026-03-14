@@ -104,16 +104,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._frameDirty = true;
 		this.animationAutoRender = true;
 		this._animationStage = new AnimationSimulationStage(this.animationSystem);
-		this._stageGraph = new RendererStageGraph(
-			createDefaultRendererStages()
-		);
+		this._stageGraph = new RendererStageGraph(createDefaultRendererStages());
 		this._physicsSystem = null;
 
 		this.features = {
 			enableLighting: true,
 			enableGamma: true,
 			enableSH: false,
-			enableShadows: false,
+			enableShadows: true,
 			enableReflection: true,
 			enableSkybox: true,
 			enableSSAO: false,

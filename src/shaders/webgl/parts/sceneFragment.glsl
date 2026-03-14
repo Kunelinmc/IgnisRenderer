@@ -42,6 +42,14 @@ uniform int uSpotLightCount;
 uniform vec4 uSpotLightPositionRange[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotLightDirectionOuter[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
+uniform int uEnableShadows;
+uniform sampler2D uShadowAtlas;
+uniform mat4 uDirShadowViewProjection[MAX_DIRECTIONAL_LIGHTS];
+uniform vec4 uDirShadowParamsA[MAX_DIRECTIONAL_LIGHTS];
+uniform vec4 uDirShadowParamsB[MAX_DIRECTIONAL_LIGHTS];
+uniform mat4 uSpotShadowViewProjection[MAX_SPOT_LIGHTS];
+uniform vec4 uSpotShadowParamsA[MAX_SPOT_LIGHTS];
+uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
@@ -70,6 +78,124 @@ float spotAttenuation(float cosTheta, float outerCos, float innerCos) {
 	}
 	float cutoffRange = max(innerCos - outerCos, EPSILON);
 	return clamp((cosTheta - outerCos) / cutoffRange, 0.0, 1.0);
+}
+
+float sampleShadowVisibility(
+	int shadowType,
+	int index,
+	mat4 shadowViewProjection,
+	vec4 paramsA,
+	vec4 paramsB,
+	vec3 worldPosition,
+	vec3 normal,
+	vec3 lightDirection
+) {
+	if (uEnableShadows == 0 || paramsA.x < 0.5) {
+		return 1.0;
+	}
+
+	float shadowSize = max(paramsB.z, 1.0);
+	float atlasTileSize = max(paramsB.w, shadowSize);
+	float bias = max(paramsA.y, 0.0);
+	float maxNormalBias = max(paramsA.z, 0.0);
+	float minNormalBias = max(paramsA.w, 0.0);
+	float cosTheta = max(dot(normal, lightDirection), 0.0);
+	float normalBias = mix(minNormalBias, maxNormalBias, 1.0 - cosTheta);
+	vec3 shadowWorldPosition = worldPosition + normal * normalBias;
+	vec4 shadowClip = shadowViewProjection * vec4(shadowWorldPosition, 1.0);
+	if (shadowClip.w <= EPSILON) {
+		return 1.0;
+	}
+
+	vec3 shadowNdc = shadowClip.xyz / shadowClip.w;
+	vec2 shadowUv = vec2(shadowNdc.x * 0.5 + 0.5, shadowNdc.y * 0.5 + 0.5);
+	float currentDepth = shadowNdc.z * 0.5 + 0.5;
+	if (
+		shadowUv.x < 0.0 ||
+		shadowUv.x > 1.0 ||
+		shadowUv.y < 0.0 ||
+		shadowUv.y > 1.0 ||
+		currentDepth < 0.0 ||
+		currentDepth > 1.0
+	) {
+		return 1.0;
+	}
+
+	float pcfRadius = max(paramsB.x, 1.0);
+	vec2 texelPosition = shadowUv * vec2(shadowSize - 1.0);
+	float tileRow = shadowType == 1 ? 1.0 : 0.0;
+	vec2 tileOffset = vec2(float(index) * atlasTileSize, tileRow * atlasTileSize);
+	vec2 atlasExtent = vec2(textureSize(uShadowAtlas, 0));
+	if (atlasExtent.x < 1.0 || atlasExtent.y < 1.0) {
+		return 1.0;
+	}
+	float visible = 0.0;
+	float sampleCount = 0.0;
+
+	for (int y = -1; y <= 1; y++) {
+		for (int x = -1; x <= 1; x++) {
+			vec2 samplePosition =
+				texelPosition + vec2(float(x), float(y)) * pcfRadius;
+			if (
+				samplePosition.x < 0.0 ||
+				samplePosition.x > shadowSize - 1.0 ||
+				samplePosition.y < 0.0 ||
+				samplePosition.y > shadowSize - 1.0
+			) {
+				continue;
+			}
+			vec2 sampleCoord = round(samplePosition);
+			vec2 atlasCoord = tileOffset + sampleCoord + vec2(0.5);
+			vec2 atlasUv = atlasCoord / atlasExtent;
+			float sampleDepth = texture(uShadowAtlas, atlasUv).r;
+			visible += currentDepth - bias <= sampleDepth ? 1.0 : 0.0;
+			sampleCount += 1.0;
+		}
+	}
+
+	if (sampleCount <= 0.0) {
+		return 1.0;
+	}
+
+	float filteredVisibility = visible / sampleCount;
+	float strength = clamp(paramsB.y, 0.0, 1.0);
+	return 1.0 - strength + strength * filteredVisibility;
+}
+
+float sampleDirectionalShadowVisibility(
+	int index,
+	vec3 worldPosition,
+	vec3 normal,
+	vec3 lightDirection
+) {
+	return sampleShadowVisibility(
+		0,
+		index,
+		uDirShadowViewProjection[index],
+		uDirShadowParamsA[index],
+		uDirShadowParamsB[index],
+		worldPosition,
+		normal,
+		lightDirection
+	);
+}
+
+float sampleSpotShadowVisibility(
+	int index,
+	vec3 worldPosition,
+	vec3 normal,
+	vec3 lightDirection
+) {
+	return sampleShadowVisibility(
+		1,
+		index,
+		uSpotShadowViewProjection[index],
+		uSpotShadowParamsA[index],
+		uSpotShadowParamsB[index],
+		worldPosition,
+		normal,
+		lightDirection
+	);
 }
 
 float distributionGGX(vec3 n, vec3 h, float roughness) {
@@ -105,11 +231,14 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 v) {
 		if (i >= uDirLightCount) break;
 		vec3 l = safeNormalize(uDirLightDirection[i].xyz, vec3(0.0, 1.0, 0.0));
 		float nDotL = max(dot(n, l), 0.0);
-		lit += albedo * uDirLightColor[i].xyz * nDotL;
+		float shadow = sampleDirectionalShadowVisibility(i, vWorldPos, n, l);
+		lit += albedo * uDirLightColor[i].xyz * nDotL * shadow;
 		if (nDotL > 0.0) {
 			vec3 h = safeNormalize(l + v, v);
 			specular +=
-				uDirLightColor[i].xyz * pow(max(dot(n, h), 0.0), shininess);
+				uDirLightColor[i].xyz *
+				pow(max(dot(n, h), 0.0), shininess) *
+				shadow;
 		}
 	}
 
@@ -160,16 +289,18 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 v) {
 			continue;
 		}
 		float nDotL = max(dot(n, l), 0.0);
+		float shadow = sampleSpotShadowVisibility(i, vWorldPos, n, l);
 		lit +=
 			albedo * uSpotLightColorInner[i].xyz *
-			nDotL * attenuation * coneFactor;
+			nDotL * attenuation * coneFactor * shadow;
 		if (nDotL > 0.0) {
 			vec3 h = safeNormalize(l + v, v);
 			specular +=
 				uSpotLightColorInner[i].xyz *
 				pow(max(dot(n, h), 0.0), shininess) *
 				attenuation *
-				coneFactor;
+				coneFactor *
+				shadow;
 		}
 	}
 
@@ -232,6 +363,12 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 			uDirLightDirection[i].xyz,
 			vec3(0.0, 1.0, 0.0)
 		);
+		float shadow = sampleDirectionalShadowVisibility(
+			i,
+			vWorldPos,
+			pbrNormal,
+			lightDir
+		);
 		directLight += evalPBRLight(
 			albedo,
 			pbrNormal,
@@ -242,7 +379,7 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 			metalness,
 			f0,
 			nDotV
-		);
+		) * shadow;
 	}
 
 	for (int i = 0; i < MAX_POINT_LIGHTS; i++) {
@@ -296,6 +433,12 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 		vec3 radiance = uSpotLightColorInner[i].xyz *
 			pointAttenuation(distanceSq, lightRange) *
 			coneFactor;
+		float shadow = sampleSpotShadowVisibility(
+			i,
+			vWorldPos,
+			pbrNormal,
+			lightDir
+		);
 		directLight += evalPBRLight(
 			albedo,
 			pbrNormal,
@@ -306,7 +449,7 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 			metalness,
 			f0,
 			nDotV
-		);
+		) * shadow;
 	}
 
 	return ambientDiffuse + ambientSpecular + directLight;

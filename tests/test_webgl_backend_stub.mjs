@@ -220,7 +220,7 @@ async function testInitAndPassRouting() {
 	});
 	assert.deepEqual(backend.capabilities, {
 		sh: false,
-		shadows: false,
+		shadows: true,
 		reflection: false,
 		skybox: true,
 		ssao: false,
@@ -274,6 +274,8 @@ async function testInitAndPassRouting() {
 		["pass", "main-opaque", { frameId: 1 }],
 		["pass", "particles", { frameId: 1 }],
 		["pass", "fxaa", { frameId: 1 }],
+		["pass", "shadow", { frameId: 1 }],
+		["pass", "shadow", { frameId: 1 }],
 		["end"],
 		["destroy"],
 	]);
@@ -281,7 +283,7 @@ async function testInitAndPassRouting() {
 		warnings.filter(
 			(warning) => warning.key === "webgl-pass-unsupported-shadow"
 		).length,
-		1
+		0
 	);
 }
 

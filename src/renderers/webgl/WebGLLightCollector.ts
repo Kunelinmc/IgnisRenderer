@@ -1,5 +1,11 @@
-import { sRGBToLinear } from "../../maths/Common";
-import { LightType, type SceneLight } from "../../lights";
+import { clamp, sRGBToLinear } from "../../maths/Common";
+import {
+	LightType,
+	type SceneLight,
+	type ShadowCastingLight,
+} from "../../lights";
+import type { ShadowMap } from "../../lights/ShadowMapping";
+import type { Matrix4 } from "../../maths/Matrix4";
 import {
 	getDirectionalLightWorldDirection,
 	getPointLightWorldPosition,
@@ -33,11 +39,26 @@ export interface WebGLSpotLight {
 	color: [number, number, number];
 }
 
+export interface WebGLShadowData {
+	enabled: boolean;
+	viewProjectionMatrix: Matrix4 | null;
+	depthBias: number;
+	normalBias: number;
+	normalBiasMin: number;
+	pcfRadius: number;
+	shadowStrength: number;
+	shadowMapSize: number;
+	atlasTileSize: number;
+	shadowMap: ShadowMap | null;
+}
+
 export interface WebGLLightState {
 	ambientColor: [number, number, number];
 	directionalLights: WebGLDirectionalLight[];
+	directionalShadows: WebGLShadowData[];
 	pointLights: WebGLPointLight[];
 	spotLights: WebGLSpotLight[];
+	spotShadows: WebGLShadowData[];
 }
 
 type WarnFn = (key: string, message: string) => void;
@@ -45,13 +66,17 @@ type WarnFn = (key: string, message: string) => void;
 export function collectWebGLLights(
 	lights: SceneLight[],
 	enableLighting: boolean,
-	warn: WarnFn
+	warn: WarnFn,
+	enableShadows = false,
+	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
 ): WebGLLightState {
 	const state: WebGLLightState = {
 		ambientColor: [0, 0, 0],
 		directionalLights: [],
+		directionalShadows: [],
 		pointLights: [],
 		spotLights: [],
+		spotShadows: [],
 	};
 	if (!enableLighting) {
 		return state;
@@ -86,6 +111,12 @@ export function collectWebGLLights(
 						sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
 					],
 				});
+				state.directionalShadows.push(
+					resolveWebGLShadowData(
+						enableShadows,
+						shadowMaps?.get(light as ShadowCastingLight)
+					)
+				);
 				break;
 			}
 			case LightType.Point: {
@@ -134,6 +165,12 @@ export function collectWebGLLights(
 						sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
 					],
 				});
+				state.spotShadows.push(
+					resolveWebGLShadowData(
+						enableShadows,
+						shadowMaps?.get(light as ShadowCastingLight)
+					)
+				);
 				break;
 			}
 			case LightType.LightProbe:
@@ -149,4 +186,49 @@ export function collectWebGLLights(
 	}
 
 	return state;
+}
+
+function resolveWebGLShadowData(
+	enableShadows: boolean,
+	shadowMap?: ShadowMap
+): WebGLShadowData {
+	if (!enableShadows || !shadowMap?.viewProjectionMatrix) {
+		return {
+			enabled: false,
+			viewProjectionMatrix: null,
+			depthBias: 0,
+			normalBias: 0,
+			normalBiasMin: 0,
+			pcfRadius: 0,
+			shadowStrength: 0,
+			shadowMapSize: 0,
+			atlasTileSize: 0,
+			shadowMap: null,
+		};
+	}
+
+	const size = Math.max(1, shadowMap.size | 0);
+	const texelBias = (shadowMap.params.shadowTexelBias ?? 1.0) * (1.0 / size);
+	const maxBias = shadowMap.params.shadowMaxBias ?? 0.05;
+	const depthBias = Math.min(
+		maxBias,
+		(shadowMap.params.shadowBias ?? 0.008) + texelBias
+	);
+	const pcfRadius =
+		shadowMap.params.shadowRadius && shadowMap.params.shadowRadius > 0 ?
+			shadowMap.params.shadowRadius
+		:	Math.max(1, shadowMap.params.shadowPCF ?? 1);
+
+	return {
+		enabled: true,
+		viewProjectionMatrix: shadowMap.viewProjectionMatrix,
+		depthBias,
+		normalBias: Math.max(0, shadowMap.params.shadowNormalBias ?? 1.0),
+		normalBiasMin: Math.max(0, shadowMap.params.shadowNormalBiasMin ?? 0.05),
+		pcfRadius: Math.max(1, pcfRadius),
+		shadowStrength: clamp(shadowMap.params.shadowStrength ?? 1.0, 0, 1),
+		shadowMapSize: size,
+		atlasTileSize: size,
+		shadowMap,
+	};
 }

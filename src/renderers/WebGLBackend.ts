@@ -8,6 +8,7 @@ import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
+	"shadow",
 	"main-opaque",
 	"main-transparent",
 	"particles",
@@ -25,7 +26,7 @@ export class WebGLBackend implements IRenderBackend {
 	} as const;
 	public readonly capabilities = {
 		sh: false,
-		shadows: false,
+		shadows: true,
 		reflection: false,
 		skybox: true,
 		ssao: false,

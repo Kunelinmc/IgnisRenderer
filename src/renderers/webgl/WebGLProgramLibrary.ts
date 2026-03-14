@@ -91,6 +91,7 @@ export interface WebGLSceneProgram {
 		cameraPosition: WebGLUniformLocation | null;
 		ambientColor: WebGLUniformLocation | null;
 		enableLighting: WebGLUniformLocation | null;
+		enableShadows: WebGLUniformLocation | null;
 		shadingModel: WebGLUniformLocation | null;
 		baseColor: WebGLUniformLocation | null;
 		emissive: WebGLUniformLocation | null;
@@ -110,6 +111,13 @@ export interface WebGLSceneProgram {
 		spotLightPositionRange: WebGLUniformLocation | null;
 		spotLightDirectionOuter: WebGLUniformLocation | null;
 		spotLightColorInner: WebGLUniformLocation | null;
+		shadowAtlas: WebGLUniformLocation | null;
+		dirShadowViewProjection: WebGLUniformLocation | null;
+		dirShadowParamsA: WebGLUniformLocation | null;
+		dirShadowParamsB: WebGLUniformLocation | null;
+		spotShadowViewProjection: WebGLUniformLocation | null;
+		spotShadowParamsA: WebGLUniformLocation | null;
+		spotShadowParamsB: WebGLUniformLocation | null;
 		taaJitter: WebGLUniformLocation | null;
 		prevViewProjection: WebGLUniformLocation | null;
 		prevModel: WebGLUniformLocation | null;
@@ -208,6 +216,7 @@ export class WebGLProgramLibrary {
 				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
 				ambientColor: this._gl.getUniformLocation(program, "uAmbientColor"),
 				enableLighting: this._gl.getUniformLocation(program, "uEnableLighting"),
+				enableShadows: this._gl.getUniformLocation(program, "uEnableShadows"),
 				shadingModel: this._gl.getUniformLocation(program, "uShadingModel"),
 				baseColor: this._gl.getUniformLocation(program, "uBaseColor"),
 				emissive: this._gl.getUniformLocation(program, "uEmissive"),
@@ -250,6 +259,31 @@ export class WebGLProgramLibrary {
 				spotLightColorInner: this._gl.getUniformLocation(
 					program,
 					"uSpotLightColorInner"
+				),
+				shadowAtlas: this._gl.getUniformLocation(program, "uShadowAtlas"),
+				dirShadowViewProjection: this._gl.getUniformLocation(
+					program,
+					"uDirShadowViewProjection[0]"
+				),
+				dirShadowParamsA: this._gl.getUniformLocation(
+					program,
+					"uDirShadowParamsA[0]"
+				),
+				dirShadowParamsB: this._gl.getUniformLocation(
+					program,
+					"uDirShadowParamsB[0]"
+				),
+				spotShadowViewProjection: this._gl.getUniformLocation(
+					program,
+					"uSpotShadowViewProjection[0]"
+				),
+				spotShadowParamsA: this._gl.getUniformLocation(
+					program,
+					"uSpotShadowParamsA[0]"
+				),
+				spotShadowParamsB: this._gl.getUniformLocation(
+					program,
+					"uSpotShadowParamsB[0]"
 				),
 				taaJitter: this._gl.getUniformLocation(program, "uTaaJitter"),
 				prevViewProjection: this._gl.getUniformLocation(

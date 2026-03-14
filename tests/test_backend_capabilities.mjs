@@ -32,7 +32,7 @@ function run() {
 
 	assert.deepEqual(webgl.capabilities, {
 		sh: false,
-		shadows: false,
+		shadows: true,
 		reflection: false,
 		skybox: true,
 		ssao: false,

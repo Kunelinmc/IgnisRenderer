@@ -3,7 +3,9 @@ import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
+import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
@@ -111,6 +113,28 @@ function testProgramLibraryCompileErrorMessage() {
 	);
 }
 
+function testLightCollectorShadowBias() {
+	const light = new DirectionalLight();
+	const shadowMap = new ShadowMap(1024, {
+		shadowBias: 0.008,
+		shadowSlopeBias: 0.03,
+		shadowTexelBias: 1,
+		shadowMaxBias: 0.05,
+	});
+	shadowMap.viewProjectionMatrix = Matrix4.identity();
+	const state = collectWebGLLights(
+		[light],
+		true,
+		() => {},
+		true,
+		new Map([[light, shadowMap]])
+	);
+	const shadow = state.directionalShadows[0];
+	assert.ok(shadow.enabled);
+	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
+	assert.equal(shadow.shadowMapSize, 1024);
+}
+
 function testGeometryRegistryRejectsOutOfRangeIndices() {
 	const warnings = [];
 	const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k, m) =>
@@ -142,6 +166,7 @@ function testGeometryRegistryRejectsOutOfRangeIndices() {
 function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
+	testLightCollectorShadowBias();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	console.log("WebGL backend v1 unit tests passed");
 }

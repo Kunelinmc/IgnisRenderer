@@ -1,4 +1,5 @@
 import { CameraType } from "../../cameras/Camera";
+import { isShadowCastingLight } from "../../lights";
 import { ParticleBlendMode } from "../../particles";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
@@ -7,8 +8,13 @@ import {
 	type Material,
 } from "../../materials/Material";
 import { clamp, sRGBToLinear } from "../../maths/Common";
-import type { Matrix4 } from "../../maths/Matrix4";
+import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
+import {
+	resolveShadowCasterBounds,
+	syncShadowMapRegistry,
+	updateShadowMapMetadata,
+} from "../../pipeline/ShadowMetadata";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
@@ -20,11 +26,19 @@ import {
 import {
 	collectWebGLLights,
 	type WebGLLightState,
+	type WebGLShadowData,
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+	WEBGL_SHADOW_ATLAS_COLUMNS,
+	WEBGL_SHADOW_ATLAS_ROWS,
+} from "./constants";
+import {
 	WebGLProgramLibrary,
 	type WebGLSceneProgram,
+	type WebGLShadowDepthProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
 
@@ -41,6 +55,7 @@ interface MaterialUniformState {
 }
 
 const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
+	"shadow",
 	"main-opaque",
 	"main-transparent",
 	"particles",
@@ -105,6 +120,10 @@ export class WebGLFrameExecutor {
 	private _sceneColorTexture: WebGLTexture | null = null;
 	private _sceneMotionTexture: WebGLTexture | null = null;
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
+	private _shadowFramebuffer: WebGLFramebuffer | null = null;
+	private _shadowAtlasTexture: WebGLTexture | null = null;
+	private _shadowAtlasTileSize = 0;
+	private _shadowMvpMatrix = Matrix4.identity();
 	private _taaHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 	private _taaMotionHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 	private _taaHistoryIndex = 0;
@@ -152,10 +171,13 @@ export class WebGLFrameExecutor {
 		this._height = toSafeDimension(context.attachments.height);
 		this._ensureFrameTargets(this._width, this._height);
 		this._presentSourceTexture = this._sceneColorTexture;
+		this._syncShadowMetadata(context);
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
 			context.features.enableLighting,
-			this._warn
+			this._warn,
+			context.features.enableShadows,
+			context.shadowMaps
 		);
 		
 		if (context.features.enableTAA) {
@@ -194,6 +216,9 @@ export class WebGLFrameExecutor {
 		}
 
 		switch (pass.stage) {
+			case "shadow":
+				this._renderShadows(context);
+				break;
 			case "main-opaque":
 				this._renderPackets(context, context.scene.opaquePackets, false);
 				break;
@@ -230,6 +255,7 @@ export class WebGLFrameExecutor {
 
 	public destroy(): void {
 		this._destroyFrameTargets();
+		this._destroyShadowTargets();
 		this._destroyParticleResources();
 		if (this._fullscreenVao) {
 			this._gl.deleteVertexArray(this._fullscreenVao);
@@ -239,6 +265,256 @@ export class WebGLFrameExecutor {
 		this._textures.destroy();
 		this._programs.destroy();
 		this._activeContext = null;
+	}
+
+	private _syncShadowMetadata(context: FrameContext): void {
+		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
+		syncShadowMapRegistry(context.shadowMaps, shadowLights);
+
+		if (!context.features.enableShadows) {
+			return;
+		}
+
+		const shadowCasterBounds = resolveShadowCasterBounds(
+			context.scene.shadowCasterPackets,
+			context.scene.sceneBounds,
+			context.scene.camera
+		);
+		for (const light of shadowLights) {
+			const shadowMap = context.shadowMaps.get(light);
+			if (!shadowMap) continue;
+			updateShadowMapMetadata(shadowMap, light, shadowCasterBounds);
+		}
+	}
+
+	private _renderShadows(context: FrameContext): void {
+		if (!context.features.enableShadows) {
+			return;
+		}
+		const lights = this._lightState;
+		if (!lights) {
+			return;
+		}
+		const maxShadowSize = Math.max(
+			getMaxShadowSize(lights.directionalShadows),
+			getMaxShadowSize(lights.spotShadows)
+		);
+		if (maxShadowSize <= 0 || context.scene.shadowCasterPackets.length <= 0) {
+			this._shadowAtlasTileSize = 0;
+			return;
+		}
+
+		this._ensureShadowTargets(maxShadowSize);
+		if (!this._shadowFramebuffer || !this._shadowAtlasTexture) {
+			this._shadowAtlasTileSize = 0;
+			return;
+		}
+
+		this._shadowAtlasTileSize = maxShadowSize;
+		for (const shadow of lights.directionalShadows) {
+			shadow.atlasTileSize = maxShadowSize;
+		}
+		for (const shadow of lights.spotShadows) {
+			shadow.atlasTileSize = maxShadowSize;
+		}
+
+		const gl = this._gl;
+		const shadowProgram = this._programs.getShadowDepthProgram();
+		const packets = context.scene.shadowCasterPackets;
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFramebuffer);
+		gl.useProgram(shadowProgram.program);
+		gl.disable(gl.BLEND);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthMask(true);
+		gl.colorMask(false, false, false, false);
+		gl.enable(gl.SCISSOR_TEST);
+		gl.clearDepth(1);
+		gl.clear(gl.DEPTH_BUFFER_BIT);
+
+		const directionalCount = Math.min(
+			WEBGL_MAX_DIRECTIONAL_LIGHTS,
+			lights.directionalShadows.length
+		);
+		for (let i = 0; i < directionalCount; i++) {
+			this._renderShadowSlice(
+				shadowProgram,
+				packets,
+				lights.directionalShadows[i],
+				i,
+				0
+			);
+		}
+
+		const spotCount = Math.min(WEBGL_MAX_SPOT_LIGHTS, lights.spotShadows.length);
+		for (let i = 0; i < spotCount; i++) {
+			this._renderShadowSlice(
+				shadowProgram,
+				packets,
+				lights.spotShadows[i],
+				i,
+				1
+			);
+		}
+
+		gl.disable(gl.SCISSOR_TEST);
+		gl.colorMask(true, true, true, true);
+		gl.bindVertexArray(null);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.viewport(0, 0, this._width, this._height);
+	}
+
+	private _renderShadowSlice(
+		shadowProgram: WebGLShadowDepthProgram,
+		packets: DrawPacket[],
+		shadow: WebGLShadowData | undefined,
+		tileX: number,
+		tileY: number
+	): void {
+		if (!shadow?.enabled || !shadow.viewProjectionMatrix) {
+			return;
+		}
+
+		const shadowSize = Math.max(1, shadow.shadowMapSize | 0);
+		const viewportX = tileX * this._shadowAtlasTileSize;
+		const viewportY = tileY * this._shadowAtlasTileSize;
+		const gl = this._gl;
+		gl.viewport(viewportX, viewportY, shadowSize, shadowSize);
+		gl.scissor(viewportX, viewportY, shadowSize, shadowSize);
+		gl.clear(gl.DEPTH_BUFFER_BIT);
+
+		for (const packet of packets) {
+			this._drawShadowPacket(shadowProgram, packet, shadow.viewProjectionMatrix);
+		}
+	}
+
+	private _drawShadowPacket(
+		shadowProgram: WebGLShadowDepthProgram,
+		packet: DrawPacket,
+		viewProjectionMatrix: Matrix4
+	): void {
+		if (packet.meshInstance.skeleton) {
+			this._warn(
+				`webgl-shadow-skinning-unsupported-${packet.meshInstance.id}`,
+				`WebGL v1 shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
+			);
+			return;
+		}
+		if (!isFiniteMatrix(packet.worldMatrix)) {
+			return;
+		}
+
+		const geometry = this._geometry.getGeometry(packet);
+		if (!geometry || geometry.topology !== this._gl.TRIANGLES) {
+			return;
+		}
+
+		Matrix4.multiply(
+			viewProjectionMatrix,
+			packet.worldMatrix,
+			this._shadowMvpMatrix
+		);
+		const gl = this._gl;
+		if (shadowProgram.uniforms.mvp) {
+			gl.uniformMatrix4fv(
+				shadowProgram.uniforms.mvp,
+				false,
+				toColumnMajorMat4(this._shadowMvpMatrix)
+			);
+		}
+
+		this._setCullMode(packet.material);
+		gl.bindVertexArray(geometry.vao);
+		gl.drawElements(
+			geometry.topology,
+			geometry.indexCount,
+			geometry.indexType,
+			0
+		);
+		gl.bindVertexArray(null);
+	}
+
+	private _ensureShadowTargets(tileSize: number): void {
+		if (
+			this._shadowFramebuffer &&
+			this._shadowAtlasTexture &&
+			this._shadowAtlasTileSize === tileSize
+		) {
+			return;
+		}
+
+		const atlasWidth = tileSize * WEBGL_SHADOW_ATLAS_COLUMNS;
+		const atlasHeight = tileSize * WEBGL_SHADOW_ATLAS_ROWS;
+		if (atlasWidth > this._maxTextureSize || atlasHeight > this._maxTextureSize) {
+			throw new Error(
+				`WebGL shadow atlas ${atlasWidth}x${atlasHeight} exceeds MAX_TEXTURE_SIZE=${this._maxTextureSize}`
+			);
+		}
+
+		this._destroyShadowTargets();
+		const gl = this._gl;
+		const shadowTexture = gl.createTexture();
+		const shadowFramebuffer = gl.createFramebuffer();
+		if (!shadowTexture || !shadowFramebuffer) {
+			if (shadowTexture) gl.deleteTexture(shadowTexture);
+			if (shadowFramebuffer) gl.deleteFramebuffer(shadowFramebuffer);
+			throw new Error("Failed to create WebGL shadow atlas targets");
+		}
+
+		gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			gl.DEPTH_COMPONENT24,
+			atlasWidth,
+			atlasHeight,
+			0,
+			gl.DEPTH_COMPONENT,
+			gl.UNSIGNED_INT,
+			null
+		);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.DEPTH_ATTACHMENT,
+			gl.TEXTURE_2D,
+			shadowTexture,
+			0
+		);
+		gl.drawBuffers([gl.NONE]);
+		gl.readBuffer(gl.NONE);
+		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		if (status !== gl.FRAMEBUFFER_COMPLETE) {
+			gl.deleteFramebuffer(shadowFramebuffer);
+			gl.deleteTexture(shadowTexture);
+			throw new Error(
+				`WebGL shadow framebuffer is incomplete (status=0x${status.toString(16)})`
+			);
+		}
+
+		this._shadowFramebuffer = shadowFramebuffer;
+		this._shadowAtlasTexture = shadowTexture;
+		this._shadowAtlasTileSize = tileSize;
+	}
+
+	private _destroyShadowTargets(): void {
+		const gl = this._gl;
+		if (this._shadowFramebuffer) {
+			gl.deleteFramebuffer(this._shadowFramebuffer);
+			this._shadowFramebuffer = null;
+		}
+		if (this._shadowAtlasTexture) {
+			gl.deleteTexture(this._shadowAtlasTexture);
+			this._shadowAtlasTexture = null;
+		}
+		this._shadowAtlasTileSize = 0;
 	}
 
 	private _renderPackets(
@@ -767,8 +1043,10 @@ export class WebGLFrameExecutor {
 		const lights = this._lightState ?? {
 			ambientColor: [0, 0, 0] as [number, number, number],
 			directionalLights: [],
+			directionalShadows: [],
 			pointLights: [],
 			spotLights: [],
+			spotShadows: [],
 		};
 
 		if (uniforms.viewProjection) {
@@ -800,6 +1078,19 @@ export class WebGLFrameExecutor {
 				uniforms.enableLighting,
 				context.features.enableLighting ? 1 : 0
 			);
+		}
+		const shadowsEnabled =
+			context.features.enableShadows &&
+			!!this._shadowAtlasTexture &&
+			this._shadowAtlasTileSize > 0;
+		if (uniforms.enableShadows) {
+			gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
+		}
+		if (uniforms.shadowAtlas) {
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, this._shadowAtlasTexture);
+			gl.uniform1i(uniforms.shadowAtlas, 1);
+			gl.activeTexture(gl.TEXTURE0);
 		}
 
 		if (uniforms.taaJitter) {
@@ -837,6 +1128,34 @@ export class WebGLFrameExecutor {
 					light.color[2],
 					0,
 				])
+			);
+		}
+		if (uniforms.dirShadowViewProjection) {
+			gl.uniformMatrix4fv(
+				uniforms.dirShadowViewProjection,
+				false,
+				flattenShadowViewProjection(
+					lights.directionalShadows,
+					WEBGL_MAX_DIRECTIONAL_LIGHTS
+				)
+			);
+		}
+		if (uniforms.dirShadowParamsA) {
+			gl.uniform4fv(
+				uniforms.dirShadowParamsA,
+				flattenShadowParamsA(
+					lights.directionalShadows,
+					WEBGL_MAX_DIRECTIONAL_LIGHTS
+				)
+			);
+		}
+		if (uniforms.dirShadowParamsB) {
+			gl.uniform4fv(
+				uniforms.dirShadowParamsB,
+				flattenShadowParamsB(
+					lights.directionalShadows,
+					WEBGL_MAX_DIRECTIONAL_LIGHTS
+				)
 			);
 		}
 
@@ -900,6 +1219,25 @@ export class WebGLFrameExecutor {
 					light.color[2],
 					light.innerCos,
 				])
+			);
+		}
+		if (uniforms.spotShadowViewProjection) {
+			gl.uniformMatrix4fv(
+				uniforms.spotShadowViewProjection,
+				false,
+				flattenShadowViewProjection(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
+			);
+		}
+		if (uniforms.spotShadowParamsA) {
+			gl.uniform4fv(
+				uniforms.spotShadowParamsA,
+				flattenShadowParamsA(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
+			);
+		}
+		if (uniforms.spotShadowParamsB) {
+			gl.uniform4fv(
+				uniforms.spotShadowParamsB,
+				flattenShadowParamsB(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
 			);
 		}
 	}
@@ -1507,6 +1845,65 @@ function flattenVec4<T>(
 		packed[offset + 3] = value[3];
 	}
 	return packed;
+}
+
+function flattenShadowViewProjection(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 16);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i]?.viewProjectionMatrix;
+		if (!matrix) {
+			continue;
+		}
+		packed.set(toColumnMajorMat4(matrix), i * 16);
+	}
+	return packed;
+}
+
+function flattenShadowParamsA(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = shadow.enabled ? 1 : 0;
+		packed[offset + 1] = shadow.depthBias;
+		packed[offset + 2] = shadow.normalBias;
+		packed[offset + 3] = shadow.normalBiasMin;
+	}
+	return packed;
+}
+
+function flattenShadowParamsB(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = shadow.pcfRadius;
+		packed[offset + 1] = shadow.shadowStrength;
+		packed[offset + 2] = shadow.shadowMapSize;
+		packed[offset + 3] = shadow.atlasTileSize;
+	}
+	return packed;
+}
+
+function getMaxShadowSize(values: WebGLShadowData[]): number {
+	let maxSize = 0;
+	for (const shadow of values) {
+		if (!shadow.enabled || !shadow.shadowMap) continue;
+		maxSize = Math.max(maxSize, shadow.shadowMapSize | 0);
+	}
+	return maxSize;
 }
 
 function toColumnMajorMat4(matrix: Matrix4 | number[][]): Float32Array {
