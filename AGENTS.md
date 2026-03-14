@@ -67,21 +67,48 @@ This file provides critical context and collaboration guidance for AI/code agent
 	3. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance` and `MeshAsset`.
 	4. **Backend Dispatch**: Software rasterization, GPU command encoding, or WebGL batching.
 
-### Mathematics
-- `src/maths/` is the single source of truth for math behavior.
-- **Matrix Rule**: `A.multiply(B)` performs `A = A * B` (in-place).
-- **Coordinate Space**: Right-handed (Y-up, Z-towards viewer).
+## Core Conventions
 
+### Mathematics & Coordinate System
+- **Handedness**: Right-Handed.
+- **Axis Orientation**:
+	- **+Y**: Up
+	- **-Z**: Forward (Camera view direction)
+	- **+X**: Right
+- **Matrices**:
+	- Internal representation (`src/maths/Matrix4.ts`): Row-major `number[row][col]`.
+	- GPU Buffers (WGSL/GLSL): Column-major `Float32Array`.
+	- Multiplicative Order: `A.multiply(B)` performs `A = A * B`.
+- **Projection**: Internal matrices target standard NDC range `[-1, 1]` for Z. Backends (WebGPU) handle remapping if necessary.
+
+### Color Space & Lighting
+- **Internal Calculations**: All lighting and shading calculations are performed in **Linear space**.
+- **Gamma Correction**: Assumes **Gamma 2.2** for encoding/decoding.
+- **Color Format**: `src/utils/Color.ts` uses `0-255` range for RGB objects, but shaders expect `0.0-1.0` linear values.
+- **Texture Decoding**:
+	- Shaders assume textures are encoded in **sRGB** by default and decode them to **Linear** during sampling.
+	- Linear textures (e.g., normal maps, roughness, HDR) MUST be flagged to bypass decoding.
+
+### Shader & Material Assumptions
+- **PBR Model**: Standard implementation using GGX (NDF), Smith-Schlick (Geometry), and Fresnel-Schlick.
+- **Vertex Attributes**:
+	- `shaderLocation 0`: Position (`vec3`)
+	- `shaderLocation 1`: Normal (`vec3`)
+	- `shaderLocation 2`: UV0 (`vec2`)
+	- `shaderLocation 3`: UV1 (`vec2`)
+	- `shaderLocation 4`: Tangent (`vec4`, where `w` is handedness)
 ### Time Units
 - **ALL simulation logic MUST use seconds**.
 - Variables should be suffixed with `Seconds` (e.g., `deltaTimeSeconds`).
 - Convert from `ms` to `seconds` at the entry points (e.g., in `Renderer` loops).
 
-## Implementation Guidelines
-
-- **Zero-Allocation Loops**: Especially critical in `SoftwareBackend` hot paths (Rasterizer). Use pre-allocated math objects and avoided `new` inside loops.
+- **Modules**: Keep interfaces/types in `types.ts` and static constants in `constants.ts` within their respective directories.
+- **Type Safety**: Avoid `as any` or `unknown` unless interacting with external low-level APIs. Maintain strict TypeScript contracts.
+- **Fail Fast & Error Handling**: 
+	- Throw descriptive errors for invalid scene hierarchies or backend configurations.
+	- Always validate array bounds and handle potential `null`/`undefined` from queries or resource lookups.
+- **Zero-Allocation Loops**: Especially critical in `SoftwareBackend` hot paths (Rasterizer). Use pre-allocated math objects and avoid `new` inside loops.
 - **Adapter Pattern**: Physics and Animation systems use adapters/plugins to remain engine-agnostic where possible.
-- **Fail Fast**: Throw descriptive errors for invalid scene hierarchies or backend configurations.
 - **WebGPU Safety**: Always check device/pipeline status before submitting commands.
 
 ## Collaboration Workflow
