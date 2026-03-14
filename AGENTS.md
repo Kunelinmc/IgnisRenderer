@@ -48,12 +48,16 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **PascalCase.ts**: Files containing classes.
 - **camelCase.ts**: Files for utility/logic modules.
 
+### Documentation
+- **Comments & JSDoc**: Use JSDoc for all public methods and properties. Include clear inline comments for complex logic (e.g., matrix math, shader packing).
+
 ## Architecture & Conventions
 
 ### Entity Component System (ECS) & Scene Graph
 - **ECSWorld**: The core data structure managing Entities and their Components (`LocalTransform`, `WorldTransform`, `NodeRef`, `Visibility`, etc.).
 - **Query System**: Use `world.query(["CompA", "CompB"])` for efficient entity filtering.
 - **Node**: Now a **deprecated compatibility facade** over ECS entities. Represents translation, rotation, and scale. Updates are synced between ECS components and the `Node` facade via `ECSWorld.syncNodeToEntity`.
+- **Architectural Integrity**: Maintain separation between **Definition layer** (Interfaces, Types) and **Logic layer** (Systems, Simulation Stages). Avoid mixing responsibilities within a single class.
 - **Simulation Logic**: Integrated into the rendering pipeline or updated per frame:
 	- `AnimationSimulationStage`: Handles mixers, blend trees, and skeletal updates.
 	- `PhysicsSystem`: Manages collision detection, vehicle physics, and syncing rigidbodies with external adapters (Rapier3D, Ammo.js).
@@ -67,6 +71,10 @@ This file provides critical context and collaboration guidance for AI/code agent
 	3. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance` and `MeshAsset`.
 	4. **Backend Dispatch**: Software rasterization, GPU command encoding, or WebGL batching.
 
+### Shader Management
+- **Avoid Inlining**: Do not embed shader code as long strings within TypeScript files. Use separate `.wgsl` or `.glsl` files.
+- **Shader Loaders**: Use dedicated loaders (e.g., `src/shaders/webgpu/shaderSource.ts`) to manage shader source code.
+
 ## Core Conventions
 
 ### Mathematics & Coordinate System
@@ -75,6 +83,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- **+Y**: Up
 	- **-Z**: Forward (Camera view direction)
 	- **+X**: Right
+- **Camera Logic**: Carefully handle differences between **Perspective** (FOV-based, non-linear depth) and **Orthographic** (volume-based, linear depth) projections in frustum culling and shader calculations.
 - **Matrices**:
 	- Internal representation (`src/maths/Matrix4.ts`): Row-major `number[row][col]`.
 	- GPU Buffers (WGSL/GLSL): Column-major `Float32Array`.
@@ -114,4 +123,5 @@ This file provides critical context and collaboration guidance for AI/code agent
 ## Collaboration Workflow
 1. Maintain backend-agnostic contracts in `src/core/` and `src/pipeline/`.
 2. Ensure new features are accompanied by regression tests in `tests/`.
-3. Update `AGENTS.md` if core architectural patterns change.
+3. **Refactoring Policy**: Avoid large-scale refactorings of existing code unless explicitly requested by the user. Prioritize stability and backward compatibility.
+4. Update `AGENTS.md` if core architectural patterns change.
