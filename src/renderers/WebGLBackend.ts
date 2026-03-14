@@ -1,8 +1,12 @@
 import type { FrameContext, FramePass } from "../pipeline/types";
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
+import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 
-const WEBGL_STUB_ERROR_MESSAGE =
-	"WebGLBackend is a stub and is not implemented yet";
+const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
+	"main-opaque",
+	"main-transparent",
+	"gamma",
+]);
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
@@ -15,20 +19,39 @@ export class WebGLBackend implements IRenderBackend {
 		sh: false,
 		shadows: false,
 		reflection: false,
-		skybox: false,
+		skybox: true,
 		ssao: false,
 		taa: false,
 		ssr: false,
 		volumetric: false,
 	};
 
-	public setRenderer(_renderer: RendererBackendBridge): void {}
+	private _renderer: RendererBackendBridge | null = null;
+	private _canvas: HTMLCanvasElement | null = null;
+	private _gl: WebGL2RenderingContext | null = null;
+	private _frameExecutor: WebGLFrameExecutor | null = null;
+	private _contextLost = false;
+	private _contextLossHandler: ((event: Event) => void) | null = null;
+	private _contextRestoreHandler: ((event: Event) => void) | null = null;
+	private _width = 1;
+	private _height = 1;
 
-	public async init(_canvas: HTMLCanvasElement): Promise<void> {
-		throw new Error(WEBGL_STUB_ERROR_MESSAGE);
+	public setRenderer(renderer: RendererBackendBridge): void {
+		this._renderer = renderer;
 	}
 
-	public resize(_width: number, _height: number): void {}
+	public async init(canvas: HTMLCanvasElement): Promise<void> {
+		this._canvas = canvas;
+		this._installContextLifecycleListeners(canvas);
+		this._initializeGLContext(canvas);
+	}
+
+	public resize(width: number, height: number): void {
+		this._width = Math.max(1, width | 0);
+		this._height = Math.max(1, height | 0);
+		if (this._contextLost) return;
+		this._frameExecutor?.resize(this._width, this._height);
+	}
 
 	public getAttachments(
 		width: number,
@@ -37,18 +60,126 @@ export class WebGLBackend implements IRenderBackend {
 		width: number;
 		height: number;
 	} {
-		return { width, height };
+		return {
+			width: Math.max(1, width | 0),
+			height: Math.max(1, height | 0),
+		};
 	}
 
-	public beginFrame(_context: FrameContext): void {
-		throw new Error(WEBGL_STUB_ERROR_MESSAGE);
+	public beginFrame(context: FrameContext): void {
+		if (!this._frameExecutor) {
+			throw new Error("WebGL backend has not been initialized.");
+		}
+		if (this._contextLost) {
+			return;
+		}
+		this._frameExecutor.beginFrame(context);
 	}
 
-	public executePass(_pass: FramePass, _context: FrameContext): void {
-		throw new Error(WEBGL_STUB_ERROR_MESSAGE);
+	public executePass(pass: FramePass, context: FrameContext): void {
+		if (!this._frameExecutor) {
+			throw new Error("WebGL backend has not been initialized.");
+		}
+		if (this._contextLost) {
+			return;
+		}
+		if (!SUPPORTED_WEBGL_STAGES.has(pass.stage)) {
+			this._warnOnce(
+				`webgl-pass-unsupported-${pass.stage}`,
+				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
+			);
+			return;
+		}
+		this._frameExecutor.executePass(pass, context);
 	}
 
 	public endFrame(): void {
-		throw new Error(WEBGL_STUB_ERROR_MESSAGE);
+		if (!this._frameExecutor || this._contextLost) {
+			return;
+		}
+		this._frameExecutor.endFrame();
+	}
+
+	public destroy(): void {
+		this._frameExecutor?.destroy();
+		this._frameExecutor = null;
+		this._gl = null;
+
+		if (this._canvas) {
+			if (this._contextLossHandler) {
+				this._canvas.removeEventListener(
+					"webglcontextlost",
+					this._contextLossHandler
+				);
+			}
+			if (this._contextRestoreHandler) {
+				this._canvas.removeEventListener(
+					"webglcontextrestored",
+					this._contextRestoreHandler
+				);
+			}
+		}
+		this._contextLossHandler = null;
+		this._contextRestoreHandler = null;
+	}
+
+	private _initializeGLContext(canvas: HTMLCanvasElement): void {
+		const gl = canvas.getContext("webgl2", {
+			alpha: false,
+			antialias: true,
+			depth: true,
+			stencil: false,
+			premultipliedAlpha: false,
+			preserveDrawingBuffer: false,
+		}) as WebGL2RenderingContext | null;
+		if (!gl) {
+			throw new Error(
+				"Failed to acquire WebGL2 context. WebGLBackend v1 requires WebGL2."
+			);
+		}
+
+		this._gl = gl;
+		this._frameExecutor?.destroy();
+		this._frameExecutor = new WebGLFrameExecutor(gl, (key, message) =>
+			this._warnOnce(key, message)
+		);
+		this._contextLost = false;
+		this._frameExecutor.resize(this._width, this._height);
+	}
+
+	private _installContextLifecycleListeners(canvas: HTMLCanvasElement): void {
+		if (this._contextLossHandler || this._contextRestoreHandler) {
+			return;
+		}
+		this._contextLossHandler = (event: Event) => {
+			(event as WebGLContextEvent).preventDefault?.();
+			this._contextLost = true;
+			this._warnOnce(
+				"webgl-context-lost",
+				"WebGL context was lost. Rendering is paused until context restoration."
+			);
+		};
+		this._contextRestoreHandler = () => {
+			this._warnOnce(
+				"webgl-context-restored",
+				"WebGL context was restored. Rebuilding WebGL resources."
+			);
+			if (!this._canvas) return;
+			try {
+				this._initializeGLContext(this._canvas);
+			} catch (error) {
+				this._warnOnce(
+					"webgl-context-restore-failed",
+					`WebGL context restore failed: ${String(error)}`
+				);
+			}
+		};
+
+		canvas.addEventListener("webglcontextlost", this._contextLossHandler);
+		canvas.addEventListener("webglcontextrestored", this._contextRestoreHandler);
+	}
+
+	private _warnOnce(key: string, message: string): void {
+		this._renderer?.warnOnce(key, message);
 	}
 }

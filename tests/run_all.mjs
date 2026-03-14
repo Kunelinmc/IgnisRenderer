@@ -13,6 +13,7 @@ const tests = [
 	"test_software_shadow_sampling.mjs",
 	"test_backend_capabilities.mjs",
 	"test_webgl_backend_stub.mjs",
+	"test_webgl_backend_v1.mjs",
 	"test_layer_boundaries.mjs",
 	"test_frame_planner.mjs",
 	"test_model_factory_winding.mjs",

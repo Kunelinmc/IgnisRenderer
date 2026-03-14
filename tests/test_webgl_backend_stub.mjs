@@ -1,10 +1,216 @@
 import assert from "node:assert/strict";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 
-const STUB_MESSAGE = "WebGLBackend is a stub and is not implemented yet";
+function createFakeWebGL2Context() {
+	return {
+		MAX_TEXTURE_SIZE: 0x0d33,
+		VERTEX_SHADER: 0x8b31,
+		FRAGMENT_SHADER: 0x8b30,
+		COMPILE_STATUS: 0x8b81,
+		LINK_STATUS: 0x8b82,
+		VALIDATE_STATUS: 0x8b83,
+		FRAMEBUFFER: 0x8d40,
+		FRAMEBUFFER_COMPLETE: 0x8cd5,
+		RENDERBUFFER: 0x8d41,
+		ARRAY_BUFFER: 0x8892,
+		ELEMENT_ARRAY_BUFFER: 0x8893,
+		STATIC_DRAW: 0x88e4,
+		COLOR_ATTACHMENT0: 0x8ce0,
+		DEPTH_ATTACHMENT: 0x8d00,
+		DEPTH_COMPONENT24: 0x81a6,
+		TEXTURE_2D: 0x0de1,
+		TEXTURE0: 0x84c0,
+		TEXTURE_MIN_FILTER: 0x2801,
+		TEXTURE_MAG_FILTER: 0x2800,
+		TEXTURE_WRAP_S: 0x2802,
+		TEXTURE_WRAP_T: 0x2803,
+		LINEAR: 0x2601,
+		NEAREST: 0x2600,
+		NEAREST_MIPMAP_NEAREST: 0x2700,
+		LINEAR_MIPMAP_LINEAR: 0x2703,
+		CLAMP_TO_EDGE: 0x812f,
+		REPEAT: 0x2901,
+		MIRRORED_REPEAT: 0x8370,
+		RGBA: 0x1908,
+		UNSIGNED_BYTE: 0x1401,
+		FLOAT: 0x1406,
+		UNSIGNED_SHORT: 0x1403,
+		UNSIGNED_INT: 0x1405,
+		COLOR_BUFFER_BIT: 0x4000,
+		DEPTH_BUFFER_BIT: 0x0100,
+		BLEND: 0x0be2,
+		CULL_FACE: 0x0b44,
+		DEPTH_TEST: 0x0b71,
+		BACK: 0x0405,
+		FRONT: 0x0404,
+		CCW: 0x0901,
+		TRIANGLES: 0x0004,
+		LINES: 0x0001,
+		POINTS: 0x0000,
+		SRC_ALPHA: 0x0302,
+		ONE_MINUS_SRC_ALPHA: 0x0303,
+		ONE: 1,
+		getParameter(param) {
+			if (param === this.MAX_TEXTURE_SIZE) return 4096;
+			return 0;
+		},
+		createVertexArray() {
+			return {};
+		},
+		deleteVertexArray() {},
+		createFramebuffer() {
+			return {};
+		},
+		deleteFramebuffer() {},
+		createTexture() {
+			return {};
+		},
+		deleteTexture() {},
+		createRenderbuffer() {
+			return {};
+		},
+		deleteRenderbuffer() {},
+		createShader() {
+			return {};
+		},
+		deleteShader() {},
+		shaderSource() {},
+		compileShader() {},
+		getShaderParameter() {
+			return true;
+		},
+		getShaderInfoLog() {
+			return "";
+		},
+		createProgram() {
+			return {};
+		},
+		deleteProgram() {},
+		attachShader() {},
+		linkProgram() {},
+		getProgramParameter() {
+			return true;
+		},
+		getProgramInfoLog() {
+			return "";
+		},
+		getUniformLocation() {
+			return {};
+		},
+		createBuffer() {
+			return {};
+		},
+		deleteBuffer() {},
+		bindBuffer() {},
+		bufferData() {},
+		enableVertexAttribArray() {},
+		vertexAttribPointer() {},
+		bindVertexArray() {},
+		bindFramebuffer() {},
+		framebufferTexture2D() {},
+		framebufferRenderbuffer() {},
+		checkFramebufferStatus() {
+			return this.FRAMEBUFFER_COMPLETE;
+		},
+		bindRenderbuffer() {},
+		renderbufferStorage() {},
+		bindTexture() {},
+		activeTexture() {},
+		texParameteri() {},
+		texImage2D() {},
+		pixelStorei() {},
+		generateMipmap() {},
+		viewport() {},
+		clearColor() {},
+		clearDepth() {},
+		clear() {},
+		enable() {},
+		disable() {},
+		depthMask() {},
+		frontFace() {},
+		cullFace() {},
+		blendFuncSeparate() {},
+		useProgram() {},
+		uniform1i() {},
+		uniform1f() {},
+		uniform3f() {},
+		uniform4f() {},
+		uniform4fv() {},
+		uniformMatrix4fv() {},
+		uniformMatrix3fv() {},
+		drawArrays() {},
+		drawElements() {},
+	};
+}
 
-async function run() {
+function createFakeCanvas(gl) {
+	const listeners = new Map();
+	return {
+		width: 640,
+		height: 360,
+		getContext(type) {
+			return type === "webgl2" ? gl : null;
+		},
+		addEventListener(name, listener) {
+			let list = listeners.get(name);
+			if (!list) {
+				list = [];
+				listeners.set(name, list);
+			}
+			list.push(listener);
+		},
+		removeEventListener(name, listener) {
+			const list = listeners.get(name);
+			if (!list) return;
+			const index = list.indexOf(listener);
+			if (index >= 0) list.splice(index, 1);
+		},
+		dispatch(name, event = {}) {
+			const list = listeners.get(name);
+			if (!list) return;
+			for (const listener of list) {
+				listener(event);
+			}
+		},
+	};
+}
+
+function createRendererBridge() {
+	const warnings = [];
+	const warned = new Set();
+	return {
+		warnings,
+		bridge: {
+			canvas: { width: 1, height: 1 },
+			camera: {},
+			scene: { getLights: () => [] },
+			features: { enableShadows: false },
+			warnOnce(key, message) {
+				if (warned.has(key)) return;
+				warned.add(key);
+				warnings.push({ key, message });
+			},
+		},
+	};
+}
+
+async function testInitRequiresWebGL2() {
 	const backend = new WebGLBackend();
+	const { bridge } = createRendererBridge();
+	backend.setRenderer(bridge);
+	const canvas = createFakeCanvas(null);
+	await assert.rejects(
+		backend.init(canvas),
+		/WebGL2 context|requires WebGL2|acquire WebGL2/
+	);
+}
+
+async function testInitAndPassRouting() {
+	const backend = new WebGLBackend();
+	const { bridge, warnings } = createRendererBridge();
+	backend.setRenderer(bridge);
+	const canvas = createFakeCanvas(createFakeWebGL2Context());
+	await backend.init(canvas);
 
 	assert.equal(backend.type, "webgl");
 	assert.equal(backend.frameScheduling, "on-demand");
@@ -16,33 +222,90 @@ async function run() {
 		sh: false,
 		shadows: false,
 		reflection: false,
-		skybox: false,
+		skybox: true,
 		ssao: false,
 		taa: false,
 		ssr: false,
 		volumetric: false,
 	});
 
-	backend.setRenderer({
-		canvas: { width: 1, height: 1 },
-		camera: {},
-		scene: { lights: [] },
-		features: { enableShadows: false },
-		warnOnce() {},
-	});
+	const calls = [];
+	backend._frameExecutor = {
+		beginFrame(context) {
+			calls.push(["begin", context]);
+		},
+		executePass(pass, context) {
+			calls.push(["pass", pass.stage, context]);
+		},
+		endFrame() {
+			calls.push(["end"]);
+		},
+		resize(width, height) {
+			calls.push(["resize", width, height]);
+		},
+		destroy() {
+			calls.push(["destroy"]);
+		},
+	};
+
 	backend.resize(800, 600);
+	backend.beginFrame({ frameId: 1 });
+	backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
+	backend.executePass({ stage: "shadow" }, { frameId: 1 });
+	backend.executePass({ stage: "shadow" }, { frameId: 1 });
+	backend.endFrame();
+	backend.destroy();
 
-	assert.deepEqual(backend.getAttachments(320, 240), {
-		width: 320,
-		height: 240,
+	assert.deepEqual(calls, [
+		["resize", 800, 600],
+		["begin", { frameId: 1 }],
+		["pass", "main-opaque", { frameId: 1 }],
+		["end"],
+		["destroy"],
+	]);
+	assert.equal(
+		warnings.filter((warning) => warning.key === "webgl-pass-unsupported-shadow")
+			.length,
+		1
+	);
+}
+
+async function testContextLostAndRestored() {
+	const backend = new WebGLBackend();
+	const { bridge, warnings } = createRendererBridge();
+	backend.setRenderer(bridge);
+	const canvas = createFakeCanvas(createFakeWebGL2Context());
+	await backend.init(canvas);
+
+	const originalExecutor = backend._frameExecutor;
+	let prevented = false;
+	canvas.dispatch("webglcontextlost", {
+		preventDefault() {
+			prevented = true;
+		},
 	});
+	assert.equal(prevented, true);
+	assert.equal(backend._contextLost, true);
 
-	await assert.rejects(() => backend.init({}), /WebGLBackend is a stub/);
-	assert.throws(() => backend.beginFrame({}), /WebGLBackend is a stub/);
-	assert.throws(() => backend.executePass({}, {}), /WebGLBackend is a stub/);
-	assert.throws(() => backend.endFrame(), /WebGLBackend is a stub/);
+	canvas.dispatch("webglcontextrestored", {});
+	assert.equal(backend._contextLost, false);
+	assert.notStrictEqual(backend._frameExecutor, originalExecutor);
 
-	console.log("WebGL backend stub tests passed");
+	assert.equal(
+		warnings.some((warning) => warning.key === "webgl-context-lost"),
+		true
+	);
+	assert.equal(
+		warnings.some((warning) => warning.key === "webgl-context-restored"),
+		true
+	);
+}
+
+async function run() {
+	await testInitRequiresWebGL2();
+	await testInitAndPassRouting();
+	await testContextLostAndRestored();
+	console.log("WebGL backend v1 tests passed");
 }
 
 await run();
