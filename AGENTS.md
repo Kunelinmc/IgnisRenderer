@@ -9,7 +9,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- **SoftwareBackend**: Multi-threaded CPU rasterizer pipeline with custom PBR shading.
 	- **WebGPUBackend**: Hardware-accelerated pipeline with advanced post-processing features.
 	- **WebGLBackend**: Legacy/stub backend for fallback scenarios.
-- **Core Architecture**: Modular Scene Graph (`Node`) integrated with Animation, Physics, and Particle simulation stages.
+- **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a compatibility facade. Integrated with Animation, Physics, and Particle simulation stages.
 
 ## Build & Test Commands
 
@@ -49,13 +49,14 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ## Architecture & Conventions
 
-### Scene Graph & Simulation
-- **Node**: The fundamental unit of translation, rotation, and scale.
-- **Simulation Logic**: Integrated into the rendering pipeline via dedicated stages:
+### Entity Component System (ECS) & Scene Graph
+- **ECSWorld**: The core data structure managing Entities and their Components (`LocalTransform`, `WorldTransform`, `NodeRef`, `Visibility`, etc.).
+- **Node**: Now a **deprecated compatibility facade** over ECS entities. Represents translation, rotation, and (deprecated) scale. Avoid relying on complex node hierarchies where ECS queries can be used.
+- **Transform Updates**: Synchronized between ECS transform components and the `Node` facade natively.
+- **Simulation Logic**: Integrated into the rendering pipeline or updated per frame:
 	- `AnimationSimulationStage`: Handles mixers, blend trees, and skeletal updates.
-	- `PhysicsSimulationStage`: Syncs `PhysicsBodyNode`s with external physics engines (Rapier3D, Ammo.js).
+	- `PhysicsSystem`: Manages collision detection, vehicle physics, and syncing `PhysicsBodyNode` rigidbodies with external adapters (Rapier3D, Ammo.js).
 	- `ParticleSimulationStage`: Updates particle state before rendering.
-- **Transform Updates**: World matrices are calculated lazily or updated per frame via `scene.updateWorldMatrices()` during traversal.
 
 ### Advanced Rendering Features
 - **WebGPU Post-Processing Graph**: Supports SSAO, SSR, TAA, FXAA, and Volumetric Lighting.
