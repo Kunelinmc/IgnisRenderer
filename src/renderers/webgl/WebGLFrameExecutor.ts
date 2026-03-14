@@ -678,6 +678,12 @@ export class WebGLFrameExecutor {
 				resolvedMap.isLinear ? 1 : 0
 			);
 		}
+		if (sceneProgram.uniforms.doubleSided) {
+			gl.uniform1i(
+				sceneProgram.uniforms.doubleSided,
+				material.doubleSided || material.cullMode === "none" ? 1 : 0
+			);
+		}
 
 		gl.drawElements(
 			geometry.topology,

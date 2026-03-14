@@ -9,6 +9,7 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
+import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
 
 function createProgramCompileFailGL() {
 	return {
@@ -135,6 +136,17 @@ function testLightCollectorShadowBias() {
 	assert.equal(shadow.shadowMapSize, 1024);
 }
 
+function testSceneShaderBackLitShadowGuard() {
+	const shader = createWebGLSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	assert.ok(shader.fragment.includes("dot(normal, lightDirection) <= 0.0"));
+	assert.ok(shader.fragment.includes("uniform int uDoubleSided;"));
+	assert.ok(shader.fragment.includes("if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)"));
+}
+
 function testGeometryRegistryRejectsOutOfRangeIndices() {
 	const warnings = [];
 	const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k, m) =>
@@ -167,6 +179,7 @@ function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
 	testLightCollectorShadowBias();
+	testSceneShaderBackLitShadowGuard();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	console.log("WebGL backend v1 unit tests passed");
 }

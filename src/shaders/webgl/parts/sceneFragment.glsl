@@ -21,6 +21,7 @@ uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
 uniform int uEnableLighting;
 uniform int uShadingModel;
+uniform int uDoubleSided;
 uniform vec4 uBaseColor;
 uniform vec4 uEmissive;
 uniform vec4 uPBR;
@@ -91,6 +92,9 @@ float sampleShadowVisibility(
 	vec3 lightDirection
 ) {
 	if (uEnableShadows == 0 || paramsA.x < 0.5) {
+		return 1.0;
+	}
+	if (dot(normal, lightDirection) <= 0.0) {
 		return 1.0;
 	}
 
@@ -471,6 +475,9 @@ void main() {
 
 	vec3 normal = normalize(vNormal);
 	vec3 viewDir = safeNormalize(uCameraPosition - vWorldPos, vec3(0.0, 0.0, 1.0));
+	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
+		normal = -normal;
+	}
 	vec3 color;
 	if (uEnableLighting == 0 || uShadingModel == 2) {
 		color = albedo;

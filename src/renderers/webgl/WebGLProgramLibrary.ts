@@ -92,6 +92,7 @@ export interface WebGLSceneProgram {
 		ambientColor: WebGLUniformLocation | null;
 		enableLighting: WebGLUniformLocation | null;
 		enableShadows: WebGLUniformLocation | null;
+		doubleSided: WebGLUniformLocation | null;
 		shadingModel: WebGLUniformLocation | null;
 		baseColor: WebGLUniformLocation | null;
 		emissive: WebGLUniformLocation | null;
@@ -217,6 +218,7 @@ export class WebGLProgramLibrary {
 				ambientColor: this._gl.getUniformLocation(program, "uAmbientColor"),
 				enableLighting: this._gl.getUniformLocation(program, "uEnableLighting"),
 				enableShadows: this._gl.getUniformLocation(program, "uEnableShadows"),
+				doubleSided: this._gl.getUniformLocation(program, "uDoubleSided"),
 				shadingModel: this._gl.getUniformLocation(program, "uShadingModel"),
 				baseColor: this._gl.getUniformLocation(program, "uBaseColor"),
 				emissive: this._gl.getUniformLocation(program, "uEmissive"),
