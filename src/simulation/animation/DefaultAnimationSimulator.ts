@@ -22,7 +22,8 @@ export class DefaultAnimationSimulator implements IAnimationSimulator {
 		this._runtime.update(
 			this._animationSystem,
 			Math.max(0, deltaTimeMs) / 1000,
-			context.transient
+			context.transient,
+			context.scene
 		);
 	}
 

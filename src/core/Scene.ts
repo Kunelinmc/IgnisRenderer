@@ -7,34 +7,44 @@ import { MeshInstance } from "../meshes";
 import type { SceneLight } from "../lights";
 import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
+import { ECSWorld } from "../ecs";
+
+const ROOT_PATH = "/sceneRoot";
 
 export class Scene {
+	/** @deprecated Scene is now a compatibility facade over ECSWorld. */
 	public readonly root: Node;
+	public readonly ecs: ECSWorld;
 	public skybox: Texture | null;
 
 	private _version: number;
+	private _reparentingNodes = new WeakSet<Node>();
 
 	constructor() {
 		this.root = new Node({
 			idPrefix: "scene",
 			name: "sceneRoot",
 		});
+		this.ecs = new ECSWorld();
 		this.skybox = null;
 		this._version = 0;
+
+		this.root._scene = this;
+		const rootEntity = this.ecs.registerNode(this.root, null);
+		this.root._entityId = rootEntity;
+		this.ecs.setHierarchy(rootEntity, null, []);
+		this.ecs.setComponent(rootEntity, "PathBinding", {
+			path: ROOT_PATH,
+		});
 	}
 
 	public add<T extends Node>(node: T): T {
 		this.root.addChild(node);
-		this.invalidate();
 		return node;
 	}
 
 	public remove(node: Node): boolean {
-		const removed = node.parent ? node.parent.removeChild(node) : false;
-		if (removed) {
-			this.invalidate();
-		}
-		return removed;
+		return node.parent ? node.parent.removeChild(node) : false;
 	}
 
 	public clear(): void {
@@ -42,7 +52,6 @@ export class Scene {
 		for (const child of [...this.root.children]) {
 			this.root.removeChild(child);
 		}
-		this.invalidate();
 	}
 
 	public contains(node: Node): boolean {
@@ -63,31 +72,74 @@ export class Scene {
 	}
 
 	public getMeshInstances(): MeshInstance[] {
-		return this._collectByType((node): node is MeshInstance => {
-			return node instanceof MeshInstance;
-		});
+		return this.ecs.findMeshInstances();
 	}
 
 	public getLights(): SceneLight[] {
-		return this._collectByType((node): node is SceneLight => {
-			return hasLightType(node);
-		});
+		return this.ecs.findLights();
 	}
 
 	public getCameras(): Camera[] {
-		return this._collectByType((node): node is Camera => {
-			return node instanceof Camera;
-		});
+		return this.ecs.findCameras();
 	}
 
 	public getParticleSystems(): ParticleSystem[] {
-		return this._collectByType((node): node is ParticleSystem => {
-			return node instanceof ParticleSystem;
-		});
+		return this.ecs.findParticleSystems();
 	}
 
 	public updateWorldMatrices(): void {
 		this.root.updateWorldMatrix();
+		this.syncNodeToECS();
+	}
+
+	public syncNodeToECS(): void {
+		const activeNodes = new Set<Node>();
+		const rootEntity = this.root._entityId;
+		if (rootEntity === null) {
+			throw new Error("Scene root entity is missing");
+		}
+		this._syncNodeRecursive(this.root, null, ROOT_PATH, activeNodes);
+
+		const entities = this.ecs.query(["NodeRef"]);
+		for (const entity of entities) {
+			const node = this.ecs.getNodeByEntity(entity);
+			if (!node || !activeNodes.has(node)) {
+				this.ecs.destroyEntity(entity);
+			}
+		}
+	}
+
+	public syncECSToNode(): void {
+		const entities = this.ecs.query(["NodeRef", "LocalTransform"]);
+		for (const entity of entities) {
+			this.ecs.syncEntityToNode(entity);
+		}
+	}
+
+	public markNodeReparenting(node: Node, active: boolean): void {
+		if (active) {
+			this._reparentingNodes.add(node);
+			return;
+		}
+		this._reparentingNodes.delete(node);
+	}
+
+	public onNodeAttachedFromAPI(parent: Node, child: Node): void {
+		if (parent._scene !== this) return;
+		this._setSceneRecursive(child, this);
+		this.syncNodeToECS();
+		this.invalidate();
+	}
+
+	public onNodeDetachedFromAPI(_parent: Node, child: Node): void {
+		if (this._reparentingNodes.has(child)) {
+			this.invalidate();
+			return;
+		}
+
+		this._unregisterNodeRecursive(child);
+		this._setSceneRecursive(child, null);
+		this.invalidate();
 	}
 
 	public invalidate(): void {
@@ -147,9 +199,58 @@ export class Scene {
 		});
 		return result;
 	}
+
+	private _syncNodeRecursive(
+		node: Node,
+		parentEntity: number | null,
+		path: string,
+		activeNodes: Set<Node>
+	): number {
+		activeNodes.add(node);
+		const entity = this.ecs.registerNode(node, parentEntity);
+		node._entityId = entity;
+		node._scene = this;
+		this.ecs.setExternalId(entity, node.id);
+		this.ecs.setComponent(entity, "PathBinding", { path });
+		this.ecs.syncNodeToEntity(node, path);
+
+		const childEntities: number[] = [];
+		for (const child of node.children) {
+			const childEntity = this._syncNodeRecursive(
+				child,
+				entity,
+				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
+				activeNodes
+			);
+			childEntities.push(childEntity);
+		}
+		this.ecs.setHierarchy(entity, parentEntity, childEntities);
+		return entity;
+	}
+
+	private _unregisterNodeRecursive(node: Node): void {
+		for (const child of node.children) {
+			this._unregisterNodeRecursive(child);
+		}
+		if (node._entityId !== null) {
+			this.ecs.unregisterNode(node);
+			node._entityId = null;
+		}
+	}
+
+	private _setSceneRecursive(node: Node, scene: Scene | null): void {
+		node._scene = scene;
+		for (const child of node.children) {
+			this._setSceneRecursive(child, scene);
+		}
+	}
 }
 
 function hasLightType(value: unknown): value is SceneLight {
 	if (!value || typeof value !== "object") return false;
 	return "type" in value && "intensity" in value && "color" in value;
+}
+
+function sanitizePathSegment(value: string): string {
+	return value.replace(/[^\w\-]+/g, "_");
 }

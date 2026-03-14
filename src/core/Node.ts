@@ -4,6 +4,7 @@ import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { IdGenerator } from "../utils/IdGenerator";
 import type { BoundingBox } from "./types";
+import type { Scene } from "./Scene";
 
 interface QuaternionLike {
 	x: number;
@@ -22,6 +23,7 @@ export interface NodeParams {
 }
 
 export class Node {
+	/** @deprecated Node is now a compatibility facade over ECS entities. */
 	public readonly id: string;
 	public name: string;
 	public visible: boolean;
@@ -32,6 +34,8 @@ export class Node {
 	public scale: Vector3;
 	public localMatrix: Matrix4;
 	public worldMatrix: Matrix4;
+	public _scene: Scene | null;
+	public _entityId: number | null;
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
@@ -46,8 +50,14 @@ export class Node {
 		this.scale.copy(params.scale ?? { x: 1, y: 1, z: 1 });
 		this.localMatrix = Matrix4.identity();
 		this.worldMatrix = Matrix4.identity();
+		this._scene = null;
+		this._entityId = null;
 		this.updateLocalMatrix();
 		copyMatrix(this.worldMatrix, this.localMatrix);
+	}
+
+	public get entityId(): number | null {
+		return this._entityId;
 	}
 
 	public addChild(child: Node): Node {
@@ -60,10 +70,27 @@ export class Node {
 		}
 
 		if (child.parent) {
+			if (
+				this._scene &&
+				child._scene === this._scene &&
+				child.parent._scene === this._scene
+			) {
+				this._scene.markNodeReparenting(child, true);
+			}
 			child.parent.removeChild(child);
+			if (
+				this._scene &&
+				child._scene === this._scene &&
+				this._scene
+			) {
+				this._scene.markNodeReparenting(child, false);
+			}
 		}
 		child.parent = this;
 		this.children.push(child);
+		if (this._scene) {
+			this._scene.onNodeAttachedFromAPI(this, child);
+		}
 		return child;
 	}
 
@@ -72,6 +99,9 @@ export class Node {
 		if (index === -1) return false;
 		this.children.splice(index, 1);
 		child.parent = null;
+		if (this._scene) {
+			this._scene.onNodeDetachedFromAPI(this, child);
+		}
 		return true;
 	}
 

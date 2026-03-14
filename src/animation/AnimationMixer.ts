@@ -22,6 +22,7 @@ export class AnimationMixer {
 	public readonly blendTrees1D: Map<string, BlendTree1D>;
 	public readonly blendTreesDirect: Map<string, BlendTreeDirect>;
 	public readonly nodeBindings: Map<string, Node>;
+	public readonly entityBindings: Map<string, number>;
 	public readonly materialBindings: Map<string, any>;
 	public readonly morphBindings: Map<string, any>;
 	public rootMotion: Required<AnimationRootMotionOptions>;
@@ -35,6 +36,7 @@ export class AnimationMixer {
 		this.blendTrees1D = new Map();
 		this.blendTreesDirect = new Map();
 		this.nodeBindings = new Map();
+		this.entityBindings = new Map();
 		this.materialBindings = new Map();
 		this.morphBindings = new Map();
 		this.rootMotion = {
@@ -84,6 +86,10 @@ export class AnimationMixer {
 
 	public bindNode(path: string, node: Node): void {
 		this.nodeBindings.set(path, node);
+	}
+
+	public bindEntity(path: string, entityId: number): void {
+		this.entityBindings.set(path, entityId);
 	}
 
 	public bindMaterial(path: string, material: any): void {

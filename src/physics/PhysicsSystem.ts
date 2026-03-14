@@ -28,6 +28,7 @@ import type {
 	PhysicsWorldStepReport,
 	StepOverride,
 	TransformAuthority,
+	PhysicsEntityId,
 } from "./types";
 import type {
 	IPhysicsEngineAdapter,
@@ -147,12 +148,20 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _jointById = new Map<string, InternalJointBinding>();
 	private _controllerById = new Map<string, InternalControllerBinding>();
 	private _eventQueueByWorld = new Map<string, PhysicsEvent[]>();
+	private _entityNodeResolver: ((entityId: PhysicsEntityId) => Node | null) | null =
+		null;
 
 	constructor(options: PhysicsSystemOptions = {}) {
 		super();
 		this._adapter = options.adapter ?? new SimplePhysicsAdapter();
 		this._geometryProvider =
 			options.geometryProvider ?? new DefaultCollisionGeometryProvider();
+	}
+
+	public setEntityNodeResolver(
+		resolver: ((entityId: PhysicsEntityId) => Node | null) | null
+	): void {
+		this._entityNodeResolver = resolver;
 	}
 
 	public async init(): Promise<void> {
@@ -215,9 +224,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public attachBody(
-		node: Node | PhysicsBodyNode,
+		target: Node | PhysicsBodyNode | PhysicsEntityId,
 		desc?: BodyBinding
 	): PhysicsBodyHandle {
+		const node = this._resolveNodeTarget(target);
 		if (this._bodyIdByNodeId.has(node.id)) {
 			throw new Error(`Node "${node.id}" is already bound to a physics body`);
 		}
@@ -237,6 +247,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			id: bodyId,
 			worldId: binding.worldId,
 			node,
+			entityId: typeof target === "number" ? target : undefined,
 			authority,
 			body: {
 				...binding.body,
@@ -296,7 +307,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public addCollider(
-		target: Node | PhysicsBodyHandle,
+		target: Node | PhysicsBodyHandle | PhysicsEntityId,
 		desc: ColliderDescriptor
 	): PhysicsColliderHandle {
 		const body = this._resolveBody(target);
@@ -1256,7 +1267,22 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		};
 	}
 
-	private _resolveBody(target: Node | PhysicsBodyHandle): InternalBodyBinding {
+	private _resolveBody(
+		target: Node | PhysicsBodyHandle | PhysicsEntityId
+	): InternalBodyBinding {
+		if (typeof target === "number") {
+			if (!this._entityNodeResolver) {
+				throw new Error(
+					"PhysicsSystem entity target requires setEntityNodeResolver()"
+				);
+			}
+			const node = this._entityNodeResolver(target);
+			if (!node) {
+				throw new Error(`Entity "${target}" is not bound to a Node`);
+			}
+			return this._resolveBody(node);
+		}
+
 		if (isBodyHandle(target)) {
 			const body = this._bodyById.get(target.id);
 			if (body) return body;
@@ -1272,7 +1298,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	private _resolveBodyRef(
-		target: Node | PhysicsBodyHandle | string
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
 	): InternalBodyBinding {
 		if (typeof target === "string") {
 			const body = this._bodyById.get(target);
@@ -1280,6 +1306,20 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			throw new Error(`Physics body "${target}" does not exist`);
 		}
 		return this._resolveBody(target);
+	}
+
+	private _resolveNodeTarget(
+		target: Node | PhysicsBodyNode | PhysicsEntityId
+	): Node | PhysicsBodyNode {
+		if (typeof target !== "number") return target;
+		if (!this._entityNodeResolver) {
+			throw new Error(
+				"attachBody(entityId, desc) requires setEntityNodeResolver()"
+			);
+		}
+		const node = this._entityNodeResolver(target);
+		if (node) return node;
+		throw new Error(`Entity "${target}" is not bound to a Node`);
 	}
 
 	private _requireWorld(worldId: string): PhysicsWorldConfig {

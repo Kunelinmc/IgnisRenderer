@@ -102,20 +102,24 @@ export interface FrameContext {
 	readonly transient: Map<string, any>;
 }
 
-export type FramePassStage =
-	| "animation-sim"
-	| "particle-sim"
-	| "shadow"
-	| "reflection"
-	| "main-opaque"
-	| "main-transparent"
-	| "particles"
-	| "ssao"
-	| "taa"
-	| "ssr"
-	| "volumetric"
-	| "fxaa"
-	| "gamma";
+export const BUILTIN_FRAME_PASS_STAGES = [
+	"animation-sim",
+	"particle-sim",
+	"shadow",
+	"reflection",
+	"main-opaque",
+	"main-transparent",
+	"particles",
+	"ssao",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fxaa",
+	"gamma",
+] as const;
+
+export type BuiltinFramePassStage = (typeof BUILTIN_FRAME_PASS_STAGES)[number];
+export type FramePassStage = BuiltinFramePassStage | (string & {});
 
 export interface FramePass {
 	stage: FramePassStage;

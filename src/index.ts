@@ -60,3 +60,5 @@ export { GLTFLoader } from "./loaders/GLTFLoader";
 export { GLBLoader } from "./loaders/GLBLoader";
 export { HDRLoader } from "./loaders/HDRLoader";
 export { Loader } from "./loaders/Loader";
+export * as experimentalECS from "./ecs";
+export type { EntityPrefab } from "./ecs";

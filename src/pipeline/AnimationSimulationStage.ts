@@ -1,8 +1,9 @@
 import { DefaultAnimationSimulator } from '../simulation/animation/DefaultAnimationSimulator'
 import type { AnimationSystem } from '../animation/AnimationSystem'
+import type { Scene } from '../core/Scene'
 
 export interface AnimationSimulationStageContext {
-	scene: any
+	scene: Scene
 	transient: Map<string, any>
 }
 

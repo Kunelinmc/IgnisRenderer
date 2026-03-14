@@ -8,6 +8,7 @@ export type PhysicsWorldId = string;
 export type PhysicsStepMode = "fixed" | "variable";
 
 export type TransformAuthority = "physics" | "animation";
+export type PhysicsEntityId = number
 
 export type RigidBodyType = "dynamic" | "kinematic" | "fixed";
 
@@ -131,8 +132,8 @@ export interface BodyBinding {
 export interface JointDescriptor {
 	worldId: PhysicsWorldId;
 	type: JointType;
-	bodyA: string | Node | PhysicsBodyHandle;
-	bodyB: string | Node | PhysicsBodyHandle;
+	bodyA: string | Node | PhysicsBodyHandle | PhysicsEntityId;
+	bodyB: string | Node | PhysicsBodyHandle | PhysicsEntityId;
 	anchorA?: IVector3;
 	anchorB?: IVector3;
 	axis?: IVector3;
@@ -144,7 +145,7 @@ export interface JointDescriptor {
 
 export interface CharacterControllerDescriptor {
 	worldId: PhysicsWorldId;
-	body: string | Node | PhysicsBodyHandle;
+	body: string | Node | PhysicsBodyHandle | PhysicsEntityId;
 	radius: number;
 	height: number;
 	stepHeight?: number;
@@ -256,6 +257,7 @@ export interface PhysicsBodyHandle {
 	readonly id: string;
 	readonly worldId: PhysicsWorldId;
 	readonly node: Node;
+	readonly entityId?: PhysicsEntityId;
 	authority: TransformAuthority;
 }
 

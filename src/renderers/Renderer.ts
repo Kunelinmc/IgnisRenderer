@@ -10,21 +10,26 @@ import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
-import { FramePlanner } from "../pipeline/FramePlanner";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
+import {
+	RendererStageGraph,
+	type RendererStageDefinition,
+} from "../pipeline/RendererStageGraph";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { AnimationSystem } from "../animation/AnimationSystem";
+import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	SSAOOptions,
 	SSROptions,
 	TAAOptions,
 	VolumetricOptions,
+	FramePass,
 	FrameContext,
 } from "../pipeline/types";
 import type { IRenderBackend } from "./IRenderBackend";
@@ -81,6 +86,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _deltaTime: number;
 	private _frameDirty: boolean;
 	private _animationStage: AnimationSimulationStage;
+	private _stageGraph: RendererStageGraph;
+	private _physicsSystem: PhysicsSystem | null;
 
 	constructor(
 		backend: IRenderBackend,
@@ -97,6 +104,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._frameDirty = true;
 		this.animationAutoRender = true;
 		this._animationStage = new AnimationSimulationStage(this.animationSystem);
+		this._stageGraph = new RendererStageGraph(
+			createDefaultRendererStages()
+		);
+		this._physicsSystem = null;
 
 		this.features = {
 			enableLighting: true,
@@ -176,6 +187,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public setScene(scene: Scene): void {
 		this._assertCameraInScene(scene, this.camera, "setScene");
 		this.scene = scene;
+		if (this._physicsSystem) {
+			this._physicsSystem.setEntityNodeResolver((entityId) => {
+				return this.scene.ecs.getNodeByEntity(entityId);
+			});
+		}
 		this.scene.invalidate();
 	}
 
@@ -183,6 +199,23 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._assertCameraInScene(this.scene, camera, "setCamera");
 		this.camera = camera;
 		this.scene.invalidate();
+	}
+
+	public setPhysicsSystem(physicsSystem: PhysicsSystem | null): void {
+		this._physicsSystem = physicsSystem;
+		if (physicsSystem) {
+			physicsSystem.setEntityNodeResolver((entityId) => {
+				return this.scene.ecs.getNodeByEntity(entityId);
+			});
+		}
+	}
+
+	public setStageGraph(stages: RendererStageDefinition[]): void {
+		this._stageGraph.setStages(stages);
+	}
+
+	public registerStage(stage: RendererStageDefinition): void {
+		this._stageGraph.registerStage(stage);
 	}
 
 	public get backendType(): IRenderBackend["type"] {
@@ -224,84 +257,138 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
-		this._animationStage.execute(
-			{
-				scene: this.scene,
-				transient,
-			},
-			this._deltaTime
-		);
-		this.emit("postanimation", {
-			now,
-			deltaTime: this._deltaTime,
-			scene: this.scene,
-			transient,
-		});
-		this.scene.updateWorldMatrices();
-		this._assertCameraInScene(this.scene, this.camera, "renderScene");
-		this.camera.updateMatrices();
-
-		if (this.features.enableSH) {
-			this.updateSH();
-		}
-
-		const resolved = resolveFeatureState(
+		let resolved = resolveFeatureState(
 			this.features,
 			this.backend.capabilities,
 			this.backend.type
 		);
-		for (const warning of resolved.warnings) {
-			this.warnOnce(warning.key, warning.message);
-		}
+		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
+		let context: FrameContext | null = null;
+		let frameStarted = false;
+		let emittedPostAnimation = false;
 
-		const frame = PreparedSceneBuilder.build(this);
-		const attachments = this.backend.getAttachments(
-			this.canvas.width,
-			this.canvas.height
+		const stageOrder = this._stageGraph.getExecutionOrder(
+			{
+				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
+				hasParticleSystems,
+			},
+			(key, message) => this.warnOnce(key, message)
 		);
-		const context: FrameContext = {
-			camera: this.camera,
-			attachments: attachments,
-			features: resolved,
-			shadowMaps: this.shadowMaps,
-			scene: frame,
-			shCoeffs: this.shCoeffs,
-			shAmbientCoeffs: this.shAmbientCoeffs,
-			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
-			transient,
-		};
-
-		const framePlan = FramePlanner.build(
-			frame,
-			resolved,
-			this.backend.passExecutors
+		const hasAnimationStage = stageOrder.some(
+			(stage) => stage.id === "animation-sim"
 		);
 
-		// Execute shared passes before beginFrame so their results are available
-		// for backend resource preparation.
-		for (const pass of framePlan) {
-			if (pass.enabled && pass.executor === "shared") {
-				if (pass.stage === "animation-sim") {
-					continue;
-				}
-				if (!this.backend.executeSharedPass) {
-					this.warnOnce(
-						`${this.backend.type}-shared-pass-${pass.stage}`,
-						`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
+		for (const stage of stageOrder) {
+			switch (stage.id) {
+				case "feature-resolution": {
+					resolved = resolveFeatureState(
+						this.features,
+						this.backend.capabilities,
+						this.backend.type
 					);
-					continue;
+					for (const warning of resolved.warnings) {
+						this.warnOnce(warning.key, warning.message);
+					}
+					break;
 				}
-				await this.backend.executeSharedPass(pass, context);
+				case "sync-in": {
+					this.scene.syncNodeToECS();
+					if (!hasAnimationStage && !emittedPostAnimation) {
+						this.emit("postanimation", {
+							now,
+							deltaTime: this._deltaTime,
+							scene: this.scene,
+							transient,
+						});
+						emittedPostAnimation = true;
+					}
+					break;
+				}
+				case "animation-sim": {
+					this._animationStage.execute(
+						{
+							scene: this.scene,
+							transient,
+						},
+						this._deltaTime
+					);
+					if (!emittedPostAnimation) {
+						this.emit("postanimation", {
+							now,
+							deltaTime: this._deltaTime,
+							scene: this.scene,
+							transient,
+						});
+						emittedPostAnimation = true;
+					}
+					break;
+				}
+				case "physics-sim": {
+					this._physicsSystem?.step(deltaTimeSeconds);
+					break;
+				}
+				case "transform-update": {
+					this.scene.updateWorldMatrices();
+					this._assertCameraInScene(this.scene, this.camera, "renderScene");
+					this.camera.updateMatrices();
+					break;
+				}
+				case "prepared-scene-build": {
+					if (this.features.enableSH) {
+						this.updateSH();
+					}
+					frame = PreparedSceneBuilder.build(this);
+					const attachments = this.backend.getAttachments(
+						this.canvas.width,
+						this.canvas.height
+					);
+					context = {
+						camera: this.camera,
+						attachments: attachments,
+						features: resolved,
+						shadowMaps: this.shadowMaps,
+						scene: frame,
+						shCoeffs: this.shCoeffs,
+						shAmbientCoeffs: this.shAmbientCoeffs,
+						worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+						transient,
+					};
+					await this.backend.beginFrame(context);
+					frameStarted = true;
+					break;
+				}
+				case "sync-out": {
+					this.scene.syncECSToNode();
+					break;
+				}
+				default: {
+					if (!context || !frame) break;
+					if (!this._isBackendPassStage(stage.id)) break;
+					if (!this._shouldRunBackendPass(stage.id, frame, resolved)) {
+						break;
+					}
+
+					const pass = this._createBackendPass(stage.id);
+					if (pass.executor === "shared") {
+						if (!this.backend.executeSharedPass) {
+							this.warnOnce(
+								`${this.backend.type}-shared-pass-${pass.stage}`,
+								`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
+							);
+							break;
+						}
+						await this.backend.executeSharedPass(pass, context);
+					} else {
+						await this.backend.executePass(pass, context);
+					}
+					break;
+				}
 			}
 		}
 
-		await this.backend.beginFrame(context);
-		for (const pass of framePlan) {
-			if (!pass.enabled || pass.executor === "shared") continue;
-
-			await this.backend.executePass(pass, context);
+		if (frameStarted) {
+			await this.backend.endFrame();
 		}
-		await this.backend.endFrame();
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
 		requestAnimationFrame((time) => this.renderScene(time));
@@ -391,6 +478,53 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shCoeffs = totalSH;
 	}
 
+	private _isBackendPassStage(stageId: string): boolean {
+		return BACKEND_PASS_STAGES.has(stageId);
+	}
+
+	private _createBackendPass(stageId: string): FramePass {
+		return {
+			stage: stageId,
+			executor: this.backend.passExecutors?.[stageId] ?? "backend",
+			enabled: true,
+		};
+	}
+
+	private _shouldRunBackendPass(
+		stage: string,
+		frame: ReturnType<typeof PreparedSceneBuilder.build>,
+		features: ReturnType<typeof resolveFeatureState>
+	): boolean {
+		switch (stage) {
+			case "particle-sim":
+				return (frame.particleSystems?.length ?? 0) > 0;
+			case "shadow":
+				return features.enableShadows && frame.shadowCasterPackets.length > 0;
+			case "reflection":
+				return features.enableReflection && frame.reflectivePackets.length > 0;
+			case "main-opaque":
+				return true;
+			case "main-transparent":
+				return frame.transparentPackets.length > 0;
+			case "particles":
+				return (frame.particleSystems?.length ?? 0) > 0;
+			case "ssao":
+				return features.enableSSAO;
+			case "taa":
+				return features.enableTAA;
+			case "ssr":
+				return features.enableSSR;
+			case "volumetric":
+				return features.enableVolumetric;
+			case "fxaa":
+				return features.enableFXAA;
+			case "gamma":
+				return features.enableGamma;
+			default:
+				return false;
+		}
+	}
+
 	private _getSafeAspectRatio(width: number, height: number): number {
 		return Math.max(width, 1) / Math.max(height, 1);
 	}
@@ -405,4 +539,54 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			`Renderer.${caller} requires the active camera to belong to the active scene graph`
 		);
 	}
+}
+
+const BACKEND_PASS_STAGES = new Set<string>([
+	"particle-sim",
+	"shadow",
+	"reflection",
+	"main-opaque",
+	"main-transparent",
+	"particles",
+	"ssao",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fxaa",
+	"gamma",
+]);
+
+function createDefaultRendererStages(): RendererStageDefinition[] {
+	return [
+		{ id: "feature-resolution", dependsOn: [] },
+		{ id: "sync-in", dependsOn: ["feature-resolution"] },
+		{
+			id: "animation-sim",
+			dependsOn: ["sync-in"],
+			enabled: (context) => context.hasActiveAnimations,
+		},
+		{ id: "physics-sim", dependsOn: ["animation-sim", "sync-in"] },
+		{
+			id: "transform-update",
+			dependsOn: ["physics-sim", "animation-sim", "sync-in"],
+		},
+		{ id: "prepared-scene-build", dependsOn: ["transform-update"] },
+		{
+			id: "particle-sim",
+			dependsOn: ["prepared-scene-build"],
+			enabled: (context) => context.hasParticleSystems,
+		},
+		{ id: "shadow", dependsOn: ["prepared-scene-build", "particle-sim"] },
+		{ id: "reflection", dependsOn: ["prepared-scene-build"] },
+		{ id: "main-opaque", dependsOn: ["reflection", "shadow"] },
+		{ id: "main-transparent", dependsOn: ["main-opaque"] },
+		{ id: "particles", dependsOn: ["main-transparent"] },
+		{ id: "ssao", dependsOn: ["particles"] },
+		{ id: "taa", dependsOn: ["ssao"] },
+		{ id: "ssr", dependsOn: ["taa"] },
+		{ id: "volumetric", dependsOn: ["ssr"] },
+		{ id: "fxaa", dependsOn: ["volumetric"] },
+		{ id: "gamma", dependsOn: ["fxaa"] },
+		{ id: "sync-out", dependsOn: ["gamma"] },
+	];
 }

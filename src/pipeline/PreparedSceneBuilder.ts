@@ -22,7 +22,7 @@ export class PreparedSceneBuilder {
 		const shadowCasterPackets: DrawPacket[] = [];
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
-		const meshInstances = renderer.scene.getMeshInstances();
+		const meshInstances = renderer.scene.ecs.findMeshInstances();
 
 		for (const meshInstance of meshInstances) {
 			if (meshInstance.visible === false) continue;
@@ -68,8 +68,8 @@ export class PreparedSceneBuilder {
 
 		return {
 			sceneBounds: renderer.scene.getBounds(),
-			lights: renderer.scene.getLights(),
-			particleSystems: renderer.scene.getParticleSystems(),
+			lights: renderer.scene.ecs.findLights(),
+			particleSystems: renderer.scene.ecs.findParticleSystems(),
 			hasActiveAnimations: renderer.animationSystem.hasActiveActions(),
 			camera: renderer.camera,
 			skybox: renderer.scene.skybox,
