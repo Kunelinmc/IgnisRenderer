@@ -12,6 +12,7 @@ import {
 	Scene,
 	SoftwareBackend,
 	WebGPUBackend,
+	WebGLBackend,
 } from "./index";
 
 interface RendererBootstrap {
@@ -182,11 +183,24 @@ async function createRenderer(
 				renderer: webgpuRenderer,
 			};
 		} catch (error) {
-			console.warn(
-				"WebGPU initialization failed, falling back to software.",
-				error
-			);
+			console.warn("WebGPU initialization failed, trying WebGL.", error);
 		}
+	}
+
+	try {
+		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
+		webglRenderer.setScene(scene);
+		await webglRenderer.init();
+		console.info("Using WebGL backend");
+		return {
+			canvas,
+			renderer: webglRenderer,
+		};
+	} catch (error) {
+		console.warn(
+			"WebGL initialization failed, falling back to software.",
+			error
+		);
 	}
 
 	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
@@ -199,7 +213,6 @@ async function createRenderer(
 		renderer: softwareRenderer,
 	};
 }
-
 
 function bindControls(
 	canvas: HTMLCanvasElement,
