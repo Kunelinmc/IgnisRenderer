@@ -30,89 +30,42 @@ IgnisRenderer is a high-performance 3D rendering engine built from the ground up
     - Native support for glTF 2.0 (Hierarchy, Materials, Cameras, Lights).
 - **Pro-Grade Math Library**: Custom implementation of Vectors, Matrices, Quaternions, and Spherical Harmonics (SH) optimized for zero-allocation loops.
 
-## 📦 Installation
-
-```bash
-npm install ignisrenderer
-# Optional physics adapters
-npm install @dimforge/rapier3d-compat ammo.js
-```
-
-## 🛠️ Quick Start
-
-```typescript
-import {
-    Scene,
-    Renderer,
-    WebGPUBackend,
-    GLTFLoader,
-    OrbitCamera,
-    AmbientLight,
-    DirectionalLight,
-    PBRMaterial,
-    MeshFactory
-} from 'ignisrenderer'
-
-async function initEngine(canvas: HTMLCanvasElement) {
-    // 1. Setup Scene & Camera
-    const scene = new Scene()
-    const camera = new OrbitCamera({ x: 0, y: 10, z: 20 }, 50)
-    scene.add(camera)
-
-    // 2. Add Lighting
-    scene.add(new AmbientLight({ color: { r: 255, g: 255, b: 255 }, intensity: 0.2 }))
-    const sun = new DirectionalLight({ direction: { x: -1, y: -1, z: -1 }, intensity: 1.5 })
-    scene.add(sun)
-
-    // 3. Load 3D Models
-    const loader = new GLTFLoader()
-    const model = await loader.load('./assets/models/character.glb')
-    scene.add(model)
-
-    // 4. Initialize Renderer
-    const backend = navigator.gpu ? new WebGPUBackend() : new SoftwareBackend()
-    const renderer = new Renderer(backend, canvas, camera)
-    
-    renderer.setScene(scene)
-    await renderer.init()
-
-    // 5. Start Render Loop
-    function frame(timeMs: number) {
-        const deltaTimeSeconds = timeMs / 1000
-        renderer.render(deltaTimeSeconds)
-        requestAnimationFrame(frame)
-    }
-    requestAnimationFrame(frame)
-}
-```
-
 ## 🏗️ Architecture Overview
 
-| Module | Description |
-| :--- | :--- |
-| **src/core** | Scene graph primitives, `Node`, `Scene`, and resource management. |
-| **src/pipeline** | Frame planning, feature resolution, and simulation stages. |
-| **src/renderers** | Backend implementations (Software, WebGPU, WebGL). |
-| **src/animation** | Mixers, Blend Trees, Clips, and State Machines. |
-| **src/physics** | Global physics system and external engine adapters. |
-| **src/shaders** | Software pixel logic and WebGPU WGSL modules. |
-| **src/maths** | Performance-optimized linear algebra library. |
+The project is structured with a modular architecture to support the backend-agnostic rendering pipeline and comprehensive simulation stages. 
 
-## 🧪 Development
+### 1. Scene Graph & Core (`src/core` & `src/ecs`)
+The foundation of IgnisRenderer revolves around the `Node` system, which manages bounding volumes and hierarchical transforms. Shared `MeshAsset`s and individual `MeshInstance`s separate geometry data from its spatial representation. The `Scene` object serves as the root container and manages rendering layers and resource loading via components like `GLTFLoader`.
 
-### Build Commands
-```bash
-npm run dev    # Start dev server
-npm run build  # Full production build
-npm test       # Run comprehensive test suite
-```
+### 2. Simulation Stages (`src/simulation`)
+Integrated directly into the frame execution flow, the simulation is broken into focused layers:
+- **Animation (`src/animation`)**: Processes clips, skeletal structures, blend trees, and state machines. Works entirely in seconds to maintain engine-wide consistency.
+- **Physics (`src/physics`)**: An adapter-based system (binding Rapier3D or Ammo.js) updating transformations of `PhysicsBodyNode`s. Ensures the rendering engine remains engine-agnostic.
+- **Particles (`src/particles`)**: Computes temporal properties for visual effects before they are passed to the renderer.
 
-### Specialized Tests
-IgnisRenderer maintains high coverage across its complex systems:
-- `npm run test:lighting` - PBR/SH/Standard lighting verification.
-- `npx tsx tests/test_animation_core.mjs` - Skeletal & BlendTree validation.
-- `npx tsx tests/test_physics_system_bindings.mjs` - Physics provider contracts.
-- `npx tsx tests/test_webgpu_post_graph.mjs` - SSR/SSAO/TAA pipeline checks.
+### 3. Execution Pipeline (`src/pipeline`)
+The engine dynamically plans each frame in discrete stages:
+- **Feature Resolution**: Determines required shading models (IBL, post-processing options, multiple shadow types).
+- **Simulation**: Propagates time updates to particles, physics adapters, and animation mixers.
+- **Prepared Scene Construction**: Traverses the `Scene` graph to collect draw packets indexed by `MeshInstance` and `MeshAsset`, optimizing batch dispatches.
+- **Backend Dispatch**: Passes standardized draw calls to the active renderer.
+
+### 4. Mathematical Foundation (`src/maths`)
+Designed strictly for zero-allocation loops, which is critically important for `SoftwareBackend` rasterization paths. Math primitives use right-handed coordinates (Y-up, Z-towards viewer) and perform in-place mutations to prevent garbage collection spikes in hot loops.
+
+### 5. Render Backends (`src/renderers` & `src/shaders`)
+- **Software Backend**: Driven by CPU algorithms, converting vector graphics and shader logic into pure per-pixel calculations without WebGL/WebGPU overhead.
+- **WebGPU Backend**: Hardware-optimized dispatch mechanism bridging TypeScript constructs with corresponding WGSL shader modules. Features a complex post-processing graph supporting complex multi-pass rendering like SSR.
+- **WebGL Backend**: Included as a legacy/stub backend for fallback scenarios.
+
+## 🧪 Development & Testing
+
+The development environment favors extensionless relative imports for source files and isolates test runners using `tsx`. IgnisRenderer maintains high coverage across its complex systems with specialized test setups tailored to distinct architectural units:
+- **Lighting**: Verifies PBR and Spherical Harmonics behavior.
+- **Animation & Physics**: Checks skeletal states, blend trees, and adapter constraints.
+- **WebGPU**: Validates the bridge and post-processing graph compilation.
+- **Geometry**: Tests model formatting and winding orders.
+All simulation logic scales identically by standardizing the delta time exclusively in seconds.
 
 ## 📝 License
 
