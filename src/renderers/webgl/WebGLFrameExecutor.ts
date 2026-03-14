@@ -1,7 +1,6 @@
 import { CameraType } from "../../cameras/Camera";
 import { isShadowCastingLight } from "../../lights";
 import { ParticleBlendMode } from "../../particles";
-import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
 	AlphaMode,
 	ShadingModel,
@@ -526,13 +525,9 @@ export class WebGLFrameExecutor {
 		if (!this._sceneFramebuffer) return;
 
 		const gl = this._gl;
-		const sceneProgram = this._programs.getSceneProgram();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-		gl.useProgram(sceneProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
-
-		this._bindGlobalUniforms(sceneProgram, context);
 
 		gl.enable(gl.DEPTH_TEST);
 		gl.depthMask(!transparent);
@@ -548,7 +543,14 @@ export class WebGLFrameExecutor {
 			gl.disable(gl.BLEND);
 		}
 
+		let activeProgram: WebGLSceneProgram | null = null;
 		for (const packet of packets) {
+			const sceneProgram = this._programs.getSceneProgram(packet.material);
+			if (activeProgram !== sceneProgram) {
+				gl.useProgram(sceneProgram.program);
+				this._bindGlobalUniforms(sceneProgram, context);
+				activeProgram = sceneProgram;
+			}
 			this._drawPacket(sceneProgram, packet, transparent, context);
 		}
 
@@ -597,7 +599,7 @@ export class WebGLFrameExecutor {
 			return;
 		}
 
-		const uniforms = resolveMaterialUniforms(material, this._warn);
+		const uniforms = resolveMaterialUniforms(material);
 		const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 		if (!normalMatrix) {
 			this._warn(
@@ -1753,17 +1755,7 @@ export class WebGLFrameExecutor {
 	}
 }
 
-function resolveMaterialUniforms(
-	material: Material,
-	warn: WarnFn
-): MaterialUniformState {
-	const isShaderMaterial = material instanceof ShaderMaterial;
-	if (isShaderMaterial) {
-		warn(
-			`webgl-shader-material-fallback-${material.name}`,
-			`WebGL v1 does not support ShaderMaterial custom shader path yet; falling back to built-in shading for ${material.name}`
-		);
-	}
+function resolveMaterialUniforms(material: Material): MaterialUniformState {
 	const isPBR =
 		material.shading === ShadingModel.PBR || material.type === "PBR";
 	const isUnlit = material.shading === ShadingModel.Unlit;

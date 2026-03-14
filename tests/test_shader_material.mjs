@@ -64,6 +64,28 @@ fn customFsMRT() -> MRTOut {
 }
 `;
 
+const WEBGL_VERTEX = /* glsl */ `
+#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 aPosition;
+
+void main() {
+	gl_Position = vec4(aPosition, 1.0);
+}
+`;
+
+const WEBGL_FRAGMENT = /* glsl */ `
+#version 300 es
+precision highp float;
+
+out vec4 outColor;
+
+void main() {
+	outColor = vec4(1.0, 0.0, 0.0, 1.0);
+}
+`;
+
 async function testWGSLProgramSelection() {
 	const backend = new FakeBackend();
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
@@ -155,10 +177,56 @@ async function testGLSLWithoutTranspilerThrows() {
 	);
 }
 
+function testResolveWebGLProgramPrefersWebGLSource() {
+	const material = new ShaderMaterial({
+		name: "WebGLCustomMaterial",
+		webgpuGLSL: {
+			vertex: "legacy-vertex",
+			fragmentSingle: "legacy-fragment",
+		},
+		webglGLSL: {
+			vertex: WEBGL_VERTEX,
+			fragment: WEBGL_FRAGMENT,
+		},
+	});
+
+	const program = material.resolveWebGLProgram();
+	assert.equal(program.vertexCode, WEBGL_VERTEX);
+	assert.equal(program.fragmentCode, WEBGL_FRAGMENT);
+}
+
+function testResolveWebGLProgramFallsBackToWebGPUGLSL() {
+	const material = new ShaderMaterial({
+		name: "WebGLFallbackMaterial",
+		webgpuGLSL: {
+			vertex: "legacy-vertex",
+			fragmentSingle: "legacy-fragment",
+		},
+	});
+
+	const program = material.resolveWebGLProgram();
+	assert.equal(program.vertexCode, "legacy-vertex");
+	assert.equal(program.fragmentCode, "legacy-fragment");
+}
+
+function testResolveWebGLProgramMissingSourceThrows() {
+	const material = new ShaderMaterial({
+		name: "MissingWebGLSource",
+	});
+
+	assert.throws(
+		() => material.resolveWebGLProgram(),
+		/missing WebGL GLSL source/
+	);
+}
+
 async function run() {
 	await testWGSLProgramSelection();
 	await testGLSLProgramUsesTranspiler();
 	await testGLSLWithoutTranspilerThrows();
+	testResolveWebGLProgramPrefersWebGLSource();
+	testResolveWebGLProgramFallsBackToWebGPUGLSL();
+	testResolveWebGLProgramMissingSourceThrows();
 	console.log("ShaderMaterial tests passed");
 }
 

@@ -10,6 +10,11 @@ export interface ShaderMaterialProgram {
 	fragmentMRT?: string;
 }
 
+export interface ShaderMaterialWebGLProgram {
+	vertex: string;
+	fragment: string;
+}
+
 export type ShaderMaterialGLSLToWGSL = (
 	source: string,
 	stage: ShaderStageKind
@@ -21,6 +26,7 @@ export interface ShaderMaterialParams extends MaterialParams {
 	fragmentMRTEntryPoint?: string;
 	webgpuWGSL?: ShaderMaterialProgram | null;
 	webgpuGLSL?: ShaderMaterialProgram | null;
+	webglGLSL?: ShaderMaterialWebGLProgram | null;
 	glslToWgsl?: ShaderMaterialGLSLToWGSL;
 }
 
@@ -29,6 +35,11 @@ export interface ResolvedWebGPUShaderProgram {
 	fragmentCode: string;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
+}
+
+export interface ResolvedWebGLShaderProgram {
+	vertexCode: string;
+	fragmentCode: string;
 }
 
 let SHADER_MATERIAL_ID = 1;
@@ -41,6 +52,7 @@ export class ShaderMaterial extends Material {
 
 	private _webgpuWGSL: ShaderMaterialProgram | null;
 	private _webgpuGLSL: ShaderMaterialProgram | null;
+	private _webglGLSL: ShaderMaterialWebGLProgram | null;
 	private _glslToWgsl: ShaderMaterialGLSLToWGSL | null;
 	private _shaderRevision: number;
 
@@ -54,6 +66,7 @@ export class ShaderMaterial extends Material {
 		this.fragmentMRTEntryPoint = params.fragmentMRTEntryPoint ?? "fsMain";
 		this._webgpuWGSL = null;
 		this._webgpuGLSL = null;
+		this._webglGLSL = null;
 		this._glslToWgsl = params.glslToWgsl ?? null;
 		this._shaderRevision = 0;
 
@@ -62,6 +75,9 @@ export class ShaderMaterial extends Material {
 		}
 		if (params.webgpuGLSL) {
 			this.setWebGPUGLSL(params.webgpuGLSL);
+		}
+		if (params.webglGLSL) {
+			this.setWebGLGLSL(params.webglGLSL);
 		}
 	}
 
@@ -81,6 +97,10 @@ export class ShaderMaterial extends Material {
 		return this._glslToWgsl;
 	}
 
+	public get webglGLSL(): ShaderMaterialWebGLProgram | null {
+		return this._webglGLSL ? { ...this._webglGLSL } : null;
+	}
+
 	public setWebGPUWGSL(program: ShaderMaterialProgram | null): void {
 		this._webgpuWGSL = program ? { ...program } : null;
 		this._shaderRevision++;
@@ -88,6 +108,11 @@ export class ShaderMaterial extends Material {
 
 	public setWebGPUGLSL(program: ShaderMaterialProgram | null): void {
 		this._webgpuGLSL = program ? { ...program } : null;
+		this._shaderRevision++;
+	}
+
+	public setWebGLGLSL(program: ShaderMaterialWebGLProgram | null): void {
+		this._webglGLSL = program ? { ...program } : null;
 		this._shaderRevision++;
 	}
 
@@ -106,6 +131,10 @@ export class ShaderMaterial extends Material {
 		].join(":");
 	}
 
+	public getWebGLCacheKey(): string {
+		return [this.shaderId, this._shaderRevision].join(":");
+	}
+
 	public resolveWebGPUProgram(
 		mode: ShaderTargetMode
 	): ResolvedWebGPUShaderProgram {
@@ -120,6 +149,34 @@ export class ShaderMaterial extends Material {
 				mode === "mrt" ?
 					this.fragmentMRTEntryPoint
 				:	this.fragmentSingleEntryPoint,
+		};
+	}
+
+	public resolveWebGLProgram(): ResolvedWebGLShaderProgram {
+		const vertexCode =
+			this._webglGLSL?.vertex ?? this._webgpuGLSL?.vertex ?? null;
+		const fragmentCode =
+			this._webglGLSL?.fragment ??
+			this._webgpuGLSL?.fragmentSingle ??
+			this._webgpuGLSL?.fragmentMRT ??
+			null;
+
+		if (
+			typeof vertexCode !== "string" ||
+			vertexCode.trim().length === 0 ||
+			typeof fragmentCode !== "string" ||
+			fragmentCode.trim().length === 0
+		) {
+			throw new Error(
+				`ShaderMaterial ${this.name} is missing WebGL GLSL source; ` +
+					"call setWebGLGLSL() or provide webgpuGLSL " +
+					"vertex/fragmentSingle fallback"
+			);
+		}
+
+		return {
+			vertexCode,
+			fragmentCode,
 		};
 	}
 

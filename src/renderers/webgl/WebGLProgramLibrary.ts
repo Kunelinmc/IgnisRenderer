@@ -3,6 +3,8 @@ import {
 	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
+import type { Material } from "../../materials/Material";
+import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
 	WEBGL_COPY_FRAGMENT_SHADER,
 	WEBGL_COPY_VERTEX_SHADER,
@@ -182,6 +184,7 @@ export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
 	private _sceneProgram: WebGLSceneProgram | null = null;
+	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
 	private _skyboxProgram: WebGLSkyboxProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
@@ -199,16 +202,63 @@ export class WebGLProgramLibrary {
 		this._warn = warn;
 	}
 
-	public getSceneProgram(): WebGLSceneProgram {
-		if (this._sceneProgram) {
-			return this._sceneProgram;
+	public getSceneProgram(material?: Material): WebGLSceneProgram {
+		if (!(material instanceof ShaderMaterial)) {
+			return this._getBuiltinSceneProgram();
 		}
-		const program = this._createProgram(
-			SCENE_VERTEX_SHADER,
-			SCENE_FRAGMENT_SHADER,
-			"WebGLSceneProgram"
+
+		const custom = this._getShaderMaterialSceneProgram(material);
+		return custom ?? this._getBuiltinSceneProgram();
+	}
+
+	private _getBuiltinSceneProgram(): WebGLSceneProgram {
+		if (!this._sceneProgram) {
+			this._sceneProgram = this._createSceneProgram(
+				SCENE_VERTEX_SHADER,
+				SCENE_FRAGMENT_SHADER,
+				"WebGLSceneProgram"
+			);
+		}
+		return this._sceneProgram;
+	}
+
+	private _getShaderMaterialSceneProgram(
+		material: ShaderMaterial
+	): WebGLSceneProgram | null {
+		const shaderKey = material.getWebGLCacheKey();
+		const cached = this._customScenePrograms.get(shaderKey);
+		if (cached) {
+			return cached;
+		}
+
+		let source: { vertexCode: string; fragmentCode: string };
+		try {
+			source = material.resolveWebGLProgram();
+		} catch (error) {
+			this._warn(
+				`webgl-shader-material-missing-source-${material.shaderId}`,
+				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
+					`using built-in scene shader. ${String(error)}`
+			);
+			return null;
+		}
+
+		const sceneProgram = this._createSceneProgram(
+			source.vertexCode,
+			source.fragmentCode,
+			`WebGLShaderMaterialProgram_${shaderKey}`
 		);
-		this._sceneProgram = {
+		this._customScenePrograms.set(shaderKey, sceneProgram);
+		return sceneProgram;
+	}
+
+	private _createSceneProgram(
+		vertexSource: string,
+		fragmentSource: string,
+		label: string
+	): WebGLSceneProgram {
+		const program = this._createProgram(vertexSource, fragmentSource, label);
+		return {
 			program,
 			uniforms: {
 				model: this._gl.getUniformLocation(program, "uModel"),
@@ -295,7 +345,6 @@ export class WebGLProgramLibrary {
 				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
 			},
 		};
-		return this._sceneProgram;
 	}
 
 	public getSkyboxProgram(): WebGLSkyboxProgram {
@@ -529,6 +578,10 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(this._sceneProgram.program);
 			this._sceneProgram = null;
 		}
+		for (const sceneProgram of this._customScenePrograms.values()) {
+			this._gl.deleteProgram(sceneProgram.program);
+		}
+		this._customScenePrograms.clear();
 		if (this._skyboxProgram) {
 			this._gl.deleteProgram(this._skyboxProgram.program);
 			this._skyboxProgram = null;

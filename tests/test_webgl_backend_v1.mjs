@@ -5,6 +5,7 @@ import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
+import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
@@ -82,6 +83,75 @@ function createGeometryTestGL() {
 	};
 }
 
+function createProgramCaptureGL() {
+	let programCount = 0;
+	const shaderSources = [];
+	return {
+		VERTEX_SHADER: 0x8b31,
+		FRAGMENT_SHADER: 0x8b30,
+		COMPILE_STATUS: 0x8b81,
+		LINK_STATUS: 0x8b82,
+		VALIDATE_STATUS: 0x8b83,
+		shaderSources,
+		get programCount() {
+			return programCount;
+		},
+		createShader(type) {
+			return { type, compiled: true };
+		},
+		shaderSource(shader, source) {
+			shader.source = source;
+			shaderSources.push({ type: shader.type, source });
+		},
+		compileShader() {},
+		getShaderParameter() {
+			return true;
+		},
+		getShaderInfoLog() {
+			return "";
+		},
+		deleteShader() {},
+		createProgram() {
+			programCount++;
+			return { id: programCount };
+		},
+		attachShader() {},
+		linkProgram() {},
+		validateProgram() {},
+		getProgramParameter(_program, parameter) {
+			if (parameter === this.LINK_STATUS || parameter === this.VALIDATE_STATUS) {
+				return true;
+			}
+			return true;
+		},
+		getProgramInfoLog() {
+			return "";
+		},
+		deleteProgram() {},
+		getUniformLocation() {
+			return {};
+		},
+	};
+}
+
+const CUSTOM_WEBGL_VERTEX = /* glsl */ `
+#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPosition;
+void main() {
+	gl_Position = vec4(aPosition, 1.0);
+}
+`;
+
+const CUSTOM_WEBGL_FRAGMENT = /* glsl */ `
+#version 300 es
+precision highp float;
+out vec4 outColor;
+void main() {
+	outColor = vec4(0.0, 1.0, 0.0, 1.0);
+}
+`;
+
 function testLightCollectorLimitsAndWarnings() {
 	const warnings = [];
 	const warn = (key, message) => warnings.push({ key, message });
@@ -111,6 +181,57 @@ function testProgramLibraryCompileErrorMessage() {
 	assert.throws(
 		() => library.getSceneProgram(),
 		/WebGL shader compile failed \(WebGLSceneProgram:vertex\): mock compile fail/
+	);
+}
+
+function testProgramLibraryShaderMaterialCustomProgram() {
+	const warnings = [];
+	const gl = createProgramCaptureGL();
+	const library = new WebGLProgramLibrary(gl, (key, message) =>
+		warnings.push({ key, message })
+	);
+	const material = new ShaderMaterial({
+		name: "CustomWebGLShader",
+		webglGLSL: {
+			vertex: CUSTOM_WEBGL_VERTEX,
+			fragment: CUSTOM_WEBGL_FRAGMENT,
+		},
+	});
+
+	const builtin = library.getSceneProgram();
+	const customA = library.getSceneProgram(material);
+	const customB = library.getSceneProgram(material);
+
+	assert.notStrictEqual(customA, builtin);
+	assert.strictEqual(customA, customB);
+	assert.equal(gl.programCount, 2);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_VERTEX)
+	);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
+	);
+	assert.equal(warnings.length, 0);
+}
+
+function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
+	const warnings = [];
+	const gl = createProgramCaptureGL();
+	const library = new WebGLProgramLibrary(gl, (key, message) =>
+		warnings.push({ key, message })
+	);
+	const material = new ShaderMaterial({
+		name: "NoWebGLShader",
+	});
+
+	const builtin = library.getSceneProgram();
+	const resolved = library.getSceneProgram(material);
+
+	assert.strictEqual(resolved, builtin);
+	assert.ok(
+		warnings.some((warning) =>
+			warning.key.startsWith("webgl-shader-material-missing-source-")
+		)
 	);
 }
 
@@ -178,6 +299,8 @@ function testGeometryRegistryRejectsOutOfRangeIndices() {
 function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
+	testProgramLibraryShaderMaterialCustomProgram();
+	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
 	testGeometryRegistryRejectsOutOfRangeIndices();
