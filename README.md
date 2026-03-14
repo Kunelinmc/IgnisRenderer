@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite)
 
-IgnisRenderer is a high-performance 3D rendering engine built from the ground up in TypeScript. It features a unique dual-backend architecture, allowing for identical scene rendering across both CPU (Software) and GPU (WebGPU) pipelines.
+IgnisRenderer is a high-performance 3D rendering engine built from the ground up in TypeScript. It features a unique multi-backend architecture, allowing for flexible rendering across CPU (Software), WebGL, and WebGPU hardware pipelines.
 
 [Live Demo](https://ignis-renderer-demo.netlify.app/)
 
@@ -13,59 +13,73 @@ IgnisRenderer is a high-performance 3D rendering engine built from the ground up
 
 ## 🚀 Key Features
 
-- **Dual-Backend Support**:
-    - **SoftwareBackend**: A complete C++ -inspired CPU rasterizer with multi-threaded potential and custom PBR shading.
-    - **WebGPUBackend**: Hardware-accelerated pipeline utilizing modern WGSL shaders.
+- **Triple-Backend Support**:
+    - **SoftwareBackend**: A high-efficiency CPU rasterizer implementing custom PBR shading without hardware acceleration dependencies.
+    - **WebGPUBackend**: For next-gen hardware performance, featuring an advanced post-processing graph and WGSL shaders.
+    - **WebGLBackend**: Modern V1 implementation ensuring broad device compatibility.
 - **Advanced Rendering Pipeline**:
-    - Physically Based Rendering (PBR) with IBL (Image-Based Lighting).
-    - Real-time Shadows (PCSS/CSM).
-    - Advanced Post-Processing: SSR (Screen Space Reflections), SSAO (Ambient Occlusion), TAA (Temporal Anti-Aliasing), FXAA, and Volumetric Lighting.
+    - Physically Based Rendering (PBR) with full IBL (Image-Based Lighting) support.
+    - Real-time Shadowing system featuring PCSS and Cascaded Shadow Maps (CSM).
+    - Post-Processing Suite: SSR, SSAO, TAA, FXAA, and Volumetric Lighting effects.
 - **Deep Simulation Integration**:
-    - **Animation System**: Complete skeletal animation, mixers, blend trees (1D/Direct), and hierarchical state machines.
-    - **Physics System**: Adapter-based integration for Rapier3D and Ammo.js, syncing physics bodies directly with the scene graph.
-    - **Particle System**: Integrated simulation stage for high-performance visual effects.
-- **Universal Scene Graph**:
-    - `Node`-based hierarchy for transform management.
-    - Shared `MeshAsset` resources with per-node `MeshInstance` overrides.
-    - Native support for glTF 2.0 (Hierarchy, Materials, Cameras, Lights).
-- **Pro-Grade Math Library**: Custom implementation of Vectors, Matrices, Quaternions, and Spherical Harmonics (SH) optimized for zero-allocation loops.
+    - **Animation**: Skeletal systems with complex blend trees and hierarchical state machines.
+    - **Physics**: Adapter-based integration for Rapier3D and Ammo.js with real-time scene synchronization.
+    - **Particles**: Temporal simulation stage for high-density visual effects.
+- **High-Performance ECS Foundation**:
+    - Core logic backed by a custom Entity Component System (ECS) for efficient data locality.
+    - `Node`-based hierarchy as a compatibility facade over the underlying ECS architecture.
+- **Professional Math Library**: Optimized linear algebra implementation targeting zero-allocation hot paths.
+
+## 📁 Project Structure
+
+The codebase is organized into modular directories, separating core abstractions from implementation-specific backends and simulation logic.
+
+### `src/` - Source Code
+- **`core/`**: Fundamental abstractions including Scene Graph management (`Node`, `Scene`) and Resource types (`Texture`).
+- **`ecs/`**: The underlying Entity Component System managing high-performance data storage and entity state.
+- **`renderers/`**: Multi-backend implementations. Contains specialized logic for Software, WebGL, and WebGPU pipelines.
+- **`pipeline/`**: The execution frame graph, responsible for feature resolution, frame planning, and draw call preparation.
+- **`shaders/`**: Centralized shader source repository containing WGSL and GLSL modules for all rendering backends.
+- **`animation/`**: Skeletal animation logic, state machines, and blend tree implementations.
+- **`physics/`**: The physics simulation layer and adapters for external engines (Rapier3D, Ammo.js).
+- **`particles/`**: Specialized simulation stage for maintaining and updating particle systems.
+- **`maths/`**: A optimized math library focused on performance and memory efficiency.
+- **`loaders/`**: Resource acquisition logic, featuring a robust glTF 2.0 parser.
+- **`materials/` & `meshes/`**: Assets management for PBR shading and geometric data representation.
+- **`cameras/` & `lights/`**: Specialized scene objects for view control and illumination.
+
+### `tests/` - Testing Suite
+- Comprehensive suite of over 50 automated tests covering lighting accuracy, physics consistency, animation state blending, and backend-specific feature verification.
 
 ## 🏗️ Architecture Overview
 
-The project is structured with a modular architecture to support the backend-agnostic rendering pipeline and comprehensive simulation stages. 
+IgnisRenderer utilizes a data-driven design pattern to ensure scalability across diverse rendering targets and simulation complexities.
 
-### 1. Scene Graph & Core (`src/core` & `src/ecs`)
-The foundation of IgnisRenderer revolves around the `Node` system, which manages bounding volumes and hierarchical transforms. Shared `MeshAsset`s and individual `MeshInstance`s separate geometry data from its spatial representation. The `Scene` object serves as the root container and manages rendering layers and resource loading via components like `GLTFLoader`.
+### 1. Data-Oriented Design (ECS)
+The engine has transitioned to an **ECS-first architecture**. While traditional scene graph traversal is supported via the `Node` facade, the internal state is managed by the `ECSWorld`. This allows for high-efficiency queries and batch updates, particularly beneficial for complex simulations like particles and physics.
 
-### 2. Simulation Stages (`src/simulation`)
-Integrated directly into the frame execution flow, the simulation is broken into focused layers:
-- **Animation (`src/animation`)**: Processes clips, skeletal structures, blend trees, and state machines. Works entirely in seconds to maintain engine-wide consistency.
-- **Physics (`src/physics`)**: An adapter-based system (binding Rapier3D or Ammo.js) updating transformations of `PhysicsBodyNode`s. Ensures the rendering engine remains engine-agnostic.
-- **Particles (`src/particles`)**: Computes temporal properties for visual effects before they are passed to the renderer.
+### 2. Multi-Stage Execution Pipeline
+Each frame undergoes a rigid sequence of operations:
+- **Feature Resolution**: The `FeatureResolver` inspects the scene to determine active requirements (e.g., specific shadow types, IBL requirements, or post-processing passes).
+- **Simulation Flow**: Animation, physics, and particle stages update their respective states in a unified timeline (measured strictly in seconds).
+- **Prepared Scene Construction**: The `PreparedSceneBuilder` collects scene data into optimized draw packets, decoupling the scene graph from backend dispatches.
+- **Backend-Agnostic Dispatch**: Commands are encoded through a unified interface, allowing the engine to switch between CPU and GPU rendering seamlessly.
 
-### 3. Execution Pipeline (`src/pipeline`)
-The engine dynamically plans each frame in discrete stages:
-- **Feature Resolution**: Determines required shading models (IBL, post-processing options, multiple shadow types).
-- **Simulation**: Propagates time updates to particles, physics adapters, and animation mixers.
-- **Prepared Scene Construction**: Traverses the `Scene` graph to collect draw packets indexed by `MeshInstance` and `MeshAsset`, optimizing batch dispatches.
-- **Backend Dispatch**: Passes standardized draw calls to the active renderer.
+### 3. Backend Strategy
+- **Software Rasterizer**: Employs advanced CPU-side algorithms for sub-pixel accuracy and PBR shading, serving as both a fallback and a benchmark for hardware backends.
+- **Modern Hardware Backends**: The WebGPU implementation leverages a state-of-the-art post-processing graph, while the WebGL V1 backend provides a stable bridge for legacy devices.
 
-### 4. Mathematical Foundation (`src/maths`)
-Designed strictly for zero-allocation loops, which is critically important for `SoftwareBackend` rasterization paths. Math primitives use right-handed coordinates (Y-up, Z-towards viewer) and perform in-place mutations to prevent garbage collection spikes in hot loops.
-
-### 5. Render Backends (`src/renderers` & `src/shaders`)
-- **Software Backend**: Driven by CPU algorithms, converting vector graphics and shader logic into pure per-pixel calculations without WebGL/WebGPU overhead.
-- **WebGPU Backend**: Hardware-optimized dispatch mechanism bridging TypeScript constructs with corresponding WGSL shader modules. Features a complex post-processing graph supporting complex multi-pass rendering like SSR.
-- **WebGL Backend**: Included as a legacy/stub backend for fallback scenarios.
+### 4. Mathematical Optimization
+To maintain performance in the Software backend and reduce GC pressure during hardware command encoding, the `maths` library uses pre-allocated objects and in-place mutations. The coordinate system is right-handed (Y-up) with a standard NDC range.
 
 ## 🧪 Development & Testing
 
-The development environment favors extensionless relative imports for source files and isolates test runners using `tsx`. IgnisRenderer maintains high coverage across its complex systems with specialized test setups tailored to distinct architectural units:
-- **Lighting**: Verifies PBR and Spherical Harmonics behavior.
-- **Animation & Physics**: Checks skeletal states, blend trees, and adapter constraints.
-- **WebGPU**: Validates the bridge and post-processing graph compilation.
-- **Geometry**: Tests model formatting and winding orders.
-All simulation logic scales identically by standardizing the delta time exclusively in seconds.
+The project maintains architectural integrity through a strict testing regime. Developers can run specialized suites for lighting, geometry, animation, and backend capabilities:
+- **Backend Verification**: Ensures feature parity between Software, WebGL, and WebGPU implementations.
+- **Simulation Accuracy**: Validates physics adapter contracts and skeletal blend tree results.
+- **Resource Integrity**: Checks glTF loading consistency and PBR texture mapping.
+
+All simulation logic is standardized to use seconds for delta time, ensuring deterministic behavior across different hardware configurations.
 
 ## 📝 License
 
