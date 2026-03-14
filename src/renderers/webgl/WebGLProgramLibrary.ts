@@ -4,6 +4,60 @@ import {
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
 
+export interface WebGLShadowDepthProgram {
+	program: WebGLProgram;
+	uniforms: {
+		mvp: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLCopyProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLSSAOProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		depthMap: WebGLUniformLocation | null;
+		normalMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLTAAProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		historyMap: WebGLUniformLocation | null;
+		motionMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLSSRProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		depthMap: WebGLUniformLocation | null;
+		normalMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLVolumetricProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		depthMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+	};
+}
+
+
 export interface WebGLSceneProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -486,6 +540,55 @@ void main() {
 
 const FXAA_VERTEX_SHADER = PRESENT_VERTEX_SHADER;
 
+const SHADOW_DEPTH_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 aPosition;
+
+uniform mat4 uMvp;
+
+void main() {
+	gl_Position = uMvp * vec4(aPosition, 1.0);
+}
+`;
+
+const SHADOW_DEPTH_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+void main() {
+	// Depth is handled automatically by WebGL
+}
+`;
+
+const COPY_VERTEX_SHADER = PRESENT_VERTEX_SHADER;
+
+const COPY_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+uniform sampler2D uSourceMap;
+
+out vec4 fragColor;
+
+void main() {
+	fragColor = texture(uSourceMap, vUv);
+}
+`;
+
+const POST_PROCESS_STUB_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+uniform sampler2D uSceneColor;
+
+out vec4 fragColor;
+
+void main() {
+	// TODO: Implement full effect logic
+	fragColor = texture(uSceneColor, vUv);
+}
+`;
+
 const FXAA_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
@@ -551,6 +654,13 @@ export class WebGLProgramLibrary {
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
+
+	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
+	private _copyProgram: WebGLCopyProgram | null = null;
+	private _ssaoProgram: WebGLSSAOProgram | null = null;
+	private _taaProgram: WebGLTAAProgram | null = null;
+	private _ssrProgram: WebGLSSRProgram | null = null;
+	private _volumetricProgram: WebGLVolumetricProgram | null = null;
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
 		this._gl = gl;
@@ -720,6 +830,125 @@ export class WebGLProgramLibrary {
 		return this._fxaaProgram;
 	}
 
+	public getShadowDepthProgram(): WebGLShadowDepthProgram {
+		if (this._shadowDepthProgram) {
+			return this._shadowDepthProgram;
+		}
+		const program = this._createProgram(
+			SHADOW_DEPTH_VERTEX_SHADER,
+			SHADOW_DEPTH_FRAGMENT_SHADER,
+			"WebGLShadowDepthProgram"
+		);
+		this._shadowDepthProgram = {
+			program,
+			uniforms: {
+				mvp: this._gl.getUniformLocation(program, "uMvp"),
+			},
+		};
+		return this._shadowDepthProgram;
+	}
+
+	public getCopyProgram(): WebGLCopyProgram {
+		if (this._copyProgram) {
+			return this._copyProgram;
+		}
+		const program = this._createProgram(
+			COPY_VERTEX_SHADER,
+			COPY_FRAGMENT_SHADER,
+			"WebGLCopyProgram"
+		);
+		this._copyProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+			},
+		};
+		return this._copyProgram;
+	}
+
+	public getSSAOProgram(): WebGLSSAOProgram {
+		if (this._ssaoProgram) {
+			return this._ssaoProgram;
+		}
+		const program = this._createProgram(
+			PRESENT_VERTEX_SHADER,
+			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			"WebGLSSAOProgram"
+		);
+		this._ssaoProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._ssaoProgram;
+	}
+
+	public getTAAProgram(): WebGLTAAProgram {
+		if (this._taaProgram) {
+			return this._taaProgram;
+		}
+		const program = this._createProgram(
+			PRESENT_VERTEX_SHADER,
+			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			"WebGLTAAProgram"
+		);
+		this._taaProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				historyMap: this._gl.getUniformLocation(program, "uHistoryMap"),
+				motionMap: this._gl.getUniformLocation(program, "uMotionMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._taaProgram;
+	}
+
+	public getSSRProgram(): WebGLSSRProgram {
+		if (this._ssrProgram) {
+			return this._ssrProgram;
+		}
+		const program = this._createProgram(
+			PRESENT_VERTEX_SHADER,
+			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			"WebGLSSRProgram"
+		);
+		this._ssrProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._ssrProgram;
+	}
+
+	public getVolumetricProgram(): WebGLVolumetricProgram {
+		if (this._volumetricProgram) {
+			return this._volumetricProgram;
+		}
+		const program = this._createProgram(
+			PRESENT_VERTEX_SHADER,
+			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			"WebGLVolumetricProgram"
+		);
+		this._volumetricProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._volumetricProgram;
+	}
+
 	public destroy(): void {
 		if (this._sceneProgram) {
 			this._gl.deleteProgram(this._sceneProgram.program);
@@ -740,6 +969,30 @@ export class WebGLProgramLibrary {
 		if (this._fxaaProgram) {
 			this._gl.deleteProgram(this._fxaaProgram.program);
 			this._fxaaProgram = null;
+		}
+		if (this._shadowDepthProgram) {
+			this._gl.deleteProgram(this._shadowDepthProgram.program);
+			this._shadowDepthProgram = null;
+		}
+		if (this._copyProgram) {
+			this._gl.deleteProgram(this._copyProgram.program);
+			this._copyProgram = null;
+		}
+		if (this._ssaoProgram) {
+			this._gl.deleteProgram(this._ssaoProgram.program);
+			this._ssaoProgram = null;
+		}
+		if (this._taaProgram) {
+			this._gl.deleteProgram(this._taaProgram.program);
+			this._taaProgram = null;
+		}
+		if (this._ssrProgram) {
+			this._gl.deleteProgram(this._ssrProgram.program);
+			this._ssrProgram = null;
+		}
+		if (this._volumetricProgram) {
+			this._gl.deleteProgram(this._volumetricProgram.program);
+			this._volumetricProgram = null;
 		}
 	}
 
