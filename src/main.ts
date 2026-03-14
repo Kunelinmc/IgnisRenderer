@@ -192,6 +192,7 @@ async function createRenderer(
 		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
 		webglRenderer.setScene(scene);
 		await webglRenderer.init();
+		webglRenderer.features.enableTAA = true;
 		console.info("Using WebGL backend");
 		return {
 			canvas,

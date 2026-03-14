@@ -571,6 +571,7 @@ export class WebGLProgramLibrary {
 			throw new Error(`WebGL program link failed (${label}): ${log}`);
 		}
 
+		gl.validateProgram(program);
 		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
 		if (validateStatus === false) {
 			this._warn(

@@ -436,7 +436,7 @@ export class WebGLFrameExecutor {
 		const view = context.camera.viewMatrix.elements;
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 		gl.useProgram(particleProgram.program);
 		gl.bindVertexArray(this._particleVao);
 		gl.enable(gl.DEPTH_TEST);
@@ -918,7 +918,7 @@ export class WebGLFrameExecutor {
 		const aspect = context.camera.aspectRatio || this._width / this._height;
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 		gl.useProgram(skyboxProgram.program);
 		gl.bindVertexArray(this._fullscreenVao);
 		gl.disable(gl.CULL_FACE);
