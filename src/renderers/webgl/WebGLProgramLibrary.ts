@@ -2,60 +2,60 @@ import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
-} from './constants'
+} from "./constants";
 
 export interface WebGLSceneProgram {
-	program: WebGLProgram
+	program: WebGLProgram;
 	uniforms: {
-		model: WebGLUniformLocation | null
-		viewProjection: WebGLUniformLocation | null
-		normalMatrix: WebGLUniformLocation | null
-		cameraPosition: WebGLUniformLocation | null
-		ambientColor: WebGLUniformLocation | null
-		enableLighting: WebGLUniformLocation | null
-		shadingModel: WebGLUniformLocation | null
-		baseColor: WebGLUniformLocation | null
-		emissive: WebGLUniformLocation | null
-		pbr: WebGLUniformLocation | null
-		phong: WebGLUniformLocation | null
-		alpha: WebGLUniformLocation | null
-		baseMap: WebGLUniformLocation | null
-		hasBaseMap: WebGLUniformLocation | null
-		baseMapIsLinear: WebGLUniformLocation | null
-		dirLightCount: WebGLUniformLocation | null
-		dirLightDirection: WebGLUniformLocation | null
-		dirLightColor: WebGLUniformLocation | null
-		pointLightCount: WebGLUniformLocation | null
-		pointLightPositionRange: WebGLUniformLocation | null
-		pointLightColor: WebGLUniformLocation | null
-		spotLightCount: WebGLUniformLocation | null
-		spotLightPositionRange: WebGLUniformLocation | null
-		spotLightDirectionOuter: WebGLUniformLocation | null
-		spotLightColorInner: WebGLUniformLocation | null
-	}
+		model: WebGLUniformLocation | null;
+		viewProjection: WebGLUniformLocation | null;
+		normalMatrix: WebGLUniformLocation | null;
+		cameraPosition: WebGLUniformLocation | null;
+		ambientColor: WebGLUniformLocation | null;
+		enableLighting: WebGLUniformLocation | null;
+		shadingModel: WebGLUniformLocation | null;
+		baseColor: WebGLUniformLocation | null;
+		emissive: WebGLUniformLocation | null;
+		pbr: WebGLUniformLocation | null;
+		phong: WebGLUniformLocation | null;
+		alpha: WebGLUniformLocation | null;
+		baseMap: WebGLUniformLocation | null;
+		hasBaseMap: WebGLUniformLocation | null;
+		baseMapIsLinear: WebGLUniformLocation | null;
+		dirLightCount: WebGLUniformLocation | null;
+		dirLightDirection: WebGLUniformLocation | null;
+		dirLightColor: WebGLUniformLocation | null;
+		pointLightCount: WebGLUniformLocation | null;
+		pointLightPositionRange: WebGLUniformLocation | null;
+		pointLightColor: WebGLUniformLocation | null;
+		spotLightCount: WebGLUniformLocation | null;
+		spotLightPositionRange: WebGLUniformLocation | null;
+		spotLightDirectionOuter: WebGLUniformLocation | null;
+		spotLightColorInner: WebGLUniformLocation | null;
+	};
 }
 
 export interface WebGLSkyboxProgram {
-	program: WebGLProgram
+	program: WebGLProgram;
 	uniforms: {
-		skyboxMap: WebGLUniformLocation | null
-		skyboxBasisRight: WebGLUniformLocation | null
-		skyboxBasisUp: WebGLUniformLocation | null
-		skyboxBasisBackward: WebGLUniformLocation | null
-		skyboxIsOrthographic: WebGLUniformLocation | null
-		skyboxMapIsLinear: WebGLUniformLocation | null
-	}
+		skyboxMap: WebGLUniformLocation | null;
+		skyboxBasisRight: WebGLUniformLocation | null;
+		skyboxBasisUp: WebGLUniformLocation | null;
+		skyboxBasisBackward: WebGLUniformLocation | null;
+		skyboxIsOrthographic: WebGLUniformLocation | null;
+		skyboxMapIsLinear: WebGLUniformLocation | null;
+	};
 }
 
 export interface WebGLPresentProgram {
-	program: WebGLProgram
+	program: WebGLProgram;
 	uniforms: {
-		sourceMap: WebGLUniformLocation | null
-		applyGamma: WebGLUniformLocation | null
-	}
+		sourceMap: WebGLUniformLocation | null;
+		applyGamma: WebGLUniformLocation | null;
+	};
 }
 
-type WarnFn = (key: string, message: string) => void
+type WarnFn = (key: string, message: string) => void;
 
 const SCENE_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -79,7 +79,7 @@ void main() {
 	vUv = aUv;
 	gl_Position = uViewProjection * worldPos;
 }
-`
+`;
 
 const SCENE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -265,7 +265,7 @@ void main() {
 	color += uEmissive.rgb;
 	fragColor = vec4(max(color, vec3(0.0)), alpha);
 }
-`
+`;
 
 const SKYBOX_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -284,7 +284,7 @@ void main() {
 	vNdc = pos;
 	gl_Position = vec4(pos, 0.0, 1.0);
 }
-`
+`;
 
 const SKYBOX_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -331,7 +331,7 @@ void main() {
 	vec3 sky = uSkyboxMapIsLinear == 1 ? sampled.rgb : srgbToLinear(sampled.rgb);
 	fragColor = vec4(max(sky, vec3(0.0)), 1.0);
 }
-`
+`;
 
 const PRESENT_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -350,7 +350,7 @@ void main() {
 	gl_Position = vec4(pos, 0.0, 1.0);
 	vUv = vec2(pos.x * 0.5 + 0.5, pos.y * 0.5 + 0.5);
 }
-`
+`;
 
 const PRESENT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -376,152 +376,152 @@ void main() {
 	}
 	fragColor = vec4(clamp(color, 0.0, 1.0), sampled.a);
 }
-`
+`;
 
 export class WebGLProgramLibrary {
-	private _gl: WebGL2RenderingContext
-	private _warn: WarnFn
-	private _sceneProgram: WebGLSceneProgram | null = null
-	private _skyboxProgram: WebGLSkyboxProgram | null = null
-	private _presentProgram: WebGLPresentProgram | null = null
+	private _gl: WebGL2RenderingContext;
+	private _warn: WarnFn;
+	private _sceneProgram: WebGLSceneProgram | null = null;
+	private _skyboxProgram: WebGLSkyboxProgram | null = null;
+	private _presentProgram: WebGLPresentProgram | null = null;
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
-		this._gl = gl
-		this._warn = warn
+		this._gl = gl;
+		this._warn = warn;
 	}
 
 	public getSceneProgram(): WebGLSceneProgram {
 		if (this._sceneProgram) {
-			return this._sceneProgram
+			return this._sceneProgram;
 		}
 		const program = this._createProgram(
 			SCENE_VERTEX_SHADER,
 			SCENE_FRAGMENT_SHADER,
-			'WebGLSceneProgram'
-		)
+			"WebGLSceneProgram"
+		);
 		this._sceneProgram = {
 			program,
 			uniforms: {
-				model: this._gl.getUniformLocation(program, 'uModel'),
-				viewProjection: this._gl.getUniformLocation(program, 'uViewProjection'),
-				normalMatrix: this._gl.getUniformLocation(program, 'uNormalMatrix'),
-				cameraPosition: this._gl.getUniformLocation(program, 'uCameraPosition'),
-				ambientColor: this._gl.getUniformLocation(program, 'uAmbientColor'),
-				enableLighting: this._gl.getUniformLocation(program, 'uEnableLighting'),
-				shadingModel: this._gl.getUniformLocation(program, 'uShadingModel'),
-				baseColor: this._gl.getUniformLocation(program, 'uBaseColor'),
-				emissive: this._gl.getUniformLocation(program, 'uEmissive'),
-				pbr: this._gl.getUniformLocation(program, 'uPBR'),
-				phong: this._gl.getUniformLocation(program, 'uPhong'),
-				alpha: this._gl.getUniformLocation(program, 'uAlpha'),
-				baseMap: this._gl.getUniformLocation(program, 'uBaseMap'),
-				hasBaseMap: this._gl.getUniformLocation(program, 'uHasBaseMap'),
+				model: this._gl.getUniformLocation(program, "uModel"),
+				viewProjection: this._gl.getUniformLocation(program, "uViewProjection"),
+				normalMatrix: this._gl.getUniformLocation(program, "uNormalMatrix"),
+				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
+				ambientColor: this._gl.getUniformLocation(program, "uAmbientColor"),
+				enableLighting: this._gl.getUniformLocation(program, "uEnableLighting"),
+				shadingModel: this._gl.getUniformLocation(program, "uShadingModel"),
+				baseColor: this._gl.getUniformLocation(program, "uBaseColor"),
+				emissive: this._gl.getUniformLocation(program, "uEmissive"),
+				pbr: this._gl.getUniformLocation(program, "uPBR"),
+				phong: this._gl.getUniformLocation(program, "uPhong"),
+				alpha: this._gl.getUniformLocation(program, "uAlpha"),
+				baseMap: this._gl.getUniformLocation(program, "uBaseMap"),
+				hasBaseMap: this._gl.getUniformLocation(program, "uHasBaseMap"),
 				baseMapIsLinear: this._gl.getUniformLocation(
 					program,
-					'uBaseMapIsLinear'
+					"uBaseMapIsLinear"
 				),
-				dirLightCount: this._gl.getUniformLocation(program, 'uDirLightCount'),
+				dirLightCount: this._gl.getUniformLocation(program, "uDirLightCount"),
 				dirLightDirection: this._gl.getUniformLocation(
 					program,
-					'uDirLightDirection'
+					"uDirLightDirection"
 				),
-				dirLightColor: this._gl.getUniformLocation(program, 'uDirLightColor'),
+				dirLightColor: this._gl.getUniformLocation(program, "uDirLightColor"),
 				pointLightCount: this._gl.getUniformLocation(
 					program,
-					'uPointLightCount'
+					"uPointLightCount"
 				),
 				pointLightPositionRange: this._gl.getUniformLocation(
 					program,
-					'uPointLightPositionRange'
+					"uPointLightPositionRange"
 				),
 				pointLightColor: this._gl.getUniformLocation(
 					program,
-					'uPointLightColor'
+					"uPointLightColor"
 				),
-				spotLightCount: this._gl.getUniformLocation(program, 'uSpotLightCount'),
+				spotLightCount: this._gl.getUniformLocation(program, "uSpotLightCount"),
 				spotLightPositionRange: this._gl.getUniformLocation(
 					program,
-					'uSpotLightPositionRange'
+					"uSpotLightPositionRange"
 				),
 				spotLightDirectionOuter: this._gl.getUniformLocation(
 					program,
-					'uSpotLightDirectionOuter'
+					"uSpotLightDirectionOuter"
 				),
 				spotLightColorInner: this._gl.getUniformLocation(
 					program,
-					'uSpotLightColorInner'
+					"uSpotLightColorInner"
 				),
 			},
-		}
-		return this._sceneProgram
+		};
+		return this._sceneProgram;
 	}
 
 	public getSkyboxProgram(): WebGLSkyboxProgram {
 		if (this._skyboxProgram) {
-			return this._skyboxProgram
+			return this._skyboxProgram;
 		}
 		const program = this._createProgram(
 			SKYBOX_VERTEX_SHADER,
 			SKYBOX_FRAGMENT_SHADER,
-			'WebGLSkyboxProgram'
-		)
+			"WebGLSkyboxProgram"
+		);
 		this._skyboxProgram = {
 			program,
 			uniforms: {
-				skyboxMap: this._gl.getUniformLocation(program, 'uSkyboxMap'),
+				skyboxMap: this._gl.getUniformLocation(program, "uSkyboxMap"),
 				skyboxBasisRight: this._gl.getUniformLocation(
 					program,
-					'uSkyboxBasisRight'
+					"uSkyboxBasisRight"
 				),
-				skyboxBasisUp: this._gl.getUniformLocation(program, 'uSkyboxBasisUp'),
+				skyboxBasisUp: this._gl.getUniformLocation(program, "uSkyboxBasisUp"),
 				skyboxBasisBackward: this._gl.getUniformLocation(
 					program,
-					'uSkyboxBasisBackward'
+					"uSkyboxBasisBackward"
 				),
 				skyboxIsOrthographic: this._gl.getUniformLocation(
 					program,
-					'uSkyboxIsOrthographic'
+					"uSkyboxIsOrthographic"
 				),
 				skyboxMapIsLinear: this._gl.getUniformLocation(
 					program,
-					'uSkyboxMapIsLinear'
+					"uSkyboxMapIsLinear"
 				),
 			},
-		}
-		return this._skyboxProgram
+		};
+		return this._skyboxProgram;
 	}
 
 	public getPresentProgram(): WebGLPresentProgram {
 		if (this._presentProgram) {
-			return this._presentProgram
+			return this._presentProgram;
 		}
 		const program = this._createProgram(
 			PRESENT_VERTEX_SHADER,
 			PRESENT_FRAGMENT_SHADER,
-			'WebGLPresentProgram'
-		)
+			"WebGLPresentProgram"
+		);
 		this._presentProgram = {
 			program,
 			uniforms: {
-				sourceMap: this._gl.getUniformLocation(program, 'uSourceMap'),
-				applyGamma: this._gl.getUniformLocation(program, 'uApplyGamma'),
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				applyGamma: this._gl.getUniformLocation(program, "uApplyGamma"),
 			},
-		}
-		return this._presentProgram
+		};
+		return this._presentProgram;
 	}
 
 	public destroy(): void {
 		if (this._sceneProgram) {
-			this._gl.deleteProgram(this._sceneProgram.program)
-			this._sceneProgram = null
+			this._gl.deleteProgram(this._sceneProgram.program);
+			this._sceneProgram = null;
 		}
 		if (this._skyboxProgram) {
-			this._gl.deleteProgram(this._skyboxProgram.program)
-			this._skyboxProgram = null
+			this._gl.deleteProgram(this._skyboxProgram.program);
+			this._skyboxProgram = null;
 		}
 		if (this._presentProgram) {
-			this._gl.deleteProgram(this._presentProgram.program)
-			this._presentProgram = null
+			this._gl.deleteProgram(this._presentProgram.program);
+			this._presentProgram = null;
 		}
 	}
 
@@ -530,46 +530,46 @@ export class WebGLProgramLibrary {
 		fragmentSource: string,
 		label: string
 	): WebGLProgram {
-		const gl = this._gl
+		const gl = this._gl;
 		const vertexShader = this._compileShader(
 			gl.VERTEX_SHADER,
 			vertexSource,
 			`${label}:vertex`
-		)
+		);
 		const fragmentShader = this._compileShader(
 			gl.FRAGMENT_SHADER,
 			fragmentSource,
 			`${label}:fragment`
-		)
-		const program = gl.createProgram()
+		);
+		const program = gl.createProgram();
 		if (!program) {
-			gl.deleteShader(vertexShader)
-			gl.deleteShader(fragmentShader)
-			throw new Error(`Failed to create WebGL program (${label})`)
+			gl.deleteShader(vertexShader);
+			gl.deleteShader(fragmentShader);
+			throw new Error(`Failed to create WebGL program (${label})`);
 		}
 
-		gl.attachShader(program, vertexShader)
-		gl.attachShader(program, fragmentShader)
-		gl.linkProgram(program)
-		gl.deleteShader(vertexShader)
-		gl.deleteShader(fragmentShader)
+		gl.attachShader(program, vertexShader);
+		gl.attachShader(program, fragmentShader);
+		gl.linkProgram(program);
+		gl.deleteShader(vertexShader);
+		gl.deleteShader(fragmentShader);
 
-		const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS)
+		const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS);
 		if (!linked) {
-			const log = gl.getProgramInfoLog(program) || 'No program link log'
-			gl.deleteProgram(program)
-			throw new Error(`WebGL program link failed (${label}): ${log}`)
+			const log = gl.getProgramInfoLog(program) || "No program link log";
+			gl.deleteProgram(program);
+			throw new Error(`WebGL program link failed (${label}): ${log}`);
 		}
 
-		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS)
+		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
 		if (validateStatus === false) {
 			this._warn(
 				`webgl-program-validate-${label}`,
-				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || 'no log'}`
-			)
+				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || "no log"}`
+			);
 		}
 
-		return program
+		return program;
 	}
 
 	private _compileShader(
@@ -577,19 +577,19 @@ export class WebGLProgramLibrary {
 		source: string,
 		label: string
 	): WebGLShader {
-		const gl = this._gl
-		const shader = gl.createShader(type)
+		const gl = this._gl;
+		const shader = gl.createShader(type);
 		if (!shader) {
-			throw new Error(`Failed to create WebGL shader (${label})`)
+			throw new Error(`Failed to create WebGL shader (${label})`);
 		}
-		gl.shaderSource(shader, source)
-		gl.compileShader(shader)
-		const compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS)
+		gl.shaderSource(shader, source);
+		gl.compileShader(shader);
+		const compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS);
 		if (!compiled) {
-			const log = gl.getShaderInfoLog(shader) || 'No shader compile log'
-			gl.deleteShader(shader)
-			throw new Error(`WebGL shader compile failed (${label}): ${log}`)
+			const log = gl.getShaderInfoLog(shader) || "No shader compile log";
+			gl.deleteShader(shader);
+			throw new Error(`WebGL shader compile failed (${label}): ${log}`);
 		}
-		return shader
+		return shader;
 	}
 }

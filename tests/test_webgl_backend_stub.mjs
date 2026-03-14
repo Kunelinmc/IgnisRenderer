@@ -264,8 +264,9 @@ async function testInitAndPassRouting() {
 		["destroy"],
 	]);
 	assert.equal(
-		warnings.filter((warning) => warning.key === "webgl-pass-unsupported-shadow")
-			.length,
+		warnings.filter(
+			(warning) => warning.key === "webgl-pass-unsupported-shadow"
+		).length,
 		1
 	);
 }
