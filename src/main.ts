@@ -13,6 +13,7 @@ import {
 	SoftwareBackend,
 	WebGPUBackend,
 	WebGLBackend,
+	Vector3,
 } from "./index";
 
 interface RendererBootstrap {
@@ -22,7 +23,7 @@ interface RendererBootstrap {
 
 async function init() {
 	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
-	const camera = new OrbitCamera({ x: 0, y: 0, z: 0 }, 500);
+	const camera = new OrbitCamera(new Vector3(0, 0, 0), 500);
 	const scene = new Scene();
 	scene.add(camera);
 

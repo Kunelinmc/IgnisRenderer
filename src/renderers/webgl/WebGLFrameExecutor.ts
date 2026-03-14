@@ -1323,10 +1323,14 @@ export class WebGLFrameExecutor {
 	}
 
 	private _applyFXAA(): void {
-		if (!this._sceneColorTexture || !this._postFramebuffer || !this._postColorTexture) {
+		if (!this._postFramebuffer || !this._postColorTexture) {
 			return;
 		}
 		if (!this._fullscreenVao) {
+			return;
+		}
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
 			return;
 		}
 
@@ -1334,6 +1338,14 @@ export class WebGLFrameExecutor {
 		const fxaaProgram = this._programs.getFXAAProgram();
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			this._postColorTexture,
+			0
+		);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.viewport(0, 0, this._width, this._height);
 		gl.useProgram(fxaaProgram.program);
 		gl.bindVertexArray(this._fullscreenVao);
@@ -1341,7 +1353,7 @@ export class WebGLFrameExecutor {
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneColorTexture);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		if (fxaaProgram.uniforms.sourceMap) {
 			gl.uniform1i(fxaaProgram.uniforms.sourceMap, 0);
 		}
