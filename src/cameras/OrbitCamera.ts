@@ -70,7 +70,7 @@ export class OrbitCamera extends Camera {
 	}
 
 	public setTarget(newTarget: IVector3): void {
-		this.target = new Vector3(newTarget.x, newTarget.y, newTarget.z);
+		this.target.copy(newTarget);
 		this.updatePosition();
 	}
 }
