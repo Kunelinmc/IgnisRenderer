@@ -104,18 +104,23 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	var maxYCoCg = vec3<f32>(-1e9, -1e9, -1e9);
 	var sumYCoCg = vec3<f32>(0.0);
 	var sumSqYCoCg = vec3<f32>(0.0);
-	for (var y: i32 = -1; y <= 1; y = y + 1) {
-		for (var x: i32 = -1; x <= 1; x = x + 1) {
-			let sampleCoord = clamp(coord + vec2<i32>(x, y), vec2<i32>(0, 0), vec2<i32>(i32(size.x) - 1, i32(size.y) - 1));
-			let ycocg = rgbToYCoCg(textureLoad(currentColor, sampleCoord, 0).rgb);
-			minYCoCg = min(minYCoCg, ycocg);
-			maxYCoCg = max(maxYCoCg, ycocg);
-			sumYCoCg = sumYCoCg + ycocg;
-			sumSqYCoCg = sumSqYCoCg + ycocg * ycocg;
-		}
+	let offsets = array<vec2<i32>, 5>(
+		vec2<i32>(0, 0),
+		vec2<i32>(-1, 0),
+		vec2<i32>(1, 0),
+		vec2<i32>(0, -1),
+		vec2<i32>(0, 1)
+	);
+	for (var i: i32 = 0; i < 5; i = i + 1) {
+		let sampleCoord = clamp(coord + offsets[i], vec2<i32>(0, 0), vec2<i32>(i32(size.x) - 1, i32(size.y) - 1));
+		let ycocg = rgbToYCoCg(textureLoad(currentColor, sampleCoord, 0).rgb);
+		minYCoCg = min(minYCoCg, ycocg);
+		maxYCoCg = max(maxYCoCg, ycocg);
+		sumYCoCg = sumYCoCg + ycocg;
+		sumSqYCoCg = sumSqYCoCg + ycocg * ycocg;
 	}
-	let meanYCoCg = sumYCoCg / 9.0;
-	let varianceYCoCg = max(sumSqYCoCg / 9.0 - meanYCoCg * meanYCoCg, vec3<f32>(0.0));
+	let meanYCoCg = sumYCoCg / 5.0;
+	let varianceYCoCg = max(sumSqYCoCg / 5.0 - meanYCoCg * meanYCoCg, vec3<f32>(0.0));
 	let sigmaYCoCg = sqrt(varianceYCoCg);
 	let gamma = max(params.varianceClampGamma, 0.0);
 	let varianceMin = meanYCoCg - sigmaYCoCg * gamma;

@@ -12,6 +12,7 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"main-transparent",
 	"particles",
 	"fxaa",
+	"taa",
 	"gamma",
 ]);
 
@@ -28,7 +29,7 @@ export class WebGLBackend implements IRenderBackend {
 		reflection: false,
 		skybox: true,
 		ssao: false,
-		taa: false,
+		taa: true,
 		ssr: false,
 		volumetric: false,
 	};

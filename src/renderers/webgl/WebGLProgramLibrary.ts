@@ -17,6 +17,7 @@ import {
 	WEBGL_SHADOW_DEPTH_VERTEX_SHADER,
 	WEBGL_SKYBOX_FRAGMENT_SHADER,
 	WEBGL_SKYBOX_VERTEX_SHADER,
+	WEBGL_TAA_FRAGMENT_SHADER,
 } from "../../shaders/webgl/pipelineShaders";
 import { createWebGLSceneShaderSource } from "../../shaders/webgl/sceneShader";
 
@@ -50,7 +51,14 @@ export interface WebGLTAAProgram {
 		sceneColor: WebGLUniformLocation | null;
 		historyMap: WebGLUniformLocation | null;
 		motionMap: WebGLUniformLocation | null;
+		motionHistory: WebGLUniformLocation | null;
 		texelSize: WebGLUniformLocation | null;
+		historyWeight: WebGLUniformLocation | null;
+		depthThreshold: WebGLUniformLocation | null;
+		motionFactor: WebGLUniformLocation | null;
+		varianceClampGamma: WebGLUniformLocation | null;
+		sharpen: WebGLUniformLocation | null;
+		historyValid: WebGLUniformLocation | null;
 	};
 }
 
@@ -102,6 +110,9 @@ export interface WebGLSceneProgram {
 		spotLightPositionRange: WebGLUniformLocation | null;
 		spotLightDirectionOuter: WebGLUniformLocation | null;
 		spotLightColorInner: WebGLUniformLocation | null;
+		taaJitter: WebGLUniformLocation | null;
+		prevViewProjection: WebGLUniformLocation | null;
+		prevModel: WebGLUniformLocation | null;
 	};
 }
 
@@ -157,20 +168,6 @@ const {
 	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 });
 
-const SKYBOX_VERTEX_SHADER = WEBGL_SKYBOX_VERTEX_SHADER;
-const SKYBOX_FRAGMENT_SHADER = WEBGL_SKYBOX_FRAGMENT_SHADER;
-const PRESENT_VERTEX_SHADER = WEBGL_PRESENT_VERTEX_SHADER;
-const PRESENT_FRAGMENT_SHADER = WEBGL_PRESENT_FRAGMENT_SHADER;
-const PARTICLE_VERTEX_SHADER = WEBGL_PARTICLE_VERTEX_SHADER;
-const PARTICLE_FRAGMENT_SHADER = WEBGL_PARTICLE_FRAGMENT_SHADER;
-const FXAA_VERTEX_SHADER = WEBGL_FXAA_VERTEX_SHADER;
-const SHADOW_DEPTH_VERTEX_SHADER = WEBGL_SHADOW_DEPTH_VERTEX_SHADER;
-const SHADOW_DEPTH_FRAGMENT_SHADER = WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER;
-const COPY_VERTEX_SHADER = WEBGL_COPY_VERTEX_SHADER;
-const COPY_FRAGMENT_SHADER = WEBGL_COPY_FRAGMENT_SHADER;
-const POST_PROCESS_STUB_FRAGMENT_SHADER =
-	WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER;
-const FXAA_FRAGMENT_SHADER = WEBGL_FXAA_FRAGMENT_SHADER;
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
@@ -254,6 +251,12 @@ export class WebGLProgramLibrary {
 					program,
 					"uSpotLightColorInner"
 				),
+				taaJitter: this._gl.getUniformLocation(program, "uTaaJitter"),
+				prevViewProjection: this._gl.getUniformLocation(
+					program,
+					"uPrevViewProjection"
+				),
+				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
 			},
 		};
 		return this._sceneProgram;
@@ -264,8 +267,8 @@ export class WebGLProgramLibrary {
 			return this._skyboxProgram;
 		}
 		const program = this._createProgram(
-			SKYBOX_VERTEX_SHADER,
-			SKYBOX_FRAGMENT_SHADER,
+			WEBGL_SKYBOX_VERTEX_SHADER,
+			WEBGL_SKYBOX_FRAGMENT_SHADER,
 			"WebGLSkyboxProgram"
 		);
 		this._skyboxProgram = {
@@ -299,8 +302,8 @@ export class WebGLProgramLibrary {
 			return this._presentProgram;
 		}
 		const program = this._createProgram(
-			PRESENT_VERTEX_SHADER,
-			PRESENT_FRAGMENT_SHADER,
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_PRESENT_FRAGMENT_SHADER,
 			"WebGLPresentProgram"
 		);
 		this._presentProgram = {
@@ -318,8 +321,8 @@ export class WebGLProgramLibrary {
 			return this._particleProgram;
 		}
 		const program = this._createProgram(
-			PARTICLE_VERTEX_SHADER,
-			PARTICLE_FRAGMENT_SHADER,
+			WEBGL_PARTICLE_VERTEX_SHADER,
+			WEBGL_PARTICLE_FRAGMENT_SHADER,
 			"WebGLParticleProgram"
 		);
 		this._particleProgram = {
@@ -342,8 +345,8 @@ export class WebGLProgramLibrary {
 			return this._fxaaProgram;
 		}
 		const program = this._createProgram(
-			FXAA_VERTEX_SHADER,
-			FXAA_FRAGMENT_SHADER,
+			WEBGL_FXAA_VERTEX_SHADER,
+			WEBGL_FXAA_FRAGMENT_SHADER,
 			"WebGLFXAAProgram"
 		);
 		this._fxaaProgram = {
@@ -361,8 +364,8 @@ export class WebGLProgramLibrary {
 			return this._shadowDepthProgram;
 		}
 		const program = this._createProgram(
-			SHADOW_DEPTH_VERTEX_SHADER,
-			SHADOW_DEPTH_FRAGMENT_SHADER,
+			WEBGL_SHADOW_DEPTH_VERTEX_SHADER,
+			WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER,
 			"WebGLShadowDepthProgram"
 		);
 		this._shadowDepthProgram = {
@@ -379,8 +382,8 @@ export class WebGLProgramLibrary {
 			return this._copyProgram;
 		}
 		const program = this._createProgram(
-			COPY_VERTEX_SHADER,
-			COPY_FRAGMENT_SHADER,
+			WEBGL_COPY_VERTEX_SHADER,
+			WEBGL_COPY_FRAGMENT_SHADER,
 			"WebGLCopyProgram"
 		);
 		this._copyProgram = {
@@ -397,8 +400,8 @@ export class WebGLProgramLibrary {
 			return this._ssaoProgram;
 		}
 		const program = this._createProgram(
-			PRESENT_VERTEX_SHADER,
-			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
 			"WebGLSSAOProgram"
 		);
 		this._ssaoProgram = {
@@ -418,8 +421,8 @@ export class WebGLProgramLibrary {
 			return this._taaProgram;
 		}
 		const program = this._createProgram(
-			PRESENT_VERTEX_SHADER,
-			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_TAA_FRAGMENT_SHADER,
 			"WebGLTAAProgram"
 		);
 		this._taaProgram = {
@@ -428,7 +431,17 @@ export class WebGLProgramLibrary {
 				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
 				historyMap: this._gl.getUniformLocation(program, "uHistoryMap"),
 				motionMap: this._gl.getUniformLocation(program, "uMotionMap"),
+				motionHistory: this._gl.getUniformLocation(program, "uMotionHistory"),
 				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				historyWeight: this._gl.getUniformLocation(program, "uHistoryWeight"),
+				depthThreshold: this._gl.getUniformLocation(program, "uDepthThreshold"),
+				motionFactor: this._gl.getUniformLocation(program, "uMotionFactor"),
+				varianceClampGamma: this._gl.getUniformLocation(
+					program,
+					"uVarianceClampGamma"
+				),
+				sharpen: this._gl.getUniformLocation(program, "uSharpen"),
+				historyValid: this._gl.getUniformLocation(program, "uHistoryValid"),
 			},
 		};
 		return this._taaProgram;
@@ -439,8 +452,8 @@ export class WebGLProgramLibrary {
 			return this._ssrProgram;
 		}
 		const program = this._createProgram(
-			PRESENT_VERTEX_SHADER,
-			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
 			"WebGLSSRProgram"
 		);
 		this._ssrProgram = {
@@ -460,8 +473,8 @@ export class WebGLProgramLibrary {
 			return this._volumetricProgram;
 		}
 		const program = this._createProgram(
-			PRESENT_VERTEX_SHADER,
-			POST_PROCESS_STUB_FRAGMENT_SHADER,
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
 			"WebGLVolumetricProgram"
 		);
 		this._volumetricProgram = {

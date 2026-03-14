@@ -12,7 +12,8 @@ uniform vec3 uSkyboxBasisBackward;
 uniform float uSkyboxIsOrthographic;
 uniform int uSkyboxMapIsLinear;
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 fragMotion;
 
 vec3 srgbToLinear(vec3 c) {
 	vec3 a = c / 12.92;
@@ -42,4 +43,5 @@ void main() {
 	vec4 sampled = texture(uSkyboxMap, uv);
 	vec3 sky = uSkyboxMapIsLinear == 1 ? sampled.rgb : srgbToLinear(sampled.rgb);
 	fragColor = vec4(max(sky, vec3(0.0)), 1.0);
+	fragMotion = vec4(0.0, 0.0, 0.0, 1.0);
 }

@@ -15,6 +15,7 @@ import {
 	type FrameContext,
 	type FramePass,
 	type ParticleRenderBatch,
+	type TAAOptions,
 } from "../../pipeline/types";
 import {
 	collectWebGLLights,
@@ -44,8 +45,22 @@ const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
 	"main-transparent",
 	"particles",
 	"fxaa",
+	"taa",
 	"gamma",
 ]);
+
+const TAA_HALTON_SAMPLE_COUNT = 16;
+
+function computeHaltonJitterNDC(index: number, width: number, height: number): [number, number] {
+	const haltonX = [0.5, 0.25, 0.75, 0.125, 0.625, 0.375, 0.875, 0.0625, 0.5625, 0.3125, 0.8125, 0.1875, 0.6875, 0.4375, 0.9375, 0.03125];
+	const haltonY = [0.333333, 0.666667, 0.111111, 0.444444, 0.777778, 0.222222, 0.555556, 0.888889, 0.037037, 0.37037, 0.703704, 0.148148, 0.481481, 0.814815, 0.259259, 0.592593];
+	
+	const idx = index % TAA_HALTON_SAMPLE_COUNT;
+	return [
+		((haltonX[idx] - 0.5) / width) * 2.0,
+		((haltonY[idx] - 0.5) / height) * 2.0
+	];
+}
 
 const PARTICLE_QUAD_VERTICES = new Float32Array([
 	-0.5,
@@ -88,7 +103,15 @@ export class WebGLFrameExecutor {
 	private _textures: WebGLTextureRegistry;
 	private _sceneFramebuffer: WebGLFramebuffer | null = null;
 	private _sceneColorTexture: WebGLTexture | null = null;
+	private _sceneMotionTexture: WebGLTexture | null = null;
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
+	private _taaHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
+	private _taaMotionHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
+	private _taaHistoryIndex = 0;
+	private _taaJitter = new Float32Array(4); // currX, currY, prevX, prevY
+	private _taaFrameIndex = 0;
+	private _prevViewProjection: Float32Array | null = null;
+	private _modelMatrixCache = new Map<string, Float32Array>();
 	private _postFramebuffer: WebGLFramebuffer | null = null;
 	private _postColorTexture: WebGLTexture | null = null;
 	private _presentSourceTexture: WebGLTexture | null = null;
@@ -134,6 +157,17 @@ export class WebGLFrameExecutor {
 			context.features.enableLighting,
 			this._warn
 		);
+		
+		if (context.features.enableTAA) {
+			this._taaJitter[2] = this._taaJitter[0];
+			this._taaJitter[3] = this._taaJitter[1];
+			const nextJitter = computeHaltonJitterNDC(this._taaFrameIndex++, this._width, this._height);
+			this._taaJitter[0] = nextJitter[0];
+			this._taaJitter[1] = nextJitter[1];
+		} else {
+			this._taaJitter.fill(0);
+			this._taaFrameIndex = 0;
+		}
 
 		const gl = this._gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
@@ -171,6 +205,9 @@ export class WebGLFrameExecutor {
 				break;
 			case "fxaa":
 				this._applyFXAA();
+				break;
+			case "taa":
+				this._applyTAA(context.features.taaOptions);
 				break;
 			case "gamma":
 				this._present(context.features.enableGamma !== false);
@@ -215,6 +252,7 @@ export class WebGLFrameExecutor {
 		const gl = this._gl;
 		const sceneProgram = this._programs.getSceneProgram();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 		gl.useProgram(sceneProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
 
@@ -235,7 +273,13 @@ export class WebGLFrameExecutor {
 		}
 
 		for (const packet of packets) {
-			this._drawPacket(sceneProgram, packet, transparent);
+			this._drawPacket(sceneProgram, packet, transparent, context);
+		}
+
+		if (this._prevViewProjection) {
+			this._prevViewProjection.set(toColumnMajorMat4(context.camera.viewProjectionMatrix));
+		} else {
+			this._prevViewProjection = toColumnMajorMat4(context.camera.viewProjectionMatrix);
 		}
 
 		gl.depthMask(true);
@@ -246,7 +290,8 @@ export class WebGLFrameExecutor {
 	private _drawPacket(
 		sceneProgram: WebGLSceneProgram,
 		packet: DrawPacket,
-		transparentPass: boolean
+		transparentPass: boolean,
+		context: FrameContext
 	): void {
 		const gl = this._gl;
 		const material = packet.material;
@@ -305,6 +350,21 @@ export class WebGLFrameExecutor {
 				false,
 				normalMatrix
 			);
+		}
+		if (sceneProgram.uniforms.prevModel) {
+			const cacheKey = packet.id;
+			let cached = this._modelMatrixCache.get(cacheKey);
+			gl.uniformMatrix4fv(
+				sceneProgram.uniforms.prevModel,
+				false,
+				cached ?? toColumnMajorMat4(packet.worldMatrix)
+			);
+			if (!cached) {
+				cached = toColumnMajorMat4(packet.worldMatrix);
+				this._modelMatrixCache.set(cacheKey, cached);
+			} else {
+				cached.set(toColumnMajorMat4(packet.worldMatrix));
+			}
 		}
 		if (sceneProgram.uniforms.shadingModel) {
 			gl.uniform1i(sceneProgram.uniforms.shadingModel, uniforms.shadingModel);
@@ -376,6 +436,7 @@ export class WebGLFrameExecutor {
 		const view = context.camera.viewMatrix.elements;
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.useProgram(particleProgram.program);
 		gl.bindVertexArray(this._particleVao);
 		gl.enable(gl.DEPTH_TEST);
@@ -741,6 +802,18 @@ export class WebGLFrameExecutor {
 			);
 		}
 
+		if (uniforms.taaJitter) {
+			gl.uniform4fv(uniforms.taaJitter, this._taaJitter);
+		}
+		if (uniforms.prevViewProjection) {
+			gl.uniformMatrix4fv(
+				uniforms.prevViewProjection,
+				false,
+				this._prevViewProjection ??
+					toColumnMajorMat4(context.camera.viewProjectionMatrix)
+			);
+		}
+
 		if (uniforms.dirLightCount) {
 			gl.uniform1i(uniforms.dirLightCount, lights.directionalLights.length);
 		}
@@ -845,6 +918,7 @@ export class WebGLFrameExecutor {
 		const aspect = context.camera.aspectRatio || this._width / this._height;
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.useProgram(skyboxProgram.program);
 		gl.bindVertexArray(this._fullscreenVao);
 		gl.disable(gl.CULL_FACE);
@@ -938,6 +1012,96 @@ export class WebGLFrameExecutor {
 		this._presentSourceTexture = this._postColorTexture;
 	}
 
+	private _applyTAA(options?: TAAOptions): void {
+		if (
+			!this._sceneColorTexture ||
+			!this._sceneMotionTexture ||
+			!this._postFramebuffer ||
+			!this._taaHistoryTextures[0] ||
+			!this._fullscreenVao
+		) {
+			return;
+		}
+
+		const gl = this._gl;
+		const taaProgram = this._programs.getTAAProgram();
+		const historyIndex = this._taaHistoryIndex;
+		const currentHistory = this._taaHistoryTextures[historyIndex];
+		const nextHistory = this._taaHistoryTextures[1 - historyIndex];
+		const currentMotionHistory = this._taaMotionHistoryTextures[historyIndex];
+		const nextMotionHistory = this._taaMotionHistoryTextures[1 - historyIndex];
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			nextHistory!,
+			0
+		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT1,
+			gl.TEXTURE_2D,
+			nextMotionHistory!,
+			0
+		);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(taaProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, this._sceneColorTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, currentHistory!);
+		gl.activeTexture(gl.TEXTURE2);
+		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
+		gl.activeTexture(gl.TEXTURE3);
+		gl.bindTexture(gl.TEXTURE_2D, currentMotionHistory!);
+
+		const uniforms = taaProgram.uniforms;
+		if (uniforms.sceneColor) gl.uniform1i(uniforms.sceneColor, 0);
+		if (uniforms.historyMap) gl.uniform1i(uniforms.historyMap, 1);
+		if (uniforms.motionMap) gl.uniform1i(uniforms.motionMap, 2);
+		if (uniforms.motionHistory) gl.uniform1i(uniforms.motionHistory, 3);
+		if (uniforms.texelSize) {
+			gl.uniform2f(
+				uniforms.texelSize,
+				1 / Math.max(1, this._width),
+				1 / Math.max(1, this._height)
+			);
+		}
+
+		// Default options
+		const weight = (options?.historyWeight as number) ?? 0.9;
+		const depthThreshold = (options?.disocclusionDepthThreshold as number) ?? 0.01;
+		const motionFactor = (options?.motionFactor as number) ?? 0.1;
+		const varianceClampGamma = (options?.varianceClampGamma as number) ?? 1.0;
+		const sharpen = (options?.sharpen as number) ?? 0.0;
+
+		if (uniforms.historyWeight) gl.uniform1f(uniforms.historyWeight, weight);
+		if (uniforms.depthThreshold)
+			gl.uniform1f(uniforms.depthThreshold, depthThreshold);
+		if (uniforms.motionFactor) gl.uniform1f(uniforms.motionFactor, motionFactor);
+		if (uniforms.varianceClampGamma)
+			gl.uniform1f(uniforms.varianceClampGamma, varianceClampGamma);
+		if (uniforms.sharpen) gl.uniform1f(uniforms.sharpen, sharpen);
+		if (uniforms.historyValid) gl.uniform1f(uniforms.historyValid, 1.0);
+
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.bindVertexArray(null);
+
+		this._taaHistoryIndex = 1 - historyIndex;
+		this._presentSourceTexture = nextHistory;
+	}
+
 	private _present(applyGamma: boolean): void {
 		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
 		if (!sourceTexture || !this._fullscreenVao) return;
@@ -990,23 +1154,79 @@ export class WebGLFrameExecutor {
 		this._destroyFrameTargets();
 		const gl = this._gl;
 
+		const useFloat = !!gl.getExtension("EXT_color_buffer_float");
+		const colorInternalFormat = useFloat ? gl.RGBA16F : gl.RGBA8;
+		const colorType = useFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+
 		const sceneFramebuffer = gl.createFramebuffer();
-		const sceneColorTexture = this._createColorTexture(width, height);
+		const sceneColorTexture = this._createColorTexture(
+			width,
+			height,
+			colorInternalFormat,
+			colorType
+		);
+		const sceneMotionTexture = this._createColorTexture(
+			width,
+			height,
+			gl.RGBA16F,
+			gl.HALF_FLOAT
+		);
 		const sceneDepthBuffer = gl.createRenderbuffer();
 		const postFramebuffer = gl.createFramebuffer();
-		const postColorTexture = this._createColorTexture(width, height);
+		const postColorTexture = this._createColorTexture(
+			width,
+			height,
+			colorInternalFormat,
+			colorType
+		);
+
+		const history0 = this._createColorTexture(
+			width,
+			height,
+			colorInternalFormat,
+			colorType
+		);
+		const history1 = this._createColorTexture(
+			width,
+			height,
+			colorInternalFormat,
+			colorType
+		);
+		const motionHistory0 = this._createColorTexture(
+			width,
+			height,
+			gl.RGBA16F,
+			gl.HALF_FLOAT
+		);
+		const motionHistory1 = this._createColorTexture(
+			width,
+			height,
+			gl.RGBA16F,
+			gl.HALF_FLOAT
+		);
+
 		if (
 			!sceneFramebuffer ||
 			!sceneColorTexture ||
+			!sceneMotionTexture ||
 			!sceneDepthBuffer ||
 			!postFramebuffer ||
-			!postColorTexture
+			!postColorTexture ||
+			!history0 ||
+			!history1 ||
+			!motionHistory0 ||
+			!motionHistory1
 		) {
 			if (sceneFramebuffer) gl.deleteFramebuffer(sceneFramebuffer);
 			if (sceneColorTexture) gl.deleteTexture(sceneColorTexture);
+			if (sceneMotionTexture) gl.deleteTexture(sceneMotionTexture);
 			if (sceneDepthBuffer) gl.deleteRenderbuffer(sceneDepthBuffer);
 			if (postFramebuffer) gl.deleteFramebuffer(postFramebuffer);
 			if (postColorTexture) gl.deleteTexture(postColorTexture);
+			if (history0) gl.deleteTexture(history0);
+			if (history1) gl.deleteTexture(history1);
+			if (motionHistory0) gl.deleteTexture(motionHistory0);
+			if (motionHistory1) gl.deleteTexture(motionHistory1);
 			throw new Error("Failed to create WebGL frame targets");
 		}
 
@@ -1027,12 +1247,20 @@ export class WebGLFrameExecutor {
 			sceneColorTexture,
 			0
 		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT1,
+			gl.TEXTURE_2D,
+			sceneMotionTexture,
+			0
+		);
 		gl.framebufferRenderbuffer(
 			gl.FRAMEBUFFER,
 			gl.DEPTH_ATTACHMENT,
 			gl.RENDERBUFFER,
 			sceneDepthBuffer
 		);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 		let status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
 		if (status !== gl.FRAMEBUFFER_COMPLETE) {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -1069,7 +1297,11 @@ export class WebGLFrameExecutor {
 
 		this._sceneFramebuffer = sceneFramebuffer;
 		this._sceneColorTexture = sceneColorTexture;
+		this._sceneMotionTexture = sceneMotionTexture;
 		this._sceneDepthBuffer = sceneDepthBuffer;
+		this._taaHistoryTextures = [history0, history1];
+		this._taaMotionHistoryTextures = [motionHistory0, motionHistory1];
+		this._taaHistoryIndex = 0;
 		this._postFramebuffer = postFramebuffer;
 		this._postColorTexture = postColorTexture;
 		this._presentSourceTexture = sceneColorTexture;
@@ -1087,9 +1319,21 @@ export class WebGLFrameExecutor {
 			gl.deleteTexture(this._sceneColorTexture);
 			this._sceneColorTexture = null;
 		}
+		if (this._sceneMotionTexture) {
+			gl.deleteTexture(this._sceneMotionTexture);
+			this._sceneMotionTexture = null;
+		}
 		if (this._sceneDepthBuffer) {
 			gl.deleteRenderbuffer(this._sceneDepthBuffer);
 			this._sceneDepthBuffer = null;
+		}
+		if (this._taaHistoryTextures[0]) {
+			gl.deleteTexture(this._taaHistoryTextures[0]!);
+			gl.deleteTexture(this._taaHistoryTextures[1]!);
+			gl.deleteTexture(this._taaMotionHistoryTextures[0]!);
+			gl.deleteTexture(this._taaMotionHistoryTextures[1]!);
+			this._taaHistoryTextures = [null, null];
+			this._taaMotionHistoryTextures = [null, null];
 		}
 		if (this._postFramebuffer) {
 			gl.deleteFramebuffer(this._postFramebuffer);
@@ -1106,7 +1350,9 @@ export class WebGLFrameExecutor {
 
 	private _createColorTexture(
 		width: number,
-		height: number
+		height: number,
+		internalFormat: number = this._gl.RGBA8,
+		type: number = this._gl.UNSIGNED_BYTE
 	): WebGLTexture | null {
 		const gl = this._gl;
 		const texture = gl.createTexture();
@@ -1116,15 +1362,21 @@ export class WebGLFrameExecutor {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		
+		let format = gl.RGBA;
+		if (internalFormat === gl.RGBA16F || internalFormat === gl.RGBA32F) {
+			format = gl.RGBA;
+		}
+		
 		gl.texImage2D(
 			gl.TEXTURE_2D,
 			0,
-			gl.RGBA,
+			internalFormat,
 			width,
 			height,
 			0,
-			gl.RGBA,
-			gl.UNSIGNED_BYTE,
+			format,
+			type,
 			null
 		);
 		gl.bindTexture(gl.TEXTURE_2D, null);

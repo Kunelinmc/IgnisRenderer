@@ -35,3 +35,6 @@ export const WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER = await loadWebGLShaderPart
 export const WEBGL_FXAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
 	"fxaaFragment"
 );
+export const WEBGL_TAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
+	"taaFragment"
+);

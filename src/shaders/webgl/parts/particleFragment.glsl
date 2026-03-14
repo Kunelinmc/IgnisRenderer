@@ -10,7 +10,8 @@ uniform vec4 uUvTransformA;
 uniform vec2 uUvTransformB;
 uniform int uMapIsLinear;
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 fragMotion;
 
 vec3 srgbToLinear(vec3 c) {
 	vec3 a = c / 12.92;
@@ -40,4 +41,5 @@ void main() {
 	}
 
 	fragColor = vec4(max(color.rgb, vec3(0.0)), clamp(color.a, 0.0, 1.0));
+	fragMotion = vec4(0, 0, 0, 1);
 }

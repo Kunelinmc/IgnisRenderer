@@ -14,6 +14,8 @@ const float PBR_AMBIENT_FALLBACK_LINEAR = 0.05;
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUv;
+in vec4 vCurrentClip;
+in vec4 vPrevClip;
 
 uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
@@ -41,7 +43,8 @@ uniform vec4 uSpotLightPositionRange[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotLightDirectionOuter[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 fragMotion;
 
 vec3 srgbToLinear(vec3 c) {
 	vec3 a = c / 12.92;
@@ -336,4 +339,7 @@ void main() {
 
 	color += uEmissive.rgb;
 	fragColor = vec4(max(color, vec3(0.0)), alpha);
+	vec2 curUV = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;
+	vec2 prevUV = (vPrevClip.xy / vPrevClip.w) * 0.5 + 0.5;
+	fragMotion = vec4(curUV - prevUV, vCurrentClip.z / vCurrentClip.w, 1.0);
 }
