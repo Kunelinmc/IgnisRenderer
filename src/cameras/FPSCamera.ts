@@ -69,4 +69,12 @@ export class FPSCamera extends Camera {
 		this.position.y += distance;
 		this.updateMatrices();
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.yaw = this.yaw;
+		target.pitch = this.pitch;
+		target.moveSpeed = this.moveSpeed;
+		target.lookSensitivity = this.lookSensitivity;
+	}
 }

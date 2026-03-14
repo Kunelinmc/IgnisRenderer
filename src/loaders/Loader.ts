@@ -39,6 +39,9 @@ export interface LoaderEvents {
 export class Loader<
 	E extends LoaderEvents = LoaderEvents,
 > extends EventEmitter<E> {
+	private static _resourceCache = new Map<string, unknown>();
+	private static _pendingResourceCache = new Map<string, Promise<unknown>>();
+
 	constructor() {
 		super();
 	}
@@ -86,5 +89,60 @@ export class Loader<
 			offset += chunk.length;
 		}
 		return buffer.buffer;
+	}
+
+	protected async _loadCached<T>(
+		cacheKey: string,
+		loader: () => Promise<T>
+	): Promise<T> {
+		const scopedKey = this._createScopedCacheKey(cacheKey);
+		const cached = Loader._resourceCache.get(scopedKey);
+		if (cached !== undefined) {
+			return cached as T;
+		}
+
+		const pending = Loader._pendingResourceCache.get(scopedKey);
+		if (pending) {
+			return (await pending) as T;
+		}
+
+		const loadingPromise = (async () => {
+			try {
+				const loaded = await loader();
+				Loader._resourceCache.set(scopedKey, loaded);
+				return loaded;
+			} finally {
+				Loader._pendingResourceCache.delete(scopedKey);
+			}
+		})();
+
+		Loader._pendingResourceCache.set(scopedKey, loadingPromise);
+		return (await loadingPromise) as T;
+	}
+
+	protected _getCached<T>(cacheKey: string): T | undefined {
+		const scopedKey = this._createScopedCacheKey(cacheKey);
+		const cached = Loader._resourceCache.get(scopedKey);
+		return cached as T | undefined;
+	}
+
+	protected _setCached(cacheKey: string, value: unknown): void {
+		const scopedKey = this._createScopedCacheKey(cacheKey);
+		Loader._resourceCache.set(scopedKey, value);
+	}
+
+	protected _deleteCached(cacheKey: string): void {
+		const scopedKey = this._createScopedCacheKey(cacheKey);
+		Loader._resourceCache.delete(scopedKey);
+		Loader._pendingResourceCache.delete(scopedKey);
+	}
+
+	protected _createScopedCacheKey(cacheKey: string): string {
+		return `${this.constructor.name}:${cacheKey}`;
+	}
+
+	public static clearSharedCache(): void {
+		Loader._resourceCache.clear();
+		Loader._pendingResourceCache.clear();
 	}
 }

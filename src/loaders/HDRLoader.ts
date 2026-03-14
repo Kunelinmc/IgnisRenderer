@@ -6,28 +6,19 @@ import { Loader } from "./Loader";
  * The resulting Texture will have a Float32Array for its data containing linear RGB floating point values.
  */
 export class HDRLoader extends Loader {
-	private _cache: Map<string, Texture>;
-
 	constructor() {
 		super();
-		this._cache = new Map();
 	}
 
 	/**
 	 * Loads an HDR texture from a URL.
 	 */
 	public async load(url: string): Promise<Texture> {
-		if (this._cache.has(url)) {
-			const texture = this._cache.get(url)!;
-			this.emit("load", texture);
-			return texture;
-		}
-
 		try {
-			const buffer = await this._fetchWithProgress(url);
-			const texture = this.parse(buffer);
-
-			this._cache.set(url, texture);
+			const texture = await this._loadCached(`texture:${url}`, async () => {
+				const buffer = await this._fetchWithProgress(url);
+				return this.parse(buffer);
+			});
 			this.emit("load", texture);
 			return texture;
 		} catch (error) {

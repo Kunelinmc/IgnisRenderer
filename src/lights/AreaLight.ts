@@ -71,4 +71,11 @@ export class AreaLight extends Light<LightType.RectArea> {
 		this.shadow = new AreaShadowCaster(this);
 		this.castShadow = params.castShadow ?? true;
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.width = this.width;
+		target.height = this.height;
+		target.range = this.range;
+	}
 }

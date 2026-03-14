@@ -16,4 +16,9 @@ export class PointLight extends Light<LightType.Point> {
 		}
 		this.range = params.range ?? 1000;
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.range = this.range;
+	}
 }

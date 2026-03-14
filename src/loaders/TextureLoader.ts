@@ -5,31 +5,25 @@ import { Loader } from "./Loader";
  * TextureLoader handles loading images from various formats into Texture objects.
  */
 export class TextureLoader extends Loader {
-	private _cache: Map<string, Texture>;
-
 	constructor() {
 		super();
-		this._cache = new Map();
 	}
 
 	/**
 	 * Loads a texture from a URL.
 	 */
 	public async load(url: string): Promise<Texture> {
-		if (this._cache.has(url)) {
-			const texture = this._cache.get(url)!;
-			this.emit("load", texture);
-			return texture;
-		}
-
 		try {
-			const buffer = await this._fetchWithProgress(url);
-			const blob = new Blob([buffer]);
-			const blobUrl = URL.createObjectURL(blob);
-			const texture = await this._loadImage(blobUrl);
-			URL.revokeObjectURL(blobUrl);
-
-			this._cache.set(url, texture);
+			const texture = await this._loadCached(`texture:${url}`, async () => {
+				const buffer = await this._fetchWithProgress(url);
+				const blob = new Blob([buffer]);
+				const blobUrl = URL.createObjectURL(blob);
+				try {
+					return await this._loadImage(blobUrl);
+				} finally {
+					URL.revokeObjectURL(blobUrl);
+				}
+			});
 			this.emit("load", texture);
 			return texture;
 		} catch (error) {
@@ -89,8 +83,16 @@ export class TextureLoader extends Loader {
 	 */
 	public async loadFromBlob(blob: Blob | File): Promise<Texture> {
 		const url = URL.createObjectURL(blob);
-		const texture = await this.load(url);
-		URL.revokeObjectURL(url);
-		return texture;
+		try {
+			const texture = await this._loadImage(url);
+			this.emit("load", texture);
+			return texture;
+		} catch (error) {
+			this.emit("error", error);
+			console.error(`TextureLoader: Failed to load Blob/File`, error);
+			return this.createSolidColorTexture(255, 0, 255);
+		} finally {
+			URL.revokeObjectURL(url);
+		}
 	}
 }

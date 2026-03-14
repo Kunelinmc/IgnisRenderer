@@ -73,4 +73,18 @@ export class OrbitCamera extends Camera {
 		this.target.copy(newTarget);
 		this.updatePosition();
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.target.copy(this.target);
+		target.distance = this.distance;
+		target.theta = this.theta;
+		target.phi = this.phi;
+		target.minPhi = this.minPhi;
+		target.maxPhi = this.maxPhi;
+		target.minDistance = this.minDistance;
+		target.maxDistance = this.maxDistance;
+		target.lookSensitivity = this.lookSensitivity;
+		target.zoomSensitivity = this.zoomSensitivity;
+	}
 }

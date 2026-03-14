@@ -199,6 +199,43 @@ export class Node {
 		return target;
 	}
 
+	public clone(recursive: boolean = true): this {
+		const cloned = this._createCloneInstance();
+		this._copyClonePropertiesTo(cloned);
+
+		if (recursive) {
+			for (const child of this.children) {
+				cloned.addChild(child.clone(true));
+			}
+		}
+
+		return cloned;
+	}
+
+	protected _createCloneInstance(): this {
+		const Constructor = this.constructor as unknown as { new (): Node };
+		try {
+			return new Constructor() as this;
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(
+				`Node.clone failed for "${this.constructor.name}". ` +
+					`Override _createCloneInstance in this class. Cause: ${message}`
+			);
+		}
+	}
+
+	protected _copyClonePropertiesTo(target: this): void {
+		target.name = this.name;
+		target.visible = this.visible;
+		target.position.copy(this.position);
+		target.quaternion = createQuaternion(this.quaternion);
+		target.scale.copy(this.scale);
+		copyMatrix(target.localMatrix, this.localMatrix);
+		copyMatrix(target.worldMatrix, this.worldMatrix);
+	}
+
 	protected getOwnWorldBoundingBox(): BoundingBox | null {
 		return null;
 	}

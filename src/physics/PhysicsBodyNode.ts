@@ -13,12 +13,27 @@ export class PhysicsBodyNode extends Node {
 			...params,
 			idPrefix: "physicsBodyNode",
 		});
-		this.bodyBinding = {
-			...params.bodyBinding,
-			body: { ...params.bodyBinding.body },
-			colliders: params.bodyBinding.colliders?.map((collider) => ({
-				...collider,
-			})),
-		};
+		this.bodyBinding = cloneBodyBinding(params.bodyBinding);
 	}
+
+	protected override _createCloneInstance(): this {
+		return new PhysicsBodyNode({
+			bodyBinding: cloneBodyBinding(this.bodyBinding),
+		}) as this;
+	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.bodyBinding = cloneBodyBinding(this.bodyBinding);
+	}
+}
+
+function cloneBodyBinding(bodyBinding: BodyBinding): BodyBinding {
+	return {
+		...bodyBinding,
+		body: { ...bodyBinding.body },
+		colliders: bodyBinding.colliders?.map((collider) => ({
+			...collider,
+		})),
+	};
 }

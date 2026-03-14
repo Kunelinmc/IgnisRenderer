@@ -48,4 +48,15 @@ export abstract class Light<TType extends LightType = LightType> extends Node {
 		this.intensity = params.intensity ?? 1;
 		this.castShadow = params.castShadow ?? false;
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.color = {
+			r: this.color.r,
+			g: this.color.g,
+			b: this.color.b,
+		};
+		target.intensity = this.intensity;
+		target.castShadow = this.castShadow;
+	}
 }

@@ -93,4 +93,13 @@ export class OrthographicCamera extends Camera {
 			this.far
 		);
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.size = this.size;
+		target.left = this.left;
+		target.right = this.right;
+		target.bottom = this.bottom;
+		target.top = this.top;
+	}
 }

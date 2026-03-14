@@ -154,6 +154,53 @@ export class ParticleSystem extends Node {
 		this.receiveShadows = params.receiveShadows ?? true;
 		this.lod = cloneLOD(params.lod ?? DEFAULT_LOD);
 	}
+
+	protected override _createCloneInstance(): this {
+		return new ParticleSystem() as this;
+	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.maxParticles = this.maxParticles;
+		target.seed = this.seed;
+		target.space = this.space;
+		target.blendMode = this.blendMode;
+		target.texture = this.texture;
+		target.atlas = this.atlas ? { ...this.atlas } : null;
+		target.gravity = cloneVector(this.gravity);
+		target.emit = {
+			...this.emit,
+			direction: cloneVector(this.emit.direction ?? DEFAULT_EMITTER.direction),
+			startColor: cloneColor(this.emit.startColor ?? DEFAULT_EMITTER.startColor),
+			lifetimeRange: cloneRange(
+				this.emit.lifetimeRange ?? DEFAULT_EMITTER.lifetimeRange
+			),
+			speedRange: cloneRange(
+				this.emit.speedRange ?? DEFAULT_EMITTER.speedRange
+			),
+			sizeRange: cloneRange(this.emit.sizeRange ?? DEFAULT_EMITTER.sizeRange),
+			rotationRange: cloneRange(
+				this.emit.rotationRange ?? DEFAULT_EMITTER.rotationRange
+			),
+			angularVelocityRange: cloneRange(
+				this.emit.angularVelocityRange ??
+					DEFAULT_EMITTER.angularVelocityRange
+			),
+			bursts: (this.emit.bursts ?? []).map((burst) => ({ ...burst })),
+		};
+		target.sizeOverLifetime = this.sizeOverLifetime.map((key) => ({
+			t: key.t,
+			value: key.value,
+		}));
+		target.colorOverLifetime = this.colorOverLifetime.map((key) => ({
+			t: key.t,
+			value: cloneColor(key.value),
+		}));
+		target.colliders = this.colliders.map((collider) => cloneCollider(collider));
+		target.subEmitter = this.subEmitter ? { ...this.subEmitter } : null;
+		target.receiveShadows = this.receiveShadows;
+		target.lod = cloneLOD(this.lod);
+	}
 }
 
 function cloneVector(source: IVector3): IVector3 {

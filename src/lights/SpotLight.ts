@@ -91,4 +91,17 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.shadow = new SpotShadowCaster(this);
 		this.castShadow = true;
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.direction = {
+			x: this.direction.x,
+			y: this.direction.y,
+			z: this.direction.z,
+		};
+		target.angle = this.angle;
+		target.innerAngle = this.innerAngle;
+		target.penumbra = this.penumbra;
+		target.range = this.range;
+	}
 }

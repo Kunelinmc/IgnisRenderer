@@ -21,12 +21,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		this.prefilteredMap = prefilteredMap;
 	}
 
-	public clone(): LightProbe {
-		const cloned = new LightProbe(this.sh, this.intensity);
-		cloned.prefilteredMap = this.prefilteredMap;
-		return cloned;
-	}
-
 	public copy(source: LightProbe | SHCoefficients): LightProbe {
 		const sourceSH = source instanceof LightProbe ? source.sh : source;
 		const sourceIntensity =
@@ -45,5 +39,15 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		}
 
 		return this;
+	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.sh = this.sh.map((coefficient) => ({
+			r: coefficient.r,
+			g: coefficient.g,
+			b: coefficient.b,
+		}));
+		target.prefilteredMap = this.prefilteredMap;
 	}
 }

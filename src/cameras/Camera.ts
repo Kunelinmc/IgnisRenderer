@@ -118,4 +118,18 @@ export class Camera extends Node {
 	public isAABBInFrustum(min: IVector3, max: IVector3): boolean {
 		return this._frustum.intersectsAABB(min, max);
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.type = this.type;
+		target.up.copy(this.up);
+		target.fov = this.fov;
+		target.aspectRatio = this.aspectRatio;
+		target.near = this.near;
+		target.far = this.far;
+		target.viewMatrix = this.viewMatrix.clone();
+		target.projectionMatrix = this.projectionMatrix.clone();
+		target.viewProjectionMatrix = this.viewProjectionMatrix.clone();
+		target._frustum.setFromMatrix(target.viewProjectionMatrix);
+	}
 }

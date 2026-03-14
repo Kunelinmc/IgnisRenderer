@@ -61,4 +61,13 @@ export class DirectionalLight extends Light<LightType.Directional> {
 		this.shadow = new DirectionalShadowCaster(this);
 		this.castShadow = true;
 	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.direction = {
+			x: this.direction.x,
+			y: this.direction.y,
+			z: this.direction.z,
+		};
+	}
 }

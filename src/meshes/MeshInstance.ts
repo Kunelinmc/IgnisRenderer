@@ -80,6 +80,23 @@ export class MeshInstance extends Node {
 			max: { x: maxX, y: maxY, z: maxZ },
 		};
 	}
+
+	protected override _createCloneInstance(): this {
+		return new MeshInstance({
+			mesh: this.mesh,
+			skeleton: this.skeleton,
+			morphWeights: this.morphWeights,
+		}) as this;
+	}
+
+	protected override _copyClonePropertiesTo(target: this): void {
+		super._copyClonePropertiesTo(target);
+		target.mesh = this.mesh;
+		target.skeleton = this.skeleton;
+		target.morphWeights = this.morphWeights.map(
+			(weights) => new Float32Array(weights)
+		);
+	}
 }
 
 function getMaxScaleFromMatrix(matrix: Matrix4): number {
