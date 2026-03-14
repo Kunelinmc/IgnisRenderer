@@ -62,6 +62,30 @@ const GLTF_MODE_LINE_STRIP = 3;
 const GLTF_MODE_TRIANGLES = 4;
 const GLTF_MODE_TRIANGLE_STRIP = 5;
 const GLTF_MODE_TRIANGLE_FAN = 6;
+const MAX_ACCESSOR_BYTE_LENGTH = 256 * 1024 * 1024;
+const MAX_NODE_DEPTH = 1024;
+const COMPONENT_COUNT_BY_ACCESSOR_TYPE: Record<string, number> = {
+	[TYPE_SCALAR]: 1,
+	[TYPE_VEC2]: 2,
+	[TYPE_VEC3]: 3,
+	[TYPE_VEC4]: 4,
+	[TYPE_MAT2]: 4,
+	[TYPE_MAT3]: 9,
+	[TYPE_MAT4]: 16,
+};
+const COMPONENT_BYTE_SIZE_BY_TYPE: Record<number, number> = {
+	[COMPONENT_TYPE_FLOAT]: 4,
+	[COMPONENT_TYPE_UNSIGNED_INT]: 4,
+	[COMPONENT_TYPE_UNSIGNED_SHORT]: 2,
+	[COMPONENT_TYPE_SHORT]: 2,
+	[COMPONENT_TYPE_UNSIGNED_BYTE]: 1,
+	[COMPONENT_TYPE_BYTE]: 1,
+};
+const SPARSE_INDEX_BYTE_SIZE_BY_COMPONENT_TYPE: Record<number, number> = {
+	[COMPONENT_TYPE_UNSIGNED_INT]: 4,
+	[COMPONENT_TYPE_UNSIGNED_SHORT]: 2,
+	[COMPONENT_TYPE_UNSIGNED_BYTE]: 1,
+};
 
 interface GLTFParseContext {
 	nodeByIndex: Map<number, Node>;
@@ -72,6 +96,7 @@ interface GLTFParseContext {
 	pendingSkinByInstance: Map<MeshInstance, number>;
 	meshCache: Map<number, MeshAsset | null>;
 	skeletonBySkinIndex: Map<number, Skeleton>;
+	activeNodeIndices: Set<number>;
 }
 
 /**
@@ -128,27 +153,44 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		let json: any = null;
 		let buffers: Uint8Array[] = [];
 		// Check magic for GLB
-		const magic = dataView.getUint32(0, true);
+		const magic = data.byteLength >= 4 ? dataView.getUint32(0, true) : 0;
 		if (magic === MAGIC_glTF) {
 			// It's a GLB file
+			if (data.byteLength < 12) {
+				throw new Error("Invalid GLB: file is too short for header");
+			}
 			const version = dataView.getUint32(4, true);
 			if (version !== 2) throw new Error(`Unsupported GLB version: ${version}`);
 			const length = dataView.getUint32(8, true);
+			if (length < 12 || length > data.byteLength) {
+				throw new Error(
+					`Invalid GLB length: declared ${length}, actual ${data.byteLength}`
+				);
+			}
 			let offset = 12;
 			while (offset < length) {
+				if (offset + 8 > length) {
+					throw new Error("Invalid GLB: incomplete chunk header");
+				}
 				const chunkLength = dataView.getUint32(offset, true);
-				offset += 4;
-				const chunkType = dataView.getUint32(offset, true);
-				offset += 4;
+				const chunkType = dataView.getUint32(offset + 4, true);
+				const chunkDataOffset = offset + 8;
+				const chunkEnd = chunkDataOffset + chunkLength;
+				if (chunkEnd > length) {
+					throw new Error("Invalid GLB: chunk exceeds declared file length");
+				}
 				if (chunkType === CHUNK_TYPE_JSON) {
+					if (json !== null) {
+						throw new Error("Invalid GLB: multiple JSON chunks are not allowed");
+					}
 					const textDecoder = new TextDecoder("utf-8");
-					const jsonBytes = new Uint8Array(data, offset, chunkLength);
+					const jsonBytes = new Uint8Array(data, chunkDataOffset, chunkLength);
 					json = JSON.parse(textDecoder.decode(jsonBytes));
 				} else if (chunkType === CHUNK_TYPE_BIN) {
-					buffers[0] = new Uint8Array(data, offset, chunkLength);
+					buffers[0] = new Uint8Array(data, chunkDataOffset, chunkLength);
 				}
 				// Align to 4-byte boundary for next chunk
-				offset += (chunkLength + 3) & ~3;
+				offset = chunkDataOffset + ((chunkLength + 3) & ~3);
 			}
 		} else {
 			// It's a .gltf file (JSON)
@@ -161,9 +203,13 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			const bufferPromises = json.buffers.map(
 				async (bufferDef: any, i: number) => {
 					if (buffers[i]) return; // Already loaded from GLB BIN chunk
-					if (bufferDef.uri) {
+					if (typeof bufferDef?.uri === "string" && bufferDef.uri.length > 0) {
 						buffers[i] = await this._loadBuffer(bufferDef.uri, baseURL);
+						return;
 					}
+					throw new Error(
+						`glTF buffer ${i} is missing uri and has no embedded BIN chunk`
+					);
 				}
 			);
 			await Promise.all(bufferPromises);
@@ -184,6 +230,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			pendingSkinByInstance: new Map(),
 			meshCache: new Map(),
 			skeletonBySkinIndex: new Map(),
+			activeNodeIndices: new Set(),
 		};
 		const root = new Node({
 			idPrefix: "node",
@@ -263,12 +310,162 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	}
 
 	private async _loadBuffer(uri: string, baseURL: string): Promise<Uint8Array> {
-		const url =
-			uri.startsWith("data:") || uri.startsWith("http") ? uri : baseURL + uri;
+		const url = this._resolveResourceURL(uri, baseURL);
 		const response = await fetch(url);
 		if (!response.ok) throw new Error(`Failed to load buffer from ${url}`);
 		const arrayBuffer = await response.arrayBuffer();
 		return new Uint8Array(arrayBuffer);
+	}
+
+	private _resolveResourceURL(uri: string, baseURL: string): string {
+		const value = uri?.trim();
+		if (!value) {
+			throw new Error("Invalid glTF resource URI: empty value");
+		}
+
+		const schemeMatch = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(value);
+		if (!schemeMatch) {
+			return baseURL + value;
+		}
+
+		const scheme = schemeMatch[1].toLowerCase();
+		if (scheme === "http" || scheme === "https" || scheme === "data") {
+			return value;
+		}
+		throw new Error(`Unsupported URI scheme "${scheme}" in glTF resource`);
+	}
+
+	private _toSafeNonNegativeInteger(value: unknown, label: string): number {
+		if (
+			typeof value !== "number" ||
+			!Number.isInteger(value) ||
+			!Number.isSafeInteger(value) ||
+			value < 0
+		) {
+			throw new Error(`Invalid ${label}: expected a non-negative integer`);
+		}
+		return value;
+	}
+
+	private _requireArrayEntry(
+		list: any[] | undefined,
+		index: number,
+		label: string
+	): any {
+		if (!Array.isArray(list)) {
+			throw new Error(`Invalid glTF: ${label} array is missing`);
+		}
+		if (
+			typeof index !== "number" ||
+			!Number.isInteger(index) ||
+			index < 0 ||
+			index >= list.length
+		) {
+			throw new Error(`Invalid glTF: ${label} index ${index} is out of range`);
+		}
+		const value = list[index];
+		if (value === undefined || value === null) {
+			throw new Error(`Invalid glTF: ${label} index ${index} is missing`);
+		}
+		return value;
+	}
+
+	private _assertBufferRange(
+		buffer: Uint8Array,
+		byteOffset: number,
+		byteLength: number,
+		label: string
+	): void {
+		const end = byteOffset + byteLength;
+		if (
+			byteOffset < 0 ||
+			byteLength < 0 ||
+			!Number.isSafeInteger(end) ||
+			end < byteOffset ||
+			end > buffer.byteLength
+		) {
+			throw new Error(`Invalid glTF: ${label} range is out of bounds`);
+		}
+	}
+
+	private _resolveBufferView(
+		json: any,
+		buffers: Uint8Array[],
+		bufferViewIndex: number,
+		label: string
+	): {
+		buffer: Uint8Array;
+		byteOffset: number;
+		byteLength: number;
+		byteStride: number | undefined;
+	} {
+		const bv = this._requireArrayEntry(
+			json.bufferViews,
+			bufferViewIndex,
+			`${label}.bufferView`
+		);
+		const bufferIndex = this._toSafeNonNegativeInteger(
+			bv.buffer ?? 0,
+			`${label}.buffer`
+		);
+		const buffer = buffers[bufferIndex];
+		if (!buffer) {
+			throw new Error(
+				`Invalid glTF: ${label} references missing buffer ${bufferIndex}`
+			);
+		}
+		const byteOffset = this._toSafeNonNegativeInteger(
+			bv.byteOffset ?? 0,
+			`${label}.byteOffset`
+		);
+		const byteLength = this._toSafeNonNegativeInteger(
+			bv.byteLength ?? 0,
+			`${label}.byteLength`
+		);
+		this._assertBufferRange(buffer, byteOffset, byteLength, label);
+
+		let byteStride: number | undefined = undefined;
+		if (bv.byteStride !== undefined) {
+			byteStride = this._toSafeNonNegativeInteger(
+				bv.byteStride,
+				`${label}.byteStride`
+			);
+		}
+
+		return {
+			buffer,
+			byteOffset,
+			byteLength,
+			byteStride,
+		};
+	}
+
+	private _assertAccessorByteLength(byteLength: number, label: string): void {
+		if (
+			typeof byteLength !== "number" ||
+			!Number.isFinite(byteLength) ||
+			byteLength < 0 ||
+			!Number.isSafeInteger(byteLength)
+		) {
+			throw new Error(`Invalid ${label}: byte length overflow`);
+		}
+		if (byteLength > MAX_ACCESSOR_BYTE_LENGTH) {
+			throw new Error(
+				`Accessor ${label} exceeds safe allocation limit (${MAX_ACCESSOR_BYTE_LENGTH} bytes)`
+			);
+		}
+	}
+
+	private _getAccessorViewByteLength(
+		count: number,
+		stride: number,
+		numComponents: number,
+		elementSize: number
+	): number {
+		if (count === 0) {
+			return 0;
+		}
+		return (count - 1) * stride + numComponents * elementSize;
 	}
 
 	private _getMaterialTexture(
@@ -639,13 +836,17 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		const { TextureLoader } = await import("./TextureLoader");
 		const loader = new TextureLoader();
 		return Promise.all(
-			json.images.map(async (img: any) => {
+			json.images.map(async (img: any, imageIndex: number) => {
 				if (img.bufferView !== undefined) {
-					const bv = json.bufferViews[img.bufferView];
-					const buf = buffers[bv.buffer || 0];
-					const data = buf.subarray(
-						bv.byteOffset || 0,
-						(bv.byteOffset || 0) + bv.byteLength
+					const bv = this._resolveBufferView(
+						json,
+						buffers,
+						img.bufferView,
+						`images[${imageIndex}]`
+					);
+					const data = bv.buffer.subarray(
+						bv.byteOffset,
+						bv.byteOffset + bv.byteLength
 					);
 					// Use any cast to avoid SharedArrayBuffer/ArrayBuffer mismatch in some TS configs
 					const blob = new Blob([data as any], {
@@ -653,10 +854,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					});
 					return loader.loadFromBlob(blob);
 				} else if (img.uri) {
-					const url =
-						img.uri.startsWith("data:") || img.uri.startsWith("http") ?
-							img.uri
-						:	baseURL + img.uri;
+					const url = this._resolveResourceURL(img.uri, baseURL);
 					return loader.load(url);
 				}
 				return null;
@@ -675,31 +873,33 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				// Clone to avoid sharing sampler/transform state between textures
 				const tex = texture.clone();
 				if (t.sampler !== undefined) {
-					const sampler = json.samplers[t.sampler];
-					if (sampler.magFilter === 9728) tex.magFilter = "Nearest";
-					else if (sampler.magFilter === 9729) tex.magFilter = "Linear";
-					const minFilters: Record<number, string> = {
-						9728: "Nearest",
-						9729: "Linear",
-						9984: "NearestMipmapNearest",
-						9985: "LinearMipmapNearest",
-						9986: "NearestMipmapLinear",
-						9987: "LinearMipmapLinear",
-					};
-					if (sampler.minFilter !== undefined)
-						tex.minFilter = minFilters[sampler.minFilter] || "Linear";
-					const wrapModes: Record<
-						number,
-						"Repeat" | "Clamp" | "MirroredRepeat"
-					> = {
-						33071: "Clamp",
-						10497: "Repeat",
-						33648: "MirroredRepeat",
-					};
-					if (sampler.wrapS !== undefined)
-						tex.wrapS = wrapModes[sampler.wrapS] || "Repeat";
-					if (sampler.wrapT !== undefined)
-						tex.wrapT = wrapModes[sampler.wrapT] || "Repeat";
+					const sampler = json.samplers?.[t.sampler];
+					if (sampler) {
+						if (sampler.magFilter === 9728) tex.magFilter = "Nearest";
+						else if (sampler.magFilter === 9729) tex.magFilter = "Linear";
+						const minFilters: Record<number, string> = {
+							9728: "Nearest",
+							9729: "Linear",
+							9984: "NearestMipmapNearest",
+							9985: "LinearMipmapNearest",
+							9986: "NearestMipmapLinear",
+							9987: "LinearMipmapLinear",
+						};
+						if (sampler.minFilter !== undefined)
+							tex.minFilter = minFilters[sampler.minFilter] || "Linear";
+						const wrapModes: Record<
+							number,
+							"Repeat" | "Clamp" | "MirroredRepeat"
+						> = {
+							33071: "Clamp",
+							10497: "Repeat",
+							33648: "MirroredRepeat",
+						};
+						if (sampler.wrapS !== undefined)
+							tex.wrapS = wrapModes[sampler.wrapS] || "Repeat";
+						if (sampler.wrapT !== undefined)
+							tex.wrapT = wrapModes[sampler.wrapT] || "Repeat";
+					}
 				}
 				return tex;
 			}
@@ -714,83 +914,103 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		materials: Material[],
 		lights: any[],
 		context: GLTFParseContext,
-		parentPath: string
+		parentPath: string,
+		depth: number = 0
 	): Node {
 		if (nodeIdx === undefined || !json.nodes || !json.nodes[nodeIdx]) {
 			return new Node({
 				name: "emptyNode",
 			});
 		}
-		const nodeDef = json.nodes[nodeIdx];
-		const nodeName = nodeDef.name ?? `node_${nodeIdx}`;
-		const nodePath = `${parentPath}/${sanitizePathSegment(nodeName)}_${nodeIdx}`;
-		const container = new Node({
-			name: nodeName,
-		});
-		this._applyNodeTransform(nodeDef, container);
-		context.nodeByIndex.set(nodeIdx, container);
-		context.nodePathByIndex.set(nodeIdx, nodePath);
-		context.pathToNode.set(nodePath, container);
 
-		if (
-			nodeDef.mesh !== undefined &&
-			json.meshes &&
-			json.meshes[nodeDef.mesh]
-		) {
-			const mesh = this.parseMesh(
-				json,
-				nodeDef.mesh,
-				buffers,
-				materials,
-				context
+		if (depth > MAX_NODE_DEPTH) {
+			throw new Error(
+				`glTF node hierarchy exceeds safe depth limit (${MAX_NODE_DEPTH})`
 			);
-			if (mesh) {
-				const meshInstance = new MeshInstance({
-					mesh,
-					name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
-					morphWeights:
-						nodeDef.weights !== undefined ?
-							mesh.defaultMorphWeights.map((weights) =>
-								applyMorphWeightOverride(weights, nodeDef.weights)
-							)
-						:	undefined,
-				});
-				container.addChild(meshInstance);
-				context.meshInstanceByNodeIndex.set(nodeIdx, meshInstance);
-				context.pathToMeshInstance.set(nodePath, meshInstance);
-				if (nodeDef.skin !== undefined) {
-					context.pendingSkinByInstance.set(meshInstance, nodeDef.skin);
+		}
+		if (context.activeNodeIndices.has(nodeIdx)) {
+			throw new Error(`Detected cyclic node hierarchy at node index ${nodeIdx}`);
+		}
+		context.activeNodeIndices.add(nodeIdx);
+
+		try {
+			const nodeDef = json.nodes[nodeIdx];
+			const nodeName = nodeDef.name ?? `node_${nodeIdx}`;
+			const nodePath = `${parentPath}/${sanitizePathSegment(nodeName)}_${nodeIdx}`;
+			const container = new Node({
+				name: nodeName,
+			});
+			this._applyNodeTransform(nodeDef, container);
+			context.nodeByIndex.set(nodeIdx, container);
+			context.nodePathByIndex.set(nodeIdx, nodePath);
+			context.pathToNode.set(nodePath, container);
+
+			if (
+				nodeDef.mesh !== undefined &&
+				json.meshes &&
+				json.meshes[nodeDef.mesh]
+			) {
+				const mesh = this.parseMesh(
+					json,
+					nodeDef.mesh,
+					buffers,
+					materials,
+					context
+				);
+				if (mesh) {
+					const meshInstance = new MeshInstance({
+						mesh,
+						name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
+						morphWeights:
+							nodeDef.weights !== undefined ?
+								mesh.defaultMorphWeights.map((weights) =>
+									applyMorphWeightOverride(weights, nodeDef.weights)
+								)
+							:	undefined,
+					});
+					container.addChild(meshInstance);
+					context.meshInstanceByNodeIndex.set(nodeIdx, meshInstance);
+					context.pathToMeshInstance.set(nodePath, meshInstance);
+					if (nodeDef.skin !== undefined) {
+						context.pendingSkinByInstance.set(meshInstance, nodeDef.skin);
+					}
 				}
 			}
-		}
 
-		if (nodeDef.camera !== undefined && json.cameras?.[nodeDef.camera]) {
-			const camera = this.parseCamera(json.cameras[nodeDef.camera]);
-			container.addChild(camera);
-		}
-
-		const light = this.parseNodeLight(nodeDef, lights);
-		if (light) {
-			container.addChild(light);
-		}
-
-		if (nodeDef.children) {
-			for (const childIdx of nodeDef.children) {
-				container.addChild(
-					this.parseNodeTree(
-						json,
-						childIdx,
-						buffers,
-						materials,
-						lights,
-						context,
-						nodePath
-					)
-				);
+			if (nodeDef.camera !== undefined && json.cameras?.[nodeDef.camera]) {
+				const camera = this.parseCamera(json.cameras[nodeDef.camera]);
+				container.addChild(camera);
 			}
-		}
 
-		return container;
+			const light = this.parseNodeLight(nodeDef, lights);
+			if (light) {
+				container.addChild(light);
+			}
+
+			if (nodeDef.children) {
+				for (const childIdx of nodeDef.children) {
+					if (typeof childIdx !== "number" || !Number.isInteger(childIdx)) {
+						continue;
+					}
+					container.addChild(
+						this.parseNodeTree(
+							json,
+							childIdx,
+							buffers,
+							materials,
+							lights,
+							context,
+							nodePath,
+							depth + 1
+						)
+					);
+				}
+			}
+
+			return container;
+		} finally {
+			context.activeNodeIndices.delete(nodeIdx);
+		}
 	}
 
 	public parseMesh(
@@ -1235,153 +1455,250 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	}
 
 	public getAccessorData(json: any, buffers: Uint8Array[], index: number): any {
-		const acc = json.accessors[index];
-		const hasBaseBufferView = acc.bufferView !== undefined;
-		let numComponents = (
-			{
-				[TYPE_SCALAR]: 1,
-				[TYPE_VEC2]: 2,
-				[TYPE_VEC3]: 3,
-				[TYPE_VEC4]: 4,
-				[TYPE_MAT2]: 4,
-				[TYPE_MAT3]: 9,
-				[TYPE_MAT4]: 16,
-			} as Record<string, number>
-		)[acc.type];
-		let elementSize = (
-			{
-				[COMPONENT_TYPE_FLOAT]: 4,
-				[COMPONENT_TYPE_UNSIGNED_INT]: 4,
-				[COMPONENT_TYPE_UNSIGNED_SHORT]: 2,
-				[COMPONENT_TYPE_SHORT]: 2,
-				[COMPONENT_TYPE_UNSIGNED_BYTE]: 1,
-				[COMPONENT_TYPE_BYTE]: 1,
-			} as Record<number, number>
-		)[acc.componentType];
-		let stride = numComponents * elementSize;
-		const data = this.createTypedArray(
-			acc.componentType,
-			acc.count * numComponents
+		const acc = this._requireArrayEntry(json.accessors, index, "accessors");
+		const count = this._toSafeNonNegativeInteger(
+			acc.count ?? 0,
+			`accessors[${index}].count`
 		);
-		if (hasBaseBufferView) {
-			const bv = json.bufferViews[acc.bufferView];
-			const buf = buffers[bv.buffer || 0];
-			const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
-			stride = bv.byteStride || stride;
+		const numComponents = COMPONENT_COUNT_BY_ACCESSOR_TYPE[acc.type];
+		if (!numComponents) {
+			throw new Error(
+				`Unsupported accessor type "${acc.type}" at accessors[${index}]`
+			);
+		}
+		const elementSize = COMPONENT_BYTE_SIZE_BY_TYPE[acc.componentType];
+		if (!elementSize) {
+			throw new Error(
+				`Unsupported accessor componentType "${acc.componentType}" at accessors[${index}]`
+			);
+		}
 
-			// Fast path: Tightly packed and aligned
+		const componentCount = count * numComponents;
+		const packedByteLength = componentCount * elementSize;
+		this._assertAccessorByteLength(packedByteLength, `accessors[${index}]`);
+
+		let stride = numComponents * elementSize;
+		const accessorByteOffset = this._toSafeNonNegativeInteger(
+			acc.byteOffset ?? 0,
+			`accessors[${index}].byteOffset`
+		);
+		const data = this.createTypedArray(acc.componentType, componentCount);
+		if (acc.bufferView !== undefined) {
+			const bv = this._resolveBufferView(
+				json,
+				buffers,
+				acc.bufferView,
+				`accessors[${index}]`
+			);
+			if (bv.byteStride !== undefined) {
+				stride = bv.byteStride;
+				if (stride < numComponents * elementSize) {
+					throw new Error(
+						`Invalid accessor stride at accessors[${index}]: ${stride}`
+					);
+				}
+				if (stride % elementSize !== 0) {
+					throw new Error(
+						`Invalid accessor stride alignment at accessors[${index}]`
+					);
+				}
+			}
+
+			const accessorViewByteLength = this._getAccessorViewByteLength(
+				count,
+				stride,
+				numComponents,
+				elementSize
+			);
+			this._assertAccessorByteLength(
+				accessorViewByteLength,
+				`accessors[${index}]`
+			);
+			if (accessorByteOffset + accessorViewByteLength > bv.byteLength) {
+				throw new Error(
+					`Accessor ${index} exceeds its bufferView byteLength (${bv.byteLength})`
+				);
+			}
+			const start = bv.byteOffset + accessorByteOffset;
+			this._assertBufferRange(
+				bv.buffer,
+				start,
+				accessorViewByteLength,
+				`accessors[${index}]`
+			);
+
+			// Fast path: tightly packed and aligned
 			const isAligned =
-				(buf.byteOffset + byteOffset) % elementSize === 0 &&
+				(bv.buffer.byteOffset + start) % elementSize === 0 &&
 				stride === numComponents * elementSize;
 
 			if (isAligned && !acc.normalized && !acc.sparse) {
-				const byteLength = acc.count * stride;
 				const Constructor = this.getTypedArrayConstructor(acc.componentType);
 				return new Constructor(
-					buf.buffer,
-					buf.byteOffset + byteOffset,
-					acc.count * numComponents
+					bv.buffer.buffer,
+					bv.buffer.byteOffset + start,
+					componentCount
 				);
 			}
 
-			// Slow path: DataView with manual normalization
 			const view = new DataView(
-				buf.buffer,
-				buf.byteOffset + byteOffset,
-				acc.count * stride
+				bv.buffer.buffer,
+				bv.buffer.byteOffset + start,
+				accessorViewByteLength
 			);
-			for (let i = 0; i < acc.count; i++) {
+			for (let i = 0; i < count; i++) {
 				for (let j = 0; j < numComponents; j++) {
 					const pos = i * stride + j * elementSize;
-					let val = 0;
-					switch (acc.componentType) {
-						case COMPONENT_TYPE_FLOAT:
-							val = view.getFloat32(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_INT:
-							val = view.getUint32(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_SHORT:
-							val = view.getUint16(pos, true);
-							break;
-						case COMPONENT_TYPE_SHORT:
-							val = view.getInt16(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_BYTE:
-							val = view.getUint8(pos);
-							break;
-						case COMPONENT_TYPE_BYTE:
-							val = view.getInt8(pos);
-							break;
+					let val = this._readComponentValue(view, acc.componentType, pos);
+					if (acc.normalized) {
+						val = this.normalize(val, acc.componentType);
 					}
-					if (acc.normalized) val = this.normalize(val, acc.componentType);
 					(data as any)[i * numComponents + j] = val;
 				}
 			}
 		}
+
 		if (acc.sparse) {
 			const s = acc.sparse;
-			const idxBV = json.bufferViews[s.indices.bufferView];
-			const valBV = json.bufferViews[s.values.bufferView];
-			const idxBuf = buffers[idxBV.buffer || 0];
-			const valBuf = buffers[valBV.buffer || 0];
-			const idxSize = (
-				{
-					[COMPONENT_TYPE_UNSIGNED_INT]: 4,
-					[COMPONENT_TYPE_UNSIGNED_SHORT]: 2,
-					[COMPONENT_TYPE_UNSIGNED_BYTE]: 1,
-				} as Record<number, number>
-			)[s.indices.componentType];
+			if (!s.indices || !s.values) {
+				throw new Error(
+					`Invalid sparse accessor at accessors[${index}]: missing indices/values`
+				);
+			}
+			const sparseCount = this._toSafeNonNegativeInteger(
+				s.count ?? 0,
+				`accessors[${index}].sparse.count`
+			);
+			if (sparseCount > count) {
+				throw new Error(
+					`Invalid sparse accessor at accessors[${index}]: sparse.count exceeds accessor.count`
+				);
+			}
+			const idxSize =
+				SPARSE_INDEX_BYTE_SIZE_BY_COMPONENT_TYPE[s.indices.componentType];
+			if (!idxSize) {
+				throw new Error(
+					`Unsupported sparse index componentType "${s.indices.componentType}" at accessors[${index}]`
+				);
+			}
+
+			const idxBV = this._resolveBufferView(
+				json,
+				buffers,
+				s.indices.bufferView,
+				`accessors[${index}].sparse.indices`
+			);
+			const valBV = this._resolveBufferView(
+				json,
+				buffers,
+				s.values.bufferView,
+				`accessors[${index}].sparse.values`
+			);
+			const idxByteOffset = this._toSafeNonNegativeInteger(
+				s.indices.byteOffset ?? 0,
+				`accessors[${index}].sparse.indices.byteOffset`
+			);
+			const valByteOffset = this._toSafeNonNegativeInteger(
+				s.values.byteOffset ?? 0,
+				`accessors[${index}].sparse.values.byteOffset`
+			);
+			const idxByteLength = sparseCount * idxSize;
+			const valByteLength = sparseCount * numComponents * elementSize;
+			this._assertAccessorByteLength(
+				idxByteLength,
+				`accessors[${index}].sparse.indices`
+			);
+			this._assertAccessorByteLength(
+				valByteLength,
+				`accessors[${index}].sparse.values`
+			);
+			if (idxByteOffset + idxByteLength > idxBV.byteLength) {
+				throw new Error(
+					`Sparse index data exceeds bufferView for accessor ${index}`
+				);
+			}
+			if (valByteOffset + valByteLength > valBV.byteLength) {
+				throw new Error(
+					`Sparse value data exceeds bufferView for accessor ${index}`
+				);
+			}
+
+			const idxStart = idxBV.byteOffset + idxByteOffset;
+			const valStart = valBV.byteOffset + valByteOffset;
+			this._assertBufferRange(
+				idxBV.buffer,
+				idxStart,
+				idxByteLength,
+				`accessors[${index}].sparse.indices`
+			);
+			this._assertBufferRange(
+				valBV.buffer,
+				valStart,
+				valByteLength,
+				`accessors[${index}].sparse.values`
+			);
+
 			const idxView = new DataView(
-				idxBuf.buffer,
-				idxBuf.byteOffset +
-					(idxBV.byteOffset || 0) +
-					(s.indices.byteOffset || 0),
-				s.count * idxSize
+				idxBV.buffer.buffer,
+				idxBV.buffer.byteOffset + idxStart,
+				idxByteLength
 			);
 			const valView = new DataView(
-				valBuf.buffer,
-				valBuf.byteOffset +
-					(valBV.byteOffset || 0) +
-					(s.values.byteOffset || 0),
-				s.count * numComponents * elementSize
+				valBV.buffer.buffer,
+				valBV.buffer.byteOffset + valStart,
+				valByteLength
 			);
-			for (let i = 0; i < s.count; i++) {
+
+			for (let i = 0; i < sparseCount; i++) {
 				let idx = 0;
-				if (s.indices.componentType === COMPONENT_TYPE_UNSIGNED_INT)
+				if (s.indices.componentType === COMPONENT_TYPE_UNSIGNED_INT) {
 					idx = idxView.getUint32(i * idxSize, true);
-				else if (s.indices.componentType === COMPONENT_TYPE_UNSIGNED_SHORT)
+				} else if (s.indices.componentType === COMPONENT_TYPE_UNSIGNED_SHORT) {
 					idx = idxView.getUint16(i * idxSize, true);
-				else idx = idxView.getUint8(i * idxSize);
+				} else {
+					idx = idxView.getUint8(i * idxSize);
+				}
+				if (idx < 0 || idx >= count) {
+					throw new Error(
+						`Sparse accessor index ${idx} out of bounds for accessor ${index}`
+					);
+				}
+
 				for (let j = 0; j < numComponents; j++) {
 					const pos = (i * numComponents + j) * elementSize;
-					let val = 0;
-					switch (acc.componentType) {
-						case COMPONENT_TYPE_FLOAT:
-							val = valView.getFloat32(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_INT:
-							val = valView.getUint32(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_SHORT:
-							val = valView.getUint16(pos, true);
-							break;
-						case COMPONENT_TYPE_SHORT:
-							val = valView.getInt16(pos, true);
-							break;
-						case COMPONENT_TYPE_UNSIGNED_BYTE:
-							val = valView.getUint8(pos);
-							break;
-						case COMPONENT_TYPE_BYTE:
-							val = valView.getInt8(pos);
-							break;
+					let val = this._readComponentValue(valView, acc.componentType, pos);
+					if (acc.normalized) {
+						val = this.normalize(val, acc.componentType);
 					}
-					if (acc.normalized) val = this.normalize(val, acc.componentType);
 					(data as any)[idx * numComponents + j] = val;
 				}
 			}
 		}
+
 		return data;
+	}
+
+	private _readComponentValue(
+		view: DataView,
+		componentType: number,
+		offset: number
+	): number {
+		switch (componentType) {
+			case COMPONENT_TYPE_FLOAT:
+				return view.getFloat32(offset, true);
+			case COMPONENT_TYPE_UNSIGNED_INT:
+				return view.getUint32(offset, true);
+			case COMPONENT_TYPE_UNSIGNED_SHORT:
+				return view.getUint16(offset, true);
+			case COMPONENT_TYPE_SHORT:
+				return view.getInt16(offset, true);
+			case COMPONENT_TYPE_UNSIGNED_BYTE:
+				return view.getUint8(offset);
+			case COMPONENT_TYPE_BYTE:
+				return view.getInt8(offset);
+			default:
+				throw new Error(`Unsupported accessor component type: ${componentType}`);
+		}
 	}
 
 	public getTypedArrayConstructor(type: number): any {
@@ -1399,7 +1716,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			case COMPONENT_TYPE_BYTE:
 				return Int8Array;
 			default:
-				return Float32Array;
+				throw new Error(`Unsupported accessor component type: ${type}`);
 		}
 	}
 
@@ -1413,6 +1730,14 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		| Int16Array
 		| Uint8Array
 		| Int8Array {
+		if (
+			typeof length !== "number" ||
+			!Number.isInteger(length) ||
+			!Number.isSafeInteger(length) ||
+			length < 0
+		) {
+			throw new Error(`Invalid typed array length: ${length}`);
+		}
 		const Constructor = this.getTypedArrayConstructor(type);
 		return new Constructor(length);
 	}
