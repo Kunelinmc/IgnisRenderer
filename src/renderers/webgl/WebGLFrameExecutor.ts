@@ -1,4 +1,5 @@
 import { CameraType } from "../../cameras/Camera";
+import { ParticleBlendMode } from "../../particles";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
 	AlphaMode,
@@ -8,7 +9,13 @@ import {
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
-import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
+import {
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+	type DrawPacket,
+	type FrameContext,
+	type FramePass,
+	type ParticleRenderBatch,
+} from "../../pipeline/types";
 import {
 	collectWebGLLights,
 	type WebGLLightState,
@@ -35,8 +42,43 @@ interface MaterialUniformState {
 const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
 	"main-opaque",
 	"main-transparent",
+	"particles",
+	"fxaa",
 	"gamma",
 ]);
+
+const PARTICLE_QUAD_VERTICES = new Float32Array([
+	-0.5,
+	-0.5,
+	0,
+	1,
+	0.5,
+	-0.5,
+	1,
+	1,
+	0.5,
+	0.5,
+	1,
+	0,
+	-0.5,
+	-0.5,
+	0,
+	1,
+	0.5,
+	0.5,
+	1,
+	0,
+	-0.5,
+	0.5,
+	0,
+	0,
+]);
+
+const PARTICLE_QUAD_STRIDE = 16;
+const PARTICLE_INSTANCE_FLOATS = 13;
+const PARTICLE_INSTANCE_STRIDE = PARTICLE_INSTANCE_FLOATS * 4;
+const PARTICLE_INITIAL_CAPACITY = 256;
+const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
@@ -47,9 +89,21 @@ export class WebGLFrameExecutor {
 	private _sceneFramebuffer: WebGLFramebuffer | null = null;
 	private _sceneColorTexture: WebGLTexture | null = null;
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
+	private _postFramebuffer: WebGLFramebuffer | null = null;
+	private _postColorTexture: WebGLTexture | null = null;
+	private _presentSourceTexture: WebGLTexture | null = null;
 	private _fullscreenVao: WebGLVertexArrayObject | null = null;
+	private _particleVao: WebGLVertexArrayObject | null = null;
+	private _particleQuadBuffer: WebGLBuffer | null = null;
+	private _particleInstanceBuffer: WebGLBuffer | null = null;
+	private _particleInstanceCapacity = 0;
+	private _particleScratch = new Float32Array(0);
 	private _width = 1;
 	private _height = 1;
+	private _targetWidth = 0;
+	private _targetHeight = 0;
+	private _maxTextureSize: number;
+	private _maxRenderbufferSize: number;
 	private _presentedInFrame = false;
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
@@ -61,14 +115,20 @@ export class WebGLFrameExecutor {
 		this._geometry = new WebGLGeometryRegistry(gl, warn);
 		this._textures = new WebGLTextureRegistry(gl, warn);
 		this._fullscreenVao = gl.createVertexArray();
+		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
+		this._maxRenderbufferSize = this._resolveLimit(
+			gl.MAX_RENDERBUFFER_SIZE,
+			4096
+		);
 	}
 
 	public beginFrame(context: FrameContext): void {
 		this._activeContext = context;
 		this._presentedInFrame = false;
-		this._width = Math.max(1, context.attachments.width | 0);
-		this._height = Math.max(1, context.attachments.height | 0);
+		this._width = toSafeDimension(context.attachments.width);
+		this._height = toSafeDimension(context.attachments.height);
 		this._ensureFrameTargets(this._width, this._height);
+		this._presentSourceTexture = this._sceneColorTexture;
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
 			context.features.enableLighting,
@@ -106,6 +166,12 @@ export class WebGLFrameExecutor {
 			case "main-transparent":
 				this._renderPackets(context, context.scene.transparentPackets, true);
 				break;
+			case "particles":
+				this._renderParticles(context);
+				break;
+			case "fxaa":
+				this._applyFXAA();
+				break;
 			case "gamma":
 				this._present(context.features.enableGamma !== false);
 				break;
@@ -120,13 +186,14 @@ export class WebGLFrameExecutor {
 	}
 
 	public resize(width: number, height: number): void {
-		this._width = Math.max(1, width | 0);
-		this._height = Math.max(1, height | 0);
+		this._width = toSafeDimension(width);
+		this._height = toSafeDimension(height);
 		this._destroyFrameTargets();
 	}
 
 	public destroy(): void {
 		this._destroyFrameTargets();
+		this._destroyParticleResources();
 		if (this._fullscreenVao) {
 			this._gl.deleteVertexArray(this._fullscreenVao);
 			this._fullscreenVao = null;
@@ -149,7 +216,6 @@ export class WebGLFrameExecutor {
 		const sceneProgram = this._programs.getSceneProgram();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.useProgram(sceneProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
 		gl.activeTexture(gl.TEXTURE0);
 
 		this._bindGlobalUniforms(sceneProgram, context);
@@ -169,7 +235,7 @@ export class WebGLFrameExecutor {
 		}
 
 		for (const packet of packets) {
-			this._drawPacket(sceneProgram, context, packet, transparent);
+			this._drawPacket(sceneProgram, packet, transparent);
 		}
 
 		gl.depthMask(true);
@@ -179,7 +245,6 @@ export class WebGLFrameExecutor {
 
 	private _drawPacket(
 		sceneProgram: WebGLSceneProgram,
-		context: FrameContext,
 		packet: DrawPacket,
 		transparentPass: boolean
 	): void {
@@ -285,6 +350,351 @@ export class WebGLFrameExecutor {
 			0
 		);
 		gl.bindVertexArray(null);
+	}
+
+	private _renderParticles(context: FrameContext): void {
+		if (!this._sceneFramebuffer) return;
+
+		const batches = context.transient.get(
+			PARTICLE_TRANSIENT_BATCHES_KEY
+		) as ParticleRenderBatch[] | undefined;
+		if (!Array.isArray(batches) || batches.length === 0) {
+			return;
+		}
+
+		this._ensureParticleResources();
+		if (
+			!this._particleVao ||
+			!this._particleQuadBuffer ||
+			!this._particleInstanceBuffer
+		) {
+			return;
+		}
+
+		const gl = this._gl;
+		const particleProgram = this._programs.getParticleProgram();
+		const view = context.camera.viewMatrix.elements;
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.useProgram(particleProgram.program);
+		gl.bindVertexArray(this._particleVao);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthMask(false);
+		gl.disable(gl.CULL_FACE);
+		gl.enable(gl.BLEND);
+
+		if (particleProgram.uniforms.viewProjection) {
+			gl.uniformMatrix4fv(
+				particleProgram.uniforms.viewProjection,
+				false,
+				toColumnMajorMat4(context.camera.viewProjectionMatrix)
+			);
+		}
+		if (particleProgram.uniforms.basisRight) {
+			gl.uniform3f(
+				particleProgram.uniforms.basisRight,
+				view[0][0],
+				view[0][1],
+				view[0][2]
+			);
+		}
+		if (particleProgram.uniforms.basisUp) {
+			gl.uniform3f(
+				particleProgram.uniforms.basisUp,
+				view[1][0],
+				view[1][1],
+				view[1][2]
+			);
+		}
+		if (particleProgram.uniforms.particleMap) {
+			gl.uniform1i(particleProgram.uniforms.particleMap, 0);
+		}
+
+		for (const batch of batches) {
+			const preflightCount = Math.min(
+				PARTICLE_MAX_INSTANCES_PER_DRAW,
+				batch?.particles?.length ?? 0
+			);
+			if (preflightCount <= 0) {
+				continue;
+			}
+
+			this._ensureParticleCapacity(preflightCount);
+			const instanceCount = this._writeParticleInstances(batch);
+			if (instanceCount <= 0 || !this._particleInstanceBuffer) {
+				continue;
+			}
+			gl.bindBuffer(gl.ARRAY_BUFFER, this._particleInstanceBuffer);
+			gl.bufferSubData(
+				gl.ARRAY_BUFFER,
+				0,
+				this._particleScratch.subarray(0, instanceCount * PARTICLE_INSTANCE_FLOATS)
+			);
+
+			const resolvedTexture = this._textures.getBaseColorTexture(
+				batch.texture ?? null
+			);
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, resolvedTexture.texture);
+			if (particleProgram.uniforms.mapIsLinear) {
+				gl.uniform1i(
+					particleProgram.uniforms.mapIsLinear,
+					resolvedTexture.isLinear ? 1 : 0
+				);
+			}
+
+			const uvTransform = resolveTextureUVTransform(batch.texture);
+			if (particleProgram.uniforms.uvTransformA) {
+				gl.uniform4f(
+					particleProgram.uniforms.uvTransformA,
+					uvTransform.repeatX,
+					uvTransform.repeatY,
+					uvTransform.offsetX,
+					uvTransform.offsetY
+				);
+			}
+			if (particleProgram.uniforms.uvTransformB) {
+				gl.uniform2f(
+					particleProgram.uniforms.uvTransformB,
+					uvTransform.cosRotation,
+					uvTransform.sinRotation
+				);
+			}
+
+			if (batch.blendMode === ParticleBlendMode.Additive) {
+				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+			} else {
+				gl.blendFuncSeparate(
+					gl.SRC_ALPHA,
+					gl.ONE_MINUS_SRC_ALPHA,
+					gl.ONE,
+					gl.ONE_MINUS_SRC_ALPHA
+				);
+			}
+
+			gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
+		}
+
+		gl.blendFuncSeparate(
+			gl.SRC_ALPHA,
+			gl.ONE_MINUS_SRC_ALPHA,
+			gl.ONE,
+			gl.ONE_MINUS_SRC_ALPHA
+		);
+		gl.depthMask(true);
+		gl.disable(gl.BLEND);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		gl.bindVertexArray(null);
+	}
+
+	private _writeParticleInstances(batch: ParticleRenderBatch): number {
+		const particles = batch.particles;
+		if (!Array.isArray(particles) || particles.length === 0) {
+			return 0;
+		}
+
+		let cappedCount = particles.length;
+		if (cappedCount > PARTICLE_MAX_INSTANCES_PER_DRAW) {
+			this._warn(
+				`webgl-particle-cap-${batch.systemId}`,
+				`WebGL particle pass truncates system "${batch.systemId}" to ${PARTICLE_MAX_INSTANCES_PER_DRAW} instances per draw`
+			);
+			cappedCount = PARTICLE_MAX_INSTANCES_PER_DRAW;
+		}
+
+		if (this._particleScratch.length < cappedCount * PARTICLE_INSTANCE_FLOATS) {
+			this._particleScratch = new Float32Array(
+				cappedCount * PARTICLE_INSTANCE_FLOATS
+			);
+		}
+
+		let writeCount = 0;
+		for (let i = 0; i < cappedCount; i++) {
+			const particle = particles[i];
+			if (!particle) continue;
+
+			const x = particle.position?.x;
+			const y = particle.position?.y;
+			const z = particle.position?.z;
+			const size = particle.size;
+			const rotation = particle.rotation;
+			if (
+				!Number.isFinite(x) ||
+				!Number.isFinite(y) ||
+				!Number.isFinite(z) ||
+				!Number.isFinite(size) ||
+				!Number.isFinite(rotation)
+			) {
+				continue;
+			}
+
+			const safeSize = Math.max(0, size);
+			if (safeSize <= 0) continue;
+
+			const color = particle.color;
+			if (!color) continue;
+			const alpha = clamp(Number.isFinite(color.a) ? color.a : 0, 0, 1);
+			if (alpha <= 0) continue;
+			const red = clamp((Number.isFinite(color.r) ? color.r : 0) / 255, 0, 1);
+			const green = clamp(
+				(Number.isFinite(color.g) ? color.g : 0) / 255,
+				0,
+				1
+			);
+			const blue = clamp((Number.isFinite(color.b) ? color.b : 0) / 255, 0, 1);
+
+			const uvRect = particle.uvRect;
+			const u0 = Number.isFinite(uvRect?.u0) ? uvRect.u0 : 0;
+			const v0 = Number.isFinite(uvRect?.v0) ? uvRect.v0 : 0;
+			const u1 = Number.isFinite(uvRect?.u1) ? uvRect.u1 : 1;
+			const v1 = Number.isFinite(uvRect?.v1) ? uvRect.v1 : 1;
+
+			const offset = writeCount * PARTICLE_INSTANCE_FLOATS;
+			this._particleScratch[offset] = x;
+			this._particleScratch[offset + 1] = y;
+			this._particleScratch[offset + 2] = z;
+			this._particleScratch[offset + 3] = safeSize;
+			this._particleScratch[offset + 4] = red;
+			this._particleScratch[offset + 5] = green;
+			this._particleScratch[offset + 6] = blue;
+			this._particleScratch[offset + 7] = alpha;
+			this._particleScratch[offset + 8] = u0;
+			this._particleScratch[offset + 9] = v0;
+			this._particleScratch[offset + 10] = u1;
+			this._particleScratch[offset + 11] = v1;
+			this._particleScratch[offset + 12] = rotation;
+			writeCount++;
+		}
+
+		return writeCount;
+	}
+
+	private _ensureParticleResources(): void {
+		if (this._particleVao && this._particleQuadBuffer && this._particleInstanceBuffer) {
+			return;
+		}
+
+		const gl = this._gl;
+		const vao = gl.createVertexArray();
+		const quadBuffer = gl.createBuffer();
+		const instanceBuffer = gl.createBuffer();
+		if (!vao || !quadBuffer || !instanceBuffer) {
+			if (vao) gl.deleteVertexArray(vao);
+			if (quadBuffer) gl.deleteBuffer(quadBuffer);
+			if (instanceBuffer) gl.deleteBuffer(instanceBuffer);
+			this._warn(
+				"webgl-particle-buffer-allocation",
+				"Failed to allocate WebGL particle buffers; particle rendering is disabled for this frame"
+			);
+			return;
+		}
+
+		this._particleVao = vao;
+		this._particleQuadBuffer = quadBuffer;
+		this._particleInstanceBuffer = instanceBuffer;
+		this._particleInstanceCapacity = PARTICLE_INITIAL_CAPACITY;
+		this._particleScratch = new Float32Array(
+			PARTICLE_INITIAL_CAPACITY * PARTICLE_INSTANCE_FLOATS
+		);
+
+		gl.bindVertexArray(vao);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, PARTICLE_QUAD_VERTICES, gl.STATIC_DRAW);
+		gl.enableVertexAttribArray(0);
+		gl.vertexAttribPointer(0, 2, gl.FLOAT, false, PARTICLE_QUAD_STRIDE, 0);
+		gl.enableVertexAttribArray(1);
+		gl.vertexAttribPointer(1, 2, gl.FLOAT, false, PARTICLE_QUAD_STRIDE, 8);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
+		gl.bufferData(
+			gl.ARRAY_BUFFER,
+			this._particleInstanceCapacity * PARTICLE_INSTANCE_STRIDE,
+			gl.DYNAMIC_DRAW
+		);
+		this._bindParticleInstanceAttributes();
+
+		gl.bindVertexArray(null);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	}
+
+	private _ensureParticleCapacity(requiredInstances: number): void {
+		if (!this._particleInstanceBuffer || !this._particleVao) return;
+		if (requiredInstances <= this._particleInstanceCapacity) return;
+
+		const nextCapacity = Math.max(
+			this._particleInstanceCapacity,
+			1 << Math.ceil(Math.log2(Math.max(1, requiredInstances)))
+		);
+		const gl = this._gl;
+		const newBuffer = gl.createBuffer();
+		if (!newBuffer) {
+			this._warn(
+				"webgl-particle-buffer-grow",
+				`Failed to grow WebGL particle instance buffer to ${nextCapacity}; keeping previous capacity`
+			);
+			return;
+		}
+
+		gl.deleteBuffer(this._particleInstanceBuffer);
+		this._particleInstanceBuffer = newBuffer;
+		this._particleInstanceCapacity = nextCapacity;
+		if (this._particleScratch.length < nextCapacity * PARTICLE_INSTANCE_FLOATS) {
+			this._particleScratch = new Float32Array(
+				nextCapacity * PARTICLE_INSTANCE_FLOATS
+			);
+		}
+
+		gl.bindVertexArray(this._particleVao);
+		gl.bindBuffer(gl.ARRAY_BUFFER, newBuffer);
+		gl.bufferData(
+			gl.ARRAY_BUFFER,
+			nextCapacity * PARTICLE_INSTANCE_STRIDE,
+			gl.DYNAMIC_DRAW
+		);
+		this._bindParticleInstanceAttributes();
+		gl.bindVertexArray(null);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	}
+
+	private _bindParticleInstanceAttributes(): void {
+		const gl = this._gl;
+		if (!this._particleInstanceBuffer) return;
+		gl.bindBuffer(gl.ARRAY_BUFFER, this._particleInstanceBuffer);
+
+		gl.enableVertexAttribArray(2);
+		gl.vertexAttribPointer(2, 4, gl.FLOAT, false, PARTICLE_INSTANCE_STRIDE, 0);
+		gl.vertexAttribDivisor(2, 1);
+
+		gl.enableVertexAttribArray(3);
+		gl.vertexAttribPointer(3, 4, gl.FLOAT, false, PARTICLE_INSTANCE_STRIDE, 16);
+		gl.vertexAttribDivisor(3, 1);
+
+		gl.enableVertexAttribArray(4);
+		gl.vertexAttribPointer(4, 4, gl.FLOAT, false, PARTICLE_INSTANCE_STRIDE, 32);
+		gl.vertexAttribDivisor(4, 1);
+
+		gl.enableVertexAttribArray(5);
+		gl.vertexAttribPointer(5, 1, gl.FLOAT, false, PARTICLE_INSTANCE_STRIDE, 48);
+		gl.vertexAttribDivisor(5, 1);
+	}
+
+	private _destroyParticleResources(): void {
+		const gl = this._gl;
+		if (this._particleVao) {
+			gl.deleteVertexArray(this._particleVao);
+			this._particleVao = null;
+		}
+		if (this._particleQuadBuffer) {
+			gl.deleteBuffer(this._particleQuadBuffer);
+			this._particleQuadBuffer = null;
+		}
+		if (this._particleInstanceBuffer) {
+			gl.deleteBuffer(this._particleInstanceBuffer);
+			this._particleInstanceBuffer = null;
+		}
+		this._particleInstanceCapacity = 0;
+		this._particleScratch = new Float32Array(0);
 	}
 
 	private _bindGlobalUniforms(
@@ -492,8 +902,45 @@ export class WebGLFrameExecutor {
 		gl.bindVertexArray(null);
 	}
 
+	private _applyFXAA(): void {
+		if (!this._sceneColorTexture || !this._postFramebuffer || !this._postColorTexture) {
+			return;
+		}
+		if (!this._fullscreenVao) {
+			return;
+		}
+
+		const gl = this._gl;
+		const fxaaProgram = this._programs.getFXAAProgram();
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(fxaaProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, this._sceneColorTexture);
+		if (fxaaProgram.uniforms.sourceMap) {
+			gl.uniform1i(fxaaProgram.uniforms.sourceMap, 0);
+		}
+		if (fxaaProgram.uniforms.texelSize) {
+			gl.uniform2f(
+				fxaaProgram.uniforms.texelSize,
+				1 / Math.max(1, this._width),
+				1 / Math.max(1, this._height)
+			);
+		}
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.bindVertexArray(null);
+
+		this._presentSourceTexture = this._postColorTexture;
+	}
+
 	private _present(applyGamma: boolean): void {
-		if (!this._sceneColorTexture || !this._fullscreenVao) return;
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture || !this._fullscreenVao) return;
 		const gl = this._gl;
 		const presentProgram = this._programs.getPresentProgram();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -504,7 +951,7 @@ export class WebGLFrameExecutor {
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneColorTexture);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		if (presentProgram.uniforms.sourceMap) {
 			gl.uniform1i(presentProgram.uniforms.sourceMap, 0);
 		}
@@ -521,43 +968,49 @@ export class WebGLFrameExecutor {
 			this._sceneFramebuffer &&
 			this._sceneColorTexture &&
 			this._sceneDepthBuffer &&
-			this._width === width &&
-			this._height === height
+			this._postFramebuffer &&
+			this._postColorTexture &&
+			this._targetWidth === width &&
+			this._targetHeight === height
 		) {
 			return;
 		}
+
+		if (
+			width > this._maxTextureSize ||
+			height > this._maxTextureSize ||
+			width > this._maxRenderbufferSize ||
+			height > this._maxRenderbufferSize
+		) {
+			throw new Error(
+				`WebGL frame size ${width}x${height} exceeds device limits (MAX_TEXTURE_SIZE=${this._maxTextureSize}, MAX_RENDERBUFFER_SIZE=${this._maxRenderbufferSize})`
+			);
+		}
+
 		this._destroyFrameTargets();
 		const gl = this._gl;
 
-		const framebuffer = gl.createFramebuffer();
-		const colorTexture = gl.createTexture();
-		const depthBuffer = gl.createRenderbuffer();
-		if (!framebuffer || !colorTexture || !depthBuffer) {
-			if (framebuffer) gl.deleteFramebuffer(framebuffer);
-			if (colorTexture) gl.deleteTexture(colorTexture);
-			if (depthBuffer) gl.deleteRenderbuffer(depthBuffer);
+		const sceneFramebuffer = gl.createFramebuffer();
+		const sceneColorTexture = this._createColorTexture(width, height);
+		const sceneDepthBuffer = gl.createRenderbuffer();
+		const postFramebuffer = gl.createFramebuffer();
+		const postColorTexture = this._createColorTexture(width, height);
+		if (
+			!sceneFramebuffer ||
+			!sceneColorTexture ||
+			!sceneDepthBuffer ||
+			!postFramebuffer ||
+			!postColorTexture
+		) {
+			if (sceneFramebuffer) gl.deleteFramebuffer(sceneFramebuffer);
+			if (sceneColorTexture) gl.deleteTexture(sceneColorTexture);
+			if (sceneDepthBuffer) gl.deleteRenderbuffer(sceneDepthBuffer);
+			if (postFramebuffer) gl.deleteFramebuffer(postFramebuffer);
+			if (postColorTexture) gl.deleteTexture(postColorTexture);
 			throw new Error("Failed to create WebGL frame targets");
 		}
 
-		gl.bindTexture(gl.TEXTURE_2D, colorTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			gl.RGBA,
-			width,
-			height,
-			0,
-			gl.RGBA,
-			gl.UNSIGNED_BYTE,
-			null
-		);
-		gl.bindTexture(gl.TEXTURE_2D, null);
-
-		gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+		gl.bindRenderbuffer(gl.RENDERBUFFER, sceneDepthBuffer);
 		gl.renderbufferStorage(
 			gl.RENDERBUFFER,
 			gl.DEPTH_COMPONENT24,
@@ -566,34 +1019,62 @@ export class WebGLFrameExecutor {
 		);
 		gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
-		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFramebuffer);
 		gl.framebufferTexture2D(
 			gl.FRAMEBUFFER,
 			gl.COLOR_ATTACHMENT0,
 			gl.TEXTURE_2D,
-			colorTexture,
+			sceneColorTexture,
 			0
 		);
 		gl.framebufferRenderbuffer(
 			gl.FRAMEBUFFER,
 			gl.DEPTH_ATTACHMENT,
 			gl.RENDERBUFFER,
-			depthBuffer
+			sceneDepthBuffer
 		);
-		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		let status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
 		if (status !== gl.FRAMEBUFFER_COMPLETE) {
-			gl.deleteFramebuffer(framebuffer);
-			gl.deleteTexture(colorTexture);
-			gl.deleteRenderbuffer(depthBuffer);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.deleteFramebuffer(sceneFramebuffer);
+			gl.deleteTexture(sceneColorTexture);
+			gl.deleteRenderbuffer(sceneDepthBuffer);
+			gl.deleteFramebuffer(postFramebuffer);
+			gl.deleteTexture(postColorTexture);
 			throw new Error(
-				`WebGL framebuffer is incomplete (status=0x${status.toString(16)})`
+				`WebGL scene framebuffer is incomplete (status=0x${status.toString(16)})`
 			);
 		}
 
-		this._sceneFramebuffer = framebuffer;
-		this._sceneColorTexture = colorTexture;
-		this._sceneDepthBuffer = depthBuffer;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			postColorTexture,
+			0
+		);
+		status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		if (status !== gl.FRAMEBUFFER_COMPLETE) {
+			gl.deleteFramebuffer(sceneFramebuffer);
+			gl.deleteTexture(sceneColorTexture);
+			gl.deleteRenderbuffer(sceneDepthBuffer);
+			gl.deleteFramebuffer(postFramebuffer);
+			gl.deleteTexture(postColorTexture);
+			throw new Error(
+				`WebGL post framebuffer is incomplete (status=0x${status.toString(16)})`
+			);
+		}
+
+		this._sceneFramebuffer = sceneFramebuffer;
+		this._sceneColorTexture = sceneColorTexture;
+		this._sceneDepthBuffer = sceneDepthBuffer;
+		this._postFramebuffer = postFramebuffer;
+		this._postColorTexture = postColorTexture;
+		this._presentSourceTexture = sceneColorTexture;
+		this._targetWidth = width;
+		this._targetHeight = height;
 	}
 
 	private _destroyFrameTargets(): void {
@@ -610,6 +1091,54 @@ export class WebGLFrameExecutor {
 			gl.deleteRenderbuffer(this._sceneDepthBuffer);
 			this._sceneDepthBuffer = null;
 		}
+		if (this._postFramebuffer) {
+			gl.deleteFramebuffer(this._postFramebuffer);
+			this._postFramebuffer = null;
+		}
+		if (this._postColorTexture) {
+			gl.deleteTexture(this._postColorTexture);
+			this._postColorTexture = null;
+		}
+		this._presentSourceTexture = null;
+		this._targetWidth = 0;
+		this._targetHeight = 0;
+	}
+
+	private _createColorTexture(
+		width: number,
+		height: number
+	): WebGLTexture | null {
+		const gl = this._gl;
+		const texture = gl.createTexture();
+		if (!texture) return null;
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			gl.RGBA,
+			width,
+			height,
+			0,
+			gl.RGBA,
+			gl.UNSIGNED_BYTE,
+			null
+		);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		return texture;
+	}
+
+	private _resolveLimit(parameter: number, fallback: number): number {
+		try {
+			const value = this._gl.getParameter(parameter);
+			if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+				return Math.floor(value);
+			}
+		} catch {}
+		return fallback;
 	}
 
 	private _setCullMode(material: Material): void {
@@ -783,4 +1312,36 @@ function isFiniteMatrix(matrix: Matrix4): boolean {
 		}
 	}
 	return true;
+}
+
+function toSafeDimension(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return 1;
+	}
+	return Math.max(1, Math.floor(value));
+}
+
+function resolveTextureUVTransform(texture: any | null): {
+	repeatX: number;
+	repeatY: number;
+	offsetX: number;
+	offsetY: number;
+	cosRotation: number;
+	sinRotation: number;
+} {
+	const repeatX =
+		Number.isFinite(texture?.repeat?.x) ? Math.max(0, texture.repeat.x) : 1;
+	const repeatY =
+		Number.isFinite(texture?.repeat?.y) ? Math.max(0, texture.repeat.y) : 1;
+	const offsetX = Number.isFinite(texture?.offset?.x) ? texture.offset.x : 0;
+	const offsetY = Number.isFinite(texture?.offset?.y) ? texture.offset.y : 0;
+	const rotation = Number.isFinite(texture?.rotation) ? texture.rotation : 0;
+	return {
+		repeatX,
+		repeatY,
+		offsetX,
+		offsetY,
+		cosRotation: Math.cos(rotation),
+		sinRotation: Math.sin(rotation),
+	};
 }

@@ -247,10 +247,22 @@ async function testInitAndPassRouting() {
 			calls.push(["destroy"]);
 		},
 	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {},
+	};
 
 	backend.resize(800, 600);
 	backend.beginFrame({ frameId: 1 });
 	backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
+	backend.executePass(
+		{ stage: "particle-sim" },
+		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
+	);
+	backend.executePass({ stage: "particles" }, { frameId: 1 });
+	backend.executePass({ stage: "fxaa" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.endFrame();
@@ -260,6 +272,8 @@ async function testInitAndPassRouting() {
 		["resize", 800, 600],
 		["begin", { frameId: 1 }],
 		["pass", "main-opaque", { frameId: 1 }],
+		["pass", "particles", { frameId: 1 }],
+		["pass", "fxaa", { frameId: 1 }],
 		["end"],
 		["destroy"],
 	]);

@@ -55,6 +55,27 @@ export interface WebGLPresentProgram {
 	};
 }
 
+export interface WebGLParticleProgram {
+	program: WebGLProgram;
+	uniforms: {
+		viewProjection: WebGLUniformLocation | null;
+		basisRight: WebGLUniformLocation | null;
+		basisUp: WebGLUniformLocation | null;
+		particleMap: WebGLUniformLocation | null;
+		uvTransformA: WebGLUniformLocation | null;
+		uvTransformB: WebGLUniformLocation | null;
+		mapIsLinear: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLFXAAProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+	};
+}
+
 type WarnFn = (key: string, message: string) => void;
 
 const SCENE_VERTEX_SHADER = `#version 300 es
@@ -378,12 +399,158 @@ void main() {
 }
 `;
 
+const PARTICLE_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 aQuadPosition;
+layout(location = 1) in vec2 aQuadUv;
+layout(location = 2) in vec4 aInstancePositionSize;
+layout(location = 3) in vec4 aInstanceColor;
+layout(location = 4) in vec4 aInstanceUvRect;
+layout(location = 5) in float aInstanceRotation;
+
+uniform mat4 uViewProjection;
+uniform vec3 uBasisRight;
+uniform vec3 uBasisUp;
+
+out vec2 vUv;
+out vec4 vColor;
+out vec2 vLocalUv;
+
+void main() {
+	float c = cos(aInstanceRotation);
+	float s = sin(aInstanceRotation);
+	vec2 rotated = vec2(
+		aQuadPosition.x * c - aQuadPosition.y * s,
+		aQuadPosition.x * s + aQuadPosition.y * c
+	);
+	vec3 worldPosition =
+		aInstancePositionSize.xyz +
+		(uBasisRight * rotated.x + uBasisUp * rotated.y) *
+			aInstancePositionSize.w;
+
+	gl_Position = uViewProjection * vec4(worldPosition, 1.0);
+	vUv = vec2(
+		mix(aInstanceUvRect.x, aInstanceUvRect.z, aQuadUv.x),
+		mix(aInstanceUvRect.y, aInstanceUvRect.w, aQuadUv.y)
+	);
+	vColor = aInstanceColor;
+	vLocalUv = aQuadUv;
+}
+`;
+
+const PARTICLE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+in vec4 vColor;
+in vec2 vLocalUv;
+
+uniform sampler2D uParticleMap;
+uniform vec4 uUvTransformA;
+uniform vec2 uUvTransformB;
+uniform int uMapIsLinear;
+
+out vec4 fragColor;
+
+vec3 srgbToLinear(vec3 c) {
+	vec3 a = c / 12.92;
+	vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
+	return mix(b, a, lessThanEqual(c, vec3(0.04045)));
+}
+
+void main() {
+	float radialDistance = distance(vLocalUv, vec2(0.5, 0.5));
+	float radialMask = 1.0 - smoothstep(0.4, 0.5, radialDistance);
+
+	vec2 scaledUv = vUv * uUvTransformA.xy;
+	vec2 rotatedUv = vec2(
+		scaledUv.x * uUvTransformB.x - scaledUv.y * uUvTransformB.y,
+		scaledUv.x * uUvTransformB.y + scaledUv.y * uUvTransformB.x
+	);
+	vec2 finalUv = rotatedUv + uUvTransformA.zw;
+	vec4 sampled = texture(uParticleMap, finalUv);
+	if (uMapIsLinear == 0) {
+		sampled.rgb = srgbToLinear(sampled.rgb);
+	}
+
+	vec4 color = sampled * vColor;
+	color.a *= radialMask;
+	if (color.a <= 0.001) {
+		discard;
+	}
+
+	fragColor = vec4(max(color.rgb, vec3(0.0)), clamp(color.a, 0.0, 1.0));
+}
+`;
+
+const FXAA_VERTEX_SHADER = PRESENT_VERTEX_SHADER;
+
+const FXAA_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+
+uniform sampler2D uSourceMap;
+uniform vec2 uTexelSize;
+
+out vec4 fragColor;
+
+float luma(vec3 color) {
+	return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+	vec3 rgbNW = texture(uSourceMap, vUv + vec2(-1.0, -1.0) * uTexelSize).rgb;
+	vec3 rgbNE = texture(uSourceMap, vUv + vec2(1.0, -1.0) * uTexelSize).rgb;
+	vec3 rgbSW = texture(uSourceMap, vUv + vec2(-1.0, 1.0) * uTexelSize).rgb;
+	vec3 rgbSE = texture(uSourceMap, vUv + vec2(1.0, 1.0) * uTexelSize).rgb;
+	vec3 rgbM = texture(uSourceMap, vUv).rgb;
+
+	float lumaNW = luma(rgbNW);
+	float lumaNE = luma(rgbNE);
+	float lumaSW = luma(rgbSW);
+	float lumaSE = luma(rgbSE);
+	float lumaM = luma(rgbM);
+
+	float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+	float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+	vec2 dir;
+	dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+	dir.y = (lumaNW + lumaSW) - (lumaNE + lumaSE);
+
+	float dirReduce = max(
+		(lumaNW + lumaNE + lumaSW + lumaSE) * (0.25 * 0.03125),
+		0.0078125
+	);
+	float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+	dir = clamp(dir * rcpDirMin, vec2(-8.0), vec2(8.0)) * uTexelSize;
+
+	vec3 rgbA = 0.5 * (
+		texture(uSourceMap, vUv + dir * (1.0 / 3.0 - 0.5)).rgb +
+		texture(uSourceMap, vUv + dir * (2.0 / 3.0 - 0.5)).rgb
+	);
+	vec3 rgbB = rgbA * 0.5 + 0.25 * (
+		texture(uSourceMap, vUv + dir * -0.5).rgb +
+		texture(uSourceMap, vUv + dir * 0.5).rgb
+	);
+
+	float lumaB = luma(rgbB);
+	vec3 filtered =
+		(lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
+	fragColor = vec4(max(filtered, vec3(0.0)), 1.0);
+}
+`;
+
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _skyboxProgram: WebGLSkyboxProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
+	private _particleProgram: WebGLParticleProgram | null = null;
+	private _fxaaProgram: WebGLFXAAProgram | null = null;
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
 		this._gl = gl;
@@ -510,6 +677,49 @@ export class WebGLProgramLibrary {
 		return this._presentProgram;
 	}
 
+	public getParticleProgram(): WebGLParticleProgram {
+		if (this._particleProgram) {
+			return this._particleProgram;
+		}
+		const program = this._createProgram(
+			PARTICLE_VERTEX_SHADER,
+			PARTICLE_FRAGMENT_SHADER,
+			"WebGLParticleProgram"
+		);
+		this._particleProgram = {
+			program,
+			uniforms: {
+				viewProjection: this._gl.getUniformLocation(program, "uViewProjection"),
+				basisRight: this._gl.getUniformLocation(program, "uBasisRight"),
+				basisUp: this._gl.getUniformLocation(program, "uBasisUp"),
+				particleMap: this._gl.getUniformLocation(program, "uParticleMap"),
+				uvTransformA: this._gl.getUniformLocation(program, "uUvTransformA"),
+				uvTransformB: this._gl.getUniformLocation(program, "uUvTransformB"),
+				mapIsLinear: this._gl.getUniformLocation(program, "uMapIsLinear"),
+			},
+		};
+		return this._particleProgram;
+	}
+
+	public getFXAAProgram(): WebGLFXAAProgram {
+		if (this._fxaaProgram) {
+			return this._fxaaProgram;
+		}
+		const program = this._createProgram(
+			FXAA_VERTEX_SHADER,
+			FXAA_FRAGMENT_SHADER,
+			"WebGLFXAAProgram"
+		);
+		this._fxaaProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._fxaaProgram;
+	}
+
 	public destroy(): void {
 		if (this._sceneProgram) {
 			this._gl.deleteProgram(this._sceneProgram.program);
@@ -522,6 +732,14 @@ export class WebGLProgramLibrary {
 		if (this._presentProgram) {
 			this._gl.deleteProgram(this._presentProgram.program);
 			this._presentProgram = null;
+		}
+		if (this._particleProgram) {
+			this._gl.deleteProgram(this._particleProgram.program);
+			this._particleProgram = null;
+		}
+		if (this._fxaaProgram) {
+			this._gl.deleteProgram(this._fxaaProgram.program);
+			this._fxaaProgram = null;
 		}
 	}
 

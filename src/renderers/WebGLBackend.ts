@@ -1,10 +1,17 @@
-import type { FrameContext, FramePass } from "../pipeline/types";
+import {
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
+	type FrameContext,
+	type FramePass,
+} from "../pipeline/types";
+import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"main-opaque",
 	"main-transparent",
+	"particles",
+	"fxaa",
 	"gamma",
 ]);
 
@@ -30,6 +37,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
+	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -38,6 +46,9 @@ export class WebGLBackend implements IRenderBackend {
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
+		this._particleSimulator = new DefaultParticleSimulator({
+			backendTag: this.type,
+		});
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -47,8 +58,8 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public resize(width: number, height: number): void {
-		this._width = Math.max(1, width | 0);
-		this._height = Math.max(1, height | 0);
+		this._width = toSafeDimension(width);
+		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
 		this._frameExecutor?.resize(this._width, this._height);
 	}
@@ -61,8 +72,8 @@ export class WebGLBackend implements IRenderBackend {
 		height: number;
 	} {
 		return {
-			width: Math.max(1, width | 0),
-			height: Math.max(1, height | 0),
+			width: toSafeDimension(width),
+			height: toSafeDimension(height),
 		};
 	}
 
@@ -73,6 +84,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (this._contextLost) {
 			return;
 		}
+		this._particleSimulator?.beginFrame(context);
 		this._frameExecutor.beginFrame(context);
 	}
 
@@ -81,6 +93,14 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		if (this._contextLost) {
+			return;
+		}
+		if (pass.stage === "particle-sim") {
+			this._particleSimulator?.simulate(
+				context,
+				this._resolveParticleDeltaTime(context)
+			);
+			this._particleSimulator?.emitRenderBatches(context);
 			return;
 		}
 		if (!SUPPORTED_WEBGL_STAGES.has(pass.stage)) {
@@ -98,11 +118,13 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		this._frameExecutor.endFrame();
+		this._particleSimulator?.endFrame();
 	}
 
 	public destroy(): void {
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
+		this._particleSimulator = null;
 		this._gl = null;
 
 		if (this._canvas) {
@@ -147,6 +169,14 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor.resize(this._width, this._height);
 	}
 
+	private _resolveParticleDeltaTime(context: FrameContext): number {
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY);
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			return 0;
+		}
+		return Math.max(0, value);
+	}
+
 	private _installContextLifecycleListeners(canvas: HTMLCanvasElement): void {
 		if (this._contextLossHandler || this._contextRestoreHandler) {
 			return;
@@ -182,4 +212,11 @@ export class WebGLBackend implements IRenderBackend {
 	private _warnOnce(key: string, message: string): void {
 		this._renderer?.warnOnce(key, message);
 	}
+}
+
+function toSafeDimension(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return 1;
+	}
+	return Math.max(1, Math.floor(value));
 }

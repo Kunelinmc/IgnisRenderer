@@ -170,22 +170,23 @@ async function createRenderer(
 	camera: OrbitCamera,
 	scene: Scene
 ): Promise<RendererBootstrap> {
-	if (navigator.gpu) {
-		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
-		webgpuRenderer.setScene(scene);
-		webgpuRenderer.features.enableTAA = true;
+	// 暫時注釋掉這段，用來測試WebGL相關的功能
+	// if (navigator.gpu) {
+	// 	const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
+	// 	webgpuRenderer.setScene(scene);
+	// 	webgpuRenderer.features.enableTAA = true;
 
-		try {
-			await webgpuRenderer.init();
-			console.info("Using WebGPU backend");
-			return {
-				canvas,
-				renderer: webgpuRenderer,
-			};
-		} catch (error) {
-			console.warn("WebGPU initialization failed, trying WebGL.", error);
-		}
-	}
+	// 	try {
+	// 		await webgpuRenderer.init();
+	// 		console.info("Using WebGPU backend");
+	// 		return {
+	// 			canvas,
+	// 			renderer: webgpuRenderer,
+	// 		};
+	// 	} catch (error) {
+	// 		console.warn("WebGPU initialization failed, trying WebGL.", error);
+	// 	}
+	// }
 
 	try {
 		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
