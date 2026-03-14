@@ -1,11 +1,11 @@
-import { Camera } from '../cameras/Camera'
-import { Matrix4 } from '../maths/Matrix4'
-import { MeshInstance } from '../meshes'
-import { ParticleSystem } from '../particles'
-import type { Node } from '../core/Node'
-import type { SceneLight } from '../lights'
-import { Light } from '../lights'
-import { ComponentStore } from './ComponentStore'
+import { Camera } from "../cameras/Camera";
+import { Matrix4 } from "../maths/Matrix4";
+import { MeshInstance } from "../meshes";
+import { ParticleSystem } from "../particles";
+import type { Node } from "../core/Node";
+import type { SceneLight } from "../lights";
+import { Light } from "../lights";
+import { ComponentStore } from "./ComponentStore";
 import type {
 	ECSComponentMap,
 	ECSComponentName,
@@ -19,37 +19,37 @@ import type {
 	SkeletonJointComponent,
 	VisibilityComponent,
 	WorldTransformComponent,
-} from './components'
+} from "./components";
 
 interface QueryCacheEntry {
-	version: number
-	entities: EntityId[]
+	version: number;
+	entities: EntityId[];
 }
 
 const COMPONENT_NAMES: ECSComponentName[] = [
-	'Name',
-	'Visibility',
-	'LocalTransform',
-	'WorldTransform',
-	'Hierarchy',
-	'PathBinding',
-	'SkeletonJoint',
-	'NodeRef',
-	'NodeKind',
-]
+	"Name",
+	"Visibility",
+	"LocalTransform",
+	"WorldTransform",
+	"Hierarchy",
+	"PathBinding",
+	"SkeletonJoint",
+	"NodeRef",
+	"NodeKind",
+];
 
 export class ECSWorld {
-	private _nextEntityId = 1
-	private _entityIds = new Set<EntityId>()
-	private _version = 0
+	private _nextEntityId = 1;
+	private _entityIds = new Set<EntityId>();
+	private _version = 0;
 	private _stores: {
-		[K in ECSComponentName]: ComponentStore<ECSComponentMap[K]>
-	}
-	private _queryCache = new Map<string, QueryCacheEntry>()
-	private _entityByExternalId = new Map<string, EntityId>()
-	private _externalIdByEntity = new Map<EntityId, string>()
-	private _entityByNode = new WeakMap<Node, EntityId>()
-	private _nodeByEntity = new Map<EntityId, Node>()
+		[K in ECSComponentName]: ComponentStore<ECSComponentMap[K]>;
+	};
+	private _queryCache = new Map<string, QueryCacheEntry>();
+	private _entityByExternalId = new Map<string, EntityId>();
+	private _externalIdByEntity = new Map<EntityId, string>();
+	private _entityByNode = new WeakMap<Node, EntityId>();
+	private _nodeByEntity = new Map<EntityId, Node>();
 
 	constructor() {
 		this._stores = {
@@ -62,62 +62,62 @@ export class ECSWorld {
 			SkeletonJoint: new ComponentStore<SkeletonJointComponent>(),
 			NodeRef: new ComponentStore<NodeRefComponent>(),
 			NodeKind: new ComponentStore<NodeKindComponent>(),
-		}
+		};
 	}
 
 	public get version(): number {
-		return this._version
+		return this._version;
 	}
 
 	public createEntity(externalId?: string): EntityId {
-		const entity = this._nextEntityId++
-		this._entityIds.add(entity)
+		const entity = this._nextEntityId++;
+		this._entityIds.add(entity);
 		if (externalId) {
-			this._entityByExternalId.set(externalId, entity)
-			this._externalIdByEntity.set(entity, externalId)
+			this._entityByExternalId.set(externalId, entity);
+			this._externalIdByEntity.set(entity, externalId);
 		}
-		this._bumpVersion()
-		return entity
+		this._bumpVersion();
+		return entity;
 	}
 
 	public destroyEntity(entity: EntityId): boolean {
-		if (!this._entityIds.has(entity)) return false
+		if (!this._entityIds.has(entity)) return false;
 
-		this._entityIds.delete(entity)
+		this._entityIds.delete(entity);
 		for (const name of COMPONENT_NAMES) {
-			this._stores[name].delete(entity)
+			this._stores[name].delete(entity);
 		}
-		const externalId = this._externalIdByEntity.get(entity)
+		const externalId = this._externalIdByEntity.get(entity);
 		if (externalId) {
-			this._externalIdByEntity.delete(entity)
-			this._entityByExternalId.delete(externalId)
+			this._externalIdByEntity.delete(entity);
+			this._entityByExternalId.delete(externalId);
 		}
-		this._nodeByEntity.delete(entity)
-		this._bumpVersion()
-		return true
+		this._nodeByEntity.delete(entity);
+		this._bumpVersion();
+		return true;
 	}
 
 	public hasEntity(entity: EntityId): boolean {
-		return this._entityIds.has(entity)
+		return this._entityIds.has(entity);
 	}
 
 	public setExternalId(entity: EntityId, externalId: string): void {
-		const current = this._externalIdByEntity.get(entity)
-		if (current === externalId) return
+		const current = this._externalIdByEntity.get(entity);
+		if (current === externalId) return;
 		if (current) {
-			this._entityByExternalId.delete(current)
+			this._entityByExternalId.delete(current);
 		}
-		this._externalIdByEntity.set(entity, externalId)
-		this._entityByExternalId.set(externalId, entity)
-		this._bumpVersion()
+		this._externalIdByEntity.set(entity, externalId);
+		this._entityByExternalId.set(externalId, entity);
+		this._bumpVersion();
 	}
 
 	public getEntityByExternalId(externalId: string): EntityId | null {
-		return this._entityByExternalId.get(externalId) ?? null
+		return this._entityByExternalId.get(externalId) ?? null;
 	}
 
 	public getExternalId(entity: EntityId): string | null {
-		return this._externalIdByEntity.get(entity) ?? null
+		return this._externalIdByEntity.get(entity) ?? null;
 	}
 
 	public setComponent<K extends ECSComponentName>(
@@ -126,43 +126,45 @@ export class ECSWorld {
 		value: ECSComponentMap[K]
 	): void {
 		if (!this._entityIds.has(entity)) {
-			throw new Error(`ECSWorld.setComponent target entity "${entity}" not found`)
+			throw new Error(
+				`ECSWorld.setComponent target entity "${entity}" not found`
+			);
 		}
-		this._stores[name].set(entity, value)
-		this._bumpVersion()
+		this._stores[name].set(entity, value);
+		this._bumpVersion();
 	}
 
 	public getComponent<K extends ECSComponentName>(
 		entity: EntityId,
 		name: K
 	): ECSComponentMap[K] | undefined {
-		return this._stores[name].get(entity)
+		return this._stores[name].get(entity);
 	}
 
 	public hasComponent<K extends ECSComponentName>(
 		entity: EntityId,
 		name: K
 	): boolean {
-		return this._stores[name].has(entity)
+		return this._stores[name].has(entity);
 	}
 
 	public removeComponent<K extends ECSComponentName>(
 		entity: EntityId,
 		name: K
 	): boolean {
-		const removed = this._stores[name].delete(entity)
+		const removed = this._stores[name].delete(entity);
 		if (removed) {
-			this._bumpVersion()
+			this._bumpVersion();
 		}
-		return removed
+		return removed;
 	}
 
 	public query(required: ECSComponentName[]): EntityId[] {
-		if (required.length === 0) return Array.from(this._entityIds)
-		const key = required.slice().sort().join('|')
-		const cached = this._queryCache.get(key)
+		if (required.length === 0) return Array.from(this._entityIds);
+		const key = required.slice().sort().join("|");
+		const cached = this._queryCache.get(key);
 		if (cached && cached.version === this._version) {
-			return cached.entities.slice()
+			return cached.entities.slice();
 		}
 
 		const sorted = required
@@ -170,106 +172,116 @@ export class ECSWorld {
 			.sort(
 				(a, b) =>
 					this._stores[a].entities().length - this._stores[b].entities().length
-			)
-		const base = sorted[0]
-		const entities = this._stores[base].entities()
-		const result: EntityId[] = []
+			);
+		const base = sorted[0];
+		const entities = this._stores[base].entities();
+		const result: EntityId[] = [];
 		for (let i = 0; i < entities.length; i++) {
-			const entity = entities[i]
-			let matches = true
+			const entity = entities[i];
+			let matches = true;
 			for (let j = 1; j < sorted.length; j++) {
 				if (!this._stores[sorted[j]].has(entity)) {
-					matches = false
-					break
+					matches = false;
+					break;
 				}
 			}
 			if (matches) {
-				result.push(entity)
+				result.push(entity);
 			}
 		}
 
 		this._queryCache.set(key, {
 			version: this._version,
 			entities: result.slice(),
-		})
-		return result
+		});
+		return result;
 	}
 
 	public registerNode(node: Node, parent: EntityId | null): EntityId {
-		const existing = this._entityByNode.get(node)
-		const entity = existing ?? this.createEntity(node.id)
+		const existing = this._entityByNode.get(node);
+		const entity = existing ?? this.createEntity(node.id);
 		if (!existing) {
-			this._entityByNode.set(node, entity)
-			this._nodeByEntity.set(entity, node)
+			this._entityByNode.set(node, entity);
+			this._nodeByEntity.set(entity, node);
 		}
 
-		this.setComponent(entity, 'Name', { value: node.name })
-		this.setComponent(entity, 'Visibility', { visible: node.visible })
-		this.setComponent(entity, 'LocalTransform', this._createLocalTransform(node))
-		this.setComponent(entity, 'WorldTransform', { matrix: node.worldMatrix.clone() })
-		this.setComponent(entity, 'Hierarchy', {
+		this.setComponent(entity, "Name", { value: node.name });
+		this.setComponent(entity, "Visibility", { visible: node.visible });
+		this.setComponent(
+			entity,
+			"LocalTransform",
+			this._createLocalTransform(node)
+		);
+		this.setComponent(entity, "WorldTransform", {
+			matrix: node.worldMatrix.clone(),
+		});
+		this.setComponent(entity, "Hierarchy", {
 			parent,
 			children: [],
-		})
-		this.setComponent(entity, 'NodeRef', { node })
-		this.setComponent(entity, 'NodeKind', { kind: resolveNodeKind(node) })
-		return entity
+		});
+		this.setComponent(entity, "NodeRef", { node });
+		this.setComponent(entity, "NodeKind", { kind: resolveNodeKind(node) });
+		return entity;
 	}
 
 	public unregisterNode(node: Node): boolean {
-		const entity = this._entityByNode.get(node)
-		if (entity === undefined) return false
-		this._entityByNode.delete(node)
-		this._nodeByEntity.delete(entity)
-		return this.destroyEntity(entity)
+		const entity = this._entityByNode.get(node);
+		if (entity === undefined) return false;
+		this._entityByNode.delete(node);
+		this._nodeByEntity.delete(entity);
+		return this.destroyEntity(entity);
 	}
 
 	public getEntityByNode(node: Node): EntityId | null {
-		return this._entityByNode.get(node) ?? null
+		return this._entityByNode.get(node) ?? null;
 	}
 
 	public getNodeByEntity(entity: EntityId): Node | null {
-		return this._nodeByEntity.get(entity) ?? null
+		return this._nodeByEntity.get(entity) ?? null;
 	}
 
 	public syncNodeToEntity(node: Node, path?: string): void {
-		const entity = this._entityByNode.get(node)
-		if (entity === undefined) return
-		this.setComponent(entity, 'Name', { value: node.name })
-		this.setComponent(entity, 'Visibility', { visible: node.visible })
-		this.setComponent(entity, 'LocalTransform', this._createLocalTransform(node))
-		this.setComponent(entity, 'WorldTransform', {
+		const entity = this._entityByNode.get(node);
+		if (entity === undefined) return;
+		this.setComponent(entity, "Name", { value: node.name });
+		this.setComponent(entity, "Visibility", { visible: node.visible });
+		this.setComponent(
+			entity,
+			"LocalTransform",
+			this._createLocalTransform(node)
+		);
+		this.setComponent(entity, "WorldTransform", {
 			matrix: node.worldMatrix.clone(),
-		})
+		});
 		if (path !== undefined) {
-			this.setComponent(entity, 'PathBinding', { path })
+			this.setComponent(entity, "PathBinding", { path });
 		}
 	}
 
 	public syncEntityToNode(entity: EntityId): void {
-		const node = this._nodeByEntity.get(entity)
-		if (!node) return
-		const local = this.getComponent(entity, 'LocalTransform')
-		const world = this.getComponent(entity, 'WorldTransform')
-		const visibility = this.getComponent(entity, 'Visibility')
-		const name = this.getComponent(entity, 'Name')
+		const node = this._nodeByEntity.get(entity);
+		if (!node) return;
+		const local = this.getComponent(entity, "LocalTransform");
+		const world = this.getComponent(entity, "WorldTransform");
+		const visibility = this.getComponent(entity, "Visibility");
+		const name = this.getComponent(entity, "Name");
 		if (local) {
-			node.position.set(local.positionX, local.positionY, local.positionZ)
-			node.quaternion.x = local.rotationX
-			node.quaternion.y = local.rotationY
-			node.quaternion.z = local.rotationZ
-			node.quaternion.w = local.rotationW
-			node.scale.set(local.scaleX, local.scaleY, local.scaleZ)
-			node.updateLocalMatrix()
+			node.position.set(local.positionX, local.positionY, local.positionZ);
+			node.quaternion.x = local.rotationX;
+			node.quaternion.y = local.rotationY;
+			node.quaternion.z = local.rotationZ;
+			node.quaternion.w = local.rotationW;
+			node.scale.set(local.scaleX, local.scaleY, local.scaleZ);
+			node.updateLocalMatrix();
 		}
 		if (world) {
-			copyMatrix(node.worldMatrix, world.matrix)
+			copyMatrix(node.worldMatrix, world.matrix);
 		}
 		if (visibility) {
-			node.visible = visibility.visible
+			node.visible = visibility.visible;
 		}
 		if (name) {
-			node.name = name.value
+			node.name = name.value;
 		}
 	}
 
@@ -278,67 +290,67 @@ export class ECSWorld {
 		parent: EntityId | null,
 		children: EntityId[]
 	): void {
-		this.setComponent(entity, 'Hierarchy', { parent, children })
+		this.setComponent(entity, "Hierarchy", { parent, children });
 	}
 
 	public findMeshInstances(): MeshInstance[] {
-		const entities = this.query(['NodeRef', 'NodeKind'])
-		const result: MeshInstance[] = []
+		const entities = this.query(["NodeRef", "NodeKind"]);
+		const result: MeshInstance[] = [];
 		for (const entity of entities) {
-			const kind = this.getComponent(entity, 'NodeKind')
-			if (!kind || kind.kind !== 'meshInstance') continue
-			const nodeRef = this.getComponent(entity, 'NodeRef')
-			if (!nodeRef) continue
+			const kind = this.getComponent(entity, "NodeKind");
+			if (!kind || kind.kind !== "meshInstance") continue;
+			const nodeRef = this.getComponent(entity, "NodeRef");
+			if (!nodeRef) continue;
 			if (nodeRef.node instanceof MeshInstance) {
-				result.push(nodeRef.node)
+				result.push(nodeRef.node);
 			}
 		}
-		return result
+		return result;
 	}
 
 	public findLights(): SceneLight[] {
-		const entities = this.query(['NodeRef', 'NodeKind'])
-		const result: SceneLight[] = []
+		const entities = this.query(["NodeRef", "NodeKind"]);
+		const result: SceneLight[] = [];
 		for (const entity of entities) {
-			const kind = this.getComponent(entity, 'NodeKind')
-			if (!kind || kind.kind !== 'light') continue
-			const nodeRef = this.getComponent(entity, 'NodeRef')
-			if (!nodeRef) continue
+			const kind = this.getComponent(entity, "NodeKind");
+			if (!kind || kind.kind !== "light") continue;
+			const nodeRef = this.getComponent(entity, "NodeRef");
+			if (!nodeRef) continue;
 			if (nodeRef.node instanceof Light) {
-				result.push(nodeRef.node as SceneLight)
+				result.push(nodeRef.node as SceneLight);
 			}
 		}
-		return result
+		return result;
 	}
 
 	public findCameras(): Camera[] {
-		const entities = this.query(['NodeRef', 'NodeKind'])
-		const result: Camera[] = []
+		const entities = this.query(["NodeRef", "NodeKind"]);
+		const result: Camera[] = [];
 		for (const entity of entities) {
-			const kind = this.getComponent(entity, 'NodeKind')
-			if (!kind || kind.kind !== 'camera') continue
-			const nodeRef = this.getComponent(entity, 'NodeRef')
-			if (!nodeRef) continue
+			const kind = this.getComponent(entity, "NodeKind");
+			if (!kind || kind.kind !== "camera") continue;
+			const nodeRef = this.getComponent(entity, "NodeRef");
+			if (!nodeRef) continue;
 			if (nodeRef.node instanceof Camera) {
-				result.push(nodeRef.node)
+				result.push(nodeRef.node);
 			}
 		}
-		return result
+		return result;
 	}
 
 	public findParticleSystems(): ParticleSystem[] {
-		const entities = this.query(['NodeRef', 'NodeKind'])
-		const result: ParticleSystem[] = []
+		const entities = this.query(["NodeRef", "NodeKind"]);
+		const result: ParticleSystem[] = [];
 		for (const entity of entities) {
-			const kind = this.getComponent(entity, 'NodeKind')
-			if (!kind || kind.kind !== 'particleSystem') continue
-			const nodeRef = this.getComponent(entity, 'NodeRef')
-			if (!nodeRef) continue
+			const kind = this.getComponent(entity, "NodeKind");
+			if (!kind || kind.kind !== "particleSystem") continue;
+			const nodeRef = this.getComponent(entity, "NodeRef");
+			if (!nodeRef) continue;
 			if (nodeRef.node instanceof ParticleSystem) {
-				result.push(nodeRef.node)
+				result.push(nodeRef.node);
 			}
 		}
-		return result
+		return result;
 	}
 
 	private _createLocalTransform(node: Node): LocalTransformComponent {
@@ -353,29 +365,29 @@ export class ECSWorld {
 			scaleX: node.scale.x,
 			scaleY: node.scale.y,
 			scaleZ: node.scale.z,
-		}
+		};
 	}
 
 	private _bumpVersion(): void {
-		this._version++
+		this._version++;
 	}
 }
 
 function resolveNodeKind(node: Node): string {
-	if (node instanceof MeshInstance) return 'meshInstance'
-	if (node instanceof Camera) return 'camera'
-	if (node instanceof ParticleSystem) return 'particleSystem'
-	if (node instanceof Light) return 'light'
-	return 'node'
+	if (node instanceof MeshInstance) return "meshInstance";
+	if (node instanceof Camera) return "camera";
+	if (node instanceof ParticleSystem) return "particleSystem";
+	if (node instanceof Light) return "light";
+	return "node";
 }
 
 function copyMatrix(target: Matrix4, source: Matrix4): void {
-	const targetElements = target.elements
-	const sourceElements = source.elements
+	const targetElements = target.elements;
+	const sourceElements = source.elements;
 	for (let row = 0; row < 4; row++) {
-		targetElements[row][0] = sourceElements[row][0]
-		targetElements[row][1] = sourceElements[row][1]
-		targetElements[row][2] = sourceElements[row][2]
-		targetElements[row][3] = sourceElements[row][3]
+		targetElements[row][0] = sourceElements[row][0];
+		targetElements[row][1] = sourceElements[row][1];
+		targetElements[row][2] = sourceElements[row][2];
+		targetElements[row][3] = sourceElements[row][3];
 	}
 }

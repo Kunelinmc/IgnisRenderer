@@ -78,11 +78,7 @@ export class Node {
 				this._scene.markNodeReparenting(child, true);
 			}
 			child.parent.removeChild(child);
-			if (
-				this._scene &&
-				child._scene === this._scene &&
-				this._scene
-			) {
+			if (this._scene && child._scene === this._scene && this._scene) {
 				this._scene.markNodeReparenting(child, false);
 			}
 		}
@@ -247,8 +243,7 @@ export class Node {
 		try {
 			return new Constructor() as this;
 		} catch (error) {
-			const message =
-				error instanceof Error ? error.message : String(error);
+			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(
 				`Node.clone failed for "${this.constructor.name}". ` +
 					`Override _createCloneInstance in this class. Cause: ${message}`

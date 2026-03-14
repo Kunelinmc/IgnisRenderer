@@ -8,7 +8,7 @@ export type PhysicsWorldId = string;
 export type PhysicsStepMode = "fixed" | "variable";
 
 export type TransformAuthority = "physics" | "animation";
-export type PhysicsEntityId = number
+export type PhysicsEntityId = number;
 
 export type RigidBodyType = "dynamic" | "kinematic" | "fixed";
 

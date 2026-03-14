@@ -1,8 +1,5 @@
 import type { BackendCapabilities } from "../renderers/IRenderBackend";
-import type {
-	RendererFeatureRequest,
-	ResolvedFeatureState,
-} from "./types";
+import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,

@@ -148,8 +148,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _jointById = new Map<string, InternalJointBinding>();
 	private _controllerById = new Map<string, InternalControllerBinding>();
 	private _eventQueueByWorld = new Map<string, PhysicsEvent[]>();
-	private _entityNodeResolver: ((entityId: PhysicsEntityId) => Node | null) | null =
-		null;
+	private _entityNodeResolver:
+		| ((entityId: PhysicsEntityId) => Node | null)
+		| null = null;
 
 	constructor(options: PhysicsSystemOptions = {}) {
 		super();

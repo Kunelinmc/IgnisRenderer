@@ -56,15 +56,16 @@ function projectEquirectToSH(envMap: Texture): LightProbe {
 
 			const isLinear =
 				envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
-			const r = isLinear
-				? data[idx] * 255
-				: sRGBToLinear(data[idx] / 255) * 255;
-			const g = isLinear
-				? data[idx + 1] * 255
-				: sRGBToLinear(data[idx + 1] / 255) * 255;
-			const b = isLinear
-				? data[idx + 2] * 255
-				: sRGBToLinear(data[idx + 2] / 255) * 255;
+			const r =
+				isLinear ? data[idx] * 255 : sRGBToLinear(data[idx] / 255) * 255;
+			const g =
+				isLinear ?
+					data[idx + 1] * 255
+				:	sRGBToLinear(data[idx + 1] / 255) * 255;
+			const b =
+				isLinear ?
+					data[idx + 2] * 255
+				:	sRGBToLinear(data[idx + 2] / 255) * 255;
 
 			for (let k = 0; k < sh.length; k++) {
 				const bK = basis[k] * weight;

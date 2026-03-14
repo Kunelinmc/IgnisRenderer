@@ -356,13 +356,14 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				roughness:
 					pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1.0,
 				metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1.0,
-				emissive: m.emissiveFactor
-					? {
+				emissive:
+					m.emissiveFactor ?
+						{
 							r: m.emissiveFactor[0] * 255,
 							g: m.emissiveFactor[1] * 255,
 							b: m.emissiveFactor[2] * 255,
 						}
-					: { r: 0, g: 0, b: 0 },
+					:	{ r: 0, g: 0, b: 0 },
 				doubleSided: m.doubleSided || false,
 			});
 			if (pbr.baseColorTexture !== undefined) {
@@ -653,9 +654,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					return loader.loadFromBlob(blob);
 				} else if (img.uri) {
 					const url =
-						img.uri.startsWith("data:") || img.uri.startsWith("http")
-							? img.uri
-							: baseURL + img.uri;
+						img.uri.startsWith("data:") || img.uri.startsWith("http") ?
+							img.uri
+						:	baseURL + img.uri;
 					return loader.load(url);
 				}
 				return null;
@@ -748,11 +749,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					mesh,
 					name: json.meshes[nodeDef.mesh]?.name ?? `mesh_${nodeDef.mesh}`,
 					morphWeights:
-						nodeDef.weights !== undefined
-							? mesh.defaultMorphWeights.map((weights) =>
-									applyMorphWeightOverride(weights, nodeDef.weights)
-								)
-							: undefined,
+						nodeDef.weights !== undefined ?
+							mesh.defaultMorphWeights.map((weights) =>
+								applyMorphWeightOverride(weights, nodeDef.weights)
+							)
+						:	undefined,
 				});
 				container.addChild(meshInstance);
 				context.meshInstanceByNodeIndex.set(nodeIdx, meshInstance);
@@ -842,9 +843,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	): IPrimitive | null {
 		const attrs = primitive.attributes;
 		const material =
-			primitive.material !== undefined && materials[primitive.material]
-				? materials[primitive.material]
-				: new PBRMaterial();
+			primitive.material !== undefined && materials[primitive.material] ?
+				materials[primitive.material]
+			:	new PBRMaterial();
 		if (attrs.POSITION === undefined) return null;
 
 		const positions = toFloat32Array(
@@ -852,46 +853,46 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		);
 		const vertexCount = (positions.length / 3) | 0;
 		const normals =
-			attrs.NORMAL !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.NORMAL))
-				: null;
+			attrs.NORMAL !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.NORMAL))
+			:	null;
 		const tangents =
-			attrs.TANGENT !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TANGENT))
-				: null;
+			attrs.TANGENT !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.TANGENT))
+			:	null;
 		const uv0 =
-			attrs.TEXCOORD_0 !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_0))
-				: null;
+			attrs.TEXCOORD_0 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_0))
+			:	null;
 		const uv1 =
-			attrs.TEXCOORD_1 !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_1))
-				: null;
+			attrs.TEXCOORD_1 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_1))
+			:	null;
 		const colors =
-			attrs.COLOR_0 !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.COLOR_0))
-				: null;
+			attrs.COLOR_0 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.COLOR_0))
+			:	null;
 		const joints0 =
-			attrs.JOINTS_0 !== undefined
-				? toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_0))
-				: null;
+			attrs.JOINTS_0 !== undefined ?
+				toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_0))
+			:	null;
 		const weights0 =
-			attrs.WEIGHTS_0 !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_0))
-				: null;
+			attrs.WEIGHTS_0 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_0))
+			:	null;
 		const joints1 =
-			attrs.JOINTS_1 !== undefined
-				? toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_1))
-				: null;
+			attrs.JOINTS_1 !== undefined ?
+				toJointArray(this.getAccessorData(json, buffers, attrs.JOINTS_1))
+			:	null;
 		const weights1 =
-			attrs.WEIGHTS_1 !== undefined
-				? toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_1))
-				: null;
+			attrs.WEIGHTS_1 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.WEIGHTS_1))
+			:	null;
 
 		const sourceIndices =
-			primitive.indices !== undefined
-				? toUint32Array(this.getAccessorData(json, buffers, primitive.indices))
-				: createSequentialIndices(vertexCount);
+			primitive.indices !== undefined ?
+				toUint32Array(this.getAccessorData(json, buffers, primitive.indices))
+			:	createSequentialIndices(vertexCount);
 		const mode = primitive.mode;
 		const topology = resolvePrimitiveTopology(mode);
 		const indices = convertPrimitiveIndices(mode, sourceIndices);
@@ -1016,23 +1017,19 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 
 		return targetDefs.map((targetDef) => ({
 			positions:
-				targetDef.POSITION !== undefined
-					? toFloat32Array(
-							this.getAccessorData(json, buffers, targetDef.POSITION)
-						)
-					: null,
+				targetDef.POSITION !== undefined ?
+					toFloat32Array(
+						this.getAccessorData(json, buffers, targetDef.POSITION)
+					)
+				:	null,
 			normals:
-				targetDef.NORMAL !== undefined
-					? toFloat32Array(
-							this.getAccessorData(json, buffers, targetDef.NORMAL)
-						)
-					: null,
+				targetDef.NORMAL !== undefined ?
+					toFloat32Array(this.getAccessorData(json, buffers, targetDef.NORMAL))
+				:	null,
 			tangents:
-				targetDef.TANGENT !== undefined
-					? toFloat32Array(
-							this.getAccessorData(json, buffers, targetDef.TANGENT)
-						)
-					: null,
+				targetDef.TANGENT !== undefined ?
+					toFloat32Array(this.getAccessorData(json, buffers, targetDef.TANGENT))
+				:	null,
 		}));
 	}
 
@@ -1161,9 +1158,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 						property: "weights",
 					};
 					valueSize =
-						interpolation === "cubic"
-							? Math.floor(outputValues.length / (inputTimes.length * 3))
-							: Math.floor(outputValues.length / inputTimes.length);
+						interpolation === "cubic" ?
+							Math.floor(outputValues.length / (inputTimes.length * 3))
+						:	Math.floor(outputValues.length / inputTimes.length);
 				} else {
 					console.warn(
 						`GLTFLoader: unsupported animation path "${targetPath}" ignored`
@@ -1556,7 +1553,9 @@ function createSequentialIndices(vertexCount: number): Uint32Array {
 	return indices;
 }
 
-function resolvePrimitiveTopology(mode: number | undefined): PrimitiveDrawTopology {
+function resolvePrimitiveTopology(
+	mode: number | undefined
+): PrimitiveDrawTopology {
 	switch (mode ?? GLTF_MODE_TRIANGLES) {
 		case GLTF_MODE_POINTS:
 			return "point-list";

@@ -82,9 +82,9 @@ export class SoftwareParticlePass {
 		if (minX > maxX || minY > maxY) return;
 
 		const shadowVisibility =
-			batch.receiveShadows && context.features.enableShadows
-				? this._resolveShadowVisibility(context, particle, sampleShadow)
-				: 1;
+			batch.receiveShadows && context.features.enableShadows ?
+				this._resolveShadowVisibility(context, particle, sampleShadow)
+			:	1;
 		const baseAlpha = clamp(particle.color.a);
 		const rotation = particle.rotation;
 		const cosRot = Math.cos(rotation);

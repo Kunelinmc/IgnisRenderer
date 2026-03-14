@@ -32,12 +32,13 @@ export class PreparedSceneBuilder {
 				const animatedPacket =
 					!!meshInstance.skeleton ||
 					(packet.geometry.morphTargets?.length ?? 0) > 0;
-				const visibleInCamera = animatedPacket
-					? true
-					: renderer.camera.isSphereInFrustum(
+				const visibleInCamera =
+					animatedPacket ? true : (
+						renderer.camera.isSphereInFrustum(
 							packet.worldBounds.center,
 							packet.worldBounds.radius
-						);
+						)
+					);
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 					if (visibleInCamera) {

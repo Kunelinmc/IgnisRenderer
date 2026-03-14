@@ -76,13 +76,15 @@ export class Projector {
 
 			for (const vertex of face.vertices) {
 				const worldPoint = Matrix4.transformPoint(packet.worldMatrix, vertex);
-				const worldNormal = vertex.normal
-					? Vector3.normalize(
+				const worldNormal =
+					vertex.normal ?
+						Vector3.normalize(
 							Matrix4.transformNormal(packet.normalMatrix, vertex.normal)
 						)
-					: null;
-				const worldTangent = vertex.tangent
-					? (() => {
+					:	null;
+				const worldTangent =
+					vertex.tangent ?
+						(() => {
 							const tangent = Vector3.normalize(
 								Matrix4.transformNormal(packet.normalMatrix, vertex.tangent)
 							);
@@ -93,7 +95,7 @@ export class Projector {
 								w: vertex.tangent!.w,
 							};
 						})()
-					: null;
+					:	null;
 
 				const worldVertex: IVertex = {
 					x: worldPoint.x,
@@ -132,9 +134,10 @@ export class Projector {
 			);
 			const v0 = clippedVerts[0].view;
 			const isOrthographic = context.camera.type === CameraType.Orthographic;
-			const dot = isOrthographic
-				? -cullNormal.z
-				: cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
+			const dot =
+				isOrthographic ?
+					-cullNormal.z
+				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
 
 			if (!packet.material.doubleSided) {
 				if (flipCulling ? dot < 0 : dot > 0) continue;
@@ -147,7 +150,10 @@ export class Projector {
 					clipped.view
 				);
 				const rawW = projected.w ?? 0;
-				const safeW = Math.abs(rawW) > 1e-6 ? rawW : rawW >= 0 ? 1e-6 : -1e-6;
+				const safeW =
+					Math.abs(rawW) > 1e-6 ? rawW
+					: rawW >= 0 ? 1e-6
+					: -1e-6;
 				const ndcX = projected.x / safeW;
 				const ndcY = projected.y / safeW;
 				const ndcZ = projected.z / safeW;
@@ -210,11 +216,12 @@ export class Projector {
 						y: centerY / 3,
 						z: centerZ / 3,
 					},
-					normal: face.normal
-						? Vector3.normalize(
+					normal:
+						face.normal ?
+							Vector3.normalize(
 								Matrix4.transformNormal(packet.normalMatrix, face.normal)
 							)
-						: Vector3.calculateNormal(worldVerts),
+						:	Vector3.calculateNormal(worldVerts),
 					depthInfo: {
 						min: minDepth,
 						max: maxDepth,

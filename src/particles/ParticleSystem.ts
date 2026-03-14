@@ -171,7 +171,9 @@ export class ParticleSystem extends Node {
 		target.emit = {
 			...this.emit,
 			direction: cloneVector(this.emit.direction ?? DEFAULT_EMITTER.direction),
-			startColor: cloneColor(this.emit.startColor ?? DEFAULT_EMITTER.startColor),
+			startColor: cloneColor(
+				this.emit.startColor ?? DEFAULT_EMITTER.startColor
+			),
 			lifetimeRange: cloneRange(
 				this.emit.lifetimeRange ?? DEFAULT_EMITTER.lifetimeRange
 			),
@@ -183,8 +185,7 @@ export class ParticleSystem extends Node {
 				this.emit.rotationRange ?? DEFAULT_EMITTER.rotationRange
 			),
 			angularVelocityRange: cloneRange(
-				this.emit.angularVelocityRange ??
-					DEFAULT_EMITTER.angularVelocityRange
+				this.emit.angularVelocityRange ?? DEFAULT_EMITTER.angularVelocityRange
 			),
 			bursts: (this.emit.bursts ?? []).map((burst) => ({ ...burst })),
 		};
@@ -196,7 +197,9 @@ export class ParticleSystem extends Node {
 			t: key.t,
 			value: cloneColor(key.value),
 		}));
-		target.colliders = this.colliders.map((collider) => cloneCollider(collider));
+		target.colliders = this.colliders.map((collider) =>
+			cloneCollider(collider)
+		);
 		target.subEmitter = this.subEmitter ? { ...this.subEmitter } : null;
 		target.receiveShadows = this.receiveShadows;
 		target.lod = cloneLOD(this.lod);
