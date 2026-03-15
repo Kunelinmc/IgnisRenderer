@@ -16,7 +16,7 @@ import {
 	getSpotLightWorldDirection,
 	getSpotLightWorldPosition,
 } from "../../pipeline/LightTransforms";
-import type { RGB } from "../../utils/Color";
+import type { RGB } from "../../foundation/Color";
 import type { ShadowMap } from "../../lights/ShadowMapping";
 
 import {

@@ -1,5 +1,5 @@
 import type { IVector3 } from "../../../maths/types";
-import type { RGB } from "../../../utils/Color";
+import type { RGB } from "../../../foundation/Color";
 import type { ShadowCastingLight } from "../../../lights";
 import type { ShadowMap } from "../../../lights/ShadowMapping";
 import { sampleSoftwareShadow } from "./sampling";

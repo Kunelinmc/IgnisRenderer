@@ -1,4 +1,4 @@
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
 import { GeometryBuilder, type GeometryFace } from "./GeometryBuilder";
 import type {
@@ -7,7 +7,7 @@ import type {
 	IPrimitive,
 	IVertex,
 } from "../core/types";
-import { IdGenerator } from "../utils/IdGenerator";
+import { IdGenerator } from "../foundation/IdGenerator";
 
 export type MeshVertex = GeometryFace["vertices"][number];
 export type MeshFace = GeometryFace;

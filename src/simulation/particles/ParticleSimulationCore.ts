@@ -6,7 +6,7 @@ import {
 	type ParticleSubEmitterConfig,
 	type ParticleSystem,
 } from "../../particles";
-import type { RGBA } from "../../utils/Color";
+import type { RGBA } from "../../foundation/Color";
 import { DEFAULT_DAMPING, DEFAULT_RESTITUTION } from "./constants";
 import type { RuntimeParticle, SystemRuntimeState } from "./types";
 

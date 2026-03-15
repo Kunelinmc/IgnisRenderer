@@ -1,6 +1,6 @@
 import type { Texture } from "../core/Texture";
 import type { IVector3 } from "../maths/types";
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 
 export enum ParticleBlendMode {
 	Alpha = "alpha",

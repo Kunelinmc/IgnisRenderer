@@ -1,4 +1,4 @@
-import type { RGB } from "../utils/Color";
+import type { RGB } from "../foundation/Color";
 import { Material, ShadingModel } from "./Material";
 import type { BasicMaterialParams } from "./BasicMaterial";
 

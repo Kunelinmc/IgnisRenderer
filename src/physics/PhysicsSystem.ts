@@ -1,7 +1,7 @@
 import type { IVector3 } from "../maths/types";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Node } from "../core/Node";
-import { IdGenerator } from "../utils/IdGenerator";
+import { IdGenerator } from "../foundation/IdGenerator";
 import type {
 	ICollisionGeometryProvider,
 	BodyBinding,

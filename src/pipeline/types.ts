@@ -4,7 +4,7 @@ import type { ParticleBlendMode, ParticleSystem } from "../particles";
 import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 import type { ShadowMap } from "../lights/ShadowMapping";
 import type {
 	BoundingSphere,

@@ -1,4 +1,4 @@
-import type { RGBA } from "../../utils/Color";
+import type { RGBA } from "../../foundation/Color";
 import type { Material } from "../../materials";
 import type { ProjectedFace } from "../../core/types";
 import type {
@@ -77,11 +77,9 @@ export abstract class BaseEvaluator<
 				g: Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale)),
 				b: Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale)),
 				a:
-					alphaRaw === undefined
-						? 1
-						: isFloat
-							? clamp(alphaRaw)
-							: clamp(alphaRaw / 255),
+					alphaRaw === undefined ? 1
+					: isFloat ? clamp(alphaRaw)
+					: clamp(alphaRaw / 255),
 			};
 		}
 

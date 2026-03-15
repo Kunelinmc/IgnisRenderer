@@ -9,7 +9,7 @@ import type { Renderer } from "../../renderers/Renderer";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { ProjectedFace } from "../../core/types";
 import type { Material } from "../../materials";
-import type { RGB } from "../../utils/Color";
+import type { RGB } from "../../foundation/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
 import type { ShadowMap } from "../../lights/ShadowMapping";
 

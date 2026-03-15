@@ -1,7 +1,7 @@
 import { Vector3 } from "../../maths/Vector3";
 import { BaseShader } from "./BaseShader";
 import type { IVector3 } from "../../maths/types";
-import type { RGB } from "../../utils/Color";
+import type { RGB } from "../../foundation/Color";
 import type {
 	FragmentInput,
 	FragmentOutput,

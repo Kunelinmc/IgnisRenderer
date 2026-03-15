@@ -3,7 +3,7 @@ import { Matrix4 } from "../../maths/Matrix4";
 import { SH } from "../../maths/SH";
 import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
-import type { RGB } from "../../utils/Color";
+import type { RGB } from "../../foundation/Color";
 import { LightType } from "../../lights/Light";
 import type { AmbientLight } from "../../lights/AmbientLight";
 import type { AreaLight } from "../../lights/AreaLight";

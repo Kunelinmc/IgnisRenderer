@@ -1,5 +1,5 @@
 import type { IVector3, IVector4 } from "../maths/types";
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 import type { Material } from "../materials/Material";
 
 export type PrimitiveDrawTopology =

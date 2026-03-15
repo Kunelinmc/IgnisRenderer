@@ -11,7 +11,7 @@ import type {
 	ParticleRenderItem,
 	ParticleUVRect,
 } from "../../pipeline/types";
-import type { RGBA } from "../../utils/Color";
+import type { RGBA } from "../../foundation/Color";
 import { cloneColor } from "./ParticleSimulationCore";
 import type { RuntimeParticle, SystemRuntimeState } from "./types";
 

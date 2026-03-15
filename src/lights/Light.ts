@@ -1,6 +1,6 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
-import type { RGB } from "../utils/Color";
+import type { RGB } from "../foundation/Color";
 import { Node, type NodeParams } from "../core/Node";
 
 export enum LightType {

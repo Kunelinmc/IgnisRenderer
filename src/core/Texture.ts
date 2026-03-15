@@ -1,5 +1,5 @@
 import type { IVector2 } from "../maths/types";
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 import { clamp } from "../maths/Common";
 
 export type TextureFilter =

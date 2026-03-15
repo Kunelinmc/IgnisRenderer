@@ -1,6 +1,6 @@
 import type { ParticleLODLevel } from "../../particles";
 import type { IVector3 } from "../../maths/types";
-import type { RGBA } from "../../utils/Color";
+import type { RGBA } from "../../foundation/Color";
 
 export interface RuntimeParticle {
 	position: IVector3;

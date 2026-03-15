@@ -22,7 +22,7 @@ import type {
 	MorphTargetGeometry,
 	PrimitiveDrawTopology,
 } from "../core/types";
-import { IdGenerator } from "../utils/IdGenerator";
+import { IdGenerator } from "../foundation/IdGenerator";
 import {
 	AnimationClip,
 	type GLTFAnimationBundle,

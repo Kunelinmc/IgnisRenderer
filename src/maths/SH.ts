@@ -4,7 +4,7 @@
  */
 
 import type { IVector3, SHCoefficients } from "./types";
-import type { RGB } from "../utils/Color";
+import type { RGB } from "../foundation/Color";
 
 export class SH {
 	/**

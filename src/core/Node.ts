@@ -2,7 +2,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import { Quaternion } from "../maths/Quaternion";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
-import { IdGenerator } from "../utils/IdGenerator";
+import { IdGenerator } from "../foundation/IdGenerator";
 import type { BoundingBox } from "./types";
 import type { Scene } from "./Scene";
 

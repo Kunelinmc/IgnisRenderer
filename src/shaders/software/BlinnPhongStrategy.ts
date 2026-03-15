@@ -10,7 +10,7 @@ import {
 } from "../../renderers/software/LightEvaluator";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
-import type { RGB } from "../../utils/Color";
+import type { RGB } from "../../foundation/Color";
 import type {
 	ILightingStrategy,
 	PhongSurfaceProperties,

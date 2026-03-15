@@ -13,7 +13,7 @@ import {
 	type ParticleSystemParams,
 } from "./types";
 import type { Texture } from "../core/Texture";
-import type { RGBA } from "../utils/Color";
+import type { RGBA } from "../foundation/Color";
 
 const DEFAULT_EMITTER: Required<
 	Pick<

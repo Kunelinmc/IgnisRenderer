@@ -1,7 +1,7 @@
 import { Matrix4 } from "../../../maths/Matrix4";
 import { Vector3 } from "../../../maths/Vector3";
 import type { IVector3 } from "../../../maths/types";
-import type { RGB } from "../../../utils/Color";
+import type { RGB } from "../../../foundation/Color";
 import type { ShadowMap, ShadowParams } from "../../../lights/ShadowMapping";
 import { ShadowConstants } from "../../../core/constants";
 import type { SoftwareShadowRenderTarget } from "./types";

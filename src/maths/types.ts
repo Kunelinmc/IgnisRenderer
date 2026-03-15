@@ -1,4 +1,4 @@
-import type { RGB } from "../utils/Color";
+import type { RGB } from "../foundation/Color";
 
 export interface IVector2 {
 	x: number;
