@@ -8,6 +8,7 @@ export { Matrix4 } from "./maths/Matrix4";
 export * from "./maths/Common";
 export * from "./maths/types";
 export * from "./foundation/Color";
+export * from "./foundation/Logger";
 export { Node } from "./core/Node";
 export { MeshAsset, MeshInstance, MeshFactory } from "./meshes";
 export type {
