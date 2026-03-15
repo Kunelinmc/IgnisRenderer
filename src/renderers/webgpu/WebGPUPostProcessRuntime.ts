@@ -78,6 +78,7 @@ export class WebGPUPostProcessRuntime {
 	private _volumetricGroupLayout0: GPUBindGroupLayout | null = null;
 	private _volumetricPipelineLayout: GPUPipelineLayout | null = null;
 	private _frameBindGroupLayout: GPUBindGroupLayout | null = null;
+	private _ssaoFrameIndex: number = 0;
 	private _ssrFrameIndex: number = 0;
 
 	constructor(
@@ -142,41 +143,65 @@ export class WebGPUPostProcessRuntime {
 			return;
 		}
 		const options = frameContext.features.ssaoOptions ?? {};
-		const radius = finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius);
-		const bias = finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias);
-		const intensity = finiteOr(
-			options.intensity,
-			DEFAULT_SSAO_OPTIONS.intensity
+		const ssaoParams = this._ssaoParams;
+		const radius = Math.max(1, finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius));
+		const bias = Math.max(1e-4, finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias));
+		const intensity = Math.max(
+			0,
+			finiteOr(options.intensity, DEFAULT_SSAO_OPTIONS.intensity)
 		);
-		const blurRadius = finiteOr(
-			options.blurRadius,
-			DEFAULT_SSAO_OPTIONS.blurRadius
+		const blurRadius = clampNumber(
+			finiteOr(options.blurRadius, DEFAULT_SSAO_OPTIONS.blurRadius),
+			1,
+			4
 		);
-		const blurSharpness = finiteOr(
-			options.blurSharpness,
-			DEFAULT_SSAO_OPTIONS.blurSharpness
+		const blurSharpness = Math.max(
+			1e-3,
+			finiteOr(options.blurSharpness, DEFAULT_SSAO_OPTIONS.blurSharpness)
 		);
+		const samples = clampNumber(
+			Math.round(finiteOr(options.samples, DEFAULT_SSAO_OPTIONS.samples)),
+			4,
+			48
+		);
+		const isOrthographic = frameContext.camera.type === CameraType.Orthographic;
+		const tanHalfFov =
+			isOrthographic ? 0 : Math.tan((frameContext.camera.fov * Math.PI) / 360);
+		const aspect =
+			frameContext.camera.aspectRatio ||
+			Math.max(targets.sceneColor.width, 1) /
+				Math.max(targets.sceneColor.height, 1);
 		const fullInvW = 1 / Math.max(targets.sceneColor.width, 1);
 		const fullInvH = 1 / Math.max(targets.sceneColor.height, 1);
 		const aoInvW = 1 / Math.max(targets.aoRaw.width, 1);
 		const aoInvH = 1 / Math.max(targets.aoRaw.height, 1);
-		this._backend.writeBuffer(
-			this._ssaoParams,
-			new Float32Array([
-				fullInvW,
-				fullInvH,
-				aoInvW,
-				aoInvH,
-				radius,
-				bias,
-				intensity,
-				blurRadius,
-				blurSharpness,
-				0,
-				0,
-				0,
-			])
-		);
+		this._ssaoFrameIndex = (this._ssaoFrameIndex + 1) % 1024;
+		const frameJitter = this._ssaoFrameIndex / 1024;
+
+		const writeSSAOParams = (blurDirX: number, blurDirY: number): void => {
+			this._backend.writeBuffer(
+				ssaoParams,
+				new Float32Array([
+					fullInvW,
+					fullInvH,
+					aoInvW,
+					aoInvH,
+					radius,
+					bias,
+					intensity,
+					samples,
+					blurRadius,
+					blurSharpness,
+					tanHalfFov,
+					aspect,
+					blurDirX,
+					blurDirY,
+					isOrthographic ? 1 : 0,
+					frameJitter,
+				])
+			);
+		};
+		writeSSAOParams(1, 0);
 		let binding = this._getCachedBindGroup(
 			"ssao-raw",
 			this._ssaoRawPipeline,
@@ -184,7 +209,7 @@ export class WebGPUPostProcessRuntime {
 				{ binding: 0, resource: targets.gNormalRoughMetal },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: this._sampler },
-				{ binding: 3, resource: this._ssaoParams },
+				{ binding: 3, resource: ssaoParams },
 				{ binding: 4, resource: targets.aoRaw },
 			],
 			"WebGPUSSAO_RawBinding"
@@ -198,14 +223,15 @@ export class WebGPUPostProcessRuntime {
 			1
 		);
 		encoder.endComputePass();
+
 		binding = this._getCachedBindGroup(
-			"ssao-blur",
+			"ssao-blur-h",
 			this._ssaoBlurPipeline,
 			[
 				{ binding: 0, resource: targets.aoRaw },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: this._sampler },
-				{ binding: 3, resource: this._ssaoParams },
+				{ binding: 3, resource: ssaoParams },
 				{ binding: 4, resource: targets.aoBlur },
 			],
 			"WebGPUSSAO_BlurBinding"
@@ -219,6 +245,28 @@ export class WebGPUPostProcessRuntime {
 			1
 		);
 		encoder.endComputePass();
+		writeSSAOParams(0, 1);
+		binding = this._getCachedBindGroup(
+			"ssao-blur-v",
+			this._ssaoBlurPipeline,
+			[
+				{ binding: 0, resource: targets.aoBlur },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: this._sampler },
+				{ binding: 3, resource: ssaoParams },
+				{ binding: 4, resource: targets.aoRaw },
+			],
+			"WebGPUSSAO_BlurBindingVertical"
+		);
+		encoder.beginComputePass({ label: "WebGPUSSAO_BlurVertical" });
+		encoder.setComputePipeline(this._ssaoBlurPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(targets.aoRaw.width, WORKGROUP_SIZE),
+			ceilDiv(targets.aoRaw.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
 
 		const combineTarget =
 			targets.sceneColor === targets.postPing ?
@@ -229,9 +277,9 @@ export class WebGPUPostProcessRuntime {
 			this._ssaoCombinePipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.aoBlur },
+				{ binding: 1, resource: targets.aoRaw },
 				{ binding: 2, resource: this._sampler },
-				{ binding: 3, resource: this._ssaoParams },
+				{ binding: 3, resource: ssaoParams },
 				{ binding: 4, resource: combineTarget },
 			],
 			"WebGPUSSAO_CombineBinding"
@@ -859,7 +907,7 @@ export class WebGPUPostProcessRuntime {
 		if (!this._ssaoParams)
 			this._ssaoParams = this._backend.createBuffer({
 				label: "WebGPUSSAOParams",
-				size: 12 * 4,
+				size: 16 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}
@@ -1146,6 +1194,10 @@ export class WebGPUPostProcessRuntime {
 
 function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
 }
 
 function ceilDiv(value: number, divisor: number): number {

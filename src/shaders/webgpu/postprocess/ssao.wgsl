@@ -1,12 +1,8 @@
 struct Params {
-	fullInvSize: vec2<f32>,
-	aoInvSize: vec2<f32>,
-	radius: f32,
-	bias: f32,
-	intensity: f32,
-	blurRadius: f32,
-	blurSharpness: f32,
-	_pad0: f32,
+	invSize: vec4<f32>,
+	gtao: vec4<f32>,
+	blurProj: vec4<f32>,
+	pass: vec4<f32>,
 }
 
 @group(0) @binding(0) var texA: texture_2d<f32>;
@@ -15,17 +11,43 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var outTex: texture_storage_2d<rgba16float, write>;
 
+const PI: f32 = 3.14159265359;
+const GOLDEN_RATIO_CONJUGATE: f32 = 0.61803398875;
+const MAX_DIRECTION_COUNT: i32 = 8;
+const MAX_STEP_COUNT: i32 = 6;
+
+fn saturate(value: f32) -> f32 {
+	return clamp(value, 0.0, 1.0);
+}
+
 fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let xy = encoded * 2.0 - vec2<f32>(1.0, 1.0);
 	let z2 = max(1.0 - dot(xy, xy), 0.0);
 	return normalize(vec3<f32>(xy, sqrt(z2)));
 }
 
+fn reconstructViewPos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
+	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+	if (params.pass.z > 0.5) {
+		return vec3<f32>(ndc, -depth);
+	}
+	let tanHalfFov = max(params.blurProj.z, 1e-4);
+	let aspect = max(params.blurProj.w, 1e-4);
+	let x = ndc.x * aspect * tanHalfFov * depth;
+	let y = ndc.y * tanHalfFov * depth;
+	return vec3<f32>(x, y, -depth);
+}
+
+fn interleavedGradientNoise(pixel: vec2<f32>, frameJitter: f32) -> f32 {
+	let seed = dot(pixel, vec2<f32>(0.06711056, 0.00583715));
+	return fract(52.9829189 * fract(seed + frameJitter * 0.754877666));
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outTex);
 	if (gid.x >= size.x || gid.y >= size.y) { return; }
-	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.aoInvSize;
+	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize.zw;
 	let center = textureSampleLevel(texB, linearSampler, uv, 0.0);
 	let depth = center.z;
 	if (depth <= 0.0) {
@@ -33,24 +55,102 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 		return;
 	}
 	let normal = decodeNormal(textureSampleLevel(texA, linearSampler, uv, 0.0).xy);
-	let kernel = array<vec2<f32>, 8>(
-		vec2<f32>(1.0, 0.0),
-		vec2<f32>(-1.0, 0.0),
-		vec2<f32>(0.0, 1.0),
-		vec2<f32>(0.0, -1.0),
-		vec2<f32>(0.7071, 0.7071),
-		vec2<f32>(-0.7071, 0.7071),
-		vec2<f32>(0.7071, -0.7071),
-		vec2<f32>(-0.7071, -0.7071)
+	let centerPos = reconstructViewPos(uv, depth);
+
+	let sampleBudget = clamp(i32(params.gtao.w + 0.5), i32(4), i32(48));
+	let directionCount = clamp(
+		(sampleBudget + 3) / 4,
+		i32(2),
+		i32(MAX_DIRECTION_COUNT)
 	);
+	let stepCount = clamp(
+		(sampleBudget + directionCount * 2 - 1) / (directionCount * 2),
+		i32(1),
+		i32(MAX_STEP_COUNT)
+	);
+	let radiusPixels = max(params.gtao.x, 1.0);
+	let radiusUv = radiusPixels * params.invSize.xy;
+	let bias = max(params.gtao.y, 1e-4);
+	let intensity = max(params.gtao.z, 0.0);
+	let frameNoise = interleavedGradientNoise(vec2<f32>(gid.xy), params.pass.w);
+
+	let perspectiveRadiusView = radiusPixels
+		* depth
+		* max(params.blurProj.z, 0.05)
+		* max(params.invSize.x, params.invSize.y)
+		* 2.0;
+	let orthographicRadiusView = max(radiusUv.x, radiusUv.y) * 2.0;
+	let radiusView = max(
+		select(perspectiveRadiusView, orthographicRadiusView, params.pass.z > 0.5),
+		1e-3
+	);
+
 	var occ = 0.0;
-	for (var i: i32 = 0; i < 8; i = i + 1) {
-		let offset = normalize(vec3<f32>(kernel[i], 0.25) + normal * 0.2).xy;
-		let sampleUv = uv + offset * params.radius * params.fullInvSize;
-		let sampleDepth = textureSampleLevel(texB, linearSampler, sampleUv, 0.0).z;
-		occ += select(0.0, 1.0, sampleDepth > 0.0 && sampleDepth < depth - params.bias);
+	for (var dirIdx: i32 = 0; dirIdx < MAX_DIRECTION_COUNT; dirIdx = dirIdx + 1) {
+		if (dirIdx >= directionCount) { break; }
+		let angle = ((f32(dirIdx) + frameNoise) / f32(directionCount)) * PI;
+		let dir2 = vec2<f32>(cos(angle), sin(angle));
+
+		var horizonPos = 0.0;
+		var horizonNeg = 0.0;
+
+		for (var stepIdx: i32 = 1; stepIdx <= MAX_STEP_COUNT; stepIdx = stepIdx + 1) {
+			if (stepIdx > stepCount) { break; }
+
+			let jitter = fract(frameNoise + f32(stepIdx) * GOLDEN_RATIO_CONJUGATE);
+			let stepFrac = (f32(stepIdx) - 0.35 + jitter * 0.6) / f32(stepCount);
+			let stepUv = dir2 * stepFrac * radiusUv;
+
+			let sampleUvPos = uv + stepUv;
+			if (!any(sampleUvPos < vec2<f32>(0.0)) && !any(sampleUvPos > vec2<f32>(1.0))) {
+				let sampleDepthPos = textureSampleLevel(
+					texB,
+					linearSampler,
+					sampleUvPos,
+					0.0
+				).z;
+				if (sampleDepthPos > 0.0 && sampleDepthPos < depth - bias) {
+					let samplePos = reconstructViewPos(sampleUvPos, sampleDepthPos);
+					let delta = samplePos - centerPos;
+					let distSq = dot(delta, delta);
+					if (distSq > 1e-6) {
+						let invDist = inverseSqrt(distSq);
+						let dist = distSq * invDist;
+						let alignment = max(dot(normal, delta * invDist), 0.0);
+						let distWeight = saturate(1.0 - dist / radiusView);
+						horizonPos = max(horizonPos, alignment * distWeight);
+					}
+				}
+			}
+
+			let sampleUvNeg = uv - stepUv;
+			if (!any(sampleUvNeg < vec2<f32>(0.0)) && !any(sampleUvNeg > vec2<f32>(1.0))) {
+				let sampleDepthNeg = textureSampleLevel(
+					texB,
+					linearSampler,
+					sampleUvNeg,
+					0.0
+				).z;
+				if (sampleDepthNeg > 0.0 && sampleDepthNeg < depth - bias) {
+					let samplePos = reconstructViewPos(sampleUvNeg, sampleDepthNeg);
+					let delta = samplePos - centerPos;
+					let distSq = dot(delta, delta);
+					if (distSq > 1e-6) {
+						let invDist = inverseSqrt(distSq);
+						let dist = distSq * invDist;
+						let alignment = max(dot(normal, delta * invDist), 0.0);
+						let distWeight = saturate(1.0 - dist / radiusView);
+						horizonNeg = max(horizonNeg, alignment * distWeight);
+					}
+				}
+			}
+		}
+
+		occ += 0.5 * (horizonPos + horizonNeg);
 	}
-	let ao = clamp(1.0 - (occ / 8.0) * params.intensity, 0.0, 1.0);
+
+	let horizonOcclusion = occ / max(f32(directionCount), 1.0);
+	let ao = clamp(1.0 - horizonOcclusion * intensity, 0.0, 1.0);
 	textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(ao, ao, ao, 1.0));
 }
 
@@ -59,28 +159,36 @@ fn csBlur(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outTex);
 	if (gid.x >= size.x || gid.y >= size.y) { return; }
 	let coord = vec2<i32>(gid.xy);
-	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.aoInvSize;
+	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize.zw;
 	let centerDepth = textureSampleLevel(texB, linearSampler, uv, 0.0).z;
-	let radius = clamp(i32(params.blurRadius + 0.5), i32(1), i32(4));
+	let radius = clamp(i32(params.blurProj.x + 0.5), i32(1), i32(4));
+	let blurSharpness = max(params.blurProj.y, 1e-3);
+	let horizontal = abs(params.pass.x) >= abs(params.pass.y);
+	let axis = select(vec2<i32>(0, 1), vec2<i32>(1, 0), horizontal);
 	var sum = 0.0;
 	var weightSum = 0.0;
-	for (var y: i32 = -radius; y <= radius; y = y + 1) {
-		for (var x: i32 = -radius; x <= radius; x = x + 1) {
-			let sampleCoord = clamp(
-				coord + vec2<i32>(x, y),
-				vec2<i32>(0, 0),
-				vec2<i32>(i32(size.x) - 1, i32(size.y) - 1)
-			);
-			let sampleUv = (vec2<f32>(sampleCoord) + vec2<f32>(0.5)) * params.aoInvSize;
-			let sampleDepth = textureSampleLevel(texB, linearSampler, sampleUv, 0.0).z;
-			let depthDelta = abs(sampleDepth - centerDepth);
-			let bilateral = exp(-depthDelta * max(params.blurSharpness, 1e-3));
-			let sampleAo = textureLoad(texA, sampleCoord, 0).x;
-			sum += sampleAo * bilateral;
-			weightSum += bilateral;
-		}
+	for (var tap: i32 = -4; tap <= 4; tap = tap + 1) {
+		if (abs(tap) > radius) { continue; }
+		let sampleCoord = clamp(
+			coord + axis * tap,
+			vec2<i32>(0, 0),
+			vec2<i32>(i32(size.x) - 1, i32(size.y) - 1)
+		);
+		let sampleUv = (vec2<f32>(sampleCoord) + vec2<f32>(0.5)) * params.invSize.zw;
+		let sampleDepth = textureSampleLevel(texB, linearSampler, sampleUv, 0.0).z;
+		let depthDelta = abs(sampleDepth - centerDepth);
+		let bilateral = exp(-depthDelta * blurSharpness);
+		let spatial = 1.0 - (abs(f32(tap)) / f32(radius + 1));
+		let weight = bilateral * max(spatial, 0.0);
+		let sampleAo = textureLoad(texA, sampleCoord, 0).x;
+		sum += sampleAo * weight;
+		weightSum += weight;
 	}
-	let ao = select(textureLoad(texA, coord, 0).x, sum / max(weightSum, 1e-4), weightSum > 0.0);
+	let ao = select(
+		textureLoad(texA, coord, 0).x,
+		sum / max(weightSum, 1e-4),
+		weightSum > 0.0
+	);
 	textureStore(outTex, coord, vec4<f32>(ao, ao, ao, 1.0));
 }
 
@@ -89,7 +197,7 @@ fn csCombine(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outTex);
 	if (gid.x >= size.x || gid.y >= size.y) { return; }
 	let coord = vec2<i32>(gid.xy);
-	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.fullInvSize;
+	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize.xy;
 	let color = textureLoad(texA, coord, 0);
 	let ao = textureSampleLevel(texB, linearSampler, uv, 0.0).x;
 	textureStore(
