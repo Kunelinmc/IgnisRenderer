@@ -93,7 +93,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 ### Color Space & Lighting
 - **Internal Calculations**: All lighting and shading calculations are performed in **Linear space**.
 - **Gamma Correction**: Assumes **Gamma 2.2** for encoding/decoding.
-- **Color Format**: `src/utils/Color.ts` uses `0-255` range for RGB objects, but shaders expect `0.0-1.0` linear values.
+- **Color Format**: `src/foundation/Color.ts` uses `0-255` range for RGB objects, but shaders expect `0.0-1.0` linear values.
 - **Texture Decoding**:
 	- Shaders assume textures are encoded in **sRGB** by default and decode them to **Linear** during sampling.
 	- Linear textures (e.g., normal maps, roughness, HDR) MUST be flagged to bypass decoding.
