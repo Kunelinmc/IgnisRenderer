@@ -55,6 +55,7 @@ const tests = [
 	"test_renderer_stage_graph.mjs",
 	"test_webgpu_postprocess_math.mjs",
 	"test_webgpu_postprocess_runtime.mjs",
+	"test_worker_scheduler.mjs",
 ];
 
 let failed = false;

@@ -20,6 +20,7 @@ export type {
 } from "./core/types";
 export { Renderer } from "./renderers/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
+export * from "./workers";
 export { SoftwareBackend } from "./renderers/SoftwareBackend";
 export { WebGPUBackend } from "./renderers/WebGPUBackend";
 export { WebGLBackend } from "./renderers/WebGLBackend";
