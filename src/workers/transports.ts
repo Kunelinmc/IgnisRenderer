@@ -5,6 +5,7 @@ import type {
 	WorkerTransportEncodedMessage,
 	WorkerTransportPlugin,
 } from "./types";
+import { Platform } from "../foundation/Platform";
 
 interface SharedArrayBufferWirePacket {
 	transport: "shared-array-buffer";
@@ -29,17 +30,6 @@ function getTextDecoder(): TextDecoder {
 	return _textDecoder;
 }
 
-function hasSharedArrayBufferConstructor(): boolean {
-	return typeof SharedArrayBuffer === "function";
-}
-
-function readCrossOriginIsolated(): boolean {
-	const value = (globalThis as { crossOriginIsolated?: boolean })
-		.crossOriginIsolated;
-	if (typeof value === "boolean") return value;
-	return true;
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object";
 }
@@ -50,12 +40,12 @@ function isSharedArrayBufferWirePacket(
 	if (!isObjectRecord(value)) return false;
 	if (value.transport !== SHARED_ARRAY_BUFFER_TRANSPORT_TAG) return false;
 	if (!Number.isFinite(value.byteLength)) return false;
-	if (!hasSharedArrayBufferConstructor()) return false;
+	if (!Platform.hasSharedArrayBuffer()) return false;
 	return value.buffer instanceof SharedArrayBuffer;
 }
 
 function encodeJsonToSharedPacket(value: unknown): SharedArrayBufferWirePacket {
-	if (!hasSharedArrayBufferConstructor()) {
+	if (!Platform.hasSharedArrayBuffer()) {
 		throw new Error(
 			"SharedArrayBuffer transport is unavailable in this runtime"
 		);
@@ -123,13 +113,14 @@ export function resolveWorkerRuntimeCapabilities(
 	overrides: Partial<WorkerRuntimeCapabilities> = {}
 ): WorkerRuntimeCapabilities {
 	const crossOriginIsolated =
-		overrides.crossOriginIsolated ?? readCrossOriginIsolated();
+		overrides.crossOriginIsolated ??
+		Platform.isCrossOriginIsolated(globalThis, true);
+	const hasSharedArrayBuffer = Platform.hasSharedArrayBuffer();
 	const sharedArrayBufferRequested =
 		overrides.sharedArrayBuffer ??
-		(hasSharedArrayBufferConstructor() && crossOriginIsolated);
+		(hasSharedArrayBuffer && crossOriginIsolated);
 	return {
-		sharedArrayBuffer:
-			sharedArrayBufferRequested && hasSharedArrayBufferConstructor(),
+		sharedArrayBuffer: sharedArrayBufferRequested && hasSharedArrayBuffer,
 		crossOriginIsolated,
 	};
 }

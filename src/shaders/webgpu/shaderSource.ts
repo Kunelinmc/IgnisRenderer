@@ -1,3 +1,5 @@
+import { Platform } from "../../foundation/Platform";
+
 type SceneShaderPart =
 	| "constants"
 	| "definitions"
@@ -27,20 +29,6 @@ type RawShaderModule = {
 
 const _cache = new Map<string, Promise<string>>();
 
-function isNodeRuntime(): boolean {
-	const processObject = (
-		globalThis as {
-			process?: {
-				versions?: {
-					node?: string;
-				};
-			};
-		}
-	).process;
-	const nodeVersion = processObject?.versions?.node;
-	return typeof nodeVersion === "string" && nodeVersion.length > 0;
-}
-
 async function loadShader(
 	key: string,
 	nodeRelativePath: string,
@@ -49,7 +37,7 @@ async function loadShader(
 	let cached = _cache.get(key);
 	if (!cached) {
 		cached = (async () => {
-			if (isNodeRuntime()) {
+			if (Platform.isNodeRuntime()) {
 				const fsSpecifier = ["node", "fs/promises"].join(":");
 				const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as {
 					readFile: (

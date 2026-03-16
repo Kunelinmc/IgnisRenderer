@@ -9,6 +9,7 @@ export * from "./maths/Common";
 export * from "./maths/types";
 export * from "./foundation/Color";
 export * from "./foundation/Logger";
+export * from "./foundation/Platform";
 export { Node } from "./core/Node";
 export { MeshAsset, MeshInstance, MeshFactory } from "./meshes";
 export type {

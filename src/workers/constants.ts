@@ -1,17 +1,9 @@
+import { Platform } from "../foundation/Platform";
+
 const FALLBACK_WORKER_POOL_SIZE = 4;
 
 function resolveDefaultWorkerPoolSize(): number {
-	const navigatorValue = (
-		globalThis as {
-			navigator?: {
-				hardwareConcurrency?: number;
-			};
-		}
-	).navigator?.hardwareConcurrency;
-	if (!Number.isFinite(navigatorValue)) {
-		return FALLBACK_WORKER_POOL_SIZE;
-	}
-	return Math.max(1, Math.floor(navigatorValue as number));
+	return Platform.getHardwareConcurrency(FALLBACK_WORKER_POOL_SIZE);
 }
 
 export const DEFAULT_WORKER_POOL_ID = "default";
