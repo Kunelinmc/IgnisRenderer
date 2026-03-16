@@ -6,13 +6,19 @@ import {
 	DEFAULT_WORKER_TASK_TIMEOUT_MS,
 	GLOBAL_WORKER_SCHEDULER_KEY,
 } from "./constants";
+import {
+	postMessageWorkerTransportPlugin,
+	resolveWorkerTransportPlugin,
+} from "./transports";
 import type {
 	WorkerErrorEventLike,
 	WorkerLike,
 	WorkerMessageEventLike,
+	WorkerRuntimeCapabilities,
 	WorkerPoolOptions,
 	WorkerPoolStats,
 	WorkerSchedulerStats,
+	WorkerTransportPlugin,
 	WorkerTaskEnvelope,
 	WorkerTaskResultEnvelope,
 	WorkerTaskScheduleOptions,
@@ -88,6 +94,8 @@ class WorkerPool {
 	private _workers: WorkerState[];
 	private _queue: ScheduledTask[];
 	private _inFlight: Map<number, ScheduledTask>;
+	private _transportPlugin: WorkerTransportPlugin;
+	private _runtimeCapabilities: WorkerRuntimeCapabilities;
 
 	public constructor(options: WorkerPoolOptions) {
 		if (!options.id || options.id.trim().length === 0) {
@@ -121,6 +129,17 @@ class WorkerPool {
 		this._workers = [];
 		this._queue = [];
 		this._inFlight = new Map();
+		const configuredPlugins =
+			options.transportPlugin ? [options.transportPlugin]
+			: options.transportPlugins && options.transportPlugins.length > 0 ?
+				options.transportPlugins
+			:	[postMessageWorkerTransportPlugin];
+		const selection = resolveWorkerTransportPlugin(
+			configuredPlugins,
+			options.runtimeCapabilities
+		);
+		this._transportPlugin = selection.plugin;
+		this._runtimeCapabilities = selection.capabilities;
 
 		for (let i = 0; i < this._size; i++) {
 			this._workers.push(this._createWorkerState(i));
@@ -203,6 +222,9 @@ class WorkerPool {
 			queuedTasks: this._queue.length,
 			inFlightTasks: this._inFlight.size,
 			closed: this._closed,
+			transportPluginId: this._transportPlugin.id,
+			transportMode: this._transportPlugin.mode,
+			sharedArrayBufferEnabled: this._runtimeCapabilities.sharedArrayBuffer,
 		};
 	}
 
@@ -298,7 +320,16 @@ class WorkerPool {
 				id: task.id,
 				payload: task.payload,
 			};
-			workerState.worker.postMessage(message, task.transfer);
+			const encoded = this._transportPlugin.encodeTask(message);
+			const transfer = [...(encoded.transfer ?? [])];
+			for (const item of task.transfer) {
+				if (transfer.includes(item)) continue;
+				transfer.push(item);
+			}
+			workerState.worker.postMessage(
+				encoded.message,
+				transfer.length > 0 ? transfer : undefined
+			);
 		} catch (error) {
 			const normalized = normalizeError(error);
 			this._cancelTask(task, normalized, true);
@@ -453,7 +484,7 @@ class WorkerPool {
 		};
 
 		state.messageHandler = (event) => {
-			const data = event?.data as Partial<WorkerTaskResultEnvelope<unknown>>;
+			const data = this._transportPlugin.decodeResult(event?.data);
 			if (!data || typeof data.id !== "number") {
 				return;
 			}
@@ -587,7 +618,11 @@ export class WorkerScheduler {
 		if (!this._defaultPoolId) {
 			throw new Error("No default worker pool is configured");
 		}
-		return this.schedule<TResult, TPayload>(this._defaultPoolId, payload, options);
+		return this.schedule<TResult, TPayload>(
+			this._defaultPoolId,
+			payload,
+			options
+		);
 	}
 
 	/**

@@ -41,6 +41,32 @@ export interface WorkerTaskResultEnvelope<TResult = unknown> {
 	error?: string;
 }
 
+export type WorkerTransportMode = "post-message" | "shared-array-buffer";
+
+export interface WorkerRuntimeCapabilities {
+	sharedArrayBuffer: boolean;
+	crossOriginIsolated: boolean;
+}
+
+export interface WorkerTransportEncodedMessage {
+	message: unknown;
+	transfer?: Transferable[];
+}
+
+export interface WorkerTransportPlugin {
+	readonly id: string;
+	readonly mode: WorkerTransportMode;
+	isSupported?(capabilities: WorkerRuntimeCapabilities): boolean;
+	encodeTask(
+		envelope: WorkerTaskEnvelope<unknown>
+	): WorkerTransportEncodedMessage;
+	decodeTask(data: unknown): WorkerTaskEnvelope<unknown> | null;
+	encodeResult(
+		envelope: WorkerTaskResultEnvelope<unknown>
+	): WorkerTransportEncodedMessage;
+	decodeResult(data: unknown): WorkerTaskResultEnvelope<unknown> | null;
+}
+
 export interface WorkerTaskScheduleOptions {
 	priority?: number;
 	timeoutMs?: number;
@@ -55,6 +81,9 @@ export interface WorkerPoolOptions {
 	maxQueueSize?: number;
 	defaultTimeoutMs?: number;
 	restartOnFailure?: boolean;
+	transportPlugin?: WorkerTransportPlugin;
+	transportPlugins?: WorkerTransportPlugin[];
+	runtimeCapabilities?: Partial<WorkerRuntimeCapabilities>;
 }
 
 export interface WorkerPoolStats {
@@ -65,6 +94,9 @@ export interface WorkerPoolStats {
 	queuedTasks: number;
 	inFlightTasks: number;
 	closed: boolean;
+	transportPluginId: string;
+	transportMode: WorkerTransportMode;
+	sharedArrayBufferEnabled: boolean;
 }
 
 export interface WorkerSchedulerStats {
