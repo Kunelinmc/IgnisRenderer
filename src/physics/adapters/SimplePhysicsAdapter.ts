@@ -32,8 +32,12 @@ import type {
 interface SimpleBodyState {
 	id: string;
 	type: RigidBodyType;
+	mass: number;
 	transform: PhysicsTransform;
 	linearVelocity: IVector3;
+	angularVelocity: IVector3;
+	accumulatedForce: IVector3;
+	accumulatedTorque: IVector3;
 	sleeping: boolean;
 	ccd: boolean;
 	colliderIds: Set<string>;
@@ -45,6 +49,7 @@ interface SimpleColliderState {
 	descriptor: ColliderDescriptor;
 	shape: ColliderShape;
 	isTrigger: boolean;
+	collisionMask: number;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -80,6 +85,8 @@ interface SimpleQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
+
+const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 	public readonly id: string;
@@ -141,10 +148,16 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		world.bodies.set(bodyId, {
 			id: bodyId,
 			type: descriptor.type ?? "dynamic",
+			mass: resolveBodyMass(descriptor),
 			transform: cloneTransform(initialTransform),
 			linearVelocity: cloneVector(
 				descriptor.linearVelocity ?? { x: 0, y: 0, z: 0 }
 			),
+			angularVelocity: cloneVector(
+				descriptor.angularVelocity ?? { x: 0, y: 0, z: 0 }
+			),
+			accumulatedForce: { x: 0, y: 0, z: 0 },
+			accumulatedTorque: { x: 0, y: 0, z: 0 },
 			sleeping: false,
 			ccd: descriptor.ccd ?? world.config.enableCCD ?? false,
 			colliderIds: new Set(),
@@ -188,6 +201,48 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		body.sleeping = false;
 	}
 
+	public setAngularVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.angularVelocity = cloneVector(velocity);
+		body.sleeping = false;
+	}
+
+	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
+		const body = this._requireBody(worldId, bodyId);
+		if (body.type !== "dynamic") return;
+		body.accumulatedForce.x += force.x;
+		body.accumulatedForce.y += force.y;
+		body.accumulatedForce.z += force.z;
+		body.sleeping = false;
+	}
+
+	public applyTorque(worldId: string, bodyId: string, torque: IVector3): void {
+		const body = this._requireBody(worldId, bodyId);
+		if (body.type !== "dynamic") return;
+		body.accumulatedTorque.x += torque.x;
+		body.accumulatedTorque.y += torque.y;
+		body.accumulatedTorque.z += torque.z;
+		body.sleeping = false;
+	}
+
+	public applyImpulse(
+		worldId: string,
+		bodyId: string,
+		impulse: IVector3
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		if (body.type !== "dynamic") return;
+		const invMass = 1 / body.mass;
+		body.linearVelocity.x += impulse.x * invMass;
+		body.linearVelocity.y += impulse.y * invMass;
+		body.linearVelocity.z += impulse.z * invMass;
+		body.sleeping = false;
+	}
+
 	public addCollider(
 		worldId: string,
 		bodyId: string,
@@ -208,6 +263,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			descriptor,
 			shape,
 			isTrigger: descriptor.isTrigger === true,
+			collisionMask: DEFAULT_COLLISION_MASK,
 			radius: computeShapeRadius(shape),
 			halfExtents: computeShapeHalfExtents(shape),
 			offset: cloneVector(descriptor.offset ?? { x: 0, y: 0, z: 0 }),
@@ -223,6 +279,36 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		world.colliders.delete(colliderId);
 		const body = world.bodies.get(collider.bodyId);
 		body?.colliderIds.delete(colliderId);
+	}
+
+	public setColliderSensor(
+		worldId: string,
+		colliderId: string,
+		isSensor: boolean
+	): void {
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		collider.isTrigger = isSensor === true;
+	}
+
+	public setCollisionMask(
+		worldId: string,
+		colliderId: string,
+		mask: number
+	): void {
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		collider.collisionMask = sanitizeCollisionMask(mask);
 	}
 
 	public createJoint(
@@ -351,6 +437,30 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		return bestHit;
 	}
 
+	public raycastAll(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit[] {
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return [];
+
+		const hits: PhysicsQueryHit[] = [];
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			hits.push(toQueryHit(worldId, candidate, hit, maxDistance));
+		}
+		hits.sort((left, right) => left.distance - right.distance);
+		return truncateHits(hits, query.maxHits);
+	}
+
 	public sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery
@@ -456,9 +566,24 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		this._applyCharacterControllerInputs(world, dt);
 		for (const body of world.bodies.values()) {
 			if (body.type !== "dynamic") continue;
-			body.linearVelocity.x += gravity.x * dt;
-			body.linearVelocity.y += gravity.y * dt;
-			body.linearVelocity.z += gravity.z * dt;
+			if (dt > 0) {
+				const invMass = 1 / body.mass;
+				body.linearVelocity.x +=
+					(gravity.x + body.accumulatedForce.x * invMass) * dt;
+				body.linearVelocity.y +=
+					(gravity.y + body.accumulatedForce.y * invMass) * dt;
+				body.linearVelocity.z +=
+					(gravity.z + body.accumulatedForce.z * invMass) * dt;
+				body.angularVelocity.x += body.accumulatedTorque.x * invMass * dt;
+				body.angularVelocity.y += body.accumulatedTorque.y * invMass * dt;
+				body.angularVelocity.z += body.accumulatedTorque.z * invMass * dt;
+				body.accumulatedForce.x = 0;
+				body.accumulatedForce.y = 0;
+				body.accumulatedForce.z = 0;
+				body.accumulatedTorque.x = 0;
+				body.accumulatedTorque.y = 0;
+				body.accumulatedTorque.z = 0;
+			}
 			body.transform.position.x += body.linearVelocity.x * dt;
 			body.transform.position.y += body.linearVelocity.y * dt;
 			body.transform.position.z += body.linearVelocity.z * dt;
@@ -469,12 +594,20 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		let sleepingBodies = 0;
 		let ccdBodies = 0;
 		for (const body of world.bodies.values()) {
-			const speed = Math.hypot(
+			const linearSpeed = Math.hypot(
 				body.linearVelocity.x,
 				body.linearVelocity.y,
 				body.linearVelocity.z
 			);
-			body.sleeping = speed < 0.001 && body.type === "dynamic";
+			const angularSpeed = Math.hypot(
+				body.angularVelocity.x,
+				body.angularVelocity.y,
+				body.angularVelocity.z
+			);
+			body.sleeping =
+				body.type === "dynamic" &&
+				linearSpeed < 0.001 &&
+				angularSpeed < 0.001;
 			if (body.sleeping) sleepingBodies++;
 			if (body.ccd) ccdBodies++;
 
@@ -524,6 +657,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				const left = colliders[i];
 				const right = colliders[j];
 				if (left.bodyId === right.bodyId) continue;
+				if (!canCollidersInteract(left, right)) continue;
 
 				const leftBody = world.bodies.get(left.bodyId);
 				const rightBody = world.bodies.get(right.bodyId);
@@ -698,6 +832,26 @@ function cloneTransform(transform: PhysicsTransform): PhysicsTransform {
 			transform.rotation[3],
 		],
 	};
+}
+
+function resolveBodyMass(descriptor: RigidBodyDescriptor): number {
+	if ((descriptor.type ?? "dynamic") !== "dynamic") return 1;
+	if (Number.isFinite(descriptor.mass) && Number(descriptor.mass) > 0) {
+		return Number(descriptor.mass);
+	}
+	return 1;
+}
+
+function sanitizeCollisionMask(mask: number): number {
+	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
+	return Math.floor(mask) >>> 0;
+}
+
+function canCollidersInteract(
+	left: SimpleColliderState,
+	right: SimpleColliderState
+): boolean {
+	return (left.collisionMask & right.collisionMask) !== 0;
 }
 
 function computeShapeRadius(shape: ColliderShape): number {

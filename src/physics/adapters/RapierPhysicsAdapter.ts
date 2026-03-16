@@ -83,6 +83,7 @@ interface RapierColliderState {
 	shape: ColliderShape;
 	rapierCollider: any;
 	isTrigger: boolean;
+	collisionMask: number;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -125,6 +126,8 @@ interface RapierQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
+
+const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export interface RapierPhysicsAdapterOptions {
 	moduleLoader?: () => Promise<unknown>;
@@ -415,6 +418,74 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		body.sleeping = false;
 	}
 
+	public setAngularVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setAngularVelocity(worldId, bodyId, velocity);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._setVector3(
+			body.rigidBody,
+			["setAngvel", "setAngularVelocity"],
+			velocity,
+			true
+		);
+		body.sleeping = false;
+	}
+
+	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
+		if (this._usingFallback()) {
+			this._delegate.applyForce(worldId, bodyId, force);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._setVector3(
+			body.rigidBody,
+			["addForce", "applyForce"],
+			force,
+			true
+		);
+		body.sleeping = false;
+	}
+
+	public applyTorque(worldId: string, bodyId: string, torque: IVector3): void {
+		if (this._usingFallback()) {
+			this._delegate.applyTorque(worldId, bodyId, torque);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._setVector3(
+			body.rigidBody,
+			["addTorque", "applyTorque"],
+			torque,
+			true
+		);
+		body.sleeping = false;
+	}
+
+	public applyImpulse(
+		worldId: string,
+		bodyId: string,
+		impulse: IVector3
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.applyImpulse(worldId, bodyId, impulse);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._setVector3(
+			body.rigidBody,
+			["applyImpulse", "addImpulse"],
+			impulse,
+			true
+		);
+		body.sleeping = false;
+	}
+
 	public addCollider(
 		worldId: string,
 		bodyId: string,
@@ -486,6 +557,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			shape,
 			rapierCollider,
 			isTrigger: descriptor.isTrigger === true,
+			collisionMask: DEFAULT_COLLISION_MASK,
 			radius: computeShapeRadius(shape),
 			halfExtents: computeShapeHalfExtents(shape),
 			offset,
@@ -515,6 +587,49 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		world.colliders.delete(colliderId);
 		const body = world.bodies.get(collider.bodyId);
 		body?.colliderIds.delete(colliderId);
+	}
+
+	public setColliderSensor(
+		worldId: string,
+		colliderId: string,
+		isSensor: boolean
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setColliderSensor(worldId, colliderId, isSensor);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		collider.isTrigger = isSensor === true;
+		this._invoke(
+			collider.rapierCollider,
+			["setSensor"],
+			[[collider.isTrigger], [collider.isTrigger, true]]
+		);
+	}
+
+	public setCollisionMask(
+		worldId: string,
+		colliderId: string,
+		mask: number
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setCollisionMask(worldId, colliderId, mask);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		collider.collisionMask = sanitizeCollisionMask(mask);
 	}
 
 	public createJoint(
@@ -733,6 +848,33 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		return bestHit;
 	}
 
+	public raycastAll(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit[] {
+		if (this._usingFallback()) {
+			return this._delegate.raycastAll(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return [];
+
+		const hits: PhysicsQueryHit[] = [];
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			hits.push(toQueryHit(worldId, candidate, hit, maxDistance));
+		}
+		hits.sort((left, right) => left.distance - right.distance);
+		return truncateHits(hits, query.maxHits);
+	}
+
 	public sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery
@@ -931,6 +1073,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				const left = colliders[i];
 				const right = colliders[j];
 				if (left.bodyId === right.bodyId) continue;
+				if (!canCollidersInteract(left, right)) continue;
 
 				const leftBody = world.bodies.get(left.bodyId);
 				const rightBody = world.bodies.get(right.bodyId);
@@ -1737,6 +1880,18 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 function toSet(values?: string[]): Set<string> | null {
 	if (!values || values.length === 0) return null;
 	return new Set(values);
+}
+
+function sanitizeCollisionMask(mask: number): number {
+	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
+	return Math.floor(mask) >>> 0;
+}
+
+function canCollidersInteract(
+	left: RapierColliderState,
+	right: RapierColliderState
+): boolean {
+	return (left.collisionMask & right.collisionMask) !== 0;
 }
 
 function intersectRayWithCollider(

@@ -66,6 +66,14 @@ export interface IPhysicsEngineAdapter {
 		bodyId: string,
 		velocity: IVector3
 	): void;
+	setAngularVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void;
+	applyForce(worldId: string, bodyId: string, force: IVector3): void;
+	applyTorque(worldId: string, bodyId: string, torque: IVector3): void;
+	applyImpulse(worldId: string, bodyId: string, impulse: IVector3): void;
 	addCollider(
 		worldId: string,
 		bodyId: string,
@@ -74,6 +82,12 @@ export interface IPhysicsEngineAdapter {
 		shape: ColliderShape
 	): void;
 	destroyCollider(worldId: string, colliderId: string): void;
+	setColliderSensor(
+		worldId: string,
+		colliderId: string,
+		isSensor: boolean
+	): void;
+	setCollisionMask(worldId: string, colliderId: string, mask: number): void;
 	createJoint(
 		worldId: string,
 		jointId: string,
@@ -109,6 +123,7 @@ export interface IPhysicsEngineAdapter {
 		value: number
 	): void;
 	raycast(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit | null;
+	raycastAll(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit[];
 	sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery

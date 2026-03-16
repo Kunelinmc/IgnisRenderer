@@ -109,6 +109,7 @@ interface AmmoColliderState {
 	ammoShape: any;
 	childTransform: any;
 	isTrigger: boolean;
+	collisionMask: number;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -143,6 +144,8 @@ interface AmmoQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
+
+const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export interface AmmoPhysicsAdapterOptions {
 	moduleLoader?: () => Promise<unknown>;
@@ -388,6 +391,62 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
 	}
 
+	public setAngularVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void {
+		this._delegate.setAngularVelocity(worldId, bodyId, velocity);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._setVector3(body.rigidBody, ["setAngularVelocity"], velocity);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
+		this._delegate.applyForce(worldId, bodyId, force);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._setVector3(
+			body.rigidBody,
+			["applyCentralForce", "applyForce"],
+			force
+		);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public applyTorque(worldId: string, bodyId: string, torque: IVector3): void {
+		this._delegate.applyTorque(worldId, bodyId, torque);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._setVector3(body.rigidBody, ["applyTorque"], torque);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public applyImpulse(
+		worldId: string,
+		bodyId: string,
+		impulse: IVector3
+	): void {
+		this._delegate.applyImpulse(worldId, bodyId, impulse);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._setVector3(
+			body.rigidBody,
+			["applyCentralImpulse", "applyImpulse"],
+			impulse
+		);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
 	public addCollider(
 		worldId: string,
 		bodyId: string,
@@ -488,6 +547,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				ammoShape,
 				childTransform,
 				isTrigger,
+				collisionMask: DEFAULT_COLLISION_MASK,
 				radius: computeShapeRadius(shape),
 				halfExtents: computeShapeHalfExtents(shape),
 				offset,
@@ -548,6 +608,36 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		if (detachedShape && (!body || body.shape !== collider.ammoShape)) {
 			this._destroyAmmoObject(collider.ammoShape);
 		}
+	}
+
+	public setColliderSensor(
+		worldId: string,
+		colliderId: string,
+		isSensor: boolean
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setColliderSensor(worldId, colliderId, isSensor);
+			return;
+		}
+		const world = this._worlds.get(worldId);
+		const collider = world?.colliders.get(colliderId);
+		if (!collider) return;
+		collider.isTrigger = isSensor === true;
+	}
+
+	public setCollisionMask(
+		worldId: string,
+		colliderId: string,
+		mask: number
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setCollisionMask(worldId, colliderId, mask);
+			return;
+		}
+		const world = this._worlds.get(worldId);
+		const collider = world?.colliders.get(colliderId);
+		if (!collider) return;
+		collider.collisionMask = sanitizeCollisionMask(mask);
 	}
 
 	public createJoint(
@@ -686,6 +776,17 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._raycastNative(worldId, world, query) ??
 			this._raycastApprox(worldId, world, query)
 		);
+	}
+
+	public raycastAll(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit[] {
+		if (this._usingFallback()) {
+			return this._delegate.raycastAll(worldId, query);
+		}
+		const world = this._requireWorld(worldId);
+		return this._raycastAllApprox(worldId, world, query);
 	}
 
 	public sphereCast(
@@ -1462,6 +1563,30 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		return bestHit;
 	}
 
+	private _raycastAllApprox(
+		worldId: string,
+		world: AmmoWorldState,
+		query: PhysicsRaycastQuery
+	): PhysicsQueryHit[] {
+		const ray = normalizeDirection(query.direction);
+		const maxDistance = sanitizeMaxDistance(query.maxDistance);
+		if (maxDistance <= 0) return [];
+
+		const hits: PhysicsQueryHit[] = [];
+		for (const candidate of this._getQueryCandidates(world, query.filter)) {
+			const hit = intersectRayWithCollider(
+				query.origin,
+				ray,
+				maxDistance,
+				candidate
+			);
+			if (!hit) continue;
+			hits.push(toQueryHit(worldId, candidate, hit, maxDistance));
+		}
+		hits.sort((left, right) => left.distance - right.distance);
+		return truncateHits(hits, query.maxHits);
+	}
+
 	private _sphereCastApprox(
 		worldId: string,
 		world: AmmoWorldState,
@@ -2023,6 +2148,11 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 function toSet(values?: string[]): Set<string> | null {
 	if (!values || values.length === 0) return null;
 	return new Set(values);
+}
+
+function sanitizeCollisionMask(mask: number): number {
+	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
+	return Math.floor(mask) >>> 0;
 }
 
 function intersectRayWithCollider(
