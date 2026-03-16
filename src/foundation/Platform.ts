@@ -146,7 +146,9 @@ export class Platform {
 			}
 		}
 
-		return selfValue === resolved && typeof resolved.importScripts === "function";
+		return (
+			selfValue === resolved && typeof resolved.importScripts === "function"
+		);
 	}
 
 	/**
@@ -173,13 +175,17 @@ export class Platform {
 	 * Returns true when WebGL2 context creation appears to be available.
 	 */
 	public static hasWebGL2(scope: unknown = globalThis): boolean {
-		const probeCanvas = Platform._createWebGLProbeCanvas(scope);
-		if (probeCanvas && typeof probeCanvas.getContext === "function") {
-			try {
-				return !!probeCanvas.getContext("webgl2");
-			} catch (_error) {
-				return false;
-			}
+		if (
+			Platform._canvasSupportsWebGL2(
+				Platform._createOffscreenCanvasProbe(scope)
+			)
+		) {
+			return true;
+		}
+		if (
+			Platform._canvasSupportsWebGL2(Platform._createDocumentCanvasProbe(scope))
+		) {
+			return true;
 		}
 		return typeof resolveScope(scope).WebGL2RenderingContext === "function";
 	}
@@ -226,10 +232,7 @@ export class Platform {
 	): boolean {
 		return (
 			Platform.hasSharedArrayBuffer(scope) &&
-			Platform.isCrossOriginIsolated(
-				scope,
-				unknownCrossOriginIsolatedValue
-			)
+			Platform.isCrossOriginIsolated(scope, unknownCrossOriginIsolatedValue)
 		);
 	}
 
@@ -247,27 +250,42 @@ export class Platform {
 		return Math.max(1, Math.floor(navigatorValue as number));
 	}
 
-	private static _createWebGLProbeCanvas(
+	private static _canvasSupportsWebGL2(
+		canvas: PlatformCanvasProbeLike | null
+	): boolean {
+		if (!canvas || typeof canvas.getContext !== "function") return false;
+		try {
+			return !!canvas.getContext("webgl2");
+		} catch (_error) {
+			return false;
+		}
+	}
+
+	private static _createOffscreenCanvasProbe(
 		scope: unknown
 	): PlatformCanvasProbeLike | null {
 		const resolved = resolveScope(scope);
 		const offscreenCanvasCtor = resolved.OffscreenCanvas;
 		if (typeof offscreenCanvasCtor === "function") {
 			try {
-				const canvas = new (
-					offscreenCanvasCtor as new (
-						width: number,
-						height: number
-					) => PlatformCanvasProbeLike
-				)(1, 1);
+				const canvas = new (offscreenCanvasCtor as new (
+					width: number,
+					height: number
+				) => PlatformCanvasProbeLike)(1, 1);
 				if (typeof canvas.getContext === "function") {
 					return canvas;
 				}
 			} catch (_error) {
-				// Ignore constructor failures and fall through to document canvas.
+				// Ignore constructor failures.
 			}
 		}
+		return null;
+	}
 
+	private static _createDocumentCanvasProbe(
+		scope: unknown
+	): PlatformCanvasProbeLike | null {
+		const resolved = resolveScope(scope);
 		const documentValue = resolved.document;
 		if (!documentValue || typeof documentValue.createElement !== "function") {
 			return null;
