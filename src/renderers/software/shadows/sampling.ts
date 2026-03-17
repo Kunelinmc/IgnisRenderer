@@ -3,7 +3,7 @@ import { Vector3 } from "../../../maths/Vector3";
 import type { IVector3 } from "../../../maths/types";
 import type { RGB } from "../../../foundation/Color";
 import type { ShadowMap, ShadowParams } from "../../../lights/ShadowMapping";
-import { ShadowConstants } from "../../../core/constants";
+import { SoftwareShadowConstants } from "./constants";
 import type { SoftwareShadowRenderTarget } from "./types";
 import { clamp } from "../../../maths/Common";
 
@@ -65,7 +65,9 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		offsetPoint
 	);
 	const w = lightSpacePos.w;
-	if (w <= ShadowConstants.MIN_CLIP_W) return { r: 1.0, g: 1.0, b: 1.0 };
+	if (w <= SoftwareShadowConstants.MIN_CLIP_W) {
+		return { r: 1.0, g: 1.0, b: 1.0 };
+	}
 	const invW = 1 / w;
 	const ndcX = lightSpacePos.x * invW;
 	const ndcY = lightSpacePos.y * invW;
@@ -80,8 +82,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		u > 1 ||
 		v < 0 ||
 		v > 1 ||
-		currentDepth < ShadowConstants.MIN_NDC_DEPTH ||
-		currentDepth > ShadowConstants.MAX_NDC_DEPTH
+		currentDepth < SoftwareShadowConstants.MIN_NDC_DEPTH ||
+		currentDepth > SoftwareShadowConstants.MAX_NDC_DEPTH
 	) {
 		return { r: 1.0, g: 1.0, b: 1.0 };
 	}

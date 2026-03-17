@@ -14,7 +14,7 @@ import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { Rasterizer } from "../src/renderers/software/Rasterizer.ts";
-import { LightingConstants } from "../src/core/constants.ts";
+import { LightingConstants } from "../src/pipeline/lighting/constants.ts";
 
 function createContext(overrides = {}) {
 	return {

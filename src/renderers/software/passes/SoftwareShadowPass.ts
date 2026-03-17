@@ -1,7 +1,7 @@
 import { Vector3 } from "../../../maths/Vector3";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { isShadowCastingLight } from "../../../lights";
-import { ShadowConstants } from "../../../core/constants";
+import { SoftwareShadowConstants } from "../shadows/constants";
 import { Projector } from "../Projector";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
 import type { Rasterizer } from "../Rasterizer";
@@ -162,19 +162,19 @@ export class SoftwareShadowPass {
 
 	private _clipDistance(vertex: ClipVertex, plane: number): number {
 		switch (plane) {
-			case ShadowConstants.CLIP_PLANE_MIN_W:
-				return vertex.w - ShadowConstants.MIN_CLIP_W;
-			case ShadowConstants.CLIP_PLANE_LEFT:
+			case SoftwareShadowConstants.CLIP_PLANE_MIN_W:
+				return vertex.w - SoftwareShadowConstants.MIN_CLIP_W;
+			case SoftwareShadowConstants.CLIP_PLANE_LEFT:
 				return vertex.x + vertex.w;
-			case ShadowConstants.CLIP_PLANE_RIGHT:
+			case SoftwareShadowConstants.CLIP_PLANE_RIGHT:
 				return -vertex.x + vertex.w;
-			case ShadowConstants.CLIP_PLANE_BOTTOM:
+			case SoftwareShadowConstants.CLIP_PLANE_BOTTOM:
 				return vertex.y + vertex.w;
-			case ShadowConstants.CLIP_PLANE_TOP:
+			case SoftwareShadowConstants.CLIP_PLANE_TOP:
 				return -vertex.y + vertex.w;
-			case ShadowConstants.CLIP_PLANE_NEAR:
+			case SoftwareShadowConstants.CLIP_PLANE_NEAR:
 				return vertex.z + vertex.w;
-			case ShadowConstants.CLIP_PLANE_FAR:
+			case SoftwareShadowConstants.CLIP_PLANE_FAR:
 				return -vertex.z + vertex.w;
 			default:
 				return -1;
@@ -201,7 +201,7 @@ export class SoftwareShadowPass {
 			if (currentInside !== previousInside) {
 				const denominator = previousDistance - currentDistance;
 				const t =
-					Math.abs(denominator) > ShadowConstants.CLIP_EPSILON ?
+					Math.abs(denominator) > SoftwareShadowConstants.CLIP_EPSILON ?
 						previousDistance / denominator
 					:	0;
 				output.push(
@@ -260,7 +260,11 @@ export class SoftwareShadowPass {
 		let inPolygon = this._clipScratchA;
 		let outPolygon = this._clipScratchB;
 
-		for (let plane = 0; plane < ShadowConstants.CLIP_PLANE_COUNT; plane++) {
+		for (
+			let plane = 0;
+			plane < SoftwareShadowConstants.CLIP_PLANE_COUNT;
+			plane++
+		) {
 			this._clipAgainstPlane(inPolygon, outPolygon, plane);
 			if (outPolygon.length < 3) return outPolygon;
 			const temp = inPolygon;
@@ -312,7 +316,7 @@ export class SoftwareShadowPass {
 			clipVertex.v = vertex.v ?? 0;
 
 			let code = 0;
-			if (clipVertex.w < ShadowConstants.MIN_CLIP_W) code |= 1;
+			if (clipVertex.w < SoftwareShadowConstants.MIN_CLIP_W) code |= 1;
 			if (clipVertex.x < -clipVertex.w) code |= 2;
 			if (clipVertex.x > clipVertex.w) code |= 4;
 			if (clipVertex.y < -clipVertex.w) code |= 8;
