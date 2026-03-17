@@ -149,7 +149,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 	constructor(options: RapierPhysicsAdapterOptions = {}) {
 		this._moduleLoader =
 			options.moduleLoader ??
-			(async () => loadOptionalModule("@dimforge/rapier3d-compat"));
+			(async () => loadOptionalRapierModule());
 		this._strict = options.strict ?? true;
 		this._delegate =
 			options.fallbackAdapter ?? new SimplePhysicsAdapter("rapier-fallback");
@@ -1646,11 +1646,23 @@ function isRapierUsable(module: RapierModuleLike): boolean {
 	return true;
 }
 
-function loadOptionalModule(moduleName: string): Promise<unknown> {
-	const importer = new Function("m", "return import(m)") as (
-		modulePath: string
-	) => Promise<unknown>;
-	return importer(moduleName);
+async function loadOptionalRapierModule(): Promise<unknown> {
+	try {
+		return await import("@dimforge/rapier3d-compat");
+	} catch (packageImportError) {
+		try {
+			const rapierEsModulePath =
+				"/node_modules/@dimforge/rapier3d-compat/rapier.es.js";
+			return await import(
+				/* @vite-ignore */
+				rapierEsModulePath
+			);
+		} catch (viteDevUrlImportError) {
+			throw new Error(
+				`Failed package import (${String(packageImportError)}), and failed Vite dev URL fallback (${String(viteDevUrlImportError)})`
+			);
+		}
+	}
 }
 
 function resolveBodyId(value: CharacterControllerDescriptor["body"]): string {
