@@ -38,6 +38,7 @@ import { DefaultCollisionGeometryProvider } from "./DefaultCollisionGeometryProv
 import { PhysicsBodyNode } from "./PhysicsBodyNode";
 import { SimplePhysicsAdapter } from "./adapters/SimplePhysicsAdapter";
 import { DefaultPhysicsSimulator } from "../simulation/physics/DefaultPhysicsSimulator";
+import type { PhysicsSimulationResult } from "../simulation/physics/types";
 import {
 	BROADPHASE_CELL_SIZE,
 	BROADPHASE_MAX_DIRTY_CELLS,
@@ -469,16 +470,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		deltaTimeSeconds: number,
 		opts: StepOverride = {}
 	): PhysicsStepReport {
-		const worldIds = opts.worldIds ?? Array.from(this._worldConfigById.keys());
-		const targetWorlds = worldIds.map((worldId) => {
-			const config = this._requireWorld(worldId);
-			return { worldId, config };
-		});
-
-		this._beginStepRuntime(targetWorlds.map((item) => item.worldId));
-		this._syncAnimationAuthorityBodies(
-			targetWorlds.map((item) => item.worldId)
-		);
+		const targetWorlds = this._resolveStepWorldTargets(opts);
+		const worldIds = targetWorlds.map((item) => item.worldId);
+		this._beginStepRuntime(worldIds);
+		this._syncAnimationAuthorityBodies(worldIds);
 
 		const simulationContext = {
 			worlds: targetWorlds,
@@ -492,7 +487,55 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			override: opts,
 		});
 		this._simulator.endFrame();
+		return this._finalizeStepReport(deltaTimeSeconds, simulation);
+	}
 
+	public async stepAsync(
+		deltaTimeSeconds: number,
+		opts: StepOverride = {}
+	): Promise<PhysicsStepReport> {
+		const stepWorldAsync = this._adapter.stepWorldAsync;
+		const simulateAsync = this._simulator.simulateAsync;
+		if (!stepWorldAsync || !simulateAsync) {
+			return this.step(deltaTimeSeconds, opts);
+		}
+
+		const targetWorlds = this._resolveStepWorldTargets(opts);
+		const worldIds = targetWorlds.map((item) => item.worldId);
+		this._beginStepRuntime(worldIds);
+		this._syncAnimationAuthorityBodies(worldIds);
+
+		const simulationContext = {
+			worlds: targetWorlds,
+			stepWorld: (worldId: string, deltaSeconds: number) =>
+				this._stepWorldWithOptimizationsAsync(worldId, deltaSeconds),
+		};
+
+		this._simulator.beginFrame(simulationContext);
+		const simulation = await simulateAsync.call(
+			this._simulator,
+			simulationContext,
+			{
+				deltaTimeSeconds,
+				override: opts,
+			}
+		);
+		this._simulator.endFrame();
+		return this._finalizeStepReport(deltaTimeSeconds, simulation);
+	}
+
+	private _resolveStepWorldTargets(opts: StepOverride) {
+		const worldIds = opts.worldIds ?? Array.from(this._worldConfigById.keys());
+		return worldIds.map((worldId) => {
+			const config = this._requireWorld(worldId);
+			return { worldId, config };
+		});
+	}
+
+	private _finalizeStepReport(
+		deltaTimeSeconds: number,
+		simulation: PhysicsSimulationResult
+	): PhysicsStepReport {
 		const worldReports: PhysicsWorldStepReport[] = [];
 		const events: PhysicsEvent[] = [];
 		const movedBodyIds = new Set<string>();
@@ -612,6 +655,35 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			return this._buildSkippedStepResult(runtime);
 		}
 		const result = this._adapter.stepWorld(worldId, deltaSeconds);
+		runtime.forceStepNextFrame = false;
+		runtime.controllerDirty = false;
+		return result;
+	}
+
+	private async _stepWorldWithOptimizationsAsync(
+		worldId: string,
+		deltaSeconds: number
+	): Promise<PhysicsAdapterStepResult> {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) {
+			if (this._adapter.stepWorldAsync) {
+				return this._adapter.stepWorldAsync(worldId, deltaSeconds);
+			}
+			return this._adapter.stepWorld(worldId, deltaSeconds);
+		}
+		if (deltaSeconds <= 0) {
+			return this._buildSkippedStepResult(runtime);
+		}
+		if (this._canSkipWorldStep(runtime)) {
+			return this._buildSkippedStepResult(runtime);
+		}
+
+		let result: PhysicsAdapterStepResult;
+		if (this._adapter.stepWorldAsync) {
+			result = await this._adapter.stepWorldAsync(worldId, deltaSeconds);
+		} else {
+			result = this._adapter.stepWorld(worldId, deltaSeconds);
+		}
 		runtime.forceStepNextFrame = false;
 		runtime.controllerDirty = false;
 		return result;

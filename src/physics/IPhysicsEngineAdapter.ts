@@ -138,4 +138,8 @@ export interface IPhysicsEngineAdapter {
 		query: PhysicsOverlapBoxQuery
 	): PhysicsOverlapHit[];
 	stepWorld(worldId: string, deltaSeconds: number): PhysicsAdapterStepResult;
+	stepWorldAsync?(
+		worldId: string,
+		deltaSeconds: number
+	): Promise<PhysicsAdapterStepResult>;
 }

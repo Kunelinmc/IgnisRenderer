@@ -322,7 +322,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					break;
 				}
 				case "physics-sim": {
-					this._physicsSystem?.step(deltaTimeSeconds);
+					if (this._physicsSystem) {
+						await this._physicsSystem.stepAsync(deltaTimeSeconds);
+					}
 					break;
 				}
 				case "transform-update": {

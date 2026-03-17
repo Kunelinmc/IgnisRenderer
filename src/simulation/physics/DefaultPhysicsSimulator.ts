@@ -1,7 +1,9 @@
 import type { PhysicsStepConfig, PhysicsStepMode } from "../../physics/types";
 import type { IPhysicsSimulator } from "./IPhysicsSimulator";
 import type {
+	PhysicsSimulationAsyncContext,
 	PhysicsSimulationContext,
+	PhysicsSimulationFrameContext,
 	PhysicsSimulationRequest,
 	PhysicsSimulationResult,
 	PhysicsSimulationWorldTarget,
@@ -20,7 +22,7 @@ interface WorldRuntimeState {
 export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 	private _runtimeByWorldId = new Map<string, WorldRuntimeState>();
 
-	public beginFrame(context: PhysicsSimulationContext): void {
+	public beginFrame(context: PhysicsSimulationFrameContext): void {
 		const active = new Set(context.worlds.map((world) => world.worldId));
 		for (const worldId of this._runtimeByWorldId.keys()) {
 			if (!active.has(worldId)) {
@@ -41,6 +43,31 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 		for (const world of context.worlds) {
 			if (useScope && !scopedWorldIds.has(world.worldId)) continue;
 			worldResults.push(this._simulateWorld(context, world, request));
+		}
+
+		const processedDeltaSeconds = worldResults.reduce((maxValue, item) => {
+			return Math.max(maxValue, item.consumedDeltaSeconds);
+		}, 0);
+
+		return {
+			inputDeltaSeconds,
+			processedDeltaSeconds,
+			worldResults,
+		};
+	}
+
+	public async simulateAsync(
+		context: PhysicsSimulationAsyncContext,
+		request: PhysicsSimulationRequest
+	): Promise<PhysicsSimulationResult> {
+		const worldResults: PhysicsWorldSimulationResult[] = [];
+		const inputDeltaSeconds = Math.max(0, request.deltaTimeSeconds);
+		const scopedWorldIds = new Set(request.override?.worldIds ?? []);
+		const useScope = scopedWorldIds.size > 0;
+
+		for (const world of context.worlds) {
+			if (useScope && !scopedWorldIds.has(world.worldId)) continue;
+			worldResults.push(await this._simulateWorldAsync(context, world, request));
 		}
 
 		const processedDeltaSeconds = worldResults.reduce((maxValue, item) => {
@@ -99,6 +126,67 @@ export class DefaultPhysicsSimulator implements IPhysicsSimulator {
 			substeps < config.maxSubsteps
 		) {
 			const step = context.stepWorld(world.worldId, config.fixedDeltaSeconds);
+			steps.push(step);
+			substeps++;
+			consumedDeltaSeconds += config.fixedDeltaSeconds;
+			runtime.accumulatorSeconds -= config.fixedDeltaSeconds;
+		}
+
+		return {
+			worldId: world.worldId,
+			mode,
+			substeps,
+			consumedDeltaSeconds,
+			steps,
+		};
+	}
+
+	private async _simulateWorldAsync(
+		context: PhysicsSimulationAsyncContext,
+		world: PhysicsSimulationWorldTarget,
+		request: PhysicsSimulationRequest
+	): Promise<PhysicsWorldSimulationResult> {
+		const config = resolveStepConfig(world.config, request.override);
+		const clampedDeltaSeconds = Math.min(
+			Math.max(0, request.deltaTimeSeconds),
+			config.maxDeltaSeconds
+		);
+		const mode = config.mode;
+
+		if (mode === "variable") {
+			if (clampedDeltaSeconds <= 0) {
+				return {
+					worldId: world.worldId,
+					mode,
+					substeps: 0,
+					consumedDeltaSeconds: 0,
+					steps: [],
+				};
+			}
+			const step = await context.stepWorld(world.worldId, clampedDeltaSeconds);
+			return {
+				worldId: world.worldId,
+				mode,
+				substeps: 1,
+				consumedDeltaSeconds: clampedDeltaSeconds,
+				steps: [step],
+			};
+		}
+
+		const runtime = this._getRuntime(world.worldId);
+		runtime.accumulatorSeconds += clampedDeltaSeconds;
+
+		const steps = [];
+		let substeps = 0;
+		let consumedDeltaSeconds = 0;
+		while (
+			runtime.accumulatorSeconds >= config.fixedDeltaSeconds &&
+			substeps < config.maxSubsteps
+		) {
+			const step = await context.stepWorld(
+				world.worldId,
+				config.fixedDeltaSeconds
+			);
 			steps.push(step);
 			substeps++;
 			consumedDeltaSeconds += config.fixedDeltaSeconds;

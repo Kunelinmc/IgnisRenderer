@@ -10,6 +10,10 @@ export interface PhysicsSimulationWorldTarget {
 	config: PhysicsWorldConfig;
 }
 
+export interface PhysicsSimulationFrameContext {
+	worlds: PhysicsSimulationWorldTarget[];
+}
+
 export interface PhysicsWorldSimulationResult {
 	worldId: string;
 	mode: PhysicsStepMode;
@@ -27,6 +31,14 @@ export interface PhysicsSimulationResult {
 export interface PhysicsSimulationContext {
 	worlds: PhysicsSimulationWorldTarget[];
 	stepWorld(worldId: string, deltaSeconds: number): PhysicsAdapterStepResult;
+}
+
+export interface PhysicsSimulationAsyncContext {
+	worlds: PhysicsSimulationWorldTarget[];
+	stepWorld(
+		worldId: string,
+		deltaSeconds: number
+	): Promise<PhysicsAdapterStepResult>;
 }
 
 export interface PhysicsSimulationRequest {
