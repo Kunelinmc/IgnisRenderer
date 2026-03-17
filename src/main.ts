@@ -8,6 +8,7 @@ import {
 	PBRMaterial,
 	ParticleBlendMode,
 	ParticleSystem,
+	Platform,
 	Renderer,
 	Scene,
 	SoftwareBackend,
@@ -22,7 +23,19 @@ interface RendererBootstrap {
 }
 
 async function init() {
-	let canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
+	const platform = Platform.detect();
+	if (!platform.isBrowserRuntime) {
+		throw new Error(
+			`Main entry requires browser runtime, got "${platform.runtime}".`
+		);
+	}
+
+	const canvasElement = document.getElementById("canvas3d");
+	if (!(canvasElement instanceof HTMLCanvasElement)) {
+		throw new Error("Missing required canvas element with id \"canvas3d\".");
+	}
+
+	let canvas = canvasElement;
 	const camera = new OrbitCamera(new Vector3(0, 0, 0), 500);
 	const scene = new Scene();
 	scene.add(camera);
@@ -171,23 +184,22 @@ async function createRenderer(
 	camera: OrbitCamera,
 	scene: Scene
 ): Promise<RendererBootstrap> {
-	// 暫時注釋掉這段，用來測試WebGL相關的功能
-	// if (navigator.gpu) {
-	// 	const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
-	// 	webgpuRenderer.setScene(scene);
-	// 	webgpuRenderer.features.enableTAA = true;
+	if (Platform.hasWebGPU()) {
+		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
+		webgpuRenderer.setScene(scene);
+		webgpuRenderer.features.enableTAA = true;
 
-	// 	try {
-	// 		await webgpuRenderer.init();
-	// 		console.info("Using WebGPU backend");
-	// 		return {
-	// 			canvas,
-	// 			renderer: webgpuRenderer,
-	// 		};
-	// 	} catch (error) {
-	// 		console.warn("WebGPU initialization failed, trying WebGL.", error);
-	// 	}
-	// }
+		try {
+			await webgpuRenderer.init();
+			console.info("Using WebGPU backend");
+			return {
+				canvas,
+				renderer: webgpuRenderer,
+			};
+		} catch (error) {
+			console.warn("WebGPU initialization failed, trying WebGL.", error);
+		}
+	}
 
 	try {
 		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
