@@ -68,6 +68,8 @@ export interface RendererFeatures {
 	worldMatrix: Matrix4;
 }
 
+const MAX_WARNING_KEYS = 1024;
+
 export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
 	public readonly backend: IRenderBackend;
@@ -222,6 +224,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	public warnOnce(key: string, message: string): void {
 		if (this._warnings.has(key)) return;
+		if (this._warnings.size >= MAX_WARNING_KEYS) {
+			const oldestKey = this._warnings.values().next().value as
+				| string
+				| undefined;
+			if (oldestKey !== undefined) {
+				this._warnings.delete(oldestKey);
+			}
+		}
 		this._warnings.add(key);
 		console.warn(message);
 	}

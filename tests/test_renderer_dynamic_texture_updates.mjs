@@ -79,12 +79,26 @@ async function run() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		const dynamicTexture = new FakeDynamicTexture(2);
+		const originalWarn = console.warn;
+		const warnedMessages = [];
+		console.warn = (message) => warnedMessages.push(message);
+		try {
+			for (let i = 0; i < 1200; i++) {
+				renderer.warnOnce(`dynamic-warning-${i}`, `dynamic warning ${i}`);
+			}
+		} finally {
+			console.warn = originalWarn;
+		}
 
 		await renderer.renderScene(0);
 		await renderer.renderScene(16);
 		await renderer.renderScene(32);
 
 		assert.equal(backend.beginFrameCount, 2);
+		assert.equal(renderer._warnings.size, 1024);
+		assert.equal(renderer._warnings.has("dynamic-warning-0"), false);
+		assert.equal(renderer._warnings.has("dynamic-warning-1199"), true);
+		assert.equal(warnedMessages.length, 1200);
 
 		dynamicTexture.dispose();
 		console.log("Renderer dynamic texture update tests passed");

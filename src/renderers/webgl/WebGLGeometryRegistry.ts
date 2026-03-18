@@ -13,6 +13,11 @@ export interface WebGLGeometryHandle {
 
 type WarnFn = (key: string, message: string) => void;
 
+interface UploadPrimitiveResult {
+	handle: WebGLGeometryHandle | null;
+	cacheFailure: boolean;
+}
+
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
@@ -31,11 +36,13 @@ export class WebGLGeometryRegistry {
 			return cached;
 		}
 		const uploaded = this._uploadPrimitive(packet);
-		this._cache.set(primitive, uploaded);
-		if (uploaded) {
-			this._owned.add(uploaded);
+		if (uploaded.handle) {
+			this._cache.set(primitive, uploaded.handle);
+			this._owned.add(uploaded.handle);
+		} else if (uploaded.cacheFailure) {
+			this._cache.set(primitive, null);
 		}
-		return uploaded;
+		return uploaded.handle;
 	}
 
 	public destroy(): void {
@@ -47,7 +54,7 @@ export class WebGLGeometryRegistry {
 		this._owned.clear();
 	}
 
-	private _uploadPrimitive(packet: DrawPacket): WebGLGeometryHandle | null {
+	private _uploadPrimitive(packet: DrawPacket): UploadPrimitiveResult {
 		const primitive = packet.primitive;
 		const geometry = primitive.geometry;
 		const positions = geometry.positions;
@@ -59,35 +66,35 @@ export class WebGLGeometryRegistry {
 				`webgl-geometry-invalid-positions-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} has invalid position data; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 		if (!indices || indices.length <= 0) {
 			this._warn(
 				`webgl-geometry-empty-indices-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} has no indices; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 		if (!isFiniteArray(positions)) {
 			this._warn(
 				`webgl-geometry-nonfinite-positions-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.normals && !isFiniteArray(geometry.normals)) {
 			this._warn(
 				`webgl-geometry-nonfinite-normals-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.uv0 && !isFiniteArray(geometry.uv0)) {
 			this._warn(
 				`webgl-geometry-nonfinite-uv-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 
 		const vertexCount = (positions.length / 3) | 0;
@@ -97,7 +104,7 @@ export class WebGLGeometryRegistry {
 				`webgl-geometry-index-range-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} index data exceeds vertex range; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: true };
 		}
 
 		if ((geometry.morphTargets?.length ?? 0) > 0) {
@@ -136,7 +143,7 @@ export class WebGLGeometryRegistry {
 				`webgl-geometry-upload-failed-${primitive.id}`,
 				`Failed to allocate WebGL buffers for primitive ${primitive.id}; skipping`
 			);
-			return null;
+			return { handle: null, cacheFailure: false };
 		}
 
 		gl.bindVertexArray(vao);
@@ -168,12 +175,15 @@ export class WebGLGeometryRegistry {
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
 		return {
-			vao,
-			vertexBuffer,
-			indexBuffer,
-			indexCount: indexData.length,
-			indexType,
-			topology: mapTopology(gl, primitive.topology),
+			handle: {
+				vao,
+				vertexBuffer,
+				indexBuffer,
+				indexCount: indexData.length,
+				indexType,
+				topology: mapTopology(gl, primitive.topology),
+			},
+			cacheFailure: false,
 		};
 	}
 }

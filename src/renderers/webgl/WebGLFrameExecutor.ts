@@ -130,6 +130,7 @@ export class WebGLFrameExecutor {
 	private _taaFrameIndex = 0;
 	private _prevViewProjection: Float32Array | null = null;
 	private _modelMatrixCache = new Map<string, Float32Array>();
+	private _modelMatrixKeysThisFrame = new Set<string>();
 	private _postFramebuffer: WebGLFramebuffer | null = null;
 	private _postColorTexture: WebGLTexture | null = null;
 	private _presentSourceTexture: WebGLTexture | null = null;
@@ -166,6 +167,7 @@ export class WebGLFrameExecutor {
 	public beginFrame(context: FrameContext): void {
 		this._activeContext = context;
 		this._presentedInFrame = false;
+		this._modelMatrixKeysThisFrame.clear();
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
 		this._ensureFrameTargets(this._width, this._height);
@@ -243,6 +245,7 @@ export class WebGLFrameExecutor {
 		if (!this._presentedInFrame) {
 			this._present(this._activeContext?.features.enableGamma !== false);
 		}
+		this._pruneModelMatrixCache();
 		this._activeContext = null;
 	}
 
@@ -256,6 +259,8 @@ export class WebGLFrameExecutor {
 		this._destroyFrameTargets();
 		this._destroyShadowTargets();
 		this._destroyParticleResources();
+		this._modelMatrixCache.clear();
+		this._modelMatrixKeysThisFrame.clear();
 		if (this._fullscreenVao) {
 			this._gl.deleteVertexArray(this._fullscreenVao);
 			this._fullscreenVao = null;
@@ -394,7 +399,7 @@ export class WebGLFrameExecutor {
 	): void {
 		if (packet.meshInstance.skeleton) {
 			this._warn(
-				`webgl-shadow-skinning-unsupported-${packet.meshInstance.id}`,
+				"webgl-shadow-skinning-unsupported",
 				`WebGL v1 shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 			);
 			return;
@@ -581,14 +586,14 @@ export class WebGLFrameExecutor {
 
 		if (packet.meshInstance.skeleton) {
 			this._warn(
-				`webgl-skinning-unsupported-${packet.meshInstance.id}`,
+				"webgl-skinning-unsupported",
 				`WebGL v1 does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 			);
 			return;
 		}
 		if (!isFiniteMatrix(packet.worldMatrix)) {
 			this._warn(
-				`webgl-world-matrix-invalid-${packet.id}`,
+				"webgl-world-matrix-invalid",
 				`WebGL packet ${packet.id} has non-finite world matrix; skipping`
 			);
 			return;
@@ -603,7 +608,7 @@ export class WebGLFrameExecutor {
 		const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 		if (!normalMatrix) {
 			this._warn(
-				`webgl-normal-matrix-invalid-${packet.id}`,
+				"webgl-normal-matrix-invalid",
 				`WebGL packet ${packet.id} has invalid normal matrix; skipping`
 			);
 			return;
@@ -631,6 +636,7 @@ export class WebGLFrameExecutor {
 		}
 		if (sceneProgram.uniforms.prevModel) {
 			const cacheKey = packet.id;
+			this._modelMatrixKeysThisFrame.add(cacheKey);
 			let cached = this._modelMatrixCache.get(cacheKey);
 			gl.uniformMatrix4fv(
 				sceneProgram.uniforms.prevModel,
@@ -841,7 +847,7 @@ export class WebGLFrameExecutor {
 		let cappedCount = particles.length;
 		if (cappedCount > PARTICLE_MAX_INSTANCES_PER_DRAW) {
 			this._warn(
-				`webgl-particle-cap-${batch.systemId}`,
+				"webgl-particle-cap",
 				`WebGL particle pass truncates system "${batch.systemId}" to ${PARTICLE_MAX_INSTANCES_PER_DRAW} instances per draw`
 			);
 			cappedCount = PARTICLE_MAX_INSTANCES_PER_DRAW;
@@ -1512,9 +1518,17 @@ export class WebGLFrameExecutor {
 		this._destroyFrameTargets();
 		const gl = this._gl;
 
-		const useFloat = !!gl.getExtension("EXT_color_buffer_float");
-		const colorInternalFormat = useFloat ? gl.RGBA16F : gl.RGBA8;
-		const colorType = useFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+		const supportsFloatColorBuffer = !!gl.getExtension("EXT_color_buffer_float");
+		const colorInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
+		const colorType = supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+		const motionInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
+		const motionType = supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+		if (!supportsFloatColorBuffer) {
+			this._warn(
+				"webgl-motion-float-unsupported",
+				"EXT_color_buffer_float is unavailable; falling back to RGBA8 motion attachments."
+			);
+		}
 
 		const sceneFramebuffer = gl.createFramebuffer();
 		const sceneColorTexture = this._createColorTexture(
@@ -1526,8 +1540,8 @@ export class WebGLFrameExecutor {
 		const sceneMotionTexture = this._createColorTexture(
 			width,
 			height,
-			gl.RGBA16F,
-			gl.HALF_FLOAT
+			motionInternalFormat,
+			motionType
 		);
 		const sceneDepthBuffer = gl.createRenderbuffer();
 		const postFramebuffer = gl.createFramebuffer();
@@ -1553,15 +1567,28 @@ export class WebGLFrameExecutor {
 		const motionHistory0 = this._createColorTexture(
 			width,
 			height,
-			gl.RGBA16F,
-			gl.HALF_FLOAT
+			motionInternalFormat,
+			motionType
 		);
 		const motionHistory1 = this._createColorTexture(
 			width,
 			height,
-			gl.RGBA16F,
-			gl.HALF_FLOAT
+			motionInternalFormat,
+			motionType
 		);
+
+		const cleanupAllocatedTargets = (): void => {
+			if (sceneFramebuffer) gl.deleteFramebuffer(sceneFramebuffer);
+			if (sceneColorTexture) gl.deleteTexture(sceneColorTexture);
+			if (sceneMotionTexture) gl.deleteTexture(sceneMotionTexture);
+			if (sceneDepthBuffer) gl.deleteRenderbuffer(sceneDepthBuffer);
+			if (postFramebuffer) gl.deleteFramebuffer(postFramebuffer);
+			if (postColorTexture) gl.deleteTexture(postColorTexture);
+			if (history0) gl.deleteTexture(history0);
+			if (history1) gl.deleteTexture(history1);
+			if (motionHistory0) gl.deleteTexture(motionHistory0);
+			if (motionHistory1) gl.deleteTexture(motionHistory1);
+		};
 
 		if (
 			!sceneFramebuffer ||
@@ -1575,16 +1602,7 @@ export class WebGLFrameExecutor {
 			!motionHistory0 ||
 			!motionHistory1
 		) {
-			if (sceneFramebuffer) gl.deleteFramebuffer(sceneFramebuffer);
-			if (sceneColorTexture) gl.deleteTexture(sceneColorTexture);
-			if (sceneMotionTexture) gl.deleteTexture(sceneMotionTexture);
-			if (sceneDepthBuffer) gl.deleteRenderbuffer(sceneDepthBuffer);
-			if (postFramebuffer) gl.deleteFramebuffer(postFramebuffer);
-			if (postColorTexture) gl.deleteTexture(postColorTexture);
-			if (history0) gl.deleteTexture(history0);
-			if (history1) gl.deleteTexture(history1);
-			if (motionHistory0) gl.deleteTexture(motionHistory0);
-			if (motionHistory1) gl.deleteTexture(motionHistory1);
+			cleanupAllocatedTargets();
 			throw new Error("Failed to create WebGL frame targets");
 		}
 
@@ -1622,11 +1640,7 @@ export class WebGLFrameExecutor {
 		let status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
 		if (status !== gl.FRAMEBUFFER_COMPLETE) {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-			gl.deleteFramebuffer(sceneFramebuffer);
-			gl.deleteTexture(sceneColorTexture);
-			gl.deleteRenderbuffer(sceneDepthBuffer);
-			gl.deleteFramebuffer(postFramebuffer);
-			gl.deleteTexture(postColorTexture);
+			cleanupAllocatedTargets();
 			throw new Error(
 				`WebGL scene framebuffer is incomplete (status=0x${status.toString(16)})`
 			);
@@ -1643,11 +1657,7 @@ export class WebGLFrameExecutor {
 		status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		if (status !== gl.FRAMEBUFFER_COMPLETE) {
-			gl.deleteFramebuffer(sceneFramebuffer);
-			gl.deleteTexture(sceneColorTexture);
-			gl.deleteRenderbuffer(sceneDepthBuffer);
-			gl.deleteFramebuffer(postFramebuffer);
-			gl.deleteTexture(postColorTexture);
+			cleanupAllocatedTargets();
 			throw new Error(
 				`WebGL post framebuffer is incomplete (status=0x${status.toString(16)})`
 			);
@@ -1685,14 +1695,14 @@ export class WebGLFrameExecutor {
 			gl.deleteRenderbuffer(this._sceneDepthBuffer);
 			this._sceneDepthBuffer = null;
 		}
-		if (this._taaHistoryTextures[0]) {
-			gl.deleteTexture(this._taaHistoryTextures[0]!);
-			gl.deleteTexture(this._taaHistoryTextures[1]!);
-			gl.deleteTexture(this._taaMotionHistoryTextures[0]!);
-			gl.deleteTexture(this._taaMotionHistoryTextures[1]!);
-			this._taaHistoryTextures = [null, null];
-			this._taaMotionHistoryTextures = [null, null];
+		for (const texture of this._taaHistoryTextures) {
+			if (texture) gl.deleteTexture(texture);
 		}
+		for (const texture of this._taaMotionHistoryTextures) {
+			if (texture) gl.deleteTexture(texture);
+		}
+		this._taaHistoryTextures = [null, null];
+		this._taaMotionHistoryTextures = [null, null];
 		if (this._postFramebuffer) {
 			gl.deleteFramebuffer(this._postFramebuffer);
 			this._postFramebuffer = null;
@@ -1704,6 +1714,17 @@ export class WebGLFrameExecutor {
 		this._presentSourceTexture = null;
 		this._targetWidth = 0;
 		this._targetHeight = 0;
+	}
+
+	private _pruneModelMatrixCache(): void {
+		if (this._modelMatrixCache.size <= this._modelMatrixKeysThisFrame.size) {
+			return;
+		}
+		for (const cacheKey of this._modelMatrixCache.keys()) {
+			if (!this._modelMatrixKeysThisFrame.has(cacheKey)) {
+				this._modelMatrixCache.delete(cacheKey);
+			}
+		}
 	}
 
 	private _createColorTexture(

@@ -83,6 +83,21 @@ function createGeometryTestGL() {
 	};
 }
 
+function createRetryGeometryTestGL() {
+	const gl = createGeometryTestGL();
+	let createBufferCallCount = 0;
+	return {
+		...gl,
+		createBuffer() {
+			createBufferCallCount++;
+			if (createBufferCallCount === 1) {
+				return null;
+			}
+			return {};
+		},
+	};
+}
+
 function createProgramCaptureGL() {
 	let programCount = 0;
 	const shaderSources = [];
@@ -296,6 +311,39 @@ function testGeometryRegistryRejectsOutOfRangeIndices() {
 	);
 }
 
+function testGeometryRegistryRetriesAfterUploadAllocationFailure() {
+	const warnings = [];
+	const registry = new WebGLGeometryRegistry(createRetryGeometryTestGL(), (k, m) =>
+		warnings.push({ key: k, message: m })
+	);
+
+	const primitive = {
+		id: "p-retry",
+		geometry: {
+			positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+			normals: null,
+			uv0: null,
+			indices: new Uint32Array([0, 1, 2]),
+		},
+		topology: "triangle-list",
+		material: new Material(),
+	};
+	const packet = {
+		id: "packet-retry",
+		primitive,
+	};
+
+	assert.equal(registry.getGeometry(packet), null);
+	const retried = registry.getGeometry(packet);
+	assert.ok(retried);
+	assert.equal(retried?.indexCount, 3);
+	assert.ok(
+		warnings.some(
+			(warning) => warning.key === "webgl-geometry-upload-failed-p-retry"
+		)
+	);
+}
+
 function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
@@ -304,6 +352,7 @@ function run() {
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
 	testGeometryRegistryRejectsOutOfRangeIndices();
+	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	console.log("WebGL backend v1 unit tests passed");
 }
 
