@@ -95,6 +95,8 @@ export interface TextureDesc {
 
 export interface ShaderModuleDesc {
 	code: string;
+	/** Optional precomputed hash/fingerprint for shader module caching */
+	codeHash?: string;
 	label?: string;
 	logCompilationInfo?: boolean;
 	/** Optional software implementation of the shader */
@@ -188,9 +190,20 @@ export interface BindingGroupDesc {
 	label?: string;
 }
 
+export type BindingResource =
+	| IRenderBuffer
+	| IRenderTexture
+	| ISampler
+	| GPUBindingResource
+	| GPUTexture
+	| GPUBuffer
+	| {
+			_gpuResource?: BackendResourceHandle;
+	  };
+
 export interface BindingEntry {
 	binding: number;
-	resource: IRenderBuffer | IRenderTexture | ISampler | any;
+	resource: BindingResource;
 }
 
 export interface IShaderModule {
