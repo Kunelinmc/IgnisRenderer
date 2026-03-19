@@ -16,6 +16,8 @@ function createFakeWebGL2Context() {
 		ELEMENT_ARRAY_BUFFER: 0x8893,
 		STATIC_DRAW: 0x88e4,
 		COLOR_ATTACHMENT0: 0x8ce0,
+		COLOR_ATTACHMENT1: 0x8ce1,
+		COLOR_ATTACHMENT2: 0x8ce2,
 		DEPTH_ATTACHMENT: 0x8d00,
 		DEPTH_COMPONENT24: 0x81a6,
 		TEXTURE_2D: 0x0de1,
@@ -223,7 +225,7 @@ async function testInitAndPassRouting() {
 		shadows: true,
 		reflection: false,
 		skybox: true,
-		ssao: false,
+		ssao: true,
 		taa: true,
 		ssr: false,
 		volumetric: false,
@@ -262,6 +264,7 @@ async function testInitAndPassRouting() {
 		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
 	);
 	backend.executePass({ stage: "particles" }, { frameId: 1 });
+	backend.executePass({ stage: "ssao" }, { frameId: 1 });
 	backend.executePass({ stage: "fxaa" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
@@ -273,6 +276,7 @@ async function testInitAndPassRouting() {
 		["begin", { frameId: 1 }],
 		["pass", "main-opaque", { frameId: 1 }],
 		["pass", "particles", { frameId: 1 }],
+		["pass", "ssao", { frameId: 1 }],
 		["pass", "fxaa", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],

@@ -35,7 +35,7 @@ function run() {
 		shadows: true,
 		reflection: false,
 		skybox: true,
-		ssao: false,
+		ssao: true,
 		taa: true,
 		ssr: false,
 		volumetric: false,
