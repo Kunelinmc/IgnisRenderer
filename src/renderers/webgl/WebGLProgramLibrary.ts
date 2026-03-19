@@ -15,6 +15,9 @@ import {
 	WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
 	WEBGL_PRESENT_FRAGMENT_SHADER,
 	WEBGL_PRESENT_VERTEX_SHADER,
+	WEBGL_SSAO_BLUR_FRAGMENT_SHADER,
+	WEBGL_SSAO_COMBINE_FRAGMENT_SHADER,
+	WEBGL_SSAO_RAW_FRAGMENT_SHADER,
 	WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER,
 	WEBGL_SHADOW_DEPTH_VERTEX_SHADER,
 	WEBGL_SKYBOX_FRAGMENT_SHADER,
@@ -37,13 +40,39 @@ export interface WebGLCopyProgram {
 	};
 }
 
-export interface WebGLSSAOProgram {
+export interface WebGLSSAORawProgram {
+	program: WebGLProgram;
+	uniforms: {
+		normalMap: WebGLUniformLocation | null;
+		depthMap: WebGLUniformLocation | null;
+		invSize: WebGLUniformLocation | null;
+		gtao: WebGLUniformLocation | null;
+		blurProj: WebGLUniformLocation | null;
+		pass: WebGLUniformLocation | null;
+		cameraPosition: WebGLUniformLocation | null;
+		basisRight: WebGLUniformLocation | null;
+		basisUp: WebGLUniformLocation | null;
+		basisBackward: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLSSAOBlurProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		depthMap: WebGLUniformLocation | null;
+		invSize: WebGLUniformLocation | null;
+		blurProj: WebGLUniformLocation | null;
+		pass: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLSSAOCombineProgram {
 	program: WebGLProgram;
 	uniforms: {
 		sceneColor: WebGLUniformLocation | null;
-		depthMap: WebGLUniformLocation | null;
-		normalMap: WebGLUniformLocation | null;
-		texelSize: WebGLUniformLocation | null;
+		aoMap: WebGLUniformLocation | null;
+		invSize: WebGLUniformLocation | null;
 	};
 }
 
@@ -88,6 +117,7 @@ export interface WebGLSceneProgram {
 	program: WebGLProgram;
 	uniforms: {
 		model: WebGLUniformLocation | null;
+		viewMatrix: WebGLUniformLocation | null;
 		viewProjection: WebGLUniformLocation | null;
 		normalMatrix: WebGLUniformLocation | null;
 		cameraPosition: WebGLUniformLocation | null;
@@ -192,7 +222,9 @@ export class WebGLProgramLibrary {
 
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
 	private _copyProgram: WebGLCopyProgram | null = null;
-	private _ssaoProgram: WebGLSSAOProgram | null = null;
+	private _ssaoRawProgram: WebGLSSAORawProgram | null = null;
+	private _ssaoBlurProgram: WebGLSSAOBlurProgram | null = null;
+	private _ssaoCombineProgram: WebGLSSAOCombineProgram | null = null;
 	private _taaProgram: WebGLTAAProgram | null = null;
 	private _ssrProgram: WebGLSSRProgram | null = null;
 	private _volumetricProgram: WebGLVolumetricProgram | null = null;
@@ -262,6 +294,7 @@ export class WebGLProgramLibrary {
 			program,
 			uniforms: {
 				model: this._gl.getUniformLocation(program, "uModel"),
+				viewMatrix: this._gl.getUniformLocation(program, "uViewMatrix"),
 				viewProjection: this._gl.getUniformLocation(program, "uViewProjection"),
 				normalMatrix: this._gl.getUniformLocation(program, "uNormalMatrix"),
 				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
@@ -480,25 +513,73 @@ export class WebGLProgramLibrary {
 		return this._copyProgram;
 	}
 
-	public getSSAOProgram(): WebGLSSAOProgram {
-		if (this._ssaoProgram) {
-			return this._ssaoProgram;
+	public getSSAORawProgram(): WebGLSSAORawProgram {
+		if (this._ssaoRawProgram) {
+			return this._ssaoRawProgram;
 		}
 		const program = this._createProgram(
 			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
-			"WebGLSSAOProgram"
+			WEBGL_SSAO_RAW_FRAGMENT_SHADER,
+			"WebGLSSAORawProgram"
 		);
-		this._ssaoProgram = {
+		this._ssaoRawProgram = {
+			program,
+			uniforms: {
+				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
+				gtao: this._gl.getUniformLocation(program, "uGTAO"),
+				blurProj: this._gl.getUniformLocation(program, "uBlurProj"),
+				pass: this._gl.getUniformLocation(program, "uPass"),
+				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
+				basisRight: this._gl.getUniformLocation(program, "uBasisRight"),
+				basisUp: this._gl.getUniformLocation(program, "uBasisUp"),
+				basisBackward: this._gl.getUniformLocation(program, "uBasisBackward"),
+			},
+		};
+		return this._ssaoRawProgram;
+	}
+
+	public getSSAOBlurProgram(): WebGLSSAOBlurProgram {
+		if (this._ssaoBlurProgram) {
+			return this._ssaoBlurProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_SSAO_BLUR_FRAGMENT_SHADER,
+			"WebGLSSAOBlurProgram"
+		);
+		this._ssaoBlurProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
+				blurProj: this._gl.getUniformLocation(program, "uBlurProj"),
+				pass: this._gl.getUniformLocation(program, "uPass"),
+			},
+		};
+		return this._ssaoBlurProgram;
+	}
+
+	public getSSAOCombineProgram(): WebGLSSAOCombineProgram {
+		if (this._ssaoCombineProgram) {
+			return this._ssaoCombineProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_SSAO_COMBINE_FRAGMENT_SHADER,
+			"WebGLSSAOCombineProgram"
+		);
+		this._ssaoCombineProgram = {
 			program,
 			uniforms: {
 				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
-				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
-				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
-				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				aoMap: this._gl.getUniformLocation(program, "uAoMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
 			},
 		};
-		return this._ssaoProgram;
+		return this._ssaoCombineProgram;
 	}
 
 	public getTAAProgram(): WebGLTAAProgram {
@@ -606,9 +687,17 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(this._copyProgram.program);
 			this._copyProgram = null;
 		}
-		if (this._ssaoProgram) {
-			this._gl.deleteProgram(this._ssaoProgram.program);
-			this._ssaoProgram = null;
+		if (this._ssaoRawProgram) {
+			this._gl.deleteProgram(this._ssaoRawProgram.program);
+			this._ssaoRawProgram = null;
+		}
+		if (this._ssaoBlurProgram) {
+			this._gl.deleteProgram(this._ssaoBlurProgram.program);
+			this._ssaoBlurProgram = null;
+		}
+		if (this._ssaoCombineProgram) {
+			this._gl.deleteProgram(this._ssaoCombineProgram.program);
+			this._ssaoCombineProgram = null;
 		}
 		if (this._taaProgram) {
 			this._gl.deleteProgram(this._taaProgram.program);

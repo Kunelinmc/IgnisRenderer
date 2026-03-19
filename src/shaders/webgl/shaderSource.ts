@@ -14,7 +14,10 @@ type WebGLShaderPart =
 	| "copyFragment"
 	| "postProcessStubFragment"
 	| "fxaaFragment"
-	| "taaFragment";
+	| "taaFragment"
+	| "ssaoRawFragment"
+	| "ssaoBlurFragment"
+	| "ssaoCombineFragment";
 
 type RawShaderModule = {
 	default: string;
@@ -67,6 +70,9 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 	postProcessStubFragment: "./parts/postProcessStubFragment.glsl",
 	fxaaFragment: "./parts/fxaaFragment.glsl",
 	taaFragment: "./parts/taaFragment.glsl",
+	ssaoRawFragment: "./parts/ssaoRawFragment.glsl",
+	ssaoBlurFragment: "./parts/ssaoBlurFragment.glsl",
+	ssaoCombineFragment: "./parts/ssaoCombineFragment.glsl",
 };
 
 export function loadWebGLShaderPart(part: WebGLShaderPart): Promise<string> {

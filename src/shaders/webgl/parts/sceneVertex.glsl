@@ -6,6 +6,7 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aUv;
 
 uniform mat4 uModel;
+uniform mat4 uViewMatrix;
 uniform mat4 uViewProjection;
 uniform mat3 uNormalMatrix;
 uniform vec4 uTaaJitter;
@@ -17,12 +18,14 @@ out vec3 vNormal;
 out vec2 vUv;
 out vec4 vCurrentClip;
 out vec4 vPrevClip;
+out float vViewDepth;
 
 void main() {
 	vec4 worldPos = uModel * vec4(aPosition, 1.0);
 	vWorldPos = worldPos.xyz;
 	vNormal = normalize(uNormalMatrix * aNormal);
 	vUv = aUv;
+	vViewDepth = max(-(uViewMatrix * worldPos).z, 0.0);
 	
 	vec4 clipPos = uViewProjection * worldPos;
 	clipPos.xy += uTaaJitter.xy * clipPos.w;

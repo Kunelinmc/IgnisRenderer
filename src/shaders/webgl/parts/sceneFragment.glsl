@@ -16,6 +16,7 @@ in vec3 vNormal;
 in vec2 vUv;
 in vec4 vCurrentClip;
 in vec4 vPrevClip;
+in float vViewDepth;
 
 uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
@@ -54,6 +55,7 @@ uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
+layout(location = 2) out vec4 fragNormal;
 
 vec3 srgbToLinear(vec3 c) {
 	vec3 a = c / 12.92;
@@ -489,7 +491,8 @@ void main() {
 
 	color += uEmissive.rgb;
 	fragColor = vec4(max(color, vec3(0.0)), alpha);
+	fragNormal = vec4(normal * 0.5 + 0.5, 1.0);
 	vec2 curUV = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;
 	vec2 prevUV = (vPrevClip.xy / vPrevClip.w) * 0.5 + 0.5;
-	fragMotion = vec4(curUV - prevUV, vCurrentClip.z / vCurrentClip.w, 1.0);
+	fragMotion = vec4(curUV - prevUV, vViewDepth, 1.0);
 }

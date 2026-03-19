@@ -38,3 +38,12 @@ export const WEBGL_FXAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
 export const WEBGL_TAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
 	"taaFragment"
 );
+export const WEBGL_SSAO_RAW_FRAGMENT_SHADER = await loadWebGLShaderPart(
+	"ssaoRawFragment"
+);
+export const WEBGL_SSAO_BLUR_FRAGMENT_SHADER = await loadWebGLShaderPart(
+	"ssaoBlurFragment"
+);
+export const WEBGL_SSAO_COMBINE_FRAGMENT_SHADER = await loadWebGLShaderPart(
+	"ssaoCombineFragment"
+);
