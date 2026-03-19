@@ -107,22 +107,30 @@ interface InternalCommandBuffer {
 
 interface CachedSamplerEntry {
 	key: string;
-	sampler: InternalSampler;
+	label?: string;
+	gpuResource: GPUSampler;
 	refCount: number;
 }
 
 interface CachedShaderModuleEntry {
 	key: string;
+	label?: string;
 	refCount: number;
-	module: InternalShaderModule;
+	gpuResource: GPUShaderModule;
 }
 
-interface CachedPipelineEntry<
-	TPipeline extends InternalRenderPipeline | InternalComputePipeline,
-> {
+interface CachedRenderPipelineEntry {
 	key: string;
+	label?: string;
 	refCount: number;
-	pipeline: TPipeline;
+	gpuResource: GPURenderPipeline;
+}
+
+interface CachedComputePipelineEntry {
+	key: string;
+	label?: string;
+	refCount: number;
+	gpuResource: GPUComputePipeline;
 }
 
 interface BindingResourceSignature {
@@ -168,8 +176,7 @@ const BINDING_GROUP_REFCOUNT_WEIGHT = 32;
 const BINDING_GROUP_FRAME_AGE_WEIGHT = 8;
 const BINDING_GROUP_LRU_WEIGHT = 1;
 const MAX_RESOURCE_ID_POOL_SIZE = 65536;
-
-const MSAA_SELECTION_CACHE = new Map<string, number>();
+const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
 
 const WEBGPU_PASS_DEPENDENCIES = new Map<
 	FramePass["stage"],
@@ -222,15 +229,12 @@ export class WebGPUBackend implements IRenderBackend {
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _samplerCache = new Map<string, CachedSamplerEntry>();
 	private _shaderModuleCache = new Map<string, CachedShaderModuleEntry>();
-	private _shaderModuleInFlight = new Map<string, Promise<InternalShaderModule>>();
-	private _renderPipelineCache = new Map<
+	private _shaderModuleInFlight = new Map<
 		string,
-		CachedPipelineEntry<InternalRenderPipeline>
+		Promise<CachedShaderModuleEntry>
 	>();
-	private _computePipelineCache = new Map<
-		string,
-		CachedPipelineEntry<InternalComputePipeline>
-	>();
+	private _renderPipelineCache = new Map<string, CachedRenderPipelineEntry>();
+	private _computePipelineCache = new Map<string, CachedComputePipelineEntry>();
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
 	private _pipelineBindGroupLayoutCache = new Map<string, GPUBindGroupLayout>();
 	private _autoRenderPipelineLayoutCache = new Map<string, GPUPipelineLayout>();
@@ -280,6 +284,8 @@ export class WebGPUBackend implements IRenderBackend {
 		string,
 		WebGPUPostProcessPassPlugin
 	>();
+	private _msaaSelectionCache = new Map<string, number>();
+	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
 
 	constructor(canvas?: HTMLCanvasElement) {
@@ -377,9 +383,22 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 	}
 
-	public resize(_width: number, _height: number): void {
+	public resize(width: number, height: number): void {
 		if (!this.device || !this.context || !this.canvas) {
 			return;
+		}
+		const resolvedWidth =
+			Number.isFinite(width) ? Math.max(0, Math.floor(width)) : this.canvas.width;
+		const resolvedHeight =
+			Number.isFinite(height) ?
+				Math.max(0, Math.floor(height))
+			:	this.canvas.height;
+		if (
+			this.canvas.width !== resolvedWidth ||
+			this.canvas.height !== resolvedHeight
+		) {
+			this.canvas.width = resolvedWidth;
+			this.canvas.height = resolvedHeight;
 		}
 
 		this._submitPendingCopyCommands();
@@ -487,6 +506,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._plannedPasses.clear();
 		this._plannedPassOrder.clear();
 		this._pendingPostProcessPasses.clear();
+		this._msaaSelectionCache.clear();
+		this._preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 		this._msaaSampleCount = 1;
 		if (this.context) {
 			this.context.unconfigure();
@@ -519,11 +540,18 @@ export class WebGPUBackend implements IRenderBackend {
 		const buffer = {
 			size: desc.size,
 			destroy: () => {},
+			unmap: () => {},
 			_gpuResource: gpuBuffer,
 		} as InternalRenderBuffer;
+		buffer.unmap = () => {
+			this._tryUnmapBuffer(gpuBuffer);
+		};
 		buffer.destroy = this._createManagedDestroy(buffer, {
 			label: desc.label ?? "WebGPUBuffer",
-			dispose: () => gpuBuffer.destroy(),
+			dispose: () => {
+				this._tryUnmapBuffer(gpuBuffer);
+				gpuBuffer.destroy();
+			},
 		});
 		return buffer;
 	}
@@ -531,7 +559,13 @@ export class WebGPUBackend implements IRenderBackend {
 	public createTexture(desc: TextureDesc): IRenderTexture {
 		const dimension = (desc.dimension ?? "2d") as GPUTextureDimension;
 		const depthOrArrayLayers = Math.max(1, desc.depthOrArrayLayers ?? 1);
-		const sampleCount = Math.max(1, desc.sampleCount ?? 1);
+		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
+		const sampleCount =
+			dimension === "2d" ?
+				this._resolveSupportedMSAASampleCount(requestedSampleCount, [
+					desc.format as GPUTextureFormat,
+				])
+			:	1;
 		const size: GPUExtent3DStrict =
 			dimension === "1d" ?
 				{
@@ -575,7 +609,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const cacheKey = this._getSamplerCacheKey(desc);
 		const cached = this._getLruCacheEntry(this._samplerCache, cacheKey);
 		if (cached) {
-			return cached.sampler;
+			return this._acquireSamplerHandle(cached);
 		}
 
 		const gpuSampler = this.device.createSampler({
@@ -587,27 +621,18 @@ export class WebGPUBackend implements IRenderBackend {
 			label: desc.label,
 		});
 
-		const sampler = {
-			label: desc.label,
-			destroy: () => {},
-			_gpuResource: gpuSampler,
-		} as InternalSampler;
-		sampler.destroy = this._createManagedDestroy(sampler, {
-			label: desc.label ?? "WebGPUSampler",
-			dispose: () => {
-				this._releaseSamplerCacheEntry(cacheKey, sampler as InternalSampler);
-			},
-		});
-		this._samplerCache.set(cacheKey, {
+		const entry: CachedSamplerEntry = {
 			key: cacheKey,
 			refCount: 1,
-			sampler,
-		});
-		this._trimCache(
+			label: desc.label,
+			gpuResource: gpuSampler,
+		};
+		this._samplerCache.set(cacheKey, entry);
+		this._trimRefCountedCache(
 			this._samplerCache,
 			WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT
 		);
-		return sampler;
+		return this._acquireSamplerHandle(entry);
 	}
 
 	public async createShaderModule(
@@ -617,13 +642,13 @@ export class WebGPUBackend implements IRenderBackend {
 		const cached = this._shaderModuleCache.get(cacheKey);
 		if (cached) {
 			this._touchCacheEntry(this._shaderModuleCache, cacheKey, cached);
-			return cached.module;
+			return this._acquireShaderModuleHandle(cached);
 		}
 
 		const inFlight = this._shaderModuleInFlight.get(cacheKey);
 		if (inFlight) {
-			const module = await inFlight;
-			return module;
+			const entry = await inFlight;
+			return this._acquireShaderModuleHandle(entry);
 		}
 
 		const creationPromise = (async () => {
@@ -666,25 +691,18 @@ export class WebGPUBackend implements IRenderBackend {
 							});
 					}
 
-					const module = {
-						label: desc.label,
-						destroy: () => {},
-						_gpuResource: gpuModule,
-					} as InternalShaderModule;
-					module.destroy = this._createManagedDestroy(module, {
-						label: desc.label ?? "WebGPUShaderModule",
-						dispose: () => {
-							this._releaseShaderModuleCacheEntry(cacheKey, module);
-						},
-					});
-
-					this._shaderModuleCache.set(cacheKey, {
+					const entry: CachedShaderModuleEntry = {
 						key: cacheKey,
 						refCount: 1,
-						module,
-					});
-					this._trimCache(this._shaderModuleCache, WEBGPU_PIPELINE_CACHE_LIMIT);
-					return module;
+						label: desc.label,
+						gpuResource: gpuModule,
+					};
+					this._shaderModuleCache.set(cacheKey, entry);
+					this._trimRefCountedCache(
+						this._shaderModuleCache,
+						WEBGPU_PIPELINE_CACHE_LIMIT
+					);
+					return entry;
 				} catch (error) {
 					lastError = error;
 					if (attempt === 0) {
@@ -696,7 +714,8 @@ export class WebGPUBackend implements IRenderBackend {
 		})();
 		this._shaderModuleInFlight.set(cacheKey, creationPromise);
 		try {
-			return await creationPromise;
+			const entry = await creationPromise;
+			return this._acquireShaderModuleHandle(entry);
 		} catch (error) {
 			throw error;
 		} finally {
@@ -711,7 +730,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const cacheKey = this._getRenderPipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._renderPipelineCache, cacheKey);
 		if (cached) {
-			return cached.pipeline;
+			return this._acquireRenderPipelineHandle(cached);
 		}
 
 		const gpuPipeline = this._runValidationScope(
@@ -722,28 +741,18 @@ export class WebGPUBackend implements IRenderBackend {
 				)
 		);
 
-		const pipeline = {
-			label: desc.label,
-			destroy: () => {},
-			_gpuResource: gpuPipeline,
-		} as InternalRenderPipeline;
-		pipeline.destroy = this._createManagedDestroy(pipeline, {
-			label: desc.label ?? "WebGPURenderPipeline",
-			dispose: () => {
-				this._releasePipelineCacheEntry(
-					this._renderPipelineCache,
-					cacheKey,
-					pipeline as InternalRenderPipeline
-				);
-			},
-		});
-		this._renderPipelineCache.set(cacheKey, {
+		const entry: CachedRenderPipelineEntry = {
 			key: cacheKey,
 			refCount: 1,
-			pipeline,
-		});
-		this._trimCache(this._renderPipelineCache, WEBGPU_PIPELINE_CACHE_LIMIT);
-		return pipeline;
+			label: desc.label,
+			gpuResource: gpuPipeline,
+		};
+		this._renderPipelineCache.set(cacheKey, entry);
+		this._trimRefCountedCache(
+			this._renderPipelineCache,
+			WEBGPU_PIPELINE_CACHE_LIMIT
+		);
+		return this._acquireRenderPipelineHandle(entry);
 	}
 
 	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
@@ -751,7 +760,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const cacheKey = this._getComputePipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._computePipelineCache, cacheKey);
 		if (cached) {
-			return cached.pipeline;
+			return this._acquireComputePipelineHandle(cached);
 		}
 
 		const gpuPipeline = this._runValidationScope(
@@ -762,28 +771,18 @@ export class WebGPUBackend implements IRenderBackend {
 				)
 		);
 
-		const pipeline = {
-			label: desc.label,
-			destroy: () => {},
-			_gpuResource: gpuPipeline,
-		} as InternalComputePipeline;
-		pipeline.destroy = this._createManagedDestroy(pipeline, {
-			label: desc.label ?? "WebGPUComputePipeline",
-			dispose: () => {
-				this._releasePipelineCacheEntry(
-					this._computePipelineCache,
-					cacheKey,
-					pipeline as InternalComputePipeline
-				);
-			},
-		});
-		this._computePipelineCache.set(cacheKey, {
+		const entry: CachedComputePipelineEntry = {
 			key: cacheKey,
 			refCount: 1,
-			pipeline,
-		});
-		this._trimCache(this._computePipelineCache, WEBGPU_PIPELINE_CACHE_LIMIT);
-		return pipeline;
+			label: desc.label,
+			gpuResource: gpuPipeline,
+		};
+		this._computePipelineCache.set(cacheKey, entry);
+		this._trimRefCountedCache(
+			this._computePipelineCache,
+			WEBGPU_PIPELINE_CACHE_LIMIT
+		);
+		return this._acquireComputePipelineHandle(entry);
 	}
 
 	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
@@ -1013,7 +1012,14 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!Number.isFinite(sampleCount)) {
 			return;
 		}
-		this._msaaSampleCount = Math.max(1, Math.floor(sampleCount));
+		const requested = Math.max(1, Math.floor(sampleCount));
+		this._preferredMSAASampleCount = requested;
+		const resolved = this._resolveSupportedMSAASampleCount(requested);
+		if (resolved === this._msaaSampleCount) {
+			return;
+		}
+		this._msaaSampleCount = resolved;
+		this._onMSAASampleCountChanged();
 	}
 
 	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
@@ -1094,32 +1100,104 @@ export class WebGPUBackend implements IRenderBackend {
 		return `len:${desc.code.length}|hash:${hash}`;
 	}
 
+	private _acquireSamplerHandle(entry: CachedSamplerEntry): InternalSampler {
+		this._bumpRefCount(entry);
+		const sampler = {
+			label: entry.label,
+			destroy: () => {},
+			_gpuResource: entry.gpuResource,
+		} as InternalSampler;
+		sampler.destroy = this._createManagedDestroy(sampler, {
+			label: entry.label ?? "WebGPUSampler",
+			dispose: () => {
+				this._releaseSamplerCacheEntry(entry.key, entry.gpuResource);
+			},
+		});
+		return sampler;
+	}
+
+	private _acquireShaderModuleHandle(
+		entry: CachedShaderModuleEntry
+	): InternalShaderModule {
+		this._bumpRefCount(entry);
+		const module = {
+			label: entry.label,
+			destroy: () => {},
+			_gpuResource: entry.gpuResource,
+		} as InternalShaderModule;
+		module.destroy = this._createManagedDestroy(module, {
+			label: entry.label ?? "WebGPUShaderModule",
+			dispose: () => {
+				this._releaseShaderModuleCacheEntry(entry.key, entry.gpuResource);
+			},
+		});
+		return module;
+	}
+
+	private _acquireRenderPipelineHandle(
+		entry: CachedRenderPipelineEntry
+	): InternalRenderPipeline {
+		this._bumpRefCount(entry);
+		const pipeline = {
+			label: entry.label,
+			destroy: () => {},
+			_gpuResource: entry.gpuResource,
+		} as InternalRenderPipeline;
+		pipeline.destroy = this._createManagedDestroy(pipeline, {
+			label: entry.label ?? "WebGPURenderPipeline",
+			dispose: () => {
+				this._releasePipelineCacheEntry(
+					this._renderPipelineCache,
+					entry.key,
+					entry.gpuResource
+				);
+			},
+		});
+		return pipeline;
+	}
+
+	private _acquireComputePipelineHandle(
+		entry: CachedComputePipelineEntry
+	): InternalComputePipeline {
+		this._bumpRefCount(entry);
+		const pipeline = {
+			label: entry.label,
+			destroy: () => {},
+			_gpuResource: entry.gpuResource,
+		} as InternalComputePipeline;
+		pipeline.destroy = this._createManagedDestroy(pipeline, {
+			label: entry.label ?? "WebGPUComputePipeline",
+			dispose: () => {
+				this._releasePipelineCacheEntry(
+					this._computePipelineCache,
+					entry.key,
+					entry.gpuResource
+				);
+			},
+		});
+		return pipeline;
+	}
+
 	private _releaseSamplerCacheEntry(
 		key: string,
-		sampler: InternalSampler
+		sampler: GPUSampler
 	): void {
 		const cached = this._samplerCache.get(key);
-		if (!cached || cached.sampler !== sampler) {
+		if (!cached || cached.gpuResource !== sampler) {
 			return;
 		}
-		cached.refCount = Math.max(0, cached.refCount - 1);
-		if (cached.refCount <= 0) {
-			this._samplerCache.delete(key);
-		}
+		cached.refCount = Math.max(1, cached.refCount - 1);
 	}
 
 	private _releaseShaderModuleCacheEntry(
 		key: string,
-		module: InternalShaderModule
+		module: GPUShaderModule
 	): void {
 		const cached = this._shaderModuleCache.get(key);
-		if (!cached || cached.module !== module) {
+		if (!cached || cached.gpuResource !== module) {
 			return;
 		}
-		cached.refCount = Math.max(0, cached.refCount - 1);
-		if (cached.refCount <= 0) {
-			this._shaderModuleCache.delete(key);
-		}
+		cached.refCount = Math.max(1, cached.refCount - 1);
 	}
 
 	private _bumpRefCount(entry: { refCount: number }): void {
@@ -1164,21 +1242,16 @@ export class WebGPUBackend implements IRenderBackend {
 		this._freeResourceIds.push(id);
 	}
 
-	private _releasePipelineCacheEntry<
-		TPipeline extends InternalRenderPipeline | InternalComputePipeline,
-	>(
-		cache: Map<string, CachedPipelineEntry<TPipeline>>,
+	private _releasePipelineCacheEntry<TPipeline extends object>(
+		cache: Map<string, { refCount: number; gpuResource: TPipeline }>,
 		key: string,
 		pipeline: TPipeline
 	): void {
 		const cached = cache.get(key);
-		if (!cached || cached.pipeline !== pipeline) {
+		if (!cached || cached.gpuResource !== pipeline) {
 			return;
 		}
-		cached.refCount = Math.max(0, cached.refCount - 1);
-		if (cached.refCount <= 0) {
-			cache.delete(key);
-		}
+		cached.refCount = Math.max(1, cached.refCount - 1);
 	}
 
 	private _resolveRenderPipelineLayout(
@@ -1188,7 +1261,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (explicitLayout) {
 			return explicitLayout;
 		}
-		return "auto";
+		return this._resolveAutoRenderPipelineLayout(desc);
 	}
 
 	private _resolveComputePipelineLayout(
@@ -1198,7 +1271,67 @@ export class WebGPUBackend implements IRenderBackend {
 		if (explicitLayout) {
 			return explicitLayout;
 		}
-		return "auto";
+		return this._resolveAutoComputePipelineLayout(desc);
+	}
+
+	private _resolveAutoRenderPipelineLayout(desc: PipelineDesc): GPUPipelineLayout {
+		const cacheKey = this._getRenderAutoLayoutCacheKey(desc);
+		const cached = this._getLruCacheEntry(
+			this._autoRenderPipelineLayoutCache,
+			cacheKey
+		);
+		if (cached) {
+			return cached;
+		}
+		const probePipeline = this._runValidationScope(
+			`createRenderPipeline:autoLayoutProbe:${desc.label ?? "unnamed"}`,
+			() =>
+				this.device.createRenderPipeline(
+					this._createRenderPipelineDescriptor(desc, "auto")
+				)
+		);
+		const bindGroupLayouts = this._collectPipelineBindGroupLayouts(probePipeline);
+		const pipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts,
+			label: `${desc.label ?? "unnamed"}:autoLayout`,
+		});
+		this._autoRenderPipelineLayoutCache.set(cacheKey, pipelineLayout);
+		this._trimCache(
+			this._autoRenderPipelineLayoutCache,
+			WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT
+		);
+		return pipelineLayout;
+	}
+
+	private _resolveAutoComputePipelineLayout(
+		desc: ComputePipelineDesc
+	): GPUPipelineLayout {
+		const cacheKey = this._getComputeAutoLayoutCacheKey(desc);
+		const cached = this._getLruCacheEntry(
+			this._autoComputePipelineLayoutCache,
+			cacheKey
+		);
+		if (cached) {
+			return cached;
+		}
+		const probePipeline = this._runValidationScope(
+			`createComputePipeline:autoLayoutProbe:${desc.label ?? "unnamed"}`,
+			() =>
+				this.device.createComputePipeline(
+					this._createComputePipelineDescriptor(desc, "auto")
+				)
+		);
+		const bindGroupLayouts = this._collectPipelineBindGroupLayouts(probePipeline);
+		const pipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts,
+			label: `${desc.label ?? "unnamed"}:autoLayout`,
+		});
+		this._autoComputePipelineLayoutCache.set(cacheKey, pipelineLayout);
+		this._trimCache(
+			this._autoComputePipelineLayoutCache,
+			WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT
+		);
+		return pipelineLayout;
 	}
 
 	private _resolveExplicitPipelineLayout(
@@ -1214,7 +1347,11 @@ export class WebGPUBackend implements IRenderBackend {
 		desc: PipelineDesc,
 		layout: GPUPipelineLayout | GPUAutoLayoutMode
 	): GPURenderPipelineDescriptor {
-		const sampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
+		const probeFormats = this._getRenderPipelineProbeFormats(desc);
+		const sampleCount = this._resolveSupportedMSAASampleCount(
+			Math.max(1, Math.floor(desc.sampleCount ?? 1)),
+			probeFormats
+		);
 		return {
 			layout,
 			vertex: {
@@ -1277,6 +1414,19 @@ export class WebGPUBackend implements IRenderBackend {
 		};
 	}
 
+	private _getRenderPipelineProbeFormats(desc: PipelineDesc): GPUTextureFormat[] {
+		const formats: GPUTextureFormat[] = [];
+		if (desc.fragment?.targets) {
+			for (const target of desc.fragment.targets) {
+				formats.push(target.format as GPUTextureFormat);
+			}
+		}
+		if (desc.depthStencil?.format) {
+			formats.push(desc.depthStencil.format as GPUTextureFormat);
+		}
+		return formats;
+	}
+
 	private _getRenderAutoLayoutCacheKey(desc: PipelineDesc): string {
 		return [
 			`vs.module:${this._getCacheToken(desc.vertex.module)}`,
@@ -1303,7 +1453,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const layouts: GPUBindGroupLayout[] = [];
 		for (let i = 0; i < maxBindGroups; i++) {
 			try {
-				const layout = this._getPipelineBindGroupLayout(pipeline, i);
+				const layout = pipeline.getBindGroupLayout(i);
 				if (!layout) {
 					break;
 				}
@@ -1366,8 +1516,13 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 		parts.push(`primitive.cull:${desc.primitive?.cullMode ?? "none"}`);
 		parts.push(`primitive.front:${desc.primitive?.frontFace ?? "ccw"}`);
+		const probeFormats = this._getRenderPipelineProbeFormats(desc);
+		const sampleCount = this._resolveSupportedMSAASampleCount(
+			Math.max(1, Math.floor(desc.sampleCount ?? 1)),
+			probeFormats
+		);
 		parts.push(
-			`multisample.count:${Math.max(1, Math.floor(desc.sampleCount ?? 1))}`
+			`multisample.count:${sampleCount}`
 		);
 		if (desc.depthStencil) {
 			parts.push(`depth.format:${desc.depthStencil.format}`);
@@ -1627,6 +1782,13 @@ export class WebGPUBackend implements IRenderBackend {
 			return `symbol:${String(value)}`;
 		}
 		if (type === "function" || type === "object") {
+			const backendHandle = value as { _gpuResource?: unknown };
+			if (
+				backendHandle._gpuResource &&
+				typeof backendHandle._gpuResource === "object"
+			) {
+				return `obj:${this._getObjectId(backendHandle._gpuResource as object)}`;
+			}
 			return `obj:${this._getObjectId(value as object)}`;
 		}
 		return `${type}:${String(value)}`;
@@ -1733,6 +1895,29 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 			if (this._removeBindingGroupCacheEntry(candidate.hashKey, candidate.entry)) {
 				remainingToEvict--;
+			}
+		}
+	}
+
+	private _trimRefCountedCache<
+		K,
+		T extends {
+			refCount: number;
+		},
+	>(cache: Map<K, T>, maxSize: number): void {
+		if (cache.size <= maxSize) {
+			return;
+		}
+		const toEvict = cache.size - maxSize;
+		let evicted = 0;
+		for (const [key, entry] of cache.entries()) {
+			if (entry.refCount > 1) {
+				continue;
+			}
+			cache.delete(key);
+			evicted++;
+			if (evicted >= toEvict) {
+				break;
 			}
 		}
 	}
@@ -1978,33 +2163,130 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _selectMSAASampleCount(): number {
-		const preferred = Math.max(1, Math.floor(WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT));
-		if (preferred <= 1) {
-			return 1;
-		}
+		const preferred = Math.max(
+			1,
+			Math.floor(this._preferredMSAASampleCount)
+		);
+		return this._resolveSupportedMSAASampleCount(preferred);
+	}
+
+	private _onMSAASampleCountChanged(): void {
+		this._submitPendingCopyCommands();
+		this._renderPipelineCache.clear();
+		this._pipelineBindGroupLayoutCache.clear();
+		this._bindingGroupCache.clear();
+		this._frameExecutor?.invalidateFrameTargets();
+		this._resetCurrentCanvasTargets();
+	}
+
+	private _resolveSupportedMSAASampleCount(
+		requested: number,
+		probeFormats?: readonly GPUTextureFormat[]
+	): number {
+		const normalized = Math.max(1, Math.floor(requested));
 		const maxColorAttachments = this.device?.limits?.maxColorAttachments ?? 0;
 		const maxColorAttachmentBytesPerSample =
 			this.device?.limits?.maxColorAttachmentBytesPerSample ?? 0;
-		const clampedPreferred = Math.min(4, preferred);
+		const formats = this._getMSAAProbeFormats(probeFormats);
+		const formatsKey = formats.join(",");
 		const cacheKey = [
-			`pref:${clampedPreferred}`,
+			`device:${this._getCacheToken(this.device)}`,
+			`requested:${normalized}`,
 			`maxAttachments:${maxColorAttachments}`,
 			`maxBytes:${maxColorAttachmentBytesPerSample}`,
+			`formats:${formatsKey}`,
 		].join("|");
-		const cached = MSAA_SELECTION_CACHE.get(cacheKey);
+		const cached = this._msaaSelectionCache.get(cacheKey);
 		if (cached !== undefined) {
 			return cached;
 		}
 
-		let selected = clampedPreferred;
+		const candidates = Array.from(
+			new Set([
+				normalized,
+				...WEBGPU_MSAA_SAMPLE_CANDIDATES.filter(
+					(sampleCount) => sampleCount <= normalized
+				),
+				1,
+			])
+		).sort((left, right) => right - left);
+
+		let selected = 1;
+		for (const candidate of candidates) {
+			if (this._isMSAASampleCountSupported(candidate, formats)) {
+				selected = candidate;
+				break;
+			}
+		}
+		this._msaaSelectionCache.set(cacheKey, selected);
+		return selected;
+	}
+
+	private _isMSAASampleCountSupported(
+		sampleCount: number,
+		probeFormats?: readonly GPUTextureFormat[]
+	): boolean {
+		if (!Number.isInteger(sampleCount) || sampleCount < 1) {
+			return false;
+		}
+		if (sampleCount === 1) {
+			return true;
+		}
+		if (!this.device || typeof this.device.createTexture !== "function") {
+			return false;
+		}
+		const maxColorAttachments = this.device?.limits?.maxColorAttachments ?? 0;
+		const maxColorAttachmentBytesPerSample =
+			this.device?.limits?.maxColorAttachmentBytesPerSample ?? 0;
 		if (
 			maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT ||
 			maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
 		) {
-			selected = 1;
+			return false;
 		}
-		MSAA_SELECTION_CACHE.set(cacheKey, selected);
-		return selected;
+		for (const format of this._getMSAAProbeFormats(probeFormats)) {
+			if (!this._probeSampleCountForFormat(sampleCount, format)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private _getMSAAProbeFormats(
+		probeFormats?: readonly GPUTextureFormat[]
+	): GPUTextureFormat[] {
+		const formats = new Set<GPUTextureFormat>([
+			this.canvasFormat,
+			this.canvasDepthFormat as GPUTextureFormat,
+			TextureFormat.RGBA16Float as GPUTextureFormat,
+			TextureFormat.RGBA8Unorm as GPUTextureFormat,
+			TextureFormat.Depth32Float as GPUTextureFormat,
+		]);
+		if (probeFormats) {
+			for (const format of probeFormats) {
+				formats.add(format);
+			}
+		}
+		return Array.from(formats);
+	}
+
+	private _probeSampleCountForFormat(
+		sampleCount: number,
+		format: GPUTextureFormat
+	): boolean {
+		try {
+			const probeTexture = this.device.createTexture({
+				size: [1, 1, 1],
+				sampleCount,
+				format,
+				usage: GPUTextureUsage.RENDER_ATTACHMENT,
+				label: `WebGPUMSAAProbe_${format}_${sampleCount}`,
+			});
+			probeTexture.destroy();
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	private _initTimestampResources(): void {

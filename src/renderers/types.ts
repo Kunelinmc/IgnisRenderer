@@ -213,6 +213,7 @@ export interface IShaderModule {
 export interface IRenderBuffer {
 	readonly size: number;
 	destroy(): void;
+	unmap?(): void;
 	/** Internal backend resource handle */
 	_gpuResource?: BackendResourceHandle;
 	_cpuData?: ArrayBuffer;
