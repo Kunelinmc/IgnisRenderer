@@ -1,9 +1,38 @@
 import assert from "node:assert/strict";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
+import { BufferUsage, TextureFormat } from "../src/renderers/types.ts";
+
+if (!globalThis.GPUBufferUsage) {
+	globalThis.GPUBufferUsage = {
+		VERTEX: 1 << 0,
+		INDEX: 1 << 1,
+		UNIFORM: 1 << 2,
+		STORAGE: 1 << 3,
+		COPY_SRC: 1 << 4,
+		COPY_DST: 1 << 5,
+		MAP_READ: 1 << 6,
+		MAP_WRITE: 1 << 7,
+		QUERY_RESOLVE: 1 << 8,
+	};
+}
+
+if (!globalThis.GPUTextureUsage) {
+	globalThis.GPUTextureUsage = {
+		COPY_SRC: 1 << 0,
+		COPY_DST: 1 << 1,
+		TEXTURE_BINDING: 1 << 2,
+		STORAGE_BINDING: 1 << 3,
+		RENDER_ATTACHMENT: 1 << 4,
+	};
+}
 
 class FakeDevice {
 	constructor() {
-		this.limits = { maxBindGroups: 4 };
+		this.limits = {
+			maxBindGroups: 4,
+			maxColorAttachments: 8,
+			maxColorAttachmentBytesPerSample: 64,
+		};
 		this.defaultBindGroupLayout = { id: "group0" };
 		this.shaderModuleDescs = [];
 		this.shaderModuleFailuresRemaining = 0;
@@ -12,6 +41,10 @@ class FakeDevice {
 		this.pipelineLayouts = [];
 		this.bindGroupDescs = [];
 		this.samplerDescs = [];
+		this.textureDescs = [];
+		this.bufferDescs = [];
+		this.configureCalls = 0;
+		this.supportedSampleCounts = new Set([1, 4]);
 	}
 
 	createSampler(desc) {
@@ -68,6 +101,46 @@ class FakeDevice {
 	createBindGroup(desc) {
 		this.bindGroupDescs.push(desc);
 		return { desc };
+	}
+
+	createTexture(desc) {
+		this.textureDescs.push(desc);
+		const sampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
+		if (!this.supportedSampleCounts.has(sampleCount)) {
+			throw new Error(`unsupported sample count: ${sampleCount}`);
+		}
+		return {
+			desc,
+			createView() {
+				return { desc };
+			},
+			destroy() {},
+		};
+	}
+
+	createBuffer(desc) {
+		this.bufferDescs.push(desc);
+		const bufferState = {
+			mapState: desc.mappedAtCreation ? "mapped" : "unmapped",
+			_range: new ArrayBuffer(desc.size),
+		};
+		return {
+			get mapState() {
+				return bufferState.mapState;
+			},
+			getMappedRange() {
+				if (bufferState.mapState !== "mapped") {
+					throw new Error("buffer is not mapped");
+				}
+				return bufferState._range;
+			},
+			unmap() {
+				bufferState.mapState = "unmapped";
+			},
+			destroy() {
+				bufferState.mapState = "destroyed";
+			},
+		};
 	}
 
 	createCommandEncoder() {
@@ -134,19 +207,30 @@ async function testShaderModuleCacheUsesHashKey() {
 	const { backend, device } = createBackend();
 	const shaderCode = "fn testMain() -> f32 { return 1.0; }";
 
-	await backend.createShaderModule({ code: shaderCode, label: "A" });
-	await backend.createShaderModule({
+	const moduleA = await backend.createShaderModule({
+		code: shaderCode,
+		label: "A",
+	});
+	const moduleB = await backend.createShaderModule({
 		code: `${shaderCode}`,
 		label: "B",
 	});
 
+	assert.notEqual(moduleA, moduleB);
+	assert.equal(moduleA._gpuResource, moduleB._gpuResource);
 	assert.equal(device.shaderModuleDescs.length, 1);
 	const cacheKeys = Array.from(backend._shaderModuleCache.keys());
 	assert.equal(cacheKeys.length, 1);
 	assert.notEqual(cacheKeys[0], shaderCode);
 	assert.ok(cacheKeys[0].includes("hash:"));
 	const entry = backend._shaderModuleCache.values().next().value;
-	assert.equal(typeof entry.module.then, "undefined");
+	assert.equal(entry.refCount, 3);
+	assert.equal(entry.gpuResource, moduleA._gpuResource);
+
+	moduleA.destroy();
+	assert.equal(entry.refCount, 2);
+	moduleB.destroy();
+	assert.equal(entry.refCount, 1);
 }
 
 async function testShaderModuleRetryWithinSingleRequest() {
@@ -165,14 +249,16 @@ function testSamplerReferenceCounting() {
 	const samplerA = backend.createSampler({});
 	const samplerB = backend.createSampler({});
 
-	assert.equal(samplerA, samplerB);
+	assert.notEqual(samplerA, samplerB);
+	assert.equal(samplerA._gpuResource, samplerB._gpuResource);
 	const samplerEntry = backend._samplerCache.values().next().value;
-	assert.equal(samplerEntry.refCount, 1);
+	assert.equal(samplerEntry.refCount, 3);
 
 	samplerA.destroy();
-	assert.equal(backend._samplerCache.size, 0);
+	assert.equal(samplerEntry.refCount, 2);
 	samplerB.destroy();
-	assert.equal(backend._samplerCache.size, 0);
+	assert.equal(samplerEntry.refCount, 1);
+	assert.equal(backend._samplerCache.size, 1);
 }
 
 async function testComputePipelineAutoLayoutCaching() {
@@ -192,10 +278,51 @@ async function testComputePipelineAutoLayoutCaching() {
 	const pipelineA = backend.createComputePipeline(desc);
 	const pipelineB = backend.createComputePipeline(desc);
 
-	assert.equal(pipelineA, pipelineB);
-	assert.equal(device.pipelineLayouts.length, 0);
-	assert.equal(device.computePipelineDescs.length, 1);
+	assert.notEqual(pipelineA, pipelineB);
+	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
+	assert.equal(device.pipelineLayouts.length, 1);
+	assert.equal(device.computePipelineDescs.length, 2);
 	assert.equal(device.computePipelineDescs[0].layout, "auto");
+	assert.equal(device.computePipelineDescs[1].layout, device.pipelineLayouts[0]);
+	assert.equal(backend._autoComputePipelineLayoutCache.size, 1);
+}
+
+async function testRenderPipelineAutoLayoutCaching() {
+	const { backend, device } = createBackend();
+	const shader = await backend.createShaderModule({
+		code: "shader render",
+		label: "RenderShader",
+	});
+	const desc = {
+		label: "RenderPipeline",
+		vertex: {
+			module: shader,
+			entryPoint: "vsMain",
+			buffers: [],
+		},
+		fragment: {
+			module: shader,
+			entryPoint: "fsMain",
+			targets: [{ format: TextureFormat.RGBA8Unorm }],
+		},
+		depthStencil: {
+			format: TextureFormat.Depth24Plus,
+			depthWriteEnabled: true,
+			depthCompare: "less",
+		},
+		sampleCount: 4,
+	};
+
+	const pipelineA = backend.createPipeline(desc);
+	const pipelineB = backend.createPipeline(desc);
+
+	assert.notEqual(pipelineA, pipelineB);
+	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
+	assert.equal(device.pipelineLayouts.length, 1);
+	assert.equal(device.renderPipelineDescs.length, 2);
+	assert.equal(device.renderPipelineDescs[0].layout, "auto");
+	assert.equal(device.renderPipelineDescs[1].layout, device.pipelineLayouts[0]);
+	assert.equal(backend._autoRenderPipelineLayoutCache.size, 1);
 }
 
 function testBindingGroupCacheUsesHashedKey() {
@@ -270,6 +397,68 @@ function testBindingGroupHashCollisionBucketSafety() {
 	backend._getBindingGroupCacheKey = originalGetHashKey;
 }
 
+function testSetMSAASampleCountClampsAndInvalidates() {
+	const { backend } = createBackend();
+	let invalidationCount = 0;
+	backend._frameExecutor = {
+		invalidateFrameTargets() {
+			invalidationCount++;
+		},
+	};
+	backend._renderPipelineCache.set("cached", {
+		key: "cached",
+		label: "cached",
+		refCount: 1,
+		gpuResource: { getBindGroupLayout() {} },
+	});
+
+	backend.setMSAASampleCount(8);
+	assert.equal(backend.getMSAASampleCount(), 4);
+	assert.equal(invalidationCount, 1);
+	assert.equal(backend._renderPipelineCache.size, 0);
+
+	backend.setMSAASampleCount(3);
+	assert.equal(backend.getMSAASampleCount(), 1);
+	assert.equal(invalidationCount, 2);
+}
+
+function testCreateBufferMappedAtCreationExposesUnmap() {
+	const { backend } = createBackend();
+	const buffer = backend.createBuffer({
+		size: 32,
+		usage: BufferUsage.CopyDst,
+		mappedAtCreation: true,
+	});
+	assert.equal(typeof buffer.unmap, "function");
+	assert.equal(buffer._gpuResource.mapState, "mapped");
+	buffer.unmap();
+	assert.equal(buffer._gpuResource.mapState, "unmapped");
+	buffer.destroy();
+	assert.equal(buffer._gpuResource.mapState, "destroyed");
+}
+
+function testResizeUsesProvidedDimensions() {
+	const { backend, device } = createBackend();
+	let invalidateCalls = 0;
+	backend.canvas = { width: 1, height: 1 };
+	backend.context = {
+		configure(config) {
+			device.configureCalls++;
+			assert.equal(config.device, device);
+		},
+	};
+	backend._frameExecutor = {
+		invalidateFrameTargets() {
+			invalidateCalls++;
+		},
+	};
+	backend.resize(320.9, 240.2);
+	assert.equal(backend.canvas.width, 320);
+	assert.equal(backend.canvas.height, 240);
+	assert.equal(device.configureCalls, 1);
+	assert.equal(invalidateCalls, 1);
+}
+
 function testMapBindingResourceRejectsPrimitive() {
 	const { backend } = createBackend();
 	assert.throws(
@@ -327,8 +516,12 @@ async function run() {
 	await testShaderModuleRetryWithinSingleRequest();
 	testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
+	await testRenderPipelineAutoLayoutCaching();
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
+	testSetMSAASampleCountClampsAndInvalidates();
+	testCreateBufferMappedAtCreationExposesUnmap();
+	testResizeUsesProvidedDimensions();
 	testMapBindingResourceRejectsPrimitive();
 	testPassDependencyValidation();
 	console.log("WebGPU backend cache/dependency tests passed");
