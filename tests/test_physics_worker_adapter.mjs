@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Node } from "../src/core/Node.ts";
 import { PhysicsSystem } from "../src/physics/PhysicsSystem.ts";
 import { SimplePhysicsAdapter } from "../src/physics/adapters/SimplePhysicsAdapter.ts";
+import { AmmoWorkerPhysicsAdapter } from "../src/physics/adapters/AmmoWorkerPhysicsAdapter.ts";
 import { RapierWorkerPhysicsAdapter } from "../src/physics/adapters/RapierWorkerPhysicsAdapter.ts";
 import {
 	postMessageWorkerTransportPlugin,
@@ -125,6 +126,16 @@ function createWorkerHandler(observedModes, dispatchPayloads) {
 	};
 }
 
+function createWorkerAdapter(adapterType, options) {
+	if (adapterType === "rapier") {
+		return new RapierWorkerPhysicsAdapter(options);
+	}
+	if (adapterType === "ammo") {
+		return new AmmoWorkerPhysicsAdapter(options);
+	}
+	throw new Error(`Unknown worker adapter type "${adapterType}"`);
+}
+
 async function testPhysicsSystemStepAsyncUsesAdapterAsyncPath() {
 	const adapter = new AsyncOnlyStepAdapter();
 	const physics = new PhysicsSystem({ adapter });
@@ -152,10 +163,10 @@ async function testPhysicsSystemStepAsyncUsesAdapterAsyncPath() {
 	assert.ok(node.position.x > 0);
 }
 
-async function testWorkerAdapterFallsBackToPostMessageTransport() {
+async function testWorkerAdapterFallsBackToPostMessageTransport(adapterType) {
 	const observedModes = [];
 	const dispatchPayloads = [];
-	const adapter = new RapierWorkerPhysicsAdapter({
+	const adapter = createWorkerAdapter(adapterType, {
 		strict: false,
 		fallbackOnWorkerFailure: false,
 		runtimeCapabilities: {
@@ -202,12 +213,12 @@ async function testWorkerAdapterFallsBackToPostMessageTransport() {
 	assert.ok(observedModes.every((mode) => mode === "post-message"));
 }
 
-async function testWorkerAdapterPrefersSharedArrayBufferTransport() {
+async function testWorkerAdapterPrefersSharedArrayBufferTransport(adapterType) {
 	if (typeof SharedArrayBuffer !== "function") return;
 
 	const observedModes = [];
 	const dispatchPayloads = [];
-	const adapter = new RapierWorkerPhysicsAdapter({
+	const adapter = createWorkerAdapter(adapterType, {
 		strict: false,
 		fallbackOnWorkerFailure: false,
 		runtimeCapabilities: {
@@ -231,8 +242,10 @@ async function testWorkerAdapterPrefersSharedArrayBufferTransport() {
 
 async function run() {
 	await testPhysicsSystemStepAsyncUsesAdapterAsyncPath();
-	await testWorkerAdapterFallsBackToPostMessageTransport();
-	await testWorkerAdapterPrefersSharedArrayBufferTransport();
+	await testWorkerAdapterFallsBackToPostMessageTransport("rapier");
+	await testWorkerAdapterFallsBackToPostMessageTransport("ammo");
+	await testWorkerAdapterPrefersSharedArrayBufferTransport("rapier");
+	await testWorkerAdapterPrefersSharedArrayBufferTransport("ammo");
 	console.log("Physics worker adapter tests passed");
 }
 
