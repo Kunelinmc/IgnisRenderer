@@ -46,6 +46,7 @@ function run() {
 	assert.equal(webgl.passExecutors["particle-sim"], "backend");
 
 	testSoftwareBackendReusesFrameImageData();
+	testSoftwareBackendHandlesResizeDuringFrame();
 
 	console.log("Backend capability tests passed");
 }
@@ -101,6 +102,57 @@ function testSoftwareBackendReusesFrameImageData() {
 		assert.strictEqual(putCalls[0].imageData, putCalls[1].imageData);
 		assert.strictEqual(putCalls[0].imageData.data, pixels);
 		assert.equal(putCalls[1].imageData.data[0], 21);
+	} finally {
+		globalThis.ImageData = OriginalImageData;
+	}
+}
+
+function testSoftwareBackendHandlesResizeDuringFrame() {
+	const OriginalImageData = globalThis.ImageData;
+
+	class StrictImageData {
+		constructor(dataOrWidth, widthOrHeight, maybeHeight) {
+			if (dataOrWidth instanceof Uint8ClampedArray) {
+				this.width = widthOrHeight;
+				this.height = maybeHeight;
+				if (dataOrWidth.length !== this.width * this.height * 4) {
+					throw new RangeError("ImageData source length mismatch.");
+				}
+				this.data = dataOrWidth;
+				return;
+			}
+
+			this.width = dataOrWidth;
+			this.height = widthOrHeight;
+			this.data = new Uint8ClampedArray(this.width * this.height * 4);
+		}
+	}
+
+	globalThis.ImageData = StrictImageData;
+
+	try {
+		const backend = new SoftwareBackend();
+		const attachments = backend.getAttachments(2, 2);
+		const putCalls = [];
+
+		attachments.pixels[0] = 99;
+		backend._renderer = {
+			canvas: {
+				width: 1,
+				height: 1,
+			},
+		};
+		backend._ctx = {
+			putImageData(imageData, x, y) {
+				putCalls.push({ imageData, x, y });
+			},
+		};
+
+		assert.doesNotThrow(() => backend.endFrame());
+		assert.equal(putCalls.length, 1);
+		assert.equal(putCalls[0].imageData.width, 2);
+		assert.equal(putCalls[0].imageData.height, 2);
+		assert.equal(putCalls[0].imageData.data[0], 99);
 	} finally {
 		globalThis.ImageData = OriginalImageData;
 	}
