@@ -1261,7 +1261,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (explicitLayout) {
 			return explicitLayout;
 		}
-		return this._resolveAutoRenderPipelineLayout(desc);
+		return this._resolveAutoRenderPipelineLayout();
 	}
 
 	private _resolveComputePipelineLayout(
@@ -1271,67 +1271,21 @@ export class WebGPUBackend implements IRenderBackend {
 		if (explicitLayout) {
 			return explicitLayout;
 		}
-		return this._resolveAutoComputePipelineLayout(desc);
+		return this._resolveAutoComputePipelineLayout();
 	}
 
-	private _resolveAutoRenderPipelineLayout(desc: PipelineDesc): GPUPipelineLayout {
-		const cacheKey = this._getRenderAutoLayoutCacheKey(desc);
-		const cached = this._getLruCacheEntry(
-			this._autoRenderPipelineLayoutCache,
-			cacheKey
-		);
-		if (cached) {
-			return cached;
-		}
-		const probePipeline = this._runValidationScope(
-			`createRenderPipeline:autoLayoutProbe:${desc.label ?? "unnamed"}`,
-			() =>
-				this.device.createRenderPipeline(
-					this._createRenderPipelineDescriptor(desc, "auto")
-				)
-		);
-		const bindGroupLayouts = this._collectPipelineBindGroupLayouts(probePipeline);
-		const pipelineLayout = this.device.createPipelineLayout({
-			bindGroupLayouts,
-			label: `${desc.label ?? "unnamed"}:autoLayout`,
-		});
-		this._autoRenderPipelineLayoutCache.set(cacheKey, pipelineLayout);
-		this._trimCache(
-			this._autoRenderPipelineLayoutCache,
-			WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT
-		);
-		return pipelineLayout;
+	private _resolveAutoRenderPipelineLayout(): GPUAutoLayoutMode {
+		// Keep implicit layout ownership inside the driver/runtime.
+		// Some implementations reject creating a new pipeline layout from
+		// bind-group layouts returned by a pipeline that used `layout: "auto"`.
+		return "auto";
 	}
 
-	private _resolveAutoComputePipelineLayout(
-		desc: ComputePipelineDesc
-	): GPUPipelineLayout {
-		const cacheKey = this._getComputeAutoLayoutCacheKey(desc);
-		const cached = this._getLruCacheEntry(
-			this._autoComputePipelineLayoutCache,
-			cacheKey
-		);
-		if (cached) {
-			return cached;
-		}
-		const probePipeline = this._runValidationScope(
-			`createComputePipeline:autoLayoutProbe:${desc.label ?? "unnamed"}`,
-			() =>
-				this.device.createComputePipeline(
-					this._createComputePipelineDescriptor(desc, "auto")
-				)
-		);
-		const bindGroupLayouts = this._collectPipelineBindGroupLayouts(probePipeline);
-		const pipelineLayout = this.device.createPipelineLayout({
-			bindGroupLayouts,
-			label: `${desc.label ?? "unnamed"}:autoLayout`,
-		});
-		this._autoComputePipelineLayoutCache.set(cacheKey, pipelineLayout);
-		this._trimCache(
-			this._autoComputePipelineLayoutCache,
-			WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT
-		);
-		return pipelineLayout;
+	private _resolveAutoComputePipelineLayout(): GPUAutoLayoutMode {
+		// Keep implicit layout ownership inside the driver/runtime.
+		// Some implementations reject creating a new pipeline layout from
+		// bind-group layouts returned by a pipeline that used `layout: "auto"`.
+		return "auto";
 	}
 
 	private _resolveExplicitPipelineLayout(
@@ -1425,49 +1379,6 @@ export class WebGPUBackend implements IRenderBackend {
 			formats.push(desc.depthStencil.format as GPUTextureFormat);
 		}
 		return formats;
-	}
-
-	private _getRenderAutoLayoutCacheKey(desc: PipelineDesc): string {
-		return [
-			`vs.module:${this._getCacheToken(desc.vertex.module)}`,
-			`vs.entry:${desc.vertex.entryPoint}`,
-			`fs.module:${this._getCacheToken(desc.fragment?.module ?? null)}`,
-			`fs.entry:${desc.fragment?.entryPoint ?? "none"}`,
-		].join("|");
-	}
-
-	private _getComputeAutoLayoutCacheKey(desc: ComputePipelineDesc): string {
-		return [
-			`cs.module:${this._getCacheToken(desc.compute.module)}`,
-			`cs.entry:${desc.compute.entryPoint}`,
-		].join("|");
-	}
-
-	private _collectPipelineBindGroupLayouts(
-		pipeline: GPURenderPipeline | GPUComputePipeline
-	): GPUBindGroupLayout[] {
-		const maxBindGroups = Math.max(
-			1,
-			Math.floor(this.device?.limits?.maxBindGroups ?? 4)
-		);
-		const layouts: GPUBindGroupLayout[] = [];
-		for (let i = 0; i < maxBindGroups; i++) {
-			try {
-				const layout = pipeline.getBindGroupLayout(i);
-				if (!layout) {
-					break;
-				}
-				layouts.push(layout);
-			} catch {
-				break;
-			}
-		}
-		if (layouts.length <= 0) {
-			throw new Error(
-				"Unable to infer bind-group layouts from auto pipeline descriptor."
-			);
-		}
-		return layouts;
 	}
 
 	private _getRenderPipelineCacheKey(

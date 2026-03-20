@@ -280,11 +280,10 @@ async function testComputePipelineAutoLayoutCaching() {
 
 	assert.notEqual(pipelineA, pipelineB);
 	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
-	assert.equal(device.pipelineLayouts.length, 1);
-	assert.equal(device.computePipelineDescs.length, 2);
+	assert.equal(device.pipelineLayouts.length, 0);
+	assert.equal(device.computePipelineDescs.length, 1);
 	assert.equal(device.computePipelineDescs[0].layout, "auto");
-	assert.equal(device.computePipelineDescs[1].layout, device.pipelineLayouts[0]);
-	assert.equal(backend._autoComputePipelineLayoutCache.size, 1);
+	assert.equal(backend._autoComputePipelineLayoutCache.size, 0);
 }
 
 async function testRenderPipelineAutoLayoutCaching() {
@@ -318,11 +317,10 @@ async function testRenderPipelineAutoLayoutCaching() {
 
 	assert.notEqual(pipelineA, pipelineB);
 	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
-	assert.equal(device.pipelineLayouts.length, 1);
-	assert.equal(device.renderPipelineDescs.length, 2);
+	assert.equal(device.pipelineLayouts.length, 0);
+	assert.equal(device.renderPipelineDescs.length, 1);
 	assert.equal(device.renderPipelineDescs[0].layout, "auto");
-	assert.equal(device.renderPipelineDescs[1].layout, device.pipelineLayouts[0]);
-	assert.equal(backend._autoRenderPipelineLayoutCache.size, 1);
+	assert.equal(backend._autoRenderPipelineLayoutCache.size, 0);
 }
 
 function testBindingGroupCacheUsesHashedKey() {
