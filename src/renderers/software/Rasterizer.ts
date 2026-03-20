@@ -96,6 +96,12 @@ export interface RasterizerContext {
 	width: number;
 	height: number;
 	depthBuffer: Float32Array;
+	clipRect?: {
+		minX: number;
+		minY: number;
+		maxX: number;
+		maxY: number;
+	} | null;
 	normalBuffer?: Float32Array | null;
 	camera: {
 		position: IVector3;
@@ -628,9 +634,28 @@ export class Rasterizer implements RasterizerLike {
 		isTransparent: boolean = false
 	): void {
 		const { width, height, depthBuffer } = context;
+		const clipRect = context.clipRect;
+		const clipMinX =
+			clipRect ? Math.max(0, Math.floor(clipRect.minX)) : 0;
+		const clipMinY =
+			clipRect ? Math.max(0, Math.floor(clipRect.minY)) : 0;
+		const clipMaxX =
+			clipRect ? Math.min(width - 1, Math.floor(clipRect.maxX)) : width - 1;
+		const clipMaxY =
+			clipRect ?
+				Math.min(height - 1, Math.floor(clipRect.maxY))
+			:	height - 1;
 		const material = face.material ?? this._defaultMaterial;
 
 		if (!depthBuffer) return;
+		if (
+			clipMinX > clipMaxX ||
+			clipMinY > clipMaxY ||
+			width <= 0 ||
+			height <= 0
+		) {
+			return;
+		}
 		const viewMat = context.camera.viewMatrix;
 
 		const verts = this._vertsCache;
@@ -722,8 +747,8 @@ export class Rasterizer implements RasterizerLike {
 		if (vMid.y > vBot.y) [vMid, vBot] = [vBot, vMid];
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
 
-		const minY = Math.max(0, Math.ceil(vTop.y - 0.5));
-		const maxY = Math.min(height - 1, Math.floor(vBot.y - 0.5));
+		const minY = Math.max(clipMinY, Math.ceil(vTop.y - 0.5));
+		const maxY = Math.min(clipMaxY, Math.floor(vBot.y - 0.5));
 		if (minY > maxY) return;
 
 		for (let y = minY; y <= maxY; y++) {
@@ -745,8 +770,8 @@ export class Rasterizer implements RasterizerLike {
 				right = tmp;
 			}
 
-			const startX = Math.max(0, Math.ceil(left.x - 0.5));
-			const endX = Math.min(width - 1, Math.floor(right.x - 0.5));
+			const startX = Math.max(clipMinX, Math.ceil(left.x - 0.5));
+			const endX = Math.min(clipMaxX, Math.floor(right.x - 0.5));
 			if (endX < startX) continue;
 
 			const spanWidth = right.x - left.x;
@@ -923,9 +948,21 @@ export class Rasterizer implements RasterizerLike {
 		isTransparent: boolean = false
 	): void {
 		const { width, height, depthBuffer } = context;
+		const clipRect = context.clipRect;
+		const clipMinX =
+			clipRect ? Math.max(0, Math.floor(clipRect.minX)) : 0;
+		const clipMinY =
+			clipRect ? Math.max(0, Math.floor(clipRect.minY)) : 0;
+		const clipMaxX =
+			clipRect ? Math.min(width - 1, Math.floor(clipRect.maxX)) : width - 1;
+		const clipMaxY =
+			clipRect ?
+				Math.min(height - 1, Math.floor(clipRect.maxY))
+			:	height - 1;
 		const material = face.material ?? this._defaultMaterial;
 
 		if (!depthBuffer) return;
+		if (clipMinX > clipMaxX || clipMinY > clipMaxY) return;
 
 		const wireColor = { r: 255, g: 255, b: 255 };
 		const alpha =
@@ -956,7 +993,12 @@ export class Rasterizer implements RasterizerLike {
 				const px = Math.floor(x);
 				const py = Math.floor(y);
 
-				if (px >= 0 && px < width && py >= 0 && py < height) {
+				if (
+					px >= clipMinX &&
+					px <= clipMaxX &&
+					py >= clipMinY &&
+					py <= clipMaxY
+				) {
 					const bufIdx = py * width + px;
 					const safeIz =
 						Math.abs(iz) > CoreConstants.EPSILON ? iz

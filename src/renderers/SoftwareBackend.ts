@@ -18,6 +18,17 @@ import {
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
+import {
+	DEFAULT_SOFTWARE_RASTER_MODE,
+	type SoftwareBackendOptions,
+	type SoftwareRasterMode,
+} from "./software/SoftwareRasterConfig";
+
+export type {
+	SoftwareBackendOptions,
+	SoftwareRasterMode,
+	SoftwareTileOptions,
+} from "./software/SoftwareRasterConfig";
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
@@ -36,6 +47,7 @@ export class SoftwareBackend implements IRenderBackend {
 		ssr: false,
 		volumetric: true,
 	};
+	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
 	private _ctx: CanvasRenderingContext2D | null = null;
@@ -51,9 +63,24 @@ export class SoftwareBackend implements IRenderBackend {
 	private _normalBuffer: Float32Array | null = null;
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
+	private _frameWidth = 0;
+	private _frameHeight = 0;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _offscreenCanvas: OffscreenCanvas | null = null;
 	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+	private _options: SoftwareBackendOptions;
+	private _activeRasterMode: SoftwareRasterMode;
+
+	public constructor(options: SoftwareBackendOptions = {}) {
+		this._options = options;
+		this.requestedRasterMode =
+			options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
+		this._activeRasterMode = this.requestedRasterMode;
+	}
+
+	public get activeRasterMode(): SoftwareRasterMode {
+		return this._activeRasterMode;
+	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this._ctx = canvas.getContext("2d");
@@ -63,13 +90,18 @@ export class SoftwareBackend implements IRenderBackend {
 		this._renderer = renderer;
 		this._rasterizer = new Rasterizer();
 		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
-		this._mainPass = new SoftwareMainPass(this._rasterizer);
+		this._mainPass = new SoftwareMainPass(this._rasterizer, {
+			mode: this.requestedRasterMode,
+			tile: this._options.tile,
+			warnOnce: (key, message) => renderer.warnOnce(key, message),
+		});
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
 		this._postProcessor = new PostProcessor(renderer);
 		this._particleSimulator = new DefaultParticleSimulator({
 			backendTag: this.type,
 		});
+		this._syncActiveRasterMode();
 	}
 
 	public getAttachments(width: number, height: number): any {
@@ -83,6 +115,8 @@ export class SoftwareBackend implements IRenderBackend {
 			this._depthBuffer = new Float32Array(width * height);
 			this._normalBuffer = new Float32Array(width * height * 3);
 		}
+		this._frameWidth = width;
+		this._frameHeight = height;
 		return {
 			pixels: this._pixels,
 			depthBuffer: this._depthBuffer,
@@ -148,7 +182,7 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
-	public executePass(pass: FramePass, context: FrameContext): void {
+	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
@@ -168,10 +202,16 @@ export class SoftwareBackend implements IRenderBackend {
 				this._reflectionPass.render(context);
 				break;
 			case "main-opaque":
-				this._mainPass.render(context, context.scene.opaquePackets, false);
+				await this._mainPass.render(context, context.scene.opaquePackets, false);
+				this._syncActiveRasterMode();
 				break;
 			case "main-transparent":
-				this._mainPass.render(context, context.scene.transparentPackets, true);
+				await this._mainPass.render(
+					context,
+					context.scene.transparentPackets,
+					true
+				);
+				this._syncActiveRasterMode();
 				break;
 			case "particles":
 				this._particlePass?.render(context);
@@ -226,9 +266,8 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _getFrameImageData(renderer: RendererBackendBridge): ImageData {
-		const width = renderer.canvas.width;
-		const height = renderer.canvas.height;
 		const pixels = this._resolveFramePixels(renderer);
+		const { width, height } = this._resolveFrameDimensions(renderer, pixels);
 
 		if (
 			!this._frameImageData ||
@@ -245,6 +284,47 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 
 		return this._frameImageData;
+	}
+
+	private _resolveFrameDimensions(
+		renderer: RendererBackendBridge,
+		pixels: Uint8ClampedArray
+	): { width: number; height: number } {
+		const canvasWidth = renderer.canvas.width;
+		const canvasHeight = renderer.canvas.height;
+		if (pixels.length === canvasWidth * canvasHeight * 4) {
+			return {
+				width: canvasWidth,
+				height: canvasHeight,
+			};
+		}
+
+		if (
+			this._frameWidth > 0 &&
+			this._frameHeight > 0 &&
+			pixels.length === this._frameWidth * this._frameHeight * 4
+		) {
+			return {
+				width: this._frameWidth,
+				height: this._frameHeight,
+			};
+		}
+
+		if (
+			this._frameImageData &&
+			pixels.length === this._frameImageData.width * this._frameImageData.height * 4
+		) {
+			return {
+				width: this._frameImageData.width,
+				height: this._frameImageData.height,
+			};
+		}
+
+		const pixelCount = Math.floor(pixels.length / 4);
+		return {
+			width: Math.max(1, pixelCount),
+			height: 1,
+		};
 	}
 
 	private _resolveFramePixels(
@@ -276,9 +356,26 @@ export class SoftwareBackend implements IRenderBackend {
 			return imageData;
 		} catch {
 			const imageData = new ImageData(width, height);
-			imageData.data.set(pixels);
+			const copyLength = Math.min(imageData.data.length, pixels.length);
+			imageData.data.set(pixels.subarray(0, copyLength));
 			this._framePixelsShared = false;
 			return imageData;
 		}
+	}
+
+	public destroy(): void {
+		this._mainPass?.destroy();
+		this._mainPass = null;
+		this._particlePass = null;
+		this._shadowPass = null;
+		this._reflectionPass = null;
+		this._postProcessor = null;
+		this._particleSimulator = null;
+		this._rasterizer = null;
+	}
+
+	private _syncActiveRasterMode(): void {
+		const mode = this._mainPass?.getActiveMode();
+		this._activeRasterMode = mode ?? this.requestedRasterMode;
 	}
 }

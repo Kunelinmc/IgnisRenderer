@@ -23,6 +23,11 @@ export { Renderer } from "./renderers/Renderer";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
 export { SoftwareBackend } from "./renderers/SoftwareBackend";
+export type {
+	SoftwareRasterMode,
+	SoftwareTileOptions,
+	SoftwareBackendOptions,
+} from "./renderers/software/SoftwareRasterConfig";
 export { WebGPUBackend } from "./renderers/WebGPUBackend";
 export { WebGLBackend } from "./renderers/WebGLBackend";
 export type {
