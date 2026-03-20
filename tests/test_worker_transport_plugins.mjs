@@ -93,6 +93,14 @@ async function testSharedArrayBufferTransportRoundtrip() {
 	if (typeof SharedArrayBuffer !== "function") {
 		return;
 	}
+	const payload = {
+		value: 99,
+		meta: {
+			label: "sab-structured",
+			optional: undefined,
+		},
+		items: [1, undefined, { nested: true }],
+	};
 	const scheduler = new WorkerScheduler();
 	scheduler.registerPool({
 		id: "shared",
@@ -122,14 +130,10 @@ async function testSharedArrayBufferTransportRoundtrip() {
 			}),
 	});
 
-	const result = await scheduler.schedule("shared", {
-		value: 99,
-	});
+	const result = await scheduler.schedule("shared", payload);
 	assert.deepEqual(result, {
 		ok: true,
-		value: {
-			value: 99,
-		},
+		value: payload,
 	});
 
 	const stats = scheduler.getPoolStats("shared");
