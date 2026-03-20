@@ -442,9 +442,33 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return this._adapter.raycast(worldId, query);
 	}
 
+	public async raycastAsync(
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit | null> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const raycastAsync = this._adapter.raycastAsync;
+		if (raycastAsync) {
+			return raycastAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("query");
+		return this._adapter.raycast(worldId, query);
+	}
+
 	public sphereCast(query: PhysicsSphereCastQuery): PhysicsQueryHit | null {
 		this._assertCapability("shapeCast");
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.sphereCast(worldId, query);
+	}
+
+	public async sphereCastAsync(
+		query: PhysicsSphereCastQuery
+	): Promise<PhysicsQueryHit | null> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const sphereCastAsync = this._adapter.sphereCastAsync;
+		if (sphereCastAsync) {
+			return sphereCastAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("shapeCast");
 		return this._adapter.sphereCast(worldId, query);
 	}
 
@@ -454,15 +478,51 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return this._adapter.boxCast(worldId, query);
 	}
 
+	public async boxCastAsync(
+		query: PhysicsBoxCastQuery
+	): Promise<PhysicsQueryHit | null> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const boxCastAsync = this._adapter.boxCastAsync;
+		if (boxCastAsync) {
+			return boxCastAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("shapeCast");
+		return this._adapter.boxCast(worldId, query);
+	}
+
 	public overlapSphere(query: PhysicsOverlapSphereQuery): PhysicsOverlapHit[] {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
 		return this._adapter.overlapSphere(worldId, query);
 	}
 
+	public async overlapSphereAsync(
+		query: PhysicsOverlapSphereQuery
+	): Promise<PhysicsOverlapHit[]> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const overlapSphereAsync = this._adapter.overlapSphereAsync;
+		if (overlapSphereAsync) {
+			return overlapSphereAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("query");
+		return this._adapter.overlapSphere(worldId, query);
+	}
+
 	public overlapBox(query: PhysicsOverlapBoxQuery): PhysicsOverlapHit[] {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.overlapBox(worldId, query);
+	}
+
+	public async overlapBoxAsync(
+		query: PhysicsOverlapBoxQuery
+	): Promise<PhysicsOverlapHit[]> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const overlapBoxAsync = this._adapter.overlapBoxAsync;
+		if (overlapBoxAsync) {
+			return overlapBoxAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("query");
 		return this._adapter.overlapBox(worldId, query);
 	}
 

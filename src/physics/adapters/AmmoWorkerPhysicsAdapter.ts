@@ -513,11 +513,55 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		throw createUnsupportedSyncWorkerCallError("raycast");
 	}
 
+	public async raycastAsync(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit | null> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.raycastAsync) {
+				return this._fallbackAdapter.raycastAsync(worldId, query);
+			}
+			return this._fallbackAdapter.raycast(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsQueryHit | null>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "raycast",
+				worldId,
+				query,
+			},
+		});
+	}
+
 	public raycastAll(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit[] {
 		if (this._usingFallbackAdapter) {
 			return this._fallbackAdapter.raycastAll(worldId, query);
 		}
 		throw createUnsupportedSyncWorkerCallError("raycastAll");
+	}
+
+	public async raycastAllAsync(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit[]> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.raycastAllAsync) {
+				return this._fallbackAdapter.raycastAllAsync(worldId, query);
+			}
+			return this._fallbackAdapter.raycastAll(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsQueryHit[]>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "raycastAll",
+				worldId,
+				query,
+			},
+		});
 	}
 
 	public sphereCast(
@@ -530,11 +574,55 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		throw createUnsupportedSyncWorkerCallError("sphereCast");
 	}
 
+	public async sphereCastAsync(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): Promise<PhysicsQueryHit | null> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.sphereCastAsync) {
+				return this._fallbackAdapter.sphereCastAsync(worldId, query);
+			}
+			return this._fallbackAdapter.sphereCast(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsQueryHit | null>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "sphereCast",
+				worldId,
+				query,
+			},
+		});
+	}
+
 	public boxCast(worldId: string, query: PhysicsBoxCastQuery): PhysicsQueryHit | null {
 		if (this._usingFallbackAdapter) {
 			return this._fallbackAdapter.boxCast(worldId, query);
 		}
 		throw createUnsupportedSyncWorkerCallError("boxCast");
+	}
+
+	public async boxCastAsync(
+		worldId: string,
+		query: PhysicsBoxCastQuery
+	): Promise<PhysicsQueryHit | null> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.boxCastAsync) {
+				return this._fallbackAdapter.boxCastAsync(worldId, query);
+			}
+			return this._fallbackAdapter.boxCast(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsQueryHit | null>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "boxCast",
+				worldId,
+				query,
+			},
+		});
 	}
 
 	public overlapSphere(
@@ -547,11 +635,55 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		throw createUnsupportedSyncWorkerCallError("overlapSphere");
 	}
 
+	public async overlapSphereAsync(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): Promise<PhysicsOverlapHit[]> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.overlapSphereAsync) {
+				return this._fallbackAdapter.overlapSphereAsync(worldId, query);
+			}
+			return this._fallbackAdapter.overlapSphere(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsOverlapHit[]>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "overlapSphere",
+				worldId,
+				query,
+			},
+		});
+	}
+
 	public overlapBox(worldId: string, query: PhysicsOverlapBoxQuery): PhysicsOverlapHit[] {
 		if (this._usingFallbackAdapter) {
 			return this._fallbackAdapter.overlapBox(worldId, query);
 		}
 		throw createUnsupportedSyncWorkerCallError("overlapBox");
+	}
+
+	public async overlapBoxAsync(
+		worldId: string,
+		query: PhysicsOverlapBoxQuery
+	): Promise<PhysicsOverlapHit[]> {
+		if (this._usingFallbackAdapter) {
+			if (this._fallbackAdapter.overlapBoxAsync) {
+				return this._fallbackAdapter.overlapBoxAsync(worldId, query);
+			}
+			return this._fallbackAdapter.overlapBox(worldId, query);
+		}
+		this._assertInitialized();
+		return this._dispatchToWorker<PhysicsOverlapHit[]>({
+			type: "dispatch",
+			commands: this._drainPendingCommands(),
+			request: {
+				type: "overlapBox",
+				worldId,
+				query,
+			},
+		});
 	}
 
 	public stepWorld(worldId: string, deltaSeconds: number): PhysicsAdapterStepResult {

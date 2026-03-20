@@ -123,20 +123,44 @@ export interface IPhysicsEngineAdapter {
 		value: number
 	): void;
 	raycast(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit | null;
+	raycastAsync?(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit | null>;
 	raycastAll(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit[];
+	raycastAllAsync?(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit[]>;
 	sphereCast(
 		worldId: string,
 		query: PhysicsSphereCastQuery
 	): PhysicsQueryHit | null;
+	sphereCastAsync?(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): Promise<PhysicsQueryHit | null>;
 	boxCast(worldId: string, query: PhysicsBoxCastQuery): PhysicsQueryHit | null;
+	boxCastAsync?(
+		worldId: string,
+		query: PhysicsBoxCastQuery
+	): Promise<PhysicsQueryHit | null>;
 	overlapSphere(
 		worldId: string,
 		query: PhysicsOverlapSphereQuery
 	): PhysicsOverlapHit[];
+	overlapSphereAsync?(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): Promise<PhysicsOverlapHit[]>;
 	overlapBox(
 		worldId: string,
 		query: PhysicsOverlapBoxQuery
 	): PhysicsOverlapHit[];
+	overlapBoxAsync?(
+		worldId: string,
+		query: PhysicsOverlapBoxQuery
+	): Promise<PhysicsOverlapHit[]>;
 	stepWorld(worldId: string, deltaSeconds: number): PhysicsAdapterStepResult;
 	stepWorldAsync?(
 		worldId: string,
