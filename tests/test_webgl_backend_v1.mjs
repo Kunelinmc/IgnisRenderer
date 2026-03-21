@@ -271,6 +271,7 @@ function testLightCollectorShadowBias() {
 	const shadow = state.directionalShadows[0];
 	assert.ok(shadow.enabled);
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
+	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
 	assert.equal(shadow.shadowMapSize, 1024);
 }
 
@@ -283,6 +284,20 @@ function testSceneShaderBackLitShadowGuard() {
 	assert.ok(shader.fragment.includes("dot(normal, lightDirection) <= 0.0"));
 	assert.ok(shader.fragment.includes("uniform int uDoubleSided;"));
 	assert.ok(shader.fragment.includes("if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)"));
+}
+
+function testSceneShaderUsesDecoupledShadowNormal() {
+	const shader = createWebGLSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	assert.ok(shader.fragment.includes("vec3 shadowNormal = normal;"));
+	assert.ok(shader.fragment.includes("shadePBR(albedo, normal, shadowNormal, viewDir);"));
+	assert.ok(shader.fragment.includes("shadePhong(albedo, normal, shadowNormal, viewDir);"));
+	assert.ok(/sampleDirectionalShadowVisibility\([\s\S]*shadowNormal/.test(shader.fragment));
+	assert.ok(shader.fragment.includes("uDirShadowParamsC"));
+	assert.ok(shader.fragment.includes("uSpotShadowParamsC"));
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {
@@ -362,6 +377,7 @@ function run() {
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
+	testSceneShaderUsesDecoupledShadowNormal();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testWebGLBackendParticleDeltaTimeClamp();

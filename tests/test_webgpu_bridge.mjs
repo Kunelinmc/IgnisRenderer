@@ -365,6 +365,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("texture_depth_2d"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("shadowData.paramsC.x"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
@@ -489,6 +492,7 @@ function testWebGPUShadowBiasAvoidsSlopeOffset() {
 	const shadow = state.directionalShadows[0];
 	assert.ok(shadow.enabled);
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
+	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {
