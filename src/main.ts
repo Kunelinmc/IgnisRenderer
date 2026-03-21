@@ -1,14 +1,10 @@
 import {
 	AmbientLight,
-	DirectionalLight,
-	GLTFLoader,
 	MeshFactory,
-	Node,
 	OrbitCamera,
 	PBRMaterial,
-	ParticleBlendMode,
-	ParticleSystem,
 	Platform,
+	PointLight,
 	Renderer,
 	Scene,
 	SoftwareBackend,
@@ -36,103 +32,17 @@ async function init() {
 	}
 
 	let canvas = canvasElement;
-	const camera = new OrbitCamera(new Vector3(0, 0, 0), 500);
+	const camera = new OrbitCamera(new Vector3(0, 280, 0), 860);
+	camera.phi = Math.PI / 2;
+	camera.theta = 0;
+	camera.minDistance = 220;
+	camera.maxDistance = 2400;
+	camera.updatePosition();
+
 	const scene = new Scene();
 	scene.add(camera);
 
-	scene.add(
-		new AmbientLight({
-			color: { r: 255, g: 255, b: 255 },
-			intensity: 0.5,
-		})
-	);
-
-	scene.add(
-		new DirectionalLight({
-			color: { r: 255, g: 255, b: 255 },
-			direction: { x: -1, y: -1, z: -1 },
-			intensity: 2.5,
-		})
-	);
-
-	const loader = new GLTFLoader();
-	const gltfRoot = await loader.load("./assets/duck.glb");
-	scene.add(gltfRoot);
-	scaleLoadedMeshToTargetRadius(gltfRoot, scene, 120);
-
-	const groundMaterial = new PBRMaterial({
-		albedo: { r: 255, g: 255, b: 255 },
-		doubleSided: true,
-		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
-		reflectivity: 0.5,
-	});
-	const ground = MeshFactory.createPlane(
-		{ x: 0, y: 0, z: 0 },
-		400,
-		400,
-		groundMaterial
-	);
-	ground.name = "ground";
-	scene.add(ground);
-
-	scene.add(
-		new ParticleSystem({
-			name: "fountain",
-			maxParticles: 5000,
-			position: { x: -120, y: 0, z: 120 },
-			emit: {
-				rate: 300,
-				direction: { x: 0, y: 1, z: 0 },
-				spread: 0.15,
-				speedRange: [60, 100],
-				sizeRange: [5, 12],
-				startColor: { r: 100, g: 200, b: 255, a: 0.8 },
-				rotationRange: [0, Math.PI * 2],
-				angularVelocityRange: [-2, 2],
-			},
-			gravity: { x: 0, y: -120, z: 0 },
-			sizeOverLifetime: [
-				{ t: 0, value: 1.0 },
-				{ t: 1, value: 0.2 },
-			],
-			colorOverLifetime: [
-				{ t: 0, value: { r: 100, g: 200, b: 255, a: 0.8 } },
-				{ t: 0.8, value: { r: 150, g: 220, b: 255, a: 0.4 } },
-				{ t: 1, value: { r: 200, g: 240, b: 255, a: 0 } },
-			],
-		})
-	);
-
-	scene.add(
-		new ParticleSystem({
-			name: "fire",
-			maxParticles: 2000,
-			position: { x: 120, y: 10, z: -120 },
-			blendMode: ParticleBlendMode.Additive,
-			emit: {
-				rate: 150,
-				direction: { x: 0, y: 1, z: 0 },
-				spread: 0.3,
-				speedRange: [20, 40],
-				sizeRange: [5, 12],
-				startColor: { r: 255, g: 200, b: 50, a: 1 },
-				rotationRange: [0, Math.PI * 2],
-				angularVelocityRange: [-3, 3],
-			},
-			gravity: { x: 0, y: 10, z: 0 },
-			sizeOverLifetime: [
-				{ t: 0, value: 0.2 },
-				{ t: 0.2, value: 1.0 },
-				{ t: 1, value: 0.5 },
-			],
-			colorOverLifetime: [
-				{ t: 0, value: { r: 255, g: 255, b: 200, a: 1 } },
-				{ t: 0.3, value: { r: 255, g: 150, b: 0, a: 0.8 } },
-				{ t: 0.6, value: { r: 200, g: 50, b: 0, a: 0.5 } },
-				{ t: 1, value: { r: 50, g: 0, b: 0, a: 0 } },
-			],
-		})
-	);
+	buildCornellBox(scene);
 
 	const bootstrap = await createRenderer(canvas, camera, scene);
 	canvas = bootstrap.canvas;
@@ -149,34 +59,159 @@ async function init() {
 	});
 }
 
-function scaleLoadedMeshToTargetRadius(
-	root: Node,
-	scene: Scene,
-	targetRadius: number
-): void {
-	// Update matrices to get correct world bounds
-	scene.updateWorldMatrices();
+function buildCornellBox(scene: Scene): void {
+	const roomWidth = 555;
+	const roomHeight = 555;
+	const roomDepth = 555;
+	const halfWidth = roomWidth / 2;
+	const halfDepth = roomDepth / 2;
 
-	const box = root.getWorldBoundingBox();
-	const sizeX = box.max.x - box.min.x;
-	const sizeY = box.max.y - box.min.y;
-	const sizeZ = box.max.z - box.min.z;
+	const whiteWallMaterial = new PBRMaterial({
+		albedo: { r: 205, g: 205, b: 205 },
+		roughness: 0.96,
+		metalness: 0,
+		doubleSided: true,
+	});
+	const leftWallMaterial = new PBRMaterial({
+		albedo: { r: 182, g: 43, b: 38 },
+		roughness: 0.96,
+		metalness: 0,
+		doubleSided: true,
+	});
+	const rightWallMaterial = new PBRMaterial({
+		albedo: { r: 54, g: 170, b: 66 },
+		roughness: 0.96,
+		metalness: 0,
+		doubleSided: true,
+	});
+	const blockMaterial = new PBRMaterial({
+		albedo: { r: 220, g: 220, b: 220 },
+		roughness: 0.88,
+		metalness: 0,
+	});
 
-	if (sizeX === 0 && sizeY === 0 && sizeZ === 0) return;
+	const floor = MeshFactory.createPlane(
+		{ x: 0, y: 0, z: 0 },
+		roomWidth,
+		roomDepth,
+		whiteWallMaterial
+	);
+	floor.name = "cornell-floor";
+	scene.add(floor);
 
-	const currentRadius =
-		Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) / 2;
+	const ceiling = MeshFactory.createPlane(
+		{ x: 0, y: roomHeight, z: 0 },
+		roomWidth,
+		roomDepth,
+		whiteWallMaterial
+	);
+	ceiling.name = "cornell-ceiling";
+	ceiling.setRotationFromEuler(Math.PI, 0, 0);
+	scene.add(ceiling);
 
-	const scale = targetRadius / Math.max(currentRadius, 1e-6);
-	root.scale.set(scale, scale, scale);
-	root.updateLocalMatrix();
-	scene.updateWorldMatrices();
+	const backWall = MeshFactory.createPlane(
+		{ x: 0, y: roomHeight / 2, z: -halfDepth },
+		roomWidth,
+		roomHeight,
+		whiteWallMaterial
+	);
+	backWall.name = "cornell-back-wall";
+	backWall.setRotationFromEuler(Math.PI / 2, 0, 0);
+	scene.add(backWall);
 
-	// Reposition root so the bottom of its collective bounding box is at y = 0
-	const finalBox = root.getWorldBoundingBox();
-	root.position.y -= finalBox.min.y;
-	root.updateLocalMatrix();
-	scene.updateWorldMatrices();
+	const redWall = MeshFactory.createPlane(
+		{ x: -halfWidth, y: roomHeight / 2, z: 0 },
+		roomHeight,
+		roomDepth,
+		leftWallMaterial
+	);
+	redWall.name = "cornell-left-wall-red";
+	redWall.setRotationFromEuler(0, 0, -Math.PI / 2);
+	scene.add(redWall);
+
+	const greenWall = MeshFactory.createPlane(
+		{ x: halfWidth, y: roomHeight / 2, z: 0 },
+		roomHeight,
+		roomDepth,
+		rightWallMaterial
+	);
+	greenWall.name = "cornell-right-wall-green";
+	greenWall.setRotationFromEuler(0, 0, Math.PI / 2);
+	scene.add(greenWall);
+
+	const shortBlock = MeshFactory.createBox(
+		{ x: -112, y: 82.5, z: 95 },
+		165,
+		165,
+		165,
+		blockMaterial
+	);
+	shortBlock.name = "cornell-short-block";
+	shortBlock.setRotationFromEuler(0, (-20 * Math.PI) / 180, 0);
+	scene.add(shortBlock);
+
+	const tallBlock = MeshFactory.createBox(
+		{ x: 118, y: 165, z: -88 },
+		165,
+		165,
+		330,
+		blockMaterial
+	);
+	tallBlock.name = "cornell-tall-block";
+	tallBlock.setRotationFromEuler(0, (16 * Math.PI) / 180, 0);
+	scene.add(tallBlock);
+
+	const ceilingLightMaterial = new PBRMaterial({
+		albedo: { r: 255, g: 248, b: 225 },
+		emissive: { r: 255, g: 245, b: 218 },
+		emissiveIntensity: 14,
+		roughness: 0.35,
+		metalness: 0,
+		doubleSided: true,
+	});
+	const ceilingLightPanel = MeshFactory.createPlane(
+		{ x: 0, y: roomHeight - 1, z: 0 },
+		130,
+		105,
+		ceilingLightMaterial
+	);
+	ceilingLightPanel.name = "cornell-ceiling-light-panel";
+	ceilingLightPanel.setRotationFromEuler(Math.PI, 0, 0);
+	scene.add(ceilingLightPanel);
+
+	const ceilingLightY = roomHeight - 18;
+	const pointLightIntensity = 42000;
+	const pointLightRange = 820;
+	const warmWhite = { r: 255, g: 244, b: 214 };
+	const pointLightOffsets = [
+		{ x: -38, z: -27 },
+		{ x: 38, z: -27 },
+		{ x: -38, z: 27 },
+		{ x: 38, z: 27 },
+	];
+
+	for (let i = 0; i < pointLightOffsets.length; i++) {
+		const offset = pointLightOffsets[i];
+		scene.add(
+			new PointLight({
+				color: warmWhite,
+				intensity: pointLightIntensity,
+				range: pointLightRange,
+				position: {
+					x: offset.x,
+					y: ceilingLightY,
+					z: offset.z,
+				},
+			})
+		);
+	}
+
+	scene.add(
+		new AmbientLight({
+			color: { r: 255, g: 240, b: 220 },
+			intensity: 0.03,
+		})
+	);
 }
 
 async function createRenderer(
