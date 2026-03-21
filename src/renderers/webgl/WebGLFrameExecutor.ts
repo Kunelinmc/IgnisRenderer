@@ -17,6 +17,7 @@ import {
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_TAA_OPTIONS,
 	type DrawPacket,
 	type FrameContext,
 	type FramePass,
@@ -67,6 +68,17 @@ const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
 ]);
 
 const TAA_HALTON_SAMPLE_COUNT = 16;
+const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
+const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
+const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
+const TAA_VARIANCE_GAMMA_RANGE: [number, number] = [0, 8];
+const TAA_SHARPEN_RANGE: [number, number] = [0, 2];
+const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
+	1, 0, 0, 0,
+	0, 1, 0, 0,
+	0, 0, 1, 0,
+	0, 0, 0, 1,
+]);
 
 function computeHaltonJitterNDC(index: number, width: number, height: number): [number, number] {
 	const haltonX = [0.5, 0.25, 0.75, 0.125, 0.625, 0.375, 0.875, 0.0625, 0.5625, 0.3125, 0.8125, 0.1875, 0.6875, 0.4375, 0.9375, 0.03125];
@@ -584,10 +596,20 @@ export class WebGLFrameExecutor {
 			this._drawPacket(sceneProgram, packet, transparent, context);
 		}
 
-		if (this._prevViewProjection) {
-			this._prevViewProjection.set(toColumnMajorMat4(context.camera.viewProjectionMatrix));
+		const currentViewProjection = toFiniteColumnMajorMat4(
+			context.camera.viewProjectionMatrix
+		);
+		if (!currentViewProjection) {
+			this._warn(
+				"webgl-camera-view-projection-invalid",
+				"WebGL camera view-projection matrix is non-finite; resetting temporal history."
+			);
+			this._prevViewProjection = null;
+			this._taaHistoryValid = false;
+		} else if (this._prevViewProjection) {
+			this._prevViewProjection.set(currentViewProjection);
 		} else {
-			this._prevViewProjection = toColumnMajorMat4(context.camera.viewProjectionMatrix);
+			this._prevViewProjection = currentViewProjection;
 		}
 
 		gl.depthMask(true);
@@ -1089,34 +1111,76 @@ export class WebGLFrameExecutor {
 		};
 
 		if (uniforms.viewProjection) {
+			const viewProjection = toFiniteColumnMajorMat4(
+				context.camera.viewProjectionMatrix
+			);
+			if (!viewProjection) {
+				this._warn(
+					"webgl-camera-view-projection-invalid",
+					"WebGL camera view-projection matrix is non-finite; using identity matrix."
+				);
+			}
 			gl.uniformMatrix4fv(
 				uniforms.viewProjection,
 				false,
-				toColumnMajorMat4(context.camera.viewProjectionMatrix)
+				viewProjection ?? IDENTITY_MATRIX4_COLUMN_MAJOR
 			);
 		}
 		if (uniforms.viewMatrix) {
+			const viewMatrix = toFiniteColumnMajorMat4(context.camera.viewMatrix);
+			if (!viewMatrix) {
+				this._warn(
+					"webgl-camera-view-matrix-invalid",
+					"WebGL camera view matrix is non-finite; using identity matrix."
+				);
+			}
 			gl.uniformMatrix4fv(
 				uniforms.viewMatrix,
 				false,
-				toColumnMajorMat4(context.camera.viewMatrix)
+				viewMatrix ?? IDENTITY_MATRIX4_COLUMN_MAJOR
 			);
 		}
 		if (uniforms.cameraPosition) {
 			const cameraPosition = context.camera.getWorldPosition();
+			const cameraX = finiteOr(cameraPosition.x, 0);
+			const cameraY = finiteOr(cameraPosition.y, 0);
+			const cameraZ = finiteOr(cameraPosition.z, 0);
+			if (
+				cameraX !== cameraPosition.x ||
+				cameraY !== cameraPosition.y ||
+				cameraZ !== cameraPosition.z
+			) {
+				this._warn(
+					"webgl-camera-position-invalid",
+					"WebGL camera position is non-finite; using origin fallback."
+				);
+			}
 			gl.uniform3f(
 				uniforms.cameraPosition,
-				cameraPosition.x,
-				cameraPosition.y,
-				cameraPosition.z
+				cameraX,
+				cameraY,
+				cameraZ
 			);
 		}
 		if (uniforms.ambientColor) {
+			const ambientR = finiteOr(lights.ambientColor[0], 0);
+			const ambientG = finiteOr(lights.ambientColor[1], 0);
+			const ambientB = finiteOr(lights.ambientColor[2], 0);
+			if (
+				ambientR !== lights.ambientColor[0] ||
+				ambientG !== lights.ambientColor[1] ||
+				ambientB !== lights.ambientColor[2]
+			) {
+				this._warn(
+					"webgl-ambient-color-invalid",
+					"WebGL ambient light color contains non-finite values; using black fallback."
+				);
+			}
 			gl.uniform3f(
 				uniforms.ambientColor,
-				lights.ambientColor[0],
-				lights.ambientColor[1],
-				lights.ambientColor[2]
+				ambientR,
+				ambientG,
+				ambientB
 			);
 		}
 		if (uniforms.enableLighting) {
@@ -1143,11 +1207,21 @@ export class WebGLFrameExecutor {
 			gl.uniform4fv(uniforms.taaJitter, this._taaJitter);
 		}
 		if (uniforms.prevViewProjection) {
+			const prevViewProjection = sanitizeFloat32Array(
+				this._prevViewProjection ??
+					toColumnMajorMat4(context.camera.viewProjectionMatrix),
+				0
+			);
+			if (prevViewProjection.hadInvalid) {
+				this._warn(
+					"webgl-prev-view-projection-invalid",
+					"WebGL previous view-projection matrix is non-finite; using sanitized values."
+				);
+			}
 			gl.uniformMatrix4fv(
 				uniforms.prevViewProjection,
 				false,
-				this._prevViewProjection ??
-					toColumnMajorMat4(context.camera.viewProjectionMatrix)
+				prevViewProjection.values
 			);
 		}
 
@@ -1155,53 +1229,103 @@ export class WebGLFrameExecutor {
 			gl.uniform1i(uniforms.dirLightCount, lights.directionalLights.length);
 		}
 		if (uniforms.dirLightDirection) {
-			gl.uniform4fv(
-				uniforms.dirLightDirection,
+			const packedDirection = sanitizeFloat32Array(
 				flattenVec4(lights.directionalLights, (light) => [
 					light.direction[0],
 					light.direction[1],
 					light.direction[2],
 					0,
-				])
+				]),
+				0
+			);
+			if (packedDirection.hadInvalid) {
+				this._warn(
+					"webgl-dir-light-direction-invalid",
+					"WebGL directional light direction contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.dirLightDirection,
+				packedDirection.values
 			);
 		}
 		if (uniforms.dirLightColor) {
-			gl.uniform4fv(
-				uniforms.dirLightColor,
+			const packedColor = sanitizeFloat32Array(
 				flattenVec4(lights.directionalLights, (light) => [
 					light.color[0],
 					light.color[1],
 					light.color[2],
 					0,
-				])
+				]),
+				0
+			);
+			if (packedColor.hadInvalid) {
+				this._warn(
+					"webgl-dir-light-color-invalid",
+					"WebGL directional light color contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.dirLightColor,
+				packedColor.values
 			);
 		}
 		if (uniforms.dirShadowViewProjection) {
-			gl.uniformMatrix4fv(
-				uniforms.dirShadowViewProjection,
-				false,
+			const packedShadowViewProjection = sanitizeFloat32Array(
 				flattenShadowViewProjection(
 					lights.directionalShadows,
 					WEBGL_MAX_DIRECTIONAL_LIGHTS
-				)
+				),
+				0
+			);
+			if (packedShadowViewProjection.hadInvalid) {
+				this._warn(
+					"webgl-dir-shadow-view-projection-invalid",
+					"WebGL directional shadow matrix contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniformMatrix4fv(
+				uniforms.dirShadowViewProjection,
+				false,
+				packedShadowViewProjection.values
 			);
 		}
 		if (uniforms.dirShadowParamsA) {
-			gl.uniform4fv(
-				uniforms.dirShadowParamsA,
+			const packedDirShadowParamsA = sanitizeFloat32Array(
 				flattenShadowParamsA(
 					lights.directionalShadows,
 					WEBGL_MAX_DIRECTIONAL_LIGHTS
-				)
+				),
+				0
+			);
+			if (packedDirShadowParamsA.hadInvalid) {
+				this._warn(
+					"webgl-dir-shadow-params-a-invalid",
+					"WebGL directional shadow parameters contain non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.dirShadowParamsA,
+				packedDirShadowParamsA.values
 			);
 		}
 		if (uniforms.dirShadowParamsB) {
-			gl.uniform4fv(
-				uniforms.dirShadowParamsB,
+			const packedDirShadowParamsB = sanitizeFloat32Array(
 				flattenShadowParamsB(
 					lights.directionalShadows,
 					WEBGL_MAX_DIRECTIONAL_LIGHTS
-				)
+				),
+				0
+			);
+			if (packedDirShadowParamsB.hadInvalid) {
+				this._warn(
+					"webgl-dir-shadow-params-b-invalid",
+					"WebGL directional shadow parameters contain non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.dirShadowParamsB,
+				packedDirShadowParamsB.values
 			);
 		}
 
@@ -1209,25 +1333,45 @@ export class WebGLFrameExecutor {
 			gl.uniform1i(uniforms.pointLightCount, lights.pointLights.length);
 		}
 		if (uniforms.pointLightPositionRange) {
-			gl.uniform4fv(
-				uniforms.pointLightPositionRange,
+			const packedPointPositionRange = sanitizeFloat32Array(
 				flattenVec4(lights.pointLights, (light) => [
 					light.position[0],
 					light.position[1],
 					light.position[2],
 					light.range,
-				])
+				]),
+				0
+			);
+			if (packedPointPositionRange.hadInvalid) {
+				this._warn(
+					"webgl-point-light-position-invalid",
+					"WebGL point light position/range contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.pointLightPositionRange,
+				packedPointPositionRange.values
 			);
 		}
 		if (uniforms.pointLightColor) {
-			gl.uniform4fv(
-				uniforms.pointLightColor,
+			const packedPointColor = sanitizeFloat32Array(
 				flattenVec4(lights.pointLights, (light) => [
 					light.color[0],
 					light.color[1],
 					light.color[2],
 					0,
-				])
+				]),
+				0
+			);
+			if (packedPointColor.hadInvalid) {
+				this._warn(
+					"webgl-point-light-color-invalid",
+					"WebGL point light color contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.pointLightColor,
+				packedPointColor.values
 			);
 		}
 
@@ -1235,55 +1379,115 @@ export class WebGLFrameExecutor {
 			gl.uniform1i(uniforms.spotLightCount, lights.spotLights.length);
 		}
 		if (uniforms.spotLightPositionRange) {
-			gl.uniform4fv(
-				uniforms.spotLightPositionRange,
+			const packedSpotPositionRange = sanitizeFloat32Array(
 				flattenVec4(lights.spotLights, (light) => [
 					light.position[0],
 					light.position[1],
 					light.position[2],
 					light.range,
-				])
+				]),
+				0
+			);
+			if (packedSpotPositionRange.hadInvalid) {
+				this._warn(
+					"webgl-spot-light-position-invalid",
+					"WebGL spot light position/range contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.spotLightPositionRange,
+				packedSpotPositionRange.values
 			);
 		}
 		if (uniforms.spotLightDirectionOuter) {
-			gl.uniform4fv(
-				uniforms.spotLightDirectionOuter,
+			const packedSpotDirectionOuter = sanitizeFloat32Array(
 				flattenVec4(lights.spotLights, (light) => [
 					light.direction[0],
 					light.direction[1],
 					light.direction[2],
 					light.outerCos,
-				])
+				]),
+				0
+			);
+			if (packedSpotDirectionOuter.hadInvalid) {
+				this._warn(
+					"webgl-spot-light-direction-invalid",
+					"WebGL spot light direction/outer cone contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.spotLightDirectionOuter,
+				packedSpotDirectionOuter.values
 			);
 		}
 		if (uniforms.spotLightColorInner) {
-			gl.uniform4fv(
-				uniforms.spotLightColorInner,
+			const packedSpotColorInner = sanitizeFloat32Array(
 				flattenVec4(lights.spotLights, (light) => [
 					light.color[0],
 					light.color[1],
 					light.color[2],
 					light.innerCos,
-				])
+				]),
+				0
+			);
+			if (packedSpotColorInner.hadInvalid) {
+				this._warn(
+					"webgl-spot-light-color-invalid",
+					"WebGL spot light color/inner cone contains non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.spotLightColorInner,
+				packedSpotColorInner.values
 			);
 		}
 		if (uniforms.spotShadowViewProjection) {
+			const packedSpotShadowViewProjection = sanitizeFloat32Array(
+				flattenShadowViewProjection(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+				0
+			);
+			if (packedSpotShadowViewProjection.hadInvalid) {
+				this._warn(
+					"webgl-spot-shadow-view-projection-invalid",
+					"WebGL spot shadow matrix contains non-finite values; using sanitized values."
+				);
+			}
 			gl.uniformMatrix4fv(
 				uniforms.spotShadowViewProjection,
 				false,
-				flattenShadowViewProjection(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
+				packedSpotShadowViewProjection.values
 			);
 		}
 		if (uniforms.spotShadowParamsA) {
+			const packedSpotShadowParamsA = sanitizeFloat32Array(
+				flattenShadowParamsA(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+				0
+			);
+			if (packedSpotShadowParamsA.hadInvalid) {
+				this._warn(
+					"webgl-spot-shadow-params-a-invalid",
+					"WebGL spot shadow parameters contain non-finite values; using sanitized values."
+				);
+			}
 			gl.uniform4fv(
 				uniforms.spotShadowParamsA,
-				flattenShadowParamsA(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
+				packedSpotShadowParamsA.values
 			);
 		}
 		if (uniforms.spotShadowParamsB) {
+			const packedSpotShadowParamsB = sanitizeFloat32Array(
+				flattenShadowParamsB(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+				0
+			);
+			if (packedSpotShadowParamsB.hadInvalid) {
+				this._warn(
+					"webgl-spot-shadow-params-b-invalid",
+					"WebGL spot shadow parameters contain non-finite values; using sanitized values."
+				);
+			}
 			gl.uniform4fv(
 				uniforms.spotShadowParamsB,
-				flattenShadowParamsB(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS)
+				packedSpotShadowParamsB.values
 			);
 		}
 	}
@@ -1429,14 +1633,7 @@ export class WebGLFrameExecutor {
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
 
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			this._ssaoRawTexture,
-			0
-		);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		this._bindPostSingleColorTarget(this._ssaoRawTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.useProgram(rawProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
@@ -1490,13 +1687,7 @@ export class WebGLFrameExecutor {
 			);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			this._ssaoBlurTexture,
-			0
-		);
+		this._bindPostSingleColorTarget(this._ssaoBlurTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.useProgram(blurProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
@@ -1525,13 +1716,7 @@ export class WebGLFrameExecutor {
 			);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			this._ssaoRawTexture,
-			0
-		);
+		this._bindPostSingleColorTarget(this._ssaoRawTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, this._ssaoBlurTexture);
@@ -1547,13 +1732,7 @@ export class WebGLFrameExecutor {
 			);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			this._postColorTexture,
-			0
-		);
+		this._bindPostSingleColorTarget(this._postColorTexture);
 		gl.viewport(0, 0, this._width, this._height);
 		gl.useProgram(combineProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
@@ -1593,14 +1772,7 @@ export class WebGLFrameExecutor {
 		const fxaaProgram = this._programs.getFXAAProgram();
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			this._postColorTexture,
-			0
-		);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		this._bindPostSingleColorTarget(this._postColorTexture);
 		gl.viewport(0, 0, this._width, this._height);
 		gl.useProgram(fxaaProgram.program);
 		gl.bindVertexArray(this._fullscreenVao);
@@ -1694,12 +1866,36 @@ export class WebGLFrameExecutor {
 			);
 		}
 
-		// Default options
-		const weight = (options?.historyWeight as number) ?? 0.9;
-		const depthThreshold = (options?.disocclusionDepthThreshold as number) ?? 0.01;
-		const motionFactor = (options?.motionFactor as number) ?? 0.1;
-		const varianceClampGamma = (options?.varianceClampGamma as number) ?? 1.0;
-		const sharpen = (options?.sharpen as number) ?? 0.0;
+		const weight = sanitizeFiniteClamped(
+			options?.historyWeight,
+			DEFAULT_TAA_OPTIONS.historyWeight,
+			TAA_HISTORY_WEIGHT_RANGE[0],
+			TAA_HISTORY_WEIGHT_RANGE[1]
+		);
+		const depthThreshold = sanitizeFiniteClamped(
+			options?.disocclusionDepthThreshold,
+			DEFAULT_TAA_OPTIONS.disocclusionDepthThreshold,
+			TAA_DEPTH_THRESHOLD_RANGE[0],
+			TAA_DEPTH_THRESHOLD_RANGE[1]
+		);
+		const motionFactor = sanitizeFiniteClamped(
+			options?.motionFactor,
+			DEFAULT_TAA_OPTIONS.motionFactor,
+			TAA_MOTION_FACTOR_RANGE[0],
+			TAA_MOTION_FACTOR_RANGE[1]
+		);
+		const varianceClampGamma = sanitizeFiniteClamped(
+			options?.varianceClampGamma,
+			DEFAULT_TAA_OPTIONS.varianceClampGamma,
+			TAA_VARIANCE_GAMMA_RANGE[0],
+			TAA_VARIANCE_GAMMA_RANGE[1]
+		);
+		const sharpen = sanitizeFiniteClamped(
+			options?.sharpen,
+			DEFAULT_TAA_OPTIONS.sharpen,
+			TAA_SHARPEN_RANGE[0],
+			TAA_SHARPEN_RANGE[1]
+		);
 
 		if (uniforms.historyWeight) gl.uniform1f(uniforms.historyWeight, weight);
 		if (uniforms.depthThreshold)
@@ -1712,6 +1908,13 @@ export class WebGLFrameExecutor {
 			gl.uniform1f(uniforms.historyValid, this._taaHistoryValid ? 1.0 : 0.0);
 
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT1,
+			gl.TEXTURE_2D,
+			null,
+			0
+		);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.bindVertexArray(null);
 
@@ -1743,6 +1946,25 @@ export class WebGLFrameExecutor {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.bindVertexArray(null);
 		this._presentedInFrame = true;
+	}
+
+	private _bindPostSingleColorTarget(texture: WebGLTexture): void {
+		const gl = this._gl;
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			texture,
+			0
+		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT1,
+			gl.TEXTURE_2D,
+			null,
+			0
+		);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 	}
 
 	private _ensureFrameTargets(
@@ -2282,6 +2504,16 @@ function toColumnMajorMat4(matrix: Matrix4 | number[][]): Float32Array {
 	]);
 }
 
+function toFiniteColumnMajorMat4(matrix: Matrix4 | number[][]): Float32Array | null {
+	const values = toColumnMajorMat4(matrix);
+	for (let i = 0; i < values.length; i++) {
+		if (!Number.isFinite(values[i])) {
+			return null;
+		}
+	}
+	return values;
+}
+
 function toColumnMajorMat3(matrix: Matrix4 | Matrix3Arr): Float32Array | null {
 	const rows: number[][] =
 		matrix instanceof Array ? matrix : (matrix as Matrix4).elements;
@@ -2321,8 +2553,34 @@ function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function sanitizeFiniteClamped(
+	value: unknown,
+	fallback: number,
+	minValue: number,
+	maxValue: number
+): number {
+	return clampNumber(finiteOr(value, fallback), minValue, maxValue);
+}
+
 function clampNumber(value: number, minValue: number, maxValue: number): number {
 	return Math.min(Math.max(value, minValue), maxValue);
+}
+
+function sanitizeFloat32Array(
+	values: Float32Array,
+	fallback: number
+): {
+	values: Float32Array;
+	hadInvalid: boolean;
+} {
+	let hadInvalid = false;
+	for (let i = 0; i < values.length; i++) {
+		if (!Number.isFinite(values[i])) {
+			values[i] = fallback;
+			hadInvalid = true;
+		}
+	}
+	return { values, hadInvalid };
 }
 
 function clampDownsample(value: unknown, fallback: number): number {

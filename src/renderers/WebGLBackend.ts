@@ -17,6 +17,7 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"taa",
 	"gamma",
 ]);
+const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
@@ -177,7 +178,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (typeof value !== "number" || !Number.isFinite(value)) {
 			return 0;
 		}
-		return Math.max(0, value);
+		return Math.min(MAX_PARTICLE_SIM_DELTA_TIME_SECONDS, Math.max(0, value));
 	}
 
 	private _installContextLifecycleListeners(canvas: HTMLCanvasElement): void {

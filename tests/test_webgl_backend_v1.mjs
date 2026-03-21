@@ -11,6 +11,8 @@ import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.t
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
 import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
+import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
+import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 
 function createProgramCompileFailGL() {
 	return {
@@ -344,6 +346,15 @@ function testGeometryRegistryRetriesAfterUploadAllocationFailure() {
 	);
 }
 
+function testWebGLBackendParticleDeltaTimeClamp() {
+	const backend = new WebGLBackend();
+	const transient = new Map([
+		[PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 1000],
+	]);
+	const deltaTimeSeconds = backend._resolveParticleDeltaTime({ transient });
+	assert.equal(deltaTimeSeconds, 0.5);
+}
+
 function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
@@ -353,6 +364,7 @@ function run() {
 	testSceneShaderBackLitShadowGuard();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
+	testWebGLBackendParticleDeltaTimeClamp();
 	console.log("WebGL backend v1 unit tests passed");
 }
 

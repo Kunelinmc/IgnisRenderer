@@ -9,8 +9,12 @@ function createFXAATestGL() {
 		MAX_RENDERBUFFER_SIZE: 0x84e8,
 		FRAMEBUFFER: 0x8d40,
 		COLOR_ATTACHMENT0: 0x8ce0,
+		COLOR_ATTACHMENT1: 0x8ce1,
 		TEXTURE_2D: 0x0de1,
 		TEXTURE0: 0x84c0,
+		TEXTURE1: 0x84c1,
+		TEXTURE2: 0x84c2,
+		TEXTURE3: 0x84c3,
 		TRIANGLES: 0x0004,
 		CULL_FACE: 0x0b44,
 		DEPTH_TEST: 0x0b71,
@@ -68,8 +72,28 @@ function createFXAATestGL() {
 		uniform1i(location, value) {
 			calls.push({ name: "uniform1i", location, value });
 		},
+		uniform1f(location, value) {
+			calls.push({ name: "uniform1f", location, value });
+		},
 		uniform2f(location, x, y) {
 			calls.push({ name: "uniform2f", location, x, y });
+		},
+		uniform3f(location, x, y, z) {
+			calls.push({ name: "uniform3f", location, x, y, z });
+		},
+		uniform4f(location, x, y, z, w) {
+			calls.push({ name: "uniform4f", location, x, y, z, w });
+		},
+		uniform4fv(location, values) {
+			calls.push({ name: "uniform4fv", location, values: Array.from(values) });
+		},
+		uniformMatrix4fv(location, transpose, values) {
+			calls.push({
+				name: "uniformMatrix4fv",
+				location,
+				transpose,
+				values: Array.from(values),
+			});
 		},
 		drawArrays(mode, first, count) {
 			calls.push({ name: "drawArrays", mode, first, count });
@@ -298,12 +322,233 @@ function testShadowSkinningWarningKeyIsStable() {
 	assert.equal(warnings[0]?.key, "webgl-shadow-skinning-unsupported");
 }
 
+function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, () => {});
+	executor._programs = {
+		getTAAProgram() {
+			return {
+				program: { id: "taa-program" },
+				uniforms: {
+					sceneColor: "uSceneColor",
+					historyMap: "uHistoryMap",
+					motionMap: "uMotionMap",
+					motionHistory: "uMotionHistory",
+					texelSize: "uTexelSize",
+					historyWeight: "uHistoryWeight",
+					depthThreshold: "uDepthThreshold",
+					motionFactor: "uMotionFactor",
+					varianceClampGamma: "uVarianceClampGamma",
+					sharpen: "uSharpen",
+					historyValid: "uHistoryValid",
+				},
+			};
+		},
+	};
+	executor._postFramebuffer = { id: "post-fbo" };
+	executor._sceneColorTexture = { id: "scene-color" };
+	executor._sceneMotionTexture = { id: "scene-motion" };
+	executor._taaHistoryTextures = [{ id: "history-a" }, { id: "history-b" }];
+	executor._taaMotionHistoryTextures = [{ id: "motion-a" }, { id: "motion-b" }];
+	executor._fullscreenVao = { id: "fullscreen-vao" };
+	executor._width = 1920;
+	executor._height = 1080;
+
+	executor._applyTAA({
+		historyWeight: Number.POSITIVE_INFINITY,
+		disocclusionDepthThreshold: Number.NaN,
+		motionFactor: 1e9,
+		varianceClampGamma: -5,
+		sharpen: 4,
+	});
+
+	const attachment1Writes = gl.calls.filter(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT1
+	);
+	assert.equal(attachment1Writes[attachment1Writes.length - 1]?.texture, null);
+
+	const drawBuffersCalls = gl.calls.filter((call) => call.name === "drawBuffers");
+	assert.deepEqual(drawBuffersCalls[drawBuffersCalls.length - 1]?.buffers, [
+		gl.COLOR_ATTACHMENT0,
+	]);
+
+	const uniform1fCalls = gl.calls.filter((call) => call.name === "uniform1f");
+	const uniformMap = new Map(uniform1fCalls.map((call) => [call.location, call.value]));
+	assert.equal(uniformMap.get("uHistoryWeight"), 0.9);
+	assert.equal(uniformMap.get("uDepthThreshold"), 0.02);
+	assert.equal(uniformMap.get("uMotionFactor"), 512);
+	assert.equal(uniformMap.get("uVarianceClampGamma"), 0);
+	assert.equal(uniformMap.get("uSharpen"), 2);
+	assert.equal(uniformMap.get("uHistoryValid"), 0);
+}
+
+function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, () => {});
+	executor._programs = {
+		getSSAORawProgram() {
+			return { program: { id: "ssao-raw" }, uniforms: {} };
+		},
+		getSSAOBlurProgram() {
+			return { program: { id: "ssao-blur" }, uniforms: {} };
+		},
+		getSSAOCombineProgram() {
+			return { program: { id: "ssao-combine" }, uniforms: {} };
+		},
+	};
+	executor._postFramebuffer = { id: "post-fbo" };
+	executor._postColorTexture = { id: "post-color" };
+	executor._sceneColorTexture = { id: "scene-color" };
+	executor._sceneMotionTexture = { id: "scene-motion" };
+	executor._sceneNormalTexture = { id: "scene-normal" };
+	executor._ssaoRawTexture = { id: "ssao-raw" };
+	executor._ssaoBlurTexture = { id: "ssao-blur" };
+	executor._fullscreenVao = { id: "fullscreen-vao" };
+	executor._width = 1280;
+	executor._height = 720;
+	executor._targetSSAODownsample = 2;
+
+	const identity = [
+		[1, 0, 0, 0],
+		[0, 1, 0, 0],
+		[0, 0, 1, 0],
+		[0, 0, 0, 1],
+	];
+	const context = {
+		camera: {
+			type: "perspective",
+			fov: 60,
+			aspectRatio: 1280 / 720,
+			viewMatrix: { elements: identity },
+			getWorldPosition() {
+				return { x: 0, y: 0, z: 5 };
+			},
+		},
+	};
+
+	executor._applySSAO(undefined, context);
+
+	const detachCalls = gl.calls.filter(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT1 &&
+			call.texture === null
+	);
+	assert.ok(detachCalls.length > 0);
+}
+
+function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
+	const warnings = [];
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, (key, message) =>
+		warnings.push({ key, message })
+	);
+
+	executor._lightState = {
+		ambientColor: [0, 0, 0],
+		directionalLights: [
+			{
+				direction: [Number.NaN, 1, 0],
+				color: [Number.POSITIVE_INFINITY, 1, 0.5],
+			},
+		],
+		directionalShadows: [
+			{
+				viewProjectionMatrix: [
+					[1, 0, 0, 0],
+					[0, Number.NaN, 0, 0],
+					[0, 0, 1, 0],
+					[0, 0, 0, 1],
+				],
+			},
+		],
+		pointLights: [],
+		spotLights: [],
+		spotShadows: [],
+	};
+
+	const sceneProgram = {
+		uniforms: {
+			viewProjection: "uViewProjection",
+			viewMatrix: "uViewMatrix",
+			cameraPosition: "uCameraPosition",
+			dirLightDirection: "uDirLightDirection",
+			dirLightColor: "uDirLightColor",
+			dirShadowViewProjection: "uDirShadowViewProjection",
+		},
+	};
+	const context = {
+		camera: {
+			viewProjectionMatrix: {
+				elements: [
+					[Number.NaN, 0, 0, 0],
+					[0, 1, 0, 0],
+					[0, 0, 1, 0],
+					[0, 0, 0, 1],
+				],
+			},
+			viewMatrix: {
+				elements: [
+					[1, 0, 0, 0],
+					[0, Number.POSITIVE_INFINITY, 0, 0],
+					[0, 0, 1, 0],
+					[0, 0, 0, 1],
+				],
+			},
+			getWorldPosition() {
+				return { x: Number.NaN, y: Number.POSITIVE_INFINITY, z: 3 };
+			},
+		},
+		features: {
+			enableLighting: true,
+			enableShadows: true,
+		},
+	};
+
+	executor._bindGlobalUniforms(sceneProgram, context);
+
+	const matrixUploads = gl.calls.filter(
+		(call) =>
+			call.name === "uniformMatrix4fv" &&
+			(call.location === "uViewProjection" ||
+				call.location === "uViewMatrix" ||
+				call.location === "uDirShadowViewProjection")
+	);
+	for (const upload of matrixUploads) {
+		assert.equal(upload.values.every(Number.isFinite), true);
+	}
+
+	const vecUploads = gl.calls.filter(
+		(call) =>
+			(call.name === "uniform3f" && call.location === "uCameraPosition") ||
+			(call.name === "uniform4fv" &&
+				(call.location === "uDirLightDirection" ||
+					call.location === "uDirLightColor"))
+	);
+	for (const upload of vecUploads) {
+		const values =
+			upload.name === "uniform3f" ? [upload.x, upload.y, upload.z] : upload.values;
+		assert.equal(values.every(Number.isFinite), true);
+	}
+
+	assert.ok(
+		warnings.some(
+			(warning) => warning.key === "webgl-camera-view-projection-invalid"
+		)
+	);
+}
+
 function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testSceneFramebufferFailureCleansAllAllocatedTargets();
 	testEndFramePrunesStaleModelMatrixCache();
 	testShadowSkinningWarningKeyIsStable();
+	testTAAPassDetachesMotionAttachmentAndSanitizesOptions();
+	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();
+	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();
 	console.log("WebGL FXAA frame executor tests passed");
 }
 

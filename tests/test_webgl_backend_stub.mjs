@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
+import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 
 function createFakeWebGL2Context() {
 	return {
@@ -322,10 +323,20 @@ async function testContextLostAndRestored() {
 	);
 }
 
+function testParticleDeltaTimeIsClampedToSafeMaximum() {
+	const backend = new WebGLBackend();
+	const transient = new Map([
+		[PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 1000],
+	]);
+	const deltaTimeSeconds = backend._resolveParticleDeltaTime({ transient });
+	assert.equal(deltaTimeSeconds, 0.5);
+}
+
 async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
 	await testContextLostAndRestored();
+	testParticleDeltaTimeIsClampedToSafeMaximum();
 	console.log("WebGL backend v1 tests passed");
 }
 
