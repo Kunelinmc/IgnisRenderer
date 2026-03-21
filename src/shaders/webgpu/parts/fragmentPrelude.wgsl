@@ -34,6 +34,7 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 		normal = safeNormalize(faceNormal, normal);
 	}
 
+	let shadowNormal = normal;
 	if (doubleSided && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
 	}

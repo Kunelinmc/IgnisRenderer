@@ -49,9 +49,11 @@ uniform sampler2D uShadowAtlas;
 uniform mat4 uDirShadowViewProjection[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsA[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsB[MAX_DIRECTIONAL_LIGHTS];
+uniform vec4 uDirShadowParamsC[MAX_DIRECTIONAL_LIGHTS];
 uniform mat4 uSpotShadowViewProjection[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsA[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
+uniform vec4 uSpotShadowParamsC[MAX_SPOT_LIGHTS];
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
@@ -89,6 +91,7 @@ float sampleShadowVisibility(
 	mat4 shadowViewProjection,
 	vec4 paramsA,
 	vec4 paramsB,
+	vec4 paramsC,
 	vec3 worldPosition,
 	vec3 normal,
 	vec3 lightDirection
@@ -102,10 +105,11 @@ float sampleShadowVisibility(
 
 	float shadowSize = max(paramsB.z, 1.0);
 	float atlasTileSize = max(paramsB.w, shadowSize);
-	float bias = max(paramsA.y, 0.0);
+	float slopeBias = max(paramsC.x, 0.0);
 	float maxNormalBias = max(paramsA.z, 0.0);
 	float minNormalBias = max(paramsA.w, 0.0);
 	float cosTheta = max(dot(normal, lightDirection), 0.0);
+	float bias = max(paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
 	float normalBias = mix(minNormalBias, maxNormalBias, 1.0 - cosTheta);
 	vec3 shadowWorldPosition = worldPosition + normal * normalBias;
 	vec4 shadowClip = shadowViewProjection * vec4(shadowWorldPosition, 1.0);
@@ -180,6 +184,7 @@ float sampleDirectionalShadowVisibility(
 		uDirShadowViewProjection[index],
 		uDirShadowParamsA[index],
 		uDirShadowParamsB[index],
+		uDirShadowParamsC[index],
 		worldPosition,
 		normal,
 		lightDirection
@@ -198,6 +203,7 @@ float sampleSpotShadowVisibility(
 		uSpotShadowViewProjection[index],
 		uSpotShadowParamsA[index],
 		uSpotShadowParamsB[index],
+		uSpotShadowParamsC[index],
 		worldPosition,
 		normal,
 		lightDirection
@@ -228,7 +234,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 	return f0 + (vec3(1.0) - f0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
-vec3 shadePhong(vec3 albedo, vec3 n, vec3 v) {
+vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 	vec3 lit = uAmbientColor * albedo;
 	vec3 specular = vec3(0.0);
 	float shininess = max(1.0, uPhong.x);
@@ -237,7 +243,12 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 v) {
 		if (i >= uDirLightCount) break;
 		vec3 l = safeNormalize(uDirLightDirection[i].xyz, vec3(0.0, 1.0, 0.0));
 		float nDotL = max(dot(n, l), 0.0);
-		float shadow = sampleDirectionalShadowVisibility(i, vWorldPos, n, l);
+		float shadow = sampleDirectionalShadowVisibility(
+			i,
+			vWorldPos,
+			shadowNormal,
+			l
+		);
 		lit += albedo * uDirLightColor[i].xyz * nDotL * shadow;
 		if (nDotL > 0.0) {
 			vec3 h = safeNormalize(l + v, v);
@@ -295,7 +306,12 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 v) {
 			continue;
 		}
 		float nDotL = max(dot(n, l), 0.0);
-		float shadow = sampleSpotShadowVisibility(i, vWorldPos, n, l);
+		float shadow = sampleSpotShadowVisibility(
+			i,
+			vWorldPos,
+			shadowNormal,
+			l
+		);
 		lit +=
 			albedo * uSpotLightColorInner[i].xyz *
 			nDotL * attenuation * coneFactor * shadow;
@@ -341,7 +357,12 @@ vec3 evalPBRLight(
 	return (diffuse + specular) * radiance * nDotL;
 }
 
-vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
+vec3 shadePBR(
+	vec3 albedo,
+	vec3 pbrNormal,
+	vec3 shadowNormal,
+	vec3 viewDir
+) {
 	float roughness = clamp(uPBR.x, 0.04, 1.0);
 	float metalness = clamp(uPBR.y, 0.0, 1.0);
 	float reflectance = clamp(uPBR.z, 0.0, 1.0);
@@ -372,7 +393,7 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 		float shadow = sampleDirectionalShadowVisibility(
 			i,
 			vWorldPos,
-			pbrNormal,
+			shadowNormal,
 			lightDir
 		);
 		directLight += evalPBRLight(
@@ -442,7 +463,7 @@ vec3 shadePBR(vec3 albedo, vec3 pbrNormal, vec3 viewDir) {
 		float shadow = sampleSpotShadowVisibility(
 			i,
 			vWorldPos,
-			pbrNormal,
+			shadowNormal,
 			lightDir
 		);
 		directLight += evalPBRLight(
@@ -476,6 +497,7 @@ void main() {
 	}
 
 	vec3 normal = normalize(vNormal);
+	vec3 shadowNormal = normal;
 	vec3 viewDir = safeNormalize(uCameraPosition - vWorldPos, vec3(0.0, 0.0, 1.0));
 	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
@@ -484,9 +506,9 @@ void main() {
 	if (uEnableLighting == 0 || uShadingModel == 2) {
 		color = albedo;
 	} else if (uShadingModel == 1) {
-		color = shadePBR(albedo, normal, viewDir);
+		color = shadePBR(albedo, normal, shadowNormal, viewDir);
 	} else {
-		color = shadePhong(albedo, normal, viewDir);
+		color = shadePhong(albedo, normal, shadowNormal, viewDir);
 	}
 
 	color += uEmissive.rgb;

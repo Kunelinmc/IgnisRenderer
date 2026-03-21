@@ -40,6 +40,7 @@ export class ShadowMap {
 	public projectionMatrix: Matrix4 | null = null;
 	public viewProjectionMatrix: Matrix4 | null = null;
 	public latestLightDir: IVector3 = { x: 0, y: -1, z: 0 };
+	public stabilizedBoundsRadius: number | null = null;
 
 	constructor(size = 1024, params: ShadowParams = {}) {
 		this.size = size;

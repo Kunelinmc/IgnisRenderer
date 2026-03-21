@@ -355,10 +355,11 @@ fn sampleShadowVisibility(
 
 	let shadowSize = max(i32(shadowData.paramsB.z + 0.5), 1);
 	let atlasTileSize = max(i32(shadowData.paramsB.w + 0.5), shadowSize);
-	let bias = max(shadowData.paramsA.y, 0.0);
+	let slopeBias = max(shadowData.paramsC.x, 0.0);
 	let maxNormalBias = max(shadowData.paramsA.z, 0.0);
 	let minNormalBias = max(shadowData.paramsA.w, 0.0);
 	let cosTheta = max(dot(normal, lightDirection), 0.0);
+	let bias = max(shadowData.paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
 	let normalBias = minNormalBias + (maxNormalBias - minNormalBias) * (1.0 - cosTheta);
 	let shadowWorldPosition = worldPosition + normal * normalBias;
 	let shadowClip = shadowData.viewProjection * vec4<f32>(shadowWorldPosition, 1.0);

@@ -1328,6 +1328,25 @@ export class WebGLFrameExecutor {
 				packedDirShadowParamsB.values
 			);
 		}
+		if (uniforms.dirShadowParamsC) {
+			const packedDirShadowParamsC = sanitizeFloat32Array(
+				flattenShadowParamsC(
+					lights.directionalShadows,
+					WEBGL_MAX_DIRECTIONAL_LIGHTS
+				),
+				0
+			);
+			if (packedDirShadowParamsC.hadInvalid) {
+				this._warn(
+					"webgl-dir-shadow-params-c-invalid",
+					"WebGL directional shadow slope parameters contain non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.dirShadowParamsC,
+				packedDirShadowParamsC.values
+			);
+		}
 
 		if (uniforms.pointLightCount) {
 			gl.uniform1i(uniforms.pointLightCount, lights.pointLights.length);
@@ -1488,6 +1507,22 @@ export class WebGLFrameExecutor {
 			gl.uniform4fv(
 				uniforms.spotShadowParamsB,
 				packedSpotShadowParamsB.values
+			);
+		}
+		if (uniforms.spotShadowParamsC) {
+			const packedSpotShadowParamsC = sanitizeFloat32Array(
+				flattenShadowParamsC(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+				0
+			);
+			if (packedSpotShadowParamsC.hadInvalid) {
+				this._warn(
+					"webgl-spot-shadow-params-c-invalid",
+					"WebGL spot shadow slope parameters contain non-finite values; using sanitized values."
+				);
+			}
+			gl.uniform4fv(
+				uniforms.spotShadowParamsC,
+				packedSpotShadowParamsC.values
 			);
 		}
 	}
@@ -2449,9 +2484,9 @@ function flattenShadowParamsA(
 		const shadow = values[i];
 		const offset = i * 4;
 		packed[offset] = shadow.enabled ? 1 : 0;
-		packed[offset + 1] = shadow.depthBias;
-		packed[offset + 2] = shadow.normalBias;
-		packed[offset + 3] = shadow.normalBiasMin;
+		packed[offset + 1] = finiteOr(shadow.depthBias, 0);
+		packed[offset + 2] = finiteOr(shadow.normalBias, 0);
+		packed[offset + 3] = finiteOr(shadow.normalBiasMin, 0);
 	}
 	return packed;
 }
@@ -2465,10 +2500,27 @@ function flattenShadowParamsB(
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
 		const offset = i * 4;
-		packed[offset] = shadow.pcfRadius;
-		packed[offset + 1] = shadow.shadowStrength;
-		packed[offset + 2] = shadow.shadowMapSize;
-		packed[offset + 3] = shadow.atlasTileSize;
+		packed[offset] = finiteOr(shadow.pcfRadius, 0);
+		packed[offset + 1] = finiteOr(shadow.shadowStrength, 0);
+		packed[offset + 2] = finiteOr(shadow.shadowMapSize, 0);
+		packed[offset + 3] = finiteOr(shadow.atlasTileSize, 0);
+	}
+	return packed;
+}
+
+function flattenShadowParamsC(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = finiteOr(shadow.slopeBias, 0);
+		packed[offset + 1] = 0;
+		packed[offset + 2] = 0;
+		packed[offset + 3] = 0;
 	}
 	return packed;
 }

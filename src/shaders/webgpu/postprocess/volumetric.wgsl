@@ -18,6 +18,7 @@ struct ShadowData {
 	viewProjection: mat4x4<f32>,
 	paramsA: vec4<f32>,
 	paramsB: vec4<f32>,
+	paramsC: vec4<f32>,
 }
 
 struct VolumetricLightData {

@@ -149,6 +149,32 @@ function resetShadowMapMetadata(shadowMap: ShadowMap): void {
 	shadowMap.projectionMatrix = null;
 	shadowMap.viewProjectionMatrix = null;
 	shadowMap.latestLightDir = { x: 0, y: -1, z: 0 };
+	shadowMap.stabilizedBoundsRadius = null;
+}
+
+const SHADOW_RADIUS_SHRINK_BLEND = 0.12;
+
+function resolveStabilizedShadowRadius(
+	shadowMap: ShadowMap,
+	radius: number
+): number {
+	const safeRadius = Number.isFinite(radius) ? Math.max(radius, 1e-6) : 1e-6;
+	const previousRadius = shadowMap.stabilizedBoundsRadius;
+	if (!Number.isFinite(previousRadius) || previousRadius === null || previousRadius <= 1e-6) {
+		shadowMap.stabilizedBoundsRadius = safeRadius;
+		return safeRadius;
+	}
+
+	if (safeRadius >= previousRadius) {
+		shadowMap.stabilizedBoundsRadius = safeRadius;
+		return safeRadius;
+	}
+
+	const stabilizedRadius =
+		previousRadius + (safeRadius - previousRadius) * SHADOW_RADIUS_SHRINK_BLEND;
+	const clampedRadius = Math.max(safeRadius, stabilizedRadius);
+	shadowMap.stabilizedBoundsRadius = clampedRadius;
+	return clampedRadius;
 }
 
 export function syncShadowMapRegistry(
@@ -178,8 +204,13 @@ export function updateShadowMapMetadata(
 		return;
 	}
 
+	const stabilizedSceneBounds: SceneBounds = {
+		center: sceneBounds.center,
+		radius: resolveStabilizedShadowRadius(shadowMap, sceneBounds.radius),
+	};
+
 	const config = light.shadow.setupShadowCamera({
-		sceneBounds,
+		sceneBounds: stabilizedSceneBounds,
 		worldMatrix: light.worldMatrix,
 	});
 	if (!config) {

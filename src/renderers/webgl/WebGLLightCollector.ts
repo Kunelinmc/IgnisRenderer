@@ -43,6 +43,7 @@ export interface WebGLShadowData {
 	enabled: boolean;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
+	slopeBias: number;
 	normalBias: number;
 	normalBiasMin: number;
 	pcfRadius: number;
@@ -197,6 +198,7 @@ function resolveWebGLShadowData(
 			enabled: false,
 			viewProjectionMatrix: null,
 			depthBias: 0,
+			slopeBias: 0,
 			normalBias: 0,
 			normalBiasMin: 0,
 			pcfRadius: 0,
@@ -223,6 +225,7 @@ function resolveWebGLShadowData(
 		enabled: true,
 		viewProjectionMatrix: shadowMap.viewProjectionMatrix,
 		depthBias,
+		slopeBias: Math.max(0, shadowMap.params.shadowSlopeBias ?? 0.03),
 		normalBias: Math.max(0, shadowMap.params.shadowNormalBias ?? 1.0),
 		normalBiasMin: Math.max(0, shadowMap.params.shadowNormalBiasMin ?? 0.05),
 		pcfRadius: Math.max(1, pcfRadius),

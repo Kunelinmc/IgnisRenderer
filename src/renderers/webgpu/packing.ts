@@ -201,7 +201,8 @@ export function packFrameUniformData(
 			],
 			offset + 20
 		);
-		offset += 24;
+		data.set([shadow?.slopeBias ?? 0, 0, 0, 0], offset + 24);
+		offset += 28;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
@@ -228,7 +229,8 @@ export function packFrameUniformData(
 			],
 			offset + 20
 		);
-		offset += 24;
+		data.set([shadow?.slopeBias ?? 0, 0, 0, 0], offset + 24);
+		offset += 28;
 	}
 
 	for (let i = 0; i < WEBGPU_SH_COEFFICIENT_COUNT; i++) {

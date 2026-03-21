@@ -15,7 +15,7 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 	let shadow = sampleDirectionalShadowVisibility(
 		i,
 		input.worldPosition,
-		pbrNormal,
+		pbrShadowNormal,
 		lightDirection
 	);
 	let fView = fresnelSchlick(nDotV, realF0);

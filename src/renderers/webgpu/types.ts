@@ -48,6 +48,7 @@ export interface WebGPUShadowData {
 	enabled: boolean;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
+	slopeBias: number;
 	normalBias: number;
 	normalBiasMin: number;
 	pcfRadius: number;

@@ -119,6 +119,7 @@ var pbrNormal = applyNormalMap(
 	normalSample,
 	model.surfaceParams1.y
 );
+let pbrShadowNormal = pbrNormal;
 if (doubleSided && dot(pbrNormal, viewDir) < 0.0) {
 	pbrNormal = -pbrNormal;
 }

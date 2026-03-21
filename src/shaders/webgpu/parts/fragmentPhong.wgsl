@@ -24,7 +24,7 @@
 			let shadow = sampleDirectionalShadowVisibility(
 				i,
 				input.worldPosition,
-				normal,
+				shadowNormal,
 				lightDirection
 			);
 			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
@@ -92,7 +92,7 @@
 			let shadow = sampleSpotShadowVisibility(
 				i,
 				input.worldPosition,
-				normal,
+				shadowNormal,
 				lightDirection
 			);
 			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);

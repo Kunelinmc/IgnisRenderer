@@ -37,7 +37,7 @@ for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
 	let shadow = sampleSpotShadowVisibility(
 		i,
 		input.worldPosition,
-		pbrNormal,
+		pbrShadowNormal,
 		lightDirection
 	);
 	let fView = fresnelSchlick(nDotV, realF0);

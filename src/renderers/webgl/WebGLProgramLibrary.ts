@@ -148,9 +148,11 @@ export interface WebGLSceneProgram {
 		dirShadowViewProjection: WebGLUniformLocation | null;
 		dirShadowParamsA: WebGLUniformLocation | null;
 		dirShadowParamsB: WebGLUniformLocation | null;
+		dirShadowParamsC: WebGLUniformLocation | null;
 		spotShadowViewProjection: WebGLUniformLocation | null;
 		spotShadowParamsA: WebGLUniformLocation | null;
 		spotShadowParamsB: WebGLUniformLocation | null;
+		spotShadowParamsC: WebGLUniformLocation | null;
 		taaJitter: WebGLUniformLocation | null;
 		prevViewProjection: WebGLUniformLocation | null;
 		prevModel: WebGLUniformLocation | null;
@@ -358,6 +360,10 @@ export class WebGLProgramLibrary {
 					program,
 					"uDirShadowParamsB[0]"
 				),
+				dirShadowParamsC: this._gl.getUniformLocation(
+					program,
+					"uDirShadowParamsC[0]"
+				),
 				spotShadowViewProjection: this._gl.getUniformLocation(
 					program,
 					"uSpotShadowViewProjection[0]"
@@ -369,6 +375,10 @@ export class WebGLProgramLibrary {
 				spotShadowParamsB: this._gl.getUniformLocation(
 					program,
 					"uSpotShadowParamsB[0]"
+				),
+				spotShadowParamsC: this._gl.getUniformLocation(
+					program,
+					"uSpotShadowParamsC[0]"
 				),
 				taaJitter: this._gl.getUniformLocation(program, "uTaaJitter"),
 				prevViewProjection: this._gl.getUniformLocation(
