@@ -101,8 +101,9 @@ interface InternalBindingGroup extends IBindingGroup {
 }
 
 interface InternalCommandBuffer {
-	_backendCommandBuffer?: GPUCommandBuffer;
-	_gpuCommandBuffer: GPUCommandBuffer;
+	_backendCommandBuffer: GPUCommandBuffer;
+	_ownerToken: object;
+	_submitted: boolean;
 }
 
 interface CachedSamplerEntry {
@@ -227,6 +228,9 @@ export class WebGPUBackend implements IRenderBackend {
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
+	private _deviceLost = false;
+	private _deviceLostInfo: GPUDeviceLostInfo | null = null;
+	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
 	private _samplerCache = new Map<string, CachedSamplerEntry>();
 	private _shaderModuleCache = new Map<string, CachedShaderModuleEntry>();
 	private _shaderModuleInFlight = new Map<
@@ -238,7 +242,11 @@ export class WebGPUBackend implements IRenderBackend {
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
 	private _pipelineBindGroupLayoutCache = new Map<string, GPUBindGroupLayout>();
 	private _autoRenderPipelineLayoutCache = new Map<string, GPUPipelineLayout>();
-	private _autoComputePipelineLayoutCache = new Map<string, GPUPipelineLayout>();
+	private _autoComputePipelineLayoutCache = new Map<
+		string,
+		GPUPipelineLayout
+	>();
+	private _commandBufferOwnerToken: object = {};
 	private _resourceIds = new WeakMap<object, number>();
 	private _resourceIdTokens = new WeakMap<object, object>();
 	private _freeResourceIds: number[] = [];
@@ -309,12 +317,16 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!navigator.gpu) {
 			throw new Error("WebGPU not supported on this browser.");
 		}
+		if (!this._renderer) {
+			throw new Error("WebGPU backend requires a renderer before init().");
+		}
 
 		const adapter = await navigator.gpu.requestAdapter();
 		if (!adapter) {
 			throw new Error("No appropriate GPUAdapter found.");
 		}
 
+		let requestedDevice: GPUDevice;
 		try {
 			const requiredLimits: Record<string, number> = {};
 			const requiredFeatures: GPUFeatureName[] = [];
@@ -338,7 +350,7 @@ export class WebGPUBackend implements IRenderBackend {
 				requiredFeatures.push("timestamp-query" as GPUFeatureName);
 			}
 
-			this.device = await adapter.requestDevice({
+			requestedDevice = await adapter.requestDevice({
 				requiredFeatures:
 					requiredFeatures.length > 0 ? requiredFeatures : undefined,
 				requiredLimits:
@@ -346,40 +358,50 @@ export class WebGPUBackend implements IRenderBackend {
 						(requiredLimits as any)
 					:	undefined,
 			});
-			this.device.lost.then((info) => {
-				console.error(`WebGPU device was lost: ${info.message}`);
-			});
 		} catch (error) {
 			throw new Error(`Failed to request WebGPU device: ${error}`);
 		}
 
-		this.queue = this.device.queue;
-		this._errorScopes = new WebGPUErrorScopeHelper(this.device);
-		this.canvasDepthFormat = this._selectCanvasDepthFormat();
-		this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-		this._msaaSampleCount = this._selectMSAASampleCount();
-		this._initTimestampResources();
-		this.context = canvas.getContext("webgpu");
-		if (!this.context) {
+		const context = canvas.getContext("webgpu");
+		if (!context) {
 			throw new Error("Failed to acquire WebGPU canvas context.");
 		}
 
-		this._configureContext();
-		this._recreateDepthTexture();
-
-		if (!this._renderer) {
-			throw new Error("WebGPU backend requires a renderer before init().");
-		}
-
-		this._resources = new WebGPURenderResources(this._renderer, this);
-		await this._resources.init();
-		this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
-		this._particleSimulator = new DefaultParticleSimulator({
-			backendTag: this.type,
-			maxParticlesPerSystem: 300000,
+		this._deviceLost = false;
+		this._deviceLostInfo = null;
+		this.device = requestedDevice;
+		this.queue = requestedDevice.queue;
+		this._deviceLossPromise = requestedDevice.lost.then((info) => {
+			if (this.device !== requestedDevice) {
+				return info;
+			}
+			this._handleDeviceLost(info);
+			return info;
 		});
-		for (const pass of this._pendingPostProcessPasses.values()) {
-			this._frameExecutor.registerPostProcessPass(pass);
+
+		try {
+			this._errorScopes = new WebGPUErrorScopeHelper(this.device);
+			this.canvasDepthFormat = this._selectCanvasDepthFormat();
+			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+			this._msaaSampleCount = this._selectMSAASampleCount();
+			this._initTimestampResources();
+			this.context = context;
+			this._configureContext();
+			this._recreateDepthTexture();
+
+			this._resources = new WebGPURenderResources(this._renderer, this);
+			await this._resources.init();
+			this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+			this._particleSimulator = new DefaultParticleSimulator({
+				backendTag: this.type,
+				maxParticlesPerSystem: 300000,
+			});
+			for (const pass of this._pendingPostProcessPasses.values()) {
+				this._frameExecutor.registerPostProcessPass(pass);
+			}
+		} catch (error) {
+			this._rollbackInitializationState();
+			throw error;
 		}
 	}
 
@@ -388,7 +410,9 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		const resolvedWidth =
-			Number.isFinite(width) ? Math.max(0, Math.floor(width)) : this.canvas.width;
+			Number.isFinite(width) ?
+				Math.max(0, Math.floor(width))
+			:	this.canvas.width;
 		const resolvedHeight =
 			Number.isFinite(height) ?
 				Math.max(0, Math.floor(height))
@@ -477,48 +501,18 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._submitPendingCopyCommands();
-		this._frameExecutor?.destroy();
-		this._frameExecutor = null;
-		this._resources = null;
-		this._particleSimulator = null;
-		this._depthTexture?.destroy();
-		this._depthTexture = null;
-		this._releaseTimestampResources();
-		this._resetCurrentCanvasTargets();
-		this._errorScopes = null;
-		this._samplerCache.clear();
-		this._shaderModuleCache.clear();
-		this._shaderModuleInFlight.clear();
-		this._renderPipelineCache.clear();
-		this._computePipelineCache.clear();
-		this._bindingGroupCache.clear();
-		this._pipelineBindGroupLayoutCache.clear();
-		this._autoRenderPipelineLayoutCache.clear();
-		this._autoComputePipelineLayoutCache.clear();
-		this._resourceIds = new WeakMap<object, number>();
-		this._resourceIdTokens = new WeakMap<object, object>();
-		this._freeResourceIds.length = 0;
-		this._nextResourceId = 1;
-		this._frameSerial = 0;
-		this._bindingGroupTouchTick = 0;
-		this._executedPasses.clear();
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
+		if (!this._deviceLost && this.queue) {
+			this._submitPendingCopyCommands();
+		}
+		this._rollbackInitializationState();
 		this._pendingPostProcessPasses.clear();
-		this._msaaSelectionCache.clear();
-		this._preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
-		this._msaaSampleCount = 1;
-		if (this.context) {
-			this.context.unconfigure();
-			this.context = null;
-		}
-		if (this.device) {
-			this.device.destroy();
-		}
+		this._deviceLost = false;
+		this._deviceLostInfo = null;
+		this._deviceLossPromise = null;
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
+		this._assertDeviceOperational("create buffers");
 		const hasInitialData = !!desc.initialData;
 		const mappedAtCreation = hasInitialData || !!desc.mappedAtCreation;
 		const gpuBuffer = this.device.createBuffer({
@@ -557,8 +551,14 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createTexture(desc: TextureDesc): IRenderTexture {
+		this._assertDeviceOperational("create textures");
 		const dimension = (desc.dimension ?? "2d") as GPUTextureDimension;
-		const depthOrArrayLayers = Math.max(1, desc.depthOrArrayLayers ?? 1);
+		const resolvedWidth = this._resolvePositiveInteger(desc.width, 1);
+		const resolvedHeight = this._resolvePositiveInteger(desc.height, 1);
+		const depthOrArrayLayers = this._resolvePositiveInteger(
+			desc.depthOrArrayLayers ?? 1,
+			1
+		);
 		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
 		const sampleCount =
 			dimension === "2d" ?
@@ -569,11 +569,11 @@ export class WebGPUBackend implements IRenderBackend {
 		const size: GPUExtent3DStrict =
 			dimension === "1d" ?
 				{
-					width: Math.max(1, desc.width | 0),
+					width: resolvedWidth,
 				}
 			:	{
-					width: Math.max(1, desc.width | 0),
-					height: Math.max(1, desc.height | 0),
+					width: resolvedWidth,
+					height: resolvedHeight,
 					depthOrArrayLayers,
 				};
 		const baseDescriptor: GPUTextureDescriptor = {
@@ -589,8 +589,8 @@ export class WebGPUBackend implements IRenderBackend {
 		const gpuTexture = this.device.createTexture(baseDescriptor);
 		const webgpuTexture = createWebGPUTexture(gpuTexture);
 		const texture: InternalTexture = {
-			width: desc.width,
-			height: desc.height,
+			width: resolvedWidth,
+			height: dimension === "1d" ? 1 : resolvedHeight,
 			destroy: () => {},
 			_gpuResource: gpuTexture,
 			_gpuTexture: gpuTexture,
@@ -606,6 +606,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createSampler(desc: SamplerDesc): ISampler {
+		this._assertDeviceOperational("create samplers");
 		const cacheKey = this._getSamplerCacheKey(desc);
 		const cached = this._getLruCacheEntry(this._samplerCache, cacheKey);
 		if (cached) {
@@ -638,6 +639,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public async createShaderModule(
 		desc: ShaderModuleDesc
 	): Promise<IShaderModule> {
+		this._assertDeviceOperational("create shader modules");
 		const cacheKey = this._getShaderModuleCacheKey(desc);
 		const cached = this._shaderModuleCache.get(cacheKey);
 		if (cached) {
@@ -726,6 +728,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createPipeline(desc: PipelineDesc): IRenderPipeline {
+		this._assertDeviceOperational("create render pipelines");
 		const layout = this._resolveRenderPipelineLayout(desc);
 		const cacheKey = this._getRenderPipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._renderPipelineCache, cacheKey);
@@ -756,6 +759,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
+		this._assertDeviceOperational("create compute pipelines");
 		const layout = this._resolveComputePipelineLayout(desc);
 		const cacheKey = this._getComputePipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._computePipelineCache, cacheKey);
@@ -786,6 +790,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
+		this._assertDeviceOperational("create binding groups");
 		const pipeline =
 			desc.pipeline ?
 				getWebGPUPipeline(desc.pipeline as IRenderPipeline | IComputePipeline)
@@ -808,7 +813,11 @@ export class WebGPUBackend implements IRenderBackend {
 			this._getBindingResourceSignature(entry.binding, entry.resource)
 		);
 		const cacheKey = this._getBindingGroupCacheKey(layoutId, signatures);
-		const cached = this._findBindingGroupCacheEntry(cacheKey, layoutId, signatures);
+		const cached = this._findBindingGroupCacheEntry(
+			cacheKey,
+			layoutId,
+			signatures
+		);
 		if (cached) {
 			this._bumpRefCount(cached);
 			cached.lastUsedFrame = this._frameSerial;
@@ -837,7 +846,10 @@ export class WebGPUBackend implements IRenderBackend {
 		group.destroy = this._createManagedDestroy(group, {
 			label: desc.label ?? "WebGPUBindGroup",
 			dispose: () => {
-				this._releaseBindingGroupCacheEntry(cacheKey, group as InternalBindingGroup);
+				this._releaseBindingGroupCacheEntry(
+					cacheKey,
+					group as InternalBindingGroup
+				);
 			},
 		});
 		const entry: CachedBindingGroupEntry = {
@@ -860,7 +872,12 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createCommandEncoder(): ICommandEncoder {
-		return new WebGPUCommandEncoder(this.device.createCommandEncoder(), this);
+		this._assertDeviceOperational("create command encoders");
+		return new WebGPUCommandEncoder(
+			this.device.createCommandEncoder(),
+			this,
+			this._commandBufferOwnerToken
+		);
 	}
 
 	public writeBuffer(
@@ -868,6 +885,7 @@ export class WebGPUBackend implements IRenderBackend {
 		data: BufferSource,
 		offset: number = 0
 	): void {
+		this._assertDeviceOperational("write buffers");
 		this.queue.writeBuffer(getWebGPUBuffer(buffer), offset, data);
 	}
 
@@ -877,6 +895,7 @@ export class WebGPUBackend implements IRenderBackend {
 		desc: TextureDataLayout,
 		size: { width: number; height: number; depthOrArrayLayers?: number }
 	): void {
+		this._assertDeviceOperational("write textures");
 		const gpuTexture = getWebGPUTexture(texture).texture;
 		this.queue.writeTexture(
 			{
@@ -906,6 +925,7 @@ export class WebGPUBackend implements IRenderBackend {
 		},
 		copySize: { width: number; height: number; depthOrArrayLayers?: number }
 	): void {
+		this._assertDeviceOperational("copy textures");
 		const commandEncoder = this._getCopyCommandEncoder();
 		const sourceTexture = getWebGPUTexture(source.texture).texture;
 		const destinationTexture = getWebGPUTexture(destination.texture).texture;
@@ -932,13 +952,16 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public submit(commands: ICommandBuffer[]): void {
+		this._assertDeviceOperational("submit command buffers");
 		const submitted: GPUCommandBuffer[] = [];
 		const copyCommandBuffer = this._flushPendingCopyCommandBuffer();
 		if (copyCommandBuffer) {
 			submitted.push(copyCommandBuffer);
 		}
 		for (const command of commands) {
-			submitted.push(this._toInternalCommandBuffer(command)._gpuCommandBuffer);
+			const internal = this._toInternalCommandBuffer(command);
+			internal._submitted = true;
+			submitted.push(internal._backendCommandBuffer);
 		}
 		if (submitted.length <= 0) {
 			return;
@@ -1060,6 +1083,103 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._errorScopes.run("validation", label, operation);
 	}
 
+	private _handleDeviceLost(info: GPUDeviceLostInfo): void {
+		if (this._deviceLost) {
+			return;
+		}
+		this._deviceLost = true;
+		this._deviceLostInfo = info;
+		const reason =
+			typeof info.reason === "string" && info.reason.length > 0 ?
+				` (${info.reason})`
+			:	"";
+		console.error(`WebGPU device was lost${reason}: ${info.message}`);
+		this._rollbackInitializationState();
+	}
+
+	private _rollbackInitializationState(): void {
+		this._copyCommandEncoder = null;
+		this._copyPendingCount = 0;
+		this._copyFlushScheduled = false;
+		this._frameExecutor?.destroy();
+		this._frameExecutor = null;
+		this._resources = null;
+		this._particleSimulator = null;
+		this._depthTexture?.destroy();
+		this._depthTexture = null;
+		this._releaseTimestampResources();
+		this._resetCurrentCanvasTargets();
+		this._errorScopes = null;
+		this._samplerCache.clear();
+		this._shaderModuleCache.clear();
+		this._shaderModuleInFlight.clear();
+		this._renderPipelineCache.clear();
+		this._computePipelineCache.clear();
+		this._bindingGroupCache.clear();
+		this._pipelineBindGroupLayoutCache.clear();
+		this._autoRenderPipelineLayoutCache.clear();
+		this._autoComputePipelineLayoutCache.clear();
+		this._resourceIds = new WeakMap<object, number>();
+		this._resourceIdTokens = new WeakMap<object, object>();
+		this._freeResourceIds.length = 0;
+		this._nextResourceId = 1;
+		this._commandBufferOwnerToken = {};
+		this._frameSerial = 0;
+		this._bindingGroupTouchTick = 0;
+		this._executedPasses.clear();
+		this._plannedPasses.clear();
+		this._plannedPassOrder.clear();
+		this._msaaSelectionCache.clear();
+		this._preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+		this._msaaSampleCount = 1;
+		if (this.context) {
+			try {
+				this.context.unconfigure();
+			} catch {
+				// ignore context teardown errors
+			}
+			this.context = null;
+		}
+		if (this.device) {
+			try {
+				this.device.destroy();
+			} catch {
+				// ignore device teardown errors
+			}
+		}
+		this._deviceLossPromise = null;
+		this.device = undefined as unknown as GPUDevice;
+		this.queue = undefined as unknown as GPUQueue;
+	}
+
+	private _assertDeviceOperational(operation: string): void {
+		if (this._deviceLost) {
+			const reason =
+				(
+					typeof this._deviceLostInfo?.reason === "string" &&
+					this._deviceLostInfo.reason.length > 0
+				) ?
+					` (${this._deviceLostInfo.reason})`
+				:	"";
+			const message = this._deviceLostInfo?.message ?? "unknown cause";
+			throw new Error(
+				`WebGPU device is lost${reason}; cannot ${operation}: ${message}`
+			);
+		}
+		if (!this.device || !this.queue) {
+			throw new Error(
+				`WebGPU backend is not initialized; cannot ${operation}.`
+			);
+		}
+	}
+
+	private _resolvePositiveInteger(value: number, fallback: number): number {
+		if (!Number.isFinite(value)) {
+			return Math.max(1, Math.floor(fallback));
+		}
+		return Math.max(1, Math.floor(value));
+	}
+
 	private _getCurrentCanvasTexture(): WebGPUTexture {
 		if (!this.context) {
 			throw new Error("WebGPU canvas context is not initialized.");
@@ -1178,10 +1298,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return pipeline;
 	}
 
-	private _releaseSamplerCacheEntry(
-		key: string,
-		sampler: GPUSampler
-	): void {
+	private _releaseSamplerCacheEntry(key: string, sampler: GPUSampler): void {
 		const cached = this._samplerCache.get(key);
 		if (!cached || cached.gpuResource !== sampler) {
 			return;
@@ -1343,8 +1460,7 @@ export class WebGPUBackend implements IRenderBackend {
 					{
 						format: desc.depthStencil.format as GPUTextureFormat,
 						depthWriteEnabled: desc.depthStencil.depthWriteEnabled,
-						depthCompare:
-							desc.depthStencil.depthCompare as GPUCompareFunction,
+						depthCompare: desc.depthStencil.depthCompare as GPUCompareFunction,
 					}
 				:	undefined,
 			multisample: {
@@ -1368,7 +1484,9 @@ export class WebGPUBackend implements IRenderBackend {
 		};
 	}
 
-	private _getRenderPipelineProbeFormats(desc: PipelineDesc): GPUTextureFormat[] {
+	private _getRenderPipelineProbeFormats(
+		desc: PipelineDesc
+	): GPUTextureFormat[] {
 		const formats: GPUTextureFormat[] = [];
 		if (desc.fragment?.targets) {
 			for (const target of desc.fragment.targets) {
@@ -1432,9 +1550,7 @@ export class WebGPUBackend implements IRenderBackend {
 			Math.max(1, Math.floor(desc.sampleCount ?? 1)),
 			probeFormats
 		);
-		parts.push(
-			`multisample.count:${sampleCount}`
-		);
+		parts.push(`multisample.count:${sampleCount}`);
 		if (desc.depthStencil) {
 			parts.push(`depth.format:${desc.depthStencil.format}`);
 			parts.push(`depth.write:${desc.depthStencil.depthWriteEnabled ? 1 : 0}`);
@@ -1606,7 +1722,9 @@ export class WebGPUBackend implements IRenderBackend {
 				return {
 					binding,
 					kind: 5,
-					primaryId: this._getObjectId(resourceWithHandle._gpuResource as object),
+					primaryId: this._getObjectId(
+						resourceWithHandle._gpuResource as object
+					),
 					secondaryId: 0,
 					offset: 0,
 					size: -1,
@@ -1804,7 +1922,9 @@ export class WebGPUBackend implements IRenderBackend {
 			if (remainingToEvict <= 0) {
 				break;
 			}
-			if (this._removeBindingGroupCacheEntry(candidate.hashKey, candidate.entry)) {
+			if (
+				this._removeBindingGroupCacheEntry(candidate.hashKey, candidate.entry)
+			) {
 				remainingToEvict--;
 			}
 		}
@@ -1894,7 +2014,10 @@ export class WebGPUBackend implements IRenderBackend {
 			this._plannedPasses.add("particle-sim");
 			this._plannedPasses.add("particles");
 		}
-		if (context.features.enableShadows && context.scene.shadowCasterPackets.length) {
+		if (
+			context.features.enableShadows &&
+			context.scene.shadowCasterPackets.length
+		) {
 			this._plannedPasses.add("shadow");
 		}
 		if (
@@ -1933,10 +2056,12 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const plannedIndex = this._plannedPassOrder.get(pass.stage);
 		if (plannedIndex !== undefined) {
-			const violated = Array.from(this._executedPasses).some((executedStage) => {
-				const index = this._plannedPassOrder.get(executedStage);
-				return index !== undefined && index > plannedIndex;
-			});
+			const violated = Array.from(this._executedPasses).some(
+				(executedStage) => {
+					const index = this._plannedPassOrder.get(executedStage);
+					return index !== undefined && index > plannedIndex;
+				}
+			);
 			if (violated) {
 				throw new Error(
 					`WebGPU pass "${pass.stage}" execution order violates prevalidated pass plan.`
@@ -2074,10 +2199,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _selectMSAASampleCount(): number {
-		const preferred = Math.max(
-			1,
-			Math.floor(this._preferredMSAASampleCount)
-		);
+		const preferred = Math.max(1, Math.floor(this._preferredMSAASampleCount));
 		return this._resolveSupportedMSAASampleCount(preferred);
 	}
 
@@ -2461,7 +2583,9 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 	}
 
-	private _mapBindingResource(resource: BindingResourceInput): GPUBindingResource {
+	private _mapBindingResource(
+		resource: BindingResourceInput
+	): GPUBindingResource {
 		const texture = tryGetWebGPUTexture(resource);
 		if (texture) {
 			return texture.view;
@@ -2561,11 +2685,30 @@ export class WebGPUBackend implements IRenderBackend {
 	private _toInternalCommandBuffer(
 		command: ICommandBuffer
 	): InternalCommandBuffer {
-		const internal = command as InternalCommandBuffer;
-		if (!internal._gpuCommandBuffer) {
+		const internal = command as
+			| (Partial<InternalCommandBuffer> & {
+				_backendCommandBuffer?: unknown;
+				_gpuCommandBuffer?: unknown;
+			})
+			| null;
+		if (!internal || typeof internal !== "object") {
 			throw new Error("Invalid command buffer for WebGPU submit().");
 		}
-		return internal;
+		if (!internal._backendCommandBuffer && !internal._gpuCommandBuffer) {
+			throw new Error("Invalid command buffer for WebGPU submit().");
+		}
+		if (!internal._backendCommandBuffer && internal._gpuCommandBuffer) {
+			internal._backendCommandBuffer = internal._gpuCommandBuffer as GPUCommandBuffer;
+		}
+		if (internal._ownerToken !== this._commandBufferOwnerToken) {
+			throw new Error(
+				"Command buffer does not belong to this WebGPU backend instance."
+			);
+		}
+		if (internal._submitted) {
+			throw new Error("WebGPU command buffer has already been submitted.");
+		}
+		return internal as InternalCommandBuffer;
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {
@@ -2580,12 +2723,18 @@ export class WebGPUBackend implements IRenderBackend {
 class WebGPUCommandEncoder implements ICommandEncoder {
 	private _encoder: GPUCommandEncoder;
 	private _backend: WebGPUBackend;
+	private _commandBufferOwnerToken: object;
 	private _renderPass: GPURenderPassEncoder | null = null;
 	private _computePass: GPUComputePassEncoder | null = null;
 
-	constructor(encoder: GPUCommandEncoder, backend: WebGPUBackend) {
+	constructor(
+		encoder: GPUCommandEncoder,
+		backend: WebGPUBackend,
+		commandBufferOwnerToken: object
+	) {
 		this._encoder = encoder;
 		this._backend = backend;
+		this._commandBufferOwnerToken = commandBufferOwnerToken;
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
@@ -2704,10 +2853,12 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		this._renderPass = null;
 	}
 
-	public finish(): InternalCommandBuffer {
+	public finish(): ICommandBuffer {
 		if (this._renderPass || this._computePass) throw Error("Pass still active");
 		return {
-			_gpuCommandBuffer: this._encoder.finish(),
+			_backendCommandBuffer: this._encoder.finish(),
+			_ownerToken: this._commandBufferOwnerToken,
+			_submitted: false,
 		};
 	}
 }

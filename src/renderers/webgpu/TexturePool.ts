@@ -37,8 +37,8 @@ export class TexturePool {
 		height: number,
 		format: TextureFormat
 	): IRenderTexture {
-		const resolvedWidth = Math.max(1, width | 0);
-		const resolvedHeight = Math.max(1, height | 0);
+		const resolvedWidth = this._resolvePositiveInteger(width);
+		const resolvedHeight = this._resolvePositiveInteger(height);
 		const key = this._bucketKey(resolvedWidth, resolvedHeight, format);
 		const bucket = this._available.get(key);
 		if (bucket && bucket.length > 0) {
@@ -121,5 +121,12 @@ export class TexturePool {
 		format: TextureFormat
 	): string {
 		return `${width}x${height}:${format}`;
+	}
+
+	private _resolvePositiveInteger(value: number): number {
+		if (!Number.isFinite(value)) {
+			return 1;
+		}
+		return Math.max(1, Math.floor(value));
 	}
 }

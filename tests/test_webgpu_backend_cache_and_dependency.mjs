@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
-import { BufferUsage, TextureFormat } from "../src/renderers/types.ts";
+import {
+	BufferUsage,
+	TextureFormat,
+	TextureUsage,
+} from "../src/renderers/types.ts";
 
 if (!globalThis.GPUBufferUsage) {
 	globalThis.GPUBufferUsage = {
@@ -157,11 +161,14 @@ class FakeDevice {
 function createBackend() {
 	const backend = new WebGPUBackend();
 	const device = new FakeDevice();
+	const queueSubmissions = [];
 	backend.device = device;
 	backend.queue = {
-		submit() {},
+		submit(commands) {
+			queueSubmissions.push(commands);
+		},
 	};
-	return { backend, device };
+	return { backend, device, queueSubmissions };
 }
 
 function createFrameContext(overrides = {}) {
@@ -465,6 +472,37 @@ function testMapBindingResourceRejectsPrimitive() {
 	);
 }
 
+function testCreateTextureClampsPublicDimensions() {
+	const { backend, device } = createBackend();
+	const texture = backend.createTexture({
+		width: 0,
+		height: -3,
+		format: TextureFormat.RGBA8Unorm,
+		usage: TextureUsage.TextureBinding,
+	});
+	assert.equal(texture.width, 1);
+	assert.equal(texture.height, 1);
+	assert.equal(device.textureDescs.length, 1);
+	assert.equal(device.textureDescs[0].size.width, 1);
+	assert.equal(device.textureDescs[0].size.height, 1);
+}
+
+function testCommandBufferOwnershipAndOneShotSubmit() {
+	const { backend, queueSubmissions } = createBackend();
+	const encoder = backend.createCommandEncoder();
+	const command = encoder.finish();
+	backend.submit([command]);
+	assert.equal(queueSubmissions.length, 1);
+
+	assert.throws(() => backend.submit([command]), /already been submitted/);
+
+	const { backend: foreignBackend } = createBackend();
+	assert.throws(
+		() => foreignBackend.submit([command]),
+		/does not belong to this WebGPU backend instance/
+	);
+}
+
 function testPassDependencyValidation() {
 	const { backend } = createBackend();
 	backend._resources = {
@@ -486,7 +524,9 @@ function testPassDependencyValidation() {
 
 	const context = createFrameContext();
 	backend.beginFrame(context);
-	assert.ok(backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("taa"));
+	assert.ok(
+		backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("taa")
+	);
 
 	assert.throws(
 		() =>
@@ -521,6 +561,8 @@ async function run() {
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
 	testMapBindingResourceRejectsPrimitive();
+	testCreateTextureClampsPublicDimensions();
+	testCommandBufferOwnershipAndOneShotSubmit();
 	testPassDependencyValidation();
 	console.log("WebGPU backend cache/dependency tests passed");
 }

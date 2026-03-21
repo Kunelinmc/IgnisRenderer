@@ -769,9 +769,9 @@ function run() {
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		testRendererUpdateSHNormalizesBakedLightProbeCoeffs();
-		console.log("??Shader semantics tests passed");
+		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
-		console.error("??Shader semantics test failed");
+		console.error("❌ Shader semantics test failed");
 		console.error(error);
 		process.exit(1);
 	}

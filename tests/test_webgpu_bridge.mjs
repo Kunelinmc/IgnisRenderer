@@ -64,6 +64,7 @@ class FakeBackend {
 		this.pipelines = [];
 		this.bindingGroups = [];
 		this.textureWrites = [];
+		this.samplerDescs = [];
 		this.device = new FakeDevice();
 	}
 
@@ -86,6 +87,7 @@ class FakeBackend {
 	}
 
 	createSampler(desc) {
+		this.samplerDescs.push(desc);
 		return { label: desc.label, desc };
 	}
 
@@ -819,6 +821,28 @@ function testDynamicTextureReuploadOnVersionChange() {
 	assert.equal(backend.textureWrites.length, 2);
 }
 
+function testSamplerCacheInvalidatesWhenTextureSamplerStateChanges() {
+	const backend = new FakeBackend();
+	const registry = new WebGPUTextureRegistry(backend);
+	const texture = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1,
+		"sRGB"
+	);
+	const samplerA = registry.getSamplerForTexture(texture);
+	assert.equal(backend.samplerDescs.length, 1);
+
+	texture.wrapS = "Clamp";
+	const samplerB = registry.getSamplerForTexture(texture);
+	assert.equal(backend.samplerDescs.length, 2);
+	assert.notEqual(samplerA, samplerB);
+
+	const samplerC = registry.getSamplerForTexture(texture);
+	assert.equal(backend.samplerDescs.length, 2);
+	assert.equal(samplerC, samplerB);
+}
+
 async function run() {
 	testMatrixPackingAndDepthRemap();
 	testTransformComposition();
@@ -833,6 +857,7 @@ async function run() {
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
 	testDynamicTextureReuploadOnVersionChange();
+	testSamplerCacheInvalidatesWhenTextureSamplerStateChanges();
 	console.log("WebGPU bridge tests passed");
 }
 

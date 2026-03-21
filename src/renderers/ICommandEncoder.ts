@@ -63,6 +63,8 @@ export interface ICommandEncoder {
 
 export interface ICommandBuffer {
 	readonly _backendCommandBuffer?: unknown;
+	_ownerToken?: unknown;
+	_submitted?: boolean;
 }
 
 export interface RenderPassDesc {

@@ -157,12 +157,27 @@ export class WebGPUFrameExecutor {
 
 	public beginFrame(context: FrameContext): void {
 		this._frameContext = context;
-		this._encoder = this._backend.createCommandEncoder();
 		this._postGraphExecuted = false;
 		this._hasPresentedInFrame = false;
 		this._taaHistoryUpdated = false;
 		this._ssrHistoryUpdated = false;
 		this._volumetricHistoryUpdated = false;
+		const targetWidth = this._resolveAttachmentDimension(
+			context.attachments.width
+		);
+		const targetHeight = this._resolveAttachmentDimension(
+			context.attachments.height
+		);
+
+		if (targetWidth <= 0 || targetHeight <= 0) {
+			this._destroyFrameTargets();
+			this._resources.setSceneTargetMode("single");
+			this._frameContext = null;
+			this._encoder = null;
+			return;
+		}
+
+		this._encoder = this._backend.createCommandEncoder();
 
 		this._ensureMRTSupport();
 		this._handleFeatureHistoryTransitions(context);
@@ -176,8 +191,8 @@ export class WebGPUFrameExecutor {
 				DEFAULT_SSR_OPTIONS.downsample
 			);
 			this._ensureFrameTargets(
-				context.attachments.width,
-				context.attachments.height,
+				targetWidth,
+				targetHeight,
 				ssaoDownsample,
 				ssrDownsample
 			);
@@ -251,7 +266,10 @@ export class WebGPUFrameExecutor {
 	}
 
 	public async endFrame(): Promise<void> {
-		if (!this._encoder) return;
+		if (!this._encoder) {
+			this._frameContext = null;
+			return;
+		}
 
 		if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
 			await this._presentToCanvas(
@@ -458,6 +476,26 @@ export class WebGPUFrameExecutor {
 			return;
 		}
 
+		const acquiredTextures: IRenderTexture[] = [];
+		let committed = false;
+		const acquireTexture = (
+			poolId: string,
+			options: TexturePoolOptions,
+			textureWidth: number,
+			textureHeight: number,
+			format: TextureFormat
+		): IRenderTexture => {
+			const texture = this._acquirePooledTexture(
+				poolId,
+				options,
+				textureWidth,
+				textureHeight,
+				format
+			);
+			acquiredTextures.push(texture);
+			return texture;
+		};
+
 		try {
 			this._destroyFrameTargets();
 			this._targetWidth = width;
@@ -474,7 +512,7 @@ export class WebGPUFrameExecutor {
 			this._volumetricHistoryFlip = false;
 			this._motionHistoryFlip = false;
 
-			const sceneColorMain = this._acquirePooledTexture(
+			const sceneColorMain = acquireTexture(
 				"scene-color-main",
 				{
 					usage:
@@ -492,21 +530,21 @@ export class WebGPUFrameExecutor {
 				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
 				label: "WebGPUStorageRGBA16",
 			};
-			const postPing = this._acquirePooledTexture(
+			const postPing = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const postPong = this._acquirePooledTexture(
+			const postPong = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const gAlbedoAlpha = this._acquirePooledTexture(
+			const gAlbedoAlpha = acquireTexture(
 				"gbuffer-albedo",
 				{
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
@@ -516,7 +554,7 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA8Unorm
 			);
-			const gNormalRoughMetal = this._acquirePooledTexture(
+			const gNormalRoughMetal = acquireTexture(
 				"gbuffer-rgba16",
 				{
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
@@ -526,7 +564,7 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const gEmissiveOcclusion = this._acquirePooledTexture(
+			const gEmissiveOcclusion = acquireTexture(
 				"gbuffer-rgba16",
 				{
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
@@ -536,7 +574,7 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const gMotionDepth = this._acquirePooledTexture(
+			const gMotionDepth = acquireTexture(
 				"gbuffer-motion-depth",
 				{
 					usage:
@@ -549,7 +587,7 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const depth = this._acquirePooledTexture(
+			const depth = acquireTexture(
 				"depth-sampleable",
 				{
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
@@ -559,14 +597,14 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.Depth32Float
 			);
-			const historyA = this._acquirePooledTexture(
+			const historyA = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const historyB = this._acquirePooledTexture(
+			const historyB = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
@@ -575,56 +613,56 @@ export class WebGPUFrameExecutor {
 			);
 			const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample));
 			const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample));
-			const ssrRaw = this._acquirePooledTexture(
+			const ssrRaw = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				ssrWidth,
 				ssrHeight,
 				TextureFormat.RGBA16Float
 			);
-			const ssrHistoryA = this._acquirePooledTexture(
+			const ssrHistoryA = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				ssrWidth,
 				ssrHeight,
 				TextureFormat.RGBA16Float
 			);
-			const ssrHistoryB = this._acquirePooledTexture(
+			const ssrHistoryB = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				ssrWidth,
 				ssrHeight,
 				TextureFormat.RGBA16Float
 			);
-			const volumetricHistoryA = this._acquirePooledTexture(
+			const volumetricHistoryA = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const volumetricHistoryB = this._acquirePooledTexture(
+			const volumetricHistoryB = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const volumetricReservoirHistoryA = this._acquirePooledTexture(
+			const volumetricReservoirHistoryA = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const volumetricReservoirHistoryB = this._acquirePooledTexture(
+			const volumetricReservoirHistoryB = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				width,
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const motionHistoryA = this._acquirePooledTexture(
+			const motionHistoryA = acquireTexture(
 				"motion-history",
 				{
 					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
@@ -634,7 +672,7 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const motionHistoryB = this._acquirePooledTexture(
+			const motionHistoryB = acquireTexture(
 				"motion-history",
 				{
 					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
@@ -644,21 +682,21 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
-			const aoRaw = this._acquirePooledTexture(
+			const aoRaw = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				Math.max(1, Math.floor(width / ssaoDownsample)),
 				Math.max(1, Math.floor(height / ssaoDownsample)),
 				TextureFormat.RGBA16Float
 			);
-			const aoBlur = this._acquirePooledTexture(
+			const aoBlur = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
 				Math.max(1, Math.floor(width / ssaoDownsample)),
 				Math.max(1, Math.floor(height / ssaoDownsample)),
 				TextureFormat.RGBA16Float
 			);
-			const hiZ = this._acquirePooledTexture(
+			const hiZ = acquireTexture(
 				"hiz",
 				{
 					usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
@@ -677,45 +715,45 @@ export class WebGPUFrameExecutor {
 				sampleCount: msaaSampleCount,
 				label: `WebGPUMSAA_${msaaSampleCount}x`,
 			};
-			this._msaaTargets =
+			const nextMSAATargets: WebGPUFrameMSAATargets | null =
 				useMSAA ?
 					{
-						sceneColorMain: this._acquirePooledTexture(
+						sceneColorMain: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
 							height,
 							TextureFormat.RGBA16Float
 						),
-						gAlbedoAlpha: this._acquirePooledTexture(
+						gAlbedoAlpha: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
 							height,
 							TextureFormat.RGBA8Unorm
 						),
-						gNormalRoughMetal: this._acquirePooledTexture(
+						gNormalRoughMetal: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
 							height,
 							TextureFormat.RGBA16Float
 						),
-						gEmissiveOcclusion: this._acquirePooledTexture(
+						gEmissiveOcclusion: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
 							height,
 							TextureFormat.RGBA16Float
 						),
-						gMotionDepth: this._acquirePooledTexture(
+						gMotionDepth: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
 							height,
 							TextureFormat.RGBA16Float
 						),
-						depth: this._acquirePooledTexture(
+						depth: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
 							width,
@@ -725,31 +763,33 @@ export class WebGPUFrameExecutor {
 					}
 				:	null;
 
-			this._frameTargets = {
-			sceneColor: sceneColorMain,
-			sceneColorMain,
-			postPing,
-			postPong,
-			gAlbedoAlpha,
-			gNormalRoughMetal,
-			gEmissiveOcclusion,
-			gMotionDepth,
-			depth,
-			aoRaw,
-			aoBlur,
-			ssrRaw,
-			hiZ,
-			historyRead: historyA,
-			historyWrite: historyB,
-			ssrHistoryRead: ssrHistoryA,
-			ssrHistoryWrite: ssrHistoryB,
-			volumetricHistoryRead: volumetricHistoryA,
-			volumetricHistoryWrite: volumetricHistoryB,
-			volumetricReservoirHistoryRead: volumetricReservoirHistoryA,
-			volumetricReservoirHistoryWrite: volumetricReservoirHistoryB,
-			motionHistoryRead: motionHistoryA,
-			motionHistoryWrite: motionHistoryB,
+			const nextFrameTargets: WebGPUFrameTargets = {
+				sceneColor: sceneColorMain,
+				sceneColorMain,
+				postPing,
+				postPong,
+				gAlbedoAlpha,
+				gNormalRoughMetal,
+				gEmissiveOcclusion,
+				gMotionDepth,
+				depth,
+				aoRaw,
+				aoBlur,
+				ssrRaw,
+				hiZ,
+				historyRead: historyA,
+				historyWrite: historyB,
+				ssrHistoryRead: ssrHistoryA,
+				ssrHistoryWrite: ssrHistoryB,
+				volumetricHistoryRead: volumetricHistoryA,
+				volumetricHistoryWrite: volumetricHistoryB,
+				volumetricReservoirHistoryRead: volumetricReservoirHistoryA,
+				volumetricReservoirHistoryWrite: volumetricReservoirHistoryB,
+				motionHistoryRead: motionHistoryA,
+				motionHistoryWrite: motionHistoryB,
 			};
+			this._msaaTargets = nextMSAATargets;
+			this._frameTargets = nextFrameTargets;
 			this._taaHistoryA = historyA;
 			this._taaHistoryB = historyB;
 			this._ssrHistoryA = ssrHistoryA;
@@ -760,11 +800,18 @@ export class WebGPUFrameExecutor {
 			this._volumetricReservoirHistoryB = volumetricReservoirHistoryB;
 			this._motionHistoryA = motionHistoryA;
 			this._motionHistoryB = motionHistoryB;
-			this._applyTAAHistoryFlip(this._frameTargets);
-			this._applySSRHistoryFlip(this._frameTargets);
-			this._applyVolumetricHistoryFlip(this._frameTargets);
-			this._applyMotionHistoryFlip(this._frameTargets);
+			committed = true;
+			this._applyTAAHistoryFlip(nextFrameTargets);
+			this._applySSRHistoryFlip(nextFrameTargets);
+			this._applyVolumetricHistoryFlip(nextFrameTargets);
+			this._applyMotionHistoryFlip(nextFrameTargets);
 		} catch (error) {
+			if (!committed) {
+				for (const texture of new Set(acquiredTextures)) {
+					this._releasePooledTexture(texture);
+				}
+			}
+			this._destroyFrameTargets();
 			if (msaaSampleCount > 1) {
 				const setter = (
 					this._backend as {
@@ -778,7 +825,6 @@ export class WebGPUFrameExecutor {
 					"webgpu-msaa-runtime-fallback-1x",
 					`WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`
 				);
-				this._destroyFrameTargets();
 				this._ensureFrameTargets(
 					width,
 					height,
@@ -856,7 +902,6 @@ export class WebGPUFrameExecutor {
 	}
 
 	private _destroyFrameTargets(): void {
-		if (!this._frameTargets && !this._msaaTargets) return;
 		const textures = new Set<IRenderTexture>();
 		if (this._frameTargets) {
 			textures.add(this._frameTargets.sceneColorMain);
@@ -920,6 +965,13 @@ export class WebGPUFrameExecutor {
 		this._ssrHistoryFlip = false;
 		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
+	}
+
+	private _resolveAttachmentDimension(value: number): number {
+		if (!Number.isFinite(value)) {
+			return 0;
+		}
+		return Math.max(0, Math.floor(value));
 	}
 
 	private _acquirePooledTexture(

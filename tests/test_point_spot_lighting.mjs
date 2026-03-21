@@ -113,9 +113,9 @@ function run() {
 	try {
 		testPointLightEdgeCases();
 		testSpotLightEdgeCases();
-		console.log("??Point and Spot light edge case tests passed!");
+		console.log("✅ Point and Spot light edge case tests passed!");
 	} catch (e) {
-		console.error("??Test Failed:");
+		console.error("❌ Test Failed:");
 		console.error(e);
 		process.exit(1);
 	}

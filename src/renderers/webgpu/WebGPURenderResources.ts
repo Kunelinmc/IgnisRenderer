@@ -619,9 +619,24 @@ export class WebGPURenderResources {
 	private _ensureParticleInstanceBuffer(totalParticles: number): void {
 		if (totalParticles <= this._particleInstanceCapacity) return;
 
+		const resolvedParticles =
+			Number.isFinite(totalParticles) ?
+				Math.max(1, Math.floor(totalParticles))
+			:	1;
+		const maxCapacity = Math.max(
+			256,
+			Math.floor(Number.MAX_SAFE_INTEGER / WEBGPU_PARTICLE_INSTANCE_STRIDE)
+		);
+		if (resolvedParticles > maxCapacity) {
+			throw new Error(
+				`Particle instance request ${resolvedParticles} exceeds max capacity ${maxCapacity}.`
+			);
+		}
+		const exponent = Math.ceil(Math.log2(resolvedParticles));
+		const pow2Capacity = Math.pow(2, exponent);
 		const nextCapacity = Math.max(
 			256,
-			1 << Math.ceil(Math.log2(Math.max(1, totalParticles)))
+			Math.min(maxCapacity, Number.isFinite(pow2Capacity) ? pow2Capacity : 256)
 		);
 		this._particleInstanceBuffer?.destroy();
 		this._particleInstanceBuffer = this._backend.createBuffer({

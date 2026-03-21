@@ -18,10 +18,15 @@ interface TextureCacheEntry {
 	externalVideoCopyCompatible: boolean;
 }
 
+interface SamplerCacheEntry {
+	sampler: ISampler;
+	key: string;
+}
+
 export class WebGPUTextureRegistry {
 	private _backend: WebGPUBackend;
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
-	private _samplerCache = new WeakMap<Texture, ISampler>();
+	private _samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
@@ -120,20 +125,32 @@ export class WebGPUTextureRegistry {
 			return this.getWhiteSampler();
 		}
 
-		let cached = this._samplerCache.get(texture);
-		if (!cached) {
-			cached = this._backend.createSampler({
-				addressModeU: this._mapWrapMode(texture.wrapS),
-				addressModeV: this._mapWrapMode(texture.wrapT),
-				magFilter: this._mapFilterMode(texture.magFilter),
-				minFilter: this._mapFilterMode(texture.minFilter),
-				mipmapFilter: this._mapFilterMode(texture.minFilter),
-				label: `Sampler_${texture.width}x${texture.height}`,
-			});
-			this._samplerCache.set(texture, cached);
+		const key = this._getSamplerKey(texture);
+		const cached = this._samplerCache.get(texture);
+		if (cached && cached.key === key) {
+			return cached.sampler;
 		}
 
-		return cached;
+		if (
+			cached &&
+			typeof (cached.sampler as { destroy?: () => void }).destroy === "function"
+		) {
+			(cached.sampler as { destroy: () => void }).destroy();
+		}
+
+		const sampler = this._backend.createSampler({
+			addressModeU: this._mapWrapMode(texture.wrapS),
+			addressModeV: this._mapWrapMode(texture.wrapT),
+			magFilter: this._mapFilterMode(texture.magFilter),
+			minFilter: this._mapFilterMode(texture.minFilter),
+			mipmapFilter: this._mapFilterMode(texture.minFilter),
+			label: `Sampler_${texture.width}x${texture.height}`,
+		});
+		this._samplerCache.set(texture, {
+			sampler,
+			key,
+		});
+		return sampler;
 	}
 
 	public getWhiteTexture(): IRenderTexture {
@@ -212,6 +229,21 @@ export class WebGPUTextureRegistry {
 		return value === "Nearest" || value === "NearestMipmapNearest" ?
 				FilterMode.Nearest
 			:	FilterMode.Linear;
+	}
+
+	private _getSamplerKey(texture: Texture): string {
+		const addressModeU = this._mapWrapMode(texture.wrapS);
+		const addressModeV = this._mapWrapMode(texture.wrapT);
+		const magFilter = this._mapFilterMode(texture.magFilter);
+		const minFilter = this._mapFilterMode(texture.minFilter);
+		const mipmapFilter = this._mapFilterMode(texture.minFilter);
+		return [
+			addressModeU,
+			addressModeV,
+			magFilter,
+			minFilter,
+			mipmapFilter,
+		].join("|");
 	}
 
 	private _toArrayBufferBackedView(data: Uint8Array): Uint8Array<ArrayBuffer> {

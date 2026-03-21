@@ -174,9 +174,9 @@ function run() {
 		testPoint();
 		testSpot();
 		testLightProbe();
-		console.log("??All lighting tests passed!");
+		console.log("✅ All lighting tests passed!");
 	} catch (e) {
-		console.error("??Test Failed:");
+		console.error("❌ Test Failed:");
 		console.error(e);
 		process.exit(1);
 	}
