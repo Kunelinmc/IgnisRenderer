@@ -101,11 +101,12 @@ const MAX_VIEW_STEPS: i32 = 96;
 const MAX_SHADOW_STEPS: i32 = 24;
 const MAX_RESTIR_CANDIDATES: i32 = 64;
 const SIGMA_T_SCALE: f32 = 0.02;
-const TEMPORAL_HISTORY_WEIGHT: f32 = 0.88;
+const TEMPORAL_HISTORY_WEIGHT: f32 = 0.75;
 const TEMPORAL_DEPTH_THRESHOLD: f32 = 0.04;
 const SHADOW_CONE_SLOPE: f32 = 0.02;
 const SKY_STEP_SCALE: f32 = 0.55;
-const TEMPORAL_MOTION_FACTOR: f32 = 14.0;
+const TEMPORAL_MOTION_FACTOR: f32 = 28.0;
+const TEMPORAL_DISOCCLUSION_FACTOR: f32 = 6.0;
 
 fn luma(c: vec3<f32>) -> f32 {
 	return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -634,27 +635,40 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let forwardUv = prevUv + vec2<f32>(prevMotion.x * 0.5, -prevMotion.y * 0.5);
 	let reprojectionError = abs(forwardUv - uv) / safeInvSize;
 	let reprojectionErrorPx = max(reprojectionError.x, reprojectionError.y);
-	let reprojectionConfidence = 1.0 - smoothstep(0.75, 3.0, reprojectionErrorPx);
+	let reprojectionConfidence = 1.0 - smoothstep(0.5, 2.0, reprojectionErrorPx);
 
 	let currLuma = luma(volumetricCurrent);
 	let prevLuma = luma(prevVolumetric.rgb);
 	let relLumaDiff = abs(currLuma - prevLuma) / max(max(currLuma, prevLuma), 1e-3);
-	let colorConfidence = 1.0 - smoothstep(0.15, 0.85, relLumaDiff);
+	let colorConfidence = 1.0 - smoothstep(0.08, 0.5, relLumaDiff);
+
+	// Neighborhood clamp: restrict history luminance to a tolerance around
+	// the current value so stale bright/dark artifacts cannot persist.
+	let lumaTolerance = max(currLuma * 0.6, 0.005);
+	let clampedPrevLuma = clamp(prevLuma, currLuma - lumaTolerance, currLuma + lumaTolerance);
+	let lumaScale = select(clampedPrevLuma / max(prevLuma, 1e-6), 1.0, prevLuma < 1e-6);
+	let clampedPrevVolumetric = prevVolumetric.rgb * lumaScale;
 
 	let validBase = params.historyValid > 0.5 && insidePrev;
+	let motionMag = length(motion);
+	// Velocity-magnitude disocclusion: fast motion quickly invalidates history
+	let velocityDisocclusion = exp(-motionMag * TEMPORAL_DISOCCLUSION_FACTOR);
 	let historyConfidence = select(
 		0.0,
-		clamp(depthConfidence * reprojectionConfidence * colorConfidence, 0.0, 1.0),
+		clamp(
+			depthConfidence * reprojectionConfidence * colorConfidence * velocityDisocclusion,
+			0.0,
+			1.0
+		),
 		validBase
 	);
-	let motionMag = length(motion);
 	let adaptiveHistory = clamp(
 		TEMPORAL_HISTORY_WEIGHT * exp(-motionMag * TEMPORAL_MOTION_FACTOR),
 		0.0,
 		TEMPORAL_HISTORY_WEIGHT
 	);
 	let blend = clamp(adaptiveHistory * historyConfidence, 0.0, TEMPORAL_HISTORY_WEIGHT);
-	let volumetric = mix(volumetricCurrent, prevVolumetric.rgb, blend);
+	let volumetric = mix(volumetricCurrent, clampedPrevVolumetric, blend);
 
 	let storedIndex = select(-1.0, f32(reservoir.lightIndex), reservoir.lightIndex >= 0);
 	let storedWeightSum = min(max(reservoir.weightSum, 0.0), 65000.0);
