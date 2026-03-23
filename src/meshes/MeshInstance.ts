@@ -85,7 +85,9 @@ export class MeshInstance extends Node {
 		return new MeshInstance({
 			mesh: this.mesh,
 			skeleton: this.skeleton,
-			morphWeights: this.morphWeights,
+			morphWeights: this.morphWeights.map(
+				(weights) => new Float32Array(weights)
+			),
 		}) as this;
 	}
 
