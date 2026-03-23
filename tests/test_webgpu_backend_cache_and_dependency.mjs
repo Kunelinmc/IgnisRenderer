@@ -231,13 +231,13 @@ async function testShaderModuleCacheUsesHashKey() {
 	assert.notEqual(cacheKeys[0], shaderCode);
 	assert.ok(cacheKeys[0].includes("hash:"));
 	const entry = backend._shaderModuleCache.values().next().value;
-	assert.equal(entry.refCount, 3);
+	assert.equal(entry.refCount, 2);
 	assert.equal(entry.gpuResource, moduleA._gpuResource);
 
 	moduleA.destroy();
-	assert.equal(entry.refCount, 2);
-	moduleB.destroy();
 	assert.equal(entry.refCount, 1);
+	moduleB.destroy();
+	assert.equal(backend._shaderModuleCache.size, 0);
 }
 
 async function testShaderModuleRetryWithinSingleRequest() {
@@ -259,13 +259,12 @@ function testSamplerReferenceCounting() {
 	assert.notEqual(samplerA, samplerB);
 	assert.equal(samplerA._gpuResource, samplerB._gpuResource);
 	const samplerEntry = backend._samplerCache.values().next().value;
-	assert.equal(samplerEntry.refCount, 3);
+	assert.equal(samplerEntry.refCount, 2);
 
 	samplerA.destroy();
-	assert.equal(samplerEntry.refCount, 2);
-	samplerB.destroy();
 	assert.equal(samplerEntry.refCount, 1);
-	assert.equal(backend._samplerCache.size, 1);
+	samplerB.destroy();
+	assert.equal(backend._samplerCache.size, 0);
 }
 
 async function testComputePipelineAutoLayoutCaching() {
