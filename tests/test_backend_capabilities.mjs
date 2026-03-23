@@ -44,6 +44,9 @@ function run() {
 	assert.equal(software.passExecutors["particle-sim"], "backend");
 	assert.equal(webgpu.passExecutors["particle-sim"], "backend");
 	assert.equal(webgl.passExecutors["particle-sim"], "backend");
+	assert.equal(software.frameScheduling, "on-demand");
+	assert.equal(webgpu.frameScheduling, "on-demand");
+	assert.equal(webgl.frameScheduling, "on-demand");
 
 	testSoftwareBackendReusesFrameImageData();
 	testSoftwareBackendHandlesResizeDuringFrame();

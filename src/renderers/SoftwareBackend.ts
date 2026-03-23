@@ -33,7 +33,7 @@ export type {
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
-	public readonly frameScheduling = "always";
+	public readonly frameScheduling = "on-demand";
 	public readonly passExecutors = {
 		"animation-sim": "shared",
 		"particle-sim": "backend",
