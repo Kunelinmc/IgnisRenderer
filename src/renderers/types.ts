@@ -247,8 +247,3 @@ export interface IComputePipeline {
 	readonly label?: string;
 	_gpuResource?: BackendResourceHandle;
 }
-
-export interface IComputePipeline {
-	readonly label?: string;
-	_gpuResource?: BackendResourceHandle;
-}
