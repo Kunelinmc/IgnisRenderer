@@ -1627,7 +1627,7 @@ export class WebGLFrameExecutor {
 			0,
 			finiteOr(options?.intensity, DEFAULT_SSAO_OPTIONS.intensity)
 		);
-		const blurRadius = clampNumber(
+		const blurRadius = clamp(
 			finiteOr(options?.blurRadius, DEFAULT_SSAO_OPTIONS.blurRadius),
 			1,
 			4
@@ -1636,7 +1636,7 @@ export class WebGLFrameExecutor {
 			1e-3,
 			finiteOr(options?.blurSharpness, DEFAULT_SSAO_OPTIONS.blurSharpness)
 		);
-		const samples = clampNumber(
+		const samples = clamp(
 			Math.round(finiteOr(options?.samples, DEFAULT_SSAO_OPTIONS.samples)),
 			4,
 			48
@@ -2611,11 +2611,7 @@ function sanitizeFiniteClamped(
 	minValue: number,
 	maxValue: number
 ): number {
-	return clampNumber(finiteOr(value, fallback), minValue, maxValue);
-}
-
-function clampNumber(value: number, minValue: number, maxValue: number): number {
-	return Math.min(Math.max(value, minValue), maxValue);
+	return clamp(finiteOr(value, fallback), minValue, maxValue);
 }
 
 function sanitizeFloat32Array(

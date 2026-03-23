@@ -23,6 +23,7 @@ import { loadPostProcessShaderPart } from "../../shaders/webgpu/shaderSource";
 import type { IBindingGroup } from "../types";
 import type { WebGPULightingState } from "./types";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
+import { clamp } from "../../maths/Common";
 
 const WORKGROUP_SIZE = 8;
 
@@ -144,13 +145,19 @@ export class WebGPUPostProcessRuntime {
 		}
 		const options = frameContext.features.ssaoOptions ?? {};
 		const ssaoParams = this._ssaoParams;
-		const radius = Math.max(1, finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius));
-		const bias = Math.max(1e-4, finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias));
+		const radius = Math.max(
+			1,
+			finiteOr(options.radius, DEFAULT_SSAO_OPTIONS.radius)
+		);
+		const bias = Math.max(
+			1e-4,
+			finiteOr(options.bias, DEFAULT_SSAO_OPTIONS.bias)
+		);
 		const intensity = Math.max(
 			0,
 			finiteOr(options.intensity, DEFAULT_SSAO_OPTIONS.intensity)
 		);
-		const blurRadius = clampNumber(
+		const blurRadius = clamp(
 			finiteOr(options.blurRadius, DEFAULT_SSAO_OPTIONS.blurRadius),
 			1,
 			4
@@ -159,7 +166,7 @@ export class WebGPUPostProcessRuntime {
 			1e-3,
 			finiteOr(options.blurSharpness, DEFAULT_SSAO_OPTIONS.blurSharpness)
 		);
-		const samples = clampNumber(
+		const samples = clamp(
 			Math.round(finiteOr(options.samples, DEFAULT_SSAO_OPTIONS.samples)),
 			4,
 			48
@@ -1196,9 +1203,6 @@ function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function clampNumber(value: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, value));
-}
 
 function ceilDiv(value: number, divisor: number): number {
 	return Math.max(1, Math.ceil(value / Math.max(divisor, 1)));
