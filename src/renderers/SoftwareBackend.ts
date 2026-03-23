@@ -17,6 +17,7 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
+import { FrameAttachments } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import {
 	DEFAULT_SOFTWARE_RASTER_MODE,
@@ -104,7 +105,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._syncActiveRasterMode();
 	}
 
-	public getAttachments(width: number, height: number): any {
+	public getAttachments(width: number, height: number): FrameAttachments {
 		if (
 			!this._pixels ||
 			this._pixels.length !== width * height * 4 ||
@@ -182,7 +183,10 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
-	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
+	public async executePass(
+		pass: FramePass,
+		context: FrameContext
+	): Promise<void> {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		switch (pass.stage) {
@@ -202,7 +206,11 @@ export class SoftwareBackend implements IRenderBackend {
 				this._reflectionPass.render(context);
 				break;
 			case "main-opaque":
-				await this._mainPass.render(context, context.scene.opaquePackets, false);
+				await this._mainPass.render(
+					context,
+					context.scene.opaquePackets,
+					false
+				);
 				this._syncActiveRasterMode();
 				break;
 			case "main-transparent":
@@ -312,7 +320,8 @@ export class SoftwareBackend implements IRenderBackend {
 
 		if (
 			this._frameImageData &&
-			pixels.length === this._frameImageData.width * this._frameImageData.height * 4
+			pixels.length ===
+				this._frameImageData.width * this._frameImageData.height * 4
 		) {
 			return {
 				width: this._frameImageData.width,
