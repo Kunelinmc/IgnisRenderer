@@ -1,6 +1,5 @@
 import { Material, type MaterialParams, ShadingModel } from "./Material";
 
-export type ShaderLanguage = "wgsl" | "glsl";
 export type ShaderTargetMode = "single" | "mrt";
 export type ShaderStageKind = "vertex" | "fragment-single" | "fragment-mrt";
 
