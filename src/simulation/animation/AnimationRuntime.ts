@@ -262,7 +262,7 @@ export class AnimationRuntime {
 			}
 			this._transitionStateByMachine.set(stateMachine, transitionKey);
 
-			this._applyStateMotion(mixer, layer, stateMachine);
+			this._applyStateMotion(mixer, layer, stateMachine, deltaSeconds);
 		}
 	}
 
@@ -295,14 +295,16 @@ export class AnimationRuntime {
 	private _applyStateMotion(
 		mixer: AnimationMixer,
 		layer: AnimationLayer,
-		stateMachine: AnimationStateMachine
+		stateMachine: AnimationStateMachine,
+		deltaSeconds: number
 	): void {
 		const state = stateMachine.currentState;
 		if (!state) return;
 		const desired = this._resolveMotionWeights(
 			mixer,
 			state.motion,
-			stateMachine
+			stateMachine,
+			deltaSeconds
 		);
 		for (const [clipName, weight] of desired.entries()) {
 			const action = mixer.clipAction(clipName, layer.name);
@@ -320,7 +322,8 @@ export class AnimationRuntime {
 	private _resolveMotionWeights(
 		mixer: AnimationMixer,
 		motion: AnimationMotionDefinition,
-		stateMachine: AnimationStateMachine
+		stateMachine: AnimationStateMachine,
+		deltaSeconds: number
 	): Map<string, number> {
 		if (motion.type === "clip") {
 			return new Map([[motion.clipName, 1]]);
@@ -341,7 +344,11 @@ export class AnimationRuntime {
 			const valueX = Number(stateMachine.getParameter(tree.parameterX) ?? 0);
 			const valueY = Number(stateMachine.getParameter(tree.parameterY) ?? 0);
 			const map = new Map<string, number>();
-			for (const child of tree.evaluate(valueX, valueY)) {
+			for (
+				const child of tree.evaluate(valueX, valueY, tree.blendMode, {
+					deltaTimeSeconds: deltaSeconds,
+				})
+			) {
 				map.set(child.clipName, child.weight);
 			}
 			return map;

@@ -21,6 +21,23 @@ function getWeight(weights, clipName) {
 	return found ? found.weight : 0;
 }
 
+function denseWeights(weights, clipNames) {
+	const dense = new Array(clipNames.length).fill(0);
+	for (let i = 0; i < clipNames.length; i++) {
+		dense[i] = getWeight(weights, clipNames[i]);
+	}
+	return dense;
+}
+
+function l1Distance(left, right) {
+	let total = 0;
+	const count = Math.min(left.length, right.length);
+	for (let i = 0; i < count; i++) {
+		total += Math.abs(left[i] - right[i]);
+	}
+	return total;
+}
+
 function testBlendTree1D() {
 	const tree = new BlendTree1D({
 		name: "locomotion",
@@ -117,6 +134,173 @@ function testBlendTree2DTriangulation() {
 	assert.ok(nearlyEqual(sumWeights(outside), 1));
 	assert.ok(getWeight(outside, "right") > 0.85);
 	assert.ok(getWeight(outside, "forward") < 0.15);
+}
+
+function testBlendTree2DDelaunayTriangleCount() {
+	const tree = new BlendTree2D({
+		name: "locomotion-2d-delaunay-count",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "triangulation",
+		children: [
+			{ clipName: "p0", positionX: -1, positionY: 0 },
+			{ clipName: "p1", positionX: -0.5, positionY: 1.2 },
+			{ clipName: "p2", positionX: 0.4, positionY: 1.6 },
+			{ clipName: "p3", positionX: 1.2, positionY: 0.8 },
+			{ clipName: "p4", positionX: 1.3, positionY: -0.4 },
+			{ clipName: "p5", positionX: 0.2, positionY: -1.1 },
+			{ clipName: "p6", positionX: -0.9, positionY: -0.8 },
+			{ clipName: "p7", positionX: 0, positionY: 0.1 },
+		],
+	});
+
+	assert.ok(tree._triangles.length > 0);
+	assert.ok(tree._triangles.length <= tree.children.length * 2);
+}
+
+function testBlendTree2DTemporalSmoothing() {
+	const tree = new BlendTree2D({
+		name: "locomotion-2d-smoothing",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "triangulation",
+		temporalSmoothingSeconds: 0.4,
+		children: [
+			{ clipName: "idle", positionX: 0, positionY: 0 },
+			{ clipName: "forward", positionX: 0, positionY: 1 },
+			{ clipName: "right", positionX: 1, positionY: 0 },
+		],
+	});
+
+	const start = tree.evaluate(0, 0, {
+		resetTemporalSmoothing: true,
+	});
+	assert.ok(nearlyEqual(getWeight(start, "idle"), 1));
+
+	const firstStep = tree.evaluate(1, 0, {
+		deltaTimeSeconds: 0.1,
+	});
+	assert.ok(getWeight(firstStep, "right") > 0.1);
+	assert.ok(getWeight(firstStep, "right") < 0.6);
+	assert.ok(getWeight(firstStep, "idle") > 0.3);
+
+	let settled = firstStep;
+	for (let i = 0; i < 30; i++) {
+		settled = tree.evaluate(1, 0, {
+			deltaTimeSeconds: 0.1,
+		});
+	}
+	assert.ok(getWeight(settled, "right") > 0.95);
+}
+
+function getTriangleEdgeVertices(indices, edgeIndex) {
+	switch (edgeIndex) {
+		case 0:
+			return [indices[1], indices[2]];
+		case 1:
+			return [indices[2], indices[0]];
+		default:
+			return [indices[0], indices[1]];
+	}
+}
+
+function testBlendTree2DEdgeContinuityBlend() {
+	const children = [
+		{ clipName: "idle", positionX: -0.8, positionY: -0.2 },
+		{ clipName: "forward", positionX: -0.1, positionY: 1.1 },
+		{ clipName: "right", positionX: 1.2, positionY: 0.1 },
+		{ clipName: "sprint", positionX: 1.4, positionY: 1.5 },
+		{ clipName: "left", positionX: -1.2, positionY: 0.9 },
+	];
+
+	const noContinuity = new BlendTree2D({
+		name: "locomotion-2d-edge-base",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "triangulation",
+		edgeContinuityBlendWidth: 0,
+		children,
+	});
+	const withContinuity = new BlendTree2D({
+		name: "locomotion-2d-edge-continuity",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "triangulation",
+		edgeContinuityBlendWidth: 0.25,
+		children,
+	});
+
+	let shared = null;
+	for (let triangleIndex = 0; triangleIndex < noContinuity._triangles.length; triangleIndex++) {
+		const triangle = noContinuity._triangles[triangleIndex];
+		for (let edgeIndex = 0; edgeIndex < 3; edgeIndex++) {
+			const neighborIndex = triangle.neighbors[edgeIndex];
+			if (neighborIndex === null || neighborIndex <= triangleIndex) continue;
+			const edge = getTriangleEdgeVertices(triangle.indices, edgeIndex);
+			const neighbor = noContinuity._triangles[neighborIndex];
+			const oppositeA = triangle.indices.find(
+				(index) => index !== edge[0] && index !== edge[1]
+			);
+			const oppositeB = neighbor.indices.find(
+				(index) => index !== edge[0] && index !== edge[1]
+			);
+			if (oppositeA === undefined || oppositeB === undefined) continue;
+			shared = {
+				edge,
+				oppositeA,
+				oppositeB,
+			};
+			break;
+		}
+		if (shared) break;
+	}
+
+	assert.ok(shared, "Expected at least one shared triangulation edge");
+
+	const edgeA = children[shared.edge[0]];
+	const edgeB = children[shared.edge[1]];
+	const oppositeA = children[shared.oppositeA];
+	const midX = (edgeA.positionX + edgeB.positionX) * 0.5;
+	const midY = (edgeA.positionY + edgeB.positionY) * 0.5;
+	let normalX = -(edgeB.positionY - edgeA.positionY);
+	let normalY = edgeB.positionX - edgeA.positionX;
+	const normalLength = Math.hypot(normalX, normalY);
+	assert.ok(normalLength > 1e-6);
+	normalX /= normalLength;
+	normalY /= normalLength;
+	const toOppositeA =
+		(oppositeA.positionX - midX) * normalX + (oppositeA.positionY - midY) * normalY;
+	if (toOppositeA < 0) {
+		normalX = -normalX;
+		normalY = -normalY;
+	}
+
+	const sideOffset = 0.06;
+	const sampleA = [midX + normalX * sideOffset, midY + normalY * sideOffset];
+	const sampleB = [midX - normalX * sideOffset, midY - normalY * sideOffset];
+	const clipNames = children.map((child) => child.clipName);
+
+	const baseA = denseWeights(
+		noContinuity.evaluate(sampleA[0], sampleA[1]),
+		clipNames
+	);
+	const baseB = denseWeights(
+		noContinuity.evaluate(sampleB[0], sampleB[1]),
+		clipNames
+	);
+	const smoothA = denseWeights(
+		withContinuity.evaluate(sampleA[0], sampleA[1]),
+		clipNames
+	);
+	const smoothB = denseWeights(
+		withContinuity.evaluate(sampleB[0], sampleB[1]),
+		clipNames
+	);
+
+	const baseDelta = l1Distance(baseA, baseB);
+	const smoothDelta = l1Distance(smoothA, smoothB);
+	assert.ok(baseDelta > 0.01);
+	assert.ok(smoothDelta < baseDelta);
 }
 
 function createEmptyClip(name) {
@@ -422,6 +606,9 @@ function run() {
 	testBlendTreeDirect();
 	testBlendTree2DDirectional();
 	testBlendTree2DTriangulation();
+	testBlendTree2DDelaunayTriangleCount();
+	testBlendTree2DTemporalSmoothing();
+	testBlendTree2DEdgeContinuityBlend();
 	testBlendTree2DStateRuntimeIntegration();
 	testStateMachineTransitionsAndTriggerConsumption();
 	testTriggerPersistsUntilTransitionConsumesIt();
