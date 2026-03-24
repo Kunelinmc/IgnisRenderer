@@ -13,6 +13,7 @@ import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegis
 import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
+import { ShaderRuntime } from "../src/renderers/shaders/index.ts";
 
 function createProgramCompileFailGL() {
 	return {
@@ -151,6 +152,59 @@ function createProgramCaptureGL() {
 	};
 }
 
+function createSelectiveCompileFailGL(failPattern) {
+	let programCount = 0;
+	return {
+		VERTEX_SHADER: 0x8b31,
+		FRAGMENT_SHADER: 0x8b30,
+		COMPILE_STATUS: 0x8b81,
+		LINK_STATUS: 0x8b82,
+		VALIDATE_STATUS: 0x8b83,
+		get programCount() {
+			return programCount;
+		},
+		createShader(type) {
+			return { type, compiled: true };
+		},
+		shaderSource(shader, source) {
+			shader.source = source;
+		},
+		compileShader(shader) {
+			shader.compiled = !String(shader.source).includes(failPattern);
+		},
+		getShaderParameter(shader, parameter) {
+			if (parameter === this.COMPILE_STATUS) {
+				return shader.compiled;
+			}
+			return true;
+		},
+		getShaderInfoLog() {
+			return "selective compile fail";
+		},
+		deleteShader() {},
+		createProgram() {
+			programCount++;
+			return { id: programCount };
+		},
+		attachShader() {},
+		linkProgram() {},
+		validateProgram() {},
+		getProgramParameter(_program, parameter) {
+			if (parameter === this.LINK_STATUS || parameter === this.VALIDATE_STATUS) {
+				return true;
+			}
+			return true;
+		},
+		getProgramInfoLog() {
+			return "";
+		},
+		deleteProgram() {},
+		getUniformLocation() {
+			return {};
+		},
+	};
+}
+
 const CUSTOM_WEBGL_VERTEX = /* glsl */ `
 #version 300 es
 precision highp float;
@@ -250,6 +304,66 @@ function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
 			warning.key.startsWith("webgl-shader-material-missing-source-")
 		)
 	);
+}
+
+function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
+	const warnings = [];
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const gl = createSelectiveCompileFailGL("FORCE_CUSTOM_FAIL");
+	const library = new WebGLProgramLibrary(
+		gl,
+		(key, message) => warnings.push({ key, message }),
+		runtime
+	);
+	const material = new ShaderMaterial({
+		name: "WarnFallbackCustomMaterial",
+		webglGLSL: {
+			vertex: `${CUSTOM_WEBGL_VERTEX}\n// FORCE_CUSTOM_FAIL`,
+			fragment: `${CUSTOM_WEBGL_FRAGMENT}\n// FORCE_CUSTOM_FAIL`,
+		},
+	});
+
+	const builtin = library.getSceneProgram();
+	const resolved = library.getSceneProgram(material);
+
+	assert.strictEqual(resolved, builtin);
+	assert.ok(
+		warnings.some((warning) =>
+			warning.key.startsWith("webgl-shader-material-compile-failed-")
+		)
+	);
+}
+
+function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const gl = createProgramCaptureGL();
+	const library = new WebGLProgramLibrary(gl, () => {}, runtime);
+	const material = new ShaderMaterial({
+		name: "RevisionInvalidateMaterial",
+		webglGLSL: {
+			vertex: CUSTOM_WEBGL_VERTEX,
+			fragment: CUSTOM_WEBGL_FRAGMENT,
+		},
+	});
+
+	const first = library.getSceneProgram(material);
+	const initialProgramCount = gl.programCount;
+	assert.ok(first);
+	assert.equal(initialProgramCount, 1);
+
+	runtime.registerRule({
+		id: "user/runtime-revision-invalidate",
+		priority: 1,
+		inject() {
+			return {
+				header: "// runtime revision invalidation",
+			};
+		},
+	});
+
+	const second = library.getSceneProgram(material);
+	assert.ok(second);
+	assert.equal(gl.programCount, 2);
 }
 
 function testLightCollectorShadowBias() {
@@ -375,6 +489,8 @@ function run() {
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryShaderMaterialCustomProgram();
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
+	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
+	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();

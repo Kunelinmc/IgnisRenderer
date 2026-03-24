@@ -1,15 +1,26 @@
 import assert from "node:assert/strict";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { WebGPUPipelineLibrary } from "../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
+import { ShaderRuntime } from "../src/renderers/shaders/index.ts";
 
 class FakeBackend {
 	constructor() {
 		this.canvasFormat = "rgba8unorm";
 		this.shaderModules = [];
 		this.pipelines = [];
+		this.warnings = [];
+		this.failCustomShaderModules = false;
+		this.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	}
 
 	async createShaderModule(desc) {
+		if (
+			this.failCustomShaderModules &&
+			typeof desc.label === "string" &&
+			desc.label.startsWith("WebGPUShaderMaterial")
+		) {
+			throw new Error("simulated custom shader module compile failure");
+		}
 		const module = { label: desc.label, desc };
 		this.shaderModules.push(module);
 		return module;
@@ -19,6 +30,10 @@ class FakeBackend {
 		const pipeline = { label: desc.label, desc };
 		this.pipelines.push(pipeline);
 		return pipeline;
+	}
+
+	warnOnce(key, message) {
+		this.warnings.push({ key, message });
 	}
 }
 
@@ -177,6 +192,34 @@ async function testGLSLWithoutTranspilerThrows() {
 	);
 }
 
+async function testWarnModeFallbackToBuiltinShader() {
+	const backend = new FakeBackend();
+	backend.shaderRuntime.setMode("warn");
+	backend.failCustomShaderModules = true;
+	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const material = new ShaderMaterial({
+		name: "BrokenCustomShader",
+		webgpuWGSL: {
+			vertex: WGSL_VERTEX,
+			fragmentSingle: WGSL_FRAGMENT_SINGLE,
+		},
+		vertexEntryPoint: "customVs",
+		fragmentSingleEntryPoint: "customFsSingle",
+	});
+
+	const pipeline = await library.getPipeline(material, "single");
+	assert.equal(pipeline.desc.vertex.entryPoint, "vsMain");
+	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainSingle");
+	assert.ok(
+		backend.shaderModules.some((module) => module.label === "WebGPUSceneShader")
+	);
+	assert.ok(
+		backend.warnings.some((warning) =>
+			warning.key.startsWith("webgpu-shader-material-compile-failed-")
+		)
+	);
+}
+
 function testResolveWebGLProgramPrefersWebGLSource() {
 	const material = new ShaderMaterial({
 		name: "WebGLCustomMaterial",
@@ -224,6 +267,7 @@ async function run() {
 	await testWGSLProgramSelection();
 	await testGLSLProgramUsesTranspiler();
 	await testGLSLWithoutTranspilerThrows();
+	await testWarnModeFallbackToBuiltinShader();
 	testResolveWebGLProgramPrefersWebGLSource();
 	testResolveWebGLProgramFallsBackToWebGPUGLSL();
 	testResolveWebGLProgramMissingSourceThrows();

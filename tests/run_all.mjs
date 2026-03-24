@@ -50,6 +50,7 @@ const tests = [
 	"test_gltf_prefab_contract.mjs",
 	"test_gltf_loader_security.mjs",
 	"test_pbr_textures.mjs",
+	"test_shader_runtime.mjs",
 	"test_shader_material.mjs",
 	"test_video_texture.mjs",
 	"test_texture_loader_cache.mjs",
