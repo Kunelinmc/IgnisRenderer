@@ -97,6 +97,22 @@ export interface ShaderModuleDesc {
 	code: string;
 	/** Optional precomputed hash/fingerprint for shader module caching */
 	codeHash?: string;
+	/** Optional language tag used for shader runtime validation/injection */
+	language?: "glsl" | "wgsl";
+	/** Optional stage tag used for shader runtime validation/injection */
+	stage?: "vertex" | "fragment" | "compute" | "unknown";
+	/** Optional entry point used for shader runtime validation/injection */
+	entryPoint?: string;
+	/** Optional source kind tag used for diagnostics/fallback policy */
+	sourceKind?:
+		| "builtin-scene"
+		| "builtin-skybox"
+		| "builtin-present"
+		| "postprocess"
+		| "shadow"
+		| "particle"
+		| "custom-material"
+		| "unknown";
 	label?: string;
 	logCompilationInfo?: boolean;
 	/** Optional software implementation of the shader */

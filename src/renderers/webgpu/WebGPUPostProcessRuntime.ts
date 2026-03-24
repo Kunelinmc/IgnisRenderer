@@ -101,6 +101,28 @@ export class WebGPUPostProcessRuntime {
 		this._bindGroupCache.clear();
 	}
 
+	public onShaderRuntimeChanged(): void {
+		this._bindGroupCache.clear();
+		this._ssaoModule = null;
+		this._ssaoRawPipeline = null;
+		this._ssaoBlurPipeline = null;
+		this._ssaoCombinePipeline = null;
+		this._taaModule = null;
+		this._taaPipeline = null;
+		this._hizModule = null;
+		this._hizInitPipeline = null;
+		this._hizReducePipeline = null;
+		this._ssrModule = null;
+		this._ssrTracePipeline = null;
+		this._ssrComposePipeline = null;
+		this._volumetricModule = null;
+		this._volumetricPipeline = null;
+		this._fxaaModule = null;
+		this._fxaaPipeline = null;
+		this._copyModule = null;
+		this._copyPipeline = null;
+	}
+
 	private _getCachedBindGroup(
 		key: string,
 		pipeline: IComputePipeline,
@@ -894,6 +916,9 @@ export class WebGPUPostProcessRuntime {
 			this._ssaoModule = await this._backend.createShaderModule({
 				label: "WebGPUSSAOShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._ssaoRawPipeline)
@@ -926,6 +951,9 @@ export class WebGPUPostProcessRuntime {
 			this._taaModule = await this._backend.createShaderModule({
 				label: "WebGPUTAAShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._taaPipeline)
@@ -948,6 +976,9 @@ export class WebGPUPostProcessRuntime {
 			this._hizModule = await this._backend.createShaderModule({
 				label: "WebGPUHiZShader",
 				code: hizShaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._hizInitPipeline)
@@ -969,6 +1000,9 @@ export class WebGPUPostProcessRuntime {
 			this._ssrModule = await this._backend.createShaderModule({
 				label: "WebGPUSSRShader",
 				code: ssrShaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._ssrTracePipeline) {
@@ -1064,6 +1098,9 @@ export class WebGPUPostProcessRuntime {
 			this._volumetricModule = await this._backend.createShaderModule({
 				label: "WebGPUVolumetricShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._volumetricPipeline) {
@@ -1153,6 +1190,9 @@ export class WebGPUPostProcessRuntime {
 			this._fxaaModule = await this._backend.createShaderModule({
 				label: "WebGPUFXAAShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._fxaaPipeline)
@@ -1174,6 +1214,9 @@ export class WebGPUPostProcessRuntime {
 			this._copyModule = await this._backend.createShaderModule({
 				label: "WebGPUCopyShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
 		}
 		if (!this._copyPipeline)

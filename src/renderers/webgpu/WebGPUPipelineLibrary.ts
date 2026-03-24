@@ -32,6 +32,7 @@ interface WebGPUSceneProgram {
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
+	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _skyboxShaderModule: IShaderModule | null = null;
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
@@ -42,6 +43,27 @@ export class WebGPUPipelineLibrary {
 	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
 		this._backend = backend;
 		this._layouts = layouts;
+		const shaderRuntime = this._getShaderRuntime();
+		if (shaderRuntime && typeof shaderRuntime.onDidChange === "function") {
+			this._disposeShaderRuntimeListener = shaderRuntime.onDidChange(() =>
+				this.invalidateShaderRuntimeCaches()
+			);
+		}
+	}
+
+	public destroy(): void {
+		this._disposeShaderRuntimeListener?.();
+		this._disposeShaderRuntimeListener = null;
+		this.invalidateShaderRuntimeCaches();
+	}
+
+	public invalidateShaderRuntimeCaches(): void {
+		this._sceneShaderModule = null;
+		this._skyboxShaderModule = null;
+		this._customShaderModuleCache.clear();
+		this._skyboxPipelines.clear();
+		this._materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
+		this._pipelineCache.clear();
 	}
 
 	public async init(): Promise<void> {
@@ -185,37 +207,65 @@ export class WebGPUPipelineLibrary {
 			};
 		}
 
-		const program = material.resolveWebGPUProgram(mode);
-		const shaderCacheKey = material.getWebGPUCacheKey();
-		const vertexModule = await this._getCustomShaderModule(
-			`${shaderCacheKey}:${mode}:vertex`,
-			program.vertexCode,
-			`WebGPUShaderMaterialVertex_${shaderCacheKey}`
-		);
-		const fragmentModule = await this._getCustomShaderModule(
-			`${shaderCacheKey}:${mode}:fragment`,
-			program.fragmentCode,
-			`WebGPUShaderMaterialFragment_${shaderCacheKey}_${mode}`
-		);
+		try {
+			const program = material.resolveWebGPUProgram(mode);
+			const shaderCacheKey = material.getWebGPUCacheKey();
+			const vertexModule = await this._getCustomShaderModule(
+				`${shaderCacheKey}:${mode}:vertex`,
+				program.vertexCode,
+				`WebGPUShaderMaterialVertex_${shaderCacheKey}`,
+				"vertex",
+				program.vertexEntryPoint
+			);
+			const fragmentModule = await this._getCustomShaderModule(
+				`${shaderCacheKey}:${mode}:fragment`,
+				program.fragmentCode,
+				`WebGPUShaderMaterialFragment_${shaderCacheKey}_${mode}`,
+				"fragment",
+				program.fragmentEntryPoint
+			);
 
-		return {
-			vertexModule,
-			fragmentModule,
-			vertexEntryPoint: program.vertexEntryPoint,
-			fragmentEntryPoint: program.fragmentEntryPoint,
-		};
+			return {
+				vertexModule,
+				fragmentModule,
+				vertexEntryPoint: program.vertexEntryPoint,
+				fragmentEntryPoint: program.fragmentEntryPoint,
+			};
+		} catch (error) {
+			if (!this._isWarnMode()) {
+				throw error;
+			}
+			this._warnOnce(
+				`webgpu-shader-material-compile-failed-${material.shaderId}`,
+				`ShaderMaterial ${material.name} custom WebGPU shader compile failed; ` +
+					`using built-in scene shader. ${String(error)}`
+			);
+			const shaderModule = await this._getSceneShaderModule();
+			return {
+				vertexModule: shaderModule,
+				fragmentModule: shaderModule,
+				vertexEntryPoint: "vsMain",
+				fragmentEntryPoint: mode === "mrt" ? "fsMain" : "fsMainSingle",
+			};
+		}
 	}
 
 	private async _getCustomShaderModule(
 		key: string,
 		code: string,
-		label: string
+		label: string,
+		stage: "vertex" | "fragment",
+		entryPoint: string
 	): Promise<IShaderModule> {
 		let module = this._customShaderModuleCache.get(key);
 		if (!module) {
 			module = await this._backend.createShaderModule({
 				code,
 				label,
+				language: "wgsl",
+				stage,
+				entryPoint,
+				sourceKind: "custom-material",
 			});
 			this._customShaderModuleCache.set(key, module);
 		}
@@ -224,9 +274,12 @@ export class WebGPUPipelineLibrary {
 
 	private _getShaderCacheKey(material: Material): string {
 		if (material instanceof ShaderMaterial) {
-			return `shader:${material.getWebGPUCacheKey()}`;
+			return (
+				`shader:${material.getWebGPUCacheKey()}` +
+				`|runtime:${this._getShaderRuntimeRevision()}`
+			);
 		}
-		return "builtin-scene";
+		return `builtin-scene|runtime:${this._getShaderRuntimeRevision()}`;
 	}
 
 	public async getSkyboxPipeline(
@@ -296,6 +349,9 @@ export class WebGPUPipelineLibrary {
 			this._sceneShaderModule = await this._backend.createShaderModule({
 				code: shaderCode,
 				label: "WebGPUSceneShader",
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "builtin-scene",
 			});
 		}
 
@@ -308,9 +364,56 @@ export class WebGPUPipelineLibrary {
 			this._skyboxShaderModule = await this._backend.createShaderModule({
 				code: shaderCode,
 				label: "WebGPUSkyboxShader",
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "builtin-skybox",
 			});
 		}
 
 		return this._skyboxShaderModule;
+	}
+
+	private _isWarnMode(): boolean {
+		const shaderRuntime = this._getShaderRuntime();
+		if (!shaderRuntime || typeof shaderRuntime.getMode !== "function") {
+			return false;
+		}
+		return shaderRuntime.getMode() === "warn";
+	}
+
+	private _warnOnce(key: string, message: string): void {
+		const backend = this._backend as unknown as {
+			warnOnce?: (warnKey: string, warnMessage: string) => void;
+		};
+		if (typeof backend.warnOnce === "function") {
+			backend.warnOnce(key, message);
+			return;
+		}
+		console.warn(message);
+	}
+
+	private _getShaderRuntimeRevision(): number {
+		const shaderRuntime = this._getShaderRuntime();
+		if (!shaderRuntime || typeof shaderRuntime.revision !== "number") {
+			return 0;
+		}
+		return shaderRuntime.revision;
+	}
+
+	private _getShaderRuntime():
+		| {
+				revision?: number;
+				getMode?: () => "strict" | "warn";
+				onDidChange?: (listener: () => void) => () => void;
+		  }
+		| null {
+		const backend = this._backend as unknown as {
+			shaderRuntime?: {
+				revision?: number;
+				getMode?: () => "strict" | "warn";
+				onDidChange?: (listener: () => void) => () => void;
+			};
+		};
+		return backend.shaderRuntime ?? null;
 	}
 }

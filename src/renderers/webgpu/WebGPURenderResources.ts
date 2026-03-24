@@ -126,6 +126,7 @@ export class WebGPURenderResources {
 			uvTransformBuffer: IRenderBuffer;
 		}
 	>();
+	private _disposeShaderRuntimeListener: (() => void) | null = null;
 
 	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
 		this._renderer = renderer;
@@ -150,14 +151,26 @@ export class WebGPURenderResources {
 			this._geometryRegistry,
 			this._shadowAtlases
 		);
+		const shaderRuntime = (
+			this._backend as unknown as {
+				shaderRuntime?: {
+					onDidChange?: (listener: () => void) => () => void;
+				};
+			}
+		).shaderRuntime;
+		if (shaderRuntime && typeof shaderRuntime.onDidChange === "function") {
+			this._disposeShaderRuntimeListener = shaderRuntime.onDidChange(() =>
+				this.onShaderRuntimeChanged()
+			);
+		}
 	}
 
 	public async init(): Promise<void> {
 		await this._pipelineLibrary.init();
 	}
 
-	public renderShadows(context: FrameContext): void {
-		this._shadowPass.render(context);
+	public async renderShadows(context: FrameContext): Promise<void> {
+		await this._shadowPass.render(context);
 	}
 
 	public setSceneTargetMode(mode: WebGPUSceneTargetMode): void {
@@ -255,6 +268,15 @@ export class WebGPURenderResources {
 
 	public getFrameBinding(): IBindingGroup {
 		return this._frameBindings.getSceneBinding();
+	}
+
+	public onShaderRuntimeChanged(): void {
+		this._pipelineLibrary.invalidateShaderRuntimeCaches();
+		this._particleShaderModule = null;
+		this._particlePipelineAlpha.clear();
+		this._particlePipelineAdditive.clear();
+		this._particleBindingCache.clear();
+		this._shadowPass.onShaderRuntimeChanged();
 	}
 
 	public getLightingState(): WebGPULightingState | null {
@@ -596,6 +618,9 @@ export class WebGPURenderResources {
 			this._particleShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUParticleShader",
 				code: shaderCode,
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "particle",
 			});
 		}
 

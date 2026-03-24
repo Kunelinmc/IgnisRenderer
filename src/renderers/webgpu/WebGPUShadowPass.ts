@@ -25,12 +25,13 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SCENE_VERTEX_STRIDE,
 } from "./constants";
-import { getWebGPUTexture } from "./WebGPUResourceAccess";
+import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
 import type {
 	WebGPUGeometryHandle,
 	WebGPUGeometryRegistry,
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import type { IShaderModule } from "../types";
 
 const WEBGPU_SHADOW_DEPTH_SHADER = /* wgsl */ `
 const EPSILON: f32 = 1e-6;
@@ -225,7 +226,8 @@ export class WebGPUShadowPass {
 	private _shadowViewProjectionMatrix = Matrix4.identity();
 	private _mvpMatrix = Matrix4.identity();
 	private _uniformData = new Float32Array(16);
-	private _shaderModule: GPUShaderModule | null = null;
+	private _shaderModule: IShaderModule | null = null;
+	private _shaderModulePromise: Promise<IShaderModule> | null = null;
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
 	private _animationBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
@@ -248,7 +250,7 @@ export class WebGPUShadowPass {
 		this._shadowAtlases = shadowAtlases;
 	}
 
-	public render(context: FrameContext): void {
+	public async render(context: FrameContext): Promise<void> {
 		if (!context.features.enableShadows) return;
 
 		const frame = context.scene;
@@ -261,7 +263,7 @@ export class WebGPUShadowPass {
 		const atlasView = getWebGPUTexture(atlasTexture).view;
 		if (!atlasView) return;
 
-		this._ensurePipelineResources();
+		await this._ensurePipelineResources();
 		if (
 			!this._pipeline ||
 			!this._bindGroupLayout ||
@@ -328,6 +330,12 @@ export class WebGPUShadowPass {
 		this._backend.queue.submit([commandEncoder.finish()]);
 		this._trimDrawResources();
 		this._trimAnimationResources();
+	}
+
+	public onShaderRuntimeChanged(): void {
+		this._shaderModule = null;
+		this._shaderModulePromise = null;
+		this._pipeline = null;
 	}
 
 	private _drawShadowCasters(
@@ -625,7 +633,7 @@ export class WebGPUShadowPass {
 		return slots;
 	}
 
-	private _ensurePipelineResources(): void {
+	private async _ensurePipelineResources(): Promise<void> {
 		if (
 			this._pipeline &&
 			this._bindGroupLayout &&
@@ -637,10 +645,22 @@ export class WebGPUShadowPass {
 
 		const device = this._backend.device;
 		if (!this._shaderModule) {
-			this._shaderModule = device.createShaderModule({
-				label: "WebGPUShadowDepthShader",
-				code: WEBGPU_SHADOW_DEPTH_SHADER,
-			});
+			if (!this._shaderModulePromise) {
+				this._shaderModulePromise = this._backend.createShaderModule({
+					label: "WebGPUShadowDepthShader",
+					code: WEBGPU_SHADOW_DEPTH_SHADER,
+					language: "wgsl",
+					stage: "vertex",
+					entryPoint: "vsMain",
+					sourceKind: "shadow",
+				});
+			}
+			try {
+				this._shaderModule = await this._shaderModulePromise;
+			} catch (error) {
+				this._shaderModulePromise = null;
+				throw error;
+			}
 		}
 
 		if (!this._bindGroupLayout) {
@@ -716,7 +736,7 @@ export class WebGPUShadowPass {
 				label: "WebGPUShadowDepthPipeline",
 				layout: this._pipelineLayout,
 				vertex: {
-					module: this._shaderModule,
+					module: getWebGPUShaderModule(this._shaderModule),
 					entryPoint: "vsMain",
 					buffers: [
 						{

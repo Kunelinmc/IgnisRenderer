@@ -221,6 +221,14 @@ export class WebGPUFrameExecutor {
 		this._postRuntime.invalidateBindings();
 	}
 
+	public onShaderRuntimeChanged(): void {
+		this._presentShaderModule = null;
+		this._presentPipeline = null;
+		this._presentBinding = null;
+		this._presentBindingSource = null;
+		this._postRuntime.onShaderRuntimeChanged();
+	}
+
 	/**
 	 * Release all GPU resources held by this executor.
 	 */
@@ -247,7 +255,7 @@ export class WebGPUFrameExecutor {
 
 		switch (pass.stage) {
 			case "shadow":
-				this._resources.renderShadows(context);
+				await this._resources.renderShadows(context);
 				return;
 			case "main-opaque":
 				await this._recordMainPass(context.scene.opaquePackets, true);
@@ -1074,6 +1082,9 @@ export class WebGPUFrameExecutor {
 			this._presentShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUPresentShader",
 				code: WEBGPU_PRESENT_SHADER,
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "builtin-present",
 			});
 		}
 

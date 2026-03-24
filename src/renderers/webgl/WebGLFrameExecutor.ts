@@ -43,6 +43,7 @@ import {
 	type WebGLShadowDepthProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
+import type { ShaderRuntime } from "../shaders";
 
 type WarnFn = (key: string, message: string) => void;
 
@@ -171,10 +172,14 @@ export class WebGLFrameExecutor {
 	private _lightState: WebGLLightState | null = null;
 	private _ssaoFrameIndex = 0;
 
-	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
+	constructor(
+		gl: WebGL2RenderingContext,
+		warn: WarnFn,
+		shaderRuntime?: ShaderRuntime
+	) {
 		this._gl = gl;
 		this._warn = warn;
-		this._programs = new WebGLProgramLibrary(gl, warn);
+		this._programs = new WebGLProgramLibrary(gl, warn, shaderRuntime);
 		this._geometry = new WebGLGeometryRegistry(gl, warn);
 		this._textures = new WebGLTextureRegistry(gl, warn);
 		this._fullscreenVao = gl.createVertexArray();

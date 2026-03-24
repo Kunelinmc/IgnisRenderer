@@ -63,6 +63,8 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "./types";
+import { ShaderRuntime } from "./shaders";
+import type { ShaderProcessResult } from "./shaders";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -212,6 +214,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public queue!: GPUQueue;
 	public canvasFormat: GPUTextureFormat = "bgra8unorm";
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
+	public readonly shaderRuntime: ShaderRuntime;
 
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasTexture: GPUTexture | null = null;
@@ -282,10 +285,22 @@ export class WebGPUBackend implements IRenderBackend {
 
 	constructor(canvas?: HTMLCanvasElement) {
 		this.canvas = canvas ?? null;
+		this.shaderRuntime = new ShaderRuntime();
+		this.shaderRuntime.onDidChange(() => {
+			this._onShaderRuntimeChanged();
+		});
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
+	}
+
+	public warnOnce(key: string, message: string): void {
+		if (this._renderer?.warnOnce) {
+			this._renderer.warnOnce(key, message);
+			return;
+		}
+		console.warn(message);
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {
@@ -630,7 +645,18 @@ export class WebGPUBackend implements IRenderBackend {
 		desc: ShaderModuleDesc
 	): Promise<IShaderModule> {
 		this._assertDeviceOperational("create shader modules");
-		const cacheKey = this._getShaderModuleCacheKey(desc);
+		const processed = this._processShaderSource(desc);
+		if (processed.hasErrors) {
+			this._reportShaderRuntimeDiagnostics(desc, processed);
+		}
+		const effectiveCodeHash =
+			processed.code === desc.code ? desc.codeHash : undefined;
+		const effectiveDesc: ShaderModuleDesc = {
+			...desc,
+			code: processed.code,
+			codeHash: effectiveCodeHash,
+		};
+		const cacheKey = this._getShaderModuleCacheKey(effectiveDesc);
 		const cached = this._shaderModuleCache.get(cacheKey);
 		if (cached) {
 			this._touchCacheEntry(this._shaderModuleCache, cacheKey, cached);
@@ -648,12 +674,12 @@ export class WebGPUBackend implements IRenderBackend {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				try {
 					const gpuModule = this.device.createShaderModule({
-						code: desc.code,
-						label: desc.label,
+						code: effectiveDesc.code,
+						label: effectiveDesc.label,
 					});
 
 					if (
-						desc.logCompilationInfo === true &&
+						effectiveDesc.logCompilationInfo === true &&
 						typeof gpuModule.getCompilationInfo === "function"
 					) {
 						void gpuModule
@@ -663,7 +689,7 @@ export class WebGPUBackend implements IRenderBackend {
 									return;
 								}
 								console.group(
-									`WebGPU Shader Compilation Info [${desc.label || "unnamed"}]`
+									`WebGPU Shader Compilation Info [${effectiveDesc.label || "unnamed"}]`
 								);
 								for (const message of info.messages) {
 									const logType =
@@ -678,7 +704,7 @@ export class WebGPUBackend implements IRenderBackend {
 							})
 							.catch((error) => {
 								console.warn(
-									`WebGPU shader compilation info unavailable [${desc.label ?? "unnamed"}]: ${String(error)}`
+									`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
 								);
 							});
 					}
@@ -686,7 +712,7 @@ export class WebGPUBackend implements IRenderBackend {
 					const entry: CachedShaderModuleEntry = {
 						key: cacheKey,
 						refCount: 0,
-						label: desc.label,
+						label: effectiveDesc.label,
 						gpuResource: gpuModule,
 					};
 					this._shaderModuleCache.set(cacheKey, entry);
@@ -2319,6 +2345,56 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCacheEntryCount = 0;
 		this._frameExecutor?.invalidateFrameTargets();
 		this._resetCurrentCanvasTargets();
+	}
+
+	private _onShaderRuntimeChanged(): void {
+		this._submitPendingCopyCommands();
+		this._invalidateShaderDependentCaches();
+		this._frameExecutor?.onShaderRuntimeChanged?.();
+		this._resources?.onShaderRuntimeChanged?.();
+		this._resetCurrentCanvasTargets();
+	}
+
+	private _invalidateShaderDependentCaches(): void {
+		this._shaderModuleCache.clear();
+		this._shaderCodeHashCache.clear();
+		this._shaderModuleInFlight.clear();
+		this._renderPipelineCache.clear();
+		this._computePipelineCache.clear();
+		this._bindingGroupCache.clear();
+		this._bindingGroupCacheEntryCount = 0;
+		this._pipelineBindGroupLayoutCache.clear();
+		this._autoRenderPipelineLayoutCache.clear();
+		this._autoComputePipelineLayoutCache.clear();
+	}
+
+	private _processShaderSource(desc: ShaderModuleDesc): ShaderProcessResult {
+		return this.shaderRuntime.process({
+			code: desc.code,
+			language: desc.language ?? "wgsl",
+			stage: desc.stage ?? "unknown",
+			entryPoint: desc.entryPoint,
+			label: desc.label,
+			sourceKind: desc.sourceKind ?? "unknown",
+		});
+	}
+
+	private _reportShaderRuntimeDiagnostics(
+		desc: ShaderModuleDesc,
+		result: ShaderProcessResult
+	): void {
+		const keyPrefix =
+			desc.label && desc.label.length > 0 ? desc.label : "unnamed";
+		for (const diagnostic of result.diagnostics) {
+			const key =
+				`webgpu-shader-runtime-${diagnostic.severity}` +
+				`-${diagnostic.code}-${keyPrefix}`;
+			this.warnOnce(
+				key,
+				`WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
+					`${diagnostic.code}: ${diagnostic.message}`
+			);
+		}
 	}
 
 	private _resolveSupportedMSAASampleCount(

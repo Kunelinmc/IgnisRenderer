@@ -6,6 +6,7 @@ import {
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
+import { ShaderRuntime } from "./shaders";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"shadow",
@@ -47,6 +48,11 @@ export class WebGLBackend implements IRenderBackend {
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
 	private _width = 1;
 	private _height = 1;
+	public readonly shaderRuntime: ShaderRuntime;
+
+	constructor() {
+		this.shaderRuntime = new ShaderRuntime();
+	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
@@ -166,8 +172,10 @@ export class WebGLBackend implements IRenderBackend {
 
 		this._gl = gl;
 		this._frameExecutor?.destroy();
-		this._frameExecutor = new WebGLFrameExecutor(gl, (key, message) =>
-			this._warnOnce(key, message)
+		this._frameExecutor = new WebGLFrameExecutor(
+			gl,
+			(key, message) => this._warnOnce(key, message),
+			this.shaderRuntime
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);

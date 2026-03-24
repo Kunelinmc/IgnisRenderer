@@ -25,6 +25,7 @@ import {
 	WEBGL_TAA_FRAGMENT_SHADER,
 } from "../../shaders/webgl/pipelineShaders";
 import { createWebGLSceneShaderSource } from "../../shaders/webgl/sceneShader";
+import type { ShaderProcessResult, ShaderRuntime } from "../shaders";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;
@@ -215,6 +216,8 @@ const {
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
+	private _shaderRuntime: ShaderRuntime | null;
+	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
 	private _skyboxProgram: WebGLSkyboxProgram | null = null;
@@ -231,9 +234,19 @@ export class WebGLProgramLibrary {
 	private _ssrProgram: WebGLSSRProgram | null = null;
 	private _volumetricProgram: WebGLVolumetricProgram | null = null;
 
-	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
+	constructor(
+		gl: WebGL2RenderingContext,
+		warn: WarnFn,
+		shaderRuntime?: ShaderRuntime
+	) {
 		this._gl = gl;
 		this._warn = warn;
+		this._shaderRuntime = shaderRuntime ?? null;
+		if (this._shaderRuntime) {
+			this._disposeShaderRuntimeListener = this._shaderRuntime.onDidChange(
+				() => this._invalidateProgramCachesForShaderRuntime()
+			);
+		}
 	}
 
 	public getSceneProgram(material?: Material): WebGLSceneProgram {
@@ -259,7 +272,8 @@ export class WebGLProgramLibrary {
 	private _getShaderMaterialSceneProgram(
 		material: ShaderMaterial
 	): WebGLSceneProgram | null {
-		const shaderKey = material.getWebGLCacheKey();
+		const shaderKey =
+			`${material.getWebGLCacheKey()}|runtime:${this._shaderRuntime?.revision ?? 0}`;
 		const cached = this._customScenePrograms.get(shaderKey);
 		if (cached) {
 			return cached;
@@ -277,11 +291,24 @@ export class WebGLProgramLibrary {
 			return null;
 		}
 
-		const sceneProgram = this._createSceneProgram(
-			source.vertexCode,
-			source.fragmentCode,
-			`WebGLShaderMaterialProgram_${shaderKey}`
-		);
+		let sceneProgram: WebGLSceneProgram;
+		try {
+			sceneProgram = this._createSceneProgram(
+				source.vertexCode,
+				source.fragmentCode,
+				`WebGLShaderMaterialProgram_${shaderKey}`
+			);
+		} catch (error) {
+			if (!this._isWarnMode()) {
+				throw error;
+			}
+			this._warn(
+				`webgl-shader-material-compile-failed-${material.shaderId}`,
+				`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
+					`using built-in scene shader. ${String(error)}`
+			);
+			return null;
+		}
 		this._customScenePrograms.set(shaderKey, sceneProgram);
 		return sceneProgram;
 	}
@@ -665,6 +692,141 @@ export class WebGLProgramLibrary {
 	}
 
 	public destroy(): void {
+		this._disposeShaderRuntimeListener?.();
+		this._disposeShaderRuntimeListener = null;
+		this._disposePrograms();
+	}
+
+	private _createProgram(
+		vertexSource: string,
+		fragmentSource: string,
+		label: string
+	): WebGLProgram {
+		const gl = this._gl;
+		const vertexShader = this._compileShader(
+			gl.VERTEX_SHADER,
+			vertexSource,
+			`${label}:vertex`
+		);
+		const fragmentShader = this._compileShader(
+			gl.FRAGMENT_SHADER,
+			fragmentSource,
+			`${label}:fragment`
+		);
+		const program = gl.createProgram();
+		if (!program) {
+			gl.deleteShader(vertexShader);
+			gl.deleteShader(fragmentShader);
+			throw new Error(`Failed to create WebGL program (${label})`);
+		}
+
+		gl.attachShader(program, vertexShader);
+		gl.attachShader(program, fragmentShader);
+		gl.linkProgram(program);
+		gl.deleteShader(vertexShader);
+		gl.deleteShader(fragmentShader);
+
+		const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS);
+		if (!linked) {
+			const log = gl.getProgramInfoLog(program) || "No program link log";
+			gl.deleteProgram(program);
+			throw new Error(`WebGL program link failed (${label}): ${log}`);
+		}
+
+		gl.validateProgram(program);
+		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
+		if (validateStatus === false) {
+			this._warn(
+				`webgl-program-validate-${label}`,
+				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || "no log"}`
+			);
+		}
+
+		return program;
+	}
+
+	private _compileShader(
+		type: number,
+		source: string,
+		label: string
+	): WebGLShader {
+		const stage = type === this._gl.VERTEX_SHADER ? "vertex" : "fragment";
+		const sourceKind =
+			label.startsWith("WebGLShaderMaterialProgram_") ?
+				"custom-material"
+			:	"unknown";
+		const processed = this._processShaderSource(
+			source,
+			stage,
+			sourceKind,
+			label
+		);
+		if (processed.hasErrors) {
+			this._reportShaderRuntimeDiagnostics(label, processed);
+		}
+
+		const gl = this._gl;
+		const shader = gl.createShader(type);
+		if (!shader) {
+			throw new Error(`Failed to create WebGL shader (${label})`);
+		}
+		gl.shaderSource(shader, processed.code);
+		gl.compileShader(shader);
+		const compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+		if (!compiled) {
+			const log = gl.getShaderInfoLog(shader) || "No shader compile log";
+			gl.deleteShader(shader);
+			throw new Error(`WebGL shader compile failed (${label}): ${log}`);
+		}
+		return shader;
+	}
+
+	private _isWarnMode(): boolean {
+		return this._shaderRuntime?.getMode() === "warn";
+	}
+
+	private _processShaderSource(
+		source: string,
+		stage: "vertex" | "fragment",
+		sourceKind: "custom-material" | "unknown",
+		label: string
+	): ShaderProcessResult {
+		if (!this._shaderRuntime) {
+			return {
+				code: source,
+				diagnostics: [],
+				hasErrors: false,
+				fromCache: false,
+			};
+		}
+		return this._shaderRuntime.process({
+			code: source,
+			language: "glsl",
+			stage,
+			entryPoint: "main",
+			label,
+			sourceKind,
+		});
+	}
+
+	private _reportShaderRuntimeDiagnostics(
+		label: string,
+		result: ShaderProcessResult
+	): void {
+		for (const diagnostic of result.diagnostics) {
+			this._warn(
+				`webgl-shader-runtime-${diagnostic.severity}-${diagnostic.code}-${label}`,
+				`WebGL shader runtime ${diagnostic.severity} [${label}] ` +
+					`${diagnostic.code}: ${diagnostic.message}`
+			);
+		}
+	}
+
+	private _invalidateProgramCachesForShaderRuntime(): void {
+		this._disposePrograms();
+	}
+
+	private _disposePrograms(): void {
 		if (this._sceneProgram) {
 			this._gl.deleteProgram(this._sceneProgram.program);
 			this._sceneProgram = null;
@@ -721,74 +883,5 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(this._volumetricProgram.program);
 			this._volumetricProgram = null;
 		}
-	}
-
-	private _createProgram(
-		vertexSource: string,
-		fragmentSource: string,
-		label: string
-	): WebGLProgram {
-		const gl = this._gl;
-		const vertexShader = this._compileShader(
-			gl.VERTEX_SHADER,
-			vertexSource,
-			`${label}:vertex`
-		);
-		const fragmentShader = this._compileShader(
-			gl.FRAGMENT_SHADER,
-			fragmentSource,
-			`${label}:fragment`
-		);
-		const program = gl.createProgram();
-		if (!program) {
-			gl.deleteShader(vertexShader);
-			gl.deleteShader(fragmentShader);
-			throw new Error(`Failed to create WebGL program (${label})`);
-		}
-
-		gl.attachShader(program, vertexShader);
-		gl.attachShader(program, fragmentShader);
-		gl.linkProgram(program);
-		gl.deleteShader(vertexShader);
-		gl.deleteShader(fragmentShader);
-
-		const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS);
-		if (!linked) {
-			const log = gl.getProgramInfoLog(program) || "No program link log";
-			gl.deleteProgram(program);
-			throw new Error(`WebGL program link failed (${label}): ${log}`);
-		}
-
-		gl.validateProgram(program);
-		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
-		if (validateStatus === false) {
-			this._warn(
-				`webgl-program-validate-${label}`,
-				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || "no log"}`
-			);
-		}
-
-		return program;
-	}
-
-	private _compileShader(
-		type: number,
-		source: string,
-		label: string
-	): WebGLShader {
-		const gl = this._gl;
-		const shader = gl.createShader(type);
-		if (!shader) {
-			throw new Error(`Failed to create WebGL shader (${label})`);
-		}
-		gl.shaderSource(shader, source);
-		gl.compileShader(shader);
-		const compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-		if (!compiled) {
-			const log = gl.getShaderInfoLog(shader) || "No shader compile log";
-			gl.deleteShader(shader);
-			throw new Error(`WebGL shader compile failed (${label}): ${log}`);
-		}
-		return shader;
 	}
 }
