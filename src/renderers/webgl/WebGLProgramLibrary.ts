@@ -25,7 +25,7 @@ import {
 	WEBGL_TAA_FRAGMENT_SHADER,
 } from "../../shaders/webgl/pipelineShaders";
 import { createWebGLSceneShaderSource } from "../../shaders/webgl/sceneShader";
-import type { ShaderProcessResult, ShaderRuntime } from "../shaders";
+import type { ShaderProcessResult, ShaderRuntime } from "../../shaders/runtime";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;

@@ -13,7 +13,7 @@ import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegis
 import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
-import { ShaderRuntime } from "../src/renderers/shaders/index.ts";
+import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
 
 function createProgramCompileFailGL() {
 	return {

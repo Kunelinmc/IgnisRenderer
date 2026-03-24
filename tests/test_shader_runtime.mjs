@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
 	ShaderRuntime,
-} from "../src/renderers/shaders/index.ts";
+} from "../src/shaders/runtime/index.ts";
 
 const GLSL_SOURCE = `#version 300 es
 precision highp float;

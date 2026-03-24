@@ -6,7 +6,7 @@ import {
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
-import { ShaderRuntime } from "./shaders";
+import { ShaderRuntime } from "../shaders/runtime";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"shadow",

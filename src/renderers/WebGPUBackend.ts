@@ -63,8 +63,8 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "./types";
-import { ShaderRuntime } from "./shaders";
-import type { ShaderProcessResult } from "./shaders";
+import { ShaderRuntime } from "../shaders/runtime";
+import type { ShaderProcessResult } from "../shaders/runtime";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;

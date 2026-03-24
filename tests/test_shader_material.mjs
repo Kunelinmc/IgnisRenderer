@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { WebGPUPipelineLibrary } from "../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
-import { ShaderRuntime } from "../src/renderers/shaders/index.ts";
+import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
 
 class FakeBackend {
 	constructor() {

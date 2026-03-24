@@ -43,7 +43,7 @@ import {
 	type WebGLShadowDepthProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
-import type { ShaderRuntime } from "../shaders";
+import type { ShaderRuntime } from "../../shaders/runtime";
 
 type WarnFn = (key: string, message: string) => void;
 
