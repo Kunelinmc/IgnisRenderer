@@ -39,10 +39,11 @@ The codebase is organized into modular directories, separating core abstractions
 - **`ecs/`**: The underlying Entity Component System managing high-performance data storage and entity state.
 - **`renderers/`**: Multi-backend implementations. Contains specialized logic for Software, WebGL, and WebGPU pipelines.
 - **`pipeline/`**: The execution frame graph, responsible for feature resolution, frame planning, and draw call preparation.
-- **`shaders/`**: Centralized shader source repository containing WGSL and GLSL modules for all rendering backends.
-- **`animation/`**: Skeletal animation logic, state machines, and blend tree implementations.
-- **`physics/`**: The physics simulation layer and adapters for external engines (Rapier3D, Ammo.js).
-- **`particles/`**: Specialized simulation stage for maintaining and updating particle systems.
+- **`simulation/`**: Unified simulation layer for animation, physics, and particles.
+- **`foundation/`**: Core primitives (Color, IdGenerator, Logger, Platform) used engine-wide.
+- **`workers/`**: Parallel processing infrastructure and `WorkerScheduler` for multi-threaded tasks.
+- **`shaders/`**: Centralized shader source repository containing WGSL and GLSL modules.
+- **`animation/`, `physics/`, `particles/`: Data structures and high-level systems for specialty simulations.
 - **`maths/`**: A optimized math library focused on performance and memory efficiency.
 - **`loaders/`**: Resource acquisition logic, featuring a robust glTF 2.0 parser.
 - **`materials/` & `meshes/`**: Assets management for PBR shading and geometric data representation.
@@ -61,12 +62,14 @@ The engine has transitioned to an **ECS-first architecture**. While traditional 
 ### 2. Multi-Stage Execution Pipeline
 Each frame undergoes a rigid sequence of operations:
 - **Feature Resolution**: The `FeatureResolver` inspects the scene to determine active requirements (e.g., specific shadow types, IBL requirements, or post-processing passes).
-- **Simulation Flow**: Animation, physics, and particle stages update their respective states in a unified timeline (measured strictly in seconds).
-- **Prepared Scene Construction**: The `PreparedSceneBuilder` collects scene data into optimized draw packets, decoupling the scene graph from backend dispatches.
+- **Sync In**: Transfers manual `Node` changes into the `ECSWorld`.
+- **Simulation Flow**: Animation, physics, and particle stages update their respective states in a unified timeline.
+- **Prepared Scene Construction**: Values are collected into optimized draw packets, decoupling the scene graph from backend dispatches.
 - **Backend-Agnostic Dispatch**: Commands are encoded through a unified interface, allowing the engine to switch between CPU and GPU rendering seamlessly.
+- **Sync Out**: Propagates simulation results from ECS back to the `Node` facade.
 
 ### 3. Backend Strategy
-- **Software Rasterizer**: Employs advanced CPU-side algorithms for sub-pixel accuracy and PBR shading, serving as both a fallback and a benchmark for hardware backends.
+- **Software Rasterizer**: Employs advanced CPU-side algorithms for sub-pixel accuracy and PBR shading, serving as both a fallback and a benchmark for hardware backends. Multi-threading is enabled via the `WorkerScheduler`.
 - **Modern Hardware Backends**: The WebGPU implementation leverages a state-of-the-art post-processing graph, while the WebGL V1 backend provides a stable bridge for legacy devices.
 
 ### 4. Mathematical Optimization
