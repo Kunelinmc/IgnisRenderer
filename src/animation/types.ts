@@ -88,6 +88,7 @@ export interface AnimationParameterDefinition {
 export type AnimationMotionDefinition =
 	| { type: "clip"; clipName: string }
 	| { type: "blendtree1d"; treeName: string }
+	| { type: "blendtree2d"; treeName: string }
 	| { type: "blendtree-direct"; treeName: string };
 
 export interface AnimationStateDefinition {

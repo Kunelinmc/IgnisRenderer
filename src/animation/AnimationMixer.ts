@@ -4,6 +4,7 @@ import { AnimationClip } from "./AnimationClip";
 import { AnimationLayer } from "./AnimationLayer";
 import { AnimationStateMachine } from "./AnimationStateMachine";
 import { BlendTree1D } from "./BlendTree1D";
+import { BlendTree2D } from "./BlendTree2D";
 import { BlendTreeDirect } from "./BlendTreeDirect";
 import type { AnimationRootMotionOptions } from "./types";
 
@@ -20,6 +21,7 @@ export class AnimationMixer {
 	public readonly clips: Map<string, AnimationClip>;
 	public readonly stateMachines: Map<string, AnimationStateMachine>;
 	public readonly blendTrees1D: Map<string, BlendTree1D>;
+	public readonly blendTrees2D: Map<string, BlendTree2D>;
 	public readonly blendTreesDirect: Map<string, BlendTreeDirect>;
 	public readonly nodeBindings: Map<string, Node>;
 	public readonly entityBindings: Map<string, number>;
@@ -34,6 +36,7 @@ export class AnimationMixer {
 		this.clips = new Map();
 		this.stateMachines = new Map();
 		this.blendTrees1D = new Map();
+		this.blendTrees2D = new Map();
 		this.blendTreesDirect = new Map();
 		this.nodeBindings = new Map();
 		this.entityBindings = new Map();
@@ -109,6 +112,10 @@ export class AnimationMixer {
 
 	public addBlendTree1D(tree: BlendTree1D): void {
 		this.blendTrees1D.set(tree.name, tree);
+	}
+
+	public addBlendTree2D(tree: BlendTree2D): void {
+		this.blendTrees2D.set(tree.name, tree);
 	}
 
 	public addBlendTreeDirect(tree: BlendTreeDirect): void {

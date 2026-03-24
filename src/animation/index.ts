@@ -4,6 +4,7 @@ export * from "./AnimationClip";
 export * from "./AnimationAction";
 export * from "./AnimationLayer";
 export * from "./BlendTree1D";
+export * from "./BlendTree2D";
 export * from "./BlendTreeDirect";
 export * from "./AnimationStateMachine";
 export * from "./Skeleton";

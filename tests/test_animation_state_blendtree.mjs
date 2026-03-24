@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import { BlendTree1D } from "../src/animation/BlendTree1D.ts";
+import { BlendTree2D } from "../src/animation/BlendTree2D.ts";
 import { BlendTreeDirect } from "../src/animation/BlendTreeDirect.ts";
+import { AnimationClip } from "../src/animation/AnimationClip.ts";
+import { AnimationSystem } from "../src/animation/AnimationSystem.ts";
 import { AnimationStateMachine } from "../src/animation/AnimationStateMachine.ts";
+import { Node } from "../src/core/Node.ts";
+import { AnimationRuntime } from "../src/simulation/animation/AnimationRuntime.ts";
 
 function nearlyEqual(left, right, epsilon = 1e-6) {
 	return Math.abs(left - right) <= epsilon;
+}
+
+function sumWeights(weights) {
+	return weights.reduce((sum, entry) => sum + entry.weight, 0);
+}
+
+function getWeight(weights, clipName) {
+	const found = weights.find((entry) => entry.clipName === clipName);
+	return found ? found.weight : 0;
 }
 
 function testBlendTree1D() {
@@ -51,6 +65,116 @@ function testBlendTreeDirect() {
 	const fallback = tree.evaluate(new Map());
 	assert.equal(fallback[0].weight, 1);
 	assert.equal(fallback[1].weight, 0);
+}
+
+function testBlendTree2DDirectional() {
+	const tree = new BlendTree2D({
+		name: "locomotion-2d-directional",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "directional",
+		children: [
+			{ clipName: "idle", positionX: 0, positionY: 0 },
+			{ clipName: "walkForward", positionX: 0, positionY: 1 },
+			{ clipName: "runForward", positionX: 0, positionY: 2 },
+			{ clipName: "walkRight", positionX: 1, positionY: 0 },
+			{ clipName: "walkLeft", positionX: -1, positionY: 0 },
+		],
+	});
+
+	const forwardRun = tree.evaluate(0, 1.8);
+	assert.ok(nearlyEqual(sumWeights(forwardRun), 1));
+	assert.ok(getWeight(forwardRun, "runForward") > getWeight(forwardRun, "walkForward"));
+	assert.ok(getWeight(forwardRun, "runForward") > 0.5);
+
+	const diagonal = tree.evaluate(0.7, 0.7);
+	assert.ok(nearlyEqual(sumWeights(diagonal), 1));
+	assert.ok(getWeight(diagonal, "walkForward") > 0.2);
+	assert.ok(getWeight(diagonal, "walkRight") > 0.2);
+	assert.ok(getWeight(diagonal, "walkLeft") < 0.05);
+}
+
+function testBlendTree2DTriangulation() {
+	const tree = new BlendTree2D({
+		name: "locomotion-2d-triangulation",
+		parameterX: "moveX",
+		parameterY: "moveY",
+		blendMode: "triangulation",
+		children: [
+			{ clipName: "idle", positionX: 0, positionY: 0 },
+			{ clipName: "forward", positionX: 0, positionY: 1 },
+			{ clipName: "right", positionX: 1, positionY: 0 },
+		],
+	});
+
+	const inside = tree.evaluate(0.3, 0.3);
+	assert.ok(nearlyEqual(sumWeights(inside), 1));
+	assert.ok(nearlyEqual(getWeight(inside, "idle"), 0.4));
+	assert.ok(nearlyEqual(getWeight(inside, "forward"), 0.3));
+	assert.ok(nearlyEqual(getWeight(inside, "right"), 0.3));
+
+	const outside = tree.evaluate(1.2, 0.1);
+	assert.ok(nearlyEqual(sumWeights(outside), 1));
+	assert.ok(getWeight(outside, "right") > 0.85);
+	assert.ok(getWeight(outside, "forward") < 0.15);
+}
+
+function createEmptyClip(name) {
+	return new AnimationClip({
+		name,
+		duration: 1,
+		tracks: [],
+	});
+}
+
+function testBlendTree2DStateRuntimeIntegration() {
+	const system = new AnimationSystem();
+	const mixer = system.createMixer(new Node({ name: "root" }));
+	mixer.addClip(createEmptyClip("idle"));
+	mixer.addClip(createEmptyClip("forward"));
+	mixer.addClip(createEmptyClip("right"));
+
+	mixer.addBlendTree2D(
+		new BlendTree2D({
+			name: "locomotion-2d-runtime",
+			parameterX: "moveX",
+			parameterY: "moveY",
+			blendMode: "triangulation",
+			children: [
+				{ clipName: "idle", positionX: 0, positionY: 0 },
+				{ clipName: "forward", positionX: 0, positionY: 1 },
+				{ clipName: "right", positionX: 1, positionY: 0 },
+			],
+		})
+	);
+
+	const machine = new AnimationStateMachine({
+		name: "locomotion-runtime",
+		parameters: [
+			{ name: "moveX", type: "float", defaultValue: 0 },
+			{ name: "moveY", type: "float", defaultValue: 0 },
+		],
+		states: [
+			{
+				name: "locomotion",
+				motion: { type: "blendtree2d", treeName: "locomotion-2d-runtime" },
+			},
+		],
+		initialState: "locomotion",
+	});
+
+	mixer.addStateMachine("Base Layer", machine);
+	machine.setParameter("moveX", 0.3);
+	machine.setParameter("moveY", 0.3);
+
+	const runtime = new AnimationRuntime();
+	runtime.update(system, 0.016, new Map());
+
+	const layer = mixer.getLayer("Base Layer");
+	assert.ok(layer);
+	assert.ok(nearlyEqual(layer.getAction("idle")?.weight ?? 0, 0.4));
+	assert.ok(nearlyEqual(layer.getAction("forward")?.weight ?? 0, 0.3));
+	assert.ok(nearlyEqual(layer.getAction("right")?.weight ?? 0, 0.3));
 }
 
 function testStateMachineTransitionsAndTriggerConsumption() {
@@ -296,6 +420,9 @@ function testSubStateMachineTransitions() {
 function run() {
 	testBlendTree1D();
 	testBlendTreeDirect();
+	testBlendTree2DDirectional();
+	testBlendTree2DTriangulation();
+	testBlendTree2DStateRuntimeIntegration();
 	testStateMachineTransitionsAndTriggerConsumption();
 	testTriggerPersistsUntilTransitionConsumesIt();
 	testStateMachinePriorityAnyStateAndInterrupt();

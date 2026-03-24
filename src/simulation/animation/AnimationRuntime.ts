@@ -335,6 +335,17 @@ export class AnimationRuntime {
 			}
 			return map;
 		}
+		if (motion.type === "blendtree2d") {
+			const tree = mixer.blendTrees2D.get(motion.treeName);
+			if (!tree) return new Map();
+			const valueX = Number(stateMachine.getParameter(tree.parameterX) ?? 0);
+			const valueY = Number(stateMachine.getParameter(tree.parameterY) ?? 0);
+			const map = new Map<string, number>();
+			for (const child of tree.evaluate(valueX, valueY)) {
+				map.set(child.clipName, child.weight);
+			}
+			return map;
+		}
 		const tree = mixer.blendTreesDirect.get(motion.treeName);
 		if (!tree) return new Map();
 		const map = new Map<string, number>();
@@ -351,6 +362,10 @@ export class AnimationRuntime {
 		if (motion.type === "clip") return [motion.clipName];
 		if (motion.type === "blendtree1d") {
 			const tree = mixer.blendTrees1D.get(motion.treeName);
+			return tree ? tree.children.map((child) => child.clipName) : [];
+		}
+		if (motion.type === "blendtree2d") {
+			const tree = mixer.blendTrees2D.get(motion.treeName);
 			return tree ? tree.children.map((child) => child.clipName) : [];
 		}
 		const tree = mixer.blendTreesDirect.get(motion.treeName);
