@@ -224,6 +224,7 @@ export class WebGPUFrameExecutor {
 	public onShaderRuntimeChanged(): void {
 		this._presentShaderModule = null;
 		this._presentPipeline = null;
+		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
 		this._postRuntime.onShaderRuntimeChanged();
@@ -958,6 +959,7 @@ export class WebGPUFrameExecutor {
 		this._volumetricReservoirHistoryB = null;
 		this._motionHistoryA = null;
 		this._motionHistoryB = null;
+		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
 		this._targetWidth = 0;
@@ -1015,6 +1017,13 @@ export class WebGPUFrameExecutor {
 			pool.destroy();
 		}
 		this._texturePools.clear();
+	}
+
+	private _destroyBindingGroup(group: IBindingGroup | null): void {
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(group);
+		}
 	}
 
 	private _handleFeatureHistoryTransitions(context: FrameContext): void {
@@ -1148,6 +1157,7 @@ export class WebGPUFrameExecutor {
 		);
 
 		if (!this._presentBinding || this._presentBindingSource !== source) {
+			this._destroyBindingGroup(this._presentBinding);
 			this._presentBinding = this._backend.createBindingGroup({
 				pipeline: this._presentPipeline,
 				layoutIndex: 0,

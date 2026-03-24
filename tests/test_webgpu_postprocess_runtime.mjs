@@ -8,6 +8,7 @@ class FakeBackend {
 		this.computePipelines = [];
 		this.buffers = [];
 		this.bindingGroups = [];
+		this.bindingGroupDestroyCalls = 0;
 	}
 
 	createSampler(desc) {
@@ -43,7 +44,16 @@ class FakeBackend {
 	}
 
 	createBindingGroup(desc) {
-		const bindingGroup = { label: desc.label, desc };
+		const bindingGroup = {
+			label: desc.label,
+			desc,
+			destroyed: false,
+			destroy: () => {
+				if (bindingGroup.destroyed) return;
+				bindingGroup.destroyed = true;
+				this.bindingGroupDestroyCalls++;
+			},
+		};
 		this.bindingGroups.push(bindingGroup);
 		return bindingGroup;
 	}
@@ -280,10 +290,58 @@ async function testSSAORuntimeRunsGTAOPipeline() {
 	assert.equal(targets.sceneColor, postPing);
 }
 
+async function testInvalidateBindingsDestroysCachedBindingGroups() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(20, 12, "scene");
+	const postPing = createTexture(20, 12, "ping");
+	const postPong = createTexture(20, 12, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+
+	await runtime.executeFXAA(encoder, targets);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroupDestroyCalls, 0);
+
+	runtime.invalidateBindings();
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	runtime.invalidateBindings();
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+}
+
+async function testBindingReplacementDestroysStaleBindingGroup() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const firstEncoder = new FakeEncoder();
+	const secondEncoder = new FakeEncoder();
+	const thirdEncoder = new FakeEncoder();
+	const sceneColorMain = createTexture(28, 14, "scene");
+	const postPing = createTexture(28, 14, "ping");
+	const postPong = createTexture(28, 14, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+
+	await runtime.executeFXAA(firstEncoder, targets);
+	await runtime.executeFXAA(secondEncoder, targets);
+	await runtime.executeFXAA(thirdEncoder, targets);
+
+	assert.equal(backend.bindingGroups.length, 3);
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+}
+
 async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();
+	await testInvalidateBindingsDestroysCachedBindingGroups();
+	await testBindingReplacementDestroysStaleBindingGroup();
 	console.log("WebGPU postprocess runtime tests passed");
 }
 

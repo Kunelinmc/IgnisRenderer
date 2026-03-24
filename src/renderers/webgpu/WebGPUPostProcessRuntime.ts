@@ -98,11 +98,11 @@ export class WebGPUPostProcessRuntime {
 	 * not reused.
 	 */
 	public invalidateBindings(): void {
-		this._bindGroupCache.clear();
+		this._destroyCachedBindGroups();
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._bindGroupCache.clear();
+		this._destroyCachedBindGroups();
 		this._ssaoModule = null;
 		this._ssaoRawPipeline = null;
 		this._ssaoBlurPipeline = null;
@@ -141,6 +141,9 @@ export class WebGPUPostProcessRuntime {
 			}
 			if (match) return cached.group;
 		}
+		if (cached) {
+			this._destroyBindingGroup(cached.group);
+		}
 		const group = this._backend.createBindingGroup({
 			pipeline,
 			layoutIndex: 0,
@@ -149,6 +152,20 @@ export class WebGPUPostProcessRuntime {
 		});
 		this._bindGroupCache.set(key, { group, resources });
 		return group;
+	}
+
+	private _destroyCachedBindGroups(): void {
+		for (const cached of this._bindGroupCache.values()) {
+			this._destroyBindingGroup(cached.group);
+		}
+		this._bindGroupCache.clear();
+	}
+
+	private _destroyBindingGroup(group: IBindingGroup | null): void {
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(group);
+		}
 	}
 	public async executeSSAO(
 		encoder: ICommandEncoder,

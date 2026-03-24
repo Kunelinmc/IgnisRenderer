@@ -13,6 +13,7 @@ class FakeBackend {
 		this.createTextureCalls = 0;
 		this.createCommandEncoderCalls = 0;
 		this.failTextureAtCall = null;
+		this.bindingGroupDestroyCalls = 0;
 	}
 
 	getMSAASampleCount() {
@@ -70,7 +71,11 @@ class FakeBackend {
 		return {};
 	}
 	createBindingGroup() {
-		return {};
+		return {
+			destroy: () => {
+				this.bindingGroupDestroyCalls++;
+			},
+		};
 	}
 }
 
@@ -157,9 +162,25 @@ function testFrameTargetAllocationFailureReleasesPartialResources() {
 	assert.equal(executor._msaaTargets, null);
 }
 
+function testInvalidateFrameTargetsDestroysPresentBinding() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	executor._presentBinding = {
+		destroy() {
+			backend.bindingGroupDestroyCalls++;
+		},
+	};
+
+	executor.invalidateFrameTargets();
+
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	assert.equal(executor._presentBinding, null);
+}
+
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 	testFrameTargetAllocationFailureReleasesPartialResources();
+	testInvalidateFrameTargetsDestroysPresentBinding();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 
