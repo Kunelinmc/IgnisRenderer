@@ -72,6 +72,8 @@ export class WebGPUMaterialBindingCache {
 
 		for (const [key, entry] of this._cache.entries()) {
 			if (entry.lastUsedFrame < this._currentFrame - 5) {
+				this._destroyBindingGroup(entry.bindingGroup);
+				entry.bindingGroup = null;
 				entry.uniformBuffer.destroy();
 				entry.animationParamsBuffer.destroy();
 				entry.jointMatricesBuffer.destroy();
@@ -187,6 +189,7 @@ export class WebGPUMaterialBindingCache {
 			cached.morphPositionBuffer !== morphPositionBuffer ||
 			cached.morphNormalBuffer !== morphNormalBuffer
 		) {
+			const previousBindingGroup = cached.bindingGroup;
 			const entries: Array<{ binding: number; resource: any }> = [
 				{ binding: 0, resource: cached.uniformBuffer },
 			];
@@ -221,6 +224,9 @@ export class WebGPUMaterialBindingCache {
 				layout: this._layouts.modelBindGroupLayout,
 				entries,
 			});
+			if (previousBindingGroup && previousBindingGroup !== cached.bindingGroup) {
+				this._destroyBindingGroup(previousBindingGroup);
+			}
 			cached.pipeline = pipeline;
 			cached.textures = textures.slice();
 			cached.samplers = samplers.slice();
@@ -319,6 +325,13 @@ export class WebGPUMaterialBindingCache {
 		});
 		entry.morphWeightCapacity = capacity;
 		return true;
+	}
+
+	private _destroyBindingGroup(group: IBindingGroup | null): void {
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(group);
+		}
 	}
 
 	private _buildJointPayload(
