@@ -1,7 +1,7 @@
 import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
 import type { IVector3 } from "../maths/types";
-import { ShadowConstants } from "./constants";
+import { MIN_SHADOW_FAR, MIN_SHADOW_NEAR } from "./constants";
 import {
 	Light,
 	LightType,
@@ -43,8 +43,8 @@ class AreaShadowCaster implements ShadowCaster {
 				: { x: 0, y: 0, z: 1 };
 
 		const view = Matrix4.lookAt(center, target, up);
-		const far = Math.max(this.light.range, ShadowConstants.MIN_SHADOW_FAR);
-		const near = ShadowConstants.MIN_SHADOW_NEAR;
+		const far = Math.max(this.light.range, MIN_SHADOW_FAR);
+		const near = MIN_SHADOW_NEAR;
 		const projection = Matrix4.perspective(120, 1, near, far);
 
 		return {

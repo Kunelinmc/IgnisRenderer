@@ -5,7 +5,7 @@ import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
 import { ShadowMap } from "../lights/ShadowMapping";
-import { LightingConstants } from "../pipeline/lighting/constants";
+import { BAKED_LIGHT_PROBE_SH_SCALE, PBR_AMBIENT_FALLBACK_LINEAR } from "../lights/constants";
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
@@ -491,7 +491,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const intensity = light.intensity ?? 1;
 				const probeScale =
 					probe.prefilteredMap ?
-						LightingConstants.BAKED_LIGHT_PROBE_SH_SCALE
+						BAKED_LIGHT_PROBE_SH_SCALE
 					:	1;
 				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 				for (let i = 0; i < coeffCount; i++) {
@@ -509,7 +509,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ambientProbeSH[0].b === 0
 		) {
 			const fallbackLinear =
-				LightingConstants.PBR_AMBIENT_FALLBACK_LINEAR * 255;
+				PBR_AMBIENT_FALLBACK_LINEAR * 255;
 			ambientR = fallbackLinear;
 			ambientG = fallbackLinear;
 			ambientB = fallbackLinear;

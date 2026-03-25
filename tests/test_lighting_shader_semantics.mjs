@@ -14,7 +14,7 @@ import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { Rasterizer } from "../src/renderers/software/Rasterizer.ts";
-import { LightingConstants } from "../src/pipeline/lighting/constants.ts";
+import { BAKED_LIGHT_PROBE_SH_SCALE } from "../src/lights/constants.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -745,7 +745,7 @@ function testRendererUpdateSHNormalizesBakedLightProbeCoeffs() {
 
 	Renderer.prototype.updateSH.call(fakeRenderer);
 
-	const scale = LightingConstants.BAKED_LIGHT_PROBE_SH_SCALE;
+	const scale = BAKED_LIGHT_PROBE_SH_SCALE;
 	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].r - 7 * scale) < 1e-6);
 	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].g - 3 * scale) < 1e-6);
 	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].b - 1 * scale) < 1e-6);

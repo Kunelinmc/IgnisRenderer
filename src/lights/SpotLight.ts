@@ -1,7 +1,11 @@
 import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
 import type { IVector3 } from "../maths/types";
-import { ShadowConstants } from "./constants";
+import {
+	MIN_SHADOW_FAR,
+	MIN_SHADOW_NEAR,
+	SHADOW_NEAR_FAR_GAP,
+} from "./constants";
 import {
 	Light,
 	LightType,
@@ -52,12 +56,12 @@ class SpotShadowCaster implements ShadowCaster {
 		);
 		const autoFar = distanceToCenter + ctx.sceneBounds.radius;
 		let far = Math.min(this.light.range, Math.max(autoFar, 0));
-		far = Math.max(ShadowConstants.MIN_SHADOW_FAR, far);
+		far = Math.max(MIN_SHADOW_FAR, far);
 
 		const nearCandidate = distanceToCenter - ctx.sceneBounds.radius;
 		const near = Math.max(
-			ShadowConstants.MIN_SHADOW_NEAR,
-			Math.min(nearCandidate, far - ShadowConstants.SHADOW_NEAR_FAR_GAP)
+			MIN_SHADOW_NEAR,
+			Math.min(nearCandidate, far - SHADOW_NEAR_FAR_GAP)
 		);
 
 		const projection = Matrix4.perspective(

@@ -9,7 +9,13 @@ import {
 	evaluateLightContribution,
 	type SurfacePoint,
 } from "../../renderers/software/LightEvaluator";
-import { LightingConstants } from "../../pipeline/lighting/constants";
+import {
+	GGX_EPSILON,
+	PBR_AMBIENT_FALLBACK_LINEAR,
+	PBR_DENOM_EPSILON,
+	PBR_MIN_NDOTV,
+	PBR_SPEC_FALLBACK,
+} from "../../lights/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { RGB } from "../../foundation/Color";
@@ -46,7 +52,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const shAmbient = context.shAmbientCoeffs;
 		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
 		const NdotVRaw = Vector3.dot(N, V);
-		const NdotV = Math.max(NdotVRaw, LightingConstants.PBR_MIN_NDOTV);
+		const NdotV = Math.max(NdotVRaw, PBR_MIN_NDOTV);
 		const useSHAmbient = context.enableSH && hasSHAmbient;
 		const reflectionDir = this._reflectViewDirection(N, V, NdotVRaw);
 
@@ -201,7 +207,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const Nc = surface.clearcoatNormal ?? N;
 			const NcdotV = Math.max(
 				Vector3.dot(Nc, V),
-				LightingConstants.PBR_MIN_NDOTV
+				PBR_MIN_NDOTV
 			);
 
 			const clearcoatTransmissionFresnel =
@@ -221,7 +227,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				const G = this._GeometrySmith(NdotV, NdotL, rough);
 				const F = this._FresnelSchlick(Math.max(Vector3.dot(H, V), 0), realF0);
 				const denominator =
-					4 * NdotV * NdotL + LightingConstants.PBR_DENOM_EPSILON;
+					4 * NdotV * NdotL + PBR_DENOM_EPSILON;
 
 				specular = {
 					r: (NDF * G * F.r) / denominator,
@@ -256,7 +262,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 						ccFresnel = { r: fCc, g: fCc, b: fCc };
 
 						const ccDenom =
-							4 * NcdotV * NcdotL + LightingConstants.PBR_DENOM_EPSILON;
+							4 * NcdotV * NcdotL + PBR_DENOM_EPSILON;
 						const ccValue = (ndfCc * gCc * fCc) / ccDenom;
 						ccSpecular = { r: ccValue, g: ccValue, b: ccValue };
 					}
@@ -372,7 +378,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				const Nc = surface.clearcoatNormal ?? N;
 				const NcdotV = Math.max(
 					Vector3.dot(Nc, V),
-					LightingConstants.PBR_MIN_NDOTV
+					PBR_MIN_NDOTV
 				);
 				ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
 				if (context.envSpecularMap && context.brdfLUT) {
@@ -395,7 +401,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					ccAmbSpecB = ccPrefiltered.b * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 				} else {
 					const ccSpecFactor = Math.max(
-						LightingConstants.PBR_SPEC_FALLBACK,
+						PBR_SPEC_FALLBACK,
 						(1.0 - clearcoatRoughness) * 0.5
 					);
 					const ccSpec = ccAmbFresnel * ccSpecFactor;
@@ -471,7 +477,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				ambB += specB + ccAmbSpecB * clearcoat;
 			} else {
 				const specFactor = Math.max(
-					LightingConstants.PBR_SPEC_FALLBACK,
+					PBR_SPEC_FALLBACK,
 					(1.0 - rough) * 0.5
 				);
 				ambR +=
@@ -496,7 +502,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			if (maxSheenColor > 0) {
 				const sheenAmb = Math.max(
-					LightingConstants.PBR_SPEC_FALLBACK,
+					PBR_SPEC_FALLBACK,
 					(1.0 - sheenRoughness) * 0.5
 				);
 				ambR +=
@@ -522,7 +528,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				b: ambientLightB,
 			};
 			if (ambientLightR + ambientLightG + ambientLightB === 0) {
-				const fallback = LightingConstants.PBR_AMBIENT_FALLBACK_LINEAR;
+				const fallback = PBR_AMBIENT_FALLBACK_LINEAR;
 				ambientCol.r = fallback;
 				ambientCol.g = fallback;
 				ambientCol.b = fallback;
@@ -589,11 +595,11 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			}
 
 			const specFactor = Math.max(
-				LightingConstants.PBR_SPEC_FALLBACK,
+				PBR_SPEC_FALLBACK,
 				(1.0 - rough) * 0.5
 			);
 			const ccSpecFactor = Math.max(
-				LightingConstants.PBR_SPEC_FALLBACK,
+				PBR_SPEC_FALLBACK,
 				(1.0 - clearcoatRoughness) * 0.5
 			);
 
@@ -618,7 +624,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			if (maxSheenColor > 0) {
 				const sheenAmb = Math.max(
-					LightingConstants.PBR_SPEC_FALLBACK,
+					PBR_SPEC_FALLBACK,
 					(1.0 - sheenRoughness) * 0.5
 				);
 				ambR +=
@@ -653,7 +659,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const nom = a2;
 		let denom = NdotH2 * (a2 - 1.0) + 1.0;
 		denom = Math.PI * denom * denom;
-		return nom / Math.max(denom, LightingConstants.GGX_EPSILON);
+		return nom / Math.max(denom, GGX_EPSILON);
 	}
 
 	/**

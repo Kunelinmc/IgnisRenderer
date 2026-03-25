@@ -6,6 +6,7 @@ import { SpotLight } from "./SpotLight";
 import { LightProbe } from "./LightProbe";
 import { AreaLight } from "./AreaLight";
 
+export * from "./constants";
 export * from "./Light";
 export * from "./AmbientLight";
 export * from "./DirectionalLight";
