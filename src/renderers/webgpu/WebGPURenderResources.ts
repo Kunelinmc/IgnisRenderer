@@ -55,7 +55,7 @@ import {
 } from "../../pipeline/ShadowMetadata";
 import { isShadowCastingLight } from "../../lights";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
-import { getWebGPUParticleShader } from "../../shaders/webgpu/particleShader";
+import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";
 import {
 	WEBGPU_PARTICLE_BINDING_SAMPLER,
@@ -67,6 +67,12 @@ import {
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
 } from "./particleLayout";
+import type {
+	WarmupPhaseCounters,
+	WarmupPlan,
+} from "../warmup/WarmupPlanner";
+import { toShaderCompileError } from "../warmup/WarmupPlanner";
+import type { ShaderCompileError } from "../../shaders/runtime";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -167,6 +173,94 @@ export class WebGPURenderResources {
 
 	public async init(): Promise<void> {
 		await this._pipelineLibrary.init();
+	}
+
+	public async warmup(
+		context: FrameContext,
+		plan: WarmupPlan
+	): Promise<WarmupPhaseCounters> {
+		let total = 0;
+		let compiled = 0;
+		let skipped = 0;
+		let failed = 0;
+		const errors: ShaderCompileError[] = [];
+
+		try {
+			this.setSceneTargetMode(plan.sceneTargetMode);
+			this.prepareFrame(context);
+		} catch (error) {
+			failed++;
+			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPrepareFrame"));
+		}
+
+		if (plan.enableSkybox) {
+			total++;
+			try {
+				await this.getSkyboxResources();
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(error, "webgpu", "WebGPUSkyboxWarmup")
+				);
+			}
+		}
+
+		const drawPackets = [
+			...context.scene.opaquePackets,
+			...context.scene.transparentPackets,
+		];
+		for (const packet of drawPackets) {
+			total++;
+			try {
+				const resources = await this.getDrawResources(packet);
+				if (resources && resources.length > 0) {
+					compiled++;
+				} else {
+					skipped++;
+				}
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(error, "webgpu", `WebGPUDrawWarmup:${packet.id}`)
+				);
+			}
+		}
+
+		if (plan.enableShadows) {
+			total++;
+			try {
+				await this._shadowPass.warmup();
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(error, "webgpu", "WebGPUShadowWarmup")
+				);
+			}
+		}
+
+		if (plan.enableParticles) {
+			total++;
+			try {
+				await this._ensureParticleResources(plan.sceneTargetMode, 1);
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(error, "webgpu", "WebGPUParticleWarmup")
+				);
+			}
+		}
+
+		return {
+			phase: "webgpu-resources",
+			total,
+			compiled,
+			skipped,
+			failed,
+			errors,
+		};
 	}
 
 	public async renderShadows(context: FrameContext): Promise<void> {
@@ -614,10 +708,11 @@ export class WebGPURenderResources {
 		totalParticles: number
 	): Promise<void> {
 		if (!this._particleShaderModule) {
-			const shaderCode = await getWebGPUParticleShader();
+			const shader = await getWebGPUParticleShaderComposite();
 			this._particleShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUParticleShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "particle",

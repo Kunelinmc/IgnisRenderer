@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import {
+	createInlineShaderSourceMap,
+	ShaderCompileError,
+} from "../src/shaders/runtime/index.ts";
+import {
 	BufferUsage,
 	TextureFormat,
 	TextureUsage,
@@ -40,6 +44,7 @@ class FakeDevice {
 		this.defaultBindGroupLayout = { id: "group0" };
 		this.shaderModuleDescs = [];
 		this.shaderModuleFailuresRemaining = 0;
+		this.shaderCompilationInfoMessages = [];
 		this.computePipelineDescs = [];
 		this.renderPipelineDescs = [];
 		this.pipelineLayouts = [];
@@ -64,7 +69,9 @@ class FakeDevice {
 		}
 		return {
 			desc,
-			getCompilationInfo: async () => ({ messages: [] }),
+			getCompilationInfo: async () => ({
+				messages: this.shaderCompilationInfoMessages.slice(),
+			}),
 		};
 	}
 
@@ -249,6 +256,40 @@ async function testShaderModuleRetryWithinSingleRequest() {
 	});
 	assert.ok(shader);
 	assert.equal(device.shaderModuleDescs.length, 2);
+}
+
+async function testShaderModuleCompilationInfoErrorThrowsMappedError() {
+	const { backend, device } = createBackend();
+	device.shaderCompilationInfoMessages = [
+		{
+			type: "error",
+			message: "simulated shader compile failure",
+			lineNum: 3,
+			linePos: 2,
+		},
+	];
+	const sourceMap = createInlineShaderSourceMap(
+		"line1\nline2\nline3",
+		"./parts/test.wgsl",
+		"source"
+	);
+	await assert.rejects(
+		() =>
+			backend.createShaderModule({
+				code: "line1\nline2\nline3",
+				sourceMap,
+				label: "CompileInfoError",
+				language: "wgsl",
+				stage: "compute",
+			}),
+		(error) => {
+			assert.ok(error instanceof ShaderCompileError);
+			assert.equal(error.backend, "webgpu");
+			assert.equal(error.messages[0].line, 3);
+			assert.equal(error.messages[0].sourcePath, "./parts/test.wgsl");
+			return true;
+		}
+	);
 }
 
 function testSamplerReferenceCounting() {
@@ -548,9 +589,40 @@ function testPassDependencyValidation() {
 	);
 }
 
+async function testWarmupAggregatesPhases() {
+	const { backend } = createBackend();
+	backend._frameExecutor = {
+		warmup: async () => ({
+			phase: "frame",
+			total: 2,
+			compiled: 2,
+			skipped: 0,
+			failed: 0,
+			errors: [],
+		}),
+	};
+	backend._resources = {
+		warmup: async () => ({
+			phase: "resources",
+			total: 3,
+			compiled: 2,
+			skipped: 1,
+			failed: 0,
+			errors: [],
+		}),
+	};
+	const report = await backend.warmup(createFrameContext());
+	assert.equal(report.total, 5);
+	assert.equal(report.compiled, 4);
+	assert.equal(report.skipped, 1);
+	assert.equal(report.failed, 0);
+	assert.equal(report.phases.length, 2);
+}
+
 async function run() {
 	await testShaderModuleCacheUsesHashKey();
 	await testShaderModuleRetryWithinSingleRequest();
+	await testShaderModuleCompilationInfoErrorThrowsMappedError();
 	testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
 	await testRenderPipelineAutoLayoutCaching();
@@ -563,6 +635,7 @@ async function run() {
 	testCreateTextureClampsPublicDimensions();
 	testCommandBufferOwnershipAndOneShotSubmit();
 	testPassDependencyValidation();
+	await testWarmupAggregatesPhases();
 	console.log("WebGPU backend cache/dependency tests passed");
 }
 

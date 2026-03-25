@@ -1,5 +1,6 @@
-import { getWebGPUSceneShader } from "../../shaders/webgpu/sceneShader";
-import { getWebGPUSkyboxShader } from "../../shaders/webgpu/skyboxShader";
+import { createInlineCompositeShaderSource } from "../../shaders/runtime";
+import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
+import { getWebGPUSkyboxShaderComposite } from "../../shaders/webgpu/skyboxShader";
 import { createWebGPUMaterialUniformData } from "./";
 import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -259,8 +260,14 @@ export class WebGPUPipelineLibrary {
 	): Promise<IShaderModule> {
 		let module = this._customShaderModuleCache.get(key);
 		if (!module) {
-			module = await this._backend.createShaderModule({
+			const composite = createInlineCompositeShaderSource(
 				code,
+				`<shader-material:${key}>`,
+				"source"
+			);
+			module = await this._backend.createShaderModule({
+				code: composite.code,
+				sourceMap: composite.sourceMap,
 				label,
 				language: "wgsl",
 				stage,
@@ -345,9 +352,10 @@ export class WebGPUPipelineLibrary {
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
 		if (!this._sceneShaderModule) {
-			const shaderCode = await getWebGPUSceneShader();
+			const shader = await getWebGPUSceneShaderComposite();
 			this._sceneShaderModule = await this._backend.createShaderModule({
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				label: "WebGPUSceneShader",
 				language: "wgsl",
 				stage: "unknown",
@@ -360,9 +368,10 @@ export class WebGPUPipelineLibrary {
 
 	private async _getSkyboxShaderModule(): Promise<IShaderModule> {
 		if (!this._skyboxShaderModule) {
-			const shaderCode = await getWebGPUSkyboxShader();
+			const shader = await getWebGPUSkyboxShaderComposite();
 			this._skyboxShaderModule = await this._backend.createShaderModule({
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				label: "WebGPUSkyboxShader",
 				language: "wgsl",
 				stage: "unknown",

@@ -1,4 +1,8 @@
 import { Platform } from "../../foundation/Platform";
+import {
+	createInlineCompositeShaderSource,
+	type CompositeShaderSource,
+} from "../runtime";
 
 type WebGLShaderPart =
 	| "sceneVertex"
@@ -24,6 +28,7 @@ type RawShaderModule = {
 };
 
 const _cache = new Map<string, Promise<string>>();
+const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
 async function loadShader(
 	key: string,
@@ -79,4 +84,18 @@ export function loadWebGLShaderPart(part: WebGLShaderPart): Promise<string> {
 	return loadShader(`webgl:${part}`, shaderFiles[part], () =>
 		import(`./parts/${part}.glsl?raw`)
 	);
+}
+
+export function loadWebGLShaderPartComposite(
+	part: WebGLShaderPart
+): Promise<CompositeShaderSource> {
+	const key = `webgl-composite:${part}`;
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadWebGLShaderPart(part).then((code) =>
+			createInlineCompositeShaderSource(code, shaderFiles[part], "template")
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
 }

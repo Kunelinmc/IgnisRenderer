@@ -32,7 +32,11 @@ import type {
 	FramePass,
 	FrameContext,
 } from "../pipeline/types";
-import type { IRenderBackend } from "./IRenderBackend";
+import type {
+	IRenderBackend,
+	WarmupOptions,
+	WarmupReport,
+} from "./IRenderBackend";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
@@ -160,6 +164,61 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		await this.backend.init(this.canvas);
 		this.resizeCanvas();
 		requestAnimationFrame((time) => this.renderScene(time));
+	}
+
+	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {
+		this.scene.syncNodeToECS();
+		this.scene.updateWorldMatrices();
+		this._assertCameraInScene(this.scene, this.camera, "renderScene");
+		this.camera.updateMatrices();
+
+		const transient = new Map<string, any>();
+		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
+		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, 0);
+
+		const resolved = resolveFeatureState(
+			this.features,
+			this.backend.capabilities,
+			this.backend.type
+		);
+		for (const warning of resolved.warnings) {
+			this.warnOnce(warning.key, warning.message);
+		}
+		if (this.features.enableSH) {
+			this.updateSH();
+		}
+		const frame = PreparedSceneBuilder.build(this);
+		const attachments = this.backend.getAttachments(
+			this.canvas.width,
+			this.canvas.height
+		);
+		const context: FrameContext = {
+			camera: this.camera,
+			attachments,
+			features: resolved,
+			shadowMaps: this.shadowMaps,
+			scene: frame,
+			shCoeffs: this.shCoeffs,
+			shAmbientCoeffs: this.shAmbientCoeffs,
+			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+			transient,
+		};
+		if (!this.backend.warmup) {
+			const startedAt = Date.now();
+			return {
+				backend: this.backend.type,
+				startedAt,
+				finishedAt: startedAt,
+				durationMs: 0,
+				total: 0,
+				compiled: 0,
+				skipped: 0,
+				failed: 0,
+				phases: [],
+				errors: [],
+			};
+		}
+		return this.backend.warmup(context, options);
 	}
 
 	public resizeCanvas(): void {

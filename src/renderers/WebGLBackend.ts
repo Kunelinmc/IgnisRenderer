@@ -4,9 +4,21 @@ import {
 	type FramePass,
 } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
-import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
+import type {
+	IRenderBackend,
+	RendererBackendBridge,
+	WarmupOptions,
+	WarmupReport,
+} from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { ShaderRuntime } from "../shaders/runtime";
+import {
+	addWarmupPhase,
+	buildWarmupPlan,
+	createWarmupReport,
+	finalizeWarmupReport,
+	toShaderCompileError,
+} from "./warmup/WarmupPlanner";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"shadow",
@@ -129,6 +141,31 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._frameExecutor.endFrame();
 		this._particleSimulator?.endFrame();
+	}
+
+	public async warmup(
+		context: FrameContext,
+		options: WarmupOptions = {}
+	): Promise<WarmupReport> {
+		const report = createWarmupReport(this.type);
+		if (!this._frameExecutor) {
+			throw new Error("WebGL backend has not been initialized.");
+		}
+		const plan = buildWarmupPlan(context, options);
+		try {
+			const phase = this._frameExecutor.warmup(context, plan);
+			addWarmupPhase(report, phase);
+		} catch (error) {
+			addWarmupPhase(report, {
+				phase: "webgl-warmup",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 1,
+				errors: [toShaderCompileError(error, this.type, "WebGLWarmup")],
+			});
+		}
+		return finalizeWarmupReport(report);
 	}
 
 	public destroy(): void {

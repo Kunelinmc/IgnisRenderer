@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import {
+	createInlineShaderSourceMap,
+	mapShaderCompilerMessages,
+	parseWebGLShaderInfoLog,
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
 	ShaderRuntime,
 } from "../src/shaders/runtime/index.ts";
@@ -246,6 +249,43 @@ function testReservedSymbolConflictByMode() {
 	);
 }
 
+function testProcessCarriesSourceMap() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const sourceMap = createInlineShaderSourceMap(
+		GLSL_SOURCE,
+		"./parts/testShader.glsl",
+		"source"
+	);
+	const processed = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "SourceMapCarry",
+		sourceKind: "custom-material",
+		sourceMap,
+	});
+	assert.ok(processed.sourceMap.segments.length > 0);
+	const mapped = mapShaderCompilerMessages(
+		[{ type: "error", message: "synthetic", line: 2, column: 1 }],
+		processed.code,
+		processed.sourceMap
+	);
+	assert.equal(mapped[0].sourcePath, "./parts/testShader.glsl");
+	assert.equal(mapped[0].sourceLine, 2);
+}
+
+function testWebGLInfoLogParsing() {
+	const parsed = parseWebGLShaderInfoLog(
+		`ERROR: 0:12: syntax error\n0(8) : warning C0000: dead code`
+	);
+	assert.equal(parsed.length, 2);
+	assert.equal(parsed[0].type, "error");
+	assert.equal(parsed[0].line, 12);
+	assert.equal(parsed[1].type, "warning");
+	assert.equal(parsed[1].line, 8);
+}
+
 function run() {
 	testReservedPrefixProtection();
 	testGLSLInjectionOrderAndLocation();
@@ -254,6 +294,8 @@ function run() {
 	testWGSLAndGLSLEntryPointChecks();
 	testCacheAndRevisionInvalidation();
 	testReservedSymbolConflictByMode();
+	testProcessCarriesSourceMap();
+	testWebGLInfoLogParsing();
 	console.log("ShaderRuntime tests passed");
 }
 

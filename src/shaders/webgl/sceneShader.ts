@@ -1,7 +1,17 @@
-import { loadWebGLShaderPart } from "./shaderSource";
+import { type CompositeShaderSource, createInlineCompositeShaderSource } from "../runtime";
+import {
+	loadWebGLShaderPart,
+	loadWebGLShaderPartComposite,
+} from "./shaderSource";
 
 const SCENE_VERTEX_SHADER_SOURCE = await loadWebGLShaderPart("sceneVertex");
 const SCENE_FRAGMENT_SHADER_TEMPLATE = await loadWebGLShaderPart(
+	"sceneFragment"
+);
+const SCENE_VERTEX_SHADER_COMPOSITE = await loadWebGLShaderPartComposite(
+	"sceneVertex"
+);
+const SCENE_FRAGMENT_SHADER_COMPOSITE_TEMPLATE = await loadWebGLShaderPartComposite(
 	"sceneFragment"
 );
 
@@ -14,6 +24,11 @@ export interface WebGLSceneLightLimits {
 export interface WebGLSceneShaderSource {
 	vertex: string;
 	fragment: string;
+}
+
+export interface WebGLSceneCompositeShaderSource {
+	vertex: CompositeShaderSource;
+	fragment: CompositeShaderSource;
 }
 
 function replaceLightLimit(
@@ -45,5 +60,20 @@ export function createWebGLSceneShaderSource(
 	return {
 		vertex: SCENE_VERTEX_SHADER_SOURCE,
 		fragment,
+	};
+}
+
+export function createWebGLSceneCompositeShaderSource(
+	limits: WebGLSceneLightLimits
+): WebGLSceneCompositeShaderSource {
+	const shader = createWebGLSceneShaderSource(limits);
+	return {
+		vertex: SCENE_VERTEX_SHADER_COMPOSITE,
+		fragment: createInlineCompositeShaderSource(
+			shader.fragment,
+			SCENE_FRAGMENT_SHADER_COMPOSITE_TEMPLATE.sourceMap.segments[0]
+				?.sourcePath ?? "./parts/sceneFragment.glsl",
+			"template"
+		),
 	};
 }

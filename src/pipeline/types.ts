@@ -125,6 +125,7 @@ export interface FramePass {
 	stage: FramePassStage;
 	executor: "shared" | "backend";
 	enabled: boolean;
+	precompileHints?: string[];
 }
 
 export interface VolumetricOptions {

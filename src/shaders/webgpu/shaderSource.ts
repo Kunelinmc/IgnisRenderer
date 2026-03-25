@@ -1,4 +1,8 @@
 import { Platform } from "../../foundation/Platform";
+import {
+	createInlineCompositeShaderSource,
+	type CompositeShaderSource,
+} from "../runtime";
 
 type SceneShaderPart =
 	| "constants"
@@ -28,6 +32,7 @@ type RawShaderModule = {
 };
 
 const _cache = new Map<string, Promise<string>>();
+const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
 async function loadShader(
 	key: string,
@@ -84,6 +89,20 @@ export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
 	);
 }
 
+export function loadSceneShaderPartComposite(
+	part: SceneShaderPart
+): Promise<CompositeShaderSource> {
+	const key = `scene-composite:${part}`;
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadSceneShaderPart(part).then((code) =>
+			createInlineCompositeShaderSource(code, sceneShaderFiles[part], "template")
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
 export function loadSkyboxShaderSource(): Promise<string> {
 	return loadShader(
 		"skybox",
@@ -92,12 +111,44 @@ export function loadSkyboxShaderSource(): Promise<string> {
 	);
 }
 
+export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource> {
+	const key = "skybox-composite";
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadSkyboxShaderSource().then((code) =>
+			createInlineCompositeShaderSource(
+				code,
+				"./skyboxShader.wgsl",
+				"source"
+			)
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
 export function loadParticleShaderSource(): Promise<string> {
 	return loadShader(
 		"particle",
 		"./particleShader.wgsl",
 		() => import("./particleShader.wgsl?raw")
 	);
+}
+
+export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSource> {
+	const key = "particle-composite";
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadParticleShaderSource().then((code) =>
+			createInlineCompositeShaderSource(
+				code,
+				"./particleShader.wgsl",
+				"source"
+			)
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
 }
 
 const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
@@ -120,4 +171,22 @@ export function loadPostProcessShaderPart(
 		path,
 		() => import(`./postprocess/${part}.wgsl?raw`)
 	);
+}
+
+export function loadPostProcessShaderPartComposite(
+	part: PostProcessShaderPart
+): Promise<CompositeShaderSource> {
+	const key = `post-composite:${part}`;
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadPostProcessShaderPart(part).then((code) =>
+			createInlineCompositeShaderSource(
+				code,
+				postProcessShaderFiles[part],
+				"template"
+			)
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
 }

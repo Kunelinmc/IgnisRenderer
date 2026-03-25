@@ -6,6 +6,16 @@ import {
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
+	createInlineShaderSourceMap,
+	mapShaderCompilerMessages,
+	parseWebGLShaderInfoLog,
+	ShaderCompileError,
+	type ShaderCompilerMessage,
+	type ShaderSourceSegmentMap,
+	type ShaderProcessResult,
+	type ShaderRuntime,
+} from "../../shaders/runtime";
+import {
 	WEBGL_COPY_FRAGMENT_SHADER,
 	WEBGL_COPY_VERTEX_SHADER,
 	WEBGL_FXAA_FRAGMENT_SHADER,
@@ -24,8 +34,10 @@ import {
 	WEBGL_SKYBOX_VERTEX_SHADER,
 	WEBGL_TAA_FRAGMENT_SHADER,
 } from "../../shaders/webgl/pipelineShaders";
-import { createWebGLSceneShaderSource } from "../../shaders/webgl/sceneShader";
-import type { ShaderProcessResult, ShaderRuntime } from "../../shaders/runtime";
+import {
+	createWebGLSceneCompositeShaderSource,
+	createWebGLSceneShaderSource,
+} from "../../shaders/webgl/sceneShader";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;
@@ -203,14 +215,23 @@ export interface WebGLFXAAProgram {
 
 type WarnFn = (key: string, message: string) => void;
 
-const {
-	vertex: SCENE_VERTEX_SHADER,
-	fragment: SCENE_FRAGMENT_SHADER,
-} = createWebGLSceneShaderSource({
+const SCENE_SHADER_SOURCE = createWebGLSceneShaderSource({
 	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 });
+const SCENE_SHADER_COMPOSITE_SOURCE = createWebGLSceneCompositeShaderSource({
+	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+});
+
+interface ShaderCompileMetadata {
+	sourceMap?: ShaderSourceSegmentMap | null;
+	variantKey?: string;
+	materialId?: string;
+	sourceKind?: "custom-material" | "unknown";
+}
 
 
 export class WebGLProgramLibrary {
@@ -261,9 +282,17 @@ export class WebGLProgramLibrary {
 	private _getBuiltinSceneProgram(): WebGLSceneProgram {
 		if (!this._sceneProgram) {
 			this._sceneProgram = this._createSceneProgram(
-				SCENE_VERTEX_SHADER,
-				SCENE_FRAGMENT_SHADER,
-				"WebGLSceneProgram"
+				SCENE_SHADER_SOURCE.vertex,
+				SCENE_SHADER_SOURCE.fragment,
+				"WebGLSceneProgram",
+				{
+					sourceMap: SCENE_SHADER_COMPOSITE_SOURCE.vertex.sourceMap,
+					sourceKind: "unknown",
+				},
+				{
+					sourceMap: SCENE_SHADER_COMPOSITE_SOURCE.fragment.sourceMap,
+					sourceKind: "unknown",
+				}
 			);
 		}
 		return this._sceneProgram;
@@ -296,7 +325,27 @@ export class WebGLProgramLibrary {
 			sceneProgram = this._createSceneProgram(
 				source.vertexCode,
 				source.fragmentCode,
-				`WebGLShaderMaterialProgram_${shaderKey}`
+				`WebGLShaderMaterialProgram_${shaderKey}`,
+				{
+					sourceMap: createInlineShaderSourceMap(
+						source.vertexCode,
+						`<shader-material:${shaderKey}:vertex>`,
+						"source"
+					),
+					variantKey: shaderKey,
+					materialId: String(material.shaderId),
+					sourceKind: "custom-material",
+				},
+				{
+					sourceMap: createInlineShaderSourceMap(
+						source.fragmentCode,
+						`<shader-material:${shaderKey}:fragment>`,
+						"source"
+					),
+					variantKey: shaderKey,
+					materialId: String(material.shaderId),
+					sourceKind: "custom-material",
+				}
 			);
 		} catch (error) {
 			if (!this._isWarnMode()) {
@@ -316,9 +365,17 @@ export class WebGLProgramLibrary {
 	private _createSceneProgram(
 		vertexSource: string,
 		fragmentSource: string,
-		label: string
+		label: string,
+		vertexMetadata?: ShaderCompileMetadata,
+		fragmentMetadata?: ShaderCompileMetadata
 	): WebGLSceneProgram {
-		const program = this._createProgram(vertexSource, fragmentSource, label);
+		const program = this._createProgram(
+			vertexSource,
+			fragmentSource,
+			label,
+			vertexMetadata,
+			fragmentMetadata
+		);
 		return {
 			program,
 			uniforms: {
@@ -700,18 +757,22 @@ export class WebGLProgramLibrary {
 	private _createProgram(
 		vertexSource: string,
 		fragmentSource: string,
-		label: string
+		label: string,
+		vertexMetadata?: ShaderCompileMetadata,
+		fragmentMetadata?: ShaderCompileMetadata
 	): WebGLProgram {
 		const gl = this._gl;
 		const vertexShader = this._compileShader(
 			gl.VERTEX_SHADER,
 			vertexSource,
-			`${label}:vertex`
+			`${label}:vertex`,
+			vertexMetadata
 		);
 		const fragmentShader = this._compileShader(
 			gl.FRAGMENT_SHADER,
 			fragmentSource,
-			`${label}:fragment`
+			`${label}:fragment`,
+			fragmentMetadata
 		);
 		const program = gl.createProgram();
 		if (!program) {
@@ -730,7 +791,21 @@ export class WebGLProgramLibrary {
 		if (!linked) {
 			const log = gl.getProgramInfoLog(program) || "No program link log";
 			gl.deleteProgram(program);
-			throw new Error(`WebGL program link failed (${label}): ${log}`);
+			const messages = parseWebGLShaderInfoLog(log);
+			throw new ShaderCompileError({
+				backend: "webgl",
+				language: "glsl",
+				stage: "unknown",
+				label,
+				sourceKind:
+					vertexMetadata?.sourceKind ?? fragmentMetadata?.sourceKind ?? "unknown",
+				variantKey: vertexMetadata?.variantKey ?? fragmentMetadata?.variantKey,
+				materialId: vertexMetadata?.materialId ?? fragmentMetadata?.materialId,
+				code: `${vertexSource}\n\n${fragmentSource}`,
+				sourceMap: null,
+				messages: messages.length > 0 ? messages : [this._toCompilerMessage(log)],
+				rawLog: log,
+			});
 		}
 
 		gl.validateProgram(program);
@@ -748,18 +823,21 @@ export class WebGLProgramLibrary {
 	private _compileShader(
 		type: number,
 		source: string,
-		label: string
+		label: string,
+		metadata?: ShaderCompileMetadata
 	): WebGLShader {
 		const stage = type === this._gl.VERTEX_SHADER ? "vertex" : "fragment";
 		const sourceKind =
-			label.startsWith("WebGLShaderMaterialProgram_") ?
+			metadata?.sourceKind ??
+			(label.startsWith("WebGLShaderMaterialProgram_") ?
 				"custom-material"
-			:	"unknown";
+			:	"unknown");
 		const processed = this._processShaderSource(
 			source,
 			stage,
 			sourceKind,
-			label
+			label,
+			metadata?.sourceMap
 		);
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(label, processed);
@@ -776,7 +854,20 @@ export class WebGLProgramLibrary {
 		if (!compiled) {
 			const log = gl.getShaderInfoLog(shader) || "No shader compile log";
 			gl.deleteShader(shader);
-			throw new Error(`WebGL shader compile failed (${label}): ${log}`);
+			const parsed = parseWebGLShaderInfoLog(log);
+			throw new ShaderCompileError({
+				backend: "webgl",
+				language: "glsl",
+				stage,
+				label,
+				sourceKind,
+				variantKey: metadata?.variantKey,
+				materialId: metadata?.materialId,
+				code: processed.code,
+				sourceMap: processed.sourceMap,
+				messages: parsed.length > 0 ? parsed : [this._toCompilerMessage(log)],
+				rawLog: log,
+			});
 		}
 		return shader;
 	}
@@ -789,11 +880,19 @@ export class WebGLProgramLibrary {
 		source: string,
 		stage: "vertex" | "fragment",
 		sourceKind: "custom-material" | "unknown",
-		label: string
+		label: string,
+		sourceMap?: ShaderSourceSegmentMap | null
 	): ShaderProcessResult {
 		if (!this._shaderRuntime) {
+			const effectiveSourceMap =
+				sourceMap ?? createInlineShaderSourceMap(source, label, "source");
 			return {
 				code: source,
+				sourceMap: effectiveSourceMap,
+				composite: {
+					code: source,
+					sourceMap: effectiveSourceMap,
+				},
 				diagnostics: [],
 				hasErrors: false,
 				fromCache: false,
@@ -806,6 +905,7 @@ export class WebGLProgramLibrary {
 			entryPoint: "main",
 			label,
 			sourceKind,
+			sourceMap: sourceMap ?? null,
 		});
 	}
 
@@ -820,6 +920,14 @@ export class WebGLProgramLibrary {
 					`${diagnostic.code}: ${diagnostic.message}`
 			);
 		}
+	}
+
+	private _toCompilerMessage(log: string): ShaderCompilerMessage {
+		return {
+			type: "error",
+			message: log,
+			raw: log,
+		};
 	}
 
 	private _invalidateProgramCachesForShaderRuntime(): void {

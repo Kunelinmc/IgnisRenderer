@@ -19,6 +19,7 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
+import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
@@ -31,6 +32,12 @@ import {
 } from "./WebGPUPostProcessGraph";
 import { WebGPUPostProcessRuntime } from "./WebGPUPostProcessRuntime";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
+import type {
+	WarmupPhaseCounters,
+	WarmupPlan,
+} from "../warmup/WarmupPlanner";
+import { toShaderCompileError } from "../warmup/WarmupPlanner";
+import type { ShaderCompileError } from "../../shaders/runtime";
 
 const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"ssao",
@@ -230,6 +237,61 @@ export class WebGPUFrameExecutor {
 		this._postRuntime.onShaderRuntimeChanged();
 	}
 
+	public async warmup(
+		context: FrameContext,
+		plan: WarmupPlan
+	): Promise<WarmupPhaseCounters> {
+		let total = 1;
+		let compiled = 0;
+		let failed = 0;
+		const errors: ShaderCompileError[] = [];
+		this._ensureMRTSupport();
+		const sceneMode =
+			this._mrtEnabled && plan.sceneTargetMode === "mrt" ? "mrt" : "single";
+		this._resources.setSceneTargetMode(sceneMode);
+
+		try {
+			await this._ensurePresentResources();
+			compiled++;
+		} catch (error) {
+			failed++;
+			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPresentWarmup"));
+		}
+
+		const enabledPasses = this._postGraph.getExecutionOrder(
+			context.features,
+			() => {}
+		);
+		const allowedPassIds = new Set(plan.postProcessPasses);
+		const hints = new Set<string>();
+		for (const pass of enabledPasses) {
+			if (!allowedPassIds.has(pass.id)) {
+				continue;
+			}
+			for (const hint of pass.precompileHints ?? [`postprocess:${pass.id}`]) {
+				hints.add(hint);
+			}
+		}
+		if (hints.size > 0) {
+			total += hints.size;
+			const postWarmup = await this._postRuntime.warmupHints(Array.from(hints));
+			compiled += postWarmup.compiled;
+			failed += postWarmup.failed;
+			if (postWarmup.errors.length > 0) {
+				errors.push(...postWarmup.errors);
+			}
+		}
+
+		return {
+			phase: "webgpu-frame",
+			total,
+			compiled,
+			skipped: Math.max(0, total - compiled - failed),
+			failed,
+			errors,
+		};
+	}
+
 	/**
 	 * Release all GPU resources held by this executor.
 	 */
@@ -343,6 +405,7 @@ export class WebGPUFrameExecutor {
 				id: "ssao",
 				kind: "compute",
 				dependsOn: [],
+				precompileHints: ["postprocess:ssao"],
 				isEnabled: (features) => features.enableSSAO,
 				execute: async (ctx) => {
 					await this._postRuntime.executeSSAO(
@@ -356,6 +419,7 @@ export class WebGPUFrameExecutor {
 				id: "taa",
 				kind: "compute",
 				dependsOn: ["ssao"],
+				precompileHints: ["postprocess:taa"],
 				isEnabled: (features) => features.enableTAA,
 				execute: async (ctx) => {
 					const historyValid =
@@ -372,6 +436,7 @@ export class WebGPUFrameExecutor {
 				id: "ssr",
 				kind: "compute",
 				dependsOn: ["taa"],
+				precompileHints: ["postprocess:ssr", "postprocess:hiz"],
 				isEnabled: (features) => features.enableSSR,
 				execute: async (ctx) => {
 					const historyValid =
@@ -389,6 +454,7 @@ export class WebGPUFrameExecutor {
 				id: "volumetric",
 				kind: "compute",
 				dependsOn: ["ssr"],
+				precompileHints: ["postprocess:volumetric", "postprocess:hiz"],
 				isEnabled: (features) => features.enableVolumetric,
 				execute: async (ctx) => {
 					const historyValid =
@@ -409,6 +475,7 @@ export class WebGPUFrameExecutor {
 				id: "fxaa",
 				kind: "compute",
 				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:fxaa"],
 				isEnabled: (features) => features.enableFXAA,
 				execute: async (ctx) => {
 					await this._postRuntime.executeFXAA(ctx.encoder, ctx.targets);
@@ -418,6 +485,7 @@ export class WebGPUFrameExecutor {
 				id: "gamma",
 				kind: "render",
 				dependsOn: ["fxaa"],
+				precompileHints: [],
 				isEnabled: (features) => features.enableGamma,
 				execute: async (ctx) => {
 					await this._presentToCanvas(ctx.targets.sceneColor, true);
@@ -1088,9 +1156,15 @@ export class WebGPUFrameExecutor {
 
 	private async _ensurePresentResources(): Promise<void> {
 		if (!this._presentShaderModule) {
+			const composite = createInlineCompositeShaderSource(
+				WEBGPU_PRESENT_SHADER,
+				"<webgpu-present-shader>",
+				"source"
+			);
 			this._presentShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUPresentShader",
-				code: WEBGPU_PRESENT_SHADER,
+				code: composite.code,
+				sourceMap: composite.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "builtin-present",

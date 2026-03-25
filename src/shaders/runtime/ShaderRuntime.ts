@@ -4,13 +4,20 @@ import {
 	resolveDefaultShaderRuntimeMode,
 } from "./constants";
 import { createBuiltInShaderRules } from "./builtins";
+import {
+	composeCompositeShaderSources,
+	createInlineCompositeShaderSource,
+	sliceCompositeShaderSource,
+} from "./sourceMap";
 import type {
+	CompositeShaderSource,
 	ShaderDiagnostic,
 	ShaderProcessRequest,
 	ShaderProcessResult,
 	ShaderRule,
 	ShaderRuleContext,
 	ShaderRuleInjection,
+	ShaderSourceSegmentMap,
 	ShaderRuntimeMode,
 	ShaderSourceKind,
 	ShaderStage,
@@ -57,6 +64,36 @@ function cloneDiagnostics(diagnostics: ShaderDiagnostic[]): ShaderDiagnostic[] {
 	return diagnostics.map((diagnostic) => ({ ...diagnostic }));
 }
 
+function cloneSourceMap(sourceMap: ShaderSourceSegmentMap): ShaderSourceSegmentMap {
+	return {
+		lineCount: sourceMap.lineCount,
+		segments: sourceMap.segments.map((segment) => ({ ...segment })),
+	};
+}
+
+function cloneCompositeSource(
+	composite: CompositeShaderSource
+): CompositeShaderSource {
+	return {
+		code: composite.code,
+		sourceMap: cloneSourceMap(composite.sourceMap),
+	};
+}
+
+function cloneProcessResult(
+	result: ShaderProcessResult,
+	fromCache: boolean
+): ShaderProcessResult {
+	return {
+		code: result.code,
+		sourceMap: cloneSourceMap(result.sourceMap),
+		composite: cloneCompositeSource(result.composite),
+		diagnostics: cloneDiagnostics(result.diagnostics),
+		hasErrors: result.hasErrors,
+		fromCache,
+	};
+}
+
 function hashStringFNV1a(value: string): string {
 	let hash = 0x811c9dc5;
 	for (let i = 0; i < value.length; i++) {
@@ -66,11 +103,38 @@ function hashStringFNV1a(value: string): string {
 	return (hash >>> 0).toString(16);
 }
 
+function hashSourceMap(sourceMap: ShaderSourceSegmentMap | null | undefined): string {
+	if (!sourceMap || !Array.isArray(sourceMap.segments)) {
+		return "none";
+	}
+	const payload = [
+		`lineCount:${sourceMap.lineCount}`,
+		...sourceMap.segments.map((segment) =>
+			[
+				segment.generatedLineStart,
+				segment.generatedLineEnd,
+				segment.sourcePath,
+				segment.sourceLineStart,
+				segment.sourceLineEnd,
+				segment.kind,
+				segment.label ?? "",
+			].join(":")
+		),
+	].join("|");
+	return hashStringFNV1a(payload);
+}
+
 function normalizeInjectionBlock(block: string | undefined): string {
 	if (typeof block !== "string") {
 		return "";
 	}
 	return block.trim();
+}
+
+interface InjectionBlock {
+	code: string;
+	sourcePath: string;
+	label: string;
 }
 
 function buildStrictModeError(
@@ -92,39 +156,118 @@ function buildStrictModeError(
 }
 
 function injectWGSLSource(
-	source: string,
-	headers: string[],
-	functions: string[]
-): string {
-	const blocks = [...headers, ...functions]
-		.map((block) => normalizeInjectionBlock(block))
-		.filter((block) => block.length > 0);
+	source: CompositeShaderSource,
+	headers: InjectionBlock[],
+	functions: InjectionBlock[]
+): CompositeShaderSource {
+	const blocks = [...headers, ...functions];
 	if (blocks.length <= 0) {
 		return source;
 	}
-	return `${blocks.join("\n\n")}\n\n${source}`;
+	return composeCompositeShaderSources(
+		[
+			...blocks.map((block) => ({
+				code: block.code,
+				sourcePath: block.sourcePath,
+				kind: "define-block" as const,
+				label: block.label,
+			})),
+			{
+				code: source.code,
+				sourceMap: source.sourceMap,
+				sourcePath: source.sourceMap.segments[0]?.sourcePath ?? "<shader>",
+				kind: "source" as const,
+			},
+		],
+		"\n\n"
+	);
 }
 
 function injectGLSLSource(
-	source: string,
-	headers: string[],
-	functions: string[]
-): string {
-	const blocks = [...headers, ...functions]
-		.map((block) => normalizeInjectionBlock(block))
-		.filter((block) => block.length > 0);
+	source: CompositeShaderSource,
+	headers: InjectionBlock[],
+	functions: InjectionBlock[]
+): CompositeShaderSource {
+	const blocks = [...headers, ...functions];
 	if (blocks.length <= 0) {
 		return source;
 	}
 
-	const injection = `${blocks.join("\n\n")}\n\n`;
-	const versionLineMatch = source.match(/^\s*#version[^\n]*(?:\n|$)/);
-	if (!versionLineMatch || typeof versionLineMatch.index !== "number") {
-		return `${injection}${source}`;
+	const injection = composeCompositeShaderSources(
+		blocks.map((block) => ({
+			code: block.code,
+			sourcePath: block.sourcePath,
+			kind: "define-block" as const,
+			label: block.label,
+		})),
+		"\n\n"
+	);
+	const sourceLines = source.code.split(/\r?\n/g);
+	const hasVersionLine =
+		sourceLines.length > 0 && /^\s*#version[^\n]*$/.test(sourceLines[0]);
+	if (!hasVersionLine) {
+		return composeCompositeShaderSources(
+			[
+				{
+					code: injection.code,
+					sourceMap: injection.sourceMap,
+					sourcePath: "<runtime:injection>",
+					kind: "define-block",
+				},
+				{
+					code: source.code,
+					sourceMap: source.sourceMap,
+					sourcePath: source.sourceMap.segments[0]?.sourcePath ?? "<shader>",
+					kind: "source",
+				},
+			],
+			"\n\n"
+		);
 	}
 
-	const insertAt = versionLineMatch.index + versionLineMatch[0].length;
-	return `${source.slice(0, insertAt)}${injection}${source.slice(insertAt)}`;
+	const beforeVersion = sourceLines[0] ?? "";
+	const afterVersion = sliceCompositeShaderSource(source, 2);
+	const withInjection = composeCompositeShaderSources(
+		[
+			createInlineCompositeShaderSource(
+				beforeVersion,
+				source.sourceMap.segments[0]?.sourcePath ?? "<shader>",
+				"source",
+				"version"
+			),
+			{
+				code: injection.code,
+				sourceMap: injection.sourceMap,
+				sourcePath: "<runtime:injection>",
+				kind: "define-block",
+			},
+		],
+		"\n"
+	);
+	if (afterVersion.code.length <= 0) {
+		return withInjection;
+	}
+	return composeCompositeShaderSources(
+		[
+			{
+				code: withInjection.code,
+				sourceMap: withInjection.sourceMap,
+				sourcePath:
+					withInjection.sourceMap.segments[0]?.sourcePath ?? "<shader>",
+				kind: "source",
+			},
+			{
+				code: afterVersion.code,
+				sourceMap: afterVersion.sourceMap,
+				sourcePath:
+					afterVersion.sourceMap.segments[0]?.sourcePath ??
+					source.sourceMap.segments[0]?.sourcePath ??
+					"<shader>",
+				kind: "source" as const,
+			},
+		],
+		"\n\n"
+	);
 }
 
 export class ShaderRuntime {
@@ -225,20 +368,15 @@ export class ShaderRuntime {
 			sourceKind: normalizeSourceKind(request.sourceKind),
 			source: request.code,
 		};
-		const cacheKey = this._buildProcessCacheKey(context);
+		const cacheKey = this._buildProcessCacheKey(context, request.sourceMap);
 		const cached = this._getCachedResult(cacheKey);
 		if (cached) {
-			return {
-				code: cached.code,
-				diagnostics: cloneDiagnostics(cached.diagnostics),
-				hasErrors: cached.hasErrors,
-				fromCache: true,
-			};
+			return cloneProcessResult(cached, true);
 		}
 
 		const diagnostics: ShaderDiagnostic[] = [];
-		const headers: string[] = [];
-		const functions: string[] = [];
+		const headers: InjectionBlock[] = [];
+		const functions: InjectionBlock[] = [];
 		const rules = this._collectRulesInExecutionOrder();
 
 		for (const rule of rules) {
@@ -268,11 +406,19 @@ export class ShaderRuntime {
 			}
 			const header = normalizeInjectionBlock(injection.header);
 			if (header.length > 0) {
-				headers.push(header);
+				headers.push({
+					code: header,
+					sourcePath: `<runtime:${rule.id}:header>`,
+					label: `${rule.id}:header`,
+				});
 			}
 			const functionBlock = normalizeInjectionBlock(injection.functions);
 			if (functionBlock.length > 0) {
-				functions.push(functionBlock);
+				functions.push({
+					code: functionBlock,
+					sourcePath: `<runtime:${rule.id}:functions>`,
+					label: `${rule.id}:functions`,
+				});
 			}
 		}
 
@@ -283,23 +429,30 @@ export class ShaderRuntime {
 			throw buildStrictModeError(context, diagnostics);
 		}
 
-		const code =
+		const sourcePath =
+			context.label ??
+			`<runtime:${context.language}:${context.stage}:${context.sourceKind}>`;
+		const baseComposite =
+			request.sourceMap ?
+				{
+					code: request.code,
+					sourceMap: cloneSourceMap(request.sourceMap),
+				}
+			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+		const composite =
 			context.language === "wgsl" ?
-				injectWGSLSource(context.source, headers, functions)
-			:	injectGLSLSource(context.source, headers, functions);
+				injectWGSLSource(baseComposite, headers, functions)
+			:	injectGLSLSource(baseComposite, headers, functions);
 		const result: ShaderProcessResult = {
-			code,
+			code: composite.code,
+			sourceMap: cloneSourceMap(composite.sourceMap),
+			composite: cloneCompositeSource(composite),
 			diagnostics,
 			hasErrors,
 			fromCache: false,
 		};
 		this._setCachedResult(cacheKey, result);
-		return {
-			code: result.code,
-			diagnostics: cloneDiagnostics(result.diagnostics),
-			hasErrors: result.hasErrors,
-			fromCache: result.fromCache,
-		};
+		return cloneProcessResult(result, false);
 	}
 
 	private _normalizeRule(rule: ShaderRule): ShaderRule {
@@ -334,7 +487,10 @@ export class ShaderRuntime {
 		);
 	}
 
-	private _buildProcessCacheKey(context: ShaderRuleContext): string {
+	private _buildProcessCacheKey(
+		context: ShaderRuleContext,
+		sourceMap: ShaderSourceSegmentMap | null | undefined
+	): string {
 		return [
 			`rev:${this._revision}`,
 			`mode:${this._mode}`,
@@ -343,6 +499,7 @@ export class ShaderRuntime {
 			`entry:${context.entryPoint ?? ""}`,
 			`kind:${context.sourceKind}`,
 			`code:${hashStringFNV1a(context.source)}`,
+			`sourceMap:${hashSourceMap(sourceMap)}`,
 		].join("|");
 	}
 
@@ -353,17 +510,12 @@ export class ShaderRuntime {
 		}
 		this._processCache.delete(key);
 		this._processCache.set(key, entry);
-		return entry.result;
+		return cloneProcessResult(entry.result, false);
 	}
 
 	private _setCachedResult(key: string, result: ShaderProcessResult): void {
 		this._processCache.set(key, {
-			result: {
-				code: result.code,
-				diagnostics: cloneDiagnostics(result.diagnostics),
-				hasErrors: result.hasErrors,
-				fromCache: false,
-			},
+			result: cloneProcessResult(result, false),
 		});
 		while (this._processCache.size > this._cacheLimit) {
 			const oldestKey = this._processCache.keys().next().value;

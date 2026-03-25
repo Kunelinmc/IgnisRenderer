@@ -19,11 +19,13 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
-import { loadPostProcessShaderPart } from "../../shaders/webgpu/shaderSource";
+import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import type { IBindingGroup } from "../types";
 import type { WebGPULightingState } from "./types";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { clamp } from "../../maths/Common";
+import type { ShaderCompileError } from "../../shaders/runtime";
+import { toShaderCompileError } from "../warmup/WarmupPlanner";
 
 const WORKGROUP_SIZE = 8;
 
@@ -123,6 +125,41 @@ export class WebGPUPostProcessRuntime {
 		this._copyPipeline = null;
 	}
 
+	public async warmupHints(
+		hints: readonly string[]
+	): Promise<{
+		compiled: number;
+		failed: number;
+		errors: ShaderCompileError[];
+	}> {
+		let compiled = 0;
+		let failed = 0;
+		const errors: ShaderCompileError[] = [];
+		const seen = new Set<string>();
+		for (const hint of hints) {
+			if (seen.has(hint)) {
+				continue;
+			}
+			seen.add(hint);
+			try {
+				const warmed = await this._warmupHint(hint);
+				if (warmed) {
+					compiled++;
+				}
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(error, "webgpu", `WebGPUPostWarmup:${hint}`)
+				);
+			}
+		}
+		return {
+			compiled,
+			failed,
+			errors,
+		};
+	}
+
 	private _getCachedBindGroup(
 		key: string,
 		pipeline: IComputePipeline,
@@ -165,6 +202,34 @@ export class WebGPUPostProcessRuntime {
 		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
+		}
+	}
+
+	private async _warmupHint(hint: string): Promise<boolean> {
+		switch (hint) {
+			case "postprocess:ssao":
+				await this._ensureSSAOResources();
+				return true;
+			case "postprocess:taa":
+				await this._ensureTAAResources();
+				return true;
+			case "postprocess:hiz":
+				await this._ensureHiZResources();
+				return true;
+			case "postprocess:ssr":
+				await this._ensureSSRResources();
+				return true;
+			case "postprocess:volumetric":
+				await this._ensureVolumetricResources();
+				return true;
+			case "postprocess:fxaa":
+				await this._ensureFXAAResources();
+				return true;
+			case "postprocess:copy":
+				await this._ensureCopyResources();
+				return true;
+			default:
+				return false;
 		}
 	}
 	public async executeSSAO(
@@ -929,10 +994,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureSSAOResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._ssaoModule) {
-			const shaderCode = await loadPostProcessShaderPart("ssao");
+			const shader = await loadPostProcessShaderPartComposite("ssao");
 			this._ssaoModule = await this._backend.createShaderModule({
 				label: "WebGPUSSAOShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -964,10 +1030,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureTAAResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._taaModule) {
-			const shaderCode = await loadPostProcessShaderPart("taa");
+			const shader = await loadPostProcessShaderPartComposite("taa");
 			this._taaModule = await this._backend.createShaderModule({
 				label: "WebGPUTAAShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -989,10 +1056,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureHiZResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._hizModule) {
-			const hizShaderCode = await loadPostProcessShaderPart("hiz");
+			const shader = await loadPostProcessShaderPartComposite("hiz");
 			this._hizModule = await this._backend.createShaderModule({
 				label: "WebGPUHiZShader",
-				code: hizShaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -1013,10 +1081,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureSSRResources(): Promise<void> {
 		await this._ensureHiZResources();
 		if (!this._ssrModule) {
-			const ssrShaderCode = await loadPostProcessShaderPart("ssr");
+			const shader = await loadPostProcessShaderPartComposite("ssr");
 			this._ssrModule = await this._backend.createShaderModule({
 				label: "WebGPUSSRShader",
-				code: ssrShaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -1111,10 +1180,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureVolumetricResources(): Promise<void> {
 		await this._ensureHiZResources();
 		if (!this._volumetricModule) {
-			const shaderCode = await loadPostProcessShaderPart("volumetric");
+			const shader = await loadPostProcessShaderPartComposite("volumetric");
 			this._volumetricModule = await this._backend.createShaderModule({
 				label: "WebGPUVolumetricShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -1203,10 +1273,11 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureFXAAResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._fxaaModule) {
-			const shaderCode = await loadPostProcessShaderPart("fxaa");
+			const shader = await loadPostProcessShaderPartComposite("fxaa");
 			this._fxaaModule = await this._backend.createShaderModule({
 				label: "WebGPUFXAAShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -1227,10 +1298,11 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureCopyResources(): Promise<void> {
 		if (!this._copyModule) {
-			const shaderCode = await loadPostProcessShaderPart("copy");
+			const shader = await loadPostProcessShaderPartComposite("copy");
 			this._copyModule = await this._backend.createShaderModule({
 				label: "WebGPUCopyShader",
-				code: shaderCode,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

@@ -6,6 +6,7 @@ import {
 	ShadingModel,
 	type Material,
 } from "../../materials/Material";
+import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
@@ -44,6 +45,12 @@ import {
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
 import type { ShaderRuntime } from "../../shaders/runtime";
+import type { ShaderCompileError } from "../../shaders/runtime";
+import type {
+	WarmupPhaseCounters,
+	WarmupPlan,
+} from "../warmup/WarmupPlanner";
+import { toShaderCompileError } from "../warmup/WarmupPlanner";
 
 type WarnFn = (key: string, message: string) => void;
 
@@ -281,6 +288,115 @@ export class WebGLFrameExecutor {
 		}
 		this._pruneModelMatrixCache();
 		this._activeContext = null;
+	}
+
+	public warmup(
+		context: FrameContext,
+		plan: WarmupPlan
+	): WarmupPhaseCounters {
+		let total = 0;
+		let compiled = 0;
+		let skipped = 0;
+		let failed = 0;
+		const errors: ShaderCompileError[] = [];
+
+		const compile = (label: string, action: () => void): void => {
+			total++;
+			try {
+				action();
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(toShaderCompileError(error, "webgl", label));
+			}
+		};
+
+		compile("WebGLSceneProgram:builtin", () => {
+			this._programs.getSceneProgram();
+		});
+		for (const material of plan.materials) {
+			if (!(material instanceof ShaderMaterial)) {
+				continue;
+			}
+			compile(`WebGLSceneProgram:material:${material.shaderId}`, () => {
+				this._programs.getSceneProgram(material);
+			});
+		}
+
+		if (plan.enableSkybox) {
+			compile("WebGLSkyboxProgram", () => {
+				this._programs.getSkyboxProgram();
+			});
+		}
+		if (plan.enableShadows) {
+			compile("WebGLShadowDepthProgram", () => {
+				this._programs.getShadowDepthProgram();
+			});
+		}
+		if (plan.enableParticles) {
+			compile("WebGLParticleProgram", () => {
+				this._programs.getParticleProgram();
+			});
+		}
+
+		for (const pass of plan.postProcessPasses) {
+			switch (pass) {
+				case "ssao":
+					compile("WebGLSSAORawProgram", () => {
+						this._programs.getSSAORawProgram();
+					});
+					compile("WebGLSSAOBlurProgram", () => {
+						this._programs.getSSAOBlurProgram();
+					});
+					compile("WebGLSSAOCombineProgram", () => {
+						this._programs.getSSAOCombineProgram();
+					});
+					break;
+				case "taa":
+					compile("WebGLTAAProgram", () => {
+						this._programs.getTAAProgram();
+					});
+					break;
+				case "fxaa":
+					compile("WebGLFXAAProgram", () => {
+						this._programs.getFXAAProgram();
+					});
+					break;
+				case "gamma":
+					compile("WebGLPresentProgram", () => {
+						this._programs.getPresentProgram();
+					});
+					break;
+				case "ssr":
+					compile("WebGLSSRProgram", () => {
+						this._programs.getSSRProgram();
+					});
+					break;
+				case "volumetric":
+					compile("WebGLVolumetricProgram", () => {
+						this._programs.getVolumetricProgram();
+					});
+					break;
+				default:
+					skipped++;
+					break;
+			}
+		}
+
+		if (context.features.enableGamma && !plan.postProcessPasses.includes("gamma")) {
+			compile("WebGLPresentProgram", () => {
+				this._programs.getPresentProgram();
+			});
+		}
+
+		return {
+			phase: "webgl-programs",
+			total,
+			compiled,
+			skipped,
+			failed,
+			errors,
+		};
 	}
 
 	public resize(width: number, height: number): void {

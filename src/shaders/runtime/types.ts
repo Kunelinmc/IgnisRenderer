@@ -22,6 +22,33 @@ export interface ShaderDiagnostic {
 	message: string;
 }
 
+export type ShaderSourceSegmentKind =
+	| "source"
+	| "template"
+	| "include"
+	| "define-block"
+	| "generated";
+
+export interface ShaderSourceSegment {
+	generatedLineStart: number;
+	generatedLineEnd: number;
+	sourcePath: string;
+	sourceLineStart: number;
+	sourceLineEnd: number;
+	kind: ShaderSourceSegmentKind;
+	label?: string;
+}
+
+export interface ShaderSourceSegmentMap {
+	lineCount: number;
+	segments: ShaderSourceSegment[];
+}
+
+export interface CompositeShaderSource {
+	code: string;
+	sourceMap: ShaderSourceSegmentMap;
+}
+
 export interface ShaderProcessRequest {
 	code: string;
 	language: ShaderLanguage;
@@ -29,10 +56,13 @@ export interface ShaderProcessRequest {
 	entryPoint?: string;
 	label?: string;
 	sourceKind?: ShaderSourceKind;
+	sourceMap?: ShaderSourceSegmentMap | null;
 }
 
 export interface ShaderProcessResult {
 	code: string;
+	sourceMap: ShaderSourceSegmentMap;
+	composite: CompositeShaderSource;
 	diagnostics: ShaderDiagnostic[];
 	hasErrors: boolean;
 	fromCache: boolean;

@@ -13,7 +13,7 @@ import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegis
 import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
-import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
+import { ShaderCompileError, ShaderRuntime } from "../src/shaders/runtime/index.ts";
 
 function createProgramCompileFailGL() {
 	return {
@@ -251,7 +251,29 @@ function testProgramLibraryCompileErrorMessage() {
 	const library = new WebGLProgramLibrary(createProgramCompileFailGL(), () => {});
 	assert.throws(
 		() => library.getSceneProgram(),
-		/WebGL shader compile failed \(WebGLSceneProgram:vertex\): mock compile fail/
+		(error) => {
+			assert.ok(error instanceof ShaderCompileError);
+			assert.equal(error.backend, "webgl");
+			assert.equal(error.stage, "vertex");
+			assert.match(error.message, /Shader compile failed \[webgl\]/);
+			return true;
+		}
+	);
+}
+
+function testProgramLibraryCompileErrorMapsSourceLine() {
+	const gl = createProgramCompileFailGL();
+	gl.getShaderInfoLog = () => "ERROR: 0:4: syntax error";
+	const library = new WebGLProgramLibrary(gl, () => {});
+	assert.throws(
+		() => library.getSceneProgram(),
+		(error) => {
+			assert.ok(error instanceof ShaderCompileError);
+			assert.equal(error.messages[0].line, 4);
+			assert.equal(error.messages[0].sourceLine, 4);
+			assert.ok(String(error.messages[0].sourcePath).includes("sceneVertex"));
+			return true;
+		}
 	);
 }
 
@@ -484,9 +506,61 @@ function testWebGLBackendParticleDeltaTimeClamp() {
 	assert.equal(deltaTimeSeconds, 0.5);
 }
 
-function run() {
+async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
+	const backend = new WebGLBackend();
+	backend._frameExecutor = {
+		warmup() {
+			return {
+				phase: "webgl-programs",
+				total: 3,
+				compiled: 2,
+				skipped: 1,
+				failed: 0,
+				errors: [],
+			};
+		},
+	};
+	const report = await backend.warmup({
+		camera: {},
+		attachments: { width: 1, height: 1 },
+		features: {
+			enableLighting: true,
+			enableGamma: true,
+			enableSH: false,
+			enableShadows: false,
+			enableReflection: false,
+			enableSkybox: false,
+			enableSSAO: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableFXAA: false,
+			warnings: [],
+		},
+		shadowMaps: new Map(),
+		scene: {
+			skybox: null,
+			particleSystems: [],
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			reflectivePackets: [],
+		},
+		shCoeffs: [],
+		shAmbientCoeffs: [],
+		worldMatrix: Matrix4.identity(),
+		transient: new Map(),
+	});
+	assert.equal(report.total, 3);
+	assert.equal(report.compiled, 2);
+	assert.equal(report.skipped, 1);
+	assert.equal(report.failed, 0);
+}
+
+async function run() {
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
+	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
@@ -497,7 +571,8 @@ function run() {
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testWebGLBackendParticleDeltaTimeClamp();
+	await testWebGLBackendWarmupDelegatesToFrameExecutor();
 	console.log("WebGL backend v1 unit tests passed");
 }
 
-run();
+await run();

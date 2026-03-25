@@ -19,6 +19,7 @@ import {
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_MORPH_TARGETS,
@@ -338,6 +339,10 @@ export class WebGPUShadowPass {
 		this._pipeline = null;
 	}
 
+	public async warmup(): Promise<void> {
+		await this._ensurePipelineResources();
+	}
+
 	private _drawShadowCasters(
 		passEncoder: GPURenderPassEncoder,
 		packets: DrawPacket[],
@@ -646,9 +651,15 @@ export class WebGPUShadowPass {
 		const device = this._backend.device;
 		if (!this._shaderModule) {
 			if (!this._shaderModulePromise) {
+				const composite = createInlineCompositeShaderSource(
+					WEBGPU_SHADOW_DEPTH_SHADER,
+					"<webgpu-shadow-depth>",
+					"source"
+				);
 				this._shaderModulePromise = this._backend.createShaderModule({
 					label: "WebGPUShadowDepthShader",
-					code: WEBGPU_SHADOW_DEPTH_SHADER,
+					code: composite.code,
+					sourceMap: composite.sourceMap,
 					language: "wgsl",
 					stage: "vertex",
 					entryPoint: "vsMain",

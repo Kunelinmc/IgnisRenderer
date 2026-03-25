@@ -5,7 +5,12 @@ import {
 	type ICommandEncoder,
 	type RenderPassDesc,
 } from "./ICommandEncoder";
-import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
+import type {
+	IRenderBackend,
+	RendererBackendBridge,
+	WarmupOptions,
+	WarmupReport,
+} from "./IRenderBackend";
 import {
 	type FrameAttachments,
 	type FrameContext,
@@ -63,8 +68,21 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "./types";
-import { ShaderRuntime } from "../shaders/runtime";
-import type { ShaderProcessResult } from "../shaders/runtime";
+import {
+	formatShaderCompilerMessages,
+	mapShaderCompilerMessages,
+	normalizeWebGPUCompilationMessages,
+	ShaderCompileError,
+	ShaderRuntime,
+} from "../shaders/runtime";
+import type { ShaderCompilerMessage, ShaderProcessResult } from "../shaders/runtime";
+import {
+	addWarmupPhase,
+	buildWarmupPlan,
+	createWarmupReport,
+	finalizeWarmupReport,
+	toShaderCompileError,
+} from "./warmup/WarmupPlanner";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -279,6 +297,7 @@ export class WebGPUBackend implements IRenderBackend {
 		string,
 		WebGPUPostProcessPassPlugin
 	>();
+	private _warmupLogCompilationInfo = false;
 	private _msaaSelectionCache = new Map<string, number>();
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
@@ -483,6 +502,37 @@ export class WebGPUBackend implements IRenderBackend {
 		return result;
 	}
 
+	public async warmup(
+		context: FrameContext,
+		options: WarmupOptions = {}
+	): Promise<WarmupReport> {
+		const report = createWarmupReport(this.type);
+		if (!this._resources || !this._frameExecutor) {
+			throw new Error("WebGPU backend has not been initialized.");
+		}
+
+		const plan = buildWarmupPlan(context, options);
+		this._warmupLogCompilationInfo = options.logCompilationInfo === true;
+		try {
+			const framePhase = await this._frameExecutor.warmup(context, plan);
+			addWarmupPhase(report, framePhase);
+			const resourcePhase = await this._resources.warmup(context, plan);
+			addWarmupPhase(report, resourcePhase);
+		} catch (error) {
+			addWarmupPhase(report, {
+				phase: "webgpu-warmup",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 1,
+				errors: [toShaderCompileError(error, this.type, "WebGPUWarmup")],
+			});
+		} finally {
+			this._warmupLogCompilationInfo = false;
+		}
+		return finalizeWarmupReport(report);
+	}
+
 	public async endFrame(): Promise<void> {
 		await this._frameExecutor?.endFrame();
 		this._particleSimulator?.endFrame();
@@ -649,12 +699,17 @@ export class WebGPUBackend implements IRenderBackend {
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(desc, processed);
 		}
+		const effectiveSourceMap =
+			processed.sourceMap ?? desc.sourceMap ?? null;
 		const effectiveCodeHash =
 			processed.code === desc.code ? desc.codeHash : undefined;
 		const effectiveDesc: ShaderModuleDesc = {
 			...desc,
 			code: processed.code,
+			sourceMap: effectiveSourceMap,
 			codeHash: effectiveCodeHash,
+			logCompilationInfo:
+				desc.logCompilationInfo ?? this._warmupLogCompilationInfo,
 		};
 		const cacheKey = this._getShaderModuleCacheKey(effectiveDesc);
 		const cached = this._shaderModuleCache.get(cacheKey);
@@ -677,36 +732,48 @@ export class WebGPUBackend implements IRenderBackend {
 						code: effectiveDesc.code,
 						label: effectiveDesc.label,
 					});
-
-					if (
-						effectiveDesc.logCompilationInfo === true &&
-						typeof gpuModule.getCompilationInfo === "function"
-					) {
-						void gpuModule
-							.getCompilationInfo()
-							.then((info) => {
-								if (info.messages.length <= 0) {
-									return;
-								}
-								console.group(
-									`WebGPU Shader Compilation Info [${effectiveDesc.label || "unnamed"}]`
-								);
-								for (const message of info.messages) {
-									const logType =
-										message.type === "error" ? "error"
-										: message.type === "warning" ? "warn"
-										: "log";
-									console[logType](
-										`${message.message} (at line ${message.lineNum}, col ${message.linePos})`
-									);
-								}
-								console.groupEnd();
-							})
-							.catch((error) => {
-								console.warn(
-									`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
-								);
+					let compileMessages: ShaderCompilerMessage[] = [];
+					if (typeof gpuModule.getCompilationInfo === "function") {
+						try {
+							const info = await gpuModule.getCompilationInfo();
+							compileMessages = normalizeWebGPUCompilationMessages(
+								info.messages
+							);
+						} catch (error) {
+							console.warn(
+								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
+							);
+						}
+					}
+					if (compileMessages.length > 0) {
+						const mappedMessages = mapShaderCompilerMessages(
+							compileMessages,
+							effectiveDesc.code,
+							effectiveDesc.sourceMap
+						);
+						if (effectiveDesc.logCompilationInfo === true) {
+							const label = effectiveDesc.label ?? "unnamed";
+							console.group(`WebGPU Shader Compilation Info [${label}]`);
+							console.log(formatShaderCompilerMessages(mappedMessages));
+							console.groupEnd();
+						}
+						const hasErrors = mappedMessages.some(
+							(message) => message.type === "error"
+						);
+						if (hasErrors) {
+							throw new ShaderCompileError({
+								backend: "webgpu",
+								language: effectiveDesc.language ?? "wgsl",
+								stage: effectiveDesc.stage ?? "unknown",
+								label: effectiveDesc.label,
+								sourceKind: effectiveDesc.sourceKind ?? "unknown",
+								variantKey: effectiveDesc.variantKey,
+								materialId: effectiveDesc.materialId,
+								code: effectiveDesc.code,
+								sourceMap: effectiveDesc.sourceMap,
+								messages: compileMessages,
 							});
+						}
 					}
 
 					const entry: CachedShaderModuleEntry = {
@@ -718,7 +785,7 @@ export class WebGPUBackend implements IRenderBackend {
 					this._shaderModuleCache.set(cacheKey, entry);
 					return entry;
 				} catch (error) {
-					lastError = error;
+					lastError = this._createShaderModuleError(error, effectiveDesc);
 					if (attempt === 0) {
 						continue;
 					}
@@ -2376,6 +2443,33 @@ export class WebGPUBackend implements IRenderBackend {
 			entryPoint: desc.entryPoint,
 			label: desc.label,
 			sourceKind: desc.sourceKind ?? "unknown",
+			sourceMap: desc.sourceMap ?? null,
+		});
+	}
+
+	private _createShaderModuleError(
+		error: unknown,
+		desc: ShaderModuleDesc
+	): Error {
+		if (error instanceof ShaderCompileError) {
+			return error;
+		}
+		const compilerMessage: ShaderCompilerMessage = {
+			type: "error",
+			message: String(error),
+		};
+		return new ShaderCompileError({
+			backend: "webgpu",
+			language: desc.language ?? "wgsl",
+			stage: desc.stage ?? "unknown",
+			label: desc.label,
+			sourceKind: desc.sourceKind ?? "unknown",
+			variantKey: desc.variantKey,
+			materialId: desc.materialId,
+			code: desc.code,
+			sourceMap: desc.sourceMap ?? null,
+			messages: [compilerMessage],
+			cause: error,
 		});
 	}
 

@@ -42,6 +42,7 @@ export interface WebGPUPostProcessPassPlugin {
 	id: string;
 	dependsOn: string[];
 	kind?: WebGPUPostProcessPassKind;
+	precompileHints?: string[];
 	isEnabled(features: ResolvedFeatureState): boolean;
 	execute(context: WebGPUPostProcessPassContext): Promise<void> | void;
 }
