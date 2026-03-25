@@ -23,6 +23,14 @@ export interface WebGPUGeometryHandle {
 export class WebGPUGeometryRegistry {
 	private _backend: WebGPUBackend;
 	private _cache = new WeakMap<IPrimitive, WebGPUGeometryHandle>();
+	private _owned = new Set<WebGPUGeometryHandle>();
+	private _finalizationRegistry: FinalizationRegistry<WebGPUGeometryHandle> | null =
+		typeof FinalizationRegistry === "function" ?
+			new FinalizationRegistry((handle) => {
+				this._owned.delete(handle);
+				this._destroyHandle(handle);
+			})
+		:	null;
 
 	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
@@ -33,8 +41,43 @@ export class WebGPUGeometryRegistry {
 		if (!cached) {
 			cached = this._uploadGeometry(primitive);
 			this._cache.set(primitive, cached);
+			this._owned.add(cached);
+			this._finalizationRegistry?.register(
+				primitive as unknown as object,
+				cached,
+				primitive as unknown as object
+			);
 		}
 		return cached;
+	}
+
+	public releaseGeometry(primitive: IPrimitive): void {
+		const cached = this._cache.get(primitive);
+		if (!cached) {
+			return;
+		}
+
+		this._cache.delete(primitive);
+		this._finalizationRegistry?.unregister(primitive as unknown as object);
+		this._owned.delete(cached);
+		this._destroyHandle(cached);
+	}
+
+	public destroy(): void {
+		for (const handle of this._owned) {
+			this._destroyHandle(handle);
+		}
+		this._owned.clear();
+		this._cache = new WeakMap<IPrimitive, WebGPUGeometryHandle>();
+		this._finalizationRegistry = null;
+	}
+
+	private _destroyHandle(handle: WebGPUGeometryHandle): void {
+		handle.vertexBuffer.destroy();
+		handle.indexBuffer.destroy();
+		handle.wireframeIndexBuffer.destroy();
+		handle.morphPositionBuffer?.destroy();
+		handle.morphNormalBuffer?.destroy();
 	}
 
 	private _uploadGeometry(primitive: IPrimitive): WebGPUGeometryHandle {

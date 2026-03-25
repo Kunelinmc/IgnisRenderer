@@ -148,6 +148,8 @@ export class WebGPUFrameBindingCache {
 			this._skyboxSampler !== currentSkyboxSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler
 		) {
+			this._destroyBindingGroup(this._sceneBinding);
+			this._destroyBindingGroup(this._skyboxBinding);
 			this._sceneBinding = null;
 			this._skyboxBinding = null;
 			this._shadowAtlas = currentShadowAtlas;
@@ -262,5 +264,30 @@ export class WebGPUFrameBindingCache {
 			});
 		}
 		return this._frameUniformBuffer;
+	}
+
+	public destroy(): void {
+		this._destroyBindingGroup(this._sceneBinding);
+		this._destroyBindingGroup(this._skyboxBinding);
+		this._sceneBinding = null;
+		this._skyboxBinding = null;
+		this._frameUniformBuffer?.destroy();
+		this._frameUniformBuffer = null;
+		this._shadowAtlas = null;
+		this._skyboxTexture = null;
+		this._envSpecularTexture = null;
+		this._skyboxSampler = null;
+		this._envSpecularSampler = null;
+		this._prevViewProjection = null;
+		this._taaFrameIndex = 0;
+		this._taaJitterCurrent = [0, 0];
+		this._taaEnabledLastFrame = false;
+	}
+
+	private _destroyBindingGroup(group: IBindingGroup | null): void {
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(group);
+		}
 	}
 }

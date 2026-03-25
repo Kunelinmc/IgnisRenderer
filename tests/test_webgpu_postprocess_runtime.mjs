@@ -9,6 +9,7 @@ class FakeBackend {
 		this.buffers = [];
 		this.bindingGroups = [];
 		this.bindingGroupDestroyCalls = 0;
+		this.bufferDestroyCalls = 0;
 	}
 
 	createSampler(desc) {
@@ -33,7 +34,12 @@ class FakeBackend {
 		const buffer = {
 			size: desc.size,
 			desc,
-			destroy() {},
+			destroyed: false,
+			destroy: () => {
+				if (buffer.destroyed) return;
+				buffer.destroyed = true;
+				this.bufferDestroyCalls++;
+			},
 		};
 		this.buffers.push(buffer);
 		return buffer;
@@ -336,12 +342,56 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
+async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(24, 12, "scene");
+	const postPing = createTexture(24, 12, "ping");
+	const postPong = createTexture(24, 12, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+
+	await runtime.executeFXAA(encoder, targets);
+	await runtime.warmupHints([
+		"postprocess:ssao",
+		"postprocess:taa",
+		"postprocess:ssr",
+		"postprocess:volumetric",
+	]);
+	assert.equal(backend.bufferDestroyCalls, 0);
+	assert.equal(backend.bindingGroupDestroyCalls, 0);
+
+	runtime.onShaderRuntimeChanged();
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	assert.equal(backend.bufferDestroyCalls, 6);
+	const destroyedLabels = new Set(
+		backend.buffers
+			.filter((buffer) => buffer.destroyed)
+			.map((buffer) => buffer.desc.label)
+	);
+	assert.ok(destroyedLabels.has("WebGPUSSAOParams"));
+	assert.ok(destroyedLabels.has("WebGPUTAAParams"));
+	assert.ok(destroyedLabels.has("WebGPUSSRTraceParams"));
+	assert.ok(destroyedLabels.has("WebGPUSSRComposeParams"));
+	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
+	assert.ok(destroyedLabels.has("WebGPUFXAAParams"));
+
+	runtime.onShaderRuntimeChanged();
+	assert.equal(backend.bindingGroupDestroyCalls, 1);
+	assert.equal(backend.bufferDestroyCalls, 6);
+}
+
 async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
+	await testOnShaderRuntimeChangedDestroysParameterBuffers();
 	console.log("WebGPU postprocess runtime tests passed");
 }
 

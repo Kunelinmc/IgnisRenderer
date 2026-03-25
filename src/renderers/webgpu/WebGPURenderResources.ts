@@ -94,6 +94,17 @@ export interface WebGPUParticlePassTargets {
 	depth: any;
 }
 
+const WEBGPU_PARTICLE_BINDING_CACHE_MAX_AGE_FRAMES = 120;
+const WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES = 128;
+
+interface WebGPUParticleBindingCacheEntry {
+	group: IBindingGroup;
+	texture: any;
+	sampler: any;
+	uvTransformBuffer: IRenderBuffer;
+	lastUsedFrame: number;
+}
+
 export class WebGPURenderResources {
 	private _renderer: RendererBackendBridge;
 	private _backend: WebGPUBackend;
@@ -125,13 +136,10 @@ export class WebGPURenderResources {
 	>();
 	private _particleBindingCache = new Map<
 		string,
-		{
-			group: IBindingGroup;
-			texture: any;
-			sampler: any;
-			uvTransformBuffer: IRenderBuffer;
-		}
+		WebGPUParticleBindingCacheEntry
 	>();
+	private _frameId = 0;
+	private _destroyed = false;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 
 	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
@@ -296,6 +304,7 @@ export class WebGPURenderResources {
 
 		const { scene, features, shAmbientCoeffs, renderWidth, renderHeight } =
 			this._resolveFrameInputs(contextOrScene, featuresArg);
+		this._frameId++;
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
@@ -358,6 +367,7 @@ export class WebGPURenderResources {
 			renderHeight
 		);
 		this._materialBindings.beginFrame();
+		this._evictParticleBindings();
 	}
 
 	public getFrameBinding(): IBindingGroup {
@@ -365,12 +375,45 @@ export class WebGPURenderResources {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		if (this._destroyed) {
+			return;
+		}
 		this._pipelineLibrary.invalidateShaderRuntimeCaches();
 		this._particleShaderModule = null;
 		this._particlePipelineAlpha.clear();
 		this._particlePipelineAdditive.clear();
-		this._particleBindingCache.clear();
+		this._clearParticleBindingCache();
 		this._shadowPass.onShaderRuntimeChanged();
+	}
+
+	public destroy(): void {
+		if (this._destroyed) {
+			return;
+		}
+		this._destroyed = true;
+		this._disposeShaderRuntimeListener?.();
+		this._disposeShaderRuntimeListener = null;
+		this._clearParticleBindingCache();
+		this._particleShaderModule = null;
+		this._particlePipelineAlpha.clear();
+		this._particlePipelineAdditive.clear();
+		this._particleQuadBuffer?.destroy();
+		this._particleQuadBuffer = null;
+		this._particleInstanceBuffer?.destroy();
+		this._particleInstanceBuffer = null;
+		this._particleInstanceCapacity = 0;
+		this._frameBindings.destroy();
+		this._materialBindings.destroy();
+		this._shadowPass.destroy();
+		this._pipelineLibrary.destroy();
+		this._shadowAtlases.destroy();
+		this._textureRegistry.destroy();
+		this._geometryRegistry.destroy();
+		this._lightingState = null;
+		this._featureState = null;
+		this._environmentState = null;
+		this._jointMatrixMap = null;
+		this._morphWeightMap = null;
 	}
 
 	public getLightingState(): WebGPULightingState | null {
@@ -575,6 +618,7 @@ export class WebGPURenderResources {
 			firstInstance: number;
 			instanceCount: number;
 		}> = [];
+		const activeCacheKeys = new Set<string>();
 
 		let particleOffset = 0;
 		for (const batch of drawBatches) {
@@ -646,6 +690,7 @@ export class WebGPURenderResources {
 				range.batch.texture
 			);
 			const cacheKey = `particle_${range.batch.systemId}`;
+			activeCacheKeys.add(cacheKey);
 			const cachedBinding = this._particleBindingCache.get(cacheKey);
 			const uvTransformBuffer =
 				cachedBinding?.uvTransformBuffer ??
@@ -661,7 +706,9 @@ export class WebGPURenderResources {
 				cachedBinding.sampler === sampler
 			) {
 				particleBinding = cachedBinding.group;
+				cachedBinding.lastUsedFrame = this._frameId;
 			} else {
+				this._destroyBindingGroup(cachedBinding?.group ?? null);
 				particleBinding = this._backend.createBindingGroup({
 					layout: this._layouts.particleBindGroupLayout,
 					entries: [
@@ -685,6 +732,7 @@ export class WebGPURenderResources {
 					texture,
 					sampler,
 					uvTransformBuffer,
+					lastUsedFrame: this._frameId,
 				});
 			}
 			const uvTransformData = this._createParticleUVTransformData(
@@ -701,6 +749,61 @@ export class WebGPURenderResources {
 		}
 
 		encoder.endRenderPass();
+		this._evictParticleBindings(activeCacheKeys);
+	}
+
+	private _evictParticleBindings(activeCacheKeys?: Set<string>): void {
+		const staleFrameThreshold =
+			this._frameId - WEBGPU_PARTICLE_BINDING_CACHE_MAX_AGE_FRAMES;
+		for (const [cacheKey, entry] of this._particleBindingCache.entries()) {
+			if (activeCacheKeys?.has(cacheKey)) {
+				continue;
+			}
+			if (entry.lastUsedFrame > staleFrameThreshold) {
+				continue;
+			}
+			this._destroyParticleBindingEntry(cacheKey, entry);
+		}
+
+		if (
+			this._particleBindingCache.size <= WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES
+		) {
+			return;
+		}
+
+		const evictionCandidates = Array.from(this._particleBindingCache.entries())
+			.filter(([cacheKey]) => !activeCacheKeys?.has(cacheKey))
+			.sort((left, right) => left[1].lastUsedFrame - right[1].lastUsedFrame);
+		while (
+			this._particleBindingCache.size > WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES &&
+			evictionCandidates.length > 0
+		) {
+			const [cacheKey, entry] = evictionCandidates.shift()!;
+			this._destroyParticleBindingEntry(cacheKey, entry);
+		}
+	}
+
+	private _clearParticleBindingCache(): void {
+		for (const [cacheKey, entry] of this._particleBindingCache.entries()) {
+			this._destroyParticleBindingEntry(cacheKey, entry);
+		}
+		this._particleBindingCache.clear();
+	}
+
+	private _destroyParticleBindingEntry(
+		cacheKey: string,
+		entry: WebGPUParticleBindingCacheEntry
+	): void {
+		this._destroyBindingGroup(entry.group);
+		entry.uvTransformBuffer.destroy();
+		this._particleBindingCache.delete(cacheKey);
+	}
+
+	private _destroyBindingGroup(group: IBindingGroup | null): void {
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(group);
+		}
 	}
 
 	private async _ensureParticleResources(

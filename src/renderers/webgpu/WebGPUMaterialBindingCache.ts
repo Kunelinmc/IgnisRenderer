@@ -55,6 +55,7 @@ export class WebGPUMaterialBindingCache {
 	private _cache = new Map<string, MaterialBindingEntry>();
 	private _currentFrame = 0;
 	private _fallbackStorageBuffer: IRenderBuffer;
+	private _destroyed = false;
 
 	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
 		this._backend = backend;
@@ -68,6 +69,9 @@ export class WebGPUMaterialBindingCache {
 	}
 
 	public beginFrame(): void {
+		if (this._destroyed) {
+			return;
+		}
 		this._currentFrame++;
 
 		for (const [key, entry] of this._cache.entries()) {
@@ -81,6 +85,22 @@ export class WebGPUMaterialBindingCache {
 				this._cache.delete(key);
 			}
 		}
+	}
+
+	public destroy(): void {
+		if (this._destroyed) {
+			return;
+		}
+		this._destroyed = true;
+		for (const entry of this._cache.values()) {
+			this._destroyBindingGroup(entry.bindingGroup);
+			entry.uniformBuffer.destroy();
+			entry.animationParamsBuffer.destroy();
+			entry.jointMatricesBuffer.destroy();
+			entry.morphWeightsBuffer.destroy();
+		}
+		this._cache.clear();
+		this._fallbackStorageBuffer.destroy();
 	}
 
 	public getBinding(

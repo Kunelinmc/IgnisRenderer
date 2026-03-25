@@ -1255,6 +1255,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._copyFlushScheduled = false;
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
+		this._resources?.destroy();
 		this._resources = null;
 		this._particleSimulator = null;
 		this._depthTexture?.destroy();

@@ -28,6 +28,8 @@ export class WebGPUTextureRegistry {
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
+	private _ownedTextures = new Set<IRenderTexture>();
+	private _ownedSamplers = new Set<ISampler>();
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
 	private _whiteSampler: ISampler | null = null;
@@ -63,7 +65,10 @@ export class WebGPUTextureRegistry {
 				!cacheEntry.externalVideoCopyCompatible);
 
 		if (shouldRecreateTexture) {
-			cacheEntry?.resource.destroy();
+			if (cacheEntry?.resource) {
+				cacheEntry.resource.destroy();
+				this._ownedTextures.delete(cacheEntry.resource);
+			}
 			const externalVideoCopyCompatible = texture instanceof VideoTexture;
 			const usage =
 				TextureUsage.TextureBinding |
@@ -84,6 +89,7 @@ export class WebGPUTextureRegistry {
 				mipLevelCount,
 				externalVideoCopyCompatible,
 			};
+			this._ownedTextures.add(resource);
 			this._textureCache.set(texture, cacheEntry);
 			this._uploadedVersionCache.delete(texture);
 		}
@@ -135,7 +141,8 @@ export class WebGPUTextureRegistry {
 			cached &&
 			typeof (cached.sampler as { destroy?: () => void }).destroy === "function"
 		) {
-			(cached.sampler as { destroy: () => void }).destroy();
+			this._destroySampler(cached.sampler);
+			this._ownedSamplers.delete(cached.sampler);
 		}
 
 		const sampler = this._backend.createSampler({
@@ -150,6 +157,7 @@ export class WebGPUTextureRegistry {
 			sampler,
 			key,
 		});
+		this._ownedSamplers.add(sampler);
 		return sampler;
 	}
 
@@ -169,6 +177,7 @@ export class WebGPUTextureRegistry {
 				{ bytesPerRow: 256, rowsPerImage: 1 },
 				{ width: 1, height: 1, depthOrArrayLayers: 1 }
 			);
+			this._ownedTextures.add(this._whiteTexture);
 		}
 
 		return this._whiteTexture;
@@ -194,6 +203,7 @@ export class WebGPUTextureRegistry {
 				{ bytesPerRow: 256, rowsPerImage: 1 },
 				{ width: 1, height: 1, depthOrArrayLayers: 1 }
 			);
+			this._ownedTextures.add(this._neutralNormalTexture);
 		}
 
 		return this._neutralNormalTexture;
@@ -209,9 +219,27 @@ export class WebGPUTextureRegistry {
 				mipmapFilter: FilterMode.Linear,
 				label: "WebGPUWhiteSampler",
 			});
+			this._ownedSamplers.add(this._whiteSampler);
 		}
 
 		return this._whiteSampler;
+	}
+
+	public destroy(): void {
+		for (const texture of this._ownedTextures) {
+			texture.destroy();
+		}
+		this._ownedTextures.clear();
+		for (const sampler of this._ownedSamplers) {
+			this._destroySampler(sampler);
+		}
+		this._ownedSamplers.clear();
+		this._textureCache = new WeakMap<Texture, TextureCacheEntry>();
+		this._samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
+		this._uploadedVersionCache = new WeakMap<Texture, number>();
+		this._whiteTexture = null;
+		this._neutralNormalTexture = null;
+		this._whiteSampler = null;
 	}
 
 	private _mapWrapMode(value?: string): AddressMode {
@@ -310,6 +338,13 @@ export class WebGPUTextureRegistry {
 			return true;
 		} catch {
 			return false;
+		}
+	}
+
+	private _destroySampler(sampler: ISampler): void {
+		const destroyFn = (sampler as { destroy?: () => void }).destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(sampler);
 		}
 	}
 }

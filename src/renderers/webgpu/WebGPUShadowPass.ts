@@ -343,6 +343,30 @@ export class WebGPUShadowPass {
 		await this._ensurePipelineResources();
 	}
 
+	public destroy(): void {
+		this._shaderModule = null;
+		this._shaderModulePromise = null;
+		this._bindGroupLayout = null;
+		this._animationBindGroupLayout = null;
+		this._pipelineLayout = null;
+		this._pipeline = null;
+		for (const buffer of this._drawUniformBuffers) {
+			buffer?.destroy();
+		}
+		this._drawUniformBuffers = [];
+		this._drawBindGroups = [];
+		for (const entry of this._animationBindings.values()) {
+			entry.paramsBuffer.destroy();
+			entry.jointBuffer.destroy();
+			entry.morphWeightBuffer.destroy();
+		}
+		this._animationBindings.clear();
+		this._fallbackStorageBuffer?.destroy();
+		this._fallbackStorageBuffer = null;
+		this._drawResourceCursor = 0;
+		this._frameId = 0;
+	}
+
 	private _drawShadowCasters(
 		passEncoder: GPURenderPassEncoder,
 		packets: DrawPacket[],

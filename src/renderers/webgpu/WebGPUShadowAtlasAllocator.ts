@@ -87,6 +87,11 @@ export class WebGPUShadowAtlasAllocator {
 	public get spotAtlas(): IRenderTexture | null {
 		return this.atlas;
 	}
+
+	public destroy(): void {
+		this._atlas?.texture.destroy();
+		this._atlas = null;
+	}
 }
 
 function getMaxShadowSize(shadows: ShadowSlice[]): number {

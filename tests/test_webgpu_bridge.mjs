@@ -28,6 +28,7 @@ import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
+import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 
 globalThis.GPUShaderStage ??= {
@@ -61,34 +62,62 @@ class FakeBackend {
 		this.type = "webgpu";
 		this.canvasFormat = "rgba8unorm";
 		this.bufferDescs = [];
+		this.buffers = [];
 		this.pipelines = [];
 		this.bindingGroups = [];
 		this.textureWrites = [];
 		this.samplerDescs = [];
+		this.bufferDestroyCalls = 0;
+		this.bindingGroupDestroyCalls = 0;
+		this.textureDestroyCalls = 0;
+		this.samplerDestroyCalls = 0;
 		this.device = new FakeDevice();
 	}
 
 	createBuffer(desc) {
 		this.bufferDescs.push(desc);
-		return {
+		const buffer = {
 			size: desc.size,
 			desc,
-			destroy() {},
+			destroyed: false,
+			destroy: () => {
+				if (buffer.destroyed) return;
+				buffer.destroyed = true;
+				this.bufferDestroyCalls++;
+			},
 		};
+		this.buffers.push(buffer);
+		return buffer;
 	}
 
 	createTexture(desc) {
-		return {
+		const texture = {
 			width: desc.width,
 			height: desc.height,
 			desc,
-			destroy() {},
+			destroyed: false,
+			destroy: () => {
+				if (texture.destroyed) return;
+				texture.destroyed = true;
+				this.textureDestroyCalls++;
+			},
 		};
+		return texture;
 	}
 
 	createSampler(desc) {
 		this.samplerDescs.push(desc);
-		return { label: desc.label, desc };
+		const sampler = {
+			label: desc.label,
+			desc,
+			destroyed: false,
+			destroy: () => {
+				if (sampler.destroyed) return;
+				sampler.destroyed = true;
+				this.samplerDestroyCalls++;
+			},
+		};
+		return sampler;
 	}
 
 	async createShaderModule(desc) {
@@ -102,7 +131,16 @@ class FakeBackend {
 	}
 
 	createBindingGroup(desc) {
-		const bindingGroup = { label: desc.label, desc };
+		const bindingGroup = {
+			label: desc.label,
+			desc,
+			destroyed: false,
+			destroy: () => {
+				if (bindingGroup.destroyed) return;
+				bindingGroup.destroyed = true;
+				this.bindingGroupDestroyCalls++;
+			},
+		};
 		this.bindingGroups.push(bindingGroup);
 		return bindingGroup;
 	}
@@ -790,6 +828,268 @@ async function testParticleUVLayoutAndUniformBinding() {
 	assert.ok(Math.abs(uvTransform[5] - Math.sin(Math.PI / 4)) < 1e-6);
 }
 
+async function testFrameBindingReplacementDestroysOldBinding() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableSkybox: true,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			skybox: true,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+		},
+		"webgpu"
+	);
+
+	resources.prepareFrame({ ...frame, skybox: createTinyTexture(1) }, features);
+	const firstSkybox = await resources.getSkyboxResources();
+	assert.ok(firstSkybox);
+	const firstBinding = firstSkybox.frameBinding;
+	assert.equal(firstBinding.destroyed, false);
+
+	resources.prepareFrame({ ...frame, skybox: createTinyTexture(1) }, features);
+	assert.equal(firstBinding.destroyed, true);
+
+	const secondSkybox = await resources.getSkyboxResources();
+	assert.ok(secondSkybox);
+	assert.notEqual(secondSkybox.frameBinding, firstBinding);
+}
+
+async function testParticleBindingCacheEvictsStaleSystems() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+		},
+		"webgpu"
+	);
+	resources.prepareFrame(frame, features);
+
+	const texture = new Texture(
+		new Uint8Array([255, 255, 255, 255]),
+		1,
+		1,
+		"sRGB"
+	);
+	const context = {
+		camera: frame.camera,
+		attachments: { width: 16, height: 16 },
+		features,
+		shadowMaps: frame.shadowMaps,
+		scene: { ...frame, particleSystems: [] },
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		transient: new Map([
+			[
+				PARTICLE_TRANSIENT_BATCHES_KEY,
+				[
+					{
+						systemId: "particleSystem-evict",
+						blendMode: ParticleBlendMode.Alpha,
+						texture,
+						receiveShadows: true,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 1,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+				],
+			],
+		]),
+	};
+	const encoder = new FakeRenderEncoder();
+	const renderTarget = { width: 16, height: 16, destroy() {} };
+	await resources.renderParticles(
+		encoder,
+		context,
+		{ color: renderTarget, depth: renderTarget },
+		"single"
+	);
+
+	const particleBinding = backend.bindingGroups.find(
+		(binding) => binding.label === "ParticleBinding_particleSystem-evict"
+	);
+	assert.ok(particleBinding);
+	const uvBuffer = particleBinding.desc.entries[2].resource;
+	assert.ok(uvBuffer);
+	assert.equal(uvBuffer.destroyed, false);
+
+	for (let i = 0; i < 130; i++) {
+		resources.prepareFrame(frame, features);
+	}
+
+	assert.equal(particleBinding.destroyed, true);
+	assert.equal(uvBuffer.destroyed, true);
+}
+
+async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+		},
+		"webgpu"
+	);
+	resources.prepareFrame(frame, features);
+	const draw = await resources.getDrawResources(packet);
+	assert.ok(draw && draw.length > 0);
+	const geometryDraw = draw[0];
+
+	const texture = new Texture(
+		new Uint8Array([255, 255, 255, 255]),
+		1,
+		1,
+		"sRGB"
+	);
+	const context = {
+		camera: frame.camera,
+		attachments: { width: 16, height: 16 },
+		features,
+		shadowMaps: frame.shadowMaps,
+		scene: { ...frame, particleSystems: [] },
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		transient: new Map([
+			[
+				PARTICLE_TRANSIENT_BATCHES_KEY,
+				[
+					{
+						systemId: "particleSystem-destroy",
+						blendMode: ParticleBlendMode.Alpha,
+						texture,
+						receiveShadows: true,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 1,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+				],
+			],
+		]),
+	};
+	const encoder = new FakeRenderEncoder();
+	const renderTarget = { width: 16, height: 16, destroy() {} };
+	await resources.renderParticles(
+		encoder,
+		context,
+		{ color: renderTarget, depth: renderTarget },
+		"single"
+	);
+	const particleBinding = backend.bindingGroups.find(
+		(binding) => binding.label === "ParticleBinding_particleSystem-destroy"
+	);
+	assert.ok(particleBinding);
+	const particleUvBuffer = particleBinding.desc.entries[2].resource;
+	assert.ok(particleUvBuffer);
+
+	resources.destroy();
+
+	assert.equal(geometryDraw.vertexBuffer.destroyed, true);
+	assert.equal(geometryDraw.indexBuffer.destroyed, true);
+	assert.equal(geometryDraw.modelBinding.destroyed, true);
+	assert.equal(particleBinding.destroyed, true);
+	assert.equal(particleUvBuffer.destroyed, true);
+	assert.ok(
+		backend.buffers.some(
+			(buffer) =>
+				buffer.desc.label === "WebGPUParticleQuad" && buffer.destroyed === true
+		)
+	);
+	assert.ok(
+		backend.buffers.some(
+			(buffer) =>
+				buffer.desc.label === "WebGPUParticleInstances" &&
+				buffer.destroyed === true
+		)
+	);
+}
+
+function testWebGPUGeometryRegistryReleaseGeometryDestroysBuffers() {
+	const backend = new FakeBackend();
+	const registry = new WebGPUGeometryRegistry(backend);
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const handle = registry.getGeometry(packet.primitive);
+
+	assert.equal(handle.vertexBuffer.destroyed, false);
+	assert.equal(handle.indexBuffer.destroyed, false);
+	assert.equal(handle.wireframeIndexBuffer.destroyed, false);
+
+	registry.releaseGeometry(packet.primitive);
+
+	assert.equal(handle.vertexBuffer.destroyed, true);
+	assert.equal(handle.indexBuffer.destroyed, true);
+	assert.equal(handle.wireframeIndexBuffer.destroyed, true);
+	registry.destroy();
+}
+
 function testDynamicTextureReuploadOnVersionChange() {
 	const backend = new FakeBackend();
 	const registry = new WebGPUTextureRegistry(backend);
@@ -860,6 +1160,10 @@ async function run() {
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
+	await testFrameBindingReplacementDestroysOldBinding();
+	await testParticleBindingCacheEvictsStaleSystems();
+	await testRenderResourcesDestroyCleansParticleAndGeometryResources();
+	testWebGPUGeometryRegistryReleaseGeometryDestroysBuffers();
 	testDynamicTextureReuploadOnVersionChange();
 	testSamplerCacheInvalidatesWhenTextureSamplerStateChanges();
 	console.log("WebGPU bridge tests passed");
