@@ -316,7 +316,9 @@ export class WebGPURenderResources {
 			enableTAA: features.enableTAA,
 			enableSSR: features.enableSSR,
 			enableVolumetric: features.enableVolumetric,
+			enableBloom: features.enableBloom,
 			taaOptions: features.taaOptions,
+			bloomOptions: features.bloomOptions,
 			warnings: [],
 		};
 		this._featureState = featureState;

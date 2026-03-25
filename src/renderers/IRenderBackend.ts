@@ -60,6 +60,7 @@ export interface BackendCapabilities {
 	taa: boolean;
 	ssr: boolean;
 	volumetric: boolean;
+	bloom: boolean;
 }
 
 export interface RendererBackendBridge {

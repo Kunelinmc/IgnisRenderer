@@ -156,6 +156,69 @@ async function testFXAARuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testBloomRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(40, 20, "scene");
+	const postPing = createTexture(40, 20, "ping");
+	const postPong = createTexture(40, 20, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+	const frameContext = {
+		features: {
+			bloomOptions: {
+				threshold: 1.2,
+				softKnee: 0.35,
+				intensity: 1.5,
+				radius: 2,
+			},
+		},
+	};
+
+	await runtime.executeBloom(encoder, targets, frameContext);
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUBloomShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("fn extractBloom"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUBloomPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUBloomParams");
+	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 4);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 8);
+	assertClose(params[0], 1 / 40);
+	assertClose(params[1], 1 / 20);
+	assertClose(params[2], 1.2);
+	assertClose(params[3], 0.35);
+	assertClose(params[4], 1.5);
+	assertClose(params[5], 2);
+	assertClose(params[6], 0);
+	assertClose(params[7], 0);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUBloom"],
+		["setComputePipeline", "WebGPUBloomPipeline"],
+		["setBindingGroup", 0, "WebGPUBloom_Binding"],
+		["dispatchWorkgroups", 5, 3, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testFXAARuntimePingPongsAndCachesResources() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -386,6 +449,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 }
 
 async function run() {
+	await testBloomRuntimeUsesDedicatedPipeline();
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();

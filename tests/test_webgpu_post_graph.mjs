@@ -13,12 +13,14 @@ function createFeatures(overrides = {}) {
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
+		enableBloom: true,
 		enableFXAA: true,
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
+		bloomOptions: {},
 		...overrides,
 	};
 }
@@ -41,7 +43,8 @@ function testPostGraphOrder() {
 		createPass("taa", ["ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("fxaa", ["volumetric"], "enableFXAA"),
+		createPass("bloom", ["volumetric"], "enableBloom"),
+		createPass("fxaa", ["bloom"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
 	const warnings = [];
@@ -51,7 +54,7 @@ function testPostGraphOrder() {
 
 	assert.deepEqual(
 		order.map((pass) => pass.id),
-		["ssao", "taa", "ssr", "volumetric", "fxaa", "gamma"]
+		["ssao", "taa", "ssr", "volumetric", "bloom", "fxaa", "gamma"]
 	);
 	assert.equal(warnings.length, 0);
 }
@@ -62,7 +65,8 @@ function testEnabledSubsetShrinksDependencyChain() {
 		createPass("taa", ["ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("fxaa", ["volumetric"], "enableFXAA"),
+		createPass("bloom", ["volumetric"], "enableBloom"),
+		createPass("fxaa", ["bloom"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
 
@@ -72,6 +76,7 @@ function testEnabledSubsetShrinksDependencyChain() {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableBloom: false,
 			enableFXAA: false,
 			enableGamma: true,
 		}),

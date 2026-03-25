@@ -1,6 +1,7 @@
 import { CameraType } from "../../cameras/Camera";
 import type { FrameContext } from "../../pipeline/types";
 import {
+	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
@@ -69,6 +70,9 @@ export class WebGPUPostProcessRuntime {
 	private _volumetricLightBuffer: IRenderBuffer | null = null;
 	private _volumetricLightCapacity = 0;
 	private _volumetricFrameIndex = 0;
+	private _bloomModule: IShaderModule | null = null;
+	private _bloomPipeline: IComputePipeline | null = null;
+	private _bloomParams: IRenderBuffer | null = null;
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
@@ -133,6 +137,10 @@ export class WebGPUPostProcessRuntime {
 		this._volumetricLightBuffer = null;
 		this._volumetricLightCapacity = 0;
 		this._volumetricFrameIndex = 0;
+		this._bloomModule = null;
+		this._bloomPipeline = null;
+		this._bloomParams?.destroy();
+		this._bloomParams = null;
 		this._fxaaModule = null;
 		this._fxaaPipeline = null;
 		this._fxaaParams?.destroy();
@@ -237,6 +245,9 @@ export class WebGPUPostProcessRuntime {
 				return true;
 			case "postprocess:volumetric":
 				await this._ensureVolumetricResources();
+				return true;
+			case "postprocess:bloom":
+				await this._ensureBloomResources();
 				return true;
 			case "postprocess:fxaa":
 				await this._ensureFXAAResources();
@@ -793,6 +804,71 @@ export class WebGPUPostProcessRuntime {
 		return true;
 	}
 
+	public async executeBloom(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext
+	): Promise<void> {
+		await this._ensureBloomResources();
+		if (!this._sampler || !this._bloomPipeline || !this._bloomParams) return;
+		const options = frameContext.features.bloomOptions ?? {};
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		const threshold = Math.max(
+			0,
+			finiteOr(options.threshold, DEFAULT_BLOOM_OPTIONS.threshold)
+		);
+		const softKnee = Math.max(
+			1e-4,
+			finiteOr(options.softKnee, DEFAULT_BLOOM_OPTIONS.softKnee)
+		);
+		const intensity = Math.max(
+			0,
+			finiteOr(options.intensity, DEFAULT_BLOOM_OPTIONS.intensity)
+		);
+		const radius = clamp(
+			finiteOr(options.radius, DEFAULT_BLOOM_OPTIONS.radius),
+			0.5,
+			4
+		);
+		this._backend.writeBuffer(
+			this._bloomParams,
+			new Float32Array([
+				1 / Math.max(target.width, 1),
+				1 / Math.max(target.height, 1),
+				threshold,
+				softKnee,
+				intensity,
+				radius,
+				0,
+				0,
+			])
+		);
+		const binding = this._getCachedBindGroup(
+			`bloom-${target === targets.postPing ? "ping" : "pong"}`,
+			this._bloomPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: this._sampler },
+				{ binding: 2, resource: this._bloomParams },
+				{ binding: 3, resource: target },
+			],
+			"WebGPUBloom_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUBloom" });
+		encoder.setComputePipeline(this._bloomPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
 	public async executeFXAA(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets
@@ -1282,6 +1358,32 @@ export class WebGPUPostProcessRuntime {
 			this._volumetricParams = this._backend.createBuffer({
 				label: "WebGPUVolumetricParams",
 				size: 20 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	private async _ensureBloomResources(): Promise<void> {
+		await this._ensureCommonResources();
+		if (!this._bloomModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloom");
+			this._bloomModule = await this._backend.createShaderModule({
+				label: "WebGPUBloomShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._bloomPipeline)
+			this._bloomPipeline = this._backend.createComputePipeline({
+				label: "WebGPUBloomPipeline",
+				compute: { module: this._bloomModule, entryPoint: "csMain" },
+			});
+		if (!this._bloomParams)
+			this._bloomParams = this._backend.createBuffer({
+				label: "WebGPUBloomParams",
+				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}

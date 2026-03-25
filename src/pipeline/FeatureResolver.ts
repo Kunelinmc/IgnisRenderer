@@ -1,6 +1,7 @@
 import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
+	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
@@ -16,6 +17,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	taa: "feature-taa",
 	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
+	bloom: "feature-bloom",
 };
 
 const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
@@ -27,6 +29,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	taa: "TAA",
 	ssr: "SSR",
 	volumetric: "volumetric effects",
+	bloom: "bloom",
 };
 
 export function resolveFeatureState(
@@ -46,6 +49,10 @@ export function resolveFeatureState(
 		volumetricOptions: {
 			...DEFAULT_VOLUMETRIC_OPTIONS,
 			...(request.volumetricOptions ?? {}),
+		},
+		bloomOptions: {
+			...DEFAULT_BLOOM_OPTIONS,
+			...(request.bloomOptions ?? {}),
 		},
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
@@ -100,6 +107,13 @@ export function resolveFeatureState(
 			request.enableVolumetric,
 			capabilities.volumetric,
 			"volumetric",
+			backendType,
+			warnings
+		),
+		enableBloom: resolveBooleanFeature(
+			request.enableBloom,
+			capabilities.bloom,
+			"bloom",
 			backendType,
 			warnings
 		),

@@ -230,6 +230,7 @@ async function testInitAndPassRouting() {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		bloom: true,
 	});
 
 	const calls = [];

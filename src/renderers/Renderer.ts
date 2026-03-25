@@ -25,6 +25,7 @@ import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import type {
+	BloomOptions,
 	SSAOOptions,
 	SSROptions,
 	TAAOptions,
@@ -64,11 +65,13 @@ export interface RendererFeatures {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableBloom: boolean;
 	enableFXAA: boolean;
 	ssrOptions: SSROptions;
 	volumetricOptions: VolumetricOptions;
 	ssaoOptions: SSAOOptions;
 	taaOptions: TAAOptions;
+	bloomOptions: BloomOptions;
 	worldMatrix: Matrix4;
 }
 
@@ -124,11 +127,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableBloom: false,
 			enableFXAA: false,
 			ssrOptions: {},
 			volumetricOptions: {},
 			ssaoOptions: {},
 			taaOptions: {},
+			bloomOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 
@@ -585,6 +590,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableSSR;
 			case "volumetric":
 				return features.enableVolumetric;
+			case "bloom":
+				return features.enableBloom;
 			case "fxaa":
 				return features.enableFXAA;
 			case "gamma":
@@ -621,6 +628,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"taa",
 	"ssr",
 	"volumetric",
+	"bloom",
 	"fxaa",
 	"gamma",
 ]);
@@ -654,7 +662,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "taa", dependsOn: ["ssao"] },
 		{ id: "ssr", dependsOn: ["taa"] },
 		{ id: "volumetric", dependsOn: ["ssr"] },
-		{ id: "fxaa", dependsOn: ["volumetric"] },
+		{ id: "bloom", dependsOn: ["volumetric"] },
+		{ id: "fxaa", dependsOn: ["bloom"] },
 		{ id: "gamma", dependsOn: ["fxaa"] },
 		{ id: "sync-out", dependsOn: ["gamma"] },
 	];

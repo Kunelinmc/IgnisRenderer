@@ -17,9 +17,11 @@ import {
 } from "../../pipeline/ShadowMetadata";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
+	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
 	type DrawPacket,
+	type BloomOptions,
 	type FrameContext,
 	type FramePass,
 	type ParticleRenderBatch,
@@ -70,6 +72,7 @@ const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
 	"main-transparent",
 	"particles",
 	"ssao",
+	"bloom",
 	"fxaa",
 	"taa",
 	"gamma",
@@ -270,6 +273,9 @@ export class WebGLFrameExecutor {
 			case "ssao":
 				this._applySSAO(context.features.ssaoOptions, context);
 				break;
+			case "bloom":
+				this._applyBloom(context.features.bloomOptions);
+				break;
 			case "fxaa":
 				this._applyFXAA();
 				break;
@@ -360,6 +366,11 @@ export class WebGLFrameExecutor {
 				case "fxaa":
 					compile("WebGLFXAAProgram", () => {
 						this._programs.getFXAAProgram();
+					});
+					break;
+				case "bloom":
+					compile("WebGLBloomProgram", () => {
+						this._programs.getBloomProgram();
 					});
 					break;
 				case "gamma":
@@ -1906,6 +1917,73 @@ export class WebGLFrameExecutor {
 				aoInvW,
 				aoInvH
 			);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.bindVertexArray(null);
+
+		this._presentSourceTexture = this._postColorTexture;
+	}
+
+	private _applyBloom(options?: BloomOptions): void {
+		if (!this._postFramebuffer || !this._postColorTexture) {
+			return;
+		}
+		if (!this._fullscreenVao) {
+			return;
+		}
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
+			return;
+		}
+
+		const gl = this._gl;
+		const bloomProgram = this._programs.getBloomProgram();
+		const threshold = Math.max(
+			0,
+			finiteOr(options?.threshold, DEFAULT_BLOOM_OPTIONS.threshold)
+		);
+		const softKnee = Math.max(
+			1e-4,
+			finiteOr(options?.softKnee, DEFAULT_BLOOM_OPTIONS.softKnee)
+		);
+		const intensity = Math.max(
+			0,
+			finiteOr(options?.intensity, DEFAULT_BLOOM_OPTIONS.intensity)
+		);
+		const radius = clamp(
+			finiteOr(options?.radius, DEFAULT_BLOOM_OPTIONS.radius),
+			0.5,
+			4
+		);
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(this._postColorTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(bloomProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+		if (bloomProgram.uniforms.sourceMap) {
+			gl.uniform1i(bloomProgram.uniforms.sourceMap, 0);
+		}
+		if (bloomProgram.uniforms.texelSize) {
+			gl.uniform2f(
+				bloomProgram.uniforms.texelSize,
+				1 / Math.max(1, this._width),
+				1 / Math.max(1, this._height)
+			);
+		}
+		if (bloomProgram.uniforms.bloomParams) {
+			gl.uniform4f(
+				bloomProgram.uniforms.bloomParams,
+				threshold,
+				softKnee,
+				intensity,
+				radius
+			);
+		}
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.bindVertexArray(null);
 

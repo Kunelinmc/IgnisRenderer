@@ -30,12 +30,14 @@ function run() {
 		enableTAA: false,
 		enableSSR: false,
 		enableVolumetric: false,
+		enableBloom: false,
 		enableFXAA: true,
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
+		bloomOptions: {},
 	};
 
 	const frame = createFrame({
@@ -51,6 +53,7 @@ function run() {
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
+		enableBloom: true,
 	});
 
 	assert.deepEqual(
@@ -67,6 +70,7 @@ function run() {
 			"taa",
 			"ssr",
 			"volumetric",
+			"bloom",
 			"fxaa",
 			"gamma",
 		]
@@ -94,6 +98,7 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === "taa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "ssr")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "bloom")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
 

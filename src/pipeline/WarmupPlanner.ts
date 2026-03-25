@@ -152,6 +152,7 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	if (context.features.enableTAA) passes.push("taa");
 	if (context.features.enableSSR) passes.push("ssr");
 	if (context.features.enableVolumetric) passes.push("volumetric");
+	if (context.features.enableBloom) passes.push("bloom");
 	if (context.features.enableFXAA) passes.push("fxaa");
 	if (context.features.enableGamma) passes.push("gamma");
 	return passes;

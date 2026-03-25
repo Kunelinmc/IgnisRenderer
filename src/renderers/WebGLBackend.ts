@@ -28,6 +28,7 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"ssao",
 	"fxaa",
 	"taa",
+	"bloom",
 	"gamma",
 ]);
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
@@ -48,6 +49,7 @@ export class WebGLBackend implements IRenderBackend {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		bloom: true,
 	};
 
 	private _renderer: RendererBackendBridge | null = null;

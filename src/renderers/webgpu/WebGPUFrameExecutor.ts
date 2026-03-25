@@ -44,6 +44,7 @@ const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"taa",
 	"ssr",
 	"volumetric",
+	"bloom",
 	"fxaa",
 	"gamma",
 ]);
@@ -472,9 +473,23 @@ export class WebGPUFrameExecutor {
 				},
 			},
 			{
-				id: "fxaa",
+				id: "bloom",
 				kind: "compute",
 				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:bloom"],
+				isEnabled: (features) => features.enableBloom,
+				execute: async (ctx) => {
+					await this._postRuntime.executeBloom(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext
+					);
+				},
+			},
+			{
+				id: "fxaa",
+				kind: "compute",
+				dependsOn: ["bloom"],
 				precompileHints: ["postprocess:fxaa"],
 				isEnabled: (features) => features.enableFXAA,
 				execute: async (ctx) => {
@@ -1101,6 +1116,7 @@ export class WebGPUFrameExecutor {
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
 			`|ssr:${context.features.enableSSR ? 1 : 0}` +
 			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
+			`|bloom:${context.features.enableBloom ? 1 : 0}` +
 			`|fxaa:${context.features.enableFXAA ? 1 : 0}`;
 
 		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {

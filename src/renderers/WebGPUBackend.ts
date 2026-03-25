@@ -204,7 +204,8 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["taa", ["ssao"]],
 	["ssr", ["taa"]],
 	["volumetric", ["ssr"]],
-	["fxaa", ["volumetric"]],
+	["bloom", ["volumetric"]],
+	["fxaa", ["bloom"]],
 	["gamma", ["fxaa"]],
 ]);
 
@@ -224,6 +225,7 @@ export class WebGPUBackend implements IRenderBackend {
 		taa: true,
 		ssr: true,
 		volumetric: true,
+		bloom: true,
 	};
 
 	public canvas: HTMLCanvasElement | null = null;
@@ -2207,6 +2209,9 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableVolumetric) {
 			this._plannedPasses.add("volumetric");
+		}
+		if (context.features.enableBloom) {
+			this._plannedPasses.add("bloom");
 		}
 		if (context.features.enableFXAA) {
 			this._plannedPasses.add("fxaa");

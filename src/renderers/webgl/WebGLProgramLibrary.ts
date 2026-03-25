@@ -18,6 +18,7 @@ import {
 import {
 	WEBGL_COPY_FRAGMENT_SHADER,
 	WEBGL_COPY_VERTEX_SHADER,
+	WEBGL_BLOOM_FRAGMENT_SHADER,
 	WEBGL_FXAA_FRAGMENT_SHADER,
 	WEBGL_FXAA_VERTEX_SHADER,
 	WEBGL_PARTICLE_FRAGMENT_SHADER,
@@ -213,6 +214,15 @@ export interface WebGLFXAAProgram {
 	};
 }
 
+export interface WebGLBloomProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+		bloomParams: WebGLUniformLocation | null;
+	};
+}
+
 type WarnFn = (key: string, message: string) => void;
 
 const SCENE_SHADER_SOURCE = createWebGLSceneShaderSource({
@@ -245,6 +255,7 @@ export class WebGLProgramLibrary {
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
+	private _bloomProgram: WebGLBloomProgram | null = null;
 
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
 	private _copyProgram: WebGLCopyProgram | null = null;
@@ -569,6 +580,26 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._fxaaProgram;
+	}
+
+	public getBloomProgram(): WebGLBloomProgram {
+		if (this._bloomProgram) {
+			return this._bloomProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_BLOOM_FRAGMENT_SHADER,
+			"WebGLBloomProgram"
+		);
+		this._bloomProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				bloomParams: this._gl.getUniformLocation(program, "uBloomParams"),
+			},
+		};
+		return this._bloomProgram;
 	}
 
 	public getShadowDepthProgram(): WebGLShadowDepthProgram {
@@ -958,6 +989,10 @@ export class WebGLProgramLibrary {
 		if (this._fxaaProgram) {
 			this._gl.deleteProgram(this._fxaaProgram.program);
 			this._fxaaProgram = null;
+		}
+		if (this._bloomProgram) {
+			this._gl.deleteProgram(this._bloomProgram.program);
+			this._bloomProgram = null;
 		}
 		if (this._shadowDepthProgram) {
 			this._gl.deleteProgram(this._shadowDepthProgram.program);

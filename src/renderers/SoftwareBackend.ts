@@ -47,6 +47,7 @@ export class SoftwareBackend implements IRenderBackend {
 		taa: false,
 		ssr: false,
 		volumetric: true,
+		bloom: false,
 	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 

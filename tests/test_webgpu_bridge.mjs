@@ -341,6 +341,7 @@ function testFeatureGate() {
 			enableTAA: true,
 			enableSSR: true,
 			enableVolumetric: true,
+			enableBloom: true,
 		},
 		{
 			sh: false,
@@ -351,6 +352,7 @@ function testFeatureGate() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			bloom: false,
 		},
 		"webgpu"
 	);
@@ -365,10 +367,12 @@ function testFeatureGate() {
 	assert.equal(featureState.enableTAA, false);
 	assert.equal(featureState.enableSSR, false);
 	assert.equal(featureState.enableVolumetric, false);
+	assert.equal(featureState.enableBloom, false);
 	assert.ok(featureState.ssaoOptions);
 	assert.ok(featureState.taaOptions);
 	assert.ok(featureState.ssrOptions);
 	assert.ok(featureState.volumetricOptions);
+	assert.ok(featureState.bloomOptions);
 	assert.equal(featureState.ssaoOptions.downsample, 2);
 	assert.equal(featureState.ssaoOptions.blurRadius, 2);
 	assert.equal(featureState.ssaoOptions.blurSharpness, 8);
@@ -382,7 +386,11 @@ function testFeatureGate() {
 	assert.equal(featureState.ssrOptions.binarySearchSteps, 6);
 	assert.equal(featureState.ssrOptions.edgeFade, 0.12);
 	assert.equal(featureState.ssrOptions.maxRoughness, 0.85);
-	assert.ok(featureState.warnings.length >= 7);
+	assert.equal(featureState.bloomOptions.threshold, 1);
+	assert.equal(featureState.bloomOptions.softKnee, 0.5);
+	assert.equal(featureState.bloomOptions.intensity, 0.8);
+	assert.equal(featureState.bloomOptions.radius, 1);
+	assert.ok(featureState.warnings.length >= 8);
 }
 
 async function testSceneShaderCoverage() {

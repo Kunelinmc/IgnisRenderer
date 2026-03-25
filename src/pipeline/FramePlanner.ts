@@ -12,6 +12,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"bloom",
 	"fxaa",
 	"gamma",
 ];
@@ -58,6 +59,8 @@ function shouldEnablePass(
 			return features.enableSSR;
 		case "volumetric":
 			return features.enableVolumetric;
+		case "bloom":
+			return features.enableBloom;
 		case "fxaa":
 			return features.enableFXAA;
 		case "gamma":

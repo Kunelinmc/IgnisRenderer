@@ -114,6 +114,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"bloom",
 	"fxaa",
 	"gamma",
 ] as const;
@@ -180,6 +181,14 @@ export interface TAAOptions {
 	motionFactor?: number;
 	varianceClampGamma?: number;
 	sharpen?: number;
+	[key: string]: unknown;
+}
+
+export interface BloomOptions {
+	threshold?: number;
+	softKnee?: number;
+	intensity?: number;
+	radius?: number;
 	[key: string]: unknown;
 }
 
@@ -289,6 +298,15 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 	restirScaleClamp: 24,
 };
 
+export const DEFAULT_BLOOM_OPTIONS: Required<
+	Pick<BloomOptions, "threshold" | "softKnee" | "intensity" | "radius">
+> = {
+	threshold: 1,
+	softKnee: 0.5,
+	intensity: 0.8,
+	radius: 1,
+};
+
 export interface FeatureWarning {
 	key: string;
 	message: string;
@@ -305,11 +323,13 @@ export interface RendererFeatureRequest {
 	enableTAA?: boolean;
 	enableSSR?: boolean;
 	enableVolumetric?: boolean;
+	enableBloom?: boolean;
 	enableFXAA?: boolean;
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
+	bloomOptions?: BloomOptions;
 }
 
 export interface ResolvedFeatureState {
@@ -323,10 +343,12 @@ export interface ResolvedFeatureState {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableBloom: boolean;
 	enableFXAA: boolean;
 	warnings: FeatureWarning[];
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
+	bloomOptions?: BloomOptions;
 }

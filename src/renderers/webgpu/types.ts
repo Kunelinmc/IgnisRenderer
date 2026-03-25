@@ -1,6 +1,6 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import type { TAAOptions } from "../../pipeline/types";
+import type { BloomOptions, TAAOptions } from "../../pipeline/types";
 import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { Texture } from "../../core/Texture";
 
@@ -80,7 +80,9 @@ export interface WebGPUFeatureState {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableBloom: boolean;
 	taaOptions?: TAAOptions;
+	bloomOptions?: BloomOptions;
 	warnings: WebGPUWarning[];
 }
 
