@@ -18,7 +18,7 @@ import {
 	createWarmupReport,
 	finalizeWarmupReport,
 	toShaderCompileError,
-} from "./warmup/WarmupPlanner";
+} from "../pipeline/WarmupPlanner";
 
 const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"shadow",

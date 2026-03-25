@@ -1,14 +1,14 @@
-import { ShaderMaterial } from "../../materials/ShaderMaterial";
-import type { Material } from "../../materials/Material";
-import type { FrameContext } from "../../pipeline/types";
-import { ShaderCompileError } from "../../shaders/runtime";
-import type { ShaderCompilerBackend } from "../../shaders/runtime/errorMapping";
+import { ShaderMaterial } from "../materials/ShaderMaterial";
+import type { Material } from "../materials/Material";
+import type { FrameContext } from "./types";
+import { ShaderCompileError } from "../shaders/runtime";
+import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
 	RenderBackendType,
 	WarmupOptions,
 	WarmupPhaseReport,
 	WarmupReport,
-} from "../IRenderBackend";
+} from "../renderers/IRenderBackend";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 

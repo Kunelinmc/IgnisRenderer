@@ -35,8 +35,8 @@ import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
-} from "../warmup/WarmupPlanner";
-import { toShaderCompileError } from "../warmup/WarmupPlanner";
+} from "../../pipeline/WarmupPlanner";
+import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
 
 const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([

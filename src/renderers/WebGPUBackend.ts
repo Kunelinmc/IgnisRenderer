@@ -82,7 +82,7 @@ import {
 	createWarmupReport,
 	finalizeWarmupReport,
 	toShaderCompileError,
-} from "./warmup/WarmupPlanner";
+} from "../pipeline/WarmupPlanner";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;

@@ -25,7 +25,7 @@ import type { WebGPULightingState } from "./types";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { clamp } from "../../maths/Common";
 import type { ShaderCompileError } from "../../shaders/runtime";
-import { toShaderCompileError } from "../warmup/WarmupPlanner";
+import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 
 const WORKGROUP_SIZE = 8;
 
