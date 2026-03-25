@@ -6,8 +6,8 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 - **IgnisRenderer** is a high-performance 3D rendering engine built in TypeScript.
 - **Rendering Backends**:
-	- **SoftwareBackend**: Multi-threaded CPU rasterizer pipeline with custom PBR shading.
-	- **WebGPUBackend**: Hardware-accelerated pipeline with advanced post-processing features.
+	- **SoftwareBackend**: Multi-threaded CPU rasterizer with modular executors for rasterization, light evaluation, and post-processing.
+	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
 - **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a compatibility facade. Integrated with Animation, Physics, and Particle simulation stages.
 
@@ -74,19 +74,28 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- `transports.ts`: Efficient zero-copy data transfer using `SharedArrayBuffer` where available.
 
 ### Advanced Rendering Features
-- **WebGPU Post-Processing Graph**: Modular plugin system supporting SSAO, SSR, TAA, FXAA, and Volumetric Lighting.
+- **WebGPU Post-Processing Graph**: Modular plugin system supporting:
+    - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
+    - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.
+    - **SSR**: Screen-Space Reflections using **Hi-Z (Hierarchical Z-Buffer)** tracing.
+    - **Volumetric Lighting**: Featuring **ReSTIR (Reservoir Spatiotemporal Importance Resampling)** for high-quality light scattering.
+    - **Bloom**: Advanced HDR bloom with thresholding and soft-knee curves.
+    - **FXAA**: Fast Approximate Anti-Aliasing for broad compatibility.
+- **Warmup System**: Robust pre-compilation phase (`WarmupPlanner`) to ensure all necessary pipelines and resources are prepared before rendering based on scene features.
 - **Pipeline Stages**:
 	1. **Feature Resolution**: Detects requirements (Shadows, IBL, Post-processing).
-	2. **Sync In**: Syncs `Node` state to ECS.
-	3. **Simulation**: Animation, Physics.
-	4. **Transform Update**: Updates world matrices for the scene.
-	5. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance`.
-	6. **Backend Dispatch**: Software rasterization, GPU command encoding, or WebGL batching.
-	7. **Sync Out**: Syncs ECS results back to `Node`.
+	2. **Warmup**: Pre-compiles shaders and pipelines if needed.
+	3. **Sync In**: Syncs `Node` state to ECS.
+	4. **Simulation**: Animation, Physics.
+	5. **Transform Update**: Updates world matrices for the scene.
+	6. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance`.
+	7. **Backend Dispatch**: Software rasterization, GPU command encoding, or WebGL batching.
+	8. **Sync Out**: Syncs ECS results back to `Node`.
 
 ### Shader Management
 - **Avoid Inlining**: Do not embed shader code as long strings within TypeScript files. Use separate `.wgsl` or `.glsl` files.
-- **Shader Runtime**: `src/shaders/runtime.ts` handles dynamic shader preprocessing, including `#include` resolution and feature-based permutation generation.
+- **Shader Runtime (`src/shaders/runtime/`)**: Advanced rule-based shader transformation system. Supports custom rules, validation, injection, and source mapping. 
+- **Reorganized Folders**: Shader files are organized by backend applicability: `src/shaders/software/`, `src/shaders/webgpu/`, `src/shaders/webgl/`.
 
 ## Core Conventions
 
@@ -123,7 +132,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **Time Units**: ALL simulation logic MUST use seconds. Use `deltaTimeSeconds` suffix.
 - **Zero-Allocation Loops**: Use pre-allocated math objects (e.g., `_tempVec`) and avoid `new` inside hot paths.
 - **Adapter Pattern**: Used for Physics to allow switching backend implementations.
-- **Resource Management**: Use explicit `.destroy()` methods. A `FinalizationRegistry` (in `WebGPUBackend`) acts as a safety net for GPU resources.
+- **Resource Management**: Use explicit `.destroy()` methods. Managed through specialized backend registries (e.g., `WebGPUTextureRegistry`) with `FinalizationRegistry` as a safety net.
 
 ## Collaboration Workflow
 1. Maintain backend-agnostic contracts in `src/core/` and `src/pipeline/`.

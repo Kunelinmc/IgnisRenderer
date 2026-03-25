@@ -14,13 +14,14 @@ IgnisRenderer is a high-performance 3D rendering engine built from the ground up
 ## 🚀 Key Features
 
 - **Triple-Backend Support**:
-    - **SoftwareBackend**: A high-efficiency CPU rasterizer implementing custom PBR shading without hardware acceleration dependencies.
-    - **WebGPUBackend**: For next-gen hardware performance, featuring an advanced post-processing graph and WGSL shaders.
+    - **SoftwareBackend**: A high-efficiency CPU rasterizer implementing custom PBR shading with modular executors for rasterization and lighting.
+    - **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
     - **WebGLBackend**: Modern V1 implementation ensuring broad device compatibility.
 - **Advanced Rendering Pipeline**:
     - Physically Based Rendering (PBR) with full IBL (Image-Based Lighting) support.
     - Real-time Shadowing system featuring PCSS and Cascaded Shadow Maps (CSM).
-    - Post-Processing Suite: SSR, SSAO, TAA, FXAA, and Volumetric Lighting effects.
+    - Post-Processing Suite: SSR, SSAO, TAA, FXAA, and **Bloom** (HDR with soft-knee thresholding).
+    - Advanced Volumetric Lighting featuring **ReSTIR** (Reservoir Spatiotemporal Importance Resampling).
 - **Deep Simulation Integration**:
     - **Animation**: Skeletal systems with complex blend trees and hierarchical state machines.
     - **Physics**: Adapter-based integration for Rapier3D and Ammo.js with real-time scene synchronization.
@@ -37,17 +38,18 @@ The codebase is organized into modular directories, separating core abstractions
 ### `src/` - Source Code
 - **`core/`**: Fundamental abstractions including Scene Graph management (`Node`, `Scene`) and Resource types (`Texture`).
 - **`ecs/`**: The underlying Entity Component System managing high-performance data storage and entity state.
-- **`renderers/`**: Multi-backend implementations. Contains specialized logic for Software, WebGL, and WebGPU pipelines.
+- **`renderers/`**: Multi-backend implementations. Contains specialized logic for Software, WebGL, and WebGPU pipelines, organized into subdirectories for delegated execution.
 - **`pipeline/`**: The execution frame graph, responsible for feature resolution, frame planning, and draw call preparation.
 - **`simulation/`**: Unified simulation layer for animation, physics, and particles.
 - **`foundation/`**: Core primitives (Color, IdGenerator, Logger, Platform) used engine-wide.
 - **`workers/`**: Parallel processing infrastructure and `WorkerScheduler` for multi-threaded tasks.
-- **`shaders/`**: Centralized shader source repository containing WGSL and GLSL modules.
+- **`shaders/`**: Centralized shader repository. Includes a powerful **Rule-Based Shader Runtime** (`runtime/`) and backend-specific shader modules (`software/`, `webgpu/`, `webgl/`).
 - **`animation/`, `physics/`, `particles/`: Data structures and high-level systems for specialty simulations.
 - **`maths/`**: A optimized math library focused on performance and memory efficiency.
 - **`loaders/`**: Resource acquisition logic, featuring a robust glTF 2.0 parser.
 - **`materials/` & `meshes/`**: Assets management for PBR shading and geometric data representation.
 - **`cameras/` & `lights/`**: Specialized scene objects for view control and illumination.
+- **`addons/`**: Extensibility folder for community and experimental features.
 
 ### `tests/` - Testing Suite
 - Comprehensive suite of over 50 automated tests covering lighting accuracy, physics consistency, animation state blending, and backend-specific feature verification.
@@ -61,7 +63,8 @@ The engine has transitioned to an **ECS-first architecture**. While traditional 
 
 ### 2. Multi-Stage Execution Pipeline
 Each frame undergoes a rigid sequence of operations:
-- **Feature Resolution**: The `FeatureResolver` inspects the scene to determine active requirements (e.g., specific shadow types, IBL requirements, or post-processing passes).
+- **Feature Resolution**: The `FeatureResolver` inspects the scene to determine active requirements.
+- **Warmup**: A robust pre-compilation phase (`WarmupPlanner`) prepares all necessary pipelines and resources before rendering.
 - **Sync In**: Transfers manual `Node` changes into the `ECSWorld`.
 - **Simulation Flow**: Animation, physics, and particle stages update their respective states in a unified timeline.
 - **Prepared Scene Construction**: Values are collected into optimized draw packets, decoupling the scene graph from backend dispatches.
@@ -69,8 +72,8 @@ Each frame undergoes a rigid sequence of operations:
 - **Sync Out**: Propagates simulation results from ECS back to the `Node` facade.
 
 ### 3. Backend Strategy
-- **Software Rasterizer**: Employs advanced CPU-side algorithms for sub-pixel accuracy and PBR shading, serving as both a fallback and a benchmark for hardware backends. Multi-threading is enabled via the `WorkerScheduler`.
-- **Modern Hardware Backends**: The WebGPU implementation leverages a state-of-the-art post-processing graph, while the WebGL V1 backend provides a stable bridge for legacy devices.
+- **Software Rasterizer**: Employs advanced CPU-side algorithms for sub-pixel accuracy and PBR shading. Multi-threading is enabled via the `WorkerScheduler`.
+- **Modern Hardware Backends**: The WebGPU implementation leverages a state-of-the-art post-processing graph and a delegated resource management system.
 
 ### 4. Mathematical Optimization
 To maintain performance in the Software backend and reduce GC pressure during hardware command encoding, the `maths` library uses pre-allocated objects and in-place mutations. The coordinate system is right-handed (Y-up) with a standard NDC range.
