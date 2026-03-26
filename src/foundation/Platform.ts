@@ -5,8 +5,16 @@ export interface PlatformNavigatorGPU {
 	getPreferredCanvasFormat?: (...args: unknown[]) => unknown;
 }
 
+interface PlatformNavigatorUserAgentDataLike {
+	mobile?: boolean;
+}
+
 interface PlatformNavigatorLike {
 	hardwareConcurrency?: number;
+	maxTouchPoints?: number;
+	platform?: string;
+	userAgent?: string;
+	userAgentData?: PlatformNavigatorUserAgentDataLike;
 	gpu?: PlatformNavigatorGPU;
 }
 
@@ -55,6 +63,8 @@ export interface PlatformFeatureSummary {
 }
 
 const DEFAULT_HARDWARE_CONCURRENCY_FALLBACK = 4;
+const MOBILE_USER_AGENT_PATTERN =
+	/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Windows Phone|Mobile/i;
 
 function resolveScope(scope?: unknown): PlatformScopeLike {
 	return (scope ?? globalThis) as PlatformScopeLike;
@@ -118,6 +128,48 @@ export class Platform {
 		const resolved = resolveScope(scope);
 		if (!resolved.window || typeof resolved.window !== "object") return false;
 		return typeof resolved.document?.createElement === "function";
+	}
+
+	/**
+	 * Returns true when touch input capability appears to be available.
+	 */
+	public static isTouchDevice(scope: unknown = globalThis): boolean {
+		const resolved = resolveScope(scope);
+		const maxTouchPoints = resolved.navigator?.maxTouchPoints;
+		if (
+			typeof maxTouchPoints === "number" &&
+			Number.isFinite(maxTouchPoints) &&
+			maxTouchPoints > 0
+		) {
+			return true;
+		}
+
+		const windowValue = resolved.window;
+		return !!windowValue && typeof windowValue === "object" &&
+			"ontouchstart" in windowValue;
+	}
+
+	/**
+	 * Returns true when the current client appears to be a mobile device.
+	 */
+	public static isMobileDevice(scope: unknown = globalThis): boolean {
+		const navigatorValue = resolveScope(scope).navigator;
+		const mobileFromUserAgentData = navigatorValue?.userAgentData?.mobile;
+		if (typeof mobileFromUserAgentData === "boolean") {
+			return mobileFromUserAgentData;
+		}
+
+		const userAgent = navigatorValue?.userAgent;
+		if (
+			typeof userAgent === "string" &&
+			userAgent.length > 0 &&
+			MOBILE_USER_AGENT_PATTERN.test(userAgent)
+		) {
+			return true;
+		}
+
+		const platform = navigatorValue?.platform;
+		return platform === "MacIntel" && Platform.isTouchDevice(scope);
 	}
 
 	/**

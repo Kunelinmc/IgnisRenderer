@@ -79,11 +79,52 @@ function testFallbackHardwareConcurrency() {
 	assert.equal(Platform.getHardwareConcurrency(0, fakeScope), 1);
 }
 
+function testTouchAndMobileDetection() {
+	const touchMobileScope = {
+		window: {
+			ontouchstart: null,
+		},
+		navigator: {
+			maxTouchPoints: 5,
+			userAgent:
+				"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) " +
+				"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 " +
+				"Mobile/15E148 Safari/604.1",
+		},
+	};
+
+	const desktopScope = {
+		window: {},
+		navigator: {
+			maxTouchPoints: 0,
+			userAgent:
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+				"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 " +
+				"Safari/537.36",
+		},
+	};
+
+	const mobileFromUserAgentDataScope = {
+		navigator: {
+			userAgentData: {
+				mobile: true,
+			},
+		},
+	};
+
+	assert.equal(Platform.isTouchDevice(touchMobileScope), true);
+	assert.equal(Platform.isMobileDevice(touchMobileScope), true);
+	assert.equal(Platform.isTouchDevice(desktopScope), false);
+	assert.equal(Platform.isMobileDevice(desktopScope), false);
+	assert.equal(Platform.isMobileDevice(mobileFromUserAgentDataScope), true);
+}
+
 function run() {
 	testNodeRuntimeDetection();
 	testSyntheticBrowserScopeDetection();
 	testSyntheticWorkerScopeDetection();
 	testFallbackHardwareConcurrency();
+	testTouchAndMobileDetection();
 	console.log("Platform detection tests passed");
 }
 
