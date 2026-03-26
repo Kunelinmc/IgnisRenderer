@@ -243,10 +243,18 @@ function writeString(writer: BinaryBufferWriter, value: string): void {
 	writer.writeBytes(bytes);
 }
 
+function toTextDecodableBytes(bytes: Uint8Array): Uint8Array {
+	if (!Platform.hasSharedArrayBuffer()) return bytes;
+	if (!(bytes.buffer instanceof SharedArrayBuffer)) return bytes;
+	const copy = new Uint8Array(bytes.byteLength);
+	copy.set(bytes);
+	return copy;
+}
+
 function readString(reader: BinaryBufferReader): string {
 	const byteLength = reader.readUint32();
 	const bytes = reader.readBytes(byteLength);
-	return getTextDecoder().decode(bytes);
+	return getTextDecoder().decode(toTextDecodableBytes(bytes));
 }
 
 function writeStructuredValue(

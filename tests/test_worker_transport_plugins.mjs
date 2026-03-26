@@ -143,6 +143,71 @@ async function testSharedArrayBufferTransportRoundtrip() {
 	scheduler.shutdownAll();
 }
 
+async function testSharedArrayBufferDecodeWithSharedViewRestriction() {
+	if (typeof SharedArrayBuffer !== "function") {
+		return;
+	}
+	if (typeof TextDecoder !== "function") {
+		return;
+	}
+	const OriginalTextDecoder = globalThis.TextDecoder;
+	class BrowserLikeTextDecoder extends OriginalTextDecoder {
+		decode(input, options) {
+			if (
+				input &&
+				typeof input === "object" &&
+				"buffer" in input &&
+				input.buffer instanceof SharedArrayBuffer
+			) {
+				throw new TypeError(
+					"The provided ArrayBufferView value must not be shared."
+				);
+			}
+			return super.decode(input, options);
+		}
+	}
+	globalThis.TextDecoder = BrowserLikeTextDecoder;
+	try {
+		const payload = {
+			label: "shared-view",
+			metadata: {
+				info: "decode-string",
+			},
+		};
+		const encodedTask = sharedArrayBufferWorkerTransportPlugin.encodeTask({
+			id: 9,
+			payload,
+		});
+		const decodedTask = sharedArrayBufferWorkerTransportPlugin.decodeTask(
+			encodedTask.message
+		);
+		assert.deepEqual(decodedTask, {
+			id: 9,
+			payload,
+		});
+
+		const encodedResult = sharedArrayBufferWorkerTransportPlugin.encodeResult({
+			id: 9,
+			result: {
+				ok: true,
+			},
+			error: "shared-string",
+		});
+		const decodedResult = sharedArrayBufferWorkerTransportPlugin.decodeResult(
+			encodedResult.message
+		);
+		assert.deepEqual(decodedResult, {
+			id: 9,
+			result: {
+				ok: true,
+			},
+			error: "shared-string",
+		});
+	} finally {
+		globalThis.TextDecoder = OriginalTextDecoder;
+	}
+}
+
 async function testCustomTransportPlugin() {
 	const customTransportPlugin = {
 		id: "custom-wrap",
@@ -208,6 +273,7 @@ async function testCustomTransportPlugin() {
 async function run() {
 	await testAutoFallbackToPostMessage();
 	await testSharedArrayBufferTransportRoundtrip();
+	await testSharedArrayBufferDecodeWithSharedViewRestriction();
 	await testCustomTransportPlugin();
 	console.log("Worker transport plugin tests passed");
 }
