@@ -1,7 +1,7 @@
 {
 	"name": "ignisrenderer",
 	"version": "1.0.0",
-	"description": "A high-performance 3D software rendering engine built entirely from scratch in TypeScript, implementing a complete graphics pipeline on the CPU.",
+	"description": "A high-performance 3D rendering engine built entirely from scratch in TypeScript, integrating a comprehensive CPU-based graphics pipeline as well as accelerated WebGL and WebGPU rendering pipelines for modern GPU rendering.",
 	"main": "index.js",
 	"directories": {
 		"test": "tests"
