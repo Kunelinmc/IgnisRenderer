@@ -44,7 +44,7 @@ The codebase is organized into modular directories, separating core abstractions
 - **`foundation/`**: Core primitives (Color, IdGenerator, Logger, Platform) used engine-wide.
 - **`workers/`**: Parallel processing infrastructure and `WorkerScheduler` for multi-threaded tasks.
 - **`shaders/`**: Centralized shader repository. Includes a powerful **Rule-Based Shader Runtime** (`runtime/`) and backend-specific shader modules (`software/`, `webgpu/`, `webgl/`).
-- **`animation/`, `physics/`, `particles/`: Data structures and high-level systems for specialty simulations.
+- **`animation/`, `physics/`, `particles/`**: Data structures and high-level systems for specialty simulations.
 - **`maths/`**: A optimized math library focused on performance and memory efficiency.
 - **`loaders/`**: Resource acquisition logic, featuring a robust glTF 2.0 parser.
 - **`materials/` & `meshes/`**: Assets management for PBR shading and geometric data representation.
