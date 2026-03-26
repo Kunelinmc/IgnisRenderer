@@ -5,6 +5,8 @@ export { Box2 } from "./maths/Box2";
 export { Box3 } from "./maths/Box3";
 export { Matrix3 } from "./maths/Matrix3";
 export { Matrix4 } from "./maths/Matrix4";
+export { Quaternion } from "./maths/Quaternion";
+
 export * from "./maths/Common";
 export * from "./maths/types";
 export * from "./foundation/Color";
