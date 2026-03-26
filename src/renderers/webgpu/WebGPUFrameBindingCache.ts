@@ -22,6 +22,7 @@ import {
 	computeHaltonJitterNDC,
 	TAA_HALTON_SAMPLE_COUNT,
 } from "./postProcessMath";
+import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
@@ -61,7 +62,8 @@ export class WebGPUFrameBindingCache {
 		environmentState: WebGPUEnvironmentState,
 		features: WebGPUFeatureState,
 		renderWidth: number,
-		renderHeight: number
+		renderHeight: number,
+		sceneTargetMode: WebGPUSceneTargetMode
 	): void {
 		const viewElements = frame.camera.viewMatrix.elements;
 		const isOrthographic = frame.camera.type === CameraType.Orthographic;
@@ -101,9 +103,14 @@ export class WebGPUFrameBindingCache {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
 			enableShadows: features.enableShadows,
+			encodeGammaInShader:
+				features.enableGamma && sceneTargetMode === "single",
 			enableSH: environmentState.enableSH,
 			hasSHAmbient: environmentState.hasSHAmbient,
 			hasSkybox: !!environmentState.skyboxTexture,
+			skyboxIsLinear:
+				!environmentState.skyboxTexture ||
+				environmentState.skyboxTexture.colorSpace !== "sRGB",
 			hasEnvSpecular: !!environmentState.envSpecularTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,

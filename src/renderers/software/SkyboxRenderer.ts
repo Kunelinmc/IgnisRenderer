@@ -1,6 +1,7 @@
 import type { Camera } from "../../cameras/Camera";
 import { CameraType } from "../../cameras/Camera";
 import type { Texture } from "../../core/Texture";
+import { sRGBToLinear } from "../../maths/Common";
 
 export class SkyboxRenderer {
 	public static render(
@@ -10,6 +11,7 @@ export class SkyboxRenderer {
 		width: number,
 		height: number
 	): void {
+		const decodeSRGB = skybox.colorSpace === "sRGB";
 		const view = camera.viewMatrix.elements;
 		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
 		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
@@ -40,9 +42,24 @@ export class SkyboxRenderer {
 				const v = theta / Math.PI;
 				const color = skybox.sample(u, v);
 				const idx = rowBase + x * 4;
-				pixels[idx] = color.r;
-				pixels[idx + 1] = color.g;
-				pixels[idx + 2] = color.b;
+				if (decodeSRGB) {
+					pixels[idx] = Math.max(
+						0,
+						Math.min(255, Math.round(sRGBToLinear(color.r / 255) * 255))
+					);
+					pixels[idx + 1] = Math.max(
+						0,
+						Math.min(255, Math.round(sRGBToLinear(color.g / 255) * 255))
+					);
+					pixels[idx + 2] = Math.max(
+						0,
+						Math.min(255, Math.round(sRGBToLinear(color.b / 255) * 255))
+					);
+				} else {
+					pixels[idx] = color.r;
+					pixels[idx + 1] = color.g;
+					pixels[idx + 2] = color.b;
+				}
 				pixels[idx + 3] = 255;
 			}
 		}

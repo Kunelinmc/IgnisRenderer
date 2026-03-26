@@ -72,6 +72,10 @@ fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
 	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
 }
 
+fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
+	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+}
+
 @fragment
 fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 	let right = frame.skyboxBasisRight.xyz;
@@ -89,8 +93,11 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 	let theta = acos(clamp(direction.y, -1.0, 1.0));
 	let uv = vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
 	var skyColor = textureSample(skyboxTexture, skyboxSampler, uv).rgb;
+	if (frame.environmentOptionsB.z < 0.5) {
+		skyColor = srgbToLinear(skyColor);
+	}
 
-	if (frame.options.y > 0.5) {
+	if (frame.options.w > 0.5) {
 		skyColor = linearToSrgb(skyColor);
 	}
 

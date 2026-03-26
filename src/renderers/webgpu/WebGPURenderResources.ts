@@ -366,7 +366,8 @@ export class WebGPURenderResources {
 			this._environmentState,
 			featureState,
 			renderWidth,
-			renderHeight
+			renderHeight,
+			this._sceneTargetMode
 		);
 		this._materialBindings.beginFrame();
 		this._evictParticleBindings();

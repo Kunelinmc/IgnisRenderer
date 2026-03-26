@@ -142,8 +142,10 @@ export interface WebGPUFrameUniformInput {
 	enableGamma: boolean;
 	enableShadows: boolean;
 	enableSH: boolean;
+	encodeGammaInShader: boolean;
 	hasSHAmbient: boolean;
 	hasSkybox: boolean;
+	skyboxIsLinear: boolean;
 	hasEnvSpecular: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;

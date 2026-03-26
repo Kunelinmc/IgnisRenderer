@@ -109,7 +109,7 @@ export function packFrameUniformData(
 			input.enableLighting ? 1 : 0,
 			input.enableGamma ? 1 : 0,
 			input.enableShadows ? 1 : 0,
-			0,
+			input.encodeGammaInShader ? 1 : 0,
 		],
 		56
 	);
@@ -123,7 +123,12 @@ export function packFrameUniformData(
 		60
 	);
 	data.set(
-		[input.hasBRDFLUT ? 1 : 0, Math.max(0, input.envSpecularMaxMipLevel), 0, 0],
+		[
+			input.hasBRDFLUT ? 1 : 0,
+			Math.max(0, input.envSpecularMaxMipLevel),
+			input.skyboxIsLinear ? 1 : 0,
+			0,
+		],
 		64
 	);
 	data.set(input.taaJitterCurrentPrev, 68);

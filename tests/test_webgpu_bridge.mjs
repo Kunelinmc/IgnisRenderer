@@ -428,6 +428,8 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("prevViewProjection"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("taaJitterCurrentPrev"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("frame.environmentOptionsB.z < 0.5"));
+	assert.ok(WEBGPU_SKYBOX_SHADER.includes("frame.options.w > 0.5"));
 }
 
 async function testParticleShaderDepthConsistency() {

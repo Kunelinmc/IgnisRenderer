@@ -466,8 +466,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._prepareFramePassPlan(context);
 		this._executedPasses.clear();
 		this._particleSimulator?.beginFrame(context);
-		this._resources.prepareFrame(context);
 		this._frameExecutor.beginFrame(context);
+		this._resources.prepareFrame(context);
 	}
 
 	public executePass(
