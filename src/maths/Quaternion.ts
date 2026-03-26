@@ -46,7 +46,6 @@ export class Quaternion {
 		return this;
 	}
 
-
 	public static fromEuler(x: number, y: number, z: number): Quaternion {
 		const c1 = Math.cos(x / 2);
 		const c2 = Math.cos(y / 2);
@@ -132,6 +131,15 @@ export class Quaternion {
 			q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
 			q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
 		);
+	}
+
+	public multiply(q: Quaternion): this {
+		const result = Quaternion.multiply(this, q);
+		this.x = result.x;
+		this.y = result.y;
+		this.z = result.z;
+		this.w = result.w;
+		return this;
 	}
 
 	public static slerp(q1: Quaternion, q2: Quaternion, t: number): Quaternion {
