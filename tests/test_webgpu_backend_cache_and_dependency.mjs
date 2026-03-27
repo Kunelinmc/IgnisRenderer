@@ -589,6 +589,66 @@ function testPassDependencyValidation() {
 	);
 }
 
+function testPassPlanAllowsParticleStageBeforeMainOpaque() {
+	const { backend } = createBackend();
+	backend._resources = {
+		prepareFrame() {},
+	};
+	backend._frameExecutor = {
+		beginFrame() {},
+		executePass() {},
+		endFrame() {},
+		destroy() {},
+		invalidateFrameTargets() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {},
+	};
+
+	const context = createFrameContext({
+		scene: {
+			particleSystems: [{ id: "ps-0" }],
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			shadowTransmitterPackets: [],
+			reflectivePackets: [],
+		},
+	});
+	backend.beginFrame(context);
+
+	assert.ok(
+		backend._plannedPassOrder.get("particle-sim") <
+			backend._plannedPassOrder.get("main-opaque")
+	);
+	assert.ok(
+		backend._plannedPassOrder.get("main-opaque") <
+			backend._plannedPassOrder.get("particles")
+	);
+
+	assert.doesNotThrow(() =>
+		backend.executePass(
+			{ stage: "particle-sim", executor: "backend", enabled: true },
+			context
+		)
+	);
+	assert.doesNotThrow(() =>
+		backend.executePass(
+			{ stage: "main-opaque", executor: "backend", enabled: true },
+			context
+		)
+	);
+	assert.doesNotThrow(() =>
+		backend.executePass(
+			{ stage: "particles", executor: "backend", enabled: true },
+			context
+		)
+	);
+}
+
 async function testWarmupAggregatesPhases() {
 	const { backend } = createBackend();
 	backend._frameExecutor = {
@@ -635,6 +695,7 @@ async function run() {
 	testCreateTextureClampsPublicDimensions();
 	testCommandBufferOwnershipAndOneShotSubmit();
 	testPassDependencyValidation();
+	testPassPlanAllowsParticleStageBeforeMainOpaque();
 	await testWarmupAggregatesPhases();
 	console.log("WebGPU backend cache/dependency tests passed");
 }

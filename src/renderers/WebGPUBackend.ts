@@ -2181,12 +2181,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _prepareFramePassPlan(context: FrameContext): void {
 		this._plannedPasses.clear();
 		this._plannedPassOrder.clear();
-		this._plannedPasses.add("main-opaque");
 
 		const hasParticleSystems = (context.scene.particleSystems?.length ?? 0) > 0;
 		if (hasParticleSystems) {
 			this._plannedPasses.add("particle-sim");
-			this._plannedPasses.add("particles");
 		}
 		if (
 			context.features.enableShadows &&
@@ -2200,8 +2198,12 @@ export class WebGPUBackend implements IRenderBackend {
 		) {
 			this._plannedPasses.add("reflection");
 		}
+		this._plannedPasses.add("main-opaque");
 		if (context.scene.transparentPackets.length > 0) {
 			this._plannedPasses.add("main-transparent");
+		}
+		if (hasParticleSystems) {
+			this._plannedPasses.add("particles");
 		}
 		if (context.features.enableSSAO) {
 			this._plannedPasses.add("ssao");
