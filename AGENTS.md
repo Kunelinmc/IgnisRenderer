@@ -80,6 +80,8 @@ This file provides critical context and collaboration guidance for AI/code agent
     - **SSR**: Screen-Space Reflections using **Hi-Z (Hierarchical Z-Buffer)** tracing.
     - **Volumetric Lighting**: Featuring **ReSTIR (Reservoir Spatiotemporal Importance Resampling)** for high-quality light scattering.
     - **Bloom**: Advanced HDR bloom with thresholding and soft-knee curves.
+    - **Motion Blur**: Velocity-based blur utilizing the `gMotionDepth` buffer with shutter scale and sample control.
+    - **Depth of Field (DoF)**: Cinematic bokeh effect with focus distance, range, and chromatic aberration.
     - **FXAA**: Fast Approximate Anti-Aliasing for broad compatibility.
 - **Warmup System**: Robust pre-compilation phase (`WarmupPlanner`) to ensure all necessary pipelines and resources are prepared before rendering based on scene features.
 - **Pipeline Stages**:
