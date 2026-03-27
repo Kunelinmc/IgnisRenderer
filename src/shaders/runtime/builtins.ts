@@ -1,5 +1,10 @@
 import { SHADER_RUNTIME_RULE_IDS } from "./constants";
-import type { ShaderDiagnostic, ShaderRule, ShaderRuleContext } from "./types";
+import type {
+	ShaderDiagnostic,
+	ShaderDiagnosticRange,
+	ShaderRule,
+	ShaderRuleContext,
+} from "./types";
 
 const OPEN_TO_CLOSE = new Map<string, string>([
 	["(", ")"],
@@ -7,25 +12,45 @@ const OPEN_TO_CLOSE = new Map<string, string>([
 	["{", "}"],
 ]);
 
+interface ErrorLocation {
+	line?: number;
+	column?: number;
+	sourcePath?: string;
+	range?: ShaderDiagnosticRange;
+}
+
+interface UnmatchedBracketToken {
+	token: string;
+	offset: number;
+	length: number;
+}
+
 function createError(
 	ruleId: string,
 	code: string,
-	message: string
+	message: string,
+	location?: ErrorLocation
 ): ShaderDiagnostic {
 	return {
 		ruleId,
 		code,
 		severity: "error",
 		message,
+		line: location?.line,
+		column: location?.column,
+		sourcePath: location?.sourcePath,
+		range: location?.range,
 	};
 }
 
-function findFirstUnmatchedBracket(source: string): string | null {
-	const stack: string[] = [];
+function findFirstUnmatchedBracket(
+	source: string
+): UnmatchedBracketToken | null {
+	const stack: { token: string; offset: number }[] = [];
 	for (let i = 0; i < source.length; i++) {
 		const char = source[i];
 		if (OPEN_TO_CLOSE.has(char)) {
-			stack.push(char);
+			stack.push({ token: char, offset: i });
 			continue;
 		}
 
@@ -35,16 +60,29 @@ function findFirstUnmatchedBracket(source: string): string | null {
 
 		const open = stack.pop();
 		if (!open) {
-			return char;
+			return {
+				token: char,
+				offset: i,
+				length: 1,
+			};
 		}
-		const expected = OPEN_TO_CLOSE.get(open);
+		const expected = OPEN_TO_CLOSE.get(open.token);
 		if (expected !== char) {
-			return `${open} ... ${char}`;
+			return {
+				token: `${open.token} ... ${char}`,
+				offset: i,
+				length: 1,
+			};
 		}
 	}
 
 	if (stack.length > 0) {
-		return stack[stack.length - 1];
+		const unmatched = stack[stack.length - 1];
+		return {
+			token: unmatched.token,
+			offset: unmatched.offset,
+			length: 1,
+		};
 	}
 	return null;
 }
@@ -68,6 +106,55 @@ function hasWGSLStageEntryPoint(context: ShaderRuleContext): boolean {
 	return pattern.test(context.source);
 }
 
+function getLineColumnAtOffset(
+	source: string,
+	offset: number
+): { line: number; column: number } {
+	const safeOffset = Math.max(0, Math.min(source.length, Math.floor(offset)));
+	let line = 1;
+	let column = 1;
+	for (let i = 0; i < safeOffset; i++) {
+		if (source.charCodeAt(i) === 10) {
+			line++;
+			column = 1;
+			continue;
+		}
+		column++;
+	}
+	return { line, column };
+}
+
+function createRangeFromOffset(
+	source: string,
+	offset: number,
+	length: number = 1
+): ShaderDiagnosticRange {
+	const safeLength = Math.max(1, Math.floor(length));
+	const start = getLineColumnAtOffset(source, offset);
+	const endOffset = Math.max(offset, offset + safeLength - 1);
+	const end = getLineColumnAtOffset(source, endOffset);
+	return {
+		start,
+		end,
+	};
+}
+
+function createSourceExtentRange(source: string): ShaderDiagnosticRange {
+	if (source.length <= 0) {
+		return {
+			start: { line: 1, column: 1 },
+			end: { line: 1, column: 1 },
+		};
+	}
+	const lines = source.split(/\r?\n/g);
+	const lastLine = Math.max(1, lines.length);
+	const lastLineLength = lines[lastLine - 1]?.length ?? 0;
+	return {
+		start: { line: 1, column: 1 },
+		end: { line: lastLine, column: Math.max(1, lastLineLength + 1) },
+	};
+}
+
 export function createBuiltInShaderRules(): ShaderRule[] {
 	return [
 		{
@@ -82,11 +169,17 @@ export function createBuiltInShaderRules(): ShaderRule[] {
 				if (context.source.trim().length > 0) {
 					return [];
 				}
+				const range = createSourceExtentRange(context.source);
 				return [
 					createError(
 						SHADER_RUNTIME_RULE_IDS.EMPTY_SOURCE,
 						"empty-source",
-						"Shader source is empty."
+						"Shader source is empty.",
+						{
+							line: range.start.line,
+							column: range.start.column,
+							range,
+						}
 					),
 				];
 			},
@@ -95,15 +188,26 @@ export function createBuiltInShaderRules(): ShaderRule[] {
 			id: SHADER_RUNTIME_RULE_IDS.PLACEHOLDER,
 			priority: 900,
 			validate(context) {
-				const match = context.source.match(/__[A-Za-z0-9_]+__/);
+				const match = /__[A-Za-z0-9_]+__/.exec(context.source);
 				if (!match) {
 					return [];
 				}
+				const offset = typeof match.index === "number" ? match.index : 0;
+				const range = createRangeFromOffset(
+					context.source,
+					offset,
+					match[0].length
+				);
 				return [
 					createError(
 						SHADER_RUNTIME_RULE_IDS.PLACEHOLDER,
 						"placeholder-not-resolved",
-						`Shader contains unresolved placeholder ${match[0]}.`
+						`Shader contains unresolved placeholder ${match[0]}.`,
+						{
+							line: range.start.line,
+							column: range.start.column,
+							range,
+						}
 					),
 				];
 			},
@@ -116,11 +220,21 @@ export function createBuiltInShaderRules(): ShaderRule[] {
 				if (!unmatched) {
 					return [];
 				}
+				const range = createRangeFromOffset(
+					context.source,
+					unmatched.offset,
+					unmatched.length
+				);
 				return [
 					createError(
 						SHADER_RUNTIME_RULE_IDS.BRACKET_BALANCE,
 						"unbalanced-brackets",
-						`Shader contains unmatched bracket token "${unmatched}".`
+						`Shader contains unmatched bracket token "${unmatched.token}".`,
+						{
+							line: range.start.line,
+							column: range.start.column,
+							range,
+						}
 					),
 				];
 			},
@@ -135,11 +249,17 @@ export function createBuiltInShaderRules(): ShaderRule[] {
 				if (/\bvoid\s+main\s*\(/m.test(context.source)) {
 					return [];
 				}
+				const range = createSourceExtentRange(context.source);
 				return [
 					createError(
 						SHADER_RUNTIME_RULE_IDS.GLSL_ENTRY_POINT,
 						"missing-main",
-						"GLSL shader is missing entry point function `main`."
+						"GLSL shader is missing entry point function `main`.",
+						{
+							line: range.start.line,
+							column: range.start.column,
+							range,
+						}
 					),
 				];
 			},
@@ -157,11 +277,17 @@ export function createBuiltInShaderRules(): ShaderRule[] {
 				if (hasWGSLStageEntryPoint(context)) {
 					return [];
 				}
+				const range = createSourceExtentRange(context.source);
 				return [
 					createError(
 						SHADER_RUNTIME_RULE_IDS.WGSL_ENTRY_POINT,
 						"missing-entry-point",
-						`WGSL shader is missing entry point "${context.entryPoint}".`
+						`WGSL shader is missing entry point "${context.entryPoint}".`,
+						{
+							line: range.start.line,
+							column: range.start.column,
+							range,
+						}
 					),
 				];
 			},

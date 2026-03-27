@@ -2510,13 +2510,18 @@ export class WebGPUBackend implements IRenderBackend {
 		const keyPrefix =
 			desc.label && desc.label.length > 0 ? desc.label : "unnamed";
 		for (const diagnostic of result.diagnostics) {
+			const locationSuffix =
+				diagnostic.sourcePath && typeof diagnostic.line === "number" ?
+					` (${diagnostic.sourcePath}:${diagnostic.line}:${diagnostic.column ?? 1})`
+				:	"";
 			const key =
 				`webgpu-shader-runtime-${diagnostic.severity}` +
-				`-${diagnostic.code}-${keyPrefix}`;
+				`-${diagnostic.code}-${keyPrefix}` +
+				`-${diagnostic.sourcePath ?? ""}-${diagnostic.line ?? ""}-${diagnostic.column ?? ""}`;
 			this.warnOnce(
 				key,
 				`WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
-					`${diagnostic.code}: ${diagnostic.message}`
+					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`
 			);
 		}
 	}

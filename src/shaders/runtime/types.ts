@@ -16,11 +16,25 @@ export type ShaderSourceKind =
 
 export type ShaderDiagnosticSeverity = "warning" | "error";
 
+export interface ShaderDiagnosticPosition {
+	line: number;
+	column: number;
+}
+
+export interface ShaderDiagnosticRange {
+	start: ShaderDiagnosticPosition;
+	end: ShaderDiagnosticPosition;
+}
+
 export interface ShaderDiagnostic {
 	ruleId: string;
 	code: string;
 	severity: ShaderDiagnosticSeverity;
 	message: string;
+	line?: number;
+	column?: number;
+	sourcePath?: string;
+	range?: ShaderDiagnosticRange;
 }
 
 export type ShaderSourceSegmentKind =
@@ -83,7 +97,15 @@ export interface ShaderRuleInjection {
 	header?: string;
 	functions?: string;
 	symbols?: string[];
+	headerAnchor?: ShaderGLSLInjectionAnchor;
+	functionsAnchor?: ShaderGLSLInjectionAnchor;
 }
+
+export type ShaderGLSLInjectionAnchor =
+	| "afterVersion"
+	| "afterPrecision"
+	| "beforeEntryPoint"
+	| "endOfFile";
 
 export interface ShaderRule {
 	id: string;

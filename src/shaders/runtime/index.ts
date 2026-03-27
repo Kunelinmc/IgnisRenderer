@@ -24,7 +24,10 @@ export {
 export type {
 	CompositeShaderSource,
 	ShaderDiagnostic,
+	ShaderDiagnosticPosition,
+	ShaderDiagnosticRange,
 	ShaderDiagnosticSeverity,
+	ShaderGLSLInjectionAnchor,
 	ShaderLanguage,
 	ShaderProcessRequest,
 	ShaderProcessResult,

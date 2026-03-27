@@ -7,11 +7,14 @@ import { createBuiltInShaderRules } from "./builtins";
 import {
 	composeCompositeShaderSources,
 	createInlineCompositeShaderSource,
+	mapShaderGeneratedLocation,
 	sliceCompositeShaderSource,
 } from "./sourceMap";
 import type {
 	CompositeShaderSource,
 	ShaderDiagnostic,
+	ShaderDiagnosticRange,
+	ShaderGLSLInjectionAnchor,
 	ShaderProcessRequest,
 	ShaderProcessResult,
 	ShaderRule,
@@ -136,6 +139,87 @@ interface InjectionBlock {
 	code: string;
 	sourcePath: string;
 	label: string;
+	anchor: ShaderGLSLInjectionAnchor;
+}
+
+interface GLSLInsertionAnchors {
+	afterVersion: number;
+	afterPrecision: number;
+	beforeEntryPoint: number;
+	endOfFile: number;
+}
+
+function normalizeGLSLInjectionAnchor(
+	anchor: ShaderGLSLInjectionAnchor | undefined
+): ShaderGLSLInjectionAnchor {
+	switch (anchor) {
+		case "afterPrecision":
+		case "beforeEntryPoint":
+		case "endOfFile":
+		case "afterVersion":
+			return anchor;
+		default:
+			return "afterVersion";
+	}
+}
+
+function resolveGLSLInsertionAnchors(
+	source: CompositeShaderSource
+): GLSLInsertionAnchors {
+	const sourceLines = source.code.split(/\r?\n/g);
+	const lineCount = Math.max(1, sourceLines.length);
+	let versionLine = 0;
+	let lastPrecisionLine = 0;
+	let entryPointLine = 0;
+	for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
+		const line = sourceLines[lineIndex];
+		const lineNumber = lineIndex + 1;
+		if (versionLine <= 0 && /^\s*#version\b/.test(line)) {
+			versionLine = lineNumber;
+			continue;
+		}
+		if (entryPointLine <= 0 && /\bvoid\s+main\s*\(/.test(line)) {
+			entryPointLine = lineNumber;
+		}
+		if (/^\s*precision\b[^;]*;/.test(line)) {
+			if (entryPointLine <= 0 || lineNumber < entryPointLine) {
+				lastPrecisionLine = lineNumber;
+			}
+		}
+	}
+
+	const afterVersionLine = versionLine > 0 ? versionLine + 1 : 1;
+	const afterPrecisionLine =
+		lastPrecisionLine > 0 ? lastPrecisionLine + 1 : afterVersionLine;
+	const beforeEntryPointLine = entryPointLine > 0 ? entryPointLine : lineCount + 1;
+	return {
+		afterVersion: clampInjectionLine(afterVersionLine, lineCount),
+		afterPrecision: clampInjectionLine(afterPrecisionLine, lineCount),
+		beforeEntryPoint: clampInjectionLine(beforeEntryPointLine, lineCount),
+		endOfFile: lineCount + 1,
+	};
+}
+
+function clampInjectionLine(line: number, lineCount: number): number {
+	const normalized = Number.isFinite(line) ? Math.floor(line) : 1;
+	return Math.min(Math.max(normalized, 1), lineCount + 1);
+}
+
+function resolveGLSLInsertionLine(
+	anchor: ShaderGLSLInjectionAnchor,
+	anchors: GLSLInsertionAnchors
+): number {
+	switch (anchor) {
+		case "afterPrecision":
+			return anchors.afterPrecision;
+		case "beforeEntryPoint":
+			return anchors.beforeEntryPoint;
+		case "endOfFile":
+			return anchors.endOfFile;
+		case "afterVersion":
+		default:
+			return anchors.afterVersion;
+	}
 }
 
 function buildStrictModeError(
@@ -186,89 +270,121 @@ function injectWGSLSource(
 
 function injectGLSLSource(
 	source: CompositeShaderSource,
-	headers: InjectionBlock[],
-	functions: InjectionBlock[]
+	blocks: InjectionBlock[]
 ): CompositeShaderSource {
-	const blocks = [...headers, ...functions];
 	if (blocks.length <= 0) {
 		return source;
 	}
 
-	const injection = composeCompositeShaderSources(
-		blocks.map((block) => ({
-			code: block.code,
-			sourcePath: block.sourcePath,
-			kind: "define-block" as const,
-			label: block.label,
-		})),
-		"\n\n"
-	);
 	const sourceLines = source.code.split(/\r?\n/g);
-	const hasVersionLine =
-		sourceLines.length > 0 && /^\s*#version[^\n]*$/.test(sourceLines[0]);
-	if (!hasVersionLine) {
-		return composeCompositeShaderSources(
-			[
-				{
-					code: injection.code,
-					sourceMap: injection.sourceMap,
-					sourcePath: "<runtime:injection>",
-					kind: "define-block",
-				},
-				{
-					code: source.code,
-					sourceMap: source.sourceMap,
-					sourcePath: source.sourceMap.segments[0]?.sourcePath ?? "<shader>",
-					kind: "source",
-				},
-			],
-			"\n\n"
+	const lineCount = Math.max(1, sourceLines.length);
+	const anchors = resolveGLSLInsertionAnchors(source);
+	const insertions = new Map<number, InjectionBlock[]>();
+	for (const block of blocks) {
+		const anchor = normalizeGLSLInjectionAnchor(block.anchor);
+		const insertionLine = clampInjectionLine(
+			resolveGLSLInsertionLine(anchor, anchors),
+			lineCount
 		);
+		const bucket = insertions.get(insertionLine);
+		if (bucket) {
+			bucket.push(block);
+			continue;
+		}
+		insertions.set(insertionLine, [block]);
 	}
 
-	const beforeVersion = sourceLines[0] ?? "";
-	const afterVersion = sliceCompositeShaderSource(source, 2);
-	const withInjection = composeCompositeShaderSources(
-		[
-			createInlineCompositeShaderSource(
-				beforeVersion,
-				source.sourceMap.segments[0]?.sourcePath ?? "<shader>",
-				"source",
-				"version"
-			),
-			{
-				code: injection.code,
-				sourceMap: injection.sourceMap,
-				sourcePath: "<runtime:injection>",
-				kind: "define-block",
-			},
-		],
-		"\n"
-	);
-	if (afterVersion.code.length <= 0) {
-		return withInjection;
-	}
-	return composeCompositeShaderSources(
-		[
-			{
-				code: withInjection.code,
-				sourceMap: withInjection.sourceMap,
-				sourcePath:
-					withInjection.sourceMap.segments[0]?.sourcePath ?? "<shader>",
+	const sourcePath = source.sourceMap.segments[0]?.sourcePath ?? "<shader>";
+	const insertionLines = [...insertions.keys()].sort((left, right) => left - right);
+	const parts: {
+		code: string;
+		sourceMap: ShaderSourceSegmentMap;
+		sourcePath: string;
+		kind: "source" | "define-block";
+	}[] = [];
+	let cursorLine = 1;
+	for (const insertionLine of insertionLines) {
+		if (insertionLine > cursorLine) {
+			const sourceSlice = sliceCompositeShaderSource(
+				source,
+				cursorLine,
+				insertionLine - 1
+			);
+			parts.push({
+				code: sourceSlice.code,
+				sourceMap: sourceSlice.sourceMap,
+				sourcePath: sourceSlice.sourceMap.segments[0]?.sourcePath ?? sourcePath,
 				kind: "source",
-			},
-			{
-				code: afterVersion.code,
-				sourceMap: afterVersion.sourceMap,
-				sourcePath:
-					afterVersion.sourceMap.segments[0]?.sourcePath ??
-					source.sourceMap.segments[0]?.sourcePath ??
-					"<shader>",
-				kind: "source" as const,
-			},
-		],
-		"\n\n"
-	);
+			});
+		}
+		const bucket = insertions.get(insertionLine) ?? [];
+		const injection = composeCompositeShaderSources(
+			bucket.map((block) => ({
+				code: block.code,
+				sourcePath: block.sourcePath,
+				kind: "define-block" as const,
+				label: block.label,
+			})),
+			"\n\n"
+		);
+		parts.push({
+			code: injection.code,
+			sourceMap: injection.sourceMap,
+			sourcePath: "<runtime:injection>",
+			kind: "define-block",
+		});
+		cursorLine = insertionLine;
+	}
+	if (cursorLine <= lineCount) {
+		const sourceSlice = sliceCompositeShaderSource(source, cursorLine, lineCount);
+		parts.push({
+			code: sourceSlice.code,
+			sourceMap: sourceSlice.sourceMap,
+			sourcePath: sourceSlice.sourceMap.segments[0]?.sourcePath ?? sourcePath,
+			kind: "source",
+		});
+	}
+	return composeCompositeShaderSources(parts, "\n");
+}
+
+function normalizePositiveInteger(value: number | undefined): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return null;
+	}
+	const normalized = Math.floor(value);
+	return normalized >= 1 ? normalized : 1;
+}
+
+function createPointRange(line: number, column: number): ShaderDiagnosticRange {
+	return {
+		start: { line, column },
+		end: { line, column },
+	};
+}
+
+function normalizeDiagnosticRange(
+	range: ShaderDiagnosticRange | undefined
+): ShaderDiagnosticRange | null {
+	if (!range || typeof range !== "object") {
+		return null;
+	}
+	const startLine = normalizePositiveInteger(range.start?.line);
+	const startColumn = normalizePositiveInteger(range.start?.column) ?? 1;
+	const endLine = normalizePositiveInteger(range.end?.line);
+	const endColumn = normalizePositiveInteger(range.end?.column) ?? 1;
+	if (!startLine || !endLine) {
+		return null;
+	}
+	return {
+		start: {
+			line: startLine,
+			column: startColumn,
+		},
+		end: {
+			line: endLine,
+			column: endColumn,
+		},
+	};
 }
 
 export class ShaderRuntime {
@@ -361,6 +477,12 @@ export class ShaderRuntime {
 		return this._collectRulesInExecutionOrder().map((rule) => ({ ...rule }));
 	}
 
+	public invalidateProcessCache(): number {
+		const size = this._processCache.size;
+		this._processCache.clear();
+		return size;
+	}
+
 	public process(request: ShaderProcessRequest): ShaderProcessResult {
 		const context: ShaderRuleContext = {
 			mode: this._mode,
@@ -371,6 +493,9 @@ export class ShaderRuntime {
 			sourceKind: normalizeSourceKind(request.sourceKind),
 			source: request.code,
 		};
+		const sourcePath =
+			context.label ??
+			`<runtime:${context.language}:${context.stage}:${context.sourceKind}>`;
 		const cacheKey = this._buildProcessCacheKey(context, request.sourceMap);
 		const cached = this._getCachedResult(cacheKey);
 		if (cached) {
@@ -389,7 +514,13 @@ export class ShaderRuntime {
 
 			if (rule.validate) {
 				for (const diagnostic of rule.validate(context)) {
-					diagnostics.push({ ...diagnostic, ruleId: rule.id });
+					diagnostics.push(
+						this._normalizeDiagnostic(
+							{ ...diagnostic, ruleId: rule.id },
+							request.sourceMap,
+							sourcePath
+						)
+					);
 				}
 			}
 
@@ -403,7 +534,9 @@ export class ShaderRuntime {
 			if (this._isUserRule(rule.id)) {
 				const conflict = this._resolveBuiltInSymbolConflict(rule, injection);
 				if (conflict) {
-					diagnostics.push(conflict);
+					diagnostics.push(
+						this._normalizeDiagnostic(conflict, request.sourceMap, sourcePath)
+					);
 					continue;
 				}
 			}
@@ -413,6 +546,7 @@ export class ShaderRuntime {
 					code: header,
 					sourcePath: `<runtime:${rule.id}:header>`,
 					label: `${rule.id}:header`,
+					anchor: normalizeGLSLInjectionAnchor(injection.headerAnchor),
 				});
 			}
 			const functionBlock = normalizeInjectionBlock(injection.functions);
@@ -421,6 +555,7 @@ export class ShaderRuntime {
 					code: functionBlock,
 					sourcePath: `<runtime:${rule.id}:functions>`,
 					label: `${rule.id}:functions`,
+					anchor: normalizeGLSLInjectionAnchor(injection.functionsAnchor),
 				});
 			}
 		}
@@ -432,9 +567,6 @@ export class ShaderRuntime {
 			throw buildStrictModeError(context, diagnostics);
 		}
 
-		const sourcePath =
-			context.label ??
-			`<runtime:${context.language}:${context.stage}:${context.sourceKind}>`;
 		const baseComposite =
 			request.sourceMap ?
 				{
@@ -445,7 +577,7 @@ export class ShaderRuntime {
 		const composite =
 			context.language === "wgsl" ?
 				injectWGSLSource(baseComposite, headers, functions)
-			:	injectGLSLSource(baseComposite, headers, functions);
+			:	injectGLSLSource(baseComposite, [...headers, ...functions]);
 		const result: ShaderProcessResult = {
 			code: composite.code,
 			sourceMap: composite.sourceMap,
@@ -456,6 +588,86 @@ export class ShaderRuntime {
 		};
 		this._setCachedResult(cacheKey, result);
 		return cloneProcessResult(result, false);
+	}
+
+	private _normalizeDiagnostic(
+		diagnostic: ShaderDiagnostic,
+		sourceMap: ShaderSourceSegmentMap | null | undefined,
+		fallbackSourcePath: string
+	): ShaderDiagnostic {
+		const generatedRange = normalizeDiagnosticRange(diagnostic.range) ?? null;
+		const generatedLine =
+			normalizePositiveInteger(diagnostic.line) ?? generatedRange?.start.line ?? null;
+		const generatedColumn =
+			normalizePositiveInteger(diagnostic.column) ??
+			generatedRange?.start.column ??
+			1;
+		let resolvedLine = generatedLine ?? undefined;
+		let resolvedColumn = generatedLine ? generatedColumn : undefined;
+		let resolvedSourcePath =
+			typeof diagnostic.sourcePath === "string" &&
+			diagnostic.sourcePath.length > 0 ?
+				diagnostic.sourcePath
+			:	undefined;
+		let resolvedRange =
+			generatedRange ??
+			(generatedLine ? createPointRange(generatedLine, generatedColumn) : undefined);
+
+		if (generatedLine && sourceMap) {
+			const mappedStart = mapShaderGeneratedLocation(
+				sourceMap,
+				generatedLine,
+				generatedColumn
+			);
+			if (mappedStart) {
+				resolvedLine = mappedStart.sourceLine;
+				resolvedColumn = mappedStart.sourceColumn;
+				resolvedSourcePath = resolvedSourcePath ?? mappedStart.sourcePath;
+			}
+		}
+
+		if (resolvedRange && sourceMap) {
+			const mappedStart = mapShaderGeneratedLocation(
+				sourceMap,
+				resolvedRange.start.line,
+				resolvedRange.start.column
+			);
+			const mappedEnd = mapShaderGeneratedLocation(
+				sourceMap,
+				resolvedRange.end.line,
+				resolvedRange.end.column
+			);
+			if (mappedStart && mappedEnd) {
+				resolvedRange = {
+					start: {
+						line: mappedStart.sourceLine,
+						column: mappedStart.sourceColumn,
+					},
+					end: {
+						line: mappedEnd.sourceLine,
+						column: mappedEnd.sourceColumn,
+					},
+				};
+				resolvedSourcePath = resolvedSourcePath ?? mappedStart.sourcePath;
+			}
+		}
+
+		if (!resolvedSourcePath && sourceMap && sourceMap.segments.length > 0) {
+			resolvedSourcePath = sourceMap.segments[0].sourcePath;
+		}
+		resolvedSourcePath = resolvedSourcePath ?? fallbackSourcePath;
+
+		if (!resolvedRange && typeof resolvedLine === "number") {
+			resolvedRange = createPointRange(resolvedLine, resolvedColumn ?? 1);
+		}
+
+		return {
+			...diagnostic,
+			line: resolvedLine,
+			column: resolvedColumn,
+			sourcePath: resolvedSourcePath,
+			range: resolvedRange,
+		};
 	}
 
 	private _normalizeRule(rule: ShaderRule): ShaderRule {
@@ -507,6 +719,7 @@ export class ShaderRuntime {
 			`lang:${context.language}`,
 			`stage:${context.stage}`,
 			`entry:${context.entryPoint ?? ""}`,
+			`label:${hashStringFNV1a(context.label ?? "")}`,
 			`kind:${context.sourceKind}`,
 			`code:${hashStringFNV1a(context.source)}`,
 			`sourceMap:${hashSourceMap(sourceMap)}`,

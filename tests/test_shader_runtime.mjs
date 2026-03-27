@@ -101,6 +101,59 @@ function testWGSLInjectionLocation() {
 	assert.ok(processed.code.includes("@vertex"));
 }
 
+function testGLSLInjectionAnchors() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/after-precision",
+		priority: 10,
+		inject() {
+			return {
+				header: "// after precision anchor",
+				headerAnchor: "afterPrecision",
+			};
+		},
+	});
+	runtime.registerRule({
+		id: "user/before-entry-point",
+		priority: 9,
+		inject() {
+			return {
+				functions: "float beforeMainFn() { return 42.0; }",
+				functionsAnchor: "beforeEntryPoint",
+			};
+		},
+	});
+	runtime.registerRule({
+		id: "user/end-of-file",
+		priority: 8,
+		inject() {
+			return {
+				functions: "// end of file anchor",
+				functionsAnchor: "endOfFile",
+			};
+		},
+	});
+	const processed = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "GLSLAnchors",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.ok(
+		processed.code.includes(
+			"precision highp float;\n// after precision anchor"
+		)
+	);
+	assert.ok(
+		processed.code.indexOf("float beforeMainFn") <
+			processed.code.indexOf("void main()")
+	);
+	assert.ok(processed.code.trimEnd().endsWith("// end of file anchor"));
+}
+
 function testBuiltInValidationRules() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const processed = runtime.process({
@@ -112,11 +165,14 @@ function testBuiltInValidationRules() {
 		sourceKind: "custom-material",
 	});
 	assert.equal(processed.hasErrors, true);
-	assert.ok(
-		processed.diagnostics.some(
-			(diagnostic) => diagnostic.code === "placeholder-not-resolved"
-		)
+	const placeholderDiagnostic = processed.diagnostics.find(
+		(diagnostic) => diagnostic.code === "placeholder-not-resolved"
 	);
+	assert.ok(placeholderDiagnostic);
+	assert.equal(placeholderDiagnostic.sourcePath, "PlaceholderTest");
+	assert.equal(placeholderDiagnostic.line, 1);
+	assert.ok((placeholderDiagnostic.column ?? 0) > 1);
+	assert.ok(placeholderDiagnostic.range);
 
 	const unbalanced = runtime.process({
 		code: "void main() {",
@@ -127,11 +183,14 @@ function testBuiltInValidationRules() {
 		sourceKind: "custom-material",
 	});
 	assert.equal(unbalanced.hasErrors, true);
-	assert.ok(
-		unbalanced.diagnostics.some(
-			(diagnostic) => diagnostic.code === "unbalanced-brackets"
-		)
+	const unbalancedDiagnostic = unbalanced.diagnostics.find(
+		(diagnostic) => diagnostic.code === "unbalanced-brackets"
 	);
+	assert.ok(unbalancedDiagnostic);
+	assert.equal(unbalancedDiagnostic.sourcePath, "BracketBalanceTest");
+	assert.equal(unbalancedDiagnostic.line, 1);
+	assert.ok((unbalancedDiagnostic.column ?? 0) > 1);
+	assert.ok(unbalancedDiagnostic.range);
 }
 
 function testWGSLAndGLSLEntryPointChecks() {
@@ -196,6 +255,60 @@ function testCacheAndRevisionInvalidation() {
 	const third = runtime.process(request);
 	assert.equal(third.fromCache, false);
 	assert.ok(third.code.includes("// revision bump"));
+}
+
+function testCacheKeyIncludesLabel() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/label-sensitive",
+		priority: 10,
+		inject(context) {
+			if (context.label === "LabelA") {
+				return { header: "// LabelA only" };
+			}
+			return { header: "// LabelB only" };
+		},
+	});
+	const requestA = {
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "LabelA",
+		sourceKind: "custom-material",
+	};
+	const requestB = {
+		...requestA,
+		label: "LabelB",
+	};
+	const resultA = runtime.process(requestA);
+	assert.equal(resultA.fromCache, false);
+	assert.equal(resultA.code.includes("// LabelA only"), true);
+	const resultB = runtime.process(requestB);
+	assert.equal(resultB.fromCache, false);
+	assert.equal(resultB.code.includes("// LabelB only"), true);
+	assert.equal(resultB.code.includes("// LabelA only"), false);
+	const cachedB = runtime.process(requestB);
+	assert.equal(cachedB.fromCache, true);
+}
+
+function testManualCacheInvalidation() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const request = {
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "ManualCacheInvalidation",
+		sourceKind: "custom-material",
+	};
+	runtime.process(request);
+	const cached = runtime.process(request);
+	assert.equal(cached.fromCache, true);
+	const clearedCount = runtime.invalidateProcessCache();
+	assert.ok(clearedCount > 0);
+	const afterInvalidation = runtime.process(request);
+	assert.equal(afterInvalidation.fromCache, false);
 }
 
 function testCachedResultDefensiveCopy() {
@@ -310,6 +423,42 @@ function testProcessCarriesSourceMap() {
 	assert.equal(mapped[0].sourceLine, 2);
 }
 
+function testDiagnosticsMapToSourceWithRange() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const source = `#version 300 es
+precision highp float;
+__UNRESOLVED__;
+void main() {
+	gl_Position = vec4(0.0);
+}
+`;
+	const sourceMap = createInlineShaderSourceMap(
+		source,
+		"./parts/diagnosticShader.glsl",
+		"source"
+	);
+	const processed = runtime.process({
+		code: source,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "DiagnosticMapping",
+		sourceKind: "custom-material",
+		sourceMap,
+	});
+	const diagnostic = processed.diagnostics.find(
+		(entry) => entry.code === "placeholder-not-resolved"
+	);
+	assert.ok(diagnostic);
+	assert.equal(diagnostic.sourcePath, "./parts/diagnosticShader.glsl");
+	assert.equal(diagnostic.line, 3);
+	assert.equal(diagnostic.column, 1);
+	assert.ok(diagnostic.range);
+	assert.equal(diagnostic.range.start.line, 3);
+	assert.equal(diagnostic.range.start.column, 1);
+	assert.equal(diagnostic.range.end.line, 3);
+}
+
 function testWebGLInfoLogParsing() {
 	const parsed = parseWebGLShaderInfoLog(
 		`ERROR: 0:12: syntax error\n0(8) : warning C0000: dead code`
@@ -325,12 +474,16 @@ function run() {
 	testReservedPrefixProtection();
 	testGLSLInjectionOrderAndLocation();
 	testWGSLInjectionLocation();
+	testGLSLInjectionAnchors();
 	testBuiltInValidationRules();
 	testWGSLAndGLSLEntryPointChecks();
 	testCacheAndRevisionInvalidation();
+	testCacheKeyIncludesLabel();
+	testManualCacheInvalidation();
 	testCachedResultDefensiveCopy();
 	testReservedSymbolConflictByMode();
 	testProcessCarriesSourceMap();
+	testDiagnosticsMapToSourceWithRange();
 	testWebGLInfoLogParsing();
 	console.log("ShaderRuntime tests passed");
 }
