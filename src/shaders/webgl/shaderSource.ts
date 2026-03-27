@@ -19,6 +19,8 @@ type WebGLShaderPart =
 	| "postProcessStubFragment"
 	| "fxaaFragment"
 	| "bloomFragment"
+	| "motionBlurFragment"
+	| "dofFragment"
 	| "taaFragment"
 	| "ssaoRawFragment"
 	| "ssaoBlurFragment"
@@ -76,6 +78,8 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 	postProcessStubFragment: "./parts/postProcessStubFragment.glsl",
 	fxaaFragment: "./parts/fxaaFragment.glsl",
 	bloomFragment: "./parts/bloomFragment.glsl",
+	motionBlurFragment: "./parts/motionBlurFragment.glsl",
+	dofFragment: "./parts/dofFragment.glsl",
 	taaFragment: "./parts/taaFragment.glsl",
 	ssaoRawFragment: "./parts/ssaoRawFragment.glsl",
 	ssaoBlurFragment: "./parts/ssaoBlurFragment.glsl",

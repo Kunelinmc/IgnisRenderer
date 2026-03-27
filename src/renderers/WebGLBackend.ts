@@ -26,6 +26,8 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"main-transparent",
 	"particles",
 	"ssao",
+	"motion-blur",
+	"dof",
 	"fxaa",
 	"taa",
 	"bloom",
@@ -49,8 +51,8 @@ export class WebGLBackend implements IRenderBackend {
 		taa: true,
 		ssr: false,
 		volumetric: false,
-		motionBlur: false,
-		dof: false,
+		motionBlur: true,
+		dof: true,
 		bloom: true,
 	};
 

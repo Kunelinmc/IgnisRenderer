@@ -19,8 +19,10 @@ import {
 	WEBGL_COPY_FRAGMENT_SHADER,
 	WEBGL_COPY_VERTEX_SHADER,
 	WEBGL_BLOOM_FRAGMENT_SHADER,
+	WEBGL_DOF_FRAGMENT_SHADER,
 	WEBGL_FXAA_FRAGMENT_SHADER,
 	WEBGL_FXAA_VERTEX_SHADER,
+	WEBGL_MOTION_BLUR_FRAGMENT_SHADER,
 	WEBGL_PARTICLE_FRAGMENT_SHADER,
 	WEBGL_PARTICLE_VERTEX_SHADER,
 	WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
@@ -223,6 +225,29 @@ export interface WebGLBloomProgram {
 	};
 }
 
+export interface WebGLMotionBlurProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		motionDepthMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+		motionParams: WebGLUniformLocation | null;
+		centerWeight: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLDOFProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		motionDepthMap: WebGLUniformLocation | null;
+		texelSize: WebGLUniformLocation | null;
+		focusParams: WebGLUniformLocation | null;
+		dofParams: WebGLUniformLocation | null;
+		chromaticAberration: WebGLUniformLocation | null;
+	};
+}
+
 type WarnFn = (key: string, message: string) => void;
 
 const SCENE_SHADER_SOURCE = createWebGLSceneShaderSource({
@@ -256,6 +281,8 @@ export class WebGLProgramLibrary {
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
+	private _motionBlurProgram: WebGLMotionBlurProgram | null = null;
+	private _dofProgram: WebGLDOFProgram | null = null;
 
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
 	private _copyProgram: WebGLCopyProgram | null = null;
@@ -600,6 +627,54 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._bloomProgram;
+	}
+
+	public getMotionBlurProgram(): WebGLMotionBlurProgram {
+		if (this._motionBlurProgram) {
+			return this._motionBlurProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_MOTION_BLUR_FRAGMENT_SHADER,
+			"WebGLMotionBlurProgram"
+		);
+		this._motionBlurProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				motionParams: this._gl.getUniformLocation(program, "uMotionParams"),
+				centerWeight: this._gl.getUniformLocation(program, "uCenterWeight"),
+			},
+		};
+		return this._motionBlurProgram;
+	}
+
+	public getDOFProgram(): WebGLDOFProgram {
+		if (this._dofProgram) {
+			return this._dofProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_DOF_FRAGMENT_SHADER,
+			"WebGLDOFProgram"
+		);
+		this._dofProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				focusParams: this._gl.getUniformLocation(program, "uFocusParams"),
+				dofParams: this._gl.getUniformLocation(program, "uDOFParams"),
+				chromaticAberration: this._gl.getUniformLocation(
+					program,
+					"uChromaticAberration"
+				),
+			},
+		};
+		return this._dofProgram;
 	}
 
 	public getShadowDepthProgram(): WebGLShadowDepthProgram {
@@ -993,6 +1068,14 @@ export class WebGLProgramLibrary {
 		if (this._bloomProgram) {
 			this._gl.deleteProgram(this._bloomProgram.program);
 			this._bloomProgram = null;
+		}
+		if (this._motionBlurProgram) {
+			this._gl.deleteProgram(this._motionBlurProgram.program);
+			this._motionBlurProgram = null;
+		}
+		if (this._dofProgram) {
+			this._gl.deleteProgram(this._dofProgram.program);
+			this._dofProgram = null;
 		}
 		if (this._shadowDepthProgram) {
 			this._gl.deleteProgram(this._shadowDepthProgram.program);

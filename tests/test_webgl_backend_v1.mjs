@@ -388,6 +388,18 @@ function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 	assert.equal(gl.programCount, 2);
 }
 
+function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
+	const gl = createProgramCaptureGL();
+	const library = new WebGLProgramLibrary(gl, () => {});
+
+	const motionBlurProgram = library.getMotionBlurProgram();
+	const dofProgram = library.getDOFProgram();
+
+	assert.ok(motionBlurProgram.program);
+	assert.ok(dofProgram.program);
+	assert.equal(gl.programCount, 2);
+}
+
 function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
 	const shadowMap = new ShadowMap(1024, {
@@ -565,6 +577,7 @@ async function run() {
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
+	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();

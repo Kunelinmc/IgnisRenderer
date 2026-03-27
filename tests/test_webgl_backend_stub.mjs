@@ -230,6 +230,8 @@ async function testInitAndPassRouting() {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		motionBlur: true,
+		dof: true,
 		bloom: true,
 	});
 
