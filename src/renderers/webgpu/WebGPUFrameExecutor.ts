@@ -1317,9 +1317,11 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder) return;
 		await this._resources.buildClusteredLighting(this._encoder);
 		if (!this._mrtEnabled || !this._frameTargets) {
+			this._resources.setSceneTargetMode("single");
 			await this._recordLegacyMainPass(packets, clearAttachments);
 			return;
 		}
+		this._resources.setSceneTargetMode("mrt");
 		const msaaTargets = this._msaaTargets;
 		const sceneColorAttachment =
 			msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain;

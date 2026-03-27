@@ -14,6 +14,8 @@ class FakeBackend {
 		this.createCommandEncoderCalls = 0;
 		this.failTextureAtCall = null;
 		this.bindingGroupDestroyCalls = 0;
+		this.canvasColorTexture = { destroy() {} };
+		this.canvasDepthTexture = { destroy() {} };
 	}
 
 	getMSAASampleCount() {
@@ -77,12 +79,21 @@ class FakeBackend {
 			},
 		};
 	}
+
+	getCanvasColorTexture() {
+		return this.canvasColorTexture;
+	}
+
+	getCanvasDepthTexture() {
+		return this.canvasDepthTexture;
+	}
 }
 
 function createResourcesStub() {
 	return {
 		sceneFrameLayout: {},
 		setSceneTargetMode() {},
+		async buildClusteredLighting() {},
 		renderShadows() {},
 		async getSkyboxResources() {
 			return null;
@@ -91,6 +102,37 @@ function createResourcesStub() {
 			return null;
 		},
 		async renderParticles() {},
+	};
+}
+
+function createModeTrackingResourcesStub() {
+	const state = {
+		mode: "single",
+		modeTransitions: [],
+		skyboxModeAtRequest: null,
+		drawModeAtRequest: null,
+	};
+	return {
+		sceneFrameLayout: {},
+		setSceneTargetMode(mode) {
+			state.mode = mode;
+			state.modeTransitions.push(mode);
+		},
+		async buildClusteredLighting() {},
+		renderShadows() {},
+		async getSkyboxResources() {
+			state.skyboxModeAtRequest = state.mode;
+			return {
+				pipeline: {},
+				frameBinding: {},
+			};
+		},
+		async getDrawResources() {
+			state.drawModeAtRequest = state.mode;
+			return null;
+		},
+		async renderParticles() {},
+		_state: state,
 	};
 }
 
@@ -177,10 +219,30 @@ function testInvalidateFrameTargetsDestroysPresentBinding() {
 	assert.equal(executor._presentBinding, null);
 }
 
+async function testLegacyMainPassForcesSingleSceneTargetMode() {
+	const backend = new FakeBackend();
+	const resources = createModeTrackingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [{ id: "packet" }];
+
+	executor.beginFrame(context);
+	executor._frameTargets = null;
+
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	assert.equal(resources._state.skyboxModeAtRequest, "single");
+	assert.equal(resources._state.drawModeAtRequest, "single");
+}
+
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 	testFrameTargetAllocationFailureReleasesPartialResources();
 	testInvalidateFrameTargetsDestroysPresentBinding();
+	await testLegacyMainPassForcesSingleSceneTargetMode();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 
