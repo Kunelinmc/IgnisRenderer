@@ -2,7 +2,7 @@ struct Params {
 	invSize: vec4<f32>,
 	gtao: vec4<f32>,
 	blurProj: vec4<f32>,
-	pass: vec4<f32>,
+	passParams: vec4<f32>,
 }
 
 @group(0) @binding(0) var texA: texture_2d<f32>;
@@ -28,7 +28,7 @@ fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 
 fn reconstructViewPos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	if (params.pass.z > 0.5) {
+	if (params.passParams.z > 0.5) {
 		return vec3<f32>(ndc, -depth);
 	}
 	let tanHalfFov = max(params.blurProj.z, 1e-4);
@@ -72,7 +72,10 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let radiusUv = radiusPixels * params.invSize.xy;
 	let bias = max(params.gtao.y, 1e-4);
 	let intensity = max(params.gtao.z, 0.0);
-	let frameNoise = interleavedGradientNoise(vec2<f32>(gid.xy), params.pass.w);
+	let frameNoise = interleavedGradientNoise(
+		vec2<f32>(gid.xy),
+		params.passParams.w
+	);
 
 	let perspectiveRadiusView = radiusPixels
 		* depth
@@ -81,7 +84,11 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 		* 2.0;
 	let orthographicRadiusView = max(radiusUv.x, radiusUv.y) * 2.0;
 	let radiusView = max(
-		select(perspectiveRadiusView, orthographicRadiusView, params.pass.z > 0.5),
+		select(
+			perspectiveRadiusView,
+			orthographicRadiusView,
+			params.passParams.z > 0.5
+		),
 		1e-3
 	);
 
@@ -163,7 +170,7 @@ fn csBlur(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let centerDepth = textureSampleLevel(texB, linearSampler, uv, 0.0).z;
 	let radius = clamp(i32(params.blurProj.x + 0.5), i32(1), i32(4));
 	let blurSharpness = max(params.blurProj.y, 1e-3);
-	let horizontal = abs(params.pass.x) >= abs(params.pass.y);
+	let horizontal = abs(params.passParams.x) >= abs(params.passParams.y);
 	let axis = select(vec2<i32>(0, 1), vec2<i32>(1, 0), horizontal);
 	var sum = 0.0;
 	var weightSum = 0.0;
