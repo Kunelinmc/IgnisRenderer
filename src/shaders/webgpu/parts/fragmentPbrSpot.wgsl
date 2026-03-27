@@ -1,4 +1,4 @@
-﻿if (isClusteredLightingEnabled()) {
+if (isClusteredLightingEnabled()) {
 	let clusterHeader = getClusterHeaderForFragment(
 		input.worldPosition,
 		linearDepth

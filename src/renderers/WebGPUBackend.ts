@@ -2452,9 +2452,22 @@ export class WebGPUBackend implements IRenderBackend {
 		this._autoComputePipelineLayoutCache.clear();
 	}
 
+	private _stripUtf8BomCharacters(code: string, label?: string): string {
+		if (!code.includes("\uFEFF")) {
+			return code;
+		}
+		const shaderLabel = label && label.length > 0 ? label : "unnamed";
+		this.warnOnce(
+			`webgpu-shader-bom:${shaderLabel}`,
+			`WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`
+		);
+		return code.replace(/\uFEFF/g, "");
+	}
+
 	private _processShaderSource(desc: ShaderModuleDesc): ShaderProcessResult {
+		const sanitizedCode = this._stripUtf8BomCharacters(desc.code, desc.label);
 		return this.shaderRuntime.process({
-			code: desc.code,
+			code: sanitizedCode,
 			language: desc.language ?? "wgsl",
 			stage: desc.stage ?? "unknown",
 			entryPoint: desc.entryPoint,

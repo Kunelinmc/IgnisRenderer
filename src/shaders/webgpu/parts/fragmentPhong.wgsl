@@ -1,4 +1,4 @@
-﻿		let phongAmbient = model.phongAmbientShininess.rgb;
+		let phongAmbient = model.phongAmbientShininess.rgb;
 		let phongSpecular = model.phongSpecularShading.rgb;
 		let shininess = max(model.phongAmbientShininess.a, 0.0);
 
