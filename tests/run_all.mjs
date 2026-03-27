@@ -43,6 +43,7 @@ const tests = [
 	"test_renderer_animation_stage.mjs",
 	"test_renderer_particle_stage.mjs",
 	"test_renderer_postanimation_hook.mjs",
+	"test_camera_shake_plugin.mjs",
 	"test_renderer_dynamic_texture_updates.mjs",
 	"test_sparse_accessor.mjs",
 	"test_gltf_primitive_modes.mjs",

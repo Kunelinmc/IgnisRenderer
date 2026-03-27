@@ -50,6 +50,11 @@ export { OrthographicCamera } from "./cameras/OrthographicCamera";
 export { OrbitCamera } from "./cameras/OrbitCamera";
 export { FPSCamera } from "./cameras/FPSCamera";
 export {
+	CameraShakePlugin,
+	type CameraShakePluginOptions,
+	type CameraShakeImpulse,
+} from "./addons/CameraShakePlugin";
+export {
 	Material,
 	BasicMaterial,
 	PhongMaterial,
