@@ -99,6 +99,12 @@ export class CameraShakePlugin {
 	private _baseTarget = new Vector3();
 	private _baseUp = new Vector3(0, 1, 0);
 	private _shakeQuaternion = new Quaternion();
+	private _orbitPitchQuaternion = new Quaternion();
+	private _orbitYawQuaternion = new Quaternion();
+	private _orbitRollQuaternion = new Quaternion();
+	private _orbitRotationQuaternion = new Quaternion();
+	private _orbitRotatedOffset = new Vector3();
+	private _orbitRotatedUp = new Vector3();
 
 	private _onTick = (event: { now: number; deltaTime: number }): void => {
 		if (!this._active) return;
@@ -395,29 +401,76 @@ export class CameraShakePlugin {
 		const translateZ =
 			rightZ * positionX + upZ * positionY + forwardZ * positionZ;
 
-		camera.position.x += translateX;
-		camera.position.y += translateY;
-		camera.position.z += translateZ;
-		camera.target.x += translateX;
-		camera.target.y += translateY;
-		camera.target.z += translateZ;
+		const pivotX = this._baseTarget.x + translateX;
+		const pivotY = this._baseTarget.y + translateY;
+		const pivotZ = this._baseTarget.z + translateZ;
 
-		const lookDistance = Math.max(
-			1,
-			Math.hypot(
-				this._baseTarget.x - this._basePosition.x,
-				this._baseTarget.y - this._basePosition.y,
-				this._baseTarget.z - this._basePosition.z
-			)
+		setQuaternionFromAxisAngle(
+			this._orbitPitchQuaternion,
+			rightX,
+			rightY,
+			rightZ,
+			rotationX
 		);
-		camera.target.x += rightX * (rotationY * lookDistance);
-		camera.target.y += rightY * (rotationY * lookDistance);
-		camera.target.z += rightZ * (rotationY * lookDistance);
-		camera.target.x += upX * (rotationX * lookDistance);
-		camera.target.y += upY * (rotationX * lookDistance);
-		camera.target.z += upZ * (rotationX * lookDistance);
+		setQuaternionFromAxisAngle(
+			this._orbitYawQuaternion,
+			upX,
+			upY,
+			upZ,
+			rotationY
+		);
+		setQuaternionFromAxisAngle(
+			this._orbitRollQuaternion,
+			forwardX,
+			forwardY,
+			forwardZ,
+			rotationZ
+		);
+		multiplyQuaternions(
+			this._orbitYawQuaternion,
+			this._orbitPitchQuaternion,
+			this._orbitRotationQuaternion
+		);
+		multiplyQuaternions(
+			this._orbitRollQuaternion,
+			this._orbitRotationQuaternion,
+			this._orbitRotationQuaternion
+		);
 
-		rotateVectorAroundAxis(camera.up, forwardX, forwardY, forwardZ, rotationZ);
+		rotateVectorByQuaternion(
+			this._basePosition.x - this._baseTarget.x,
+			this._basePosition.y - this._baseTarget.y,
+			this._basePosition.z - this._baseTarget.z,
+			this._orbitRotationQuaternion,
+			this._orbitRotatedOffset
+		);
+		camera.position.x = pivotX + this._orbitRotatedOffset.x;
+		camera.position.y = pivotY + this._orbitRotatedOffset.y;
+		camera.position.z = pivotZ + this._orbitRotatedOffset.z;
+		camera.target.x = pivotX;
+		camera.target.y = pivotY;
+		camera.target.z = pivotZ;
+
+		rotateVectorByQuaternion(
+			this._baseUp.x,
+			this._baseUp.y,
+			this._baseUp.z,
+			this._orbitRotationQuaternion,
+			this._orbitRotatedUp
+		);
+		const rotatedUpLength = Math.hypot(
+			this._orbitRotatedUp.x,
+			this._orbitRotatedUp.y,
+			this._orbitRotatedUp.z
+		);
+		if (rotatedUpLength > EPSILON) {
+			const invUpLength = 1 / rotatedUpLength;
+			camera.up.x = this._orbitRotatedUp.x * invUpLength;
+			camera.up.y = this._orbitRotatedUp.y * invUpLength;
+			camera.up.z = this._orbitRotatedUp.z * invUpLength;
+		} else {
+			camera.up.copy(this._baseUp);
+		}
 	}
 
 	private _restoreApplied(): void {
@@ -497,37 +550,48 @@ function multiplyQuaternions(
 	out.set(x, y, z, w).normalize();
 }
 
-function rotateVectorAroundAxis(
-	vector: IVector3,
+function setQuaternionFromAxisAngle(
+	out: Quaternion,
 	axisX: number,
 	axisY: number,
 	axisZ: number,
 	angle: number
 ): void {
-	const cosTheta = Math.cos(angle);
-	const sinTheta = Math.sin(angle);
-	const dot = vector.x * axisX + vector.y * axisY + vector.z * axisZ;
-	const crossX = axisY * vector.z - axisZ * vector.y;
-	const crossY = axisZ * vector.x - axisX * vector.z;
-	const crossZ = axisX * vector.y - axisY * vector.x;
-
-	vector.x =
-		vector.x * cosTheta +
-		crossX * sinTheta +
-		axisX * dot * (1 - cosTheta);
-	vector.y =
-		vector.y * cosTheta +
-		crossY * sinTheta +
-		axisY * dot * (1 - cosTheta);
-	vector.z =
-		vector.z * cosTheta +
-		crossZ * sinTheta +
-		axisZ * dot * (1 - cosTheta);
-
-	const length = Math.hypot(vector.x, vector.y, vector.z);
-	if (length > EPSILON) {
-		vector.x /= length;
-		vector.y /= length;
-		vector.z /= length;
+	const axisLength = Math.hypot(axisX, axisY, axisZ);
+	if (axisLength <= EPSILON || Math.abs(angle) <= EPSILON) {
+		out.set(0, 0, 0, 1);
+		return;
 	}
+	const invAxisLength = 1 / axisLength;
+	const halfAngle = angle * 0.5;
+	const sinHalf = Math.sin(halfAngle);
+	const cosHalf = Math.cos(halfAngle);
+	out.set(
+		axisX * invAxisLength * sinHalf,
+		axisY * invAxisLength * sinHalf,
+		axisZ * invAxisLength * sinHalf,
+		cosHalf
+	).normalize();
+}
+
+function rotateVectorByQuaternion(
+	x: number,
+	y: number,
+	z: number,
+	rotation: Quaternion,
+	out: IVector3
+): void {
+	const qx = rotation.x;
+	const qy = rotation.y;
+	const qz = rotation.z;
+	const qw = rotation.w;
+
+	const ix = qw * x + qy * z - qz * y;
+	const iy = qw * y + qz * x - qx * z;
+	const iz = qw * z + qx * y - qy * x;
+	const iw = -qx * x - qy * y - qz * z;
+
+	out.x = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+	out.y = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+	out.z = iz * qw + iw * -qz + ix * -qy - iy * -qx;
 }

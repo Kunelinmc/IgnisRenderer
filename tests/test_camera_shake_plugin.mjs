@@ -282,7 +282,78 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 	}
 }
 
+async function testOrbitRotationShakeRotatesAroundPivot() {
+	const restoreRuntime = useMockBrowserRuntime();
+	try {
+		const backend = new StubBackend("always");
+		const camera = new OrbitCamera(new Vector3(4, -2, 3), 180);
+		camera.theta = -0.42;
+		camera.phi = 1.24;
+		camera.updatePosition();
+
+		const renderer = new Renderer(backend, TEST_CANVAS, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.features.enableGamma = false;
+		renderer.features.enableReflection = false;
+		renderer.features.enableSkybox = false;
+		renderer.features.enableShadows = false;
+
+		const plugin = new CameraShakePlugin({
+			defaultIntensity: 1,
+			defaultDurationSeconds: 0.24,
+			defaultFrequencyHz: 17,
+			defaultPositionAmplitude: { x: 0, y: 0, z: 0 },
+			defaultRotationAmplitude: { x: 0.025, y: 0.03, z: 0.02 },
+		});
+		plugin.attach(renderer);
+
+		const basePosition = {
+			x: camera.position.x,
+			y: camera.position.y,
+			z: camera.position.z,
+		};
+		const baseTarget = {
+			x: camera.target.x,
+			y: camera.target.y,
+			z: camera.target.z,
+		};
+		const baseDistance = distance3(basePosition, baseTarget);
+
+		plugin.trigger({
+			positionAmplitude: { x: 0, y: 0, z: 0 },
+			rotationAmplitude: { x: 0.025, y: 0.03, z: 0.02 },
+		});
+		await renderer.renderScene(16);
+
+		assert.equal(backend.beginFrameCount, 1);
+		const beginSnapshot = backend.beginSnapshots[0];
+		assert.ok(beginSnapshot.target, "orbit snapshot should include target");
+		assert.ok(
+			distance3(beginSnapshot.position, basePosition) > 1e-5,
+			"rotation-only orbit shake should move camera position around pivot"
+		);
+		assert.ok(
+			distance3(beginSnapshot.target, baseTarget) <= 1e-5,
+			"rotation-only orbit shake should keep pivot target stable"
+		);
+		assert.ok(
+			Math.abs(distance3(beginSnapshot.position, beginSnapshot.target) - baseDistance) <=
+				1e-4,
+			"rotation-only orbit shake should preserve orbit radius"
+		);
+
+		assertVectorClose(camera.position, basePosition);
+		assertVectorClose(camera.target, baseTarget);
+
+		plugin.detach();
+	}
+	finally {
+		restoreRuntime();
+	}
+}
+
 await testShakeAppliedBeforeFrameAndRestoredAfterFrame();
 await testOnDemandSchedulingStaysAwakeWhileShakeIsActive();
 await testOrbitCameraShakeDoesNotDriftPoseBetweenFrames();
+await testOrbitRotationShakeRotatesAroundPivot();
 console.log("Camera shake plugin tests passed");
