@@ -57,6 +57,17 @@ export {
 	type CameraShakeImpulse,
 } from "./addons/CameraShakePlugin";
 export {
+	CommonMaterialLibraryPlugin,
+	type CommonMaterialLibraryPluginOptions,
+	type CommonMaterialPresetCategory,
+	type CommonMaterialPresetFactory,
+	type CommonMaterialPresetFactoryContext,
+	type CommonMaterialPresetInfo,
+	type CommonMaterialPresetDefinition,
+	type CommonMetalPresetStyle,
+	type CommonPlasticPresetStyle,
+} from "./addons/CommonMaterialLibraryPlugin";
+export {
 	Material,
 	BasicMaterial,
 	PhongMaterial,
