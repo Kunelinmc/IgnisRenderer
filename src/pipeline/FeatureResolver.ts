@@ -2,6 +2,7 @@ import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
@@ -22,6 +23,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	motionBlur: "feature-motion-blur",
 	dof: "feature-dof",
 	bloom: "feature-bloom",
+	clusteredLighting: "feature-clustered-lighting",
 };
 
 const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
@@ -36,6 +38,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	motionBlur: "motion blur",
 	dof: "depth of field",
 	bloom: "bloom",
+	clusteredLighting: "clustered lighting",
 };
 
 export function resolveFeatureState(
@@ -67,6 +70,10 @@ export function resolveFeatureState(
 		dofOptions: {
 			...DEFAULT_DOF_OPTIONS,
 			...(request.dofOptions ?? {}),
+		},
+		clusteredLightingOptions: {
+			...DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
+			...(request.clusteredLightingOptions ?? {}),
 		},
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
@@ -142,6 +149,13 @@ export function resolveFeatureState(
 			request.enableBloom,
 			capabilities.bloom,
 			"bloom",
+			backendType,
+			warnings
+		),
+		enableClusteredLighting: resolveBooleanFeature(
+			request.enableClusteredLighting,
+			capabilities.clusteredLighting,
+			"clusteredLighting",
 			backendType,
 			warnings
 		),

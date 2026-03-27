@@ -51,6 +51,7 @@ function normalizeSourceKind(sourceKind?: ShaderSourceKind): ShaderSourceKind {
 		case "builtin-skybox":
 		case "builtin-present":
 		case "postprocess":
+		case "clustered":
 		case "shadow":
 		case "particle":
 		case "custom-material":

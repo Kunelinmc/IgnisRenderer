@@ -103,6 +103,7 @@ export class WebGPUFrameBindingCache {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
 			enableShadows: features.enableShadows,
+			enableClusteredLighting: features.enableClusteredLighting,
 			encodeGammaInShader:
 				features.enableGamma && sceneTargetMode === "single",
 			enableSH: environmentState.enableSH,

@@ -127,7 +127,7 @@ export function packFrameUniformData(
 			input.hasBRDFLUT ? 1 : 0,
 			Math.max(0, input.envSpecularMaxMipLevel),
 			input.skyboxIsLinear ? 1 : 0,
-			0,
+			input.enableClusteredLighting ? 1 : 0,
 		],
 		64
 	);

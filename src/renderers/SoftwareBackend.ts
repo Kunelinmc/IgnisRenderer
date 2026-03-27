@@ -50,6 +50,7 @@ export class SoftwareBackend implements IRenderBackend {
 		motionBlur: false,
 		dof: false,
 		bloom: false,
+		clusteredLighting: false,
 	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 

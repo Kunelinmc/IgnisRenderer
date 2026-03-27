@@ -26,6 +26,7 @@ import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	BloomOptions,
+	ClusteredLightingOptions,
 	DOFOptions,
 	MotionBlurOptions,
 	SSAOOptions,
@@ -71,6 +72,7 @@ export interface RendererFeatures {
 	enableDOF: boolean;
 	enableBloom: boolean;
 	enableFXAA: boolean;
+	enableClusteredLighting: boolean;
 	ssrOptions: SSROptions;
 	volumetricOptions: VolumetricOptions;
 	ssaoOptions: SSAOOptions;
@@ -78,6 +80,7 @@ export interface RendererFeatures {
 	bloomOptions: BloomOptions;
 	motionBlurOptions: MotionBlurOptions;
 	dofOptions: DOFOptions;
+	clusteredLightingOptions: ClusteredLightingOptions;
 	worldMatrix: Matrix4;
 }
 
@@ -137,6 +140,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableDOF: false,
 			enableBloom: false,
 			enableFXAA: false,
+			enableClusteredLighting: false,
 			ssrOptions: {},
 			volumetricOptions: {},
 			ssaoOptions: {},
@@ -144,6 +148,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			bloomOptions: {},
 			motionBlurOptions: {},
 			dofOptions: {},
+			clusteredLightingOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 

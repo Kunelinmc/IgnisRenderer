@@ -36,10 +36,52 @@ struct FrameUniforms {
 	taaJitterCurrentPrev: vec4<f32>,
 	directionalLights: array<DirectionalLightData, 4>,
 	pointLights: array<PointLightData, 4>,
-	spotLights: array<SpotLightData, 4>,
+	spotLights: array<SpotLightData, 8>,
 	directionalShadows: array<ShadowData, 4>,
-	spotShadows: array<ShadowData, 4>,
+	spotShadows: array<ShadowData, 8>,
 	shAmbientCoeffs: array<vec4<f32>, 16>,
+}
+
+struct ClusterGridParams {
+	screenWidth: u32,
+	screenHeight: u32,
+	tilesX: u32,
+	tilesY: u32,
+	zSlices: u32,
+	clusterCount: u32,
+	near: f32,
+	far: f32,
+	logScale: f32,
+	logBias: f32,
+}
+
+struct ClusterLightRecord {
+	positionRange: vec4<f32>,
+	directionOuter: vec4<f32>,
+	colorInner: vec4<f32>,
+	packedFlags: u32,
+	shadowIndex: u32,
+	reserved0: u32,
+	reserved1: u32,
+}
+
+struct ClusterHeader {
+	offset: u32,
+	count: u32,
+	flags: u32,
+	reserved: u32,
+}
+
+struct ClusterLightBuffer {
+	lights: array<ClusterLightRecord>,
+}
+
+struct ClusterHeaderBuffer {
+	headers: array<ClusterHeader>,
+}
+
+struct ClusterLightIndexList {
+	indices: array<u32>,
 }
 
 struct ModelUniforms {
@@ -144,3 +186,8 @@ struct RefractionResult {
 @group(1) @binding(31) var<storage, read> morphWeights: array<f32>;
 @group(1) @binding(32) var<storage, read> morphPositionDeltas: array<vec4<f32>>;
 @group(1) @binding(33) var<storage, read> morphNormalDeltas: array<vec4<f32>>;
+
+@group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
+@group(2) @binding(1) var<storage, read> clusterLights: ClusterLightBuffer;
+@group(2) @binding(2) var<storage, read> clusterHeaders: ClusterHeaderBuffer;
+@group(2) @binding(3) var<storage, read> clusterIndices: ClusterLightIndexList;

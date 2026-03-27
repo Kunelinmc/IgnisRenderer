@@ -234,14 +234,14 @@ function testLightCollectorLimitsAndWarnings() {
 	for (let i = 0; i < 6; i++) {
 		lights.push(new PointLight({ range: 100 + i }));
 	}
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < 10; i++) {
 		lights.push(new SpotLight({ range: 100 + i }));
 	}
 
 	const state = collectWebGLLights(lights, true, warn);
 	assert.equal(state.directionalLights.length, 4);
 	assert.equal(state.pointLights.length, 4);
-	assert.equal(state.spotLights.length, 4);
+	assert.equal(state.spotLights.length, 8);
 	assert.ok(warnings.some((warning) => warning.key === "webgl-directional-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-point-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-spot-light-limit"));

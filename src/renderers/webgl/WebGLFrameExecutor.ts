@@ -538,8 +538,7 @@ export class WebGLFrameExecutor {
 				shadowProgram,
 				packets,
 				lights.directionalShadows[i],
-				i,
-				0
+				i
 			);
 		}
 
@@ -549,8 +548,7 @@ export class WebGLFrameExecutor {
 				shadowProgram,
 				packets,
 				lights.spotShadows[i],
-				i,
-				1
+				WEBGL_MAX_DIRECTIONAL_LIGHTS + i
 			);
 		}
 
@@ -565,14 +563,16 @@ export class WebGLFrameExecutor {
 		shadowProgram: WebGLShadowDepthProgram,
 		packets: DrawPacket[],
 		shadow: WebGLShadowData | undefined,
-		tileX: number,
-		tileY: number
+		tileIndex: number
 	): void {
 		if (!shadow?.enabled || !shadow.viewProjectionMatrix) {
 			return;
 		}
 
 		const shadowSize = Math.max(1, shadow.shadowMapSize | 0);
+		const atlasColumns = Math.max(1, WEBGL_SHADOW_ATLAS_COLUMNS);
+		const tileX = tileIndex % atlasColumns;
+		const tileY = Math.floor(tileIndex / atlasColumns);
 		const viewportX = tileX * this._shadowAtlasTileSize;
 		const viewportY = tileY * this._shadowAtlasTileSize;
 		const gl = this._gl;

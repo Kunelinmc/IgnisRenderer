@@ -112,6 +112,7 @@ export interface ShaderModuleDesc {
 		| "builtin-skybox"
 		| "builtin-present"
 		| "postprocess"
+		| "clustered"
 		| "shadow"
 		| "particle"
 		| "custom-material"

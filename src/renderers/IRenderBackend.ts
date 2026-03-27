@@ -63,6 +63,7 @@ export interface BackendCapabilities {
 	motionBlur: boolean;
 	dof: boolean;
 	bloom: boolean;
+	clusteredLighting: boolean;
 }
 
 export interface RendererBackendBridge {

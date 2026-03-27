@@ -34,6 +34,7 @@ import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegi
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
 	FRAGMENT: 2,
+	COMPUTE: 4,
 };
 
 class FakeDevice {
@@ -352,7 +353,10 @@ function testFeatureGate() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			motionBlur: false,
+			dof: false,
 			bloom: false,
+			clusteredLighting: false,
 		},
 		"webgpu"
 	);
@@ -417,6 +421,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
@@ -575,6 +582,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				taa: false,
 				ssr: false,
 				volumetric: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
 			},
 			"webgpu"
 		)
@@ -590,6 +601,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
 		backend.device.pipelineLayouts[0]
+	);
+	assert.equal(
+		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts.length,
+		3
 	);
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
@@ -655,6 +670,10 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		taa: false,
 		ssr: false,
 		volumetric: false,
+		motionBlur: false,
+		dof: false,
+		bloom: false,
+		clusteredLighting: true,
 	};
 
 	const shAmbient = SH.empty();
@@ -743,6 +762,10 @@ async function testParticleUVLayoutAndUniformBinding() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
 		},
 		"webgpu"
 	);
@@ -862,6 +885,10 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
 		},
 		"webgpu"
 	);
@@ -904,6 +931,10 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
 		},
 		"webgpu"
 	);
@@ -997,6 +1028,10 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
 		},
 		"webgpu"
 	);

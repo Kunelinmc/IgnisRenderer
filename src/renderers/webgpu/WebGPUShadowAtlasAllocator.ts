@@ -1,6 +1,10 @@
 import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
+import {
+	WEBGPU_SHADOW_ATLAS_COLUMNS,
+	WEBGPU_SHADOW_ATLAS_ROWS,
+} from "./constants";
 import type { WebGPULightingState } from "./";
 
 interface ShadowAtlas {
@@ -13,9 +17,6 @@ interface ShadowSlice {
 	shadowMap: ShadowMap | null;
 	atlasTileSize: number;
 }
-
-const SHADOW_ATLAS_COLUMNS = 4;
-const SHADOW_ATLAS_ROWS = 2;
 
 export class WebGPUShadowAtlasAllocator {
 	private _backend: WebGPUBackend;
@@ -52,8 +53,8 @@ export class WebGPUShadowAtlasAllocator {
 			this._atlas = {
 				tileSize: safeTileSize,
 				texture: this._backend.createTexture({
-					width: safeTileSize * SHADOW_ATLAS_COLUMNS,
-					height: safeTileSize * SHADOW_ATLAS_ROWS,
+					width: safeTileSize * WEBGPU_SHADOW_ATLAS_COLUMNS,
+					height: safeTileSize * WEBGPU_SHADOW_ATLAS_ROWS,
 					format: TextureFormat.Depth32Float,
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
 					label: "WebGPUShadowDepthAtlas",
@@ -73,11 +74,11 @@ export class WebGPUShadowAtlasAllocator {
 	}
 
 	public get columns(): number {
-		return SHADOW_ATLAS_COLUMNS;
+		return WEBGPU_SHADOW_ATLAS_COLUMNS;
 	}
 
 	public get rows(): number {
-		return SHADOW_ATLAS_ROWS;
+		return WEBGPU_SHADOW_ATLAS_ROWS;
 	}
 
 	public get directionalAtlas(): IRenderTexture | null {

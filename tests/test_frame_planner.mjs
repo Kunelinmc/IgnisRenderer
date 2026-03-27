@@ -70,6 +70,8 @@ function run() {
 			"taa",
 			"ssr",
 			"volumetric",
+			"motion-blur",
+			"dof",
 			"bloom",
 			"fxaa",
 			"gamma",

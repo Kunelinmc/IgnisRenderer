@@ -216,6 +216,14 @@ export interface DOFOptions {
 	[key: string]: unknown;
 }
 
+export interface ClusteredLightingOptions {
+	tileSizePx?: number;
+	zSlices?: number;
+	maxLights?: number;
+	maxLightsPerCluster?: number;
+	[key: string]: unknown;
+}
+
 export const DEFAULT_SSAO_OPTIONS: Required<
 	Pick<
 		SSAOOptions,
@@ -373,6 +381,18 @@ export const DEFAULT_DOF_OPTIONS: Required<
 	chromaticAberration: 0.2,
 };
 
+export const DEFAULT_CLUSTERED_LIGHTING_OPTIONS: Required<
+	Pick<
+		ClusteredLightingOptions,
+		"tileSizePx" | "zSlices" | "maxLights" | "maxLightsPerCluster"
+	>
+> = {
+	tileSizePx: 64,
+	zSlices: 24,
+	maxLights: 256,
+	maxLightsPerCluster: 64,
+};
+
 export interface FeatureWarning {
 	key: string;
 	message: string;
@@ -393,6 +413,7 @@ export interface RendererFeatureRequest {
 	enableDOF?: boolean;
 	enableBloom?: boolean;
 	enableFXAA?: boolean;
+	enableClusteredLighting?: boolean;
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
 	taaOptions?: TAAOptions;
@@ -400,6 +421,7 @@ export interface RendererFeatureRequest {
 	bloomOptions?: BloomOptions;
 	motionBlurOptions?: MotionBlurOptions;
 	dofOptions?: DOFOptions;
+	clusteredLightingOptions?: ClusteredLightingOptions;
 }
 
 export interface ResolvedFeatureState {
@@ -417,6 +439,7 @@ export interface ResolvedFeatureState {
 	enableDOF: boolean;
 	enableBloom: boolean;
 	enableFXAA: boolean;
+	enableClusteredLighting: boolean;
 	warnings: FeatureWarning[];
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
@@ -425,4 +448,5 @@ export interface ResolvedFeatureState {
 	bloomOptions?: BloomOptions;
 	motionBlurOptions?: MotionBlurOptions;
 	dofOptions?: DOFOptions;
+	clusteredLightingOptions?: ClusteredLightingOptions;
 }

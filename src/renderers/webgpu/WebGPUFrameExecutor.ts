@@ -1315,6 +1315,7 @@ export class WebGPUFrameExecutor {
 		clearAttachments: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
+		await this._resources.buildClusteredLighting(this._encoder);
 		if (!this._mrtEnabled || !this._frameTargets) {
 			await this._recordLegacyMainPass(packets, clearAttachments);
 			return;
@@ -1423,6 +1424,7 @@ export class WebGPUFrameExecutor {
 				this._encoder.setPipeline(resources.pipeline);
 				this._encoder.setBindingGroup(0, resources.frameBinding);
 				this._encoder.setBindingGroup(1, resources.modelBinding);
+				this._encoder.setBindingGroup(2, resources.clusteredBinding);
 				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
 				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
 				this._encoder.drawIndexed(resources.indexCount);
@@ -1437,6 +1439,7 @@ export class WebGPUFrameExecutor {
 		clearAttachments: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
+		await this._resources.buildClusteredLighting(this._encoder);
 		const colorTexture = this._backend.getCanvasColorTexture();
 		const depthTexture = this._backend.getCanvasDepthTexture();
 
@@ -1474,6 +1477,7 @@ export class WebGPUFrameExecutor {
 				this._encoder.setPipeline(resources.pipeline);
 				this._encoder.setBindingGroup(0, resources.frameBinding);
 				this._encoder.setBindingGroup(1, resources.modelBinding);
+				this._encoder.setBindingGroup(2, resources.clusteredBinding);
 				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
 				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
 				this._encoder.drawIndexed(resources.indexCount);

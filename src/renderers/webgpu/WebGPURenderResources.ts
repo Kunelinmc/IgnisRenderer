@@ -36,6 +36,7 @@ import {
 } from "./";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
+import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime";
 import {
 	WebGPUGeometryRegistry,
 	type WebGPUGeometryHandle,
@@ -78,6 +79,7 @@ export interface WebGPUDrawResources {
 	pipeline: any;
 	frameBinding: any;
 	modelBinding: any;
+	clusteredBinding: any;
 	vertexBuffer: any;
 	indexBuffer: any;
 	indexCount: number;
@@ -114,6 +116,7 @@ export class WebGPURenderResources {
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _pipelineLibrary: WebGPUPipelineLibrary;
 	private _frameBindings: WebGPUFrameBindingCache;
+	private _clusteredLighting: WebGPUClusteredLightingRuntime;
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowPass: WebGPUShadowPass;
 	private _lightingState: WebGPULightingState | null = null;
@@ -155,6 +158,12 @@ export class WebGPURenderResources {
 			this._layouts,
 			this._textureRegistry,
 			this._shadowAtlases
+		);
+		this._clusteredLighting = new WebGPUClusteredLightingRuntime(
+			backend,
+			this._layouts.clusteredSceneBindGroupLayout,
+			this._layouts.sceneFrameBindGroupLayout,
+			(key, message) => this._renderer.warnOnce(key, message)
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
@@ -317,8 +326,10 @@ export class WebGPURenderResources {
 			enableSSR: features.enableSSR,
 			enableVolumetric: features.enableVolumetric,
 			enableBloom: features.enableBloom,
+			enableClusteredLighting: features.enableClusteredLighting,
 			taaOptions: features.taaOptions,
 			bloomOptions: features.bloomOptions,
+			clusteredLightingOptions: features.clusteredLightingOptions,
 			warnings: [],
 		};
 		this._featureState = featureState;
@@ -344,7 +355,8 @@ export class WebGPURenderResources {
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
-			scene.shadowMaps
+			scene.shadowMaps,
+			featureState.enableClusteredLighting
 		);
 		for (const warning of this._lightingState.warnings) {
 			this._renderer.warnOnce(warning.key, warning.message);
@@ -369,12 +381,30 @@ export class WebGPURenderResources {
 			renderHeight,
 			this._sceneTargetMode
 		);
+		this._clusteredLighting.prepareFrame(
+			scene,
+			featureState,
+			this._lightingState,
+			renderWidth,
+			renderHeight
+		);
 		this._materialBindings.beginFrame();
 		this._evictParticleBindings();
 	}
 
 	public getFrameBinding(): IBindingGroup {
 		return this._frameBindings.getSceneBinding();
+	}
+
+	public getClusteredSceneBinding(): IBindingGroup {
+		return this._clusteredLighting.getSceneBinding();
+	}
+
+	public async buildClusteredLighting(encoder: ICommandEncoder): Promise<void> {
+		await this._clusteredLighting.build(
+			encoder,
+			this._frameBindings.getSceneBinding()
+		);
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -386,6 +416,7 @@ export class WebGPURenderResources {
 		this._particlePipelineAlpha.clear();
 		this._particlePipelineAdditive.clear();
 		this._clearParticleBindingCache();
+		this._clusteredLighting.onShaderRuntimeChanged();
 		this._shadowPass.onShaderRuntimeChanged();
 	}
 
@@ -406,6 +437,7 @@ export class WebGPURenderResources {
 		this._particleInstanceBuffer = null;
 		this._particleInstanceCapacity = 0;
 		this._frameBindings.destroy();
+		this._clusteredLighting.destroy();
 		this._materialBindings.destroy();
 		this._shadowPass.destroy();
 		this._pipelineLibrary.destroy();
@@ -488,6 +520,7 @@ export class WebGPURenderResources {
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
 		const frameBinding = this._frameBindings.getSceneBinding();
+		const clusteredBinding = this._clusteredLighting.getSceneBinding();
 		const animationState = this._resolveAnimationState(packet, geometry);
 
 		// ----- SOLID OBJECT -----
@@ -524,6 +557,7 @@ export class WebGPURenderResources {
 			pipeline: solidPipeline,
 			frameBinding,
 			modelBinding: solidModelBinding,
+			clusteredBinding,
 			vertexBuffer: geometry.vertexBuffer,
 			indexBuffer: geometry.indexBuffer,
 			indexCount: geometry.indexCount,
@@ -563,6 +597,7 @@ export class WebGPURenderResources {
 				pipeline: wirePipeline,
 				frameBinding,
 				modelBinding: wireModelBinding,
+				clusteredBinding,
 				vertexBuffer: geometry.vertexBuffer,
 				indexBuffer: geometry.wireframeIndexBuffer,
 				indexCount: geometry.wireframeIndexCount,

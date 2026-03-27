@@ -13,8 +13,10 @@ struct FrameUniforms {
 	taaJitterCurrentPrev: vec4<f32>,
 	directionalLights: array<vec4<f32>, 8>,
 	pointLights: array<vec4<f32>, 8>,
-	spotLights: array<vec4<f32>, 12>,
+	spotLights: array<vec4<f32>, 24>,
 	directionalShadows: array<ShadowData, 4>,
+	spotShadows: array<ShadowData, 8>,
+	shAmbientCoeffs: array<vec4<f32>, 16>,
 }
 
 struct ShadowData {

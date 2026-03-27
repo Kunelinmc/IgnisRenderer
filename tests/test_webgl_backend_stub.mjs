@@ -233,6 +233,7 @@ async function testInitAndPassRouting() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		clusteredLighting: false,
 	});
 
 	const calls = [];

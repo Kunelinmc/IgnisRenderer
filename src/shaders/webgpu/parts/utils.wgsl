@@ -387,11 +387,17 @@ fn sampleShadowVisibility(
 
 	let pcfRadius = max(shadowData.paramsB.x, 1.0);
 	let texelPosition = shadowUv * vec2<f32>(f32(shadowSize - 1), f32(shadowSize - 1));
-	let tileRow = select(0, 1, shadowType == 1u);
-	let tileOffset = vec2<i32>(
-		i32(index) * atlasTileSize,
-		tileRow * atlasTileSize
+	let atlasDimensions = textureDimensions(shadowAtlas);
+	let atlasWidth = max(i32(atlasDimensions.x), 1);
+	let atlasColumns = max(atlasWidth / max(atlasTileSize, 1), 1);
+	let shadowGlobalIndex = select(
+		index,
+		MAX_DIRECTIONAL_LIGHTS + index,
+		shadowType == 1u
 	);
+	let tileX = i32(shadowGlobalIndex % u32(atlasColumns));
+	let tileY = i32(shadowGlobalIndex / u32(atlasColumns));
+	let tileOffset = vec2<i32>(tileX * atlasTileSize, tileY * atlasTileSize);
 	var visible = 0.0;
 	var sampleCount = 0.0;
 
@@ -456,5 +462,89 @@ fn sampleSpotShadowVisibility(
 		worldPosition,
 		normal,
 		lightDirection
+	);
+}
+
+struct ClusteredLightRef {
+	lightIndex: u32,
+	lightType: u32,
+	shadowed: bool,
+	volumetric: bool,
+}
+
+fn isClusteredLightingEnabled() -> bool {
+	return frame.environmentOptionsB.w > 0.5 &&
+		clusterGrid.zSlices > 0u &&
+		clusterGrid.clusterCount > 0u &&
+		clusterGrid.logScale > 0.0;
+}
+
+fn computeClusterSliceFromLinearDepth(linearDepth: f32) -> u32 {
+	let nearPlane = max(clusterGrid.near, 0.05);
+	let farPlane = max(clusterGrid.far, nearPlane + 1e-3);
+	let z = max(linearDepth, nearPlane);
+	let numerator = log(z) - log(nearPlane);
+	let denominator = max(log(farPlane) - log(nearPlane), EPSILON);
+	let scaled = numerator / denominator * f32(clusterGrid.zSlices);
+	let slice = i32(floor(scaled));
+	return u32(clamp(slice, 0, i32(clusterGrid.zSlices) - 1));
+}
+
+fn computeClusterIndex(worldPosition: vec3<f32>, linearDepth: f32) -> u32 {
+	let clip = frame.viewProjection * vec4<f32>(worldPosition, 1.0);
+	if (abs(clip.w) <= EPSILON) {
+		return 0u;
+	}
+	let invW = 1.0 / clip.w;
+	let ndc = clip.xy * invW;
+	let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+	let tilesX = max(clusterGrid.tilesX, 1u);
+	let tilesY = max(clusterGrid.tilesY, 1u);
+	let tileX = u32(
+		clamp(
+			i32(floor(uv.x * f32(tilesX))),
+			0,
+			i32(tilesX) - 1
+		)
+	);
+	let tileY = u32(
+		clamp(
+			i32(floor(uv.y * f32(tilesY))),
+			0,
+			i32(tilesY) - 1
+		)
+	);
+	let slice = computeClusterSliceFromLinearDepth(linearDepth);
+	return slice * (tilesX * tilesY) + tileY * tilesX + tileX;
+}
+
+fn getClusterHeaderForFragment(
+	worldPosition: vec3<f32>,
+	linearDepth: f32
+) -> ClusterHeader {
+	if (!isClusteredLightingEnabled()) {
+		return ClusterHeader(0u, 0u, 0u, 0u);
+	}
+	let clusterIndex = computeClusterIndex(worldPosition, linearDepth);
+	if (clusterIndex >= clusterGrid.clusterCount) {
+		return ClusterHeader(0u, 0u, 0u, 0u);
+	}
+	return clusterHeaders.headers[clusterIndex];
+}
+
+fn getClusterEntryCount(header: ClusterHeader) -> u32 {
+	let totalEntries = u32(arrayLength(&clusterIndices.indices));
+	if (header.offset >= totalEntries) {
+		return 0u;
+	}
+	return min(header.count, totalEntries - header.offset);
+}
+
+fn decodeClusteredLightRef(value: u32) -> ClusteredLightRef {
+	return ClusteredLightRef(
+		value & CLUSTER_INDEX_LIGHT_MASK,
+		(value & CLUSTER_INDEX_TYPE_MASK) >> CLUSTER_INDEX_TYPE_SHIFT,
+		(value & CLUSTER_INDEX_SHADOW_BIT) != 0u,
+		(value & CLUSTER_INDEX_VOLUMETRIC_BIT) != 0u
 	);
 }

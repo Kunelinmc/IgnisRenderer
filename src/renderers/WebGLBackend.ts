@@ -54,6 +54,7 @@ export class WebGLBackend implements IRenderBackend {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		clusteredLighting: false,
 	};
 
 	private _renderer: RendererBackendBridge | null = null;

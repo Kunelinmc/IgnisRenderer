@@ -25,6 +25,7 @@ import {
 	WEBGPU_MAX_MORPH_TARGETS,
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SCENE_VERTEX_STRIDE,
+	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
 import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
 import type {
@@ -623,6 +624,7 @@ export class WebGPUShadowPass {
 		shadowMaps: Map<ShadowCastingLight, ShadowMap>
 	): ShadowRenderSlot[] {
 		const slots: ShadowRenderSlot[] = [];
+		const atlasColumns = Math.max(1, WEBGPU_SHADOW_ATLAS_COLUMNS);
 		let directionalIndex = 0;
 		let spotIndex = 0;
 
@@ -632,10 +634,11 @@ export class WebGPUShadowPass {
 				if (isShadowCastingLight(light)) {
 					const shadowMap = shadowMaps.get(light);
 					if (shadowMap?.viewProjectionMatrix) {
+						const globalTileIndex = directionalIndex;
 						slots.push({
 							shadowMap,
-							tileX: directionalIndex,
-							tileY: 0,
+							tileX: globalTileIndex % atlasColumns,
+							tileY: Math.floor(globalTileIndex / atlasColumns),
 						});
 					}
 				}
@@ -648,10 +651,12 @@ export class WebGPUShadowPass {
 				if (isShadowCastingLight(light)) {
 					const shadowMap = shadowMaps.get(light);
 					if (shadowMap?.viewProjectionMatrix) {
+						const globalTileIndex =
+							WEBGPU_MAX_DIRECTIONAL_LIGHTS + spotIndex;
 						slots.push({
 							shadowMap,
-							tileX: spotIndex,
-							tileY: 1,
+							tileX: globalTileIndex % atlasColumns,
+							tileY: Math.floor(globalTileIndex / atlasColumns),
 						});
 					}
 				}

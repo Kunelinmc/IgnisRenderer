@@ -133,12 +133,17 @@ float sampleShadowVisibility(
 
 	float pcfRadius = max(paramsB.x, 1.0);
 	vec2 texelPosition = shadowUv * vec2(shadowSize - 1.0);
-	float tileRow = shadowType == 1 ? 1.0 : 0.0;
-	vec2 tileOffset = vec2(float(index) * atlasTileSize, tileRow * atlasTileSize);
 	vec2 atlasExtent = vec2(textureSize(uShadowAtlas, 0));
 	if (atlasExtent.x < 1.0 || atlasExtent.y < 1.0) {
 		return 1.0;
 	}
+	float atlasColumns = max(floor(atlasExtent.x / max(atlasTileSize, 1.0)), 1.0);
+	float tileIndex = shadowType == 1 ?
+		float(MAX_DIRECTIONAL_LIGHTS + index) :
+		float(index);
+	float tileX = mod(tileIndex, atlasColumns);
+	float tileY = floor(tileIndex / atlasColumns);
+	vec2 tileOffset = vec2(tileX * atlasTileSize, tileY * atlasTileSize);
 	float visible = 0.0;
 	float sampleCount = 0.0;
 

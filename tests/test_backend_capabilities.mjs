@@ -17,7 +17,10 @@ function run() {
 		taa: false,
 		ssr: false,
 		volumetric: true,
+		motionBlur: false,
+		dof: false,
 		bloom: false,
+		clusteredLighting: false,
 	});
 
 	assert.deepEqual(webgpu.capabilities, {
@@ -29,7 +32,10 @@ function run() {
 		taa: true,
 		ssr: true,
 		volumetric: true,
+		motionBlur: true,
+		dof: true,
 		bloom: true,
+		clusteredLighting: true,
 	});
 
 	assert.deepEqual(webgl.capabilities, {
@@ -41,7 +47,10 @@ function run() {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		motionBlur: true,
+		dof: true,
 		bloom: true,
+		clusteredLighting: false,
 	});
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");

@@ -8,6 +8,7 @@ export type ShaderSourceKind =
 	| "builtin-skybox"
 	| "builtin-present"
 	| "postprocess"
+	| "clustered"
 	| "shadow"
 	| "particle"
 	| "custom-material"

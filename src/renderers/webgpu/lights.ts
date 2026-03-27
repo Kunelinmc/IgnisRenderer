@@ -25,6 +25,7 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 } from "./constants";
 import type {
+	WebGPUClusteredLightUniform,
 	WebGPULightingState,
 	WebGPUShadowData,
 	WebGPUVolumetricLightUniform,
@@ -37,7 +38,8 @@ export function collectWebGPULighting(
 	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
+	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
+	enableClusteredLighting: boolean = false
 ): WebGPULightingState {
 	const state = createEmptyWebGPULightingState();
 	if (!enableLighting) return state;
@@ -48,13 +50,24 @@ export function collectWebGPULighting(
 				accumulateAmbientLight(state, light);
 				break;
 			case LightType.Directional:
-				collectDirectionalLight(state, light, enableShadows, shadowMaps);
+				collectDirectionalLight(
+					state,
+					light,
+					enableShadows,
+					shadowMaps
+				);
 				break;
 			case LightType.Point:
-				collectPointLight(state, light);
+				collectPointLight(state, light, enableClusteredLighting);
 				break;
 			case LightType.Spot:
-				collectSpotLight(state, light, enableShadows, shadowMaps);
+				collectSpotLight(
+					state,
+					light,
+					enableShadows,
+					shadowMaps,
+					enableClusteredLighting
+				);
 				break;
 			case LightType.LightProbe:
 				accumulateLightProbeFallbackAmbient(state, light, enableSH);
@@ -76,6 +89,7 @@ function createEmptyWebGPULightingState(): WebGPULightingState {
 		pointLights: [],
 		spotLights: [],
 		spotShadows: [],
+		clusteredLights: [],
 		volumetricLights: [],
 		warnings: [],
 	};
@@ -140,17 +154,21 @@ function collectDirectionalLight(
 
 function collectPointLight(
 	state: WebGPULightingState,
-	light: PointLight
+	light: PointLight,
+	enableClusteredLighting: boolean
 ): void {
 	const position = getPointLightWorldPosition(light);
 	const color = toLinearLightColor(light.color, light.intensity);
 	const range = Math.max(light.range, 0.001);
 	pushVolumetricPointLight(state, position, range, color);
+	pushClusteredPointLight(state, position, range, color, enableClusteredLighting);
 
 	if (state.pointLights.length >= WEBGPU_MAX_POINT_LIGHTS) {
-		state.warnings.push(
-			createLightLimitWarning("point", WEBGPU_MAX_POINT_LIGHTS)
-		);
+		if (!enableClusteredLighting) {
+			state.warnings.push(
+				createLightLimitWarning("point", WEBGPU_MAX_POINT_LIGHTS)
+			);
+		}
 		return;
 	}
 
@@ -165,7 +183,8 @@ function collectSpotLight(
 	state: WebGPULightingState,
 	light: SpotLight,
 	enableShadows: boolean,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
+	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
+	enableClusteredLighting: boolean = false
 ): void {
 	const position = getSpotLightWorldPosition(light);
 	const direction = getSpotLightWorldDirection(light);
@@ -183,10 +202,30 @@ function collectSpotLight(
 		color
 	);
 
+	const shadowData = resolveWebGPUShadowData(
+		enableShadows,
+		shadowMaps?.get(light as ShadowCastingLight)
+	);
+	const shadowIndex = state.spotShadows.length;
+	pushClusteredSpotLight(
+		state,
+		position,
+		range,
+		direction,
+		Math.cos(outerAngle),
+		Math.cos(innerAngle),
+		color,
+		shadowData.enabled,
+		shadowIndex,
+		enableClusteredLighting
+	);
+
 	if (state.spotLights.length >= WEBGPU_MAX_SPOT_LIGHTS) {
-		state.warnings.push(
-			createLightLimitWarning("spot", WEBGPU_MAX_SPOT_LIGHTS)
-		);
+		if (!enableClusteredLighting) {
+			state.warnings.push(
+				createLightLimitWarning("spot", WEBGPU_MAX_SPOT_LIGHTS)
+			);
+		}
 		return;
 	}
 
@@ -198,12 +237,7 @@ function collectSpotLight(
 		innerCos: Math.cos(innerAngle),
 		color,
 	});
-	state.spotShadows.push(
-		resolveWebGPUShadowData(
-			enableShadows,
-			shadowMaps?.get(light as ShadowCastingLight)
-		)
-	);
+	state.spotShadows.push(shadowData);
 }
 
 function createLightLimitWarning(
@@ -285,6 +319,61 @@ function pushVolumetricSpotLight(
 		color,
 	};
 	state.volumetricLights.push(light);
+}
+
+function pushClusteredPointLight(
+	state: WebGPULightingState,
+	position: { x: number; y: number; z: number },
+	range: number,
+	color: WebGPUVec3,
+	enableClusteredLighting: boolean
+): void {
+	if (!enableClusteredLighting) {
+		return;
+	}
+	const light: WebGPUClusteredLightUniform = {
+		type: 0,
+		position: [position.x, position.y, position.z],
+		range,
+		direction: [0, 0, 0],
+		outerCos: -2,
+		innerCos: -2,
+		color,
+		castsShadow: false,
+		affectsVolumetric: true,
+		shadowIndex: 0,
+	};
+	state.clusteredLights.push(light);
+}
+
+function pushClusteredSpotLight(
+	state: WebGPULightingState,
+	position: { x: number; y: number; z: number },
+	range: number,
+	direction: { x: number; y: number; z: number },
+	outerCos: number,
+	innerCos: number,
+	color: WebGPUVec3,
+	castsShadow: boolean,
+	shadowIndex: number,
+	enableClusteredLighting: boolean
+): void {
+	if (!enableClusteredLighting) {
+		return;
+	}
+	const light: WebGPUClusteredLightUniform = {
+		type: 1,
+		position: [position.x, position.y, position.z],
+		range,
+		direction: [direction.x, direction.y, direction.z],
+		outerCos,
+		innerCos,
+		color,
+		castsShadow,
+		affectsVolumetric: true,
+		shadowIndex: Math.max(0, shadowIndex | 0),
+	};
+	state.clusteredLights.push(light);
 }
 
 function resolveWebGPUShadowData(

@@ -1,6 +1,10 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import type { BloomOptions, TAAOptions } from "../../pipeline/types";
+import type {
+	BloomOptions,
+	ClusteredLightingOptions,
+	TAAOptions,
+} from "../../pipeline/types";
 import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { Texture } from "../../core/Texture";
 
@@ -34,6 +38,7 @@ export type WebGPUDirectionalLight = WebGPUDirectionalLightUniform;
 export type WebGPUPointLight = WebGPUPointLightUniform;
 export type WebGPUSpotLight = WebGPUSpotLightUniform;
 export type WebGPUVolumetricLightType = 0 | 1 | 2;
+export type WebGPUClusteredLightType = 0 | 1;
 
 export interface WebGPUVolumetricLightUniform extends WebGPULightUniformBase {
 	type: WebGPUVolumetricLightType;
@@ -42,6 +47,18 @@ export interface WebGPUVolumetricLightUniform extends WebGPULightUniformBase {
 	direction: WebGPUVec3;
 	outerCos: number;
 	innerCos: number;
+}
+
+export interface WebGPUClusteredLightUniform extends WebGPULightUniformBase {
+	type: WebGPUClusteredLightType;
+	position: WebGPUVec3;
+	range: number;
+	direction: WebGPUVec3;
+	outerCos: number;
+	innerCos: number;
+	castsShadow: boolean;
+	affectsVolumetric: boolean;
+	shadowIndex: number;
 }
 
 export interface WebGPUShadowData {
@@ -65,6 +82,7 @@ export interface WebGPULightingState {
 	pointLights: WebGPUPointLightUniform[];
 	spotLights: WebGPUSpotLightUniform[];
 	spotShadows: WebGPUShadowData[];
+	clusteredLights: WebGPUClusteredLightUniform[];
 	volumetricLights: WebGPUVolumetricLightUniform[];
 	warnings: WebGPUWarning[];
 }
@@ -81,9 +99,41 @@ export interface WebGPUFeatureState {
 	enableSSR: boolean;
 	enableVolumetric: boolean;
 	enableBloom: boolean;
+	enableClusteredLighting: boolean;
 	taaOptions?: TAAOptions;
 	bloomOptions?: BloomOptions;
+	clusteredLightingOptions?: ClusteredLightingOptions;
 	warnings: WebGPUWarning[];
+}
+
+export interface WebGPUClusterGridParams {
+	screenWidth: number;
+	screenHeight: number;
+	tilesX: number;
+	tilesY: number;
+	zSlices: number;
+	clusterCount: number;
+	near: number;
+	far: number;
+	logScale: number;
+	logBias: number;
+}
+
+export interface WebGPUClusterLightRecord {
+	positionRange: [number, number, number, number];
+	directionOuter: [number, number, number, number];
+	colorInner: [number, number, number, number];
+	packedFlags: number;
+	shadowIndex: number;
+	reserved0: number;
+	reserved1: number;
+}
+
+export interface WebGPUClusterHeader {
+	offset: number;
+	count: number;
+	flags: number;
+	reserved: number;
 }
 
 export interface WebGPUEnvironmentState {
@@ -142,6 +192,7 @@ export interface WebGPUFrameUniformInput {
 	enableGamma: boolean;
 	enableShadows: boolean;
 	enableSH: boolean;
+	enableClusteredLighting: boolean;
 	encodeGammaInShader: boolean;
 	hasSHAmbient: boolean;
 	hasSkybox: boolean;

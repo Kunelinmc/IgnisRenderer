@@ -7,3 +7,4 @@ export * from "./packing";
 export * from "./postProcessMath";
 export * from "./texture";
 export * from "./WebGPUPostProcessGraph";
+export * from "./WebGPUClusteredLightingRuntime";
