@@ -276,6 +276,7 @@ export class ShaderRuntime {
 	private _revision: number;
 	private _builtInRules: Map<string, ShaderRule>;
 	private _userRules: Map<string, ShaderRule>;
+	private _ruleExecutionOrderCache: ShaderRule[] | null;
 	private _builtInSymbols: Set<string>;
 	private _processCache: Map<string, CachedShaderProcessResult>;
 	private _listeners: Set<ShaderRuntimeChangeListener>;
@@ -289,6 +290,7 @@ export class ShaderRuntime {
 		this._revision = 1;
 		this._builtInRules = new Map();
 		this._userRules = new Map();
+		this._ruleExecutionOrderCache = null;
 		this._builtInSymbols = new Set();
 		this._processCache = new Map();
 		this._listeners = new Set();
@@ -445,8 +447,8 @@ export class ShaderRuntime {
 			:	injectGLSLSource(baseComposite, headers, functions);
 		const result: ShaderProcessResult = {
 			code: composite.code,
-			sourceMap: cloneSourceMap(composite.sourceMap),
-			composite: cloneCompositeSource(composite),
+			sourceMap: composite.sourceMap,
+			composite,
 			diagnostics,
 			hasErrors,
 			fromCache: false,
@@ -475,7 +477,13 @@ export class ShaderRuntime {
 	}
 
 	private _collectRulesInExecutionOrder(): ShaderRule[] {
-		return [...this._builtInRules.values(), ...this._userRules.values()].sort(
+		if (this._ruleExecutionOrderCache) {
+			return this._ruleExecutionOrderCache;
+		}
+		this._ruleExecutionOrderCache = [
+			...this._builtInRules.values(),
+			...this._userRules.values(),
+		].sort(
 			(left, right) => {
 				const leftPriority = left.priority ?? 0;
 				const rightPriority = right.priority ?? 0;
@@ -485,6 +493,7 @@ export class ShaderRuntime {
 				return left.id.localeCompare(right.id);
 			}
 		);
+		return this._ruleExecutionOrderCache;
 	}
 
 	private _buildProcessCacheKey(
@@ -510,7 +519,7 @@ export class ShaderRuntime {
 		}
 		this._processCache.delete(key);
 		this._processCache.set(key, entry);
-		return cloneProcessResult(entry.result, false);
+		return entry.result;
 	}
 
 	private _setCachedResult(key: string, result: ShaderProcessResult): void {
@@ -558,6 +567,7 @@ export class ShaderRuntime {
 
 	private _bumpRevision(): void {
 		this._revision++;
+		this._ruleExecutionOrderCache = null;
 		this._processCache.clear();
 		for (const listener of this._listeners) {
 			try {

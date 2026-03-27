@@ -417,7 +417,8 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let coord = vec2<i32>(gid.xy);
 	let scene = textureLoad(sceneColor, coord, 0);
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize;
-	let depth = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).z;
+	let motionDepth = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0);
+	let depth = motionDepth.z;
 	let hasSurface = depth > 0.0;
 
 	let rayDir = getWorldRayDirection(uv);
@@ -434,7 +435,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		max(params.invSize.x, 1e-6),
 		max(params.invSize.y, 1e-6)
 	);
-	let motion = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).xy;
+	let motion = motionDepth.xy;
 	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
 	let insidePrev =
 		prevUv.x >= 0.0 && prevUv.x <= 1.0 && prevUv.y >= 0.0 && prevUv.y <= 1.0;

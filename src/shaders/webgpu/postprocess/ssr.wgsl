@@ -349,7 +349,8 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	// Read G-buffer
 	let g = textureSampleLevel(gNormalRoughMetal, linearSampler, uv, 0.0);
-	let depth = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).z;
+	let motionDepth = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0);
+	let depth = motionDepth.z;
 	let roughness = clamp(g.z, 0.0, 1.0);
 	let metalness = clamp(g.w, 0.0, 1.0);
 
@@ -461,11 +462,11 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// -----------------------------------------------------------------------
 	// Temporal reprojection
 	// -----------------------------------------------------------------------
-	let motion = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).xy;
+	let motion = motionDepth.xy;
 	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
 	let hist = textureSampleLevel(ssrHistory, linearSampler, prevUv, 0.0);
 
-	let currDepth = textureSampleLevel(gMotionDepth, linearSampler, uv, 0.0).z;
+	let currDepth = depth;
 	let prevDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).z;
 	let relDepth = abs(currDepth - prevDepth) / max(max(currDepth, prevDepth), 1e-4);
 

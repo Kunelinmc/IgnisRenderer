@@ -10,6 +10,7 @@ class FakeBackend {
 		this.bindingGroups = [];
 		this.bindingGroupDestroyCalls = 0;
 		this.bufferDestroyCalls = 0;
+		this.writeBufferCalls = 0;
 	}
 
 	createSampler(desc) {
@@ -46,6 +47,7 @@ class FakeBackend {
 	}
 
 	writeBuffer(buffer, data) {
+		this.writeBufferCalls++;
 		buffer.lastWrite = Array.from(data);
 	}
 
@@ -284,6 +286,39 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+}
+
+async function testMotionBlurSkipsRedundantParamUploads() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const firstEncoder = new FakeEncoder();
+	const secondEncoder = new FakeEncoder();
+	const sceneColorMain = createTexture(48, 24, "scene");
+	const postPing = createTexture(48, 24, "ping");
+	const postPong = createTexture(48, 24, "pong");
+	const gMotionDepth = createTexture(48, 24, "motion-depth");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+		gMotionDepth,
+	};
+	const frameContext = {
+		features: {
+			motionBlurOptions: {
+				shutterScale: 1.1,
+				maxSamples: 18,
+				velocityClamp: 0.08,
+				depthReject: 0.03,
+				centerWeight: 1.25,
+			},
+		},
+	};
+
+	await runtime.executeMotionBlur(firstEncoder, targets, frameContext);
+	await runtime.executeMotionBlur(secondEncoder, targets, frameContext);
+
+	assert.equal(backend.writeBufferCalls, 1);
 }
 
 async function testDOFRuntimeUsesDedicatedPipeline() {
@@ -597,6 +632,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 async function run() {
 	await testBloomRuntimeUsesDedicatedPipeline();
 	await testMotionBlurRuntimeUsesDedicatedPipeline();
+	await testMotionBlurSkipsRedundantParamUploads();
 	await testDOFRuntimeUsesDedicatedPipeline();
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();

@@ -36,9 +36,9 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let coord = vec2<i32>(gid.xy);
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize;
 	let source = textureLoad(srcTex, coord, 0);
-	let centerDepth = textureLoad(gMotionDepth, coord, 0).z;
-
-	let rawVelocity = textureLoad(gMotionDepth, coord, 0).xy;
+	let centerMotionDepth = textureLoad(gMotionDepth, coord, 0);
+	let centerDepth = centerMotionDepth.z;
+	let rawVelocity = centerMotionDepth.xy;
 	var velocity = vec2<f32>(rawVelocity.x * 0.5, -rawVelocity.y * 0.5) *
 		max(params.shutterScale, 0.0);
 	let velocityMag = length(velocity);
@@ -52,30 +52,26 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let clampScale = min(1.0, maxVelocity / max(velocityMag, 1e-6));
 	velocity = velocity * clampScale;
 
-	let pixelVelocity = length(velocity / vec2<f32>(minInv, minInv));
+	let pixelVelocity = length(velocity) / minInv;
 	let sampleCount = i32(
 		clamp(ceil(pixelVelocity), 1.0, max(params.maxSamples, 1.0))
 	);
 
-	var accum = source.rgb * max(params.centerWeight, 0.0);
-	var weight = max(params.centerWeight, 0.0);
+	let centerWeight = max(params.centerWeight, 0.0);
+	var accum = source.rgb * centerWeight;
+	var weight = centerWeight;
 	let sourceLuma = luma(source.rgb);
+	let safeSourceLuma = max(sourceLuma, 1e-4);
+	let uvMin = params.invSize * 0.5;
+	let uvMax = vec2<f32>(1.0) - uvMin;
 
 	for (var i: i32 = 1; i <= 64; i = i + 1) {
 		if (i > sampleCount) { break; }
 		let t = f32(i) / f32(max(sampleCount, 1));
 		let offset = velocity * t;
 
-		let uvA = clamp(
-			uv - offset,
-			vec2<f32>(params.invSize * 0.5),
-			vec2<f32>(1.0) - params.invSize * 0.5
-		);
-		let uvB = clamp(
-			uv + offset,
-			vec2<f32>(params.invSize * 0.5),
-			vec2<f32>(1.0) - params.invSize * 0.5
-		);
+		let uvA = clamp(uv - offset, uvMin, uvMax);
+		let uvB = clamp(uv + offset, uvMin, uvMax);
 
 		let sampleA = textureSampleLevel(srcTex, linearSampler, uvA, 0.0);
 		let sampleB = textureSampleLevel(srcTex, linearSampler, uvB, 0.0);
@@ -84,9 +80,9 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 		let motionWeight = 1.0 - t * 0.85;
 		let lumaWeightA = 0.5 +
-			0.5 * clamp(luma(sampleA.rgb) / max(sourceLuma, 1e-4), 0.0, 1.5);
+			0.5 * clamp(luma(sampleA.rgb) / safeSourceLuma, 0.0, 1.5);
 		let lumaWeightB = 0.5 +
-			0.5 * clamp(luma(sampleB.rgb) / max(sourceLuma, 1e-4), 0.0, 1.5);
+			0.5 * clamp(luma(sampleB.rgb) / safeSourceLuma, 0.0, 1.5);
 		let weightA =
 			motionWeight * depthConfidence(centerDepth, depthA) * lumaWeightA;
 		let weightB =

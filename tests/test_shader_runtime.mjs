@@ -198,6 +198,41 @@ function testCacheAndRevisionInvalidation() {
 	assert.ok(third.code.includes("// revision bump"));
 }
 
+function testCachedResultDefensiveCopy() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const request = {
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "CacheIsolation",
+		sourceKind: "custom-material",
+	};
+	runtime.process(request);
+	const cached = runtime.process(request);
+	cached.diagnostics.push({
+		ruleId: "mutated",
+		code: "mutated",
+		severity: "error",
+		message: "mutated",
+	});
+	cached.sourceMap.segments.push({
+		generatedLineStart: 999,
+		generatedLineEnd: 999,
+		sourcePath: "mutated",
+		sourceLineStart: 999,
+		sourceLineEnd: 999,
+		kind: "generated",
+	});
+	const third = runtime.process(request);
+	assert.equal(third.fromCache, true);
+	assert.equal(third.diagnostics.length, 0);
+	assert.equal(
+		third.sourceMap.segments.some((segment) => segment.sourcePath === "mutated"),
+		false
+	);
+}
+
 function testReservedSymbolConflictByMode() {
 	const warnRuntime = new ShaderRuntime({ mode: "warn" });
 	warnRuntime.registerRule({
@@ -293,6 +328,7 @@ function run() {
 	testBuiltInValidationRules();
 	testWGSLAndGLSLEntryPointChecks();
 	testCacheAndRevisionInvalidation();
+	testCachedResultDefensiveCopy();
 	testReservedSymbolConflictByMode();
 	testProcessCarriesSourceMap();
 	testWebGLInfoLogParsing();

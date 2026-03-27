@@ -75,6 +75,8 @@ export class WebGPUPostProcessRuntime {
 	private _motionBlurModule: IShaderModule | null = null;
 	private _motionBlurPipeline: IComputePipeline | null = null;
 	private _motionBlurParams: IRenderBuffer | null = null;
+	private _motionBlurParamData = new Float32Array(8);
+	private _motionBlurParamUploaded = false;
 	private _dofModule: IShaderModule | null = null;
 	private _dofPipeline: IComputePipeline | null = null;
 	private _dofParams: IRenderBuffer | null = null;
@@ -149,6 +151,7 @@ export class WebGPUPostProcessRuntime {
 		this._motionBlurPipeline = null;
 		this._motionBlurParams?.destroy();
 		this._motionBlurParams = null;
+		this._motionBlurParamUploaded = false;
 		this._dofModule = null;
 		this._dofPipeline = null;
 		this._dofParams?.destroy();
@@ -874,18 +877,14 @@ export class WebGPUPostProcessRuntime {
 			0,
 			4
 		);
-		this._backend.writeBuffer(
-			this._motionBlurParams,
-			new Float32Array([
-				1 / Math.max(target.width, 1),
-				1 / Math.max(target.height, 1),
-				shutterScale,
-				maxSamples,
-				velocityClamp,
-				depthReject,
-				centerWeight,
-				0,
-			])
+		this._uploadMotionBlurParams(
+			target.width,
+			target.height,
+			shutterScale,
+			maxSamples,
+			velocityClamp,
+			depthReject,
+			centerWeight
 		);
 		const binding = this._getCachedBindGroup(
 			`motion-blur-${target === targets.postPing ? "ping" : "pong"}`,
@@ -1594,6 +1593,48 @@ export class WebGPUPostProcessRuntime {
 				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
+	}
+
+	private _uploadMotionBlurParams(
+		width: number,
+		height: number,
+		shutterScale: number,
+		maxSamples: number,
+		velocityClamp: number,
+		depthReject: number,
+		centerWeight: number
+	): void {
+		if (!this._motionBlurParams) {
+			return;
+		}
+		const data = this._motionBlurParamData;
+		let changed = !this._motionBlurParamUploaded;
+		changed = this._setParamIfChanged(data, 0, 1 / Math.max(width, 1)) || changed;
+		changed = this._setParamIfChanged(data, 1, 1 / Math.max(height, 1)) || changed;
+		changed = this._setParamIfChanged(data, 2, shutterScale) || changed;
+		changed = this._setParamIfChanged(data, 3, maxSamples) || changed;
+		changed = this._setParamIfChanged(data, 4, velocityClamp) || changed;
+		changed = this._setParamIfChanged(data, 5, depthReject) || changed;
+		changed = this._setParamIfChanged(data, 6, centerWeight) || changed;
+		changed = this._setParamIfChanged(data, 7, 0) || changed;
+		if (!changed) {
+			return;
+		}
+		this._backend.writeBuffer(this._motionBlurParams, data);
+		this._motionBlurParamUploaded = true;
+	}
+
+	private _setParamIfChanged(
+		data: Float32Array,
+		index: number,
+		value: number
+	): boolean {
+		const nextValue = Math.fround(value);
+		if (data[index] === nextValue) {
+			return false;
+		}
+		data[index] = nextValue;
+		return true;
 	}
 
 	private async _ensureDOFResources(): Promise<void> {
