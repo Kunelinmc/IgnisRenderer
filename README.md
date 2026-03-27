@@ -20,7 +20,7 @@ IgnisRenderer is a high-performance 3D rendering engine built from the ground up
 - **Advanced Rendering Pipeline**:
     - Physically Based Rendering (PBR) with full IBL (Image-Based Lighting) support.
     - Real-time Shadowing system featuring PCSS and Cascaded Shadow Maps (CSM).
-    - Post-Processing Suite: SSR, SSAO, TAA, FXAA, and **Bloom** (HDR with soft-knee thresholding).
+    - Post-Processing Suite: SSR, SSAO, TAA, FXAA, **Motion Blur**, **Depth of Field (DoF)**, and **Bloom** (HDR with soft-knee thresholding).
     - Advanced Volumetric Lighting featuring **ReSTIR** (Reservoir Spatiotemporal Importance Resampling).
 - **Deep Simulation Integration**:
     - **Animation**: Skeletal systems with complex blend trees and hierarchical state machines.
