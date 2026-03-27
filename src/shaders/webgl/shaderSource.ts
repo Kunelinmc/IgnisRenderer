@@ -30,6 +30,11 @@ type RawShaderModule = {
 	default: string;
 };
 
+const webglParts = import.meta.glob<string>("./parts/*.glsl", {
+	query: "?raw",
+	import: "default",
+});
+
 const _cache = new Map<string, Promise<string>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
@@ -87,9 +92,15 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 };
 
 export function loadWebGLShaderPart(part: WebGLShaderPart): Promise<string> {
-	return loadShader(`webgl:${part}`, shaderFiles[part], () =>
-		import(`./parts/${part}.glsl?raw`)
-	);
+	return loadShader(`webgl:${part}`, shaderFiles[part], () => {
+		const loader = webglParts[`./parts/${part}.glsl`];
+		if (!loader) {
+			return Promise.reject(
+				new Error(`WebGL shader part not found: ${part}`)
+			);
+		}
+		return loader().then((content) => ({ default: content }));
+	});
 }
 
 export function loadWebGLShaderPartComposite(

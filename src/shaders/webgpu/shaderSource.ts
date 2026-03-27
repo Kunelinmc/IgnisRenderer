@@ -34,6 +34,16 @@ type RawShaderModule = {
 	default: string;
 };
 
+const sceneParts = import.meta.glob<string>("./parts/*.wgsl", {
+	query: "?raw",
+	import: "default",
+});
+
+const postProcessParts = import.meta.glob<string>("./postprocess/*.wgsl", {
+	query: "?raw",
+	import: "default",
+});
+
 const _cache = new Map<string, Promise<string>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
@@ -85,11 +95,15 @@ const sceneShaderFiles: Record<SceneShaderPart, string> = {
 export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
 	const path = sceneShaderFiles[part];
 
-	return loadShader(
-		`scene:${part}`,
-		path,
-		() => import(`./parts/${part}.wgsl?raw`)
-	);
+	return loadShader(`scene:${part}`, path, () => {
+		const loader = sceneParts[`./parts/${part}.wgsl`];
+		if (!loader) {
+			return Promise.reject(
+				new Error(`Scene shader part not found: ${part}`)
+			);
+		}
+		return loader().then((content) => ({ default: content }));
+	});
 }
 
 export function loadSceneShaderPartComposite(
@@ -172,11 +186,15 @@ export function loadPostProcessShaderPart(
 ): Promise<string> {
 	const path = postProcessShaderFiles[part];
 
-	return loadShader(
-		`post:${part}`,
-		path,
-		() => import(`./postprocess/${part}.wgsl?raw`)
-	);
+	return loadShader(`post:${part}`, path, () => {
+		const loader = postProcessParts[`./postprocess/${part}.wgsl`];
+		if (!loader) {
+			return Promise.reject(
+				new Error(`Post-process shader part not found: ${part}`)
+			);
+		}
+		return loader().then((content) => ({ default: content }));
+	});
 }
 
 export function loadPostProcessShaderPartComposite(
