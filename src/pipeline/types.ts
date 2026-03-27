@@ -114,6 +114,8 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"motion-blur",
+	"dof",
 	"bloom",
 	"fxaa",
 	"gamma",
@@ -189,6 +191,28 @@ export interface BloomOptions {
 	softKnee?: number;
 	intensity?: number;
 	radius?: number;
+	[key: string]: unknown;
+}
+
+export interface MotionBlurOptions {
+	shutterScale?: number;
+	maxSamples?: number;
+	velocityClamp?: number;
+	depthReject?: number;
+	centerWeight?: number;
+	[key: string]: unknown;
+}
+
+export interface DOFOptions {
+	focusDistance?: number;
+	focusRange?: number;
+	nearStrength?: number;
+	farStrength?: number;
+	maxBlurRadius?: number;
+	depthCurve?: number;
+	highlightThreshold?: number;
+	highlightGain?: number;
+	chromaticAberration?: number;
 	[key: string]: unknown;
 }
 
@@ -307,6 +331,48 @@ export const DEFAULT_BLOOM_OPTIONS: Required<
 	radius: 1,
 };
 
+export const DEFAULT_MOTION_BLUR_OPTIONS: Required<
+	Pick<
+		MotionBlurOptions,
+		| "shutterScale"
+		| "maxSamples"
+		| "velocityClamp"
+		| "depthReject"
+		| "centerWeight"
+	>
+> = {
+	shutterScale: 1,
+	maxSamples: 16,
+	velocityClamp: 0.06,
+	depthReject: 0.025,
+	centerWeight: 1,
+};
+
+export const DEFAULT_DOF_OPTIONS: Required<
+	Pick<
+		DOFOptions,
+		| "focusDistance"
+		| "focusRange"
+		| "nearStrength"
+		| "farStrength"
+		| "maxBlurRadius"
+		| "depthCurve"
+		| "highlightThreshold"
+		| "highlightGain"
+		| "chromaticAberration"
+	>
+> = {
+	focusDistance: 8,
+	focusRange: 3,
+	nearStrength: 0.85,
+	farStrength: 1,
+	maxBlurRadius: 12,
+	depthCurve: 1.25,
+	highlightThreshold: 1.2,
+	highlightGain: 0.35,
+	chromaticAberration: 0.2,
+};
+
 export interface FeatureWarning {
 	key: string;
 	message: string;
@@ -323,6 +389,8 @@ export interface RendererFeatureRequest {
 	enableTAA?: boolean;
 	enableSSR?: boolean;
 	enableVolumetric?: boolean;
+	enableMotionBlur?: boolean;
+	enableDOF?: boolean;
 	enableBloom?: boolean;
 	enableFXAA?: boolean;
 	ssrOptions?: SSROptions;
@@ -330,6 +398,8 @@ export interface RendererFeatureRequest {
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 	bloomOptions?: BloomOptions;
+	motionBlurOptions?: MotionBlurOptions;
+	dofOptions?: DOFOptions;
 }
 
 export interface ResolvedFeatureState {
@@ -343,6 +413,8 @@ export interface ResolvedFeatureState {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableMotionBlur: boolean;
+	enableDOF: boolean;
 	enableBloom: boolean;
 	enableFXAA: boolean;
 	warnings: FeatureWarning[];
@@ -351,4 +423,6 @@ export interface ResolvedFeatureState {
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 	bloomOptions?: BloomOptions;
+	motionBlurOptions?: MotionBlurOptions;
+	dofOptions?: DOFOptions;
 }

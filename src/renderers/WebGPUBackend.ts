@@ -204,7 +204,9 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["taa", ["ssao"]],
 	["ssr", ["taa"]],
 	["volumetric", ["ssr"]],
-	["bloom", ["volumetric"]],
+	["motion-blur", ["volumetric"]],
+	["dof", ["motion-blur"]],
+	["bloom", ["dof"]],
 	["fxaa", ["bloom"]],
 	["gamma", ["fxaa"]],
 ]);
@@ -225,6 +227,8 @@ export class WebGPUBackend implements IRenderBackend {
 		taa: true,
 		ssr: true,
 		volumetric: true,
+		motionBlur: true,
+		dof: true,
 		bloom: true,
 	};
 
@@ -2209,6 +2213,12 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableVolumetric) {
 			this._plannedPasses.add("volumetric");
+		}
+		if (context.features.enableMotionBlur) {
+			this._plannedPasses.add("motion-blur");
+		}
+		if (context.features.enableDOF) {
+			this._plannedPasses.add("dof");
 		}
 		if (context.features.enableBloom) {
 			this._plannedPasses.add("bloom");

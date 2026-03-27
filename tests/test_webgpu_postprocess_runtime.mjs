@@ -219,6 +219,148 @@ async function testBloomRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testMotionBlurRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(48, 24, "scene");
+	const postPing = createTexture(48, 24, "ping");
+	const postPong = createTexture(48, 24, "pong");
+	const gMotionDepth = createTexture(48, 24, "motion-depth");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+		gMotionDepth,
+	};
+	const frameContext = {
+		features: {
+			motionBlurOptions: {
+				shutterScale: 1.1,
+				maxSamples: 18,
+				velocityClamp: 0.08,
+				depthReject: 0.03,
+				centerWeight: 1.25,
+			},
+		},
+	};
+
+	await runtime.executeMotionBlur(encoder, targets, frameContext);
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUMotionBlurShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("depthConfidence"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUMotionBlurPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUMotionBlurParams");
+	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 5);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, gMotionDepth);
+	assert.equal(backend.bindingGroups[0].desc.entries[4].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 8);
+	assertClose(params[0], 1 / 48);
+	assertClose(params[1], 1 / 24);
+	assertClose(params[2], 1.1);
+	assertClose(params[3], 18);
+	assertClose(params[4], 0.08);
+	assertClose(params[5], 0.03);
+	assertClose(params[6], 1.25);
+	assertClose(params[7], 0);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUMotionBlur"],
+		["setComputePipeline", "WebGPUMotionBlurPipeline"],
+		["setBindingGroup", 0, "WebGPUMotionBlur_Binding"],
+		["dispatchWorkgroups", 6, 3, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
+async function testDOFRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(36, 18, "scene");
+	const postPing = createTexture(36, 18, "ping");
+	const postPong = createTexture(36, 18, "pong");
+	const gMotionDepth = createTexture(36, 18, "motion-depth");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+		gMotionDepth,
+	};
+	const frameContext = {
+		features: {
+			dofOptions: {
+				focusDistance: 6,
+				focusRange: 2,
+				nearStrength: 0.7,
+				farStrength: 1.2,
+				maxBlurRadius: 10,
+				depthCurve: 1.5,
+				highlightThreshold: 1.1,
+				highlightGain: 0.4,
+				chromaticAberration: 0.3,
+			},
+		},
+	};
+
+	await runtime.executeDOF(encoder, targets, frameContext);
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUDOFShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("computeCoC"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUDOFPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUDOFParams");
+	assert.equal(backend.buffers[0].desc.size, 48);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 5);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, gMotionDepth);
+	assert.equal(backend.bindingGroups[0].desc.entries[4].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 12);
+	assertClose(params[0], 1 / 36);
+	assertClose(params[1], 1 / 18);
+	assertClose(params[2], 6);
+	assertClose(params[3], 2);
+	assertClose(params[4], 0.7);
+	assertClose(params[5], 1.2);
+	assertClose(params[6], 10);
+	assertClose(params[7], 1.5);
+	assertClose(params[8], 1.1);
+	assertClose(params[9], 0.4);
+	assertClose(params[10], 0.3);
+	assertClose(params[11], 0);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUDOF"],
+		["setComputePipeline", "WebGPUDOFPipeline"],
+		["setBindingGroup", 0, "WebGPUDOF_Binding"],
+		["dispatchWorkgroups", 5, 3, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testFXAARuntimePingPongsAndCachesResources() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -424,13 +566,15 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 		"postprocess:taa",
 		"postprocess:ssr",
 		"postprocess:volumetric",
+		"postprocess:motion-blur",
+		"postprocess:dof",
 	]);
 	assert.equal(backend.bufferDestroyCalls, 0);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 6);
+	assert.equal(backend.bufferDestroyCalls, 8);
 	const destroyedLabels = new Set(
 		backend.buffers
 			.filter((buffer) => buffer.destroyed)
@@ -441,15 +585,19 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	assert.ok(destroyedLabels.has("WebGPUSSRTraceParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSRComposeParams"));
 	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
+	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
+	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
 	assert.ok(destroyedLabels.has("WebGPUFXAAParams"));
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 6);
+	assert.equal(backend.bufferDestroyCalls, 8);
 }
 
 async function run() {
 	await testBloomRuntimeUsesDedicatedPipeline();
+	await testMotionBlurRuntimeUsesDedicatedPipeline();
+	await testDOFRuntimeUsesDedicatedPipeline();
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();

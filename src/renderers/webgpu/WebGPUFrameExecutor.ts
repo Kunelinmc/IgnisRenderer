@@ -44,6 +44,8 @@ const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"taa",
 	"ssr",
 	"volumetric",
+	"motion-blur",
+	"dof",
 	"bloom",
 	"fxaa",
 	"gamma",
@@ -473,9 +475,37 @@ export class WebGPUFrameExecutor {
 				},
 			},
 			{
-				id: "bloom",
+				id: "motion-blur",
 				kind: "compute",
 				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:motion-blur"],
+				isEnabled: (features) => features.enableMotionBlur,
+				execute: async (ctx) => {
+					await this._postRuntime.executeMotionBlur(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext
+					);
+				},
+			},
+			{
+				id: "dof",
+				kind: "compute",
+				dependsOn: ["motion-blur"],
+				precompileHints: ["postprocess:dof"],
+				isEnabled: (features) => features.enableDOF,
+				execute: async (ctx) => {
+					await this._postRuntime.executeDOF(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext
+					);
+				},
+			},
+			{
+				id: "bloom",
+				kind: "compute",
+				dependsOn: ["dof"],
 				precompileHints: ["postprocess:bloom"],
 				isEnabled: (features) => features.enableBloom,
 				execute: async (ctx) => {
@@ -1116,6 +1146,8 @@ export class WebGPUFrameExecutor {
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
 			`|ssr:${context.features.enableSSR ? 1 : 0}` +
 			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
+			`|mblur:${context.features.enableMotionBlur ? 1 : 0}` +
+			`|dof:${context.features.enableDOF ? 1 : 0}` +
 			`|bloom:${context.features.enableBloom ? 1 : 0}` +
 			`|fxaa:${context.features.enableFXAA ? 1 : 0}`;
 

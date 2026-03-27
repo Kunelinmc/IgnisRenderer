@@ -2,6 +2,8 @@ import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_DOF_OPTIONS,
+	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
@@ -17,6 +19,8 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	taa: "feature-taa",
 	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
+	motionBlur: "feature-motion-blur",
+	dof: "feature-dof",
 	bloom: "feature-bloom",
 };
 
@@ -29,6 +33,8 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	taa: "TAA",
 	ssr: "SSR",
 	volumetric: "volumetric effects",
+	motionBlur: "motion blur",
+	dof: "depth of field",
 	bloom: "bloom",
 };
 
@@ -53,6 +59,14 @@ export function resolveFeatureState(
 		bloomOptions: {
 			...DEFAULT_BLOOM_OPTIONS,
 			...(request.bloomOptions ?? {}),
+		},
+		motionBlurOptions: {
+			...DEFAULT_MOTION_BLUR_OPTIONS,
+			...(request.motionBlurOptions ?? {}),
+		},
+		dofOptions: {
+			...DEFAULT_DOF_OPTIONS,
+			...(request.dofOptions ?? {}),
 		},
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
@@ -107,6 +121,20 @@ export function resolveFeatureState(
 			request.enableVolumetric,
 			capabilities.volumetric,
 			"volumetric",
+			backendType,
+			warnings
+		),
+		enableMotionBlur: resolveBooleanFeature(
+			request.enableMotionBlur,
+			capabilities.motionBlur,
+			"motionBlur",
+			backendType,
+			warnings
+		),
+		enableDOF: resolveBooleanFeature(
+			request.enableDOF,
+			capabilities.dof,
+			"dof",
 			backendType,
 			warnings
 		),

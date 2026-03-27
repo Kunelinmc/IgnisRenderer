@@ -26,6 +26,8 @@ import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import type {
 	BloomOptions,
+	DOFOptions,
+	MotionBlurOptions,
 	SSAOOptions,
 	SSROptions,
 	TAAOptions,
@@ -65,6 +67,8 @@ export interface RendererFeatures {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableMotionBlur: boolean;
+	enableDOF: boolean;
 	enableBloom: boolean;
 	enableFXAA: boolean;
 	ssrOptions: SSROptions;
@@ -72,6 +76,8 @@ export interface RendererFeatures {
 	ssaoOptions: SSAOOptions;
 	taaOptions: TAAOptions;
 	bloomOptions: BloomOptions;
+	motionBlurOptions: MotionBlurOptions;
+	dofOptions: DOFOptions;
 	worldMatrix: Matrix4;
 }
 
@@ -127,6 +133,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableMotionBlur: false,
+			enableDOF: false,
 			enableBloom: false,
 			enableFXAA: false,
 			ssrOptions: {},
@@ -134,6 +142,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ssaoOptions: {},
 			taaOptions: {},
 			bloomOptions: {},
+			motionBlurOptions: {},
+			dofOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 
@@ -590,6 +600,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableSSR;
 			case "volumetric":
 				return features.enableVolumetric;
+			case "motion-blur":
+				return features.enableMotionBlur;
+			case "dof":
+				return features.enableDOF;
 			case "bloom":
 				return features.enableBloom;
 			case "fxaa":
@@ -628,6 +642,8 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"taa",
 	"ssr",
 	"volumetric",
+	"motion-blur",
+	"dof",
 	"bloom",
 	"fxaa",
 	"gamma",
@@ -662,7 +678,9 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "taa", dependsOn: ["ssao"] },
 		{ id: "ssr", dependsOn: ["taa"] },
 		{ id: "volumetric", dependsOn: ["ssr"] },
-		{ id: "bloom", dependsOn: ["volumetric"] },
+		{ id: "motion-blur", dependsOn: ["volumetric"] },
+		{ id: "dof", dependsOn: ["motion-blur"] },
+		{ id: "bloom", dependsOn: ["dof"] },
 		{ id: "fxaa", dependsOn: ["bloom"] },
 		{ id: "gamma", dependsOn: ["fxaa"] },
 		{ id: "sync-out", dependsOn: ["gamma"] },

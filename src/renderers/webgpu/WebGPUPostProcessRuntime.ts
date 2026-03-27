@@ -2,6 +2,8 @@ import { CameraType } from "../../cameras/Camera";
 import type { FrameContext } from "../../pipeline/types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_DOF_OPTIONS,
+	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
@@ -70,6 +72,12 @@ export class WebGPUPostProcessRuntime {
 	private _volumetricLightBuffer: IRenderBuffer | null = null;
 	private _volumetricLightCapacity = 0;
 	private _volumetricFrameIndex = 0;
+	private _motionBlurModule: IShaderModule | null = null;
+	private _motionBlurPipeline: IComputePipeline | null = null;
+	private _motionBlurParams: IRenderBuffer | null = null;
+	private _dofModule: IShaderModule | null = null;
+	private _dofPipeline: IComputePipeline | null = null;
+	private _dofParams: IRenderBuffer | null = null;
 	private _bloomModule: IShaderModule | null = null;
 	private _bloomPipeline: IComputePipeline | null = null;
 	private _bloomParams: IRenderBuffer | null = null;
@@ -137,6 +145,14 @@ export class WebGPUPostProcessRuntime {
 		this._volumetricLightBuffer = null;
 		this._volumetricLightCapacity = 0;
 		this._volumetricFrameIndex = 0;
+		this._motionBlurModule = null;
+		this._motionBlurPipeline = null;
+		this._motionBlurParams?.destroy();
+		this._motionBlurParams = null;
+		this._dofModule = null;
+		this._dofPipeline = null;
+		this._dofParams?.destroy();
+		this._dofParams = null;
 		this._bloomModule = null;
 		this._bloomPipeline = null;
 		this._bloomParams?.destroy();
@@ -245,6 +261,12 @@ export class WebGPUPostProcessRuntime {
 				return true;
 			case "postprocess:volumetric":
 				await this._ensureVolumetricResources();
+				return true;
+			case "postprocess:motion-blur":
+				await this._ensureMotionBlurResources();
+				return true;
+			case "postprocess:dof":
+				await this._ensureDOFResources();
 				return true;
 			case "postprocess:bloom":
 				await this._ensureBloomResources();
@@ -804,6 +826,192 @@ export class WebGPUPostProcessRuntime {
 		return true;
 	}
 
+	public async executeMotionBlur(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext
+	): Promise<void> {
+		await this._ensureMotionBlurResources();
+		if (
+			!this._sampler ||
+			!this._motionBlurPipeline ||
+			!this._motionBlurParams
+		) {
+			return;
+		}
+		const options = frameContext.features.motionBlurOptions ?? {};
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		const shutterScale = clamp(
+			finiteOr(options.shutterScale, DEFAULT_MOTION_BLUR_OPTIONS.shutterScale),
+			0,
+			2
+		);
+		const maxSamples = clamp(
+			Math.round(
+				finiteOr(options.maxSamples, DEFAULT_MOTION_BLUR_OPTIONS.maxSamples)
+			),
+			4,
+			64
+		);
+		const velocityClamp = clamp(
+			finiteOr(
+				options.velocityClamp,
+				DEFAULT_MOTION_BLUR_OPTIONS.velocityClamp
+			),
+			0.005,
+			0.25
+		);
+		const depthReject = clamp(
+			finiteOr(options.depthReject, DEFAULT_MOTION_BLUR_OPTIONS.depthReject),
+			0.0001,
+			0.25
+		);
+		const centerWeight = clamp(
+			finiteOr(options.centerWeight, DEFAULT_MOTION_BLUR_OPTIONS.centerWeight),
+			0,
+			4
+		);
+		this._backend.writeBuffer(
+			this._motionBlurParams,
+			new Float32Array([
+				1 / Math.max(target.width, 1),
+				1 / Math.max(target.height, 1),
+				shutterScale,
+				maxSamples,
+				velocityClamp,
+				depthReject,
+				centerWeight,
+				0,
+			])
+		);
+		const binding = this._getCachedBindGroup(
+			`motion-blur-${target === targets.postPing ? "ping" : "pong"}`,
+			this._motionBlurPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: this._sampler },
+				{ binding: 3, resource: this._motionBlurParams },
+				{ binding: 4, resource: target },
+			],
+			"WebGPUMotionBlur_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUMotionBlur" });
+		encoder.setComputePipeline(this._motionBlurPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
+	public async executeDOF(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext
+	): Promise<void> {
+		await this._ensureDOFResources();
+		if (!this._sampler || !this._dofPipeline || !this._dofParams) return;
+		const options = frameContext.features.dofOptions ?? {};
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		const focusDistance = Math.max(
+			0.01,
+			finiteOr(options.focusDistance, DEFAULT_DOF_OPTIONS.focusDistance)
+		);
+		const focusRange = Math.max(
+			0.001,
+			finiteOr(options.focusRange, DEFAULT_DOF_OPTIONS.focusRange)
+		);
+		const nearStrength = clamp(
+			finiteOr(options.nearStrength, DEFAULT_DOF_OPTIONS.nearStrength),
+			0,
+			2
+		);
+		const farStrength = clamp(
+			finiteOr(options.farStrength, DEFAULT_DOF_OPTIONS.farStrength),
+			0,
+			2
+		);
+		const maxBlurRadius = clamp(
+			finiteOr(options.maxBlurRadius, DEFAULT_DOF_OPTIONS.maxBlurRadius),
+			0,
+			32
+		);
+		const depthCurve = clamp(
+			finiteOr(options.depthCurve, DEFAULT_DOF_OPTIONS.depthCurve),
+			0.25,
+			4
+		);
+		const highlightThreshold = Math.max(
+			0,
+			finiteOr(
+				options.highlightThreshold,
+				DEFAULT_DOF_OPTIONS.highlightThreshold
+			)
+		);
+		const highlightGain = clamp(
+			finiteOr(options.highlightGain, DEFAULT_DOF_OPTIONS.highlightGain),
+			0,
+			3
+		);
+		const chromaticAberration = clamp(
+			finiteOr(
+				options.chromaticAberration,
+				DEFAULT_DOF_OPTIONS.chromaticAberration
+			),
+			0,
+			2
+		);
+		this._backend.writeBuffer(
+			this._dofParams,
+			new Float32Array([
+				1 / Math.max(target.width, 1),
+				1 / Math.max(target.height, 1),
+				focusDistance,
+				focusRange,
+				nearStrength,
+				farStrength,
+				maxBlurRadius,
+				depthCurve,
+				highlightThreshold,
+				highlightGain,
+				chromaticAberration,
+				0,
+			])
+		);
+		const binding = this._getCachedBindGroup(
+			`dof-${target === targets.postPing ? "ping" : "pong"}`,
+			this._dofPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: this._sampler },
+				{ binding: 3, resource: this._dofParams },
+				{ binding: 4, resource: target },
+			],
+			"WebGPUDOF_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUDOF" });
+		encoder.setComputePipeline(this._dofPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
 	public async executeBloom(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
@@ -1358,6 +1566,58 @@ export class WebGPUPostProcessRuntime {
 			this._volumetricParams = this._backend.createBuffer({
 				label: "WebGPUVolumetricParams",
 				size: 20 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	private async _ensureMotionBlurResources(): Promise<void> {
+		await this._ensureCommonResources();
+		if (!this._motionBlurModule) {
+			const shader = await loadPostProcessShaderPartComposite("motionBlur");
+			this._motionBlurModule = await this._backend.createShaderModule({
+				label: "WebGPUMotionBlurShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._motionBlurPipeline)
+			this._motionBlurPipeline = this._backend.createComputePipeline({
+				label: "WebGPUMotionBlurPipeline",
+				compute: { module: this._motionBlurModule, entryPoint: "csMain" },
+			});
+		if (!this._motionBlurParams)
+			this._motionBlurParams = this._backend.createBuffer({
+				label: "WebGPUMotionBlurParams",
+				size: 8 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	private async _ensureDOFResources(): Promise<void> {
+		await this._ensureCommonResources();
+		if (!this._dofModule) {
+			const shader = await loadPostProcessShaderPartComposite("dof");
+			this._dofModule = await this._backend.createShaderModule({
+				label: "WebGPUDOFShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._dofPipeline)
+			this._dofPipeline = this._backend.createComputePipeline({
+				label: "WebGPUDOFPipeline",
+				compute: { module: this._dofModule, entryPoint: "csMain" },
+			});
+		if (!this._dofParams)
+			this._dofParams = this._backend.createBuffer({
+				label: "WebGPUDOFParams",
+				size: 12 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}

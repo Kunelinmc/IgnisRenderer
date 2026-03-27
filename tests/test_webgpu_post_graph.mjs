@@ -13,6 +13,8 @@ function createFeatures(overrides = {}) {
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
+		enableMotionBlur: true,
+		enableDOF: true,
 		enableBloom: true,
 		enableFXAA: true,
 		warnings: [],
@@ -21,6 +23,8 @@ function createFeatures(overrides = {}) {
 		taaOptions: {},
 		volumetricOptions: {},
 		bloomOptions: {},
+		motionBlurOptions: {},
+		dofOptions: {},
 		...overrides,
 	};
 }
@@ -43,7 +47,9 @@ function testPostGraphOrder() {
 		createPass("taa", ["ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("bloom", ["volumetric"], "enableBloom"),
+		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
+		createPass("dof", ["motion-blur"], "enableDOF"),
+		createPass("bloom", ["dof"], "enableBloom"),
 		createPass("fxaa", ["bloom"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
@@ -54,7 +60,17 @@ function testPostGraphOrder() {
 
 	assert.deepEqual(
 		order.map((pass) => pass.id),
-		["ssao", "taa", "ssr", "volumetric", "bloom", "fxaa", "gamma"]
+		[
+			"ssao",
+			"taa",
+			"ssr",
+			"volumetric",
+			"motion-blur",
+			"dof",
+			"bloom",
+			"fxaa",
+			"gamma",
+		]
 	);
 	assert.equal(warnings.length, 0);
 }
@@ -65,7 +81,9 @@ function testEnabledSubsetShrinksDependencyChain() {
 		createPass("taa", ["ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("bloom", ["volumetric"], "enableBloom"),
+		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
+		createPass("dof", ["motion-blur"], "enableDOF"),
+		createPass("bloom", ["dof"], "enableBloom"),
 		createPass("fxaa", ["bloom"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
@@ -76,6 +94,8 @@ function testEnabledSubsetShrinksDependencyChain() {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableMotionBlur: false,
+			enableDOF: false,
 			enableBloom: false,
 			enableFXAA: false,
 			enableGamma: true,

@@ -24,6 +24,8 @@ type PostProcessShaderPart =
 	| "hiz"
 	| "ssr"
 	| "volumetric"
+	| "motionBlur"
+	| "dof"
 	| "bloom"
 	| "fxaa"
 	| "copy";
@@ -158,6 +160,8 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	hiz: "./postprocess/hiz.wgsl",
 	ssr: "./postprocess/ssr.wgsl",
 	volumetric: "./postprocess/volumetric.wgsl",
+	motionBlur: "./postprocess/motionBlur.wgsl",
+	dof: "./postprocess/dof.wgsl",
 	bloom: "./postprocess/bloom.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",

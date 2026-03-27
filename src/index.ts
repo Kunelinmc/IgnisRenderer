@@ -42,6 +42,8 @@ export type {
 	SSROptions,
 	SSAOOptions,
 	TAAOptions,
+	MotionBlurOptions,
+	DOFOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
 export { Scene } from "./core/Scene";
