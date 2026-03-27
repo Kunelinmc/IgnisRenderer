@@ -13,8 +13,8 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ## Build & Test Commands
 
-- **Dev server**: `npm run dev`
-- **Build**: `npm run build`
+- **Dev server**: `npx vite`
+- **Build**: `npx vite build`
 - **Run all tests**: `npm test`
 - **Run single test**: `npx tsx tests/<file>.mjs`
 
