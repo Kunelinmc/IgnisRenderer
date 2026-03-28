@@ -1,4 +1,4 @@
-export type ShaderRuntimeMode = "strict" | "warn";
+export type ShaderRuntimeMode = "strict" | "warn" | "silent";
 
 export type ShaderLanguage = "glsl" | "wgsl";
 export type ShaderStage = "vertex" | "fragment" | "compute" | "unknown";
@@ -72,6 +72,8 @@ export interface ShaderProcessRequest {
 	label?: string;
 	sourceKind?: ShaderSourceKind;
 	sourceMap?: ShaderSourceSegmentMap | null;
+	sourceHash?: string;
+	diagnosticFilter?: ShaderDiagnosticFilter;
 }
 
 export interface ShaderProcessResult {
@@ -93,25 +95,102 @@ export interface ShaderRuleContext {
 	source: string;
 }
 
+export type ShaderDiagnosticFilter = (diagnostic: ShaderDiagnostic) => boolean;
+
 export interface ShaderRuleInjection {
 	header?: string;
 	functions?: string;
 	symbols?: string[];
-	headerAnchor?: ShaderGLSLInjectionAnchor;
-	functionsAnchor?: ShaderGLSLInjectionAnchor;
+	headerAnchor?: ShaderInjectionAnchor;
+	functionsAnchor?: ShaderInjectionAnchor;
 }
 
 export type ShaderGLSLInjectionAnchor =
 	| "afterVersion"
 	| "afterPrecision"
+	| "afterDefines"
+	| "afterStruct"
+	| "afterUniforms"
 	| "beforeEntryPoint"
 	| "endOfFile";
 
+export type ShaderWGSLInjectionAnchor =
+	| "afterEnable"
+	| "afterAliases"
+	| "afterStruct"
+	| "afterBindings"
+	| "beforeEntryPoint"
+	| "endOfFile";
+
+export type ShaderInjectionAnchor =
+	| ShaderGLSLInjectionAnchor
+	| ShaderWGSLInjectionAnchor;
+
+export type ShaderRuleMatchResult = boolean | Promise<boolean>;
+export type ShaderRuleValidateResult =
+	| ShaderDiagnostic[]
+	| null
+	| undefined
+	| Promise<ShaderDiagnostic[] | null | undefined>;
+export type ShaderRuleInjectResult =
+	| ShaderRuleInjection
+	| null
+	| undefined
+	| Promise<ShaderRuleInjection | null | undefined>;
+
 export interface ShaderRule {
 	id: string;
+	description?: string;
 	priority?: number;
 	symbols?: string[];
-	match?: (context: ShaderRuleContext) => boolean;
-	validate?: (context: ShaderRuleContext) => ShaderDiagnostic[];
-	inject?: (context: ShaderRuleContext) => ShaderRuleInjection | null;
+	dependsOn?: string[];
+	match?: (context: ShaderRuleContext) => ShaderRuleMatchResult;
+	validate?: (context: ShaderRuleContext) => ShaderRuleValidateResult;
+	inject?: (context: ShaderRuleContext) => ShaderRuleInjectResult;
 }
+
+export type ShaderRuntimeCacheKind = "sync" | "async";
+
+export interface ShaderRuntimeCacheStats {
+	hits: number;
+	misses: number;
+	evictions: number;
+	invalidations: number;
+	size: number;
+	limit: number;
+}
+
+export interface ShaderRuntimeCacheStatsSnapshot {
+	sync: ShaderRuntimeCacheStats;
+	async: ShaderRuntimeCacheStats;
+}
+
+export type ShaderRuntimeChangeAction =
+	| "mode"
+	| "register-rule"
+	| "update-rule"
+	| "unregister-rule"
+	| "clear-rules"
+	| "invalidate-cache";
+
+export interface ShaderRuntimeChangeEvent {
+	revision: number;
+	action: ShaderRuntimeChangeAction;
+	ruleIds: string[];
+}
+
+export interface ShaderResolvedGLSLInjectionAnchors {
+	language: "glsl";
+	lineCount: number;
+	anchors: Record<ShaderGLSLInjectionAnchor, number>;
+}
+
+export interface ShaderResolvedWGSLInjectionAnchors {
+	language: "wgsl";
+	lineCount: number;
+	anchors: Record<ShaderWGSLInjectionAnchor, number>;
+}
+
+export type ShaderResolvedInjectionAnchors =
+	| ShaderResolvedGLSLInjectionAnchors
+	| ShaderResolvedWGSLInjectionAnchors;

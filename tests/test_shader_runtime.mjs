@@ -21,6 +21,40 @@ fn vsMain() -> @builtin(position) vec4<f32> {
 }
 `;
 
+const GLSL_EXTENDED_ANCHOR_SOURCE = `#version 300 es
+precision highp float;
+#define USE_LIGHTING 1
+struct LightData {
+	vec3 direction;
+};
+uniform vec4 uColor;
+void main() {
+	gl_Position = vec4(0.0);
+}
+`;
+
+const WGSL_ANCHOR_SOURCE = `enable f16;
+alias Scalar = f32;
+struct Payload {
+	value: f32,
+};
+@group(0) @binding(0) var<uniform> uniforms: Payload;
+
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+`;
+
+function hashStringFNV1a(value) {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < value.length; i++) {
+		hash ^= value.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(16);
+}
+
 function testReservedPrefixProtection() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	assert.throws(
@@ -470,7 +504,422 @@ function testWebGLInfoLogParsing() {
 	assert.equal(parsed[1].line, 8);
 }
 
-function run() {
+function testProcessRejectsAsyncRuleInSyncPath() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/async-sync-reject",
+		async validate() {
+			return [];
+		},
+	});
+	assert.throws(
+		() =>
+			runtime.process({
+				code: GLSL_SOURCE,
+				language: "glsl",
+				stage: "vertex",
+				entryPoint: "main",
+				label: "AsyncSyncReject",
+				sourceKind: "custom-material",
+			}),
+		/processAsync/
+	);
+}
+
+async function testProcessAsyncSupportsAsyncRulesAndInFlightDedup() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	let injectCallCount = 0;
+	runtime.registerRule({
+		id: "user/async-inject",
+		async inject() {
+			injectCallCount++;
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			return {
+				header: "// async injected",
+			};
+		},
+	});
+	const request = {
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "AsyncDedup",
+		sourceKind: "custom-material",
+	};
+	const [first, second] = await Promise.all([
+		runtime.processAsync(request),
+		runtime.processAsync(request),
+	]);
+	assert.equal(first.code.includes("// async injected"), true);
+	assert.equal(second.code.includes("// async injected"), true);
+	assert.equal(first.fromCache, false);
+	assert.equal(second.fromCache, true);
+	assert.equal(injectCallCount, 1);
+	const third = await runtime.processAsync(request);
+	assert.equal(third.fromCache, true);
+}
+
+function testRuleDependenciesAndOrdering() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/base",
+		priority: 1,
+	});
+	runtime.registerRule({
+		id: "user/middle",
+		priority: 999,
+		dependsOn: ["user/base"],
+	});
+	runtime.registerRule({
+		id: "user/top",
+		priority: -5,
+		dependsOn: ["user/middle"],
+	});
+	const orderedIds = runtime.listRules().map((rule) => rule.id);
+	assert.ok(orderedIds.indexOf("user/base") < orderedIds.indexOf("user/middle"));
+	assert.ok(orderedIds.indexOf("user/middle") < orderedIds.indexOf("user/top"));
+
+	assert.throws(
+		() =>
+			runtime.registerRule({
+				id: "user/missing-dependency",
+				dependsOn: ["user/not-exist"],
+			}),
+		/missing rule/
+	);
+
+	const cycleRuntime = new ShaderRuntime({ mode: "warn" });
+	cycleRuntime.registerRule({
+		id: "user/cycle-a",
+	});
+	cycleRuntime.registerRule({
+		id: "user/cycle-b",
+		dependsOn: ["user/cycle-a"],
+	});
+	assert.throws(
+		() =>
+			cycleRuntime.registerRule({
+				id: "user/cycle-a",
+				dependsOn: ["user/cycle-b"],
+			}),
+		/cycle/i
+	);
+}
+
+function testUserSymbolConflictsStaticAndDynamic() {
+	const staticRuntime = new ShaderRuntime({ mode: "warn" });
+	staticRuntime.registerRule({
+		id: "user/static-a",
+		symbols: ["sharedSymbol"],
+	});
+	assert.throws(
+		() =>
+			staticRuntime.registerRule({
+				id: "user/static-b",
+				symbols: ["sharedSymbol"],
+			}),
+		/conflicts/
+	);
+
+	const dynamicRuntime = new ShaderRuntime({ mode: "warn" });
+	dynamicRuntime.registerRule({
+		id: "user/owner",
+		symbols: ["ownedSymbol"],
+	});
+	dynamicRuntime.registerRule({
+		id: "user/conflict",
+		inject() {
+			return {
+				header: "// should be skipped",
+				symbols: ["ownedSymbol"],
+			};
+		},
+	});
+	const result = dynamicRuntime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "DynamicSymbolConflict",
+		sourceKind: "custom-material",
+	});
+	assert.equal(result.code.includes("// should be skipped"), false);
+	assert.ok(
+		result.diagnostics.some(
+			(diagnostic) => diagnostic.code === "user-symbol-conflict"
+		)
+	);
+}
+
+function testExtendedAnchorsAndDryRun() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/after-defines",
+		inject() {
+			return {
+				header: "// after defines",
+				headerAnchor: "afterDefines",
+			};
+		},
+	});
+	runtime.registerRule({
+		id: "user/after-struct",
+		inject() {
+			return {
+				header: "// after struct",
+				headerAnchor: "afterStruct",
+			};
+		},
+	});
+	runtime.registerRule({
+		id: "user/after-uniforms",
+		inject() {
+			return {
+				header: "// after uniforms",
+				headerAnchor: "afterUniforms",
+			};
+		},
+	});
+	const glsl = runtime.process({
+		code: GLSL_EXTENDED_ANCHOR_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "GLSLExtendedAnchors",
+		sourceKind: "custom-material",
+	});
+	assert.ok(glsl.code.includes("#define USE_LIGHTING 1\n// after defines"));
+	assert.ok(glsl.code.includes("};\n// after struct"));
+	assert.ok(glsl.code.includes("uniform vec4 uColor;\n// after uniforms"));
+	const glslAnchors = runtime.resolveInjectionAnchors({
+		code: GLSL_EXTENDED_ANCHOR_SOURCE,
+		language: "glsl",
+	});
+	assert.ok(glslAnchors.anchors.afterDefines >= glslAnchors.anchors.afterPrecision);
+	assert.ok(glslAnchors.anchors.afterUniforms >= glslAnchors.anchors.afterStruct);
+
+	const wgslRuntime = new ShaderRuntime({ mode: "warn" });
+	wgslRuntime.registerRule({
+		id: "user/wgsl-anchor",
+		inject() {
+			return {
+				header: "// wgsl after bindings",
+				headerAnchor: "afterBindings",
+			};
+		},
+	});
+	const wgsl = wgslRuntime.process({
+		code: WGSL_ANCHOR_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "WGSLAnchors",
+		sourceKind: "custom-material",
+	});
+	assert.ok(wgsl.code.includes("@group(0) @binding(0) var<uniform> uniforms: Payload;\n// wgsl after bindings"));
+	const wgslAnchors = wgslRuntime.resolveInjectionAnchors({
+		code: WGSL_ANCHOR_SOURCE,
+		language: "wgsl",
+	});
+	assert.ok(wgslAnchors.anchors.afterAliases >= wgslAnchors.anchors.afterEnable);
+	assert.ok(
+		wgslAnchors.anchors.afterBindings >= wgslAnchors.anchors.afterStruct
+	);
+}
+
+function testSilentModeAndDiagnosticFilters() {
+	const silentRuntime = new ShaderRuntime({ mode: "silent" });
+	silentRuntime.registerRule({
+		id: "user/silent-diagnostic",
+		validate() {
+			return [
+				{
+					ruleId: "user/silent-diagnostic",
+					code: "silent-error",
+					severity: "error",
+					message: "silent mode should suppress this",
+				},
+			];
+		},
+	});
+	const silentResult = silentRuntime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "SilentMode",
+		sourceKind: "custom-material",
+	});
+	assert.equal(silentResult.diagnostics.length, 0);
+	assert.equal(silentResult.hasErrors, false);
+
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/filter-test",
+		validate() {
+			return [
+				{
+					ruleId: "user/filter-test",
+					code: "filter-a",
+					severity: "error",
+					message: "a",
+				},
+				{
+					ruleId: "user/filter-test",
+					code: "filter-b",
+					severity: "error",
+					message: "b",
+				},
+			];
+		},
+	});
+	const disposeGlobalFilter = runtime.filterDiagnostics(
+		(diagnostic) => diagnostic.code !== "filter-a"
+	);
+	const filtered = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "FilterLayering",
+		sourceKind: "custom-material",
+		diagnosticFilter: (diagnostic) => diagnostic.code !== "filter-b",
+	});
+	assert.equal(filtered.diagnostics.length, 0);
+	assert.equal(filtered.hasErrors, false);
+	disposeGlobalFilter();
+	const afterDispose = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "FilterLayering",
+		sourceKind: "custom-material",
+	});
+	assert.equal(afterDispose.diagnostics.length, 2);
+}
+
+function testRuleScopedInvalidationAndCacheStats() {
+	const runtime = new ShaderRuntime({ mode: "warn", cacheLimit: 2 });
+	runtime.registerRule({
+		id: "user/invalidate-a",
+		match(context) {
+			return context.label === "A";
+		},
+		inject() {
+			return { header: "// A-v1" };
+		},
+	});
+	runtime.registerRule({
+		id: "user/invalidate-b",
+		match(context) {
+			return context.label === "B";
+		},
+		inject() {
+			return { header: "// B-v1" };
+		},
+	});
+	const requestA = {
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "A",
+		sourceKind: "custom-material",
+	};
+	const requestB = { ...requestA, label: "B" };
+	runtime.process(requestA);
+	runtime.process(requestA);
+	runtime.process(requestB);
+	runtime.process(requestB);
+
+	runtime.registerRule({
+		id: "user/invalidate-a",
+		match(context) {
+			return context.label === "A";
+		},
+		inject() {
+			return { header: "// A-v2" };
+		},
+	});
+	const afterA = runtime.process(requestA);
+	const afterB = runtime.process(requestB);
+	assert.equal(afterA.fromCache, false);
+	assert.equal(afterA.code.includes("// A-v2"), true);
+	assert.equal(afterB.fromCache, true);
+
+	runtime.registerRule({
+		id: "user/invalidate-c",
+		match(context) {
+			return context.label === "C";
+		},
+		inject() {
+			return { header: "// C-v1" };
+		},
+	});
+	const afterBWithNewRule = runtime.process(requestB);
+	assert.equal(afterBWithNewRule.fromCache, true);
+	const requestC = { ...requestA, label: "C" };
+	const afterC = runtime.process(requestC);
+	assert.equal(afterC.fromCache, false);
+	assert.equal(afterC.code.includes("// C-v1"), true);
+
+	const stats = runtime.getCacheStats("sync");
+	assert.ok(stats.hits > 0);
+	assert.ok(stats.misses > 0);
+	assert.ok(stats.invalidations > 0);
+
+	runtime.resetCacheStats("sync");
+	const resetStats = runtime.getCacheStats("sync");
+	assert.equal(resetStats.hits, 0);
+	assert.equal(resetStats.misses, 0);
+	assert.equal(resetStats.evictions, 0);
+	assert.equal(resetStats.invalidations, 0);
+}
+
+function testChangeEventsAndSourceHashValidation() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const events = [];
+	let legacyCalls = 0;
+	runtime.onDidChange((event) => events.push(event));
+	runtime.onDidChange(() => {
+		legacyCalls++;
+	});
+	runtime.registerRule({ id: "user/event-rule" });
+	const event = events[events.length - 1];
+	assert.equal(event.action, "register-rule");
+	assert.deepEqual(event.ruleIds, ["user/event-rule"]);
+	assert.ok(event.revision >= 2);
+	assert.equal(legacyCalls > 0, true);
+
+	const hash = hashStringFNV1a(GLSL_SOURCE);
+	const withHash = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "HashValid",
+		sourceKind: "custom-material",
+		sourceHash: hash,
+	});
+	assert.equal(withHash.hasErrors, false);
+	assert.throws(
+		() =>
+			runtime.process({
+				code: GLSL_SOURCE,
+				language: "glsl",
+				stage: "vertex",
+				entryPoint: "main",
+				label: "HashInvalid",
+				sourceKind: "custom-material",
+				sourceHash: "deadbeef",
+			}),
+		/sourceHash mismatch/
+	);
+}
+
+async function run() {
 	testReservedPrefixProtection();
 	testGLSLInjectionOrderAndLocation();
 	testWGSLInjectionLocation();
@@ -485,7 +934,18 @@ function run() {
 	testProcessCarriesSourceMap();
 	testDiagnosticsMapToSourceWithRange();
 	testWebGLInfoLogParsing();
+	testProcessRejectsAsyncRuleInSyncPath();
+	await testProcessAsyncSupportsAsyncRulesAndInFlightDedup();
+	testRuleDependenciesAndOrdering();
+	testUserSymbolConflictsStaticAndDynamic();
+	testExtendedAnchorsAndDryRun();
+	testSilentModeAndDiagnosticFilters();
+	testRuleScopedInvalidationAndCacheStats();
+	testChangeEventsAndSourceHashValidation();
 	console.log("ShaderRuntime tests passed");
 }
 
-run();
+run().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});

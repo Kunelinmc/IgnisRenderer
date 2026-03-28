@@ -412,14 +412,14 @@ export class WebGPUPipelineLibrary {
 	private _getShaderRuntime():
 		| {
 				revision?: number;
-				getMode?: () => "strict" | "warn";
+				getMode?: () => "strict" | "warn" | "silent";
 				onDidChange?: (listener: () => void) => () => void;
 		  }
 		| null {
 		const backend = this._backend as unknown as {
 			shaderRuntime?: {
 				revision?: number;
-				getMode?: () => "strict" | "warn";
+				getMode?: () => "strict" | "warn" | "silent";
 				onDidChange?: (listener: () => void) => () => void;
 			};
 		};
