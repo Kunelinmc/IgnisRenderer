@@ -39,6 +39,9 @@ const DEGENERATE_AXIS_EPSILON = 1e-6;
 const FRUSTUM_OUTSIDE = -1;
 const FRUSTUM_INTERSECT = 0;
 const FRUSTUM_INSIDE = 1;
+const REFIT_REBUILD_DIRTY_RATIO = 0.35;
+const REFIT_REBUILD_MIN_DIRTY_COUNT = 64;
+const REFIT_REBUILD_INTERVAL = 120;
 
 export class BVH {
 	private _root: SpatialNode | null;
@@ -46,7 +49,10 @@ export class BVH {
 	private _entries: SpatialBuildEntry[];
 	private _meshInstances: MeshInstance[];
 	private _meshInstanceSet: Set<MeshInstance>;
-	private _dirty: boolean;
+	private _entryIndexByMeshInstance: Map<MeshInstance, number>;
+	private _structureDirty: boolean;
+	private _boundsDirtyMeshInstances: Set<MeshInstance>;
+	private _refitsSinceRebuild: number;
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -57,7 +63,10 @@ export class BVH {
 		this._entries = [];
 		this._meshInstances = [];
 		this._meshInstanceSet = new Set();
-		this._dirty = false;
+		this._entryIndexByMeshInstance = new Map();
+		this._structureDirty = false;
+		this._boundsDirtyMeshInstances = new Set();
+		this._refitsSinceRebuild = 0;
 		this.rebuild(meshInstances);
 	}
 
@@ -70,7 +79,7 @@ export class BVH {
 	}
 
 	public get dirty(): boolean {
-		return this._dirty;
+		return this._structureDirty || this._boundsDirtyMeshInstances.size > 0;
 	}
 
 	/**
@@ -79,15 +88,22 @@ export class BVH {
 	public setMeshInstances(meshInstances: MeshInstance[]): void {
 		this._meshInstances = meshInstances.slice();
 		this._meshInstanceSet = new Set(this._meshInstances);
-		this._dirty = true;
+		this._structureDirty = true;
+		this._boundsDirtyMeshInstances.clear();
 	}
 
 	/**
 	 * Marks one tracked mesh (or all meshes) dirty so bounds are refreshed.
 	 */
 	public markDirty(meshInstance?: MeshInstance): void {
-		if (!meshInstance || this._meshInstanceSet.has(meshInstance)) {
-			this._dirty = true;
+		if (!meshInstance) {
+			for (const tracked of this._meshInstances) {
+				this._boundsDirtyMeshInstances.add(tracked);
+			}
+			return;
+		}
+		if (this._meshInstanceSet.has(meshInstance)) {
+			this._boundsDirtyMeshInstances.add(meshInstance);
 		}
 	}
 
@@ -98,8 +114,10 @@ export class BVH {
 		if (!this._meshInstanceSet.has(meshInstance)) {
 			this._meshInstanceSet.add(meshInstance);
 			this._meshInstances.push(meshInstance);
+			this._structureDirty = true;
+			return;
 		}
-		this._dirty = true;
+		this._boundsDirtyMeshInstances.add(meshInstance);
 	}
 
 	/**
@@ -113,7 +131,8 @@ export class BVH {
 		if (index >= 0) {
 			this._meshInstances.splice(index, 1);
 		}
-		this._dirty = true;
+		this._boundsDirtyMeshInstances.delete(meshInstance);
+		this._structureDirty = true;
 		return true;
 	}
 
@@ -129,8 +148,11 @@ export class BVH {
 		const count = this._meshInstances.length;
 		if (count === 0) {
 			this._entries.length = 0;
+			this._entryIndexByMeshInstance.clear();
 			this._root = null;
-			this._dirty = false;
+			this._structureDirty = false;
+			this._boundsDirtyMeshInstances.clear();
+			this._refitsSinceRebuild = 0;
 			return;
 		}
 
@@ -142,7 +164,16 @@ export class BVH {
 		}
 
 		this._root = this._buildRange(0, this._entries.length);
-		this._dirty = false;
+		this._entryIndexByMeshInstance.clear();
+		for (let index = 0; index < this._entries.length; index++) {
+			this._entryIndexByMeshInstance.set(
+				this._entries[index].meshInstance,
+				index
+			);
+		}
+		this._structureDirty = false;
+		this._boundsDirtyMeshInstances.clear();
+		this._refitsSinceRebuild = 0;
 	}
 
 	/**
@@ -159,13 +190,7 @@ export class BVH {
 		const includeInvisible = options?.includeInvisible === true;
 		const result: MeshInstance[] = [];
 
-		this._queryNode(
-			this._root,
-			frustum,
-			includeInvisible,
-			maxResults,
-			result
-		);
+		this._queryNode(this._root, frustum, includeInvisible, maxResults, result);
 
 		return result;
 	}
@@ -258,7 +283,8 @@ export class BVH {
 				return left.distance - right.distance;
 			}
 			const leftEntity = left.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
-			const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+			const rightEntity =
+				right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
 			if (leftEntity !== rightEntity) {
 				return leftEntity - rightEntity;
 			}
@@ -272,9 +298,79 @@ export class BVH {
 	}
 
 	private _ensureFresh(): void {
-		if (this._dirty) {
+		if (this._structureDirty) {
 			this.rebuild();
+			return;
 		}
+		if (this._boundsDirtyMeshInstances.size === 0) return;
+		if (this._shouldRebuildForDirtyBounds()) {
+			this.rebuild();
+			return;
+		}
+		this._refitDirtyBounds();
+	}
+
+	private _shouldRebuildForDirtyBounds(): boolean {
+		const trackedCount = this._meshInstances.length;
+		if (trackedCount === 0) return false;
+		const dirtyCount = this._boundsDirtyMeshInstances.size;
+		if (dirtyCount <= 0) return false;
+		if (
+			dirtyCount >= REFIT_REBUILD_MIN_DIRTY_COUNT &&
+			dirtyCount / trackedCount >= REFIT_REBUILD_DIRTY_RATIO
+		) {
+			return true;
+		}
+		return this._refitsSinceRebuild >= REFIT_REBUILD_INTERVAL;
+	}
+
+	private _refitDirtyBounds(): void {
+		if (!this._root || this._entries.length === 0) {
+			this._boundsDirtyMeshInstances.clear();
+			return;
+		}
+
+		for (const meshInstance of this._boundsDirtyMeshInstances) {
+			const entryIndex = this._entryIndexByMeshInstance.get(meshInstance);
+			if (entryIndex === undefined) continue;
+			const entry = this._entries[entryIndex];
+			const updatedBounds = meshInstance.getWorldBoundingBox();
+			copyBoundingBoxValues(entry.bounds, updatedBounds);
+			entry.centroidX = (entry.bounds.min.x + entry.bounds.max.x) * 0.5;
+			entry.centroidY = (entry.bounds.min.y + entry.bounds.max.y) * 0.5;
+			entry.centroidZ = (entry.bounds.min.z + entry.bounds.max.z) * 0.5;
+		}
+
+		this._refitNode(this._root);
+		this._boundsDirtyMeshInstances.clear();
+		this._refitsSinceRebuild++;
+	}
+
+	private _refitNode(node: SpatialNode): BoundingBox {
+		if (node.objects && node.objectBounds) {
+			unionBoundingBoxes(node.bounds, node.objectBounds);
+			return node.bounds;
+		}
+
+		if (!node.left && !node.right) {
+			return node.bounds;
+		}
+
+		if (!node.left) {
+			const rightBounds = this._refitNode(node.right!);
+			copyBoundingBoxValues(node.bounds, rightBounds);
+			return node.bounds;
+		}
+		if (!node.right) {
+			const leftBounds = this._refitNode(node.left);
+			copyBoundingBoxValues(node.bounds, leftBounds);
+			return node.bounds;
+		}
+
+		const leftBounds = this._refitNode(node.left);
+		const rightBounds = this._refitNode(node.right);
+		mergeBoundingBoxes(node.bounds, leftBounds, rightBounds);
+		return node.bounds;
 	}
 
 	private _buildRange(start: number, end: number): SpatialNode | null {
@@ -295,7 +391,14 @@ export class BVH {
 			const middle = start + (count >> 1);
 			const left = this._buildRange(start, middle);
 			const right = this._buildRange(middle, end);
-			return createInnerNode(stats.bounds, left, right, this._entries, start, end);
+			return createInnerNode(
+				stats.bounds,
+				left,
+				right,
+				this._entries,
+				start,
+				end
+			);
 		}
 
 		const middle = start + (count >> 1);
@@ -303,7 +406,14 @@ export class BVH {
 
 		const left = this._buildRange(start, middle);
 		const right = this._buildRange(middle, end);
-		return createInnerNode(stats.bounds, left, right, this._entries, start, end);
+		return createInnerNode(
+			stats.bounds,
+			left,
+			right,
+			this._entries,
+			start,
+			end
+		);
 	}
 
 	private _queryNode(
@@ -348,7 +458,10 @@ export class BVH {
 			return result.length >= maxResults;
 		}
 
-		if (node.left && this._queryNode(node.left, frustum, includeInvisible, maxResults, result)) {
+		if (
+			node.left &&
+			this._queryNode(node.left, frustum, includeInvisible, maxResults, result)
+		) {
 			return true;
 		}
 
@@ -379,7 +492,10 @@ export class BVH {
 			);
 		}
 
-		if (node.left && this._appendSubtree(node.left, includeInvisible, maxResults, result)) {
+		if (
+			node.left &&
+			this._appendSubtree(node.left, includeInvisible, maxResults, result)
+		) {
 			return true;
 		}
 
@@ -426,11 +542,8 @@ export class BVH {
 			}
 			const objectBounds = bounds[index];
 			if (
-				classifyAABBFrustum(
-					frustum,
-					objectBounds.min,
-					objectBounds.max
-				) !== FRUSTUM_OUTSIDE
+				classifyAABBFrustum(frustum, objectBounds.min, objectBounds.max) !==
+				FRUSTUM_OUTSIDE
 			) {
 				result.push(meshInstance);
 			}
@@ -647,6 +760,52 @@ function computeRangeStats(
 		centroidExtentY: centroidMaxY - centroidMinY,
 		centroidExtentZ: centroidMaxZ - centroidMinZ,
 	};
+}
+
+function copyBoundingBoxValues(target: BoundingBox, source: BoundingBox): void {
+	target.min.x = source.min.x;
+	target.min.y = source.min.y;
+	target.min.z = source.min.z;
+	target.max.x = source.max.x;
+	target.max.y = source.max.y;
+	target.max.z = source.max.z;
+}
+
+function mergeBoundingBoxes(
+	target: BoundingBox,
+	left: BoundingBox,
+	right: BoundingBox
+): void {
+	target.min.x = Math.min(left.min.x, right.min.x);
+	target.min.y = Math.min(left.min.y, right.min.y);
+	target.min.z = Math.min(left.min.z, right.min.z);
+	target.max.x = Math.max(left.max.x, right.max.x);
+	target.max.y = Math.max(left.max.y, right.max.y);
+	target.max.z = Math.max(left.max.z, right.max.z);
+}
+
+function unionBoundingBoxes(target: BoundingBox, bounds: BoundingBox[]): void {
+	if (bounds.length === 0) return;
+	let minX = Infinity;
+	let minY = Infinity;
+	let minZ = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	let maxZ = -Infinity;
+	for (const bound of bounds) {
+		if (bound.min.x < minX) minX = bound.min.x;
+		if (bound.min.y < minY) minY = bound.min.y;
+		if (bound.min.z < minZ) minZ = bound.min.z;
+		if (bound.max.x > maxX) maxX = bound.max.x;
+		if (bound.max.y > maxY) maxY = bound.max.y;
+		if (bound.max.z > maxZ) maxZ = bound.max.z;
+	}
+	target.min.x = minX;
+	target.min.y = minY;
+	target.min.z = minZ;
+	target.max.x = maxX;
+	target.max.y = maxY;
+	target.max.z = maxZ;
 }
 
 function classifyAABBFrustum(

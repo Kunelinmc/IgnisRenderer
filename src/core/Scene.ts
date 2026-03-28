@@ -11,6 +11,12 @@ import { ECSWorld } from "../ecs";
 import { BVH } from "../spatial/BVH";
 
 const ROOT_PATH = "/sceneRoot";
+const SPATIAL_MATRIX_EPSILON = 1e-8;
+
+interface SpatialMeshSignature {
+	mesh: MeshInstance["mesh"];
+	matrix: Float32Array;
+}
 
 export class Scene {
 	/** @deprecated Scene is now a compatibility facade over ECSWorld. */
@@ -21,6 +27,11 @@ export class Scene {
 
 	private _version: number;
 	private _reparentingNodes = new WeakSet<Node>();
+	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
+	private _spatialSignaturesByMeshInstance = new Map<
+		MeshInstance,
+		SpatialMeshSignature
+	>();
 
 	constructor() {
 		this.root = new Node({
@@ -91,9 +102,61 @@ export class Scene {
 	}
 
 	public rebuildSpatialIndex(meshInstances: MeshInstance[]): BVH {
-		const spatial = this.spatial ?? new BVH();
-		spatial.rebuild(meshInstances);
-		this.spatial = spatial;
+		if (!this.spatial) {
+			const spatial = new BVH(meshInstances);
+			this.spatial = spatial;
+			this._spatialTrackedMeshInstances = new Set(meshInstances);
+			this._spatialSignaturesByMeshInstance.clear();
+			for (const meshInstance of meshInstances) {
+				this._spatialSignaturesByMeshInstance.set(
+					meshInstance,
+					createSpatialMeshSignature(meshInstance)
+				);
+			}
+			return spatial;
+		}
+
+		const spatial = this.spatial;
+		const nextMeshSet = new Set(meshInstances);
+		const removedMeshInstances: MeshInstance[] = [];
+		for (const tracked of this._spatialTrackedMeshInstances) {
+			if (!nextMeshSet.has(tracked)) {
+				removedMeshInstances.push(tracked);
+			}
+		}
+
+		for (const removed of removedMeshInstances) {
+			spatial.remove(removed);
+			this._spatialTrackedMeshInstances.delete(removed);
+			this._spatialSignaturesByMeshInstance.delete(removed);
+		}
+
+		for (const meshInstance of meshInstances) {
+			if (!this._spatialTrackedMeshInstances.has(meshInstance)) {
+				this._spatialTrackedMeshInstances.add(meshInstance);
+				this._spatialSignaturesByMeshInstance.set(
+					meshInstance,
+					createSpatialMeshSignature(meshInstance)
+				);
+				spatial.upsert(meshInstance);
+				continue;
+			}
+
+			const signature = this._spatialSignaturesByMeshInstance.get(meshInstance);
+			if (!signature) {
+				this._spatialSignaturesByMeshInstance.set(
+					meshInstance,
+					createSpatialMeshSignature(meshInstance)
+				);
+				spatial.upsert(meshInstance);
+				continue;
+			}
+
+			if (updateSpatialMeshSignature(signature, meshInstance)) {
+				spatial.markDirty(meshInstance);
+			}
+		}
+
 		return spatial;
 	}
 
@@ -271,4 +334,51 @@ function hasLightType(value: unknown): value is SceneLight {
 
 function sanitizePathSegment(value: string): string {
 	return value.replace(/[^\w\-]+/g, "_");
+}
+
+function createSpatialMeshSignature(
+	meshInstance: MeshInstance
+): SpatialMeshSignature {
+	return {
+		mesh: meshInstance.mesh,
+		matrix: captureWorldMatrix(meshInstance.worldMatrix),
+	};
+}
+
+function updateSpatialMeshSignature(
+	signature: SpatialMeshSignature,
+	meshInstance: MeshInstance
+): boolean {
+	let changed = signature.mesh !== meshInstance.mesh;
+	signature.mesh = meshInstance.mesh;
+
+	const elements = meshInstance.worldMatrix.elements;
+	const matrix = signature.matrix;
+	let cursor = 0;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			const value = elements[row][column];
+			if (
+				!changed &&
+				Math.abs(matrix[cursor] - value) > SPATIAL_MATRIX_EPSILON
+			) {
+				changed = true;
+			}
+			matrix[cursor] = value;
+			cursor++;
+		}
+	}
+	return changed;
+}
+
+function captureWorldMatrix(matrix: Matrix4): Float32Array {
+	const result = new Float32Array(16);
+	const elements = matrix.elements;
+	let cursor = 0;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			result[cursor++] = elements[row][column];
+		}
+	}
+	return result;
 }
