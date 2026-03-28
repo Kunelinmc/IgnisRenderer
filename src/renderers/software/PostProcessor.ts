@@ -32,8 +32,8 @@ import type {
 	VolumetricOptions,
 	FramePassStage,
 	FrameContext,
-	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
+import { INTERACTION_TRANSIENT_STATE_KEY } from "../../pipeline/types";
 
 export interface PostProcessorLike {
 	applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void;
