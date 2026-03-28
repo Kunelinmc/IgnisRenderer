@@ -9,7 +9,6 @@ struct OutlineParams {
 }
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
-@group(0) @binding(1) var linearSampler: sampler;
 @group(0) @binding(2) var<uniform> params: OutlineParams;
 @group(0) @binding(3) var outTex: texture_storage_2d<rgba16float, write>;
 

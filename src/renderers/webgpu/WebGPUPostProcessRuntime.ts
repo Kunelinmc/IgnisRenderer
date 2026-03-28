@@ -37,6 +37,10 @@ import {
 } from "../../interaction/outlineProjection";
 
 const WORKGROUP_SIZE = 8;
+const INTERACTION_OUTLINE_HEADER_FLOATS = 16;
+const INTERACTION_OUTLINE_PARAM_FLOATS =
+	INTERACTION_OUTLINE_HEADER_FLOATS +
+	MAX_INTERACTION_OUTLINE_CIRCLES * 4;
 
 const DEFAULT_FXAA = {
 	edgeThresholdMin: 0.03125,
@@ -95,7 +99,9 @@ export class WebGPUPostProcessRuntime {
 	private _interactionOutlineModule: IShaderModule | null = null;
 	private _interactionOutlinePipeline: IComputePipeline | null = null;
 	private _interactionOutlineParams: IRenderBuffer | null = null;
-	private _interactionOutlineParamData = new Float32Array(268);
+	private _interactionOutlineParamData = new Float32Array(
+		INTERACTION_OUTLINE_PARAM_FLOATS
+	);
 	private _copyModule: IShaderModule | null = null;
 	private _copyPipeline: IComputePipeline | null = null;
 	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
@@ -1165,7 +1171,6 @@ export class WebGPUPostProcessRuntime {
 
 		await this._ensureInteractionOutlineResources();
 		if (
-			!this._sampler ||
 			!this._interactionOutlinePipeline ||
 			!this._interactionOutlineParams
 		) {
@@ -1210,10 +1215,8 @@ export class WebGPUPostProcessRuntime {
 		);
 		params[7] = 1;
 		params[8] = circles.length;
-		params[9] = 0;
-		params[10] = 0;
-		params[11] = 0;
-		let offset = 12;
+		params.fill(0, 9, INTERACTION_OUTLINE_HEADER_FLOATS);
+		let offset = INTERACTION_OUTLINE_HEADER_FLOATS;
 		for (let index = 0; index < MAX_INTERACTION_OUTLINE_CIRCLES; index++) {
 			if (index < circles.length) {
 				const circle = circles[index];
@@ -1236,7 +1239,6 @@ export class WebGPUPostProcessRuntime {
 			this._interactionOutlinePipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: this._sampler },
 				{ binding: 2, resource: this._interactionOutlineParams },
 				{ binding: 3, resource: target },
 			],
