@@ -142,6 +142,10 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor.executePass(pass, context);
 	}
 
+	public skipPass(_pass: FramePass): void {
+		// No pass dependency tracking in WebGLBackend; no-op.
+	}
+
 	public endFrame(): void {
 		if (!this._frameExecutor || this._contextLost) {
 			return;

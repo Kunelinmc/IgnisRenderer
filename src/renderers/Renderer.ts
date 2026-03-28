@@ -5,7 +5,10 @@ import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
 import { ShadowMap } from "../lights/ShadowMapping";
-import { BAKED_LIGHT_PROBE_SH_SCALE, PBR_AMBIENT_FALLBACK_LINEAR } from "../lights/constants";
+import {
+	BAKED_LIGHT_PROBE_SH_SCALE,
+	PBR_AMBIENT_FALLBACK_LINEAR,
+} from "../lights/constants";
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
@@ -454,6 +457,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					if (!context || !frame) break;
 					if (!this._isBackendPassStage(stage.id)) break;
 					if (!this._shouldRunBackendPass(stage.id, frame, resolved)) {
+						const skippedPass = this._createBackendPass(stage.id);
+						this.backend.skipPass?.(skippedPass);
 						break;
 					}
 
@@ -505,9 +510,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const probeSH = probe.sh;
 				const intensity = light.intensity ?? 1;
 				const probeScale =
-					probe.prefilteredMap ?
-						BAKED_LIGHT_PROBE_SH_SCALE
-					:	1;
+					probe.prefilteredMap ? BAKED_LIGHT_PROBE_SH_SCALE : 1;
 				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 				for (let i = 0; i < coeffCount; i++) {
 					ambientProbeSH[i].r += probeSH[i].r * intensity * probeScale;
@@ -523,8 +526,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ambientProbeSH[0].g === 0 &&
 			ambientProbeSH[0].b === 0
 		) {
-			const fallbackLinear =
-				PBR_AMBIENT_FALLBACK_LINEAR * 255;
+			const fallbackLinear = PBR_AMBIENT_FALLBACK_LINEAR * 255;
 			ambientR = fallbackLinear;
 			ambientG = fallbackLinear;
 			ambientB = fallbackLinear;

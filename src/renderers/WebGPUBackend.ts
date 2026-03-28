@@ -509,6 +509,10 @@ export class WebGPUBackend implements IRenderBackend {
 		return result;
 	}
 
+	public skipPass(pass: FramePass): void {
+		this._markPassExecuted(pass.stage);
+	}
+
 	public async warmup(
 		context: FrameContext,
 		options: WarmupOptions = {}

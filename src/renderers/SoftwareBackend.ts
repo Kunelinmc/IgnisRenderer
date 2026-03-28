@@ -253,6 +253,10 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
+	public skipPass(_pass: FramePass): void {
+		// No pass dependency tracking in SoftwareBackend; no-op.
+	}
+
 	public endFrame(): void {
 		if (!this._renderer || !this._ctx) return;
 

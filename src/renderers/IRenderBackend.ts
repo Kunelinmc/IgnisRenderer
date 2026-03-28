@@ -91,6 +91,7 @@ export interface IRenderBackend {
 		context: FrameContext
 	): void | Promise<void>;
 	executePass(pass: FramePass, context: FrameContext): void | Promise<void>;
+	skipPass?(pass: FramePass): void;
 	warmup?(
 		context: FrameContext,
 		options?: WarmupOptions
