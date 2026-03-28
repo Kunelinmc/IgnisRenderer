@@ -1,1 +1,1 @@
-export { BVH, type SpatialNode } from "./BVH";
+export { BVH, type SpatialNode, type BVHQueryOptions } from "./BVH";
