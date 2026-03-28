@@ -23,23 +23,35 @@ export class PreparedSceneBuilder {
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
 		const meshInstances = renderer.scene.ecs.findMeshInstances();
+		const renderableMeshInstances = meshInstances.filter(
+			(meshInstance) => meshInstance.visible !== false
+		);
+		const bypassFrustumMeshInstances: MeshInstance[] = [];
+		const frustumCulledMeshInstances: MeshInstance[] = [];
 
-		for (const meshInstance of meshInstances) {
-			if (meshInstance.visible === false) continue;
+		for (const meshInstance of renderableMeshInstances) {
+			if (isAnimationDrivenMeshInstance(meshInstance)) {
+				bypassFrustumMeshInstances.push(meshInstance);
+			} else {
+				frustumCulledMeshInstances.push(meshInstance);
+			}
+		}
 
+		const frustumVisibleMeshInstances = renderer.scene.queryMeshInstancesInFrustum(
+			renderer.camera,
+			frustumCulledMeshInstances
+		);
+		const cameraVisibleMeshInstances = new Set<MeshInstance>(
+			frustumVisibleMeshInstances
+		);
+		for (const meshInstance of bypassFrustumMeshInstances) {
+			cameraVisibleMeshInstances.add(meshInstance);
+		}
+
+		for (const meshInstance of renderableMeshInstances) {
+			const visibleInCamera = cameraVisibleMeshInstances.has(meshInstance);
 			const packets = this._buildMeshPackets(meshInstance, renderer.camera);
 			for (const packet of packets) {
-				const animatedPacket =
-					!!meshInstance.skeleton ||
-					(packet.geometry.morphTargets?.length ?? 0) > 0;
-				const visibleInCamera =
-					animatedPacket ? true : (
-						renderer.camera.isSphereInFrustum(
-							packet.worldBounds.center,
-							packet.worldBounds.radius
-						)
-					);
-
 				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 					if (visibleInCamera) {
 						transparentPackets.push(packet);
@@ -211,4 +223,14 @@ function getMaxScaleFromMatrix(matrix: Matrix4): number {
 	const sy = Math.hypot(elements[0][1], elements[1][1], elements[2][1]);
 	const sz = Math.hypot(elements[0][2], elements[1][2], elements[2][2]);
 	return Math.max(sx, sy, sz);
+}
+
+function isAnimationDrivenMeshInstance(meshInstance: MeshInstance): boolean {
+	if (meshInstance.skeleton) return true;
+	for (const primitive of meshInstance.mesh.primitives) {
+		if ((primitive.geometry.morphTargets?.length ?? 0) > 0) {
+			return true;
+		}
+	}
+	return false;
 }

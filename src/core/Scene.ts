@@ -8,6 +8,7 @@ import type { SceneLight } from "../lights";
 import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
 import { ECSWorld } from "../ecs";
+import { BVH } from "../spatial/BVH";
 
 const ROOT_PATH = "/sceneRoot";
 
@@ -16,6 +17,7 @@ export class Scene {
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
 	public skybox: Texture | null;
+	public spatial: BVH | null;
 
 	private _version: number;
 	private _reparentingNodes = new WeakSet<Node>();
@@ -27,6 +29,7 @@ export class Scene {
 		});
 		this.ecs = new ECSWorld();
 		this.skybox = null;
+		this.spatial = null;
 		this._version = 0;
 
 		this.root._scene = this;
@@ -85,6 +88,21 @@ export class Scene {
 
 	public getParticleSystems(): ParticleSystem[] {
 		return this.ecs.findParticleSystems();
+	}
+
+	public rebuildSpatialIndex(meshInstances: MeshInstance[]): BVH {
+		const spatial = this.spatial ?? new BVH();
+		spatial.rebuild(meshInstances);
+		this.spatial = spatial;
+		return spatial;
+	}
+
+	public queryMeshInstancesInFrustum(
+		camera: Camera,
+		meshInstances: MeshInstance[]
+	): MeshInstance[] {
+		const spatial = this.rebuildSpatialIndex(meshInstances);
+		return spatial.queryFrustum(camera.frustum);
 	}
 
 	public updateWorldMatrices(): void {
