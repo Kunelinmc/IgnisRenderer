@@ -9,6 +9,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"main-transparent",
 	"particles",
 	"ssao",
+	"ssgi",
 	"taa",
 	"ssr",
 	"volumetric",
@@ -55,6 +56,8 @@ function shouldEnablePass(
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "ssao":
 			return features.enableSSAO;
+		case "ssgi":
+			return features.enableSSGI;
 		case "taa":
 			return features.enableTAA;
 		case "ssr":

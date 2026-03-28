@@ -35,6 +35,7 @@ import type {
 	DOFOptions,
 	MotionBlurOptions,
 	SSAOOptions,
+	SSGIOptions,
 	SSROptions,
 	TAAOptions,
 	VolumetricOptions,
@@ -82,6 +83,7 @@ export interface RendererFeatures {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableSSGI: boolean;
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
@@ -93,6 +95,7 @@ export interface RendererFeatures {
 	ssrOptions: SSROptions;
 	volumetricOptions: VolumetricOptions;
 	ssaoOptions: SSAOOptions;
+	ssgiOptions: SSGIOptions;
 	taaOptions: TAAOptions;
 	bloomOptions: BloomOptions;
 	motionBlurOptions: MotionBlurOptions;
@@ -152,6 +155,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableReflection: true,
 			enableSkybox: true,
 			enableSSAO: false,
+			enableSSGI: false,
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
@@ -163,6 +167,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			ssrOptions: {},
 			volumetricOptions: {},
 			ssaoOptions: {},
+			ssgiOptions: {},
 			taaOptions: {},
 			bloomOptions: {},
 			motionBlurOptions: {},
@@ -641,6 +646,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return (frame.particleSystems?.length ?? 0) > 0;
 			case "ssao":
 				return features.enableSSAO;
+			case "ssgi":
+				return features.enableSSGI;
 			case "taa":
 				return features.enableTAA;
 			case "ssr":
@@ -692,6 +699,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"main-transparent",
 	"particles",
 	"ssao",
+	"ssgi",
 	"taa",
 	"ssr",
 	"volumetric",
@@ -729,7 +737,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "main-transparent", dependsOn: ["main-opaque"] },
 		{ id: "particles", dependsOn: ["main-transparent"] },
 		{ id: "ssao", dependsOn: ["particles"] },
-		{ id: "taa", dependsOn: ["ssao"] },
+		{ id: "ssgi", dependsOn: ["ssao"] },
+		{ id: "taa", dependsOn: ["ssgi", "ssao"] },
 		{ id: "ssr", dependsOn: ["taa"] },
 		{ id: "volumetric", dependsOn: ["ssr"] },
 		{ id: "motion-blur", dependsOn: ["volumetric"] },

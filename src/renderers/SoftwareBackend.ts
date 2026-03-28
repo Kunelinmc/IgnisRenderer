@@ -44,6 +44,7 @@ export class SoftwareBackend implements IRenderBackend {
 		reflection: true,
 		skybox: true,
 		ssao: true,
+		ssgi: false,
 		taa: false,
 		ssr: false,
 		volumetric: true,

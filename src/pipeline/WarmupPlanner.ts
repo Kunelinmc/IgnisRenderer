@@ -149,6 +149,7 @@ function collectUniqueMaterials(context: FrameContext): Material[] {
 function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	const passes: string[] = [];
 	if (context.features.enableSSAO) passes.push("ssao");
+	if (context.features.enableSSGI) passes.push("ssgi");
 	if (context.features.enableTAA) passes.push("taa");
 	if (context.features.enableSSR) passes.push("ssr");
 	if (context.features.enableVolumetric) passes.push("volumetric");

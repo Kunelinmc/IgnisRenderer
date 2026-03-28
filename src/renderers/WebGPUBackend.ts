@@ -203,7 +203,8 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["main-transparent", ["main-opaque"]],
 	["particles", ["main-transparent"]],
 	["ssao", ["particles"]],
-	["taa", ["ssao"]],
+	["ssgi", ["ssao"]],
+	["taa", ["ssgi", "ssao"]],
 	["ssr", ["taa"]],
 	["volumetric", ["ssr"]],
 	["motion-blur", ["volumetric"]],
@@ -227,6 +228,7 @@ export class WebGPUBackend implements IRenderBackend {
 		reflection: false,
 		skybox: true,
 		ssao: true,
+		ssgi: true,
 		taa: true,
 		ssr: true,
 		volumetric: true,
@@ -2214,6 +2216,9 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableSSAO) {
 			this._plannedPasses.add("ssao");
+		}
+		if (context.features.enableSSGI) {
+			this._plannedPasses.add("ssgi");
 		}
 		if (context.features.enableTAA) {
 			this._plannedPasses.add("taa");

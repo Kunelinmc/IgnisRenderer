@@ -322,6 +322,7 @@ export class WebGPURenderResources {
 			enableReflection: features.enableReflection,
 			enableSkybox: features.enableSkybox,
 			enableSSAO: features.enableSSAO,
+			enableSSGI: features.enableSSGI,
 			enableTAA: features.enableTAA,
 			enableSSR: features.enableSSR,
 			enableVolumetric: features.enableVolumetric,

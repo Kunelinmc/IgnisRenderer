@@ -27,6 +27,7 @@ function run() {
 		enableReflection: false,
 		enableSkybox: false,
 		enableSSAO: false,
+		enableSSGI: false,
 		enableTAA: false,
 		enableSSR: false,
 		enableVolumetric: false,
@@ -35,6 +36,7 @@ function run() {
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
+		ssgiOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
 		bloomOptions: {},
@@ -50,6 +52,7 @@ function run() {
 		...baseResolved,
 		enableReflection: true,
 		enableSSAO: true,
+		enableSSGI: true,
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
@@ -67,6 +70,7 @@ function run() {
 			"main-transparent",
 			"particles",
 			"ssao",
+			"ssgi",
 			"taa",
 			"ssr",
 			"volumetric",
@@ -97,6 +101,7 @@ function run() {
 	);
 	assert.equal(plan.find((pass) => pass.stage === "particles")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "ssao")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "ssgi")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "taa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "ssr")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);

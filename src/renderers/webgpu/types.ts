@@ -95,6 +95,7 @@ export interface WebGPUFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableSSGI: boolean;
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;

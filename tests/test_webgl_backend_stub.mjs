@@ -227,6 +227,7 @@ async function testInitAndPassRouting() {
 		reflection: false,
 		skybox: true,
 		ssao: true,
+		ssgi: false,
 		taa: true,
 		ssr: false,
 		volumetric: false,

@@ -57,6 +57,7 @@ export interface BackendCapabilities {
 	reflection: boolean;
 	skybox: boolean;
 	ssao: boolean;
+	ssgi: boolean;
 	taa: boolean;
 	ssr: boolean;
 	volumetric: boolean;

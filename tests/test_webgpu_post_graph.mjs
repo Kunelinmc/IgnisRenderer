@@ -10,6 +10,7 @@ function createFeatures(overrides = {}) {
 		enableReflection: false,
 		enableSkybox: false,
 		enableSSAO: true,
+		enableSSGI: true,
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
@@ -20,6 +21,7 @@ function createFeatures(overrides = {}) {
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
+		ssgiOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
 		bloomOptions: {},
@@ -44,7 +46,8 @@ function createPass(id, dependsOn, key) {
 function testPostGraphOrder() {
 	const graph = new WebGPUPostProcessGraph([
 		createPass("ssao", [], "enableSSAO"),
-		createPass("taa", ["ssao"], "enableTAA"),
+		createPass("ssgi", ["ssao"], "enableSSGI"),
+		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
 		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
@@ -62,6 +65,7 @@ function testPostGraphOrder() {
 		order.map((pass) => pass.id),
 		[
 			"ssao",
+			"ssgi",
 			"taa",
 			"ssr",
 			"volumetric",
@@ -78,7 +82,8 @@ function testPostGraphOrder() {
 function testEnabledSubsetShrinksDependencyChain() {
 	const graph = new WebGPUPostProcessGraph([
 		createPass("ssao", [], "enableSSAO"),
-		createPass("taa", ["ssao"], "enableTAA"),
+		createPass("ssgi", ["ssao"], "enableSSGI"),
+		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
 		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
@@ -91,6 +96,7 @@ function testEnabledSubsetShrinksDependencyChain() {
 	const order = graph.getExecutionOrder(
 		createFeatures({
 			enableSSAO: false,
+			enableSSGI: false,
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,

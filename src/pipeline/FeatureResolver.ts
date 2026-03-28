@@ -6,6 +6,7 @@ import {
 	DEFAULT_DOF_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_SSGI_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
 	DEFAULT_VOLUMETRIC_OPTIONS,
@@ -17,6 +18,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	reflection: "feature-reflection",
 	skybox: "feature-skybox",
 	ssao: "feature-ssao",
+	ssgi: "feature-ssgi",
 	taa: "feature-taa",
 	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
@@ -32,6 +34,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	reflection: "planar reflections",
 	skybox: "skybox rendering",
 	ssao: "SSAO",
+	ssgi: "SSGI",
 	taa: "TAA",
 	ssr: "SSR",
 	volumetric: "volumetric effects",
@@ -54,6 +57,7 @@ export function resolveFeatureState(
 		enableFXAA: request.enableFXAA === true,
 		ssrOptions: { ...DEFAULT_SSR_OPTIONS, ...(request.ssrOptions ?? {}) },
 		ssaoOptions: { ...DEFAULT_SSAO_OPTIONS, ...(request.ssaoOptions ?? {}) },
+		ssgiOptions: { ...DEFAULT_SSGI_OPTIONS, ...(request.ssgiOptions ?? {}) },
 		taaOptions: { ...DEFAULT_TAA_OPTIONS, ...(request.taaOptions ?? {}) },
 		volumetricOptions: {
 			...DEFAULT_VOLUMETRIC_OPTIONS,
@@ -107,6 +111,13 @@ export function resolveFeatureState(
 			request.enableSSAO,
 			capabilities.ssao,
 			"ssao",
+			backendType,
+			warnings
+		),
+		enableSSGI: resolveBooleanFeature(
+			request.enableSSGI,
+			capabilities.ssgi,
+			"ssgi",
 			backendType,
 			warnings
 		),

@@ -43,6 +43,7 @@ import type { ShaderCompileError } from "../../shaders/runtime";
 
 const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"ssao",
+	"ssgi",
 	"taa",
 	"ssr",
 	"volumetric",
@@ -422,9 +423,23 @@ export class WebGPUFrameExecutor {
 				},
 			},
 			{
-				id: "taa",
+				id: "ssgi",
 				kind: "compute",
 				dependsOn: ["ssao"],
+				precompileHints: ["postprocess:ssgi"],
+				isEnabled: (features) => features.enableSSGI,
+				execute: async (ctx) => {
+					await this._postRuntime.executeSSGI(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext
+					);
+				},
+			},
+			{
+				id: "taa",
+				kind: "compute",
+				dependsOn: ["ssgi", "ssao"],
 				precompileHints: ["postprocess:taa"],
 				isEnabled: (features) => features.enableTAA,
 				execute: async (ctx) => {
@@ -1167,6 +1182,7 @@ export class WebGPUFrameExecutor {
 		const historyKey =
 			`mrt:${this._mrtEnabled ? 1 : 0}` +
 			`|ssao:${context.features.enableSSAO ? 1 : 0}` +
+			`|ssgi:${context.features.enableSSGI ? 1 : 0}` +
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
 			`|ssr:${context.features.enableSSR ? 1 : 0}` +
 			`|vol:${context.features.enableVolumetric ? 1 : 0}` +

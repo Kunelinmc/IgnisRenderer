@@ -141,6 +141,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"main-transparent",
 	"particles",
 	"ssao",
+	"ssgi",
 	"taa",
 	"ssr",
 	"volumetric",
@@ -204,6 +205,16 @@ export interface SSROptions {
 	binarySearchSteps?: number;
 	edgeFade?: number;
 	maxRoughness?: number;
+	[key: string]: unknown;
+}
+
+export interface SSGIOptions {
+	radius?: number;
+	intensity?: number;
+	falloff?: number;
+	depthPhi?: number;
+	normalPhi?: number;
+	albedoBoost?: number;
 	[key: string]: unknown;
 }
 
@@ -322,6 +333,20 @@ export const DEFAULT_SSR_OPTIONS: Required<
 	maxRoughness: 0.85,
 };
 
+export const DEFAULT_SSGI_OPTIONS: Required<
+	Pick<
+		SSGIOptions,
+		"radius" | "intensity" | "falloff" | "depthPhi" | "normalPhi" | "albedoBoost"
+	>
+> = {
+	radius: 3,
+	intensity: 0.35,
+	falloff: 1.5,
+	depthPhi: 1.25,
+	normalPhi: 2,
+	albedoBoost: 1,
+};
+
 export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 	Pick<
 		VolumetricOptions,
@@ -437,6 +462,7 @@ export interface RendererFeatureRequest {
 	enableReflection?: boolean;
 	enableSkybox?: boolean;
 	enableSSAO?: boolean;
+	enableSSGI?: boolean;
 	enableTAA?: boolean;
 	enableSSR?: boolean;
 	enableVolumetric?: boolean;
@@ -447,6 +473,7 @@ export interface RendererFeatureRequest {
 	enableClusteredLighting?: boolean;
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
+	ssgiOptions?: SSGIOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 	bloomOptions?: BloomOptions;
@@ -463,6 +490,7 @@ export interface ResolvedFeatureState {
 	enableReflection: boolean;
 	enableSkybox: boolean;
 	enableSSAO: boolean;
+	enableSSGI: boolean;
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
@@ -474,6 +502,7 @@ export interface ResolvedFeatureState {
 	warnings: FeatureWarning[];
 	ssrOptions?: SSROptions;
 	ssaoOptions?: SSAOOptions;
+	ssgiOptions?: SSGIOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
 	bloomOptions?: BloomOptions;

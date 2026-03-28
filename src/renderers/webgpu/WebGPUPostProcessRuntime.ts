@@ -6,6 +6,7 @@ import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_SSGI_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
 	DEFAULT_VOLUMETRIC_OPTIONS,
@@ -65,6 +66,9 @@ export class WebGPUPostProcessRuntime {
 	private _ssaoBlurPipeline: IComputePipeline | null = null;
 	private _ssaoCombinePipeline: IComputePipeline | null = null;
 	private _ssaoParams: IRenderBuffer | null = null;
+	private _ssgiModule: IShaderModule | null = null;
+	private _ssgiPipeline: IComputePipeline | null = null;
+	private _ssgiParams: IRenderBuffer | null = null;
 	private _taaModule: IShaderModule | null = null;
 	private _taaPipeline: IComputePipeline | null = null;
 	private _taaParams: IRenderBuffer | null = null;
@@ -141,6 +145,10 @@ export class WebGPUPostProcessRuntime {
 		this._ssaoCombinePipeline = null;
 		this._ssaoParams?.destroy();
 		this._ssaoParams = null;
+		this._ssgiModule = null;
+		this._ssgiPipeline = null;
+		this._ssgiParams?.destroy();
+		this._ssgiParams = null;
 		this._taaModule = null;
 		this._taaPipeline = null;
 		this._taaParams?.destroy();
@@ -272,6 +280,9 @@ export class WebGPUPostProcessRuntime {
 		switch (hint) {
 			case "postprocess:ssao":
 				await this._ensureSSAOResources();
+				return true;
+			case "postprocess:ssgi":
+				await this._ensureSSGIResources();
 				return true;
 			case "postprocess:taa":
 				await this._ensureTAAResources();
@@ -480,6 +491,82 @@ export class WebGPUPostProcessRuntime {
 		);
 		encoder.endComputePass();
 		targets.sceneColor = combineTarget;
+	}
+
+	public async executeSSGI(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext
+	): Promise<void> {
+		await this._ensureSSGIResources();
+		if (!this._sampler || !this._ssgiPipeline || !this._ssgiParams) return;
+		const options = frameContext.features.ssgiOptions ?? {};
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		const radius = clamp(
+			finiteOr(options.radius, DEFAULT_SSGI_OPTIONS.radius),
+			1,
+			6
+		);
+		const intensity = Math.max(
+			0,
+			finiteOr(options.intensity, DEFAULT_SSGI_OPTIONS.intensity)
+		);
+		const falloff = Math.max(
+			0.1,
+			finiteOr(options.falloff, DEFAULT_SSGI_OPTIONS.falloff)
+		);
+		const depthPhi = Math.max(
+			0.01,
+			finiteOr(options.depthPhi, DEFAULT_SSGI_OPTIONS.depthPhi)
+		);
+		const normalPhi = Math.max(
+			0.1,
+			finiteOr(options.normalPhi, DEFAULT_SSGI_OPTIONS.normalPhi)
+		);
+		const albedoBoost = Math.max(
+			0,
+			finiteOr(options.albedoBoost, DEFAULT_SSGI_OPTIONS.albedoBoost)
+		);
+		this._backend.writeBuffer(
+			this._ssgiParams,
+			new Float32Array([
+				1 / Math.max(target.width, 1),
+				1 / Math.max(target.height, 1),
+				radius,
+				intensity,
+				falloff,
+				depthPhi,
+				normalPhi,
+				albedoBoost,
+			])
+		);
+		const binding = this._getCachedBindGroup(
+			`ssgi-${target === targets.postPing ? "ping" : "pong"}`,
+			this._ssgiPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.gAlbedoAlpha },
+				{ binding: 2, resource: targets.gNormalRoughMetal },
+				{ binding: 3, resource: targets.gMotionDepth },
+				{ binding: 4, resource: this._sampler },
+				{ binding: 5, resource: this._ssgiParams },
+				{ binding: 6, resource: target },
+			],
+			"WebGPUSSGI_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUSSGI" });
+		encoder.setComputePipeline(this._ssgiPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
 	}
 
 	public async executeTAA(
@@ -1458,6 +1545,32 @@ export class WebGPUPostProcessRuntime {
 			this._ssaoParams = this._backend.createBuffer({
 				label: "WebGPUSSAOParams",
 				size: 16 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	private async _ensureSSGIResources(): Promise<void> {
+		await this._ensureCommonResources();
+		if (!this._ssgiModule) {
+			const shader = await loadPostProcessShaderPartComposite("ssgi");
+			this._ssgiModule = await this._backend.createShaderModule({
+				label: "WebGPUSSGIShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._ssgiPipeline)
+			this._ssgiPipeline = this._backend.createComputePipeline({
+				label: "WebGPUSSGIPipeline",
+				compute: { module: this._ssgiModule, entryPoint: "csMain" },
+			});
+		if (!this._ssgiParams)
+			this._ssgiParams = this._backend.createBuffer({
+				label: "WebGPUSSGIParams",
+				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 	}

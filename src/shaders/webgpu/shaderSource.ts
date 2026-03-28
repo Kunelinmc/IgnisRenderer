@@ -20,6 +20,7 @@ type SceneShaderPart =
 
 type PostProcessShaderPart =
 	| "ssao"
+	| "ssgi"
 	| "taa"
 	| "hiz"
 	| "ssr"
@@ -177,6 +178,7 @@ export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSour
 
 const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	ssao: "./postprocess/ssao.wgsl",
+	ssgi: "./postprocess/ssgi.wgsl",
 	taa: "./postprocess/taa.wgsl",
 	hiz: "./postprocess/hiz.wgsl",
 	ssr: "./postprocess/ssr.wgsl",

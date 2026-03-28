@@ -536,6 +536,83 @@ async function testSSAORuntimeRunsGTAOPipeline() {
 	assert.equal(targets.sceneColor, postPing);
 }
 
+async function testSSGIRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(32, 16, "scene");
+	const postPing = createTexture(32, 16, "ping");
+	const postPong = createTexture(32, 16, "pong");
+	const gAlbedoAlpha = createTexture(32, 16, "g-albedo");
+	const gNormalRoughMetal = createTexture(32, 16, "g-normal");
+	const gMotionDepth = createTexture(32, 16, "g-motion-depth");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+		gAlbedoAlpha,
+		gNormalRoughMetal,
+		gMotionDepth,
+	};
+	const frameContext = {
+		features: {
+			ssgiOptions: {
+				radius: 4,
+				intensity: 0.5,
+				falloff: 1.8,
+				depthPhi: 1.4,
+				normalPhi: 2.5,
+				albedoBoost: 1.2,
+			},
+		},
+	};
+
+	await runtime.executeSSGI(encoder, targets, frameContext);
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUSSGIShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("SAMPLE_OFFSETS"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUSSGIPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUSSGIParams");
+	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 7);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, gAlbedoAlpha);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[2].resource,
+		gNormalRoughMetal
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, gMotionDepth);
+	assert.equal(backend.bindingGroups[0].desc.entries[6].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 8);
+	assertClose(params[0], 1 / 32);
+	assertClose(params[1], 1 / 16);
+	assertClose(params[2], 4);
+	assertClose(params[3], 0.5);
+	assertClose(params[4], 1.8);
+	assertClose(params[5], 1.4);
+	assertClose(params[6], 2.5);
+	assertClose(params[7], 1.2);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUSSGI"],
+		["setComputePipeline", "WebGPUSSGIPipeline"],
+		["setBindingGroup", 0, "WebGPUSSGI_Binding"],
+		["dispatchWorkgroups", 4, 2, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -598,6 +675,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	await runtime.executeFXAA(encoder, targets);
 	await runtime.warmupHints([
 		"postprocess:ssao",
+		"postprocess:ssgi",
 		"postprocess:taa",
 		"postprocess:ssr",
 		"postprocess:volumetric",
@@ -609,13 +687,14 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 8);
+	assert.equal(backend.bufferDestroyCalls, 9);
 	const destroyedLabels = new Set(
 		backend.buffers
 			.filter((buffer) => buffer.destroyed)
 			.map((buffer) => buffer.desc.label)
 	);
 	assert.ok(destroyedLabels.has("WebGPUSSAOParams"));
+	assert.ok(destroyedLabels.has("WebGPUSSGIParams"));
 	assert.ok(destroyedLabels.has("WebGPUTAAParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSRTraceParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSRComposeParams"));
@@ -626,7 +705,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 8);
+	assert.equal(backend.bufferDestroyCalls, 9);
 }
 
 async function run() {
@@ -637,6 +716,7 @@ async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();
+	await testSSGIRuntimeUsesDedicatedPipeline();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
 	await testOnShaderRuntimeChangedDestroysParameterBuffers();

@@ -190,6 +190,7 @@ function createFrameContext(overrides = {}) {
 			enableReflection: false,
 			enableSkybox: false,
 			enableSSAO: true,
+			enableSSGI: true,
 			enableTAA: true,
 			enableSSR: false,
 			enableVolumetric: false,
@@ -197,6 +198,7 @@ function createFrameContext(overrides = {}) {
 			warnings: [],
 			ssrOptions: {},
 			ssaoOptions: {},
+			ssgiOptions: {},
 			taaOptions: {},
 			volumetricOptions: {},
 		},
@@ -567,6 +569,12 @@ function testPassDependencyValidation() {
 	assert.ok(
 		backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("taa")
 	);
+	assert.ok(
+		backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("ssgi")
+	);
+	assert.ok(
+		backend._plannedPassOrder.get("ssgi") < backend._plannedPassOrder.get("taa")
+	);
 
 	assert.throws(
 		() =>
@@ -574,11 +582,15 @@ function testPassDependencyValidation() {
 				{ stage: "taa", executor: "backend", enabled: true },
 				context
 			),
-		/dependencies: ssao/
+		/dependencies: ssgi, ssao/
 	);
 
 	backend.executePass(
 		{ stage: "ssao", executor: "backend", enabled: true },
+		context
+	);
+	backend.executePass(
+		{ stage: "ssgi", executor: "backend", enabled: true },
 		context
 	);
 	assert.doesNotThrow(() =>
