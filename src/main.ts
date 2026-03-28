@@ -13,6 +13,8 @@ import {
 	Vector3,
 	screenToWorldRay,
 } from "./index";
+import { INTERACTION_TRANSIENT_STATE_KEY } from "./pipeline/types";
+import type { InteractionTransientState } from "./pipeline/types";
 
 async function init() {
 	const platform = Platform.detect();
@@ -47,7 +49,25 @@ async function init() {
 	renderer.updateSH();
 	renderer.requestRender();
 
-	bindControls(canvas, camera, renderer, scene);
+	const selectedEntityIds: number[] = [];
+
+	renderer.registerFrameTransientContributor((context) => {
+		const interactionState: InteractionTransientState = {
+			selectedEntityIds: [...selectedEntityIds],
+			hoveredEntityId: null,
+			outline: {
+				color: { r: 64, g: 196, b: 255, a: 1 }, // Cyan outline
+				thickness: 4,
+				opacity: 0.9,
+				xray: true,
+			},
+			gizmo: null,
+			dragRect: null,
+		};
+		context.transient.set(INTERACTION_TRANSIENT_STATE_KEY, interactionState);
+	});
+
+	bindControls(canvas, camera, renderer, scene, selectedEntityIds);
 
 	window.addEventListener("resize", () => {
 		renderer.resizeCanvas();
@@ -160,7 +180,8 @@ function bindControls(
 	canvas: HTMLCanvasElement,
 	camera: OrbitCamera,
 	renderer: Renderer,
-	scene: Scene
+	scene: Scene,
+	selectedEntityIds: number[]
 ): void {
 	let isDraggingCamera = false;
 	let draggedNode: any = null;
@@ -168,10 +189,12 @@ function bindControls(
 	let dragPlaneY = 0;
 	let dragOffset = new Vector3();
 
-	canvas.addEventListener("mousedown", (event) => {
+	canvas.addEventListener("mousedown", (event: MouseEvent) => {
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
+
+		lastMouse = { x: event.clientX, y: event.clientY };
 
 		// Try picking
 		const ray = screenToWorldRay(camera, {
@@ -194,6 +217,17 @@ function bindControls(
 				h.meshInstance.name.startsWith("interactive-cube")
 			);
 			if (hit) {
+				const entityId = hit.meshInstance.entityId;
+				if (typeof entityId === "number") {
+					if (!event.shiftKey) {
+						selectedEntityIds.length = 0;
+					}
+					if (!selectedEntityIds.includes(entityId)) {
+						selectedEntityIds.push(entityId);
+					}
+					renderer.requestRender();
+				}
+
 				draggedNode = hit.meshInstance;
 				dragPlaneY = draggedNode.position.y;
 
@@ -212,11 +246,14 @@ function bindControls(
 			}
 		}
 
+		if (!event.shiftKey) {
+			selectedEntityIds.length = 0;
+			renderer.requestRender();
+		}
 		isDraggingCamera = true;
-		lastMouse = { x: event.clientX, y: event.clientY };
 	});
 
-	window.addEventListener("mousemove", (event) => {
+	window.addEventListener("mousemove", (event: MouseEvent) => {
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = event.clientX - rect.left;
 		const mouseY = event.clientY - rect.top;
