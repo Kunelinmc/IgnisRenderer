@@ -27,6 +27,7 @@ type PostProcessShaderPart =
 	| "motionBlur"
 	| "dof"
 	| "bloom"
+	| "interactionOutline"
 	| "fxaa"
 	| "copy";
 
@@ -183,6 +184,7 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	motionBlur: "./postprocess/motionBlur.wgsl",
 	dof: "./postprocess/dof.wgsl",
 	bloom: "./postprocess/bloom.wgsl",
+	interactionOutline: "./postprocess/interactionOutline.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",
 };

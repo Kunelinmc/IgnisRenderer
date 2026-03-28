@@ -40,6 +40,36 @@ export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
 	"pipeline:particle-delta-time-seconds";
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	"pipeline:animation-delta-time-ms";
+export const INTERACTION_TRANSIENT_STATE_KEY = "pipeline:interaction-state";
+
+export interface InteractionOutlineStyle {
+	color: RGBA;
+	thickness: number;
+	opacity: number;
+	xray: boolean;
+}
+
+export interface InteractionGizmoState {
+	mode: "translate" | "rotate" | "scale";
+	space: "world" | "local";
+	pivot: "object-origin" | "bounds-center";
+}
+
+export interface InteractionDragRect {
+	startX: number;
+	startY: number;
+	endX: number;
+	endY: number;
+	active: boolean;
+}
+
+export interface InteractionTransientState {
+	selectedEntityIds: number[];
+	hoveredEntityId: number | null;
+	outline: InteractionOutlineStyle;
+	gizmo: InteractionGizmoState | null;
+	dragRect: InteractionDragRect | null;
+}
 
 export interface ParticleUVRect {
 	u0: number;
@@ -118,6 +148,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"dof",
 	"bloom",
 	"fxaa",
+	"interaction-outline",
 	"gamma",
 ] as const;
 

@@ -15,6 +15,17 @@ export interface BVHQueryOptions {
 	includeInvisible?: boolean;
 }
 
+export interface BVHRayQueryOptions {
+	maxResults?: number;
+	includeInvisible?: boolean;
+	maxDistance?: number;
+}
+
+export interface BVHRayHit {
+	meshInstance: MeshInstance;
+	distance: number;
+}
+
 interface SpatialBuildEntry {
 	meshInstance: MeshInstance;
 	bounds: BoundingBox;
@@ -157,6 +168,107 @@ export class BVH {
 		);
 
 		return result;
+	}
+
+	public queryRay(
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		options?: BVHRayQueryOptions
+	): MeshInstance[] {
+		return this.queryRayDetailed(origin, direction, options).map(
+			(hit) => hit.meshInstance
+		);
+	}
+
+	public queryRayDetailed(
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		options?: BVHRayQueryOptions
+	): BVHRayHit[] {
+		this._ensureFresh();
+		if (!this._root) return [];
+
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return [];
+
+		const maxDistance = resolveMaxDistance(options?.maxDistance);
+		if (maxDistance <= 0) return [];
+
+		const includeInvisible = options?.includeInvisible === true;
+		const directionLength = Math.hypot(direction.x, direction.y, direction.z);
+		if (!(directionLength > 1e-8)) {
+			throw new Error("BVH.queryRay direction must be non-zero");
+		}
+
+		const invDirectionLength = 1 / directionLength;
+		const normalizedDirection = {
+			x: direction.x * invDirectionLength,
+			y: direction.y * invDirectionLength,
+			z: direction.z * invDirectionLength,
+		};
+
+		const stack: SpatialNode[] = [this._root];
+		const hits: BVHRayHit[] = [];
+
+		while (stack.length > 0) {
+			const node = stack.pop();
+			if (!node) continue;
+			const nodeDistance = intersectRayAABB(
+				origin,
+				normalizedDirection,
+				maxDistance,
+				node.bounds.min,
+				node.bounds.max
+			);
+			if (nodeDistance === null) continue;
+
+			if (node.objects && node.objectBounds) {
+				for (let index = 0; index < node.objects.length; index++) {
+					const meshInstance = node.objects[index];
+					if (!includeInvisible && meshInstance.visible === false) {
+						continue;
+					}
+					const objectBounds = node.objectBounds[index];
+					const distance = intersectRayAABB(
+						origin,
+						normalizedDirection,
+						maxDistance,
+						objectBounds.min,
+						objectBounds.max
+					);
+					if (distance === null) continue;
+					hits.push({
+						meshInstance,
+						distance,
+					});
+				}
+				continue;
+			}
+
+			if (node.left) stack.push(node.left);
+			if (node.right) stack.push(node.right);
+		}
+
+		if (hits.length === 0) {
+			return [];
+		}
+
+		hits.sort((left, right) => {
+			if (left.distance !== right.distance) {
+				return left.distance - right.distance;
+			}
+			const leftEntity = left.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+			const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+			if (leftEntity !== rightEntity) {
+				return leftEntity - rightEntity;
+			}
+			return left.meshInstance.id.localeCompare(right.meshInstance.id);
+		});
+
+		if (hits.length > maxResults) {
+			return hits.slice(0, maxResults);
+		}
+		return hits;
 	}
 
 	private _ensureFresh(): void {
@@ -336,6 +448,12 @@ function resolveMaxResults(value: number | undefined): number {
 	if (value === undefined) return Infinity;
 	if (!Number.isFinite(value)) return Infinity;
 	return Math.max(0, Math.floor(value));
+}
+
+function resolveMaxDistance(value: number | undefined): number {
+	if (value === undefined) return Infinity;
+	if (!Number.isFinite(value)) return Infinity;
+	return Math.max(0, value);
 }
 
 function createBuildEntry(
@@ -562,4 +680,55 @@ function classifyAABBFrustum(
 	}
 
 	return fullyInside ? FRUSTUM_INSIDE : FRUSTUM_INTERSECT;
+}
+
+function intersectRayAABB(
+	origin: { x: number; y: number; z: number },
+	direction: { x: number; y: number; z: number },
+	maxDistance: number,
+	min: { x: number; y: number; z: number },
+	max: { x: number; y: number; z: number }
+): number | null {
+	let tMin = 0;
+	let tMax = maxDistance;
+
+	const axisHit = (
+		originValue: number,
+		directionValue: number,
+		minValue: number,
+		maxValue: number
+	): boolean => {
+		if (Math.abs(directionValue) < 1e-10) {
+			return originValue >= minValue && originValue <= maxValue;
+		}
+
+		const invDirection = 1 / directionValue;
+		let t0 = (minValue - originValue) * invDirection;
+		let t1 = (maxValue - originValue) * invDirection;
+		if (t0 > t1) {
+			const tmp = t0;
+			t0 = t1;
+			t1 = tmp;
+		}
+
+		tMin = Math.max(tMin, t0);
+		tMax = Math.min(tMax, t1);
+		return tMax >= tMin;
+	};
+
+	if (!axisHit(origin.x, direction.x, min.x, max.x)) return null;
+	if (!axisHit(origin.y, direction.y, min.y, max.y)) return null;
+	if (!axisHit(origin.z, direction.z, min.z, max.z)) return null;
+
+	if (tMax < 0 || tMin > maxDistance) {
+		return null;
+	}
+
+	if (tMin >= 0) {
+		return tMin;
+	}
+	if (tMax >= 0) {
+		return 0;
+	}
+	return null;
 }

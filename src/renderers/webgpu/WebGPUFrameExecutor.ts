@@ -2,6 +2,8 @@ import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
+	INTERACTION_TRANSIENT_STATE_KEY,
+	type InteractionTransientState,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -48,6 +50,7 @@ const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"dof",
 	"bloom",
 	"fxaa",
+	"interaction-outline",
 	"gamma",
 ]);
 
@@ -527,9 +530,30 @@ export class WebGPUFrameExecutor {
 				},
 			},
 			{
+				id: "interaction-outline",
+				kind: "compute",
+				dependsOn: ["fxaa"],
+				precompileHints: ["postprocess:interaction-outline"],
+				isEnabled: () => true,
+				execute: async (ctx) => {
+					const interaction = ctx.frameContext.transient.get(
+						INTERACTION_TRANSIENT_STATE_KEY
+					) as InteractionTransientState | null | undefined;
+					if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
+						return;
+					}
+					await this._postRuntime.executeInteractionOutline(
+						ctx.encoder,
+						ctx.targets,
+						ctx.frameContext,
+						interaction
+					);
+				},
+			},
+			{
 				id: "gamma",
 				kind: "render",
-				dependsOn: ["fxaa"],
+				dependsOn: ["interaction-outline"],
 				precompileHints: [],
 				isEnabled: (features) => features.enableGamma,
 				execute: async (ctx) => {

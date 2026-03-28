@@ -3,11 +3,13 @@ import type { FrameContext } from "../../pipeline/types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
+	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
 	DEFAULT_VOLUMETRIC_OPTIONS,
+	type InteractionTransientState,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -26,9 +28,13 @@ import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderS
 import type { IBindingGroup } from "../types";
 import type { WebGPULightingState } from "./types";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
-import { clamp } from "../../maths/Common";
+import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import {
+	MAX_INTERACTION_OUTLINE_CIRCLES,
+	collectProjectedOutlineCircles,
+} from "../../interaction/outlineProjection";
 
 const WORKGROUP_SIZE = 8;
 
@@ -86,6 +92,10 @@ export class WebGPUPostProcessRuntime {
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
+	private _interactionOutlineModule: IShaderModule | null = null;
+	private _interactionOutlinePipeline: IComputePipeline | null = null;
+	private _interactionOutlineParams: IRenderBuffer | null = null;
+	private _interactionOutlineParamData = new Float32Array(268);
 	private _copyModule: IShaderModule | null = null;
 	private _copyPipeline: IComputePipeline | null = null;
 	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
@@ -164,6 +174,10 @@ export class WebGPUPostProcessRuntime {
 		this._fxaaPipeline = null;
 		this._fxaaParams?.destroy();
 		this._fxaaParams = null;
+		this._interactionOutlineModule = null;
+		this._interactionOutlinePipeline = null;
+		this._interactionOutlineParams?.destroy();
+		this._interactionOutlineParams = null;
 		this._copyModule = null;
 		this._copyPipeline = null;
 	}
@@ -276,6 +290,9 @@ export class WebGPUPostProcessRuntime {
 				return true;
 			case "postprocess:fxaa":
 				await this._ensureFXAAResources();
+				return true;
+			case "postprocess:interaction-outline":
+				await this._ensureInteractionOutlineResources();
 				return true;
 			case "postprocess:copy":
 				await this._ensureCopyResources();
@@ -1120,6 +1137,123 @@ export class WebGPUPostProcessRuntime {
 		targets.sceneColor = target;
 	}
 
+	public async executeInteractionOutline(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext,
+		state?: InteractionTransientState | null
+	): Promise<void> {
+		const interactionState =
+			state ??
+			((frameContext.transient.get(
+				INTERACTION_TRANSIENT_STATE_KEY
+			) as InteractionTransientState | null | undefined) ??
+				null);
+		const selectedEntityIds = interactionState?.selectedEntityIds ?? [];
+		if (selectedEntityIds.length === 0) {
+			return;
+		}
+
+		const circles = collectProjectedOutlineCircles(
+			frameContext,
+			selectedEntityIds,
+			MAX_INTERACTION_OUTLINE_CIRCLES
+		);
+		if (circles.length === 0) {
+			return;
+		}
+
+		await this._ensureInteractionOutlineResources();
+		if (
+			!this._sampler ||
+			!this._interactionOutlinePipeline ||
+			!this._interactionOutlineParams
+		) {
+			return;
+		}
+
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		const outlineColor = interactionState?.outline?.color ?? {
+			r: 255,
+			g: 196,
+			b: 64,
+			a: 1,
+		};
+		const colorScale =
+			Math.max(outlineColor.r, outlineColor.g, outlineColor.b) > 1 ? 255 : 1;
+		const opacity = clamp(
+			finiteOr(interactionState?.outline?.opacity, 0.9) *
+				finiteOr(outlineColor.a, 1),
+			0,
+			1
+		);
+		const thickness = Math.max(
+			1,
+			finiteOr(interactionState?.outline?.thickness, 2)
+		);
+		const params = this._interactionOutlineParamData;
+		params[0] = 1 / Math.max(target.width, 1);
+		params[1] = 1 / Math.max(target.height, 1);
+		params[2] = opacity;
+		params[3] = thickness;
+		params[4] = sRGBToLinear(
+			clamp(outlineColor.r / Math.max(1, colorScale), 0, 1)
+		);
+		params[5] = sRGBToLinear(
+			clamp(outlineColor.g / Math.max(1, colorScale), 0, 1)
+		);
+		params[6] = sRGBToLinear(
+			clamp(outlineColor.b / Math.max(1, colorScale), 0, 1)
+		);
+		params[7] = 1;
+		params[8] = circles.length;
+		params[9] = 0;
+		params[10] = 0;
+		params[11] = 0;
+		let offset = 12;
+		for (let index = 0; index < MAX_INTERACTION_OUTLINE_CIRCLES; index++) {
+			if (index < circles.length) {
+				const circle = circles[index];
+				params[offset] = circle.centerX;
+				params[offset + 1] = circle.centerY;
+				params[offset + 2] = circle.radius;
+				params[offset + 3] = 0;
+			} else {
+				params[offset] = 0;
+				params[offset + 1] = 0;
+				params[offset + 2] = 0;
+				params[offset + 3] = 0;
+			}
+			offset += 4;
+		}
+		this._backend.writeBuffer(this._interactionOutlineParams, params);
+
+		const binding = this._getCachedBindGroup(
+			`interaction-outline-${target === targets.postPing ? "ping" : "pong"}`,
+			this._interactionOutlinePipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: this._sampler },
+				{ binding: 2, resource: this._interactionOutlineParams },
+				{ binding: 3, resource: target },
+			],
+			"WebGPUInteractionOutline_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUInteractionOutline" });
+		encoder.setComputePipeline(this._interactionOutlinePipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
 	private _updateVolumetricLightBuffer(
 		lightingState: WebGPULightingState | null
 	): number {
@@ -1713,6 +1847,39 @@ export class WebGPUPostProcessRuntime {
 				size: 6 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
+	}
+
+	private async _ensureInteractionOutlineResources(): Promise<void> {
+		await this._ensureCommonResources();
+		if (!this._interactionOutlineModule) {
+			const shader = await loadPostProcessShaderPartComposite(
+				"interactionOutline"
+			);
+			this._interactionOutlineModule = await this._backend.createShaderModule({
+				label: "WebGPUInteractionOutlineShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._interactionOutlinePipeline) {
+			this._interactionOutlinePipeline = this._backend.createComputePipeline({
+				label: "WebGPUInteractionOutlinePipeline",
+				compute: {
+					module: this._interactionOutlineModule,
+					entryPoint: "csMain",
+				},
+			});
+		}
+		if (!this._interactionOutlineParams) {
+			this._interactionOutlineParams = this._backend.createBuffer({
+				label: "WebGPUInteractionOutlineParams",
+				size: this._interactionOutlineParamData.byteLength,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
 	}
 
 	private async _ensureCopyResources(): Promise<void> {

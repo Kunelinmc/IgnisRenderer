@@ -58,6 +58,20 @@ export {
 	type CameraShakeImpulse,
 } from "./addons/CameraShakePlugin";
 export {
+	InteractionManager,
+	type InteractionManagerOptions,
+	type InteractionPointerEventLike,
+	type InteractionEvents,
+	type GizmoMode,
+	type GizmoPivot,
+	type GizmoSpace,
+} from "./addons/InteractionManager";
+export {
+	screenToWorldRay,
+	type ScreenRayInput,
+	type ScreenRay,
+} from "./interaction/screenToWorldRay";
+export {
 	Material,
 	BasicMaterial,
 	PhongMaterial,

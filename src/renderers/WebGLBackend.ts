@@ -29,6 +29,7 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"motion-blur",
 	"dof",
 	"fxaa",
+	"interaction-outline",
 	"taa",
 	"bloom",
 	"gamma",

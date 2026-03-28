@@ -442,6 +442,12 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return this._adapter.raycast(worldId, query);
 	}
 
+	public raycastAll(query: PhysicsRaycastQuery): PhysicsQueryHit[] {
+		this._assertCapability("query");
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		return this._adapter.raycastAll(worldId, query);
+	}
+
 	public async raycastAsync(
 		query: PhysicsRaycastQuery
 	): Promise<PhysicsQueryHit | null> {
@@ -452,6 +458,35 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		}
 		this._assertCapability("query");
 		return this._adapter.raycast(worldId, query);
+	}
+
+	public async raycastAllAsync(
+		query: PhysicsRaycastQuery
+	): Promise<PhysicsQueryHit[]> {
+		const worldId = this._resolveQueryWorldId(query.worldId);
+		const raycastAllAsync = this._adapter.raycastAllAsync;
+		if (raycastAllAsync) {
+			return raycastAllAsync.call(this._adapter, worldId, query);
+		}
+		this._assertCapability("query");
+		return this._adapter.raycastAll(worldId, query);
+	}
+
+	public resolveHitNode(hitOrBodyId: PhysicsQueryHit | string): Node | null {
+		const bodyId = typeof hitOrBodyId === "string" ? hitOrBodyId : hitOrBodyId.bodyId;
+		const body = this._bodyById.get(bodyId);
+		return body?.node ?? null;
+	}
+
+	public resolveHitEntityId(
+		hitOrBodyId: PhysicsQueryHit | string
+	): PhysicsEntityId | null {
+		const bodyId = typeof hitOrBodyId === "string" ? hitOrBodyId : hitOrBodyId.bodyId;
+		const body = this._bodyById.get(bodyId);
+		if (!body || typeof body.entityId !== "number") {
+			return null;
+		}
+		return body.entityId;
 	}
 
 	public sphereCast(query: PhysicsSphereCastQuery): PhysicsQueryHit | null {

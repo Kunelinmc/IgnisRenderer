@@ -15,6 +15,8 @@ import {
 	type FrameAttachments,
 	type FrameContext,
 	type FramePass,
+	INTERACTION_TRANSIENT_STATE_KEY,
+	type InteractionTransientState,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
@@ -208,7 +210,8 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["dof", ["motion-blur"]],
 	["bloom", ["dof"]],
 	["fxaa", ["bloom"]],
-	["gamma", ["fxaa"]],
+	["interaction-outline", ["fxaa"]],
+	["gamma", ["interaction-outline"]],
 ]);
 
 export class WebGPUBackend implements IRenderBackend {
@@ -2232,6 +2235,12 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableFXAA) {
 			this._plannedPasses.add("fxaa");
+		}
+		const interaction = context.transient.get(
+			INTERACTION_TRANSIENT_STATE_KEY
+		) as InteractionTransientState | null | undefined;
+		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
+			this._plannedPasses.add("interaction-outline");
 		}
 		if (context.features.enableGamma) {
 			this._plannedPasses.add("gamma");

@@ -22,6 +22,7 @@ import {
 	WEBGL_DOF_FRAGMENT_SHADER,
 	WEBGL_FXAA_FRAGMENT_SHADER,
 	WEBGL_FXAA_VERTEX_SHADER,
+	WEBGL_INTERACTION_OUTLINE_FRAGMENT_SHADER,
 	WEBGL_MOTION_BLUR_FRAGMENT_SHADER,
 	WEBGL_PARTICLE_FRAGMENT_SHADER,
 	WEBGL_PARTICLE_VERTEX_SHADER,
@@ -216,6 +217,18 @@ export interface WebGLFXAAProgram {
 	};
 }
 
+export interface WebGLInteractionOutlineProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		outlineColor: WebGLUniformLocation | null;
+		outlineParams: WebGLUniformLocation | null;
+		viewportSize: WebGLUniformLocation | null;
+		circleCount: WebGLUniformLocation | null;
+		circles: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLBloomProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -280,6 +293,8 @@ export class WebGLProgramLibrary {
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
+	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null =
+		null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
 	private _motionBlurProgram: WebGLMotionBlurProgram | null = null;
 	private _dofProgram: WebGLDOFProgram | null = null;
@@ -607,6 +622,29 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._fxaaProgram;
+	}
+
+	public getInteractionOutlineProgram(): WebGLInteractionOutlineProgram {
+		if (this._interactionOutlineProgram) {
+			return this._interactionOutlineProgram;
+		}
+		const program = this._createProgram(
+			WEBGL_PRESENT_VERTEX_SHADER,
+			WEBGL_INTERACTION_OUTLINE_FRAGMENT_SHADER,
+			"WebGLInteractionOutlineProgram"
+		);
+		this._interactionOutlineProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				outlineColor: this._gl.getUniformLocation(program, "uOutlineColor"),
+				outlineParams: this._gl.getUniformLocation(program, "uOutlineParams"),
+				viewportSize: this._gl.getUniformLocation(program, "uViewportSize"),
+				circleCount: this._gl.getUniformLocation(program, "uCircleCount"),
+				circles: this._gl.getUniformLocation(program, "uCircles[0]"),
+			},
+		};
+		return this._interactionOutlineProgram;
 	}
 
 	public getBloomProgram(): WebGLBloomProgram {
@@ -1064,6 +1102,10 @@ export class WebGLProgramLibrary {
 		if (this._fxaaProgram) {
 			this._gl.deleteProgram(this._fxaaProgram.program);
 			this._fxaaProgram = null;
+		}
+		if (this._interactionOutlineProgram) {
+			this._gl.deleteProgram(this._interactionOutlineProgram.program);
+			this._interactionOutlineProgram = null;
 		}
 		if (this._bloomProgram) {
 			this._gl.deleteProgram(this._bloomProgram.program);

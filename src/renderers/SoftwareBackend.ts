@@ -245,6 +245,9 @@ export class SoftwareBackend implements IRenderBackend {
 					this._postProcessor?.applyFXAA(context, this._ctx);
 				}
 				break;
+			case "interaction-outline":
+				this._postProcessor?.applyInteractionOutline(context);
+				break;
 			case "gamma":
 				if (this._ctx) {
 					this._postProcessor?.applyGamma(context, this._ctx);

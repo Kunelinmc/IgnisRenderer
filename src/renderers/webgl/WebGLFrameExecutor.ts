@@ -22,11 +22,13 @@ import {
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
+	INTERACTION_TRANSIENT_STATE_KEY,
 	type DrawPacket,
 	type BloomOptions,
 	type DOFOptions,
 	type FrameContext,
 	type FramePass,
+	type InteractionTransientState,
 	type MotionBlurOptions,
 	type ParticleRenderBatch,
 	type SSAOOptions,
@@ -57,6 +59,10 @@ import type {
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import {
+	MAX_INTERACTION_OUTLINE_CIRCLES,
+	collectProjectedOutlineCircles,
+} from "../../interaction/outlineProjection";
 
 type WarnFn = (key: string, message: string) => void;
 
@@ -80,6 +86,7 @@ const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
 	"dof",
 	"bloom",
 	"fxaa",
+	"interaction-outline",
 	"taa",
 	"gamma",
 ]);
@@ -197,6 +204,9 @@ export class WebGLFrameExecutor {
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
 	private _ssaoFrameIndex = 0;
+	private _interactionOutlineCircles = new Float32Array(
+		MAX_INTERACTION_OUTLINE_CIRCLES * 4
+	);
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -301,6 +311,9 @@ export class WebGLFrameExecutor {
 			case "fxaa":
 				this._applyFXAA();
 				break;
+			case "interaction-outline":
+				this._applyInteractionOutline(context);
+				break;
 			case "taa":
 				this._applyTAA(context.features.taaOptions);
 				break;
@@ -388,6 +401,11 @@ export class WebGLFrameExecutor {
 				case "fxaa":
 					compile("WebGLFXAAProgram", () => {
 						this._programs.getFXAAProgram();
+					});
+					break;
+				case "interaction-outline":
+					compile("WebGLInteractionOutlineProgram", () => {
+						this._programs.getInteractionOutlineProgram();
 					});
 					break;
 				case "bloom":
@@ -2295,6 +2313,117 @@ export class WebGLFrameExecutor {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.bindVertexArray(null);
 
+		this._presentSourceTexture = targetTexture;
+	}
+
+	private _applyInteractionOutline(context: FrameContext): void {
+		if (
+			!this._postFramebuffer ||
+			!this._sceneColorTexture ||
+			!this._postColorTexture
+		) {
+			return;
+		}
+		if (!this._fullscreenVao) {
+			return;
+		}
+		const state = context.transient.get(
+			INTERACTION_TRANSIENT_STATE_KEY
+		) as InteractionTransientState | null | undefined;
+		const selectedEntityIds = state?.selectedEntityIds ?? [];
+		if (selectedEntityIds.length === 0) {
+			return;
+		}
+
+		const circles = collectProjectedOutlineCircles(
+			context,
+			selectedEntityIds,
+			MAX_INTERACTION_OUTLINE_CIRCLES
+		);
+		if (circles.length === 0) {
+			return;
+		}
+
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
+			return;
+		}
+		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
+		if (!targetTexture) {
+			return;
+		}
+
+		const gl = this._gl;
+		const program = this._programs.getInteractionOutlineProgram();
+		const circleData = this._interactionOutlineCircles;
+		let writeOffset = 0;
+		for (const circle of circles) {
+			circleData[writeOffset] = circle.centerX;
+			circleData[writeOffset + 1] = circle.centerY;
+			circleData[writeOffset + 2] = circle.radius;
+			circleData[writeOffset + 3] = 0;
+			writeOffset += 4;
+		}
+
+		const outlineColor = state?.outline?.color ?? { r: 255, g: 196, b: 64, a: 1 };
+		const colorScale =
+			Math.max(outlineColor.r, outlineColor.g, outlineColor.b) > 1 ? 255 : 1;
+		const linearR = sRGBToLinear(
+			clamp(outlineColor.r / Math.max(1, colorScale), 0, 1)
+		);
+		const linearG = sRGBToLinear(
+			clamp(outlineColor.g / Math.max(1, colorScale), 0, 1)
+		);
+		const linearB = sRGBToLinear(
+			clamp(outlineColor.b / Math.max(1, colorScale), 0, 1)
+		);
+		const alpha = clamp(
+			finiteOr(state?.outline?.opacity, 0.9) *
+				finiteOr(outlineColor.a, 1),
+			0,
+			1
+		);
+		const thickness = Math.max(1, finiteOr(state?.outline?.thickness, 2));
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(targetTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(program.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+
+		if (program.uniforms.sourceMap) {
+			gl.uniform1i(program.uniforms.sourceMap, 0);
+		}
+		if (program.uniforms.outlineColor) {
+			gl.uniform4f(program.uniforms.outlineColor, linearR, linearG, linearB, 1);
+		}
+		if (program.uniforms.outlineParams) {
+			gl.uniform2f(program.uniforms.outlineParams, alpha, thickness);
+		}
+		if (program.uniforms.viewportSize) {
+			gl.uniform2f(
+				program.uniforms.viewportSize,
+				Math.max(1, this._width),
+				Math.max(1, this._height)
+			);
+		}
+		if (program.uniforms.circleCount) {
+			gl.uniform1i(program.uniforms.circleCount, circles.length);
+		}
+		if (program.uniforms.circles) {
+			gl.uniform4fv(
+				program.uniforms.circles,
+				circleData.subarray(0, circles.length * 4)
+			);
+		}
+
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.bindVertexArray(null);
 		this._presentSourceTexture = targetTexture;
 	}
 

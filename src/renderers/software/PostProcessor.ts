@@ -25,11 +25,14 @@ import { clamp, linearToSRGB } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";
 import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
+import { collectProjectedOutlineCircles } from "../../interaction/outlineProjection";
 import type {
+	InteractionTransientState,
 	SSAOOptions,
 	VolumetricOptions,
 	FramePassStage,
 	FrameContext,
+	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
 
 export interface PostProcessorLike {
@@ -40,6 +43,7 @@ export interface PostProcessorLike {
 	): void;
 	applyGamma(context: FrameContext, ctx: CanvasRenderingContext2D): void;
 	applySSAO(context: FrameContext): void;
+	applyInteractionOutline(context: FrameContext): void;
 }
 
 // Feature options moved to types.ts
@@ -1459,6 +1463,53 @@ export class PostProcessor implements PostProcessorLike {
 		this._lastGamma = gamma;
 	}
 
+	public applyInteractionOutline(context: FrameContext): void {
+		const state = context.transient.get(
+			INTERACTION_TRANSIENT_STATE_KEY
+		) as InteractionTransientState | null | undefined;
+		if (!state || state.selectedEntityIds.length === 0) {
+			return;
+		}
+
+		const pixels = context.attachments.pixels;
+		if (!pixels || pixels.length === 0) {
+			return;
+		}
+
+		const width = Math.max(1, context.attachments.width);
+		const height = Math.max(1, context.attachments.height);
+		const outlineColor = state.outline?.color ?? { r: 255, g: 196, b: 64, a: 1 };
+		const alpha = clamp(
+			(state.outline?.opacity ?? 0.9) *
+				(typeof outlineColor.a === "number" ? outlineColor.a : 1),
+			0,
+			1
+		);
+		const thickness = Math.max(1, Math.round(state.outline?.thickness ?? 2));
+		const circles = collectProjectedOutlineCircles(
+			context,
+			state.selectedEntityIds
+		);
+		if (circles.length === 0) {
+			return;
+		}
+		for (const circle of circles) {
+			this._drawCircleOutline(
+				pixels,
+				width,
+				height,
+				circle.centerX,
+				circle.centerY,
+				circle.radius,
+				thickness,
+				outlineColor.r,
+				outlineColor.g,
+				outlineColor.b,
+				alpha
+			);
+		}
+	}
+
 	public applyGamma(
 		context: FrameContext,
 		ctx: CanvasRenderingContext2D
@@ -1479,5 +1530,49 @@ export class PostProcessor implements PostProcessorLike {
 			pixels[i + 2] = lut[pixels[i + 2]];
 		}
 		if (imageData) ctx.putImageData(imageData, 0, 0);
+	}
+
+	private _drawCircleOutline(
+		pixels: Uint8ClampedArray,
+		width: number,
+		height: number,
+		centerX: number,
+		centerY: number,
+		radius: number,
+		thickness: number,
+		red: number,
+		green: number,
+		blue: number,
+		alpha: number
+	): void {
+		const minX = Math.max(0, Math.floor(centerX - radius - thickness));
+		const minY = Math.max(0, Math.floor(centerY - radius - thickness));
+		const maxX = Math.min(width - 1, Math.ceil(centerX + radius + thickness));
+		const maxY = Math.min(height - 1, Math.ceil(centerY + radius + thickness));
+		const inner = Math.max(0, radius - thickness * 0.5);
+		const outer = radius + thickness * 0.5;
+		const innerSq = inner * inner;
+		const outerSq = outer * outer;
+
+		for (let y = minY; y <= maxY; y++) {
+			for (let x = minX; x <= maxX; x++) {
+				const dx = x + 0.5 - centerX;
+				const dy = y + 0.5 - centerY;
+				const distanceSq = dx * dx + dy * dy;
+				if (distanceSq < innerSq || distanceSq > outerSq) {
+					continue;
+				}
+				const index = (y * width + x) << 2;
+				const invAlpha = 1 - alpha;
+				pixels[index] = Math.round(pixels[index] * invAlpha + red * alpha);
+				pixels[index + 1] = Math.round(
+					pixels[index + 1] * invAlpha + green * alpha
+				);
+				pixels[index + 2] = Math.round(
+					pixels[index + 2] * invAlpha + blue * alpha
+				);
+				pixels[index + 3] = 255;
+			}
+		}
 	}
 }

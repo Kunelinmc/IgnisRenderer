@@ -22,7 +22,9 @@ import {
 } from "../pipeline/RendererStageGraph";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
+	INTERACTION_TRANSIENT_STATE_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
+	type InteractionTransientState,
 } from "../pipeline/types";
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
@@ -59,6 +61,18 @@ export interface RendererEvents {
 	frameend: [{ now: number; deltaTime: number }];
 	[key: string]: any[];
 }
+
+export interface FrameTransientContributorContext {
+	now: number;
+	deltaTime: number;
+	scene: Scene;
+	camera: Camera;
+	transient: Map<string, any>;
+}
+
+export type FrameTransientContributor = (
+	context: FrameTransientContributorContext
+) => void;
 
 export interface RendererFeatures {
 	enableLighting: boolean;
@@ -109,6 +123,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _animationStage: AnimationSimulationStage;
 	private _stageGraph: RendererStageGraph;
 	private _physicsSystem: PhysicsSystem | null;
+	private _frameTransientContributors: Set<FrameTransientContributor>;
 
 	constructor(
 		backend: IRenderBackend,
@@ -127,6 +142,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._animationStage = new AnimationSimulationStage(this.animationSystem);
 		this._stageGraph = new RendererStageGraph(createDefaultRendererStages());
 		this._physicsSystem = null;
+		this._frameTransientContributors = new Set();
 
 		this.features = {
 			enableLighting: true,
@@ -292,6 +308,18 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
+	public registerFrameTransientContributor(
+		contributor: FrameTransientContributor
+	): void {
+		this._frameTransientContributors.add(contributor);
+	}
+
+	public unregisterFrameTransientContributor(
+		contributor: FrameTransientContributor
+	): void {
+		this._frameTransientContributors.delete(contributor);
+	}
+
 	public setStageGraph(stages: RendererStageDefinition[]): void {
 		this._stageGraph.setStages(stages);
 	}
@@ -347,6 +375,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
+		if (this._frameTransientContributors.size > 0) {
+			for (const contributor of this._frameTransientContributors) {
+				contributor({
+					now,
+					deltaTime: this._deltaTime,
+					scene: this.scene,
+					camera: this.camera,
+					transient,
+				});
+			}
+		}
 		let resolved = resolveFeatureState(
 			this.features,
 			this.backend.capabilities,
@@ -456,7 +495,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				default: {
 					if (!context || !frame) break;
 					if (!this._isBackendPassStage(stage.id)) break;
-					if (!this._shouldRunBackendPass(stage.id, frame, resolved)) {
+					if (!this._shouldRunBackendPass(stage.id, frame, resolved, transient)) {
 						const skippedPass = this._createBackendPass(stage.id);
 						this.backend.skipPass?.(skippedPass);
 						break;
@@ -584,7 +623,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _shouldRunBackendPass(
 		stage: string,
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
-		features: ReturnType<typeof resolveFeatureState>
+		features: ReturnType<typeof resolveFeatureState>,
+		transient: Map<string, any>
 	): boolean {
 		switch (stage) {
 			case "particle-sim":
@@ -615,6 +655,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableBloom;
 			case "fxaa":
 				return features.enableFXAA;
+			case "interaction-outline": {
+				const interaction = transient.get(
+					INTERACTION_TRANSIENT_STATE_KEY
+				) as InteractionTransientState | null | undefined;
+				return (interaction?.selectedEntityIds?.length ?? 0) > 0;
+			}
 			case "gamma":
 				return features.enableGamma;
 			default:
@@ -653,6 +699,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"dof",
 	"bloom",
 	"fxaa",
+	"interaction-outline",
 	"gamma",
 ]);
 
@@ -689,7 +736,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "dof", dependsOn: ["motion-blur"] },
 		{ id: "bloom", dependsOn: ["dof"] },
 		{ id: "fxaa", dependsOn: ["bloom"] },
-		{ id: "gamma", dependsOn: ["fxaa"] },
+		{ id: "interaction-outline", dependsOn: ["fxaa"] },
+		{ id: "gamma", dependsOn: ["interaction-outline"] },
 		{ id: "sync-out", dependsOn: ["gamma"] },
 	];
 }
