@@ -30,10 +30,14 @@ type RawShaderModule = {
 	default: string;
 };
 
-const webglParts = import.meta.glob<string>("./parts/*.glsl", {
-	query: "?raw",
-	import: "default",
-});
+type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
+
+const webglParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
+	? {}
+	: import.meta.glob<string>("./parts/*.glsl", {
+			query: "?raw",
+			import: "default",
+		});
 
 const _cache = new Map<string, Promise<string>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();

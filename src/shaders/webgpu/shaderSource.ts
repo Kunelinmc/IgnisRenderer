@@ -34,15 +34,21 @@ type RawShaderModule = {
 	default: string;
 };
 
-const sceneParts = import.meta.glob<string>("./parts/*.wgsl", {
-	query: "?raw",
-	import: "default",
-});
+type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
-const postProcessParts = import.meta.glob<string>("./postprocess/*.wgsl", {
-	query: "?raw",
-	import: "default",
-});
+const sceneParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
+	? {}
+	: import.meta.glob<string>("./parts/*.wgsl", {
+			query: "?raw",
+			import: "default",
+		});
+
+const postProcessParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
+	? {}
+	: import.meta.glob<string>("./postprocess/*.wgsl", {
+			query: "?raw",
+			import: "default",
+		});
 
 const _cache = new Map<string, Promise<string>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
