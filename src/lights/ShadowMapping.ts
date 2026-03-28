@@ -23,12 +23,12 @@ export interface ShadowParams {
 }
 
 const DEFAULT_SHADOW_PARAMS: ShadowParams = {
-	shadowBias: 0.008,
-	shadowSlopeBias: 0.03,
-	shadowNormalBias: 1.0,
-	shadowNormalBiasMin: 0.05,
+	shadowBias: 0.0005,
+	shadowSlopeBias: 0.01,
+	shadowNormalBias: 0.1,
+	shadowNormalBiasMin: 0.01,
 	shadowTexelBias: 1.0,
-	shadowMaxBias: 0.05,
+	shadowMaxBias: 0.01,
 	shadowPCF: 1,
 	shadowStrength: 1,
 };
