@@ -39,9 +39,6 @@ const DEGENERATE_AXIS_EPSILON = 1e-6;
 const FRUSTUM_OUTSIDE = -1;
 const FRUSTUM_INTERSECT = 0;
 const FRUSTUM_INSIDE = 1;
-const REFIT_REBUILD_DIRTY_RATIO = 0.35;
-const REFIT_REBUILD_MIN_DIRTY_COUNT = 64;
-const REFIT_REBUILD_INTERVAL = 120;
 
 export class BVH {
 	private _root: SpatialNode | null;
@@ -52,7 +49,6 @@ export class BVH {
 	private _entryIndexByMeshInstance: Map<MeshInstance, number>;
 	private _structureDirty: boolean;
 	private _boundsDirtyMeshInstances: Set<MeshInstance>;
-	private _refitsSinceRebuild: number;
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -66,7 +62,6 @@ export class BVH {
 		this._entryIndexByMeshInstance = new Map();
 		this._structureDirty = false;
 		this._boundsDirtyMeshInstances = new Set();
-		this._refitsSinceRebuild = 0;
 		this.rebuild(meshInstances);
 	}
 
@@ -152,7 +147,6 @@ export class BVH {
 			this._root = null;
 			this._structureDirty = false;
 			this._boundsDirtyMeshInstances.clear();
-			this._refitsSinceRebuild = 0;
 			return;
 		}
 
@@ -173,7 +167,6 @@ export class BVH {
 		}
 		this._structureDirty = false;
 		this._boundsDirtyMeshInstances.clear();
-		this._refitsSinceRebuild = 0;
 	}
 
 	/**
@@ -303,25 +296,7 @@ export class BVH {
 			return;
 		}
 		if (this._boundsDirtyMeshInstances.size === 0) return;
-		if (this._shouldRebuildForDirtyBounds()) {
-			this.rebuild();
-			return;
-		}
 		this._refitDirtyBounds();
-	}
-
-	private _shouldRebuildForDirtyBounds(): boolean {
-		const trackedCount = this._meshInstances.length;
-		if (trackedCount === 0) return false;
-		const dirtyCount = this._boundsDirtyMeshInstances.size;
-		if (dirtyCount <= 0) return false;
-		if (
-			dirtyCount >= REFIT_REBUILD_MIN_DIRTY_COUNT &&
-			dirtyCount / trackedCount >= REFIT_REBUILD_DIRTY_RATIO
-		) {
-			return true;
-		}
-		return this._refitsSinceRebuild >= REFIT_REBUILD_INTERVAL;
 	}
 
 	private _refitDirtyBounds(): void {
@@ -343,7 +318,6 @@ export class BVH {
 
 		this._refitNode(this._root);
 		this._boundsDirtyMeshInstances.clear();
-		this._refitsSinceRebuild++;
 	}
 
 	private _refitNode(node: SpatialNode): BoundingBox {
