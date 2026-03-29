@@ -30,7 +30,8 @@ type PostProcessShaderPart =
 	| "bloom"
 	| "interactionOutline"
 	| "fxaa"
-	| "copy";
+	| "copy"
+	| "sobelNormal";
 
 type RawShaderModule = {
 	default: string;
@@ -189,6 +190,7 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	interactionOutline: "./postprocess/interactionOutline.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",
+	sobelNormal: "./postprocess/sobelNormal.wgsl",
 };
 
 export function loadPostProcessShaderPart(

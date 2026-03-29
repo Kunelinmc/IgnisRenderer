@@ -85,6 +85,7 @@ import {
 	finalizeWarmupReport,
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
+import type { Texture } from "../core/Texture";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -565,6 +566,46 @@ export class WebGPUBackend implements IRenderBackend {
 	public unregisterPostProcessPass(id: string): void {
 		this._pendingPostProcessPasses.delete(id);
 		this._frameExecutor?.unregisterPostProcessPass(id);
+	}
+
+	public getTextureForSlot(
+		texture: Texture | null,
+		slotIndex: number
+	): IRenderTexture {
+		this._assertDeviceOperational("resolve texture resources");
+		if (!this._resources) {
+			throw new Error(
+				"WebGPU resources are not initialized; cannot resolve texture resources."
+			);
+		}
+		return this._resources.getTextureForSlot(texture, slotIndex);
+	}
+
+	public registerExternalTexture(
+		texture: Texture,
+		resource: IRenderTexture,
+		uploadedVersion: number = texture.version,
+		mipLevelCount: number = 1
+	): void {
+		this._assertDeviceOperational("register external textures");
+		if (!this._resources) {
+			throw new Error(
+				"WebGPU resources are not initialized; cannot register external textures."
+			);
+		}
+		this._resources.registerExternalTexture(
+			texture,
+			resource,
+			uploadedVersion,
+			mipLevelCount
+		);
+	}
+
+	public unregisterExternalTexture(texture: Texture): void {
+		if (!this._resources) {
+			return;
+		}
+		this._resources.unregisterExternalTexture(texture);
 	}
 
 	public destroy(): void {

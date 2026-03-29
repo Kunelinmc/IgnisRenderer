@@ -1,4 +1,5 @@
 import type { RendererBackendBridge } from "../IRenderBackend";
+import type { Texture } from "../../core/Texture";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import type {
 	DrawPacket,
@@ -17,6 +18,7 @@ import {
 	type IBindingGroup,
 	type IRenderBuffer,
 	type IRenderPipeline,
+	type IRenderTexture,
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
@@ -454,6 +456,31 @@ export class WebGPURenderResources {
 
 	public getLightingState(): WebGPULightingState | null {
 		return this._lightingState;
+	}
+
+	public getTextureForSlot(
+		texture: Texture | null,
+		slotIndex: number
+	): IRenderTexture {
+		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
+	}
+
+	public registerExternalTexture(
+		texture: Texture,
+		resource: IRenderTexture,
+		uploadedVersion: number = texture.version,
+		mipLevelCount: number = 1
+	): void {
+		this._textureRegistry.registerExternalTexture(
+			texture,
+			resource,
+			uploadedVersion,
+			mipLevelCount
+		);
+	}
+
+	public unregisterExternalTexture(texture: Texture): void {
+		this._textureRegistry.unregisterExternalTexture(texture);
 	}
 
 	public get sceneFrameLayout(): GPUBindGroupLayout {

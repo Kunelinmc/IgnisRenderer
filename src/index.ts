@@ -67,6 +67,10 @@ export {
 	type GizmoSpace,
 } from "./addons/InteractionManager";
 export {
+	SobelNormalMapper,
+	type SobelNormalMapperOptions,
+} from "./addons/SobelNormalMapper";
+export {
 	screenToWorldRay,
 	type ScreenRayInput,
 	type ScreenRay,

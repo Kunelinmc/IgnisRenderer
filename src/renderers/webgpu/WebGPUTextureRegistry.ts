@@ -43,11 +43,22 @@ export class WebGPUTextureRegistry {
 		texture: Texture | null,
 		slotIndex: number
 	): IRenderTexture {
+		if (!texture) {
+			return (
+					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
+						slotIndex === WEBGPU_TEXTURE_SLOT.CLEARCOAT_NORMAL
+				) ?
+					this.getNeutralNormalTexture()
+				:	this.getWhiteTexture();
+		}
+
+		let cacheEntry = this._textureCache.get(texture);
 		if (
-			!this._isTextureDimensionValid(texture?.width, texture?.height) ||
-			(!texture?.data &&
-				!(texture instanceof VideoTexture) &&
-				!(texture instanceof CanvasTexture))
+			!cacheEntry &&
+			(!this._isTextureDimensionValid(texture.width, texture.height) ||
+				(!texture.data &&
+					!(texture instanceof VideoTexture) &&
+					!(texture instanceof CanvasTexture)))
 		) {
 			return (
 					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
@@ -58,7 +69,6 @@ export class WebGPUTextureRegistry {
 		}
 
 		const mipLevelCount = Math.max(1, texture.mipmaps.length || 1);
-		let cacheEntry = this._textureCache.get(texture);
 		const shouldRecreateTexture =
 			!cacheEntry ||
 			cacheEntry.resource.width !== texture.width ||
@@ -131,6 +141,48 @@ export class WebGPUTextureRegistry {
 		}
 
 		return cacheEntry.resource;
+	}
+
+	/**
+	 * Registers a Texture -> IRenderTexture mapping without taking ownership of
+	 * the provided GPU resource. Intended for externally-produced GPU textures.
+	 */
+	public registerExternalTexture(
+		texture: Texture,
+		resource: IRenderTexture,
+		uploadedVersion: number = texture.version,
+		mipLevelCount: number = 1
+	): void {
+		const cached = this._textureCache.get(texture);
+		if (
+			cached &&
+			cached.resource !== resource &&
+			this._ownedTextures.has(cached.resource)
+		) {
+			cached.resource.destroy();
+			this._ownedTextures.delete(cached.resource);
+		}
+		this._textureCache.set(texture, {
+			resource,
+			mipLevelCount: Math.max(1, Math.floor(mipLevelCount)),
+			externalImageCopyCompatible: false,
+		});
+		this._uploadedVersionCache.set(texture, uploadedVersion);
+	}
+
+	/**
+	 * Removes a previously registered external mapping.
+	 * This does not destroy externally-owned resources.
+	 */
+	public unregisterExternalTexture(texture: Texture): void {
+		const cached = this._textureCache.get(texture);
+		if (!cached) {
+			return;
+		}
+		if (!this._ownedTextures.has(cached.resource)) {
+			this._textureCache.delete(texture);
+		}
+		this._uploadedVersionCache.delete(texture);
 	}
 
 	public getSamplerForTexture(texture: Texture | null): ISampler {
