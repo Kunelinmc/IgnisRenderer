@@ -19,6 +19,9 @@ function createFXAATestGL() {
 		CULL_FACE: 0x0b44,
 		DEPTH_TEST: 0x0b71,
 		BLEND: 0x0be2,
+		ONE: 1,
+		SRC_ALPHA: 0x0302,
+		ONE_MINUS_SRC_ALPHA: 0x0303,
 		getParameter(parameter) {
 			if (
 				parameter === this.MAX_TEXTURE_SIZE ||
@@ -62,6 +65,21 @@ function createFXAATestGL() {
 		},
 		disable(cap) {
 			calls.push({ name: "disable", cap });
+		},
+		enable(cap) {
+			calls.push({ name: "enable", cap });
+		},
+		depthMask(flag) {
+			calls.push({ name: "depthMask", flag });
+		},
+		blendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha) {
+			calls.push({
+				name: "blendFuncSeparate",
+				srcRgb,
+				dstRgb,
+				srcAlpha,
+				dstAlpha,
+			});
 		},
 		activeTexture(unit) {
 			calls.push({ name: "activeTexture", unit });
@@ -322,6 +340,58 @@ function testShadowSkinningWarningKeyIsStable() {
 	assert.equal(warnings[0]?.key, "webgl-shadow-skinning-unsupported");
 }
 
+function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, () => {});
+	executor._sceneFramebuffer = { id: "scene-fbo" };
+	executor._sceneNormalTexture = { id: "normal" };
+	executor._programs = {
+		getSceneProgram() {
+			return {
+				program: { id: "scene-program" },
+				uniforms: {},
+			};
+		},
+	};
+	executor._bindGlobalUniforms = () => {};
+	executor._drawPacket = () => {};
+
+	executor._renderPackets(
+		{
+			camera: {
+				viewProjectionMatrix: [
+					[1, 0, 0, 0],
+					[0, 1, 0, 0],
+					[0, 0, 1, 0],
+					[0, 0, 0, 1],
+				],
+			},
+		},
+		[{ material: {} }],
+		true
+	);
+
+	const drawBuffersCall = gl.calls.find((call) => call.name === "drawBuffers");
+	assert.deepEqual(drawBuffersCall?.buffers, [
+		gl.COLOR_ATTACHMENT0,
+		gl.COLOR_ATTACHMENT1,
+	]);
+	const depthMaskCalls = gl.calls.filter((call) => call.name === "depthMask");
+	assert.equal(depthMaskCalls[0]?.flag, false);
+	assert.equal(depthMaskCalls[depthMaskCalls.length - 1]?.flag, true);
+	const blendCall = gl.calls.find((call) => call.name === "blendFuncSeparate");
+	assert.equal(blendCall?.srcRgb, gl.SRC_ALPHA);
+	assert.equal(blendCall?.dstRgb, gl.ONE_MINUS_SRC_ALPHA);
+	assert.equal(blendCall?.srcAlpha, gl.ONE);
+	assert.equal(blendCall?.dstAlpha, gl.ONE_MINUS_SRC_ALPHA);
+	assert.ok(
+		gl.calls.some((call) => call.name === "enable" && call.cap === gl.BLEND)
+	);
+	assert.ok(
+		gl.calls.some((call) => call.name === "disable" && call.cap === gl.BLEND)
+	);
+}
+
 function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl, () => {});
@@ -546,6 +616,7 @@ function run() {
 	testSceneFramebufferFailureCleansAllAllocatedTargets();
 	testEndFramePrunesStaleModelMatrixCache();
 	testShadowSkinningWarningKeyIsStable();
+	testTransparentRenderPacketsConfiguresBlendAndDepthState();
 	testTAAPassDetachesMotionAttachmentAndSanitizesOptions();
 	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();
 	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();

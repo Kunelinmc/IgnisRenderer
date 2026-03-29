@@ -7,7 +7,6 @@ import type {
 	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
-import { AlphaMode } from "../../materials/Material";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";
@@ -538,14 +537,6 @@ export class WebGPURenderResources {
 	public async getDrawResources(
 		packet: DrawPacket
 	): Promise<WebGPUDrawResources[] | null> {
-		if (packet.material.alphaMode === AlphaMode.Blend) {
-			this._renderer.warnOnce(
-				`webgpu-material-blend:${packet.material.type}:${packet.material.name}`,
-				`WebGPU backend does not support alpha blend materials yet; skipping ${packet.material.name}`
-			);
-			return null;
-		}
-
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;

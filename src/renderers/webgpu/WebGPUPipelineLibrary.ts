@@ -4,15 +4,28 @@ import { getWebGPUSkyboxShaderComposite } from "../../shaders/webgpu/skyboxShade
 import { createWebGPUMaterialUniformData } from "./";
 import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
-import { TextureFormat } from "../types";
+import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
-import type { Material } from "../../materials/Material";
+import { AlphaMode, type Material } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
 export type WebGPUSceneTargetMode = "single" | "mrt";
+const COLOR_WRITE_NONE = 0;
+const ALPHA_BLEND_STATE = {
+	color: {
+		srcFactor: "src-alpha",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+	alpha: {
+		srcFactor: "one",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+};
 
 interface CachedPipelineEntry {
 	key: string;
@@ -136,16 +149,11 @@ export class WebGPUPipelineLibrary {
 			isWireframe
 		);
 		const sceneProgram = await this._resolveSceneProgram(material, mode);
-		const fragmentTargets =
-			mode === "mrt" ?
-				[
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA8Unorm },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-				]
-			:	[{ format: this._backend.canvasFormat as any }];
+		const isTransparent = material.alphaMode === AlphaMode.Blend;
+		const fragmentTargets = this._createSceneFragmentTargets(
+			mode,
+			isTransparent
+		);
 
 		const effectiveTopology = isWireframe ? "line-list" : topology;
 		const triangleTopology =
@@ -187,11 +195,48 @@ export class WebGPUPipelineLibrary {
 			},
 			depthStencil: {
 				format: TextureFormat.Depth32Float,
-				depthWriteEnabled: true,
+				depthWriteEnabled: !isTransparent,
 				depthCompare: "less",
 			},
 			sampleCount,
 		} as any);
+	}
+
+	private _createSceneFragmentTargets(
+		mode: WebGPUSceneTargetMode,
+		isTransparent: boolean
+	): ColorTargetState[] {
+		if (mode !== "mrt") {
+			return [
+				{
+					format: this._backend.canvasFormat as any,
+					blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+				},
+			];
+		}
+
+		return [
+			{
+				format: TextureFormat.RGBA16Float,
+				blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+			},
+			{
+				format: TextureFormat.RGBA8Unorm,
+				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
+			},
+			{
+				format: TextureFormat.RGBA16Float,
+				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
+			},
+			{
+				format: TextureFormat.RGBA16Float,
+				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
+			},
+			{
+				format: TextureFormat.RGBA16Float,
+				blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+			},
+		];
 	}
 
 	private async _resolveSceneProgram(

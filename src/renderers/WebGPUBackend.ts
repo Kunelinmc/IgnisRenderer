@@ -1682,6 +1682,7 @@ export class WebGPUBackend implements IRenderBackend {
 						targets: desc.fragment.targets.map((target) => ({
 							format: target.format as GPUTextureFormat,
 							blend: target.blend,
+							writeMask: target.writeMask,
 						})),
 					}
 				:	undefined,
@@ -1770,6 +1771,7 @@ export class WebGPUBackend implements IRenderBackend {
 				const target = desc.fragment.targets[i];
 				parts.push(`fst${i}.fmt:${target.format}`);
 				parts.push(`fst${i}.blend:${this._serializeBlendState(target.blend)}`);
+				parts.push(`fst${i}.write:${this._serializeWriteMask(target.writeMask)}`);
 			}
 		} else {
 			parts.push("fs:none");
@@ -2022,6 +2024,13 @@ export class WebGPUBackend implements IRenderBackend {
 			`c:${asBlend.color?.srcFactor ?? "none"},${asBlend.color?.dstFactor ?? "none"},${asBlend.color?.operation ?? "add"}`,
 			`a:${asBlend.alpha?.srcFactor ?? "none"},${asBlend.alpha?.dstFactor ?? "none"},${asBlend.alpha?.operation ?? "add"}`,
 		].join("/");
+	}
+
+	private _serializeWriteMask(writeMask: unknown): string {
+		if (typeof writeMask !== "number" || !Number.isFinite(writeMask)) {
+			return "all";
+		}
+		return String(Math.max(0, Math.floor(writeMask)));
 	}
 
 	private _getCacheToken(value: unknown): string {

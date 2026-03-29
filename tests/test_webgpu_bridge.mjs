@@ -20,6 +20,7 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
+import { AlphaMode } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
@@ -731,6 +732,70 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 }
 
+async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		opacity: 0.6,
+	});
+	material.alphaMode = AlphaMode.Blend;
+	const model = createModel([material]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.opaquePackets = [];
+	frame.transparentPackets = [packet];
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet);
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(pipelineDesc.fragment.targets.length, 5);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,
+		"src-alpha"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.dstFactor,
+		"one-minus-src-alpha"
+	);
+	assert.equal(pipelineDesc.fragment.targets[1].writeMask, 0);
+	assert.equal(pipelineDesc.fragment.targets[2].writeMask, 0);
+	assert.equal(pipelineDesc.fragment.targets[3].writeMask, 0);
+	assert.equal(
+		pipelineDesc.fragment.targets[4].blend?.alpha?.dstFactor,
+		"one-minus-src-alpha"
+	);
+}
+
 async function testWebGPUEnvironmentCombinationsRegression() {
 	const backend = new FakeBackend();
 	const renderer = { warnOnce() {} };
@@ -1284,6 +1349,7 @@ async function run() {
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	await testRenderResourcesUseCopyDstForUploads();
+	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();

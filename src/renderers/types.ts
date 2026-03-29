@@ -204,6 +204,7 @@ export type BackendResourceHandle = unknown;
 export interface ColorTargetState {
 	format: TextureFormat;
 	blend?: any;
+	writeMask?: number;
 }
 
 export interface BindingGroupDesc {
