@@ -17,6 +17,8 @@ import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
+	TextureFormat,
+	TextureUsage,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
@@ -94,9 +96,29 @@ export class WebGPUPostProcessRuntime {
 	private _dofModule: IShaderModule | null = null;
 	private _dofPipeline: IComputePipeline | null = null;
 	private _dofParams: IRenderBuffer | null = null;
-	private _bloomModule: IShaderModule | null = null;
-	private _bloomPipeline: IComputePipeline | null = null;
-	private _bloomParams: IRenderBuffer | null = null;
+	private _bloomDownsampleModule: IShaderModule | null = null;
+	private _bloomBlurHModule: IShaderModule | null = null;
+	private _bloomBlurVModule: IShaderModule | null = null;
+	private _bloomUpsampleModule: IShaderModule | null = null;
+	private _bloomCompositeModule: IShaderModule | null = null;
+	private _bloomDownsamplePipeline: IComputePipeline | null = null;
+	private _bloomBlurHPipeline: IComputePipeline | null = null;
+	private _bloomBlurVPipeline: IComputePipeline | null = null;
+	private _bloomUpsamplePipeline: IComputePipeline | null = null;
+	private _bloomCompositePipeline: IComputePipeline | null = null;
+	private _bloomDownsampleParams: IRenderBuffer | null = null;
+	private _bloomBlurParams: IRenderBuffer | null = null;
+	private _bloomUpsampleParams: IRenderBuffer | null = null;
+	private _bloomCompositeParams: IRenderBuffer | null = null;
+	/**
+	 * Cached bloom mip textures. Index 0 is the smallest mip (deepest level),
+	 * index N-1 is half-res of the original scene. Two textures per level for
+	 * ping-pong during separable blur. Re-allocated on size change.
+	 */
+	private _bloomMipTextures: Array<[IRenderTexture, IRenderTexture]> = [];
+	private _bloomMipWidth = 0;
+	private _bloomMipHeight = 0;
+	private _bloomMipCount = 0;
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
@@ -135,6 +157,7 @@ export class WebGPUPostProcessRuntime {
 	 */
 	public invalidateBindings(): void {
 		this._destroyCachedBindGroups();
+		this._destroyBloomMipTextures();
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -180,10 +203,25 @@ export class WebGPUPostProcessRuntime {
 		this._dofPipeline = null;
 		this._dofParams?.destroy();
 		this._dofParams = null;
-		this._bloomModule = null;
-		this._bloomPipeline = null;
-		this._bloomParams?.destroy();
-		this._bloomParams = null;
+		this._bloomDownsampleModule = null;
+		this._bloomBlurHModule = null;
+		this._bloomBlurVModule = null;
+		this._bloomUpsampleModule = null;
+		this._bloomCompositeModule = null;
+		this._bloomDownsamplePipeline = null;
+		this._bloomBlurHPipeline = null;
+		this._bloomBlurVPipeline = null;
+		this._bloomUpsamplePipeline = null;
+		this._bloomCompositePipeline = null;
+		this._bloomDownsampleParams?.destroy();
+		this._bloomDownsampleParams = null;
+		this._bloomBlurParams?.destroy();
+		this._bloomBlurParams = null;
+		this._bloomUpsampleParams?.destroy();
+		this._bloomUpsampleParams = null;
+		this._bloomCompositeParams?.destroy();
+		this._bloomCompositeParams = null;
+		this._destroyBloomMipTextures();
 		this._fxaaModule = null;
 		this._fxaaPipeline = null;
 		this._fxaaParams?.destroy();
@@ -1122,12 +1160,22 @@ export class WebGPUPostProcessRuntime {
 		frameContext: FrameContext
 	): Promise<void> {
 		await this._ensureBloomResources();
-		if (!this._sampler || !this._bloomPipeline || !this._bloomParams) return;
+		if (
+			!this._sampler ||
+			!this._bloomDownsamplePipeline ||
+			!this._bloomBlurHPipeline ||
+			!this._bloomBlurVPipeline ||
+			!this._bloomUpsamplePipeline ||
+			!this._bloomCompositePipeline ||
+			!this._bloomDownsampleParams ||
+			!this._bloomBlurParams ||
+			!this._bloomUpsampleParams ||
+			!this._bloomCompositeParams
+		) {
+			return;
+		}
+
 		const options = frameContext.features.bloomOptions ?? {};
-		const target =
-			targets.sceneColor === targets.postPong ?
-				targets.postPing
-			:	targets.postPong;
 		const threshold = Math.max(
 			0,
 			finiteOr(options.threshold, DEFAULT_BLOOM_OPTIONS.threshold)
@@ -1140,37 +1188,220 @@ export class WebGPUPostProcessRuntime {
 			0,
 			finiteOr(options.intensity, DEFAULT_BLOOM_OPTIONS.intensity)
 		);
-		const radius = clamp(
-			finiteOr(options.radius, DEFAULT_BLOOM_OPTIONS.radius),
+		const filterRadius = clamp(
+			finiteOr(options.filterRadius, DEFAULT_BLOOM_OPTIONS.filterRadius),
 			0.5,
 			4
 		);
-		this._compute.writeBuffer(
-			this._bloomParams,
-			new Float32Array([
-				1 / Math.max(target.width, 1),
-				1 / Math.max(target.height, 1),
-				threshold,
-				softKnee,
-				intensity,
-				radius,
-				0,
-				0,
-			])
+		const requestedMips = clamp(
+			Math.round(
+				finiteOr(options.mipPasses, DEFAULT_BLOOM_OPTIONS.mipPasses)
+			),
+			1,
+			8
 		);
-		const binding = this._getCachedBindGroup(
-			`bloom-${target === targets.postPing ? "ping" : "pong"}`,
-			this._bloomPipeline,
+
+		// Ensure mip-chain textures are sized correctly
+		const srcW = targets.sceneColor.width;
+		const srcH = targets.sceneColor.height;
+		this._ensureBloomMipTextures(srcW, srcH, requestedMips);
+		const mipCount = this._bloomMipCount;
+		if (mipCount === 0) return;
+
+		const mips = this._bloomMipTextures;
+
+		// ---- Pass 1: Downsample + threshold into mip[mipCount-1] (half-res) ----
+		const dsMipIndex = mipCount - 1;
+		const dsDst = mips[dsMipIndex][0];
+		const srcInvW = 1 / Math.max(srcW, 1);
+		const srcInvH = 1 / Math.max(srcH, 1);
+		this._compute.writeBuffer(
+			this._bloomDownsampleParams,
+			new Float32Array([srcInvW, srcInvH, threshold, softKnee])
+		);
+		let binding = this._getCachedBindGroup(
+			"bloom-ds-0",
+			this._bloomDownsamplePipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: this._sampler },
-				{ binding: 2, resource: this._bloomParams },
-				{ binding: 3, resource: target },
+				{ binding: 2, resource: this._bloomDownsampleParams },
+				{ binding: 3, resource: dsDst },
 			],
-			"WebGPUBloom_Binding"
+			"WebGPUBloom_Downsample0"
 		);
-		encoder.beginComputePass({ label: "WebGPUBloom" });
-		encoder.setComputePipeline(this._bloomPipeline);
+		encoder.beginComputePass({ label: "WebGPUBloom_Downsample0" });
+		encoder.setComputePipeline(this._bloomDownsamplePipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(dsDst.width, WORKGROUP_SIZE),
+			ceilDiv(dsDst.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+
+		// Progressive downsample for subsequent mip levels (from dsMipIndex-1 down to 0)
+		for (let i = dsMipIndex - 1; i >= 0; i--) {
+			const src = mips[i + 1][0];
+			const dst = mips[i][0];
+			const dsInvW = 1 / Math.max(src.width, 1);
+			const dsInvH = 1 / Math.max(src.height, 1);
+			// Re-use downsample params (threshold=-1.0 to skip re-extraction)
+			this._compute.writeBuffer(
+				this._bloomDownsampleParams,
+				new Float32Array([dsInvW, dsInvH, -1.0, 1e-4])
+			);
+			binding = this._getCachedBindGroup(
+				`bloom-ds-${dsMipIndex - i}`,
+				this._bloomDownsamplePipeline,
+				[
+					{ binding: 0, resource: src },
+					{ binding: 1, resource: this._sampler },
+					{ binding: 2, resource: this._bloomDownsampleParams },
+					{ binding: 3, resource: dst },
+				],
+				`WebGPUBloom_Downsample${dsMipIndex - i}`
+			);
+			encoder.beginComputePass({
+				label: `WebGPUBloom_Downsample${dsMipIndex - i}`,
+			});
+			encoder.setComputePipeline(this._bloomDownsamplePipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(
+				ceilDiv(dst.width, WORKGROUP_SIZE),
+				ceilDiv(dst.height, WORKGROUP_SIZE),
+				1
+			);
+			encoder.endComputePass();
+		}
+
+		// ---- Pass 2: Separable Gaussian blur per mip level ----
+		for (let i = 0; i < mipCount; i++) {
+			const texA = mips[i][0]; // source / result after downsample
+			const texB = mips[i][1]; // temp ping-pong target
+
+			// Horizontal blur: texA -> texB
+			const invW = 1 / Math.max(texA.width, 1);
+			const invH = 1 / Math.max(texA.height, 1);
+			this._compute.writeBuffer(
+				this._bloomBlurParams,
+				new Float32Array([invW, invH, 1, 0])
+			);
+			binding = this._getCachedBindGroup(
+				`bloom-blurH-${i}`,
+				this._bloomBlurHPipeline,
+				[
+					{ binding: 0, resource: texA },
+					{ binding: 1, resource: this._sampler },
+					{ binding: 2, resource: this._bloomBlurParams },
+					{ binding: 3, resource: texB },
+				],
+				`WebGPUBloom_BlurH_${i}`
+			);
+			encoder.beginComputePass({ label: `WebGPUBloom_BlurH_${i}` });
+			encoder.setComputePipeline(this._bloomBlurHPipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(
+				ceilDiv(texB.width, WORKGROUP_SIZE),
+				ceilDiv(texB.height, WORKGROUP_SIZE),
+				1
+			);
+			encoder.endComputePass();
+
+			// Vertical blur: texB -> texA
+			this._compute.writeBuffer(
+				this._bloomBlurParams,
+				new Float32Array([invW, invH, 0, 1])
+			);
+			binding = this._getCachedBindGroup(
+				`bloom-blurV-${i}`,
+				this._bloomBlurVPipeline,
+				[
+					{ binding: 0, resource: texB },
+					{ binding: 1, resource: this._sampler },
+					{ binding: 2, resource: this._bloomBlurParams },
+					{ binding: 3, resource: texA },
+				],
+				`WebGPUBloom_BlurV_${i}`
+			);
+			encoder.beginComputePass({ label: `WebGPUBloom_BlurV_${i}` });
+			encoder.setComputePipeline(this._bloomBlurVPipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(
+				ceilDiv(texA.width, WORKGROUP_SIZE),
+				ceilDiv(texA.height, WORKGROUP_SIZE),
+				1
+			);
+			encoder.endComputePass();
+		}
+
+		// ---- Pass 3: Progressive upsample from smallest mip to largest mip ----
+		for (let i = 1; i < mipCount; i++) {
+			const smallerMip = mips[i - 1][0]; // smaller, already blurred
+			const currentMip = mips[i][0]; // larger, blend target
+			const dstMip = mips[i][1]; // write into ping-pong target
+
+			const invW = 1 / Math.max(smallerMip.width, 1);
+			const invH = 1 / Math.max(smallerMip.height, 1);
+			this._compute.writeBuffer(
+				this._bloomUpsampleParams,
+				new Float32Array([invW, invH, filterRadius, 0])
+			);
+			binding = this._getCachedBindGroup(
+				`bloom-up-${i}`,
+				this._bloomUpsamplePipeline,
+				[
+					{ binding: 0, resource: smallerMip },
+					{ binding: 1, resource: currentMip },
+					{ binding: 2, resource: this._sampler },
+					{ binding: 3, resource: this._bloomUpsampleParams },
+					{ binding: 4, resource: dstMip },
+				],
+				`WebGPUBloom_Upsample_${i}`
+			);
+			encoder.beginComputePass({ label: `WebGPUBloom_Upsample_${i}` });
+			encoder.setComputePipeline(this._bloomUpsamplePipeline);
+			encoder.setBindingGroup(0, binding);
+			encoder.dispatchWorkgroups(
+				ceilDiv(dstMip.width, WORKGROUP_SIZE),
+				ceilDiv(dstMip.height, WORKGROUP_SIZE),
+				1
+			);
+			encoder.endComputePass();
+
+			// Swap so mips[i][0] contains the latest result for the next pass
+			mips[i] = [dstMip, currentMip];
+		}
+
+		// ---- Pass 4: Composite bloom onto scene color ----
+		const bloomResult = mips[mipCount - 1][0]; // largest mip, fully upsampled
+		const target =
+			targets.sceneColor === targets.postPong ?
+				targets.postPing
+			:	targets.postPong;
+		this._compute.writeBuffer(
+			this._bloomCompositeParams,
+			new Float32Array([
+				1 / Math.max(target.width, 1),
+				1 / Math.max(target.height, 1),
+				intensity,
+				0,
+			])
+		);
+		binding = this._getCachedBindGroup(
+			`bloom-comp-${target === targets.postPing ? "ping" : "pong"}`,
+			this._bloomCompositePipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: bloomResult },
+				{ binding: 2, resource: this._sampler },
+				{ binding: 3, resource: this._bloomCompositeParams },
+				{ binding: 4, resource: target },
+			],
+			"WebGPUBloom_Composite"
+		);
+		encoder.beginComputePass({ label: "WebGPUBloom_Composite" });
+		encoder.setComputePipeline(this._bloomCompositePipeline);
 		encoder.setBindingGroup(0, binding);
 		encoder.dispatchWorkgroups(
 			ceilDiv(target.width, WORKGROUP_SIZE),
@@ -1911,10 +2142,12 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureBloomResources(): Promise<void> {
 		await this._ensureCommonResources();
-		if (!this._bloomModule) {
-			const shader = await loadPostProcessShaderPartComposite("bloom");
-			this._bloomModule = await this._compute.createShaderModule({
-				label: "WebGPUBloomShader",
+
+		// Load separate shader modules for each bloom pass
+		if (!this._bloomDownsampleModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloomDownsample");
+			this._bloomDownsampleModule = await this._compute.createShaderModule({
+				label: "WebGPUBloomDownsampleShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
 				language: "wgsl",
@@ -1922,17 +2155,206 @@ export class WebGPUPostProcessRuntime {
 				sourceKind: "postprocess",
 			});
 		}
-		if (!this._bloomPipeline)
-			this._bloomPipeline = this._compute.createComputePipeline({
-				label: "WebGPUBloomPipeline",
-				compute: { module: this._bloomModule, entryPoint: "csMain" },
+		if (!this._bloomBlurHModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloomBlurH");
+			this._bloomBlurHModule = await this._compute.createShaderModule({
+				label: "WebGPUBloomBlurHShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
 			});
-		if (!this._bloomParams)
-			this._bloomParams = this._compute.createBuffer({
-				label: "WebGPUBloomParams",
-				size: 8 * 4,
+		}
+		if (!this._bloomBlurVModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloomBlurV");
+			this._bloomBlurVModule = await this._compute.createShaderModule({
+				label: "WebGPUBloomBlurVShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._bloomUpsampleModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloomUpsample");
+			this._bloomUpsampleModule = await this._compute.createShaderModule({
+				label: "WebGPUBloomUpsampleShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._bloomCompositeModule) {
+			const shader = await loadPostProcessShaderPartComposite("bloomComposite");
+			this._bloomCompositeModule = await this._compute.createShaderModule({
+				label: "WebGPUBloomCompositeShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+
+		// Create compute pipelines
+		if (!this._bloomDownsamplePipeline)
+			this._bloomDownsamplePipeline = this._compute.createComputePipeline({
+				label: "WebGPUBloomDownsamplePipeline",
+				compute: {
+					module: this._bloomDownsampleModule,
+					entryPoint: "csMain",
+				},
+			});
+		if (!this._bloomBlurHPipeline)
+			this._bloomBlurHPipeline = this._compute.createComputePipeline({
+				label: "WebGPUBloomBlurHPipeline",
+				compute: {
+					module: this._bloomBlurHModule,
+					entryPoint: "csMain",
+				},
+			});
+		if (!this._bloomBlurVPipeline)
+			this._bloomBlurVPipeline = this._compute.createComputePipeline({
+				label: "WebGPUBloomBlurVPipeline",
+				compute: {
+					module: this._bloomBlurVModule,
+					entryPoint: "csMain",
+				},
+			});
+		if (!this._bloomUpsamplePipeline)
+			this._bloomUpsamplePipeline = this._compute.createComputePipeline({
+				label: "WebGPUBloomUpsamplePipeline",
+				compute: {
+					module: this._bloomUpsampleModule,
+					entryPoint: "csMain",
+				},
+			});
+		if (!this._bloomCompositePipeline)
+			this._bloomCompositePipeline = this._compute.createComputePipeline({
+				label: "WebGPUBloomCompositePipeline",
+				compute: {
+					module: this._bloomCompositeModule,
+					entryPoint: "csMain",
+				},
+			});
+
+		// Create uniform buffers
+		if (!this._bloomDownsampleParams)
+			this._bloomDownsampleParams = this._compute.createBuffer({
+				label: "WebGPUBloomDownsampleParams",
+				size: 4 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
+		if (!this._bloomBlurParams)
+			this._bloomBlurParams = this._compute.createBuffer({
+				label: "WebGPUBloomBlurParams",
+				size: 4 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		if (!this._bloomUpsampleParams)
+			this._bloomUpsampleParams = this._compute.createBuffer({
+				label: "WebGPUBloomUpsampleParams",
+				size: 4 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		if (!this._bloomCompositeParams)
+			this._bloomCompositeParams = this._compute.createBuffer({
+				label: "WebGPUBloomCompositeParams",
+				size: 4 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+	}
+
+	/**
+	 * Allocate or resize bloom mip textures. Each mip level has two
+	 * textures (ping / pong) for separable blur. Mip 0 is the smallest
+	 * (deepest) level, mip N-1 is half-resolution of the source.
+	 */
+	private _ensureBloomMipTextures(
+		srcWidth: number,
+		srcHeight: number,
+		requestedMips: number
+	): void {
+		const halfW = Math.max(1, Math.floor(srcWidth / 2));
+		const halfH = Math.max(1, Math.floor(srcHeight / 2));
+		const maxPossibleMips =
+			Math.floor(Math.log2(Math.max(halfW, halfH))) + 1;
+		const mipCount = Math.min(requestedMips, maxPossibleMips);
+
+		// Check cache validity
+		if (
+			this._bloomMipWidth === halfW &&
+			this._bloomMipHeight === halfH &&
+			this._bloomMipCount === mipCount &&
+			this._bloomMipTextures.length === mipCount
+		) {
+			return;
+		}
+
+		// Destroy old textures
+		this._destroyBloomMipTextures();
+
+		this._bloomMipWidth = halfW;
+		this._bloomMipHeight = halfH;
+		this._bloomMipCount = mipCount;
+
+		// Allocate from largest (half-res) to smallest.
+		// Index mipCount-1 = half-res, index 0 = smallest.
+		for (let i = 0; i < mipCount; i++) {
+			const level = mipCount - 1 - i; // 0=biggest, mipCount-1=smallest
+			const w = Math.max(1, halfW >> level);
+			const h = Math.max(1, halfH >> level);
+			const texA = this._compute.createTexture({
+				width: w,
+				height: h,
+				format: TextureFormat.RGBA16Float,
+				usage:
+					TextureUsage.TextureBinding |
+					TextureUsage.StorageBinding |
+					TextureUsage.ComputeStorage,
+				label: `WebGPUBloomMip${i}_A_${w}x${h}`,
+			});
+			const texB = this._compute.createTexture({
+				width: w,
+				height: h,
+				format: TextureFormat.RGBA16Float,
+				usage:
+					TextureUsage.TextureBinding |
+					TextureUsage.StorageBinding |
+					TextureUsage.ComputeStorage,
+				label: `WebGPUBloomMip${i}_B_${w}x${h}`,
+			});
+			this._bloomMipTextures.push([texA, texB]);
+		}
+	}
+
+	/**
+	 * Destroy all cached bloom mip textures and invalidate bind group cache
+	 * entries that reference them.
+	 */
+	private _destroyBloomMipTextures(): void {
+		for (const [texA, texB] of this._bloomMipTextures) {
+			texA.destroy();
+			texB.destroy();
+		}
+		this._bloomMipTextures = [];
+		this._bloomMipWidth = 0;
+		this._bloomMipHeight = 0;
+		this._bloomMipCount = 0;
+		// Invalidate bind groups that may reference destroyed mip textures
+		for (const key of Array.from(this._bindGroupCache.keys())) {
+			if (key.startsWith("bloom-")) {
+				const cached = this._bindGroupCache.get(key);
+				if (cached) {
+					this._destroyBindingGroup(cached.group);
+				}
+				this._bindGroupCache.delete(key);
+			}
+		}
 	}
 
 	private async _ensureFXAAResources(): Promise<void> {

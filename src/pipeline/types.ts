@@ -243,6 +243,10 @@ export interface BloomOptions {
 	softKnee?: number;
 	intensity?: number;
 	radius?: number;
+	/** Number of downsample mip passes (1-8). Higher values produce wider bloom. */
+	mipPasses?: number;
+	/** Tent-filter radius used during upsample (default 1). */
+	filterRadius?: number;
 	[key: string]: unknown;
 }
 
@@ -397,12 +401,14 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 };
 
 export const DEFAULT_BLOOM_OPTIONS: Required<
-	Pick<BloomOptions, "threshold" | "softKnee" | "intensity" | "radius">
+	Pick<BloomOptions, "threshold" | "softKnee" | "intensity" | "radius" | "mipPasses" | "filterRadius">
 > = {
 	threshold: 1,
 	softKnee: 0.5,
 	intensity: 0.8,
 	radius: 1,
+	mipPasses: 5,
+	filterRadius: 1,
 };
 
 export const DEFAULT_MOTION_BLUR_OPTIONS: Required<

@@ -27,7 +27,11 @@ type PostProcessShaderPart =
 	| "volumetric"
 	| "motionBlur"
 	| "dof"
-	| "bloom"
+	| "bloomDownsample"
+	| "bloomBlurH"
+	| "bloomBlurV"
+	| "bloomUpsample"
+	| "bloomComposite"
 	| "interactionOutline"
 	| "fxaa"
 	| "copy"
@@ -186,7 +190,11 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	volumetric: "./postprocess/volumetric.wgsl",
 	motionBlur: "./postprocess/motionBlur.wgsl",
 	dof: "./postprocess/dof.wgsl",
-	bloom: "./postprocess/bloom.wgsl",
+	bloomDownsample: "./postprocess/bloomDownsample.wgsl",
+	bloomBlurH: "./postprocess/bloomBlurH.wgsl",
+	bloomBlurV: "./postprocess/bloomBlurV.wgsl",
+	bloomUpsample: "./postprocess/bloomUpsample.wgsl",
+	bloomComposite: "./postprocess/bloomComposite.wgsl",
 	interactionOutline: "./postprocess/interactionOutline.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",

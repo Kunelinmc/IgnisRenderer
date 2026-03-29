@@ -526,7 +526,9 @@ export class WebGPUFrameExecutor {
 				id: "bloom",
 				kind: "compute",
 				dependsOn: ["dof"],
-				precompileHints: ["postprocess:bloom"],
+				precompileHints: [
+					"postprocess:bloom",
+				],
 				isEnabled: (features) => features.enableBloom,
 				execute: async (ctx) => {
 					await this._postRuntime.executeBloom(
