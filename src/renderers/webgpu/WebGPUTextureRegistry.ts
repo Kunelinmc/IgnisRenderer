@@ -1,4 +1,5 @@
 import type { Texture } from "../../core/Texture";
+import { CanvasTexture } from "../../core/CanvasTexture";
 import { VideoTexture } from "../../core/VideoTexture";
 import {
 	AddressMode,
@@ -15,7 +16,7 @@ import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
 interface TextureCacheEntry {
 	resource: IRenderTexture;
 	mipLevelCount: number;
-	externalVideoCopyCompatible: boolean;
+	externalImageCopyCompatible: boolean;
 }
 
 interface SamplerCacheEntry {
@@ -44,7 +45,9 @@ export class WebGPUTextureRegistry {
 	): IRenderTexture {
 		if (
 			!this._isTextureDimensionValid(texture?.width, texture?.height) ||
-			(!texture?.data && !(texture instanceof VideoTexture))
+			(!texture?.data &&
+				!(texture instanceof VideoTexture) &&
+				!(texture instanceof CanvasTexture))
 		) {
 			return (
 					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
@@ -61,19 +64,20 @@ export class WebGPUTextureRegistry {
 			cacheEntry.resource.width !== texture.width ||
 			cacheEntry.resource.height !== texture.height ||
 			cacheEntry.mipLevelCount !== mipLevelCount ||
-			(texture instanceof VideoTexture &&
-				!cacheEntry.externalVideoCopyCompatible);
+			((texture instanceof VideoTexture || texture instanceof CanvasTexture) &&
+				!cacheEntry.externalImageCopyCompatible);
 
 		if (shouldRecreateTexture) {
 			if (cacheEntry?.resource) {
 				cacheEntry.resource.destroy();
 				this._ownedTextures.delete(cacheEntry.resource);
 			}
-			const externalVideoCopyCompatible = texture instanceof VideoTexture;
+			const externalImageCopyCompatible =
+				texture instanceof VideoTexture || texture instanceof CanvasTexture;
 			const usage =
 				TextureUsage.TextureBinding |
 				TextureUsage.CopyDst |
-				(externalVideoCopyCompatible ? TextureUsage.RenderAttachment : 0);
+				(externalImageCopyCompatible ? TextureUsage.RenderAttachment : 0);
 
 			const resource = this._backend.createTexture({
 				width: texture.width,
@@ -87,7 +91,7 @@ export class WebGPUTextureRegistry {
 			cacheEntry = {
 				resource,
 				mipLevelCount,
-				externalVideoCopyCompatible,
+				externalImageCopyCompatible,
 			};
 			this._ownedTextures.add(resource);
 			this._textureCache.set(texture, cacheEntry);
@@ -96,11 +100,14 @@ export class WebGPUTextureRegistry {
 
 		const uploadedVersion = this._uploadedVersionCache.get(texture);
 		if (uploadedVersion !== texture.version) {
-			const usedVideoFastPath =
+			const usedExternalImageFastPath =
 				texture instanceof VideoTexture &&
 				this._tryUploadVideoFrame(texture, cacheEntry.resource);
+			const usedCanvasFastPath =
+				texture instanceof CanvasTexture &&
+				this._tryUploadCanvasFrame(texture, cacheEntry.resource);
 
-			if (!usedVideoFastPath) {
+			if (!usedExternalImageFastPath && !usedCanvasFastPath) {
 				const uploads = createTextureMipUploadLevels(texture);
 				for (const upload of uploads) {
 					const uploadData = this._toArrayBufferBackedView(upload.data);
@@ -325,6 +332,53 @@ export class WebGPUTextureRegistry {
 			queue.copyExternalImageToTexture(
 				{
 					source: video,
+				},
+				{
+					texture: gpuTexture,
+				},
+				{
+					width: texture.width,
+					height: texture.height,
+					depthOrArrayLayers: 1,
+				}
+			);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	private _tryUploadCanvasFrame(
+		texture: CanvasTexture,
+		target: IRenderTexture
+	): boolean {
+		if (texture.mipmaps.length > 1) {
+			return false;
+		}
+
+		const queue = this._backend.queue;
+		if (!queue || typeof queue.copyExternalImageToTexture !== "function") {
+			return false;
+		}
+
+		const source = texture.canvas;
+		if (
+			!source ||
+			!this._isTextureDimensionValid(source.width, source.height) ||
+			texture.width <= 0 ||
+			texture.height <= 0
+		) {
+			return false;
+		}
+
+		try {
+			const gpuTexture = tryGetWebGPUTextureHandle(target);
+			if (!gpuTexture) {
+				return false;
+			}
+			queue.copyExternalImageToTexture(
+				{
+					source,
 				},
 				{
 					texture: gpuTexture,

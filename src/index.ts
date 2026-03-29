@@ -85,6 +85,7 @@ export * from "./particles";
 export * from "./physics";
 export * from "./lights";
 export { Texture, type TextureColorSpace } from "./core/Texture";
+export { CanvasTexture, type CanvasTextureParams } from "./core/CanvasTexture";
 export { VideoTexture, type VideoTextureParams } from "./core/VideoTexture";
 export { TextureLoader } from "./loaders/TextureLoader";
 export { OBJLoader } from "./loaders/OBJLoader";

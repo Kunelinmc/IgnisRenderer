@@ -55,6 +55,7 @@ const tests = [
 	"test_pbr_textures.mjs",
 	"test_shader_runtime.mjs",
 	"test_shader_material.mjs",
+	"test_canvas_texture.mjs",
 	"test_video_texture.mjs",
 	"test_texture_loader_cache.mjs",
 	"test_webgpu_bridge.mjs",
