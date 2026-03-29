@@ -23,15 +23,15 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { IWebGPUComputeFacade } from "./computeFacade";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import type { IBindingGroup } from "../types";
 import type { WebGPULightingState } from "./types";
-import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import { destroyResource } from "./computeUtils";
 import {
 	MAX_INTERACTION_OUTLINE_CIRCLES,
 	collectProjectedOutlineCircles,
@@ -41,8 +41,7 @@ import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 const WORKGROUP_SIZE = 8;
 const INTERACTION_OUTLINE_HEADER_FLOATS = 16;
 const INTERACTION_OUTLINE_PARAM_FLOATS =
-	INTERACTION_OUTLINE_HEADER_FLOATS +
-	MAX_INTERACTION_OUTLINE_CIRCLES * 4;
+	INTERACTION_OUTLINE_HEADER_FLOATS + MAX_INTERACTION_OUTLINE_CIRCLES * 4;
 
 const DEFAULT_FXAA = {
 	edgeThresholdMin: 0.03125,
@@ -59,7 +58,7 @@ interface CachedBindGroup {
 }
 
 export class WebGPUPostProcessRuntime {
-	private _backend: WebGPUBackend;
+	private _compute: IWebGPUComputeFacade;
 	private _warn: (key: string, message: string) => void;
 	private _sampler: ISampler | null = null;
 	private _ssaoModule: IShaderModule | null = null;
@@ -120,11 +119,11 @@ export class WebGPUPostProcessRuntime {
 	private _ssrFrameIndex: number = 0;
 
 	constructor(
-		backend: WebGPUBackend,
+		computeFacade: IWebGPUComputeFacade,
 		warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
-		this._backend = backend;
+		this._compute = computeFacade;
 		this._warn = warn;
 		this._frameBindGroupLayout = frameBindGroupLayout || null;
 	}
@@ -197,9 +196,7 @@ export class WebGPUPostProcessRuntime {
 		this._copyPipeline = null;
 	}
 
-	public async warmupHints(
-		hints: readonly string[]
-	): Promise<{
+	public async warmupHints(hints: readonly string[]): Promise<{
 		compiled: number;
 		failed: number;
 		errors: ShaderCompileError[];
@@ -253,7 +250,7 @@ export class WebGPUPostProcessRuntime {
 		if (cached) {
 			this._destroyBindingGroup(cached.group);
 		}
-		const group = this._backend.createBindingGroup({
+		const group = this._compute.createBindingGroup({
 			pipeline,
 			layoutIndex: 0,
 			entries,
@@ -271,10 +268,7 @@ export class WebGPUPostProcessRuntime {
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
-		}
+		destroyResource(group);
 	}
 
 	private async _warmupHint(hint: string): Promise<boolean> {
@@ -377,7 +371,7 @@ export class WebGPUPostProcessRuntime {
 		const frameJitter = this._ssaoFrameIndex / 1024;
 
 		const writeSSAOParams = (blurDirX: number, blurDirY: number): void => {
-			this._backend.writeBuffer(
+			this._compute.writeBuffer(
 				ssaoParams,
 				new Float32Array([
 					fullInvW,
@@ -531,7 +525,7 @@ export class WebGPUPostProcessRuntime {
 			0,
 			finiteOr(options.albedoBoost, DEFAULT_SSGI_OPTIONS.albedoBoost)
 		);
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._ssgiParams,
 			new Float32Array([
 				1 / Math.max(target.width, 1),
@@ -585,7 +579,7 @@ export class WebGPUPostProcessRuntime {
 			:	targets.postPong;
 		const invW = 1 / Math.max(taaTarget.width, 1);
 		const invH = 1 / Math.max(taaTarget.height, 1);
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._taaParams,
 			new Float32Array([
 				invW,
@@ -661,7 +655,7 @@ export class WebGPUPostProcessRuntime {
 		const hiZMips = this._getHiZMipViews(targets.hiZ);
 		if (!this._buildHiZ(encoder, targets, hiZMips)) return false;
 		this._ssrFrameIndex = (this._ssrFrameIndex + 1) % 1024;
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._ssrTraceParams,
 			new Float32Array([
 				1 / Math.max(targets.ssrRaw.width, 1),
@@ -716,7 +710,7 @@ export class WebGPUPostProcessRuntime {
 			targets.sceneColor === targets.postPing ?
 				targets.postPong
 			:	targets.postPing;
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._ssrComposeParams,
 			new Float32Array([
 				1 / Math.max(composeTarget.width, 1),
@@ -871,7 +865,7 @@ export class WebGPUPostProcessRuntime {
 		);
 		this._volumetricFrameIndex = (this._volumetricFrameIndex + 1) % 4096;
 
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._volumetricParams,
 			new Float32Array([
 				1 / Math.max(targets.sceneColor.width, 1),
@@ -1081,7 +1075,7 @@ export class WebGPUPostProcessRuntime {
 			0,
 			2
 		);
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._dofParams,
 			new Float32Array([
 				1 / Math.max(target.width, 1),
@@ -1151,7 +1145,7 @@ export class WebGPUPostProcessRuntime {
 			0.5,
 			4
 		);
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._bloomParams,
 			new Float32Array([
 				1 / Math.max(target.width, 1),
@@ -1197,7 +1191,7 @@ export class WebGPUPostProcessRuntime {
 			targets.sceneColor === targets.postPong ?
 				targets.postPing
 			:	targets.postPong;
-		this._backend.writeBuffer(
+		this._compute.writeBuffer(
 			this._fxaaParams,
 			new Float32Array([
 				1 / Math.max(target.width, 1),
@@ -1239,10 +1233,11 @@ export class WebGPUPostProcessRuntime {
 	): Promise<void> {
 		const interactionState =
 			state ??
-			((frameContext.transient.get(
-				INTERACTION_TRANSIENT_STATE_KEY
-			) as InteractionTransientState | null | undefined) ??
-				null);
+			(frameContext.transient.get(INTERACTION_TRANSIENT_STATE_KEY) as
+				| InteractionTransientState
+				| null
+				| undefined) ??
+			null;
 		const selectedEntityIds = interactionState?.selectedEntityIds ?? [];
 		if (selectedEntityIds.length === 0) {
 			return;
@@ -1258,10 +1253,7 @@ export class WebGPUPostProcessRuntime {
 		}
 
 		await this._ensureInteractionOutlineResources();
-		if (
-			!this._interactionOutlinePipeline ||
-			!this._interactionOutlineParams
-		) {
+		if (!this._interactionOutlinePipeline || !this._interactionOutlineParams) {
 			return;
 		}
 
@@ -1324,7 +1316,7 @@ export class WebGPUPostProcessRuntime {
 			}
 			offset += 4;
 		}
-		this._backend.writeBuffer(this._interactionOutlineParams, params);
+		this._compute.writeBuffer(this._interactionOutlineParams, params);
 
 		const binding = this._getCachedBindGroup(
 			`interaction-outline-${target === targets.postPing ? "ping" : "pong"}`,
@@ -1395,7 +1387,7 @@ export class WebGPUPostProcessRuntime {
 			packed[3] = -1;
 		}
 
-		this._backend.writeBuffer(this._volumetricLightBuffer, packed);
+		this._compute.writeBuffer(this._volumetricLightBuffer, packed);
 		return clampedLightCount;
 	}
 
@@ -1414,7 +1406,7 @@ export class WebGPUPostProcessRuntime {
 		}
 
 		this._volumetricLightBuffer?.destroy();
-		this._volumetricLightBuffer = this._backend.createBuffer({
+		this._volumetricLightBuffer = this._compute.createBuffer({
 			label: "WebGPUVolumetricLights",
 			size: capacity * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
@@ -1508,7 +1500,7 @@ export class WebGPUPostProcessRuntime {
 
 	private async _ensureCommonResources(): Promise<void> {
 		if (this._sampler) return;
-		this._sampler = this._backend.createSampler({
+		this._sampler = this._compute.createSampler({
 			label: "WebGPUPost_LinearSampler",
 			magFilter: FilterMode.Linear,
 			minFilter: FilterMode.Linear,
@@ -1522,7 +1514,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._ssaoModule) {
 			const shader = await loadPostProcessShaderPartComposite("ssao");
-			this._ssaoModule = await this._backend.createShaderModule({
+			this._ssaoModule = await this._compute.createShaderModule({
 				label: "WebGPUSSAOShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1532,22 +1524,22 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._ssaoRawPipeline)
-			this._ssaoRawPipeline = this._backend.createComputePipeline({
+			this._ssaoRawPipeline = this._compute.createComputePipeline({
 				label: "WebGPUSSAORawPipeline",
 				compute: { module: this._ssaoModule, entryPoint: "csRaw" },
 			});
 		if (!this._ssaoBlurPipeline)
-			this._ssaoBlurPipeline = this._backend.createComputePipeline({
+			this._ssaoBlurPipeline = this._compute.createComputePipeline({
 				label: "WebGPUSSAOBlurPipeline",
 				compute: { module: this._ssaoModule, entryPoint: "csBlur" },
 			});
 		if (!this._ssaoCombinePipeline)
-			this._ssaoCombinePipeline = this._backend.createComputePipeline({
+			this._ssaoCombinePipeline = this._compute.createComputePipeline({
 				label: "WebGPUSSAOCombinePipeline",
 				compute: { module: this._ssaoModule, entryPoint: "csCombine" },
 			});
 		if (!this._ssaoParams)
-			this._ssaoParams = this._backend.createBuffer({
+			this._ssaoParams = this._compute.createBuffer({
 				label: "WebGPUSSAOParams",
 				size: 16 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1558,7 +1550,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._ssgiModule) {
 			const shader = await loadPostProcessShaderPartComposite("ssgi");
-			this._ssgiModule = await this._backend.createShaderModule({
+			this._ssgiModule = await this._compute.createShaderModule({
 				label: "WebGPUSSGIShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1568,12 +1560,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._ssgiPipeline)
-			this._ssgiPipeline = this._backend.createComputePipeline({
+			this._ssgiPipeline = this._compute.createComputePipeline({
 				label: "WebGPUSSGIPipeline",
 				compute: { module: this._ssgiModule, entryPoint: "csMain" },
 			});
 		if (!this._ssgiParams)
-			this._ssgiParams = this._backend.createBuffer({
+			this._ssgiParams = this._compute.createBuffer({
 				label: "WebGPUSSGIParams",
 				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1584,7 +1576,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._taaModule) {
 			const shader = await loadPostProcessShaderPartComposite("taa");
-			this._taaModule = await this._backend.createShaderModule({
+			this._taaModule = await this._compute.createShaderModule({
 				label: "WebGPUTAAShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1594,12 +1586,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._taaPipeline)
-			this._taaPipeline = this._backend.createComputePipeline({
+			this._taaPipeline = this._compute.createComputePipeline({
 				label: "WebGPUTAAPipeline",
 				compute: { module: this._taaModule, entryPoint: "csMain" },
 			});
 		if (!this._taaParams)
-			this._taaParams = this._backend.createBuffer({
+			this._taaParams = this._compute.createBuffer({
 				label: "WebGPUTAAParams",
 				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1610,7 +1602,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._hizModule) {
 			const shader = await loadPostProcessShaderPartComposite("hiz");
-			this._hizModule = await this._backend.createShaderModule({
+			this._hizModule = await this._compute.createShaderModule({
 				label: "WebGPUHiZShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1620,12 +1612,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._hizInitPipeline)
-			this._hizInitPipeline = this._backend.createComputePipeline({
+			this._hizInitPipeline = this._compute.createComputePipeline({
 				label: "WebGPUHiZInitPipeline",
 				compute: { module: this._hizModule, entryPoint: "csInit" },
 			});
 		if (!this._hizReducePipeline)
-			this._hizReducePipeline = this._backend.createComputePipeline({
+			this._hizReducePipeline = this._compute.createComputePipeline({
 				label: "WebGPUHiZReducePipeline",
 				compute: { module: this._hizModule, entryPoint: "csReduce" },
 			});
@@ -1635,7 +1627,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureHiZResources();
 		if (!this._ssrModule) {
 			const shader = await loadPostProcessShaderPartComposite("ssr");
-			this._ssrModule = await this._backend.createShaderModule({
+			this._ssrModule = await this._compute.createShaderModule({
 				label: "WebGPUSSRShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1645,9 +1637,8 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._ssrTracePipeline) {
-			const device = this._backend.device;
-			if (device && this._frameBindGroupLayout) {
-				this._ssrTraceGroupLayout0 = device.createBindGroupLayout({
+			if (this._frameBindGroupLayout) {
+				this._ssrTraceGroupLayout0 = this._compute.createBindGroupLayout({
 					label: "WebGPUSSRTrace_GroupLayout0",
 					entries: [
 						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
@@ -1692,38 +1683,38 @@ export class WebGPUPostProcessRuntime {
 						},
 					],
 				});
-				this._ssrTracePipelineLayout = device.createPipelineLayout({
+				this._ssrTracePipelineLayout = this._compute.createPipelineLayout({
 					label: "WebGPUSSRTrace_PipelineLayout",
 					bindGroupLayouts: [
 						this._ssrTraceGroupLayout0,
 						this._frameBindGroupLayout,
 					],
 				});
-				this._ssrTracePipeline = this._backend.createComputePipeline({
+				this._ssrTracePipeline = this._compute.createComputePipeline({
 					label: "WebGPUSSRTracePipeline",
 					layout: this._ssrTracePipelineLayout,
 					compute: { module: this._ssrModule!, entryPoint: "csTrace" },
 				});
 			} else {
-				this._ssrTracePipeline = this._backend.createComputePipeline({
+				this._ssrTracePipeline = this._compute.createComputePipeline({
 					label: "WebGPUSSRTracePipeline",
 					compute: { module: this._ssrModule!, entryPoint: "csTrace" },
 				});
 			}
 		}
 		if (!this._ssrComposePipeline)
-			this._ssrComposePipeline = this._backend.createComputePipeline({
+			this._ssrComposePipeline = this._compute.createComputePipeline({
 				label: "WebGPUSSRComposePipeline",
 				compute: { module: this._ssrModule, entryPoint: "csCompose" },
 			});
 		if (!this._ssrTraceParams)
-			this._ssrTraceParams = this._backend.createBuffer({
+			this._ssrTraceParams = this._compute.createBuffer({
 				label: "WebGPUSSRTraceParams",
 				size: 16 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		if (!this._ssrComposeParams)
-			this._ssrComposeParams = this._backend.createBuffer({
+			this._ssrComposeParams = this._compute.createBuffer({
 				label: "WebGPUSSRComposeParams",
 				size: 4 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1734,7 +1725,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureHiZResources();
 		if (!this._volumetricModule) {
 			const shader = await loadPostProcessShaderPartComposite("volumetric");
-			this._volumetricModule = await this._backend.createShaderModule({
+			this._volumetricModule = await this._compute.createShaderModule({
 				label: "WebGPUVolumetricShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1744,9 +1735,8 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._volumetricPipeline) {
-			const device = this._backend.device;
-			if (device && this._frameBindGroupLayout) {
-				this._volumetricGroupLayout0 = device.createBindGroupLayout({
+			if (this._frameBindGroupLayout) {
+				this._volumetricGroupLayout0 = this._compute.createBindGroupLayout({
 					label: "WebGPUVolumetric_GroupLayout0",
 					entries: [
 						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
@@ -1796,27 +1786,27 @@ export class WebGPUPostProcessRuntime {
 						},
 					],
 				});
-				this._volumetricPipelineLayout = device.createPipelineLayout({
+				this._volumetricPipelineLayout = this._compute.createPipelineLayout({
 					label: "WebGPUVolumetric_PipelineLayout",
 					bindGroupLayouts: [
 						this._volumetricGroupLayout0,
 						this._frameBindGroupLayout,
 					],
 				});
-				this._volumetricPipeline = this._backend.createComputePipeline({
+				this._volumetricPipeline = this._compute.createComputePipeline({
 					label: "WebGPUVolumetricPipeline",
 					layout: this._volumetricPipelineLayout,
 					compute: { module: this._volumetricModule, entryPoint: "csMain" },
 				});
 			} else {
-				this._volumetricPipeline = this._backend.createComputePipeline({
+				this._volumetricPipeline = this._compute.createComputePipeline({
 					label: "WebGPUVolumetricPipeline",
 					compute: { module: this._volumetricModule, entryPoint: "csMain" },
 				});
 			}
 		}
 		if (!this._volumetricParams)
-			this._volumetricParams = this._backend.createBuffer({
+			this._volumetricParams = this._compute.createBuffer({
 				label: "WebGPUVolumetricParams",
 				size: 20 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1827,7 +1817,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._motionBlurModule) {
 			const shader = await loadPostProcessShaderPartComposite("motionBlur");
-			this._motionBlurModule = await this._backend.createShaderModule({
+			this._motionBlurModule = await this._compute.createShaderModule({
 				label: "WebGPUMotionBlurShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1837,12 +1827,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._motionBlurPipeline)
-			this._motionBlurPipeline = this._backend.createComputePipeline({
+			this._motionBlurPipeline = this._compute.createComputePipeline({
 				label: "WebGPUMotionBlurPipeline",
 				compute: { module: this._motionBlurModule, entryPoint: "csMain" },
 			});
 		if (!this._motionBlurParams)
-			this._motionBlurParams = this._backend.createBuffer({
+			this._motionBlurParams = this._compute.createBuffer({
 				label: "WebGPUMotionBlurParams",
 				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1863,8 +1853,10 @@ export class WebGPUPostProcessRuntime {
 		}
 		const data = this._motionBlurParamData;
 		let changed = !this._motionBlurParamUploaded;
-		changed = this._setParamIfChanged(data, 0, 1 / Math.max(width, 1)) || changed;
-		changed = this._setParamIfChanged(data, 1, 1 / Math.max(height, 1)) || changed;
+		changed =
+			this._setParamIfChanged(data, 0, 1 / Math.max(width, 1)) || changed;
+		changed =
+			this._setParamIfChanged(data, 1, 1 / Math.max(height, 1)) || changed;
 		changed = this._setParamIfChanged(data, 2, shutterScale) || changed;
 		changed = this._setParamIfChanged(data, 3, maxSamples) || changed;
 		changed = this._setParamIfChanged(data, 4, velocityClamp) || changed;
@@ -1874,7 +1866,7 @@ export class WebGPUPostProcessRuntime {
 		if (!changed) {
 			return;
 		}
-		this._backend.writeBuffer(this._motionBlurParams, data);
+		this._compute.writeBuffer(this._motionBlurParams, data);
 		this._motionBlurParamUploaded = true;
 	}
 
@@ -1895,7 +1887,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._dofModule) {
 			const shader = await loadPostProcessShaderPartComposite("dof");
-			this._dofModule = await this._backend.createShaderModule({
+			this._dofModule = await this._compute.createShaderModule({
 				label: "WebGPUDOFShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1905,12 +1897,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._dofPipeline)
-			this._dofPipeline = this._backend.createComputePipeline({
+			this._dofPipeline = this._compute.createComputePipeline({
 				label: "WebGPUDOFPipeline",
 				compute: { module: this._dofModule, entryPoint: "csMain" },
 			});
 		if (!this._dofParams)
-			this._dofParams = this._backend.createBuffer({
+			this._dofParams = this._compute.createBuffer({
 				label: "WebGPUDOFParams",
 				size: 12 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1921,7 +1913,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._bloomModule) {
 			const shader = await loadPostProcessShaderPartComposite("bloom");
-			this._bloomModule = await this._backend.createShaderModule({
+			this._bloomModule = await this._compute.createShaderModule({
 				label: "WebGPUBloomShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1931,12 +1923,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._bloomPipeline)
-			this._bloomPipeline = this._backend.createComputePipeline({
+			this._bloomPipeline = this._compute.createComputePipeline({
 				label: "WebGPUBloomPipeline",
 				compute: { module: this._bloomModule, entryPoint: "csMain" },
 			});
 		if (!this._bloomParams)
-			this._bloomParams = this._backend.createBuffer({
+			this._bloomParams = this._compute.createBuffer({
 				label: "WebGPUBloomParams",
 				size: 8 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1947,7 +1939,7 @@ export class WebGPUPostProcessRuntime {
 		await this._ensureCommonResources();
 		if (!this._fxaaModule) {
 			const shader = await loadPostProcessShaderPartComposite("fxaa");
-			this._fxaaModule = await this._backend.createShaderModule({
+			this._fxaaModule = await this._compute.createShaderModule({
 				label: "WebGPUFXAAShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1957,12 +1949,12 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._fxaaPipeline)
-			this._fxaaPipeline = this._backend.createComputePipeline({
+			this._fxaaPipeline = this._compute.createComputePipeline({
 				label: "WebGPUFXAAPipeline",
 				compute: { module: this._fxaaModule, entryPoint: "csMain" },
 			});
 		if (!this._fxaaParams)
-			this._fxaaParams = this._backend.createBuffer({
+			this._fxaaParams = this._compute.createBuffer({
 				label: "WebGPUFXAAParams",
 				size: 6 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -1972,10 +1964,9 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureInteractionOutlineResources(): Promise<void> {
 		await this._ensureCommonResources();
 		if (!this._interactionOutlineModule) {
-			const shader = await loadPostProcessShaderPartComposite(
-				"interactionOutline"
-			);
-			this._interactionOutlineModule = await this._backend.createShaderModule({
+			const shader =
+				await loadPostProcessShaderPartComposite("interactionOutline");
+			this._interactionOutlineModule = await this._compute.createShaderModule({
 				label: "WebGPUInteractionOutlineShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1985,7 +1976,7 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._interactionOutlinePipeline) {
-			this._interactionOutlinePipeline = this._backend.createComputePipeline({
+			this._interactionOutlinePipeline = this._compute.createComputePipeline({
 				label: "WebGPUInteractionOutlinePipeline",
 				compute: {
 					module: this._interactionOutlineModule,
@@ -1994,7 +1985,7 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._interactionOutlineParams) {
-			this._interactionOutlineParams = this._backend.createBuffer({
+			this._interactionOutlineParams = this._compute.createBuffer({
 				label: "WebGPUInteractionOutlineParams",
 				size: this._interactionOutlineParamData.byteLength,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -2005,7 +1996,7 @@ export class WebGPUPostProcessRuntime {
 	private async _ensureCopyResources(): Promise<void> {
 		if (!this._copyModule) {
 			const shader = await loadPostProcessShaderPartComposite("copy");
-			this._copyModule = await this._backend.createShaderModule({
+			this._copyModule = await this._compute.createShaderModule({
 				label: "WebGPUCopyShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -2015,7 +2006,7 @@ export class WebGPUPostProcessRuntime {
 			});
 		}
 		if (!this._copyPipeline)
-			this._copyPipeline = this._backend.createComputePipeline({
+			this._copyPipeline = this._compute.createComputePipeline({
 				label: "WebGPUCopyPipeline",
 				compute: { module: this._copyModule, entryPoint: "csMain" },
 			});
@@ -2024,13 +2015,16 @@ export class WebGPUPostProcessRuntime {
 	private _getHiZMipViews(texture: IRenderTexture): GPUTextureView[] {
 		const cached = this._hizViewCache.get(texture as object);
 		if (cached) return cached;
-		const gpuTexture = getWebGPUTexture(texture).texture;
-		if (!gpuTexture?.createView) return [];
 		const mipCount =
 			Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
 		const views: GPUTextureView[] = [];
 		for (let i = 0; i < mipCount; i++) {
-			views.push(gpuTexture.createView({ baseMipLevel: i, mipLevelCount: 1 }));
+			views.push(
+				this._compute.createTextureView(texture, {
+					baseMipLevel: i,
+					mipLevelCount: 1,
+				})
+			);
 		}
 		this._hizViewCache.set(texture as object, views);
 		return views;
@@ -2040,7 +2034,6 @@ export class WebGPUPostProcessRuntime {
 function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
-
 
 function ceilDiv(value: number, divisor: number): number {
 	return Math.max(1, Math.ceil(value / Math.max(divisor, 1)));

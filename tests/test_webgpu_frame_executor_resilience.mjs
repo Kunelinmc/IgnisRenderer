@@ -72,6 +72,10 @@ class FakeBackend {
 	createPipeline() {
 		return {};
 	}
+
+	createComputePipeline(desc) {
+		return this.createPipeline(desc);
+	}
 	createBindingGroup() {
 		return {
 			destroy: () => {
@@ -79,6 +83,22 @@ class FakeBackend {
 			},
 		};
 	}
+
+	createTextureView(texture, desc) {
+		return { texture, desc: desc ?? null };
+	}
+
+	getTextureForSlot() {
+		return {
+			width: 1,
+			height: 1,
+			destroy() {},
+		};
+	}
+
+	registerExternalTexture() {}
+
+	unregisterExternalTexture() {}
 
 	getCanvasColorTexture() {
 		return this.canvasColorTexture;

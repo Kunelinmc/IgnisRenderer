@@ -33,6 +33,8 @@ export type {
 } from "./renderers/software/SoftwareRasterConfig";
 export { WebGPUBackend } from "./renderers/WebGPUBackend";
 export { WebGLBackend } from "./renderers/WebGLBackend";
+export type { IWebGPUComputeFacade } from "./renderers/webgpu/computeFacade";
+export { resolveWebGPUComputeFacade } from "./renderers/webgpu/computeFacade";
 export type {
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessPassKind,

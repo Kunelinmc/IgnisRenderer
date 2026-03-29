@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGPURenderResources } from "../src/renderers/webgpu/WebGPURenderResources.ts";
+import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts";
 import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
 import { getWebGPUSkyboxShader } from "../src/shaders/webgpu/skyboxShader.ts";
@@ -72,7 +73,13 @@ class FakeBackend {
 		this.bindingGroupDestroyCalls = 0;
 		this.textureDestroyCalls = 0;
 		this.samplerDestroyCalls = 0;
+		this.getComputeFacadeCalls = 0;
 		this.device = new FakeDevice();
+	}
+
+	getComputeFacade() {
+		this.getComputeFacadeCalls++;
+		return this;
 	}
 
 	createBuffer(desc) {
@@ -131,6 +138,10 @@ class FakeBackend {
 		return pipeline;
 	}
 
+	createComputePipeline(desc) {
+		return this.createPipeline(desc);
+	}
+
 	createBindingGroup(desc) {
 		const bindingGroup = {
 			label: desc.label,
@@ -146,14 +157,56 @@ class FakeBackend {
 		return bindingGroup;
 	}
 
+	createTextureView(texture, desc) {
+		return {
+			texture,
+			desc: desc ?? null,
+		};
+	}
+
 	writeBuffer(buffer, data) {
 		buffer.lastWrite = data;
 	}
+
+	getTextureForSlot() {
+		return {
+			width: 1,
+			height: 1,
+			destroy() {},
+		};
+	}
+
+	registerExternalTexture() {}
+
+	unregisterExternalTexture() {}
 
 	writeTexture(texture, data, layout, size) {
 		this.textureWrites.push({ texture, data, layout, size });
 		texture.lastWrite = { data, layout, size };
 	}
+
+	createCommandEncoder() {
+		return {
+			beginComputePass() {},
+			setComputePipeline() {},
+			setBindingGroup() {},
+			dispatchWorkgroups() {},
+			endComputePass() {},
+			beginRenderPass() {},
+			setPipeline() {},
+			setVertexBuffer() {},
+			setIndexBuffer() {},
+			setBindGroup() {},
+			draw() {},
+			drawIndexed() {},
+			endRenderPass() {},
+			finish() {
+				return {};
+			},
+		};
+	}
+
+	submit() {}
 }
 
 class FakeRenderEncoder {
@@ -548,6 +601,32 @@ function testWebGPUShadowBiasAvoidsSlopeOffset() {
 	assert.ok(shadow.enabled);
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
 	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
+}
+
+function testRenderResourcesRequestsComputeFacadeFromBackend() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	assert.equal(backend.getComputeFacadeCalls, 1);
+	assert.equal(
+		typeof resources._clusteredLighting._compute.createComputePipeline,
+		"function"
+	);
+
+	resources.destroy();
+}
+
+function testFrameExecutorRequestsComputeFacadeFromBackend() {
+	const backend = new FakeBackend();
+	const resourcesStub = { sceneFrameLayout: null };
+	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
+
+	assert.equal(backend.getComputeFacadeCalls, 1);
+	assert.equal(
+		typeof executor._postRuntime._compute.createComputePipeline,
+		"function"
+	);
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {
@@ -1197,6 +1276,8 @@ async function run() {
 	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
+	testRenderResourcesRequestsComputeFacadeFromBackend();
+	testFrameExecutorRequestsComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
 	await testParticleShaderDepthConsistency();
 	testEnvironmentCollection();

@@ -22,6 +22,7 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import { resolveWebGPUComputeFacade } from "./computeFacade";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
@@ -150,6 +151,7 @@ export class WebGPURenderResources {
 	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
 		this._renderer = renderer;
 		this._backend = backend;
+		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._layouts = createWebGPUPipelineLayouts(backend.device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend);
@@ -162,7 +164,7 @@ export class WebGPURenderResources {
 			this._shadowAtlases
 		);
 		this._clusteredLighting = new WebGPUClusteredLightingRuntime(
-			backend,
+			computeFacade,
 			this._layouts.clusteredSceneBindGroupLayout,
 			this._layouts.sceneFrameBindGroupLayout,
 			(key, message) => this._renderer.warnOnce(key, message)
@@ -832,7 +834,8 @@ export class WebGPURenderResources {
 		}
 
 		if (
-			this._particleBindingCache.size <= WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES
+			this._particleBindingCache.size <=
+			WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES
 		) {
 			return;
 		}
@@ -841,7 +844,8 @@ export class WebGPURenderResources {
 			.filter(([cacheKey]) => !activeCacheKeys?.has(cacheKey))
 			.sort((left, right) => left[1].lastUsedFrame - right[1].lastUsedFrame);
 		while (
-			this._particleBindingCache.size > WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES &&
+			this._particleBindingCache.size >
+				WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES &&
 			evictionCandidates.length > 0
 		) {
 			const [cacheKey, entry] = evictionCandidates.shift()!;

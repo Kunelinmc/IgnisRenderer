@@ -77,7 +77,10 @@ import {
 	ShaderCompileError,
 	ShaderRuntime,
 } from "../shaders/runtime";
-import type { ShaderCompilerMessage, ShaderProcessResult } from "../shaders/runtime";
+import type {
+	ShaderCompilerMessage,
+	ShaderProcessResult,
+} from "../shaders/runtime";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -86,6 +89,11 @@ import {
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
 import type { Texture } from "../core/Texture";
+import {
+	createWebGPUComputeFacade,
+	invalidateWebGPUComputeFacade,
+	type IWebGPUComputeFacade,
+} from "./webgpu/computeFacade";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -325,6 +333,10 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
+	}
+
+	public getComputeFacade(): IWebGPUComputeFacade {
+		return createWebGPUComputeFacade(this);
 	}
 
 	public warnOnce(key: string, message: string): void {
@@ -756,8 +768,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(desc, processed);
 		}
-		const effectiveSourceMap =
-			processed.sourceMap ?? desc.sourceMap ?? null;
+		const effectiveSourceMap = processed.sourceMap ?? desc.sourceMap ?? null;
 		const effectiveCodeHash =
 			processed.code === desc.code ? desc.codeHash : undefined;
 		const effectiveDesc: ShaderModuleDesc = {
@@ -1149,6 +1160,20 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._depthTexture;
 	}
 
+	public createTextureView(
+		texture: IRenderTexture,
+		desc?: GPUTextureViewDescriptor
+	): GPUTextureView {
+		this._assertDeviceOperational("create texture views");
+		const gpuTexture = getWebGPUTexture(texture);
+		return this._runValidationScope("device.createTextureView", () => {
+			if (desc) {
+				return gpuTexture.texture.createView(desc);
+			}
+			return gpuTexture.view;
+		});
+	}
+
 	public getCurrentColorView(): GPUTextureView {
 		if (!this.context) {
 			throw new Error("WebGPU canvas context is not initialized.");
@@ -1278,17 +1303,12 @@ export class WebGPUBackend implements IRenderBackend {
 					this._rollbackInitializationState();
 					return;
 				}
-				console.warn(
-					`WebGPU device recovery succeeded on attempt ${attempt}.`
-				);
+				console.warn(`WebGPU device recovery succeeded on attempt ${attempt}.`);
 				this._deviceLostInfo = null;
 				return;
 			} catch (error) {
 				lastError = error;
-				this._reportNonFatalError(
-					`device recovery attempt ${attempt}`,
-					error
-				);
+				this._reportNonFatalError(`device recovery attempt ${attempt}`, error);
 				if (attempt < DEVICE_RECOVERY_MAX_ATTEMPTS) {
 					await this._delayMs(DEVICE_RECOVERY_BASE_DELAY_MS * attempt);
 				}
@@ -1298,9 +1318,7 @@ export class WebGPUBackend implements IRenderBackend {
 			typeof info.reason === "string" && info.reason.length > 0 ?
 				` (${info.reason})`
 			:	"";
-		console.error(
-			`WebGPU device recovery failed${reason}: ${info.message}`
-		);
+		console.error(`WebGPU device recovery failed${reason}: ${info.message}`);
 		if (lastError) {
 			this._reportNonFatalError("device recovery exhausted", lastError);
 		}
@@ -1310,6 +1328,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._copyCommandEncoder = null;
 		this._copyPendingCount = 0;
 		this._copyFlushScheduled = false;
+		invalidateWebGPUComputeFacade(this);
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
 		this._resources?.destroy();
@@ -2848,10 +2867,7 @@ export class WebGPUBackend implements IRenderBackend {
 					try {
 						this._timestampReadBuffer.unmap();
 					} catch (unmapError) {
-						this._reportNonFatalError(
-							"timestamp readback unmap",
-							unmapError
-						);
+						this._reportNonFatalError("timestamp readback unmap", unmapError);
 					}
 				}
 			})
@@ -2879,10 +2895,7 @@ export class WebGPUBackend implements IRenderBackend {
 			try {
 				this._timestampResolveBuffer.destroy();
 			} catch (error) {
-				this._reportNonFatalError(
-					"timestamp resolve buffer destroy",
-					error
-				);
+				this._reportNonFatalError("timestamp resolve buffer destroy", error);
 			}
 			this._timestampResolveBuffer = null;
 		}
@@ -3079,9 +3092,9 @@ export class WebGPUBackend implements IRenderBackend {
 	): InternalCommandBuffer {
 		const internal = command as
 			| (Partial<InternalCommandBuffer> & {
-				_backendCommandBuffer?: unknown;
-				_gpuCommandBuffer?: unknown;
-			})
+					_backendCommandBuffer?: unknown;
+					_gpuCommandBuffer?: unknown;
+			  })
 			| null;
 		if (!internal || typeof internal !== "object") {
 			throw new Error("Invalid command buffer for WebGPU submit().");
@@ -3090,7 +3103,8 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("Invalid command buffer for WebGPU submit().");
 		}
 		if (!internal._backendCommandBuffer && internal._gpuCommandBuffer) {
-			internal._backendCommandBuffer = internal._gpuCommandBuffer as GPUCommandBuffer;
+			internal._backendCommandBuffer =
+				internal._gpuCommandBuffer as GPUCommandBuffer;
 		}
 		if (internal._ownerToken !== this._commandBufferOwnerToken) {
 			throw new Error(

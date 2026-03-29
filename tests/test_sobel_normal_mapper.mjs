@@ -80,6 +80,10 @@ class FakeWebGPUBackend {
 		};
 	}
 
+	createSampler() {
+		return {};
+	}
+
 	createBindingGroup(desc) {
 		this.createBindingGroupCalls++;
 		return {
@@ -88,6 +92,10 @@ class FakeWebGPUBackend {
 				this.destroyCalls++;
 			},
 		};
+	}
+
+	createTextureView(texture, desc) {
+		return { texture, desc: desc ?? null };
 	}
 
 	createCommandEncoder() {
@@ -227,7 +235,34 @@ async function testDestroyReleasesResources() {
 	assert.equal(mapper.update(), false);
 }
 
+async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
+	const computeFacade = new FakeWebGPUBackend();
+	computeFacade.resolveTextureForSlot = (texture, slotIndex) =>
+		computeFacade.getTextureForSlot(texture, slotIndex);
+	const renderer = new FakeRenderer({ type: "webgl" });
+	const source = new Texture(new Uint8ClampedArray(4), 6, 5, "sRGB");
+	const mapper = new SobelNormalMapper(source, {
+		computeFacade,
+		strength: 2,
+		invertX: true,
+	});
+
+	await mapper.init(renderer);
+	assert.equal(mapper.isInitialized, true);
+	assert.equal(computeFacade.registeredExternalTextures.length, 1);
+	assert.equal(computeFacade.registeredExternalTextures[0].texture, mapper.normalMap);
+
+	assert.equal(mapper.update(), true);
+	assert.equal(computeFacade.submits, 1);
+	assert.deepEqual(computeFacade.dispatches[0], [1, 1, 1]);
+	assert.equal(computeFacade.bufferWrites.length, 1);
+
+	mapper.destroy();
+	assert.equal(computeFacade.unregisteredExternalTextures.length >= 1, true);
+}
+
 await testInitUpdateAndInvalidationFlow();
 await testAttachRunsOnPostAnimationAndDetachStops();
 await testDestroyReleasesResources();
+await testInjectedComputeFacadeSupportsNonWebGPUBackend();
 console.log("Sobel normal mapper tests passed");

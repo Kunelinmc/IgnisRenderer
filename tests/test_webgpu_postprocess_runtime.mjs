@@ -8,6 +8,9 @@ class FakeBackend {
 		this.computePipelines = [];
 		this.buffers = [];
 		this.bindingGroups = [];
+		this.bindGroupLayouts = [];
+		this.pipelineLayouts = [];
+		this.textureViews = [];
 		this.bindingGroupDestroyCalls = 0;
 		this.bufferDestroyCalls = 0;
 		this.writeBufferCalls = 0;
@@ -64,6 +67,24 @@ class FakeBackend {
 		};
 		this.bindingGroups.push(bindingGroup);
 		return bindingGroup;
+	}
+
+	createBindGroupLayout(desc) {
+		const layout = { label: desc.label, desc };
+		this.bindGroupLayouts.push(layout);
+		return layout;
+	}
+
+	createPipelineLayout(desc) {
+		const layout = { label: desc.label, desc };
+		this.pipelineLayouts.push(layout);
+		return layout;
+	}
+
+	createTextureView(texture, desc = {}) {
+		const view = { texture, desc };
+		this.textureViews.push(view);
+		return view;
 	}
 }
 
@@ -613,6 +634,20 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testHiZMipViewsUseFacadeTextureViewCache() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const hiZ = createTexture(16, 8, "hiz");
+
+	const first = runtime._getHiZMipViews(hiZ);
+	assert.equal(first.length, 5);
+	assert.equal(backend.textureViews.length, 5);
+
+	const second = runtime._getHiZMipViews(hiZ);
+	assert.equal(second, first);
+	assert.equal(backend.textureViews.length, 5);
+}
+
 async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -717,6 +752,7 @@ async function run() {
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testSSAORuntimeRunsGTAOPipeline();
 	await testSSGIRuntimeUsesDedicatedPipeline();
+	await testHiZMipViewsUseFacadeTextureViewCache();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
 	await testOnShaderRuntimeChangedDestroysParameterBuffers();

@@ -7,7 +7,8 @@ import {
 	type IComputePipeline,
 	type IRenderBuffer,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { IWebGPUComputeFacade } from "./computeFacade";
+import { destroyResource, recordComputePass } from "./computeUtils";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_VOLUMETRIC,
@@ -278,7 +279,7 @@ interface FrameClusterState {
 }
 
 export class WebGPUClusteredLightingRuntime {
-	private _backend: WebGPUBackend;
+	private _compute: IWebGPUComputeFacade;
 	private _warn: (key: string, message: string) => void;
 	private _sceneLayout: GPUBindGroupLayout;
 	private _frameLayout: GPUBindGroupLayout;
@@ -303,19 +304,13 @@ export class WebGPUClusteredLightingRuntime {
 	private _indexCapacity = 0;
 
 	private _sceneBinding: IBindingGroup | null = null;
-	private _sceneBindingSources: [
-		IRenderBuffer,
-		IRenderBuffer,
-		IRenderBuffer,
-		IRenderBuffer,
-	] | null = null;
+	private _sceneBindingSources:
+		| [IRenderBuffer, IRenderBuffer, IRenderBuffer, IRenderBuffer]
+		| null = null;
 	private _computeBinding: IBindingGroup | null = null;
-	private _computeBindingSources: [
-		IRenderBuffer,
-		IRenderBuffer,
-		IRenderBuffer,
-		IRenderBuffer,
-	] | null = null;
+	private _computeBindingSources:
+		| [IRenderBuffer, IRenderBuffer, IRenderBuffer, IRenderBuffer]
+		| null = null;
 
 	private _computeShaderModule: any = null;
 	private _computePipeline: IComputePipeline | null = null;
@@ -324,12 +319,12 @@ export class WebGPUClusteredLightingRuntime {
 	private _built = false;
 
 	constructor(
-		backend: WebGPUBackend,
+		computeFacade: IWebGPUComputeFacade,
 		sceneLayout: GPUBindGroupLayout,
 		frameLayout: GPUBindGroupLayout,
 		warn: (key: string, message: string) => void
 	) {
-		this._backend = backend;
+		this._compute = computeFacade;
 		this._sceneLayout = sceneLayout;
 		this._frameLayout = frameLayout;
 		this._warn = warn;
@@ -448,10 +443,13 @@ export class WebGPUClusteredLightingRuntime {
 			logScale,
 			logBias,
 		});
-		this._backend.writeBuffer(this._clusterParamsBuffer!, params);
+		this._compute.writeBuffer(this._clusterParamsBuffer!, params);
 
-		const lightData = this._createClusterLightBufferData(sourceLights, maxLights);
-		this._backend.writeBuffer(this._clusterLightBuffer!, lightData);
+		const lightData = this._createClusterLightBufferData(
+			sourceLights,
+			maxLights
+		);
+		this._compute.writeBuffer(this._clusterLightBuffer!, lightData);
 	}
 
 	public async build(
@@ -466,16 +464,22 @@ export class WebGPUClusteredLightingRuntime {
 			return;
 		}
 
-		encoder.beginComputePass({ label: "WebGPUClusteredLightingCull" });
-		encoder.setComputePipeline(this._computePipeline);
-		encoder.setBindingGroup(0, this._computeBinding);
-		encoder.setBindingGroup(1, frameBinding);
-		encoder.dispatchWorkgroups(
-			Math.ceil(this._state.clusterCount / CLUSTERED_SHADER_WORKGROUP_SIZE),
-			1,
-			1
+		recordComputePass(
+			encoder,
+			"WebGPUClusteredLightingCull",
+			this._computePipeline,
+			[
+				{ index: 0, group: this._computeBinding },
+				{ index: 1, group: frameBinding },
+			],
+			{
+				x: Math.ceil(
+					this._state.clusterCount / CLUSTERED_SHADER_WORKGROUP_SIZE
+				),
+				y: 1,
+				z: 1,
+			}
 		);
-		encoder.endComputePass();
 		this._built = true;
 	}
 
@@ -492,12 +496,12 @@ export class WebGPUClusteredLightingRuntime {
 		const lightBuffer = this._clusterLightBuffer!;
 		const headerBuffer = this._clusterHeaderBuffer!;
 		const indexBuffer = this._clusterIndexBuffer!;
-		const sources: [IRenderBuffer, IRenderBuffer, IRenderBuffer, IRenderBuffer] = [
-			paramsBuffer,
-			lightBuffer,
-			headerBuffer,
-			indexBuffer,
-		];
+		const sources: [
+			IRenderBuffer,
+			IRenderBuffer,
+			IRenderBuffer,
+			IRenderBuffer,
+		] = [paramsBuffer, lightBuffer, headerBuffer, indexBuffer];
 
 		if (
 			!this._sceneBinding ||
@@ -508,7 +512,7 @@ export class WebGPUClusteredLightingRuntime {
 			this._sceneBindingSources[3] !== sources[3]
 		) {
 			this._destroyBindingGroup(this._sceneBinding);
-			this._sceneBinding = this._backend.createBindingGroup({
+			this._sceneBinding = this._compute.createBindingGroup({
 				label: "WebGPUClusteredSceneBinding",
 				layout: this._sceneLayout,
 				entries: [
@@ -550,7 +554,7 @@ export class WebGPUClusteredLightingRuntime {
 		maxLightsPerCluster: number
 	): void {
 		if (!this._clusterParamsBuffer) {
-			this._clusterParamsBuffer = this._backend.createBuffer({
+			this._clusterParamsBuffer = this._compute.createBuffer({
 				label: "WebGPUClusteredParams",
 				size: CLUSTERED_PARAMS_FLOATS * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -563,7 +567,7 @@ export class WebGPUClusteredLightingRuntime {
 			this._lightCapacity !== requiredLightCapacity
 		) {
 			this._clusterLightBuffer?.destroy();
-			this._clusterLightBuffer = this._backend.createBuffer({
+			this._clusterLightBuffer = this._compute.createBuffer({
 				label: "WebGPUClusteredLights",
 				size: requiredLightCapacity * CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
 				usage: BufferUsage.Storage | BufferUsage.CopyDst,
@@ -577,7 +581,7 @@ export class WebGPUClusteredLightingRuntime {
 			this._clusterCapacity !== requiredClusterCapacity
 		) {
 			this._clusterHeaderBuffer?.destroy();
-			this._clusterHeaderBuffer = this._backend.createBuffer({
+			this._clusterHeaderBuffer = this._compute.createBuffer({
 				label: "WebGPUClusteredHeaders",
 				size: requiredClusterCapacity * CLUSTERED_HEADER_STRIDE_UINTS * 4,
 				usage: BufferUsage.Storage | BufferUsage.CopyDst,
@@ -589,9 +593,12 @@ export class WebGPUClusteredLightingRuntime {
 			1,
 			requiredClusterCapacity * Math.max(1, maxLightsPerCluster)
 		);
-		if (!this._clusterIndexBuffer || this._indexCapacity !== requiredIndexCapacity) {
+		if (
+			!this._clusterIndexBuffer ||
+			this._indexCapacity !== requiredIndexCapacity
+		) {
 			this._clusterIndexBuffer?.destroy();
-			this._clusterIndexBuffer = this._backend.createBuffer({
+			this._clusterIndexBuffer = this._compute.createBuffer({
 				label: "WebGPUClusteredIndices",
 				size: requiredIndexCapacity * 4,
 				usage: BufferUsage.Storage | BufferUsage.CopyDst,
@@ -605,7 +612,7 @@ export class WebGPUClusteredLightingRuntime {
 
 	private async _ensureComputeResources(): Promise<void> {
 		if (!this._computeShaderModule) {
-			this._computeShaderModule = await this._backend.createShaderModule({
+			this._computeShaderModule = await this._compute.createShaderModule({
 				label: "WebGPUClusteredLightingCullShader",
 				code: WEBGPU_CLUSTERED_LIGHTING_CULL_SHADER,
 				language: "wgsl",
@@ -615,8 +622,7 @@ export class WebGPUClusteredLightingRuntime {
 		}
 
 		if (!this._computePipeline) {
-			const device = this._backend.device;
-			this._computeGroupLayout0 = device.createBindGroupLayout({
+			this._computeGroupLayout0 = this._compute.createBindGroupLayout({
 				label: "WebGPUClusteredLighting_Group0",
 				entries: [
 					{
@@ -641,11 +647,11 @@ export class WebGPUClusteredLightingRuntime {
 					},
 				],
 			});
-			this._computePipelineLayout = device.createPipelineLayout({
+			this._computePipelineLayout = this._compute.createPipelineLayout({
 				label: "WebGPUClusteredLighting_PipelineLayout",
 				bindGroupLayouts: [this._computeGroupLayout0, this._frameLayout],
 			});
-			this._computePipeline = this._backend.createComputePipeline({
+			this._computePipeline = this._compute.createComputePipeline({
 				label: "WebGPUClusteredLightingPipeline",
 				layout: this._computePipelineLayout,
 				compute: {
@@ -668,7 +674,12 @@ export class WebGPUClusteredLightingRuntime {
 		) {
 			return;
 		}
-		const sources: [IRenderBuffer, IRenderBuffer, IRenderBuffer, IRenderBuffer] = [
+		const sources: [
+			IRenderBuffer,
+			IRenderBuffer,
+			IRenderBuffer,
+			IRenderBuffer,
+		] = [
 			this._clusterParamsBuffer,
 			this._clusterLightBuffer,
 			this._clusterHeaderBuffer,
@@ -687,7 +698,7 @@ export class WebGPUClusteredLightingRuntime {
 		}
 
 		this._destroyBindingGroup(this._computeBinding);
-		this._computeBinding = this._backend.createBindingGroup({
+		this._computeBinding = this._compute.createBindingGroup({
 			label: "WebGPUClusteredLightingComputeBinding",
 			layout: this._computeGroupLayout0,
 			entries: [
@@ -700,7 +711,9 @@ export class WebGPUClusteredLightingRuntime {
 		this._computeBindingSources = sources;
 	}
 
-	private _createClusterParamsBufferData(params: WebGPUClusterGridParams): ArrayBuffer {
+	private _createClusterParamsBufferData(
+		params: WebGPUClusterGridParams
+	): ArrayBuffer {
 		const buffer = new ArrayBuffer(CLUSTERED_PARAMS_FLOATS * 4);
 		const u32 = new Uint32Array(buffer);
 		const f32 = new Float32Array(buffer);
@@ -724,7 +737,9 @@ export class WebGPUClusteredLightingRuntime {
 		count: number
 	): ArrayBuffer {
 		const safeCount = Math.max(1, count);
-		const buffer = new ArrayBuffer(safeCount * CLUSTERED_LIGHT_STRIDE_FLOATS * 4);
+		const buffer = new ArrayBuffer(
+			safeCount * CLUSTERED_LIGHT_STRIDE_FLOATS * 4
+		);
 		const view = new DataView(buffer);
 		for (let i = 0; i < count; i++) {
 			const light = sourceLights[i];
@@ -745,7 +760,7 @@ export class WebGPUClusteredLightingRuntime {
 			const lightType =
 				light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT ?
 					WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT
-				: 	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT;
+				:	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT;
 			let packedFlags = lightType & WEBGPU_CLUSTERED_LIGHT_FLAG_TYPE_MASK;
 			if (light.castsShadow) {
 				packedFlags |= WEBGPU_CLUSTERED_LIGHT_FLAG_CASTS_SHADOW;
@@ -766,10 +781,7 @@ export class WebGPUClusteredLightingRuntime {
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(group);
-		}
+		destroyResource(group);
 	}
 }
 

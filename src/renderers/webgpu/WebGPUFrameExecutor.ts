@@ -21,6 +21,7 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
+import { resolveWebGPUComputeFacade } from "./computeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
@@ -161,8 +162,9 @@ export class WebGPUFrameExecutor {
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
+		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._postRuntime = new WebGPUPostProcessRuntime(
-			backend,
+			computeFacade,
 			(key, message) => this._warnOnce(key, message),
 			resources.sceneFrameLayout
 		);
@@ -986,12 +988,7 @@ export class WebGPUFrameExecutor {
 					"webgpu-msaa-runtime-fallback-1x",
 					`WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`
 				);
-				this._ensureFrameTargets(
-					width,
-					height,
-					ssaoDownsample,
-					ssrDownsample
-				);
+				this._ensureFrameTargets(width, height, ssaoDownsample, ssrDownsample);
 				return;
 			}
 			throw error;

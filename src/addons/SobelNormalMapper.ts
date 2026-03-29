@@ -1,8 +1,13 @@
 import { Texture } from "../core/Texture";
 import { Renderer } from "../renderers/Renderer";
-import { WebGPUBackend } from "../renderers/WebGPUBackend";
 import { loadPostProcessShaderPart } from "../shaders/webgpu/shaderSource";
 import { WEBGPU_TEXTURE_SLOT } from "../renderers/webgpu/constants";
+import type { IWebGPUComputeFacade } from "../renderers/webgpu/computeFacade";
+import { resolveWebGPUComputeFacade } from "../renderers/webgpu/computeFacade";
+import {
+	destroyResource,
+	recordComputePass,
+} from "../renderers/webgpu/computeUtils";
 import {
 	BufferUsage,
 	type IBindingGroup,
@@ -21,6 +26,7 @@ export interface SobelNormalMapperOptions {
 	strength?: number;
 	invertX?: boolean;
 	invertY?: boolean;
+	computeFacade?: IWebGPUComputeFacade;
 }
 
 /**
@@ -33,7 +39,9 @@ export interface SobelNormalMapperOptions {
  * 4. Call `destroy()` when done.
  */
 export class SobelNormalMapper {
-	private _backend: WebGPUBackend | null = null;
+	private _computeFacade: IWebGPUComputeFacade | null = null;
+	private _backendRef: unknown = null;
+	private _overrideComputeFacade: IWebGPUComputeFacade | null = null;
 	private _renderer: Renderer | null = null;
 	private _shaderModule: IShaderModule | null = null;
 	private _pipeline: IComputePipeline | null = null;
@@ -63,9 +71,7 @@ export class SobelNormalMapper {
 
 	public set strength(value: number) {
 		const next =
-			Number.isFinite(value) ?
-				Math.max(0, Number(value))
-			:	DEFAULT_STRENGTH;
+			Number.isFinite(value) ? Math.max(0, Number(value)) : DEFAULT_STRENGTH;
 		if (next === this._strength) {
 			return;
 		}
@@ -109,6 +115,7 @@ export class SobelNormalMapper {
 			:	DEFAULT_STRENGTH;
 		this._invertX = !!options.invertX;
 		this._invertY = !!options.invertY;
+		this._overrideComputeFacade = options.computeFacade ?? null;
 		this._destTexture = new Texture(
 			null,
 			Math.max(1, _source.width | 0),
@@ -137,20 +144,27 @@ export class SobelNormalMapper {
 		if (this._destroyed) {
 			throw new Error("SobelNormalMapper has been destroyed.");
 		}
-		if (renderer.backend.type !== "webgpu") {
+		if (!this._overrideComputeFacade && renderer.backend.type !== "webgpu") {
 			throw new Error("SobelNormalMapper requires WebGPU backend.");
 		}
-		const backend = renderer.backend as WebGPUBackend;
-		if (this._isInitialized && this._backend === backend) {
+		const computeFacade =
+			this._overrideComputeFacade ?? resolveWebGPUComputeFacade(renderer);
+		const backendRef = renderer.backend;
+		if (
+			this._isInitialized &&
+			this._computeFacade === computeFacade &&
+			this._backendRef === backendRef
+		) {
 			return;
 		}
 		if (this._isInitialized) {
 			this._releaseGPUResources();
 		}
-		this._backend = backend;
+		this._computeFacade = computeFacade;
+		this._backendRef = backendRef;
 
 		const code = await loadPostProcessShaderPart("sobelNormal");
-		this._shaderModule = await this._backend.createShaderModule({
+		this._shaderModule = await this._computeFacade.createShaderModule({
 			code,
 			label: "SobelNormalComputeShader",
 			language: "wgsl",
@@ -158,7 +172,7 @@ export class SobelNormalMapper {
 			sourceKind: "postprocess",
 		});
 
-		this._pipeline = this._backend.createComputePipeline({
+		this._pipeline = this._computeFacade.createComputePipeline({
 			compute: {
 				module: this._shaderModule,
 				entryPoint: "csMain",
@@ -166,7 +180,7 @@ export class SobelNormalMapper {
 			label: "SobelNormalComputePipeline",
 		});
 
-		this._paramsBuffer = this._backend.createBuffer({
+		this._paramsBuffer = this._computeFacade.createBuffer({
 			size: 16, // 4 * float32
 			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			label: "SobelNormalParamsBuffer",
@@ -221,7 +235,7 @@ export class SobelNormalMapper {
 		if (
 			!this._isInitialized ||
 			this._destroyed ||
-			!this._backend ||
+			!this._computeFacade ||
 			!this._pipeline ||
 			!this._paramsBuffer
 		) {
@@ -258,7 +272,7 @@ export class SobelNormalMapper {
 			return false;
 		}
 
-		const srcResource = this._backend.getTextureForSlot(
+		const srcResource = this._computeFacade.resolveTextureForSlot(
 			this._source,
 			WEBGPU_TEXTURE_SLOT.BASE_COLOR
 		);
@@ -272,24 +286,26 @@ export class SobelNormalMapper {
 			this._invertY ? -1.0 : 1.0,
 			0.0,
 		]);
-		this._backend.writeBuffer(this._paramsBuffer, params);
+		this._computeFacade.writeBuffer(this._paramsBuffer, params);
 
 		this._ensureBindGroup(srcResource);
 		if (!this._bindGroup) {
 			return false;
 		}
 
-		const encoder = this._backend.createCommandEncoder();
-		encoder.beginComputePass({ label: "SobelNormalPass" });
-		encoder.setComputePipeline(this._pipeline);
-		encoder.setBindingGroup(0, this._bindGroup);
-		encoder.dispatchWorkgroups(
-			ceilDiv(width, SOBEL_WORKGROUP_SIZE),
-			ceilDiv(height, SOBEL_WORKGROUP_SIZE),
-			1
+		const encoder = this._computeFacade.createCommandEncoder();
+		recordComputePass(
+			encoder,
+			"SobelNormalPass",
+			this._pipeline,
+			[{ index: 0, group: this._bindGroup }],
+			{
+				x: ceilDiv(width, SOBEL_WORKGROUP_SIZE),
+				y: ceilDiv(height, SOBEL_WORKGROUP_SIZE),
+				z: 1,
+			}
 		);
-		encoder.endComputePass();
-		this._backend.submit([encoder.finish()]);
+		this._computeFacade.submit([encoder.finish()]);
 
 		this._lastSourceVersion = sourceVersion;
 		this._lastParamsKey = paramsKey;
@@ -311,7 +327,7 @@ export class SobelNormalMapper {
 
 	private _ensureBindGroup(sourceTexture: IRenderTexture): void {
 		if (
-			!this._backend ||
+			!this._computeFacade ||
 			!this._pipeline ||
 			!this._paramsBuffer ||
 			!this._destResource
@@ -326,7 +342,7 @@ export class SobelNormalMapper {
 			return;
 		}
 		this._destroyBindingGroup();
-		this._bindGroup = this._backend.createBindingGroup({
+		this._bindGroup = this._computeFacade.createBindingGroup({
 			pipeline: this._pipeline,
 			layoutIndex: 0,
 			entries: [
@@ -341,27 +357,27 @@ export class SobelNormalMapper {
 	}
 
 	private _recreateDestTexture(): void {
-		if (!this._backend) return;
+		if (!this._computeFacade) return;
 		const width = Math.max(1, this._source.width | 0);
 		const height = Math.max(1, this._source.height | 0);
 
 		this._destroyBindingGroup();
 		if (this._destResource) {
-			this._backend.unregisterExternalTexture(this._destTexture);
+			this._computeFacade.unregisterExternalTexture(this._destTexture);
 			this._destResource.destroy();
 		}
 
 		this._destTexture.width = width;
 		this._destTexture.height = height;
 
-		this._destResource = this._backend.createTexture({
+		this._destResource = this._computeFacade.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA8Unorm,
 			usage: TextureUsage.StorageBinding | TextureUsage.TextureBinding,
 			label: "SobelNormalResultTexture",
 		});
-		this._backend.registerExternalTexture(
+		this._computeFacade.registerExternalTexture(
 			this._destTexture,
 			this._destResource,
 			this._destTexture.version,
@@ -373,8 +389,8 @@ export class SobelNormalMapper {
 	}
 
 	private _releaseGPUResources(): void {
-		if (this._backend) {
-			this._backend.unregisterExternalTexture(this._destTexture);
+		if (this._computeFacade) {
+			this._computeFacade.unregisterExternalTexture(this._destTexture);
 		}
 		this._destroyBindingGroup();
 		this._destroyResource(this._paramsBuffer);
@@ -391,7 +407,8 @@ export class SobelNormalMapper {
 		this._lastParamsKey = "";
 		this._pendingForceUpdate = true;
 		this._isInitialized = false;
-		this._backend = null;
+		this._computeFacade = null;
+		this._backendRef = null;
 	}
 
 	private _buildParamsKey(): string {
@@ -406,10 +423,7 @@ export class SobelNormalMapper {
 	}
 
 	private _destroyResource(resource: unknown): void {
-		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-		if (typeof destroyFn === "function") {
-			destroyFn.call(resource);
-		}
+		destroyResource(resource);
 	}
 }
 
