@@ -12,6 +12,17 @@ const OPEN_TO_CLOSE = new Map<string, string>([
 	["{", "}"],
 ]);
 
+const RUNTIME_METADATA_INJECTION_SOURCE_KINDS = new Set([
+	"builtin-scene",
+	"builtin-skybox",
+	"builtin-present",
+	"postprocess",
+	"clustered",
+	"shadow",
+	"particle",
+]);
+const RUNTIME_METADATA_MARKER = "IGNIS_RUNTIME_INJECTION_ENABLED";
+
 interface ErrorLocation {
 	line?: number;
 	column?: number;
@@ -155,12 +166,69 @@ function createSourceExtentRange(source: string): ShaderDiagnosticRange {
 	};
 }
 
+function normalizeMacroToken(value: string): string {
+	const normalized = value
+		.trim()
+		.replace(/[^A-Za-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "")
+		.toUpperCase();
+	return normalized.length > 0 ? normalized : "UNKNOWN";
+}
+
+function shouldInjectRuntimeMetadata(context: ShaderRuleContext): boolean {
+	if (!RUNTIME_METADATA_INJECTION_SOURCE_KINDS.has(context.sourceKind)) {
+		return false;
+	}
+	return !context.source.includes(RUNTIME_METADATA_MARKER);
+}
+
+function createWGSLRuntimeMetadataHeader(context: ShaderRuleContext): string {
+	const stageToken = normalizeMacroToken(context.stage);
+	const sourceKindToken = normalizeMacroToken(context.sourceKind);
+	return [
+		"const IGNIS_RUNTIME_INJECTION_ENABLED: bool = true;",
+		"const IGNIS_RUNTIME_LANGUAGE_WGSL: bool = true;",
+		`const IGNIS_RUNTIME_STAGE_${stageToken}: bool = true;`,
+		`const IGNIS_RUNTIME_SOURCE_KIND_${sourceKindToken}: bool = true;`,
+	].join("\n");
+}
+
+function createGLSLRuntimeMetadataHeader(context: ShaderRuleContext): string {
+	const stageToken = normalizeMacroToken(context.stage);
+	const sourceKindToken = normalizeMacroToken(context.sourceKind);
+	return [
+		"#define IGNIS_RUNTIME_INJECTION_ENABLED 1",
+		"#define IGNIS_RUNTIME_LANGUAGE_GLSL 1",
+		`#define IGNIS_RUNTIME_STAGE_${stageToken} 1`,
+		`#define IGNIS_RUNTIME_SOURCE_KIND_${sourceKindToken} 1`,
+	].join("\n");
+}
+
 export function createBuiltInShaderRules(): ShaderRule[] {
 	return [
 		{
 			id: "ignis/reserved-symbols",
 			priority: 1100,
 			symbols: ["ignis_runtime_reserved_symbol"],
+		},
+		{
+			id: "ignis/inject-runtime-metadata",
+			priority: 600,
+			match(context) {
+				return shouldInjectRuntimeMetadata(context);
+			},
+			inject(context) {
+				if (context.language === "wgsl") {
+					return {
+						header: createWGSLRuntimeMetadataHeader(context),
+						headerAnchor: "afterEnable",
+					};
+				}
+				return {
+					header: createGLSLRuntimeMetadataHeader(context),
+					headerAnchor: "afterPrecision",
+				};
+			},
 		},
 		{
 			id: SHADER_RUNTIME_RULE_IDS.EMPTY_SOURCE,

@@ -81,6 +81,14 @@ struct Reservoir {
 	sampleCount: f32,
 }
 
+struct CameraBasis {
+	right: vec3<f32>,
+	up: vec3<f32>,
+	backward: vec3<f32>,
+	tanHalfFov: f32,
+	aspect: f32,
+}
+
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
 @group(0) @binding(1) var gMotionDepth: texture_2d<f32>;
 @group(0) @binding(2) var hiZ: texture_2d<f32>;
@@ -149,37 +157,46 @@ fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {
 	return (1.0 - gg) / (4.0 * PI * denom);
 }
 
+fn getCameraBasis() -> CameraBasis {
+	return CameraBasis(
+		frame.skyboxBasisRight.xyz,
+		frame.skyboxBasisUp.xyz,
+		frame.skyboxBasisBackward.xyz,
+		frame.skyboxBasisRight.w,
+		frame.skyboxBasisUp.w
+	);
+}
+
 fn getWorldRayDirection(uv: vec2<f32>) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	let tanHalfFov = frame.skyboxBasisRight.w;
-	let aspect = frame.skyboxBasisUp.w;
-	let camRay = vec3<f32>(ndc.x * aspect * tanHalfFov, ndc.y * tanHalfFov, -1.0);
+	let basis = getCameraBasis();
+	let camRay = vec3<f32>(
+		ndc.x * basis.aspect * basis.tanHalfFov,
+		ndc.y * basis.tanHalfFov,
+		-1.0
+	);
 	return safeNormalize(
-		right * camRay.x + up * camRay.y + backward * camRay.z,
-		-backward
+		basis.right * camRay.x + basis.up * camRay.y + basis.backward * camRay.z,
+		-basis.backward
 	);
 }
 
 fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
 	let rel = worldPos - frame.cameraPosition.xyz;
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	let tanHalfFov = frame.skyboxBasisRight.w;
-	let aspect = frame.skyboxBasisUp.w;
-	let depth = dot(rel, -backward);
+	let basis = getCameraBasis();
+	let depth = dot(rel, -basis.backward);
 	if (depth <= 1e-4) { return vec2<f32>(-1.0); }
-	let cx = dot(rel, right) / (depth * aspect * tanHalfFov);
-	let cy = dot(rel, up) / (depth * tanHalfFov);
+	let cx =
+		dot(rel, basis.right) /
+		(depth * basis.aspect * basis.tanHalfFov);
+	let cy = dot(rel, basis.up) / (depth * basis.tanHalfFov);
 	return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
 }
 
 fn worldToLinearDepth(worldPos: vec3<f32>) -> f32 {
 	let rel = worldPos - frame.cameraPosition.xyz;
-	return dot(rel, -frame.skyboxBasisBackward.xyz);
+	let basis = getCameraBasis();
+	return dot(rel, -basis.backward);
 }
 
 fn isInsideScreen(uv: vec2<f32>) -> bool {

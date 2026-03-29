@@ -141,43 +141,55 @@ fn importanceSampleGGX(xi: vec2<f32>, roughness: f32, N: vec3<f32>) -> vec3<f32>
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
+struct CameraBasis {
+	right: vec3<f32>,
+	up: vec3<f32>,
+	backward: vec3<f32>,
+	tanHalfFov: f32,
+	aspect: f32,
+}
+
+fn getCameraBasis() -> CameraBasis {
+	return CameraBasis(
+		frame.skyboxBasisRight.xyz,
+		frame.skyboxBasisUp.xyz,
+		frame.skyboxBasisBackward.xyz,
+		frame.skyboxBasisRight.w,
+		frame.skyboxBasisUp.w
+	);
+}
+
 fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let xy = encoded * 2.0 - vec2<f32>(1.0, 1.0);
 	let z2 = max(1.0 - dot(xy, xy), 0.0);
 	let vn = vec3<f32>(xy, sqrt(z2));
-
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	return normalize(right * vn.x + up * vn.y + backward * vn.z);
+	let basis = getCameraBasis();
+	return normalize(
+		basis.right * vn.x + basis.up * vn.y + basis.backward * vn.z
+	);
 }
 
 fn getPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	let tanHalfFov = frame.skyboxBasisRight.w;
-	let aspect = frame.skyboxBasisUp.w;
-
-	let cx = ndc.x * aspect * tanHalfFov * depth;
-	let cy = ndc.y * tanHalfFov * depth;
-	return frame.cameraPosition.xyz + right * cx + up * cy - backward * depth;
+	let basis = getCameraBasis();
+	let cx = ndc.x * basis.aspect * basis.tanHalfFov * depth;
+	let cy = ndc.y * basis.tanHalfFov * depth;
+	return frame.cameraPosition.xyz
+		+ basis.right * cx
+		+ basis.up * cy
+		- basis.backward * depth;
 }
 
 fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
 	let rel = worldPos - frame.cameraPosition.xyz;
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	let tanHalfFov = frame.skyboxBasisRight.w;
-	let aspect = frame.skyboxBasisUp.w;
-
-	let depth = dot(rel, -backward);
+	let basis = getCameraBasis();
+	let depth = dot(rel, -basis.backward);
 	if (depth <= 1e-4) { return vec2<f32>(-1.0); }
 
-	let cx = dot(rel, right) / (depth * aspect * tanHalfFov);
-	let cy = dot(rel, up) / (depth * tanHalfFov);
+	let cx =
+		dot(rel, basis.right) /
+		(depth * basis.aspect * basis.tanHalfFov);
+	let cy = dot(rel, basis.up) / (depth * basis.tanHalfFov);
 
 	return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
 }

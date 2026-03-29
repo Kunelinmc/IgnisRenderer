@@ -227,6 +227,107 @@ function testBuiltInValidationRules() {
 	assert.ok(unbalancedDiagnostic.range);
 }
 
+function testBuiltInRuntimeInjectionForEngineShaderKinds() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+
+	const wgslBuiltin = runtime.process({
+		code: WGSL_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "BuiltinSceneWGSL",
+		sourceKind: "builtin-scene",
+	});
+	assert.equal(wgslBuiltin.hasErrors, false);
+	assert.ok(
+		wgslBuiltin.code.includes(
+			"const IGNIS_RUNTIME_INJECTION_ENABLED: bool = true;"
+		)
+	);
+	assert.ok(wgslBuiltin.code.includes("const IGNIS_RUNTIME_STAGE_VERTEX: bool = true;"));
+	assert.ok(
+		wgslBuiltin.code.includes(
+			"const IGNIS_RUNTIME_SOURCE_KIND_BUILTIN_SCENE: bool = true;"
+		)
+	);
+
+	const glslBuiltin = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "BuiltinPresentGLSL",
+		sourceKind: "builtin-present",
+	});
+	assert.equal(glslBuiltin.hasErrors, false);
+	assert.ok(glslBuiltin.code.includes("#define IGNIS_RUNTIME_INJECTION_ENABLED 1"));
+	assert.ok(glslBuiltin.code.includes("#define IGNIS_RUNTIME_STAGE_VERTEX 1"));
+	assert.ok(
+		glslBuiltin.code.includes(
+			"#define IGNIS_RUNTIME_SOURCE_KIND_BUILTIN_PRESENT 1"
+		)
+	);
+
+	const customMaterial = runtime.process({
+		code: WGSL_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "CustomMaterialWGSL",
+		sourceKind: "custom-material",
+	});
+	assert.equal(
+		customMaterial.code.includes("IGNIS_RUNTIME_INJECTION_ENABLED"),
+		false
+	);
+}
+
+function testBuiltInRuntimeInjectionIsIdempotent() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+
+	const firstWGSL = runtime.process({
+		code: WGSL_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "IdempotentWGSLFirst",
+		sourceKind: "builtin-scene",
+	});
+	const secondWGSL = runtime.process({
+		code: firstWGSL.code,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "IdempotentWGSLSecond",
+		sourceKind: "builtin-scene",
+	});
+	assert.equal(
+		(secondWGSL.code.match(/IGNIS_RUNTIME_INJECTION_ENABLED/g) ?? []).length,
+		1
+	);
+
+	const firstGLSL = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "IdempotentGLSLFirst",
+		sourceKind: "builtin-present",
+	});
+	const secondGLSL = runtime.process({
+		code: firstGLSL.code,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "IdempotentGLSLSecond",
+		sourceKind: "builtin-present",
+	});
+	assert.equal(
+		(secondGLSL.code.match(/IGNIS_RUNTIME_INJECTION_ENABLED/g) ?? []).length,
+		1
+	);
+}
+
 function testWGSLAndGLSLEntryPointChecks() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const wgslMissingEntry = runtime.process({
@@ -925,6 +1026,8 @@ async function run() {
 	testWGSLInjectionLocation();
 	testGLSLInjectionAnchors();
 	testBuiltInValidationRules();
+	testBuiltInRuntimeInjectionForEngineShaderKinds();
+	testBuiltInRuntimeInjectionIsIdempotent();
 	testWGSLAndGLSLEntryPointChecks();
 	testCacheAndRevisionInvalidation();
 	testCacheKeyIncludesLabel();

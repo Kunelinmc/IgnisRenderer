@@ -43,6 +43,39 @@ fn interleavedGradientNoise(pixel: vec2<f32>, frameJitter: f32) -> f32 {
 	return fract(52.9829189 * fract(seed + frameJitter * 0.754877666));
 }
 
+fn isUvInside01(uv: vec2<f32>) -> bool {
+	return !any(uv < vec2<f32>(0.0)) && !any(uv > vec2<f32>(1.0));
+}
+
+fn accumulateDirectionalHorizon(
+	sampleUv: vec2<f32>,
+	depth: f32,
+	bias: f32,
+	centerPos: vec3<f32>,
+	normal: vec3<f32>,
+	radiusView: f32,
+	currentHorizon: f32
+) -> f32 {
+	if (!isUvInside01(sampleUv)) {
+		return currentHorizon;
+	}
+	let sampleDepth = textureSampleLevel(texB, linearSampler, sampleUv, 0.0).z;
+	if (sampleDepth <= 0.0 || sampleDepth >= depth - bias) {
+		return currentHorizon;
+	}
+	let samplePos = reconstructViewPos(sampleUv, sampleDepth);
+	let delta = samplePos - centerPos;
+	let distSq = dot(delta, delta);
+	if (distSq <= 1e-6) {
+		return currentHorizon;
+	}
+	let invDist = inverseSqrt(distSq);
+	let dist = distSq * invDist;
+	let alignment = max(dot(normal, delta * invDist), 0.0);
+	let distWeight = saturate(1.0 - dist / radiusView);
+	return max(currentHorizon, alignment * distWeight);
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outTex);
@@ -108,49 +141,24 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 			let stepFrac = (f32(stepIdx) - 0.35 + jitter * 0.6) / f32(stepCount);
 			let stepUv = dir2 * stepFrac * radiusUv;
 
-			let sampleUvPos = uv + stepUv;
-			if (!any(sampleUvPos < vec2<f32>(0.0)) && !any(sampleUvPos > vec2<f32>(1.0))) {
-				let sampleDepthPos = textureSampleLevel(
-					texB,
-					linearSampler,
-					sampleUvPos,
-					0.0
-				).z;
-				if (sampleDepthPos > 0.0 && sampleDepthPos < depth - bias) {
-					let samplePos = reconstructViewPos(sampleUvPos, sampleDepthPos);
-					let delta = samplePos - centerPos;
-					let distSq = dot(delta, delta);
-					if (distSq > 1e-6) {
-						let invDist = inverseSqrt(distSq);
-						let dist = distSq * invDist;
-						let alignment = max(dot(normal, delta * invDist), 0.0);
-						let distWeight = saturate(1.0 - dist / radiusView);
-						horizonPos = max(horizonPos, alignment * distWeight);
-					}
-				}
-			}
-
-			let sampleUvNeg = uv - stepUv;
-			if (!any(sampleUvNeg < vec2<f32>(0.0)) && !any(sampleUvNeg > vec2<f32>(1.0))) {
-				let sampleDepthNeg = textureSampleLevel(
-					texB,
-					linearSampler,
-					sampleUvNeg,
-					0.0
-				).z;
-				if (sampleDepthNeg > 0.0 && sampleDepthNeg < depth - bias) {
-					let samplePos = reconstructViewPos(sampleUvNeg, sampleDepthNeg);
-					let delta = samplePos - centerPos;
-					let distSq = dot(delta, delta);
-					if (distSq > 1e-6) {
-						let invDist = inverseSqrt(distSq);
-						let dist = distSq * invDist;
-						let alignment = max(dot(normal, delta * invDist), 0.0);
-						let distWeight = saturate(1.0 - dist / radiusView);
-						horizonNeg = max(horizonNeg, alignment * distWeight);
-					}
-				}
-			}
+			horizonPos = accumulateDirectionalHorizon(
+				uv + stepUv,
+				depth,
+				bias,
+				centerPos,
+				normal,
+				radiusView,
+				horizonPos
+			);
+			horizonNeg = accumulateDirectionalHorizon(
+				uv - stepUv,
+				depth,
+				bias,
+				centerPos,
+				normal,
+				radiusView,
+				horizonNeg
+			);
 		}
 
 		occ += 0.5 * (horizonPos + horizonNeg);
