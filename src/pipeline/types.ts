@@ -42,11 +42,21 @@ export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	"pipeline:animation-delta-time-ms";
 export const INTERACTION_TRANSIENT_STATE_KEY = "pipeline:interaction-state";
 
+export const INTERACTION_OUTLINE_SHAPES = [
+	"circle",
+	"square",
+	"diamond",
+	"octagon",
+] as const;
+export type InteractionOutlineShape =
+	(typeof INTERACTION_OUTLINE_SHAPES)[number];
+
 export interface InteractionOutlineStyle {
 	color: RGBA;
 	thickness: number;
 	opacity: number;
 	xray: boolean;
+	shape?: InteractionOutlineShape;
 }
 
 export interface InteractionGizmoState {

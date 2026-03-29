@@ -5,16 +5,31 @@ in vec2 vUv;
 
 uniform sampler2D uSourceMap;
 uniform vec4 uOutlineColor;
-uniform vec2 uOutlineParams;
+uniform vec3 uOutlineParams;
 uniform vec2 uViewportSize;
 uniform int uCircleCount;
 uniform vec4 uCircles[64];
 
 out vec4 fragColor;
 
+float computeShapeDistance(vec2 deltaPixel, int shape) {
+	vec2 absDelta = abs(deltaPixel);
+	if (shape == 1) {
+		return max(absDelta.x, absDelta.y) * 1.41421356237;
+	}
+	if (shape == 2) {
+		return absDelta.x + absDelta.y;
+	}
+	if (shape == 3) {
+		return max(max(absDelta.x, absDelta.y), (absDelta.x + absDelta.y) * 0.70710678118);
+	}
+	return length(deltaPixel);
+}
+
 float computeOutlineMask(vec2 fragmentPixel) {
 	float thickness = max(1.0, uOutlineParams.y);
 	float feather = max(1.0, thickness * 0.75);
+	int shape = int(floor(uOutlineParams.z + 0.5));
 	float mask = 0.0;
 	for (int i = 0; i < 64; i++) {
 		if (i >= uCircleCount) {
@@ -25,7 +40,8 @@ float computeOutlineMask(vec2 fragmentPixel) {
 		if (radius <= 0.0) {
 			continue;
 		}
-		float edgeDistance = abs(length(fragmentPixel - circle.xy) - radius);
+		float shapeDistance = computeShapeDistance(fragmentPixel - circle.xy, shape);
+		float edgeDistance = abs(shapeDistance - radius);
 		float edgeAlpha = 1.0 - smoothstep(thickness, thickness + feather, edgeDistance);
 		mask = max(mask, edgeAlpha);
 	}

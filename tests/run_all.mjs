@@ -24,6 +24,8 @@ const tests = [
 	"test_shadow_metadata_bounds.mjs",
 	"test_orthographic_camera_bounds.mjs",
 	"test_scene_bounds_cache.mjs",
+	"test_interaction_manager_selection.mjs",
+	"test_interaction_outline_shape.mjs",
 	"test_node_clone.mjs",
 	"test_ecs_world.mjs",
 	"test_scene_ecs_sync.mjs",

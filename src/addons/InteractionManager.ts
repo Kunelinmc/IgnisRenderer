@@ -26,6 +26,7 @@ const DEFAULT_OUTLINE_STYLE: InteractionOutlineStyle = {
 	thickness: 2,
 	opacity: 0.9,
 	xray: true,
+	shape: "circle",
 };
 
 const DEFAULT_MAX_RAY_DISTANCE = 10000;
@@ -769,6 +770,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 				thickness: this._outlineStyle.thickness,
 				opacity: this._outlineStyle.opacity,
 				xray: this._outlineStyle.xray,
+				shape: this._outlineStyle.shape,
 			},
 			gizmo:
 				this._activeGizmo ?

@@ -70,6 +70,24 @@ function run() {
 	const interactionState = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 	assert.ok(interactionState);
 	assert.equal(interactionState.selectedEntityIds[0], box.entityId);
+	assert.equal(interactionState.outline.shape, "circle");
+
+	manager.setOutlineStyle({ shape: "square" });
+	transient.clear();
+	transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
+	transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, 0);
+	for (const contributor of contributors) {
+		contributor({
+			now: 0,
+			deltaTime: 0,
+			scene,
+			camera,
+			transient,
+		});
+	}
+	const updatedInteractionState = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
+	assert.ok(updatedInteractionState);
+	assert.equal(updatedInteractionState.outline.shape, "square");
 
 	manager.detach();
 	assert.equal(contributors.size, 0);

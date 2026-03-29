@@ -36,6 +36,7 @@ import {
 	MAX_INTERACTION_OUTLINE_CIRCLES,
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
+import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 
 const WORKGROUP_SIZE = 8;
 const INTERACTION_OUTLINE_HEADER_FLOATS = 16;
@@ -1286,6 +1287,9 @@ export class WebGPUPostProcessRuntime {
 			1,
 			finiteOr(interactionState?.outline?.thickness, 2)
 		);
+		const shapeCode = getInteractionOutlineShapeCode(
+			interactionState?.outline?.shape
+		);
 		const params = this._interactionOutlineParamData;
 		params[0] = 1 / Math.max(target.width, 1);
 		params[1] = 1 / Math.max(target.height, 1);
@@ -1302,7 +1306,8 @@ export class WebGPUPostProcessRuntime {
 		);
 		params[7] = 1;
 		params[8] = circles.length;
-		params.fill(0, 9, INTERACTION_OUTLINE_HEADER_FLOATS);
+		params[9] = shapeCode;
+		params.fill(0, 10, INTERACTION_OUTLINE_HEADER_FLOATS);
 		let offset = INTERACTION_OUTLINE_HEADER_FLOATS;
 		for (let index = 0; index < MAX_INTERACTION_OUTLINE_CIRCLES; index++) {
 			if (index < circles.length) {

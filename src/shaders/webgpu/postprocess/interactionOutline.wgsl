@@ -4,6 +4,7 @@ struct OutlineParams {
 	thickness: f32,
 	color: vec4<f32>,
 	circleCount: f32,
+	shape: f32,
 	_pad0: vec3<f32>,
 	circles: array<vec4<f32>, 64>,
 }
@@ -12,9 +13,24 @@ struct OutlineParams {
 @group(0) @binding(2) var<uniform> params: OutlineParams;
 @group(0) @binding(3) var outTex: texture_storage_2d<rgba16float, write>;
 
+fn outlineShapeDistance(pixelDelta: vec2<f32>, shape: i32) -> f32 {
+	let absDelta = abs(pixelDelta);
+	if (shape == 1) {
+		return max(absDelta.x, absDelta.y) * 1.41421356237;
+	}
+	if (shape == 2) {
+		return absDelta.x + absDelta.y;
+	}
+	if (shape == 3) {
+		return max(max(absDelta.x, absDelta.y), (absDelta.x + absDelta.y) * 0.70710678118);
+	}
+	return length(pixelDelta);
+}
+
 fn outlineMask(pixel: vec2<f32>) -> f32 {
 	let thickness = max(1.0, params.thickness);
 	let feather = max(1.0, thickness * 0.75);
+	let shapeId = i32(params.shape + 0.5);
 	var mask = 0.0;
 	for (var index: u32 = 0u; index < 64u; index = index + 1u) {
 		if (f32(index) >= params.circleCount) {
@@ -25,7 +41,8 @@ fn outlineMask(pixel: vec2<f32>) -> f32 {
 		if (radius <= 0.0) {
 			continue;
 		}
-		let edgeDistance = abs(length(pixel - circle.xy) - radius);
+		let shapeDistance = outlineShapeDistance(pixel - circle.xy, shapeId);
+		let edgeDistance = abs(shapeDistance - radius);
 		let edgeAlpha = 1.0 - smoothstep(thickness, thickness + feather, edgeDistance);
 		mask = max(mask, edgeAlpha);
 	}

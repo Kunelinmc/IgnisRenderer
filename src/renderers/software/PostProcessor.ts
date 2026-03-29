@@ -26,6 +26,10 @@ import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";
 import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
 import { collectProjectedOutlineCircles } from "../../interaction/outlineProjection";
+import {
+	computeInteractionOutlineShapeDistance,
+	resolveInteractionOutlineShape,
+} from "../../interaction/outlineShape";
 import type {
 	InteractionTransientState,
 	SSAOOptions,
@@ -1486,6 +1490,7 @@ export class PostProcessor implements PostProcessorLike {
 			1
 		);
 		const thickness = Math.max(1, Math.round(state.outline?.thickness ?? 2));
+		const outlineShape = resolveInteractionOutlineShape(state.outline?.shape);
 		const circles = collectProjectedOutlineCircles(
 			context,
 			state.selectedEntityIds
@@ -1494,7 +1499,7 @@ export class PostProcessor implements PostProcessorLike {
 			return;
 		}
 		for (const circle of circles) {
-			this._drawCircleOutline(
+			this._drawShapeOutline(
 				pixels,
 				width,
 				height,
@@ -1502,6 +1507,7 @@ export class PostProcessor implements PostProcessorLike {
 				circle.centerY,
 				circle.radius,
 				thickness,
+				outlineShape,
 				outlineColor.r,
 				outlineColor.g,
 				outlineColor.b,
@@ -1532,7 +1538,7 @@ export class PostProcessor implements PostProcessorLike {
 		if (imageData) ctx.putImageData(imageData, 0, 0);
 	}
 
-	private _drawCircleOutline(
+	private _drawShapeOutline(
 		pixels: Uint8ClampedArray,
 		width: number,
 		height: number,
@@ -1540,6 +1546,7 @@ export class PostProcessor implements PostProcessorLike {
 		centerY: number,
 		radius: number,
 		thickness: number,
+		shape: "circle" | "square" | "diamond" | "octagon",
 		red: number,
 		green: number,
 		blue: number,
@@ -1551,15 +1558,17 @@ export class PostProcessor implements PostProcessorLike {
 		const maxY = Math.min(height - 1, Math.ceil(centerY + radius + thickness));
 		const inner = Math.max(0, radius - thickness * 0.5);
 		const outer = radius + thickness * 0.5;
-		const innerSq = inner * inner;
-		const outerSq = outer * outer;
 
 		for (let y = minY; y <= maxY; y++) {
 			for (let x = minX; x <= maxX; x++) {
 				const dx = x + 0.5 - centerX;
 				const dy = y + 0.5 - centerY;
-				const distanceSq = dx * dx + dy * dy;
-				if (distanceSq < innerSq || distanceSq > outerSq) {
+				const shapeDistance = computeInteractionOutlineShapeDistance(
+					dx,
+					dy,
+					shape
+				);
+				if (shapeDistance < inner || shapeDistance > outer) {
 					continue;
 				}
 				const index = (y * width + x) << 2;

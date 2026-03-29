@@ -63,6 +63,7 @@ import {
 	MAX_INTERACTION_OUTLINE_CIRCLES,
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
+import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 
 type WarnFn = (key: string, message: string) => void;
 
@@ -2384,6 +2385,7 @@ export class WebGLFrameExecutor {
 			1
 		);
 		const thickness = Math.max(1, finiteOr(state?.outline?.thickness, 2));
+		const shapeCode = getInteractionOutlineShapeCode(state?.outline?.shape);
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
 		this._bindPostSingleColorTarget(targetTexture);
@@ -2403,7 +2405,7 @@ export class WebGLFrameExecutor {
 			gl.uniform4f(program.uniforms.outlineColor, linearR, linearG, linearB, 1);
 		}
 		if (program.uniforms.outlineParams) {
-			gl.uniform2f(program.uniforms.outlineParams, alpha, thickness);
+			gl.uniform3f(program.uniforms.outlineParams, alpha, thickness, shapeCode);
 		}
 		if (program.uniforms.viewportSize) {
 			gl.uniform2f(
