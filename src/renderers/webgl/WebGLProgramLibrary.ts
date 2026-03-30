@@ -6,42 +6,22 @@ import {
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+	ShaderBackendCompileStage,
 	createInlineShaderSourceMap,
 	mapShaderCompilerMessages,
 	parseWebGLShaderInfoLog,
 	ShaderCompileError,
 	type ShaderCompilerMessage,
-	type ShaderSourceSegmentMap,
 	type ShaderProcessResult,
+	type ShaderSourceSegmentMap,
 	type ShaderRuntime,
 } from "../../shaders/runtime";
 import {
-	WEBGL_COPY_FRAGMENT_SHADER,
-	WEBGL_COPY_VERTEX_SHADER,
-	WEBGL_BLOOM_FRAGMENT_SHADER,
-	WEBGL_DOF_FRAGMENT_SHADER,
-	WEBGL_FXAA_FRAGMENT_SHADER,
-	WEBGL_FXAA_VERTEX_SHADER,
-	WEBGL_INTERACTION_OUTLINE_FRAGMENT_SHADER,
-	WEBGL_MOTION_BLUR_FRAGMENT_SHADER,
-	WEBGL_PARTICLE_FRAGMENT_SHADER,
-	WEBGL_PARTICLE_VERTEX_SHADER,
-	WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
-	WEBGL_PRESENT_FRAGMENT_SHADER,
-	WEBGL_PRESENT_VERTEX_SHADER,
-	WEBGL_SSAO_BLUR_FRAGMENT_SHADER,
-	WEBGL_SSAO_COMBINE_FRAGMENT_SHADER,
-	WEBGL_SSAO_RAW_FRAGMENT_SHADER,
-	WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER,
-	WEBGL_SHADOW_DEPTH_VERTEX_SHADER,
-	WEBGL_SKYBOX_FRAGMENT_SHADER,
-	WEBGL_SKYBOX_VERTEX_SHADER,
-	WEBGL_TAA_FRAGMENT_SHADER,
-} from "../../shaders/webgl/pipelineShaders";
-import {
-	createWebGLSceneCompositeShaderSource,
-	createWebGLSceneShaderSource,
-} from "../../shaders/webgl/sceneShader";
+	createWebGLShaderSourceFactory,
+	type WebGLShaderPart,
+	type WebGLShaderSourceFactory,
+} from "../../shaders/webgl/WebGLShaderSourceFactory";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;
@@ -263,17 +243,6 @@ export interface WebGLDOFProgram {
 
 type WarnFn = (key: string, message: string) => void;
 
-const SCENE_SHADER_SOURCE = createWebGLSceneShaderSource({
-	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
-});
-const SCENE_SHADER_COMPOSITE_SOURCE = createWebGLSceneCompositeShaderSource({
-	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
-});
-
 interface ShaderCompileMetadata {
 	sourceMap?: ShaderSourceSegmentMap | null;
 	variantKey?: string;
@@ -286,8 +255,11 @@ export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
 	private _shaderRuntime: ShaderRuntime | null;
+	private _shaderCompileStage: ShaderBackendCompileStage | null;
+	private _shaderSourceFactory: WebGLShaderSourceFactory;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneProgram: WebGLSceneProgram | null = null;
+	private _sceneProgramDirectiveTag: string = "";
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
 	private _skyboxProgram: WebGLSkyboxProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
@@ -311,11 +283,25 @@ export class WebGLProgramLibrary {
 	constructor(
 		gl: WebGL2RenderingContext,
 		warn: WarnFn,
-		shaderRuntime?: ShaderRuntime
+		shaderRuntime?: ShaderRuntime,
+		shaderCompileStage?: ShaderBackendCompileStage,
+		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
 		this._warn = warn;
 		this._shaderRuntime = shaderRuntime ?? null;
+		this._shaderCompileStage = shaderCompileStage ?? null;
+		this._shaderSourceFactory =
+			shaderSourceFactory ?? createWebGLShaderSourceFactory();
+		if (!this._shaderCompileStage && this._shaderRuntime) {
+			this._shaderCompileStage = new ShaderBackendCompileStage({
+				backend: "webgl",
+				runtime: this._shaderRuntime,
+				profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+				mode: this._shaderRuntime.getMode(),
+				warn: this._warn,
+			});
+		}
 		if (this._shaderRuntime) {
 			this._disposeShaderRuntimeListener = this._shaderRuntime.onDidChange(
 				() => this._invalidateProgramCachesForShaderRuntime()
@@ -333,29 +319,57 @@ export class WebGLProgramLibrary {
 	}
 
 	private _getBuiltinSceneProgram(): WebGLSceneProgram {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		if (
+			this._sceneProgram &&
+			this._sceneProgramDirectiveTag === directiveTag
+		) {
+			return this._sceneProgram;
+		}
+		if (this._sceneProgram && this._sceneProgramDirectiveTag !== directiveTag) {
+			this._gl.deleteProgram(this._sceneProgram.program);
+			this._sceneProgram = null;
+		}
 		if (!this._sceneProgram) {
+			const sceneShaderSource = this._shaderSourceFactory.createSceneShaderSource({
+				maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+				maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+				maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+			});
+			const sceneCompositeSource =
+				this._shaderSourceFactory.createSceneCompositeShaderSource({
+					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+				});
 			this._sceneProgram = this._createSceneProgram(
-				SCENE_SHADER_SOURCE.vertex,
-				SCENE_SHADER_SOURCE.fragment,
+				sceneShaderSource.vertex,
+				sceneShaderSource.fragment,
 				"WebGLSceneProgram",
 				{
-					sourceMap: SCENE_SHADER_COMPOSITE_SOURCE.vertex.sourceMap,
+					sourceMap: sceneCompositeSource.vertex.sourceMap,
 					sourceKind: "unknown",
 				},
 				{
-					sourceMap: SCENE_SHADER_COMPOSITE_SOURCE.fragment.sourceMap,
+					sourceMap: sceneCompositeSource.fragment.sourceMap,
 					sourceKind: "unknown",
 				}
 			);
 		}
+		this._sceneProgramDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? directiveTag;
 		return this._sceneProgram;
 	}
 
 	private _getShaderMaterialSceneProgram(
 		material: ShaderMaterial
 	): WebGLSceneProgram | null {
+		const initialDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
 		const shaderKey =
-			`${material.getWebGLCacheKey()}|runtime:${this._shaderRuntime?.revision ?? 0}`;
+			`${material.getWebGLCacheKey()}` +
+			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
+			`|directive:${initialDirectiveTag}`;
 		const cached = this._customScenePrograms.get(shaderKey);
 		if (cached) {
 			return cached;
@@ -411,7 +425,22 @@ export class WebGLProgramLibrary {
 			);
 			return null;
 		}
-		this._customScenePrograms.set(shaderKey, sceneProgram);
+		const finalDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ??
+			initialDirectiveTag;
+		const finalShaderKey =
+			`${material.getWebGLCacheKey()}` +
+			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
+			`|directive:${finalDirectiveTag}`;
+		const existingFinal = this._customScenePrograms.get(finalShaderKey);
+		if (existingFinal) {
+			this._gl.deleteProgram(sceneProgram.program);
+			return existingFinal;
+		}
+		this._customScenePrograms.set(finalShaderKey, sceneProgram);
+		if (finalShaderKey !== shaderKey) {
+			this._customScenePrograms.delete(shaderKey);
+		}
 		return sceneProgram;
 	}
 
@@ -532,8 +561,8 @@ export class WebGLProgramLibrary {
 			return this._skyboxProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_SKYBOX_VERTEX_SHADER,
-			WEBGL_SKYBOX_FRAGMENT_SHADER,
+			this._shaderSource("skyboxVertex"),
+			this._shaderSource("skyboxFragment"),
 			"WebGLSkyboxProgram"
 		);
 		this._skyboxProgram = {
@@ -567,8 +596,8 @@ export class WebGLProgramLibrary {
 			return this._presentProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_PRESENT_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("presentFragment"),
 			"WebGLPresentProgram"
 		);
 		this._presentProgram = {
@@ -586,8 +615,8 @@ export class WebGLProgramLibrary {
 			return this._particleProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PARTICLE_VERTEX_SHADER,
-			WEBGL_PARTICLE_FRAGMENT_SHADER,
+			this._shaderSource("particleVertex"),
+			this._shaderSource("particleFragment"),
 			"WebGLParticleProgram"
 		);
 		this._particleProgram = {
@@ -610,8 +639,8 @@ export class WebGLProgramLibrary {
 			return this._fxaaProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_FXAA_VERTEX_SHADER,
-			WEBGL_FXAA_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("fxaaFragment"),
 			"WebGLFXAAProgram"
 		);
 		this._fxaaProgram = {
@@ -629,8 +658,8 @@ export class WebGLProgramLibrary {
 			return this._interactionOutlineProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_INTERACTION_OUTLINE_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("interactionOutlineFragment"),
 			"WebGLInteractionOutlineProgram"
 		);
 		this._interactionOutlineProgram = {
@@ -652,8 +681,8 @@ export class WebGLProgramLibrary {
 			return this._bloomProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_BLOOM_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("bloomFragment"),
 			"WebGLBloomProgram"
 		);
 		this._bloomProgram = {
@@ -672,8 +701,8 @@ export class WebGLProgramLibrary {
 			return this._motionBlurProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_MOTION_BLUR_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("motionBlurFragment"),
 			"WebGLMotionBlurProgram"
 		);
 		this._motionBlurProgram = {
@@ -694,8 +723,8 @@ export class WebGLProgramLibrary {
 			return this._dofProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_DOF_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("dofFragment"),
 			"WebGLDOFProgram"
 		);
 		this._dofProgram = {
@@ -720,8 +749,8 @@ export class WebGLProgramLibrary {
 			return this._shadowDepthProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_SHADOW_DEPTH_VERTEX_SHADER,
-			WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER,
+			this._shaderSource("shadowDepthVertex"),
+			this._shaderSource("shadowDepthFragment"),
 			"WebGLShadowDepthProgram"
 		);
 		this._shadowDepthProgram = {
@@ -738,8 +767,8 @@ export class WebGLProgramLibrary {
 			return this._copyProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_COPY_VERTEX_SHADER,
-			WEBGL_COPY_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("copyFragment"),
 			"WebGLCopyProgram"
 		);
 		this._copyProgram = {
@@ -756,8 +785,8 @@ export class WebGLProgramLibrary {
 			return this._ssaoRawProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_SSAO_RAW_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoRawFragment"),
 			"WebGLSSAORawProgram"
 		);
 		this._ssaoRawProgram = {
@@ -783,8 +812,8 @@ export class WebGLProgramLibrary {
 			return this._ssaoBlurProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_SSAO_BLUR_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoBlurFragment"),
 			"WebGLSSAOBlurProgram"
 		);
 		this._ssaoBlurProgram = {
@@ -805,8 +834,8 @@ export class WebGLProgramLibrary {
 			return this._ssaoCombineProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_SSAO_COMBINE_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoCombineFragment"),
 			"WebGLSSAOCombineProgram"
 		);
 		this._ssaoCombineProgram = {
@@ -825,8 +854,8 @@ export class WebGLProgramLibrary {
 			return this._taaProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_TAA_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("taaFragment"),
 			"WebGLTAAProgram"
 		);
 		this._taaProgram = {
@@ -856,8 +885,8 @@ export class WebGLProgramLibrary {
 			return this._ssrProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("postProcessStubFragment"),
 			"WebGLSSRProgram"
 		);
 		this._ssrProgram = {
@@ -877,8 +906,8 @@ export class WebGLProgramLibrary {
 			return this._volumetricProgram;
 		}
 		const program = this._createProgram(
-			WEBGL_PRESENT_VERTEX_SHADER,
-			WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER,
+			this._shaderSource("presentVertex"),
+			this._shaderSource("postProcessStubFragment"),
 			"WebGLVolumetricProgram"
 		);
 		this._volumetricProgram = {
@@ -890,6 +919,10 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._volumetricProgram;
+	}
+
+	private _shaderSource(part: WebGLShaderPart): string {
+		return this._shaderSourceFactory.getRawPart(part);
 	}
 
 	public destroy(): void {
@@ -1027,6 +1060,22 @@ export class WebGLProgramLibrary {
 		label: string,
 		sourceMap?: ShaderSourceSegmentMap | null
 	): ShaderProcessResult {
+		const directiveSourcePath =
+			sourceMap?.segments[0]?.sourcePath ??
+			label ??
+			"<webgl-shader>";
+		if (this._shaderCompileStage) {
+			return this._shaderCompileStage.compile({
+				code: source,
+				language: "glsl",
+				stage,
+				entryPoint: "main",
+				label,
+				sourceKind,
+				sourceMap: sourceMap ?? null,
+				directiveSourcePath,
+			});
+		}
 		if (!this._shaderRuntime) {
 			const effectiveSourceMap =
 				sourceMap ?? createInlineShaderSourceMap(source, label, "source");
@@ -1050,6 +1099,7 @@ export class WebGLProgramLibrary {
 			label,
 			sourceKind,
 			sourceMap: sourceMap ?? null,
+			directiveSourcePath,
 		});
 	}
 
@@ -1083,6 +1133,7 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(this._sceneProgram.program);
 			this._sceneProgram = null;
 		}
+		this._sceneProgramDirectiveTag = "";
 		for (const sceneProgram of this._customScenePrograms.values()) {
 			this._gl.deleteProgram(sceneProgram.program);
 		}

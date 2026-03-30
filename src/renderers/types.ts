@@ -100,6 +100,8 @@ export interface ShaderModuleDesc {
 	sourceMap?: ShaderSourceSegmentMap | null;
 	/** Optional precomputed hash/fingerprint for shader module caching */
 	codeHash?: string;
+	/** Optional directive-stage fingerprint used for module cache partitioning */
+	directiveFingerprint?: string;
 	/** Optional language tag used for shader runtime validation/injection */
 	language?: "glsl" | "wgsl";
 	/** Optional stage tag used for shader runtime validation/injection */

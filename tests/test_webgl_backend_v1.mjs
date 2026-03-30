@@ -10,10 +10,22 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
-import { createWebGLSceneShaderSource } from "../src/shaders/webgl/sceneShader.ts";
+import { createWebGLShaderSourceFactory } from "../src/shaders/webgl/WebGLShaderSourceFactory.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 import { ShaderCompileError, ShaderRuntime } from "../src/shaders/runtime/index.ts";
+
+const WEBGL_SHADER_SOURCE_FACTORY = createWebGLShaderSourceFactory();
+
+function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
+	return new WebGLProgramLibrary(
+		gl,
+		warn,
+		shaderRuntime,
+		shaderCompileStage,
+		WEBGL_SHADER_SOURCE_FACTORY
+	);
+}
 
 function createProgramCompileFailGL() {
 	return {
@@ -248,7 +260,7 @@ function testLightCollectorLimitsAndWarnings() {
 }
 
 function testProgramLibraryCompileErrorMessage() {
-	const library = new WebGLProgramLibrary(createProgramCompileFailGL(), () => {});
+	const library = createProgramLibrary(createProgramCompileFailGL(), () => {});
 	assert.throws(
 		() => library.getSceneProgram(),
 		(error) => {
@@ -264,7 +276,7 @@ function testProgramLibraryCompileErrorMessage() {
 function testProgramLibraryCompileErrorMapsSourceLine() {
 	const gl = createProgramCompileFailGL();
 	gl.getShaderInfoLog = () => "ERROR: 0:4: syntax error";
-	const library = new WebGLProgramLibrary(gl, () => {});
+	const library = createProgramLibrary(gl, () => {});
 	assert.throws(
 		() => library.getSceneProgram(),
 		(error) => {
@@ -280,7 +292,7 @@ function testProgramLibraryCompileErrorMapsSourceLine() {
 function testProgramLibraryShaderMaterialCustomProgram() {
 	const warnings = [];
 	const gl = createProgramCaptureGL();
-	const library = new WebGLProgramLibrary(gl, (key, message) =>
+	const library = createProgramLibrary(gl, (key, message) =>
 		warnings.push({ key, message })
 	);
 	const material = new ShaderMaterial({
@@ -310,7 +322,7 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
 	const warnings = [];
 	const gl = createProgramCaptureGL();
-	const library = new WebGLProgramLibrary(gl, (key, message) =>
+	const library = createProgramLibrary(gl, (key, message) =>
 		warnings.push({ key, message })
 	);
 	const material = new ShaderMaterial({
@@ -332,7 +344,7 @@ function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
 	const warnings = [];
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const gl = createSelectiveCompileFailGL("FORCE_CUSTOM_FAIL");
-	const library = new WebGLProgramLibrary(
+	const library = createProgramLibrary(
 		gl,
 		(key, message) => warnings.push({ key, message }),
 		runtime
@@ -359,7 +371,7 @@ function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
 function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const gl = createProgramCaptureGL();
-	const library = new WebGLProgramLibrary(gl, () => {}, runtime);
+	const library = createProgramLibrary(gl, () => {}, runtime);
 	const material = new ShaderMaterial({
 		name: "RevisionInvalidateMaterial",
 		webglGLSL: {
@@ -390,7 +402,7 @@ function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 
 function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
 	const gl = createProgramCaptureGL();
-	const library = new WebGLProgramLibrary(gl, () => {});
+	const library = createProgramLibrary(gl, () => {});
 
 	const motionBlurProgram = library.getMotionBlurProgram();
 	const dofProgram = library.getDOFProgram();
@@ -424,7 +436,7 @@ function testLightCollectorShadowBias() {
 }
 
 function testSceneShaderBackLitShadowGuard() {
-	const shader = createWebGLSceneShaderSource({
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
 		maxDirectionalLights: 4,
 		maxPointLights: 4,
 		maxSpotLights: 4,
@@ -435,7 +447,7 @@ function testSceneShaderBackLitShadowGuard() {
 }
 
 function testSceneShaderUsesDecoupledShadowNormal() {
-	const shader = createWebGLSceneShaderSource({
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
 		maxDirectionalLights: 4,
 		maxPointLights: 4,
 		maxSpotLights: 4,
@@ -570,6 +582,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 }
 
 async function run() {
+	await WEBGL_SHADER_SOURCE_FACTORY.prepareAll();
 	testLightCollectorLimitsAndWarnings();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();

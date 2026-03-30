@@ -55,6 +55,8 @@ const tests = [
 	"test_gltf_loader_security.mjs",
 	"test_pbr_textures.mjs",
 	"test_shader_runtime.mjs",
+	"test_shader_directive_pipeline_v2.mjs",
+	"test_shader_directive_migration_guard.mjs",
 	"test_shader_material.mjs",
 	"test_canvas_texture.mjs",
 	"test_video_texture.mjs",

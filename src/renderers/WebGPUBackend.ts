@@ -74,12 +74,17 @@ import {
 	formatShaderCompilerMessages,
 	mapShaderCompilerMessages,
 	normalizeWebGPUCompilationMessages,
+	ShaderBackendCompileStage,
 	ShaderCompileError,
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
 } from "../shaders/runtime";
 import type {
+	ShaderBackendCompileResult,
 	ShaderCompilerMessage,
+	ShaderDirectiveCompileHook,
 	ShaderProcessResult,
+	ShaderRuntimeMode,
 } from "../shaders/runtime";
 import {
 	addWarmupPhase,
@@ -203,6 +208,47 @@ const RESOURCE_ID_REBASE_THRESHOLD = 0x40000000;
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
 const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
+
+export interface WebGPUBackendOptions {
+	canvas?: HTMLCanvasElement;
+	shaderMode?: ShaderRuntimeMode;
+	directiveHook?: ShaderDirectiveCompileHook | null;
+}
+
+function isWebGPUBackendOptions(
+	value: unknown
+): value is WebGPUBackendOptions {
+	return typeof value === "object" && value !== null;
+}
+
+function resolveWebGPUBackendCtorArgs(
+	canvasOrOptions?: HTMLCanvasElement | WebGPUBackendOptions,
+	options?: WebGPUBackendOptions
+): { canvas: HTMLCanvasElement | null; options: WebGPUBackendOptions } {
+	const fallbackOptions = options ?? {};
+	if (
+		typeof HTMLCanvasElement !== "undefined" &&
+		canvasOrOptions instanceof HTMLCanvasElement
+	) {
+		return {
+			canvas: canvasOrOptions,
+			options: fallbackOptions,
+		};
+	}
+	if (isWebGPUBackendOptions(canvasOrOptions)) {
+		return {
+			canvas: canvasOrOptions.canvas ?? null,
+			options: {
+				...canvasOrOptions,
+				...fallbackOptions,
+			},
+		};
+	}
+	return {
+		canvas: null,
+		options: fallbackOptions,
+	};
+}
 const WEBGPU_PASS_DEPENDENCIES = new Map<
 	FramePass["stage"],
 	readonly FramePass["stage"][]
@@ -322,10 +368,26 @@ export class WebGPUBackend implements IRenderBackend {
 	private _msaaSelectionCache = new Map<string, number>();
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
+	private _shaderCompileStage: ShaderBackendCompileStage;
 
-	constructor(canvas?: HTMLCanvasElement) {
-		this.canvas = canvas ?? null;
-		this.shaderRuntime = new ShaderRuntime();
+	constructor(
+		canvasOrOptions?: HTMLCanvasElement | WebGPUBackendOptions,
+		options?: WebGPUBackendOptions
+	) {
+		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
+		const shaderMode = resolved.options.shaderMode ?? "strict";
+		this.canvas = resolved.canvas ?? null;
+		this.shaderRuntime = new ShaderRuntime({
+			mode: shaderMode,
+		});
+		this._shaderCompileStage = new ShaderBackendCompileStage({
+			backend: "webgpu",
+			runtime: this.shaderRuntime,
+			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+			hook: resolved.options.directiveHook ?? null,
+			mode: shaderMode,
+			warn: (key, message) => this.warnOnce(key, message),
+		});
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
@@ -337,6 +399,10 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public getComputeFacade(): IWebGPUComputeFacade {
 		return createWebGPUComputeFacade(this);
+	}
+
+	public getShaderDirectiveCacheTag(): string {
+		return this._shaderCompileStage.getCacheFingerprintTag();
 	}
 
 	public warnOnce(key: string, message: string): void {
@@ -764,7 +830,7 @@ export class WebGPUBackend implements IRenderBackend {
 		desc: ShaderModuleDesc
 	): Promise<IShaderModule> {
 		this._assertDeviceOperational("create shader modules");
-		const processed = this._processShaderSource(desc);
+		const processed = await this._processShaderSource(desc);
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(desc, processed);
 		}
@@ -776,6 +842,7 @@ export class WebGPUBackend implements IRenderBackend {
 			code: processed.code,
 			sourceMap: effectiveSourceMap,
 			codeHash: effectiveCodeHash,
+			directiveFingerprint: processed.directiveFingerprint,
 			logCompilationInfo:
 				desc.logCompilationInfo ?? this._warmupLogCompilationInfo,
 		};
@@ -1441,12 +1508,13 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _getShaderModuleCacheKey(desc: ShaderModuleDesc): string {
+		const directiveFingerprint = desc.directiveFingerprint ?? "none";
 		const explicitHash = desc.codeHash;
 		if (explicitHash) {
-			return `codeHash:${explicitHash}`;
+			return `directive:${directiveFingerprint}|codeHash:${explicitHash}`;
 		}
 		const hash = this._getCachedShaderCodeHash(desc.code);
-		return `len:${desc.code.length}|hash:${hash}`;
+		return `directive:${directiveFingerprint}|len:${desc.code.length}|hash:${hash}`;
 	}
 
 	private _acquireSamplerHandle(entry: CachedSamplerEntry): InternalSampler {
@@ -2553,9 +2621,15 @@ export class WebGPUBackend implements IRenderBackend {
 		return code.replace(/\uFEFF/g, "");
 	}
 
-	private _processShaderSource(desc: ShaderModuleDesc): ShaderProcessResult {
+	private async _processShaderSource(
+		desc: ShaderModuleDesc
+	): Promise<ShaderBackendCompileResult> {
 		const sanitizedCode = this._stripUtf8BomCharacters(desc.code, desc.label);
-		return this.shaderRuntime.process({
+		const directiveSourcePath =
+			desc.sourceMap?.segments[0]?.sourcePath ??
+			desc.label ??
+			"<webgpu-shader>";
+		return this._shaderCompileStage.compileAsync({
 			code: sanitizedCode,
 			language: desc.language ?? "wgsl",
 			stage: desc.stage ?? "unknown",
@@ -2563,6 +2637,7 @@ export class WebGPUBackend implements IRenderBackend {
 			label: desc.label,
 			sourceKind: desc.sourceKind ?? "unknown",
 			sourceMap: desc.sourceMap ?? null,
+			directiveSourcePath,
 		});
 	}
 

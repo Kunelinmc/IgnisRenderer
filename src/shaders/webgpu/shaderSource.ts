@@ -1,6 +1,8 @@
 import { Platform } from "../../foundation/Platform";
-import { type CompositeShaderSource } from "../runtime";
-import { preprocessEngineShaderDirectives } from "../runtime/engineDirectives";
+import {
+	createInlineCompositeShaderSource,
+	type CompositeShaderSource,
+} from "../runtime";
 
 type SceneShaderPart =
 	| "constants"
@@ -84,11 +86,11 @@ async function loadShaderCompositeFromFile(
 				const module = await browserLoader();
 				code = module.default;
 			}
-			return preprocessEngineShaderDirectives({
+			return createInlineCompositeShaderSource(
 				code,
-				language: "wgsl",
-				sourcePath: nodeRelativePath,
-			});
+				nodeRelativePath,
+				"source"
+			);
 		})();
 		_preprocessedCache.set(key, cached);
 	}

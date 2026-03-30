@@ -1,4 +1,10 @@
 export { ShaderRuntime } from "./ShaderRuntime";
+export { ShaderDirectiveStage, ShaderBackendCompileStage } from "./DirectivePipeline";
+export {
+	assertShaderDirectiveProfileRegistryComplete,
+	createDefaultShaderDirectiveProfileRegistry,
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+} from "./engineDirectives";
 export { ShaderCompileError } from "./errorMapping";
 export {
 	SHADER_RUNTIME_DEFAULT_CACHE_LIMIT,
@@ -23,11 +29,21 @@ export {
 } from "./errorMapping";
 export type {
 	CompositeShaderSource,
+	ShaderBackendCompileResult,
+	ShaderBackendId,
 	ShaderDiagnostic,
 	ShaderDiagnosticFilter,
 	ShaderDiagnosticPosition,
 	ShaderDiagnosticRange,
 	ShaderDiagnosticSeverity,
+	ShaderDirectiveCompileHook,
+	ShaderDirectiveHookContext,
+	ShaderDirectiveHookResult,
+	ShaderDirectivePreprocessResult,
+	ShaderDirectiveProfile,
+	ShaderDirectiveProfileRegistry,
+	ShaderDirectiveStageRequest,
+	ShaderDirectiveStageResult,
 	ShaderGLSLInjectionAnchor,
 	ShaderInjectionAnchor,
 	ShaderLanguage,

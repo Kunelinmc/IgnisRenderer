@@ -11,7 +11,19 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
-import { ShaderRuntime } from "../shaders/runtime";
+import {
+	ShaderBackendCompileStage,
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+	ShaderRuntime,
+} from "../shaders/runtime";
+import type {
+	ShaderDirectiveCompileHook,
+	ShaderRuntimeMode,
+} from "../shaders/runtime";
+import {
+	createWebGLShaderSourceFactory,
+	type WebGLShaderSourceFactory,
+} from "../shaders/webgl/WebGLShaderSourceFactory";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -35,6 +47,11 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"gamma",
 ]);
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
+
+export interface WebGLBackendOptions {
+	shaderMode?: ShaderRuntimeMode;
+	directiveHook?: ShaderDirectiveCompileHook | null;
+}
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
@@ -70,9 +87,23 @@ export class WebGLBackend implements IRenderBackend {
 	private _width = 1;
 	private _height = 1;
 	public readonly shaderRuntime: ShaderRuntime;
+	private _shaderCompileStage: ShaderBackendCompileStage;
+	private _shaderSourceFactory: WebGLShaderSourceFactory;
 
-	constructor() {
-		this.shaderRuntime = new ShaderRuntime();
+	constructor(options: WebGLBackendOptions = {}) {
+		const shaderMode = options.shaderMode ?? "warn";
+		this.shaderRuntime = new ShaderRuntime({
+			mode: shaderMode,
+		});
+		this._shaderCompileStage = new ShaderBackendCompileStage({
+			backend: "webgl",
+			runtime: this.shaderRuntime,
+			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+			hook: options.directiveHook ?? null,
+			mode: shaderMode,
+			warn: (key, message) => this._warnOnce(key, message),
+		});
+		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
@@ -85,6 +116,7 @@ export class WebGLBackend implements IRenderBackend {
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
+		await this._shaderSourceFactory.prepareAll();
 		this._initializeGLContext(canvas);
 	}
 
@@ -225,7 +257,9 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
 			(key, message) => this._warnOnce(key, message),
-			this.shaderRuntime
+			this.shaderRuntime,
+			this._shaderCompileStage,
+			this._shaderSourceFactory
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);

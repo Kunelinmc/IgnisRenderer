@@ -1,20 +1,16 @@
-import { ShaderRuntime } from "./ShaderRuntime";
 import type {
-	CompositeShaderSource,
+	ShaderDirectiveProfile,
+	ShaderDirectiveProfileRegistry,
 	ShaderInjectionArgValue,
 	ShaderInjectionScript,
-	ShaderLanguage,
 } from "./types";
 
-interface EngineShaderDirectiveRequest {
-	code: string;
-	language: ShaderLanguage;
-	sourcePath: string;
-	label?: string;
-}
-
-const ENGINE_DIRECTIVE_RUNTIME = new ShaderRuntime({ mode: "warn" });
-let _isConfigured = false;
+const WEBGPU_PROFILE_ID = "webgpu/v1";
+const WEBGL_PROFILE_ID = "webgl/v1";
+const SOFTWARE_PROFILE_ID = "software/v1";
+const PROFILE_REVISION = 1;
+const MIGRATION_HINT =
+	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 
 function normalizeLumaProfile(
 	value: ShaderInjectionArgValue | undefined
@@ -63,7 +59,8 @@ function normalizeBooleanFlag(
 function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 	return {
 		id: "ignis/postprocess/luma",
-		description: "Inject a shared luma() implementation with configurable profile.",
+		description:
+			"Inject a shared luma() implementation with configurable profile.",
 		run(args, context) {
 			const profile = normalizeLumaProfile(args.profile);
 			const clampInput = normalizeBooleanFlag(args.clamp, true);
@@ -85,15 +82,60 @@ function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 	};
 }
 
-function configureEngineDirectiveRuntime(): void {
-	if (_isConfigured) {
-		return;
-	}
+function createWebGPUProfile(): ShaderDirectiveProfile {
+	return {
+		id: WEBGPU_PROFILE_ID,
+		backend: "webgpu",
+		revision: PROFILE_REVISION,
+		includeModules: [
+			{
+				language: "wgsl",
+				id: "ignis/color/srgb.wgsl",
+				code: `fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
+	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+}
 
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"glsl",
-		"ignis/color/srgb.glsl",
-		`vec3 srgbToLinear(vec3 c) {
+fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
+	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+}`,
+				sourcePath: "runtime://ignis/includes/wgsl/color/srgb.wgsl",
+			},
+			{
+				language: "wgsl",
+				id: "ignis/postprocess/luma-weights.wgsl",
+				code: `const IGNIS_LUMA_WEIGHTS_BT601: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
+const IGNIS_LUMA_WEIGHTS_BT709: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);`,
+				sourcePath: "runtime://ignis/includes/wgsl/postprocess/luma-weights.wgsl",
+			},
+			{
+				language: "wgsl",
+				id: "ignis/postprocess/luma-common.wgsl",
+				code: `#include <ignis/postprocess/luma-weights>
+fn ignisLumaInternal(
+	color: vec3<f32>,
+	weights: vec3<f32>,
+	clampInput: bool
+) -> f32 {
+	let sampleColor = select(color, max(color, vec3<f32>(0.0)), clampInput);
+	return dot(sampleColor, weights);
+}`,
+				sourcePath: "runtime://ignis/includes/wgsl/postprocess/luma-common.wgsl",
+			},
+		],
+		injectionScripts: [createPostProcessLumaInjectionScript()],
+	};
+}
+
+function createWebGLProfile(): ShaderDirectiveProfile {
+	return {
+		id: WEBGL_PROFILE_ID,
+		backend: "webgl",
+		revision: PROFILE_REVISION,
+		includeModules: [
+			{
+				language: "glsl",
+				id: "ignis/color/srgb.glsl",
+				code: `vec3 srgbToLinear(vec3 c) {
 	vec3 a = c / 12.92;
 	vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
 	return mix(b, a, lessThanEqual(c, vec3(0.04045)));
@@ -104,81 +146,67 @@ vec3 linearToSrgb(vec3 c) {
 	vec3 b = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
 	return mix(b, a, lessThanEqual(c, vec3(0.0031308)));
 }`,
-		"runtime://ignis/includes/glsl/color/srgb.glsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"wgsl",
-		"ignis/color/srgb.wgsl",
-		`fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
-}
-
-fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
-}`,
-		"runtime://ignis/includes/wgsl/color/srgb.wgsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"glsl",
-		"ignis/postprocess/luma-weights.glsl",
-		`#define IGNIS_LUMA_WEIGHTS_BT601 vec3(0.299, 0.587, 0.114)
+				sourcePath: "runtime://ignis/includes/glsl/color/srgb.glsl",
+			},
+			{
+				language: "glsl",
+				id: "ignis/postprocess/luma-weights.glsl",
+				code: `#define IGNIS_LUMA_WEIGHTS_BT601 vec3(0.299, 0.587, 0.114)
 #define IGNIS_LUMA_WEIGHTS_BT709 vec3(0.2126, 0.7152, 0.0722)`,
-		"runtime://ignis/includes/glsl/postprocess/luma-weights.glsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"glsl",
-		"ignis/postprocess/luma-common.glsl",
-		`#include <ignis/postprocess/luma-weights>
+				sourcePath: "runtime://ignis/includes/glsl/postprocess/luma-weights.glsl",
+			},
+			{
+				language: "glsl",
+				id: "ignis/postprocess/luma-common.glsl",
+				code: `#include <ignis/postprocess/luma-weights>
 float ignisLumaInternal(vec3 color, vec3 weights, bool clampInput) {
 	vec3 sampleColor = clampInput ? max(color, vec3(0.0)) : color;
 	return dot(sampleColor, weights);
 }`,
-		"runtime://ignis/includes/glsl/postprocess/luma-common.glsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"wgsl",
-		"ignis/postprocess/luma-weights.wgsl",
-		`const IGNIS_LUMA_WEIGHTS_BT601: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
-const IGNIS_LUMA_WEIGHTS_BT709: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);`,
-		"runtime://ignis/includes/wgsl/postprocess/luma-weights.wgsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerIncludeModule(
-		"wgsl",
-		"ignis/postprocess/luma-common.wgsl",
-		`#include <ignis/postprocess/luma-weights>
-fn ignisLumaInternal(
-	color: vec3<f32>,
-	weights: vec3<f32>,
-	clampInput: bool
-) -> f32 {
-	let sampleColor = select(color, max(color, vec3<f32>(0.0)), clampInput);
-	return dot(sampleColor, weights);
-}`,
-		"runtime://ignis/includes/wgsl/postprocess/luma-common.wgsl"
-	);
-
-	ENGINE_DIRECTIVE_RUNTIME.registerInjectionScript(
-		createPostProcessLumaInjectionScript()
-	);
-	_isConfigured = true;
+				sourcePath: "runtime://ignis/includes/glsl/postprocess/luma-common.glsl",
+			},
+		],
+		injectionScripts: [createPostProcessLumaInjectionScript()],
+	};
 }
 
-export function preprocessEngineShaderDirectives(
-	request: EngineShaderDirectiveRequest
-): CompositeShaderSource {
-	configureEngineDirectiveRuntime();
-	const result = ENGINE_DIRECTIVE_RUNTIME.process({
-		code: request.code,
-		language: request.language,
-		stage: "unknown",
-		label: request.label ?? request.sourcePath,
-		sourceKind: "unknown",
-		directiveSourcePath: request.sourcePath,
-	});
-	return result.composite;
+function createSoftwareProfile(): ShaderDirectiveProfile {
+	return {
+		id: SOFTWARE_PROFILE_ID,
+		backend: "software",
+		revision: PROFILE_REVISION,
+		includeModules: [],
+		injectionScripts: [],
+	};
+}
+
+export function createDefaultShaderDirectiveProfileRegistry():
+	ShaderDirectiveProfileRegistry {
+	return {
+		webgpu: createWebGPUProfile(),
+		webgl: createWebGLProfile(),
+		software: createSoftwareProfile(),
+	};
+}
+
+export const DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY =
+	createDefaultShaderDirectiveProfileRegistry();
+
+export function assertShaderDirectiveProfileRegistryComplete(
+	registry: Partial<ShaderDirectiveProfileRegistry> | null | undefined
+): asserts registry is ShaderDirectiveProfileRegistry {
+	const normalized = registry ?? {};
+	for (const backend of ["webgpu", "webgl", "software"] as const) {
+		const profile = normalized[backend];
+		if (!profile) {
+			throw new Error(
+				`Missing shader directive profile for backend "${backend}".${MIGRATION_HINT}`
+			);
+		}
+		if (profile.backend !== backend) {
+			throw new Error(
+				`Shader directive profile "${profile.id}" has mismatched backend "${profile.backend}" (expected "${backend}").${MIGRATION_HINT}`
+			);
+		}
+	}
 }

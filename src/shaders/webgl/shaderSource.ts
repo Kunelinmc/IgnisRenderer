@@ -1,8 +1,10 @@
 import { Platform } from "../../foundation/Platform";
-import { type CompositeShaderSource } from "../runtime";
-import { preprocessEngineShaderDirectives } from "../runtime/engineDirectives";
+import {
+	createInlineCompositeShaderSource,
+	type CompositeShaderSource,
+} from "../runtime";
 
-type WebGLShaderPart =
+export type WebGLShaderPart =
 	| "sceneVertex"
 	| "sceneFragment"
 	| "skyboxVertex"
@@ -24,6 +26,30 @@ type WebGLShaderPart =
 	| "ssaoRawFragment"
 	| "ssaoBlurFragment"
 	| "ssaoCombineFragment";
+
+export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
+	"sceneVertex",
+	"sceneFragment",
+	"skyboxVertex",
+	"skyboxFragment",
+	"presentVertex",
+	"presentFragment",
+	"particleVertex",
+	"particleFragment",
+	"shadowDepthVertex",
+	"shadowDepthFragment",
+	"copyFragment",
+	"postProcessStubFragment",
+	"fxaaFragment",
+	"bloomFragment",
+	"interactionOutlineFragment",
+	"motionBlurFragment",
+	"dofFragment",
+	"taaFragment",
+	"ssaoRawFragment",
+	"ssaoBlurFragment",
+	"ssaoCombineFragment",
+];
 
 type RawShaderModule = {
 	default: string;
@@ -67,11 +93,11 @@ async function loadShaderCompositeFromFile(
 				const module = await browserLoader();
 				code = module.default;
 			}
-			return preprocessEngineShaderDirectives({
+			return createInlineCompositeShaderSource(
 				code,
-				language: "glsl",
-				sourcePath: nodeRelativePath,
-			});
+				nodeRelativePath,
+				"source"
+			);
 		})();
 		_preprocessedCache.set(key, cached);
 	}

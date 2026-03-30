@@ -48,7 +48,9 @@ export class WebGPUPipelineLibrary {
 	private _layouts: WebGPUPipelineLayouts;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
+	private _sceneShaderDirectiveTag = "";
 	private _skyboxShaderModule: IShaderModule | null = null;
+	private _skyboxShaderDirectiveTag = "";
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _skyboxPipelines = new Map<string, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
@@ -73,7 +75,9 @@ export class WebGPUPipelineLibrary {
 
 	public invalidateShaderRuntimeCaches(): void {
 		this._sceneShaderModule = null;
+		this._sceneShaderDirectiveTag = "";
 		this._skyboxShaderModule = null;
+		this._skyboxShaderDirectiveTag = "";
 		this._customShaderModuleCache.clear();
 		this._skyboxPipelines.clear();
 		this._materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
@@ -98,23 +102,23 @@ export class WebGPUPipelineLibrary {
 			material,
 			isWireframe
 		);
-		const shaderKey = this._getShaderCacheKey(material);
+		const initialShaderKey = this._getShaderCacheKey(material);
 		const cached = this._materialPipelineCache.get(material);
 		if (
 			cached &&
 			cached.key === pipelineKey &&
 			cached.mode === mode &&
-			cached.shaderKey === shaderKey &&
+			cached.shaderKey === initialShaderKey &&
 			cached.sampleCount === sampleCount &&
 			cached.topology === topology
 		) {
 			return cached.pipeline;
 		}
 
-		const cacheKey =
-			`${pipelineKey}|${mode}|${shaderKey}` +
+		const initialCacheKey =
+			`${pipelineKey}|${mode}|${initialShaderKey}` +
 			`|topology:${topology}|msaa:${sampleCount}`;
-		let pipeline = this._pipelineCache.get(cacheKey);
+		let pipeline = this._pipelineCache.get(initialCacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
 				material,
@@ -122,13 +126,25 @@ export class WebGPUPipelineLibrary {
 				isWireframe,
 				topology
 			);
-			this._pipelineCache.set(cacheKey, pipeline);
+		}
+		const finalShaderKey = this._getShaderCacheKey(material);
+		const finalCacheKey =
+			`${pipelineKey}|${mode}|${finalShaderKey}` +
+			`|topology:${topology}|msaa:${sampleCount}`;
+		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
+		if (cachedFinalPipeline) {
+			pipeline = cachedFinalPipeline;
+		} else {
+			this._pipelineCache.set(finalCacheKey, pipeline);
+		}
+		if (finalCacheKey !== initialCacheKey) {
+			this._pipelineCache.delete(initialCacheKey);
 		}
 
 		this._materialPipelineCache.set(material, {
 			key: pipelineKey,
 			mode,
-			shaderKey,
+			shaderKey: finalShaderKey,
 			sampleCount,
 			topology,
 			pipeline,
@@ -325,13 +341,18 @@ export class WebGPUPipelineLibrary {
 	}
 
 	private _getShaderCacheKey(material: Material): string {
+		const directiveTag = this._getDirectiveCacheTag();
 		if (material instanceof ShaderMaterial) {
 			return (
 				`shader:${material.getWebGPUCacheKey()}` +
-				`|runtime:${this._getShaderRuntimeRevision()}`
+				`|runtime:${this._getShaderRuntimeRevision()}` +
+				`|directive:${directiveTag}`
 			);
 		}
-		return `builtin-scene|runtime:${this._getShaderRuntimeRevision()}`;
+		return (
+			`builtin-scene|runtime:${this._getShaderRuntimeRevision()}` +
+			`|directive:${directiveTag}`
+		);
 	}
 
 	public async getSkyboxPipeline(
@@ -396,7 +417,14 @@ export class WebGPUPipelineLibrary {
 	}
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
-		if (!this._sceneShaderModule) {
+		const directiveTag = this._getDirectiveCacheTag();
+		if (
+			this._sceneShaderModule &&
+			this._sceneShaderDirectiveTag === directiveTag
+		) {
+			return this._sceneShaderModule;
+		}
+		if (!this._sceneShaderModule || this._sceneShaderDirectiveTag !== directiveTag) {
 			const shader = await getWebGPUSceneShaderComposite();
 			this._sceneShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
@@ -406,13 +434,21 @@ export class WebGPUPipelineLibrary {
 				stage: "unknown",
 				sourceKind: "builtin-scene",
 			});
+			this._sceneShaderDirectiveTag = this._getDirectiveCacheTag();
 		}
 
 		return this._sceneShaderModule;
 	}
 
 	private async _getSkyboxShaderModule(): Promise<IShaderModule> {
-		if (!this._skyboxShaderModule) {
+		const directiveTag = this._getDirectiveCacheTag();
+		if (
+			this._skyboxShaderModule &&
+			this._skyboxShaderDirectiveTag === directiveTag
+		) {
+			return this._skyboxShaderModule;
+		}
+		if (!this._skyboxShaderModule || this._skyboxShaderDirectiveTag !== directiveTag) {
 			const shader = await getWebGPUSkyboxShaderComposite();
 			this._skyboxShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
@@ -422,6 +458,7 @@ export class WebGPUPipelineLibrary {
 				stage: "unknown",
 				sourceKind: "builtin-skybox",
 			});
+			this._skyboxShaderDirectiveTag = this._getDirectiveCacheTag();
 		}
 
 		return this._skyboxShaderModule;
@@ -469,5 +506,15 @@ export class WebGPUPipelineLibrary {
 			};
 		};
 		return backend.shaderRuntime ?? null;
+	}
+
+	private _getDirectiveCacheTag(): string {
+		const backend = this._backend as unknown as {
+			getShaderDirectiveCacheTag?: () => string;
+		};
+		if (typeof backend.getShaderDirectiveCacheTag === "function") {
+			return backend.getShaderDirectiveCacheTag();
+		}
+		return "none";
 	}
 }

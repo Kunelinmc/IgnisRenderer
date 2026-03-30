@@ -52,7 +52,11 @@ import {
 	type WebGLShadowDepthProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
-import type { ShaderRuntime } from "../../shaders/runtime";
+import type { WebGLShaderSourceFactory } from "../../shaders/webgl/WebGLShaderSourceFactory";
+import type {
+	ShaderBackendCompileStage,
+	ShaderRuntime,
+} from "../../shaders/runtime";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import type {
 	WarmupPhaseCounters,
@@ -212,11 +216,19 @@ export class WebGLFrameExecutor {
 	constructor(
 		gl: WebGL2RenderingContext,
 		warn: WarnFn,
-		shaderRuntime?: ShaderRuntime
+		shaderRuntime?: ShaderRuntime,
+		shaderCompileStage?: ShaderBackendCompileStage,
+		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
 		this._warn = warn;
-		this._programs = new WebGLProgramLibrary(gl, warn, shaderRuntime);
+		this._programs = new WebGLProgramLibrary(
+			gl,
+			warn,
+			shaderRuntime,
+			shaderCompileStage,
+			shaderSourceFactory
+		);
 		this._geometry = new WebGLGeometryRegistry(gl, warn);
 		this._textures = new WebGLTextureRegistry(gl, warn);
 		this._fullscreenVao = gl.createVertexArray();

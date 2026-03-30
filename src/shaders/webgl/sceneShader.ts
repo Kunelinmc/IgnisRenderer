@@ -1,78 +1,57 @@
-import { type CompositeShaderSource, createInlineCompositeShaderSource } from "../runtime";
 import {
-	loadWebGLShaderPart,
-	loadWebGLShaderPartComposite,
-} from "./shaderSource";
+	createWebGLShaderSourceFactory,
+	type WebGLSceneCompositeShaderSource,
+	type WebGLSceneLightLimits,
+	type WebGLSceneShaderSource,
+	type WebGLShaderSourceFactory,
+} from "./WebGLShaderSourceFactory";
 
-const SCENE_VERTEX_SHADER_SOURCE = await loadWebGLShaderPart("sceneVertex");
-const SCENE_FRAGMENT_SHADER_TEMPLATE = await loadWebGLShaderPart(
-	"sceneFragment"
-);
-const SCENE_VERTEX_SHADER_COMPOSITE = await loadWebGLShaderPartComposite(
-	"sceneVertex"
-);
-const SCENE_FRAGMENT_SHADER_COMPOSITE_TEMPLATE = await loadWebGLShaderPartComposite(
-	"sceneFragment"
-);
+let _defaultFactory: WebGLShaderSourceFactory | null = null;
+let _defaultPrepared = false;
 
-export interface WebGLSceneLightLimits {
-	maxDirectionalLights: number;
-	maxPointLights: number;
-	maxSpotLights: number;
+function getDefaultFactory(): WebGLShaderSourceFactory {
+	if (!_defaultFactory) {
+		_defaultFactory = createWebGLShaderSourceFactory();
+	}
+	return _defaultFactory;
 }
 
-export interface WebGLSceneShaderSource {
-	vertex: string;
-	fragment: string;
-}
-
-export interface WebGLSceneCompositeShaderSource {
-	vertex: CompositeShaderSource;
-	fragment: CompositeShaderSource;
-}
-
-function replaceLightLimit(
-	source: string,
-	placeholder: string,
-	value: number
-): string {
-	return source.replaceAll(placeholder, String(Math.max(0, value | 0)));
+export async function prepareDefaultWebGLSceneShaderSourceFactory():
+	Promise<void> {
+	if (_defaultPrepared) {
+		return;
+	}
+	await getDefaultFactory().prepareSceneParts();
+	_defaultPrepared = true;
 }
 
 export function createWebGLSceneShaderSource(
 	limits: WebGLSceneLightLimits
 ): WebGLSceneShaderSource {
-	const withDirectional = replaceLightLimit(
-		SCENE_FRAGMENT_SHADER_TEMPLATE,
-		"__MAX_DIRECTIONAL_LIGHTS__",
-		limits.maxDirectionalLights
-	);
-	const withPoint = replaceLightLimit(
-		withDirectional,
-		"__MAX_POINT_LIGHTS__",
-		limits.maxPointLights
-	);
-	const fragment = replaceLightLimit(
-		withPoint,
-		"__MAX_SPOT_LIGHTS__",
-		limits.maxSpotLights
-	);
-	return {
-		vertex: SCENE_VERTEX_SHADER_SOURCE,
-		fragment,
-	};
+	if (!_defaultPrepared) {
+		throw new Error(
+			"WebGL scene shader source factory is not prepared. " +
+				"Migration hint: await prepareDefaultWebGLSceneShaderSourceFactory() before calling createWebGLSceneShaderSource()."
+		);
+	}
+	return getDefaultFactory().createSceneShaderSource(limits);
 }
 
 export function createWebGLSceneCompositeShaderSource(
 	limits: WebGLSceneLightLimits
 ): WebGLSceneCompositeShaderSource {
-	const shader = createWebGLSceneShaderSource(limits);
-	return {
-		vertex: SCENE_VERTEX_SHADER_COMPOSITE,
-		fragment: createInlineCompositeShaderSource(
-			shader.fragment,
-			"./parts/sceneFragment.glsl",
-			"template"
-		),
-	};
+	if (!_defaultPrepared) {
+		throw new Error(
+			"WebGL scene shader source factory is not prepared. " +
+				"Migration hint: await prepareDefaultWebGLSceneShaderSourceFactory() before calling createWebGLSceneCompositeShaderSource()."
+		);
+	}
+	return getDefaultFactory().createSceneCompositeShaderSource(limits);
 }
+
+export type {
+	WebGLSceneCompositeShaderSource,
+	WebGLSceneLightLimits,
+	WebGLSceneShaderSource,
+	WebGLShaderSourceFactory,
+} from "./WebGLShaderSourceFactory";

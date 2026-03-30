@@ -24,6 +24,10 @@ import {
 	type SoftwareBackendOptions,
 	type SoftwareRasterMode,
 } from "./software/SoftwareRasterConfig";
+import {
+	assertShaderDirectiveProfileRegistryComplete,
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+} from "../shaders/runtime";
 
 export type {
 	SoftwareBackendOptions,
@@ -78,6 +82,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private _activeRasterMode: SoftwareRasterMode;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
+		assertShaderDirectiveProfileRegistryComplete(
+			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY
+		);
 		this._options = options;
 		this.requestedRasterMode =
 			options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;

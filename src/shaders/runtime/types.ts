@@ -87,6 +87,14 @@ export interface ShaderProcessResult {
 	fromCache: boolean;
 }
 
+export interface ShaderDirectivePreprocessResult {
+	code: string;
+	sourceMap: ShaderSourceSegmentMap;
+	composite: CompositeShaderSource;
+	diagnostics: ShaderDiagnostic[];
+	hasErrors: boolean;
+}
+
 export interface ShaderRuleContext {
 	mode: ShaderRuntimeMode;
 	language: ShaderLanguage;
@@ -127,6 +135,69 @@ export interface ShaderInjectionScript {
 		args: Readonly<Record<string, ShaderInjectionArgValue>>,
 		context: ShaderInjectionScriptContext
 	) => ShaderRuleInjectResult;
+}
+
+export type ShaderBackendId = "webgpu" | "webgl" | "software";
+
+export interface ShaderDirectiveProfile {
+	id: string;
+	backend: ShaderBackendId;
+	revision: number;
+	includeModules: ShaderIncludeModule[];
+	injectionScripts: ShaderInjectionScript[];
+}
+
+export type ShaderDirectiveProfileRegistry = Record<
+	ShaderBackendId,
+	ShaderDirectiveProfile
+>;
+
+export interface ShaderDirectiveHookContext {
+	backend: ShaderBackendId;
+	language: ShaderLanguage;
+	stage: ShaderStage;
+	sourceKind: ShaderSourceKind;
+	label: string | null;
+	directiveSourcePath: string;
+}
+
+export interface ShaderDirectiveHookResult {
+	token: string;
+	includeModules?: ShaderIncludeModule[];
+	injectionScripts?: ShaderInjectionScript[];
+}
+
+export type ShaderDirectiveCompileHook = (
+	context: Readonly<ShaderDirectiveHookContext>
+) =>
+	| ShaderDirectiveHookResult
+	| null
+	| Promise<ShaderDirectiveHookResult | null>;
+
+export interface ShaderDirectiveStageRequest {
+	code: string;
+	sourceMap?: ShaderSourceSegmentMap | null;
+	language: ShaderLanguage;
+	stage?: ShaderStage;
+	entryPoint?: string;
+	label?: string;
+	sourceKind?: ShaderSourceKind;
+	directiveSourcePath?: string;
+}
+
+export interface ShaderDirectiveStageResult {
+	code: string;
+	sourceMap: ShaderSourceSegmentMap;
+	composite: CompositeShaderSource;
+	diagnostics: ShaderDiagnostic[];
+	hasErrors: boolean;
+	directiveFingerprint: string;
+}
+
+export interface ShaderBackendCompileResult extends ShaderProcessResult {
+	directiveFingerprint: string;
+	directiveDiagnostics: ShaderDiagnostic[];
+	backendDiagnostics: ShaderDiagnostic[];
 }
 
 export type ShaderGLSLInjectionAnchor =

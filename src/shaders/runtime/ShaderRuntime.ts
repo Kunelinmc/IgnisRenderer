@@ -18,6 +18,7 @@ import type {
 	ShaderDiagnosticFilter,
 	ShaderDiagnosticSeverity,
 	ShaderDiagnosticRange,
+	ShaderDirectivePreprocessResult,
 	ShaderGLSLInjectionAnchor,
 	ShaderInjectionArgValue,
 	ShaderInjectionAnchor,
@@ -1201,6 +1202,39 @@ export class ShaderRuntime {
 			lineCount: Math.max(1, baseComposite.code.split(/\r?\n/g).length),
 			anchors,
 		};
+	}
+
+	public preprocessDirectives(
+		request: ShaderProcessRequest
+	): ShaderDirectivePreprocessResult {
+		const sourcePath = this._resolveRequestSourcePath(request);
+		const initialComposite =
+			request.sourceMap ?
+				{
+					code: request.code,
+					sourceMap: cloneSourceMap(request.sourceMap),
+				}
+			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+		const preprocessed = this._preprocessDirectivesSync(request, initialComposite);
+		return this._finalizeDirectivePreprocessResult(request, preprocessed);
+	}
+
+	public async preprocessDirectivesAsync(
+		request: ShaderProcessRequest
+	): Promise<ShaderDirectivePreprocessResult> {
+		const sourcePath = this._resolveRequestSourcePath(request);
+		const initialComposite =
+			request.sourceMap ?
+				{
+					code: request.code,
+					sourceMap: cloneSourceMap(request.sourceMap),
+				}
+			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+		const preprocessed = await this._preprocessDirectivesAsync(
+			request,
+			initialComposite
+		);
+		return this._finalizeDirectivePreprocessResult(request, preprocessed);
 	}
 
 	public process(request: ShaderProcessRequest): ShaderProcessResult {
@@ -3074,6 +3108,26 @@ export class ShaderRuntime {
 			diagnostics: cloneDiagnostics(diagnostics),
 			hasErrors,
 			fromCache,
+		};
+	}
+
+	private _finalizeDirectivePreprocessResult(
+		request: ShaderProcessRequest,
+		preprocessed: PreprocessResult
+	): ShaderDirectivePreprocessResult {
+		const diagnostics = this._filterDiagnostics(
+			preprocessed.diagnostics,
+			request.diagnosticFilter
+		);
+		const hasErrors = diagnostics.some(
+			(diagnostic) => diagnostic.severity === "error"
+		);
+		return {
+			code: preprocessed.composite.code,
+			sourceMap: cloneSourceMap(preprocessed.composite.sourceMap),
+			composite: cloneCompositeSource(preprocessed.composite),
+			diagnostics: cloneDiagnostics(diagnostics),
+			hasErrors,
 		};
 	}
 

@@ -1,60 +1,61 @@
-import { loadWebGLShaderPart } from "./shaderSource";
+import {
+	createWebGLShaderSourceFactory,
+	type WebGLShaderSourceFactory,
+	type WebGLShaderPart,
+} from "./WebGLShaderSourceFactory";
 
-export const WEBGL_SKYBOX_VERTEX_SHADER = await loadWebGLShaderPart(
-	"skyboxVertex"
-);
-export const WEBGL_SKYBOX_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"skyboxFragment"
-);
-export const WEBGL_PRESENT_VERTEX_SHADER = await loadWebGLShaderPart(
-	"presentVertex"
-);
-export const WEBGL_PRESENT_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"presentFragment"
-);
-export const WEBGL_PARTICLE_VERTEX_SHADER = await loadWebGLShaderPart(
-	"particleVertex"
-);
-export const WEBGL_PARTICLE_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"particleFragment"
-);
-export const WEBGL_FXAA_VERTEX_SHADER = WEBGL_PRESENT_VERTEX_SHADER;
-export const WEBGL_SHADOW_DEPTH_VERTEX_SHADER = await loadWebGLShaderPart(
-	"shadowDepthVertex"
-);
-export const WEBGL_SHADOW_DEPTH_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"shadowDepthFragment"
-);
-export const WEBGL_COPY_VERTEX_SHADER = WEBGL_PRESENT_VERTEX_SHADER;
-export const WEBGL_COPY_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"copyFragment"
-);
-export const WEBGL_POST_PROCESS_STUB_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"postProcessStubFragment"
-);
-export const WEBGL_FXAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"fxaaFragment"
-);
-export const WEBGL_BLOOM_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"bloomFragment"
-);
-export const WEBGL_INTERACTION_OUTLINE_FRAGMENT_SHADER =
-	await loadWebGLShaderPart("interactionOutlineFragment");
-export const WEBGL_MOTION_BLUR_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"motionBlurFragment"
-);
-export const WEBGL_DOF_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"dofFragment"
-);
-export const WEBGL_TAA_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"taaFragment"
-);
-export const WEBGL_SSAO_RAW_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"ssaoRawFragment"
-);
-export const WEBGL_SSAO_BLUR_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"ssaoBlurFragment"
-);
-export const WEBGL_SSAO_COMBINE_FRAGMENT_SHADER = await loadWebGLShaderPart(
-	"ssaoCombineFragment"
-);
+const PIPELINE_PARTS: readonly WebGLShaderPart[] = [
+	"skyboxVertex",
+	"skyboxFragment",
+	"presentVertex",
+	"presentFragment",
+	"particleVertex",
+	"particleFragment",
+	"shadowDepthVertex",
+	"shadowDepthFragment",
+	"copyFragment",
+	"postProcessStubFragment",
+	"fxaaFragment",
+	"bloomFragment",
+	"interactionOutlineFragment",
+	"motionBlurFragment",
+	"dofFragment",
+	"taaFragment",
+	"ssaoRawFragment",
+	"ssaoBlurFragment",
+	"ssaoCombineFragment",
+];
+
+let _defaultFactory: WebGLShaderSourceFactory | null = null;
+let _defaultPrepared = false;
+
+function getDefaultFactory(): WebGLShaderSourceFactory {
+	if (!_defaultFactory) {
+		_defaultFactory = createWebGLShaderSourceFactory();
+	}
+	return _defaultFactory;
+}
+
+export async function prepareDefaultWebGLPipelineShaderSourceFactory():
+	Promise<void> {
+	if (_defaultPrepared) {
+		return;
+	}
+	await getDefaultFactory().prepareParts(PIPELINE_PARTS);
+	_defaultPrepared = true;
+}
+
+export function getPreparedWebGLPipelineShaderPart(part: WebGLShaderPart): string {
+	if (!_defaultPrepared) {
+		throw new Error(
+			"WebGL pipeline shader source factory is not prepared. " +
+				"Migration hint: await prepareDefaultWebGLPipelineShaderSourceFactory() before requesting pipeline shader parts."
+		);
+	}
+	return getDefaultFactory().getRawPart(part);
+}
+
+export type {
+	WebGLShaderPart,
+	WebGLShaderSourceFactory,
+} from "./WebGLShaderSourceFactory";
