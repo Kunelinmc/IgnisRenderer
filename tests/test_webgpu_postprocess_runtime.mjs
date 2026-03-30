@@ -10,9 +10,11 @@ class FakeBackend {
 		this.bindingGroups = [];
 		this.bindGroupLayouts = [];
 		this.pipelineLayouts = [];
+		this.textures = [];
 		this.textureViews = [];
 		this.bindingGroupDestroyCalls = 0;
 		this.bufferDestroyCalls = 0;
+		this.textureDestroyCalls = 0;
 		this.writeBufferCalls = 0;
 	}
 
@@ -47,6 +49,23 @@ class FakeBackend {
 		};
 		this.buffers.push(buffer);
 		return buffer;
+	}
+
+	createTexture(desc) {
+		const texture = {
+			width: desc.width,
+			height: desc.height,
+			label: desc.label,
+			desc,
+			destroyed: false,
+			destroy: () => {
+				if (texture.destroyed) return;
+				texture.destroyed = true;
+				this.textureDestroyCalls++;
+			},
+		};
+		this.textures.push(texture);
+		return texture;
 	}
 
 	writeBuffer(buffer, data) {
@@ -205,37 +224,62 @@ async function testBloomRuntimeUsesDedicatedPipeline() {
 	await runtime.executeBloom(encoder, targets, frameContext);
 
 	assert.equal(backend.samplers.length, 1);
-	assert.equal(backend.shaderModules.length, 1);
-	assert.equal(backend.shaderModules[0].label, "WebGPUBloomShader");
-	assert.ok(backend.shaderModules[0].desc.code.includes("fn extractBloom"));
-	assert.equal(backend.computePipelines.length, 1);
-	assert.equal(backend.computePipelines[0].label, "WebGPUBloomPipeline");
-	assert.equal(backend.buffers.length, 1);
-	assert.equal(backend.buffers[0].desc.label, "WebGPUBloomParams");
-	assert.equal(backend.buffers[0].desc.size, 32);
-	assert.equal(backend.bindingGroups.length, 1);
-	assert.equal(backend.bindingGroups[0].desc.entries.length, 4);
-	assert.equal(
-		backend.bindingGroups[0].desc.entries[0].resource,
-		sceneColorMain
+	assert.deepEqual(
+		backend.shaderModules.map((module) => module.label),
+		[
+			"WebGPUBloomDownsampleShader",
+			"WebGPUBloomBlurHShader",
+			"WebGPUBloomBlurVShader",
+			"WebGPUBloomUpsampleShader",
+			"WebGPUBloomCompositeShader",
+		]
 	);
-	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, postPong);
+	assert.deepEqual(
+		backend.computePipelines.map((pipeline) => pipeline.label),
+		[
+			"WebGPUBloomDownsamplePipeline",
+			"WebGPUBloomBlurHPipeline",
+			"WebGPUBloomBlurVPipeline",
+			"WebGPUBloomUpsamplePipeline",
+			"WebGPUBloomCompositePipeline",
+		]
+	);
+	assert.equal(backend.buffers.length, 4);
+	assert.deepEqual(
+		backend.buffers.map((buffer) => buffer.desc.label),
+		[
+			"WebGPUBloomDownsampleParams",
+			"WebGPUBloomBlurParams",
+			"WebGPUBloomUpsampleParams",
+			"WebGPUBloomCompositeParams",
+		]
+	);
+	assert.ok(backend.buffers.every((buffer) => buffer.desc.size === 16));
+	assert.equal(backend.textures.length, 10);
+	assert.equal(backend.bindingGroups.length, 20);
+	assert.equal(backend.writeBufferCalls, 20);
 
-	const params = backend.buffers[0].lastWrite;
-	assert.equal(params.length, 8);
-	assertClose(params[0], 1 / 40);
-	assertClose(params[1], 1 / 20);
-	assertClose(params[2], 1.2);
-	assertClose(params[3], 0.35);
-	assertClose(params[4], 1.5);
-	assertClose(params[5], 2);
-	assertClose(params[6], 0);
-	assertClose(params[7], 0);
+	const compositeParams = backend.buffers.find(
+		(buffer) => buffer.desc.label === "WebGPUBloomCompositeParams"
+	)?.lastWrite;
+	assert.ok(compositeParams);
+	assert.equal(compositeParams.length, 4);
+	assertClose(compositeParams[0], 1 / 40);
+	assertClose(compositeParams[1], 1 / 20);
+	assertClose(compositeParams[2], 1.5);
+	assertClose(compositeParams[3], 0);
 
-	assert.deepEqual(encoder.calls, [
-		["beginComputePass", "WebGPUBloom"],
-		["setComputePipeline", "WebGPUBloomPipeline"],
-		["setBindingGroup", 0, "WebGPUBloom_Binding"],
+	assert.deepEqual(encoder.calls.slice(0, 5), [
+		["beginComputePass", "WebGPUBloom_Downsample0"],
+		["setComputePipeline", "WebGPUBloomDownsamplePipeline"],
+		["setBindingGroup", 0, "WebGPUBloom_Downsample0"],
+		["dispatchWorkgroups", 3, 2, 1],
+		["endComputePass"],
+	]);
+	assert.deepEqual(encoder.calls.slice(-5), [
+		["beginComputePass", "WebGPUBloom_Composite"],
+		["setComputePipeline", "WebGPUBloomCompositePipeline"],
+		["setBindingGroup", 0, "WebGPUBloom_Composite"],
 		["dispatchWorkgroups", 5, 3, 1],
 		["endComputePass"],
 	]);
