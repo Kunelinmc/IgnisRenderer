@@ -369,6 +369,7 @@ export class MeshFactory {
 	): MeshInstance {
 		const w2 = width / 2;
 		const h2 = height / 2;
+		const tangent = { x: 1, y: 0, z: 0, w: -1 };
 
 		const faces: MeshFace[] = [
 			{
@@ -380,6 +381,7 @@ export class MeshFactory {
 						u: 0,
 						v: 0,
 						normal: { x: 0, y: 1, z: 0 },
+						tangent,
 					},
 					{
 						x: w2,
@@ -388,6 +390,7 @@ export class MeshFactory {
 						u: 1,
 						v: 0,
 						normal: { x: 0, y: 1, z: 0 },
+						tangent,
 					},
 					{
 						x: w2,
@@ -396,6 +399,7 @@ export class MeshFactory {
 						u: 1,
 						v: 1,
 						normal: { x: 0, y: 1, z: 0 },
+						tangent,
 					},
 					{
 						x: -w2,
@@ -404,6 +408,7 @@ export class MeshFactory {
 						u: 0,
 						v: 1,
 						normal: { x: 0, y: 1, z: 0 },
+						tangent,
 					},
 				],
 				normal: { x: 0, y: 1, z: 0 },
