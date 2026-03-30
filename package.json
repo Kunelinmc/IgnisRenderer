@@ -1,6 +1,6 @@
 {
 	"name": "ignisrenderer",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "A high-performance 3D rendering engine built entirely from scratch in TypeScript, integrating a comprehensive CPU-based graphics pipeline as well as accelerated WebGL and WebGPU rendering pipelines for modern GPU rendering.",
 	"main": "src/index.ts",
 	"types": "src/index.ts",
