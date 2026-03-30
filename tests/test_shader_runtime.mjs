@@ -790,7 +790,8 @@ function testExtendedAnchorsAndDryRun() {
 		label: "GLSLExtendedAnchors",
 		sourceKind: "custom-material",
 	});
-	assert.ok(glsl.code.includes("#define USE_LIGHTING 1\n// after defines"));
+	assert.equal(glsl.code.includes("#define USE_LIGHTING 1"), false);
+	assert.ok(glsl.code.includes("// after defines"));
 	assert.ok(glsl.code.includes("};\n// after struct"));
 	assert.ok(glsl.code.includes("uniform vec4 uColor;\n// after uniforms"));
 	const glslAnchors = runtime.resolveInjectionAnchors({
@@ -1020,6 +1021,340 @@ function testChangeEventsAndSourceHashValidation() {
 	);
 }
 
+function testDirectiveIncludeImportAndMacros() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerIncludeModule(
+		"wgsl",
+		"lighting/common.wgsl",
+		`#define AO_BASE 0.75
+#define AO_MUL(v) ((v) * AO_BASE)
+fn evalAO(v: f32) -> f32 {
+	return AO_MUL(v);
+}`
+	);
+	const processed = runtime.process({
+		code: `#import <lighting/common>
+@fragment
+fn fsMain() -> @location(0) vec4<f32> {
+	let ao = evalAO(1.0);
+	return vec4<f32>(ao, ao, ao, 1.0);
+}`,
+		language: "wgsl",
+		stage: "fragment",
+		entryPoint: "fsMain",
+		label: "DirectiveIncludeImport",
+		sourceKind: "custom-material",
+		directiveSourcePath: "tests/shaders/main.wgsl",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.ok(processed.code.includes("fn evalAO"));
+	assert.equal(processed.code.includes("#import"), false);
+	assert.equal(processed.code.includes("#define AO_BASE"), false);
+	assert.ok(processed.code.includes("return ((v) * 0.75);"));
+}
+
+function testDirectiveIncludeNestedMissingCycleAndDedup() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerIncludeModule(
+		"wgsl",
+		"lib/b.wgsl",
+		`fn fromB() -> f32 { return 1.0; }`
+	);
+	runtime.registerIncludeModule(
+		"wgsl",
+		"lib/a.wgsl",
+		`#include <lib/b>
+#include <lib/b>
+fn fromA() -> f32 { return fromB(); }`
+	);
+	const nested = runtime.process({
+		code: `#import <lib/a>
+#import <lib/missing>
+@fragment
+fn fsMain() -> @location(0) vec4<f32> {
+	let v = fromA();
+	return vec4<f32>(v, v, v, 1.0);
+}`,
+		language: "wgsl",
+		stage: "fragment",
+		entryPoint: "fsMain",
+		label: "DirectiveIncludeNested",
+		sourceKind: "custom-material",
+	});
+	assert.equal(nested.hasErrors, false);
+	assert.ok(
+		nested.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-include-not-found"
+		)
+	);
+	assert.equal((nested.code.match(/fn fromB/g) ?? []).length, 1);
+
+	runtime.registerIncludeModule("wgsl", "lib/cycleA.wgsl", "#include <lib/cycleB>");
+	runtime.registerIncludeModule("wgsl", "lib/cycleB.wgsl", "#include <lib/cycleA>");
+	const cycle = runtime.process({
+		code: `#import <lib/cycleA>
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "DirectiveIncludeCycle",
+		sourceKind: "custom-material",
+	});
+	assert.ok(
+		cycle.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-include-cycle"
+		)
+	);
+}
+
+function testDirectiveMacroDoesNotTouchCommentsAndStrings() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: `#define FOO 1
+// #define FOO 2
+let quoted = "#define FOO 3";
+let x = FOO;`,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "DirectiveMacroBoundaries",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, true);
+	assert.ok(processed.code.includes("// #define FOO 2"));
+	assert.ok(processed.code.includes("\"#define FOO 3\""));
+	assert.ok(processed.code.includes("let x = 1;"));
+}
+
+function testDirectiveGLSLDefineIsConsumed() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: `#version 300 es
+precision highp float;
+#define SCALE 2.0
+void main() {
+	float value = SCALE;
+	gl_Position = vec4(value);
+}`,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "DirectiveGLSLDefineConsumed",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.equal(processed.code.includes("#define SCALE"), false);
+	assert.ok(processed.code.includes("float value = 2.0;"));
+}
+
+function testDirectiveFunctionMacroAndRedefinition() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: `#define SCALE(v) ((v) * 2.0)
+#define SCALE(v) ((v) * 3.0)
+@fragment
+fn fsMain() -> @location(0) vec4<f32> {
+	let value = SCALE(2.0);
+	return vec4<f32>(value, value, value, 1.0);
+}`,
+		language: "wgsl",
+		stage: "fragment",
+		entryPoint: "fsMain",
+		label: "DirectiveFunctionMacro",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.ok(processed.code.includes("let value = ((2.0) * 3.0);"));
+	assert.ok(
+		processed.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-define-redefined"
+		)
+	);
+}
+
+async function testDirectiveSyncAsyncParityForSyncScripts() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerInjectionScript({
+		id: "script-sync",
+		language: "wgsl",
+		run(args) {
+			return {
+				header: `const SYNC_VALUE: f32 = ${args.value};`,
+				headerAnchor: "afterEnable",
+			};
+		},
+	});
+	const request = {
+		code: `#inject <script-sync>(value=2.5)
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "DirectiveSyncAsyncParity",
+		sourceKind: "custom-material",
+	};
+	const syncResult = runtime.process(request);
+	const asyncResult = await runtime.processAsync(request);
+	assert.equal(syncResult.code, asyncResult.code);
+	assert.deepEqual(syncResult.sourceMap, asyncResult.sourceMap);
+	assert.deepEqual(syncResult.diagnostics, asyncResult.diagnostics);
+	assert.equal(syncResult.hasErrors, asyncResult.hasErrors);
+}
+
+function testDirectiveProcessRejectsAsyncInjectScriptInSyncPath() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerInjectionScript({
+		id: "script-async",
+		async run() {
+			return {
+				header: "const ASYNC_VALUE: f32 = 1.0;",
+			};
+		},
+	});
+	assert.throws(
+		() =>
+			runtime.process({
+				code: `#inject <script-async>()
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+				language: "wgsl",
+				stage: "vertex",
+				entryPoint: "vsMain",
+				label: "DirectiveAsyncScriptSyncPath",
+				sourceKind: "custom-material",
+			}),
+		/processAsync/
+	);
+}
+
+function testDirectiveUnknownInjectByMode() {
+	const warnRuntime = new ShaderRuntime({ mode: "warn" });
+	const warnResult = warnRuntime.process({
+		code: `#inject <not-found>()
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "DirectiveInjectWarn",
+		sourceKind: "custom-material",
+	});
+	assert.equal(warnResult.hasErrors, false);
+	assert.ok(
+		warnResult.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-inject-not-found"
+		)
+	);
+
+	const strictRuntime = new ShaderRuntime({ mode: "strict" });
+	assert.throws(
+		() =>
+			strictRuntime.process({
+				code: `#inject <not-found>()
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+				language: "wgsl",
+				stage: "vertex",
+				entryPoint: "vsMain",
+				label: "DirectiveInjectStrict",
+				sourceKind: "custom-material",
+			}),
+		/ShaderRuntime validation failed/
+	);
+}
+
+function testDirectiveChangeEventsFineGrained() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const events = [];
+	runtime.onDidChange((event) => events.push(event));
+
+	runtime.registerIncludeModule(
+		"wgsl",
+		"lighting/common.wgsl",
+		"fn f() -> f32 { return 1.0; }"
+	);
+	runtime.registerInjectionScript({
+		id: "script-event",
+		run() {
+			return { header: "const EVENT: bool = true;" };
+		},
+	});
+	const includeEvent = events.find(
+		(event) => event.action === "register-include-module"
+	);
+	const scriptEvent = events.find(
+		(event) => event.action === "register-injection-script"
+	);
+	assert.ok(includeEvent);
+	assert.ok(scriptEvent);
+	assert.ok(includeEvent.includeModuleIds?.includes("wgsl:lighting/common.wgsl"));
+	assert.ok(scriptEvent.injectionScriptIds?.includes("script-event"));
+
+	const request = {
+		code: `#inject <script-event>()
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "DirectiveFineGrainedInvalidation",
+		sourceKind: "custom-material",
+	};
+	const first = runtime.process(request);
+	const second = runtime.process(request);
+	assert.equal(first.fromCache, false);
+	assert.equal(second.fromCache, true);
+	runtime.registerInjectionScript({
+		id: "script-event",
+		run() {
+			return { header: "const EVENT: bool = false;" };
+		},
+	});
+	const afterUpdate = runtime.process(request);
+	assert.equal(afterUpdate.fromCache, false);
+}
+
+function testDirectiveDiagnosticsMapToIncludedSource() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerIncludeModule(
+		"wgsl",
+		"diag/placeholder.wgsl",
+		`let bad = __UNRESOLVED__;`,
+		"virtual/includes/placeholder.wgsl"
+	);
+	const result = runtime.process({
+		code: `#import <diag/placeholder>
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "DirectiveDiagIncludeMap",
+		sourceKind: "custom-material",
+	});
+	const diagnostic = result.diagnostics.find(
+		(entry) => entry.code === "placeholder-not-resolved"
+	);
+	assert.ok(diagnostic);
+	assert.equal(diagnostic.sourcePath, "virtual/includes/placeholder.wgsl");
+}
+
 async function run() {
 	testReservedPrefixProtection();
 	testGLSLInjectionOrderAndLocation();
@@ -1045,6 +1380,16 @@ async function run() {
 	testSilentModeAndDiagnosticFilters();
 	testRuleScopedInvalidationAndCacheStats();
 	testChangeEventsAndSourceHashValidation();
+	testDirectiveIncludeImportAndMacros();
+	testDirectiveIncludeNestedMissingCycleAndDedup();
+	testDirectiveMacroDoesNotTouchCommentsAndStrings();
+	testDirectiveGLSLDefineIsConsumed();
+	testDirectiveFunctionMacroAndRedefinition();
+	await testDirectiveSyncAsyncParityForSyncScripts();
+	testDirectiveProcessRejectsAsyncInjectScriptInSyncPath();
+	testDirectiveUnknownInjectByMode();
+	testDirectiveChangeEventsFineGrained();
+	testDirectiveDiagnosticsMapToIncludedSource();
 	console.log("ShaderRuntime tests passed");
 }
 

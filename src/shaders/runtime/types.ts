@@ -74,6 +74,8 @@ export interface ShaderProcessRequest {
 	sourceMap?: ShaderSourceSegmentMap | null;
 	sourceHash?: string;
 	diagnosticFilter?: ShaderDiagnosticFilter;
+	enableDirectives?: boolean;
+	directiveSourcePath?: string;
 }
 
 export interface ShaderProcessResult {
@@ -103,6 +105,28 @@ export interface ShaderRuleInjection {
 	symbols?: string[];
 	headerAnchor?: ShaderInjectionAnchor;
 	functionsAnchor?: ShaderInjectionAnchor;
+}
+
+export type ShaderInjectionArgValue = string | number | boolean;
+
+export interface ShaderIncludeModule {
+	language: ShaderLanguage;
+	id: string;
+	code: string;
+	sourcePath?: string;
+}
+
+export interface ShaderInjectionScriptContext extends ShaderRuleContext {}
+
+export interface ShaderInjectionScript {
+	id: string;
+	language?: ShaderLanguage;
+	description?: string;
+	symbols?: string[];
+	run: (
+		args: Readonly<Record<string, ShaderInjectionArgValue>>,
+		context: ShaderInjectionScriptContext
+	) => ShaderRuleInjectResult;
 }
 
 export type ShaderGLSLInjectionAnchor =
@@ -171,12 +195,22 @@ export type ShaderRuntimeChangeAction =
 	| "update-rule"
 	| "unregister-rule"
 	| "clear-rules"
+	| "register-include-module"
+	| "update-include-module"
+	| "unregister-include-module"
+	| "clear-include-modules"
+	| "register-injection-script"
+	| "update-injection-script"
+	| "unregister-injection-script"
+	| "clear-injection-scripts"
 	| "invalidate-cache";
 
 export interface ShaderRuntimeChangeEvent {
 	revision: number;
 	action: ShaderRuntimeChangeAction;
 	ruleIds: string[];
+	includeModuleIds?: string[];
+	injectionScriptIds?: string[];
 }
 
 export interface ShaderResolvedGLSLInjectionAnchors {

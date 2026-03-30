@@ -5,7 +5,9 @@ import {
 } from "./constants";
 import { createBuiltInShaderRules } from "./builtins";
 import {
+	compressLineOriginsToSourceMap,
 	composeCompositeShaderSources,
+	expandSourceMapToLineOrigins,
 	createInlineCompositeShaderSource,
 	mapShaderGeneratedLocation,
 	sliceCompositeShaderSource,
@@ -14,9 +16,14 @@ import type {
 	CompositeShaderSource,
 	ShaderDiagnostic,
 	ShaderDiagnosticFilter,
+	ShaderDiagnosticSeverity,
 	ShaderDiagnosticRange,
 	ShaderGLSLInjectionAnchor,
+	ShaderInjectionArgValue,
 	ShaderInjectionAnchor,
+	ShaderInjectionScript,
+	ShaderInjectionScriptContext,
+	ShaderLanguage,
 	ShaderProcessRequest,
 	ShaderProcessResult,
 	ShaderResolvedInjectionAnchors,
@@ -57,10 +64,88 @@ interface ProcessPreparation {
 	context: ShaderRuleContext;
 	sourcePath: string;
 	baseComposite: CompositeShaderSource;
+	preprocessedDiagnostics: ShaderDiagnostic[];
 	matchedRules: ShaderRule[];
 	matchedRuleIds: string[];
 	cacheKey: string;
 	sourceMap: ShaderSourceSegmentMap | null | undefined;
+}
+
+interface LineOrigin {
+	sourcePath: string;
+	sourceLine: number;
+	kind: "source" | "template" | "include" | "define-block" | "generated";
+	label?: string;
+}
+
+interface PreprocessContext {
+	request: ShaderProcessRequest;
+	contextTemplate: Omit<ShaderRuleContext, "source">;
+	mode: ShaderRuntimeMode;
+	language: ShaderLanguage;
+	sourcePath: string;
+	diagnostics: ShaderDiagnostic[];
+	macros: Map<string, MacroDefinition>;
+	expandedModules: Set<string>;
+	processingStack: string[];
+}
+
+interface PreprocessResult {
+	composite: CompositeShaderSource;
+	diagnostics: ShaderDiagnostic[];
+}
+
+interface DirectiveLineScanState {
+	inBlockComment: boolean;
+	stringQuote: '"' | "'" | null;
+	escape: boolean;
+}
+
+interface DirectiveLine {
+	name: string;
+	body: string;
+	column: number;
+	raw: string;
+}
+
+type IncludeSpecifierKind = "angle" | "quote";
+
+interface IncludeSpecifier {
+	kind: IncludeSpecifierKind;
+	path: string;
+}
+
+interface InjectInvocation {
+	id: string;
+	args: Record<string, ShaderInjectionArgValue>;
+}
+
+type MacroDefinitionKind = "object" | "function";
+
+interface BaseMacroDefinition {
+	kind: MacroDefinitionKind;
+	name: string;
+	replacement: string;
+	sourcePath: string;
+	sourceLine: number;
+}
+
+interface ObjectMacroDefinition extends BaseMacroDefinition {
+	kind: "object";
+}
+
+interface FunctionMacroDefinition extends BaseMacroDefinition {
+	kind: "function";
+	params: string[];
+}
+
+type MacroDefinition = ObjectMacroDefinition | FunctionMacroDefinition;
+
+interface RegisteredIncludeModule {
+	id: string;
+	canonicalId: string;
+	code: string;
+	sourcePath: string;
 }
 
 type ShaderRuntimeChangeListener =
@@ -70,6 +155,16 @@ type ShaderRuntimeChangeListener =
 const DEFAULT_STRICT_ERROR_MAX_DIAGNOSTICS = 32;
 const LARGE_SOURCE_THRESHOLD = 16 * 1024;
 const LARGE_SOURCE_CHUNK_SIZE = 4 * 1024;
+const DIRECTIVE_MAX_MACRO_EXPANSION_DEPTH = 32;
+const DIRECTIVE_UNSUPPORTED_NAMES = new Set([
+	"if",
+	"ifdef",
+	"ifndef",
+	"elif",
+	"else",
+	"endif",
+	"undef",
+]);
 const IS_DEV_ENVIRONMENT = resolveIsDevelopmentEnvironment();
 
 function resolveIsDevelopmentEnvironment(): boolean {
@@ -261,6 +356,35 @@ function normalizeDependsOn(dependsOn: string[] | undefined): string[] {
 	return normalized;
 }
 
+function isWhitespaceCharacter(char: string): boolean {
+	return char === " " || char === "\t" || char === "\r" || char === "\n";
+}
+
+function isIdentifierStartCharacter(char: string): boolean {
+	if (!char || char.length <= 0) {
+		return false;
+	}
+	const code = char.charCodeAt(0);
+	return (
+		(code >= 65 && code <= 90) ||
+		(code >= 97 && code <= 122) ||
+		char === "_"
+	);
+}
+
+function isIdentifierPartCharacter(char: string): boolean {
+	if (!char || char.length <= 0) {
+		return false;
+	}
+	const code = char.charCodeAt(0);
+	return (
+		(code >= 65 && code <= 90) ||
+		(code >= 97 && code <= 122) ||
+		(code >= 48 && code <= 57) ||
+		char === "_"
+	);
+}
+
 function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
 	return (
 		typeof value === "object" &&
@@ -352,6 +476,10 @@ function normalizeGLSLInjectionAnchor(
 		default:
 			return "afterVersion";
 	}
+}
+
+function normalizeLanguage(language?: ShaderLanguage): ShaderLanguage {
+	return language === "glsl" ? "glsl" : "wgsl";
 }
 
 function normalizeWGSLInjectionAnchor(
@@ -734,6 +862,12 @@ export class ShaderRuntime {
 	private _asyncCacheStats: InternalCacheStats;
 	private _listeners: Set<ShaderRuntimeChangeListener>;
 	private _diagnosticFilters: Set<ShaderDiagnosticFilter>;
+	private _includeModulesByLanguage: Map<
+		ShaderLanguage,
+		Map<string, RegisteredIncludeModule>
+	>;
+	private _injectionScripts: Map<string, ShaderInjectionScript>;
+	private _directiveRegistryRevision: number;
 
 	public constructor(options: ShaderRuntimeOptions = {}) {
 		this._mode = options.mode ?? resolveDefaultShaderRuntimeMode();
@@ -759,6 +893,12 @@ export class ShaderRuntime {
 		this._asyncCacheStats = createEmptyCacheStats();
 		this._listeners = new Set();
 		this._diagnosticFilters = new Set();
+		this._includeModulesByLanguage = new Map([
+			["wgsl", new Map()],
+			["glsl", new Map()],
+		]);
+		this._injectionScripts = new Map();
+		this._directiveRegistryRevision = 1;
 
 		for (const rule of createBuiltInShaderRules()) {
 			const normalized = this._normalizeRule(rule);
@@ -793,6 +933,145 @@ export class ShaderRuntime {
 		return () => {
 			this._listeners.delete(listener);
 		};
+	}
+
+	public registerIncludeModule(
+		language: ShaderLanguage,
+		id: string,
+		code: string,
+		sourcePath?: string
+	): void {
+		const normalizedLanguage = normalizeLanguage(language);
+		const normalizedId =
+			typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
+		if (normalizedId.length <= 0) {
+			throw new Error("Shader include module id must be a non-empty string.");
+		}
+		if (typeof code !== "string") {
+			throw new Error("Shader include module code must be a string.");
+		}
+		const canonicalId = this._canonicalizeModulePath(normalizedId);
+		const languageModules =
+			this._includeModulesByLanguage.get(normalizedLanguage) ?? new Map();
+		const action: ShaderRuntimeChangeAction =
+			languageModules.has(canonicalId) ?
+				"update-include-module"
+			:	"register-include-module";
+		languageModules.set(canonicalId, {
+			id: normalizedId,
+			canonicalId,
+			code,
+			sourcePath:
+				typeof sourcePath === "string" && sourcePath.trim().length > 0 ?
+					sourcePath.trim()
+				:	canonicalId,
+		});
+		this._includeModulesByLanguage.set(normalizedLanguage, languageModules);
+		this._directiveRegistryRevision++;
+		this._applyMutation(action, [], {
+			invalidateAll: true,
+			includeModuleIds: [this._formatIncludeModuleEventId(normalizedLanguage, canonicalId)],
+		});
+	}
+
+	public unregisterIncludeModule(language: ShaderLanguage, id: string): boolean {
+		const normalizedLanguage = normalizeLanguage(language);
+		const normalizedId =
+			typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
+		if (normalizedId.length <= 0) {
+			return false;
+		}
+		const canonicalId = this._canonicalizeModulePath(normalizedId);
+		const languageModules =
+			this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
+		if (!languageModules || !languageModules.has(canonicalId)) {
+			return false;
+		}
+		languageModules.delete(canonicalId);
+		this._directiveRegistryRevision++;
+		this._applyMutation("unregister-include-module", [], {
+			invalidateAll: true,
+			includeModuleIds: [this._formatIncludeModuleEventId(normalizedLanguage, canonicalId)],
+		});
+		return true;
+	}
+
+	public clearIncludeModules(language?: ShaderLanguage): void {
+		if (!language) {
+			const ids: string[] = [];
+			for (const [lang, modules] of this._includeModulesByLanguage) {
+				for (const moduleId of modules.keys()) {
+					ids.push(this._formatIncludeModuleEventId(lang, moduleId));
+				}
+			}
+			if (ids.length <= 0) {
+				return;
+			}
+			this._includeModulesByLanguage.set("wgsl", new Map());
+			this._includeModulesByLanguage.set("glsl", new Map());
+			this._directiveRegistryRevision++;
+			this._applyMutation("clear-include-modules", [], {
+				invalidateAll: true,
+				includeModuleIds: ids,
+			});
+			return;
+		}
+		const normalizedLanguage = normalizeLanguage(language);
+		const languageModules =
+			this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
+		if (!languageModules || languageModules.size <= 0) {
+			return;
+		}
+		const ids = [...languageModules.keys()].map((moduleId) =>
+			this._formatIncludeModuleEventId(normalizedLanguage, moduleId)
+		);
+		languageModules.clear();
+		this._directiveRegistryRevision++;
+		this._applyMutation("clear-include-modules", [], {
+			invalidateAll: true,
+			includeModuleIds: ids,
+		});
+	}
+
+	public registerInjectionScript(script: ShaderInjectionScript): void {
+		const normalized = this._normalizeInjectionScript(script);
+		const action: ShaderRuntimeChangeAction =
+			this._injectionScripts.has(normalized.id) ?
+				"update-injection-script"
+			:	"register-injection-script";
+		this._injectionScripts.set(normalized.id, normalized);
+		this._directiveRegistryRevision++;
+		this._applyMutation(action, [], {
+			invalidateAll: true,
+			injectionScriptIds: [normalized.id],
+		});
+	}
+
+	public unregisterInjectionScript(id: string): boolean {
+		const normalizedId = typeof id === "string" ? id.trim() : "";
+		if (!this._injectionScripts.has(normalizedId)) {
+			return false;
+		}
+		this._injectionScripts.delete(normalizedId);
+		this._directiveRegistryRevision++;
+		this._applyMutation("unregister-injection-script", [], {
+			invalidateAll: true,
+			injectionScriptIds: [normalizedId],
+		});
+		return true;
+	}
+
+	public clearInjectionScripts(): void {
+		if (this._injectionScripts.size <= 0) {
+			return;
+		}
+		const ids = [...this._injectionScripts.keys()];
+		this._injectionScripts.clear();
+		this._directiveRegistryRevision++;
+		this._applyMutation("clear-injection-scripts", [], {
+			invalidateAll: true,
+			injectionScriptIds: ids,
+		});
 	}
 
 	public registerRule(rule: ShaderRule): void {
@@ -896,17 +1175,19 @@ export class ShaderRuntime {
 	): ShaderResolvedInjectionAnchors {
 		const stage = normalizeStage(request.stage);
 		const sourceKind = normalizeSourceKind(request.sourceKind);
-		const sourcePath =
-			request.label ??
-			`<runtime:${request.language}:${stage}:${sourceKind}>`;
-		const baseComposite =
+		const sourcePath = this._resolveRequestSourcePath(request);
+		const initialComposite =
 			request.sourceMap ?
 				{
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
 			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
-		if (request.language === "glsl") {
+		const baseComposite =
+			request.enableDirectives === false ?
+				initialComposite
+			:	this._preprocessDirectivesSync(request, initialComposite).composite;
+		if (normalizeLanguage(request.language) === "glsl") {
 			const anchors = resolveGLSLInsertionAnchors(baseComposite);
 			return {
 				language: "glsl",
@@ -1003,18 +1284,1455 @@ export class ShaderRuntime {
 		);
 	}
 
-	private _prepareProcessSync(request: ShaderProcessRequest): ProcessPreparation {
-		const context = this._buildRuleContext(request);
+	private _resolveRequestSourcePath(request: ShaderProcessRequest): string {
+		const explicitDirectivePath =
+			typeof request.directiveSourcePath === "string" ?
+				request.directiveSourcePath.trim()
+			:	"";
+		if (explicitDirectivePath.length > 0) {
+			return explicitDirectivePath;
+		}
+		const sourceMapPath = request.sourceMap?.segments?.[0]?.sourcePath;
+		if (typeof sourceMapPath === "string" && sourceMapPath.length > 0) {
+			return sourceMapPath;
+		}
+		const normalizedLanguage = normalizeLanguage(request.language);
+		return (
+			request.label ??
+			`<runtime:${normalizedLanguage}:${normalizeStage(request.stage)}:${normalizeSourceKind(
+				request.sourceKind
+			)}>`
+		);
+	}
+
+	private _createPreprocessContext(
+		request: ShaderProcessRequest,
+		sourcePath: string
+	): PreprocessContext {
+		const language = normalizeLanguage(request.language);
+		return {
+			request,
+			mode: this._mode,
+			language,
+			sourcePath,
+			contextTemplate: {
+				mode: this._mode,
+				language,
+				stage: normalizeStage(request.stage),
+				entryPoint: request.entryPoint ?? null,
+				label: request.label ?? null,
+				sourceKind: normalizeSourceKind(request.sourceKind),
+			},
+			diagnostics: [],
+			macros: new Map(),
+			expandedModules: new Set(),
+			processingStack: [],
+		};
+	}
+
+	private _preprocessDirectivesSync(
+		request: ShaderProcessRequest,
+		initialComposite: CompositeShaderSource
+	): PreprocessResult {
+		if (request.enableDirectives === false) {
+			return {
+				composite: initialComposite,
+				diagnostics: [],
+			};
+		}
 		const sourcePath =
-			context.label ??
-			`<runtime:${context.language}:${context.stage}:${context.sourceKind}>`;
-		const baseComposite =
+			initialComposite.sourceMap.segments[0]?.sourcePath ??
+			this._resolveRequestSourcePath(request);
+		const preprocessContext = this._createPreprocessContext(request, sourcePath);
+		const expanded = this._expandDirectiveComposite(
+			initialComposite,
+			this._canonicalizeModulePathSafe(sourcePath),
+			preprocessContext
+		);
+		const macroExpanded = this._expandMacrosInComposite(expanded, preprocessContext);
+		const injected = this._resolveDirectiveInjectsSync(
+			macroExpanded,
+			preprocessContext
+		);
+		return {
+			composite: injected,
+			diagnostics: [...preprocessContext.diagnostics],
+		};
+	}
+
+	private async _preprocessDirectivesAsync(
+		request: ShaderProcessRequest,
+		initialComposite: CompositeShaderSource
+	): Promise<PreprocessResult> {
+		if (request.enableDirectives === false) {
+			return {
+				composite: initialComposite,
+				diagnostics: [],
+			};
+		}
+		const sourcePath =
+			initialComposite.sourceMap.segments[0]?.sourcePath ??
+			this._resolveRequestSourcePath(request);
+		const preprocessContext = this._createPreprocessContext(request, sourcePath);
+		const expanded = this._expandDirectiveComposite(
+			initialComposite,
+			this._canonicalizeModulePathSafe(sourcePath),
+			preprocessContext
+		);
+		const macroExpanded = this._expandMacrosInComposite(expanded, preprocessContext);
+		const injected = await this._resolveDirectiveInjectsAsync(
+			macroExpanded,
+			preprocessContext
+		);
+		return {
+			composite: injected,
+			diagnostics: [...preprocessContext.diagnostics],
+		};
+	}
+
+	private _splitCompositeLines(composite: CompositeShaderSource): {
+		lines: string[];
+		origins: LineOrigin[];
+	} {
+		const lines = composite.code.split(/\r?\n/g);
+		const fallbackPath = composite.sourceMap.segments[0]?.sourcePath ?? "<generated>";
+		const origins = expandSourceMapToLineOrigins(
+			composite.sourceMap,
+			lines.length,
+			fallbackPath,
+			"source"
+		) as LineOrigin[];
+		return { lines, origins };
+	}
+
+	private _composeLinesToComposite(
+		lines: string[],
+		origins: LineOrigin[]
+	): CompositeShaderSource {
+		const effectiveLines = lines.length > 0 ? lines : [""];
+		const effectiveOrigins =
+			origins.length > 0 ?
+				origins
+			:	[
+					{
+						sourcePath: "<generated>",
+						sourceLine: 1,
+						kind: "generated" as const,
+					},
+				];
+		return {
+			code: effectiveLines.join("\n"),
+			sourceMap: compressLineOriginsToSourceMap(
+				effectiveOrigins as unknown as Array<{
+					sourcePath: string;
+					sourceLine: number;
+					kind: "source" | "template" | "include" | "define-block" | "generated";
+					label?: string;
+				}>
+			),
+		};
+	}
+
+	private _scanDirectiveFromLine(
+		line: string,
+		state: DirectiveLineScanState
+	): DirectiveLine | null {
+		let index = 0;
+		while (index < line.length && (line[index] === " " || line[index] === "\t")) {
+			index++;
+		}
+		if (index >= line.length || line[index] !== "#") {
+			this._updateDirectiveStateFromLine(line, state);
+			return null;
+		}
+		if (state.inBlockComment || state.stringQuote) {
+			this._updateDirectiveStateFromLine(line, state);
+			return null;
+		}
+		const raw = line.slice(index + 1).trim();
+		const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.*))?$/.exec(raw);
+		this._updateDirectiveStateFromLine(line, state);
+		if (!match) {
+			return null;
+		}
+		return {
+			name: match[1].toLowerCase(),
+			body: (match[2] ?? "").trim(),
+			column: index + 1,
+			raw: line.trim(),
+		};
+	}
+
+	private _updateDirectiveStateFromLine(
+		line: string,
+		state: DirectiveLineScanState
+	): void {
+		for (let i = 0; i < line.length; i++) {
+			const char = line[i];
+			const next = i + 1 < line.length ? line[i + 1] : "";
+			if (state.inBlockComment) {
+				if (char === "*" && next === "/") {
+					state.inBlockComment = false;
+					i++;
+				}
+				continue;
+			}
+			if (state.stringQuote) {
+				if (state.escape) {
+					state.escape = false;
+					continue;
+				}
+				if (char === "\\") {
+					state.escape = true;
+					continue;
+				}
+				if (char === state.stringQuote) {
+					state.stringQuote = null;
+					continue;
+				}
+				continue;
+			}
+			if (char === "/" && next === "/") {
+				break;
+			}
+			if (char === "/" && next === "*") {
+				state.inBlockComment = true;
+				i++;
+				continue;
+			}
+			if (char === "\"" || char === "'") {
+				state.stringQuote = char as '"' | "'";
+				state.escape = false;
+			}
+		}
+		if (state.stringQuote && !state.inBlockComment) {
+			state.escape = false;
+		}
+	}
+
+	private _expandDirectiveComposite(
+		composite: CompositeShaderSource,
+		modulePath: string,
+		preprocessContext: PreprocessContext
+	): CompositeShaderSource {
+		const { lines, origins } = this._splitCompositeLines(composite);
+		const outputLines: string[] = [];
+		const outputOrigins: LineOrigin[] = [];
+		const directiveState: DirectiveLineScanState = {
+			inBlockComment: false,
+			stringQuote: null,
+			escape: false,
+		};
+		const firstVersionLine = this._findFirstGLSLVersionLine(lines);
+
+		for (let index = 0; index < lines.length; index++) {
+			const lineNumber = index + 1;
+			const line = lines[index];
+			const origin = origins[index] ?? {
+				sourcePath: modulePath,
+				sourceLine: lineNumber,
+				kind: "source",
+			};
+			const directive = this._scanDirectiveFromLine(line, directiveState);
+			if (!directive) {
+				outputLines.push(line);
+				outputOrigins.push(origin);
+				continue;
+			}
+			if (
+				preprocessContext.language === "glsl" &&
+				firstVersionLine > 0 &&
+				lineNumber < firstVersionLine &&
+				(directive.name === "include" || directive.name === "import")
+			) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-include-before-version",
+					`Directive "#${directive.name}" appears before "#version" and was skipped.`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				continue;
+			}
+			switch (directive.name) {
+				case "include":
+				case "import": {
+					const specifier = this._parseIncludeSpecifier(
+						directive,
+						origin,
+						preprocessContext
+					);
+					if (!specifier) {
+						continue;
+					}
+					if (directive.name === "import" && specifier.kind !== "angle") {
+						this._pushDirectiveDiagnostic(
+							preprocessContext,
+							"directive-import-invalid-path",
+							`Directive "#import" only supports angle-bracket paths.`,
+							origin.sourcePath,
+							origin.sourceLine,
+							directive.column
+						);
+						continue;
+					}
+					const includeComposite = this._resolveIncludeComposite(
+						specifier,
+						modulePath,
+						preprocessContext,
+						origin
+					);
+					if (!includeComposite) {
+						continue;
+					}
+					const includeLines = includeComposite.code.split(/\r?\n/g);
+					const includeOrigins = expandSourceMapToLineOrigins(
+						includeComposite.sourceMap,
+						includeLines.length,
+						includeComposite.sourceMap.segments[0]?.sourcePath ?? modulePath,
+						"include"
+					) as LineOrigin[];
+					for (let includeIndex = 0; includeIndex < includeLines.length; includeIndex++) {
+						outputLines.push(includeLines[includeIndex]);
+						outputOrigins.push(
+							includeOrigins[includeIndex] ?? {
+								sourcePath: modulePath,
+								sourceLine: lineNumber,
+								kind: "include",
+							}
+						);
+					}
+					continue;
+				}
+				case "define": {
+					const macro = this._parseMacroDefinition(
+						directive,
+						origin,
+						preprocessContext
+					);
+					if (!macro) {
+						continue;
+					}
+					if (preprocessContext.macros.has(macro.name)) {
+						this._pushDirectiveDiagnostic(
+							preprocessContext,
+							"directive-define-redefined",
+							`Macro "${macro.name}" was redefined; latest definition wins.`,
+							origin.sourcePath,
+							origin.sourceLine,
+							directive.column,
+							"warning"
+						);
+					}
+					preprocessContext.macros.set(macro.name, macro);
+					continue;
+				}
+				case "inject":
+					outputLines.push(line);
+					outputOrigins.push(origin);
+					continue;
+				default:
+					if (DIRECTIVE_UNSUPPORTED_NAMES.has(directive.name)) {
+						this._pushDirectiveDiagnostic(
+							preprocessContext,
+							"directive-unsupported",
+							`Directive "#${directive.name}" is not supported in Shader Directive Runtime v1.`,
+							origin.sourcePath,
+							origin.sourceLine,
+							directive.column
+						);
+					}
+					outputLines.push(line);
+					outputOrigins.push(origin);
+			}
+		}
+
+		return this._composeLinesToComposite(outputLines, outputOrigins);
+	}
+
+	private _findFirstGLSLVersionLine(lines: string[]): number {
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			if (line.length <= 0) {
+				continue;
+			}
+			if (line.startsWith("#version")) {
+				return i + 1;
+			}
+			return 0;
+		}
+		return 0;
+	}
+
+	private _parseIncludeSpecifier(
+		directive: DirectiveLine,
+		origin: LineOrigin,
+		preprocessContext: PreprocessContext
+	): IncludeSpecifier | null {
+		const body = directive.body.trim();
+		if (body.length <= 0) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-include-empty",
+				`Directive "#${directive.name}" requires a module path.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				directive.column
+			);
+			return null;
+		}
+		if (body.startsWith("<") && body.endsWith(">")) {
+			return {
+				kind: "angle",
+				path: body.slice(1, -1).trim(),
+			};
+		}
+		if (body.startsWith("\"") && body.endsWith("\"")) {
+			return {
+				kind: "quote",
+				path: body.slice(1, -1),
+			};
+		}
+		this._pushDirectiveDiagnostic(
+			preprocessContext,
+			"directive-include-invalid-path",
+			`Directive "#${directive.name}" expects <path> or "path".`,
+			origin.sourcePath,
+			origin.sourceLine,
+			directive.column
+		);
+		return null;
+	}
+
+	private _resolveIncludeComposite(
+		specifier: IncludeSpecifier,
+		currentModulePath: string,
+		preprocessContext: PreprocessContext,
+		origin: LineOrigin
+	): CompositeShaderSource | null {
+		const canonicalModuleId = this._resolveIncludeModuleId(
+			specifier,
+			currentModulePath,
+			preprocessContext.language
+		);
+		if (!canonicalModuleId) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-include-invalid-target",
+				`Include target "${specifier.path}" is invalid.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				1
+			);
+			return null;
+		}
+		if (preprocessContext.processingStack.includes(canonicalModuleId)) {
+			const chain = [...preprocessContext.processingStack, canonicalModuleId].join(
+				" -> "
+			);
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-include-cycle",
+				`Detected cyclic include/import chain: ${chain}.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				1
+			);
+			return null;
+		}
+		if (preprocessContext.expandedModules.has(canonicalModuleId)) {
+			return null;
+		}
+		const module = this._resolveRegisteredIncludeModule(
+			preprocessContext.language,
+			canonicalModuleId
+		);
+		if (!module) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-include-not-found",
+				`Include module "${canonicalModuleId}" was not registered for ${preprocessContext.language}.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				1
+			);
+			return null;
+		}
+		preprocessContext.processingStack.push(canonicalModuleId);
+		preprocessContext.expandedModules.add(canonicalModuleId);
+		const expanded = this._expandDirectiveComposite(
+			createInlineCompositeShaderSource(
+				module.code,
+				module.sourcePath,
+				"include"
+			),
+			canonicalModuleId,
+			preprocessContext
+		);
+		preprocessContext.processingStack.pop();
+		return expanded;
+	}
+
+	private _resolveIncludeModuleId(
+		specifier: IncludeSpecifier,
+		currentModulePath: string,
+		language: ShaderLanguage
+	): string | null {
+		const normalizedPath = specifier.path.replace(/\\/g, "/").trim();
+		if (normalizedPath.length <= 0) {
+			return null;
+		}
+		if (specifier.kind === "angle") {
+			const canonical = this._canonicalizeModulePathSafe(normalizedPath);
+			if (!canonical) {
+				return null;
+			}
+			if (this._resolveRegisteredIncludeModule(language, canonical)) {
+				return canonical;
+			}
+			const withExtension = this._withLanguageDefaultExtension(
+				canonical,
+				language
+			);
+			if (this._resolveRegisteredIncludeModule(language, withExtension)) {
+				return withExtension;
+			}
+			return withExtension;
+		}
+		const joined = this._joinModulePath(currentModulePath, normalizedPath);
+		const canonical = this._canonicalizeModulePathSafe(joined);
+		if (!canonical) {
+			return null;
+		}
+		if (this._resolveRegisteredIncludeModule(language, canonical)) {
+			return canonical;
+		}
+		const withExtension = this._withLanguageDefaultExtension(canonical, language);
+		if (this._resolveRegisteredIncludeModule(language, withExtension)) {
+			return withExtension;
+		}
+		return withExtension;
+	}
+
+	private _resolveRegisteredIncludeModule(
+		language: ShaderLanguage,
+		moduleId: string
+	): RegisteredIncludeModule | null {
+		const modules = this._includeModulesByLanguage.get(language);
+		if (!modules) {
+			return null;
+		}
+		return modules.get(moduleId) ?? null;
+	}
+
+	private _withLanguageDefaultExtension(
+		moduleId: string,
+		language: ShaderLanguage
+	): string {
+		const slashIndex = moduleId.lastIndexOf("/");
+		const fileName = slashIndex >= 0 ? moduleId.slice(slashIndex + 1) : moduleId;
+		if (fileName.includes(".")) {
+			return moduleId;
+		}
+		return `${moduleId}.${language === "wgsl" ? "wgsl" : "glsl"}`;
+	}
+
+	private _joinModulePath(baseModulePath: string, relativePath: string): string {
+		const base = baseModulePath.replace(/\\/g, "/");
+		const slashIndex = base.lastIndexOf("/");
+		const directory = slashIndex >= 0 ? base.slice(0, slashIndex) : "";
+		return directory.length > 0 ? `${directory}/${relativePath}` : relativePath;
+	}
+
+	private _canonicalizeModulePathSafe(value: string): string {
+		try {
+			return this._canonicalizeModulePath(value);
+		} catch (error) {
+			return value
+				.replace(/\\/g, "/")
+				.replace(/^\/+/, "")
+				.replace(/\/{2,}/g, "/")
+				.trim();
+		}
+	}
+
+	private _canonicalizeModulePath(value: string): string {
+		const normalized = value.replace(/\\/g, "/").trim();
+		if (normalized.length <= 0) {
+			throw new Error("Shader module path cannot be empty.");
+		}
+		const segments: string[] = [];
+		for (const rawSegment of normalized.split("/")) {
+			const segment = rawSegment.trim();
+			if (segment.length <= 0 || segment === ".") {
+				continue;
+			}
+			if (segment === "..") {
+				if (segments.length <= 0) {
+					throw new Error(
+						`Shader module path "${value}" escapes outside include root.`
+					);
+				}
+				segments.pop();
+				continue;
+			}
+			segments.push(segment);
+		}
+		if (segments.length <= 0) {
+			throw new Error(`Shader module path "${value}" resolved to an empty path.`);
+		}
+		return segments.join("/");
+	}
+
+	private _formatIncludeModuleEventId(
+		language: ShaderLanguage,
+		moduleId: string
+	): string {
+		return `${language}:${moduleId}`;
+	}
+
+	private _pushDirectiveDiagnostic(
+		preprocessContext: PreprocessContext,
+		code: string,
+		message: string,
+		sourcePath: string,
+		line: number,
+		column: number,
+		overrideSeverity?: ShaderDiagnosticSeverity
+	): void {
+		preprocessContext.diagnostics.push({
+			ruleId: "ignis/directive-runtime",
+			code,
+			severity:
+				overrideSeverity ?? this._resolveDirectiveSeverityByMode(preprocessContext.mode),
+			message,
+			sourcePath,
+			line: Math.max(1, Math.floor(line)),
+			column: Math.max(1, Math.floor(column)),
+			range: createPointRange(
+				Math.max(1, Math.floor(line)),
+				Math.max(1, Math.floor(column))
+			),
+		});
+	}
+
+	private _resolveDirectiveSeverityByMode(
+		mode: ShaderRuntimeMode
+	): ShaderDiagnosticSeverity {
+		return mode === "strict" ? "error" : "warning";
+	}
+
+	private _parseMacroDefinition(
+		directive: DirectiveLine,
+		origin: LineOrigin,
+		preprocessContext: PreprocessContext
+	): MacroDefinition | null {
+		const body = directive.body;
+		if (body.length <= 0) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-define-invalid",
+				`Directive "#define" requires a macro name.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				directive.column
+			);
+			return null;
+		}
+		const match = /^([A-Za-z_][A-Za-z0-9_]*)(.*)$/.exec(body);
+		if (!match) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-define-invalid",
+				`Directive "#define" has invalid syntax.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				directive.column
+			);
+			return null;
+		}
+		const macroName = match[1];
+		const remainder = match[2] ?? "";
+		if (remainder.startsWith("(")) {
+			const closeIndex = remainder.indexOf(")");
+			if (closeIndex < 0) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-define-function-invalid",
+					`Function macro "${macroName}" is missing closing ")".`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				return null;
+			}
+			const parameterList = remainder.slice(1, closeIndex).trim();
+			const params =
+				parameterList.length <= 0 ?
+					[]
+				:	parameterList
+						.split(",")
+						.map((parameter) => parameter.trim())
+						.filter((parameter) => parameter.length > 0);
+			for (const parameter of params) {
+				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(parameter)) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-define-function-param-invalid",
+						`Function macro "${macroName}" has invalid parameter "${parameter}".`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					return null;
+				}
+			}
+			const replacement = remainder.slice(closeIndex + 1).trimStart();
+			return {
+				kind: "function",
+				name: macroName,
+				params,
+				replacement,
+				sourcePath: origin.sourcePath,
+				sourceLine: origin.sourceLine,
+			};
+		}
+		return {
+			kind: "object",
+			name: macroName,
+			replacement: remainder.trimStart(),
+			sourcePath: origin.sourcePath,
+			sourceLine: origin.sourceLine,
+		};
+	}
+
+	private _expandMacrosInComposite(
+		composite: CompositeShaderSource,
+		preprocessContext: PreprocessContext
+	): CompositeShaderSource {
+		if (preprocessContext.macros.size <= 0) {
+			return composite;
+		}
+		const { lines, origins } = this._splitCompositeLines(composite);
+		const outputLines: string[] = [];
+		const macroState: DirectiveLineScanState = {
+			inBlockComment: false,
+			stringQuote: null,
+			escape: false,
+		};
+		for (let index = 0; index < lines.length; index++) {
+			const origin = origins[index] ?? {
+				sourcePath: preprocessContext.sourcePath,
+				sourceLine: index + 1,
+				kind: "source",
+			};
+			outputLines.push(
+				this._expandMacrosInLine(
+					lines[index],
+					macroState,
+					preprocessContext,
+					origin.sourcePath,
+					origin.sourceLine
+				)
+			);
+		}
+		return this._composeLinesToComposite(outputLines, origins);
+	}
+
+	private _expandMacrosInLine(
+		line: string,
+		state: DirectiveLineScanState,
+		preprocessContext: PreprocessContext,
+		sourcePath: string,
+		sourceLine: number
+	): string {
+		let output = "";
+		let index = 0;
+		while (index < line.length) {
+			const char = line[index];
+			const next = index + 1 < line.length ? line[index + 1] : "";
+			if (state.inBlockComment) {
+				output += char;
+				if (char === "*" && next === "/") {
+					output += "/";
+					state.inBlockComment = false;
+					index += 2;
+					continue;
+				}
+				index++;
+				continue;
+			}
+			if (state.stringQuote) {
+				output += char;
+				if (state.escape) {
+					state.escape = false;
+					index++;
+					continue;
+				}
+				if (char === "\\") {
+					state.escape = true;
+					index++;
+					continue;
+				}
+				if (char === state.stringQuote) {
+					state.stringQuote = null;
+					index++;
+					continue;
+				}
+				index++;
+				continue;
+			}
+			if (char === "/" && next === "/") {
+				output += line.slice(index);
+				break;
+			}
+			if (char === "/" && next === "*") {
+				output += "/*";
+				state.inBlockComment = true;
+				index += 2;
+				continue;
+			}
+			if (char === "\"" || char === "'") {
+				output += char;
+				state.stringQuote = char as '"' | "'";
+				state.escape = false;
+				index++;
+				continue;
+			}
+			if (isIdentifierStartCharacter(char)) {
+				let end = index + 1;
+				while (
+					end < line.length &&
+					isIdentifierPartCharacter(line[end])
+				) {
+					end++;
+				}
+				const token = line.slice(index, end);
+				const macro = preprocessContext.macros.get(token);
+				if (!macro) {
+					output += token;
+					index = end;
+					continue;
+				}
+				if (macro.kind === "object") {
+					output += this._expandMacroText(
+						macro.replacement,
+						preprocessContext,
+						sourcePath,
+						sourceLine,
+						1
+					);
+					index = end;
+					continue;
+				}
+				const invocation = this._parseFunctionMacroInvocation(line, end);
+				if (!invocation) {
+					output += token;
+					index = end;
+					continue;
+				}
+				if (invocation.args.length !== macro.params.length) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-macro-arg-count",
+						`Macro "${macro.name}" expected ${macro.params.length} argument(s) but got ${invocation.args.length}.`,
+						sourcePath,
+						sourceLine,
+						index + 1,
+						"warning"
+					);
+				}
+				const substituted = this._substituteFunctionMacro(
+					macro,
+					invocation.args.map((argument) =>
+						this._expandMacroText(
+							argument.trim(),
+							preprocessContext,
+							sourcePath,
+							sourceLine,
+							1
+						)
+					)
+				);
+				output += this._expandMacroText(
+					substituted,
+					preprocessContext,
+					sourcePath,
+					sourceLine,
+					1
+				);
+				index = invocation.endIndex + 1;
+				continue;
+			}
+			output += char;
+			index++;
+		}
+		return output;
+	}
+
+	private _expandMacroText(
+		text: string,
+		preprocessContext: PreprocessContext,
+		sourcePath: string,
+		sourceLine: number,
+		depth: number
+	): string {
+		if (text.length <= 0 || preprocessContext.macros.size <= 0) {
+			return text;
+		}
+		if (depth > DIRECTIVE_MAX_MACRO_EXPANSION_DEPTH) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-macro-depth-limit",
+				`Macro expansion exceeded maximum depth (${DIRECTIVE_MAX_MACRO_EXPANSION_DEPTH}).`,
+				sourcePath,
+				sourceLine,
+				1,
+				"warning"
+			);
+			return text;
+		}
+		let output = "";
+		let index = 0;
+		while (index < text.length) {
+			const char = text[index];
+			if (!isIdentifierStartCharacter(char)) {
+				output += char;
+				index++;
+				continue;
+			}
+			let end = index + 1;
+			while (end < text.length && isIdentifierPartCharacter(text[end])) {
+				end++;
+			}
+			const token = text.slice(index, end);
+			const macro = preprocessContext.macros.get(token);
+			if (!macro) {
+				output += token;
+				index = end;
+				continue;
+			}
+			if (macro.kind === "object") {
+				output += this._expandMacroText(
+					macro.replacement,
+					preprocessContext,
+					sourcePath,
+					sourceLine,
+					depth + 1
+				);
+				index = end;
+				continue;
+			}
+			output += token;
+			index = end;
+		}
+		return output;
+	}
+
+	private _parseFunctionMacroInvocation(
+		line: string,
+		identifierEndIndex: number
+	): { args: string[]; endIndex: number } | null {
+		let index = identifierEndIndex;
+		while (index < line.length && isWhitespaceCharacter(line[index])) {
+			index++;
+		}
+		if (index >= line.length || line[index] !== "(") {
+			return null;
+		}
+		let depth = 1;
+		let cursor = index + 1;
+		let current = "";
+		const args: string[] = [];
+		let stringQuote: '"' | "'" | null = null;
+		let escape = false;
+		while (cursor < line.length) {
+			const char = line[cursor];
+			if (stringQuote) {
+				current += char;
+				if (escape) {
+					escape = false;
+					cursor++;
+					continue;
+				}
+				if (char === "\\") {
+					escape = true;
+					cursor++;
+					continue;
+				}
+				if (char === stringQuote) {
+					stringQuote = null;
+				}
+				cursor++;
+				continue;
+			}
+			if (char === "\"" || char === "'") {
+				current += char;
+				stringQuote = char as '"' | "'";
+				escape = false;
+				cursor++;
+				continue;
+			}
+			if (char === "(") {
+				depth++;
+				current += char;
+				cursor++;
+				continue;
+			}
+			if (char === ")") {
+				depth--;
+				if (depth === 0) {
+					if (current.trim().length > 0 || args.length > 0) {
+						args.push(current.trim());
+					}
+					return {
+						args,
+						endIndex: cursor,
+					};
+				}
+				current += char;
+				cursor++;
+				continue;
+			}
+			if (char === "," && depth === 1) {
+				args.push(current.trim());
+				current = "";
+				cursor++;
+				continue;
+			}
+			current += char;
+			cursor++;
+		}
+		return null;
+	}
+
+	private _substituteFunctionMacro(
+		macro: FunctionMacroDefinition,
+		args: string[]
+	): string {
+		const parameterMap = new Map<string, string>();
+		for (let index = 0; index < macro.params.length; index++) {
+			parameterMap.set(macro.params[index], args[index] ?? "");
+		}
+		let output = "";
+		let cursor = 0;
+		while (cursor < macro.replacement.length) {
+			const char = macro.replacement[cursor];
+			if (!isIdentifierStartCharacter(char)) {
+				output += char;
+				cursor++;
+				continue;
+			}
+			let end = cursor + 1;
+			while (
+				end < macro.replacement.length &&
+				isIdentifierPartCharacter(macro.replacement[end])
+			) {
+				end++;
+			}
+			const token = macro.replacement.slice(cursor, end);
+			output += parameterMap.get(token) ?? token;
+			cursor = end;
+		}
+		return output;
+	}
+
+	private _resolveDirectiveInjectsSync(
+		composite: CompositeShaderSource,
+		preprocessContext: PreprocessContext
+	): CompositeShaderSource {
+		const { lines, origins } = this._splitCompositeLines(composite);
+		const outputLines: string[] = [];
+		const outputOrigins: LineOrigin[] = [];
+		const headerBlocks: InjectionBlock[] = [];
+		const functionBlocks: InjectionBlock[] = [];
+		const directiveState: DirectiveLineScanState = {
+			inBlockComment: false,
+			stringQuote: null,
+			escape: false,
+		};
+		for (let index = 0; index < lines.length; index++) {
+			const line = lines[index];
+			const origin = origins[index] ?? {
+				sourcePath: preprocessContext.sourcePath,
+				sourceLine: index + 1,
+				kind: "source",
+			};
+			const directive = this._scanDirectiveFromLine(line, directiveState);
+			if (!directive || directive.name !== "inject") {
+				outputLines.push(line);
+				outputOrigins.push(origin);
+				continue;
+			}
+			const invocation = this._parseInjectInvocation(
+				directive,
+				preprocessContext,
+				origin
+			);
+			if (!invocation) {
+				continue;
+			}
+			const script = this._injectionScripts.get(invocation.id);
+			if (!script) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-inject-not-found",
+					`Injection script "${invocation.id}" was not registered.`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				continue;
+			}
+			if (script.language && script.language !== preprocessContext.language) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-inject-language-mismatch",
+					`Injection script "${invocation.id}" does not support ${preprocessContext.language}.`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				continue;
+			}
+			const scriptContext = this._createInjectionScriptContext(
+				preprocessContext,
+				composite.code
+			);
+			const injection = script.run(invocation.args, scriptContext);
+			if (isPromiseLike(injection)) {
+				throw new Error(
+					`Injection script "${script.id}" returned a Promise during process(). Use processAsync().`
+				);
+			}
+			this._appendDirectiveInjectionBlocks(
+				preprocessContext,
+				script,
+				injection,
+				headerBlocks,
+				functionBlocks
+			);
+		}
+		const baseComposite = this._composeLinesToComposite(outputLines, outputOrigins);
+		const mergedBlocks = [...headerBlocks, ...functionBlocks];
+		if (mergedBlocks.length <= 0) {
+			return baseComposite;
+		}
+		return preprocessContext.language === "wgsl" ?
+				injectWGSLSource(baseComposite, mergedBlocks)
+			:	injectGLSLSource(baseComposite, mergedBlocks);
+	}
+
+	private async _resolveDirectiveInjectsAsync(
+		composite: CompositeShaderSource,
+		preprocessContext: PreprocessContext
+	): Promise<CompositeShaderSource> {
+		const { lines, origins } = this._splitCompositeLines(composite);
+		const outputLines: string[] = [];
+		const outputOrigins: LineOrigin[] = [];
+		const headerBlocks: InjectionBlock[] = [];
+		const functionBlocks: InjectionBlock[] = [];
+		const directiveState: DirectiveLineScanState = {
+			inBlockComment: false,
+			stringQuote: null,
+			escape: false,
+		};
+		for (let index = 0; index < lines.length; index++) {
+			const line = lines[index];
+			const origin = origins[index] ?? {
+				sourcePath: preprocessContext.sourcePath,
+				sourceLine: index + 1,
+				kind: "source",
+			};
+			const directive = this._scanDirectiveFromLine(line, directiveState);
+			if (!directive || directive.name !== "inject") {
+				outputLines.push(line);
+				outputOrigins.push(origin);
+				continue;
+			}
+			const invocation = this._parseInjectInvocation(
+				directive,
+				preprocessContext,
+				origin
+			);
+			if (!invocation) {
+				continue;
+			}
+			const script = this._injectionScripts.get(invocation.id);
+			if (!script) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-inject-not-found",
+					`Injection script "${invocation.id}" was not registered.`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				continue;
+			}
+			if (script.language && script.language !== preprocessContext.language) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-inject-language-mismatch",
+					`Injection script "${invocation.id}" does not support ${preprocessContext.language}.`,
+					origin.sourcePath,
+					origin.sourceLine,
+					directive.column
+				);
+				continue;
+			}
+			const scriptContext = this._createInjectionScriptContext(
+				preprocessContext,
+				composite.code
+			);
+			const injection = await script.run(invocation.args, scriptContext);
+			this._appendDirectiveInjectionBlocks(
+				preprocessContext,
+				script,
+				injection,
+				headerBlocks,
+				functionBlocks
+			);
+		}
+		const baseComposite = this._composeLinesToComposite(outputLines, outputOrigins);
+		const mergedBlocks = [...headerBlocks, ...functionBlocks];
+		if (mergedBlocks.length <= 0) {
+			return baseComposite;
+		}
+		return preprocessContext.language === "wgsl" ?
+				injectWGSLSource(baseComposite, mergedBlocks)
+			:	injectGLSLSource(baseComposite, mergedBlocks);
+	}
+
+	private _appendDirectiveInjectionBlocks(
+		preprocessContext: PreprocessContext,
+		script: ShaderInjectionScript,
+		injection: ShaderRuleInjection | null | undefined,
+		headers: InjectionBlock[],
+		functions: InjectionBlock[]
+	): void {
+		if (!injection) {
+			return;
+		}
+		const header = normalizeInjectionBlock(injection.header);
+		if (header.length > 0) {
+			headers.push({
+				code: header,
+				sourcePath: `<directive:inject:${script.id}:header>`,
+				label: `directive-inject:${script.id}:header`,
+				anchor: this._normalizeInjectionAnchorForLanguage(
+					preprocessContext.language,
+					injection.headerAnchor
+				),
+			});
+		}
+		const functionsBlock = normalizeInjectionBlock(injection.functions);
+		if (functionsBlock.length > 0) {
+			functions.push({
+				code: functionsBlock,
+				sourcePath: `<directive:inject:${script.id}:functions>`,
+				label: `directive-inject:${script.id}:functions`,
+				anchor: this._normalizeInjectionAnchorForLanguage(
+					preprocessContext.language,
+					injection.functionsAnchor
+				),
+			});
+		}
+	}
+
+	private _parseInjectInvocation(
+		directive: DirectiveLine,
+		preprocessContext: PreprocessContext,
+		origin: LineOrigin
+	): InjectInvocation | null {
+		const body = directive.body.trim();
+		const match =
+			/^<([^>]+)>\s*(?:\((.*)\))?$/.exec(body) ??
+			/^([A-Za-z_][A-Za-z0-9_\/\.-]*)\s*(?:\((.*)\))?$/.exec(body);
+		if (!match) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-inject-invalid",
+				`Directive "#inject" expects <script-id>(key=value, ...).`,
+				origin.sourcePath,
+				origin.sourceLine,
+				directive.column
+			);
+			return null;
+		}
+		const id = match[1].trim();
+		const argsPayload = (match[2] ?? "").trim();
+		const args: Record<string, ShaderInjectionArgValue> = {};
+		if (argsPayload.length > 0) {
+			for (const part of this._splitInjectArguments(argsPayload)) {
+				const equalIndex = part.indexOf("=");
+				if (equalIndex <= 0) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-inject-arg-invalid",
+						`Invalid inject argument "${part}". Expected key=value.`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column,
+						"warning"
+					);
+					continue;
+				}
+				const key = part.slice(0, equalIndex).trim();
+				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-inject-arg-key-invalid",
+						`Invalid inject argument key "${key}".`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column,
+						"warning"
+					);
+					continue;
+				}
+				const valueRaw = part.slice(equalIndex + 1).trim();
+				args[key] = this._parseInjectArgumentValue(valueRaw);
+			}
+		}
+		return {
+			id,
+			args,
+		};
+	}
+
+	private _splitInjectArguments(payload: string): string[] {
+		const parts: string[] = [];
+		let current = "";
+		let stringQuote: '"' | "'" | null = null;
+		let escape = false;
+		let depth = 0;
+		for (let index = 0; index < payload.length; index++) {
+			const char = payload[index];
+			if (stringQuote) {
+				current += char;
+				if (escape) {
+					escape = false;
+					continue;
+				}
+				if (char === "\\") {
+					escape = true;
+					continue;
+				}
+				if (char === stringQuote) {
+					stringQuote = null;
+				}
+				continue;
+			}
+			if (char === "\"" || char === "'") {
+				current += char;
+				stringQuote = char as '"' | "'";
+				escape = false;
+				continue;
+			}
+			if (char === "(") {
+				depth++;
+				current += char;
+				continue;
+			}
+			if (char === ")") {
+				depth = Math.max(0, depth - 1);
+				current += char;
+				continue;
+			}
+			if (char === "," && depth === 0) {
+				const value = current.trim();
+				if (value.length > 0) {
+					parts.push(value);
+				}
+				current = "";
+				continue;
+			}
+			current += char;
+		}
+		const tail = current.trim();
+		if (tail.length > 0) {
+			parts.push(tail);
+		}
+		return parts;
+	}
+
+	private _parseInjectArgumentValue(
+		rawValue: string
+	): ShaderInjectionArgValue {
+		const trimmed = rawValue.trim();
+		if (
+			(trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'"))
+		) {
+			return trimmed.slice(1, -1);
+		}
+		if (trimmed === "true") {
+			return true;
+		}
+		if (trimmed === "false") {
+			return false;
+		}
+		const numeric = Number(trimmed);
+		if (Number.isFinite(numeric) && trimmed.length > 0) {
+			return numeric;
+		}
+		return trimmed;
+	}
+
+	private _createInjectionScriptContext(
+		preprocessContext: PreprocessContext,
+		source: string
+	): ShaderInjectionScriptContext {
+		return {
+			...preprocessContext.contextTemplate,
+			source,
+		};
+	}
+
+	private _normalizeInjectionScript(
+		script: ShaderInjectionScript
+	): ShaderInjectionScript {
+		if (!script || typeof script !== "object") {
+			throw new Error("Shader injection script must be an object.");
+		}
+		const id = typeof script.id === "string" ? script.id.trim() : "";
+		if (id.length <= 0) {
+			throw new Error("Shader injection script id must be a non-empty string.");
+		}
+		if (typeof script.run !== "function") {
+			throw new Error(`Shader injection script "${id}" run must be a function.`);
+		}
+		const language =
+			script.language === "wgsl" || script.language === "glsl" ?
+				script.language
+			:	undefined;
+		return {
+			...script,
+			id,
+			language,
+			description:
+				typeof script.description === "string" ?
+					script.description.trim() || undefined
+				:	undefined,
+			symbols: normalizeSymbols(script.symbols),
+		};
+	}
+
+	private _prepareProcessSync(request: ShaderProcessRequest): ProcessPreparation {
+		const initialSourcePath = this._resolveRequestSourcePath(request);
+		const initialComposite =
 			request.sourceMap ?
 				{
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+			:	createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
+		const preprocessed = this._preprocessDirectivesSync(request, initialComposite);
+		const sourcePath =
+			preprocessed.composite.sourceMap.segments[0]?.sourcePath ?? initialSourcePath;
+		const context = this._buildRuleContext(request, preprocessed.composite.code);
 
 		const matchedRules: ShaderRule[] = [];
 		for (const rule of this._collectRulesInExecutionOrder()) {
@@ -1033,40 +2751,49 @@ export class ShaderRuntime {
 			}
 		}
 
-		const sourceHash = this._resolveSourceHash(context.source, request.sourceHash);
+		const sourceHash = this._resolveSourceHash(
+			context.source,
+			preprocessed.composite.code === request.code ? request.sourceHash : undefined
+		);
 		const matchedRuleIds = matchedRules.map((rule) => rule.id);
 		const cacheKey = this._buildProcessCacheKey(
 			context,
-			request.sourceMap,
+			preprocessed.composite.sourceMap,
 			sourceHash,
-			matchedRuleIds
+			matchedRuleIds,
+			this._directiveRegistryRevision
 		);
 
 		return {
 			context,
 			sourcePath,
-			baseComposite,
+			baseComposite: preprocessed.composite,
+			preprocessedDiagnostics: preprocessed.diagnostics,
 			matchedRules,
 			matchedRuleIds,
 			cacheKey,
-			sourceMap: request.sourceMap,
+			sourceMap: preprocessed.composite.sourceMap,
 		};
 	}
 
 	private async _prepareProcessAsync(
 		request: ShaderProcessRequest
 	): Promise<ProcessPreparation> {
-		const context = this._buildRuleContext(request);
-		const sourcePath =
-			context.label ??
-			`<runtime:${context.language}:${context.stage}:${context.sourceKind}>`;
-		const baseComposite =
+		const initialSourcePath = this._resolveRequestSourcePath(request);
+		const initialComposite =
 			request.sourceMap ?
 				{
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+			:	createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
+		const preprocessed = await this._preprocessDirectivesAsync(
+			request,
+			initialComposite
+		);
+		const sourcePath =
+			preprocessed.composite.sourceMap.segments[0]?.sourcePath ?? initialSourcePath;
+		const context = this._buildRuleContext(request, preprocessed.composite.code);
 
 		const matchedRules: ShaderRule[] = [];
 		for (const rule of this._collectRulesInExecutionOrder()) {
@@ -1080,35 +2807,43 @@ export class ShaderRuntime {
 			}
 		}
 
-		const sourceHash = this._resolveSourceHash(context.source, request.sourceHash);
+		const sourceHash = this._resolveSourceHash(
+			context.source,
+			preprocessed.composite.code === request.code ? request.sourceHash : undefined
+		);
 		const matchedRuleIds = matchedRules.map((rule) => rule.id);
 		const cacheKey = this._buildProcessCacheKey(
 			context,
-			request.sourceMap,
+			preprocessed.composite.sourceMap,
 			sourceHash,
-			matchedRuleIds
+			matchedRuleIds,
+			this._directiveRegistryRevision
 		);
 
 		return {
 			context,
 			sourcePath,
-			baseComposite,
+			baseComposite: preprocessed.composite,
+			preprocessedDiagnostics: preprocessed.diagnostics,
 			matchedRules,
 			matchedRuleIds,
 			cacheKey,
-			sourceMap: request.sourceMap,
+			sourceMap: preprocessed.composite.sourceMap,
 		};
 	}
 
-	private _buildRuleContext(request: ShaderProcessRequest): ShaderRuleContext {
+	private _buildRuleContext(
+		request: ShaderProcessRequest,
+		source: string = request.code
+	): ShaderRuleContext {
 		return {
 			mode: this._mode,
-			language: request.language,
+			language: normalizeLanguage(request.language),
 			stage: normalizeStage(request.stage),
 			entryPoint: request.entryPoint ?? null,
 			label: request.label ?? null,
 			sourceKind: normalizeSourceKind(request.sourceKind),
-			source: request.code,
+			source,
 		};
 	}
 
@@ -1289,14 +3024,18 @@ export class ShaderRuntime {
 			prepared.context.language === "wgsl" ?
 				injectWGSLSource(prepared.baseComposite, [...headers, ...functions])
 			:	injectGLSLSource(prepared.baseComposite, [...headers, ...functions]);
-		const hasErrors = diagnostics.some(
+		const mergedDiagnostics = [
+			...prepared.preprocessedDiagnostics,
+			...diagnostics,
+		];
+		const hasErrors = mergedDiagnostics.some(
 			(diagnostic) => diagnostic.severity === "error"
 		);
 		return {
 			code: composite.code,
 			sourceMap: composite.sourceMap,
 			composite,
-			diagnostics,
+			diagnostics: mergedDiagnostics,
 			hasErrors,
 			fromCache: false,
 		};
@@ -1513,7 +3252,8 @@ export class ShaderRuntime {
 		context: ShaderRuleContext,
 		sourceMap: ShaderSourceSegmentMap | null | undefined,
 		sourceHash: string,
-		matchedRuleIds: readonly string[]
+		matchedRuleIds: readonly string[],
+		directiveRevision: number
 	): string {
 		const ruleFingerprint = hashStringFNV1a(matchedRuleIds.join("|"));
 		return [
@@ -1526,6 +3266,7 @@ export class ShaderRuntime {
 			`code:${hashStringFNV1a(sourceHash)}`,
 			`sourceMap:${hashSourceMap(sourceMap)}`,
 			`rules:${ruleFingerprint}`,
+			`directives:${directiveRevision}`,
 		].join("|");
 	}
 
@@ -1836,6 +3577,8 @@ export class ShaderRuntime {
 		options: {
 			invalidateAll?: boolean;
 			invalidateRuleIds?: string[];
+			includeModuleIds?: string[];
+			injectionScriptIds?: string[];
 		} = {}
 	): void {
 		this._revision++;
@@ -1850,6 +3593,12 @@ export class ShaderRuntime {
 			revision: this._revision,
 			action,
 			ruleIds: [...new Set(ruleIds)],
+			includeModuleIds:
+				options.includeModuleIds ? [...new Set(options.includeModuleIds)] : undefined,
+			injectionScriptIds:
+				options.injectionScriptIds ?
+					[...new Set(options.injectionScriptIds)]
+				:	undefined,
 		});
 	}
 
