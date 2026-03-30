@@ -56,7 +56,8 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
-import { isShadowCastingLight } from "../../lights";
+import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
+import type { ShadowMap } from "../../lights/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";
@@ -375,7 +376,10 @@ export class WebGPURenderResources {
 			this._renderer.warnOnce(warning.key, warning.message);
 		}
 
-		this._shadowAtlases.prepare(this._lightingState);
+		this._shadowAtlases.prepare(
+			this._lightingState,
+			this._resolveShadowAtlasTileSize(scene.shadowMaps, features.enableShadows)
+		);
 		this._frameBindings.prepare(
 			scene,
 			this._lightingState,
@@ -532,6 +536,25 @@ export class WebGPURenderResources {
 			"attachments" in value &&
 			"transient" in value
 		);
+	}
+
+	private _resolveShadowAtlasTileSize(
+		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowMap>,
+		enableShadows: boolean
+	): number {
+		if (!enableShadows) {
+			return 1;
+		}
+
+		let tileSize = 0;
+		for (const shadowMap of shadowMaps.values()) {
+			if (!shadowMap?.viewProjectionMatrix) {
+				continue;
+			}
+			tileSize = Math.max(tileSize, shadowMap.size | 0);
+		}
+
+		return Math.max(1, tileSize);
 	}
 
 	public async getDrawResources(

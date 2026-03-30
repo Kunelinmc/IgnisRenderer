@@ -26,22 +26,26 @@ export class WebGPUShadowAtlasAllocator {
 		this._backend = backend;
 	}
 
-	public prepare(lightingState: WebGPULightingState): void {
+	public prepare(
+		lightingState: WebGPULightingState,
+		minTileSize: number = 0
+	): void {
 		const directionalShadows = lightingState.directionalShadows;
 		const spotShadows = lightingState.spotShadows;
 		const maxShadowSize = Math.max(
 			getMaxShadowSize(directionalShadows),
 			getMaxShadowSize(spotShadows)
 		);
+		const resolvedTileSize = Math.max(maxShadowSize, minTileSize | 0);
 
 		for (const shadow of directionalShadows) {
-			shadow.atlasTileSize = maxShadowSize;
+			shadow.atlasTileSize = resolvedTileSize;
 		}
 		for (const shadow of spotShadows) {
-			shadow.atlasTileSize = maxShadowSize;
+			shadow.atlasTileSize = resolvedTileSize;
 		}
 
-		this.ensureAtlasForTileSize(Math.max(1, maxShadowSize));
+		this.ensureAtlasForTileSize(Math.max(1, resolvedTileSize));
 	}
 
 	public ensureAtlasForTileSize(tileSize: number): IRenderTexture {

@@ -147,7 +147,7 @@ async function createRenderer(
 		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
 		webgpuRenderer.setScene(scene);
 		webgpuRenderer.features.enableTAA = true;
-		webgpuRenderer.features.enableShadows = true;
+		webgpuRenderer.features.enableLighting = false;
 
 		try {
 			await webgpuRenderer.init();

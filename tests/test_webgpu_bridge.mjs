@@ -29,7 +29,10 @@ import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
-import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
+import {
+	WEBGPU_SHADOW_ATLAS_COLUMNS,
+	WEBGPU_TEXTURE_SLOT,
+} from "../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 
@@ -1051,6 +1054,54 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.notEqual(secondSkybox.frameBinding, firstBinding);
 }
 
+async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
+	const backend = new FakeBackend();
+	const renderer = { warnOnce() {} };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const light = new DirectionalLight();
+	const shadowMap = new ShadowMap(1024);
+	shadowMap.viewProjectionMatrix = Matrix4.identity();
+	frame.lights = [light];
+	frame.shadowMaps = new Map([[light, shadowMap]]);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+	const features = resolveFeatureState(
+		{
+			enableLighting: false,
+			enableGamma: true,
+			enableShadows: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			ssgi: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	resources.prepareFrame(frame, features);
+	const frameBinding = resources.getFrameBinding();
+	const shadowAtlasEntry = frameBinding.desc.entries.find(
+		(entry) => entry.binding === 1
+	);
+	assert.ok(shadowAtlasEntry?.resource);
+	assert.equal(
+		shadowAtlasEntry.resource.width,
+		1024 * WEBGPU_SHADOW_ATLAS_COLUMNS
+	);
+}
+
 async function testParticleBindingCacheEvictsStaleSystems() {
 	const backend = new FakeBackend();
 	const renderer = { warnOnce() {} };
@@ -1353,6 +1404,7 @@ async function run() {
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
+	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();
 	await testParticleBindingCacheEvictsStaleSystems();
 	await testRenderResourcesDestroyCleansParticleAndGeometryResources();
 	testWebGPUGeometryRegistryReleaseGeometryDestroysBuffers();
