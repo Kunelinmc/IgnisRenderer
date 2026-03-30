@@ -270,7 +270,9 @@ export class WebGPUPipelineLibrary {
 		}
 
 		try {
-			const program = material.resolveWebGPUProgram(mode);
+			const program = material.resolveWebGPUProgram(mode, {
+				enableRuntimeInjects: this._supportsRuntimeInjects(),
+			});
 			const shaderCacheKey = material.getWebGPUCacheKey();
 			const vertexModule = await this._getCustomShaderModule(
 				`${shaderCacheKey}:${mode}:vertex`,
@@ -516,5 +518,9 @@ export class WebGPUPipelineLibrary {
 			return backend.getShaderDirectiveCacheTag();
 		}
 		return "none";
+	}
+
+	private _supportsRuntimeInjects(): boolean {
+		return this._getDirectiveCacheTag() !== "none";
 	}
 }

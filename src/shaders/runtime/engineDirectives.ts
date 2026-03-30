@@ -8,7 +8,8 @@ import type {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 1;
+const PROFILE_REVISION = 2;
+const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 
@@ -56,6 +57,80 @@ function normalizeBooleanFlag(
 	return fallback;
 }
 
+function normalizeTextureSlot(value: ShaderInjectionArgValue | undefined): number {
+	const numeric =
+		typeof value === "number" ? value
+		: typeof value === "string" ? Number(value)
+		:	NaN;
+	if (Number.isFinite(numeric)) {
+		const resolved = Math.floor(numeric);
+		if (resolved >= 0 && resolved < MATERIAL_TEXTURE_SLOT_COUNT) {
+			return resolved;
+		}
+	}
+	return 0;
+}
+
+function normalizeTextureUVSet(
+	value: ShaderInjectionArgValue | undefined
+): 0 | 1 {
+	const numeric =
+		typeof value === "number" ? value
+		: typeof value === "string" ? Number(value)
+		:	NaN;
+	return Number.isFinite(numeric) && Math.floor(numeric) === 1 ? 1 : 0;
+}
+
+function normalizeIdentifierToken(
+	value: ShaderInjectionArgValue | undefined,
+	fallback: string
+): string {
+	const raw =
+		typeof value === "string" && value.trim().length > 0 ?
+			value.trim()
+		:	fallback;
+	const sanitized = raw.replace(/[^A-Za-z0-9_]/g, "_");
+	if (/^[A-Za-z_]/.test(sanitized)) {
+		return sanitized;
+	}
+	return `x_${sanitized}`;
+}
+
+function hasGLSLSamplerUniform(source: string, uniformName: string): boolean {
+	const pattern = new RegExp(
+		`\\buniform\\s+sampler2D\\s+${uniformName}\\b`,
+		"m"
+	);
+	return pattern.test(source);
+}
+
+function findWGSLBindingVariableName(
+	source: string,
+	binding: number
+): string | null {
+	const patterns = [
+		new RegExp(
+			`@group\\s*\\(\\s*1\\s*\\)\\s*@binding\\s*\\(\\s*${binding}\\s*\\)\\s*` +
+				`(?:@[A-Za-z_][A-Za-z0-9_]*(?:\\s*\\([^)]*\\))?\\s*)*` +
+				`var(?:<[^>]+>)?\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:`,
+			"m"
+		),
+		new RegExp(
+			`@binding\\s*\\(\\s*${binding}\\s*\\)\\s*@group\\s*\\(\\s*1\\s*\\)\\s*` +
+				`(?:@[A-Za-z_][A-Za-z0-9_]*(?:\\s*\\([^)]*\\))?\\s*)*` +
+				`var(?:<[^>]+>)?\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:`,
+			"m"
+		),
+	];
+	for (const pattern of patterns) {
+		const match = pattern.exec(source);
+		if (match?.[1]) {
+			return match[1];
+		}
+	}
+	return null;
+}
+
 function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 	return {
 		id: "ignis/postprocess/luma",
@@ -85,6 +160,116 @@ function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 			return {
 				functions: `fn luma(color: vec3<f32>) -> f32 {\n\treturn ignisLumaInternal(color, ${weightsExpression}, ${clampInput ? "true" : "false"});\n}`,
 				functionsAnchor: "afterBindings",
+			};
+		},
+	};
+}
+
+function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
+	return {
+		id: "ignis/material/texture-binding",
+		description:
+			"Inject per-material texture helper declarations for custom shader materials.",
+		run(args, context) {
+			if (
+				context.sourceKind !== "custom-material" ||
+				context.stage !== "fragment"
+			) {
+				return null;
+			}
+
+			const nameToken = normalizeIdentifierToken(args.name, "texture");
+			const uniformName = normalizeIdentifierToken(
+				args.uniform,
+				`uShaderTex_${nameToken}`
+			);
+			const slot = normalizeTextureSlot(args.slot);
+			const uvSet = normalizeTextureUVSet(args.uv);
+			const linear = normalizeBooleanFlag(args.linear, false);
+			const symbolToken = nameToken.toUpperCase();
+			const fnName = `ignisSampleTexture_${nameToken}`;
+			const slotConst = `IGNIS_TEXTURE_SLOT_${symbolToken}`;
+			const uvConst = `IGNIS_TEXTURE_UVSET_${symbolToken}`;
+			const linearConst = `IGNIS_TEXTURE_LINEAR_${symbolToken}`;
+
+			if (context.language === "glsl") {
+				const headerBlocks: string[] = [];
+				if (!hasGLSLSamplerUniform(context.source, uniformName)) {
+					headerBlocks.push(`uniform sampler2D ${uniformName};`);
+				}
+				headerBlocks.push(
+					`const int ${slotConst} = ${slot};`,
+					`const int ${uvConst} = ${uvSet};`,
+					`const bool ${linearConst} = ${linear ? "true" : "false"};`
+				);
+				const decodeExpression =
+					linear ?
+						"sampled"
+					:	"vec4(pow(max(sampled.rgb, vec3(0.0)), vec3(2.2)), sampled.a)";
+				return {
+					header: headerBlocks.join("\n"),
+					functions:
+						`vec4 ${fnName}(vec2 uv0, vec2 uv1) {\n` +
+						`\tvec2 uv = ${uvConst} == 1 ? uv1 : uv0;\n` +
+						`\tvec4 sampled = texture(${uniformName}, uv);\n` +
+						`\treturn ${decodeExpression};\n` +
+						`}`,
+					symbols: [fnName, slotConst, uvConst, linearConst, uniformName],
+					headerAnchor: "afterUniforms",
+					functionsAnchor: "beforeEntryPoint",
+				};
+			}
+
+			const textureBindingIndex = slot * 2 + 1;
+			const samplerBindingIndex = textureBindingIndex + 1;
+			const existingTextureName = findWGSLBindingVariableName(
+				context.source,
+				textureBindingIndex
+			);
+			const existingSamplerName = findWGSLBindingVariableName(
+				context.source,
+				samplerBindingIndex
+			);
+			const textureName = existingTextureName ?? `ignisShaderTexture_${nameToken}`;
+			const samplerName = existingSamplerName ?? `ignisShaderSampler_${nameToken}`;
+			const headerBlocks: string[] = [];
+			if (!existingTextureName) {
+				headerBlocks.push(
+					`@group(1) @binding(${textureBindingIndex}) var ${textureName}: texture_2d<f32>;`
+				);
+			}
+			if (!existingSamplerName) {
+				headerBlocks.push(
+					`@group(1) @binding(${samplerBindingIndex}) var ${samplerName}: sampler;`
+				);
+			}
+			headerBlocks.push(
+				`const ${slotConst}: u32 = ${slot}u;`,
+				`const ${uvConst}: u32 = ${uvSet}u;`,
+				`const ${linearConst}: bool = ${linear ? "true" : "false"};`
+			);
+			const decodeExpression =
+				linear ?
+					"sampled"
+				:	"vec4<f32>(pow(max(sampled.rgb, vec3<f32>(0.0)), vec3<f32>(2.2)), sampled.a)";
+			return {
+				header: headerBlocks.join("\n"),
+				functions:
+					`fn ${fnName}(uv0: vec2<f32>, uv1: vec2<f32>) -> vec4<f32> {\n` +
+					`\tlet uv = select(uv0, uv1, ${uvConst} == 1u);\n` +
+					`\tlet sampled = textureSample(${textureName}, ${samplerName}, uv);\n` +
+					`\treturn ${decodeExpression};\n` +
+					`}`,
+				symbols: [
+					fnName,
+					slotConst,
+					uvConst,
+					linearConst,
+					textureName,
+					samplerName,
+				],
+				headerAnchor: "afterBindings",
+				functionsAnchor: "beforeEntryPoint",
 			};
 		},
 	};
@@ -130,7 +315,10 @@ fn ignisLumaInternal(
 				sourcePath: "runtime://ignis/includes/wgsl/postprocess/luma-common.wgsl",
 			},
 		],
-		injectionScripts: [createPostProcessLumaInjectionScript()],
+		injectionScripts: [
+			createPostProcessLumaInjectionScript(),
+			createMaterialTextureBindingInjectionScript(),
+		],
 	};
 }
 
@@ -174,7 +362,10 @@ float ignisLumaInternal(vec3 color, vec3 weights, bool clampInput) {
 				sourcePath: "runtime://ignis/includes/glsl/postprocess/luma-common.glsl",
 			},
 		],
-		injectionScripts: [createPostProcessLumaInjectionScript()],
+		injectionScripts: [
+			createPostProcessLumaInjectionScript(),
+			createMaterialTextureBindingInjectionScript(),
+		],
 	};
 }
 

@@ -153,6 +153,7 @@ export interface WebGLSceneProgram {
 		taaJitter: WebGLUniformLocation | null;
 		prevViewProjection: WebGLUniformLocation | null;
 		prevModel: WebGLUniformLocation | null;
+		customSamplers: Record<string, WebGLUniformLocation | null>;
 	};
 }
 
@@ -376,8 +377,12 @@ export class WebGLProgramLibrary {
 		}
 
 		let source: { vertexCode: string; fragmentCode: string };
+		let customSamplerUniforms: string[] = [];
 		try {
-			source = material.resolveWebGLProgram();
+			source = material.resolveWebGLProgram({
+				enableRuntimeInjects: this._supportsRuntimeInjects(),
+			});
+			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
 		} catch (error) {
 			this._warn(
 				`webgl-shader-material-missing-source-${material.shaderId}`,
@@ -412,7 +417,8 @@ export class WebGLProgramLibrary {
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
 					sourceKind: "custom-material",
-				}
+				},
+				customSamplerUniforms
 			);
 		} catch (error) {
 			if (!this._isWarnMode()) {
@@ -449,7 +455,8 @@ export class WebGLProgramLibrary {
 		fragmentSource: string,
 		label: string,
 		vertexMetadata?: ShaderCompileMetadata,
-		fragmentMetadata?: ShaderCompileMetadata
+		fragmentMetadata?: ShaderCompileMetadata,
+		customSamplerUniforms: string[] = []
 	): WebGLSceneProgram {
 		const program = this._createProgram(
 			vertexSource,
@@ -458,6 +465,13 @@ export class WebGLProgramLibrary {
 			vertexMetadata,
 			fragmentMetadata
 		);
+		const customSamplers: Record<string, WebGLUniformLocation | null> = {};
+		for (const uniformName of customSamplerUniforms) {
+			customSamplers[uniformName] = this._gl.getUniformLocation(
+				program,
+				uniformName
+			);
+		}
 		return {
 			program,
 			uniforms: {
@@ -552,6 +566,7 @@ export class WebGLProgramLibrary {
 					"uPrevViewProjection"
 				),
 				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
+				customSamplers,
 			},
 		};
 	}
@@ -1051,6 +1066,21 @@ export class WebGLProgramLibrary {
 
 	private _isWarnMode(): boolean {
 		return this._shaderRuntime?.getMode() === "warn";
+	}
+
+	private _supportsRuntimeInjects(): boolean {
+		return this._shaderCompileStage !== null || this._shaderRuntime !== null;
+	}
+
+	private _collectCustomSamplerUniforms(material: ShaderMaterial): string[] {
+		const uniforms = new Set<string>();
+		for (const binding of material.getTextureBindings()) {
+			if (binding.webglUniform.trim().length <= 0) {
+				continue;
+			}
+			uniforms.add(binding.webglUniform);
+		}
+		return [...uniforms];
 	}
 
 	private _processShaderSource(

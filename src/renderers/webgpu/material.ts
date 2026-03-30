@@ -4,6 +4,7 @@ import {
 	ShadingModel,
 	AlphaMode,
 } from "../../materials/Material";
+import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { Texture } from "../../core/Texture";
 
 import { WEBGPU_TEXTURE_SLOT, WEBGPU_TEXTURE_SLOT_COUNT } from "./constants";
@@ -207,19 +208,40 @@ function createMaterialTextureSlots(
 		true
 	);
 
+	if (material instanceof ShaderMaterial) {
+		const textureBindings = material.getTextureBindings();
+		for (const binding of textureBindings) {
+			if (binding.slot < 0 || binding.slot >= slots.length) {
+				continue;
+			}
+			slots[binding.slot] = createTextureSlot(
+				binding.texture,
+				binding.uvSet,
+				binding.linear,
+				binding.linear
+			);
+		}
+	}
+
 	return slots;
 }
 
 function createTextureSlot(
 	map: Texture | null | undefined,
 	uvSet: number,
-	fallbackLinear: boolean
+	fallbackLinear: boolean,
+	forcedLinear: boolean | null = null
 ): WebGPUTextureSlotData {
 	if (!map) {
 		return {
 			map: null,
 			transformA: [0, 0, 1, 1],
-			transformB: [0, uvSet === 1 ? 1 : 0, fallbackLinear ? 1 : 0, 0],
+			transformB: [
+				0,
+				uvSet === 1 ? 1 : 0,
+				(forcedLinear ?? fallbackLinear) ? 1 : 0,
+				0,
+			],
 		};
 	}
 
@@ -229,7 +251,9 @@ function createTextureSlot(
 		transformB: [
 			map.rotation,
 			uvSet === 1 ? 1 : 0,
-			map.colorSpace === "sRGB" ? 0 : 1,
+			forcedLinear !== null ?
+				(forcedLinear ? 1 : 0)
+			:	(map.colorSpace === "sRGB" ? 0 : 1),
 			0,
 		],
 	};

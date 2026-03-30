@@ -263,6 +263,140 @@ function testResolveWebGLProgramMissingSourceThrows() {
 	);
 }
 
+function testChunkApiSupportsUnifiedShaderUpdates() {
+	const material = new ShaderMaterial({
+		name: "ChunkMaterial",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "mrt",
+				code: WGSL_FRAGMENT_MRT,
+			},
+		],
+	});
+	assert.equal(material.webgpuWGSL?.vertex, WGSL_VERTEX);
+	assert.equal(material.webgpuWGSL?.fragmentSingle, WGSL_FRAGMENT_SINGLE);
+	assert.equal(material.webgpuWGSL?.fragmentMRT, WGSL_FRAGMENT_MRT);
+
+	material.upsertChunk({
+		backend: "webgpu",
+		language: "glsl",
+		stage: "vertex",
+		code: "legacy-vertex",
+	});
+	material.upsertChunk({
+		backend: "webgpu",
+		language: "glsl",
+		stage: "fragment",
+		mode: "single",
+		code: "legacy-fragment",
+	});
+	assert.equal(material.webgpuGLSL?.vertex, "legacy-vertex");
+	assert.equal(material.webgpuGLSL?.fragmentSingle, "legacy-fragment");
+	assert.equal(material.removeChunk({
+		backend: "webgpu",
+		language: "glsl",
+		stage: "fragment",
+		mode: "single",
+	}), true);
+	assert.equal(material.webgpuGLSL?.fragmentSingle, "");
+}
+
+function testTextureBindingAutoSlotAndUniformDefaults() {
+	const material = new ShaderMaterial({ name: "TextureBindingDefaults" });
+	material.setTextureBindings([
+		{
+			name: "noise-map",
+			texture: { colorSpace: "Linear" },
+		},
+		{
+			name: "detail",
+			texture: null,
+		},
+	]);
+	const bindings = material.getTextureBindings();
+	assert.equal(bindings.length, 2);
+	assert.equal(bindings[0].slot, 0);
+	assert.equal(bindings[1].slot, 1);
+	assert.equal(bindings[0].webglUniform, "uShaderTex_noise_map");
+	assert.equal(bindings[0].linear, true);
+	assert.equal(bindings[1].linear, false);
+
+	assert.throws(
+		() =>
+			material.setTextureBindings([
+				{ name: "slotA", texture: null, slot: 3 },
+				{ name: "slotB", texture: null, slot: 3 },
+			]),
+		/duplicate texture slot/
+	);
+}
+
+function testTextureBindingInjectDirectivesDecoratePrograms() {
+	const material = new ShaderMaterial({
+		name: "InjectBindingMaterial",
+		webgpuWGSL: {
+			vertex: WGSL_VERTEX,
+			fragmentSingle: WGSL_FRAGMENT_SINGLE,
+		},
+		webglGLSL: {
+			vertex: WEBGL_VERTEX,
+			fragment: WEBGL_FRAGMENT,
+		},
+	});
+	material.setTextureBinding({
+		name: "noise-map",
+		texture: null,
+		slot: 13,
+		uvSet: 1,
+		linear: true,
+		webglUniform: "uNoiseTex",
+	});
+
+	const webgpuWithoutInject = material.resolveWebGPUProgram("single");
+	assert.equal(
+		webgpuWithoutInject.fragmentCode.includes(
+			"ignis/material/texture-binding"
+		),
+		false
+	);
+	const webgpuWithInject = material.resolveWebGPUProgram("single", {
+		enableRuntimeInjects: true,
+	});
+	assert.ok(
+		webgpuWithInject.fragmentCode.includes(
+			`#inject <ignis/material/texture-binding>(name="noise-map", slot=13`
+		)
+	);
+
+	const webglWithoutInject = material.resolveWebGLProgram();
+	assert.equal(
+		webglWithoutInject.fragmentCode.includes(
+			"ignis/material/texture-binding"
+		),
+		false
+	);
+	const webglWithInject = material.resolveWebGLProgram({
+		enableRuntimeInjects: true,
+	});
+	assert.ok(webglWithInject.fragmentCode.trimStart().startsWith("#version 300 es"));
+	assert.ok(
+		webglWithInject.fragmentCode.includes('uniform="uNoiseTex"')
+	);
+}
+
 async function run() {
 	await testWGSLProgramSelection();
 	await testGLSLProgramUsesTranspiler();
@@ -271,6 +405,9 @@ async function run() {
 	testResolveWebGLProgramPrefersWebGLSource();
 	testResolveWebGLProgramFallsBackToWebGPUGLSL();
 	testResolveWebGLProgramMissingSourceThrows();
+	testChunkApiSupportsUnifiedShaderUpdates();
+	testTextureBindingAutoSlotAndUniformDefaults();
+	testTextureBindingInjectDirectivesDecoratePrograms();
 	console.log("ShaderMaterial tests passed");
 }
 

@@ -205,6 +205,7 @@ export class WebGLFrameExecutor {
 	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 	private _maxTextureSize: number;
 	private _maxRenderbufferSize: number;
+	private _maxTextureImageUnits: number;
 	private _presentedInFrame = false;
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
@@ -236,6 +237,10 @@ export class WebGLFrameExecutor {
 		this._maxRenderbufferSize = this._resolveLimit(
 			gl.MAX_RENDERBUFFER_SIZE,
 			4096
+		);
+		this._maxTextureImageUnits = this._resolveLimit(
+			gl.MAX_TEXTURE_IMAGE_UNITS,
+			16
 		);
 	}
 
@@ -859,6 +864,7 @@ export class WebGLFrameExecutor {
 		const resolvedMap = this._textures.getBaseColorTexture(uniforms.baseMap);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
+		this._bindShaderMaterialTextures(sceneProgram, material);
 
 		this._setCullMode(material);
 		gl.bindVertexArray(geometry.vao);
@@ -942,6 +948,46 @@ export class WebGLFrameExecutor {
 			0
 		);
 		gl.bindVertexArray(null);
+	}
+
+	private _bindShaderMaterialTextures(
+		sceneProgram: WebGLSceneProgram,
+		material: Material
+	): void {
+		if (!(material instanceof ShaderMaterial)) {
+			return;
+		}
+		const bindings = material.getTextureBindings();
+		if (bindings.length <= 0) {
+			return;
+		}
+
+		const gl = this._gl;
+		let textureUnit = 2;
+		const boundUniforms = new Set<string>();
+		for (const binding of bindings) {
+			if (boundUniforms.has(binding.webglUniform)) {
+				continue;
+			}
+			boundUniforms.add(binding.webglUniform);
+			const uniform = sceneProgram.uniforms.customSamplers[binding.webglUniform];
+			if (!uniform) {
+				continue;
+			}
+			if (textureUnit >= this._maxTextureImageUnits) {
+				this._warn(
+					`webgl-shader-material-texture-unit-limit-${material.shaderId}`,
+					`ShaderMaterial ${material.name} custom textures exceed MAX_TEXTURE_IMAGE_UNITS=${this._maxTextureImageUnits}; extra bindings are ignored.`
+				);
+				break;
+			}
+			const resolved = this._textures.getBaseColorTexture(binding.texture);
+			gl.activeTexture(gl.TEXTURE0 + textureUnit);
+			gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
+			gl.uniform1i(uniform, textureUnit);
+			textureUnit++;
+		}
+		gl.activeTexture(gl.TEXTURE0);
 	}
 
 	private _renderParticles(context: FrameContext): void {
