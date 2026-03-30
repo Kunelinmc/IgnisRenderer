@@ -64,18 +64,26 @@ function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 		run(args, context) {
 			const profile = normalizeLumaProfile(args.profile);
 			const clampInput = normalizeBooleanFlag(args.clamp, true);
-			const weightsSymbol =
-				profile === "bt601" ?
-					"IGNIS_LUMA_WEIGHTS_BT601"
-				:	"IGNIS_LUMA_WEIGHTS_BT709";
+			const weightsExpression =
+				context.language === "glsl" ?
+					(
+						profile === "bt601" ?
+							"vec3(0.299, 0.587, 0.114)"
+						:	"vec3(0.2126, 0.7152, 0.0722)"
+					)
+				:	(
+						profile === "bt601" ?
+							"vec3<f32>(0.299, 0.587, 0.114)"
+						:	"vec3<f32>(0.2126, 0.7152, 0.0722)"
+					);
 			if (context.language === "glsl") {
 				return {
-					functions: `float luma(vec3 color) {\n\treturn ignisLumaInternal(color, ${weightsSymbol}, ${clampInput ? "true" : "false"});\n}`,
+					functions: `float luma(vec3 color) {\n\treturn ignisLumaInternal(color, ${weightsExpression}, ${clampInput ? "true" : "false"});\n}`,
 					functionsAnchor: "afterUniforms",
 				};
 			}
 			return {
-				functions: `fn luma(color: vec3<f32>) -> f32 {\n\treturn ignisLumaInternal(color, ${weightsSymbol}, ${clampInput ? "true" : "false"});\n}`,
+				functions: `fn luma(color: vec3<f32>) -> f32 {\n\treturn ignisLumaInternal(color, ${weightsExpression}, ${clampInput ? "true" : "false"});\n}`,
 				functionsAnchor: "afterBindings",
 			};
 		},

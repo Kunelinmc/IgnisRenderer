@@ -279,6 +279,32 @@ void main() {
 	);
 }
 
+function testLumaInjectionExpandsToConcreteWeightsForGLSL() {
+	const { stage } = createStage();
+	const result = stage.compile({
+		code: `#version 300 es
+precision highp float;
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP false
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
+out vec4 fragColor;
+void main() {
+	float lum = luma(vec3(1.0, 1.0, 1.0));
+	fragColor = vec4(vec3(lum), 1.0);
+}`,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "LumaInjectionGLSL",
+		sourceKind: "builtin-scene",
+		directiveSourcePath: "./parts/taaFragment.glsl",
+	});
+	assert.equal(result.hasErrors, false);
+	assert.ok(result.code.includes("vec3(0.2126, 0.7152, 0.0722)"));
+	assert.equal(result.code.includes("IGNIS_LUMA_WEIGHTS_BT709"), false);
+}
+
 function run() {
 	testProfileCompletenessRequiresSoftwareProfile();
 	testStageABBoundaryNoDuplicateDirectiveDiagnostics();
@@ -286,6 +312,7 @@ function run() {
 	testHookTokenCollisionFallsBackToBasePatch();
 	testDirectiveFingerprintChangeTriggersCacheMiss();
 	testAsyncHookFallbackByMode();
+	testLumaInjectionExpandsToConcreteWeightsForGLSL();
 	console.log("Shader directive pipeline v2 tests passed");
 }
 
