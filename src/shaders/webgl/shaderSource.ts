@@ -1,8 +1,6 @@
 import { Platform } from "../../foundation/Platform";
-import {
-	createInlineCompositeShaderSource,
-	type CompositeShaderSource,
-} from "../runtime";
+import { type CompositeShaderSource } from "../runtime";
+import { preprocessEngineShaderDirectives } from "../runtime/engineDirectives";
 
 type WebGLShaderPart =
 	| "sceneVertex"
@@ -41,16 +39,18 @@ const webglParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 		});
 
 const _cache = new Map<string, Promise<string>>();
+const _preprocessedCache = new Map<string, Promise<CompositeShaderSource>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
-async function loadShader(
+async function loadShaderCompositeFromFile(
 	key: string,
 	nodeRelativePath: string,
 	browserLoader: () => Promise<RawShaderModule>
-): Promise<string> {
-	let cached = _cache.get(key);
+): Promise<CompositeShaderSource> {
+	let cached = _preprocessedCache.get(key);
 	if (!cached) {
 		cached = (async () => {
+			let code: string;
 			if (Platform.isNodeRuntime()) {
 				const fsSpecifier = ["node", "fs/promises"].join(":");
 				const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as {
@@ -59,15 +59,37 @@ async function loadShader(
 						options?: string | { encoding?: string }
 					) => Promise<string>;
 				};
-				return fsModule.readFile(
+				code = await fsModule.readFile(
 					new URL(nodeRelativePath, import.meta.url),
 					"utf8"
 				);
+			} else {
+				const module = await browserLoader();
+				code = module.default;
 			}
-
-			const module = await browserLoader();
-			return module.default;
+			return preprocessEngineShaderDirectives({
+				code,
+				language: "glsl",
+				sourcePath: nodeRelativePath,
+			});
 		})();
+		_preprocessedCache.set(key, cached);
+	}
+	return cached;
+}
+
+async function loadShader(
+	key: string,
+	nodeRelativePath: string,
+	browserLoader: () => Promise<RawShaderModule>
+): Promise<string> {
+	let cached = _cache.get(key);
+	if (!cached) {
+		cached = loadShaderCompositeFromFile(
+			key,
+			nodeRelativePath,
+			browserLoader
+		).then((composite) => composite.code);
 		_cache.set(key, cached);
 	}
 	return cached;
@@ -115,9 +137,15 @@ export function loadWebGLShaderPartComposite(
 	const key = `webgl-composite:${part}`;
 	let cached = _compositeCache.get(key);
 	if (!cached) {
-		cached = loadWebGLShaderPart(part).then((code) =>
-			createInlineCompositeShaderSource(code, shaderFiles[part], "template")
-		);
+		cached = loadShaderCompositeFromFile(`webgl:${part}`, shaderFiles[part], () => {
+			const loader = webglParts[`./parts/${part}.glsl`];
+			if (!loader) {
+				return Promise.reject(
+					new Error(`WebGL shader part not found: ${part}`)
+				);
+			}
+			return loader().then((content) => ({ default: content }));
+		});
 		_compositeCache.set(key, cached);
 	}
 	return cached;

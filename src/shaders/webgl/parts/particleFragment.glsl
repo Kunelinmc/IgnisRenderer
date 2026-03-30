@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/color/srgb>
 
 in vec2 vUv;
 in vec4 vColor;
@@ -12,12 +13,6 @@ uniform int uMapIsLinear;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
-
-vec3 srgbToLinear(vec3 c) {
-	vec3 a = c / 12.92;
-	vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
-	return mix(b, a, lessThanEqual(c, vec3(0.04045)));
-}
 
 void main() {
 	float radialDistance = distance(vLocalUv, vec2(0.5, 0.5));

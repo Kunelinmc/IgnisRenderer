@@ -71,8 +71,7 @@ export function createWebGLSceneCompositeShaderSource(
 		vertex: SCENE_VERTEX_SHADER_COMPOSITE,
 		fragment: createInlineCompositeShaderSource(
 			shader.fragment,
-			SCENE_FRAGMENT_SHADER_COMPOSITE_TEMPLATE.sourceMap.segments[0]
-				?.sourcePath ?? "./parts/sceneFragment.glsl",
+			"./parts/sceneFragment.glsl",
 			"template"
 		),
 	};

@@ -1,5 +1,9 @@
 #version 300 es
 precision highp float;
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP false
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -36,10 +40,6 @@ vec3 yCoCgToRgb(vec3 c) {
 	float b = t - c.y * 0.5;
 	float r = b + c.y;
 	return vec3(r, g, b);
-}
-
-float luma(vec3 c) {
-	return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
 float minPositiveDepth(float a, float b) {

@@ -1,3 +1,7 @@
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP false
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct Params {
 	invSize: vec2<f32>,
 	historyWeight: f32,
@@ -31,10 +35,6 @@ fn yCoCgToRgb(c: vec3<f32>) -> vec3<f32> {
 	let b = t - c.y * 0.5;
 	let r = b + c.y;
 	return vec3<f32>(r, g, b);
-}
-
-fn luma(c: vec3<f32>) -> f32 {
-	return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
 fn minPositiveDepth(a: f32, b: f32) -> f32 {

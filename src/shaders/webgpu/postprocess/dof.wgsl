@@ -1,3 +1,7 @@
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP true
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct Params {
 	invSize: vec2<f32>,
 	focusDistance: f32,
@@ -17,10 +21,6 @@ struct Params {
 @group(0) @binding(2) var linearSampler: sampler;
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var outTex: texture_storage_2d<rgba16float, write>;
-
-fn luma(color: vec3<f32>) -> f32 {
-	return dot(max(color, vec3<f32>(0.0)), vec3<f32>(0.2126, 0.7152, 0.0722));
-}
 
 fn computeCoC(depth: f32) -> f32 {
 	if (depth <= 0.0) {

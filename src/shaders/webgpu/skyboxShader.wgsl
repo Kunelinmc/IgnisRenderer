@@ -1,3 +1,4 @@
+#import <ignis/color/srgb>
 const PI: f32 = 3.14159265359;
 
 struct DirectionalLightData {
@@ -66,14 +67,6 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 	output.position = vec4<f32>(pos, 1.0, 1.0);
 	output.ndc = pos;
 	return output;
-}
-
-fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
-}
-
-fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
 }
 
 @fragment

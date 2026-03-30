@@ -1,3 +1,4 @@
+#import <ignis/color/srgb>
 fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
@@ -5,14 +6,6 @@ fn saturate(value: f32) -> f32 {
 fn safeNormalize(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(value);
 	return select(fallback, value / max(len, EPSILON), len > EPSILON);
-}
-
-fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
-}
-
-fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
 }
 
 fn transformUV(slotIndex: u32, uv0: vec2<f32>, uv1: vec2<f32>) -> vec2<f32> {

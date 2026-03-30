@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/color/srgb>
 
 const int MAX_DIRECTIONAL_LIGHTS = __MAX_DIRECTIONAL_LIGHTS__;
 const int MAX_POINT_LIGHTS = __MAX_POINT_LIGHTS__;
@@ -58,12 +59,6 @@ uniform vec4 uSpotShadowParamsC[MAX_SPOT_LIGHTS];
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
 layout(location = 2) out vec4 fragNormal;
-
-vec3 srgbToLinear(vec3 c) {
-	vec3 a = c / 12.92;
-	vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
-	return mix(b, a, lessThanEqual(c, vec3(0.04045)));
-}
 
 vec3 safeNormalize(vec3 value, vec3 fallback) {
 	float len = length(value);

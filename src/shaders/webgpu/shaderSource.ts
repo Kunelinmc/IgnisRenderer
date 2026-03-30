@@ -1,8 +1,6 @@
 import { Platform } from "../../foundation/Platform";
-import {
-	createInlineCompositeShaderSource,
-	type CompositeShaderSource,
-} from "../runtime";
+import { type CompositeShaderSource } from "../runtime";
+import { preprocessEngineShaderDirectives } from "../runtime/engineDirectives";
 
 type SceneShaderPart =
 	| "constants"
@@ -58,16 +56,18 @@ const postProcessParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 		});
 
 const _cache = new Map<string, Promise<string>>();
+const _preprocessedCache = new Map<string, Promise<CompositeShaderSource>>();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
-async function loadShader(
+async function loadShaderCompositeFromFile(
 	key: string,
 	nodeRelativePath: string,
 	browserLoader: () => Promise<RawShaderModule>
-): Promise<string> {
-	let cached = _cache.get(key);
+): Promise<CompositeShaderSource> {
+	let cached = _preprocessedCache.get(key);
 	if (!cached) {
 		cached = (async () => {
+			let code: string;
 			if (Platform.isNodeRuntime()) {
 				const fsSpecifier = ["node", "fs/promises"].join(":");
 				const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as {
@@ -76,15 +76,37 @@ async function loadShader(
 						options?: string | { encoding?: string }
 					) => Promise<string>;
 				};
-				return fsModule.readFile(
+				code = await fsModule.readFile(
 					new URL(nodeRelativePath, import.meta.url),
 					"utf8"
 				);
+			} else {
+				const module = await browserLoader();
+				code = module.default;
 			}
-
-			const module = await browserLoader();
-			return module.default;
+			return preprocessEngineShaderDirectives({
+				code,
+				language: "wgsl",
+				sourcePath: nodeRelativePath,
+			});
 		})();
+		_preprocessedCache.set(key, cached);
+	}
+	return cached;
+}
+
+async function loadShader(
+	key: string,
+	nodeRelativePath: string,
+	browserLoader: () => Promise<RawShaderModule>
+): Promise<string> {
+	let cached = _cache.get(key);
+	if (!cached) {
+		cached = loadShaderCompositeFromFile(
+			key,
+			nodeRelativePath,
+			browserLoader
+		).then((composite) => composite.code);
 		_cache.set(key, cached);
 	}
 	return cached;
@@ -125,9 +147,15 @@ export function loadSceneShaderPartComposite(
 	const key = `scene-composite:${part}`;
 	let cached = _compositeCache.get(key);
 	if (!cached) {
-		cached = loadSceneShaderPart(part).then((code) =>
-			createInlineCompositeShaderSource(code, sceneShaderFiles[part], "template")
-		);
+		cached = loadShaderCompositeFromFile(`scene:${part}`, sceneShaderFiles[part], () => {
+			const loader = sceneParts[`./parts/${part}.wgsl`];
+			if (!loader) {
+				return Promise.reject(
+					new Error(`Scene shader part not found: ${part}`)
+				);
+			}
+			return loader().then((content) => ({ default: content }));
+		});
 		_compositeCache.set(key, cached);
 	}
 	return cached;
@@ -145,12 +173,8 @@ export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource
 	const key = "skybox-composite";
 	let cached = _compositeCache.get(key);
 	if (!cached) {
-		cached = loadSkyboxShaderSource().then((code) =>
-			createInlineCompositeShaderSource(
-				code,
-				"./skyboxShader.wgsl",
-				"source"
-			)
+		cached = loadShaderCompositeFromFile("skybox", "./skyboxShader.wgsl", () =>
+			import("./skyboxShader.wgsl?raw")
 		);
 		_compositeCache.set(key, cached);
 	}
@@ -169,12 +193,8 @@ export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSour
 	const key = "particle-composite";
 	let cached = _compositeCache.get(key);
 	if (!cached) {
-		cached = loadParticleShaderSource().then((code) =>
-			createInlineCompositeShaderSource(
-				code,
-				"./particleShader.wgsl",
-				"source"
-			)
+		cached = loadShaderCompositeFromFile("particle", "./particleShader.wgsl", () =>
+			import("./particleShader.wgsl?raw")
 		);
 		_compositeCache.set(key, cached);
 	}
@@ -223,13 +243,15 @@ export function loadPostProcessShaderPartComposite(
 	const key = `post-composite:${part}`;
 	let cached = _compositeCache.get(key);
 	if (!cached) {
-		cached = loadPostProcessShaderPart(part).then((code) =>
-			createInlineCompositeShaderSource(
-				code,
-				postProcessShaderFiles[part],
-				"template"
-			)
-		);
+		cached = loadShaderCompositeFromFile(`post:${part}`, postProcessShaderFiles[part], () => {
+			const loader = postProcessParts[`./postprocess/${part}.wgsl`];
+			if (!loader) {
+				return Promise.reject(
+					new Error(`Post-process shader part not found: ${part}`)
+				);
+			}
+			return loader().then((content) => ({ default: content }));
+		});
 		_compositeCache.set(key, cached);
 	}
 	return cached;

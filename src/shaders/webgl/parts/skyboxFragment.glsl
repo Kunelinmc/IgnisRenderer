@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/color/srgb>
 
 const float PI = 3.14159265359;
 
@@ -14,12 +15,6 @@ uniform int uSkyboxMapIsLinear;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
-
-vec3 srgbToLinear(vec3 c) {
-	vec3 a = c / 12.92;
-	vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
-	return mix(b, a, lessThanEqual(c, vec3(0.04045)));
-}
 
 void main() {
 	vec3 right = uSkyboxBasisRight.xyz;

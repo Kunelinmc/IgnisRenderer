@@ -1,5 +1,9 @@
 #version 300 es
 precision highp float;
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP true
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -11,10 +15,6 @@ uniform vec4 uMotionParams;
 uniform float uCenterWeight;
 
 out vec4 fragColor;
-
-float luma(vec3 color) {
-	return dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
-}
 
 float depthConfidence(float centerDepth, float sampleDepth) {
 	if (centerDepth <= 0.0 || sampleDepth <= 0.0) {

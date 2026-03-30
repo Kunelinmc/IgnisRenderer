@@ -1,5 +1,9 @@
 #version 300 es
 precision highp float;
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt601
+#define IGNIS_LUMA_CLAMP false
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -7,10 +11,6 @@ uniform sampler2D uSourceMap;
 uniform vec2 uTexelSize;
 
 out vec4 fragColor;
-
-float luma(vec3 color) {
-	return dot(color, vec3(0.299, 0.587, 0.114));
-}
 
 void main() {
 	vec3 rgbNW = texture(uSourceMap, vUv + vec2(-1.0, -1.0) * uTexelSize).rgb;

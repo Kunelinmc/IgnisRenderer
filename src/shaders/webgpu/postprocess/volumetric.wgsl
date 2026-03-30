@@ -1,3 +1,7 @@
+#import <ignis/postprocess/luma-common>
+#define IGNIS_LUMA_PROFILE bt709
+#define IGNIS_LUMA_CLAMP false
+#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct DirectionalLightData {
 	direction: vec4<f32>,
 	color: vec4<f32>,
@@ -115,10 +119,6 @@ const SHADOW_CONE_SLOPE: f32 = 0.02;
 const SKY_STEP_SCALE: f32 = 0.55;
 const TEMPORAL_MOTION_FACTOR: f32 = 28.0;
 const TEMPORAL_DISOCCLUSION_FACTOR: f32 = 6.0;
-
-fn luma(c: vec3<f32>) -> f32 {
-	return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
-}
 
 fn safeNormalize(v: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(v);
