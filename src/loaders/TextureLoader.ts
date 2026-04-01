@@ -29,8 +29,7 @@ export class TextureLoader extends Loader {
 		} catch (error) {
 			this.emit("error", error);
 			console.error(`TextureLoader: Failed to load ${url}`, error);
-			// Return a magenta solid color texture on error
-			return this.createSolidColorTexture(255, 0, 255);
+			return this._createLoadErrorFallbackTexture();
 		}
 	}
 
@@ -90,9 +89,17 @@ export class TextureLoader extends Loader {
 		} catch (error) {
 			this.emit("error", error);
 			console.error(`TextureLoader: Failed to load Blob/File`, error);
-			return this.createSolidColorTexture(255, 0, 255);
+			return this._createLoadErrorFallbackTexture();
 		} finally {
 			URL.revokeObjectURL(url);
 		}
+	}
+
+	private _createLoadErrorFallbackTexture(): Texture {
+		// Keep magenta for diagnostics, but tag it so renderer code can avoid
+		// using it as a skybox/environment by mistake.
+		const texture = this.createSolidColorTexture(255, 0, 255);
+		texture.markAsLoadErrorFallback();
+		return texture;
 	}
 }

@@ -119,9 +119,29 @@ async function testInFlightDeduplication() {
 	}
 }
 
+async function testLoadErrorFallbackIsTagged() {
+	Loader.clearSharedCache();
+
+	const loader = new TextureLoader();
+	loader._fetchWithProgress = async () => {
+		throw new Error("network failed");
+	};
+
+	const originalConsoleError = console.error;
+	try {
+		console.error = () => {};
+		const texture = await loader.load("https://example.com/fail.png");
+		assert.equal(texture.isLoadErrorFallback, true);
+		assert.deepEqual(Array.from(texture.data ?? []), [255, 0, 255, 255]);
+	} finally {
+		console.error = originalConsoleError;
+	}
+}
+
 async function run() {
 	await testSharedCacheAcrossInstances();
 	await testInFlightDeduplication();
+	await testLoadErrorFallbackIsTagged();
 	console.log("Texture loader cache tests passed");
 }
 

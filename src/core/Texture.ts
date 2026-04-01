@@ -46,6 +46,7 @@ export class Texture {
 	mipmaps: (Uint8ClampedArray | Float32Array | Uint8Array)[];
 	version: number;
 	private _isDynamicTexture: boolean;
+	private _isLoadErrorFallback: boolean;
 
 	constructor(
 		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
@@ -67,6 +68,7 @@ export class Texture {
 		this.mipmaps = data ? [data] : [];
 		this.version = 0;
 		this._isDynamicTexture = false;
+		this._isLoadErrorFallback = false;
 	}
 
 	public clone(): Texture {
@@ -83,7 +85,30 @@ export class Texture {
 		cloned.offset = { ...this.offset };
 		cloned.repeat = { ...this.repeat };
 		cloned.rotation = this.rotation;
+		cloned._isLoadErrorFallback = this._isLoadErrorFallback;
 		return cloned;
+	}
+
+	/**
+	 * Marks this texture as a loader fallback generated from a load failure.
+	 * Renderers can use this to avoid presenting diagnostic colors as skyboxes.
+	 */
+	public markAsLoadErrorFallback(): void {
+		this._isLoadErrorFallback = true;
+	}
+
+	/**
+	 * Clears the loader-fallback marker.
+	 */
+	public clearLoadErrorFallback(): void {
+		this._isLoadErrorFallback = false;
+	}
+
+	/**
+	 * True when this texture is a diagnostic fallback created after load failure.
+	 */
+	public get isLoadErrorFallback(): boolean {
+		return this._isLoadErrorFallback;
 	}
 
 	/**

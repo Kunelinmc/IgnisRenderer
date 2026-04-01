@@ -569,6 +569,35 @@ function testEnvironmentCollection() {
 	);
 	assert.equal(fallback.skyboxTexture, probeMap);
 	assert.equal(fallback.envSpecularTexture, probeMap);
+
+	const failedSkybox = createTinyTexture(1);
+	failedSkybox.markAsLoadErrorFallback();
+	const fallbackFromFailedSkybox = collectWebGPUEnvironment(
+		{
+			skybox: failedSkybox,
+			lights: [probeA],
+		},
+		true,
+		sh
+	);
+	assert.equal(fallbackFromFailedSkybox.skyboxTexture, probeMap);
+	assert.equal(fallbackFromFailedSkybox.envSpecularTexture, probeMap);
+	assert.ok(
+		fallbackFromFailedSkybox.warnings.some(
+			(warning) => warning.key === "webgpu-skybox-load-error-fallback"
+		)
+	);
+
+	const failedOnlySkybox = collectWebGPUEnvironment(
+		{
+			skybox: failedSkybox,
+			lights: [],
+		},
+		true,
+		sh
+	);
+	assert.equal(failedOnlySkybox.skyboxTexture, null);
+	assert.equal(failedOnlySkybox.envSpecularTexture, null);
 }
 
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
