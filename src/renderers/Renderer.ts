@@ -30,6 +30,7 @@ import {
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
+import type { WebGPUComputeFacadeSource } from "./webgpu/computeFacade";
 import type {
 	BloomOptions,
 	ClusteredLightingOptions,
@@ -283,8 +284,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			return false;
 		}
 
-		const bakedProbe = await bakeLightProbeFromEnvironmentMap(skybox, {
+		const bakeOptions = {
 			...(options.lightProbeBake ?? {}),
+		};
+		if (!bakeOptions.webgpuSource && this.backend.type === "webgpu") {
+			bakeOptions.webgpuSource =
+				this.backend as unknown as WebGPUComputeFacadeSource;
+		}
+
+		const bakedProbe = await bakeLightProbeFromEnvironmentMap(skybox, {
+			...bakeOptions,
 			onProgress: options.onProgress ?
 				(progress) => {
 					const event: WarmupProgress = {

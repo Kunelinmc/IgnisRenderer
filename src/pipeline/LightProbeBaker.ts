@@ -13,12 +13,14 @@ import {
 	buildPrefilteredTexture,
 	type LightProbePrefilterMipData,
 } from "./lightProbeBakeCore";
+import { prefilterEnvMapWithWebGPU } from "./lightProbeBakeWebGPU";
 import type {
 	LightProbeBakeWorkerTaskPayload,
 	LightProbeBakeWorkerTaskResult,
 } from "./workers/lightProbeBakeWorkerProtocol";
+import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/computeFacade";
 
-export type LightProbeBakeAcceleration = "auto" | "worker" | "cpu";
+export type LightProbeBakeAcceleration = "auto" | "worker" | "cpu" | "webgpu";
 
 export interface LightProbeBakeProgress {
 	phase: "project-sh" | "prefilter" | "finalize";
@@ -32,6 +34,7 @@ export interface LightProbeBakeOptions {
 	onProgress?: (progress: LightProbeBakeProgress) => void;
 	acceleration?: LightProbeBakeAcceleration;
 	workerCount?: number;
+	webgpuSource?: WebGPUComputeFacadeSource | null;
 }
 
 const DEFAULT_BAKE_POOL_PREFIX = "light-probe-bake";
@@ -180,7 +183,40 @@ function prefilterEnvMapOnCPU(
 function canUseWorkerAcceleration(options: LightProbeBakeOptions): boolean {
 	return (
 		options.acceleration === "worker" ||
-		(options.acceleration !== "cpu" && Platform.hasWorker())
+		(options.acceleration !== "cpu" &&
+			options.acceleration !== "webgpu" &&
+			Platform.hasWorker())
+	);
+}
+
+function canUseWebGPUAcceleration(options: LightProbeBakeOptions): boolean {
+	if (options.acceleration === "webgpu") {
+		return true;
+	}
+	if (
+		options.acceleration === "cpu" ||
+		options.acceleration === "worker"
+	) {
+		return false;
+	}
+	return !!options.webgpuSource;
+}
+
+async function prefilterEnvMapOnWebGPU(
+	envMap: Texture,
+	options: LightProbeBakeOptions,
+	onMipComplete: (level: number) => void
+): Promise<Texture> {
+	if (!options.webgpuSource) {
+		throw new Error(
+			"WebGPU acceleration was requested for light probe baking, but no webgpuSource was provided."
+		);
+	}
+	return prefilterEnvMapWithWebGPU(
+		envMap,
+		options.webgpuSource,
+		options.signal ?? null,
+		onMipComplete
 	);
 }
 
@@ -189,6 +225,16 @@ async function prefilterEnvMap(
 	options: LightProbeBakeOptions,
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
+	if (canUseWebGPUAcceleration(options)) {
+		try {
+			return await prefilterEnvMapOnWebGPU(envMap, options, onMipComplete);
+		} catch (error) {
+			if (options.acceleration === "webgpu") {
+				throw error;
+			}
+		}
+	}
+
 	if (!canUseWorkerAcceleration(options)) {
 		if (options.acceleration === "worker") {
 			throw new Error(

@@ -51,6 +51,28 @@ async function testExplicitWorkerModeThrowsWhenWorkersAreUnavailable() {
 	);
 }
 
+async function testExplicitWebGPUModeRequiresSource() {
+	const texture = createTestTexture();
+	await assert.rejects(
+		bakeLightProbeFromEnvironmentMap(texture, {
+			acceleration: "webgpu",
+		}),
+		(error) =>
+			error instanceof Error &&
+			error.message.includes("no webgpuSource was provided")
+	);
+}
+
+async function testAutoFallsBackWhenWebGPUPathFails() {
+	const texture = createTestTexture();
+	const probe = await bakeLightProbeFromEnvironmentMap(texture, {
+		acceleration: "auto",
+		webgpuSource: { type: "webgpu" },
+	});
+	assert.ok(probe.prefilteredMap);
+	assert.equal(probe.prefilteredMap?.mipmaps.length, 5);
+}
+
 async function testBakeReportsProgressMonotonically() {
 	const texture = createTestTexture(16, 8);
 	const progressEvents = [];
@@ -77,6 +99,8 @@ async function run() {
 	await testBakeReturnsLightProbeWithPrefilteredMap();
 	await testBakeSupportsAbortSignal();
 	await testExplicitWorkerModeThrowsWhenWorkersAreUnavailable();
+	await testExplicitWebGPUModeRequiresSource();
+	await testAutoFallsBackWhenWebGPUPathFails();
 	await testBakeReportsProgressMonotonically();
 	console.log("LightProbe baker async tests passed");
 }
