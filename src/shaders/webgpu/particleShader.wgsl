@@ -19,13 +19,6 @@ struct FrameUniforms {
 	shAmbientCoeffs: array<vec4<f32>, 16>,
 }
 
-struct ShadowData {
-	viewProjection: mat4x4<f32>,
-	paramsA: vec4<f32>,
-	paramsB: vec4<f32>,
-	paramsC: vec4<f32>,
-}
-
 struct ParticleVertexInput {
 	@location(0) quadPosition: vec2<f32>,
 	@location(1) quadUV: vec2<f32>,

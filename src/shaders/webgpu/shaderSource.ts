@@ -232,23 +232,16 @@ export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource
 }
 
 export function loadParticleShaderSource(): Promise<string> {
-	return loadShader(
-		"particle",
-		"./particleShader.wgsl",
-		() => import("./particleShader.wgsl?raw")
-	);
+	return loadParticleShaderSourceComposite().then((composite) => composite.code);
 }
 
 export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSource> {
-	const key = "particle-composite";
-	let cached = _compositeCache.get(key);
-	if (!cached) {
-		cached = loadShaderCompositeFromFile("particle", "./particleShader.wgsl", () =>
+	return composeWithSharedLightData(
+		"particle-composite",
+		loadShaderCompositeFromFile("particle", "./particleShader.wgsl", () =>
 			import("./particleShader.wgsl?raw")
-		);
-		_compositeCache.set(key, cached);
-	}
-	return cached;
+		)
+	);
 }
 
 const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
