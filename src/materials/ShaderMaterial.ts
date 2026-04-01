@@ -15,17 +15,6 @@ export type ShaderChunk = {
 	mode?: ShaderTargetMode;
 };
 
-export interface ShaderMaterialProgram {
-	vertex: string;
-	fragmentSingle: string;
-	fragmentMRT?: string;
-}
-
-export interface ShaderMaterialWebGLProgram {
-	vertex: string;
-	fragment: string;
-}
-
 export type ShaderMaterialGLSLToWGSL = (
 	source: string,
 	stage: ShaderStageKind
@@ -53,9 +42,6 @@ export interface ShaderMaterialParams extends MaterialParams {
 	vertexEntryPoint?: string;
 	fragmentSingleEntryPoint?: string;
 	fragmentMRTEntryPoint?: string;
-	webgpuWGSL?: ShaderMaterialProgram | null;
-	webgpuGLSL?: ShaderMaterialProgram | null;
-	webglGLSL?: ShaderMaterialWebGLProgram | null;
 	glslToWgsl?: ShaderMaterialGLSLToWGSL;
 	chunks?: ShaderChunk[];
 	textureBindings?: ShaderMaterialTextureBinding[];
@@ -139,16 +125,6 @@ export class ShaderMaterial extends Material {
 
 		if (Array.isArray(params.chunks) && params.chunks.length > 0) {
 			this.setChunks(params.chunks);
-		} else {
-			if (params.webgpuWGSL) {
-				this.setWebGPUWGSL(params.webgpuWGSL);
-			}
-			if (params.webgpuGLSL) {
-				this.setWebGPUGLSL(params.webgpuGLSL);
-			}
-			if (params.webglGLSL) {
-				this.setWebGLGLSL(params.webglGLSL);
-			}
 		}
 
 		if (Array.isArray(params.textureBindings) && params.textureBindings.length > 0) {
@@ -172,28 +148,8 @@ export class ShaderMaterial extends Material {
 		return chunks;
 	}
 
-	public get webgpuWGSL(): ShaderMaterialProgram | null {
-		return this._readLegacyProgram("webgpu", "wgsl");
-	}
-
-	public get webgpuGLSL(): ShaderMaterialProgram | null {
-		return this._readLegacyProgram("webgpu", "glsl");
-	}
-
 	public get glslToWgsl(): ShaderMaterialGLSLToWGSL | null {
 		return this._glslToWgsl;
-	}
-
-	public get webglGLSL(): ShaderMaterialWebGLProgram | null {
-		const vertex = this._chunks.get("webgl:glsl:vertex") ?? null;
-		const fragment = this._chunks.get("webgl:glsl:fragment") ?? null;
-		if (!vertex && !fragment) {
-			return null;
-		}
-		return {
-			vertex: vertex ?? "",
-			fragment: fragment ?? "",
-		};
 	}
 
 	public setChunks(chunks: ShaderChunk[]): void {
@@ -235,30 +191,6 @@ export class ShaderMaterial extends Material {
 			this._touchShaderRevision();
 		}
 		return removed;
-	}
-
-	public setWebGPUWGSL(program: ShaderMaterialProgram | null): void {
-		this._applyLegacyProgram("webgpu", "wgsl", program);
-	}
-
-	public setWebGPUGLSL(program: ShaderMaterialProgram | null): void {
-		this._applyLegacyProgram("webgpu", "glsl", program);
-	}
-
-	public setWebGLGLSL(program: ShaderMaterialWebGLProgram | null): void {
-		const next = new Map(this._chunks);
-		if (!program) {
-			next.delete("webgl:glsl:vertex");
-			next.delete("webgl:glsl:fragment");
-		} else {
-			next.set("webgl:glsl:vertex", program.vertex ?? "");
-			next.set("webgl:glsl:fragment", program.fragment ?? "");
-		}
-		if (!this._didChunkMapChange(next)) {
-			return;
-		}
-		this._chunks = next;
-		this._touchShaderRevision();
 	}
 
 	public setGLSLToWGSL(transpiler: ShaderMaterialGLSLToWGSL | null): void {
@@ -377,8 +309,8 @@ export class ShaderMaterial extends Material {
 		) {
 			throw new Error(
 				`ShaderMaterial ${this.name} is missing WebGL GLSL source; ` +
-					"call setWebGLGLSL() or provide webgpuGLSL " +
-					"vertex/fragmentSingle fallback"
+					"provide webgl GLSL chunks directly, or webgpu GLSL " +
+					"vertex/fragment-single chunks as fallback"
 			);
 		}
 
@@ -396,12 +328,12 @@ export class ShaderMaterial extends Material {
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
 	): string {
-		const wgslSource = this._getLegacyProgramStageSource("webgpu", "wgsl", stage, mode);
+		const wgslSource = this._getChunkStageSource("wgsl", stage, mode);
 		if (wgslSource) {
 			return wgslSource;
 		}
 
-		const glslSource = this._getLegacyProgramStageSource("webgpu", "glsl", stage, mode);
+		const glslSource = this._getChunkStageSource("glsl", stage, mode);
 		if (!glslSource) {
 			throw new Error(
 				`ShaderMaterial ${this.name} is missing ${stage} shader source for ${mode} mode`
@@ -410,7 +342,7 @@ export class ShaderMaterial extends Material {
 
 		if (!this._glslToWgsl) {
 			throw new Error(
-				`ShaderMaterial ${this.name} has GLSL source but no glslToWgsl transpiler; provide webgpuWGSL directly or call setGLSLToWGSL()`
+				`ShaderMaterial ${this.name} has GLSL source but no glslToWgsl transpiler; provide webgpu WGSL chunks directly or call setGLSLToWGSL()`
 			);
 		}
 
@@ -421,60 +353,6 @@ export class ShaderMaterial extends Material {
 			);
 		}
 		return transpiled;
-	}
-
-	private _applyLegacyProgram(
-		backend: "webgpu",
-		language: ShaderChunkLanguage,
-		program: ShaderMaterialProgram | null
-	): void {
-		const next = new Map(this._chunks);
-		const vertexKey = this._legacyKey(backend, language, "vertex");
-		const fragmentSingleKey = this._legacyKey(
-			backend,
-			language,
-			"fragment-single"
-		);
-		const fragmentMRTKey = this._legacyKey(backend, language, "fragment-mrt");
-		if (!program) {
-			next.delete(vertexKey);
-			next.delete(fragmentSingleKey);
-			next.delete(fragmentMRTKey);
-		} else {
-			next.set(vertexKey, program.vertex ?? "");
-			next.set(fragmentSingleKey, program.fragmentSingle ?? "");
-			if (typeof program.fragmentMRT === "string") {
-				next.set(fragmentMRTKey, program.fragmentMRT);
-			} else {
-				next.delete(fragmentMRTKey);
-			}
-		}
-		if (!this._didChunkMapChange(next)) {
-			return;
-		}
-		this._chunks = next;
-		this._touchShaderRevision();
-	}
-
-	private _readLegacyProgram(
-		backend: "webgpu",
-		language: ShaderChunkLanguage
-	): ShaderMaterialProgram | null {
-		const vertex = this._chunks.get(this._legacyKey(backend, language, "vertex"));
-		const fragmentSingle = this._chunks.get(
-			this._legacyKey(backend, language, "fragment-single")
-		);
-		const fragmentMRT = this._chunks.get(
-			this._legacyKey(backend, language, "fragment-mrt")
-		);
-		if (!vertex && !fragmentSingle && !fragmentMRT) {
-			return null;
-		}
-		return {
-			vertex: vertex ?? "",
-			fragmentSingle: fragmentSingle ?? "",
-			fragmentMRT: fragmentMRT ?? undefined,
-		};
 	}
 
 	private _chunkFromKey(key: ShaderChunkKey, code: string): ShaderChunk {
@@ -587,45 +465,24 @@ export class ShaderMaterial extends Material {
 		return `webgpu:${language}:fragment-${mode}` as ShaderChunkKey;
 	}
 
-	private _legacyKey(
-		backend: "webgpu",
-		language: ShaderChunkLanguage,
-		stage: ShaderStageKind
-	): ShaderChunkKey {
-		if (stage === "vertex") {
-			return `webgpu:${language}:vertex` as ShaderChunkKey;
-		}
-		if (stage === "fragment-mrt") {
-			return `webgpu:${language}:fragment-mrt` as ShaderChunkKey;
-		}
-		return `webgpu:${language}:fragment-single` as ShaderChunkKey;
-	}
-
-	private _getLegacyProgramStageSource(
-		backend: "webgpu",
+	private _getChunkStageSource(
 		language: ShaderChunkLanguage,
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
 	): string | null {
-		const vertexKey = this._legacyKey(backend, language, "vertex");
-		const fragmentSingleKey = this._legacyKey(
-			backend,
-			language,
-			"fragment-single"
-		);
-		const fragmentMRTKey = this._legacyKey(backend, language, "fragment-mrt");
 		switch (stage) {
 			case "vertex":
-				return this._chunks.get(vertexKey) ?? null;
+				return this._chunks.get(`webgpu:${language}:vertex`) ?? null;
 			case "fragment-single":
-				return this._chunks.get(fragmentSingleKey) ?? null;
+				return this._chunks.get(`webgpu:${language}:fragment-single`) ?? null;
 			case "fragment-mrt":
 				return (
 					mode === "mrt" ?
-						(this._chunks.get(fragmentMRTKey) ??
-							this._chunks.get(fragmentSingleKey) ??
+						(this._chunks.get(`webgpu:${language}:fragment-mrt`) ??
+							this._chunks.get(`webgpu:${language}:fragment-single`) ??
 							null)
-					:	(this._chunks.get(fragmentSingleKey) ?? null)
+					:	(this._chunks.get(`webgpu:${language}:fragment-single`) ??
+							null)
 				);
 			default:
 				return null;

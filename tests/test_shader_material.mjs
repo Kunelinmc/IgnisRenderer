@@ -101,16 +101,44 @@ void main() {
 }
 `;
 
+function getChunkCode(material, selector) {
+	const chunk = material.chunks.find((entry) => {
+		const backend = entry.backend ?? "webgpu";
+		const mode = entry.mode ?? "single";
+		return (
+			backend === selector.backend &&
+			entry.language === selector.language &&
+			entry.stage === selector.stage &&
+			mode === selector.mode
+		);
+	});
+	return chunk?.code;
+}
+
 async function testWGSLProgramSelection() {
 	const backend = new FakeBackend();
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "WGSLMaterial",
-		webgpuWGSL: {
-			vertex: WGSL_VERTEX,
-			fragmentSingle: WGSL_FRAGMENT_SINGLE,
-			fragmentMRT: WGSL_FRAGMENT_MRT,
-		},
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "mrt",
+				code: WGSL_FRAGMENT_MRT,
+			},
+		],
 		vertexEntryPoint: "customVs",
 		fragmentSingleEntryPoint: "customFsSingle",
 		fragmentMRTEntryPoint: "customFsMRT",
@@ -143,11 +171,25 @@ async function testGLSLProgramUsesTranspiler() {
 	const transpilerCalls = [];
 	const material = new ShaderMaterial({
 		name: "GLSLMaterial",
-		webgpuGLSL: {
-			vertex: "void main() { gl_Position = vec4(0.0); }",
-			fragmentSingle: "void main() { }",
-			fragmentMRT: "void main() { }",
-		},
+		chunks: [
+			{
+				language: "glsl",
+				stage: "vertex",
+				code: "void main() { gl_Position = vec4(0.0); }",
+			},
+			{
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: "void main() { }",
+			},
+			{
+				language: "glsl",
+				stage: "fragment",
+				mode: "mrt",
+				code: "void main() { }",
+			},
+		],
 		glslToWgsl(source, stage) {
 			transpilerCalls.push({ source, stage });
 			switch (stage) {
@@ -178,10 +220,19 @@ async function testGLSLWithoutTranspilerThrows() {
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "BrokenGLSLMaterial",
-		webgpuGLSL: {
-			vertex: "void main() { gl_Position = vec4(0.0); }",
-			fragmentSingle: "void main() { }",
-		},
+		chunks: [
+			{
+				language: "glsl",
+				stage: "vertex",
+				code: "void main() { gl_Position = vec4(0.0); }",
+			},
+			{
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: "void main() { }",
+			},
+		],
 		vertexEntryPoint: "customVs",
 		fragmentSingleEntryPoint: "customFsSingle",
 	});
@@ -199,10 +250,19 @@ async function testWarnModeFallbackToBuiltinShader() {
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "BrokenCustomShader",
-		webgpuWGSL: {
-			vertex: WGSL_VERTEX,
-			fragmentSingle: WGSL_FRAGMENT_SINGLE,
-		},
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+		],
 		vertexEntryPoint: "customVs",
 		fragmentSingleEntryPoint: "customFsSingle",
 	});
@@ -223,14 +283,33 @@ async function testWarnModeFallbackToBuiltinShader() {
 function testResolveWebGLProgramPrefersWebGLSource() {
 	const material = new ShaderMaterial({
 		name: "WebGLCustomMaterial",
-		webgpuGLSL: {
-			vertex: "legacy-vertex",
-			fragmentSingle: "legacy-fragment",
-		},
-		webglGLSL: {
-			vertex: WEBGL_VERTEX,
-			fragment: WEBGL_FRAGMENT,
-		},
+		chunks: [
+			{
+				backend: "webgpu",
+				language: "glsl",
+				stage: "vertex",
+				code: "legacy-vertex",
+			},
+			{
+				backend: "webgpu",
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: "legacy-fragment",
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: WEBGL_FRAGMENT,
+			},
+		],
 	});
 
 	const program = material.resolveWebGLProgram();
@@ -241,10 +320,19 @@ function testResolveWebGLProgramPrefersWebGLSource() {
 function testResolveWebGLProgramFallsBackToWebGPUGLSL() {
 	const material = new ShaderMaterial({
 		name: "WebGLFallbackMaterial",
-		webgpuGLSL: {
-			vertex: "legacy-vertex",
-			fragmentSingle: "legacy-fragment",
-		},
+		chunks: [
+			{
+				language: "glsl",
+				stage: "vertex",
+				code: "legacy-vertex",
+			},
+			{
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: "legacy-fragment",
+			},
+		],
 	});
 
 	const program = material.resolveWebGLProgram();
@@ -286,9 +374,33 @@ function testChunkApiSupportsUnifiedShaderUpdates() {
 			},
 		],
 	});
-	assert.equal(material.webgpuWGSL?.vertex, WGSL_VERTEX);
-	assert.equal(material.webgpuWGSL?.fragmentSingle, WGSL_FRAGMENT_SINGLE);
-	assert.equal(material.webgpuWGSL?.fragmentMRT, WGSL_FRAGMENT_MRT);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "wgsl",
+			stage: "vertex",
+			mode: "single",
+		}),
+		WGSL_VERTEX
+	);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "wgsl",
+			stage: "fragment",
+			mode: "single",
+		}),
+		WGSL_FRAGMENT_SINGLE
+	);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "wgsl",
+			stage: "fragment",
+			mode: "mrt",
+		}),
+		WGSL_FRAGMENT_MRT
+	);
 
 	material.upsertChunk({
 		backend: "webgpu",
@@ -303,15 +415,42 @@ function testChunkApiSupportsUnifiedShaderUpdates() {
 		mode: "single",
 		code: "legacy-fragment",
 	});
-	assert.equal(material.webgpuGLSL?.vertex, "legacy-vertex");
-	assert.equal(material.webgpuGLSL?.fragmentSingle, "legacy-fragment");
-	assert.equal(material.removeChunk({
-		backend: "webgpu",
-		language: "glsl",
-		stage: "fragment",
-		mode: "single",
-	}), true);
-	assert.equal(material.webgpuGLSL?.fragmentSingle, "");
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "glsl",
+			stage: "vertex",
+			mode: "single",
+		}),
+		"legacy-vertex"
+	);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "glsl",
+			stage: "fragment",
+			mode: "single",
+		}),
+		"legacy-fragment"
+	);
+	assert.equal(
+		material.removeChunk({
+			backend: "webgpu",
+			language: "glsl",
+			stage: "fragment",
+			mode: "single",
+		}),
+		true
+	);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgpu",
+			language: "glsl",
+			stage: "fragment",
+			mode: "single",
+		}),
+		undefined
+	);
 }
 
 function testTextureBindingAutoSlotAndUniformDefaults() {
@@ -347,14 +486,31 @@ function testTextureBindingAutoSlotAndUniformDefaults() {
 function testTextureBindingInjectDirectivesDecoratePrograms() {
 	const material = new ShaderMaterial({
 		name: "InjectBindingMaterial",
-		webgpuWGSL: {
-			vertex: WGSL_VERTEX,
-			fragmentSingle: WGSL_FRAGMENT_SINGLE,
-		},
-		webglGLSL: {
-			vertex: WEBGL_VERTEX,
-			fragment: WEBGL_FRAGMENT,
-		},
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: WEBGL_FRAGMENT,
+			},
+		],
 	});
 	material.setTextureBinding({
 		name: "noise-map",

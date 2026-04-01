@@ -331,10 +331,20 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 	);
 	const material = new ShaderMaterial({
 		name: "CustomWebGLShader",
-		webglGLSL: {
-			vertex: CUSTOM_WEBGL_VERTEX,
-			fragment: CUSTOM_WEBGL_FRAGMENT,
-		},
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: CUSTOM_WEBGL_FRAGMENT,
+			},
+		],
 	});
 
 	const builtin = library.getSceneProgram();
@@ -385,10 +395,20 @@ function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
 	);
 	const material = new ShaderMaterial({
 		name: "WarnFallbackCustomMaterial",
-		webglGLSL: {
-			vertex: `${CUSTOM_WEBGL_VERTEX}\n// FORCE_CUSTOM_FAIL`,
-			fragment: `${CUSTOM_WEBGL_FRAGMENT}\n// FORCE_CUSTOM_FAIL`,
-		},
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: `${CUSTOM_WEBGL_VERTEX}\n// FORCE_CUSTOM_FAIL`,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: `${CUSTOM_WEBGL_FRAGMENT}\n// FORCE_CUSTOM_FAIL`,
+			},
+		],
 	});
 
 	const builtin = library.getSceneProgram();
@@ -408,10 +428,20 @@ function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 	const library = createProgramLibrary(gl, () => {}, runtime);
 	const material = new ShaderMaterial({
 		name: "RevisionInvalidateMaterial",
-		webglGLSL: {
-			vertex: CUSTOM_WEBGL_VERTEX,
-			fragment: CUSTOM_WEBGL_FRAGMENT,
-		},
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: CUSTOM_WEBGL_FRAGMENT,
+			},
+		],
 	});
 
 	const first = library.getSceneProgram(material);
