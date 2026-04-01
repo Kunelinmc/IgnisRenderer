@@ -1216,7 +1216,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					range: lightDef.range ?? 1000,
 					direction: { x: 0, y: 0, z: -1 },
 					innerAngle: lightDef.spot?.innerConeAngle ?? 0,
-					angle: lightDef.spot?.outerConeAngle ?? Math.PI / 4,
+					outerAngle: lightDef.spot?.outerConeAngle ?? Math.PI / 4,
 				});
 			default:
 				return new AmbientLight({

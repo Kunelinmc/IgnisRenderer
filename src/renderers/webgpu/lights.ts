@@ -188,7 +188,7 @@ function collectSpotLight(
 ): void {
 	const position = getSpotLightWorldPosition(light);
 	const direction = getSpotLightWorldDirection(light);
-	const outerAngle = light.angle;
+	const outerAngle = light.outerAngle;
 	const innerAngle = getSpotLightInnerAngle(light);
 	const range = Math.max(light.range, 0.001);
 	const color = toLinearLightColor(light.color, light.intensity);

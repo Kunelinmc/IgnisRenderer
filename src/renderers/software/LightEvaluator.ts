@@ -187,7 +187,7 @@ function evaluateSpotLight(
 		lightToPointY * lightDir.y +
 		lightToPointZ * lightDir.z;
 
-	const outerCutoff = Math.cos(light.angle);
+	const outerCutoff = Math.cos(light.outerAngle);
 	const innerCutoff = Math.cos(getSpotLightInnerAngle(light));
 	const cutoffRange = innerCutoff - outerCutoff;
 

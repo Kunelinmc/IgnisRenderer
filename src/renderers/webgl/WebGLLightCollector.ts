@@ -151,7 +151,7 @@ export function collectWebGLLights(
 				}
 				const position = getSpotLightWorldPosition(light);
 				const direction = getSpotLightWorldDirection(light);
-				const outerCos = Math.cos((light as any).angle ?? Math.PI / 4);
+				const outerCos = Math.cos((light as any).outerAngle ?? Math.PI / 4);
 				const innerCos = Math.cos(getSpotLightInnerAngle(light as any));
 				const intensity = light.intensity ?? 1;
 				state.spotLights.push({

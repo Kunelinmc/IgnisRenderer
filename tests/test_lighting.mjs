@@ -122,7 +122,7 @@ function testSpot() {
 		color: { r: 20, g: 20, b: 20 },
 		position: { x: 0, y: 10, z: 0 },
 		direction: { x: 0, y: -1, z: 0 },
-		angle: Math.PI / 4, // 45 deg
+		outerAngle: Math.PI / 4, // 45 deg
 		range: 100,
 	});
 

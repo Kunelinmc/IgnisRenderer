@@ -17,7 +17,7 @@ import {
 export interface SpotLightParams extends LightParams {
 	position?: IVector3;
 	direction?: IVector3;
-	angle?: number;
+	outerAngle?: number;
 	innerAngle?: number;
 	penumbra?: number;
 	range?: number;
@@ -65,7 +65,7 @@ class SpotShadowCaster implements ShadowCaster {
 		);
 
 		const projection = Matrix4.perspective(
-			this.light.angle * 2 * (180 / Math.PI),
+			this.light.outerAngle * 2 * (180 / Math.PI),
 			1,
 			near,
 			far
@@ -77,7 +77,7 @@ class SpotShadowCaster implements ShadowCaster {
 
 export class SpotLight extends Light<LightType.Spot> {
 	public direction: IVector3;
-	public angle: number;
+	public outerAngle: number;
 	public innerAngle?: number;
 	public penumbra: number;
 	public range: number;
@@ -88,7 +88,7 @@ export class SpotLight extends Light<LightType.Spot> {
 			this.position.copy(params.position);
 		}
 		this.direction = params.direction ?? { x: 0, y: -1, z: 0 };
-		this.angle = params.angle ?? Math.PI / 4;
+		this.outerAngle = params.outerAngle ?? Math.PI / 4;
 		this.innerAngle = params.innerAngle;
 		this.penumbra = params.penumbra ?? 0;
 		this.range = params.range ?? 1000;
@@ -103,7 +103,7 @@ export class SpotLight extends Light<LightType.Spot> {
 			y: this.direction.y,
 			z: this.direction.z,
 		};
-		target.angle = this.angle;
+		target.outerAngle = this.outerAngle;
 		target.innerAngle = this.innerAngle;
 		target.penumbra = this.penumbra;
 		target.range = this.range;

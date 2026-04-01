@@ -66,5 +66,5 @@ export function getSpotLightWorldDirection(
 }
 
 export function getSpotLightInnerAngle(light: SpotLight): number {
-	return light.innerAngle ?? light.angle * (1 - light.penumbra);
+	return light.innerAngle ?? light.outerAngle * (1 - light.penumbra);
 }
