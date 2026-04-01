@@ -39,6 +39,16 @@ export class WebGLTextureRegistry {
 		return this._resolveTexture(texture, "skybox", true);
 	}
 
+	public getEnvironmentSpecularTexture(
+		texture: Texture | null
+	): ResolvedWebGLTexture {
+		return this._resolveTexture(texture, "env-specular", true);
+	}
+
+	public getBRDFLUTTexture(texture: Texture | null): ResolvedWebGLTexture {
+		return this._resolveTexture(texture, "brdf-lut", false);
+	}
+
 	public getNeutralNormalTexture(): ResolvedWebGLTexture {
 		if (!this._neutralNormalTexture) {
 			const tex = this._createTexture();

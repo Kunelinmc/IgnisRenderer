@@ -34,6 +34,7 @@ import {
 	type SSAOOptions,
 	type TAAOptions,
 } from "../../pipeline/types";
+import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
 	type WebGLLightState,
@@ -98,6 +99,11 @@ const DOF_MAX_BLUR_RADIUS_RANGE: [number, number] = [0, 32];
 const DOF_DEPTH_CURVE_RANGE: [number, number] = [0.25, 4];
 const DOF_HIGHLIGHT_GAIN_RANGE: [number, number] = [0, 3];
 const DOF_CHROMATIC_ABERRATION_RANGE: [number, number] = [0, 2];
+const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
+const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
+const WEBGL_TEXTURE_UNIT_ENV_SPECULAR = 2;
+const WEBGL_TEXTURE_UNIT_BRDF_LUT = 3;
+const WEBGL_TEXTURE_UNIT_CUSTOM_START = 4;
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	1, 0, 0, 0,
 	0, 1, 0, 0,
@@ -250,7 +256,8 @@ export class WebGLFrameExecutor {
 			context.features.enableLighting,
 			this._warn,
 			context.features.enableShadows,
-			context.shadowMaps
+			context.shadowMaps,
+			context.features.enableSH
 		);
 		
 		if (context.features.enableTAA) {
@@ -894,7 +901,7 @@ export class WebGLFrameExecutor {
 		}
 
 		const resolvedMap = this._textures.getBaseColorTexture(uniforms.baseMap);
-		gl.activeTexture(gl.TEXTURE0);
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 		gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
 		this._bindShaderMaterialTextures(sceneProgram, material);
 
@@ -955,7 +962,7 @@ export class WebGLFrameExecutor {
 			gl.uniform4fv(sceneProgram.uniforms.alpha, uniforms.alpha);
 		}
 		if (sceneProgram.uniforms.baseMap) {
-			gl.uniform1i(sceneProgram.uniforms.baseMap, 0);
+			gl.uniform1i(sceneProgram.uniforms.baseMap, WEBGL_TEXTURE_UNIT_BASE_MAP);
 		}
 		if (sceneProgram.uniforms.hasBaseMap) {
 			gl.uniform1i(sceneProgram.uniforms.hasBaseMap, uniforms.baseMap ? 1 : 0);
@@ -995,7 +1002,7 @@ export class WebGLFrameExecutor {
 		}
 
 		const gl = this._gl;
-		let textureUnit = 2;
+		let textureUnit = WEBGL_TEXTURE_UNIT_CUSTOM_START;
 		const boundUniforms = new Set<string>();
 		for (const binding of bindings) {
 			if (boundUniforms.has(binding.webglUniform)) {
@@ -1019,7 +1026,7 @@ export class WebGLFrameExecutor {
 			gl.uniform1i(uniform, textureUnit);
 			textureUnit++;
 		}
-		gl.activeTexture(gl.TEXTURE0);
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 	}
 
 	private _renderParticles(context: FrameContext): void {
@@ -1381,6 +1388,7 @@ export class WebGLFrameExecutor {
 			pointLights: [],
 			spotLights: [],
 			spotShadows: [],
+			envSpecularMap: null,
 		};
 
 		if (uniforms.viewProjection) {
@@ -1470,11 +1478,63 @@ export class WebGLFrameExecutor {
 			gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
 		}
 		if (uniforms.shadowAtlas) {
-			gl.activeTexture(gl.TEXTURE1);
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
 			gl.bindTexture(gl.TEXTURE_2D, this._shadowAtlasTexture);
-			gl.uniform1i(uniforms.shadowAtlas, 1);
-			gl.activeTexture(gl.TEXTURE0);
+			gl.uniform1i(uniforms.shadowAtlas, WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
 		}
+
+		const usesEnvSpecularUniforms =
+			!!uniforms.envSpecularMap ||
+			!!uniforms.hasEnvSpecularMap ||
+			!!uniforms.envSpecularMapIsLinear ||
+			!!uniforms.envSpecularMaxMipLevel ||
+			!!uniforms.brdfLUT;
+		if (usesEnvSpecularUniforms) {
+			const envSpecularMap = lights.envSpecularMap;
+			const hasEnvSpecularMap = !!envSpecularMap;
+			const envSpecularMaxMipLevel =
+				hasEnvSpecularMap && envSpecularMap ?
+					Math.max(0, envSpecularMap.mipmaps.length - 1)
+				:	0;
+			const resolvedEnvSpecular =
+				this._textures.getEnvironmentSpecularTexture(envSpecularMap ?? null);
+			const resolvedBrdfLUT = this._textures.getBRDFLUTTexture(
+				hasEnvSpecularMap ? IBLBRDF.getLUT() : null
+			);
+
+			if (uniforms.envSpecularMap) {
+				gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
+				gl.bindTexture(gl.TEXTURE_2D, resolvedEnvSpecular.texture);
+				gl.uniform1i(
+					uniforms.envSpecularMap,
+					WEBGL_TEXTURE_UNIT_ENV_SPECULAR
+				);
+			}
+			if (uniforms.brdfLUT) {
+				gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BRDF_LUT);
+				gl.bindTexture(gl.TEXTURE_2D, resolvedBrdfLUT.texture);
+				gl.uniform1i(uniforms.brdfLUT, WEBGL_TEXTURE_UNIT_BRDF_LUT);
+			}
+			if (uniforms.hasEnvSpecularMap) {
+				gl.uniform1i(
+					uniforms.hasEnvSpecularMap,
+					hasEnvSpecularMap ? 1 : 0
+				);
+			}
+			if (uniforms.envSpecularMapIsLinear) {
+				gl.uniform1i(
+					uniforms.envSpecularMapIsLinear,
+					resolvedEnvSpecular.isLinear ? 1 : 0
+				);
+			}
+			if (uniforms.envSpecularMaxMipLevel) {
+				gl.uniform1f(
+					uniforms.envSpecularMaxMipLevel,
+					envSpecularMaxMipLevel
+				);
+			}
+		}
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 
 		if (uniforms.taaJitter) {
 			gl.uniform4fv(uniforms.taaJitter, this._taaJitter);

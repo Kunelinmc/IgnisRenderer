@@ -131,6 +131,11 @@ export interface WebGLSceneProgram {
 		baseMap: WebGLUniformLocation | null;
 		hasBaseMap: WebGLUniformLocation | null;
 		baseMapIsLinear: WebGLUniformLocation | null;
+		envSpecularMap: WebGLUniformLocation | null;
+		hasEnvSpecularMap: WebGLUniformLocation | null;
+		envSpecularMapIsLinear: WebGLUniformLocation | null;
+		envSpecularMaxMipLevel: WebGLUniformLocation | null;
+		brdfLUT: WebGLUniformLocation | null;
 		dirLightCount: WebGLUniformLocation | null;
 		dirLightDirection: WebGLUniformLocation | null;
 		dirLightColor: WebGLUniformLocation | null;
@@ -496,6 +501,23 @@ export class WebGLProgramLibrary {
 					program,
 					"uBaseMapIsLinear"
 				),
+				envSpecularMap: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularMap"
+				),
+				hasEnvSpecularMap: this._gl.getUniformLocation(
+					program,
+					"uHasEnvSpecularMap"
+				),
+				envSpecularMapIsLinear: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularMapIsLinear"
+				),
+				envSpecularMaxMipLevel: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularMaxMipLevel"
+				),
+				brdfLUT: this._gl.getUniformLocation(program, "uBrdfLUT"),
 				dirLightCount: this._gl.getUniformLocation(program, "uDirLightCount"),
 				dirLightDirection: this._gl.getUniformLocation(
 					program,

@@ -509,6 +509,76 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	assert.ok(detachCalls.length > 0);
 }
 
+function testGlobalUniformsBindLightProbeIBLTextures() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, () => {});
+	const envTexture = { id: "env-specular" };
+	const brdfTexture = { id: "brdf-lut" };
+	const envProbeMap = {
+		mipmaps: [new Float32Array(4), new Float32Array(4), new Float32Array(4)],
+	};
+
+	executor._textures = {
+		getEnvironmentSpecularTexture(texture) {
+			assert.equal(texture, envProbeMap);
+			return { texture: envTexture, isLinear: true };
+		},
+		getBRDFLUTTexture(texture) {
+			assert.ok(texture);
+			return { texture: brdfTexture, isLinear: true };
+		},
+	};
+	executor._lightState = {
+		ambientColor: [0, 0, 0],
+		directionalLights: [],
+		directionalShadows: [],
+		pointLights: [],
+		spotLights: [],
+		spotShadows: [],
+		envSpecularMap: envProbeMap,
+	};
+	const sceneProgram = {
+		uniforms: {
+			envSpecularMap: "uEnvSpecularMap",
+			hasEnvSpecularMap: "uHasEnvSpecularMap",
+			envSpecularMapIsLinear: "uEnvSpecularMapIsLinear",
+			envSpecularMaxMipLevel: "uEnvSpecularMaxMipLevel",
+			brdfLUT: "uBrdfLUT",
+		},
+	};
+	const context = {
+		features: {
+			enableLighting: true,
+			enableShadows: false,
+		},
+	};
+
+	executor._bindGlobalUniforms(sceneProgram, context);
+
+	const uniform1i = new Map(
+		gl.calls
+			.filter((call) => call.name === "uniform1i")
+			.map((call) => [call.location, call.value])
+	);
+	assert.equal(uniform1i.get("uEnvSpecularMap"), 2);
+	assert.equal(uniform1i.get("uHasEnvSpecularMap"), 1);
+	assert.equal(uniform1i.get("uEnvSpecularMapIsLinear"), 1);
+	assert.equal(uniform1i.get("uBrdfLUT"), 3);
+
+	const uniform1f = new Map(
+		gl.calls
+			.filter((call) => call.name === "uniform1f")
+			.map((call) => [call.location, call.value])
+	);
+	assert.equal(uniform1f.get("uEnvSpecularMaxMipLevel"), 2);
+
+	const activeTextureUnits = gl.calls
+		.filter((call) => call.name === "activeTexture")
+		.map((call) => call.unit);
+	assert.ok(activeTextureUnits.includes(gl.TEXTURE2));
+	assert.ok(activeTextureUnits.includes(gl.TEXTURE3));
+}
+
 function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 	const warnings = [];
 	const gl = createFXAATestGL();
@@ -619,6 +689,7 @@ function run() {
 	testTransparentRenderPacketsConfiguresBlendAndDepthState();
 	testTAAPassDetachesMotionAttachmentAndSanitizesOptions();
 	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();
+	testGlobalUniformsBindLightProbeIBLTextures();
 	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();
 	console.log("WebGL FXAA frame executor tests passed");
 }

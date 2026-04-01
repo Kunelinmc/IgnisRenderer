@@ -32,6 +32,11 @@ uniform vec4 uAlpha;
 uniform sampler2D uBaseMap;
 uniform int uHasBaseMap;
 uniform int uBaseMapIsLinear;
+uniform sampler2D uEnvSpecularMap;
+uniform int uHasEnvSpecularMap;
+uniform int uEnvSpecularMapIsLinear;
+uniform float uEnvSpecularMaxMipLevel;
+uniform sampler2D uBrdfLUT;
 
 uniform int uDirLightCount;
 uniform vec4 uDirLightDirection[MAX_DIRECTIONAL_LIGHTS];
@@ -63,6 +68,31 @@ layout(location = 2) out vec4 fragNormal;
 vec3 safeNormalize(vec3 value, vec3 fallback) {
 	float len = length(value);
 	return len > EPSILON ? value / len : fallback;
+}
+
+vec2 directionToEquirectUV(vec3 direction) {
+	float phi = atan(direction.x, direction.z);
+	float theta = acos(clamp(direction.y, -1.0, 1.0));
+	return vec2((phi + PI) / (2.0 * PI), theta / PI);
+}
+
+vec3 decodeEnvSpecularSample(vec3 sampled) {
+	return uEnvSpecularMapIsLinear == 1 ? sampled : srgbToLinear(sampled);
+}
+
+vec3 samplePrefilteredEnvSpecular(vec3 direction, float roughness) {
+	if (uHasEnvSpecularMap == 0) {
+		return vec3(0.0);
+	}
+
+	vec2 uv = directionToEquirectUV(normalize(direction));
+	float mipLevel = clamp(
+		roughness * max(uEnvSpecularMaxMipLevel, 0.0),
+		0.0,
+		max(uEnvSpecularMaxMipLevel, 0.0)
+	);
+	vec3 sampled = textureLod(uEnvSpecularMap, uv, mipLevel).rgb;
+	return decodeEnvSpecularSample(sampled);
 }
 
 float pointAttenuation(float distanceSq, float range) {
@@ -379,8 +409,19 @@ vec3 shadePBR(
 		albedo *
 		(vec3(1.0) - ambientFresnel) *
 		(1.0 - metalness);
-	float specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
-	vec3 ambientSpecular = ambientBase * ambientFresnel * specularAmbientFactor;
+	vec3 ambientSpecular;
+	if (uHasEnvSpecularMap == 1) {
+		vec3 reflectionDir = reflect(-viewDir, pbrNormal);
+		vec3 prefiltered = samplePrefilteredEnvSpecular(reflectionDir, roughness);
+		vec2 brdf = texture(
+			uBrdfLUT,
+			vec2(clamp(nDotV, 0.0, 1.0), sqrt(roughness))
+		).rg;
+		ambientSpecular = prefiltered * (ambientFresnel * brdf.x + vec3(brdf.y));
+	} else {
+		float specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
+		ambientSpecular = ambientBase * ambientFresnel * specularAmbientFactor;
+	}
 
 	vec3 directLight = vec3(0.0);
 

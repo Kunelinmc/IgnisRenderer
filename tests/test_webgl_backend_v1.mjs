@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { LightProbe } from "../src/lights/LightProbe.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { SH } from "../src/maths/SH.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
@@ -259,6 +261,38 @@ function testLightCollectorLimitsAndWarnings() {
 	assert.ok(warnings.some((warning) => warning.key === "webgl-spot-light-limit"));
 }
 
+function testLightProbeFallbackAmbientAndEnvSpecularCollection() {
+	const warnings = [];
+	const warn = (key, message) => warnings.push({ key, message });
+	const sh = SH.empty();
+	sh[0] = { r: 120, g: 60, b: 30 };
+	const probeMap = {
+		width: 4,
+		height: 2,
+		mipmaps: [new Float32Array(4 * 2 * 4), new Float32Array(2 * 1 * 4)],
+		data: new Float32Array(4 * 2 * 4),
+		isLoadErrorFallback: false,
+	};
+	const probe = new LightProbe(sh, 0.75, probeMap);
+
+	const withoutSH = collectWebGLLights([probe], true, warn, false, undefined, false);
+	assert.ok(withoutSH.ambientColor[0] > 0);
+	assert.ok(withoutSH.ambientColor[1] > 0);
+	assert.ok(withoutSH.ambientColor[2] > 0);
+	assert.equal(withoutSH.envSpecularMap, probeMap);
+	assert.equal(
+		warnings.some(
+			(warning) => warning.key === "webgl-light-unsupported-lightProbe"
+		),
+		false
+	);
+
+	const withSH = collectWebGLLights([probe], true, warn, false, undefined, true);
+	assert.equal(withSH.ambientColor[0], 0);
+	assert.equal(withSH.ambientColor[1], 0);
+	assert.equal(withSH.ambientColor[2], 0);
+}
+
 function testProgramLibraryCompileErrorMessage() {
 	const library = createProgramLibrary(createProgramCompileFailGL(), () => {});
 	assert.throws(
@@ -460,6 +494,18 @@ function testSceneShaderUsesDecoupledShadowNormal() {
 	assert.ok(shader.fragment.includes("uSpotShadowParamsC"));
 }
 
+function testSceneShaderIncludesLightProbeIBLUniforms() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	assert.ok(shader.fragment.includes("uniform sampler2D uEnvSpecularMap;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uBrdfLUT;"));
+	assert.ok(shader.fragment.includes("uHasEnvSpecularMap"));
+	assert.ok(shader.fragment.includes("samplePrefilteredEnvSpecular"));
+}
+
 function testGeometryRegistryRejectsOutOfRangeIndices() {
 	const warnings = [];
 	const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k, m) =>
@@ -584,6 +630,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 async function run() {
 	await WEBGL_SHADER_SOURCE_FACTORY.prepareAll();
 	testLightCollectorLimitsAndWarnings();
+	testLightProbeFallbackAmbientAndEnvSpecularCollection();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();
@@ -594,6 +641,7 @@ async function run() {
 	testLightCollectorShadowBias();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();
+	testSceneShaderIncludesLightProbeIBLUniforms();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testWebGLBackendParticleDeltaTimeClamp();

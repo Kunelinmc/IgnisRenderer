@@ -1,6 +1,8 @@
 import { clamp, sRGBToLinear } from "../../maths/Common";
+import type { Texture } from "../../core/Texture";
 import {
 	LightType,
+	type LightProbe,
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
@@ -60,16 +62,19 @@ export interface WebGLLightState {
 	pointLights: WebGLPointLight[];
 	spotLights: WebGLSpotLight[];
 	spotShadows: WebGLShadowData[];
+	envSpecularMap: Texture | null;
 }
 
 type WarnFn = (key: string, message: string) => void;
+const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 export function collectWebGLLights(
 	lights: SceneLight[],
 	enableLighting: boolean,
 	warn: WarnFn,
 	enableShadows = false,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>
+	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
+	enableSH = false
 ): WebGLLightState {
 	const state: WebGLLightState = {
 		ambientColor: [0, 0, 0],
@@ -78,6 +83,7 @@ export function collectWebGLLights(
 		pointLights: [],
 		spotLights: [],
 		spotShadows: [],
+		envSpecularMap: null,
 	};
 	if (!enableLighting) {
 		return state;
@@ -174,7 +180,10 @@ export function collectWebGLLights(
 				);
 				break;
 			}
-			case LightType.LightProbe:
+			case LightType.LightProbe: {
+				collectLightProbe(state, light as LightProbe, enableSH, warn);
+				break;
+			}
 			case LightType.RectArea:
 			default: {
 				warn(
@@ -187,6 +196,77 @@ export function collectWebGLLights(
 	}
 
 	return state;
+}
+
+function collectLightProbe(
+	state: WebGLLightState,
+	light: LightProbe,
+	enableSH: boolean,
+	warn: WarnFn
+): void {
+	if (!enableSH) {
+		const dc = light.sh[0];
+		if (dc) {
+			const intensity = light.intensity ?? 1;
+			state.ambientColor[0] +=
+				(Math.max(0, dc.r * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
+				intensity;
+			state.ambientColor[1] +=
+				(Math.max(0, dc.g * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
+				intensity;
+			state.ambientColor[2] +=
+				(Math.max(0, dc.b * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
+				intensity;
+		}
+	}
+
+	if (state.envSpecularMap) {
+		return;
+	}
+
+	const resolvedEnvSpecular = resolveEnvSpecularMap(light.prefilteredMap, warn);
+	if (resolvedEnvSpecular) {
+		state.envSpecularMap = resolvedEnvSpecular;
+	}
+}
+
+function resolveEnvSpecularMap(
+	texture: Texture | null,
+	warn: WarnFn
+): Texture | null {
+	if (!texture) {
+		return null;
+	}
+	if (texture.isLoadErrorFallback) {
+		warn(
+			"webgl-env-specular-load-error-fallback",
+			"WebGL environment specular texture resolved to a load-error fallback; skipping IBL specular."
+		);
+		return null;
+	}
+	if (!isTextureReadyForEnvironment(texture)) {
+		warn(
+			"webgl-env-specular-texture-not-ready",
+			"WebGL environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular."
+		);
+		return null;
+	}
+	return texture;
+}
+
+function isTextureReadyForEnvironment(texture: Texture): boolean {
+	if (
+		!isFinitePositiveNumber(texture.width) ||
+		!isFinitePositiveNumber(texture.height)
+	) {
+		return false;
+	}
+
+	return !!texture.data || texture.mipmaps.length > 0;
+}
+
+function isFinitePositiveNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function resolveWebGLShadowData(
