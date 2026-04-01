@@ -150,6 +150,7 @@ async function createRenderer(
 
 		try {
 			await webgpuRenderer.init();
+
 			console.info("Using WebGPU backend");
 			return { canvas, renderer: webgpuRenderer };
 		} catch (error) {
@@ -160,8 +161,10 @@ async function createRenderer(
 	try {
 		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
 		webglRenderer.setScene(scene);
-		await webglRenderer.init();
 		webglRenderer.features.enableTAA = true;
+
+		await webglRenderer.init();
+
 		console.info("Using WebGL backend");
 		return { canvas, renderer: webglRenderer };
 	} catch (error) {
@@ -170,7 +173,9 @@ async function createRenderer(
 
 	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
 	softwareRenderer.setScene(scene);
+
 	await softwareRenderer.init();
+
 	console.info("Using software backend");
 	return { canvas, renderer: softwareRenderer };
 }
