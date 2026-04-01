@@ -1,188 +1,247 @@
-import { SH } from "../maths/SH";
-import { Vector3 } from "../maths/Vector3";
-import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
-import { lerp, sRGBToLinear } from "../maths/Common";
-import type { IVector3 } from "../maths/types";
 import { Texture } from "../core/Texture";
+import { Platform } from "../foundation/Platform";
 import { LightProbe } from "../lights/LightProbe";
+import { globalWorkerScheduler } from "../workers/WorkerScheduler";
+import type { WorkerLike } from "../workers/types";
+import { postMessageWorkerTransportPlugin } from "../workers/transports";
 
-export function bakeLightProbeFromEnvironmentMap(envMap: Texture): LightProbe {
-	const probe = projectEquirectToSH(envMap);
-	probe.prefilteredMap = prefilterEnvMap(envMap);
-	return probe;
+import {
+	LIGHT_PROBE_MAX_MIP_LEVELS,
+	prefilterEnvMapCPU,
+	projectEquirectTextureToSH,
+	resolvePrefilterBaseDimensions,
+	buildPrefilteredTexture,
+	type LightProbePrefilterMipData,
+} from "./lightProbeBakeCore";
+import type {
+	LightProbeBakeWorkerTaskPayload,
+	LightProbeBakeWorkerTaskResult,
+} from "./workers/lightProbeBakeWorkerProtocol";
+
+export type LightProbeBakeAcceleration = "auto" | "worker" | "cpu";
+
+export interface LightProbeBakeProgress {
+	phase: "project-sh" | "prefilter" | "finalize";
+	completed: number;
+	total: number;
+	detail?: string;
 }
 
-function projectEquirectToSH(envMap: Texture): LightProbe {
-	if (!envMap || !envMap.data) {
-		return new LightProbe();
+export interface LightProbeBakeOptions {
+	signal?: AbortSignal | null;
+	onProgress?: (progress: LightProbeBakeProgress) => void;
+	acceleration?: LightProbeBakeAcceleration;
+	workerCount?: number;
+}
+
+const DEFAULT_BAKE_POOL_PREFIX = "light-probe-bake";
+
+interface LightProbeBakeWorkerEnvMapPayload {
+	width: number;
+	height: number;
+	colorSpace: Texture["colorSpace"];
+	data: Texture["data"];
+}
+
+function createAbortError(): Error {
+	const error = new Error("Light probe bake was aborted");
+	error.name = "AbortError";
+	return error;
+}
+
+function assertNotAborted(signal?: AbortSignal | null): void {
+	if (!signal?.aborted) return;
+	throw createAbortError();
+}
+
+function emitProgress(
+	options: LightProbeBakeOptions,
+	progress: LightProbeBakeProgress
+): void {
+	options.onProgress?.(progress);
+}
+
+function resolveWorkerCount(requestedCount?: number): number {
+	const fallback = Platform.getHardwareConcurrency(4);
+	if (!Number.isFinite(requestedCount)) {
+		return Math.max(1, fallback);
+	}
+	return Math.max(1, Math.floor(requestedCount as number));
+}
+
+function createBakeWorker(workerIndex: number, poolId: string): WorkerLike {
+	const workerCtor =
+		(globalThis as typeof globalThis & {
+			Worker?: new (...args: any[]) => Worker;
+		}).Worker;
+
+	if (typeof workerCtor !== "function") {
+		throw new Error(
+			`Worker constructor is unavailable for pool "${poolId}" (worker #${workerIndex})`
+		);
 	}
 
-	const { width, height, data } = envMap;
-	const sh = SH.empty();
-
-	const MAX_WIDTH = 128;
-	const MAX_HEIGHT = 64;
-
-	const sampleWidth = Math.min(width, MAX_WIDTH);
-	const sampleHeight = Math.min(height, MAX_HEIGHT);
-
-	const stepX = width / sampleWidth;
-	const stepY = height / sampleHeight;
-
-	const dTheta = Math.PI / sampleHeight;
-	const dPhi = (2 * Math.PI) / sampleWidth;
-
-	let totalWeight = 0;
-
-	for (let sj = 0; sj < sampleHeight; sj++) {
-		const theta = (sj + 0.5) * dTheta;
-		const sinTheta = Math.sin(theta);
-		const cosTheta = Math.cos(theta);
-		const weight = sinTheta * dTheta * dPhi;
-
-		const j = Math.floor((sj + 0.5) * stepY);
-
-		for (let si = 0; si < sampleWidth; si++) {
-			const phi = (si + 0.5) * dPhi;
-
-			const x = sinTheta * Math.sin(phi);
-			const y = cosTheta;
-			const z = sinTheta * Math.cos(phi);
-
-			const basis = SH.evalBasis({ x, y, z });
-
-			const i = Math.floor((si + 0.5) * stepX);
-			const idx = (j * width + i) * 4;
-
-			const isLinear =
-				envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
-			const r =
-				isLinear ? data[idx] * 255 : sRGBToLinear(data[idx] / 255) * 255;
-			const g =
-				isLinear ?
-					data[idx + 1] * 255
-				:	sRGBToLinear(data[idx + 1] / 255) * 255;
-			const b =
-				isLinear ?
-					data[idx + 2] * 255
-				:	sRGBToLinear(data[idx + 2] / 255) * 255;
-
-			for (let k = 0; k < sh.length; k++) {
-				const bK = basis[k] * weight;
-				sh[k].r += r * bK;
-				sh[k].g += g * bK;
-				sh[k].b += b * bK;
-			}
-
-			totalWeight += weight;
+	return new workerCtor(
+		new URL("./workers/lightProbeBake.worker.ts", import.meta.url),
+		{
+			type: "module",
 		}
-	}
-
-	const normFactor = (4 * Math.PI) / totalWeight;
-
-	for (let k = 0; k < sh.length; k++) {
-		sh[k].r *= normFactor;
-		sh[k].g *= normFactor;
-		sh[k].b *= normFactor;
-	}
-
-	return new LightProbe(sh);
+	) as unknown as WorkerLike;
 }
 
-function prefilterEnvMap(envMap: Texture): Texture {
-	const baseWidth = Math.min(envMap.width, 128);
-	const baseHeight = Math.min(envMap.height, 64);
-	const maxMipLevels = 5;
-
-	const prefiltered = new Texture(null, baseWidth, baseHeight, "HDR");
-	prefiltered.mipmaps = [];
-
-	for (let level = 0; level < maxMipLevels; level++) {
-		const roughness = level / (maxMipLevels - 1);
-		const sampleCount = Math.floor(lerp(1024, 64, roughness));
-		const w = Math.max(1, baseWidth >> level);
-		const h = Math.max(1, baseHeight >> level);
-		const data = new Float32Array(w * h * 4);
-
-		for (let j = 0; j < h; j++) {
-			const theta = ((j + 0.5) / h) * Math.PI;
-			for (let i = 0; i < w; i++) {
-				const phi = ((i + 0.5) / w) * 2 * Math.PI;
-
-				const normal = {
-					x: Math.sin(theta) * Math.sin(phi),
-					y: Math.cos(theta),
-					z: Math.sin(theta) * Math.cos(phi),
-				};
-
-				const radiance = prefilterSpecular(
-					envMap,
-					normal,
-					roughness,
-					sampleCount
-				);
-				const idx = (j * w + i) * 4;
-				data[idx] = radiance.r;
-				data[idx + 1] = radiance.g;
-				data[idx + 2] = radiance.b;
-				data[idx + 3] = 1.0;
-			}
-		}
-
-		prefiltered.mipmaps.push(data);
-	}
-
-	prefiltered.data = prefiltered.mipmaps[0];
-	return prefiltered;
+function resolveWorkerPoolId(): string {
+	return `${DEFAULT_BAKE_POOL_PREFIX}-${Math.random().toString(36).slice(2)}`;
 }
 
-function prefilterSpecular(
+function toWorkerEnvMapPayload(envMap: Texture): LightProbeBakeWorkerEnvMapPayload {
+	return {
+		width: envMap.width,
+		height: envMap.height,
+		colorSpace: envMap.colorSpace,
+		data: envMap.data,
+	};
+}
+
+async function prefilterEnvMapWithWorkers(
 	envMap: Texture,
-	normal: IVector3,
-	roughness: number,
-	sampleCount: number
-): { r: number; g: number; b: number } {
-	let totalWeight = 0;
-	let prefilteredColor = { r: 0, g: 0, b: 0 };
+	options: LightProbeBakeOptions,
+	onMipComplete: (level: number) => void
+): Promise<Texture> {
+	const poolId = resolveWorkerPoolId();
+	const workerCount = Math.min(
+		resolveWorkerCount(options.workerCount),
+		LIGHT_PROBE_MAX_MIP_LEVELS
+	);
+	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
+	const envPayload = toWorkerEnvMapPayload(envMap);
 
-	for (let i = 0; i < sampleCount; i++) {
-		const xi = hammersley(i, sampleCount);
-		const view = normal;
-		const half = importanceSampleGGX_VNDF(xi, view, normal, roughness);
-		const nDotH = Math.max(Vector3.dot(normal, half), 0);
-		const lightDir = Vector3.normalize({
-			x: 2.0 * nDotH * half.x - view.x,
-			y: 2.0 * nDotH * half.y - view.y,
-			z: 2.0 * nDotH * half.z - view.z,
+	globalWorkerScheduler.registerPool({
+		id: poolId,
+		size: workerCount,
+		createWorker: (workerIndex, id) => createBakeWorker(workerIndex, id),
+		transportPlugins: [postMessageWorkerTransportPlugin],
+		defaultTimeoutMs: 0,
+	});
+
+	try {
+		const tasks: Promise<LightProbePrefilterMipData>[] = [];
+		for (let level = 0; level < LIGHT_PROBE_MAX_MIP_LEVELS; level++) {
+			assertNotAborted(options.signal);
+			const payload: LightProbeBakeWorkerTaskPayload = {
+				type: "prefilter-mip",
+				envMap: envPayload,
+				baseWidth,
+				baseHeight,
+				maxMipLevels: LIGHT_PROBE_MAX_MIP_LEVELS,
+				level,
+			};
+
+			const task = globalWorkerScheduler
+				.schedule<LightProbeBakeWorkerTaskResult, LightProbeBakeWorkerTaskPayload>(
+					poolId,
+					payload,
+					{
+						signal: options.signal ?? null,
+					}
+				)
+				.then((result) => {
+					if (!result || result.type !== "prefilter-mip") {
+						throw new Error("Light probe worker returned an invalid response");
+					}
+					onMipComplete(result.level);
+					return {
+						level: result.level,
+						width: result.width,
+						height: result.height,
+						data: result.data,
+					};
+				});
+
+			tasks.push(task);
+		}
+
+		const mipData = await Promise.all(tasks);
+		return buildPrefilteredTexture(baseWidth, baseHeight, mipData);
+	} finally {
+		globalWorkerScheduler.unregisterPool(poolId);
+	}
+}
+
+function prefilterEnvMapOnCPU(
+	envMap: Texture,
+	options: LightProbeBakeOptions,
+	onMipComplete: (level: number) => void
+): Texture {
+	return prefilterEnvMapCPU(envMap, options.signal ?? null, (level) => {
+		onMipComplete(level);
+	});
+}
+
+function canUseWorkerAcceleration(options: LightProbeBakeOptions): boolean {
+	return (
+		options.acceleration === "worker" ||
+		(options.acceleration !== "cpu" && Platform.hasWorker())
+	);
+}
+
+async function prefilterEnvMap(
+	envMap: Texture,
+	options: LightProbeBakeOptions,
+	onMipComplete: (level: number) => void
+): Promise<Texture> {
+	if (!canUseWorkerAcceleration(options)) {
+		if (options.acceleration === "worker") {
+			throw new Error(
+				"Worker acceleration was requested for light probe baking, but Worker API is unavailable."
+			);
+		}
+		return prefilterEnvMapOnCPU(envMap, options, onMipComplete);
+	}
+
+	try {
+		return await prefilterEnvMapWithWorkers(envMap, options, onMipComplete);
+	} catch (error) {
+		if (options.acceleration === "worker") {
+			throw error;
+		}
+		return prefilterEnvMapOnCPU(envMap, options, onMipComplete);
+	}
+}
+
+export async function bakeLightProbeFromEnvironmentMap(
+	envMap: Texture,
+	options: LightProbeBakeOptions = {}
+): Promise<LightProbe> {
+	assertNotAborted(options.signal);
+	const totalProgress = LIGHT_PROBE_MAX_MIP_LEVELS + 2;
+	let completed = 0;
+
+	const sh = projectEquirectTextureToSH(envMap, options.signal ?? null);
+	completed++;
+	emitProgress(options, {
+		phase: "project-sh",
+		completed,
+		total: totalProgress,
+	});
+
+	const prefiltered = await prefilterEnvMap(envMap, options, (level) => {
+		completed++;
+		emitProgress(options, {
+			phase: "prefilter",
+			completed,
+			total: totalProgress,
+			detail: `mip ${level + 1}/${LIGHT_PROBE_MAX_MIP_LEVELS}`,
 		});
+	});
 
-		const nDotL = Math.max(Vector3.dot(normal, lightDir), 0);
-		if (nDotL <= 0) continue;
-
-		const phi = Math.atan2(lightDir.x, lightDir.z);
-		const theta = Math.acos(Math.max(-1, Math.min(1, lightDir.y)));
-		const u = (phi + Math.PI) / (2 * Math.PI);
-		const v = theta / Math.PI;
-
-		const sample = envMap.sample(u, v);
-		const isLinear =
-			envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
-
-		const r = isLinear ? sample.r / 255 : sRGBToLinear(sample.r / 255);
-		const g = isLinear ? sample.g / 255 : sRGBToLinear(sample.g / 255);
-		const b = isLinear ? sample.b / 255 : sRGBToLinear(sample.b / 255);
-
-		prefilteredColor.r += r * nDotL;
-		prefilteredColor.g += g * nDotL;
-		prefilteredColor.b += b * nDotL;
-		totalWeight += nDotL;
-	}
-
-	if (totalWeight > 0) {
-		prefilteredColor.r /= totalWeight;
-		prefilteredColor.g /= totalWeight;
-		prefilteredColor.b /= totalWeight;
-	}
-
-	return prefilteredColor;
+	assertNotAborted(options.signal);
+	const probe = new LightProbe(sh);
+	probe.prefilteredMap = prefiltered;
+	completed++;
+	emitProgress(options, {
+		phase: "finalize",
+		completed,
+		total: totalProgress,
+	});
+	return probe;
 }

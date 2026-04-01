@@ -1,5 +1,5 @@
 import { Camera } from "../cameras/Camera";
-import { LightType, type LightProbe, type ShadowCastingLight } from "../lights";
+import { LightProbe, LightType, type ShadowCastingLight } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
@@ -20,6 +20,7 @@ import {
 	RendererStageGraph,
 	type RendererStageDefinition,
 } from "../pipeline/RendererStageGraph";
+import { bakeLightProbeFromEnvironmentMap } from "../pipeline/LightProbeBaker";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	INTERACTION_TRANSIENT_STATE_KEY,
@@ -45,6 +46,7 @@ import type {
 import type {
 	IRenderBackend,
 	WarmupOptions,
+	WarmupProgress,
 	WarmupReport,
 } from "./IRenderBackend";
 
@@ -215,6 +217,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.scene.updateWorldMatrices();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
+		const lightProbeUpdated = await this._warmupBakeLightProbes(options);
+		if (lightProbeUpdated) {
+			this.scene.syncNodeToECS();
+			this.scene.updateWorldMatrices();
+			this.camera.updateMatrices();
+		}
 
 		const transient = new Map<string, any>();
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
@@ -263,6 +271,57 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			};
 		}
 		return this.backend.warmup(context, options);
+	}
+
+	private async _warmupBakeLightProbes(options: WarmupOptions): Promise<boolean> {
+		if (options.includeLightProbeBake === false) {
+			return false;
+		}
+
+		const skybox = this.scene.skybox;
+		if (!skybox || !skybox.data || skybox.width <= 0 || skybox.height <= 0) {
+			return false;
+		}
+
+		const bakedProbe = await bakeLightProbeFromEnvironmentMap(skybox, {
+			...(options.lightProbeBake ?? {}),
+			onProgress: options.onProgress ?
+				(progress) => {
+					const event: WarmupProgress = {
+						phase: `light-probe-bake:${progress.phase}`,
+						completed: progress.completed,
+						total: progress.total,
+						detail: progress.detail,
+					};
+					options.onProgress?.(event);
+				}
+			:	undefined,
+		});
+
+		const lights = this.scene.getLights();
+		const probes = lights.filter(
+			(light): light is LightProbe => light.type === LightType.LightProbe
+		);
+
+		if (probes.length === 0) {
+			probes.push(this.scene.add(new LightProbe()));
+		}
+
+		for (const probe of probes) {
+			probe.sh = this._cloneSHCoefficients(bakedProbe.sh);
+			probe.prefilteredMap = bakedProbe.prefilteredMap;
+		}
+
+		this.scene.invalidate();
+		return true;
+	}
+
+	private _cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
+		return source.map((coefficient) => ({
+			r: coefficient.r,
+			g: coefficient.g,
+			b: coefficient.b,
+		})) as SHCoefficients;
 	}
 
 	public resizeCanvas(): void {

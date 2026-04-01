@@ -45,6 +45,7 @@ const tests = [
 	"test_renderer_animation_stage.mjs",
 	"test_renderer_particle_stage.mjs",
 	"test_renderer_postanimation_hook.mjs",
+	"test_renderer_warmup_lightprobe.mjs",
 	"test_camera_shake_plugin.mjs",
 	"test_sobel_normal_mapper.mjs",
 	"test_renderer_dynamic_texture_updates.mjs",
@@ -72,6 +73,7 @@ const tests = [
 	"test_webgpu_postprocess_runtime.mjs",
 	"test_worker_scheduler.mjs",
 	"test_worker_transport_plugins.mjs",
+	"test_light_probe_baker_async.mjs",
 ];
 
 let failed = false;

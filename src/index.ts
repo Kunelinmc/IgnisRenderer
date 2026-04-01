@@ -49,6 +49,14 @@ export type {
 	DOFOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
+export {
+	bakeLightProbeFromEnvironmentMap,
+} from "./pipeline/LightProbeBaker";
+export type {
+	LightProbeBakeAcceleration,
+	LightProbeBakeOptions,
+	LightProbeBakeProgress,
+} from "./pipeline/LightProbeBaker";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";
