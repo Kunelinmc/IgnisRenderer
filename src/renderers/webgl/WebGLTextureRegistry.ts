@@ -224,6 +224,8 @@ export class WebGLTextureRegistry {
 		);
 
 		const mipCount = Math.max(1, texture.mipmaps.length || 1);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, mipCount - 1);
 		for (let level = 0; level < mipCount; level++) {
 			const width = Math.max(1, texture.width >> level);
 			const height = Math.max(1, texture.height >> level);

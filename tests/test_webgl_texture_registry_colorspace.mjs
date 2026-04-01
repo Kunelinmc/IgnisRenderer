@@ -4,6 +4,7 @@ import { WebGLTextureRegistry } from "../src/renderers/webgl/WebGLTextureRegistr
 
 function createTextureRegistryTestGL() {
 	let textureId = 0;
+	const textureParameterCalls = [];
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		TEXTURE_2D: 0x0de1,
@@ -11,6 +12,8 @@ function createTextureRegistryTestGL() {
 		TEXTURE_WRAP_T: 0x2803,
 		TEXTURE_MAG_FILTER: 0x2800,
 		TEXTURE_MIN_FILTER: 0x2801,
+		TEXTURE_BASE_LEVEL: 0x813c,
+		TEXTURE_MAX_LEVEL: 0x813d,
 		UNPACK_ALIGNMENT: 0x0cf5,
 		LINEAR: 0x2601,
 		NEAREST: 0x2600,
@@ -33,9 +36,12 @@ function createTextureRegistryTestGL() {
 		deleteTexture() {},
 		bindTexture() {},
 		pixelStorei() {},
-		texParameteri() {},
+		texParameteri(target, pname, value) {
+			textureParameterCalls.push({ target, pname, value });
+		},
 		texImage2D() {},
 		generateMipmap() {},
+		textureParameterCalls,
 	};
 }
 
@@ -73,9 +79,38 @@ function testBaseColorTextureRemainsSrgbByDefault() {
 	assert.equal(registry.getBaseColorTexture(linearTexture).isLinear, true);
 }
 
+function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+
+	const envTexture = new Texture(
+		new Float32Array(128 * 64 * 4),
+		128,
+		64,
+		"HDR"
+	);
+	envTexture.mipmaps = [
+		new Float32Array(128 * 64 * 4),
+		new Float32Array(64 * 32 * 4),
+		new Float32Array(32 * 16 * 4),
+		new Float32Array(16 * 8 * 4),
+		new Float32Array(8 * 4 * 4),
+	];
+	envTexture.data = envTexture.mipmaps[0];
+
+	registry.getEnvironmentSpecularTexture(envTexture);
+
+	const maxLevelCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MAX_LEVEL
+	);
+	assert.ok(maxLevelCall);
+	assert.equal(maxLevelCall.value, envTexture.mipmaps.length - 1);
+}
+
 function run() {
 	testSkyboxTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
+	testEnvironmentTextureLimitsMaxMipLevelToUploadedChain();
 	console.log("WebGL texture registry color-space tests passed");
 }
 
