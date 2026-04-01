@@ -3,6 +3,7 @@ import type {
 	ShaderDirectiveProfileRegistry,
 	ShaderInjectionArgValue,
 	ShaderInjectionScript,
+	ShaderLanguage,
 } from "./types";
 
 const WEBGPU_PROFILE_ID = "webgpu/v1";
@@ -12,10 +13,39 @@ const PROFILE_REVISION = 2;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
+type LumaProfile = "bt601" | "bt709";
+type VecDimension = 2 | 3 | 4;
+
+function getVecConstructor(
+	lang: ShaderLanguage,
+	dimension: VecDimension,
+	values: string
+): string {
+	const name = `vec${dimension}`;
+	return lang === "glsl" ? `${name}(${values})` : `${name}<f32>(${values})`;
+}
+
+function getLumaWeightsExpression(lang: ShaderLanguage, profile: LumaProfile): string {
+	const weights =
+		profile === "bt601" ?
+			"0.299, 0.587, 0.114"
+		:	"0.2126, 0.7152, 0.0722";
+	return getVecConstructor(lang, 3, weights);
+}
+
+function getDecodeExpression(lang: ShaderLanguage, linear: boolean): string {
+	if (linear) {
+		return "sampled";
+	}
+	const zero = getVecConstructor(lang, 3, "0.0");
+	const gamma = getVecConstructor(lang, 3, "2.2");
+	const decodedRgb = `pow(max(sampled.rgb, ${zero}), ${gamma})`;
+	return getVecConstructor(lang, 4, `${decodedRgb}, sampled.a`);
+}
 
 function normalizeLumaProfile(
 	value: ShaderInjectionArgValue | undefined
-): "bt601" | "bt709" {
+): LumaProfile {
 	if (typeof value === "string") {
 		const normalized = value.trim().toLowerCase();
 		if (normalized === "bt601" || normalized === "601") {
@@ -139,18 +169,10 @@ function createPostProcessLumaInjectionScript(): ShaderInjectionScript {
 		run(args, context) {
 			const profile = normalizeLumaProfile(args.profile);
 			const clampInput = normalizeBooleanFlag(args.clamp, true);
-			const weightsExpression =
-				context.language === "glsl" ?
-					(
-						profile === "bt601" ?
-							"vec3(0.299, 0.587, 0.114)"
-						:	"vec3(0.2126, 0.7152, 0.0722)"
-					)
-				:	(
-						profile === "bt601" ?
-							"vec3<f32>(0.299, 0.587, 0.114)"
-						:	"vec3<f32>(0.2126, 0.7152, 0.0722)"
-					);
+			const weightsExpression = getLumaWeightsExpression(
+				context.language,
+				profile
+			);
 			if (context.language === "glsl") {
 				return {
 					functions: `float luma(vec3 color) {\n\treturn ignisLumaInternal(color, ${weightsExpression}, ${clampInput ? "true" : "false"});\n}`,
@@ -191,6 +213,7 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 			const slotConst = `IGNIS_TEXTURE_SLOT_${symbolToken}`;
 			const uvConst = `IGNIS_TEXTURE_UVSET_${symbolToken}`;
 			const linearConst = `IGNIS_TEXTURE_LINEAR_${symbolToken}`;
+			const decodeExpression = getDecodeExpression(context.language, linear);
 
 			if (context.language === "glsl") {
 				const headerBlocks: string[] = [];
@@ -202,10 +225,6 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 					`const int ${uvConst} = ${uvSet};`,
 					`const bool ${linearConst} = ${linear ? "true" : "false"};`
 				);
-				const decodeExpression =
-					linear ?
-						"sampled"
-					:	"vec4(pow(max(sampled.rgb, vec3(0.0)), vec3(2.2)), sampled.a)";
 				return {
 					header: headerBlocks.join("\n"),
 					functions:
@@ -248,10 +267,6 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 				`const ${uvConst}: u32 = ${uvSet}u;`,
 				`const ${linearConst}: bool = ${linear ? "true" : "false"};`
 			);
-			const decodeExpression =
-				linear ?
-					"sampled"
-				:	"vec4<f32>(pow(max(sampled.rgb, vec3<f32>(0.0)), vec3<f32>(2.2)), sampled.a)";
 			return {
 				header: headerBlocks.join("\n"),
 				functions:
