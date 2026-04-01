@@ -2,6 +2,7 @@ import { composeCompositeShaderSources, type CompositeShaderSource } from "../ru
 import { loadSceneShaderPart, loadSceneShaderPartComposite } from "./shaderSource";
 
 const SCENE_PARTS = [
+	"lightData",
 	"constants",
 	"definitions",
 	"utils",

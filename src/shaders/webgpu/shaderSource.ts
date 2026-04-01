@@ -1,10 +1,12 @@
 import { Platform } from "../../foundation/Platform";
 import {
+	composeCompositeShaderSources,
 	createInlineCompositeShaderSource,
 	type CompositeShaderSource,
 } from "../runtime";
 
 type SceneShaderPart =
+	| "lightData"
 	| "constants"
 	| "definitions"
 	| "utils"
@@ -115,6 +117,7 @@ async function loadShader(
 }
 
 const sceneShaderFiles: Record<SceneShaderPart, string> = {
+	lightData: "./parts/lightData.wgsl",
 	constants: "./parts/constants.wgsl",
 	definitions: "./parts/definitions.wgsl",
 	utils: "./parts/utils.wgsl",
@@ -128,6 +131,58 @@ const sceneShaderFiles: Record<SceneShaderPart, string> = {
 	fragmentPbrAmbient: "./parts/fragmentPbrAmbient.wgsl",
 	fragmentSingleTarget: "./parts/fragmentSingleTarget.wgsl",
 };
+
+const POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA = new Set<
+	PostProcessShaderPart
+>(["ssr", "volumetric"]);
+
+function loadSharedLightDataComposite(): Promise<CompositeShaderSource> {
+	const key = "webgpu-shared-light-data-composite";
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadSceneShaderPartComposite("lightData");
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
+function composeWithSharedLightData(
+	key: string,
+	shaderPromise: Promise<CompositeShaderSource>
+): Promise<CompositeShaderSource> {
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = Promise.all([
+			loadSharedLightDataComposite(),
+			shaderPromise,
+		]).then(([lightData, shader]) =>
+			composeCompositeShaderSources(
+				[
+					{
+						code: lightData.code,
+						sourceMap: lightData.sourceMap,
+						sourcePath:
+							lightData.sourceMap.segments[0]?.sourcePath ??
+							"<webgpu-light-data>",
+						kind: "template",
+					},
+					{
+						code: shader.code,
+						sourceMap: shader.sourceMap,
+						sourcePath:
+							shader.sourceMap.segments[0]?.sourcePath ??
+							"<webgpu-shader-part>",
+						kind: "template",
+					},
+				],
+				"\n\n",
+				"template"
+			)
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
 
 export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
 	const path = sceneShaderFiles[part];
@@ -164,23 +219,16 @@ export function loadSceneShaderPartComposite(
 }
 
 export function loadSkyboxShaderSource(): Promise<string> {
-	return loadShader(
-		"skybox",
-		"./skyboxShader.wgsl",
-		() => import("./skyboxShader.wgsl?raw")
-	);
+	return loadSkyboxShaderSourceComposite().then((composite) => composite.code);
 }
 
 export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource> {
-	const key = "skybox-composite";
-	let cached = _compositeCache.get(key);
-	if (!cached) {
-		cached = loadShaderCompositeFromFile("skybox", "./skyboxShader.wgsl", () =>
+	return composeWithSharedLightData(
+		"skybox-composite",
+		loadShaderCompositeFromFile("skybox", "./skyboxShader.wgsl", () =>
 			import("./skyboxShader.wgsl?raw")
-		);
-		_compositeCache.set(key, cached);
-	}
-	return cached;
+		)
+	);
 }
 
 export function loadParticleShaderSource(): Promise<string> {
@@ -226,6 +274,12 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 export function loadPostProcessShaderPart(
 	part: PostProcessShaderPart
 ): Promise<string> {
+	if (POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA.has(part)) {
+		return loadPostProcessShaderPartComposite(part).then(
+			(composite) => composite.code
+		);
+	}
+
 	const path = postProcessShaderFiles[part];
 
 	return loadShader(`post:${part}`, path, () => {
@@ -242,6 +296,21 @@ export function loadPostProcessShaderPart(
 export function loadPostProcessShaderPartComposite(
 	part: PostProcessShaderPart
 ): Promise<CompositeShaderSource> {
+	if (POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA.has(part)) {
+		return composeWithSharedLightData(
+			`post-composite:${part}`,
+			loadShaderCompositeFromFile(`post:${part}`, postProcessShaderFiles[part], () => {
+				const loader = postProcessParts[`./postprocess/${part}.wgsl`];
+				if (!loader) {
+					return Promise.reject(
+						new Error(`Post-process shader part not found: ${part}`)
+					);
+				}
+				return loader().then((content) => ({ default: content }));
+			})
+		);
+	}
+
 	const key = `post-composite:${part}`;
 	let cached = _compositeCache.get(key);
 	if (!cached) {
@@ -257,4 +326,16 @@ export function loadPostProcessShaderPartComposite(
 		_compositeCache.set(key, cached);
 	}
 	return cached;
+}
+
+export function loadClusteredLightingCullShaderComposite():
+	Promise<CompositeShaderSource> {
+	return composeWithSharedLightData(
+		"clustered-lighting-cull-composite",
+		loadShaderCompositeFromFile(
+			"clustered-lighting-cull",
+			"./clusteredLightingCull.wgsl",
+			() => import("./clusteredLightingCull.wgsl?raw")
+		)
+	);
 }
