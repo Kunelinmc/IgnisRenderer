@@ -215,6 +215,11 @@ export interface WebGPUBackendOptions {
 	directiveHook?: ShaderDirectiveCompileHook | null;
 }
 
+type WebGPUPassHandler = (
+	pass: FramePass,
+	context: FrameContext
+) => void | Promise<void>;
+
 function isWebGPUBackendOptions(
 	value: unknown
 ): value is WebGPUBackendOptions {
@@ -369,6 +374,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
 	private _shaderCompileStage: ShaderBackendCompileStage;
+	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
 
 	constructor(
 		canvasOrOptions?: HTMLCanvasElement | WebGPUBackendOptions,
@@ -388,6 +394,7 @@ export class WebGPUBackend implements IRenderBackend {
 			mode: shaderMode,
 			warn: (key, message) => this.warnOnce(key, message),
 		});
+		this._passHandlers = this._createPassHandlers();
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
@@ -568,22 +575,11 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._validatePassDependencies(pass);
-		if (pass.stage === "animation-sim") {
-			this._markPassExecuted(pass.stage);
-			return;
-		}
-
-		if (pass.stage === "particle-sim") {
-			this._particleSimulator?.simulate(
-				context,
-				this._resolveParticleDeltaTime(context)
-			);
-			this._particleSimulator?.emitRenderBatches(context);
-			this._markPassExecuted(pass.stage);
-			return;
-		}
-
-		const result = this._frameExecutor.executePass(pass, context);
+		const handler = this._passHandlers.get(pass.stage);
+		const result =
+			handler ?
+				handler(pass, context)
+			:	this._frameExecutor.executePass(pass, context);
 		if (result && typeof (result as Promise<void>).then === "function") {
 			return (result as Promise<void>).then(() => {
 				this._markPassExecuted(pass.stage);
@@ -3207,6 +3203,22 @@ export class WebGPUBackend implements IRenderBackend {
 			return 0;
 		}
 		return Math.max(0, value);
+	}
+
+	private _createPassHandlers(): Map<FramePass["stage"], WebGPUPassHandler> {
+		return new Map<FramePass["stage"], WebGPUPassHandler>([
+			["animation-sim", () => {}],
+			[
+				"particle-sim",
+				(_pass, context) => {
+					this._particleSimulator?.simulate(
+						context,
+						this._resolveParticleDeltaTime(context)
+					);
+					this._particleSimulator?.emitRenderBatches(context);
+				},
+			],
+		]);
 	}
 }
 

@@ -35,6 +35,10 @@ export type {
 	SoftwareTileOptions,
 } from "./software/SoftwareRasterConfig";
 
+type SoftwarePassHandler = (
+	context: FrameContext
+) => void | Promise<void>;
+
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "on-demand";
@@ -80,6 +84,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 	private _options: SoftwareBackendOptions;
 	private _activeRasterMode: SoftwareRasterMode;
+	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
 		assertShaderDirectiveProfileRegistryComplete(
@@ -89,6 +94,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this.requestedRasterMode =
 			options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		this._activeRasterMode = this.requestedRasterMode;
+		this._passHandlers = this._createPassHandlers();
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {
@@ -201,67 +207,11 @@ export class SoftwareBackend implements IRenderBackend {
 	): Promise<void> {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
-		switch (pass.stage) {
-			case "animation-sim":
-				break;
-			case "particle-sim":
-				this._particleSimulator?.simulate(
-					context,
-					this._resolveParticleDeltaTime(context)
-				);
-				this._particleSimulator?.emitRenderBatches(context);
-				break;
-			case "shadow":
-				this._shadowPass?.render(context);
-				break;
-			case "reflection":
-				this._reflectionPass.render(context);
-				break;
-			case "main-opaque":
-				await this._mainPass.render(
-					context,
-					context.scene.opaquePackets,
-					false
-				);
-				this._syncActiveRasterMode();
-				break;
-			case "main-transparent":
-				await this._mainPass.render(
-					context,
-					context.scene.transparentPackets,
-					true
-				);
-				this._syncActiveRasterMode();
-				break;
-			case "particles":
-				this._particlePass?.render(context);
-				break;
-			case "ssao":
-				this._postProcessor?.applySSAO(context);
-				break;
-			case "taa":
-				break;
-			case "ssr":
-				break;
-			case "volumetric":
-				if (this._ctx) {
-					this._postProcessor?.applyVolumetricLight(context, this._ctx);
-				}
-				break;
-			case "fxaa":
-				if (this._ctx) {
-					this._postProcessor?.applyFXAA(context, this._ctx);
-				}
-				break;
-			case "interaction-outline":
-				this._postProcessor?.applyInteractionOutline(context);
-				break;
-			case "gamma":
-				if (this._ctx) {
-					this._postProcessor?.applyGamma(context, this._ctx);
-				}
-				break;
+		const handler = this._passHandlers.get(pass.stage);
+		if (!handler) {
+			return;
 		}
+		await handler(context);
 	}
 
 	public skipPass(_pass: FramePass): void {
@@ -405,5 +355,108 @@ export class SoftwareBackend implements IRenderBackend {
 	private _syncActiveRasterMode(): void {
 		const mode = this._mainPass?.getActiveMode();
 		this._activeRasterMode = mode ?? this.requestedRasterMode;
+	}
+
+	private _createPassHandlers(): Map<FramePass["stage"], SoftwarePassHandler> {
+		return new Map<FramePass["stage"], SoftwarePassHandler>([
+			["animation-sim", () => {}],
+			[
+				"particle-sim",
+				(context) => {
+					this._particleSimulator?.simulate(
+						context,
+						this._resolveParticleDeltaTime(context)
+					);
+					this._particleSimulator?.emitRenderBatches(context);
+				},
+			],
+			[
+				"shadow",
+				(context) => {
+					this._shadowPass?.render(context);
+				},
+			],
+			[
+				"reflection",
+				(context) => {
+					this._reflectionPass?.render(context);
+				},
+			],
+			[
+				"main-opaque",
+				async (context) => {
+					if (!this._mainPass) {
+						return;
+					}
+					await this._mainPass.render(
+						context,
+						context.scene.opaquePackets,
+						false
+					);
+					this._syncActiveRasterMode();
+				},
+			],
+			[
+				"main-transparent",
+				async (context) => {
+					if (!this._mainPass) {
+						return;
+					}
+					await this._mainPass.render(
+						context,
+						context.scene.transparentPackets,
+						true
+					);
+					this._syncActiveRasterMode();
+				},
+			],
+			[
+				"particles",
+				(context) => {
+					this._particlePass?.render(context);
+				},
+			],
+			[
+				"ssao",
+				(context) => {
+					this._postProcessor?.applySSAO(context);
+				},
+			],
+			["taa", () => {}],
+			["ssr", () => {}],
+			[
+				"volumetric",
+				(context) => {
+					if (!this._ctx) {
+						return;
+					}
+					this._postProcessor?.applyVolumetricLight(context, this._ctx);
+				},
+			],
+			[
+				"fxaa",
+				(context) => {
+					if (!this._ctx) {
+						return;
+					}
+					this._postProcessor?.applyFXAA(context, this._ctx);
+				},
+			],
+			[
+				"interaction-outline",
+				(context) => {
+					this._postProcessor?.applyInteractionOutline(context);
+				},
+			],
+			[
+				"gamma",
+				(context) => {
+					if (!this._ctx) {
+						return;
+					}
+					this._postProcessor?.applyGamma(context, this._ctx);
+				},
+			],
+		]);
 	}
 }

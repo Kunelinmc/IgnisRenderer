@@ -32,7 +32,7 @@ import {
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
 
-const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
+const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
 	"main-opaque",
 	"main-transparent",
@@ -45,13 +45,18 @@ const SUPPORTED_WEBGL_STAGES = new Set<FramePass["stage"]>([
 	"taa",
 	"bloom",
 	"gamma",
-]);
+] as const;
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 
 export interface WebGLBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
 }
+
+type WebGLBackendPassHandler = (
+	pass: FramePass,
+	context: FrameContext
+) => void;
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
@@ -89,6 +94,10 @@ export class WebGLBackend implements IRenderBackend {
 	public readonly shaderRuntime: ShaderRuntime;
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
+	private readonly _passHandlers: Map<
+		FramePass["stage"],
+		WebGLBackendPassHandler
+	>;
 
 	constructor(options: WebGLBackendOptions = {}) {
 		const shaderMode = options.shaderMode ?? "warn";
@@ -104,6 +113,7 @@ export class WebGLBackend implements IRenderBackend {
 			warn: (key, message) => this._warnOnce(key, message),
 		});
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
+		this._passHandlers = this._createPassHandlers();
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
@@ -158,22 +168,15 @@ export class WebGLBackend implements IRenderBackend {
 		if (this._contextLost) {
 			return;
 		}
-		if (pass.stage === "particle-sim") {
-			this._particleSimulator?.simulate(
-				context,
-				this._resolveParticleDeltaTime(context)
-			);
-			this._particleSimulator?.emitRenderBatches(context);
-			return;
-		}
-		if (!SUPPORTED_WEBGL_STAGES.has(pass.stage)) {
+		const handler = this._passHandlers.get(pass.stage);
+		if (!handler) {
 			this._warnOnce(
 				`webgl-pass-unsupported-${pass.stage}`,
 				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
 			);
 			return;
 		}
-		this._frameExecutor.executePass(pass, context);
+		handler(pass, context);
 	}
 
 	public skipPass(_pass: FramePass): void {
@@ -307,6 +310,26 @@ export class WebGLBackend implements IRenderBackend {
 
 	private _warnOnce(key: string, message: string): void {
 		this._renderer?.warnOnce(key, message);
+	}
+
+	private _createPassHandlers(): Map<
+		FramePass["stage"],
+		WebGLBackendPassHandler
+	> {
+		const handlers = new Map<FramePass["stage"], WebGLBackendPassHandler>();
+		handlers.set("particle-sim", (_pass, context) => {
+			this._particleSimulator?.simulate(
+				context,
+				this._resolveParticleDeltaTime(context)
+			);
+			this._particleSimulator?.emitRenderBatches(context);
+		});
+		for (const stage of SUPPORTED_WEBGL_STAGES) {
+			handlers.set(stage, (pass, context) => {
+				this._frameExecutor?.executePass(pass, context);
+			});
+		}
+		return handlers;
 	}
 }
 

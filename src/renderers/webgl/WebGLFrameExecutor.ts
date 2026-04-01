@@ -70,6 +70,7 @@ import {
 import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 
 type WarnFn = (key: string, message: string) => void;
+type WebGLFramePassHandler = (context: FrameContext) => void;
 
 interface MaterialUniformState {
 	shadingModel: number;
@@ -80,21 +81,6 @@ interface MaterialUniformState {
 	alpha: [number, number, number, number];
 	baseMap: any | null;
 }
-
-const SUPPORTED_STAGES = new Set<FramePass["stage"]>([
-	"shadow",
-	"main-opaque",
-	"main-transparent",
-	"particles",
-	"ssao",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"fxaa",
-	"interaction-outline",
-	"taa",
-	"gamma",
-]);
 
 const TAA_HALTON_SAMPLE_COUNT = 16;
 const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
@@ -213,6 +199,7 @@ export class WebGLFrameExecutor {
 	private _interactionOutlineCircles = new Float32Array(
 		MAX_INTERACTION_OUTLINE_CIRCLES * 4
 	);
+	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -242,6 +229,7 @@ export class WebGLFrameExecutor {
 			gl.MAX_TEXTURE_IMAGE_UNITS,
 			16
 		);
+		this._passHandlers = this._createPassHandlers();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -293,52 +281,15 @@ export class WebGLFrameExecutor {
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): void {
-		if (!SUPPORTED_STAGES.has(pass.stage)) {
+		const handler = this._passHandlers.get(pass.stage);
+		if (!handler) {
 			this._warn(
 				`webgl-stage-unsupported-${pass.stage}`,
 				`WebGL v1 does not support pass "${pass.stage}" yet; skipping`
 			);
 			return;
 		}
-
-		switch (pass.stage) {
-			case "shadow":
-				this._renderShadows(context);
-				break;
-			case "main-opaque":
-				this._renderPackets(context, context.scene.opaquePackets, false);
-				break;
-			case "main-transparent":
-				this._renderPackets(context, context.scene.transparentPackets, true);
-				break;
-			case "particles":
-				this._renderParticles(context);
-				break;
-			case "ssao":
-				this._applySSAO(context.features.ssaoOptions, context);
-				break;
-			case "motion-blur":
-				this._applyMotionBlur(context.features.motionBlurOptions);
-				break;
-			case "dof":
-				this._applyDOF(context.features.dofOptions);
-				break;
-			case "bloom":
-				this._applyBloom(context.features.bloomOptions);
-				break;
-			case "fxaa":
-				this._applyFXAA();
-				break;
-			case "interaction-outline":
-				this._applyInteractionOutline(context);
-				break;
-			case "taa":
-				this._applyTAA(context.features.taaOptions);
-				break;
-			case "gamma":
-				this._present(context.features.enableGamma !== false);
-				break;
-		}
+		handler(context);
 	}
 
 	public endFrame(): void {
@@ -498,6 +449,87 @@ export class WebGLFrameExecutor {
 		this._textures.destroy();
 		this._programs.destroy();
 		this._activeContext = null;
+	}
+
+	private _createPassHandlers(): Map<
+		FramePass["stage"],
+		WebGLFramePassHandler
+	> {
+		const handlers = new Map<FramePass["stage"], WebGLFramePassHandler>([
+			[
+				"shadow",
+				(context) => {
+					this._renderShadows(context);
+				},
+			],
+			[
+				"main-opaque",
+				(context) => {
+					this._renderPackets(context, context.scene.opaquePackets, false);
+				},
+			],
+			[
+				"main-transparent",
+				(context) => {
+					this._renderPackets(context, context.scene.transparentPackets, true);
+				},
+			],
+			[
+				"particles",
+				(context) => {
+					this._renderParticles(context);
+				},
+			],
+			[
+				"ssao",
+				(context) => {
+					this._applySSAO(context.features.ssaoOptions, context);
+				},
+			],
+			[
+				"motion-blur",
+				(context) => {
+					this._applyMotionBlur(context.features.motionBlurOptions);
+				},
+			],
+			[
+				"dof",
+				(context) => {
+					this._applyDOF(context.features.dofOptions);
+				},
+			],
+			[
+				"bloom",
+				(context) => {
+					this._applyBloom(context.features.bloomOptions);
+				},
+			],
+			[
+				"fxaa",
+				() => {
+					this._applyFXAA();
+				},
+			],
+			[
+				"interaction-outline",
+				(context) => {
+					this._applyInteractionOutline(context);
+				},
+			],
+			[
+				"taa",
+				(context) => {
+					this._applyTAA(context.features.taaOptions);
+				},
+			],
+			[
+				"gamma",
+				(context) => {
+					this._present(context.features.enableGamma !== false);
+				},
+			],
+		]);
+		return handlers;
 	}
 
 	private _syncShadowMetadata(context: FrameContext): void {

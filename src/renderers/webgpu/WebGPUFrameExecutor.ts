@@ -42,7 +42,7 @@ import type {
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
 
-const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
+const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"ssao",
 	"ssgi",
 	"taa",
@@ -54,7 +54,9 @@ const POST_PROCESS_STAGES = new Set<FramePass["stage"]>([
 	"fxaa",
 	"interaction-outline",
 	"gamma",
-]);
+] as const;
+
+type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
 const WEBGPU_PRESENT_SHADER = /* wgsl */ `
 struct PresentParams {
@@ -158,6 +160,7 @@ export class WebGPUFrameExecutor {
 	private _presentBindingSource: IRenderTexture | null = null;
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
+	private readonly _passHandlers: Map<FramePass["stage"], WebGPUFramePassHandler>;
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
@@ -169,6 +172,7 @@ export class WebGPUFrameExecutor {
 			resources.sceneFrameLayout
 		);
 		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
+		this._passHandlers = this._createPassHandlers();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -325,24 +329,11 @@ export class WebGPUFrameExecutor {
 	): Promise<void> {
 		if (!this._encoder) return;
 
-		switch (pass.stage) {
-			case "shadow":
-				await this._resources.renderShadows(context);
-				return;
-			case "main-opaque":
-				await this._recordMainPass(context.scene.opaquePackets, true);
-				return;
-			case "main-transparent":
-				await this._recordMainPass(context.scene.transparentPackets, false);
-				return;
-			case "particles":
-				await this._recordParticlePass(context);
-				return;
+		const handler = this._passHandlers.get(pass.stage);
+		if (!handler) {
+			return;
 		}
-
-		if (POST_PROCESS_STAGES.has(pass.stage) && !this._postGraphExecuted) {
-			await this._runPostGraph(context);
-		}
+		await handler(context);
 	}
 
 	public async endFrame(): Promise<void> {
@@ -406,6 +397,47 @@ export class WebGPUFrameExecutor {
 				this._applyVolumetricHistoryFlip(this._frameTargets);
 			}
 		}
+	}
+
+	private _createPassHandlers(): Map<
+		FramePass["stage"],
+		WebGPUFramePassHandler
+	> {
+		const handlers = new Map<FramePass["stage"], WebGPUFramePassHandler>([
+			[
+				"shadow",
+				async (context) => {
+					await this._resources.renderShadows(context);
+				},
+			],
+			[
+				"main-opaque",
+				async (context) => {
+					await this._recordMainPass(context.scene.opaquePackets, true);
+				},
+			],
+			[
+				"main-transparent",
+				async (context) => {
+					await this._recordMainPass(context.scene.transparentPackets, false);
+				},
+			],
+			[
+				"particles",
+				async (context) => {
+					await this._recordParticlePass(context);
+				},
+			],
+		]);
+		const runPostProcess: WebGPUFramePassHandler = async (context) => {
+			if (!this._postGraphExecuted) {
+				await this._runPostGraph(context);
+			}
+		};
+		for (const stage of POST_PROCESS_STAGES) {
+			handlers.set(stage, runPostProcess);
+		}
+		return handlers;
 	}
 
 	private _createDefaultPasses(): WebGPUPostProcessPassPlugin[] {
