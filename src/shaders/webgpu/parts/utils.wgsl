@@ -230,6 +230,11 @@ fn envSpecularMaxMipLevel() -> f32 {
 	return max(frame.environmentOptionsB.y, 0.0);
 }
 
+fn reflectionProbeCount() -> u32 {
+	let count = u32(max(frame.lightCounts.w + 0.5, 0.0));
+	return min(count, MAX_REFLECTION_PROBES);
+}
+
 fn evalSHBasis(direction: vec3<f32>) -> array<f32, 16> {
 	let x = direction.x;
 	let y = direction.y;
@@ -302,14 +307,345 @@ fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	return vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
 }
 
-fn sampleEnvironmentSpecular(direction: vec3<f32>, roughness: f32) -> vec3<f32> {
+fn sampleEnvironmentSpecularFromDirection(
+	direction: vec3<f32>,
+	roughness: f32,
+	layer: u32,
+	layerCount: u32
+) -> vec3<f32> {
+	var uv = directionToEquirectUV(safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0)));
+	if (layerCount > 1u) {
+		uv.x = (uv.x + f32(layer)) / f32(layerCount);
+	}
+	let level = clamp(roughness, 0.0, 1.0) * envSpecularMaxMipLevel();
+	return textureSampleLevel(envSpecularTexture, envSpecularSampler, uv, level).rgb;
+}
+
+fn worldToProbePoint(probe: ReflectionProbeData, worldPosition: vec3<f32>) -> vec3<f32> {
+	return vec3<f32>(
+		dot(probe.worldToProbeRow0.xyz, worldPosition) + probe.worldToProbeRow0.w,
+		dot(probe.worldToProbeRow1.xyz, worldPosition) + probe.worldToProbeRow1.w,
+		dot(probe.worldToProbeRow2.xyz, worldPosition) + probe.worldToProbeRow2.w
+	);
+}
+
+fn worldToProbeDirection(
+	probe: ReflectionProbeData,
+	worldDirection: vec3<f32>
+) -> vec3<f32> {
+	return vec3<f32>(
+		dot(probe.worldToProbeRow0.xyz, worldDirection),
+		dot(probe.worldToProbeRow1.xyz, worldDirection),
+		dot(probe.worldToProbeRow2.xyz, worldDirection)
+	);
+}
+
+fn probeToWorldPoint(probe: ReflectionProbeData, probePosition: vec3<f32>) -> vec3<f32> {
+	return vec3<f32>(
+		dot(probe.probeToWorldRow0.xyz, probePosition) + probe.probeToWorldRow0.w,
+		dot(probe.probeToWorldRow1.xyz, probePosition) + probe.probeToWorldRow1.w,
+		dot(probe.probeToWorldRow2.xyz, probePosition) + probe.probeToWorldRow2.w
+	);
+}
+
+fn computeReflectionProbeMetric(
+	worldPosition: vec3<f32>,
+	probe: ReflectionProbeData
+) -> f32 {
+	let localPosition = worldToProbePoint(probe, worldPosition);
+	let shapeCode = probe.dataB.w;
+	if (shapeCode > 0.5) {
+		return max(
+			max(
+				abs(localPosition.x) * probe.dataA.x,
+				abs(localPosition.y) * probe.dataA.y
+			),
+			abs(localPosition.z) * probe.dataA.z
+		);
+	}
+	return length(localPosition) * probe.dataA.w;
+}
+
+fn computeReflectionProbeWeight(metric: f32, probe: ReflectionProbeData) -> f32 {
+	let safeBlendDistance = max(probe.dataC.y, 1e-5);
+	let x = clamp((metric - 1.0) / safeBlendDistance, 0.0, 1.0);
+	var weight = 1.0 - smoothstep(0.0, 1.0, x);
+	let blendExponent = max(probe.dataC.z, 0.01);
+	if (abs(blendExponent - 1.0) > 1e-5) {
+		weight = pow(max(weight, 0.0), blendExponent);
+	}
+	return weight;
+}
+
+fn isBetterReflectionProbeCandidate(
+	candidateWeight: f32,
+	candidateIndex: i32,
+	currentWeight: f32,
+	currentIndex: i32
+) -> bool {
+	if (candidateWeight > currentWeight + 1e-6) {
+		return true;
+	}
+	if (abs(candidateWeight - currentWeight) <= 1e-6 && candidateIndex < currentIndex) {
+		return true;
+	}
+	return false;
+}
+
+fn selectTopTwoReflectionProbes(worldPosition: vec3<f32>) -> vec4<f32> {
+	let count = reflectionProbeCount();
+	var firstIndex: i32 = -1;
+	var secondIndex: i32 = -1;
+	var firstWeight = 0.0;
+	var secondWeight = 0.0;
+
+	for (var i: u32 = 0u; i < count; i = i + 1u) {
+		let probe = frame.reflectionProbes[i];
+		let metric = computeReflectionProbeMetric(worldPosition, probe);
+		let weight = computeReflectionProbeWeight(metric, probe);
+		if (!isFinite(weight) || weight <= 1e-6) {
+			continue;
+		}
+
+		let index = i32(i);
+		if (
+			firstIndex < 0 ||
+			isBetterReflectionProbeCandidate(weight, index, firstWeight, firstIndex)
+		) {
+			secondIndex = firstIndex;
+			secondWeight = firstWeight;
+			firstIndex = index;
+			firstWeight = weight;
+			continue;
+		}
+
+		if (
+			secondIndex < 0 ||
+			isBetterReflectionProbeCandidate(weight, index, secondWeight, secondIndex)
+		) {
+			secondIndex = index;
+			secondWeight = weight;
+		}
+	}
+
+	if (firstIndex < 0) {
+		return vec4<f32>(-1.0, -1.0, 0.0, 0.0);
+	}
+
+	let sumWeight = firstWeight + max(secondWeight, 0.0);
+	if (sumWeight <= 1e-6) {
+		return vec4<f32>(f32(firstIndex), -1.0, 1.0, 0.0);
+	}
+
+	if (secondIndex < 0) {
+		return vec4<f32>(f32(firstIndex), -1.0, 1.0, 0.0);
+	}
+
+	return vec4<f32>(
+		f32(firstIndex),
+		f32(secondIndex),
+		firstWeight / sumWeight,
+		secondWeight / sumWeight
+	);
+}
+
+fn intersectReflectionProbeBox(
+	localOrigin: vec3<f32>,
+	localDirection: vec3<f32>,
+	probe: ReflectionProbeData
+) -> vec4<f32> {
+	let halfExtents = vec3<f32>(
+		1.0 / max(probe.dataA.x, 1e-5),
+		1.0 / max(probe.dataA.y, 1e-5),
+		1.0 / max(probe.dataA.z, 1e-5)
+	);
+	var tMin = -1e20;
+	var tMax = 1e20;
+
+	if (abs(localDirection.x) <= EPSILON) {
+		if (localOrigin.x < -halfExtents.x || localOrigin.x > halfExtents.x) {
+			return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+		}
+	} else {
+		let invDirection = 1.0 / localDirection.x;
+		var t0 = (-halfExtents.x - localOrigin.x) * invDirection;
+		var t1 = (halfExtents.x - localOrigin.x) * invDirection;
+		if (t0 > t1) {
+			let swap = t0;
+			t0 = t1;
+			t1 = swap;
+		}
+		tMin = max(tMin, t0);
+		tMax = min(tMax, t1);
+	}
+
+	if (abs(localDirection.y) <= EPSILON) {
+		if (localOrigin.y < -halfExtents.y || localOrigin.y > halfExtents.y) {
+			return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+		}
+	} else {
+		let invDirection = 1.0 / localDirection.y;
+		var t0 = (-halfExtents.y - localOrigin.y) * invDirection;
+		var t1 = (halfExtents.y - localOrigin.y) * invDirection;
+		if (t0 > t1) {
+			let swap = t0;
+			t0 = t1;
+			t1 = swap;
+		}
+		tMin = max(tMin, t0);
+		tMax = min(tMax, t1);
+	}
+
+	if (abs(localDirection.z) <= EPSILON) {
+		if (localOrigin.z < -halfExtents.z || localOrigin.z > halfExtents.z) {
+			return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+		}
+	} else {
+		let invDirection = 1.0 / localDirection.z;
+		var t0 = (-halfExtents.z - localOrigin.z) * invDirection;
+		var t1 = (halfExtents.z - localOrigin.z) * invDirection;
+		if (t0 > t1) {
+			let swap = t0;
+			t0 = t1;
+			t1 = swap;
+		}
+		tMin = max(tMin, t0);
+		tMax = min(tMax, t1);
+	}
+
+	if (tMax < max(tMin, 0.0)) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+	let t = select(tMax, tMin, tMin > EPSILON);
+	if (!isFinite(t) || t <= EPSILON) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+	let hit = localOrigin + localDirection * t;
+	return vec4<f32>(hit, 1.0);
+}
+
+fn intersectReflectionProbeSphere(
+	localOrigin: vec3<f32>,
+	localDirection: vec3<f32>,
+	probe: ReflectionProbeData
+) -> vec4<f32> {
+	let radius = 1.0 / max(probe.dataA.w, 1e-5);
+	let b = dot(localOrigin, localDirection);
+	let c = dot(localOrigin, localOrigin) - radius * radius;
+	let discriminant = b * b - c;
+	if (discriminant < 0.0) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+
+	let sqrtDiscriminant = sqrt(discriminant);
+	let t0 = -b - sqrtDiscriminant;
+	let t1 = -b + sqrtDiscriminant;
+	var t = 1e20;
+	if (t0 > EPSILON) {
+		t = min(t, t0);
+	}
+	if (t1 > EPSILON) {
+		t = min(t, t1);
+	}
+	if (!isFinite(t) || t >= 1e19) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+	let hit = localOrigin + localDirection * t;
+	return vec4<f32>(hit, 1.0);
+}
+
+fn computeReflectionProbeParallaxDirection(
+	worldPosition: vec3<f32>,
+	reflectionDirection: vec3<f32>,
+	probe: ReflectionProbeData
+) -> vec3<f32> {
+	let fallback = safeNormalize(reflectionDirection, vec3<f32>(0.0, 0.0, 1.0));
+	let parallaxMode = i32(probe.dataC.x + 0.5);
+	if (parallaxMode <= 0) {
+		return fallback;
+	}
+
+	let localOrigin = worldToProbePoint(probe, worldPosition);
+	let localDirection = safeNormalize(
+		worldToProbeDirection(probe, fallback),
+		fallback
+	);
+
+	let hitLocal =
+		select(
+			intersectReflectionProbeSphere(localOrigin, localDirection, probe),
+			intersectReflectionProbeBox(localOrigin, localDirection, probe),
+			parallaxMode == 1
+		);
+	if (hitLocal.w < 0.5) {
+		return fallback;
+	}
+
+	let worldHit = probeToWorldPoint(probe, hitLocal.xyz);
+	let corrected = worldHit - probe.dataB.xyz;
+	return safeNormalize(corrected, fallback);
+}
+
+fn sampleEnvironmentSpecular(
+	direction: vec3<f32>,
+	roughness: f32,
+	worldPosition: vec3<f32>
+) -> vec3<f32> {
 	if (!hasEnvSpecular()) {
 		return vec3<f32>(0.0);
 	}
 
-	let uv = directionToEquirectUV(safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0)));
-	let level = clamp(roughness, 0.0, 1.0) * envSpecularMaxMipLevel();
-	return textureSampleLevel(envSpecularTexture, envSpecularSampler, uv, level).rgb;
+	let normalizedDirection = safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0));
+	let probeCount = reflectionProbeCount();
+	if (probeCount == 0u) {
+		return sampleEnvironmentSpecularFromDirection(
+			normalizedDirection,
+			roughness,
+			0u,
+			1u
+		);
+	}
+
+	let selection = selectTopTwoReflectionProbes(worldPosition);
+	if (selection.x < 0.0) {
+		return vec3<f32>(0.0);
+	}
+
+	let firstIndex = u32(max(selection.x, 0.0));
+	let firstProbe = frame.reflectionProbes[firstIndex];
+	let firstDirection = computeReflectionProbeParallaxDirection(
+		worldPosition,
+		normalizedDirection,
+		firstProbe
+	);
+	let firstLayer = u32(max(firstProbe.dataC.w + 0.5, 0.0));
+	let firstSample = sampleEnvironmentSpecularFromDirection(
+		firstDirection,
+		roughness,
+		firstLayer,
+		probeCount
+	);
+
+	if (selection.y < 0.0 || selection.w <= 1e-6) {
+		return firstSample;
+	}
+
+	let secondIndex = u32(max(selection.y, 0.0));
+	let secondProbe = frame.reflectionProbes[secondIndex];
+	let secondDirection = computeReflectionProbeParallaxDirection(
+		worldPosition,
+		normalizedDirection,
+		secondProbe
+	);
+	let secondLayer = u32(max(secondProbe.dataC.w + 0.5, 0.0));
+	let secondSample = sampleEnvironmentSpecularFromDirection(
+		secondDirection,
+		roughness,
+		secondLayer,
+		probeCount
+	);
+
+	return firstSample * selection.z + secondSample * selection.w;
 }
 
 fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {

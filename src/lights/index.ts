@@ -4,6 +4,7 @@ import { DirectionalLight } from "./DirectionalLight";
 import { PointLight } from "./PointLight";
 import { SpotLight } from "./SpotLight";
 import { LightProbe } from "./LightProbe";
+import { ReflectionProbe } from "./ReflectionProbe";
 import { AreaLight } from "./AreaLight";
 
 export * from "./constants";
@@ -13,6 +14,7 @@ export * from "./DirectionalLight";
 export * from "./PointLight";
 export * from "./SpotLight";
 export * from "./LightProbe";
+export * from "./ReflectionProbe";
 export * from "./AreaLight";
 
 export type SceneLight =
@@ -21,6 +23,7 @@ export type SceneLight =
 	| PointLight
 	| SpotLight
 	| LightProbe
+	| ReflectionProbe
 	| AreaLight;
 
 export type ShadowCastingLight = SceneLight & { shadow: ShadowCaster };

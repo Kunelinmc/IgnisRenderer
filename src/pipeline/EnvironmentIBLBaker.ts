@@ -1,6 +1,5 @@
 import { Texture } from "../core/Texture";
 import { Platform } from "../foundation/Platform";
-import { LightProbe } from "../lights/LightProbe";
 import { lerp, sRGBToLinear } from "../maths/Common";
 import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
 import { SH } from "../maths/SH";
@@ -104,6 +103,11 @@ export interface EnvironmentIBLBakeOptions {
 	acceleration?: EnvironmentIBLBakeAcceleration;
 	workerCount?: number;
 	webgpuSource?: WebGPUComputeFacadeSource | null;
+}
+
+export interface BakedEnvironmentIBL {
+	sh: SHCoefficients;
+	prefilteredMap: Texture;
 }
 
 function createEnvironmentIBLBakeAbortError(): Error {
@@ -976,7 +980,7 @@ async function prefilterEnvMap(
 export async function bakeEnvironmentIBLFromEnvironmentMap(
 	envMap: Texture,
 	options: EnvironmentIBLBakeOptions = {}
-): Promise<LightProbe> {
+): Promise<BakedEnvironmentIBL> {
 	assertBakeNotAborted(options.signal);
 	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
 	const totalProgress = totalMipLevels + 2;
@@ -1001,13 +1005,14 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 	});
 
 	assertBakeNotAborted(options.signal);
-	const probe = new LightProbe(sh);
-	probe.prefilteredMap = prefiltered;
 	completed++;
 	emitProgress(options, {
 		phase: "finalize",
 		completed,
 		total: totalProgress,
 	});
-	return probe;
+	return {
+		sh,
+		prefilteredMap: prefiltered,
+	};
 }

@@ -16,6 +16,7 @@ import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
@@ -542,8 +543,14 @@ function testEnvironmentCollection() {
 	const probeMap = createTinyTexture(3);
 	const sh = SH.empty();
 	sh[0] = { r: 10, g: 10, b: 10 };
-	const probeA = new LightProbe(SH.empty(), 1.0, probeMap);
-	const probeB = new LightProbe(SH.empty(), 1.0, createTinyTexture(2));
+	const probeA = new ReflectionProbe({
+		shape: "box",
+		prefilteredMap: probeMap,
+	});
+	const probeB = new ReflectionProbe({
+		shape: "sphere",
+		prefilteredMap: createTinyTexture(3),
+	});
 
 	const prioritized = collectWebGPUEnvironment(
 		{
@@ -554,8 +561,11 @@ function testEnvironmentCollection() {
 		sh
 	);
 	assert.equal(prioritized.skyboxTexture, skybox);
-	assert.equal(prioritized.envSpecularTexture, probeMap);
+	assert.ok(prioritized.envSpecularTexture);
+	assert.notEqual(prioritized.envSpecularTexture, skybox);
 	assert.equal(prioritized.envSpecularMaxMipLevel, 2);
+	assert.equal(prioritized.reflectionProbeCount, 2);
+	assert.equal(prioritized.reflectionProbes.length, 2);
 	assert.equal(prioritized.hasSHAmbient, true);
 	assert.ok(prioritized.brdfLUTTexture);
 
@@ -567,8 +577,9 @@ function testEnvironmentCollection() {
 		true,
 		sh
 	);
-	assert.equal(fallback.skyboxTexture, probeMap);
-	assert.equal(fallback.envSpecularTexture, probeMap);
+	assert.ok(fallback.skyboxTexture);
+	assert.ok(fallback.envSpecularTexture);
+	assert.equal(fallback.reflectionProbeCount, 2);
 
 	const failedSkybox = createTinyTexture(1);
 	failedSkybox.markAsLoadErrorFallback();
@@ -580,8 +591,9 @@ function testEnvironmentCollection() {
 		true,
 		sh
 	);
-	assert.equal(fallbackFromFailedSkybox.skyboxTexture, probeMap);
-	assert.equal(fallbackFromFailedSkybox.envSpecularTexture, probeMap);
+	assert.ok(fallbackFromFailedSkybox.skyboxTexture);
+	assert.ok(fallbackFromFailedSkybox.envSpecularTexture);
+	assert.equal(fallbackFromFailedSkybox.reflectionProbeCount, 1);
 	assert.ok(
 		fallbackFromFailedSkybox.warnings.some(
 			(warning) => warning.key === "webgpu-skybox-load-error-fallback"
@@ -598,6 +610,7 @@ function testEnvironmentCollection() {
 	);
 	assert.equal(failedOnlySkybox.skyboxTexture, null);
 	assert.equal(failedOnlySkybox.envSpecularTexture, null);
+	assert.equal(failedOnlySkybox.reflectionProbeCount, 0);
 }
 
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
@@ -855,7 +868,10 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	const shAmbient = SH.empty();
 	shAmbient[0] = { r: 12, g: 12, b: 12 };
 	const probeMap = createTinyTexture(2);
-	const probe = new LightProbe(SH.empty(), 1.0, probeMap);
+	const probe = new ReflectionProbe({
+		shape: "box",
+		prefilteredMap: probeMap,
+	});
 
 	const cases = [
 		{

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
@@ -104,8 +105,12 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 
 		const probeA = renderer.scene.add(new LightProbe(SH.empty(), 2));
 		const probeB = renderer.scene.add(new LightProbe(SH.empty(), 0.5));
-		probeA.prefilteredMap = null;
-		probeB.prefilteredMap = null;
+		const reflectionA = renderer.scene.add(
+			new ReflectionProbe({ shape: "box", prefilteredMap: null })
+		);
+		const reflectionB = renderer.scene.add(
+			new ReflectionProbe({ shape: "sphere", prefilteredMap: null })
+		);
 
 		const progress = [];
 		await renderer.warmup({
@@ -118,9 +123,10 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 			.filter((light) => light.type === "lightProbe");
 		assert.equal(probes.length, 2);
 		for (const probe of probes) {
-			assert.ok(probe.prefilteredMap);
 			assert.equal(probe.sh.length, 16);
 		}
+		assert.ok(reflectionA.prefilteredMap);
+		assert.ok(reflectionB.prefilteredMap);
 		assert.equal(probeA.intensity, 2);
 		assert.equal(probeB.intensity, 0.5);
 		assert.ok(
@@ -163,7 +169,10 @@ async function testWarmupCreatesProbeWhenSceneHasNone() {
 			.getLights()
 			.filter((light) => light.type === "lightProbe");
 		assert.equal(probes.length, 1);
-		assert.ok(probes[0].prefilteredMap);
+		const reflectionProbes = renderer.scene
+			.getLights()
+			.filter((light) => light.type === "reflectionProbe");
+		assert.equal(reflectionProbes.length, 0);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;

@@ -3,6 +3,7 @@ import type { Texture } from "../../core/Texture";
 import {
 	LightType,
 	type LightProbe,
+	type ReflectionProbe,
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
@@ -18,8 +19,13 @@ import {
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
+import {
+	collectReflectionProbeEnvironment,
+	isTextureReadyForEnvironment,
+} from "../../pipeline/reflectionProbeRuntime";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];
@@ -63,6 +69,22 @@ export interface WebGLLightState {
 	spotLights: WebGLSpotLight[];
 	spotShadows: WebGLShadowData[];
 	envSpecularMap: Texture | null;
+	reflectionProbeCount: number;
+	reflectionProbes: WebGLReflectionProbeUniform[];
+}
+
+export interface WebGLReflectionProbeUniform {
+	id: string;
+	worldToProbeMatrix: Matrix4;
+	probeToWorldMatrix: Matrix4;
+	invHalfExtents: [number, number, number];
+	radiusInv: number;
+	shape: 0 | 1;
+	parallaxMode: 0 | 1 | 2;
+	blendDistance: number;
+	blendExponent: number;
+	probeWorldPosition: [number, number, number];
+	layer: number;
 }
 
 type WarnFn = (key: string, message: string) => void;
@@ -74,7 +96,8 @@ export function collectWebGLLights(
 	warn: WarnFn,
 	enableShadows = false,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
-	enableSH = false
+	enableSH = false,
+	skybox: Texture | null = null
 ): WebGLLightState {
 	const state: WebGLLightState = {
 		ambientColor: [0, 0, 0],
@@ -84,6 +107,8 @@ export function collectWebGLLights(
 		spotLights: [],
 		spotShadows: [],
 		envSpecularMap: null,
+		reflectionProbeCount: 0,
+		reflectionProbes: [],
 	};
 	if (!enableLighting) {
 		return state;
@@ -184,6 +209,9 @@ export function collectWebGLLights(
 				collectLightProbe(state, light as LightProbe, enableSH, warn);
 				break;
 			}
+			case LightType.ReflectionProbe: {
+				break;
+			}
 			case LightType.RectArea:
 			default: {
 				warn(
@@ -193,6 +221,48 @@ export function collectWebGLLights(
 				break;
 			}
 		}
+	}
+
+	const reflectionEnvironment = collectReflectionProbeEnvironment(
+		lights,
+		WEBGL_MAX_REFLECTION_PROBES
+	);
+	if (reflectionEnvironment.probes.length > 0) {
+		state.reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
+			const cache = probe.getRuntimeCache();
+			return {
+				id: probe.id,
+				worldToProbeMatrix: cache.worldToProbeMatrix.clone(),
+				probeToWorldMatrix: cache.probeToWorldMatrix.clone(),
+				invHalfExtents: [
+					cache.invHalfExtents.x,
+					cache.invHalfExtents.y,
+					cache.invHalfExtents.z,
+				],
+				radiusInv: cache.radiusInv,
+				shape: probe.shape === "box" ? 1 : 0,
+				parallaxMode: mapParallaxModeCode(probe),
+				blendDistance: cache.effectiveBlendDistance,
+				blendExponent: cache.blendExponent,
+				probeWorldPosition: [
+					cache.probeWorldPosition.x,
+					cache.probeWorldPosition.y,
+					cache.probeWorldPosition.z,
+				],
+				layer: index,
+			};
+		});
+		state.reflectionProbeCount = state.reflectionProbes.length;
+		const atlas = resolveEnvSpecularMap(reflectionEnvironment.atlas, warn);
+		if (atlas) {
+			state.envSpecularMap = atlas;
+		}
+	}
+
+	if (!state.envSpecularMap) {
+		state.envSpecularMap = resolveEnvironmentSkyboxMap(skybox, warn);
+		state.reflectionProbeCount = 0;
+		state.reflectionProbes = [];
 	}
 
 	return state;
@@ -218,15 +288,6 @@ function collectLightProbe(
 				(Math.max(0, dc.b * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
 				intensity;
 		}
-	}
-
-	if (state.envSpecularMap) {
-		return;
-	}
-
-	const resolvedEnvSpecular = resolveEnvSpecularMap(light.prefilteredMap, warn);
-	if (resolvedEnvSpecular) {
-		state.envSpecularMap = resolvedEnvSpecular;
 	}
 }
 
@@ -254,19 +315,33 @@ function resolveEnvSpecularMap(
 	return texture;
 }
 
-function isTextureReadyForEnvironment(texture: Texture): boolean {
-	if (
-		!isFinitePositiveNumber(texture.width) ||
-		!isFinitePositiveNumber(texture.height)
-	) {
-		return false;
+function resolveEnvironmentSkyboxMap(
+	texture: Texture | null,
+	warn: WarnFn
+): Texture | null {
+	if (!texture) return null;
+	if (texture.isLoadErrorFallback) {
+		warn(
+			"webgl-skybox-load-error-fallback",
+			"WebGL skybox texture resolved to a load-error fallback; skipping skybox IBL fallback."
+		);
+		return null;
 	}
-
-	return !!texture.data || texture.mipmaps.length > 0;
+	if (!isTextureReadyForEnvironment(texture)) {
+		warn(
+			"webgl-skybox-texture-not-ready",
+			"WebGL skybox texture is not ready (missing pixels or invalid dimensions); skipping skybox IBL fallback."
+		);
+		return null;
+	}
+	return texture;
 }
 
-function isFinitePositiveNumber(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0;
+function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {
+	const mode = probe.parallaxMode;
+	if (mode === "box") return 1;
+	if (mode === "sphere") return 2;
+	return 0;
 }
 
 function resolveWebGLShadowData(

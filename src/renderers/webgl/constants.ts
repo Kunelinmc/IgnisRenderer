@@ -1,5 +1,6 @@
 export const WEBGL_MAX_DIRECTIONAL_LIGHTS = 4;
 export const WEBGL_MAX_POINT_LIGHTS = 4;
 export const WEBGL_MAX_SPOT_LIGHTS = 8;
+export const WEBGL_MAX_REFLECTION_PROBES = 8;
 export const WEBGL_SHADOW_ATLAS_COLUMNS = 4;
 export const WEBGL_SHADOW_ATLAS_ROWS = 3;

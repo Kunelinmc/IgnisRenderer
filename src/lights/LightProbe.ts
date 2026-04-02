@@ -1,24 +1,17 @@
 import { SH } from "../maths/SH";
 import { Light, LightType } from "./Light";
 import type { SHCoefficients } from "../maths/types";
-import type { Texture } from "../core/Texture";
 
 /**
- * LightProbe stores spherical harmonics coefficients and optional prefiltered map.
+ * LightProbe stores spherical harmonics coefficients for diffuse irradiance.
  * Baking/projection from environment maps lives in pipeline helpers.
  */
 export class LightProbe extends Light<LightType.LightProbe> {
 	public sh: SHCoefficients;
-	public prefilteredMap: Texture | null = null;
 
-	constructor(
-		sh: SHCoefficients | null = null,
-		intensity = 1.0,
-		prefilteredMap: Texture | null = null
-	) {
+	constructor(sh: SHCoefficients | null = null, intensity = 1.0) {
 		super(LightType.LightProbe, { intensity });
 		this.sh = sh ? JSON.parse(JSON.stringify(sh)) : SH.empty();
-		this.prefilteredMap = prefilteredMap;
 	}
 
 	public copy(source: LightProbe | SHCoefficients): LightProbe {
@@ -34,10 +27,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 		this.intensity = sourceIntensity;
 
-		if (source instanceof LightProbe) {
-			this.prefilteredMap = source.prefilteredMap;
-		}
-
 		return this;
 	}
 
@@ -48,6 +37,5 @@ export class LightProbe extends Light<LightType.LightProbe> {
 			g: coefficient.g,
 			b: coefficient.b,
 		}));
-		target.prefilteredMap = this.prefilteredMap;
 	}
 }

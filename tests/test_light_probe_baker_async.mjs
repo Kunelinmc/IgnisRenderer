@@ -14,15 +14,15 @@ function createTestTexture(width = 32, height = 16) {
 	return new Texture(data, width, height, "sRGB");
 }
 
-async function testBakeReturnsLightProbeWithPrefilteredMap() {
+async function testBakeReturnsEnvironmentIBLData() {
 	const texture = createTestTexture();
-	const probe = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
+	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "cpu",
 	});
-	assert.ok(probe);
-	assert.ok(probe.prefilteredMap);
-	assert.equal(probe.sh.length, 16);
-	assert.equal(probe.prefilteredMap?.mipmaps.length, 5);
+	assert.ok(baked);
+	assert.ok(baked.prefilteredMap);
+	assert.equal(baked.sh.length, 16);
+	assert.equal(baked.prefilteredMap?.mipmaps.length, 5);
 }
 
 async function testBakeSupportsAbortSignal() {
@@ -65,12 +65,12 @@ async function testExplicitWebGPUModeRequiresSource() {
 
 async function testAutoFallsBackWhenWebGPUPathFails() {
 	const texture = createTestTexture();
-	const probe = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
+	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "auto",
 		webgpuSource: { type: "webgpu" },
 	});
-	assert.ok(probe.prefilteredMap);
-	assert.equal(probe.prefilteredMap?.mipmaps.length, 5);
+	assert.ok(baked.prefilteredMap);
+	assert.equal(baked.prefilteredMap?.mipmaps.length, 5);
 }
 
 async function testBakeReportsProgressMonotonically() {
@@ -96,7 +96,7 @@ async function testBakeReportsProgressMonotonically() {
 }
 
 async function run() {
-	await testBakeReturnsLightProbeWithPrefilteredMap();
+	await testBakeReturnsEnvironmentIBLData();
 	await testBakeSupportsAbortSignal();
 	await testExplicitWorkerModeThrowsWhenWorkersAreUnavailable();
 	await testExplicitWebGPUModeRequiresSource();

@@ -20,8 +20,6 @@ import {
 } from "../../shaders";
 import { clamp } from "../../maths/Common";
 import {
-	LightType,
-	LightProbe,
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
@@ -35,6 +33,7 @@ import {
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./shadows";
+import { collectActiveReflectionProbes } from "../../pipeline/reflectionProbeRuntime";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -111,6 +110,7 @@ export interface RasterizerContext {
 	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
+	skybox?: Texture | null;
 	features: {
 		enableLighting: boolean;
 		enableSH: boolean;
@@ -664,17 +664,10 @@ export class Rasterizer implements RasterizerLike {
 		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
 
 		const shader = this._getShader(shading, material);
-		let envSpecularMap = null;
 		const lights = context.lights;
-		for (const light of lights) {
-			if (light.type === LightType.LightProbe) {
-				const probe = light as LightProbe;
-				if (probe.prefilteredMap) {
-					envSpecularMap = probe.prefilteredMap;
-					break;
-				}
-			}
-		}
+		const reflectionProbes = collectActiveReflectionProbes(lights);
+		const reflectionProbeFallbackMap =
+			reflectionProbes.length <= 0 ? (context.skybox ?? null) : null;
 
 		const shaderContext: ShaderContext = {
 			cameraPos: context.camera.position,
@@ -683,7 +676,8 @@ export class Rasterizer implements RasterizerLike {
 			sampleShadow: context.sampleShadow,
 			worldMatrix: context.features.worldMatrix,
 			shAmbientCoeffs: context.shAmbientCoeffs,
-			envSpecularMap: envSpecularMap,
+			reflectionProbes,
+			reflectionProbeFallbackMap,
 			brdfLUT: IBLBRDF.getLUT(),
 			enableShadows: !!context.features.enableShadows,
 			enableSH: !!context.features.enableSH,

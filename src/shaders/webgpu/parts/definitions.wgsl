@@ -17,6 +17,7 @@ struct FrameUniforms {
 	directionalShadows: array<ShadowData, 4>,
 	spotShadows: array<ShadowData, 8>,
 	shAmbientCoeffs: array<vec4<f32>, 16>,
+	reflectionProbes: array<ReflectionProbeData, 8>,
 }
 
 struct ClusterGridParams {

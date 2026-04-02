@@ -143,9 +143,25 @@ export interface WebGPUEnvironmentState {
 	hasSHAmbient: boolean;
 	skyboxTexture: Texture | null;
 	envSpecularTexture: Texture | null;
+	reflectionProbeCount: number;
+	reflectionProbes: WebGPUReflectionProbeUniform[];
 	brdfLUTTexture: Texture | null;
 	envSpecularMaxMipLevel: number;
 	warnings: WebGPUWarning[];
+}
+
+export interface WebGPUReflectionProbeUniform {
+	id: string;
+	worldToProbeMatrix: Matrix4;
+	probeToWorldMatrix: Matrix4;
+	invHalfExtents: [number, number, number];
+	radiusInv: number;
+	probeWorldPosition: [number, number, number];
+	shape: 0 | 1;
+	parallaxMode: 0 | 1 | 2;
+	blendDistance: number;
+	blendExponent: number;
+	layer: number;
 }
 
 export interface WebGPUTextureSlotData {
@@ -189,6 +205,8 @@ export interface WebGPUFrameUniformInput {
 	pointLights: WebGPULightingState["pointLights"];
 	spotLights: WebGPULightingState["spotLights"];
 	spotShadows: WebGPULightingState["spotShadows"];
+	reflectionProbeCount: number;
+	reflectionProbes: WebGPUReflectionProbeUniform[];
 	enableLighting: boolean;
 	enableGamma: boolean;
 	enableShadows: boolean;

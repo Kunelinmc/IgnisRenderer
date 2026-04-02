@@ -352,11 +352,12 @@ export class ReflectionRenderer {
 				position: context.camera.getWorldPosition(),
 				viewMatrix: context.camera.viewMatrix,
 			},
-			lights: context.scene.lights,
-			shadowMaps: context.shadowMaps,
-			sampleShadow,
-			shAmbientCoeffs: context.shAmbientCoeffs,
-			features: {
+				lights: context.scene.lights,
+				shadowMaps: context.shadowMaps,
+				sampleShadow,
+				shAmbientCoeffs: context.shAmbientCoeffs,
+				skybox: context.scene.skybox,
+				features: {
 				enableLighting: context.features.enableLighting,
 				enableSH: context.features.enableSH,
 				enableShadows: context.features.enableShadows,

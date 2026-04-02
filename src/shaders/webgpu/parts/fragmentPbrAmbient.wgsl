@@ -33,7 +33,11 @@ var ambientLight = diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
 if (transmission > 0.0 && refractionResult.valid > 0.5) {
 	var transmissionRadiance = ambientColor;
 	if (hasEnvSpecular()) {
-		transmissionRadiance = sampleEnvironmentSpecular(refractionResult.direction, roughness);
+		transmissionRadiance = sampleEnvironmentSpecular(
+			refractionResult.direction,
+			roughness,
+			input.worldPosition
+		);
 	} else if (shAmbientEnabled) {
 		transmissionRadiance = sampleSHRadiance(refractionResult.direction) / 255.0;
 	}
@@ -48,7 +52,11 @@ if (transmission > 0.0 && refractionResult.valid > 0.5) {
 let specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
 let clearcoatAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - clearcoatRoughness) * 0.5);
 if (hasEnvSpecular()) {
-	let prefiltered = sampleEnvironmentSpecular(reflectionDir, roughness);
+	let prefiltered = sampleEnvironmentSpecular(
+		reflectionDir,
+		roughness,
+		input.worldPosition
+	);
 	let brdf = sampleBRDFLUT(nDotV, roughness);
 	ambientLight +=
 		prefiltered *
@@ -59,7 +67,8 @@ if (hasEnvSpecular()) {
 	let clearcoatReflectionDir = reflectViewDirection(clearcoatNormal, viewDir);
 	let clearcoatPrefiltered = sampleEnvironmentSpecular(
 		clearcoatReflectionDir,
-		clearcoatRoughness
+		clearcoatRoughness,
+		input.worldPosition
 	);
 	let clearcoatBrdf = sampleBRDFLUT(clearcoatNdotV, clearcoatRoughness);
 	ambientLight +=

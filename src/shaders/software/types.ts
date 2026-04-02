@@ -11,6 +11,7 @@ import type { ProjectedFace } from "../../core/types";
 import type { Material } from "../../materials";
 import type { RGB } from "../../foundation/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
+import type { ReflectionProbe } from "../../lights/ReflectionProbe";
 import type { ShadowMap } from "../../lights/ShadowMapping";
 
 export interface ShaderContext {
@@ -24,7 +25,8 @@ export interface ShaderContext {
 	) => RGB;
 	worldMatrix?: Matrix4;
 	shAmbientCoeffs: SHCoefficients | null;
-	envSpecularMap: Texture | null;
+	reflectionProbes: ReflectionProbe[];
+	reflectionProbeFallbackMap: Texture | null;
 	brdfLUT: Texture | null;
 	enableShadows: boolean;
 	enableSH: boolean;

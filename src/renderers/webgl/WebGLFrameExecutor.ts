@@ -38,12 +38,14 @@ import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
 	type WebGLLightState,
+	type WebGLReflectionProbeUniform,
 	type WebGLShadowData,
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
+	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
@@ -257,7 +259,8 @@ export class WebGLFrameExecutor {
 			this._warn,
 			context.features.enableShadows,
 			context.shadowMaps,
-			context.features.enableSH
+			context.features.enableSH,
+			context.scene.skybox
 		);
 		
 		if (context.features.enableTAA) {
@@ -1389,6 +1392,8 @@ export class WebGLFrameExecutor {
 			spotLights: [],
 			spotShadows: [],
 			envSpecularMap: null,
+			reflectionProbeCount: 0,
+			reflectionProbes: [],
 		};
 
 		if (uniforms.viewProjection) {
@@ -1488,7 +1493,17 @@ export class WebGLFrameExecutor {
 			!!uniforms.hasEnvSpecularMap ||
 			!!uniforms.envSpecularMapIsLinear ||
 			!!uniforms.envSpecularMaxMipLevel ||
-			!!uniforms.brdfLUT;
+			!!uniforms.brdfLUT ||
+			!!uniforms.reflectionProbeCount ||
+			!!uniforms.reflectionProbeWorldToProbeRow0 ||
+			!!uniforms.reflectionProbeWorldToProbeRow1 ||
+			!!uniforms.reflectionProbeWorldToProbeRow2 ||
+			!!uniforms.reflectionProbeProbeToWorldRow0 ||
+			!!uniforms.reflectionProbeProbeToWorldRow1 ||
+			!!uniforms.reflectionProbeProbeToWorldRow2 ||
+			!!uniforms.reflectionProbeDataA ||
+			!!uniforms.reflectionProbeDataB ||
+			!!uniforms.reflectionProbeDataC;
 		if (usesEnvSpecularUniforms) {
 			const envSpecularMap = lights.envSpecularMap;
 			const hasEnvSpecularMap = !!envSpecularMap;
@@ -1531,6 +1546,106 @@ export class WebGLFrameExecutor {
 				gl.uniform1f(
 					uniforms.envSpecularMaxMipLevel,
 					envSpecularMaxMipLevel
+				);
+			}
+			const reflectionProbeCount = Math.max(
+				0,
+				Math.floor(lights.reflectionProbeCount)
+			);
+			if (uniforms.reflectionProbeCount) {
+				gl.uniform1i(uniforms.reflectionProbeCount, reflectionProbeCount);
+			}
+			if (uniforms.reflectionProbeWorldToProbeRow0) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeWorldToProbeRow0,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"worldToProbeMatrix",
+						0
+					)
+				);
+			}
+			if (uniforms.reflectionProbeWorldToProbeRow1) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeWorldToProbeRow1,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"worldToProbeMatrix",
+						1
+					)
+				);
+			}
+			if (uniforms.reflectionProbeWorldToProbeRow2) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeWorldToProbeRow2,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"worldToProbeMatrix",
+						2
+					)
+				);
+			}
+			if (uniforms.reflectionProbeProbeToWorldRow0) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeProbeToWorldRow0,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"probeToWorldMatrix",
+						0
+					)
+				);
+			}
+			if (uniforms.reflectionProbeProbeToWorldRow1) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeProbeToWorldRow1,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"probeToWorldMatrix",
+						1
+					)
+				);
+			}
+			if (uniforms.reflectionProbeProbeToWorldRow2) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeProbeToWorldRow2,
+					flattenReflectionProbeRows(
+						lights.reflectionProbes,
+						"probeToWorldMatrix",
+						2
+					)
+				);
+			}
+			if (uniforms.reflectionProbeDataA) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeDataA,
+					flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+						probe.invHalfExtents[0],
+						probe.invHalfExtents[1],
+						probe.invHalfExtents[2],
+						probe.radiusInv,
+					])
+				);
+			}
+			if (uniforms.reflectionProbeDataB) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeDataB,
+					flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+						probe.probeWorldPosition[0],
+						probe.probeWorldPosition[1],
+						probe.probeWorldPosition[2],
+						probe.shape,
+					])
+				);
+			}
+			if (uniforms.reflectionProbeDataC) {
+				gl.uniform4fv(
+					uniforms.reflectionProbeDataC,
+					flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+						probe.parallaxMode,
+						probe.blendDistance,
+						probe.blendExponent,
+						probe.layer,
+					])
 				);
 			}
 		}
@@ -3283,6 +3398,41 @@ function flattenShadowParamsC(
 		packed[offset + 1] = 0;
 		packed[offset + 2] = 0;
 		packed[offset + 3] = 0;
+	}
+	return packed;
+}
+
+function flattenReflectionProbeRows(
+	values: WebGLReflectionProbeUniform[],
+	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",
+	row: 0 | 1 | 2
+): Float32Array {
+	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i][matrixKey].elements;
+		const offset = i * 4;
+		packed[offset] = finiteOr(matrix[row][0], 0);
+		packed[offset + 1] = finiteOr(matrix[row][1], 0);
+		packed[offset + 2] = finiteOr(matrix[row][2], 0);
+		packed[offset + 3] = finiteOr(matrix[row][3], 0);
+	}
+	return packed;
+}
+
+function flattenReflectionProbeVec4(
+	values: WebGLReflectionProbeUniform[],
+	mapper: (probe: WebGLReflectionProbeUniform) => [number, number, number, number]
+): Float32Array {
+	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const mapped = mapper(values[i]);
+		const offset = i * 4;
+		packed[offset] = finiteOr(mapped[0], 0);
+		packed[offset + 1] = finiteOr(mapped[1], 0);
+		packed[offset + 2] = finiteOr(mapped[2], 0);
+		packed[offset + 3] = finiteOr(mapped[3], 0);
 	}
 	return packed;
 }

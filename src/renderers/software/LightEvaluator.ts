@@ -10,6 +10,7 @@ import type { AreaLight } from "../../lights/AreaLight";
 import type { DirectionalLight } from "../../lights/DirectionalLight";
 import type { PointLight } from "../../lights/PointLight";
 import type { LightProbe } from "../../lights/LightProbe";
+import type { ReflectionProbe } from "../../lights/ReflectionProbe";
 import type { SpotLight } from "../../lights/SpotLight";
 import {
 	getDirectionalLightWorldDirection,
@@ -25,6 +26,7 @@ type SceneLight =
 	| PointLight
 	| SpotLight
 	| LightProbe
+	| ReflectionProbe
 	| AreaLight;
 
 export interface SurfacePoint {
@@ -79,6 +81,8 @@ export function evaluateLightContribution(
 			return evaluateSpotLight(light, surface, contribution);
 		case LightType.LightProbe:
 			return evaluateLightProbe(light, surface, contribution);
+		case LightType.ReflectionProbe:
+			return null;
 		case LightType.RectArea:
 			return evaluateAreaLight(light, surface, contribution);
 		default:

@@ -5,6 +5,7 @@ import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_POINT_LIGHTS,
+	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_MODEL_UNIFORM_FLOATS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
@@ -100,7 +101,7 @@ export function packFrameUniformData(
 			input.directionalLights.length,
 			input.pointLights.length,
 			input.spotLights.length,
-			0,
+			input.reflectionProbeCount,
 		],
 		52
 	);
@@ -242,6 +243,152 @@ export function packFrameUniformData(
 		const coefficient = input.shAmbientCoeffs?.[i];
 		if (coefficient) {
 			data.set([coefficient.r, coefficient.g, coefficient.b, 0], offset);
+		}
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			data.set(
+				[
+					worldToProbe[0][0],
+					worldToProbe[0][1],
+					worldToProbe[0][2],
+					worldToProbe[0][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			data.set(
+				[
+					worldToProbe[1][0],
+					worldToProbe[1][1],
+					worldToProbe[1][2],
+					worldToProbe[1][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			data.set(
+				[
+					worldToProbe[2][0],
+					worldToProbe[2][1],
+					worldToProbe[2][2],
+					worldToProbe[2][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const probeToWorld = probe.probeToWorldMatrix.elements;
+			data.set(
+				[
+					probeToWorld[0][0],
+					probeToWorld[0][1],
+					probeToWorld[0][2],
+					probeToWorld[0][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const probeToWorld = probe.probeToWorldMatrix.elements;
+			data.set(
+				[
+					probeToWorld[1][0],
+					probeToWorld[1][1],
+					probeToWorld[1][2],
+					probeToWorld[1][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			const probeToWorld = probe.probeToWorldMatrix.elements;
+			data.set(
+				[
+					probeToWorld[2][0],
+					probeToWorld[2][1],
+					probeToWorld[2][2],
+					probeToWorld[2][3],
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			data.set(
+				[
+					probe.invHalfExtents[0],
+					probe.invHalfExtents[1],
+					probe.invHalfExtents[2],
+					probe.radiusInv,
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			data.set(
+				[
+					probe.probeWorldPosition[0],
+					probe.probeWorldPosition[1],
+					probe.probeWorldPosition[2],
+					probe.shape,
+				],
+				offset
+			);
+		}
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
+		const probe = input.reflectionProbes[i];
+		if (probe) {
+			data.set(
+				[
+					probe.parallaxMode,
+					probe.blendDistance,
+					probe.blendExponent,
+					probe.layer,
+				],
+				offset
+			);
 		}
 		offset += 4;
 	}

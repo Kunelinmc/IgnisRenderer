@@ -20,3 +20,15 @@ struct ShadowData {
 	paramsB: vec4<f32>,
 	paramsC: vec4<f32>,
 }
+
+struct ReflectionProbeData {
+	worldToProbeRow0: vec4<f32>,
+	worldToProbeRow1: vec4<f32>,
+	worldToProbeRow2: vec4<f32>,
+	probeToWorldRow0: vec4<f32>,
+	probeToWorldRow1: vec4<f32>,
+	probeToWorldRow2: vec4<f32>,
+	dataA: vec4<f32>,
+	dataB: vec4<f32>,
+	dataC: vec4<f32>,
+}

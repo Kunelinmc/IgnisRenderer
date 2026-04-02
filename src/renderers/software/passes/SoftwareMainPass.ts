@@ -74,6 +74,7 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 		shadowMaps: context.shadowMaps,
 		sampleShadow,
 		shAmbientCoeffs: context.shAmbientCoeffs,
+		skybox: context.scene.skybox,
 		features: {
 			enableLighting: context.features.enableLighting,
 			enableSH: context.features.enableSH,

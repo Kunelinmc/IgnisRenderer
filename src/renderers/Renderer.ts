@@ -1,12 +1,16 @@
 import { Camera } from "../cameras/Camera";
-import { LightProbe, LightType, type ShadowCastingLight } from "../lights";
+import {
+	LightProbe,
+	LightType,
+	ReflectionProbe,
+	type ShadowCastingLight,
+} from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
 import { ShadowMap } from "../lights/ShadowMapping";
 import {
-	BAKED_LIGHT_PROBE_SH_SCALE,
 	PBR_AMBIENT_FALLBACK_LINEAR,
 } from "../lights/constants";
 import { EventEmitter } from "../core/EventEmitter";
@@ -216,6 +220,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {
 		this.scene.syncNodeToECS();
 		this.scene.updateWorldMatrices();
+		this.refreshReflectionProbeCaches();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
 		const environmentIBLUpdated = await this._warmupBakeEnvironmentIBL(options);
@@ -295,7 +300,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				this.backend as unknown as WebGPUComputeFacadeSource;
 		}
 
-		const bakedProbe = await bakeEnvironmentIBLFromEnvironmentMap(skybox, {
+		const bakedEnvironment = await bakeEnvironmentIBLFromEnvironmentMap(skybox, {
 			...bakeOptions,
 			onProgress: options.onProgress ?
 				(progress) => {
@@ -320,8 +325,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		for (const probe of probes) {
-			probe.sh = this._cloneSHCoefficients(bakedProbe.sh);
-			probe.prefilteredMap = bakedProbe.prefilteredMap;
+			probe.sh = this._cloneSHCoefficients(bakedEnvironment.sh);
+		}
+
+		const reflectionProbes = lights.filter(
+			(light): light is ReflectionProbe =>
+				light.type === LightType.ReflectionProbe
+		);
+		for (const reflectionProbe of reflectionProbes) {
+			reflectionProbe.prefilteredMap = bakedEnvironment.prefilteredMap;
+			reflectionProbe.markRuntimeDirty();
 		}
 
 		this.scene.invalidate();
@@ -538,6 +551,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					this.scene.updateWorldMatrices();
 					this._assertCameraInScene(this.scene, this.camera, "renderScene");
 					this.camera.updateMatrices();
+					this.refreshReflectionProbeCaches();
 					break;
 				}
 				case "prepared-scene-build": {
@@ -624,13 +638,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const probe = light as LightProbe;
 				const probeSH = probe.sh;
 				const intensity = light.intensity ?? 1;
-				const probeScale =
-					probe.prefilteredMap ? BAKED_LIGHT_PROBE_SH_SCALE : 1;
 				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 				for (let i = 0; i < coeffCount; i++) {
-					ambientProbeSH[i].r += probeSH[i].r * intensity * probeScale;
-					ambientProbeSH[i].g += probeSH[i].g * intensity * probeScale;
-					ambientProbeSH[i].b += probeSH[i].b * intensity * probeScale;
+					ambientProbeSH[i].r += probeSH[i].r * intensity;
+					ambientProbeSH[i].g += probeSH[i].g * intensity;
+					ambientProbeSH[i].b += probeSH[i].b * intensity;
 				}
 			}
 		}
@@ -759,6 +771,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		throw new Error(
 			`Renderer.${caller} requires the active camera to belong to the active scene graph`
 		);
+	}
+
+	public refreshReflectionProbeCaches(): void {
+		for (const light of this.scene.getLights()) {
+			if (light.type !== LightType.ReflectionProbe) continue;
+			(light as ReflectionProbe).refreshRuntimeCache();
+		}
 	}
 }
 

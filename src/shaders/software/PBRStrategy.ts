@@ -1,9 +1,9 @@
 import { Vector3 } from "../../maths/Vector3";
 import { SH } from "../../maths/SH";
-import { Texture } from "../../core/Texture";
 import {
 	isShadowCastingLight,
 } from "../../lights";
+import { sampleReflectionProbesSpecular } from "../../pipeline/reflectionProbeRuntime";
 import {
 	createLightContribution,
 	evaluateLightContribution,
@@ -376,25 +376,26 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			if (clearcoat > 0) {
 				const Nc = surface.clearcoatNormal ?? N;
-				const NcdotV = Math.max(
-					Vector3.dot(Nc, V),
-					PBR_MIN_NDOTV
-				);
-				ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
-				if (context.envSpecularMap && context.brdfLUT) {
+					const NcdotV = Math.max(
+						Vector3.dot(Nc, V),
+						PBR_MIN_NDOTV
+					);
+					ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
 					const ccReflectionDir = this._reflectViewDirection(
 						Nc,
 						V,
 						Vector3.dot(Nc, V)
 					);
-					const ccPrefiltered = this._samplePrefiltered(
+					const ccPrefiltered = this._sampleEnvironmentSpecular(
+						world,
 						ccReflectionDir,
 						clearcoatRoughness,
-						context.envSpecularMap
+						context
 					);
-					const ccBrdf = context.brdfLUT.sample(
-						NcdotV,
-						Math.sqrt(clearcoatRoughness)
+					if (ccPrefiltered && context.brdfLUT) {
+						const ccBrdf = context.brdfLUT.sample(
+							NcdotV,
+							Math.sqrt(clearcoatRoughness)
 					);
 					ccAmbSpecR = ccPrefiltered.r * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecG = ccPrefiltered.g * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
@@ -423,13 +424,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			ambB = irrLinear.b * alb.b * kDamb.b * baseAttenuationAmb.b;
 
 			if (transmission > 0 && refractionDir) {
-				const transmRadiance = context.envSpecularMap
-					? this._samplePrefiltered(
-							refractionDir,
-							rough,
-							context.envSpecularMap
-						)
-					: this._sampleSHRadiance(refractionDir, shAmbient!);
+				const transmRadiance =
+					this._sampleEnvironmentSpecular(
+						world,
+						refractionDir,
+						rough,
+						context
+					) ?? this._sampleSHRadiance(refractionDir, shAmbient!);
 
 				ambR +=
 					transmRadiance.r *
@@ -451,12 +452,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					clearcoatAttenuationAmb;
 			}
 
-			if (context.envSpecularMap && context.brdfLUT) {
-				const prefiltered = this._samplePrefiltered(
-					reflectionDir,
-					rough,
-					context.envSpecularMap
-				);
+			const prefiltered = this._sampleEnvironmentSpecular(
+				world,
+				reflectionDir,
+				rough,
+				context
+			);
+			if (prefiltered && context.brdfLUT) {
 				// LUT stores scale at R (red), bias at G (green)
 				const brdf = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
 				const specR =
@@ -789,24 +791,18 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		return false;
 	}
 
-	private _samplePrefiltered(
-		R: IVector3,
+	private _sampleEnvironmentSpecular(
+		worldPosition: IVector3,
+		direction: IVector3,
 		roughness: number,
-		envMap: Texture
-	): RGB {
-		const phi = Math.atan2(R.x, R.z);
-		const theta = Math.acos(Math.max(-1, Math.min(1, R.y)));
-		const u = (phi + Math.PI) / (2 * Math.PI);
-		const v = theta / Math.PI;
-
-		const mipCount = envMap.mipmaps.length;
-		const level = roughness * (mipCount - 1);
-
-		const sample = envMap.sampleLevel(u, v, level);
-		return {
-			r: sample.r / 255,
-			g: sample.g / 255,
-			b: sample.b / 255,
-		};
+		context: ShaderContext
+	): RGB | null {
+		return sampleReflectionProbesSpecular(
+			worldPosition,
+			direction,
+			roughness,
+			context.reflectionProbes ?? [],
+			context.reflectionProbeFallbackMap ?? null
+		);
 	}
 }

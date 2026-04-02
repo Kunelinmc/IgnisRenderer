@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { evaluateLightContribution } from "../src/renderers/software/LightEvaluator.ts";
 import { SH } from "../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../src/shaders/software/BlinnPhongStrategy.ts";
@@ -14,7 +15,6 @@ import { Material } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { Rasterizer } from "../src/renderers/software/Rasterizer.ts";
-import { BAKED_LIGHT_PROBE_SH_SCALE } from "../src/lights/constants.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -725,30 +725,26 @@ function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 	assert.equal(fakeRenderer.shAmbientCoeffs[15].b, 1);
 }
 
-function testRendererUpdateSHNormalizesBakedLightProbeCoeffs() {
+function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
 	const probe = new LightProbe(SH.empty(), 1);
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
 	probe.sh[15] = { r: 7, g: 3, b: 1 };
-	probe.prefilteredMap = new Texture(
-		new Float32Array([1, 1, 1, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	const reflectionProbe = new ReflectionProbe({
+		prefilteredMap: new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR"),
+	});
 
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },
-		scene: { getLights: () => [probe] },
+		scene: { getLights: () => [probe, reflectionProbe] },
 		shAmbientCoeffs: SH.empty(),
 		shCoeffs: SH.empty(),
 	};
 
 	Renderer.prototype.updateSH.call(fakeRenderer);
 
-	const scale = BAKED_LIGHT_PROBE_SH_SCALE;
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].r - 7 * scale) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].g - 3 * scale) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].b - 1 * scale) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].r - 7) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].g - 3) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].b - 1) < 1e-6);
 }
 
 function run() {
@@ -768,7 +764,7 @@ function run() {
 		testMetalnessSuppressesTransmission();
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
-		testRendererUpdateSHNormalizesBakedLightProbeCoeffs();
+		testRendererUpdateSHIgnoresReflectionProbeSpecularMap();
 		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
 		console.error("❌ Shader semantics test failed");

@@ -136,6 +136,16 @@ export interface WebGLSceneProgram {
 		envSpecularMapIsLinear: WebGLUniformLocation | null;
 		envSpecularMaxMipLevel: WebGLUniformLocation | null;
 		brdfLUT: WebGLUniformLocation | null;
+		reflectionProbeCount: WebGLUniformLocation | null;
+		reflectionProbeWorldToProbeRow0: WebGLUniformLocation | null;
+		reflectionProbeWorldToProbeRow1: WebGLUniformLocation | null;
+		reflectionProbeWorldToProbeRow2: WebGLUniformLocation | null;
+		reflectionProbeProbeToWorldRow0: WebGLUniformLocation | null;
+		reflectionProbeProbeToWorldRow1: WebGLUniformLocation | null;
+		reflectionProbeProbeToWorldRow2: WebGLUniformLocation | null;
+		reflectionProbeDataA: WebGLUniformLocation | null;
+		reflectionProbeDataB: WebGLUniformLocation | null;
+		reflectionProbeDataC: WebGLUniformLocation | null;
 		dirLightCount: WebGLUniformLocation | null;
 		dirLightDirection: WebGLUniformLocation | null;
 		dirLightColor: WebGLUniformLocation | null;
@@ -518,6 +528,46 @@ export class WebGLProgramLibrary {
 					"uEnvSpecularMaxMipLevel"
 				),
 				brdfLUT: this._gl.getUniformLocation(program, "uBrdfLUT"),
+				reflectionProbeCount: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeCount"
+				),
+				reflectionProbeWorldToProbeRow0: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeWorldToProbeRow0[0]"
+				),
+				reflectionProbeWorldToProbeRow1: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeWorldToProbeRow1[0]"
+				),
+				reflectionProbeWorldToProbeRow2: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeWorldToProbeRow2[0]"
+				),
+				reflectionProbeProbeToWorldRow0: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeProbeToWorldRow0[0]"
+				),
+				reflectionProbeProbeToWorldRow1: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeProbeToWorldRow1[0]"
+				),
+				reflectionProbeProbeToWorldRow2: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeProbeToWorldRow2[0]"
+				),
+				reflectionProbeDataA: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeDataA[0]"
+				),
+				reflectionProbeDataB: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeDataB[0]"
+				),
+				reflectionProbeDataC: this._gl.getUniformLocation(
+					program,
+					"uReflectionProbeDataC[0]"
+				),
 				dirLightCount: this._gl.getUniformLocation(program, "uDirLightCount"),
 				dirLightDirection: this._gl.getUniformLocation(
 					program,
