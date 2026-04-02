@@ -29,14 +29,6 @@ export interface WarmupOptions {
 	includeParticles?: boolean;
 	includeEnvironmentIBLBake?: boolean;
 	environmentIBLBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
-	/**
-	 * @deprecated Use includeEnvironmentIBLBake.
-	 */
-	includeLightProbeBake?: boolean;
-	/**
-	 * @deprecated Use environmentIBLBake.
-	 */
-	lightProbeBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
 	logCompilationInfo?: boolean;
 	onProgress?: (progress: WarmupProgress) => void;
 }

@@ -277,8 +277,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private async _warmupBakeEnvironmentIBL(
 		options: WarmupOptions
 	): Promise<boolean> {
-		const includeEnvironmentIBLBake =
-			options.includeEnvironmentIBLBake ?? options.includeLightProbeBake;
+		const includeEnvironmentIBLBake = options.includeEnvironmentIBLBake ?? true;
 		if (includeEnvironmentIBLBake === false) {
 			return false;
 		}
@@ -289,7 +288,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		const bakeOptions = {
-			...(options.lightProbeBake ?? {}),
 			...(options.environmentIBLBake ?? {}),
 		};
 		if (!bakeOptions.webgpuSource && this.backend.type === "webgpu") {
