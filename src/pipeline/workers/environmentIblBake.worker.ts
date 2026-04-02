@@ -1,9 +1,9 @@
 import { Texture } from "../../core/Texture";
-import { prefilterEnvMapMipLevel } from "../lightProbeBakeCore";
+import { prefilterEnvMapMipLevel } from "../environmentIblBakeCore";
 import type {
-	LightProbeBakeWorkerTaskPayload,
-	LightProbeBakeWorkerTaskResult,
-} from "./lightProbeBakeWorkerProtocol";
+	EnvironmentIBLBakeWorkerTaskPayload,
+	EnvironmentIBLBakeWorkerTaskResult,
+} from "./environmentIblBakeWorkerProtocol";
 
 interface WorkerEnvelope<TPayload> {
 	id: number;
@@ -25,9 +25,9 @@ const workerScope = globalThis as WorkerScopeLike;
 
 function isWorkerEnvelope(
 	value: unknown
-): value is WorkerEnvelope<LightProbeBakeWorkerTaskPayload> {
+): value is WorkerEnvelope<EnvironmentIBLBakeWorkerTaskPayload> {
 	if (!value || typeof value !== "object") return false;
-	const candidate = value as WorkerEnvelope<LightProbeBakeWorkerTaskPayload>;
+	const candidate = value as WorkerEnvelope<EnvironmentIBLBakeWorkerTaskPayload>;
 	return (
 		typeof candidate.id === "number" &&
 		!!candidate.payload &&
@@ -36,10 +36,10 @@ function isWorkerEnvelope(
 }
 
 function executeTask(
-	payload: LightProbeBakeWorkerTaskPayload
-): LightProbeBakeWorkerTaskResult {
+	payload: EnvironmentIBLBakeWorkerTaskPayload
+): EnvironmentIBLBakeWorkerTaskResult {
 	if (payload.type !== "prefilter-mip") {
-		throw new Error(`Unknown light probe bake task "${payload}"`);
+		throw new Error(`Unknown environment IBL bake task "${payload}"`);
 	}
 
 	const env = payload.envMap;
@@ -67,13 +67,13 @@ workerScope.onmessage = (event) => {
 
 	try {
 		const result = executeTask(envelope.payload);
-		const response: WorkerResultEnvelope<LightProbeBakeWorkerTaskResult> = {
+		const response: WorkerResultEnvelope<EnvironmentIBLBakeWorkerTaskResult> = {
 			id: envelope.id,
 			result,
 		};
 		workerScope.postMessage(response);
 	} catch (error) {
-		const response: WorkerResultEnvelope<LightProbeBakeWorkerTaskResult> = {
+		const response: WorkerResultEnvelope<EnvironmentIBLBakeWorkerTaskResult> = {
 			id: envelope.id,
 			error: error instanceof Error ? error.message : String(error),
 		};

@@ -5,7 +5,7 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type { LightProbeBakeOptions } from "../pipeline/LightProbeBaker";
+import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
@@ -27,8 +27,16 @@ export interface WarmupOptions {
 	includeShadowPass?: boolean;
 	includePostProcess?: boolean;
 	includeParticles?: boolean;
+	includeEnvironmentIBLBake?: boolean;
+	environmentIBLBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
+	/**
+	 * @deprecated Use includeEnvironmentIBLBake.
+	 */
 	includeLightProbeBake?: boolean;
-	lightProbeBake?: Omit<LightProbeBakeOptions, "onProgress">;
+	/**
+	 * @deprecated Use environmentIBLBake.
+	 */
+	lightProbeBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
 	logCompilationInfo?: boolean;
 	onProgress?: (progress: WarmupProgress) => void;
 }

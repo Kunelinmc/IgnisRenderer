@@ -6,14 +6,14 @@ type RawShaderModule = {
 
 const shaderParts: Record<string, () => Promise<string>> = Platform.isNodeRuntime()
 	? {}
-	: import.meta.glob<string>("./lightProbePrefilter.wgsl", {
+	: import.meta.glob<string>("./environmentIblPrefilter.wgsl", {
 			query: "?raw",
 			import: "default",
 		});
 
 let _prefilterShaderCache: Promise<string> | null = null;
 
-export function loadLightProbePrefilterShaderSource(): Promise<string> {
+export function loadEnvironmentIBLPrefilterShaderSource(): Promise<string> {
 	if (_prefilterShaderCache) {
 		return _prefilterShaderCache;
 	}
@@ -28,14 +28,14 @@ export function loadLightProbePrefilterShaderSource(): Promise<string> {
 				) => Promise<string>;
 			};
 			return fsModule.readFile(
-				new URL("./lightProbePrefilter.wgsl", import.meta.url),
+				new URL("./environmentIblPrefilter.wgsl", import.meta.url),
 				"utf8"
 			);
 		}
 
-		const loader = shaderParts["./lightProbePrefilter.wgsl"];
+		const loader = shaderParts["./environmentIblPrefilter.wgsl"];
 		if (!loader) {
-			throw new Error("Light probe prefilter shader source not found.");
+			throw new Error("Environment IBL prefilter shader source not found.");
 		}
 		const raw = (await loader()) as unknown as RawShaderModule["default"];
 		return raw;
@@ -43,3 +43,9 @@ export function loadLightProbePrefilterShaderSource(): Promise<string> {
 
 	return _prefilterShaderCache;
 }
+
+/**
+ * @deprecated Use loadEnvironmentIBLPrefilterShaderSource.
+ */
+export const loadLightProbePrefilterShaderSource =
+	loadEnvironmentIBLPrefilterShaderSource;

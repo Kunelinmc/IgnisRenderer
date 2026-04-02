@@ -24,40 +24,40 @@ import {
 } from "../renderers/webgpu/WebGPUResourceAccess";
 import { alignTo, createTextureUploadData } from "../renderers/webgpu/texture";
 import { destroyResource } from "../renderers/webgpu/computeUtils";
-import { loadLightProbePrefilterShaderSource } from "../shaders/webgpu/lightProbeShaderSource";
+import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 
 import {
-	LIGHT_PROBE_MAX_MIP_LEVELS,
+	ENVIRONMENT_IBL_MAX_MIP_LEVELS,
 	buildPrefilteredTexture,
 	resolvePrefilterBaseDimensions,
-	type LightProbePrefilterMipData,
-} from "./lightProbeBakeCore";
+	type EnvironmentIBLPrefilterMipData,
+} from "./environmentIblBakeCore";
 
 const WORKGROUP_SIZE = 8;
 const PREFILTER_PARAMS_SIZE = 32;
 const GPU_MAX_SAMPLE_COUNT = 256;
 const GPU_MIN_SAMPLE_COUNT = 48;
 
-interface LightProbeWebGPUContext {
+interface EnvironmentIBLWebGPUContext {
 	device: GPUDevice;
 	queue: GPUQueue;
 }
 
-interface LightProbeWebGPUResources {
+interface EnvironmentIBLWebGPUResources {
 	sampler: ISampler;
 	module: IShaderModule;
 	pipeline: IComputePipeline;
 	inputTexture: IRenderTexture;
 }
 
-interface LightProbeMipResources {
+interface EnvironmentIBLMipResources {
 	outputTexture: IRenderTexture;
 	paramsBuffer: IRenderBuffer;
 	bindGroup: IBindingGroup;
 }
 
 function createAbortError(): Error {
-	const error = new Error("Light probe bake was aborted");
+	const error = new Error("Environment IBL bake was aborted");
 	error.name = "AbortError";
 	return error;
 }
@@ -69,7 +69,7 @@ function assertNotAborted(signal?: AbortSignal | null): void {
 
 function resolveWebGPUContext(
 	source: WebGPUComputeFacadeSource
-): LightProbeWebGPUContext {
+): EnvironmentIBLWebGPUContext {
 	if (!source || typeof source !== "object") {
 		throw new Error(
 			"WebGPU acceleration requires a webgpuSource that exposes an initialized GPU device and queue."
@@ -191,7 +191,7 @@ function createPrefilterMipResources(
 	paramsBuffer: IRenderBuffer,
 	computeFacade: ReturnType<typeof resolveWebGPUComputeFacade>,
 	level: number
-): LightProbeMipResources {
+): EnvironmentIBLMipResources {
 	const bindGroup = computeFacade.createBindingGroup({
 		pipeline,
 		layoutIndex: 0,
@@ -201,7 +201,7 @@ function createPrefilterMipResources(
 			{ binding: 2, resource: outputTexture },
 			{ binding: 3, resource: paramsBuffer },
 		],
-		label: `LightProbeBakePrefilterBindGroup_mip${level}`,
+		label: `EnvironmentIBLBakePrefilterBindGroup_mip${level}`,
 	});
 
 	return {
@@ -214,10 +214,10 @@ function createPrefilterMipResources(
 async function createWebGPUResources(
 	envMap: Texture,
 	computeFacade: ReturnType<typeof resolveWebGPUComputeFacade>
-): Promise<LightProbeWebGPUResources> {
-	const shaderCode = await loadLightProbePrefilterShaderSource();
+): Promise<EnvironmentIBLWebGPUResources> {
+	const shaderCode = await loadEnvironmentIBLPrefilterShaderSource();
 	const module = await computeFacade.createShaderModule({
-		label: "LightProbeBakePrefilterModule",
+		label: "EnvironmentIBLBakePrefilterModule",
 		code: shaderCode,
 		language: "wgsl",
 		stage: "compute",
@@ -225,7 +225,7 @@ async function createWebGPUResources(
 	});
 
 	const pipeline = computeFacade.createComputePipeline({
-		label: "LightProbeBakePrefilterPipeline",
+		label: "EnvironmentIBLBakePrefilterPipeline",
 		compute: {
 			module,
 			entryPoint: "csMain",
@@ -233,7 +233,7 @@ async function createWebGPUResources(
 	});
 
 	const sampler = computeFacade.createSampler({
-		label: "LightProbeBakePrefilterSampler",
+		label: "EnvironmentIBLBakePrefilterSampler",
 		addressModeU: AddressMode.Repeat,
 		addressModeV: AddressMode.ClampToEdge,
 		magFilter: FilterMode.Linear,
@@ -246,7 +246,7 @@ async function createWebGPUResources(
 		height: Math.max(1, envMap.height),
 		format: TextureFormat.RGBA8Unorm,
 		usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-		label: "LightProbeBakeInputTexture",
+		label: "EnvironmentIBLBakeInputTexture",
 	});
 
 	return {
@@ -258,7 +258,7 @@ async function createWebGPUResources(
 }
 
 function uploadSourceTexture(
-	context: LightProbeWebGPUContext,
+	context: EnvironmentIBLWebGPUContext,
 	inputTexture: IRenderTexture,
 	envMap: Texture
 ): void {
@@ -291,7 +291,7 @@ function uploadSourceTexture(
 }
 
 async function bakeMipLevelWithWebGPU(
-	context: LightProbeWebGPUContext,
+	context: EnvironmentIBLWebGPUContext,
 	pipeline: IComputePipeline,
 	bindGroup: IBindingGroup,
 	outputTexture: IRenderTexture,
@@ -306,17 +306,17 @@ async function bakeMipLevelWithWebGPU(
 	const bytesPerRow = alignTo(width * bytesPerPixel, 256);
 	const readbackSize = bytesPerRow * height;
 	const readbackBuffer = context.device.createBuffer({
-		label: `LightProbeBakeReadback_mip${level}`,
+		label: `EnvironmentIBLBakeReadback_mip${level}`,
 		size: Math.max(readbackSize, 4),
 		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
 	});
 
 	try {
 		const commandEncoder = context.device.createCommandEncoder({
-			label: `LightProbeBakePrefilterEncoder_mip${level}`,
+			label: `EnvironmentIBLBakePrefilterEncoder_mip${level}`,
 		});
 		const computePass = commandEncoder.beginComputePass({
-			label: `LightProbeBakePrefilterPass_mip${level}`,
+			label: `EnvironmentIBLBakePrefilterPass_mip${level}`,
 		});
 		computePass.setPipeline(getWebGPUComputePipeline(pipeline));
 		computePass.setBindGroup(0, getWebGPUBindGroup(bindGroup));
@@ -362,13 +362,13 @@ async function bakeMipLevelWithWebGPU(
 	}
 }
 
-function destroyMipResources(resources: LightProbeMipResources): void {
+function destroyMipResources(resources: EnvironmentIBLMipResources): void {
 	destroyResource(resources.bindGroup);
 	destroyResource(resources.paramsBuffer);
 	destroyResource(resources.outputTexture);
 }
 
-function destroyWebGPUResources(resources: LightProbeWebGPUResources): void {
+function destroyWebGPUResources(resources: EnvironmentIBLWebGPUResources): void {
 	destroyResource(resources.inputTexture);
 	destroyResource(resources.sampler);
 	destroyResource(resources.pipeline);
@@ -389,20 +389,20 @@ export async function prefilterEnvMapWithWebGPU(
 		envMap.colorSpace === "HDR" || envMap.colorSpace === "Linear";
 	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
 	const resources = await createWebGPUResources(envMap, computeFacade);
-	const mipmaps: LightProbePrefilterMipData[] = [];
+	const mipmaps: EnvironmentIBLPrefilterMipData[] = [];
 
 	try {
 		uploadSourceTexture(context, resources.inputTexture, envMap);
 
-		for (let level = 0; level < LIGHT_PROBE_MAX_MIP_LEVELS; level++) {
+		for (let level = 0; level < ENVIRONMENT_IBL_MAX_MIP_LEVELS; level++) {
 			assertNotAborted(signal);
 			const roughness =
-				LIGHT_PROBE_MAX_MIP_LEVELS <= 1 ?
+				ENVIRONMENT_IBL_MAX_MIP_LEVELS <= 1 ?
 					0
-				:	level / (LIGHT_PROBE_MAX_MIP_LEVELS - 1);
+				:	level / (ENVIRONMENT_IBL_MAX_MIP_LEVELS - 1);
 			const sampleCount = resolveGpuSampleCount(
 				level,
-				LIGHT_PROBE_MAX_MIP_LEVELS
+				ENVIRONMENT_IBL_MAX_MIP_LEVELS
 			);
 			const width = Math.max(1, baseWidth >> level);
 			const height = Math.max(1, baseHeight >> level);
@@ -415,13 +415,13 @@ export async function prefilterEnvMapWithWebGPU(
 					TextureUsage.StorageBinding |
 					TextureUsage.CopySrc |
 					TextureUsage.TextureBinding,
-				label: `LightProbeBakePrefilterOutput_mip${level}`,
+				label: `EnvironmentIBLBakePrefilterOutput_mip${level}`,
 			});
 
 			const paramsBuffer = computeFacade.createBuffer({
 				size: PREFILTER_PARAMS_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: `LightProbeBakePrefilterParams_mip${level}`,
+				label: `EnvironmentIBLBakePrefilterParams_mip${level}`,
 			});
 
 			const params = createPrefilterParamsBuffer(

@@ -20,7 +20,7 @@ import {
 	RendererStageGraph,
 	type RendererStageDefinition,
 } from "../pipeline/RendererStageGraph";
-import { bakeLightProbeFromEnvironmentMap } from "../pipeline/LightProbeBaker";
+import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	INTERACTION_TRANSIENT_STATE_KEY,
@@ -218,8 +218,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.scene.updateWorldMatrices();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
-		const lightProbeUpdated = await this._warmupBakeLightProbes(options);
-		if (lightProbeUpdated) {
+		const environmentIBLUpdated = await this._warmupBakeEnvironmentIBL(options);
+		if (environmentIBLUpdated) {
 			this.scene.syncNodeToECS();
 			this.scene.updateWorldMatrices();
 			this.camera.updateMatrices();
@@ -274,8 +274,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.backend.warmup(context, options);
 	}
 
-	private async _warmupBakeLightProbes(options: WarmupOptions): Promise<boolean> {
-		if (options.includeLightProbeBake === false) {
+	private async _warmupBakeEnvironmentIBL(
+		options: WarmupOptions
+	): Promise<boolean> {
+		const includeEnvironmentIBLBake =
+			options.includeEnvironmentIBLBake ?? options.includeLightProbeBake;
+		if (includeEnvironmentIBLBake === false) {
 			return false;
 		}
 
@@ -286,18 +290,19 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		const bakeOptions = {
 			...(options.lightProbeBake ?? {}),
+			...(options.environmentIBLBake ?? {}),
 		};
 		if (!bakeOptions.webgpuSource && this.backend.type === "webgpu") {
 			bakeOptions.webgpuSource =
 				this.backend as unknown as WebGPUComputeFacadeSource;
 		}
 
-		const bakedProbe = await bakeLightProbeFromEnvironmentMap(skybox, {
+		const bakedProbe = await bakeEnvironmentIBLFromEnvironmentMap(skybox, {
 			...bakeOptions,
 			onProgress: options.onProgress ?
 				(progress) => {
 					const event: WarmupProgress = {
-						phase: `light-probe-bake:${progress.phase}`,
+						phase: `environment-ibl-bake:${progress.phase}`,
 						completed: progress.completed,
 						total: progress.total,
 						detail: progress.detail,

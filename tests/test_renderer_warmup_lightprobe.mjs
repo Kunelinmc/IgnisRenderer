@@ -109,7 +109,7 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 
 		const progress = [];
 		await renderer.warmup({
-			lightProbeBake: { acceleration: "cpu" },
+			environmentIBLBake: { acceleration: "cpu" },
 			onProgress: (event) => progress.push(event),
 		});
 
@@ -125,7 +125,7 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 		assert.equal(probeB.intensity, 0.5);
 		assert.ok(
 			progress.some((event) =>
-				event.phase.startsWith("light-probe-bake:")
+				event.phase.startsWith("environment-ibl-bake:")
 			)
 		);
 	} finally {
@@ -156,7 +156,7 @@ async function testWarmupCreatesProbeWhenSceneHasNone() {
 		renderer.scene.skybox = createSkyboxTexture();
 
 		await renderer.warmup({
-			lightProbeBake: { acceleration: "cpu" },
+			environmentIBLBake: { acceleration: "cpu" },
 		});
 
 		const probes = renderer.scene
@@ -192,8 +192,8 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 		renderer.scene.skybox = createSkyboxTexture();
 
 		await renderer.warmup({
-			includeLightProbeBake: false,
-			lightProbeBake: { acceleration: "cpu" },
+			includeEnvironmentIBLBake: false,
+			environmentIBLBake: { acceleration: "cpu" },
 		});
 
 		const probes = renderer.scene

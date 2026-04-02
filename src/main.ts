@@ -49,8 +49,8 @@ async function init() {
 	const skybox = await hdrLoader.load("assets/puresky_1k.hdr");
 	scene.skybox = skybox;
 
-	// Bakes light probe from the skybox for IBL (Image-Based Lighting)
-	await renderer.warmup({ includeLightProbeBake: true });
+	// Bakes environment IBL data from the skybox.
+	await renderer.warmup({ includeEnvironmentIBLBake: true });
 
 	renderer.updateSH();
 	renderer.requestRender();

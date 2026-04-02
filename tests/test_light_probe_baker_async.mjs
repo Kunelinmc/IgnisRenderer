@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Texture } from "../src/core/Texture.ts";
-import { bakeLightProbeFromEnvironmentMap } from "../src/pipeline/LightProbeBaker.ts";
+import { bakeEnvironmentIBLFromEnvironmentMap } from "../src/pipeline/EnvironmentIBLBaker.ts";
 
 function createTestTexture(width = 32, height = 16) {
 	const data = new Uint8ClampedArray(width * height * 4);
@@ -16,7 +16,7 @@ function createTestTexture(width = 32, height = 16) {
 
 async function testBakeReturnsLightProbeWithPrefilteredMap() {
 	const texture = createTestTexture();
-	const probe = await bakeLightProbeFromEnvironmentMap(texture, {
+	const probe = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "cpu",
 	});
 	assert.ok(probe);
@@ -30,7 +30,7 @@ async function testBakeSupportsAbortSignal() {
 	const controller = new AbortController();
 	controller.abort();
 	await assert.rejects(
-		bakeLightProbeFromEnvironmentMap(texture, {
+		bakeEnvironmentIBLFromEnvironmentMap(texture, {
 			acceleration: "cpu",
 			signal: controller.signal,
 		}),
@@ -41,12 +41,12 @@ async function testBakeSupportsAbortSignal() {
 async function testExplicitWorkerModeThrowsWhenWorkersAreUnavailable() {
 	const texture = createTestTexture();
 	await assert.rejects(
-		bakeLightProbeFromEnvironmentMap(texture, {
+		bakeEnvironmentIBLFromEnvironmentMap(texture, {
 			acceleration: "worker",
 		}),
 		(error) =>
 			error instanceof Error &&
-			(error.message.includes("Worker acceleration was requested") ||
+			(error.message.includes("environment IBL baking") ||
 				error.message.includes("Worker constructor is unavailable"))
 	);
 }
@@ -54,7 +54,7 @@ async function testExplicitWorkerModeThrowsWhenWorkersAreUnavailable() {
 async function testExplicitWebGPUModeRequiresSource() {
 	const texture = createTestTexture();
 	await assert.rejects(
-		bakeLightProbeFromEnvironmentMap(texture, {
+		bakeEnvironmentIBLFromEnvironmentMap(texture, {
 			acceleration: "webgpu",
 		}),
 		(error) =>
@@ -65,7 +65,7 @@ async function testExplicitWebGPUModeRequiresSource() {
 
 async function testAutoFallsBackWhenWebGPUPathFails() {
 	const texture = createTestTexture();
-	const probe = await bakeLightProbeFromEnvironmentMap(texture, {
+	const probe = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "auto",
 		webgpuSource: { type: "webgpu" },
 	});
@@ -76,7 +76,7 @@ async function testAutoFallsBackWhenWebGPUPathFails() {
 async function testBakeReportsProgressMonotonically() {
 	const texture = createTestTexture(16, 8);
 	const progressEvents = [];
-	await bakeLightProbeFromEnvironmentMap(texture, {
+	await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "cpu",
 		onProgress: (event) => progressEvents.push(event),
 	});
@@ -102,7 +102,7 @@ async function run() {
 	await testExplicitWebGPUModeRequiresSource();
 	await testAutoFallsBackWhenWebGPUPathFails();
 	await testBakeReportsProgressMonotonically();
-	console.log("LightProbe baker async tests passed");
+	console.log("Environment IBL baker async tests passed");
 }
 
 await run();

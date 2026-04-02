@@ -6,40 +6,44 @@ import type { WorkerLike } from "../workers/types";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
 
 import {
-	LIGHT_PROBE_MAX_MIP_LEVELS,
+	ENVIRONMENT_IBL_MAX_MIP_LEVELS,
 	prefilterEnvMapCPU,
 	projectEquirectTextureToSH,
 	resolvePrefilterBaseDimensions,
 	buildPrefilteredTexture,
-	type LightProbePrefilterMipData,
-} from "./lightProbeBakeCore";
-import { prefilterEnvMapWithWebGPU } from "./lightProbeBakeWebGPU";
+	type EnvironmentIBLPrefilterMipData,
+} from "./environmentIblBakeCore";
+import { prefilterEnvMapWithWebGPU } from "./environmentIblBakeWebGPU";
 import type {
-	LightProbeBakeWorkerTaskPayload,
-	LightProbeBakeWorkerTaskResult,
-} from "./workers/lightProbeBakeWorkerProtocol";
+	EnvironmentIBLBakeWorkerTaskPayload,
+	EnvironmentIBLBakeWorkerTaskResult,
+} from "./workers/environmentIblBakeWorkerProtocol";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/computeFacade";
 
-export type LightProbeBakeAcceleration = "auto" | "worker" | "cpu" | "webgpu";
+export type EnvironmentIBLBakeAcceleration =
+	| "auto"
+	| "worker"
+	| "cpu"
+	| "webgpu";
 
-export interface LightProbeBakeProgress {
+export interface EnvironmentIBLBakeProgress {
 	phase: "project-sh" | "prefilter" | "finalize";
 	completed: number;
 	total: number;
 	detail?: string;
 }
 
-export interface LightProbeBakeOptions {
+export interface EnvironmentIBLBakeOptions {
 	signal?: AbortSignal | null;
-	onProgress?: (progress: LightProbeBakeProgress) => void;
-	acceleration?: LightProbeBakeAcceleration;
+	onProgress?: (progress: EnvironmentIBLBakeProgress) => void;
+	acceleration?: EnvironmentIBLBakeAcceleration;
 	workerCount?: number;
 	webgpuSource?: WebGPUComputeFacadeSource | null;
 }
 
-const DEFAULT_BAKE_POOL_PREFIX = "light-probe-bake";
+const DEFAULT_BAKE_POOL_PREFIX = "environment-ibl-bake";
 
-interface LightProbeBakeWorkerEnvMapPayload {
+interface EnvironmentIBLBakeWorkerEnvMapPayload {
 	width: number;
 	height: number;
 	colorSpace: Texture["colorSpace"];
@@ -47,7 +51,7 @@ interface LightProbeBakeWorkerEnvMapPayload {
 }
 
 function createAbortError(): Error {
-	const error = new Error("Light probe bake was aborted");
+	const error = new Error("Environment IBL bake was aborted");
 	error.name = "AbortError";
 	return error;
 }
@@ -58,8 +62,8 @@ function assertNotAborted(signal?: AbortSignal | null): void {
 }
 
 function emitProgress(
-	options: LightProbeBakeOptions,
-	progress: LightProbeBakeProgress
+	options: EnvironmentIBLBakeOptions,
+	progress: EnvironmentIBLBakeProgress
 ): void {
 	options.onProgress?.(progress);
 }
@@ -85,7 +89,7 @@ function createBakeWorker(workerIndex: number, poolId: string): WorkerLike {
 	}
 
 	return new workerCtor(
-		new URL("./workers/lightProbeBake.worker.ts", import.meta.url),
+		new URL("./workers/environmentIblBake.worker.ts", import.meta.url),
 		{
 			type: "module",
 		}
@@ -96,7 +100,9 @@ function resolveWorkerPoolId(): string {
 	return `${DEFAULT_BAKE_POOL_PREFIX}-${Math.random().toString(36).slice(2)}`;
 }
 
-function toWorkerEnvMapPayload(envMap: Texture): LightProbeBakeWorkerEnvMapPayload {
+function toWorkerEnvMapPayload(
+	envMap: Texture
+): EnvironmentIBLBakeWorkerEnvMapPayload {
 	return {
 		width: envMap.width,
 		height: envMap.height,
@@ -107,13 +113,13 @@ function toWorkerEnvMapPayload(envMap: Texture): LightProbeBakeWorkerEnvMapPaylo
 
 async function prefilterEnvMapWithWorkers(
 	envMap: Texture,
-	options: LightProbeBakeOptions,
+	options: EnvironmentIBLBakeOptions,
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	const poolId = resolveWorkerPoolId();
 	const workerCount = Math.min(
 		resolveWorkerCount(options.workerCount),
-		LIGHT_PROBE_MAX_MIP_LEVELS
+		ENVIRONMENT_IBL_MAX_MIP_LEVELS
 	);
 	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
 	const envPayload = toWorkerEnvMapPayload(envMap);
@@ -127,20 +133,23 @@ async function prefilterEnvMapWithWorkers(
 	});
 
 	try {
-		const tasks: Promise<LightProbePrefilterMipData>[] = [];
-		for (let level = 0; level < LIGHT_PROBE_MAX_MIP_LEVELS; level++) {
+		const tasks: Promise<EnvironmentIBLPrefilterMipData>[] = [];
+		for (let level = 0; level < ENVIRONMENT_IBL_MAX_MIP_LEVELS; level++) {
 			assertNotAborted(options.signal);
-			const payload: LightProbeBakeWorkerTaskPayload = {
+			const payload: EnvironmentIBLBakeWorkerTaskPayload = {
 				type: "prefilter-mip",
 				envMap: envPayload,
 				baseWidth,
 				baseHeight,
-				maxMipLevels: LIGHT_PROBE_MAX_MIP_LEVELS,
+				maxMipLevels: ENVIRONMENT_IBL_MAX_MIP_LEVELS,
 				level,
 			};
 
 			const task = globalWorkerScheduler
-				.schedule<LightProbeBakeWorkerTaskResult, LightProbeBakeWorkerTaskPayload>(
+				.schedule<
+					EnvironmentIBLBakeWorkerTaskResult,
+					EnvironmentIBLBakeWorkerTaskPayload
+				>(
 					poolId,
 					payload,
 					{
@@ -149,7 +158,9 @@ async function prefilterEnvMapWithWorkers(
 				)
 				.then((result) => {
 					if (!result || result.type !== "prefilter-mip") {
-						throw new Error("Light probe worker returned an invalid response");
+						throw new Error(
+							"Environment IBL worker returned an invalid response"
+						);
 					}
 					onMipComplete(result.level);
 					return {
@@ -172,7 +183,7 @@ async function prefilterEnvMapWithWorkers(
 
 function prefilterEnvMapOnCPU(
 	envMap: Texture,
-	options: LightProbeBakeOptions,
+	options: EnvironmentIBLBakeOptions,
 	onMipComplete: (level: number) => void
 ): Texture {
 	return prefilterEnvMapCPU(envMap, options.signal ?? null, (level) => {
@@ -180,7 +191,7 @@ function prefilterEnvMapOnCPU(
 	});
 }
 
-function canUseWorkerAcceleration(options: LightProbeBakeOptions): boolean {
+function canUseWorkerAcceleration(options: EnvironmentIBLBakeOptions): boolean {
 	return (
 		options.acceleration === "worker" ||
 		(options.acceleration !== "cpu" &&
@@ -189,7 +200,7 @@ function canUseWorkerAcceleration(options: LightProbeBakeOptions): boolean {
 	);
 }
 
-function canUseWebGPUAcceleration(options: LightProbeBakeOptions): boolean {
+function canUseWebGPUAcceleration(options: EnvironmentIBLBakeOptions): boolean {
 	if (options.acceleration === "webgpu") {
 		return true;
 	}
@@ -204,12 +215,12 @@ function canUseWebGPUAcceleration(options: LightProbeBakeOptions): boolean {
 
 async function prefilterEnvMapOnWebGPU(
 	envMap: Texture,
-	options: LightProbeBakeOptions,
+	options: EnvironmentIBLBakeOptions,
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	if (!options.webgpuSource) {
 		throw new Error(
-			"WebGPU acceleration was requested for light probe baking, but no webgpuSource was provided."
+			"WebGPU acceleration was requested for environment IBL baking, but no webgpuSource was provided."
 		);
 	}
 	return prefilterEnvMapWithWebGPU(
@@ -222,7 +233,7 @@ async function prefilterEnvMapOnWebGPU(
 
 async function prefilterEnvMap(
 	envMap: Texture,
-	options: LightProbeBakeOptions,
+	options: EnvironmentIBLBakeOptions,
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	if (canUseWebGPUAcceleration(options)) {
@@ -238,7 +249,7 @@ async function prefilterEnvMap(
 	if (!canUseWorkerAcceleration(options)) {
 		if (options.acceleration === "worker") {
 			throw new Error(
-				"Worker acceleration was requested for light probe baking, but Worker API is unavailable."
+				"Worker acceleration was requested for environment IBL baking, but Worker API is unavailable."
 			);
 		}
 		return prefilterEnvMapOnCPU(envMap, options, onMipComplete);
@@ -254,12 +265,12 @@ async function prefilterEnvMap(
 	}
 }
 
-export async function bakeLightProbeFromEnvironmentMap(
+export async function bakeEnvironmentIBLFromEnvironmentMap(
 	envMap: Texture,
-	options: LightProbeBakeOptions = {}
+	options: EnvironmentIBLBakeOptions = {}
 ): Promise<LightProbe> {
 	assertNotAborted(options.signal);
-	const totalProgress = LIGHT_PROBE_MAX_MIP_LEVELS + 2;
+	const totalProgress = ENVIRONMENT_IBL_MAX_MIP_LEVELS + 2;
 	let completed = 0;
 
 	const sh = projectEquirectTextureToSH(envMap, options.signal ?? null);
@@ -276,7 +287,7 @@ export async function bakeLightProbeFromEnvironmentMap(
 			phase: "prefilter",
 			completed,
 			total: totalProgress,
-			detail: `mip ${level + 1}/${LIGHT_PROBE_MAX_MIP_LEVELS}`,
+			detail: `mip ${level + 1}/${ENVIRONMENT_IBL_MAX_MIP_LEVELS}`,
 		});
 	});
 

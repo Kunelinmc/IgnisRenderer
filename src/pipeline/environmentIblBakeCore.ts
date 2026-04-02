@@ -5,9 +5,9 @@ import { Vector3 } from "../maths/Vector3";
 import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
 import type { SHCoefficients, IVector3 } from "../maths/types";
 
-export const LIGHT_PROBE_MAX_SAMPLE_WIDTH = 128;
-export const LIGHT_PROBE_MAX_SAMPLE_HEIGHT = 64;
-export const LIGHT_PROBE_MAX_MIP_LEVELS = 5;
+export const ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH = 128;
+export const ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT = 64;
+export const ENVIRONMENT_IBL_MAX_MIP_LEVELS = 5;
 
 const SRGB_TO_LINEAR_LUT = createSRGBToLinearLUT();
 
@@ -17,7 +17,7 @@ interface MutableRGB {
 	b: number;
 }
 
-export interface LightProbePrefilterMipData {
+export interface EnvironmentIBLPrefilterMipData {
 	level: number;
 	width: number;
 	height: number;
@@ -65,8 +65,8 @@ export function projectEquirectTextureToSH(
 	const { width, height, data } = envMap;
 	const sh = SH.empty();
 
-	const sampleWidth = Math.min(width, LIGHT_PROBE_MAX_SAMPLE_WIDTH);
-	const sampleHeight = Math.min(height, LIGHT_PROBE_MAX_SAMPLE_HEIGHT);
+	const sampleWidth = Math.min(width, ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH);
+	const sampleHeight = Math.min(height, ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT);
 
 	const stepX = width / sampleWidth;
 	const stepY = height / sampleHeight;
@@ -131,8 +131,8 @@ export function resolvePrefilterBaseDimensions(envMap: Texture): {
 	baseHeight: number;
 } {
 	return {
-		baseWidth: Math.min(envMap.width, LIGHT_PROBE_MAX_SAMPLE_WIDTH),
-		baseHeight: Math.min(envMap.height, LIGHT_PROBE_MAX_SAMPLE_HEIGHT),
+		baseWidth: Math.min(envMap.width, ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH),
+		baseHeight: Math.min(envMap.height, ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT),
 	};
 }
 
@@ -141,9 +141,9 @@ export function prefilterEnvMapMipLevel(
 	level: number,
 	baseWidth: number,
 	baseHeight: number,
-	maxMipLevels: number = LIGHT_PROBE_MAX_MIP_LEVELS,
+	maxMipLevels: number = ENVIRONMENT_IBL_MAX_MIP_LEVELS,
 	signal?: AbortSignal | null
-): LightProbePrefilterMipData {
+): EnvironmentIBLPrefilterMipData {
 	assertNotAborted(signal);
 	const roughness = level / (maxMipLevels - 1);
 	const sampleCount = Math.floor(lerp(1024, 64, roughness));
@@ -183,7 +183,7 @@ export function prefilterEnvMapMipLevel(
 export function buildPrefilteredTexture(
 	baseWidth: number,
 	baseHeight: number,
-	mipData: LightProbePrefilterMipData[]
+	mipData: EnvironmentIBLPrefilterMipData[]
 ): Texture {
 	const prefiltered = new Texture(null, baseWidth, baseHeight, "HDR");
 	const sorted = [...mipData].sort((left, right) => left.level - right.level);
@@ -198,18 +198,18 @@ export function prefilterEnvMapCPU(
 	onMipComplete?: (level: number, total: number) => void
 ): Texture {
 	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
-	const mipmaps: LightProbePrefilterMipData[] = [];
-	for (let level = 0; level < LIGHT_PROBE_MAX_MIP_LEVELS; level++) {
+	const mipmaps: EnvironmentIBLPrefilterMipData[] = [];
+	for (let level = 0; level < ENVIRONMENT_IBL_MAX_MIP_LEVELS; level++) {
 		const mip = prefilterEnvMapMipLevel(
 			envMap,
 			level,
 			baseWidth,
 			baseHeight,
-			LIGHT_PROBE_MAX_MIP_LEVELS,
+			ENVIRONMENT_IBL_MAX_MIP_LEVELS,
 			signal
 		);
 		mipmaps.push(mip);
-		onMipComplete?.(level, LIGHT_PROBE_MAX_MIP_LEVELS);
+		onMipComplete?.(level, ENVIRONMENT_IBL_MAX_MIP_LEVELS);
 	}
 	return buildPrefilteredTexture(baseWidth, baseHeight, mipmaps);
 }

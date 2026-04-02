@@ -49,14 +49,12 @@ export type {
 	DOFOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
-export {
-	bakeLightProbeFromEnvironmentMap,
-} from "./pipeline/LightProbeBaker";
+export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";
 export type {
-	LightProbeBakeAcceleration,
-	LightProbeBakeOptions,
-	LightProbeBakeProgress,
-} from "./pipeline/LightProbeBaker";
+	EnvironmentIBLBakeAcceleration,
+	EnvironmentIBLBakeOptions,
+	EnvironmentIBLBakeProgress,
+} from "./pipeline/EnvironmentIBLBaker";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";
