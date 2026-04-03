@@ -274,6 +274,10 @@ export class WebGLFrameExecutor {
 			this._taaFrameIndex = 0;
 			this._taaHistoryValid = false;
 		}
+		if (context.incremental.temporalHistoryReset) {
+			this._taaHistoryValid = false;
+			this._prevViewProjection = null;
+		}
 
 		const gl = this._gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
@@ -281,11 +285,33 @@ export class WebGLFrameExecutor {
 		gl.disable(gl.BLEND);
 		gl.enable(gl.DEPTH_TEST);
 		gl.depthMask(true);
+
+		const drawBuffers =
+			this._sceneNormalTexture ?
+				[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
+			:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
+		gl.drawBuffers(drawBuffers);
+
+		const incrementalPartial = this._isIncrementalPartial(context);
 		gl.clearColor(0, 0, 0, 1);
 		gl.clearDepth(1);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		if (incrementalPartial) {
+			const dirtyRects = this._resolveDirtyRects(context, this._width, this._height);
+			gl.disable(gl.SCISSOR_TEST);
+			gl.clear(gl.DEPTH_BUFFER_BIT);
+			if (dirtyRects.length > 0) {
+				gl.enable(gl.SCISSOR_TEST);
+				for (const rect of dirtyRects) {
+					this._setScissorRect(rect.x, rect.y, rect.width, rect.height, this._height);
+					gl.clear(gl.COLOR_BUFFER_BIT);
+				}
+				gl.disable(gl.SCISSOR_TEST);
+			}
+		} else {
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		}
 
-		if (context.features.enableSkybox && context.scene.skybox) {
+		if (!incrementalPartial && context.features.enableSkybox && context.scene.skybox) {
 			this._renderSkybox(context);
 		}
 	}
@@ -562,6 +588,116 @@ export class WebGLFrameExecutor {
 		}
 	}
 
+	private _isIncrementalPartial(context: FrameContext | null | undefined): boolean {
+		if (!context?.incremental) {
+			return false;
+		}
+		return (
+			context.incremental.enabled &&
+			!context.incremental.forceFullFrame &&
+			context.incremental.dirtyRects.length > 0
+		);
+	}
+
+	private _resolveDirtyRects(
+		context: FrameContext | null | undefined,
+		viewportWidth: number,
+		viewportHeight: number
+	): Array<{ x: number; y: number; width: number; height: number }> {
+		const width = Math.max(1, Math.floor(viewportWidth));
+		const height = Math.max(1, Math.floor(viewportHeight));
+		if (!this._isIncrementalPartial(context)) {
+			return [{
+				x: 0,
+				y: 0,
+				width,
+				height,
+			}];
+		}
+		const sourceRects = context.incremental.dirtyRects;
+		const sourceWidth = Math.max(1, Math.floor(context.attachments.width));
+		const sourceHeight = Math.max(1, Math.floor(context.attachments.height));
+		const scaleX = width / sourceWidth;
+		const scaleY = height / sourceHeight;
+		const resolved: Array<{ x: number; y: number; width: number; height: number }> = [];
+		for (const rect of sourceRects) {
+			const minX = Math.max(0, Math.floor(rect.x * scaleX));
+			const minY = Math.max(0, Math.floor(rect.y * scaleY));
+			const maxX = Math.min(
+				width,
+				Math.ceil((rect.x + rect.width) * scaleX)
+			);
+			const maxY = Math.min(
+				height,
+				Math.ceil((rect.y + rect.height) * scaleY)
+			);
+			const rectWidth = maxX - minX;
+			const rectHeight = maxY - minY;
+			if (rectWidth <= 0 || rectHeight <= 0) {
+				continue;
+			}
+			resolved.push({
+				x: minX,
+				y: minY,
+				width: rectWidth,
+				height: rectHeight,
+			});
+		}
+		return resolved;
+	}
+
+	private _setScissorRect(
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		viewportHeight: number
+	): void {
+		const resolvedWidth = Math.max(0, Math.floor(width));
+		const resolvedHeight = Math.max(0, Math.floor(height));
+		if (resolvedWidth <= 0 || resolvedHeight <= 0) {
+			return;
+		}
+		const resolvedX = Math.max(0, Math.floor(x));
+		const resolvedY = Math.max(0, Math.floor(y));
+		const maxY = Math.max(1, Math.floor(viewportHeight));
+		const scissorY = Math.max(0, maxY - (resolvedY + resolvedHeight));
+		this._gl.scissor(resolvedX, scissorY, resolvedWidth, resolvedHeight);
+	}
+
+	private _drawFullscreenTrianglesWithDirtyScissor(
+		viewportWidth: number,
+		viewportHeight: number,
+		context: FrameContext | null | undefined
+	): void {
+		const gl = this._gl;
+		if (!this._isIncrementalPartial(context)) {
+			gl.disable(gl.SCISSOR_TEST);
+			gl.drawArrays(gl.TRIANGLES, 0, 3);
+			return;
+		}
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			viewportWidth,
+			viewportHeight
+		);
+		if (dirtyRects.length === 0) {
+			return;
+		}
+		gl.enable(gl.SCISSOR_TEST);
+		for (const rect of dirtyRects) {
+			this._setScissorRect(
+				rect.x,
+				rect.y,
+				rect.width,
+				rect.height,
+				viewportHeight
+			);
+			gl.drawArrays(gl.TRIANGLES, 0, 3);
+		}
+		gl.disable(gl.SCISSOR_TEST);
+	}
+
 	private _renderShadows(context: FrameContext): void {
 		if (!context.features.enableShadows) {
 			return;
@@ -801,6 +937,11 @@ export class WebGLFrameExecutor {
 		if (!this._sceneFramebuffer) return;
 
 		const gl = this._gl;
+		const incrementalPartial = this._isIncrementalPartial(context);
+		const dirtyRects = this._resolveDirtyRects(context, this._width, this._height);
+		if (incrementalPartial && dirtyRects.length === 0) {
+			return;
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		if (!transparent && this._sceneNormalTexture) {
 			gl.drawBuffers([
@@ -827,15 +968,33 @@ export class WebGLFrameExecutor {
 			gl.disable(gl.BLEND);
 		}
 
-		let activeProgram: WebGLSceneProgram | null = null;
-		for (const packet of packets) {
-			const sceneProgram = this._programs.getSceneProgram(packet.material);
-			if (activeProgram !== sceneProgram) {
-				gl.useProgram(sceneProgram.program);
-				this._bindGlobalUniforms(sceneProgram, context);
-				activeProgram = sceneProgram;
+		const drawPackets = (): void => {
+			let activeProgram: WebGLSceneProgram | null = null;
+			for (const packet of packets) {
+				const sceneProgram = this._programs.getSceneProgram(packet.material);
+				if (activeProgram !== sceneProgram) {
+					gl.useProgram(sceneProgram.program);
+					this._bindGlobalUniforms(sceneProgram, context);
+					activeProgram = sceneProgram;
+				}
+				this._drawPacket(sceneProgram, packet, transparent, context);
 			}
-			this._drawPacket(sceneProgram, packet, transparent, context);
+		};
+		if (incrementalPartial) {
+			gl.enable(gl.SCISSOR_TEST);
+			for (const rect of dirtyRects) {
+				this._setScissorRect(
+					rect.x,
+					rect.y,
+					rect.width,
+					rect.height,
+					this._height
+				);
+				drawPackets();
+			}
+			gl.disable(gl.SCISSOR_TEST);
+		} else {
+			drawPackets();
 		}
 
 		const currentViewProjection = toFiniteColumnMajorMat4(
@@ -1054,6 +1213,11 @@ export class WebGLFrameExecutor {
 		const gl = this._gl;
 		const particleProgram = this._programs.getParticleProgram();
 		const view = context.camera.viewMatrix.elements;
+		const incrementalPartial = this._isIncrementalPartial(context);
+		const dirtyRects = this._resolveDirtyRects(context, this._width, this._height);
+		if (incrementalPartial && dirtyRects.length === 0) {
+			return;
+		}
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
@@ -1063,6 +1227,9 @@ export class WebGLFrameExecutor {
 		gl.depthMask(false);
 		gl.disable(gl.CULL_FACE);
 		gl.enable(gl.BLEND);
+		if (incrementalPartial) {
+			gl.enable(gl.SCISSOR_TEST);
+		}
 
 		if (particleProgram.uniforms.viewProjection) {
 			gl.uniformMatrix4fv(
@@ -1153,7 +1320,20 @@ export class WebGLFrameExecutor {
 				);
 			}
 
-			gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
+			if (incrementalPartial) {
+				for (const rect of dirtyRects) {
+					this._setScissorRect(
+						rect.x,
+						rect.y,
+						rect.width,
+						rect.height,
+						this._height
+					);
+					gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
+				}
+			} else {
+				gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
+			}
 		}
 
 		gl.blendFuncSeparate(
@@ -1164,6 +1344,9 @@ export class WebGLFrameExecutor {
 		);
 		gl.depthMask(true);
 		gl.disable(gl.BLEND);
+		if (incrementalPartial) {
+			gl.disable(gl.SCISSOR_TEST);
+		}
 		gl.bindBuffer(gl.ARRAY_BUFFER, null);
 		gl.bindVertexArray(null);
 	}
@@ -2173,7 +2356,11 @@ export class WebGLFrameExecutor {
 				view[2][1],
 				view[2][2]
 			);
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			aoWidth,
+			aoHeight,
+			context
+		);
 
 		this._bindPostSingleColorTarget(this._ssaoBlurTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
@@ -2202,7 +2389,11 @@ export class WebGLFrameExecutor {
 				isOrthographic ? 1 : 0,
 				frameJitter
 			);
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			aoWidth,
+			aoHeight,
+			context
+		);
 
 		this._bindPostSingleColorTarget(this._ssaoRawTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
@@ -2218,7 +2409,11 @@ export class WebGLFrameExecutor {
 				isOrthographic ? 1 : 0,
 				frameJitter
 			);
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 
 		this._bindPostSingleColorTarget(targetTexture);
 		gl.viewport(0, 0, this._width, this._height);
@@ -2238,7 +2433,11 @@ export class WebGLFrameExecutor {
 				aoInvW,
 				aoInvH
 			);
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
@@ -2332,7 +2531,11 @@ export class WebGLFrameExecutor {
 		if (uniforms.centerWeight) {
 			gl.uniform1f(uniforms.centerWeight, centerWeight);
 		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
@@ -2452,7 +2655,11 @@ export class WebGLFrameExecutor {
 		if (uniforms.chromaticAberration) {
 			gl.uniform1f(uniforms.chromaticAberration, chromaticAberration);
 		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
@@ -2527,7 +2734,11 @@ export class WebGLFrameExecutor {
 				radius
 			);
 		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
@@ -2576,7 +2787,11 @@ export class WebGLFrameExecutor {
 				1 / Math.max(1, this._height)
 			);
 		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
@@ -2689,7 +2904,11 @@ export class WebGLFrameExecutor {
 			);
 		}
 
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
 		gl.bindVertexArray(null);
 		this._presentSourceTexture = targetTexture;
 	}
@@ -2820,7 +3039,10 @@ export class WebGLFrameExecutor {
 		this._presentSourceTexture = nextHistory;
 	}
 
-	private _present(applyGamma: boolean): void {
+	private _present(
+		applyGamma: boolean,
+		context: FrameContext | null = this._activeContext
+	): void {
 		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
 		if (!sourceTexture || !this._fullscreenVao) return;
 		const gl = this._gl;
@@ -2840,7 +3062,11 @@ export class WebGLFrameExecutor {
 		if (presentProgram.uniforms.applyGamma) {
 			gl.uniform1i(presentProgram.uniforms.applyGamma, applyGamma ? 1 : 0);
 		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			context
+		);
 		gl.bindVertexArray(null);
 		this._presentedInFrame = true;
 	}

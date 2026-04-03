@@ -174,7 +174,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			...this._outlineStyle,
 			...style,
 		};
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("interaction");
 	}
 
 	public setGizmoSpace(space: GizmoSpace): void {
@@ -227,13 +227,13 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 	private _handlePointerMove(): void {
 		if (this._activeGizmo) {
 			this._updateGizmoTransform();
-			this._renderer?.requestRender();
+			this._renderer?.requestRender("transform");
 			return;
 		}
 		if (this._dragRect?.active) {
 			this._dragRect.endX = this._lastPointer.x;
 			this._dragRect.endY = this._lastPointer.y;
-			this._renderer?.requestRender();
+			this._renderer?.requestRender("interaction");
 			return;
 		}
 		const hit = this._performHitTest(this._lastPointer.x, this._lastPointer.y);
@@ -267,7 +267,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			endY: this._lastPointer.y,
 			active: true,
 		};
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("interaction");
 	}
 
 	private _handlePointerUp(button: number): void {
@@ -307,14 +307,14 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 
 		if (key === "q") {
 			this._gizmoSpace = this._gizmoSpace === "world" ? "local" : "world";
-			this._renderer?.requestRender();
+			this._renderer?.requestRender("interaction");
 			return;
 		}
 
 		if (key === ".") {
 			this._gizmoPivot =
 				this._gizmoPivot === "object-origin" ? "bounds-center" : "object-origin";
-			this._renderer?.requestRender();
+			this._renderer?.requestRender("interaction");
 			return;
 		}
 
@@ -381,7 +381,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 				},
 			},
 		};
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("interaction");
 	}
 
 	private _commitGizmo(): void {
@@ -391,14 +391,14 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 		}
 		const node = this._scene.ecs.getNodeByEntity(this._activeEntityId);
 		if (node) {
-			this.emit("transformCommitted", {
-				entityId: this._activeEntityId,
-				node,
-				mode: this._activeGizmo.mode,
-			});
+		this.emit("transformCommitted", {
+			entityId: this._activeEntityId,
+			node,
+			mode: this._activeGizmo.mode,
+		});
 		}
 		this._activeGizmo = null;
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("transform");
 	}
 
 	private _cancelGizmo(): void {
@@ -424,7 +424,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			this._activeGizmo.snapshot.scale.z
 		);
 		node.updateLocalMatrix();
-		this._scene.invalidate();
+		this._scene.invalidate("transform");
 
 		this.emit("transformCancelled", {
 			entityId: this._activeEntityId,
@@ -432,7 +432,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			mode: this._activeGizmo.mode,
 		});
 		this._activeGizmo = null;
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("transform");
 	}
 
 	private _updateGizmoTransform(): void {
@@ -475,7 +475,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 		}
 
 		node.updateLocalMatrix();
-		this._scene.invalidate();
+		this._scene.invalidate("transform");
 	}
 
 	private _applyTranslateGizmo(node: Node, gizmo: ActiveGizmoState): void {
@@ -741,7 +741,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			entityId,
 			node,
 		});
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("interaction");
 	}
 
 	private _setSelection(entityId: number | null): void {
@@ -757,7 +757,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 			entityId,
 			node,
 		});
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("interaction");
 	}
 
 	private _writeTransientState(context: FrameTransientContributorContext): void {

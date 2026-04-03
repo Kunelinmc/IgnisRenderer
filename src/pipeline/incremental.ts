@@ -1,0 +1,514 @@
+import type { FramePassStage, ResolvedFeatureState } from "./types";
+
+export type RenderDirtyReason =
+	| "unknown"
+	| "resize"
+	| "camera"
+	| "transform"
+	| "material"
+	| "texture"
+	| "lighting"
+	| "shadow"
+	| "postfx"
+	| "interaction"
+	| "physics"
+	| "particles";
+
+export const RENDER_DIRTY_REASON_MASK = {
+	unknown: 1 << 0,
+	resize: 1 << 1,
+	camera: 1 << 2,
+	transform: 1 << 3,
+	material: 1 << 4,
+	texture: 1 << 5,
+	lighting: 1 << 6,
+	shadow: 1 << 7,
+	postfx: 1 << 8,
+	interaction: 1 << 9,
+	physics: 1 << 10,
+	particles: 1 << 11,
+} as const;
+
+export type RenderDirtyReasonMaskName = keyof typeof RENDER_DIRTY_REASON_MASK;
+
+export interface DirtyRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+export interface IncrementalRenderingOptions {
+	enabled: boolean;
+	maxDirtyRects: number;
+	fullFrameFallbackAreaRatio: number;
+	temporalPolicy: "conservative-reset";
+}
+
+export interface IncrementalFrameStats {
+	enabled: boolean;
+	reasonMask: number;
+	forceFullFrame: boolean;
+	temporalHistoryReset: boolean;
+	firstPass: FramePassStage | null;
+	dirtyRectCount: number;
+	dirtyAreaRatio: number;
+	dirtyRects: DirtyRect[];
+}
+
+export interface IncrementalFrameContext {
+	enabled: boolean;
+	forceFullFrame: boolean;
+	dirtyRects: DirtyRect[];
+	dirtyAreaRatio: number;
+	firstPass: FramePassStage | null;
+	reasonMask: number;
+	temporalHistoryReset: boolean;
+}
+
+export interface IncrementalPlanInput {
+	enabled: boolean;
+	reasonMask: number;
+	features: ResolvedFeatureState;
+}
+
+export interface IncrementalPlan {
+	firstPass: FramePassStage | null;
+	forceFullFrame: boolean;
+	temporalHistoryReset: boolean;
+	reasonMask: number;
+}
+
+const FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
+	"particle-sim",
+	"shadow",
+	"reflection",
+	"main-opaque",
+	"main-transparent",
+	"particles",
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"fxaa",
+	"interaction-outline",
+	"gamma",
+];
+
+const FRAME_PASS_STAGE_INDEX = new Map<FramePassStage, number>();
+for (let index = 0; index < FRAME_PASS_STAGE_ORDER.length; index++) {
+	FRAME_PASS_STAGE_INDEX.set(FRAME_PASS_STAGE_ORDER[index], index);
+}
+
+const POST_PROCESS_STAGE_ORDER: FramePassStage[] = [
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"fxaa",
+	"gamma",
+];
+
+const TEMPORAL_RESET_MASK =
+	RENDER_DIRTY_REASON_MASK.resize |
+	RENDER_DIRTY_REASON_MASK.camera |
+	RENDER_DIRTY_REASON_MASK.transform |
+	RENDER_DIRTY_REASON_MASK.material |
+	RENDER_DIRTY_REASON_MASK.lighting |
+	RENDER_DIRTY_REASON_MASK.shadow |
+	RENDER_DIRTY_REASON_MASK.physics |
+	RENDER_DIRTY_REASON_MASK.unknown;
+
+const FORCE_FULL_FRAME_MASK =
+	RENDER_DIRTY_REASON_MASK.resize |
+	RENDER_DIRTY_REASON_MASK.camera |
+	RENDER_DIRTY_REASON_MASK.lighting |
+	RENDER_DIRTY_REASON_MASK.shadow |
+	RENDER_DIRTY_REASON_MASK.unknown;
+
+export const DEFAULT_INCREMENTAL_RENDERING_OPTIONS: IncrementalRenderingOptions =
+	{
+		enabled: false,
+		maxDirtyRects: 16,
+		fullFrameFallbackAreaRatio: 0.3,
+		temporalPolicy: "conservative-reset",
+	};
+
+export function renderDirtyReasonToMask(
+	reason: RenderDirtyReason | undefined
+): number {
+	if (!reason) {
+		return RENDER_DIRTY_REASON_MASK.unknown;
+	}
+	return (
+		RENDER_DIRTY_REASON_MASK[reason as RenderDirtyReasonMaskName] ??
+		RENDER_DIRTY_REASON_MASK.unknown
+	);
+}
+
+export function hasAnyDirtyReason(
+	mask: number,
+	...reasons: RenderDirtyReason[]
+): boolean {
+	for (const reason of reasons) {
+		if ((mask & renderDirtyReasonToMask(reason)) !== 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+export function normalizeIncrementalRenderingOptions(
+	options?: Partial<IncrementalRenderingOptions> | null
+): IncrementalRenderingOptions {
+	const source = options ?? {};
+	return {
+		enabled: source.enabled ?? DEFAULT_INCREMENTAL_RENDERING_OPTIONS.enabled,
+		maxDirtyRects: clampInteger(
+			source.maxDirtyRects,
+			1,
+			256,
+			DEFAULT_INCREMENTAL_RENDERING_OPTIONS.maxDirtyRects
+		),
+		fullFrameFallbackAreaRatio: clampNumber(
+			source.fullFrameFallbackAreaRatio,
+			0.01,
+			1,
+			DEFAULT_INCREMENTAL_RENDERING_OPTIONS.fullFrameFallbackAreaRatio
+		),
+		temporalPolicy: "conservative-reset",
+	};
+}
+
+export function mergeIncrementalRenderingOptions(
+	current: IncrementalRenderingOptions,
+	next?: Partial<IncrementalRenderingOptions> | null
+): IncrementalRenderingOptions {
+	if (!next) {
+		return current;
+	}
+	return normalizeIncrementalRenderingOptions({
+		...current,
+		...next,
+	});
+}
+
+export class IncrementalFramePlanner {
+	public static plan(input: IncrementalPlanInput): IncrementalPlan {
+		const reasonMask = input.reasonMask >>> 0;
+		if (!input.enabled) {
+			return {
+				firstPass: null,
+				forceFullFrame: true,
+				temporalHistoryReset: true,
+				reasonMask,
+			};
+		}
+
+		if (reasonMask === 0) {
+			return {
+				firstPass: null,
+				forceFullFrame: false,
+				temporalHistoryReset: false,
+				reasonMask,
+			};
+		}
+
+		const temporalHistoryReset = (reasonMask & TEMPORAL_RESET_MASK) !== 0;
+		const forceFullFrame = (reasonMask & FORCE_FULL_FRAME_MASK) !== 0;
+
+		const candidates: FramePassStage[] = [];
+
+		if (
+			(reasonMask &
+				(RENDER_DIRTY_REASON_MASK.particles |
+					RENDER_DIRTY_REASON_MASK.physics)) !==
+			0
+		) {
+			candidates.push("particle-sim");
+		}
+
+		if (
+			(reasonMask &
+				(RENDER_DIRTY_REASON_MASK.resize |
+					RENDER_DIRTY_REASON_MASK.camera |
+					RENDER_DIRTY_REASON_MASK.transform |
+					RENDER_DIRTY_REASON_MASK.material |
+					RENDER_DIRTY_REASON_MASK.texture |
+					RENDER_DIRTY_REASON_MASK.lighting |
+					RENDER_DIRTY_REASON_MASK.shadow)) !==
+			0
+		) {
+			candidates.push(
+				input.features.enableShadows ? "shadow" : "main-opaque"
+			);
+		}
+
+		if ((reasonMask & RENDER_DIRTY_REASON_MASK.postfx) !== 0) {
+			candidates.push(
+				resolveFirstEnabledPostProcessStage(input.features) ?? "gamma"
+			);
+		}
+
+		if ((reasonMask & RENDER_DIRTY_REASON_MASK.interaction) !== 0) {
+			candidates.push("interaction-outline");
+		}
+
+		if (candidates.length === 0) {
+			candidates.push("main-opaque");
+		}
+
+		return {
+			firstPass: pickEarliestPass(candidates),
+			forceFullFrame,
+			temporalHistoryReset,
+			reasonMask,
+		};
+	}
+}
+
+export function makeFullScreenRect(width: number, height: number): DirtyRect {
+	return {
+		x: 0,
+		y: 0,
+		width: Math.max(1, Math.floor(width)),
+		height: Math.max(1, Math.floor(height)),
+	};
+}
+
+export function clampDirtyRect(
+	rect: DirtyRect,
+	width: number,
+	height: number
+): DirtyRect | null {
+	const maxWidth = Math.max(1, Math.floor(width));
+	const maxHeight = Math.max(1, Math.floor(height));
+	const minX = Math.max(0, Math.floor(rect.x));
+	const minY = Math.max(0, Math.floor(rect.y));
+	const maxX = Math.min(maxWidth, Math.ceil(rect.x + rect.width));
+	const maxY = Math.min(maxHeight, Math.ceil(rect.y + rect.height));
+	const clampedWidth = maxX - minX;
+	const clampedHeight = maxY - minY;
+	if (clampedWidth <= 0 || clampedHeight <= 0) {
+		return null;
+	}
+	return {
+		x: minX,
+		y: minY,
+		width: clampedWidth,
+		height: clampedHeight,
+	};
+}
+
+export function inflateDirtyRects(
+	rects: DirtyRect[],
+	amount: number,
+	width: number,
+	height: number
+): DirtyRect[] {
+	const inflateAmount = Math.max(0, Math.floor(amount));
+	if (inflateAmount <= 0 || rects.length === 0) {
+		return rects.slice();
+	}
+	const result: DirtyRect[] = [];
+	for (const rect of rects) {
+		const inflated = clampDirtyRect(
+			{
+				x: rect.x - inflateAmount,
+				y: rect.y - inflateAmount,
+				width: rect.width + inflateAmount * 2,
+				height: rect.height + inflateAmount * 2,
+			},
+			width,
+			height
+		);
+		if (inflated) {
+			result.push(inflated);
+		}
+	}
+	return result;
+}
+
+export function mergeDirtyRects(
+	rects: DirtyRect[],
+	maxRects: number,
+	width: number,
+	height: number
+): DirtyRect[] {
+	const normalized: DirtyRect[] = [];
+	for (const rect of rects) {
+		const clamped = clampDirtyRect(rect, width, height);
+		if (!clamped) continue;
+		normalized.push(clamped);
+	}
+	if (normalized.length <= 1) {
+		return normalized;
+	}
+
+	normalized.sort((left, right) => {
+		if (left.x !== right.x) return left.x - right.x;
+		return left.y - right.y;
+	});
+
+	const merged: DirtyRect[] = [];
+	for (const rect of normalized) {
+		let current = rect;
+		for (let i = merged.length - 1; i >= 0; i--) {
+			const previous = merged[i];
+			if (!dirtyRectsIntersectOrTouch(previous, current)) {
+				continue;
+			}
+			current = unionDirtyRect(previous, current);
+			merged.splice(i, 1);
+		}
+		merged.push(current);
+	}
+
+	const cappedMaxRects = clampInteger(maxRects, 1, 256, 16);
+	while (merged.length > cappedMaxRects) {
+		let bestLeft = 0;
+		let bestRight = 1;
+		let bestGrowth = Number.POSITIVE_INFINITY;
+		for (let leftIndex = 0; leftIndex < merged.length; leftIndex++) {
+			for (
+				let rightIndex = leftIndex + 1;
+				rightIndex < merged.length;
+				rightIndex++
+			) {
+				const left = merged[leftIndex];
+				const right = merged[rightIndex];
+				const union = unionDirtyRect(left, right);
+				const growth = getDirtyRectArea(union) -
+					(getDirtyRectArea(left) + getDirtyRectArea(right));
+				if (growth < bestGrowth) {
+					bestGrowth = growth;
+					bestLeft = leftIndex;
+					bestRight = rightIndex;
+				}
+			}
+		}
+		const union = unionDirtyRect(merged[bestLeft], merged[bestRight]);
+		merged.splice(bestRight, 1);
+		merged.splice(bestLeft, 1, union);
+	}
+
+	return merged;
+}
+
+export function getDirtyRectsAreaRatio(
+	rects: DirtyRect[],
+	width: number,
+	height: number
+): number {
+	const area = Math.max(1, Math.floor(width) * Math.floor(height));
+	let dirtyArea = 0;
+	for (const rect of rects) {
+		dirtyArea += getDirtyRectArea(rect);
+	}
+	return Math.max(0, Math.min(1, dirtyArea / area));
+}
+
+export function computePostProcessInflationRadius(
+	features: ResolvedFeatureState
+): number {
+	let radius = 0;
+	if (features.enableSSAO) radius = Math.max(radius, 8);
+	if (features.enableTAA) radius = Math.max(radius, 8);
+	if (features.enableSSR) radius = Math.max(radius, 16);
+	if (features.enableVolumetric) radius = Math.max(radius, 16);
+	if (features.enableMotionBlur) radius = Math.max(radius, 24);
+	if (features.enableDOF) radius = Math.max(radius, 32);
+	if (features.enableBloom) radius = Math.max(radius, 48);
+	if (features.enableFXAA) radius = Math.max(radius, 2);
+	return radius;
+}
+
+export function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
+	const minX = Math.min(left.x, right.x);
+	const minY = Math.min(left.y, right.y);
+	const maxX = Math.max(left.x + left.width, right.x + right.width);
+	const maxY = Math.max(left.y + left.height, right.y + right.height);
+	return {
+		x: minX,
+		y: minY,
+		width: maxX - minX,
+		height: maxY - minY,
+	};
+}
+
+function resolveFirstEnabledPostProcessStage(
+	features: ResolvedFeatureState
+): FramePassStage | null {
+	for (const stage of POST_PROCESS_STAGE_ORDER) {
+		if (stage === "ssao" && features.enableSSAO) return stage;
+		if (stage === "ssgi" && features.enableSSGI) return stage;
+		if (stage === "taa" && features.enableTAA) return stage;
+		if (stage === "ssr" && features.enableSSR) return stage;
+		if (stage === "volumetric" && features.enableVolumetric) return stage;
+		if (stage === "motion-blur" && features.enableMotionBlur) return stage;
+		if (stage === "dof" && features.enableDOF) return stage;
+		if (stage === "bloom" && features.enableBloom) return stage;
+		if (stage === "fxaa" && features.enableFXAA) return stage;
+		if (stage === "gamma" && features.enableGamma) return stage;
+	}
+	return null;
+}
+
+function pickEarliestPass(candidates: FramePassStage[]): FramePassStage {
+	let earliest = candidates[0];
+	let earliestIndex = FRAME_PASS_STAGE_INDEX.get(earliest) ?? Number.MAX_SAFE_INTEGER;
+	for (let index = 1; index < candidates.length; index++) {
+		const candidate = candidates[index];
+		const candidateIndex = FRAME_PASS_STAGE_INDEX.get(candidate) ?? Number.MAX_SAFE_INTEGER;
+		if (candidateIndex < earliestIndex) {
+			earliest = candidate;
+			earliestIndex = candidateIndex;
+		}
+	}
+	return earliest;
+}
+
+function getDirtyRectArea(rect: DirtyRect): number {
+	return Math.max(0, rect.width) * Math.max(0, rect.height);
+}
+
+function dirtyRectsIntersectOrTouch(left: DirtyRect, right: DirtyRect): boolean {
+	return (
+		left.x <= right.x + right.width &&
+		left.x + left.width >= right.x &&
+		left.y <= right.y + right.height &&
+		left.y + left.height >= right.y
+	);
+}
+
+function clampNumber(
+	value: number | undefined,
+	min: number,
+	max: number,
+	fallback: number
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.min(max, Math.max(min, value));
+}
+
+function clampInteger(
+	value: number | undefined,
+	min: number,
+	max: number,
+	fallback: number
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.min(max, Math.max(min, Math.floor(value)));
+}

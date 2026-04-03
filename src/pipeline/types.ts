@@ -6,6 +6,7 @@ import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import type { ShadowMap } from "../lights/ShadowMapping";
+import type { IncrementalFrameContext } from "./incremental";
 import type {
 	BoundingSphere,
 	IPrimitive,
@@ -138,6 +139,7 @@ export interface FrameContext {
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;
 	readonly worldMatrix: Matrix4;
+	readonly incremental: IncrementalFrameContext;
 	/** Pass-specific transient data */
 	readonly transient: Map<string, any>;
 }

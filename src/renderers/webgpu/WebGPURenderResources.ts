@@ -762,6 +762,17 @@ export class WebGPURenderResources {
 		encoder.setBindingGroup(0, frameBinding);
 		encoder.setVertexBuffer(0, this._particleQuadBuffer);
 		encoder.setVertexBuffer(1, this._particleInstanceBuffer);
+		const dirtyRects =
+			context.incremental?.enabled &&
+			!context.incremental.forceFullFrame &&
+			(context.incremental.dirtyRects?.length ?? 0) > 0 ?
+				context.incremental.dirtyRects
+			:	[{
+					x: 0,
+					y: 0,
+					width: Math.max(1, context.attachments.width),
+					height: Math.max(1, context.attachments.height),
+				}];
 
 		for (const range of drawRanges) {
 			const texture = this._textureRegistry.getTextureForSlot(
@@ -827,7 +838,10 @@ export class WebGPURenderResources {
 				:	alphaPipeline;
 			encoder.setPipeline(pipeline);
 			encoder.setBindingGroup(1, particleBinding);
-			encoder.draw(6, range.instanceCount, 0, range.firstInstance);
+			for (const rect of dirtyRects) {
+				encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+				encoder.draw(6, range.instanceCount, 0, range.firstInstance);
+			}
 		}
 
 		encoder.endRenderPass();

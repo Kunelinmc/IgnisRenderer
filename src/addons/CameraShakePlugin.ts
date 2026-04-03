@@ -118,7 +118,7 @@ export class CameraShakePlugin {
 			return;
 		}
 
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("camera");
 	};
 
 	private _onPostAnimation = (): void => {
@@ -243,7 +243,7 @@ export class CameraShakePlugin {
 		this._rotationAmplitude.copy(rotationAmplitude);
 		this._falloffExponent = this._defaultFalloffExponent;
 		this._active = true;
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("camera");
 	}
 
 	/**

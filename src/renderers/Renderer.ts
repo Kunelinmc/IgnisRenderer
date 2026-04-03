@@ -19,6 +19,10 @@ import { Texture } from "../core/Texture";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
+import {
+	PreparedSceneCache,
+	type PreparedSceneCacheBuildResult,
+} from "../pipeline/PreparedSceneCache";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
 import {
 	RendererStageGraph,
@@ -34,6 +38,16 @@ import {
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
+import {
+	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+	IncrementalFramePlanner,
+	mergeIncrementalRenderingOptions,
+	renderDirtyReasonToMask,
+	type IncrementalFrameContext,
+	type IncrementalFrameStats,
+	type IncrementalRenderingOptions,
+	type RenderDirtyReason,
+} from "../pipeline/incremental";
 import type { WebGPUComputeFacadeSource } from "./webgpu/computeFacade";
 import type {
 	BloomOptions,
@@ -54,6 +68,12 @@ import type {
 	WarmupProgress,
 	WarmupReport,
 } from "./IRenderBackend";
+
+export type {
+	IncrementalFrameStats,
+	IncrementalRenderingOptions,
+	RenderDirtyReason,
+} from "../pipeline/incremental";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
@@ -134,6 +154,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _stageGraph: RendererStageGraph;
 	private _physicsSystem: PhysicsSystem | null;
 	private _frameTransientContributors: Set<FrameTransientContributor>;
+	private _incrementalOptions: IncrementalRenderingOptions;
+	private _lastIncrementalFrameStats: IncrementalFrameStats | null;
+	private _preparedSceneCache: PreparedSceneCache;
+	private _pendingDirtyReasonMask: number;
+	private _lastKnownSceneVersion: number;
 
 	constructor(
 		backend: IRenderBackend,
@@ -153,6 +178,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._stageGraph = new RendererStageGraph(createDefaultRendererStages());
 		this._physicsSystem = null;
 		this._frameTransientContributors = new Set();
+		this._incrementalOptions = { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS };
+		this._lastIncrementalFrameStats = null;
+		this._preparedSceneCache = new PreparedSceneCache();
+		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
+		this._lastKnownSceneVersion = 0;
 
 		this.features = {
 			enableLighting: true,
@@ -187,6 +217,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.shCoeffs = SH.empty();
 		this.shAmbientCoeffs = SH.empty();
 		this.scene = new Scene();
+		this._lastKnownSceneVersion = this.scene.version;
 		this.camera = camera || new Camera();
 
 		// Only add to the default internal scene if the camera doesn't already have a parent.
@@ -259,6 +290,20 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			shCoeffs: this.shCoeffs,
 			shAmbientCoeffs: this.shAmbientCoeffs,
 			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+			incremental: {
+				enabled: false,
+				forceFullFrame: true,
+				dirtyRects: [{
+					x: 0,
+					y: 0,
+					width: Math.max(1, this.canvas.width),
+					height: Math.max(1, this.canvas.height),
+				}],
+				dirtyAreaRatio: 1,
+				firstPass: null,
+				reasonMask: renderDirtyReasonToMask("unknown"),
+				temporalHistoryReset: true,
+			},
 			transient,
 		};
 		if (!this.backend.warmup) {
@@ -337,7 +382,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			reflectionProbe.markRuntimeDirty();
 		}
 
-		this.scene.invalidate();
+		this._markFrameDirty("lighting");
 		return true;
 	}
 
@@ -356,8 +401,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.canvas.height = rect.height * this._deviceScaleFactor;
 
 		this.backend.resize(this.canvas.width, this.canvas.height);
-		this._frameDirty = true;
-		this.scene.invalidate();
+		this._markFrameDirty("resize");
 
 		this.camera.aspectRatio = this._getSafeAspectRatio(
 			this.canvas.width,
@@ -366,26 +410,27 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.camera.updateMatrices();
 	}
 
-	public requestRender(): void {
-		this._frameDirty = true;
-		this.scene.invalidate();
+	public requestRender(reason: RenderDirtyReason = "unknown"): void {
+		this._markFrameDirty(reason);
 	}
 
 	public setScene(scene: Scene): void {
 		this._assertCameraInScene(scene, this.camera, "setScene");
 		this.scene = scene;
+		this._lastKnownSceneVersion = scene.version;
+		this._preparedSceneCache.reset();
 		if (this._physicsSystem) {
 			this._physicsSystem.setEntityNodeResolver((entityId) => {
 				return this.scene.ecs.getNodeByEntity(entityId);
 			});
 		}
-		this.scene.invalidate();
+		this._markFrameDirty("unknown");
 	}
 
 	public setCamera(camera: Camera): void {
 		this._assertCameraInScene(this.scene, camera, "setCamera");
 		this.camera = camera;
-		this.scene.invalidate();
+		this._markFrameDirty("camera");
 	}
 
 	public setPhysicsSystem(physicsSystem: PhysicsSystem | null): void {
@@ -407,6 +452,43 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		contributor: FrameTransientContributor
 	): void {
 		this._frameTransientContributors.delete(contributor);
+	}
+
+	public setIncrementalRendering(
+		options: Partial<IncrementalRenderingOptions>
+	): void {
+		const next = mergeIncrementalRenderingOptions(this._incrementalOptions, options);
+		if (
+			next.enabled === this._incrementalOptions.enabled &&
+			next.maxDirtyRects === this._incrementalOptions.maxDirtyRects &&
+			next.fullFrameFallbackAreaRatio ===
+				this._incrementalOptions.fullFrameFallbackAreaRatio &&
+			next.temporalPolicy === this._incrementalOptions.temporalPolicy
+		) {
+			return;
+		}
+		this._incrementalOptions = next;
+		this._preparedSceneCache.reset();
+		this._markFrameDirty("unknown");
+	}
+
+	public getIncrementalRenderingOptions(): IncrementalRenderingOptions {
+		return { ...this._incrementalOptions };
+	}
+
+	public getLastIncrementalFrameStats(): IncrementalFrameStats | null {
+		if (!this._lastIncrementalFrameStats) {
+			return null;
+		}
+		return {
+			...this._lastIncrementalFrameStats,
+			dirtyRects: this._lastIncrementalFrameStats.dirtyRects.map((rect) => ({
+				x: rect.x,
+				y: rect.y,
+				width: rect.width,
+				height: rect.height,
+			})),
+		};
 	}
 
 	public setStageGraph(stages: RendererStageDefinition[]): void {
@@ -435,6 +517,50 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		console.warn(message);
 	}
 
+	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {
+		this._frameDirty = true;
+		const reasonMask = renderDirtyReasonToMask(reason);
+		this._pendingDirtyReasonMask |= reasonMask;
+		this.scene.invalidate(reason);
+	}
+
+	private _consumeDirtyReasonMask(): number {
+		const sceneReasonMask = this.scene.consumeDirtyReasonMask();
+		const combinedMask = this._pendingDirtyReasonMask | sceneReasonMask;
+		this._pendingDirtyReasonMask = 0;
+		return combinedMask >>> 0;
+	}
+
+	private _buildIncrementalFrameContext(
+		plan: ReturnType<typeof IncrementalFramePlanner.plan>,
+		prepared: PreparedSceneCacheBuildResult
+	): IncrementalFrameContext {
+		const enabled = this._incrementalOptions.enabled;
+		const forceFullFrame = plan.forceFullFrame || prepared.forceFullFrame;
+		const fullFrameRect = {
+			x: 0,
+			y: 0,
+			width: Math.max(1, this.canvas.width),
+			height: Math.max(1, this.canvas.height),
+		};
+		let dirtyRects =
+			enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
+		let dirtyAreaRatio = enabled && !forceFullFrame ? prepared.dirtyAreaRatio : 1;
+		if (enabled && !forceFullFrame && dirtyRects.length === 0 && plan.firstPass) {
+			dirtyRects = [fullFrameRect];
+			dirtyAreaRatio = 1;
+		}
+		return {
+			enabled,
+			forceFullFrame,
+			dirtyRects,
+			dirtyAreaRatio,
+			firstPass: forceFullFrame ? null : plan.firstPass,
+			reasonMask: plan.reasonMask,
+			temporalHistoryReset: plan.temporalHistoryReset || forceFullFrame,
+		};
+	}
+
 	public async renderScene(now: number): Promise<void> {
 		this._deltaTime = now - (this.lastTime || now);
 		this.lastTime = now;
@@ -444,10 +570,25 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		const hasParticleSystems = this.scene.getParticleSystems().length > 0;
 		const hasActiveAnimations = this.animationSystem.hasActiveActions();
+		if (hasParticleSystems) {
+			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("particles");
+		}
+		if (this.animationAutoRender && hasActiveAnimations) {
+			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("transform");
+		}
 		const hasDynamicTextureUpdates = Texture.updateDynamicTextures(now);
 		if (hasDynamicTextureUpdates) {
+			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("texture");
 			this._frameDirty = true;
 		}
+		if (
+			this.scene.version !== this._lastKnownSceneVersion ||
+			this.scene.dirtyReasonMask !== 0
+		) {
+			this._frameDirty = true;
+			this._lastKnownSceneVersion = this.scene.version;
+		}
+
 		if (
 			!this._frameDirty &&
 			this.backend.frameScheduling === "on-demand" &&
@@ -460,6 +601,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 
 		this._frameDirty = false;
+		const frameDirtyReasonMask = this._consumeDirtyReasonMask();
 		const transient = new Map<string, any>();
 		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
@@ -481,9 +623,24 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
+		let preparedResult: PreparedSceneCacheBuildResult | null = null;
 		let context: FrameContext | null = null;
 		let frameStarted = false;
 		let emittedPostAnimation = false;
+		let incrementalFrameContext: IncrementalFrameContext = {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{
+				x: 0,
+				y: 0,
+				width: Math.max(1, this.canvas.width),
+				height: Math.max(1, this.canvas.height),
+			}],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			reasonMask: frameDirtyReasonMask,
+			temporalHistoryReset: true,
+		};
 
 		const stageOrder = this._stageGraph.getExecutionOrder(
 			{
@@ -492,6 +649,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			},
 			(key, message) => this.warnOnce(key, message)
 		);
+		const stageIndexById = new Map<string, number>();
+		for (let index = 0; index < stageOrder.length; index++) {
+			stageIndexById.set(stageOrder[index].id, index);
+		}
+		let incrementalStartStageIndex = -1;
 		const hasAnimationStage = stageOrder.some(
 			(stage) => stage.id === "animation-sim"
 		);
@@ -558,7 +720,45 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					if (this.features.enableSH) {
 						this.updateSH();
 					}
-					frame = PreparedSceneBuilder.build(this);
+					preparedResult = this._preparedSceneCache.build({
+						renderer: this,
+						viewportWidth: this.canvas.width,
+						viewportHeight: this.canvas.height,
+						features: resolved,
+						incrementalOptions: this._incrementalOptions,
+					});
+					frame = preparedResult.frame;
+					const incrementalPlan = IncrementalFramePlanner.plan({
+						enabled: this._incrementalOptions.enabled,
+						reasonMask: frameDirtyReasonMask,
+						features: resolved,
+					});
+					incrementalFrameContext = this._buildIncrementalFrameContext(
+						incrementalPlan,
+						preparedResult
+					);
+					incrementalStartStageIndex =
+						incrementalFrameContext.enabled &&
+						!incrementalFrameContext.forceFullFrame &&
+						incrementalFrameContext.firstPass ?
+							(stageIndexById.get(incrementalFrameContext.firstPass) ?? -1)
+						:	-1;
+					this._lastIncrementalFrameStats = {
+						enabled: incrementalFrameContext.enabled,
+						reasonMask: incrementalFrameContext.reasonMask,
+						forceFullFrame: incrementalFrameContext.forceFullFrame,
+						temporalHistoryReset:
+							incrementalFrameContext.temporalHistoryReset,
+						firstPass: incrementalFrameContext.firstPass,
+						dirtyRectCount: incrementalFrameContext.dirtyRects.length,
+						dirtyAreaRatio: incrementalFrameContext.dirtyAreaRatio,
+						dirtyRects: incrementalFrameContext.dirtyRects.map((rect) => ({
+							x: rect.x,
+							y: rect.y,
+							width: rect.width,
+							height: rect.height,
+						})),
+					};
 					const attachments = this.backend.getAttachments(
 						this.canvas.width,
 						this.canvas.height
@@ -572,6 +772,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						shCoeffs: this.shCoeffs,
 						shAmbientCoeffs: this.shAmbientCoeffs,
 						worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+						incremental: incrementalFrameContext,
 						transient,
 					};
 					await this.backend.beginFrame(context);
@@ -585,7 +786,24 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				default: {
 					if (!context || !frame) break;
 					if (!this._isBackendPassStage(stage.id)) break;
-					if (!this._shouldRunBackendPass(stage.id, frame, resolved, transient)) {
+					if (
+						incrementalStartStageIndex >= 0 &&
+						(stageIndexById.get(stage.id) ?? Number.MAX_SAFE_INTEGER) <
+							incrementalStartStageIndex
+					) {
+						const skippedPass = this._createBackendPass(stage.id);
+						this.backend.skipPass?.(skippedPass);
+						break;
+					}
+					if (
+						!this._shouldRunBackendPass(
+							stage.id,
+							frame,
+							resolved,
+							transient,
+							incrementalFrameContext
+						)
+					) {
 						const skippedPass = this._createBackendPass(stage.id);
 						this.backend.skipPass?.(skippedPass);
 						break;
@@ -712,8 +930,16 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		stage: string,
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
 		features: ReturnType<typeof resolveFeatureState>,
-		transient: Map<string, any>
+		transient: Map<string, any>,
+		incremental?: IncrementalFrameContext
 	): boolean {
+		if (
+			incremental?.enabled &&
+			!incremental.forceFullFrame &&
+			incremental.dirtyRects.length === 0
+		) {
+			return false;
+		}
 		switch (stage) {
 			case "particle-sim":
 				return (frame.particleSystems?.length ?? 0) > 0;

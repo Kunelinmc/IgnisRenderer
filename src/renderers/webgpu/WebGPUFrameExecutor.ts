@@ -201,6 +201,12 @@ export class WebGPUFrameExecutor {
 
 		this._ensureMRTSupport();
 		this._handleFeatureHistoryTransitions(context);
+		if (context.incremental?.temporalHistoryReset) {
+			this._taaHistoryValid = false;
+			this._ssrHistoryValid = false;
+			this._volumetricHistoryValid = false;
+			this._motionHistoryValid = false;
+		}
 		if (this._mrtEnabled) {
 			const ssaoDownsample = clampDownsample(
 				context.features.ssaoOptions?.downsample,
@@ -413,13 +419,21 @@ export class WebGPUFrameExecutor {
 			[
 				"main-opaque",
 				async (context) => {
-					await this._recordMainPass(context.scene.opaquePackets, true);
+					await this._recordMainPass(
+						context,
+						context.scene.opaquePackets,
+						true
+					);
 				},
 			],
 			[
 				"main-transparent",
 				async (context) => {
-					await this._recordMainPass(context.scene.transparentPackets, false);
+					await this._recordMainPass(
+						context,
+						context.scene.transparentPackets,
+						false
+					);
 				},
 			],
 			[
@@ -1231,6 +1245,44 @@ export class WebGPUFrameExecutor {
 		this._featureHistoryKey = historyKey;
 	}
 
+	private _isIncrementalPartial(context: FrameContext | null): boolean {
+		if (!context?.incremental) {
+			return false;
+		}
+		return (
+			context.incremental.enabled &&
+			!context.incremental.forceFullFrame &&
+			context.incremental.dirtyRects.length > 0
+		);
+	}
+
+	private _resolveDirtyRects(
+		context: FrameContext | null
+	): Array<{ x: number; y: number; width: number; height: number }> {
+		if (!context) {
+			return [{
+				x: 0,
+				y: 0,
+				width: Math.max(1, this._targetWidth),
+				height: Math.max(1, this._targetHeight),
+			}];
+		}
+		if (!this._isIncrementalPartial(context)) {
+			return [{
+				x: 0,
+				y: 0,
+				width: Math.max(1, context.attachments.width),
+				height: Math.max(1, context.attachments.height),
+			}];
+		}
+		return context.incremental.dirtyRects.map((rect) => ({
+			x: Math.max(0, Math.floor(rect.x)),
+			y: Math.max(0, Math.floor(rect.y)),
+			width: Math.max(1, Math.floor(rect.width)),
+			height: Math.max(1, Math.floor(rect.height)),
+		}));
+	}
+
 	private _warnOnce(key: string, message: string): void {
 		if (this._warnedKeys.has(key)) return;
 		this._warnedKeys.add(key);
@@ -1376,20 +1428,26 @@ export class WebGPUFrameExecutor {
 		});
 		this._encoder.setPipeline(this._presentPipeline);
 		this._encoder.setBindingGroup(0, this._presentBinding);
-		this._encoder.draw(3);
+		const dirtyRects = this._resolveDirtyRects(this._frameContext);
+		for (const rect of dirtyRects) {
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			this._encoder.draw(3);
+		}
 		this._encoder.endRenderPass();
 		this._hasPresentedInFrame = true;
 	}
 
 	private async _recordMainPass(
+		context: FrameContext,
 		packets: DrawPacket[],
 		clearAttachments: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
 		await this._resources.buildClusteredLighting(this._encoder);
+		const incrementalPartial = this._isIncrementalPartial(context);
 		if (!this._mrtEnabled || !this._frameTargets) {
 			this._resources.setSceneTargetMode("single");
-			await this._recordLegacyMainPass(packets, clearAttachments);
+			await this._recordLegacyMainPass(context, packets, clearAttachments);
 			return;
 		}
 		this._resources.setSceneTargetMode("mrt");
@@ -1405,9 +1463,10 @@ export class WebGPUFrameExecutor {
 		const gMotionAttachment =
 			msaaTargets?.gMotionDepth ?? this._frameTargets.gMotionDepth;
 		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
+		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 
 		let skyboxDrawn = false;
-		if (clearAttachments) {
+		if (shouldClearAttachments) {
 			const skyboxResources = await this._resources.getSkyboxResources();
 			if (skyboxResources) {
 				this._encoder.beginRenderPass({
@@ -1438,14 +1497,15 @@ export class WebGPUFrameExecutor {
 		}
 
 		this._encoder.beginRenderPass({
-			label: clearAttachments ? "WebGPUMainMRT_Clear" : "WebGPUMainMRT_Load",
+			label:
+				shouldClearAttachments ? "WebGPUMainMRT_Clear" : "WebGPUMainMRT_Load",
 			colorAttachments: [
 				{
 					view: sceneColorAttachment,
 					resolveTarget:
 						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
+					loadOp: shouldClearAttachments && !skyboxDrawn ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -1453,7 +1513,7 @@ export class WebGPUFrameExecutor {
 					resolveTarget:
 						msaaTargets ? this._frameTargets.gAlbedoAlpha : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -1461,7 +1521,7 @@ export class WebGPUFrameExecutor {
 					resolveTarget:
 						msaaTargets ? this._frameTargets.gNormalRoughMetal : undefined,
 					clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -1469,7 +1529,7 @@ export class WebGPUFrameExecutor {
 					resolveTarget:
 						msaaTargets ? this._frameTargets.gEmissiveOcclusion : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -1477,30 +1537,37 @@ export class WebGPUFrameExecutor {
 					resolveTarget:
 						msaaTargets ? this._frameTargets.gMotionDepth : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
 				view: depthAttachment,
 				depthClearValue: 1,
-				depthLoadOp: clearAttachments && !skyboxDrawn ? "clear" : "load",
+				depthLoadOp:
+					incrementalPartial || (shouldClearAttachments && !skyboxDrawn) ?
+						"clear"
+					:	"load",
 				depthStoreOp: "store",
 			},
 		});
 
-		for (const packet of packets) {
-			const resourcesList = await this._resources.getDrawResources(packet);
-			if (!resourcesList) continue;
+		const dirtyRects = this._resolveDirtyRects(context);
+		for (const rect of dirtyRects) {
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			for (const packet of packets) {
+				const resourcesList = await this._resources.getDrawResources(packet);
+				if (!resourcesList) continue;
 
-			for (const resources of resourcesList) {
-				this._encoder.setPipeline(resources.pipeline);
-				this._encoder.setBindingGroup(0, resources.frameBinding);
-				this._encoder.setBindingGroup(1, resources.modelBinding);
-				this._encoder.setBindingGroup(2, resources.clusteredBinding);
-				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-				this._encoder.drawIndexed(resources.indexCount);
+				for (const resources of resourcesList) {
+					this._encoder.setPipeline(resources.pipeline);
+					this._encoder.setBindingGroup(0, resources.frameBinding);
+					this._encoder.setBindingGroup(1, resources.modelBinding);
+					this._encoder.setBindingGroup(2, resources.clusteredBinding);
+					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+					this._encoder.drawIndexed(resources.indexCount);
+				}
 			}
 		}
 
@@ -1508,32 +1575,36 @@ export class WebGPUFrameExecutor {
 	}
 
 	private async _recordLegacyMainPass(
+		context: FrameContext,
 		packets: DrawPacket[],
 		clearAttachments: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
 		await this._resources.buildClusteredLighting(this._encoder);
+		const incrementalPartial = this._isIncrementalPartial(context);
 		const colorTexture = this._backend.getCanvasColorTexture();
 		const depthTexture = this._backend.getCanvasDepthTexture();
+		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 
 		this._encoder.beginRenderPass({
 			colorAttachments: [
 				{
 					view: colorTexture,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearAttachments ? "clear" : "load",
+					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
 				view: depthTexture,
 				depthClearValue: 1,
-				depthLoadOp: clearAttachments ? "clear" : "load",
+				depthLoadOp:
+					incrementalPartial || shouldClearAttachments ? "clear" : "load",
 				depthStoreOp: "store",
 			},
 		});
 
-		if (clearAttachments) {
+		if (shouldClearAttachments) {
 			const skyboxResources = await this._resources.getSkyboxResources();
 			if (skyboxResources) {
 				this._encoder.setPipeline(skyboxResources.pipeline);
@@ -1542,18 +1613,22 @@ export class WebGPUFrameExecutor {
 			}
 		}
 
-		for (const packet of packets) {
-			const resourcesList = await this._resources.getDrawResources(packet);
-			if (!resourcesList) continue;
+		const dirtyRects = this._resolveDirtyRects(context);
+		for (const rect of dirtyRects) {
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			for (const packet of packets) {
+				const resourcesList = await this._resources.getDrawResources(packet);
+				if (!resourcesList) continue;
 
-			for (const resources of resourcesList) {
-				this._encoder.setPipeline(resources.pipeline);
-				this._encoder.setBindingGroup(0, resources.frameBinding);
-				this._encoder.setBindingGroup(1, resources.modelBinding);
-				this._encoder.setBindingGroup(2, resources.clusteredBinding);
-				this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-				this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-				this._encoder.drawIndexed(resources.indexCount);
+				for (const resources of resourcesList) {
+					this._encoder.setPipeline(resources.pipeline);
+					this._encoder.setBindingGroup(0, resources.frameBinding);
+					this._encoder.setBindingGroup(1, resources.modelBinding);
+					this._encoder.setBindingGroup(2, resources.clusteredBinding);
+					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+					this._encoder.drawIndexed(resources.indexCount);
+				}
 			}
 		}
 

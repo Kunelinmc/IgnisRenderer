@@ -165,16 +165,53 @@ export class SoftwareBackend implements IRenderBackend {
 		this._particleSimulator?.beginFrame(context);
 
 		const pixels = context.attachments.pixels!;
-		const size = pixels.length >> 2;
-		for (let i = 0; i < size; i++) {
-			const index = i << 2;
-			pixels[index] = 0;
-			pixels[index + 1] = 0;
-			pixels[index + 2] = 0;
-			pixels[index + 3] = 255;
+		const depthBuffer = context.attachments.depthBuffer!;
+		const normalBuffer = context.attachments.normalBuffer;
+		const frameWidth = context.attachments.width;
+		const frameHeight = context.attachments.height;
+		const incrementalPartial = this._isIncrementalPartial(context);
+		const dirtyRects = this._resolveDirtyRects(context);
+
+		if (!incrementalPartial) {
+			const size = pixels.length >> 2;
+			for (let i = 0; i < size; i++) {
+				const index = i << 2;
+				pixels[index] = 0;
+				pixels[index + 1] = 0;
+				pixels[index + 2] = 0;
+				pixels[index + 3] = 255;
+			}
+			depthBuffer.fill(Infinity);
+			normalBuffer?.fill(0);
+		} else {
+			for (const rect of dirtyRects) {
+				const minX = Math.max(0, Math.floor(rect.x));
+				const minY = Math.max(0, Math.floor(rect.y));
+				const maxX = Math.min(frameWidth, Math.ceil(rect.x + rect.width));
+				const maxY = Math.min(frameHeight, Math.ceil(rect.y + rect.height));
+				if (minX >= maxX || minY >= maxY) {
+					continue;
+				}
+
+				for (let y = minY; y < maxY; y++) {
+					const rowStart = y * frameWidth;
+					for (let x = minX; x < maxX; x++) {
+						const pixelIndex = ((rowStart + x) << 2);
+						pixels[pixelIndex] = 0;
+						pixels[pixelIndex + 1] = 0;
+						pixels[pixelIndex + 2] = 0;
+						pixels[pixelIndex + 3] = 255;
+						depthBuffer[rowStart + x] = Infinity;
+						if (normalBuffer) {
+							const normalIndex = (rowStart + x) * 3;
+							normalBuffer[normalIndex] = 0;
+							normalBuffer[normalIndex + 1] = 0;
+							normalBuffer[normalIndex + 2] = 0;
+						}
+					}
+				}
+			}
 		}
-		context.attachments.depthBuffer.fill(Infinity);
-		context.attachments.normalBuffer?.fill(0);
 
 		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
 		syncShadowMapRegistry(context.shadowMaps, shadowLights);
@@ -190,7 +227,7 @@ export class SoftwareBackend implements IRenderBackend {
 			}
 		}
 
-		if (context.features.enableSkybox && context.scene.skybox) {
+		if (!incrementalPartial && context.features.enableSkybox && context.scene.skybox) {
 			SkyboxRenderer.render(
 				context.scene.skybox,
 				pixels,
@@ -240,6 +277,57 @@ export class SoftwareBackend implements IRenderBackend {
 			return 0;
 		}
 		return Math.max(0, value);
+	}
+
+	private _isIncrementalPartial(context: FrameContext): boolean {
+		const incremental = (
+			context as FrameContext & { incremental?: FrameContext["incremental"] }
+		).incremental;
+		if (!incremental) {
+			return false;
+		}
+		return (
+			incremental.enabled &&
+			!incremental.forceFullFrame &&
+			incremental.dirtyRects.length > 0
+		);
+	}
+
+	private _resolveDirtyRects(
+		context: FrameContext
+	): Array<{ x: number; y: number; width: number; height: number }> {
+		const width = Math.max(1, context.attachments.width | 0);
+		const height = Math.max(1, context.attachments.height | 0);
+		if (!this._isIncrementalPartial(context)) {
+			return [{
+				x: 0,
+				y: 0,
+				width,
+				height,
+			}];
+		}
+		const result: Array<{ x: number; y: number; width: number; height: number }> = [];
+		const incremental = (
+			context as FrameContext & { incremental?: FrameContext["incremental"] }
+		).incremental;
+		for (const rect of incremental?.dirtyRects ?? []) {
+			const minX = Math.max(0, Math.floor(rect.x));
+			const minY = Math.max(0, Math.floor(rect.y));
+			const maxX = Math.min(width, Math.ceil(rect.x + rect.width));
+			const maxY = Math.min(height, Math.ceil(rect.y + rect.height));
+			const rectWidth = maxX - minX;
+			const rectHeight = maxY - minY;
+			if (rectWidth <= 0 || rectHeight <= 0) {
+				continue;
+			}
+			result.push({
+				x: minX,
+				y: minY,
+				width: rectWidth,
+				height: rectHeight,
+			});
+		}
+		return result;
 	}
 
 	private _getFrameImageData(renderer: RendererBackendBridge): ImageData {

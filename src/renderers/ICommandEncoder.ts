@@ -45,6 +45,14 @@ export interface ICommandEncoder {
 		firstInstance?: number
 	): void;
 
+	/** Optional render-pass scissor rect for partial updates */
+	setScissorRect?(
+		x: number,
+		y: number,
+		width: number,
+		height: number
+	): void;
+
 	/** End the current render pass */
 	endRenderPass(): void;
 

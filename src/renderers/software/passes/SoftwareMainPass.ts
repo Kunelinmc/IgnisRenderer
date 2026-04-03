@@ -89,9 +89,12 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 function collectProjectedTriangles(
 	context: FrameContext,
 	packets: DrawPacket[],
-	transparent: boolean
+	transparent: boolean,
+	dirtyRects: TileClipRect[] | null = null
 ): TileTriangleWorkItem[] {
 	const triangles: TileTriangleWorkItem[] = [];
+	const frameWidth = context.attachments.width;
+	const frameHeight = context.attachments.height;
 
 	for (const packet of packets) {
 		const faces = Projector.projectPacket(packet, context);
@@ -102,11 +105,24 @@ function collectProjectedTriangles(
 		for (const face of faces) {
 			const projected = face.projected;
 			for (let i = 1; i < projected.length - 1; i++) {
-				triangles.push({
+				const triangle: TileTriangleWorkItem = {
 					index: triangles.length,
 					pts: [projected[0], projected[i], projected[i + 1]],
 					face,
-				});
+				};
+				if (
+					dirtyRects &&
+					dirtyRects.length > 0 &&
+					!triangleIntersectsAnyDirtyRect(
+						triangle,
+						frameWidth,
+						frameHeight,
+						dirtyRects
+					)
+				) {
+					continue;
+				}
+				triangles.push(triangle);
 			}
 		}
 	}
@@ -203,6 +219,93 @@ function createTileClipRect(
 	};
 }
 
+function resolveDirtyClipRects(context: FrameContext): TileClipRect[] {
+	const width = Math.max(1, context.attachments.width);
+	const height = Math.max(1, context.attachments.height);
+	const incremental = (
+		context as FrameContext & { incremental?: FrameContext["incremental"] }
+	).incremental;
+	if (
+		!incremental ||
+		!incremental.enabled ||
+		incremental.forceFullFrame ||
+		incremental.dirtyRects.length === 0
+	) {
+		return [{
+			minX: 0,
+			minY: 0,
+			maxX: width - 1,
+			maxY: height - 1,
+		}];
+	}
+
+	const dirtyRects: TileClipRect[] = [];
+	for (const rect of incremental.dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.x));
+		const minY = Math.max(0, Math.floor(rect.y));
+		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+		if (minX > maxX || minY > maxY) {
+			continue;
+		}
+		dirtyRects.push({
+			minX,
+			minY,
+			maxX,
+			maxY,
+		});
+	}
+	return dirtyRects;
+}
+
+function clipRectsIntersect(left: TileClipRect, right: TileClipRect): boolean {
+	return !(
+		left.maxX < right.minX ||
+		left.minX > right.maxX ||
+		left.maxY < right.minY ||
+		left.minY > right.maxY
+	);
+}
+
+function intersectsAnyDirtyRect(
+	rect: TileClipRect,
+	dirtyRects: TileClipRect[]
+): boolean {
+	for (const dirtyRect of dirtyRects) {
+		if (clipRectsIntersect(rect, dirtyRect)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function triangleIntersectsAnyDirtyRect(
+	triangle: TileTriangleWorkItem,
+	width: number,
+	height: number,
+	dirtyRects: TileClipRect[]
+): boolean {
+	const p0 = triangle.pts[0];
+	const p1 = triangle.pts[1];
+	const p2 = triangle.pts[2];
+	const minX = Math.max(0, Math.ceil(Math.min(p0.x, p1.x, p2.x) - 0.5));
+	const maxX = Math.min(width - 1, Math.floor(Math.max(p0.x, p1.x, p2.x) - 0.5));
+	const minY = Math.max(0, Math.ceil(Math.min(p0.y, p1.y, p2.y) - 0.5));
+	const maxY = Math.min(height - 1, Math.floor(Math.max(p0.y, p1.y, p2.y) - 0.5));
+	if (minX > maxX || minY > maxY) {
+		return false;
+	}
+	return intersectsAnyDirtyRect(
+		{
+			minX,
+			minY,
+			maxX,
+			maxY,
+		},
+		dirtyRects
+	);
+}
+
 class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
 
@@ -215,26 +318,28 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 		packets: DrawPacket[],
 		transparent: boolean
 	): Promise<void> {
+		const dirtyRects = resolveDirtyClipRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
+		const triangles = collectProjectedTriangles(
+			context,
+			packets,
+			transparent,
+			dirtyRects
+		);
+		if (triangles.length === 0) {
+			return;
+		}
 		const rasterizerContext = createRasterizerContext(context);
-
-		for (const packet of packets) {
-			const faces = Projector.projectPacket(packet, context);
-			if (transparent) {
-				faces.sort((left, right) => right.depthInfo.avg - left.depthInfo.avg);
-			}
-
-			for (const face of faces) {
-				const projected = face.projected;
-				for (let i = 1; i < projected.length - 1; i++) {
-					this._rasterizer.drawTriangle(
-						[projected[0], projected[i], projected[i + 1]],
-						face,
-						context.attachments.pixels!,
-						rasterizerContext,
-						transparent
-					);
-				}
-			}
+		for (const triangle of triangles) {
+			this._rasterizer.drawTriangle(
+				triangle.pts,
+				triangle.face,
+				context.attachments.pixels!,
+				rasterizerContext,
+				transparent
+			);
 		}
 	}
 
@@ -301,7 +406,16 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			return;
 		}
 
-		const triangles = collectProjectedTriangles(context, packets, transparent);
+		const dirtyRects = resolveDirtyClipRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
+		const triangles = collectProjectedTriangles(
+			context,
+			packets,
+			transparent,
+			dirtyRects
+		);
 		if (triangles.length === 0) return;
 
 		const width = context.attachments.width;
@@ -348,7 +462,8 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 				clipRect.minX > clipRect.maxX ||
 				clipRect.minY > clipRect.maxY ||
 				tileIndex < 0 ||
-				tileIndex >= tileColumns * tileRows
+				tileIndex >= tileColumns * tileRows ||
+				!intersectsAnyDirtyRect(clipRect, dirtyRects)
 			) {
 				continue;
 			}

@@ -224,7 +224,7 @@ export class SobelNormalMapper {
 	 */
 	public invalidate(): void {
 		this._pendingForceUpdate = true;
-		this._renderer?.requestRender();
+		this._renderer?.requestRender("texture");
 	}
 
 	/**

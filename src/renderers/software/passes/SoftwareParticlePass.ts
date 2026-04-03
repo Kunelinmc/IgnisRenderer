@@ -24,6 +24,10 @@ export class SoftwareParticlePass {
 			| undefined;
 		if (!batches || batches.length === 0) return;
 		if (!context.attachments.pixels || !context.attachments.depthBuffer) return;
+		const dirtyRects = resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 		const sampleShadow = createSoftwareShadowSampler(
@@ -33,7 +37,13 @@ export class SoftwareParticlePass {
 
 		for (const batch of batches) {
 			for (const particle of batch.particles) {
-				this._drawParticle(context, batch, particle, sampleShadow);
+				this._drawParticle(
+					context,
+					batch,
+					particle,
+					sampleShadow,
+					dirtyRects
+				);
 			}
 		}
 	}
@@ -42,7 +52,8 @@ export class SoftwareParticlePass {
 		context: FrameContext,
 		batch: ParticleRenderBatch,
 		particle: ParticleRenderItem,
-		sampleShadow: ReturnType<typeof createSoftwareShadowSampler>
+		sampleShadow: ReturnType<typeof createSoftwareShadowSampler>,
+		dirtyRects: Array<{ minX: number; minY: number; maxX: number; maxY: number }>
 	): void {
 		const attachments = context.attachments;
 		const width = attachments.width;
@@ -80,6 +91,9 @@ export class SoftwareParticlePass {
 		const minY = Math.max(0, Math.floor(centerY - radiusPx));
 		const maxY = Math.min(height - 1, Math.ceil(centerY + radiusPx));
 		if (minX > maxX || minY > maxY) return;
+		if (!intersectsDirtyRects(minX, minY, maxX, maxY, dirtyRects)) {
+			return;
+		}
 
 		const shadowVisibility =
 			batch.receiveShadows && context.features.enableShadows ?
@@ -196,4 +210,65 @@ export class SoftwareParticlePass {
 		}
 		return clamp(visibility);
 	}
+}
+
+function resolveDirtyRects(
+	context: FrameContext
+): Array<{ minX: number; minY: number; maxX: number; maxY: number }> {
+	const width = Math.max(1, context.attachments.width);
+	const height = Math.max(1, context.attachments.height);
+	const incremental = (
+		context as FrameContext & { incremental?: FrameContext["incremental"] }
+	).incremental;
+	if (
+		!incremental ||
+		!incremental.enabled ||
+		incremental.forceFullFrame ||
+		incremental.dirtyRects.length === 0
+	) {
+		return [{
+			minX: 0,
+			minY: 0,
+			maxX: width - 1,
+			maxY: height - 1,
+		}];
+	}
+	const dirtyRects: Array<{ minX: number; minY: number; maxX: number; maxY: number }> =
+		[];
+	for (const rect of incremental.dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.x));
+		const minY = Math.max(0, Math.floor(rect.y));
+		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+		if (minX > maxX || minY > maxY) {
+			continue;
+		}
+		dirtyRects.push({
+			minX,
+			minY,
+			maxX,
+			maxY,
+		});
+	}
+	return dirtyRects;
+}
+
+function intersectsDirtyRects(
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+	dirtyRects: Array<{ minX: number; minY: number; maxX: number; maxY: number }>
+): boolean {
+	for (const rect of dirtyRects) {
+		if (
+			maxX >= rect.minX &&
+			minX <= rect.maxX &&
+			maxY >= rect.minY &&
+			minY <= rect.maxY
+		) {
+			return true;
+		}
+	}
+	return false;
 }

@@ -64,6 +64,13 @@ interface WorldRay extends IVector3 {
 
 type VolumetricLight = DirectionalLight | PointLight | SpotLight;
 
+interface IncrementalDirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
 /**
  * PostProcessor handles various image-space effects like FXAA, Volumetric Lighting, and Gamma Correction.
  */
@@ -256,6 +263,76 @@ export class PostProcessor implements PostProcessorLike {
 	private _toFiniteNumber(value: unknown, fallback: number): number {
 		if (typeof value === "number" && Number.isFinite(value)) return value;
 		return fallback;
+	}
+
+	private _resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
+		const width = Math.max(1, context.attachments.width);
+		const height = Math.max(1, context.attachments.height);
+		const incremental = (
+			context as FrameContext & { incremental?: FrameContext["incremental"] }
+		).incremental;
+		if (
+			!incremental ||
+			!incremental.enabled ||
+			incremental.forceFullFrame ||
+			incremental.dirtyRects.length === 0
+		) {
+			return [{
+				minX: 0,
+				minY: 0,
+				maxX: width - 1,
+				maxY: height - 1,
+			}];
+		}
+		const dirtyRects: IncrementalDirtyRect[] = [];
+		for (const rect of incremental.dirtyRects) {
+			const minX = Math.max(0, Math.floor(rect.x));
+			const minY = Math.max(0, Math.floor(rect.y));
+			const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+			const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+			if (minX > maxX || minY > maxY) {
+				continue;
+			}
+			dirtyRects.push({
+				minX,
+				minY,
+				maxX,
+				maxY,
+			});
+		}
+		return dirtyRects;
+	}
+
+	private _forEachDirtyRect(
+		dirtyRects: IncrementalDirtyRect[],
+		callback: (rect: IncrementalDirtyRect) => void
+	): void {
+		for (const rect of dirtyRects) {
+			if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
+				continue;
+			}
+			callback(rect);
+		}
+	}
+
+	private _rectIntersectsDirtyRects(
+		minX: number,
+		minY: number,
+		maxX: number,
+		maxY: number,
+		dirtyRects: IncrementalDirtyRect[]
+	): boolean {
+		for (const rect of dirtyRects) {
+			if (
+				maxX >= rect.minX &&
+				minX <= rect.maxX &&
+				maxY >= rect.minY &&
+				minY <= rect.maxY
+			) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private _samplePreviousVolumetric(
@@ -498,6 +575,11 @@ export class PostProcessor implements PostProcessorLike {
 			this._fxaaOutput = new Uint8ClampedArray(pixels.length);
 		}
 		const output = this._fxaaOutput;
+		output.set(pixels);
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 
 		const lumaSize = w * h;
 		if (!this._lumaBuf || this._lumaBuf.length !== lumaSize) {
@@ -522,12 +604,13 @@ export class PostProcessor implements PostProcessorLike {
 
 		const outCol = { r: 0, g: 0, b: 0, a: 0 };
 
-		for (let y = 0; y < h; y++) {
-			const row = y * w;
-			for (let x = 0; x < w; x++) {
-				const i = row + x;
-				const idx = i << 2;
-				const L = luma[i];
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * w;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const i = row + x;
+					const idx = i << 2;
+					const L = luma[i];
 
 				// Neighbor lumas
 				const Ln = y > 0 ? luma[i - w] : L;
@@ -642,18 +725,19 @@ export class PostProcessor implements PostProcessorLike {
 				const pixelOffset = Math.max(subpixOffset, edgeOffset);
 
 				// Sample final color
-				let finalX = x,
-					finalY = y;
-				if (isHorz) finalY += stepSign * pixelOffset;
-				else finalX += stepSign * pixelOffset;
+					let finalX = x,
+						finalY = y;
+					if (isHorz) finalY += stepSign * pixelOffset;
+					else finalX += stepSign * pixelOffset;
 
-				this._sampleBilinear(pixels, w, h, finalX, finalY, outCol);
-				output[idx] = outCol.r;
-				output[idx + 1] = outCol.g;
-				output[idx + 2] = outCol.b;
-				output[idx + 3] = outCol.a;
+					this._sampleBilinear(pixels, w, h, finalX, finalY, outCol);
+					output[idx] = outCol.r;
+					output[idx + 1] = outCol.g;
+					output[idx + 2] = outCol.b;
+					output[idx + 3] = outCol.a;
+				}
 			}
-		}
+		});
 
 		if (imageData) {
 			imageData.data.set(output);
@@ -677,6 +761,10 @@ export class PostProcessor implements PostProcessorLike {
 		const { width: w, height: h } = context.attachments;
 		const pixels = context.attachments.pixels;
 		if (!pixels || !context.attachments.depthBuffer) return;
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 
 		const lights = context.scene.lights || [];
 		const volLights = lights.filter(
@@ -1082,10 +1170,20 @@ export class PostProcessor implements PostProcessorLike {
 				this._toFiniteNumber(options.bilateralDepthSigma, 0.05),
 				near,
 				far,
-				options.isLinearDepth !== false
+				options.isLinearDepth !== false,
+				dirtyRects
 			);
 		} else {
-			this._bilinearUpscale(pixels, scatterBuf, w, h, gridW, gridH, ds);
+			this._bilinearUpscale(
+				pixels,
+				scatterBuf,
+				w,
+				h,
+				gridW,
+				gridH,
+				ds,
+				dirtyRects
+			);
 		}
 
 		if (imageData) ctx.putImageData(imageData, 0, 0);
@@ -1104,97 +1202,100 @@ export class PostProcessor implements PostProcessorLike {
 		depthSigma: number,
 		near: number,
 		far: number,
-		isLinearDepth: boolean
+		isLinearDepth: boolean,
+		dirtyRects: IncrementalDirtyRect[]
 	): void {
 		const invSigmaSq2 = 1.0 / (2.0 * depthSigma * depthSigma);
-		for (let y = 0; y < h; y++) {
-			const fy = (y + 0.5) / ds - 0.5;
-			const ly0 = Math.max(0, Math.floor(fy)),
-				ly1 = Math.min(lowH - 1, ly0 + 1),
-				ty = clamp(fy - ly0);
-			for (let x = 0; x < w; x++) {
-				const fx = (x + 0.5) / ds - 0.5;
-				const lx0 = Math.max(0, Math.floor(fx)),
-					lx1 = Math.min(lowW - 1, lx0 + 1),
-					tx = clamp(fx - lx0);
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const fy = (y + 0.5) / ds - 0.5;
+				const ly0 = Math.max(0, Math.floor(fy));
+				const ly1 = Math.min(lowH - 1, ly0 + 1);
+				const ty = clamp(fy - ly0);
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const fx = (x + 0.5) / ds - 0.5;
+					const lx0 = Math.max(0, Math.floor(fx));
+					const lx1 = Math.min(lowW - 1, lx0 + 1);
+					const tx = clamp(fx - lx0);
 
-				// Fix: ensure currentDepth is also linearized for proper relative difference comparison
-				let currentDepth = depthBuffer[y * w + x];
-				if (currentDepth <= 0) continue;
-				currentDepth = this._linearizeDepth(
-					currentDepth,
-					near,
-					far,
-					isLinearDepth
-				);
+					// Fix: ensure currentDepth is also linearized for proper relative difference comparison
+					let currentDepth = depthBuffer[y * w + x];
+					if (currentDepth <= 0) continue;
+					currentDepth = this._linearizeDepth(
+						currentDepth,
+						near,
+						far,
+						isLinearDepth
+					);
 
-				const idx00 = ly0 * lowW + lx0,
-					idx10 = ly0 * lowW + lx1,
-					idx01 = ly1 * lowW + lx0,
-					idx11 = ly1 * lowW + lx1;
-				const d00 = lowDepthBuf[idx00],
-					d10 = lowDepthBuf[idx10],
-					d01 = lowDepthBuf[idx01],
-					d11 = lowDepthBuf[idx11];
-				const relDiff00 =
-					Math.abs(currentDepth - d00) / Math.max(currentDepth, d00, 1e-6);
-				const relDiff10 =
-					Math.abs(currentDepth - d10) / Math.max(currentDepth, d10, 1e-6);
-				const relDiff01 =
-					Math.abs(currentDepth - d01) / Math.max(currentDepth, d01, 1e-6);
-				const relDiff11 =
-					Math.abs(currentDepth - d11) / Math.max(currentDepth, d11, 1e-6);
-				const depthW00 = Math.exp(-relDiff00 * relDiff00 * invSigmaSq2);
-				const depthW10 = Math.exp(-relDiff10 * relDiff10 * invSigmaSq2);
-				const depthW01 = Math.exp(-relDiff01 * relDiff01 * invSigmaSq2);
-				const depthW11 = Math.exp(-relDiff11 * relDiff11 * invSigmaSq2);
-				const spatialW00 = (1 - tx) * (1 - ty),
-					spatialW10 = tx * (1 - ty),
-					spatialW01 = (1 - tx) * ty,
-					spatialW11 = tx * ty;
-				let w00 = spatialW00 * depthW00,
-					w10 = spatialW10 * depthW10,
-					w01 = spatialW01 * depthW01,
-					w11 = spatialW11 * depthW11;
-				const totalWeight = w00 + w10 + w01 + w11;
-				if (totalWeight > 1e-6) {
-					const invTotal = 1.0 / totalWeight;
-					w00 *= invTotal;
-					w10 *= invTotal;
-					w01 *= invTotal;
-					w11 *= invTotal;
-				} else {
-					w00 = spatialW00;
-					w10 = spatialW10;
-					w01 = spatialW01;
-					w11 = spatialW11;
+					const idx00 = ly0 * lowW + lx0;
+					const idx10 = ly0 * lowW + lx1;
+					const idx01 = ly1 * lowW + lx0;
+					const idx11 = ly1 * lowW + lx1;
+					const d00 = lowDepthBuf[idx00];
+					const d10 = lowDepthBuf[idx10];
+					const d01 = lowDepthBuf[idx01];
+					const d11 = lowDepthBuf[idx11];
+					const relDiff00 =
+						Math.abs(currentDepth - d00) / Math.max(currentDepth, d00, 1e-6);
+					const relDiff10 =
+						Math.abs(currentDepth - d10) / Math.max(currentDepth, d10, 1e-6);
+					const relDiff01 =
+						Math.abs(currentDepth - d01) / Math.max(currentDepth, d01, 1e-6);
+					const relDiff11 =
+						Math.abs(currentDepth - d11) / Math.max(currentDepth, d11, 1e-6);
+					const depthW00 = Math.exp(-relDiff00 * relDiff00 * invSigmaSq2);
+					const depthW10 = Math.exp(-relDiff10 * relDiff10 * invSigmaSq2);
+					const depthW01 = Math.exp(-relDiff01 * relDiff01 * invSigmaSq2);
+					const depthW11 = Math.exp(-relDiff11 * relDiff11 * invSigmaSq2);
+					const spatialW00 = (1 - tx) * (1 - ty);
+					const spatialW10 = tx * (1 - ty);
+					const spatialW01 = (1 - tx) * ty;
+					const spatialW11 = tx * ty;
+					let w00 = spatialW00 * depthW00;
+					let w10 = spatialW10 * depthW10;
+					let w01 = spatialW01 * depthW01;
+					let w11 = spatialW11 * depthW11;
+					const totalWeight = w00 + w10 + w01 + w11;
+					if (totalWeight > 1e-6) {
+						const invTotal = 1.0 / totalWeight;
+						w00 *= invTotal;
+						w10 *= invTotal;
+						w01 *= invTotal;
+						w11 *= invTotal;
+					} else {
+						w00 = spatialW00;
+						w10 = spatialW10;
+						w01 = spatialW01;
+						w11 = spatialW11;
+					}
+					const i00 = idx00 * 3;
+					const i10 = idx10 * 3;
+					const i01 = idx01 * 3;
+					const i11 = idx11 * 3;
+					const scatterR =
+						scatterBuf[i00] * w00 +
+						scatterBuf[i10] * w10 +
+						scatterBuf[i01] * w01 +
+						scatterBuf[i11] * w11;
+					const scatterG =
+						scatterBuf[i00 + 1] * w00 +
+						scatterBuf[i10 + 1] * w10 +
+						scatterBuf[i01 + 1] * w01 +
+						scatterBuf[i11 + 1] * w11;
+					const scatterB =
+						scatterBuf[i00 + 2] * w00 +
+						scatterBuf[i10 + 2] * w10 +
+						scatterBuf[i01 + 2] * w01 +
+						scatterBuf[i11 + 2] * w11;
+					const idx = (y * w + x) << 2;
+					pixels[idx] = Math.min(255, pixels[idx] + scatterR);
+					pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
+					pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
+					pixels[idx + 3] = 255;
 				}
-				const i00 = idx00 * 3,
-					i10 = idx10 * 3,
-					i01 = idx01 * 3,
-					i11 = idx11 * 3;
-				const scatterR =
-					scatterBuf[i00] * w00 +
-					scatterBuf[i10] * w10 +
-					scatterBuf[i01] * w01 +
-					scatterBuf[i11] * w11;
-				const scatterG =
-					scatterBuf[i00 + 1] * w00 +
-					scatterBuf[i10 + 1] * w10 +
-					scatterBuf[i01 + 1] * w01 +
-					scatterBuf[i11 + 1] * w11;
-				const scatterB =
-					scatterBuf[i00 + 2] * w00 +
-					scatterBuf[i10 + 2] * w10 +
-					scatterBuf[i01 + 2] * w01 +
-					scatterBuf[i11 + 2] * w11;
-				const idx = (y * w + x) << 2;
-				pixels[idx] = Math.min(255, pixels[idx] + scatterR);
-				pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
-				pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
-				pixels[idx + 3] = 255;
 			}
-		}
+		});
 	}
 
 	public applySSAO(context: FrameContext): void {
@@ -1202,6 +1303,10 @@ export class PostProcessor implements PostProcessorLike {
 		const normalBuffer = context.attachments.normalBuffer;
 		const options = context.features.ssaoOptions || {};
 		if (!depthBuffer || !normalBuffer) return;
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 
 		const w = context.attachments.width;
 		const h = context.attachments.height;
@@ -1220,14 +1325,15 @@ export class PostProcessor implements PostProcessorLike {
 		const far = camera.far;
 
 		// 1. SSAO calculation
-		for (let y = 0; y < h; y++) {
-			for (let x = 0; x < w; x++) {
-				const idx = y * w + x;
-				const originDepth = depthBuffer[idx];
-				if (originDepth === Infinity || originDepth <= 0) {
-					ssaoBuffer[idx] = 1.0;
-					continue;
-				}
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const idx = y * w + x;
+					const originDepth = depthBuffer[idx];
+					if (originDepth === Infinity || originDepth <= 0) {
+						ssaoBuffer[idx] = 1.0;
+						continue;
+					}
 
 				// Reconstruct view-space position
 				const ndcX = (x / w) * 2 - 1;
@@ -1322,24 +1428,31 @@ export class PostProcessor implements PostProcessorLike {
 					}
 				}
 
-				occlusion =
-					1.0 - (occlusion / SSAOConstants.DEFAULT_SAMPLES) * intensity;
-				ssaoBuffer[idx] = occlusion;
+					occlusion =
+						1.0 - (occlusion / SSAOConstants.DEFAULT_SAMPLES) * intensity;
+					ssaoBuffer[idx] = occlusion;
+				}
 			}
-		}
+		});
 
 		// 2. Blur SSAO to reduce noise
-		this._ssaoBlur(ssaoBuffer, w, h);
+		this._ssaoBlur(ssaoBuffer, w, h, dirtyRects);
 
 		// 3. Apply to pixels
 		const pixels = context.attachments.pixels;
-		for (let i = 0, len = w * h; i < len; i++) {
-			const factor = ssaoBuffer[i];
-			const idx = i << 2;
-			pixels[idx] *= factor;
-			pixels[idx + 1] *= factor;
-			pixels[idx + 2] *= factor;
-		}
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * w;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const i = row + x;
+					const factor = ssaoBuffer[i];
+					const idx = i << 2;
+					pixels[idx] *= factor;
+					pixels[idx + 1] *= factor;
+					pixels[idx + 2] *= factor;
+				}
+			}
+		});
 	}
 
 	private _reconstructViewPos(
@@ -1370,7 +1483,12 @@ export class PostProcessor implements PostProcessorLike {
 		return { x: xView, y: yView, z: -zView };
 	}
 
-	private _ssaoBlur(buffer: Float32Array, w: number, h: number): void {
+	private _ssaoBlur(
+		buffer: Float32Array,
+		w: number,
+		h: number,
+		dirtyRects: IncrementalDirtyRect[]
+	): void {
 		this._ssaoBlurTemp = this._ensureFloat32Buffer(
 			this._ssaoBlurTemp,
 			buffer.length
@@ -1379,23 +1497,25 @@ export class PostProcessor implements PostProcessorLike {
 		temp.set(buffer);
 
 		const blurSize = 2;
-		for (let y = 0; y < h; y++) {
-			for (let x = 0; x < w; x++) {
-				let sum = 0;
-				let count = 0;
-				for (let dy = -blurSize; dy <= blurSize; dy++) {
-					for (let dx = -blurSize; dx <= blurSize; dx++) {
-						const nx = x + dx;
-						const ny = y + dy;
-						if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-							sum += temp[ny * w + nx];
-							count++;
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					let sum = 0;
+					let count = 0;
+					for (let dy = -blurSize; dy <= blurSize; dy++) {
+						for (let dx = -blurSize; dx <= blurSize; dx++) {
+							const nx = x + dx;
+							const ny = y + dy;
+							if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+								sum += temp[ny * w + nx];
+								count++;
+							}
 						}
 					}
+					buffer[y * w + x] = sum / count;
 				}
-				buffer[y * w + x] = sum / count;
 			}
-		}
+		});
 	}
 
 	private _bilinearUpscale(
@@ -1405,48 +1525,51 @@ export class PostProcessor implements PostProcessorLike {
 		h: number,
 		lowW: number,
 		lowH: number,
-		ds: number
+		ds: number,
+		dirtyRects: IncrementalDirtyRect[]
 	): void {
-		for (let y = 0; y < h; y++) {
-			const fy = (y + 0.5) / ds - 0.5;
-			const ly0 = Math.max(0, Math.floor(fy)),
-				ly1 = Math.min(lowH - 1, ly0 + 1),
-				ty = clamp(fy - ly0);
-			for (let x = 0; x < w; x++) {
-				const fx = (x + 0.5) / ds - 0.5;
-				const lx0 = Math.max(0, Math.floor(fx)),
-					lx1 = Math.min(lowW - 1, lx0 + 1),
-					tx = clamp(fx - lx0);
-				const i00 = (ly0 * lowW + lx0) * 3,
-					i10 = (ly0 * lowW + lx1) * 3,
-					i01 = (ly1 * lowW + lx0) * 3,
-					i11 = (ly1 * lowW + lx1) * 3;
-				const w00 = (1 - tx) * (1 - ty),
-					w10 = tx * (1 - ty),
-					w01 = (1 - tx) * ty,
-					w11 = tx * ty;
-				const scatterR =
-					scatterBuf[i00] * w00 +
-					scatterBuf[i10] * w10 +
-					scatterBuf[i01] * w01 +
-					scatterBuf[i11] * w11;
-				const scatterG =
-					scatterBuf[i00 + 1] * w00 +
-					scatterBuf[i10 + 1] * w10 +
-					scatterBuf[i01 + 1] * w01 +
-					scatterBuf[i11 + 1] * w11;
-				const scatterB =
-					scatterBuf[i00 + 2] * w00 +
-					scatterBuf[i10 + 2] * w10 +
-					scatterBuf[i01 + 2] * w01 +
-					scatterBuf[i11 + 2] * w11;
-				const idx = (y * w + x) << 2;
-				pixels[idx] = Math.min(255, pixels[idx] + scatterR);
-				pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
-				pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
-				pixels[idx + 3] = 255;
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const fy = (y + 0.5) / ds - 0.5;
+				const ly0 = Math.max(0, Math.floor(fy));
+				const ly1 = Math.min(lowH - 1, ly0 + 1);
+				const ty = clamp(fy - ly0);
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const fx = (x + 0.5) / ds - 0.5;
+					const lx0 = Math.max(0, Math.floor(fx));
+					const lx1 = Math.min(lowW - 1, lx0 + 1);
+					const tx = clamp(fx - lx0);
+					const i00 = (ly0 * lowW + lx0) * 3;
+					const i10 = (ly0 * lowW + lx1) * 3;
+					const i01 = (ly1 * lowW + lx0) * 3;
+					const i11 = (ly1 * lowW + lx1) * 3;
+					const w00 = (1 - tx) * (1 - ty);
+					const w10 = tx * (1 - ty);
+					const w01 = (1 - tx) * ty;
+					const w11 = tx * ty;
+					const scatterR =
+						scatterBuf[i00] * w00 +
+						scatterBuf[i10] * w10 +
+						scatterBuf[i01] * w01 +
+						scatterBuf[i11] * w11;
+					const scatterG =
+						scatterBuf[i00 + 1] * w00 +
+						scatterBuf[i10 + 1] * w10 +
+						scatterBuf[i01 + 1] * w01 +
+						scatterBuf[i11 + 1] * w11;
+					const scatterB =
+						scatterBuf[i00 + 2] * w00 +
+						scatterBuf[i10 + 2] * w10 +
+						scatterBuf[i01 + 2] * w01 +
+						scatterBuf[i11 + 2] * w11;
+					const idx = (y * w + x) << 2;
+					pixels[idx] = Math.min(255, pixels[idx] + scatterR);
+					pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
+					pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
+					pixels[idx + 3] = 255;
+				}
 			}
-		}
+		});
 	}
 
 	private _buildSRGBLUT(gamma: number): void {
@@ -1482,6 +1605,10 @@ export class PostProcessor implements PostProcessorLike {
 
 		const width = Math.max(1, context.attachments.width);
 		const height = Math.max(1, context.attachments.height);
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 		const outlineColor = state.outline?.color ?? { r: 255, g: 196, b: 64, a: 1 };
 		const alpha = clamp(
 			(state.outline?.opacity ?? 0.9) *
@@ -1499,6 +1626,33 @@ export class PostProcessor implements PostProcessorLike {
 			return;
 		}
 		for (const circle of circles) {
+			const circleMinX = Math.max(
+				0,
+				Math.floor(circle.centerX - circle.radius - thickness)
+			);
+			const circleMinY = Math.max(
+				0,
+				Math.floor(circle.centerY - circle.radius - thickness)
+			);
+			const circleMaxX = Math.min(
+				width - 1,
+				Math.ceil(circle.centerX + circle.radius + thickness)
+			);
+			const circleMaxY = Math.min(
+				height - 1,
+				Math.ceil(circle.centerY + circle.radius + thickness)
+			);
+			if (
+				!this._rectIntersectsDirtyRects(
+					circleMinX,
+					circleMinY,
+					circleMaxX,
+					circleMaxY,
+					dirtyRects
+				)
+			) {
+				continue;
+			}
 			this._drawShapeOutline(
 				pixels,
 				width,
@@ -1511,7 +1665,8 @@ export class PostProcessor implements PostProcessorLike {
 				outlineColor.r,
 				outlineColor.g,
 				outlineColor.b,
-				alpha
+				alpha,
+				dirtyRects
 			);
 		}
 	}
@@ -1527,14 +1682,28 @@ export class PostProcessor implements PostProcessorLike {
 			: 1.0; // Simplification, usually from features
 		let pixels = context.attachments.pixels;
 		let imageData: ImageData | null = null;
+		if (!pixels) {
+			imageData = ctx.getImageData(0, 0, w, h);
+			pixels = imageData.data;
+		}
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
 
 		this._buildSRGBLUT(gamma);
 		const lut = this._sRGBLUT;
-		for (let i = 0; i < pixels.length; i += 4) {
-			pixels[i] = lut[pixels[i]];
-			pixels[i + 1] = lut[pixels[i + 1]];
-			pixels[i + 2] = lut[pixels[i + 2]];
-		}
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * w;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const i = (row + x) << 2;
+					pixels[i] = lut[pixels[i]];
+					pixels[i + 1] = lut[pixels[i + 1]];
+					pixels[i + 2] = lut[pixels[i + 2]];
+				}
+			}
+		});
 		if (imageData) ctx.putImageData(imageData, 0, 0);
 	}
 
@@ -1550,7 +1719,8 @@ export class PostProcessor implements PostProcessorLike {
 		red: number,
 		green: number,
 		blue: number,
-		alpha: number
+		alpha: number,
+		dirtyRects: IncrementalDirtyRect[] | null = null
 	): void {
 		const minX = Math.max(0, Math.floor(centerX - radius - thickness));
 		const minY = Math.max(0, Math.floor(centerY - radius - thickness));
@@ -1561,6 +1731,12 @@ export class PostProcessor implements PostProcessorLike {
 
 		for (let y = minY; y <= maxY; y++) {
 			for (let x = minX; x <= maxX; x++) {
+				if (
+					dirtyRects &&
+					!this._rectIntersectsDirtyRects(x, y, x, y, dirtyRects)
+				) {
+					continue;
+				}
 				const dx = x + 0.5 - centerX;
 				const dy = y + 0.5 - centerY;
 				const shapeDistance = computeInteractionOutlineShapeDistance(

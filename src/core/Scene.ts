@@ -9,6 +9,10 @@ import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
 import { ECSWorld } from "../ecs";
 import { BVH } from "../spatial/BVH";
+import {
+	renderDirtyReasonToMask,
+	type RenderDirtyReason,
+} from "../pipeline/incremental";
 
 const ROOT_PATH = "/sceneRoot";
 const SPATIAL_MATRIX_EPSILON = 1e-8;
@@ -26,6 +30,7 @@ export class Scene {
 	public spatial: BVH | null;
 
 	private _version: number;
+	private _dirtyReasonMask = 0;
 	private _reparentingNodes = new WeakSet<Node>();
 	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
 	private _spatialSignaturesByMeshInstance = new Map<
@@ -223,12 +228,23 @@ export class Scene {
 		this.invalidate();
 	}
 
-	public invalidate(): void {
+	public invalidate(reason: RenderDirtyReason = "unknown"): void {
 		this._version++;
+		this._dirtyReasonMask |= renderDirtyReasonToMask(reason);
 	}
 
 	public get version(): number {
 		return this._version;
+	}
+
+	public get dirtyReasonMask(): number {
+		return this._dirtyReasonMask;
+	}
+
+	public consumeDirtyReasonMask(): number {
+		const mask = this._dirtyReasonMask;
+		this._dirtyReasonMask = 0;
+		return mask;
 	}
 
 	public getBounds(): BoundingSphere {

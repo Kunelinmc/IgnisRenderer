@@ -3350,6 +3350,25 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		);
 	}
 
+	public setScissorRect(
+		x: number,
+		y: number,
+		width: number,
+		height: number
+	): void {
+		const resolvedWidth = Math.max(0, Math.floor(width));
+		const resolvedHeight = Math.max(0, Math.floor(height));
+		if (resolvedWidth <= 0 || resolvedHeight <= 0) {
+			return;
+		}
+		this._renderPass?.setScissorRect(
+			Math.max(0, Math.floor(x)),
+			Math.max(0, Math.floor(y)),
+			resolvedWidth,
+			resolvedHeight
+		);
+	}
+
 	public endRenderPass(): void {
 		this._renderPass?.end();
 		this._renderPass = null;

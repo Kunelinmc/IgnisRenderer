@@ -715,9 +715,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public connectRendererWakeup(renderer: {
-		requestRender(): void;
+		requestRender(reason?: string): void;
 	}): () => void {
-		const listener = () => renderer.requestRender();
+		const listener = () => renderer.requestRender("physics");
 		this.on("dirty", listener);
 		return () => {
 			this.off("dirty", listener);
