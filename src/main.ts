@@ -65,18 +65,17 @@ async function init() {
 
 function buildPlayground(scene: Scene): void {
 	// Create a grounded plane
-	const groundMaterial = new PBRMaterial({
-		albedo: { r: 60, g: 65, b: 70 },
-		roughness: 0.2,
-		metalness: 0.1,
-		doubleSided: true,
-	});
 
 	const ground = MeshFactory.createPlane(
 		{ x: 0, y: 0, z: 0 },
 		2000,
 		2000,
-		groundMaterial
+		new PBRMaterial({
+			albedo: { r: 60, g: 65, b: 70 },
+			roughness: 0.2,
+			metalness: 0.1,
+			doubleSided: true,
+		})
 	);
 	ground.name = "ground-plane";
 	scene.add(ground);
@@ -94,6 +93,7 @@ function buildPlayground(scene: Scene): void {
 			metalness: 1.0,
 		})
 	);
+	cube.name = "metallic-cube";
 	scene.add(cube);
 
 	// Add lights
