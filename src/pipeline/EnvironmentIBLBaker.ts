@@ -15,8 +15,12 @@ import {
 	type IRenderTexture,
 	type ISampler,
 } from "../renderers/types";
+import type {
+	IComputeKernel,
+	IComputeRuntime,
+} from "../renderers/IComputeRuntime";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/computeFacade";
-import { ComputeRuntime, type ComputeKernel } from "../renderers/webgpu/ComputeRuntime";
+import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
 import { destroyResource } from "../renderers/webgpu/computeUtils";
 import { createTextureUploadData } from "../renderers/webgpu/texture";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
@@ -50,9 +54,9 @@ interface MutableRGB {
 }
 
 interface EnvironmentIBLWebGPUResources {
-	runtime: ComputeRuntime;
+	runtime: IComputeRuntime;
 	sampler: ISampler;
-	kernel: ComputeKernel;
+	kernel: IComputeKernel;
 	inputTexture: IRenderTexture;
 }
 
@@ -469,7 +473,7 @@ async function createWebGPUResources(
 }
 
 function uploadSourceTexture(
-	runtime: ComputeRuntime,
+	runtime: IComputeRuntime,
 	inputTexture: IRenderTexture,
 	envMap: Texture
 ): void {
@@ -499,8 +503,8 @@ function uploadSourceTexture(
 }
 
 async function bakeMipLevelWithWebGPU(
-	runtime: ComputeRuntime,
-	kernel: ComputeKernel,
+	runtime: IComputeRuntime,
+	kernel: IComputeKernel,
 	sampler: ISampler,
 	inputTexture: IRenderTexture,
 	paramsBuffer: IRenderBuffer,

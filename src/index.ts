@@ -44,6 +44,10 @@ export {
 	type ComputeKernelDescriptor,
 	type ComputeDispatchOptions,
 	type ComputeDispatchTicket,
+	type ComputeResolvedBindingSchemaEntry,
+	type ComputeResolvedWorkgroupSize,
+	type IComputeKernel,
+	type IComputeRuntime,
 	type ReadBufferOptions,
 	type ReadTextureOptions,
 } from "./renderers/webgpu/ComputeRuntime";
