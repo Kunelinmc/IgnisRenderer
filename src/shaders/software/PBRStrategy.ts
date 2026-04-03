@@ -376,26 +376,26 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 
 			if (clearcoat > 0) {
 				const Nc = surface.clearcoatNormal ?? N;
-					const NcdotV = Math.max(
-						Vector3.dot(Nc, V),
-						PBR_MIN_NDOTV
-					);
-					ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
-					const ccReflectionDir = this._reflectViewDirection(
-						Nc,
-						V,
-						Vector3.dot(Nc, V)
-					);
-					const ccPrefiltered = this._sampleEnvironmentSpecular(
-						world,
-						ccReflectionDir,
-						clearcoatRoughness,
-						context
-					);
-					if (ccPrefiltered && context.brdfLUT) {
-						const ccBrdf = context.brdfLUT.sample(
-							NcdotV,
-							Math.sqrt(clearcoatRoughness)
+				const NcdotV = Math.max(
+					Vector3.dot(Nc, V),
+					PBR_MIN_NDOTV
+				);
+				ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
+				const ccReflectionDir = this._reflectViewDirection(
+					Nc,
+					V,
+					Vector3.dot(Nc, V)
+				);
+				const ccPrefiltered = this._sampleEnvironmentSpecular(
+					world,
+					ccReflectionDir,
+					clearcoatRoughness,
+					context
+				);
+				if (ccPrefiltered && context.brdfLUT) {
+					const ccBrdf = context.brdfLUT.sample(
+						NcdotV,
+						Math.sqrt(clearcoatRoughness)
 					);
 					ccAmbSpecR = ccPrefiltered.r * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
 					ccAmbSpecG = ccPrefiltered.g * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
