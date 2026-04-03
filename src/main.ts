@@ -64,8 +64,7 @@ async function init() {
 }
 
 function buildPlayground(scene: Scene): void {
-	// Create a grounded plane
-
+	// Create a grounded plane and a single metallic cube to show off the renderer's capabilities, along with a directional light and some ambient light for basic illumination.
 	const ground = MeshFactory.createPlane(
 		{ x: 0, y: 0, z: 0 },
 		2000,
