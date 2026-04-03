@@ -1,7 +1,7 @@
 import { Platform } from "../../foundation/Platform";
+import { ShaderLoader, fromRawShaderModuleLoader } from "../../loaders/ShaderLoader";
 import {
 	composeCompositeShaderSources,
-	createInlineCompositeShaderSource,
 	type CompositeShaderSource,
 } from "../runtime";
 
@@ -39,10 +39,6 @@ type PostProcessShaderPart =
 	| "copy"
 	| "sobelNormal";
 
-type RawShaderModule = {
-	default: string;
-};
-
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
 const sceneParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
@@ -59,61 +55,33 @@ const postProcessParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 			import: "default",
 		});
 
-const _cache = new Map<string, Promise<string>>();
-const _preprocessedCache = new Map<string, Promise<CompositeShaderSource>>();
+const _shaderLoader = new ShaderLoader();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
-async function loadShaderCompositeFromFile(
+function loadShaderCompositeFromFile(
 	key: string,
 	nodeRelativePath: string,
-	browserLoader: () => Promise<RawShaderModule>
+	browserLoader: () => Promise<string>
 ): Promise<CompositeShaderSource> {
-	let cached = _preprocessedCache.get(key);
-	if (!cached) {
-		cached = (async () => {
-			let code: string;
-			if (Platform.isNodeRuntime()) {
-				const fsSpecifier = ["node", "fs/promises"].join(":");
-				const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as {
-					readFile: (
-						path: string | URL,
-						options?: string | { encoding?: string }
-					) => Promise<string>;
-				};
-				code = await fsModule.readFile(
-					new URL(nodeRelativePath, import.meta.url),
-					"utf8"
-				);
-			} else {
-				const module = await browserLoader();
-				code = module.default;
-			}
-			return createInlineCompositeShaderSource(
-				code,
-				nodeRelativePath,
-				"source"
-			);
-		})();
-		_preprocessedCache.set(key, cached);
-	}
-	return cached;
+	return _shaderLoader.loadComposite({
+		key,
+		nodeRelativePath,
+		nodeBaseUrl: import.meta.url,
+		browserLoader,
+	});
 }
 
-async function loadShader(
+function loadShader(
 	key: string,
 	nodeRelativePath: string,
-	browserLoader: () => Promise<RawShaderModule>
+	browserLoader: () => Promise<string>
 ): Promise<string> {
-	let cached = _cache.get(key);
-	if (!cached) {
-		cached = loadShaderCompositeFromFile(
-			key,
-			nodeRelativePath,
-			browserLoader
-		).then((composite) => composite.code);
-		_cache.set(key, cached);
-	}
-	return cached;
+	return _shaderLoader.loadSource({
+		key,
+		nodeRelativePath,
+		nodeBaseUrl: import.meta.url,
+		browserLoader,
+	});
 }
 
 const sceneShaderFiles: Record<SceneShaderPart, string> = {
@@ -194,7 +162,7 @@ export function loadSceneShaderPart(part: SceneShaderPart): Promise<string> {
 				new Error(`Scene shader part not found: ${part}`)
 			);
 		}
-		return loader().then((content) => ({ default: content }));
+		return loader();
 	});
 }
 
@@ -211,7 +179,7 @@ export function loadSceneShaderPartComposite(
 					new Error(`Scene shader part not found: ${part}`)
 				);
 			}
-			return loader().then((content) => ({ default: content }));
+			return loader();
 		});
 		_compositeCache.set(key, cached);
 	}
@@ -225,8 +193,10 @@ export function loadSkyboxShaderSource(): Promise<string> {
 export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource> {
 	return composeWithSharedLightData(
 		"skybox-composite",
-		loadShaderCompositeFromFile("skybox", "./skyboxShader.wgsl", () =>
-			import("./skyboxShader.wgsl?raw")
+		loadShaderCompositeFromFile(
+			"skybox",
+			"./skyboxShader.wgsl",
+			fromRawShaderModuleLoader(() => import("./skyboxShader.wgsl?raw"))
 		)
 	);
 }
@@ -238,8 +208,10 @@ export function loadParticleShaderSource(): Promise<string> {
 export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSource> {
 	return composeWithSharedLightData(
 		"particle-composite",
-		loadShaderCompositeFromFile("particle", "./particleShader.wgsl", () =>
-			import("./particleShader.wgsl?raw")
+		loadShaderCompositeFromFile(
+			"particle",
+			"./particleShader.wgsl",
+			fromRawShaderModuleLoader(() => import("./particleShader.wgsl?raw"))
 		)
 	);
 }
@@ -282,7 +254,7 @@ export function loadPostProcessShaderPart(
 				new Error(`Post-process shader part not found: ${part}`)
 			);
 		}
-		return loader().then((content) => ({ default: content }));
+		return loader();
 	});
 }
 
@@ -299,7 +271,7 @@ export function loadPostProcessShaderPartComposite(
 						new Error(`Post-process shader part not found: ${part}`)
 					);
 				}
-				return loader().then((content) => ({ default: content }));
+				return loader();
 			})
 		);
 	}
@@ -314,7 +286,7 @@ export function loadPostProcessShaderPartComposite(
 					new Error(`Post-process shader part not found: ${part}`)
 				);
 			}
-			return loader().then((content) => ({ default: content }));
+			return loader();
 		});
 		_compositeCache.set(key, cached);
 	}
@@ -328,7 +300,9 @@ export function loadClusteredLightingCullShaderComposite():
 		loadShaderCompositeFromFile(
 			"clustered-lighting-cull",
 			"./clusteredLightingCull.wgsl",
-			() => import("./clusteredLightingCull.wgsl?raw")
+			fromRawShaderModuleLoader(() =>
+				import("./clusteredLightingCull.wgsl?raw")
+			)
 		)
 	);
 }

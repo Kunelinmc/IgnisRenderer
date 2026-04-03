@@ -1,8 +1,5 @@
 import { Platform } from "../../foundation/Platform";
-
-type RawShaderModule = {
-	default: string;
-};
+import { ShaderLoader } from "../../loaders/ShaderLoader";
 
 const shaderParts: Record<string, () => Promise<string>> = Platform.isNodeRuntime()
 	? {}
@@ -11,37 +8,23 @@ const shaderParts: Record<string, () => Promise<string>> = Platform.isNodeRuntim
 			import: "default",
 		});
 
-let _prefilterShaderCache: Promise<string> | null = null;
+const _shaderLoader = new ShaderLoader();
 
 export function loadEnvironmentIBLPrefilterShaderSource(): Promise<string> {
-	if (_prefilterShaderCache) {
-		return _prefilterShaderCache;
-	}
-
-	_prefilterShaderCache = (async () => {
-		if (Platform.isNodeRuntime()) {
-			const fsSpecifier = ["node", "fs/promises"].join(":");
-			const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as {
-				readFile: (
-					path: string | URL,
-					options?: string | { encoding?: string }
-				) => Promise<string>;
-			};
-			return fsModule.readFile(
-				new URL("./environmentIblPrefilter.wgsl", import.meta.url),
-				"utf8"
-			);
-		}
-
-		const loader = shaderParts["./environmentIblPrefilter.wgsl"];
-		if (!loader) {
-			throw new Error("Environment IBL prefilter shader source not found.");
-		}
-		const raw = (await loader()) as unknown as RawShaderModule["default"];
-		return raw;
-	})();
-
-	return _prefilterShaderCache;
+	return _shaderLoader.loadSource({
+		key: "environment-ibl-prefilter",
+		nodeRelativePath: "./environmentIblPrefilter.wgsl",
+		nodeBaseUrl: import.meta.url,
+		browserLoader: () => {
+			const loader = shaderParts["./environmentIblPrefilter.wgsl"];
+			if (!loader) {
+				return Promise.reject(
+					new Error("Environment IBL prefilter shader source not found.")
+				);
+			}
+			return loader();
+		},
+	});
 }
 
 /**
