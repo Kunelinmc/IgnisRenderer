@@ -6,24 +6,34 @@ import type { Node } from "../core/Node";
 import type { SceneLight } from "../lights";
 import { Light } from "../lights";
 import { ComponentStore } from "./ComponentStore";
-import type {
-	ECSComponentMap,
-	ECSComponentName,
-	EntityId,
-	HierarchyComponent,
-	LocalTransformComponent,
-	NameComponent,
-	NodeKindComponent,
-	NodeRefComponent,
-	PathBindingComponent,
-	SkeletonJointComponent,
-	VisibilityComponent,
-	WorldTransformComponent,
+import {
+	NODE_KIND,
+	type ECSComponentMap,
+	type ECSComponentName,
+	type EntityId,
+	type HierarchyComponent,
+	type LocalTransformComponent,
+	type NameComponent,
+	type NodeKind,
+	type NodeKindComponent,
+	type NodeRefComponent,
+	type PathBindingComponent,
+	type SkeletonJointComponent,
+	type VisibilityComponent,
+	type WorldTransformComponent,
 } from "./components";
 
 interface QueryCacheEntry {
 	version: number;
 	entities: EntityId[];
+}
+
+interface NodeKindLookupMap {
+	[NODE_KIND.Node]: Node;
+	[NODE_KIND.MeshInstance]: MeshInstance;
+	[NODE_KIND.Camera]: Camera;
+	[NODE_KIND.ParticleSystem]: ParticleSystem;
+	[NODE_KIND.Light]: SceneLight;
 }
 
 const COMPONENT_NAMES: ECSComponentName[] = [
@@ -294,59 +304,45 @@ export class ECSWorld {
 	}
 
 	public findMeshInstances(): MeshInstance[] {
-		const entities = this.query(["NodeRef", "NodeKind"]);
-		const result: MeshInstance[] = [];
-		for (const entity of entities) {
-			const kind = this.getComponent(entity, "NodeKind");
-			if (!kind || kind.kind !== "meshInstance") continue;
-			const nodeRef = this.getComponent(entity, "NodeRef");
-			if (!nodeRef) continue;
-			if (nodeRef.node instanceof MeshInstance) {
-				result.push(nodeRef.node);
-			}
-		}
-		return result;
+		return this._findNodesByKind(
+			NODE_KIND.MeshInstance,
+			(node): node is MeshInstance => node instanceof MeshInstance
+		);
 	}
 
 	public findLights(): SceneLight[] {
-		const entities = this.query(["NodeRef", "NodeKind"]);
-		const result: SceneLight[] = [];
-		for (const entity of entities) {
-			const kind = this.getComponent(entity, "NodeKind");
-			if (!kind || kind.kind !== "light") continue;
-			const nodeRef = this.getComponent(entity, "NodeRef");
-			if (!nodeRef) continue;
-			if (nodeRef.node instanceof Light) {
-				result.push(nodeRef.node as SceneLight);
-			}
-		}
-		return result;
+		return this._findNodesByKind(
+			NODE_KIND.Light,
+			(node): node is SceneLight => node instanceof Light
+		);
 	}
 
 	public findCameras(): Camera[] {
-		const entities = this.query(["NodeRef", "NodeKind"]);
-		const result: Camera[] = [];
-		for (const entity of entities) {
-			const kind = this.getComponent(entity, "NodeKind");
-			if (!kind || kind.kind !== "camera") continue;
-			const nodeRef = this.getComponent(entity, "NodeRef");
-			if (!nodeRef) continue;
-			if (nodeRef.node instanceof Camera) {
-				result.push(nodeRef.node);
-			}
-		}
-		return result;
+		return this._findNodesByKind(
+			NODE_KIND.Camera,
+			(node): node is Camera => node instanceof Camera
+		);
 	}
 
 	public findParticleSystems(): ParticleSystem[] {
+		return this._findNodesByKind(
+			NODE_KIND.ParticleSystem,
+			(node): node is ParticleSystem => node instanceof ParticleSystem
+		);
+	}
+
+	private _findNodesByKind<K extends NodeKind>(
+		expectedKind: K,
+		isExpectedNode: (node: Node) => node is NodeKindLookupMap[K]
+	): NodeKindLookupMap[K][] {
 		const entities = this.query(["NodeRef", "NodeKind"]);
-		const result: ParticleSystem[] = [];
+		const result: NodeKindLookupMap[K][] = [];
 		for (const entity of entities) {
-			const kind = this.getComponent(entity, "NodeKind");
-			if (!kind || kind.kind !== "particleSystem") continue;
+			const nodeKind = this.getComponent(entity, "NodeKind");
+			if (!nodeKind || nodeKind.kind !== expectedKind) continue;
 			const nodeRef = this.getComponent(entity, "NodeRef");
 			if (!nodeRef) continue;
-			if (nodeRef.node instanceof ParticleSystem) {
+			if (isExpectedNode(nodeRef.node)) {
 				result.push(nodeRef.node);
 			}
 		}
@@ -373,12 +369,12 @@ export class ECSWorld {
 	}
 }
 
-function resolveNodeKind(node: Node): string {
-	if (node instanceof MeshInstance) return "meshInstance";
-	if (node instanceof Camera) return "camera";
-	if (node instanceof ParticleSystem) return "particleSystem";
-	if (node instanceof Light) return "light";
-	return "node";
+function resolveNodeKind(node: Node): NodeKind {
+	if (node instanceof MeshInstance) return NODE_KIND.MeshInstance;
+	if (node instanceof Camera) return NODE_KIND.Camera;
+	if (node instanceof ParticleSystem) return NODE_KIND.ParticleSystem;
+	if (node instanceof Light) return NODE_KIND.Light;
+	return NODE_KIND.Node;
 }
 
 function copyMatrix(target: Matrix4, source: Matrix4): void {

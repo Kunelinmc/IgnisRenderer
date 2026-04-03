@@ -1,4 +1,5 @@
 import type { Matrix4 } from "../maths/Matrix4";
+import type { Node } from "../core/Node";
 
 export type EntityId = number;
 
@@ -42,11 +43,21 @@ export interface SkeletonJointComponent {
 }
 
 export interface NodeRefComponent {
-	node: object;
+	node: Node;
 }
 
+export const NODE_KIND = {
+	Node: "node",
+	MeshInstance: "meshInstance",
+	Camera: "camera",
+	ParticleSystem: "particleSystem",
+	Light: "light",
+} as const;
+
+export type NodeKind = (typeof NODE_KIND)[keyof typeof NODE_KIND];
+
 export interface NodeKindComponent {
-	kind: string;
+	kind: NodeKind;
 }
 
 export type ECSComponentMap = {
