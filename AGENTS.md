@@ -51,6 +51,27 @@ This file provides critical context and collaboration guidance for AI/code agent
 ### Documentation
 - **Comments & JSDoc**: Use JSDoc for all public methods and properties. Include clear inline comments for complex logic (e.g., matrix math, shader packing).
 
+### Docs Writing Guidelines (`docs/`)
+- **Scope**: These rules apply only to `docs/*.md`. They do not apply to `README*.md` unless explicitly requested.
+- **Language**: Use English by default. Keep technical terms in their canonical form and avoid mixed Chinese-English sentence structure.
+- **Template (Strict Order)**: Every new or updated document in `docs/` must follow this section order:
+	1. `# Title`
+	2. `## Scope`
+	3. `## Background` (use `N/A` if not applicable)
+	4. `## API/Contract` (list input/output/constraints as contracts)
+	5. `## Usage` (include at least one executable or verifiable example)
+	6. `## Errors & Diagnostics` (list common errors and trigger conditions)
+	7. `## Compatibility / Breaking Changes` (use `N/A` if not applicable)
+- **Normative Tone**: Use RFC-style wording with `must`, `should`, and `may` for requirements and recommendations.
+- **Identifier Formatting**: Wrap contract names, types, function names, and parameter names in backticks.
+- **Precision**: Avoid ambiguous wording (for example, "usually", "maybe"). Use testable, verifiable statements.
+- **Example Rules**:
+	- Every code block must include a language tag (for example, `ts`, `wgsl`, `bash`).
+	- Examples must match current API names and must not use removed interfaces.
+- **Maintenance Rules**:
+	- Any PR that changes public interfaces or behavior must update corresponding `docs/` files in the same change.
+	- Migration documents must explicitly include breaking impact and replacement paths.
+
 ### Entity Component System (ECS) & Scene Graph
 - **ECSWorld**: The core data structure managing Entities and their Components (`LocalTransform`, `WorldTransform`, `NodeRef`, `Visibility`, etc.).
 - **Query System**: Use `world.query(["CompA", "CompB"])` for efficient entity filtering.
@@ -140,4 +161,5 @@ This file provides critical context and collaboration guidance for AI/code agent
 1. Maintain backend-agnostic contracts in `src/core/` and `src/pipeline/`.
 2. Ensure new features are accompanied by regression tests in `tests/`.
 3. **Refactoring Policy**: Avoid large-scale refactorings unless explicitly requested. Prioritize stability.
-4. Update `AGENTS.md` if core architectural patterns change.
+4. When changing public APIs/behavior, update relevant `docs/` first, then add or update tests in the same PR.
+5. Update `AGENTS.md` if core architectural patterns change.
