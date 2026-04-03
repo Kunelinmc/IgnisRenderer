@@ -1,4 +1,8 @@
-import type { FramePassStage, ResolvedFeatureState } from "./types";
+import type {
+	BuiltinFramePassStage,
+	FramePassStage,
+	ResolvedFeatureState,
+} from "./types";
 
 export type RenderDirtyReason =
 	| "unknown"
@@ -135,17 +139,47 @@ for (let index = 0; index < FRAME_PASS_STAGE_ORDER.length; index++) {
 	FRAME_PASS_STAGE_INDEX.set(FRAME_PASS_STAGE_ORDER[index], index);
 }
 
-const POST_PROCESS_STAGE_ORDER: FramePassStage[] = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"fxaa",
-	"gamma",
+type PostProcessStage = Extract<
+	BuiltinFramePassStage,
+	| "ssao"
+	| "ssgi"
+	| "taa"
+	| "ssr"
+	| "volumetric"
+	| "motion-blur"
+	| "dof"
+	| "bloom"
+	| "fxaa"
+	| "gamma"
+>;
+
+type PostProcessFeatureFlag = keyof Pick<
+	ResolvedFeatureState,
+	| "enableSSAO"
+	| "enableSSGI"
+	| "enableTAA"
+	| "enableSSR"
+	| "enableVolumetric"
+	| "enableMotionBlur"
+	| "enableDOF"
+	| "enableBloom"
+	| "enableFXAA"
+	| "enableGamma"
+>;
+
+const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
+	readonly [PostProcessStage, PostProcessFeatureFlag]
+> = [
+	["ssao", "enableSSAO"],
+	["ssgi", "enableSSGI"],
+	["taa", "enableTAA"],
+	["ssr", "enableSSR"],
+	["volumetric", "enableVolumetric"],
+	["motion-blur", "enableMotionBlur"],
+	["dof", "enableDOF"],
+	["bloom", "enableBloom"],
+	["fxaa", "enableFXAA"],
+	["gamma", "enableGamma"],
 ];
 
 const POSTFX_REASON_MASK =
@@ -670,18 +704,11 @@ export function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
 
 function resolveFirstEnabledPostProcessStage(
 	features: ResolvedFeatureState
-): FramePassStage | null {
-	for (const stage of POST_PROCESS_STAGE_ORDER) {
-		if (stage === "ssao" && features.enableSSAO) return stage;
-		if (stage === "ssgi" && features.enableSSGI) return stage;
-		if (stage === "taa" && features.enableTAA) return stage;
-		if (stage === "ssr" && features.enableSSR) return stage;
-		if (stage === "volumetric" && features.enableVolumetric) return stage;
-		if (stage === "motion-blur" && features.enableMotionBlur) return stage;
-		if (stage === "dof" && features.enableDOF) return stage;
-		if (stage === "bloom" && features.enableBloom) return stage;
-		if (stage === "fxaa" && features.enableFXAA) return stage;
-		if (stage === "gamma" && features.enableGamma) return stage;
+): PostProcessStage | null {
+	for (const [stage, featureFlag] of POST_PROCESS_STAGE_FEATURE_ORDER) {
+		if (features[featureFlag]) {
+			return stage;
+		}
 	}
 	return null;
 }
