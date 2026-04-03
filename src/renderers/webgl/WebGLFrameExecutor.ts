@@ -297,13 +297,11 @@ export class WebGLFrameExecutor {
 		gl.clearDepth(1);
 		if (incrementalPartial) {
 			const dirtyRects = this._resolveDirtyRects(context, this._width, this._height);
-			gl.disable(gl.SCISSOR_TEST);
-			gl.clear(gl.DEPTH_BUFFER_BIT);
 			if (dirtyRects.length > 0) {
 				gl.enable(gl.SCISSOR_TEST);
 				for (const rect of dirtyRects) {
 					this._setScissorRect(rect.x, rect.y, rect.width, rect.height, this._height);
-					gl.clear(gl.COLOR_BUFFER_BIT);
+					gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 				}
 				gl.disable(gl.SCISSOR_TEST);
 			}
@@ -646,6 +644,24 @@ export class WebGLFrameExecutor {
 		return resolved;
 	}
 
+	private _resolvePacketsForRect(
+		context: FrameContext,
+		packets: DrawPacket[],
+		rect: { x: number; y: number; width: number; height: number }
+	): DrawPacket[] {
+		const spatialIndex = context.scene.spatialIndex;
+		if (!spatialIndex) {
+			return packets;
+		}
+		if (packets === context.scene.opaquePackets) {
+			return spatialIndex.queryOpaquePackets(rect);
+		}
+		if (packets === context.scene.transparentPackets) {
+			return spatialIndex.queryTransparentPackets(rect);
+		}
+		return packets;
+	}
+
 	private _setScissorRect(
 		x: number,
 		y: number,
@@ -983,6 +999,10 @@ export class WebGLFrameExecutor {
 		if (incrementalPartial) {
 			gl.enable(gl.SCISSOR_TEST);
 			for (const rect of dirtyRects) {
+				const rectPackets = this._resolvePacketsForRect(context, packets, rect);
+				if (rectPackets.length === 0) {
+					continue;
+				}
 				this._setScissorRect(
 					rect.x,
 					rect.y,
@@ -990,7 +1010,16 @@ export class WebGLFrameExecutor {
 					rect.height,
 					this._height
 				);
-				drawPackets();
+				let activeProgram: WebGLSceneProgram | null = null;
+				for (const packet of rectPackets) {
+					const sceneProgram = this._programs.getSceneProgram(packet.material);
+					if (activeProgram !== sceneProgram) {
+						gl.useProgram(sceneProgram.program);
+						this._bindGlobalUniforms(sceneProgram, context);
+						activeProgram = sceneProgram;
+					}
+					this._drawPacket(sceneProgram, packet, transparent, context);
+				}
 			}
 			gl.disable(gl.SCISSOR_TEST);
 		} else {

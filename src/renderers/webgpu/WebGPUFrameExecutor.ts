@@ -102,6 +102,19 @@ fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 }
 `;
 
+const WEBGPU_DEPTH_DIRTY_CLEAR_VERTEX_SHADER = /* wgsl */ `
+@vertex
+fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
+	var positions = array<vec2<f32>, 3>(
+		vec2<f32>(-1.0, -1.0),
+		vec2<f32>(3.0, -1.0),
+		vec2<f32>(-1.0, 3.0)
+	);
+	let position = positions[vertexIndex];
+	return vec4<f32>(position, 1.0, 1.0);
+}
+`;
+
 interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
 	gAlbedoAlpha: IRenderTexture;
@@ -158,6 +171,8 @@ export class WebGPUFrameExecutor {
 	private _presentParamsBuffer: IRenderBuffer | null = null;
 	private _presentBinding: IBindingGroup | null = null;
 	private _presentBindingSource: IRenderTexture | null = null;
+	private _depthDirtyClearShaderModule: IShaderModule | null = null;
+	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUFramePassHandler>;
@@ -253,6 +268,8 @@ export class WebGPUFrameExecutor {
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._depthDirtyClearShaderModule = null;
+		this._depthDirtyClearPipelines.clear();
 		this._postRuntime.onShaderRuntimeChanged();
 	}
 
@@ -325,6 +342,8 @@ export class WebGPUFrameExecutor {
 		this._presentParamsBuffer = null;
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._depthDirtyClearShaderModule = null;
+		this._depthDirtyClearPipelines.clear();
 		this._encoder = null;
 		this._frameContext = null;
 	}
@@ -1283,6 +1302,113 @@ export class WebGPUFrameExecutor {
 		}));
 	}
 
+	private _resolvePacketsForRect(
+		context: FrameContext,
+		packets: DrawPacket[],
+		rect: { x: number; y: number; width: number; height: number }
+	): DrawPacket[] {
+		const spatialIndex = context.scene.spatialIndex;
+		if (!spatialIndex) {
+			return packets;
+		}
+		if (packets === context.scene.opaquePackets) {
+			return spatialIndex.queryOpaquePackets(rect);
+		}
+		if (packets === context.scene.transparentPackets) {
+			return spatialIndex.queryTransparentPackets(rect);
+		}
+		return packets;
+	}
+
+	private async _clearDepthForDirtyRects(
+		depthAttachment: IRenderTexture,
+		depthFormat: TextureFormat,
+		sampleCount: number,
+		dirtyRects: Array<{ x: number; y: number; width: number; height: number }>
+	): Promise<boolean> {
+		if (!this._encoder || dirtyRects.length === 0) {
+			return false;
+		}
+		try {
+			const pipeline = await this._getDepthDirtyClearPipeline(
+				depthFormat,
+				sampleCount
+			);
+			this._encoder.beginRenderPass({
+				label: "WebGPUDepthDirtyClear",
+				colorAttachments: [],
+				depthStencilAttachment: {
+					view: depthAttachment,
+					depthLoadOp: "load",
+					depthStoreOp: "store",
+					depthClearValue: 1,
+				},
+			});
+			this._encoder.setPipeline(pipeline);
+			for (const rect of dirtyRects) {
+				this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+				this._encoder.draw(3);
+			}
+			this._encoder.endRenderPass();
+			return true;
+		} catch (error) {
+			this._warnOnce(
+				"webgpu-depth-partial-reuse-fallback",
+				`WebGPU partial depth reuse unavailable; falling back to full depth clear. ${String(error)}`
+			);
+			return false;
+		}
+	}
+
+	private async _getDepthDirtyClearPipeline(
+		depthFormat: TextureFormat,
+		sampleCount: number
+	): Promise<IRenderPipeline> {
+		const resolvedSampleCount = Math.max(1, Math.floor(sampleCount || 1));
+		const cacheKey = `${depthFormat}|${resolvedSampleCount}`;
+		const cached = this._depthDirtyClearPipelines.get(cacheKey);
+		if (cached) {
+			return cached;
+		}
+
+		if (!this._depthDirtyClearShaderModule) {
+			const composite = createInlineCompositeShaderSource(
+				WEBGPU_DEPTH_DIRTY_CLEAR_VERTEX_SHADER,
+				"<webgpu-depth-dirty-clear>",
+				"source"
+			);
+			this._depthDirtyClearShaderModule = await this._backend.createShaderModule({
+				label: "WebGPUDepthDirtyClearShader",
+				code: composite.code,
+				sourceMap: composite.sourceMap,
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "postprocess",
+			});
+		}
+
+		const pipeline = this._backend.createPipeline({
+			label: `WebGPUDepthDirtyClearPipeline_${cacheKey}`,
+			vertex: {
+				module: this._depthDirtyClearShaderModule,
+				entryPoint: "vsMain",
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			depthStencil: {
+				format: depthFormat,
+				depthWriteEnabled: true,
+				depthCompare: "always",
+			},
+			sampleCount: resolvedSampleCount,
+		} as any);
+		this._depthDirtyClearPipelines.set(cacheKey, pipeline);
+		return pipeline;
+	}
+
 	private _warnOnce(key: string, message: string): void {
 		if (this._warnedKeys.has(key)) return;
 		this._warnedKeys.add(key);
@@ -1463,7 +1589,17 @@ export class WebGPUFrameExecutor {
 		const gMotionAttachment =
 			msaaTargets?.gMotionDepth ?? this._frameTargets.gMotionDepth;
 		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
+		const dirtyRects = this._resolveDirtyRects(context);
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
+		let depthPartialReuseApplied = false;
+		if (incrementalPartial && dirtyRects.length > 0) {
+			depthPartialReuseApplied = await this._clearDepthForDirtyRects(
+				depthAttachment,
+				TextureFormat.Depth32Float,
+				msaaTargets ? this._targetMSAASampleCount : 1,
+				dirtyRects
+			);
+		}
 
 		let skyboxDrawn = false;
 		if (shouldClearAttachments) {
@@ -1545,17 +1681,22 @@ export class WebGPUFrameExecutor {
 				view: depthAttachment,
 				depthClearValue: 1,
 				depthLoadOp:
-					incrementalPartial || (shouldClearAttachments && !skyboxDrawn) ?
+					depthPartialReuseApplied ?
+						"load"
+					: incrementalPartial || (shouldClearAttachments && !skyboxDrawn) ?
 						"clear"
 					:	"load",
 				depthStoreOp: "store",
 			},
 		});
 
-		const dirtyRects = this._resolveDirtyRects(context);
 		for (const rect of dirtyRects) {
+			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
+			if (packetsInRect.length === 0) {
+				continue;
+			}
 			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packets) {
+			for (const packet of packetsInRect) {
 				const resourcesList = await this._resources.getDrawResources(packet);
 				if (!resourcesList) continue;
 
@@ -1585,6 +1726,16 @@ export class WebGPUFrameExecutor {
 		const colorTexture = this._backend.getCanvasColorTexture();
 		const depthTexture = this._backend.getCanvasDepthTexture();
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
+		const dirtyRects = this._resolveDirtyRects(context);
+		let depthPartialReuseApplied = false;
+		if (incrementalPartial && dirtyRects.length > 0) {
+			depthPartialReuseApplied = await this._clearDepthForDirtyRects(
+				depthTexture,
+				this._backend.canvasDepthFormat,
+				1,
+				dirtyRects
+			);
+		}
 
 		this._encoder.beginRenderPass({
 			colorAttachments: [
@@ -1599,7 +1750,11 @@ export class WebGPUFrameExecutor {
 				view: depthTexture,
 				depthClearValue: 1,
 				depthLoadOp:
-					incrementalPartial || shouldClearAttachments ? "clear" : "load",
+					depthPartialReuseApplied ?
+						"load"
+					: incrementalPartial || shouldClearAttachments ?
+						"clear"
+					:	"load",
 				depthStoreOp: "store",
 			},
 		});
@@ -1613,10 +1768,13 @@ export class WebGPUFrameExecutor {
 			}
 		}
 
-		const dirtyRects = this._resolveDirtyRects(context);
 		for (const rect of dirtyRects) {
+			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
+			if (packetsInRect.length === 0) {
+				continue;
+			}
 			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packets) {
+			for (const packet of packetsInRect) {
 				const resourcesList = await this._resources.getDrawResources(packet);
 				if (!resourcesList) continue;
 

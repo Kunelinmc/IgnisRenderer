@@ -6,7 +6,7 @@ import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import type { ShadowMap } from "../lights/ShadowMapping";
-import type { IncrementalFrameContext } from "./incremental";
+import type { DirtyRect, IncrementalFrameContext } from "./incremental";
 import type {
 	BoundingSphere,
 	IPrimitive,
@@ -32,6 +32,13 @@ export interface DrawPacket {
 	sortDepth: number;
 	pipelineKey: string;
 	passFlags: number;
+}
+
+export interface PreparedSceneSpatialIndex {
+	queryOpaquePackets(rect: DirtyRect): DrawPacket[];
+	queryTransparentPackets(rect: DirtyRect): DrawPacket[];
+	queryOpaquePacketsInRects(rects: DirtyRect[]): DrawPacket[];
+	queryTransparentPacketsInRects(rects: DirtyRect[]): DrawPacket[];
 }
 
 import type { Texture } from "../core/Texture";
@@ -120,6 +127,7 @@ export interface PreparedScene {
 	shadowCasterPackets: DrawPacket[];
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
+	spatialIndex: PreparedSceneSpatialIndex | null;
 }
 
 export interface FrameAttachments {

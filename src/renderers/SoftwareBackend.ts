@@ -1,6 +1,7 @@
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
+	type DrawPacket,
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
@@ -330,6 +331,27 @@ export class SoftwareBackend implements IRenderBackend {
 		return result;
 	}
 
+	private _resolvePacketsForPass(
+		context: FrameContext,
+		packets: DrawPacket[]
+	): DrawPacket[] {
+		const spatialIndex = context.scene.spatialIndex;
+		if (!spatialIndex || !this._isIncrementalPartial(context)) {
+			return packets;
+		}
+		const dirtyRects = context.incremental.dirtyRects;
+		if (dirtyRects.length === 0) {
+			return [];
+		}
+		if (packets === context.scene.opaquePackets) {
+			return spatialIndex.queryOpaquePacketsInRects(dirtyRects);
+		}
+		if (packets === context.scene.transparentPackets) {
+			return spatialIndex.queryTransparentPacketsInRects(dirtyRects);
+		}
+		return packets;
+	}
+
 	private _getFrameImageData(renderer: RendererBackendBridge): ImageData {
 		const pixels = this._resolveFramePixels(renderer);
 		const { width, height } = this._resolveFrameDimensions(renderer, pixels);
@@ -476,9 +498,13 @@ export class SoftwareBackend implements IRenderBackend {
 					if (!this._mainPass) {
 						return;
 					}
+					const packets = this._resolvePacketsForPass(
+						context,
+						context.scene.opaquePackets
+					);
 					await this._mainPass.render(
 						context,
-						context.scene.opaquePackets,
+						packets,
 						false
 					);
 					this._syncActiveRasterMode();
@@ -490,9 +516,13 @@ export class SoftwareBackend implements IRenderBackend {
 					if (!this._mainPass) {
 						return;
 					}
+					const packets = this._resolvePacketsForPass(
+						context,
+						context.scene.transparentPackets
+					);
 					await this._mainPass.render(
 						context,
-						context.scene.transparentPackets,
+						packets,
 						true
 					);
 					this._syncActiveRasterMode();

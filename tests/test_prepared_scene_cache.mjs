@@ -128,20 +128,31 @@ function testPacketDiffLifecycle() {
 		const first = cache.build(buildInput);
 		assert.equal(first.forceFullFrame, true);
 		assert.equal(first.dirtyRects.length, 1);
+		assert.ok(first.dirtyTiles.length > 0);
+		assert.ok(first.frame.spatialIndex);
 
 		const second = cache.build(buildInput);
 		assert.equal(second.forceFullFrame, false);
 		assert.equal(second.dirtyRects.length, 0);
+		assert.equal(second.dirtyTiles.length, 0);
 
 		const third = cache.build(buildInput);
 		assert.equal(third.forceFullFrame, false);
 		assert.ok(third.dirtyRects.length > 0);
 		assert.ok(third.packetRects.has("A"));
+		assert.ok(third.dirtyTiles.length > 0);
+		assert.ok(third.frame.spatialIndex);
+		const queryRect = third.packetRects.get("A");
+		assert.ok(queryRect);
+		const spatialHits = third.frame.spatialIndex.queryOpaquePackets(queryRect);
+		assert.equal(spatialHits.length, 1);
+		assert.equal(spatialHits[0].id, "A");
 
 		const fourth = cache.build(buildInput);
 		assert.equal(fourth.forceFullFrame, false);
 		assert.ok(fourth.dirtyRects.length > 0);
 		assert.equal(fourth.packetRects.size, 0);
+		assert.ok(fourth.dirtyTiles.length > 0);
 	} finally {
 		PreparedSceneBuilder.build = originalBuild;
 	}

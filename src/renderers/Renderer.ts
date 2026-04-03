@@ -39,6 +39,7 @@ import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import {
+	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 	IncrementalFramePlanner,
 	mergeIncrementalRenderingOptions,
@@ -281,6 +282,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.canvas.width,
 			this.canvas.height
 		);
+		const warmupFullFrameTiles = buildDirtyTileCoverage(
+			[{
+				x: 0,
+				y: 0,
+				width: Math.max(1, this.canvas.width),
+				height: Math.max(1, this.canvas.height),
+			}],
+			Math.max(1, this.canvas.width),
+			Math.max(1, this.canvas.height),
+			this._incrementalOptions.dirtyTileSize
+		);
 		const context: FrameContext = {
 			camera: this.camera,
 			attachments,
@@ -299,6 +311,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					width: Math.max(1, this.canvas.width),
 					height: Math.max(1, this.canvas.height),
 				}],
+				dirtyTileSize: warmupFullFrameTiles.tileSize,
+				dirtyTileColumns: warmupFullFrameTiles.tileColumns,
+				dirtyTileRows: warmupFullFrameTiles.tileRows,
+				dirtyTiles: warmupFullFrameTiles.dirtyTiles.slice(),
 				dirtyAreaRatio: 1,
 				firstPass: null,
 				reasonMask: renderDirtyReasonToMask("unknown"),
@@ -461,6 +477,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		if (
 			next.enabled === this._incrementalOptions.enabled &&
 			next.maxDirtyRects === this._incrementalOptions.maxDirtyRects &&
+			next.dirtyTileSize === this._incrementalOptions.dirtyTileSize &&
 			next.fullFrameFallbackAreaRatio ===
 				this._incrementalOptions.fullFrameFallbackAreaRatio &&
 			next.temporalPolicy === this._incrementalOptions.temporalPolicy
@@ -488,6 +505,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				width: rect.width,
 				height: rect.height,
 			})),
+			dirtyTiles: this._lastIncrementalFrameStats.dirtyTiles.slice(),
 		};
 	}
 
@@ -537,23 +555,55 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	): IncrementalFrameContext {
 		const enabled = this._incrementalOptions.enabled;
 		const forceFullFrame = plan.forceFullFrame || prepared.forceFullFrame;
+		const frameWidth = Math.max(1, this.canvas.width);
+		const frameHeight = Math.max(1, this.canvas.height);
 		const fullFrameRect = {
 			x: 0,
 			y: 0,
-			width: Math.max(1, this.canvas.width),
-			height: Math.max(1, this.canvas.height),
+			width: frameWidth,
+			height: frameHeight,
 		};
+		const fullFrameTiles = buildDirtyTileCoverage(
+			[fullFrameRect],
+			frameWidth,
+			frameHeight,
+			this._incrementalOptions.dirtyTileSize
+		);
 		let dirtyRects =
 			enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
+		let dirtyTiles =
+			enabled && !forceFullFrame ?
+				prepared.dirtyTiles.slice()
+			:	fullFrameTiles.dirtyTiles.slice();
+		let dirtyTileSize =
+			enabled && !forceFullFrame ?
+				prepared.dirtyTileSize
+			:	fullFrameTiles.tileSize;
+		let dirtyTileColumns =
+			enabled && !forceFullFrame ?
+				prepared.dirtyTileColumns
+			:	fullFrameTiles.tileColumns;
+		let dirtyTileRows =
+			enabled && !forceFullFrame ?
+				prepared.dirtyTileRows
+			:	fullFrameTiles.tileRows;
 		let dirtyAreaRatio = enabled && !forceFullFrame ? prepared.dirtyAreaRatio : 1;
 		if (enabled && !forceFullFrame && dirtyRects.length === 0 && plan.firstPass) {
 			dirtyRects = [fullFrameRect];
+			dirtyTiles = fullFrameTiles.dirtyTiles.slice();
+			dirtyTileSize = fullFrameTiles.tileSize;
+			dirtyTileColumns = fullFrameTiles.tileColumns;
+			dirtyTileRows = fullFrameTiles.tileRows;
 			dirtyAreaRatio = 1;
 		}
 		return {
 			enabled,
 			forceFullFrame,
 			dirtyRects,
+			dirtyTileSize,
+			dirtyTileColumns,
+			dirtyTileRows,
+			dirtyTiles,
 			dirtyAreaRatio,
 			firstPass: forceFullFrame ? null : plan.firstPass,
 			reasonMask: plan.reasonMask,
@@ -627,6 +677,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		let context: FrameContext | null = null;
 		let frameStarted = false;
 		let emittedPostAnimation = false;
+		const initialFullFrameTiles = buildDirtyTileCoverage(
+			[{
+				x: 0,
+				y: 0,
+				width: Math.max(1, this.canvas.width),
+				height: Math.max(1, this.canvas.height),
+			}],
+			Math.max(1, this.canvas.width),
+			Math.max(1, this.canvas.height),
+			this._incrementalOptions.dirtyTileSize
+		);
 		let incrementalFrameContext: IncrementalFrameContext = {
 			enabled: false,
 			forceFullFrame: true,
@@ -636,6 +697,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				width: Math.max(1, this.canvas.width),
 				height: Math.max(1, this.canvas.height),
 			}],
+			dirtyTileSize: initialFullFrameTiles.tileSize,
+			dirtyTileColumns: initialFullFrameTiles.tileColumns,
+			dirtyTileRows: initialFullFrameTiles.tileRows,
+			dirtyTiles: initialFullFrameTiles.dirtyTiles.slice(),
 			dirtyAreaRatio: 1,
 			firstPass: null,
 			reasonMask: frameDirtyReasonMask,
@@ -751,6 +816,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							incrementalFrameContext.temporalHistoryReset,
 						firstPass: incrementalFrameContext.firstPass,
 						dirtyRectCount: incrementalFrameContext.dirtyRects.length,
+						dirtyTileCount: incrementalFrameContext.dirtyTiles.length,
+						dirtyTileSize: incrementalFrameContext.dirtyTileSize,
+						dirtyTileColumns: incrementalFrameContext.dirtyTileColumns,
+						dirtyTileRows: incrementalFrameContext.dirtyTileRows,
 						dirtyAreaRatio: incrementalFrameContext.dirtyAreaRatio,
 						dirtyRects: incrementalFrameContext.dirtyRects.map((rect) => ({
 							x: rect.x,
@@ -758,6 +827,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							width: rect.width,
 							height: rect.height,
 						})),
+						dirtyTiles: incrementalFrameContext.dirtyTiles.slice(),
 					};
 					const attachments = this.backend.getAttachments(
 						this.canvas.width,

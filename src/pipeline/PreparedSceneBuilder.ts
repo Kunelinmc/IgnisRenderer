@@ -93,6 +93,7 @@ export class PreparedSceneBuilder {
 			shadowCasterPackets,
 			shadowTransmitterPackets,
 			reflectivePackets,
+			spatialIndex: null,
 		};
 	}
 

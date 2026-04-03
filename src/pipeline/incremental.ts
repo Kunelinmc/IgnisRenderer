@@ -38,9 +38,17 @@ export interface DirtyRect {
 	height: number;
 }
 
+export interface DirtyTileCoverage {
+	tileSize: number;
+	tileColumns: number;
+	tileRows: number;
+	dirtyTiles: number[];
+}
+
 export interface IncrementalRenderingOptions {
 	enabled: boolean;
 	maxDirtyRects: number;
+	dirtyTileSize: number;
 	fullFrameFallbackAreaRatio: number;
 	temporalPolicy: "conservative-reset";
 }
@@ -52,14 +60,23 @@ export interface IncrementalFrameStats {
 	temporalHistoryReset: boolean;
 	firstPass: FramePassStage | null;
 	dirtyRectCount: number;
+	dirtyTileCount: number;
+	dirtyTileSize: number;
+	dirtyTileColumns: number;
+	dirtyTileRows: number;
 	dirtyAreaRatio: number;
 	dirtyRects: DirtyRect[];
+	dirtyTiles: number[];
 }
 
 export interface IncrementalFrameContext {
 	enabled: boolean;
 	forceFullFrame: boolean;
 	dirtyRects: DirtyRect[];
+	dirtyTileSize: number;
+	dirtyTileColumns: number;
+	dirtyTileRows: number;
+	dirtyTiles: number[];
 	dirtyAreaRatio: number;
 	firstPass: FramePassStage | null;
 	reasonMask: number;
@@ -134,10 +151,13 @@ const FORCE_FULL_FRAME_MASK =
 	RENDER_DIRTY_REASON_MASK.shadow |
 	RENDER_DIRTY_REASON_MASK.unknown;
 
+export const DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE = 32;
+
 export const DEFAULT_INCREMENTAL_RENDERING_OPTIONS: IncrementalRenderingOptions =
 	{
 		enabled: false,
 		maxDirtyRects: 16,
+		dirtyTileSize: DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,
 		fullFrameFallbackAreaRatio: 0.3,
 		temporalPolicy: "conservative-reset",
 	};
@@ -177,6 +197,12 @@ export function normalizeIncrementalRenderingOptions(
 			1,
 			256,
 			DEFAULT_INCREMENTAL_RENDERING_OPTIONS.maxDirtyRects
+		),
+		dirtyTileSize: clampInteger(
+			source.dirtyTileSize,
+			4,
+			512,
+			DEFAULT_INCREMENTAL_RENDERING_OPTIONS.dirtyTileSize
 		),
 		fullFrameFallbackAreaRatio: clampNumber(
 			source.fullFrameFallbackAreaRatio,
@@ -306,6 +332,126 @@ export function clampDirtyRect(
 		width: clampedWidth,
 		height: clampedHeight,
 	};
+}
+
+export function buildDirtyTileCoverage(
+	rects: DirtyRect[],
+	width: number,
+	height: number,
+	tileSize: number
+): DirtyTileCoverage {
+	const resolvedWidth = Math.max(1, Math.floor(width));
+	const resolvedHeight = Math.max(1, Math.floor(height));
+	const resolvedTileSize = clampInteger(
+		tileSize,
+		4,
+		512,
+		DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE
+	);
+	const tileColumns = Math.max(1, Math.ceil(resolvedWidth / resolvedTileSize));
+	const tileRows = Math.max(1, Math.ceil(resolvedHeight / resolvedTileSize));
+	const tileCount = tileColumns * tileRows;
+	const visited = new Uint8Array(tileCount);
+	const dirtyTiles: number[] = [];
+
+	for (const rect of rects) {
+		const clamped = clampDirtyRect(rect, resolvedWidth, resolvedHeight);
+		if (!clamped) {
+			continue;
+		}
+		const minTileX = Math.floor(clamped.x / resolvedTileSize);
+		const minTileY = Math.floor(clamped.y / resolvedTileSize);
+		const maxTileX = Math.floor(
+			(clamped.x + clamped.width - 1) / resolvedTileSize
+		);
+		const maxTileY = Math.floor(
+			(clamped.y + clamped.height - 1) / resolvedTileSize
+		);
+		for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
+			for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
+				const tileIndex = tileY * tileColumns + tileX;
+				if (tileIndex < 0 || tileIndex >= tileCount || visited[tileIndex] !== 0) {
+					continue;
+				}
+				visited[tileIndex] = 1;
+				dirtyTiles.push(tileIndex);
+			}
+		}
+	}
+
+	dirtyTiles.sort((left, right) => left - right);
+	return {
+		tileSize: resolvedTileSize,
+		tileColumns,
+		tileRows,
+		dirtyTiles,
+	};
+}
+
+export function tileCoverageToDirtyRects(
+	coverage: DirtyTileCoverage,
+	maxRects: number,
+	width: number,
+	height: number
+): DirtyRect[] {
+	if (coverage.dirtyTiles.length === 0) {
+		return [];
+	}
+	const resolvedWidth = Math.max(1, Math.floor(width));
+	const resolvedHeight = Math.max(1, Math.floor(height));
+	const tileRects: DirtyRect[] = [];
+	for (const tileIndex of coverage.dirtyTiles) {
+		const tileX = tileIndex % coverage.tileColumns;
+		const tileY = Math.floor(tileIndex / coverage.tileColumns);
+		if (
+			tileX < 0 ||
+			tileY < 0 ||
+			tileX >= coverage.tileColumns ||
+			tileY >= coverage.tileRows
+		) {
+			continue;
+		}
+		const x = tileX * coverage.tileSize;
+		const y = tileY * coverage.tileSize;
+		tileRects.push({
+			x,
+			y,
+			width: Math.min(coverage.tileSize, resolvedWidth - x),
+			height: Math.min(coverage.tileSize, resolvedHeight - y),
+		});
+	}
+	return mergeDirtyRects(tileRects, maxRects, resolvedWidth, resolvedHeight);
+}
+
+export function getDirtyTileCoverageAreaRatio(
+	coverage: DirtyTileCoverage,
+	width: number,
+	height: number
+): number {
+	const resolvedWidth = Math.max(1, Math.floor(width));
+	const resolvedHeight = Math.max(1, Math.floor(height));
+	const area = resolvedWidth * resolvedHeight;
+	let dirtyArea = 0;
+	for (const tileIndex of coverage.dirtyTiles) {
+		const tileX = tileIndex % coverage.tileColumns;
+		const tileY = Math.floor(tileIndex / coverage.tileColumns);
+		if (
+			tileX < 0 ||
+			tileY < 0 ||
+			tileX >= coverage.tileColumns ||
+			tileY >= coverage.tileRows
+		) {
+			continue;
+		}
+		const x = tileX * coverage.tileSize;
+		const y = tileY * coverage.tileSize;
+		const tileWidth = Math.min(coverage.tileSize, resolvedWidth - x);
+		const tileHeight = Math.min(coverage.tileSize, resolvedHeight - y);
+		if (tileWidth > 0 && tileHeight > 0) {
+			dirtyArea += tileWidth * tileHeight;
+		}
+	}
+	return Math.max(0, Math.min(1, dirtyArea / area));
 }
 
 export function inflateDirtyRects(

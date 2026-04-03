@@ -3,16 +3,19 @@ import type { Matrix4 } from "../maths/Matrix4";
 import type { Material } from "../materials/Material";
 import type { Renderer } from "../renderers/Renderer";
 import {
+	buildDirtyTileCoverage,
 	computePostProcessInflationRadius,
-	getDirtyRectsAreaRatio,
+	getDirtyTileCoverageAreaRatio,
 	inflateDirtyRects,
 	makeFullScreenRect,
 	mergeDirtyRects,
+	tileCoverageToDirtyRects,
 	type DirtyRect,
 	type IncrementalRenderingOptions,
 } from "./incremental";
 import type { DrawPacket, PreparedScene, ResolvedFeatureState } from "./types";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
+import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 
 interface CachedPacketState {
 	signature: string;
@@ -30,6 +33,10 @@ export interface PreparedSceneCacheBuildInput {
 export interface PreparedSceneCacheBuildResult {
 	frame: PreparedScene;
 	dirtyRects: DirtyRect[];
+	dirtyTiles: number[];
+	dirtyTileSize: number;
+	dirtyTileColumns: number;
+	dirtyTileRows: number;
 	dirtyAreaRatio: number;
 	forceFullFrame: boolean;
 	packetRects: Map<string, DirtyRect>;
@@ -50,12 +57,29 @@ export class PreparedSceneCache {
 		const height = Math.max(1, Math.floor(input.viewportHeight));
 		const fullScreenRect = makeFullScreenRect(width, height);
 		const packetRects = new Map<string, DirtyRect>();
+		const fullFrameTileCoverage = buildDirtyTileCoverage(
+			[fullScreenRect],
+			width,
+			height,
+			input.incrementalOptions.dirtyTileSize
+		);
 
 		if (!input.incrementalOptions.enabled) {
 			this._syncPacketCacheState(frame, packetRects, width, height);
+			frame.spatialIndex = this._buildSpatialIndex(
+				frame,
+				packetRects,
+				width,
+				height,
+				input.incrementalOptions.dirtyTileSize
+			);
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],
+				dirtyTiles: fullFrameTileCoverage.dirtyTiles.slice(),
+				dirtyTileSize: fullFrameTileCoverage.tileSize,
+				dirtyTileColumns: fullFrameTileCoverage.tileColumns,
+				dirtyTileRows: fullFrameTileCoverage.tileRows,
 				dirtyAreaRatio: 1,
 				forceFullFrame: true,
 				packetRects,
@@ -109,21 +133,43 @@ export class PreparedSceneCache {
 
 		this._packetStateById = currentPacketStateById;
 		this._frameIndex++;
+		frame.spatialIndex = this._buildSpatialIndex(
+			frame,
+			packetRects,
+			width,
+			height,
+			input.incrementalOptions.dirtyTileSize
+		);
 
 		if (this._frameIndex <= 1) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],
+				dirtyTiles: fullFrameTileCoverage.dirtyTiles.slice(),
+				dirtyTileSize: fullFrameTileCoverage.tileSize,
+				dirtyTileColumns: fullFrameTileCoverage.tileColumns,
+				dirtyTileRows: fullFrameTileCoverage.tileRows,
 				dirtyAreaRatio: 1,
 				forceFullFrame: true,
 				packetRects,
 			};
 		}
 
+		const emptyCoverage = buildDirtyTileCoverage(
+			[],
+			width,
+			height,
+			input.incrementalOptions.dirtyTileSize
+		);
+
 		if (dirtyCandidates.length === 0) {
 			return {
 				frame,
 				dirtyRects: [],
+				dirtyTiles: [],
+				dirtyTileSize: emptyCoverage.tileSize,
+				dirtyTileColumns: emptyCoverage.tileColumns,
+				dirtyTileRows: emptyCoverage.tileRows,
 				dirtyAreaRatio: 0,
 				forceFullFrame: false,
 				packetRects,
@@ -146,11 +192,31 @@ export class PreparedSceneCache {
 			);
 		}
 
-		const dirtyAreaRatio = getDirtyRectsAreaRatio(dirtyRects, width, height);
+		const dirtyTileCoverage = buildDirtyTileCoverage(
+			dirtyRects,
+			width,
+			height,
+			input.incrementalOptions.dirtyTileSize
+		);
+		const tileDirtyRects = tileCoverageToDirtyRects(
+			dirtyTileCoverage,
+			input.incrementalOptions.maxDirtyRects,
+			width,
+			height
+		);
+		const dirtyAreaRatio = getDirtyTileCoverageAreaRatio(
+			dirtyTileCoverage,
+			width,
+			height
+		);
 		if (dirtyAreaRatio > input.incrementalOptions.fullFrameFallbackAreaRatio) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],
+				dirtyTiles: fullFrameTileCoverage.dirtyTiles.slice(),
+				dirtyTileSize: fullFrameTileCoverage.tileSize,
+				dirtyTileColumns: fullFrameTileCoverage.tileColumns,
+				dirtyTileRows: fullFrameTileCoverage.tileRows,
 				dirtyAreaRatio: 1,
 				forceFullFrame: true,
 				packetRects,
@@ -159,7 +225,11 @@ export class PreparedSceneCache {
 
 		return {
 			frame,
-			dirtyRects,
+			dirtyRects: tileDirtyRects,
+			dirtyTiles: dirtyTileCoverage.dirtyTiles.slice(),
+			dirtyTileSize: dirtyTileCoverage.tileSize,
+			dirtyTileColumns: dirtyTileCoverage.tileColumns,
+			dirtyTileRows: dirtyTileCoverage.tileRows,
 			dirtyAreaRatio,
 			forceFullFrame: false,
 			packetRects,
@@ -185,6 +255,23 @@ export class PreparedSceneCache {
 		}
 		this._packetStateById = next;
 		this._frameIndex++;
+	}
+
+	private _buildSpatialIndex(
+		frame: PreparedScene,
+		packetRects: ReadonlyMap<string, DirtyRect>,
+		width: number,
+		height: number,
+		tileSize: number
+	) {
+		return new PreparedSceneTileSpatialIndex({
+			viewportWidth: width,
+			viewportHeight: height,
+			tileSize,
+			packetRects,
+			opaquePackets: frame.opaquePackets,
+			transparentPackets: frame.transparentPackets,
+		});
 	}
 }
 

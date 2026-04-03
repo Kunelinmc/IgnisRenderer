@@ -16,6 +16,7 @@ class FakeBackend {
 		this.bindingGroupDestroyCalls = 0;
 		this.canvasColorTexture = { destroy() {} };
 		this.canvasDepthTexture = { destroy() {} };
+		this.recordedRenderPasses = [];
 	}
 
 	getMSAASampleCount() {
@@ -40,7 +41,9 @@ class FakeBackend {
 	createCommandEncoder() {
 		this.createCommandEncoderCalls++;
 		return {
-			beginRenderPass() {},
+			beginRenderPass: (desc) => {
+				this.recordedRenderPasses.push(desc);
+			},
 			setPipeline() {},
 			setBindingGroup() {},
 			draw() {},
@@ -258,11 +261,50 @@ async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	assert.equal(resources._state.drawModeAtRequest, "single");
 }
 
+async function testIncrementalMainPassUsesDepthPartialReuse() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [{ id: "packet" }];
+	context.incremental = {
+		enabled: true,
+		forceFullFrame: false,
+		dirtyRects: [{
+			x: 8,
+			y: 8,
+			width: 16,
+			height: 16,
+		}],
+		dirtyTileSize: 16,
+		dirtyTileColumns: 4,
+		dirtyTileRows: 4,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 0.0625,
+		firstPass: "main-opaque",
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	assert.equal(backend.recordedRenderPasses.length >= 2, true);
+	const depthClearPass = backend.recordedRenderPasses[0];
+	assert.equal(depthClearPass.depthStencilAttachment.depthLoadOp, "load");
+	assert.equal(depthClearPass.colorAttachments.length, 0);
+	const mainPass = backend.recordedRenderPasses[1];
+	assert.equal(mainPass.depthStencilAttachment.depthLoadOp, "load");
+}
+
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 	testFrameTargetAllocationFailureReleasesPartialResources();
 	testInvalidateFrameTargetsDestroysPresentBinding();
 	await testLegacyMainPassForcesSingleSceneTargetMode();
+	await testIncrementalMainPassUsesDepthPartialReuse();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 

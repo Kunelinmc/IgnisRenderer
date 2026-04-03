@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
+	buildDirtyTileCoverage,
+	getDirtyTileCoverageAreaRatio,
 	getDirtyRectsAreaRatio,
 	inflateDirtyRects,
 	mergeDirtyRects,
+	tileCoverageToDirtyRects,
 } from "../src/pipeline/incremental.ts";
 
 function testOverlapMerge() {
@@ -77,11 +80,50 @@ function testAreaRatio() {
 	assert.ok(ratio < 0.3);
 }
 
+function testTileCoverageRasterization() {
+	const coverage = buildDirtyTileCoverage(
+		[
+			{ x: 3, y: 3, width: 10, height: 10 },
+			{ x: 28, y: 4, width: 6, height: 9 },
+		],
+		64,
+		32,
+		16
+	);
+	assert.equal(coverage.tileColumns, 4);
+	assert.equal(coverage.tileRows, 2);
+	assert.deepEqual(coverage.dirtyTiles, [0, 1, 2]);
+
+	const rects = tileCoverageToDirtyRects(coverage, 8, 64, 32);
+	assert.deepEqual(rects, [{
+		x: 0,
+		y: 0,
+		width: 48,
+		height: 16,
+	}]);
+}
+
+function testTileCoverageAreaRatio() {
+	const coverage = buildDirtyTileCoverage(
+		[
+			{ x: 0, y: 0, width: 8, height: 8 },
+			{ x: 24, y: 16, width: 8, height: 8 },
+		],
+		32,
+		32,
+		16
+	);
+	const ratio = getDirtyTileCoverageAreaRatio(coverage, 32, 32);
+	assert.equal(ratio, 0.5);
+}
+
 function run() {
 	testOverlapMerge();
 	testRectCapMerge();
 	testInflationAndClamp();
 	testAreaRatio();
+	testTileCoverageRasterization();
+	testTileCoverageAreaRatio();
 	console.log("Dirty rect merger tests passed");
 }
 
