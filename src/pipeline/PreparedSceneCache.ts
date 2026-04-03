@@ -9,6 +9,7 @@ import {
 	inflateDirtyRects,
 	makeFullScreenRect,
 	mergeDirtyRects,
+	scaleFullFrameFallbackAreaRatioForPostProcess,
 	tileCoverageToDirtyRects,
 	type DirtyRect,
 	type IncrementalRenderingOptions,
@@ -209,7 +210,11 @@ export class PreparedSceneCache {
 			width,
 			height
 		);
-		if (dirtyAreaRatio > input.incrementalOptions.fullFrameFallbackAreaRatio) {
+		const fallbackAreaRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
+			input.incrementalOptions.fullFrameFallbackAreaRatio,
+			input.features
+		);
+		if (dirtyAreaRatio > fallbackAreaRatio) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],

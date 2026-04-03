@@ -77,6 +77,38 @@ function testPostFxStartsAtFirstEnabledPostStage() {
 	assert.equal(plan.firstPass, "bloom");
 }
 
+function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx-standard"),
+		features: createFeatures({
+			enableSSAO: true,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableMotionBlur: false,
+			enableDOF: false,
+			enableBloom: true,
+			enableFXAA: true,
+		}),
+	});
+	assert.equal(plan.firstPass, "ssao");
+}
+
+function testPostFxCinematicReasonResetsTemporalHistory() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx-cinematic"),
+		features: createFeatures({
+			enableTAA: true,
+			enableFXAA: true,
+		}),
+	});
+	assert.equal(plan.firstPass, "taa");
+	assert.equal(plan.temporalHistoryReset, true);
+}
+
 function testCameraForcesFullAndResetsTemporal() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -119,6 +151,8 @@ function run() {
 	testInteractionStartsAtInteractionOutline();
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();
+	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
+	testPostFxCinematicReasonResetsTemporalHistory();
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();
 	testDisabledIncrementalAlwaysFullFrame();

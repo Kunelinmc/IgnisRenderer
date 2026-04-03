@@ -13,45 +13,76 @@ interface PreparedSceneSpatialIndexBuildInput {
 	transparentPackets: DrawPacket[];
 }
 
+interface PacketRectBVHEntry {
+	packetIndex: number;
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+	centroidX: number;
+	centroidY: number;
+}
+
+interface PacketRectBVHNode {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+	left?: PacketRectBVHNode;
+	right?: PacketRectBVHNode;
+	entries?: PacketRectBVHEntry[];
+}
+
+interface PacketRectBVHStats {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+	centroidExtentX: number;
+	centroidExtentY: number;
+}
+
+interface RectQueryBounds {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
+const PACKET_RECT_BVH_LEAF_SIZE = 8;
+const PACKET_RECT_BVH_AXIS_EPSILON = 1e-4;
+
 export class PreparedSceneTileSpatialIndex
 	implements IPreparedSceneSpatialIndex
 {
 	private _viewportWidth: number;
 	private _viewportHeight: number;
-	private _tileSize: number;
-	private _tileColumns: number;
-	private _tileRows: number;
-	private _opaqueBuckets = new Map<number, number[]>();
-	private _transparentBuckets = new Map<number, number[]>();
+	private _leafSize: number;
 	private _opaqueFallbackIndices: number[] = [];
 	private _transparentFallbackIndices: number[] = [];
 	private _opaquePackets: DrawPacket[];
 	private _transparentPackets: DrawPacket[];
+	private _opaqueTree: PacketRectBVHNode | null = null;
+	private _transparentTree: PacketRectBVHNode | null = null;
 
 	public constructor(input: PreparedSceneSpatialIndexBuildInput) {
 		this._viewportWidth = Math.max(1, Math.floor(input.viewportWidth));
 		this._viewportHeight = Math.max(1, Math.floor(input.viewportHeight));
-		this._tileSize = Math.max(4, Math.floor(input.tileSize || 32));
-		this._tileColumns = Math.max(
-			1,
-			Math.ceil(this._viewportWidth / this._tileSize)
-		);
-		this._tileRows = Math.max(
-			1,
-			Math.ceil(this._viewportHeight / this._tileSize)
+		const resolvedTileSize = Math.max(4, Math.floor(input.tileSize || 32));
+		this._leafSize = Math.max(
+			4,
+			Math.min(32, Math.floor(resolvedTileSize / 4) || PACKET_RECT_BVH_LEAF_SIZE)
 		);
 		this._opaquePackets = input.opaquePackets.slice();
 		this._transparentPackets = input.transparentPackets.slice();
-		this._indexPackets(
+		this._opaqueTree = this._buildPacketTree(
 			this._opaquePackets,
 			input.packetRects,
-			this._opaqueBuckets,
 			this._opaqueFallbackIndices
 		);
-		this._indexPackets(
+		this._transparentTree = this._buildPacketTree(
 			this._transparentPackets,
 			input.packetRects,
-			this._transparentBuckets,
 			this._transparentFallbackIndices
 		);
 	}
@@ -60,7 +91,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPackets(
 			rect,
 			this._opaquePackets,
-			this._opaqueBuckets,
+			this._opaqueTree,
 			this._opaqueFallbackIndices
 		);
 	}
@@ -69,7 +100,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPackets(
 			rect,
 			this._transparentPackets,
-			this._transparentBuckets,
+			this._transparentTree,
 			this._transparentFallbackIndices
 		);
 	}
@@ -78,7 +109,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPacketsInRects(
 			rects,
 			this._opaquePackets,
-			this._opaqueBuckets,
+			this._opaqueTree,
 			this._opaqueFallbackIndices
 		);
 	}
@@ -87,7 +118,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPacketsInRects(
 			rects,
 			this._transparentPackets,
-			this._transparentBuckets,
+			this._transparentTree,
 			this._transparentFallbackIndices
 		);
 	}
@@ -95,7 +126,7 @@ export class PreparedSceneTileSpatialIndex
 	private _queryPacketsInRects(
 		rects: DirtyRect[],
 		packets: DrawPacket[],
-		buckets: Map<number, number[]>,
+		tree: PacketRectBVHNode | null,
 		fallbackIndices: number[]
 	): DrawPacket[] {
 		if (packets.length === 0) {
@@ -103,7 +134,7 @@ export class PreparedSceneTileSpatialIndex
 		}
 		const indices = new Set<number>(fallbackIndices);
 		for (const rect of rects) {
-			this._collectIndicesForRect(rect, buckets, indices);
+			this._collectIndicesForRect(rect, tree, indices);
 		}
 		if (indices.size === packets.length) {
 			return packets.slice();
@@ -114,14 +145,14 @@ export class PreparedSceneTileSpatialIndex
 	private _queryPackets(
 		rect: DirtyRect,
 		packets: DrawPacket[],
-		buckets: Map<number, number[]>,
+		tree: PacketRectBVHNode | null,
 		fallbackIndices: number[]
 	): DrawPacket[] {
 		if (packets.length === 0) {
 			return [];
 		}
 		const indices = new Set<number>(fallbackIndices);
-		this._collectIndicesForRect(rect, buckets, indices);
+		this._collectIndicesForRect(rect, tree, indices);
 		if (indices.size === packets.length) {
 			return packets.slice();
 		}
@@ -130,39 +161,17 @@ export class PreparedSceneTileSpatialIndex
 
 	private _collectIndicesForRect(
 		rect: DirtyRect,
-		buckets: Map<number, number[]>,
+		tree: PacketRectBVHNode | null,
 		result: Set<number>
 	): void {
+		if (!tree) {
+			return;
+		}
 		const clamped = this._clampRect(rect);
 		if (!clamped) {
 			return;
 		}
-		const minTileX = Math.floor(clamped.x / this._tileSize);
-		const minTileY = Math.floor(clamped.y / this._tileSize);
-		const maxTileX = Math.floor((clamped.x + clamped.width - 1) / this._tileSize);
-		const maxTileY = Math.floor(
-			(clamped.y + clamped.height - 1) / this._tileSize
-		);
-		for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
-			for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
-				if (
-					tileX < 0 ||
-					tileY < 0 ||
-					tileX >= this._tileColumns ||
-					tileY >= this._tileRows
-				) {
-					continue;
-				}
-				const tileIndex = tileY * this._tileColumns + tileX;
-				const bucket = buckets.get(tileIndex);
-				if (!bucket) {
-					continue;
-				}
-				for (const packetIndex of bucket) {
-					result.add(packetIndex);
-				}
-			}
-		}
+		queryPacketRectBVH(tree, toRectQueryBounds(clamped), result);
 	}
 
 	private _packetsFromIndexSet(
@@ -182,12 +191,12 @@ export class PreparedSceneTileSpatialIndex
 		return result;
 	}
 
-	private _indexPackets(
+	private _buildPacketTree(
 		packets: DrawPacket[],
 		packetRects: ReadonlyMap<string, DirtyRect>,
-		buckets: Map<number, number[]>,
 		fallbackIndices: number[]
-	): void {
+	): PacketRectBVHNode | null {
+		const entries: PacketRectBVHEntry[] = [];
 		for (let packetIndex = 0; packetIndex < packets.length; packetIndex++) {
 			const packet = packets[packetIndex];
 			const rect = packetRects.get(packet.id);
@@ -196,34 +205,24 @@ export class PreparedSceneTileSpatialIndex
 				fallbackIndices.push(packetIndex);
 				continue;
 			}
-			const minTileX = Math.floor(clamped.x / this._tileSize);
-			const minTileY = Math.floor(clamped.y / this._tileSize);
-			const maxTileX = Math.floor(
-				(clamped.x + clamped.width - 1) / this._tileSize
-			);
-			const maxTileY = Math.floor(
-				(clamped.y + clamped.height - 1) / this._tileSize
-			);
-			for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
-				for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
-					if (
-						tileX < 0 ||
-						tileY < 0 ||
-						tileX >= this._tileColumns ||
-						tileY >= this._tileRows
-					) {
-						continue;
-					}
-					const tileIndex = tileY * this._tileColumns + tileX;
-					let bucket = buckets.get(tileIndex);
-					if (!bucket) {
-						bucket = [];
-						buckets.set(tileIndex, bucket);
-					}
-					bucket.push(packetIndex);
-				}
-			}
+			const minX = clamped.x;
+			const minY = clamped.y;
+			const maxX = clamped.x + clamped.width;
+			const maxY = clamped.y + clamped.height;
+			entries.push({
+				packetIndex,
+				minX,
+				minY,
+				maxX,
+				maxY,
+				centroidX: (minX + maxX) * 0.5,
+				centroidY: (minY + maxY) * 0.5,
+			});
 		}
+		if (entries.length === 0) {
+			return null;
+		}
+		return buildPacketRectBVH(entries, 0, entries.length, this._leafSize);
 	}
 
 	private _clampRect(rect: DirtyRect): DirtyRect | null {
@@ -249,4 +248,192 @@ export class PreparedSceneTileSpatialIndex
 			height,
 		};
 	}
+}
+
+function buildPacketRectBVH(
+	entries: PacketRectBVHEntry[],
+	start: number,
+	end: number,
+	leafSize: number
+): PacketRectBVHNode | null {
+	const count = end - start;
+	if (count <= 0) {
+		return null;
+	}
+
+	const stats = computePacketRectBVHStats(entries, start, end);
+	if (
+		count <= Math.max(1, leafSize) ||
+		Math.max(stats.centroidExtentX, stats.centroidExtentY) <=
+			PACKET_RECT_BVH_AXIS_EPSILON
+	) {
+		return {
+			minX: stats.minX,
+			minY: stats.minY,
+			maxX: stats.maxX,
+			maxY: stats.maxY,
+			entries: entries.slice(start, end),
+		};
+	}
+
+	const splitAxis = stats.centroidExtentX >= stats.centroidExtentY ? "x" : "y";
+	const middle = start + (count >> 1);
+	quickSelectPacketRectEntries(entries, start, end, middle, splitAxis);
+	const left = buildPacketRectBVH(entries, start, middle, leafSize);
+	const right = buildPacketRectBVH(entries, middle, end, leafSize);
+	if (!left || !right) {
+		return {
+			minX: stats.minX,
+			minY: stats.minY,
+			maxX: stats.maxX,
+			maxY: stats.maxY,
+			entries: entries.slice(start, end),
+		};
+	}
+	return {
+		minX: stats.minX,
+		minY: stats.minY,
+		maxX: stats.maxX,
+		maxY: stats.maxY,
+		left,
+		right,
+	};
+}
+
+function computePacketRectBVHStats(
+	entries: PacketRectBVHEntry[],
+	start: number,
+	end: number
+): PacketRectBVHStats {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	let centroidMinX = Infinity;
+	let centroidMinY = Infinity;
+	let centroidMaxX = -Infinity;
+	let centroidMaxY = -Infinity;
+	for (let index = start; index < end; index++) {
+		const entry = entries[index];
+		if (entry.minX < minX) minX = entry.minX;
+		if (entry.minY < minY) minY = entry.minY;
+		if (entry.maxX > maxX) maxX = entry.maxX;
+		if (entry.maxY > maxY) maxY = entry.maxY;
+		if (entry.centroidX < centroidMinX) centroidMinX = entry.centroidX;
+		if (entry.centroidY < centroidMinY) centroidMinY = entry.centroidY;
+		if (entry.centroidX > centroidMaxX) centroidMaxX = entry.centroidX;
+		if (entry.centroidY > centroidMaxY) centroidMaxY = entry.centroidY;
+	}
+	return {
+		minX,
+		minY,
+		maxX,
+		maxY,
+		centroidExtentX: centroidMaxX - centroidMinX,
+		centroidExtentY: centroidMaxY - centroidMinY,
+	};
+}
+
+function queryPacketRectBVH(
+	node: PacketRectBVHNode,
+	rect: RectQueryBounds,
+	result: Set<number>
+): void {
+	if (!rectQueryBoundsIntersect(node, rect)) {
+		return;
+	}
+	if (node.entries) {
+		for (const entry of node.entries) {
+			if (!rectQueryBoundsIntersect(entry, rect)) {
+				continue;
+			}
+			result.add(entry.packetIndex);
+		}
+		return;
+	}
+	if (node.left) {
+		queryPacketRectBVH(node.left, rect, result);
+	}
+	if (node.right) {
+		queryPacketRectBVH(node.right, rect, result);
+	}
+}
+
+function toRectQueryBounds(rect: DirtyRect): RectQueryBounds {
+	return {
+		minX: rect.x,
+		minY: rect.y,
+		maxX: rect.x + rect.width,
+		maxY: rect.y + rect.height,
+	};
+}
+
+function rectQueryBoundsIntersect(
+	left: { minX: number; minY: number; maxX: number; maxY: number },
+	right: { minX: number; minY: number; maxX: number; maxY: number }
+): boolean {
+	return (
+		left.minX <= right.maxX &&
+		left.maxX >= right.minX &&
+		left.minY <= right.maxY &&
+		left.maxY >= right.minY
+	);
+}
+
+function quickSelectPacketRectEntries(
+	entries: PacketRectBVHEntry[],
+	start: number,
+	end: number,
+	target: number,
+	axis: "x" | "y"
+): void {
+	let left = start;
+	let right = end - 1;
+	while (left < right) {
+		const pivotIndex = left + ((right - left) >> 1);
+		const pivotValue = getPacketRectEntryCentroid(entries[pivotIndex], axis);
+		let lt = left;
+		let gt = right;
+		let index = left;
+		while (index <= gt) {
+			const value = getPacketRectEntryCentroid(entries[index], axis);
+			if (value < pivotValue) {
+				swapPacketRectEntries(entries, lt, index);
+				lt++;
+				index++;
+			} else if (value > pivotValue) {
+				swapPacketRectEntries(entries, index, gt);
+				gt--;
+			} else {
+				index++;
+			}
+		}
+		if (target < lt) {
+			right = lt - 1;
+		} else if (target > gt) {
+			left = gt + 1;
+		} else {
+			return;
+		}
+	}
+}
+
+function getPacketRectEntryCentroid(
+	entry: PacketRectBVHEntry,
+	axis: "x" | "y"
+): number {
+	return axis === "x" ? entry.centroidX : entry.centroidY;
+}
+
+function swapPacketRectEntries(
+	entries: PacketRectBVHEntry[],
+	leftIndex: number,
+	rightIndex: number
+): void {
+	if (leftIndex === rightIndex) {
+		return;
+	}
+	const tmp = entries[leftIndex];
+	entries[leftIndex] = entries[rightIndex];
+	entries[rightIndex] = tmp;
 }

@@ -10,6 +10,9 @@ export type RenderDirtyReason =
 	| "lighting"
 	| "shadow"
 	| "postfx"
+	| "postfx-light"
+	| "postfx-standard"
+	| "postfx-cinematic"
 	| "interaction"
 	| "physics"
 	| "particles";
@@ -27,6 +30,9 @@ export const RENDER_DIRTY_REASON_MASK = {
 	interaction: 1 << 9,
 	physics: 1 << 10,
 	particles: 1 << 11,
+	"postfx-light": 1 << 12,
+	"postfx-standard": 1 << 13,
+	"postfx-cinematic": 1 << 14,
 } as const;
 
 export type RenderDirtyReasonMaskName = keyof typeof RENDER_DIRTY_REASON_MASK;
@@ -96,6 +102,14 @@ export interface IncrementalPlan {
 	reasonMask: number;
 }
 
+export const POST_PROCESS_GRADES = [
+	"none",
+	"light",
+	"standard",
+	"cinematic",
+] as const;
+export type PostProcessGrade = (typeof POST_PROCESS_GRADES)[number];
+
 const FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"particle-sim",
 	"shadow",
@@ -134,6 +148,26 @@ const POST_PROCESS_STAGE_ORDER: FramePassStage[] = [
 	"gamma",
 ];
 
+const POSTFX_REASON_MASK =
+	RENDER_DIRTY_REASON_MASK.postfx |
+	RENDER_DIRTY_REASON_MASK["postfx-light"] |
+	RENDER_DIRTY_REASON_MASK["postfx-standard"] |
+	RENDER_DIRTY_REASON_MASK["postfx-cinematic"];
+
+const POST_PROCESS_GRADE_INFLATION_RADIUS: Record<PostProcessGrade, number> = {
+	none: 0,
+	light: 2,
+	standard: 12,
+	cinematic: 24,
+};
+
+const POST_PROCESS_GRADE_FALLBACK_SCALE: Record<PostProcessGrade, number> = {
+	none: 1,
+	light: 1,
+	standard: 0.9,
+	cinematic: 0.8,
+};
+
 const TEMPORAL_RESET_MASK =
 	RENDER_DIRTY_REASON_MASK.resize |
 	RENDER_DIRTY_REASON_MASK.camera |
@@ -142,6 +176,7 @@ const TEMPORAL_RESET_MASK =
 	RENDER_DIRTY_REASON_MASK.lighting |
 	RENDER_DIRTY_REASON_MASK.shadow |
 	RENDER_DIRTY_REASON_MASK.physics |
+	RENDER_DIRTY_REASON_MASK["postfx-cinematic"] |
 	RENDER_DIRTY_REASON_MASK.unknown;
 
 const FORCE_FULL_FRAME_MASK =
@@ -278,7 +313,7 @@ export class IncrementalFramePlanner {
 			);
 		}
 
-		if ((reasonMask & RENDER_DIRTY_REASON_MASK.postfx) !== 0) {
+		if ((reasonMask & POSTFX_REASON_MASK) !== 0) {
 			candidates.push(
 				resolveFirstEnabledPostProcessStage(input.features) ?? "gamma"
 			);
@@ -565,8 +600,9 @@ export function getDirtyRectsAreaRatio(
 export function computePostProcessInflationRadius(
 	features: ResolvedFeatureState
 ): number {
-	let radius = 0;
+	let radius = getPostProcessGradeInflationRadius(resolvePostProcessGrade(features));
 	if (features.enableSSAO) radius = Math.max(radius, 8);
+	if (features.enableSSGI) radius = Math.max(radius, 12);
 	if (features.enableTAA) radius = Math.max(radius, 8);
 	if (features.enableSSR) radius = Math.max(radius, 16);
 	if (features.enableVolumetric) radius = Math.max(radius, 16);
@@ -575,6 +611,48 @@ export function computePostProcessInflationRadius(
 	if (features.enableBloom) radius = Math.max(radius, 48);
 	if (features.enableFXAA) radius = Math.max(radius, 2);
 	return radius;
+}
+
+export function resolvePostProcessGrade(
+	features: ResolvedFeatureState
+): PostProcessGrade {
+	if (
+		features.enableTAA ||
+		features.enableSSR ||
+		features.enableVolumetric ||
+		features.enableMotionBlur ||
+		features.enableDOF
+	) {
+		return "cinematic";
+	}
+	if (features.enableSSAO || features.enableSSGI || features.enableBloom) {
+		return "standard";
+	}
+	if (features.enableFXAA || features.enableGamma) {
+		return "light";
+	}
+	return "none";
+}
+
+export function getPostProcessGradeInflationRadius(
+	grade: PostProcessGrade
+): number {
+	return POST_PROCESS_GRADE_INFLATION_RADIUS[grade] ?? 0;
+}
+
+export function scaleFullFrameFallbackAreaRatioForPostProcess(
+	baseRatio: number,
+	features: ResolvedFeatureState
+): number {
+	const normalizedBaseRatio = clampNumber(
+		baseRatio,
+		0.01,
+		1,
+		DEFAULT_INCREMENTAL_RENDERING_OPTIONS.fullFrameFallbackAreaRatio
+	);
+	const grade = resolvePostProcessGrade(features);
+	const scale = POST_PROCESS_GRADE_FALLBACK_SCALE[grade] ?? 1;
+	return clampNumber(normalizedBaseRatio * scale, 0.01, 1, normalizedBaseRatio);
 }
 
 export function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
