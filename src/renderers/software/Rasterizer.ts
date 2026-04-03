@@ -1,6 +1,7 @@
 import { Material, ShadingModel, AlphaMode } from "../../materials/Material";
 import { Matrix4 } from "../../maths/Matrix4";
-import { CoreConstants, PostProcessConstants } from "./constants";
+import { PostProcessConstants } from "./softwarePostProcessConstants";
+import { CoreConstants } from "./softwareRasterConstants";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	FlatLitShader,

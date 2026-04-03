@@ -1,3 +1,5 @@
+#import <ignis/postprocess/fxaa>
+
 struct Params {
 	invSize: vec2<f32>,
 	edgeThresholdMin: f32,
@@ -5,10 +7,6 @@ struct Params {
 	subpixQuality: f32,
 	_pad0: f32,
 }
-
-const FXAA_QUALITY = array<f32, 11>(
-	1.0, 1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 2.0, 2.0, 4.0, 8.0
-);
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
 @group(0) @binding(1) var linearSampler: sampler;

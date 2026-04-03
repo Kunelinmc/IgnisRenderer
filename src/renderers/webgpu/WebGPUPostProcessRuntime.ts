@@ -39,17 +39,16 @@ import {
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
 import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
+import {
+	FXAA_EDGE_THRESHOLD_MIN,
+	FXAA_EDGE_THRESHOLD_MULTIPLIER,
+	FXAA_SUBPIX_QUALITY,
+} from "../postProcessConstants";
 
 const WORKGROUP_SIZE = 8;
 const INTERACTION_OUTLINE_HEADER_FLOATS = 16;
 const INTERACTION_OUTLINE_PARAM_FLOATS =
 	INTERACTION_OUTLINE_HEADER_FLOATS + MAX_INTERACTION_OUTLINE_CIRCLES * 4;
-
-const DEFAULT_FXAA = {
-	edgeThresholdMin: 0.03125,
-	edgeThresholdMultiplier: 0.166,
-	subpixQuality: 0.75,
-};
 
 const VOLUMETRIC_LIGHT_STRIDE_FLOATS = 12;
 const MAX_VOLUMETRIC_LIGHTS = 65000;
@@ -1427,9 +1426,9 @@ export class WebGPUPostProcessRuntime {
 			new Float32Array([
 				1 / Math.max(target.width, 1),
 				1 / Math.max(target.height, 1),
-				DEFAULT_FXAA.edgeThresholdMin,
-				DEFAULT_FXAA.edgeThresholdMultiplier,
-				DEFAULT_FXAA.subpixQuality,
+				FXAA_EDGE_THRESHOLD_MIN,
+				FXAA_EDGE_THRESHOLD_MULTIPLIER,
+				FXAA_SUBPIX_QUALITY,
 				0,
 			])
 		);

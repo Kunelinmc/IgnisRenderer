@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
+#import <ignis/postprocess/fxaa>
 #define IGNIS_LUMA_PROFILE bt601
 #define IGNIS_LUMA_CLAMP false
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -33,8 +34,9 @@ void main() {
 	dir.y = (lumaNW + lumaSW) - (lumaNE + lumaSE);
 
 	float dirReduce = max(
-		(lumaNW + lumaNE + lumaSW + lumaSE) * (0.25 * 0.03125),
-		0.0078125
+		(lumaNW + lumaNE + lumaSW + lumaSE) *
+			(0.25 * IGNIS_FXAA_EDGE_THRESHOLD_MIN),
+		0.25 * IGNIS_FXAA_EDGE_THRESHOLD_MIN
 	);
 	float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
 	dir = clamp(dir * rcpDirMin, vec2(-8.0), vec2(8.0)) * uTexelSize;

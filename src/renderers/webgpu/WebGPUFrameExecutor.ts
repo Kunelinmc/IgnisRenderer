@@ -41,6 +41,7 @@ import type {
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
+import { DEFAULT_GAMMA, MIN_GAMMA } from "../postProcessConstants";
 
 const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"ssao",
@@ -94,7 +95,7 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> PresentVSOut {
 @fragment
 fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 	let sampled = textureSample(srcTexture, srcSampler, input.uv);
-	let gamma = max(presentParams.gamma, 0.01);
+	let gamma = max(presentParams.gamma, ${MIN_GAMMA});
 	let linearColor = max(sampled.rgb, vec3<f32>(0.0));
 	let gammaColor = pow(linearColor, vec3<f32>(1.0 / gamma));
 	let outputColor = select(linearColor, gammaColor, presentParams.applyGamma > 0.5);
@@ -1524,7 +1525,7 @@ export class WebGPUFrameExecutor {
 
 		this._backend.writeBuffer(
 			this._presentParamsBuffer,
-			new Float32Array([2.2, applyGamma ? 1 : 0, 0, 0])
+			new Float32Array([DEFAULT_GAMMA, applyGamma ? 1 : 0, 0, 0])
 		);
 
 		if (!this._presentBinding || this._presentBindingSource !== source) {

@@ -1,4 +1,5 @@
 #import <ignis/postprocess/luma-common>
+#import <ignis/postprocess/volumetric>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP false
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -90,7 +91,6 @@ const PI: f32 = 3.14159265359;
 const MAX_VIEW_STEPS: i32 = 96;
 const MAX_SHADOW_STEPS: i32 = 24;
 const MAX_RESTIR_CANDIDATES: i32 = 64;
-const SIGMA_T_SCALE: f32 = 0.02;
 const TEMPORAL_HISTORY_WEIGHT: f32 = 0.75;
 const TEMPORAL_DEPTH_THRESHOLD: f32 = 0.04;
 const SHADOW_CONE_SLOPE: f32 = 0.02;
@@ -444,7 +444,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let skyStepScale = select(SKY_STEP_SCALE, 1.0, hasSurface);
 	let steps = max(4, i32(f32(baseSteps) * adaptiveScale * skyStepScale));
 	let stepSize = max(maxDistance / f32(max(steps, 1)), 1e-3);
-	let sigmaT = max(params.airDensity, 0.001) * SIGMA_T_SCALE;
+	let sigmaT = max(params.airDensity, 0.001) * IGNIS_VOLUMETRIC_SIGMA_T_SCALE;
 	let sigmaS = sigmaT * clamp(params.scatteringAlbedo, 0.0, 1.0);
 	let weight = max(params.weight, 0.0);
 	let shadowIntervalScale = select(2.0, 1.0, hasSurface);

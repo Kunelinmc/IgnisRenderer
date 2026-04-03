@@ -5,16 +5,39 @@ import type {
 	ShaderInjectionScript,
 	ShaderLanguage,
 } from "./types";
+import {
+	DEFAULT_GAMMA,
+	FXAA_EDGE_THRESHOLD_MIN,
+	FXAA_QUALITY,
+	VOLUMETRIC_SIGMA_T_SCALE,
+} from "../../renderers/postProcessConstants";
 
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 2;
+const PROFILE_REVISION = 4;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 type LumaProfile = "bt601" | "bt709";
 type VecDimension = 2 | 3 | 4;
+const DEFAULT_GAMMA_LITERAL = toShaderFloat(DEFAULT_GAMMA);
+const FXAA_EDGE_THRESHOLD_MIN_LITERAL = toShaderFloat(
+	FXAA_EDGE_THRESHOLD_MIN
+);
+const FXAA_QUALITY_WGSL_LITERAL = FXAA_QUALITY.map(toShaderFloat).join(", ");
+const FXAA_QUALITY_GLSL_LITERAL = FXAA_QUALITY.map(toShaderFloat).join(", ");
+const VOLUMETRIC_SIGMA_T_SCALE_LITERAL = toShaderFloat(
+	VOLUMETRIC_SIGMA_T_SCALE
+);
+
+function toShaderFloat(value: number): string {
+	if (!Number.isFinite(value)) {
+		return "0.0";
+	}
+	const text = `${value}`;
+	return text.includes(".") ? text : `${text}.0`;
+}
 
 function getVecConstructor(
 	lang: ShaderLanguage,
@@ -38,7 +61,7 @@ function getDecodeExpression(lang: ShaderLanguage, linear: boolean): string {
 		return "sampled";
 	}
 	const zero = getVecConstructor(lang, 3, "0.0");
-	const gamma = getVecConstructor(lang, 3, "2.2");
+	const gamma = getVecConstructor(lang, 3, DEFAULT_GAMMA_LITERAL);
 	const decodedRgb = `pow(max(sampled.rgb, ${zero}), ${gamma})`;
 	return getVecConstructor(lang, 4, `${decodedRgb}, sampled.a`);
 }
@@ -300,13 +323,28 @@ function createWebGPUProfile(): ShaderDirectiveProfile {
 				language: "wgsl",
 				id: "ignis/color/srgb.wgsl",
 				code: `fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / ${DEFAULT_GAMMA_LITERAL}));
 }
 
 fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(2.2));
+	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(${DEFAULT_GAMMA_LITERAL}));
 }`,
 				sourcePath: "runtime://ignis/includes/wgsl/color/srgb.wgsl",
+			},
+			{
+				language: "wgsl",
+				id: "ignis/postprocess/fxaa.wgsl",
+				code: `const IGNIS_FXAA_EDGE_THRESHOLD_MIN: f32 = ${FXAA_EDGE_THRESHOLD_MIN_LITERAL};
+const FXAA_QUALITY = array<f32, ${FXAA_QUALITY.length}>(
+	${FXAA_QUALITY_WGSL_LITERAL}
+);`,
+				sourcePath: "runtime://ignis/includes/wgsl/postprocess/fxaa.wgsl",
+			},
+			{
+				language: "wgsl",
+				id: "ignis/postprocess/volumetric.wgsl",
+				code: `const IGNIS_VOLUMETRIC_SIGMA_T_SCALE: f32 = ${VOLUMETRIC_SIGMA_T_SCALE_LITERAL};`,
+				sourcePath: "runtime://ignis/includes/wgsl/postprocess/volumetric.wgsl",
 			},
 			{
 				language: "wgsl",
@@ -358,6 +396,13 @@ vec3 linearToSrgb(vec3 c) {
 	return mix(b, a, lessThanEqual(c, vec3(0.0031308)));
 }`,
 				sourcePath: "runtime://ignis/includes/glsl/color/srgb.glsl",
+			},
+			{
+				language: "glsl",
+				id: "ignis/postprocess/fxaa.glsl",
+				code: `const float IGNIS_FXAA_EDGE_THRESHOLD_MIN = ${FXAA_EDGE_THRESHOLD_MIN_LITERAL};
+const float IGNIS_FXAA_QUALITY[${FXAA_QUALITY.length}] = float[${FXAA_QUALITY.length}](${FXAA_QUALITY_GLSL_LITERAL});`,
+				sourcePath: "runtime://ignis/includes/glsl/postprocess/fxaa.glsl",
 			},
 			{
 				language: "glsl",

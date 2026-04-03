@@ -4,7 +4,7 @@ import {
 	PostProcessConstants,
 	VolumetricConstants,
 	SSAOConstants,
-} from "./constants";
+} from "./softwarePostProcessConstants";
 import type { RendererBackendBridge } from "../IRenderBackend";
 import {
 	type DirectionalLight,
@@ -1575,7 +1575,8 @@ export class PostProcessor implements PostProcessorLike {
 	private _buildSRGBLUT(gamma: number): void {
 		if (this._lutBuilt && this._lastGamma === gamma) return;
 
-		const isStandardSRGB = Math.abs(gamma - 2.2) < 0.001;
+		const isStandardSRGB =
+			Math.abs(gamma - PostProcessConstants.DEFAULT_GAMMA) < 0.001;
 		const invGamma = 1.0 / gamma;
 
 		for (let i = 0; i < 256; i++) {
