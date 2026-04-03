@@ -308,10 +308,5 @@ function createQuaternion(
 	if (!value) {
 		return new Quaternion();
 	}
-
-	if (value instanceof Quaternion) {
-		return new Quaternion(value.x, value.y, value.z, value.w).normalize();
-	}
-
 	return new Quaternion(value.x, value.y, value.z, value.w).normalize();
 }
