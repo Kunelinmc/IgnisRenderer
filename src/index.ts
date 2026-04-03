@@ -35,6 +35,18 @@ export { WebGPUBackend } from "./renderers/WebGPUBackend";
 export { WebGLBackend } from "./renderers/WebGLBackend";
 export type { IWebGPUComputeFacade } from "./renderers/webgpu/computeFacade";
 export { resolveWebGPUComputeFacade } from "./renderers/webgpu/computeFacade";
+export {
+	ComputeRuntime,
+	ComputeKernel,
+	type BufferReadbackResult,
+	type TextureReadbackResult,
+	type ComputeBindingSchemaEntry,
+	type ComputeKernelDescriptor,
+	type ComputeDispatchOptions,
+	type ComputeDispatchTicket,
+	type ReadBufferOptions,
+	type ReadTextureOptions,
+} from "./renderers/webgpu/ComputeRuntime";
 export type {
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessPassKind,

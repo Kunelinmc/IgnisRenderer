@@ -1,0 +1,1231 @@
+import type { ICommandBuffer, ICommandEncoder } from "../ICommandEncoder";
+import {
+	TextureFormat,
+	type BindingEntry,
+	type BindingResource,
+	type BufferDesc,
+	type ComputePipelineDesc,
+	type IBindingGroup,
+	type IComputePipeline,
+	type IRenderBuffer,
+	type IRenderTexture,
+	type ISampler,
+	type IShaderModule,
+	type SamplerDesc,
+	type ShaderModuleDesc,
+	type TextureDataLayout,
+	type TextureDesc,
+} from "../types";
+import {
+	resolveWebGPUComputeFacade,
+	type IWebGPUComputeFacade,
+	type WebGPUComputeFacadeSource,
+} from "./computeFacade";
+import { destroyResource } from "./computeUtils";
+import { alignTo } from "./texture";
+import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
+
+const DEFAULT_KERNEL_ENTRY_POINT = "csMain";
+const DEFAULT_SHADER_LANGUAGE = "wgsl";
+const DEFAULT_SHADER_SOURCE_KIND: ShaderModuleDesc["sourceKind"] = "unknown";
+const WEBGPU_MAP_MODE_READ =
+	(globalThis as typeof globalThis & {
+		GPUMapMode?: { READ?: number };
+	}).GPUMapMode?.READ ?? 0x0001;
+const WEBGPU_BUFFER_USAGE_COPY_DST =
+	(globalThis as typeof globalThis & {
+		GPUBufferUsage?: { COPY_DST?: number };
+	}).GPUBufferUsage?.COPY_DST ?? 0x0008;
+const WEBGPU_BUFFER_USAGE_MAP_READ =
+	(globalThis as typeof globalThis & {
+		GPUBufferUsage?: { MAP_READ?: number };
+	}).GPUBufferUsage?.MAP_READ ?? 0x0001;
+
+interface WebGPUComputeContext {
+	device: GPUDevice;
+	queue: GPUQueue;
+}
+
+interface OwnedResourceRecord {
+	label: string;
+	target: object;
+	proxy: object;
+	inflightRefs: number;
+	destroyRequested: boolean;
+	destroyed: boolean;
+}
+
+interface NormalizedComputeBindingSchemaEntry {
+	key: string;
+	binding: number;
+	type: ComputeBindingType;
+	optional: boolean;
+}
+
+interface NormalizedWorkgroupSize {
+	x: number;
+	y: number;
+	z: number;
+}
+
+interface NormalizedDispatchDimensions {
+	x: number;
+	y: number;
+	z: number;
+}
+
+interface KernelResourceSet {
+	module: IShaderModule;
+	pipeline: IComputePipeline;
+	moduleRecord: OwnedResourceRecord;
+	pipelineRecord: OwnedResourceRecord;
+}
+
+export type ComputeBindingType = "buffer" | "texture" | "sampler";
+
+export interface ComputeBindingSchemaEntry {
+	key: string;
+	binding: number;
+	type: ComputeBindingType;
+	optional?: boolean;
+}
+
+export interface ComputeKernelDescriptor {
+	label?: string;
+	code: string;
+	entryPoint?: string;
+	language?: ShaderModuleDesc["language"];
+	sourceKind?: ShaderModuleDesc["sourceKind"];
+	bindings: ComputeBindingSchemaEntry[];
+	workgroupSize: {
+		x: number;
+		y?: number;
+		z?: number;
+	};
+}
+
+export interface ComputeDispatchGroupOverride {
+	binding: number;
+	resource: BindingResource;
+}
+
+export interface ComputeDispatchDimensions {
+	x: number;
+	y?: number;
+	z?: number;
+}
+
+export interface ComputeDispatch2D {
+	width: number;
+	height: number;
+	depth?: number;
+}
+
+export interface ComputeExtraBindGroup {
+	index: number;
+	group: IBindingGroup;
+}
+
+export interface ComputeDispatchOptions {
+	label?: string;
+	resources: Record<string, BindingResource>;
+	dispatch?: ComputeDispatchDimensions;
+	dispatch2D?: ComputeDispatch2D;
+	overrideEntries?: ComputeDispatchGroupOverride[];
+	extraBindGroups?: ComputeExtraBindGroup[];
+}
+
+export interface ComputeDispatchTicket {
+	done: Promise<void>;
+}
+
+export interface BufferReadbackResult {
+	bytes: Uint8Array;
+	byteLength: number;
+	toFloat32(): Float32Array;
+}
+
+export interface TextureReadbackResult {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+	toFloat32(): Float32Array;
+	toNormalizedRGBA8Float32(): Float32Array;
+}
+
+export interface ReadBufferOptions {
+	buffer: IRenderBuffer;
+	size?: number;
+	offset?: number;
+}
+
+export interface ReadTextureOptions {
+	texture: IRenderTexture;
+	width?: number;
+	height?: number;
+	mipLevel?: number;
+	format?: TextureFormat;
+	bytesPerPixel?: number;
+}
+
+export interface WriteTextureSize {
+	width: number;
+	height: number;
+	depthOrArrayLayers?: number;
+}
+
+export class ComputeRuntime {
+	private _computeFacade: IWebGPUComputeFacade;
+	private _context: WebGPUComputeContext;
+	private _destroyed = false;
+	private _ownedResources = new Set<OwnedResourceRecord>();
+	private _ownedResourceByObject = new WeakMap<object, OwnedResourceRecord>();
+	private _kernels = new Set<ComputeKernel>();
+	private _textureMetadata = new WeakMap<
+		object,
+		{
+			width: number;
+			height: number;
+			format: TextureFormat;
+		}
+	>();
+
+	constructor(source: WebGPUComputeFacadeSource) {
+		this._computeFacade = resolveWebGPUComputeFacade(source);
+		this._context = resolveWebGPUComputeContext(source);
+	}
+
+	public createBuffer(desc: BufferDesc): IRenderBuffer {
+		this._assertAlive("create buffers");
+		const resource = this._computeFacade.createBuffer(desc);
+		return this._wrapOwnedResource(resource, desc.label ?? "ComputeRuntimeBuffer");
+	}
+
+	public createTexture(desc: TextureDesc): IRenderTexture {
+		this._assertAlive("create textures");
+		const resource = this._computeFacade.createTexture(desc);
+		const wrapped = this._wrapOwnedResource(
+			resource,
+			desc.label ?? "ComputeRuntimeTexture"
+		);
+		this._textureMetadata.set(wrapped as unknown as object, {
+			width: Math.max(1, Math.floor(desc.width)),
+			height: Math.max(1, Math.floor(desc.height)),
+			format: desc.format,
+		});
+		return wrapped;
+	}
+
+	public createSampler(desc: SamplerDesc): ISampler {
+		this._assertAlive("create samplers");
+		const resource = this._computeFacade.createSampler(desc);
+		return this._wrapOwnedResource(resource, desc.label ?? "ComputeRuntimeSampler");
+	}
+
+	public writeBuffer(
+		buffer: IRenderBuffer,
+		data: BufferSource,
+		offset: number = 0
+	): void {
+		this._assertAlive("write buffers");
+		this._computeFacade.writeBuffer(buffer, data, offset);
+	}
+
+	public writeTexture(
+		texture: IRenderTexture,
+		data: BufferSource,
+		layout: TextureDataLayout,
+		size: WriteTextureSize
+	): void {
+		this._assertAlive("write textures");
+		const bytesPerRow = layout.bytesPerRow;
+		if (!Number.isFinite(bytesPerRow) || (bytesPerRow as number) <= 0) {
+			throw new Error(
+				"ComputeRuntime.writeTexture() requires layout.bytesPerRow to be a positive number."
+			);
+		}
+		const gpuTexture = getWebGPUTexture(texture).texture;
+		this._context.queue.writeTexture(
+			{
+				texture: gpuTexture,
+				mipLevel: Math.max(0, Math.floor(layout.mipLevel ?? 0)),
+			},
+			data,
+			{
+				offset: layout.offset ?? 0,
+				bytesPerRow,
+				rowsPerImage: layout.rowsPerImage ?? size.height,
+			},
+			{
+				width: Math.max(1, Math.floor(size.width)),
+				height: Math.max(1, Math.floor(size.height)),
+				depthOrArrayLayers: Math.max(
+					1,
+					Math.floor(size.depthOrArrayLayers ?? 1)
+				),
+			}
+		);
+	}
+
+	public async createKernel(
+		descriptor: ComputeKernelDescriptor
+	): Promise<ComputeKernel> {
+		this._assertAlive("create compute kernels");
+		const schema = normalizeBindingSchema(descriptor.bindings);
+		const workgroupSize = normalizeWorkgroupSize(descriptor.workgroupSize);
+		const label = descriptor.label ?? "ComputeKernel";
+
+		const module = await this._computeFacade.createShaderModule({
+			label: `${label}Module`,
+			code: descriptor.code,
+			language: descriptor.language ?? DEFAULT_SHADER_LANGUAGE,
+			stage: "compute",
+			sourceKind: descriptor.sourceKind ?? DEFAULT_SHADER_SOURCE_KIND,
+		});
+		this._assertAlive("finalize compute kernels");
+
+		let pipeline: IComputePipeline | null = null;
+		try {
+			const pipelineDesc: ComputePipelineDesc = {
+				label: `${label}Pipeline`,
+				compute: {
+					module,
+					entryPoint:
+						descriptor.entryPoint?.trim() || DEFAULT_KERNEL_ENTRY_POINT,
+				},
+			};
+			pipeline = this._computeFacade.createComputePipeline(pipelineDesc);
+		} catch (error) {
+			destroyResource(module);
+			throw error;
+		}
+
+		const moduleRecord = this._registerOwnedResource(
+			module as unknown as object,
+			`${label}Module`
+		);
+		const pipelineRecord = this._registerOwnedResource(
+			pipeline as unknown as object,
+			`${label}Pipeline`
+		);
+		const kernelResources: KernelResourceSet = {
+			module,
+			pipeline,
+			moduleRecord,
+			pipelineRecord,
+		};
+		const kernel = new ComputeKernel(
+			this,
+			label,
+			schema,
+			workgroupSize,
+			kernelResources
+		);
+		this._kernels.add(kernel);
+		return kernel;
+	}
+
+	public async readBuffer(options: ReadBufferOptions): Promise<BufferReadbackResult> {
+		this._assertAlive("read buffers");
+		const offset = assertNonNegativeInteger(
+			options.offset ?? 0,
+			"readBuffer.offset"
+		);
+		const requestedSize = options.size ?? Math.max(0, options.buffer.size - offset);
+		const size = assertNonNegativeInteger(requestedSize, "readBuffer.size");
+		if (size <= 0) {
+			return createBufferReadbackResult(new Uint8Array(0));
+		}
+		const sourceBuffer = resolveGPUBufferHandle(options.buffer);
+		const readbackBuffer = this._context.device.createBuffer({
+			label: "ComputeRuntimeReadBuffer",
+			size: Math.max(4, size),
+			usage: WEBGPU_BUFFER_USAGE_COPY_DST | WEBGPU_BUFFER_USAGE_MAP_READ,
+		});
+
+		try {
+			const encoder = this._context.device.createCommandEncoder({
+				label: "ComputeRuntimeReadBufferEncoder",
+			});
+			encoder.copyBufferToBuffer(
+				sourceBuffer,
+				offset,
+				readbackBuffer,
+				0,
+				size
+			);
+			this._context.queue.submit([encoder.finish()]);
+			await readbackBuffer.mapAsync(WEBGPU_MAP_MODE_READ, 0, size);
+			const mapped = readbackBuffer.getMappedRange(0, size);
+			const bytes = new Uint8Array(mapped.slice(0));
+			readbackBuffer.unmap();
+			return createBufferReadbackResult(bytes);
+		} finally {
+			try {
+				readbackBuffer.destroy();
+			} catch {
+				// ignore cleanup failures
+			}
+		}
+	}
+
+	public async readTexture(
+		options: ReadTextureOptions
+	): Promise<TextureReadbackResult> {
+		this._assertAlive("read textures");
+		const textureObject = options.texture as unknown as object;
+		const metadata = this._textureMetadata.get(textureObject) ?? null;
+		const width = assertPositiveInteger(
+			options.width ?? options.texture.width ?? metadata?.width ?? 1,
+			"readTexture.width"
+		);
+		const height = assertPositiveInteger(
+			options.height ?? options.texture.height ?? metadata?.height ?? 1,
+			"readTexture.height"
+		);
+		const format = options.format ?? metadata?.format ?? TextureFormat.RGBA8Unorm;
+		const bytesPerPixel = options.bytesPerPixel ?? resolveTextureBytesPerPixel(format);
+		const bytesPerRow = alignTo(width * bytesPerPixel, 256);
+		const readbackSize = bytesPerRow * height;
+		const mipLevel = assertNonNegativeInteger(
+			options.mipLevel ?? 0,
+			"readTexture.mipLevel"
+		);
+		const sourceTexture = getWebGPUTexture(options.texture).texture;
+		const readbackBuffer = this._context.device.createBuffer({
+			label: "ComputeRuntimeReadTextureBuffer",
+			size: Math.max(4, readbackSize),
+			usage: WEBGPU_BUFFER_USAGE_COPY_DST | WEBGPU_BUFFER_USAGE_MAP_READ,
+		});
+
+		try {
+			const encoder = this._context.device.createCommandEncoder({
+				label: "ComputeRuntimeReadTextureEncoder",
+			});
+			encoder.copyTextureToBuffer(
+				{
+					texture: sourceTexture,
+					mipLevel,
+				},
+				{
+					buffer: readbackBuffer,
+					offset: 0,
+					bytesPerRow,
+					rowsPerImage: height,
+				},
+				{
+					width,
+					height,
+					depthOrArrayLayers: 1,
+				}
+			);
+			this._context.queue.submit([encoder.finish()]);
+			await readbackBuffer.mapAsync(WEBGPU_MAP_MODE_READ, 0, readbackSize);
+			const mapped = readbackBuffer.getMappedRange(0, readbackSize);
+			const bytes = new Uint8Array(mapped.slice(0));
+			readbackBuffer.unmap();
+			return createTextureReadbackResult({
+				bytes,
+				width,
+				height,
+				format,
+				bytesPerPixel,
+				bytesPerRow,
+			});
+		} finally {
+			try {
+				readbackBuffer.destroy();
+			} catch {
+				// ignore cleanup failures
+			}
+		}
+	}
+
+	public destroy(): void {
+		if (this._destroyed) {
+			return;
+		}
+		this._destroyed = true;
+		for (const kernel of Array.from(this._kernels)) {
+			this._destroyKernel(kernel);
+		}
+		for (const record of Array.from(this._ownedResources)) {
+			this._requestOwnedResourceDestroy(record);
+		}
+	}
+
+	public _dispatchKernel(
+		kernel: ComputeKernel,
+		options: ComputeDispatchOptions
+	): ComputeDispatchTicket {
+		this._assertAlive("dispatch compute kernels");
+		kernel._assertAlive("dispatch");
+
+		const dimensions = resolveDispatchDimensions(
+			options.dispatch,
+			options.dispatch2D,
+			kernel.workgroupSize
+		);
+		const groupZeroEntries = resolveGroupZeroEntries(
+			kernel.bindings,
+			options.resources,
+			options.overrideEntries
+		);
+		const extraBindGroups = normalizeExtraBindGroups(options.extraBindGroups);
+		const bindGroup = this._computeFacade.createBindingGroup({
+			pipeline: kernel.pipeline,
+			layoutIndex: 0,
+			entries: groupZeroEntries,
+			label: options.label ? `${options.label}BindGroup` : `${kernel.label}BindGroup`,
+		});
+
+		const retained = new Set<OwnedResourceRecord>();
+		this._retainOwnedResourceRecord(kernel.resources.moduleRecord, retained);
+		this._retainOwnedResourceRecord(kernel.resources.pipelineRecord, retained);
+		for (const entry of groupZeroEntries) {
+			this._retainOwnedResource(entry.resource, retained);
+		}
+
+		const encoder = this._computeFacade.createCommandEncoder();
+		recordKernelDispatch(
+			encoder,
+			options.label ?? kernel.label,
+			kernel.pipeline,
+			bindGroup,
+			extraBindGroups,
+			dimensions
+		);
+		const commandBuffer = encoder.finish();
+		let ticketDone: Promise<void>;
+		try {
+			this._submitCommands([commandBuffer]);
+			ticketDone = this._context.queue.onSubmittedWorkDone();
+		} catch (error) {
+			destroyResource(bindGroup);
+			this._releaseRetainedOwnedResources(retained);
+			throw error;
+		}
+
+		const done = ticketDone.finally(() => {
+			destroyResource(bindGroup);
+			this._releaseRetainedOwnedResources(retained);
+		});
+		return {
+			done,
+		};
+	}
+
+	public _destroyKernel(kernel: ComputeKernel): void {
+		if (!this._kernels.has(kernel)) {
+			return;
+		}
+		this._kernels.delete(kernel);
+		kernel._markDestroyedFromRuntime();
+		this._requestOwnedResourceDestroy(kernel.resources.pipelineRecord);
+		this._requestOwnedResourceDestroy(kernel.resources.moduleRecord);
+	}
+
+	private _assertAlive(operation: string): void {
+		if (this._destroyed) {
+			throw new Error(`ComputeRuntime is destroyed; cannot ${operation}.`);
+		}
+	}
+
+	private _submitCommands(commands: ICommandBuffer[]): void {
+		this._computeFacade.submit(commands);
+	}
+
+	private _wrapOwnedResource<TResource extends object>(
+		resource: TResource,
+		label: string
+	): TResource {
+		const record = this._registerOwnedResource(resource, label);
+		const runtime = this;
+		const proxy = new Proxy(resource, {
+			get(target, prop, receiver) {
+				if (prop === "destroy") {
+					return () => {
+						runtime._requestOwnedResourceDestroy(record);
+					};
+				}
+				const value = Reflect.get(target, prop, receiver);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+			set(target, prop, value, receiver) {
+				return Reflect.set(target, prop, value, receiver);
+			},
+			has(target, prop) {
+				if (prop === "destroy") {
+					return true;
+				}
+				return Reflect.has(target, prop);
+			},
+			ownKeys(target) {
+				const keys = Reflect.ownKeys(target);
+				if (!keys.includes("destroy")) {
+					keys.push("destroy");
+				}
+				return keys;
+			},
+			getOwnPropertyDescriptor(target, prop) {
+				if (prop === "destroy") {
+					return {
+						configurable: true,
+						enumerable: true,
+						value: () => {
+							runtime._requestOwnedResourceDestroy(record);
+						},
+						writable: false,
+					};
+				}
+				return Reflect.getOwnPropertyDescriptor(target, prop);
+			},
+		});
+		record.proxy = proxy;
+		this._ownedResourceByObject.set(proxy, record);
+		return proxy;
+	}
+
+	private _registerOwnedResource(
+		resource: object,
+		label: string
+	): OwnedResourceRecord {
+		const existing = this._ownedResourceByObject.get(resource);
+		if (existing) {
+			return existing;
+		}
+		const record: OwnedResourceRecord = {
+			label,
+			target: resource,
+			proxy: resource,
+			inflightRefs: 0,
+			destroyRequested: false,
+			destroyed: false,
+		};
+		this._ownedResources.add(record);
+		this._ownedResourceByObject.set(resource, record);
+		return record;
+	}
+
+	private _retainOwnedResource(
+		resource: unknown,
+		retained: Set<OwnedResourceRecord>
+	): void {
+		if (!resource || typeof resource !== "object") {
+			return;
+		}
+		const record = this._ownedResourceByObject.get(resource);
+		if (!record) {
+			return;
+		}
+		this._retainOwnedResourceRecord(record, retained);
+	}
+
+	private _retainOwnedResourceRecord(
+		record: OwnedResourceRecord,
+		retained: Set<OwnedResourceRecord>
+	): void {
+		if (record.destroyed) {
+			throw new Error(
+				`ComputeRuntime resource "${record.label}" was already destroyed.`
+			);
+		}
+		if (retained.has(record)) {
+			return;
+		}
+		record.inflightRefs++;
+		retained.add(record);
+	}
+
+	private _releaseRetainedOwnedResources(retained: Set<OwnedResourceRecord>): void {
+		for (const record of retained) {
+			record.inflightRefs = Math.max(0, record.inflightRefs - 1);
+			if (record.inflightRefs === 0 && record.destroyRequested) {
+				this._destroyOwnedResourceRecord(record);
+			}
+		}
+	}
+
+	private _requestOwnedResourceDestroy(record: OwnedResourceRecord): void {
+		if (record.destroyed || record.destroyRequested) {
+			return;
+		}
+		record.destroyRequested = true;
+		if (record.inflightRefs > 0) {
+			return;
+		}
+		this._destroyOwnedResourceRecord(record);
+	}
+
+	private _destroyOwnedResourceRecord(record: OwnedResourceRecord): void {
+		if (record.destroyed) {
+			return;
+		}
+		record.destroyed = true;
+		this._ownedResources.delete(record);
+		this._ownedResourceByObject.delete(record.proxy);
+		this._ownedResourceByObject.delete(record.target);
+		destroyResource(record.target);
+	}
+}
+
+export class ComputeKernel {
+	private _destroyed = false;
+
+	constructor(
+		private _runtime: ComputeRuntime,
+		public readonly label: string,
+		public readonly bindings: ReadonlyArray<NormalizedComputeBindingSchemaEntry>,
+		public readonly workgroupSize: NormalizedWorkgroupSize,
+		public readonly resources: KernelResourceSet
+	) {}
+
+	public dispatch(options: ComputeDispatchOptions): ComputeDispatchTicket {
+		this._assertAlive("dispatch");
+		return this._runtime._dispatchKernel(this, options);
+	}
+
+	public destroy(): void {
+		if (this._destroyed) {
+			return;
+		}
+		this._runtime._destroyKernel(this);
+	}
+
+	public _markDestroyedFromRuntime(): void {
+		this._destroyed = true;
+	}
+
+	public _assertAlive(operation: string): void {
+		if (this._destroyed) {
+			throw new Error(`ComputeKernel "${this.label}" is destroyed; cannot ${operation}.`);
+		}
+	}
+
+	public get pipeline(): IComputePipeline {
+		return this.resources.pipeline;
+	}
+}
+
+function resolveWebGPUComputeContext(
+	source: WebGPUComputeFacadeSource
+): WebGPUComputeContext {
+	if (!source || typeof source !== "object") {
+		throw new Error(
+			"ComputeRuntime requires a webgpuSource that exposes an initialized GPU device and queue."
+		);
+	}
+	const visited = new WeakSet<object>();
+	let current: unknown = source;
+	let depth = 0;
+
+	while (current && typeof current === "object") {
+		if (depth++ > 32) {
+			break;
+		}
+		const objectCurrent = current as object;
+		if (visited.has(objectCurrent)) {
+			break;
+		}
+		visited.add(objectCurrent);
+
+		const candidate = current as {
+			device?: GPUDevice;
+			queue?: GPUQueue;
+			backend?: unknown;
+			getComputeFacade?: () => unknown;
+		};
+		const device = candidate.device;
+		const queue = candidate.queue ?? candidate.device?.queue;
+		if (
+			device &&
+			queue &&
+			typeof device.createCommandEncoder === "function" &&
+			typeof queue.submit === "function" &&
+			typeof queue.writeTexture === "function" &&
+			typeof queue.onSubmittedWorkDone === "function"
+		) {
+			return { device, queue };
+		}
+
+		if (typeof candidate.getComputeFacade === "function") {
+			const resolved = candidate.getComputeFacade();
+			if (resolved && resolved !== objectCurrent) {
+				current = resolved;
+				continue;
+			}
+		}
+		if (candidate.backend && candidate.backend !== objectCurrent) {
+			current = candidate.backend;
+			continue;
+		}
+		break;
+	}
+
+	throw new Error(
+		"ComputeRuntime requires a webgpuSource that exposes an initialized GPU device and queue."
+	);
+}
+
+function normalizeBindingSchema(
+	bindings: ComputeBindingSchemaEntry[]
+): NormalizedComputeBindingSchemaEntry[] {
+	if (!Array.isArray(bindings) || bindings.length <= 0) {
+		throw new Error(
+			"ComputeKernelDescriptor.bindings must include at least one binding schema entry."
+		);
+	}
+	const byKey = new Set<string>();
+	const byBinding = new Set<number>();
+	const normalized: NormalizedComputeBindingSchemaEntry[] = [];
+
+	for (const entry of bindings) {
+		const key = entry?.key?.trim();
+		if (!key) {
+			throw new Error("Compute binding schema key must be a non-empty string.");
+		}
+		if (byKey.has(key)) {
+			throw new Error(`Compute binding schema has duplicate key "${key}".`);
+		}
+		byKey.add(key);
+
+		const binding = assertNonNegativeInteger(
+			entry.binding,
+			`bindings["${key}"].binding`
+		);
+		if (byBinding.has(binding)) {
+			throw new Error(
+				`Compute binding schema has duplicate binding index ${binding}.`
+			);
+		}
+		byBinding.add(binding);
+
+		if (
+			entry.type !== "buffer" &&
+			entry.type !== "texture" &&
+			entry.type !== "sampler"
+		) {
+			throw new Error(
+				`Compute binding schema "${key}" has unsupported type "${String(entry.type)}".`
+			);
+		}
+
+		normalized.push({
+			key,
+			binding,
+			type: entry.type,
+			optional: !!entry.optional,
+		});
+	}
+
+	normalized.sort((left, right) => left.binding - right.binding);
+	return normalized;
+}
+
+function normalizeWorkgroupSize(size: {
+	x: number;
+	y?: number;
+	z?: number;
+}): NormalizedWorkgroupSize {
+	return {
+		x: assertPositiveInteger(size.x, "workgroupSize.x"),
+		y: assertPositiveInteger(size.y ?? 1, "workgroupSize.y"),
+		z: assertPositiveInteger(size.z ?? 1, "workgroupSize.z"),
+	};
+}
+
+function resolveDispatchDimensions(
+	dispatch: ComputeDispatchDimensions | undefined,
+	dispatch2D: ComputeDispatch2D | undefined,
+	workgroupSize: NormalizedWorkgroupSize
+): NormalizedDispatchDimensions {
+	if (dispatch && dispatch2D) {
+		throw new Error(
+			"Compute dispatch options cannot include both dispatch and dispatch2D."
+		);
+	}
+	if (!dispatch && !dispatch2D) {
+		throw new Error(
+			"Compute dispatch options require either dispatch or dispatch2D."
+		);
+	}
+	if (dispatch2D) {
+		const width = assertPositiveInteger(dispatch2D.width, "dispatch2D.width");
+		const height = assertPositiveInteger(dispatch2D.height, "dispatch2D.height");
+		const depth = assertPositiveInteger(dispatch2D.depth ?? 1, "dispatch2D.depth");
+		return {
+			x: Math.max(1, Math.ceil(width / workgroupSize.x)),
+			y: Math.max(1, Math.ceil(height / workgroupSize.y)),
+			z: depth,
+		};
+	}
+	return {
+		x: assertPositiveInteger((dispatch as ComputeDispatchDimensions).x, "dispatch.x"),
+		y: assertPositiveInteger(
+			(dispatch as ComputeDispatchDimensions).y ?? 1,
+			"dispatch.y"
+		),
+		z: assertPositiveInteger(
+			(dispatch as ComputeDispatchDimensions).z ?? 1,
+			"dispatch.z"
+		),
+	};
+}
+
+function resolveGroupZeroEntries(
+	schema: ReadonlyArray<NormalizedComputeBindingSchemaEntry>,
+	resources: Record<string, BindingResource>,
+	overrideEntries?: ComputeDispatchGroupOverride[]
+): BindingEntry[] {
+	const expectedKeys = new Set(schema.map((entry) => entry.key));
+	for (const key of Object.keys(resources ?? {})) {
+		if (!expectedKeys.has(key)) {
+			throw new Error(
+				`Compute dispatch received unknown resource key "${key}".`
+			);
+		}
+	}
+
+	const overrideByBinding = new Map<number, BindingResource>();
+	for (const override of overrideEntries ?? []) {
+		const binding = assertNonNegativeInteger(
+			override.binding,
+			"overrideEntries.binding"
+		);
+		if (overrideByBinding.has(binding)) {
+			throw new Error(
+				`Compute dispatch overrideEntries has duplicate binding ${binding}.`
+			);
+		}
+		const schemaEntry = schema.find((entry) => entry.binding === binding);
+		if (!schemaEntry) {
+			throw new Error(
+				`Compute dispatch overrideEntries contains unknown binding ${binding}.`
+			);
+		}
+		validateBindingResourceType(
+			schemaEntry.key,
+			schemaEntry.type,
+			override.resource
+		);
+		overrideByBinding.set(binding, override.resource);
+	}
+
+	const entries: BindingEntry[] = [];
+	for (const entry of schema) {
+		const resource =
+			overrideByBinding.get(entry.binding) ?? resources[entry.key];
+		if (!resource) {
+			if (entry.optional) {
+				continue;
+			}
+			throw new Error(
+				`Compute dispatch is missing required resource "${entry.key}".`
+			);
+		}
+		validateBindingResourceType(entry.key, entry.type, resource);
+		entries.push({
+			binding: entry.binding,
+			resource,
+		});
+	}
+	return entries;
+}
+
+function normalizeExtraBindGroups(
+	extraBindGroups: ComputeExtraBindGroup[] | undefined
+): ComputeExtraBindGroup[] {
+	if (!extraBindGroups || extraBindGroups.length <= 0) {
+		return [];
+	}
+	const byIndex = new Set<number>();
+	const normalized: ComputeExtraBindGroup[] = [];
+
+	for (const entry of extraBindGroups) {
+		const index = assertNonNegativeInteger(entry.index, "extraBindGroups.index");
+		if (index === 0) {
+			throw new Error(
+				"extraBindGroups cannot target index 0 because group 0 is managed by kernel schema."
+			);
+		}
+		if (byIndex.has(index)) {
+			throw new Error(
+				`extraBindGroups has duplicate index ${index}.`
+			);
+		}
+		byIndex.add(index);
+		normalized.push({
+			index,
+			group: entry.group,
+		});
+	}
+
+	normalized.sort((left, right) => left.index - right.index);
+	return normalized;
+}
+
+function recordKernelDispatch(
+	encoder: ICommandEncoder,
+	label: string,
+	pipeline: IComputePipeline,
+	bindGroup: IBindingGroup,
+	extraBindGroups: ComputeExtraBindGroup[],
+	dimensions: NormalizedDispatchDimensions
+): void {
+	encoder.beginComputePass({
+		label: `${label}Pass`,
+	});
+	encoder.setComputePipeline(pipeline);
+	encoder.setBindingGroup(0, bindGroup);
+	for (const extra of extraBindGroups) {
+		encoder.setBindingGroup(extra.index, extra.group);
+	}
+	encoder.dispatchWorkgroups(dimensions.x, dimensions.y, dimensions.z);
+	encoder.endComputePass();
+}
+
+function createBufferReadbackResult(bytes: Uint8Array): BufferReadbackResult {
+	return {
+		bytes,
+		byteLength: bytes.byteLength,
+		toFloat32: () => bytesToFloat32Array(bytes),
+	};
+}
+
+function createTextureReadbackResult(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+}): TextureReadbackResult {
+	return {
+		bytes: input.bytes,
+		width: input.width,
+		height: input.height,
+		format: input.format,
+		bytesPerPixel: input.bytesPerPixel,
+		bytesPerRow: input.bytesPerRow,
+		toFloat32: () => bytesToFloat32Array(input.bytes),
+		toNormalizedRGBA8Float32: () => {
+			if (input.format !== TextureFormat.RGBA8Unorm) {
+				throw new Error(
+					"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm readback."
+				);
+			}
+			if (input.bytesPerPixel !== 4) {
+				throw new Error(
+					`toNormalizedRGBA8Float32() requires 4-byte pixels, received ${input.bytesPerPixel}.`
+				);
+			}
+			const minByteLength = input.bytesPerRow * input.height;
+			if (input.bytes.byteLength < minByteLength) {
+				throw new Error(
+					`Texture readback byte length ${input.bytes.byteLength} is smaller than expected ${minByteLength}.`
+				);
+			}
+			const output = new Float32Array(input.width * input.height * 4);
+			for (let y = 0; y < input.height; y++) {
+				const srcRowOffset = y * input.bytesPerRow;
+				const dstRowOffset = y * input.width * 4;
+				for (let x = 0; x < input.width; x++) {
+					const srcOffset = srcRowOffset + x * 4;
+					const dstOffset = dstRowOffset + x * 4;
+					output[dstOffset] = input.bytes[srcOffset] / 255;
+					output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
+					output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
+					output[dstOffset + 3] = input.bytes[srcOffset + 3] / 255;
+				}
+			}
+			return output;
+		},
+	};
+}
+
+function bytesToFloat32Array(bytes: Uint8Array): Float32Array {
+	const alignedByteLength = bytes.byteLength - (bytes.byteLength % 4);
+	if (alignedByteLength <= 0) {
+		return new Float32Array(0);
+	}
+	const start = bytes.byteOffset;
+	const end = start + alignedByteLength;
+	const sliced = bytes.buffer.slice(start, end);
+	return new Float32Array(sliced);
+}
+
+function resolveTextureBytesPerPixel(format: TextureFormat): number {
+	switch (format) {
+		case TextureFormat.RGBA8Unorm:
+		case TextureFormat.BGRA8Unorm:
+			return 4;
+		case TextureFormat.RGBA16Float:
+			return 8;
+		default:
+			throw new Error(
+				`ComputeRuntime.readTexture() requires bytesPerPixel for unsupported format "${format}".`
+			);
+	}
+}
+
+function resolveGPUBufferHandle(resource: unknown): GPUBuffer {
+	const fromWrapped = tryGetWebGPUBuffer(resource);
+	if (fromWrapped) {
+		return fromWrapped;
+	}
+	if (isLikelyGPUBufferHandle(resource)) {
+		return resource as GPUBuffer;
+	}
+	throw new Error("Expected a GPU buffer-backed resource.");
+}
+
+function validateBindingResourceType(
+	key: string,
+	expectedType: ComputeBindingType,
+	resource: BindingResource
+): void {
+	const actualType = classifyBindingResource(resource);
+	if (actualType === expectedType) {
+		return;
+	}
+	throw new Error(
+		`Compute resource "${key}" expects "${expectedType}" but received "${actualType}".`
+	);
+}
+
+function classifyBindingResource(resource: unknown): ComputeBindingType | "unknown" {
+	if (isTextureBindingResource(resource)) {
+		return "texture";
+	}
+	if (isBufferBindingResource(resource)) {
+		return "buffer";
+	}
+	if (isSamplerBindingResource(resource)) {
+		return "sampler";
+	}
+	return "unknown";
+}
+
+function isBufferBindingResource(resource: unknown): boolean {
+	if (!resource || typeof resource !== "object") {
+		return false;
+	}
+	if (tryGetWebGPUBuffer(resource)) {
+		return true;
+	}
+	const bufferBinding = resource as { buffer?: unknown };
+	if (bufferBinding.buffer && isLikelyGPUBufferHandle(bufferBinding.buffer)) {
+		return true;
+	}
+	const tag = getObjectTag(resource);
+	if (tag === "[object GPUBuffer]") {
+		return true;
+	}
+	if (
+		typeof (resource as { size?: unknown }).size === "number" &&
+		typeof (resource as { destroy?: unknown }).destroy === "function"
+	) {
+		return true;
+	}
+	return false;
+}
+
+function isTextureBindingResource(resource: unknown): boolean {
+	if (!resource || typeof resource !== "object") {
+		return false;
+	}
+	if (tryGetWebGPUTexture(resource)) {
+		return true;
+	}
+	const tag = getObjectTag(resource);
+	if (tag === "[object GPUTexture]" || tag === "[object GPUTextureView]") {
+		return true;
+	}
+	if (typeof (resource as { createView?: unknown }).createView === "function") {
+		return true;
+	}
+	const textureLike = resource as {
+		width?: unknown;
+		height?: unknown;
+		destroy?: unknown;
+	};
+	if (
+		typeof textureLike.width === "number" &&
+		typeof textureLike.height === "number" &&
+		typeof textureLike.destroy === "function"
+	) {
+		return true;
+	}
+	return false;
+}
+
+function isSamplerBindingResource(resource: unknown): boolean {
+	if (!resource || typeof resource !== "object") {
+		return false;
+	}
+	if (isBufferBindingResource(resource) || isTextureBindingResource(resource)) {
+		return false;
+	}
+	const tag = getObjectTag(resource);
+	if (tag === "[object GPUSampler]") {
+		return true;
+	}
+	const handle = (resource as { _gpuResource?: unknown })._gpuResource;
+	if (handle) {
+		if (isLikelyGPUBufferHandle(handle) || isLikelyGPUTextureHandle(handle)) {
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+function isLikelyGPUBufferHandle(value: unknown): boolean {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const candidate = value as {
+		destroy?: unknown;
+		mapAsync?: unknown;
+		getMappedRange?: unknown;
+		createView?: unknown;
+	};
+	if (typeof candidate.createView === "function") {
+		return false;
+	}
+	if (
+		typeof candidate.mapAsync === "function" ||
+		typeof candidate.getMappedRange === "function"
+	) {
+		return true;
+	}
+	return typeof candidate.destroy === "function" && "size" in candidate;
+}
+
+function isLikelyGPUTextureHandle(value: unknown): boolean {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	return typeof (value as { createView?: unknown }).createView === "function";
+}
+
+function getObjectTag(value: unknown): string {
+	return Object.prototype.toString.call(value);
+}
+
+function assertPositiveInteger(value: number, name: string): number {
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`${name} must be a positive integer, received ${value}.`);
+	}
+	return value;
+}
+
+function assertNonNegativeInteger(value: number, name: string): number {
+	if (!Number.isInteger(value) || value < 0) {
+		throw new Error(`${name} must be a non-negative integer, received ${value}.`);
+	}
+	return value;
+}

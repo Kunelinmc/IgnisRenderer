@@ -68,6 +68,7 @@ const tests = [
 	"test_video_texture.mjs",
 	"test_texture_loader_cache.mjs",
 	"test_webgpu_compute_facade.mjs",
+	"test_webgpu_compute_runtime.mjs",
 	"test_webgpu_bridge.mjs",
 	"test_webgpu_backend_cache_and_dependency.mjs",
 	"test_webgpu_material_binding_cache.mjs",

@@ -11,24 +11,14 @@ import {
 	FilterMode,
 	TextureFormat,
 	TextureUsage,
-	type IBindingGroup,
-	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
 	type ISampler,
-	type IShaderModule,
 } from "../renderers/types";
-import {
-	resolveWebGPUComputeFacade,
-	type WebGPUComputeFacadeSource,
-} from "../renderers/webgpu/computeFacade";
+import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/computeFacade";
+import { ComputeRuntime, type ComputeKernel } from "../renderers/webgpu/ComputeRuntime";
 import { destroyResource } from "../renderers/webgpu/computeUtils";
-import {
-	getWebGPUBindGroup,
-	getWebGPUComputePipeline,
-	getWebGPUTexture,
-} from "../renderers/webgpu/WebGPUResourceAccess";
-import { alignTo, createTextureUploadData } from "../renderers/webgpu/texture";
+import { createTextureUploadData } from "../renderers/webgpu/texture";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
@@ -59,22 +49,16 @@ interface MutableRGB {
 	b: number;
 }
 
-interface EnvironmentIBLWebGPUContext {
-	device: GPUDevice;
-	queue: GPUQueue;
-}
-
 interface EnvironmentIBLWebGPUResources {
+	runtime: ComputeRuntime;
 	sampler: ISampler;
-	module: IShaderModule;
-	pipeline: IComputePipeline;
+	kernel: ComputeKernel;
 	inputTexture: IRenderTexture;
 }
 
 interface EnvironmentIBLMipResources {
 	outputTexture: IRenderTexture;
 	paramsBuffer: IRenderBuffer;
-	bindGroup: IBindingGroup;
 }
 
 export interface EnvironmentIBLPrefilterMipData {
@@ -382,67 +366,6 @@ function prefilterSpecular(
 	outColor.b /= totalWeight;
 }
 
-function resolveWebGPUContext(
-	source: WebGPUComputeFacadeSource
-): EnvironmentIBLWebGPUContext {
-	if (!source || typeof source !== "object") {
-		throw new Error(
-			"WebGPU acceleration requires a webgpuSource that exposes an initialized GPU device and queue."
-		);
-	}
-
-	const visited = new WeakSet<object>();
-	let current: unknown = source;
-	let depth = 0;
-
-	while (current && typeof current === "object") {
-		if (depth++ > 32) {
-			break;
-		}
-		const currentObject = current as object;
-		if (visited.has(currentObject)) {
-			break;
-		}
-		visited.add(currentObject);
-
-		const candidate = current as {
-			device?: GPUDevice;
-			queue?: GPUQueue;
-			backend?: unknown;
-			getComputeFacade?: () => unknown;
-		};
-		const device = candidate.device;
-		const queue = candidate.queue ?? candidate.device?.queue;
-		if (
-			device &&
-			queue &&
-			typeof device.createCommandEncoder === "function" &&
-			typeof queue.submit === "function"
-		) {
-			return { device, queue };
-		}
-
-		if (typeof candidate.getComputeFacade === "function") {
-			const resolved = candidate.getComputeFacade();
-			if (resolved && resolved !== currentObject) {
-				current = resolved;
-				continue;
-			}
-		}
-
-		if (candidate.backend && candidate.backend !== currentObject) {
-			current = candidate.backend;
-			continue;
-		}
-
-		break;
-	}
-
-	throw new Error(
-		"WebGPU acceleration requires a webgpuSource that exposes an initialized GPU device and queue."
-	);
-}
-
 function createPrefilterParamsBuffer(
 	width: number,
 	height: number,
@@ -465,104 +388,88 @@ function createPrefilterParamsBuffer(
 	return buffer;
 }
 
-function unpackRGBA8Readback(
-	readbackBytes: Uint8Array,
-	width: number,
-	height: number,
-	bytesPerRow: number
-): Float32Array {
-	const output = new Float32Array(width * height * 4);
-	for (let y = 0; y < height; y++) {
-		const srcRowOffset = y * bytesPerRow;
-		const dstRowOffset = y * width * 4;
-		for (let x = 0; x < width; x++) {
-			const srcOffset = srcRowOffset + x * 4;
-			const dstOffset = dstRowOffset + x * 4;
-			output[dstOffset] = readbackBytes[srcOffset] / 255;
-			output[dstOffset + 1] = readbackBytes[srcOffset + 1] / 255;
-			output[dstOffset + 2] = readbackBytes[srcOffset + 2] / 255;
-			output[dstOffset + 3] = 1;
-		}
-	}
-	return output;
-}
-
 function createPrefilterMipResources(
-	pipeline: IComputePipeline,
-	sampler: ISampler,
-	inputTexture: IRenderTexture,
 	outputTexture: IRenderTexture,
-	paramsBuffer: IRenderBuffer,
-	computeFacade: ReturnType<typeof resolveWebGPUComputeFacade>,
-	level: number
+	paramsBuffer: IRenderBuffer
 ): EnvironmentIBLMipResources {
-	const bindGroup = computeFacade.createBindingGroup({
-		pipeline,
-		layoutIndex: 0,
-		entries: [
-			{ binding: 0, resource: sampler },
-			{ binding: 1, resource: inputTexture },
-			{ binding: 2, resource: outputTexture },
-			{ binding: 3, resource: paramsBuffer },
-		],
-		label: `EnvironmentIBLBakePrefilterBindGroup_mip${level}`,
-	});
-
 	return {
 		outputTexture,
 		paramsBuffer,
-		bindGroup,
 	};
 }
 
 async function createWebGPUResources(
 	envMap: Texture,
-	computeFacade: ReturnType<typeof resolveWebGPUComputeFacade>
+	source: WebGPUComputeFacadeSource
 ): Promise<EnvironmentIBLWebGPUResources> {
-	const shaderCode = await loadEnvironmentIBLPrefilterShaderSource();
-	const module = await computeFacade.createShaderModule({
-		label: "EnvironmentIBLBakePrefilterModule",
-		code: shaderCode,
-		language: "wgsl",
-		stage: "compute",
-		sourceKind: "unknown",
-	});
+	const runtime = new ComputeRuntime(source);
+	try {
+		const shaderCode = await loadEnvironmentIBLPrefilterShaderSource();
+		const kernel = await runtime.createKernel({
+			label: "EnvironmentIBLBakePrefilter",
+			code: shaderCode,
+			language: "wgsl",
+			sourceKind: "unknown",
+			bindings: [
+				{
+					key: "envSampler",
+					binding: 0,
+					type: "sampler",
+				},
+				{
+					key: "envTexture",
+					binding: 1,
+					type: "texture",
+				},
+				{
+					key: "outputTexture",
+					binding: 2,
+					type: "texture",
+				},
+				{
+					key: "params",
+					binding: 3,
+					type: "buffer",
+				},
+			],
+			workgroupSize: {
+				x: WORKGROUP_SIZE,
+				y: WORKGROUP_SIZE,
+				z: 1,
+			},
+		});
 
-	const pipeline = computeFacade.createComputePipeline({
-		label: "EnvironmentIBLBakePrefilterPipeline",
-		compute: {
-			module,
-			entryPoint: "csMain",
-		},
-	});
+		const sampler = runtime.createSampler({
+			label: "EnvironmentIBLBakePrefilterSampler",
+			addressModeU: AddressMode.Repeat,
+			addressModeV: AddressMode.ClampToEdge,
+			magFilter: FilterMode.Linear,
+			minFilter: FilterMode.Linear,
+			mipmapFilter: FilterMode.Linear,
+		});
 
-	const sampler = computeFacade.createSampler({
-		label: "EnvironmentIBLBakePrefilterSampler",
-		addressModeU: AddressMode.Repeat,
-		addressModeV: AddressMode.ClampToEdge,
-		magFilter: FilterMode.Linear,
-		minFilter: FilterMode.Linear,
-		mipmapFilter: FilterMode.Linear,
-	});
+		const inputTexture = runtime.createTexture({
+			width: Math.max(1, envMap.width),
+			height: Math.max(1, envMap.height),
+			format: TextureFormat.RGBA8Unorm,
+			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+			label: "EnvironmentIBLBakeInputTexture",
+		});
 
-	const inputTexture = computeFacade.createTexture({
-		width: Math.max(1, envMap.width),
-		height: Math.max(1, envMap.height),
-		format: TextureFormat.RGBA8Unorm,
-		usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-		label: "EnvironmentIBLBakeInputTexture",
-	});
-
-	return {
-		sampler,
-		module,
-		pipeline,
-		inputTexture,
-	};
+		return {
+			runtime,
+			sampler,
+			kernel,
+			inputTexture,
+		};
+	} catch (error) {
+		runtime.destroy();
+		throw error;
+	}
 }
 
 function uploadSourceTexture(
-	context: EnvironmentIBLWebGPUContext,
+	runtime: ComputeRuntime,
 	inputTexture: IRenderTexture,
 	envMap: Texture
 ): void {
@@ -575,11 +482,8 @@ function uploadSourceTexture(
 				upload.data.byteLength
 			)
 		: 	new Uint8Array(upload.data);
-	context.queue.writeTexture(
-		{
-			texture: getWebGPUTexture(inputTexture).texture,
-			mipLevel: 0,
-		},
+	runtime.writeTexture(
+		inputTexture,
 		uploadData,
 		{
 			offset: 0,
@@ -595,79 +499,49 @@ function uploadSourceTexture(
 }
 
 async function bakeMipLevelWithWebGPU(
-	context: EnvironmentIBLWebGPUContext,
-	pipeline: IComputePipeline,
-	bindGroup: IBindingGroup,
+	runtime: ComputeRuntime,
+	kernel: ComputeKernel,
+	sampler: ISampler,
+	inputTexture: IRenderTexture,
+	paramsBuffer: IRenderBuffer,
 	outputTexture: IRenderTexture,
 	width: number,
 	height: number,
-	level: number,
 	signal?: AbortSignal | null
 ): Promise<Float32Array> {
 	assertBakeNotAborted(signal);
-
-	const bytesPerPixel = 4;
-	const bytesPerRow = alignTo(width * bytesPerPixel, 256);
-	const readbackSize = bytesPerRow * height;
-	const readbackBuffer = context.device.createBuffer({
-		label: `EnvironmentIBLBakeReadback_mip${level}`,
-		size: Math.max(readbackSize, 4),
-		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+	const ticket = kernel.dispatch({
+		label: "EnvironmentIBLBakePrefilterDispatch",
+		resources: {
+			envSampler: sampler,
+			envTexture: inputTexture,
+			outputTexture: outputTexture,
+			params: paramsBuffer,
+		},
+		dispatch2D: {
+			width,
+			height,
+			depth: 1,
+		},
 	});
+	await ticket.done;
+	assertBakeNotAborted(signal);
 
-	try {
-		const commandEncoder = context.device.createCommandEncoder({
-			label: `EnvironmentIBLBakePrefilterEncoder_mip${level}`,
-		});
-		const computePass = commandEncoder.beginComputePass({
-			label: `EnvironmentIBLBakePrefilterPass_mip${level}`,
-		});
-		computePass.setPipeline(getWebGPUComputePipeline(pipeline));
-		computePass.setBindGroup(0, getWebGPUBindGroup(bindGroup));
-		computePass.dispatchWorkgroups(
-			Math.ceil(width / WORKGROUP_SIZE),
-			Math.ceil(height / WORKGROUP_SIZE),
-			1
-		);
-		computePass.end();
-
-		commandEncoder.copyTextureToBuffer(
-			{
-				texture: getWebGPUTexture(outputTexture).texture,
-				mipLevel: 0,
-			},
-			{
-				buffer: readbackBuffer,
-				offset: 0,
-				bytesPerRow,
-				rowsPerImage: height,
-			},
-			{
-				width,
-				height,
-				depthOrArrayLayers: 1,
-			}
-		);
-
-		context.queue.submit([commandEncoder.finish()]);
-		await readbackBuffer.mapAsync(GPUMapMode.READ, 0, readbackSize);
-		assertBakeNotAborted(signal);
-
-		const mappedRange = readbackBuffer.getMappedRange(0, readbackSize);
-		const copied = new Uint8Array(mappedRange.slice(0));
-		readbackBuffer.unmap();
-		return unpackRGBA8Readback(copied, width, height, bytesPerRow);
-	} finally {
-		try {
-			readbackBuffer.destroy();
-		} catch {
-			// ignore
-		}
+	const readback = await runtime.readTexture({
+		texture: outputTexture,
+		width,
+		height,
+		format: TextureFormat.RGBA8Unorm,
+	});
+	assertBakeNotAborted(signal);
+	const result = readback.toNormalizedRGBA8Float32();
+	for (let i = 3; i < result.length; i += 4) {
+		result[i] = 1;
 	}
+	return result;
 }
 
 function destroyMipResources(resources: EnvironmentIBLMipResources): void {
-	destroyResource(resources.bindGroup);
 	destroyResource(resources.paramsBuffer);
 	destroyResource(resources.outputTexture);
 }
@@ -675,8 +549,8 @@ function destroyMipResources(resources: EnvironmentIBLMipResources): void {
 function destroyWebGPUResources(resources: EnvironmentIBLWebGPUResources): void {
 	destroyResource(resources.inputTexture);
 	destroyResource(resources.sampler);
-	destroyResource(resources.pipeline);
-	destroyResource(resources.module);
+	resources.kernel.destroy();
+	resources.runtime.destroy();
 }
 
 export async function prefilterEnvMapWithWebGPU(
@@ -687,16 +561,14 @@ export async function prefilterEnvMapWithWebGPU(
 ): Promise<Texture> {
 	assertBakeNotAborted(signal);
 
-	const computeFacade = resolveWebGPUComputeFacade(source);
-	const context = resolveWebGPUContext(source);
 	const sourceIsLinear = resolveTextureIsLinear(envMap);
 	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
-	const resources = await createWebGPUResources(envMap, computeFacade);
+	const resources = await createWebGPUResources(envMap, source);
 	const mipmaps: EnvironmentIBLPrefilterMipData[] = [];
 	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
 
 	try {
-		uploadSourceTexture(context, resources.inputTexture, envMap);
+		uploadSourceTexture(resources.runtime, resources.inputTexture, envMap);
 
 		for (let level = 0; level < totalMipLevels; level++) {
 			assertBakeNotAborted(signal);
@@ -709,7 +581,7 @@ export async function prefilterEnvMapWithWebGPU(
 			const width = Math.max(1, baseWidth >> level);
 			const height = Math.max(1, baseHeight >> level);
 
-			const outputTexture = computeFacade.createTexture({
+			const outputTexture = resources.runtime.createTexture({
 				width,
 				height,
 				format: TextureFormat.RGBA8Unorm,
@@ -720,7 +592,7 @@ export async function prefilterEnvMapWithWebGPU(
 				label: `EnvironmentIBLBakePrefilterOutput_mip${level}`,
 			});
 
-			const paramsBuffer = computeFacade.createBuffer({
+			const paramsBuffer = resources.runtime.createBuffer({
 				size: PREFILTER_PARAMS_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: `EnvironmentIBLBakePrefilterParams_mip${level}`,
@@ -735,27 +607,23 @@ export async function prefilterEnvMapWithWebGPU(
 				sampleCount,
 				sourceIsLinear
 			);
-			computeFacade.writeBuffer(paramsBuffer, params, 0);
+			resources.runtime.writeBuffer(paramsBuffer, params, 0);
 
 			const mipResources = createPrefilterMipResources(
-				resources.pipeline,
-				resources.sampler,
-				resources.inputTexture,
 				outputTexture,
-				paramsBuffer,
-				computeFacade,
-				level
+				paramsBuffer
 			);
 
 			try {
 				const mipData = await bakeMipLevelWithWebGPU(
-					context,
-					resources.pipeline,
-					mipResources.bindGroup,
+					resources.runtime,
+					resources.kernel,
+					resources.sampler,
+					resources.inputTexture,
+					mipResources.paramsBuffer,
 					mipResources.outputTexture,
 					width,
 					height,
-					level,
 					signal
 				);
 				mipmaps.push({
