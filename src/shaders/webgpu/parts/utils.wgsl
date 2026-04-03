@@ -3,6 +3,10 @@ fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
 
+fn isFiniteF32(value: f32) -> bool {
+	return value == value && abs(value) <= 3.402823466e+38;
+}
+
 fn safeNormalize(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(value);
 	return select(fallback, value / max(len, EPSILON), len > EPSILON);
@@ -403,7 +407,7 @@ fn selectTopTwoReflectionProbes(worldPosition: vec3<f32>) -> vec4<f32> {
 		let probe = frame.reflectionProbes[i];
 		let metric = computeReflectionProbeMetric(worldPosition, probe);
 		let weight = computeReflectionProbeWeight(metric, probe);
-		if (!isFinite(weight) || weight <= 1e-6) {
+		if (!isFiniteF32(weight) || weight <= 1e-6) {
 			continue;
 		}
 
@@ -517,7 +521,7 @@ fn intersectReflectionProbeBox(
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 	}
 	let t = select(tMax, tMin, tMin > EPSILON);
-	if (!isFinite(t) || t <= EPSILON) {
+	if (!isFiniteF32(t) || t <= EPSILON) {
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 	}
 	let hit = localOrigin + localDirection * t;
@@ -547,7 +551,7 @@ fn intersectReflectionProbeSphere(
 	if (t1 > EPSILON) {
 		t = min(t, t1);
 	}
-	if (!isFinite(t) || t >= 1e19) {
+	if (!isFiniteF32(t) || t >= 1e19) {
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 	}
 	let hit = localOrigin + localDirection * t;
