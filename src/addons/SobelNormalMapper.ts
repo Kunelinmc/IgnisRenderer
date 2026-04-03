@@ -4,17 +4,13 @@ import { loadPostProcessShaderPart } from "../shaders/webgpu/shaderSource";
 import { WEBGPU_TEXTURE_SLOT } from "../renderers/webgpu/constants";
 import type { IWebGPUComputeFacade } from "../renderers/webgpu/computeFacade";
 import { resolveWebGPUComputeFacade } from "../renderers/webgpu/computeFacade";
-import {
-	destroyResource,
-	recordComputePass,
-} from "../renderers/webgpu/computeUtils";
+import { destroyResource } from "../renderers/webgpu/computeUtils";
+import type { IComputeKernel, IComputeRuntime } from "../renderers/IComputeRuntime";
+import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
 import {
 	BufferUsage,
-	type IBindingGroup,
-	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
-	type IShaderModule,
 	TextureFormat,
 	TextureUsage,
 } from "../renderers/types";
@@ -39,18 +35,22 @@ export interface SobelNormalMapperOptions {
  * 4. Call `destroy()` when done.
  */
 export class SobelNormalMapper {
+	/** Full compute runtime – owns kernel, buffer, and dest texture resources. */
+	private _runtime: IComputeRuntime | null = null;
+	/**
+	 * Facade retained for WebGPU-specific texture operations only:
+	 * `resolveTextureForSlot`, `registerExternalTexture`,
+	 * and `unregisterExternalTexture`.
+	 */
 	private _computeFacade: IWebGPUComputeFacade | null = null;
 	private _backendRef: unknown = null;
 	private _overrideComputeFacade: IWebGPUComputeFacade | null = null;
 	private _renderer: Renderer | null = null;
-	private _shaderModule: IShaderModule | null = null;
-	private _pipeline: IComputePipeline | null = null;
+	private _kernel: IComputeKernel | null = null;
 	private _paramsBuffer: IRenderBuffer | null = null;
 	private _destTexture: Texture;
 	private _destResource: IRenderTexture | null = null;
-	private _bindGroup: IBindingGroup | null = null;
-	private _bindSourceTexture: IRenderTexture | null = null;
-	private _bindDestTexture: IRenderTexture | null = null;
+
 	private _isInitialized = false;
 	private _destroyed = false;
 	private _lastSourceVersion = -1;
@@ -163,28 +163,41 @@ export class SobelNormalMapper {
 		this._computeFacade = computeFacade;
 		this._backendRef = backendRef;
 
+		const runtime = new ComputeRuntime(computeFacade);
 		const code = await loadPostProcessShaderPart("sobelNormal");
-		this._shaderModule = await this._computeFacade.createShaderModule({
-			code,
-			label: "SobelNormalComputeShader",
-			language: "wgsl",
-			stage: "compute",
-			sourceKind: "postprocess",
-		});
-
-		this._pipeline = this._computeFacade.createComputePipeline({
-			compute: {
-				module: this._shaderModule,
+		let kernel: IComputeKernel;
+		try {
+			kernel = await runtime.createKernel({
+				label: "SobelNormal",
+				code,
+				language: "wgsl",
+				sourceKind: "postprocess",
 				entryPoint: "csMain",
-			},
-			label: "SobelNormalComputePipeline",
-		});
+				workgroupSize: {
+					x: SOBEL_WORKGROUP_SIZE,
+					y: SOBEL_WORKGROUP_SIZE,
+					z: 1,
+				},
+				bindings: [
+					{ key: "srcTexture", binding: 0, type: "texture" },
+					{ key: "dstTexture", binding: 1, type: "texture" },
+					{ key: "params",     binding: 2, type: "buffer"  },
+				],
+			});
+		} catch (error) {
+			runtime.destroy();
+			throw error;
+		}
 
-		this._paramsBuffer = this._computeFacade.createBuffer({
+		const paramsBuffer = runtime.createBuffer({
 			size: 16, // 4 * float32
 			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			label: "SobelNormalParamsBuffer",
 		});
+
+		this._runtime = runtime;
+		this._kernel = kernel;
+		this._paramsBuffer = paramsBuffer;
 
 		this._recreateDestTexture();
 		this._lastSourceVersion = -1;
@@ -235,8 +248,9 @@ export class SobelNormalMapper {
 		if (
 			!this._isInitialized ||
 			this._destroyed ||
+			!this._runtime ||
+			!this._kernel ||
 			!this._computeFacade ||
-			!this._pipeline ||
 			!this._paramsBuffer
 		) {
 			return false;
@@ -286,26 +300,17 @@ export class SobelNormalMapper {
 			this._invertY ? -1.0 : 1.0,
 			0.0,
 		]);
-		this._computeFacade.writeBuffer(this._paramsBuffer, params);
+		this._runtime.writeBuffer(this._paramsBuffer, params);
 
-		this._ensureBindGroup(srcResource);
-		if (!this._bindGroup) {
-			return false;
-		}
-
-		const encoder = this._computeFacade.createCommandEncoder();
-		recordComputePass(
-			encoder,
-			"SobelNormalPass",
-			this._pipeline,
-			[{ index: 0, group: this._bindGroup }],
-			{
-				x: ceilDiv(width, SOBEL_WORKGROUP_SIZE),
-				y: ceilDiv(height, SOBEL_WORKGROUP_SIZE),
-				z: 1,
-			}
-		);
-		this._computeFacade.submit([encoder.finish()]);
+		this._kernel.dispatch({
+			label: "SobelNormalPass",
+			resources: {
+				srcTexture: srcResource,
+				dstTexture: this._destResource,
+				params: this._paramsBuffer,
+			},
+			dispatch2D: { width, height },
+		});
 
 		this._lastSourceVersion = sourceVersion;
 		this._lastParamsKey = paramsKey;
@@ -325,52 +330,20 @@ export class SobelNormalMapper {
 		this._destroyed = true;
 	}
 
-	private _ensureBindGroup(sourceTexture: IRenderTexture): void {
-		if (
-			!this._computeFacade ||
-			!this._pipeline ||
-			!this._paramsBuffer ||
-			!this._destResource
-		) {
-			return;
-		}
-		const canReuse =
-			this._bindGroup &&
-			this._bindSourceTexture === sourceTexture &&
-			this._bindDestTexture === this._destResource;
-		if (canReuse) {
-			return;
-		}
-		this._destroyBindingGroup();
-		this._bindGroup = this._computeFacade.createBindingGroup({
-			pipeline: this._pipeline,
-			layoutIndex: 0,
-			entries: [
-				{ binding: 0, resource: sourceTexture },
-				{ binding: 1, resource: this._destResource },
-				{ binding: 2, resource: this._paramsBuffer },
-			],
-			label: "SobelNormalBindGroup",
-		});
-		this._bindSourceTexture = sourceTexture;
-		this._bindDestTexture = this._destResource;
-	}
-
 	private _recreateDestTexture(): void {
-		if (!this._computeFacade) return;
+		if (!this._runtime || !this._computeFacade) return;
 		const width = Math.max(1, this._source.width | 0);
 		const height = Math.max(1, this._source.height | 0);
 
-		this._destroyBindingGroup();
 		if (this._destResource) {
 			this._computeFacade.unregisterExternalTexture(this._destTexture);
-			this._destResource.destroy();
+			destroyResource(this._destResource);
 		}
 
 		this._destTexture.width = width;
 		this._destTexture.height = height;
 
-		this._destResource = this._computeFacade.createTexture({
+		this._destResource = this._runtime.createTexture({
 			width,
 			height,
 			format: TextureFormat.RGBA8Unorm,
@@ -383,26 +356,20 @@ export class SobelNormalMapper {
 			this._destTexture.version,
 			1
 		);
-		this._bindSourceTexture = null;
-		this._bindDestTexture = null;
 		this._pendingForceUpdate = true;
 	}
 
 	private _releaseGPUResources(): void {
-		if (this._computeFacade) {
+		if (this._computeFacade && this._destResource) {
 			this._computeFacade.unregisterExternalTexture(this._destTexture);
 		}
-		this._destroyBindingGroup();
-		this._destroyResource(this._paramsBuffer);
-		this._paramsBuffer = null;
-		this._destroyResource(this._destResource);
-		this._destResource = null;
-		this._destroyResource(this._pipeline);
-		this._pipeline = null;
-		this._destroyResource(this._shaderModule);
-		this._shaderModule = null;
-		this._bindSourceTexture = null;
-		this._bindDestTexture = null;
+		this._kernel?.destroy();
+		this._kernel = null;
+		this._paramsBuffer = null; // owned by runtime, destroyed with it
+		this._destResource = null; // owned by runtime, destroyed with it
+		this._runtime?.destroy();
+		this._runtime = null;
+
 		this._lastSourceVersion = -1;
 		this._lastParamsKey = "";
 		this._pendingForceUpdate = true;
@@ -414,19 +381,4 @@ export class SobelNormalMapper {
 	private _buildParamsKey(): string {
 		return `${this._strength}|${this._invertX ? 1 : 0}|${this._invertY ? 1 : 0}`;
 	}
-
-	private _destroyBindingGroup(): void {
-		this._destroyResource(this._bindGroup);
-		this._bindGroup = null;
-		this._bindSourceTexture = null;
-		this._bindDestTexture = null;
-	}
-
-	private _destroyResource(resource: unknown): void {
-		destroyResource(resource);
-	}
-}
-
-function ceilDiv(value: number, divisor: number): number {
-	return Math.max(1, Math.ceil(value / Math.max(1, divisor)));
 }
