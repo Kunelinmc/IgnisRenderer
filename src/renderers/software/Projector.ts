@@ -19,45 +19,6 @@ interface ClippedVertexPair {
 }
 
 export class Projector {
-	public static projectModel(
-		meshInstance: MeshInstance,
-		context: FrameContext,
-		flipCulling: boolean = false,
-		overrideSize?: { width: number; height: number }
-	): ProjectedFace[] {
-		const worldMatrix = meshInstance.worldMatrix;
-		const normalMatrix = Matrix4.normalMatrix(worldMatrix);
-		const packetCameraCenter = Matrix4.transformPoint(
-			context.camera.viewMatrix,
-			Matrix4.transformPoint(
-				worldMatrix,
-				meshInstance.mesh.boundingSphere.center
-			)
-		);
-		const sortDepth = -packetCameraCenter.z;
-
-		const packets: DrawPacket[] = meshInstance.mesh.primitives
-			.filter((primitive) => primitive.visible !== false)
-			.map((primitive) => ({
-				id: `${meshInstance.id}:${primitive.id}`,
-				meshInstance,
-				mesh: meshInstance.mesh,
-				primitive,
-				material: primitive.material,
-				geometry: primitive.geometry,
-				worldMatrix,
-				normalMatrix,
-				worldBounds: primitive.boundingSphere,
-				sortDepth,
-				pipelineKey: "",
-				passFlags: 0,
-			}));
-
-		return packets.flatMap((packet) =>
-			this.projectPacket(packet, context, flipCulling, overrideSize)
-		);
-	}
-
 	public static projectPacket(
 		packet: DrawPacket,
 		context: FrameContext,
