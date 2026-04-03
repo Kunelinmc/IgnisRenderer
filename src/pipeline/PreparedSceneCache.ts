@@ -23,6 +23,11 @@ interface CachedPacketState {
 	rect: DirtyRect | null;
 }
 
+const MATRIX_SIGNATURE_SCRATCH = new DataView(new ArrayBuffer(8));
+const MATRIX_SIGNATURE_PRIME = 16777619;
+const MATRIX_SIGNATURE_INIT_A = 2166136261;
+const MATRIX_SIGNATURE_INIT_B = 2246822519;
+
 export interface PreparedSceneCacheBuildInput {
 	renderer: Renderer;
 	viewportWidth: number;
@@ -301,14 +306,29 @@ function buildPacketSignature(packet: DrawPacket): string {
 
 function matrix4Signature(matrix: Matrix4): string {
 	const elements = matrix.elements;
-	const values: string[] = [];
+	let hashA = MATRIX_SIGNATURE_INIT_A;
+	let hashB = MATRIX_SIGNATURE_INIT_B;
 	for (let row = 0; row < 4; row++) {
 		for (let col = 0; col < 4; col++) {
 			const value = elements[row][col];
-			values.push(Number.isFinite(value) ? value.toFixed(4) : "nan");
+			MATRIX_SIGNATURE_SCRATCH.setFloat64(0, value, true);
+			const lo = MATRIX_SIGNATURE_SCRATCH.getUint32(0, true);
+			const hi = MATRIX_SIGNATURE_SCRATCH.getUint32(4, true);
+			hashA = mixFnv32(hashA, lo);
+			hashA = mixFnv32(hashA, hi);
+			hashB = mixFnv32(hashB, hi ^ 0x9e3779b9);
+			hashB = mixFnv32(hashB, lo ^ 0x85ebca6b);
 		}
 	}
-	return values.join(",");
+	return `${toPaddedHex(hashA)}${toPaddedHex(hashB)}`;
+}
+
+function mixFnv32(hash: number, value: number): number {
+	return Math.imul((hash ^ value) >>> 0, MATRIX_SIGNATURE_PRIME) >>> 0;
+}
+
+function toPaddedHex(value: number): string {
+	return (value >>> 0).toString(16).padStart(8, "0");
 }
 
 function materialSignatureOf(material: Material): string {

@@ -199,9 +199,54 @@ function testAreaFallbackToFullFrame() {
 	}
 }
 
+function testMatrixDiffDetectsSmallFloatChanges() {
+	const camera = createCamera();
+	const packetBase = createPacket("S", 0, 0.08);
+	const packetSmallDelta = createPacket("S", 0, 0.08);
+	packetSmallDelta.worldMatrix.elements[0][3] = 0.00001;
+
+	const frames = [
+		createFrame(camera, [packetBase]),
+		createFrame(camera, [packetSmallDelta]),
+	];
+	let frameIndex = 0;
+
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => {
+		const resolved = frames[Math.min(frameIndex, frames.length - 1)];
+		frameIndex++;
+		return resolved;
+	};
+
+	try {
+		const buildInput = {
+			renderer: {},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+			},
+		};
+
+		const first = cache.build(buildInput);
+		assert.equal(first.forceFullFrame, true);
+
+		const second = cache.build(buildInput);
+		assert.equal(second.forceFullFrame, false);
+		assert.ok(second.dirtyRects.length > 0);
+		assert.ok(second.dirtyTiles.length > 0);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
 function run() {
 	testPacketDiffLifecycle();
 	testAreaFallbackToFullFrame();
+	testMatrixDiffDetectsSmallFloatChanges();
 	console.log("Prepared scene cache tests passed");
 }
 
