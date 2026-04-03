@@ -42,9 +42,11 @@ import {
 	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 	IncrementalFramePlanner,
+	makeFullScreenRect,
 	mergeIncrementalRenderingOptions,
 	renderDirtyReasonToMask,
 	type IncrementalFrameContext,
+	type DirtyTileCoverage,
 	type IncrementalFrameStats,
 	type IncrementalRenderingOptions,
 	type RenderDirtyReason,
@@ -282,15 +284,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.canvas.width,
 			this.canvas.height
 		);
+		const warmupFullFrameRect = makeFullScreenRect(
+			this.canvas.width,
+			this.canvas.height
+		);
 		const warmupFullFrameTiles = buildDirtyTileCoverage(
-			[{
-				x: 0,
-				y: 0,
-				width: Math.max(1, this.canvas.width),
-				height: Math.max(1, this.canvas.height),
-			}],
-			Math.max(1, this.canvas.width),
-			Math.max(1, this.canvas.height),
+			[warmupFullFrameRect],
+			warmupFullFrameRect.width,
+			warmupFullFrameRect.height,
 			this._incrementalOptions.dirtyTileSize
 		);
 		const context: FrameContext = {
@@ -305,12 +306,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			incremental: {
 				enabled: false,
 				forceFullFrame: true,
-				dirtyRects: [{
-					x: 0,
-					y: 0,
-					width: Math.max(1, this.canvas.width),
-					height: Math.max(1, this.canvas.height),
-				}],
+				dirtyRects: [warmupFullFrameRect],
 				dirtyTileSize: warmupFullFrameTiles.tileSize,
 				dirtyTileColumns: warmupFullFrameTiles.tileColumns,
 				dirtyTileRows: warmupFullFrameTiles.tileRows,
@@ -551,24 +547,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private _buildIncrementalFrameContext(
 		plan: ReturnType<typeof IncrementalFramePlanner.plan>,
-		prepared: PreparedSceneCacheBuildResult
+		prepared: PreparedSceneCacheBuildResult,
+		initialFullFrameRect: ReturnType<typeof makeFullScreenRect>,
+		initialFullFrameTiles: DirtyTileCoverage
 	): IncrementalFrameContext {
 		const enabled = this._incrementalOptions.enabled;
 		const forceFullFrame = plan.forceFullFrame || prepared.forceFullFrame;
-		const frameWidth = Math.max(1, this.canvas.width);
-		const frameHeight = Math.max(1, this.canvas.height);
-		const fullFrameRect = {
-			x: 0,
-			y: 0,
-			width: frameWidth,
-			height: frameHeight,
-		};
-		const fullFrameTiles = buildDirtyTileCoverage(
-			[fullFrameRect],
-			frameWidth,
-			frameHeight,
-			this._incrementalOptions.dirtyTileSize
-		);
+		const fullFrameRect = initialFullFrameRect;
+		const fullFrameTiles = initialFullFrameTiles;
 		let dirtyRects =
 			enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
 		let dirtyTiles =
@@ -677,26 +663,20 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		let context: FrameContext | null = null;
 		let frameStarted = false;
 		let emittedPostAnimation = false;
+		const initialFullFrameRect = makeFullScreenRect(
+			this.canvas.width,
+			this.canvas.height
+		);
 		const initialFullFrameTiles = buildDirtyTileCoverage(
-			[{
-				x: 0,
-				y: 0,
-				width: Math.max(1, this.canvas.width),
-				height: Math.max(1, this.canvas.height),
-			}],
-			Math.max(1, this.canvas.width),
-			Math.max(1, this.canvas.height),
+			[initialFullFrameRect],
+			initialFullFrameRect.width,
+			initialFullFrameRect.height,
 			this._incrementalOptions.dirtyTileSize
 		);
 		let incrementalFrameContext: IncrementalFrameContext = {
 			enabled: false,
 			forceFullFrame: true,
-			dirtyRects: [{
-				x: 0,
-				y: 0,
-				width: Math.max(1, this.canvas.width),
-				height: Math.max(1, this.canvas.height),
-			}],
+			dirtyRects: [initialFullFrameRect],
 			dirtyTileSize: initialFullFrameTiles.tileSize,
 			dirtyTileColumns: initialFullFrameTiles.tileColumns,
 			dirtyTileRows: initialFullFrameTiles.tileRows,
@@ -800,7 +780,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					});
 					incrementalFrameContext = this._buildIncrementalFrameContext(
 						incrementalPlan,
-						preparedResult
+						preparedResult,
+						initialFullFrameRect,
+						initialFullFrameTiles
 					);
 					incrementalStartStageIndex =
 						incrementalFrameContext.enabled &&
