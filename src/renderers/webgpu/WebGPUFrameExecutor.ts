@@ -483,11 +483,12 @@ export class WebGPUFrameExecutor {
 				precompileHints: ["postprocess:ssao"],
 				isEnabled: (features) => features.enableSSAO,
 				execute: async (ctx) => {
-					await this._postRuntime.executeSSAO(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext
-					);
+					await this._postRuntime.executePass({
+						passId: "ssao",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -497,11 +498,12 @@ export class WebGPUFrameExecutor {
 				precompileHints: ["postprocess:ssgi"],
 				isEnabled: (features) => features.enableSSGI,
 				execute: async (ctx) => {
-					await this._postRuntime.executeSSGI(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext
-					);
+					await this._postRuntime.executePass({
+						passId: "ssgi",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -513,12 +515,14 @@ export class WebGPUFrameExecutor {
 				execute: async (ctx) => {
 					const historyValid =
 						this._taaHistoryValid && this._motionHistoryValid;
-					this._taaHistoryUpdated = await this._postRuntime.executeTAA(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext,
-						historyValid
-					);
+					const result = await this._postRuntime.executePass({
+						passId: "taa",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+						historyValid,
+					});
+					this._taaHistoryUpdated = result.historyUpdated === true;
 				},
 			},
 			{
@@ -530,13 +534,15 @@ export class WebGPUFrameExecutor {
 				execute: async (ctx) => {
 					const historyValid =
 						this._ssrHistoryValid && this._motionHistoryValid;
-					this._ssrHistoryUpdated = await this._postRuntime.executeSSR(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext,
+					const result = await this._postRuntime.executePass({
+						passId: "ssr",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
 						historyValid,
-						this._resources.getFrameBinding()
-					);
+						frameBinding: this._resources.getFrameBinding(),
+					});
+					this._ssrHistoryUpdated = result.historyUpdated === true;
 				},
 			},
 			{
@@ -549,15 +555,16 @@ export class WebGPUFrameExecutor {
 					const historyValid =
 						this._volumetricHistoryValid && this._motionHistoryValid;
 					const lightingState = this._resources.getLightingState();
-					this._volumetricHistoryUpdated =
-						await this._postRuntime.executeVolumetric(
-							ctx.encoder,
-							ctx.targets,
-							ctx.frameContext,
-							historyValid,
-							this._resources.getFrameBinding(),
-							lightingState
-						);
+					const result = await this._postRuntime.executePass({
+						passId: "volumetric",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+						historyValid,
+						frameBinding: this._resources.getFrameBinding(),
+						lightingState,
+					});
+					this._volumetricHistoryUpdated = result.historyUpdated === true;
 				},
 			},
 			{
@@ -567,11 +574,12 @@ export class WebGPUFrameExecutor {
 				precompileHints: ["postprocess:motion-blur"],
 				isEnabled: (features) => features.enableMotionBlur,
 				execute: async (ctx) => {
-					await this._postRuntime.executeMotionBlur(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext
-					);
+					await this._postRuntime.executePass({
+						passId: "motion-blur",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -581,11 +589,12 @@ export class WebGPUFrameExecutor {
 				precompileHints: ["postprocess:dof"],
 				isEnabled: (features) => features.enableDOF,
 				execute: async (ctx) => {
-					await this._postRuntime.executeDOF(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext
-					);
+					await this._postRuntime.executePass({
+						passId: "dof",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -597,11 +606,12 @@ export class WebGPUFrameExecutor {
 				],
 				isEnabled: (features) => features.enableBloom,
 				execute: async (ctx) => {
-					await this._postRuntime.executeBloom(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext
-					);
+					await this._postRuntime.executePass({
+						passId: "bloom",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -611,7 +621,12 @@ export class WebGPUFrameExecutor {
 				precompileHints: ["postprocess:fxaa"],
 				isEnabled: (features) => features.enableFXAA,
 				execute: async (ctx) => {
-					await this._postRuntime.executeFXAA(ctx.encoder, ctx.targets);
+					await this._postRuntime.executePass({
+						passId: "fxaa",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
 				},
 			},
 			{
@@ -627,12 +642,13 @@ export class WebGPUFrameExecutor {
 					if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
 						return;
 					}
-					await this._postRuntime.executeInteractionOutline(
-						ctx.encoder,
-						ctx.targets,
-						ctx.frameContext,
-						interaction
-					);
+					await this._postRuntime.executePass({
+						passId: "interaction-outline",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+						state: interaction,
+					});
 				},
 			},
 			{
