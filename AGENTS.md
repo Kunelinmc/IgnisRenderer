@@ -13,9 +13,9 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ## Build & Test Commands
 
-- **Dev server**: `bun x vite`
-- **Build**: `bun x vite build`
-- **Run all tests**: `bun test`
+- **Dev server**: `bun run dev`
+- **Build**: `bun run build`
+- **Run all tests**: `bun run test`
 - **Run single test**: `bun tests/<file>.mjs`
 
 ### Specialized Test Suites
