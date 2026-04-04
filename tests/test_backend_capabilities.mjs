@@ -42,7 +42,7 @@ function run() {
 	});
 
 	assert.deepEqual(webgl.capabilities, {
-		sh: false,
+		sh: true,
 		shadows: true,
 		reflection: false,
 		skybox: true,
@@ -54,7 +54,7 @@ function run() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
-		clusteredLighting: false,
+		clusteredLighting: true,
 	});
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");

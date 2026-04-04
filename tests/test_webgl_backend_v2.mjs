@@ -698,7 +698,7 @@ async function run() {
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();
-	console.log("WebGL backend v1 unit tests passed");
+	console.log("WebGL backend v2 unit tests passed");
 }
 
 await run();

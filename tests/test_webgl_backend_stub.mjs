@@ -222,7 +222,7 @@ async function testInitAndPassRouting() {
 		"particle-sim": "backend",
 	});
 	assert.deepEqual(backend.capabilities, {
-		sh: false,
+		sh: true,
 		shadows: true,
 		reflection: false,
 		skybox: true,
@@ -234,7 +234,7 @@ async function testInitAndPassRouting() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
-		clusteredLighting: false,
+		clusteredLighting: true,
 	});
 
 	const calls = [];
@@ -337,12 +337,77 @@ function testParticleDeltaTimeIsClampedToSafeMaximum() {
 	assert.equal(deltaTimeSeconds, 0.5);
 }
 
+function createDependencyContext() {
+	return {
+		features: {
+			enableLighting: true,
+			enableGamma: true,
+			enableSH: true,
+			enableShadows: false,
+			enableReflection: false,
+			enableSkybox: true,
+			enableSSAO: false,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableMotionBlur: true,
+			enableDOF: true,
+			enableBloom: false,
+			enableFXAA: false,
+			enableClusteredLighting: true,
+			warnings: [],
+			ssrOptions: {},
+			ssaoOptions: {},
+			ssgiOptions: {},
+			taaOptions: {},
+			volumetricOptions: {},
+			bloomOptions: {},
+			motionBlurOptions: {},
+			dofOptions: {},
+			clusteredLightingOptions: {},
+		},
+		scene: {
+			particleSystems: [],
+			shadowCasterPackets: [],
+			reflectivePackets: [],
+			transparentPackets: [],
+		},
+		transient: new Map(),
+	};
+}
+
+function testDependencyValidationRejectsOutOfOrderPass() {
+	const backend = new WebGLBackend();
+	const context = createDependencyContext();
+	backend._frameExecutor = {
+		beginFrame() {},
+		executePass() {},
+		endFrame() {},
+		resize() {},
+		destroy() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {},
+	};
+
+	backend.beginFrame(context);
+	assert.throws(
+		() => backend.executePass({ stage: "dof" }, context),
+		/executed before dependencies/
+	);
+}
+
 async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
 	await testContextLostAndRestored();
 	testParticleDeltaTimeIsClampedToSafeMaximum();
-	console.log("WebGL backend v1 tests passed");
+	testDependencyValidationRejectsOutOfOrderPass();
+	console.log("WebGL backend v2 tests passed");
 }
 
 await run();
