@@ -1,4 +1,5 @@
 import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
+import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../computeFacade";
 import { destroyResource } from "../computeUtils";
 
@@ -47,11 +48,11 @@ export class PostProcessSharedContext {
 		if (!this._sampler) {
 			this._sampler = this._compute.createSampler({
 				label: "WebGPUPostSampler",
-				magFilter: "linear",
-				minFilter: "linear",
-				mipmapFilter: "linear",
-				addressModeU: "clamp-to-edge",
-				addressModeV: "clamp-to-edge",
+				magFilter: FilterMode.Linear,
+				minFilter: FilterMode.Linear,
+				mipmapFilter: FilterMode.Linear,
+				addressModeU: AddressMode.ClampToEdge,
+				addressModeV: AddressMode.ClampToEdge,
 			});
 		}
 	}
