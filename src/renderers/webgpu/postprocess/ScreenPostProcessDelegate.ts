@@ -28,9 +28,9 @@ import {
 	FXAA_EDGE_THRESHOLD_MULTIPLIER,
 	FXAA_SUBPIX_QUALITY,
 } from "../../postProcessConstants";
+import { ceilDiv, finiteOr } from "../postProcessMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
-import { ceilDiv, finiteOr } from "./postprocessUtils";
 import type {
 	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,

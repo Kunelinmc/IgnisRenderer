@@ -1,5 +1,13 @@
 export const TAA_HALTON_SAMPLE_COUNT = 16;
 
+export function finiteOr(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function ceilDiv(value: number, divisor: number): number {
+	return Math.max(1, Math.ceil(value / Math.max(divisor, 1)));
+}
+
 export function halton(index: number, base: number): number {
 	if (base <= 1) {
 		throw new Error(`Halton base must be > 1, received ${base}`);

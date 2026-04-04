@@ -15,10 +15,10 @@ import {
 	type IShaderModule,
 } from "../../types";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
+import { ceilDiv, finiteOr } from "../postProcessMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import type { WebGPULightingState } from "../types";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
-import { ceilDiv, finiteOr } from "./postprocessUtils";
 import type {
 	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,

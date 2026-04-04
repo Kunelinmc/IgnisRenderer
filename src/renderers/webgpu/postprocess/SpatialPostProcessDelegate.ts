@@ -14,9 +14,9 @@ import {
 } from "../../types";
 import { clamp } from "../../../maths/Common";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
+import { ceilDiv, finiteOr } from "../postProcessMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
-import { ceilDiv, finiteOr } from "./postprocessUtils";
 import type {
 	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,
