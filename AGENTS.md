@@ -24,7 +24,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **Animation**: `bun tests/test_animation_core.mjs`, `bun tests/test_animation_state_blendtree.mjs`
 - **Physics**: `bun tests/test_physics_system_bindings.mjs`, `bun tests/test_physics_adapter_contract.mjs`
 - **WebGPU**: `bun tests/test_webgpu_bridge.mjs`, `bun tests/test_webgpu_post_graph.mjs`
-- **WebGL**: `bun tests/test_webgl_backend_v1.mjs`, `bun tests/test_webgl_backend_stub.mjs`
+- **WebGL**: `bun tests/test_webgl_backend_v2.mjs`, `bun tests/test_webgl_backend_stub.mjs`
 
 ## Code Style Guidelines
 
