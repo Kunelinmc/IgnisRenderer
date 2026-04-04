@@ -120,7 +120,9 @@ export interface WebGLSceneProgram {
 		cameraPosition: WebGLUniformLocation | null;
 		ambientColor: WebGLUniformLocation | null;
 		enableLighting: WebGLUniformLocation | null;
+		enableSH: WebGLUniformLocation | null;
 		enableShadows: WebGLUniformLocation | null;
+		enableClusteredLighting: WebGLUniformLocation | null;
 		doubleSided: WebGLUniformLocation | null;
 		shadingModel: WebGLUniformLocation | null;
 		baseColor: WebGLUniformLocation | null;
@@ -165,6 +167,16 @@ export interface WebGLSceneProgram {
 		spotShadowParamsA: WebGLUniformLocation | null;
 		spotShadowParamsB: WebGLUniformLocation | null;
 		spotShadowParamsC: WebGLUniformLocation | null;
+		shAmbientCoeffs: WebGLUniformLocation | null;
+		shCoeffsSize: WebGLUniformLocation | null;
+		clusterParams0: WebGLUniformLocation | null;
+		clusterParams1: WebGLUniformLocation | null;
+		clusterHeaderTexture: WebGLUniformLocation | null;
+		clusterIndexTexture: WebGLUniformLocation | null;
+		clusterLightTexture: WebGLUniformLocation | null;
+		clusterHeaderTexSize: WebGLUniformLocation | null;
+		clusterIndexTexSize: WebGLUniformLocation | null;
+		clusterLightTexSize: WebGLUniformLocation | null;
 		taaJitter: WebGLUniformLocation | null;
 		prevViewProjection: WebGLUniformLocation | null;
 		prevModel: WebGLUniformLocation | null;
@@ -497,7 +509,12 @@ export class WebGLProgramLibrary {
 				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
 				ambientColor: this._gl.getUniformLocation(program, "uAmbientColor"),
 				enableLighting: this._gl.getUniformLocation(program, "uEnableLighting"),
+				enableSH: this._gl.getUniformLocation(program, "uEnableSH"),
 				enableShadows: this._gl.getUniformLocation(program, "uEnableShadows"),
+				enableClusteredLighting: this._gl.getUniformLocation(
+					program,
+					"uEnableClusteredLighting"
+				),
 				doubleSided: this._gl.getUniformLocation(program, "uDoubleSided"),
 				shadingModel: this._gl.getUniformLocation(program, "uShadingModel"),
 				baseColor: this._gl.getUniformLocation(program, "uBaseColor"),
@@ -631,6 +648,37 @@ export class WebGLProgramLibrary {
 				spotShadowParamsC: this._gl.getUniformLocation(
 					program,
 					"uSpotShadowParamsC[0]"
+				),
+				shAmbientCoeffs: this._gl.getUniformLocation(
+					program,
+					"uSHAmbientCoeffs"
+				),
+				shCoeffsSize: this._gl.getUniformLocation(program, "uSHCoeffsSize"),
+				clusterParams0: this._gl.getUniformLocation(program, "uClusterParams0"),
+				clusterParams1: this._gl.getUniformLocation(program, "uClusterParams1"),
+				clusterHeaderTexture: this._gl.getUniformLocation(
+					program,
+					"uClusterHeaderTexture"
+				),
+				clusterIndexTexture: this._gl.getUniformLocation(
+					program,
+					"uClusterIndexTexture"
+				),
+				clusterLightTexture: this._gl.getUniformLocation(
+					program,
+					"uClusterLightTexture"
+				),
+				clusterHeaderTexSize: this._gl.getUniformLocation(
+					program,
+					"uClusterHeaderTexSize"
+				),
+				clusterIndexTexSize: this._gl.getUniformLocation(
+					program,
+					"uClusterIndexTexSize"
+				),
+				clusterLightTexSize: this._gl.getUniformLocation(
+					program,
+					"uClusterLightTexSize"
 				),
 				taaJitter: this._gl.getUniformLocation(program, "uTaaJitter"),
 				prevViewProjection: this._gl.getUniformLocation(

@@ -68,6 +68,7 @@ export interface WebGLLightState {
 	pointLights: WebGLPointLight[];
 	spotLights: WebGLSpotLight[];
 	spotShadows: WebGLShadowData[];
+	clusteredLights: WebGLClusteredLight[];
 	envSpecularMap: Texture | null;
 	reflectionProbeCount: number;
 	reflectionProbes: WebGLReflectionProbeUniform[];
@@ -87,6 +88,18 @@ export interface WebGLReflectionProbeUniform {
 	layer: number;
 }
 
+export interface WebGLClusteredLight {
+	type: 0 | 1;
+	position: [number, number, number];
+	range: number;
+	direction: [number, number, number];
+	outerCos: number;
+	innerCos: number;
+	color: [number, number, number];
+	castsShadow: boolean;
+	shadowIndex: number;
+}
+
 type WarnFn = (key: string, message: string) => void;
 const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
@@ -97,7 +110,8 @@ export function collectWebGLLights(
 	enableShadows = false,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
 	enableSH = false,
-	skybox: Texture | null = null
+	skybox: Texture | null = null,
+	enableClusteredLighting = false
 ): WebGLLightState {
 	const state: WebGLLightState = {
 		ambientColor: [0, 0, 0],
@@ -106,6 +120,7 @@ export function collectWebGLLights(
 		pointLights: [],
 		spotLights: [],
 		spotShadows: [],
+		clusteredLights: [],
 		envSpecularMap: null,
 		reflectionProbeCount: 0,
 		reflectionProbes: [],
@@ -152,57 +167,97 @@ export function collectWebGLLights(
 				break;
 			}
 			case LightType.Point: {
-				if (state.pointLights.length >= WEBGL_MAX_POINT_LIGHTS) {
-					warn(
-						"webgl-point-light-limit",
-						`WebGL forward shading supports at most ${WEBGL_MAX_POINT_LIGHTS} point lights; extra lights are ignored`
-					);
-					break;
-				}
 				const position = getPointLightWorldPosition(light);
 				const intensity = light.intensity ?? 1;
+				const range = Math.max(0.001, (light as any).range ?? 1000);
+				const color: [number, number, number] = [
+					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
+					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
+					sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
+				];
+				if (enableClusteredLighting) {
+					state.clusteredLights.push({
+						type: 0,
+						position: [position.x, position.y, position.z],
+						range,
+						direction: [0, 0, 0],
+						outerCos: -2,
+						innerCos: -2,
+						color,
+						castsShadow: false,
+						shadowIndex: 0,
+					});
+				}
+
+				if (state.pointLights.length >= WEBGL_MAX_POINT_LIGHTS) {
+					if (!enableClusteredLighting) {
+						warn(
+							"webgl-point-light-limit",
+							`WebGL forward shading supports at most ${WEBGL_MAX_POINT_LIGHTS} point lights; extra lights are ignored`
+						);
+					}
+					break;
+				}
 				state.pointLights.push({
 					position: [position.x, position.y, position.z],
-					range: Math.max(0.001, (light as any).range ?? 1000),
-					color: [
-						sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
-					],
+					range,
+					color,
 				});
 				break;
 			}
 			case LightType.Spot: {
-				if (state.spotLights.length >= WEBGL_MAX_SPOT_LIGHTS) {
-					warn(
-						"webgl-spot-light-limit",
-						`WebGL forward shading supports at most ${WEBGL_MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
-					);
-					break;
-				}
 				const position = getSpotLightWorldPosition(light);
 				const direction = getSpotLightWorldDirection(light);
 				const outerCos = Math.cos((light as any).outerAngle ?? Math.PI / 4);
 				const innerCos = Math.cos(getSpotLightInnerAngle(light as any));
 				const intensity = light.intensity ?? 1;
+				const range = Math.max(0.001, (light as any).range ?? 1000);
+				const color: [number, number, number] = [
+					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
+					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
+					sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
+				];
+				const resolvedShadow = resolveWebGLShadowData(
+					enableShadows,
+					shadowMaps?.get(light as ShadowCastingLight)
+				);
+				if (enableClusteredLighting) {
+					const forwardShadowIndex = state.spotShadows.length;
+					const clusteredShadowEnabled =
+						resolvedShadow.enabled &&
+						forwardShadowIndex >= 0 &&
+						forwardShadowIndex < WEBGL_MAX_SPOT_LIGHTS;
+					state.clusteredLights.push({
+						type: 1,
+						position: [position.x, position.y, position.z],
+						range,
+						direction: [direction.x, direction.y, direction.z],
+						outerCos,
+						innerCos,
+						color,
+						castsShadow: clusteredShadowEnabled,
+						shadowIndex: clusteredShadowEnabled ? forwardShadowIndex : 0,
+					});
+				}
+
+				if (state.spotLights.length >= WEBGL_MAX_SPOT_LIGHTS) {
+					if (!enableClusteredLighting) {
+						warn(
+							"webgl-spot-light-limit",
+							`WebGL forward shading supports at most ${WEBGL_MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
+						);
+					}
+					break;
+				}
 				state.spotLights.push({
 					position: [position.x, position.y, position.z],
-					range: Math.max(0.001, (light as any).range ?? 1000),
+					range,
 					direction: [direction.x, direction.y, direction.z],
 					outerCos,
 					innerCos,
-					color: [
-						sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
-					],
+					color,
 				});
-				state.spotShadows.push(
-					resolveWebGLShadowData(
-						enableShadows,
-						shadowMaps?.get(light as ShadowCastingLight)
-					)
-				);
+				state.spotShadows.push(resolvedShadow);
 				break;
 			}
 			case LightType.LightProbe: {
@@ -216,7 +271,7 @@ export function collectWebGLLights(
 			default: {
 				warn(
 					`webgl-light-unsupported-${light.type}`,
-					`WebGL v1 does not support ${light.type} lights yet; ignoring this light`
+					`WebGL backend does not support ${light.type} lights yet; ignoring this light`
 				);
 				break;
 			}

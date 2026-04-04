@@ -110,7 +110,7 @@ export class WebGLGeometryRegistry {
 		if ((geometry.morphTargets?.length ?? 0) > 0) {
 			this._warn(
 				`webgl-geometry-morph-fallback-${primitive.id}`,
-				`WebGL v1 does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`
+				`WebGL backend does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`
 			);
 		}
 

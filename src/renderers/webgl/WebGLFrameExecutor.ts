@@ -9,7 +9,7 @@ import {
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { Matrix3Arr } from "../../maths/types";
+import type { Matrix3Arr, SHCoefficients } from "../../maths/types";
 import {
 	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
@@ -38,6 +38,7 @@ import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
 	type WebGLLightState,
+	type WebGLClusteredLight,
 	type WebGLReflectionProbeUniform,
 	type WebGLShadowData,
 } from "./WebGLLightCollector";
@@ -71,6 +72,11 @@ import {
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
 import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
+import {
+	WebGLPostProcessRuntime,
+	type WebGLPostProcessPassPlugin,
+} from "./WebGLPostProcessRuntime";
+import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 
 type WarnFn = (key: string, message: string) => void;
 type WebGLFramePassHandler = (context: FrameContext) => void;
@@ -105,13 +111,31 @@ const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
 const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR = 2;
 const WEBGL_TEXTURE_UNIT_BRDF_LUT = 3;
-const WEBGL_TEXTURE_UNIT_CUSTOM_START = 4;
+const WEBGL_TEXTURE_UNIT_SH_AMBIENT = 4;
+const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
+const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
+const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
+const WEBGL_TEXTURE_UNIT_CUSTOM_START = 8;
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	1, 0, 0, 0,
 	0, 1, 0, 0,
 	0, 0, 1, 0,
 	0, 0, 0, 1,
 ]);
+const SH_COEFFICIENT_COUNT = 16;
+const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"fxaa",
+	"interaction-outline",
+	"gamma",
+] as const;
 
 function computeHaltonJitterNDC(index: number, width: number, height: number): [number, number] {
 	const haltonX = [0.5, 0.25, 0.75, 0.125, 0.625, 0.375, 0.875, 0.0625, 0.5625, 0.3125, 0.8125, 0.1875, 0.6875, 0.4375, 0.9375, 0.03125];
@@ -203,6 +227,12 @@ export class WebGLFrameExecutor {
 	private _presentedInFrame = false;
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
+	private _clusteredLighting: WebGLClusteredLightingRuntime;
+	private _postProcessRuntime: WebGLPostProcessRuntime;
+	private _postProcessExecuted = false;
+	private _shAmbientTexture: WebGLTexture | null = null;
+	private _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
+	private _shAmbientTextureHeight = 1;
 	private _ssaoFrameIndex = 0;
 	private _interactionOutlineCircles = new Float32Array(
 		MAX_INTERACTION_OUTLINE_CIRCLES * 4
@@ -237,12 +267,17 @@ export class WebGLFrameExecutor {
 			gl.MAX_TEXTURE_IMAGE_UNITS,
 			16
 		);
+		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl, warn);
+		this._postProcessRuntime = new WebGLPostProcessRuntime(
+			this._createDefaultPostProcessPasses()
+		);
 		this._passHandlers = this._createPassHandlers();
 	}
 
 	public beginFrame(context: FrameContext): void {
 		this._activeContext = context;
 		this._presentedInFrame = false;
+		this._postProcessExecuted = false;
 		this._modelMatrixKeysThisFrame.clear();
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
@@ -260,7 +295,13 @@ export class WebGLFrameExecutor {
 			context.features.enableShadows,
 			context.shadowMaps,
 			context.features.enableSH,
-			context.scene.skybox
+			context.scene.skybox,
+			context.features.enableClusteredLighting
+		);
+		this._clusteredLighting.prepare(
+			context,
+			this._lightState,
+			this._maxTextureSize
 		);
 		
 		if (context.features.enableTAA) {
@@ -319,11 +360,19 @@ export class WebGLFrameExecutor {
 		if (!handler) {
 			this._warn(
 				`webgl-stage-unsupported-${pass.stage}`,
-				`WebGL v1 does not support pass "${pass.stage}" yet; skipping`
+				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
 			);
 			return;
 		}
 		handler(context);
+	}
+
+	public registerPostProcessPass(pass: WebGLPostProcessPassPlugin): void {
+		this._postProcessRuntime.registerPass(pass);
+	}
+
+	public unregisterPostProcessPass(id: string): void {
+		this._postProcessRuntime.unregisterPass(id);
 	}
 
 	public endFrame(): void {
@@ -383,9 +432,15 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		for (const pass of plan.postProcessPasses) {
-			switch (pass) {
-				case "ssao":
+		const allowedPassIds = new Set(plan.postProcessPasses);
+		const warmupHints = this._postProcessRuntime.collectWarmupHints(
+			context.features,
+			this._warn,
+			allowedPassIds
+		);
+		for (const hint of warmupHints) {
+			switch (hint) {
+				case "postprocess:ssao":
 					compile("WebGLSSAORawProgram", () => {
 						this._programs.getSSAORawProgram();
 					});
@@ -396,47 +451,47 @@ export class WebGLFrameExecutor {
 						this._programs.getSSAOCombineProgram();
 					});
 					break;
-				case "taa":
+				case "postprocess:taa":
 					compile("WebGLTAAProgram", () => {
 						this._programs.getTAAProgram();
 					});
 					break;
-				case "fxaa":
+				case "postprocess:fxaa":
 					compile("WebGLFXAAProgram", () => {
 						this._programs.getFXAAProgram();
 					});
 					break;
-				case "interaction-outline":
+				case "postprocess:interaction-outline":
 					compile("WebGLInteractionOutlineProgram", () => {
 						this._programs.getInteractionOutlineProgram();
 					});
 					break;
-				case "bloom":
+				case "postprocess:bloom":
 					compile("WebGLBloomProgram", () => {
 						this._programs.getBloomProgram();
 					});
 					break;
-				case "motion-blur":
+				case "postprocess:motion-blur":
 					compile("WebGLMotionBlurProgram", () => {
 						this._programs.getMotionBlurProgram();
 					});
 					break;
-				case "dof":
+				case "postprocess:dof":
 					compile("WebGLDOFProgram", () => {
 						this._programs.getDOFProgram();
 					});
 					break;
-				case "gamma":
+				case "postprocess:gamma":
 					compile("WebGLPresentProgram", () => {
 						this._programs.getPresentProgram();
 					});
 					break;
-				case "ssr":
+				case "postprocess:ssr":
 					compile("WebGLSSRProgram", () => {
 						this._programs.getSSRProgram();
 					});
 					break;
-				case "volumetric":
+				case "postprocess:volumetric":
 					compile("WebGLVolumetricProgram", () => {
 						this._programs.getVolumetricProgram();
 					});
@@ -473,6 +528,11 @@ export class WebGLFrameExecutor {
 		this._destroyFrameTargets();
 		this._destroyShadowTargets();
 		this._destroyParticleResources();
+		this._clusteredLighting.destroy();
+		if (this._shAmbientTexture) {
+			this._gl.deleteTexture(this._shAmbientTexture);
+			this._shAmbientTexture = null;
+		}
 		this._modelMatrixCache.clear();
 		this._modelMatrixKeysThisFrame.clear();
 		if (this._fullscreenVao) {
@@ -489,6 +549,13 @@ export class WebGLFrameExecutor {
 		FramePass["stage"],
 		WebGLFramePassHandler
 	> {
+		const runPostProcess = (context: FrameContext) => {
+			if (this._postProcessExecuted) {
+				return;
+			}
+			this._runPostProcessGraph(context);
+			this._postProcessExecuted = true;
+		};
 		const handlers = new Map<FramePass["stage"], WebGLFramePassHandler>([
 			[
 				"shadow",
@@ -517,53 +584,116 @@ export class WebGLFrameExecutor {
 			[
 				"ssao",
 				(context) => {
-					this._applySSAO(context.features.ssaoOptions, context);
-				},
-			],
-			[
-				"motion-blur",
-				(context) => {
-					this._applyMotionBlur(context.features.motionBlurOptions);
-				},
-			],
-			[
-				"dof",
-				(context) => {
-					this._applyDOF(context.features.dofOptions);
-				},
-			],
-			[
-				"bloom",
-				(context) => {
-					this._applyBloom(context.features.bloomOptions);
-				},
-			],
-			[
-				"fxaa",
-				() => {
-					this._applyFXAA();
-				},
-			],
-			[
-				"interaction-outline",
-				(context) => {
-					this._applyInteractionOutline(context);
-				},
-			],
-			[
-				"taa",
-				(context) => {
-					this._applyTAA(context.features.taaOptions);
-				},
-			],
-			[
-				"gamma",
-				(context) => {
-					this._present(context.features.enableGamma !== false);
+					runPostProcess(context);
 				},
 			],
 		]);
+		for (const stage of POST_PROCESS_STAGES) {
+			handlers.set(stage, runPostProcess);
+		}
 		return handlers;
+	}
+
+	private _runPostProcessGraph(context: FrameContext): void {
+		this._postProcessRuntime.execute(context, context.features, this._warn);
+	}
+
+	private _createDefaultPostProcessPasses(): WebGLPostProcessPassPlugin[] {
+		return [
+			{
+				id: "ssao",
+				dependsOn: [],
+				precompileHints: ["postprocess:ssao"],
+				isEnabled: (features) => features.enableSSAO,
+				execute: ({ frameContext }) => {
+					this._applySSAO(frameContext.features.ssaoOptions, frameContext);
+				},
+			},
+			{
+				id: "ssgi",
+				dependsOn: ["ssao"],
+				precompileHints: ["postprocess:ssgi"],
+				isEnabled: (features) => features.enableSSGI,
+				execute: () => {},
+			},
+			{
+				id: "taa",
+				dependsOn: ["ssgi", "ssao"],
+				precompileHints: ["postprocess:taa"],
+				isEnabled: (features) => features.enableTAA,
+				execute: ({ frameContext }) => {
+					this._applyTAA(frameContext.features.taaOptions);
+				},
+			},
+			{
+				id: "ssr",
+				dependsOn: ["taa"],
+				precompileHints: ["postprocess:ssr"],
+				isEnabled: (features) => features.enableSSR,
+				execute: () => {},
+			},
+			{
+				id: "volumetric",
+				dependsOn: ["ssr"],
+				precompileHints: ["postprocess:volumetric"],
+				isEnabled: (features) => features.enableVolumetric,
+				execute: () => {},
+			},
+			{
+				id: "motion-blur",
+				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:motion-blur"],
+				isEnabled: (features) => features.enableMotionBlur,
+				execute: ({ frameContext }) => {
+					this._applyMotionBlur(frameContext.features.motionBlurOptions);
+				},
+			},
+			{
+				id: "dof",
+				dependsOn: ["motion-blur"],
+				precompileHints: ["postprocess:dof"],
+				isEnabled: (features) => features.enableDOF,
+				execute: ({ frameContext }) => {
+					this._applyDOF(frameContext.features.dofOptions);
+				},
+			},
+			{
+				id: "bloom",
+				dependsOn: ["dof"],
+				precompileHints: ["postprocess:bloom"],
+				isEnabled: (features) => features.enableBloom,
+				execute: ({ frameContext }) => {
+					this._applyBloom(frameContext.features.bloomOptions);
+				},
+			},
+			{
+				id: "fxaa",
+				dependsOn: ["bloom"],
+				precompileHints: ["postprocess:fxaa"],
+				isEnabled: (features) => features.enableFXAA,
+				execute: () => {
+					this._applyFXAA();
+				},
+			},
+			{
+				id: "interaction-outline",
+				dependsOn: ["fxaa"],
+				precompileHints: ["postprocess:interaction-outline"],
+				isEnabled: () => true,
+				execute: ({ frameContext }) => {
+					this._applyInteractionOutline(frameContext);
+				},
+			},
+			{
+				id: "gamma",
+				dependsOn: ["interaction-outline"],
+				precompileHints: ["postprocess:gamma"],
+				isEnabled: (features) => features.enableGamma,
+				execute: ({ frameContext }) => {
+					this._present(frameContext.features.enableGamma !== false);
+				},
+			},
+		];
 	}
 
 	private _syncShadowMetadata(context: FrameContext): void {
@@ -821,10 +951,10 @@ export class WebGLFrameExecutor {
 		viewProjectionMatrix: Matrix4
 	): void {
 		if (packet.meshInstance.skeleton) {
-			this._warn(
-				"webgl-shadow-skinning-unsupported",
-				`WebGL v1 shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
-			);
+				this._warn(
+					"webgl-shadow-skinning-unsupported",
+					`WebGL shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
+				);
 			return;
 		}
 		if (!isFiniteMatrix(packet.worldMatrix)) {
@@ -1062,10 +1192,10 @@ export class WebGLFrameExecutor {
 		}
 
 		if (packet.meshInstance.skeleton) {
-			this._warn(
-				"webgl-skinning-unsupported",
-				`WebGL v1 does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
-			);
+				this._warn(
+					"webgl-skinning-unsupported",
+					`WebGL backend does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
+				);
 			return;
 		}
 		if (!isFiniteMatrix(packet.worldMatrix)) {
@@ -1603,6 +1733,7 @@ export class WebGLFrameExecutor {
 			pointLights: [],
 			spotLights: [],
 			spotShadows: [],
+			clusteredLights: [] as WebGLClusteredLight[],
 			envSpecularMap: null,
 			reflectionProbeCount: 0,
 			reflectionProbes: [],
@@ -1679,6 +1810,101 @@ export class WebGLFrameExecutor {
 				ambientR,
 				ambientG,
 				ambientB
+			);
+		}
+		const shTextureReady = this._uploadSHAmbientCoefficients(
+			context.shAmbientCoeffs
+		);
+		if (uniforms.shAmbientCoeffs) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SH_AMBIENT);
+			gl.bindTexture(gl.TEXTURE_2D, this._shAmbientTexture);
+			gl.uniform1i(uniforms.shAmbientCoeffs, WEBGL_TEXTURE_UNIT_SH_AMBIENT);
+		}
+		if (uniforms.shCoeffsSize) {
+			gl.uniform2f(
+				uniforms.shCoeffsSize,
+				this._shAmbientTextureWidth,
+				this._shAmbientTextureHeight
+			);
+		}
+		if (uniforms.enableSH) {
+			gl.uniform1i(
+				uniforms.enableSH,
+				context.features.enableSH && shTextureReady ? 1 : 0
+			);
+		}
+
+		const clusteredState = this._clusteredLighting.getState();
+		const clusteredEnabled =
+			context.features.enableClusteredLighting &&
+			clusteredState.enabled &&
+			!!clusteredState.headerTexture &&
+			!!clusteredState.indexTexture &&
+			!!clusteredState.lightTexture;
+		if (uniforms.enableClusteredLighting) {
+			gl.uniform1i(uniforms.enableClusteredLighting, clusteredEnabled ? 1 : 0);
+		}
+		if (uniforms.clusterParams0) {
+			gl.uniform4f(
+				uniforms.clusterParams0,
+				clusteredState.screenWidth,
+				clusteredState.screenHeight,
+				clusteredState.tilesX,
+				clusteredState.tilesY
+			);
+		}
+		if (uniforms.clusterParams1) {
+			gl.uniform4f(
+				uniforms.clusterParams1,
+				clusteredState.zSlices,
+				clusteredState.maxLightsPerCluster,
+				clusteredState.logScale,
+				clusteredState.logBias
+			);
+		}
+		if (uniforms.clusterHeaderTexSize) {
+			gl.uniform2f(
+				uniforms.clusterHeaderTexSize,
+				clusteredState.headerTexWidth,
+				clusteredState.headerTexHeight
+			);
+		}
+		if (uniforms.clusterIndexTexSize) {
+			gl.uniform2f(
+				uniforms.clusterIndexTexSize,
+				clusteredState.indexTexWidth,
+				clusteredState.indexTexHeight
+			);
+		}
+		if (uniforms.clusterLightTexSize) {
+			gl.uniform2f(
+				uniforms.clusterLightTexSize,
+				clusteredState.lightTexWidth,
+				clusteredState.lightTexHeight
+			);
+		}
+		if (uniforms.clusterHeaderTexture) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_HEADER);
+			gl.bindTexture(gl.TEXTURE_2D, clusteredState.headerTexture);
+			gl.uniform1i(
+				uniforms.clusterHeaderTexture,
+				WEBGL_TEXTURE_UNIT_CLUSTER_HEADER
+			);
+		}
+		if (uniforms.clusterIndexTexture) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_INDEX);
+			gl.bindTexture(gl.TEXTURE_2D, clusteredState.indexTexture);
+			gl.uniform1i(
+				uniforms.clusterIndexTexture,
+				WEBGL_TEXTURE_UNIT_CLUSTER_INDEX
+			);
+		}
+		if (uniforms.clusterLightTexture) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT);
+			gl.bindTexture(gl.TEXTURE_2D, clusteredState.lightTexture);
+			gl.uniform1i(
+				uniforms.clusterLightTexture,
+				WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT
 			);
 		}
 		if (uniforms.enableLighting) {
@@ -2184,6 +2410,75 @@ export class WebGLFrameExecutor {
 				uniforms.spotShadowParamsC,
 				packedSpotShadowParamsC.values
 			);
+		}
+	}
+
+	private _uploadSHAmbientCoefficients(
+		coeffs: SHCoefficients | null | undefined
+	): boolean {
+		const gl = this._gl;
+		const texelCount = SH_COEFFICIENT_COUNT;
+		const data = new Float32Array(texelCount * 4);
+		for (let i = 0; i < texelCount; i++) {
+			const coeff = coeffs?.[i];
+			const base = i * 4;
+			data[base] = finiteOr(coeff?.r, 0);
+			data[base + 1] = finiteOr(coeff?.g, 0);
+			data[base + 2] = finiteOr(coeff?.b, 0);
+			data[base + 3] = 0;
+		}
+
+		if (!this._shAmbientTexture) {
+			if (typeof gl.createTexture !== "function") {
+				this._warn(
+					"webgl-sh-ambient-texture-create-unsupported",
+					"WebGL context does not expose createTexture(); disabling SH for this frame."
+				);
+				return false;
+			}
+			this._shAmbientTexture = gl.createTexture();
+			if (!this._shAmbientTexture) {
+				this._warn(
+					"webgl-sh-ambient-texture-create-failed",
+					"Failed to create WebGL SH ambient texture; disabling SH for this frame."
+				);
+				return false;
+			}
+			gl.bindTexture(gl.TEXTURE_2D, this._shAmbientTexture);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		}
+
+		gl.bindTexture(gl.TEXTURE_2D, this._shAmbientTexture);
+		try {
+			const internalFormat =
+				(
+					gl as WebGL2RenderingContext & {
+						RGBA32F?: number;
+					}
+				).RGBA32F ?? gl.RGBA;
+			gl.texImage2D(
+				gl.TEXTURE_2D,
+				0,
+				internalFormat,
+				SH_COEFFICIENT_COUNT,
+				1,
+				0,
+				gl.RGBA,
+				gl.FLOAT,
+				data
+			);
+			this._shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
+			this._shAmbientTextureHeight = 1;
+			return true;
+		} catch (error) {
+			this._warn(
+				"webgl-sh-ambient-texture-upload-failed",
+				`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
+			);
+			return false;
 		}
 	}
 

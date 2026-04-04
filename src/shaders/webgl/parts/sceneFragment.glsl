@@ -6,6 +6,8 @@ const int MAX_DIRECTIONAL_LIGHTS = __MAX_DIRECTIONAL_LIGHTS__;
 const int MAX_POINT_LIGHTS = __MAX_POINT_LIGHTS__;
 const int MAX_SPOT_LIGHTS = __MAX_SPOT_LIGHTS__;
 const int MAX_REFLECTION_PROBES = 8;
+const int MAX_CLUSTER_LIGHTS_PER_FRAGMENT = 128;
+const int SH_COEFFICIENT_COUNT = 16;
 
 const float PI = 3.14159265359;
 const float EPSILON = 0.000001;
@@ -23,6 +25,9 @@ in float vViewDepth;
 uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
 uniform int uEnableLighting;
+uniform int uEnableSH;
+uniform sampler2D uSHAmbientCoeffs;
+uniform vec2 uSHCoeffsSize;
 uniform int uShadingModel;
 uniform int uDoubleSided;
 uniform vec4 uBaseColor;
@@ -71,6 +76,15 @@ uniform mat4 uSpotShadowViewProjection[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsA[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsC[MAX_SPOT_LIGHTS];
+uniform int uEnableClusteredLighting;
+uniform vec4 uClusterParams0;
+uniform vec4 uClusterParams1;
+uniform sampler2D uClusterHeaderTexture;
+uniform sampler2D uClusterIndexTexture;
+uniform sampler2D uClusterLightTexture;
+uniform vec2 uClusterHeaderTexSize;
+uniform vec2 uClusterIndexTexSize;
+uniform vec2 uClusterLightTexSize;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
@@ -79,6 +93,127 @@ layout(location = 2) out vec4 fragNormal;
 vec3 safeNormalize(vec3 value, vec3 fallback) {
 	float len = length(value);
 	return len > EPSILON ? value / len : fallback;
+}
+
+ivec2 linearIndexToTexel(int linearIndex, vec2 textureSizeValue) {
+	int width = max(int(floor(textureSizeValue.x + 0.5)), 1);
+	int y = linearIndex / width;
+	int x = linearIndex - y * width;
+	return ivec2(x, y);
+}
+
+vec3 sampleSHAmbientCoeff(int index) {
+	ivec2 texel = linearIndexToTexel(index, uSHCoeffsSize);
+	return texelFetch(uSHAmbientCoeffs, texel, 0).rgb;
+}
+
+void evalSHBasis(vec3 direction, out float basis[16]) {
+	float x = direction.x;
+	float y = direction.y;
+	float z = direction.z;
+
+	basis[0] = 0.282095;
+	basis[1] = 0.488603 * x;
+	basis[2] = 0.488603 * y;
+	basis[3] = 0.488603 * z;
+	basis[4] = 1.092548 * x * z;
+	basis[5] = 1.092548 * x * y;
+	basis[6] = 0.315392 * (3.0 * y * y - 1.0);
+	basis[7] = 1.092548 * y * z;
+	basis[8] = 0.546274 * (x * x - z * z);
+	basis[9] = 0.590835 * x * (x * x - 3.0 * z * z);
+	basis[10] = 2.893641 * x * y * z;
+	basis[11] = 0.457619 * x * (5.0 * y * y - 1.0);
+	basis[12] = 0.373176 * y * (5.0 * y * y - 3.0);
+	basis[13] = 0.457619 * z * (5.0 * y * y - 1.0);
+	basis[14] = 1.446821 * y * (x * x - z * z);
+	basis[15] = 0.590835 * z * (3.0 * x * x - z * z);
+}
+
+vec3 calculateIrradianceFromSH(vec3 normal) {
+	float basis[16];
+	evalSHBasis(normal, basis);
+	float c1 = PI;
+	float c2 = (2.0 * PI) / 3.0;
+	float c3 = PI / 4.0;
+	vec3 result = vec3(0.0);
+	for (int i = 0; i < SH_COEFFICIENT_COUNT; i++) {
+		float factor = 0.0;
+		if (i == 0) {
+			factor = c1;
+		} else if (i >= 1 && i < 4) {
+			factor = c2;
+		} else if (i >= 4 && i < 9) {
+			factor = c3;
+		}
+		result += sampleSHAmbientCoeff(i) * basis[i] * factor;
+	}
+	return max(result, vec3(0.0));
+}
+
+vec3 sampleSHRadiance(vec3 direction) {
+	float basis[16];
+	evalSHBasis(direction, basis);
+	vec3 result = vec3(0.0);
+	for (int i = 0; i < SH_COEFFICIENT_COUNT; i++) {
+		result += sampleSHAmbientCoeff(i) * basis[i];
+	}
+	return max(result, vec3(0.0));
+}
+
+vec4 fetchClusterHeader(int clusterIndex) {
+	ivec2 texel = linearIndexToTexel(clusterIndex, uClusterHeaderTexSize);
+	return texelFetch(uClusterHeaderTexture, texel, 0);
+}
+
+int fetchClusterListLightIndex(int listIndex) {
+	int texelIndex = listIndex / 4;
+	int component = listIndex - texelIndex * 4;
+	ivec2 texel = linearIndexToTexel(texelIndex, uClusterIndexTexSize);
+	vec4 packed = texelFetch(uClusterIndexTexture, texel, 0);
+	if (component == 0) return int(floor(packed.x + 0.5));
+	if (component == 1) return int(floor(packed.y + 0.5));
+	if (component == 2) return int(floor(packed.z + 0.5));
+	return int(floor(packed.w + 0.5));
+}
+
+vec4 fetchClusterLightRow(int lightIndex, int row) {
+	int texelIndex = lightIndex * 4 + row;
+	ivec2 texel = linearIndexToTexel(texelIndex, uClusterLightTexSize);
+	return texelFetch(uClusterLightTexture, texel, 0);
+}
+
+bool resolveClusterSpan(out int offset, out int count, out int maxLightsPerCluster) {
+	offset = 0;
+	count = 0;
+	maxLightsPerCluster = 0;
+	if (uEnableClusteredLighting == 0) {
+		return false;
+	}
+	int tilesX = max(int(floor(uClusterParams0.z + 0.5)), 1);
+	int tilesY = max(int(floor(uClusterParams0.w + 0.5)), 1);
+	int zSlices = max(int(floor(uClusterParams1.x + 0.5)), 1);
+	maxLightsPerCluster = max(int(floor(uClusterParams1.y + 0.5)), 1);
+	float logScale = uClusterParams1.z;
+	float logBias = uClusterParams1.w;
+
+	float width = max(uClusterParams0.x, 1.0);
+	float height = max(uClusterParams0.y, 1.0);
+	float xNorm = clamp(gl_FragCoord.x / width, 0.0, 0.999999);
+	float yNorm = clamp(gl_FragCoord.y / height, 0.0, 0.999999);
+	int tileX = clamp(int(floor(xNorm * float(tilesX))), 0, tilesX - 1);
+	int tileY = clamp(int(floor(yNorm * float(tilesY))), 0, tilesY - 1);
+	float viewDepth = max(vViewDepth, 1e-4);
+	int slice = clamp(
+		int(floor(log(viewDepth) * logScale + logBias)),
+		0,
+		zSlices - 1
+	);
+	int clusterIndex = tileX + tileY * tilesX + slice * tilesX * tilesY;
+	vec4 header = fetchClusterHeader(clusterIndex);
+	offset = max(0, int(floor(header.x + 0.5)));
+	count = max(0, int(floor(header.y + 0.5)));
+	return count > 0;
 }
 
 vec2 directionToEquirectUV(vec3 direction) {
@@ -617,7 +752,13 @@ vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 }
 
 vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
-	vec3 lit = uAmbientColor * albedo;
+	vec3 ambientBase = uAmbientColor;
+	if (uEnableSH == 1) {
+		ambientBase = calculateIrradianceFromSH(n) / 255.0;
+	} else if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
+		ambientBase = vec3(PBR_AMBIENT_FALLBACK_LINEAR);
+	}
+	vec3 lit = ambientBase * albedo;
 	vec3 specular = vec3(0.0);
 	float shininess = max(1.0, uPhong.x);
 
@@ -641,70 +782,151 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 		}
 	}
 
-	for (int i = 0; i < MAX_POINT_LIGHTS; i++) {
-		if (i >= uPointLightCount) break;
-		vec3 toLight = uPointLightPositionRange[i].xyz - vWorldPos;
-		float distanceSq = dot(toLight, toLight);
-		float distanceValue = sqrt(max(distanceSq, EPSILON));
-		float lightRange = max(uPointLightPositionRange[i].w, 0.001);
-		if (distanceValue > lightRange) {
-			continue;
-		}
-		vec3 l = toLight / distanceValue;
-		float attenuation = pointAttenuation(distanceSq, lightRange);
-		float nDotL = max(dot(n, l), 0.0);
-		lit += albedo * uPointLightColor[i].xyz * nDotL * attenuation;
-		if (nDotL > 0.0) {
-			vec3 h = safeNormalize(l + v, v);
-			specular +=
-				uPointLightColor[i].xyz *
-				pow(max(dot(n, h), 0.0), shininess) *
-				attenuation;
-		}
-	}
+	if (uEnableClusteredLighting == 1) {
+		int clusterOffset = 0;
+		int clusterCount = 0;
+		int clusterMaxPer = 0;
+		if (resolveClusterSpan(clusterOffset, clusterCount, clusterMaxPer)) {
+			int clusterLimit = min(
+				min(clusterCount, clusterMaxPer),
+				MAX_CLUSTER_LIGHTS_PER_FRAGMENT
+			);
+			for (int i = 0; i < MAX_CLUSTER_LIGHTS_PER_FRAGMENT; i++) {
+				if (i >= clusterLimit) break;
+				int lightIndex = fetchClusterListLightIndex(clusterOffset + i);
+				if (lightIndex < 0) {
+					continue;
+				}
+				vec4 lightA = fetchClusterLightRow(lightIndex, 0);
+				vec4 lightB = fetchClusterLightRow(lightIndex, 1);
+				vec4 lightC = fetchClusterLightRow(lightIndex, 2);
+				vec4 lightD = fetchClusterLightRow(lightIndex, 3);
+				int lightType = int(floor(lightD.x + 0.5));
 
-	for (int i = 0; i < MAX_SPOT_LIGHTS; i++) {
-		if (i >= uSpotLightCount) break;
-		vec3 toLight = uSpotLightPositionRange[i].xyz - vWorldPos;
-		float distanceSq = dot(toLight, toLight);
-		float distanceValue = sqrt(max(distanceSq, EPSILON));
-		float lightRange = max(uSpotLightPositionRange[i].w, 0.001);
-		if (distanceValue > lightRange) {
-			continue;
+				vec3 toLight = lightA.xyz - vWorldPos;
+				float distanceSq = dot(toLight, toLight);
+				float distanceValue = sqrt(max(distanceSq, EPSILON));
+				float lightRange = max(lightA.w, 0.001);
+				if (distanceValue > lightRange) {
+					continue;
+				}
+				vec3 l = toLight / distanceValue;
+				float attenuation = pointAttenuation(distanceSq, lightRange);
+				float nDotL = max(dot(n, l), 0.0);
+
+				if (lightType == 0) {
+					lit += albedo * lightC.xyz * nDotL * attenuation;
+					if (nDotL > 0.0) {
+						vec3 h = safeNormalize(l + v, v);
+						specular +=
+							lightC.xyz *
+							pow(max(dot(n, h), 0.0), shininess) *
+							attenuation;
+					}
+				} else if (lightType == 1) {
+					vec3 lightToPoint = -l;
+					vec3 coneDirection = safeNormalize(lightB.xyz, vec3(0.0, -1.0, 0.0));
+					float coneFactor = spotAttenuation(
+						dot(lightToPoint, coneDirection),
+						lightB.w,
+						lightC.w
+					);
+					if (coneFactor <= 0.0) {
+						continue;
+					}
+					float shadow = 1.0;
+					if (lightD.y > 0.5) {
+						int shadowIndex = int(floor(lightD.z + 0.5));
+						if (shadowIndex >= 0 && shadowIndex < MAX_SPOT_LIGHTS) {
+							shadow = sampleSpotShadowVisibility(
+								shadowIndex,
+								vWorldPos,
+								shadowNormal,
+								l
+							);
+						}
+					}
+					lit +=
+						albedo * lightC.xyz *
+						nDotL * attenuation * coneFactor * shadow;
+					if (nDotL > 0.0) {
+						vec3 h = safeNormalize(l + v, v);
+						specular +=
+							lightC.xyz *
+							pow(max(dot(n, h), 0.0), shininess) *
+							attenuation *
+							coneFactor *
+							shadow;
+					}
+				}
+			}
 		}
-		vec3 l = toLight / distanceValue;
-		float attenuation = pointAttenuation(distanceSq, lightRange);
-		vec3 lightToPoint = -l;
-		vec3 coneDirection = safeNormalize(
-			uSpotLightDirectionOuter[i].xyz,
-			vec3(0.0, -1.0, 0.0)
-		);
-		float coneFactor = spotAttenuation(
-			dot(lightToPoint, coneDirection),
-			uSpotLightDirectionOuter[i].w,
-			uSpotLightColorInner[i].w
-		);
-		if (coneFactor <= 0.0) {
-			continue;
+	} else {
+		for (int i = 0; i < MAX_POINT_LIGHTS; i++) {
+			if (i >= uPointLightCount) break;
+			vec3 toLight = uPointLightPositionRange[i].xyz - vWorldPos;
+			float distanceSq = dot(toLight, toLight);
+			float distanceValue = sqrt(max(distanceSq, EPSILON));
+			float lightRange = max(uPointLightPositionRange[i].w, 0.001);
+			if (distanceValue > lightRange) {
+				continue;
+			}
+			vec3 l = toLight / distanceValue;
+			float attenuation = pointAttenuation(distanceSq, lightRange);
+			float nDotL = max(dot(n, l), 0.0);
+			lit += albedo * uPointLightColor[i].xyz * nDotL * attenuation;
+			if (nDotL > 0.0) {
+				vec3 h = safeNormalize(l + v, v);
+				specular +=
+					uPointLightColor[i].xyz *
+					pow(max(dot(n, h), 0.0), shininess) *
+					attenuation;
+			}
 		}
-		float nDotL = max(dot(n, l), 0.0);
-		float shadow = sampleSpotShadowVisibility(
-			i,
-			vWorldPos,
-			shadowNormal,
-			l
-		);
-		lit +=
-			albedo * uSpotLightColorInner[i].xyz *
-			nDotL * attenuation * coneFactor * shadow;
-		if (nDotL > 0.0) {
-			vec3 h = safeNormalize(l + v, v);
-			specular +=
-				uSpotLightColorInner[i].xyz *
-				pow(max(dot(n, h), 0.0), shininess) *
-				attenuation *
-				coneFactor *
-				shadow;
+
+		for (int i = 0; i < MAX_SPOT_LIGHTS; i++) {
+			if (i >= uSpotLightCount) break;
+			vec3 toLight = uSpotLightPositionRange[i].xyz - vWorldPos;
+			float distanceSq = dot(toLight, toLight);
+			float distanceValue = sqrt(max(distanceSq, EPSILON));
+			float lightRange = max(uSpotLightPositionRange[i].w, 0.001);
+			if (distanceValue > lightRange) {
+				continue;
+			}
+			vec3 l = toLight / distanceValue;
+			float attenuation = pointAttenuation(distanceSq, lightRange);
+			vec3 lightToPoint = -l;
+			vec3 coneDirection = safeNormalize(
+				uSpotLightDirectionOuter[i].xyz,
+				vec3(0.0, -1.0, 0.0)
+			);
+			float coneFactor = spotAttenuation(
+				dot(lightToPoint, coneDirection),
+				uSpotLightDirectionOuter[i].w,
+				uSpotLightColorInner[i].w
+			);
+			if (coneFactor <= 0.0) {
+				continue;
+			}
+			float nDotL = max(dot(n, l), 0.0);
+			float shadow = sampleSpotShadowVisibility(
+				i,
+				vWorldPos,
+				shadowNormal,
+				l
+			);
+			lit +=
+				albedo * uSpotLightColorInner[i].xyz *
+				nDotL * attenuation * coneFactor * shadow;
+			if (nDotL > 0.0) {
+				vec3 h = safeNormalize(l + v, v);
+				specular +=
+					uSpotLightColorInner[i].xyz *
+					pow(max(dot(n, h), 0.0), shininess) *
+					attenuation *
+					coneFactor *
+					shadow;
+			}
 		}
 	}
 
@@ -753,8 +975,14 @@ vec3 shadePBR(
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
 
 	vec3 ambientBase = uAmbientColor;
-	if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
+	vec3 specularAmbientBase = ambientBase;
+	if (uEnableSH == 1) {
+		ambientBase = calculateIrradianceFromSH(pbrNormal) / 255.0;
+		vec3 reflectionDir = reflect(-viewDir, pbrNormal);
+		specularAmbientBase = sampleSHRadiance(reflectionDir) / 255.0;
+	} else if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
 		ambientBase = vec3(PBR_AMBIENT_FALLBACK_LINEAR);
+		specularAmbientBase = ambientBase;
 	}
 	vec3 ambientFresnel = fresnelSchlick(nDotV, f0);
 	vec3 ambientDiffuse = ambientBase *
@@ -776,7 +1004,7 @@ vec3 shadePBR(
 		ambientSpecular = prefiltered * (ambientFresnel * brdf.x + vec3(brdf.y));
 	} else {
 		float specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
-		ambientSpecular = ambientBase * ambientFresnel * specularAmbientFactor;
+		ambientSpecular = specularAmbientBase * ambientFresnel * specularAmbientFactor;
 	}
 
 	vec3 directLight = vec3(0.0);
@@ -806,74 +1034,159 @@ vec3 shadePBR(
 		) * shadow;
 	}
 
-	for (int i = 0; i < MAX_POINT_LIGHTS; i++) {
-		if (i >= uPointLightCount) break;
-		vec3 toLight = uPointLightPositionRange[i].xyz - vWorldPos;
-		float distanceSq = dot(toLight, toLight);
-		float distanceValue = sqrt(max(distanceSq, EPSILON));
-		float lightRange = max(uPointLightPositionRange[i].w, 0.001);
-		if (distanceValue > lightRange) {
-			continue;
-		}
-		vec3 lightDir = toLight / distanceValue;
-		vec3 radiance = uPointLightColor[i].xyz *
-			pointAttenuation(distanceSq, lightRange);
-		directLight += evalPBRLight(
-			albedo,
-			pbrNormal,
-			viewDir,
-			lightDir,
-			radiance,
-			roughness,
-			metalness,
-			f0,
-			nDotV
-		);
-	}
+	if (uEnableClusteredLighting == 1) {
+		int clusterOffset = 0;
+		int clusterCount = 0;
+		int clusterMaxPer = 0;
+		if (resolveClusterSpan(clusterOffset, clusterCount, clusterMaxPer)) {
+			int clusterLimit = min(
+				min(clusterCount, clusterMaxPer),
+				MAX_CLUSTER_LIGHTS_PER_FRAGMENT
+			);
+			for (int i = 0; i < MAX_CLUSTER_LIGHTS_PER_FRAGMENT; i++) {
+				if (i >= clusterLimit) break;
+				int lightIndex = fetchClusterListLightIndex(clusterOffset + i);
+				if (lightIndex < 0) {
+					continue;
+				}
+				vec4 lightA = fetchClusterLightRow(lightIndex, 0);
+				vec4 lightB = fetchClusterLightRow(lightIndex, 1);
+				vec4 lightC = fetchClusterLightRow(lightIndex, 2);
+				vec4 lightD = fetchClusterLightRow(lightIndex, 3);
+				int lightType = int(floor(lightD.x + 0.5));
 
-	for (int i = 0; i < MAX_SPOT_LIGHTS; i++) {
-		if (i >= uSpotLightCount) break;
-		vec3 toLight = uSpotLightPositionRange[i].xyz - vWorldPos;
-		float distanceSq = dot(toLight, toLight);
-		float distanceValue = sqrt(max(distanceSq, EPSILON));
-		float lightRange = max(uSpotLightPositionRange[i].w, 0.001);
-		if (distanceValue > lightRange) {
-			continue;
+				vec3 toLight = lightA.xyz - vWorldPos;
+				float distanceSq = dot(toLight, toLight);
+				float distanceValue = sqrt(max(distanceSq, EPSILON));
+				float lightRange = max(lightA.w, 0.001);
+				if (distanceValue > lightRange) {
+					continue;
+				}
+				vec3 lightDir = toLight / distanceValue;
+
+				if (lightType == 0) {
+					vec3 radiance = lightC.xyz * pointAttenuation(distanceSq, lightRange);
+					directLight += evalPBRLight(
+						albedo,
+						pbrNormal,
+						viewDir,
+						lightDir,
+						radiance,
+						roughness,
+						metalness,
+						f0,
+						nDotV
+					);
+				} else if (lightType == 1) {
+					vec3 lightToPoint = -lightDir;
+					vec3 coneDirection = safeNormalize(lightB.xyz, vec3(0.0, -1.0, 0.0));
+					float coneFactor = spotAttenuation(
+						dot(lightToPoint, coneDirection),
+						lightB.w,
+						lightC.w
+					);
+					if (coneFactor <= 0.0) {
+						continue;
+					}
+					vec3 radiance = lightC.xyz *
+						pointAttenuation(distanceSq, lightRange) *
+						coneFactor;
+					float shadow = 1.0;
+					if (lightD.y > 0.5) {
+						int shadowIndex = int(floor(lightD.z + 0.5));
+						if (shadowIndex >= 0 && shadowIndex < MAX_SPOT_LIGHTS) {
+							shadow = sampleSpotShadowVisibility(
+								shadowIndex,
+								vWorldPos,
+								shadowNormal,
+								lightDir
+							);
+						}
+					}
+					directLight += evalPBRLight(
+						albedo,
+						pbrNormal,
+						viewDir,
+						lightDir,
+						radiance,
+						roughness,
+						metalness,
+						f0,
+						nDotV
+					) * shadow;
+				}
+			}
 		}
-		vec3 lightDir = toLight / distanceValue;
-		vec3 lightToPoint = -lightDir;
-		vec3 coneDirection = safeNormalize(
-			uSpotLightDirectionOuter[i].xyz,
-			vec3(0.0, -1.0, 0.0)
-		);
-		float coneFactor = spotAttenuation(
-			dot(lightToPoint, coneDirection),
-			uSpotLightDirectionOuter[i].w,
-			uSpotLightColorInner[i].w
-		);
-		if (coneFactor <= 0.0) {
-			continue;
+	} else {
+		for (int i = 0; i < MAX_POINT_LIGHTS; i++) {
+			if (i >= uPointLightCount) break;
+			vec3 toLight = uPointLightPositionRange[i].xyz - vWorldPos;
+			float distanceSq = dot(toLight, toLight);
+			float distanceValue = sqrt(max(distanceSq, EPSILON));
+			float lightRange = max(uPointLightPositionRange[i].w, 0.001);
+			if (distanceValue > lightRange) {
+				continue;
+			}
+			vec3 lightDir = toLight / distanceValue;
+			vec3 radiance = uPointLightColor[i].xyz *
+				pointAttenuation(distanceSq, lightRange);
+			directLight += evalPBRLight(
+				albedo,
+				pbrNormal,
+				viewDir,
+				lightDir,
+				radiance,
+				roughness,
+				metalness,
+				f0,
+				nDotV
+			);
 		}
-		vec3 radiance = uSpotLightColorInner[i].xyz *
-			pointAttenuation(distanceSq, lightRange) *
-			coneFactor;
-		float shadow = sampleSpotShadowVisibility(
-			i,
-			vWorldPos,
-			shadowNormal,
-			lightDir
-		);
-		directLight += evalPBRLight(
-			albedo,
-			pbrNormal,
-			viewDir,
-			lightDir,
-			radiance,
-			roughness,
-			metalness,
-			f0,
-			nDotV
-		) * shadow;
+
+		for (int i = 0; i < MAX_SPOT_LIGHTS; i++) {
+			if (i >= uSpotLightCount) break;
+			vec3 toLight = uSpotLightPositionRange[i].xyz - vWorldPos;
+			float distanceSq = dot(toLight, toLight);
+			float distanceValue = sqrt(max(distanceSq, EPSILON));
+			float lightRange = max(uSpotLightPositionRange[i].w, 0.001);
+			if (distanceValue > lightRange) {
+				continue;
+			}
+			vec3 lightDir = toLight / distanceValue;
+			vec3 lightToPoint = -lightDir;
+			vec3 coneDirection = safeNormalize(
+				uSpotLightDirectionOuter[i].xyz,
+				vec3(0.0, -1.0, 0.0)
+			);
+			float coneFactor = spotAttenuation(
+				dot(lightToPoint, coneDirection),
+				uSpotLightDirectionOuter[i].w,
+				uSpotLightColorInner[i].w
+			);
+			if (coneFactor <= 0.0) {
+				continue;
+			}
+			vec3 radiance = uSpotLightColorInner[i].xyz *
+				pointAttenuation(distanceSq, lightRange) *
+				coneFactor;
+			float shadow = sampleSpotShadowVisibility(
+				i,
+				vWorldPos,
+				shadowNormal,
+				lightDir
+			);
+			directLight += evalPBRLight(
+				albedo,
+				pbrNormal,
+				viewDir,
+				lightDir,
+				radiance,
+				roughness,
+				metalness,
+				f0,
+				nDotV
+			) * shadow;
+		}
 	}
 
 	return ambientDiffuse + ambientSpecular + directLight;
