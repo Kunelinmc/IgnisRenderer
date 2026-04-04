@@ -3,6 +3,7 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { BasicMaterial, AlphaMode } from "../src/materials/index.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../src/renderers/SoftwareBackend.ts";
+import { FakeWorker } from "./helpers/test_fakes.mjs";
 
 const WIDTH = 64;
 const HEIGHT = 64;
@@ -320,7 +321,7 @@ async function testTileModeFallsBackWhenWorkerUnavailable() {
 
 async function testTileModeMatchesScanlineAndPreservesOrder() {
 	const originalWorker = globalThis.Worker;
-	globalThis.Worker = class FakeWorker {};
+	globalThis.Worker = FakeWorker;
 
 	try {
 		const redPacket = createTrianglePacket(

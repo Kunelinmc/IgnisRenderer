@@ -3,6 +3,8 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 
+import { FakeDynamicTexture } from "./helpers/test_fakes.mjs";
+
 class StubBackend {
 	constructor() {
 		this.type = "stub";
@@ -41,23 +43,6 @@ class StubBackend {
 	executePass() {}
 
 	endFrame() {}
-}
-
-class FakeDynamicTexture extends Texture {
-	constructor(framesToUpdate) {
-		super(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1, "sRGB");
-		this._framesToUpdate = framesToUpdate;
-		this._registerAsDynamicTexture();
-	}
-
-	update() {
-		if (this._framesToUpdate <= 0) {
-			return false;
-		}
-		this._framesToUpdate--;
-		this.markNeedsUpdate();
-		return true;
-	}
 }
 
 async function run() {

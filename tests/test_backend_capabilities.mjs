@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { SoftwareBackend } from "../src/renderers/SoftwareBackend.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
+import { FakeImageData as MockImageData } from "./helpers/test_fakes.mjs";
 
 function run() {
 	const software = new SoftwareBackend();
@@ -71,24 +72,8 @@ function run() {
 
 function testSoftwareBackendReusesFrameImageData() {
 	const OriginalImageData = globalThis.ImageData;
-	const created = [];
-
-	class FakeImageData {
-		constructor(dataOrWidth, widthOrHeight, maybeHeight) {
-			if (dataOrWidth instanceof Uint8ClampedArray) {
-				this.data = dataOrWidth;
-				this.width = widthOrHeight;
-				this.height = maybeHeight;
-			} else {
-				this.width = dataOrWidth;
-				this.height = widthOrHeight;
-				this.data = new Uint8ClampedArray(this.width * this.height * 4);
-			}
-			created.push(this);
-		}
-	}
-
-	globalThis.ImageData = FakeImageData;
+	MockImageData.instances = [];
+	globalThis.ImageData = MockImageData;
 
 	try {
 		const backend = new SoftwareBackend();
@@ -113,7 +98,7 @@ function testSoftwareBackendReusesFrameImageData() {
 		pixels[0] = 21;
 		backend.endFrame();
 
-		assert.equal(created.length, 1);
+		assert.equal(MockImageData.instances.length, 1);
 		assert.equal(putCalls.length, 2);
 		assert.equal(putCalls[0].x, 0);
 		assert.equal(putCalls[0].y, 0);
@@ -128,25 +113,7 @@ function testSoftwareBackendReusesFrameImageData() {
 function testSoftwareBackendHandlesResizeDuringFrame() {
 	const OriginalImageData = globalThis.ImageData;
 
-	class StrictImageData {
-		constructor(dataOrWidth, widthOrHeight, maybeHeight) {
-			if (dataOrWidth instanceof Uint8ClampedArray) {
-				this.width = widthOrHeight;
-				this.height = maybeHeight;
-				if (dataOrWidth.length !== this.width * this.height * 4) {
-					throw new RangeError("ImageData source length mismatch.");
-				}
-				this.data = dataOrWidth;
-				return;
-			}
-
-			this.width = dataOrWidth;
-			this.height = widthOrHeight;
-			this.data = new Uint8ClampedArray(this.width * this.height * 4);
-		}
-	}
-
-	globalThis.ImageData = StrictImageData;
+	globalThis.ImageData = MockImageData;
 
 	try {
 		const backend = new SoftwareBackend();

@@ -453,7 +453,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
-async function run() {
+export async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testBloomRuntimeUsesDedicatedPipeline();
 	await testMotionBlurRuntimeUsesDedicatedPipeline();
@@ -465,4 +465,6 @@ async function run() {
 	console.log("WebGPU postprocess screen runtime tests passed");
 }
 
-await run();
+if (import.meta.url === `file://${process.argv[1]}`) {
+	await run();
+}

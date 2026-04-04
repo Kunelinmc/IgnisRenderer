@@ -5,75 +5,11 @@ import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegi
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
 import { TextureUsage } from "../src/renderers/types.ts";
 
-class FakeCanvasContext2D {
-	constructor(canvas) {
-		this.canvas = canvas;
-		this.getImageDataCalls = 0;
-		this.fillRectCalls = 0;
-		this.drawImageCalls = 0;
-		this._frameValue = 8;
-	}
-
-	fillRect() {
-		this.fillRectCalls++;
-		this._frameValue = (this._frameValue + 16) & 0xff;
-	}
-
-	drawImage() {
-		this.drawImageCalls++;
-		this._frameValue = (this._frameValue + 8) & 0xff;
-	}
-
-	getImageData(_x, _y, width, height) {
-		this.getImageDataCalls++;
-		const data = new Uint8ClampedArray(width * height * 4);
-		for (let i = 0; i < data.length; i += 4) {
-			data[i] = this._frameValue;
-			data[i + 1] = this._frameValue;
-			data[i + 2] = this._frameValue;
-			data[i + 3] = 255;
-		}
-		return { data };
-	}
-}
-
-class FakeWebGPUBackend {
-	constructor() {
-		this.copyCalls = [];
-		this.writeCalls = [];
-		this.createTextureCalls = [];
-		this.queue = {
-			copyExternalImageToTexture: (...args) => {
-				this.copyCalls.push(args);
-			},
-		};
-	}
-
-	createTexture(desc) {
-		this.createTextureCalls.push(desc);
-		return {
-			width: desc.width,
-			height: desc.height,
-			_gpuTexture: {},
-			destroy() {},
-		};
-	}
-
-	writeTexture(...args) {
-		this.writeCalls.push(args);
-	}
-
-	createSampler(desc) {
-		return { desc };
-	}
-}
+import { FakeCanvasContext2D, FakeWebGPUBackend, FakeCanvas } from "./helpers/test_fakes.mjs";
 
 function createFakeContext(width = 2, height = 1) {
-	const canvas = {
-		width,
-		height,
-	};
-	const context = new FakeCanvasContext2D(canvas);
+	const canvas = new FakeCanvas(width, height);
+	const context = canvas.getContext("2d");
 	return { canvas, context };
 }
 

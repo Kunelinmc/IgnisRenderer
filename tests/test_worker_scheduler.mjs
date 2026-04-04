@@ -4,69 +4,7 @@ import {
 	globalWorkerScheduler,
 } from "../src/workers/WorkerScheduler.ts";
 
-class FakeWorker {
-	constructor(handler) {
-		this._handler = handler;
-		this._terminated = false;
-		this._listeners = {
-			message: new Set(),
-			error: new Set(),
-		};
-		this.onmessage = null;
-		this.onerror = null;
-	}
-
-	addEventListener(type, listener) {
-		const set = this._listeners[type];
-		if (!set) return;
-		set.add(listener);
-	}
-
-	removeEventListener(type, listener) {
-		const set = this._listeners[type];
-		if (!set) return;
-		set.delete(listener);
-	}
-
-	postMessage(message) {
-		if (this._terminated) {
-			throw new Error("Cannot postMessage on a terminated FakeWorker");
-		}
-		queueMicrotask(() => {
-			if (this._terminated) return;
-			this._handler(message, this);
-		});
-	}
-
-	emitMessage(data) {
-		if (this._terminated) return;
-		const event = { data };
-		if (typeof this.onmessage === "function") {
-			this.onmessage(event);
-		}
-		for (const listener of this._listeners.message) {
-			listener(event);
-		}
-	}
-
-	emitError(error) {
-		if (this._terminated) return;
-		const event = {
-			message: error?.message ?? String(error),
-			error,
-		};
-		if (typeof this.onerror === "function") {
-			this.onerror(event);
-		}
-		for (const listener of this._listeners.error) {
-			listener(event);
-		}
-	}
-
-	terminate() {
-		this._terminated = true;
-	}
-}
+import { FakeWorker } from "./helpers/test_fakes.mjs";
 
 function delay(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));

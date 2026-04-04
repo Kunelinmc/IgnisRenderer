@@ -4,125 +4,7 @@ import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegi
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
 import { TextureUsage } from "../src/renderers/types.ts";
 
-class FakeCanvas2DContext {
-	constructor(frameProvider) {
-		this._frameProvider = frameProvider;
-		this.drawImageCalls = 0;
-		this.getImageDataCalls = 0;
-	}
-
-	drawImage() {
-		this.drawImageCalls++;
-	}
-
-	getImageData(_x, _y, width, height) {
-		this.getImageDataCalls++;
-		return {
-			data: this._frameProvider(width, height, this.getImageDataCalls),
-		};
-	}
-}
-
-class FakeCanvas {
-	constructor(context) {
-		this.width = 1;
-		this.height = 1;
-		this._context = context;
-	}
-
-	getContext(type) {
-		if (type !== "2d") {
-			return null;
-		}
-		return this._context;
-	}
-}
-
-class FakeVideo {
-	constructor({ supportsRVFC }) {
-		this.readyState = 2;
-		this.videoWidth = 2;
-		this.videoHeight = 1;
-		this.currentTime = 0;
-		this._listeners = new Map();
-		this._rvfcCallbacks = new Map();
-		this._nextRVFCId = 1;
-		this.cancelCalls = 0;
-
-		if (supportsRVFC) {
-			this.requestVideoFrameCallback = (callback) => {
-				const id = this._nextRVFCId++;
-				this._rvfcCallbacks.set(id, callback);
-				return id;
-			};
-			this.cancelVideoFrameCallback = (id) => {
-				this.cancelCalls++;
-				this._rvfcCallbacks.delete(id);
-			};
-		}
-	}
-
-	addEventListener(eventName, callback) {
-		const list = this._listeners.get(eventName) ?? [];
-		list.push(callback);
-		this._listeners.set(eventName, list);
-	}
-
-	removeEventListener(eventName, callback) {
-		const list = this._listeners.get(eventName) ?? [];
-		this._listeners.set(
-			eventName,
-			list.filter((entry) => entry !== callback)
-		);
-	}
-
-	emit(eventName) {
-		const list = this._listeners.get(eventName) ?? [];
-		for (const callback of list) {
-			callback();
-		}
-	}
-
-	presentFrame(currentTime) {
-		this.currentTime = currentTime;
-		const callbacks = Array.from(this._rvfcCallbacks.values());
-		this._rvfcCallbacks.clear();
-		for (const callback of callbacks) {
-			callback(0, {});
-		}
-	}
-}
-
-class FakeWebGPUBackend {
-	constructor() {
-		this.copyCalls = [];
-		this.writeCalls = [];
-		this.createTextureCalls = [];
-		this.queue = {
-			copyExternalImageToTexture: (...args) => {
-				this.copyCalls.push(args);
-			},
-		};
-	}
-
-	createTexture(desc) {
-		this.createTextureCalls.push(desc);
-		return {
-			width: desc.width,
-			height: desc.height,
-			_gpuTexture: {},
-			destroy() {},
-		};
-	}
-
-	writeTexture(...args) {
-		this.writeCalls.push(args);
-	}
-
-	createSampler(desc) {
-		return { desc };
-	}
-}
+import { FakeVideo, FakeCanvas, FakeWebGPUBackend, FakeCanvasContext2D } from "./helpers/test_fakes.mjs";
 
 function installCanvasMock(frameProvider) {
 	const originalDocument = globalThis.document;
@@ -135,9 +17,11 @@ function installCanvasMock(frameProvider) {
 			if (tag !== "canvas") {
 				throw new Error(`Unsupported element creation: ${tag}`);
 			}
-			const context = new FakeCanvas2DContext(frameProvider);
+			const canvas = new FakeCanvas();
+			const context = new FakeCanvasContext2D(canvas, frameProvider);
+			canvas._context = context;
 			contexts.push(context);
-			return new FakeCanvas(context);
+			return canvas;
 		},
 	};
 

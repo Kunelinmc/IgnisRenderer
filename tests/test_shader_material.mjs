@@ -3,39 +3,7 @@ import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { WebGPUPipelineLibrary } from "../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
 import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
 
-class FakeBackend {
-	constructor() {
-		this.canvasFormat = "rgba8unorm";
-		this.shaderModules = [];
-		this.pipelines = [];
-		this.warnings = [];
-		this.failCustomShaderModules = false;
-		this.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	}
-
-	async createShaderModule(desc) {
-		if (
-			this.failCustomShaderModules &&
-			typeof desc.label === "string" &&
-			desc.label.startsWith("WebGPUShaderMaterial")
-		) {
-			throw new Error("simulated custom shader module compile failure");
-		}
-		const module = { label: desc.label, desc };
-		this.shaderModules.push(module);
-		return module;
-	}
-
-	createPipeline(desc) {
-		const pipeline = { label: desc.label, desc };
-		this.pipelines.push(pipeline);
-		return pipeline;
-	}
-
-	warnOnce(key, message) {
-		this.warnings.push({ key, message });
-	}
-}
+import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 
 function createLayouts() {
 	return {
@@ -117,6 +85,7 @@ function getChunkCode(material, selector) {
 
 async function testWGSLProgramSelection() {
 	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "WGSLMaterial",
@@ -167,6 +136,7 @@ async function testWGSLProgramSelection() {
 
 async function testGLSLProgramUsesTranspiler() {
 	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const transpilerCalls = [];
 	const material = new ShaderMaterial({
@@ -217,6 +187,7 @@ async function testGLSLProgramUsesTranspiler() {
 
 async function testGLSLWithoutTranspilerThrows() {
 	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "BrokenGLSLMaterial",
@@ -245,6 +216,7 @@ async function testGLSLWithoutTranspilerThrows() {
 
 async function testWarnModeFallbackToBuiltinShader() {
 	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	backend.shaderRuntime.setMode("warn");
 	backend.failCustomShaderModules = true;
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());

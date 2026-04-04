@@ -6,101 +6,7 @@ import {
 	resetWebGPUComputeFacadeCacheForTesting,
 	resolveWebGPUComputeFacade,
 } from "../src/renderers/webgpu/computeFacade.ts";
-
-class FakeWebGPUBackend {
-	constructor() {
-		this.type = "webgpu";
-		this.device = {
-			createBindGroupLayout: (desc) => ({ kind: "bind-group-layout", desc }),
-			createPipelineLayout: (desc) => ({ kind: "pipeline-layout", desc }),
-		};
-		this.calls = [];
-	}
-
-	createSampler(desc) {
-		this.calls.push(["createSampler", desc]);
-		return { kind: "sampler", desc };
-	}
-
-	async createShaderModule(desc) {
-		this.calls.push(["createShaderModule", desc]);
-		return { kind: "shader-module", desc };
-	}
-
-	createComputePipeline(desc) {
-		this.calls.push(["createComputePipeline", desc]);
-		return { kind: "compute-pipeline", desc };
-	}
-
-	createBuffer(desc) {
-		this.calls.push(["createBuffer", desc]);
-		return { kind: "buffer", size: desc.size, desc };
-	}
-
-	createTexture(desc) {
-		this.calls.push(["createTexture", desc]);
-		return {
-			kind: "texture",
-			width: desc.width,
-			height: desc.height,
-			desc,
-		};
-	}
-
-	createBindingGroup(desc) {
-		this.calls.push(["createBindingGroup", desc]);
-		return { kind: "binding-group", desc };
-	}
-
-	createTextureView(texture, desc) {
-		this.calls.push(["createTextureView", texture, desc ?? null]);
-		const resource = texture?._webgpuTexture;
-		if (!resource?.texture || !resource?.view) {
-			throw new Error("Expected _webgpuTexture resource.");
-		}
-		if (!desc) {
-			return resource.view;
-		}
-		return resource.texture.createView(desc);
-	}
-
-	createCommandEncoder() {
-		this.calls.push(["createCommandEncoder"]);
-		return {
-			finish() {
-				return { kind: "command-buffer" };
-			},
-		};
-	}
-
-	submit(commands) {
-		this.calls.push(["submit", commands.length]);
-	}
-
-	writeBuffer(buffer, data, offset = 0) {
-		this.calls.push(["writeBuffer", buffer, offset]);
-		buffer.lastWrite = { data: Array.from(data), offset };
-	}
-
-	getTextureForSlot(texture, slotIndex) {
-		this.calls.push(["getTextureForSlot", texture, slotIndex]);
-		return { kind: "slot-texture", texture, slotIndex };
-	}
-
-	registerExternalTexture(texture, resource, uploadedVersion, mipLevelCount) {
-		this.calls.push([
-			"registerExternalTexture",
-			texture,
-			resource,
-			uploadedVersion,
-			mipLevelCount,
-		]);
-	}
-
-	unregisterExternalTexture(texture) {
-		this.calls.push(["unregisterExternalTexture", texture]);
-	}
-}
+import { FakeWebGPUBackend } from "./helpers/test_fakes.mjs";
 
 async function testFacadeDelegatesAndCaches() {
 	resetWebGPUComputeFacadeCacheForTesting();
@@ -291,7 +197,7 @@ function testResolverRejectsIncompleteBackendLike() {
 	);
 }
 
-async function run() {
+export async function run() {
 	await testFacadeDelegatesAndCaches();
 	testResolverSupportsRendererAndBackend();
 	testResolverRejectsNonWebGPUBackend();
@@ -301,4 +207,6 @@ async function run() {
 	console.log("WebGPU compute facade tests passed");
 }
 
-await run();
+if (import.meta.url === `file://${process.argv[1]}`) {
+	await run();
+}
