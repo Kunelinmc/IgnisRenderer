@@ -91,7 +91,7 @@ console.log("🚀 Running all tests...\n");
 for (const test of tests) {
 	console.log(`----------------------------------------`);
 	console.log(`Running ${test}...`);
-	const result = spawnSync("npx", ["tsx", join(__dirname, test)], {
+	const result = spawnSync("bun", [join(__dirname, test)], {
 		stdio: "inherit",
 		shell: true,
 	});
