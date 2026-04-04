@@ -21,7 +21,7 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import { resolveWebGPUComputeFacade } from "./computeFacade";
+import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,

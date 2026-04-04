@@ -7,7 +7,7 @@ import {
 	type IComputePipeline,
 	type IRenderBuffer,
 } from "../types";
-import type { IWebGPUComputeFacade } from "./computeFacade";
+import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { destroyResource, recordComputePass } from "./computeUtils";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,

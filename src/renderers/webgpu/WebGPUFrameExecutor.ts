@@ -21,7 +21,7 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
-import { resolveWebGPUComputeFacade } from "./computeFacade";
+import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,

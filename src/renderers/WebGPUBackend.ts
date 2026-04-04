@@ -98,7 +98,7 @@ import {
 	createWebGPUComputeFacade,
 	invalidateWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
-} from "./webgpu/computeFacade";
+} from "./webgpu/ComputeFacade";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;

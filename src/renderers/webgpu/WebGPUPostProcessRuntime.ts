@@ -1,6 +1,6 @@
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
-import type { IWebGPUComputeFacade } from "./computeFacade";
+import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext";
 import { ScreenPostProcessDelegate } from "./postprocess/ScreenPostProcessDelegate";
 import { SpatialPostProcessDelegate } from "./postprocess/SpatialPostProcessDelegate";

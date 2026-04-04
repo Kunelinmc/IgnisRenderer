@@ -1,6 +1,6 @@
 import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
 import { AddressMode, FilterMode } from "../../types";
-import type { IWebGPUComputeFacade } from "../computeFacade";
+import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import { destroyResource } from "../computeUtils";
 
 interface CachedBindGroup {

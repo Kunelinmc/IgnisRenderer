@@ -51,7 +51,7 @@ import {
 	type IncrementalRenderingOptions,
 	type RenderDirtyReason,
 } from "../pipeline/incremental";
-import type { WebGPUComputeFacadeSource } from "./webgpu/computeFacade";
+import type { WebGPUComputeFacadeSource } from "./webgpu/ComputeFacade";
 import type {
 	BloomOptions,
 	ClusteredLightingOptions,

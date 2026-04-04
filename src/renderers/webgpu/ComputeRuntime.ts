@@ -40,7 +40,7 @@ import {
 	resolveWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeSource,
-} from "./computeFacade";
+} from "./ComputeFacade";
 import { destroyResource } from "./computeUtils";
 import { alignTo } from "./texture";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";

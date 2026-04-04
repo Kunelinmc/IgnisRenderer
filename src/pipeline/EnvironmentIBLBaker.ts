@@ -19,7 +19,7 @@ import type {
 	IComputeKernel,
 	IComputeRuntime,
 } from "../renderers/IComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/computeFacade";
+import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
 import { destroyResource } from "../renderers/webgpu/computeUtils";
 import { createTextureUploadData } from "../renderers/webgpu/texture";
