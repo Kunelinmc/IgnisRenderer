@@ -13,18 +13,18 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ## Build & Test Commands
 
-- **Dev server**: `npx vite`
-- **Build**: `npx vite build`
-- **Run all tests**: `npm test`
-- **Run single test**: `npx tsx tests/<file>.mjs`
+- **Dev server**: `bun x vite`
+- **Build**: `bun x vite build`
+- **Run all tests**: `bun test`
+- **Run single test**: `bun tests/<file>.mjs`
 
 ### Specialized Test Suites
-- **Lighting**: `npm run test:lighting`, `npm run test:pointspot`, `npm run test:sh`
-- **Geometry**: `npm run test:winding`, `npm run test:sparse`
-- **Animation**: `npx tsx tests/test_animation_core.mjs`, `npx tsx tests/test_animation_state_blendtree.mjs`
-- **Physics**: `npx tsx tests/test_physics_system_bindings.mjs`, `npx tsx tests/test_physics_adapter_contract.mjs`
-- **WebGPU**: `npx tsx tests/test_webgpu_bridge.mjs`, `npx tsx tests/test_webgpu_post_graph.mjs`
-- **WebGL**: `npx tsx tests/test_webgl_backend_v1.mjs`, `npx tsx tests/test_webgl_backend_stub.mjs`
+- **Lighting**: `bun run test:lighting`, `bun run test:pointspot`, `bun run test:sh`
+- **Geometry**: `bun run test:winding`, `bun run test:sparse`
+- **Animation**: `bun tests/test_animation_core.mjs`, `bun tests/test_animation_state_blendtree.mjs`
+- **Physics**: `bun tests/test_physics_system_bindings.mjs`, `bun tests/test_physics_adapter_contract.mjs`
+- **WebGPU**: `bun tests/test_webgpu_bridge.mjs`, `bun tests/test_webgpu_post_graph.mjs`
+- **WebGL**: `bun tests/test_webgl_backend_v1.mjs`, `bun tests/test_webgl_backend_stub.mjs`
 
 ## Code Style Guidelines
 
