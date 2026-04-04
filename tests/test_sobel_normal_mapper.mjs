@@ -72,6 +72,7 @@ async function testDestroyReleasesResources() {
 	await mapper.init(renderer);
 	mapper.update();
 	mapper.destroy();
+	await Promise.resolve();
 
 	assert.equal(mapper.isInitialized, false);
 	assert.equal(backend.unregisteredExternalTextures.length >= 1, true);

@@ -1,9 +1,11 @@
-import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = dirname(__dirname);
+const BUN_EXECUTABLE = process.versions?.bun ? process.execPath : "bun";
 
 const tests = [
 	"test_lighting.mjs",
@@ -84,30 +86,161 @@ const tests = [
 	"test_light_probe_baker_async.mjs",
 ];
 
-let failed = false;
+function getDefaultJobs() {
+	const detected = (() => {
+		try {
+			return availableParallelism();
+		} catch {
+			return 4;
+		}
+	})();
+	return Math.max(1, Math.min(tests.length, detected));
+}
 
-console.log("🚀 Running all tests...\n");
+function parseOptions(argv) {
+	let jobsFromCli = null;
+	let failFast = false;
 
-for (const test of tests) {
-	console.log(`----------------------------------------`);
-	console.log(`Running ${test}...`);
-	const result = spawnSync("bun", [join(__dirname, test)], {
-		stdio: "inherit",
-		shell: true,
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--fail-fast") {
+			failFast = true;
+			continue;
+		}
+		if (arg === "--serial") {
+			jobsFromCli = 1;
+			continue;
+		}
+		if (arg === "-j" || arg === "--jobs") {
+			const value = argv[i + 1];
+			if (value) {
+				jobsFromCli = Number.parseInt(value, 10);
+				i++;
+			}
+			continue;
+		}
+		if (arg.startsWith("--jobs=")) {
+			jobsFromCli = Number.parseInt(arg.slice("--jobs=".length), 10);
+		}
+	}
+
+	const envJobs = Number.parseInt(process.env.TEST_JOBS ?? "", 10);
+	const parsedJobs = Number.isInteger(jobsFromCli) ? jobsFromCli : envJobs;
+	const jobs = Number.isInteger(parsedJobs) && parsedJobs > 0
+		? parsedJobs
+		: getDefaultJobs();
+
+	return {
+		jobs: Math.max(1, Math.min(tests.length, jobs)),
+		failFast,
+	};
+}
+
+function formatDuration(durationMs) {
+	if (durationMs < 1000) {
+		return `${durationMs}ms`;
+	}
+	return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
+function runSingleTest(testName, index, total) {
+	return new Promise((resolve) => {
+		const startTime = Date.now();
+		const absPath = join(__dirname, testName);
+		console.log(`[start ${index + 1}/${total}] ${testName}`);
+
+		const child = spawn(BUN_EXECUTABLE, [absPath], {
+			cwd: PROJECT_ROOT,
+			stdio: ["ignore", "pipe", "pipe"],
+			env: process.env,
+		});
+
+		let stdout = "";
+		let stderr = "";
+
+		child.stdout.on("data", (chunk) => {
+			stdout += String(chunk);
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += String(chunk);
+		});
+
+		child.on("error", (error) => {
+			resolve({
+				testName,
+				ok: false,
+				code: 1,
+				output: `${stdout}${stderr}\n${String(error)}`,
+				durationMs: Date.now() - startTime,
+			});
+		});
+
+		child.on("close", (code, signal) => {
+			const finalCode = typeof code === "number" ? code : 1;
+			const signalText = signal ? `\nterminated by signal: ${signal}` : "";
+			resolve({
+				testName,
+				ok: finalCode === 0,
+				code: finalCode,
+				output: `${stdout}${stderr}${signalText}`,
+				durationMs: Date.now() - startTime,
+			});
+		});
+	});
+}
+
+async function runAll() {
+	const options = parseOptions(process.argv.slice(2));
+	const { jobs, failFast } = options;
+	const total = tests.length;
+	const startedAt = Date.now();
+
+	console.log(
+		`Running ${total} tests with concurrency=${jobs} (failFast=${failFast})\n`
+	);
+
+	const queue = tests.map((testName, index) => ({ testName, index }));
+	const failures = [];
+	let stopped = false;
+
+	const workers = Array.from({ length: jobs }, async () => {
+		while (queue.length > 0 && !stopped) {
+			const next = queue.shift();
+			if (!next) {
+				return;
+			}
+
+			const result = await runSingleTest(next.testName, next.index, total);
+			const title = `${result.ok ? "PASS" : "FAIL"} ${result.testName}`;
+			const duration = formatDuration(result.durationMs);
+
+			console.log("----------------------------------------");
+			console.log(`${title} (${duration})`);
+			if (result.output.trim().length > 0) {
+				console.log(result.output.trimEnd());
+			}
+
+			if (!result.ok) {
+				failures.push(result);
+				if (failFast) {
+					stopped = true;
+				}
+			}
+		}
 	});
 
-	if (result.status !== 0) {
-		console.error(`❌ ${test} FAILED`);
-		failed = true;
-	} else {
-		console.log(`✅ ${test} PASSED`);
+	await Promise.all(workers);
+
+	const totalDuration = formatDuration(Date.now() - startedAt);
+	console.log("\n----------------------------------------");
+	if (failures.length > 0) {
+		console.log(
+			`Some tests failed (${failures.length}/${total}) in ${totalDuration}.`
+		);
+		process.exit(1);
+		return;
 	}
+	console.log(`All tests passed in ${totalDuration}.`);
 }
 
-console.log(`\n----------------------------------------`);
-if (failed) {
-	console.log("❌ Some tests failed!");
-	process.exit(1);
-} else {
-	console.log("✨ All tests passed!");
-}
+await runAll();

@@ -43,7 +43,10 @@ globalThis.GPUShaderStage ??= {
 	COMPUTE: 4,
 };
 
-import { FakeWebGPUBackend } from "./helpers/test_fakes.mjs";
+import {
+	FakeCommandEncoder as FakeRenderEncoder,
+	FakeWebGPUBackend as FakeBackend,
+} from "./helpers/test_fakes.mjs";
 
 function createModel(materials) {
 	const mesh = MeshAsset.fromFaces(

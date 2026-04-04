@@ -355,6 +355,7 @@ export class FakeWebGPUBackend {
 		this.canvasFormat = "rgba8unorm";
 		this.dispatches = [];
 		this.submits = 0;
+		this.calls = [];
 		this.bufferWrites = [];
 		this.textureWrites = [];
 		this.registeredExternalTextures = [];
@@ -376,6 +377,7 @@ export class FakeWebGPUBackend {
 		this.textures = [];
 		this.textureViews = [];
 		this.samplers = [];
+		this.samplerDescs = [];
 		this.bufferDescs = [];
 		this.getComputeFacadeCalls = 0;
 		this.copyCalls = [];
@@ -388,6 +390,8 @@ export class FakeWebGPUBackend {
 		this.failCustomShaderModules = false;
 		this.shaderRuntime = null;
 		this.warnings = [];
+		this._slotTextureCache = new WeakMap();
+		this._externalTextureResources = new WeakMap();
 		this.canvasColorTexture = { destroy: () => this.destroyCalls++ };
 		this.canvasDepthTexture = { destroy: () => this.destroyCalls++ };
 		
@@ -399,7 +403,7 @@ export class FakeWebGPUBackend {
 				this.writeTexture(dst.texture, data, layout, size);
 			},
 			writeBuffer: (buffer, offset, data) => {
-				this.writeBuffer(buffer, offset, data);
+				this.writeBuffer(buffer, data, offset);
 			},
 			submit: (commands) => {
 				this.submit(commands);
@@ -412,8 +416,10 @@ export class FakeWebGPUBackend {
 				maxColorAttachments: 8,
 				maxColorAttachmentBytesPerSample: 64,
 			},
+			bindGroupLayouts: this.bindGroupLayouts,
+			pipelineLayouts: this.pipelineLayouts,
 			createCommandEncoder: () => this.createCommandEncoder(),
-			createBuffer: (desc) => this.createBuffer(desc),
+			createBuffer: (desc) => this.createBuffer(desc)._gpuResource,
 			createBindGroupLayout: (desc) => {
 				const layout = { kind: "bind-group-layout", desc };
 				this.bindGroupLayouts.push(layout);
@@ -433,9 +439,6 @@ export class FakeWebGPUBackend {
 	getMSAASampleCount() { return 1; }
 	getCanvasColorTexture() { return this.canvasColorTexture; }
 	getCanvasDepthTexture() { return this.canvasDepthTexture; }
-
-	get createTextureCalls() { return this.createTextureCallsCount; }
-	set createTextureCalls(v) { this.createTextureCallsCount = v; }
 
 	getComputeFacade() {
 		this.getComputeFacadeCalls++;
@@ -494,6 +497,7 @@ export class FakeWebGPUBackend {
 			label: desc.label,
 			desc,
 			_gpuResource: gpuBuffer,
+			lastWrite: null,
 			destroyed: false,
 			destroy: () => {
 				this.destroyCalls++;
@@ -521,6 +525,7 @@ export class FakeWebGPUBackend {
 			label: desc.label,
 			desc,
 			_gpuResource: gpuTexture,
+			lastWrite: null,
 			_webgpuTexture: {
 				texture: gpuTexture,
 				view: gpuTexture.createView()
@@ -553,6 +558,7 @@ export class FakeWebGPUBackend {
 	}
 
 	createSampler(desc) {
+		this.samplerDescs.push(desc);
 		const sampler = { 
 			kind: "sampler",
 			desc, 
@@ -571,9 +577,11 @@ export class FakeWebGPUBackend {
 			desc, 
 			label: desc.label, 
 			entries: desc.entries,
+			destroyed: false,
 			destroy: () => {
 				this.destroyCalls++;
 				this.bindingGroupDestroyCalls++;
+				group.destroyed = true;
 			} 
 		};
 		this.bindingGroups.push(group);
@@ -598,6 +606,9 @@ export class FakeWebGPUBackend {
 		lastWrite.data = data;
 		lastWrite.offset = offset;
 		gpuBuffer.lastWrite = lastWrite;
+		if (buffer && typeof buffer === "object" && "_gpuResource" in buffer) {
+			buffer.lastWrite = lastWrite;
+		}
 	}
 
 	writeTexture(texture, data, layout, size) {
@@ -629,6 +640,9 @@ export class FakeWebGPUBackend {
 		lastWrite.layout = layout;
 		lastWrite.size = size;
 		gpuTexture.lastWrite = lastWrite;
+		if (texture && typeof texture === "object" && "_gpuResource" in texture) {
+			texture.lastWrite = lastWrite;
+		}
 	}
 
 
@@ -649,15 +663,50 @@ export class FakeWebGPUBackend {
 	}
 
 	getTextureForSlot(texture, slotIndex) {
+		if (!texture || typeof texture !== "object") {
+			return { kind: "slot-texture", texture, slotIndex };
+		}
+		const external = this._externalTextureResources.get(texture);
+		if (external) {
+			return external;
+		}
+		const width = texture.width | 0;
+		const height = texture.height | 0;
+		if (width > 0 && height > 0) {
+			const cached = this._slotTextureCache.get(texture);
+			if (cached && cached.width === width && cached.height === height) {
+				return cached;
+			}
+			if (cached && typeof cached.destroy === "function" && !cached.destroyed) {
+				cached.destroy();
+			}
+			const created = this.createTexture({
+				width,
+				height,
+				format: "rgba8unorm",
+				usage: 0,
+				label: `SlotTexture_${slotIndex}_${width}x${height}`,
+			});
+			this._slotTextureCache.set(texture, created);
+			return created;
+		}
 		return { kind: "slot-texture", texture, slotIndex };
 	}
 
 	registerExternalTexture(texture, resource) {
 		this.registeredExternalTextures.push({ texture, resource });
+		if (texture && typeof texture === "object") {
+			this._externalTextureResources.set(texture, resource);
+		}
+		this.calls.push(["registerExternalTexture", texture, resource]);
 	}
 
 	unregisterExternalTexture(texture) {
 		this.unregisteredExternalTextures.push(texture);
+		if (texture && typeof texture === "object") {
+			this._externalTextureResources.delete(texture);
+		}
+		this.calls.push(["unregisterExternalTexture", texture]);
 	}
 
 	warnOnce(key, message) {

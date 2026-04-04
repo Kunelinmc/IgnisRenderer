@@ -163,7 +163,36 @@ export class SobelNormalMapper {
 		this._computeFacade = computeFacade;
 		this._backendRef = backendRef;
 
-		const runtime = new ComputeRuntime(computeFacade);
+		const runtimeSources: unknown[] = [];
+		if (this._overrideComputeFacade) {
+			runtimeSources.push(this._overrideComputeFacade);
+		}
+		if (backendRef && !runtimeSources.includes(backendRef)) {
+			runtimeSources.push(backendRef);
+		}
+		if (!runtimeSources.includes(computeFacade)) {
+			runtimeSources.push(computeFacade);
+		}
+
+		let runtime: IComputeRuntime | null = null;
+		let runtimeInitError: unknown = null;
+		for (const runtimeSource of runtimeSources) {
+			try {
+				runtime = new ComputeRuntime(runtimeSource as any);
+				break;
+			} catch (error) {
+				runtimeInitError = error;
+			}
+		}
+		if (!runtime) {
+			throw (
+				runtimeInitError ??
+				new Error(
+					"SobelNormalMapper failed to initialize ComputeRuntime from provided WebGPU sources."
+				)
+			);
+		}
+
 		const code = await loadPostProcessShaderPart("sobelNormal");
 		let kernel: IComputeKernel;
 		try {

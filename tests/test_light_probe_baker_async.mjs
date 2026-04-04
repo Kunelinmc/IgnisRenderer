@@ -40,15 +40,21 @@ async function testBakeSupportsAbortSignal() {
 
 async function testExplicitWorkerModeThrowsWhenWorkersAreUnavailable() {
 	const texture = createTestTexture();
-	await assert.rejects(
-		bakeEnvironmentIBLFromEnvironmentMap(texture, {
-			acceleration: "worker",
-		}),
-		(error) =>
-			error instanceof Error &&
-			(error.message.includes("environment IBL baking") ||
-				error.message.includes("Worker constructor is unavailable"))
-	);
+	const originalWorker = globalThis.Worker;
+	try {
+		globalThis.Worker = undefined;
+		await assert.rejects(
+			bakeEnvironmentIBLFromEnvironmentMap(texture, {
+				acceleration: "worker",
+			}),
+			(error) =>
+				error instanceof Error &&
+				(error.message.includes("environment IBL baking") ||
+					error.message.includes("Worker constructor is unavailable"))
+		);
+	} finally {
+		globalThis.Worker = originalWorker;
+	}
 }
 
 async function testExplicitWebGPUModeRequiresSource() {
