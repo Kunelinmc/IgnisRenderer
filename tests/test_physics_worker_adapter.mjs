@@ -316,6 +316,40 @@ async function testPhysicsSystemRaycastAsyncUsesWorkerAdapter(adapterType) {
 	assert.ok(observedModes.every((mode) => mode === "post-message"));
 }
 
+async function testWorkerAdapterFallbackUpdatesCapabilities(adapterType) {
+	const adapter = createWorkerAdapter(adapterType, {
+		enabled: false,
+		fallbackAdapter: new SimplePhysicsAdapter(`${adapterType}-fallback`),
+	});
+	const physics = new PhysicsSystem({ adapter });
+
+	await physics.init();
+	assert.equal(adapter.capabilities.characterController, true);
+	assert.equal(adapter.capabilities.query, true);
+	assert.equal(adapter.capabilities.shapeCast, true);
+	assert.equal(adapter.capabilities.syncInit, false);
+
+	physics.createWorld({
+		worldId: "main",
+		mode: "variable",
+	});
+	const node = new Node({ position: { x: 0, y: 1, z: 0 } });
+	const body = physics.attachBody(node, {
+		worldId: "main",
+		body: { type: "kinematic" },
+		authority: "animation",
+	});
+	const controller = physics.createCharacterController({
+		worldId: "main",
+		body,
+		radius: 0.3,
+		height: 1.7,
+	});
+	const move = controller.moveAndSlide({ x: 0, y: 0, z: 1 }, 0.016);
+	assert.equal(move.moved.z, 1);
+	assert.equal(typeof controller.isGrounded(), "boolean");
+}
+
 async function run() {
 	await testPhysicsSystemStepAsyncUsesAdapterAsyncPath();
 	await testWorkerAdapterFallsBackToPostMessageTransport("rapier");
@@ -326,6 +360,8 @@ async function run() {
 	await testWorkerAdapterRaycastAsync("ammo");
 	await testPhysicsSystemRaycastAsyncUsesWorkerAdapter("rapier");
 	await testPhysicsSystemRaycastAsyncUsesWorkerAdapter("ammo");
+	await testWorkerAdapterFallbackUpdatesCapabilities("rapier");
+	await testWorkerAdapterFallbackUpdatesCapabilities("ammo");
 	console.log("Physics worker adapter tests passed");
 }
 

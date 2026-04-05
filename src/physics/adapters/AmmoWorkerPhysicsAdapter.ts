@@ -745,8 +745,19 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 
 	private async _initializeFallback(): Promise<void> {
 		await this._fallbackAdapter.init();
+		this._syncCapabilitiesFromFallback();
 		this._usingFallbackAdapter = true;
 		this._initialized = true;
+	}
+
+	private _syncCapabilitiesFromFallback(): void {
+		const fallbackCapabilities = this._fallbackAdapter.capabilities;
+		this.capabilities.joints = fallbackCapabilities.joints;
+		this.capabilities.characterController =
+			fallbackCapabilities.characterController;
+		this.capabilities.shapeCast = fallbackCapabilities.shapeCast;
+		this.capabilities.query = fallbackCapabilities.query;
+		this.capabilities.syncInit = false;
 	}
 
 	private _enqueueCommand(command: AmmoWorkerCommand): void {
