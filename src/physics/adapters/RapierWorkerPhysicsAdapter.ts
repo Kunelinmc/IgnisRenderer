@@ -70,6 +70,14 @@ interface WorkerControllerRuntimeState {
 	grounded: boolean;
 }
 
+type ArrayLikeBufferView = ArrayBufferView & ArrayLike<number | bigint>;
+
+function isArrayLikeBufferView(
+	value: ArrayBufferView
+): value is ArrayLikeBufferView {
+	return "length" in value;
+}
+
 function shouldRestorePendingCommandsAfterDispatchFailure(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return (
@@ -121,7 +129,15 @@ function toWorkerSerializableValue(
 	}
 
 	if (ArrayBuffer.isView(value)) {
-		return Array.from(value as ArrayLike<number>);
+		if (isArrayLikeBufferView(value)) {
+			return Array.from(value, (entry) =>
+				typeof entry === "bigint" ? Number(entry) : entry
+			);
+		}
+		const view = value as DataView;
+		return Array.from(
+			new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+		);
 	}
 
 	if (typeof ArrayBuffer === "function" && value instanceof ArrayBuffer) {
@@ -932,9 +948,19 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 
 	private async _initializeFallback(): Promise<void> {
 		await this._fallbackAdapter.init();
+		await this._ensureCharacterControllerFallbackCapability();
 		this._syncCapabilitiesFromFallback();
 		this._usingFallbackAdapter = true;
 		this._initialized = true;
+	}
+
+	private async _ensureCharacterControllerFallbackCapability(): Promise<void> {
+		if (this._fallbackAdapter.capabilities.characterController) return;
+		const compatibilityFallback = new RapierPhysicsAdapter({
+			strict: false,
+		});
+		await compatibilityFallback.init();
+		this._fallbackAdapter = compatibilityFallback;
 	}
 
 	private _syncCapabilitiesFromFallback(): void {

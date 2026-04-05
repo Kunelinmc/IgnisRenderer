@@ -31,6 +31,17 @@ class AsyncOnlyStepAdapter extends SimplePhysicsAdapter {
 	}
 }
 
+class NoCharacterControllerAdapter extends SimplePhysicsAdapter {
+	constructor() {
+		super("no-character-controller");
+		this.capabilities.characterController = false;
+	}
+
+	createCharacterController() {
+		throw new Error("characterController is unsupported");
+	}
+}
+
 function decodeTaskEnvelopeWithPlugin(data) {
 	const sharedDecoded = sharedArrayBufferWorkerTransportPlugin.decodeTask(data);
 	if (sharedDecoded) {
@@ -405,6 +416,36 @@ async function testWorkerAdapterFallbackUpdatesCapabilities(adapterType) {
 	assert.equal(typeof controller.isGrounded(), "boolean");
 }
 
+async function testRapierWorkerFallbackGuaranteesCharacterController() {
+	const adapter = createWorkerAdapter("rapier", {
+		enabled: false,
+		fallbackAdapter: new NoCharacterControllerAdapter(),
+	});
+	const physics = new PhysicsSystem({ adapter });
+
+	await physics.init();
+	assert.equal(adapter.capabilities.characterController, true);
+
+	physics.createWorld({
+		worldId: "main",
+		mode: "variable",
+	});
+	const node = new Node({ position: { x: 0, y: 1, z: 0 } });
+	const body = physics.attachBody(node, {
+		worldId: "main",
+		body: { type: "kinematic" },
+		authority: "animation",
+	});
+	const controller = physics.createCharacterController({
+		worldId: "main",
+		body,
+		radius: 0.3,
+		height: 1.7,
+	});
+	const move = controller.moveAndSlide({ x: 0, y: 0, z: 1 }, 0.016);
+	assert.equal(move.moved.z, 1);
+}
+
 async function testRapierWorkerAdapterCharacterControllerSyncContract() {
 	const dispatchPayloads = [];
 	const adapter = createWorkerAdapter("rapier", {
@@ -533,6 +574,7 @@ async function run() {
 	await testPhysicsSystemRaycastAsyncUsesWorkerAdapter("ammo");
 	await testWorkerAdapterFallbackUpdatesCapabilities("rapier");
 	await testWorkerAdapterFallbackUpdatesCapabilities("ammo");
+	await testRapierWorkerFallbackGuaranteesCharacterController();
 	await testRapierWorkerAdapterCharacterControllerSyncContract();
 	await testRapierWorkerAdapterSABSerializesClassInstanceVectors();
 	console.log("Physics worker adapter tests passed");
