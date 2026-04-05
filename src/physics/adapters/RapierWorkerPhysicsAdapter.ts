@@ -33,6 +33,7 @@ import type {
 import { RapierPhysicsAdapter } from "./RapierPhysicsAdapter";
 import type {
 	RapierWorkerCommand,
+	RapierWorkerRequest,
 	RapierWorkerTaskPayload,
 } from "../workers/rapierWorkerProtocol";
 
@@ -67,6 +68,93 @@ interface WorkerControllerRuntimeState {
 	id: string;
 	worldId: string;
 	grounded: boolean;
+}
+
+function shouldRestorePendingCommandsAfterDispatchFailure(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return (
+		message.includes("failed to encode task payload") ||
+		message.includes("DataCloneError") ||
+		message.includes("could not be cloned") ||
+		message.includes("postMessage")
+	);
+}
+
+function toWorkerSerializableValue(
+	value: unknown,
+	active: Set<object> = new Set<object>()
+): unknown {
+	if (value === null) return null;
+	switch (typeof value) {
+		case "undefined":
+		case "boolean":
+		case "number":
+		case "string":
+			return value;
+		case "function":
+		case "symbol":
+			return undefined;
+		case "bigint":
+			return Number(value);
+		default:
+			break;
+	}
+
+	if (Array.isArray(value)) {
+		return value.map((entry) => toWorkerSerializableValue(entry, active));
+	}
+
+	if (value instanceof Date) {
+		return value.toISOString();
+	}
+
+	if (typeof Set === "function" && value instanceof Set) {
+		return Array.from(value, (entry) => toWorkerSerializableValue(entry, active));
+	}
+
+	if (typeof Map === "function" && value instanceof Map) {
+		const serializedMap: Record<string, unknown> = {};
+		for (const [key, entryValue] of value.entries()) {
+			serializedMap[String(key)] = toWorkerSerializableValue(entryValue, active);
+		}
+		return serializedMap;
+	}
+
+	if (ArrayBuffer.isView(value)) {
+		return Array.from(value as ArrayLike<number>);
+	}
+
+	if (typeof ArrayBuffer === "function" && value instanceof ArrayBuffer) {
+		return Array.from(new Uint8Array(value));
+	}
+
+	if (
+		typeof SharedArrayBuffer === "function" &&
+		value instanceof SharedArrayBuffer
+	) {
+		return Array.from(new Uint8Array(value));
+	}
+
+	if (typeof value === "object") {
+		if (active.has(value)) {
+			return null;
+		}
+		active.add(value);
+		const serializedObject: Record<string, unknown> = {};
+		for (const key of Object.keys(value as Record<string, unknown>)) {
+			const serializedEntry = toWorkerSerializableValue(
+				(value as Record<string, unknown>)[key],
+				active
+			);
+			if (serializedEntry !== undefined) {
+				serializedObject[key] = serializedEntry;
+			}
+		}
+		active.delete(value);
+		return serializedObject;
+	}
+
+	return undefined;
 }
 
 export interface RapierWorkerPhysicsAdapterOptions {
@@ -636,14 +724,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.raycast(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsQueryHit | null>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "raycast",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsQueryHit | null>({
+			type: "raycast",
+			worldId,
+			query,
 		});
 	}
 
@@ -668,14 +752,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.raycastAll(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsQueryHit[]>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "raycastAll",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsQueryHit[]>({
+			type: "raycastAll",
+			worldId,
+			query,
 		});
 	}
 
@@ -700,14 +780,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.sphereCast(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsQueryHit | null>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "sphereCast",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsQueryHit | null>({
+			type: "sphereCast",
+			worldId,
+			query,
 		});
 	}
 
@@ -732,14 +808,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.boxCast(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsQueryHit | null>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "boxCast",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsQueryHit | null>({
+			type: "boxCast",
+			worldId,
+			query,
 		});
 	}
 
@@ -764,14 +836,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.overlapSphere(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsOverlapHit[]>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "overlapSphere",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsOverlapHit[]>({
+			type: "overlapSphere",
+			worldId,
+			query,
 		});
 	}
 
@@ -796,14 +864,10 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			return this._fallbackAdapter.overlapBox(worldId, query);
 		}
 		this._assertInitialized();
-		return this._dispatchToWorker<PhysicsOverlapHit[]>({
-			type: "dispatch",
-			commands: this._drainPendingCommands(),
-			request: {
-				type: "overlapBox",
-				worldId,
-				query,
-			},
+		return this._dispatchWithPendingCommands<PhysicsOverlapHit[]>({
+			type: "overlapBox",
+			worldId,
+			query,
 		});
 	}
 
@@ -829,15 +893,13 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		}
 		this._assertInitialized();
 		const execute = async (): Promise<PhysicsAdapterStepResult> => {
-			const result = await this._dispatchToWorker<PhysicsAdapterStepResult>({
-				type: "dispatch",
-				commands: this._drainPendingCommands(),
-				request: {
+			const result = await this._dispatchWithPendingCommands<PhysicsAdapterStepResult>(
+				{
 					type: "stepWorld",
 					worldId,
 					deltaSeconds,
-				},
-			});
+				}
+			);
 			await this._refreshControllerGroundedStates(worldId);
 			return result;
 		};
@@ -885,6 +947,24 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		this.capabilities.syncInit = false;
 	}
 
+	private async _dispatchWithPendingCommands<TResult>(
+		request?: RapierWorkerRequest
+	): Promise<TResult> {
+		const commands = this._drainPendingCommands();
+		try {
+			return await this._dispatchToWorker<TResult>({
+				type: "dispatch",
+				commands,
+				request,
+			});
+		} catch (error) {
+			if (shouldRestorePendingCommandsAfterDispatchFailure(error)) {
+				this._prependPendingCommands(commands);
+			}
+			throw error;
+		}
+	}
+
 	private _requireController(
 		worldId: string,
 		controllerId: string
@@ -919,7 +999,13 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 	}
 
 	private _enqueueCommand(command: RapierWorkerCommand): void {
-		this._pendingCommands.push(command);
+		const normalized = toWorkerSerializableValue(command) as RapierWorkerCommand;
+		this._pendingCommands.push(normalized);
+	}
+
+	private _prependPendingCommands(commands: RapierWorkerCommand[]): void {
+		if (commands.length === 0) return;
+		this._pendingCommands = [...commands, ...this._pendingCommands];
 	}
 
 	private _drainPendingCommands(): RapierWorkerCommand[] {
@@ -939,9 +1025,12 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 	private async _dispatchToWorker<TResult>(
 		payload: RapierWorkerTaskPayload
 	): Promise<TResult> {
+		const normalizedPayload = toWorkerSerializableValue(
+			payload
+		) as RapierWorkerTaskPayload;
 		return this._scheduler.schedule<TResult, RapierWorkerTaskPayload>(
 			this._poolId,
-			payload
+			normalizedPayload
 		);
 	}
 }

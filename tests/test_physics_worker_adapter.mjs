@@ -463,6 +463,64 @@ async function testRapierWorkerAdapterCharacterControllerSyncContract() {
 	);
 }
 
+async function testRapierWorkerAdapterSABSerializesClassInstanceVectors() {
+	if (typeof SharedArrayBuffer !== "function") return;
+
+	class VectorLike {
+		constructor(x, y, z) {
+			this.x = x;
+			this.y = y;
+			this.z = z;
+		}
+	}
+
+	const observedModes = [];
+	const dispatchPayloads = [];
+	const adapter = createWorkerAdapter("rapier", {
+		strict: false,
+		fallbackOnWorkerFailure: false,
+		runtimeCapabilities: {
+			sharedArrayBuffer: true,
+			crossOriginIsolated: true,
+		},
+		createWorker: () =>
+			new FakeWorker(createWorkerHandler(observedModes, dispatchPayloads)),
+	});
+
+	await adapter.init();
+	adapter.createWorld({
+		worldId: "main",
+		mode: "variable",
+		gravity: new VectorLike(0, -9.8, 0),
+	});
+	adapter.createBody(
+		"main",
+		"body-1",
+		{
+			type: "dynamic",
+			linearVelocity: new VectorLike(1, 0, 0),
+		},
+		{
+			position: new VectorLike(0, 0, 0),
+			rotation: [0, 0, 0, 1],
+		}
+	);
+
+	const stepResult = await adapter.stepWorldAsync("main", 0.016);
+	assert.equal(stepResult.activeBodies, 1);
+	assert.equal(dispatchPayloads.length, 1);
+	assert.equal(dispatchPayloads[0].commands[0]?.type, "createWorld");
+	assert.deepEqual(dispatchPayloads[0].commands[0]?.config.gravity, {
+		x: 0,
+		y: -9.8,
+		z: 0,
+	});
+
+	const stats = adapter.getWorkerPoolStats();
+	assert.equal(stats?.transportMode, "shared-array-buffer");
+	assert.ok(observedModes.every((mode) => mode === "shared-array-buffer"));
+}
+
 async function run() {
 	await testPhysicsSystemStepAsyncUsesAdapterAsyncPath();
 	await testWorkerAdapterFallsBackToPostMessageTransport("rapier");
@@ -476,6 +534,7 @@ async function run() {
 	await testWorkerAdapterFallbackUpdatesCapabilities("rapier");
 	await testWorkerAdapterFallbackUpdatesCapabilities("ammo");
 	await testRapierWorkerAdapterCharacterControllerSyncContract();
+	await testRapierWorkerAdapterSABSerializesClassInstanceVectors();
 	console.log("Physics worker adapter tests passed");
 }
 
