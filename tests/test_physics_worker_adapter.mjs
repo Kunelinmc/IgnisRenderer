@@ -121,6 +121,61 @@ function createWorkerHandler(observedModes, dispatchPayloads) {
 	};
 }
 
+function createCharacterControllerWorkerHandler(dispatchPayloads) {
+	const groundedByController = new Map();
+	return (message, worker) => {
+		const decoded = decodeTaskEnvelopeWithPlugin(message);
+		assert.ok(decoded, "Expected worker payload to decode");
+
+		const payload = decoded.envelope.payload;
+		let result = null;
+		if (payload?.type === "dispatch") {
+			dispatchPayloads.push(payload);
+			for (const command of payload.commands) {
+				if (command.type === "createCharacterController") {
+					groundedByController.set(
+						`${command.worldId}:${command.controllerId}`,
+						false
+					);
+				}
+				if (command.type === "destroyCharacterController") {
+					groundedByController.delete(
+						`${command.worldId}:${command.controllerId}`
+					);
+				}
+				if (command.type === "moveCharacterController") {
+					groundedByController.set(
+						`${command.worldId}:${command.controllerId}`,
+						true
+					);
+				}
+			}
+
+			if (payload.request?.type === "stepWorld") {
+				result = {
+					bodyStates: [],
+					events: [],
+					activeBodies: 1,
+					sleepingBodies: 0,
+					ccdBodies: 0,
+				};
+			}
+			if (payload.request?.type === "isCharacterControllerGrounded") {
+				result =
+					groundedByController.get(
+						`${payload.request.worldId}:${payload.request.controllerId}`
+					) ?? false;
+			}
+		}
+
+		const encoded = decoded.plugin.encodeResult({
+			id: decoded.envelope.id,
+			result,
+		});
+		worker.emitMessage(encoded.message);
+	};
+}
+
 function createWorkerAdapter(adapterType, options) {
 	if (adapterType === "rapier") {
 		return new RapierWorkerPhysicsAdapter(options);
@@ -350,6 +405,64 @@ async function testWorkerAdapterFallbackUpdatesCapabilities(adapterType) {
 	assert.equal(typeof controller.isGrounded(), "boolean");
 }
 
+async function testRapierWorkerAdapterCharacterControllerSyncContract() {
+	const dispatchPayloads = [];
+	const adapter = createWorkerAdapter("rapier", {
+		strict: false,
+		fallbackOnWorkerFailure: false,
+		runtimeCapabilities: {
+			sharedArrayBuffer: false,
+			crossOriginIsolated: false,
+		},
+		createWorker: () =>
+			new FakeWorker(createCharacterControllerWorkerHandler(dispatchPayloads)),
+	});
+	const physics = new PhysicsSystem({ adapter });
+
+	await physics.init();
+	assert.equal(adapter.capabilities.characterController, true);
+
+	physics.createWorld({
+		worldId: "main",
+		mode: "variable",
+	});
+	const node = new Node({ position: { x: 0, y: 1, z: 0 } });
+	const body = physics.attachBody(node, {
+		worldId: "main",
+		body: { type: "kinematic" },
+		authority: "animation",
+	});
+
+	const controller = physics.createCharacterController({
+		worldId: "main",
+		body,
+		radius: 0.3,
+		height: 1.7,
+	});
+	const move = controller.moveAndSlide({ x: 0, y: 0, z: 1 }, 0.016);
+	assert.equal(move.moved.z, 1);
+	assert.equal(move.grounded, false);
+
+	await physics.stepAsync(0.016);
+	assert.equal(controller.isGrounded(), true);
+
+	assert.ok(
+		dispatchPayloads.some(
+			(payload) =>
+				payload.commands.some(
+					(command) => command.type === "createCharacterController"
+				)
+		),
+		"Expected createCharacterController command to be dispatched to worker"
+	);
+	assert.ok(
+		dispatchPayloads.some(
+			(payload) => payload.request?.type === "isCharacterControllerGrounded"
+		),
+		"Expected grounded-state request to be dispatched after stepping"
+	);
+}
+
 async function run() {
 	await testPhysicsSystemStepAsyncUsesAdapterAsyncPath();
 	await testWorkerAdapterFallsBackToPostMessageTransport("rapier");
@@ -362,6 +475,7 @@ async function run() {
 	await testPhysicsSystemRaycastAsyncUsesWorkerAdapter("ammo");
 	await testWorkerAdapterFallbackUpdatesCapabilities("rapier");
 	await testWorkerAdapterFallbackUpdatesCapabilities("ammo");
+	await testRapierWorkerAdapterCharacterControllerSyncContract();
 	console.log("Physics worker adapter tests passed");
 }
 

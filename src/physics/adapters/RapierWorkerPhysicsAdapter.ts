@@ -63,6 +63,12 @@ function createDefaultWorker(
 	) as unknown as WorkerLike;
 }
 
+interface WorkerControllerRuntimeState {
+	id: string;
+	worldId: string;
+	grounded: boolean;
+}
+
 export interface RapierWorkerPhysicsAdapterOptions {
 	enabled?: boolean;
 	createWorker?: (workerIndex: number, poolId: string) => WorkerLike;
@@ -94,6 +100,8 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 	private _usingFallbackAdapter = false;
 	private _pendingCommands: RapierWorkerCommand[] = [];
 	private _worldIds = new Set<string>();
+	private _controllerStateById = new Map<string, WorkerControllerRuntimeState>();
+	private _controllerIdsByWorldId = new Map<string, Set<string>>();
 	private _stepChain: Promise<void> = Promise.resolve();
 
 	constructor(options: RapierWorkerPhysicsAdapterOptions = {}) {
@@ -117,7 +125,7 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._defaultTimeoutMs = options.defaultTimeoutMs;
 		this.capabilities = {
 			joints: true,
-			characterController: false,
+			characterController: true,
 			shapeCast: false,
 			query: false,
 			syncInit: false,
@@ -179,6 +187,13 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		}
 		this._assertInitialized();
 		this._worldIds.delete(worldId);
+		const controllerIds = this._controllerIdsByWorldId.get(worldId);
+		if (controllerIds) {
+			for (const controllerId of controllerIds) {
+				this._controllerStateById.delete(controllerId);
+			}
+			this._controllerIdsByWorldId.delete(worldId);
+		}
 		this._enqueueCommand({
 			type: "destroyWorld",
 			worldId,
@@ -444,7 +459,28 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 			return;
 		}
-		throw createUnsupportedSyncWorkerCallError("createCharacterController");
+		this._assertInitialized();
+		if (this._controllerStateById.has(controllerId)) {
+			throw new Error(
+				`Character controller "${controllerId}" already exists in "${worldId}"`
+			);
+		}
+		const controller: WorkerControllerRuntimeState = {
+			id: controllerId,
+			worldId,
+			grounded: false,
+		};
+		this._controllerStateById.set(controllerId, controller);
+		const controllerIds =
+			this._controllerIdsByWorldId.get(worldId) ?? new Set<string>();
+		controllerIds.add(controllerId);
+		this._controllerIdsByWorldId.set(worldId, controllerIds);
+		this._enqueueCommand({
+			type: "createCharacterController",
+			worldId,
+			controllerId,
+			descriptor,
+		});
 	}
 
 	public destroyCharacterController(
@@ -455,7 +491,18 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._fallbackAdapter.destroyCharacterController(worldId, controllerId);
 			return;
 		}
-		throw createUnsupportedSyncWorkerCallError("destroyCharacterController");
+		this._assertInitialized();
+		this._controllerStateById.delete(controllerId);
+		const controllerIds = this._controllerIdsByWorldId.get(worldId);
+		controllerIds?.delete(controllerId);
+		if (controllerIds && controllerIds.size === 0) {
+			this._controllerIdsByWorldId.delete(worldId);
+		}
+		this._enqueueCommand({
+			type: "destroyCharacterController",
+			worldId,
+			controllerId,
+		});
 	}
 
 	public moveCharacterController(
@@ -472,7 +519,24 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 				deltaSeconds
 			);
 		}
-		throw createUnsupportedSyncWorkerCallError("moveCharacterController");
+		this._assertInitialized();
+		const controller = this._requireController(worldId, controllerId);
+		const movement = {
+			x: Number.isFinite(direction.x) ? direction.x : 0,
+			y: Number.isFinite(direction.y) ? direction.y : 0,
+			z: Number.isFinite(direction.z) ? direction.z : 0,
+		};
+		this._enqueueCommand({
+			type: "moveCharacterController",
+			worldId,
+			controllerId,
+			direction: movement,
+			deltaSeconds: Math.max(0, deltaSeconds),
+		});
+		return {
+			grounded: controller.grounded,
+			moved: movement,
+		};
 	}
 
 	public jumpCharacterController(
@@ -484,7 +548,14 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._fallbackAdapter.jumpCharacterController(worldId, controllerId, speed);
 			return;
 		}
-		throw createUnsupportedSyncWorkerCallError("jumpCharacterController");
+		this._assertInitialized();
+		this._requireController(worldId, controllerId);
+		this._enqueueCommand({
+			type: "jumpCharacterController",
+			worldId,
+			controllerId,
+			speed: Math.max(0, speed),
+		});
 	}
 
 	public isCharacterControllerGrounded(
@@ -497,7 +568,8 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 				controllerId
 			);
 		}
-		throw createUnsupportedSyncWorkerCallError("isCharacterControllerGrounded");
+		this._assertInitialized();
+		return this._requireController(worldId, controllerId).grounded;
 	}
 
 	public setCharacterControllerMaxSlope(
@@ -513,7 +585,14 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 			return;
 		}
-		throw createUnsupportedSyncWorkerCallError("setCharacterControllerMaxSlope");
+		this._assertInitialized();
+		this._requireController(worldId, controllerId);
+		this._enqueueCommand({
+			type: "setCharacterControllerMaxSlope",
+			worldId,
+			controllerId,
+			value: Math.max(0, value),
+		});
 	}
 
 	public setCharacterControllerStepHeight(
@@ -529,7 +608,14 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 			return;
 		}
-		throw createUnsupportedSyncWorkerCallError("setCharacterControllerStepHeight");
+		this._assertInitialized();
+		this._requireController(worldId, controllerId);
+		this._enqueueCommand({
+			type: "setCharacterControllerStepHeight",
+			worldId,
+			controllerId,
+			value: Math.max(0, value),
+		});
 	}
 
 	public raycast(worldId: string, query: PhysicsRaycastQuery): PhysicsQueryHit | null {
@@ -752,6 +838,7 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 					deltaSeconds,
 				},
 			});
+			await this._refreshControllerGroundedStates(worldId);
 			return result;
 		};
 
@@ -796,6 +883,39 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		this.capabilities.shapeCast = fallbackCapabilities.shapeCast;
 		this.capabilities.query = fallbackCapabilities.query;
 		this.capabilities.syncInit = false;
+	}
+
+	private _requireController(
+		worldId: string,
+		controllerId: string
+	): WorkerControllerRuntimeState {
+		const controller = this._controllerStateById.get(controllerId);
+		if (!controller || controller.worldId !== worldId) {
+			throw new Error(
+				`Character controller "${controllerId}" does not exist in "${worldId}"`
+			);
+		}
+		return controller;
+	}
+
+	private async _refreshControllerGroundedStates(worldId: string): Promise<void> {
+		const controllerIds = this._controllerIdsByWorldId.get(worldId);
+		if (!controllerIds || controllerIds.size === 0) return;
+
+		for (const controllerId of controllerIds) {
+			const grounded = await this._dispatchToWorker<boolean>({
+				type: "dispatch",
+				commands: [],
+				request: {
+					type: "isCharacterControllerGrounded",
+					worldId,
+					controllerId,
+				},
+			});
+			const controller = this._controllerStateById.get(controllerId);
+			if (!controller || controller.worldId !== worldId) continue;
+			controller.grounded = grounded;
+		}
 	}
 
 	private _enqueueCommand(command: RapierWorkerCommand): void {

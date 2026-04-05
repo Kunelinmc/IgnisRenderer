@@ -171,6 +171,14 @@ function applyCommand(
 				command.descriptor
 			);
 			return;
+		case "moveCharacterController":
+			rapierAdapter.moveCharacterController(
+				command.worldId,
+				command.controllerId,
+				command.direction,
+				command.deltaSeconds
+			);
+			return;
 		case "destroyCharacterController":
 			rapierAdapter.destroyCharacterController(
 				command.worldId,

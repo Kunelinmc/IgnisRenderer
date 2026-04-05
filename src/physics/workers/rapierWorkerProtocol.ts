@@ -114,6 +114,13 @@ export type RapierWorkerCommand =
 			descriptor: CharacterControllerDescriptor;
 	  }
 	| {
+			type: "moveCharacterController";
+			worldId: string;
+			controllerId: string;
+			direction: IVector3;
+			deltaSeconds: number;
+	  }
+	| {
 			type: "destroyCharacterController";
 			worldId: string;
 			controllerId: string;
