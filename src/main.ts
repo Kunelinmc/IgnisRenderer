@@ -46,7 +46,7 @@ async function init() {
 
 	// Load environment map for skybox and light probe baking
 	const hdrLoader = new HDRLoader();
-	const skybox = await hdrLoader.load("assets/puresky_1k.hdr");
+	const skybox = await hdrLoader.load("puresky_1k.hdr");
 	scene.skybox = skybox;
 
 	// Bakes environment IBL data from the skybox.
