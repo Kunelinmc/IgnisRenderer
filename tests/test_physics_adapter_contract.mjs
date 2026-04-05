@@ -97,6 +97,69 @@ async function runContract(adapter, label, opts = {}) {
 	console.log(`Physics adapter contract passed: ${label}`);
 }
 
+async function runRapierCharacterControllerContract() {
+	const fakeRapier = createFakeRapierModule();
+	const adapter = new RapierPhysicsAdapter({
+		moduleLoader: async () => fakeRapier.module,
+		strict: true,
+	});
+	await adapter.init();
+
+	adapter.createWorld({
+		worldId: "kcc",
+		gravity: { x: 0, y: -9.8, z: 0 },
+		mode: "fixed",
+		fixedDeltaSeconds: 0.016,
+	});
+	adapter.createBody(
+		"kcc",
+		"player",
+		{ type: "kinematic" },
+		{
+			position: { x: 0, y: 1, z: 0 },
+			rotation: [0, 0, 0, 1],
+		}
+	);
+	adapter.createCharacterController("kcc", "cc", {
+		worldId: "kcc",
+		body: "player",
+		radius: 0.3,
+		height: 1.7,
+		stepHeight: 0.3,
+		maxSlope: 50,
+		jumpSpeed: 3,
+	});
+	adapter.moveCharacterController("kcc", "cc", { x: 1, y: 0, z: 0 }, 1);
+	const stepResult = adapter.stepWorld("kcc", 1);
+	const playerState = stepResult.bodyStates.find(
+		(state) => state.bodyId === "player"
+	);
+
+	assert.ok(playerState, "Expected step state for kinematic player body");
+	assert.equal(
+		playerState?.transform.position.x,
+		0.5,
+		"Expected Rapier KCC computed movement to correct horizontal movement"
+	);
+	assert.equal(
+		fakeRapier.stats.characterControllerCreates,
+		1,
+		"Expected Rapier world.createCharacterController() to be used"
+	);
+	assert.ok(
+		fakeRapier.stats.characterComputeCalls > 0,
+		"Expected Rapier KCC computeColliderMovement() to be used"
+	);
+	assert.equal(
+		adapter.isCharacterControllerGrounded("kcc", "cc"),
+		true,
+		"Expected grounded state to come from Rapier KCC"
+	);
+
+	adapter.destroyWorld("kcc");
+	console.log("Physics adapter contract passed: rapier-kcc");
+}
+
 async function run() {
 	const fakeRapier = createFakeRapierModule();
 	const fakeAmmo = createFakeAmmoModule();
@@ -130,6 +193,7 @@ async function run() {
 			},
 		}
 	);
+	await runRapierCharacterControllerContract();
 }
 
 await run();

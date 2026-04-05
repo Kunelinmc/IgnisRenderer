@@ -717,7 +717,11 @@ export class FakeWebGPUBackend {
 // --- Physics Fakes (Rapier) ---
 
 export function createFakeRapierModule() {
-	const stats = { stepCalls: 0 };
+	const stats = {
+		stepCalls: 0,
+		characterControllerCreates: 0,
+		characterComputeCalls: 0,
+	};
 	class FakeRigidBodyDesc {
 		constructor(type) {
 			this.type = type;
@@ -747,6 +751,15 @@ export function createFakeRapierModule() {
 		constructor(kind) { this.kind = kind; }
 		static cuboid(x, y, z) { return new FakeColliderDesc({ kind: "box", x, y, z }); }
 		static ball(radius) { return new FakeColliderDesc({ kind: "sphere", radius }); }
+		static capsule(halfHeight, radius) {
+			return new FakeColliderDesc({ kind: "capsule", halfHeight, radius });
+		}
+		static cylinder(halfHeight, radius) {
+			return new FakeColliderDesc({ kind: "cylinder", halfHeight, radius });
+		}
+		static trimesh(vertices, indices) {
+			return new FakeColliderDesc({ kind: "trimesh", vertices, indices });
+		}
 		setSensor() { return this; }
 		setTranslation() { return this; }
 		setFriction() { return this; }
@@ -758,15 +771,55 @@ export function createFakeRapierModule() {
 			this._type = desc.type;
 			this._translation = { ...desc.translation };
 			this._rotation = { ...desc.rotation };
+			this._linvel = { x: 0, y: 0, z: 0 };
 		}
 		setTranslation(x, y, z) { this._translation = typeof x === "object" ? { ...x } : { x, y, z }; }
 		setNextKinematicTranslation(x, y, z) { this.setTranslation(x, y, z); }
 		setRotation(q) { this._rotation = { ...q }; }
 		setNextKinematicRotation(q) { this.setRotation(q); }
+		setLinvel(x, y, z) { this._linvel = typeof x === "object" ? { ...x } : { x, y, z }; }
+		linvel() { return { ...this._linvel }; }
 		translation() { return { ...this._translation }; }
 		rotation() { return { ...this._rotation }; }
 		isSleeping() { return false; }
 		isCcdEnabled() { return false; }
+	}
+	class FakeCharacterController {
+		constructor(offset) {
+			this._offset = offset;
+			this._computedMovement = { x: 0, y: 0, z: 0 };
+			this._grounded = false;
+		}
+		setOffset(offset) { this._offset = offset; return this; }
+		setApplyImpulsesToDynamicBodies() { return this; }
+		setMaxSlopeClimbAngle() { return this; }
+		setMinSlopeSlideAngle() { return this; }
+		enableAutostep() { return this; }
+		setAutostep() { return this; }
+		enableSnapToGround() { return this; }
+		setSnapToGround() { return this; }
+		disableAutostep() { return this; }
+		disableSnapToGround() { return this; }
+		computeColliderMovement(_collider, desired) {
+			stats.characterComputeCalls++;
+			const d =
+				desired && typeof desired === "object" ?
+					{
+						x: Number.isFinite(desired.x) ? desired.x : 0,
+						y: Number.isFinite(desired.y) ? desired.y : 0,
+						z: Number.isFinite(desired.z) ? desired.z : 0,
+					}
+				:	{ x: 0, y: 0, z: 0 };
+			this._computedMovement = {
+				x: d.x * 0.5,
+				y: d.y,
+				z: d.z * 0.5,
+			};
+			this._grounded = d.y <= 0;
+		}
+		computedMovement() { return { ...this._computedMovement }; }
+		computedGrounded() { return this._grounded; }
+		free() {}
 	}
 	class FakeWorld {
 		constructor() { this._bodies = new Set(); }
@@ -780,6 +833,10 @@ export function createFakeRapierModule() {
 		removeCollider() {}
 		createImpulseJoint() { return { id: "joint" }; }
 		removeImpulseJoint() {}
+		createCharacterController(offset) {
+			stats.characterControllerCreates++;
+			return new FakeCharacterController(offset);
+		}
 		step() { stats.stepCalls++; }
 		free() {}
 	}
