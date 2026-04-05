@@ -351,7 +351,7 @@ export class ShaderDirectiveStage {
 	}
 
 	private _createRuntimeForPatch(patch: HookPatch | null): ShaderRuntime {
-		const runtime = new ShaderRuntime({ mode: "warn" });
+		const runtime = new ShaderRuntime({ mode: this._mode });
 		this._registerProfile(runtime, this._profile);
 		if (patch) {
 			for (const includeModule of patch.includeModules) {
