@@ -3,13 +3,12 @@ import { isShadowCastingLight } from "../../lights";
 import { ParticleBlendMode } from "../../particles";
 import {
 	AlphaMode,
-	ShadingModel,
 	type Material,
 } from "../../materials/Material";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { Matrix3Arr, SHCoefficients } from "../../maths/types";
+import type { SHCoefficients } from "../../maths/types";
 import {
 	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
@@ -39,14 +38,12 @@ import {
 	collectWebGLLights,
 	type WebGLLightState,
 	type WebGLClusteredLight,
-	type WebGLReflectionProbeUniform,
 	type WebGLShadowData,
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
-	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
@@ -77,21 +74,40 @@ import {
 	type WebGLPostProcessPassPlugin,
 } from "./WebGLPostProcessRuntime";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
+import {
+	clampDownsample,
+	computeHaltonJitterNDC,
+	finiteOr,
+	flattenReflectionProbeRows,
+	flattenReflectionProbeVec4,
+	flattenShadowParamsA,
+	flattenShadowParamsB,
+	flattenShadowParamsC,
+	flattenShadowViewProjection,
+	flattenVec4,
+	getMaxShadowSize,
+	isFiniteMatrix,
+	sanitizeFiniteClamped,
+	sanitizeFloat32Array,
+	toColumnMajorMat3,
+	toColumnMajorMat4,
+	toFiniteColumnMajorMat4,
+	toSafeDimension,
+} from "./WebGLFrameMath";
+import {
+	resolveMaterialUniforms,
+	resolveTextureUVTransform,
+} from "./WebGLMaterialUniformResolver";
+import {
+	bindWebGLPostSingleColorTarget,
+	destroyWebGLFrameTargets,
+	ensureWebGLFrameTargets,
+	resolveWebGLPostProcessTargetTexture,
+	type WebGLFrameTargetLifecycleHost,
+} from "./WebGLFrameTargetLifecycle";
 
 type WarnFn = (key: string, message: string) => void;
 type WebGLFramePassHandler = (context: FrameContext) => void;
-
-interface MaterialUniformState {
-	shadingModel: number;
-	baseColor: [number, number, number, number];
-	emissive: [number, number, number];
-	pbr: [number, number, number, number];
-	phong: [number, number, number, number];
-	alpha: [number, number, number, number];
-	baseMap: any | null;
-}
-
-const TAA_HALTON_SAMPLE_COUNT = 16;
 const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
 const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
@@ -136,17 +152,6 @@ const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"interaction-outline",
 	"gamma",
 ] as const;
-
-function computeHaltonJitterNDC(index: number, width: number, height: number): [number, number] {
-	const haltonX = [0.5, 0.25, 0.75, 0.125, 0.625, 0.375, 0.875, 0.0625, 0.5625, 0.3125, 0.8125, 0.1875, 0.6875, 0.4375, 0.9375, 0.03125];
-	const haltonY = [0.333333, 0.666667, 0.111111, 0.444444, 0.777778, 0.222222, 0.555556, 0.888889, 0.037037, 0.37037, 0.703704, 0.148148, 0.481481, 0.814815, 0.259259, 0.592593];
-	
-	const idx = index % TAA_HALTON_SAMPLE_COUNT;
-	return [
-		((haltonX[idx] - 0.5) / width) * 2.0,
-		((haltonY[idx] - 0.5) / height) * 2.0
-	];
-}
 
 const PARTICLE_QUAD_VERTICES = new Float32Array([
 	-0.5,
@@ -3398,35 +3403,17 @@ export class WebGLFrameExecutor {
 	private _resolvePostProcessTargetTexture(
 		sourceTexture: WebGLTexture
 	): WebGLTexture | null {
-		if (!this._sceneColorTexture || !this._postColorTexture) {
-			return null;
-		}
-		if (sourceTexture === this._sceneColorTexture) {
-			return this._postColorTexture;
-		}
-		if (sourceTexture === this._postColorTexture) {
-			return this._sceneColorTexture;
-		}
-		return this._postColorTexture;
+		return resolveWebGLPostProcessTargetTexture(
+			this as unknown as WebGLFrameTargetLifecycleHost,
+			sourceTexture
+		);
 	}
 
 	private _bindPostSingleColorTarget(texture: WebGLTexture): void {
-		const gl = this._gl;
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			texture,
-			0
+		bindWebGLPostSingleColorTarget(
+			this as unknown as WebGLFrameTargetLifecycleHost,
+			texture
 		);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT1,
-			gl.TEXTURE_2D,
-			null,
-			0
-		);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 	}
 
 	private _ensureFrameTargets(
@@ -3434,293 +3421,18 @@ export class WebGLFrameExecutor {
 		height: number,
 		ssaoDownsample: number
 	): void {
-		if (
-			this._sceneFramebuffer &&
-			this._sceneColorTexture &&
-			this._sceneMotionTexture &&
-			this._sceneNormalTexture &&
-			this._sceneDepthBuffer &&
-			this._postFramebuffer &&
-			this._postColorTexture &&
-			this._ssaoRawTexture &&
-			this._ssaoBlurTexture &&
-			this._targetWidth === width &&
-			this._targetHeight === height &&
-			this._targetSSAODownsample === ssaoDownsample
-		) {
-			return;
-		}
-
-		if (
-			width > this._maxTextureSize ||
-			height > this._maxTextureSize ||
-			width > this._maxRenderbufferSize ||
-			height > this._maxRenderbufferSize
-		) {
-			throw new Error(
-				`WebGL frame size ${width}x${height} exceeds device limits (MAX_TEXTURE_SIZE=${this._maxTextureSize}, MAX_RENDERBUFFER_SIZE=${this._maxRenderbufferSize})`
-			);
-		}
-
-		this._destroyFrameTargets();
-		const gl = this._gl;
-
-		const supportsFloatColorBuffer = !!gl.getExtension("EXT_color_buffer_float");
-		const colorInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
-		const colorType = supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
-		const motionInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
-		const motionType = supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
-		const normalInternalFormat = gl.RGBA8;
-		const normalType = gl.UNSIGNED_BYTE;
-		const aoWidth = Math.max(1, Math.floor(width / Math.max(ssaoDownsample, 1)));
-		const aoHeight = Math.max(1, Math.floor(height / Math.max(ssaoDownsample, 1)));
-		if (!supportsFloatColorBuffer) {
-			this._warn(
-				"webgl-motion-float-unsupported",
-				"EXT_color_buffer_float is unavailable; falling back to RGBA8 motion attachments."
-			);
-		}
-
-		const sceneFramebuffer = gl.createFramebuffer();
-		const sceneColorTexture = this._createColorTexture(
+		ensureWebGLFrameTargets(
+			this as unknown as WebGLFrameTargetLifecycleHost,
 			width,
 			height,
-			colorInternalFormat,
-			colorType
+			ssaoDownsample
 		);
-		const sceneMotionTexture = this._createColorTexture(
-			width,
-			height,
-			motionInternalFormat,
-			motionType
-		);
-		const sceneNormalTexture = this._createColorTexture(
-			width,
-			height,
-			normalInternalFormat,
-			normalType
-		);
-		const sceneDepthBuffer = gl.createRenderbuffer();
-		const postFramebuffer = gl.createFramebuffer();
-		const postColorTexture = this._createColorTexture(
-			width,
-			height,
-			colorInternalFormat,
-			colorType
-		);
-		const ssaoRawTexture = this._createColorTexture(
-			aoWidth,
-			aoHeight,
-			colorInternalFormat,
-			colorType
-		);
-		const ssaoBlurTexture = this._createColorTexture(
-			aoWidth,
-			aoHeight,
-			colorInternalFormat,
-			colorType
-		);
-
-		const history0 = this._createColorTexture(
-			width,
-			height,
-			colorInternalFormat,
-			colorType
-		);
-		const history1 = this._createColorTexture(
-			width,
-			height,
-			colorInternalFormat,
-			colorType
-		);
-		const motionHistory0 = this._createColorTexture(
-			width,
-			height,
-			motionInternalFormat,
-			motionType
-		);
-		const motionHistory1 = this._createColorTexture(
-			width,
-			height,
-			motionInternalFormat,
-			motionType
-		);
-
-		const cleanupAllocatedTargets = (): void => {
-			if (sceneFramebuffer) gl.deleteFramebuffer(sceneFramebuffer);
-			if (sceneColorTexture) gl.deleteTexture(sceneColorTexture);
-			if (sceneMotionTexture) gl.deleteTexture(sceneMotionTexture);
-			if (sceneNormalTexture) gl.deleteTexture(sceneNormalTexture);
-			if (sceneDepthBuffer) gl.deleteRenderbuffer(sceneDepthBuffer);
-			if (postFramebuffer) gl.deleteFramebuffer(postFramebuffer);
-			if (postColorTexture) gl.deleteTexture(postColorTexture);
-			if (ssaoRawTexture) gl.deleteTexture(ssaoRawTexture);
-			if (ssaoBlurTexture) gl.deleteTexture(ssaoBlurTexture);
-			if (history0) gl.deleteTexture(history0);
-			if (history1) gl.deleteTexture(history1);
-			if (motionHistory0) gl.deleteTexture(motionHistory0);
-			if (motionHistory1) gl.deleteTexture(motionHistory1);
-		};
-
-		if (
-			!sceneFramebuffer ||
-			!sceneColorTexture ||
-			!sceneMotionTexture ||
-			!sceneNormalTexture ||
-			!sceneDepthBuffer ||
-			!postFramebuffer ||
-			!postColorTexture ||
-			!ssaoRawTexture ||
-			!ssaoBlurTexture ||
-			!history0 ||
-			!history1 ||
-			!motionHistory0 ||
-			!motionHistory1
-		) {
-			cleanupAllocatedTargets();
-			throw new Error("Failed to create WebGL frame targets");
-		}
-
-		gl.bindRenderbuffer(gl.RENDERBUFFER, sceneDepthBuffer);
-		gl.renderbufferStorage(
-			gl.RENDERBUFFER,
-			gl.DEPTH_COMPONENT24,
-			width,
-			height
-		);
-		gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFramebuffer);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			sceneColorTexture,
-			0
-		);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT1,
-			gl.TEXTURE_2D,
-			sceneMotionTexture,
-			0
-		);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT2,
-			gl.TEXTURE_2D,
-			sceneNormalTexture,
-			0
-		);
-		gl.framebufferRenderbuffer(
-			gl.FRAMEBUFFER,
-			gl.DEPTH_ATTACHMENT,
-			gl.RENDERBUFFER,
-			sceneDepthBuffer
-		);
-		gl.drawBuffers([
-			gl.COLOR_ATTACHMENT0,
-			gl.COLOR_ATTACHMENT1,
-			gl.COLOR_ATTACHMENT2,
-		]);
-		let status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-		if (status !== gl.FRAMEBUFFER_COMPLETE) {
-			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-			cleanupAllocatedTargets();
-			throw new Error(
-				`WebGL scene framebuffer is incomplete (status=0x${status.toString(16)})`
-			);
-		}
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			postColorTexture,
-			0
-		);
-		status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		if (status !== gl.FRAMEBUFFER_COMPLETE) {
-			cleanupAllocatedTargets();
-			throw new Error(
-				`WebGL post framebuffer is incomplete (status=0x${status.toString(16)})`
-			);
-		}
-
-		this._sceneFramebuffer = sceneFramebuffer;
-		this._sceneColorTexture = sceneColorTexture;
-		this._sceneMotionTexture = sceneMotionTexture;
-		this._sceneNormalTexture = sceneNormalTexture;
-		this._sceneDepthBuffer = sceneDepthBuffer;
-		this._taaHistoryTextures = [history0, history1];
-		this._taaMotionHistoryTextures = [motionHistory0, motionHistory1];
-		this._taaHistoryIndex = 0;
-		this._taaHistoryValid = false;
-		this._postFramebuffer = postFramebuffer;
-		this._postColorTexture = postColorTexture;
-		this._ssaoRawTexture = ssaoRawTexture;
-		this._ssaoBlurTexture = ssaoBlurTexture;
-		this._presentSourceTexture = sceneColorTexture;
-		this._targetWidth = width;
-		this._targetHeight = height;
-		this._targetSSAODownsample = ssaoDownsample;
-		this._ssaoFrameIndex = 0;
 	}
 
 	private _destroyFrameTargets(): void {
-		const gl = this._gl;
-		if (this._sceneFramebuffer) {
-			gl.deleteFramebuffer(this._sceneFramebuffer);
-			this._sceneFramebuffer = null;
-		}
-		if (this._sceneColorTexture) {
-			gl.deleteTexture(this._sceneColorTexture);
-			this._sceneColorTexture = null;
-		}
-		if (this._sceneMotionTexture) {
-			gl.deleteTexture(this._sceneMotionTexture);
-			this._sceneMotionTexture = null;
-		}
-		if (this._sceneNormalTexture) {
-			gl.deleteTexture(this._sceneNormalTexture);
-			this._sceneNormalTexture = null;
-		}
-		if (this._sceneDepthBuffer) {
-			gl.deleteRenderbuffer(this._sceneDepthBuffer);
-			this._sceneDepthBuffer = null;
-		}
-		for (const texture of this._taaHistoryTextures) {
-			if (texture) gl.deleteTexture(texture);
-		}
-		for (const texture of this._taaMotionHistoryTextures) {
-			if (texture) gl.deleteTexture(texture);
-		}
-		this._taaHistoryTextures = [null, null];
-		this._taaMotionHistoryTextures = [null, null];
-		this._taaHistoryValid = false;
-		if (this._postFramebuffer) {
-			gl.deleteFramebuffer(this._postFramebuffer);
-			this._postFramebuffer = null;
-		}
-		if (this._postColorTexture) {
-			gl.deleteTexture(this._postColorTexture);
-			this._postColorTexture = null;
-		}
-		if (this._ssaoRawTexture) {
-			gl.deleteTexture(this._ssaoRawTexture);
-			this._ssaoRawTexture = null;
-		}
-		if (this._ssaoBlurTexture) {
-			gl.deleteTexture(this._ssaoBlurTexture);
-			this._ssaoBlurTexture = null;
-		}
-		this._presentSourceTexture = null;
-		this._targetWidth = 0;
-		this._targetHeight = 0;
-		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
-		this._ssaoFrameIndex = 0;
+		destroyWebGLFrameTargets(
+			this as unknown as WebGLFrameTargetLifecycleHost
+		);
 	}
 
 	private _pruneModelMatrixCache(): void {
@@ -3732,41 +3444,6 @@ export class WebGLFrameExecutor {
 				this._modelMatrixCache.delete(cacheKey);
 			}
 		}
-	}
-
-	private _createColorTexture(
-		width: number,
-		height: number,
-		internalFormat: number = this._gl.RGBA8,
-		type: number = this._gl.UNSIGNED_BYTE
-	): WebGLTexture | null {
-		const gl = this._gl;
-		const texture = gl.createTexture();
-		if (!texture) return null;
-		gl.bindTexture(gl.TEXTURE_2D, texture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		
-		let format = gl.RGBA;
-		if (internalFormat === gl.RGBA16F || internalFormat === gl.RGBA32F) {
-			format = gl.RGBA;
-		}
-		
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			internalFormat,
-			width,
-			height,
-			0,
-			format,
-			type,
-			null
-		);
-		gl.bindTexture(gl.TEXTURE_2D, null);
-		return texture;
 	}
 
 	private _resolveLimit(parameter: number, fallback: number): number {
@@ -3793,341 +3470,4 @@ export class WebGLFrameExecutor {
 			gl.cullFace(gl.BACK);
 		}
 	}
-}
-
-function resolveMaterialUniforms(material: Material): MaterialUniformState {
-	const isPBR =
-		material.shading === ShadingModel.PBR || material.type === "PBR";
-	const isUnlit = material.shading === ShadingModel.Unlit;
-
-	let baseColor: [number, number, number] = [1, 1, 1];
-	let emissive: [number, number, number] = [0, 0, 0];
-	let roughness = 0.5;
-	let metalness = 0;
-	let reflectance = 0.5;
-	let shininess = 32;
-	let baseMap: any | null = material.map ?? null;
-
-	if (isPBR) {
-		const pbr = material as any;
-		const albedo = pbr.albedo ?? { r: 255, g: 255, b: 255 };
-		baseColor = [
-			clamp((albedo.r ?? 255) / 255, 0, 1),
-			clamp((albedo.g ?? 255) / 255, 0, 1),
-			clamp((albedo.b ?? 255) / 255, 0, 1),
-		];
-		const emissiveColor = pbr.emissive ?? { r: 0, g: 0, b: 0 };
-		const emissiveIntensity = clamp(pbr.emissiveIntensity ?? 1, 0, 64);
-		emissive = [
-			clamp((emissiveColor.r ?? 0) / 255, 0, 1) * emissiveIntensity,
-			clamp((emissiveColor.g ?? 0) / 255, 0, 1) * emissiveIntensity,
-			clamp((emissiveColor.b ?? 0) / 255, 0, 1) * emissiveIntensity,
-		];
-		roughness = clamp(pbr.roughness ?? 0.5, 0.04, 1);
-		metalness = clamp(pbr.metalness ?? 0, 0, 1);
-		reflectance = clamp(pbr.reflectance ?? 0.5, 0, 1);
-		baseMap = pbr.map ?? baseMap;
-	} else {
-		const basic = material as any;
-		const diffuse = basic.diffuse ?? { r: 255, g: 255, b: 255 };
-		baseColor = [
-			sRGBToLinear(clamp((diffuse.r ?? 255) / 255, 0, 1)),
-			sRGBToLinear(clamp((diffuse.g ?? 255) / 255, 0, 1)),
-			sRGBToLinear(clamp((diffuse.b ?? 255) / 255, 0, 1)),
-		];
-		const emissiveColor = basic.emissive;
-		if (emissiveColor) {
-			const emissiveIntensity = clamp(basic.emissiveIntensity ?? 1, 0, 64);
-			emissive = [
-				sRGBToLinear(clamp((emissiveColor.r ?? 0) / 255, 0, 1)) *
-					emissiveIntensity,
-				sRGBToLinear(clamp((emissiveColor.g ?? 0) / 255, 0, 1)) *
-					emissiveIntensity,
-				sRGBToLinear(clamp((emissiveColor.b ?? 0) / 255, 0, 1)) *
-					emissiveIntensity,
-			];
-		}
-		shininess = Math.max(1, basic.shininess ?? 32);
-	}
-
-	const opacity = clamp(material.opacity ?? 1, 0, 1);
-	const alphaCutoff = clamp(material.alphaCutoff ?? 0.5, 0, 1);
-	const alphaModeMask = material.alphaMode === AlphaMode.Mask ? 1 : 0;
-
-	return {
-		shadingModel:
-			isUnlit ? 2
-			: isPBR ? 1
-			: 0,
-		baseColor: [baseColor[0], baseColor[1], baseColor[2], opacity],
-		emissive,
-		pbr: [roughness, metalness, reflectance, 0],
-		phong: [shininess, 0, 0, 0],
-		alpha: [alphaCutoff, alphaModeMask, 0, 0],
-		baseMap,
-	};
-}
-
-function flattenVec4<T>(
-	values: T[],
-	mapper: (value: T) => [number, number, number, number]
-): Float32Array {
-	const packed = new Float32Array(16);
-	const count = Math.min(4, values.length);
-	for (let i = 0; i < count; i++) {
-		const value = mapper(values[i]);
-		const offset = i * 4;
-		packed[offset] = value[0];
-		packed[offset + 1] = value[1];
-		packed[offset + 2] = value[2];
-		packed[offset + 3] = value[3];
-	}
-	return packed;
-}
-
-function flattenShadowViewProjection(
-	values: WebGLShadowData[],
-	maxCount: number
-): Float32Array {
-	const packed = new Float32Array(maxCount * 16);
-	const count = Math.min(maxCount, values.length);
-	for (let i = 0; i < count; i++) {
-		const matrix = values[i]?.viewProjectionMatrix;
-		if (!matrix) {
-			continue;
-		}
-		packed.set(toColumnMajorMat4(matrix), i * 16);
-	}
-	return packed;
-}
-
-function flattenShadowParamsA(
-	values: WebGLShadowData[],
-	maxCount: number
-): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
-	const count = Math.min(maxCount, values.length);
-	for (let i = 0; i < count; i++) {
-		const shadow = values[i];
-		const offset = i * 4;
-		packed[offset] = shadow.enabled ? 1 : 0;
-		packed[offset + 1] = finiteOr(shadow.depthBias, 0);
-		packed[offset + 2] = finiteOr(shadow.normalBias, 0);
-		packed[offset + 3] = finiteOr(shadow.normalBiasMin, 0);
-	}
-	return packed;
-}
-
-function flattenShadowParamsB(
-	values: WebGLShadowData[],
-	maxCount: number
-): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
-	const count = Math.min(maxCount, values.length);
-	for (let i = 0; i < count; i++) {
-		const shadow = values[i];
-		const offset = i * 4;
-		packed[offset] = finiteOr(shadow.pcfRadius, 0);
-		packed[offset + 1] = finiteOr(shadow.shadowStrength, 0);
-		packed[offset + 2] = finiteOr(shadow.shadowMapSize, 0);
-		packed[offset + 3] = finiteOr(shadow.atlasTileSize, 0);
-	}
-	return packed;
-}
-
-function flattenShadowParamsC(
-	values: WebGLShadowData[],
-	maxCount: number
-): Float32Array {
-	const packed = new Float32Array(maxCount * 4);
-	const count = Math.min(maxCount, values.length);
-	for (let i = 0; i < count; i++) {
-		const shadow = values[i];
-		const offset = i * 4;
-		packed[offset] = finiteOr(shadow.slopeBias, 0);
-		packed[offset + 1] = 0;
-		packed[offset + 2] = 0;
-		packed[offset + 3] = 0;
-	}
-	return packed;
-}
-
-function flattenReflectionProbeRows(
-	values: WebGLReflectionProbeUniform[],
-	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",
-	row: 0 | 1 | 2
-): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
-	for (let i = 0; i < count; i++) {
-		const matrix = values[i][matrixKey].elements;
-		const offset = i * 4;
-		packed[offset] = finiteOr(matrix[row][0], 0);
-		packed[offset + 1] = finiteOr(matrix[row][1], 0);
-		packed[offset + 2] = finiteOr(matrix[row][2], 0);
-		packed[offset + 3] = finiteOr(matrix[row][3], 0);
-	}
-	return packed;
-}
-
-function flattenReflectionProbeVec4(
-	values: WebGLReflectionProbeUniform[],
-	mapper: (probe: WebGLReflectionProbeUniform) => [number, number, number, number]
-): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
-	for (let i = 0; i < count; i++) {
-		const mapped = mapper(values[i]);
-		const offset = i * 4;
-		packed[offset] = finiteOr(mapped[0], 0);
-		packed[offset + 1] = finiteOr(mapped[1], 0);
-		packed[offset + 2] = finiteOr(mapped[2], 0);
-		packed[offset + 3] = finiteOr(mapped[3], 0);
-	}
-	return packed;
-}
-
-function getMaxShadowSize(values: WebGLShadowData[]): number {
-	let maxSize = 0;
-	for (const shadow of values) {
-		if (!shadow.enabled || !shadow.shadowMap) continue;
-		maxSize = Math.max(maxSize, shadow.shadowMapSize | 0);
-	}
-	return maxSize;
-}
-
-function toColumnMajorMat4(matrix: Matrix4 | number[][]): Float32Array {
-	const elements = matrix instanceof Array ? matrix : matrix.elements;
-	return new Float32Array([
-		elements[0][0],
-		elements[1][0],
-		elements[2][0],
-		elements[3][0],
-		elements[0][1],
-		elements[1][1],
-		elements[2][1],
-		elements[3][1],
-		elements[0][2],
-		elements[1][2],
-		elements[2][2],
-		elements[3][2],
-		elements[0][3],
-		elements[1][3],
-		elements[2][3],
-		elements[3][3],
-	]);
-}
-
-function toFiniteColumnMajorMat4(matrix: Matrix4 | number[][]): Float32Array | null {
-	const values = toColumnMajorMat4(matrix);
-	for (let i = 0; i < values.length; i++) {
-		if (!Number.isFinite(values[i])) {
-			return null;
-		}
-	}
-	return values;
-}
-
-function toColumnMajorMat3(matrix: Matrix4 | Matrix3Arr): Float32Array | null {
-	const rows: number[][] =
-		matrix instanceof Array ? matrix : (matrix as Matrix4).elements;
-	if (!rows || rows.length < 3) return null;
-	const values = [
-		rows[0][0],
-		rows[1][0],
-		rows[2][0],
-		rows[0][1],
-		rows[1][1],
-		rows[2][1],
-		rows[0][2],
-		rows[1][2],
-		rows[2][2],
-	];
-	for (let i = 0; i < values.length; i++) {
-		if (!Number.isFinite(values[i])) {
-			return null;
-		}
-	}
-	return new Float32Array(values);
-}
-
-function isFiniteMatrix(matrix: Matrix4): boolean {
-	const elements = matrix.elements;
-	for (let row = 0; row < 4; row++) {
-		for (let col = 0; col < 4; col++) {
-			if (!Number.isFinite(elements[row][col])) {
-				return false;
-			}
-		}
-	}
-	return true;
-}
-
-function finiteOr(value: unknown, fallback: number): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function sanitizeFiniteClamped(
-	value: unknown,
-	fallback: number,
-	minValue: number,
-	maxValue: number
-): number {
-	return clamp(finiteOr(value, fallback), minValue, maxValue);
-}
-
-function sanitizeFloat32Array(
-	values: Float32Array,
-	fallback: number
-): {
-	values: Float32Array;
-	hadInvalid: boolean;
-} {
-	let hadInvalid = false;
-	for (let i = 0; i < values.length; i++) {
-		if (!Number.isFinite(values[i])) {
-			values[i] = fallback;
-			hadInvalid = true;
-		}
-	}
-	return { values, hadInvalid };
-}
-
-function clampDownsample(value: unknown, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return fallback;
-	}
-	return Math.min(8, Math.max(1, Math.floor(value)));
-}
-
-function toSafeDimension(value: unknown): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return 1;
-	}
-	return Math.max(1, Math.floor(value));
-}
-
-function resolveTextureUVTransform(texture: any | null): {
-	repeatX: number;
-	repeatY: number;
-	offsetX: number;
-	offsetY: number;
-	cosRotation: number;
-	sinRotation: number;
-} {
-	const repeatX =
-		Number.isFinite(texture?.repeat?.x) ? Math.max(0, texture.repeat.x) : 1;
-	const repeatY =
-		Number.isFinite(texture?.repeat?.y) ? Math.max(0, texture.repeat.y) : 1;
-	const offsetX = Number.isFinite(texture?.offset?.x) ? texture.offset.x : 0;
-	const offsetY = Number.isFinite(texture?.offset?.y) ? texture.offset.y : 0;
-	const rotation = Number.isFinite(texture?.rotation) ? texture.rotation : 0;
-	return {
-		repeatX,
-		repeatY,
-		offsetX,
-		offsetY,
-		cosRotation: Math.cos(rotation),
-		sinRotation: Math.sin(rotation),
-	};
 }
