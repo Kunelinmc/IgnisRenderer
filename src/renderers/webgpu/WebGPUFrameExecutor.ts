@@ -264,11 +264,18 @@ export class WebGPUFrameExecutor {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		this._destroyManagedResource(this._presentShaderModule);
+		this._destroyManagedResource(this._presentPipeline);
+		this._destroyManagedResource(this._presentSampler);
 		this._presentShaderModule = null;
 		this._presentPipeline = null;
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._destroyManagedResource(this._depthDirtyClearShaderModule);
+		for (const pipeline of this._depthDirtyClearPipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
 		this._depthDirtyClearShaderModule = null;
 		this._depthDirtyClearPipelines.clear();
 		this._postRuntime.onShaderRuntimeChanged();
@@ -336,13 +343,21 @@ export class WebGPUFrameExecutor {
 		this._destroyFrameTargets();
 		this._destroyTexturePools();
 		this._postRuntime.invalidateBindings();
+		this._destroyManagedResource(this._presentShaderModule);
+		this._destroyManagedResource(this._presentPipeline);
+		this._destroyManagedResource(this._presentSampler);
 		this._presentShaderModule = null;
 		this._presentPipeline = null;
 		this._presentSampler = null;
-		this._presentParamsBuffer?.destroy();
+		this._destroyManagedResource(this._presentParamsBuffer);
 		this._presentParamsBuffer = null;
+		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._destroyManagedResource(this._depthDirtyClearShaderModule);
+		for (const pipeline of this._depthDirtyClearPipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
 		this._depthDirtyClearShaderModule = null;
 		this._depthDirtyClearPipelines.clear();
 		this._encoder = null;
@@ -1256,6 +1271,13 @@ export class WebGPUFrameExecutor {
 		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
+		}
+	}
+
+	private _destroyManagedResource(resource: unknown): void {
+		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(resource);
 		}
 	}
 
