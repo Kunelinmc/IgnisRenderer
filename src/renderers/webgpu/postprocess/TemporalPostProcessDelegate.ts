@@ -27,7 +27,7 @@ import type {
 	WebGPUPostProcessSSRExecuteRequest,
 	WebGPUPostProcessTAAExecuteRequest,
 	WebGPUPostProcessVolumetricExecuteRequest,
-} from "./postprocessTypes";
+} from "./types";
 
 const WORKGROUP_SIZE = 8;
 const VOLUMETRIC_LIGHT_STRIDE_FLOATS = 12;

@@ -10,13 +10,13 @@ import type {
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessPassDelegate,
 	WebGPUPostProcessPassId,
-} from "./postprocess/postprocessTypes";
+} from "./postprocess/types";
 
 export type {
 	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessPassId,
-} from "./postprocess/postprocessTypes";
+} from "./postprocess/types";
 
 export class WebGPUPostProcessRuntime {
 	private _compute: IWebGPUComputeFacade;

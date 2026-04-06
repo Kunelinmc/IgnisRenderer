@@ -37,7 +37,7 @@ import type {
 	WebGPUPostProcessInteractionOutlineExecuteRequest,
 	WebGPUPostProcessPassDelegate,
 	WebGPUPostProcessPassId,
-} from "./postprocessTypes";
+} from "./types";
 
 const WORKGROUP_SIZE = 8;
 const INTERACTION_OUTLINE_HEADER_FLOATS = 16;

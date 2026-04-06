@@ -22,7 +22,7 @@ import type {
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessPassDelegate,
 	WebGPUPostProcessPassId,
-} from "./postprocessTypes";
+} from "./types";
 
 const WORKGROUP_SIZE = 8;
 
