@@ -10,7 +10,7 @@ import {
 	FXAA_EDGE_THRESHOLD_MIN,
 	FXAA_QUALITY,
 	VOLUMETRIC_SIGMA_T_SCALE,
-} from "../../renderers/postProcessConstants";
+} from "../../renderers/constants";
 
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";

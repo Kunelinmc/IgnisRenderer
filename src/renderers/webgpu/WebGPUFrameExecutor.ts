@@ -41,7 +41,7 @@ import type {
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
-import { DEFAULT_GAMMA, MIN_GAMMA } from "../postProcessConstants";
+import { DEFAULT_GAMMA, MIN_GAMMA } from "../constants";
 
 const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"ssao",

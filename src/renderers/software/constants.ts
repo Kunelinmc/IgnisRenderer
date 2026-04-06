@@ -11,7 +11,7 @@ import {
 	MIN_GAMMA,
 	POST_PROCESS_NOISE_REFERENCE_WIDTH,
 	VOLUMETRIC_SIGMA_T_SCALE,
-} from "../postProcessConstants";
+} from "../constants";
 
 /**
  * Software backend post-processing constants.

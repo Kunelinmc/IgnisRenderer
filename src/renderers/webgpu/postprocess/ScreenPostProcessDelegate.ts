@@ -29,7 +29,7 @@ import {
 	FXAA_EDGE_THRESHOLD_MIN,
 	FXAA_EDGE_THRESHOLD_MULTIPLIER,
 	FXAA_SUBPIX_QUALITY,
-} from "../../postProcessConstants";
+} from "../../constants";
 import { ceilDiv, finiteOr } from "../postProcessMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
