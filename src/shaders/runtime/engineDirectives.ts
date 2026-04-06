@@ -15,7 +15,7 @@ import {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 4;
+const PROFILE_REVISION = 5;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
@@ -348,6 +348,46 @@ const FXAA_QUALITY = array<f32, ${FXAA_QUALITY.length}>(
 			},
 			{
 				language: "wgsl",
+				id: "ignis/postprocess/fog.wgsl",
+				code: `const IGNIS_FOG_MODE_LINEAR: u32 = 0u;
+const IGNIS_FOG_MODE_EXP: u32 = 1u;
+const IGNIS_FOG_MODE_EXP2: u32 = 2u;
+
+fn ignisFogLinear(depth: f32, startDepth: f32, endDepth: f32) -> f32 {
+	let safeRange = max(endDepth - startDepth, 1e-4);
+	return clamp((depth - startDepth) / safeRange, 0.0, 1.0);
+}
+
+fn ignisFogExp(depth: f32, density: f32) -> f32 {
+	let d = max(depth, 0.0) * max(density, 0.0);
+	return 1.0 - exp(-d);
+}
+
+fn ignisFogExp2(depth: f32, density: f32) -> f32 {
+	let d = max(depth, 0.0) * max(density, 0.0);
+	return 1.0 - exp(-(d * d));
+}
+
+fn ignisComputeFogFactor(
+	mode: u32,
+	depth: f32,
+	startDepth: f32,
+	endDepth: f32,
+	density: f32,
+	strength: f32
+) -> f32 {
+	var fog = ignisFogLinear(depth, startDepth, endDepth);
+	if (mode == IGNIS_FOG_MODE_EXP) {
+		fog = ignisFogExp(depth, density);
+	} else if (mode == IGNIS_FOG_MODE_EXP2) {
+		fog = ignisFogExp2(depth, density);
+	}
+	return clamp(fog * max(strength, 0.0), 0.0, 1.0);
+}`,
+				sourcePath: "runtime://ignis/includes/wgsl/postprocess/fog.wgsl",
+			},
+			{
+				language: "wgsl",
 				id: "ignis/postprocess/luma-weights.wgsl",
 				code: `const IGNIS_LUMA_WEIGHTS_BT601: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 const IGNIS_LUMA_WEIGHTS_BT709: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);`,
@@ -403,6 +443,46 @@ vec3 linearToSrgb(vec3 c) {
 				code: `const float IGNIS_FXAA_EDGE_THRESHOLD_MIN = ${FXAA_EDGE_THRESHOLD_MIN_LITERAL};
 const float IGNIS_FXAA_QUALITY[${FXAA_QUALITY.length}] = float[${FXAA_QUALITY.length}](${FXAA_QUALITY_GLSL_LITERAL});`,
 				sourcePath: "runtime://ignis/includes/glsl/postprocess/fxaa.glsl",
+			},
+			{
+				language: "glsl",
+				id: "ignis/postprocess/fog.glsl",
+				code: `const int IGNIS_FOG_MODE_LINEAR = 0;
+const int IGNIS_FOG_MODE_EXP = 1;
+const int IGNIS_FOG_MODE_EXP2 = 2;
+
+float ignisFogLinear(float depth, float startDepth, float endDepth) {
+	float safeRange = max(endDepth - startDepth, 1e-4);
+	return clamp((depth - startDepth) / safeRange, 0.0, 1.0);
+}
+
+float ignisFogExp(float depth, float density) {
+	float d = max(depth, 0.0) * max(density, 0.0);
+	return 1.0 - exp(-d);
+}
+
+float ignisFogExp2(float depth, float density) {
+	float d = max(depth, 0.0) * max(density, 0.0);
+	return 1.0 - exp(-(d * d));
+}
+
+float ignisComputeFogFactor(
+	int mode,
+	float depth,
+	float startDepth,
+	float endDepth,
+	float density,
+	float strength
+) {
+	float fog = ignisFogLinear(depth, startDepth, endDepth);
+	if (mode == IGNIS_FOG_MODE_EXP) {
+		fog = ignisFogExp(depth, density);
+	} else if (mode == IGNIS_FOG_MODE_EXP2) {
+		fog = ignisFogExp2(depth, density);
+	}
+	return clamp(fog * max(strength, 0.0), 0.0, 1.0);
+}`,
+				sourcePath: "runtime://ignis/includes/glsl/postprocess/fog.glsl",
 			},
 			{
 				language: "glsl",

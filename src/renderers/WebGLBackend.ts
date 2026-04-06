@@ -44,6 +44,7 @@ const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"ssgi",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"fxaa",
@@ -66,7 +67,8 @@ const WEBGL_PASS_DEPENDENCIES = new Map<
 	["taa", ["ssgi", "ssao"]],
 	["ssr", ["taa"]],
 	["volumetric", ["ssr"]],
-	["motion-blur", ["volumetric"]],
+	["fog", ["volumetric"]],
+	["motion-blur", ["fog"]],
 	["dof", ["motion-blur"]],
 	["bloom", ["dof"]],
 	["fxaa", ["bloom"]],
@@ -101,6 +103,7 @@ export class WebGLBackend implements IRenderBackend {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		fog: true,
 		motionBlur: true,
 		dof: true,
 		bloom: true,
@@ -407,6 +410,9 @@ export class WebGLBackend implements IRenderBackend {
 		if (context.features.enableVolumetric) {
 			this._plannedPasses.add("volumetric");
 		}
+		if (isFogPostProcessEnabled(context.features)) {
+			this._plannedPasses.add("fog");
+		}
 		if (context.features.enableMotionBlur) {
 			this._plannedPasses.add("motion-blur");
 		}
@@ -556,4 +562,11 @@ function toSafeDimension(value: unknown): number {
 		return 1;
 	}
 	return Math.max(1, Math.floor(value));
+}
+
+function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
 }

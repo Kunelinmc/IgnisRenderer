@@ -19,6 +19,7 @@ const PIPELINE_PARTS: readonly WebGLShaderPart[] = [
 	"bloomFragment",
 	"interactionOutlineFragment",
 	"motionBlurFragment",
+	"fogFragment",
 	"dofFragment",
 	"taaFragment",
 	"ssaoRawFragment",

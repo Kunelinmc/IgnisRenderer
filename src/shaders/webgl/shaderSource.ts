@@ -19,6 +19,7 @@ export type WebGLShaderPart =
 	| "bloomFragment"
 	| "interactionOutlineFragment"
 	| "motionBlurFragment"
+	| "fogFragment"
 	| "dofFragment"
 	| "taaFragment"
 	| "ssaoRawFragment"
@@ -42,6 +43,7 @@ export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"bloomFragment",
 	"interactionOutlineFragment",
 	"motionBlurFragment",
+	"fogFragment",
 	"dofFragment",
 	"taaFragment",
 	"ssaoRawFragment",
@@ -104,6 +106,7 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 	bloomFragment: "./parts/bloomFragment.glsl",
 	interactionOutlineFragment: "./parts/interactionOutlineFragment.glsl",
 	motionBlurFragment: "./parts/motionBlurFragment.glsl",
+	fogFragment: "./parts/fogFragment.glsl",
 	dofFragment: "./parts/dofFragment.glsl",
 	taaFragment: "./parts/taaFragment.glsl",
 	ssaoRawFragment: "./parts/ssaoRawFragment.glsl",

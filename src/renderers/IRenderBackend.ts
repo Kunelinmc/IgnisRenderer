@@ -64,6 +64,7 @@ export interface BackendCapabilities {
 	taa: boolean;
 	ssr: boolean;
 	volumetric: boolean;
+	fog: boolean;
 	motionBlur: boolean;
 	dof: boolean;
 	bloom: boolean;

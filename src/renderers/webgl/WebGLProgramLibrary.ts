@@ -109,6 +109,16 @@ export interface WebGLVolumetricProgram {
 	};
 }
 
+export interface WebGLFogProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		motionDepthMap: WebGLUniformLocation | null;
+		fogParams0: WebGLUniformLocation | null;
+		fogParams1: WebGLUniformLocation | null;
+	};
+}
+
 
 export interface WebGLSceneProgram {
 	program: WebGLProgram;
@@ -180,6 +190,8 @@ export interface WebGLSceneProgram {
 		taaJitter: WebGLUniformLocation | null;
 		prevViewProjection: WebGLUniformLocation | null;
 		prevModel: WebGLUniformLocation | null;
+		fogParams0: WebGLUniformLocation | null;
+		fogParams1: WebGLUniformLocation | null;
 		customSamplers: Record<string, WebGLUniformLocation | null>;
 	};
 }
@@ -214,6 +226,9 @@ export interface WebGLParticleProgram {
 		uvTransformA: WebGLUniformLocation | null;
 		uvTransformB: WebGLUniformLocation | null;
 		mapIsLinear: WebGLUniformLocation | null;
+		cameraPosition: WebGLUniformLocation | null;
+		fogParams0: WebGLUniformLocation | null;
+		fogParams1: WebGLUniformLocation | null;
 	};
 }
 
@@ -307,6 +322,7 @@ export class WebGLProgramLibrary {
 	private _taaProgram: WebGLTAAProgram | null = null;
 	private _ssrProgram: WebGLSSRProgram | null = null;
 	private _volumetricProgram: WebGLVolumetricProgram | null = null;
+	private _fogProgram: WebGLFogProgram | null = null;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -686,6 +702,8 @@ export class WebGLProgramLibrary {
 					"uPrevViewProjection"
 				),
 				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
+				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
+				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
 				customSamplers,
 			},
 		};
@@ -764,6 +782,9 @@ export class WebGLProgramLibrary {
 				uvTransformA: this._gl.getUniformLocation(program, "uUvTransformA"),
 				uvTransformB: this._gl.getUniformLocation(program, "uUvTransformB"),
 				mapIsLinear: this._gl.getUniformLocation(program, "uMapIsLinear"),
+				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
+				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
+				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
 			},
 		};
 		return this._particleProgram;
@@ -1054,6 +1075,27 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._volumetricProgram;
+	}
+
+	public getFogProgram(): WebGLFogProgram {
+		if (this._fogProgram) {
+			return this._fogProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("fogFragment"),
+			"WebGLFogProgram"
+		);
+		this._fogProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
+				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
+			},
+		};
+		return this._fogProgram;
 	}
 
 	private _shaderSource(part: WebGLShaderPart): string {
@@ -1351,6 +1393,10 @@ export class WebGLProgramLibrary {
 		if (this._volumetricProgram) {
 			this._gl.deleteProgram(this._volumetricProgram.program);
 			this._volumetricProgram = null;
+		}
+		if (this._fogProgram) {
+			this._gl.deleteProgram(this._fogProgram.program);
+			this._fogProgram = null;
 		}
 	}
 }

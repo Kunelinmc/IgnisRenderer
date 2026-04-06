@@ -56,6 +56,7 @@ import type {
 	BloomOptions,
 	ClusteredLightingOptions,
 	DOFOptions,
+	FogOptions,
 	MotionBlurOptions,
 	SSAOOptions,
 	SSGIOptions,
@@ -117,6 +118,7 @@ export interface RendererFeatures {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableFog: boolean;
 	enableMotionBlur: boolean;
 	enableDOF: boolean;
 	enableBloom: boolean;
@@ -124,6 +126,7 @@ export interface RendererFeatures {
 	enableClusteredLighting: boolean;
 	ssrOptions: SSROptions;
 	volumetricOptions: VolumetricOptions;
+	fogOptions: FogOptions;
 	ssaoOptions: SSAOOptions;
 	ssgiOptions: SSGIOptions;
 	taaOptions: TAAOptions;
@@ -199,6 +202,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableFog: false,
 			enableMotionBlur: false,
 			enableDOF: false,
 			enableBloom: false,
@@ -206,6 +210,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableClusteredLighting: false,
 			ssrOptions: {},
 			volumetricOptions: {},
+			fogOptions: {},
 			ssaoOptions: {},
 			ssgiOptions: {},
 			taaOptions: {},
@@ -1015,6 +1020,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableSSR;
 			case "volumetric":
 				return features.enableVolumetric;
+			case "fog":
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
 			case "motion-blur":
 				return features.enableMotionBlur;
 			case "dof":
@@ -1071,6 +1081,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -1109,7 +1120,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "taa", dependsOn: ["ssgi", "ssao"] },
 		{ id: "ssr", dependsOn: ["taa"] },
 		{ id: "volumetric", dependsOn: ["ssr"] },
-		{ id: "motion-blur", dependsOn: ["volumetric"] },
+		{ id: "fog", dependsOn: ["volumetric"] },
+		{ id: "motion-blur", dependsOn: ["fog"] },
 		{ id: "dof", dependsOn: ["motion-blur"] },
 		{ id: "bloom", dependsOn: ["dof"] },
 		{ id: "fxaa", dependsOn: ["bloom"] },

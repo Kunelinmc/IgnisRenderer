@@ -14,15 +14,21 @@ import {
 	type WebGPULightingState,
 } from "./";
 import type { PreparedScene } from "../../pipeline/types";
+import {
+	DEFAULT_FOG_OPTIONS,
+	type FogOptions,
+} from "../../pipeline/types";
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import {
 	computeHaltonJitterNDC,
+	finiteOr,
 	TAA_HALTON_SAMPLE_COUNT,
 } from "./postProcessMath";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
+import { clamp } from "../../maths/Common";
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
@@ -30,6 +36,8 @@ export class WebGPUFrameBindingCache {
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
+	private _fogUniformBuffer: IRenderBuffer | null = null;
+	private _fogUniformData = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
 	private _skyboxBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
@@ -121,6 +129,10 @@ export class WebGPUFrameBindingCache {
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
+		this._backend.writeBuffer(
+			this._getFogUniformBuffer(),
+			this._packFogUniformData(features)
+		);
 		this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
 
 		const currentShadowAtlas = this._shadowAtlases.atlas;
@@ -234,6 +246,7 @@ export class WebGPUFrameBindingCache {
 							this._envSpecularSampler ??
 							this._textureRegistry.getWhiteSampler(),
 					},
+					{ binding: 4, resource: this._getFogUniformBuffer() },
 				],
 			});
 		}
@@ -276,6 +289,61 @@ export class WebGPUFrameBindingCache {
 		return this._frameUniformBuffer;
 	}
 
+	private _getFogUniformBuffer(): IRenderBuffer {
+		if (!this._fogUniformBuffer) {
+			this._fogUniformBuffer = this._backend.createBuffer({
+				size: 8 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUFogUniforms",
+			});
+		}
+		return this._fogUniformBuffer;
+	}
+
+	private _packFogUniformData(features: WebGPUFeatureState): Float32Array {
+		const source = features.fogOptions ?? DEFAULT_FOG_OPTIONS;
+		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
+		const start = Math.max(
+			0,
+			finiteOr(source.start, DEFAULT_FOG_OPTIONS.start)
+		);
+		const end = Math.max(
+			start + 1e-4,
+			finiteOr(source.end, DEFAULT_FOG_OPTIONS.end)
+		);
+		const density = Math.max(
+			0,
+			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
+		);
+		const sceneFogEnabled =
+			features.enableFog &&
+			(source.application ?? DEFAULT_FOG_OPTIONS.application) === "scene";
+		const strength = sceneFogEnabled ?
+			Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
+		:	0;
+		const data = this._fogUniformData;
+		data[0] = this._resolveFogMode(source.mode);
+		data[1] = start;
+		data[2] = end;
+		data[3] = density;
+		data[4] = clamp(finiteOr(color[0], DEFAULT_FOG_OPTIONS.color[0]), 0, 1);
+		data[5] = clamp(finiteOr(color[1], DEFAULT_FOG_OPTIONS.color[1]), 0, 1);
+		data[6] = clamp(finiteOr(color[2], DEFAULT_FOG_OPTIONS.color[2]), 0, 1);
+		data[7] = strength;
+		return data;
+	}
+
+	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
+		switch (mode) {
+			case "exp":
+				return 1;
+			case "exp2":
+				return 2;
+			default:
+				return 0;
+		}
+	}
+
 	public destroy(): void {
 		this._destroyBindingGroup(this._sceneBinding);
 		this._destroyBindingGroup(this._skyboxBinding);
@@ -283,6 +351,8 @@ export class WebGPUFrameBindingCache {
 		this._skyboxBinding = null;
 		this._frameUniformBuffer?.destroy();
 		this._frameUniformBuffer = null;
+		this._fogUniformBuffer?.destroy();
+		this._fogUniformBuffer = null;
 		this._shadowAtlas = null;
 		this._skyboxTexture = null;
 		this._envSpecularTexture = null;

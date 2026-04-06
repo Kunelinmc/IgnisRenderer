@@ -2,8 +2,10 @@ import type { FrameContext } from "../../../pipeline/types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
+	DEFAULT_FOG_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
+	type FogOptions,
 	type InteractionTransientState,
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
@@ -46,6 +48,7 @@ const INTERACTION_OUTLINE_PARAM_FLOATS =
 
 export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate {
 	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
+		"fog",
 		"motion-blur",
 		"dof",
 		"bloom",
@@ -54,6 +57,11 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	];
 
 	private _shared: PostProcessSharedContext;
+	private _fogModule: IShaderModule | null = null;
+	private _fogPipeline: IComputePipeline | null = null;
+	private _fogParams: IRenderBuffer | null = null;
+	private _fogParamData = new Float32Array(8);
+	private _fogParamUploaded = false;
 	private _motionBlurModule: IShaderModule | null = null;
 	private _motionBlurPipeline: IComputePipeline | null = null;
 	private _motionBlurParams: IRenderBuffer | null = null;
@@ -99,6 +107,11 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	}
 
 	public onShaderRuntimeChanged(): void {
+		this._fogModule = null;
+		this._fogPipeline = null;
+		this._fogParams?.destroy();
+		this._fogParams = null;
+		this._fogParamUploaded = false;
 		this._motionBlurModule = null;
 		this._motionBlurPipeline = null;
 		this._motionBlurParams?.destroy();
@@ -139,6 +152,9 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 
 	public async warmupHint(hint: string): Promise<boolean> {
 		switch (hint) {
+			case "postprocess:fog":
+				await this._ensureFogResources();
+				return true;
 			case "postprocess:motion-blur":
 				await this._ensureMotionBlurResources();
 				return true;
@@ -163,6 +179,13 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		request: WebGPUPostProcessExecuteRequest
 	): Promise<WebGPUPostProcessExecuteResult | null> {
 		switch (request.passId) {
+			case "fog":
+				await this._executeFog(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
 			case "motion-blur":
 				await this._executeMotionBlur(
 					request.encoder,
@@ -195,6 +218,42 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 			default:
 				return null;
 		}
+	}
+
+	private async _executeFog(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		frameContext: FrameContext
+	): Promise<void> {
+		await this._ensureFogResources();
+		if (!this._shared.sampler || !this._fogPipeline || !this._fogParams) {
+			return;
+		}
+		const target =
+			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		this._uploadFogParams(frameContext.features.fogOptions);
+		const binding = this._shared.getCachedBindGroup(
+			`fog-${target === targets.postPing ? "ping" : "pong"}`,
+			this._fogPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: this._shared.sampler },
+				{ binding: 3, resource: this._fogParams },
+				{ binding: 4, resource: target },
+			],
+			"WebGPUFog_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUFog" });
+		encoder.setComputePipeline(this._fogPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
 	}
 
 	private async _executeMotionBlur(
@@ -768,6 +827,87 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		);
 		request.encoder.endComputePass();
 		request.targets.sceneColor = target;
+	}
+
+	private async _ensureFogResources(): Promise<void> {
+		await this._shared.ensureCommonResources();
+		if (!this._fogModule) {
+			const shader = await loadPostProcessShaderPartComposite("fog");
+			this._fogModule = await this._shared.compute.createShaderModule({
+				label: "WebGPUFogShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._fogPipeline) {
+			this._fogPipeline = this._shared.compute.createComputePipeline({
+				label: "WebGPUFogPipeline",
+				compute: { module: this._fogModule, entryPoint: "csMain" },
+			});
+		}
+		if (!this._fogParams) {
+			this._fogParams = this._shared.compute.createBuffer({
+				label: "WebGPUFogParams",
+				size: 8 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
+	}
+
+	private _uploadFogParams(options: FogOptions | undefined): void {
+		if (!this._fogParams) {
+			return;
+		}
+		const source = options ?? DEFAULT_FOG_OPTIONS;
+		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
+		const start = Math.max(
+			0,
+			finiteOr(source.start, DEFAULT_FOG_OPTIONS.start)
+		);
+		const end = Math.max(
+			start + 1e-4,
+			finiteOr(source.end, DEFAULT_FOG_OPTIONS.end)
+		);
+		const density = Math.max(
+			0,
+			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
+		);
+		const strength = Math.max(
+			0,
+			finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength)
+		);
+
+		const data = this._fogParamData;
+		let changed = !this._fogParamUploaded;
+		changed =
+			this._setParamIfChanged(data, 0, this._resolveFogMode(source.mode)) ||
+			changed;
+		changed = this._setParamIfChanged(data, 1, start) || changed;
+		changed = this._setParamIfChanged(data, 2, end) || changed;
+		changed = this._setParamIfChanged(data, 3, density) || changed;
+		changed = this._setParamIfChanged(data, 4, clamp(finiteOr(color[0], DEFAULT_FOG_OPTIONS.color[0]), 0, 1)) || changed;
+		changed = this._setParamIfChanged(data, 5, clamp(finiteOr(color[1], DEFAULT_FOG_OPTIONS.color[1]), 0, 1)) || changed;
+		changed = this._setParamIfChanged(data, 6, clamp(finiteOr(color[2], DEFAULT_FOG_OPTIONS.color[2]), 0, 1)) || changed;
+		changed = this._setParamIfChanged(data, 7, strength) || changed;
+		if (!changed) {
+			return;
+		}
+		this._shared.compute.writeBuffer(this._fogParams, data);
+		this._fogParamUploaded = true;
+	}
+
+	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
+		switch (mode) {
+			case "exp":
+				return 1;
+			case "exp2":
+				return 2;
+			default:
+				return 0;
+		}
 	}
 
 	private async _ensureMotionBlurResources(): Promise<void> {

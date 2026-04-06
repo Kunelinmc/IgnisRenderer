@@ -1,4 +1,5 @@
 #import <ignis/color/srgb>
+#import <ignis/postprocess/fog>
 fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
@@ -192,9 +193,22 @@ fn buildSceneOutput(
 	motion: vec2<f32>,
 	linearDepth: f32
 ) -> SceneFragmentOutput {
+	let fogMode = i32(floor(fog.fogParams0.x + 0.5));
+	let fogFactor = ignisComputeFogFactor(
+		fogMode,
+		max(linearDepth, 0.0),
+		fog.fogParams0.y,
+		fog.fogParams0.z,
+		fog.fogParams0.w,
+		fog.fogParams1.w
+	);
+	let foggedSceneLinear = max(
+		mix(sceneLinear, fog.fogParams1.rgb, fogFactor),
+		vec3<f32>(0.0)
+	);
 	var output: SceneFragmentOutput;
 	output.sceneColor = vec4<f32>(
-		clamp(sceneLinear, vec3<f32>(0.0), vec3<f32>(65504.0)),
+		clamp(foggedSceneLinear, vec3<f32>(0.0), vec3<f32>(65504.0)),
 		clamp(alpha, 0.0, 1.0)
 	);
 	output.gAlbedoAlpha = vec4<f32>(

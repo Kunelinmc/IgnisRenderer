@@ -10,6 +10,7 @@ export const WEBGPU_POST_PROCESS_PASS_IDS = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -58,6 +59,11 @@ export interface WebGPUPostProcessVolumetricExecuteRequest
 	lightingState: WebGPULightingState | null;
 }
 
+export interface WebGPUPostProcessFogExecuteRequest
+	extends WebGPUPostProcessExecuteBaseRequest {
+	passId: "fog";
+}
+
 export interface WebGPUPostProcessMotionBlurExecuteRequest
 	extends WebGPUPostProcessExecuteBaseRequest {
 	passId: "motion-blur";
@@ -90,6 +96,7 @@ export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessTAAExecuteRequest
 	| WebGPUPostProcessSSRExecuteRequest
 	| WebGPUPostProcessVolumetricExecuteRequest
+	| WebGPUPostProcessFogExecuteRequest
 	| WebGPUPostProcessMotionBlurExecuteRequest
 	| WebGPUPostProcessDOFExecuteRequest
 	| WebGPUPostProcessBloomExecuteRequest

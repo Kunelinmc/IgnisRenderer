@@ -267,13 +267,21 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["taa", ["ssgi", "ssao"]],
 	["ssr", ["taa"]],
 	["volumetric", ["ssr"]],
-	["motion-blur", ["volumetric"]],
+	["fog", ["volumetric"]],
+	["motion-blur", ["fog"]],
 	["dof", ["motion-blur"]],
 	["bloom", ["dof"]],
 	["fxaa", ["bloom"]],
 	["interaction-outline", ["fxaa"]],
 	["gamma", ["interaction-outline"]],
 ]);
+
+function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
+}
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
@@ -292,6 +300,7 @@ export class WebGPUBackend implements IRenderBackend {
 		taa: true,
 		ssr: true,
 		volumetric: true,
+		fog: true,
 		motionBlur: true,
 		dof: true,
 		bloom: true,
@@ -2361,6 +2370,9 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableVolumetric) {
 			this._plannedPasses.add("volumetric");
+		}
+		if (isFogPostProcessEnabled(context.features)) {
+			this._plannedPasses.add("fog");
 		}
 		if (context.features.enableMotionBlur) {
 			this._plannedPasses.add("motion-blur");

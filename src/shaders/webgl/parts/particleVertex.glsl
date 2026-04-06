@@ -11,10 +11,12 @@ layout(location = 5) in float aInstanceRotation;
 uniform mat4 uViewProjection;
 uniform vec3 uBasisRight;
 uniform vec3 uBasisUp;
+uniform vec3 uCameraPosition;
 
 out vec2 vUv;
 out vec4 vColor;
 out vec2 vLocalUv;
+out float vViewDepth;
 
 void main() {
 	float c = cos(aInstanceRotation);
@@ -35,4 +37,5 @@ void main() {
 	);
 	vColor = aInstanceColor;
 	vLocalUv = aQuadUv;
+	vViewDepth = length(uCameraPosition - worldPosition);
 }

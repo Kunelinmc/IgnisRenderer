@@ -3,6 +3,7 @@ import type { IVector3, SHCoefficients } from "../../maths/types";
 import type {
 	BloomOptions,
 	ClusteredLightingOptions,
+	FogOptions,
 	TAAOptions,
 } from "../../pipeline/types";
 import type { ShadowMap } from "../../lights/ShadowMapping";
@@ -99,9 +100,11 @@ export interface WebGPUFeatureState {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableFog: boolean;
 	enableBloom: boolean;
 	enableClusteredLighting: boolean;
 	taaOptions?: TAAOptions;
+	fogOptions?: FogOptions;
 	bloomOptions?: BloomOptions;
 	clusteredLightingOptions?: ClusteredLightingOptions;
 	warnings: WebGPUWarning[];

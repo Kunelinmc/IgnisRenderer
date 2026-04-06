@@ -63,6 +63,7 @@ export type {
 	TAAOptions,
 	MotionBlurOptions,
 	DOFOptions,
+	FogOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
 export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";

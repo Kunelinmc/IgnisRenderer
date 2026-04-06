@@ -13,6 +13,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -64,6 +65,8 @@ function shouldEnablePass(
 			return features.enableSSR;
 		case "volumetric":
 			return features.enableVolumetric;
+		case "fog":
+			return isFogPostProcessEnabled(features);
 		case "motion-blur":
 			return features.enableMotionBlur;
 		case "dof":
@@ -77,4 +80,11 @@ function shouldEnablePass(
 		default:
 			return false;
 	}
+}
+
+function isFogPostProcessEnabled(features: ResolvedFeatureState): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
 }

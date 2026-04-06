@@ -165,6 +165,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -200,6 +201,17 @@ export interface VolumetricOptions {
 	restirCandidates?: number;
 	restirTemporalWeight?: number;
 	restirScaleClamp?: number;
+	[key: string]: unknown;
+}
+
+export interface FogOptions {
+	mode?: "linear" | "exp" | "exp2";
+	application?: "postprocess" | "scene";
+	color?: [number, number, number];
+	start?: number;
+	end?: number;
+	density?: number;
+	strength?: number;
 	[key: string]: unknown;
 }
 
@@ -410,6 +422,27 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 	restirScaleClamp: 24,
 };
 
+export const DEFAULT_FOG_OPTIONS: Required<
+	Pick<
+		FogOptions,
+		| "mode"
+		| "application"
+		| "color"
+		| "start"
+		| "end"
+		| "density"
+		| "strength"
+	>
+> = {
+	mode: "linear",
+	application: "postprocess",
+	color: [0.58, 0.64, 0.72],
+	start: 20,
+	end: 200,
+	density: 0.015,
+	strength: 1,
+};
+
 export const DEFAULT_BLOOM_OPTIONS: Required<
 	Pick<BloomOptions, "threshold" | "softKnee" | "intensity" | "radius" | "mipPasses" | "filterRadius">
 > = {
@@ -492,6 +525,7 @@ export interface RendererFeatureRequest {
 	enableTAA?: boolean;
 	enableSSR?: boolean;
 	enableVolumetric?: boolean;
+	enableFog?: boolean;
 	enableMotionBlur?: boolean;
 	enableDOF?: boolean;
 	enableBloom?: boolean;
@@ -502,6 +536,7 @@ export interface RendererFeatureRequest {
 	ssgiOptions?: SSGIOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
+	fogOptions?: FogOptions;
 	bloomOptions?: BloomOptions;
 	motionBlurOptions?: MotionBlurOptions;
 	dofOptions?: DOFOptions;
@@ -520,6 +555,7 @@ export interface ResolvedFeatureState {
 	enableTAA: boolean;
 	enableSSR: boolean;
 	enableVolumetric: boolean;
+	enableFog: boolean;
 	enableMotionBlur: boolean;
 	enableDOF: boolean;
 	enableBloom: boolean;
@@ -531,6 +567,7 @@ export interface ResolvedFeatureState {
 	ssgiOptions?: SSGIOptions;
 	taaOptions?: TAAOptions;
 	volumetricOptions?: VolumetricOptions;
+	fogOptions?: FogOptions;
 	bloomOptions?: BloomOptions;
 	motionBlurOptions?: MotionBlurOptions;
 	dofOptions?: DOFOptions;

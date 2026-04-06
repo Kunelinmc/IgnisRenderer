@@ -1,3 +1,4 @@
+#import <ignis/postprocess/fog>
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
@@ -43,10 +44,16 @@ struct ParticleUVTransform {
 	transformB: vec4<f32>, // x: cos(rotation), y: sin(rotation)
 }
 
+struct FogUniforms {
+	fogParams0: vec4<f32>,
+	fogParams1: vec4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
+@group(0) @binding(4) var<uniform> fog: FogUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
@@ -157,5 +164,20 @@ fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
 		let visibility = sampleDirectionalShadowVisibility(input.worldPosition);
 		color = vec4<f32>(color.rgb * visibility, color.a);
 	}
+
+	let viewDepth = length(frame.cameraPosition.xyz - input.worldPosition);
+	let fogMode = i32(floor(fog.fogParams0.x + 0.5));
+	let fogFactor = ignisComputeFogFactor(
+		fogMode,
+		max(viewDepth, 0.0),
+		fog.fogParams0.y,
+		fog.fogParams0.z,
+		fog.fogParams0.w,
+		fog.fogParams1.w
+	);
+	color = vec4<f32>(
+		max(mix(color.rgb, fog.fogParams1.rgb, fogFactor), vec3<f32>(0.0)),
+		color.a
+	);
 	return color;
 }

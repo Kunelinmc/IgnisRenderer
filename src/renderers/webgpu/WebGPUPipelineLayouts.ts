@@ -51,6 +51,14 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				sampler: { type: "filtering" },
 			},
+			{
+				binding: 4,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
 		],
 	});
 	const skyboxFrameBindGroupLayout = device.createBindGroupLayout({

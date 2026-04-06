@@ -4,6 +4,7 @@ import {
 	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
+	DEFAULT_FOG_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSGI_OPTIONS,
@@ -22,6 +23,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	taa: "feature-taa",
 	ssr: "feature-ssr",
 	volumetric: "feature-volumetric",
+	fog: "feature-fog",
 	motionBlur: "feature-motion-blur",
 	dof: "feature-dof",
 	bloom: "feature-bloom",
@@ -38,6 +40,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	taa: "TAA",
 	ssr: "SSR",
 	volumetric: "volumetric effects",
+	fog: "fog",
 	motionBlur: "motion blur",
 	dof: "depth of field",
 	bloom: "bloom",
@@ -62,6 +65,10 @@ export function resolveFeatureState(
 		volumetricOptions: {
 			...DEFAULT_VOLUMETRIC_OPTIONS,
 			...(request.volumetricOptions ?? {}),
+		},
+		fogOptions: {
+			...DEFAULT_FOG_OPTIONS,
+			...(request.fogOptions ?? {}),
 		},
 		bloomOptions: {
 			...DEFAULT_BLOOM_OPTIONS,
@@ -139,6 +146,13 @@ export function resolveFeatureState(
 			request.enableVolumetric,
 			capabilities.volumetric,
 			"volumetric",
+			backendType,
+			warnings
+		),
+		enableFog: resolveBooleanFeature(
+			request.enableFog,
+			capabilities.fog,
+			"fog",
 			backendType,
 			warnings
 		),

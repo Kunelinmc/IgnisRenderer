@@ -54,6 +54,7 @@ export class SoftwareBackend implements IRenderBackend {
 		taa: false,
 		ssr: false,
 		volumetric: true,
+		fog: false,
 		motionBlur: false,
 		dof: false,
 		bloom: false,

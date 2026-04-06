@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/color/srgb>
+#import <ignis/postprocess/fog>
 
 const int MAX_DIRECTIONAL_LIGHTS = __MAX_DIRECTIONAL_LIGHTS__;
 const int MAX_POINT_LIGHTS = __MAX_POINT_LIGHTS__;
@@ -85,6 +86,8 @@ uniform sampler2D uClusterLightTexture;
 uniform vec2 uClusterHeaderTexSize;
 uniform vec2 uClusterIndexTexSize;
 uniform vec2 uClusterLightTexSize;
+uniform vec4 uFogParams0;
+uniform vec4 uFogParams1;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
@@ -1222,6 +1225,16 @@ void main() {
 	}
 
 	color += uEmissive.rgb;
+	int fogMode = int(floor(uFogParams0.x + 0.5));
+	float fogFactor = ignisComputeFogFactor(
+		fogMode,
+		max(vViewDepth, 0.0),
+		uFogParams0.y,
+		uFogParams0.z,
+		uFogParams0.w,
+		uFogParams1.w
+	);
+	color = max(mix(color, uFogParams1.rgb, fogFactor), vec3(0.0));
 	fragColor = vec4(max(color, vec3(0.0)), alpha);
 	fragNormal = vec4(normal * 0.5 + 0.5, 1.0);
 	vec2 curUV = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;

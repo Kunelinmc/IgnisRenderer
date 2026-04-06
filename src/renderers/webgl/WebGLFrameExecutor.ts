@@ -18,6 +18,7 @@ import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_BLOOM_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
+	DEFAULT_FOG_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
@@ -25,6 +26,7 @@ import {
 	type DrawPacket,
 	type BloomOptions,
 	type DOFOptions,
+	type FogOptions,
 	type FrameContext,
 	type FramePass,
 	type InteractionTransientState,
@@ -145,6 +147,7 @@ const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -239,6 +242,8 @@ export class WebGLFrameExecutor {
 	private _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
 	private _shAmbientTextureHeight = 1;
 	private _ssaoFrameIndex = 0;
+	private _fogParams0 = new Float32Array(4);
+	private _fogParams1 = new Float32Array(4);
 	private _interactionOutlineCircles = new Float32Array(
 		MAX_INTERACTION_OUTLINE_CIRCLES * 4
 	);
@@ -501,6 +506,11 @@ export class WebGLFrameExecutor {
 						this._programs.getVolumetricProgram();
 					});
 					break;
+				case "postprocess:fog":
+					compile("WebGLFogProgram", () => {
+						this._programs.getFogProgram();
+					});
+					break;
 				default:
 					skipped++;
 					break;
@@ -645,8 +655,19 @@ export class WebGLFrameExecutor {
 				execute: () => {},
 			},
 			{
-				id: "motion-blur",
+				id: "fog",
 				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:fog"],
+				isEnabled: (features) =>
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene",
+				execute: ({ frameContext }) => {
+					this._applyFog(frameContext.features.fogOptions);
+				},
+			},
+			{
+				id: "motion-blur",
+				dependsOn: ["fog"],
 				precompileHints: ["postprocess:motion-blur"],
 				isEnabled: (features) => features.enableMotionBlur,
 				execute: ({ frameContext }) => {
@@ -1418,6 +1439,25 @@ export class WebGLFrameExecutor {
 				view[1][2]
 			);
 		}
+		if (particleProgram.uniforms.cameraPosition) {
+			const cameraPosition = context.camera.getWorldPosition();
+			gl.uniform3f(
+				particleProgram.uniforms.cameraPosition,
+				finiteOr(cameraPosition.x, 0),
+				finiteOr(cameraPosition.y, 0),
+				finiteOr(cameraPosition.z, 0)
+			);
+		}
+		const sceneFogEnabled =
+			context.features.enableFog &&
+			(context.features.fogOptions?.application ?? "postprocess") === "scene";
+		this._updateFogParams(context.features.fogOptions, sceneFogEnabled);
+		if (particleProgram.uniforms.fogParams0) {
+			gl.uniform4fv(particleProgram.uniforms.fogParams0, this._fogParams0);
+		}
+		if (particleProgram.uniforms.fogParams1) {
+			gl.uniform4fv(particleProgram.uniforms.fogParams1, this._fogParams1);
+		}
 		if (particleProgram.uniforms.particleMap) {
 			gl.uniform1i(particleProgram.uniforms.particleMap, 0);
 		}
@@ -1795,6 +1835,16 @@ export class WebGLFrameExecutor {
 				cameraY,
 				cameraZ
 			);
+		}
+		const sceneFogEnabled =
+			context.features.enableFog &&
+			(context.features.fogOptions?.application ?? "postprocess") === "scene";
+		this._updateFogParams(context.features.fogOptions, sceneFogEnabled);
+		if (uniforms.fogParams0) {
+			gl.uniform4fv(uniforms.fogParams0, this._fogParams0);
+		}
+		if (uniforms.fogParams1) {
+			gl.uniform4fv(uniforms.fogParams1, this._fogParams1);
 		}
 		if (uniforms.ambientColor) {
 			const ambientR = finiteOr(lights.ambientColor[0], 0);
@@ -2772,6 +2822,64 @@ export class WebGLFrameExecutor {
 		this._presentSourceTexture = targetTexture;
 	}
 
+	private _applyFog(options?: FogOptions): void {
+		if (
+			!this._sceneMotionTexture ||
+			!this._postFramebuffer ||
+			!this._sceneColorTexture ||
+			!this._postColorTexture ||
+			!this._fullscreenVao
+		) {
+			return;
+		}
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
+			return;
+		}
+		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
+		if (!targetTexture) {
+			return;
+		}
+
+		this._updateFogParams(options, true);
+
+		const gl = this._gl;
+		const fogProgram = this._programs.getFogProgram();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(targetTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(fogProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
+
+		const uniforms = fogProgram.uniforms;
+		if (uniforms.sceneColor) {
+			gl.uniform1i(uniforms.sceneColor, 0);
+		}
+		if (uniforms.motionDepthMap) {
+			gl.uniform1i(uniforms.motionDepthMap, 1);
+		}
+		if (uniforms.fogParams0) {
+			gl.uniform4fv(uniforms.fogParams0, this._fogParams0);
+		}
+		if (uniforms.fogParams1) {
+			gl.uniform4fv(uniforms.fogParams1, this._fogParams1);
+		}
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
+		gl.bindVertexArray(null);
+		this._presentSourceTexture = targetTexture;
+	}
+
 	private _applyMotionBlur(options?: MotionBlurOptions): void {
 		if (
 			!this._sceneMotionTexture ||
@@ -3124,6 +3232,59 @@ export class WebGLFrameExecutor {
 		gl.bindVertexArray(null);
 
 		this._presentSourceTexture = targetTexture;
+	}
+
+	private _updateFogParams(options: FogOptions | undefined, enabled: boolean): void {
+		const source = options ?? DEFAULT_FOG_OPTIONS;
+		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
+		const start = Math.max(
+			0,
+			finiteOr(source.start, DEFAULT_FOG_OPTIONS.start)
+		);
+		const end = Math.max(
+			start + 1e-4,
+			finiteOr(source.end, DEFAULT_FOG_OPTIONS.end)
+		);
+		const density = Math.max(
+			0,
+			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
+		);
+		const strength = enabled ?
+			Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
+		:	0;
+
+		this._fogParams0[0] = this._resolveFogMode(source.mode);
+		this._fogParams0[1] = start;
+		this._fogParams0[2] = end;
+		this._fogParams0[3] = density;
+
+		this._fogParams1[0] = clamp(
+			finiteOr(color[0], DEFAULT_FOG_OPTIONS.color[0]),
+			0,
+			1
+		);
+		this._fogParams1[1] = clamp(
+			finiteOr(color[1], DEFAULT_FOG_OPTIONS.color[1]),
+			0,
+			1
+		);
+		this._fogParams1[2] = clamp(
+			finiteOr(color[2], DEFAULT_FOG_OPTIONS.color[2]),
+			0,
+			1
+		);
+		this._fogParams1[3] = strength;
+	}
+
+	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
+		switch (mode) {
+			case "exp":
+				return 1;
+			case "exp2":
+				return 2;
+			default:
+				return 0;
+		}
 	}
 
 	private _applyInteractionOutline(context: FrameContext): void {

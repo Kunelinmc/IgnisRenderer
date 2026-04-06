@@ -126,6 +126,7 @@ const FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -146,6 +147,7 @@ type PostProcessStage = Extract<
 	| "taa"
 	| "ssr"
 	| "volumetric"
+	| "fog"
 	| "motion-blur"
 	| "dof"
 	| "bloom"
@@ -160,6 +162,7 @@ type PostProcessFeatureFlag = keyof Pick<
 	| "enableTAA"
 	| "enableSSR"
 	| "enableVolumetric"
+	| "enableFog"
 	| "enableMotionBlur"
 	| "enableDOF"
 	| "enableBloom"
@@ -175,6 +178,7 @@ const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
 	["taa", "enableTAA"],
 	["ssr", "enableSSR"],
 	["volumetric", "enableVolumetric"],
+	["fog", "enableFog"],
 	["motion-blur", "enableMotionBlur"],
 	["dof", "enableDOF"],
 	["bloom", "enableBloom"],
@@ -640,6 +644,7 @@ export function computePostProcessInflationRadius(
 	if (features.enableTAA) radius = Math.max(radius, 8);
 	if (features.enableSSR) radius = Math.max(radius, 16);
 	if (features.enableVolumetric) radius = Math.max(radius, 16);
+	if (isFogPostProcessEnabled(features)) radius = Math.max(radius, 20);
 	if (features.enableMotionBlur) radius = Math.max(radius, 24);
 	if (features.enableDOF) radius = Math.max(radius, 32);
 	if (features.enableBloom) radius = Math.max(radius, 48);
@@ -654,6 +659,7 @@ export function resolvePostProcessGrade(
 		features.enableTAA ||
 		features.enableSSR ||
 		features.enableVolumetric ||
+		isFogPostProcessEnabled(features) ||
 		features.enableMotionBlur ||
 		features.enableDOF
 	) {
@@ -706,11 +712,21 @@ function resolveFirstEnabledPostProcessStage(
 	features: ResolvedFeatureState
 ): PostProcessStage | null {
 	for (const [stage, featureFlag] of POST_PROCESS_STAGE_FEATURE_ORDER) {
+		if (stage === "fog" && !isFogPostProcessEnabled(features)) {
+			continue;
+		}
 		if (features[featureFlag]) {
 			return stage;
 		}
 	}
 	return null;
+}
+
+function isFogPostProcessEnabled(features: ResolvedFeatureState): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
 }
 
 function pickEarliestPass(candidates: FramePassStage[]): FramePassStage {

@@ -49,6 +49,7 @@ const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"taa",
 	"ssr",
 	"volumetric",
+	"fog",
 	"motion-blur",
 	"dof",
 	"bloom",
@@ -583,9 +584,24 @@ export class WebGPUFrameExecutor {
 				},
 			},
 			{
-				id: "motion-blur",
+				id: "fog",
 				kind: "compute",
 				dependsOn: ["volumetric"],
+				precompileHints: ["postprocess:fog"],
+				isEnabled: (features) => isFogPostProcessEnabled(features),
+				execute: async (ctx) => {
+					await this._postRuntime.executePass({
+						passId: "fog",
+						encoder: ctx.encoder,
+						targets: ctx.targets,
+						frameContext: ctx.frameContext,
+					});
+				},
+			},
+			{
+				id: "motion-blur",
+				kind: "compute",
+				dependsOn: ["fog"],
 				precompileHints: ["postprocess:motion-blur"],
 				isEnabled: (features) => features.enableMotionBlur,
 				execute: async (ctx) => {
@@ -1289,6 +1305,7 @@ export class WebGPUFrameExecutor {
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
 			`|ssr:${context.features.enableSSR ? 1 : 0}` +
 			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
+			`|fog:${isFogPostProcessEnabled(context.features) ? 1 : 0}` +
 			`|mblur:${context.features.enableMotionBlur ? 1 : 0}` +
 			`|dof:${context.features.enableDOF ? 1 : 0}` +
 			`|bloom:${context.features.enableBloom ? 1 : 0}` +
@@ -1869,4 +1886,11 @@ function clampDownsample(value: unknown, fallback: number): number {
 		return fallback;
 	}
 	return Math.min(8, Math.max(1, Math.floor(value)));
+}
+
+function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
 }
