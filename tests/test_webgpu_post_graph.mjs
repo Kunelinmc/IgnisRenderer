@@ -14,6 +14,7 @@ function createFeatures(overrides = {}) {
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
+		enableFog: true,
 		enableMotionBlur: true,
 		enableDOF: true,
 		enableBloom: true,
@@ -24,6 +25,9 @@ function createFeatures(overrides = {}) {
 		ssgiOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
+		fogOptions: {
+			application: "postprocess",
+		},
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
@@ -50,7 +54,19 @@ function testPostGraphOrder() {
 		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
+		{
+			id: "fog",
+			kind: "compute",
+			dependsOn: ["volumetric"],
+			isEnabled(features) {
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
+			},
+			execute() {},
+		},
+		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
 		createPass("fxaa", ["bloom"], "enableFXAA"),
@@ -69,6 +85,7 @@ function testPostGraphOrder() {
 			"taa",
 			"ssr",
 			"volumetric",
+			"fog",
 			"motion-blur",
 			"dof",
 			"bloom",
@@ -86,7 +103,19 @@ function testEnabledSubsetShrinksDependencyChain() {
 		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
 		createPass("ssr", ["taa"], "enableSSR"),
 		createPass("volumetric", ["ssr"], "enableVolumetric"),
-		createPass("motion-blur", ["volumetric"], "enableMotionBlur"),
+		{
+			id: "fog",
+			kind: "compute",
+			dependsOn: ["volumetric"],
+			isEnabled(features) {
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
+			},
+			execute() {},
+		},
+		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
 		createPass("fxaa", ["bloom"], "enableFXAA"),
@@ -100,6 +129,7 @@ function testEnabledSubsetShrinksDependencyChain() {
 			enableTAA: false,
 			enableSSR: false,
 			enableVolumetric: false,
+			enableFog: false,
 			enableMotionBlur: false,
 			enableDOF: false,
 			enableBloom: false,
@@ -149,11 +179,41 @@ function testCycleSkipsPassBranch() {
 	assert.ok(warnings.length >= 1);
 }
 
+function testFogSceneModeSkipsFogPass() {
+	const graph = new WebGPUPostProcessGraph([
+		createPass("volumetric", [], "enableVolumetric"),
+		{
+			id: "fog",
+			kind: "compute",
+			dependsOn: ["volumetric"],
+			isEnabled(features) {
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
+			},
+			execute() {},
+		},
+		createPass("motion-blur", ["fog"], "enableMotionBlur"),
+	]);
+	const order = graph.getExecutionOrder(
+		createFeatures({
+			enableFog: true,
+			fogOptions: {
+				application: "scene",
+			},
+		}),
+		() => {}
+	);
+	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "motion-blur"]);
+}
+
 function run() {
 	testPostGraphOrder();
 	testEnabledSubsetShrinksDependencyChain();
 	testUnknownDependencySkipsPass();
 	testCycleSkipsPassBranch();
+	testFogSceneModeSkipsFogPass();
 	console.log("WebGPU post graph tests passed");
 }
 

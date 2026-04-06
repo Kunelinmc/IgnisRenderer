@@ -236,6 +236,7 @@ function testFeatureGate() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,
@@ -532,6 +533,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				taa: false,
 				ssr: false,
 				volumetric: false,
+				fog: false,
 				motionBlur: false,
 				dof: false,
 				bloom: false,
@@ -546,7 +548,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 4);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 5);
 	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
@@ -635,6 +637,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 				taa: false,
 				ssr: false,
 				volumetric: false,
+				fog: false,
 				motionBlur: false,
 				dof: false,
 				bloom: false,
@@ -684,6 +687,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		taa: false,
 		ssr: false,
 		volumetric: false,
+		fog: false,
 		motionBlur: false,
 		dof: false,
 		bloom: false,
@@ -779,6 +783,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,
@@ -902,6 +907,7 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,
@@ -953,6 +959,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,
@@ -996,6 +1003,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,
@@ -1093,6 +1101,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 			motionBlur: false,
 			dof: false,
 			bloom: false,

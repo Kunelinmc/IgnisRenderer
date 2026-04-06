@@ -231,6 +231,7 @@ async function testInitAndPassRouting() {
 		taa: true,
 		ssr: false,
 		volumetric: false,
+		fog: true,
 		motionBlur: true,
 		dof: true,
 		bloom: true,

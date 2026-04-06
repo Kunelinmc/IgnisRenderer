@@ -230,6 +230,73 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testFogRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(24, 12, "scene");
+	const postPing = createTexture(24, 12, "ping");
+	const postPong = createTexture(24, 12, "pong");
+	const gMotionDepth = createTexture(24, 12, "motion-depth");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+		gMotionDepth,
+	};
+
+	await runtime.executePass({
+		passId: "fog",
+		encoder,
+		targets,
+		frameContext: createFrameContext({
+			fogOptions: {
+				mode: "exp2",
+				color: [0.1, 0.2, 0.3],
+				start: 10,
+				end: 120,
+				density: 0.02,
+				strength: 0.75,
+			},
+		}),
+	});
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUFogShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("ignisComputeFogFactor"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUFogPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUFogParams");
+	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 5);
+	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
+	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, gMotionDepth);
+	assert.equal(backend.bindingGroups[0].desc.entries[4].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 8);
+	assertClose(params[0], 2);
+	assertClose(params[1], 10);
+	assertClose(params[2], 120);
+	assertClose(params[3], 0.02);
+	assertClose(params[4], 0.1);
+	assertClose(params[5], 0.2);
+	assertClose(params[6], 0.3);
+	assertClose(params[7], 0.75);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUFog"],
+		["setComputePipeline", "WebGPUFogPipeline"],
+		["setBindingGroup", 0, "WebGPUFog_Binding"],
+		["dispatchWorkgroups", 3, 2, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testDOFRuntimeUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -456,6 +523,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 export async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testBloomRuntimeUsesDedicatedPipeline();
+	await testFogRuntimeUsesDedicatedPipeline();
 	await testMotionBlurRuntimeUsesDedicatedPipeline();
 	await testMotionBlurSkipsRedundantParamUploads();
 	await testDOFRuntimeUsesDedicatedPipeline();

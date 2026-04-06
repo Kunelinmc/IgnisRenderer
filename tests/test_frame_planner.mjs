@@ -31,15 +31,23 @@ function run() {
 		enableTAA: false,
 		enableSSR: false,
 		enableVolumetric: false,
+		enableFog: false,
+		enableMotionBlur: false,
+		enableDOF: false,
 		enableBloom: false,
 		enableFXAA: true,
+		enableClusteredLighting: false,
 		warnings: [],
 		ssrOptions: {},
 		ssaoOptions: {},
 		ssgiOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
+		fogOptions: {},
 		bloomOptions: {},
+		motionBlurOptions: {},
+		dofOptions: {},
+		clusteredLightingOptions: {},
 	};
 
 	const frame = createFrame({
@@ -56,6 +64,7 @@ function run() {
 		enableTAA: true,
 		enableSSR: true,
 		enableVolumetric: true,
+		enableFog: true,
 		enableBloom: true,
 	});
 
@@ -74,6 +83,7 @@ function run() {
 			"taa",
 			"ssr",
 			"volumetric",
+			"fog",
 			"motion-blur",
 			"dof",
 			"bloom",
@@ -105,6 +115,7 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === "taa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "ssr")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "fog")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "bloom")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
@@ -138,6 +149,14 @@ function run() {
 		plan.find((pass) => pass.stage === "particle-sim")?.executor,
 		"backend"
 	);
+	const sceneFogPlan = FramePlanner.build(createFrame(), {
+		...baseResolved,
+		enableFog: true,
+		fogOptions: {
+			application: "scene",
+		},
+	});
+	assert.equal(sceneFogPlan.find((pass) => pass.stage === "fog")?.enabled, false);
 
 	console.log("Frame planner tests passed");
 }

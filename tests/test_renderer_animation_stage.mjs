@@ -20,6 +20,7 @@ class StubBackend {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 		};
 		this.frameScheduling = "on-demand";
 		this.passExecutors = {

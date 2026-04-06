@@ -21,6 +21,7 @@ class StubBackend {
 			taa: false,
 			ssr: false,
 			volumetric: false,
+			fog: false,
 		};
 		this.frameScheduling = "always";
 		this.passExecutors = {

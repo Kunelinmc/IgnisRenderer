@@ -17,12 +17,14 @@ function createFeatures(overrides = {}) {
 		enableTAA: false,
 		enableSSR: false,
 		enableVolumetric: false,
+		enableFog: false,
 		enableMotionBlur: false,
 		enableDOF: false,
 		enableBloom: false,
 		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],
+		fogOptions: {},
 		...overrides,
 	};
 }
@@ -96,6 +98,44 @@ function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
 	assert.equal(plan.firstPass, "ssao");
 }
 
+function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: createFeatures({
+			enableSSAO: false,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableFog: true,
+			enableMotionBlur: false,
+			enableDOF: false,
+			enableBloom: false,
+			enableFXAA: true,
+			fogOptions: {
+				application: "postprocess",
+			},
+		}),
+	});
+	assert.equal(plan.firstPass, "fog");
+}
+
+function testPostFxSkipsFogInSceneMode() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: createFeatures({
+			enableFog: true,
+			enableFXAA: true,
+			fogOptions: {
+				application: "scene",
+			},
+		}),
+	});
+	assert.equal(plan.firstPass, "fxaa");
+}
+
 function testPostFxCinematicReasonResetsTemporalHistory() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -152,6 +192,8 @@ function run() {
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();
 	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
+	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
+	testPostFxSkipsFogInSceneMode();
 	testPostFxCinematicReasonResetsTemporalHistory();
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();

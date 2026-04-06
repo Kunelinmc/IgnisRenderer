@@ -13,7 +13,8 @@ function createFeatures(overrides = {}) {
 		enableSSGI: false,
 		enableTAA: true,
 		enableSSR: false,
-		enableVolumetric: false,
+		enableVolumetric: true,
+		enableFog: true,
 		enableMotionBlur: true,
 		enableDOF: true,
 		enableBloom: true,
@@ -25,6 +26,9 @@ function createFeatures(overrides = {}) {
 		ssgiOptions: {},
 		taaOptions: {},
 		volumetricOptions: {},
+		fogOptions: {
+			application: "postprocess",
+		},
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
@@ -48,7 +52,19 @@ function testExecutionOrder() {
 	const graph = new WebGLPostProcessGraph([
 		createPass("ssao", [], "enableSSAO"),
 		createPass("taa", ["ssao"], "enableTAA"),
-		createPass("motion-blur", ["taa"], "enableMotionBlur"),
+		createPass("volumetric", ["taa"], "enableVolumetric"),
+		{
+			id: "fog",
+			dependsOn: ["volumetric"],
+			isEnabled(features) {
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
+			},
+			execute() {},
+		},
+		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
 		createPass("fxaa", ["bloom"], "enableFXAA"),
@@ -60,9 +76,47 @@ function testExecutionOrder() {
 	});
 	assert.deepEqual(
 		order.map((pass) => pass.id),
-		["ssao", "taa", "motion-blur", "dof", "bloom", "fxaa", "gamma"]
+		[
+			"ssao",
+			"taa",
+			"volumetric",
+			"fog",
+			"motion-blur",
+			"dof",
+			"bloom",
+			"fxaa",
+			"gamma",
+		]
 	);
 	assert.equal(warnings.length, 0);
+}
+
+function testFogSceneModeSkipsFogPass() {
+	const graph = new WebGLPostProcessGraph([
+		createPass("volumetric", [], "enableVolumetric"),
+		{
+			id: "fog",
+			dependsOn: ["volumetric"],
+			isEnabled(features) {
+				return (
+					features.enableFog &&
+					(features.fogOptions?.application ?? "postprocess") !== "scene"
+				);
+			},
+			execute() {},
+		},
+		createPass("motion-blur", ["fog"], "enableMotionBlur"),
+	]);
+	const order = graph.getExecutionOrder(
+		createFeatures({
+			enableFog: true,
+			fogOptions: {
+				application: "scene",
+			},
+		}),
+		() => {}
+	);
+	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "motion-blur"]);
 }
 
 function testUnknownDependencySkipsPass() {
@@ -93,6 +147,7 @@ function testCycleSkipsBranch() {
 
 function run() {
 	testExecutionOrder();
+	testFogSceneModeSkipsFogPass();
 	testUnknownDependencySkipsPass();
 	testCycleSkipsBranch();
 	console.log("WebGL post-process graph tests passed");
