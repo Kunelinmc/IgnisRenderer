@@ -6,7 +6,6 @@ import type {
 	ShaderLanguage,
 } from "./types";
 import {
-	DEFAULT_GAMMA,
 	FXAA_EDGE_THRESHOLD_MIN,
 	FXAA_QUALITY,
 	VOLUMETRIC_SIGMA_T_SCALE,
@@ -15,13 +14,12 @@ import {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 5;
+const PROFILE_REVISION = 6;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 type LumaProfile = "bt601" | "bt709";
 type VecDimension = 2 | 3 | 4;
-const DEFAULT_GAMMA_LITERAL = toShaderFloat(DEFAULT_GAMMA);
 const FXAA_EDGE_THRESHOLD_MIN_LITERAL = toShaderFloat(
 	FXAA_EDGE_THRESHOLD_MIN
 );
@@ -60,9 +58,10 @@ function getDecodeExpression(lang: ShaderLanguage, linear: boolean): string {
 	if (linear) {
 		return "sampled";
 	}
-	const zero = getVecConstructor(lang, 3, "0.0");
-	const gamma = getVecConstructor(lang, 3, DEFAULT_GAMMA_LITERAL);
-	const decodedRgb = `pow(max(sampled.rgb, ${zero}), ${gamma})`;
+	const decodedRgb =
+		lang === "glsl" ?
+			`mix(pow((sampled.rgb + vec3(0.055)) / vec3(1.055), vec3(2.4)), sampled.rgb / vec3(12.92), lessThanEqual(sampled.rgb, vec3(0.04045)))`
+		:	`select(pow((sampled.rgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4)), sampled.rgb / vec3<f32>(12.92), sampled.rgb <= vec3<f32>(0.04045))`;
 	return getVecConstructor(lang, 4, `${decodedRgb}, sampled.a`);
 }
 
@@ -323,11 +322,15 @@ function createWebGPUProfile(): ShaderDirectiveProfile {
 				language: "wgsl",
 				id: "ignis/color/srgb.wgsl",
 				code: `fn linearToSrgb(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / ${DEFAULT_GAMMA_LITERAL}));
+	let low = color * vec3<f32>(12.92);
+	let high = vec3<f32>(1.055) * pow(color, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+	return select(high, low, color <= vec3<f32>(0.0031308));
 }
 
 fn srgbToLinear(color: vec3<f32>) -> vec3<f32> {
-	return pow(max(color, vec3<f32>(0.0)), vec3<f32>(${DEFAULT_GAMMA_LITERAL}));
+	let low = color / vec3<f32>(12.92);
+	let high = pow((color + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+	return select(high, low, color <= vec3<f32>(0.04045));
 }`,
 				sourcePath: "runtime://ignis/includes/wgsl/color/srgb.wgsl",
 			},
