@@ -1,0 +1,765 @@
+import type { SHCoefficients } from "../../maths/types";
+import type { FogOptions, FrameContext } from "../../pipeline/types";
+import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "./constants";
+import {
+	finiteOr,
+	flattenReflectionProbeRows,
+	flattenReflectionProbeVec4,
+	flattenShadowParamsA,
+	flattenShadowParamsB,
+	flattenShadowParamsC,
+	flattenShadowViewProjection,
+	flattenVec4,
+	sanitizeFloat32Array,
+	toColumnMajorMat4,
+	toFiniteColumnMajorMat4,
+} from "./WebGLFrameMath";
+import type { WebGLLightState, WebGLClusteredLight } from "./WebGLLightCollector";
+import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
+
+const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
+const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
+const WEBGL_TEXTURE_UNIT_ENV_SPECULAR = 2;
+const WEBGL_TEXTURE_UNIT_BRDF_LUT = 3;
+const WEBGL_TEXTURE_UNIT_SH_AMBIENT = 4;
+const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
+const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
+const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
+const SH_COEFFICIENT_COUNT = 16;
+
+const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
+	1, 0, 0, 0,
+	0, 1, 0, 0,
+	0, 0, 1, 0,
+	0, 0, 0, 1,
+]);
+
+type WarnFn = (key: string, message: string) => void;
+
+export interface WebGLGlobalUniformBinderHost {
+	_gl: WebGL2RenderingContext;
+	_warn: WarnFn;
+	_lightState: WebGLLightState | null;
+	_textures: {
+		getEnvironmentSpecularTexture(texture: any | null): {
+			texture: WebGLTexture | null;
+			isLinear: boolean;
+		};
+		getBRDFLUTTexture(texture: any | null): {
+			texture: WebGLTexture | null;
+			isLinear: boolean;
+		};
+	};
+	_clusteredLighting: {
+		getState(): {
+			enabled: boolean;
+			screenWidth: number;
+			screenHeight: number;
+			tilesX: number;
+			tilesY: number;
+			zSlices: number;
+			maxLightsPerCluster: number;
+			logScale: number;
+			logBias: number;
+			headerTexture: WebGLTexture | null;
+			headerTexWidth: number;
+			headerTexHeight: number;
+			indexTexture: WebGLTexture | null;
+			indexTexWidth: number;
+			indexTexHeight: number;
+			lightTexture: WebGLTexture | null;
+			lightTexWidth: number;
+			lightTexHeight: number;
+		};
+	};
+	_shadowAtlasTexture: WebGLTexture | null;
+	_shadowAtlasTileSize: number;
+	_taaJitter: Float32Array;
+	_prevViewProjection: Float32Array | null;
+	_shAmbientTexture: WebGLTexture | null;
+	_shAmbientTextureWidth: number;
+	_shAmbientTextureHeight: number;
+	_fogParams0: Float32Array;
+	_fogParams1: Float32Array;
+	_updateFogParams(options: FogOptions | undefined, enabled: boolean): void;
+	_uploadSHAmbientCoefficients(
+		coeffs: SHCoefficients | null | undefined
+	): boolean;
+}
+
+export interface WebGLSHAmbientUploadHost {
+	_gl: WebGL2RenderingContext;
+	_warn: WarnFn;
+	_shAmbientTexture: WebGLTexture | null;
+	_shAmbientTextureWidth: number;
+	_shAmbientTextureHeight: number;
+}
+
+export function bindWebGLGlobalUniforms(
+	host: WebGLGlobalUniformBinderHost,
+	sceneProgram: WebGLSceneProgram,
+	context: FrameContext
+): void {
+	const gl = host._gl;
+	const uniforms = sceneProgram.uniforms;
+	const lights = host._lightState ?? {
+		ambientColor: [0, 0, 0] as [number, number, number],
+		directionalLights: [],
+		directionalShadows: [],
+		pointLights: [],
+		spotLights: [],
+		spotShadows: [],
+		clusteredLights: [] as WebGLClusteredLight[],
+		envSpecularMap: null,
+		reflectionProbeCount: 0,
+		reflectionProbes: [],
+	};
+
+	if (uniforms.viewProjection) {
+		const viewProjection = toFiniteColumnMajorMat4(
+			context.camera.viewProjectionMatrix
+		);
+		if (!viewProjection) {
+			host._warn(
+				"webgl-camera-view-projection-invalid",
+				"WebGL camera view-projection matrix is non-finite; using identity matrix."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.viewProjection,
+			false,
+			viewProjection ?? IDENTITY_MATRIX4_COLUMN_MAJOR
+		);
+	}
+	if (uniforms.viewMatrix) {
+		const viewMatrix = toFiniteColumnMajorMat4(context.camera.viewMatrix);
+		if (!viewMatrix) {
+			host._warn(
+				"webgl-camera-view-matrix-invalid",
+				"WebGL camera view matrix is non-finite; using identity matrix."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.viewMatrix,
+			false,
+			viewMatrix ?? IDENTITY_MATRIX4_COLUMN_MAJOR
+		);
+	}
+	if (uniforms.cameraPosition) {
+		const cameraPosition = context.camera.getWorldPosition();
+		const cameraX = finiteOr(cameraPosition.x, 0);
+		const cameraY = finiteOr(cameraPosition.y, 0);
+		const cameraZ = finiteOr(cameraPosition.z, 0);
+		if (
+			cameraX !== cameraPosition.x ||
+			cameraY !== cameraPosition.y ||
+			cameraZ !== cameraPosition.z
+		) {
+			host._warn(
+				"webgl-camera-position-invalid",
+				"WebGL camera position is non-finite; using origin fallback."
+			);
+		}
+		gl.uniform3f(uniforms.cameraPosition, cameraX, cameraY, cameraZ);
+	}
+	const sceneFogEnabled =
+		context.features.enableFog &&
+		(context.features.fogOptions?.application ?? "postprocess") === "scene";
+	host._updateFogParams(context.features.fogOptions, sceneFogEnabled);
+	if (uniforms.fogParams0) {
+		gl.uniform4fv(uniforms.fogParams0, host._fogParams0);
+	}
+	if (uniforms.fogParams1) {
+		gl.uniform4fv(uniforms.fogParams1, host._fogParams1);
+	}
+	if (uniforms.ambientColor) {
+		const ambientR = finiteOr(lights.ambientColor[0], 0);
+		const ambientG = finiteOr(lights.ambientColor[1], 0);
+		const ambientB = finiteOr(lights.ambientColor[2], 0);
+		if (
+			ambientR !== lights.ambientColor[0] ||
+			ambientG !== lights.ambientColor[1] ||
+			ambientB !== lights.ambientColor[2]
+		) {
+			host._warn(
+				"webgl-ambient-color-invalid",
+				"WebGL ambient light color contains non-finite values; using black fallback."
+			);
+		}
+		gl.uniform3f(uniforms.ambientColor, ambientR, ambientG, ambientB);
+	}
+	const shTextureReady = host._uploadSHAmbientCoefficients(context.shAmbientCoeffs);
+	if (uniforms.shAmbientCoeffs) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SH_AMBIENT);
+		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
+		gl.uniform1i(uniforms.shAmbientCoeffs, WEBGL_TEXTURE_UNIT_SH_AMBIENT);
+	}
+	if (uniforms.shCoeffsSize) {
+		gl.uniform2f(
+			uniforms.shCoeffsSize,
+			host._shAmbientTextureWidth,
+			host._shAmbientTextureHeight
+		);
+	}
+	if (uniforms.enableSH) {
+		gl.uniform1i(
+			uniforms.enableSH,
+			context.features.enableSH && shTextureReady ? 1 : 0
+		);
+	}
+
+	const clusteredState = host._clusteredLighting.getState();
+	const clusteredEnabled =
+		context.features.enableClusteredLighting &&
+		clusteredState.enabled &&
+		!!clusteredState.headerTexture &&
+		!!clusteredState.indexTexture &&
+		!!clusteredState.lightTexture;
+	if (uniforms.enableClusteredLighting) {
+		gl.uniform1i(uniforms.enableClusteredLighting, clusteredEnabled ? 1 : 0);
+	}
+	if (uniforms.clusterParams0) {
+		gl.uniform4f(
+			uniforms.clusterParams0,
+			clusteredState.screenWidth,
+			clusteredState.screenHeight,
+			clusteredState.tilesX,
+			clusteredState.tilesY
+		);
+	}
+	if (uniforms.clusterParams1) {
+		gl.uniform4f(
+			uniforms.clusterParams1,
+			clusteredState.zSlices,
+			clusteredState.maxLightsPerCluster,
+			clusteredState.logScale,
+			clusteredState.logBias
+		);
+	}
+	if (uniforms.clusterHeaderTexSize) {
+		gl.uniform2f(
+			uniforms.clusterHeaderTexSize,
+			clusteredState.headerTexWidth,
+			clusteredState.headerTexHeight
+		);
+	}
+	if (uniforms.clusterIndexTexSize) {
+		gl.uniform2f(
+			uniforms.clusterIndexTexSize,
+			clusteredState.indexTexWidth,
+			clusteredState.indexTexHeight
+		);
+	}
+	if (uniforms.clusterLightTexSize) {
+		gl.uniform2f(
+			uniforms.clusterLightTexSize,
+			clusteredState.lightTexWidth,
+			clusteredState.lightTexHeight
+		);
+	}
+	if (uniforms.clusterHeaderTexture) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_HEADER);
+		gl.bindTexture(gl.TEXTURE_2D, clusteredState.headerTexture);
+		gl.uniform1i(uniforms.clusterHeaderTexture, WEBGL_TEXTURE_UNIT_CLUSTER_HEADER);
+	}
+	if (uniforms.clusterIndexTexture) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_INDEX);
+		gl.bindTexture(gl.TEXTURE_2D, clusteredState.indexTexture);
+		gl.uniform1i(uniforms.clusterIndexTexture, WEBGL_TEXTURE_UNIT_CLUSTER_INDEX);
+	}
+	if (uniforms.clusterLightTexture) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT);
+		gl.bindTexture(gl.TEXTURE_2D, clusteredState.lightTexture);
+		gl.uniform1i(uniforms.clusterLightTexture, WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT);
+	}
+	if (uniforms.enableLighting) {
+		gl.uniform1i(uniforms.enableLighting, context.features.enableLighting ? 1 : 0);
+	}
+	const shadowsEnabled =
+		context.features.enableShadows &&
+		!!host._shadowAtlasTexture &&
+		host._shadowAtlasTileSize > 0;
+	if (uniforms.enableShadows) {
+		gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
+	}
+	if (uniforms.shadowAtlas) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
+		gl.bindTexture(gl.TEXTURE_2D, host._shadowAtlasTexture);
+		gl.uniform1i(uniforms.shadowAtlas, WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
+	}
+
+	const usesEnvSpecularUniforms =
+		!!uniforms.envSpecularMap ||
+		!!uniforms.hasEnvSpecularMap ||
+		!!uniforms.envSpecularMapIsLinear ||
+		!!uniforms.envSpecularMaxMipLevel ||
+		!!uniforms.brdfLUT ||
+		!!uniforms.reflectionProbeCount ||
+		!!uniforms.reflectionProbeWorldToProbeRow0 ||
+		!!uniforms.reflectionProbeWorldToProbeRow1 ||
+		!!uniforms.reflectionProbeWorldToProbeRow2 ||
+		!!uniforms.reflectionProbeProbeToWorldRow0 ||
+		!!uniforms.reflectionProbeProbeToWorldRow1 ||
+		!!uniforms.reflectionProbeProbeToWorldRow2 ||
+		!!uniforms.reflectionProbeDataA ||
+		!!uniforms.reflectionProbeDataB ||
+		!!uniforms.reflectionProbeDataC;
+	if (usesEnvSpecularUniforms) {
+		const envSpecularMap = lights.envSpecularMap;
+		const hasEnvSpecularMap = !!envSpecularMap;
+		const envSpecularMaxMipLevel =
+			hasEnvSpecularMap && envSpecularMap ?
+				Math.max(0, envSpecularMap.mipmaps.length - 1)
+			:	0;
+		const resolvedEnvSpecular =
+			host._textures.getEnvironmentSpecularTexture(envSpecularMap ?? null);
+		const resolvedBrdfLUT = host._textures.getBRDFLUTTexture(
+			hasEnvSpecularMap ? IBLBRDF.getLUT() : null
+		);
+
+		if (uniforms.envSpecularMap) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
+			gl.bindTexture(gl.TEXTURE_2D, resolvedEnvSpecular.texture);
+			gl.uniform1i(uniforms.envSpecularMap, WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
+		}
+		if (uniforms.brdfLUT) {
+			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BRDF_LUT);
+			gl.bindTexture(gl.TEXTURE_2D, resolvedBrdfLUT.texture);
+			gl.uniform1i(uniforms.brdfLUT, WEBGL_TEXTURE_UNIT_BRDF_LUT);
+		}
+		if (uniforms.hasEnvSpecularMap) {
+			gl.uniform1i(uniforms.hasEnvSpecularMap, hasEnvSpecularMap ? 1 : 0);
+		}
+		if (uniforms.envSpecularMapIsLinear) {
+			gl.uniform1i(
+				uniforms.envSpecularMapIsLinear,
+				resolvedEnvSpecular.isLinear ? 1 : 0
+			);
+		}
+		if (uniforms.envSpecularMaxMipLevel) {
+			gl.uniform1f(uniforms.envSpecularMaxMipLevel, envSpecularMaxMipLevel);
+		}
+		const reflectionProbeCount = Math.max(
+			0,
+			Math.floor(lights.reflectionProbeCount)
+		);
+		if (uniforms.reflectionProbeCount) {
+			gl.uniform1i(uniforms.reflectionProbeCount, reflectionProbeCount);
+		}
+		if (uniforms.reflectionProbeWorldToProbeRow0) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeWorldToProbeRow0,
+				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 0)
+			);
+		}
+		if (uniforms.reflectionProbeWorldToProbeRow1) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeWorldToProbeRow1,
+				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 1)
+			);
+		}
+		if (uniforms.reflectionProbeWorldToProbeRow2) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeWorldToProbeRow2,
+				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 2)
+			);
+		}
+		if (uniforms.reflectionProbeProbeToWorldRow0) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeProbeToWorldRow0,
+				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 0)
+			);
+		}
+		if (uniforms.reflectionProbeProbeToWorldRow1) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeProbeToWorldRow1,
+				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 1)
+			);
+		}
+		if (uniforms.reflectionProbeProbeToWorldRow2) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeProbeToWorldRow2,
+				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 2)
+			);
+		}
+		if (uniforms.reflectionProbeDataA) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeDataA,
+				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+					probe.invHalfExtents[0],
+					probe.invHalfExtents[1],
+					probe.invHalfExtents[2],
+					probe.radiusInv,
+				])
+			);
+		}
+		if (uniforms.reflectionProbeDataB) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeDataB,
+				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+					probe.probeWorldPosition[0],
+					probe.probeWorldPosition[1],
+					probe.probeWorldPosition[2],
+					probe.shape,
+				])
+			);
+		}
+		if (uniforms.reflectionProbeDataC) {
+			gl.uniform4fv(
+				uniforms.reflectionProbeDataC,
+				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+					probe.parallaxMode,
+					probe.blendDistance,
+					probe.blendExponent,
+					probe.layer,
+				])
+			);
+		}
+	}
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
+
+	if (uniforms.taaJitter) {
+		gl.uniform4fv(uniforms.taaJitter, host._taaJitter);
+	}
+	if (uniforms.prevViewProjection) {
+		const prevViewProjection = sanitizeFloat32Array(
+			host._prevViewProjection ?? toColumnMajorMat4(context.camera.viewProjectionMatrix),
+			0
+		);
+		if (prevViewProjection.hadInvalid) {
+			host._warn(
+				"webgl-prev-view-projection-invalid",
+				"WebGL previous view-projection matrix is non-finite; using sanitized values."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.prevViewProjection,
+			false,
+			prevViewProjection.values
+		);
+	}
+
+	if (uniforms.dirLightCount) {
+		gl.uniform1i(uniforms.dirLightCount, lights.directionalLights.length);
+	}
+	if (uniforms.dirLightDirection) {
+		const packedDirection = sanitizeFloat32Array(
+			flattenVec4(lights.directionalLights, (light) => [
+				light.direction[0],
+				light.direction[1],
+				light.direction[2],
+				0,
+			]),
+			0
+		);
+		if (packedDirection.hadInvalid) {
+			host._warn(
+				"webgl-dir-light-direction-invalid",
+				"WebGL directional light direction contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirLightDirection, packedDirection.values);
+	}
+	if (uniforms.dirLightColor) {
+		const packedColor = sanitizeFloat32Array(
+			flattenVec4(lights.directionalLights, (light) => [
+				light.color[0],
+				light.color[1],
+				light.color[2],
+				0,
+			]),
+			0
+		);
+		if (packedColor.hadInvalid) {
+			host._warn(
+				"webgl-dir-light-color-invalid",
+				"WebGL directional light color contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirLightColor, packedColor.values);
+	}
+	if (uniforms.dirShadowViewProjection) {
+		const packedShadowViewProjection = sanitizeFloat32Array(
+			flattenShadowViewProjection(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			0
+		);
+		if (packedShadowViewProjection.hadInvalid) {
+			host._warn(
+				"webgl-dir-shadow-view-projection-invalid",
+				"WebGL directional shadow matrix contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.dirShadowViewProjection,
+			false,
+			packedShadowViewProjection.values
+		);
+	}
+	if (uniforms.dirShadowParamsA) {
+		const packedDirShadowParamsA = sanitizeFloat32Array(
+			flattenShadowParamsA(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			0
+		);
+		if (packedDirShadowParamsA.hadInvalid) {
+			host._warn(
+				"webgl-dir-shadow-params-a-invalid",
+				"WebGL directional shadow parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirShadowParamsA, packedDirShadowParamsA.values);
+	}
+	if (uniforms.dirShadowParamsB) {
+		const packedDirShadowParamsB = sanitizeFloat32Array(
+			flattenShadowParamsB(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			0
+		);
+		if (packedDirShadowParamsB.hadInvalid) {
+			host._warn(
+				"webgl-dir-shadow-params-b-invalid",
+				"WebGL directional shadow parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirShadowParamsB, packedDirShadowParamsB.values);
+	}
+	if (uniforms.dirShadowParamsC) {
+		const packedDirShadowParamsC = sanitizeFloat32Array(
+			flattenShadowParamsC(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			0
+		);
+		if (packedDirShadowParamsC.hadInvalid) {
+			host._warn(
+				"webgl-dir-shadow-params-c-invalid",
+				"WebGL directional shadow slope parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirShadowParamsC, packedDirShadowParamsC.values);
+	}
+
+	if (uniforms.pointLightCount) {
+		gl.uniform1i(uniforms.pointLightCount, lights.pointLights.length);
+	}
+	if (uniforms.pointLightPositionRange) {
+		const packedPointPositionRange = sanitizeFloat32Array(
+			flattenVec4(lights.pointLights, (light) => [
+				light.position[0],
+				light.position[1],
+				light.position[2],
+				light.range,
+			]),
+			0
+		);
+		if (packedPointPositionRange.hadInvalid) {
+			host._warn(
+				"webgl-point-light-position-invalid",
+				"WebGL point light position/range contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.pointLightPositionRange, packedPointPositionRange.values);
+	}
+	if (uniforms.pointLightColor) {
+		const packedPointColor = sanitizeFloat32Array(
+			flattenVec4(lights.pointLights, (light) => [
+				light.color[0],
+				light.color[1],
+				light.color[2],
+				0,
+			]),
+			0
+		);
+		if (packedPointColor.hadInvalid) {
+			host._warn(
+				"webgl-point-light-color-invalid",
+				"WebGL point light color contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.pointLightColor, packedPointColor.values);
+	}
+
+	if (uniforms.spotLightCount) {
+		gl.uniform1i(uniforms.spotLightCount, lights.spotLights.length);
+	}
+	if (uniforms.spotLightPositionRange) {
+		const packedSpotPositionRange = sanitizeFloat32Array(
+			flattenVec4(lights.spotLights, (light) => [
+				light.position[0],
+				light.position[1],
+				light.position[2],
+				light.range,
+			]),
+			0
+		);
+		if (packedSpotPositionRange.hadInvalid) {
+			host._warn(
+				"webgl-spot-light-position-invalid",
+				"WebGL spot light position/range contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotLightPositionRange, packedSpotPositionRange.values);
+	}
+	if (uniforms.spotLightDirectionOuter) {
+		const packedSpotDirectionOuter = sanitizeFloat32Array(
+			flattenVec4(lights.spotLights, (light) => [
+				light.direction[0],
+				light.direction[1],
+				light.direction[2],
+				light.outerCos,
+			]),
+			0
+		);
+		if (packedSpotDirectionOuter.hadInvalid) {
+			host._warn(
+				"webgl-spot-light-direction-invalid",
+				"WebGL spot light direction/outer cone contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotLightDirectionOuter, packedSpotDirectionOuter.values);
+	}
+	if (uniforms.spotLightColorInner) {
+		const packedSpotColorInner = sanitizeFloat32Array(
+			flattenVec4(lights.spotLights, (light) => [
+				light.color[0],
+				light.color[1],
+				light.color[2],
+				light.innerCos,
+			]),
+			0
+		);
+		if (packedSpotColorInner.hadInvalid) {
+			host._warn(
+				"webgl-spot-light-color-invalid",
+				"WebGL spot light color/inner cone contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotLightColorInner, packedSpotColorInner.values);
+	}
+	if (uniforms.spotShadowViewProjection) {
+		const packedSpotShadowViewProjection = sanitizeFloat32Array(
+			flattenShadowViewProjection(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			0
+		);
+		if (packedSpotShadowViewProjection.hadInvalid) {
+			host._warn(
+				"webgl-spot-shadow-view-projection-invalid",
+				"WebGL spot shadow matrix contains non-finite values; using sanitized values."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.spotShadowViewProjection,
+			false,
+			packedSpotShadowViewProjection.values
+		);
+	}
+	if (uniforms.spotShadowParamsA) {
+		const packedSpotShadowParamsA = sanitizeFloat32Array(
+			flattenShadowParamsA(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			0
+		);
+		if (packedSpotShadowParamsA.hadInvalid) {
+			host._warn(
+				"webgl-spot-shadow-params-a-invalid",
+				"WebGL spot shadow parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotShadowParamsA, packedSpotShadowParamsA.values);
+	}
+	if (uniforms.spotShadowParamsB) {
+		const packedSpotShadowParamsB = sanitizeFloat32Array(
+			flattenShadowParamsB(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			0
+		);
+		if (packedSpotShadowParamsB.hadInvalid) {
+			host._warn(
+				"webgl-spot-shadow-params-b-invalid",
+				"WebGL spot shadow parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotShadowParamsB, packedSpotShadowParamsB.values);
+	}
+	if (uniforms.spotShadowParamsC) {
+		const packedSpotShadowParamsC = sanitizeFloat32Array(
+			flattenShadowParamsC(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			0
+		);
+		if (packedSpotShadowParamsC.hadInvalid) {
+			host._warn(
+				"webgl-spot-shadow-params-c-invalid",
+				"WebGL spot shadow slope parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotShadowParamsC, packedSpotShadowParamsC.values);
+	}
+}
+
+export function uploadWebGLSHAmbientCoefficients(
+	host: WebGLSHAmbientUploadHost,
+	coeffs: SHCoefficients | null | undefined
+): boolean {
+	const gl = host._gl;
+	const texelCount = SH_COEFFICIENT_COUNT;
+	const data = new Float32Array(texelCount * 4);
+	for (let i = 0; i < texelCount; i++) {
+		const coeff = coeffs?.[i];
+		const base = i * 4;
+		data[base] = finiteOr(coeff?.r, 0);
+		data[base + 1] = finiteOr(coeff?.g, 0);
+		data[base + 2] = finiteOr(coeff?.b, 0);
+		data[base + 3] = 0;
+	}
+
+	if (!host._shAmbientTexture) {
+		if (typeof gl.createTexture !== "function") {
+			host._warn(
+				"webgl-sh-ambient-texture-create-unsupported",
+				"WebGL context does not expose createTexture(); disabling SH for this frame."
+			);
+			return false;
+		}
+		host._shAmbientTexture = gl.createTexture();
+		if (!host._shAmbientTexture) {
+			host._warn(
+				"webgl-sh-ambient-texture-create-failed",
+				"Failed to create WebGL SH ambient texture; disabling SH for this frame."
+			);
+			return false;
+		}
+		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	}
+
+	gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
+	try {
+		const internalFormat =
+			(
+				gl as WebGL2RenderingContext & {
+					RGBA32F?: number;
+				}
+			).RGBA32F ?? gl.RGBA;
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			internalFormat,
+			SH_COEFFICIENT_COUNT,
+			1,
+			0,
+			gl.RGBA,
+			gl.FLOAT,
+			data
+		);
+		host._shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
+		host._shAmbientTextureHeight = 1;
+		return true;
+	} catch (error) {
+		host._warn(
+			"webgl-sh-ambient-texture-upload-failed",
+			`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
+		);
+		return false;
+	}
+}
