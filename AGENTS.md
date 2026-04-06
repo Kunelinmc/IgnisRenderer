@@ -13,6 +13,11 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ## Build & Test Commands
 
+### Preferred Tooling
+- **Runtimes & Package Managers**: MUST prioritize `bun`. Fall back to `node` and `npm` only if `bun` is unavailable.
+- **Search Utilities**: MUST prioritize `rg` (ripgrep). Fall back to `grep` only if `rg` is unavailable.
+
+### Commands
 - **Dev server**: `bun run dev`
 - **Build**: `bun run build`
 - **Run all tests**: `bun run test`
