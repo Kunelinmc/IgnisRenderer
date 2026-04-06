@@ -1,7 +1,5 @@
-import {
-	DEFAULT_SSAO_OPTIONS,
-	DEFAULT_VOLUMETRIC_OPTIONS,
-} from "../../pipeline/types";
+import { DEFAULT_SSAO_OPTIONS, DEFAULT_VOLUMETRIC_OPTIONS } from "../../pipeline/types";
+import type { SoftwareRasterMode } from "./types";
 import {
 	DEFAULT_GAMMA,
 	FXAA_EDGE_THRESHOLD_MIN,
@@ -63,4 +61,19 @@ export const SSAOConstants = Object.freeze({
 	DEFAULT_BIAS: DEFAULT_SSAO_OPTIONS.bias,
 	DEFAULT_INTENSITY: DEFAULT_SSAO_OPTIONS.intensity,
 	NOISE_SIZE: 4,
+});
+
+export const DEFAULT_SOFTWARE_RASTER_MODE: SoftwareRasterMode = "scanline";
+export const DEFAULT_SOFTWARE_TILE_SIZE = 32;
+
+export const CoreConstants = Object.freeze({
+	EPSILON: 1e-6,
+	OPAQUE_ALPHA: 255,
+	WIREFRAME_DEPTH_BIAS: 0.1,
+	MAX_CHANNEL_VALUE: 255,
+});
+
+export const RenderConstants = Object.freeze({
+	REFLECTION_BUFFER_ALPHA: 255,
+	REFLECTION_TRANSPARENT_THRESHOLD: 0.99,
 });

@@ -30,7 +30,7 @@ export type {
 	SoftwareRasterMode,
 	SoftwareTileOptions,
 	SoftwareBackendOptions,
-} from "./renderers/software/SoftwareRasterConfig";
+} from "./renderers/software/types";
 export { WebGPUBackend } from "./renderers/WebGPUBackend";
 export { WebGLBackend } from "./renderers/WebGLBackend";
 export type { IWebGPUComputeFacade } from "./renderers/webgpu/ComputeFacade";

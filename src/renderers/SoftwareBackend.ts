@@ -20,11 +20,8 @@ import {
 } from "../pipeline/ShadowMetadata";
 import { FrameAttachments } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
-import {
-	DEFAULT_SOFTWARE_RASTER_MODE,
-	type SoftwareBackendOptions,
-	type SoftwareRasterMode,
-} from "./software/SoftwareRasterConfig";
+import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
+import { DEFAULT_SOFTWARE_RASTER_MODE } from "./software/constants";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -34,7 +31,7 @@ export type {
 	SoftwareBackendOptions,
 	SoftwareRasterMode,
 	SoftwareTileOptions,
-} from "./software/SoftwareRasterConfig";
+} from "./software/types";
 
 type SoftwarePassHandler = (
 	context: FrameContext

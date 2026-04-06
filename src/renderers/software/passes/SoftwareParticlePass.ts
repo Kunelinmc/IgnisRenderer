@@ -8,7 +8,7 @@ import {
 	type ParticleRenderBatch,
 	type ParticleRenderItem,
 } from "../../../pipeline/types";
-import { CoreConstants } from "../softwareRasterConstants";
+import { CoreConstants } from "../constants";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,

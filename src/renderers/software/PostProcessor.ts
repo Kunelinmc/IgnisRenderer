@@ -1,10 +1,6 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
-import {
-	PostProcessConstants,
-	VolumetricConstants,
-	SSAOConstants,
-} from "./softwarePostProcessConstants";
+import { PostProcessConstants, VolumetricConstants, SSAOConstants } from "./constants";
 import type { RendererBackendBridge } from "../IRenderBackend";
 import {
 	type DirectionalLight,

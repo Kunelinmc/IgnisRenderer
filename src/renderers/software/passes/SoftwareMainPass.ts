@@ -13,12 +13,8 @@ import {
 import type { WorkerLike } from "../../../workers/types";
 import { globalWorkerScheduler } from "../../../workers/WorkerScheduler";
 import { DEFAULT_WORKER_TRANSPORT_PLUGINS } from "../../../workers/transports";
-import {
-	DEFAULT_SOFTWARE_RASTER_MODE,
-	DEFAULT_SOFTWARE_TILE_SIZE,
-	type SoftwareRasterMode,
-	type SoftwareTileOptions,
-} from "../SoftwareRasterConfig";
+import { type SoftwareRasterMode, type SoftwareTileOptions } from "../types";
+import { DEFAULT_SOFTWARE_TILE_SIZE, DEFAULT_SOFTWARE_RASTER_MODE } from "../constants";
 import type {
 	SoftwareRasterTileBounds,
 	SoftwareRasterWorkerTaskPayload,
