@@ -12,6 +12,7 @@ WebGL-specific implementation constraints.
 ## API/Contract
 - `WebGLBackend` must report `capabilities.sh = true` and `capabilities.clusteredLighting = true`.
 - `WebGLBackend` must keep `capabilities.ssgi = false`, `capabilities.ssr = false`, and `capabilities.volumetric = false` in Phase 1.
+- `WebGLBackend` must expose `capabilities.fog = true` and support both postprocess fog and scene-mode fog.
 - `WebGLBackend` must provide post-process pass registration methods:
   - `registerPostProcessPass(pass)`
   - `unregisterPostProcessPass(id)`
