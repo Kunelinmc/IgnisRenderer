@@ -138,10 +138,74 @@ function testRaycastAll() {
 	adapter.destroyWorld("ray");
 }
 
+function testBodyOptionsAndControllerGravityScale() {
+	const adapter = new SimplePhysicsAdapter("extended-options");
+	adapter.initSync();
+	adapter.createWorld({
+		worldId: "options",
+		gravity: { x: 0, y: 0, z: 0 },
+		allowSleep: false,
+	});
+	adapter.createBody(
+		"options",
+		"locked",
+		{
+			type: "dynamic",
+			linearVelocity: { x: 1, y: 2, z: 0 },
+			linearDamping: 0.5,
+			lockTranslations: [false, true, false],
+		},
+		createTransform()
+	);
+	adapter.createBody(
+		"options",
+		"awake",
+		{
+			type: "dynamic",
+		},
+		createTransform()
+	);
+	adapter.createBody(
+		"options",
+		"sleepy",
+		{
+			type: "dynamic",
+			canSleep: true,
+		},
+		createTransform()
+	);
+
+	let step = adapter.stepWorld("options", 1);
+	const lockedState = findBodyState(step, "locked");
+	assertAlmostEqual(lockedState.transform.position.x, 0.5);
+	assertAlmostEqual(lockedState.transform.position.y, 0);
+	assert.equal(findBodyState(step, "awake").sleeping, false);
+	assert.equal(findBodyState(step, "sleepy").sleeping, true);
+	adapter.destroyWorld("options");
+
+	adapter.createWorld({
+		worldId: "kcc",
+		gravity: { x: 0, y: -10, z: 0 },
+	});
+	adapter.createBody("kcc", "player", { type: "kinematic" }, createTransform(0, 1, 0));
+	adapter.createCharacterController("kcc", "controller", {
+		worldId: "kcc",
+		body: "player",
+		radius: 0.3,
+		height: 1.7,
+		gravityScale: 0.5,
+	});
+	adapter.moveCharacterController("kcc", "controller", { x: 0, y: 0, z: 0 }, 1);
+	step = adapter.stepWorld("kcc", 1);
+	assertAlmostEqual(findBodyState(step, "player").transform.position.y, -4);
+	adapter.destroyWorld("kcc");
+}
+
 function run() {
 	testForcesAndVelocities();
 	testColliderSensorAndMask();
 	testRaycastAll();
+	testBodyOptionsAndControllerGravityScale();
 	console.log("Physics adapter extended method tests passed");
 }
 

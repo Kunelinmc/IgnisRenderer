@@ -123,6 +123,7 @@ interface AmmoJointState {
 }
 
 interface AmmoWorldState {
+	config: PhysicsWorldConfig;
 	world: any;
 	collisionConfig: any;
 	dispatcher: any;
@@ -240,6 +241,10 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._setWorldGravity(world, config.gravity ?? DEFAULT_GRAVITY);
 
 			this._worlds.set(config.worldId, {
+				config: {
+					...config,
+					gravity: cloneVector(config.gravity ?? DEFAULT_GRAVITY),
+				},
 				world,
 				collisionConfig,
 				dispatcher,
@@ -318,6 +323,12 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 
 			this._applyBodyFlags(rigidBody, type);
 			if (ccd) this._applyBodyCcd(rigidBody, 0.5);
+			this._applyBodyRuntimeOptions(
+				rigidBody,
+				type,
+				descriptor,
+				world.config
+			);
 			if (descriptor.linearVelocity) {
 				this._setVector3(
 					rigidBody,
@@ -990,6 +1001,85 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			this._invoke(rigidBody, ["setActivationState"], [[DISABLE_DEACTIVATION]]);
 		}
 		this._invoke(rigidBody, ["setCollisionFlags"], [[flags]]);
+	}
+
+	private _applyBodyRuntimeOptions(
+		rigidBody: any,
+		type: RigidBodyType,
+		descriptor: RigidBodyDescriptor,
+		worldConfig: PhysicsWorldConfig
+	): void {
+		const linearDamping = sanitizeDamping(descriptor.linearDamping);
+		const angularDamping = sanitizeDamping(descriptor.angularDamping);
+		if (linearDamping > 0 || angularDamping > 0) {
+			this._invoke(
+				rigidBody,
+				["setDamping"],
+				[[linearDamping, angularDamping], [linearDamping]]
+			);
+		}
+
+		const canSleep = descriptor.canSleep ?? worldConfig.allowSleep;
+		if (type === "dynamic" && canSleep === false) {
+			const DISABLE_DEACTIVATION = 4;
+			this._invoke(rigidBody, ["setActivationState"], [[DISABLE_DEACTIVATION]]);
+		}
+		this._applyBodyAxisLocks(
+			rigidBody,
+			descriptor.lockTranslations,
+			descriptor.lockRotations
+		);
+	}
+
+	private _applyBodyAxisLocks(
+		rigidBody: any,
+		lockTranslations: [boolean, boolean, boolean] | undefined,
+		lockRotations: [boolean, boolean, boolean] | undefined
+	): void {
+		if (lockTranslations) {
+			const linearFactor = this._createAmmoVector3({
+				x: lockTranslations[0] ? 0 : 1,
+				y: lockTranslations[1] ? 0 : 1,
+				z: lockTranslations[2] ? 0 : 1,
+			});
+			this._invoke(
+				rigidBody,
+				["setLinearFactor"],
+				[
+					[linearFactor],
+					[
+						{
+							x: lockTranslations[0] ? 0 : 1,
+							y: lockTranslations[1] ? 0 : 1,
+							z: lockTranslations[2] ? 0 : 1,
+						},
+					],
+				]
+			);
+			this._destroyAmmoObject(linearFactor);
+		}
+		if (lockRotations) {
+			const angularFactor = this._createAmmoVector3({
+				x: lockRotations[0] ? 0 : 1,
+				y: lockRotations[1] ? 0 : 1,
+				z: lockRotations[2] ? 0 : 1,
+			});
+			this._invoke(
+				rigidBody,
+				["setAngularFactor"],
+				[
+					[angularFactor],
+					[
+						{
+							x: lockRotations[0] ? 0 : 1,
+							y: lockRotations[1] ? 0 : 1,
+							z: lockRotations[2] ? 0 : 1,
+						},
+					],
+				]
+			);
+			this._destroyAmmoObject(angularFactor);
+		}
 	}
 
 	private _applyBodyCcd(rigidBody: any, radius: number): void {
@@ -1933,6 +2023,11 @@ function resolveBodyMass(type: RigidBodyType, mass?: number): number {
 	if (type !== "dynamic") return 0;
 	if (Number.isFinite(mass) && Number(mass) > 0) return Number(mass);
 	return 1;
+}
+
+function sanitizeDamping(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 0;
+	return Math.max(0, Number(value));
 }
 
 function cloneVector(source: IVector3): IVector3 {

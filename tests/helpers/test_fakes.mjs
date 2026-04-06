@@ -721,6 +721,9 @@ export function createFakeRapierModule() {
 		stepCalls: 0,
 		characterControllerCreates: 0,
 		characterComputeCalls: 0,
+		descriptorCanSleepCalls: [],
+		descriptorAdditionalMassCalls: [],
+		bodyAdditionalMassCalls: [],
 	};
 	class FakeRigidBodyDesc {
 		constructor(type) {
@@ -741,7 +744,18 @@ export function createFakeRapierModule() {
 		setCcdEnabled() { return this; }
 		setLinearDamping() { return this; }
 		setAngularDamping() { return this; }
-		setCanSleep() { return this; }
+		setCanSleep(value) {
+			stats.descriptorCanSleepCalls.push(Boolean(value));
+			return this;
+		}
+		setAdditionalMass(value) {
+			stats.descriptorAdditionalMassCalls.push(Number(value));
+			return this;
+		}
+		setMass(value) {
+			stats.descriptorAdditionalMassCalls.push(Number(value));
+			return this;
+		}
 		setEnabledTranslations() { return this; }
 		setEnabledRotations() { return this; }
 		restrictTranslations() { return this; }
@@ -778,6 +792,8 @@ export function createFakeRapierModule() {
 		setRotation(q) { this._rotation = { ...q }; }
 		setNextKinematicRotation(q) { this.setRotation(q); }
 		setLinvel(x, y, z) { this._linvel = typeof x === "object" ? { ...x } : { x, y, z }; }
+		setAdditionalMass(value) { stats.bodyAdditionalMassCalls.push(Number(value)); }
+		setMass(value) { stats.bodyAdditionalMassCalls.push(Number(value)); }
 		linvel() { return { ...this._linvel }; }
 		translation() { return { ...this._translation }; }
 		rotation() { return { ...this._rotation }; }

@@ -102,6 +102,7 @@ interface RapierControllerState {
 	offset: number;
 	maxSlope: number;
 	stepHeight: number;
+	gravityScale: number | null;
 	rapierController: any | null;
 	movementCollider: any | null;
 	ownsMovementCollider: boolean;
@@ -298,7 +299,8 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 
 		const rigidBodyDesc = this._createRigidBodyDescriptor(
 			descriptor,
-			initialTransform
+			initialTransform,
+			world.config.allowSleep
 		);
 		const ccdEnabled = descriptor.ccd ?? world.config.enableCCD ?? false;
 		if (ccdEnabled) {
@@ -310,6 +312,11 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				`RapierPhysicsAdapter failed to create body "${bodyId}" in "${worldId}"`
 			);
 		}
+		this._applyRigidBodyMassOverride(
+			rigidBody,
+			descriptor.type ?? "dynamic",
+			descriptor.mass
+		);
 
 		if (descriptor.linearVelocity) {
 			this._setVector3(
@@ -745,6 +752,10 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			),
 			maxSlope: Math.max(0, descriptor.maxSlope ?? 60),
 			stepHeight: Math.max(0, descriptor.stepHeight ?? 0.3),
+			gravityScale:
+				Number.isFinite(descriptor.gravityScale) ?
+					Number(descriptor.gravityScale)
+				:	null,
 			rapierController: null,
 			movementCollider: null,
 			ownsMovementCollider: false,
@@ -1222,6 +1233,29 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				y: controller.pendingDirection.y * deltaSeconds,
 				z: controller.pendingDirection.z * deltaSeconds,
 			};
+			if (controller.gravityScale !== null) {
+				const gravity = world.config.gravity ?? DEFAULT_GRAVITY;
+				if (body.type === "dynamic") {
+					const gravityDelta = (controller.gravityScale - 1) * deltaSeconds;
+					if (Math.abs(gravityDelta) > 1e-8) {
+						const linearVelocity = this._readBodyLinearVelocity(body.rigidBody);
+						this._setVector3(
+							body.rigidBody,
+							["setLinvel"],
+							{
+								x: linearVelocity.x + gravity.x * gravityDelta,
+								y: linearVelocity.y + gravity.y * gravityDelta,
+								z: linearVelocity.z + gravity.z * gravityDelta,
+							},
+							true
+						);
+					}
+				} else {
+					desiredMovement.x += gravity.x * controller.gravityScale * deltaSeconds;
+					desiredMovement.y += gravity.y * controller.gravityScale * deltaSeconds;
+					desiredMovement.z += gravity.z * controller.gravityScale * deltaSeconds;
+				}
+			}
 			if (controller.pendingJumpSpeed > 0) {
 				desiredMovement.y += controller.pendingJumpSpeed * deltaSeconds;
 			}
@@ -1536,7 +1570,8 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 
 	private _createRigidBodyDescriptor(
 		descriptor: RigidBodyDescriptor,
-		initialTransform: PhysicsTransform
+		initialTransform: PhysicsTransform,
+		defaultCanSleep?: boolean
 	): any {
 		const rapier = this._requireRapier();
 		const bodyType = descriptor.type ?? "dynamic";
@@ -1571,6 +1606,21 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._setVector3(bodyDesc, ["setTranslation"], initialTransform.position);
 		this._setQuaternion(bodyDesc, ["setRotation"], initialTransform.rotation);
 
+		if (bodyType === "dynamic" && Number.isFinite(descriptor.mass)) {
+			const requestedMass = Number(descriptor.mass);
+			if (requestedMass > 0) {
+				this._invoke(
+					bodyDesc,
+					["setAdditionalMass", "setMass"],
+					[
+						[requestedMass],
+						[requestedMass, true],
+						[requestedMass, false],
+					]
+				);
+			}
+		}
+
 		if (Number.isFinite(descriptor.linearDamping)) {
 			this._invoke(
 				bodyDesc,
@@ -1585,8 +1635,9 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				[[descriptor.angularDamping]]
 			);
 		}
-		if (typeof descriptor.canSleep === "boolean") {
-			this._invoke(bodyDesc, ["setCanSleep"], [[descriptor.canSleep]]);
+		const canSleep = descriptor.canSleep ?? defaultCanSleep;
+		if (typeof canSleep === "boolean") {
+			this._invoke(bodyDesc, ["setCanSleep"], [[canSleep]]);
 		}
 		if (descriptor.lockTranslations) {
 			const [x, y, z] = descriptor.lockTranslations;
@@ -1600,6 +1651,25 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		}
 
 		return bodyDesc;
+	}
+
+	private _applyRigidBodyMassOverride(
+		rigidBody: any,
+		bodyType: RigidBodyType,
+		mass: number | undefined
+	): void {
+		if (bodyType !== "dynamic" || !Number.isFinite(mass)) return;
+		const requestedMass = Number(mass);
+		if (requestedMass <= 0) return;
+		this._invoke(
+			rigidBody,
+			["setAdditionalMass", "setMass"],
+			[
+				[requestedMass, true],
+				[requestedMass, false],
+				[requestedMass],
+			]
+		);
 	}
 
 	private _createColliderDescriptor(shape: ColliderShape): any {

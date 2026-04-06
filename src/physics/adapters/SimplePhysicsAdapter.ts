@@ -33,6 +33,11 @@ interface SimpleBodyState {
 	id: string;
 	type: RigidBodyType;
 	mass: number;
+	canSleep: boolean;
+	linearDamping: number;
+	angularDamping: number;
+	lockTranslations: [boolean, boolean, boolean] | null;
+	lockRotations: [boolean, boolean, boolean] | null;
 	transform: PhysicsTransform;
 	linearVelocity: IVector3;
 	angularVelocity: IVector3;
@@ -61,6 +66,7 @@ interface SimpleControllerState {
 	grounded: boolean;
 	maxSlope: number;
 	stepHeight: number;
+	gravityScale: number | null;
 	pendingDirection: IVector3;
 	pendingJumpSpeed: number;
 }
@@ -149,6 +155,11 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			id: bodyId,
 			type: descriptor.type ?? "dynamic",
 			mass: resolveBodyMass(descriptor),
+			canSleep: descriptor.canSleep ?? world.config.allowSleep ?? true,
+			linearDamping: sanitizeDamping(descriptor.linearDamping),
+			angularDamping: sanitizeDamping(descriptor.angularDamping),
+			lockTranslations: sanitizeLockAxes(descriptor.lockTranslations),
+			lockRotations: sanitizeLockAxes(descriptor.lockRotations),
 			transform: cloneTransform(initialTransform),
 			linearVelocity: cloneVector(
 				descriptor.linearVelocity ?? { x: 0, y: 0, z: 0 }
@@ -349,6 +360,10 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			grounded: false,
 			maxSlope: Math.max(0, descriptor.maxSlope ?? 60),
 			stepHeight: Math.max(0, descriptor.stepHeight ?? 0.3),
+			gravityScale:
+				Number.isFinite(descriptor.gravityScale) ?
+					Number(descriptor.gravityScale)
+				:	null,
 			pendingDirection: { x: 0, y: 0, z: 0 },
 			pendingJumpSpeed: 0,
 		});
@@ -583,10 +598,42 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				body.accumulatedTorque.x = 0;
 				body.accumulatedTorque.y = 0;
 				body.accumulatedTorque.z = 0;
+
+				const linearDampingFactor = computeDampingFactor(
+					body.linearDamping,
+					dt
+				);
+				const angularDampingFactor = computeDampingFactor(
+					body.angularDamping,
+					dt
+				);
+				body.linearVelocity.x *= linearDampingFactor;
+				body.linearVelocity.y *= linearDampingFactor;
+				body.linearVelocity.z *= linearDampingFactor;
+				body.angularVelocity.x *= angularDampingFactor;
+				body.angularVelocity.y *= angularDampingFactor;
+				body.angularVelocity.z *= angularDampingFactor;
+
+				if (body.lockTranslations) {
+					if (body.lockTranslations[0]) body.linearVelocity.x = 0;
+					if (body.lockTranslations[1]) body.linearVelocity.y = 0;
+					if (body.lockTranslations[2]) body.linearVelocity.z = 0;
+				}
+				if (body.lockRotations) {
+					if (body.lockRotations[0]) body.angularVelocity.x = 0;
+					if (body.lockRotations[1]) body.angularVelocity.y = 0;
+					if (body.lockRotations[2]) body.angularVelocity.z = 0;
+				}
 			}
-			body.transform.position.x += body.linearVelocity.x * dt;
-			body.transform.position.y += body.linearVelocity.y * dt;
-			body.transform.position.z += body.linearVelocity.z * dt;
+			if (!body.lockTranslations?.[0]) {
+				body.transform.position.x += body.linearVelocity.x * dt;
+			}
+			if (!body.lockTranslations?.[1]) {
+				body.transform.position.y += body.linearVelocity.y * dt;
+			}
+			if (!body.lockTranslations?.[2]) {
+				body.transform.position.z += body.linearVelocity.z * dt;
+			}
 		}
 
 		const events = this._resolveCollisions(world);
@@ -606,6 +653,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 			body.sleeping =
 				body.type === "dynamic" &&
+				body.canSleep &&
 				linearSpeed < 0.001 &&
 				angularSpeed < 0.001;
 			if (body.sleeping) sleepingBodies++;
@@ -632,14 +680,42 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		world: SimpleWorldState,
 		deltaSeconds: number
 	): void {
+		const gravity = world.config.gravity ?? DEFAULT_GRAVITY;
 		for (const controller of world.controllers.values()) {
 			const body = world.bodies.get(controller.bodyId);
 			if (!body) continue;
 
-			body.transform.position.x += controller.pendingDirection.x * deltaSeconds;
-			body.transform.position.z += controller.pendingDirection.z * deltaSeconds;
-			if (controller.pendingJumpSpeed > 0) {
+			if (!body.lockTranslations?.[0]) {
+				body.transform.position.x +=
+					controller.pendingDirection.x * deltaSeconds;
+			}
+			if (!body.lockTranslations?.[2]) {
+				body.transform.position.z +=
+					controller.pendingDirection.z * deltaSeconds;
+			}
+			if (controller.pendingJumpSpeed > 0 && !body.lockTranslations?.[1]) {
 				body.linearVelocity.y = controller.pendingJumpSpeed;
+			}
+			if (controller.gravityScale !== null) {
+				if (body.type === "dynamic") {
+					const gravityDelta = (controller.gravityScale - 1) * deltaSeconds;
+					body.linearVelocity.x += gravity.x * gravityDelta;
+					body.linearVelocity.y += gravity.y * gravityDelta;
+					body.linearVelocity.z += gravity.z * gravityDelta;
+				} else {
+					if (!body.lockTranslations?.[0]) {
+						body.transform.position.x +=
+							gravity.x * controller.gravityScale * deltaSeconds;
+					}
+					if (!body.lockTranslations?.[1]) {
+						body.transform.position.y +=
+							gravity.y * controller.gravityScale * deltaSeconds;
+					}
+					if (!body.lockTranslations?.[2]) {
+						body.transform.position.z +=
+							gravity.z * controller.gravityScale * deltaSeconds;
+					}
+				}
 			}
 			controller.pendingDirection = { x: 0, y: 0, z: 0 };
 			controller.pendingJumpSpeed = 0;
@@ -840,6 +916,23 @@ function resolveBodyMass(descriptor: RigidBodyDescriptor): number {
 		return Number(descriptor.mass);
 	}
 	return 1;
+}
+
+function sanitizeDamping(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 0;
+	return Math.max(0, Number(value));
+}
+
+function sanitizeLockAxes(
+	value: [boolean, boolean, boolean] | undefined
+): [boolean, boolean, boolean] | null {
+	if (!value) return null;
+	return [value[0] === true, value[1] === true, value[2] === true];
+}
+
+function computeDampingFactor(damping: number, deltaSeconds: number): number {
+	if (deltaSeconds <= 0 || damping <= 0) return 1;
+	return Math.max(0, 1 - damping * deltaSeconds);
 }
 
 function sanitizeCollisionMask(mask: number): number {

@@ -160,6 +160,57 @@ async function runRapierCharacterControllerContract() {
 	console.log("Physics adapter contract passed: rapier-kcc");
 }
 
+async function runRapierBodyDescriptorContract() {
+	const fakeRapier = createFakeRapierModule();
+	const adapter = new RapierPhysicsAdapter({
+		moduleLoader: async () => fakeRapier.module,
+		strict: true,
+	});
+	await adapter.init();
+
+	adapter.createWorld({
+		worldId: "opts",
+		gravity: { x: 0, y: -9.8, z: 0 },
+		allowSleep: false,
+	});
+	adapter.createBody(
+		"opts",
+		"player-a",
+		{ type: "dynamic", mass: 3 },
+		{
+			position: { x: 0, y: 1, z: 0 },
+			rotation: [0, 0, 0, 1],
+		}
+	);
+	adapter.createBody(
+		"opts",
+		"player-b",
+		{ type: "dynamic", canSleep: true },
+		{
+			position: { x: 0, y: 2, z: 0 },
+			rotation: [0, 0, 0, 1],
+		}
+	);
+
+	const lastCanSleepCall =
+		fakeRapier.stats.descriptorCanSleepCalls[
+			fakeRapier.stats.descriptorCanSleepCalls.length - 1
+		];
+	assert.equal(lastCanSleepCall, true);
+	assert.ok(
+		fakeRapier.stats.descriptorCanSleepCalls.includes(false),
+		"Expected allowSleep=false world default to call setCanSleep(false)"
+	);
+	assert.ok(
+		fakeRapier.stats.descriptorAdditionalMassCalls.includes(3) ||
+			fakeRapier.stats.bodyAdditionalMassCalls.includes(3),
+		"Expected dynamic body mass to be forwarded to Rapier"
+	);
+
+	adapter.destroyWorld("opts");
+	console.log("Physics adapter contract passed: rapier-body-descriptor");
+}
+
 async function run() {
 	const fakeRapier = createFakeRapierModule();
 	const fakeAmmo = createFakeAmmoModule();
@@ -194,6 +245,7 @@ async function run() {
 		}
 	);
 	await runRapierCharacterControllerContract();
+	await runRapierBodyDescriptorContract();
 }
 
 await run();
