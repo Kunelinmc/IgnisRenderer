@@ -331,6 +331,51 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return collider;
 	}
 
+	public setLinearVelocity(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		velocity: IVector3
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.setBodyLinearVelocity(body.worldId, body.id, velocity);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	public setAngularVelocity(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		velocity: IVector3
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.setAngularVelocity(body.worldId, body.id, velocity);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	public applyForce(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		force: IVector3
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.applyForce(body.worldId, body.id, force);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	public applyTorque(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		torque: IVector3
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.applyTorque(body.worldId, body.id, torque);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	public applyImpulse(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		impulse: IVector3
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.applyImpulse(body.worldId, body.id, impulse);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
 	public createJoint(desc: JointDescriptor): PhysicsJointHandle {
 		this._assertCapability("joints");
 		this._requireWorld(desc.worldId);
