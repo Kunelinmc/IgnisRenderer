@@ -4,8 +4,6 @@
 
 import type { Point } from "./types";
 
-const SRGB_TRANSFER_GAMMA = 2.4;
-
 export function d2r(d: number): number {
 	return (d * Math.PI) / 180;
 }
@@ -22,10 +20,6 @@ export function lerp(a: number, b: number, t: number): number {
 	return a + (b - a) * clamp(t, 0, 1);
 }
 
-function resolveTransferGamma(gamma: number): number {
-	return Number.isFinite(gamma) && gamma > 0 ? gamma : SRGB_TRANSFER_GAMMA;
-}
-
 /**
  * sRGB EOTF (Electro-Optical Transfer Function): decode sRGB to linear.
  *
@@ -37,14 +31,8 @@ function resolveTransferGamma(gamma: number): number {
  * @param gamma  Transfer gamma exponent. Defaults to 2.4.
  * @returns  Linear-light value in [0, 1]
  */
-export function sRGBToLinear(
-	x: number,
-	gamma = SRGB_TRANSFER_GAMMA
-): number {
-	const transferGamma = resolveTransferGamma(gamma);
-	return x <= 0.04045 ?
-			x / 12.92
-		:	Math.pow((x + 0.055) / 1.055, transferGamma);
+export function sRGBToLinear(x: number, gamma = 2.4): number {
+	return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, gamma);
 }
 
 /**
@@ -58,14 +46,8 @@ export function sRGBToLinear(
  * @param gamma  Transfer gamma exponent. Defaults to 2.4.
  * @returns  sRGB-encoded value in [0, 1]
  */
-export function linearToSRGB(
-	x: number,
-	gamma = SRGB_TRANSFER_GAMMA
-): number {
-	const transferGamma = resolveTransferGamma(gamma);
-	return x <= 0.0031308 ?
-			12.92 * x
-		:	1.055 * Math.pow(x, 1.0 / transferGamma) - 0.055;
+export function linearToSRGB(x: number, gamma = 2.4): number {
+	return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1.0 / gamma) - 0.055;
 }
 
 export function interpolatePoint(a: Point, b: Point, t: number): Point {
