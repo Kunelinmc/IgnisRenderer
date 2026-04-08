@@ -1,5 +1,10 @@
 import { BaseEvaluator } from "./BaseEvaluator";
-import { type PBRMaterial, type Material, AlphaMode } from "../../materials";
+import {
+	AlphaMode,
+	type Material,
+	type PBRMaterial,
+	UVChannel,
+} from "../../materials";
 import type { ProjectedFace } from "../../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../../maths/Vector3";
@@ -62,7 +67,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		// Select UV set for main map
 		const albedoUV =
-			mat.albedoMapUV === 1
+			mat.albedoMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const tex = this._sampleTextureMap(mat.map, albedoUV.u, albedoUV.v);
@@ -94,7 +99,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			return null;
 
 		const mrUV =
-			mat.metallicRoughnessMapUV === 1
+			mat.metallicRoughnessMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const metallicRoughnessTex = this._sampleTextureMap(
@@ -116,7 +121,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			b: clamp(baseEmissive.b, 0, 255),
 		};
 		const emissiveUV =
-			mat.emissiveMapUV === 1
+			mat.emissiveMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const emissiveTex = this._sampleTextureMap(
@@ -148,7 +153,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		}
 
 		const occlusionUV =
-			mat.occlusionMapUV === 1
+			mat.occlusionMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const occlusionTex = this._sampleTextureMap(
@@ -164,7 +169,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let specFactor = mat.specularFactor ?? 1.0;
 		const specUV =
-			mat.specularMapUV === 1
+			mat.specularMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const specTex = this._sampleTextureMap(mat.specularMap, specUV.u, specUV.v);
@@ -179,7 +184,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			b: clamp(specColorInput.b, 0, 255) / 255,
 		};
 		const specColorUV =
-			mat.specularColorMapUV === 1
+			mat.specularColorMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const specColorTex = this._sampleTextureMap(
@@ -215,7 +220,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			b: clamp(mat.sheenColorFactor.b, 0, 255) / 255,
 		};
 		const sheenColorUV =
-			mat.sheenColorMapUV === 1
+			mat.sheenColorMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const sheenColorTex = this._sampleTextureMap(
@@ -246,7 +251,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let sheenRoughness = mat.sheenRoughnessFactor;
 		const sheenRoughnessUV =
-			mat.sheenRoughnessMapUV === 1
+			mat.sheenRoughnessMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const sheenRoughnessTex = this._sampleTextureMap(
@@ -261,7 +266,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let clearcoat = mat.clearcoat ?? 0.0;
 		const clearcoatUV =
-			mat.clearcoatMapUV === 1
+			mat.clearcoatMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const clearcoatTex = this._sampleTextureMap(
@@ -275,7 +280,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let clearcoatRoughness = mat.clearcoatRoughness ?? 0.01;
 		const ccRoughnessUV =
-			mat.clearcoatRoughnessMapUV === 1
+			mat.clearcoatRoughnessMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const ccRoughnessTex = this._sampleTextureMap(
@@ -289,7 +294,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let transmission = mat.transmissionFactor;
 		const transmissionUV =
-			mat.transmissionMapUV === 1
+			mat.transmissionMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const transmissionTex = this._sampleTextureMap(
@@ -303,7 +308,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 
 		let thickness = mat.thicknessFactor;
 		const thicknessUV =
-			mat.thicknessMapUV === 1
+			mat.thicknessMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const thicknessTex = this._sampleTextureMap(
@@ -352,7 +357,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		normal.z = input.normal.z;
 
 		const normUV =
-			mat.normalMapUV === 1
+			mat.normalMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const normalTex = this._sampleTextureMap(mat.normalMap, normUV.u, normUV.v);
@@ -417,7 +422,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		clearcoatNormal.z = input.normal.z;
 
 		const ccNormUV =
-			mat.clearcoatNormalMapUV === 1
+			mat.clearcoatNormalMapUV !== UVChannel.UV0
 				? { u: input.u2, v: input.v2 }
 				: { u: input.u, v: input.v };
 		const clearcoatNormalTex = this._sampleTextureMap(

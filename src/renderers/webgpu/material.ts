@@ -238,7 +238,7 @@ function createTextureSlot(
 			transformA: [0, 0, 1, 1],
 			transformB: [
 				0,
-				uvSet === 1 ? 1 : 0,
+				uvSet > 0 ? 1 : 0,
 				(forcedLinear ?? fallbackLinear) ? 1 : 0,
 				0,
 			],
@@ -250,7 +250,7 @@ function createTextureSlot(
 		transformA: [map.offset.x, map.offset.y, map.repeat.x, map.repeat.y],
 		transformB: [
 			map.rotation,
-			uvSet === 1 ? 1 : 0,
+			uvSet > 0 ? 1 : 0,
 			forcedLinear !== null ?
 				(forcedLinear ? 1 : 0)
 			:	(map.colorSpace === "sRGB" ? 0 : 1),

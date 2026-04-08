@@ -7,6 +7,18 @@ import {
 } from "./Material";
 import { clamp, sRGBToLinear } from "../maths/Common";
 
+export enum UVChannel {
+	UV0 = 0,
+	UV1 = 1,
+	UV2 = 2,
+}
+
+function normalizeUVChannel(uv: number | undefined): UVChannel {
+	if (uv === UVChannel.UV1) return UVChannel.UV1;
+	if (uv === UVChannel.UV2) return UVChannel.UV2;
+	return UVChannel.UV0;
+}
+
 export interface PBRMaterialParams extends MaterialParams {
 	/**
 	 * Linear albedo factor stored in 0..255 units.
@@ -45,22 +57,22 @@ export interface PBRMaterialParams extends MaterialParams {
 	emissiveMap?: TextureLike;
 	occlusionMap?: TextureLike;
 	occlusionStrength?: number;
-	albedoMapUV?: number;
-	metallicRoughnessMapUV?: number;
-	normalMapUV?: number;
-	emissiveMapUV?: number;
-	occlusionMapUV?: number;
-	specularMapUV?: number;
-	specularColorMapUV?: number;
+	albedoMapUV?: UVChannel;
+	metallicRoughnessMapUV?: UVChannel;
+	normalMapUV?: UVChannel;
+	emissiveMapUV?: UVChannel;
+	occlusionMapUV?: UVChannel;
+	specularMapUV?: UVChannel;
+	specularColorMapUV?: UVChannel;
 	clearcoat?: number;
 	clearcoatMap?: TextureLike;
 	clearcoatRoughness?: number;
 	clearcoatRoughnessMap?: TextureLike;
 	clearcoatNormalMap?: TextureLike;
 	clearcoatNormalScale?: number;
-	clearcoatMapUV?: number;
-	clearcoatRoughnessMapUV?: number;
-	clearcoatNormalMapUV?: number;
+	clearcoatMapUV?: UVChannel;
+	clearcoatRoughnessMapUV?: UVChannel;
+	clearcoatNormalMapUV?: UVChannel;
 	/**
 	 * Linear sheen color factor stored in 0..255 units.
 	 */
@@ -68,14 +80,14 @@ export interface PBRMaterialParams extends MaterialParams {
 	sheenColorMap?: TextureLike;
 	sheenRoughnessFactor?: number;
 	sheenRoughnessMap?: TextureLike;
-	sheenColorMapUV?: number;
-	sheenRoughnessMapUV?: number;
+	sheenColorMapUV?: UVChannel;
+	sheenRoughnessMapUV?: UVChannel;
 	transmissionFactor?: number;
 	transmissionMap?: TextureLike;
-	transmissionMapUV?: number;
+	transmissionMapUV?: UVChannel;
 	thicknessFactor?: number;
 	thicknessMap?: TextureLike;
-	thicknessMapUV?: number;
+	thicknessMapUV?: UVChannel;
 	attenuationDistance?: number;
 	/**
 	 * Linear volume attenuation color stored in 0..255 units.
@@ -99,39 +111,39 @@ export class PBRMaterial extends Material {
 	public emissiveMap: TextureLike;
 	public occlusionMap: TextureLike;
 	public occlusionStrength: number;
-	public albedoMapUV: number;
-	public metallicRoughnessMapUV: number;
-	public normalMapUV: number;
-	public emissiveMapUV: number;
-	public occlusionMapUV: number;
+	public albedoMapUV: UVChannel;
+	public metallicRoughnessMapUV: UVChannel;
+	public normalMapUV: UVChannel;
+	public emissiveMapUV: UVChannel;
+	public occlusionMapUV: UVChannel;
 	public specularMap: TextureLike;
 	public specularColorMap: TextureLike;
-	public specularMapUV: number;
-	public specularColorMapUV: number;
+	public specularMapUV: UVChannel;
+	public specularColorMapUV: UVChannel;
 	public clearcoat: number;
 	public clearcoatMap: TextureLike;
 	public clearcoatRoughness: number;
 	public clearcoatRoughnessMap: TextureLike;
 	public clearcoatNormalMap: TextureLike;
 	public clearcoatNormalScale: number;
-	public clearcoatMapUV: number;
-	public clearcoatRoughnessMapUV: number;
-	public clearcoatNormalMapUV: number;
+	public clearcoatMapUV: UVChannel;
+	public clearcoatRoughnessMapUV: UVChannel;
+	public clearcoatNormalMapUV: UVChannel;
 
 	public sheenColorFactor: RGB;
 	public sheenColorMap: TextureLike;
 	public sheenRoughnessFactor: number;
 	public sheenRoughnessMap: TextureLike;
-	public sheenColorMapUV: number;
-	public sheenRoughnessMapUV: number;
+	public sheenColorMapUV: UVChannel;
+	public sheenRoughnessMapUV: UVChannel;
 
 	public transmissionFactor: number;
 	public transmissionMap: TextureLike;
-	public transmissionMapUV: number;
+	public transmissionMapUV: UVChannel;
 
 	public thicknessFactor: number;
 	public thicknessMap: TextureLike;
-	public thicknessMapUV: number;
+	public thicknessMapUV: UVChannel;
 	public attenuationDistance: number;
 	public attenuationColor: RGB;
 
@@ -203,41 +215,45 @@ export class PBRMaterial extends Material {
 		this.emissiveMap = params.emissiveMap || null;
 		this.occlusionMap = params.occlusionMap || null;
 		this.occlusionStrength = params.occlusionStrength ?? 1.0;
-		this.albedoMapUV = params.albedoMapUV ?? 0;
-		this.metallicRoughnessMapUV = params.metallicRoughnessMapUV ?? 0;
-		this.normalMapUV = params.normalMapUV ?? 0;
-		this.emissiveMapUV = params.emissiveMapUV ?? 0;
-		this.occlusionMapUV = params.occlusionMapUV ?? 0;
+		this.albedoMapUV = normalizeUVChannel(params.albedoMapUV);
+		this.metallicRoughnessMapUV = normalizeUVChannel(
+			params.metallicRoughnessMapUV
+		);
+		this.normalMapUV = normalizeUVChannel(params.normalMapUV);
+		this.emissiveMapUV = normalizeUVChannel(params.emissiveMapUV);
+		this.occlusionMapUV = normalizeUVChannel(params.occlusionMapUV);
 		this.specularMap = params.specularMap || null;
-		this.specularMapUV = params.specularMapUV ?? 0;
+		this.specularMapUV = normalizeUVChannel(params.specularMapUV);
 		this.specularColorMap = params.specularColorMap || null;
-		this.specularColorMapUV = params.specularColorMapUV ?? 0;
+		this.specularColorMapUV = normalizeUVChannel(params.specularColorMapUV);
 
 		this.clearcoat = clamp(params.clearcoat ?? 0.0, 0, 1);
 		this.clearcoatMap = params.clearcoatMap || null;
-		this.clearcoatMapUV = params.clearcoatMapUV ?? 0;
+		this.clearcoatMapUV = normalizeUVChannel(params.clearcoatMapUV);
 		// Default clearcoatRoughness to 0.01 to avoid infinite specular spikes and aliasing
 		this.clearcoatRoughness = clamp(params.clearcoatRoughness ?? 0.01, 0, 1);
 		this.clearcoatRoughnessMap = params.clearcoatRoughnessMap || null;
-		this.clearcoatRoughnessMapUV = params.clearcoatRoughnessMapUV ?? 0;
+		this.clearcoatRoughnessMapUV = normalizeUVChannel(
+			params.clearcoatRoughnessMapUV
+		);
 		this.clearcoatNormalMap = params.clearcoatNormalMap || null;
-		this.clearcoatNormalMapUV = params.clearcoatNormalMapUV ?? 0;
+		this.clearcoatNormalMapUV = normalizeUVChannel(params.clearcoatNormalMapUV);
 		this.clearcoatNormalScale = params.clearcoatNormalScale ?? 1.0;
 
 		this.sheenColorFactor = params.sheenColorFactor || { r: 0, g: 0, b: 0 };
 		this.sheenColorMap = params.sheenColorMap || null;
 		this.sheenRoughnessFactor = clamp(params.sheenRoughnessFactor ?? 0.0, 0, 1);
 		this.sheenRoughnessMap = params.sheenRoughnessMap || null;
-		this.sheenColorMapUV = params.sheenColorMapUV ?? 0;
-		this.sheenRoughnessMapUV = params.sheenRoughnessMapUV ?? 0;
+		this.sheenColorMapUV = normalizeUVChannel(params.sheenColorMapUV);
+		this.sheenRoughnessMapUV = normalizeUVChannel(params.sheenRoughnessMapUV);
 
 		this.transmissionFactor = clamp(params.transmissionFactor ?? 0.0, 0, 1);
 		this.transmissionMap = params.transmissionMap || null;
-		this.transmissionMapUV = params.transmissionMapUV ?? 0;
+		this.transmissionMapUV = normalizeUVChannel(params.transmissionMapUV);
 
 		this.thicknessFactor = Math.max(params.thicknessFactor ?? 0.0, 0);
 		this.thicknessMap = params.thicknessMap || null;
-		this.thicknessMapUV = params.thicknessMapUV ?? 0;
+		this.thicknessMapUV = normalizeUVChannel(params.thicknessMapUV);
 		this.attenuationDistance = params.attenuationDistance ?? Infinity;
 		this.attenuationColor = params.attenuationColor || {
 			r: 255,
