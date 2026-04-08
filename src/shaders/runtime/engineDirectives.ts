@@ -352,9 +352,9 @@ const FXAA_QUALITY = array<f32, ${FXAA_QUALITY.length}>(
 			{
 				language: "wgsl",
 				id: "ignis/postprocess/fog.wgsl",
-				code: `const IGNIS_FOG_MODE_LINEAR: u32 = 0u;
-const IGNIS_FOG_MODE_EXP: u32 = 1u;
-const IGNIS_FOG_MODE_EXP2: u32 = 2u;
+				code: `const IGNIS_FOG_MODE_LINEAR: i32 = 0;
+const IGNIS_FOG_MODE_EXP: i32 = 1;
+const IGNIS_FOG_MODE_EXP2: i32 = 2;
 
 fn ignisFogLinear(depth: f32, startDepth: f32, endDepth: f32) -> f32 {
 	let safeRange = max(endDepth - startDepth, 1e-4);
@@ -372,7 +372,7 @@ fn ignisFogExp2(depth: f32, density: f32) -> f32 {
 }
 
 fn ignisComputeFogFactor(
-	mode: u32,
+	mode: i32,
 	depth: f32,
 	startDepth: f32,
 	endDepth: f32,
