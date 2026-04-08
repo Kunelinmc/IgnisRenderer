@@ -1,5 +1,6 @@
 import { Material } from "../materials/Material";
 import { Matrix4 } from "../maths/Matrix4";
+import { Vector3 } from "../maths/Vector3";
 import { MeshAsset, type MeshFace } from "../meshes";
 import { MeshInstance } from "../meshes/MeshInstance";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
@@ -25,15 +26,9 @@ const LARGE_VALUE = 1e9;
 
 const _registeredWasmSolvers = new Map<string, CSGSolverAdapter>();
 
-interface Vec3 {
-	x: number;
-	y: number;
-	z: number;
-}
-
 interface VertexPayload {
-	position: Vec3;
-	normal: Vec3;
+	position: Vector3;
+	normal: Vector3;
 	u: number;
 	v: number;
 }
@@ -65,17 +60,17 @@ class CSGBuildError extends Error {
 }
 
 class BSPVertex {
-	public position: Vec3;
-	public normal: Vec3;
+	public position: Vector3;
+	public normal: Vector3;
 	public u: number;
 	public v: number;
 
 	constructor(data: VertexPayload) {
-		this.position = {
-			x: data.position.x,
-			y: data.position.y,
-			z: data.position.z,
-		};
+		this.position = new Vector3(
+			data.position.x,
+			data.position.y,
+			data.position.z
+		);
 		this.normal = normalizeVector(data.normal);
 		this.u = data.u;
 		this.v = data.v;
@@ -113,11 +108,11 @@ class BSPVertex {
 }
 
 class BSPPlane {
-	public normal: Vec3;
+	public normal: Vector3;
 	public w: number;
 	private _epsilon: number;
 
-	constructor(normal: Vec3, w: number, epsilon: number) {
+	constructor(normal: Vector3, w: number, epsilon: number) {
 		this.normal = normalizeVector(normal);
 		this.w = w;
 		this._epsilon = epsilon;
@@ -838,35 +833,31 @@ function buildVertexPayload(
 ): VertexPayload {
 	const positionOffset = index * 3;
 	const uvOffset = index * 2;
-	const position = {
-		x: positions[positionOffset],
-		y: positions[positionOffset + 1],
-		z: positions[positionOffset + 2],
-	};
+	const position = new Vector3(
+		positions[positionOffset],
+		positions[positionOffset + 1],
+		positions[positionOffset + 2]
+	);
 	const rawNormal =
 		normals ?
-			{
-				x: normals[positionOffset],
-				y: normals[positionOffset + 1],
-				z: normals[positionOffset + 2],
-			}
-		:	{ x: 0, y: 1, z: 0 };
+			new Vector3(
+				normals[positionOffset],
+				normals[positionOffset + 1],
+				normals[positionOffset + 2]
+			)
+		:	new Vector3(0, 1, 0);
 	const transformedPosition =
 		transform ? Matrix4.transformPoint(transform, position) : position;
 	const transformedNormal =
 		transform ? Matrix4.transformDirection(transform, rawNormal) : rawNormal;
 
 	return {
-		position: {
-			x: transformedPosition.x,
-			y: transformedPosition.y,
-			z: transformedPosition.z,
-		},
-		normal: normalizeVector({
-			x: transformedNormal.x,
-			y: transformedNormal.y,
-			z: transformedNormal.z,
-		}),
+		position: new Vector3(
+			transformedPosition.x,
+			transformedPosition.y,
+			transformedPosition.z
+		),
+		normal: normalizeVector(transformedNormal),
 		u: uv0?.[uvOffset] ?? 0,
 		v: uv0?.[uvOffset + 1] ?? 0,
 	};
@@ -971,9 +962,9 @@ function floatToBits(value: number): number {
 }
 
 function addTriangleEdges(
-	a: Vec3,
-	b: Vec3,
-	c: Vec3,
+	a: Vector3,
+	b: Vector3,
+	c: Vector3,
 	epsilon: number,
 	edgeCounts: Map<string, number>
 ): void {
@@ -986,13 +977,13 @@ function accumulateEdge(map: Map<string, number>, key: string): void {
 	map.set(key, (map.get(key) ?? 0) + 1);
 }
 
-function edgeKey(a: Vec3, b: Vec3, epsilon: number): string {
+function edgeKey(a: Vector3, b: Vector3, epsilon: number): string {
 	const left = quantizedPointKey(a, epsilon);
 	const right = quantizedPointKey(b, epsilon);
 	return left < right ? `${left}|${right}` : `${right}|${left}`;
 }
 
-function quantizedPointKey(point: Vec3, epsilon: number): string {
+function quantizedPointKey(point: Vector3, epsilon: number): string {
 	return [
 		Math.round(point.x / epsilon),
 		Math.round(point.y / epsilon),
@@ -1000,53 +991,32 @@ function quantizedPointKey(point: Vec3, epsilon: number): string {
 	].join(":");
 }
 
-function addVector(a: Vec3, b: Vec3): Vec3 {
-	return {
-		x: a.x + b.x,
-		y: a.y + b.y,
-		z: a.z + b.z,
-	};
+function addVector(a: Vector3, b: Vector3): Vector3 {
+	return Vector3.add(a, b);
 }
 
-function subVector(a: Vec3, b: Vec3): Vec3 {
-	return {
-		x: a.x - b.x,
-		y: a.y - b.y,
-		z: a.z - b.z,
-	};
+function subVector(a: Vector3, b: Vector3): Vector3 {
+	return Vector3.sub(a, b);
 }
 
-function scaleVector(vector: Vec3, scalar: number): Vec3 {
-	return {
-		x: vector.x * scalar,
-		y: vector.y * scalar,
-		z: vector.z * scalar,
-	};
+function scaleVector(vector: Vector3, scalar: number): Vector3 {
+	return Vector3.scale(vector, scalar);
 }
 
-function dotVector(a: Vec3, b: Vec3): number {
-	return a.x * b.x + a.y * b.y + a.z * b.z;
+function dotVector(a: Vector3, b: Vector3): number {
+	return Vector3.dot(a, b);
 }
 
-function crossVector(a: Vec3, b: Vec3): Vec3 {
-	return {
-		x: a.y * b.z - a.z * b.y,
-		y: a.z * b.x - a.x * b.z,
-		z: a.x * b.y - a.y * b.x,
-	};
+function crossVector(a: Vector3, b: Vector3): Vector3 {
+	return Vector3.cross(a, b);
 }
 
-function normalizeVector(vector: Vec3): Vec3 {
-	const length = Math.hypot(vector.x, vector.y, vector.z);
+function normalizeVector(vector: Vector3): Vector3 {
+	const length = Vector3.length(vector);
 	if (length <= DEFAULT_EPSILON) {
-		return { x: 0, y: 1, z: 0 };
+		return new Vector3(0, 1, 0);
 	}
-	const inv = 1 / length;
-	return {
-		x: vector.x * inv,
-		y: vector.y * inv,
-		z: vector.z * inv,
-	};
+	return Vector3.scale(vector, 1 / length);
 }
 
 function clamp01(value: number): number {
@@ -1071,20 +1041,20 @@ export function createEmptyCSGResult(
 }
 
 export function expandBoundsForDiagnostics(mesh: MeshAsset): {
-	min: Vec3;
-	max: Vec3;
+	min: Vector3;
+	max: Vector3;
 } {
 	return {
-		min: {
-			x: mesh.boundingBox.min.x,
-			y: mesh.boundingBox.min.y,
-			z: mesh.boundingBox.min.z,
-		},
-		max: {
-			x: mesh.boundingBox.max.x,
-			y: mesh.boundingBox.max.y,
-			z: mesh.boundingBox.max.z,
-		},
+		min: new Vector3(
+			mesh.boundingBox.min.x,
+			mesh.boundingBox.min.y,
+			mesh.boundingBox.min.z
+		),
+		max: new Vector3(
+			mesh.boundingBox.max.x,
+			mesh.boundingBox.max.y,
+			mesh.boundingBox.max.z
+		),
 	};
 }
 
