@@ -37,7 +37,7 @@ export class WebGPUFrameBindingCache {
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
-	private _fogUniformData = new Float32Array(8);
+	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
 	private _skyboxBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
@@ -300,7 +300,9 @@ export class WebGPUFrameBindingCache {
 		return this._fogUniformBuffer;
 	}
 
-	private _packFogUniformData(features: WebGPUFeatureState): Float32Array {
+	private _packFogUniformData(
+		features: WebGPUFeatureState
+	): Float32Array<ArrayBuffer> {
 		const source = features.fogOptions ?? DEFAULT_FOG_OPTIONS;
 		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
 		const start = Math.max(
