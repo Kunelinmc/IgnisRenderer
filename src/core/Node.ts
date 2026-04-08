@@ -23,7 +23,6 @@ export interface NodeParams {
 }
 
 export class Node {
-	/** @deprecated Node is now a compatibility facade over ECS entities. */
 	public readonly id: string;
 	public name: string;
 	public visible: boolean;
@@ -229,10 +228,7 @@ export class Node {
 	}
 
 	public getWorldDirection(localDirection: IVector3, out?: IVector3): IVector3 {
-		const transformed = Matrix4.transformDirection(
-			this.worldMatrix,
-			localDirection
-		);
+		const transformed = Matrix4.transformDirection(this.worldMatrix, localDirection);
 		const length = Math.hypot(transformed.x, transformed.y, transformed.z) || 1;
 		const target = out ?? { x: 0, y: 0, z: 0 };
 		target.x = transformed.x / length;
@@ -262,7 +258,7 @@ export class Node {
 			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(
 				`Node.clone failed for "${this.constructor.name}". ` +
-					`Override _createCloneInstance in this class. Cause: ${message}`
+					`Override _createCloneInstance in this class. Cause: ${message}`,
 			);
 		}
 	}
