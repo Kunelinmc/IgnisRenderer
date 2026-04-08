@@ -1,6 +1,7 @@
 import { Material } from "../materials/Material";
 import { Matrix4 } from "../maths/Matrix4";
 import { Vector3 } from "../maths/Vector3";
+import { clamp } from "../maths/Common";
 import { MeshAsset, type MeshFace } from "../meshes";
 import { MeshInstance } from "../meshes/MeshInstance";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
@@ -71,7 +72,7 @@ class BSPVertex {
 			data.position.y,
 			data.position.z
 		);
-		this.normal = normalizeVector(data.normal);
+		this.normal = Vector3.normalize(data.normal);
 		this.u = data.u;
 		this.v = data.v;
 	}
@@ -86,19 +87,19 @@ class BSPVertex {
 	}
 
 	public flip(): void {
-		this.normal = scaleVector(this.normal, -1);
+		this.normal = Vector3.scale(this.normal, -1);
 	}
 
 	public interpolate(other: BSPVertex, t: number): BSPVertex {
 		return new BSPVertex({
-			position: addVector(
-				scaleVector(this.position, 1 - t),
-				scaleVector(other.position, t)
+			position: Vector3.add(
+				Vector3.scale(this.position, 1 - t),
+				Vector3.scale(other.position, t)
 			),
-			normal: normalizeVector(
-				addVector(
-					scaleVector(this.normal, 1 - t),
-					scaleVector(other.normal, t)
+			normal: Vector3.normalize(
+				Vector3.add(
+					Vector3.scale(this.normal, 1 - t),
+					Vector3.scale(other.normal, t)
 				)
 			),
 			u: this.u + (other.u - this.u) * t,
@@ -113,7 +114,7 @@ class BSPPlane {
 	private _epsilon: number;
 
 	constructor(normal: Vector3, w: number, epsilon: number) {
-		this.normal = normalizeVector(normal);
+		this.normal = Vector3.normalize(normal);
 		this.w = w;
 		this._epsilon = epsilon;
 	}
@@ -123,7 +124,7 @@ class BSPPlane {
 	}
 
 	public flip(): void {
-		this.normal = scaleVector(this.normal, -1);
+		this.normal = Vector3.scale(this.normal, -1);
 		this.w = -this.w;
 	}
 
@@ -134,10 +135,10 @@ class BSPPlane {
 		const a = polygon.vertices[0].position;
 		const b = polygon.vertices[1].position;
 		const c = polygon.vertices[2].position;
-		const normal = normalizeVector(
-			crossVector(subVector(b, a), subVector(c, a))
+		const normal = Vector3.normalize(
+			Vector3.cross(Vector3.sub(b, a), Vector3.sub(c, a))
 		);
-		return new BSPPlane(normal, dotVector(normal, a), epsilon);
+		return new BSPPlane(normal, Vector3.dot(normal, a), epsilon);
 	}
 
 	public splitPolygon(
@@ -151,7 +152,7 @@ class BSPPlane {
 		const types: number[] = [];
 
 		for (const vertex of polygon.vertices) {
-			const delta = dotVector(this.normal, vertex.position) - this.w;
+			const delta = Vector3.dot(this.normal, vertex.position) - this.w;
 			const type =
 				delta < -this._epsilon ? POLYGON_BACK
 				: delta > this._epsilon ? POLYGON_FRONT
@@ -163,7 +164,7 @@ class BSPPlane {
 		switch (polygonType) {
 			case POLYGON_COPLANAR: {
 				const destination =
-					dotVector(this.normal, polygon.plane.normal) > 0 ?
+					Vector3.dot(this.normal, polygon.plane.normal) > 0 ?
 						coplanarFront
 					:	coplanarBack;
 				destination.push(polygon.clone());
@@ -196,19 +197,19 @@ class BSPPlane {
 						continue;
 					}
 
-					const direction = subVector(
+					const direction = Vector3.sub(
 						nextVertex.position,
 						currentVertex.position
 					);
-					const denominator = dotVector(this.normal, direction);
+					const denominator = Vector3.dot(this.normal, direction);
 					const t =
 						Math.abs(denominator) <= this._epsilon ? 0
 						: (this.w -
-								dotVector(this.normal, currentVertex.position)) /
+								Vector3.dot(this.normal, currentVertex.position)) /
 							denominator;
 					const intersection = currentVertex.interpolate(
 						nextVertex,
-						clamp01(t)
+						clamp(t)
 					);
 					frontVertices.push(intersection);
 					backVertices.push(intersection.clone());
@@ -857,7 +858,7 @@ function buildVertexPayload(
 			transformedPosition.y,
 			transformedPosition.z
 		),
-		normal: normalizeVector(transformedNormal),
+		normal: Vector3.normalize(transformedNormal),
 		u: uv0?.[uvOffset] ?? 0,
 		v: uv0?.[uvOffset + 1] ?? 0,
 	};
@@ -989,41 +990,6 @@ function quantizedPointKey(point: Vector3, epsilon: number): string {
 		Math.round(point.y / epsilon),
 		Math.round(point.z / epsilon),
 	].join(":");
-}
-
-function addVector(a: Vector3, b: Vector3): Vector3 {
-	return Vector3.add(a, b);
-}
-
-function subVector(a: Vector3, b: Vector3): Vector3 {
-	return Vector3.sub(a, b);
-}
-
-function scaleVector(vector: Vector3, scalar: number): Vector3 {
-	return Vector3.scale(vector, scalar);
-}
-
-function dotVector(a: Vector3, b: Vector3): number {
-	return Vector3.dot(a, b);
-}
-
-function crossVector(a: Vector3, b: Vector3): Vector3 {
-	return Vector3.cross(a, b);
-}
-
-function normalizeVector(vector: Vector3): Vector3 {
-	const length = Vector3.length(vector);
-	if (length <= DEFAULT_EPSILON) {
-		return new Vector3(0, 1, 0);
-	}
-	return Vector3.scale(vector, 1 / length);
-}
-
-function clamp01(value: number): number {
-	if (!Number.isFinite(value)) return 0;
-	if (value <= 0) return 0;
-	if (value >= 1) return 1;
-	return value;
 }
 
 export function createEmptyCSGResult(
