@@ -284,6 +284,7 @@ export class GeometryBuilder {
 		return {
 			id: IdGenerator.nextId("primitive"),
 			geometry,
+			geometryVersion: 0,
 			topology: DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
 			material: group.material,
 			boundingBox,

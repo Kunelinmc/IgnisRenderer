@@ -14,6 +14,7 @@ export * from "./foundation/Logger";
 export * from "./foundation/Platform";
 export { Node } from "./core/Node";
 export { MeshAsset, MeshInstance, MeshFactory } from "./meshes";
+export * from "./csg";
 export * from "./spatial";
 export type {
 	IVertex,

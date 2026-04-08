@@ -20,9 +20,14 @@ export interface WebGPUGeometryHandle {
 	morphNormalBuffer: IRenderBuffer | null;
 }
 
+interface WebGPUCachedGeometryEntry {
+	handle: WebGPUGeometryHandle;
+	geometryVersion: number;
+}
+
 export class WebGPUGeometryRegistry {
 	private _backend: WebGPUBackend;
-	private _cache = new WeakMap<IPrimitive, WebGPUGeometryHandle>();
+	private _cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
 	private _owned = new Set<WebGPUGeometryHandle>();
 	private _finalizationRegistry: FinalizationRegistry<WebGPUGeometryHandle> | null =
 		typeof FinalizationRegistry === "function" ?
@@ -37,18 +42,28 @@ export class WebGPUGeometryRegistry {
 	}
 
 	public getGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
+		const geometryVersion = primitive.geometryVersion ?? 0;
 		let cached = this._cache.get(primitive);
-		if (!cached) {
-			cached = this._uploadGeometry(primitive);
+		if (!cached || cached.geometryVersion !== geometryVersion) {
+			if (cached) {
+				this._finalizationRegistry?.unregister(primitive as unknown as object);
+				this._owned.delete(cached.handle);
+				this._destroyHandle(cached.handle);
+			}
+			const handle = this._uploadGeometry(primitive);
+			cached = {
+				handle,
+				geometryVersion,
+			};
 			this._cache.set(primitive, cached);
-			this._owned.add(cached);
+			this._owned.add(handle);
 			this._finalizationRegistry?.register(
 				primitive as unknown as object,
-				cached,
+				handle,
 				primitive as unknown as object
 			);
 		}
-		return cached;
+		return cached.handle;
 	}
 
 	public releaseGeometry(primitive: IPrimitive): void {
@@ -59,8 +74,8 @@ export class WebGPUGeometryRegistry {
 
 		this._cache.delete(primitive);
 		this._finalizationRegistry?.unregister(primitive as unknown as object);
-		this._owned.delete(cached);
-		this._destroyHandle(cached);
+		this._owned.delete(cached.handle);
+		this._destroyHandle(cached.handle);
 	}
 
 	public destroy(): void {
@@ -68,7 +83,7 @@ export class WebGPUGeometryRegistry {
 			this._destroyHandle(handle);
 		}
 		this._owned.clear();
-		this._cache = new WeakMap<IPrimitive, WebGPUGeometryHandle>();
+		this._cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
 		this._finalizationRegistry = null;
 	}
 

@@ -331,6 +331,29 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return collider;
 	}
 
+	public rebuildColliders(
+		target: Node | PhysicsBodyHandle | PhysicsEntityId
+	): PhysicsColliderHandle[] {
+		const body = this._resolveBody(target);
+		const descriptors: ColliderDescriptor[] = [];
+		for (const colliderId of body.colliderIds) {
+			const binding = this._colliderById.get(colliderId);
+			if (binding) {
+				descriptors.push(cloneColliderDescriptor(binding.descriptor));
+			}
+			this._adapter.destroyCollider(body.worldId, colliderId);
+			this._colliderById.delete(colliderId);
+		}
+		body.colliderIds.clear();
+		body.broadphaseRadius = DEFAULT_BROADPHASE_BODY_RADIUS;
+		const rebuilt: PhysicsColliderHandle[] = [];
+		for (const descriptor of descriptors) {
+			rebuilt.push(this.addCollider(body, descriptor));
+		}
+		this._markWorldDirtyForStep(body.worldId);
+		return rebuilt;
+	}
+
 	public setLinearVelocity(
 		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
 		velocity: IVector3
@@ -1591,6 +1614,97 @@ function resolveBinding(
 function isBodyHandle(value: unknown): value is PhysicsBodyHandle {
 	if (!value || typeof value !== "object") return false;
 	return "id" in value && "worldId" in value && "node" in value;
+}
+
+function cloneColliderDescriptor(desc: ColliderDescriptor): ColliderDescriptor {
+	const base = {
+		...desc,
+		offset:
+			desc.offset ?
+				{
+					x: desc.offset.x,
+					y: desc.offset.y,
+					z: desc.offset.z,
+				}
+			:	undefined,
+		material:
+			desc.material ?
+				{
+					...desc.material,
+				}
+			:	undefined,
+	};
+
+	if (!desc.mode || desc.mode === "explicit") {
+		if (!("shape" in desc)) {
+			return base as ColliderDescriptor;
+		}
+		return {
+			...base,
+			mode: desc.mode,
+			shape: cloneColliderShape(desc.shape),
+		};
+	}
+
+	if (desc.mode === "auto-fit") {
+		return {
+			...base,
+			mode: "auto-fit",
+			shapePreference: desc.shapePreference,
+			sourceNode: desc.sourceNode,
+		};
+	}
+
+	return {
+		...base,
+		mode: "trimesh-cook",
+		sourceNode: desc.sourceNode,
+	};
+}
+
+function cloneColliderShape(shape: ColliderShape): ColliderShape {
+	switch (shape.kind) {
+		case "box":
+			return {
+				kind: "box",
+				halfExtents: {
+					x: shape.halfExtents.x,
+					y: shape.halfExtents.y,
+					z: shape.halfExtents.z,
+				},
+			};
+		case "sphere":
+			return {
+				kind: "sphere",
+				radius: shape.radius,
+			};
+		case "capsule":
+			return {
+				kind: "capsule",
+				radius: shape.radius,
+				halfHeight: shape.halfHeight,
+			};
+		case "cylinder":
+			return {
+				kind: "cylinder",
+				radius: shape.radius,
+				halfHeight: shape.halfHeight,
+			};
+		case "trimesh":
+			return {
+				kind: "trimesh",
+				vertices:
+					shape.vertices instanceof Float32Array ?
+						new Float32Array(shape.vertices)
+					:	Array.from(shape.vertices),
+				indices:
+					shape.indices instanceof Uint32Array ?
+						new Uint32Array(shape.indices)
+					:	Array.from(shape.indices),
+			};
+		default:
+			return shape;
+	}
 }
 
 function createWorldRuntime(worldId: string): WorldRuntimeState {

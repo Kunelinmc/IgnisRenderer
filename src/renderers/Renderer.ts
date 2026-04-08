@@ -16,6 +16,7 @@ import {
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
+import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
@@ -766,6 +767,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					this.refreshReflectionProbeCaches();
 					break;
 				}
+				case "csg-resolve": {
+					await this._resolveCSGMeshes();
+					break;
+				}
 				case "prepared-scene-build": {
 					if (this.features.enableSH) {
 						this.updateSH();
@@ -1067,6 +1072,28 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			(light as ReflectionProbe).refreshRuntimeCache();
 		}
 	}
+
+	private async _resolveCSGMeshes(): Promise<void> {
+		const meshInstances = this.scene.ecs.findMeshInstances();
+		for (const meshInstance of meshInstances) {
+			if (!(meshInstance instanceof CSGMeshInstance)) continue;
+			if (!meshInstance.isCSGDirty) continue;
+			if (meshInstance.physicsSync === "auto" && !meshInstance.physicsSystem) {
+				meshInstance.physicsSystem = this._physicsSystem;
+			}
+
+			const flushResult = meshInstance.flushCSG();
+			const result =
+				flushResult instanceof Promise ? await flushResult : flushResult;
+			for (const diagnostic of result.diagnostics) {
+				if (diagnostic.severity === "info") continue;
+				const key =
+					`csg-diagnostic-${meshInstance.id}-` +
+					`${diagnostic.code}-${diagnostic.message}`;
+				this.warnOnce(key, `[CSG:${diagnostic.code}] ${diagnostic.message}`);
+			}
+		}
+	}
 }
 
 const BACKEND_PASS_STAGES = new Set<string>([
@@ -1104,7 +1131,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 			id: "transform-update",
 			dependsOn: ["physics-sim", "animation-sim", "sync-in"],
 		},
-		{ id: "prepared-scene-build", dependsOn: ["transform-update"] },
+		{ id: "csg-resolve", dependsOn: ["transform-update"] },
+		{ id: "prepared-scene-build", dependsOn: ["csg-resolve"] },
 		{
 			id: "particle-sim",
 			dependsOn: ["prepared-scene-build"],

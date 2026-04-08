@@ -18,10 +18,16 @@ interface UploadPrimitiveResult {
 	cacheFailure: boolean;
 }
 
+interface WebGLCachedGeometryEntry {
+	handle: WebGLGeometryHandle | null;
+	geometryVersion: number;
+	cacheFailure: boolean;
+}
+
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _warn: WarnFn;
-	private _cache = new WeakMap<IPrimitive, WebGLGeometryHandle | null>();
+	private _cache = new WeakMap<IPrimitive, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
@@ -31,27 +37,40 @@ export class WebGLGeometryRegistry {
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
 		const primitive = packet.primitive;
+		const geometryVersion = primitive.geometryVersion ?? 0;
 		const cached = this._cache.get(primitive);
-		if (cached !== undefined) {
-			return cached;
+		if (cached && cached.geometryVersion === geometryVersion) {
+			return cached.handle;
+		}
+		if (cached?.handle) {
+			this._owned.delete(cached.handle);
+			this._destroyHandle(cached.handle);
 		}
 		const uploaded = this._uploadPrimitive(packet);
 		if (uploaded.handle) {
-			this._cache.set(primitive, uploaded.handle);
 			this._owned.add(uploaded.handle);
-		} else if (uploaded.cacheFailure) {
-			this._cache.set(primitive, null);
+		}
+		if (uploaded.handle || uploaded.cacheFailure) {
+			this._cache.set(primitive, {
+				handle: uploaded.handle,
+				geometryVersion,
+				cacheFailure: uploaded.cacheFailure,
+			});
 		}
 		return uploaded.handle;
 	}
 
 	public destroy(): void {
 		for (const handle of this._owned) {
-			this._gl.deleteBuffer(handle.vertexBuffer);
-			this._gl.deleteBuffer(handle.indexBuffer);
-			this._gl.deleteVertexArray(handle.vao);
+			this._destroyHandle(handle);
 		}
 		this._owned.clear();
+	}
+
+	private _destroyHandle(handle: WebGLGeometryHandle): void {
+		this._gl.deleteBuffer(handle.vertexBuffer);
+		this._gl.deleteBuffer(handle.indexBuffer);
+		this._gl.deleteVertexArray(handle.vao);
 	}
 
 	private _uploadPrimitive(packet: DrawPacket): UploadPrimitiveResult {

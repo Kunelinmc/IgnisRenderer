@@ -297,6 +297,7 @@ function buildPacketSignature(packet: DrawPacket): string {
 	return [
 		packet.id,
 		packet.pipelineKey,
+		packet.primitive.geometryVersion ?? 0,
 		matrixSignature,
 		materialSignature,
 		primitiveVisibility,

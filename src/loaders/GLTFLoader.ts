@@ -1147,6 +1147,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		return {
 			id: IdGenerator.nextId("primitive"),
 			geometry,
+			geometryVersion: 0,
 			topology,
 			material,
 			boundingSphere,
