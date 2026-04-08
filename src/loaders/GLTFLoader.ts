@@ -1,5 +1,10 @@
 import { Loader, type LoaderEvents } from "./Loader";
-import { PBRMaterial, UnlitMaterial, type Material } from "../materials";
+import {
+	PBRMaterial,
+	type Material,
+	UnlitMaterial,
+	UVChannel,
+} from "../materials";
 import type { Texture } from "../core/Texture";
 import { Node } from "../core/Node";
 import { Matrix4 } from "../maths/Matrix4";
@@ -500,13 +505,15 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		return cloned;
 	}
 
-	private _getTexCoord(texInfo: any): number {
-		if (!texInfo) return 0;
+	private _getTexCoord(texInfo: any): UVChannel {
+		if (!texInfo) return UVChannel.UV0;
 		let uv = texInfo.texCoord ?? 0;
 		if (texInfo.extensions?.KHR_texture_transform?.texCoord !== undefined) {
 			uv = texInfo.extensions.KHR_texture_transform.texCoord;
 		}
-		return uv;
+		if (uv === UVChannel.UV1) return UVChannel.UV1;
+		if (uv === UVChannel.UV2) return UVChannel.UV2;
+		return UVChannel.UV0;
 	}
 
 	public parseMaterials(
