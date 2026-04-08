@@ -42,6 +42,22 @@ function run() {
 			authority: "physics",
 		}
 	);
+	const rotatedOverlapBody = physics.attachBody(
+		new Node({ position: { x: 0.8, y: 0.8, z: 0 } }),
+		{
+			worldId: "main",
+			body: { type: "fixed" },
+			authority: "physics",
+		}
+	);
+	const rotatedCastBody = physics.attachBody(
+		new Node({ position: { x: 0, y: 0.9, z: 6 } }),
+		{
+			worldId: "main",
+			body: { type: "fixed" },
+			authority: "physics",
+		}
+	);
 
 	const sphereCollider = physics.addCollider(sphereBody, {
 		mode: "explicit",
@@ -55,6 +71,14 @@ function run() {
 		mode: "explicit",
 		shape: { kind: "sphere", radius: 0.25 },
 		isTrigger: true,
+	});
+	const rotatedOverlapCollider = physics.addCollider(rotatedOverlapBody, {
+		mode: "explicit",
+		shape: { kind: "sphere", radius: 0.1 },
+	});
+	const rotatedCastCollider = physics.addCollider(rotatedCastBody, {
+		mode: "explicit",
+		shape: { kind: "box", halfExtents: { x: 0.2, y: 0.2, z: 0.2 } },
 	});
 
 	const rayHit = physics.raycast({
@@ -106,6 +130,46 @@ function run() {
 	assert.equal(overlapBoxHits.length, 1);
 	assert.equal(overlapBoxHits[0].bodyId, boxBody.id);
 	assert.equal(overlapBoxHits[0].colliderId, boxCollider.id);
+
+	const overlapWithoutRotation = physics.overlapBox({
+		center: { x: 0, y: 0, z: 0 },
+		halfExtents: { x: 1, y: 0.2, z: 0.2 },
+		filter: { includeBodyIds: [rotatedOverlapBody.id] },
+	});
+	assert.equal(overlapWithoutRotation.length, 0);
+
+	const halfAngle = Math.PI / 8;
+	const boxRotationZ45 = [0, 0, Math.sin(halfAngle), Math.cos(halfAngle)];
+	const overlapWithRotation = physics.overlapBox({
+		center: { x: 0, y: 0, z: 0 },
+		halfExtents: { x: 1, y: 0.2, z: 0.2 },
+		rotation: boxRotationZ45,
+		filter: { includeBodyIds: [rotatedOverlapBody.id] },
+	});
+	assert.equal(overlapWithRotation.length, 1);
+	assert.equal(overlapWithRotation[0].bodyId, rotatedOverlapBody.id);
+	assert.equal(overlapWithRotation[0].colliderId, rotatedOverlapCollider.id);
+
+	const boxCastWithoutRotation = physics.boxCast({
+		center: { x: 0, y: 0, z: 0 },
+		halfExtents: { x: 1, y: 0.2, z: 0.2 },
+		direction: { x: 0, y: 0, z: 1 },
+		maxDistance: 20,
+		filter: { includeBodyIds: [rotatedCastBody.id] },
+	});
+	assert.equal(boxCastWithoutRotation, null);
+
+	const boxCastWithRotation = physics.boxCast({
+		center: { x: 0, y: 0, z: 0 },
+		halfExtents: { x: 1, y: 0.2, z: 0.2 },
+		rotation: boxRotationZ45,
+		direction: { x: 0, y: 0, z: 1 },
+		maxDistance: 20,
+		filter: { includeBodyIds: [rotatedCastBody.id] },
+	});
+	assert.ok(boxCastWithRotation);
+	assert.equal(boxCastWithRotation?.bodyId, rotatedCastBody.id);
+	assert.equal(boxCastWithRotation?.colliderId, rotatedCastCollider.id);
 
 	const inferredWorldHit = physics.raycast({
 		origin: { x: 0, y: 0, z: 0 },

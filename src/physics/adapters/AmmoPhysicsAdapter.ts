@@ -1534,6 +1534,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			world,
 			shape,
 			query.center,
+			[0, 0, 0, 1],
 			query.direction,
 			query.maxDistance,
 			query.filter
@@ -1548,6 +1549,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		query: PhysicsBoxCastQuery
 	): PhysicsQueryHit | null {
 		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryRotation = sanitizeQueryRotation(query.rotation);
 		const extents = this._createAmmoVector3({
 			x: Math.max(0.001, halfExtents.x),
 			y: Math.max(0.001, halfExtents.y),
@@ -1561,6 +1563,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			world,
 			shape,
 			query.center,
+			queryRotation,
 			query.direction,
 			query.maxDistance,
 			query.filter
@@ -1574,6 +1577,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		world: AmmoWorldState,
 		shape: any,
 		origin: IVector3,
+		rotation: [number, number, number, number],
 		direction: IVector3,
 		maxDistanceRaw: number | undefined,
 		filter?: PhysicsQueryFilter
@@ -1584,11 +1588,11 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 
 		const from = this._createAmmoTransform({
 			position: origin,
-			rotation: [0, 0, 0, 1],
+			rotation,
 		});
 		const to = this._createAmmoTransform({
 			position: Vector3.add(origin, Vector3.scale(ray, maxDistance)),
-			rotation: [0, 0, 0, 1],
+			rotation,
 		});
 		const fromVector = this._createAmmoVector3(origin);
 		const toVector = this._createAmmoVector3(
@@ -1770,6 +1774,11 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 	): PhysicsQueryHit | null {
 		const ray = normalizeDirection(query.direction);
 		const castHalfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryRotation = sanitizeQueryRotation(query.rotation);
+		const castBroadphaseExtents = toOrientedBoundsExtents(
+			castHalfExtents,
+			queryRotation
+		);
 		const maxDistance = sanitizeMaxDistance(query.maxDistance);
 		if (maxDistance <= 0) return null;
 
@@ -1778,7 +1787,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			const hit = intersectBoxCastWithCollider(
 				query.center,
 				ray,
-				castHalfExtents,
+				castBroadphaseExtents,
 				maxDistance,
 				candidate
 			);
@@ -1813,8 +1822,13 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		query: PhysicsOverlapBoxQuery
 	): PhysicsOverlapHit[] {
 		const halfExtents = sanitizeHalfExtents(query.halfExtents);
-		const queryMin = Vector3.sub(query.center, halfExtents);
-		const queryMax = Vector3.add(query.center, halfExtents);
+		const queryRotation = sanitizeQueryRotation(query.rotation);
+		const queryBroadphaseExtents = toOrientedBoundsExtents(
+			halfExtents,
+			queryRotation
+		);
+		const queryMin = Vector3.sub(query.center, queryBroadphaseExtents);
+		const queryMax = Vector3.add(query.center, queryBroadphaseExtents);
 		const hits: PhysicsOverlapHit[] = [];
 		for (const candidate of this._getQueryCandidates(world, query.filter)) {
 			if (!intersectsBoxWithCollider(queryMin, queryMax, candidate)) {
@@ -2298,6 +2312,47 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 	};
 }
 
+function sanitizeQueryRotation(
+	rotation?: [number, number, number, number]
+): [number, number, number, number] {
+	if (!rotation) return [0, 0, 0, 1];
+	return normalizeQuaternion(rotation);
+}
+
+function normalizeQuaternion(
+	rotation: [number, number, number, number]
+): [number, number, number, number] {
+	const x = Number.isFinite(rotation[0]) ? rotation[0] : 0;
+	const y = Number.isFinite(rotation[1]) ? rotation[1] : 0;
+	const z = Number.isFinite(rotation[2]) ? rotation[2] : 0;
+	const w = Number.isFinite(rotation[3]) ? rotation[3] : 1;
+	const length = Math.hypot(x, y, z, w);
+	if (length <= 1e-8) return [0, 0, 0, 1];
+	const invLength = 1 / length;
+	return [x * invLength, y * invLength, z * invLength, w * invLength];
+}
+
+function toOrientedBoundsExtents(
+	halfExtents: IVector3,
+	rotation: [number, number, number, number]
+): IVector3 {
+	const matrix = quaternionToMatrix3(rotation);
+	return {
+		x:
+			Math.abs(matrix[0]) * halfExtents.x +
+			Math.abs(matrix[1]) * halfExtents.y +
+			Math.abs(matrix[2]) * halfExtents.z,
+		y:
+			Math.abs(matrix[3]) * halfExtents.x +
+			Math.abs(matrix[4]) * halfExtents.y +
+			Math.abs(matrix[5]) * halfExtents.z,
+		z:
+			Math.abs(matrix[6]) * halfExtents.x +
+			Math.abs(matrix[7]) * halfExtents.y +
+			Math.abs(matrix[8]) * halfExtents.z,
+	};
+}
+
 function toSet(values?: string[]): Set<string> | null {
 	if (!values || values.length === 0) return null;
 	return new Set(values);
@@ -2585,6 +2640,35 @@ function axisVector(axis: number, sign: number): IVector3 {
 	if (axis === 0) return { x: sign, y: 0, z: 0 };
 	if (axis === 1) return { x: 0, y: sign, z: 0 };
 	return { x: 0, y: 0, z: sign };
+}
+
+function quaternionToMatrix3(
+	rotation: [number, number, number, number]
+): [number, number, number, number, number, number, number, number, number] {
+	const x = rotation[0];
+	const y = rotation[1];
+	const z = rotation[2];
+	const w = rotation[3];
+	const xx = x * x;
+	const yy = y * y;
+	const zz = z * z;
+	const xy = x * y;
+	const xz = x * z;
+	const yz = y * z;
+	const wx = w * x;
+	const wy = w * y;
+	const wz = w * z;
+	return [
+		1 - 2 * (yy + zz),
+		2 * (xy - wz),
+		2 * (xz + wy),
+		2 * (xy + wz),
+		1 - 2 * (xx + zz),
+		2 * (yz - wx),
+		2 * (xz - wy),
+		2 * (yz + wx),
+		1 - 2 * (xx + yy),
+	];
 }
 
 function readAmmoComponent(

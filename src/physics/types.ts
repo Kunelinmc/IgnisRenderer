@@ -199,6 +199,7 @@ export interface PhysicsSphereCastQuery extends PhysicsQueryBase {
 export interface PhysicsBoxCastQuery extends PhysicsQueryBase {
 	center: IVector3;
 	halfExtents: IVector3;
+	rotation?: QuaternionTuple;
 	direction: IVector3;
 	maxDistance?: number;
 }
@@ -211,6 +212,7 @@ export interface PhysicsOverlapSphereQuery extends PhysicsQueryBase {
 export interface PhysicsOverlapBoxQuery extends PhysicsQueryBase {
 	center: IVector3;
 	halfExtents: IVector3;
+	rotation?: QuaternionTuple;
 }
 
 export interface PhysicsQueryHit {
