@@ -724,6 +724,7 @@ export function createFakeRapierModule() {
 		descriptorCanSleepCalls: [],
 		descriptorAdditionalMassCalls: [],
 		bodyAdditionalMassCalls: [],
+		collisionGroupUpdates: [],
 	};
 	class FakeRigidBodyDesc {
 		constructor(type) {
@@ -800,6 +801,12 @@ export function createFakeRapierModule() {
 		isSleeping() { return false; }
 		isCcdEnabled() { return false; }
 	}
+	class FakeCollider {
+		setCollisionGroups(value) {
+			stats.collisionGroupUpdates.push(Number(value) >>> 0);
+		}
+	}
+
 	class FakeCharacterController {
 		constructor(offset) {
 			this._offset = offset;
@@ -845,7 +852,12 @@ export function createFakeRapierModule() {
 			return body;
 		}
 		removeRigidBody(body) { this._bodies.delete(body); }
-		createCollider(desc, body) { return { desc, body }; }
+		createCollider(desc, body) {
+			const collider = new FakeCollider();
+			collider.desc = desc;
+			collider.body = body;
+			return collider;
+		}
 		removeCollider() {}
 		createImpulseJoint() { return { id: "joint" }; }
 		removeImpulseJoint() {}
@@ -892,7 +904,10 @@ export class FakeImageData {
 }
 
 export function createFakeAmmoModule() {
-	const stats = { stepCalls: 0 };
+	const stats = {
+		stepCalls: 0,
+		addRigidBodyCalls: [],
+	};
 	
 	function readNumberLike(value, key, fallback = 0) {
 		if (!value || typeof value !== "object") return fallback;
@@ -957,7 +972,9 @@ export function createFakeAmmoModule() {
 			btSphereShape: class { calculateLocalInertia(_, out) { out.setValue(0, 0, 0); } },
 			btBoxShape: class { calculateLocalInertia(_, out) { out.setValue(0, 0, 0); } },
 			btDiscreteDynamicsWorld: class {
-				addRigidBody() {} removeRigidBody() {} setGravity() {}
+				addRigidBody(...args) { stats.addRigidBodyCalls.push(args); }
+				removeRigidBody() {}
+				setGravity() {}
 				stepSimulation() { stats.stepCalls++; }
 			},
 			btDefaultCollisionConfiguration: class {},

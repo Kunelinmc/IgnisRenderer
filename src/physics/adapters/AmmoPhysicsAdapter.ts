@@ -98,6 +98,7 @@ interface AmmoBodyState {
 	shape: any;
 	transform: PhysicsTransform;
 	ccd: boolean;
+	registeredInWorld: boolean;
 	colliderIds: Set<string>;
 }
 
@@ -343,8 +344,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 					descriptor.angularVelocity
 				);
 			}
-			this._invoke(world.world, ["addRigidBody"], [[rigidBody]]);
-			world.bodies.set(bodyId, {
+			const body: AmmoBodyState = {
 				id: bodyId,
 				type,
 				mass,
@@ -354,8 +354,11 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				shape,
 				transform: cloneTransform(initialTransform),
 				ccd,
+				registeredInWorld: false,
 				colliderIds: new Set(),
-			});
+			};
+			this._syncBodyCollisionFilter(world, body);
+			world.bodies.set(bodyId, body);
 
 			this._destroyAmmoObject(localInertia);
 			this._destroyAmmoObject(transform);
@@ -565,6 +568,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			};
 			world.colliders.set(colliderId, collider);
 			body.colliderIds.add(colliderId);
+			this._syncBodyCollisionFilter(world, body);
 		} catch (error) {
 			if (!attachedToBody) this._destroyAmmoObject(ammoShape);
 			if (childTransform) this._destroyAmmoObject(childTransform);
@@ -612,6 +616,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				if (oldShape !== collider.ammoShape) this._destroyAmmoObject(oldShape);
 			}
 			this._refreshBodyMassProperties(body);
+			this._syncBodyCollisionFilter(world, body);
 		}
 		world.colliders.delete(colliderId);
 		if (collider.childTransform)
@@ -649,6 +654,10 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		const collider = world?.colliders.get(colliderId);
 		if (!collider) return;
 		collider.collisionMask = sanitizeCollisionMask(mask);
+		const body = world?.bodies.get(collider.bodyId);
+		if (world && body) {
+			this._syncBodyCollisionFilter(world, body);
+		}
 	}
 
 	public createJoint(
@@ -926,7 +935,10 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 			}
 		}
 		body.colliderIds.clear();
-		this._invoke(world.world, ["removeRigidBody"], [[body.rigidBody]]);
+		if (body.registeredInWorld) {
+			this._invoke(world.world, ["removeRigidBody"], [[body.rigidBody]]);
+			body.registeredInWorld = false;
+		}
 		this._destroyAmmoObject(body.rigidBody);
 		this._destroyAmmoObject(body.motionState);
 		this._destroyAmmoObject(body.constructionInfo);
@@ -1162,6 +1174,52 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._invoke(body.rigidBody, ["setMassProps"], [[body.mass, inertia]]);
 		this._invoke(body.rigidBody, ["updateInertiaTensor"], [[]]);
 		this._destroyAmmoObject(inertia);
+	}
+
+	private _syncBodyCollisionFilter(
+		world: AmmoWorldState,
+		body: AmmoBodyState
+	): void {
+		const filter = this._resolveBodyCollisionFilter(world, body);
+		if (body.registeredInWorld) {
+			this._invoke(world.world, ["removeRigidBody"], [[body.rigidBody]]);
+		}
+		const added = this._invoke(
+			world.world,
+			["addRigidBody"],
+			[
+				[body.rigidBody, filter.group, filter.mask],
+				[body.rigidBody],
+			]
+		);
+		if (!added) {
+			throw new Error(`Ammo world "${world.config.worldId}" failed to add body`);
+		}
+		body.registeredInWorld = true;
+	}
+
+	private _resolveBodyCollisionFilter(
+		world: AmmoWorldState,
+		body: AmmoBodyState
+	): { group: number; mask: number } {
+		let group = 0;
+		let mask = 0;
+		for (const colliderId of body.colliderIds) {
+			const collider = world.colliders.get(colliderId);
+			if (!collider) continue;
+			const filter = decodeCollisionFilter(collider.collisionMask);
+			group |= filter.group;
+			mask |= filter.filter;
+		}
+		if (body.colliderIds.size === 0) {
+			const defaultFilter = decodeCollisionFilter(DEFAULT_COLLISION_MASK);
+			group = defaultFilter.group;
+			mask = defaultFilter.filter;
+		}
+		return {
+			group: group & 0xffff,
+			mask: mask & 0xffff,
+		};
 	}
 
 	private _applyBodyMaterial(
@@ -2248,6 +2306,22 @@ function toSet(values?: string[]): Set<string> | null {
 function sanitizeCollisionMask(mask: number): number {
 	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
 	return Math.floor(mask) >>> 0;
+}
+
+function decodeCollisionFilter(mask: number): { group: number; filter: number } {
+	const sanitized = sanitizeCollisionMask(mask);
+	const lowBits = sanitized & 0xffff;
+	const highBits = (sanitized >>> 16) & 0xffff;
+	if (highBits === 0) {
+		return {
+			group: lowBits,
+			filter: lowBits,
+		};
+	}
+	return {
+		group: highBits,
+		filter: lowBits,
+	};
 }
 
 function intersectRayWithCollider(

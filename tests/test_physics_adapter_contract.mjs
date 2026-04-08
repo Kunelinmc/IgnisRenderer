@@ -211,6 +211,84 @@ async function runRapierBodyDescriptorContract() {
 	console.log("Physics adapter contract passed: rapier-body-descriptor");
 }
 
+async function runRapierCollisionFilterContract() {
+	const fakeRapier = createFakeRapierModule();
+	const adapter = new RapierPhysicsAdapter({
+		moduleLoader: async () => fakeRapier.module,
+		strict: true,
+	});
+	await adapter.init();
+
+	adapter.createWorld({
+		worldId: "filter",
+		gravity: { x: 0, y: -9.8, z: 0 },
+	});
+	adapter.createBody(
+		"filter",
+		"body",
+		{ type: "dynamic" },
+		{
+			position: { x: 0, y: 1, z: 0 },
+			rotation: [0, 0, 0, 1],
+		}
+	);
+	adapter.addCollider(
+		"filter",
+		"body",
+		"collider",
+		{ mode: "explicit", shape: { kind: "sphere", radius: 1 } },
+		{ kind: "sphere", radius: 1 }
+	);
+	adapter.setCollisionMask("filter", "collider", 0x00020001);
+
+	assert.ok(
+		fakeRapier.stats.collisionGroupUpdates.includes(0x00020001),
+		"Expected Rapier setCollisionGroups() to receive encoded group/filter mask"
+	);
+	adapter.destroyWorld("filter");
+	console.log("Physics adapter contract passed: rapier-collision-filter");
+}
+
+async function runAmmoCollisionFilterContract() {
+	const fakeAmmo = createFakeAmmoModule();
+	const adapter = new AmmoPhysicsAdapter({
+		moduleLoader: async () => fakeAmmo.module,
+		strict: true,
+	});
+	await adapter.init();
+
+	adapter.createWorld({
+		worldId: "filter",
+		gravity: { x: 0, y: -9.8, z: 0 },
+	});
+	adapter.createBody(
+		"filter",
+		"body",
+		{ type: "dynamic" },
+		{
+			position: { x: 0, y: 1, z: 0 },
+			rotation: [0, 0, 0, 1],
+		}
+	);
+	adapter.addCollider(
+		"filter",
+		"body",
+		"collider",
+		{ mode: "explicit", shape: { kind: "sphere", radius: 1 } },
+		{ kind: "sphere", radius: 1 }
+	);
+	adapter.setCollisionMask("filter", "collider", 0x00040002);
+
+	assert.ok(
+		fakeAmmo.stats.addRigidBodyCalls.some(
+			(call) => call.length >= 3 && call[1] === 0x0004 && call[2] === 0x0002
+		),
+		"Expected Ammo addRigidBody(body, group, mask) to be called with updated filter"
+	);
+	adapter.destroyWorld("filter");
+	console.log("Physics adapter contract passed: ammo-collision-filter");
+}
+
 async function run() {
 	const fakeRapier = createFakeRapierModule();
 	const fakeAmmo = createFakeAmmoModule();
@@ -246,6 +324,8 @@ async function run() {
 	);
 	await runRapierCharacterControllerContract();
 	await runRapierBodyDescriptorContract();
+	await runRapierCollisionFilterContract();
+	await runAmmoCollisionFilterContract();
 }
 
 await run();

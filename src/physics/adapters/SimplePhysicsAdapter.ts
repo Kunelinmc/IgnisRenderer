@@ -940,11 +940,32 @@ function sanitizeCollisionMask(mask: number): number {
 	return Math.floor(mask) >>> 0;
 }
 
+function decodeCollisionFilter(mask: number): { group: number; filter: number } {
+	const sanitized = sanitizeCollisionMask(mask);
+	const lowBits = sanitized & 0xffff;
+	const highBits = (sanitized >>> 16) & 0xffff;
+	if (highBits === 0) {
+		return {
+			group: lowBits,
+			filter: lowBits,
+		};
+	}
+	return {
+		group: highBits,
+		filter: lowBits,
+	};
+}
+
 function canCollidersInteract(
 	left: SimpleColliderState,
 	right: SimpleColliderState
 ): boolean {
-	return (left.collisionMask & right.collisionMask) !== 0;
+	const leftFilter = decodeCollisionFilter(left.collisionMask);
+	const rightFilter = decodeCollisionFilter(right.collisionMask);
+	return (
+		(leftFilter.group & rightFilter.filter) !== 0 &&
+		(rightFilter.group & leftFilter.filter) !== 0
+	);
 }
 
 function computeShapeRadius(shape: ColliderShape): number {

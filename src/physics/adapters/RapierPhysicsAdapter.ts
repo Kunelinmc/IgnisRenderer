@@ -590,6 +590,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		};
 		world.colliders.set(colliderId, collider);
 		body.colliderIds.add(colliderId);
+		this._applyNativeCollisionMask(collider);
 	}
 
 	public destroyCollider(worldId: string, colliderId: string): void {
@@ -656,6 +657,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 		}
 		collider.collisionMask = sanitizeCollisionMask(mask);
+		this._applyNativeCollisionMask(collider);
 	}
 
 	public createJoint(
@@ -1946,6 +1948,17 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		throw new Error(errorMessage);
 	}
 
+	private _applyNativeCollisionMask(collider: RapierColliderState): void {
+		const interactionGroups = collisionMaskToInteractionGroups(
+			collider.collisionMask
+		);
+		this._invoke(
+			collider.rapierCollider,
+			["setCollisionGroups"],
+			[[interactionGroups]]
+		);
+	}
+
 	private _readFromGetter(target: any, getterName: string): unknown {
 		if (!target || typeof target !== "object") return undefined;
 		const member = (target as Record<string, unknown>)[getterName];
@@ -2270,11 +2283,37 @@ function sanitizeCollisionMask(mask: number): number {
 	return Math.floor(mask) >>> 0;
 }
 
+function decodeCollisionFilter(mask: number): { group: number; filter: number } {
+	const sanitized = sanitizeCollisionMask(mask);
+	const lowBits = sanitized & 0xffff;
+	const highBits = (sanitized >>> 16) & 0xffff;
+	if (highBits === 0) {
+		return {
+			group: lowBits,
+			filter: lowBits,
+		};
+	}
+	return {
+		group: highBits,
+		filter: lowBits,
+	};
+}
+
+function collisionMaskToInteractionGroups(mask: number): number {
+	const filter = decodeCollisionFilter(mask);
+	return (((filter.group & 0xffff) << 16) | (filter.filter & 0xffff)) >>> 0;
+}
+
 function canCollidersInteract(
 	left: RapierColliderState,
 	right: RapierColliderState
 ): boolean {
-	return (left.collisionMask & right.collisionMask) !== 0;
+	const leftFilter = decodeCollisionFilter(left.collisionMask);
+	const rightFilter = decodeCollisionFilter(right.collisionMask);
+	return (
+		(leftFilter.group & rightFilter.filter) !== 0 &&
+		(rightFilter.group & leftFilter.filter) !== 0
+	);
 }
 
 function intersectRayWithCollider(
