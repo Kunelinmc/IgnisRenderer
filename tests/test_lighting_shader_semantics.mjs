@@ -358,7 +358,7 @@ function testPBRNormalMapFallbackWithoutTangent() {
 	);
 }
 
-function testEvaluatorMaterialApiCompatibility() {
+function testEvaluatorCompileSwapsMaterial() {
 	const evaluator = new PBREvaluator(
 		new PBRMaterial({
 			albedo: { r: 255, g: 0, b: 0 },
@@ -379,7 +379,7 @@ function testEvaluatorMaterialApiCompatibility() {
 		v: 0,
 	};
 
-	const legacyMaterial = new PBRMaterial({
+	const updatedMaterial = new PBRMaterial({
 		albedo: { r: 0, g: 255, b: 0 },
 	});
 	const compiledMaterial = new PBRMaterial({
@@ -392,7 +392,7 @@ function testEvaluatorMaterialApiCompatibility() {
 	assert.equal(surface.albedo.g, 0);
 	assert.equal(surface.albedo.b, 0);
 
-	evaluator.setMaterial(legacyMaterial);
+	evaluator.compile(updatedMaterial);
 	surface = evaluator.evaluate(input, face);
 	assert.ok(surface);
 	assert.equal(surface.albedo.r, 0);
@@ -756,7 +756,7 @@ function run() {
 		testClearcoatAttenuatesAmbientSheen();
 		testTransmissionVolumeAttenuationColorsAmbientLight();
 		testPBRNormalMapFallbackWithoutTangent();
-		testEvaluatorMaterialApiCompatibility();
+		testEvaluatorCompileSwapsMaterial();
 		testPhongEvaluatorDirectEvaluate();
 		testLightProbeFallbackContributionFromDC();
 		testMaskShadowDepthWriteUsesAlphaCutoff();

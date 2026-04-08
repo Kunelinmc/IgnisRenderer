@@ -13,13 +13,6 @@ export abstract class BaseEvaluator<
 > implements IMaterialEvaluator<T> {
 	constructor(protected material: Material) {}
 
-	/**
-	 * @deprecated Use compile(material) instead.
-	 */
-	public setMaterial(material: Material): void {
-		this.compile(material);
-	}
-
 	public compile(material: Material): void {
 		this.material = material;
 	}

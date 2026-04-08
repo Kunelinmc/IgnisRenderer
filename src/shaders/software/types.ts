@@ -104,10 +104,6 @@ export type SurfaceProperties = PBRSurfaceProperties | PhongSurfaceProperties;
 export interface IMaterialEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
 > {
-	/**
-	 * @deprecated Use compile(material) instead.
-	 */
-	setMaterial(material: Material): void;
 	compile(material: Material): void;
 	evaluate(input: FragmentInput, face: ProjectedFace): T | null;
 }
