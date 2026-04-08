@@ -29,6 +29,7 @@ class StubBackend {
 		this.frameScheduling = "on-demand";
 		this.lastWarmupContext = null;
 		this.lastWarmupOptions = null;
+		this.lastBeginFrameContext = null;
 	}
 
 	async init() {}
@@ -45,7 +46,9 @@ class StubBackend {
 		};
 	}
 
-	beginFrame() {}
+	beginFrame(context) {
+		this.lastBeginFrameContext = context;
+	}
 
 	executePass() {}
 
@@ -216,10 +219,52 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 	}
 }
 
+async function testWarmupAndRenderIncrementalContextContractMatches() {
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
+
+	try {
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
+
+		const backend = new StubBackend();
+		const camera = new Camera();
+		const canvas = {
+			width: 320,
+			height: 180,
+			getBoundingClientRect() {
+				return { width: 320, height: 180 };
+			},
+		};
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+
+		await renderer.warmup({ includeEnvironmentIBLBake: false });
+		await renderer.renderScene(0);
+
+		const warmupIncremental = backend.lastWarmupContext?.incremental;
+		const renderIncremental = backend.lastBeginFrameContext?.incremental;
+		assert.ok(warmupIncremental);
+		assert.ok(renderIncremental);
+		assert.deepEqual(
+			Object.keys(warmupIncremental).sort(),
+			Object.keys(renderIncremental).sort()
+		);
+		assert.equal(warmupIncremental.firstPass, null);
+		assert.equal(renderIncremental.firstPass, null);
+		assert.equal(warmupIncremental.forceFullFrame, true);
+		assert.equal(renderIncremental.forceFullFrame, true);
+	} finally {
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
+	}
+}
+
 async function run() {
 	await testWarmupOverwritesAllLightProbesFromSkybox();
 	await testWarmupCreatesProbeWhenSceneHasNone();
 	await testWarmupSkipsLightProbeBakeWhenDisabled();
+	await testWarmupAndRenderIncrementalContextContractMatches();
 	console.log("Renderer warmup light probe tests passed");
 }
 

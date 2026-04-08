@@ -286,44 +286,18 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.updateSH();
 		}
 		const frame = PreparedSceneBuilder.build(this);
-		const attachments = this.backend.getAttachments(
-			this.canvas.width,
-			this.canvas.height
+		const { fullFrameRect, fullFrameTiles } = this._createFullFrameCoverage();
+		const incrementalFrameContext = this._createInitialIncrementalFrameContext(
+			renderDirtyReasonToMask("unknown"),
+			fullFrameRect,
+			fullFrameTiles
 		);
-		const warmupFullFrameRect = makeFullScreenRect(
-			this.canvas.width,
-			this.canvas.height
-		);
-		const warmupFullFrameTiles = buildDirtyTileCoverage(
-			[warmupFullFrameRect],
-			warmupFullFrameRect.width,
-			warmupFullFrameRect.height,
-			this._incrementalOptions.dirtyTileSize
-		);
-		const context: FrameContext = {
-			camera: this.camera,
-			attachments,
-			features: resolved,
-			shadowMaps: this.shadowMaps,
-			scene: frame,
-			shCoeffs: this.shCoeffs,
-			shAmbientCoeffs: this.shAmbientCoeffs,
-			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
-			incremental: {
-				enabled: false,
-				forceFullFrame: true,
-				dirtyRects: [warmupFullFrameRect],
-				dirtyTileSize: warmupFullFrameTiles.tileSize,
-				dirtyTileColumns: warmupFullFrameTiles.tileColumns,
-				dirtyTileRows: warmupFullFrameTiles.tileRows,
-				dirtyTiles: warmupFullFrameTiles.dirtyTiles.slice(),
-				dirtyAreaRatio: 1,
-				firstPass: null,
-				reasonMask: renderDirtyReasonToMask("unknown"),
-				temporalHistoryReset: true,
-			},
+		const context = this._createFrameContext(
+			frame,
+			resolved,
 			transient,
-		};
+			incrementalFrameContext
+		);
 		if (!this.backend.warmup) {
 			const startedAt = Date.now();
 			return {
@@ -551,6 +525,70 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return combinedMask >>> 0;
 	}
 
+	private _createFullFrameCoverage(): {
+		fullFrameRect: ReturnType<typeof makeFullScreenRect>;
+		fullFrameTiles: DirtyTileCoverage;
+	} {
+		const fullFrameRect = makeFullScreenRect(
+			this.canvas.width,
+			this.canvas.height
+		);
+		const fullFrameTiles = buildDirtyTileCoverage(
+			[fullFrameRect],
+			fullFrameRect.width,
+			fullFrameRect.height,
+			this._incrementalOptions.dirtyTileSize
+		);
+		return {
+			fullFrameRect,
+			fullFrameTiles,
+		};
+	}
+
+	private _createInitialIncrementalFrameContext(
+		reasonMask: number,
+		fullFrameRect: ReturnType<typeof makeFullScreenRect>,
+		fullFrameTiles: DirtyTileCoverage
+	): IncrementalFrameContext {
+		return {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [fullFrameRect],
+			dirtyTileSize: fullFrameTiles.tileSize,
+			dirtyTileColumns: fullFrameTiles.tileColumns,
+			dirtyTileRows: fullFrameTiles.tileRows,
+			dirtyTiles: fullFrameTiles.dirtyTiles.slice(),
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			reasonMask,
+			temporalHistoryReset: true,
+		};
+	}
+
+	private _createFrameContext(
+		frame: ReturnType<typeof PreparedSceneBuilder.build>,
+		resolved: ReturnType<typeof resolveFeatureState>,
+		transient: Map<string, any>,
+		incremental: IncrementalFrameContext
+	): FrameContext {
+		const attachments = this.backend.getAttachments(
+			this.canvas.width,
+			this.canvas.height
+		);
+		return {
+			camera: this.camera,
+			attachments,
+			features: resolved,
+			shadowMaps: this.shadowMaps,
+			scene: frame,
+			shCoeffs: this.shCoeffs,
+			shAmbientCoeffs: this.shAmbientCoeffs,
+			worldMatrix: this.features.worldMatrix || Matrix4.identity(),
+			incremental,
+			transient,
+		};
+	}
+
 	private _buildIncrementalFrameContext(
 		plan: ReturnType<typeof IncrementalFramePlanner.plan>,
 		prepared: PreparedSceneCacheBuildResult,
@@ -669,29 +707,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		let context: FrameContext | null = null;
 		let frameStarted = false;
 		let emittedPostAnimation = false;
-		const initialFullFrameRect = makeFullScreenRect(
-			this.canvas.width,
-			this.canvas.height
+		const {
+			fullFrameRect: initialFullFrameRect,
+			fullFrameTiles: initialFullFrameTiles,
+		} = this._createFullFrameCoverage();
+		let incrementalFrameContext = this._createInitialIncrementalFrameContext(
+			frameDirtyReasonMask,
+			initialFullFrameRect,
+			initialFullFrameTiles
 		);
-		const initialFullFrameTiles = buildDirtyTileCoverage(
-			[initialFullFrameRect],
-			initialFullFrameRect.width,
-			initialFullFrameRect.height,
-			this._incrementalOptions.dirtyTileSize
-		);
-		let incrementalFrameContext: IncrementalFrameContext = {
-			enabled: false,
-			forceFullFrame: true,
-			dirtyRects: [initialFullFrameRect],
-			dirtyTileSize: initialFullFrameTiles.tileSize,
-			dirtyTileColumns: initialFullFrameTiles.tileColumns,
-			dirtyTileRows: initialFullFrameTiles.tileRows,
-			dirtyTiles: initialFullFrameTiles.dirtyTiles.slice(),
-			dirtyAreaRatio: 1,
-			firstPass: null,
-			reasonMask: frameDirtyReasonMask,
-			temporalHistoryReset: true,
-		};
 
 		const stageOrder = this._stageGraph.getExecutionOrder(
 			{
@@ -821,22 +845,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						})),
 						dirtyTiles: incrementalFrameContext.dirtyTiles.slice(),
 					};
-					const attachments = this.backend.getAttachments(
-						this.canvas.width,
-						this.canvas.height
-					);
-					context = {
-						camera: this.camera,
-						attachments: attachments,
-						features: resolved,
-						shadowMaps: this.shadowMaps,
-						scene: frame,
-						shCoeffs: this.shCoeffs,
-						shAmbientCoeffs: this.shAmbientCoeffs,
-						worldMatrix: this.features.worldMatrix || Matrix4.identity(),
-						incremental: incrementalFrameContext,
+					context = this._createFrameContext(
+						frame,
+						resolved,
 						transient,
-					};
+						incrementalFrameContext
+					);
 					await this.backend.beginFrame(context);
 					frameStarted = true;
 					break;
