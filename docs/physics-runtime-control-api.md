@@ -17,6 +17,7 @@ could desynchronize with system-level step skipping and wakeup behavior.
 - `applyForce(target, force): void`
 - `applyTorque(target, torque): void`
 - `applyImpulse(target, impulse): void`
+- `rebuildColliders(target): PhysicsColliderHandle[]`
 
 Contracts:
 
@@ -30,6 +31,9 @@ world space as `IVector3`.
 - Each call must mark the world as dirty for stepping, so the next
 `PhysicsSystem.step()` or `PhysicsSystem.stepAsync()` must not be skipped by
 sleeping-island optimization.
+- `rebuildColliders(target)` must destroy currently attached colliders for the
+resolved body and must re-create colliders from the stored descriptor set in
+the same world.
 
 ## Usage
 ```ts
@@ -49,6 +53,7 @@ const body = physics.attachBody(node, {
 
 physics.setLinearVelocity(body, { x: 2, y: 0, z: 0 });
 physics.applyImpulse(body, { x: 0, y: 1, z: 0 });
+physics.rebuildColliders(body);
 physics.step(1 / 60);
 ```
 
