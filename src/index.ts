@@ -121,6 +121,7 @@ export { TextureLoader } from "./loaders/TextureLoader";
 export { OBJLoader } from "./loaders/OBJLoader";
 export { GLTFLoader } from "./loaders/GLTFLoader";
 export { HDRLoader } from "./loaders/HDRLoader";
+export { BVHLoader } from "./loaders/BVHLoader";
 export { Loader } from "./loaders/Loader";
 export * as experimentalECS from "./ecs";
 export type { EntityPrefab } from "./ecs";
