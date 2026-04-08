@@ -229,9 +229,25 @@ export class VideoTexture extends Texture {
 		const context = canvas.getContext("2d", {
 			willReadFrequently: true,
 		} as CanvasRenderingContext2DSettings);
-		if (!context) {
+		if (!this._isVideoTextureContext2D(context)) {
 			throw new Error("VideoTexture failed to acquire a 2D canvas context");
 		}
 		return context;
+	}
+
+	private _isVideoTextureContext2D(
+		context: unknown
+	): context is VideoTextureContext2D {
+		if (!context || typeof context !== "object") {
+			return false;
+		}
+		const maybe2D = context as {
+			drawImage?: unknown;
+			getImageData?: unknown;
+		};
+		return (
+			typeof maybe2D.drawImage === "function" &&
+			typeof maybe2D.getImageData === "function"
+		);
 	}
 }
