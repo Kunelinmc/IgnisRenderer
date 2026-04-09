@@ -1,4 +1,4 @@
-import { clamp } from "../../maths/Common";
+﻿import { clamp } from "../../maths/Common";
 import { ParticleBlendMode } from "../../particles";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
@@ -8,6 +8,7 @@ import {
 } from "../../pipeline/types";
 import { finiteOr, toColumnMajorMat4 } from "./WebGLFrameMath";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
+import { Logger } from "../../foundation/Logger";
 
 const PARTICLE_QUAD_VERTICES = new Float32Array([
 	-0.5,
@@ -42,11 +43,15 @@ const PARTICLE_INSTANCE_STRIDE = PARTICLE_INSTANCE_FLOATS * 4;
 const PARTICLE_INITIAL_CAPACITY = 256;
 const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 
-type WarnFn = (key: string, message: string) => void;
+function logWebGLParticlePassWarning(key: string, message: string): void {
+	Logger.warn(`[${key}] ${message}`, {
+		scope: "WebGLParticlePass",
+		onceKey: key,
+	});
+}
 
 export interface WebGLParticlePassHost {
 	_gl: WebGL2RenderingContext;
-	_logWarning: WarnFn;
 	_programs: {
 		getParticleProgram(): {
 			program: WebGLProgram;
@@ -302,7 +307,7 @@ export function writeWebGLParticleInstances(
 
 	let cappedCount = particles.length;
 	if (cappedCount > PARTICLE_MAX_INSTANCES_PER_DRAW) {
-		host._logWarning(
+		logWebGLParticlePassWarning(
 			"webgl-particle-cap",
 			`WebGL particle pass truncates system "${batch.systemId}" to ${PARTICLE_MAX_INSTANCES_PER_DRAW} instances per draw`
 		);
@@ -397,7 +402,7 @@ export function ensureWebGLParticleResources(host: WebGLParticlePassHost): void 
 		if (instanceBuffer) {
 			gl.deleteBuffer(instanceBuffer);
 		}
-		host._logWarning(
+		logWebGLParticlePassWarning(
 			"webgl-particle-buffer-allocation",
 			"Failed to allocate WebGL particle buffers; particle rendering is disabled for this frame"
 		);
@@ -451,7 +456,7 @@ export function ensureWebGLParticleCapacity(
 	const gl = host._gl;
 	const newBuffer = gl.createBuffer();
 	if (!newBuffer) {
-		host._logWarning(
+		logWebGLParticlePassWarning(
 			"webgl-particle-buffer-grow",
 			`Failed to grow WebGL particle instance buffer to ${nextCapacity}; keeping previous capacity`
 		);
@@ -520,3 +525,4 @@ export function destroyWebGLParticleResources(host: WebGLParticlePassHost): void
 	host._particleInstanceCapacity = 0;
 	host._particleScratch = new Float32Array(0);
 }
+

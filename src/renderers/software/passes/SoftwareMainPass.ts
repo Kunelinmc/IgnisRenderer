@@ -15,6 +15,7 @@ import { globalWorkerScheduler } from "../../../workers/WorkerScheduler";
 import { DEFAULT_WORKER_TRANSPORT_PLUGINS } from "../../../workers/transports";
 import { type SoftwareRasterMode, type SoftwareTileOptions } from "../types";
 import { DEFAULT_SOFTWARE_TILE_SIZE, DEFAULT_SOFTWARE_RASTER_MODE } from "../constants";
+import { Logger } from "../../../foundation/Logger";
 import type {
 	SoftwareRasterTileBounds,
 	SoftwareRasterWorkerTaskPayload,
@@ -349,7 +350,6 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
 	private _scanlineFallback: ScanlineMainRasterExecutor;
-	private _logWarning: ((key: string, message: string) => void) | null;
 	private _tileSize: number;
 	private _workerCount: number;
 	private _scheduler: typeof globalWorkerScheduler;
@@ -362,11 +362,10 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	public constructor(
 		rasterizer: Rasterizer,
 		tileOptions: SoftwareTileOptions = {},
-		warn: ((key: string, message: string) => void) | null = null
+		_warn: ((key: string, message: string) => void) | null = null
 	) {
 		this._rasterizer = rasterizer;
 		this._scanlineFallback = new ScanlineMainRasterExecutor(rasterizer);
-		this._logWarning = warn;
 		this._tileSize = Math.max(
 			1,
 			Math.floor(tileOptions.tileSize ?? DEFAULT_SOFTWARE_TILE_SIZE)
@@ -552,7 +551,10 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			}
 		}
 		this._poolOwned = false;
-		this._logWarning?.(key, message);
+		Logger.warn(`[${key}] ${message}`, {
+			scope: "SoftwareMainPass",
+			onceKey: key,
+		});
 	}
 
 	private _createWorker(workerIndex: number, poolId: string): WorkerLike {

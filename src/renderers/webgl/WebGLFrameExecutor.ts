@@ -89,6 +89,7 @@ import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
 } from "./WebGLMaterialUniformResolver";
+import { Logger } from "../../foundation/Logger";
 import {
 	bindWebGLPostSingleColorTarget,
 	destroyWebGLFrameTargets,
@@ -124,7 +125,6 @@ import {
 	type WebGLParticlePassHost,
 } from "./WebGLParticlePass";
 
-type WarnFn = (key: string, message: string) => void;
 type WebGLFramePassHandler = (context: FrameContext) => void;
 const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
@@ -207,7 +207,6 @@ const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
-	private _logWarning: WarnFn;
 	private _programs: WebGLProgramLibrary;
 	private _geometry: WebGLGeometryRegistry;
 	private _textures: WebGLTextureRegistry;
@@ -267,22 +266,21 @@ export class WebGLFrameExecutor {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		warn: WarnFn,
+		_warn: (key: string, message: string) => void,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
 		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
-		this._logWarning = warn;
 		this._programs = new WebGLProgramLibrary(
 			gl,
-			warn,
+			_warn,
 			shaderRuntime,
 			shaderCompileStage,
 			shaderSourceFactory
 		);
-		this._geometry = new WebGLGeometryRegistry(gl, warn);
-		this._textures = new WebGLTextureRegistry(gl, warn);
+		this._geometry = new WebGLGeometryRegistry(gl, _warn);
+		this._textures = new WebGLTextureRegistry(gl, _warn);
 		this._fullscreenVao = gl.createVertexArray();
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._maxRenderbufferSize = this._resolveLimit(
@@ -317,7 +315,11 @@ export class WebGLFrameExecutor {
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
 			context.features.enableLighting,
-			this._logWarning,
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				}),
 			context.features.enableShadows,
 			context.shadowMaps,
 			context.features.enableSH,
@@ -384,9 +386,10 @@ export class WebGLFrameExecutor {
 	public executePass(pass: FramePass, context: FrameContext): void {
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
-			this._logWarning(
-				`webgl-stage-unsupported-${pass.stage}`,
-				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
+			const key = `webgl-stage-unsupported-${pass.stage}`;
+			Logger.warn(
+				`[${key}] WebGL backend does not support pass "${pass.stage}" yet; skipping`,
+				{ scope: "WebGLFrameExecutor", onceKey: key }
 			);
 			return;
 		}
@@ -461,7 +464,11 @@ export class WebGLFrameExecutor {
 		const allowedPassIds = new Set(plan.postProcessPasses);
 		const warmupHints = this._postProcessRuntime.collectWarmupHints(
 			context.features,
-			this._logWarning,
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				}),
 			allowedPassIds
 		);
 		for (const hint of warmupHints) {
@@ -626,7 +633,15 @@ export class WebGLFrameExecutor {
 	}
 
 	private _runPostProcessGraph(context: FrameContext): void {
-		this._postProcessRuntime.execute(context, context.features, this._logWarning);
+		this._postProcessRuntime.execute(
+			context,
+			context.features,
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				})
+		);
 	}
 
 	private _createDefaultPostProcessPasses(): WebGLPostProcessPassPlugin[] {

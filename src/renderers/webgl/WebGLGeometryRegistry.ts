@@ -1,6 +1,7 @@
 import type { DrawPacket } from "../../pipeline/types";
 import type { IPrimitive } from "../../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
+import { Logger } from "../../foundation/Logger";
 
 export interface WebGLGeometryHandle {
 	vao: WebGLVertexArrayObject;
@@ -10,8 +11,6 @@ export interface WebGLGeometryHandle {
 	indexType: number;
 	topology: number;
 }
-
-type WarnFn = (key: string, message: string) => void;
 
 interface UploadPrimitiveResult {
 	handle: WebGLGeometryHandle | null;
@@ -26,13 +25,16 @@ interface WebGLCachedGeometryEntry {
 
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
-	private _logWarning: WarnFn;
+	private _warn: ((key: string, message: string) => void) | null;
 	private _cache = new WeakMap<IPrimitive, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
 
-	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
+	constructor(
+		gl: WebGL2RenderingContext,
+		warn?: (key: string, message: string) => void
+	) {
 		this._gl = gl;
-		this._logWarning = warn;
+		this._warn = warn ?? null;
 	}
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
@@ -81,37 +83,56 @@ export class WebGLGeometryRegistry {
 		const primitiveLabel = `${primitive.id}:${packet.id}`;
 
 		if (!positions || positions.length < 3 || positions.length % 3 !== 0) {
-			this._logWarning(
-				`webgl-geometry-invalid-positions-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} has invalid position data; skipping`
+			const key = `webgl-geometry-invalid-positions-${primitive.id}`;
+			const message =
+				`WebGL geometry ${primitiveLabel} has invalid position data; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!indices || indices.length <= 0) {
-			this._logWarning(
-				`webgl-geometry-empty-indices-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} has no indices; skipping`
+			const key = `webgl-geometry-empty-indices-${primitive.id}`;
+			const message = `WebGL geometry ${primitiveLabel} has no indices; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!isFiniteArray(positions)) {
-			this._logWarning(
-				`webgl-geometry-nonfinite-positions-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`
+			const key = `webgl-geometry-nonfinite-positions-${primitive.id}`;
+			const message =
+				`WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.normals && !isFiniteArray(geometry.normals)) {
-			this._logWarning(
-				`webgl-geometry-nonfinite-normals-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`
+			const key = `webgl-geometry-nonfinite-normals-${primitive.id}`;
+			const message =
+				`WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.uv0 && !isFiniteArray(geometry.uv0)) {
-			this._logWarning(
-				`webgl-geometry-nonfinite-uv-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`
+			const key = `webgl-geometry-nonfinite-uv-${primitive.id}`;
+			const message =
+				`WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
@@ -119,17 +140,25 @@ export class WebGLGeometryRegistry {
 		const vertexCount = (positions.length / 3) | 0;
 		const maxIndex = getMaxIndex(indices);
 		if (!Number.isFinite(maxIndex) || maxIndex < 0 || maxIndex >= vertexCount) {
-			this._logWarning(
-				`webgl-geometry-index-range-${primitive.id}`,
-				`WebGL geometry ${primitiveLabel} index data exceeds vertex range; skipping`
+			const key = `webgl-geometry-index-range-${primitive.id}`;
+			const message =
+				`WebGL geometry ${primitiveLabel} index data exceeds vertex range; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: true };
 		}
 
 		if ((geometry.morphTargets?.length ?? 0) > 0) {
-			this._logWarning(
-				`webgl-geometry-morph-fallback-${primitive.id}`,
-				`WebGL backend does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`
+			const key = `webgl-geometry-morph-fallback-${primitive.id}`;
+			const message =
+				`WebGL backend does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 		}
 
@@ -158,9 +187,13 @@ export class WebGLGeometryRegistry {
 			if (vao) gl.deleteVertexArray(vao);
 			if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
 			if (indexBuffer) gl.deleteBuffer(indexBuffer);
-			this._logWarning(
-				`webgl-geometry-upload-failed-${primitive.id}`,
-				`Failed to allocate WebGL buffers for primitive ${primitive.id}; skipping`
+			const key = `webgl-geometry-upload-failed-${primitive.id}`;
+			const message =
+				`Failed to allocate WebGL buffers for primitive ${primitive.id}; skipping`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLGeometryRegistry", onceKey: key }
 			);
 			return { handle: null, cacheFailure: false };
 		}

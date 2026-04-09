@@ -2,6 +2,7 @@ import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
 import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import { destroyResource } from "../computeUtils";
+import { Logger } from "../../../foundation/Logger";
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -13,18 +14,16 @@ interface CachedBindGroup {
  */
 export class PostProcessSharedContext {
 	private _compute: IWebGPUComputeFacade;
-	private _logWarning: (key: string, message: string) => void;
 	private _sampler: ISampler | null = null;
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _frameBindGroupLayout: GPUBindGroupLayout | null;
 
 	constructor(
 		compute: IWebGPUComputeFacade,
-		warn: (key: string, message: string) => void,
+		_warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
 		this._compute = compute;
-		this._logWarning = warn;
 		this._frameBindGroupLayout = frameBindGroupLayout || null;
 	}
 
@@ -41,7 +40,10 @@ export class PostProcessSharedContext {
 	}
 
 	public warn(key: string, message: string): void {
-		this._logWarning(key, message);
+		Logger.warn(`[${key}] ${message}`, {
+			scope: "PostProcessSharedContext",
+			onceKey: key,
+		});
 	}
 
 	public async ensureCommonResources(): Promise<void> {

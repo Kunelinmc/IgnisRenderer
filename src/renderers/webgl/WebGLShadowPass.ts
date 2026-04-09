@@ -1,4 +1,4 @@
-import type { Material } from "../../materials/Material";
+﻿import type { Material } from "../../materials/Material";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
@@ -9,12 +9,17 @@ import {
 import { getMaxShadowSize, isFiniteMatrix, toColumnMajorMat4 } from "./WebGLFrameMath";
 import type { WebGLLightState, WebGLShadowData } from "./WebGLLightCollector";
 import type { WebGLShadowDepthProgram } from "./WebGLProgramLibrary";
+import { Logger } from "../../foundation/Logger";
 
-type WarnFn = (key: string, message: string) => void;
+function logWebGLShadowPassWarning(key: string, message: string): void {
+	Logger.warn(`[${key}] ${message}`, {
+		scope: "WebGLShadowPass",
+		onceKey: key,
+	});
+}
 
 export interface WebGLShadowPassHost {
 	_gl: WebGL2RenderingContext;
-	_logWarning: WarnFn;
 	_programs: {
 		getShadowDepthProgram(): WebGLShadowDepthProgram;
 	};
@@ -161,7 +166,7 @@ export function drawWebGLShadowPacket(
 	viewProjectionMatrix: Matrix4
 ): void {
 	if (packet.meshInstance.skeleton) {
-		host._logWarning(
+		logWebGLShadowPassWarning(
 			"webgl-shadow-skinning-unsupported",
 			`WebGL shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 		);
@@ -196,3 +201,4 @@ export function drawWebGLShadowPacket(
 	);
 	gl.bindVertexArray(null);
 }
+

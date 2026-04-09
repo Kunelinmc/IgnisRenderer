@@ -42,6 +42,7 @@ import type {
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { DEFAULT_GAMMA, MIN_GAMMA } from "../constants";
+import { Logger } from "../../foundation/Logger";
 
 const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
 	"ssao",
@@ -164,7 +165,6 @@ export class WebGPUFrameExecutor {
 	private _mrtEnabled = true;
 	private _mrtSupportChecked = false;
 	private _featureHistoryKey = "";
-	private _logWarningedKeys = new Set<string>();
 	private _postGraph: WebGPUPostProcessGraph;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _presentShaderModule: IShaderModule | null = null;
@@ -185,7 +185,11 @@ export class WebGPUFrameExecutor {
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
-			(key, message) => this._logWarning(key, message),
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGPUFrameExecutor",
+					onceKey: key,
+				}),
 			resources.sceneFrameLayout
 		);
 		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
@@ -713,15 +717,17 @@ export class WebGPUFrameExecutor {
 
 		this._mrtEnabled = false;
 		if (maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT) {
-			this._logWarning(
-				"webgpu-mrt-disabled-attachments",
-				`WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`
+			const key = "webgpu-mrt-disabled-attachments";
+			Logger.warn(
+				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
 			);
 		}
 		if (maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE) {
-			this._logWarning(
-				"webgpu-mrt-disabled-bytes",
-				`WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`
+			const key = "webgpu-mrt-disabled-bytes";
+			Logger.warn(
+				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
 			);
 		}
 	}
@@ -1099,9 +1105,10 @@ export class WebGPUFrameExecutor {
 				if (typeof setter === "function") {
 					setter.call(this._backend, 1);
 				}
-				this._logWarning(
-					"webgpu-msaa-runtime-fallback-1x",
-					`WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`
+				const key = "webgpu-msaa-runtime-fallback-1x";
+				Logger.warn(
+					`[${key}] WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`,
+					{ scope: "WebGPUFrameExecutor", onceKey: key }
 				);
 				this._ensureFrameTargets(width, height, ssaoDownsample, ssrDownsample);
 				return;
@@ -1408,9 +1415,10 @@ export class WebGPUFrameExecutor {
 			this._encoder.endRenderPass();
 			return true;
 		} catch (error) {
-			this._logWarning(
-				"webgpu-depth-partial-reuse-fallback",
-				`WebGPU partial depth reuse unavailable; falling back to full depth clear. ${String(error)}`
+			const key = "webgpu-depth-partial-reuse-fallback";
+			Logger.warn(
+				`[${key}] WebGPU partial depth reuse unavailable; falling back to full depth clear. ${String(error)}`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
 			);
 			return false;
 		}
@@ -1465,12 +1473,6 @@ export class WebGPUFrameExecutor {
 		return pipeline;
 	}
 
-	private _logWarning(key: string, message: string): void {
-		if (this._logWarningedKeys.has(key)) return;
-		this._logWarningedKeys.add(key);
-		this._backend.warn(message, key);
-	}
-
 	private async _runPostGraph(context: FrameContext): Promise<void> {
 		this._postGraphExecuted = true;
 		if (!this._mrtEnabled || !this._frameTargets || !this._encoder) {
@@ -1495,7 +1497,11 @@ export class WebGPUFrameExecutor {
 		const executed = await this._postGraph.execute(
 			postContext,
 			context.features,
-			(key, message) => this._logWarning(key, message)
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGPUFrameExecutor",
+					onceKey: key,
+				})
 		);
 		context.transient.set("webgpu-post-order", executed);
 

@@ -11,6 +11,7 @@ import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import { Logger } from "../../foundation/Logger";
 
 export type WebGPUSceneTargetMode = "single" | "mrt";
 const COLOR_WRITE_NONE = 0;
@@ -299,10 +300,10 @@ export class WebGPUPipelineLibrary {
 			if (!this._isWarnMode()) {
 				throw error;
 			}
-			this._logWarning(
-				`webgpu-shader-material-compile-failed-${material.shaderId}`,
-				`ShaderMaterial ${material.name} custom WebGPU shader compile failed; ` +
-					`using built-in scene shader. ${String(error)}`
+			const key = `webgpu-shader-material-compile-failed-${material.shaderId}`;
+			Logger.warn(
+				`[${key}] ShaderMaterial ${material.name} custom WebGPU shader compile failed; using built-in scene shader. ${String(error)}`,
+				{ scope: "WebGPUPipelineLibrary", onceKey: key }
 			);
 			const shaderModule = await this._getSceneShaderModule();
 			return {
@@ -472,10 +473,6 @@ export class WebGPUPipelineLibrary {
 			return false;
 		}
 		return shaderRuntime.getMode() === "warn";
-	}
-
-	private _logWarning(key: string, message: string): void {
-		this._backend.warn(message, key);
 	}
 
 	private _getShaderRuntimeRevision(): number {

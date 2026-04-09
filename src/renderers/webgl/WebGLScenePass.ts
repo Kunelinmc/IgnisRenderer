@@ -1,4 +1,4 @@
-import {
+﻿import {
 	AlphaMode,
 	type Material,
 } from "../../materials/Material";
@@ -12,15 +12,20 @@ import {
 } from "./WebGLFrameMath";
 import { resolveMaterialUniforms } from "./WebGLMaterialUniformResolver";
 import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
+import { Logger } from "../../foundation/Logger";
 
 const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
 const WEBGL_TEXTURE_UNIT_CUSTOM_START = 8;
 
-type WarnFn = (key: string, message: string) => void;
+function logWebGLScenePassWarning(key: string, message: string): void {
+	Logger.warn(`[${key}] ${message}`, {
+		scope: "WebGLScenePass",
+		onceKey: key,
+	});
+}
 
 export interface WebGLScenePassHost {
 	_gl: WebGL2RenderingContext;
-	_logWarning: WarnFn;
 	_programs: {
 		getSceneProgram(material?: Material): WebGLSceneProgram;
 	};
@@ -170,7 +175,7 @@ export function renderWebGLPackets(
 		context.camera.viewProjectionMatrix
 	);
 	if (!currentViewProjection) {
-		host._logWarning(
+		logWebGLScenePassWarning(
 			"webgl-camera-view-projection-invalid",
 			"WebGL camera view-projection matrix is non-finite; resetting temporal history."
 		);
@@ -203,14 +208,14 @@ export function drawWebGLPacket(
 	}
 
 	if (packet.meshInstance.skeleton) {
-		host._logWarning(
+		logWebGLScenePassWarning(
 			"webgl-skinning-unsupported",
 			`WebGL backend does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 		);
 		return;
 	}
 	if (!isFiniteMatrix(packet.worldMatrix)) {
-		host._logWarning(
+		logWebGLScenePassWarning(
 			"webgl-world-matrix-invalid",
 			`WebGL packet ${packet.id} has non-finite world matrix; skipping`
 		);
@@ -225,7 +230,7 @@ export function drawWebGLPacket(
 	const uniforms = resolveMaterialUniforms(material);
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
-		host._logWarning(
+		logWebGLScenePassWarning(
 			"webgl-normal-matrix-invalid",
 			`WebGL packet ${packet.id} has invalid normal matrix; skipping`
 		);
@@ -343,7 +348,7 @@ export function bindWebGLShaderMaterialTextures(
 			continue;
 		}
 		if (textureUnit >= host._maxTextureImageUnits) {
-			host._logWarning(
+			logWebGLScenePassWarning(
 				`webgl-shader-material-texture-unit-limit-${material.shaderId}`,
 				`ShaderMaterial ${material.name} custom textures exceed MAX_TEXTURE_IMAGE_UNITS=${host._maxTextureImageUnits}; extra bindings are ignored.`
 			);
@@ -357,3 +362,4 @@ export function bindWebGLShaderMaterialTextures(
 	}
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 }
+

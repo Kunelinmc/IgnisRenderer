@@ -32,6 +32,7 @@ import type {
 	WebGPUFeatureState,
 	WebGPULightingState,
 } from "./types";
+import { Logger } from "../../foundation/Logger";
 
 const CLUSTERED_SHADER_WORKGROUP_SIZE = 128;
 const CLUSTERED_PARAMS_FLOATS = 12;
@@ -57,7 +58,6 @@ interface FrameClusterState {
 
 export class WebGPUClusteredLightingRuntime {
 	private _compute: IWebGPUComputeFacade;
-	private _logWarning: (key: string, message: string) => void;
 	private _sceneLayout: GPUBindGroupLayout;
 	private _frameLayout: GPUBindGroupLayout;
 
@@ -99,12 +99,11 @@ export class WebGPUClusteredLightingRuntime {
 		computeFacade: IWebGPUComputeFacade,
 		sceneLayout: GPUBindGroupLayout,
 		frameLayout: GPUBindGroupLayout,
-		warn: (key: string, message: string) => void
+		_warn: (key: string, message: string) => void
 	) {
 		this._compute = computeFacade;
 		this._sceneLayout = sceneLayout;
 		this._frameLayout = frameLayout;
-		this._logWarning = warn;
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -154,9 +153,10 @@ export class WebGPUClusteredLightingRuntime {
 
 		const isPerspective = frame.camera.type === CameraType.Perspective;
 		if (features.enableClusteredLighting && !isPerspective) {
-			this._logWarning(
-				"webgpu-clustered-perspective-only",
-				"WebGPU clustered lighting only supports perspective cameras; falling back to legacy forward lights"
+			const key = "webgpu-clustered-perspective-only";
+			Logger.warn(
+				`[${key}] WebGPU clustered lighting only supports perspective cameras; falling back to legacy forward lights`,
+				{ scope: "WebGPUClusteredLightingRuntime", onceKey: key }
 			);
 		}
 		const near = Math.max(0.05, frame.camera.near ?? 0.1);
@@ -174,15 +174,17 @@ export class WebGPUClusteredLightingRuntime {
 		if (canCluster) {
 			maxLights = Math.min(sourceLights.length, requestedMaxLights);
 			if (sourceLights.length > requestedMaxLights) {
-				this._logWarning(
-					"webgpu-clustered-light-budget",
-					`WebGPU clustered lighting clamps lights to ${requestedMaxLights}; extra lights are skipped`
+				const key = "webgpu-clustered-light-budget";
+				Logger.warn(
+					`[${key}] WebGPU clustered lighting clamps lights to ${requestedMaxLights}; extra lights are skipped`,
+					{ scope: "WebGPUClusteredLightingRuntime", onceKey: key }
 				);
 			}
 			if (maxLights > maxLightsPerCluster) {
-				this._logWarning(
-					"webgpu-clustered-overflow",
-					`WebGPU clustered lighting may overflow cluster capacity (${maxLightsPerCluster}); overflowing entries are truncated`
+				const key = "webgpu-clustered-overflow";
+				Logger.warn(
+					`[${key}] WebGPU clustered lighting may overflow cluster capacity (${maxLightsPerCluster}); overflowing entries are truncated`,
+					{ scope: "WebGPUClusteredLightingRuntime", onceKey: key }
 				);
 			}
 		}

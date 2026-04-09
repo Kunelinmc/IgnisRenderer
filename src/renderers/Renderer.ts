@@ -282,7 +282,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		for (const warning of resolved.warnings) {
-			this._logWarning(warning.key, warning.message);
+			Logger.warn(`[${warning.key}] ${warning.message}`, { scope: "Renderer" });
 		}
 		if (this.features.enableSH) {
 			this.updateSH();
@@ -499,10 +499,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.backend.type;
 	}
 
-	private _logWarning(key: string, message: string): void {
-		this.logger.warn(`[${key}] ${message}`, { scope: "Renderer" });
-	}
-
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {
 		this._frameDirty = true;
 		const reasonMask = renderDirtyReasonToMask(reason);
@@ -714,7 +710,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
 				hasParticleSystems,
 			},
-			(key, message) => this._logWarning(key, message)
+			(key, message) =>
+				Logger.warn(`[${key}] ${message}`, { scope: "Renderer" })
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -734,7 +731,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.type
 					);
 					for (const warning of resolved.warnings) {
-						this._logWarning(warning.key, warning.message);
+						Logger.warn(`[${warning.key}] ${warning.message}`, {
+							scope: "Renderer",
+						});
 					}
 					break;
 				}
@@ -884,9 +883,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						const pass = this._createBackendPass(stage.id);
 						if (pass.executor === "shared") {
 							if (!this.backend.executeSharedPass) {
-								this._logWarning(
-									`${this.backend.type}-shared-pass-${pass.stage}`,
-									`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
+								const key = `${this.backend.type}-shared-pass-${pass.stage}`;
+								Logger.warn(
+									`[${key}] ${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`,
+									{ scope: "Renderer" }
 								);
 							break;
 						}
@@ -1113,9 +1113,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const key =
 					`csg-diagnostic-${meshInstance.id}-` +
 					`${diagnostic.code}-${diagnostic.message}`;
-				this._logWarning(
-					key,
-					`[CSG:${diagnostic.code}] ${diagnostic.message}`
+				Logger.warn(
+					`[${key}] [CSG:${diagnostic.code}] ${diagnostic.message}`,
+					{ scope: "Renderer" }
 				);
 			}
 		}

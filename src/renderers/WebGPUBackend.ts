@@ -358,8 +358,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function" ?
 			new FinalizationRegistry<string>((label) => {
-				this._logWarning(
-					`WebGPU resource "${label}" was garbage collected without explicit destroy().`
+				const key = `webgpu-resource-gc:${label}`;
+				Logger.warn(
+					`[${key}] WebGPU resource "${label}" was garbage collected without explicit destroy().`,
+					{ scope: "WebGPUBackend", onceKey: key }
 				);
 			})
 		:	null;
@@ -402,7 +404,6 @@ export class WebGPUBackend implements IRenderBackend {
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			hook: resolved.options.directiveHook ?? null,
 			mode: shaderMode,
-			warn: (key, message) => this._logWarning(message, key),
 		});
 		this._passHandlers = this._createPassHandlers();
 		this.shaderRuntime.onDidChange(() => {
@@ -883,8 +884,9 @@ export class WebGPUBackend implements IRenderBackend {
 								info.messages
 							);
 						} catch (error) {
-							this._logWarning(
-								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
+							Logger.warn(
+								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`,
+								{ scope: "WebGPUBackend" }
 							);
 						}
 					}
@@ -1383,8 +1385,9 @@ export class WebGPUBackend implements IRenderBackend {
 					this._rollbackInitializationState();
 					return;
 				}
-				this._logWarning(
-					`WebGPU device recovery succeeded on attempt ${attempt}.`
+				Logger.warn(
+					`WebGPU device recovery succeeded on attempt ${attempt}.`,
+					{ scope: "WebGPUBackend" }
 				);
 				this._deviceLostInfo = null;
 				return;
@@ -2171,8 +2174,9 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._msaaSelectionCache.clear();
-		this._logWarning(
-			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth."
+		Logger.warn(
+			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth.",
+			{ scope: "WebGPUBackend" }
 		);
 	}
 
@@ -2634,9 +2638,10 @@ export class WebGPUBackend implements IRenderBackend {
 			return code;
 		}
 		const shaderLabel = label && label.length > 0 ? label : "unnamed";
-		this._logWarning(
-			`WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`,
-			`webgpu-shader-bom:${shaderLabel}`
+		const key = `webgpu-shader-bom:${shaderLabel}`;
+		Logger.warn(
+			`[${key}] WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`,
+			{ scope: "WebGPUBackend", onceKey: key }
 		);
 		return code.replace(/\uFEFF/g, "");
 	}
@@ -2702,10 +2707,10 @@ export class WebGPUBackend implements IRenderBackend {
 				`webgpu-shader-runtime-${diagnostic.severity}` +
 				`-${diagnostic.code}-${keyPrefix}` +
 				`-${diagnostic.sourcePath ?? ""}-${diagnostic.line ?? ""}-${diagnostic.column ?? ""}`;
-			this._logWarning(
-				`WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
+			Logger.warn(
+				`[${key}] WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
 					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`,
-				key
+				{ scope: "WebGPUBackend", onceKey: key }
 			);
 		}
 	}
@@ -2966,7 +2971,9 @@ export class WebGPUBackend implements IRenderBackend {
 				this._timestampReadBuffer.unmap();
 			})
 			.catch((error) => {
-				this._logWarning(`WebGPU timestamp readback failed: ${String(error)}`);
+				Logger.warn(`WebGPU timestamp readback failed: ${String(error)}`, {
+					scope: "WebGPUBackend",
+				});
 				if (this._timestampReadBuffer) {
 					try {
 						this._timestampReadBuffer.unmap();
@@ -3045,11 +3052,9 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _reportNonFatalError(scope: string, error: unknown): void {
-		this._logWarning(`WebGPU backend ${scope} failed: ${String(error)}`);
-	}
-
-	private _logWarning(message: string, key?: string): void {
-		this.warn(message, key);
+		Logger.warn(`WebGPU backend ${scope} failed: ${String(error)}`, {
+			scope: "WebGPUBackend",
+		});
 	}
 
 	private _toUint8View(data: BufferSource): Uint8Array {

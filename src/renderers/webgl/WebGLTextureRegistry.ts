@@ -1,5 +1,6 @@
 import type { Texture } from "../../core/Texture";
 import { clamp } from "../../maths/Common";
+import { Logger } from "../../foundation/Logger";
 
 interface TextureEntry {
 	texture: WebGLTexture;
@@ -14,20 +15,19 @@ export interface ResolvedWebGLTexture {
 	isLinear: boolean;
 }
 
-type WarnFn = (key: string, message: string) => void;
-
 export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;
-	private _logWarning: WarnFn;
 	private _maxTextureSize: number;
 	private _cache = new WeakMap<Texture, TextureEntry>();
 	private _owned = new Set<WebGLTexture>();
 	private _whiteTexture: WebGLTexture | null = null;
 	private _neutralNormalTexture: WebGLTexture | null = null;
 
-	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
+	constructor(
+		gl: WebGL2RenderingContext,
+		_warn?: (key: string, message: string) => void
+	) {
 		this._gl = gl;
-		this._logWarning = warn;
 		this._maxTextureSize = this._resolveMaxTextureSize(gl);
 	}
 
@@ -134,16 +134,18 @@ export class WebGLTextureRegistry {
 			width <= 0 ||
 			height <= 0
 		) {
-			this._logWarning(
-				`webgl-texture-invalid-size-${label}`,
-				`WebGL ${label} texture has invalid dimensions (${texture.width}x${texture.height}); using fallback`
+			const key = `webgl-texture-invalid-size-${label}`;
+			Logger.warn(
+				`[${key}] WebGL ${label} texture has invalid dimensions (${texture.width}x${texture.height}); using fallback`,
+				{ scope: "WebGLTextureRegistry", onceKey: key }
 			);
 			return this.getWhiteTexture();
 		}
 		if (width > this._maxTextureSize || height > this._maxTextureSize) {
-			this._logWarning(
-				`webgl-texture-oversize-${label}`,
-				`WebGL ${label} texture exceeds max texture size ${this._maxTextureSize}; using fallback`
+			const key = `webgl-texture-oversize-${label}`;
+			Logger.warn(
+				`[${key}] WebGL ${label} texture exceeds max texture size ${this._maxTextureSize}; using fallback`,
+				{ scope: "WebGLTextureRegistry", onceKey: key }
 			);
 			return this.getWhiteTexture();
 		}
@@ -168,9 +170,10 @@ export class WebGLTextureRegistry {
 		if (!glTexture) {
 			glTexture = this._createTexture();
 			if (!glTexture) {
-				this._logWarning(
-					`webgl-texture-allocation-${label}`,
-					`Failed to allocate WebGL texture for ${label}; using fallback`
+				const key = `webgl-texture-allocation-${label}`;
+				Logger.warn(
+					`[${key}] Failed to allocate WebGL texture for ${label}; using fallback`,
+					{ scope: "WebGLTextureRegistry", onceKey: key }
 				);
 				return this.getWhiteTexture();
 			}
@@ -236,9 +239,10 @@ export class WebGLTextureRegistry {
 				null;
 
 			if (!source) {
-				this._logWarning(
-					`webgl-texture-empty-${label}`,
-					`Texture ${label} has empty pixel data; using fallback`
+				const key = `webgl-texture-empty-${label}`;
+				Logger.warn(
+					`[${key}] Texture ${label} has empty pixel data; using fallback`,
+					{ scope: "WebGLTextureRegistry", onceKey: key }
 				);
 				gl.bindTexture(gl.TEXTURE_2D, null);
 				return false;

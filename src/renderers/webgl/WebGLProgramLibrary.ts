@@ -22,6 +22,7 @@ import {
 	type WebGLShaderPart,
 	type WebGLShaderSourceFactory,
 } from "../../shaders/webgl/WebGLShaderSourceFactory";
+import { Logger } from "../../foundation/Logger";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;
@@ -284,8 +285,6 @@ export interface WebGLDOFProgram {
 	};
 }
 
-type WarnFn = (key: string, message: string) => void;
-
 interface ShaderCompileMetadata {
 	sourceMap?: ShaderSourceSegmentMap | null;
 	variantKey?: string;
@@ -296,7 +295,7 @@ interface ShaderCompileMetadata {
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
-	private _logWarning: WarnFn;
+	private _warn: ((key: string, message: string) => void) | null;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
@@ -326,13 +325,13 @@ export class WebGLProgramLibrary {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		warn: WarnFn,
+		warn: (key: string, message: string) => void,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
 		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
-		this._logWarning = warn;
+		this._warn = warn ?? null;
 		this._shaderRuntime = shaderRuntime ?? null;
 		this._shaderCompileStage = shaderCompileStage ?? null;
 		this._shaderSourceFactory =
@@ -343,7 +342,6 @@ export class WebGLProgramLibrary {
 				runtime: this._shaderRuntime,
 				profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 				mode: this._shaderRuntime.getMode(),
-				warn: this._logWarning,
 			});
 		}
 		if (this._shaderRuntime) {
@@ -427,10 +425,14 @@ export class WebGLProgramLibrary {
 			});
 			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
 		} catch (error) {
-			this._logWarning(
-				`webgl-shader-material-missing-source-${material.shaderId}`,
+			const key = `webgl-shader-material-missing-source-${material.shaderId}`;
+			const message =
 				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
-					`using built-in scene shader. ${String(error)}`
+				`using built-in scene shader. ${String(error)}`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLProgramLibrary", onceKey: key }
 			);
 			return null;
 		}
@@ -467,10 +469,14 @@ export class WebGLProgramLibrary {
 			if (!this._isWarnMode()) {
 				throw error;
 			}
-			this._logWarning(
-				`webgl-shader-material-compile-failed-${material.shaderId}`,
+			const key = `webgl-shader-material-compile-failed-${material.shaderId}`;
+			const message =
 				`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
-					`using built-in scene shader. ${String(error)}`
+				`using built-in scene shader. ${String(error)}`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLProgramLibrary", onceKey: key }
 			);
 			return null;
 		}
@@ -1165,9 +1171,14 @@ export class WebGLProgramLibrary {
 		gl.validateProgram(program);
 		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
 		if (validateStatus === false) {
-			this._logWarning(
-				`webgl-program-validate-${label}`,
-				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || "no log"}`
+			const key = `webgl-program-validate-${label}`;
+			const message =
+				`WebGL program validation reported issues (${label}): ` +
+				`${gl.getProgramInfoLog(program) || "no log"}`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLProgramLibrary", onceKey: key }
 			);
 		}
 
@@ -1300,10 +1311,16 @@ export class WebGLProgramLibrary {
 		result: ShaderProcessResult
 	): void {
 		for (const diagnostic of result.diagnostics) {
-			this._logWarning(
-				`webgl-shader-runtime-${diagnostic.severity}-${diagnostic.code}-${label}`,
+			const key =
+				`webgl-shader-runtime-${diagnostic.severity}-` +
+				`${diagnostic.code}-${label}`;
+			const message =
 				`WebGL shader runtime ${diagnostic.severity} [${label}] ` +
-					`${diagnostic.code}: ${diagnostic.message}`
+				`${diagnostic.code}: ${diagnostic.message}`;
+			this._warn?.(key, message);
+			Logger.warn(
+				`[${key}] ${message}`,
+				{ scope: "WebGLProgramLibrary", onceKey: key }
 			);
 		}
 	}

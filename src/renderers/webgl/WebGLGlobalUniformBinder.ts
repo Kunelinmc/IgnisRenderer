@@ -1,6 +1,7 @@
-import type { SHCoefficients } from "../../maths/types";
+﻿import type { SHCoefficients } from "../../maths/types";
 import type { FogOptions, FrameContext } from "../../pipeline/types";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import { Logger } from "../../foundation/Logger";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
@@ -38,11 +39,15 @@ const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	0, 0, 0, 1,
 ]);
 
-type WarnFn = (key: string, message: string) => void;
+function logWebGLGlobalUniformWarning(key: string, message: string): void {
+	Logger.warn(`[${key}] ${message}`, {
+		scope: "WebGLGlobalUniformBinder",
+		onceKey: key,
+	});
+}
 
 export interface WebGLGlobalUniformBinderHost {
 	_gl: WebGL2RenderingContext;
-	_logWarning: WarnFn;
 	_lightState: WebGLLightState | null;
 	_textures: {
 		getEnvironmentSpecularTexture(texture: any | null): {
@@ -93,7 +98,6 @@ export interface WebGLGlobalUniformBinderHost {
 
 export interface WebGLSHAmbientUploadHost {
 	_gl: WebGL2RenderingContext;
-	_logWarning: WarnFn;
 	_shAmbientTexture: WebGLTexture | null;
 	_shAmbientTextureWidth: number;
 	_shAmbientTextureHeight: number;
@@ -124,7 +128,7 @@ export function bindWebGLGlobalUniforms(
 			context.camera.viewProjectionMatrix
 		);
 		if (!viewProjection) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-camera-view-projection-invalid",
 				"WebGL camera view-projection matrix is non-finite; using identity matrix."
 			);
@@ -138,7 +142,7 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.viewMatrix) {
 		const viewMatrix = toFiniteColumnMajorMat4(context.camera.viewMatrix);
 		if (!viewMatrix) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-camera-view-matrix-invalid",
 				"WebGL camera view matrix is non-finite; using identity matrix."
 			);
@@ -159,7 +163,7 @@ export function bindWebGLGlobalUniforms(
 			cameraY !== cameraPosition.y ||
 			cameraZ !== cameraPosition.z
 		) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-camera-position-invalid",
 				"WebGL camera position is non-finite; using origin fallback."
 			);
@@ -185,7 +189,7 @@ export function bindWebGLGlobalUniforms(
 			ambientG !== lights.ambientColor[1] ||
 			ambientB !== lights.ambientColor[2]
 		) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-ambient-color-invalid",
 				"WebGL ambient light color contains non-finite values; using black fallback."
 			);
@@ -431,7 +435,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (prevViewProjection.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-prev-view-projection-invalid",
 				"WebGL previous view-projection matrix is non-finite; using sanitized values."
 			);
@@ -457,7 +461,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedDirection.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-light-direction-invalid",
 				"WebGL directional light direction contains non-finite values; using sanitized values."
 			);
@@ -475,7 +479,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedColor.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-light-color-invalid",
 				"WebGL directional light color contains non-finite values; using sanitized values."
 			);
@@ -488,7 +492,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedShadowViewProjection.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-shadow-view-projection-invalid",
 				"WebGL directional shadow matrix contains non-finite values; using sanitized values."
 			);
@@ -505,7 +509,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedDirShadowParamsA.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-shadow-params-a-invalid",
 				"WebGL directional shadow parameters contain non-finite values; using sanitized values."
 			);
@@ -518,7 +522,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedDirShadowParamsB.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-shadow-params-b-invalid",
 				"WebGL directional shadow parameters contain non-finite values; using sanitized values."
 			);
@@ -531,7 +535,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedDirShadowParamsC.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-dir-shadow-params-c-invalid",
 				"WebGL directional shadow slope parameters contain non-finite values; using sanitized values."
 			);
@@ -553,7 +557,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedPointPositionRange.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-point-light-position-invalid",
 				"WebGL point light position/range contains non-finite values; using sanitized values."
 			);
@@ -571,7 +575,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedPointColor.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-point-light-color-invalid",
 				"WebGL point light color contains non-finite values; using sanitized values."
 			);
@@ -593,7 +597,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotPositionRange.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-light-position-invalid",
 				"WebGL spot light position/range contains non-finite values; using sanitized values."
 			);
@@ -611,7 +615,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotDirectionOuter.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-light-direction-invalid",
 				"WebGL spot light direction/outer cone contains non-finite values; using sanitized values."
 			);
@@ -629,7 +633,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotColorInner.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-light-color-invalid",
 				"WebGL spot light color/inner cone contains non-finite values; using sanitized values."
 			);
@@ -642,7 +646,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotShadowViewProjection.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-shadow-view-projection-invalid",
 				"WebGL spot shadow matrix contains non-finite values; using sanitized values."
 			);
@@ -659,7 +663,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotShadowParamsA.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-shadow-params-a-invalid",
 				"WebGL spot shadow parameters contain non-finite values; using sanitized values."
 			);
@@ -672,7 +676,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotShadowParamsB.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-shadow-params-b-invalid",
 				"WebGL spot shadow parameters contain non-finite values; using sanitized values."
 			);
@@ -685,7 +689,7 @@ export function bindWebGLGlobalUniforms(
 			0
 		);
 		if (packedSpotShadowParamsC.hadInvalid) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-spot-shadow-params-c-invalid",
 				"WebGL spot shadow slope parameters contain non-finite values; using sanitized values."
 			);
@@ -712,7 +716,7 @@ export function uploadWebGLSHAmbientCoefficients(
 
 	if (!host._shAmbientTexture) {
 		if (typeof gl.createTexture !== "function") {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-sh-ambient-texture-create-unsupported",
 				"WebGL context does not expose createTexture(); disabling SH for this frame."
 			);
@@ -720,7 +724,7 @@ export function uploadWebGLSHAmbientCoefficients(
 		}
 		host._shAmbientTexture = gl.createTexture();
 		if (!host._shAmbientTexture) {
-			host._logWarning(
+			logWebGLGlobalUniformWarning(
 				"webgl-sh-ambient-texture-create-failed",
 				"Failed to create WebGL SH ambient texture; disabling SH for this frame."
 			);
@@ -756,10 +760,11 @@ export function uploadWebGLSHAmbientCoefficients(
 		host._shAmbientTextureHeight = 1;
 		return true;
 	} catch (error) {
-		host._logWarning(
+		logWebGLGlobalUniformWarning(
 			"webgl-sh-ambient-texture-upload-failed",
 			`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
 		);
 		return false;
 	}
 }
+
