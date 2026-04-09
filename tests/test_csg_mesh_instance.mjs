@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Platform } from "../src/foundation/Platform.ts";
 import { CSG } from "../src/csg/CSGBuilder.ts";
-import { CSGMeshInstance } from "../src/csg/CSGMeshInstance.ts";
+import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
 

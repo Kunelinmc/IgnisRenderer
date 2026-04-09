@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { CSG } from "../src/csg/CSGBuilder.ts";
-import { CSGMeshInstance } from "../src/csg/CSGMeshInstance.ts";
+import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
 
