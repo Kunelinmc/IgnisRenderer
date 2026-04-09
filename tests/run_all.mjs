@@ -73,6 +73,7 @@ const tests = [
 	"test_bvh_loader.mjs",
 	"test_pbr_textures.mjs",
 	"test_shader_runtime.mjs",
+	"test_logger.mjs",
 	"test_shader_directive_pipeline_v2.mjs",
 	"test_shader_directive_migration_guard.mjs",
 	"test_shader_material.mjs",

@@ -1,4 +1,5 @@
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
+export type EmittableLogLevel = Exclude<LogLevel, "silent">;
 
 export interface LoggerOptions {
 	name?: string;
@@ -12,7 +13,7 @@ export interface LoggerSink {
 	error?: (...args: unknown[]) => void;
 }
 
-const LEVEL_ORDER: Record<Exclude<LogLevel, "silent">, number> = {
+const LEVEL_ORDER: Record<EmittableLogLevel, number> = {
 	debug: 0,
 	info: 1,
 	warn: 2,
@@ -27,11 +28,13 @@ export class Logger {
 	private _name: string | null;
 	private _level: LogLevel;
 	private _sink: LoggerSink;
+	private _onceKeys: Set<string>;
 
 	public constructor(options: LoggerOptions = {}, sink: LoggerSink = console) {
 		this._name = options.name ?? null;
 		this._level = resolveLevel(options.level);
 		this._sink = sink;
+		this._onceKeys = new Set();
 	}
 
 	/**
@@ -87,9 +90,97 @@ export class Logger {
 		this._sink.error(...this._formatArgs(args));
 	}
 
-	private _canLog(level: Exclude<LogLevel, "silent">): boolean {
+	/**
+	 * Emits a debug-level log once for the given key.
+	 * Returns true if the log was emitted.
+	 */
+	public debugOnce(key: string, ...args: unknown[]): boolean {
+		return this.logOnce("debug", key, ...args);
+	}
+
+	/**
+	 * Emits an info-level log once for the given key.
+	 * Returns true if the log was emitted.
+	 */
+	public infoOnce(key: string, ...args: unknown[]): boolean {
+		return this.logOnce("info", key, ...args);
+	}
+
+	/**
+	 * Emits a warn-level log once for the given key.
+	 * Returns true if the log was emitted.
+	 */
+	public warnOnce(key: string, ...args: unknown[]): boolean {
+		return this.logOnce("warn", key, ...args);
+	}
+
+	/**
+	 * Emits an error-level log once for the given key.
+	 * Returns true if the log was emitted.
+	 */
+	public errorOnce(key: string, ...args: unknown[]): boolean {
+		return this.logOnce("error", key, ...args);
+	}
+
+	/**
+	 * Emits a log once for the given key at the target level.
+	 * Returns true if the log was emitted.
+	 */
+	public logOnce(
+		level: EmittableLogLevel,
+		key: string,
+		...args: unknown[]
+	): boolean {
+		if (!this._canLog(level)) return false;
+		const sink = this._resolveSink(level);
+		if (!sink) return false;
+		if (this._onceKeys.has(key)) return false;
+		this._onceKeys.add(key);
+		sink(...this._formatArgs(args));
+		return true;
+	}
+
+	/**
+	 * Returns whether the once-key has already been emitted.
+	 */
+	public hasOnceKey(key: string): boolean {
+		return this._onceKeys.has(key);
+	}
+
+	/**
+	 * Clears one once-key so it can be emitted again.
+	 */
+	public clearOnceKey(key: string): void {
+		this._onceKeys.delete(key);
+	}
+
+	/**
+	 * Clears all once-keys.
+	 */
+	public clearOnceKeys(): void {
+		this._onceKeys.clear();
+	}
+
+	private _canLog(level: EmittableLogLevel): boolean {
 		if (this._level === "silent") return false;
 		return LEVEL_ORDER[level] >= LEVEL_ORDER[this._level];
+	}
+
+	private _resolveSink(
+		level: EmittableLogLevel
+	): ((...args: unknown[]) => void) | null {
+		switch (level) {
+			case "debug":
+				return this._sink.debug ?? null;
+			case "info":
+				return this._sink.info ?? null;
+			case "warn":
+				return this._sink.warn ?? null;
+			case "error":
+				return this._sink.error ?? null;
+			default:
+				return null;
+		}
 	}
 
 	private _formatArgs(args: unknown[]): unknown[] {
