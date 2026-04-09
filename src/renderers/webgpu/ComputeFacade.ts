@@ -16,10 +16,15 @@ import type {
 	TextureDesc,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_COMPUTE_FACADE_BRAND = Symbol(
 	"IgnisRenderer.WebGPUComputeFacade"
 );
+const WEBGPU_COMPUTE_FACADE_LOGGER = new Logger({
+	name: "WebGPUComputeFacade",
+	level: "warn",
+});
 
 type CreateTextureViewMethod = (
 	texture: IRenderTexture,
@@ -253,7 +258,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 			try {
 				this._backend.unregisterExternalTexture(texture);
 			} catch (error) {
-				console.warn(
+				WEBGPU_COMPUTE_FACADE_LOGGER.warn(
 					`WebGPU compute facade failed to unregister external texture during destroy(): ${String(error)}`
 				);
 			}
@@ -405,7 +410,7 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 				try {
 					ops.unregisterExternalTexture(texture);
 				} catch (error) {
-					console.warn(
+					WEBGPU_COMPUTE_FACADE_LOGGER.warn(
 						`WebGPU adapted compute facade failed to unregister external texture during destroy(): ${String(error)}`
 					);
 				}
@@ -646,7 +651,7 @@ export function invalidateWebGPUComputeFacade(backend: WebGPUBackend): void {
 	try {
 		cached.destroy();
 	} catch (error) {
-		console.warn(
+		WEBGPU_COMPUTE_FACADE_LOGGER.warn(
 			`Failed to destroy cached WebGPU compute facade during invalidation: ${String(error)}`
 		);
 	}

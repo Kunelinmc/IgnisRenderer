@@ -1,4 +1,10 @@
+import { Logger } from "../../foundation/Logger";
+
 type ScopeLogLevel = "error" | "warn";
+const WEBGPU_ERROR_SCOPE_LOGGER = new Logger({
+	name: "WebGPUErrorScope",
+	level: "warn",
+});
 
 interface ScopeOptions {
 	level?: ScopeLogLevel;
@@ -25,7 +31,7 @@ export class WebGPUErrorScopeHelper {
 				.popErrorScope()
 				.then((error) => this._logScopeResult(filter, label, error, options))
 				.catch((error) => {
-					console.error(
+					WEBGPU_ERROR_SCOPE_LOGGER.error(
 						`WebGPU ErrorScope pop failed [${label}]: ${String(error)}`
 					);
 				});
@@ -46,7 +52,7 @@ export class WebGPUErrorScopeHelper {
 				const error = await this._device.popErrorScope();
 				this._logScopeResult(filter, label, error, options);
 			} catch (popError) {
-				console.error(
+				WEBGPU_ERROR_SCOPE_LOGGER.error(
 					`WebGPU ErrorScope pop failed [${label}]: ${String(popError)}`
 				);
 			}
@@ -66,9 +72,9 @@ export class WebGPUErrorScopeHelper {
 		const logLevel = options?.level ?? "error";
 		const message = `WebGPU ${filter} error [${label}]: ${error.message}`;
 		if (logLevel === "warn") {
-			console.warn(message);
+			WEBGPU_ERROR_SCOPE_LOGGER.warn(message);
 			return;
 		}
-		console.error(message);
+		WEBGPU_ERROR_SCOPE_LOGGER.error(message);
 	}
 }

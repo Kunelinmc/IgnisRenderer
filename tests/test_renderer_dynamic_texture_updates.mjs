@@ -70,7 +70,7 @@ async function run() {
 		console.warn = (message) => warnedMessages.push(message);
 		try {
 			for (let i = 0; i < 1200; i++) {
-				renderer.warnOnce(`dynamic-warning-${i}`, `dynamic warning ${i}`);
+				renderer.logger.warn(`dynamic warning ${i}`);
 			}
 		} finally {
 			console.warn = originalWarn;
@@ -81,9 +81,6 @@ async function run() {
 		await renderer.renderScene(32);
 
 		assert.equal(backend.beginFrameCount, 2);
-		assert.equal(renderer._warnings.size, 1024);
-		assert.equal(renderer._warnings.has("dynamic-warning-0"), false);
-		assert.equal(renderer._warnings.has("dynamic-warning-1199"), true);
 		assert.equal(warnedMessages.length, 1200);
 
 		dynamicTexture.dispose();

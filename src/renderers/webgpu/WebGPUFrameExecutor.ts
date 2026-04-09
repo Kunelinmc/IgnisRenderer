@@ -185,7 +185,7 @@ export class WebGPUFrameExecutor {
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
-			(key, message) => this._warnOnce(key, message),
+			(key, message) => this._warn(key, message),
 			resources.sceneFrameLayout
 		);
 		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
@@ -713,13 +713,13 @@ export class WebGPUFrameExecutor {
 
 		this._mrtEnabled = false;
 		if (maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT) {
-			this._warnOnce(
+			this._warn(
 				"webgpu-mrt-disabled-attachments",
 				`WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`
 			);
 		}
 		if (maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE) {
-			this._warnOnce(
+			this._warn(
 				"webgpu-mrt-disabled-bytes",
 				`WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`
 			);
@@ -1099,7 +1099,7 @@ export class WebGPUFrameExecutor {
 				if (typeof setter === "function") {
 					setter.call(this._backend, 1);
 				}
-				this._warnOnce(
+				this._warn(
 					"webgpu-msaa-runtime-fallback-1x",
 					`WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`
 				);
@@ -1408,7 +1408,7 @@ export class WebGPUFrameExecutor {
 			this._encoder.endRenderPass();
 			return true;
 		} catch (error) {
-			this._warnOnce(
+			this._warn(
 				"webgpu-depth-partial-reuse-fallback",
 				`WebGPU partial depth reuse unavailable; falling back to full depth clear. ${String(error)}`
 			);
@@ -1465,10 +1465,10 @@ export class WebGPUFrameExecutor {
 		return pipeline;
 	}
 
-	private _warnOnce(key: string, message: string): void {
+	private _warn(key: string, message: string): void {
 		if (this._warnedKeys.has(key)) return;
 		this._warnedKeys.add(key);
-		console.warn(message);
+		this._backend.warn(message, key);
 	}
 
 	private async _runPostGraph(context: FrameContext): Promise<void> {
@@ -1495,7 +1495,7 @@ export class WebGPUFrameExecutor {
 		const executed = await this._postGraph.execute(
 			postContext,
 			context.features,
-			(key, message) => this._warnOnce(key, message)
+			(key, message) => this._warn(key, message)
 		);
 		context.transient.set("webgpu-post-order", executed);
 

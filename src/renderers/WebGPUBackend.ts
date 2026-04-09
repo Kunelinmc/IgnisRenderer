@@ -99,6 +99,7 @@ import {
 	invalidateWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
 } from "./webgpu/ComputeFacade";
+import { Logger } from "../foundation/Logger";
 
 interface InternalRenderBuffer extends IRenderBuffer {
 	_gpuResource: GPUBuffer;
@@ -354,10 +355,11 @@ export class WebGPUBackend implements IRenderBackend {
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
+	private _logger: Logger;
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function" ?
 			new FinalizationRegistry<string>((label) => {
-				console.warn(
+				this._warn(
 					`WebGPU resource "${label}" was garbage collected without explicit destroy().`
 				);
 			})
@@ -392,6 +394,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
 		const shaderMode = resolved.options.shaderMode ?? "strict";
 		this.canvas = resolved.canvas ?? null;
+		this._logger = new Logger({ name: "WebGPUBackend", level: "warn" });
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -401,7 +404,7 @@ export class WebGPUBackend implements IRenderBackend {
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			hook: resolved.options.directiveHook ?? null,
 			mode: shaderMode,
-			warn: (key, message) => this.warnOnce(key, message),
+			warn: (key, message) => this._warn(message, key),
 		});
 		this._passHandlers = this._createPassHandlers();
 		this.shaderRuntime.onDidChange(() => {
@@ -421,12 +424,14 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._shaderCompileStage.getCacheFingerprintTag();
 	}
 
-	public warnOnce(key: string, message: string): void {
-		if (this._renderer?.warnOnce) {
-			this._renderer.warnOnce(key, message);
+	public warn(message: string, key?: string): void {
+		const prefixedMessage =
+			key && key.length > 0 ? `[${key}] ${message}` : message;
+		if (this._renderer?.logger) {
+			this._renderer.logger.warn(prefixedMessage);
 			return;
 		}
-		console.warn(message);
+		this._logger.warn(prefixedMessage);
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {
@@ -880,7 +885,7 @@ export class WebGPUBackend implements IRenderBackend {
 								info.messages
 							);
 						} catch (error) {
-							console.warn(
+							this._warn(
 								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
 							);
 						}
@@ -1375,7 +1380,9 @@ export class WebGPUBackend implements IRenderBackend {
 					this._rollbackInitializationState();
 					return;
 				}
-				console.warn(`WebGPU device recovery succeeded on attempt ${attempt}.`);
+				this._warn(
+					`WebGPU device recovery succeeded on attempt ${attempt}.`
+				);
 				this._deviceLostInfo = null;
 				return;
 			} catch (error) {
@@ -2159,7 +2166,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._msaaSelectionCache.clear();
-		console.warn(
+		this._warn(
 			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth."
 		);
 	}
@@ -2622,9 +2629,9 @@ export class WebGPUBackend implements IRenderBackend {
 			return code;
 		}
 		const shaderLabel = label && label.length > 0 ? label : "unnamed";
-		this.warnOnce(
-			`webgpu-shader-bom:${shaderLabel}`,
-			`WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`
+		this._warn(
+			`WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`,
+			`webgpu-shader-bom:${shaderLabel}`
 		);
 		return code.replace(/\uFEFF/g, "");
 	}
@@ -2690,10 +2697,10 @@ export class WebGPUBackend implements IRenderBackend {
 				`webgpu-shader-runtime-${diagnostic.severity}` +
 				`-${diagnostic.code}-${keyPrefix}` +
 				`-${diagnostic.sourcePath ?? ""}-${diagnostic.line ?? ""}-${diagnostic.column ?? ""}`;
-			this.warnOnce(
-				key,
+			this._warn(
 				`WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
-					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`
+					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`,
+				key
 			);
 		}
 	}
@@ -2954,7 +2961,7 @@ export class WebGPUBackend implements IRenderBackend {
 				this._timestampReadBuffer.unmap();
 			})
 			.catch((error) => {
-				console.warn(`WebGPU timestamp readback failed: ${String(error)}`);
+				this._warn(`WebGPU timestamp readback failed: ${String(error)}`);
 				if (this._timestampReadBuffer) {
 					try {
 						this._timestampReadBuffer.unmap();
@@ -3033,7 +3040,11 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _reportNonFatalError(scope: string, error: unknown): void {
-		console.warn(`WebGPU backend ${scope} failed: ${String(error)}`);
+		this._warn(`WebGPU backend ${scope} failed: ${String(error)}`);
+	}
+
+	private _warn(message: string, key?: string): void {
+		this.warn(message, key);
 	}
 
 	private _toUint8View(data: BufferSource): Uint8Array {

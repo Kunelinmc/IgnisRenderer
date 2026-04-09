@@ -34,6 +34,7 @@ import {
 	finalizeWarmupReport,
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
+import { Logger } from "../foundation/Logger";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
@@ -127,6 +128,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private _pendingPostProcessPasses = new Map<string, WebGLPostProcessPassPlugin>();
+	private _logger: Logger;
 	private readonly _passHandlers: Map<
 		FramePass["stage"],
 		WebGLBackendPassHandler
@@ -134,6 +136,7 @@ export class WebGLBackend implements IRenderBackend {
 
 	constructor(options: WebGLBackendOptions = {}) {
 		const shaderMode = options.shaderMode ?? "warn";
+		this._logger = new Logger({ level: "warn" });
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -143,7 +146,7 @@ export class WebGLBackend implements IRenderBackend {
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			hook: options.directiveHook ?? null,
 			mode: shaderMode,
-			warn: (key, message) => this._warnOnce(key, message),
+			warn: (_key, message) => this._warn(message),
 		});
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
@@ -215,8 +218,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
-			this._warnOnce(
-				`webgl-pass-unsupported-${pass.stage}`,
+			this._warn(
 				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
 			);
 			this._markPassExecuted(pass.stage);
@@ -307,7 +309,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
-			(key, message) => this._warnOnce(key, message),
+			(_key, message) => this._warn(message),
 			this.shaderRuntime,
 			this._shaderCompileStage,
 			this._shaderSourceFactory
@@ -334,22 +336,19 @@ export class WebGLBackend implements IRenderBackend {
 		this._contextLossHandler = (event: Event) => {
 			(event as WebGLContextEvent).preventDefault?.();
 			this._contextLost = true;
-			this._warnOnce(
-				"webgl-context-lost",
+			this._warn(
 				"WebGL context was lost. Rendering is paused until context restoration."
 			);
 		};
 		this._contextRestoreHandler = () => {
-			this._warnOnce(
-				"webgl-context-restored",
+			this._warn(
 				"WebGL context was restored. Rebuilding WebGL resources."
 			);
 			if (!this._canvas) return;
 			try {
 				this._initializeGLContext(this._canvas);
 			} catch (error) {
-				this._warnOnce(
-					"webgl-context-restore-failed",
+				this._warn(
 					`WebGL context restore failed: ${String(error)}`
 				);
 			}
@@ -359,8 +358,12 @@ export class WebGLBackend implements IRenderBackend {
 		canvas.addEventListener("webglcontextrestored", this._contextRestoreHandler);
 	}
 
-	private _warnOnce(key: string, message: string): void {
-		this._renderer?.warnOnce(key, message);
+	private _warn(message: string): void {
+		if (this._renderer?.logger) {
+			this._renderer.logger.warn(message);
+			return;
+		}
+		this._logger.warn(message);
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {
@@ -525,8 +528,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (dependencyIndex < stageIndex) {
 			return true;
 		}
-		this._warnOnce(
-			"webgl-pass-dependency-order",
+		this._warn(
 			`Ignoring stale dependency \"${dependency}\" for \"${stage}\".`
 		);
 		return false;

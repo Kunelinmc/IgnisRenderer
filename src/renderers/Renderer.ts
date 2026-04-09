@@ -16,6 +16,7 @@ import {
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
+import { Logger } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
@@ -139,7 +140,6 @@ export interface RendererFeatures {
 	worldMatrix: Matrix4;
 }
 
-const MAX_WARNING_KEYS = 1024;
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export class Renderer extends EventEmitter<RendererEvents> {
@@ -155,7 +155,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public lastTime: number;
 	public animationAutoRender: boolean;
 
-	private _warnings: Set<string>;
+	public readonly logger: Logger;
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
@@ -178,7 +178,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
 		this.canvas = canvas;
-		this._warnings = new Set();
+		this.logger = new Logger({ name: "Renderer", level: "warn" });
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
 		this._frameDirty = true;
@@ -282,7 +282,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		for (const warning of resolved.warnings) {
-			this.warnOnce(warning.key, warning.message);
+			this._warn(warning.key, warning.message);
 		}
 		if (this.features.enableSH) {
 			this.updateSH();
@@ -499,18 +499,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.backend.type;
 	}
 
-	public warnOnce(key: string, message: string): void {
-		if (this._warnings.has(key)) return;
-		if (this._warnings.size >= MAX_WARNING_KEYS) {
-			const oldestKey = this._warnings.values().next().value as
-				| string
-				| undefined;
-			if (oldestKey !== undefined) {
-				this._warnings.delete(oldestKey);
-			}
-		}
-		this._warnings.add(key);
-		console.warn(message);
+	private _warn(key: string, message: string): void {
+		this.logger.warn(`[${key}] ${message}`);
 	}
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {
@@ -724,7 +714,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
 				hasParticleSystems,
 			},
-			(key, message) => this.warnOnce(key, message)
+			(key, message) => this._warn(key, message)
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -744,7 +734,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.type
 					);
 					for (const warning of resolved.warnings) {
-						this.warnOnce(warning.key, warning.message);
+						this._warn(warning.key, warning.message);
 					}
 					break;
 				}
@@ -891,13 +881,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						break;
 					}
 
-					const pass = this._createBackendPass(stage.id);
-					if (pass.executor === "shared") {
-						if (!this.backend.executeSharedPass) {
-							this.warnOnce(
-								`${this.backend.type}-shared-pass-${pass.stage}`,
-								`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
-							);
+						const pass = this._createBackendPass(stage.id);
+						if (pass.executor === "shared") {
+							if (!this.backend.executeSharedPass) {
+								this._warn(
+									`${this.backend.type}-shared-pass-${pass.stage}`,
+									`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
+								);
 							break;
 						}
 						await this.backend.executeSharedPass(pass, context);
@@ -1123,7 +1113,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const key =
 					`csg-diagnostic-${meshInstance.id}-` +
 					`${diagnostic.code}-${diagnostic.message}`;
-				this.warnOnce(key, `[CSG:${diagnostic.code}] ${diagnostic.message}`);
+				this._warn(
+					key,
+					`[CSG:${diagnostic.code}] ${diagnostic.message}`
+				);
 			}
 		}
 	}

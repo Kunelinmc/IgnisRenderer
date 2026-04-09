@@ -180,7 +180,6 @@ function createFakeCanvas(gl) {
 
 function createRendererBridge() {
 	const warnings = [];
-	const warned = new Set();
 	return {
 		warnings,
 		bridge: {
@@ -188,10 +187,10 @@ function createRendererBridge() {
 			camera: {},
 			scene: { getLights: () => [] },
 			features: { enableShadows: false },
-			warnOnce(key, message) {
-				if (warned.has(key)) return;
-				warned.add(key);
-				warnings.push({ key, message });
+			logger: {
+				warn(message) {
+					warnings.push(String(message));
+				},
 			},
 		},
 	};
@@ -291,8 +290,8 @@ async function testInitAndPassRouting() {
 		["destroy"],
 	]);
 	assert.equal(
-		warnings.filter(
-			(warning) => warning.key === "webgl-pass-unsupported-shadow"
+		warnings.filter((warning) =>
+			warning.includes("does not support pass \"shadow\"")
 		).length,
 		0
 	);
@@ -320,11 +319,11 @@ async function testContextLostAndRestored() {
 	assert.notStrictEqual(backend._frameExecutor, originalExecutor);
 
 	assert.equal(
-		warnings.some((warning) => warning.key === "webgl-context-lost"),
+		warnings.some((warning) => warning.includes("context was lost")),
 		true
 	);
 	assert.equal(
-		warnings.some((warning) => warning.key === "webgl-context-restored"),
+		warnings.some((warning) => warning.includes("context was restored")),
 		true
 	);
 }

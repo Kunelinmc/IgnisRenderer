@@ -709,7 +709,7 @@ export class FakeWebGPUBackend {
 		this.calls.push(["unregisterExternalTexture", texture]);
 	}
 
-	warnOnce(key, message) {
+	warn(message, key = "") {
 		this.warnings.push({ key, message });
 	}
 }
@@ -992,6 +992,9 @@ export function createFakeAmmoModule() {
 export class FakeRenderer {
 	constructor(backend) {
 		this.backend = backend;
+		this.logger = {
+			warn() {},
+		};
 		this._events = new Map();
 		this.requestRenderCalls = 0;
 	}
@@ -1020,7 +1023,6 @@ export class FakeRenderer {
 		this.requestRenderCalls++;
 	}
 
-	warnOnce() {}
 }
 
 export class FakeDynamicTexture extends Texture {

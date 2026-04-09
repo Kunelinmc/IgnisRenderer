@@ -477,7 +477,7 @@ function testWebGPUShadowBiasAvoidsSlopeOffset() {
 
 function testRenderResourcesRequestsComputeFacadeFromBackend() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const resources = new WebGPURenderResources(renderer, backend);
 
 	assert.equal(backend.getComputeFacadeCalls, 1);
@@ -504,7 +504,7 @@ function testFrameExecutorRequestsComputeFacadeFromBackend() {
 async function testRenderResourcesUseCopyDstForUploads() {
 	const backend = new FakeBackend();
 	const renderer = {
-		warnOnce() {},
+		logger: { warn() {} },
 	};
 	const model = createModel([
 		new PBRMaterial({
@@ -606,7 +606,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 
 async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const material = new PBRMaterial({
 		albedo: { r: 255, g: 255, b: 255 },
 		opacity: 0.6,
@@ -671,7 +671,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 
 async function testWebGPUEnvironmentCombinationsRegression() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const baseScene = createFrame(packet);
@@ -761,7 +761,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 
 async function testParticleUVLayoutAndUniformBinding() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
@@ -885,7 +885,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 
 async function testFrameBindingReplacementDestroysOldBinding() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
@@ -932,7 +932,7 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 
 async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
@@ -981,7 +981,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 
 async function testParticleBindingCacheEvictsStaleSystems() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
@@ -1079,7 +1079,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 
 async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	const backend = new FakeBackend();
-	const renderer = { warnOnce() {} };
+	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);

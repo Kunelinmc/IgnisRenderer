@@ -24,8 +24,10 @@ function createRendererBridge(camera, warnings) {
 		features: {
 			enableShadows: false,
 		},
-		warnOnce(key, message) {
-			warnings.push({ key, message });
+		logger: {
+			warn(message) {
+				warnings.push(String(message));
+			},
 		},
 	};
 }
@@ -310,8 +312,8 @@ async function testTileModeFallsBackWhenWorkerUnavailable() {
 		assert.equal(backend.requestedRasterMode, "tile");
 		assert.equal(backend.activeRasterMode, "scanline");
 		assert.ok(
-			warnings.some(
-				(warning) => warning.key === "software-raster-worker-unavailable"
+			warnings.some((warning) =>
+				warning.includes("software-raster-worker-unavailable")
 			)
 		);
 	} finally {
@@ -437,8 +439,8 @@ async function testTileModeFallsBackOnWorkerTaskError() {
 
 		assert.equal(backend.activeRasterMode, "scanline");
 		assert.ok(
-			warnings.some(
-				(warning) => warning.key === "software-raster-worker-task-failed"
+			warnings.some((warning) =>
+				warning.includes("software-raster-worker-task-failed")
 			)
 		);
 	} finally {
