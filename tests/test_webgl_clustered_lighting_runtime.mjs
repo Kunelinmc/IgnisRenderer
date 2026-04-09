@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { CameraType } from "../src/cameras/Camera.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { WebGLClusteredLightingRuntime } from "../src/renderers/webgl/WebGLClusteredLightingRuntime.ts";
 
@@ -85,101 +86,117 @@ function createLightState(overrides = {}) {
 	};
 }
 
-function testPerspectiveBuildsClusterTextures() {
+function withCapturedWarnings(action) {
 	const warnings = [];
-	const runtime = new WebGLClusteredLightingRuntime(
-		createFakeGL(),
-		(key, message) => warnings.push({ key, message })
-	);
-	const context = createPerspectiveContext();
-	const lights = createLightState();
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((part) => String(part)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		action(warnings);
+	} finally {
+		Logger.reset();
+	}
+}
 
-	runtime.prepare(context, lights, 4096);
-	const state = runtime.getState();
+function testPerspectiveBuildsClusterTextures() {
+	withCapturedWarnings((warnings) => {
+		const runtime = new WebGLClusteredLightingRuntime(createFakeGL());
+		const context = createPerspectiveContext();
+		const lights = createLightState();
 
-	assert.equal(state.enabled, true);
-	assert.ok(state.headerTexture);
-	assert.ok(state.indexTexture);
-	assert.ok(state.lightTexture);
-	assert.equal(warnings.length, 0);
+		runtime.prepare(context, lights, 4096);
+		const state = runtime.getState();
+
+		assert.equal(state.enabled, true);
+		assert.ok(state.headerTexture);
+		assert.ok(state.indexTexture);
+		assert.ok(state.lightTexture);
+		assert.equal(warnings.length, 0);
+	});
 }
 
 function testNonPerspectiveFallsBackWithWarning() {
-	const warnings = [];
-	const runtime = new WebGLClusteredLightingRuntime(
-		createFakeGL(),
-		(key, message) => warnings.push({ key, message })
-	);
-	const context = createPerspectiveContext({
-		camera: {
-			type: CameraType.Orthographic,
-			near: 0.1,
-			far: 200,
-			fov: 60,
-			aspectRatio: 1,
-			viewMatrix: Matrix4.identity(),
-			viewProjectionMatrix: Matrix4.identity(),
-		},
+	withCapturedWarnings((warnings) => {
+		const runtime = new WebGLClusteredLightingRuntime(createFakeGL());
+		const context = createPerspectiveContext({
+			camera: {
+				type: CameraType.Orthographic,
+				near: 0.1,
+				far: 200,
+				fov: 60,
+				aspectRatio: 1,
+				viewMatrix: Matrix4.identity(),
+				viewProjectionMatrix: Matrix4.identity(),
+			},
+		});
+		const lights = createLightState();
+
+		runtime.prepare(context, lights, 4096);
+		const state = runtime.getState();
+
+		assert.equal(state.enabled, false);
+		assert.ok(
+			warnings.some((warning) =>
+				warning.includes("only supports perspective cameras")
+			)
+		);
 	});
-	const lights = createLightState();
-
-	runtime.prepare(context, lights, 4096);
-	const state = runtime.getState();
-
-	assert.equal(state.enabled, false);
-	assert.ok(
-		warnings.some((warning) => warning.key === "webgl-clustered-perspective-only")
-	);
 }
 
 function testLightBudgetWarning() {
-	const warnings = [];
-	const runtime = new WebGLClusteredLightingRuntime(
-		createFakeGL(),
-		(key, message) => warnings.push({ key, message })
-	);
-	const context = createPerspectiveContext({
-		features: {
-			clusteredLightingOptions: {
-				tileSizePx: 64,
-				zSlices: 8,
-				maxLights: 1,
-				maxLightsPerCluster: 8,
+	withCapturedWarnings((warnings) => {
+		const runtime = new WebGLClusteredLightingRuntime(createFakeGL());
+		const context = createPerspectiveContext({
+			features: {
+				clusteredLightingOptions: {
+					tileSizePx: 64,
+					zSlices: 8,
+					maxLights: 1,
+					maxLightsPerCluster: 8,
+				},
 			},
-		},
-	});
-	const lights = createLightState({
-		clusteredLights: [
-			{
-				type: 0,
-				position: [0, 0, -6],
-				range: 5,
-				direction: [0, 0, 0],
-				outerCos: -2,
-				innerCos: -2,
-				color: [1, 1, 1],
-				castsShadow: false,
-				shadowIndex: 0,
-			},
-			{
-				type: 0,
-				position: [2, 0, -7],
-				range: 5,
-				direction: [0, 0, 0],
-				outerCos: -2,
-				innerCos: -2,
-				color: [1, 0, 0],
-				castsShadow: false,
-				shadowIndex: 0,
-			},
-		],
-	});
+		});
+		const lights = createLightState({
+			clusteredLights: [
+				{
+					type: 0,
+					position: [0, 0, -6],
+					range: 5,
+					direction: [0, 0, 0],
+					outerCos: -2,
+					innerCos: -2,
+					color: [1, 1, 1],
+					castsShadow: false,
+					shadowIndex: 0,
+				},
+				{
+					type: 0,
+					position: [2, 0, -7],
+					range: 5,
+					direction: [0, 0, 0],
+					outerCos: -2,
+					innerCos: -2,
+					color: [1, 0, 0],
+					castsShadow: false,
+					shadowIndex: 0,
+				},
+			],
+		});
 
-	runtime.prepare(context, lights, 4096);
+		runtime.prepare(context, lights, 4096);
 
-	assert.ok(
-		warnings.some((warning) => warning.key === "webgl-clustered-light-budget")
-	);
+		assert.ok(
+			warnings.some((warning) =>
+				warning.includes("clamps lights to 1; extra lights are skipped")
+			)
+		);
+	});
 }
 
 function run() {

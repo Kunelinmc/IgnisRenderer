@@ -18,7 +18,7 @@ type WarnFn = (key: string, message: string) => void;
 
 export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;
-	private _warn: WarnFn;
+	private _logWarning: WarnFn;
 	private _maxTextureSize: number;
 	private _cache = new WeakMap<Texture, TextureEntry>();
 	private _owned = new Set<WebGLTexture>();
@@ -27,7 +27,7 @@ export class WebGLTextureRegistry {
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
 		this._gl = gl;
-		this._warn = warn;
+		this._logWarning = warn;
 		this._maxTextureSize = this._resolveMaxTextureSize(gl);
 	}
 
@@ -134,14 +134,14 @@ export class WebGLTextureRegistry {
 			width <= 0 ||
 			height <= 0
 		) {
-			this._warn(
+			this._logWarning(
 				`webgl-texture-invalid-size-${label}`,
 				`WebGL ${label} texture has invalid dimensions (${texture.width}x${texture.height}); using fallback`
 			);
 			return this.getWhiteTexture();
 		}
 		if (width > this._maxTextureSize || height > this._maxTextureSize) {
-			this._warn(
+			this._logWarning(
 				`webgl-texture-oversize-${label}`,
 				`WebGL ${label} texture exceeds max texture size ${this._maxTextureSize}; using fallback`
 			);
@@ -168,7 +168,7 @@ export class WebGLTextureRegistry {
 		if (!glTexture) {
 			glTexture = this._createTexture();
 			if (!glTexture) {
-				this._warn(
+				this._logWarning(
 					`webgl-texture-allocation-${label}`,
 					`Failed to allocate WebGL texture for ${label}; using fallback`
 				);
@@ -236,7 +236,7 @@ export class WebGLTextureRegistry {
 				null;
 
 			if (!source) {
-				this._warn(
+				this._logWarning(
 					`webgl-texture-empty-${label}`,
 					`Texture ${label} has empty pixel data; using fallback`
 				);

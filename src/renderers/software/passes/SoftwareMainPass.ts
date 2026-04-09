@@ -349,7 +349,7 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
 	private _scanlineFallback: ScanlineMainRasterExecutor;
-	private _warn: ((key: string, message: string) => void) | null;
+	private _logWarning: ((key: string, message: string) => void) | null;
 	private _tileSize: number;
 	private _workerCount: number;
 	private _scheduler: typeof globalWorkerScheduler;
@@ -366,7 +366,7 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	) {
 		this._rasterizer = rasterizer;
 		this._scanlineFallback = new ScanlineMainRasterExecutor(rasterizer);
-		this._warn = warn;
+		this._logWarning = warn;
 		this._tileSize = Math.max(
 			1,
 			Math.floor(tileOptions.tileSize ?? DEFAULT_SOFTWARE_TILE_SIZE)
@@ -552,7 +552,7 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			}
 		}
 		this._poolOwned = false;
-		this._warn?.(key, message);
+		this._logWarning?.(key, message);
 	}
 
 	private _createWorker(workerIndex: number, poolId: string): WorkerLike {

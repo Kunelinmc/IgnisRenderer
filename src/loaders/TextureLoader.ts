@@ -1,4 +1,5 @@
 import { Texture } from "../core/Texture";
+import { Logger } from "../foundation/Logger";
 import { Loader } from "./Loader";
 
 /**
@@ -28,7 +29,9 @@ export class TextureLoader extends Loader {
 			return texture;
 		} catch (error) {
 			this.emit("error", error);
-			console.error(`TextureLoader: Failed to load ${url}`, error);
+			Logger.error([`TextureLoader: Failed to load ${url}`, error], {
+				scope: "TextureLoader",
+			});
 			return this._createLoadErrorFallbackTexture();
 		}
 	}
@@ -88,7 +91,9 @@ export class TextureLoader extends Loader {
 			return texture;
 		} catch (error) {
 			this.emit("error", error);
-			console.error(`TextureLoader: Failed to load Blob/File`, error);
+			Logger.error(["TextureLoader: Failed to load Blob/File", error], {
+				scope: "TextureLoader",
+			});
 			return this._createLoadErrorFallbackTexture();
 		} finally {
 			URL.revokeObjectURL(url);

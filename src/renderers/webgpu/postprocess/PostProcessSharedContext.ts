@@ -13,7 +13,7 @@ interface CachedBindGroup {
  */
 export class PostProcessSharedContext {
 	private _compute: IWebGPUComputeFacade;
-	private _warn: (key: string, message: string) => void;
+	private _logWarning: (key: string, message: string) => void;
 	private _sampler: ISampler | null = null;
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _frameBindGroupLayout: GPUBindGroupLayout | null;
@@ -24,7 +24,7 @@ export class PostProcessSharedContext {
 		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
 		this._compute = compute;
-		this._warn = warn;
+		this._logWarning = warn;
 		this._frameBindGroupLayout = frameBindGroupLayout || null;
 	}
 
@@ -41,7 +41,7 @@ export class PostProcessSharedContext {
 	}
 
 	public warn(key: string, message: string): void {
-		this._warn(key, message);
+		this._logWarning(key, message);
 	}
 
 	public async ensureCommonResources(): Promise<void> {

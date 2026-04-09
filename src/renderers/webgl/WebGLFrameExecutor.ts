@@ -207,7 +207,7 @@ const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
-	private _warn: WarnFn;
+	private _logWarning: WarnFn;
 	private _programs: WebGLProgramLibrary;
 	private _geometry: WebGLGeometryRegistry;
 	private _textures: WebGLTextureRegistry;
@@ -273,7 +273,7 @@ export class WebGLFrameExecutor {
 		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
-		this._warn = warn;
+		this._logWarning = warn;
 		this._programs = new WebGLProgramLibrary(
 			gl,
 			warn,
@@ -293,7 +293,7 @@ export class WebGLFrameExecutor {
 			gl.MAX_TEXTURE_IMAGE_UNITS,
 			16
 		);
-		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl, warn);
+		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
 		this._postProcessRuntime = new WebGLPostProcessRuntime(
 			this._createDefaultPostProcessPasses()
 		);
@@ -317,7 +317,7 @@ export class WebGLFrameExecutor {
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
 			context.features.enableLighting,
-			this._warn,
+			this._logWarning,
 			context.features.enableShadows,
 			context.shadowMaps,
 			context.features.enableSH,
@@ -384,7 +384,7 @@ export class WebGLFrameExecutor {
 	public executePass(pass: FramePass, context: FrameContext): void {
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
-			this._warn(
+			this._logWarning(
 				`webgl-stage-unsupported-${pass.stage}`,
 				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
 			);
@@ -461,7 +461,7 @@ export class WebGLFrameExecutor {
 		const allowedPassIds = new Set(plan.postProcessPasses);
 		const warmupHints = this._postProcessRuntime.collectWarmupHints(
 			context.features,
-			this._warn,
+			this._logWarning,
 			allowedPassIds
 		);
 		for (const hint of warmupHints) {
@@ -626,7 +626,7 @@ export class WebGLFrameExecutor {
 	}
 
 	private _runPostProcessGraph(context: FrameContext): void {
-		this._postProcessRuntime.execute(context, context.features, this._warn);
+		this._postProcessRuntime.execute(context, context.features, this._logWarning);
 	}
 
 	private _createDefaultPostProcessPasses(): WebGLPostProcessPassPlugin[] {

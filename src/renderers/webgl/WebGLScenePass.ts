@@ -20,7 +20,7 @@ type WarnFn = (key: string, message: string) => void;
 
 export interface WebGLScenePassHost {
 	_gl: WebGL2RenderingContext;
-	_warn: WarnFn;
+	_logWarning: WarnFn;
 	_programs: {
 		getSceneProgram(material?: Material): WebGLSceneProgram;
 	};
@@ -170,7 +170,7 @@ export function renderWebGLPackets(
 		context.camera.viewProjectionMatrix
 	);
 	if (!currentViewProjection) {
-		host._warn(
+		host._logWarning(
 			"webgl-camera-view-projection-invalid",
 			"WebGL camera view-projection matrix is non-finite; resetting temporal history."
 		);
@@ -203,14 +203,14 @@ export function drawWebGLPacket(
 	}
 
 	if (packet.meshInstance.skeleton) {
-		host._warn(
+		host._logWarning(
 			"webgl-skinning-unsupported",
 			`WebGL backend does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 		);
 		return;
 	}
 	if (!isFiniteMatrix(packet.worldMatrix)) {
-		host._warn(
+		host._logWarning(
 			"webgl-world-matrix-invalid",
 			`WebGL packet ${packet.id} has non-finite world matrix; skipping`
 		);
@@ -225,7 +225,7 @@ export function drawWebGLPacket(
 	const uniforms = resolveMaterialUniforms(material);
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
-		host._warn(
+		host._logWarning(
 			"webgl-normal-matrix-invalid",
 			`WebGL packet ${packet.id} has invalid normal matrix; skipping`
 		);
@@ -343,7 +343,7 @@ export function bindWebGLShaderMaterialTextures(
 			continue;
 		}
 		if (textureUnit >= host._maxTextureImageUnits) {
-			host._warn(
+			host._logWarning(
 				`webgl-shader-material-texture-unit-limit-${material.shaderId}`,
 				`ShaderMaterial ${material.name} custom textures exceed MAX_TEXTURE_IMAGE_UNITS=${host._maxTextureImageUnits}; extra bindings are ignored.`
 			);

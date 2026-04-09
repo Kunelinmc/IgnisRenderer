@@ -14,7 +14,7 @@ type WarnFn = (key: string, message: string) => void;
 
 export interface WebGLShadowPassHost {
 	_gl: WebGL2RenderingContext;
-	_warn: WarnFn;
+	_logWarning: WarnFn;
 	_programs: {
 		getShadowDepthProgram(): WebGLShadowDepthProgram;
 	};
@@ -161,7 +161,7 @@ export function drawWebGLShadowPacket(
 	viewProjectionMatrix: Matrix4
 ): void {
 	if (packet.meshInstance.skeleton) {
-		host._warn(
+		host._logWarning(
 			"webgl-shadow-skinning-unsupported",
 			`WebGL shadow pass does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
 		);

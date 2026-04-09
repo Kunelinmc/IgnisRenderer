@@ -299,7 +299,7 @@ export class WebGPUPipelineLibrary {
 			if (!this._isWarnMode()) {
 				throw error;
 			}
-			this._warn(
+			this._logWarning(
 				`webgpu-shader-material-compile-failed-${material.shaderId}`,
 				`ShaderMaterial ${material.name} custom WebGPU shader compile failed; ` +
 					`using built-in scene shader. ${String(error)}`
@@ -474,7 +474,7 @@ export class WebGPUPipelineLibrary {
 		return shaderRuntime.getMode() === "warn";
 	}
 
-	private _warn(key: string, message: string): void {
+	private _logWarning(key: string, message: string): void {
 		this._backend.warn(message, key);
 	}
 

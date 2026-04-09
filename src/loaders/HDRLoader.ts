@@ -1,4 +1,5 @@
 import { Texture } from "../core/Texture";
+import { Logger } from "../foundation/Logger";
 import { Loader } from "./Loader";
 
 /**
@@ -23,7 +24,9 @@ export class HDRLoader extends Loader {
 			return texture;
 		} catch (error) {
 			this.emit("error", error);
-			console.error(`HDRLoader: Failed to load ${url}`, error);
+			Logger.error([`HDRLoader: Failed to load ${url}`, error], {
+				scope: "HDRLoader",
+			});
 			// Return a simple 1x1 black HDR texture on error
 			return new Texture(new Float32Array([0, 0, 0, 1]), 1, 1, "HDR");
 		}

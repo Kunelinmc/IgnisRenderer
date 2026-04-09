@@ -12,6 +12,7 @@ import {
 	WebGLBackend,
 	Vector3,
 	HDRLoader,
+	Logger,
 } from "./index";
 
 async function init() {
@@ -128,7 +129,12 @@ async function createRenderer(
 			console.info("Using WebGPU backend");
 			return { canvas, renderer: webgpuRenderer };
 		} catch (error) {
-			console.warn("WebGPU initialization failed, trying WebGL.", error);
+			Logger.warn(
+				["WebGPU initialization failed, trying WebGL.", error],
+				{
+					scope: "Main",
+				}
+			);
 		}
 	}
 
@@ -142,7 +148,12 @@ async function createRenderer(
 		console.info("Using WebGL backend");
 		return { canvas, renderer: webglRenderer };
 	} catch (error) {
-		console.warn("WebGL initialization failed, fallback to software.", error);
+		Logger.warn(
+			["WebGL initialization failed, fallback to software.", error],
+			{
+				scope: "Main",
+			}
+		);
 	}
 
 	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
@@ -191,5 +202,7 @@ function bindControls(
 }
 
 init().catch((error) => {
-	console.error("Failed to initialize scene:", error);
+	Logger.error(["Failed to initialize scene:", error], {
+		scope: "Main",
+	});
 });

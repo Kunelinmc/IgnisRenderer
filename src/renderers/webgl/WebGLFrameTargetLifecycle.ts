@@ -1,10 +1,11 @@
 import { DEFAULT_SSAO_OPTIONS } from "../../pipeline/types";
+import { Logger } from "../../foundation/Logger";
 
 type WarnFn = (key: string, message: string) => void;
 
 export interface WebGLFrameTargetLifecycleHost {
 	_gl: WebGL2RenderingContext;
-	_warn: WarnFn;
+	_logWarning: WarnFn;
 	_maxTextureSize: number;
 	_maxRenderbufferSize: number;
 	_sceneFramebuffer: WebGLFramebuffer | null;
@@ -151,10 +152,20 @@ export function ensureWebGLFrameTargets(
 	const aoWidth = Math.max(1, Math.floor(width / Math.max(ssaoDownsample, 1)));
 	const aoHeight = Math.max(1, Math.floor(height / Math.max(ssaoDownsample, 1)));
 	if (!supportsFloatColorBuffer) {
-		host._warn(
-			"webgl-motion-float-unsupported",
-			"EXT_color_buffer_float is unavailable; falling back to RGBA8 motion attachments."
-		);
+		if (host._logWarning) {
+			host._logWarning(
+				"webgl-motion-float-unsupported",
+				"EXT_color_buffer_float is unavailable; falling back to RGBA8 motion attachments."
+			);
+		} else {
+			Logger.warn(
+				"EXT_color_buffer_float is unavailable; falling back to RGBA8 motion attachments.",
+				{
+					scope: "WebGLFrameTargetLifecycle",
+					onceKey: "webgl-motion-float-unsupported",
+				}
+			);
+		}
 	}
 
 	const sceneFramebuffer = gl.createFramebuffer();

@@ -46,7 +46,7 @@ type WarnFn = (key: string, message: string) => void;
 
 export interface WebGLParticlePassHost {
 	_gl: WebGL2RenderingContext;
-	_warn: WarnFn;
+	_logWarning: WarnFn;
 	_programs: {
 		getParticleProgram(): {
 			program: WebGLProgram;
@@ -302,7 +302,7 @@ export function writeWebGLParticleInstances(
 
 	let cappedCount = particles.length;
 	if (cappedCount > PARTICLE_MAX_INSTANCES_PER_DRAW) {
-		host._warn(
+		host._logWarning(
 			"webgl-particle-cap",
 			`WebGL particle pass truncates system "${batch.systemId}" to ${PARTICLE_MAX_INSTANCES_PER_DRAW} instances per draw`
 		);
@@ -397,7 +397,7 @@ export function ensureWebGLParticleResources(host: WebGLParticlePassHost): void 
 		if (instanceBuffer) {
 			gl.deleteBuffer(instanceBuffer);
 		}
-		host._warn(
+		host._logWarning(
 			"webgl-particle-buffer-allocation",
 			"Failed to allocate WebGL particle buffers; particle rendering is disabled for this frame"
 		);
@@ -451,7 +451,7 @@ export function ensureWebGLParticleCapacity(
 	const gl = host._gl;
 	const newBuffer = gl.createBuffer();
 	if (!newBuffer) {
-		host._warn(
+		host._logWarning(
 			"webgl-particle-buffer-grow",
 			`Failed to grow WebGL particle instance buffer to ${nextCapacity}; keeping previous capacity`
 		);

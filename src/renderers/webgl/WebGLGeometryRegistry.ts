@@ -26,13 +26,13 @@ interface WebGLCachedGeometryEntry {
 
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
-	private _warn: WarnFn;
+	private _logWarning: WarnFn;
 	private _cache = new WeakMap<IPrimitive, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
 
 	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
 		this._gl = gl;
-		this._warn = warn;
+		this._logWarning = warn;
 	}
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
@@ -81,35 +81,35 @@ export class WebGLGeometryRegistry {
 		const primitiveLabel = `${primitive.id}:${packet.id}`;
 
 		if (!positions || positions.length < 3 || positions.length % 3 !== 0) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-invalid-positions-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} has invalid position data; skipping`
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!indices || indices.length <= 0) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-empty-indices-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} has no indices; skipping`
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!isFiniteArray(positions)) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-nonfinite-positions-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.normals && !isFiniteArray(geometry.normals)) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-nonfinite-normals-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`
 			);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.uv0 && !isFiniteArray(geometry.uv0)) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-nonfinite-uv-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`
 			);
@@ -119,7 +119,7 @@ export class WebGLGeometryRegistry {
 		const vertexCount = (positions.length / 3) | 0;
 		const maxIndex = getMaxIndex(indices);
 		if (!Number.isFinite(maxIndex) || maxIndex < 0 || maxIndex >= vertexCount) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-index-range-${primitive.id}`,
 				`WebGL geometry ${primitiveLabel} index data exceeds vertex range; skipping`
 			);
@@ -127,7 +127,7 @@ export class WebGLGeometryRegistry {
 		}
 
 		if ((geometry.morphTargets?.length ?? 0) > 0) {
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-morph-fallback-${primitive.id}`,
 				`WebGL backend does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`
 			);
@@ -158,7 +158,7 @@ export class WebGLGeometryRegistry {
 			if (vao) gl.deleteVertexArray(vao);
 			if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
 			if (indexBuffer) gl.deleteBuffer(indexBuffer);
-			this._warn(
+			this._logWarning(
 				`webgl-geometry-upload-failed-${primitive.id}`,
 				`Failed to allocate WebGL buffers for primitive ${primitive.id}; skipping`
 			);

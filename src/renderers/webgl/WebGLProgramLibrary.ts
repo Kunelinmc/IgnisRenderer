@@ -296,7 +296,7 @@ interface ShaderCompileMetadata {
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
-	private _warn: WarnFn;
+	private _logWarning: WarnFn;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
@@ -332,7 +332,7 @@ export class WebGLProgramLibrary {
 		shaderSourceFactory?: WebGLShaderSourceFactory
 	) {
 		this._gl = gl;
-		this._warn = warn;
+		this._logWarning = warn;
 		this._shaderRuntime = shaderRuntime ?? null;
 		this._shaderCompileStage = shaderCompileStage ?? null;
 		this._shaderSourceFactory =
@@ -343,7 +343,7 @@ export class WebGLProgramLibrary {
 				runtime: this._shaderRuntime,
 				profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 				mode: this._shaderRuntime.getMode(),
-				warn: this._warn,
+				warn: this._logWarning,
 			});
 		}
 		if (this._shaderRuntime) {
@@ -427,7 +427,7 @@ export class WebGLProgramLibrary {
 			});
 			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
 		} catch (error) {
-			this._warn(
+			this._logWarning(
 				`webgl-shader-material-missing-source-${material.shaderId}`,
 				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
 					`using built-in scene shader. ${String(error)}`
@@ -467,7 +467,7 @@ export class WebGLProgramLibrary {
 			if (!this._isWarnMode()) {
 				throw error;
 			}
-			this._warn(
+			this._logWarning(
 				`webgl-shader-material-compile-failed-${material.shaderId}`,
 				`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
 					`using built-in scene shader. ${String(error)}`
@@ -1165,7 +1165,7 @@ export class WebGLProgramLibrary {
 		gl.validateProgram(program);
 		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
 		if (validateStatus === false) {
-			this._warn(
+			this._logWarning(
 				`webgl-program-validate-${label}`,
 				`WebGL program validation reported issues (${label}): ${gl.getProgramInfoLog(program) || "no log"}`
 			);
@@ -1300,7 +1300,7 @@ export class WebGLProgramLibrary {
 		result: ShaderProcessResult
 	): void {
 		for (const diagnostic of result.diagnostics) {
-			this._warn(
+			this._logWarning(
 				`webgl-shader-runtime-${diagnostic.severity}-${diagnostic.code}-${label}`,
 				`WebGL shader runtime ${diagnostic.severity} [${label}] ` +
 					`${diagnostic.code}: ${diagnostic.message}`

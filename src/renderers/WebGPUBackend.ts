@@ -358,7 +358,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function" ?
 			new FinalizationRegistry<string>((label) => {
-				this._warn(
+				this._logWarning(
 					`WebGPU resource "${label}" was garbage collected without explicit destroy().`
 				);
 			})
@@ -402,7 +402,7 @@ export class WebGPUBackend implements IRenderBackend {
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			hook: resolved.options.directiveHook ?? null,
 			mode: shaderMode,
-			warn: (key, message) => this._warn(message, key),
+			warn: (key, message) => this._logWarning(message, key),
 		});
 		this._passHandlers = this._createPassHandlers();
 		this.shaderRuntime.onDidChange(() => {
@@ -883,7 +883,7 @@ export class WebGPUBackend implements IRenderBackend {
 								info.messages
 							);
 						} catch (error) {
-							this._warn(
+							this._logWarning(
 								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`
 							);
 						}
@@ -1331,7 +1331,9 @@ export class WebGPUBackend implements IRenderBackend {
 			typeof info.reason === "string" && info.reason.length > 0 ?
 				` (${info.reason})`
 			:	"";
-		console.error(`WebGPU device was lost${reason}: ${info.message}`);
+		Logger.error(`WebGPU device was lost${reason}: ${info.message}`, {
+			scope: "WebGPUBackend",
+		});
 		this._rollbackInitializationState();
 		if (this._destroyRequested || info.reason === "destroyed") {
 			return;
@@ -1345,8 +1347,11 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const canvas = this.canvas;
 		if (!canvas || !this._renderer) {
-			console.error(
-				"WebGPU device recovery skipped: backend is missing canvas or renderer."
+			Logger.error(
+				"WebGPU device recovery skipped: backend is missing canvas or renderer.",
+				{
+					scope: "WebGPUBackend",
+				}
 			);
 			return;
 		}
@@ -1378,7 +1383,7 @@ export class WebGPUBackend implements IRenderBackend {
 					this._rollbackInitializationState();
 					return;
 				}
-				this._warn(
+				this._logWarning(
 					`WebGPU device recovery succeeded on attempt ${attempt}.`
 				);
 				this._deviceLostInfo = null;
@@ -1395,7 +1400,9 @@ export class WebGPUBackend implements IRenderBackend {
 			typeof info.reason === "string" && info.reason.length > 0 ?
 				` (${info.reason})`
 			:	"";
-		console.error(`WebGPU device recovery failed${reason}: ${info.message}`);
+		Logger.error(`WebGPU device recovery failed${reason}: ${info.message}`, {
+			scope: "WebGPUBackend",
+		});
 		if (lastError) {
 			this._reportNonFatalError("device recovery exhausted", lastError);
 		}
@@ -2164,7 +2171,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._msaaSelectionCache.clear();
-		this._warn(
+		this._logWarning(
 			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth."
 		);
 	}
@@ -2627,7 +2634,7 @@ export class WebGPUBackend implements IRenderBackend {
 			return code;
 		}
 		const shaderLabel = label && label.length > 0 ? label : "unnamed";
-		this._warn(
+		this._logWarning(
 			`WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`,
 			`webgpu-shader-bom:${shaderLabel}`
 		);
@@ -2695,7 +2702,7 @@ export class WebGPUBackend implements IRenderBackend {
 				`webgpu-shader-runtime-${diagnostic.severity}` +
 				`-${diagnostic.code}-${keyPrefix}` +
 				`-${diagnostic.sourcePath ?? ""}-${diagnostic.line ?? ""}-${diagnostic.column ?? ""}`;
-			this._warn(
+			this._logWarning(
 				`WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
 					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`,
 				key
@@ -2959,7 +2966,7 @@ export class WebGPUBackend implements IRenderBackend {
 				this._timestampReadBuffer.unmap();
 			})
 			.catch((error) => {
-				this._warn(`WebGPU timestamp readback failed: ${String(error)}`);
+				this._logWarning(`WebGPU timestamp readback failed: ${String(error)}`);
 				if (this._timestampReadBuffer) {
 					try {
 						this._timestampReadBuffer.unmap();
@@ -3038,10 +3045,10 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _reportNonFatalError(scope: string, error: unknown): void {
-		this._warn(`WebGPU backend ${scope} failed: ${String(error)}`);
+		this._logWarning(`WebGPU backend ${scope} failed: ${String(error)}`);
 	}
 
-	private _warn(message: string, key?: string): void {
+	private _logWarning(message: string, key?: string): void {
 		this.warn(message, key);
 	}
 

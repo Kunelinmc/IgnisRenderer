@@ -144,7 +144,7 @@ export class WebGLBackend implements IRenderBackend {
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			hook: options.directiveHook ?? null,
 			mode: shaderMode,
-			warn: (_key, message) => this._warn(message),
+			warn: (_key, message) => this._logWarning(message),
 		});
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
@@ -216,7 +216,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
-			this._warn(
+			this._logWarning(
 				`WebGL backend does not support pass "${pass.stage}" yet; skipping`
 			);
 			this._markPassExecuted(pass.stage);
@@ -307,7 +307,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
-			(_key, message) => this._warn(message),
+			(_key, message) => this._logWarning(message),
 			this.shaderRuntime,
 			this._shaderCompileStage,
 			this._shaderSourceFactory
@@ -334,19 +334,19 @@ export class WebGLBackend implements IRenderBackend {
 		this._contextLossHandler = (event: Event) => {
 			(event as WebGLContextEvent).preventDefault?.();
 			this._contextLost = true;
-			this._warn(
+			this._logWarning(
 				"WebGL context was lost. Rendering is paused until context restoration."
 			);
 		};
 		this._contextRestoreHandler = () => {
-			this._warn(
+			this._logWarning(
 				"WebGL context was restored. Rebuilding WebGL resources."
 			);
 			if (!this._canvas) return;
 			try {
 				this._initializeGLContext(this._canvas);
 			} catch (error) {
-				this._warn(
+				this._logWarning(
 					`WebGL context restore failed: ${String(error)}`
 				);
 			}
@@ -356,7 +356,7 @@ export class WebGLBackend implements IRenderBackend {
 		canvas.addEventListener("webglcontextrestored", this._contextRestoreHandler);
 	}
 
-	private _warn(message: string): void {
+	private _logWarning(message: string): void {
 		if (this._renderer?.logger) {
 			this._renderer.logger.warn(message, { scope: "WebGLBackend" });
 			return;
@@ -526,7 +526,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (dependencyIndex < stageIndex) {
 			return true;
 		}
-		this._warn(
+		this._logWarning(
 			`Ignoring stale dependency \"${dependency}\" for \"${stage}\".`
 		);
 		return false;

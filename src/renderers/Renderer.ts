@@ -282,7 +282,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		for (const warning of resolved.warnings) {
-			this._warn(warning.key, warning.message);
+			this._logWarning(warning.key, warning.message);
 		}
 		if (this.features.enableSH) {
 			this.updateSH();
@@ -499,7 +499,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.backend.type;
 	}
 
-	private _warn(key: string, message: string): void {
+	private _logWarning(key: string, message: string): void {
 		this.logger.warn(`[${key}] ${message}`, { scope: "Renderer" });
 	}
 
@@ -714,7 +714,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
 				hasParticleSystems,
 			},
-			(key, message) => this._warn(key, message)
+			(key, message) => this._logWarning(key, message)
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -734,7 +734,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.type
 					);
 					for (const warning of resolved.warnings) {
-						this._warn(warning.key, warning.message);
+						this._logWarning(warning.key, warning.message);
 					}
 					break;
 				}
@@ -884,7 +884,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						const pass = this._createBackendPass(stage.id);
 						if (pass.executor === "shared") {
 							if (!this.backend.executeSharedPass) {
-								this._warn(
+								this._logWarning(
 									`${this.backend.type}-shared-pass-${pass.stage}`,
 									`${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`
 								);
@@ -1113,7 +1113,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				const key =
 					`csg-diagnostic-${meshInstance.id}-` +
 					`${diagnostic.code}-${diagnostic.message}`;
-				this._warn(
+				this._logWarning(
 					key,
 					`[CSG:${diagnostic.code}] ${diagnostic.message}`
 				);

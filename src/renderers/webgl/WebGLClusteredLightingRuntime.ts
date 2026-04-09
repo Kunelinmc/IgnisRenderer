@@ -1,4 +1,5 @@
 import { CameraType } from "../../cameras/Camera";
+import { Logger } from "../../foundation/Logger";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { FrameContext } from "../../pipeline/types";
 import type {
@@ -57,8 +58,6 @@ export interface WebGLClusteredLightingState {
 	lightTexHeight: number;
 }
 
-type WarnFn = (key: string, message: string) => void;
-
 const DEFAULT_CLUSTER_OPTIONS: ClusteredRuntimeOptions = {
 	tileSizePx: 64,
 	zSlices: 24,
@@ -70,7 +69,6 @@ const CLUSTER_FLAG_OVERFLOW = 1;
 
 export class WebGLClusteredLightingRuntime {
 	private _gl: WebGL2RenderingContext;
-	private _warn: WarnFn;
 	private _headerTexture: WebGLTexture | null = null;
 	private _indexTexture: WebGLTexture | null = null;
 	private _lightTexture: WebGLTexture | null = null;
@@ -95,9 +93,8 @@ export class WebGLClusteredLightingRuntime {
 		lightTexHeight: 1,
 	};
 
-	constructor(gl: WebGL2RenderingContext, warn: WarnFn) {
+	constructor(gl: WebGL2RenderingContext) {
 		this._gl = gl;
-		this._warn = warn;
 	}
 
 	public getState(): WebGLClusteredLightingState {
@@ -125,9 +122,12 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 		if (!isPerspective) {
-			this._warn(
-				"webgl-clustered-perspective-only",
-				"WebGL clustered lighting only supports perspective cameras; falling back to legacy forward lights"
+			Logger.warn(
+				"WebGL clustered lighting only supports perspective cameras; falling back to legacy forward lights",
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-perspective-only",
+				}
 			);
 			this._disable(width, height, options);
 			return;
@@ -137,9 +137,12 @@ export class WebGLClusteredLightingRuntime {
 		const far = Math.max(near + 1e-3, finiteOr(context.camera.far, near + 1));
 		const logDenom = Math.log(far) - Math.log(near);
 		if (logDenom <= 1e-6) {
-			this._warn(
-				"webgl-clustered-invalid-depth-range",
-				"WebGL clustered lighting requires a valid perspective depth range; falling back to legacy forward lights"
+			Logger.warn(
+				"WebGL clustered lighting requires a valid perspective depth range; falling back to legacy forward lights",
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-invalid-depth-range",
+				}
 			);
 			this._disable(width, height, options);
 			return;
@@ -158,9 +161,12 @@ export class WebGLClusteredLightingRuntime {
 		const maxLightsPerCluster = Math.max(1, Math.floor(options.maxLightsPerCluster));
 		const activeLights = sourceLights.slice(0, maxLights);
 		if (sourceLights.length > activeLights.length) {
-			this._warn(
-				"webgl-clustered-light-budget",
-				`WebGL clustered lighting clamps lights to ${maxLights}; extra lights are skipped`
+			Logger.warn(
+				`WebGL clustered lighting clamps lights to ${maxLights}; extra lights are skipped`,
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-light-budget",
+				}
 			);
 		}
 		if (activeLights.length <= 0) {
@@ -226,9 +232,12 @@ export class WebGLClusteredLightingRuntime {
 		const indexShape = resolveTextureShape(indexData.length / 4, maxTextureSize);
 		const lightShape = resolveTextureShape(lightData.length / 4, maxTextureSize);
 		if (!headerShape || !indexShape || !lightShape) {
-			this._warn(
-				"webgl-clustered-texture-size-overflow",
-				"WebGL clustered lighting exceeded texture capacity; falling back to legacy forward lights"
+			Logger.warn(
+				"WebGL clustered lighting exceeded texture capacity; falling back to legacy forward lights",
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-texture-size-overflow",
+				}
 			);
 			this._disable(width, height, options);
 			return;
@@ -261,9 +270,12 @@ export class WebGLClusteredLightingRuntime {
 				lightPixels
 			);
 		} catch (error) {
-			this._warn(
-				"webgl-clustered-upload-failed",
-				`WebGL clustered lighting upload failed; falling back to legacy forward lights (${String(error)})`
+			Logger.warn(
+				`WebGL clustered lighting upload failed; falling back to legacy forward lights (${String(error)})`,
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-upload-failed",
+				}
 			);
 			this._disable(width, height, options);
 			return;

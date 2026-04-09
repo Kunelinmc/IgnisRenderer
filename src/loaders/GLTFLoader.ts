@@ -28,6 +28,7 @@ import type {
 	PrimitiveDrawTopology,
 } from "../core/types";
 import { IdGenerator } from "../foundation/IdGenerator";
+import { Logger } from "../foundation/Logger";
 import {
 	AnimationClip,
 	type GLTFAnimationBundle,
@@ -1278,8 +1279,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 				.map((jointIndex: number) => context.nodeByIndex.get(jointIndex))
 				.filter(Boolean) as Node[];
 			if (joints.length !== skinDef.joints.length) {
-				console.warn(
-					`GLTFLoader: skin ${skinIndex} has missing joint node bindings; skipping`
+				Logger.warn(
+					`GLTFLoader: skin ${skinIndex} has missing joint node bindings; skipping`,
+					{
+						scope: "GLTFLoader",
+					}
 				);
 				continue;
 			}
@@ -1375,8 +1379,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					valueSize = targetPath === "rotation" ? 4 : 3;
 				} else if (targetPath === "weights") {
 					if (!context.pathToMeshInstance.has(nodePath)) {
-						console.warn(
-							`GLTFLoader: animation channel targets weights on node ${nodePath} without mesh; ignored`
+						Logger.warn(
+							`GLTFLoader: animation channel targets weights on node ${nodePath} without mesh; ignored`,
+							{
+								scope: "GLTFLoader",
+							}
 						);
 						continue;
 					}
@@ -1390,8 +1397,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 							Math.floor(outputValues.length / (inputTimes.length * 3))
 						:	Math.floor(outputValues.length / inputTimes.length);
 				} else {
-					console.warn(
-						`GLTFLoader: unsupported animation path "${targetPath}" ignored`
+					Logger.warn(
+						`GLTFLoader: unsupported animation path "${targetPath}" ignored`,
+						{
+							scope: "GLTFLoader",
+						}
 					);
 					continue;
 				}
