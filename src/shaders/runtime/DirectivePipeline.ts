@@ -253,7 +253,6 @@ export class ShaderDirectiveStage {
 	private _profile: ShaderDirectiveProfile;
 	private _hook: ShaderDirectiveCompileHook | null;
 	private _mode: ShaderRuntimeMode;
-	private _logWarning: ((key: string, message: string) => void) | null;
 	private _baseRuntime: ShaderRuntime;
 	private _runtimeByToken = new Map<string, ShaderRuntime>();
 	private _patchFingerprintByToken = new Map<string, string>();
@@ -269,7 +268,6 @@ export class ShaderDirectiveStage {
 		this._profile = registry[this._backend];
 		this._hook = options.hook ?? null;
 		this._mode = options.mode ?? "warn";
-		this._logWarning = options.warn ?? null;
 		this._baseRuntime = this._createRuntimeForPatch(null);
 		this._runtimeByToken.set(BASE_HOOK_TOKEN, this._baseRuntime);
 	}
@@ -401,7 +399,7 @@ export class ShaderDirectiveStage {
 				);
 				return { token: BASE_HOOK_TOKEN, patch: null };
 			}
-			return this._normalizeHookResult(result, context, false);
+			return this._normalizeHookResult(result, context);
 		} catch (error) {
 			this._handleHookError(
 				"hook-sync-failure",
@@ -420,7 +418,7 @@ export class ShaderDirectiveStage {
 		const context = createHookContext(this._backend, request);
 		try {
 			const result = await this._hook(context);
-			return this._normalizeHookResult(result, context, true);
+			return this._normalizeHookResult(result, context);
 		} catch (error) {
 			this._handleHookError(
 				"hook-async-failure",
@@ -432,8 +430,7 @@ export class ShaderDirectiveStage {
 
 	private _normalizeHookResult(
 		result: ShaderDirectiveHookResult | null | undefined,
-		context: ShaderDirectiveHookContext,
-		isAsyncPath: boolean
+		context: ShaderDirectiveHookContext
 	): HookResolution {
 		if (!result) {
 			return { token: BASE_HOOK_TOKEN, patch: null };
@@ -469,10 +466,12 @@ export class ShaderDirectiveStage {
 			existingPatchFingerprint &&
 			existingPatchFingerprint !== patchFingerprint
 		) {
-			this._logWarningWithFallback(
-				"hook-token-collision",
-				`Shader directive hook token collision for "${token}" on ${context.directiveSourcePath}; disabling hook patch for safety.`,
-				isAsyncPath
+			Logger.warn(
+				`[hook-token-collision] Shader directive hook token collision for "${token}" on ${context.directiveSourcePath}; disabling hook patch for safety.`,
+				{
+					scope: "ShaderDirectiveStage",
+					onceKey: `shader-directive-${this._backend}-hook-token-collision`,
+				}
 			);
 			return { token: BASE_HOOK_TOKEN, patch: null };
 		}
@@ -518,28 +517,16 @@ export class ShaderDirectiveStage {
 		};
 	}
 
-	private _logWarningWithFallback(
-		code: string,
-		message: string,
-		_isAsyncPath: boolean
-	): void {
-		if (this._logWarning) {
-			this._logWarning(`shader-directive-${this._backend}-${code}`, message);
-		} else {
-			Logger.warn(message, {
-				scope: "ShaderDirectiveStage",
-				onceKey: `shader-directive-${this._backend}-${code}`,
-			});
-		}
-	}
-
 	private _handleHookError(code: string, message: string): void {
 		if (this._mode === "strict") {
 			throw new Error(
 				`${message} Migration hint: move directives to backend compile stage hooks with stable tokens.`
 			);
 		}
-		this._logWarningWithFallback(code, message, false);
+		Logger.warn(`[${code}] ${message}`, {
+			scope: "ShaderDirectiveStage",
+			onceKey: `shader-directive-${this._backend}-${code}`,
+		});
 	}
 }
 

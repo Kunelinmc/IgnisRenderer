@@ -5,10 +5,23 @@ import {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../src/shaders/runtime/index.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 
 function createStage(options = {}) {
 	const runtime = options.runtime ?? new ShaderRuntime({ mode: "warn" });
 	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				const rendered = args
+					.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+					.join(" ");
+				warnings.push(rendered);
+			},
+		},
+		resetOnceKeys: true,
+	});
 	const stage = new ShaderBackendCompileStage({
 		backend: "webgl",
 		runtime,
@@ -16,11 +29,6 @@ function createStage(options = {}) {
 			options.profiles ?? DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 		hook: options.hook ?? null,
 		mode: options.mode ?? "warn",
-		warn:
-			options.warn ??
-			((key, message) => {
-				warnings.push({ key, message });
-			}),
 	});
 	return { stage, runtime, warnings };
 }
@@ -112,9 +120,7 @@ void main() {
 		label: "MissingTokenWarn",
 	});
 	assert.ok(
-		warnStage.warnings.some((warning) =>
-			warning.key.includes("hook-token-invalid")
-		)
+		warnStage.warnings.some((warning) => warning.includes("hook-token-invalid"))
 	);
 	assert.ok(
 		warnResult.directiveDiagnostics.some(
@@ -193,7 +199,7 @@ void main() {
 		label: "CollisionB",
 	});
 	assert.ok(
-		warnings.some((warning) => warning.key.includes("hook-token-collision"))
+		warnings.some((warning) => warning.includes("hook-token-collision"))
 	);
 	assert.ok(
 		second.directiveDiagnostics.some(
@@ -261,9 +267,7 @@ void main() {
 	});
 	assert.equal(warnResult.hasErrors, false);
 	assert.ok(
-		warnStage.warnings.some((warning) =>
-			warning.key.includes("hook-async-sync-path")
-		)
+		warnStage.warnings.some((warning) => warning.includes("hook-async-sync-path"))
 	);
 
 	const strictStage = createStage({
@@ -306,14 +310,18 @@ void main() {
 }
 
 function run() {
-	testProfileCompletenessRequiresSoftwareProfile();
-	testStageABBoundaryNoDuplicateDirectiveDiagnostics();
-	testHookMissingTokenStrictWarnBehavior();
-	testHookTokenCollisionFallsBackToBasePatch();
-	testDirectiveFingerprintChangeTriggersCacheMiss();
-	testAsyncHookFallbackByMode();
-	testLumaInjectionExpandsToConcreteWeightsForGLSL();
-	console.log("Shader directive pipeline v2 tests passed");
+	try {
+		testProfileCompletenessRequiresSoftwareProfile();
+		testStageABBoundaryNoDuplicateDirectiveDiagnostics();
+		testHookMissingTokenStrictWarnBehavior();
+		testHookTokenCollisionFallsBackToBasePatch();
+		testDirectiveFingerprintChangeTriggersCacheMiss();
+		testAsyncHookFallbackByMode();
+		testLumaInjectionExpandsToConcreteWeightsForGLSL();
+		console.log("Shader directive pipeline v2 tests passed");
+	} finally {
+		Logger.reset();
+	}
 }
 
 run();
