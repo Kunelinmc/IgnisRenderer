@@ -128,7 +128,6 @@ export class WebGLBackend implements IRenderBackend {
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private _pendingPostProcessPasses = new Map<string, WebGLPostProcessPassPlugin>();
-	private _logger: Logger;
 	private readonly _passHandlers: Map<
 		FramePass["stage"],
 		WebGLBackendPassHandler
@@ -136,7 +135,6 @@ export class WebGLBackend implements IRenderBackend {
 
 	constructor(options: WebGLBackendOptions = {}) {
 		const shaderMode = options.shaderMode ?? "warn";
-		this._logger = new Logger({ level: "warn" });
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -360,10 +358,10 @@ export class WebGLBackend implements IRenderBackend {
 
 	private _warn(message: string): void {
 		if (this._renderer?.logger) {
-			this._renderer.logger.warn(message);
+			this._renderer.logger.warn(message, { scope: "WebGLBackend" });
 			return;
 		}
-		this._logger.warn(message);
+		Logger.warn(message, { scope: "WebGLBackend" });
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {

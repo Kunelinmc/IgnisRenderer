@@ -355,7 +355,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
-	private _logger: Logger;
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function" ?
 			new FinalizationRegistry<string>((label) => {
@@ -394,7 +393,6 @@ export class WebGPUBackend implements IRenderBackend {
 		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
 		const shaderMode = resolved.options.shaderMode ?? "strict";
 		this.canvas = resolved.canvas ?? null;
-		this._logger = new Logger({ name: "WebGPUBackend", level: "warn" });
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -428,10 +426,10 @@ export class WebGPUBackend implements IRenderBackend {
 		const prefixedMessage =
 			key && key.length > 0 ? `[${key}] ${message}` : message;
 		if (this._renderer?.logger) {
-			this._renderer.logger.warn(prefixedMessage);
+			this._renderer.logger.warn(prefixedMessage, { scope: "WebGPUBackend" });
 			return;
 		}
-		this._logger.warn(prefixedMessage);
+		Logger.warn(prefixedMessage, { scope: "WebGPUBackend" });
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {

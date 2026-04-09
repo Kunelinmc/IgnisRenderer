@@ -1,5 +1,5 @@
 import type { Camera } from "../cameras/Camera";
-import type { Logger } from "../foundation/Logger";
+import type { LoggerStatic } from "../foundation/Logger";
 import type { SceneLight } from "../lights";
 import type {
 	FrameAttachments,
@@ -77,7 +77,7 @@ export interface RendererBackendBridge {
 	readonly camera: Camera;
 	readonly scene: { getLights(): SceneLight[] };
 	readonly features: { enableShadows: boolean };
-	readonly logger: Pick<Logger, "warn">;
+	readonly logger: Pick<LoggerStatic, "warn">;
 	pixels?: Uint8ClampedArray | null;
 }
 

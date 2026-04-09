@@ -29,10 +29,16 @@ function createSinkRecorder() {
 
 function testErrorOnceLogsOnlyOncePerKey() {
 	const { records, sink } = createSinkRecorder();
-	const logger = new Logger({ name: "TestLogger", level: "debug" }, sink);
+	Logger.configure({ level: "debug", sink, resetOnceKeys: true });
 
-	assert.equal(logger.error("first", { onceKey: "error-key" }), true);
-	assert.equal(logger.error("second", { onceKey: "error-key" }), false);
+	assert.equal(
+		Logger.error("first", { scope: "TestLogger", onceKey: "error-key" }),
+		true
+	);
+	assert.equal(
+		Logger.error("second", { scope: "TestLogger", onceKey: "error-key" }),
+		false
+	);
 
 	assert.equal(records.error.length, 1);
 	assert.deepEqual(records.error[0], ["[TestLogger]", "first"]);
@@ -40,11 +46,11 @@ function testErrorOnceLogsOnlyOncePerKey() {
 
 function testWarnOnceUsesIndependentKeys() {
 	const { records, sink } = createSinkRecorder();
-	const logger = new Logger({ level: "warn" }, sink);
+	Logger.configure({ level: "warn", sink, resetOnceKeys: true });
 
-	assert.equal(logger.warn("A", { onceKey: "key-a" }), true);
-	assert.equal(logger.warn("B", { onceKey: "key-b" }), true);
-	assert.equal(logger.warn("A2", { onceKey: "key-a" }), false);
+	assert.equal(Logger.warn("A", { onceKey: "key-a" }), true);
+	assert.equal(Logger.warn("B", { onceKey: "key-b" }), true);
+	assert.equal(Logger.warn("A2", { onceKey: "key-a" }), false);
 
 	assert.equal(records.warn.length, 2);
 	assert.deepEqual(records.warn[0], ["A"]);
@@ -53,27 +59,27 @@ function testWarnOnceUsesIndependentKeys() {
 
 function testOnceKeyNotConsumedWhenLevelBlocked() {
 	const { records, sink } = createSinkRecorder();
-	const logger = new Logger({ level: "error" }, sink);
+	Logger.configure({ level: "error", sink, resetOnceKeys: true });
 
-	assert.equal(logger.warn("blocked", { onceKey: "blocked-key" }), false);
+	assert.equal(Logger.warn("blocked", { onceKey: "blocked-key" }), false);
 	assert.equal(records.warn.length, 0);
 
-	logger.setLevel("warn");
-	assert.equal(logger.warn("allowed", { onceKey: "blocked-key" }), true);
+	Logger.setLevel("warn");
+	assert.equal(Logger.warn("allowed", { onceKey: "blocked-key" }), true);
 	assert.equal(records.warn.length, 1);
 	assert.deepEqual(records.warn[0], ["allowed"]);
 }
 
 function testFirstArgumentCanBeArray() {
 	const { records, sink } = createSinkRecorder();
-	const logger = new Logger({ level: "debug" }, sink);
+	Logger.configure({ level: "debug", sink, resetOnceKeys: true });
 
 	assert.equal(
-		logger.info(["info-message", { code: 42 }], { onceKey: "info-key" }),
+		Logger.info(["info-message", { code: 42 }], { onceKey: "info-key" }),
 		true
 	);
 	assert.equal(
-		logger.info(["ignored", { code: 43 }], { onceKey: "info-key" }),
+		Logger.info(["ignored", { code: 43 }], { onceKey: "info-key" }),
 		false
 	);
 	assert.equal(records.info.length, 1);
@@ -81,10 +87,12 @@ function testFirstArgumentCanBeArray() {
 }
 
 function run() {
+	Logger.reset();
 	testErrorOnceLogsOnlyOncePerKey();
 	testWarnOnceUsesIndependentKeys();
 	testOnceKeyNotConsumedWhenLevelBlocked();
 	testFirstArgumentCanBeArray();
+	Logger.reset();
 	console.log("Logger tests passed");
 }
 

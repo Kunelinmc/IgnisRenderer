@@ -16,7 +16,7 @@ import {
 import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
-import { Logger } from "../foundation/Logger";
+import { Logger, type LoggerStatic } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
@@ -155,7 +155,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public lastTime: number;
 	public animationAutoRender: boolean;
 
-	public readonly logger: Logger;
+	public readonly logger: Pick<LoggerStatic, "warn">;
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
@@ -178,7 +178,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
 		this.canvas = canvas;
-		this.logger = new Logger({ name: "Renderer", level: "warn" });
+		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
 		this._frameDirty = true;
@@ -500,7 +500,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	private _warn(key: string, message: string): void {
-		this.logger.warn(`[${key}] ${message}`);
+		this.logger.warn(`[${key}] ${message}`, { scope: "Renderer" });
 	}
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {

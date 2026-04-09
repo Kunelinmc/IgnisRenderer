@@ -167,7 +167,10 @@ export class WebGPURenderResources {
 			computeFacade,
 			this._layouts.clusteredSceneBindGroupLayout,
 			this._layouts.sceneFrameBindGroupLayout,
-			(_key, message) => this._renderer.logger.warn(message)
+			(key, message) =>
+				this._renderer.logger.warn(`[${key}] ${message}`, {
+					scope: "WebGPUClusteredLightingRuntime",
+				})
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
@@ -366,7 +369,9 @@ export class WebGPURenderResources {
 			featureState.enableClusteredLighting
 		);
 		for (const warning of this._lightingState.warnings) {
-			this._renderer.logger.warn(warning.message);
+			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "WebGPURenderResources",
+			});
 		}
 
 		this._environmentState = collectWebGPUEnvironment(
@@ -375,7 +380,9 @@ export class WebGPURenderResources {
 			shAmbientCoeffs
 		);
 		for (const warning of this._environmentState.warnings) {
-			this._renderer.logger.warn(warning.message);
+			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "WebGPURenderResources",
+			});
 		}
 
 		this._shadowAtlases.prepare(
@@ -575,7 +582,9 @@ export class WebGPURenderResources {
 			false
 		);
 		for (const warning of solidMaterialData.warnings) {
-			this._renderer.logger.warn(warning.message);
+			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "WebGPURenderResources",
+			});
 		}
 
 		const solidPipeline = await this._pipelineLibrary.getPipeline(
