@@ -1,5 +1,4 @@
 export { CSG, CSGBuilder, type CSGGraphInput } from "./CSGBuilder";
-export { CSGMeshInstance, type CSGMeshInstanceParams } from "../meshes/CSGMeshInstance";
 export {
 	buildCSGMeshAsset,
 	listWasmCSGSolvers,
