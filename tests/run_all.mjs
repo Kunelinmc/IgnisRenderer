@@ -38,6 +38,7 @@ const tests = [
 	"test_csg_core.mjs",
 	"test_csg_mesh_instance.mjs",
 	"test_renderer_csg_stage.mjs",
+	"test_lod_mesh_instance.mjs",
 	"test_interaction_manager_selection.mjs",
 	"test_interaction_outline_shape.mjs",
 	"test_node_clone.mjs",
