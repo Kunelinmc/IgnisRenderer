@@ -13,6 +13,10 @@ export interface LoggerSink {
 	error?: (...args: unknown[]) => void;
 }
 
+export interface LoggerEmitOptions {
+	onceKey?: string | string[];
+}
+
 const LEVEL_ORDER: Record<EmittableLogLevel, number> = {
 	debug: 0,
 	info: 1,
@@ -61,104 +65,41 @@ export class Logger {
 	/**
 	 * Emits a debug-level log.
 	 */
-	public debug(...args: unknown[]): void {
-		if (!this._canLog("debug") || !this._sink.debug) return;
-		this._sink.debug(...this._formatArgs(args));
+	public debug(
+		message: string | readonly unknown[],
+		options?: LoggerEmitOptions
+	): boolean {
+		return this._emit("debug", message, options);
 	}
 
 	/**
 	 * Emits an info-level log.
 	 */
-	public info(...args: unknown[]): void {
-		if (!this._canLog("info") || !this._sink.info) return;
-		this._sink.info(...this._formatArgs(args));
+	public info(
+		message: string | readonly unknown[],
+		options?: LoggerEmitOptions
+	): boolean {
+		return this._emit("info", message, options);
 	}
 
 	/**
 	 * Emits a warn-level log.
 	 */
-	public warn(...args: unknown[]): void {
-		if (!this._canLog("warn") || !this._sink.warn) return;
-		this._sink.warn(...this._formatArgs(args));
+	public warn(
+		message: string | readonly unknown[],
+		options?: LoggerEmitOptions
+	): boolean {
+		return this._emit("warn", message, options);
 	}
 
 	/**
 	 * Emits an error-level log.
 	 */
-	public error(...args: unknown[]): void {
-		if (!this._canLog("error") || !this._sink.error) return;
-		this._sink.error(...this._formatArgs(args));
-	}
-
-	/**
-	 * Emits a debug-level log once for the given key.
-	 * Returns true if the log was emitted.
-	 */
-	public debugOnce(key: string, ...args: unknown[]): boolean {
-		return this.logOnce("debug", key, ...args);
-	}
-
-	/**
-	 * Emits an info-level log once for the given key.
-	 * Returns true if the log was emitted.
-	 */
-	public infoOnce(key: string, ...args: unknown[]): boolean {
-		return this.logOnce("info", key, ...args);
-	}
-
-	/**
-	 * Emits a warn-level log once for the given key.
-	 * Returns true if the log was emitted.
-	 */
-	public warnOnce(key: string, ...args: unknown[]): boolean {
-		return this.logOnce("warn", key, ...args);
-	}
-
-	/**
-	 * Emits an error-level log once for the given key.
-	 * Returns true if the log was emitted.
-	 */
-	public errorOnce(key: string, ...args: unknown[]): boolean {
-		return this.logOnce("error", key, ...args);
-	}
-
-	/**
-	 * Emits a log once for the given key at the target level.
-	 * Returns true if the log was emitted.
-	 */
-	public logOnce(
-		level: EmittableLogLevel,
-		key: string,
-		...args: unknown[]
+	public error(
+		message: string | readonly unknown[],
+		options?: LoggerEmitOptions
 	): boolean {
-		if (!this._canLog(level)) return false;
-		const sink = this._resolveSink(level);
-		if (!sink) return false;
-		if (this._onceKeys.has(key)) return false;
-		this._onceKeys.add(key);
-		sink(...this._formatArgs(args));
-		return true;
-	}
-
-	/**
-	 * Returns whether the once-key has already been emitted.
-	 */
-	public hasOnceKey(key: string): boolean {
-		return this._onceKeys.has(key);
-	}
-
-	/**
-	 * Clears one once-key so it can be emitted again.
-	 */
-	public clearOnceKey(key: string): void {
-		this._onceKeys.delete(key);
-	}
-
-	/**
-	 * Clears all once-keys.
-	 */
-	public clearOnceKeys(): void {
-		this._onceKeys.clear();
+		return this._emit("error", message, options);
 	}
 
 	private _canLog(level: EmittableLogLevel): boolean {
@@ -181,6 +122,52 @@ export class Logger {
 			default:
 				return null;
 		}
+	}
+
+	private _emit(
+		level: EmittableLogLevel,
+		message: string | readonly unknown[],
+		options?: LoggerEmitOptions
+	): boolean {
+		if (!this._canLog(level)) return false;
+		const sink = this._resolveSink(level);
+		if (!sink) return false;
+		const onceKeys = this._resolveOnceKeys(options);
+		if (this._hasAnyOnceKey(onceKeys)) return false;
+		sink(...this._formatArgs(this._toArgs(message)));
+		this._rememberOnceKeys(onceKeys);
+		return true;
+	}
+
+	private _resolveOnceKeys(options?: LoggerEmitOptions): string[] {
+		const source = options?.onceKey;
+		if (!source) {
+			return [];
+		}
+		const keys = Array.isArray(source) ? source : [source];
+		return keys.filter((key) => key.length > 0);
+	}
+
+	private _hasAnyOnceKey(keys: readonly string[]): boolean {
+		for (const key of keys) {
+			if (this._onceKeys.has(key)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private _rememberOnceKeys(keys: readonly string[]): void {
+		for (const key of keys) {
+			this._onceKeys.add(key);
+		}
+	}
+
+	private _toArgs(message: string | readonly unknown[]): unknown[] {
+		if (Array.isArray(message)) {
+			return message.slice();
+		}
+		return [message];
 	}
 
 	private _formatArgs(args: unknown[]): unknown[] {
