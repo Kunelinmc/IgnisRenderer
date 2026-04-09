@@ -17,6 +17,7 @@ import { EventEmitter } from "../core/EventEmitter";
 import { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
+import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
@@ -139,6 +140,7 @@ export interface RendererFeatures {
 }
 
 const MAX_WARNING_KEYS = 1024;
+const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export class Renderer extends EventEmitter<RendererEvents> {
 	public canvas: HTMLCanvasElement;
@@ -791,6 +793,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					this.refreshReflectionProbeCaches();
 					break;
 				}
+				case "lod-resolve": {
+					this._resolveLODMeshes();
+					break;
+				}
 				case "csg-resolve": {
 					await this._resolveCSGMeshes();
 					break;
@@ -1087,6 +1093,19 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
+	private _resolveLODMeshes(): void {
+		const cameraWorldPosition = this.camera.getWorldPosition(
+			_tmpRendererCameraWorldPosition
+		);
+		const meshInstances = this.scene.ecs.findMeshInstances();
+		for (const meshInstance of meshInstances) {
+			if (!(meshInstance instanceof LODMeshInstance)) continue;
+			meshInstance.updateLODForCamera(cameraWorldPosition, {
+				notifyScene: false,
+			});
+		}
+	}
+
 	private async _resolveCSGMeshes(): Promise<void> {
 		const meshInstances = this.scene.ecs.findMeshInstances();
 		for (const meshInstance of meshInstances) {
@@ -1145,7 +1164,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 			id: "transform-update",
 			dependsOn: ["physics-sim", "animation-sim", "sync-in"],
 		},
-		{ id: "csg-resolve", dependsOn: ["transform-update"] },
+		{ id: "lod-resolve", dependsOn: ["transform-update"] },
+		{ id: "csg-resolve", dependsOn: ["lod-resolve"] },
 		{ id: "prepared-scene-build", dependsOn: ["csg-resolve"] },
 		{
 			id: "particle-sim",
