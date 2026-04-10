@@ -282,7 +282,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		for (const warning of resolved.warnings) {
-			Logger.warn(`[${warning.key}] ${warning.message}`, { scope: "Renderer" });
+			this.logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "Renderer",
+				onceKey: warning.key,
+			});
 		}
 		if (this.features.enableSH) {
 			this.updateSH();
@@ -711,7 +714,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				hasParticleSystems,
 			},
 			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, { scope: "Renderer" })
+				this.logger.warn(`[${key}] ${message}`, {
+					scope: "Renderer",
+					onceKey: key,
+				})
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -731,8 +737,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.type
 					);
 					for (const warning of resolved.warnings) {
-						Logger.warn(`[${warning.key}] ${warning.message}`, {
+						this.logger.warn(`[${warning.key}] ${warning.message}`, {
 							scope: "Renderer",
+							onceKey: warning.key,
 						});
 					}
 					break;
