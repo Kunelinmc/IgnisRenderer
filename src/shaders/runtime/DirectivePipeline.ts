@@ -286,17 +286,17 @@ export class ShaderDirectiveStage {
 
 	public process(request: ShaderDirectiveStageRequest): ShaderDirectiveStageResult {
 		const resolution = this._resolveHookSync(request);
-		return this._processWithResolution(request, resolution);
+		return this._processWithResolutionSync(request, resolution);
 	}
 
 	public async processAsync(
 		request: ShaderDirectiveStageRequest
 	): Promise<ShaderDirectiveStageResult> {
 		const resolution = await this._resolveHookAsync(request);
-		return this._processWithResolution(request, resolution);
+		return this._processWithResolutionAsync(request, resolution);
 	}
 
-	private _processWithResolution(
+	private _processWithResolutionSync(
 		request: ShaderDirectiveStageRequest,
 		resolution: HookResolution
 	): ShaderDirectiveStageResult {
@@ -310,6 +310,44 @@ export class ShaderDirectiveStage {
 
 		const runtime = this._resolveRuntimeForHookResolution(resolution);
 		const preprocessed = runtime.preprocessDirectives({
+			code: request.code,
+			sourceMap: request.sourceMap ?? null,
+			language: normalizeLanguage(request.language),
+			stage: normalizeStage(request.stage),
+			entryPoint: request.entryPoint,
+			label: request.label,
+			sourceKind: normalizeSourceKind(request.sourceKind),
+			directiveSourcePath: buildDirectiveSourcePath(request),
+			enableDirectives: true,
+		});
+		const stageResult: ShaderDirectiveStageResult = {
+			code: preprocessed.code,
+			sourceMap: preprocessed.sourceMap,
+			composite: preprocessed.composite,
+			diagnostics: preprocessed.diagnostics,
+			hasErrors: preprocessed.hasErrors,
+			directiveFingerprint: fingerprint,
+		};
+		this._cache.set(cacheKey, {
+			result: this._cloneStageResult(stageResult),
+		});
+		return this._cloneStageResult(stageResult);
+	}
+
+	private async _processWithResolutionAsync(
+		request: ShaderDirectiveStageRequest,
+		resolution: HookResolution
+	): Promise<ShaderDirectiveStageResult> {
+		const fingerprint = this._buildDirectiveFingerprint(resolution.token);
+		this._trackFingerprint(request, fingerprint);
+		const cacheKey = buildDirectiveCacheKey(fingerprint, request);
+		const cached = this._cache.get(cacheKey);
+		if (cached) {
+			return this._cloneStageResult(cached.result);
+		}
+
+		const runtime = this._resolveRuntimeForHookResolution(resolution);
+		const preprocessed = await runtime.preprocessDirectivesAsync({
 			code: request.code,
 			sourceMap: request.sourceMap ?? null,
 			language: normalizeLanguage(request.language),
@@ -566,7 +604,7 @@ export class ShaderBackendCompileStage {
 		const stageA = await this._directiveStage.processAsync(
 			this._toDirectiveRequest(request)
 		);
-		return this._compileStageB(request, stageA);
+		return this._compileStageBAsync(request, stageA);
 	}
 
 	private _compileStageB(
@@ -575,6 +613,44 @@ export class ShaderBackendCompileStage {
 	): ShaderBackendCompileResult {
 		this._throwOnDirectiveErrorsIfStrict(stageA, request);
 		const stageB = this._runtime.process({
+			code: stageA.code,
+			sourceMap: stageA.sourceMap,
+			language: request.language,
+			stage: request.stage,
+			entryPoint: request.entryPoint,
+			label: request.label,
+			sourceKind: request.sourceKind,
+			sourceHash: request.sourceHash,
+			diagnosticFilter: request.diagnosticFilter,
+			enableDirectives: false,
+			directiveSourcePath: request.directiveSourcePath,
+		});
+		const diagnostics = [
+			...cloneDiagnostics(stageA.diagnostics),
+			...cloneDiagnostics(stageB.diagnostics),
+		];
+		const hasErrors = diagnostics.some(
+			(diagnostic) => diagnostic.severity === "error"
+		);
+		return {
+			code: stageB.code,
+			sourceMap: cloneSourceMap(stageB.sourceMap),
+			composite: cloneCompositeSource(stageB.composite),
+			diagnostics,
+			hasErrors,
+			fromCache: stageB.fromCache,
+			directiveFingerprint: stageA.directiveFingerprint,
+			directiveDiagnostics: cloneDiagnostics(stageA.diagnostics),
+			backendDiagnostics: cloneDiagnostics(stageB.diagnostics),
+		};
+	}
+
+	private async _compileStageBAsync(
+		request: ShaderProcessRequest,
+		stageA: ShaderDirectiveStageResult
+	): Promise<ShaderBackendCompileResult> {
+		this._throwOnDirectiveErrorsIfStrict(stageA, request);
+		const stageB = await this._runtime.processAsync({
 			code: stageA.code,
 			sourceMap: stageA.sourceMap,
 			language: request.language,

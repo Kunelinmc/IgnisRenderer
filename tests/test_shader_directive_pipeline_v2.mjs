@@ -46,6 +46,19 @@ function compileSceneVertex(stage, code, extra = {}) {
 	});
 }
 
+function compileSceneVertexAsync(stage, code, extra = {}) {
+	return stage.compileAsync({
+		code,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: extra.label ?? "DirectivePipelineV2Async",
+		sourceKind: extra.sourceKind ?? "builtin-scene",
+		directiveSourcePath:
+			extra.directiveSourcePath ?? "./parts/testDirectivePipelineAsync.glsl",
+	});
+}
+
 function testProfileCompletenessRequiresSoftwareProfile() {
 	const incompleteProfiles = {
 		...DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -309,7 +322,62 @@ void main() {
 	assert.equal(result.code.includes("IGNIS_LUMA_WEIGHTS_BT709"), false);
 }
 
-function run() {
+async function testCompileAsyncUsesAsyncDirectivePreprocessPath() {
+	const { stage } = createStage({
+		hook: async () => ({
+			token: "async-directive-patch",
+			injectionScripts: [
+				{
+					id: "hook/async-directive-script",
+					language: "glsl",
+					async run() {
+						return {
+							header: "const float ASYNC_DIRECTIVE_VALUE = 2.0;",
+						};
+					},
+				},
+			],
+		}),
+	});
+	const result = await compileSceneVertexAsync(
+		stage,
+		`#version 300 es
+precision highp float;
+#inject <hook/async-directive-script>()
+void main() {
+	gl_Position = vec4(ASYNC_DIRECTIVE_VALUE, 0.0, 0.0, 1.0);
+}`
+	);
+	assert.equal(result.hasErrors, false);
+	assert.ok(result.code.includes("ASYNC_DIRECTIVE_VALUE"));
+}
+
+async function testCompileAsyncUsesAsyncRuntimeProcessPath() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/async-runtime-rule",
+		async inject() {
+			return {
+				header: "const float ASYNC_RUNTIME_VALUE = 3.0;",
+			};
+		},
+	});
+	const { stage } = createStage({
+		runtime,
+	});
+	const result = await compileSceneVertexAsync(
+		stage,
+		`#version 300 es
+precision highp float;
+void main() {
+	gl_Position = vec4(ASYNC_RUNTIME_VALUE, 0.0, 0.0, 1.0);
+}`
+	);
+	assert.equal(result.hasErrors, false);
+	assert.ok(result.code.includes("ASYNC_RUNTIME_VALUE"));
+}
+
+async function run() {
 	try {
 		testProfileCompletenessRequiresSoftwareProfile();
 		testStageABBoundaryNoDuplicateDirectiveDiagnostics();
@@ -318,10 +386,15 @@ function run() {
 		testDirectiveFingerprintChangeTriggersCacheMiss();
 		testAsyncHookFallbackByMode();
 		testLumaInjectionExpandsToConcreteWeightsForGLSL();
+		await testCompileAsyncUsesAsyncDirectivePreprocessPath();
+		await testCompileAsyncUsesAsyncRuntimeProcessPath();
 		console.log("Shader directive pipeline v2 tests passed");
 	} finally {
 		Logger.reset();
 	}
 }
 
-run();
+run().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});
