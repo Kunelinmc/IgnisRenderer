@@ -47,14 +47,19 @@ export type ShaderSourceSegmentKind =
 export interface ShaderSourceSegment {
 	generatedLineStart: number;
 	generatedLineEnd: number;
+	generatedColumnStart?: number;
+	generatedColumnEnd?: number;
 	sourcePath: string;
 	sourceLineStart: number;
 	sourceLineEnd: number;
+	sourceColumnStart?: number;
+	sourceColumnEnd?: number;
 	kind: ShaderSourceSegmentKind;
 	label?: string;
 }
 
 export interface ShaderSourceSegmentMap {
+	schemaVersion?: number;
 	lineCount: number;
 	segments: ShaderSourceSegment[];
 }
@@ -233,6 +238,43 @@ export type ShaderRuleInjectResult =
 	| undefined
 	| Promise<ShaderRuleInjection | null | undefined>;
 
+export interface ShaderRuleTransformOutput {
+	code: string;
+	sourceMap?: ShaderSourceSegmentMap | null;
+	diagnostics?: ShaderDiagnostic[];
+}
+
+export type ShaderRuleTransformResolved =
+	| string
+	| ShaderRuleTransformOutput
+	| null
+	| undefined;
+
+export type ShaderRuleTransformResult =
+	| ShaderRuleTransformResolved
+	| Promise<ShaderRuleTransformResolved>;
+
+export interface ShaderRuleReplacePatch {
+	pattern: string | RegExp;
+	replacement: string;
+	replaceAll?: boolean;
+}
+
+export interface ShaderRuleReplaceOutput {
+	patches: ShaderRuleReplacePatch[];
+	diagnostics?: ShaderDiagnostic[];
+}
+
+export type ShaderRuleReplaceResolved =
+	| ShaderRuleReplacePatch[]
+	| ShaderRuleReplaceOutput
+	| null
+	| undefined;
+
+export type ShaderRuleReplaceResult =
+	| ShaderRuleReplaceResolved
+	| Promise<ShaderRuleReplaceResolved>;
+
 export interface ShaderRule {
 	id: string;
 	description?: string;
@@ -240,6 +282,8 @@ export interface ShaderRule {
 	symbols?: string[];
 	dependsOn?: string[];
 	match?: (context: ShaderRuleContext) => ShaderRuleMatchResult;
+	transform?: (context: ShaderRuleContext) => ShaderRuleTransformResult;
+	replace?: (context: ShaderRuleContext) => ShaderRuleReplaceResult;
 	validate?: (context: ShaderRuleContext) => ShaderRuleValidateResult;
 	inject?: (context: ShaderRuleContext) => ShaderRuleInjectResult;
 }

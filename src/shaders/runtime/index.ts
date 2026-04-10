@@ -13,6 +13,7 @@ export {
 	resolveDefaultShaderRuntimeMode,
 } from "./constants";
 export {
+	SOURCE_MAP_SCHEMA_VERSION,
 	composeCompositeShaderSources,
 	compressLineOriginsToSourceMap,
 	countSourceLines,
@@ -54,6 +55,13 @@ export type {
 	ShaderResolvedWGSLInjectionAnchors,
 	ShaderRule,
 	ShaderRuleContext,
+	ShaderRuleReplaceOutput,
+	ShaderRuleReplacePatch,
+	ShaderRuleReplaceResolved,
+	ShaderRuleReplaceResult,
+	ShaderRuleTransformOutput,
+	ShaderRuleTransformResolved,
+	ShaderRuleTransformResult,
 	ShaderRuntimeCacheKind,
 	ShaderRuntimeCacheStats,
 	ShaderRuntimeCacheStatsSnapshot,

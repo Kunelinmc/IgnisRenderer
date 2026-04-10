@@ -10,6 +10,7 @@ import {
 	expandSourceMapToLineOrigins,
 	createInlineCompositeShaderSource,
 	mapShaderGeneratedLocation,
+	SOURCE_MAP_SCHEMA_VERSION,
 	sliceCompositeShaderSource,
 } from "./sourceMap";
 import type {
@@ -31,6 +32,13 @@ import type {
 	ShaderRule,
 	ShaderRuleContext,
 	ShaderRuleInjection,
+	ShaderRuleReplaceOutput,
+	ShaderRuleReplacePatch,
+	ShaderRuleReplaceResolved,
+	ShaderRuleReplaceResult,
+	ShaderRuleTransformOutput,
+	ShaderRuleTransformResolved,
+	ShaderRuleTransformResult,
 	ShaderRuntimeCacheKind,
 	ShaderRuntimeCacheStats,
 	ShaderRuntimeCacheStatsSnapshot,
@@ -38,6 +46,7 @@ import type {
 	ShaderRuntimeChangeEvent,
 	ShaderRuntimeMode,
 	ShaderSourceKind,
+	ShaderSourceSegment,
 	ShaderSourceSegmentMap,
 	ShaderStage,
 	ShaderWGSLInjectionAnchor,
@@ -70,6 +79,12 @@ interface ProcessPreparation {
 	matchedRuleIds: string[];
 	cacheKey: string;
 	sourceMap: ShaderSourceSegmentMap | null | undefined;
+}
+
+interface RewritePreparation {
+	composite: CompositeShaderSource;
+	context: ShaderRuleContext;
+	diagnostics: ShaderDiagnostic[];
 }
 
 interface LineOrigin {
@@ -149,6 +164,37 @@ interface RegisteredIncludeModule {
 	sourcePath: string;
 }
 
+interface ConditionalBranchState {
+	parentActive: boolean;
+	branchTaken: boolean;
+	currentActive: boolean;
+	elseSeen: boolean;
+	sourcePath: string;
+	sourceLine: number;
+	column: number;
+}
+
+type ConditionTokenKind =
+	| "eof"
+	| "identifier"
+	| "number"
+	| "operator"
+	| "leftParen"
+	| "rightParen";
+
+interface ConditionToken {
+	kind: ConditionTokenKind;
+	text: string;
+	column: number;
+}
+
+interface DirectiveConditionParserOptions {
+	expression: string;
+	baseColumn: number;
+	isDefined: (identifier: string) => boolean;
+	resolveIdentifier: (identifier: string) => bigint;
+}
+
 type ShaderRuntimeChangeListener =
 	| ((event: ShaderRuntimeChangeEvent) => void)
 	| (() => void);
@@ -157,14 +203,13 @@ const DEFAULT_STRICT_ERROR_MAX_DIAGNOSTICS = 32;
 const LARGE_SOURCE_THRESHOLD = 16 * 1024;
 const LARGE_SOURCE_CHUNK_SIZE = 4 * 1024;
 const DIRECTIVE_MAX_MACRO_EXPANSION_DEPTH = 32;
-const DIRECTIVE_UNSUPPORTED_NAMES = new Set([
+const DIRECTIVE_CONDITIONAL_NAMES = new Set([
 	"if",
 	"ifdef",
 	"ifndef",
 	"elif",
 	"else",
 	"endif",
-	"undef",
 ]);
 const IS_DEV_ENVIRONMENT = resolveIsDevelopmentEnvironment();
 
@@ -225,6 +270,7 @@ function cloneDiagnostics(diagnostics: ShaderDiagnostic[]): ShaderDiagnostic[] {
 
 function cloneSourceMap(sourceMap: ShaderSourceSegmentMap): ShaderSourceSegmentMap {
 	return {
+		schemaVersion: sourceMap.schemaVersion,
 		lineCount: sourceMap.lineCount,
 		segments: sourceMap.segments.map((segment) => ({ ...segment })),
 	};
@@ -293,15 +339,25 @@ function hashSourceMap(sourceMap: ShaderSourceSegmentMap | null | undefined): st
 	if (!sourceMap || !Array.isArray(sourceMap.segments)) {
 		return "none";
 	}
+	const schemaVersion =
+		typeof sourceMap.schemaVersion === "number" ?
+			Math.floor(sourceMap.schemaVersion)
+		:	1;
 	const payload = [
+		`schema:${SOURCE_MAP_SCHEMA_VERSION}`,
+		`sourceSchema:${schemaVersion}`,
 		`lineCount:${sourceMap.lineCount}`,
 		...sourceMap.segments.map((segment) =>
 			[
 				segment.generatedLineStart,
 				segment.generatedLineEnd,
+				segment.generatedColumnStart ?? "",
+				segment.generatedColumnEnd ?? "",
 				segment.sourcePath,
 				segment.sourceLineStart,
 				segment.sourceLineEnd,
+				segment.sourceColumnStart ?? "",
+				segment.sourceColumnEnd ?? "",
 				segment.kind,
 				segment.label ?? "",
 			].join(":")
@@ -395,6 +451,380 @@ function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
 	);
 }
 
+class ConditionParseError extends Error {
+	public column: number;
+
+	public constructor(message: string, column: number) {
+		super(message);
+		this.name = "ConditionParseError";
+		this.column = Math.max(1, Math.floor(column));
+	}
+}
+
+class DirectiveConditionParser {
+	private _expression: string;
+	private _baseColumn: number;
+	private _isDefined: (identifier: string) => boolean;
+	private _resolveIdentifier: (identifier: string) => bigint;
+	private _tokens: ConditionToken[];
+	private _index = 0;
+
+	public constructor(options: DirectiveConditionParserOptions) {
+		this._expression = options.expression;
+		this._baseColumn = options.baseColumn;
+		this._isDefined = options.isDefined;
+		this._resolveIdentifier = options.resolveIdentifier;
+		this._tokens = this._tokenize();
+	}
+
+	public parse(): bigint {
+		const value = this._parseLogicalOr();
+		const token = this._peek();
+		if (token.kind !== "eof") {
+			throw new ConditionParseError(
+				`Unexpected token "${token.text}" in directive expression.`,
+				token.column
+			);
+		}
+		return value;
+	}
+
+	private _parseLogicalOr(): bigint {
+		let value = this._parseLogicalAnd();
+		while (this._matchOperator("||")) {
+			const right = this._parseLogicalAnd();
+			value = value !== 0n || right !== 0n ? 1n : 0n;
+		}
+		return value;
+	}
+
+	private _parseLogicalAnd(): bigint {
+		let value = this._parseEquality();
+		while (this._matchOperator("&&")) {
+			const right = this._parseEquality();
+			value = value !== 0n && right !== 0n ? 1n : 0n;
+		}
+		return value;
+	}
+
+	private _parseEquality(): bigint {
+		let value = this._parseRelational();
+		while (true) {
+			if (this._matchOperator("==")) {
+				const right = this._parseRelational();
+				value = value === right ? 1n : 0n;
+				continue;
+			}
+			if (this._matchOperator("!=")) {
+				const right = this._parseRelational();
+				value = value !== right ? 1n : 0n;
+				continue;
+			}
+			return value;
+		}
+	}
+
+	private _parseRelational(): bigint {
+		let value = this._parseAdditive();
+		while (true) {
+			if (this._matchOperator("<")) {
+				const right = this._parseAdditive();
+				value = value < right ? 1n : 0n;
+				continue;
+			}
+			if (this._matchOperator(">")) {
+				const right = this._parseAdditive();
+				value = value > right ? 1n : 0n;
+				continue;
+			}
+			if (this._matchOperator("<=")) {
+				const right = this._parseAdditive();
+				value = value <= right ? 1n : 0n;
+				continue;
+			}
+			if (this._matchOperator(">=")) {
+				const right = this._parseAdditive();
+				value = value >= right ? 1n : 0n;
+				continue;
+			}
+			return value;
+		}
+	}
+
+	private _parseAdditive(): bigint {
+		let value = this._parseMultiplicative();
+		while (true) {
+			if (this._matchOperator("+")) {
+				value += this._parseMultiplicative();
+				continue;
+			}
+			if (this._matchOperator("-")) {
+				value -= this._parseMultiplicative();
+				continue;
+			}
+			return value;
+		}
+	}
+
+	private _parseMultiplicative(): bigint {
+		let value = this._parseUnary();
+		while (true) {
+			if (this._matchOperator("*")) {
+				value *= this._parseUnary();
+				continue;
+			}
+			if (this._matchOperator("/")) {
+				const right = this._parseUnary();
+				if (right === 0n) {
+					throw new ConditionParseError(
+						"Division by zero in directive condition expression.",
+						this._previous().column
+					);
+				}
+				value /= right;
+				continue;
+			}
+			if (this._matchOperator("%")) {
+				const right = this._parseUnary();
+				if (right === 0n) {
+					throw new ConditionParseError(
+						"Modulo by zero in directive condition expression.",
+						this._previous().column
+					);
+				}
+				value %= right;
+				continue;
+			}
+			return value;
+		}
+	}
+
+	private _parseUnary(): bigint {
+		if (this._matchOperator("!")) {
+			const value = this._parseUnary();
+			return value === 0n ? 1n : 0n;
+		}
+		if (this._matchOperator("-")) {
+			return -this._parseUnary();
+		}
+		if (this._matchOperator("+")) {
+			return this._parseUnary();
+		}
+		return this._parsePrimary();
+	}
+
+	private _parsePrimary(): bigint {
+		const token = this._peek();
+		if (token.kind === "number") {
+			this._consume();
+			return this._parseIntegerLiteral(token);
+		}
+		if (token.kind === "identifier") {
+			this._consume();
+			if (token.text === "defined") {
+				return this._parseDefinedOperator(token.column);
+			}
+			return this._resolveIdentifier(token.text);
+		}
+		if (token.kind === "leftParen") {
+			this._consume();
+			const value = this._parseLogicalOr();
+			const closing = this._peek();
+			if (closing.kind !== "rightParen") {
+				throw new ConditionParseError(
+					`Expected ")" but got "${closing.text}".`,
+					closing.column
+				);
+			}
+			this._consume();
+			return value;
+		}
+		throw new ConditionParseError(
+			`Unexpected token "${token.text}" in directive expression.`,
+			token.column
+		);
+	}
+
+	private _parseDefinedOperator(operatorColumn: number): bigint {
+		if (this._peek().kind === "leftParen") {
+			this._consume();
+			const identifier = this._peek();
+			if (identifier.kind !== "identifier") {
+				throw new ConditionParseError(
+					`Expected identifier after "defined(" but got "${identifier.text}".`,
+					identifier.column
+				);
+			}
+			this._consume();
+			const closing = this._peek();
+			if (closing.kind !== "rightParen") {
+				throw new ConditionParseError(
+					`Expected ")" after "defined(${identifier.text}" but got "${closing.text}".`,
+					closing.column
+				);
+			}
+			this._consume();
+			return this._isDefined(identifier.text) ? 1n : 0n;
+		}
+		const identifier = this._peek();
+		if (identifier.kind !== "identifier") {
+			throw new ConditionParseError(
+				`Expected identifier after "defined" but got "${identifier.text}".`,
+				identifier.column
+			);
+		}
+		this._consume();
+		if (identifier.column < operatorColumn) {
+			throw new ConditionParseError(
+				"Invalid defined() expression in directive condition.",
+				operatorColumn
+			);
+		}
+		return this._isDefined(identifier.text) ? 1n : 0n;
+	}
+
+	private _parseIntegerLiteral(token: ConditionToken): bigint {
+		if (
+			!/^(?:0[xX][0-9A-Fa-f]+|0[bB][01]+|0[oO][0-7]+|[0-9]+)$/.test(token.text)
+		) {
+			throw new ConditionParseError(
+				`Invalid integer literal "${token.text}" in directive expression.`,
+				token.column
+			);
+		}
+		try {
+			return BigInt(token.text);
+		} catch {
+			throw new ConditionParseError(
+				`Invalid integer literal "${token.text}" in directive expression.`,
+				token.column
+			);
+		}
+	}
+
+	private _peek(): ConditionToken {
+		return this._tokens[this._index];
+	}
+
+	private _previous(): ConditionToken {
+		return this._tokens[Math.max(0, this._index - 1)];
+	}
+
+	private _consume(): ConditionToken {
+		const current = this._tokens[this._index];
+		if (this._index < this._tokens.length - 1) {
+			this._index++;
+		}
+		return current;
+	}
+
+	private _matchOperator(operator: string): boolean {
+		const token = this._peek();
+		if (token.kind !== "operator" || token.text !== operator) {
+			return false;
+		}
+		this._consume();
+		return true;
+	}
+
+	private _tokenize(): ConditionToken[] {
+		const tokens: ConditionToken[] = [];
+		const expression = this._expression;
+		let index = 0;
+		while (index < expression.length) {
+			const char = expression[index];
+			if (isWhitespaceCharacter(char)) {
+				index++;
+				continue;
+			}
+			const column = this._baseColumn + index;
+			const twoChars = expression.slice(index, index + 2);
+			if (
+				twoChars === "&&" ||
+				twoChars === "||" ||
+				twoChars === "==" ||
+				twoChars === "!=" ||
+				twoChars === "<=" ||
+				twoChars === ">="
+			) {
+				tokens.push({
+					kind: "operator",
+					text: twoChars,
+					column,
+				});
+				index += 2;
+				continue;
+			}
+			if (char === "(") {
+				tokens.push({
+					kind: "leftParen",
+					text: char,
+					column,
+				});
+				index++;
+				continue;
+			}
+			if (char === ")") {
+				tokens.push({
+					kind: "rightParen",
+					text: char,
+					column,
+				});
+				index++;
+				continue;
+			}
+			if ("!<>+-*/%".includes(char)) {
+				tokens.push({
+					kind: "operator",
+					text: char,
+					column,
+				});
+				index++;
+				continue;
+			}
+			if (isIdentifierStartCharacter(char)) {
+				let end = index + 1;
+				while (end < expression.length && isIdentifierPartCharacter(expression[end])) {
+					end++;
+				}
+				tokens.push({
+					kind: "identifier",
+					text: expression.slice(index, end),
+					column,
+				});
+				index = end;
+				continue;
+			}
+			if (char >= "0" && char <= "9") {
+				let end = index + 1;
+				while (
+					end < expression.length &&
+					/[A-Za-z0-9]/.test(expression[end] ?? "")
+				) {
+					end++;
+				}
+				tokens.push({
+					kind: "number",
+					text: expression.slice(index, end),
+					column,
+				});
+				index = end;
+				continue;
+			}
+			throw new ConditionParseError(
+				`Unexpected character "${char}" in directive expression.`,
+				column
+			);
+		}
+		tokens.push({
+			kind: "eof",
+			text: "<eof>",
+			column: this._baseColumn + expression.length,
+		});
+		return tokens;
+	}
+}
+
 interface InjectionBlock {
 	code: string;
 	sourcePath: string;
@@ -425,6 +855,20 @@ function countToken(line: string, token: string): number {
 	let count = 0;
 	for (let i = 0; i < line.length; i++) {
 		if (line[i] === token) {
+			count++;
+		}
+	}
+	return count;
+}
+
+function countNewlinesUntilOffset(source: string, offset: number): number {
+	if (source.length <= 0) {
+		return 0;
+	}
+	const limit = Math.max(0, Math.min(source.length, Math.floor(offset)));
+	let count = 0;
+	for (let i = 0; i < limit; i++) {
+		if (source.charCodeAt(i) === 10) {
 			count++;
 		}
 	}
@@ -565,7 +1009,7 @@ function resolveWGSLInsertionAnchors(
 	const lineCount = Math.max(1, sourceLines.length);
 	let lastEnableLine = 0;
 	let lastAliasLine = 0;
-	let lastBindingLine = 0;
+	let lastBindingEndLine = 0;
 	let entryPointLine = 0;
 	for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
 		const line = sourceLines[lineIndex];
@@ -575,9 +1019,6 @@ function resolveWGSLInsertionAnchors(
 		}
 		if (/^\s*alias\b/.test(line)) {
 			lastAliasLine = lineNumber;
-		}
-		if (/@group\s*\([^)]*\)\s*@binding\s*\([^)]*\)/.test(line)) {
-			lastBindingLine = lineNumber;
 		}
 		if (entryPointLine <= 0 && /@\s*(vertex|fragment|compute)\b/.test(line)) {
 			entryPointLine = lineNumber;
@@ -591,14 +1032,41 @@ function resolveWGSLInsertionAnchors(
 			}
 		}
 	}
-	const lastStructEndLine = findLastStructEndLine(sourceLines, /^\s*struct\b/);
+	const preEntryLines =
+		entryPointLine > 0 ? sourceLines.slice(0, entryPointLine - 1) : sourceLines;
+	const preEntrySource = preEntryLines.join("\n");
+	const bindingDeclarationPattern =
+		/(?:@\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*\([^)]*\))?\s*)*var(?:<[^>]+>)?\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^;]*;/gms;
+	let bindingMatch: RegExpExecArray | null = bindingDeclarationPattern.exec(
+		preEntrySource
+	);
+	while (bindingMatch) {
+		const declaration = bindingMatch[0];
+		if (
+			/@group\s*\([^)]*\)/.test(declaration) &&
+			/@binding\s*\([^)]*\)/.test(declaration)
+		) {
+			const declarationEnd = (bindingMatch.index ?? 0) + declaration.length;
+			lastBindingEndLine = Math.max(
+				lastBindingEndLine,
+				1 + countNewlinesUntilOffset(preEntrySource, declarationEnd)
+			);
+		}
+		bindingMatch = bindingDeclarationPattern.exec(preEntrySource);
+	}
+	const lastStructEndLine = findLastStructEndLine(
+		preEntryLines,
+		/^\s*struct\b/
+	);
 	const afterEnableLine = lastEnableLine > 0 ? lastEnableLine + 1 : 1;
 	const afterAliasesLine =
 		lastAliasLine > 0 ? Math.max(lastAliasLine + 1, afterEnableLine) : afterEnableLine;
 	const afterStructLine =
 		lastStructEndLine > 0 ? Math.max(lastStructEndLine + 1, afterAliasesLine) : afterAliasesLine;
 	const afterBindingsLine =
-		lastBindingLine > 0 ? Math.max(lastBindingLine + 1, afterStructLine) : afterStructLine;
+		lastBindingEndLine > 0 ?
+			Math.max(lastBindingEndLine + 1, afterStructLine)
+		:	afterStructLine;
 	const beforeEntryPointLine = entryPointLine > 0 ? entryPointLine : lineCount + 1;
 	return {
 		afterEnable: clampInjectionLine(afterEnableLine, lineCount),
@@ -810,6 +1278,42 @@ function createPointRange(line: number, column: number): ShaderDiagnosticRange {
 	return {
 		start: { line, column },
 		end: { line, column },
+	};
+}
+
+function createGeneratedCompositeWithColumnSpans(
+	code: string,
+	sourcePath: string,
+	label?: string
+): CompositeShaderSource {
+	const sourceLines = code.split(/\r?\n/g);
+	const lineCount = Math.max(1, sourceLines.length);
+	const segments: ShaderSourceSegment[] = [];
+	for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+		const line = sourceLines[lineIndex] ?? "";
+		const lineNumber = lineIndex + 1;
+		const columnEnd = Math.max(1, line.length + 1);
+		segments.push({
+			generatedLineStart: lineNumber,
+			generatedLineEnd: lineNumber,
+			generatedColumnStart: 1,
+			generatedColumnEnd: columnEnd,
+			sourcePath,
+			sourceLineStart: lineNumber,
+			sourceLineEnd: lineNumber,
+			sourceColumnStart: 1,
+			sourceColumnEnd: columnEnd,
+			kind: "generated",
+			label,
+		});
+	}
+	return {
+		code,
+		sourceMap: {
+			schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
+			lineCount,
+			segments,
+		},
 	};
 }
 
@@ -1557,7 +2061,12 @@ export class ShaderRuntime {
 			stringQuote: null,
 			escape: false,
 		};
+		const conditionalStack: ConditionalBranchState[] = [];
 		const firstVersionLine = this._findFirstGLSLVersionLine(lines);
+		const isBranchActive = (): boolean =>
+			conditionalStack.length <= 0 ?
+				true
+			:	conditionalStack[conditionalStack.length - 1].currentActive;
 
 		for (let index = 0; index < lines.length; index++) {
 			const lineNumber = index + 1;
@@ -1569,8 +2078,22 @@ export class ShaderRuntime {
 			};
 			const directive = this._scanDirectiveFromLine(line, directiveState);
 			if (!directive) {
-				outputLines.push(line);
-				outputOrigins.push(origin);
+				if (isBranchActive()) {
+					outputLines.push(line);
+					outputOrigins.push(origin);
+				}
+				continue;
+			}
+			if (DIRECTIVE_CONDITIONAL_NAMES.has(directive.name)) {
+				this._applyConditionalDirective(
+					directive,
+					origin,
+					preprocessContext,
+					conditionalStack
+				);
+				continue;
+			}
+			if (!isBranchActive()) {
 				continue;
 			}
 			if (
@@ -1659,30 +2182,326 @@ export class ShaderRuntime {
 							"warning"
 						);
 					}
-					preprocessContext.macros.set(macro.name, macro);
-					continue;
-				}
-				case "inject":
-					outputLines.push(line);
-					outputOrigins.push(origin);
-					continue;
-				default:
-					if (DIRECTIVE_UNSUPPORTED_NAMES.has(directive.name)) {
-						this._pushDirectiveDiagnostic(
-							preprocessContext,
-							"directive-unsupported",
-							`Directive "#${directive.name}" is not supported in Shader Directive Runtime v1.`,
-							origin.sourcePath,
-							origin.sourceLine,
-							directive.column
-						);
+						preprocessContext.macros.set(macro.name, macro);
+						continue;
 					}
-					outputLines.push(line);
-					outputOrigins.push(origin);
+					case "undef": {
+						const macroName = this._parseSingleDirectiveIdentifier(
+							directive,
+							origin,
+							preprocessContext,
+							"directive-undef-invalid"
+						);
+						if (!macroName) {
+							continue;
+						}
+						preprocessContext.macros.delete(macroName);
+						continue;
+					}
+					case "inject":
+						outputLines.push(line);
+						outputOrigins.push(origin);
+						continue;
+					default:
+						outputLines.push(line);
+						outputOrigins.push(origin);
+				}
+			}
+		if (conditionalStack.length > 0) {
+			for (const state of conditionalStack) {
+				this._pushDirectiveDiagnostic(
+					preprocessContext,
+					"directive-conditional-unterminated",
+					`Directive conditional block starting at "${state.sourcePath}:${state.sourceLine}" was not terminated with "#endif".`,
+					state.sourcePath,
+					state.sourceLine,
+					state.column
+				);
 			}
 		}
 
-		return this._composeLinesToComposite(outputLines, outputOrigins);
+			return this._composeLinesToComposite(outputLines, outputOrigins);
+		}
+
+	private _applyConditionalDirective(
+		directive: DirectiveLine,
+		origin: LineOrigin,
+		preprocessContext: PreprocessContext,
+		stack: ConditionalBranchState[]
+	): void {
+		switch (directive.name) {
+			case "if": {
+				const parentActive =
+					stack.length <= 0 ? true : stack[stack.length - 1].currentActive;
+				const branchValue =
+					parentActive ?
+						this._evaluateDirectiveConditionExpression(
+							directive.body,
+							directive,
+							origin,
+							preprocessContext
+						)
+					:	false;
+				stack.push({
+					parentActive,
+					branchTaken: parentActive && branchValue,
+					currentActive: parentActive && branchValue,
+					elseSeen: false,
+					sourcePath: origin.sourcePath,
+					sourceLine: origin.sourceLine,
+					column: directive.column,
+				});
+				return;
+			}
+			case "ifdef":
+			case "ifndef": {
+				const parentActive =
+					stack.length <= 0 ? true : stack[stack.length - 1].currentActive;
+				if (!parentActive) {
+					stack.push({
+						parentActive,
+						branchTaken: false,
+						currentActive: false,
+						elseSeen: false,
+						sourcePath: origin.sourcePath,
+						sourceLine: origin.sourceLine,
+						column: directive.column,
+					});
+					return;
+				}
+				const identifier = this._parseSingleDirectiveIdentifier(
+					directive,
+					origin,
+					preprocessContext,
+					"directive-conditional-invalid-identifier"
+				);
+				const branchValue =
+					identifier ?
+						directive.name === "ifdef" ?
+							preprocessContext.macros.has(identifier)
+						:	!preprocessContext.macros.has(identifier)
+					:	false;
+				stack.push({
+					parentActive,
+					branchTaken: parentActive && branchValue,
+					currentActive: parentActive && branchValue,
+					elseSeen: false,
+					sourcePath: origin.sourcePath,
+					sourceLine: origin.sourceLine,
+					column: directive.column,
+				});
+				return;
+			}
+			case "elif": {
+				if (stack.length <= 0) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-conditional-elif-without-if",
+						`Directive "#elif" must follow "#if", "#ifdef", or "#ifndef".`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					return;
+				}
+				const branch = stack[stack.length - 1];
+				if (branch.elseSeen) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-conditional-elif-after-else",
+						`Directive "#elif" cannot appear after "#else" in the same conditional block.`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					branch.currentActive = false;
+					return;
+				}
+				if (!branch.parentActive || branch.branchTaken) {
+					branch.currentActive = false;
+					return;
+				}
+				const value = this._evaluateDirectiveConditionExpression(
+					directive.body,
+					directive,
+					origin,
+					preprocessContext
+				);
+				branch.currentActive = branch.parentActive && value;
+				if (branch.currentActive) {
+					branch.branchTaken = true;
+				}
+				return;
+			}
+			case "else": {
+				if (stack.length <= 0) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-conditional-else-without-if",
+						`Directive "#else" must follow "#if", "#ifdef", or "#ifndef".`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					return;
+				}
+				const branch = stack[stack.length - 1];
+				if (branch.elseSeen) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-conditional-else-duplicate",
+						`Directive "#else" can appear only once per conditional block.`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					branch.currentActive = false;
+					return;
+				}
+				branch.elseSeen = true;
+				branch.currentActive = branch.parentActive && !branch.branchTaken;
+				if (branch.currentActive) {
+					branch.branchTaken = true;
+				}
+				return;
+			}
+			case "endif": {
+				if (stack.length <= 0) {
+					this._pushDirectiveDiagnostic(
+						preprocessContext,
+						"directive-conditional-endif-without-if",
+						`Directive "#endif" must follow "#if", "#ifdef", or "#ifndef".`,
+						origin.sourcePath,
+						origin.sourceLine,
+						directive.column
+					);
+					return;
+				}
+				stack.pop();
+				return;
+			}
+		}
+	}
+
+	private _parseSingleDirectiveIdentifier(
+		directive: DirectiveLine,
+		origin: LineOrigin,
+		preprocessContext: PreprocessContext,
+		errorCode: string
+	): string | null {
+		const body = directive.body.trim();
+		if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(body)) {
+			return body;
+		}
+		this._pushDirectiveDiagnostic(
+			preprocessContext,
+			errorCode,
+			`Directive "#${directive.name}" expects a single macro identifier.`,
+			origin.sourcePath,
+			origin.sourceLine,
+			directive.column
+		);
+		return null;
+	}
+
+	private _evaluateDirectiveConditionExpression(
+		expression: string,
+		directive: DirectiveLine,
+		origin: LineOrigin,
+		preprocessContext: PreprocessContext
+	): boolean {
+		const trimmedExpression = expression.trim();
+		if (trimmedExpression.length <= 0) {
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-conditional-expression-invalid",
+				`Directive "#${directive.name}" requires a condition expression.`,
+				origin.sourcePath,
+				origin.sourceLine,
+				directive.column
+			);
+			return false;
+		}
+		const resolverStack = new Set<string>();
+		const baseColumn = directive.column + directive.name.length + 2;
+		try {
+			const parser = new DirectiveConditionParser({
+				expression: trimmedExpression,
+				baseColumn,
+				isDefined: (identifier) => preprocessContext.macros.has(identifier),
+				resolveIdentifier: (identifier) =>
+					this._resolveDirectiveConditionIdentifier(
+						identifier,
+						preprocessContext,
+						origin,
+						baseColumn,
+						resolverStack
+					),
+			});
+			return parser.parse() !== 0n;
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Invalid directive condition expression.";
+			const column =
+				error instanceof ConditionParseError ? error.column : directive.column;
+			this._pushDirectiveDiagnostic(
+				preprocessContext,
+				"directive-conditional-expression-invalid",
+				message,
+				origin.sourcePath,
+				origin.sourceLine,
+				column
+			);
+			return false;
+		}
+	}
+
+	private _resolveDirectiveConditionIdentifier(
+		identifier: string,
+		preprocessContext: PreprocessContext,
+		origin: LineOrigin,
+		column: number,
+		resolverStack: Set<string>
+	): bigint {
+		if (resolverStack.has(identifier)) {
+			return 0n;
+		}
+		const macro = preprocessContext.macros.get(identifier);
+		if (!macro) {
+			return 0n;
+		}
+		if (macro.kind === "function") {
+			return 0n;
+		}
+		const expanded = this._expandMacroText(
+			macro.replacement,
+			preprocessContext,
+			origin.sourcePath,
+			origin.sourceLine,
+			1
+		).trim();
+		if (expanded.length <= 0) {
+			return 0n;
+		}
+		resolverStack.add(identifier);
+		try {
+			const parser = new DirectiveConditionParser({
+				expression: expanded,
+				baseColumn: column,
+				isDefined: (name) => preprocessContext.macros.has(name),
+				resolveIdentifier: (name) =>
+					this._resolveDirectiveConditionIdentifier(
+						name,
+						preprocessContext,
+						origin,
+						column,
+						resolverStack
+					),
+			});
+			return parser.parse();
+		} finally {
+			resolverStack.delete(identifier);
+		}
 	}
 
 	private _findFirstGLSLVersionLine(lines: string[]): number {
@@ -2899,14 +3718,15 @@ export class ShaderRuntime {
 	}
 
 	private _executeRulesSync(prepared: ProcessPreparation): ShaderProcessResult {
-		const diagnostics: ShaderDiagnostic[] = [];
+		const rewrite = this._applyRuleRewritesSync(prepared);
+		const diagnostics: ShaderDiagnostic[] = [...rewrite.diagnostics];
 		const headers: InjectionBlock[] = [];
 		const functions: InjectionBlock[] = [];
 		const dynamicUserSymbols = new Map<string, string>();
 
 		for (const rule of prepared.matchedRules) {
 			if (rule.validate) {
-				const validateResult = rule.validate(prepared.context);
+				const validateResult = rule.validate(rewrite.context);
 				if (isPromiseLike(validateResult)) {
 					throw new Error(
 						`ShaderRuntime rule "${rule.id}" returned a Promise from validate() during process(). Use processAsync().`
@@ -2915,27 +3735,29 @@ export class ShaderRuntime {
 				const diagnosticsFromRule =
 					Array.isArray(validateResult) ? validateResult : [];
 				for (const diagnostic of diagnosticsFromRule) {
-					diagnostics.push(
-						this._normalizeDiagnostic(
-							{ ...diagnostic, ruleId: rule.id },
-							prepared.sourceMap,
-							prepared.sourcePath
-						)
-					);
+						diagnostics.push(
+							this._normalizeDiagnostic(
+								{ ...diagnostic, ruleId: rule.id },
+								rewrite.composite.sourceMap,
+								prepared.sourcePath
+							)
+						);
+					}
 				}
-			}
 
 			if (!rule.inject) {
 				continue;
 			}
-			const injection = rule.inject(prepared.context);
+			const injection = rule.inject(rewrite.context);
 			if (isPromiseLike(injection)) {
 				throw new Error(
 					`ShaderRuntime rule "${rule.id}" returned a Promise from inject() during process(). Use processAsync().`
 				);
 			}
 			this._applyInjectionIfAny(
-				prepared,
+				rewrite.context,
+				rewrite.composite.sourceMap,
+				prepared.sourcePath,
 				rule,
 				injection,
 				diagnostics,
@@ -2945,27 +3767,35 @@ export class ShaderRuntime {
 			);
 		}
 
-		return this._buildRawProcessResult(prepared, diagnostics, headers, functions);
+		return this._buildRawProcessResult(
+			prepared,
+			rewrite.composite,
+			rewrite.context,
+			diagnostics,
+			headers,
+			functions
+		);
 	}
 
 	private async _executeRulesAsync(
 		prepared: ProcessPreparation
 	): Promise<ShaderProcessResult> {
-		const diagnostics: ShaderDiagnostic[] = [];
+		const rewrite = await this._applyRuleRewritesAsync(prepared);
+		const diagnostics: ShaderDiagnostic[] = [...rewrite.diagnostics];
 		const headers: InjectionBlock[] = [];
 		const functions: InjectionBlock[] = [];
 		const dynamicUserSymbols = new Map<string, string>();
 
 		for (const rule of prepared.matchedRules) {
 			if (rule.validate) {
-				const validateResult = await rule.validate(prepared.context);
+				const validateResult = await rule.validate(rewrite.context);
 				const diagnosticsFromRule =
 					Array.isArray(validateResult) ? validateResult : [];
 				for (const diagnostic of diagnosticsFromRule) {
 					diagnostics.push(
 						this._normalizeDiagnostic(
 							{ ...diagnostic, ruleId: rule.id },
-							prepared.sourceMap,
+							rewrite.composite.sourceMap,
 							prepared.sourcePath
 						)
 					);
@@ -2975,9 +3805,11 @@ export class ShaderRuntime {
 			if (!rule.inject) {
 				continue;
 			}
-			const injection = await rule.inject(prepared.context);
+			const injection = await rule.inject(rewrite.context);
 			this._applyInjectionIfAny(
-				prepared,
+				rewrite.context,
+				rewrite.composite.sourceMap,
+				prepared.sourcePath,
 				rule,
 				injection,
 				diagnostics,
@@ -2987,11 +3819,360 @@ export class ShaderRuntime {
 			);
 		}
 
-		return this._buildRawProcessResult(prepared, diagnostics, headers, functions);
+		return this._buildRawProcessResult(
+			prepared,
+			rewrite.composite,
+			rewrite.context,
+			diagnostics,
+			headers,
+			functions
+		);
+	}
+
+	private _applyRuleRewritesSync(
+		prepared: ProcessPreparation
+	): RewritePreparation {
+		let composite = cloneCompositeSource(prepared.baseComposite);
+		let context = {
+			...prepared.context,
+			source: composite.code,
+		};
+		const diagnostics: ShaderDiagnostic[] = [];
+		for (const rule of prepared.matchedRules) {
+			if (rule.transform) {
+				let transformResult: ShaderRuleTransformResult;
+				try {
+					transformResult = rule.transform(context);
+				} catch (error) {
+					throw this._createRuleHookError(rule.id, "transform", error);
+				}
+				if (isPromiseLike(transformResult)) {
+					throw new Error(
+						`ShaderRuntime rule "${rule.id}" returned a Promise from transform() during process(). Use processAsync().`
+					);
+				}
+				const applied = this._applyRuleTransformResult(
+					rule.id,
+					transformResult as ShaderRuleTransformResolved,
+					composite
+				);
+				composite = applied.composite;
+				context = {
+					...context,
+					source: composite.code,
+				};
+				this._appendRuleDiagnostics(
+					diagnostics,
+					rule.id,
+					applied.diagnostics,
+					composite.sourceMap,
+					prepared.sourcePath
+				);
+			}
+			if (!rule.replace) {
+				continue;
+			}
+			let replaceResult: ShaderRuleReplaceResult;
+			try {
+				replaceResult = rule.replace(context);
+			} catch (error) {
+				throw this._createRuleHookError(rule.id, "replace", error);
+			}
+			if (isPromiseLike(replaceResult)) {
+				throw new Error(
+					`ShaderRuntime rule "${rule.id}" returned a Promise from replace() during process(). Use processAsync().`
+				);
+			}
+			const applied = this._applyRuleReplaceResult(
+				rule.id,
+				replaceResult as ShaderRuleReplaceResolved,
+				composite
+			);
+			composite = applied.composite;
+			context = {
+				...context,
+				source: composite.code,
+			};
+			this._appendRuleDiagnostics(
+				diagnostics,
+				rule.id,
+				applied.diagnostics,
+				composite.sourceMap,
+				prepared.sourcePath
+			);
+		}
+		return {
+			composite,
+			context,
+			diagnostics,
+		};
+	}
+
+	private async _applyRuleRewritesAsync(
+		prepared: ProcessPreparation
+	): Promise<RewritePreparation> {
+		let composite = cloneCompositeSource(prepared.baseComposite);
+		let context = {
+			...prepared.context,
+			source: composite.code,
+		};
+		const diagnostics: ShaderDiagnostic[] = [];
+		for (const rule of prepared.matchedRules) {
+			if (rule.transform) {
+				let transformResult: ShaderRuleTransformResolved;
+				try {
+					transformResult = await rule.transform(context);
+				} catch (error) {
+					throw this._createRuleHookError(rule.id, "transform", error);
+				}
+					const applied = this._applyRuleTransformResult(
+						rule.id,
+						transformResult,
+						composite
+					);
+				composite = applied.composite;
+				context = {
+					...context,
+					source: composite.code,
+				};
+				this._appendRuleDiagnostics(
+					diagnostics,
+					rule.id,
+					applied.diagnostics,
+					composite.sourceMap,
+					prepared.sourcePath
+				);
+			}
+			if (!rule.replace) {
+				continue;
+			}
+			let replaceResult: ShaderRuleReplaceResult;
+			try {
+				replaceResult = await rule.replace(context);
+			} catch (error) {
+				throw this._createRuleHookError(rule.id, "replace", error);
+			}
+			const applied = this._applyRuleReplaceResult(
+				rule.id,
+				replaceResult as ShaderRuleReplaceResolved,
+				composite
+			);
+			composite = applied.composite;
+			context = {
+				...context,
+				source: composite.code,
+			};
+			this._appendRuleDiagnostics(
+				diagnostics,
+				rule.id,
+				applied.diagnostics,
+				composite.sourceMap,
+				prepared.sourcePath
+			);
+		}
+		return {
+			composite,
+			context,
+			diagnostics,
+		};
+	}
+
+	private _applyRuleTransformResult(
+		ruleId: string,
+		result: ShaderRuleTransformResolved,
+		previousComposite: CompositeShaderSource
+	): { composite: CompositeShaderSource; diagnostics: ShaderDiagnostic[] } {
+		if (!result) {
+			return {
+				composite: previousComposite,
+				diagnostics: [],
+			};
+		}
+		const normalized =
+			typeof result === "string" ?
+				{
+					code: result,
+					sourceMap: undefined,
+					diagnostics: [],
+				}
+			:	{
+					code: result.code,
+					sourceMap: result.sourceMap,
+					diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics : [],
+				};
+		if (typeof normalized.code !== "string") {
+			throw new Error(
+				`ShaderRuntime rule "${ruleId}" transform() must return a string or { code } object.`
+			);
+		}
+		const composite =
+			normalized.sourceMap ?
+				{
+					code: normalized.code,
+					sourceMap: cloneSourceMap(normalized.sourceMap),
+				}
+			:	createGeneratedCompositeWithColumnSpans(
+					normalized.code,
+					`<runtime:${ruleId}:transform>`,
+					`${ruleId}:transform`
+				);
+		return {
+			composite,
+			diagnostics: normalized.diagnostics,
+		};
+	}
+
+	private _applyRuleReplaceResult(
+		ruleId: string,
+		result: ShaderRuleReplaceResolved,
+		previousComposite: CompositeShaderSource
+	): { composite: CompositeShaderSource; diagnostics: ShaderDiagnostic[] } {
+		if (!result) {
+			return {
+				composite: previousComposite,
+				diagnostics: [],
+			};
+		}
+		const diagnostics =
+			Array.isArray(result) ? []
+			: Array.isArray((result as ShaderRuleReplaceOutput).diagnostics) ?
+				(result as ShaderRuleReplaceOutput).diagnostics!
+			:	[];
+		const patchesRaw =
+			Array.isArray(result) ? result : (result as ShaderRuleReplaceOutput).patches;
+		if (!Array.isArray(patchesRaw)) {
+			throw new Error(
+				`ShaderRuntime rule "${ruleId}" replace() must return patch list or { patches } object.`
+			);
+		}
+		const patches = patchesRaw.map((patch, index) =>
+			this._normalizeReplacePatch(ruleId, index, patch)
+		);
+		if (patches.length <= 0) {
+			return {
+				composite: previousComposite,
+				diagnostics,
+			};
+		}
+			let code = previousComposite.code;
+			for (let index = 0; index < patches.length; index++) {
+				code = this._applyReplacePatch(code, patches[index]);
+			}
+		if (code === previousComposite.code) {
+			return {
+				composite: previousComposite,
+				diagnostics,
+			};
+		}
+		return {
+			composite: createGeneratedCompositeWithColumnSpans(
+				code,
+				`<runtime:${ruleId}:replace>`,
+				`${ruleId}:replace`
+			),
+			diagnostics,
+		};
+	}
+
+	private _normalizeReplacePatch(
+		ruleId: string,
+		index: number,
+		patch: ShaderRuleReplacePatch
+	): ShaderRuleReplacePatch {
+		if (!patch || typeof patch !== "object") {
+			throw new Error(
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} must be an object.`
+			);
+		}
+		if (
+			typeof patch.pattern !== "string" &&
+			!(patch.pattern instanceof RegExp)
+		) {
+			throw new Error(
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} pattern must be string or RegExp.`
+			);
+		}
+		if (typeof patch.replacement !== "string") {
+			throw new Error(
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} replacement must be a string.`
+			);
+		}
+		return {
+			pattern: patch.pattern,
+			replacement: patch.replacement,
+			replaceAll: patch.replaceAll === true,
+		};
+	}
+
+	private _applyReplacePatch(
+		code: string,
+		patch: ShaderRuleReplacePatch
+	): string {
+		if (patch.pattern instanceof RegExp) {
+			let expression = patch.pattern;
+			if (patch.replaceAll === true && !expression.flags.includes("g")) {
+				expression = new RegExp(expression.source, `${expression.flags}g`);
+			}
+			if (patch.replaceAll !== true && expression.flags.includes("g")) {
+				expression = new RegExp(expression.source, expression.flags.replace(/g/g, ""));
+			}
+			return code.replace(expression, patch.replacement);
+		}
+		if (patch.pattern.length <= 0) {
+			return code;
+		}
+		if (patch.replaceAll === true) {
+			return code.split(patch.pattern).join(patch.replacement);
+		}
+		const found = code.indexOf(patch.pattern);
+		if (found < 0) {
+			return code;
+		}
+		return (
+			code.slice(0, found) +
+			patch.replacement +
+			code.slice(found + patch.pattern.length)
+		);
+	}
+
+	private _appendRuleDiagnostics(
+		target: ShaderDiagnostic[],
+		ruleId: string,
+		diagnostics: ShaderDiagnostic[],
+		sourceMap: ShaderSourceSegmentMap | null | undefined,
+		fallbackSourcePath: string
+	): void {
+		for (const diagnostic of diagnostics) {
+			target.push(
+				this._normalizeDiagnostic(
+					{ ...diagnostic, ruleId },
+					sourceMap,
+					fallbackSourcePath
+				)
+			);
+		}
+	}
+
+	private _createRuleHookError(
+		ruleId: string,
+		hookKind: "transform" | "replace",
+		error: unknown
+	): Error {
+		const message =
+			error instanceof Error ?
+				error.message
+			:	typeof error === "string" ?
+				error
+			:	"Unknown hook failure.";
+		return new Error(
+			`ShaderRuntime rule "${ruleId}" ${hookKind} hook failed: ${message}`
+		);
 	}
 
 	private _applyInjectionIfAny(
-		prepared: ProcessPreparation,
+		context: ShaderRuleContext,
+		sourceMap: ShaderSourceSegmentMap | null | undefined,
+		fallbackSourcePath: string,
 		rule: ShaderRule,
 		injection: ShaderRuleInjection | null | undefined,
 		diagnostics: ShaderDiagnostic[],
@@ -3012,8 +4193,8 @@ export class ShaderRuntime {
 				diagnostics.push(
 					this._normalizeDiagnostic(
 						conflict,
-						prepared.sourceMap,
-						prepared.sourcePath
+						sourceMap,
+						fallbackSourcePath
 					)
 				);
 				return;
@@ -3023,41 +4204,43 @@ export class ShaderRuntime {
 
 		const header = normalizeInjectionBlock(injection.header);
 		if (header.length > 0) {
-			headers.push({
-				code: header,
-				sourcePath: `<runtime:${rule.id}:header>`,
-				label: `${rule.id}:header`,
-				anchor: this._normalizeInjectionAnchorForLanguage(
-					prepared.context.language,
-					injection.headerAnchor
-				),
-			});
-		}
+				headers.push({
+					code: header,
+					sourcePath: `<runtime:${rule.id}:header>`,
+					label: `${rule.id}:header`,
+					anchor: this._normalizeInjectionAnchorForLanguage(
+						context.language,
+						injection.headerAnchor
+					),
+				});
+			}
 
 		const functionBlock = normalizeInjectionBlock(injection.functions);
 		if (functionBlock.length > 0) {
-			functions.push({
-				code: functionBlock,
-				sourcePath: `<runtime:${rule.id}:functions>`,
-				label: `${rule.id}:functions`,
-				anchor: this._normalizeInjectionAnchorForLanguage(
-					prepared.context.language,
-					injection.functionsAnchor
-				),
-			});
+				functions.push({
+					code: functionBlock,
+					sourcePath: `<runtime:${rule.id}:functions>`,
+					label: `${rule.id}:functions`,
+					anchor: this._normalizeInjectionAnchorForLanguage(
+						context.language,
+						injection.functionsAnchor
+					),
+				});
+			}
 		}
-	}
 
 	private _buildRawProcessResult(
 		prepared: ProcessPreparation,
+		rewriteComposite: CompositeShaderSource,
+		context: ShaderRuleContext,
 		diagnostics: ShaderDiagnostic[],
 		headers: InjectionBlock[],
 		functions: InjectionBlock[]
 	): ShaderProcessResult {
 		const composite =
-			prepared.context.language === "wgsl" ?
-				injectWGSLSource(prepared.baseComposite, [...headers, ...functions])
-			:	injectGLSLSource(prepared.baseComposite, [...headers, ...functions]);
+			context.language === "wgsl" ?
+				injectWGSLSource(rewriteComposite, [...headers, ...functions])
+			:	injectGLSLSource(rewriteComposite, [...headers, ...functions]);
 		const mergedDiagnostics = [
 			...prepared.preprocessedDiagnostics,
 			...diagnostics,
@@ -3261,12 +4444,18 @@ export class ShaderRuntime {
 			typeof rule.priority === "number" && Number.isFinite(rule.priority) ?
 				Math.floor(rule.priority)
 			:	0;
-		if (rule.match !== undefined && typeof rule.match !== "function") {
-			throw new Error(`ShaderRuntime rule "${id}" match must be a function.`);
-		}
-		if (rule.validate !== undefined && typeof rule.validate !== "function") {
-			throw new Error(`ShaderRuntime rule "${id}" validate must be a function.`);
-		}
+			if (rule.match !== undefined && typeof rule.match !== "function") {
+				throw new Error(`ShaderRuntime rule "${id}" match must be a function.`);
+			}
+			if (rule.transform !== undefined && typeof rule.transform !== "function") {
+				throw new Error(`ShaderRuntime rule "${id}" transform must be a function.`);
+			}
+			if (rule.replace !== undefined && typeof rule.replace !== "function") {
+				throw new Error(`ShaderRuntime rule "${id}" replace must be a function.`);
+			}
+			if (rule.validate !== undefined && typeof rule.validate !== "function") {
+				throw new Error(`ShaderRuntime rule "${id}" validate must be a function.`);
+			}
 		if (rule.inject !== undefined && typeof rule.inject !== "function") {
 			throw new Error(`ShaderRuntime rule "${id}" inject must be a function.`);
 		}

@@ -6,6 +6,7 @@ import type {
 } from "./types";
 
 const GENERATED_SOURCE_PATH = "<generated>";
+export const SOURCE_MAP_SCHEMA_VERSION = 2;
 
 interface LineOrigin {
 	sourcePath: string;
@@ -53,6 +54,7 @@ export function createInlineShaderSourceMap(
 ): ShaderSourceSegmentMap {
 	const lineCount = countSourceLines(code);
 	return {
+		schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
 		lineCount,
 		segments: [
 			{
@@ -205,6 +207,54 @@ export function mapShaderGeneratedLocation(
 		) {
 			continue;
 		}
+		if (
+			!hasColumnSpans(segment) ||
+			segment.generatedLineStart !== segment.generatedLineEnd
+		) {
+			continue;
+		}
+		const generatedColumnStart = Math.max(1, segment.generatedColumnStart ?? 1);
+		const generatedColumnEnd = Math.max(
+			generatedColumnStart,
+			segment.generatedColumnEnd ?? generatedColumnStart
+		);
+		if (
+			normalizedColumn < generatedColumnStart ||
+			normalizedColumn > generatedColumnEnd
+		) {
+			continue;
+		}
+		const sourceColumnStart = Math.max(1, segment.sourceColumnStart ?? 1);
+		const sourceColumnEnd = Math.max(
+			sourceColumnStart,
+			segment.sourceColumnEnd ?? sourceColumnStart
+		);
+		return {
+			generatedLine: normalizedLine,
+			generatedColumn: normalizedColumn,
+			sourcePath: segment.sourcePath,
+			sourceLine: Math.max(
+				1,
+				Math.min(segment.sourceLineEnd, segment.sourceLineStart)
+			),
+			sourceColumn: mapColumnOffset(
+				normalizedColumn,
+				generatedColumnStart,
+				generatedColumnEnd,
+				sourceColumnStart,
+				sourceColumnEnd
+			),
+			kind: segment.kind,
+			label: segment.label,
+		};
+	}
+	for (const segment of sourceMap.segments) {
+		if (
+			normalizedLine < segment.generatedLineStart ||
+			normalizedLine > segment.generatedLineEnd
+		) {
+			continue;
+		}
 		const offset = normalizedLine - segment.generatedLineStart;
 		return {
 			generatedLine: normalizedLine,
@@ -277,6 +327,7 @@ export function compressLineOriginsToSourceMap(
 	});
 
 	return {
+		schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
 		lineCount,
 		segments,
 	};
@@ -363,4 +414,31 @@ function countNewlineCharacters(value: string): number {
 		}
 	}
 	return count;
+}
+
+function hasColumnSpans(segment: ShaderSourceSegment): boolean {
+	return (
+		typeof segment.generatedColumnStart === "number" &&
+		typeof segment.generatedColumnEnd === "number" &&
+		typeof segment.sourceColumnStart === "number" &&
+		typeof segment.sourceColumnEnd === "number"
+	);
+}
+
+function mapColumnOffset(
+	column: number,
+	generatedColumnStart: number,
+	generatedColumnEnd: number,
+	sourceColumnStart: number,
+	sourceColumnEnd: number
+): number {
+	if (generatedColumnEnd <= generatedColumnStart) {
+		return sourceColumnStart;
+	}
+	const clampedGenerated = Math.min(
+		Math.max(column, generatedColumnStart),
+		generatedColumnEnd
+	);
+	const sourceOffset = clampedGenerated - generatedColumnStart;
+	return Math.min(sourceColumnStart + sourceOffset, sourceColumnEnd);
 }

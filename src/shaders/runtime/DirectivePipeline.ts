@@ -1,4 +1,5 @@
 import { ShaderRuntime } from "./ShaderRuntime";
+import { SOURCE_MAP_SCHEMA_VERSION } from "./sourceMap";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -71,15 +72,25 @@ function hashSourceMap(sourceMap: ShaderSourceSegmentMap | null | undefined): st
 	if (!sourceMap || !Array.isArray(sourceMap.segments)) {
 		return "none";
 	}
+	const schemaVersion =
+		typeof sourceMap.schemaVersion === "number" ?
+			Math.floor(sourceMap.schemaVersion)
+		:	1;
 	const payload = [
+		`schema:${SOURCE_MAP_SCHEMA_VERSION}`,
+		`sourceSchema:${schemaVersion}`,
 		`lineCount:${sourceMap.lineCount}`,
 		...sourceMap.segments.map((segment) =>
 			[
 				segment.generatedLineStart,
 				segment.generatedLineEnd,
+				segment.generatedColumnStart ?? "",
+				segment.generatedColumnEnd ?? "",
 				segment.sourcePath,
 				segment.sourceLineStart,
 				segment.sourceLineEnd,
+				segment.sourceColumnStart ?? "",
+				segment.sourceColumnEnd ?? "",
 				segment.kind,
 				segment.label ?? "",
 			].join(":")
@@ -121,6 +132,7 @@ function normalizeSourceKind(sourceKind?: ShaderSourceKind): ShaderSourceKind {
 
 function cloneSourceMap(sourceMap: ShaderSourceSegmentMap): ShaderSourceSegmentMap {
 	return {
+		schemaVersion: sourceMap.schemaVersion,
 		lineCount: sourceMap.lineCount,
 		segments: sourceMap.segments.map((segment) => ({ ...segment })),
 	};
