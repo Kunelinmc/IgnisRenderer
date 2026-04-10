@@ -48,7 +48,6 @@ interface SoftwareMainRasterExecutorLike {
 export interface SoftwareMainPassOptions {
 	mode?: SoftwareRasterMode;
 	tile?: SoftwareTileOptions;
-	warn?: ((key: string, message: string) => void) | null;
 }
 
 function createRasterizerContext(context: FrameContext): RasterizerContext {
@@ -350,7 +349,6 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
 	private _scanlineFallback: ScanlineMainRasterExecutor;
-	private _warn: ((key: string, message: string) => void) | null;
 	private _tileSize: number;
 	private _workerCount: number;
 	private _scheduler: typeof globalWorkerScheduler;
@@ -362,12 +360,10 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 
 	public constructor(
 		rasterizer: Rasterizer,
-		tileOptions: SoftwareTileOptions = {},
-		warn: ((key: string, message: string) => void) | null = null
+		tileOptions: SoftwareTileOptions = {}
 	) {
 		this._rasterizer = rasterizer;
 		this._scanlineFallback = new ScanlineMainRasterExecutor(rasterizer);
-		this._warn = warn;
 		this._tileSize = Math.max(
 			1,
 			Math.floor(tileOptions.tileSize ?? DEFAULT_SOFTWARE_TILE_SIZE)
@@ -553,11 +549,6 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			}
 		}
 		this._poolOwned = false;
-		try {
-			this._warn?.(key, message);
-		} catch {
-			// Ignore warning callback failures during raster fallback.
-		}
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "SoftwareMainPass",
 			onceKey: key,
@@ -637,8 +628,7 @@ export class SoftwareMainPass {
 		if (mode === "tile") {
 			this._executor = new TileMainRasterExecutor(
 				rasterizer,
-				options.tile,
-				options.warn ?? null
+				options.tile
 			);
 		} else {
 			this._executor = new ScanlineMainRasterExecutor(rasterizer);
