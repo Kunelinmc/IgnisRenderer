@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
+	createInlineShaderSourceMap,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+	SOURCE_MAP_SCHEMA_VERSION,
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../src/shaders/runtime/index.ts";
@@ -36,6 +38,7 @@ function createStage(options = {}) {
 function compileSceneVertex(stage, code, extra = {}) {
 	return stage.compile({
 		code,
+		sourceMap: extra.sourceMap ?? null,
 		language: "glsl",
 		stage: "vertex",
 		entryPoint: "main",
@@ -49,6 +52,7 @@ function compileSceneVertex(stage, code, extra = {}) {
 function compileSceneVertexAsync(stage, code, extra = {}) {
 	return stage.compileAsync({
 		code,
+		sourceMap: extra.sourceMap ?? null,
 		language: "glsl",
 		stage: "vertex",
 		entryPoint: "main",
@@ -265,6 +269,41 @@ void main() {
 	assert.ok(third.code.includes("return 2.0;"));
 }
 
+function testSourceMapSchemaVersionNormalization() {
+	const { stage } = createStage();
+	const code = `#version 300 es
+precision highp float;
+void main() {
+	gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+}`;
+	const sourceMapV2 = createInlineShaderSourceMap(
+		code,
+		"./parts/schemaCache.glsl",
+		"source"
+	);
+	const sourceMapV1 = {
+		...sourceMapV2,
+		schemaVersion: 1,
+		segments: sourceMapV2.segments.map((segment) => ({ ...segment })),
+	};
+	const first = compileSceneVertex(stage, code, {
+		label: "SchemaVersionCache",
+		sourceMap: sourceMapV1,
+	});
+	const second = compileSceneVertex(stage, code, {
+		label: "SchemaVersionCache",
+		sourceMap: sourceMapV1,
+	});
+	const third = compileSceneVertex(stage, code, {
+		label: "SchemaVersionCache",
+		sourceMap: sourceMapV2,
+	});
+	assert.equal(first.fromCache, false);
+	assert.equal(second.fromCache, true);
+	assert.equal(third.fromCache, true);
+	assert.equal(third.sourceMap.schemaVersion, SOURCE_MAP_SCHEMA_VERSION);
+}
+
 function testAsyncHookFallbackByMode() {
 	const code = `#version 300 es
 precision highp float;
@@ -382,9 +421,10 @@ async function run() {
 		testProfileCompletenessRequiresSoftwareProfile();
 		testStageABBoundaryNoDuplicateDirectiveDiagnostics();
 		testHookMissingTokenStrictWarnBehavior();
-		testHookTokenCollisionFallsBackToBasePatch();
-		testDirectiveFingerprintChangeTriggersCacheMiss();
-		testAsyncHookFallbackByMode();
+			testHookTokenCollisionFallsBackToBasePatch();
+			testDirectiveFingerprintChangeTriggersCacheMiss();
+			testSourceMapSchemaVersionNormalization();
+			testAsyncHookFallbackByMode();
 		testLumaInjectionExpandsToConcreteWeightsForGLSL();
 		await testCompileAsyncUsesAsyncDirectivePreprocessPath();
 		await testCompileAsyncUsesAsyncRuntimeProcessPath();

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import {
 	createInlineShaderSourceMap,
 	mapShaderCompilerMessages,
+	mapShaderGeneratedLocation,
 	parseWebGLShaderInfoLog,
+	SOURCE_MAP_SCHEMA_VERSION,
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
 	ShaderRuntime,
 } from "../src/shaders/runtime/index.ts";
@@ -39,6 +41,27 @@ struct Payload {
 	value: f32,
 };
 @group(0) @binding(0) var<uniform> uniforms: Payload;
+
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+`;
+
+const WGSL_MULTILINE_BINDING_SOURCE = `enable f16;
+alias Scalar = f32;
+struct Payload {
+	value: f32,
+};
+@group(0)
+@binding(0)
+var<uniform> uniforms: Payload;
+struct Extra {
+	value: f32,
+};
+@binding(1)
+@group(0)
+var textureSampler: sampler;
 
 @vertex
 fn vsMain() -> @builtin(position) vec4<f32> {
@@ -1175,6 +1198,259 @@ fn fsMain() -> @location(0) vec4<f32> {
 	);
 }
 
+function testDirectiveConditionalCompilationAndUndefPersistence() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: `#define FLAG 1
+#if FLAG
+let active = 1;
+#else
+let inactive = 1;
+#endif
+#if 0
+#define SHOULD_NOT_EXIST 1
+#endif
+#ifdef SHOULD_NOT_EXIST
+let shouldNotExist = 1;
+#endif
+#if defined(FLAG)
+#undef FLAG
+#endif
+#ifdef FLAG
+let stillDefined = 1;
+#else
+let removed = 1;
+#endif
+#define KEEP 1
+#if 0
+#undef KEEP
+#endif
+#ifdef KEEP
+let keep = 1;
+#endif
+@compute
+fn csMain() {}`,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "DirectiveConditionalCompilation",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.ok(processed.code.includes("let active = 1;"));
+	assert.equal(processed.code.includes("let inactive = 1;"), false);
+	assert.equal(processed.code.includes("let shouldNotExist = 1;"), false);
+	assert.equal(processed.code.includes("let stillDefined = 1;"), false);
+	assert.ok(processed.code.includes("let removed = 1;"));
+	assert.ok(processed.code.includes("let keep = 1;"));
+	assert.equal(/#(if|else|endif|ifdef|ifndef|elif|undef)\b/.test(processed.code), false);
+}
+
+function testDirectiveConditionalExpressionBigIntAndDiagnostics() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: `#if 0xFFFFFFFFFFFFFFFFFFFFFFFF > 0
+let big = 1;
+#endif
+#if 0b1010 == 10 && 0o17 == 15
+let literals = 1;
+#endif
+#define NEG -2
+#if NEG < 0
+let neg = 1;
+#endif
+#if defined(UNKNOWN_FLAG)
+let unknown = 1;
+#endif
+#if 1 / 0
+let divByZero = 1;
+#endif
+@compute
+fn csMain() {}`,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "DirectiveConditionalExpression",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.hasErrors, false);
+	assert.ok(processed.code.includes("let big = 1;"));
+	assert.ok(processed.code.includes("let literals = 1;"));
+	assert.ok(processed.code.includes("let neg = 1;"));
+	assert.equal(processed.code.includes("let unknown = 1;"), false);
+	assert.equal(processed.code.includes("let divByZero = 1;"), false);
+	assert.ok(
+		processed.diagnostics.some(
+			(diagnostic) =>
+				diagnostic.code === "directive-conditional-expression-invalid"
+		)
+	);
+}
+
+function testRuleTransformReplaceOrderAndContextFlow() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/rewrite-flow",
+		transform(context) {
+			return {
+				code: context.source.replace("MARKER_A", "MARKER_B"),
+			};
+		},
+		replace(context) {
+			return [
+				{
+					pattern: "MARKER_B",
+					replacement: "MARKER_C",
+				},
+			];
+		},
+		validate(context) {
+			return context.source.includes("MARKER_C") ?
+					[]
+				:	[
+						{
+							ruleId: "user/rewrite-flow",
+							code: "rewrite-missing",
+							severity: "error",
+							message: "rewrite pipeline did not apply.",
+						},
+					];
+		},
+		inject(context) {
+			return context.source.includes("MARKER_C") ?
+					{
+						header: "const REWRITE_OK: bool = true;",
+					}
+				:	null;
+		},
+	});
+	const result = runtime.process({
+		code: `// MARKER_A
+@vertex
+fn vsMain() -> @builtin(position) vec4<f32> {
+	return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "RuleTransformReplaceFlow",
+		sourceKind: "custom-material",
+	});
+	assert.equal(result.hasErrors, false);
+	assert.ok(result.code.includes("MARKER_C"));
+	assert.ok(result.code.includes("const REWRITE_OK: bool = true;"));
+}
+
+async function testAsyncRewriteFailFastAndNoPartialCache() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	let shouldFail = true;
+	let validateCalls = 0;
+	runtime.registerRule({
+		id: "user/async-rewrite-fail",
+		async transform(context) {
+			if (shouldFail) {
+				shouldFail = false;
+				throw new Error("boom");
+			}
+			return {
+				code: `${context.source}\n// rewrite-ok`,
+			};
+		},
+	});
+	runtime.registerRule({
+		id: "user/async-rewrite-observer",
+		validate() {
+			validateCalls++;
+			return [];
+		},
+	});
+	const request = {
+		code: WGSL_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "AsyncRewriteFailFast",
+		sourceKind: "custom-material",
+	};
+	await assert.rejects(
+		() => runtime.processAsync(request),
+		/async-rewrite-fail\" transform hook failed/
+	);
+	assert.equal(validateCalls, 0);
+	const recovered = await runtime.processAsync(request);
+	assert.equal(recovered.fromCache, false);
+	assert.ok(recovered.code.includes("// rewrite-ok"));
+	assert.equal(validateCalls, 1);
+}
+
+function testSourceMapColumnSpansAndSchemaVersion() {
+	const directMap = {
+		schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
+		lineCount: 1,
+		segments: [
+			{
+				generatedLineStart: 1,
+				generatedLineEnd: 1,
+				generatedColumnStart: 5,
+				generatedColumnEnd: 9,
+				sourcePath: "virtual/source.wgsl",
+				sourceLineStart: 7,
+				sourceLineEnd: 7,
+				sourceColumnStart: 10,
+				sourceColumnEnd: 14,
+				kind: "source",
+			},
+		],
+	};
+	const mapped = mapShaderGeneratedLocation(directMap, 1, 7);
+	assert.ok(mapped);
+	assert.equal(mapped.sourcePath, "virtual/source.wgsl");
+	assert.equal(mapped.sourceLine, 7);
+	assert.equal(mapped.sourceColumn, 12);
+
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	const processed = runtime.process({
+		code: GLSL_SOURCE,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "SourceMapSchemaVersion",
+		sourceKind: "custom-material",
+	});
+	assert.equal(processed.sourceMap.schemaVersion, SOURCE_MAP_SCHEMA_VERSION);
+}
+
+function testWGSLAfterBindingsMultilineAnchors() {
+	const runtime = new ShaderRuntime({ mode: "warn" });
+	runtime.registerRule({
+		id: "user/wgsl-after-bindings-multiline",
+		inject() {
+			return {
+				header: "// wgsl after multiline bindings",
+				headerAnchor: "afterBindings",
+			};
+		},
+	});
+	const result = runtime.process({
+		code: WGSL_MULTILINE_BINDING_SOURCE,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "vsMain",
+		label: "WGSLAfterBindingsMultiline",
+		sourceKind: "custom-material",
+	});
+	assert.ok(
+		result.code.includes(
+			"var textureSampler: sampler;\n// wgsl after multiline bindings"
+		)
+	);
+	const anchors = runtime.resolveInjectionAnchors({
+		code: WGSL_MULTILINE_BINDING_SOURCE,
+		language: "wgsl",
+	});
+	assert.ok(anchors.anchors.afterBindings >= anchors.anchors.afterStruct);
+}
+
 async function testDirectiveSyncAsyncParityForSyncScripts() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	runtime.registerInjectionScript({
@@ -1382,10 +1658,16 @@ async function run() {
 	testChangeEventsAndSourceHashValidation();
 	testDirectiveIncludeImportAndMacros();
 	testDirectiveIncludeNestedMissingCycleAndDedup();
-	testDirectiveMacroDoesNotTouchCommentsAndStrings();
-	testDirectiveGLSLDefineIsConsumed();
-	testDirectiveFunctionMacroAndRedefinition();
-	await testDirectiveSyncAsyncParityForSyncScripts();
+		testDirectiveMacroDoesNotTouchCommentsAndStrings();
+		testDirectiveGLSLDefineIsConsumed();
+		testDirectiveFunctionMacroAndRedefinition();
+		testDirectiveConditionalCompilationAndUndefPersistence();
+		testDirectiveConditionalExpressionBigIntAndDiagnostics();
+		testRuleTransformReplaceOrderAndContextFlow();
+		await testAsyncRewriteFailFastAndNoPartialCache();
+		testSourceMapColumnSpansAndSchemaVersion();
+		testWGSLAfterBindingsMultilineAnchors();
+		await testDirectiveSyncAsyncParityForSyncScripts();
 	testDirectiveProcessRejectsAsyncInjectScriptInSyncPath();
 	testDirectiveUnknownInjectByMode();
 	testDirectiveChangeEventsFineGrained();
