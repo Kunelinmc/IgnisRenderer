@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "../src/foundation/Logger.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -45,6 +46,25 @@ function createPerspectiveFrameContext(features = {}) {
 		features,
 		transient: new Map(),
 	};
+}
+
+async function captureWarnMessagesAsync(run) {
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		await run();
+	} finally {
+		Logger.reset();
+	}
+	return warnings;
 }
 
 async function testTAAExecutePassReportsHistoryUpdate() {
@@ -108,12 +128,8 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 }
 
 async function testOrthographicTemporalPassesSkipAndReturnFalse() {
-	const warnings = [];
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(
-		backend,
-		(key, message) => warnings.push([key, message])
-	);
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const frameContext = {
 		camera: {
 			type: "orthographic",
@@ -123,32 +139,44 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	};
 	const frameBinding = { label: "frame-binding" };
 
-	const ssrResult = await runtime.executePass({
-		passId: "ssr",
-		encoder: new FakeEncoder(),
-		targets: createTemporalTargets(),
-		frameContext,
-		historyValid: true,
-		frameBinding,
-	});
-	assert.equal(ssrResult.ran, false);
-	assert.equal(ssrResult.historyUpdated, false);
+	const warnings = await captureWarnMessagesAsync(async () => {
+		const ssrResult = await runtime.executePass({
+			passId: "ssr",
+			encoder: new FakeEncoder(),
+			targets: createTemporalTargets(),
+			frameContext,
+			historyValid: true,
+			frameBinding,
+		});
+		assert.equal(ssrResult.ran, false);
+		assert.equal(ssrResult.historyUpdated, false);
 
-	const volumetricResult = await runtime.executePass({
-		passId: "volumetric",
-		encoder: new FakeEncoder(),
-		targets: createTemporalTargets(),
-		frameContext,
-		historyValid: true,
-		frameBinding,
-		lightingState: null,
+		const volumetricResult = await runtime.executePass({
+			passId: "volumetric",
+			encoder: new FakeEncoder(),
+			targets: createTemporalTargets(),
+			frameContext,
+			historyValid: true,
+			frameBinding,
+			lightingState: null,
+		});
+		assert.equal(volumetricResult.ran, false);
+		assert.equal(volumetricResult.historyUpdated, false);
 	});
-	assert.equal(volumetricResult.ran, false);
-	assert.equal(volumetricResult.historyUpdated, false);
 
 	assert.equal(warnings.length, 2);
-	assert.equal(warnings[0][0], "webgpu-ssr-orthographic-disabled");
-	assert.equal(warnings[1][0], "webgpu-volumetric-orthographic-disabled");
+	assert.equal(
+		warnings.some((warning) =>
+			warning.includes("[webgpu-ssr-orthographic-disabled]")
+		),
+		true
+	);
+	assert.equal(
+		warnings.some((warning) =>
+			warning.includes("[webgpu-volumetric-orthographic-disabled]")
+		),
+		true
+	);
 }
 
 async function testHiZMipViewsAreCachedAcrossSSRExecutions() {

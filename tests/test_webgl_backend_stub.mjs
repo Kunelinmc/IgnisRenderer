@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "../src/foundation/Logger.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 
@@ -196,6 +197,25 @@ function createRendererBridge() {
 	};
 }
 
+function captureWarnMessages(run) {
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		run();
+	} finally {
+		Logger.reset();
+	}
+	return warnings;
+}
+
 async function testInitRequiresWebGL2() {
 	const backend = new WebGLBackend();
 	const { bridge } = createRendererBridge();
@@ -299,24 +319,26 @@ async function testInitAndPassRouting() {
 
 async function testContextLostAndRestored() {
 	const backend = new WebGLBackend();
-	const { bridge, warnings } = createRendererBridge();
+	const { bridge } = createRendererBridge();
 	backend.setRenderer(bridge);
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
 	await backend.init(canvas);
 
 	const originalExecutor = backend._frameExecutor;
 	let prevented = false;
-	canvas.dispatch("webglcontextlost", {
-		preventDefault() {
-			prevented = true;
-		},
-	});
-	assert.equal(prevented, true);
-	assert.equal(backend._contextLost, true);
+	const warnings = captureWarnMessages(() => {
+		canvas.dispatch("webglcontextlost", {
+			preventDefault() {
+				prevented = true;
+			},
+		});
+		assert.equal(prevented, true);
+		assert.equal(backend._contextLost, true);
 
-	canvas.dispatch("webglcontextrestored", {});
-	assert.equal(backend._contextLost, false);
-	assert.notStrictEqual(backend._frameExecutor, originalExecutor);
+		canvas.dispatch("webglcontextrestored", {});
+		assert.equal(backend._contextLost, false);
+		assert.notStrictEqual(backend._frameExecutor, originalExecutor);
+	});
 
 	assert.equal(
 		warnings.some((warning) => warning.includes("context was lost")),

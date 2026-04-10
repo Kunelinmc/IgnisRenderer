@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 import { BasicMaterial, AlphaMode } from "../src/materials/index.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../src/renderers/SoftwareBackend.ts";
@@ -30,6 +31,25 @@ function createRendererBridge(camera, warnings) {
 			},
 		},
 	};
+}
+
+async function captureWarnMessagesAsync(run) {
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		await run();
+	} finally {
+		Logger.reset();
+	}
+	return warnings;
 }
 
 function createContext(backend, camera, packetsByStage = {}) {
@@ -304,11 +324,12 @@ async function testTileModeFallsBackWhenWorkerUnavailable() {
 	globalThis.Worker = undefined;
 
 	try {
-		const warnings = [];
 		const backend = new SoftwareBackend({
 			rasterMode: "tile",
 		});
-		await renderPass(backend, "main-opaque", { opaquePackets: [] }, warnings);
+		const warnings = await captureWarnMessagesAsync(async () => {
+			await renderPass(backend, "main-opaque", { opaquePackets: [] }, []);
+		});
 		assert.equal(backend.requestedRasterMode, "tile");
 		assert.equal(backend.activeRasterMode, "scanline");
 		assert.ok(
@@ -412,7 +433,6 @@ async function testTileModeFallsBackOnWorkerTaskError() {
 		const scheduler = createMockScheduler({
 			throwOnSchedule: true,
 		});
-		const warnings = [];
 		const packet = createTrianglePacket("opaque-blue", {
 			r: 32,
 			g: 64,
@@ -428,14 +448,16 @@ async function testTileModeFallsBackOnWorkerTaskError() {
 			},
 		});
 
-		await renderPass(
-			backend,
-			"main-opaque",
-			{
-				opaquePackets: [packet],
-			},
-			warnings
-		);
+		const warnings = await captureWarnMessagesAsync(async () => {
+			await renderPass(
+				backend,
+				"main-opaque",
+				{
+					opaquePackets: [packet],
+				},
+				[]
+			);
+		});
 
 		assert.equal(backend.activeRasterMode, "scanline");
 		assert.ok(

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "../src/foundation/Logger.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { WebGPUPipelineLibrary } from "../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
 import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
@@ -81,6 +82,25 @@ function getChunkCode(material, selector) {
 		);
 	});
 	return chunk?.code;
+}
+
+async function captureWarnMessagesAsync(run) {
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		await run();
+	} finally {
+		Logger.reset();
+	}
+	return warnings;
 }
 
 async function testWGSLProgramSelection() {
@@ -239,15 +259,18 @@ async function testWarnModeFallbackToBuiltinShader() {
 		fragmentSingleEntryPoint: "customFsSingle",
 	});
 
-	const pipeline = await library.getPipeline(material, "single");
+	let pipeline = null;
+	const warnings = await captureWarnMessagesAsync(async () => {
+		pipeline = await library.getPipeline(material, "single");
+	});
 	assert.equal(pipeline.desc.vertex.entryPoint, "vsMain");
 	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainSingle");
 	assert.ok(
 		backend.shaderModules.some((module) => module.label === "WebGPUSceneShader")
 	);
 	assert.ok(
-		backend.warnings.some((warning) =>
-			warning.key.startsWith("webgpu-shader-material-compile-failed-")
+		warnings.some((warning) =>
+			warning.includes("[webgpu-shader-material-compile-failed-")
 		)
 	);
 }
