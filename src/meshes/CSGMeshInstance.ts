@@ -6,6 +6,7 @@ import { CSGBuilder, normalizeGraphInput, type CSGGraphInput } from "../csg/CSGB
 import { buildCSGMeshAsset } from "../csg/solvers";
 import type {
 	CSGBuildOptions,
+	CSGExecutor,
 	CSGExecutionMode,
 	CSGGraph,
 	CSGPhysicsSyncMode,
@@ -17,6 +18,7 @@ export interface CSGMeshInstanceParams extends Omit<MeshInstanceParams, "mesh"> 
 	graph?: CSGGraphInput;
 	mesh?: MeshAsset;
 	buildOptions?: CSGBuildOptions;
+	executor?: CSGExecutor | null;
 	solverPreference?: CSGSolverPreference;
 	executionMode?: CSGExecutionMode;
 	physicsSync?: CSGPhysicsSyncMode;
@@ -29,6 +31,7 @@ export class CSGMeshInstance extends MeshInstance {
 
 	private _graph: CSGGraph | null;
 	private _buildOptions: CSGBuildOptions;
+	private _executor: CSGExecutor | null;
 	private _solverPreference: CSGSolverPreference;
 	private _executionMode: CSGExecutionMode;
 	private _dirty: boolean;
@@ -43,6 +46,7 @@ export class CSGMeshInstance extends MeshInstance {
 		});
 		this._graph = params.graph ? normalizeGraphInput(params.graph) : null;
 		this._buildOptions = { ...(params.buildOptions ?? {}) };
+		this._executor = params.executor ?? null;
 		this._solverPreference = params.solverPreference ?? "auto";
 		this._executionMode = params.executionMode ?? "sync";
 		this.physicsSync = params.physicsSync ?? "off";
@@ -60,6 +64,10 @@ export class CSGMeshInstance extends MeshInstance {
 
 	public get executionMode(): CSGExecutionMode {
 		return this._executionMode;
+	}
+
+	public get executor(): CSGExecutor | null {
+		return this._executor;
 	}
 
 	public getGraph(): CSGGraph | null {
@@ -81,6 +89,11 @@ export class CSGMeshInstance extends MeshInstance {
 
 	public setExecutionMode(mode: CSGExecutionMode): this {
 		this._executionMode = mode;
+		return this;
+	}
+
+	public setExecutor(executor: CSGExecutor | null): this {
+		this._executor = executor;
 		return this;
 	}
 
@@ -129,16 +142,24 @@ export class CSGMeshInstance extends MeshInstance {
 			solverPreference: options.solverPreference ?? this._solverPreference,
 		};
 
-		if (this._executionMode === "worker") {
-			return Promise.resolve().then(() => this._flushNow(token, buildOptions, true));
+		if (this._executionMode === "worker" && this._executor) {
+			return this._executor
+				.execute(this._graph, buildOptions)
+				.then((result) => this._applyAsyncResult(token, result));
 		}
-		return this._flushNow(token, buildOptions, false);
+
+		if (this._executionMode === "worker") {
+			return Promise.resolve().then(() =>
+				this._applyAsyncResult(token, this._buildSyncResult(buildOptions, true))
+			);
+		}
+
+		return this._applyResult(token, this._buildSyncResult(buildOptions, false));
 	}
 
-	private _flushNow(
-		token: number,
+	private _buildSyncResult(
 		options: CSGBuildOptions,
-		asynchronous: boolean,
+		fromWorkerFallback: boolean,
 	): CSGRebuildResult {
 		if (!this._graph) {
 			return {
@@ -159,7 +180,7 @@ export class CSGMeshInstance extends MeshInstance {
 		}
 
 		const result = buildCSGMeshAsset(this._graph, options);
-		if (asynchronous) {
+		if (fromWorkerFallback) {
 			result.diagnostics.push({
 				code: "csg-worker-fallback-sync",
 				message: Platform.hasWorker()
@@ -168,6 +189,17 @@ export class CSGMeshInstance extends MeshInstance {
 				severity: "warning",
 			});
 		}
+		return result;
+	}
+
+	private _applyAsyncResult(
+		token: number,
+		result: CSGRebuildResult
+	): CSGRebuildResult {
+		return this._applyResult(token, result);
+	}
+
+	private _applyResult(token: number, result: CSGRebuildResult): CSGRebuildResult {
 		if (token !== this._latestRequestedToken) {
 			return {
 				...result,
@@ -215,6 +247,7 @@ export class CSGMeshInstance extends MeshInstance {
 			mesh: this.mesh,
 			graph: this._graph ? new CSGBuilder(this._graph).getGraph() : undefined,
 			buildOptions: { ...this._buildOptions },
+			executor: this._executor,
 			solverPreference: this._solverPreference,
 			executionMode: this._executionMode,
 			physicsSync: this.physicsSync,
@@ -227,6 +260,7 @@ export class CSGMeshInstance extends MeshInstance {
 		if (!(target instanceof CSGMeshInstance)) return;
 		target._graph = this._graph ? new CSGBuilder(this._graph).getGraph() : null;
 		target._buildOptions = { ...this._buildOptions };
+		target._executor = this._executor;
 		target._solverPreference = this._solverPreference;
 		target._executionMode = this._executionMode;
 		target.physicsSync = this.physicsSync;

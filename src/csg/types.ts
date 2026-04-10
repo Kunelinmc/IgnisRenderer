@@ -81,3 +81,7 @@ export interface CSGSolverAdapter {
 	id: string;
 	solve(request: CSGSolveRequest): CSGSolveResult;
 }
+
+export interface CSGExecutor {
+	execute(graph: CSGGraph, options: CSGBuildOptions): Promise<CSGRebuildResult>;
+}

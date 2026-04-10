@@ -9,6 +9,7 @@ export type {
 	CSGBuildOptions,
 	CSGDiagnostic,
 	CSGDiagnosticSeverity,
+	CSGExecutor,
 	CSGExecutionMode,
 	CSGGraph,
 	CSGLeafNode,

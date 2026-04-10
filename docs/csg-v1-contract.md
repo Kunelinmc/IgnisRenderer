@@ -25,6 +25,8 @@ The public surface must provide:
 - `CSGMeshInstance.setGraph(input): this`
 - `CSGMeshInstance.setSolverPreference(value): this`
 - `CSGMeshInstance.setExecutionMode(value): this`
+- `CSGMeshInstance.setExecutor(value): this`
+- `CSGExecutor.execute(graph, options): Promise<CSGRebuildResult>`
 
 Behavioral requirements:
 
@@ -49,6 +51,7 @@ replaced, and render backends must re-upload geometry when version changes.
 ```ts
 import {
 	CSG,
+	buildCSGMeshAsset,
 	CSGMeshInstance,
 	MeshFactory,
 	Material,
@@ -74,6 +77,14 @@ const csgMesh = new CSGMeshInstance({
 	graph: CSG.from(left).subtract(right),
 	physicsSync: "off",
 });
+
+const executor = {
+	execute(graph, options) {
+		return Promise.resolve(buildCSGMeshAsset(graph, options));
+	},
+};
+
+csgMesh.setExecutionMode("worker").setExecutor(executor);
 
 // Optional manual rebuild (sync by default)
 const result = csgMesh.flushCSG({ maxOutputTriangles: 100000 });
