@@ -111,10 +111,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
 			mode: this.requestedRasterMode,
 			tile: this._options.tile,
-			warn: (key, message) =>
-				renderer.logger.warn(`[${key}] ${message}`, {
-					scope: "SoftwareBackend",
-				}),
 		});
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
