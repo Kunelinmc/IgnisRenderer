@@ -350,6 +350,7 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
 	private _scanlineFallback: ScanlineMainRasterExecutor;
+	private _warn: ((key: string, message: string) => void) | null;
 	private _tileSize: number;
 	private _workerCount: number;
 	private _scheduler: typeof globalWorkerScheduler;
@@ -362,10 +363,11 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	public constructor(
 		rasterizer: Rasterizer,
 		tileOptions: SoftwareTileOptions = {},
-		_warn: ((key: string, message: string) => void) | null = null
+		warn: ((key: string, message: string) => void) | null = null
 	) {
 		this._rasterizer = rasterizer;
 		this._scanlineFallback = new ScanlineMainRasterExecutor(rasterizer);
+		this._warn = warn;
 		this._tileSize = Math.max(
 			1,
 			Math.floor(tileOptions.tileSize ?? DEFAULT_SOFTWARE_TILE_SIZE)
@@ -551,6 +553,11 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			}
 		}
 		this._poolOwned = false;
+		try {
+			this._warn?.(key, message);
+		} catch {
+			// Ignore warning callback failures during raster fallback.
+		}
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "SoftwareMainPass",
 			onceKey: key,
