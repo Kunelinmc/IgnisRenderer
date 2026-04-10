@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 
 function createFakeGL() {
 	let textureId = 0;
@@ -45,22 +46,32 @@ function createFakeGL() {
 
 function testUploadSHAmbientCoefficients() {
 	const warnings = [];
-	const executor = new WebGLFrameExecutor(createFakeGL(), (key, message) => {
-		warnings.push({ key, message });
+	const executor = new WebGLFrameExecutor(createFakeGL());
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
 	});
+	try {
+		const coeffs = Array.from({ length: 16 }, (_, index) => ({
+			r: index + 1,
+			g: index + 2,
+			b: index + 3,
+		}));
 
-	const coeffs = Array.from({ length: 16 }, (_, index) => ({
-		r: index + 1,
-		g: index + 2,
-		b: index + 3,
-	}));
-
-	const uploaded = executor._uploadSHAmbientCoefficients(coeffs);
-	assert.equal(uploaded, true);
-	assert.ok(executor._shAmbientTexture);
-	assert.equal(executor._shAmbientTextureWidth, 16);
-	assert.equal(executor._shAmbientTextureHeight, 1);
-	assert.equal(warnings.length, 0);
+		const uploaded = executor._uploadSHAmbientCoefficients(coeffs);
+		assert.equal(uploaded, true);
+		assert.ok(executor._shAmbientTexture);
+		assert.equal(executor._shAmbientTextureWidth, 16);
+		assert.equal(executor._shAmbientTextureHeight, 1);
+		assert.equal(warnings.length, 0);
+	} finally {
+		Logger.reset();
+	}
 }
 
 function run() {

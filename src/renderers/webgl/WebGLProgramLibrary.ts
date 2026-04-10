@@ -325,7 +325,7 @@ export class WebGLProgramLibrary {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		warn: (key: string, message: string) => void,
+		warn?: (key: string, message: string) => void,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
 		shaderSourceFactory?: WebGLShaderSourceFactory

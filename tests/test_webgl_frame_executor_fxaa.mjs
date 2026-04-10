@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 
 function createFXAATestGL() {
 	const calls = [];
@@ -228,9 +229,28 @@ function createFrameTargetTestGL(options = {}) {
 	};
 }
 
+function captureWarnMessages(run) {
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+		resetOnceKeys: true,
+	});
+	try {
+		run();
+	} finally {
+		Logger.reset();
+	}
+	return warnings;
+}
+
 function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 	const sceneColor = { id: "scene-color" };
 	const taaHistory = { id: "taa-history" };
 	const postColor = { id: "post-color" };
@@ -275,13 +295,11 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 }
 
 function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
-	const warnings = [];
 	const gl = createFrameTargetTestGL({ floatExtension: false });
-	const executor = new WebGLFrameExecutor(gl, (key, message) =>
-		warnings.push({ key, message })
-	);
-
-	executor._ensureFrameTargets(320, 180);
+	const warnings = captureWarnMessages(() => {
+		const executor = new WebGLFrameExecutor(gl);
+		executor._ensureFrameTargets(320, 180);
+	});
 
 	assert.equal(
 		gl.texImage2DCalls.some((call) => call.internalFormat === gl.RGBA16F),
@@ -289,7 +307,7 @@ function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	);
 	assert.ok(
 		warnings.some(
-			(warning) => warning.key === "webgl-motion-float-unsupported"
+			(warning) => warning.includes("[webgl-motion-float-unsupported]")
 		)
 	);
 }
@@ -299,7 +317,7 @@ function testSceneFramebufferFailureCleansAllAllocatedTargets() {
 		floatExtension: true,
 		frameStatuses: [0x8cd6],
 	});
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 
 	assert.throws(
 		() => executor._ensureFrameTargets(256, 256),
@@ -312,7 +330,7 @@ function testSceneFramebufferFailureCleansAllAllocatedTargets() {
 
 function testEndFramePrunesStaleModelMatrixCache() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 
 	executor._modelMatrixCache.set("keep", new Float32Array(16));
 	executor._modelMatrixCache.set("drop", new Float32Array(16));
@@ -325,24 +343,26 @@ function testEndFramePrunesStaleModelMatrixCache() {
 }
 
 function testShadowSkinningWarningKeyIsStable() {
-	const warnings = [];
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, (key, message) =>
-		warnings.push({ key, message })
-	);
+	const executor = new WebGLFrameExecutor(gl);
+	const warnings = captureWarnMessages(() => {
+		executor._drawShadowPacket(
+			{ uniforms: { mvp: null } },
+			{ meshInstance: { id: "mesh-a", skeleton: {} } },
+			{}
+		);
+	});
 
-	executor._drawShadowPacket(
-		{ uniforms: { mvp: null } },
-		{ meshInstance: { id: "mesh-a", skeleton: {} } },
-		{}
+	assert.ok(
+		warnings.some(
+			(warning) => warning.includes("[webgl-shadow-skinning-unsupported]")
+		)
 	);
-
-	assert.equal(warnings[0]?.key, "webgl-shadow-skinning-unsupported");
 }
 
 function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 	executor._sceneFramebuffer = { id: "scene-fbo" };
 	executor._sceneNormalTexture = { id: "normal" };
 	executor._programs = {
@@ -394,7 +414,7 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 
 function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 	executor._programs = {
 		getTAAProgram() {
 			return {
@@ -456,7 +476,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 
 function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 	executor._programs = {
 		getSSAORawProgram() {
 			return { program: { id: "ssao-raw" }, uniforms: {} };
@@ -511,7 +531,7 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 
 function testGlobalUniformsBindLightProbeIBLTextures() {
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, () => {});
+	const executor = new WebGLFrameExecutor(gl);
 	const envTexture = { id: "env-specular" };
 	const brdfTexture = { id: "brdf-lut" };
 	const envProbeMap = {
@@ -580,11 +600,8 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 }
 
 function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
-	const warnings = [];
 	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl, (key, message) =>
-		warnings.push({ key, message })
-	);
+	const executor = new WebGLFrameExecutor(gl);
 
 	executor._lightState = {
 		ambientColor: [0, 0, 0],
@@ -647,7 +664,9 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 		},
 	};
 
-	executor._bindGlobalUniforms(sceneProgram, context);
+	const warnings = captureWarnMessages(() => {
+		executor._bindGlobalUniforms(sceneProgram, context);
+	});
 
 	const matrixUploads = gl.calls.filter(
 		(call) =>
@@ -675,7 +694,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 
 	assert.ok(
 		warnings.some(
-			(warning) => warning.key === "webgl-camera-view-projection-invalid"
+			(warning) => warning.includes("[webgl-camera-view-projection-invalid]")
 		)
 	);
 }

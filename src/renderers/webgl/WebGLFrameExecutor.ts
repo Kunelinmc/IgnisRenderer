@@ -266,7 +266,6 @@ export class WebGLFrameExecutor {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		_warn: (key: string, message: string) => void,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
 		shaderSourceFactory?: WebGLShaderSourceFactory
@@ -274,13 +273,13 @@ export class WebGLFrameExecutor {
 		this._gl = gl;
 		this._programs = new WebGLProgramLibrary(
 			gl,
-			_warn,
+			undefined,
 			shaderRuntime,
 			shaderCompileStage,
 			shaderSourceFactory
 		);
-		this._geometry = new WebGLGeometryRegistry(gl, _warn);
-		this._textures = new WebGLTextureRegistry(gl, _warn);
+		this._geometry = new WebGLGeometryRegistry(gl);
+		this._textures = new WebGLTextureRegistry(gl);
 		this._fullscreenVao = gl.createVertexArray();
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._maxRenderbufferSize = this._resolveLimit(

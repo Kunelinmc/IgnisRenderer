@@ -307,7 +307,6 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
-			() => {},
 			this.shaderRuntime,
 			this._shaderCompileStage,
 			this._shaderSourceFactory
