@@ -20,10 +20,11 @@ export class PostProcessSharedContext {
 
 	constructor(
 		compute: IWebGPUComputeFacade,
-		_warn: (key: string, message: string) => void,
+		warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
 		this._compute = compute;
+		void warn;
 		this._frameBindGroupLayout = frameBindGroupLayout || null;
 	}
 
