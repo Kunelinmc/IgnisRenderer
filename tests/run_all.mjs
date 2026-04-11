@@ -34,6 +34,8 @@ const tests = [
 	"test_scene_bounds_cache.mjs",
 	"test_prepared_scene_cache.mjs",
 	"test_prepared_scene_spatial_index_bvh.mjs",
+	"test_spatial_hybrid_index.mjs",
+	"test_scene_spatial_mode_hybrid.mjs",
 	"test_geometry_registry_versioning.mjs",
 	"test_csg_core.mjs",
 	"test_csg_mesh_instance.mjs",
