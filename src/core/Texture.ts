@@ -6,7 +6,10 @@ export type TextureFilter =
 	| "Nearest"
 	| "Linear"
 	| "NearestMipmapNearest"
-	| string;
+	| "NearestMipmapLinear"
+	| "LinearMipmapNearest"
+	| "LinearMipmapLinear";
+
 export type TextureWrap = "Repeat" | "Clamp" | "MirroredRepeat";
 
 /**
