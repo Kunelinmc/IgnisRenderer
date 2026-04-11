@@ -1,6 +1,12 @@
 import type { BoundingBox } from "../core/types";
 import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
+import type {
+	SpatialIndex3D,
+	SpatialQueryOptions,
+	SpatialRayHit,
+	SpatialRayQueryOptions,
+} from "./types";
 
 export interface SpatialNode {
 	bounds: BoundingBox;
@@ -10,21 +16,9 @@ export interface SpatialNode {
 	objectBounds?: BoundingBox[];
 }
 
-export interface BVHQueryOptions {
-	maxResults?: number;
-	includeInvisible?: boolean;
-}
-
-export interface BVHRayQueryOptions {
-	maxResults?: number;
-	includeInvisible?: boolean;
-	maxDistance?: number;
-}
-
-export interface BVHRayHit {
-	meshInstance: MeshInstance;
-	distance: number;
-}
+export type BVHQueryOptions = SpatialQueryOptions;
+export type BVHRayQueryOptions = SpatialRayQueryOptions;
+export type BVHRayHit = SpatialRayHit;
 
 interface SpatialBuildEntry {
 	meshInstance: MeshInstance;
@@ -40,7 +34,7 @@ const FRUSTUM_OUTSIDE = -1;
 const FRUSTUM_INTERSECT = 0;
 const FRUSTUM_INSIDE = 1;
 
-export class BVH {
+export class BVH implements SpatialIndex3D {
 	private _root: SpatialNode | null;
 	private readonly _leafSize: number;
 	private _entries: SpatialBuildEntry[];

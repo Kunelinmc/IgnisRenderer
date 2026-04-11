@@ -8,7 +8,13 @@ import type { SceneLight } from "../lights";
 import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
 import { ECSWorld } from "../ecs";
-import { BVH } from "../spatial/BVH";
+import {
+	BVH,
+	HybridSpatialIndex,
+	isDynamicSpatialMeshInstance,
+	type SpatialIndex3D,
+	type SpatialIndexMode,
+} from "../spatial";
 import {
 	renderDirtyReasonToMask,
 	type RenderDirtyReason,
@@ -20,6 +26,7 @@ const SPATIAL_MATRIX_EPSILON = 1e-8;
 interface SpatialMeshSignature {
 	mesh: MeshInstance["mesh"];
 	matrix: Float32Array;
+	dynamicState: boolean;
 }
 
 export class Scene {
@@ -27,7 +34,7 @@ export class Scene {
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
 	public skybox: Texture | null;
-	public spatial: BVH | null;
+	public spatial: SpatialIndex3D | null;
 
 	private _version: number;
 	private _dirtyReasonMask = 0;
@@ -37,6 +44,7 @@ export class Scene {
 		MeshInstance,
 		SpatialMeshSignature
 	>();
+	private _spatialIndexMode: SpatialIndexMode;
 
 	constructor() {
 		this.root = new Node({
@@ -47,6 +55,7 @@ export class Scene {
 		this.skybox = null;
 		this.spatial = null;
 		this._version = 0;
+		this._spatialIndexMode = "bvh";
 
 		this.root._scene = this;
 		const rootEntity = this.ecs.registerNode(this.root, null);
@@ -106,9 +115,29 @@ export class Scene {
 		return this.ecs.findParticleSystems();
 	}
 
-	public rebuildSpatialIndex(meshInstances: MeshInstance[]): BVH {
+	public get spatialIndexMode(): SpatialIndexMode {
+		return this._spatialIndexMode;
+	}
+
+	public set spatialIndexMode(mode: SpatialIndexMode) {
+		this.setSpatialIndexMode(mode);
+	}
+
+	public setSpatialIndexMode(mode: SpatialIndexMode): void {
+		if (mode !== "bvh" && mode !== "hybrid") {
+			throw new Error(`Unsupported spatial index mode: ${mode}`);
+		}
+		if (this._spatialIndexMode === mode) return;
+		this._spatialIndexMode = mode;
+		this.spatial = null;
+		this._spatialTrackedMeshInstances.clear();
+		this._spatialSignaturesByMeshInstance.clear();
+		this.invalidate("unknown");
+	}
+
+	public rebuildSpatialIndex(meshInstances: MeshInstance[]): SpatialIndex3D {
 		if (!this.spatial) {
-			const spatial = new BVH(meshInstances);
+			const spatial = this._createSpatialIndex(meshInstances);
 			this.spatial = spatial;
 			this._spatialTrackedMeshInstances = new Set(meshInstances);
 			this._spatialSignaturesByMeshInstance.clear();
@@ -341,6 +370,13 @@ export class Scene {
 			this._setSceneRecursive(child, scene);
 		}
 	}
+
+	private _createSpatialIndex(meshInstances: MeshInstance[]): SpatialIndex3D {
+		if (this._spatialIndexMode === "hybrid") {
+			return new HybridSpatialIndex(meshInstances);
+		}
+		return new BVH(meshInstances);
+	}
 }
 
 function hasLightType(value: unknown): value is SceneLight {
@@ -358,6 +394,7 @@ function createSpatialMeshSignature(
 	return {
 		mesh: meshInstance.mesh,
 		matrix: captureWorldMatrix(meshInstance.worldMatrix),
+		dynamicState: isDynamicSpatialMeshInstance(meshInstance),
 	};
 }
 
@@ -367,6 +404,11 @@ function updateSpatialMeshSignature(
 ): boolean {
 	let changed = signature.mesh !== meshInstance.mesh;
 	signature.mesh = meshInstance.mesh;
+	const dynamicState = isDynamicSpatialMeshInstance(meshInstance);
+	if (!changed && signature.dynamicState !== dynamicState) {
+		changed = true;
+	}
+	signature.dynamicState = dynamicState;
 
 	const elements = meshInstance.worldMatrix.elements;
 	const matrix = signature.matrix;
