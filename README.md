@@ -1,6 +1,6 @@
 # IgnisRenderer
 
-![Version](https://img.shields.io/badge/version-1.0.1-orange)
+![Version](https://img.shields.io/badge/version-1.0.2-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite)
