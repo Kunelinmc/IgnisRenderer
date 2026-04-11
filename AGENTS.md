@@ -20,6 +20,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 ### Commands
 - **Dev server**: `bun run dev`
 - **Build**: `bun run build`
+- **Global Type Check**: `bunx tsc --noEmit`
 - **Run all tests**: `bun run test`
 - **Run single test**: `bun tests/<file>.mjs`
 
