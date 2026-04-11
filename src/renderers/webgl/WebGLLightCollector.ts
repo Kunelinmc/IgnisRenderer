@@ -1,5 +1,5 @@
 import { clamp, sRGBToLinear } from "../../maths/Common";
-import type { Texture } from "../../core/Texture";
+import { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
