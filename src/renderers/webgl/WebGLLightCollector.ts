@@ -1,5 +1,6 @@
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { Texture } from "../../core/Texture";
+import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
 	type LightProbe,
@@ -100,13 +101,11 @@ export interface WebGLClusteredLight {
 	shadowIndex: number;
 }
 
-type WarnFn = (key: string, message: string) => void;
 const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 export function collectWebGLLights(
 	lights: SceneLight[],
 	enableLighting: boolean,
-	warn: WarnFn,
 	enableShadows = false,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowMap>,
 	enableSH = false,
@@ -142,7 +141,7 @@ export function collectWebGLLights(
 			}
 			case LightType.Directional: {
 				if (state.directionalLights.length >= WEBGL_MAX_DIRECTIONAL_LIGHTS) {
-					warn(
+					logWebGLLightCollectorWarning(
 						"webgl-directional-light-limit",
 						`WebGL forward shading supports at most ${WEBGL_MAX_DIRECTIONAL_LIGHTS} directional lights; extra lights are ignored`
 					);
@@ -191,7 +190,7 @@ export function collectWebGLLights(
 
 				if (state.pointLights.length >= WEBGL_MAX_POINT_LIGHTS) {
 					if (!enableClusteredLighting) {
-						warn(
+						logWebGLLightCollectorWarning(
 							"webgl-point-light-limit",
 							`WebGL forward shading supports at most ${WEBGL_MAX_POINT_LIGHTS} point lights; extra lights are ignored`
 						);
@@ -242,7 +241,7 @@ export function collectWebGLLights(
 
 				if (state.spotLights.length >= WEBGL_MAX_SPOT_LIGHTS) {
 					if (!enableClusteredLighting) {
-						warn(
+						logWebGLLightCollectorWarning(
 							"webgl-spot-light-limit",
 							`WebGL forward shading supports at most ${WEBGL_MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
 						);
@@ -261,7 +260,7 @@ export function collectWebGLLights(
 				break;
 			}
 			case LightType.LightProbe: {
-				collectLightProbe(state, light as LightProbe, enableSH, warn);
+				collectLightProbe(state, light as LightProbe, enableSH);
 				break;
 			}
 			case LightType.ReflectionProbe: {
@@ -269,7 +268,7 @@ export function collectWebGLLights(
 			}
 			case LightType.RectArea:
 			default: {
-				warn(
+				logWebGLLightCollectorWarning(
 					`webgl-light-unsupported-${light.type}`,
 					`WebGL backend does not support ${light.type} lights yet; ignoring this light`
 				);
@@ -308,14 +307,14 @@ export function collectWebGLLights(
 			};
 		});
 		state.reflectionProbeCount = state.reflectionProbes.length;
-		const atlas = resolveEnvSpecularMap(reflectionEnvironment.atlas, warn);
+		const atlas = resolveEnvSpecularMap(reflectionEnvironment.atlas);
 		if (atlas) {
 			state.envSpecularMap = atlas;
 		}
 	}
 
 	if (!state.envSpecularMap) {
-		state.envSpecularMap = resolveEnvironmentSkyboxMap(skybox, warn);
+		state.envSpecularMap = resolveEnvironmentSkyboxMap(skybox);
 		state.reflectionProbeCount = 0;
 		state.reflectionProbes = [];
 	}
@@ -326,8 +325,7 @@ export function collectWebGLLights(
 function collectLightProbe(
 	state: WebGLLightState,
 	light: LightProbe,
-	enableSH: boolean,
-	warn: WarnFn
+	enableSH: boolean
 ): void {
 	if (!enableSH) {
 		const dc = light.sh[0];
@@ -346,22 +344,19 @@ function collectLightProbe(
 	}
 }
 
-function resolveEnvSpecularMap(
-	texture: Texture | null,
-	warn: WarnFn
-): Texture | null {
+function resolveEnvSpecularMap(texture: Texture | null): Texture | null {
 	if (!texture) {
 		return null;
 	}
 	if (texture.isLoadErrorFallback) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-env-specular-load-error-fallback",
 			"WebGL environment specular texture resolved to a load-error fallback; skipping IBL specular."
 		);
 		return null;
 	}
 	if (!isTextureReadyForEnvironment(texture)) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-env-specular-texture-not-ready",
 			"WebGL environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular."
 		);
@@ -370,26 +365,30 @@ function resolveEnvSpecularMap(
 	return texture;
 }
 
-function resolveEnvironmentSkyboxMap(
-	texture: Texture | null,
-	warn: WarnFn
-): Texture | null {
+function resolveEnvironmentSkyboxMap(texture: Texture | null): Texture | null {
 	if (!texture) return null;
 	if (texture.isLoadErrorFallback) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-skybox-load-error-fallback",
 			"WebGL skybox texture resolved to a load-error fallback; skipping skybox IBL fallback."
 		);
 		return null;
 	}
 	if (!isTextureReadyForEnvironment(texture)) {
-		warn(
+		logWebGLLightCollectorWarning(
 			"webgl-skybox-texture-not-ready",
 			"WebGL skybox texture is not ready (missing pixels or invalid dimensions); skipping skybox IBL fallback."
 		);
 		return null;
 	}
 	return texture;
+}
+
+function logWebGLLightCollectorWarning(key: string, message: string): void {
+	Logger.warn(`[${key}] ${message}`, {
+		scope: "WebGLLightCollector",
+		onceKey: key,
+	});
 }
 
 function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {

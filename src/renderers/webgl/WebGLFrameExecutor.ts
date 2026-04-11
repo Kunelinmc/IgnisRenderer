@@ -313,11 +313,6 @@ export class WebGLFrameExecutor {
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
 			context.features.enableLighting,
-			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGLFrameExecutor",
-					onceKey: key,
-				}),
 			context.features.enableShadows,
 			context.shadowMaps,
 			context.features.enableSH,
