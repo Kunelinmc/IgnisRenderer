@@ -5,7 +5,7 @@ import {
 	UnlitMaterial,
 	UVChannel,
 } from "../materials";
-import type { Texture } from "../core/Texture";
+import type { Texture, TextureFilter } from "../core/Texture";
 import { Node } from "../core/Node";
 import { Matrix4 } from "../maths/Matrix4";
 import { Quaternion } from "../maths/Quaternion";
@@ -885,7 +885,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					if (sampler) {
 						if (sampler.magFilter === 9728) tex.magFilter = "Nearest";
 						else if (sampler.magFilter === 9729) tex.magFilter = "Linear";
-						const minFilters: Record<number, string> = {
+						const minFilters: Record<number, TextureFilter> = {
 							9728: "Nearest",
 							9729: "Linear",
 							9984: "NearestMipmapNearest",
