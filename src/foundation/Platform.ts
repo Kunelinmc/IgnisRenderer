@@ -62,6 +62,23 @@ export interface PlatformFeatureSummary {
 	hardwareConcurrency: number;
 }
 
+interface PlatformDetectionCache {
+	runtime?: PlatformRuntime;
+	isNodeRuntime?: boolean;
+	isBrowserRuntime?: boolean;
+	isTouchDevice?: boolean;
+	isMobileDevice?: boolean;
+	isWorkerRuntime?: boolean;
+	navigatorGPU?: PlatformNavigatorGPU | null;
+	hasWebGPU?: boolean;
+	hasWebGL2?: boolean;
+	hasWorker?: boolean;
+	hasOffscreenCanvas?: boolean;
+	hasSharedArrayBuffer?: boolean;
+	crossOriginIsolated?: boolean | null;
+	hardwareConcurrency?: number | null;
+}
+
 const DEFAULT_HARDWARE_CONCURRENCY_FALLBACK = 4;
 const MOBILE_USER_AGENT_PATTERN =
 	/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Windows Phone|Mobile/i;
@@ -78,14 +95,35 @@ function resolveFallbackConcurrency(fallback: number): number {
 }
 
 export class Platform {
+	private static readonly _detectionCache = new WeakMap<
+		object,
+		PlatformDetectionCache
+	>();
+
 	/**
 	 * Resolves the current runtime kind.
 	 */
 	public static resolveRuntime(scope: unknown = globalThis): PlatformRuntime {
-		if (Platform.isNodeRuntime(scope)) return "node";
-		if (Platform.isBrowserRuntime(scope)) return "browser";
-		if (Platform.isWorkerRuntime(scope)) return "worker";
-		return "unknown";
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedRuntime = cache?.runtime;
+		if (cachedRuntime !== undefined) {
+			return cachedRuntime;
+		}
+
+		let runtime: PlatformRuntime = "unknown";
+		if (Platform.isNodeRuntime(resolved)) {
+			runtime = "node";
+		} else if (Platform.isBrowserRuntime(resolved)) {
+			runtime = "browser";
+		} else if (Platform.isWorkerRuntime(resolved)) {
+			runtime = "worker";
+		}
+
+		if (cache) {
+			cache.runtime = runtime;
+		}
+		return runtime;
 	}
 
 	/**
@@ -93,6 +131,7 @@ export class Platform {
 	 */
 	public static detect(scope: unknown = globalThis): PlatformFeatureSummary {
 		const crossOriginIsolated = Platform.isCrossOriginIsolated(scope, false);
+		const hasSharedArrayBuffer = Platform.hasSharedArrayBuffer(scope);
 		return {
 			runtime: Platform.resolveRuntime(scope),
 			isNodeRuntime: Platform.isNodeRuntime(scope),
@@ -102,10 +141,10 @@ export class Platform {
 			hasWebGL2: Platform.hasWebGL2(scope),
 			hasWorker: Platform.hasWorker(scope),
 			hasOffscreenCanvas: Platform.hasOffscreenCanvas(scope),
-			hasSharedArrayBuffer: Platform.hasSharedArrayBuffer(scope),
+			hasSharedArrayBuffer,
 			crossOriginIsolated,
-			supportsSharedArrayBufferTransport:
-				Platform.hasSharedArrayBuffer(scope) && crossOriginIsolated,
+			supportsSharedArrayBufferTransport: hasSharedArrayBuffer &&
+				crossOriginIsolated,
 			hardwareConcurrency: Platform.getHardwareConcurrency(
 				DEFAULT_HARDWARE_CONCURRENCY_FALLBACK,
 				scope
@@ -117,8 +156,19 @@ export class Platform {
 	 * Returns true when running in Node.js.
 	 */
 	public static isNodeRuntime(scope: unknown = globalThis): boolean {
-		const nodeVersion = resolveScope(scope).process?.versions?.node;
-		return typeof nodeVersion === "string" && nodeVersion.length > 0;
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.isNodeRuntime;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const nodeVersion = resolved.process?.versions?.node;
+		const detected = typeof nodeVersion === "string" && nodeVersion.length > 0;
+		if (cache) {
+			cache.isNodeRuntime = detected;
+		}
+		return detected;
 	}
 
 	/**
@@ -126,8 +176,19 @@ export class Platform {
 	 */
 	public static isBrowserRuntime(scope: unknown = globalThis): boolean {
 		const resolved = resolveScope(scope);
-		if (!resolved.window || typeof resolved.window !== "object") return false;
-		return typeof resolved.document?.createElement === "function";
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.isBrowserRuntime;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const detected = !!resolved.window &&
+			typeof resolved.window === "object" &&
+			typeof resolved.document?.createElement === "function";
+		if (cache) {
+			cache.isBrowserRuntime = detected;
+		}
+		return detected;
 	}
 
 	/**
@@ -135,27 +196,50 @@ export class Platform {
 	 */
 	public static isTouchDevice(scope: unknown = globalThis): boolean {
 		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.isTouchDevice;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
 		const maxTouchPoints = resolved.navigator?.maxTouchPoints;
 		if (
 			typeof maxTouchPoints === "number" &&
 			Number.isFinite(maxTouchPoints) &&
 			maxTouchPoints > 0
 		) {
+			if (cache) {
+				cache.isTouchDevice = true;
+			}
 			return true;
 		}
 
 		const windowValue = resolved.window;
-		return !!windowValue && typeof windowValue === "object" &&
+		const detected = !!windowValue && typeof windowValue === "object" &&
 			"ontouchstart" in windowValue;
+		if (cache) {
+			cache.isTouchDevice = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when the current client appears to be a mobile device.
 	 */
 	public static isMobileDevice(scope: unknown = globalThis): boolean {
-		const navigatorValue = resolveScope(scope).navigator;
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.isMobileDevice;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const navigatorValue = resolved.navigator;
 		const mobileFromUserAgentData = navigatorValue?.userAgentData?.mobile;
 		if (typeof mobileFromUserAgentData === "boolean") {
+			if (cache) {
+				cache.isMobileDevice = mobileFromUserAgentData;
+			}
 			return mobileFromUserAgentData;
 		}
 
@@ -165,11 +249,19 @@ export class Platform {
 			userAgent.length > 0 &&
 			MOBILE_USER_AGENT_PATTERN.test(userAgent)
 		) {
+			if (cache) {
+				cache.isMobileDevice = true;
+			}
 			return true;
 		}
 
 		const platform = navigatorValue?.platform;
-		return platform === "MacIntel" && Platform.isTouchDevice(scope);
+		const detected = platform === "MacIntel" &&
+			Platform.isTouchDevice(resolved);
+		if (cache) {
+			cache.isMobileDevice = detected;
+		}
+		return detected;
 	}
 
 	/**
@@ -177,7 +269,18 @@ export class Platform {
 	 */
 	public static isWorkerRuntime(scope: unknown = globalThis): boolean {
 		const resolved = resolveScope(scope);
-		if (Platform.isNodeRuntime(resolved)) return false;
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.isWorkerRuntime;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		if (Platform.isNodeRuntime(resolved)) {
+			if (cache) {
+				cache.isWorkerRuntime = false;
+			}
+			return false;
+		}
 
 		const selfValue = resolved.self;
 		const workerGlobalScopeCtor = resolved.WorkerGlobalScope;
@@ -191,6 +294,9 @@ export class Platform {
 					selfValue instanceof
 					(workerGlobalScopeCtor as new (...args: never[]) => object)
 				) {
+					if (cache) {
+						cache.isWorkerRuntime = true;
+					}
 					return true;
 				}
 			} catch (_error) {
@@ -198,9 +304,13 @@ export class Platform {
 			}
 		}
 
-		return (
+		const detected = (
 			selfValue === resolved && typeof resolved.importScripts === "function"
 		);
+		if (cache) {
+			cache.isWorkerRuntime = detected;
+		}
+		return detected;
 	}
 
 	/**
@@ -209,58 +319,134 @@ export class Platform {
 	public static getNavigatorGPU(
 		scope: unknown = globalThis
 	): PlatformNavigatorGPU | null {
-		const navigatorValue = resolveScope(scope).navigator;
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.navigatorGPU;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const navigatorValue = resolved.navigator;
 		const gpu = navigatorValue?.gpu;
-		if (!gpu || typeof gpu !== "object") return null;
-		return gpu;
+		const detected = (!gpu || typeof gpu !== "object")
+			? null
+			: gpu;
+		if (cache) {
+			cache.navigatorGPU = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when WebGPU appears to be available.
 	 */
 	public static hasWebGPU(scope: unknown = globalThis): boolean {
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hasWebGPU;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
 		const gpu = Platform.getNavigatorGPU(scope);
-		return !!gpu && typeof gpu.requestAdapter === "function";
+		const detected = !!gpu && typeof gpu.requestAdapter === "function";
+		if (cache) {
+			cache.hasWebGPU = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when WebGL2 context creation appears to be available.
 	 */
 	public static hasWebGL2(scope: unknown = globalThis): boolean {
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hasWebGL2;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		let detected = false;
 		if (
 			Platform._canvasSupportsWebGL2(
-				Platform._createOffscreenCanvasProbe(scope)
+				Platform._createOffscreenCanvasProbe(resolved)
 			)
 		) {
-			return true;
+			detected = true;
 		}
+
 		if (
-			Platform._canvasSupportsWebGL2(Platform._createDocumentCanvasProbe(scope))
+			!detected &&
+			Platform._canvasSupportsWebGL2(
+				Platform._createDocumentCanvasProbe(resolved)
+			)
 		) {
-			return true;
+			detected = true;
 		}
-		return typeof resolveScope(scope).WebGL2RenderingContext === "function";
+
+		if (!detected) {
+			detected = typeof resolved.WebGL2RenderingContext === "function";
+		}
+
+		if (cache) {
+			cache.hasWebGL2 = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when Worker constructor is available.
 	 */
 	public static hasWorker(scope: unknown = globalThis): boolean {
-		return typeof resolveScope(scope).Worker === "function";
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hasWorker;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const detected = typeof resolved.Worker === "function";
+		if (cache) {
+			cache.hasWorker = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when OffscreenCanvas constructor is available.
 	 */
 	public static hasOffscreenCanvas(scope: unknown = globalThis): boolean {
-		return typeof resolveScope(scope).OffscreenCanvas === "function";
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hasOffscreenCanvas;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const detected = typeof resolved.OffscreenCanvas === "function";
+		if (cache) {
+			cache.hasOffscreenCanvas = detected;
+		}
+		return detected;
 	}
 
 	/**
 	 * Returns true when SharedArrayBuffer constructor is available.
 	 */
 	public static hasSharedArrayBuffer(scope: unknown = globalThis): boolean {
-		return typeof resolveScope(scope).SharedArrayBuffer === "function";
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hasSharedArrayBuffer;
+		if (cachedValue !== undefined) {
+			return cachedValue;
+		}
+
+		const detected = typeof resolved.SharedArrayBuffer === "function";
+		if (cache) {
+			cache.hasSharedArrayBuffer = detected;
+		}
+		return detected;
 	}
 
 	/**
@@ -270,9 +456,19 @@ export class Platform {
 		scope: unknown = globalThis,
 		unknownValue: boolean = false
 	): boolean {
-		const value = resolveScope(scope).crossOriginIsolated;
-		if (typeof value === "boolean") return value;
-		return unknownValue;
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.crossOriginIsolated;
+		if (cachedValue !== undefined) {
+			return cachedValue === null ? unknownValue : cachedValue;
+		}
+
+		const value = resolved.crossOriginIsolated;
+		const detected = typeof value === "boolean" ? value : null;
+		if (cache) {
+			cache.crossOriginIsolated = detected;
+		}
+		return detected === null ? unknownValue : detected;
 	}
 
 	/**
@@ -295,11 +491,40 @@ export class Platform {
 		fallback: number = DEFAULT_HARDWARE_CONCURRENCY_FALLBACK,
 		scope: unknown = globalThis
 	): number {
-		const navigatorValue = resolveScope(scope).navigator?.hardwareConcurrency;
-		if (!Number.isFinite(navigatorValue)) {
-			return resolveFallbackConcurrency(fallback);
+		const resolved = resolveScope(scope);
+		const cache = Platform._getDetectionCache(resolved);
+		const cachedValue = cache?.hardwareConcurrency;
+		if (cachedValue !== undefined) {
+			return cachedValue === null
+				? resolveFallbackConcurrency(fallback)
+				: cachedValue;
 		}
-		return Math.max(1, Math.floor(navigatorValue as number));
+
+		const navigatorValue = resolved.navigator?.hardwareConcurrency;
+		const detected = Number.isFinite(navigatorValue)
+			? Math.max(1, Math.floor(navigatorValue as number))
+			: null;
+		if (cache) {
+			cache.hardwareConcurrency = detected;
+		}
+		return detected === null
+			? resolveFallbackConcurrency(fallback)
+			: detected;
+	}
+
+	private static _getDetectionCache(
+		scope: PlatformScopeLike
+	): PlatformDetectionCache | null {
+		if (!scope || (typeof scope !== "object" && typeof scope !== "function")) {
+			return null;
+		}
+
+		let cached = Platform._detectionCache.get(scope as object);
+		if (!cached) {
+			cached = {};
+			Platform._detectionCache.set(scope as object, cached);
+		}
+		return cached;
 	}
 
 	private static _canvasSupportsWebGL2(

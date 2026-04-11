@@ -119,12 +119,40 @@ function testTouchAndMobileDetection() {
 	assert.equal(Platform.isMobileDevice(mobileFromUserAgentDataScope), true);
 }
 
+function testWebGL2DetectionCaching() {
+	let createElementCallCount = 0;
+	let getContextCallCount = 0;
+	const fakeScope = {
+		document: {
+			createElement(tagName) {
+				if (tagName !== "canvas") return {};
+				createElementCallCount += 1;
+				return {
+					getContext(contextId) {
+						if (contextId !== "webgl2") {
+							return null;
+						}
+						getContextCallCount += 1;
+						return { version: "webgl2" };
+					},
+				};
+			},
+		},
+	};
+
+	assert.equal(Platform.hasWebGL2(fakeScope), true);
+	assert.equal(Platform.hasWebGL2(fakeScope), true);
+	assert.equal(createElementCallCount, 1);
+	assert.equal(getContextCallCount, 1);
+}
+
 function run() {
 	testNodeRuntimeDetection();
 	testSyntheticBrowserScopeDetection();
 	testSyntheticWorkerScopeDetection();
 	testFallbackHardwareConcurrency();
 	testTouchAndMobileDetection();
+	testWebGL2DetectionCaching();
 	console.log("Platform detection tests passed");
 }
 
