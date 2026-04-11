@@ -4,23 +4,6 @@ import type {
 	ResolvedFeatureState,
 } from "./types";
 
-export type RenderDirtyReason =
-	| "unknown"
-	| "resize"
-	| "camera"
-	| "transform"
-	| "material"
-	| "texture"
-	| "lighting"
-	| "shadow"
-	| "postfx"
-	| "postfx-light"
-	| "postfx-standard"
-	| "postfx-cinematic"
-	| "interaction"
-	| "physics"
-	| "particles";
-
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
 	resize: 1 << 1,
@@ -39,7 +22,20 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"postfx-cinematic": 1 << 14,
 } as const;
 
-export type RenderDirtyReasonMaskName = keyof typeof RENDER_DIRTY_REASON_MASK;
+export type RenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
+
+export const RENDER_DIRTY_GROUP = {
+	postfx:
+		RENDER_DIRTY_REASON_MASK.postfx |
+		RENDER_DIRTY_REASON_MASK["postfx-light"] |
+		RENDER_DIRTY_REASON_MASK["postfx-standard"] |
+		RENDER_DIRTY_REASON_MASK["postfx-cinematic"],
+	shading:
+		RENDER_DIRTY_REASON_MASK.material |
+		RENDER_DIRTY_REASON_MASK.texture |
+		RENDER_DIRTY_REASON_MASK.lighting |
+		RENDER_DIRTY_REASON_MASK.shadow,
+} as const;
 
 export interface DirtyRect {
 	x: number;
@@ -186,11 +182,8 @@ const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
 	["gamma", "enableGamma"],
 ];
 
-const POSTFX_REASON_MASK =
-	RENDER_DIRTY_REASON_MASK.postfx |
-	RENDER_DIRTY_REASON_MASK["postfx-light"] |
-	RENDER_DIRTY_REASON_MASK["postfx-standard"] |
-	RENDER_DIRTY_REASON_MASK["postfx-cinematic"];
+const POSTFX_REASON_MASK = RENDER_DIRTY_GROUP.postfx;
+const SHADING_REASON_MASK = RENDER_DIRTY_GROUP.shading;
 
 const POST_PROCESS_GRADE_INFLATION_RADIUS: Record<PostProcessGrade, number> = {
 	none: 0,
@@ -241,10 +234,7 @@ export function renderDirtyReasonToMask(
 	if (!reason) {
 		return RENDER_DIRTY_REASON_MASK.unknown;
 	}
-	return (
-		RENDER_DIRTY_REASON_MASK[reason as RenderDirtyReasonMaskName] ??
-		RENDER_DIRTY_REASON_MASK.unknown
-	);
+	return RENDER_DIRTY_REASON_MASK[reason] ?? RENDER_DIRTY_REASON_MASK.unknown;
 }
 
 export function hasAnyDirtyReason(
@@ -340,10 +330,7 @@ export class IncrementalFramePlanner {
 				(RENDER_DIRTY_REASON_MASK.resize |
 					RENDER_DIRTY_REASON_MASK.camera |
 					RENDER_DIRTY_REASON_MASK.transform |
-					RENDER_DIRTY_REASON_MASK.material |
-					RENDER_DIRTY_REASON_MASK.texture |
-					RENDER_DIRTY_REASON_MASK.lighting |
-					RENDER_DIRTY_REASON_MASK.shadow)) !==
+					SHADING_REASON_MASK)) !==
 			0
 		) {
 			candidates.push(
