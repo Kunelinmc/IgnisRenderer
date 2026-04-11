@@ -295,7 +295,6 @@ interface ShaderCompileMetadata {
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
-	private _warn: ((key: string, message: string) => void) | null;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
@@ -307,8 +306,7 @@ export class WebGLProgramLibrary {
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
-	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null =
-		null;
+	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null = null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
 	private _motionBlurProgram: WebGLMotionBlurProgram | null = null;
 	private _dofProgram: WebGLDOFProgram | null = null;
@@ -325,17 +323,14 @@ export class WebGLProgramLibrary {
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		warn?: (key: string, message: string) => void,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
-		shaderSourceFactory?: WebGLShaderSourceFactory
+		shaderSourceFactory?: WebGLShaderSourceFactory,
 	) {
 		this._gl = gl;
-		this._warn = warn ?? null;
 		this._shaderRuntime = shaderRuntime ?? null;
 		this._shaderCompileStage = shaderCompileStage ?? null;
-		this._shaderSourceFactory =
-			shaderSourceFactory ?? createWebGLShaderSourceFactory();
+		this._shaderSourceFactory = shaderSourceFactory ?? createWebGLShaderSourceFactory();
 		if (!this._shaderCompileStage && this._shaderRuntime) {
 			this._shaderCompileStage = new ShaderBackendCompileStage({
 				backend: "webgl",
@@ -345,8 +340,8 @@ export class WebGLProgramLibrary {
 			});
 		}
 		if (this._shaderRuntime) {
-			this._disposeShaderRuntimeListener = this._shaderRuntime.onDidChange(
-				() => this._invalidateProgramCachesForShaderRuntime()
+			this._disposeShaderRuntimeListener = this._shaderRuntime.onDidChange(() =>
+				this._invalidateProgramCachesForShaderRuntime(),
 			);
 		}
 	}
@@ -362,10 +357,7 @@ export class WebGLProgramLibrary {
 
 	private _getBuiltinSceneProgram(): WebGLSceneProgram {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
-		if (
-			this._sceneProgram &&
-			this._sceneProgramDirectiveTag === directiveTag
-		) {
+		if (this._sceneProgram && this._sceneProgramDirectiveTag === directiveTag) {
 			return this._sceneProgram;
 		}
 		if (this._sceneProgram && this._sceneProgramDirectiveTag !== directiveTag) {
@@ -378,12 +370,13 @@ export class WebGLProgramLibrary {
 				maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 				maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 			});
-			const sceneCompositeSource =
-				this._shaderSourceFactory.createSceneCompositeShaderSource({
+			const sceneCompositeSource = this._shaderSourceFactory.createSceneCompositeShaderSource(
+				{
 					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
 					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
-				});
+				},
+			);
 			this._sceneProgram = this._createSceneProgram(
 				sceneShaderSource.vertex,
 				sceneShaderSource.fragment,
@@ -395,7 +388,7 @@ export class WebGLProgramLibrary {
 				{
 					sourceMap: sceneCompositeSource.fragment.sourceMap,
 					sourceKind: "unknown",
-				}
+				},
 			);
 		}
 		this._sceneProgramDirectiveTag =
@@ -403,11 +396,8 @@ export class WebGLProgramLibrary {
 		return this._sceneProgram;
 	}
 
-	private _getShaderMaterialSceneProgram(
-		material: ShaderMaterial
-	): WebGLSceneProgram | null {
-		const initialDirectiveTag =
-			this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
+	private _getShaderMaterialSceneProgram(material: ShaderMaterial): WebGLSceneProgram | null {
+		const initialDirectiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
 		const shaderKey =
 			`${material.getWebGLCacheKey()}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
@@ -429,11 +419,7 @@ export class WebGLProgramLibrary {
 			const message =
 				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
 				`using built-in scene shader. ${String(error)}`;
-			this._warn?.(key, message);
-			Logger.warn(
-				`[${key}] ${message}`,
-				{ scope: "WebGLProgramLibrary", onceKey: key }
-			);
+			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
 			return null;
 		}
 
@@ -447,7 +433,7 @@ export class WebGLProgramLibrary {
 					sourceMap: createInlineShaderSourceMap(
 						source.vertexCode,
 						`<shader-material:${shaderKey}:vertex>`,
-						"source"
+						"source",
 					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
@@ -457,13 +443,13 @@ export class WebGLProgramLibrary {
 					sourceMap: createInlineShaderSourceMap(
 						source.fragmentCode,
 						`<shader-material:${shaderKey}:fragment>`,
-						"source"
+						"source",
 					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
 					sourceKind: "custom-material",
 				},
-				customSamplerUniforms
+				customSamplerUniforms,
 			);
 		} catch (error) {
 			if (!this._isWarnMode()) {
@@ -473,16 +459,11 @@ export class WebGLProgramLibrary {
 			const message =
 				`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
 				`using built-in scene shader. ${String(error)}`;
-			this._warn?.(key, message);
-			Logger.warn(
-				`[${key}] ${message}`,
-				{ scope: "WebGLProgramLibrary", onceKey: key }
-			);
+			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
 			return null;
 		}
 		const finalDirectiveTag =
-			this._shaderCompileStage?.getCacheFingerprintTag() ??
-			initialDirectiveTag;
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? initialDirectiveTag;
 		const finalShaderKey =
 			`${material.getWebGLCacheKey()}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
@@ -505,21 +486,18 @@ export class WebGLProgramLibrary {
 		label: string,
 		vertexMetadata?: ShaderCompileMetadata,
 		fragmentMetadata?: ShaderCompileMetadata,
-		customSamplerUniforms: string[] = []
+		customSamplerUniforms: string[] = [],
 	): WebGLSceneProgram {
 		const program = this._createProgram(
 			vertexSource,
 			fragmentSource,
 			label,
 			vertexMetadata,
-			fragmentMetadata
+			fragmentMetadata,
 		);
 		const customSamplers: Record<string, WebGLUniformLocation | null> = {};
 		for (const uniformName of customSamplerUniforms) {
-			customSamplers[uniformName] = this._gl.getUniformLocation(
-				program,
-				uniformName
-			);
+			customSamplers[uniformName] = this._gl.getUniformLocation(program, uniformName);
 		}
 		return {
 			program,
@@ -535,7 +513,7 @@ export class WebGLProgramLibrary {
 				enableShadows: this._gl.getUniformLocation(program, "uEnableShadows"),
 				enableClusteredLighting: this._gl.getUniformLocation(
 					program,
-					"uEnableClusteredLighting"
+					"uEnableClusteredLighting",
 				),
 				doubleSided: this._gl.getUniformLocation(program, "uDoubleSided"),
 				shadingModel: this._gl.getUniformLocation(program, "uShadingModel"),
@@ -546,167 +524,101 @@ export class WebGLProgramLibrary {
 				alpha: this._gl.getUniformLocation(program, "uAlpha"),
 				baseMap: this._gl.getUniformLocation(program, "uBaseMap"),
 				hasBaseMap: this._gl.getUniformLocation(program, "uHasBaseMap"),
-				baseMapIsLinear: this._gl.getUniformLocation(
-					program,
-					"uBaseMapIsLinear"
-				),
-				envSpecularMap: this._gl.getUniformLocation(
-					program,
-					"uEnvSpecularMap"
-				),
-				hasEnvSpecularMap: this._gl.getUniformLocation(
-					program,
-					"uHasEnvSpecularMap"
-				),
+				baseMapIsLinear: this._gl.getUniformLocation(program, "uBaseMapIsLinear"),
+				envSpecularMap: this._gl.getUniformLocation(program, "uEnvSpecularMap"),
+				hasEnvSpecularMap: this._gl.getUniformLocation(program, "uHasEnvSpecularMap"),
 				envSpecularMapIsLinear: this._gl.getUniformLocation(
 					program,
-					"uEnvSpecularMapIsLinear"
+					"uEnvSpecularMapIsLinear",
 				),
 				envSpecularMaxMipLevel: this._gl.getUniformLocation(
 					program,
-					"uEnvSpecularMaxMipLevel"
+					"uEnvSpecularMaxMipLevel",
 				),
 				brdfLUT: this._gl.getUniformLocation(program, "uBrdfLUT"),
-				reflectionProbeCount: this._gl.getUniformLocation(
-					program,
-					"uReflectionProbeCount"
-				),
+				reflectionProbeCount: this._gl.getUniformLocation(program, "uReflectionProbeCount"),
 				reflectionProbeWorldToProbeRow0: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeWorldToProbeRow0[0]"
+					"uReflectionProbeWorldToProbeRow0[0]",
 				),
 				reflectionProbeWorldToProbeRow1: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeWorldToProbeRow1[0]"
+					"uReflectionProbeWorldToProbeRow1[0]",
 				),
 				reflectionProbeWorldToProbeRow2: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeWorldToProbeRow2[0]"
+					"uReflectionProbeWorldToProbeRow2[0]",
 				),
 				reflectionProbeProbeToWorldRow0: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeProbeToWorldRow0[0]"
+					"uReflectionProbeProbeToWorldRow0[0]",
 				),
 				reflectionProbeProbeToWorldRow1: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeProbeToWorldRow1[0]"
+					"uReflectionProbeProbeToWorldRow1[0]",
 				),
 				reflectionProbeProbeToWorldRow2: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeProbeToWorldRow2[0]"
+					"uReflectionProbeProbeToWorldRow2[0]",
 				),
 				reflectionProbeDataA: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeDataA[0]"
+					"uReflectionProbeDataA[0]",
 				),
 				reflectionProbeDataB: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeDataB[0]"
+					"uReflectionProbeDataB[0]",
 				),
 				reflectionProbeDataC: this._gl.getUniformLocation(
 					program,
-					"uReflectionProbeDataC[0]"
+					"uReflectionProbeDataC[0]",
 				),
 				dirLightCount: this._gl.getUniformLocation(program, "uDirLightCount"),
-				dirLightDirection: this._gl.getUniformLocation(
-					program,
-					"uDirLightDirection"
-				),
+				dirLightDirection: this._gl.getUniformLocation(program, "uDirLightDirection"),
 				dirLightColor: this._gl.getUniformLocation(program, "uDirLightColor"),
-				pointLightCount: this._gl.getUniformLocation(
-					program,
-					"uPointLightCount"
-				),
+				pointLightCount: this._gl.getUniformLocation(program, "uPointLightCount"),
 				pointLightPositionRange: this._gl.getUniformLocation(
 					program,
-					"uPointLightPositionRange"
+					"uPointLightPositionRange",
 				),
-				pointLightColor: this._gl.getUniformLocation(
-					program,
-					"uPointLightColor"
-				),
+				pointLightColor: this._gl.getUniformLocation(program, "uPointLightColor"),
 				spotLightCount: this._gl.getUniformLocation(program, "uSpotLightCount"),
 				spotLightPositionRange: this._gl.getUniformLocation(
 					program,
-					"uSpotLightPositionRange"
+					"uSpotLightPositionRange",
 				),
 				spotLightDirectionOuter: this._gl.getUniformLocation(
 					program,
-					"uSpotLightDirectionOuter"
+					"uSpotLightDirectionOuter",
 				),
-				spotLightColorInner: this._gl.getUniformLocation(
-					program,
-					"uSpotLightColorInner"
-				),
+				spotLightColorInner: this._gl.getUniformLocation(program, "uSpotLightColorInner"),
 				shadowAtlas: this._gl.getUniformLocation(program, "uShadowAtlas"),
 				dirShadowViewProjection: this._gl.getUniformLocation(
 					program,
-					"uDirShadowViewProjection[0]"
+					"uDirShadowViewProjection[0]",
 				),
-				dirShadowParamsA: this._gl.getUniformLocation(
-					program,
-					"uDirShadowParamsA[0]"
-				),
-				dirShadowParamsB: this._gl.getUniformLocation(
-					program,
-					"uDirShadowParamsB[0]"
-				),
-				dirShadowParamsC: this._gl.getUniformLocation(
-					program,
-					"uDirShadowParamsC[0]"
-				),
+				dirShadowParamsA: this._gl.getUniformLocation(program, "uDirShadowParamsA[0]"),
+				dirShadowParamsB: this._gl.getUniformLocation(program, "uDirShadowParamsB[0]"),
+				dirShadowParamsC: this._gl.getUniformLocation(program, "uDirShadowParamsC[0]"),
 				spotShadowViewProjection: this._gl.getUniformLocation(
 					program,
-					"uSpotShadowViewProjection[0]"
+					"uSpotShadowViewProjection[0]",
 				),
-				spotShadowParamsA: this._gl.getUniformLocation(
-					program,
-					"uSpotShadowParamsA[0]"
-				),
-				spotShadowParamsB: this._gl.getUniformLocation(
-					program,
-					"uSpotShadowParamsB[0]"
-				),
-				spotShadowParamsC: this._gl.getUniformLocation(
-					program,
-					"uSpotShadowParamsC[0]"
-				),
-				shAmbientCoeffs: this._gl.getUniformLocation(
-					program,
-					"uSHAmbientCoeffs"
-				),
+				spotShadowParamsA: this._gl.getUniformLocation(program, "uSpotShadowParamsA[0]"),
+				spotShadowParamsB: this._gl.getUniformLocation(program, "uSpotShadowParamsB[0]"),
+				spotShadowParamsC: this._gl.getUniformLocation(program, "uSpotShadowParamsC[0]"),
+				shAmbientCoeffs: this._gl.getUniformLocation(program, "uSHAmbientCoeffs"),
 				shCoeffsSize: this._gl.getUniformLocation(program, "uSHCoeffsSize"),
 				clusterParams0: this._gl.getUniformLocation(program, "uClusterParams0"),
 				clusterParams1: this._gl.getUniformLocation(program, "uClusterParams1"),
-				clusterHeaderTexture: this._gl.getUniformLocation(
-					program,
-					"uClusterHeaderTexture"
-				),
-				clusterIndexTexture: this._gl.getUniformLocation(
-					program,
-					"uClusterIndexTexture"
-				),
-				clusterLightTexture: this._gl.getUniformLocation(
-					program,
-					"uClusterLightTexture"
-				),
-				clusterHeaderTexSize: this._gl.getUniformLocation(
-					program,
-					"uClusterHeaderTexSize"
-				),
-				clusterIndexTexSize: this._gl.getUniformLocation(
-					program,
-					"uClusterIndexTexSize"
-				),
-				clusterLightTexSize: this._gl.getUniformLocation(
-					program,
-					"uClusterLightTexSize"
-				),
+				clusterHeaderTexture: this._gl.getUniformLocation(program, "uClusterHeaderTexture"),
+				clusterIndexTexture: this._gl.getUniformLocation(program, "uClusterIndexTexture"),
+				clusterLightTexture: this._gl.getUniformLocation(program, "uClusterLightTexture"),
+				clusterHeaderTexSize: this._gl.getUniformLocation(program, "uClusterHeaderTexSize"),
+				clusterIndexTexSize: this._gl.getUniformLocation(program, "uClusterIndexTexSize"),
+				clusterLightTexSize: this._gl.getUniformLocation(program, "uClusterLightTexSize"),
 				taaJitter: this._gl.getUniformLocation(program, "uTaaJitter"),
-				prevViewProjection: this._gl.getUniformLocation(
-					program,
-					"uPrevViewProjection"
-				),
+				prevViewProjection: this._gl.getUniformLocation(program, "uPrevViewProjection"),
 				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
 				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
 				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
@@ -722,29 +634,17 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("skyboxVertex"),
 			this._shaderSource("skyboxFragment"),
-			"WebGLSkyboxProgram"
+			"WebGLSkyboxProgram",
 		);
 		this._skyboxProgram = {
 			program,
 			uniforms: {
 				skyboxMap: this._gl.getUniformLocation(program, "uSkyboxMap"),
-				skyboxBasisRight: this._gl.getUniformLocation(
-					program,
-					"uSkyboxBasisRight"
-				),
+				skyboxBasisRight: this._gl.getUniformLocation(program, "uSkyboxBasisRight"),
 				skyboxBasisUp: this._gl.getUniformLocation(program, "uSkyboxBasisUp"),
-				skyboxBasisBackward: this._gl.getUniformLocation(
-					program,
-					"uSkyboxBasisBackward"
-				),
-				skyboxIsOrthographic: this._gl.getUniformLocation(
-					program,
-					"uSkyboxIsOrthographic"
-				),
-				skyboxMapIsLinear: this._gl.getUniformLocation(
-					program,
-					"uSkyboxMapIsLinear"
-				),
+				skyboxBasisBackward: this._gl.getUniformLocation(program, "uSkyboxBasisBackward"),
+				skyboxIsOrthographic: this._gl.getUniformLocation(program, "uSkyboxIsOrthographic"),
+				skyboxMapIsLinear: this._gl.getUniformLocation(program, "uSkyboxMapIsLinear"),
 			},
 		};
 		return this._skyboxProgram;
@@ -757,7 +657,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("presentFragment"),
-			"WebGLPresentProgram"
+			"WebGLPresentProgram",
 		);
 		this._presentProgram = {
 			program,
@@ -776,7 +676,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("particleVertex"),
 			this._shaderSource("particleFragment"),
-			"WebGLParticleProgram"
+			"WebGLParticleProgram",
 		);
 		this._particleProgram = {
 			program,
@@ -803,7 +703,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("fxaaFragment"),
-			"WebGLFXAAProgram"
+			"WebGLFXAAProgram",
 		);
 		this._fxaaProgram = {
 			program,
@@ -822,7 +722,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("interactionOutlineFragment"),
-			"WebGLInteractionOutlineProgram"
+			"WebGLInteractionOutlineProgram",
 		);
 		this._interactionOutlineProgram = {
 			program,
@@ -845,7 +745,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("bloomFragment"),
-			"WebGLBloomProgram"
+			"WebGLBloomProgram",
 		);
 		this._bloomProgram = {
 			program,
@@ -865,7 +765,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("motionBlurFragment"),
-			"WebGLMotionBlurProgram"
+			"WebGLMotionBlurProgram",
 		);
 		this._motionBlurProgram = {
 			program,
@@ -887,7 +787,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("dofFragment"),
-			"WebGLDOFProgram"
+			"WebGLDOFProgram",
 		);
 		this._dofProgram = {
 			program,
@@ -897,10 +797,7 @@ export class WebGLProgramLibrary {
 				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
 				focusParams: this._gl.getUniformLocation(program, "uFocusParams"),
 				dofParams: this._gl.getUniformLocation(program, "uDOFParams"),
-				chromaticAberration: this._gl.getUniformLocation(
-					program,
-					"uChromaticAberration"
-				),
+				chromaticAberration: this._gl.getUniformLocation(program, "uChromaticAberration"),
 			},
 		};
 		return this._dofProgram;
@@ -913,7 +810,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("shadowDepthVertex"),
 			this._shaderSource("shadowDepthFragment"),
-			"WebGLShadowDepthProgram"
+			"WebGLShadowDepthProgram",
 		);
 		this._shadowDepthProgram = {
 			program,
@@ -931,7 +828,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("copyFragment"),
-			"WebGLCopyProgram"
+			"WebGLCopyProgram",
 		);
 		this._copyProgram = {
 			program,
@@ -949,7 +846,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("ssaoRawFragment"),
-			"WebGLSSAORawProgram"
+			"WebGLSSAORawProgram",
 		);
 		this._ssaoRawProgram = {
 			program,
@@ -976,7 +873,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("ssaoBlurFragment"),
-			"WebGLSSAOBlurProgram"
+			"WebGLSSAOBlurProgram",
 		);
 		this._ssaoBlurProgram = {
 			program,
@@ -998,7 +895,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("ssaoCombineFragment"),
-			"WebGLSSAOCombineProgram"
+			"WebGLSSAOCombineProgram",
 		);
 		this._ssaoCombineProgram = {
 			program,
@@ -1018,7 +915,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("taaFragment"),
-			"WebGLTAAProgram"
+			"WebGLTAAProgram",
 		);
 		this._taaProgram = {
 			program,
@@ -1031,10 +928,7 @@ export class WebGLProgramLibrary {
 				historyWeight: this._gl.getUniformLocation(program, "uHistoryWeight"),
 				depthThreshold: this._gl.getUniformLocation(program, "uDepthThreshold"),
 				motionFactor: this._gl.getUniformLocation(program, "uMotionFactor"),
-				varianceClampGamma: this._gl.getUniformLocation(
-					program,
-					"uVarianceClampGamma"
-				),
+				varianceClampGamma: this._gl.getUniformLocation(program, "uVarianceClampGamma"),
 				sharpen: this._gl.getUniformLocation(program, "uSharpen"),
 				historyValid: this._gl.getUniformLocation(program, "uHistoryValid"),
 			},
@@ -1049,7 +943,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("postProcessStubFragment"),
-			"WebGLSSRProgram"
+			"WebGLSSRProgram",
 		);
 		this._ssrProgram = {
 			program,
@@ -1070,7 +964,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("postProcessStubFragment"),
-			"WebGLVolumetricProgram"
+			"WebGLVolumetricProgram",
 		);
 		this._volumetricProgram = {
 			program,
@@ -1090,7 +984,7 @@ export class WebGLProgramLibrary {
 		const program = this._createProgram(
 			this._shaderSource("presentVertex"),
 			this._shaderSource("fogFragment"),
-			"WebGLFogProgram"
+			"WebGLFogProgram",
 		);
 		this._fogProgram = {
 			program,
@@ -1119,20 +1013,20 @@ export class WebGLProgramLibrary {
 		fragmentSource: string,
 		label: string,
 		vertexMetadata?: ShaderCompileMetadata,
-		fragmentMetadata?: ShaderCompileMetadata
+		fragmentMetadata?: ShaderCompileMetadata,
 	): WebGLProgram {
 		const gl = this._gl;
 		const vertexShader = this._compileShader(
 			gl.VERTEX_SHADER,
 			vertexSource,
 			`${label}:vertex`,
-			vertexMetadata
+			vertexMetadata,
 		);
 		const fragmentShader = this._compileShader(
 			gl.FRAGMENT_SHADER,
 			fragmentSource,
 			`${label}:fragment`,
-			fragmentMetadata
+			fragmentMetadata,
 		);
 		const program = gl.createProgram();
 		if (!program) {
@@ -1157,8 +1051,7 @@ export class WebGLProgramLibrary {
 				language: "glsl",
 				stage: "unknown",
 				label,
-				sourceKind:
-					vertexMetadata?.sourceKind ?? fragmentMetadata?.sourceKind ?? "unknown",
+				sourceKind: vertexMetadata?.sourceKind ?? fragmentMetadata?.sourceKind ?? "unknown",
 				variantKey: vertexMetadata?.variantKey ?? fragmentMetadata?.variantKey,
 				materialId: vertexMetadata?.materialId ?? fragmentMetadata?.materialId,
 				code: `${vertexSource}\n\n${fragmentSource}`,
@@ -1175,11 +1068,7 @@ export class WebGLProgramLibrary {
 			const message =
 				`WebGL program validation reported issues (${label}): ` +
 				`${gl.getProgramInfoLog(program) || "no log"}`;
-			this._warn?.(key, message);
-			Logger.warn(
-				`[${key}] ${message}`,
-				{ scope: "WebGLProgramLibrary", onceKey: key }
-			);
+			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
 		}
 
 		return program;
@@ -1189,20 +1078,18 @@ export class WebGLProgramLibrary {
 		type: number,
 		source: string,
 		label: string,
-		metadata?: ShaderCompileMetadata
+		metadata?: ShaderCompileMetadata,
 	): WebGLShader {
 		const stage = type === this._gl.VERTEX_SHADER ? "vertex" : "fragment";
 		const sourceKind =
 			metadata?.sourceKind ??
-			(label.startsWith("WebGLShaderMaterialProgram_") ?
-				"custom-material"
-			:	"unknown");
+			(label.startsWith("WebGLShaderMaterialProgram_") ? "custom-material" : "unknown");
 		const processed = this._processShaderSource(
 			source,
 			stage,
 			sourceKind,
 			label,
-			metadata?.sourceMap
+			metadata?.sourceMap,
 		);
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(label, processed);
@@ -1261,12 +1148,9 @@ export class WebGLProgramLibrary {
 		stage: "vertex" | "fragment",
 		sourceKind: "custom-material" | "unknown",
 		label: string,
-		sourceMap?: ShaderSourceSegmentMap | null
+		sourceMap?: ShaderSourceSegmentMap | null,
 	): ShaderProcessResult {
-		const directiveSourcePath =
-			sourceMap?.segments[0]?.sourcePath ??
-			label ??
-			"<webgl-shader>";
+		const directiveSourcePath = sourceMap?.segments[0]?.sourcePath ?? label ?? "<webgl-shader>";
 		if (this._shaderCompileStage) {
 			return this._shaderCompileStage.compile({
 				code: source,
@@ -1306,22 +1190,14 @@ export class WebGLProgramLibrary {
 		});
 	}
 
-	private _reportShaderRuntimeDiagnostics(
-		label: string,
-		result: ShaderProcessResult
-	): void {
+	private _reportShaderRuntimeDiagnostics(label: string, result: ShaderProcessResult): void {
 		for (const diagnostic of result.diagnostics) {
 			const key =
-				`webgl-shader-runtime-${diagnostic.severity}-` +
-				`${diagnostic.code}-${label}`;
+				`webgl-shader-runtime-${diagnostic.severity}-` + `${diagnostic.code}-${label}`;
 			const message =
 				`WebGL shader runtime ${diagnostic.severity} [${label}] ` +
 				`${diagnostic.code}: ${diagnostic.message}`;
-			this._warn?.(key, message);
-			Logger.warn(
-				`[${key}] ${message}`,
-				{ scope: "WebGLProgramLibrary", onceKey: key }
-			);
+			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
 		}
 	}
 

@@ -273,10 +273,9 @@ export class WebGLFrameExecutor {
 		this._gl = gl;
 		this._programs = new WebGLProgramLibrary(
 			gl,
-			undefined,
 			shaderRuntime,
 			shaderCompileStage,
-			shaderSourceFactory
+			shaderSourceFactory,
 		);
 		this._geometry = new WebGLGeometryRegistry(gl);
 		this._textures = new WebGLTextureRegistry(gl);
