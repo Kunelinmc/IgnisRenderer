@@ -23,13 +23,17 @@ interface WebGLCachedGeometryEntry {
 	cacheFailure: boolean;
 }
 
+type WebGLGeometryWarn = (key: string, message: string) => void;
+
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _cache = new WeakMap<IPrimitive, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
+	private _warnCallback: WebGLGeometryWarn | null = null;
 
-	constructor(gl: WebGL2RenderingContext) {
+	constructor(gl: WebGL2RenderingContext, warn?: WebGLGeometryWarn) {
 		this._gl = gl;
+		this._warnCallback = warn ?? null;
 	}
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
@@ -80,31 +84,31 @@ export class WebGLGeometryRegistry {
 		if (!positions || positions.length < 3 || positions.length % 3 !== 0) {
 			const key = `webgl-geometry-invalid-positions-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} has invalid position data; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!indices || indices.length <= 0) {
 			const key = `webgl-geometry-empty-indices-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} has no indices; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 		if (!isFiniteArray(positions)) {
 			const key = `webgl-geometry-nonfinite-positions-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.normals && !isFiniteArray(geometry.normals)) {
 			const key = `webgl-geometry-nonfinite-normals-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 		if (geometry.uv0 && !isFiniteArray(geometry.uv0)) {
 			const key = `webgl-geometry-nonfinite-uv-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 
@@ -113,14 +117,14 @@ export class WebGLGeometryRegistry {
 		if (!Number.isFinite(maxIndex) || maxIndex < 0 || maxIndex >= vertexCount) {
 			const key = `webgl-geometry-index-range-${primitive.id}`;
 			const message = `WebGL geometry ${primitiveLabel} index data exceeds vertex range; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
 
 		if ((geometry.morphTargets?.length ?? 0) > 0) {
 			const key = `webgl-geometry-morph-fallback-${primitive.id}`;
 			const message = `WebGL backend does not support morph targets yet; rendering base geometry for primitive ${primitive.id}`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 		}
 
 		const interleaved = new Float32Array(vertexCount * 8);
@@ -150,7 +154,7 @@ export class WebGLGeometryRegistry {
 			if (indexBuffer) gl.deleteBuffer(indexBuffer);
 			const key = `webgl-geometry-upload-failed-${primitive.id}`;
 			const message = `Failed to allocate WebGL buffers for primitive ${primitive.id}; skipping`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLGeometryRegistry", onceKey: key });
+			this._warn(key, message);
 			return { handle: null, cacheFailure: false };
 		}
 
@@ -193,6 +197,14 @@ export class WebGLGeometryRegistry {
 			},
 			cacheFailure: false,
 		};
+	}
+
+	private _warn(key: string, message: string): void {
+		this._warnCallback?.(key, message);
+		Logger.warn(`[${key}] ${message}`, {
+			scope: "WebGLGeometryRegistry",
+			onceKey: key,
+		});
 	}
 }
 

@@ -292,12 +292,15 @@ interface ShaderCompileMetadata {
 	sourceKind?: "custom-material" | "unknown";
 }
 
+type WebGLProgramWarn = (key: string, message: string) => void;
+
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
+	private _warnCallback: WebGLProgramWarn | null = null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _sceneProgramDirectiveTag: string = "";
@@ -323,14 +326,57 @@ export class WebGLProgramLibrary {
 
 	constructor(
 		gl: WebGL2RenderingContext,
+		warn: WebGLProgramWarn,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
 		shaderSourceFactory?: WebGLShaderSourceFactory,
+	);
+	constructor(
+		gl: WebGL2RenderingContext,
+		shaderRuntime?: ShaderRuntime,
+		shaderCompileStage?: ShaderBackendCompileStage,
+		shaderSourceFactory?: WebGLShaderSourceFactory,
+	);
+	constructor(
+		gl: WebGL2RenderingContext,
+		shaderRuntimeOrWarn?: ShaderRuntime | WebGLProgramWarn,
+		shaderCompileStageOrRuntime?: ShaderBackendCompileStage | ShaderRuntime,
+		shaderSourceFactoryOrCompileStage?:
+			| WebGLShaderSourceFactory
+			| ShaderBackendCompileStage,
+		shaderSourceFactoryMaybe?: WebGLShaderSourceFactory,
 	) {
 		this._gl = gl;
-		this._shaderRuntime = shaderRuntime ?? null;
-		this._shaderCompileStage = shaderCompileStage ?? null;
-		this._shaderSourceFactory = shaderSourceFactory ?? createWebGLShaderSourceFactory();
+		let shaderRuntime: ShaderRuntime | null = null;
+		let shaderCompileStage: ShaderBackendCompileStage | null = null;
+		let shaderSourceFactory: WebGLShaderSourceFactory | undefined;
+		if (typeof shaderRuntimeOrWarn === "function") {
+			this._warnCallback = shaderRuntimeOrWarn;
+			shaderRuntime =
+				isShaderRuntime(shaderCompileStageOrRuntime) ?
+					shaderCompileStageOrRuntime
+				:	null;
+			shaderCompileStage =
+				shaderSourceFactoryOrCompileStage instanceof ShaderBackendCompileStage ?
+					shaderSourceFactoryOrCompileStage
+				:	null;
+			shaderSourceFactory = shaderSourceFactoryMaybe;
+		} else {
+			shaderRuntime = shaderRuntimeOrWarn ?? null;
+			shaderCompileStage =
+				shaderCompileStageOrRuntime instanceof ShaderBackendCompileStage ?
+					shaderCompileStageOrRuntime
+				:	null;
+			shaderSourceFactory =
+				shaderSourceFactoryOrCompileStage &&
+				!(shaderSourceFactoryOrCompileStage instanceof ShaderBackendCompileStage) ?
+					shaderSourceFactoryOrCompileStage
+				:	undefined;
+		}
+		this._shaderRuntime = shaderRuntime;
+		this._shaderCompileStage = shaderCompileStage;
+		this._shaderSourceFactory =
+			shaderSourceFactory ?? createWebGLShaderSourceFactory();
 		if (!this._shaderCompileStage && this._shaderRuntime) {
 			this._shaderCompileStage = new ShaderBackendCompileStage({
 				backend: "webgl",
@@ -419,7 +465,7 @@ export class WebGLProgramLibrary {
 			const message =
 				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
 				`using built-in scene shader. ${String(error)}`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
+			this._warn(key, message);
 			return null;
 		}
 
@@ -459,7 +505,7 @@ export class WebGLProgramLibrary {
 			const message =
 				`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
 				`using built-in scene shader. ${String(error)}`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
+			this._warn(key, message);
 			return null;
 		}
 		const finalDirectiveTag =
@@ -1068,7 +1114,7 @@ export class WebGLProgramLibrary {
 			const message =
 				`WebGL program validation reported issues (${label}): ` +
 				`${gl.getProgramInfoLog(program) || "no log"}`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
+			this._warn(key, message);
 		}
 
 		return program;
@@ -1197,8 +1243,16 @@ export class WebGLProgramLibrary {
 			const message =
 				`WebGL shader runtime ${diagnostic.severity} [${label}] ` +
 				`${diagnostic.code}: ${diagnostic.message}`;
-			Logger.warn(`[${key}] ${message}`, { scope: "WebGLProgramLibrary", onceKey: key });
+			this._warn(key, message);
 		}
+	}
+
+	private _warn(key: string, message: string): void {
+		this._warnCallback?.(key, message);
+		Logger.warn(`[${key}] ${message}`, {
+			scope: "WebGLProgramLibrary",
+			onceKey: key,
+		});
 	}
 
 	private _toCompilerMessage(log: string): ShaderCompilerMessage {
@@ -1292,4 +1346,17 @@ export class WebGLProgramLibrary {
 			this._fogProgram = null;
 		}
 	}
+}
+
+function isShaderRuntime(value: unknown): value is ShaderRuntime {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"process" in value &&
+		typeof (value as { process?: unknown }).process === "function" &&
+		"onDidChange" in value &&
+		typeof (value as { onDidChange?: unknown }).onDidChange === "function" &&
+		"getMode" in value &&
+		typeof (value as { getMode?: unknown }).getMode === "function"
+	);
 }
