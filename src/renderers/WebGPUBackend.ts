@@ -426,10 +426,6 @@ export class WebGPUBackend implements IRenderBackend {
 	public warn(message: string, key?: string): void {
 		const prefixedMessage =
 			key && key.length > 0 ? `[${key}] ${message}` : message;
-		if (this._renderer?.logger) {
-			this._renderer.logger.warn(prefixedMessage, { scope: "WebGPUBackend" });
-			return;
-		}
 		Logger.warn(prefixedMessage, { scope: "WebGPUBackend" });
 	}
 

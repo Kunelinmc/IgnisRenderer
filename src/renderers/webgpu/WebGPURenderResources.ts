@@ -77,6 +77,7 @@ import type {
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
+import { Logger } from "../../foundation/Logger";
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -168,7 +169,7 @@ export class WebGPURenderResources {
 			this._layouts.clusteredSceneBindGroupLayout,
 			this._layouts.sceneFrameBindGroupLayout,
 			(key, message) =>
-				this._renderer.logger.warn(`[${key}] ${message}`, {
+				Logger.warn(`[${key}] ${message}`, {
 					scope: "WebGPUClusteredLightingRuntime",
 				})
 		);
@@ -369,7 +370,7 @@ export class WebGPURenderResources {
 			featureState.enableClusteredLighting
 		);
 		for (const warning of this._lightingState.warnings) {
-			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPURenderResources",
 			});
 		}
@@ -380,7 +381,7 @@ export class WebGPURenderResources {
 			shAmbientCoeffs
 		);
 		for (const warning of this._environmentState.warnings) {
-			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPURenderResources",
 			});
 		}
@@ -582,7 +583,7 @@ export class WebGPURenderResources {
 			false
 		);
 		for (const warning of solidMaterialData.warnings) {
-			this._renderer.logger.warn(`[${warning.key}] ${warning.message}`, {
+			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPURenderResources",
 			});
 		}
