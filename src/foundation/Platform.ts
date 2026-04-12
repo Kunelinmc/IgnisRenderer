@@ -401,11 +401,6 @@ export class Platform {
 	public static hasWorker(scope: unknown = globalThis): boolean {
 		const resolved = resolveScope(scope);
 		const cache = Platform._getDetectionCache(resolved);
-		const cachedValue = cache?.hasWorker;
-		if (cachedValue !== undefined) {
-			return cachedValue;
-		}
-
 		const detected = typeof resolved.Worker === "function";
 		if (cache) {
 			cache.hasWorker = detected;
