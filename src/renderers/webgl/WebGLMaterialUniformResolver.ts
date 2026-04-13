@@ -4,6 +4,7 @@ import {
 	ShadingModel,
 	type Material,
 } from "../../materials/Material";
+import { getMaterialTransmissionFactor } from "../../materials/transparency";
 
 export interface MaterialUniformState {
 	shadingModel: number;
@@ -25,6 +26,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let roughness = 0.5;
 	let metalness = 0;
 	let reflectance = 0.5;
+	let transmission = 0;
 	let shininess = 32;
 	let baseMap: any | null = material.map ?? null;
 
@@ -46,6 +48,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		roughness = clamp(pbr.roughness ?? 0.5, 0.04, 1);
 		metalness = clamp(pbr.metalness ?? 0, 0, 1);
 		reflectance = clamp(pbr.reflectance ?? 0.5, 0, 1);
+		transmission = getMaterialTransmissionFactor(material);
 		baseMap = pbr.map ?? baseMap;
 	} else {
 		const basic = material as any;
@@ -81,7 +84,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			: 0,
 		baseColor: [baseColor[0], baseColor[1], baseColor[2], opacity],
 		emissive,
-		pbr: [roughness, metalness, reflectance, 0],
+		pbr: [roughness, metalness, reflectance, transmission],
 		phong: [shininess, 0, 0, 0],
 		alpha: [alphaCutoff, alphaModeMask, 0, 0],
 		baseMap,

@@ -1,5 +1,6 @@
 import type { Camera } from "../cameras/Camera";
 import { AlphaMode } from "../materials/Material";
+import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Renderer } from "../renderers/Renderer";
@@ -136,8 +137,7 @@ export class PreparedSceneBuilder {
 		meshDepth: number
 	): DrawPacket {
 		const material = primitive.material;
-		const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
-		const isTransparent = alphaMode === AlphaMode.Blend;
+		const isTransparent = isMaterialTransparentPass(material);
 		const isReflective =
 			material.reflectivity > 0 && material.mirrorPlane !== null;
 		const supportsShadowCasting =

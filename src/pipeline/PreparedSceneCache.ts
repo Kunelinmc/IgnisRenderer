@@ -1,6 +1,7 @@
 import type { Camera } from "../cameras/Camera";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { Material } from "../materials/Material";
+import { getMaterialTransmissionFactor } from "../materials/transparency";
 import type { Renderer } from "../renderers/Renderer";
 import {
 	buildDirtyTileCoverage,
@@ -369,6 +370,7 @@ function materialSignatureOf(material: Material): string {
 		material.opacity.toFixed(4),
 		material.alphaMode,
 		material.alphaCutoff.toFixed(4),
+		getMaterialTransmissionFactor(material).toFixed(4),
 		material.doubleSided ? "1" : "0",
 		material.cullMode,
 		material.wireframe ? "1" : "0",

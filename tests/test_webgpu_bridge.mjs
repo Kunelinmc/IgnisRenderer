@@ -669,6 +669,74 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	);
 }
 
+async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		roughness: 0.05,
+		metalness: 0,
+		transmissionFactor: 1,
+		ior: 1.52,
+	});
+	const model = createModel([material]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.opaquePackets = [];
+	frame.transparentPackets = [packet];
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet);
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(pipelineDesc.fragment.targets.length, 5);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,
+		"one"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.dstFactor,
+		"one-minus-src-alpha"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[4].blend?.color?.srcFactor,
+		"src-alpha"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[4].blend?.color?.dstFactor,
+		"one-minus-src-alpha"
+	);
+}
+
 async function testWebGPUEnvironmentCombinationsRegression() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -1280,6 +1348,7 @@ async function run() {
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
+	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();

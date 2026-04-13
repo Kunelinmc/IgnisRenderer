@@ -100,9 +100,10 @@ if (maxSheenColor > 0.0) {
 ambientLight *= occlusion;
 
 let finalLinear = max(directLight + ambientLight + emissive, vec3<f32>(0.0));
+let outputAlpha = resolveTransmissionAlpha(alpha, transmission, nDotV, realF0);
 return buildSceneOutput(
 	finalLinear,
-	alpha,
+	outputAlpha,
 	albedo,
 	pbrNormal,
 	roughness,

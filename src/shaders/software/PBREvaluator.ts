@@ -5,6 +5,7 @@ import {
 	type PBRMaterial,
 	UVChannel,
 } from "../../materials";
+import { resolveTransmissionCompositeAlpha } from "../../materials/transparency";
 import type { ProjectedFace } from "../../core/types";
 import type { PBRSurfaceProperties, FragmentInput } from "./types";
 import { Vector3 } from "../../maths/Vector3";
@@ -324,7 +325,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.albedo.r = clamp(albedo.r, 0, 255);
 		res.albedo.g = clamp(albedo.g, 0, 255);
 		res.albedo.b = clamp(albedo.b, 0, 255);
-		res.opacity = alpha;
+		res.opacity = resolveTransmissionCompositeAlpha(alpha, transmission);
 		res.roughness = clamp(roughness);
 		res.metalness = clamp(metalness);
 		res.emissive.r = Math.max(0, emissive.r);

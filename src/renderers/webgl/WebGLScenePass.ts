@@ -1,7 +1,7 @@
 ﻿import {
-	AlphaMode,
 	type Material,
 } from "../../materials/Material";
+import { isMaterialTransparentPass } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
@@ -201,8 +201,7 @@ export function drawWebGLPacket(
 ): void {
 	const gl = host._gl;
 	const material = packet.material;
-	const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
-	const requiresTransparent = alphaMode === AlphaMode.Blend;
+	const requiresTransparent = isMaterialTransparentPass(material);
 	if (transparentPass !== requiresTransparent) {
 		return;
 	}

@@ -137,6 +137,30 @@ fn fresnelSchlickScalar(cosTheta: f32, f0: f32) -> f32 {
 	return f0 + (1.0 - f0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
+fn resolveTransmissionAlpha(
+	baseAlpha: f32,
+	transmission: f32,
+	nDotV: f32,
+	f0: vec3<f32>
+) -> f32 {
+	let clampedTransmission = clamp(transmission, 0.0, 1.0);
+	if (clampedTransmission <= EPSILON) {
+		return clamp(baseAlpha, 0.0, 1.0);
+	}
+
+	let fresnel = fresnelSchlick(nDotV, f0);
+	let fresnelAverage = clamp(
+		(fresnel.x + fresnel.y + fresnel.z) * (1.0 / 3.0),
+		0.0,
+		1.0
+	);
+	let floorAlpha = max(0.12, fresnelAverage);
+	let blended =
+		baseAlpha * (1.0 - clampedTransmission) +
+		floorAlpha * clampedTransmission;
+	return clamp(max(floorAlpha, blended), 0.0, 1.0);
+}
+
 fn distributionCharlie(nDotH: f32, roughness: f32) -> f32 {
 	let invAlpha = 1.0 / max(roughness * roughness, 1e-6);
 	let cos2h = nDotH * nDotH;

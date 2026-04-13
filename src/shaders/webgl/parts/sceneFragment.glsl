@@ -15,6 +15,7 @@ const float EPSILON = 0.000001;
 const float PBR_MIN_NDOTV = 0.001;
 const float PBR_SPEC_FALLBACK = 0.02;
 const float PBR_AMBIENT_FALLBACK_LINEAR = 0.05;
+const float TRANSMISSION_ALPHA_FLOOR = 0.12;
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -754,6 +755,25 @@ vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 	return f0 + (vec3(1.0) - f0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
+float resolveTransmissionAlpha(
+	float baseAlpha,
+	float transmission,
+	float fresnelAverage
+) {
+	float clampedTransmission = clamp(transmission, 0.0, 1.0);
+	if (clampedTransmission <= EPSILON) {
+		return clamp(baseAlpha, 0.0, 1.0);
+	}
+	float floorAlpha = max(
+		TRANSMISSION_ALPHA_FLOOR,
+		clamp(fresnelAverage, 0.0, 1.0)
+	);
+	float blended =
+		baseAlpha * (1.0 - clampedTransmission) +
+		floorAlpha * clampedTransmission;
+	return clamp(max(floorAlpha, blended), 0.0, 1.0);
+}
+
 vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 	vec3 ambientBase = uAmbientColor;
 	if (uEnableSH == 1) {
@@ -944,6 +964,7 @@ vec3 evalPBRLight(
 	vec3 radiance,
 	float roughness,
 	float metalness,
+	float transmission,
 	vec3 f0,
 	float nDotV
 ) {
@@ -959,7 +980,10 @@ vec3 evalPBRLight(
 	float denominator = max(4.0 * nDotV * nDotL, 0.0001);
 	vec3 specular = (ndf * geometry * fresnel) / denominator;
 
-	vec3 kd = (vec3(1.0) - fresnel) * (1.0 - metalness);
+	vec3 kd =
+		(vec3(1.0) - fresnel) *
+		(1.0 - metalness) *
+		(1.0 - transmission);
 	vec3 diffuse = (kd * albedo) / PI;
 	return (diffuse + specular) * radiance * nDotL;
 }
@@ -973,6 +997,7 @@ vec3 shadePBR(
 	float roughness = clamp(uPBR.x, 0.04, 1.0);
 	float metalness = clamp(uPBR.y, 0.0, 1.0);
 	float reflectance = clamp(uPBR.z, 0.0, 1.0);
+	float transmission = clamp(uPBR.w, 0.0, 1.0);
 	float dielectricF0 = 0.16 * reflectance * reflectance;
 	vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
@@ -991,7 +1016,8 @@ vec3 shadePBR(
 	vec3 ambientDiffuse = ambientBase *
 		albedo *
 		(vec3(1.0) - ambientFresnel) *
-		(1.0 - metalness);
+		(1.0 - metalness) *
+		(1.0 - transmission);
 	vec3 ambientSpecular;
 	if (uHasEnvSpecularMap == 1) {
 		vec3 reflectionDir = reflect(-viewDir, pbrNormal);
@@ -1008,6 +1034,26 @@ vec3 shadePBR(
 	} else {
 		float specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
 		ambientSpecular = specularAmbientBase * ambientFresnel * specularAmbientFactor;
+	}
+	vec3 ambientTransmission = vec3(0.0);
+	if (transmission > EPSILON) {
+		vec3 transmissionDir = refract(-viewDir, pbrNormal, 1.0 / 1.5);
+		if (length(transmissionDir) <= EPSILON) {
+			transmissionDir = -viewDir;
+		}
+		vec3 transmissionRadiance = specularAmbientBase;
+		if (uHasEnvSpecularMap == 1) {
+			transmissionRadiance = sampleEnvironmentSpecular(
+				vWorldPos,
+				transmissionDir,
+				roughness
+			);
+		}
+		ambientTransmission =
+			transmissionRadiance *
+			albedo *
+			(1.0 - metalness) *
+			transmission;
 	}
 
 	vec3 directLight = vec3(0.0);
@@ -1032,6 +1078,7 @@ vec3 shadePBR(
 			uDirLightColor[i].xyz,
 			roughness,
 			metalness,
+			transmission,
 			f0,
 			nDotV
 		) * shadow;
@@ -1077,6 +1124,7 @@ vec3 shadePBR(
 						radiance,
 						roughness,
 						metalness,
+						transmission,
 						f0,
 						nDotV
 					);
@@ -1114,6 +1162,7 @@ vec3 shadePBR(
 						radiance,
 						roughness,
 						metalness,
+						transmission,
 						f0,
 						nDotV
 					) * shadow;
@@ -1141,6 +1190,7 @@ vec3 shadePBR(
 				radiance,
 				roughness,
 				metalness,
+				transmission,
 				f0,
 				nDotV
 			);
@@ -1186,13 +1236,14 @@ vec3 shadePBR(
 				radiance,
 				roughness,
 				metalness,
+				transmission,
 				f0,
 				nDotV
 			) * shadow;
 		}
 	}
 
-	return ambientDiffuse + ambientSpecular + directLight;
+	return ambientDiffuse + ambientSpecular + ambientTransmission + directLight;
 }
 
 void main() {
@@ -1220,6 +1271,21 @@ void main() {
 		color = albedo;
 	} else if (uShadingModel == 1) {
 		color = shadePBR(albedo, normal, shadowNormal, viewDir);
+		float transmission = clamp(uPBR.w, 0.0, 1.0);
+		if (transmission > EPSILON) {
+			float metalness = clamp(uPBR.y, 0.0, 1.0);
+			float reflectance = clamp(uPBR.z, 0.0, 1.0);
+			float dielectricF0 = 0.16 * reflectance * reflectance;
+			vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
+			float nDotV = max(dot(normal, viewDir), PBR_MIN_NDOTV);
+			vec3 fresnel = fresnelSchlick(nDotV, f0);
+			float fresnelAverage = clamp(
+				dot(fresnel, vec3(1.0 / 3.0)),
+				0.0,
+				1.0
+			);
+			alpha = resolveTransmissionAlpha(alpha, transmission, fresnelAverage);
+		}
 	} else {
 		color = shadePhong(albedo, normal, shadowNormal, viewDir);
 	}

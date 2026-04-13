@@ -6,7 +6,11 @@ import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
-import { AlphaMode, type Material } from "../../materials/Material";
+import { type Material } from "../../materials/Material";
+import {
+	isMaterialTransparentPass,
+	materialUsesTransmission,
+} from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
@@ -18,6 +22,18 @@ const COLOR_WRITE_NONE = 0;
 const ALPHA_BLEND_STATE = {
 	color: {
 		srcFactor: "src-alpha",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+	alpha: {
+		srcFactor: "one",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+};
+const TRANSMISSION_BLEND_STATE = {
+	color: {
+		srcFactor: "one",
 		dstFactor: "one-minus-src-alpha",
 		operation: "add",
 	},
@@ -166,10 +182,12 @@ export class WebGPUPipelineLibrary {
 			isWireframe
 		);
 		const sceneProgram = await this._resolveSceneProgram(material, mode);
-		const isTransparent = material.alphaMode === AlphaMode.Blend;
+		const isTransparent = isMaterialTransparentPass(material);
+		const usesTransmission = materialUsesTransmission(material);
 		const fragmentTargets = this._createSceneFragmentTargets(
 			mode,
-			isTransparent
+			isTransparent,
+			usesTransmission
 		);
 
 		const effectiveTopology = isWireframe ? "line-list" : topology;
@@ -221,13 +239,20 @@ export class WebGPUPipelineLibrary {
 
 	private _createSceneFragmentTargets(
 		mode: WebGPUSceneTargetMode,
-		isTransparent: boolean
+		isTransparent: boolean,
+		usesTransmission: boolean
 	): ColorTargetState[] {
+		const colorBlend =
+			!isTransparent ? undefined
+			: usesTransmission ? TRANSMISSION_BLEND_STATE
+			: ALPHA_BLEND_STATE;
+		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
+
 		if (mode !== "mrt") {
 			return [
 				{
 					format: this._backend.canvasFormat as any,
-					blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+					blend: colorBlend,
 				},
 			];
 		}
@@ -235,7 +260,7 @@ export class WebGPUPipelineLibrary {
 		return [
 			{
 				format: TextureFormat.RGBA16Float,
-				blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+				blend: colorBlend,
 			},
 			{
 				format: TextureFormat.RGBA8Unorm,
@@ -251,7 +276,7 @@ export class WebGPUPipelineLibrary {
 			},
 			{
 				format: TextureFormat.RGBA16Float,
-				blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+				blend: motionBlend,
 			},
 		];
 	}

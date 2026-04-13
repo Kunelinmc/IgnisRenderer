@@ -7,6 +7,7 @@ import type { ProjectedFace, ProjectedVertex } from "../../core/types";
 import type { Rasterizer } from "./Rasterizer";
 import { SkyboxRenderer } from "./SkyboxRenderer";
 import { AlphaMode } from "../../materials/Material";
+import { materialUsesTransmission } from "../../materials/transparency";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
@@ -277,8 +278,11 @@ export class ReflectionRenderer {
 					if (alpha < 0.1) continue;
 					const explicitAlphaMode = face.material?.alphaMode;
 					const alphaMode = explicitAlphaMode || AlphaMode.Opaque;
+					const transmissionTransparent =
+						face.material ? materialUsesTransmission(face.material) : false;
 					if (
 						alphaMode === AlphaMode.Blend ||
+						transmissionTransparent ||
 						(explicitAlphaMode === undefined &&
 							alpha < RenderConstants.REFLECTION_TRANSPARENT_THRESHOLD)
 					) {
