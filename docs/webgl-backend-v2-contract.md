@@ -20,6 +20,10 @@ WebGL-specific implementation constraints.
 - SH lighting must use 16 coefficients and must be uploaded through texture-backed data for shader sampling.
 - Clustered lighting must be CPU-built (`tile + z-slice`) and must provide runtime fallback to legacy forward lighting when requirements are not met.
 - For non-perspective cameras, clustered lighting must be disabled for the frame and a warning key must be emitted.
+- PBR materials with `transmissionFactor > 0` must be treated as transparent pass
+  submissions even when `alphaMode` is `OPAQUE`.
+- WebGL PBR shading must consume transmission through `uPBR.w` and must modulate
+  composite alpha so transmissive surfaces do not render as fully opaque.
 
 ## Usage
 ```ts
