@@ -423,12 +423,6 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._shaderCompileStage.getCacheFingerprintTag();
 	}
 
-	public warn(message: string, key?: string): void {
-		const prefixedMessage =
-			key && key.length > 0 ? `[${key}] ${message}` : message;
-		Logger.warn(prefixedMessage, { scope: "WebGPUBackend" });
-	}
-
 	public getAttachments(width: number, height: number): FrameAttachments {
 		return {
 			width,
