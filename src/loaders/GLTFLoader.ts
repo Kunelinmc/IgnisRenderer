@@ -512,8 +512,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (texInfo.extensions?.KHR_texture_transform?.texCoord !== undefined) {
 			uv = texInfo.extensions.KHR_texture_transform.texCoord;
 		}
-		if (uv === UVChannel.UV1) return UVChannel.UV1;
-		if (uv === UVChannel.UV2) return UVChannel.UV2;
+		if (typeof uv === "number" && Number.isFinite(uv) && Math.floor(uv) > 0) {
+			return UVChannel.UV1;
+		}
 		return UVChannel.UV0;
 	}
 

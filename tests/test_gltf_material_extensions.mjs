@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { GLTFLoader } from "../src/loaders/GLTFLoader.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
-import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
+import { PBRMaterial, UVChannel } from "../src/materials/PBRMaterial.ts";
 import { PBRStrategy } from "../src/shaders/software/PBRStrategy.ts";
 import { PBREvaluator } from "../src/shaders/software/PBREvaluator.ts";
 
@@ -301,6 +301,54 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	assert.equal(mat.transmissionMap?.colorSpace, "Linear");
 }
 
+function testTexCoordAboveOneUsesSecondUVSet() {
+	const loader = new GLTFLoader();
+	const texture = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1
+	);
+
+	const [baseTexCoordMaterial] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: {
+							index: 0,
+							texCoord: 2,
+						},
+					},
+				},
+			],
+		},
+		[texture]
+	);
+	assert.equal(baseTexCoordMaterial.albedoMapUV, UVChannel.UV1);
+
+	const [khrTransformMaterial] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: {
+							index: 0,
+							texCoord: 0,
+							extensions: {
+								KHR_texture_transform: {
+									texCoord: 3,
+								},
+							},
+						},
+					},
+				},
+			],
+		},
+		[texture]
+	);
+	assert.equal(khrTransformMaterial.albedoMapUV, UVChannel.UV1);
+}
+
 function run() {
 	try {
 		console.log("Starting glTF material extensions tests...");
@@ -311,6 +359,7 @@ function run() {
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();
 		testLinearFactorsStayLinearAcrossLoaderAndEvaluator();
 		testGLTFMaterialTexturesUseExpectedColorSpaces();
+		testTexCoordAboveOneUsesSecondUVSet();
 		console.log("✅ glTF material extensions tests passed");
 	} catch (error) {
 		console.error("❌ glTF material extensions test failed");

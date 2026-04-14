@@ -10,12 +10,17 @@ import { clamp, sRGBToLinear } from "../maths/Common";
 export enum UVChannel {
 	UV0 = 0,
 	UV1 = 1,
-	UV2 = 2,
+	/**
+	 * @deprecated IgnisRenderer currently supports only two UV sets (0/1).
+	 * `UV2` is kept as a backward-compatible alias of `UV1`.
+	 */
+	UV2 = 1,
 }
 
 function normalizeUVChannel(uv: number | undefined): UVChannel {
-	if (uv === UVChannel.UV1) return UVChannel.UV1;
-	if (uv === UVChannel.UV2) return UVChannel.UV2;
+	if (typeof uv === "number" && Number.isFinite(uv) && Math.floor(uv) > 0) {
+		return UVChannel.UV1;
+	}
 	return UVChannel.UV0;
 }
 

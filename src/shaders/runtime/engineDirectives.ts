@@ -130,7 +130,7 @@ function normalizeTextureUVSet(
 		typeof value === "number" ? value
 		: typeof value === "string" ? Number(value)
 		:	NaN;
-	return Number.isFinite(numeric) && Math.floor(numeric) === 1 ? 1 : 0;
+	return Number.isFinite(numeric) && Math.floor(numeric) > 0 ? 1 : 0;
 }
 
 function normalizeIdentifierToken(

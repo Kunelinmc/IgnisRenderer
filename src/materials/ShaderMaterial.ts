@@ -498,7 +498,7 @@ export class ShaderMaterial extends Material {
 		}
 
 		const explicitSlot = this._normalizeTextureBindingSlot(binding.slot);
-		const uvSet = binding.uvSet === 1 ? 1 : 0;
+		const uvSet = typeof binding.uvSet === "number" && binding.uvSet > 0 ? 1 : 0;
 		const linearOverride =
 			typeof binding.linear === "boolean" ? binding.linear : null;
 		const webglUniform =

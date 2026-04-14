@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { PBREvaluator } from "../src/shaders/software/PBREvaluator.ts";
-import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
+import { PBRMaterial, UVChannel } from "../src/materials/PBRMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { Vector3 } from "../src/maths/Vector3.ts";
 
@@ -21,6 +21,8 @@ function createMockInput() {
 		tangent: { x: 1, y: 0, z: 0, w: 1 },
 		u: 0.5,
 		v: 0.5,
+		u2: 0.5,
+		v2: 0.5,
 	};
 }
 
@@ -243,6 +245,40 @@ function testSheenRoughnessMapUsesNormalizedAlpha() {
 	);
 }
 
+function testUV2ChannelAliasesSecondUVSet() {
+	console.log("Testing UVChannel.UV2 aliasing to second UV set...");
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		albedoMapUV: UVChannel.UV2,
+	});
+	material.map = new Texture(
+		new Uint8ClampedArray([
+			255,
+			0,
+			0,
+			255,
+			0,
+			255,
+			0,
+			255,
+		]),
+		2,
+		1
+	);
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+	input.u = 0;
+	input.v = 0;
+	input.u2 = 0.75;
+	input.v2 = 0;
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	assertColorClose(surface.albedo, { r: 0, g: 255, b: 0 });
+}
+
 function run() {
 	try {
 		console.log("Starting PBR Texture Maps Tests...");
@@ -255,6 +291,7 @@ function run() {
 		testNormalMapHandedness();
 		testLegacyF0Compatibility();
 		testSheenRoughnessMapUsesNormalizedAlpha();
+		testUV2ChannelAliasesSecondUVSet();
 		console.log("✅ All PBR texture tests passed!");
 	} catch (e) {
 		console.error("❌ Test Failed:");

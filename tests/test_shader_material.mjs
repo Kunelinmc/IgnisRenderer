@@ -548,6 +548,18 @@ function testTextureBindingInjectDirectivesDecoratePrograms() {
 	);
 }
 
+function testTextureBindingUvSetGreaterThanOneUsesSecondSet() {
+	const material = new ShaderMaterial({ name: "TextureBindingUvClamp" });
+	material.setTextureBinding({
+		name: "detail",
+		texture: null,
+		uvSet: 2,
+	});
+	const bindings = material.getTextureBindings();
+	assert.equal(bindings.length, 1);
+	assert.equal(bindings[0].uvSet, 1);
+}
+
 async function run() {
 	await testWGSLProgramSelection();
 	await testGLSLProgramUsesTranspiler();
@@ -559,6 +571,7 @@ async function run() {
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingInjectDirectivesDecoratePrograms();
+	testTextureBindingUvSetGreaterThanOneUsesSecondSet();
 	console.log("ShaderMaterial tests passed");
 }
 
