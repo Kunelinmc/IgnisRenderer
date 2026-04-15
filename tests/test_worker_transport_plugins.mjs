@@ -159,6 +159,69 @@ async function testSharedArrayBufferDecodeWithSharedViewRestriction() {
 	}
 }
 
+async function testSharedArrayBufferEncodeTaskFallbackToPostMessage() {
+	if (typeof SharedArrayBuffer !== "function") {
+		return;
+	}
+	const observedModes = [];
+	const scheduler = new WorkerScheduler();
+	scheduler.registerPool({
+		id: "shared-encode-fallback",
+		size: 1,
+		runtimeCapabilities: {
+			sharedArrayBuffer: true,
+			crossOriginIsolated: true,
+		},
+		transportPlugins: DEFAULT_WORKER_TRANSPORT_PLUGINS,
+		createWorker: () =>
+			new FakeWorker((message, worker) => {
+				const isSharedPacket =
+					!!message &&
+					typeof message === "object" &&
+					message.transport === "shared-array-buffer";
+				const mode = isSharedPacket ? "shared-array-buffer" : "post-message";
+				observedModes.push(mode);
+
+				const request = decodeWorkerTaskEnvelope(
+					message,
+					DEFAULT_WORKER_TRANSPORT_PLUGINS
+				);
+				assert.ok(request);
+				assert.ok(request.payload.vertices instanceof Float32Array);
+
+				const responsePlugin =
+					mode === "shared-array-buffer" ?
+						sharedArrayBufferWorkerTransportPlugin
+					:	postMessageWorkerTransportPlugin;
+				const encoded = encodeWorkerTaskResult(
+					{
+						id: request.id,
+						result: {
+							ok: true,
+							vertexCount: request.payload.vertices.length,
+						},
+					},
+					responsePlugin
+				);
+				worker.emitMessage(encoded.message);
+			}),
+	});
+
+	const result = await scheduler.schedule("shared-encode-fallback", {
+		vertices: new Float32Array([0, 1, 2, 3, 4, 5]),
+	});
+	assert.deepEqual(result, {
+		ok: true,
+		vertexCount: 6,
+	});
+	assert.deepEqual(observedModes, ["post-message"]);
+
+	const stats = scheduler.getPoolStats("shared-encode-fallback");
+	assert.equal(stats?.transportMode, "shared-array-buffer");
+	assert.equal(stats?.transportPluginId, "shared-array-buffer");
+	scheduler.shutdownAll();
+}
+
 async function testCustomTransportPlugin() {
 	const customTransportPlugin = {
 		id: "custom-wrap",
@@ -225,6 +288,7 @@ async function run() {
 	await testAutoFallbackToPostMessage();
 	await testSharedArrayBufferTransportRoundtrip();
 	await testSharedArrayBufferDecodeWithSharedViewRestriction();
+	await testSharedArrayBufferEncodeTaskFallbackToPostMessage();
 	await testCustomTransportPlugin();
 	console.log("Worker transport plugin tests passed");
 }

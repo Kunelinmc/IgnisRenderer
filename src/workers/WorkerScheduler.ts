@@ -95,6 +95,8 @@ class WorkerPool {
 	private _queue: ScheduledTask[];
 	private _inFlight: Map<number, ScheduledTask>;
 	private _transportPlugin: WorkerTransportPlugin;
+	private _supportedTransportPlugins: WorkerTransportPlugin[];
+	private _taskEncodeFallbackPlugin: WorkerTransportPlugin | null;
 	private _runtimeCapabilities: WorkerRuntimeCapabilities;
 
 	public constructor(options: WorkerPoolOptions) {
@@ -140,6 +142,14 @@ class WorkerPool {
 		);
 		this._transportPlugin = selection.plugin;
 		this._runtimeCapabilities = selection.capabilities;
+		this._supportedTransportPlugins = configuredPlugins.filter((plugin) => {
+			const supported = plugin.isSupported?.(this._runtimeCapabilities) ?? true;
+			return supported;
+		});
+		if (!this._supportedTransportPlugins.includes(this._transportPlugin)) {
+			this._supportedTransportPlugins.unshift(this._transportPlugin);
+		}
+		this._taskEncodeFallbackPlugin = this._resolveTaskEncodeFallbackPlugin();
 
 		for (let i = 0; i < this._size; i++) {
 			this._workers.push(this._createWorkerState(i));
@@ -320,7 +330,7 @@ class WorkerPool {
 				id: task.id,
 				payload: task.payload,
 			};
-			const encoded = this._transportPlugin.encodeTask(message);
+			const encoded = this._encodeTask(message);
 			const transfer = [...(encoded.transfer ?? [])];
 			for (const item of task.transfer) {
 				if (transfer.includes(item)) continue;
@@ -334,6 +344,57 @@ class WorkerPool {
 			const normalized = normalizeError(error);
 			this._cancelTask(task, normalized, true);
 		}
+	}
+
+	private _resolveTaskEncodeFallbackPlugin(): WorkerTransportPlugin | null {
+		if (this._transportPlugin.mode !== "shared-array-buffer") return null;
+		for (const plugin of this._supportedTransportPlugins) {
+			if (plugin === this._transportPlugin) continue;
+			if (plugin.mode !== "post-message") continue;
+			return plugin;
+		}
+		return null;
+	}
+
+	private _encodeTask(
+		message: WorkerTaskEnvelope<unknown>
+	): ReturnType<WorkerTransportPlugin["encodeTask"]> {
+		try {
+			return this._transportPlugin.encodeTask(message);
+		} catch (primaryError) {
+			const fallbackPlugin = this._taskEncodeFallbackPlugin;
+			if (!fallbackPlugin) {
+				throw primaryError;
+			}
+			try {
+				return fallbackPlugin.encodeTask(message);
+			} catch (fallbackError) {
+				const primaryMessage =
+					primaryError instanceof Error ?
+						primaryError.message
+					:	String(primaryError);
+				const fallbackMessage =
+					fallbackError instanceof Error ?
+						fallbackError.message
+					:	String(fallbackError);
+				throw new Error(
+					`WorkerPool "${this._id}" failed to encode task payload with primary transport "${this._transportPlugin.id}" and fallback "${fallbackPlugin.id}": ${primaryMessage}; fallback: ${fallbackMessage}`
+				);
+			}
+		}
+	}
+
+	private _decodeResultEnvelope(
+		data: unknown
+	): WorkerTaskResultEnvelope<unknown> | null {
+		const primary = this._transportPlugin.decodeResult(data);
+		if (primary) return primary;
+		for (const plugin of this._supportedTransportPlugins) {
+			if (plugin === this._transportPlugin) continue;
+			const decoded = plugin.decodeResult(data);
+			if (decoded) return decoded;
+		}
+		return null;
 	}
 
 	private _cancelTask(
@@ -484,7 +545,7 @@ class WorkerPool {
 		};
 
 		state.messageHandler = (event) => {
-			const data = this._transportPlugin.decodeResult(event?.data);
+			const data = this._decodeResultEnvelope(event?.data);
 			if (!data || typeof data.id !== "number") {
 				return;
 			}
