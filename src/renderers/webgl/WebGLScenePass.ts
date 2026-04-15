@@ -287,6 +287,18 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.pbr) {
 		gl.uniform4fv(sceneProgram.uniforms.pbr, uniforms.pbr);
 	}
+	if (sceneProgram.uniforms.transmissionVolume) {
+		gl.uniform4fv(
+			sceneProgram.uniforms.transmissionVolume,
+			uniforms.transmissionVolume
+		);
+	}
+	if (sceneProgram.uniforms.attenuationColor) {
+		gl.uniform4fv(
+			sceneProgram.uniforms.attenuationColor,
+			uniforms.attenuationColor
+		);
+	}
 	if (sceneProgram.uniforms.phong) {
 		gl.uniform4fv(sceneProgram.uniforms.phong, uniforms.phong);
 	}

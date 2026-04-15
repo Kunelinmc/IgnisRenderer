@@ -556,6 +556,11 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("uReflectionProbeWorldToProbeRow0"));
 	assert.ok(shader.fragment.includes("computeReflectionProbeParallaxDirection"));
 	assert.ok(shader.fragment.includes("sampleEnvironmentSpecular"));
+	assert.ok(shader.fragment.includes("uniform vec4 uTransmissionVolume;"));
+	assert.ok(shader.fragment.includes("uniform vec4 uAttenuationColor;"));
+	assert.ok(shader.fragment.includes("float ior = max(uTransmissionVolume.x, 1.0);"));
+	assert.ok(shader.fragment.includes("volumeAttenuation = exp(-absorb * thickness);"));
+	assert.ok(shader.fragment.includes("refract(-viewDir, refractNormal, eta)"));
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {

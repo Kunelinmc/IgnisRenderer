@@ -11,6 +11,8 @@ export interface MaterialUniformState {
 	baseColor: [number, number, number, number];
 	emissive: [number, number, number];
 	pbr: [number, number, number, number];
+	transmissionVolume: [number, number, number, number];
+	attenuationColor: [number, number, number, number];
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
 	baseMap: any | null;
@@ -27,6 +29,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let metalness = 0;
 	let reflectance = 0.5;
 	let transmission = 0;
+	let ior = 1.5;
+	let thickness = 0;
+	let attenuationDistance = -1;
+	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
 	let baseMap: any | null = material.map ?? null;
 
@@ -49,6 +55,18 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		metalness = clamp(pbr.metalness ?? 0, 0, 1);
 		reflectance = clamp(pbr.reflectance ?? 0.5, 0, 1);
 		transmission = getMaterialTransmissionFactor(material);
+		ior = Math.max(1, pbr.ior ?? 1.5);
+		thickness = Math.max(0, pbr.thicknessFactor ?? 0);
+		attenuationDistance =
+			Number.isFinite(pbr.attenuationDistance) ?
+				Math.max(pbr.attenuationDistance, 0)
+			:	-1;
+		const attenuation = pbr.attenuationColor ?? { r: 255, g: 255, b: 255 };
+		attenuationColor = [
+			clamp((attenuation.r ?? 255) / 255, 0, 1),
+			clamp((attenuation.g ?? 255) / 255, 0, 1),
+			clamp((attenuation.b ?? 255) / 255, 0, 1),
+		];
 		baseMap = pbr.map ?? baseMap;
 	} else {
 		const basic = material as any;
@@ -85,6 +103,13 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		baseColor: [baseColor[0], baseColor[1], baseColor[2], opacity],
 		emissive,
 		pbr: [roughness, metalness, reflectance, transmission],
+		transmissionVolume: [ior, thickness, attenuationDistance, 0],
+		attenuationColor: [
+			attenuationColor[0],
+			attenuationColor[1],
+			attenuationColor[2],
+			1,
+		],
 		phong: [shininess, 0, 0, 0],
 		alpha: [alphaCutoff, alphaModeMask, 0, 0],
 		baseMap,

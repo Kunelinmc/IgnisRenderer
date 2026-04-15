@@ -35,6 +35,8 @@ uniform int uDoubleSided;
 uniform vec4 uBaseColor;
 uniform vec4 uEmissive;
 uniform vec4 uPBR;
+uniform vec4 uTransmissionVolume;
+uniform vec4 uAttenuationColor;
 uniform vec4 uPhong;
 uniform vec4 uAlpha;
 uniform sampler2D uBaseMap;
@@ -998,6 +1000,15 @@ vec3 shadePBR(
 	float metalness = clamp(uPBR.y, 0.0, 1.0);
 	float reflectance = clamp(uPBR.z, 0.0, 1.0);
 	float transmission = clamp(uPBR.w, 0.0, 1.0);
+	float ior = max(uTransmissionVolume.x, 1.0);
+	float thickness = max(uTransmissionVolume.y, 0.0);
+	float attenuationDistance = uTransmissionVolume.z;
+	vec3 attenuationColor = clamp(uAttenuationColor.rgb, vec3(0.0001), vec3(1.0));
+	vec3 volumeAttenuation = vec3(1.0);
+	if (thickness > 0.0 && attenuationDistance > 0.0) {
+		vec3 absorb = -log(attenuationColor) / attenuationDistance;
+		volumeAttenuation = exp(-absorb * thickness);
+	}
 	float dielectricF0 = 0.16 * reflectance * reflectance;
 	vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
@@ -1037,23 +1048,27 @@ vec3 shadePBR(
 	}
 	vec3 ambientTransmission = vec3(0.0);
 	if (transmission > EPSILON) {
-		vec3 transmissionDir = refract(-viewDir, pbrNormal, 1.0 / 1.5);
-		if (length(transmissionDir) <= EPSILON) {
-			transmissionDir = -viewDir;
+		float cosThetaI = dot(viewDir, pbrNormal);
+		bool outside = cosThetaI > 0.0;
+		float eta = outside ? 1.0 / max(ior, 1.0) : ior;
+		vec3 refractNormal = outside ? pbrNormal : -pbrNormal;
+		vec3 transmissionDir = refract(-viewDir, refractNormal, eta);
+		if (length(transmissionDir) > EPSILON) {
+			vec3 transmissionRadiance = specularAmbientBase;
+			if (uHasEnvSpecularMap == 1) {
+				transmissionRadiance = sampleEnvironmentSpecular(
+					vWorldPos,
+					transmissionDir,
+					roughness
+				);
+			}
+			ambientTransmission =
+				transmissionRadiance *
+				albedo *
+				(1.0 - metalness) *
+				volumeAttenuation *
+				transmission;
 		}
-		vec3 transmissionRadiance = specularAmbientBase;
-		if (uHasEnvSpecularMap == 1) {
-			transmissionRadiance = sampleEnvironmentSpecular(
-				vWorldPos,
-				transmissionDir,
-				roughness
-			);
-		}
-		ambientTransmission =
-			transmissionRadiance *
-			albedo *
-			(1.0 - metalness) *
-			transmission;
 	}
 
 	vec3 directLight = vec3(0.0);

@@ -139,6 +139,8 @@ export interface WebGLSceneProgram {
 		baseColor: WebGLUniformLocation | null;
 		emissive: WebGLUniformLocation | null;
 		pbr: WebGLUniformLocation | null;
+		transmissionVolume: WebGLUniformLocation | null;
+		attenuationColor: WebGLUniformLocation | null;
 		phong: WebGLUniformLocation | null;
 		alpha: WebGLUniformLocation | null;
 		baseMap: WebGLUniformLocation | null;
@@ -566,6 +568,11 @@ export class WebGLProgramLibrary {
 				baseColor: this._gl.getUniformLocation(program, "uBaseColor"),
 				emissive: this._gl.getUniformLocation(program, "uEmissive"),
 				pbr: this._gl.getUniformLocation(program, "uPBR"),
+				transmissionVolume: this._gl.getUniformLocation(
+					program,
+					"uTransmissionVolume",
+				),
+				attenuationColor: this._gl.getUniformLocation(program, "uAttenuationColor"),
 				phong: this._gl.getUniformLocation(program, "uPhong"),
 				alpha: this._gl.getUniformLocation(program, "uAlpha"),
 				baseMap: this._gl.getUniformLocation(program, "uBaseMap"),
