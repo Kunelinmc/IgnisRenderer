@@ -6,6 +6,7 @@ import {
 	PBRMaterial,
 	Platform,
 	Renderer,
+	ReflectionProbe,
 	Scene,
 	SoftwareBackend,
 	WebGPUBackend,
@@ -71,8 +72,8 @@ function buildPlayground(scene: Scene): void {
 		2000,
 		new PBRMaterial({
 			albedo: { r: 60, g: 65, b: 70 },
-			roughness: 0.2,
-			metalness: 0.1,
+			roughness: 0.88,
+			metalness: 0.0,
 			doubleSided: true,
 		})
 	);
@@ -88,12 +89,22 @@ function buildPlayground(scene: Scene): void {
 		size,
 		new PBRMaterial({
 			albedo: { r: 255, g: 200, b: 50 },
-			roughness: 0.1,
+			roughness: 0.25,
 			metalness: 1.0,
 		})
 	);
 	cube.name = "metallic-cube";
 	scene.add(cube);
+
+	// Add a global probe so specular IBL uses prefiltered mip levels instead of
+	// directly sampling the raw skybox texture.
+	const reflectionProbe = new ReflectionProbe({
+		shape: "sphere",
+		radius: 5000,
+		parallaxMode: "off",
+	});
+	reflectionProbe.name = "global-environment-probe";
+	scene.add(reflectionProbe);
 
 	// Add lights
 	scene.add(
