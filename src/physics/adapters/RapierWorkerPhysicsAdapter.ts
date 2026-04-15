@@ -78,6 +78,32 @@ function isArrayLikeBufferView(
 	return "length" in value;
 }
 
+function cloneArrayBufferView(value: ArrayBufferView): ArrayBufferView {
+	const sourceBytes = new Uint8Array(
+		value.buffer,
+		value.byteOffset,
+		value.byteLength
+	);
+	const copiedBytes = new Uint8Array(value.byteLength);
+	copiedBytes.set(sourceBytes);
+	if (value instanceof DataView) {
+		return new DataView(copiedBytes.buffer);
+	}
+	if (!isArrayLikeBufferView(value)) {
+		return copiedBytes;
+	}
+	const typedArrayCtor = (
+		value as unknown as {
+			constructor: new (
+				buffer: ArrayBuffer,
+				byteOffset: number,
+				length: number
+			) => ArrayBufferView;
+		}
+	).constructor;
+	return new typedArrayCtor(copiedBytes.buffer, 0, value.length);
+}
+
 function shouldRestorePendingCommandsAfterDispatchFailure(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return (
@@ -129,26 +155,21 @@ function toWorkerSerializableValue(
 	}
 
 	if (ArrayBuffer.isView(value)) {
-		if (isArrayLikeBufferView(value)) {
-			return Array.from(value, (entry) =>
-				typeof entry === "bigint" ? Number(entry) : entry
-			);
-		}
-		const view = value as DataView;
-		return Array.from(
-			new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
-		);
+		return cloneArrayBufferView(value);
 	}
 
 	if (typeof ArrayBuffer === "function" && value instanceof ArrayBuffer) {
-		return Array.from(new Uint8Array(value));
+		return value.slice(0);
 	}
 
 	if (
 		typeof SharedArrayBuffer === "function" &&
 		value instanceof SharedArrayBuffer
 	) {
-		return Array.from(new Uint8Array(value));
+		const sourceBytes = new Uint8Array(value);
+		const copiedBytes = new Uint8Array(sourceBytes.byteLength);
+		copiedBytes.set(sourceBytes);
+		return copiedBytes.buffer;
 	}
 
 	if (typeof value === "object") {

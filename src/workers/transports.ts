@@ -21,6 +21,7 @@ const SHARED_PACKET_MAGIC = 0x53414250;
 const SHARED_PACKET_VERSION = 1;
 const SHARED_PACKET_KIND_TASK = 1;
 const SHARED_PACKET_KIND_RESULT = 2;
+const SHARED_PACKET_HEADER_BYTE_LENGTH = 12;
 const RESULT_FLAG_HAS_RESULT = 1 << 0;
 const RESULT_FLAG_HAS_ERROR = 1 << 1;
 
@@ -32,6 +33,33 @@ const VALUE_TAG_NUMBER = 4;
 const VALUE_TAG_STRING = 5;
 const VALUE_TAG_ARRAY = 6;
 const VALUE_TAG_OBJECT = 7;
+const VALUE_TAG_ARRAY_BUFFER = 8;
+const VALUE_TAG_TYPED_ARRAY = 9;
+
+const TYPED_ARRAY_KIND_INT8 = 1;
+const TYPED_ARRAY_KIND_UINT8 = 2;
+const TYPED_ARRAY_KIND_UINT8_CLAMPED = 3;
+const TYPED_ARRAY_KIND_INT16 = 4;
+const TYPED_ARRAY_KIND_UINT16 = 5;
+const TYPED_ARRAY_KIND_INT32 = 6;
+const TYPED_ARRAY_KIND_UINT32 = 7;
+const TYPED_ARRAY_KIND_FLOAT32 = 8;
+const TYPED_ARRAY_KIND_FLOAT64 = 9;
+const TYPED_ARRAY_KIND_BIGINT64 = 10;
+const TYPED_ARRAY_KIND_BIGUINT64 = 11;
+
+type SupportedTypedArray =
+	| Int8Array
+	| Uint8Array
+	| Uint8ClampedArray
+	| Int16Array
+	| Uint16Array
+	| Int32Array
+	| Uint32Array
+	| Float32Array
+	| Float64Array
+	| BigInt64Array
+	| BigUint64Array;
 
 let _textEncoder: TextEncoder | null = null;
 let _textDecoder: TextDecoder | null = null;
@@ -57,9 +85,10 @@ class BinaryBufferWriter {
 	private _view: DataView;
 	private _offset: number;
 
-	public constructor(initialCapacity: number = 128) {
+	public constructor(initialCapacity: number = 128, useSharedBuffer = false) {
 		const capacity = Math.max(16, Math.floor(initialCapacity));
-		const buffer = new ArrayBuffer(capacity);
+		const buffer: ArrayBufferLike =
+			useSharedBuffer ? new SharedArrayBuffer(capacity) : new ArrayBuffer(capacity);
 		this._bytes = new Uint8Array(buffer);
 		this._view = new DataView(buffer);
 		this._offset = 0;
@@ -78,8 +107,19 @@ class BinaryBufferWriter {
 	}
 
 	public writeUint32(value: number): void {
+		if (!Number.isFinite(value)) {
+			throw new Error(
+				`SharedArrayBuffer packet expected a finite uint32, got ${String(value)}`
+			);
+		}
+		if (value < 0 || value > 0xffffffff) {
+			throw new Error(
+				`SharedArrayBuffer packet uint32 out of range: ${String(value)}`
+			);
+		}
+		const normalized = Math.floor(value);
 		this._ensureCapacity(4);
-		this._view.setUint32(this._offset, value >>> 0, true);
+		this._view.setUint32(this._offset, normalized >>> 0, true);
 		this._offset += 4;
 	}
 
@@ -99,6 +139,16 @@ class BinaryBufferWriter {
 		buffer: SharedArrayBuffer;
 		byteLength: number;
 	} {
+		const sourceBuffer = this._bytes.buffer;
+		if (
+			sourceBuffer instanceof SharedArrayBuffer &&
+			this._offset === sourceBuffer.byteLength
+		) {
+			return {
+				buffer: sourceBuffer,
+				byteLength: this._offset,
+			};
+		}
 		const buffer = new SharedArrayBuffer(this._offset);
 		const bytes = new Uint8Array(buffer);
 		bytes.set(this._bytes.subarray(0, this._offset));
@@ -115,7 +165,11 @@ class BinaryBufferWriter {
 		while (nextCapacity < required) {
 			nextCapacity *= 2;
 		}
-		const nextBuffer = new ArrayBuffer(nextCapacity);
+		const currentBuffer = this._bytes.buffer;
+		const nextBuffer: ArrayBufferLike =
+			currentBuffer instanceof SharedArrayBuffer ?
+				new SharedArrayBuffer(nextCapacity)
+			:	new ArrayBuffer(nextCapacity);
 		const nextBytes = new Uint8Array(nextBuffer);
 		nextBytes.set(this._bytes, 0);
 		this._bytes = nextBytes;
@@ -237,6 +291,193 @@ function isPlainObjectRecord(value: unknown): value is Record<string, unknown> {
 	return prototype === Object.prototype || prototype === null;
 }
 
+function formatByteLength(value: number): string {
+	const normalized = Math.max(0, Math.floor(value));
+	if (normalized < 1024) return `${normalized} B`;
+	if (normalized < 1024 * 1024) {
+		return `${normalized} B (${(normalized / 1024).toFixed(2)} KiB)`;
+	}
+	return `${normalized} B (${(normalized / (1024 * 1024)).toFixed(2)} MiB)`;
+}
+
+function getArrayBufferViewBytes(value: ArrayBufferView): Uint8Array {
+	return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function cloneBytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+	const clone = new Uint8Array(bytes.byteLength);
+	clone.set(bytes);
+	return clone.buffer;
+}
+
+function resolveTypedArrayKind(value: ArrayBufferView): number | null {
+	if (value instanceof Int8Array) return TYPED_ARRAY_KIND_INT8;
+	if (value instanceof Uint8Array) return TYPED_ARRAY_KIND_UINT8;
+	if (value instanceof Uint8ClampedArray) return TYPED_ARRAY_KIND_UINT8_CLAMPED;
+	if (value instanceof Int16Array) return TYPED_ARRAY_KIND_INT16;
+	if (value instanceof Uint16Array) return TYPED_ARRAY_KIND_UINT16;
+	if (value instanceof Int32Array) return TYPED_ARRAY_KIND_INT32;
+	if (value instanceof Uint32Array) return TYPED_ARRAY_KIND_UINT32;
+	if (value instanceof Float32Array) return TYPED_ARRAY_KIND_FLOAT32;
+	if (value instanceof Float64Array) return TYPED_ARRAY_KIND_FLOAT64;
+	if (
+		typeof BigInt64Array === "function" &&
+		value instanceof BigInt64Array
+	) {
+		return TYPED_ARRAY_KIND_BIGINT64;
+	}
+	if (
+		typeof BigUint64Array === "function" &&
+		value instanceof BigUint64Array
+	) {
+		return TYPED_ARRAY_KIND_BIGUINT64;
+	}
+	return null;
+}
+
+function resolveTypedArrayBytesPerElement(kind: number): number {
+	switch (kind) {
+		case TYPED_ARRAY_KIND_INT8:
+		case TYPED_ARRAY_KIND_UINT8:
+		case TYPED_ARRAY_KIND_UINT8_CLAMPED:
+			return 1;
+		case TYPED_ARRAY_KIND_INT16:
+		case TYPED_ARRAY_KIND_UINT16:
+			return 2;
+		case TYPED_ARRAY_KIND_INT32:
+		case TYPED_ARRAY_KIND_UINT32:
+		case TYPED_ARRAY_KIND_FLOAT32:
+			return 4;
+		case TYPED_ARRAY_KIND_FLOAT64:
+		case TYPED_ARRAY_KIND_BIGINT64:
+		case TYPED_ARRAY_KIND_BIGUINT64:
+			return 8;
+		default:
+			throw new Error(`Unsupported typed array kind: ${kind}`);
+	}
+}
+
+function createTypedArrayFromBuffer(
+	kind: number,
+	buffer: ArrayBuffer,
+	elementCount: number
+): SupportedTypedArray {
+	switch (kind) {
+		case TYPED_ARRAY_KIND_INT8:
+			return new Int8Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_UINT8:
+			return new Uint8Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_UINT8_CLAMPED:
+			return new Uint8ClampedArray(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_INT16:
+			return new Int16Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_UINT16:
+			return new Uint16Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_INT32:
+			return new Int32Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_UINT32:
+			return new Uint32Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_FLOAT32:
+			return new Float32Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_FLOAT64:
+			return new Float64Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_BIGINT64:
+			if (typeof BigInt64Array !== "function") {
+				throw new Error("BigInt64Array is unavailable in this runtime");
+			}
+			return new BigInt64Array(buffer, 0, elementCount);
+		case TYPED_ARRAY_KIND_BIGUINT64:
+			if (typeof BigUint64Array !== "function") {
+				throw new Error("BigUint64Array is unavailable in this runtime");
+			}
+			return new BigUint64Array(buffer, 0, elementCount);
+		default:
+			throw new Error(`Unsupported typed array kind: ${kind}`);
+	}
+}
+
+function estimateStringByteLength(value: string): number {
+	return 4 + getTextEncoder().encode(value).byteLength;
+}
+
+function estimateStructuredValueByteLength(
+	value: unknown,
+	activeValues: Set<object>
+): number {
+	if (value === null) return 1;
+	switch (typeof value) {
+		case "undefined":
+		case "boolean":
+			return 1;
+		case "number":
+			return 1 + 8;
+		case "string":
+			return 1 + estimateStringByteLength(value);
+		case "object":
+			break;
+		default:
+			throw new Error(
+				`Unsupported structured value type: ${typeof value}`
+			);
+	}
+
+	if (Array.isArray(value)) {
+		if (activeValues.has(value)) {
+			throw new Error("Circular references are not supported in SAB payloads");
+		}
+		activeValues.add(value);
+		let total = 1 + 4;
+		for (const entry of value) {
+			total += estimateStructuredValueByteLength(entry, activeValues);
+		}
+		activeValues.delete(value);
+		return total;
+	}
+
+	if (ArrayBuffer.isView(value)) {
+		const kind = resolveTypedArrayKind(value);
+		if (kind === null) {
+			if (value instanceof DataView) {
+				return 1 + 4 + value.byteLength;
+			}
+			const descriptor = Object.prototype.toString.call(value);
+			throw new Error(
+				`Unsupported structured typed array in SAB payload: ${descriptor}`
+			);
+		}
+		return 1 + 1 + 4 + 4 + value.byteLength;
+	}
+
+	if (typeof ArrayBuffer === "function" && value instanceof ArrayBuffer) {
+		return 1 + 4 + value.byteLength;
+	}
+
+	if (
+		typeof SharedArrayBuffer === "function" &&
+		value instanceof SharedArrayBuffer
+	) {
+		return 1 + 4 + value.byteLength;
+	}
+
+	if (!isPlainObjectRecord(value)) {
+		const descriptor = Object.prototype.toString.call(value);
+		throw new Error(
+			`Unsupported structured object type in SAB payload: ${descriptor}`
+		);
+	}
+	if (activeValues.has(value)) {
+		throw new Error("Circular references are not supported in SAB payloads");
+	}
+	activeValues.add(value);
+	let total = 1 + 4;
+	for (const [key, entryValue] of Object.entries(value)) {
+		total += estimateStringByteLength(key);
+		total += estimateStructuredValueByteLength(entryValue, activeValues);
+	}
+	activeValues.delete(value);
+	return total;
+}
+
 function writeString(writer: BinaryBufferWriter, value: string): void {
 	const bytes = getTextEncoder().encode(value);
 	writer.writeUint32(bytes.byteLength);
@@ -288,6 +529,49 @@ function writeStructuredValue(
 			throw new Error(
 				`Unsupported structured value type: ${typeof value}`
 			);
+	}
+
+	if (ArrayBuffer.isView(value)) {
+		const kind = resolveTypedArrayKind(value);
+		if (kind !== null) {
+			const bytes = getArrayBufferViewBytes(value);
+			writer.writeUint8(VALUE_TAG_TYPED_ARRAY);
+			writer.writeUint8(kind);
+			writer.writeUint32((value as SupportedTypedArray).length);
+			writer.writeUint32(bytes.byteLength);
+			writer.writeBytes(bytes);
+			return;
+		}
+		if (value instanceof DataView) {
+			const bytes = getArrayBufferViewBytes(value);
+			writer.writeUint8(VALUE_TAG_ARRAY_BUFFER);
+			writer.writeUint32(bytes.byteLength);
+			writer.writeBytes(bytes);
+			return;
+		}
+		const descriptor = Object.prototype.toString.call(value);
+		throw new Error(
+			`Unsupported structured typed array in SAB payload: ${descriptor}`
+		);
+	}
+
+	if (typeof ArrayBuffer === "function" && value instanceof ArrayBuffer) {
+		const bytes = new Uint8Array(value);
+		writer.writeUint8(VALUE_TAG_ARRAY_BUFFER);
+		writer.writeUint32(bytes.byteLength);
+		writer.writeBytes(bytes);
+		return;
+	}
+
+	if (
+		typeof SharedArrayBuffer === "function" &&
+		value instanceof SharedArrayBuffer
+	) {
+		const bytes = new Uint8Array(value);
+		writer.writeUint8(VALUE_TAG_ARRAY_BUFFER);
+		writer.writeUint32(bytes.byteLength);
+		writer.writeBytes(bytes);
+		return;
 	}
 
 	if (Array.isArray(value)) {
@@ -356,6 +640,26 @@ function readStructuredValue(reader: BinaryBufferReader): unknown {
 			}
 			return objectValue;
 		}
+		case VALUE_TAG_ARRAY_BUFFER: {
+			const byteLength = reader.readUint32();
+			const bytes = reader.readBytes(byteLength);
+			return cloneBytesToArrayBuffer(bytes);
+		}
+		case VALUE_TAG_TYPED_ARRAY: {
+			const kind = reader.readUint8();
+			const elementCount = reader.readUint32();
+			const byteLength = reader.readUint32();
+			const expectedByteLength =
+				resolveTypedArrayBytesPerElement(kind) * elementCount;
+			if (expectedByteLength !== byteLength) {
+				throw new Error(
+					`Invalid typed array payload: expected ${expectedByteLength} bytes, received ${byteLength}`
+				);
+			}
+			const bytes = reader.readBytes(byteLength);
+			const buffer = cloneBytesToArrayBuffer(bytes);
+			return createTypedArrayFromBuffer(kind, buffer, elementCount);
+		}
 		default:
 			throw new Error(`Unsupported SAB value tag: ${tag}`);
 	}
@@ -365,13 +669,23 @@ function encodeSharedArrayBufferTaskEnvelope(
 	envelope: WorkerTaskEnvelope<unknown>
 ): SharedArrayBufferWirePacket {
 	assertSharedArrayBufferTransportAvailable();
+	let normalizedId: number | null = null;
+	let payloadByteLengthEstimate: number | null = null;
+	let packetByteLengthEstimate: number | null = null;
 	try {
-		const writer = new BinaryBufferWriter();
+		normalizedId = normalizeEnvelopeId(envelope.id);
+		payloadByteLengthEstimate = estimateStructuredValueByteLength(
+			envelope.payload,
+			new Set()
+		);
+		packetByteLengthEstimate =
+			SHARED_PACKET_HEADER_BYTE_LENGTH + payloadByteLengthEstimate;
+		const writer = new BinaryBufferWriter(packetByteLengthEstimate, true);
 		writer.writeUint32(SHARED_PACKET_MAGIC);
 		writer.writeUint16(SHARED_PACKET_VERSION);
 		writer.writeUint8(SHARED_PACKET_KIND_TASK);
 		writer.writeUint8(0);
-		writer.writeUint32(normalizeEnvelopeId(envelope.id));
+		writer.writeUint32(normalizedId);
 		writeStructuredValue(writer, envelope.payload, new Set());
 		const packet = writer.toSharedArrayBuffer();
 		return {
@@ -381,8 +695,18 @@ function encodeSharedArrayBufferTaskEnvelope(
 			buffer: packet.buffer,
 		};
 	} catch (error) {
+		const payloadSizeSummary =
+			payloadByteLengthEstimate === null ?
+				"unknown"
+			:	formatByteLength(payloadByteLengthEstimate);
+		const packetSizeSummary =
+			packetByteLengthEstimate === null ?
+				"unknown"
+			:	formatByteLength(packetByteLengthEstimate);
 		throw new Error(
-			`SharedArrayBuffer transport failed to encode task payload: ${String(error)}`
+			`SharedArrayBuffer transport failed to encode task payload (envelopeId=${
+				normalizedId ?? "unknown"
+			}, estimatedPayloadSize=${payloadSizeSummary}, estimatedPacketSize=${packetSizeSummary}): ${String(error)}`
 		);
 	}
 }
@@ -391,8 +715,12 @@ function encodeSharedArrayBufferResultEnvelope(
 	envelope: WorkerTaskResultEnvelope<unknown>
 ): SharedArrayBufferWirePacket {
 	assertSharedArrayBufferTransportAvailable();
+	let normalizedId: number | null = null;
+	let resultByteLengthEstimate: number | null = null;
+	let errorByteLengthEstimate: number | null = null;
+	let packetByteLengthEstimate: number | null = null;
 	try {
-		const writer = new BinaryBufferWriter();
+		normalizedId = normalizeEnvelopeId(envelope.id);
 		const hasResult = Object.prototype.hasOwnProperty.call(envelope, "result");
 		const rawError = (envelope as { error?: unknown }).error;
 		const hasError = rawError !== undefined;
@@ -403,12 +731,26 @@ function encodeSharedArrayBufferResultEnvelope(
 		let flags = 0;
 		if (hasResult) flags |= RESULT_FLAG_HAS_RESULT;
 		if (hasError) flags |= RESULT_FLAG_HAS_ERROR;
+		if (hasResult) {
+			resultByteLengthEstimate = estimateStructuredValueByteLength(
+				(envelope as { result?: unknown }).result,
+				new Set()
+			);
+		}
+		if (hasError) {
+			errorByteLengthEstimate = estimateStringByteLength(normalizedError!);
+		}
+		packetByteLengthEstimate =
+			SHARED_PACKET_HEADER_BYTE_LENGTH +
+			(resultByteLengthEstimate ?? 0) +
+			(errorByteLengthEstimate ?? 0);
+		const writer = new BinaryBufferWriter(packetByteLengthEstimate, true);
 
 		writer.writeUint32(SHARED_PACKET_MAGIC);
 		writer.writeUint16(SHARED_PACKET_VERSION);
 		writer.writeUint8(SHARED_PACKET_KIND_RESULT);
 		writer.writeUint8(flags);
-		writer.writeUint32(normalizeEnvelopeId(envelope.id));
+		writer.writeUint32(normalizedId);
 		if (hasResult) {
 			writeStructuredValue(
 				writer,
@@ -428,8 +770,22 @@ function encodeSharedArrayBufferResultEnvelope(
 			buffer: packet.buffer,
 		};
 	} catch (error) {
+		const resultSizeSummary =
+			resultByteLengthEstimate === null ?
+				"none"
+			:	formatByteLength(resultByteLengthEstimate);
+		const errorSizeSummary =
+			errorByteLengthEstimate === null ?
+				"none"
+			:	formatByteLength(errorByteLengthEstimate);
+		const packetSizeSummary =
+			packetByteLengthEstimate === null ?
+				"unknown"
+			:	formatByteLength(packetByteLengthEstimate);
 		throw new Error(
-			`SharedArrayBuffer transport failed to encode result payload: ${String(error)}`
+			`SharedArrayBuffer transport failed to encode result payload (envelopeId=${
+				normalizedId ?? "unknown"
+			}, estimatedResultSize=${resultSizeSummary}, estimatedErrorSize=${errorSizeSummary}, estimatedPacketSize=${packetSizeSummary}): ${String(error)}`
 		);
 	}
 }

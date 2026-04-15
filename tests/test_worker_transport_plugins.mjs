@@ -94,6 +94,29 @@ async function testSharedArrayBufferTransportRoundtrip() {
 	scheduler.shutdownAll();
 }
 
+function testSharedArrayBufferTypedArrayRoundtrip() {
+	if (typeof SharedArrayBuffer !== "function") {
+		return;
+	}
+	const payload = {
+		vertices: new Float32Array([0, 1, 2, 3, 4, 5]),
+		indices: new Uint32Array([0, 1, 2]),
+	};
+	const encoded = sharedArrayBufferWorkerTransportPlugin.encodeTask({
+		id: 13,
+		payload,
+	});
+	const decoded = sharedArrayBufferWorkerTransportPlugin.decodeTask(
+		encoded.message
+	);
+	assert.ok(decoded);
+	assert.equal(decoded.id, 13);
+	assert.ok(decoded.payload.vertices instanceof Float32Array);
+	assert.ok(decoded.payload.indices instanceof Uint32Array);
+	assert.deepEqual(Array.from(decoded.payload.vertices), [0, 1, 2, 3, 4, 5]);
+	assert.deepEqual(Array.from(decoded.payload.indices), [0, 1, 2]);
+}
+
 async function testSharedArrayBufferDecodeWithSharedViewRestriction() {
 	if (typeof SharedArrayBuffer !== "function") {
 		return;
@@ -163,63 +186,107 @@ async function testSharedArrayBufferEncodeTaskFallbackToPostMessage() {
 	if (typeof SharedArrayBuffer !== "function") {
 		return;
 	}
+	const OriginalSharedArrayBuffer = globalThis.SharedArrayBuffer;
+	class ThrowingSharedArrayBuffer {
+		constructor() {
+			throw new RangeError("Array buffer allocation failed");
+		}
+	}
+	globalThis.SharedArrayBuffer = ThrowingSharedArrayBuffer;
+
 	const observedModes = [];
 	const scheduler = new WorkerScheduler();
-	scheduler.registerPool({
-		id: "shared-encode-fallback",
-		size: 1,
-		runtimeCapabilities: {
-			sharedArrayBuffer: true,
-			crossOriginIsolated: true,
-		},
-		transportPlugins: DEFAULT_WORKER_TRANSPORT_PLUGINS,
-		createWorker: () =>
-			new FakeWorker((message, worker) => {
-				const isSharedPacket =
-					!!message &&
-					typeof message === "object" &&
-					message.transport === "shared-array-buffer";
-				const mode = isSharedPacket ? "shared-array-buffer" : "post-message";
-				observedModes.push(mode);
+	try {
+		scheduler.registerPool({
+			id: "shared-encode-fallback",
+			size: 1,
+			runtimeCapabilities: {
+				sharedArrayBuffer: true,
+				crossOriginIsolated: true,
+			},
+			transportPlugins: DEFAULT_WORKER_TRANSPORT_PLUGINS,
+			createWorker: () =>
+				new FakeWorker((message, worker) => {
+					const isSharedPacket =
+						!!message &&
+						typeof message === "object" &&
+						message.transport === "shared-array-buffer";
+					const mode = isSharedPacket ? "shared-array-buffer" : "post-message";
+					observedModes.push(mode);
 
-				const request = decodeWorkerTaskEnvelope(
-					message,
-					DEFAULT_WORKER_TRANSPORT_PLUGINS
-				);
-				assert.ok(request);
-				assert.ok(request.payload.vertices instanceof Float32Array);
+					const request = decodeWorkerTaskEnvelope(
+						message,
+						DEFAULT_WORKER_TRANSPORT_PLUGINS
+					);
+					assert.ok(request);
+					assert.ok(request.payload.vertices instanceof Float32Array);
 
-				const responsePlugin =
-					mode === "shared-array-buffer" ?
-						sharedArrayBufferWorkerTransportPlugin
-					:	postMessageWorkerTransportPlugin;
-				const encoded = encodeWorkerTaskResult(
-					{
-						id: request.id,
-						result: {
-							ok: true,
-							vertexCount: request.payload.vertices.length,
+					const responsePlugin =
+						mode === "shared-array-buffer" ?
+							sharedArrayBufferWorkerTransportPlugin
+						:	postMessageWorkerTransportPlugin;
+					const encoded = encodeWorkerTaskResult(
+						{
+							id: request.id,
+							result: {
+								ok: true,
+								vertexCount: request.payload.vertices.length,
+							},
 						},
+						responsePlugin
+					);
+					worker.emitMessage(encoded.message);
+				}),
+		});
+
+		const result = await scheduler.schedule("shared-encode-fallback", {
+			vertices: new Float32Array([0, 1, 2, 3, 4, 5]),
+		});
+		assert.deepEqual(result, {
+			ok: true,
+			vertexCount: 6,
+		});
+		assert.deepEqual(observedModes, ["post-message"]);
+
+		const stats = scheduler.getPoolStats("shared-encode-fallback");
+		assert.equal(stats?.transportMode, "shared-array-buffer");
+		assert.equal(stats?.transportPluginId, "shared-array-buffer");
+	} finally {
+		scheduler.shutdownAll();
+		globalThis.SharedArrayBuffer = OriginalSharedArrayBuffer;
+	}
+}
+
+function testSharedArrayBufferEncodeTaskErrorIncludesPayloadSize() {
+	if (typeof SharedArrayBuffer !== "function") {
+		return;
+	}
+	const OriginalSharedArrayBuffer = globalThis.SharedArrayBuffer;
+	class ThrowingSharedArrayBuffer {
+		constructor() {
+			throw new RangeError("Array buffer allocation failed");
+		}
+	}
+	globalThis.SharedArrayBuffer = ThrowingSharedArrayBuffer;
+	try {
+		assert.throws(
+			() =>
+				sharedArrayBufferWorkerTransportPlugin.encodeTask({
+					id: 11,
+					payload: {
+						vertices: new Float32Array([0, 1, 2, 3, 4, 5]),
+						indices: new Uint32Array([0, 1, 2]),
 					},
-					responsePlugin
-				);
-				worker.emitMessage(encoded.message);
-			}),
-	});
-
-	const result = await scheduler.schedule("shared-encode-fallback", {
-		vertices: new Float32Array([0, 1, 2, 3, 4, 5]),
-	});
-	assert.deepEqual(result, {
-		ok: true,
-		vertexCount: 6,
-	});
-	assert.deepEqual(observedModes, ["post-message"]);
-
-	const stats = scheduler.getPoolStats("shared-encode-fallback");
-	assert.equal(stats?.transportMode, "shared-array-buffer");
-	assert.equal(stats?.transportPluginId, "shared-array-buffer");
-	scheduler.shutdownAll();
+				}),
+			(error) =>
+				error instanceof Error &&
+				error.message.includes("estimatedPayloadSize=") &&
+				error.message.includes("estimatedPacketSize=") &&
+				error.message.includes("RangeError: Array buffer allocation failed")
+		);
+	} finally {
+		globalThis.SharedArrayBuffer = OriginalSharedArrayBuffer;
+	}
 }
 
 async function testCustomTransportPlugin() {
@@ -287,8 +354,10 @@ async function testCustomTransportPlugin() {
 async function run() {
 	await testAutoFallbackToPostMessage();
 	await testSharedArrayBufferTransportRoundtrip();
+	testSharedArrayBufferTypedArrayRoundtrip();
 	await testSharedArrayBufferDecodeWithSharedViewRestriction();
 	await testSharedArrayBufferEncodeTaskFallbackToPostMessage();
+	testSharedArrayBufferEncodeTaskErrorIncludesPayloadSize();
 	await testCustomTransportPlugin();
 	console.log("Worker transport plugin tests passed");
 }
