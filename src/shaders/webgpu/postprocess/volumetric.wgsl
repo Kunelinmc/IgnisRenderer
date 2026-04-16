@@ -91,12 +91,21 @@ const PI: f32 = 3.14159265359;
 const MAX_VIEW_STEPS: i32 = 96;
 const MAX_SHADOW_STEPS: i32 = 24;
 const MAX_RESTIR_CANDIDATES: i32 = 64;
+const SPATIAL_REUSE_NEIGHBOR_COUNT: i32 = 8;
 const TEMPORAL_HISTORY_WEIGHT: f32 = 0.75;
 const TEMPORAL_DEPTH_THRESHOLD: f32 = 0.04;
 const SHADOW_CONE_SLOPE: f32 = 0.02;
 const SKY_STEP_SCALE: f32 = 0.55;
 const TEMPORAL_MOTION_FACTOR: f32 = 28.0;
 const TEMPORAL_DISOCCLUSION_FACTOR: f32 = 6.0;
+const TEMPORAL_MOTION_DELTA_FACTOR: f32 = 10.0;
+const SPATIAL_REUSE_RADIUS_PX: f32 = 1.5;
+const SPATIAL_REUSE_WEIGHT: f32 = 0.65;
+const RESTIR_MIS_STRENGTH: f32 = 0.7;
+const RESTIR_TEMPORAL_SAMPLE_CAP: f32 = 48.0;
+const RESTIR_SPATIAL_SAMPLE_CAP: f32 = 24.0;
+const HISTORY_GAMMA_MIN: f32 = 0.35;
+const HISTORY_GAMMA_MAX: f32 = 1.25;
 
 fn safeNormalize(v: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(v);
@@ -133,6 +142,22 @@ fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {
 	let gg = g * g;
 	let denom = pow(max(1.0 + gg - 2.0 * g * cosTheta, 1e-6), 1.5);
 	return (1.0 - gg) / (4.0 * PI * denom);
+}
+
+fn rgbToYCoCg(c: vec3<f32>) -> vec3<f32> {
+	let co = c.r - c.b;
+	let t = c.b + co * 0.5;
+	let cg = c.g - t;
+	let y = t + cg * 0.5;
+	return vec3<f32>(y, co, cg);
+}
+
+fn yCoCgToRgb(c: vec3<f32>) -> vec3<f32> {
+	let t = c.x - c.z * 0.5;
+	let g = c.z + t;
+	let b = t - c.y * 0.5;
+	let r = b + c.y;
+	return vec3<f32>(r, g, b);
 }
 
 fn getCameraBasis() -> CameraBasis {
@@ -175,6 +200,13 @@ fn worldToLinearDepth(worldPos: vec3<f32>) -> f32 {
 	let rel = worldPos - frame.cameraPosition.xyz;
 	let basis = getCameraBasis();
 	return dot(rel, -basis.backward);
+}
+
+fn uvToCoord(uv: vec2<f32>, size: vec2<u32>) -> vec2<i32> {
+	return vec2<i32>(
+		i32(clamp(uv.x * f32(size.x), 0.0, f32(max(size.x, 1u) - 1u))),
+		i32(clamp(uv.y * f32(size.y), 0.0, f32(max(size.y, 1u) - 1u)))
+	);
 }
 
 fn isInsideScreen(uv: vec2<f32>) -> bool {
@@ -264,6 +296,18 @@ fn updateReservoir(
 		updated.selectedWeight = safeWeight;
 	}
 	return updated;
+}
+
+fn reuseMisWeight(weightSum: f32, selectedWeight: f32, totalLights: i32) -> f32 {
+	let safeTotalLights = max(f32(totalLights), 1.0);
+	let directPdf = 1.0 / safeTotalLights;
+	let reusePdf = clamp(
+		selectedWeight / max(weightSum, 1e-6),
+		directPdf * 0.25,
+		1.0
+	);
+	let balance = directPdf / max(directPdf + reusePdf, 1e-6);
+	return mix(1.0, balance, RESTIR_MIS_STRENGTH);
 }
 
 fn isDirectional(light: VolumetricLightData) -> bool {
@@ -434,6 +478,48 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
 	let insidePrev =
 		prevUv.x >= 0.0 && prevUv.x <= 1.0 && prevUv.y >= 0.0 && prevUv.y <= 1.0;
+	let prevCoord = uvToCoord(prevUv, size);
+	let currDepthForHistory = select(maxDistance, depth, hasSurface);
+	let prevMotionDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0);
+	let prevDepth = prevMotionDepth.z;
+	let prevMotion = prevMotionDepth.xy;
+	var depthConfidence = 1.0;
+	if (hasSurface) {
+		let hasPrevDepth = prevDepth > 0.0;
+		let relDepth =
+			abs(currDepthForHistory - prevDepth) /
+			max(max(currDepthForHistory, prevDepth), 1e-4);
+		depthConfidence = select(
+			0.0,
+			1.0 - smoothstep(
+				TEMPORAL_DEPTH_THRESHOLD * 0.5,
+				TEMPORAL_DEPTH_THRESHOLD * 2.0,
+				relDepth
+			),
+			hasPrevDepth
+		);
+	}
+	let forwardUv = prevUv + vec2<f32>(prevMotion.x * 0.5, -prevMotion.y * 0.5);
+	let reprojectionError = abs(forwardUv - uv) / safeInvSize;
+	let reprojectionErrorPx = max(reprojectionError.x, reprojectionError.y);
+	let reprojectionConfidence = 1.0 - smoothstep(0.5, 2.0, reprojectionErrorPx);
+	let motionMag = length(motion);
+	let motionDelta = length(prevMotion - motion);
+	let velocityDisocclusion = exp(-motionMag * TEMPORAL_DISOCCLUSION_FACTOR);
+	let motionConsistency = exp(-motionDelta * TEMPORAL_MOTION_DELTA_FACTOR);
+	let validBase = params.historyValid > 0.5 && insidePrev;
+	let reservoirHistoryConfidence = select(
+		0.0,
+		clamp(
+			depthConfidence *
+			reprojectionConfidence *
+			velocityDisocclusion *
+			motionConsistency,
+			0.0,
+			1.0
+		),
+		validBase
+	);
 
 	let baseSteps = i32(clamp(params.samples, 1.0, f32(MAX_VIEW_STEPS)));
 	let adaptiveScale = select(
@@ -488,11 +574,9 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 			);
 		}
 
-		if (params.historyValid > 0.5 && insidePrev) {
-			let prevCoord = vec2<i32>(
-				i32(clamp(prevUv.x * f32(size.x), 0.0, f32(max(size.x, 1u) - 1u))),
-				i32(clamp(prevUv.y * f32(size.y), 0.0, f32(max(size.y, 1u) - 1u)))
-			);
+		let temporalWeight = clamp(params.restirTemporalWeight, 0.0, 1.0);
+		let temporalReuseStrength = temporalWeight * reservoirHistoryConfidence;
+		if (temporalReuseStrength > 0.0) {
 			let prevReservoir = textureLoad(volumetricReservoirHistory, prevCoord, 0);
 			let prevIndex = i32(prevReservoir.x + 0.5);
 			if (prevIndex >= 0 && prevIndex < totalLights) {
@@ -511,12 +595,23 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 						rayDir,
 						anisotropy
 					);
-					let temporalWeight = clamp(params.restirTemporalWeight, 0.0, 1.0);
+					let temporalMis = reuseMisWeight(
+						prevWeightSum,
+						prevSelectedWeight,
+						totalLights
+					);
+					let temporalNormalization = min(
+						prevWeightSum / max(prevSelectedWeight, 1e-6),
+						mix(4.0, max(params.restirScaleClamp, 1.0), reservoirHistoryConfidence)
+					);
 					let temporalCandidateWeight =
 						prevCurrentWeight *
-						(prevWeightSum / max(prevSelectedWeight, 1e-6)) *
-						temporalWeight;
-					let temporalSampleCount = prevSampleCount * temporalWeight;
+						temporalNormalization *
+						temporalMis *
+						temporalReuseStrength;
+					let temporalSampleCount =
+						min(prevSampleCount, RESTIR_TEMPORAL_SAMPLE_CAP) *
+						temporalReuseStrength;
 					if (temporalCandidateWeight > 0.0 && temporalSampleCount > 0.0) {
 						let r = randomSample(pixel, params.frameIndex, 103.0);
 						reservoir = updateReservoir(
@@ -530,6 +625,114 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 				}
 			}
 		}
+
+		let spatialReuseStrength =
+			temporalWeight * reservoirHistoryConfidence * SPATIAL_REUSE_WEIGHT;
+		if (spatialReuseStrength > 0.0) {
+			let spatialOffsets = array<vec2<i32>, SPATIAL_REUSE_NEIGHBOR_COUNT>(
+				vec2<i32>(-1, 0),
+				vec2<i32>(1, 0),
+				vec2<i32>(0, -1),
+				vec2<i32>(0, 1),
+				vec2<i32>(-1, -1),
+				vec2<i32>(1, -1),
+				vec2<i32>(-1, 1),
+				vec2<i32>(1, 1)
+			);
+			for (
+				var neighbor: i32 = 0;
+				neighbor < SPATIAL_REUSE_NEIGHBOR_COUNT;
+				neighbor = neighbor + 1
+			) {
+				let offset = spatialOffsets[neighbor];
+				let neighborUv =
+					prevUv +
+					vec2<f32>(offset) * (safeInvSize * SPATIAL_REUSE_RADIUS_PX);
+				if (!isInsideScreen(neighborUv)) { continue; }
+
+				let neighborCoord = uvToCoord(neighborUv, size);
+				let neighborReservoir =
+					textureLoad(volumetricReservoirHistory, neighborCoord, 0);
+				let neighborIndex = i32(neighborReservoir.x + 0.5);
+				if (neighborIndex < 0 || neighborIndex >= totalLights) { continue; }
+
+				let neighborWeightSum = max(neighborReservoir.y, 0.0);
+				let neighborSelectedWeight = max(neighborReservoir.z, 0.0);
+				let neighborSampleCount = max(neighborReservoir.w, 0.0);
+				if (
+					neighborWeightSum <= 0.0 ||
+					neighborSelectedWeight <= 0.0 ||
+					neighborSampleCount <= 0.0
+				) {
+					continue;
+				}
+
+				let neighborMotionDepth = textureLoad(gMotionDepth, neighborCoord, 0);
+				let neighborDepth = neighborMotionDepth.z;
+				let neighborMotion = neighborMotionDepth.xy;
+				var depthCompatibility = 1.0;
+				if (hasSurface) {
+					let hasNeighborDepth = neighborDepth > 0.0;
+					let relDepth =
+						abs(currDepthForHistory - neighborDepth) /
+						max(max(currDepthForHistory, neighborDepth), 1e-4);
+					depthCompatibility = select(
+						0.0,
+						1.0 - smoothstep(0.01, 0.12, relDepth),
+						hasNeighborDepth
+					);
+				}
+				let motionDeltaPx = length((neighborMotion - motion) / safeInvSize);
+				let motionCompatibility = 1.0 - smoothstep(0.75, 5.0, motionDeltaPx);
+				let distanceCompatibility = 1.0 / (1.0 + length(vec2<f32>(offset)));
+				let spatialConfidence = clamp(
+					spatialReuseStrength *
+					depthCompatibility *
+					motionCompatibility *
+					distanceCompatibility,
+					0.0,
+					1.0
+				);
+				if (spatialConfidence <= 0.0) { continue; }
+
+				let neighborLight = volumetricLightBuffer.lights[u32(neighborIndex)];
+				let neighborCurrentWeight = estimateLightWeight(
+					neighborLight,
+					referencePos,
+					rayDir,
+					anisotropy
+				);
+				let neighborMis = reuseMisWeight(
+					neighborWeightSum,
+					neighborSelectedWeight,
+					totalLights
+				);
+				let neighborNormalization = min(
+					neighborWeightSum / max(neighborSelectedWeight, 1e-6),
+					mix(3.0, max(params.restirScaleClamp, 1.0), spatialConfidence)
+				);
+				let spatialCandidateWeight =
+					neighborCurrentWeight *
+					neighborNormalization *
+					neighborMis *
+					spatialConfidence;
+				let spatialSampleCount =
+					min(neighborSampleCount, RESTIR_SPATIAL_SAMPLE_CAP) *
+					spatialConfidence;
+				if (spatialCandidateWeight <= 0.0 || spatialSampleCount <= 0.0) {
+					continue;
+				}
+
+				let r = randomSample(pixel, params.frameIndex, f32(neighbor) + 173.0);
+				reservoir = updateReservoir(
+					reservoir,
+					neighborIndex,
+					spatialCandidateWeight,
+					spatialSampleCount,
+					r
+				);
+			}
+		}
 	}
 
 	var selectedLightIndex: u32 = 0u;
@@ -540,10 +743,16 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		selectedLightIndex = u32(reservoir.lightIndex);
 		let denom = max(reservoir.selectedWeight * reservoir.sampleCount, 1e-6);
 		let normalization = reservoir.weightSum / denom;
+		let baseScaleClamp = max(params.restirScaleClamp, 1.0);
+		let adaptiveScaleClamp = mix(
+			max(4.0, baseScaleClamp * 0.4),
+			baseScaleClamp,
+			reservoirHistoryConfidence
+		);
 		restirScale = clamp(
 			normalization * f32(totalLights),
 			0.0,
-			max(params.restirScaleClamp, 1.0)
+			adaptiveScaleClamp
 		);
 	}
 
@@ -609,57 +818,79 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		prevUv,
 		0.0
 	);
-	let currDepthForHistory = select(maxDistance, depth, hasSurface);
-	let prevDepth = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).z;
-	var depthConfidence = 1.0;
-	if (hasSurface) {
-		let hasPrevDepth = prevDepth > 0.0;
-		let relDepth =
-			abs(currDepthForHistory - prevDepth) /
-			max(max(currDepthForHistory, prevDepth), 1e-4);
-		depthConfidence = select(
-			0.0,
-			1.0 - smoothstep(
-				TEMPORAL_DEPTH_THRESHOLD * 0.5,
-				TEMPORAL_DEPTH_THRESHOLD * 2.0,
-				relDepth
-			),
-			hasPrevDepth
-		);
+	let minCoord = vec2<i32>(0, 0);
+	let maxCoord = vec2<i32>(i32(size.x) - 1, i32(size.y) - 1);
+	var minYCoCg = vec3<f32>(1e9, 1e9, 1e9);
+	var maxYCoCg = vec3<f32>(-1e9, -1e9, -1e9);
+	var sumYCoCg = vec3<f32>(0.0);
+	var sumSqYCoCg = vec3<f32>(0.0);
+	let clampOffsets = array<vec2<i32>, 5>(
+		vec2<i32>(0, 0),
+		vec2<i32>(-1, 0),
+		vec2<i32>(1, 0),
+		vec2<i32>(0, -1),
+		vec2<i32>(0, 1)
+	);
+	for (var i: i32 = 0; i < 5; i = i + 1) {
+		let sampleCoord = clamp(prevCoord + clampOffsets[i], minCoord, maxCoord);
+		let ycocg = rgbToYCoCg(textureLoad(volumetricHistory, sampleCoord, 0).rgb);
+		minYCoCg = min(minYCoCg, ycocg);
+		maxYCoCg = max(maxYCoCg, ycocg);
+		sumYCoCg += ycocg;
+		sumSqYCoCg += ycocg * ycocg;
 	}
-	let prevMotion = textureSampleLevel(motionHistory, linearSampler, prevUv, 0.0).xy;
-	let forwardUv = prevUv + vec2<f32>(prevMotion.x * 0.5, -prevMotion.y * 0.5);
-	let reprojectionError = abs(forwardUv - uv) / safeInvSize;
-	let reprojectionErrorPx = max(reprojectionError.x, reprojectionError.y);
-	let reprojectionConfidence = 1.0 - smoothstep(0.5, 2.0, reprojectionErrorPx);
+	let currYCoCg = rgbToYCoCg(volumetricCurrent);
+	minYCoCg = min(minYCoCg, currYCoCg);
+	maxYCoCg = max(maxYCoCg, currYCoCg);
+	sumYCoCg += currYCoCg;
+	sumSqYCoCg += currYCoCg * currYCoCg;
+	let meanYCoCg = sumYCoCg / 6.0;
+	let varianceYCoCg =
+		max(sumSqYCoCg / 6.0 - meanYCoCg * meanYCoCg, vec3<f32>(0.0));
+	let sigmaYCoCg = sqrt(varianceYCoCg);
+	let gamma = mix(HISTORY_GAMMA_MIN, HISTORY_GAMMA_MAX, reservoirHistoryConfidence);
+	let varianceMin = meanYCoCg - sigmaYCoCg * gamma;
+	let varianceMax = meanYCoCg + sigmaYCoCg * gamma;
+	let intersectionMin = max(minYCoCg, varianceMin);
+	let intersectionMax = min(maxYCoCg, varianceMax);
+	let clampMin = min(intersectionMin, intersectionMax);
+	let clampMax = max(intersectionMin, intersectionMax);
+	var clampedPrevYCoCg = clamp(rgbToYCoCg(prevVolumetric.rgb), clampMin, clampMax);
+	let anchorTolerance = vec3<f32>(
+		max(currYCoCg.x * mix(0.1, 0.4, reservoirHistoryConfidence), 0.003),
+		max(currYCoCg.x * 0.35 + 0.02, 0.02),
+		max(currYCoCg.x * 0.35 + 0.02, 0.02)
+	);
+	clampedPrevYCoCg = clamp(
+		clampedPrevYCoCg,
+		currYCoCg - anchorTolerance,
+		currYCoCg + anchorTolerance
+	);
+	let clampedPrevVolumetric = max(yCoCgToRgb(clampedPrevYCoCg), vec3<f32>(0.0));
 
 	let currLuma = luma(volumetricCurrent);
-	let prevLuma = luma(prevVolumetric.rgb);
-	let relLumaDiff = abs(currLuma - prevLuma) / max(max(currLuma, prevLuma), 1e-3);
-	let colorConfidence = 1.0 - smoothstep(0.08, 0.5, relLumaDiff);
-
-	// Neighborhood clamp: restrict history luminance to a tolerance around
-	// the current value so stale bright/dark artifacts cannot persist.
-	let lumaTolerance = max(currLuma * 0.6, 0.005);
-	let clampedPrevLuma = clamp(prevLuma, currLuma - lumaTolerance, currLuma + lumaTolerance);
-	let lumaScale = select(clampedPrevLuma / max(prevLuma, 1e-6), 1.0, prevLuma < 1e-6);
-	let clampedPrevVolumetric = prevVolumetric.rgb * lumaScale;
-
-	let validBase = params.historyValid > 0.5 && insidePrev;
-	let motionMag = length(motion);
-	// Velocity-magnitude disocclusion: fast motion quickly invalidates history
-	let velocityDisocclusion = exp(-motionMag * TEMPORAL_DISOCCLUSION_FACTOR);
-	let historyConfidence = select(
+	let clampedPrevLuma = luma(clampedPrevVolumetric);
+	let rawPrevLuma = luma(prevVolumetric.rgb);
+	let clampedRelDiff =
+		abs(currLuma - clampedPrevLuma) / max(max(currLuma, clampedPrevLuma), 1e-3);
+	let rawRelDiff =
+		abs(currLuma - rawPrevLuma) / max(max(currLuma, rawPrevLuma), 1e-3);
+	let clampedColorConfidence = 1.0 - smoothstep(0.06, 0.45, clampedRelDiff);
+	let rawColorConfidence = 1.0 - smoothstep(0.12, 0.8, rawRelDiff);
+	let colorConfidence = clamp(
+		clampedColorConfidence * 0.65 + rawColorConfidence * 0.35,
 		0.0,
-		clamp(
-			depthConfidence * reprojectionConfidence * colorConfidence * velocityDisocclusion,
-			0.0,
-			1.0
-		),
-		validBase
+		1.0
+	);
+	let historyConfidence = clamp(
+		reservoirHistoryConfidence * colorConfidence,
+		0.0,
+		1.0
 	);
 	let adaptiveHistory = clamp(
-		TEMPORAL_HISTORY_WEIGHT * exp(-motionMag * TEMPORAL_MOTION_FACTOR),
+		TEMPORAL_HISTORY_WEIGHT *
+		mix(0.35, 1.0, reservoirHistoryConfidence) *
+		exp(-motionMag * TEMPORAL_MOTION_FACTOR),
 		0.0,
 		TEMPORAL_HISTORY_WEIGHT
 	);
