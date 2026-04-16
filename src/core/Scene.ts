@@ -79,14 +79,12 @@ export class Scene {
 	}
 
 	public contains(node: Node): boolean {
-		if (node === this.root) return true;
-		let found = false;
-		this.traverse((current) => {
-			if (current === node) {
-				found = true;
-			}
-		});
-		return found;
+		let current: Node | null = node;
+		while (current) {
+			if (current === this.root) return true;
+			current = current.parent;
+		}
+		return false;
 	}
 
 	public traverse(visitor: (node: Node) => void): void {
