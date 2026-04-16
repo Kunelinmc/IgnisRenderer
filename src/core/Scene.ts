@@ -30,7 +30,6 @@ interface SpatialMeshSignature {
 }
 
 export class Scene {
-	/** @deprecated Scene is now a compatibility facade over ECSWorld. */
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
 	public skybox: Texture | null;
@@ -40,10 +39,7 @@ export class Scene {
 	private _dirtyReasonMask = 0;
 	private _reparentingNodes = new WeakSet<Node>();
 	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
-	private _spatialSignaturesByMeshInstance = new Map<
-		MeshInstance,
-		SpatialMeshSignature
-	>();
+	private _spatialSignaturesByMeshInstance = new Map<MeshInstance, SpatialMeshSignature>();
 	private _spatialIndexMode: SpatialIndexMode;
 
 	constructor() {
@@ -144,7 +140,7 @@ export class Scene {
 			for (const meshInstance of meshInstances) {
 				this._spatialSignaturesByMeshInstance.set(
 					meshInstance,
-					createSpatialMeshSignature(meshInstance)
+					createSpatialMeshSignature(meshInstance),
 				);
 			}
 			return spatial;
@@ -170,7 +166,7 @@ export class Scene {
 				this._spatialTrackedMeshInstances.add(meshInstance);
 				this._spatialSignaturesByMeshInstance.set(
 					meshInstance,
-					createSpatialMeshSignature(meshInstance)
+					createSpatialMeshSignature(meshInstance),
 				);
 				spatial.upsert(meshInstance);
 				continue;
@@ -180,7 +176,7 @@ export class Scene {
 			if (!signature) {
 				this._spatialSignaturesByMeshInstance.set(
 					meshInstance,
-					createSpatialMeshSignature(meshInstance)
+					createSpatialMeshSignature(meshInstance),
 				);
 				spatial.upsert(meshInstance);
 				continue;
@@ -196,7 +192,7 @@ export class Scene {
 
 	public queryMeshInstancesInFrustum(
 		camera: Camera,
-		meshInstances: MeshInstance[]
+		meshInstances: MeshInstance[],
 	): MeshInstance[] {
 		const spatial = this.rebuildSpatialIndex(meshInstances);
 		return spatial.queryFrustum(camera.frustum);
@@ -308,15 +304,12 @@ export class Scene {
 			y: max.y - min.y,
 			z: max.z - min.z,
 		};
-		const radius =
-			Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z) / 2;
+		const radius = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z) / 2;
 
 		return { center, radius };
 	}
 
-	private _collectByType<T extends Node>(
-		predicate: (node: Node) => node is T
-	): T[] {
+	private _collectByType<T extends Node>(predicate: (node: Node) => node is T): T[] {
 		const result: T[] = [];
 		this.traverse((node) => {
 			if (predicate(node)) {
@@ -330,7 +323,7 @@ export class Scene {
 		node: Node,
 		parentEntity: number | null,
 		path: string,
-		activeNodes: Set<Node>
+		activeNodes: Set<Node>,
 	): number {
 		activeNodes.add(node);
 		const entity = this.ecs.registerNode(node, parentEntity);
@@ -346,7 +339,7 @@ export class Scene {
 				child,
 				entity,
 				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
-				activeNodes
+				activeNodes,
 			);
 			childEntities.push(childEntity);
 		}
