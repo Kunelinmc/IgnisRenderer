@@ -7,6 +7,7 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import { ShadowMap } from "../src/lights/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
+import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
@@ -14,6 +15,7 @@ import { Texture } from "../src/core/Texture.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
+import { drawWebGLPacket } from "../src/renderers/webgl/WebGLScenePass.ts";
 import { createWebGLShaderSourceFactory } from "../src/shaders/webgl/WebGLShaderSourceFactory.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
@@ -114,6 +116,65 @@ function createRetryGeometryTestGL() {
 			}
 			return {};
 		},
+	};
+}
+
+function createGeometryCaptureGL() {
+	const gl = createGeometryTestGL();
+	const calls = {
+		attributePointers: [],
+		vertexData: null,
+	};
+	return {
+		...gl,
+		calls,
+		bufferData(target, data) {
+			if (target === this.ARRAY_BUFFER) {
+				calls.vertexData = data;
+			}
+		},
+		vertexAttribPointer(index, size, type, normalized, stride, offset) {
+			calls.attributePointers.push({
+				index,
+				size,
+				type,
+				normalized,
+				stride,
+				offset,
+			});
+		},
+	};
+}
+
+function createScenePassCaptureGL() {
+	const calls = {
+		activeTextures: [],
+		boundTextures: [],
+		uniform1i: [],
+		uniform1f: [],
+	};
+	return {
+		TEXTURE0: 0x84c0,
+		TEXTURE_2D: 0x0de1,
+		calls,
+		activeTexture(unit) {
+			calls.activeTextures.push(unit);
+		},
+		bindTexture(target, texture) {
+			calls.boundTextures.push({ target, texture });
+		},
+		bindVertexArray() {},
+		uniformMatrix4fv() {},
+		uniformMatrix3fv() {},
+		uniform4fv() {},
+		uniform4f() {},
+		uniform1i(location, value) {
+			calls.uniform1i.push({ location, value });
+		},
+		uniform1f(location, value) {
+			calls.uniform1f.push({ location, value });
+		},
+		drawElements() {},
 	};
 }
 
@@ -537,7 +598,11 @@ function testSceneShaderUsesDecoupledShadowNormal() {
 		maxSpotLights: 4,
 	});
 	assert.ok(shader.fragment.includes("vec3 shadowNormal = normal;"));
-	assert.ok(shader.fragment.includes("shadePBR(albedo, normal, shadowNormal, viewDir);"));
+	assert.ok(
+		/shadePBR\(\s*albedo,\s*normal,\s*shadowNormal,\s*viewDir,/.test(
+			shader.fragment
+		)
+	);
 	assert.ok(shader.fragment.includes("shadePhong(albedo, normal, shadowNormal, viewDir);"));
 	assert.ok(/sampleDirectionalShadowVisibility\([\s\S]*shadowNormal/.test(shader.fragment));
 	assert.ok(shader.fragment.includes("uDirShadowParamsC"));
@@ -561,6 +626,22 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("float ior = max(uTransmissionVolume.x, 1.0);"));
 	assert.ok(shader.fragment.includes("volumeAttenuation = exp(-absorb * thickness);"));
 	assert.ok(shader.fragment.includes("refract(-viewDir, refractNormal, eta)"));
+}
+
+function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	assert.ok(shader.vertex.includes("layout(location = 3) in vec2 aUv1;"));
+	assert.ok(shader.vertex.includes("out vec2 vUv1;"));
+	assert.ok(shader.fragment.includes("in vec2 vUv1;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uMetallicRoughnessMap;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uNormalMap;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uOcclusionMap;"));
+	assert.ok(shader.fragment.includes("uniform int uBaseMapUV;"));
+	assert.ok(shader.fragment.includes("vec2 resolveUV(int uvSet) {"));
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {
@@ -620,6 +701,178 @@ function testGeometryRegistryRetriesAfterUploadAllocationFailure() {
 	assert.ok(
 		warnings.some(
 			(warning) => warning.key === "webgl-geometry-upload-failed-p-retry"
+		)
+	);
+}
+
+function testGeometryRegistryUploadsUV1Attribute() {
+	const gl = createGeometryCaptureGL();
+	const registry = new WebGLGeometryRegistry(gl, () => {});
+	const primitive = {
+		id: "p-uv1",
+		geometry: {
+			positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+			normals: new Float32Array([
+				0, 0, 1,
+				0, 0, 1,
+				0, 0, 1,
+			]),
+			uv0: new Float32Array([0, 0, 1, 0, 0, 1]),
+			uv1: new Float32Array([0.25, 0.5, 0.75, 0.5, 0.25, 0.9]),
+			indices: new Uint32Array([0, 1, 2]),
+		},
+		topology: "triangle-list",
+		material: new Material(),
+	};
+	const packet = {
+		id: "packet-uv1",
+		primitive,
+	};
+
+	const handle = registry.getGeometry(packet);
+	assert.ok(handle);
+	assert.ok(gl.calls.vertexData instanceof Float32Array);
+	assert.equal(gl.calls.vertexData.length, 30);
+	assert.equal(gl.calls.vertexData[8], 0.25);
+	assert.equal(gl.calls.vertexData[9], 0.5);
+	assert.equal(gl.calls.vertexData[18], 0.75);
+	assert.equal(gl.calls.vertexData[19], 0.5);
+	assert.ok(
+		gl.calls.attributePointers.some(
+			(call) =>
+				call.index === 3 &&
+				call.size === 2 &&
+				call.stride === 40 &&
+				call.offset === 32
+		)
+	);
+}
+
+function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
+	const gl = createScenePassCaptureGL();
+	const material = new PBRMaterial();
+	const baseMap = { id: "base-map", linear: false };
+	const normalMap = { id: "normal-map", linear: true };
+	const metallicRoughnessMap = { id: "mr-map", linear: true };
+	const emissiveMap = { id: "emissive-map", linear: false };
+	const occlusionMap = { id: "occlusion-map", linear: true };
+	material.map = baseMap;
+	material.albedoMapUV = 1;
+	material.normalMap = normalMap;
+	material.normalMapUV = 1;
+	material.normalScale = 0.35;
+	material.metallicRoughnessMap = metallicRoughnessMap;
+	material.metallicRoughnessMapUV = 1;
+	material.emissiveMap = emissiveMap;
+	material.emissiveMapUV = 1;
+	material.occlusionMap = occlusionMap;
+	material.occlusionMapUV = 1;
+	material.occlusionStrength = 0.4;
+	const textureTable = new Map([
+		[baseMap, { texture: { id: "base" }, isLinear: false }],
+		[normalMap, { texture: { id: "normal" }, isLinear: true }],
+		[metallicRoughnessMap, { texture: { id: "mr" }, isLinear: true }],
+		[emissiveMap, { texture: { id: "emissive" }, isLinear: false }],
+		[occlusionMap, { texture: { id: "occlusion" }, isLinear: true }],
+	]);
+	const sceneProgram = {
+		program: {},
+		uniforms: {
+			model: null,
+			normalMatrix: null,
+			prevModel: null,
+			shadingModel: null,
+			baseColor: null,
+			emissive: null,
+			pbr: null,
+			transmissionVolume: null,
+			attenuationColor: null,
+			phong: null,
+			alpha: null,
+			baseMap: "uBaseMap",
+			hasBaseMap: "uHasBaseMap",
+			baseMapIsLinear: "uBaseMapIsLinear",
+			baseMapUV: "uBaseMapUV",
+			metallicRoughnessMap: "uMetallicRoughnessMap",
+			hasMetallicRoughnessMap: "uHasMetallicRoughnessMap",
+			metallicRoughnessMapUV: "uMetallicRoughnessMapUV",
+			normalMap: "uNormalMap",
+			hasNormalMap: "uHasNormalMap",
+			normalMapUV: "uNormalMapUV",
+			normalScale: "uNormalScale",
+			emissiveMap: "uEmissiveMap",
+			hasEmissiveMap: "uHasEmissiveMap",
+			emissiveMapIsLinear: "uEmissiveMapIsLinear",
+			emissiveMapUV: "uEmissiveMapUV",
+			occlusionMap: "uOcclusionMap",
+			hasOcclusionMap: "uHasOcclusionMap",
+			occlusionMapUV: "uOcclusionMapUV",
+			occlusionStrength: "uOcclusionStrength",
+			doubleSided: null,
+			customSamplers: {},
+		},
+	};
+	const host = {
+		_gl: gl,
+		_geometry: {
+			getGeometry() {
+				return {
+					vao: {},
+					topology: 4,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture(texture) {
+				return textureTable.get(texture) ?? { texture: null, isLinear: true };
+			},
+		},
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_setCullMode() {},
+		_bindShaderMaterialTextures() {},
+	};
+	const packet = {
+		id: "packet-pbr-textures",
+		meshInstance: { id: "mesh-0", skeleton: null },
+		material,
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+	};
+
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	const unitFor = (name) =>
+		gl.calls.uniform1i.find((entry) => entry.location === name)?.value;
+	assert.equal(unitFor("uBaseMap"), 0);
+	assert.equal(unitFor("uNormalMap"), 8);
+	assert.equal(unitFor("uMetallicRoughnessMap"), 9);
+	assert.equal(unitFor("uEmissiveMap"), 10);
+	assert.equal(unitFor("uOcclusionMap"), 11);
+	assert.equal(unitFor("uBaseMapUV"), 1);
+	assert.equal(unitFor("uNormalMapUV"), 1);
+	assert.equal(unitFor("uMetallicRoughnessMapUV"), 1);
+	assert.equal(unitFor("uEmissiveMapUV"), 1);
+	assert.equal(unitFor("uOcclusionMapUV"), 1);
+	assert.equal(unitFor("uHasNormalMap"), 1);
+	assert.equal(unitFor("uHasMetallicRoughnessMap"), 1);
+	assert.equal(unitFor("uHasEmissiveMap"), 1);
+	assert.equal(unitFor("uHasOcclusionMap"), 1);
+	assert.equal(unitFor("uBaseMapIsLinear"), 0);
+	assert.equal(unitFor("uEmissiveMapIsLinear"), 0);
+	assert.ok(
+		gl.calls.uniform1f.some(
+			(entry) =>
+				entry.location === "uNormalScale" &&
+				Math.abs(entry.value - 0.35) < 1e-6
+		)
+	);
+	assert.ok(
+		gl.calls.uniform1f.some(
+			(entry) =>
+				entry.location === "uOcclusionStrength" &&
+				Math.abs(entry.value - 0.4) < 1e-6
 		)
 	);
 }
@@ -699,8 +952,11 @@ async function run() {
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();
+	testSceneShaderIncludesPBRTextureAndUV1Pipeline();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
+	testGeometryRegistryUploadsUV1Attribute();
+	testDrawWebGLPacketBindsPBRTexturesAndUVSets();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();
 	console.log("WebGL backend v2 unit tests passed");

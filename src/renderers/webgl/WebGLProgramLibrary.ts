@@ -146,6 +146,22 @@ export interface WebGLSceneProgram {
 		baseMap: WebGLUniformLocation | null;
 		hasBaseMap: WebGLUniformLocation | null;
 		baseMapIsLinear: WebGLUniformLocation | null;
+		baseMapUV: WebGLUniformLocation | null;
+		metallicRoughnessMap: WebGLUniformLocation | null;
+		hasMetallicRoughnessMap: WebGLUniformLocation | null;
+		metallicRoughnessMapUV: WebGLUniformLocation | null;
+		normalMap: WebGLUniformLocation | null;
+		hasNormalMap: WebGLUniformLocation | null;
+		normalMapUV: WebGLUniformLocation | null;
+		normalScale: WebGLUniformLocation | null;
+		emissiveMap: WebGLUniformLocation | null;
+		hasEmissiveMap: WebGLUniformLocation | null;
+		emissiveMapIsLinear: WebGLUniformLocation | null;
+		emissiveMapUV: WebGLUniformLocation | null;
+		occlusionMap: WebGLUniformLocation | null;
+		hasOcclusionMap: WebGLUniformLocation | null;
+		occlusionMapUV: WebGLUniformLocation | null;
+		occlusionStrength: WebGLUniformLocation | null;
 		envSpecularMap: WebGLUniformLocation | null;
 		hasEnvSpecularMap: WebGLUniformLocation | null;
 		envSpecularMapIsLinear: WebGLUniformLocation | null;
@@ -578,6 +594,37 @@ export class WebGLProgramLibrary {
 				baseMap: this._gl.getUniformLocation(program, "uBaseMap"),
 				hasBaseMap: this._gl.getUniformLocation(program, "uHasBaseMap"),
 				baseMapIsLinear: this._gl.getUniformLocation(program, "uBaseMapIsLinear"),
+				baseMapUV: this._gl.getUniformLocation(program, "uBaseMapUV"),
+				metallicRoughnessMap: this._gl.getUniformLocation(
+					program,
+					"uMetallicRoughnessMap",
+				),
+				hasMetallicRoughnessMap: this._gl.getUniformLocation(
+					program,
+					"uHasMetallicRoughnessMap",
+				),
+				metallicRoughnessMapUV: this._gl.getUniformLocation(
+					program,
+					"uMetallicRoughnessMapUV",
+				),
+				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
+				hasNormalMap: this._gl.getUniformLocation(program, "uHasNormalMap"),
+				normalMapUV: this._gl.getUniformLocation(program, "uNormalMapUV"),
+				normalScale: this._gl.getUniformLocation(program, "uNormalScale"),
+				emissiveMap: this._gl.getUniformLocation(program, "uEmissiveMap"),
+				hasEmissiveMap: this._gl.getUniformLocation(program, "uHasEmissiveMap"),
+				emissiveMapIsLinear: this._gl.getUniformLocation(
+					program,
+					"uEmissiveMapIsLinear",
+				),
+				emissiveMapUV: this._gl.getUniformLocation(program, "uEmissiveMapUV"),
+				occlusionMap: this._gl.getUniformLocation(program, "uOcclusionMap"),
+				hasOcclusionMap: this._gl.getUniformLocation(program, "uHasOcclusionMap"),
+				occlusionMapUV: this._gl.getUniformLocation(program, "uOcclusionMapUV"),
+				occlusionStrength: this._gl.getUniformLocation(
+					program,
+					"uOcclusionStrength",
+				),
 				envSpecularMap: this._gl.getUniformLocation(program, "uEnvSpecularMap"),
 				hasEnvSpecularMap: this._gl.getUniformLocation(program, "uHasEnvSpecularMap"),
 				envSpecularMapIsLinear: this._gl.getUniformLocation(

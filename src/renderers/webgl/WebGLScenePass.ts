@@ -15,7 +15,11 @@ import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
 import { Logger } from "../../foundation/Logger";
 
 const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
-const WEBGL_TEXTURE_UNIT_CUSTOM_START = 8;
+const WEBGL_TEXTURE_UNIT_NORMAL_MAP = 8;
+const WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP = 9;
+const WEBGL_TEXTURE_UNIT_EMISSIVE_MAP = 10;
+const WEBGL_TEXTURE_UNIT_OCCLUSION_MAP = 11;
+const WEBGL_TEXTURE_UNIT_CUSTOM_START = 12;
 
 function logWebGLScenePassWarning(key: string, message: string): void {
 	Logger.warn(`[${key}] ${message}`, {
@@ -237,8 +241,26 @@ export function drawWebGLPacket(
 	}
 
 	const resolvedMap = host._textures.getBaseColorTexture(uniforms.baseMap);
+	const resolvedNormalMap = host._textures.getBaseColorTexture(uniforms.normalMap);
+	const resolvedMetallicRoughnessMap = host._textures.getBaseColorTexture(
+		uniforms.metallicRoughnessMap
+	);
+	const resolvedEmissiveMap = host._textures.getBaseColorTexture(
+		uniforms.emissiveMap
+	);
+	const resolvedOcclusionMap = host._textures.getBaseColorTexture(
+		uniforms.occlusionMap
+	);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_NORMAL_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedNormalMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedMetallicRoughnessMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_EMISSIVE_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedEmissiveMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedOcclusionMap.texture);
 	host._bindShaderMaterialTextures(sceneProgram, material);
 
 	host._setCullMode(material);
@@ -316,6 +338,66 @@ export function drawWebGLPacket(
 			sceneProgram.uniforms.baseMapIsLinear,
 			resolvedMap.isLinear ? 1 : 0
 		);
+	}
+	if (sceneProgram.uniforms.baseMapUV) {
+		gl.uniform1i(sceneProgram.uniforms.baseMapUV, uniforms.baseMapUV);
+	}
+	if (sceneProgram.uniforms.metallicRoughnessMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.metallicRoughnessMap,
+			WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP
+		);
+	}
+	if (sceneProgram.uniforms.hasMetallicRoughnessMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.hasMetallicRoughnessMap,
+			uniforms.metallicRoughnessMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.metallicRoughnessMapUV) {
+		gl.uniform1i(
+			sceneProgram.uniforms.metallicRoughnessMapUV,
+			uniforms.metallicRoughnessMapUV
+		);
+	}
+	if (sceneProgram.uniforms.normalMap) {
+		gl.uniform1i(sceneProgram.uniforms.normalMap, WEBGL_TEXTURE_UNIT_NORMAL_MAP);
+	}
+	if (sceneProgram.uniforms.hasNormalMap) {
+		gl.uniform1i(sceneProgram.uniforms.hasNormalMap, uniforms.normalMap ? 1 : 0);
+	}
+	if (sceneProgram.uniforms.normalMapUV) {
+		gl.uniform1i(sceneProgram.uniforms.normalMapUV, uniforms.normalMapUV);
+	}
+	if (sceneProgram.uniforms.normalScale) {
+		gl.uniform1f(sceneProgram.uniforms.normalScale, uniforms.normalScale);
+	}
+	if (sceneProgram.uniforms.emissiveMap) {
+		gl.uniform1i(sceneProgram.uniforms.emissiveMap, WEBGL_TEXTURE_UNIT_EMISSIVE_MAP);
+	}
+	if (sceneProgram.uniforms.hasEmissiveMap) {
+		gl.uniform1i(sceneProgram.uniforms.hasEmissiveMap, uniforms.emissiveMap ? 1 : 0);
+	}
+	if (sceneProgram.uniforms.emissiveMapIsLinear) {
+		gl.uniform1i(
+			sceneProgram.uniforms.emissiveMapIsLinear,
+			resolvedEmissiveMap.isLinear ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.emissiveMapUV) {
+		gl.uniform1i(sceneProgram.uniforms.emissiveMapUV, uniforms.emissiveMapUV);
+	}
+	if (sceneProgram.uniforms.occlusionMap) {
+		gl.uniform1i(sceneProgram.uniforms.occlusionMap, WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
+	}
+	if (sceneProgram.uniforms.hasOcclusionMap) {
+		gl.uniform1i(sceneProgram.uniforms.hasOcclusionMap, uniforms.occlusionMap ? 1 : 0);
+	}
+	if (sceneProgram.uniforms.occlusionMapUV) {
+		gl.uniform1i(sceneProgram.uniforms.occlusionMapUV, uniforms.occlusionMapUV);
+	}
+	if (sceneProgram.uniforms.occlusionStrength) {
+		gl.uniform1f(sceneProgram.uniforms.occlusionStrength, uniforms.occlusionStrength);
 	}
 	if (sceneProgram.uniforms.doubleSided) {
 		gl.uniform1i(

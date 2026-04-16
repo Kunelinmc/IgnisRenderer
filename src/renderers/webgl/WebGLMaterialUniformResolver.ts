@@ -16,12 +16,33 @@ export interface MaterialUniformState {
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
 	baseMap: any | null;
+	baseMapUV: 0 | 1;
+	metallicRoughnessMap: any | null;
+	metallicRoughnessMapUV: 0 | 1;
+	normalMap: any | null;
+	normalMapUV: 0 | 1;
+	normalScale: number;
+	emissiveMap: any | null;
+	emissiveMapUV: 0 | 1;
+	occlusionMap: any | null;
+	occlusionMapUV: 0 | 1;
+	occlusionStrength: number;
 }
 
 export function resolveMaterialUniforms(material: Material): MaterialUniformState {
 	const isPBR =
 		material.shading === ShadingModel.PBR || material.type === "PBR";
 	const isUnlit = material.shading === ShadingModel.Unlit;
+	const resolveUVSet = (value: unknown): 0 | 1 => {
+		if (
+			typeof value === "number" &&
+			Number.isFinite(value) &&
+			Math.floor(value) > 0
+		) {
+			return 1;
+		}
+		return 0;
+	};
 
 	let baseColor: [number, number, number] = [1, 1, 1];
 	let emissive: [number, number, number] = [0, 0, 0];
@@ -35,6 +56,17 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
 	let baseMap: any | null = material.map ?? null;
+	let baseMapUV: 0 | 1 = 0;
+	let metallicRoughnessMap: any | null = null;
+	let metallicRoughnessMapUV: 0 | 1 = 0;
+	let normalMap: any | null = null;
+	let normalMapUV: 0 | 1 = 0;
+	let normalScale = 1;
+	let emissiveMap: any | null = null;
+	let emissiveMapUV: 0 | 1 = 0;
+	let occlusionMap: any | null = null;
+	let occlusionMapUV: 0 | 1 = 0;
+	let occlusionStrength = 1;
 
 	if (isPBR) {
 		const pbr = material as any;
@@ -68,6 +100,17 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			clamp((attenuation.b ?? 255) / 255, 0, 1),
 		];
 		baseMap = pbr.map ?? baseMap;
+		baseMapUV = resolveUVSet(pbr.albedoMapUV);
+		metallicRoughnessMap = pbr.metallicRoughnessMap ?? null;
+		metallicRoughnessMapUV = resolveUVSet(pbr.metallicRoughnessMapUV);
+		normalMap = pbr.normalMap ?? null;
+		normalMapUV = resolveUVSet(pbr.normalMapUV);
+		normalScale = Math.max(0, pbr.normalScale ?? 1);
+		emissiveMap = pbr.emissiveMap ?? null;
+		emissiveMapUV = resolveUVSet(pbr.emissiveMapUV);
+		occlusionMap = pbr.occlusionMap ?? null;
+		occlusionMapUV = resolveUVSet(pbr.occlusionMapUV);
+		occlusionStrength = clamp(pbr.occlusionStrength ?? 1, 0, 1);
 	} else {
 		const basic = material as any;
 		const diffuse = basic.diffuse ?? { r: 255, g: 255, b: 255 };
@@ -113,6 +156,17 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		phong: [shininess, 0, 0, 0],
 		alpha: [alphaCutoff, alphaModeMask, 0, 0],
 		baseMap,
+		baseMapUV,
+		metallicRoughnessMap,
+		metallicRoughnessMapUV,
+		normalMap,
+		normalMapUV,
+		normalScale,
+		emissiveMap,
+		emissiveMapUV,
+		occlusionMap,
+		occlusionMapUV,
+		occlusionStrength,
 	};
 }
 

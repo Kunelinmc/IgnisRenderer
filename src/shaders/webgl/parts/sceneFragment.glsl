@@ -20,6 +20,7 @@ const float TRANSMISSION_ALPHA_FLOOR = 0.12;
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUv;
+in vec2 vUv1;
 in vec4 vCurrentClip;
 in vec4 vPrevClip;
 in float vViewDepth;
@@ -42,6 +43,22 @@ uniform vec4 uAlpha;
 uniform sampler2D uBaseMap;
 uniform int uHasBaseMap;
 uniform int uBaseMapIsLinear;
+uniform int uBaseMapUV;
+uniform sampler2D uMetallicRoughnessMap;
+uniform int uHasMetallicRoughnessMap;
+uniform int uMetallicRoughnessMapUV;
+uniform sampler2D uNormalMap;
+uniform int uHasNormalMap;
+uniform int uNormalMapUV;
+uniform float uNormalScale;
+uniform sampler2D uEmissiveMap;
+uniform int uHasEmissiveMap;
+uniform int uEmissiveMapIsLinear;
+uniform int uEmissiveMapUV;
+uniform sampler2D uOcclusionMap;
+uniform int uHasOcclusionMap;
+uniform int uOcclusionMapUV;
+uniform float uOcclusionStrength;
 uniform sampler2D uEnvSpecularMap;
 uniform int uHasEnvSpecularMap;
 uniform int uEnvSpecularMapIsLinear;
@@ -99,6 +116,38 @@ layout(location = 2) out vec4 fragNormal;
 vec3 safeNormalize(vec3 value, vec3 fallback) {
 	float len = length(value);
 	return len > EPSILON ? value / len : fallback;
+}
+
+vec2 resolveUV(int uvSet) {
+	return uvSet == 1 ? vUv1 : vUv;
+}
+
+vec3 applyNormalMap(vec3 baseNormal, vec2 uv, vec3 normalSample, float scale) {
+	vec3 n = safeNormalize(baseNormal, vec3(0.0, 0.0, 1.0));
+	vec3 dp1 = dFdx(vWorldPos);
+	vec3 dp2 = dFdy(vWorldPos);
+	vec2 duv1 = dFdx(uv);
+	vec2 duv2 = dFdy(uv);
+	vec3 dp2perp = cross(dp2, n);
+	vec3 dp1perp = cross(n, dp1);
+	vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+	vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+	float maxLenSq = max(dot(t, t), dot(b, b));
+	if (maxLenSq <= EPSILON) {
+		return n;
+	}
+	float invMax = inversesqrt(maxLenSq);
+	t *= invMax;
+	b *= invMax;
+	vec3 tangentNormal = vec3(
+		(normalSample.x * 2.0 - 1.0) * scale,
+		(normalSample.y * 2.0 - 1.0) * scale,
+		normalSample.z * 2.0 - 1.0
+	);
+	return safeNormalize(
+		t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z,
+		n
+	);
 }
 
 ivec2 linearIndexToTexel(int linearIndex, vec2 textureSizeValue) {
@@ -994,12 +1043,13 @@ vec3 shadePBR(
 	vec3 albedo,
 	vec3 pbrNormal,
 	vec3 shadowNormal,
-	vec3 viewDir
+	vec3 viewDir,
+	float roughness,
+	float metalness,
+	float reflectance,
+	float transmission,
+	float occlusion
 ) {
-	float roughness = clamp(uPBR.x, 0.04, 1.0);
-	float metalness = clamp(uPBR.y, 0.0, 1.0);
-	float reflectance = clamp(uPBR.z, 0.0, 1.0);
-	float transmission = clamp(uPBR.w, 0.0, 1.0);
 	float ior = max(uTransmissionVolume.x, 1.0);
 	float thickness = max(uTransmissionVolume.y, 0.0);
 	float attenuationDistance = uTransmissionVolume.z;
@@ -1258,14 +1308,17 @@ vec3 shadePBR(
 		}
 	}
 
-	return ambientDiffuse + ambientSpecular + ambientTransmission + directLight;
+	vec3 ambient = (ambientDiffuse + ambientSpecular + ambientTransmission) *
+		clamp(occlusion, 0.0, 1.0);
+	return ambient + directLight;
 }
 
 void main() {
+	vec2 baseUv = resolveUV(uBaseMapUV);
 	vec3 albedo = uBaseColor.rgb;
 	float alpha = clamp(uBaseColor.a, 0.0, 1.0);
 	if (uHasBaseMap == 1) {
-		vec4 texel = texture(uBaseMap, vUv);
+		vec4 texel = texture(uBaseMap, baseUv);
 		vec3 texColor = uBaseMapIsLinear == 1 ? texel.rgb : srgbToLinear(texel.rgb);
 		albedo *= texColor;
 		alpha *= texel.a;
@@ -1275,21 +1328,65 @@ void main() {
 		discard;
 	}
 
+	float roughness = clamp(uPBR.x, 0.04, 1.0);
+	float metalness = clamp(uPBR.y, 0.0, 1.0);
+	float reflectance = clamp(uPBR.z, 0.0, 1.0);
+	float transmission = clamp(uPBR.w, 0.0, 1.0);
+	if (uHasMetallicRoughnessMap == 1) {
+		vec2 metallicRoughnessUv = resolveUV(uMetallicRoughnessMapUV);
+		vec4 metallicRoughnessTexel = texture(uMetallicRoughnessMap, metallicRoughnessUv);
+		roughness = clamp(roughness * metallicRoughnessTexel.g, 0.04, 1.0);
+		metalness = clamp(metalness * metallicRoughnessTexel.b, 0.0, 1.0);
+	}
+	float occlusion = 1.0;
+	if (uHasOcclusionMap == 1) {
+		vec2 occlusionUv = resolveUV(uOcclusionMapUV);
+		float occlusionTexel = texture(uOcclusionMap, occlusionUv).r;
+		occlusion = clamp(
+			1.0 + clamp(uOcclusionStrength, 0.0, 1.0) * (occlusionTexel - 1.0),
+			0.0,
+			1.0
+		);
+	}
+
 	vec3 normal = normalize(vNormal);
 	vec3 shadowNormal = normal;
 	vec3 viewDir = safeNormalize(uCameraPosition - vWorldPos, vec3(0.0, 0.0, 1.0));
 	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
 	}
+	if (uShadingModel == 1 && uHasNormalMap == 1) {
+		vec2 normalUv = resolveUV(uNormalMapUV);
+		normal = applyNormalMap(
+			normal,
+			normalUv,
+			texture(uNormalMap, normalUv).xyz,
+			max(uNormalScale, 0.0)
+		);
+	}
+	vec3 emissive = uEmissive.rgb;
+	if (uHasEmissiveMap == 1) {
+		vec2 emissiveUv = resolveUV(uEmissiveMapUV);
+		vec3 emissiveTexel = texture(uEmissiveMap, emissiveUv).rgb;
+		emissive *=
+			uEmissiveMapIsLinear == 1 ? emissiveTexel : srgbToLinear(emissiveTexel);
+	}
 	vec3 color;
 	if (uEnableLighting == 0 || uShadingModel == 2) {
 		color = albedo;
 	} else if (uShadingModel == 1) {
-		color = shadePBR(albedo, normal, shadowNormal, viewDir);
-		float transmission = clamp(uPBR.w, 0.0, 1.0);
+		color = shadePBR(
+			albedo,
+			normal,
+			shadowNormal,
+			viewDir,
+			roughness,
+			metalness,
+			reflectance,
+			transmission,
+			occlusion
+		);
 		if (transmission > EPSILON) {
-			float metalness = clamp(uPBR.y, 0.0, 1.0);
-			float reflectance = clamp(uPBR.z, 0.0, 1.0);
 			float dielectricF0 = 0.16 * reflectance * reflectance;
 			vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
 			float nDotV = max(dot(normal, viewDir), PBR_MIN_NDOTV);
@@ -1305,7 +1402,7 @@ void main() {
 		color = shadePhong(albedo, normal, shadowNormal, viewDir);
 	}
 
-	color += uEmissive.rgb;
+	color += emissive;
 	int fogMode = int(floor(uFogParams0.x + 0.5));
 	float fogFactor = ignisComputeFogFactor(
 		fogMode,
