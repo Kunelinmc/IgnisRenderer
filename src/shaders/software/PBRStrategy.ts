@@ -18,7 +18,7 @@ import {
 } from "../../lights/constants";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import type { RGB } from "../../foundation/Color";
+import type { RGB, RGBA } from "../../foundation/Color";
 import type {
 	ILightingStrategy,
 	PBRSurfaceProperties,
@@ -141,6 +141,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			b: (1 - metal) * f0Norm.b + metal * alb.b,
 		};
 
+		// Multiple scattering compensation (energy compensation)
+		let energyCompensation = { r: 1.0, g: 1.0, b: 1.0 };
+		let brdfValue: RGBA | null = null;
+		if (context.brdfLUT) {
+			brdfValue = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
+			const E = brdfValue.r + brdfValue.g;
+			if (E > 0.0 && E < 1.0) {
+				const factor = 1.0 / E - 1.0;
+				energyCompensation.r = 1.0 + realF0.r * factor;
+				energyCompensation.g = 1.0 + realF0.g * factor;
+				energyCompensation.b = 1.0 + realF0.b * factor;
+			}
+		}
+
 		const emissiveScale = surface.emissiveIntensity ?? 1.0;
 		const emissive = {
 			r: (surface.emissive.r / 255) * emissiveScale,
@@ -230,9 +244,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					4 * NdotV * NdotL + PBR_DENOM_EPSILON;
 
 				specular = {
-					r: (NDF * G * F.r) / denominator,
-					g: (NDF * G * F.g) / denominator,
-					b: (NDF * G * F.b) / denominator,
+					r: (NDF * G * F.r) / denominator * energyCompensation.r,
+					g: (NDF * G * F.g) / denominator * energyCompensation.g,
+					b: (NDF * G * F.b) / denominator * energyCompensation.b,
 				};
 
 				const kD = {
@@ -458,21 +472,23 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				rough,
 				context
 			);
-			if (prefiltered && context.brdfLUT) {
+			if (prefiltered && context.brdfLUT && brdfValue) {
 				// LUT stores scale at R (red), bias at G (green)
-				const brdf = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
 				const specR =
 					prefiltered.r *
-					(effectiveFamb.r * brdf.r + brdf.g) *
-					clearcoatAttenuationAmb;
+					(effectiveFamb.r * brdfValue.r + brdfValue.g) *
+					clearcoatAttenuationAmb *
+					energyCompensation.r;
 				const specG =
 					prefiltered.g *
-					(effectiveFamb.g * brdf.r + brdf.g) *
-					clearcoatAttenuationAmb;
+					(effectiveFamb.g * brdfValue.r + brdfValue.g) *
+					clearcoatAttenuationAmb *
+					energyCompensation.g;
 				const specB =
 					prefiltered.b *
-					(effectiveFamb.b * brdf.r + brdf.g) *
-					clearcoatAttenuationAmb;
+					(effectiveFamb.b * brdfValue.r + brdfValue.g) *
+					clearcoatAttenuationAmb *
+					energyCompensation.b;
 
 				ambR += specR + ccAmbSpecR * clearcoat;
 				ambG += specG + ccAmbSpecG * clearcoat;
