@@ -154,7 +154,7 @@ fn resolveTransmissionAlpha(
 		0.0,
 		1.0
 	);
-	let floorAlpha = max(0.12, fresnelAverage);
+	let floorAlpha = max(0, fresnelAverage);
 	let blended =
 		baseAlpha * (1.0 - clampedTransmission) +
 		floorAlpha * clampedTransmission;
