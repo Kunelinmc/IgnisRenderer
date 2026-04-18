@@ -31,18 +31,9 @@ const ALPHA_BLEND_STATE = {
 		operation: "add",
 	},
 };
-const TRANSMISSION_BLEND_STATE = {
-	color: {
-		srcFactor: "one",
-		dstFactor: "one-minus-src-alpha",
-		operation: "add",
-	},
-	alpha: {
-		srcFactor: "one",
-		dstFactor: "one-minus-src-alpha",
-		operation: "add",
-	},
-};
+// Transmission shading currently outputs straight (non-premultiplied) color.
+// Use regular alpha blending to avoid over-bright transmission composition.
+const TRANSMISSION_BLEND_STATE = ALPHA_BLEND_STATE;
 
 interface CachedPipelineEntry {
 	key: string;

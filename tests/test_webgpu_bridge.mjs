@@ -721,7 +721,7 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 	assert.equal(pipelineDesc.fragment.targets.length, 5);
 	assert.equal(
 		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,
-		"one"
+		"src-alpha"
 	);
 	assert.equal(
 		pipelineDesc.fragment.targets[0].blend?.color?.dstFactor,

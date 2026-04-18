@@ -1112,12 +1112,15 @@ vec3 shadePBR(
 					roughness
 				);
 			}
+			vec3 ambientTransmissionWeight =
+				(vec3(1.0) - ambientFresnel) *
+				(1.0 - metalness) *
+				transmission;
 			ambientTransmission =
 				transmissionRadiance *
 				albedo *
-				(1.0 - metalness) *
-				volumeAttenuation *
-				transmission;
+				ambientTransmissionWeight *
+				volumeAttenuation;
 		}
 	}
 
