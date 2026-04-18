@@ -117,10 +117,29 @@ function testBucketMigrationViaMarkDirty() {
 	assert.equal(index.queryFrustum(camera.frustum).length, 1);
 }
 
+function testBoundsQueryAcrossBuckets() {
+	const mesh = createTriangleMesh(new Material({ name: "HybridBounds" }));
+	const staticNear = createInstance(mesh, -0.4, 0, -2, false);
+	const dynamicNear = createInstance(mesh, 0.4, 0, -2, true);
+	const dynamicFar = createInstance(mesh, 20, 0, -2, true);
+	const index = new HybridSpatialIndex([staticNear, dynamicNear, dynamicFar]);
+
+	const boundsHits = new Set(
+		index.queryBounds({
+			min: { x: -2, y: -2, z: -4 },
+			max: { x: 2, y: 2, z: 0 },
+		})
+	);
+	assert.equal(boundsHits.has(staticNear), true);
+	assert.equal(boundsHits.has(dynamicNear), true);
+	assert.equal(boundsHits.has(dynamicFar), false);
+}
+
 function run() {
 	testFrustumAndDynamicUpdates();
 	testRayOrderingAcrossBuckets();
 	testBucketMigrationViaMarkDirty();
+	testBoundsQueryAcrossBuckets();
 	console.log("Spatial hybrid index tests passed");
 }
 

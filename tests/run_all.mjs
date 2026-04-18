@@ -54,6 +54,7 @@ const tests = [
 	"test_physics_system_bindings.mjs",
 	"test_physics_entity_target.mjs",
 	"test_physics_system_optimizations.mjs",
+	"test_physics_mesh_collision_v2.mjs",
 	"test_physics_events.mjs",
 	"test_physics_queries.mjs",
 	"test_physics_adapter_contract.mjs",
