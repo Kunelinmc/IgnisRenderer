@@ -159,6 +159,28 @@ export class LooseOctree implements SpatialIndex3D {
 		return result;
 	}
 
+	public queryBounds(
+		bounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		options?: SpatialQueryOptions
+	): MeshInstance[] {
+		if (!this._root) return [];
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return [];
+		const includeInvisible = options?.includeInvisible === true;
+		const result: MeshInstance[] = [];
+		this._queryNodeBounds(
+			this._root,
+			bounds,
+			includeInvisible,
+			maxResults,
+			result
+		);
+		return result;
+	}
+
 	public queryRay(
 		origin: { x: number; y: number; z: number },
 		direction: { x: number; y: number; z: number },
@@ -498,6 +520,62 @@ export class LooseOctree implements SpatialIndex3D {
 		}
 		return result.length >= maxResults;
 	}
+
+	private _queryNodeBounds(
+		node: LooseOctreeNode,
+		queryBounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		includeInvisible: boolean,
+		maxResults: number,
+		result: MeshInstance[]
+	): boolean {
+		if (result.length >= maxResults) return true;
+
+		const looseHalfSize = node.halfSize * this._looseness;
+		const nodeBounds = {
+			min: {
+				x: node.centerX - looseHalfSize,
+				y: node.centerY - looseHalfSize,
+				z: node.centerZ - looseHalfSize,
+			},
+			max: {
+				x: node.centerX + looseHalfSize,
+				y: node.centerY + looseHalfSize,
+				z: node.centerZ + looseHalfSize,
+			},
+		};
+		if (!intersectsAABB(nodeBounds, queryBounds)) {
+			return false;
+		}
+
+		for (let i = 0; i < node.objects.length; i++) {
+			if (result.length >= maxResults) return true;
+			const meshInstance = node.objects[i];
+			if (!includeInvisible && meshInstance.visible === false) continue;
+			if (intersectsAABB(node.objectBounds[i], queryBounds)) {
+				result.push(meshInstance);
+			}
+		}
+
+		if (!node.children) return result.length >= maxResults;
+		for (const child of node.children) {
+			if (!child) continue;
+			if (
+				this._queryNodeBounds(
+					child,
+					queryBounds,
+					includeInvisible,
+					maxResults,
+					result
+				)
+			) {
+				return true;
+			}
+		}
+		return result.length >= maxResults;
+	}
 }
 
 function resolveLeafCapacity(value: number | undefined): number {
@@ -707,6 +785,26 @@ function intersectRayAABB(
 	if (tMin >= 0) return tMin;
 	if (tMax >= 0) return 0;
 	return null;
+}
+
+function intersectsAABB(
+	left: {
+		min: { x: number; y: number; z: number };
+		max: { x: number; y: number; z: number };
+	},
+	right: {
+		min: { x: number; y: number; z: number };
+		max: { x: number; y: number; z: number };
+	}
+): boolean {
+	return !(
+		left.max.x < right.min.x ||
+		left.min.x > right.max.x ||
+		left.max.y < right.min.y ||
+		left.min.y > right.max.y ||
+		left.max.z < right.min.z ||
+		left.min.z > right.max.z
+	);
 }
 
 function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {

@@ -144,6 +144,40 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		return result;
 	}
 
+	public queryBounds(
+		bounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		options?: SpatialQueryOptions
+	): MeshInstance[] {
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return [];
+		const resolvedOptions: SpatialQueryOptions = {
+			includeInvisible: options?.includeInvisible,
+		};
+
+		const staticHits = this._staticBVH.queryBounds(bounds, resolvedOptions);
+		const dynamicHits = this._dynamicOctree.queryBounds(bounds, resolvedOptions);
+		if (dynamicHits.length === 0) {
+			return staticHits.length > maxResults ?
+					staticHits.slice(0, maxResults)
+				:	staticHits;
+		}
+		if (staticHits.length === 0) {
+			return dynamicHits.length > maxResults ?
+					dynamicHits.slice(0, maxResults)
+				:	dynamicHits;
+		}
+
+		const result: MeshInstance[] = [];
+		const seen = new Set<MeshInstance>();
+		appendUniqueMeshInstances(staticHits, seen, maxResults, result);
+		if (result.length >= maxResults) return result;
+		appendUniqueMeshInstances(dynamicHits, seen, maxResults, result);
+		return result;
+	}
+
 	public queryRay(
 		origin: { x: number; y: number; z: number },
 		direction: { x: number; y: number; z: number },

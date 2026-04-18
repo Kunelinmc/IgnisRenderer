@@ -182,6 +182,30 @@ export class BVH implements SpatialIndex3D {
 		return result;
 	}
 
+	public queryBounds(
+		bounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		options?: BVHQueryOptions
+	): MeshInstance[] {
+		this._ensureFresh();
+		if (!this._root) return [];
+
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return [];
+		const includeInvisible = options?.includeInvisible === true;
+		const result: MeshInstance[] = [];
+		this._queryNodeBounds(
+			this._root,
+			bounds,
+			includeInvisible,
+			maxResults,
+			result
+		);
+		return result;
+	}
+
 	public queryRay(
 		origin: { x: number; y: number; z: number },
 		direction: { x: number; y: number; z: number },
@@ -513,6 +537,85 @@ export class BVH implements SpatialIndex3D {
 				classifyAABBFrustum(frustum, objectBounds.min, objectBounds.max) !==
 				FRUSTUM_OUTSIDE
 			) {
+				result.push(meshInstance);
+			}
+		}
+		return result.length >= maxResults;
+	}
+
+	private _queryNodeBounds(
+		node: SpatialNode,
+		queryBounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		includeInvisible: boolean,
+		maxResults: number,
+		result: MeshInstance[]
+	): boolean {
+		if (result.length >= maxResults) return true;
+		if (!intersectsAABB(node.bounds, queryBounds)) {
+			return false;
+		}
+
+		if (node.objects && node.objectBounds) {
+			return this._appendLeafObjectsWithBounds(
+				node.objects,
+				node.objectBounds,
+				queryBounds,
+				includeInvisible,
+				maxResults,
+				result
+			);
+		}
+
+		if (
+			node.left &&
+			this._queryNodeBounds(
+				node.left,
+				queryBounds,
+				includeInvisible,
+				maxResults,
+				result
+			)
+		) {
+			return true;
+		}
+		if (
+			node.right &&
+			this._queryNodeBounds(
+				node.right,
+				queryBounds,
+				includeInvisible,
+				maxResults,
+				result
+			)
+		) {
+			return true;
+		}
+		return result.length >= maxResults;
+	}
+
+	private _appendLeafObjectsWithBounds(
+		objects: MeshInstance[],
+		bounds: BoundingBox[],
+		queryBounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		includeInvisible: boolean,
+		maxResults: number,
+		result: MeshInstance[]
+	): boolean {
+		const count = objects.length;
+		for (let index = 0; index < count; index++) {
+			if (result.length >= maxResults) return true;
+			const meshInstance = objects[index];
+			if (!includeInvisible && meshInstance.visible === false) {
+				continue;
+			}
+			const objectBounds = bounds[index];
+			if (intersectsAABB(objectBounds, queryBounds)) {
 				result.push(meshInstance);
 			}
 		}
@@ -858,4 +961,24 @@ function intersectRayAABB(
 		return 0;
 	}
 	return null;
+}
+
+function intersectsAABB(
+	left: {
+		min: { x: number; y: number; z: number };
+		max: { x: number; y: number; z: number };
+	},
+	right: {
+		min: { x: number; y: number; z: number };
+		max: { x: number; y: number; z: number };
+	}
+): boolean {
+	return !(
+		left.max.x < right.min.x ||
+		left.min.x > right.max.x ||
+		left.max.y < right.min.y ||
+		left.min.y > right.max.y ||
+		left.max.z < right.min.z ||
+		left.min.z > right.max.z
+	);
 }

@@ -1,7 +1,9 @@
 import type { IVector3 } from "../maths/types";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Node } from "../core/Node";
+import type { Scene } from "../core/Scene";
 import { IdGenerator } from "../foundation/IdGenerator";
+import { MeshInstance } from "../meshes";
 import type {
 	ICollisionGeometryProvider,
 	BodyBinding,
@@ -10,6 +12,10 @@ import type {
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
+	MeshColliderBackendPreference,
+	MeshColliderDescriptorV2,
+	MeshColliderNarrowphase,
+	MeshColliderPolicy,
 	PhysicsBodyHandle,
 	PhysicsBoxCastQuery,
 	PhysicsColliderHandle,
@@ -19,10 +25,12 @@ import type {
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapHit,
 	PhysicsOverlapSphereQuery,
+	PhysicsQueryFilter,
 	PhysicsQueryHit,
 	PhysicsRaycastQuery,
 	PhysicsSphereCastQuery,
 	PhysicsStepReport,
+	QuaternionTuple,
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	PhysicsWorldStepReport,
@@ -37,6 +45,10 @@ import type {
 import { DefaultCollisionGeometryProvider } from "./DefaultCollisionGeometryProvider";
 import { PhysicsBodyNode } from "./PhysicsBodyNode";
 import { SimplePhysicsAdapter } from "./adapters/SimplePhysicsAdapter";
+import {
+	TriangleBVHCache,
+	type TriangleBVHCacheEntry,
+} from "./TriangleBVHCache";
 import { DefaultPhysicsSimulator } from "../simulation/physics/DefaultPhysicsSimulator";
 import type { PhysicsSimulationResult } from "../simulation/physics/types";
 import {
@@ -60,6 +72,7 @@ interface InternalBodyBinding extends PhysicsBodyHandle {
 interface InternalColliderBinding extends PhysicsColliderHandle {
 	descriptor: ColliderDescriptor;
 	shape: ColliderShape;
+	meshMetadata?: InternalMeshColliderMetadata;
 }
 
 interface InternalJointBinding extends PhysicsJointHandle {
@@ -114,6 +127,15 @@ interface CachedWorldStats {
 	ccdBodies: number;
 }
 
+interface InternalMeshColliderMetadata {
+	sourceMeshInstance: MeshInstance;
+	geometryKey: string;
+	meshPolicy: MeshColliderPolicy;
+	narrowphase: MeshColliderNarrowphase;
+	backendPreference: MeshColliderBackendPreference;
+	bvh: TriangleBVHCacheEntry | null;
+}
+
 interface WorldRuntimeState {
 	worldId: string;
 	bodyIds: Set<string>;
@@ -149,6 +171,12 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _jointById = new Map<string, InternalJointBinding>();
 	private _controllerById = new Map<string, InternalControllerBinding>();
 	private _eventQueueByWorld = new Map<string, PhysicsEvent[]>();
+	private _sceneSpatial: Scene | null = null;
+	private _triangleBVHCache = new TriangleBVHCache();
+	private _meshColliderIdsByMeshInstance = new Map<MeshInstance, Set<string>>();
+	private _meshInstanceByColliderId = new Map<string, MeshInstance>();
+	private _nonMeshColliderIdsByWorld = new Map<string, Set<string>>();
+	private _warnedTrimeshCookDeprecation = false;
 	private _entityNodeResolver:
 		| ((entityId: PhysicsEntityId) => Node | null)
 		| null = null;
@@ -164,6 +192,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		resolver: ((entityId: PhysicsEntityId) => Node | null) | null
 	): void {
 		this._entityNodeResolver = resolver;
+	}
+
+	public bindSceneSpatial(scene: Scene | null): void {
+		this._sceneSpatial = scene;
 	}
 
 	public async init(): Promise<void> {
@@ -278,9 +310,8 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	public detachBody(target: Node | PhysicsBodyHandle): void {
 		const body = this._resolveBody(target);
 
-		for (const colliderId of body.colliderIds) {
-			this._adapter.destroyCollider(body.worldId, colliderId);
-			this._colliderById.delete(colliderId);
+		for (const colliderId of Array.from(body.colliderIds)) {
+			this._destroyColliderBinding(body.worldId, colliderId);
 		}
 		body.colliderIds.clear();
 
@@ -313,20 +344,32 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		desc: ColliderDescriptor
 	): PhysicsColliderHandle {
 		const body = this._resolveBody(target);
-		const shape = this._resolveColliderShape(body, desc);
+		const normalizedDescriptor = this._normalizeColliderDescriptor(desc, body);
+		const resolvedShape = this._resolveColliderShape(body, normalizedDescriptor);
 		const colliderId = IdGenerator.nextId("physicsCollider");
 
-		this._adapter.addCollider(body.worldId, body.id, colliderId, desc, shape);
+		this._adapter.addCollider(
+			body.worldId,
+			body.id,
+			colliderId,
+			normalizedDescriptor,
+			resolvedShape.shape
+		);
 		const collider: InternalColliderBinding = {
 			id: colliderId,
 			worldId: body.worldId,
 			bodyId: body.id,
-			descriptor: { ...desc },
-			shape,
+			descriptor: cloneColliderDescriptor(normalizedDescriptor),
+			shape: resolvedShape.shape,
+			meshMetadata: resolvedShape.meshMetadata,
 		};
-		this._colliderById.set(colliderId, collider);
+		this._registerColliderBinding(collider);
 		body.colliderIds.add(colliderId);
-		this._updateBodyBroadphaseRadius(body, desc, shape);
+		this._updateBodyBroadphaseRadius(
+			body,
+			normalizedDescriptor,
+			resolvedShape.shape
+		);
 		this._markWorldDirtyForStep(body.worldId);
 		return collider;
 	}
@@ -335,21 +378,29 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		target: Node | PhysicsBodyHandle | PhysicsEntityId
 	): PhysicsColliderHandle[] {
 		const body = this._resolveBody(target);
-		const descriptors: ColliderDescriptor[] = [];
-		for (const colliderId of body.colliderIds) {
-			const binding = this._colliderById.get(colliderId);
-			if (binding) {
-				descriptors.push(cloneColliderDescriptor(binding.descriptor));
-			}
-			this._adapter.destroyCollider(body.worldId, colliderId);
-			this._colliderById.delete(colliderId);
-		}
-		body.colliderIds.clear();
-		body.broadphaseRadius = DEFAULT_BROADPHASE_BODY_RADIUS;
 		const rebuilt: PhysicsColliderHandle[] = [];
-		for (const descriptor of descriptors) {
-			rebuilt.push(this.addCollider(body, descriptor));
+		for (const colliderId of Array.from(body.colliderIds)) {
+			const binding = this._colliderById.get(colliderId);
+			if (!binding) continue;
+			const descriptor = cloneColliderDescriptor(binding.descriptor);
+			const normalizedDescriptor = this._normalizeColliderDescriptor(
+				descriptor,
+				body
+			);
+
+			if (
+				binding.meshMetadata &&
+				this._isMeshColliderGeometryUnchanged(binding.meshMetadata)
+			) {
+				binding.descriptor = cloneColliderDescriptor(normalizedDescriptor);
+				rebuilt.push(binding);
+				continue;
+			}
+
+			this._destroyColliderBinding(body.worldId, colliderId);
+			rebuilt.push(this.addCollider(body, normalizedDescriptor));
 		}
+		this._recomputeBodyBroadphaseRadius(body);
 		this._markWorldDirtyForStep(body.worldId);
 		return rebuilt;
 	}
@@ -507,37 +558,45 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	public raycast(query: PhysicsRaycastQuery): PhysicsQueryHit | null {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.raycast(worldId, query);
+		const filteredQuery = this._withSpatialRaycastCandidates(worldId, query);
+		if (!filteredQuery) return null;
+		return this._adapter.raycast(worldId, filteredQuery);
 	}
 
 	public raycastAll(query: PhysicsRaycastQuery): PhysicsQueryHit[] {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.raycastAll(worldId, query);
+		const filteredQuery = this._withSpatialRaycastCandidates(worldId, query);
+		if (!filteredQuery) return [];
+		return this._adapter.raycastAll(worldId, filteredQuery);
 	}
 
 	public async raycastAsync(
 		query: PhysicsRaycastQuery
 	): Promise<PhysicsQueryHit | null> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialRaycastCandidates(worldId, query);
+		if (!filteredQuery) return null;
 		const raycastAsync = this._adapter.raycastAsync;
 		if (raycastAsync) {
-			return raycastAsync.call(this._adapter, worldId, query);
+			return raycastAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("query");
-		return this._adapter.raycast(worldId, query);
+		return this._adapter.raycast(worldId, filteredQuery);
 	}
 
 	public async raycastAllAsync(
 		query: PhysicsRaycastQuery
 	): Promise<PhysicsQueryHit[]> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialRaycastCandidates(worldId, query);
+		if (!filteredQuery) return [];
 		const raycastAllAsync = this._adapter.raycastAllAsync;
 		if (raycastAllAsync) {
-			return raycastAllAsync.call(this._adapter, worldId, query);
+			return raycastAllAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("query");
-		return this._adapter.raycastAll(worldId, query);
+		return this._adapter.raycastAll(worldId, filteredQuery);
 	}
 
 	public resolveHitNode(hitOrBodyId: PhysicsQueryHit | string): Node | null {
@@ -560,73 +619,95 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	public sphereCast(query: PhysicsSphereCastQuery): PhysicsQueryHit | null {
 		this._assertCapability("shapeCast");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.sphereCast(worldId, query);
+		const filteredQuery = this._withSpatialSphereCastCandidates(worldId, query);
+		if (!filteredQuery) return null;
+		return this._adapter.sphereCast(worldId, filteredQuery);
 	}
 
 	public async sphereCastAsync(
 		query: PhysicsSphereCastQuery
 	): Promise<PhysicsQueryHit | null> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialSphereCastCandidates(worldId, query);
+		if (!filteredQuery) return null;
 		const sphereCastAsync = this._adapter.sphereCastAsync;
 		if (sphereCastAsync) {
-			return sphereCastAsync.call(this._adapter, worldId, query);
+			return sphereCastAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("shapeCast");
-		return this._adapter.sphereCast(worldId, query);
+		return this._adapter.sphereCast(worldId, filteredQuery);
 	}
 
 	public boxCast(query: PhysicsBoxCastQuery): PhysicsQueryHit | null {
 		this._assertCapability("shapeCast");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.boxCast(worldId, query);
+		const filteredQuery = this._withSpatialBoxCastCandidates(worldId, query);
+		if (!filteredQuery) return null;
+		return this._adapter.boxCast(worldId, filteredQuery);
 	}
 
 	public async boxCastAsync(
 		query: PhysicsBoxCastQuery
 	): Promise<PhysicsQueryHit | null> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialBoxCastCandidates(worldId, query);
+		if (!filteredQuery) return null;
 		const boxCastAsync = this._adapter.boxCastAsync;
 		if (boxCastAsync) {
-			return boxCastAsync.call(this._adapter, worldId, query);
+			return boxCastAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("shapeCast");
-		return this._adapter.boxCast(worldId, query);
+		return this._adapter.boxCast(worldId, filteredQuery);
 	}
 
 	public overlapSphere(query: PhysicsOverlapSphereQuery): PhysicsOverlapHit[] {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.overlapSphere(worldId, query);
+		const filteredQuery = this._withSpatialOverlapSphereCandidates(
+			worldId,
+			query
+		);
+		if (!filteredQuery) return [];
+		return this._adapter.overlapSphere(worldId, filteredQuery);
 	}
 
 	public async overlapSphereAsync(
 		query: PhysicsOverlapSphereQuery
 	): Promise<PhysicsOverlapHit[]> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialOverlapSphereCandidates(
+			worldId,
+			query
+		);
+		if (!filteredQuery) return [];
 		const overlapSphereAsync = this._adapter.overlapSphereAsync;
 		if (overlapSphereAsync) {
-			return overlapSphereAsync.call(this._adapter, worldId, query);
+			return overlapSphereAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("query");
-		return this._adapter.overlapSphere(worldId, query);
+		return this._adapter.overlapSphere(worldId, filteredQuery);
 	}
 
 	public overlapBox(query: PhysicsOverlapBoxQuery): PhysicsOverlapHit[] {
 		this._assertCapability("query");
 		const worldId = this._resolveQueryWorldId(query.worldId);
-		return this._adapter.overlapBox(worldId, query);
+		const filteredQuery = this._withSpatialOverlapBoxCandidates(worldId, query);
+		if (!filteredQuery) return [];
+		return this._adapter.overlapBox(worldId, filteredQuery);
 	}
 
 	public async overlapBoxAsync(
 		query: PhysicsOverlapBoxQuery
 	): Promise<PhysicsOverlapHit[]> {
 		const worldId = this._resolveQueryWorldId(query.worldId);
+		const filteredQuery = this._withSpatialOverlapBoxCandidates(worldId, query);
+		if (!filteredQuery) return [];
 		const overlapBoxAsync = this._adapter.overlapBoxAsync;
 		if (overlapBoxAsync) {
-			return overlapBoxAsync.call(this._adapter, worldId, query);
+			return overlapBoxAsync.call(this._adapter, worldId, filteredQuery);
 		}
 		this._assertCapability("query");
-		return this._adapter.overlapBox(worldId, query);
+		return this._adapter.overlapBox(worldId, filteredQuery);
 	}
 
 	public step(
@@ -1457,15 +1538,55 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		};
 	}
 
+	private _normalizeColliderDescriptor(
+		desc: ColliderDescriptor,
+		body: InternalBodyBinding
+	): ColliderDescriptor {
+		if (desc.mode !== "trimesh-cook" && desc.mode !== "mesh") {
+			return desc;
+		}
+		if (desc.mode === "mesh") {
+			return {
+				...desc,
+				meshPolicy:
+					desc.meshPolicy ?? this._resolveMeshPolicyFromBodyType(body.body.type),
+				narrowphase: desc.narrowphase ?? "face-bvh",
+				backendPreference:
+					desc.backendPreference ??
+					this._resolveMeshBackendPreference(this._adapter.id),
+			} satisfies MeshColliderDescriptorV2;
+		}
+
+		if (!this._warnedTrimeshCookDeprecation) {
+			this._warnedTrimeshCookDeprecation = true;
+			console.warn(
+				`[PhysicsSystem] Collider mode "trimesh-cook" is deprecated and has been translated to "mesh".`
+			);
+		}
+		return {
+			mode: "mesh",
+			sourceNode: desc.sourceNode,
+			isTrigger: desc.isTrigger,
+			offset: desc.offset,
+			material: desc.material,
+			meshPolicy: this._resolveMeshPolicyFromBodyType(body.body.type),
+			narrowphase: "face-bvh",
+			backendPreference: this._resolveMeshBackendPreference(this._adapter.id),
+		} satisfies MeshColliderDescriptorV2;
+	}
+
 	private _resolveColliderShape(
 		body: PhysicsBodyHandle,
 		desc: ColliderDescriptor
-	): ColliderShape {
+	): {
+		shape: ColliderShape;
+		meshMetadata?: InternalMeshColliderMetadata;
+	} {
 		if (!desc.mode || desc.mode === "explicit") {
 			if (!("shape" in desc)) {
 				throw new Error("Explicit collider descriptor requires shape");
 			}
-			return desc.shape;
+			return { shape: desc.shape };
 		}
 
 		const sourceNode = desc.sourceNode ?? body.node;
@@ -1476,31 +1597,88 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			}
 			if (desc.shapePreference === "sphere") {
 				return {
-					kind: "sphere",
-					radius: Math.max(0.001, bounds.sphere.radius),
+					shape: {
+						kind: "sphere",
+						radius: Math.max(0.001, bounds.sphere.radius),
+					},
 				};
 			}
 			return {
-				kind: "box",
-				halfExtents: {
-					x: (bounds.box.max.x - bounds.box.min.x) * 0.5,
-					y: (bounds.box.max.y - bounds.box.min.y) * 0.5,
-					z: (bounds.box.max.z - bounds.box.min.z) * 0.5,
+				shape: {
+					kind: "box",
+					halfExtents: {
+						x: (bounds.box.max.x - bounds.box.min.x) * 0.5,
+						y: (bounds.box.max.y - bounds.box.min.y) * 0.5,
+						z: (bounds.box.max.z - bounds.box.min.z) * 0.5,
+					},
 				},
 			};
 		}
 
-		const triangles = this._geometryProvider.getTriangles(sourceNode);
+		const triangles = this._geometryProvider.getTriangles(sourceNode, {
+			space: "local",
+			useCache: true,
+		});
 		if (!triangles) {
-			throw new Error(
-				`trimesh-cook collider failed for node "${sourceNode.id}"`
-			);
+			throw new Error(`mesh collider cook failed for node "${sourceNode.id}"`);
 		}
-		return {
+		const shape: ColliderShape = {
 			kind: "trimesh",
 			vertices: triangles.vertices,
 			indices: triangles.indices,
 		};
+		if (!(sourceNode instanceof MeshInstance)) {
+			return { shape };
+		}
+
+		const meshDescriptor = desc as MeshColliderDescriptorV2;
+		return {
+			shape,
+			meshMetadata: {
+				sourceMeshInstance: sourceNode,
+				geometryKey: triangles.geometryKey,
+				meshPolicy:
+					meshDescriptor.meshPolicy ??
+					this._resolveMeshPolicyFromBodyType(
+						this._bodyById.get(body.id)?.body.type
+					),
+				narrowphase: meshDescriptor.narrowphase ?? "face-bvh",
+				backendPreference:
+					meshDescriptor.backendPreference ??
+					this._resolveMeshBackendPreference(this._adapter.id),
+				bvh: this._triangleBVHCache.getOrCreate(sourceNode, this._geometryProvider),
+			},
+		};
+	}
+
+	private _isMeshColliderGeometryUnchanged(
+		meshMetadata: InternalMeshColliderMetadata
+	): boolean {
+		const triangles = this._geometryProvider.getTriangles(
+			meshMetadata.sourceMeshInstance,
+			{
+				space: "local",
+				useCache: true,
+			}
+		);
+		return triangles?.geometryKey === meshMetadata.geometryKey;
+	}
+
+	private _resolveMeshPolicyFromBodyType(
+		bodyType: string | undefined
+	): MeshColliderPolicy {
+		if (bodyType === "fixed") return "fixed";
+		if (bodyType === "kinematic") return "kinematic";
+		return "dynamic";
+	}
+
+	private _resolveMeshBackendPreference(
+		adapterId: string
+	): MeshColliderBackendPreference {
+		if (adapterId === "rapier" || adapterId === "rapier-worker") {
+			return "exact";
+		}
+		return "approx";
 	}
 
 	private _resolveBody(
@@ -1588,6 +1766,332 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		);
 	}
 
+	private _registerColliderBinding(collider: InternalColliderBinding): void {
+		this._colliderById.set(collider.id, collider);
+		if (collider.meshMetadata) {
+			this._registerMeshCollider(collider);
+			return;
+		}
+		this._registerNonMeshCollider(collider);
+	}
+
+	private _destroyColliderBinding(worldId: string, colliderId: string): void {
+		this._adapter.destroyCollider(worldId, colliderId);
+		this._unregisterColliderBinding(colliderId);
+	}
+
+	private _unregisterColliderBinding(colliderId: string): void {
+		const binding = this._colliderById.get(colliderId);
+		if (!binding) return;
+		const body = this._bodyById.get(binding.bodyId);
+		if (body) {
+			body.colliderIds.delete(colliderId);
+		}
+		if (binding.meshMetadata) {
+			this._unregisterMeshCollider(binding);
+		} else {
+			this._unregisterNonMeshCollider(binding);
+		}
+		this._colliderById.delete(colliderId);
+	}
+
+	private _registerMeshCollider(collider: InternalColliderBinding): void {
+		const meshMetadata = collider.meshMetadata;
+		if (!meshMetadata) return;
+		let colliderIds = this._meshColliderIdsByMeshInstance.get(
+			meshMetadata.sourceMeshInstance
+		);
+		if (!colliderIds) {
+			colliderIds = new Set();
+			this._meshColliderIdsByMeshInstance.set(
+				meshMetadata.sourceMeshInstance,
+				colliderIds
+			);
+		}
+		colliderIds.add(collider.id);
+		this._meshInstanceByColliderId.set(
+			collider.id,
+			meshMetadata.sourceMeshInstance
+		);
+	}
+
+	private _unregisterMeshCollider(collider: InternalColliderBinding): void {
+		const meshInstance = this._meshInstanceByColliderId.get(collider.id);
+		if (!meshInstance) return;
+		this._meshInstanceByColliderId.delete(collider.id);
+		const colliderIds = this._meshColliderIdsByMeshInstance.get(meshInstance);
+		if (!colliderIds) return;
+		colliderIds.delete(collider.id);
+		if (colliderIds.size === 0) {
+			this._meshColliderIdsByMeshInstance.delete(meshInstance);
+			this._triangleBVHCache.invalidateNode(meshInstance);
+		}
+	}
+
+	private _registerNonMeshCollider(collider: InternalColliderBinding): void {
+		let ids = this._nonMeshColliderIdsByWorld.get(collider.worldId);
+		if (!ids) {
+			ids = new Set();
+			this._nonMeshColliderIdsByWorld.set(collider.worldId, ids);
+		}
+		ids.add(collider.id);
+	}
+
+	private _unregisterNonMeshCollider(collider: InternalColliderBinding): void {
+		const ids = this._nonMeshColliderIdsByWorld.get(collider.worldId);
+		if (!ids) return;
+		ids.delete(collider.id);
+		if (ids.size === 0) {
+			this._nonMeshColliderIdsByWorld.delete(collider.worldId);
+		}
+	}
+
+	private _recomputeBodyBroadphaseRadius(body: InternalBodyBinding): void {
+		body.broadphaseRadius = DEFAULT_BROADPHASE_BODY_RADIUS;
+		const runtime = this._runtimeByWorldId.get(body.worldId);
+		if (runtime) {
+			runtime.bodyBroadphaseRadiusById.set(
+				body.id,
+				DEFAULT_BROADPHASE_BODY_RADIUS
+			);
+		}
+		for (const colliderId of body.colliderIds) {
+			const binding = this._colliderById.get(colliderId);
+			if (!binding) continue;
+			this._updateBodyBroadphaseRadius(body, binding.descriptor, binding.shape);
+		}
+	}
+
+	private _withSpatialRaycastCandidates(
+		worldId: string,
+		query: PhysicsRaycastQuery
+	): PhysicsRaycastQuery | null {
+		const candidates = this._resolveMeshCandidateColliderIdsForRay(
+			worldId,
+			query.origin,
+			query.direction,
+			query.maxDistance
+		);
+		return this._mergeQueryWithCandidates(query, candidates);
+	}
+
+	private _withSpatialSphereCastCandidates(
+		worldId: string,
+		query: PhysicsSphereCastQuery
+	): PhysicsSphereCastQuery | null {
+		const bounds = computeSweptBounds(
+			query.center,
+			query.direction,
+			resolveQueryDistance(query.maxDistance),
+			{
+				x: Math.max(0.001, query.radius),
+				y: Math.max(0.001, query.radius),
+				z: Math.max(0.001, query.radius),
+			}
+		);
+		const candidates = this._resolveMeshCandidateColliderIdsForBounds(
+			worldId,
+			bounds
+		);
+		return this._mergeQueryWithCandidates(query, candidates);
+	}
+
+	private _withSpatialBoxCastCandidates(
+		worldId: string,
+		query: PhysicsBoxCastQuery
+	): PhysicsBoxCastQuery | null {
+		const castHalfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryRotation = sanitizeQueryRotation(query.rotation);
+		const broadphaseExtents = toOrientedBoundsExtents(
+			castHalfExtents,
+			queryRotation
+		);
+		const bounds = computeSweptBounds(
+			query.center,
+			query.direction,
+			resolveQueryDistance(query.maxDistance),
+			broadphaseExtents
+		);
+		const candidates = this._resolveMeshCandidateColliderIdsForBounds(
+			worldId,
+			bounds
+		);
+		return this._mergeQueryWithCandidates(query, candidates);
+	}
+
+	private _withSpatialOverlapSphereCandidates(
+		worldId: string,
+		query: PhysicsOverlapSphereQuery
+	): PhysicsOverlapSphereQuery | null {
+		const radius = Math.max(0.001, query.radius);
+		const bounds = {
+			min: {
+				x: query.center.x - radius,
+				y: query.center.y - radius,
+				z: query.center.z - radius,
+			},
+			max: {
+				x: query.center.x + radius,
+				y: query.center.y + radius,
+				z: query.center.z + radius,
+			},
+		};
+		const candidates = this._resolveMeshCandidateColliderIdsForBounds(
+			worldId,
+			bounds
+		);
+		return this._mergeQueryWithCandidates(query, candidates);
+	}
+
+	private _withSpatialOverlapBoxCandidates(
+		worldId: string,
+		query: PhysicsOverlapBoxQuery
+	): PhysicsOverlapBoxQuery | null {
+		const halfExtents = sanitizeHalfExtents(query.halfExtents);
+		const queryRotation = sanitizeQueryRotation(query.rotation);
+		const broadphaseExtents = toOrientedBoundsExtents(
+			halfExtents,
+			queryRotation
+		);
+		const bounds = {
+			min: {
+				x: query.center.x - broadphaseExtents.x,
+				y: query.center.y - broadphaseExtents.y,
+				z: query.center.z - broadphaseExtents.z,
+			},
+			max: {
+				x: query.center.x + broadphaseExtents.x,
+				y: query.center.y + broadphaseExtents.y,
+				z: query.center.z + broadphaseExtents.z,
+			},
+		};
+		const candidates = this._resolveMeshCandidateColliderIdsForBounds(
+			worldId,
+			bounds
+		);
+		return this._mergeQueryWithCandidates(query, candidates);
+	}
+
+	private _mergeQueryWithCandidates<T extends { filter?: PhysicsQueryFilter }>(
+		query: T,
+		candidateColliderIds: string[] | null
+	): T | null {
+		if (candidateColliderIds === null) return query;
+		const mergedFilter = mergePhysicsQueryFilter(
+			query.filter,
+			candidateColliderIds
+		);
+		if (mergedFilter && mergedFilter.includeColliderIds?.length === 0) {
+			return null;
+		}
+		return {
+			...query,
+			filter: mergedFilter,
+		};
+	}
+
+	private _resolveMeshCandidateColliderIdsForRay(
+		worldId: string,
+		origin: IVector3,
+		direction: IVector3,
+		maxDistance: number | undefined
+	): string[] | null {
+		if (!this._sceneSpatial) return null;
+		const meshInstances = this._collectMeshInstancesForWorld(worldId);
+		if (meshInstances.length === 0) {
+			return this._collectNonMeshColliderIds(worldId);
+		}
+		const spatial = this._resolveSceneSpatialIndex(meshInstances);
+		if (!spatial) return null;
+		const rayHits = spatial.queryRayDetailed(origin, direction, {
+			includeInvisible: true,
+			maxDistance: resolveQueryDistance(maxDistance),
+			maxResults: Infinity,
+		});
+		const candidates = new Set<string>();
+		for (const hit of rayHits) {
+			const colliderIds = this._meshColliderIdsByMeshInstance.get(hit.meshInstance);
+			if (!colliderIds) continue;
+			for (const colliderId of colliderIds) {
+				const binding = this._colliderById.get(colliderId);
+				if (!binding || binding.worldId !== worldId) continue;
+				candidates.add(colliderId);
+			}
+		}
+		appendSetEntries(candidates, this._collectNonMeshColliderIds(worldId));
+		return Array.from(candidates);
+	}
+
+	private _resolveMeshCandidateColliderIdsForBounds(
+		worldId: string,
+		bounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		}
+	): string[] | null {
+		if (!this._sceneSpatial) return null;
+		const meshInstances = this._collectMeshInstancesForWorld(worldId);
+		if (meshInstances.length === 0) {
+			return this._collectNonMeshColliderIds(worldId);
+		}
+		const spatial = this._resolveSceneSpatialIndex(meshInstances);
+		if (!spatial) return null;
+		const meshHits = spatial.queryBounds(bounds, {
+			includeInvisible: true,
+			maxResults: Infinity,
+		});
+		const candidates = new Set<string>();
+		for (const mesh of meshHits) {
+			const colliderIds = this._meshColliderIdsByMeshInstance.get(mesh);
+			if (!colliderIds) continue;
+			for (const colliderId of colliderIds) {
+				const binding = this._colliderById.get(colliderId);
+				if (!binding || binding.worldId !== worldId) continue;
+				candidates.add(colliderId);
+			}
+		}
+		appendSetEntries(candidates, this._collectNonMeshColliderIds(worldId));
+		return Array.from(candidates);
+	}
+
+	private _collectMeshInstancesForWorld(worldId: string): MeshInstance[] {
+		const result: MeshInstance[] = [];
+		for (const [meshInstance, colliderIds] of this._meshColliderIdsByMeshInstance) {
+			for (const colliderId of colliderIds) {
+				const binding = this._colliderById.get(colliderId);
+				if (!binding || binding.worldId !== worldId) continue;
+				result.push(meshInstance);
+				break;
+			}
+		}
+		return result;
+	}
+
+	private _collectNonMeshColliderIds(worldId: string): string[] {
+		const ids = this._nonMeshColliderIdsByWorld.get(worldId);
+		if (!ids || ids.size === 0) return [];
+		return Array.from(ids);
+	}
+
+	private _resolveSceneSpatialIndex(
+		meshInstances: MeshInstance[]
+	): ReturnType<Scene["rebuildSpatialIndex"]> | null {
+		const scene = this._sceneSpatial;
+		if (!scene) return null;
+
+		scene.updateWorldMatrices();
+		const sceneMeshInstances = scene.getMeshInstances();
+		if (sceneMeshInstances.length === 0) return null;
+
+		const sceneMeshSet = new Set(sceneMeshInstances);
+		for (const meshInstance of meshInstances) {
+			if (sceneMeshSet.has(meshInstance)) continue;
+			// Fallback to adapter broadphase if tracked physics meshes are missing in scene spatial.
+			return null;
+		}
+		return scene.rebuildSpatialIndex(sceneMeshInstances);
+	}
+
 	private _assertCapability(
 		name: keyof IPhysicsEngineAdapter["capabilities"]
 	): void {
@@ -1655,6 +2159,17 @@ function cloneColliderDescriptor(desc: ColliderDescriptor): ColliderDescriptor {
 		};
 	}
 
+	if (desc.mode === "mesh") {
+		return {
+			...base,
+			mode: "mesh",
+			sourceNode: desc.sourceNode,
+			meshPolicy: desc.meshPolicy,
+			narrowphase: desc.narrowphase,
+			backendPreference: desc.backendPreference,
+		};
+	}
+
 	return {
 		...base,
 		mode: "trimesh-cook",
@@ -1705,6 +2220,159 @@ function cloneColliderShape(shape: ColliderShape): ColliderShape {
 		default:
 			return shape;
 	}
+}
+
+function mergePhysicsQueryFilter(
+	filter: PhysicsQueryFilter | undefined,
+	candidateColliderIds: string[]
+): PhysicsQueryFilter | undefined {
+	const normalizedCandidates = Array.from(new Set(candidateColliderIds));
+	if (!filter) {
+		return {
+			includeColliderIds: normalizedCandidates,
+		};
+	}
+	const includeColliderIds = filter.includeColliderIds;
+	const resolvedInclude =
+		includeColliderIds && includeColliderIds.length > 0 ?
+			intersectStringArrays(includeColliderIds, normalizedCandidates)
+		:	normalizedCandidates;
+	return {
+		...filter,
+		includeColliderIds: resolvedInclude,
+	};
+}
+
+function appendSetEntries(target: Set<string>, values: string[]): void {
+	for (const value of values) {
+		target.add(value);
+	}
+}
+
+function intersectStringArrays(left: string[], right: string[]): string[] {
+	if (left.length === 0 || right.length === 0) return [];
+	const rightSet = new Set(right);
+	const result: string[] = [];
+	for (const value of left) {
+		if (!rightSet.has(value)) continue;
+		result.push(value);
+	}
+	return result;
+}
+
+function resolveQueryDistance(value: number | undefined): number {
+	if (value === undefined) return Infinity;
+	if (!Number.isFinite(value)) return Infinity;
+	return Math.max(0, value);
+}
+
+function computeSweptBounds(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	expand: IVector3
+): {
+	min: { x: number; y: number; z: number };
+	max: { x: number; y: number; z: number };
+} {
+	const distance = Math.max(0, maxDistance);
+	const length = Math.hypot(direction.x, direction.y, direction.z);
+	const scale = length > 1e-8 ? distance / length : 0;
+	const end = {
+		x: origin.x + direction.x * scale,
+		y: origin.y + direction.y * scale,
+		z: origin.z + direction.z * scale,
+	};
+	return {
+		min: {
+			x: Math.min(origin.x, end.x) - expand.x,
+			y: Math.min(origin.y, end.y) - expand.y,
+			z: Math.min(origin.z, end.z) - expand.z,
+		},
+		max: {
+			x: Math.max(origin.x, end.x) + expand.x,
+			y: Math.max(origin.y, end.y) + expand.y,
+			z: Math.max(origin.z, end.z) + expand.z,
+		},
+	};
+}
+
+function sanitizeHalfExtents(value: IVector3): IVector3 {
+	return {
+		x: Math.max(0.001, Math.abs(value.x)),
+		y: Math.max(0.001, Math.abs(value.y)),
+		z: Math.max(0.001, Math.abs(value.z)),
+	};
+}
+
+function sanitizeQueryRotation(
+	rotation: QuaternionTuple | undefined
+): QuaternionTuple {
+	if (!rotation) return [0, 0, 0, 1];
+	const x = Number.isFinite(rotation[0]) ? rotation[0] : 0;
+	const y = Number.isFinite(rotation[1]) ? rotation[1] : 0;
+	const z = Number.isFinite(rotation[2]) ? rotation[2] : 0;
+	const w = Number.isFinite(rotation[3]) ? rotation[3] : 1;
+	const length = Math.hypot(x, y, z, w);
+	if (length <= 1e-8) return [0, 0, 0, 1];
+	const invLength = 1 / length;
+	return [x * invLength, y * invLength, z * invLength, w * invLength];
+}
+
+function toOrientedBoundsExtents(
+	halfExtents: IVector3,
+	rotation: QuaternionTuple
+): IVector3 {
+	const matrix = quaternionToMatrix3(rotation);
+	return {
+		x:
+			Math.abs(matrix[0]) * halfExtents.x +
+			Math.abs(matrix[1]) * halfExtents.y +
+			Math.abs(matrix[2]) * halfExtents.z,
+		y:
+			Math.abs(matrix[3]) * halfExtents.x +
+			Math.abs(matrix[4]) * halfExtents.y +
+			Math.abs(matrix[5]) * halfExtents.z,
+		z:
+			Math.abs(matrix[6]) * halfExtents.x +
+			Math.abs(matrix[7]) * halfExtents.y +
+			Math.abs(matrix[8]) * halfExtents.z,
+	};
+}
+
+function quaternionToMatrix3(rotation: QuaternionTuple): [
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+] {
+	const [x, y, z, w] = rotation;
+	const xx = x * x;
+	const yy = y * y;
+	const zz = z * z;
+	const xy = x * y;
+	const xz = x * z;
+	const yz = y * z;
+	const wx = w * x;
+	const wy = w * y;
+	const wz = w * z;
+
+	return [
+		1 - 2 * (yy + zz),
+		2 * (xy - wz),
+		2 * (xz + wy),
+		2 * (xy + wz),
+		1 - 2 * (xx + zz),
+		2 * (yz - wx),
+		2 * (xz - wy),
+		2 * (yz + wx),
+		1 - 2 * (xx + yy),
+	];
 }
 
 function createWorldRuntime(worldId: string): WorldRuntimeState {

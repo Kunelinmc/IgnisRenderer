@@ -420,6 +420,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this._physicsSystem.setEntityNodeResolver((entityId) => {
 				return this.scene.ecs.getNodeByEntity(entityId);
 			});
+			this._physicsSystem.bindSceneSpatial(this.scene);
 		}
 		this._markFrameDirty("unknown");
 	}
@@ -431,11 +432,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public setPhysicsSystem(physicsSystem: PhysicsSystem | null): void {
+		if (this._physicsSystem && this._physicsSystem !== physicsSystem) {
+			this._physicsSystem.bindSceneSpatial(null);
+		}
 		this._physicsSystem = physicsSystem;
 		if (physicsSystem) {
 			physicsSystem.setEntityNodeResolver((entityId) => {
 				return this.scene.ecs.getNodeByEntity(entityId);
 			});
+			physicsSystem.bindSceneSpatial(this.scene);
 		}
 	}
 

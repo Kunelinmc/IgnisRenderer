@@ -117,10 +117,25 @@ export interface TrimeshCookColliderDescriptor extends ColliderDescriptorBase {
 	sourceNode?: Node;
 }
 
+export type MeshColliderPolicy = "fixed" | "kinematic" | "dynamic";
+
+export type MeshColliderNarrowphase = "face-bvh" | "proxy";
+
+export type MeshColliderBackendPreference = "exact" | "approx";
+
+export interface MeshColliderDescriptorV2 extends ColliderDescriptorBase {
+	mode: "mesh";
+	sourceNode?: Node;
+	meshPolicy?: MeshColliderPolicy;
+	narrowphase?: MeshColliderNarrowphase;
+	backendPreference?: MeshColliderBackendPreference;
+}
+
 export type ColliderDescriptor =
 	| ExplicitColliderDescriptor
 	| AutoFitColliderDescriptor
-	| TrimeshCookColliderDescriptor;
+	| TrimeshCookColliderDescriptor
+	| MeshColliderDescriptorV2;
 
 export interface BodyBinding {
 	worldId: PhysicsWorldId;
@@ -316,9 +331,19 @@ export interface CollisionGeometryBounds {
 export interface CollisionGeometryTriangles {
 	vertices: Float32Array;
 	indices: Uint32Array;
+	space: "local" | "world";
+	geometryKey: string;
+}
+
+export interface CollisionGeometryTriangleQuery {
+	space?: "local" | "world";
+	useCache?: boolean;
 }
 
 export interface ICollisionGeometryProvider {
 	getBounds(node: Node): CollisionGeometryBounds | null;
-	getTriangles(node: Node): CollisionGeometryTriangles | null;
+	getTriangles(
+		node: Node,
+		options?: CollisionGeometryTriangleQuery
+	): CollisionGeometryTriangles | null;
 }

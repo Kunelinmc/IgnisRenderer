@@ -81,6 +81,7 @@ interface RapierColliderState {
 	bodyId: string;
 	descriptor: ColliderDescriptor;
 	shape: ColliderShape;
+	trimeshBVH: TrimeshRayBVHEntry | null;
 	rapierCollider: any;
 	isTrigger: boolean;
 	collisionMask: number;
@@ -125,12 +126,40 @@ interface RapierQueryCandidate {
 	body: RapierBodyState;
 	collider: RapierColliderState;
 	center: IVector3;
+	rotation: [number, number, number, number];
 }
 
 interface RapierQueryHit {
 	distance: number;
 	point: IVector3;
 	normal: IVector3;
+}
+
+interface TrimeshRayBVHNode {
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+	start: number;
+	end: number;
+	left: TrimeshRayBVHNode | null;
+	right: TrimeshRayBVHNode | null;
+}
+
+interface TrimeshRayBVHEntry {
+	triangleOrder: Uint32Array;
+	root: TrimeshRayBVHNode | null;
+}
+
+interface TrimeshTriangleBounds {
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
 }
 
 interface RapierCharacterMoveResolution {
@@ -581,6 +610,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			bodyId,
 			descriptor,
 			shape,
+			trimeshBVH: buildTrimeshRayBVH(shape, descriptor),
 			rapierCollider,
 			isTrigger: descriptor.isTrigger === true,
 			collisionMask: DEFAULT_COLLISION_MASK,
@@ -1111,14 +1141,18 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			if (excludeColliderIds?.has(collider.id)) continue;
 			const body = world.bodies.get(collider.bodyId);
 			if (!body) continue;
+			const bodyTransform = this._readBodyTransform(body.rigidBody);
+			const rotation = sanitizeQueryRotation(bodyTransform.rotation);
+			const rotatedOffset = rotateVectorByQuaternion(collider.offset, rotation);
 			const center = Vector3.add(
-				this._readBodyPosition(body.rigidBody),
-				collider.offset
+				bodyTransform.position,
+				rotatedOffset
 			);
 			candidates.push({
 				body,
 				collider,
 				center,
+				rotation,
 			});
 		}
 		return candidates;
@@ -2387,6 +2421,27 @@ function intersectRayWithCollider(
 			};
 			return intersectRayAabb(origin, direction, maxDistance, min, max);
 		}
+		case "trimesh": {
+			if (shouldUseExactMeshRaycast(candidate)) {
+				return intersectRayTrimesh(
+					origin,
+					direction,
+					maxDistance,
+					candidate.center,
+					candidate.rotation,
+					candidate.collider.shape.vertices,
+					candidate.collider.shape.indices,
+					candidate.collider.trimeshBVH
+				);
+			}
+			return intersectRaySphere(
+				origin,
+				direction,
+				maxDistance,
+				candidate.center,
+				candidate.collider.radius
+			);
+		}
 		default:
 			return intersectRaySphere(
 				origin,
@@ -2586,6 +2641,444 @@ function intersectRayAabb(
 		point,
 		normal,
 	};
+}
+
+function shouldUseExactMeshRaycast(candidate: RapierQueryCandidate): boolean {
+	const descriptor = candidate.collider.descriptor;
+	if (descriptor.mode !== "mesh") return false;
+	if (descriptor.backendPreference === "approx") return false;
+	return (descriptor.narrowphase ?? "face-bvh") === "face-bvh";
+}
+
+function buildTrimeshRayBVH(
+	shape: ColliderShape,
+	descriptor: ColliderDescriptor
+): TrimeshRayBVHEntry | null {
+	if (shape.kind !== "trimesh") return null;
+	if (descriptor.mode !== "mesh") return null;
+	if (descriptor.backendPreference === "approx") return null;
+	if ((descriptor.narrowphase ?? "face-bvh") !== "face-bvh") return null;
+
+	const triangleCount = Math.floor(shape.indices.length / 3);
+	if (triangleCount <= 0) return null;
+	const triangleOrder = new Uint32Array(triangleCount);
+	const boundsByTriangle = new Array<TrimeshTriangleBounds>(triangleCount);
+
+	for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
+		triangleOrder[triangleIndex] = triangleIndex;
+		boundsByTriangle[triangleIndex] = computeTrimeshTriangleBounds(
+			shape.vertices,
+			shape.indices,
+			triangleIndex
+		);
+	}
+
+	return {
+		triangleOrder,
+		root: buildTrimeshRayBVHNode(boundsByTriangle, triangleOrder, 0, triangleCount),
+	};
+}
+
+function buildTrimeshRayBVHNode(
+	boundsByTriangle: TrimeshTriangleBounds[],
+	triangleOrder: Uint32Array,
+	start: number,
+	end: number
+): TrimeshRayBVHNode | null {
+	const count = end - start;
+	if (count <= 0) return null;
+	const bounds = computeTrimeshNodeBounds(boundsByTriangle, triangleOrder, start, end);
+	if (count <= 8) {
+		return {
+			...bounds,
+			start,
+			end,
+			left: null,
+			right: null,
+		};
+	}
+
+	const axis = resolveTrimeshSplitAxis(boundsByTriangle, triangleOrder, start, end);
+	sortTriangleOrderRangeByAxis(boundsByTriangle, triangleOrder, start, end, axis);
+	const middle = start + Math.floor(count * 0.5);
+
+	return {
+		...bounds,
+		start,
+		end,
+		left: buildTrimeshRayBVHNode(boundsByTriangle, triangleOrder, start, middle),
+		right: buildTrimeshRayBVHNode(boundsByTriangle, triangleOrder, middle, end),
+	};
+}
+
+function computeTrimeshTriangleBounds(
+	vertices: Float32Array | number[],
+	indices: Uint32Array | number[],
+	triangleIndex: number
+): TrimeshTriangleBounds {
+	const base = triangleIndex * 3;
+	const index0 = Number(indices[base]) * 3;
+	const index1 = Number(indices[base + 1]) * 3;
+	const index2 = Number(indices[base + 2]) * 3;
+
+	const x0 = Number(vertices[index0]);
+	const y0 = Number(vertices[index0 + 1]);
+	const z0 = Number(vertices[index0 + 2]);
+	const x1 = Number(vertices[index1]);
+	const y1 = Number(vertices[index1 + 1]);
+	const z1 = Number(vertices[index1 + 2]);
+	const x2 = Number(vertices[index2]);
+	const y2 = Number(vertices[index2 + 1]);
+	const z2 = Number(vertices[index2 + 2]);
+
+	return {
+		minX: Math.min(x0, x1, x2),
+		minY: Math.min(y0, y1, y2),
+		minZ: Math.min(z0, z1, z2),
+		maxX: Math.max(x0, x1, x2),
+		maxY: Math.max(y0, y1, y2),
+		maxZ: Math.max(z0, z1, z2),
+	};
+}
+
+function computeTrimeshNodeBounds(
+	boundsByTriangle: TrimeshTriangleBounds[],
+	triangleOrder: Uint32Array,
+	start: number,
+	end: number
+): TrimeshTriangleBounds {
+	let minX = Infinity;
+	let minY = Infinity;
+	let minZ = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	let maxZ = -Infinity;
+
+	for (let index = start; index < end; index++) {
+		const bounds = boundsByTriangle[triangleOrder[index]];
+		if (bounds.minX < minX) minX = bounds.minX;
+		if (bounds.minY < minY) minY = bounds.minY;
+		if (bounds.minZ < minZ) minZ = bounds.minZ;
+		if (bounds.maxX > maxX) maxX = bounds.maxX;
+		if (bounds.maxY > maxY) maxY = bounds.maxY;
+		if (bounds.maxZ > maxZ) maxZ = bounds.maxZ;
+	}
+
+	return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+function resolveTrimeshSplitAxis(
+	boundsByTriangle: TrimeshTriangleBounds[],
+	triangleOrder: Uint32Array,
+	start: number,
+	end: number
+): 0 | 1 | 2 {
+	let minCx = Infinity;
+	let minCy = Infinity;
+	let minCz = Infinity;
+	let maxCx = -Infinity;
+	let maxCy = -Infinity;
+	let maxCz = -Infinity;
+
+	for (let index = start; index < end; index++) {
+		const bounds = boundsByTriangle[triangleOrder[index]];
+		const cx = (bounds.minX + bounds.maxX) * 0.5;
+		const cy = (bounds.minY + bounds.maxY) * 0.5;
+		const cz = (bounds.minZ + bounds.maxZ) * 0.5;
+		if (cx < minCx) minCx = cx;
+		if (cy < minCy) minCy = cy;
+		if (cz < minCz) minCz = cz;
+		if (cx > maxCx) maxCx = cx;
+		if (cy > maxCy) maxCy = cy;
+		if (cz > maxCz) maxCz = cz;
+	}
+
+	const extentX = maxCx - minCx;
+	const extentY = maxCy - minCy;
+	const extentZ = maxCz - minCz;
+	if (extentX >= extentY && extentX >= extentZ) return 0;
+	if (extentY >= extentX && extentY >= extentZ) return 1;
+	return 2;
+}
+
+function sortTriangleOrderRangeByAxis(
+	boundsByTriangle: TrimeshTriangleBounds[],
+	triangleOrder: Uint32Array,
+	start: number,
+	end: number,
+	axis: 0 | 1 | 2
+): void {
+	const range = Array.from(triangleOrder.slice(start, end));
+	range.sort((left, right) => {
+		const leftCentroid = readTriangleCentroidAxis(boundsByTriangle[left], axis);
+		const rightCentroid = readTriangleCentroidAxis(boundsByTriangle[right], axis);
+		return leftCentroid - rightCentroid;
+	});
+	for (let index = start; index < end; index++) {
+		triangleOrder[index] = range[index - start];
+	}
+}
+
+function readTriangleCentroidAxis(
+	bounds: TrimeshTriangleBounds,
+	axis: 0 | 1 | 2
+): number {
+	if (axis === 0) return (bounds.minX + bounds.maxX) * 0.5;
+	if (axis === 1) return (bounds.minY + bounds.maxY) * 0.5;
+	return (bounds.minZ + bounds.maxZ) * 0.5;
+}
+
+function intersectRayTrimesh(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	center: IVector3,
+	rotation: [number, number, number, number],
+	vertices: Float32Array | number[],
+	indices: Uint32Array | number[],
+	bvh: TrimeshRayBVHEntry | null
+): RapierQueryHit | null {
+	const localOrigin = rotateVectorByInverseQuaternion(
+		Vector3.sub(origin, center),
+		rotation
+	);
+	const localDirection = rotateVectorByInverseQuaternion(direction, rotation);
+	let bestDistance = Infinity;
+	let bestNormal: IVector3 | null = null;
+	const visitRange = (
+		start: number,
+		end: number,
+		triangleOrder: Uint32Array
+	): void => {
+		for (let cursor = start; cursor < end; cursor++) {
+			const triangleIndex = triangleOrder[cursor];
+			const base = triangleIndex * 3;
+			const index0 = Number(indices[base]) * 3;
+			const index1 = Number(indices[base + 1]) * 3;
+			const index2 = Number(indices[base + 2]) * 3;
+
+			const v0x = Number(vertices[index0]);
+			const v0y = Number(vertices[index0 + 1]);
+			const v0z = Number(vertices[index0 + 2]);
+			const v1x = Number(vertices[index1]);
+			const v1y = Number(vertices[index1 + 1]);
+			const v1z = Number(vertices[index1 + 2]);
+			const v2x = Number(vertices[index2]);
+			const v2y = Number(vertices[index2 + 1]);
+			const v2z = Number(vertices[index2 + 2]);
+
+			const hitDistance = intersectRayTriangleDistance(
+				localOrigin,
+				localDirection,
+				v0x,
+				v0y,
+				v0z,
+				v1x,
+				v1y,
+				v1z,
+				v2x,
+				v2y,
+				v2z
+			);
+			if (hitDistance === null || hitDistance > maxDistance) continue;
+			if (hitDistance >= bestDistance) continue;
+
+			const edge1x = v1x - v0x;
+			const edge1y = v1y - v0y;
+			const edge1z = v1z - v0z;
+			const edge2x = v2x - v0x;
+			const edge2y = v2y - v0y;
+			const edge2z = v2z - v0z;
+			const nx = edge1y * edge2z - edge1z * edge2y;
+			const ny = edge1z * edge2x - edge1x * edge2z;
+			const nz = edge1x * edge2y - edge1y * edge2x;
+			const nLength = Math.hypot(nx, ny, nz);
+			bestNormal =
+				nLength > 1e-8 ?
+					{ x: nx / nLength, y: ny / nLength, z: nz / nLength }
+				:	{ x: -localDirection.x, y: -localDirection.y, z: -localDirection.z };
+			bestDistance = hitDistance;
+		}
+	};
+
+	if (bvh?.root) {
+		const stack: TrimeshRayBVHNode[] = [bvh.root];
+		while (stack.length > 0) {
+			const node = stack.pop();
+			if (!node) continue;
+			const nodeDistance = intersectRayBounds(
+				localOrigin,
+				localDirection,
+				maxDistance,
+				node.minX,
+				node.minY,
+				node.minZ,
+				node.maxX,
+				node.maxY,
+				node.maxZ
+			);
+			if (nodeDistance === null || nodeDistance > bestDistance) continue;
+			if (!node.left && !node.right) {
+				visitRange(node.start, node.end, bvh.triangleOrder);
+				continue;
+			}
+			if (node.left) stack.push(node.left);
+			if (node.right) stack.push(node.right);
+		}
+	} else {
+		const triangleCount = Math.floor(indices.length / 3);
+		const triangleOrder = new Uint32Array(triangleCount);
+		for (let index = 0; index < triangleCount; index++) {
+			triangleOrder[index] = index;
+		}
+		visitRange(0, triangleCount, triangleOrder);
+	}
+
+	if (!Number.isFinite(bestDistance) || !bestNormal) return null;
+	const worldNormal = rotateVectorByQuaternion(bestNormal, rotation);
+	const worldNormalLength = Math.hypot(
+		worldNormal.x,
+		worldNormal.y,
+		worldNormal.z
+	);
+	const resolvedNormal =
+		worldNormalLength > 1e-8 ?
+			{
+				x: worldNormal.x / worldNormalLength,
+				y: worldNormal.y / worldNormalLength,
+				z: worldNormal.z / worldNormalLength,
+			}
+		:	{
+				x: -direction.x,
+				y: -direction.y,
+				z: -direction.z,
+			};
+	return {
+		distance: bestDistance,
+		point: {
+			x: origin.x + direction.x * bestDistance,
+			y: origin.y + direction.y * bestDistance,
+			z: origin.z + direction.z * bestDistance,
+		},
+		normal: resolvedNormal,
+	};
+}
+
+function intersectRayTriangleDistance(
+	origin: IVector3,
+	direction: IVector3,
+	v0x: number,
+	v0y: number,
+	v0z: number,
+	v1x: number,
+	v1y: number,
+	v1z: number,
+	v2x: number,
+	v2y: number,
+	v2z: number
+): number | null {
+	const epsilon = 1e-8;
+	const edge1x = v1x - v0x;
+	const edge1y = v1y - v0y;
+	const edge1z = v1z - v0z;
+	const edge2x = v2x - v0x;
+	const edge2y = v2y - v0y;
+	const edge2z = v2z - v0z;
+
+	const hx = direction.y * edge2z - direction.z * edge2y;
+	const hy = direction.z * edge2x - direction.x * edge2z;
+	const hz = direction.x * edge2y - direction.y * edge2x;
+	const a = edge1x * hx + edge1y * hy + edge1z * hz;
+	if (Math.abs(a) < epsilon) return null;
+
+	const f = 1 / a;
+	const sx = origin.x - v0x;
+	const sy = origin.y - v0y;
+	const sz = origin.z - v0z;
+	const u = f * (sx * hx + sy * hy + sz * hz);
+	if (u < 0 || u > 1) return null;
+
+	const qx = sy * edge1z - sz * edge1y;
+	const qy = sz * edge1x - sx * edge1z;
+	const qz = sx * edge1y - sy * edge1x;
+	const v = f * (direction.x * qx + direction.y * qy + direction.z * qz);
+	if (v < 0 || u + v > 1) return null;
+
+	const t = f * (edge2x * qx + edge2y * qy + edge2z * qz);
+	if (t < 0) return null;
+	return t;
+}
+
+function intersectRayBounds(
+	origin: IVector3,
+	direction: IVector3,
+	maxDistance: number,
+	minX: number,
+	minY: number,
+	minZ: number,
+	maxX: number,
+	maxY: number,
+	maxZ: number
+): number | null {
+	let tMin = 0;
+	let tMax = maxDistance;
+
+	const axisTests: Array<[number, number, number, number]> = [
+		[origin.x, direction.x, minX, maxX],
+		[origin.y, direction.y, minY, maxY],
+		[origin.z, direction.z, minZ, maxZ],
+	];
+
+	for (const [originAxis, directionAxis, minAxis, maxAxis] of axisTests) {
+		if (Math.abs(directionAxis) <= 1e-8) {
+			if (originAxis < minAxis || originAxis > maxAxis) return null;
+			continue;
+		}
+		let t1 = (minAxis - originAxis) / directionAxis;
+		let t2 = (maxAxis - originAxis) / directionAxis;
+		if (t1 > t2) {
+			const temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
+		if (t1 > tMin) tMin = t1;
+		if (t2 < tMax) tMax = t2;
+		if (tMin > tMax) return null;
+	}
+
+	if (tMin < 0) tMin = 0;
+	if (tMin > maxDistance) return null;
+	return tMin;
+}
+
+function rotateVectorByQuaternion(
+	vector: IVector3,
+	rotation: [number, number, number, number]
+): IVector3 {
+	const x = rotation[0];
+	const y = rotation[1];
+	const z = rotation[2];
+	const w = rotation[3];
+	const tx = 2 * (y * vector.z - z * vector.y);
+	const ty = 2 * (z * vector.x - x * vector.z);
+	const tz = 2 * (x * vector.y - y * vector.x);
+	return {
+		x: vector.x + w * tx + (y * tz - z * ty),
+		y: vector.y + w * ty + (z * tx - x * tz),
+		z: vector.z + w * tz + (x * ty - y * tx),
+	};
+}
+
+function rotateVectorByInverseQuaternion(
+	vector: IVector3,
+	rotation: [number, number, number, number]
+): IVector3 {
+	return rotateVectorByQuaternion(vector, [
+		-rotation[0],
+		-rotation[1],
+		-rotation[2],
+		rotation[3],
+	]);
 }
 
 function intersectsSphereAabb(

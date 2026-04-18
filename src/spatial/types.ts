@@ -23,6 +23,13 @@ export interface SpatialIndex3D {
 	upsert(meshInstance: MeshInstance): void;
 	remove(meshInstance: MeshInstance): boolean;
 	rebuild(meshInstances?: MeshInstance[]): void;
+	queryBounds(
+		bounds: {
+			min: { x: number; y: number; z: number };
+			max: { x: number; y: number; z: number };
+		},
+		options?: SpatialQueryOptions
+	): MeshInstance[];
 	queryFrustum(
 		frustum: Frustum,
 		options?: SpatialQueryOptions
