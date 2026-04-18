@@ -19,6 +19,8 @@ pressure, so a hybrid strategy is introduced.
   changes must call `markDirty`.
 - `SpatialIndex3D.queryFrustum(frustum, options?)` must return mesh-instance
   candidates whose world-space bounds overlap the frustum.
+- `SpatialIndex3D.queryBounds(bounds, options?)` must return mesh-instance
+  candidates whose world-space bounds overlap the input AABB.
 - `SpatialIndex3D.queryRayDetailed(origin, direction, options?)` must return
   candidates ordered by ascending `distance`, then by `entityId`, then by
   `meshInstance.id`.
@@ -37,6 +39,12 @@ scene.setSpatialIndexMode("hybrid");
 
 // Existing query APIs stay unchanged.
 const visible = scene.queryMeshInstancesInFrustum(camera, meshInstances);
+const overlaps = scene
+	.rebuildSpatialIndex(meshInstances)
+	.queryBounds({
+		min: { x: -1, y: -1, z: -1 },
+		max: { x: 1, y: 1, z: 1 },
+	});
 ```
 
 ## Errors & Diagnostics
@@ -51,3 +59,4 @@ This change is backward compatible:
 - default mode remains `"bvh"`;
 - existing public query method signatures are unchanged;
 - consumers may opt in to `"hybrid"` without changing call sites.
+- `queryBounds` is additive to the `SpatialIndex3D` contract.
