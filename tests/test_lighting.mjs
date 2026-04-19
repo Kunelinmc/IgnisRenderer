@@ -60,14 +60,10 @@ function testDirectional() {
 	// L should be (0, 0, 1)
 	assert.ok(contributionRotated.direction.z > 0.999);
 
-	// Test shadow caster
+	// Test shadow config defaults
 	assert.ok(light.shadow);
-	const shadowCamera = light.shadow.setupShadowCamera({
-		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 100 },
-		worldMatrix: Matrix4.identity(),
-	});
-	assert.ok(shadowCamera.view);
-	assert.ok(shadowCamera.projection);
+	assert.equal(light.shadow.strategy, "single-map");
+	assert.ok((light.shadow.size ?? 0) > 0);
 }
 
 function testPoint() {

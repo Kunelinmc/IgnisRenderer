@@ -1,0 +1,189 @@
+import assert from "node:assert/strict";
+import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import {
+	createShadowRenderSet,
+	normalizeShadowConfig,
+} from "../src/lights/ShadowMapping.ts";
+import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
+import { selectCSMDirectionalLights } from "../src/pipeline/ShadowStrategyRegistry.ts";
+
+function createSceneBounds(radius = 80) {
+	return {
+		center: { x: 0, y: 0, z: 0 },
+		radius,
+	};
+}
+
+function createCamera(overrides = {}) {
+	const position = overrides.position ?? { x: 0, y: 4, z: 16 };
+	const up = overrides.up ?? { x: 0, y: 1, z: 0 };
+	return {
+		near: overrides.near ?? 0.1,
+		far: overrides.far ?? 100,
+		fov: overrides.fov ?? 60,
+		aspectRatio: overrides.aspectRatio ?? 16 / 9,
+		position,
+		up,
+		getWorldPosition(target = { x: 0, y: 0, z: 0 }) {
+			target.x = position.x;
+			target.y = position.y;
+			target.z = position.z;
+			return target;
+		},
+		getWorldDirection(localDirection, target = { x: 0, y: 0, z: 0 }) {
+			target.x = localDirection.x;
+			target.y = localDirection.y;
+			target.z = localDirection.z;
+			return target;
+		},
+	};
+}
+
+function createDirectionalCSMLight({
+	priority = 0,
+	intensity = 1,
+	lambda = 0.65,
+	maxDistance,
+	blendRatio = 0.1,
+	cascadeCount = 4,
+} = {}) {
+	const light = new DirectionalLight({
+		intensity,
+		direction: { x: 0, y: -1, z: -0.3 },
+	});
+	light.castShadow = true;
+	light.shadow = {
+		strategy: "csm",
+		size: 1024,
+		priority,
+		lambda,
+		maxDistance,
+		blendRatio,
+		cascadeCount,
+		stabilize: true,
+	};
+	return light;
+}
+
+function testCSMSplitsMonotonicAndCovered() {
+	const camera = createCamera({ near: 0.2, far: 120 });
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 4,
+	});
+	const renderSet = createShadowRenderSet(light.shadow);
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(120), {
+		camera,
+	});
+
+	assert.equal(renderSet.effectiveStrategyType, "csm");
+	assert.equal(renderSet.slices.length, 4);
+	assert.ok(Math.abs(renderSet.slices[0].splitNear - 0.2) < 1e-6);
+	assert.ok(Math.abs(renderSet.slices[3].splitFar - 80) < 1e-6);
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const slice = renderSet.slices[index];
+		assert.ok(slice.splitNear < slice.splitFar);
+		if (index > 0) {
+			assert.ok(
+				renderSet.slices[index - 1].splitFar <= slice.splitNear + 1e-6
+			);
+		}
+	}
+}
+
+function testLambdaBoundarySplits() {
+	const camera = createCamera({ near: 0.1, far: 100 });
+	const bounds = createSceneBounds(100);
+
+	const uniformLight = createDirectionalCSMLight({
+		lambda: 0,
+		maxDistance: 100,
+		cascadeCount: 4,
+	});
+	const uniformSet = createShadowRenderSet(uniformLight.shadow);
+	updateShadowMapMetadata(uniformSet, uniformLight, bounds, { camera });
+
+	const logLight = createDirectionalCSMLight({
+		lambda: 1,
+		maxDistance: 100,
+		cascadeCount: 4,
+	});
+	const logSet = createShadowRenderSet(logLight.shadow);
+	updateShadowMapMetadata(logSet, logLight, bounds, { camera });
+
+	const near = 0.1;
+	const far = 100;
+	const t = 1 / 4;
+	const expectedUniform = near + (far - near) * t;
+	const expectedLog = near * Math.pow(far / near, t);
+	assert.ok(Math.abs(uniformSet.slices[0].splitFar - expectedUniform) < 1e-5);
+	assert.ok(Math.abs(logSet.slices[0].splitFar - expectedLog) < 1e-5);
+	assert.ok(logSet.slices[0].splitFar < uniformSet.slices[0].splitFar);
+}
+
+function testBlendRatioNormalization() {
+	const clampedLow = normalizeShadowConfig({
+		strategy: "csm",
+		blendRatio: -2,
+	});
+	const clampedHigh = normalizeShadowConfig({
+		strategy: "csm",
+		blendRatio: 2,
+	});
+	assert.equal(clampedLow.strategy, "csm");
+	assert.equal(clampedHigh.strategy, "csm");
+	assert.equal(clampedLow.blendRatio, 0);
+	assert.equal(clampedHigh.blendRatio, 1);
+}
+
+function testBackendFallbackToSingleMap() {
+	const camera = createCamera({ near: 0.1, far: 90 });
+	const light = createDirectionalCSMLight({
+		maxDistance: 90,
+		cascadeCount: 4,
+	});
+	const renderSet = createShadowRenderSet(light.shadow);
+	const warnings = [];
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(100), {
+		camera,
+		backendCapabilities: {
+			backendKey: "webgl",
+			supportsSingleMap: true,
+			supportsDirectionalCSM: false,
+			maxCsmDirectionalLights: 0,
+		},
+		onWarning: (key, message) => warnings.push({ key, message }),
+	});
+
+	assert.equal(renderSet.requestedStrategyType, "csm");
+	assert.equal(renderSet.effectiveStrategyType, "single-map");
+	assert.equal(renderSet.slices.length, 1);
+	assert.equal(renderSet.resolvedConfig.strategy, "single-map");
+	assert.equal(warnings.length, 1);
+	assert.ok(warnings[0].key.includes(`webgl-${light.id}`));
+}
+
+function testCSMSelectionPriority() {
+	const lightA = createDirectionalCSMLight({ priority: 1, intensity: 10 });
+	const lightB = createDirectionalCSMLight({ priority: 3, intensity: 1 });
+	const lightC = createDirectionalCSMLight({ priority: 3, intensity: 5 });
+	const selected = selectCSMDirectionalLights([lightA, lightB, lightC], 2);
+	assert.equal(selected.size, 2);
+	assert.ok(selected.has(lightB));
+	assert.ok(selected.has(lightC));
+	assert.ok(!selected.has(lightA));
+}
+
+function run() {
+	testCSMSplitsMonotonicAndCovered();
+	testLambdaBoundarySplits();
+	testBlendRatioNormalization();
+	testBackendFallbackToSingleMap();
+	testCSMSelectionPriority();
+	console.log("Shadow strategy CSM tests passed");
+}
+
+run();

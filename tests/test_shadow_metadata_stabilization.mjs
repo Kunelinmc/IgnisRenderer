@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { ShadowMap } from "../src/lights/ShadowMapping.ts";
+import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
 
 function createSceneBounds(radius) {
@@ -10,35 +10,26 @@ function createSceneBounds(radius) {
 	};
 }
 
-function createShadowLight(capturedRadii) {
-	return {
-		worldMatrix: Matrix4.identity(),
-		shadow: {
-			setupShadowCamera(ctx) {
-				capturedRadii.push(ctx.sceneBounds.radius);
-				return {
-					view: Matrix4.identity(),
-					projection: Matrix4.identity(),
-					lightDir: { x: 0, y: -1, z: 0 },
-				};
-			},
-		},
-	};
-}
-
 function testShadowRadiusShrinkUsesHysteresis() {
-	const capturedRadii = [];
-	const light = createShadowLight(capturedRadii);
-	const shadowMap = new ShadowMap(1024);
+	const light = new DirectionalLight();
+	light.castShadow = true;
+	light.shadow = {
+		strategy: "single-map",
+		size: 1024,
+	};
+	const renderSet = createShadowRenderSet(light.shadow);
 
-	updateShadowMapMetadata(shadowMap, light, createSceneBounds(100));
-	updateShadowMapMetadata(shadowMap, light, createSceneBounds(10));
-	updateShadowMapMetadata(shadowMap, light, createSceneBounds(120));
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(100));
+	const radiusAfterFirst = renderSet.slices[0].shadowMap.stabilizedBoundsRadius;
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(10));
+	const radiusAfterShrink = renderSet.slices[0].shadowMap.stabilizedBoundsRadius;
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(120));
+	const radiusAfterGrow = renderSet.slices[0].shadowMap.stabilizedBoundsRadius;
 
-	assert.equal(capturedRadii[0], 100);
-	assert.ok(capturedRadii[1] > 10, "Shrink should be smoothed for stability");
-	assert.ok(capturedRadii[1] < 100, "Smoothed radius should move toward target");
-	assert.equal(capturedRadii[2], 120);
+	assert.equal(radiusAfterFirst, 100);
+	assert.ok(radiusAfterShrink > 10, "Shrink should be smoothed for stability");
+	assert.ok(radiusAfterShrink < 100, "Smoothed radius should move toward target");
+	assert.equal(radiusAfterGrow, 120);
 }
 
 function run() {
