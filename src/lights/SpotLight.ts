@@ -1,18 +1,10 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Vector3 } from "../maths/Vector3";
 import type { IVector3 } from "../maths/types";
-import {
-	MIN_SHADOW_FAR,
-	MIN_SHADOW_NEAR,
-	SHADOW_NEAR_FAR_GAP,
-} from "./constants";
 import {
 	Light,
 	LightType,
 	type LightParams,
-	type ShadowCameraResult,
-	type ShadowCaster,
 } from "./Light";
+import type { ShadowConfig } from "./ShadowMapping";
 
 export interface SpotLightParams extends LightParams {
 	position?: IVector3;
@@ -21,58 +13,7 @@ export interface SpotLightParams extends LightParams {
 	innerAngle?: number;
 	penumbra?: number;
 	range?: number;
-}
-
-class SpotShadowCaster implements ShadowCaster {
-	constructor(private light: SpotLight) {}
-
-	setupShadowCamera(ctx: {
-		sceneBounds: { center: IVector3; radius: number };
-		worldMatrix: Matrix4;
-	}): ShadowCameraResult | null {
-		const position = Matrix4.transformPoint(ctx.worldMatrix, {
-			x: 0,
-			y: 0,
-			z: 0,
-		});
-		let direction = Matrix4.transformDirection(
-			ctx.worldMatrix,
-			this.light.direction
-		);
-		direction = Vector3.normalize(direction);
-		const target = {
-			x: position.x + direction.x,
-			y: position.y + direction.y,
-			z: position.z + direction.z,
-		};
-		const up =
-			Math.abs(direction.y) < 0.999
-				? { x: 0, y: 1, z: 0 }
-				: { x: 0, y: 0, z: 1 };
-		const view = Matrix4.lookAt(position, target, up);
-
-		const distanceToCenter = Vector3.length(
-			Vector3.sub(position, ctx.sceneBounds.center)
-		);
-		const autoFar = distanceToCenter + ctx.sceneBounds.radius;
-		let far = Math.min(this.light.range, Math.max(autoFar, 0));
-		far = Math.max(MIN_SHADOW_FAR, far);
-
-		const nearCandidate = distanceToCenter - ctx.sceneBounds.radius;
-		const near = Math.max(
-			MIN_SHADOW_NEAR,
-			Math.min(nearCandidate, far - SHADOW_NEAR_FAR_GAP)
-		);
-
-		const projection = Matrix4.perspective(
-			this.light.outerAngle * 2 * (180 / Math.PI),
-			1,
-			near,
-			far
-		);
-
-		return { view, projection, lightDir: direction };
-	}
+	shadow?: ShadowConfig;
 }
 
 export class SpotLight extends Light<LightType.Spot> {
@@ -92,8 +33,11 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.innerAngle = params.innerAngle;
 		this.penumbra = params.penumbra ?? 0;
 		this.range = params.range ?? 1000;
-		this.shadow = new SpotShadowCaster(this);
-		this.castShadow = true;
+		this.shadow = params.shadow ?? {
+			strategy: "single-map",
+			size: 1024,
+		};
+		this.castShadow = params.castShadow ?? true;
 	}
 
 	protected override _copyClonePropertiesTo(target: this): void {

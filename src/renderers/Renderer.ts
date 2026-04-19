@@ -9,7 +9,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import { ShadowMap } from "../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../lights/ShadowMapping";
 import {
 	PBR_AMBIENT_FALLBACK_LINEAR,
 } from "../lights/constants";
@@ -147,7 +147,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
-	public shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	public shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	public shCoeffs: SHCoefficients;
 	public shAmbientCoeffs: SHCoefficients;
 	public scene: Scene;

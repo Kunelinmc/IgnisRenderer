@@ -16,7 +16,8 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		i,
 		input.worldPosition,
 		pbrShadowNormal,
-		lightDirection
+		lightDirection,
+		linearDepth
 	);
 	let fView = fresnelSchlick(nDotV, realF0);
 	let kT = (vec3<f32>(1.0) - fView) * (1.0 - metalness) * transmission;

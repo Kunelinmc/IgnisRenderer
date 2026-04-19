@@ -12,12 +12,12 @@ import type { Material } from "../../materials";
 import type { RGB } from "../../foundation/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
 import type { ReflectionProbe } from "../../lights/ReflectionProbe";
-import type { ShadowMap } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/ShadowMapping";
 
 export interface ShaderContext {
 	cameraPos: IVector3;
 	lights: SceneLight[];
-	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	sampleShadow?: (
 		light: ShadowCastingLight,
 		worldPoint: IVector3,

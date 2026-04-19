@@ -16,6 +16,8 @@ struct SpotLightData {
 
 struct ShadowData {
 	viewProjection: mat4x4<f32>,
+	cascadeViewProjections: array<mat4x4<f32>, 4>,
+	cascadeSplits: array<vec4<f32>, 4>,
 	paramsA: vec4<f32>,
 	paramsB: vec4<f32>,
 	paramsC: vec4<f32>,

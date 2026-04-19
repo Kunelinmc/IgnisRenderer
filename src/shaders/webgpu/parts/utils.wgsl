@@ -712,20 +712,38 @@ fn loadShadowDepthTexel(coord: vec2<i32>) -> f32 {
 	return textureLoad(shadowAtlas, coord, 0);
 }
 
-fn sampleShadowVisibility(
+fn sampleShadowVisibilityForCascade(
 	shadowType: u32,
 	index: u32,
 	shadowData: ShadowData,
 	worldPosition: vec3<f32>,
 	normal: vec3<f32>,
-	lightDirection: vec3<f32>
+	lightDirection: vec3<f32>,
+	cascadeIndex: u32
 ) -> f32 {
 	if (frame.options.z < 0.5 || shadowData.paramsA.x < 0.5) {
 		return 1.0;
 	}
 
-	let shadowSize = max(i32(shadowData.paramsB.z + 0.5), 1);
-	let atlasTileSize = max(i32(shadowData.paramsB.w + 0.5), shadowSize);
+	let requestedShadowSize = max(i32(shadowData.paramsB.z + 0.5), 1);
+	let atlasTileSize = max(i32(shadowData.paramsB.w + 0.5), requestedShadowSize);
+	let isCSM = shadowData.paramsC.y > 0.5 && shadowData.paramsC.z > 1.5;
+	let cascadeCount = u32(clamp(floor(shadowData.paramsC.z + 0.5), 1.0, 4.0));
+	let clampedCascadeIndex = min(cascadeIndex, cascadeCount - 1u);
+	let localTileSpan = select(1, 2, isCSM);
+	let subTileSize = max(1, atlasTileSize / localTileSpan);
+	let shadowSize = max(1, min(requestedShadowSize, subTileSize));
+	let cascadeSplit = shadowData.cascadeSplits[clampedCascadeIndex];
+	let localTileX = select(
+		0,
+		i32(clamp(floor(cascadeSplit.z + 0.5), 0.0, 1.0)),
+		isCSM
+	);
+	let localTileY = select(
+		0,
+		i32(clamp(floor(cascadeSplit.w + 0.5), 0.0, 1.0)),
+		isCSM
+	);
 	let slopeBias = max(shadowData.paramsC.x, 0.0);
 	let maxNormalBias = max(shadowData.paramsA.z, 0.0);
 	let minNormalBias = max(shadowData.paramsA.w, 0.0);
@@ -733,7 +751,11 @@ fn sampleShadowVisibility(
 	let bias = max(shadowData.paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
 	let normalBias = minNormalBias + (maxNormalBias - minNormalBias) * (1.0 - cosTheta);
 	let shadowWorldPosition = worldPosition + normal * normalBias;
-	let shadowClip = shadowData.viewProjection * vec4<f32>(shadowWorldPosition, 1.0);
+	var shadowMatrix = shadowData.viewProjection;
+	if (isCSM) {
+		shadowMatrix = shadowData.cascadeViewProjections[clampedCascadeIndex];
+	}
+	let shadowClip = shadowMatrix * vec4<f32>(shadowWorldPosition, 1.0);
 	if (shadowClip.w <= EPSILON) {
 		return 1.0;
 	}
@@ -768,7 +790,9 @@ fn sampleShadowVisibility(
 	);
 	let tileX = i32(shadowGlobalIndex % u32(atlasColumns));
 	let tileY = i32(shadowGlobalIndex / u32(atlasColumns));
-	let tileOffset = vec2<i32>(tileX * atlasTileSize, tileY * atlasTileSize);
+	let tileOffset =
+		vec2<i32>(tileX * atlasTileSize, tileY * atlasTileSize) +
+		vec2<i32>(localTileX * subTileSize, localTileY * subTileSize);
 	var visible = 0.0;
 	var sampleCount = 0.0;
 
@@ -804,20 +828,76 @@ fn sampleShadowVisibility(
 	return 1.0 - strength + strength * filteredVisibility;
 }
 
+fn resolveDirectionalCascadeIndex(shadowData: ShadowData, linearDepth: f32) -> u32 {
+	let cascadeCount = u32(clamp(floor(shadowData.paramsC.z + 0.5), 1.0, 4.0));
+	if (cascadeCount <= 1u || shadowData.paramsC.y < 0.5) {
+		return 0u;
+	}
+
+	var selected = cascadeCount - 1u;
+	for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+		if (i >= cascadeCount) {
+			break;
+		}
+		let splitFar = shadowData.cascadeSplits[i].y;
+		if (linearDepth <= splitFar) {
+			selected = i;
+			break;
+		}
+	}
+	return selected;
+}
+
 fn sampleDirectionalShadowVisibility(
 	index: u32,
 	worldPosition: vec3<f32>,
 	normal: vec3<f32>,
-	lightDirection: vec3<f32>
+	lightDirection: vec3<f32>,
+	linearDepth: f32
 ) -> f32 {
-	return sampleShadowVisibility(
+	let shadowData = frame.directionalShadows[index];
+	let cascadeIndex = resolveDirectionalCascadeIndex(shadowData, linearDepth);
+	let baseVisibility = sampleShadowVisibilityForCascade(
 		0u,
 		index,
-		frame.directionalShadows[index],
+		shadowData,
 		worldPosition,
 		normal,
-		lightDirection
+		lightDirection,
+		cascadeIndex
 	);
+	let cascadeCount = u32(clamp(floor(shadowData.paramsC.z + 0.5), 1.0, 4.0));
+	let blendRatio = clamp(shadowData.paramsC.w, 0.0, 1.0);
+	let hasBlend =
+		shadowData.paramsC.y > 0.5 &&
+		blendRatio > EPSILON &&
+		cascadeIndex + 1u < cascadeCount;
+	if (!hasBlend) {
+		return baseVisibility;
+	}
+
+	let split = shadowData.cascadeSplits[cascadeIndex];
+	let cascadeRange = max(split.y - split.x, 1e-4);
+	let blendStart = split.y - cascadeRange * blendRatio;
+	if (linearDepth <= blendStart) {
+		return baseVisibility;
+	}
+
+	let nextVisibility = sampleShadowVisibilityForCascade(
+		0u,
+		index,
+		shadowData,
+		worldPosition,
+		normal,
+		lightDirection,
+		cascadeIndex + 1u
+	);
+	let blendFactor = clamp(
+		(linearDepth - blendStart) / max(split.y - blendStart, 1e-4),
+		0.0,
+		1.0
+	);
+	return mix(baseVisibility, nextVisibility, blendFactor);
 }
 
 fn sampleSpotShadowVisibility(
@@ -826,13 +906,14 @@ fn sampleSpotShadowVisibility(
 	normal: vec3<f32>,
 	lightDirection: vec3<f32>
 ) -> f32 {
-	return sampleShadowVisibility(
+	return sampleShadowVisibilityForCascade(
 		1u,
 		index,
 		frame.spotShadows[index],
 		worldPosition,
 		normal,
-		lightDirection
+		lightDirection,
+		0u
 	);
 }
 

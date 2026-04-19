@@ -1,4 +1,3 @@
-import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 import {
@@ -14,7 +13,8 @@ interface ShadowAtlas {
 
 interface ShadowSlice {
 	enabled: boolean;
-	shadowMap: ShadowMap | null;
+	shadowMapSize: number;
+	shadowMapBaseSize: number;
 	atlasTileSize: number;
 }
 
@@ -102,8 +102,8 @@ export class WebGPUShadowAtlasAllocator {
 function getMaxShadowSize(shadows: ShadowSlice[]): number {
 	let tileSize = 0;
 	for (const shadow of shadows) {
-		if (!shadow?.enabled || !shadow.shadowMap) continue;
-		tileSize = Math.max(tileSize, shadow.shadowMap.size | 0);
+		if (!shadow?.enabled) continue;
+		tileSize = Math.max(tileSize, shadow.shadowMapBaseSize | 0);
 	}
 
 	return tileSize;

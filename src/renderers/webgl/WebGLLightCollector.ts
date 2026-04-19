@@ -8,7 +8,10 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
-import type { ShadowMap } from "../../lights/ShadowMapping";
+import {
+	getPrimaryShadowMap,
+	type ShadowRenderSet,
+} from "../../lights/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {
 	getDirectionalLightWorldDirection,
@@ -59,7 +62,7 @@ export interface WebGLShadowData {
 	shadowStrength: number;
 	shadowMapSize: number;
 	atlasTileSize: number;
-	shadowMap: ShadowMap | null;
+	shadowMap: ReturnType<typeof getPrimaryShadowMap>;
 }
 
 export interface WebGLLightState {
@@ -105,7 +108,7 @@ const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 type WebGLLightCollectorWarn = (key: string, message: string) => void;
 type WebGLLightCollectorShadowMapLookup =
-	ReadonlyMap<ShadowCastingLight, ShadowMap>;
+	ReadonlyMap<ShadowCastingLight, ShadowRenderSet>;
 
 export function collectWebGLLights(
 	lights: SceneLight[],
@@ -226,7 +229,9 @@ export function collectWebGLLights(
 				state.directionalShadows.push(
 					resolveWebGLShadowData(
 						enableShadows,
-						shadowMaps?.get(light as ShadowCastingLight)
+						resolvePrimaryShadowMap(
+							shadowMaps?.get(light as ShadowCastingLight)
+						)
 					)
 				);
 				break;
@@ -284,7 +289,9 @@ export function collectWebGLLights(
 				];
 				const resolvedShadow = resolveWebGLShadowData(
 					enableShadows,
-					shadowMaps?.get(light as ShadowCastingLight)
+					resolvePrimaryShadowMap(
+						shadowMaps?.get(light as ShadowCastingLight)
+					)
 				);
 				if (enableClusteredLighting) {
 					const forwardShadowIndex = state.spotShadows.length;
@@ -485,9 +492,18 @@ function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {
 	return 0;
 }
 
+function resolvePrimaryShadowMap(
+	renderSet: ShadowRenderSet | undefined
+) {
+	if (!renderSet) {
+		return null;
+	}
+	return getPrimaryShadowMap(renderSet);
+}
+
 function resolveWebGLShadowData(
 	enableShadows: boolean,
-	shadowMap?: ShadowMap
+	shadowMap?: ReturnType<typeof getPrimaryShadowMap> | null
 ): WebGLShadowData {
 	if (!enableShadows || !shadowMap?.viewProjectionMatrix) {
 		return {

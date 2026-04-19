@@ -14,6 +14,7 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
+import type { ShadowBackendCapabilities } from "../../pipeline/ShadowStrategyRegistry";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_BLOOM_OPTIONS,
@@ -204,6 +205,13 @@ const PARTICLE_INSTANCE_FLOATS = 13;
 const PARTICLE_INSTANCE_STRIDE = PARTICLE_INSTANCE_FLOATS * 4;
 const PARTICLE_INITIAL_CAPACITY = 256;
 const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
+
+const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
+	backendKey: "webgl",
+	supportsSingleMap: true,
+	supportsDirectionalCSM: false,
+	maxCsmDirectionalLights: 0,
+};
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
@@ -760,9 +768,22 @@ export class WebGLFrameExecutor {
 			context.scene.camera
 		);
 		for (const light of shadowLights) {
-			const shadowMap = context.shadowMaps.get(light);
-			if (!shadowMap) continue;
-			updateShadowMapMetadata(shadowMap, light, shadowCasterBounds);
+			const shadowRenderSet = context.shadowMaps.get(light);
+			if (!shadowRenderSet) continue;
+			updateShadowMapMetadata(
+				shadowRenderSet,
+				light,
+				shadowCasterBounds,
+				{
+					camera: context.scene.camera,
+					backendCapabilities: WEBGL_SHADOW_CAPABILITIES,
+					onWarning: (key, message) =>
+						Logger.warn(`[${key}] ${message}`, {
+							scope: "WebGLFrameExecutor",
+							onceKey: key,
+						}),
+				}
+			);
 		}
 	}
 

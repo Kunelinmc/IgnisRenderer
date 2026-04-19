@@ -1,12 +1,15 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type {
+	getPrimaryShadowMap,
+	ShadowStrategyType,
+} from "../../lights/ShadowMapping";
+import type {
 	BloomOptions,
 	ClusteredLightingOptions,
 	FogOptions,
 	TAAOptions,
 } from "../../pipeline/types";
-import type { ShadowMap } from "../../lights/ShadowMapping";
 import type { Texture } from "../../core/Texture";
 
 export interface WebGPUWarning {
@@ -64,6 +67,11 @@ export interface WebGPUClusteredLightUniform extends WebGPULightUniformBase {
 
 export interface WebGPUShadowData {
 	enabled: boolean;
+	strategyType: ShadowStrategyType;
+	cascadeCount: number;
+	cascadeBlendRatio: number;
+	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
+	cascadeSplits: Array<[number, number, number, number]>;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
 	slopeBias: number;
@@ -71,9 +79,10 @@ export interface WebGPUShadowData {
 	normalBiasMin: number;
 	pcfRadius: number;
 	shadowStrength: number;
+	shadowMapBaseSize: number;
 	shadowMapSize: number;
 	atlasTileSize: number;
-	shadowMap: ShadowMap | null;
+	shadowMap: ReturnType<typeof getPrimaryShadowMap>;
 }
 
 export interface WebGPULightingState {

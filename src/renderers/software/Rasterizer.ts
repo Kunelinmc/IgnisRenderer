@@ -24,7 +24,7 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
-import type { ShadowMap } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/ShadowMapping";
 import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {
@@ -108,7 +108,7 @@ export interface RasterizerContext {
 		viewMatrix: Matrix4;
 	};
 	lights: SceneLight[];
-	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
 	skybox?: Texture | null;

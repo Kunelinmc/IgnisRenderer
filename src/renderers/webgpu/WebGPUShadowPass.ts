@@ -5,12 +5,16 @@ import {
 	type ShadowCastingLight,
 } from "../../lights";
 import { Matrix4 } from "../../maths/Matrix4";
+import {
+	getPrimaryShadowMap,
+	type ShadowMap,
+	type ShadowRenderSet,
+} from "../../lights/ShadowMapping";
 import type {
 	DrawPacket,
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
-import type { ShadowMap } from "../../lights/ShadowMapping";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
@@ -193,8 +197,14 @@ fn vsMain(
 
 interface ShadowRenderSlot {
 	shadowMap: ShadowMap;
+	renderSet: ShadowRenderSet;
+	sliceIndex: number;
 	tileX: number;
 	tileY: number;
+	localTileX: number;
+	localTileY: number;
+	localTileSpan: number;
+	atlasBaseSize: number;
 }
 
 interface ShadowAnimationState {
@@ -295,22 +305,44 @@ export class WebGPUShadowPass {
 
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
-			const viewportX = slot.tileX * atlasTileSize;
-			const viewportY = slot.tileY * atlasTileSize;
+			const baseOffsetX = slot.tileX * atlasTileSize;
+			const baseOffsetY = slot.tileY * atlasTileSize;
+			const subTileSize =
+				slot.localTileSpan > 1 ?
+					Math.max(1, Math.floor(atlasTileSize / slot.localTileSpan))
+				:	atlasTileSize;
+			const viewportX = baseOffsetX + slot.localTileX * subTileSize;
+			const viewportY = baseOffsetY + slot.localTileY * subTileSize;
+			const viewportSize = Math.min(
+				shadowMapSize,
+				slot.localTileSpan > 1 ? subTileSize : atlasTileSize
+			);
 			passEncoder.setViewport(
 				viewportX,
 				viewportY,
-				shadowMapSize,
-				shadowMapSize,
+				viewportSize,
+				viewportSize,
 				0,
 				1
 			);
 			passEncoder.setScissorRect(
 				viewportX,
 				viewportY,
-				shadowMapSize,
-				shadowMapSize
+				viewportSize,
+				viewportSize
 			);
+			const slotSlice = slot.renderSet.slices[slot.sliceIndex];
+			if (slotSlice) {
+				slotSlice.atlasRect = {
+					offsetX: viewportX,
+					offsetY: viewportY,
+					size: viewportSize,
+					tileSize: atlasTileSize,
+					localTileX: slot.localTileX,
+					localTileY: slot.localTileY,
+					localTileSpan: slot.localTileSpan,
+				};
+			}
 			Matrix4.multiply(
 				this._depthRemapMatrix,
 				slot.shadowMap.viewProjectionMatrix!,
@@ -621,7 +653,7 @@ export class WebGPUShadowPass {
 
 	private _collectShadowSlots(
 		scene: PreparedScene,
-		shadowMaps: Map<ShadowCastingLight, ShadowMap>
+		shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>
 	): ShadowRenderSlot[] {
 		const slots: ShadowRenderSlot[] = [];
 		const atlasColumns = Math.max(1, WEBGPU_SHADOW_ATLAS_COLUMNS);
@@ -632,14 +664,55 @@ export class WebGPUShadowPass {
 			if (light.type === LightType.Directional) {
 				if (directionalIndex >= WEBGPU_MAX_DIRECTIONAL_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
-					const shadowMap = shadowMaps.get(light);
-					if (shadowMap?.viewProjectionMatrix) {
+					const renderSet = shadowMaps.get(light) ?? null;
+					const shadowMap = getPrimaryShadowMap(renderSet);
+					if (shadowMap?.viewProjectionMatrix && renderSet) {
 						const globalTileIndex = directionalIndex;
-						slots.push({
-							shadowMap,
-							tileX: globalTileIndex % atlasColumns,
-							tileY: Math.floor(globalTileIndex / atlasColumns),
-						});
+						const tileX = globalTileIndex % atlasColumns;
+						const tileY = Math.floor(globalTileIndex / atlasColumns);
+						const isCSM = renderSet.effectiveStrategyType === "csm";
+						const maxSlices = Math.min(
+							renderSet.slices.length,
+							4
+						);
+						if (isCSM && maxSlices > 1) {
+							for (let sliceIndex = 0; sliceIndex < maxSlices; sliceIndex++) {
+								const slice = renderSet.slices[sliceIndex];
+								const sliceShadowMap = slice?.shadowMap ?? null;
+								if (!sliceShadowMap?.viewProjectionMatrix) {
+									continue;
+								}
+								const localTileX = sliceIndex % 2;
+								const localTileY = Math.floor(sliceIndex / 2);
+								slots.push({
+									shadowMap: sliceShadowMap,
+									renderSet,
+									sliceIndex,
+									tileX,
+									tileY,
+									localTileX,
+									localTileY,
+									localTileSpan: 2,
+									atlasBaseSize: Math.max(1, renderSet.size | 0),
+								});
+							}
+						} else {
+							const primarySlice = renderSet.slices[0];
+							slots.push({
+								shadowMap,
+								renderSet,
+								sliceIndex: 0,
+								tileX,
+								tileY,
+								localTileX: 0,
+								localTileY: 0,
+								localTileSpan: 1,
+								atlasBaseSize: Math.max(
+									1,
+									primarySlice?.shadowMap.size ?? (renderSet.size | 0)
+								),
+							});
+						}
 					}
 				}
 				directionalIndex++;
@@ -649,14 +722,24 @@ export class WebGPUShadowPass {
 			if (light.type === LightType.Spot) {
 				if (spotIndex >= WEBGPU_MAX_SPOT_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
-					const shadowMap = shadowMaps.get(light);
-					if (shadowMap?.viewProjectionMatrix) {
+					const renderSet = shadowMaps.get(light) ?? null;
+					const shadowMap = getPrimaryShadowMap(renderSet);
+					if (shadowMap?.viewProjectionMatrix && renderSet) {
 						const globalTileIndex =
 							WEBGPU_MAX_DIRECTIONAL_LIGHTS + spotIndex;
 						slots.push({
 							shadowMap,
+							renderSet,
+							sliceIndex: 0,
 							tileX: globalTileIndex % atlasColumns,
 							tileY: Math.floor(globalTileIndex / atlasColumns),
+							localTileX: 0,
+							localTileY: 0,
+							localTileSpan: 1,
+							atlasBaseSize: Math.max(
+								1,
+								renderSet.slices[0]?.shadowMap.size ?? (renderSet.size | 0)
+							),
 						});
 					}
 				}
@@ -919,7 +1002,7 @@ export class WebGPUShadowPass {
 function getMaxShadowSize(slots: ShadowRenderSlot[]): number {
 	let maxSize = 0;
 	for (const slot of slots) {
-		maxSize = Math.max(maxSize, slot.shadowMap.size | 0);
+		maxSize = Math.max(maxSize, slot.atlasBaseSize | 0);
 	}
 	return maxSize;
 }

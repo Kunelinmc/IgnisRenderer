@@ -188,6 +188,32 @@ export function packFrameUniformData(
 		if (shadow?.enabled && shadow.viewProjectionMatrix) {
 			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset);
 		}
+		for (let cascadeIndex = 0; cascadeIndex < 4; cascadeIndex++) {
+			const cascadeMatrix =
+				shadow?.enabled ?
+					shadow.cascadeViewProjectionMatrices[cascadeIndex]
+				:	null;
+			if (cascadeMatrix) {
+				data.set(
+					packMatrix4ForWGSL(cascadeMatrix),
+					offset + 16 + cascadeIndex * 16
+				);
+			}
+		}
+		for (let cascadeIndex = 0; cascadeIndex < 4; cascadeIndex++) {
+			const split = shadow?.cascadeSplits?.[cascadeIndex];
+			if (split) {
+				data.set(split, offset + 80 + cascadeIndex * 4);
+			}
+		}
+		const isCSM =
+			shadow?.enabled &&
+			shadow.strategyType === "csm" &&
+			shadow.cascadeCount > 1;
+		const cascadeCount =
+			isCSM ? Math.max(1, Math.min(4, shadow?.cascadeCount ?? 1)) : 1;
+		const cascadeBlendRatio =
+			isCSM ? Math.max(0, Math.min(1, shadow?.cascadeBlendRatio ?? 0)) : 0;
 
 		data.set(
 			[
@@ -196,7 +222,7 @@ export function packFrameUniformData(
 				shadow?.normalBias ?? 0,
 				shadow?.normalBiasMin ?? 0,
 			],
-			offset + 16
+			offset + 96
 		);
 		data.set(
 			[
@@ -205,10 +231,13 @@ export function packFrameUniformData(
 				shadow?.shadowMapSize ?? 0,
 				shadow?.atlasTileSize ?? 0,
 			],
-			offset + 20
+			offset + 100
 		);
-		data.set([shadow?.slopeBias ?? 0, 0, 0, 0], offset + 24);
-		offset += 28;
+		data.set(
+			[shadow?.slopeBias ?? 0, isCSM ? 1 : 0, cascadeCount, cascadeBlendRatio],
+			offset + 104
+		);
+		offset += 108;
 	}
 
 	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
@@ -216,6 +245,32 @@ export function packFrameUniformData(
 		if (shadow?.enabled && shadow.viewProjectionMatrix) {
 			data.set(packMatrix4ForWGSL(shadow.viewProjectionMatrix), offset);
 		}
+		for (let cascadeIndex = 0; cascadeIndex < 4; cascadeIndex++) {
+			const cascadeMatrix =
+				shadow?.enabled ?
+					shadow.cascadeViewProjectionMatrices[cascadeIndex]
+				:	null;
+			if (cascadeMatrix) {
+				data.set(
+					packMatrix4ForWGSL(cascadeMatrix),
+					offset + 16 + cascadeIndex * 16
+				);
+			}
+		}
+		for (let cascadeIndex = 0; cascadeIndex < 4; cascadeIndex++) {
+			const split = shadow?.cascadeSplits?.[cascadeIndex];
+			if (split) {
+				data.set(split, offset + 80 + cascadeIndex * 4);
+			}
+		}
+		const isCSM =
+			shadow?.enabled &&
+			shadow.strategyType === "csm" &&
+			shadow.cascadeCount > 1;
+		const cascadeCount =
+			isCSM ? Math.max(1, Math.min(4, shadow?.cascadeCount ?? 1)) : 1;
+		const cascadeBlendRatio =
+			isCSM ? Math.max(0, Math.min(1, shadow?.cascadeBlendRatio ?? 0)) : 0;
 
 		data.set(
 			[
@@ -224,7 +279,7 @@ export function packFrameUniformData(
 				shadow?.normalBias ?? 0,
 				shadow?.normalBiasMin ?? 0,
 			],
-			offset + 16
+			offset + 96
 		);
 		data.set(
 			[
@@ -233,10 +288,13 @@ export function packFrameUniformData(
 				shadow?.shadowMapSize ?? 0,
 				shadow?.atlasTileSize ?? 0,
 			],
-			offset + 20
+			offset + 100
 		);
-		data.set([shadow?.slopeBias ?? 0, 0, 0, 0], offset + 24);
-		offset += 28;
+		data.set(
+			[shadow?.slopeBias ?? 0, isCSM ? 1 : 0, cascadeCount, cascadeBlendRatio],
+			offset + 104
+		);
+		offset += 108;
 	}
 
 	for (let i = 0; i < WEBGPU_SH_COEFFICIENT_COUNT; i++) {

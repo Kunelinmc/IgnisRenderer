@@ -25,7 +25,8 @@
 				i,
 				input.worldPosition,
 				shadowNormal,
-				lightDirection
+				lightDirection,
+				linearDepth
 			);
 			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
 			let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);

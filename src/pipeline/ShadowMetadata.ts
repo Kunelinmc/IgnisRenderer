@@ -1,13 +1,22 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 import type { ShadowCastingLight } from "../lights";
-import { ShadowMap } from "../lights/ShadowMapping";
+import {
+	createShadowRenderSet,
+	ensureShadowRenderSetMatchesConfig,
+	normalizeShadowConfig,
+	shadowConfigSignature,
+	ShadowMap,
+	type ShadowConfig,
+	type ShadowRenderSet,
+} from "../lights/ShadowMapping";
 import type { DrawPacket } from "./types";
-
-interface SceneBounds {
-	center: IVector3;
-	radius: number;
-}
+import {
+	getDefaultShadowStrategyRegistry,
+	type ShadowBackendCapabilities,
+	type ShadowStrategyCamera,
+	type SceneBounds,
+} from "./ShadowStrategyRegistry";
 
 interface ShadowBoundsCamera {
 	isSphereInFrustum?: (center: IVector3, radius: number) => boolean;
@@ -15,7 +24,15 @@ interface ShadowBoundsCamera {
 	position?: IVector3;
 }
 
+export interface ShadowMetadataUpdateOptions {
+	camera?: ShadowStrategyCamera | null;
+	backendCapabilities?: ShadowBackendCapabilities;
+	allowCSMDirectionalLights?: Set<ShadowCastingLight> | null;
+	onWarning?: (key: string, message: string) => void;
+}
+
 const _tmpShadowBoundsCameraPosition: IVector3 = { x: 0, y: 0, z: 0 };
+const _strategyRegistry = getDefaultShadowStrategyRegistry();
 
 function hasFiniteRadius(bounds: SceneBounds): boolean {
 	return Number.isFinite(bounds.radius) && bounds.radius > 1e-6;
@@ -152,6 +169,15 @@ function resetShadowMapMetadata(shadowMap: ShadowMap): void {
 	shadowMap.stabilizedBoundsRadius = null;
 }
 
+function resetRenderSetMetadata(renderSet: ShadowRenderSet): void {
+	for (const slice of renderSet.slices) {
+		resetShadowMapMetadata(slice.shadowMap);
+		slice.splitNear = 0;
+		slice.splitFar = 0;
+		slice.atlasRect = null;
+	}
+}
+
 const SHADOW_RADIUS_SHRINK_BLEND = 0.12;
 
 function resolveStabilizedShadowRadius(
@@ -177,8 +203,66 @@ function resolveStabilizedShadowRadius(
 	return clampedRadius;
 }
 
+function resolveEffectiveConfig(
+	light: ShadowCastingLight,
+	renderSet: ShadowRenderSet,
+	options?: ShadowMetadataUpdateOptions
+): ShadowConfig {
+	const requested = normalizeShadowConfig(light.shadow);
+	const capabilities = options?.backendCapabilities;
+	let effective = requested;
+
+	if (requested.strategy === "csm") {
+		const supportsDirectionalCSM =
+			!capabilities ||
+			(capabilities.supportsDirectionalCSM === true &&
+				light.type === "directional");
+		const selectedForCSM =
+			!options?.allowCSMDirectionalLights ||
+			options.allowCSMDirectionalLights.has(light);
+
+		if (!supportsDirectionalCSM || !selectedForCSM) {
+			effective = {
+				strategy: "single-map",
+				size: requested.size,
+				params: requested.params,
+				priority: requested.priority,
+			};
+			if (typeof options?.onWarning === "function") {
+				const key = `shadow-strategy-fallback-${capabilities?.backendKey ?? "generic"}-${light.id}`;
+				options.onWarning(
+					key,
+					`Light ${light.id} requested csm shadows but backend ${capabilities?.backendKey ?? "generic"} uses single-map fallback.`
+				);
+			}
+		}
+	}
+
+	renderSet.requestedStrategyType = requested.strategy;
+	renderSet.effectiveStrategyType = effective.strategy;
+	return effective;
+}
+
+function reconfigureRenderSet(renderSet: ShadowRenderSet, config: ShadowConfig): void {
+	const resolved = normalizeShadowConfig(config);
+	const signature = shadowConfigSignature(resolved);
+	if (renderSet.configSignature === signature && renderSet.effectiveStrategyType === resolved.strategy) {
+		renderSet.resolvedConfig = resolved;
+		renderSet.size = resolved.size ?? renderSet.size;
+		return;
+	}
+
+	const rebuilt = createShadowRenderSet(resolved);
+	renderSet.resolvedConfig = rebuilt.resolvedConfig;
+	renderSet.configSignature = rebuilt.configSignature;
+	renderSet.size = rebuilt.size;
+	renderSet.slices = rebuilt.slices;
+	renderSet.effectiveStrategyType = resolved.strategy;
+	renderSet.metadataVersion++;
+}
+
 export function syncShadowMapRegistry(
-	shadowMaps: Map<ShadowCastingLight, ShadowMap>,
+	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
 	activeLights: ShadowCastingLight[]
 ): void {
 	for (const [light] of shadowMaps) {
@@ -188,41 +272,78 @@ export function syncShadowMapRegistry(
 	}
 
 	for (const light of activeLights) {
-		if (!shadowMaps.has(light)) {
-			shadowMaps.set(light, new ShadowMap());
+		const existing = shadowMaps.get(light);
+		if (!existing) {
+			shadowMaps.set(light, createShadowRenderSet(light.shadow));
+			continue;
+		}
+
+		const next = ensureShadowRenderSetMatchesConfig(existing, light.shadow);
+		if (next !== existing) {
+			shadowMaps.set(light, next);
 		}
 	}
 }
 
 export function updateShadowMapMetadata(
-	shadowMap: ShadowMap,
+	renderSet: ShadowRenderSet,
 	light: ShadowCastingLight,
-	sceneBounds: SceneBounds
+	sceneBounds: SceneBounds,
+	options?: ShadowMetadataUpdateOptions
 ): void {
 	if (!light.shadow) {
-		resetShadowMapMetadata(shadowMap);
+		resetRenderSetMetadata(renderSet);
 		return;
 	}
+
+	const effectiveConfig = resolveEffectiveConfig(light, renderSet, options);
+	reconfigureRenderSet(renderSet, effectiveConfig);
 
 	const stabilizedSceneBounds: SceneBounds = {
 		center: sceneBounds.center,
-		radius: resolveStabilizedShadowRadius(shadowMap, sceneBounds.radius),
+		radius:
+			renderSet.slices.length > 0 ?
+				resolveStabilizedShadowRadius(
+					renderSet.slices[0].shadowMap,
+					sceneBounds.radius
+				)
+			:	sceneBounds.radius,
 	};
 
-	const config = light.shadow.setupShadowCamera({
+	const descriptors = _strategyRegistry.build({
+		light,
+		renderSet,
+		config: effectiveConfig,
 		sceneBounds: stabilizedSceneBounds,
-		worldMatrix: light.worldMatrix,
+		camera: options?.camera ?? null,
 	});
-	if (!config) {
-		resetShadowMapMetadata(shadowMap);
+
+	if (descriptors.length <= 0) {
+		resetRenderSetMetadata(renderSet);
 		return;
 	}
 
-	shadowMap.viewMatrix = config.view;
-	shadowMap.projectionMatrix = config.projection;
-	shadowMap.latestLightDir = config.lightDir;
-	shadowMap.viewProjectionMatrix = Matrix4.multiply(
-		config.projection,
-		config.view
-	);
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const slice = renderSet.slices[index];
+		const descriptor = descriptors[index];
+		if (!descriptor) {
+			resetShadowMapMetadata(slice.shadowMap);
+			slice.splitNear = 0;
+			slice.splitFar = 0;
+			slice.atlasRect = null;
+			continue;
+		}
+		slice.shadowMap.viewMatrix = descriptor.view;
+		slice.shadowMap.projectionMatrix = descriptor.projection;
+		slice.shadowMap.latestLightDir = descriptor.lightDir;
+		slice.shadowMap.viewProjectionMatrix = Matrix4.multiply(
+			descriptor.projection,
+			descriptor.view
+		);
+		slice.splitNear = descriptor.splitNear;
+		slice.splitFar = descriptor.splitFar;
+		slice.atlasRect = null;
+	}
+
+	renderSet.metadataVersion++;
 }

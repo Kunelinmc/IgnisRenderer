@@ -1,58 +1,17 @@
-import { Matrix4 } from "../maths/Matrix4";
-import { Vector3 } from "../maths/Vector3";
 import type { IVector3 } from "../maths/types";
-import { MIN_SHADOW_FAR, MIN_SHADOW_NEAR } from "./constants";
 import {
 	Light,
 	LightType,
 	type LightParams,
-	type ShadowCameraResult,
-	type ShadowCaster,
 } from "./Light";
+import type { ShadowConfig } from "./ShadowMapping";
 
 export interface AreaLightParams extends LightParams {
 	position?: IVector3;
 	width?: number;
 	height?: number;
 	range?: number;
-}
-
-class AreaShadowCaster implements ShadowCaster {
-	constructor(private light: AreaLight) {}
-
-	setupShadowCamera(ctx: {
-		sceneBounds: { center: IVector3; radius: number };
-		worldMatrix: Matrix4;
-	}): ShadowCameraResult | null {
-		const center = Matrix4.transformPoint(ctx.worldMatrix, {
-			x: 0,
-			y: 0,
-			z: 0,
-		});
-		const direction = Vector3.normalize(
-			Matrix4.transformDirection(ctx.worldMatrix, { x: 0, y: 1, z: 0 })
-		);
-		const target = {
-			x: center.x + direction.x,
-			y: center.y + direction.y,
-			z: center.z + direction.z,
-		};
-		const up =
-			Math.abs(direction.y) < 0.999
-				? { x: 0, y: 1, z: 0 }
-				: { x: 0, y: 0, z: 1 };
-
-		const view = Matrix4.lookAt(center, target, up);
-		const far = Math.max(this.light.range, MIN_SHADOW_FAR);
-		const near = MIN_SHADOW_NEAR;
-		const projection = Matrix4.perspective(120, 1, near, far);
-
-		return {
-			view,
-			projection,
-			lightDir: direction,
-		};
-	}
+	shadow?: ShadowConfig;
 }
 
 export class AreaLight extends Light<LightType.RectArea> {
@@ -68,7 +27,10 @@ export class AreaLight extends Light<LightType.RectArea> {
 		this.width = params.width ?? 100;
 		this.height = params.height ?? 100;
 		this.range = params.range ?? 1000;
-		this.shadow = new AreaShadowCaster(this);
+		this.shadow = params.shadow ?? {
+			strategy: "single-map",
+			size: 1024,
+		};
 		this.castShadow = params.castShadow ?? true;
 	}
 

@@ -5,7 +5,7 @@ import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
-import type { ShadowMap } from "../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../lights/ShadowMapping";
 import type { DirtyRect, IncrementalFrameContext } from "./incremental";
 import type {
 	BoundingSphere,
@@ -121,7 +121,7 @@ export interface PreparedScene {
 	camera: Camera;
 	skybox?: Texture | null;
 	meshInstances: MeshInstance[];
-	shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	opaquePackets: DrawPacket[];
 	transparentPackets: DrawPacket[];
 	shadowCasterPackets: DrawPacket[];
@@ -142,7 +142,7 @@ export interface FrameContext {
 	readonly camera: Camera;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
-	readonly shadowMaps: Map<ShadowCastingLight, ShadowMap>;
+	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;

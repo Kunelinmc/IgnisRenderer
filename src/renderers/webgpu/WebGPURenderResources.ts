@@ -56,8 +56,12 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
+import {
+	selectCSMDirectionalLights,
+	type ShadowBackendCapabilities,
+} from "../../pipeline/ShadowStrategyRegistry";
 import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
-import type { ShadowMap } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";
@@ -78,6 +82,13 @@ import type {
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
+
+const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
+	backendKey: "webgpu",
+	supportsSingleMap: true,
+	supportsDirectionalCSM: true,
+	maxCsmDirectionalLights: 1,
+};
 
 export interface WebGPUDrawResources {
 	pipeline: any;
@@ -352,11 +363,29 @@ export class WebGPURenderResources {
 			scene.sceneBounds,
 			scene.camera
 		);
+		const selectedCSMLights = selectCSMDirectionalLights(
+			shadowLights,
+			WEBGPU_SHADOW_CAPABILITIES.maxCsmDirectionalLights
+		);
 		if (features.enableShadows) {
 			for (const light of shadowLights) {
-				const shadowMap = scene.shadowMaps.get(light);
-				if (shadowMap) {
-					updateShadowMapMetadata(shadowMap, light, shadowCasterBounds);
+				const shadowRenderSet = scene.shadowMaps.get(light);
+				if (shadowRenderSet) {
+					updateShadowMapMetadata(
+						shadowRenderSet,
+						light,
+						shadowCasterBounds,
+						{
+							camera: scene.camera,
+							backendCapabilities: WEBGPU_SHADOW_CAPABILITIES,
+							allowCSMDirectionalLights: selectedCSMLights,
+							onWarning: (key, message) =>
+								Logger.warn(`[${key}] ${message}`, {
+									scope: "WebGPURenderResources",
+									onceKey: key,
+								}),
+						}
+					);
 				}
 			}
 		}
@@ -549,7 +578,7 @@ export class WebGPURenderResources {
 	}
 
 	private _resolveShadowAtlasTileSize(
-		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowMap>,
+		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
 		enableShadows: boolean
 	): number {
 		if (!enableShadows) {
@@ -557,11 +586,14 @@ export class WebGPURenderResources {
 		}
 
 		let tileSize = 0;
-		for (const shadowMap of shadowMaps.values()) {
-			if (!shadowMap?.viewProjectionMatrix) {
+		for (const renderSet of shadowMaps.values()) {
+			const hasValidSlice = renderSet.slices.some(
+				(slice) => !!slice.shadowMap.viewProjectionMatrix
+			);
+			if (!hasValidSlice) {
 				continue;
 			}
-			tileSize = Math.max(tileSize, shadowMap.size | 0);
+			tileSize = Math.max(tileSize, renderSet.size | 0);
 		}
 
 		return Math.max(1, tileSize);

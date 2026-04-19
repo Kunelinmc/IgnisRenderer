@@ -1,4 +1,3 @@
-import { ShadowCaster } from "./Light";
 import { AmbientLight } from "./AmbientLight";
 import { DirectionalLight } from "./DirectionalLight";
 import { PointLight } from "./PointLight";
@@ -6,6 +5,7 @@ import { SpotLight } from "./SpotLight";
 import { LightProbe } from "./LightProbe";
 import { ReflectionProbe } from "./ReflectionProbe";
 import { AreaLight } from "./AreaLight";
+import type { ShadowConfig } from "./ShadowMapping";
 
 export * from "./constants";
 export * from "./Light";
@@ -26,7 +26,7 @@ export type SceneLight =
 	| ReflectionProbe
 	| AreaLight;
 
-export type ShadowCastingLight = SceneLight & { shadow: ShadowCaster };
+export type ShadowCastingLight = SceneLight & { shadow: ShadowConfig };
 
 export function isShadowCastingLight(
 	light: SceneLight

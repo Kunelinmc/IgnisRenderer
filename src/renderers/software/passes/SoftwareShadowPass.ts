@@ -1,6 +1,7 @@
 import { Vector3 } from "../../../maths/Vector3";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { isShadowCastingLight } from "../../../lights";
+import { getPrimaryShadowMap } from "../../../lights/ShadowMapping";
 import { SoftwareShadowConstants } from "../shadows/constants";
 import { Projector } from "../Projector";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
@@ -68,7 +69,8 @@ export class SoftwareShadowPass {
 		}
 
 		for (const shadowLight of shadowLights) {
-			const shadowMap = shadowMaps.get(shadowLight);
+			const shadowRenderSet = shadowMaps.get(shadowLight);
+			const shadowMap = shadowRenderSet ? getPrimaryShadowMap(shadowRenderSet) : null;
 			if (!shadowMap) continue;
 
 			const vpMatrix = shadowMap.viewProjectionMatrix;

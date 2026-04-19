@@ -1,7 +1,10 @@
 import type { IVector3 } from "../../../maths/types";
 import type { RGB } from "../../../foundation/Color";
 import type { ShadowCastingLight } from "../../../lights";
-import type { ShadowMap } from "../../../lights/ShadowMapping";
+import {
+	getPrimaryShadowMap,
+	type ShadowRenderSet,
+} from "../../../lights/ShadowMapping";
 import { sampleSoftwareShadow } from "./sampling";
 import {
 	SOFTWARE_SHADOW_RUNTIME_KEY,
@@ -62,7 +65,7 @@ export function syncSoftwareShadowRuntimeMap(
 }
 
 export function createSoftwareShadowSampler(
-	shadowMaps: Map<ShadowCastingLight, ShadowMap>,
+	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
 	runtimeMap: SoftwareShadowRuntimeMap | null
 ): (
 	light: ShadowCastingLight,
@@ -76,7 +79,8 @@ export function createSoftwareShadowSampler(
 	): RGB => {
 		if (!runtimeMap) return { r: 1, g: 1, b: 1 };
 
-		const shadowMap = shadowMaps.get(light);
+		const shadowRenderSet = shadowMaps.get(light);
+		const shadowMap = shadowRenderSet ? getPrimaryShadowMap(shadowRenderSet) : null;
 		const runtimeTarget = runtimeMap.get(light);
 		if (!shadowMap || !runtimeTarget) return { r: 1, g: 1, b: 1 };
 

@@ -18,6 +18,7 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
+import type { ShadowBackendCapabilities } from "../pipeline/ShadowStrategyRegistry";
 import { FrameAttachments } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
@@ -26,6 +27,7 @@ import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 } from "../shaders/runtime";
+import { Logger } from "../foundation/Logger";
 
 export type {
 	SoftwareBackendOptions,
@@ -36,6 +38,13 @@ export type {
 type SoftwarePassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
+
+const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
+	backendKey: "software",
+	supportsSingleMap: true,
+	supportsDirectionalCSM: false,
+	maxCsmDirectionalLights: 0,
+};
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
@@ -219,9 +228,17 @@ export class SoftwareBackend implements IRenderBackend {
 			context.scene.camera
 		);
 		for (const shadowLight of shadowLights) {
-			const shadowMap = context.shadowMaps.get(shadowLight);
-			if (shadowMap) {
-				updateShadowMapMetadata(shadowMap, shadowLight, shadowCasterBounds);
+			const shadowRenderSet = context.shadowMaps.get(shadowLight);
+			if (shadowRenderSet) {
+				updateShadowMapMetadata(shadowRenderSet, shadowLight, shadowCasterBounds, {
+					camera: context.scene.camera,
+					backendCapabilities: SOFTWARE_SHADOW_CAPABILITIES,
+					onWarning: (key, message) =>
+						Logger.warn(`[${key}] ${message}`, {
+							scope: "SoftwareBackend",
+							onceKey: key,
+						}),
+				});
 			}
 		}
 
