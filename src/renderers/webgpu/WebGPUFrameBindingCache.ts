@@ -25,8 +25,8 @@ import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import {
 	computeHaltonJitterNDC,
 	finiteOr,
-	TAA_HALTON_SAMPLE_COUNT,
-} from "./postProcessMath";
+} from "../../maths/screenSpaceMath";
+import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";
 
@@ -216,7 +216,8 @@ export class WebGPUFrameBindingCache {
 			jitterScale
 		);
 		this._taaJitterCurrent = nextJitter;
-		this._taaFrameIndex = (this._taaFrameIndex + 1) % TAA_HALTON_SAMPLE_COUNT;
+		this._taaFrameIndex =
+			(this._taaFrameIndex + 1) % TAA_JITTER_SEQUENCE_LENGTH;
 		this._taaEnabledLastFrame = true;
 		return [nextJitter[0], nextJitter[1], prevJitter[0], prevJitter[1]];
 	}

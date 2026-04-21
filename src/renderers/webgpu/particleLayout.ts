@@ -1,4 +1,5 @@
 import type { VertexBufferLayout } from "../types";
+import { PARTICLE_QUAD_VERTICES } from "../constants";
 
 export const WEBGPU_PARTICLE_BINDING_TEXTURE = 0;
 export const WEBGPU_PARTICLE_BINDING_SAMPLER = 1;
@@ -74,7 +75,4 @@ export const WEBGPU_PARTICLE_VERTEX_LAYOUTS: VertexBufferLayout[] = [
 	},
 ];
 
-export const WEBGPU_PARTICLE_QUAD_VERTICES = new Float32Array([
-	-0.5, -0.5, 0, 1, 0.5, -0.5, 1, 1, 0.5, 0.5, 1, 0, -0.5, -0.5, 0, 1, 0.5, 0.5,
-	1, 0, -0.5, 0.5, 0, 0,
-]);
+export const WEBGPU_PARTICLE_QUAD_VERTICES = PARTICLE_QUAD_VERTICES;

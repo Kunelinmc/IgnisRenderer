@@ -15,3 +15,52 @@ export const FXAA_QUALITY: readonly number[] = [
 export const POST_PROCESS_NOISE_REFERENCE_WIDTH = 1920;
 export const MAX_EXPOSURE = 8;
 export const VOLUMETRIC_SIGMA_T_SCALE = 0.02;
+export const TAA_JITTER_SEQUENCE_LENGTH = 16;
+
+/**
+ * Shared post-process execution order across rendering backends.
+ */
+export const POST_PROCESS_STAGES = [
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fog",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"fxaa",
+	"interaction-outline",
+	"gamma",
+] as const;
+
+/**
+ * Shared particle billboard quad vertices [x, y, u, v].
+ */
+export const PARTICLE_QUAD_VERTICES = new Float32Array([
+	-0.5,
+	-0.5,
+	0,
+	1,
+	0.5,
+	-0.5,
+	1,
+	1,
+	0.5,
+	0.5,
+	1,
+	0,
+	-0.5,
+	-0.5,
+	0,
+	1,
+	0.5,
+	0.5,
+	1,
+	0,
+	-0.5,
+	0.5,
+	0,
+	0,
+]);

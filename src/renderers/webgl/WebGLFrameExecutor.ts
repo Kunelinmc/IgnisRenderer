@@ -47,6 +47,7 @@ import {
 	type WebGLShadowData,
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
+import { POST_PROCESS_STAGES } from "../constants";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
@@ -161,53 +162,6 @@ const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	0, 0, 0, 1,
 ]);
 const SH_COEFFICIENT_COUNT = 16;
-const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
-] as const;
-
-const PARTICLE_QUAD_VERTICES = new Float32Array([
-	-0.5,
-	-0.5,
-	0,
-	1,
-	0.5,
-	-0.5,
-	1,
-	1,
-	0.5,
-	0.5,
-	1,
-	0,
-	-0.5,
-	-0.5,
-	0,
-	1,
-	0.5,
-	0.5,
-	1,
-	0,
-	-0.5,
-	0.5,
-	0,
-	0,
-]);
-
-const PARTICLE_QUAD_STRIDE = 16;
-const PARTICLE_INSTANCE_FLOATS = 13;
-const PARTICLE_INSTANCE_STRIDE = PARTICLE_INSTANCE_FLOATS * 4;
-const PARTICLE_INITIAL_CAPACITY = 256;
-const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 
 const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgl",

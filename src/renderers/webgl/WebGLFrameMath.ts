@@ -1,13 +1,13 @@
 import { clamp } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
+import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
 import { WEBGL_MAX_REFLECTION_PROBES } from "./constants";
 import type {
 	WebGLReflectionProbeUniform,
 	WebGLShadowData,
 } from "./WebGLLightCollector";
 
-const TAA_HALTON_SAMPLE_COUNT = 16;
 const TAA_HALTON_X = [
 	0.5,
 	0.25,
@@ -50,7 +50,7 @@ export function computeHaltonJitterNDC(
 	width: number,
 	height: number
 ): [number, number] {
-	const idx = index % TAA_HALTON_SAMPLE_COUNT;
+	const idx = index % TAA_JITTER_SEQUENCE_LENGTH;
 	return [
 		((TAA_HALTON_X[idx] - 0.5) / width) * 2,
 		((TAA_HALTON_Y[idx] - 0.5) / height) * 2,

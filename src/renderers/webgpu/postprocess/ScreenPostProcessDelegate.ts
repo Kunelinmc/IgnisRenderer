@@ -30,7 +30,7 @@ import {
 	FXAA_EDGE_THRESHOLD_MULTIPLIER,
 	FXAA_SUBPIX_QUALITY,
 } from "../../constants";
-import { ceilDiv, finiteOr } from "../postProcessMath";
+import { ceilDiv, finiteOr } from "../../../maths/screenSpaceMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {

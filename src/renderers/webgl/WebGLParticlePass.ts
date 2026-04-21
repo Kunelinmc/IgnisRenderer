@@ -6,36 +6,10 @@ import {
 	type FrameContext,
 	type ParticleRenderBatch,
 } from "../../pipeline/types";
+import { PARTICLE_QUAD_VERTICES } from "../constants";
 import { finiteOr, toColumnMajorMat4 } from "./WebGLFrameMath";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
 import { Logger } from "../../foundation/Logger";
-
-const PARTICLE_QUAD_VERTICES = new Float32Array([
-	-0.5,
-	-0.5,
-	0,
-	1,
-	0.5,
-	-0.5,
-	1,
-	1,
-	0.5,
-	0.5,
-	1,
-	0,
-	-0.5,
-	-0.5,
-	0,
-	1,
-	0.5,
-	0.5,
-	1,
-	0,
-	-0.5,
-	0.5,
-	0,
-	0,
-]);
 
 const PARTICLE_QUAD_STRIDE = 16;
 const PARTICLE_INSTANCE_FLOATS = 13;

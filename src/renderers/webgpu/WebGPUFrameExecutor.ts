@@ -41,23 +41,12 @@ import type {
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
-import { DEFAULT_GAMMA, MIN_GAMMA } from "../constants";
+import {
+	DEFAULT_GAMMA,
+	MIN_GAMMA,
+	POST_PROCESS_STAGES,
+} from "../constants";
 import { Logger } from "../../foundation/Logger";
-
-const POST_PROCESS_STAGES: readonly FramePass["stage"][] = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
-] as const;
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
