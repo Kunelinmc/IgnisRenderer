@@ -213,15 +213,15 @@ function resolveEffectiveConfig(
 	let effective = requested;
 
 	if (requested.strategy === "csm") {
-		const supportsDirectionalCSM =
-			!capabilities ||
-			(capabilities.supportsDirectionalCSM === true &&
-				light.type === "directional");
+		const supportsCSM =
+			!capabilities || capabilities.supportsDirectionalCSM === true;
+		const needsDirectionalBudgetSelection = light.type === "directional";
 		const selectedForCSM =
+			!needsDirectionalBudgetSelection ||
 			!options?.allowCSMDirectionalLights ||
 			options.allowCSMDirectionalLights.has(light);
 
-		if (!supportsDirectionalCSM || !selectedForCSM) {
+		if (!supportsCSM || !selectedForCSM) {
 			effective = {
 				strategy: "single-map",
 				size: requested.size,

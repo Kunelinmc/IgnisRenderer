@@ -110,6 +110,79 @@ function chooseUpVector(direction: IVector3): IVector3 {
 	return { x: 0, y: 0, z: 1 };
 }
 
+function buildDirectionalSingleMapSlice(
+	light: DirectionalLight,
+	sceneBounds: SceneBounds
+): ShadowSliceDescriptor {
+	const direction = resolveDirectionalWorldDirection(light);
+	const { center, radius } = sceneBounds;
+	const shadowDistance = radius * 1.5;
+	const lightPos = Vector3.sub(center, Vector3.scale(direction, shadowDistance));
+	const view = Matrix4.lookAt(lightPos, center, chooseUpVector(direction));
+	const size = radius * 1.2;
+	const projection = Matrix4.ortho(
+		-size,
+		size,
+		-size,
+		size,
+		0,
+		Math.max(MIN_SHADOW_FAR, shadowDistance * 2)
+	);
+	return {
+		view,
+		projection,
+		lightDir: direction,
+		splitNear: 0,
+		splitFar: 1,
+	};
+}
+
+function buildSpotSingleMapSlice(
+	light: SpotLight,
+	sceneBounds: SceneBounds
+): ShadowSliceDescriptor {
+	const position = Matrix4.transformPoint(light.worldMatrix, {
+		x: 0,
+		y: 0,
+		z: 0,
+	});
+	let direction = Matrix4.transformDirection(light.worldMatrix, light.direction);
+	direction = Vector3.normalize(direction);
+	const target = {
+		x: position.x + direction.x,
+		y: position.y + direction.y,
+		z: position.z + direction.z,
+	};
+	const view = Matrix4.lookAt(position, target, chooseUpVector(direction));
+
+	const distanceToCenter = Vector3.length(
+		Vector3.sub(position, sceneBounds.center)
+	);
+	const autoFar = distanceToCenter + sceneBounds.radius;
+	let far = Math.min(light.range, Math.max(autoFar, 0));
+	far = Math.max(MIN_SHADOW_FAR, far);
+	const nearCandidate = distanceToCenter - sceneBounds.radius;
+	const near = Math.max(
+		MIN_SHADOW_NEAR,
+		Math.min(nearCandidate, far - SHADOW_NEAR_FAR_GAP)
+	);
+
+	const projection = Matrix4.perspective(
+		light.outerAngle * 2 * (180 / Math.PI),
+		1,
+		near,
+		far
+	);
+
+	return {
+		view,
+		projection,
+		lightDir: direction,
+		splitNear: near,
+		splitFar: far,
+	};
+}
+
 class SingleMapShadowStrategyProvider implements IShadowStrategyProvider {
 	public readonly type: ShadowStrategyType = "single-map";
 
@@ -120,85 +193,22 @@ class SingleMapShadowStrategyProvider implements IShadowStrategyProvider {
 	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
 		switch (context.light.type) {
 			case LightType.Directional:
-				return [this._buildDirectional(context.light as DirectionalLight, context.sceneBounds)];
+				return [
+					buildDirectionalSingleMapSlice(
+						context.light as DirectionalLight,
+						context.sceneBounds
+					),
+				];
 			case LightType.Spot:
-				return [this._buildSpot(context.light as SpotLight, context.sceneBounds)];
+				return [
+					buildSpotSingleMapSlice(
+						context.light as SpotLight,
+						context.sceneBounds
+					),
+				];
 			default:
 				return [];
 		}
-	}
-
-	private _buildDirectional(
-		light: DirectionalLight,
-		sceneBounds: SceneBounds
-	): ShadowSliceDescriptor {
-		const direction = resolveDirectionalWorldDirection(light);
-		const { center, radius } = sceneBounds;
-		const shadowDistance = radius * 1.5;
-		const lightPos = Vector3.sub(center, Vector3.scale(direction, shadowDistance));
-		const view = Matrix4.lookAt(lightPos, center, chooseUpVector(direction));
-		const size = radius * 1.2;
-		const projection = Matrix4.ortho(
-			-size,
-			size,
-			-size,
-			size,
-			0,
-			Math.max(MIN_SHADOW_FAR, shadowDistance * 2)
-		);
-		return {
-			view,
-			projection,
-			lightDir: direction,
-			splitNear: 0,
-			splitFar: 1,
-		};
-	}
-
-	private _buildSpot(
-		light: SpotLight,
-		sceneBounds: SceneBounds
-	): ShadowSliceDescriptor {
-		const position = Matrix4.transformPoint(light.worldMatrix, {
-			x: 0,
-			y: 0,
-			z: 0,
-		});
-		let direction = Matrix4.transformDirection(light.worldMatrix, light.direction);
-		direction = Vector3.normalize(direction);
-		const target = {
-			x: position.x + direction.x,
-			y: position.y + direction.y,
-			z: position.z + direction.z,
-		};
-		const view = Matrix4.lookAt(position, target, chooseUpVector(direction));
-
-		const distanceToCenter = Vector3.length(
-			Vector3.sub(position, sceneBounds.center)
-		);
-		const autoFar = distanceToCenter + sceneBounds.radius;
-		let far = Math.min(light.range, Math.max(autoFar, 0));
-		far = Math.max(MIN_SHADOW_FAR, far);
-		const nearCandidate = distanceToCenter - sceneBounds.radius;
-		const near = Math.max(
-			MIN_SHADOW_NEAR,
-			Math.min(nearCandidate, far - SHADOW_NEAR_FAR_GAP)
-		);
-
-		const projection = Matrix4.perspective(
-			light.outerAngle * 2 * (180 / Math.PI),
-			1,
-			near,
-			far
-		);
-
-		return {
-			view,
-			projection,
-			lightDir: direction,
-			splitNear: near,
-			splitFar: far,
-		};
 	}
 }
 
@@ -374,10 +384,18 @@ class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 	public readonly type: ShadowStrategyType = "csm";
 
 	public supports(light: ShadowCastingLight): boolean {
-		return light.type === LightType.Directional;
+		return light.type === LightType.Directional || light.type === LightType.Spot;
 	}
 
 	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
+		if (context.light.type === LightType.Spot) {
+			return [
+				buildSpotSingleMapSlice(
+					context.light as SpotLight,
+					context.sceneBounds
+				),
+			];
+		}
 		if (context.light.type !== LightType.Directional) {
 			return [];
 		}

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { SpotLight } from "../src/lights/SpotLight.ts";
 import {
 	createShadowRenderSet,
 	normalizeShadowConfig,
 } from "../src/lights/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
 import { selectCSMDirectionalLights } from "../src/pipeline/ShadowStrategyRegistry.ts";
+import { collectWebGPULighting } from "../src/renderers/webgpu/lights.ts";
+import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 
 function createSceneBounds(radius = 80) {
 	return {
@@ -60,6 +63,30 @@ function createDirectionalCSMLight({
 		maxDistance,
 		blendRatio,
 		cascadeCount,
+		stabilize: true,
+	};
+	return light;
+}
+
+function createSpotCSMLight({
+	priority = 0,
+	intensity = 1,
+	range = 80,
+} = {}) {
+	const light = new SpotLight({
+		intensity,
+		range,
+		direction: { x: 0, y: -1, z: 0 },
+		outerAngle: Math.PI / 3,
+	});
+	light.castShadow = true;
+	light.shadow = {
+		strategy: "csm",
+		size: 1024,
+		priority,
+		lambda: 0.65,
+		blendRatio: 0.1,
+		cascadeCount: 4,
 		stabilize: true,
 	};
 	return light;
@@ -177,12 +204,60 @@ function testCSMSelectionPriority() {
 	assert.ok(!selected.has(lightA));
 }
 
+function testSpotLightCSMUsesSingleSliceEquivalentPath() {
+	const light = createSpotCSMLight();
+	const renderSet = createShadowRenderSet(light.shadow);
+	const emptyDirectionalBudget = new Set();
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(60), {
+		backendCapabilities: {
+			backendKey: "webgpu",
+			supportsSingleMap: true,
+			supportsDirectionalCSM: true,
+			maxCsmDirectionalLights: 0,
+		},
+		allowCSMDirectionalLights: emptyDirectionalBudget,
+	});
+
+	assert.equal(renderSet.requestedStrategyType, "csm");
+	assert.equal(renderSet.effectiveStrategyType, "csm");
+	assert.ok(renderSet.slices[0].shadowMap.viewProjectionMatrix);
+	for (let index = 1; index < renderSet.slices.length; index++) {
+		assert.equal(renderSet.slices[index].shadowMap.viewProjectionMatrix, null);
+	}
+
+	const shadowMaps = new Map([[light, renderSet]]);
+	const webgpuLighting = collectWebGPULighting(
+		[light],
+		true,
+		false,
+		true,
+		shadowMaps,
+		false
+	);
+	assert.equal(webgpuLighting.spotShadows[0]?.strategyType, "csm");
+	assert.equal(webgpuLighting.spotShadows[0]?.cascadeCount, 1);
+
+	const webglLighting = collectWebGLLights(
+		[light],
+		true,
+		true,
+		shadowMaps,
+		false,
+		null,
+		false
+	);
+	assert.equal(webglLighting.spotShadows[0]?.strategyType, "csm");
+	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 1);
+}
+
 function run() {
 	testCSMSplitsMonotonicAndCovered();
 	testLambdaBoundarySplits();
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();
 	testCSMSelectionPriority();
+	testSpotLightCSMUsesSingleSliceEquivalentPath();
 	console.log("Shadow strategy CSM tests passed");
 }
 

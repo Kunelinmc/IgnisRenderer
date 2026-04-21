@@ -10,7 +10,9 @@ The following contracts must be respected:
 
 - `Light.shadow` must be configured by `ShadowConfig`.
 - `ShadowConfig` must support `strategy: "single-map"` and `strategy: "csm"`.
-- `DirectionalLight` may use `csm`; `SpotLight` and `PointLight` must remain equivalent to single-map behavior in v1.
+- `DirectionalLight` and `SpotLight` may use `csm`.
+- `SpotLight` with `csm` must remain single-map equivalent in current forward shading paths (`cascadeCount = 1` runtime behavior).
+- `PointLight` and `RectArea` must remain equivalent to single-map behavior in v1.
 - `csm` strategy fields:
   - `cascadeCount` must be one of `2 | 3 | 4`.
   - `splitMode` must be `"practical"` in v1.
@@ -70,7 +72,6 @@ bun tests/test_shadow_strategy_csm.mjs
 - `webgpu-directional-light-limit`: directional light count exceeded backend limit.
 
 Common triggers:
-- Requesting `csm` on non-directional lights.
 - Requesting more CSM directional lights than backend budget allows.
 - Supplying out-of-range `lambda` or `blendRatio` values (values are clamped).
 

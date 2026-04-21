@@ -589,12 +589,17 @@ function resolveWebGLShadowData(
 	}
 
 	const strategyType = renderSet?.effectiveStrategyType ?? "single-map";
+	const availableCascadeCount = cascadeViewProjectionMatrices.reduce(
+		(count, matrix) => (matrix ? count + 1 : count),
+		0
+	);
 	const cascadeCount =
 		strategyType === "csm" ?
-			Math.max(1, Math.min(4, renderSet?.slices.length ?? 1))
+			Math.max(1, Math.min(4, availableCascadeCount || 1))
 		:	1;
 	const cascadeBlendRatio =
 		strategyType === "csm" &&
+		cascadeCount > 1 &&
 		renderSet &&
 		renderSet.resolvedConfig.strategy === "csm" ?
 			Math.max(0, Math.min(1, renderSet.resolvedConfig.blendRatio ?? 0.1))
