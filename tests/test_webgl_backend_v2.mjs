@@ -152,6 +152,8 @@ function createScenePassCaptureGL() {
 		boundTextures: [],
 		uniform1i: [],
 		uniform1f: [],
+		uniform2f: [],
+		uniform4f: [],
 	};
 	return {
 		TEXTURE0: 0x84c0,
@@ -167,7 +169,12 @@ function createScenePassCaptureGL() {
 		uniformMatrix4fv() {},
 		uniformMatrix3fv() {},
 		uniform4fv() {},
-		uniform4f() {},
+		uniform2f(location, x, y) {
+			calls.uniform2f.push({ location, x, y });
+		},
+		uniform4f(location, x, y, z, w) {
+			calls.uniform4f.push({ location, x, y, z, w });
+		},
 		uniform1i(location, value) {
 			calls.uniform1i.push({ location, value });
 		},
@@ -683,6 +690,9 @@ function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	assert.ok(shader.fragment.includes("uniform sampler2D uOcclusionMap;"));
 	assert.ok(shader.fragment.includes("uniform int uBaseMapUV;"));
 	assert.ok(shader.fragment.includes("vec2 resolveUV(int uvSet) {"));
+	assert.ok(shader.fragment.includes("uniform vec4 uBaseMapTransformA;"));
+	assert.ok(shader.fragment.includes("uniform vec2 uBaseMapTransformB;"));
+	assert.ok(shader.fragment.includes("vec2 resolveMappedUV("));
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {
@@ -797,6 +807,21 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	const metallicRoughnessMap = { id: "mr-map", linear: true };
 	const emissiveMap = { id: "emissive-map", linear: false };
 	const occlusionMap = { id: "occlusion-map", linear: true };
+	baseMap.repeat = { x: 0.5, y: 1.5 };
+	baseMap.offset = { x: 0.25, y: -0.125 };
+	baseMap.rotation = Math.PI / 6;
+	normalMap.repeat = { x: 2, y: 0.5 };
+	normalMap.offset = { x: -0.2, y: 0.3 };
+	normalMap.rotation = -Math.PI / 4;
+	metallicRoughnessMap.repeat = { x: 1.25, y: 0.75 };
+	metallicRoughnessMap.offset = { x: 0.1, y: 0.2 };
+	metallicRoughnessMap.rotation = Math.PI / 8;
+	emissiveMap.repeat = { x: 0.8, y: 0.9 };
+	emissiveMap.offset = { x: -0.05, y: 0.15 };
+	emissiveMap.rotation = 0;
+	occlusionMap.repeat = { x: 1.1, y: 1.2 };
+	occlusionMap.offset = { x: 0.05, y: -0.1 };
+	occlusionMap.rotation = Math.PI / 3;
 	material.map = baseMap;
 	material.albedoMapUV = 1;
 	material.normalMap = normalMap;
@@ -834,20 +859,30 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			hasBaseMap: "uHasBaseMap",
 			baseMapIsLinear: "uBaseMapIsLinear",
 			baseMapUV: "uBaseMapUV",
+			baseMapTransformA: "uBaseMapTransformA",
+			baseMapTransformB: "uBaseMapTransformB",
 			metallicRoughnessMap: "uMetallicRoughnessMap",
 			hasMetallicRoughnessMap: "uHasMetallicRoughnessMap",
 			metallicRoughnessMapUV: "uMetallicRoughnessMapUV",
+			metallicRoughnessMapTransformA: "uMetallicRoughnessMapTransformA",
+			metallicRoughnessMapTransformB: "uMetallicRoughnessMapTransformB",
 			normalMap: "uNormalMap",
 			hasNormalMap: "uHasNormalMap",
 			normalMapUV: "uNormalMapUV",
+			normalMapTransformA: "uNormalMapTransformA",
+			normalMapTransformB: "uNormalMapTransformB",
 			normalScale: "uNormalScale",
 			emissiveMap: "uEmissiveMap",
 			hasEmissiveMap: "uHasEmissiveMap",
 			emissiveMapIsLinear: "uEmissiveMapIsLinear",
 			emissiveMapUV: "uEmissiveMapUV",
+			emissiveMapTransformA: "uEmissiveMapTransformA",
+			emissiveMapTransformB: "uEmissiveMapTransformB",
 			occlusionMap: "uOcclusionMap",
 			hasOcclusionMap: "uHasOcclusionMap",
 			occlusionMapUV: "uOcclusionMapUV",
+			occlusionMapTransformA: "uOcclusionMapTransformA",
+			occlusionMapTransformB: "uOcclusionMapTransformB",
 			occlusionStrength: "uOcclusionStrength",
 			doubleSided: null,
 			customSamplers: {},
@@ -915,6 +950,36 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 				entry.location === "uOcclusionStrength" &&
 				Math.abs(entry.value - 0.4) < 1e-6
 		)
+	);
+
+	const transformAFor = (name) =>
+		gl.calls.uniform4f.find((entry) => entry.location === name);
+	const transformBFor = (name) =>
+		gl.calls.uniform2f.find((entry) => entry.location === name);
+	const assertUVTransform = (nameA, nameB, map) => {
+		const transformA = transformAFor(nameA);
+		const transformB = transformBFor(nameB);
+		assert.ok(transformA);
+		assert.ok(transformB);
+		assert.ok(Math.abs(transformA.x - map.repeat.x) < 1e-6);
+		assert.ok(Math.abs(transformA.y - map.repeat.y) < 1e-6);
+		assert.ok(Math.abs(transformA.z - map.offset.x) < 1e-6);
+		assert.ok(Math.abs(transformA.w - map.offset.y) < 1e-6);
+		assert.ok(Math.abs(transformB.x - Math.cos(map.rotation)) < 1e-6);
+		assert.ok(Math.abs(transformB.y - Math.sin(map.rotation)) < 1e-6);
+	};
+	assertUVTransform("uBaseMapTransformA", "uBaseMapTransformB", baseMap);
+	assertUVTransform(
+		"uMetallicRoughnessMapTransformA",
+		"uMetallicRoughnessMapTransformB",
+		metallicRoughnessMap
+	);
+	assertUVTransform("uNormalMapTransformA", "uNormalMapTransformB", normalMap);
+	assertUVTransform("uEmissiveMapTransformA", "uEmissiveMapTransformB", emissiveMap);
+	assertUVTransform(
+		"uOcclusionMapTransformA",
+		"uOcclusionMapTransformB",
+		occlusionMap
 	);
 }
 

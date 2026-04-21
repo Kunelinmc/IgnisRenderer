@@ -10,7 +10,10 @@ import {
 	toColumnMajorMat4,
 	toFiniteColumnMajorMat4,
 } from "./WebGLFrameMath";
-import { resolveMaterialUniforms } from "./WebGLMaterialUniformResolver";
+import {
+	resolveMaterialUniforms,
+	resolveTextureUVTransform,
+} from "./WebGLMaterialUniformResolver";
 import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
 import { Logger } from "../../foundation/Logger";
 
@@ -231,6 +234,13 @@ export function drawWebGLPacket(
 	}
 
 	const uniforms = resolveMaterialUniforms(material);
+	const baseMapUVTransform = resolveTextureUVTransform(uniforms.baseMap);
+	const metallicRoughnessMapUVTransform = resolveTextureUVTransform(
+		uniforms.metallicRoughnessMap
+	);
+	const normalMapUVTransform = resolveTextureUVTransform(uniforms.normalMap);
+	const emissiveMapUVTransform = resolveTextureUVTransform(uniforms.emissiveMap);
+	const occlusionMapUVTransform = resolveTextureUVTransform(uniforms.occlusionMap);
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
 		logWebGLScenePassWarning(
@@ -342,6 +352,22 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.baseMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.baseMapUV, uniforms.baseMapUV);
 	}
+	if (sceneProgram.uniforms.baseMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.baseMapTransformA,
+			baseMapUVTransform.repeatX,
+			baseMapUVTransform.repeatY,
+			baseMapUVTransform.offsetX,
+			baseMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.baseMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.baseMapTransformB,
+			baseMapUVTransform.cosRotation,
+			baseMapUVTransform.sinRotation
+		);
+	}
 	if (sceneProgram.uniforms.metallicRoughnessMap) {
 		gl.uniform1i(
 			sceneProgram.uniforms.metallicRoughnessMap,
@@ -360,6 +386,22 @@ export function drawWebGLPacket(
 			uniforms.metallicRoughnessMapUV
 		);
 	}
+	if (sceneProgram.uniforms.metallicRoughnessMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.metallicRoughnessMapTransformA,
+			metallicRoughnessMapUVTransform.repeatX,
+			metallicRoughnessMapUVTransform.repeatY,
+			metallicRoughnessMapUVTransform.offsetX,
+			metallicRoughnessMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.metallicRoughnessMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.metallicRoughnessMapTransformB,
+			metallicRoughnessMapUVTransform.cosRotation,
+			metallicRoughnessMapUVTransform.sinRotation
+		);
+	}
 	if (sceneProgram.uniforms.normalMap) {
 		gl.uniform1i(sceneProgram.uniforms.normalMap, WEBGL_TEXTURE_UNIT_NORMAL_MAP);
 	}
@@ -368,6 +410,22 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.normalMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.normalMapUV, uniforms.normalMapUV);
+	}
+	if (sceneProgram.uniforms.normalMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.normalMapTransformA,
+			normalMapUVTransform.repeatX,
+			normalMapUVTransform.repeatY,
+			normalMapUVTransform.offsetX,
+			normalMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.normalMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.normalMapTransformB,
+			normalMapUVTransform.cosRotation,
+			normalMapUVTransform.sinRotation
+		);
 	}
 	if (sceneProgram.uniforms.normalScale) {
 		gl.uniform1f(sceneProgram.uniforms.normalScale, uniforms.normalScale);
@@ -387,6 +445,22 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.emissiveMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.emissiveMapUV, uniforms.emissiveMapUV);
 	}
+	if (sceneProgram.uniforms.emissiveMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.emissiveMapTransformA,
+			emissiveMapUVTransform.repeatX,
+			emissiveMapUVTransform.repeatY,
+			emissiveMapUVTransform.offsetX,
+			emissiveMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.emissiveMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.emissiveMapTransformB,
+			emissiveMapUVTransform.cosRotation,
+			emissiveMapUVTransform.sinRotation
+		);
+	}
 	if (sceneProgram.uniforms.occlusionMap) {
 		gl.uniform1i(sceneProgram.uniforms.occlusionMap, WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
 	}
@@ -395,6 +469,22 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.occlusionMapUV) {
 		gl.uniform1i(sceneProgram.uniforms.occlusionMapUV, uniforms.occlusionMapUV);
+	}
+	if (sceneProgram.uniforms.occlusionMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.occlusionMapTransformA,
+			occlusionMapUVTransform.repeatX,
+			occlusionMapUVTransform.repeatY,
+			occlusionMapUVTransform.offsetX,
+			occlusionMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.occlusionMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.occlusionMapTransformB,
+			occlusionMapUVTransform.cosRotation,
+			occlusionMapUVTransform.sinRotation
+		);
 	}
 	if (sceneProgram.uniforms.occlusionStrength) {
 		gl.uniform1f(sceneProgram.uniforms.occlusionStrength, uniforms.occlusionStrength);

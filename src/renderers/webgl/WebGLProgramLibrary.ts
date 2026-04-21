@@ -147,20 +147,30 @@ export interface WebGLSceneProgram {
 		hasBaseMap: WebGLUniformLocation | null;
 		baseMapIsLinear: WebGLUniformLocation | null;
 		baseMapUV: WebGLUniformLocation | null;
+		baseMapTransformA: WebGLUniformLocation | null;
+		baseMapTransformB: WebGLUniformLocation | null;
 		metallicRoughnessMap: WebGLUniformLocation | null;
 		hasMetallicRoughnessMap: WebGLUniformLocation | null;
 		metallicRoughnessMapUV: WebGLUniformLocation | null;
+		metallicRoughnessMapTransformA: WebGLUniformLocation | null;
+		metallicRoughnessMapTransformB: WebGLUniformLocation | null;
 		normalMap: WebGLUniformLocation | null;
 		hasNormalMap: WebGLUniformLocation | null;
 		normalMapUV: WebGLUniformLocation | null;
+		normalMapTransformA: WebGLUniformLocation | null;
+		normalMapTransformB: WebGLUniformLocation | null;
 		normalScale: WebGLUniformLocation | null;
 		emissiveMap: WebGLUniformLocation | null;
 		hasEmissiveMap: WebGLUniformLocation | null;
 		emissiveMapIsLinear: WebGLUniformLocation | null;
 		emissiveMapUV: WebGLUniformLocation | null;
+		emissiveMapTransformA: WebGLUniformLocation | null;
+		emissiveMapTransformB: WebGLUniformLocation | null;
 		occlusionMap: WebGLUniformLocation | null;
 		hasOcclusionMap: WebGLUniformLocation | null;
 		occlusionMapUV: WebGLUniformLocation | null;
+		occlusionMapTransformA: WebGLUniformLocation | null;
+		occlusionMapTransformB: WebGLUniformLocation | null;
 		occlusionStrength: WebGLUniformLocation | null;
 		envSpecularMap: WebGLUniformLocation | null;
 		hasEnvSpecularMap: WebGLUniformLocation | null;
@@ -597,6 +607,14 @@ export class WebGLProgramLibrary {
 				hasBaseMap: this._gl.getUniformLocation(program, "uHasBaseMap"),
 				baseMapIsLinear: this._gl.getUniformLocation(program, "uBaseMapIsLinear"),
 				baseMapUV: this._gl.getUniformLocation(program, "uBaseMapUV"),
+				baseMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uBaseMapTransformA",
+				),
+				baseMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uBaseMapTransformB",
+				),
 				metallicRoughnessMap: this._gl.getUniformLocation(
 					program,
 					"uMetallicRoughnessMap",
@@ -609,9 +627,25 @@ export class WebGLProgramLibrary {
 					program,
 					"uMetallicRoughnessMapUV",
 				),
+				metallicRoughnessMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uMetallicRoughnessMapTransformA",
+				),
+				metallicRoughnessMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uMetallicRoughnessMapTransformB",
+				),
 				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
 				hasNormalMap: this._gl.getUniformLocation(program, "uHasNormalMap"),
 				normalMapUV: this._gl.getUniformLocation(program, "uNormalMapUV"),
+				normalMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uNormalMapTransformA",
+				),
+				normalMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uNormalMapTransformB",
+				),
 				normalScale: this._gl.getUniformLocation(program, "uNormalScale"),
 				emissiveMap: this._gl.getUniformLocation(program, "uEmissiveMap"),
 				hasEmissiveMap: this._gl.getUniformLocation(program, "uHasEmissiveMap"),
@@ -620,9 +654,25 @@ export class WebGLProgramLibrary {
 					"uEmissiveMapIsLinear",
 				),
 				emissiveMapUV: this._gl.getUniformLocation(program, "uEmissiveMapUV"),
+				emissiveMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uEmissiveMapTransformA",
+				),
+				emissiveMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uEmissiveMapTransformB",
+				),
 				occlusionMap: this._gl.getUniformLocation(program, "uOcclusionMap"),
 				hasOcclusionMap: this._gl.getUniformLocation(program, "uHasOcclusionMap"),
 				occlusionMapUV: this._gl.getUniformLocation(program, "uOcclusionMapUV"),
+				occlusionMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uOcclusionMapTransformA",
+				),
+				occlusionMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uOcclusionMapTransformB",
+				),
 				occlusionStrength: this._gl.getUniformLocation(
 					program,
 					"uOcclusionStrength",

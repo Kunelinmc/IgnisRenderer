@@ -44,20 +44,30 @@ uniform sampler2D uBaseMap;
 uniform int uHasBaseMap;
 uniform int uBaseMapIsLinear;
 uniform int uBaseMapUV;
+uniform vec4 uBaseMapTransformA;
+uniform vec2 uBaseMapTransformB;
 uniform sampler2D uMetallicRoughnessMap;
 uniform int uHasMetallicRoughnessMap;
 uniform int uMetallicRoughnessMapUV;
+uniform vec4 uMetallicRoughnessMapTransformA;
+uniform vec2 uMetallicRoughnessMapTransformB;
 uniform sampler2D uNormalMap;
 uniform int uHasNormalMap;
 uniform int uNormalMapUV;
+uniform vec4 uNormalMapTransformA;
+uniform vec2 uNormalMapTransformB;
 uniform float uNormalScale;
 uniform sampler2D uEmissiveMap;
 uniform int uHasEmissiveMap;
 uniform int uEmissiveMapIsLinear;
 uniform int uEmissiveMapUV;
+uniform vec4 uEmissiveMapTransformA;
+uniform vec2 uEmissiveMapTransformB;
 uniform sampler2D uOcclusionMap;
 uniform int uHasOcclusionMap;
 uniform int uOcclusionMapUV;
+uniform vec4 uOcclusionMapTransformA;
+uniform vec2 uOcclusionMapTransformB;
 uniform float uOcclusionStrength;
 uniform sampler2D uEnvSpecularMap;
 uniform int uHasEnvSpecularMap;
@@ -122,6 +132,19 @@ vec3 safeNormalize(vec3 value, vec3 fallback) {
 
 vec2 resolveUV(int uvSet) {
 	return uvSet == 1 ? vUv1 : vUv;
+}
+
+vec2 applyUVTransform(vec2 uv, vec4 transformA, vec2 transformB) {
+	vec2 scaledUv = vec2(uv.x * transformA.x, uv.y * transformA.y);
+	vec2 rotatedUv = vec2(
+		scaledUv.x * transformB.x - scaledUv.y * transformB.y,
+		scaledUv.x * transformB.y + scaledUv.y * transformB.x
+	);
+	return rotatedUv + transformA.zw;
+}
+
+vec2 resolveMappedUV(int uvSet, vec4 transformA, vec2 transformB) {
+	return applyUVTransform(resolveUV(uvSet), transformA, transformB);
 }
 
 vec3 applyNormalMap(vec3 baseNormal, vec2 uv, vec3 normalSample, float scale) {
@@ -1417,7 +1440,11 @@ vec3 shadePBR(
 }
 
 void main() {
-	vec2 baseUv = resolveUV(uBaseMapUV);
+	vec2 baseUv = resolveMappedUV(
+		uBaseMapUV,
+		uBaseMapTransformA,
+		uBaseMapTransformB
+	);
 	vec3 albedo = uBaseColor.rgb;
 	float alpha = clamp(uBaseColor.a, 0.0, 1.0);
 	if (uHasBaseMap == 1) {
@@ -1436,14 +1463,22 @@ void main() {
 	float reflectance = clamp(uPBR.z, 0.0, 1.0);
 	float transmission = clamp(uPBR.w, 0.0, 1.0);
 	if (uHasMetallicRoughnessMap == 1) {
-		vec2 metallicRoughnessUv = resolveUV(uMetallicRoughnessMapUV);
+		vec2 metallicRoughnessUv = resolveMappedUV(
+			uMetallicRoughnessMapUV,
+			uMetallicRoughnessMapTransformA,
+			uMetallicRoughnessMapTransformB
+		);
 		vec4 metallicRoughnessTexel = texture(uMetallicRoughnessMap, metallicRoughnessUv);
 		roughness = clamp(roughness * metallicRoughnessTexel.g, 0.04, 1.0);
 		metalness = clamp(metalness * metallicRoughnessTexel.b, 0.0, 1.0);
 	}
 	float occlusion = 1.0;
 	if (uHasOcclusionMap == 1) {
-		vec2 occlusionUv = resolveUV(uOcclusionMapUV);
+		vec2 occlusionUv = resolveMappedUV(
+			uOcclusionMapUV,
+			uOcclusionMapTransformA,
+			uOcclusionMapTransformB
+		);
 		float occlusionTexel = texture(uOcclusionMap, occlusionUv).r;
 		occlusion = clamp(
 			1.0 + clamp(uOcclusionStrength, 0.0, 1.0) * (occlusionTexel - 1.0),
@@ -1459,7 +1494,11 @@ void main() {
 		normal = -normal;
 	}
 	if (uShadingModel == 1 && uHasNormalMap == 1) {
-		vec2 normalUv = resolveUV(uNormalMapUV);
+		vec2 normalUv = resolveMappedUV(
+			uNormalMapUV,
+			uNormalMapTransformA,
+			uNormalMapTransformB
+		);
 		normal = applyNormalMap(
 			normal,
 			normalUv,
@@ -1469,7 +1508,11 @@ void main() {
 	}
 	vec3 emissive = uEmissive.rgb;
 	if (uHasEmissiveMap == 1) {
-		vec2 emissiveUv = resolveUV(uEmissiveMapUV);
+		vec2 emissiveUv = resolveMappedUV(
+			uEmissiveMapUV,
+			uEmissiveMapTransformA,
+			uEmissiveMapTransformB
+		);
 		vec3 emissiveTexel = texture(uEmissiveMap, emissiveUv).rgb;
 		emissive *=
 			uEmissiveMapIsLinear == 1 ? emissiveTexel : srgbToLinear(emissiveTexel);
