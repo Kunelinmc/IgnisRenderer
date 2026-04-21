@@ -382,6 +382,12 @@ float computeReflectionProbeWeight(int probeIndex, float metric) {
 	return weight;
 }
 
+float computeReflectionProbeDepthOcclusion(int probeIndex, float metric) {
+	float blendDistance = max(uReflectionProbeDataC[probeIndex].y, 1e-5);
+	float normalizedDepth = clamp((1.0 - metric) / blendDistance, 0.0, 1.0);
+	return smoothstep(0.0, 1.0, normalizedDepth);
+}
+
 bool isBetterReflectionProbeCandidate(
 	float candidateWeight,
 	int candidateIndex,
@@ -640,9 +646,14 @@ vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughne
 		firstLayer,
 		float(probeCount)
 	);
+	float firstMetric = computeReflectionProbeMetric(firstIndex, worldPosition);
+	float firstDepthOcclusion = computeReflectionProbeDepthOcclusion(
+		firstIndex,
+		firstMetric
+	);
 
 	if (indices.y < 0 || weights.y <= 1e-6) {
-		return firstSample;
+		return firstSample * firstDepthOcclusion;
 	}
 
 	int secondIndex = indices.y;
@@ -658,8 +669,15 @@ vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughne
 		secondLayer,
 		float(probeCount)
 	);
+	float secondMetric = computeReflectionProbeMetric(secondIndex, worldPosition);
+	float secondDepthOcclusion = computeReflectionProbeDepthOcclusion(
+		secondIndex,
+		secondMetric
+	);
 
-	return firstSample * weights.x + secondSample * weights.y;
+	return
+		firstSample * (weights.x * firstDepthOcclusion) +
+		secondSample * (weights.y * secondDepthOcclusion);
 }
 
 float pointAttenuation(float distanceSq, float range) {

@@ -183,6 +183,19 @@ export function computeProbeRawWeight(
 	return weight;
 }
 
+export function computeProbeDepthOcclusion(
+	metric: number,
+	effectiveBlendDistance: number
+): number {
+	if (!Number.isFinite(metric)) return 0;
+	const safeBlendDistance = Math.max(
+		effectiveBlendDistance,
+		REFLECTION_PROBE_RAY_EPSILON
+	);
+	const normalizedDepth = clamp((1 - metric) / safeBlendDistance, 0, 1);
+	return smoothstep(0, 1, normalizedDepth);
+}
+
 export function computeParallaxCorrectedDirection(
 	worldPosition: IVector3,
 	reflectionDirection: IVector3,
@@ -257,9 +270,18 @@ export function sampleReflectionProbesSpecular(
 		firstDirection,
 		roughness
 	);
+	const firstMetric = computeProbeMetric(worldPosition, firstProbe);
+	const firstDepthOcclusion = computeProbeDepthOcclusion(
+		firstMetric,
+		firstProbe.getRuntimeCache().effectiveBlendDistance
+	);
 
 	if (selection.secondIndex < 0 || selection.secondWeight <= REFLECTION_PROBE_WEIGHT_EPSILON) {
-		return firstSample;
+		return {
+			r: firstSample.r * firstDepthOcclusion,
+			g: firstSample.g * firstDepthOcclusion,
+			b: firstSample.b * firstDepthOcclusion,
+		};
 	}
 
 	const secondProbe = probes[selection.secondIndex];
@@ -273,11 +295,22 @@ export function sampleReflectionProbesSpecular(
 		secondDirection,
 		roughness
 	);
+	const secondMetric = computeProbeMetric(worldPosition, secondProbe);
+	const secondDepthOcclusion = computeProbeDepthOcclusion(
+		secondMetric,
+		secondProbe.getRuntimeCache().effectiveBlendDistance
+	);
 
 	return {
-		r: firstSample.r * selection.firstWeight + secondSample.r * selection.secondWeight,
-		g: firstSample.g * selection.firstWeight + secondSample.g * selection.secondWeight,
-		b: firstSample.b * selection.firstWeight + secondSample.b * selection.secondWeight,
+		r:
+			firstSample.r * selection.firstWeight * firstDepthOcclusion +
+			secondSample.r * selection.secondWeight * secondDepthOcclusion,
+		g:
+			firstSample.g * selection.firstWeight * firstDepthOcclusion +
+			secondSample.g * selection.secondWeight * secondDepthOcclusion,
+		b:
+			firstSample.b * selection.firstWeight * firstDepthOcclusion +
+			secondSample.b * selection.secondWeight * secondDepthOcclusion,
 	};
 }
 

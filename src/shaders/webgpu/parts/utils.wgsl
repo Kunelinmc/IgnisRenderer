@@ -419,6 +419,12 @@ fn computeReflectionProbeWeight(metric: f32, probe: ReflectionProbeData) -> f32 
 	return weight;
 }
 
+fn computeReflectionProbeDepthOcclusion(metric: f32, probe: ReflectionProbeData) -> f32 {
+	let safeBlendDistance = max(probe.dataC.y, 1e-5);
+	let normalizedDepth = clamp((1.0 - metric) / safeBlendDistance, 0.0, 1.0);
+	return smoothstep(0.0, 1.0, normalizedDepth);
+}
+
 fn isBetterReflectionProbeCandidate(
 	candidateWeight: f32,
 	candidateIndex: i32,
@@ -667,9 +673,14 @@ fn sampleEnvironmentSpecular(
 		firstLayer,
 		probeCount
 	);
+	let firstMetric = computeReflectionProbeMetric(worldPosition, firstProbe);
+	let firstDepthOcclusion = computeReflectionProbeDepthOcclusion(
+		firstMetric,
+		firstProbe
+	);
 
 	if (selection.y < 0.0 || selection.w <= 1e-6) {
-		return firstSample;
+		return firstSample * firstDepthOcclusion;
 	}
 
 	let secondIndex = u32(max(selection.y, 0.0));
@@ -686,8 +697,15 @@ fn sampleEnvironmentSpecular(
 		secondLayer,
 		probeCount
 	);
+	let secondMetric = computeReflectionProbeMetric(worldPosition, secondProbe);
+	let secondDepthOcclusion = computeReflectionProbeDepthOcclusion(
+		secondMetric,
+		secondProbe
+	);
 
-	return firstSample * selection.z + secondSample * selection.w;
+	return
+		firstSample * (selection.z * firstDepthOcclusion) +
+		secondSample * (selection.w * secondDepthOcclusion);
 }
 
 fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import {
 	computeParallaxCorrectedDirection,
+	computeProbeDepthOcclusion,
 	computeProbeRawWeight,
 	selectTopTwoReflectionProbes,
 } from "../src/pipeline/reflectionProbeRuntime.ts";
@@ -28,6 +29,19 @@ function testBlendCurveMonotonicAndContinuous() {
 	const wBase = computeProbeRawWeight(1.1, blendDistance, 1.0);
 	const wSharper = computeProbeRawWeight(1.1, blendDistance, 2.0);
 	assert.ok(wSharper < wBase, "Higher blendExponent should sharpen the fade");
+}
+
+function testProbeDepthOcclusionAttenuatesBoundarySamples() {
+	const blendDistance = 0.2;
+	const deepInside = computeProbeDepthOcclusion(0.5, blendDistance);
+	const nearBoundary = computeProbeDepthOcclusion(0.97, blendDistance);
+	const outside = computeProbeDepthOcclusion(1.05, blendDistance);
+
+	assert.ok(Number.isFinite(deepInside));
+	assert.ok(Number.isFinite(nearBoundary));
+	assert.ok(Number.isFinite(outside));
+	assert.ok(deepInside > nearBoundary, "Deep samples should keep more visibility");
+	assert.equal(outside, 0, "Outside-probe samples should be fully occluded");
 }
 
 function testTopTwoTieBreakByProbeId() {
@@ -121,6 +135,7 @@ function testRuntimeCacheDirtyBehavior() {
 
 function run() {
 	testBlendCurveMonotonicAndContinuous();
+	testProbeDepthOcclusionAttenuatesBoundarySamples();
 	testTopTwoTieBreakByProbeId();
 	testParallaxIntersectionAndFallback();
 	testRuntimeCacheDirtyBehavior();

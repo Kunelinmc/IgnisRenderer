@@ -668,6 +668,7 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("uReflectionProbeCount"));
 	assert.ok(shader.fragment.includes("uReflectionProbeWorldToProbeRow0"));
 	assert.ok(shader.fragment.includes("computeReflectionProbeParallaxDirection"));
+	assert.ok(shader.fragment.includes("computeReflectionProbeDepthOcclusion"));
 	assert.ok(shader.fragment.includes("sampleEnvironmentSpecular"));
 	assert.ok(shader.fragment.includes("uniform vec4 uTransmissionVolume;"));
 	assert.ok(shader.fragment.includes("uniform vec4 uAttenuationColor;"));
