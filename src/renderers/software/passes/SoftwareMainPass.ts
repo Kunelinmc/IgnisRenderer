@@ -6,16 +6,14 @@ import type {
 	ProjectedVertex,
 } from "../../../core/types";
 import type { Rasterizer, RasterizerContext } from "../Rasterizer";
-import {
-	createSoftwareShadowSampler,
-	getSoftwareShadowRuntimeMap,
-} from "../shadows";
+import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./SoftwareShadowPass";
 import type { WorkerLike } from "../../../workers/types";
 import { globalWorkerScheduler } from "../../../workers/WorkerScheduler";
 import { DEFAULT_WORKER_TRANSPORT_PLUGINS } from "../../../workers/transports";
 import { type SoftwareRasterMode, type SoftwareTileOptions } from "../types";
 import { DEFAULT_SOFTWARE_TILE_SIZE, DEFAULT_SOFTWARE_RASTER_MODE } from "../constants";
 import { Logger } from "../../../foundation/Logger";
+import type { SoftwarePassLike } from "./types";
 import type {
 	SoftwareRasterTileBounds,
 	SoftwareRasterWorkerTaskPayload,
@@ -35,12 +33,10 @@ interface TileClipRect {
 	maxY: number;
 }
 
-interface SoftwareMainRasterExecutorLike {
-	render(
-		context: FrameContext,
-		packets: DrawPacket[],
-		transparent: boolean
-	): Promise<void>;
+interface SoftwareMainRasterExecutorLike extends SoftwarePassLike<
+	[FrameContext, DrawPacket[], boolean],
+	Promise<void>
+> {
 	getActiveMode(): SoftwareRasterMode;
 	destroy(): void;
 }
@@ -620,16 +616,16 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	}
 }
 
-export class SoftwareMainPass {
+export class SoftwareMainPass implements SoftwarePassLike<
+	[FrameContext, DrawPacket[], boolean],
+	Promise<void>
+> {
 	private _executor: SoftwareMainRasterExecutorLike;
 
 	public constructor(rasterizer: Rasterizer, options: SoftwareMainPassOptions = {}) {
 		const mode = options.mode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		if (mode === "tile") {
-			this._executor = new TileMainRasterExecutor(
-				rasterizer,
-				options.tile
-			);
+			this._executor = new TileMainRasterExecutor(rasterizer, options.tile);
 		} else {
 			this._executor = new ScanlineMainRasterExecutor(rasterizer);
 		}
@@ -638,7 +634,7 @@ export class SoftwareMainPass {
 	public async render(
 		context: FrameContext,
 		packets: DrawPacket[],
-		transparent: boolean
+		transparent: boolean,
 	): Promise<void> {
 		await this._executor.render(context, packets, transparent);
 	}

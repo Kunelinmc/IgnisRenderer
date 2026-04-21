@@ -16,7 +16,7 @@ import {
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
-} from "./shadows";
+} from "./passes/SoftwareShadowPass";
 import { clamp, linearToSRGB } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";

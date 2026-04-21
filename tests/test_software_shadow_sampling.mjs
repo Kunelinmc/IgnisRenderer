@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
-import { sampleSoftwareShadow } from "../src/renderers/software/shadows/sampling.ts";
-import { createSoftwareShadowSampler } from "../src/renderers/software/shadows/runtime.ts";
+import {
+	createSoftwareShadowSampler,
+	sampleSoftwareShadow,
+} from "../src/renderers/software/passes/SoftwareShadowPass.ts";
 
 function createShadowFixture(overrides = {}, size = 4) {
 	const shadowMap = new ShadowMap(size, {

@@ -11,7 +11,7 @@ import { materialUsesTransmission } from "../../materials/transparency";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
-} from "./shadows";
+} from "./passes/SoftwareShadowPass";
 
 interface ReflectionBuffer {
 	imageData: ImageData;

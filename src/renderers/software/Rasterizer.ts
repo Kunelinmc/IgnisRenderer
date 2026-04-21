@@ -33,7 +33,7 @@ import {
 	type SHCoefficients,
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
-import type { SoftwareShadowRenderTarget } from "./shadows";
+import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import { collectActiveReflectionProbes } from "../../pipeline/reflectionProbeRuntime";
 
 export interface RasterizerLike {

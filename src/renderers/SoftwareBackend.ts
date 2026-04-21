@@ -11,6 +11,7 @@ import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
+import type { SoftwarePassLike } from "./software/passes/types";
 import { SkyboxRenderer } from "./software/SkyboxRenderer";
 import { isShadowCastingLight } from "../lights";
 import {
@@ -78,9 +79,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
-	private _particlePass: SoftwareParticlePass | null = null;
-	private _shadowPass: SoftwareShadowPass | null = null;
-	private _reflectionPass: SoftwareReflectionPass | null = null;
+	private _particlePass: SoftwarePassLike | null = null;
+	private _shadowPass: SoftwarePassLike | null = null;
+	private _reflectionPass: SoftwarePassLike | null = null;
 	private _postProcessor: PostProcessor | null = null;
 	private _framePixelsShared = false;
 	private _pixels: Uint8ClampedArray | null = null;
@@ -98,12 +99,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
-		assertShaderDirectiveProfileRegistryComplete(
-			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY
-		);
+		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
 		this._options = options;
-		this.requestedRasterMode =
-			options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
+		this.requestedRasterMode = options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 	}
@@ -163,7 +161,7 @@ export class SoftwareBackend implements IRenderBackend {
 		if (!this._offscreenCanvas) {
 			this._offscreenCanvas = new OffscreenCanvas(width, height);
 			this._offscreenCtx = this._offscreenCanvas.getContext(
-				"2d"
+				"2d",
 			) as OffscreenCanvasRenderingContext2D | null;
 		} else {
 			this._offscreenCanvas.width = width;
@@ -206,7 +204,7 @@ export class SoftwareBackend implements IRenderBackend {
 				for (let y = minY; y < maxY; y++) {
 					const rowStart = y * frameWidth;
 					for (let x = minX; x < maxX; x++) {
-						const pixelIndex = ((rowStart + x) << 2);
+						const pixelIndex = (rowStart + x) << 2;
 						pixels[pixelIndex] = 0;
 						pixels[pixelIndex + 1] = 0;
 						pixels[pixelIndex + 2] = 0;
@@ -228,11 +226,11 @@ export class SoftwareBackend implements IRenderBackend {
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			context.scene.shadowCasterPackets,
 			context.scene.sceneBounds,
-			context.scene.camera
+			context.scene.camera,
 		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
-			SOFTWARE_SHADOW_CAPABILITIES.maxCsmDirectionalLights
+			SOFTWARE_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
 		);
 		for (const shadowLight of shadowLights) {
 			const shadowRenderSet = context.shadowMaps.get(shadowLight);
@@ -256,15 +254,12 @@ export class SoftwareBackend implements IRenderBackend {
 				pixels,
 				context.camera,
 				context.attachments.width,
-				context.attachments.height
+				context.attachments.height,
 			);
 		}
 	}
 
-	public async executePass(
-		pass: FramePass,
-		context: FrameContext
-	): Promise<void> {
+	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		if (!this._renderer || !this._mainPass || !this._reflectionPass) return;
 
 		const handler = this._passHandlers.get(pass.stage);
@@ -310,24 +305,24 @@ export class SoftwareBackend implements IRenderBackend {
 			return false;
 		}
 		return (
-			incremental.enabled &&
-			!incremental.forceFullFrame &&
-			incremental.dirtyRects.length > 0
+			incremental.enabled && !incremental.forceFullFrame && incremental.dirtyRects.length > 0
 		);
 	}
 
 	private _resolveDirtyRects(
-		context: FrameContext
+		context: FrameContext,
 	): Array<{ x: number; y: number; width: number; height: number }> {
 		const width = Math.max(1, context.attachments.width | 0);
 		const height = Math.max(1, context.attachments.height | 0);
 		if (!this._isIncrementalPartial(context)) {
-			return [{
-				x: 0,
-				y: 0,
-				width,
-				height,
-			}];
+			return [
+				{
+					x: 0,
+					y: 0,
+					width,
+					height,
+				},
+			];
 		}
 		const result: Array<{ x: number; y: number; width: number; height: number }> = [];
 		const incremental = (
@@ -353,10 +348,7 @@ export class SoftwareBackend implements IRenderBackend {
 		return result;
 	}
 
-	private _resolvePacketsForPass(
-		context: FrameContext,
-		packets: DrawPacket[]
-	): DrawPacket[] {
+	private _resolvePacketsForPass(context: FrameContext, packets: DrawPacket[]): DrawPacket[] {
 		const spatialIndex = context.scene.spatialIndex;
 		if (!spatialIndex || !this._isIncrementalPartial(context)) {
 			return packets;
@@ -397,7 +389,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _resolveFrameDimensions(
 		renderer: RendererBackendBridge,
-		pixels: Uint8ClampedArray
+		pixels: Uint8ClampedArray,
 	): { width: number; height: number } {
 		const canvasWidth = renderer.canvas.width;
 		const canvasHeight = renderer.canvas.height;
@@ -421,8 +413,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 		if (
 			this._frameImageData &&
-			pixels.length ===
-				this._frameImageData.width * this._frameImageData.height * 4
+			pixels.length === this._frameImageData.width * this._frameImageData.height * 4
 		) {
 			return {
 				width: this._frameImageData.width,
@@ -437,9 +428,7 @@ export class SoftwareBackend implements IRenderBackend {
 		};
 	}
 
-	private _resolveFramePixels(
-		renderer: RendererBackendBridge
-	): Uint8ClampedArray {
+	private _resolveFramePixels(renderer: RendererBackendBridge): Uint8ClampedArray {
 		const legacyPixels = (
 			renderer as RendererBackendBridge & {
 				pixels?: Uint8ClampedArray | null;
@@ -457,7 +446,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _createFrameImageData(
 		pixels: Uint8ClampedArray,
 		width: number,
-		height: number
+		height: number,
 	): ImageData {
 		try {
 			const imageData = new ImageData(pixels as ImageDataArray, width, height);
@@ -497,7 +486,7 @@ export class SoftwareBackend implements IRenderBackend {
 				(context) => {
 					this._particleSimulator?.simulate(
 						context,
-						this._resolveParticleDeltaTime(context)
+						this._resolveParticleDeltaTime(context),
 					);
 					this._particleSimulator?.emitRenderBatches(context);
 				},
@@ -522,13 +511,9 @@ export class SoftwareBackend implements IRenderBackend {
 					}
 					const packets = this._resolvePacketsForPass(
 						context,
-						context.scene.opaquePackets
+						context.scene.opaquePackets,
 					);
-					await this._mainPass.render(
-						context,
-						packets,
-						false
-					);
+					await this._mainPass.render(context, packets, false);
 					this._syncActiveRasterMode();
 				},
 			],
@@ -540,13 +525,9 @@ export class SoftwareBackend implements IRenderBackend {
 					}
 					const packets = this._resolvePacketsForPass(
 						context,
-						context.scene.transparentPackets
+						context.scene.transparentPackets,
 					);
-					await this._mainPass.render(
-						context,
-						packets,
-						true
-					);
+					await this._mainPass.render(context, packets, true);
 					this._syncActiveRasterMode();
 				},
 			],
