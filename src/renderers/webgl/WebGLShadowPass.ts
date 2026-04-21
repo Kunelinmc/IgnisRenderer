@@ -45,7 +45,8 @@ export interface WebGLShadowPassHost {
 		shadowProgram: WebGLShadowDepthProgram,
 		packets: DrawPacket[],
 		shadow: WebGLShadowData | undefined,
-		tileIndex: number
+		tileIndex: number,
+		cascadeIndex?: number
 	): void;
 	_drawShadowPacket(
 		shadowProgram: WebGLShadowDepthProgram,
@@ -107,12 +108,22 @@ export function renderWebGLShadows(
 		lights.directionalShadows.length
 	);
 	for (let i = 0; i < directionalCount; i++) {
-		host._renderShadowSlice(
-			shadowProgram,
-			packets,
-			lights.directionalShadows[i],
-			i
-		);
+		const shadow = lights.directionalShadows[i];
+		const isCSM =
+			shadow?.enabled &&
+			shadow.strategyType === "csm" &&
+			shadow.cascadeCount > 1;
+		const cascadeCount =
+			isCSM ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
+		for (let cascadeIndex = 0; cascadeIndex < cascadeCount; cascadeIndex++) {
+			host._renderShadowSlice(
+				shadowProgram,
+				packets,
+				shadow,
+				i,
+				cascadeIndex
+			);
+		}
 	}
 
 	const spotCount = Math.min(WEBGL_MAX_SPOT_LIGHTS, lights.spotShadows.length);
@@ -121,7 +132,8 @@ export function renderWebGLShadows(
 			shadowProgram,
 			packets,
 			lights.spotShadows[i],
-			WEBGL_MAX_DIRECTIONAL_LIGHTS + i
+			WEBGL_MAX_DIRECTIONAL_LIGHTS + i,
+			0
 		);
 	}
 
@@ -137,25 +149,55 @@ export function renderWebGLShadowSlice(
 	shadowProgram: WebGLShadowDepthProgram,
 	packets: DrawPacket[],
 	shadow: WebGLShadowData | undefined,
-	tileIndex: number
+	tileIndex: number,
+	cascadeIndex: number = 0
 ): void {
-	if (!shadow?.enabled || !shadow.viewProjectionMatrix) {
+	if (!shadow?.enabled) {
 		return;
 	}
 
-	const shadowSize = Math.max(1, shadow.shadowMapSize | 0);
+	const isCSM = shadow.strategyType === "csm" && shadow.cascadeCount > 1;
+	const resolvedCascadeCount =
+		isCSM ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
+	const clampedCascadeIndex = Math.max(
+		0,
+		Math.min(resolvedCascadeCount - 1, cascadeIndex | 0)
+	);
+	const cascadeMatrices = shadow.cascadeViewProjectionMatrices ?? [];
+	const shadowViewProjection =
+		isCSM ?
+			cascadeMatrices[clampedCascadeIndex]
+		:	shadow.viewProjectionMatrix;
+	if (!shadowViewProjection) {
+		return;
+	}
+	const localTileSpan = isCSM ? 2 : 1;
+	const subTileSize = Math.max(
+		1,
+		Math.floor(host._shadowAtlasTileSize / localTileSpan)
+	);
+	const shadowSize = Math.max(
+		1,
+		Math.min(shadow.shadowMapSize | 0, subTileSize)
+	);
+	const cascadeSplits = shadow.cascadeSplits ?? [];
+	const cascadeSplit = cascadeSplits[clampedCascadeIndex] ?? [0, 0, 0, 0];
+	const localTileX =
+		isCSM ? Math.max(0, Math.min(1, Math.floor(cascadeSplit[2] + 0.5))) : 0;
+	const localTileY =
+		isCSM ? Math.max(0, Math.min(1, Math.floor(cascadeSplit[3] + 0.5))) : 0;
 	const atlasColumns = Math.max(1, WEBGL_SHADOW_ATLAS_COLUMNS);
 	const tileX = tileIndex % atlasColumns;
 	const tileY = Math.floor(tileIndex / atlasColumns);
-	const viewportX = tileX * host._shadowAtlasTileSize;
-	const viewportY = tileY * host._shadowAtlasTileSize;
+	const viewportX = tileX * host._shadowAtlasTileSize + localTileX * subTileSize;
+	const viewportY = tileY * host._shadowAtlasTileSize + localTileY * subTileSize;
 	const gl = host._gl;
 	gl.viewport(viewportX, viewportY, shadowSize, shadowSize);
 	gl.scissor(viewportX, viewportY, shadowSize, shadowSize);
 	gl.clear(gl.DEPTH_BUFFER_BIT);
 
 	for (const packet of packets) {
-		host._drawShadowPacket(shadowProgram, packet, shadow.viewProjectionMatrix);
+		host._drawShadowPacket(shadowProgram, packet, shadowViewProjection);
 	}
 }
 

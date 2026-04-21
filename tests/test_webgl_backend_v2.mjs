@@ -5,7 +5,7 @@ import { LightProbe } from "../src/lights/LightProbe.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
-import { ShadowMap } from "../src/lights/ShadowMapping.ts";
+import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
@@ -580,6 +580,44 @@ function testLightCollectorShadowBias() {
 	assert.equal(shadow.shadowMapSize, 1024);
 }
 
+function testLightCollectorDirectionalCSMShadowData() {
+	const light = new DirectionalLight();
+	light.castShadow = true;
+	light.shadow = {
+		strategy: "csm",
+		size: 1024,
+		cascadeCount: 4,
+		blendRatio: 0.2,
+	};
+	const renderSet = createShadowRenderSet(light.shadow);
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const slice = renderSet.slices[index];
+		slice.shadowMap.viewProjectionMatrix = Matrix4.identity();
+		slice.splitNear = index * 10;
+		slice.splitFar = (index + 1) * 10;
+	}
+
+	const state = collectWebGLLights(
+		[light],
+		true,
+		() => {},
+		true,
+		new Map([[light, renderSet]])
+	);
+	const shadow = state.directionalShadows[0];
+	assert.equal(shadow.enabled, true);
+	assert.equal(shadow.strategyType, "csm");
+	assert.equal(shadow.cascadeCount, 4);
+	assert.equal(shadow.cascadeBlendRatio, 0.2);
+	assert.equal(shadow.shadowMapBaseSize, 1024);
+	assert.equal(shadow.shadowMapSize, 512);
+	assert.ok(shadow.cascadeViewProjectionMatrices[3]);
+	assert.deepEqual(shadow.cascadeSplits[0], [0, 10, 0, 0]);
+	assert.deepEqual(shadow.cascadeSplits[1], [10, 20, 1, 0]);
+	assert.deepEqual(shadow.cascadeSplits[2], [20, 30, 0, 1]);
+	assert.deepEqual(shadow.cascadeSplits[3], [30, 40, 1, 1]);
+}
+
 function testSceneShaderBackLitShadowGuard() {
 	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
 		maxDirectionalLights: 4,
@@ -606,6 +644,9 @@ function testSceneShaderUsesDecoupledShadowNormal() {
 	assert.ok(shader.fragment.includes("shadePhong(albedo, normal, shadowNormal, viewDir);"));
 	assert.ok(/sampleDirectionalShadowVisibility\([\s\S]*shadowNormal/.test(shader.fragment));
 	assert.ok(shader.fragment.includes("uDirShadowParamsC"));
+	assert.ok(shader.fragment.includes("uDirShadowCascadeViewProjection"));
+	assert.ok(shader.fragment.includes("uDirShadowCascadeSplits"));
+	assert.ok(shader.fragment.includes("resolveDirectionalCascadeIndex"));
 	assert.ok(shader.fragment.includes("uSpotShadowParamsC"));
 }
 
@@ -949,6 +990,7 @@ async function run() {
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
 	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
 	testLightCollectorShadowBias();
+	testLightCollectorDirectionalCSMShadowData();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();

@@ -14,7 +14,10 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
-import type { ShadowBackendCapabilities } from "../../pipeline/ShadowStrategyRegistry";
+import {
+	selectCSMDirectionalLights,
+	type ShadowBackendCapabilities,
+} from "../../pipeline/ShadowStrategyRegistry";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_BLOOM_OPTIONS,
@@ -209,8 +212,8 @@ const PARTICLE_MAX_INSTANCES_PER_DRAW = 1 << 16;
 const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgl",
 	supportsSingleMap: true,
-	supportsDirectionalCSM: false,
-	maxCsmDirectionalLights: 0,
+	supportsDirectionalCSM: true,
+	maxCsmDirectionalLights: 1,
 };
 
 export class WebGLFrameExecutor {
@@ -767,6 +770,10 @@ export class WebGLFrameExecutor {
 			context.scene.sceneBounds,
 			context.scene.camera
 		);
+		const selectedCSMLights = selectCSMDirectionalLights(
+			shadowLights,
+			WEBGL_SHADOW_CAPABILITIES.maxCsmDirectionalLights
+		);
 		for (const light of shadowLights) {
 			const shadowRenderSet = context.shadowMaps.get(light);
 			if (!shadowRenderSet) continue;
@@ -777,6 +784,7 @@ export class WebGLFrameExecutor {
 				{
 					camera: context.scene.camera,
 					backendCapabilities: WEBGL_SHADOW_CAPABILITIES,
+					allowCSMDirectionalLights: selectedCSMLights,
 					onWarning: (key, message) =>
 						Logger.warn(`[${key}] ${message}`, {
 							scope: "WebGLFrameExecutor",
@@ -923,14 +931,16 @@ export class WebGLFrameExecutor {
 		shadowProgram: WebGLShadowDepthProgram,
 		packets: DrawPacket[],
 		shadow: WebGLShadowData | undefined,
-		tileIndex: number
+		tileIndex: number,
+		cascadeIndex: number = 0
 	): void {
 		renderWebGLShadowSlice(
 			this as unknown as WebGLShadowPassHost,
 			shadowProgram,
 			packets,
 			shadow,
-			tileIndex
+			tileIndex,
+			cascadeIndex
 		);
 	}
 

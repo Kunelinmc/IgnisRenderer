@@ -13,6 +13,8 @@ import {
 	flattenShadowParamsA,
 	flattenShadowParamsB,
 	flattenShadowParamsC,
+	flattenShadowCascadeSplits,
+	flattenShadowCascadeViewProjection,
 	flattenShadowViewProjection,
 	flattenVec4,
 	sanitizeFloat32Array,
@@ -501,6 +503,45 @@ export function bindWebGLGlobalUniforms(
 			uniforms.dirShadowViewProjection,
 			false,
 			packedShadowViewProjection.values
+		);
+	}
+	if (uniforms.dirShadowCascadeViewProjection) {
+		const packedCascadeViewProjection = sanitizeFloat32Array(
+			flattenShadowCascadeViewProjection(
+				lights.directionalShadows,
+				WEBGL_MAX_DIRECTIONAL_LIGHTS
+			),
+			0
+		);
+		if (packedCascadeViewProjection.hadInvalid) {
+			logWebGLGlobalUniformWarning(
+				"webgl-dir-shadow-cascade-view-projection-invalid",
+				"WebGL directional cascade shadow matrices contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniformMatrix4fv(
+			uniforms.dirShadowCascadeViewProjection,
+			false,
+			packedCascadeViewProjection.values
+		);
+	}
+	if (uniforms.dirShadowCascadeSplits) {
+		const packedCascadeSplits = sanitizeFloat32Array(
+			flattenShadowCascadeSplits(
+				lights.directionalShadows,
+				WEBGL_MAX_DIRECTIONAL_LIGHTS
+			),
+			0
+		);
+		if (packedCascadeSplits.hadInvalid) {
+			logWebGLGlobalUniformWarning(
+				"webgl-dir-shadow-cascade-splits-invalid",
+				"WebGL directional cascade split parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(
+			uniforms.dirShadowCascadeSplits,
+			packedCascadeSplits.values
 		);
 	}
 	if (uniforms.dirShadowParamsA) {

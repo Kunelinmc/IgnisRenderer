@@ -3,8 +3,10 @@ import type { RGB } from "../../../foundation/Color";
 import type { ShadowCastingLight } from "../../../lights";
 import {
 	getPrimaryShadowMap,
+	type ShadowMap,
 	type ShadowRenderSet,
 } from "../../../lights/ShadowMapping";
+import { Matrix4 } from "../../../maths/Matrix4";
 import { sampleSoftwareShadow } from "./sampling";
 import {
 	SOFTWARE_SHADOW_RUNTIME_KEY,
@@ -31,16 +33,22 @@ export function setSoftwareShadowRuntimeMap(
 export function ensureSoftwareShadowRenderTarget(
 	runtimeMap: SoftwareShadowRuntimeMap,
 	light: ShadowCastingLight,
+	sliceIndex: number,
 	size: number
 ): SoftwareShadowRenderTarget {
-	let target = runtimeMap.get(light);
+	let targets = runtimeMap.get(light);
+	if (!targets) {
+		targets = [];
+		runtimeMap.set(light, targets);
+	}
+	let target = targets[sliceIndex];
 	if (!target || target.size !== size) {
 		target = {
 			size,
 			depthBuffer: new Float32Array(size * size),
 			transmissionBuffer: new Float32Array(size * size * 3),
 		};
-		runtimeMap.set(light, target);
+		targets[sliceIndex] = target;
 	}
 
 	return target;
@@ -64,6 +72,101 @@ export function syncSoftwareShadowRuntimeMap(
 	}
 }
 
+export function trimSoftwareShadowRuntimeTargets(
+	runtimeMap: SoftwareShadowRuntimeMap,
+	light: ShadowCastingLight,
+	sliceCount: number
+): void {
+	const targets = runtimeMap.get(light);
+	if (!targets) {
+		return;
+	}
+	targets.length = Math.max(0, sliceCount | 0);
+}
+
+function isWorldPointInsideShadowMap(
+	shadowMap: ShadowMap,
+	worldPoint: IVector3
+): boolean {
+	if (!shadowMap.viewProjectionMatrix) {
+		return false;
+	}
+	const clip = Matrix4.transformPoint(shadowMap.viewProjectionMatrix, worldPoint);
+	if (clip.w <= 1e-6) {
+		return false;
+	}
+	const invW = 1 / clip.w;
+	const ndcX = clip.x * invW;
+	const ndcY = clip.y * invW;
+	const ndcZ = clip.z * invW;
+	const uvX = ndcX * 0.5 + 0.5;
+	const uvY = 0.5 - ndcY * 0.5;
+	return (
+		uvX >= 0 &&
+		uvX <= 1 &&
+		uvY >= 0 &&
+		uvY <= 1 &&
+		ndcZ >= -1 &&
+		ndcZ <= 1
+	);
+}
+
+function sampleFromRenderSet(
+	renderSet: ShadowRenderSet,
+	runtimeTargets: SoftwareShadowRenderTarget[] | undefined,
+	worldPoint: IVector3,
+	normal?: IVector3 | null
+): RGB {
+	if (!runtimeTargets || runtimeTargets.length <= 0) {
+		return { r: 1, g: 1, b: 1 };
+	}
+
+	const isCSM =
+		renderSet.effectiveStrategyType === "csm" &&
+		renderSet.slices.length > 1;
+	if (!isCSM) {
+		const shadowMap = getPrimaryShadowMap(renderSet);
+		const runtimeTarget = runtimeTargets[0];
+		if (!shadowMap || !runtimeTarget) {
+			return { r: 1, g: 1, b: 1 };
+		}
+		return sampleSoftwareShadow(shadowMap, runtimeTarget, worldPoint, normal);
+	}
+
+	let fallbackShadowMap: ShadowMap | null = null;
+	let fallbackRuntimeTarget: SoftwareShadowRenderTarget | null = null;
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const slice = renderSet.slices[index];
+		const runtimeTarget = runtimeTargets[index];
+		if (!runtimeTarget || !slice.shadowMap.viewProjectionMatrix) {
+			continue;
+		}
+		if (!fallbackShadowMap) {
+			fallbackShadowMap = slice.shadowMap;
+			fallbackRuntimeTarget = runtimeTarget;
+		}
+		if (isWorldPointInsideShadowMap(slice.shadowMap, worldPoint)) {
+			return sampleSoftwareShadow(
+				slice.shadowMap,
+				runtimeTarget,
+				worldPoint,
+				normal
+			);
+		}
+	}
+
+	if (fallbackShadowMap && fallbackRuntimeTarget) {
+		return sampleSoftwareShadow(
+			fallbackShadowMap,
+			fallbackRuntimeTarget,
+			worldPoint,
+			normal
+		);
+	}
+
+	return { r: 1, g: 1, b: 1 };
+}
+
 export function createSoftwareShadowSampler(
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
 	runtimeMap: SoftwareShadowRuntimeMap | null
@@ -80,10 +183,13 @@ export function createSoftwareShadowSampler(
 		if (!runtimeMap) return { r: 1, g: 1, b: 1 };
 
 		const shadowRenderSet = shadowMaps.get(light);
-		const shadowMap = shadowRenderSet ? getPrimaryShadowMap(shadowRenderSet) : null;
-		const runtimeTarget = runtimeMap.get(light);
-		if (!shadowMap || !runtimeTarget) return { r: 1, g: 1, b: 1 };
-
-		return sampleSoftwareShadow(shadowMap, runtimeTarget, worldPoint, normal);
+		if (!shadowRenderSet) return { r: 1, g: 1, b: 1 };
+		const runtimeTargets = runtimeMap.get(light);
+		return sampleFromRenderSet(
+			shadowRenderSet,
+			runtimeTargets,
+			worldPoint,
+			normal
+		);
 	};
 }

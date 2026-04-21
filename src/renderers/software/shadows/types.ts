@@ -10,5 +10,5 @@ export interface SoftwareShadowRenderTarget {
 
 export type SoftwareShadowRuntimeMap = Map<
 	ShadowCastingLight,
-	SoftwareShadowRenderTarget
+	SoftwareShadowRenderTarget[]
 >;

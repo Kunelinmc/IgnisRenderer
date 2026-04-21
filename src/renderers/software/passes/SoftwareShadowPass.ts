@@ -1,7 +1,6 @@
 import { Vector3 } from "../../../maths/Vector3";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { isShadowCastingLight } from "../../../lights";
-import { getPrimaryShadowMap } from "../../../lights/ShadowMapping";
 import { SoftwareShadowConstants } from "../shadows/constants";
 import { Projector } from "../Projector";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
@@ -12,6 +11,7 @@ import {
 	ensureSoftwareShadowRenderTarget,
 	setSoftwareShadowRuntimeMap,
 	syncSoftwareShadowRuntimeMap,
+	trimSoftwareShadowRuntimeTargets,
 	type SoftwareShadowRuntimeMap,
 } from "../shadows";
 
@@ -70,69 +70,91 @@ export class SoftwareShadowPass {
 
 		for (const shadowLight of shadowLights) {
 			const shadowRenderSet = shadowMaps.get(shadowLight);
-			const shadowMap = shadowRenderSet ? getPrimaryShadowMap(shadowRenderSet) : null;
-			if (!shadowMap) continue;
-
-			const vpMatrix = shadowMap.viewProjectionMatrix;
-			if (!vpMatrix) continue;
-
-			const lightDir = shadowMap.latestLightDir;
-			const shadowMapSize = shadowMap.size;
-			const shadowRuntime = ensureSoftwareShadowRenderTarget(
+			if (!shadowRenderSet || shadowRenderSet.slices.length <= 0) {
+				trimSoftwareShadowRuntimeTargets(
+					this._runtimeShadowMaps,
+					shadowLight,
+					0
+				);
+				continue;
+			}
+			trimSoftwareShadowRuntimeTargets(
 				this._runtimeShadowMaps,
 				shadowLight,
-				shadowMapSize
+				shadowRenderSet.slices.length
 			);
-			clearSoftwareShadowRenderTarget(shadowRuntime);
 
-			for (const packet of frame.shadowCasterPackets) {
-				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
-				const inv3x3 = Matrix4.inverse3x3(packet.worldMatrix);
-				if (!inv3x3) continue;
-
-				Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
-
-				for (const face of Projector.getPacketFacesWithContext(
-					packet,
-					context
-				)) {
-					const dot = Vector3.dot(
-						face.normal ?? Vector3.calculateNormal(face.vertices),
-						this._lightDirModel
-					);
-					if (!packet.material.doubleSided && dot > 0) continue;
-
-					const projected = this._projectFace(face.vertices, shadowMapSize);
-					if (!projected) continue;
-
-					this._rasterizer.drawDepthTriangle(
-						projected,
-						shadowRuntime,
-						packet.material
-					);
+			for (
+				let sliceIndex = 0;
+				sliceIndex < shadowRenderSet.slices.length;
+				sliceIndex++
+			) {
+				const shadowSlice = shadowRenderSet.slices[sliceIndex];
+				const shadowMap = shadowSlice.shadowMap;
+				const vpMatrix = shadowMap.viewProjectionMatrix;
+				if (!vpMatrix) {
+					continue;
 				}
-			}
 
-			for (const packet of frame.shadowTransmitterPackets) {
-				Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
+				const lightDir = shadowMap.latestLightDir;
+				const shadowMapSize = shadowMap.size;
+				const shadowRuntime = ensureSoftwareShadowRenderTarget(
+					this._runtimeShadowMaps,
+					shadowLight,
+					sliceIndex,
+					shadowMapSize
+				);
+				clearSoftwareShadowRenderTarget(shadowRuntime);
 
-				for (const face of Projector.getPacketFacesWithContext(
-					packet,
-					context
-				)) {
-					const projected = this._projectFace(face.vertices, shadowMapSize);
-					if (!projected) continue;
+				for (const packet of frame.shadowCasterPackets) {
+					Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
+					const inv3x3 = Matrix4.inverse3x3(packet.worldMatrix);
+					if (!inv3x3) continue;
 
-					this._rasterizer.drawTransmissionTriangle(
-						projected,
-						{
-							...face,
+					Matrix4.transformNormal(inv3x3, lightDir, this._lightDirModel);
+
+					for (const face of Projector.getPacketFacesWithContext(
+						packet,
+						context
+					)) {
+						const dot = Vector3.dot(
+							face.normal ?? Vector3.calculateNormal(face.vertices),
+							this._lightDirModel
+						);
+						if (!packet.material.doubleSided && dot > 0) continue;
+
+						const projected = this._projectFace(face.vertices, shadowMapSize);
+						if (!projected) continue;
+
+						this._rasterizer.drawDepthTriangle(
 							projected,
-							center: packet.worldBounds.center,
-							depthInfo: { min: 0, max: 0, avg: 0 },
-						},
-						shadowRuntime
-					);
+							shadowRuntime,
+							packet.material
+						);
+					}
+				}
+
+				for (const packet of frame.shadowTransmitterPackets) {
+					Matrix4.multiply(vpMatrix, packet.worldMatrix, this._mvpMatrix);
+
+					for (const face of Projector.getPacketFacesWithContext(
+						packet,
+						context
+					)) {
+						const projected = this._projectFace(face.vertices, shadowMapSize);
+						if (!projected) continue;
+
+						this._rasterizer.drawTransmissionTriangle(
+							projected,
+							{
+								...face,
+								projected,
+								center: packet.worldBounds.center,
+								depthInfo: { min: 0, max: 0, avg: 0 },
+							},
+							shadowRuntime
+						);
+					}
 				}
 			}
 		}

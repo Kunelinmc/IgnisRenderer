@@ -90,6 +90,61 @@ export function flattenShadowViewProjection(
 	return packed;
 }
 
+export function flattenShadowCascadeViewProjection(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const cascadesPerLight = 4;
+	const packed = new Float32Array(maxCount * cascadesPerLight * 16);
+	const count = Math.min(maxCount, values.length);
+	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
+		const shadow = values[lightIndex];
+		if (!shadow?.enabled) {
+			continue;
+		}
+		const cascades = shadow.cascadeViewProjectionMatrices ?? [];
+		for (
+			let cascadeIndex = 0;
+			cascadeIndex < Math.min(cascadesPerLight, cascades.length);
+			cascadeIndex++
+		) {
+			const matrix = cascades[cascadeIndex];
+			if (!matrix) {
+				continue;
+			}
+			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 16;
+			packed.set(toColumnMajorMat4(matrix), offset);
+		}
+	}
+	return packed;
+}
+
+export function flattenShadowCascadeSplits(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const cascadesPerLight = 4;
+	const packed = new Float32Array(maxCount * cascadesPerLight * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
+		const shadow = values[lightIndex];
+		const splits = shadow.cascadeSplits ?? [];
+		for (
+			let cascadeIndex = 0;
+			cascadeIndex < Math.min(cascadesPerLight, splits.length);
+			cascadeIndex++
+		) {
+			const split = splits[cascadeIndex];
+			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 4;
+			packed[offset] = finiteOr(split[0], 0);
+			packed[offset + 1] = finiteOr(split[1], 0);
+			packed[offset + 2] = finiteOr(split[2], 0);
+			packed[offset + 3] = finiteOr(split[3], 0);
+		}
+	}
+	return packed;
+}
+
 export function flattenShadowParamsA(
 	values: WebGLShadowData[],
 	maxCount: number
@@ -133,10 +188,17 @@ export function flattenShadowParamsC(
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
 		const offset = i * 4;
+		const isCSM =
+			shadow.enabled &&
+			shadow.strategyType === "csm" &&
+			shadow.cascadeCount > 1;
+		const cascadeCount =
+			isCSM ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
 		packed[offset] = finiteOr(shadow.slopeBias, 0);
-		packed[offset + 1] = 0;
-		packed[offset + 2] = 0;
-		packed[offset + 3] = 0;
+		packed[offset + 1] = isCSM ? 1 : 0;
+		packed[offset + 2] = cascadeCount;
+		packed[offset + 3] =
+			isCSM ? clamp(finiteOr(shadow.cascadeBlendRatio, 0), 0, 1) : 0;
 	}
 	return packed;
 }
@@ -182,7 +244,7 @@ export function getMaxShadowSize(values: WebGLShadowData[]): number {
 		if (!shadow.enabled || !shadow.shadowMap) {
 			continue;
 		}
-		maxSize = Math.max(maxSize, shadow.shadowMapSize | 0);
+		maxSize = Math.max(maxSize, shadow.shadowMapBaseSize | 0);
 	}
 	return maxSize;
 }

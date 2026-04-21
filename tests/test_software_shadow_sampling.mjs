@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { ShadowMap } from "../src/lights/ShadowMapping.ts";
+import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
 import { sampleSoftwareShadow } from "../src/renderers/software/shadows/sampling.ts";
+import { createSoftwareShadowSampler } from "../src/renderers/software/shadows/runtime.ts";
 
 function createShadowFixture(overrides = {}, size = 4) {
 	const shadowMap = new ShadowMap(size, {
@@ -122,11 +124,74 @@ function testPCSSPathHandlesBlockers() {
 	);
 }
 
+function testCSMSamplerUsesAvailableCascadeSlice() {
+	const light = new DirectionalLight();
+	light.castShadow = true;
+	light.shadow = {
+		strategy: "csm",
+		size: 8,
+		cascadeCount: 2,
+		params: {
+			shadowBias: 0,
+			shadowSlopeBias: 0,
+			shadowTexelBias: 0,
+			shadowMaxBias: 1,
+			shadowNormalBias: 0,
+			shadowNormalBiasMin: 0,
+			shadowPCF: 0,
+			shadowStrength: 1,
+			shadowSamples: 1,
+			shadowSearchSamples: 1,
+		},
+	};
+
+	const renderSet = createShadowRenderSet(light.shadow);
+	renderSet.effectiveStrategyType = "csm";
+	renderSet.slices[0].shadowMap.viewProjectionMatrix = null;
+	renderSet.slices[1].shadowMap.viewProjectionMatrix = Matrix4.identity();
+	renderSet.slices[1].shadowMap.projectionMatrix = Matrix4.identity();
+	renderSet.slices[1].shadowMap.latestLightDir = { x: 0, y: -1, z: 0 };
+
+	const sliceSize = renderSet.slices[1].shadowMap.size;
+	const inactiveRuntime = {
+		size: renderSet.slices[0].shadowMap.size,
+		depthBuffer: new Float32Array(renderSet.slices[0].shadowMap.size ** 2),
+		transmissionBuffer: new Float32Array(renderSet.slices[0].shadowMap.size ** 2 * 3),
+	};
+	inactiveRuntime.depthBuffer.fill(1);
+	inactiveRuntime.transmissionBuffer.fill(1);
+
+	const activeRuntime = {
+		size: sliceSize,
+		depthBuffer: new Float32Array(sliceSize * sliceSize),
+		transmissionBuffer: new Float32Array(sliceSize * sliceSize * 3),
+	};
+	activeRuntime.depthBuffer.fill(1);
+	activeRuntime.transmissionBuffer.fill(1);
+	const occludedIndex = 1 * sliceSize + 1;
+	activeRuntime.depthBuffer[occludedIndex] = -1;
+
+	const shadowSampler = createSoftwareShadowSampler(
+		new Map([[light, renderSet]]),
+		new Map([[light, [inactiveRuntime, activeRuntime]]])
+	);
+	const visibility = shadowSampler(
+		light,
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 }
+	);
+	assert.ok(
+		visibility.r < 0.01 && visibility.g < 0.01 && visibility.b < 0.01,
+		"CSM sampler should fall back to the first valid cascade slice"
+	);
+}
+
 function run() {
 	testBasicShadowOcclusion();
 	testTransmissionTintOnLitSamples();
 	testNormalBiasAffectsSamplingPosition();
 	testPCSSPathHandlesBlockers();
+	testCSMSamplerUsesAvailableCascadeSlice();
 	console.log("Software shadow sampling tests passed");
 }
 

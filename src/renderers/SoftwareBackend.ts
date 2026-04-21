@@ -18,7 +18,10 @@ import {
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
-import type { ShadowBackendCapabilities } from "../pipeline/ShadowStrategyRegistry";
+import {
+	selectCSMDirectionalLights,
+	type ShadowBackendCapabilities,
+} from "../pipeline/ShadowStrategyRegistry";
 import { FrameAttachments } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
@@ -42,8 +45,8 @@ type SoftwarePassHandler = (
 const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "software",
 	supportsSingleMap: true,
-	supportsDirectionalCSM: false,
-	maxCsmDirectionalLights: 0,
+	supportsDirectionalCSM: true,
+	maxCsmDirectionalLights: 1,
 };
 
 export class SoftwareBackend implements IRenderBackend {
@@ -227,12 +230,17 @@ export class SoftwareBackend implements IRenderBackend {
 			context.scene.sceneBounds,
 			context.scene.camera
 		);
+		const selectedCSMLights = selectCSMDirectionalLights(
+			shadowLights,
+			SOFTWARE_SHADOW_CAPABILITIES.maxCsmDirectionalLights
+		);
 		for (const shadowLight of shadowLights) {
 			const shadowRenderSet = context.shadowMaps.get(shadowLight);
 			if (shadowRenderSet) {
 				updateShadowMapMetadata(shadowRenderSet, shadowLight, shadowCasterBounds, {
 					camera: context.scene.camera,
 					backendCapabilities: SOFTWARE_SHADOW_CAPABILITIES,
+					allowCSMDirectionalLights: selectedCSMLights,
 					onWarning: (key, message) =>
 						Logger.warn(`[${key}] ${message}`, {
 							scope: "SoftwareBackend",

@@ -189,6 +189,8 @@ export interface WebGLSceneProgram {
 		spotLightColorInner: WebGLUniformLocation | null;
 		shadowAtlas: WebGLUniformLocation | null;
 		dirShadowViewProjection: WebGLUniformLocation | null;
+		dirShadowCascadeViewProjection: WebGLUniformLocation | null;
+		dirShadowCascadeSplits: WebGLUniformLocation | null;
 		dirShadowParamsA: WebGLUniformLocation | null;
 		dirShadowParamsB: WebGLUniformLocation | null;
 		dirShadowParamsC: WebGLUniformLocation | null;
@@ -696,6 +698,14 @@ export class WebGLProgramLibrary {
 				dirShadowViewProjection: this._gl.getUniformLocation(
 					program,
 					"uDirShadowViewProjection[0]",
+				),
+				dirShadowCascadeViewProjection: this._gl.getUniformLocation(
+					program,
+					"uDirShadowCascadeViewProjection[0]",
+				),
+				dirShadowCascadeSplits: this._gl.getUniformLocation(
+					program,
+					"uDirShadowCascadeSplits[0]",
 				),
 				dirShadowParamsA: this._gl.getUniformLocation(program, "uDirShadowParamsA[0]"),
 				dirShadowParamsB: this._gl.getUniformLocation(program, "uDirShadowParamsB[0]"),

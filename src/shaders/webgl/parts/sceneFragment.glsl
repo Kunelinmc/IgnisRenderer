@@ -90,6 +90,8 @@ uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
 uniform int uEnableShadows;
 uniform sampler2D uShadowAtlas;
 uniform mat4 uDirShadowViewProjection[MAX_DIRECTIONAL_LIGHTS];
+uniform mat4 uDirShadowCascadeViewProjection[MAX_DIRECTIONAL_LIGHTS * 4];
+uniform vec4 uDirShadowCascadeSplits[MAX_DIRECTIONAL_LIGHTS * 4];
 uniform vec4 uDirShadowParamsA[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsB[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsC[MAX_DIRECTIONAL_LIGHTS];
@@ -661,7 +663,10 @@ float sampleShadowVisibility(
 	vec4 paramsC,
 	vec3 worldPosition,
 	vec3 normal,
-	vec3 lightDirection
+	vec3 lightDirection,
+	float localTileX,
+	float localTileY,
+	float localTileSpan
 ) {
 	if (uEnableShadows == 0 || paramsA.x < 0.5) {
 		return 1.0;
@@ -670,8 +675,11 @@ float sampleShadowVisibility(
 		return 1.0;
 	}
 
-	float shadowSize = max(paramsB.z, 1.0);
-	float atlasTileSize = max(paramsB.w, shadowSize);
+	float requestedShadowSize = max(paramsB.z, 1.0);
+	float atlasTileSize = max(paramsB.w, requestedShadowSize);
+	float resolvedLocalTileSpan = max(localTileSpan, 1.0);
+	float subTileSize = max(floor(atlasTileSize / resolvedLocalTileSpan), 1.0);
+	float shadowSize = max(1.0, min(requestedShadowSize, subTileSize));
 	float slopeBias = max(paramsC.x, 0.0);
 	float maxNormalBias = max(paramsA.z, 0.0);
 	float minNormalBias = max(paramsA.w, 0.0);
@@ -710,7 +718,9 @@ float sampleShadowVisibility(
 		float(index);
 	float tileX = mod(tileIndex, atlasColumns);
 	float tileY = floor(tileIndex / atlasColumns);
-	vec2 tileOffset = vec2(tileX * atlasTileSize, tileY * atlasTileSize);
+	vec2 tileOffset =
+		vec2(tileX * atlasTileSize, tileY * atlasTileSize) +
+		vec2(localTileX * subTileSize, localTileY * subTileSize);
 	float visible = 0.0;
 	float sampleCount = 0.0;
 
@@ -744,23 +754,110 @@ float sampleShadowVisibility(
 	return 1.0 - strength + strength * filteredVisibility;
 }
 
+int resolveDirectionalCascadeIndex(
+	int index,
+	float linearDepth,
+	int cascadeCount
+) {
+	int selected = cascadeCount - 1;
+	for (int i = 0; i < 4; i++) {
+		if (i >= cascadeCount) {
+			break;
+		}
+		int packedIndex = index * 4 + i;
+		float splitFar = uDirShadowCascadeSplits[packedIndex].y;
+		if (linearDepth <= splitFar) {
+			selected = i;
+			break;
+		}
+	}
+	return selected;
+}
+
 float sampleDirectionalShadowVisibility(
 	int index,
 	vec3 worldPosition,
 	vec3 normal,
 	vec3 lightDirection
 ) {
-	return sampleShadowVisibility(
+	vec4 paramsA = uDirShadowParamsA[index];
+	vec4 paramsB = uDirShadowParamsB[index];
+	vec4 paramsC = uDirShadowParamsC[index];
+	bool isCSM = paramsC.y > 0.5 && paramsC.z > 1.5;
+	int cascadeCount = isCSM ?
+		int(clamp(floor(paramsC.z + 0.5), 1.0, 4.0)) :
+		1;
+	int cascadeIndex = isCSM ?
+		resolveDirectionalCascadeIndex(index, vViewDepth, cascadeCount) :
+		0;
+	int cascadePackedIndex = index * 4 + cascadeIndex;
+	vec4 cascadeSplit = uDirShadowCascadeSplits[cascadePackedIndex];
+	float localTileX = isCSM ?
+		clamp(floor(cascadeSplit.z + 0.5), 0.0, 1.0) :
+		0.0;
+	float localTileY = isCSM ?
+		clamp(floor(cascadeSplit.w + 0.5), 0.0, 1.0) :
+		0.0;
+	float localTileSpan = isCSM ? 2.0 : 1.0;
+	mat4 shadowViewProjection = isCSM ?
+		uDirShadowCascadeViewProjection[cascadePackedIndex] :
+		uDirShadowViewProjection[index];
+
+	float baseVisibility = sampleShadowVisibility(
 		0,
 		index,
-		uDirShadowViewProjection[index],
-		uDirShadowParamsA[index],
-		uDirShadowParamsB[index],
-		uDirShadowParamsC[index],
+		shadowViewProjection,
+		paramsA,
+		paramsB,
+		paramsC,
 		worldPosition,
 		normal,
-		lightDirection
+		lightDirection,
+		localTileX,
+		localTileY,
+		localTileSpan
 	);
+	if (!isCSM) {
+		return baseVisibility;
+	}
+
+	float blendRatio = clamp(paramsC.w, 0.0, 1.0);
+	bool hasBlend = blendRatio > EPSILON && (cascadeIndex + 1) < cascadeCount;
+	if (!hasBlend) {
+		return baseVisibility;
+	}
+
+	float cascadeRange = max(cascadeSplit.y - cascadeSplit.x, 0.0001);
+	float blendStart = cascadeSplit.y - cascadeRange * blendRatio;
+	if (vViewDepth <= blendStart) {
+		return baseVisibility;
+	}
+
+	int nextCascadeIndex = cascadeIndex + 1;
+	int nextPackedIndex = index * 4 + nextCascadeIndex;
+	vec4 nextCascadeSplit = uDirShadowCascadeSplits[nextPackedIndex];
+	float nextLocalTileX = clamp(floor(nextCascadeSplit.z + 0.5), 0.0, 1.0);
+	float nextLocalTileY = clamp(floor(nextCascadeSplit.w + 0.5), 0.0, 1.0);
+	float nextVisibility = sampleShadowVisibility(
+		0,
+		index,
+		uDirShadowCascadeViewProjection[nextPackedIndex],
+		paramsA,
+		paramsB,
+		paramsC,
+		worldPosition,
+		normal,
+		lightDirection,
+		nextLocalTileX,
+		nextLocalTileY,
+		2.0
+	);
+	float blendFactor = clamp(
+		(vViewDepth - blendStart) / max(cascadeSplit.y - blendStart, 0.0001),
+		0.0,
+		1.0
+	);
+	return mix(baseVisibility, nextVisibility, blendFactor);
 }
 
 float sampleSpotShadowVisibility(
@@ -778,7 +875,10 @@ float sampleSpotShadowVisibility(
 		uSpotShadowParamsC[index],
 		worldPosition,
 		normal,
-		lightDirection
+		lightDirection,
+		0.0,
+		0.0,
+		1.0
 	);
 }
 
