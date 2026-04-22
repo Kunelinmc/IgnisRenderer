@@ -21,7 +21,6 @@ import type {
 } from "../renderers/IComputeRuntime";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
-import { destroyResource } from "../renderers/webgpu/computeUtils";
 import { createTextureUploadData } from "../renderers/webgpu/texture";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
@@ -546,13 +545,24 @@ async function bakeMipLevelWithWebGPU(
 }
 
 function destroyMipResources(resources: EnvironmentIBLMipResources): void {
-	destroyResource(resources.paramsBuffer);
-	destroyResource(resources.outputTexture);
+	resources.paramsBuffer.destroy();
+	resources.outputTexture.destroy();
 }
 
 function destroyWebGPUResources(resources: EnvironmentIBLWebGPUResources): void {
-	destroyResource(resources.inputTexture);
-	destroyResource(resources.sampler);
+	resources.inputTexture.destroy();
+	const destroySampler = (
+		resources.sampler as { destroy?: () => void } | null
+	)?.destroy;
+	if (typeof destroySampler === "function") {
+		try {
+			destroySampler.call(resources.sampler);
+		} catch (error) {
+			const detail =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(`Failed to destroy EnvironmentIBL sampler: ${detail}`);
+		}
+	}
 	resources.kernel.destroy();
 	resources.runtime.destroy();
 }

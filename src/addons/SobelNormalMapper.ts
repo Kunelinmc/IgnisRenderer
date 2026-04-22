@@ -4,7 +4,6 @@ import { loadPostProcessShaderPart } from "../shaders/webgpu/shaderSource";
 import { WEBGPU_TEXTURE_SLOT } from "../renderers/webgpu/constants";
 import type { IWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
 import { resolveWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
-import { destroyResource } from "../renderers/webgpu/computeUtils";
 import type { IComputeKernel, IComputeRuntime } from "../renderers/IComputeRuntime";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
 import {
@@ -366,7 +365,7 @@ export class SobelNormalMapper {
 
 		if (this._destResource) {
 			this._computeFacade.unregisterExternalTexture(this._destTexture);
-			destroyResource(this._destResource);
+			this._destResource.destroy();
 		}
 
 		this._destTexture.width = width;

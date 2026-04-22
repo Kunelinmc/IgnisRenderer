@@ -1,7 +1,6 @@
 import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
 import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
-import { destroyResource } from "../computeUtils";
 import { Logger } from "../../../foundation/Logger";
 
 interface CachedBindGroup {
@@ -115,7 +114,19 @@ export class PostProcessSharedContext {
 	}
 
 	public destroyBindingGroup(group: IBindingGroup | null): void {
-		destroyResource(group);
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn !== "function") {
+			return;
+		}
+		try {
+			destroyFn.call(group);
+		} catch (error) {
+			const detail =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(
+				`Failed to destroy post-process binding group: ${detail}`
+			);
+		}
 	}
 
 	private _destroyCachedBindGroups(): void {

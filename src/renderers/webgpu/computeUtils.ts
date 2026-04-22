@@ -32,20 +32,6 @@ export function recordComputePass(
 	encoder.endComputePass();
 }
 
-export function destroyResource(resource: unknown): void {
-	const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-	if (typeof destroyFn !== "function") {
-		return;
-	}
-	try {
-		destroyFn.call(resource);
-	} catch (error) {
-		const detail =
-			error instanceof Error ? error.message : String(error);
-		throw new Error(`Failed to destroy resource: ${detail}`);
-	}
-}
-
 function assertPositiveInteger(value: number, name: string): number {
 	if (!Number.isInteger(value) || value <= 0) {
 		throw new Error(

@@ -41,7 +41,6 @@ import {
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeSource,
 } from "./ComputeFacade";
-import { destroyResource } from "./computeUtils";
 import { alignTo } from "./texture";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
 
@@ -234,7 +233,7 @@ export class ComputeRuntime implements IComputeRuntime {
 			};
 			pipeline = this._computeFacade.createComputePipeline(pipelineDesc);
 		} catch (error) {
-			destroyResource(module);
+			this._destroySafely(module, `${label}Module`);
 			throw error;
 		}
 
@@ -439,13 +438,13 @@ export class ComputeRuntime implements IComputeRuntime {
 			this._submitCommands([commandBuffer]);
 			ticketDone = this._context.queue.onSubmittedWorkDone();
 		} catch (error) {
-			destroyResource(bindGroup);
+			this._destroySafely(bindGroup, `${kernel.label} bind group`);
 			this._releaseRetainedOwnedResources(retained);
 			throw error;
 		}
 
 		const done = ticketDone.finally(() => {
-			destroyResource(bindGroup);
+			this._destroySafely(bindGroup, `${kernel.label} bind group`);
 			this._releaseRetainedOwnedResources(retained);
 		});
 		return {
@@ -603,7 +602,21 @@ export class ComputeRuntime implements IComputeRuntime {
 		this._ownedResources.delete(record);
 		this._ownedResourceByObject.delete(record.proxy);
 		this._ownedResourceByObject.delete(record.target);
-		destroyResource(record.target);
+		this._destroySafely(record.target, record.label);
+	}
+
+	private _destroySafely(resource: unknown, label: string): void {
+		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn !== "function") {
+			return;
+		}
+		try {
+			destroyFn.call(resource);
+		} catch (error) {
+			const detail =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(`Failed to destroy ${label}: ${detail}`);
+		}
 	}
 }
 

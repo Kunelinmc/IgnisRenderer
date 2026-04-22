@@ -8,7 +8,7 @@ import {
 	type IRenderBuffer,
 } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
-import { destroyResource, recordComputePass } from "./computeUtils";
+import { recordComputePass } from "./computeUtils";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_VOLUMETRIC,
@@ -565,7 +565,19 @@ export class WebGPUClusteredLightingRuntime {
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
-		destroyResource(group);
+		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn !== "function") {
+			return;
+		}
+		try {
+			destroyFn.call(group);
+		} catch (error) {
+			const detail =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(
+				`Failed to destroy clustered lighting binding group: ${detail}`
+			);
+		}
 	}
 }
 
