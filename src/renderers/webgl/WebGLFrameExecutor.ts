@@ -33,7 +33,6 @@ import {
 	type FogOptions,
 	type FrameContext,
 	type FramePass,
-	type InteractionTransientState,
 	type MotionBlurOptions,
 	type ParticleRenderBatch,
 	type SSAOOptions,
@@ -1848,7 +1847,7 @@ export class WebGLFrameExecutor {
 		}
 		const state = context.transient.get(
 			INTERACTION_TRANSIENT_STATE_KEY
-		) as InteractionTransientState | null | undefined;
+		);
 		const selectedEntityIds = state?.selectedEntityIds ?? [];
 		if (selectedEntityIds.length === 0) {
 			return;

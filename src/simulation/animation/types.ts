@@ -1,15 +1,19 @@
 import type { IPrimitiveGeometry } from "../../core/types";
 import type { Skeleton } from "../../animation/Skeleton";
+import { defineTransientKey } from "../../pipeline/types";
 
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
-	"pipeline:animation-delta-time-ms";
-export const ANIMATION_RUNTIME_POSE_KEY = "pipeline:animation-pose";
+	defineTransientKey<number>("pipeline:animation-delta-time-ms");
+export const ANIMATION_RUNTIME_POSE_KEY =
+	defineTransientKey<AnimationPoseState[]>("pipeline:animation-pose");
 export const ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY =
-	"pipeline:animation-software-deformed-geometry";
+	defineTransientKey<DeformedGeometryMap>(
+		"pipeline:animation-software-deformed-geometry"
+	);
 export const ANIMATION_WEBGPU_JOINT_MATRICES_KEY =
-	"pipeline:animation-webgpu-joint-matrices";
+	defineTransientKey<JointMatrixMap>("pipeline:animation-webgpu-joint-matrices");
 export const ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY =
-	"pipeline:animation-webgpu-morph-weights";
+	defineTransientKey<MorphWeightMap>("pipeline:animation-webgpu-morph-weights");
 
 export interface AnimationPoseState {
 	path: string;

@@ -89,7 +89,7 @@ export function renderWebGLParticles(
 
 	const batches = context.transient.get(
 		PARTICLE_TRANSIENT_BATCHES_KEY
-	) as ParticleRenderBatch[] | undefined;
+	);
 	if (!Array.isArray(batches) || batches.length === 0) {
 		return;
 	}

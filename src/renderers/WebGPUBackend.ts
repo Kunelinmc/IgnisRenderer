@@ -16,7 +16,6 @@ import {
 	type FrameContext,
 	type FramePass,
 	INTERACTION_TRANSIENT_STATE_KEY,
-	type InteractionTransientState,
 	isFogPostProcessEnabled,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
@@ -2390,7 +2389,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const interaction = context.transient.get(
 			INTERACTION_TRANSIENT_STATE_KEY
-		) as InteractionTransientState | null | undefined;
+		);
 		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
 			this._plannedPasses.add("interaction-outline");
 		}

@@ -17,9 +17,7 @@ const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
 
 export class SoftwareParticlePass implements SoftwarePassLike {
 	public render(context: FrameContext): void {
-		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
-			| ParticleRenderBatch[]
-			| undefined;
+		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
 		if (!batches || batches.length === 0) return;
 		if (!context.attachments.pixels || !context.attachments.depthBuffer) return;
 		const dirtyRects = resolveDirtyRects(context);

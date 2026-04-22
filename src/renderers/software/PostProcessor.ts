@@ -27,7 +27,6 @@ import {
 	resolveInteractionOutlineShape,
 } from "../../interaction/outlineShape";
 import type {
-	InteractionTransientState,
 	SSAOOptions,
 	VolumetricOptions,
 	FramePassStage,
@@ -1588,9 +1587,7 @@ export class PostProcessor implements PostProcessorLike {
 	}
 
 	public applyInteractionOutline(context: FrameContext): void {
-		const state = context.transient.get(
-			INTERACTION_TRANSIENT_STATE_KEY
-		) as InteractionTransientState | null | undefined;
+		const state = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 		if (!state || state.selectedEntityIds.length === 0) {
 			return;
 		}

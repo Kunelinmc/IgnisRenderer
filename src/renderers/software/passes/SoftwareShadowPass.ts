@@ -12,12 +12,17 @@ import {
 	type ShadowRenderSet,
 } from "../../../lights/ShadowMapping";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
-import type { FrameContext } from "../../../pipeline/types";
+import {
+	defineTransientKey,
+	type FrameContext,
+	type TransientStore,
+} from "../../../pipeline/types";
 import { Projector } from "../Projector";
 import type { Rasterizer } from "../Rasterizer";
 import type { SoftwarePassLike } from "./types";
 
-export const SOFTWARE_SHADOW_RUNTIME_KEY = "software-shadow-runtime";
+export const SOFTWARE_SHADOW_RUNTIME_KEY =
+	defineTransientKey<SoftwareShadowRuntimeMap>("software-shadow-runtime");
 
 export interface SoftwareShadowRenderTarget {
 	size: number;
@@ -64,14 +69,14 @@ export class SoftwareShadowConstants {
 }
 
 export function getSoftwareShadowRuntimeMap(
-	transient: Map<string, any>,
+	transient: TransientStore
 ): SoftwareShadowRuntimeMap | null {
-	return (transient.get(SOFTWARE_SHADOW_RUNTIME_KEY) as SoftwareShadowRuntimeMap) ?? null;
+	return transient.get(SOFTWARE_SHADOW_RUNTIME_KEY) ?? null;
 }
 
 export function setSoftwareShadowRuntimeMap(
-	transient: Map<string, any>,
-	runtimeMap: SoftwareShadowRuntimeMap,
+	transient: TransientStore,
+	runtimeMap: SoftwareShadowRuntimeMap
 ): void {
 	transient.set(SOFTWARE_SHADOW_RUNTIME_KEY, runtimeMap);
 }

@@ -324,13 +324,11 @@ export class WebGPURenderResources {
 	): void {
 		if (this._isFrameContext(contextOrScene)) {
 			this._jointMatrixMap =
-				(contextOrScene.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) as
-					| JointMatrixMap
-					| undefined) ?? null;
+				contextOrScene.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ??
+				null;
 			this._morphWeightMap =
-				(contextOrScene.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) as
-					| MorphWeightMap
-					| undefined) ?? null;
+				contextOrScene.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ??
+				null;
 		} else {
 			this._jointMatrixMap = null;
 			this._morphWeightMap = null;
@@ -726,9 +724,7 @@ export class WebGPURenderResources {
 		targets: WebGPUParticlePassTargets,
 		mode: WebGPUSceneTargetMode
 	): Promise<void> {
-		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
-			| ParticleRenderBatch[]
-			| undefined;
+		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
 		if (!batches || batches.length === 0) return;
 
 		const drawBatches = batches.filter((batch) => batch.particles.length > 0);

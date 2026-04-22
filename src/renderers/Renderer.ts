@@ -34,9 +34,9 @@ import {
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
+	createTransientStore,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	type InteractionTransientState,
 } from "../pipeline/types";
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
@@ -68,6 +68,7 @@ import type {
 	VolumetricOptions,
 	FramePass,
 	FrameContext,
+	TransientStore,
 } from "../pipeline/types";
 import type {
 	IRenderBackend,
@@ -90,7 +91,7 @@ export interface RendererEvents {
 			now: number;
 			deltaTime: number;
 			scene: Scene;
-			transient: Map<string, any>;
+			transient: TransientStore;
 		},
 	];
 	frameend: [{ now: number; deltaTime: number }];
@@ -102,7 +103,7 @@ export interface FrameTransientContributorContext {
 	deltaTime: number;
 	scene: Scene;
 	camera: Camera;
-	transient: Map<string, any>;
+	transient: TransientStore;
 }
 
 export type FrameTransientContributor = (
@@ -272,7 +273,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.camera.updateMatrices();
 		}
 
-		const transient = new Map<string, any>();
+		const transient = createTransientStore();
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, 0);
 
@@ -564,7 +565,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _createFrameContext(
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
 		resolved: ReturnType<typeof resolveFeatureState>,
-		transient: Map<string, any>,
+		transient: TransientStore,
 		incremental: IncrementalFrameContext
 	): FrameContext {
 		const attachments = this.backend.getAttachments(
@@ -678,7 +679,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		this._frameDirty = false;
 		const frameDirtyReasonMask = this._consumeDirtyReasonMask();
-		const transient = new Map<string, any>();
+		const transient = createTransientStore();
 		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, this._deltaTime);
@@ -1014,7 +1015,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		stage: string,
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
 		features: ReturnType<typeof resolveFeatureState>,
-		transient: Map<string, any>,
+		transient: TransientStore,
 		incremental?: IncrementalFrameContext
 	): boolean {
 		if (
@@ -1061,9 +1062,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			case "fxaa":
 				return features.enableFXAA;
 			case "interaction-outline": {
-				const interaction = transient.get(
-					INTERACTION_TRANSIENT_STATE_KEY
-				) as InteractionTransientState | null | undefined;
+				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 				return (interaction?.selectedEntityIds?.length ?? 0) > 0;
 			}
 			case "gamma":

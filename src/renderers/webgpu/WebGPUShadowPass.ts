@@ -18,8 +18,6 @@ import type {
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
-	type JointMatrixMap,
-	type MorphWeightMap,
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { WebGPUBackend } from "../WebGPUBackend";
@@ -575,13 +573,9 @@ export class WebGPUShadowPass {
 		context: FrameContext
 	): ShadowAnimationState {
 		const runtimeJointMap =
-			(context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) as
-				| JointMatrixMap
-				| undefined) ?? null;
+			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
 		const runtimeMorphMap =
-			(context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) as
-				| MorphWeightMap
-				| undefined) ?? null;
+			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
 		const runtimeJoint = runtimeJointMap?.get(packet.meshInstance.id) ?? null;
 		let jointMatrices: Float32Array | null = null;
 		if (runtimeJoint?.skeleton) {

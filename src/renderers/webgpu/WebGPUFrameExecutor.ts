@@ -2,9 +2,9 @@ import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
+	defineTransientKey,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	isFogPostProcessEnabled,
-	type InteractionTransientState,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -107,6 +107,13 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f3
 	return vec4<f32>(position, 1.0, 1.0);
 }
 `;
+
+const WEBGPU_TAA_HISTORY_VALID_KEY =
+	defineTransientKey<boolean>("webgpu-taa-history-valid");
+const WEBGPU_SSR_HISTORY_VALID_KEY =
+	defineTransientKey<boolean>("webgpu-ssr-history-valid");
+const WEBGPU_POST_ORDER_KEY =
+	defineTransientKey<string[]>("webgpu-post-order");
 
 interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -663,7 +670,7 @@ export class WebGPUFrameExecutor {
 				execute: async (ctx) => {
 					const interaction = ctx.frameContext.transient.get(
 						INTERACTION_TRANSIENT_STATE_KEY
-					) as InteractionTransientState | null | undefined;
+					);
 					if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
 						return;
 					}
@@ -1471,11 +1478,11 @@ export class WebGPUFrameExecutor {
 
 		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		context.transient.set(
-			"webgpu-taa-history-valid",
+			WEBGPU_TAA_HISTORY_VALID_KEY,
 			this._taaHistoryValid && this._motionHistoryValid
 		);
 		context.transient.set(
-			"webgpu-ssr-history-valid",
+			WEBGPU_SSR_HISTORY_VALID_KEY,
 			this._ssrHistoryValid && this._motionHistoryValid
 		);
 		const postContext: WebGPUPostProcessPassContext = {
@@ -1493,7 +1500,7 @@ export class WebGPUFrameExecutor {
 					onceKey: key,
 				})
 		);
-		context.transient.set("webgpu-post-order", executed);
+		context.transient.set(WEBGPU_POST_ORDER_KEY, executed);
 
 		if (!executed.includes("gamma")) {
 			await this._presentToCanvas(

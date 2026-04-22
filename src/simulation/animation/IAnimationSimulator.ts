@@ -1,8 +1,9 @@
 import type { Scene } from "../../core/Scene";
+import type { TransientStore } from "../../pipeline/types";
 
 export interface AnimationSimulationContext {
 	scene: Scene;
-	transient: Map<string, any>;
+	transient: TransientStore;
 }
 
 export interface IAnimationSimulator {

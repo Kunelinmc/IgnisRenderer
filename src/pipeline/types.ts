@@ -14,6 +14,29 @@ import type {
 } from "../core/types";
 import type { MeshAsset, MeshInstance } from "../meshes";
 
+export type TransientKey<TValue, TName extends string = string> = TName & {
+	readonly __transientValueType?: TValue;
+};
+
+export function defineTransientKey<TValue, TName extends string = string>(
+	name: TName
+): TransientKey<TValue, TName> {
+	return name as TransientKey<TValue, TName>;
+}
+
+export interface TransientStore extends Map<string, unknown> {
+	get<TValue>(key: TransientKey<TValue>): TValue | undefined;
+	get(key: string): unknown;
+	set<TValue>(key: TransientKey<TValue>, value: TValue): this;
+	set(key: string, value: unknown): this;
+}
+
+export function createTransientStore(
+	entries?: Iterable<readonly [string, unknown]>
+): TransientStore {
+	return new Map<string, unknown>(entries) as TransientStore;
+}
+
 export const DRAW_PACKET_FLAG_TRANSPARENT = 1 << 0;
 export const DRAW_PACKET_FLAG_SHADOW_CASTER = 1 << 1;
 export const DRAW_PACKET_FLAG_SHADOW_TRANSMITTER = 1 << 2;
@@ -43,12 +66,14 @@ export interface PreparedSceneSpatialIndex {
 
 import type { Texture } from "../core/Texture";
 
-export const PARTICLE_TRANSIENT_BATCHES_KEY = "pipeline:particle-batches";
+export const PARTICLE_TRANSIENT_BATCHES_KEY =
+	defineTransientKey<ParticleRenderBatch[]>("pipeline:particle-batches");
 export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
-	"pipeline:particle-delta-time-seconds";
+	defineTransientKey<number>("pipeline:particle-delta-time-seconds");
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
-	"pipeline:animation-delta-time-ms";
-export const INTERACTION_TRANSIENT_STATE_KEY = "pipeline:interaction-state";
+	defineTransientKey<number>("pipeline:animation-delta-time-ms");
+export const INTERACTION_TRANSIENT_STATE_KEY =
+	defineTransientKey<InteractionTransientState>("pipeline:interaction-state");
 
 export const INTERACTION_OUTLINE_SHAPES = [
 	"circle",
@@ -149,7 +174,7 @@ export interface FrameContext {
 	readonly worldMatrix: Matrix4;
 	readonly incremental: IncrementalFrameContext;
 	/** Pass-specific transient data */
-	readonly transient: Map<string, any>;
+	readonly transient: TransientStore;
 }
 
 export const BUILTIN_FRAME_PASS_STAGES = [

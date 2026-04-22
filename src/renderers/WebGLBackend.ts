@@ -4,7 +4,6 @@ import {
 	isFogPostProcessEnabled,
 	type FrameContext,
 	type FramePass,
-	type InteractionTransientState,
 } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
@@ -422,7 +421,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const interaction = context.transient.get(
 			INTERACTION_TRANSIENT_STATE_KEY
-		) as InteractionTransientState | null | undefined;
+		);
 		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
 			this._plannedPasses.add("interaction-outline");
 		}

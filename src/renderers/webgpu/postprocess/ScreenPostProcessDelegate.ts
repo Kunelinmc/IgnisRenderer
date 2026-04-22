@@ -6,7 +6,6 @@ import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	type FogOptions,
-	type InteractionTransientState,
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
@@ -722,10 +721,7 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	): Promise<void> {
 		const interactionState =
 			request.state ??
-			(request.frameContext.transient.get(INTERACTION_TRANSIENT_STATE_KEY) as
-				| InteractionTransientState
-				| null
-				| undefined) ??
+			request.frameContext.transient.get(INTERACTION_TRANSIENT_STATE_KEY) ??
 			null;
 		const selectedEntityIds = interactionState?.selectedEntityIds ?? [];
 		if (selectedEntityIds.length === 0) {

@@ -19,6 +19,7 @@ import { deformPrimitiveGeometry } from "./SoftwareAnimationDeformer";
 import type { MeshInstance } from "../../meshes";
 import type { KeyframeTrack } from "../../animation/KeyframeTrack";
 import type { Scene } from "../../core/Scene";
+import type { TransientStore } from "../../pipeline/types";
 
 interface TrackAccumulator {
 	track: KeyframeTrack;
@@ -42,7 +43,7 @@ export class AnimationRuntime {
 	public update(
 		system: AnimationSystem,
 		deltaSeconds: number,
-		transient: Map<string, any>,
+		transient: TransientStore,
 		scene?: Scene
 	): void {
 		const dt = Math.max(0, deltaSeconds);
