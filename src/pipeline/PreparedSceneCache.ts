@@ -96,9 +96,41 @@ export class PreparedSceneCache {
 		const currentPacketStateById = new Map<string, CachedPacketState>();
 		const dirtyCandidates: DirtyRect[] = [];
 		const visited = new Set<string>();
-		const packets = collectVisiblePackets(frame);
 
-		for (const packet of packets) {
+		for (let index = 0; index < frame.opaquePackets.length; index++) {
+			const packet = frame.opaquePackets[index];
+			const signature = buildPacketSignature(packet);
+			const rect = computePacketScreenRect(packet, frame.camera, width, height);
+			if (rect) {
+				packetRects.set(packet.id, rect);
+			}
+			const currentState: CachedPacketState = {
+				signature,
+				rect,
+			};
+			currentPacketStateById.set(packet.id, currentState);
+			visited.add(packet.id);
+
+			const previous = this._packetStateById.get(packet.id);
+			if (!previous) {
+				if (rect) {
+					dirtyCandidates.push(rect);
+				}
+				continue;
+			}
+
+			if (previous.signature !== signature) {
+				if (previous.rect) {
+					dirtyCandidates.push(previous.rect);
+				}
+				if (rect) {
+					dirtyCandidates.push(rect);
+				}
+			}
+		}
+
+		for (let index = 0; index < frame.transparentPackets.length; index++) {
+			const packet = frame.transparentPackets[index];
 			const signature = buildPacketSignature(packet);
 			const rect = computePacketScreenRect(packet, frame.camera, width, height);
 			if (rect) {
@@ -254,7 +286,19 @@ export class PreparedSceneCache {
 		height: number
 	): void {
 		const next = new Map<string, CachedPacketState>();
-		for (const packet of collectVisiblePackets(frame)) {
+		for (let index = 0; index < frame.opaquePackets.length; index++) {
+			const packet = frame.opaquePackets[index];
+			const rect = computePacketScreenRect(packet, frame.camera, width, height);
+			if (rect) {
+				packetRects.set(packet.id, rect);
+			}
+			next.set(packet.id, {
+				signature: buildPacketSignature(packet),
+				rect,
+			});
+		}
+		for (let index = 0; index < frame.transparentPackets.length; index++) {
+			const packet = frame.transparentPackets[index];
 			const rect = computePacketScreenRect(packet, frame.camera, width, height);
 			if (rect) {
 				packetRects.set(packet.id, rect);
@@ -284,10 +328,6 @@ export class PreparedSceneCache {
 			transparentPackets: frame.transparentPackets,
 		});
 	}
-}
-
-function collectVisiblePackets(frame: PreparedScene): DrawPacket[] {
-	return [...frame.opaquePackets, ...frame.transparentPackets];
 }
 
 function buildPacketSignature(packet: DrawPacket): string {
