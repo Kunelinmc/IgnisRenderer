@@ -681,8 +681,8 @@ function resolveWebGPUComputeContext(
 		visited.add(objectCurrent);
 
 		const candidate = current as {
-			device?: GPUDevice;
-			queue?: GPUQueue;
+			device?: GPUDevice | null;
+			queue?: GPUQueue | null;
 			backend?: unknown;
 			getComputeFacade?: () => unknown;
 		};

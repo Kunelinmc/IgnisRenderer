@@ -164,7 +164,13 @@ export class WebGPURenderResources {
 		this._renderer = renderer;
 		this._backend = backend;
 		const computeFacade = resolveWebGPUComputeFacade(backend);
-		this._layouts = createWebGPUPipelineLayouts(backend.device);
+		const device = backend.device;
+		if (!device) {
+			throw new Error(
+				"WebGPU backend is not initialized; cannot create render resources."
+			);
+		}
+		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend);
 		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);

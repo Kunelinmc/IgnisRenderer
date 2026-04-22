@@ -286,8 +286,10 @@ export class WebGPUShadowPass {
 
 		this._frameId++;
 		this._drawResourceCursor = 0;
+		const device = this._requireBackendDevice();
+		const queue = this._requireBackendQueue();
 
-		const commandEncoder = this._backend.device.createCommandEncoder({
+		const commandEncoder = device.createCommandEncoder({
 			label: "WebGPUShadowEncoder",
 		});
 		const passEncoder = commandEncoder.beginRenderPass({
@@ -361,7 +363,7 @@ export class WebGPUShadowPass {
 		}
 
 		passEncoder.end();
-		this._backend.queue.submit([commandEncoder.finish()]);
+		queue.submit([commandEncoder.finish()]);
 		this._trimDrawResources();
 		this._trimAnimationResources();
 	}
@@ -464,6 +466,8 @@ export class WebGPUShadowPass {
 		if (!this._animationBindGroupLayout || !this._fallbackStorageBuffer) {
 			return null;
 		}
+		const device = this._requireBackendDevice();
+		const queue = this._requireBackendQueue();
 
 		const key = packet.id;
 		let entry = this._animationBindings.get(key);
@@ -488,7 +492,7 @@ export class WebGPUShadowPass {
 		let needsRebind = false;
 		if (jointCapacity > entry.jointCapacity) {
 			entry.jointBuffer.destroy();
-			entry.jointBuffer = this._backend.device.createBuffer({
+			entry.jointBuffer = device.createBuffer({
 				label: `WebGPUShadowJointBuffer_${key}`,
 				size: jointCapacity * 16 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -498,7 +502,7 @@ export class WebGPUShadowPass {
 		}
 		if (morphCapacity > entry.morphCapacity) {
 			entry.morphWeightBuffer.destroy();
-			entry.morphWeightBuffer = this._backend.device.createBuffer({
+			entry.morphWeightBuffer = device.createBuffer({
 				label: `WebGPUShadowMorphWeightBuffer_${key}`,
 				size: morphCapacity * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -507,13 +511,13 @@ export class WebGPUShadowPass {
 			needsRebind = true;
 		}
 
-		this._backend.queue.writeBuffer(
+		queue.writeBuffer(
 			entry.paramsBuffer,
 			0,
 			new Float32Array([jointCount, morphCount, 0, 0])
 		);
 		if (jointCount > 0 && state.jointMatrices) {
-			this._backend.queue.writeBuffer(
+			queue.writeBuffer(
 				entry.jointBuffer,
 				0,
 				state.jointMatrices.subarray(
@@ -523,7 +527,7 @@ export class WebGPUShadowPass {
 			);
 		}
 		if (morphCount > 0 && state.morphWeights) {
-			this._backend.queue.writeBuffer(
+			queue.writeBuffer(
 				entry.morphWeightBuffer,
 				0,
 				state.morphWeights.subarray(0, morphCount) as Float32Array<ArrayBuffer>
@@ -538,7 +542,7 @@ export class WebGPUShadowPass {
 		}
 
 		if (!entry.bindGroup || needsRebind) {
-			entry.bindGroup = this._backend.device.createBindGroup({
+			entry.bindGroup = device.createBindGroup({
 				label: `WebGPUShadowAnimationBinding_${key}`,
 				layout: this._animationBindGroupLayout,
 				entries: [
@@ -648,7 +652,7 @@ export class WebGPUShadowPass {
 		data[13] = elements[1][3];
 		data[14] = elements[2][3];
 		data[15] = elements[3][3];
-		this._backend.queue.writeBuffer(buffer, 0, data);
+		this._requireBackendQueue().writeBuffer(buffer, 0, data);
 	}
 
 	private _collectShadowSlots(
@@ -760,7 +764,8 @@ export class WebGPUShadowPass {
 			return;
 		}
 
-		const device = this._backend.device;
+		const device = this._requireBackendDevice();
+		const queue = this._requireBackendQueue();
 		if (!this._shaderModule) {
 			if (!this._shaderModulePromise) {
 				const composite = createInlineCompositeShaderSource(
@@ -847,7 +852,7 @@ export class WebGPUShadowPass {
 				size: 16,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
-			this._backend.queue.writeBuffer(
+			queue.writeBuffer(
 				this._fallbackStorageBuffer,
 				0,
 				new Float32Array(4)
@@ -913,13 +918,14 @@ export class WebGPUShadowPass {
 		group: GPUBindGroup;
 	} | null {
 		if (!this._bindGroupLayout) return null;
+		const device = this._requireBackendDevice();
 
 		const slot = this._drawResourceCursor++;
 		let buffer = this._drawUniformBuffers[slot];
 		let group = this._drawBindGroups[slot];
 
 		if (!buffer) {
-			buffer = this._backend.device.createBuffer({
+			buffer = device.createBuffer({
 				label: `WebGPUShadowDepthUniforms_${slot}`,
 				size: 16 * 4,
 				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -928,7 +934,7 @@ export class WebGPUShadowPass {
 		}
 
 		if (!group) {
-			group = this._backend.device.createBindGroup({
+			group = device.createBindGroup({
 				label: `WebGPUShadowDepthBindGroup_${slot}`,
 				layout: this._bindGroupLayout,
 				entries: [
@@ -947,18 +953,19 @@ export class WebGPUShadowPass {
 	private _createAnimationBindingEntry(
 		key: string
 	): ShadowAnimationBindingEntry {
+		const device = this._requireBackendDevice();
 		return {
-			paramsBuffer: this._backend.device.createBuffer({
+			paramsBuffer: device.createBuffer({
 				label: `WebGPUShadowAnimationParams_${key}`,
 				size: 16,
 				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 			}),
-			jointBuffer: this._backend.device.createBuffer({
+			jointBuffer: device.createBuffer({
 				label: `WebGPUShadowJointBuffer_${key}`,
 				size: 16 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			}),
-			morphWeightBuffer: this._backend.device.createBuffer({
+			morphWeightBuffer: device.createBuffer({
 				label: `WebGPUShadowMorphWeightBuffer_${key}`,
 				size: 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -969,6 +976,26 @@ export class WebGPUShadowPass {
 			morphPositionBuffer: null,
 			lastUsedFrame: this._frameId,
 		};
+	}
+
+	private _requireBackendDevice(): GPUDevice {
+		const device = this._backend.device;
+		if (!device) {
+			throw new Error(
+				"WebGPU backend is not initialized; shadow pass requires an active GPU device."
+			);
+		}
+		return device;
+	}
+
+	private _requireBackendQueue(): GPUQueue {
+		const queue = this._backend.queue;
+		if (!queue) {
+			throw new Error(
+				"WebGPU backend is not initialized; shadow pass requires an active GPU queue."
+			);
+		}
+		return queue;
 	}
 
 	private _trimDrawResources(): void {

@@ -34,7 +34,7 @@ type ResolveTextureForSlotMethod = (
 
 interface IWebGPUBackendLike {
 	type?: unknown;
-	device?: GPUDevice;
+	device?: GPUDevice | null;
 	createSampler?: (desc: SamplerDesc) => ISampler;
 	createShaderModule?: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
 	createComputePipeline?: (desc: ComputePipelineDesc) => IComputePipeline;
@@ -293,7 +293,7 @@ interface AdaptedFacadeOps {
 		mipLevelCount?: number
 	) => void;
 	unregisterExternalTexture: (texture: Texture) => void;
-	layoutDeviceSource: { device?: GPUDevice };
+	layoutDeviceSource: { device?: GPUDevice | null };
 }
 
 function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
@@ -578,7 +578,7 @@ function tryCreateFacadeFromBackendLike(
 }
 
 function resolveLayoutDevice(
-	source: { device?: GPUDevice },
+	source: { device?: GPUDevice | null },
 	operation: "createBindGroupLayout" | "createPipelineLayout"
 ): GPUDevice {
 	const device = source.device;

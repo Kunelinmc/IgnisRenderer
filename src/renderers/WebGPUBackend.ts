@@ -304,8 +304,8 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public canvas: HTMLCanvasElement | null = null;
 	public context: GPUCanvasContext | null = null;
-	public device!: GPUDevice;
-	public queue!: GPUQueue;
+	public device: GPUDevice | null = null;
+	public queue: GPUQueue | null = null;
 	public canvasFormat: GPUTextureFormat = "bgra8unorm";
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
@@ -494,7 +494,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 
 		try {
-			this._errorScopes = new WebGPUErrorScopeHelper(this.device);
+			this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
 			this.canvasDepthFormat = this._selectCanvasDepthFormat();
 			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 			this._msaaSampleCount = this._selectMSAASampleCount();
@@ -1448,11 +1448,13 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 		}
 		this._deviceLossPromise = null;
-		this.device = undefined as unknown as GPUDevice;
-		this.queue = undefined as unknown as GPUQueue;
+		this.device = null;
+		this.queue = null;
 	}
 
-	private _assertDeviceOperational(operation: string): void {
+	private _assertDeviceOperational(
+		operation: string
+	): asserts this is this & { device: GPUDevice; queue: GPUQueue } {
 		if (this._deviceLost) {
 			const reason =
 				(
@@ -2500,6 +2502,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _getCopyCommandEncoder(): GPUCommandEncoder {
+		this._assertDeviceOperational("encode copy commands");
 		if (!this._copyCommandEncoder) {
 			this._copyCommandEncoder = this.device.createCommandEncoder({
 				label: "WebGPUCopyBatchEncoder",
@@ -2525,6 +2528,9 @@ export class WebGPUBackend implements IRenderBackend {
 	private _submitPendingCopyCommands(): void {
 		const commandBuffer = this._flushPendingCopyCommandBuffer();
 		if (!commandBuffer) {
+			return;
+		}
+		if (!this.queue) {
 			return;
 		}
 		this._runValidationScope("queue.submit.copyBatch", () => {
@@ -2560,6 +2566,9 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _selectCanvasDepthFormat(): TextureFormat {
+		if (!this.device) {
+			return TextureFormat.Depth24Plus;
+		}
 		const candidates: TextureFormat[] = [
 			TextureFormat.Depth24Plus,
 			TextureFormat.Depth32Float,
@@ -2794,8 +2803,12 @@ export class WebGPUBackend implements IRenderBackend {
 		sampleCount: number,
 		format: GPUTextureFormat
 	): boolean {
+		const device = this.device;
+		if (!device) {
+			return false;
+		}
 		try {
-			const probeTexture = this.device.createTexture({
+			const probeTexture = device.createTexture({
 				size: [1, 1, 1],
 				sampleCount,
 				format,
@@ -2818,34 +2831,39 @@ export class WebGPUBackend implements IRenderBackend {
 		this._timestampPairs = [];
 		this._timestampResults.clear();
 		this._timestampReadPending = false;
-		const queueWithTimestamp = this.queue as GPUQueue & {
+		const queue = this.queue;
+		if (!queue) {
+			return;
+		}
+		const queueWithTimestamp = queue as GPUQueue & {
 			getTimestampPeriod?: () => number;
 		};
 		this._timestampPeriodNs =
 			typeof queueWithTimestamp.getTimestampPeriod === "function" ?
 				queueWithTimestamp.getTimestampPeriod()
 			:	1;
-		if (!this.device || typeof this.device.createQuerySet !== "function") {
+		const device = this.device;
+		if (!device || typeof device.createQuerySet !== "function") {
 			return;
 		}
 		if (
-			typeof this.device.features?.has === "function" &&
-			!this.device.features.has("timestamp-query" as GPUFeatureName)
+			typeof device.features?.has === "function" &&
+			!device.features.has("timestamp-query" as GPUFeatureName)
 		) {
 			return;
 		}
 		try {
-			this._timestampQuerySet = this.device.createQuerySet({
+			this._timestampQuerySet = device.createQuerySet({
 				type: "timestamp",
 				count: WEBGPU_TIMESTAMP_QUERY_CAPACITY,
 			});
-			this._timestampResolveBuffer = this.device.createBuffer({
+			this._timestampResolveBuffer = device.createBuffer({
 				label: "WebGPUTimestampResolveBuffer",
 				size:
 					WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
 				usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
 			});
-			this._timestampReadBuffer = this.device.createBuffer({
+			this._timestampReadBuffer = device.createBuffer({
 				label: "WebGPUTimestampReadBuffer",
 				size:
 					WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
@@ -2887,6 +2905,9 @@ export class WebGPUBackend implements IRenderBackend {
 			return undefined;
 		}
 		const pairs = this._timestampPairs.slice();
+		if (!this.device) {
+			return undefined;
+		}
 		const resolveEncoder = this.device.createCommandEncoder({
 			label: "WebGPUTimestampResolveEncoder",
 		});
@@ -3049,7 +3070,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _configureContext(): void {
-		if (!this.context || !this.canvas) {
+		if (!this.context || !this.canvas || !this.device) {
 			return;
 		}
 
