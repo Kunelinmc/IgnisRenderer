@@ -1,4 +1,5 @@
 import {
+	FRAME_PASS_DEPENDENCIES,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	isFogPostProcessEnabled,
@@ -55,27 +56,6 @@ const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"gamma",
 ] as const;
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
-const WEBGL_PASS_DEPENDENCIES = new Map<
-	FramePass["stage"],
-	readonly FramePass["stage"][]
->([
-	["shadow", ["particle-sim"]],
-	["main-opaque", ["reflection", "shadow"]],
-	["main-transparent", ["main-opaque"]],
-	["particles", ["main-transparent"]],
-	["ssao", ["particles"]],
-	["ssgi", ["ssao"]],
-	["taa", ["ssgi", "ssao"]],
-	["ssr", ["taa"]],
-	["volumetric", ["ssr"]],
-	["fog", ["volumetric"]],
-	["motion-blur", ["fog"]],
-	["dof", ["motion-blur"]],
-	["bloom", ["dof"]],
-	["fxaa", ["bloom"]],
-	["interaction-outline", ["fxaa"]],
-	["gamma", ["interaction-outline"]],
-]);
 
 export interface WebGLBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
@@ -503,7 +483,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _resolvePassDependencies(
 		stage: FramePass["stage"]
 	): FramePass["stage"][] {
-		const dependencies = WEBGL_PASS_DEPENDENCIES.get(stage);
+		const dependencies = FRAME_PASS_DEPENDENCIES.get(stage);
 		return dependencies ? Array.from(dependencies) : [];
 	}
 

@@ -12,6 +12,7 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import {
+	FRAME_PASS_DEPENDENCIES,
 	type FrameAttachments,
 	type FrameContext,
 	type FramePass,
@@ -255,28 +256,6 @@ function resolveWebGPUBackendCtorArgs(
 		options: fallbackOptions,
 	};
 }
-const WEBGPU_PASS_DEPENDENCIES = new Map<
-	FramePass["stage"],
-	readonly FramePass["stage"][]
->([
-	["shadow", ["particle-sim"]],
-	["main-opaque", ["reflection", "shadow"]],
-	["main-transparent", ["main-opaque"]],
-	["particles", ["main-transparent"]],
-	["ssao", ["particles"]],
-	["ssgi", ["ssao"]],
-	["taa", ["ssgi", "ssao"]],
-	["ssr", ["taa"]],
-	["volumetric", ["ssr"]],
-	["fog", ["volumetric"]],
-	["motion-blur", ["fog"]],
-	["dof", ["motion-blur"]],
-	["bloom", ["dof"]],
-	["fxaa", ["bloom"]],
-	["interaction-outline", ["fxaa"]],
-	["gamma", ["interaction-outline"]],
-]);
-
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
@@ -2473,7 +2452,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _resolvePassDependencies(
 		stage: FramePass["stage"]
 	): FramePass["stage"][] {
-		const dependencies = WEBGPU_PASS_DEPENDENCIES.get(stage);
+		const dependencies = FRAME_PASS_DEPENDENCIES.get(stage);
 		return dependencies ? Array.from(dependencies) : [];
 	}
 

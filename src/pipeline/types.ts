@@ -209,6 +209,28 @@ export interface FramePass {
 	precompileHints?: string[];
 }
 
+export const FRAME_PASS_DEPENDENCIES = new Map<
+	FramePass["stage"],
+	readonly FramePass["stage"][]
+>([
+	["shadow", ["particle-sim"]],
+	["main-opaque", ["reflection", "shadow"]],
+	["main-transparent", ["main-opaque"]],
+	["particles", ["main-transparent"]],
+	["ssao", ["particles"]],
+	["ssgi", ["ssao"]],
+	["taa", ["ssgi", "ssao"]],
+	["ssr", ["taa"]],
+	["volumetric", ["ssr"]],
+	["fog", ["volumetric"]],
+	["motion-blur", ["fog"]],
+	["dof", ["motion-blur"]],
+	["bloom", ["dof"]],
+	["fxaa", ["bloom"]],
+	["interaction-outline", ["fxaa"]],
+	["gamma", ["interaction-outline"]],
+]);
+
 export interface VolumetricOptions {
 	samples?: number;
 	downsample?: number;
