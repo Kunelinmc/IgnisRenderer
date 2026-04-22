@@ -3,7 +3,6 @@ import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	defineTransientKey,
-	INTERACTION_TRANSIENT_STATE_KEY,
 	isFogPostProcessEnabled,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
@@ -35,6 +34,7 @@ import {
 	type WebGPUPostProcessPassPlugin,
 } from "./WebGPUPostProcessGraph";
 import { WebGPUPostProcessRuntime } from "./WebGPUPostProcessRuntime";
+import { createWebGPUDefaultPostProcessPasses } from "./WebGPUDefaultPostProcessPasses";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
 	WarmupPhaseCounters,
@@ -189,7 +189,29 @@ export class WebGPUFrameExecutor {
 				}),
 			resources.sceneFrameLayout
 		);
-		this._postGraph = new WebGPUPostProcessGraph(this._createDefaultPasses());
+		this._postGraph = new WebGPUPostProcessGraph(
+			createWebGPUDefaultPostProcessPasses({
+				executeRuntimePass: (request) =>
+					this._postRuntime.executePass(request),
+				getFrameBinding: () => this._resources.getFrameBinding(),
+				getLightingState: () => this._resources.getLightingState(),
+				presentToCanvas: (source, applyGamma) =>
+					this._presentToCanvas(source, applyGamma),
+				getTAAHistoryValid: () => this._taaHistoryValid,
+				getSSRHistoryValid: () => this._ssrHistoryValid,
+				getVolumetricHistoryValid: () => this._volumetricHistoryValid,
+				getMotionHistoryValid: () => this._motionHistoryValid,
+				setTAAHistoryUpdated: (updated) => {
+					this._taaHistoryUpdated = updated;
+				},
+				setSSRHistoryUpdated: (updated) => {
+					this._ssrHistoryUpdated = updated;
+				},
+				setVolumetricHistoryUpdated: (updated) => {
+					this._volumetricHistoryUpdated = updated;
+				},
+			})
+		);
 		this._passHandlers = this._createPassHandlers();
 	}
 
@@ -489,211 +511,6 @@ export class WebGPUFrameExecutor {
 			handlers.set(stage, runPostProcess);
 		}
 		return handlers;
-	}
-
-	private _createDefaultPasses(): WebGPUPostProcessPassPlugin[] {
-		return [
-			{
-				id: "ssao",
-				kind: "compute",
-				dependsOn: [],
-				precompileHints: ["postprocess:ssao"],
-				isEnabled: (features) => features.enableSSAO,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "ssao",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "ssgi",
-				kind: "compute",
-				dependsOn: ["ssao"],
-				precompileHints: ["postprocess:ssgi"],
-				isEnabled: (features) => features.enableSSGI,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "ssgi",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "taa",
-				kind: "compute",
-				dependsOn: ["ssgi", "ssao"],
-				precompileHints: ["postprocess:taa"],
-				isEnabled: (features) => features.enableTAA,
-				execute: async (ctx) => {
-					const historyValid =
-						this._taaHistoryValid && this._motionHistoryValid;
-					const result = await this._postRuntime.executePass({
-						passId: "taa",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-						historyValid,
-					});
-					this._taaHistoryUpdated = result.historyUpdated === true;
-				},
-			},
-			{
-				id: "ssr",
-				kind: "compute",
-				dependsOn: ["taa"],
-				precompileHints: ["postprocess:ssr", "postprocess:hiz"],
-				isEnabled: (features) => features.enableSSR,
-				execute: async (ctx) => {
-					const historyValid =
-						this._ssrHistoryValid && this._motionHistoryValid;
-					const result = await this._postRuntime.executePass({
-						passId: "ssr",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-						historyValid,
-						frameBinding: this._resources.getFrameBinding(),
-					});
-					this._ssrHistoryUpdated = result.historyUpdated === true;
-				},
-			},
-			{
-				id: "volumetric",
-				kind: "compute",
-				dependsOn: ["ssr"],
-				precompileHints: ["postprocess:volumetric", "postprocess:hiz"],
-				isEnabled: (features) => features.enableVolumetric,
-				execute: async (ctx) => {
-					const historyValid =
-						this._volumetricHistoryValid && this._motionHistoryValid;
-					const lightingState = this._resources.getLightingState();
-					const result = await this._postRuntime.executePass({
-						passId: "volumetric",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-						historyValid,
-						frameBinding: this._resources.getFrameBinding(),
-						lightingState,
-					});
-					this._volumetricHistoryUpdated = result.historyUpdated === true;
-				},
-			},
-			{
-				id: "fog",
-				kind: "compute",
-				dependsOn: ["volumetric"],
-				precompileHints: ["postprocess:fog"],
-				isEnabled: (features) => isFogPostProcessEnabled(features),
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "fog",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "motion-blur",
-				kind: "compute",
-				dependsOn: ["fog"],
-				precompileHints: ["postprocess:motion-blur"],
-				isEnabled: (features) => features.enableMotionBlur,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "motion-blur",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "dof",
-				kind: "compute",
-				dependsOn: ["motion-blur"],
-				precompileHints: ["postprocess:dof"],
-				isEnabled: (features) => features.enableDOF,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "dof",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "bloom",
-				kind: "compute",
-				dependsOn: ["dof"],
-				precompileHints: [
-					"postprocess:bloom",
-				],
-				isEnabled: (features) => features.enableBloom,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "bloom",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "fxaa",
-				kind: "compute",
-				dependsOn: ["bloom"],
-				precompileHints: ["postprocess:fxaa"],
-				isEnabled: (features) => features.enableFXAA,
-				execute: async (ctx) => {
-					await this._postRuntime.executePass({
-						passId: "fxaa",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-					});
-				},
-			},
-			{
-				id: "interaction-outline",
-				kind: "compute",
-				dependsOn: ["fxaa"],
-				precompileHints: ["postprocess:interaction-outline"],
-				isEnabled: () => true,
-				execute: async (ctx) => {
-					const interaction = ctx.frameContext.transient.get(
-						INTERACTION_TRANSIENT_STATE_KEY
-					);
-					if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
-						return;
-					}
-					await this._postRuntime.executePass({
-						passId: "interaction-outline",
-						encoder: ctx.encoder,
-						targets: ctx.targets,
-						frameContext: ctx.frameContext,
-						state: interaction,
-					});
-				},
-			},
-			{
-				id: "gamma",
-				kind: "render",
-				dependsOn: ["interaction-outline"],
-				precompileHints: [],
-				isEnabled: (features) => features.enableGamma,
-				execute: async (ctx) => {
-					await this._presentToCanvas(ctx.targets.sceneColor, true);
-				},
-			},
-		];
 	}
 
 	private _ensureMRTSupport(): void {
