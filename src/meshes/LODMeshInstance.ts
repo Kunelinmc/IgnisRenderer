@@ -129,9 +129,10 @@ export class LODMeshInstance extends MeshInstance {
 	}
 
 	private _syncSceneState(): void {
-		if (!this._scene) return;
-		this._scene.invalidate("transform");
-		this._scene.spatial?.markDirty(this);
+		const scene = this.scene;
+		if (!scene) return;
+		scene.invalidate("transform");
+		scene.spatial?.markDirty(this);
 	}
 
 	protected override _createCloneInstance(): this {

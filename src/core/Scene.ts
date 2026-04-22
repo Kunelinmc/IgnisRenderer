@@ -53,9 +53,9 @@ export class Scene {
 		this._version = 0;
 		this._spatialIndexMode = "bvh";
 
-		this.root._scene = this;
+		this.root._setSceneInternal(this);
 		const rootEntity = this.ecs.registerNode(this.root, null);
-		this.root._entityId = rootEntity;
+		this.root._setEntityIdInternal(rootEntity);
 		this.ecs.setHierarchy(rootEntity, null, []);
 		this.ecs.setComponent(rootEntity, "PathBinding", {
 			path: ROOT_PATH,
@@ -203,7 +203,7 @@ export class Scene {
 
 	public syncNodeToECS(): void {
 		const activeNodes = new Set<Node>();
-		const rootEntity = this.root._entityId;
+		const rootEntity = this.root.entityId;
 		if (rootEntity === null) {
 			throw new Error("Scene root entity is missing");
 		}
@@ -234,7 +234,7 @@ export class Scene {
 	}
 
 	public onNodeAttachedFromAPI(parent: Node, child: Node): void {
-		if (parent._scene !== this) return;
+		if (parent.scene !== this) return;
 		this._setSceneRecursive(child, this);
 		this.syncNodeToECS();
 		this.invalidate();
@@ -325,8 +325,8 @@ export class Scene {
 	): number {
 		activeNodes.add(node);
 		const entity = this.ecs.registerNode(node, parentEntity);
-		node._entityId = entity;
-		node._scene = this;
+		node._setEntityIdInternal(entity);
+		node._setSceneInternal(this);
 		this.ecs.setExternalId(entity, node.id);
 		this.ecs.setComponent(entity, "PathBinding", { path });
 		this.ecs.syncNodeToEntity(node, path);
@@ -349,14 +349,14 @@ export class Scene {
 		for (const child of node.children) {
 			this._unregisterNodeRecursive(child);
 		}
-		if (node._entityId !== null) {
+		if (node.entityId !== null) {
 			this.ecs.unregisterNode(node);
-			node._entityId = null;
+			node._setEntityIdInternal(null);
 		}
 	}
 
 	private _setSceneRecursive(node: Node, scene: Scene | null): void {
-		node._scene = scene;
+		node._setSceneInternal(scene);
 		for (const child of node.children) {
 			this._setSceneRecursive(child, scene);
 		}

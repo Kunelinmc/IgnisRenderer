@@ -33,8 +33,8 @@ export class Node {
 	public scale: Vector3;
 	public localMatrix: Matrix4;
 	public worldMatrix: Matrix4;
-	public _scene: Scene | null;
-	public _entityId: number | null;
+	private _scene: Scene | null;
+	private _entityId: number | null;
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
@@ -57,6 +57,24 @@ export class Node {
 
 	public get entityId(): number | null {
 		return this._entityId;
+	}
+
+	public get scene(): Scene | null {
+		return this._scene;
+	}
+
+	/**
+	 * @internal Scene-owned ECS binding. External code must not call this.
+	 */
+	public _setSceneInternal(scene: Scene | null): void {
+		this._scene = scene;
+	}
+
+	/**
+	 * @internal Scene-owned ECS binding. External code must not call this.
+	 */
+	public _setEntityIdInternal(entityId: number | null): void {
+		this._entityId = entityId;
 	}
 
 	public addChild(child: Node): Node {

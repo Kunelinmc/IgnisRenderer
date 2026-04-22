@@ -105,7 +105,7 @@ export class CSGMeshInstance extends MeshInstance {
 
 	public markCSGDirty(): void {
 		this._dirty = true;
-		this._scene?.invalidate("transform");
+		this.scene?.invalidate("transform");
 	}
 
 	public flushCSG(options: CSGBuildOptions = {}): CSGRebuildResult | Promise<CSGRebuildResult> {
@@ -237,9 +237,10 @@ export class CSGMeshInstance extends MeshInstance {
 	}
 
 	private _syncSceneState(): void {
-		if (!this._scene) return;
-		this._scene.invalidate("transform");
-		this._scene.spatial?.markDirty(this);
+		const scene = this.scene;
+		if (!scene) return;
+		scene.invalidate("transform");
+		scene.spatial?.markDirty(this);
 	}
 
 	protected override _createCloneInstance(): this {
