@@ -1,7 +1,8 @@
-import type {
-	BuiltinFramePassStage,
-	FramePassStage,
-	ResolvedFeatureState,
+import {
+	isFogPostProcessEnabled,
+	type BuiltinFramePassStage,
+	type FramePassStage,
+	type ResolvedFeatureState,
 } from "./types";
 
 export const RENDER_DIRTY_REASON_MASK = {
@@ -707,13 +708,6 @@ function resolveFirstEnabledPostProcessStage(
 		}
 	}
 	return null;
-}
-
-function isFogPostProcessEnabled(features: ResolvedFeatureState): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
 }
 
 function pickEarliestPass(candidates: FramePassStage[]): FramePassStage {

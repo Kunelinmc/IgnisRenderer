@@ -3,6 +3,7 @@ import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
+	isFogPostProcessEnabled,
 	type InteractionTransientState,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
@@ -1881,11 +1882,4 @@ function clampDownsample(value: unknown, fallback: number): number {
 		return fallback;
 	}
 	return Math.min(8, Math.max(1, Math.floor(value)));
-}
-
-function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
 }

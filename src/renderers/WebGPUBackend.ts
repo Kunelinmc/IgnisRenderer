@@ -17,6 +17,7 @@ import {
 	type FramePass,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	type InteractionTransientState,
+	isFogPostProcessEnabled,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
@@ -276,13 +277,6 @@ const WEBGPU_PASS_DEPENDENCIES = new Map<
 	["interaction-outline", ["fxaa"]],
 	["gamma", ["interaction-outline"]],
 ]);
-
-function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
-}
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";

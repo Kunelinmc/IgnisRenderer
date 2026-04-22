@@ -1,6 +1,7 @@
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	INTERACTION_TRANSIENT_STATE_KEY,
+	isFogPostProcessEnabled,
 	type FrameContext,
 	type FramePass,
 	type InteractionTransientState,
@@ -556,11 +557,4 @@ function toSafeDimension(value: unknown): number {
 		return 1;
 	}
 	return Math.max(1, Math.floor(value));
-}
-
-function isFogPostProcessEnabled(features: FrameContext["features"]): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
 }

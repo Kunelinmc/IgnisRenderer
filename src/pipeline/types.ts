@@ -573,3 +573,15 @@ export interface ResolvedFeatureState {
 	dofOptions?: DOFOptions;
 	clusteredLightingOptions?: ClusteredLightingOptions;
 }
+
+/**
+ * Returns whether fog should execute as a post-process pass.
+ */
+export function isFogPostProcessEnabled(
+	features: ResolvedFeatureState
+): boolean {
+	return (
+		features.enableFog &&
+		(features.fogOptions?.application ?? "postprocess") !== "scene"
+	);
+}

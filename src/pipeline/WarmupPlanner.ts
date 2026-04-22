@@ -1,6 +1,6 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
-import type { FrameContext } from "./types";
+import { isFogPostProcessEnabled, type FrameContext } from "./types";
 import { ShaderCompileError } from "../shaders/runtime";
 import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
@@ -160,13 +160,4 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	if (context.features.enableFXAA) passes.push("fxaa");
 	if (context.features.enableGamma) passes.push("gamma");
 	return passes;
-}
-
-function isFogPostProcessEnabled(
-	features: FrameContext["features"]
-): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
 }

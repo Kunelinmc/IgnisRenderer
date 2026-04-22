@@ -1,4 +1,9 @@
-import type { FramePass, PreparedScene, ResolvedFeatureState } from "./types";
+import {
+	isFogPostProcessEnabled,
+	type FramePass,
+	type PreparedScene,
+	type ResolvedFeatureState,
+} from "./types";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"animation-sim",
@@ -80,11 +85,4 @@ function shouldEnablePass(
 		default:
 			return false;
 	}
-}
-
-function isFogPostProcessEnabled(features: ResolvedFeatureState): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
 }
