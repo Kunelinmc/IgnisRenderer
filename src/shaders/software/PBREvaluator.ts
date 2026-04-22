@@ -48,6 +48,67 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		this._mat = material as PBRMaterial;
 	}
 
+	private _applyNormalMap(
+		input: FragmentInput,
+		normalTex: { r: number; g: number; b: number },
+		normalOut: FragmentInput["normal"],
+		normalScale: number
+	): void {
+		let nx = normalOut.x;
+		let ny = normalOut.y;
+		let nz = normalOut.z;
+		const invNLen = 1 / (Math.hypot(nx, ny, nz) || 1);
+		nx *= invNLen;
+		ny *= invNLen;
+		nz *= invNLen;
+
+		const tangentLenSq =
+			input.tangent.x * input.tangent.x +
+			input.tangent.y * input.tangent.y +
+			input.tangent.z * input.tangent.z;
+		const hasValidTangent =
+			tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
+		if (!hasValidTangent) {
+			normalOut.x = nx;
+			normalOut.y = ny;
+			normalOut.z = nz;
+			return;
+		}
+
+		const tNormX = ((normalTex.r / 255) * 2 - 1) * normalScale;
+		const tNormY = ((normalTex.g / 255) * 2 - 1) * normalScale;
+		const tNormZ = (normalTex.b / 255) * 2 - 1;
+
+		// Gram-Schmidt: keep T orthogonal to N to avoid invalid TBN on skewed assets.
+		const ndotT =
+			nx * input.tangent.x + ny * input.tangent.y + nz * input.tangent.z;
+		let tx = input.tangent.x - nx * ndotT;
+		let ty = input.tangent.y - ny * ndotT;
+		let tz = input.tangent.z - nz * ndotT;
+		const tLen = Math.hypot(tx, ty, tz);
+		if (tLen <= 1e-6) {
+			normalOut.x = nx;
+			normalOut.y = ny;
+			normalOut.z = nz;
+			return;
+		}
+
+		const invTLen = 1 / tLen;
+		tx *= invTLen;
+		ty *= invTLen;
+		tz *= invTLen;
+
+		const handedness = input.tangent.w < 0 ? -1 : 1;
+		const bx = (ny * tz - nz * ty) * handedness;
+		const by = (nz * tx - nx * tz) * handedness;
+		const bz = (nx * ty - ny * tx) * handedness;
+
+		normalOut.x = tx * tNormX + bx * tNormY + nx * tNormZ;
+		normalOut.y = ty * tNormX + by * tNormY + ny * tNormZ;
+		normalOut.z = tz * tNormX + bz * tNormY + nz * tNormZ;
+		Vector3.normalizeInPlace(normalOut);
+	}
+
 	public evaluate(
 		input: FragmentInput,
 		face: ProjectedFace
@@ -363,61 +424,13 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 				: { u: input.u, v: input.v };
 		const normalTex = this._sampleTextureMap(mat.normalMap, normUV.u, normUV.v);
 		if (normalTex) {
-			const N = { x: normal.x, y: normal.y, z: normal.z };
-			Vector3.normalizeInPlace(N);
-
-			const tangentLenSq =
-				input.tangent.x * input.tangent.x +
-				input.tangent.y * input.tangent.y +
-				input.tangent.z * input.tangent.z;
-			const hasValidTangent =
-				tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
-
-			if (hasValidTangent) {
-				const normalScale = mat.normalScale ?? 1.0;
-				const tNormX = ((normalTex.r / 255) * 2 - 1) * normalScale;
-				const tNormY = ((normalTex.g / 255) * 2 - 1) * normalScale;
-				const tNormZ = (normalTex.b / 255) * 2 - 1;
-
-				// Gram-Schmidt: keep T orthogonal to N to avoid invalid TBN on skewed assets.
-				const ndotT =
-					N.x * input.tangent.x + N.y * input.tangent.y + N.z * input.tangent.z;
-				let tx = input.tangent.x - N.x * ndotT;
-				let ty = input.tangent.y - N.y * ndotT;
-				let tz = input.tangent.z - N.z * ndotT;
-				const tLen = Math.hypot(tx, ty, tz);
-
-				if (tLen > 1e-6) {
-					const invTLen = 1 / tLen;
-					tx *= invTLen;
-					ty *= invTLen;
-					tz *= invTLen;
-
-					const handedness = input.tangent.w < 0 ? -1 : 1;
-					const bx = (N.y * tz - N.z * ty) * handedness;
-					const by = (N.z * tx - N.x * tz) * handedness;
-					const bz = (N.x * ty - N.y * tx) * handedness;
-
-					normal.x = tx * tNormX + bx * tNormY + N.x * tNormZ;
-					normal.y = ty * tNormX + by * tNormY + N.y * tNormZ;
-					normal.z = tz * tNormX + bz * tNormY + N.z * tNormZ;
-					Vector3.normalizeInPlace(normal);
-				} else {
-					normal.x = N.x;
-					normal.y = N.y;
-					normal.z = N.z;
-				}
-			} else {
-				normal.x = N.x;
-				normal.y = N.y;
-				normal.z = N.z;
-			}
+			this._applyNormalMap(input, normalTex, normal, mat.normalScale ?? 1.0);
 		} else {
 			Vector3.normalizeInPlace(normal);
 		}
 
 		// Evaluate Clearcoat Normal mapping if applicable
-		let clearcoatNormal = res.clearcoatNormal;
+		const clearcoatNormal = res.clearcoatNormal;
 		clearcoatNormal.x = input.normal.x;
 		clearcoatNormal.y = input.normal.y;
 		clearcoatNormal.z = input.normal.z;
@@ -432,54 +445,12 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			ccNormUV.v
 		);
 		if (clearcoatNormalTex) {
-			const N = {
-				x: clearcoatNormal.x,
-				y: clearcoatNormal.y,
-				z: clearcoatNormal.z,
-			};
-			Vector3.normalizeInPlace(N);
-			const tangentLenSq =
-				input.tangent.x * input.tangent.x +
-				input.tangent.y * input.tangent.y +
-				input.tangent.z * input.tangent.z;
-			const hasValidTangent =
-				tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
-			if (hasValidTangent) {
-				const clearcoatNormalScale = mat.clearcoatNormalScale ?? 1.0;
-				const tNormX =
-					((clearcoatNormalTex.r / 255) * 2 - 1) * clearcoatNormalScale;
-				const tNormY =
-					((clearcoatNormalTex.g / 255) * 2 - 1) * clearcoatNormalScale;
-				const tNormZ = (clearcoatNormalTex.b / 255) * 2 - 1;
-				const ndotT =
-					N.x * input.tangent.x + N.y * input.tangent.y + N.z * input.tangent.z;
-				let tx = input.tangent.x - N.x * ndotT;
-				let ty = input.tangent.y - N.y * ndotT;
-				let tz = input.tangent.z - N.z * ndotT;
-				const tLen = Math.hypot(tx, ty, tz);
-				if (tLen > 1e-6) {
-					const invTLen = 1 / tLen;
-					tx *= invTLen;
-					ty *= invTLen;
-					tz *= invTLen;
-					const handedness = input.tangent.w < 0 ? -1 : 1;
-					const bx = (N.y * tz - N.z * ty) * handedness;
-					const by = (N.z * tx - N.x * tz) * handedness;
-					const bz = (N.x * ty - N.y * tx) * handedness;
-					clearcoatNormal.x = tx * tNormX + bx * tNormY + N.x * tNormZ;
-					clearcoatNormal.y = ty * tNormX + by * tNormY + N.y * tNormZ;
-					clearcoatNormal.z = tz * tNormX + bz * tNormY + N.z * tNormZ;
-					Vector3.normalizeInPlace(clearcoatNormal);
-				} else {
-					clearcoatNormal.x = N.x;
-					clearcoatNormal.y = N.y;
-					clearcoatNormal.z = N.z;
-				}
-			} else {
-				clearcoatNormal.x = N.x;
-				clearcoatNormal.y = N.y;
-				clearcoatNormal.z = N.z;
-			}
+			this._applyNormalMap(
+				input,
+				clearcoatNormalTex,
+				clearcoatNormal,
+				mat.clearcoatNormalScale ?? 1.0
+			);
 		} else {
 			// Default to base normal if no clearcoat normal map is provided
 			clearcoatNormal.x = normal.x;

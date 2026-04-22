@@ -214,6 +214,29 @@ function testNormalMapHandedness() {
 	assertVectorClose(surface.normal, expectedVec);
 }
 
+function testClearcoatNormalMapMatchesBaseNormalMap() {
+	console.log("Testing Clearcoat Normal Map parity with base normal map...");
+	const material = new PBRMaterial({
+		clearcoat: 1.0,
+		normalScale: 0.72,
+		clearcoatNormalScale: 0.72,
+	});
+	const normalMap = create1x1Texture(224, 40, 196, 255, "Linear");
+	material.normalMap = normalMap;
+	material.clearcoatNormalMap = normalMap;
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+	input.normal = { x: 0.25, y: 0.5, z: 0.83 };
+	Vector3.normalizeInPlace(input.normal);
+	input.tangent = { x: 0.91, y: 0.34, z: 0.12, w: -1 };
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	assertVectorClose(surface.clearcoatNormal, surface.normal);
+}
+
 function testLegacyF0Compatibility() {
 	console.log("Testing legacy f0 parameter compatibility...");
 	const material = new PBRMaterial({
@@ -289,6 +312,7 @@ function run() {
 		testOcclusionMap();
 		testNormalMap();
 		testNormalMapHandedness();
+		testClearcoatNormalMapMatchesBaseNormalMap();
 		testLegacyF0Compatibility();
 		testSheenRoughnessMapUsesNormalizedAlpha();
 		testUV2ChannelAliasesSecondUVSet();
