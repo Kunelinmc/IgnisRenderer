@@ -144,19 +144,19 @@ export interface RendererFeatures {
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export class Renderer extends EventEmitter<RendererEvents> {
-	public canvas: HTMLCanvasElement;
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
-	public shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
-	public shCoeffs: SHCoefficients;
-	public shAmbientCoeffs: SHCoefficients;
-	public scene: Scene;
-	public camera: Camera;
-	public lastTime: number;
 	public animationAutoRender: boolean;
 
 	public readonly logger: Pick<LoggerStatic, "warn">;
+	private _canvas: HTMLCanvasElement;
+	private _shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
+	private _shCoeffs: SHCoefficients;
+	private _shAmbientCoeffs: SHCoefficients;
+	private _scene: Scene;
+	private _camera: Camera;
+	private _lastTime: number;
 	private _deviceScaleFactor: number;
 	private _deltaTime: number;
 	private _frameDirty: boolean;
@@ -178,7 +178,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		super();
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
-		this.canvas = canvas;
+		this._canvas = canvas;
 		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
@@ -225,32 +225,32 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			worldMatrix: Matrix4.identity(),
 		};
 
-		this.shadowMaps = new Map();
-		this.shCoeffs = SH.empty();
-		this.shAmbientCoeffs = SH.empty();
-		this.scene = new Scene();
-		this._lastKnownSceneVersion = this.scene.version;
-		this.camera = camera || new Camera();
+		this._shadowMaps = new Map();
+		this._shCoeffs = SH.empty();
+		this._shAmbientCoeffs = SH.empty();
+		this._scene = new Scene();
+		this._lastKnownSceneVersion = this._scene.version;
+		this._camera = camera || new Camera();
 
 		// Only add to the default internal scene if the camera doesn't already have a parent.
 		// This prevents the constructor from "stealing" a camera that the user has already
 		// placed in their own scene graph.
-		if (!this.camera.parent) {
-			this.scene.add(this.camera);
+		if (!this._camera.parent) {
+			this._scene.add(this._camera);
 		}
 
-		this.lastTime = 0;
+		this._lastTime = 0;
 
 		if (!camera) {
-			this.camera.position.set(0, 200, 200);
-			this.camera.fov = 60;
+			this._camera.position.set(0, 200, 200);
+			this._camera.fov = 60;
 		}
 
-		this.camera.aspectRatio = this._getSafeAspectRatio(
+		this._camera.aspectRatio = this._getSafeAspectRatio(
 			this.canvas.width,
 			this.canvas.height
 		);
-		this.camera.updateMatrices();
+		this._camera.updateMatrices();
 		this.backend.setRenderer?.(this);
 	}
 
@@ -414,7 +414,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	public setScene(scene: Scene): void {
 		this._assertCameraInScene(scene, this.camera, "setScene");
-		this.scene = scene;
+		this._scene = scene;
 		this._lastKnownSceneVersion = scene.version;
 		this._preparedSceneCache.reset();
 		if (this._physicsSystem) {
@@ -428,7 +428,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	public setCamera(camera: Camera): void {
 		this._assertCameraInScene(this.scene, camera, "setCamera");
-		this.camera = camera;
+		this._camera = camera;
 		this._markFrameDirty("camera");
 	}
 
@@ -506,6 +506,34 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	public get backendType(): IRenderBackend["type"] {
 		return this.backend.type;
+	}
+
+	public get canvas(): HTMLCanvasElement {
+		return this._canvas;
+	}
+
+	public get shadowMaps(): Map<ShadowCastingLight, ShadowRenderSet> {
+		return this._shadowMaps;
+	}
+
+	public get shCoeffs(): SHCoefficients {
+		return this._shCoeffs;
+	}
+
+	public get shAmbientCoeffs(): SHCoefficients {
+		return this._shAmbientCoeffs;
+	}
+
+	public get scene(): Scene {
+		return this._scene;
+	}
+
+	public get camera(): Camera {
+		return this._camera;
+	}
+
+	public get lastTime(): number {
+		return this._lastTime;
 	}
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {
@@ -639,8 +667,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public async renderScene(now: number): Promise<void> {
-		this._deltaTime = now - (this.lastTime || now);
-		this.lastTime = now;
+		this._deltaTime = now - (this._lastTime || now);
+		this._lastTime = now;
 
 		this.emit("tick", { now, deltaTime: this._deltaTime });
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
@@ -966,13 +994,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		ambientProbeSH[0].g += ambientG / Math.PI / 0.282095;
 		ambientProbeSH[0].b += ambientB / Math.PI / 0.282095;
 
-		this.shAmbientCoeffs = ambientProbeSH.map((coefficient) => ({
+		this._shAmbientCoeffs = ambientProbeSH.map((coefficient) => ({
 			r: coefficient.r,
 			g: coefficient.g,
 			b: coefficient.b,
 		})) as SHCoefficients;
 
-		let totalSH: SHCoefficients = this.shAmbientCoeffs.map((coefficient) => ({
+		let totalSH: SHCoefficients = this._shAmbientCoeffs.map((coefficient) => ({
 			r: coefficient.r,
 			g: coefficient.g,
 			b: coefficient.b,
@@ -996,7 +1024,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			totalSH = SH.addCoeffs(totalSH, lightSH);
 		}
 
-		this.shCoeffs = totalSH;
+		this._shCoeffs = totalSH;
 	}
 
 	private _isBackendPassStage(stageId: string): boolean {
