@@ -9,7 +9,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- **SoftwareBackend**: Multi-threaded CPU rasterizer with modular executors for rasterization, light evaluation, and post-processing.
 	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
-- **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a compatibility facade. Integrated with Animation, Physics, and Particle simulation stages.
+- **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a high-level interface synchronized with the ECS. Integrated with Animation, Physics, and Particle simulation stages.
 
 ## Build & Test Commands
 
@@ -81,7 +81,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 ### Entity Component System (ECS) & Scene Graph
 - **ECSWorld**: The core data structure managing Entities and their Components (`LocalTransform`, `WorldTransform`, `NodeRef`, `Visibility`, etc.).
 - **Query System**: Use `world.query(["CompA", "CompB"])` for efficient entity filtering.
-- **Node**: Now a **deprecated compatibility facade** over ECS entities. Represents translation, rotation, and scale.
+- **Node**: A high-level scene graph object that **synchronizes bi-directionally** with ECS entities. It provides a familiar API for translation, rotation, and scale while the ECS handles simulation state.
 - **Synchronization Flow**:
 	- `Sync In` (`Scene.syncNodeToECS`): Transfers manual `Node` changes into ECS components.
 	- `Sync Out` (`Scene.syncECSToNode`): Propagates ECS simulation results (Physics/Animation) back to the `Node` facade.
