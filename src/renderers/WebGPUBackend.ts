@@ -215,6 +215,7 @@ export interface WebGPUBackendOptions {
 	canvas?: HTMLCanvasElement;
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
+	enableMSAA?: boolean;
 }
 
 type WebGPUPassHandler = (
@@ -388,6 +389,7 @@ export class WebGPUBackend implements IRenderBackend {
 	>();
 	private _warmupLogCompilationInfo = false;
 	private _msaaSelectionCache = new Map<string, number>();
+	private readonly _defaultMSAASampleCount: number;
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
 	private _shaderCompileStage: ShaderBackendCompileStage;
@@ -399,6 +401,11 @@ export class WebGPUBackend implements IRenderBackend {
 	) {
 		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
 		const shaderMode = resolved.options.shaderMode ?? "strict";
+		this._defaultMSAASampleCount =
+			resolved.options.enableMSAA === false ?
+				1
+			:	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
 		this._canvas = resolved.canvas ?? null;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
@@ -1266,6 +1273,18 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._msaaSampleCount;
 	}
 
+	public setMSAAEnabled(enabled: boolean): void {
+		if (enabled !== true) {
+			this.setMSAASampleCount(1);
+			return;
+		}
+		const sampleCount =
+			this._preferredMSAASampleCount > 1 ?
+				this._preferredMSAASampleCount
+			:	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+		this.setMSAASampleCount(sampleCount);
+	}
+
 	public setMSAASampleCount(sampleCount: number): void {
 		if (!Number.isFinite(sampleCount)) {
 			return;
@@ -1441,7 +1460,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._plannedPasses.clear();
 		this._plannedPassOrder.clear();
 		this._msaaSelectionCache.clear();
-		this._preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
 		this._msaaSampleCount = 1;
 		if (this.context) {
 			try {

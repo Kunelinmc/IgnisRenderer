@@ -165,8 +165,8 @@ class FakeDevice {
 	destroy() {}
 }
 
-function createBackend() {
-	const backend = new WebGPUBackend();
+function createBackend(options = undefined) {
+	const backend = new WebGPUBackend(options);
 	const device = new FakeDevice();
 	const queueSubmissions = [];
 	backend._device = device;
@@ -469,6 +469,26 @@ function testSetMSAASampleCountClampsAndInvalidates() {
 	assert.equal(invalidationCount, 2);
 }
 
+function testExplicitMSAASwitchCanEnableAndDisable() {
+	const { backend } = createBackend({ enableMSAA: false });
+	let invalidationCount = 0;
+	backend._frameExecutor = {
+		invalidateFrameTargets() {
+			invalidationCount++;
+		},
+	};
+
+	assert.equal(backend.getMSAASampleCount(), 1);
+
+	backend.setMSAAEnabled(true);
+	assert.equal(backend.getMSAASampleCount(), 4);
+	assert.equal(invalidationCount, 1);
+
+	backend.setMSAAEnabled(false);
+	assert.equal(backend.getMSAASampleCount(), 1);
+	assert.equal(invalidationCount, 2);
+}
+
 function testCreateBufferMappedAtCreationExposesUnmap() {
 	const { backend } = createBackend();
 	const buffer = backend.createBuffer({
@@ -701,6 +721,7 @@ async function run() {
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
 	testSetMSAASampleCountClampsAndInvalidates();
+	testExplicitMSAASwitchCanEnableAndDisable();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
 	testMapBindingResourceRejectsPrimitive();
