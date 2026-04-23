@@ -53,6 +53,12 @@ export interface ICommandEncoder {
 		height: number
 	): void;
 
+	/**
+	 * Optional escape hatch for backends that expose a native WebGPU command
+	 * encoder. Used to record specialized passes into the shared frame encoder.
+	 */
+	getNativeWebGPUCommandEncoder?(): unknown;
+
 	/** End the current render pass */
 	endRenderPass(): void;
 

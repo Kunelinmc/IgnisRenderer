@@ -3455,4 +3455,8 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 			_submitted: false,
 		};
 	}
+
+	public getNativeWebGPUCommandEncoder(): GPUCommandEncoder {
+		return this._encoder;
+	}
 }

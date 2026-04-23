@@ -472,7 +472,10 @@ export class WebGPUFrameExecutor {
 			[
 				"shadow",
 				async (context) => {
-					await this._resources.renderShadows(context);
+					await this._resources.renderShadows(
+						context,
+						this._encoder ?? undefined
+					);
 				},
 			],
 			[

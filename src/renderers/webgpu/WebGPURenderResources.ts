@@ -305,8 +305,11 @@ export class WebGPURenderResources {
 		};
 	}
 
-	public async renderShadows(context: FrameContext): Promise<void> {
-		await this._shadowPass.render(context);
+	public async renderShadows(
+		context: FrameContext,
+		encoder?: ICommandEncoder | null
+	): Promise<void> {
+		await this._shadowPass.render(context, encoder);
 	}
 
 	public setSceneTargetMode(mode: WebGPUSceneTargetMode): void {

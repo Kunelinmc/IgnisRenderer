@@ -21,6 +21,7 @@ import {
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import type { ICommandEncoder } from "../ICommandEncoder";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
@@ -223,6 +224,13 @@ interface ShadowAnimationBindingEntry {
 	lastUsedFrame: number;
 }
 
+interface ShadowDrawCandidate {
+	packet: DrawPacket;
+	geometry: WebGPUGeometryHandle;
+	vertexBuffer: GPUBuffer;
+	indexBuffer: GPUBuffer;
+}
+
 export class WebGPUShadowPass {
 	private _backend: WebGPUBackend;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -260,7 +268,10 @@ export class WebGPUShadowPass {
 		this._shadowAtlases = shadowAtlases;
 	}
 
-	public async render(context: FrameContext): Promise<void> {
+	public async render(
+		context: FrameContext,
+		frameEncoder?: ICommandEncoder | null
+	): Promise<void> {
 		if (!context.features.enableShadows) return;
 
 		const frame = context.scene;
@@ -285,12 +296,14 @@ export class WebGPUShadowPass {
 
 		this._frameId++;
 		this._drawResourceCursor = 0;
-		const device = this._requireBackendDevice();
-		const queue = this._requireBackendQueue();
+		const drawCandidates = this._collectShadowDrawCandidates(
+			frame.shadowCasterPackets
+		);
+		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 
-		const commandEncoder = device.createCommandEncoder({
-			label: "WebGPUShadowEncoder",
-		});
+		const { commandEncoder, submitAtEnd } =
+			this._resolveShadowCommandEncoder(frameEncoder);
+
 		const passEncoder = commandEncoder.beginRenderPass({
 			label: "WebGPUShadowPass",
 			colorAttachments: [],
@@ -355,14 +368,17 @@ export class WebGPUShadowPass {
 
 			this._drawShadowCasters(
 				passEncoder,
-				frame.shadowCasterPackets,
+				drawCandidates,
 				this._shadowViewProjectionMatrix,
-				context
+				context,
+				animationBindingCache
 			);
 		}
 
 		passEncoder.end();
-		queue.submit([commandEncoder.finish()]);
+		if (submitAtEnd) {
+			this._requireBackendQueue().submit([commandEncoder.finish()]);
+		}
 		this._trimDrawResources();
 		this._trimAnimationResources();
 	}
@@ -403,18 +419,13 @@ export class WebGPUShadowPass {
 
 	private _drawShadowCasters(
 		passEncoder: GPURenderPassEncoder,
-		packets: DrawPacket[],
+		drawCandidates: ShadowDrawCandidate[],
 		viewProjectionMatrix: Matrix4,
-		context: FrameContext
+		context: FrameContext,
+		animationBindingCache: Map<string, GPUBindGroup | null>
 	): void {
-		for (const packet of packets) {
-			if (
-				(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
-				DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
-			) {
-				continue;
-			}
-
+		for (const candidate of drawCandidates) {
+			const packet = candidate.packet;
 			// Per-light Frustum Culling
 			if (
 				!this._frustum.intersectsSphere(
@@ -425,13 +436,15 @@ export class WebGPUShadowPass {
 				continue;
 			}
 
-			const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-			const vertexBuffer = (
-				geometry.vertexBuffer as { _gpuResource?: GPUBuffer }
-			)._gpuResource;
-			const indexBuffer = (geometry.indexBuffer as { _gpuResource?: GPUBuffer })
-				._gpuResource;
-			if (!vertexBuffer || !indexBuffer) continue;
+			if (!animationBindingCache.has(packet.id)) {
+				animationBindingCache.set(
+					packet.id,
+					this._resolveAnimationBinding(packet, candidate.geometry, context)
+				);
+			}
+			const animationBindGroup =
+				animationBindingCache.get(packet.id) ?? null;
+			if (!animationBindGroup) continue;
 
 			Matrix4.multiply(
 				viewProjectionMatrix,
@@ -442,19 +455,70 @@ export class WebGPUShadowPass {
 			if (!shadowBindGroup) continue;
 			this._writeUniformMatrix(this._mvpMatrix, shadowBindGroup.buffer);
 
-			const animationBindGroup = this._resolveAnimationBinding(
-				packet,
-				geometry,
-				context
-			);
-			if (!animationBindGroup) continue;
-
-			passEncoder.setVertexBuffer(0, vertexBuffer);
-			passEncoder.setIndexBuffer(indexBuffer, "uint32");
+			passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
+			passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
 			passEncoder.setBindGroup(0, shadowBindGroup.group);
 			passEncoder.setBindGroup(1, animationBindGroup);
-			passEncoder.drawIndexed(geometry.indexCount);
+			passEncoder.drawIndexed(candidate.geometry.indexCount);
 		}
+	}
+
+	private _collectShadowDrawCandidates(
+		packets: DrawPacket[]
+	): ShadowDrawCandidate[] {
+		const candidates: ShadowDrawCandidate[] = [];
+		for (const packet of packets) {
+			if (
+				(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+				DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+			) {
+				continue;
+			}
+			const geometry = this._geometryRegistry.getGeometry(packet.primitive);
+			const vertexBuffer = (
+				geometry.vertexBuffer as { _gpuResource?: GPUBuffer }
+			)._gpuResource;
+			const indexBuffer = (geometry.indexBuffer as { _gpuResource?: GPUBuffer })
+				._gpuResource;
+			if (!vertexBuffer || !indexBuffer) {
+				continue;
+			}
+			candidates.push({
+				packet,
+				geometry,
+				vertexBuffer,
+				indexBuffer,
+			});
+		}
+		return candidates;
+	}
+
+	private _resolveShadowCommandEncoder(
+		frameEncoder?: ICommandEncoder | null
+	): {
+		commandEncoder: GPUCommandEncoder;
+		submitAtEnd: boolean;
+	} {
+		const nativeCommandEncoder =
+			frameEncoder?.getNativeWebGPUCommandEncoder?.() ?? null;
+		if (
+			nativeCommandEncoder &&
+			typeof (nativeCommandEncoder as GPUCommandEncoder).beginRenderPass ===
+				"function" &&
+			typeof (nativeCommandEncoder as GPUCommandEncoder).finish === "function"
+		) {
+			return {
+				commandEncoder: nativeCommandEncoder as GPUCommandEncoder,
+				submitAtEnd: false,
+			};
+		}
+
+		return {
+			commandEncoder: this._requireBackendDevice().createCommandEncoder({
+				label: "WebGPUShadowEncoder",
+			}),
+			submitAtEnd: true,
+		};
 	}
 
 	private _resolveAnimationBinding(
