@@ -97,69 +97,26 @@ export class PreparedSceneCache {
 		const dirtyCandidates: DirtyRect[] = [];
 		const visited = new Set<string>();
 
-		for (let index = 0; index < frame.opaquePackets.length; index++) {
-			const packet = frame.opaquePackets[index];
-			const signature = buildPacketSignature(packet);
-			const rect = computePacketScreenRect(packet, frame.camera, width, height);
-			if (rect) {
-				packetRects.set(packet.id, rect);
-			}
-			const currentState: CachedPacketState = {
-				signature,
-				rect,
-			};
-			currentPacketStateById.set(packet.id, currentState);
-			visited.add(packet.id);
-
-			const previous = this._packetStateById.get(packet.id);
-			if (!previous) {
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
-				continue;
-			}
-
-			if (previous.signature !== signature) {
-				if (previous.rect) {
-					dirtyCandidates.push(previous.rect);
-				}
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
-			}
-		}
-
-		for (let index = 0; index < frame.transparentPackets.length; index++) {
-			const packet = frame.transparentPackets[index];
-			const signature = buildPacketSignature(packet);
-			const rect = computePacketScreenRect(packet, frame.camera, width, height);
-			if (rect) {
-				packetRects.set(packet.id, rect);
-			}
-			const currentState: CachedPacketState = {
-				signature,
-				rect,
-			};
-			currentPacketStateById.set(packet.id, currentState);
-			visited.add(packet.id);
-
-			const previous = this._packetStateById.get(packet.id);
-			if (!previous) {
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
-				continue;
-			}
-
-			if (previous.signature !== signature) {
-				if (previous.rect) {
-					dirtyCandidates.push(previous.rect);
-				}
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
-			}
-		}
+		this._processPackets(
+			frame.opaquePackets,
+			frame.camera,
+			width,
+			height,
+			packetRects,
+			currentPacketStateById,
+			visited,
+			dirtyCandidates
+		);
+		this._processPackets(
+			frame.transparentPackets,
+			frame.camera,
+			width,
+			height,
+			packetRects,
+			currentPacketStateById,
+			visited,
+			dirtyCandidates
+		);
 
 		for (const [packetId, previous] of this._packetStateById.entries()) {
 			if (visited.has(packetId)) {
@@ -277,6 +234,49 @@ export class PreparedSceneCache {
 			forceFullFrame: false,
 			packetRects,
 		};
+	}
+
+	private _processPackets(
+		packets: readonly DrawPacket[],
+		camera: Camera,
+		width: number,
+		height: number,
+		packetRects: Map<string, DirtyRect>,
+		currentPacketStateById: Map<string, CachedPacketState>,
+		visited: Set<string>,
+		dirtyCandidates: DirtyRect[]
+	): void {
+		for (let index = 0; index < packets.length; index++) {
+			const packet = packets[index];
+			const signature = buildPacketSignature(packet);
+			const rect = computePacketScreenRect(packet, camera, width, height);
+			if (rect) {
+				packetRects.set(packet.id, rect);
+			}
+			const currentState: CachedPacketState = {
+				signature,
+				rect,
+			};
+			currentPacketStateById.set(packet.id, currentState);
+			visited.add(packet.id);
+
+			const previous = this._packetStateById.get(packet.id);
+			if (!previous) {
+				if (rect) {
+					dirtyCandidates.push(rect);
+				}
+				continue;
+			}
+
+			if (previous.signature !== signature) {
+				if (previous.rect) {
+					dirtyCandidates.push(previous.rect);
+				}
+				if (rect) {
+					dirtyCandidates.push(rect);
+				}
+			}
+		}
 	}
 
 	private _syncPacketCacheState(
