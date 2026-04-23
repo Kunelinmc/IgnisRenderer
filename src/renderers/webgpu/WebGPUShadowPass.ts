@@ -267,9 +267,10 @@ export class WebGPUShadowPass {
 		const shadowMaps = context.shadowMaps;
 		const slots = this._collectShadowSlots(frame, shadowMaps);
 		const maxShadowSize = getMaxShadowSize(slots);
-		const atlasTileSize = Math.max(1, maxShadowSize);
+		const requestedAtlasTileSize = Math.max(1, maxShadowSize);
 		const atlasTexture =
-			this._shadowAtlases.ensureAtlasForTileSize(atlasTileSize);
+			this._shadowAtlases.ensureAtlasForTileSize(requestedAtlasTileSize);
+		const atlasTileSize = Math.max(1, this._shadowAtlases.tileSize);
 		const atlasView = getWebGPUTexture(atlasTexture).view;
 		if (!atlasView) return;
 

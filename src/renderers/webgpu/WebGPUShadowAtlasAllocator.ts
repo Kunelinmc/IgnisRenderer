@@ -36,7 +36,8 @@ export class WebGPUShadowAtlasAllocator {
 			getMaxShadowSize(directionalShadows),
 			getMaxShadowSize(spotShadows)
 		);
-		const resolvedTileSize = Math.max(maxShadowSize, minTileSize | 0);
+		const requestedTileSize = Math.max(maxShadowSize, minTileSize | 0);
+		const resolvedTileSize = this._resolveAtlasTileSize(requestedTileSize);
 
 		for (const shadow of directionalShadows) {
 			shadow.atlasTileSize = resolvedTileSize;
@@ -49,7 +50,8 @@ export class WebGPUShadowAtlasAllocator {
 	}
 
 	public ensureAtlasForTileSize(tileSize: number): IRenderTexture {
-		const safeTileSize = Math.max(1, tileSize | 0);
+		const requestedTileSize = Math.max(1, tileSize | 0);
+		const safeTileSize = this._resolveAtlasTileSize(requestedTileSize);
 
 		if (!this._atlas || this._atlas.tileSize !== safeTileSize) {
 			this._atlas?.texture.destroy();
@@ -96,6 +98,31 @@ export class WebGPUShadowAtlasAllocator {
 	public destroy(): void {
 		this._atlas?.texture.destroy();
 		this._atlas = null;
+	}
+
+	private _resolveAtlasTileSize(tileSize: number): number {
+		const safeTileSize = Math.max(1, tileSize | 0);
+		const maxTextureDimension2D = this._resolveMaxTextureDimension2D();
+		const maxTileSizeByWidth = Math.floor(
+			maxTextureDimension2D / Math.max(1, WEBGPU_SHADOW_ATLAS_COLUMNS)
+		);
+		const maxTileSizeByHeight = Math.floor(
+			maxTextureDimension2D / Math.max(1, WEBGPU_SHADOW_ATLAS_ROWS)
+		);
+		const maxTileSize = Math.max(
+			1,
+			Math.min(maxTileSizeByWidth, maxTileSizeByHeight)
+		);
+		return Math.min(safeTileSize, maxTileSize);
+	}
+
+	private _resolveMaxTextureDimension2D(): number {
+		const fallback = 8192;
+		const limit = this._backend.device?.limits?.maxTextureDimension2D;
+		if (!Number.isFinite(limit)) {
+			return fallback;
+		}
+		return Math.max(1, Math.floor(limit));
 	}
 }
 

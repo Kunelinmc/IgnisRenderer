@@ -462,6 +462,8 @@ export class WebGPUBackend implements IRenderBackend {
 		try {
 			const requiredLimits: Record<string, number> = {};
 			const requiredFeatures: GPUFeatureName[] = [];
+			const adapterMaxTextureDimension2D =
+				adapter.limits?.maxTextureDimension2D ?? 0;
 			if (
 				(adapter.limits?.maxColorAttachments ?? 0) >=
 				WEBGPU_MRT_COLOR_TARGET_COUNT
@@ -474,6 +476,9 @@ export class WebGPUBackend implements IRenderBackend {
 			) {
 				requiredLimits.maxColorAttachmentBytesPerSample =
 					WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
+			}
+			if (adapterMaxTextureDimension2D > 0) {
+				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
 			}
 			if (
 				typeof adapter.features?.has === "function" &&
