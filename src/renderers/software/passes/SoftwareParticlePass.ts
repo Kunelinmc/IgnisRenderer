@@ -14,6 +14,12 @@ import { clamp } from "../../../maths/Common";
 import type { SoftwarePassLike } from "./types";
 
 const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
+const PARTICLE_RADIAL_FADE_START = 0.4;
+const PARTICLE_RADIAL_FADE_END = 0.5;
+const PARTICLE_RADIAL_FADE_RANGE =
+	PARTICLE_RADIAL_FADE_END - PARTICLE_RADIAL_FADE_START;
+const PARTICLE_ALPHA_CUTOFF = 0.001;
+const MIN_PARTICLE_WORLD_SIZE = 0.001;
 
 export class SoftwareParticlePass implements SoftwarePassLike {
 	public render(context: FrameContext): void {
@@ -120,9 +126,16 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 
 				// Procedural soft radial falloff (circle mask)
 				const dist = Math.sqrt((u - 0.5) ** 2 + (v - 0.5) ** 2);
-				const radialMask = Math.max(0, 1 - Math.min(1, (dist - 0.4) / (0.5 - 0.4)));
+				const radialMask = Math.max(
+					0,
+					1 -
+						Math.min(
+							1,
+							(dist - PARTICLE_RADIAL_FADE_START) / PARTICLE_RADIAL_FADE_RANGE
+						)
+				);
 				const alpha = baseAlpha * (texA / 255) * radialMask;
-				if (alpha <= 0.001) continue;
+				if (alpha <= PARTICLE_ALPHA_CUTOFF) continue;
 
 				const srcR = particle.color.r * (texR / 255) * shadowVisibility;
 				const srcG = particle.color.g * (texG / 255) * shadowVisibility;
@@ -154,7 +167,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const halfFovRadians = (context.camera.fov * Math.PI) / 360;
 		const tanHalfFov = Math.tan(halfFovRadians) || CoreConstants.EPSILON;
 		const focalLength = (context.attachments.height * 0.5) / tanHalfFov;
-		const pixelSize = (Math.max(0.001, size) * focalLength) / depth;
+		const pixelSize = (Math.max(MIN_PARTICLE_WORLD_SIZE, size) * focalLength) / depth;
 		return Math.max(MIN_PARTICLE_PIXEL_RADIUS, pixelSize * 0.5);
 	}
 
