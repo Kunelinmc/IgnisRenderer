@@ -11,6 +11,7 @@ import type {
 	ShaderBackendId,
 	ShaderDiagnostic,
 	ShaderDirectiveCompileHook,
+	ShaderDirectivePreprocessResult,
 	ShaderDirectiveHookContext,
 	ShaderDirectiveHookResult,
 	ShaderDirectiveProfile,
@@ -57,6 +58,13 @@ interface ShaderBackendCompileStageOptions {
 
 interface CachedDirectiveStageResult {
 	result: ShaderDirectiveStageResult;
+}
+
+interface PreparedDirectiveStageExecution {
+	fingerprint: string;
+	cacheKey: string;
+	runtime: ShaderRuntime;
+	preprocessRequest: ShaderProcessRequest;
 }
 
 function hashStringFNV1a(value: string): string {
@@ -312,44 +320,34 @@ export class ShaderDirectiveStage {
 		request: ShaderDirectiveStageRequest,
 		resolution: HookResolution
 	): ShaderDirectiveStageResult {
-		const fingerprint = this._buildDirectiveFingerprint(resolution.token);
-		this._trackFingerprint(request, fingerprint);
-		const cacheKey = buildDirectiveCacheKey(fingerprint, request);
-		const cached = this._cache.get(cacheKey);
-		if (cached) {
-			return this._cloneStageResult(cached.result);
+		const prepared = this._prepareDirectiveProcessing(request, resolution);
+		if ("code" in prepared) {
+			return prepared;
 		}
-
-		const runtime = this._resolveRuntimeForHookResolution(resolution);
-		const preprocessed = runtime.preprocessDirectives({
-			code: request.code,
-			sourceMap: request.sourceMap ?? null,
-			language: normalizeLanguage(request.language),
-			stage: normalizeStage(request.stage),
-			entryPoint: request.entryPoint,
-			label: request.label,
-			sourceKind: normalizeSourceKind(request.sourceKind),
-			directiveSourcePath: buildDirectiveSourcePath(request),
-			enableDirectives: true,
-		});
-		const stageResult: ShaderDirectiveStageResult = {
-			code: preprocessed.code,
-			sourceMap: preprocessed.sourceMap,
-			composite: preprocessed.composite,
-			diagnostics: preprocessed.diagnostics,
-			hasErrors: preprocessed.hasErrors,
-			directiveFingerprint: fingerprint,
-		};
-		this._cache.set(cacheKey, {
-			result: this._cloneStageResult(stageResult),
-		});
-		return this._cloneStageResult(stageResult);
+		const preprocessed = prepared.runtime.preprocessDirectives(
+			prepared.preprocessRequest
+		);
+		return this._finalizeDirectiveProcessing(prepared, preprocessed);
 	}
 
 	private async _processWithResolutionAsync(
 		request: ShaderDirectiveStageRequest,
 		resolution: HookResolution
 	): Promise<ShaderDirectiveStageResult> {
+		const prepared = this._prepareDirectiveProcessing(request, resolution);
+		if ("code" in prepared) {
+			return prepared;
+		}
+		const preprocessed = await prepared.runtime.preprocessDirectivesAsync(
+			prepared.preprocessRequest
+		);
+		return this._finalizeDirectiveProcessing(prepared, preprocessed);
+	}
+
+	private _prepareDirectiveProcessing(
+		request: ShaderDirectiveStageRequest,
+		resolution: HookResolution
+	): PreparedDirectiveStageExecution | ShaderDirectiveStageResult {
 		const fingerprint = this._buildDirectiveFingerprint(resolution.token);
 		this._trackFingerprint(request, fingerprint);
 		const cacheKey = buildDirectiveCacheKey(fingerprint, request);
@@ -357,9 +355,18 @@ export class ShaderDirectiveStage {
 		if (cached) {
 			return this._cloneStageResult(cached.result);
 		}
+		return {
+			fingerprint,
+			cacheKey,
+			runtime: this._resolveRuntimeForHookResolution(resolution),
+			preprocessRequest: this._buildDirectivePreprocessRequest(request),
+		};
+	}
 
-		const runtime = this._resolveRuntimeForHookResolution(resolution);
-		const preprocessed = await runtime.preprocessDirectivesAsync({
+	private _buildDirectivePreprocessRequest(
+		request: ShaderDirectiveStageRequest
+	): ShaderProcessRequest {
+		return {
 			code: request.code,
 			sourceMap: request.sourceMap ?? null,
 			language: normalizeLanguage(request.language),
@@ -369,16 +376,22 @@ export class ShaderDirectiveStage {
 			sourceKind: normalizeSourceKind(request.sourceKind),
 			directiveSourcePath: buildDirectiveSourcePath(request),
 			enableDirectives: true,
-		});
+		};
+	}
+
+	private _finalizeDirectiveProcessing(
+		prepared: PreparedDirectiveStageExecution,
+		preprocessed: ShaderDirectivePreprocessResult
+	): ShaderDirectiveStageResult {
 		const stageResult: ShaderDirectiveStageResult = {
 			code: preprocessed.code,
 			sourceMap: preprocessed.sourceMap,
 			composite: preprocessed.composite,
 			diagnostics: preprocessed.diagnostics,
 			hasErrors: preprocessed.hasErrors,
-			directiveFingerprint: fingerprint,
+			directiveFingerprint: prepared.fingerprint,
 		};
-		this._cache.set(cacheKey, {
+		this._cache.set(prepared.cacheKey, {
 			result: this._cloneStageResult(stageResult),
 		});
 		return this._cloneStageResult(stageResult);
