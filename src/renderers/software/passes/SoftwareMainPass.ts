@@ -214,11 +214,8 @@ function createTileClipRect(
 function resolveDirtyClipRects(context: FrameContext): TileClipRect[] {
 	const width = Math.max(1, context.attachments.width);
 	const height = Math.max(1, context.attachments.height);
-	const incremental = (
-		context as FrameContext & { incremental?: FrameContext["incremental"] }
-	).incremental;
+	const incremental = context.incremental;
 	if (
-		!incremental ||
 		!incremental.enabled ||
 		incremental.forceFullFrame ||
 		incremental.dirtyRects.length === 0

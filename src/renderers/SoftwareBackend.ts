@@ -298,12 +298,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _isIncrementalPartial(context: FrameContext): boolean {
-		const incremental = (
-			context as FrameContext & { incremental?: FrameContext["incremental"] }
-		).incremental;
-		if (!incremental) {
-			return false;
-		}
+		const incremental = context.incremental;
 		return (
 			incremental.enabled && !incremental.forceFullFrame && incremental.dirtyRects.length > 0
 		);
@@ -325,10 +320,8 @@ export class SoftwareBackend implements IRenderBackend {
 			];
 		}
 		const result: Array<{ x: number; y: number; width: number; height: number }> = [];
-		const incremental = (
-			context as FrameContext & { incremental?: FrameContext["incremental"] }
-		).incremental;
-		for (const rect of incremental?.dirtyRects ?? []) {
+		const incremental = context.incremental;
+		for (const rect of incremental.dirtyRects) {
 			const minX = Math.max(0, Math.floor(rect.x));
 			const minY = Math.max(0, Math.floor(rect.y));
 			const maxX = Math.min(width, Math.ceil(rect.x + rect.width));
