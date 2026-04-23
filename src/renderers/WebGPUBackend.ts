@@ -280,10 +280,43 @@ export class WebGPUBackend implements IRenderBackend {
 		clusteredLighting: true,
 	};
 
-	public canvas: HTMLCanvasElement | null = null;
-	public context: GPUCanvasContext | null = null;
-	public device: GPUDevice | null = null;
-	public queue: GPUQueue | null = null;
+	private _canvas: HTMLCanvasElement | null = null;
+	private _context: GPUCanvasContext | null = null;
+	private _device: GPUDevice | null = null;
+	private _queue: GPUQueue | null = null;
+
+	/**
+	 * Returns the current presentation canvas.
+	 * The backend owns this reference and does not allow external replacement.
+	 */
+	public get canvas(): HTMLCanvasElement | null {
+		return this._canvas;
+	}
+
+	/**
+	 * Returns the active WebGPU canvas context.
+	 * The backend owns context lifecycle and configuration.
+	 */
+	public get context(): GPUCanvasContext | null {
+		return this._context;
+	}
+
+	/**
+	 * Returns the active GPU device handle for diagnostics and advanced tooling.
+	 * The backend owns device lifecycle and prevents external reassignment.
+	 */
+	public get device(): GPUDevice | null {
+		return this._device;
+	}
+
+	/**
+	 * Returns the active queue associated with `device`.
+	 * Queue ownership remains internal to keep backend state coherent.
+	 */
+	public get queue(): GPUQueue | null {
+		return this._queue;
+	}
+
 	public canvasFormat: GPUTextureFormat = "bgra8unorm";
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
@@ -366,7 +399,7 @@ export class WebGPUBackend implements IRenderBackend {
 	) {
 		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
 		const shaderMode = resolved.options.shaderMode ?? "strict";
-		this.canvas = resolved.canvas ?? null;
+		this._canvas = resolved.canvas ?? null;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -403,7 +436,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
-		this.canvas = canvas;
+		this._canvas = canvas;
 		this._destroyRequested = false;
 
 		if (!navigator.gpu) {
@@ -461,8 +494,8 @@ export class WebGPUBackend implements IRenderBackend {
 
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
-		this.device = requestedDevice;
-		this.queue = requestedDevice.queue;
+		this._device = requestedDevice;
+		this._queue = requestedDevice.queue;
 		this._deviceLossPromise = requestedDevice.lost.then((info) => {
 			if (this.device !== requestedDevice) {
 				return info;
@@ -477,7 +510,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 			this._msaaSampleCount = this._selectMSAASampleCount();
 			this._initTimestampResources();
-			this.context = context;
+			this._context = context;
 			this._configureContext();
 			this._recreateDepthTexture();
 
@@ -1416,7 +1449,7 @@ export class WebGPUBackend implements IRenderBackend {
 			} catch (error) {
 				this._reportNonFatalError("context unconfigure", error);
 			}
-			this.context = null;
+			this._context = null;
 		}
 		if (this.device) {
 			try {
@@ -1426,8 +1459,8 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 		}
 		this._deviceLossPromise = null;
-		this.device = null;
-		this.queue = null;
+		this._device = null;
+		this._queue = null;
 	}
 
 	private _assertDeviceOperational(

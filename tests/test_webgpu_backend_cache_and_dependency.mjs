@@ -169,8 +169,8 @@ function createBackend() {
 	const backend = new WebGPUBackend();
 	const device = new FakeDevice();
 	const queueSubmissions = [];
-	backend.device = device;
-	backend.queue = {
+	backend._device = device;
+	backend._queue = {
 		submit(commands) {
 			queueSubmissions.push(commands);
 		},
@@ -487,8 +487,8 @@ function testCreateBufferMappedAtCreationExposesUnmap() {
 function testResizeUsesProvidedDimensions() {
 	const { backend, device } = createBackend();
 	let invalidateCalls = 0;
-	backend.canvas = { width: 1, height: 1 };
-	backend.context = {
+	backend._canvas = { width: 1, height: 1 };
+	backend._context = {
 		configure(config) {
 			device.configureCalls++;
 			assert.equal(config.device, device);
