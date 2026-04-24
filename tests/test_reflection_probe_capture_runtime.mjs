@@ -1,0 +1,286 @@
+import assert from "node:assert/strict";
+import { Camera } from "../src/cameras/Camera.ts";
+import { Scene } from "../src/core/Scene.ts";
+import { Texture } from "../src/core/Texture.ts";
+import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
+import { Renderer } from "../src/renderers/Renderer.ts";
+
+function createBakedEnvironment(seed = 1) {
+	return {
+		sh: Array.from({ length: 16 }, () => ({ r: 0, g: 0, b: 0 })),
+		prefilteredMap: new Texture(
+			new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
+			1,
+			1,
+			"HDR"
+		),
+	};
+}
+
+function createDeferred() {
+	let resolve;
+	const promise = new Promise((res) => {
+		resolve = res;
+	});
+	return { promise, resolve };
+}
+
+async function flushAsyncTasks() {
+	await Promise.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function testCaptureRuntimeTriggerModes() {
+	const bakeCalls = [];
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: async () => {
+			bakeCalls.push("call");
+			return createBakedEnvironment(bakeCalls.length);
+		},
+	});
+
+	const manualScene = new Scene();
+	const manualProbe = manualScene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	manualScene.updateWorldMatrices();
+
+	runtime.execute({ scene: manualScene, nowMs: 0 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 0);
+	assert.equal(manualProbe.prefilteredMap, null);
+
+	manualProbe.requestCapture();
+	runtime.execute({ scene: manualScene, nowMs: 16 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 1);
+	assert.ok(manualProbe.prefilteredMap);
+
+	runtime.execute({ scene: manualScene, nowMs: 32 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 1);
+
+	const dirtyScene = new Scene();
+	const dirtyProbe = dirtyScene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "onSceneDirty",
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	dirtyScene.updateWorldMatrices();
+
+	runtime.execute({ scene: dirtyScene, nowMs: 100 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 2);
+	assert.ok(dirtyProbe.prefilteredMap);
+
+	runtime.execute({ scene: dirtyScene, nowMs: 116 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 2);
+
+	dirtyScene.invalidate("transform");
+	runtime.execute({ scene: dirtyScene, nowMs: 132 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 3);
+
+	const intervalScene = new Scene();
+	const intervalProbe = intervalScene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "interval",
+			captureIntervalSeconds: 0.5,
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	intervalScene.updateWorldMatrices();
+
+	runtime.execute({ scene: intervalScene, nowMs: 0 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 4);
+	assert.ok(intervalProbe.prefilteredMap);
+
+	runtime.execute({ scene: intervalScene, nowMs: 200 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 4);
+
+	runtime.execute({ scene: intervalScene, nowMs: 700 });
+	await flushAsyncTasks();
+	assert.equal(bakeCalls.length, 5);
+}
+
+async function testCaptureRuntimeThrottlesToOneInFlightBake() {
+	const deferredBakes = [];
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: () => {
+			const deferred = createDeferred();
+			deferredBakes.push(deferred);
+			return deferred.promise;
+		},
+	});
+
+	const scene = new Scene();
+	scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "onSceneDirty",
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "onSceneDirty",
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	scene.updateWorldMatrices();
+
+	runtime.execute({ scene, nowMs: 0 });
+	runtime.execute({ scene, nowMs: 16 });
+	assert.equal(deferredBakes.length, 1);
+
+	deferredBakes[0].resolve(createBakedEnvironment(1));
+	await flushAsyncTasks();
+
+	runtime.execute({ scene, nowMs: 32 });
+	assert.equal(deferredBakes.length, 2);
+}
+
+async function testCaptureRuntimeDropsStaleBakeResults() {
+	const deferred = createDeferred();
+	let bakeCallCount = 0;
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: () => {
+			bakeCallCount++;
+			return deferred.promise;
+		},
+	});
+
+	const scene = new Scene();
+	const probe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 16, height: 8 },
+		})
+	);
+	scene.updateWorldMatrices();
+
+	probe.requestCapture();
+	runtime.execute({ scene, nowMs: 0 });
+	assert.equal(bakeCallCount, 1);
+
+	probe.position.set(2, 0, 0);
+	scene.updateWorldMatrices();
+
+	deferred.resolve(createBakedEnvironment(1));
+	await flushAsyncTasks();
+	assert.equal(probe.prefilteredMap, null);
+}
+
+class RendererCaptureStageBackendStub {
+	constructor() {
+		this.type = "stub";
+		this.capabilities = {
+			sh: false,
+			shadows: false,
+			reflection: true,
+			skybox: false,
+			ssao: false,
+			ssgi: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: false,
+		};
+		this.frameScheduling = "on-demand";
+		this.executedStages = [];
+	}
+
+	async init() {}
+
+	resize() {}
+
+	getAttachments(width, height) {
+		return {
+			width,
+			height,
+			pixels: new Uint8ClampedArray(width * height * 4),
+			depthBuffer: new Float32Array(width * height),
+			normalBuffer: new Float32Array(width * height * 3),
+		};
+	}
+
+	beginFrame() {}
+
+	executePass(pass) {
+		this.executedStages.push(pass.stage);
+	}
+
+	endFrame() {}
+}
+
+async function testRendererCaptureStageRunsWithoutReflectivePackets() {
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
+	try {
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
+
+		const backend = new RendererCaptureStageBackendStub();
+		const camera = new Camera();
+		const canvas = {
+			width: 320,
+			height: 180,
+			getBoundingClientRect() {
+				return { width: 320, height: 180 };
+			},
+		};
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.features.enableGamma = false;
+
+		const capturedProbe = renderer.scene.add(
+			new ReflectionProbe({
+				source: "capturedScene",
+				captureUpdateMode: "manual",
+			})
+		);
+		capturedProbe.requestCapture();
+
+		let captureStageCalls = 0;
+		renderer._reflectionProbeCaptureRuntime = {
+			execute() {
+				captureStageCalls++;
+			},
+		};
+
+		await renderer.renderScene(16);
+		assert.equal(captureStageCalls, 1);
+		assert.equal(backend.executedStages.includes("reflection"), false);
+	} finally {
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
+	}
+}
+
+async function run() {
+	await testCaptureRuntimeTriggerModes();
+	await testCaptureRuntimeThrottlesToOneInFlightBake();
+	await testCaptureRuntimeDropsStaleBakeResults();
+	await testRendererCaptureStageRunsWithoutReflectivePackets();
+	console.log("Reflection probe capture runtime tests passed");
+}
+
+await run();

@@ -85,7 +85,7 @@ function createSkyboxTexture(width = 32, height = 16) {
 	return new Texture(data, width, height, "sRGB");
 }
 
-async function testWarmupOverwritesAllLightProbesFromSkybox() {
+async function testWarmupOverwritesOnlySkyboxReflectionProbes() {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
 
@@ -115,6 +115,32 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 		const reflectionB = renderer.scene.add(
 			new ReflectionProbe({ shape: "sphere", prefilteredMap: null })
 		);
+		const capturedPrefiltered = new Texture(
+			new Float32Array([0.25, 0.5, 0.75, 1]),
+			1,
+			1,
+			"HDR"
+		);
+		const manualPrefiltered = new Texture(
+			new Float32Array([0.7, 0.2, 0.1, 1]),
+			1,
+			1,
+			"HDR"
+		);
+		const reflectionCaptured = renderer.scene.add(
+			new ReflectionProbe({
+				shape: "sphere",
+				source: "capturedScene",
+				prefilteredMap: capturedPrefiltered,
+			})
+		);
+		const reflectionManual = renderer.scene.add(
+			new ReflectionProbe({
+				shape: "sphere",
+				source: "manual",
+				prefilteredMap: manualPrefiltered,
+			})
+		);
 
 		const progress = [];
 		await renderer.warmup({
@@ -131,6 +157,8 @@ async function testWarmupOverwritesAllLightProbesFromSkybox() {
 		}
 		assert.ok(reflectionA.prefilteredMap);
 		assert.ok(reflectionB.prefilteredMap);
+		assert.equal(reflectionCaptured.prefilteredMap, capturedPrefiltered);
+		assert.equal(reflectionManual.prefilteredMap, manualPrefiltered);
 		assert.equal(probeA.intensity, 2);
 		assert.equal(probeB.intensity, 0.5);
 		assert.ok(
@@ -261,7 +289,7 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 }
 
 async function run() {
-	await testWarmupOverwritesAllLightProbesFromSkybox();
+	await testWarmupOverwritesOnlySkyboxReflectionProbes();
 	await testWarmupCreatesProbeWhenSceneHasNone();
 	await testWarmupSkipsLightProbeBakeWhenDisabled();
 	await testWarmupAndRenderIncrementalContextContractMatches();

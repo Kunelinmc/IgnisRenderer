@@ -26,6 +26,7 @@ import {
 	PreparedSceneCache,
 	type PreparedSceneCacheBuildResult,
 } from "../pipeline/PreparedSceneCache";
+import { ReflectionProbeCaptureRuntime } from "../pipeline/ReflectionProbeCaptureRuntime";
 import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
 import {
 	RendererStageGraph,
@@ -167,6 +168,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _incrementalOptions: IncrementalRenderingOptions;
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null;
 	private _preparedSceneCache: PreparedSceneCache;
+	private _reflectionProbeCaptureRuntime: ReflectionProbeCaptureRuntime;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
 
@@ -191,6 +193,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._incrementalOptions = { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS };
 		this._lastIncrementalFrameStats = null;
 		this._preparedSceneCache = new PreparedSceneCache();
+		this._reflectionProbeCaptureRuntime =
+			new ReflectionProbeCaptureRuntime();
 		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 		this._lastKnownSceneVersion = 0;
 
@@ -376,6 +380,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				light.type === LightType.ReflectionProbe
 		);
 		for (const reflectionProbe of reflectionProbes) {
+			if (reflectionProbe.source !== "skybox") continue;
 			reflectionProbe.prefilteredMap = bakedEnvironment.prefilteredMap;
 			reflectionProbe.markRuntimeDirty();
 		}
@@ -891,6 +896,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					frameStarted = true;
 					break;
 				}
+				case "reflection-probe-capture": {
+					this._reflectionProbeCaptureRuntime.execute({
+						scene: this.scene,
+						nowMs: now,
+						webgpuSource:
+							this.backend.type === "webgpu" ?
+								(this.backend as unknown as WebGPUComputeFacadeSource)
+							:	null,
+					});
+					break;
+				}
 				case "sync-out": {
 					this.scene.syncECSToNode();
 					break;
@@ -1205,7 +1221,14 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 			enabled: (context) => context.hasParticleSystems,
 		},
 		{ id: "shadow", dependsOn: ["prepared-scene-build", "particle-sim"] },
-		{ id: "reflection", dependsOn: ["prepared-scene-build"] },
+		{
+			id: "reflection-probe-capture",
+			dependsOn: ["prepared-scene-build"],
+		},
+		{
+			id: "reflection",
+			dependsOn: ["prepared-scene-build", "reflection-probe-capture"],
+		},
 		{ id: "main-opaque", dependsOn: ["reflection", "shadow"] },
 		{ id: "main-transparent", dependsOn: ["main-opaque"] },
 		{ id: "particles", dependsOn: ["main-transparent"] },

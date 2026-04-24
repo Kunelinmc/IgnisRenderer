@@ -6,6 +6,19 @@ import { Light, LightType, type LightParams } from "./Light";
 
 export type ReflectionProbeShape = "sphere" | "box";
 export type ReflectionProbeParallaxMode = "off" | "box" | "sphere";
+export type ReflectionProbeSource =
+	| "skybox"
+	| "capturedScene"
+	| "manual";
+export type ReflectionProbeCaptureUpdateMode =
+	| "manual"
+	| "onSceneDirty"
+	| "interval";
+
+export interface ReflectionProbeCaptureResolution {
+	width: number;
+	height: number;
+}
 
 export interface ReflectionProbeRuntimeCache {
 	probeToWorldMatrix: Matrix4;
@@ -26,6 +39,12 @@ export interface ReflectionProbeParams extends LightParams {
 	blendExponent?: number;
 	parallaxMode?: ReflectionProbeParallaxMode;
 	prefilteredMap?: Texture | null;
+	source?: ReflectionProbeSource;
+	captureUpdateMode?: ReflectionProbeCaptureUpdateMode;
+	captureIntervalSeconds?: number;
+	captureResolution?: Partial<ReflectionProbeCaptureResolution>;
+	captureFar?: number;
+	includeSkybox?: boolean;
 }
 
 const REFLECTION_PROBE_NUMERIC_EPSILON = 1e-6;
@@ -40,6 +59,12 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	public blendExponent: number;
 	public parallaxMode: ReflectionProbeParallaxMode;
 	public prefilteredMap: Texture | null;
+	public source: ReflectionProbeSource;
+	public captureUpdateMode: ReflectionProbeCaptureUpdateMode;
+	public captureIntervalSeconds: number;
+	public captureResolution: ReflectionProbeCaptureResolution;
+	public captureFar: number;
+	public includeSkybox: boolean;
 
 	private _runtimeCache: ReflectionProbeRuntimeCache;
 	private _runtimeDirty = true;
@@ -50,6 +75,8 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	private _lastBlendDistance: number;
 	private _lastBlendExponent: number;
 	private _lastParallaxMode: ReflectionProbeParallaxMode;
+	private _captureRequestToken = 0;
+	private _captureRevision = 0;
 
 	constructor(params: ReflectionProbeParams = {}) {
 		super(LightType.ReflectionProbe, params);
@@ -65,6 +92,18 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		this.parallaxMode =
 			params.parallaxMode ?? (this.shape === "box" ? "box" : "off");
 		this.prefilteredMap = params.prefilteredMap ?? null;
+		this.source = sanitizeReflectionProbeSource(params.source ?? "skybox");
+		this.captureUpdateMode = sanitizeCaptureUpdateMode(
+			params.captureUpdateMode ?? "onSceneDirty"
+		);
+		this.captureIntervalSeconds = sanitizeCaptureIntervalSeconds(
+			params.captureIntervalSeconds ?? 1
+		);
+		this.captureResolution = sanitizeCaptureResolution(
+			params.captureResolution
+		);
+		this.captureFar = sanitizeCaptureFar(params.captureFar ?? 200);
+		this.includeSkybox = params.includeSkybox ?? true;
 
 		this._runtimeCache = {
 			probeToWorldMatrix: Matrix4.identity(),
@@ -94,6 +133,23 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		}
 	}
 
+	public requestCapture(): void {
+		this._captureRequestToken++;
+		this._captureRevision++;
+	}
+
+	public get captureRequestToken(): number {
+		return this._captureRequestToken;
+	}
+
+	public get captureRevision(): number {
+		return this._captureRevision;
+	}
+
+	public markCaptureUpdated(): void {
+		this._captureRevision++;
+	}
+
 	public markRuntimeDirty(): void {
 		this._runtimeDirty = true;
 	}
@@ -118,6 +174,15 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		target.blendExponent = this.blendExponent;
 		target.parallaxMode = this.parallaxMode;
 		target.prefilteredMap = this.prefilteredMap;
+		target.source = this.source;
+		target.captureUpdateMode = this.captureUpdateMode;
+		target.captureIntervalSeconds = this.captureIntervalSeconds;
+		target.captureResolution.width = this.captureResolution.width;
+		target.captureResolution.height = this.captureResolution.height;
+		target.captureFar = this.captureFar;
+		target.includeSkybox = this.includeSkybox;
+		target._captureRequestToken = this._captureRequestToken;
+		target._captureRevision = this._captureRevision;
 		target.markRuntimeDirty();
 	}
 
@@ -244,6 +309,46 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 function sanitizeBlendExponent(value: number): number {
 	if (!Number.isFinite(value)) return 1;
 	return Math.max(0.01, value);
+}
+
+function sanitizeReflectionProbeSource(
+	value: ReflectionProbeSource
+): ReflectionProbeSource {
+	if (
+		value === "skybox" ||
+		value === "capturedScene" ||
+		value === "manual"
+	) {
+		return value;
+	}
+	return "skybox";
+}
+
+function sanitizeCaptureUpdateMode(
+	value: ReflectionProbeCaptureUpdateMode
+): ReflectionProbeCaptureUpdateMode {
+	if (value === "manual" || value === "onSceneDirty" || value === "interval") {
+		return value;
+	}
+	return "onSceneDirty";
+}
+
+function sanitizeCaptureIntervalSeconds(value: number): number {
+	if (!Number.isFinite(value)) return 1;
+	return Math.max(0.01, value);
+}
+
+function sanitizeCaptureFar(value: number): number {
+	if (!Number.isFinite(value)) return 200;
+	return Math.max(1, value);
+}
+
+function sanitizeCaptureResolution(
+	value: Partial<ReflectionProbeCaptureResolution> | undefined
+): ReflectionProbeCaptureResolution {
+	const width = Math.max(8, Math.floor(value?.width ?? 128));
+	const height = Math.max(4, Math.floor(value?.height ?? 64));
+	return { width, height };
 }
 
 function copyMatrix(target: Matrix4, source: Matrix4): void {
