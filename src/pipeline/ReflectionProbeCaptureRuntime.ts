@@ -24,7 +24,10 @@ import {
 	getSpotLightWorldDirection,
 	getSpotLightWorldPosition,
 } from "./LightTransforms";
-import { directionToEquirectUV } from "./reflectionProbeRuntime";
+import {
+	directionFromEquirectUV,
+	sampleEnvironmentTextureLevel,
+} from "./environmentMapRuntime";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 
 const DIRECTIONAL_LOBE_EXPONENT = 96;
@@ -642,17 +645,6 @@ function directionFromCubeFace(
 	}
 }
 
-function directionFromEquirectUV(u: number, v: number): IVector3 {
-	const phi = u * (2 * Math.PI) - Math.PI;
-	const theta = v * Math.PI;
-	const sinTheta = Math.sin(theta);
-	return normalizeDirection({
-		x: sinTheta * Math.sin(phi),
-		y: Math.cos(theta),
-		z: sinTheta * Math.cos(phi),
-	});
-}
-
 function sampleCubeFaces(
 	cubeFaces: Float32Array[],
 	faceSize: number,
@@ -724,8 +716,7 @@ function sampleSkyboxLinear(
 	skybox: Texture,
 	direction: IVector3
 ): RGBLinear {
-	const uv = directionToEquirectUV(direction);
-	const sample = skybox.sample(uv.u, uv.v);
+	const sample = sampleEnvironmentTextureLevel(skybox, direction, 0);
 	if (skybox.colorSpace === "sRGB") {
 		return {
 			r: sRGBToLinear(sample.r / 255),
