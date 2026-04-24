@@ -590,36 +590,33 @@ export interface RendererFeatureRequest {
 	clusteredLightingOptions?: ClusteredLightingOptions;
 }
 
-export interface ResolvedFeatureState {
-	enableLighting: boolean;
-	enableGamma: boolean;
-	enableSH: boolean;
-	enableShadows: boolean;
-	enableReflection: boolean;
-	enableSkybox: boolean;
-	enableSSAO: boolean;
-	enableSSGI: boolean;
-	enableTAA: boolean;
-	enableSSR: boolean;
-	enableVolumetric: boolean;
-	enableFog: boolean;
-	enableMotionBlur: boolean;
-	enableDOF: boolean;
-	enableBloom: boolean;
-	enableFXAA: boolean;
-	enableClusteredLighting: boolean;
-	warnings: FeatureWarning[];
-	ssrOptions?: SSROptions;
-	ssaoOptions?: SSAOOptions;
-	ssgiOptions?: SSGIOptions;
-	taaOptions?: TAAOptions;
-	volumetricOptions?: VolumetricOptions;
-	fogOptions?: FogOptions;
-	bloomOptions?: BloomOptions;
-	motionBlurOptions?: MotionBlurOptions;
-	dofOptions?: DOFOptions;
-	clusteredLightingOptions?: ClusteredLightingOptions;
-}
+export type RendererFeatureFlagKey = Extract<
+	keyof RendererFeatureRequest,
+	`enable${string}`
+>;
+
+export type RendererFeatureFlags = {
+	[K in RendererFeatureFlagKey]-?: boolean;
+};
+
+export type RendererFeatureRequestExtras = Omit<
+	RendererFeatureRequest,
+	RendererFeatureFlagKey
+>;
+
+export type RendererFeatureOptionKey = Extract<
+	keyof RendererFeatureRequest,
+	`${string}Options`
+>;
+
+export type RendererFeatureResolvedOptions = {
+	[K in RendererFeatureOptionKey]-?: NonNullable<RendererFeatureRequest[K]>;
+};
+
+export type ResolvedFeatureState = RendererFeatureFlags &
+	RendererFeatureRequestExtras & {
+		warnings: FeatureWarning[];
+	};
 
 /**
  * Returns whether fog should execute as a post-process pass.

@@ -61,18 +61,10 @@ import {
 } from "../pipeline/incremental";
 import type { WebGPUComputeFacadeSource } from "./webgpu/ComputeFacade";
 import type {
-	BloomOptions,
-	ClusteredLightingOptions,
-	DOFOptions,
-	FogOptions,
-	MotionBlurOptions,
-	SSAOOptions,
-	SSGIOptions,
-	SSROptions,
-	TAAOptions,
-	VolumetricOptions,
 	FramePass,
 	FrameContext,
+	RendererFeatureFlags,
+	RendererFeatureResolvedOptions,
 	TransientStore,
 } from "../pipeline/types";
 import type {
@@ -115,36 +107,10 @@ export type FrameTransientContributor = (
 	context: FrameTransientContributorContext
 ) => void;
 
-export interface RendererFeatures {
-	enableLighting: boolean;
-	enableGamma: boolean;
-	enableSH: boolean;
-	enableShadows: boolean;
-	enableReflection: boolean;
-	enableSkybox: boolean;
-	enableSSAO: boolean;
-	enableSSGI: boolean;
-	enableTAA: boolean;
-	enableSSR: boolean;
-	enableVolumetric: boolean;
-	enableFog: boolean;
-	enableMotionBlur: boolean;
-	enableDOF: boolean;
-	enableBloom: boolean;
-	enableFXAA: boolean;
-	enableClusteredLighting: boolean;
-	ssrOptions: SSROptions;
-	volumetricOptions: VolumetricOptions;
-	fogOptions: FogOptions;
-	ssaoOptions: SSAOOptions;
-	ssgiOptions: SSGIOptions;
-	taaOptions: TAAOptions;
-	bloomOptions: BloomOptions;
-	motionBlurOptions: MotionBlurOptions;
-	dofOptions: DOFOptions;
-	clusteredLightingOptions: ClusteredLightingOptions;
-	worldMatrix: Matrix4;
-}
+export type RendererFeatures = RendererFeatureFlags &
+	RendererFeatureResolvedOptions & {
+		worldMatrix: Matrix4;
+	};
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
