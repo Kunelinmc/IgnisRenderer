@@ -1,4 +1,4 @@
-import type { Texture } from "../core/Texture";
+import { Texture } from "../core/Texture";
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 import {
@@ -8,6 +8,13 @@ import {
 	type ReflectionProbeShape,
 	type SceneLight,
 } from "../lights";
+import {
+	directionToEquirectUV as directionToEquirectUVFromEnvironmentMap,
+	ensureEnvironmentTextureEquirect,
+	getEnvironmentMipLevelCount,
+	isTextureReadyForEnvironment as isTextureReadyForEnvironmentShared,
+	sampleEnvironmentTextureSpecular,
+} from "./environmentMapRuntime";
 
 export const MAX_ACTIVE_REFLECTION_PROBES = 8;
 export const REFLECTION_PROBE_WEIGHT_EPSILON = 1e-6;
@@ -319,16 +326,7 @@ export function samplePrefilteredEquirect(
 	direction: IVector3,
 	roughness: number
 ): { r: number; g: number; b: number } {
-	const normalized = normalizeDirection(direction);
-	const uv = directionToEquirectUV(normalized);
-	const mipCount = Math.max(1, texture.mipmaps.length);
-	const level = clamp(roughness, 0, 1) * (mipCount - 1);
-	const sample = texture.sampleLevel(uv.u, uv.v, level);
-	return {
-		r: sample.r / 255,
-		g: sample.g / 255,
-		b: sample.b / 255,
-	};
+	return sampleEnvironmentTextureSpecular(texture, direction, roughness);
 }
 
 export function buildReflectionProbeAtlasTexture(
@@ -336,21 +334,26 @@ export function buildReflectionProbeAtlasTexture(
 ): Texture | null {
 	if (probes.length <= 0) return null;
 
-	const maps = probes.map((probe) => probe.prefilteredMap).filter(Boolean) as Texture[];
-	if (maps.length !== probes.length) {
-		return null;
+	const maps: Texture[] = [];
+	const atlasKeyParts: string[] = [];
+	for (const probe of probes) {
+		const sourceMap = probe.prefilteredMap;
+		if (!sourceMap) return null;
+		const normalizedMap = ensureEnvironmentTextureEquirect(sourceMap);
+		if (!isTextureReadyForEnvironmentShared(normalizedMap)) {
+			return null;
+		}
+		maps.push(normalizedMap);
+		atlasKeyParts.push(
+			`${probe.id}:${sourceMap.version}:${normalizedMap.width}x${normalizedMap.height}:${getEnvironmentMipLevelCount(normalizedMap)}`
+		);
 	}
 
 	const baseMap = maps[0];
 	const baseWidth = baseMap.width;
 	const baseHeight = baseMap.height;
-	const mipCount = Math.max(1, baseMap.mipmaps.length);
-	const atlasKey = probes
-		.map((probe) => {
-			const map = probe.prefilteredMap!;
-			return `${probe.id}:${map.version}:${map.width}x${map.height}:${map.mipmaps.length}`;
-		})
-		.join("|");
+	const mipCount = getEnvironmentMipLevelCount(baseMap);
+	const atlasKey = atlasKeyParts.join("|");
 	const cached = _atlasCacheByKey.get(atlasKey);
 	if (cached) return cached;
 
@@ -359,7 +362,7 @@ export function buildReflectionProbeAtlasTexture(
 		if (
 			map.width !== baseWidth ||
 			map.height !== baseHeight ||
-			Math.max(1, map.mipmaps.length) !== mipCount
+			getEnvironmentMipLevelCount(map) !== mipCount
 		) {
 			return null;
 		}
@@ -375,11 +378,7 @@ export function buildReflectionProbeAtlasTexture(
 
 		for (let probeIndex = 0; probeIndex < maps.length; probeIndex++) {
 			const sourceMap = maps[probeIndex];
-			const sourceMip =
-				sourceMap.mipmaps[mipLevel] ??
-				(mipLevel === 0 ? sourceMap.data : null) ??
-				sourceMap.mipmaps[0] ??
-				null;
+			const sourceMip = resolveAtlasSourceMip(sourceMap, mipLevel);
 			if (!sourceMip) {
 				return null;
 			}
@@ -396,7 +395,7 @@ export function buildReflectionProbeAtlasTexture(
 		atlasMipmaps.push(mipData);
 	}
 
-	const atlas = new (baseMap.constructor as typeof Texture)(
+	const atlas = new Texture(
 		atlasMipmaps[0] as Texture["data"],
 		baseWidth * maps.length,
 		baseHeight,
@@ -418,24 +417,11 @@ export function buildReflectionProbeAtlasTexture(
 export function isTextureReadyForEnvironment(
 	texture: Texture | null | undefined
 ): texture is Texture {
-	if (!texture) return false;
-	if (texture.isLoadErrorFallback) return false;
-	if (
-		!isFinitePositiveNumber(texture.width) ||
-		!isFinitePositiveNumber(texture.height)
-	) {
-		return false;
-	}
-	return !!texture.data || texture.mipmaps.length > 0;
+	return isTextureReadyForEnvironmentShared(texture);
 }
 
 export function directionToEquirectUV(direction: IVector3): { u: number; v: number } {
-	const phi = Math.atan2(direction.x, direction.z);
-	const theta = Math.acos(clamp(direction.y, -1, 1));
-	return {
-		u: (phi + Math.PI) / (2 * Math.PI),
-		v: theta / Math.PI,
-	};
+	return directionToEquirectUVFromEnvironmentMap(direction);
 }
 
 function intersectLocalBox(
@@ -574,10 +560,6 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
 }
 
-function isFinitePositiveNumber(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
 function resolveParallaxMode(
 	mode: ReflectionProbeParallaxMode,
 	shape: ReflectionProbeShape
@@ -623,6 +605,18 @@ function createCompatibleMipBuffer(
 		return new Uint8ClampedArray(pixelCount);
 	}
 	return new Uint8Array(pixelCount);
+}
+
+function resolveAtlasSourceMip(
+	texture: Texture,
+	mipLevel: number
+): Uint8Array | Uint8ClampedArray | Float32Array | null {
+	return (
+		texture.mipmaps[mipLevel] ??
+		(mipLevel === 0 ? texture.data : null) ??
+		texture.mipmaps[0] ??
+		null
+	);
 }
 
 function blitMipIntoAtlas(
