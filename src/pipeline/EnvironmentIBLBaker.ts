@@ -31,6 +31,10 @@ import type {
 	EnvironmentIBLBakeWorkerTaskPayload,
 	EnvironmentIBLBakeWorkerTaskResult,
 } from "./workers/environmentIblBakeWorkerProtocol";
+import {
+	ensureEnvironmentTextureEquirect,
+	isTextureReadyForEnvironment,
+} from "./environmentMapRuntime";
 
 export const ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH = 128;
 export const ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT = 64;
@@ -864,11 +868,23 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 	options: EnvironmentIBLBakeOptions = {}
 ): Promise<BakedEnvironmentIBL> {
 	assertBakeNotAborted(options.signal);
+	const sampledEnvironment = ensureEnvironmentTextureEquirect(envMap);
+	if (
+		!sampledEnvironment ||
+		!isTextureReadyForEnvironment(sampledEnvironment)
+	) {
+		throw new Error(
+			"Environment IBL bake requires a valid environment texture (2D equirect or cubemap)."
+		);
+	}
 	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
 	const totalProgress = totalMipLevels + 2;
 	let completed = 0;
 
-	const sh = projectEquirectTextureToSH(envMap, options.signal ?? null);
+	const sh = projectEquirectTextureToSH(
+		sampledEnvironment,
+		options.signal ?? null
+	);
 	completed++;
 	emitProgress(options, {
 		phase: "project-sh",
@@ -876,7 +892,10 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 		total: totalProgress,
 	});
 
-	const prefiltered = await prefilterEnvMap(envMap, options, (level) => {
+	const prefiltered = await prefilterEnvMap(
+		sampledEnvironment,
+		options,
+		(level) => {
 		completed++;
 		emitProgress(options, {
 			phase: "prefilter",
@@ -884,7 +903,8 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 			total: totalProgress,
 			detail: `mip ${level + 1}/${totalMipLevels}`,
 		});
-	});
+		}
+	);
 
 	assertBakeNotAborted(options.signal);
 	completed++;
