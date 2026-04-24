@@ -34,6 +34,10 @@ import {
 } from "../pipeline/RendererStageGraph";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
+	ensureEnvironmentTextureEquirect,
+	isTextureReadyForEnvironment,
+} from "../pipeline/environmentMapRuntime";
+import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
 	INTERACTION_TRANSIENT_STATE_KEY,
@@ -334,8 +338,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			return false;
 		}
 
-		const skybox = this.scene.skybox;
-		if (!skybox || !skybox.data || skybox.width <= 0 || skybox.height <= 0) {
+		const skybox = ensureEnvironmentTextureEquirect(this.scene.skybox);
+		if (!skybox || !isTextureReadyForEnvironment(skybox)) {
 			return false;
 		}
 
