@@ -115,6 +115,12 @@ export * from "./particles";
 export * from "./physics";
 export * from "./lights";
 export { Texture, type TextureColorSpace } from "./core/Texture";
+export {
+	CubeTexture,
+	CubeTextureFace,
+	type CubeTextureFaceData,
+	type CubeTextureParams,
+} from "./core/CubeTexture";
 export { CanvasTexture, type CanvasTextureParams } from "./core/CanvasTexture";
 export { VideoTexture, type VideoTextureParams } from "./core/VideoTexture";
 export { TextureLoader } from "./loaders/TextureLoader";
