@@ -2,6 +2,11 @@ import type { Texture } from "../../core/Texture";
 import type { SHCoefficients } from "../../maths/types";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
+import {
+	ensureEnvironmentTextureEquirect,
+	getEnvironmentMipLevelCount,
+	isTextureReadyForEnvironment as isTextureReadyForEnvironmentShared,
+} from "../../pipeline/environmentMapRuntime";
 import type { PreparedScene } from "../../pipeline/types";
 
 import { WEBGPU_MAX_REFLECTION_PROBES } from "./constants";
@@ -92,7 +97,7 @@ export function collectWebGPUEnvironment(
 		reflectionProbes,
 		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
 		envSpecularMaxMipLevel:
-			hasEnvSpecular ? Math.max(0, envSpecularTexture.mipmaps.length - 1) : 0,
+			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
 		warnings,
 	};
 }
@@ -114,11 +119,12 @@ function resolveEnvironmentTexture(
 	slot: EnvironmentTextureSlot,
 	warnings: WebGPUWarning[]
 ): Texture | null {
-	if (!texture) {
+	const normalizedTexture = ensureEnvironmentTextureEquirect(texture);
+	if (!normalizedTexture) {
 		return null;
 	}
 
-	if (texture.isLoadErrorFallback) {
+	if (normalizedTexture.isLoadErrorFallback) {
 		warnings.push({
 			key:
 				slot === "skybox" ?
@@ -132,7 +138,7 @@ function resolveEnvironmentTexture(
 		return null;
 	}
 
-	if (!isTextureReadyForEnvironment(texture)) {
+	if (!isTextureReadyForEnvironmentShared(normalizedTexture)) {
 		warnings.push({
 			key:
 				slot === "skybox" ?
@@ -146,22 +152,7 @@ function resolveEnvironmentTexture(
 		return null;
 	}
 
-	return texture;
-}
-
-function isTextureReadyForEnvironment(texture: Texture): boolean {
-	if (
-		!isFinitePositiveNumber(texture.width) ||
-		!isFinitePositiveNumber(texture.height)
-	) {
-		return false;
-	}
-
-	return !!texture.data || texture.mipmaps.length > 0;
-}
-
-function isFinitePositiveNumber(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0;
+	return normalizedTexture;
 }
 
 function mapParallaxModeCode(mode: string): 0 | 1 | 2 {
