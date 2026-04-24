@@ -211,7 +211,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 
 	private _updateRuntimeCache(): void {
 		const world = this.worldMatrix;
-		copyMatrix(this._runtimeCache.probeToWorldMatrix, world);
+		world.copyTo(this._runtimeCache.probeToWorldMatrix);
 
 		const inverse3x3 = Matrix4.inverse3x3(world) ?? [
 			[1, 0, 0],
@@ -349,17 +349,6 @@ function sanitizeCaptureResolution(
 	const width = Math.max(8, Math.floor(value?.width ?? 128));
 	const height = Math.max(4, Math.floor(value?.height ?? 64));
 	return { width, height };
-}
-
-function copyMatrix(target: Matrix4, source: Matrix4): void {
-	const targetElements = target.elements;
-	const sourceElements = source.elements;
-	for (let row = 0; row < 4; row++) {
-		targetElements[row][0] = sourceElements[row][0];
-		targetElements[row][1] = sourceElements[row][1];
-		targetElements[row][2] = sourceElements[row][2];
-		targetElements[row][3] = sourceElements[row][3];
-	}
 }
 
 function copyMatrix3(target: Matrix3Arr, source: Matrix3Arr): void {

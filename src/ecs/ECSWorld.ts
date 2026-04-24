@@ -285,7 +285,7 @@ export class ECSWorld {
 			node.updateLocalMatrix();
 		}
 		if (world) {
-			copyMatrix(node.worldMatrix, world.matrix);
+			world.matrix.copyTo(node.worldMatrix);
 		}
 		if (visibility) {
 			node.visible = visibility.visible;
@@ -375,15 +375,4 @@ function resolveNodeKind(node: Node): NodeKind {
 	if (node instanceof ParticleSystem) return NODE_KIND.ParticleSystem;
 	if (node instanceof Light) return NODE_KIND.Light;
 	return NODE_KIND.Node;
-}
-
-function copyMatrix(target: Matrix4, source: Matrix4): void {
-	const targetElements = target.elements;
-	const sourceElements = source.elements;
-	for (let row = 0; row < 4; row++) {
-		targetElements[row][0] = sourceElements[row][0];
-		targetElements[row][1] = sourceElements[row][1];
-		targetElements[row][2] = sourceElements[row][2];
-		targetElements[row][3] = sourceElements[row][3];
-	}
 }

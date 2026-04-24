@@ -445,6 +445,21 @@ export class Matrix4 {
 	}
 
 	/**
+	 * Copies this matrix into the provided target matrix.
+	 */
+	public copyTo(target: Matrix4): Matrix4 {
+		const targetElements = target.elements;
+		const sourceElements = this.elements;
+		for (let row = 0; row < 4; row++) {
+			targetElements[row][0] = sourceElements[row][0];
+			targetElements[row][1] = sourceElements[row][1];
+			targetElements[row][2] = sourceElements[row][2];
+			targetElements[row][3] = sourceElements[row][3];
+		}
+		return target;
+	}
+
+	/**
 	 * Creates a deep copy of this matrix.
 	 */
 	public clone(): Matrix4 {

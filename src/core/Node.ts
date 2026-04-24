@@ -52,7 +52,7 @@ export class Node {
 		this._scene = null;
 		this._entityId = null;
 		this.updateLocalMatrix();
-		copyMatrix(this.worldMatrix, this.localMatrix);
+		this.localMatrix.copyTo(this.worldMatrix);
 	}
 
 	public get entityId(): number | null {
@@ -190,7 +190,7 @@ export class Node {
 		if (parentWorldMatrix) {
 			Matrix4.multiply(parentWorldMatrix, this.localMatrix, this.worldMatrix);
 		} else {
-			copyMatrix(this.worldMatrix, this.localMatrix);
+			this.localMatrix.copyTo(this.worldMatrix);
 		}
 
 		for (const child of this.children) {
@@ -287,8 +287,8 @@ export class Node {
 		target.position.copy(this.position);
 		target.quaternion = createQuaternion(this.quaternion);
 		target.scale.copy(this.scale);
-		copyMatrix(target.localMatrix, this.localMatrix);
-		copyMatrix(target.worldMatrix, this.worldMatrix);
+		this.localMatrix.copyTo(target.localMatrix);
+		this.worldMatrix.copyTo(target.worldMatrix);
 	}
 
 	protected getOwnWorldBoundingBox(): BoundingBox | null {
@@ -302,17 +302,6 @@ export class Node {
 			current = current.parent;
 		}
 		return false;
-	}
-}
-
-function copyMatrix(target: Matrix4, source: Matrix4): void {
-	const targetElements = target.elements;
-	const sourceElements = source.elements;
-	for (let row = 0; row < 4; row++) {
-		targetElements[row][0] = sourceElements[row][0];
-		targetElements[row][1] = sourceElements[row][1];
-		targetElements[row][2] = sourceElements[row][2];
-		targetElements[row][3] = sourceElements[row][3];
 	}
 }
 

@@ -20,14 +20,40 @@ import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 
 interface CachedPacketState {
-	signature: string;
+	pipelineKey: string;
+	geometryVersion: number;
+	matrixSignatureA: number;
+	matrixSignatureB: number;
+	materialSignatureA: number;
+	materialSignatureB: number;
+	primitiveVisibility: number;
+	meshVisibility: number;
 	rect: DirtyRect | null;
 }
 
-const MATRIX_SIGNATURE_SCRATCH = new DataView(new ArrayBuffer(8));
-const MATRIX_SIGNATURE_PRIME = 16777619;
-const MATRIX_SIGNATURE_INIT_A = 2166136261;
-const MATRIX_SIGNATURE_INIT_B = 2246822519;
+const SIGNATURE_FLOAT64_SCRATCH = new DataView(new ArrayBuffer(8));
+const SIGNATURE_PRIME = 16777619;
+const SIGNATURE_INIT_A = 2166136261;
+const SIGNATURE_INIT_B = 2246822519;
+const SIGNATURE_MIX_B_A = 0x9e3779b9;
+const SIGNATURE_MIX_B_B = 0x85ebca6b;
+const MATERIAL_TEXTURE_FIELDS = [
+	"map",
+	"normalMap",
+	"emissiveMap",
+	"metallicRoughnessMap",
+	"occlusionMap",
+	"specularMap",
+	"specularColorMap",
+	"clearcoatMap",
+	"clearcoatRoughnessMap",
+	"clearcoatNormalMap",
+	"sheenColorMap",
+	"sheenRoughnessMap",
+	"transmissionMap",
+	"thicknessMap",
+] as const;
+const MATERIAL_TEXTURE_FIELD_HASHES = MATERIAL_TEXTURE_FIELDS.map(hashStaticToken32);
 
 export interface PreparedSceneCacheBuildInput {
 	renderer: Renderer;
@@ -248,15 +274,11 @@ export class PreparedSceneCache {
 	): void {
 		for (let index = 0; index < packets.length; index++) {
 			const packet = packets[index];
-			const signature = buildPacketSignature(packet);
 			const rect = computePacketScreenRect(packet, camera, width, height);
 			if (rect) {
 				packetRects.set(packet.id, rect);
 			}
-			const currentState: CachedPacketState = {
-				signature,
-				rect,
-			};
+			const currentState = createPacketState(packet, rect);
 			currentPacketStateById.set(packet.id, currentState);
 			visited.add(packet.id);
 
@@ -268,7 +290,7 @@ export class PreparedSceneCache {
 				continue;
 			}
 
-			if (previous.signature !== signature) {
+			if (!packetStateEquals(previous, currentState)) {
 				if (previous.rect) {
 					dirtyCandidates.push(previous.rect);
 				}
@@ -292,10 +314,7 @@ export class PreparedSceneCache {
 			if (rect) {
 				packetRects.set(packet.id, rect);
 			}
-			next.set(packet.id, {
-				signature: buildPacketSignature(packet),
-				rect,
-			});
+			next.set(packet.id, createPacketState(packet, rect));
 		}
 		for (let index = 0; index < frame.transparentPackets.length; index++) {
 			const packet = frame.transparentPackets[index];
@@ -303,10 +322,7 @@ export class PreparedSceneCache {
 			if (rect) {
 				packetRects.set(packet.id, rect);
 			}
-			next.set(packet.id, {
-				signature: buildPacketSignature(packet),
-				rect,
-			});
+			next.set(packet.id, createPacketState(packet, rect));
 		}
 		this._packetStateById = next;
 		this._frameIndex++;
@@ -330,95 +346,178 @@ export class PreparedSceneCache {
 	}
 }
 
-function buildPacketSignature(packet: DrawPacket): string {
-	const matrixSignature = matrix4Signature(packet.worldMatrix);
-	const materialSignature = materialSignatureOf(packet.material);
-	const primitiveVisibility = packet.primitive.visible === false ? 0 : 1;
-	const meshVisibility = packet.meshInstance.visible === false ? 0 : 1;
-	return [
-		packet.id,
-		packet.pipelineKey,
-		packet.primitive.geometryVersion ?? 0,
-		matrixSignature,
-		materialSignature,
-		primitiveVisibility,
-		meshVisibility,
-	].join("|");
+function createPacketState(
+	packet: DrawPacket,
+	rect: DirtyRect | null
+): CachedPacketState {
+	const state: CachedPacketState = {
+		pipelineKey: packet.pipelineKey,
+		geometryVersion: packet.primitive.geometryVersion ?? 0,
+		matrixSignatureA: SIGNATURE_INIT_A,
+		matrixSignatureB: SIGNATURE_INIT_B,
+		materialSignatureA: SIGNATURE_INIT_A,
+		materialSignatureB: SIGNATURE_INIT_B,
+		primitiveVisibility: packet.primitive.visible === false ? 0 : 1,
+		meshVisibility: packet.meshInstance.visible === false ? 0 : 1,
+		rect,
+	};
+	writeMatrix4Signature(state, packet.worldMatrix);
+	writeMaterialSignature(state, packet.material);
+	return state;
 }
 
-function matrix4Signature(matrix: Matrix4): string {
+function packetStateEquals(
+	left: CachedPacketState,
+	right: CachedPacketState
+): boolean {
+	return (
+		left.pipelineKey === right.pipelineKey &&
+		left.geometryVersion === right.geometryVersion &&
+		left.matrixSignatureA === right.matrixSignatureA &&
+		left.matrixSignatureB === right.matrixSignatureB &&
+		left.materialSignatureA === right.materialSignatureA &&
+		left.materialSignatureB === right.materialSignatureB &&
+		left.primitiveVisibility === right.primitiveVisibility &&
+		left.meshVisibility === right.meshVisibility
+	);
+}
+
+function writeMatrix4Signature(
+	state: CachedPacketState,
+	matrix: Matrix4
+): void {
 	const elements = matrix.elements;
-	let hashA = MATRIX_SIGNATURE_INIT_A;
-	let hashB = MATRIX_SIGNATURE_INIT_B;
+	let hashA = SIGNATURE_INIT_A;
+	let hashB = SIGNATURE_INIT_B;
 	for (let row = 0; row < 4; row++) {
 		for (let col = 0; col < 4; col++) {
 			const value = elements[row][col];
-			MATRIX_SIGNATURE_SCRATCH.setFloat64(0, value, true);
-			const lo = MATRIX_SIGNATURE_SCRATCH.getUint32(0, true);
-			const hi = MATRIX_SIGNATURE_SCRATCH.getUint32(4, true);
+			SIGNATURE_FLOAT64_SCRATCH.setFloat64(0, value, true);
+			const lo = SIGNATURE_FLOAT64_SCRATCH.getUint32(0, true);
+			const hi = SIGNATURE_FLOAT64_SCRATCH.getUint32(4, true);
 			hashA = mixFnv32(hashA, lo);
 			hashA = mixFnv32(hashA, hi);
-			hashB = mixFnv32(hashB, hi ^ 0x9e3779b9);
-			hashB = mixFnv32(hashB, lo ^ 0x85ebca6b);
+			hashB = mixFnv32(hashB, hi ^ SIGNATURE_MIX_B_A);
+			hashB = mixFnv32(hashB, lo ^ SIGNATURE_MIX_B_B);
 		}
 	}
-	return `${toPaddedHex(hashA)}${toPaddedHex(hashB)}`;
+	state.matrixSignatureA = hashA;
+	state.matrixSignatureB = hashB;
+}
+
+function writeMaterialSignature(
+	state: CachedPacketState,
+	material: Material
+): void {
+	const mat = material as Material & Record<string, unknown>;
+	state.materialSignatureA = SIGNATURE_INIT_A;
+	state.materialSignatureB = SIGNATURE_INIT_B;
+
+	mixMaterialString(state, material.type);
+	mixMaterialString(state, material.shading);
+	mixMaterialFloat(state, material.opacity);
+	mixMaterialString(state, material.alphaMode);
+	mixMaterialFloat(state, material.alphaCutoff);
+	mixMaterialFloat(state, getMaterialTransmissionFactor(material));
+	mixMaterialUint32(state, material.doubleSided ? 1 : 0);
+	mixMaterialString(state, material.cullMode);
+	mixMaterialUint32(state, material.wireframe ? 1 : 0);
+	mixMaterialFloat(state, material.reflectivity);
+
+	const albedo = (mat.albedo ?? { r: 255, g: 255, b: 255 }) as {
+		r?: unknown;
+		g?: unknown;
+		b?: unknown;
+	};
+	const emissive = (mat.emissive ?? { r: 0, g: 0, b: 0 }) as {
+		r?: unknown;
+		g?: unknown;
+		b?: unknown;
+	};
+	mixMaterialFloat(state, resolveColorChannel(albedo.r, 255));
+	mixMaterialFloat(state, resolveColorChannel(albedo.g, 255));
+	mixMaterialFloat(state, resolveColorChannel(albedo.b, 255));
+	mixMaterialFloat(state, resolveColorChannel(emissive.r, 0));
+	mixMaterialFloat(state, resolveColorChannel(emissive.g, 0));
+	mixMaterialFloat(state, resolveColorChannel(emissive.b, 0));
+
+	for (let index = 0; index < MATERIAL_TEXTURE_FIELDS.length; index++) {
+		const field = MATERIAL_TEXTURE_FIELDS[index];
+		mixMaterialUint32(state, MATERIAL_TEXTURE_FIELD_HASHES[index]);
+		mixMaterialFloat(state, resolveTextureVersion(mat[field]));
+	}
+}
+
+function resolveColorChannel(value: unknown, fallback: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return value;
+}
+
+function resolveTextureVersion(value: unknown): number {
+	if (!value || typeof value !== "object") {
+		return -1;
+	}
+	const version = (value as { version?: unknown }).version;
+	if (typeof version !== "number" || !Number.isFinite(version)) {
+		return -1;
+	}
+	return version;
+}
+
+function mixMaterialString(state: CachedPacketState, value: unknown): void {
+	const normalized = typeof value === "string" ? value : String(value ?? "");
+	let hashA = mixFnv32(state.materialSignatureA, normalized.length);
+	let hashB = mixFnv32(
+		state.materialSignatureB,
+		normalized.length ^ SIGNATURE_MIX_B_A
+	);
+	for (let index = 0; index < normalized.length; index++) {
+		const charCode = normalized.charCodeAt(index);
+		hashA = mixFnv32(hashA, charCode);
+		hashB = mixFnv32(hashB, charCode ^ SIGNATURE_MIX_B_A);
+	}
+	state.materialSignatureA = hashA;
+	state.materialSignatureB = hashB;
+}
+
+function mixMaterialUint32(state: CachedPacketState, value: number): void {
+	const normalized = value >>> 0;
+	state.materialSignatureA = mixFnv32(state.materialSignatureA, normalized);
+	state.materialSignatureB = mixFnv32(
+		state.materialSignatureB,
+		normalized ^ SIGNATURE_MIX_B_A
+	);
+}
+
+function mixMaterialFloat(state: CachedPacketState, value: number): void {
+	SIGNATURE_FLOAT64_SCRATCH.setFloat64(0, value, true);
+	const lo = SIGNATURE_FLOAT64_SCRATCH.getUint32(0, true);
+	const hi = SIGNATURE_FLOAT64_SCRATCH.getUint32(4, true);
+	state.materialSignatureA = mixFnv32(state.materialSignatureA, lo);
+	state.materialSignatureA = mixFnv32(state.materialSignatureA, hi);
+	state.materialSignatureB = mixFnv32(
+		state.materialSignatureB,
+		hi ^ SIGNATURE_MIX_B_A
+	);
+	state.materialSignatureB = mixFnv32(
+		state.materialSignatureB,
+		lo ^ SIGNATURE_MIX_B_B
+	);
 }
 
 function mixFnv32(hash: number, value: number): number {
-	return Math.imul((hash ^ value) >>> 0, MATRIX_SIGNATURE_PRIME) >>> 0;
+	return Math.imul((hash ^ value) >>> 0, SIGNATURE_PRIME) >>> 0;
 }
 
-function toPaddedHex(value: number): string {
-	return (value >>> 0).toString(16).padStart(8, "0");
-}
-
-function materialSignatureOf(material: Material): string {
-	const mat = material as Material & Record<string, any>;
-	const textureFields = [
-		"map",
-		"normalMap",
-		"emissiveMap",
-		"metallicRoughnessMap",
-		"occlusionMap",
-		"specularMap",
-		"specularColorMap",
-		"clearcoatMap",
-		"clearcoatRoughnessMap",
-		"clearcoatNormalMap",
-		"sheenColorMap",
-		"sheenRoughnessMap",
-		"transmissionMap",
-		"thicknessMap",
-	];
-	const textureSignature = textureFields
-		.map((field) => {
-			const texture = mat[field];
-			const version =
-				texture && typeof texture === "object" &&
-					typeof texture.version === "number" ?
-					texture.version
-				:	-1;
-			return `${field}:${version}`;
-		})
-		.join(",");
-	const albedo = mat.albedo ?? { r: 255, g: 255, b: 255 };
-	const emissive = mat.emissive ?? { r: 0, g: 0, b: 0 };
-	return [
-		material.type,
-		material.shading,
-		material.opacity.toFixed(4),
-		material.alphaMode,
-		material.alphaCutoff.toFixed(4),
-		getMaterialTransmissionFactor(material).toFixed(4),
-		material.doubleSided ? "1" : "0",
-		material.cullMode,
-		material.wireframe ? "1" : "0",
-		material.reflectivity.toFixed(4),
-		`${albedo.r},${albedo.g},${albedo.b}`,
-		`${emissive.r},${emissive.g},${emissive.b}`,
-		textureSignature,
-	].join("|");
+function hashStaticToken32(value: string): number {
+	let hash = SIGNATURE_INIT_A;
+	hash = mixFnv32(hash, value.length);
+	for (let index = 0; index < value.length; index++) {
+		hash = mixFnv32(hash, value.charCodeAt(index));
+	}
+	return hash;
 }
 
 function computePacketScreenRect(
