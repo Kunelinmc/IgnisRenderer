@@ -12,6 +12,7 @@ import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { Texture } from "../src/core/Texture.ts";
+import { CubeTexture } from "../src/core/CubeTexture.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
@@ -22,6 +23,22 @@ import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 import { ShaderCompileError, ShaderRuntime } from "../src/shaders/runtime/index.ts";
 
 const WEBGL_SHADER_SOURCE_FACTORY = createWebGLShaderSourceFactory();
+
+function createTinyCubeTexture(mips = 1, value = 1) {
+	const createFace = () => new Float32Array([value, value, value, 1]);
+	const faceMipmaps = [];
+	for (let level = 1; level < mips; level++) {
+		faceMipmaps.push(
+			Array.from({ length: 6 }, () => createFace())
+		);
+	}
+	return new CubeTexture({
+		faces: Array.from({ length: 6 }, () => createFace()),
+		faceMipmaps,
+		size: 1,
+		colorSpace: "HDR",
+	});
+}
 
 function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
 	return new WebGLProgramLibrary(
@@ -379,6 +396,46 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	assert.equal(withSH.ambientColor[0], 0);
 	assert.equal(withSH.ambientColor[1], 0);
 	assert.equal(withSH.ambientColor[2], 0);
+}
+
+function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
+	const warn = () => {};
+	const cubeProbeMap = createTinyCubeTexture(3, 0.75);
+	const cubeSkybox = createTinyCubeTexture(2, 0.5);
+	const reflectionProbe = new ReflectionProbe({
+		prefilteredMap: cubeProbeMap,
+		shape: "sphere",
+	});
+
+	const probeState = collectWebGLLights(
+		[reflectionProbe],
+		true,
+		warn,
+		false,
+		undefined,
+		false,
+		cubeSkybox
+	);
+	assert.ok(probeState.envSpecularMap);
+	assert.notEqual(probeState.envSpecularMap, cubeProbeMap);
+	assert.equal(probeState.envSpecularMap.width, 4);
+	assert.equal(probeState.envSpecularMap.height, 2);
+	assert.equal(probeState.reflectionProbeCount, 1);
+
+	const skyboxState = collectWebGLLights(
+		[],
+		true,
+		warn,
+		false,
+		undefined,
+		false,
+		cubeSkybox
+	);
+	assert.ok(skyboxState.envSpecularMap);
+	assert.notEqual(skyboxState.envSpecularMap, cubeSkybox);
+	assert.equal(skyboxState.envSpecularMap.width, 4);
+	assert.equal(skyboxState.envSpecularMap.height, 2);
+	assert.equal(skyboxState.reflectionProbeCount, 0);
 }
 
 function testProgramLibraryCompileErrorMessage() {
@@ -1048,6 +1105,7 @@ async function run() {
 	await WEBGL_SHADER_SOURCE_FACTORY.prepareAll();
 	testLightCollectorLimitsAndWarnings();
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
+	testLightCollectorSupportsCubeTextureEnvironmentMaps();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();

@@ -23,6 +23,7 @@ import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { AlphaMode } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
+import { CubeTexture } from "../src/core/CubeTexture.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../src/meshes/MeshInstance.ts";
@@ -364,6 +365,22 @@ function createTinyTexture(mips = 1) {
 	return texture;
 }
 
+function createTinyCubeTexture(mips = 1, value = 1) {
+	const createFace = () => new Float32Array([value, value, value, 1]);
+	const faceMipmaps = [];
+	for (let level = 1; level < mips; level++) {
+		faceMipmaps.push(
+			Array.from({ length: 6 }, () => createFace())
+		);
+	}
+	return new CubeTexture({
+		faces: Array.from({ length: 6 }, () => createFace()),
+		faceMipmaps,
+		size: 1,
+		colorSpace: "HDR",
+	});
+}
+
 function testEnvironmentCollection() {
 	const skybox = createTinyTexture(1);
 	const probeMap = createTinyTexture(3);
@@ -437,6 +454,34 @@ function testEnvironmentCollection() {
 	assert.equal(failedOnlySkybox.skyboxTexture, null);
 	assert.equal(failedOnlySkybox.envSpecularTexture, null);
 	assert.equal(failedOnlySkybox.reflectionProbeCount, 0);
+}
+
+function testEnvironmentCollectionWithCubeTextures() {
+	const skybox = createTinyCubeTexture(2, 0.5);
+	const probeMap = createTinyCubeTexture(3, 0.75);
+	const probe = new ReflectionProbe({
+		shape: "sphere",
+		prefilteredMap: probeMap,
+	});
+
+	const state = collectWebGPUEnvironment(
+		{
+			skybox,
+			lights: [probe],
+		},
+		false,
+		null
+	);
+	assert.ok(state.skyboxTexture);
+	assert.ok(state.envSpecularTexture);
+	assert.notEqual(state.skyboxTexture, skybox);
+	assert.notEqual(state.envSpecularTexture, probeMap);
+	assert.equal(state.skyboxTexture.width, 4);
+	assert.equal(state.skyboxTexture.height, 2);
+	assert.equal(state.envSpecularTexture.width, 4);
+	assert.equal(state.envSpecularTexture.height, 2);
+	assert.equal(state.reflectionProbeCount, 1);
+	assert.equal(state.envSpecularMaxMipLevel, 2);
 }
 
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
@@ -1344,6 +1389,7 @@ async function run() {
 	await testSceneShaderCoverage();
 	await testParticleShaderDepthConsistency();
 	testEnvironmentCollection();
+	testEnvironmentCollectionWithCubeTextures();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	await testRenderResourcesUseCopyDstForUploads();

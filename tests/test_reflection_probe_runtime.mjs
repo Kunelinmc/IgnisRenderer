@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import {
+	buildReflectionProbeAtlasTexture,
 	computeParallaxCorrectedDirection,
 	computeProbeDepthOcclusion,
 	computeProbeRawWeight,
+	samplePrefilteredEquirect,
 	selectTopTwoReflectionProbes,
 } from "../src/pipeline/reflectionProbeRuntime.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { CubeTexture } from "../src/core/CubeTexture.ts";
 
 function testBlendCurveMonotonicAndContinuous() {
 	const blendDistance = 0.2;
@@ -169,6 +172,45 @@ function testReflectionProbeRequestCaptureFlags() {
 	assert.equal(probe.captureRevision, 2);
 }
 
+function testCubemapSpecularSamplingAndAtlasBuild() {
+	const cubeA = createTinyCubeTexture([
+		new Uint8Array([255, 0, 0, 255]),
+		new Uint8Array([0, 255, 0, 255]),
+		new Uint8Array([0, 0, 255, 255]),
+		new Uint8Array([255, 255, 0, 255]),
+		new Uint8Array([255, 0, 255, 255]),
+		new Uint8Array([0, 255, 255, 255]),
+	]);
+	const plusX = samplePrefilteredEquirect(cubeA, { x: 1, y: 0, z: 0 }, 0);
+	assert.ok(plusX.r > 0.9 && plusX.g < 0.1 && plusX.b < 0.1);
+	const plusZ = samplePrefilteredEquirect(cubeA, { x: 0, y: 0, z: 1 }, 0);
+	assert.ok(plusZ.r > 0.9 && plusZ.g < 0.1 && plusZ.b > 0.9);
+
+	const cubeB = createTinyCubeTexture([
+		new Uint8Array([64, 64, 64, 255]),
+		new Uint8Array([64, 64, 64, 255]),
+		new Uint8Array([64, 64, 64, 255]),
+		new Uint8Array([64, 64, 64, 255]),
+		new Uint8Array([64, 64, 64, 255]),
+		new Uint8Array([64, 64, 64, 255]),
+	]);
+	const probeA = new ReflectionProbe({ prefilteredMap: cubeA });
+	const probeB = new ReflectionProbe({ prefilteredMap: cubeB });
+	const atlas = buildReflectionProbeAtlasTexture([probeA, probeB]);
+	assert.ok(atlas);
+	assert.equal(atlas.width, 8);
+	assert.equal(atlas.height, 2);
+	assert.ok(atlas.data || atlas.mipmaps.length > 0);
+}
+
+function createTinyCubeTexture(faces) {
+	return new CubeTexture({
+		faces,
+		size: 1,
+		colorSpace: "sRGB",
+	});
+}
+
 function run() {
 	testBlendCurveMonotonicAndContinuous();
 	testProbeDepthOcclusionAttenuatesBoundarySamples();
@@ -177,6 +219,7 @@ function run() {
 	testRuntimeCacheDirtyBehavior();
 	testReflectionProbeCaptureDefaultsAndClone();
 	testReflectionProbeRequestCaptureFlags();
+	testCubemapSpecularSamplingAndAtlasBuild();
 	console.log("Reflection probe runtime tests passed");
 }
 
