@@ -25,6 +25,13 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
 } from "./constants";
 import {
+	StructuredBufferLayout,
+	arrayOf,
+	scalar,
+	structOf,
+	vec,
+} from "./StructuredBufferLayout";
+import {
 	loadClusteredLightingCullShaderComposite,
 } from "../../shaders/webgpu/shaderSource";
 import type {
@@ -39,12 +46,51 @@ const CLUSTERED_PARAMS_FLOATS = 12;
 const CLUSTERED_LIGHT_STRIDE_FLOATS = 16;
 const CLUSTERED_HEADER_STRIDE_UINTS = 4;
 
+const U32 = scalar("u32");
+const F32 = scalar("f32");
+const VEC4_F32 = vec(4, "f32");
+
+const CLUSTER_GRID_PARAMS_LAYOUT = new StructuredBufferLayout(
+	structOf([
+		{ name: "screenWidth", type: U32 },
+		{ name: "screenHeight", type: U32 },
+		{ name: "tilesX", type: U32 },
+		{ name: "tilesY", type: U32 },
+		{ name: "zSlices", type: U32 },
+		{ name: "clusterCount", type: U32 },
+		{ name: "near", type: F32 },
+		{ name: "far", type: F32 },
+		{ name: "logScale", type: F32 },
+		{ name: "logBias", type: F32 },
+		{ name: "reserved0", type: U32 },
+		{ name: "reserved1", type: U32 },
+	]),
+	"uniform"
+);
+
+const CLUSTERED_LIGHT_RECORD_SCHEMA = structOf([
+	{ name: "positionRange", type: VEC4_F32 },
+	{ name: "directionOuter", type: VEC4_F32 },
+	{ name: "colorInner", type: VEC4_F32 },
+	{ name: "packedFlags", type: U32 },
+	{ name: "shadowIndex", type: U32 },
+	{ name: "reserved0", type: U32 },
+	{ name: "reserved1", type: U32 },
+]);
+
+const CLUSTERED_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
+
 const CLUSTERED_PARAMS_DEFAULTS = {
 	tileSizePx: 64,
 	zSlices: 24,
 	maxLights: 256,
 	maxLightsPerCluster: 64,
 } as const;
+
+CLUSTER_GRID_PARAMS_LAYOUT.assertByteSize(
+	CLUSTERED_PARAMS_FLOATS * 4,
+	"ClusterGridParams"
+);
 
 interface FrameClusterState {
 	enabled: boolean;
@@ -495,22 +541,21 @@ export class WebGPUClusteredLightingRuntime {
 	private _createClusterParamsBufferData(
 		params: WebGPUClusterGridParams
 	): ArrayBuffer {
-		const buffer = new ArrayBuffer(CLUSTERED_PARAMS_FLOATS * 4);
-		const u32 = new Uint32Array(buffer);
-		const f32 = new Float32Array(buffer);
-		u32[0] = params.screenWidth >>> 0;
-		u32[1] = params.screenHeight >>> 0;
-		u32[2] = params.tilesX >>> 0;
-		u32[3] = params.tilesY >>> 0;
-		u32[4] = params.zSlices >>> 0;
-		u32[5] = params.clusterCount >>> 0;
-		f32[6] = params.near;
-		f32[7] = params.far;
-		f32[8] = params.logScale;
-		f32[9] = params.logBias;
-		u32[10] = 0;
-		u32[11] = 0;
-		return buffer;
+		const writer = CLUSTER_GRID_PARAMS_LAYOUT.createWriter();
+		writer.expectByteLength(CLUSTERED_PARAMS_FLOATS * 4, "ClusterGridParams");
+		writer.writeU32("screenWidth", params.screenWidth >>> 0);
+		writer.writeU32("screenHeight", params.screenHeight >>> 0);
+		writer.writeU32("tilesX", params.tilesX >>> 0);
+		writer.writeU32("tilesY", params.tilesY >>> 0);
+		writer.writeU32("zSlices", params.zSlices >>> 0);
+		writer.writeU32("clusterCount", params.clusterCount >>> 0);
+		writer.writeF32("near", params.near);
+		writer.writeF32("far", params.far);
+		writer.writeF32("logScale", params.logScale);
+		writer.writeF32("logBias", params.logBias);
+		writer.writeU32("reserved0", 0);
+		writer.writeU32("reserved1", 0);
+		return writer.toArrayBuffer();
 	}
 
 	private _createClusterLightBufferData(
@@ -518,28 +563,32 @@ export class WebGPUClusteredLightingRuntime {
 		count: number
 	): ArrayBuffer {
 		const safeCount = Math.max(1, count);
-		const buffer = new ArrayBuffer(
-			safeCount * CLUSTERED_LIGHT_STRIDE_FLOATS * 4
+		const layout = getClusteredLightLayout(safeCount);
+		const writer = layout.createWriter();
+		writer.expectByteLength(
+			safeCount * CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
+			"ClusterLightBuffer"
 		);
-		// Use typed array views for bulk writes - much faster than
-		// per-field DataView.setFloat32() calls (16 per light).
-		const f32 = new Float32Array(buffer);
-		const u32 = new Uint32Array(buffer);
 		for (let i = 0; i < count; i++) {
 			const light = sourceLights[i];
-			const base = i * CLUSTERED_LIGHT_STRIDE_FLOATS;
-			f32[base + 0] = light.position[0];
-			f32[base + 1] = light.position[1];
-			f32[base + 2] = light.position[2];
-			f32[base + 3] = Math.max(light.range, 0.001);
-			f32[base + 4] = light.direction[0];
-			f32[base + 5] = light.direction[1];
-			f32[base + 6] = light.direction[2];
-			f32[base + 7] = light.outerCos;
-			f32[base + 8] = light.color[0];
-			f32[base + 9] = light.color[1];
-			f32[base + 10] = light.color[2];
-			f32[base + 11] = light.innerCos;
+			writer.writeVec([i, "positionRange"], [
+				light.position[0],
+				light.position[1],
+				light.position[2],
+				Math.max(light.range, 0.001),
+			]);
+			writer.writeVec([i, "directionOuter"], [
+				light.direction[0],
+				light.direction[1],
+				light.direction[2],
+				light.outerCos,
+			]);
+			writer.writeVec([i, "colorInner"], [
+				light.color[0],
+				light.color[1],
+				light.color[2],
+				light.innerCos,
+			]);
 
 			const lightType =
 				light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT ?
@@ -552,16 +601,15 @@ export class WebGPUClusteredLightingRuntime {
 			if (light.affectsVolumetric) {
 				packedFlags |= WEBGPU_CLUSTERED_LIGHT_FLAG_AFFECTS_VOLUMETRIC;
 			}
-			u32[base + 12] = packedFlags >>> 0;
-			u32[base + 13] = Math.max(0, light.shadowIndex | 0);
-			u32[base + 14] = 0;
-			u32[base + 15] = 0;
+			writer.writeU32([i, "packedFlags"], packedFlags >>> 0);
+			writer.writeU32([i, "shadowIndex"], Math.max(0, light.shadowIndex | 0));
+			writer.writeU32([i, "reserved0"], 0);
+			writer.writeU32([i, "reserved1"], 0);
 		}
 		if (count < safeCount) {
-			const base = count * CLUSTERED_LIGHT_STRIDE_FLOATS;
-			u32[base + 12] = 0xffffffff;
+			writer.writeU32([count, "packedFlags"], 0xffffffff);
 		}
-		return buffer;
+		return writer.toArrayBuffer();
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
@@ -579,6 +627,24 @@ export class WebGPUClusteredLightingRuntime {
 			);
 		}
 	}
+}
+
+function getClusteredLightLayout(count: number): StructuredBufferLayout {
+	const cached = CLUSTERED_LIGHT_LAYOUT_CACHE.get(count);
+	if (cached) {
+		return cached;
+	}
+
+	const layout = new StructuredBufferLayout(
+		arrayOf(CLUSTERED_LIGHT_RECORD_SCHEMA, count),
+		"storage"
+	);
+	layout.assertByteSize(
+		count * CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
+		"ClusterLightBuffer"
+	);
+	CLUSTERED_LIGHT_LAYOUT_CACHE.set(count, layout);
+	return layout;
 }
 
 export function packClusteredIndexRef(

@@ -18,6 +18,12 @@ import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shad
 import { ceilDiv, finiteOr } from "../../../maths/screenSpaceMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import type { WebGPULightingState } from "../types";
+import {
+	StructuredBufferLayout,
+	arrayOf,
+	structOf,
+	vec,
+} from "../StructuredBufferLayout";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
 	WebGPUPostProcessExecuteRequest,
@@ -32,6 +38,15 @@ import type {
 const WORKGROUP_SIZE = 8;
 const VOLUMETRIC_LIGHT_STRIDE_FLOATS = 12;
 const MAX_VOLUMETRIC_LIGHTS = 65000;
+const VEC4_F32 = vec(4, "f32");
+
+const VOLUMETRIC_LIGHT_RECORD_SCHEMA = structOf([
+	{ name: "positionRange", type: VEC4_F32 },
+	{ name: "directionOuter", type: VEC4_F32 },
+	{ name: "colorInner", type: VEC4_F32 },
+]);
+
+const VOLUMETRIC_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
 
 export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegate {
 	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
@@ -534,33 +549,46 @@ export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegat
 		}
 
 		const packedCount = Math.max(1, clampedLightCount);
-		const packed = new Float32Array(packedCount * VOLUMETRIC_LIGHT_STRIDE_FLOATS);
+		const layout = getVolumetricLightLayout(packedCount);
+		const packed = layout.createWriter();
+		packed.expectByteLength(
+			packedCount * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
+			"VolumetricLightBuffer"
+		);
 
 		for (let i = 0; i < clampedLightCount; i++) {
 			const light = sourceLights[i];
-			const base = i * VOLUMETRIC_LIGHT_STRIDE_FLOATS;
 			const isDirectional = light.type === 0;
 			const isSpot = light.type === 2;
 
-			packed[base] = light.position[0];
-			packed[base + 1] = light.position[1];
-			packed[base + 2] = light.position[2];
-			packed[base + 3] = isDirectional ? -1 : Math.max(light.range, 0.001);
-			packed[base + 4] = light.direction[0];
-			packed[base + 5] = light.direction[1];
-			packed[base + 6] = light.direction[2];
-			packed[base + 7] = isSpot ? light.outerCos : -2;
-			packed[base + 8] = light.color[0];
-			packed[base + 9] = light.color[1];
-			packed[base + 10] = light.color[2];
-			packed[base + 11] = isSpot ? light.innerCos : -2;
+			packed.writeVec([i, "positionRange"], [
+				light.position[0],
+				light.position[1],
+				light.position[2],
+				isDirectional ? -1 : Math.max(light.range, 0.001),
+			]);
+			packed.writeVec([i, "directionOuter"], [
+				light.direction[0],
+				light.direction[1],
+				light.direction[2],
+				isSpot ? light.outerCos : -2,
+			]);
+			packed.writeVec([i, "colorInner"], [
+				light.color[0],
+				light.color[1],
+				light.color[2],
+				isSpot ? light.innerCos : -2,
+			]);
 		}
 
 		if (clampedLightCount === 0) {
-			packed[3] = -1;
+			packed.writeVec([0, "positionRange"], [0, 0, 0, -1]);
 		}
 
-		this._shared.compute.writeBuffer(this._volumetricLightBuffer, packed);
+		this._shared.compute.writeBuffer(
+			this._volumetricLightBuffer,
+			packed.toFloat32Array()
+		);
 		return clampedLightCount;
 	}
 
@@ -933,4 +961,22 @@ export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegat
 		this._hizViewCache.set(texture as object, views);
 		return views;
 	}
+}
+
+function getVolumetricLightLayout(count: number): StructuredBufferLayout {
+	const cached = VOLUMETRIC_LIGHT_LAYOUT_CACHE.get(count);
+	if (cached) {
+		return cached;
+	}
+
+	const layout = new StructuredBufferLayout(
+		arrayOf(VOLUMETRIC_LIGHT_RECORD_SCHEMA, count),
+		"storage"
+	);
+	layout.assertByteSize(
+		count * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
+		"VolumetricLightBuffer"
+	);
+	VOLUMETRIC_LIGHT_LAYOUT_CACHE.set(count, layout);
+	return layout;
 }

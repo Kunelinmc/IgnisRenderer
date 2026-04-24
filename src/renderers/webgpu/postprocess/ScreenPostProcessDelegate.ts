@@ -29,6 +29,13 @@ import {
 	FXAA_EDGE_THRESHOLD_MULTIPLIER,
 	FXAA_SUBPIX_QUALITY,
 } from "../../constants";
+import {
+	StructuredBufferLayout,
+	arrayOf,
+	scalar,
+	structOf,
+	vec,
+} from "../StructuredBufferLayout";
 import { ceilDiv, finiteOr } from "../../../maths/screenSpaceMath";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
@@ -41,9 +48,27 @@ import type {
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
-const INTERACTION_OUTLINE_HEADER_FLOATS = 16;
-const INTERACTION_OUTLINE_PARAM_FLOATS =
-	INTERACTION_OUTLINE_HEADER_FLOATS + MAX_INTERACTION_OUTLINE_CIRCLES * 4;
+const VEC2_F32 = vec(2, "f32");
+const VEC3_F32 = vec(3, "f32");
+const VEC4_F32 = vec(4, "f32");
+const INTERACTION_OUTLINE_LAYOUT = new StructuredBufferLayout(
+	structOf([
+		{ name: "invSize", type: VEC2_F32 },
+		{ name: "opacity", type: scalar("f32") },
+		{ name: "thickness", type: scalar("f32") },
+		{ name: "color", type: VEC4_F32 },
+		{ name: "circleCount", type: scalar("f32") },
+		{ name: "shape", type: scalar("f32") },
+		{ name: "pad0", type: VEC3_F32 },
+		{ name: "circles", type: arrayOf(VEC4_F32, MAX_INTERACTION_OUTLINE_CIRCLES) },
+	]),
+	"uniform"
+);
+
+INTERACTION_OUTLINE_LAYOUT.assertByteSize(
+	(16 + MAX_INTERACTION_OUTLINE_CIRCLES * 4) * 4,
+	"OutlineParams"
+);
 
 export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate {
 	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
@@ -93,9 +118,8 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	private _interactionOutlineModule: IShaderModule | null = null;
 	private _interactionOutlinePipeline: IComputePipeline | null = null;
 	private _interactionOutlineParams: IRenderBuffer | null = null;
-	private _interactionOutlineParamData = new Float32Array(
-		INTERACTION_OUTLINE_PARAM_FLOATS
-	);
+	private _interactionOutlineParamWriter =
+		INTERACTION_OUTLINE_LAYOUT.createWriter();
 
 	constructor(shared: PostProcessSharedContext) {
 		this._shared = shared;
@@ -767,41 +791,35 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		const shapeCode = getInteractionOutlineShapeCode(
 			interactionState?.outline?.shape
 		);
-		const params = this._interactionOutlineParamData;
-		params[0] = 1 / Math.max(target.width, 1);
-		params[1] = 1 / Math.max(target.height, 1);
-		params[2] = opacity;
-		params[3] = thickness;
-		params[4] = sRGBToLinear(
-			clamp(outlineColor.r / Math.max(1, colorScale), 0, 1)
-		);
-		params[5] = sRGBToLinear(
-			clamp(outlineColor.g / Math.max(1, colorScale), 0, 1)
-		);
-		params[6] = sRGBToLinear(
-			clamp(outlineColor.b / Math.max(1, colorScale), 0, 1)
-		);
-		params[7] = 1;
-		params[8] = circles.length;
-		params[9] = shapeCode;
-		params.fill(0, 10, INTERACTION_OUTLINE_HEADER_FLOATS);
-		let offset = INTERACTION_OUTLINE_HEADER_FLOATS;
-		for (let index = 0; index < MAX_INTERACTION_OUTLINE_CIRCLES; index++) {
-			if (index < circles.length) {
-				const circle = circles[index];
-				params[offset] = circle.centerX;
-				params[offset + 1] = circle.centerY;
-				params[offset + 2] = circle.radius;
-				params[offset + 3] = 0;
-			} else {
-				params[offset] = 0;
-				params[offset + 1] = 0;
-				params[offset + 2] = 0;
-				params[offset + 3] = 0;
-			}
-			offset += 4;
+		const params = this._interactionOutlineParamWriter;
+		params.clear();
+		params.writeVec("invSize", [
+			1 / Math.max(target.width, 1),
+			1 / Math.max(target.height, 1),
+		]);
+		params.writeF32("opacity", opacity);
+		params.writeF32("thickness", thickness);
+		params.writeVec("color", [
+			sRGBToLinear(clamp(outlineColor.r / Math.max(1, colorScale), 0, 1)),
+			sRGBToLinear(clamp(outlineColor.g / Math.max(1, colorScale), 0, 1)),
+			sRGBToLinear(clamp(outlineColor.b / Math.max(1, colorScale), 0, 1)),
+			1,
+		]);
+		params.writeF32("circleCount", circles.length);
+		params.writeF32("shape", shapeCode);
+		for (let index = 0; index < circles.length; index++) {
+			const circle = circles[index];
+			params.writeVec(["circles", index], [
+				circle.centerX,
+				circle.centerY,
+				circle.radius,
+				0,
+			]);
 		}
-		this._shared.compute.writeBuffer(this._interactionOutlineParams, params);
+		this._shared.compute.writeBuffer(
+			this._interactionOutlineParams,
+			params.toFloat32Array()
+		);
 
 		const binding = this._shared.getCachedBindGroup(
 			`interaction-outline-${target === request.targets.postPing ? "ping" : "pong"}`,
@@ -1237,7 +1255,7 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		if (!this._interactionOutlineParams) {
 			this._interactionOutlineParams = this._shared.compute.createBuffer({
 				label: "WebGPUInteractionOutlineParams",
-				size: this._interactionOutlineParamData.byteLength,
+				size: INTERACTION_OUTLINE_LAYOUT.byteSize,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
