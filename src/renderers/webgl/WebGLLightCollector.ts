@@ -27,10 +27,11 @@ import {
 	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
+import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
 import {
-	collectReflectionProbeEnvironment,
+	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
-} from "../../pipeline/reflectionProbeRuntime";
+} from "../../pipeline/environmentMapRuntime";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];
@@ -424,46 +425,48 @@ function resolveEnvSpecularMap(
 	texture: Texture | null,
 	warn: WebGLLightCollectorWarn
 ): Texture | null {
-	if (!texture) {
+	const normalizedTexture = ensureEnvironmentTextureEquirect(texture);
+	if (!normalizedTexture) {
 		return null;
 	}
-	if (texture.isLoadErrorFallback) {
+	if (normalizedTexture.isLoadErrorFallback) {
 		warn(
 			"webgl-env-specular-load-error-fallback",
 			"WebGL environment specular texture resolved to a load-error fallback; skipping IBL specular."
 		);
 		return null;
 	}
-	if (!isTextureReadyForEnvironment(texture)) {
+	if (!isTextureReadyForEnvironment(normalizedTexture)) {
 		warn(
 			"webgl-env-specular-texture-not-ready",
 			"WebGL environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular."
 		);
 		return null;
 	}
-	return texture;
+	return normalizedTexture;
 }
 
 function resolveEnvironmentSkyboxMap(
 	texture: Texture | null,
 	warn: WebGLLightCollectorWarn
 ): Texture | null {
-	if (!texture) return null;
-	if (texture.isLoadErrorFallback) {
+	const normalizedTexture = ensureEnvironmentTextureEquirect(texture);
+	if (!normalizedTexture) return null;
+	if (normalizedTexture.isLoadErrorFallback) {
 		warn(
 			"webgl-skybox-load-error-fallback",
 			"WebGL skybox texture resolved to a load-error fallback; skipping skybox IBL fallback."
 		);
 		return null;
 	}
-	if (!isTextureReadyForEnvironment(texture)) {
+	if (!isTextureReadyForEnvironment(normalizedTexture)) {
 		warn(
 			"webgl-skybox-texture-not-ready",
 			"WebGL skybox texture is not ready (missing pixels or invalid dimensions); skipping skybox IBL fallback."
 		);
 		return null;
 	}
-	return texture;
+	return normalizedTexture;
 }
 
 function logWebGLLightCollectorWarning(key: string, message: string): void {
