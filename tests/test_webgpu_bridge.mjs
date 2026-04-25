@@ -498,6 +498,30 @@ function testLightProbeDCAmbientFallbackWhenSHDisabled() {
 	assert.equal(withSH.ambientColor[2], 0);
 }
 
+function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
+	const sh = SH.empty();
+	sh[0] = { r: 80, g: 40, b: 20 };
+	sh[5] = { r: 3, g: 2, b: 1 };
+	const probe = new LightProbe(sh, 0.5);
+	const state = collectWebGPUEnvironment(
+		{
+			skybox: null,
+			lights: [probe],
+		},
+		true,
+		null
+	);
+	assert.equal(state.enableSH, true);
+	assert.equal(state.hasSHAmbient, true);
+	assert.ok(state.shAmbientCoeffs);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].r - 40) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].g - 20) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].b - 10) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].r - 1.5) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].g - 1.0) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].b - 0.5) < 1e-6);
+}
+
 function testWebGPUShadowBiasAvoidsSlopeOffset() {
 	const light = new DirectionalLight();
 	const shadowMap = new ShadowMap(1024, {
@@ -1391,6 +1415,7 @@ async function run() {
 	testEnvironmentCollection();
 	testEnvironmentCollectionWithCubeTextures();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
+	testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();

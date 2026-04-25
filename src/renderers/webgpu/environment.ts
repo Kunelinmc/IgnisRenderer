@@ -1,4 +1,11 @@
 import type { Texture } from "../../core/Texture";
+import {
+	LightType,
+	type SceneLight,
+} from "../../lights";
+import { PBR_AMBIENT_FALLBACK_LINEAR } from "../../lights/constants";
+import { sRGBToLinear } from "../../maths/Common";
+import { SH } from "../../maths/SH";
 import type { SHCoefficients } from "../../maths/types";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
@@ -15,6 +22,8 @@ import type {
 	WebGPUReflectionProbeUniform,
 	WebGPUWarning,
 } from "./types";
+
+const SH_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 export function collectWebGPUEnvironment(
 	scene: PreparedScene,
@@ -75,20 +84,17 @@ export function collectWebGPUEnvironment(
 		envSpecularTexture = sceneSkyboxTexture;
 	}
 	const hasEnvSpecular = !!envSpecularTexture;
+	const resolvedSHAmbientCoeffs = resolveSHAmbientCoeffs(
+		scene.lights,
+		enableSH,
+		shAmbientCoeffs
+	);
 
-	const hasInputSHAmbient = hasNonZeroSH(shAmbientCoeffs);
+	const hasInputSHAmbient = hasNonZeroSH(resolvedSHAmbientCoeffs);
 	const hasSHAmbient = enableSH && hasInputSHAmbient;
 
-	if (enableSH && !shAmbientCoeffs) {
-		warnings.push({
-			key: "webgpu-sh-missing-frame-context",
-			message:
-				"WebGPU SH was enabled without frame SH coefficients; falling back to non-SH ambient path",
-		});
-	}
-
 	return {
-		shAmbientCoeffs,
+		shAmbientCoeffs: resolvedSHAmbientCoeffs,
 		enableSH,
 		hasSHAmbient,
 		skyboxTexture: sceneSkyboxTexture ?? envSpecularTexture,
@@ -100,6 +106,68 @@ export function collectWebGPUEnvironment(
 			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
 		warnings,
 	};
+}
+
+function resolveSHAmbientCoeffs(
+	lights: SceneLight[],
+	enableSH: boolean,
+	shAmbientCoeffs: SHCoefficients | null
+): SHCoefficients | null {
+	if (!enableSH) return shAmbientCoeffs;
+	if (shAmbientCoeffs) return shAmbientCoeffs;
+	return synthesizeSHAmbientCoeffsFromLights(lights);
+}
+
+function synthesizeSHAmbientCoeffsFromLights(
+	lights: SceneLight[]
+): SHCoefficients {
+	const ambientProbeSH = SH.empty();
+	let ambientR = 0;
+	let ambientG = 0;
+	let ambientB = 0;
+	let hasAmbient = false;
+
+	for (const light of lights) {
+		if (light.type === LightType.Ambient) {
+			const color = light.color ?? { r: 255, g: 255, b: 255 };
+			const intensity = light.intensity ?? 1;
+			ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
+			ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
+			ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
+			hasAmbient = true;
+			continue;
+		}
+
+		if (light.type !== LightType.LightProbe) {
+			continue;
+		}
+
+		const probeSH = light.sh;
+		const intensity = light.intensity ?? 1;
+		const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
+		for (let i = 0; i < coeffCount; i++) {
+			ambientProbeSH[i].r += probeSH[i].r * intensity;
+			ambientProbeSH[i].g += probeSH[i].g * intensity;
+			ambientProbeSH[i].b += probeSH[i].b * intensity;
+		}
+	}
+
+	if (
+		!hasAmbient &&
+		ambientProbeSH[0].r === 0 &&
+		ambientProbeSH[0].g === 0 &&
+		ambientProbeSH[0].b === 0
+	) {
+		const fallbackLinear = PBR_AMBIENT_FALLBACK_LINEAR * 255;
+		ambientR = fallbackLinear;
+		ambientG = fallbackLinear;
+		ambientB = fallbackLinear;
+	}
+
+	ambientProbeSH[0].r += ambientR / SH_DC_IRRADIANCE_SCALE;
+	ambientProbeSH[0].g += ambientG / SH_DC_IRRADIANCE_SCALE;
+	ambientProbeSH[0].b += ambientB / SH_DC_IRRADIANCE_SCALE;
+	return ambientProbeSH;
 }
 
 function hasNonZeroSH(coeffs: SHCoefficients | null): boolean {
