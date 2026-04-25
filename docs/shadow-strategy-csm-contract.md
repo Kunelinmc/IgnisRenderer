@@ -8,11 +8,12 @@ The previous shadow path used light-bound camera builders. The new path moves sh
 ## API/Contract
 The following contracts must be respected:
 
+- Shadow generation must be gated by `Light.castShadow` as the primary switch.
 - `Light.shadow` must be configured by `ShadowConfig`.
 - `ShadowConfig` must support `strategy: "single-map"` and `strategy: "csm"`.
 - `DirectionalLight` and `SpotLight` may use `csm`.
 - `SpotLight` with `csm` must remain single-map equivalent in current forward shading paths (`cascadeCount = 1` runtime behavior).
-- `PointLight` and `RectArea` must remain equivalent to single-map behavior in v1.
+- `PointLight` and `RectArea` must resolve to single-map behavior in v1 and must not be hard-disabled by light type checks when `castShadow` is `true`.
 - `csm` strategy fields:
   - `cascadeCount` must be one of `2 | 3 | 4`.
   - `splitMode` must be `"practical"` in v1.
@@ -58,6 +59,17 @@ sun.shadow = {
 	stabilize: true,
 	priority: 10,
 };
+```
+
+Example: enable shadow generation on a point light through `castShadow`.
+
+```ts
+import { PointLight } from "../src/lights/PointLight";
+
+const point = new PointLight({
+	range: 60,
+	castShadow: true,
+});
 ```
 
 Verification command:
