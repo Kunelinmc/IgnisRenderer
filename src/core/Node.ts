@@ -138,50 +138,7 @@ export class Node {
 	}
 
 	public updateLocalMatrix(): void {
-		const qx = this.quaternion.x;
-		const qy = this.quaternion.y;
-		const qz = this.quaternion.z;
-		const qw = this.quaternion.w;
-		const sx = this.scale.x;
-		const sy = this.scale.y;
-		const sz = this.scale.z;
-		const px = this.position.x;
-		const py = this.position.y;
-		const pz = this.position.z;
-		const elements = this.localMatrix.elements;
-
-		const x2 = qx + qx;
-		const y2 = qy + qy;
-		const z2 = qz + qz;
-		const xx = qx * x2;
-		const xy = qx * y2;
-		const xz = qx * z2;
-		const yy = qy * y2;
-		const yz = qy * z2;
-		const zz = qz * z2;
-		const wx = qw * x2;
-		const wy = qw * y2;
-		const wz = qw * z2;
-
-		elements[0][0] = (1 - (yy + zz)) * sx;
-		elements[0][1] = (xy - wz) * sy;
-		elements[0][2] = (xz + wy) * sz;
-		elements[0][3] = px;
-
-		elements[1][0] = (xy + wz) * sx;
-		elements[1][1] = (1 - (xx + zz)) * sy;
-		elements[1][2] = (yz - wx) * sz;
-		elements[1][3] = py;
-
-		elements[2][0] = (xz - wy) * sx;
-		elements[2][1] = (yz + wx) * sy;
-		elements[2][2] = (1 - (xx + yy)) * sz;
-		elements[2][3] = pz;
-
-		elements[3][0] = 0;
-		elements[3][1] = 0;
-		elements[3][2] = 0;
-		elements[3][3] = 1;
+		Matrix4.compose(this.position, this.quaternion, this.scale, this.localMatrix);
 	}
 
 	public updateWorldMatrix(parentWorldMatrix?: Matrix4): void {

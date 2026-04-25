@@ -3,7 +3,7 @@
  */
 
 import { Vector3 } from "./Vector3";
-import type { Point, IVector3, Matrix3Arr } from "./types";
+import type { Point, IVector3, IVector4, Matrix3Arr } from "./types";
 
 /**
  * MATRIX CONVENTIONS:
@@ -373,6 +373,64 @@ export class Matrix4 {
 		m.elements[1][1] = s[1];
 		m.elements[2][2] = s[2];
 		return m;
+	}
+
+	/**
+	 * Composes a transform matrix from translation, quaternion rotation, and scale.
+	 */
+	public static compose(
+		position: IVector3,
+		quaternion: IVector4,
+		scale: IVector3,
+		out?: Matrix4
+	): Matrix4 {
+		const qx = quaternion.x;
+		const qy = quaternion.y;
+		const qz = quaternion.z;
+		const qw = quaternion.w;
+		const sx = scale.x;
+		const sy = scale.y;
+		const sz = scale.z;
+		const px = position.x;
+		const py = position.y;
+		const pz = position.z;
+		const target = out ?? new Matrix4();
+		const elements = target.elements;
+
+		const x2 = qx + qx;
+		const y2 = qy + qy;
+		const z2 = qz + qz;
+		const xx = qx * x2;
+		const xy = qx * y2;
+		const xz = qx * z2;
+		const yy = qy * y2;
+		const yz = qy * z2;
+		const zz = qz * z2;
+		const wx = qw * x2;
+		const wy = qw * y2;
+		const wz = qw * z2;
+
+		elements[0][0] = (1 - (yy + zz)) * sx;
+		elements[0][1] = (xy - wz) * sy;
+		elements[0][2] = (xz + wy) * sz;
+		elements[0][3] = px;
+
+		elements[1][0] = (xy + wz) * sx;
+		elements[1][1] = (1 - (xx + zz)) * sy;
+		elements[1][2] = (yz - wx) * sz;
+		elements[1][3] = py;
+
+		elements[2][0] = (xz - wy) * sx;
+		elements[2][1] = (yz + wx) * sy;
+		elements[2][2] = (1 - (xx + yy)) * sz;
+		elements[2][3] = pz;
+
+		elements[3][0] = 0;
+		elements[3][1] = 0;
+		elements[3][2] = 0;
+		elements[3][3] = 1;
+
+		return target;
 	}
 
 	public static fromQuaternion(q: number[]): Matrix4 {
