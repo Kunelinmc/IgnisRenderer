@@ -12,12 +12,12 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
-	directionalLights: array<vec4<f32>, 8>,
-	pointLights: array<vec4<f32>, 8>,
-	spotLights: array<vec4<f32>, 24>,
-	directionalShadows: array<ShadowData, 4>,
-	spotShadows: array<ShadowData, 8>,
-	shAmbientCoeffs: array<vec4<f32>, 16>,
+	directionalLights: array<vec4<f32>, __WEBGPU_FRAME_DIRECTIONAL_LIGHT_VEC4_COUNT__>,
+	pointLights: array<vec4<f32>, __WEBGPU_FRAME_POINT_LIGHT_VEC4_COUNT__>,
+	spotLights: array<vec4<f32>, __WEBGPU_FRAME_SPOT_LIGHT_VEC4_COUNT__>,
+	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
+	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 }
 
 struct ParticleVertexInput {

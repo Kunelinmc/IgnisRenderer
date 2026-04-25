@@ -5,6 +5,10 @@ import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts
 import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
 import { getWebGPUSkyboxShader } from "../src/shaders/webgpu/skyboxShader.ts";
 import {
+	loadClusteredLightingCullShaderComposite,
+	loadPostProcessShaderPart,
+} from "../src/shaders/webgpu/shaderSource.ts";
+import {
 	collectWebGPUEnvironment,
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
@@ -16,6 +20,7 @@ import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { PointLight } from "../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
@@ -32,7 +37,13 @@ import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
 import {
+	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+	WEBGPU_MAX_POINT_LIGHTS,
+	WEBGPU_MAX_REFLECTION_PROBES,
+	WEBGPU_MAX_SPOT_LIGHTS,
+	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
+	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
 } from "../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
@@ -356,6 +367,86 @@ async function testParticleShaderDepthConsistency() {
 	);
 }
 
+async function testWebGPUShaderConstantTokenInjection() {
+	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
+	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader();
+	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader();
+	const WEBGPU_SSR_SHADER = await loadPostProcessShaderPart("ssr");
+	const WEBGPU_CLUSTERED_CULL_SHADER =
+		(await loadClusteredLightingCullShaderComposite()).code;
+
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`directionalLights: array<DirectionalLightData, ${WEBGPU_MAX_DIRECTIONAL_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`spotLights: array<SpotLightData, ${WEBGPU_MAX_SPOT_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`shAmbientCoeffs: array<vec4<f32>, ${WEBGPU_SH_COEFFICIENT_COUNT}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`reflectionProbes: array<ReflectionProbeData, ${WEBGPU_MAX_REFLECTION_PROBES}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`textureTransformA: array<vec4<f32>, ${WEBGPU_TEXTURE_SLOT_COUNT}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`textureTransformB: array<vec4<f32>, ${WEBGPU_TEXTURE_SLOT_COUNT}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SKYBOX_SHADER.includes(
+			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			`directionalLights: array<vec4<f32>, ${WEBGPU_MAX_DIRECTIONAL_LIGHTS * 2}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			`pointLights: array<vec4<f32>, ${WEBGPU_MAX_POINT_LIGHTS * 2}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			`spotLights: array<vec4<f32>, ${WEBGPU_MAX_SPOT_LIGHTS * 3}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SSR_SHADER.includes(
+			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_CLUSTERED_CULL_SHADER.includes(
+			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+		)
+	);
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_SKYBOX_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_PARTICLE_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_SSR_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_CLUSTERED_CULL_SHADER.includes("__WEBGPU_"));
+}
+
 function createTinyTexture(mips = 1) {
 	const texture = new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR");
 	texture.mipmaps = Array.from(
@@ -542,6 +633,30 @@ function testWebGPUShadowBiasAvoidsSlopeOffset() {
 	assert.ok(shadow.enabled);
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
 	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
+}
+
+function testWebGPUPointLightLimit() {
+	const withinLimit = Array.from(
+		{ length: WEBGPU_MAX_POINT_LIGHTS },
+		() => new PointLight()
+	);
+	const withinState = collectWebGPULighting(withinLimit, true, false);
+	assert.equal(withinState.pointLights.length, WEBGPU_MAX_POINT_LIGHTS);
+	assert.ok(
+		!withinState.warnings.some(
+			(warning) => warning.key === "webgpu-point-limit"
+		)
+	);
+
+	const overLimit = Array.from(
+		{ length: WEBGPU_MAX_POINT_LIGHTS + 2 },
+		() => new PointLight()
+	);
+	const overState = collectWebGPULighting(overLimit, true, false);
+	assert.equal(overState.pointLights.length, WEBGPU_MAX_POINT_LIGHTS);
+	assert.ok(
+		overState.warnings.some((warning) => warning.key === "webgpu-point-limit")
+	);
 }
 
 function testRenderResourcesRequestsComputeFacadeFromBackend() {
@@ -1412,11 +1527,13 @@ async function run() {
 	testFrameExecutorRequestsComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
 	await testParticleShaderDepthConsistency();
+	await testWebGPUShaderConstantTokenInjection();
 	testEnvironmentCollection();
 	testEnvironmentCollectionWithCubeTextures();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
+	testWebGPUPointLightLimit();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();

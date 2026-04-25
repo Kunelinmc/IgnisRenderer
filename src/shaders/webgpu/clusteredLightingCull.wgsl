@@ -11,12 +11,12 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
-	directionalLights: array<DirectionalLightData, 4>,
-	pointLights: array<PointLightData, 4>,
-	spotLights: array<SpotLightData, 8>,
-	directionalShadows: array<ShadowData, 4>,
-	spotShadows: array<ShadowData, 8>,
-	shAmbientCoeffs: array<vec4<f32>, 16>,
+	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
+	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
+	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
+	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 }
 
 struct ClusterGridParams {
@@ -332,4 +332,3 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
 	clusterHeaders.headers[clusterIndex] = ClusterHeader(baseOffset, count, flags, 0u);
 }
-

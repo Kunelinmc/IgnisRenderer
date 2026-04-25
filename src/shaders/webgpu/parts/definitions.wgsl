@@ -11,13 +11,13 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
-	directionalLights: array<DirectionalLightData, 4>,
-	pointLights: array<PointLightData, 4>,
-	spotLights: array<SpotLightData, 8>,
-	directionalShadows: array<ShadowData, 4>,
-	spotShadows: array<ShadowData, 8>,
-	shAmbientCoeffs: array<vec4<f32>, 16>,
-	reflectionProbes: array<ReflectionProbeData, 8>,
+	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
+	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
+	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
+	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
+	reflectionProbes: array<ReflectionProbeData, __WEBGPU_MAX_REFLECTION_PROBES__>,
 }
 
 struct ClusterGridParams {
@@ -78,8 +78,8 @@ struct ModelUniforms {
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
 	materialFlags: vec4<f32>,
-	textureTransformA: array<vec4<f32>, 14>,
-	textureTransformB: array<vec4<f32>, 14>,
+	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
+	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 }
 
 struct AnimationParams {
