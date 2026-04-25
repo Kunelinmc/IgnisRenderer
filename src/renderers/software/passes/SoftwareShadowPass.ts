@@ -458,6 +458,7 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 	private _rasterizer: Rasterizer;
 	private _mvpMatrix = Matrix4.identity();
 	private _lightDirModel = new Vector3();
+	private _shadowLightsScratch: ShadowCastingLight[] = [];
 	private _projectedVertsPool: ProjectedVertex[] = [];
 	private _clipInputPool: ClipVertex[] = [];
 	private _clipVertsPool: ClipVertex[] = [];
@@ -489,7 +490,13 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 
 		const frame = context.scene;
 		const shadowMaps = context.shadowMaps;
-		const shadowLights = frame.lights.filter(isShadowCastingLight);
+		const shadowLights = this._shadowLightsScratch;
+		shadowLights.length = 0;
+		for (const light of frame.lights) {
+			if (isShadowCastingLight(light)) {
+				shadowLights.push(light);
+			}
+		}
 		syncSoftwareShadowRuntimeMap(this._runtimeShadowMaps, shadowLights);
 		setSoftwareShadowRuntimeMap(context.transient, this._runtimeShadowMaps);
 
