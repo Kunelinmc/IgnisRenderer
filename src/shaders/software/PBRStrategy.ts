@@ -1,5 +1,4 @@
 import { Vector3 } from "../../maths/Vector3";
-import { SH } from "../../maths/SH";
 import {
 	isShadowCastingLight,
 } from "../../lights";
@@ -25,6 +24,25 @@ import type {
 	ShaderContext,
 } from "./types";
 
+const SH_IRRADIANCE_FACTORS: readonly number[] = [
+	Math.PI,
+	(2 * Math.PI) / 3,
+	(2 * Math.PI) / 3,
+	(2 * Math.PI) / 3,
+	Math.PI / 4,
+	Math.PI / 4,
+	Math.PI / 4,
+	Math.PI / 4,
+	Math.PI / 4,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+];
+
 /**
  * Cook-Torrance PBR lighting strategy.
  *
@@ -39,6 +57,14 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		normal: { x: 0, y: 0, z: 1 },
 	};
 	private _lightContribution = createLightContribution();
+	private _reflectionDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _refractionDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _clearcoatReflectionDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _lightDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _halfDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _shBasis = new Float32Array(16);
+	private _shIrradiance: RGB = { r: 0, g: 0, b: 0 };
+	private _shRadiance: RGB = { r: 0, g: 0, b: 0 };
 
 	public calculate(
 		world: IVector3,
@@ -54,14 +80,16 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const NdotVRaw = Vector3.dot(N, V);
 		const NdotV = Math.max(NdotVRaw, PBR_MIN_NDOTV);
 		const useSHAmbient = context.enableSH && hasSHAmbient;
-		const reflectionDir = this._reflectViewDirection(N, V, NdotVRaw);
+		const reflectionDir = this._reflectionDir;
+		this._reflectViewDirection(N, V, NdotVRaw, reflectionDir);
 
-		let totalR = 0,
-			totalG = 0,
-			totalB = 0;
-		let ambientLightR = 0,
-			ambientLightG = 0,
-			ambientLightB = 0;
+		let totalR = 0;
+		let totalG = 0;
+		let totalB = 0;
+		let ambientLightR = 0;
+		let ambientLightG = 0;
+		let ambientLightB = 0;
+
 		const surfacePoint = this._surfacePoint;
 		surfacePoint.position.x = world.x;
 		surfacePoint.position.y = world.y;
@@ -70,97 +98,87 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		surfacePoint.normal!.y = N.y;
 		surfacePoint.normal!.z = N.z;
 
-		const alb = {
-			r: Math.max(0, surface.albedo.r / 255),
-			g: Math.max(0, surface.albedo.g / 255),
-			b: Math.max(0, surface.albedo.b / 255),
-		};
+		const albR = Math.max(0, surface.albedo.r / 255);
+		const albG = Math.max(0, surface.albedo.g / 255);
+		const albB = Math.max(0, surface.albedo.b / 255);
+
 		const metal = clamp(surface.metalness, 0.0, 1.0);
 		const rough = clamp(surface.roughness, 0.04, 1.0);
 		const occlusion = clamp(surface.occlusion, 0.0, 1.0);
 		const clearcoat = clamp(surface.clearcoat, 0.0, 1.0);
 		const clearcoatRoughness = clamp(surface.clearcoatRoughness, 0.04, 1.0);
 
-		const sSheen = surface.sheenColor ?? { r: 0, g: 0, b: 0 };
-		const sheenColor = {
-			r: sSheen.r / 255,
-			g: sSheen.g / 255,
-			b: sSheen.b / 255,
-		};
+		const sheenInput = surface.sheenColor;
+		const sheenColorR = (sheenInput?.r ?? 0) / 255;
+		const sheenColorG = (sheenInput?.g ?? 0) / 255;
+		const sheenColorB = (sheenInput?.b ?? 0) / 255;
 		const sheenRoughness = clamp(surface.sheenRoughness ?? 0.0, 0.04, 1.0);
-		const maxSheenColor = Math.max(sheenColor.r, sheenColor.g, sheenColor.b);
+		const maxSheenColor = Math.max(sheenColorR, sheenColorG, sheenColorB);
 
 		const transmission = clamp(surface.transmission ?? 0.0, 0.0, 1.0);
 		const thickness = surface.thickness ?? 0.0;
 		const attenuationDist = surface.attenuationDistance ?? Infinity;
-		const sAtten = surface.attenuationColor ?? { r: 255, g: 255, b: 255 };
-		const attenuationColor = {
-			r: clamp(sAtten.r / 255, 0.0, 1.0),
-			g: clamp(sAtten.g / 255, 0.0, 1.0),
-			b: clamp(sAtten.b / 255, 0.0, 1.0),
-		};
+		const attenuationInput = surface.attenuationColor;
+		const attenuationColorR = clamp((attenuationInput?.r ?? 255) / 255, 0.0, 1.0);
+		const attenuationColorG = clamp((attenuationInput?.g ?? 255) / 255, 0.0, 1.0);
+		const attenuationColorB = clamp((attenuationInput?.b ?? 255) / 255, 0.0, 1.0);
 
-		let volumeAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
+		let volumeAttenuationR = 1.0;
+		let volumeAttenuationG = 1.0;
+		let volumeAttenuationB = 1.0;
 		if (thickness > 0 && attenuationDist < Infinity && attenuationDist > 0) {
-			const absorb = {
-				r: -Math.log(attenuationColor.r) / attenuationDist,
-				g: -Math.log(attenuationColor.g) / attenuationDist,
-				b: -Math.log(attenuationColor.b) / attenuationDist,
-			};
-			volumeAttenuation = {
-				r: Math.exp(-absorb.r * thickness),
-				g: Math.exp(-absorb.g * thickness),
-				b: Math.exp(-absorb.b * thickness),
-			};
+			const absorbR = -Math.log(attenuationColorR) / attenuationDist;
+			const absorbG = -Math.log(attenuationColorG) / attenuationDist;
+			const absorbB = -Math.log(attenuationColorB) / attenuationDist;
+			volumeAttenuationR = Math.exp(-absorbR * thickness);
+			volumeAttenuationG = Math.exp(-absorbG * thickness);
+			volumeAttenuationB = Math.exp(-absorbB * thickness);
 		}
 
 		const reflectance = clamp(surface.reflectance, 0.0, 1.0);
 		const baseF0Val = 0.16 * reflectance * reflectance;
+		const oneMinusMetal = 1.0 - metal;
 
 		const specularFactor = surface.specularFactor ?? 1.0;
-		const specColorInput = surface.specularColor ?? {
-			r: 255,
-			g: 255,
-			b: 255,
-		};
-		const specColor = {
-			r: specColorInput.r / 255,
-			g: specColorInput.g / 255,
-			b: specColorInput.b / 255,
-		};
+		const specColorInput = surface.specularColor;
+		const specColorR = (specColorInput?.r ?? 255) / 255;
+		const specColorG = (specColorInput?.g ?? 255) / 255;
+		const specColorB = (specColorInput?.b ?? 255) / 255;
 
-		const f0Norm = {
-			r: Math.min(baseF0Val * specColor.r * specularFactor, 1.0),
-			g: Math.min(baseF0Val * specColor.g * specularFactor, 1.0),
-			b: Math.min(baseF0Val * specColor.b * specularFactor, 1.0),
-		};
+		const f0NormR = Math.min(baseF0Val * specColorR * specularFactor, 1.0);
+		const f0NormG = Math.min(baseF0Val * specColorG * specularFactor, 1.0);
+		const f0NormB = Math.min(baseF0Val * specColorB * specularFactor, 1.0);
 
-		const realF0 = {
-			r: (1 - metal) * f0Norm.r + metal * alb.r,
-			g: (1 - metal) * f0Norm.g + metal * alb.g,
-			b: (1 - metal) * f0Norm.b + metal * alb.b,
-		};
+		const realF0R = oneMinusMetal * f0NormR + metal * albR;
+		const realF0G = oneMinusMetal * f0NormG + metal * albG;
+		const realF0B = oneMinusMetal * f0NormB + metal * albB;
 
-		// Multiple scattering compensation (energy compensation)
-		let energyCompensation = { r: 1.0, g: 1.0, b: 1.0 };
+		let energyCompensationR = 1.0;
+		let energyCompensationG = 1.0;
+		let energyCompensationB = 1.0;
 		let brdfValue: RGBA | null = null;
 		if (context.brdfLUT) {
 			brdfValue = context.brdfLUT.sample(NdotV, Math.sqrt(rough));
 			const E = brdfValue.r + brdfValue.g;
 			if (E > 0.0 && E < 1.0) {
 				const factor = 1.0 / E - 1.0;
-				energyCompensation.r = 1.0 + realF0.r * factor;
-				energyCompensation.g = 1.0 + realF0.g * factor;
-				energyCompensation.b = 1.0 + realF0.b * factor;
+				energyCompensationR = 1.0 + realF0R * factor;
+				energyCompensationG = 1.0 + realF0G * factor;
+				energyCompensationB = 1.0 + realF0B * factor;
 			}
 		}
 
 		const emissiveScale = surface.emissiveIntensity ?? 1.0;
-		const emissive = {
-			r: (surface.emissive.r / 255) * emissiveScale,
-			g: (surface.emissive.g / 255) * emissiveScale,
-			b: (surface.emissive.b / 255) * emissiveScale,
-		};
+		const emissiveR = (surface.emissive.r / 255) * emissiveScale;
+		const emissiveG = (surface.emissive.g / 255) * emissiveScale;
+		const emissiveB = (surface.emissive.b / 255) * emissiveScale;
+
+		const Nc = surface.clearcoatNormal ?? N;
+		const NcdotV = Math.max(Vector3.dot(Nc, V), PBR_MIN_NDOTV);
+		const clearcoatTransmissionFresnel =
+			clearcoat > 0 ? this._FresnelSchlickScalar(NcdotV, 0.04) : 0;
+		const transmissionAttenuation = 1.0 - clearcoatTransmissionFresnel * clearcoat;
+		const oneMinusTransmission = 1.0 - transmission;
 
 		for (const light of context.lights) {
 			const contrib = evaluateLightContribution(
@@ -180,226 +198,222 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				continue;
 			}
 
-			const L = Vector3.normalize(contrib.direction);
+			const L = this._lightDir;
+			L.x = contrib.direction.x;
+			L.y = contrib.direction.y;
+			L.z = contrib.direction.z;
+			Vector3.normalizeInPlace(L);
+
 			const NdotLRaw = Vector3.dot(N, L);
 			const NdotL = Math.max(NdotLRaw, 0);
 			const NdotLTransmission = Math.max(-NdotLRaw, 0);
 			if (NdotL <= 0 && NdotLTransmission <= 0) continue;
 
-			const radiance = {
-				r: sRGBToLinear(contrib.color.r / 255) * lightIntensity,
-				g: sRGBToLinear(contrib.color.g / 255) * lightIntensity,
-				b: sRGBToLinear(contrib.color.b / 255) * lightIntensity,
-			};
+			const radianceR = sRGBToLinear(contrib.color.r / 255) * lightIntensity;
+			const radianceG = sRGBToLinear(contrib.color.g / 255) * lightIntensity;
+			const radianceB = sRGBToLinear(contrib.color.b / 255) * lightIntensity;
 
-			let shadow = { r: 1, g: 1, b: 1 };
+			let shadowR = 1.0;
+			let shadowG = 1.0;
+			let shadowB = 1.0;
 			if (
 				context.enableShadows &&
 				isShadowCastingLight(light) &&
 				context.sampleShadow
 			) {
-				shadow = context.sampleShadow(light, world, N);
+				const shadow = context.sampleShadow(light, world, N);
+				shadowR = shadow.r;
+				shadowG = shadow.g;
+				shadowB = shadow.b;
 			}
 
-			const Fview = this._FresnelSchlick(NdotV, realF0);
-			const kT = {
-				r: (1.0 - Fview.r) * (1.0 - metal) * transmission,
-				g: (1.0 - Fview.g) * (1.0 - metal) * transmission,
-				b: (1.0 - Fview.b) * (1.0 - metal) * transmission,
-			};
-			const transmittedDiffuse = {
-				r: (kT.r * volumeAttenuation.r * alb.r) / Math.PI,
-				g: (kT.g * volumeAttenuation.g * alb.g) / Math.PI,
-				b: (kT.b * volumeAttenuation.b * alb.b) / Math.PI,
-			};
+			const fresnelViewFactor = this._pow5(Math.max(1.0 - NdotV, 0));
+			const FviewR = realF0R + (1.0 - realF0R) * fresnelViewFactor;
+			const FviewG = realF0G + (1.0 - realF0G) * fresnelViewFactor;
+			const FviewB = realF0B + (1.0 - realF0B) * fresnelViewFactor;
 
-			let specular = { r: 0, g: 0, b: 0 };
-			let diffuse = { r: 0, g: 0, b: 0 };
-			let clearcoatAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
-			let baseLayerAttenuation = { r: 1.0, g: 1.0, b: 1.0 };
+			const kTR = (1.0 - FviewR) * oneMinusMetal * transmission;
+			const kTG = (1.0 - FviewG) * oneMinusMetal * transmission;
+			const kTB = (1.0 - FviewB) * oneMinusMetal * transmission;
+			const transmittedDiffuseR = (kTR * volumeAttenuationR * albR) / Math.PI;
+			const transmittedDiffuseG = (kTG * volumeAttenuationG * albG) / Math.PI;
+			const transmittedDiffuseB = (kTB * volumeAttenuationB * albB) / Math.PI;
 
-			const Nc = surface.clearcoatNormal ?? N;
-			const NcdotV = Math.max(
-				Vector3.dot(Nc, V),
-				PBR_MIN_NDOTV
-			);
-
-			const clearcoatTransmissionFresnel =
-				clearcoat > 0 ? this._FresnelSchlickScalar(NcdotV, 0.04) : 0;
-			const transmissionAttenuation = {
-				r: 1.0 - clearcoatTransmissionFresnel * clearcoat,
-				g: 1.0 - clearcoatTransmissionFresnel * clearcoat,
-				b: 1.0 - clearcoatTransmissionFresnel * clearcoat,
-			};
-
-			let ccSpecular = { r: 0, g: 0, b: 0 };
-			let sheenSpecular = { r: 0, g: 0, b: 0 };
+			let specularR = 0;
+			let specularG = 0;
+			let specularB = 0;
+			let diffuseR = 0;
+			let diffuseG = 0;
+			let diffuseB = 0;
+			let clearcoatAttenuationR = 1.0;
+			let clearcoatAttenuationG = 1.0;
+			let clearcoatAttenuationB = 1.0;
+			let baseLayerAttenuationR = 1.0;
+			let baseLayerAttenuationG = 1.0;
+			let baseLayerAttenuationB = 1.0;
+			let ccSpecularR = 0;
+			let ccSpecularG = 0;
+			let ccSpecularB = 0;
+			let sheenSpecularR = 0;
+			let sheenSpecularG = 0;
+			let sheenSpecularB = 0;
 
 			if (NdotL > 0) {
-				const H = Vector3.normalize(Vector3.add(L, V));
+				const H = this._halfDir;
+				H.x = L.x + V.x;
+				H.y = L.y + V.y;
+				H.z = L.z + V.z;
+				Vector3.normalizeInPlace(H);
+
 				const NDF = this._DistributionGGX(N, H, rough);
 				const G = this._GeometrySmith(NdotV, NdotL, rough);
-				const F = this._FresnelSchlick(Math.max(Vector3.dot(H, V), 0), realF0);
-				const denominator =
-					4 * NdotV * NdotL + PBR_DENOM_EPSILON;
+				const HdotV = Math.max(Vector3.dot(H, V), 0);
+				const fresnelFactor = this._pow5(Math.max(1.0 - HdotV, 0));
+				const FR = realF0R + (1.0 - realF0R) * fresnelFactor;
+				const FG = realF0G + (1.0 - realF0G) * fresnelFactor;
+				const FB = realF0B + (1.0 - realF0B) * fresnelFactor;
+				const denominator = 4 * NdotV * NdotL + PBR_DENOM_EPSILON;
 
-				specular = {
-					r: (NDF * G * F.r) / denominator * energyCompensation.r,
-					g: (NDF * G * F.g) / denominator * energyCompensation.g,
-					b: (NDF * G * F.b) / denominator * energyCompensation.b,
-				};
+				specularR = (NDF * G * FR) / denominator * energyCompensationR;
+				specularG = (NDF * G * FG) / denominator * energyCompensationG;
+				specularB = (NDF * G * FB) / denominator * energyCompensationB;
 
-				const kD = {
-					r: (1 - F.r) * (1 - metal) * (1.0 - transmission),
-					g: (1 - F.g) * (1 - metal) * (1.0 - transmission),
-					b: (1 - F.b) * (1 - metal) * (1.0 - transmission),
-				};
-				diffuse = {
-					r: (kD.r * alb.r) / Math.PI,
-					g: (kD.g * alb.g) / Math.PI,
-					b: (kD.b * alb.b) / Math.PI,
-				};
+				const kDR = (1.0 - FR) * oneMinusMetal * oneMinusTransmission;
+				const kDG = (1.0 - FG) * oneMinusMetal * oneMinusTransmission;
+				const kDB = (1.0 - FB) * oneMinusMetal * oneMinusTransmission;
+				diffuseR = (kDR * albR) / Math.PI;
+				diffuseG = (kDG * albG) / Math.PI;
+				diffuseB = (kDB * albB) / Math.PI;
 
-				let ccFresnel = { r: 0, g: 0, b: 0 };
+				let ccFresnel = 0;
 				if (clearcoat > 0) {
 					const NcdotL = Math.max(Vector3.dot(Nc, L), 0);
 					if (NcdotL > 0) {
-						const Hcc = Vector3.normalize(Vector3.add(L, V));
-						const HccdotV = Math.max(Vector3.dot(Hcc, V), 0);
-						const ndfCc = this._DistributionGGX(Nc, Hcc, clearcoatRoughness);
+						const ndfCc = this._DistributionGGX(Nc, H, clearcoatRoughness);
 						const gCc = this._GeometrySmithClearcoat(
 							NcdotV,
 							NcdotL,
 							clearcoatRoughness
 						);
-						const fCc = this._FresnelSchlickScalar(HccdotV, 0.04);
-						ccFresnel = { r: fCc, g: fCc, b: fCc };
+						const fCc = this._FresnelSchlickScalar(HdotV, 0.04);
+						ccFresnel = fCc;
 
-						const ccDenom =
-							4 * NcdotV * NcdotL + PBR_DENOM_EPSILON;
+						const ccDenom = 4 * NcdotV * NcdotL + PBR_DENOM_EPSILON;
 						const ccValue = (ndfCc * gCc * fCc) / ccDenom;
-						ccSpecular = { r: ccValue, g: ccValue, b: ccValue };
+						ccSpecularR = ccValue;
+						ccSpecularG = ccValue;
+						ccSpecularB = ccValue;
 					}
 				}
 
-				let albedoSheenScaling = { r: 1.0, g: 1.0, b: 1.0 };
+				let albedoSheenScalingR = 1.0;
+				let albedoSheenScalingG = 1.0;
+				let albedoSheenScalingB = 1.0;
 				if (maxSheenColor > 0) {
 					const NdotH = Math.max(Vector3.dot(N, H), 0);
 					const sheenNDF = this._DistributionCharlie(NdotH, sheenRoughness);
 					const sheenV = this._VisibilityAshikhmin(NdotL, NdotV);
-					sheenSpecular = {
-						r: sheenColor.r * sheenNDF * sheenV,
-						g: sheenColor.g * sheenNDF * sheenV,
-						b: sheenColor.b * sheenNDF * sheenV,
-					};
+					sheenSpecularR = sheenColorR * sheenNDF * sheenV;
+					sheenSpecularG = sheenColorG * sheenNDF * sheenV;
+					sheenSpecularB = sheenColorB * sheenNDF * sheenV;
 
-					const HdotV = Math.max(Vector3.dot(H, V), 0);
-					const sheenFresnel = this._FresnelSchlick(HdotV, sheenColor);
-					albedoSheenScaling = {
-						r: Math.max(0, 1.0 - sheenFresnel.r),
-						g: Math.max(0, 1.0 - sheenFresnel.g),
-						b: Math.max(0, 1.0 - sheenFresnel.b),
-					};
+					const sheenFresnelFactor = this._pow5(Math.max(1.0 - HdotV, 0));
+					const sheenFresnelR =
+						sheenColorR + (1.0 - sheenColorR) * sheenFresnelFactor;
+					const sheenFresnelG =
+						sheenColorG + (1.0 - sheenColorG) * sheenFresnelFactor;
+					const sheenFresnelB =
+						sheenColorB + (1.0 - sheenColorB) * sheenFresnelFactor;
+					albedoSheenScalingR = Math.max(0, 1.0 - sheenFresnelR);
+					albedoSheenScalingG = Math.max(0, 1.0 - sheenFresnelG);
+					albedoSheenScalingB = Math.max(0, 1.0 - sheenFresnelB);
 				}
 
-				clearcoatAttenuation = {
-					r: 1.0 - ccFresnel.r * clearcoat,
-					g: 1.0 - ccFresnel.g * clearcoat,
-					b: 1.0 - ccFresnel.b * clearcoat,
-				};
-				baseLayerAttenuation = {
-					r: clearcoatAttenuation.r * albedoSheenScaling.r,
-					g: clearcoatAttenuation.g * albedoSheenScaling.g,
-					b: clearcoatAttenuation.b * albedoSheenScaling.b,
-				};
+				const ccAttenuation = 1.0 - ccFresnel * clearcoat;
+				clearcoatAttenuationR = ccAttenuation;
+				clearcoatAttenuationG = ccAttenuation;
+				clearcoatAttenuationB = ccAttenuation;
+				baseLayerAttenuationR = ccAttenuation * albedoSheenScalingR;
+				baseLayerAttenuationG = ccAttenuation * albedoSheenScalingG;
+				baseLayerAttenuationB = ccAttenuation * albedoSheenScalingB;
 			}
 
 			totalR +=
-				(((diffuse.r + specular.r) * baseLayerAttenuation.r +
-					ccSpecular.r * clearcoat +
-					sheenSpecular.r * clearcoatAttenuation.r) *
+				(((diffuseR + specularR) * baseLayerAttenuationR +
+					ccSpecularR * clearcoat +
+					sheenSpecularR * clearcoatAttenuationR) *
 					NdotL +
-					transmittedDiffuse.r *
-						transmissionAttenuation.r *
-						NdotLTransmission) *
-				radiance.r *
-				shadow.r;
+					transmittedDiffuseR * transmissionAttenuation * NdotLTransmission) *
+				radianceR *
+				shadowR;
 			totalG +=
-				(((diffuse.g + specular.g) * baseLayerAttenuation.g +
-					ccSpecular.g * clearcoat +
-					sheenSpecular.g * clearcoatAttenuation.g) *
+				(((diffuseG + specularG) * baseLayerAttenuationG +
+					ccSpecularG * clearcoat +
+					sheenSpecularG * clearcoatAttenuationG) *
 					NdotL +
-					transmittedDiffuse.g *
-						transmissionAttenuation.g *
-						NdotLTransmission) *
-				radiance.g *
-				shadow.g;
+					transmittedDiffuseG * transmissionAttenuation * NdotLTransmission) *
+				radianceG *
+				shadowG;
 			totalB +=
-				(((diffuse.b + specular.b) * baseLayerAttenuation.b +
-					ccSpecular.b * clearcoat +
-					sheenSpecular.b * clearcoatAttenuation.b) *
+				(((diffuseB + specularB) * baseLayerAttenuationB +
+					ccSpecularB * clearcoat +
+					sheenSpecularB * clearcoatAttenuationB) *
 					NdotL +
-					transmittedDiffuse.b *
-						transmissionAttenuation.b *
-						NdotLTransmission) *
-				radiance.b *
-				shadow.b;
+					transmittedDiffuseB * transmissionAttenuation * NdotLTransmission) *
+				radianceB *
+				shadowB;
 		}
 
-		let ambR = 0,
-			ambG = 0,
-			ambB = 0;
+		let ambR = 0;
+		let ambG = 0;
+		let ambB = 0;
+		const ior = surface.ior ?? 1.5;
 
 		if (useSHAmbient && shAmbient) {
-			const irr = SH.calculateIrradiance(N, shAmbient);
-			const irrLinear = {
-				r: irr.r / 255,
-				g: irr.g / 255,
-				b: irr.b / 255,
-			};
-			const specRadiance = this._sampleSHRadiance(reflectionDir, shAmbient);
-			const specRadianceLinear = {
-				r: specRadiance.r / 255,
-				g: specRadiance.g / 255,
-				b: specRadiance.b / 255,
-			};
+			const irr = this._shIrradiance;
+			this._calculateSHIrradiance(N, shAmbient, irr);
+			const irrLinearR = irr.r / 255;
+			const irrLinearG = irr.g / 255;
+			const irrLinearB = irr.b / 255;
 
-			const Famb = this._FresnelSchlick(NdotV, realF0);
-			const refractionDir =
-				transmission > 0 ? this._refract(V, N, surface.ior) : null;
+			const specRadiance = this._shRadiance;
+			this._sampleSHRadiance(reflectionDir, shAmbient, specRadiance);
+			const specRadianceLinearR = specRadiance.r / 255;
+			const specRadianceLinearG = specRadiance.g / 255;
+			const specRadianceLinearB = specRadiance.b / 255;
 
-			// Handle Total Internal Reflection (TIR)
-			const isTIR = transmission > 0 && refractionDir === null;
-			const effectiveFamb = isTIR ? { r: 1, g: 1, b: 1 } : Famb;
+			const fresnelAmbientFactor = this._pow5(Math.max(1.0 - NdotV, 0));
+			const FambR = realF0R + (1.0 - realF0R) * fresnelAmbientFactor;
+			const FambG = realF0G + (1.0 - realF0G) * fresnelAmbientFactor;
+			const FambB = realF0B + (1.0 - realF0B) * fresnelAmbientFactor;
 
-			const kDamb = {
-				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * (1.0 - transmission),
-				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * (1.0 - transmission),
-				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * (1.0 - transmission),
-			};
-			const kTamb = {
-				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * transmission,
-				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * transmission,
-				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * transmission,
-			};
+			const hasRefraction =
+				transmission > 0 && this._refract(V, N, ior, this._refractionDir);
+			const isTIR = transmission > 0 && !hasRefraction;
+			const effectiveFambR = isTIR ? 1.0 : FambR;
+			const effectiveFambG = isTIR ? 1.0 : FambG;
+			const effectiveFambB = isTIR ? 1.0 : FambB;
+
+			const kDambR =
+				(1.0 - effectiveFambR) * oneMinusMetal * oneMinusTransmission;
+			const kDambG =
+				(1.0 - effectiveFambG) * oneMinusMetal * oneMinusTransmission;
+			const kDambB =
+				(1.0 - effectiveFambB) * oneMinusMetal * oneMinusTransmission;
+			const kTambR = (1.0 - effectiveFambR) * oneMinusMetal * transmission;
+			const kTambG = (1.0 - effectiveFambG) * oneMinusMetal * transmission;
+			const kTambB = (1.0 - effectiveFambB) * oneMinusMetal * transmission;
 
 			let ccAmbFresnel = 0;
 			let ccAmbSpecR = 0;
 			let ccAmbSpecG = 0;
 			let ccAmbSpecB = 0;
-
 			if (clearcoat > 0) {
-				const Nc = surface.clearcoatNormal ?? N;
-				const NcdotV = Math.max(
-					Vector3.dot(Nc, V),
-					PBR_MIN_NDOTV
-				);
-				ccAmbFresnel = this._FresnelSchlickScalar(NcdotV, 0.04);
-				const ccReflectionDir = this._reflectViewDirection(
-					Nc,
-					V,
-					Vector3.dot(Nc, V)
-				);
+				const NcdotVAmb = Math.max(Vector3.dot(Nc, V), PBR_MIN_NDOTV);
+				ccAmbFresnel = this._FresnelSchlickScalar(NcdotVAmb, 0.04);
+
+				const ccReflectionDir = this._clearcoatReflectionDir;
+				this._reflectViewDirection(Nc, V, Vector3.dot(Nc, V), ccReflectionDir);
 				const ccPrefiltered = this._sampleEnvironmentSpecular(
 					world,
 					ccReflectionDir,
@@ -408,61 +422,75 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				);
 				if (ccPrefiltered && context.brdfLUT) {
 					const ccBrdf = context.brdfLUT.sample(
-						NcdotV,
+						NcdotVAmb,
 						Math.sqrt(clearcoatRoughness)
 					);
-					ccAmbSpecR = ccPrefiltered.r * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
-					ccAmbSpecG = ccPrefiltered.g * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
-					ccAmbSpecB = ccPrefiltered.b * (ccAmbFresnel * ccBrdf.r + ccBrdf.g);
+					const ccMix = ccAmbFresnel * ccBrdf.r + ccBrdf.g;
+					ccAmbSpecR = ccPrefiltered.r * ccMix;
+					ccAmbSpecG = ccPrefiltered.g * ccMix;
+					ccAmbSpecB = ccPrefiltered.b * ccMix;
 				} else {
 					const ccSpecFactor = Math.max(
 						PBR_SPEC_FALLBACK,
 						(1.0 - clearcoatRoughness) * 0.5
 					);
 					const ccSpec = ccAmbFresnel * ccSpecFactor;
-					ccAmbSpecR = specRadianceLinear.r * ccSpec;
-					ccAmbSpecG = specRadianceLinear.g * ccSpec;
-					ccAmbSpecB = specRadianceLinear.b * ccSpec;
+					ccAmbSpecR = specRadianceLinearR * ccSpec;
+					ccAmbSpecG = specRadianceLinearG * ccSpec;
+					ccAmbSpecB = specRadianceLinearB * ccSpec;
 				}
 			}
 
 			const clearcoatAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
-			const baseAttenuationAmb = {
-				r: clearcoatAttenuationAmb * (1.0 - sheenColor.r * 0.5),
-				g: clearcoatAttenuationAmb * (1.0 - sheenColor.g * 0.5),
-				b: clearcoatAttenuationAmb * (1.0 - sheenColor.b * 0.5),
-			};
+			const baseAttenuationAmbR =
+				clearcoatAttenuationAmb * (1.0 - sheenColorR * 0.5);
+			const baseAttenuationAmbG =
+				clearcoatAttenuationAmb * (1.0 - sheenColorG * 0.5);
+			const baseAttenuationAmbB =
+				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
 
-			ambR = irrLinear.r * alb.r * kDamb.r * baseAttenuationAmb.r;
-			ambG = irrLinear.g * alb.g * kDamb.g * baseAttenuationAmb.g;
-			ambB = irrLinear.b * alb.b * kDamb.b * baseAttenuationAmb.b;
+			ambR = irrLinearR * albR * kDambR * baseAttenuationAmbR;
+			ambG = irrLinearG * albG * kDambG * baseAttenuationAmbG;
+			ambB = irrLinearB * albB * kDambB * baseAttenuationAmbB;
 
-			if (transmission > 0 && refractionDir) {
-				const transmRadiance =
-					this._sampleEnvironmentSpecular(
-						world,
-						refractionDir,
-						rough,
-						context
-					) ?? this._sampleSHRadiance(refractionDir, shAmbient!);
+			if (transmission > 0 && hasRefraction) {
+				let transmRadianceR = 0;
+				let transmRadianceG = 0;
+				let transmRadianceB = 0;
+				const prefilteredRefraction = this._sampleEnvironmentSpecular(
+					world,
+					this._refractionDir,
+					rough,
+					context
+				);
+				if (prefilteredRefraction) {
+					transmRadianceR = prefilteredRefraction.r;
+					transmRadianceG = prefilteredRefraction.g;
+					transmRadianceB = prefilteredRefraction.b;
+				} else {
+					this._sampleSHRadiance(this._refractionDir, shAmbient, specRadiance);
+					transmRadianceR = specRadiance.r;
+					transmRadianceG = specRadiance.g;
+					transmRadianceB = specRadiance.b;
+				}
 
 				ambR +=
-					transmRadiance.r *
-					alb.r *
-					kTamb.r *
-					volumeAttenuation.r *
+					transmRadianceR *
+					albR *
+					kTambR *
+					volumeAttenuationR *
 					clearcoatAttenuationAmb;
 				ambG +=
-					transmRadiance.g *
-					alb.g *
-					kTamb.g *
-					volumeAttenuation.g *
+					transmRadianceG *
+					albG *
+					kTambG *
+					volumeAttenuationG *
 					clearcoatAttenuationAmb;
 				ambB +=
-					transmRadiance.b *
-					alb.b *
-					kTamb.b *
-					volumeAttenuation.b *
+					transmRadianceB *
+					albB *
+					kTambB *
+					volumeAttenuationB *
 					clearcoatAttenuationAmb;
 			}
 
@@ -473,46 +501,42 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				context
 			);
 			if (prefiltered && context.brdfLUT && brdfValue) {
-				// LUT stores scale at R (red), bias at G (green)
 				const specR =
 					prefiltered.r *
-					(effectiveFamb.r * brdfValue.r + brdfValue.g) *
+					(effectiveFambR * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
-					energyCompensation.r;
+					energyCompensationR;
 				const specG =
 					prefiltered.g *
-					(effectiveFamb.g * brdfValue.r + brdfValue.g) *
+					(effectiveFambG * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
-					energyCompensation.g;
+					energyCompensationG;
 				const specB =
 					prefiltered.b *
-					(effectiveFamb.b * brdfValue.r + brdfValue.g) *
+					(effectiveFambB * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
-					energyCompensation.b;
+					energyCompensationB;
 
 				ambR += specR + ccAmbSpecR * clearcoat;
 				ambG += specG + ccAmbSpecG * clearcoat;
 				ambB += specB + ccAmbSpecB * clearcoat;
 			} else {
-				const specFactor = Math.max(
-					PBR_SPEC_FALLBACK,
-					(1.0 - rough) * 0.5
-				);
+				const specFactor = Math.max(PBR_SPEC_FALLBACK, (1.0 - rough) * 0.5);
 				ambR +=
-					specRadianceLinear.r *
-						effectiveFamb.r *
+					specRadianceLinearR *
+						effectiveFambR *
 						specFactor *
 						clearcoatAttenuationAmb +
 					ccAmbSpecR * clearcoat;
 				ambG +=
-					specRadianceLinear.g *
-						effectiveFamb.g *
+					specRadianceLinearG *
+						effectiveFambG *
 						specFactor *
 						clearcoatAttenuationAmb +
 					ccAmbSpecG * clearcoat;
 				ambB +=
-					specRadianceLinear.b *
-						effectiveFamb.b *
+					specRadianceLinearB *
+						effectiveFambB *
 						specFactor *
 						clearcoatAttenuationAmb +
 					ccAmbSpecB * clearcoat;
@@ -524,121 +548,116 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					(1.0 - sheenRoughness) * 0.5
 				);
 				ambR +=
-					specRadianceLinear.r *
-					sheenColor.r *
+					specRadianceLinearR *
+					sheenColorR *
 					sheenAmb *
 					clearcoatAttenuationAmb;
 				ambG +=
-					specRadianceLinear.g *
-					sheenColor.g *
+					specRadianceLinearG *
+					sheenColorG *
 					sheenAmb *
 					clearcoatAttenuationAmb;
 				ambB +=
-					specRadianceLinear.b *
-					sheenColor.b *
+					specRadianceLinearB *
+					sheenColorB *
 					sheenAmb *
 					clearcoatAttenuationAmb;
 			}
 		} else {
-			const ambientCol = {
-				r: ambientLightR,
-				g: ambientLightG,
-				b: ambientLightB,
-			};
+			let ambientColR = ambientLightR;
+			let ambientColG = ambientLightG;
+			let ambientColB = ambientLightB;
 			if (ambientLightR + ambientLightG + ambientLightB === 0) {
 				const fallback = PBR_AMBIENT_FALLBACK_LINEAR;
-				ambientCol.r = fallback;
-				ambientCol.g = fallback;
-				ambientCol.b = fallback;
+				ambientColR = fallback;
+				ambientColG = fallback;
+				ambientColB = fallback;
 			}
 
-			const ambientRadiance = {
-				r: ambientCol.r / Math.PI,
-				g: ambientCol.g / Math.PI,
-				b: ambientCol.b / Math.PI,
-			};
-			const Famb = this._FresnelSchlick(NdotV, realF0);
-			const refractionDir =
-				transmission > 0 ? this._refract(V, N, surface.ior) : null;
-			const isTIR = transmission > 0 && refractionDir === null;
-			const effectiveFamb = isTIR ? { r: 1, g: 1, b: 1 } : Famb;
+			const ambientRadianceR = ambientColR / Math.PI;
+			const ambientRadianceG = ambientColG / Math.PI;
+			const ambientRadianceB = ambientColB / Math.PI;
+			const fresnelAmbientFactor = this._pow5(Math.max(1.0 - NdotV, 0));
+			const FambR = realF0R + (1.0 - realF0R) * fresnelAmbientFactor;
+			const FambG = realF0G + (1.0 - realF0G) * fresnelAmbientFactor;
+			const FambB = realF0B + (1.0 - realF0B) * fresnelAmbientFactor;
 
-			const kDamb = {
-				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * (1.0 - transmission),
-				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * (1.0 - transmission),
-				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * (1.0 - transmission),
-			};
-			const kTamb = {
-				r: (1.0 - effectiveFamb.r) * (1.0 - metal) * transmission,
-				g: (1.0 - effectiveFamb.g) * (1.0 - metal) * transmission,
-				b: (1.0 - effectiveFamb.b) * (1.0 - metal) * transmission,
-			};
+			const hasRefraction =
+				transmission > 0 && this._refract(V, N, ior, this._refractionDir);
+			const isTIR = transmission > 0 && !hasRefraction;
+			const effectiveFambR = isTIR ? 1.0 : FambR;
+			const effectiveFambG = isTIR ? 1.0 : FambG;
+			const effectiveFambB = isTIR ? 1.0 : FambB;
+
+			const kDambR =
+				(1.0 - effectiveFambR) * oneMinusMetal * oneMinusTransmission;
+			const kDambG =
+				(1.0 - effectiveFambG) * oneMinusMetal * oneMinusTransmission;
+			const kDambB =
+				(1.0 - effectiveFambB) * oneMinusMetal * oneMinusTransmission;
+			const kTambR = (1.0 - effectiveFambR) * oneMinusMetal * transmission;
+			const kTambG = (1.0 - effectiveFambG) * oneMinusMetal * transmission;
+			const kTambB = (1.0 - effectiveFambB) * oneMinusMetal * transmission;
 
 			const ccAmbFresnel =
 				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
 			const clearcoatAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
-			const baseAttenuationAmb = {
-				r: clearcoatAttenuationAmb * (1.0 - sheenColor.r * 0.5),
-				g: clearcoatAttenuationAmb * (1.0 - sheenColor.g * 0.5),
-				b: clearcoatAttenuationAmb * (1.0 - sheenColor.b * 0.5),
-			};
+			const baseAttenuationAmbR =
+				clearcoatAttenuationAmb * (1.0 - sheenColorR * 0.5);
+			const baseAttenuationAmbG =
+				clearcoatAttenuationAmb * (1.0 - sheenColorG * 0.5);
+			const baseAttenuationAmbB =
+				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
 
-			ambR = ambientCol.r * alb.r * kDamb.r * baseAttenuationAmb.r;
-			ambG = ambientCol.g * alb.g * kDamb.g * baseAttenuationAmb.g;
-			ambB = ambientCol.b * alb.b * kDamb.b * baseAttenuationAmb.b;
+			ambR = ambientColR * albR * kDambR * baseAttenuationAmbR;
+			ambG = ambientColG * albG * kDambG * baseAttenuationAmbG;
+			ambB = ambientColB * albB * kDambB * baseAttenuationAmbB;
 
-			if (transmission > 0 && refractionDir) {
-				// Fallback: use SH/Ambient color for refraction if no map, but sample SH if possible?
-				// Here we just use the ambient color tilted by albedo.
-				// However, if we have a skybox, maybe we can sample it?
-				// But fallback usually means we don't have high-res maps.
+			if (transmission > 0 && hasRefraction) {
 				ambR +=
-					ambientCol.r *
-					alb.r *
-					kTamb.r *
-					volumeAttenuation.r *
+					ambientColR *
+					albR *
+					kTambR *
+					volumeAttenuationR *
 					clearcoatAttenuationAmb;
 				ambG +=
-					ambientCol.g *
-					alb.g *
-					kTamb.g *
-					volumeAttenuation.g *
+					ambientColG *
+					albG *
+					kTambG *
+					volumeAttenuationG *
 					clearcoatAttenuationAmb;
 				ambB +=
-					ambientCol.b *
-					alb.b *
-					kTamb.b *
-					volumeAttenuation.b *
+					ambientColB *
+					albB *
+					kTambB *
+					volumeAttenuationB *
 					clearcoatAttenuationAmb;
 			}
 
-			const specFactor = Math.max(
-				PBR_SPEC_FALLBACK,
-				(1.0 - rough) * 0.5
-			);
+			const specFactor = Math.max(PBR_SPEC_FALLBACK, (1.0 - rough) * 0.5);
 			const ccSpecFactor = Math.max(
 				PBR_SPEC_FALLBACK,
 				(1.0 - clearcoatRoughness) * 0.5
 			);
 
 			ambR +=
-				ambientRadiance.r *
-					effectiveFamb.r *
+				ambientRadianceR *
+					effectiveFambR *
 					specFactor *
 					clearcoatAttenuationAmb +
-				ambientRadiance.r * ccAmbFresnel * ccSpecFactor * clearcoat;
+				ambientRadianceR * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambG +=
-				ambientRadiance.g *
-					effectiveFamb.g *
+				ambientRadianceG *
+					effectiveFambG *
 					specFactor *
 					clearcoatAttenuationAmb +
-				ambientRadiance.g * ccAmbFresnel * ccSpecFactor * clearcoat;
+				ambientRadianceG * ccAmbFresnel * ccSpecFactor * clearcoat;
 			ambB +=
-				ambientRadiance.b *
-					effectiveFamb.b *
+				ambientRadianceB *
+					effectiveFambB *
 					specFactor *
 					clearcoatAttenuationAmb +
-				ambientRadiance.b * ccAmbFresnel * ccSpecFactor * clearcoat;
+				ambientRadianceB * ccAmbFresnel * ccSpecFactor * clearcoat;
 
 			if (maxSheenColor > 0) {
 				const sheenAmb = Math.max(
@@ -646,11 +665,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					(1.0 - sheenRoughness) * 0.5
 				);
 				ambR +=
-					ambientRadiance.r * sheenColor.r * sheenAmb * clearcoatAttenuationAmb;
+					ambientRadianceR *
+					sheenColorR *
+					sheenAmb *
+					clearcoatAttenuationAmb;
 				ambG +=
-					ambientRadiance.g * sheenColor.g * sheenAmb * clearcoatAttenuationAmb;
+					ambientRadianceG *
+					sheenColorG *
+					sheenAmb *
+					clearcoatAttenuationAmb;
 				ambB +=
-					ambientRadiance.b * sheenColor.b * sheenAmb * clearcoatAttenuationAmb;
+					ambientRadianceB *
+					sheenColorB *
+					sheenAmb *
+					clearcoatAttenuationAmb;
 			}
 		}
 
@@ -658,9 +686,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		ambG *= occlusion;
 		ambB *= occlusion;
 
-		const finalR = Math.max(0, totalR + ambR + emissive.r);
-		const finalG = Math.max(0, totalG + ambG + emissive.g);
-		const finalB = Math.max(0, totalB + ambB + emissive.b);
+		const finalR = Math.max(0, totalR + ambR + emissiveR);
+		const finalG = Math.max(0, totalG + ambG + emissiveG);
+		const finalB = Math.max(0, totalB + ambB + emissiveB);
 
 		return {
 			r: clamp(finalR * 255, 0, 255),
@@ -692,13 +720,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		return G1V * G1L;
 	}
 
-	private _FresnelSchlick(cosTheta: number, F0: RGB) {
-		const f = Math.pow(Math.max(1.0 - cosTheta, 0), 5.0);
-		return {
-			r: F0.r + (1.0 - F0.r) * f,
-			g: F0.g + (1.0 - F0.g) * f,
-			b: F0.b + (1.0 - F0.b) * f,
-		};
+	private _pow5(value: number): number {
+		const value2 = value * value;
+		return value2 * value2 * value;
 	}
 
 	private _DistributionCharlie(NdotH: number, roughness: number) {
@@ -722,46 +746,55 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _reflectViewDirection(
 		N: IVector3,
 		V: IVector3,
-		NdotV: number
+		NdotV: number,
+		out: IVector3
 	): IVector3 {
-		const reflected = {
-			x: 2 * NdotV * N.x - V.x,
-			y: 2 * NdotV * N.y - V.y,
-			z: 2 * NdotV * N.z - V.z,
-		};
-		Vector3.normalizeInPlace(reflected);
-		return reflected;
+		out.x = 2 * NdotV * N.x - V.x;
+		out.y = 2 * NdotV * N.y - V.y;
+		out.z = 2 * NdotV * N.z - V.z;
+		Vector3.normalizeInPlace(out);
+		return out;
 	}
 
-	private _refract(V: IVector3, N: IVector3, ior: number): IVector3 | null {
+	private _refract(
+		V: IVector3,
+		N: IVector3,
+		ior: number,
+		out: IVector3
+	): boolean {
 		const cosThetaI = Vector3.dot(V, N); // V points towards camera, so this is cosTheta with N
-		let eta, n;
+		let eta = 1.0;
+		let nx = N.x;
+		let ny = N.y;
+		let nz = N.z;
 		if (cosThetaI > 0) {
-			// Outside
 			eta = 1.0 / ior;
-			n = N;
 		} else {
-			// Inside
 			eta = ior;
-			n = { x: -N.x, y: -N.y, z: -N.z };
+			nx = -N.x;
+			ny = -N.y;
+			nz = -N.z;
 		}
 
 		const absCosThetaI = Math.abs(cosThetaI);
 		const sin2ThetaT = eta * eta * (1.0 - absCosThetaI * absCosThetaI);
-		if (sin2ThetaT > 1.0) return null; // Total internal reflection
+		if (sin2ThetaT > 1.0) return false; // Total internal reflection
 
 		const cosThetaT = Math.sqrt(1.0 - sin2ThetaT);
-		const refraction = {
-			x: eta * -V.x + (eta * absCosThetaI - cosThetaT) * n.x,
-			y: eta * -V.y + (eta * absCosThetaI - cosThetaT) * n.y,
-			z: eta * -V.z + (eta * absCosThetaI - cosThetaT) * n.z,
-		};
-		Vector3.normalizeInPlace(refraction);
-		return refraction;
+		const refractScale = eta * absCosThetaI - cosThetaT;
+		out.x = eta * -V.x + refractScale * nx;
+		out.y = eta * -V.y + refractScale * ny;
+		out.z = eta * -V.z + refractScale * nz;
+		Vector3.normalizeInPlace(out);
+		return true;
 	}
 
-	private _sampleSHRadiance(direction: IVector3, coeffs: SHCoefficients): RGB {
-		const basis = SH.evalBasis(direction);
+	private _sampleSHRadiance(
+		direction: IVector3,
+		coeffs: SHCoefficients,
+		out: RGB
+	): RGB {
+		const basis = this._evaluateSHBasis(direction);
 		const count = Math.min(basis.length, coeffs.length);
 		let r = 0,
 			g = 0,
@@ -774,11 +807,57 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			b += coeffs[i].b * weight;
 		}
 
-		return {
-			r: Math.max(0, r),
-			g: Math.max(0, g),
-			b: Math.max(0, b),
-		};
+		out.r = Math.max(0, r);
+		out.g = Math.max(0, g);
+		out.b = Math.max(0, b);
+		return out;
+	}
+
+	private _calculateSHIrradiance(
+		direction: IVector3,
+		coeffs: SHCoefficients,
+		out: RGB
+	): RGB {
+		const basis = this._evaluateSHBasis(direction);
+		const count = Math.min(coeffs.length, SH_IRRADIANCE_FACTORS.length);
+		let r = 0;
+		let g = 0;
+		let b = 0;
+
+		for (let i = 0; i < count; i++) {
+			const weight = basis[i] * SH_IRRADIANCE_FACTORS[i];
+			r += coeffs[i].r * weight;
+			g += coeffs[i].g * weight;
+			b += coeffs[i].b * weight;
+		}
+
+		out.r = Math.max(0, r);
+		out.g = Math.max(0, g);
+		out.b = Math.max(0, b);
+		return out;
+	}
+
+	private _evaluateSHBasis(direction: IVector3): Float32Array {
+		const { x, y, z } = direction;
+		const basis = this._shBasis;
+		const yy = y * y;
+		basis[0] = 0.282095;
+		basis[1] = 0.488603 * x;
+		basis[2] = 0.488603 * y;
+		basis[3] = 0.488603 * z;
+		basis[4] = 1.092548 * x * z;
+		basis[5] = 1.092548 * x * y;
+		basis[6] = 0.315392 * (3 * yy - 1);
+		basis[7] = 1.092548 * y * z;
+		basis[8] = 0.546274 * (x * x - z * z);
+		basis[9] = 0.590835 * x * (x * x - 3 * z * z);
+		basis[10] = 2.893641 * x * y * z;
+		basis[11] = 0.457619 * x * (5 * yy - 1);
+		basis[12] = 0.373176 * y * (5 * yy - 3);
+		basis[13] = 0.457619 * z * (5 * yy - 1);
+		basis[14] = 1.446821 * y * (x * x - z * z);
+		basis[15] = 0.590835 * z * (3 * x * x - z * z);
+		return basis;
 	}
 
 	/**
