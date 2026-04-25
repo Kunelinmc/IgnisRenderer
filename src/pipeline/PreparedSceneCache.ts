@@ -31,6 +31,12 @@ interface CachedPacketState {
 	rect: DirtyRect | null;
 }
 
+type PacketStateObserver = (
+	packetId: string,
+	currentState: CachedPacketState,
+	previousState: CachedPacketState | undefined
+) => void;
+
 const SIGNATURE_FLOAT64_SCRATCH = new DataView(new ArrayBuffer(8));
 const SIGNATURE_PRIME = 16777619;
 const SIGNATURE_INIT_A = 2166136261;
@@ -123,25 +129,30 @@ export class PreparedSceneCache {
 		const dirtyCandidates: DirtyRect[] = [];
 		const visited = new Set<string>();
 
-		this._processPackets(
-			frame.opaquePackets,
-			frame.camera,
+		this._processFramePackets(
+			frame,
 			width,
 			height,
 			packetRects,
 			currentPacketStateById,
 			visited,
-			dirtyCandidates
-		);
-		this._processPackets(
-			frame.transparentPackets,
-			frame.camera,
-			width,
-			height,
-			packetRects,
-			currentPacketStateById,
-			visited,
-			dirtyCandidates
+			(_packetId, currentState, previous) => {
+				if (!previous) {
+					if (currentState.rect) {
+						dirtyCandidates.push(currentState.rect);
+					}
+					return;
+				}
+
+				if (!packetStateEquals(previous, currentState)) {
+					if (previous.rect) {
+						dirtyCandidates.push(previous.rect);
+					}
+					if (currentState.rect) {
+						dirtyCandidates.push(currentState.rect);
+					}
+				}
+			}
 		);
 
 		for (const [packetId, previous] of this._packetStateById.entries()) {
@@ -262,15 +273,46 @@ export class PreparedSceneCache {
 		};
 	}
 
-	private _processPackets(
+	private _processFramePackets(
+		frame: PreparedScene,
+		width: number,
+		height: number,
+		packetRects: Map<string, DirtyRect>,
+		currentPacketStateById: Map<string, CachedPacketState>,
+		visited?: Set<string>,
+		observer?: PacketStateObserver
+	): void {
+		this._processPacketList(
+			frame.opaquePackets,
+			frame.camera,
+			width,
+			height,
+			packetRects,
+			currentPacketStateById,
+			visited,
+			observer
+		);
+		this._processPacketList(
+			frame.transparentPackets,
+			frame.camera,
+			width,
+			height,
+			packetRects,
+			currentPacketStateById,
+			visited,
+			observer
+		);
+	}
+
+	private _processPacketList(
 		packets: readonly DrawPacket[],
 		camera: Camera,
 		width: number,
 		height: number,
 		packetRects: Map<string, DirtyRect>,
 		currentPacketStateById: Map<string, CachedPacketState>,
-		visited: Set<string>,
-		dirtyCandidates: DirtyRect[]
+		visited?: Set<string>,
+		observer?: PacketStateObserver
 	): void {
 		for (let index = 0; index < packets.length; index++) {
 			const packet = packets[index];
@@ -280,23 +322,11 @@ export class PreparedSceneCache {
 			}
 			const currentState = createPacketState(packet, rect);
 			currentPacketStateById.set(packet.id, currentState);
-			visited.add(packet.id);
-
-			const previous = this._packetStateById.get(packet.id);
-			if (!previous) {
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
-				continue;
+			if (visited) {
+				visited.add(packet.id);
 			}
-
-			if (!packetStateEquals(previous, currentState)) {
-				if (previous.rect) {
-					dirtyCandidates.push(previous.rect);
-				}
-				if (rect) {
-					dirtyCandidates.push(rect);
-				}
+			if (observer) {
+				observer(packet.id, currentState, this._packetStateById.get(packet.id));
 			}
 		}
 	}
@@ -308,22 +338,7 @@ export class PreparedSceneCache {
 		height: number
 	): void {
 		const next = new Map<string, CachedPacketState>();
-		for (let index = 0; index < frame.opaquePackets.length; index++) {
-			const packet = frame.opaquePackets[index];
-			const rect = computePacketScreenRect(packet, frame.camera, width, height);
-			if (rect) {
-				packetRects.set(packet.id, rect);
-			}
-			next.set(packet.id, createPacketState(packet, rect));
-		}
-		for (let index = 0; index < frame.transparentPackets.length; index++) {
-			const packet = frame.transparentPackets[index];
-			const rect = computePacketScreenRect(packet, frame.camera, width, height);
-			if (rect) {
-				packetRects.set(packet.id, rect);
-			}
-			next.set(packet.id, createPacketState(packet, rect));
-		}
+		this._processFramePackets(frame, width, height, packetRects, next);
 		this._packetStateById = next;
 		this._frameIndex++;
 	}
