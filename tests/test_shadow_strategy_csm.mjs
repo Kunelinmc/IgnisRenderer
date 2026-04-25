@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import {
 	createShadowRenderSet,
@@ -251,6 +253,36 @@ function testSpotLightCSMUsesSingleSliceEquivalentPath() {
 	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 1);
 }
 
+function testPointLightSingleMapUsesCastShadowProperty() {
+	const light = new PointLight({
+		range: 60,
+		castShadow: true,
+	});
+	assert.ok(light.shadow, "PointLight should provide a default shadow config.");
+
+	const renderSet = createShadowRenderSet(light.shadow);
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(50));
+
+	assert.equal(renderSet.effectiveStrategyType, "single-map");
+	assert.ok(renderSet.slices[0].shadowMap.viewProjectionMatrix);
+	assert.ok(renderSet.slices[0].splitFar > renderSet.slices[0].splitNear);
+}
+
+function testAreaLightSingleMapUsesCastShadowProperty() {
+	const light = new AreaLight({
+		range: 80,
+		castShadow: true,
+	});
+	assert.ok(light.shadow, "AreaLight should provide a default shadow config.");
+
+	const renderSet = createShadowRenderSet(light.shadow);
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(70));
+
+	assert.equal(renderSet.effectiveStrategyType, "single-map");
+	assert.ok(renderSet.slices[0].shadowMap.viewProjectionMatrix);
+	assert.ok(renderSet.slices[0].splitFar > renderSet.slices[0].splitNear);
+}
+
 function run() {
 	testCSMSplitsMonotonicAndCovered();
 	testLambdaBoundarySplits();
@@ -258,6 +290,8 @@ function run() {
 	testBackendFallbackToSingleMap();
 	testCSMSelectionPriority();
 	testSpotLightCSMUsesSingleSliceEquivalentPath();
+	testPointLightSingleMapUsesCastShadowProperty();
+	testAreaLightSingleMapUsesCastShadowProperty();
 	console.log("Shadow strategy CSM tests passed");
 }
 

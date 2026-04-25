@@ -68,6 +68,10 @@ export interface ShadowBackendCapabilities {
 const _tmpCamPos = { x: 0, y: 0, z: 0 };
 const _tmpCamForward = { x: 0, y: 0, z: -1 };
 const _tmpCamUp = { x: 0, y: 1, z: 0 };
+const DEFAULT_POSITIONAL_SHADOW_FOV_DEGREES = 120;
+const MIN_POSITIONAL_SHADOW_FOV_DEGREES = 1;
+const MAX_POSITIONAL_SHADOW_FOV_DEGREES = 175;
+const DEFAULT_POSITIONAL_SHADOW_DIRECTION = { x: 0, y: -1, z: 0 };
 
 function resolveCameraPosition(camera: ShadowStrategyCamera | null | undefined): IVector3 | null {
 	if (!camera) {
@@ -183,6 +187,108 @@ function buildSpotSingleMapSlice(
 	};
 }
 
+type PositionalShadowLight = ShadowCastingLight & {
+	direction?: IVector3;
+	outerAngle?: number;
+	range?: number;
+};
+
+function resolvePositionalShadowDirection(
+	light: PositionalShadowLight,
+	position: IVector3,
+	sceneBounds: SceneBounds
+): IVector3 {
+	const localDirection = light.direction;
+	if (localDirection) {
+		const transformed = Matrix4.transformDirection(light.worldMatrix, localDirection);
+		const normalized = Vector3.normalize(transformed);
+		return {
+			x: normalized.x,
+			y: normalized.y,
+			z: normalized.z,
+		};
+	}
+
+	const toCenter = Vector3.sub(sceneBounds.center, position);
+	const lengthSquared = toCenter.x * toCenter.x + toCenter.y * toCenter.y + toCenter.z * toCenter.z;
+	if (lengthSquared <= 1e-8) {
+		return {
+			x: DEFAULT_POSITIONAL_SHADOW_DIRECTION.x,
+			y: DEFAULT_POSITIONAL_SHADOW_DIRECTION.y,
+			z: DEFAULT_POSITIONAL_SHADOW_DIRECTION.z,
+		};
+	}
+	const normalized = Vector3.normalize(toCenter);
+	return {
+		x: normalized.x,
+		y: normalized.y,
+		z: normalized.z,
+	};
+}
+
+function resolvePositionalShadowFov(light: PositionalShadowLight): number {
+	const outerAngle = light.outerAngle;
+	if (typeof outerAngle === "number" && Number.isFinite(outerAngle) && outerAngle > 0) {
+		return Math.max(
+			MIN_POSITIONAL_SHADOW_FOV_DEGREES,
+			Math.min(
+				MAX_POSITIONAL_SHADOW_FOV_DEGREES,
+				outerAngle * 2 * (180 / Math.PI)
+			)
+		);
+	}
+	return DEFAULT_POSITIONAL_SHADOW_FOV_DEGREES;
+}
+
+function resolvePositionalShadowRange(light: PositionalShadowLight, autoFar: number): number {
+	const range = light.range;
+	if (typeof range === "number" && Number.isFinite(range) && range > 0) {
+		return Math.min(range, Math.max(MIN_SHADOW_FAR, autoFar));
+	}
+	return Math.max(MIN_SHADOW_FAR, autoFar);
+}
+
+function buildPositionalSingleMapSlice(
+	light: PositionalShadowLight,
+	sceneBounds: SceneBounds
+): ShadowSliceDescriptor {
+	const position = Matrix4.transformPoint(light.worldMatrix, {
+		x: 0,
+		y: 0,
+		z: 0,
+	});
+	const direction = resolvePositionalShadowDirection(light, position, sceneBounds);
+	const target = {
+		x: position.x + direction.x,
+		y: position.y + direction.y,
+		z: position.z + direction.z,
+	};
+	const view = Matrix4.lookAt(position, target, chooseUpVector(direction));
+	const distanceToCenter = Vector3.length(
+		Vector3.sub(position, sceneBounds.center)
+	);
+	const autoFar = distanceToCenter + sceneBounds.radius;
+	const far = resolvePositionalShadowRange(light, autoFar);
+	const nearCandidate = distanceToCenter - sceneBounds.radius;
+	const near = Math.max(
+		MIN_SHADOW_NEAR,
+		Math.min(nearCandidate, far - SHADOW_NEAR_FAR_GAP)
+	);
+	const projection = Matrix4.perspective(
+		resolvePositionalShadowFov(light),
+		1,
+		near,
+		far
+	);
+	return {
+		view,
+		projection,
+		lightDir: direction,
+		splitNear: near,
+		splitFar: far,
+	};
+}
+
 class SingleMapShadowStrategyProvider implements IShadowStrategyProvider {
 	public readonly type: ShadowStrategyType = "single-map";
 
@@ -207,7 +313,12 @@ class SingleMapShadowStrategyProvider implements IShadowStrategyProvider {
 					),
 				];
 			default:
-				return [];
+				return [
+					buildPositionalSingleMapSlice(
+						context.light as PositionalShadowLight,
+						context.sceneBounds
+					),
+				];
 		}
 	}
 }
@@ -383,8 +494,8 @@ function buildDirectionalCascadeSlice(
 class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 	public readonly type: ShadowStrategyType = "csm";
 
-	public supports(light: ShadowCastingLight): boolean {
-		return light.type === LightType.Directional || light.type === LightType.Spot;
+	public supports(_light: ShadowCastingLight): boolean {
+		return true;
 	}
 
 	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
@@ -397,10 +508,20 @@ class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 			];
 		}
 		if (context.light.type !== LightType.Directional) {
-			return [];
+			return [
+				buildPositionalSingleMapSlice(
+					context.light as PositionalShadowLight,
+					context.sceneBounds
+				),
+			];
 		}
 		if (!context.camera) {
-			return [];
+			return [
+				buildDirectionalSingleMapSlice(
+					context.light as DirectionalLight,
+					context.sceneBounds
+				),
+			];
 		}
 
 		const config = context.config as CSMShadowConfig;

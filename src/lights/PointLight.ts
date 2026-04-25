@@ -15,6 +15,10 @@ export class PointLight extends Light<LightType.Point> {
 			this.position.copy(params.position);
 		}
 		this.range = params.range ?? 1000;
+		this.shadow = params.shadow ?? {
+			strategy: "single-map",
+			size: 1024,
+		};
 	}
 
 	protected override _copyClonePropertiesTo(target: this): void {
