@@ -6,7 +6,6 @@ export * from "./material";
 export * from "./packing";
 export * from "./texture";
 export * from "./ComputeFacade";
-export * from "./computeUtils";
 export * from "./ComputeRuntime";
 export * from "./WebGPUPostProcessGraph";
 export * from "./WebGPUClusteredLightingRuntime";
