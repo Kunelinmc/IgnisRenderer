@@ -68,6 +68,7 @@ interface CachedPipelineEntry {
 	mode: WebGPUSceneTargetMode;
 	transparentMode: WebGPUTransparentPipelineMode;
 	shaderKey: string;
+	depthFormat: TextureFormat;
 	sampleCount: number;
 	topology: PrimitiveDrawTopology;
 	pipeline: IRenderPipeline;
@@ -136,6 +137,7 @@ export class WebGPUPipelineLibrary {
 		transparentMode: WebGPUTransparentPipelineMode = "default"
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
+		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
@@ -148,6 +150,7 @@ export class WebGPUPipelineLibrary {
 			cached.mode === mode &&
 			cached.transparentMode === transparentMode &&
 			cached.shaderKey === initialShaderKey &&
+			cached.depthFormat === depthFormat &&
 			cached.sampleCount === sampleCount &&
 			cached.topology === topology
 		) {
@@ -156,7 +159,7 @@ export class WebGPUPipelineLibrary {
 
 		const initialCacheKey =
 			`${pipelineKey}|${mode}|${transparentMode}|${initialShaderKey}` +
-			`|topology:${topology}|msaa:${sampleCount}`;
+			`|topology:${topology}|depth:${depthFormat}|msaa:${sampleCount}`;
 		let pipeline = this._pipelineCache.get(initialCacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
@@ -170,7 +173,7 @@ export class WebGPUPipelineLibrary {
 		const finalShaderKey = this._getShaderCacheKey(material);
 		const finalCacheKey =
 			`${pipelineKey}|${mode}|${transparentMode}|${finalShaderKey}` +
-			`|topology:${topology}|msaa:${sampleCount}`;
+			`|topology:${topology}|depth:${depthFormat}|msaa:${sampleCount}`;
 		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
 		if (cachedFinalPipeline) {
 			pipeline = cachedFinalPipeline;
@@ -186,6 +189,7 @@ export class WebGPUPipelineLibrary {
 			mode,
 			transparentMode,
 			shaderKey: finalShaderKey,
+			depthFormat,
 			sampleCount,
 			topology,
 			pipeline,
@@ -219,6 +223,7 @@ export class WebGPUPipelineLibrary {
 			usesTransmission,
 			transparentMode
 		);
+		const depthFormat = this._resolveSceneDepthFormat(mode);
 
 		const effectiveTopology = isWireframe ? "line-list" : topology;
 		const triangleTopology =
@@ -259,7 +264,7 @@ export class WebGPUPipelineLibrary {
 				frontFace: "ccw",
 			},
 			depthStencil: {
-				format: TextureFormat.Depth32Float,
+				format: depthFormat,
 				depthWriteEnabled: !isTransparent,
 				depthCompare: "less",
 			},
@@ -443,7 +448,8 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode = "single"
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
-		const cacheKey = `${mode}|msaa:${sampleCount}`;
+		const depthFormat = this._resolveSceneDepthFormat(mode);
+		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${sampleCount}`;
 		const cached = this._skyboxPipelines.get(cacheKey);
 		if (cached) {
 			return cached;
@@ -454,8 +460,6 @@ export class WebGPUPipelineLibrary {
 			mode === "mrt" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
-		const depthFormat =
-			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
 		const pipeline = this._backend.createPipeline({
 			layout: this._layouts.skyboxPipelineLayout,
 			label: `WebGPUSkyboxPipeline_${mode}`,
@@ -482,6 +486,16 @@ export class WebGPUPipelineLibrary {
 		} as any);
 		this._skyboxPipelines.set(cacheKey, pipeline);
 		return pipeline;
+	}
+
+	private _resolveSceneDepthFormat(mode: WebGPUSceneTargetMode): TextureFormat {
+		if (mode === "mrt") {
+			return TextureFormat.Depth32Float;
+		}
+		const backend = this._backend as {
+			canvasDepthFormat?: TextureFormat;
+		};
+		return backend.canvasDepthFormat ?? TextureFormat.Depth24Plus;
 	}
 
 	private _resolveSampleCount(mode: WebGPUSceneTargetMode): number {

@@ -1336,6 +1336,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
+	backend.canvasDepthFormat = "depth24plus";
 	const renderer = { logger: { warn() {} } };
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
@@ -1376,12 +1377,20 @@ async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 	const skyboxResources = await resources.getSkyboxResources("single");
 	assert.ok(skyboxResources);
 	assert.equal(skyboxResources.pipeline.label, "WebGPUSkyboxPipeline_single");
+	assert.equal(
+		skyboxResources.pipeline.desc.depthStencil.format,
+		backend.canvasDepthFormat
+	);
 
 	const drawResources = await resources.getDrawResources(packet, {
 		sceneTargetMode: "single",
 	});
 	assert.ok(drawResources);
 	assert.equal(drawResources[0].pipeline.label.endsWith("_single"), true);
+	assert.equal(
+		drawResources[0].pipeline.desc.depthStencil.format,
+		backend.canvasDepthFormat
+	);
 }
 
 async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {

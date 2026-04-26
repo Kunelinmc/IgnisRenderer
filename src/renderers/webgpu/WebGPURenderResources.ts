@@ -1123,7 +1123,9 @@ export class WebGPURenderResources {
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
 		const depthFormat =
-			mode === "mrt" ? TextureFormat.Depth32Float : TextureFormat.Depth24Plus;
+			mode === "mrt" ?
+				TextureFormat.Depth32Float
+			:	this._resolveSinglePassDepthFormat();
 		let sampleCount = 1;
 		if (mode === "mrt") {
 			const getter = (this._backend as { getMSAASampleCount?: () => number })
@@ -1205,6 +1207,13 @@ export class WebGPURenderResources {
 			sampleCount,
 		} as any);
 		cache.set(mode, pipeline);
+	}
+
+	private _resolveSinglePassDepthFormat(): TextureFormat {
+		const backend = this._backend as {
+			canvasDepthFormat?: TextureFormat;
+		};
+		return backend.canvasDepthFormat ?? TextureFormat.Depth24Plus;
 	}
 
 	private _createParticleUVTransformData(

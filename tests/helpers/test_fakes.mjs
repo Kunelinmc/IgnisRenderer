@@ -353,6 +353,7 @@ export class FakeWebGPUBackend {
 	constructor() {
 		this.type = "webgpu";
 		this.canvasFormat = "rgba8unorm";
+		this.canvasDepthFormat = "depth24plus";
 		this.dispatches = [];
 		this.submits = 0;
 		this.calls = [];
