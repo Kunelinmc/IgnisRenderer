@@ -327,7 +327,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _currentCanvasTexture: GPUTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
-	private _renderer: RendererBackendBridge | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
@@ -425,7 +424,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
-		this._renderer = renderer;
+		void renderer;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -449,9 +448,6 @@ export class WebGPUBackend implements IRenderBackend {
 
 		if (!navigator.gpu) {
 			throw new Error("WebGPU not supported on this browser.");
-		}
-		if (!this._renderer) {
-			throw new Error("WebGPU backend requires a renderer before init().");
 		}
 
 		const adapter = await navigator.gpu.requestAdapter();
@@ -527,7 +523,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._configureContext();
 			this._recreateDepthTexture();
 
-			this._resources = new WebGPURenderResources(this._renderer, this);
+			this._resources = new WebGPURenderResources(this);
 			await this._resources.init();
 			this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
 			this._particleSimulator = new DefaultParticleSimulator({
@@ -1368,9 +1364,9 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		const canvas = this.canvas;
-		if (!canvas || !this._renderer) {
+		if (!canvas) {
 			Logger.error(
-				"WebGPU device recovery skipped: backend is missing canvas or renderer.",
+				"WebGPU device recovery skipped: backend is missing canvas.",
 				{
 					scope: "WebGPUBackend",
 				}

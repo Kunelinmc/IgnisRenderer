@@ -191,14 +191,6 @@ function createRendererBridge() {
 		warnings,
 		bridge: {
 			canvas: { width: 1, height: 1 },
-			camera: {},
-			scene: { getLights: () => [] },
-			features: { enableShadows: false },
-			logger: {
-				warn(message) {
-					warnings.push(String(message));
-				},
-			},
 		},
 	};
 }

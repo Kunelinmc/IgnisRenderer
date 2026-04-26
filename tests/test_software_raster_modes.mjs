@@ -13,23 +13,9 @@ function createZeroSH() {
 	return Array.from({ length: 9 }, () => ({ r: 0, g: 0, b: 0 }));
 }
 
-function createRendererBridge(camera, warnings) {
+function createRendererBridge() {
 	return {
 		canvas: { width: WIDTH, height: HEIGHT },
-		camera,
-		scene: {
-			getLights() {
-				return [];
-			},
-		},
-		features: {
-			enableShadows: false,
-		},
-		logger: {
-			warn(message) {
-				warnings.push(String(message));
-			},
-		},
 	};
 }
 
@@ -99,6 +85,19 @@ function createContext(backend, camera, packetsByStage = {}) {
 		shCoeffs: zeroSH,
 		shAmbientCoeffs: zeroSH,
 		worldMatrix: Matrix4.identity(),
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [],
+			dirtyTileSize: 0,
+			dirtyTileColumns: 0,
+			dirtyTileRows: 0,
+			dirtyTiles: [],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: true,
+		},
 		transient: new Map(),
 	};
 }
@@ -299,7 +298,8 @@ function createCamera() {
 
 async function renderPass(backend, stage, packetsByStage, warnings) {
 	const camera = createCamera();
-	backend.setRenderer(createRendererBridge(camera, warnings));
+	void warnings;
+	backend.setRenderer(createRendererBridge());
 	const context = createContext(backend, camera, packetsByStage);
 	backend.beginFrame(context);
 	await backend.executePass(

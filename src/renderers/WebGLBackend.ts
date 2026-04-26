@@ -92,7 +92,6 @@ export class WebGLBackend implements IRenderBackend {
 		oit: true,
 	};
 
-	private _renderer: RendererBackendBridge | null = null;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
@@ -128,13 +127,11 @@ export class WebGLBackend implements IRenderBackend {
 		});
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
+		this._ensureParticleSimulator();
 	}
 
-	public setRenderer(renderer: RendererBackendBridge): void {
-		this._renderer = renderer;
-		this._particleSimulator = new DefaultParticleSimulator({
-			backendTag: this.type,
-		});
+	public setRenderer(_renderer: RendererBackendBridge): void {
+		this._ensureParticleSimulator();
 	}
 
 	public registerPostProcessPass(pass: WebGLPostProcessPassPlugin): void {
@@ -148,6 +145,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
+		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
 		await this._shaderSourceFactory.prepareAll();
@@ -267,6 +265,15 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._contextLossHandler = null;
 		this._contextRestoreHandler = null;
+	}
+
+	private _ensureParticleSimulator(): void {
+		if (this._particleSimulator) {
+			return;
+		}
+		this._particleSimulator = new DefaultParticleSimulator({
+			backendTag: this.type,
+		});
 	}
 
 	private _initializeGLContext(canvas: HTMLCanvasElement): void {

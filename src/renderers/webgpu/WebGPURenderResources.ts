@@ -141,7 +141,6 @@ interface WebGPUParticleRenderOptions {
 }
 
 export class WebGPURenderResources {
-	private _renderer: RendererBackendBridge;
 	private _backend: WebGPUBackend;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -182,8 +181,15 @@ export class WebGPURenderResources {
 	private _destroyed = false;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 
-	constructor(renderer: RendererBackendBridge, backend: WebGPUBackend) {
-		this._renderer = renderer;
+	constructor(backend: WebGPUBackend);
+	constructor(_renderer: RendererBackendBridge, backend: WebGPUBackend);
+	constructor(
+		backendOrRenderer: WebGPUBackend | RendererBackendBridge,
+		backendMaybe?: WebGPUBackend
+	) {
+		const backend =
+			backendMaybe ??
+			(backendOrRenderer as WebGPUBackend);
 		this._backend = backend;
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;

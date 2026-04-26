@@ -1,5 +1,3 @@
-import type { Camera } from "../cameras/Camera";
-import type { SceneLight } from "../lights";
 import type {
 	FrameAttachments,
 	FrameContext,
@@ -72,11 +70,12 @@ export interface BackendCapabilities {
 	oit: boolean;
 }
 
+/**
+ * Presentation-only renderer host state exposed to backends.
+ * Frame data must flow through `FrameContext`.
+ */
 export interface RendererBackendBridge {
-	readonly canvas: HTMLCanvasElement;
-	readonly camera: Camera;
-	readonly scene: { getLights(): SceneLight[] };
-	readonly features: { enableShadows: boolean };
+	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
 	pixels?: Uint8ClampedArray | null;
 }
 

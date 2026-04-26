@@ -1,7 +1,6 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
 import { PostProcessConstants, VolumetricConstants, SSAOConstants } from "./constants";
-import type { RendererBackendBridge } from "../IRenderBackend";
 import {
 	type DirectionalLight,
 	type PointLight,
@@ -93,10 +92,7 @@ export class PostProcessor implements PostProcessorLike {
 	private _prevVolumetricBuf: Float32Array | null = null;
 	private _prevViewProj: Matrix4 | null = null;
 
-	public renderer: RendererBackendBridge;
-
-	constructor(renderer: RendererBackendBridge) {
-		this.renderer = renderer;
+	constructor() {
 		this._sRGBLUT = new Uint8Array(256);
 		this._lutBuilt = false;
 		this._lastGamma = -1;
@@ -142,23 +138,6 @@ export class PostProcessor implements PostProcessorLike {
 			const isLen = Math.hypot(noise.x, noise.y, noise.z) || 1;
 			this._ssaoNoise.push({ x: noise.x / isLen, y: noise.y / isLen, z: 0.0 });
 		}
-	}
-
-	private _getPrimaryDirectionalLight(): DirectionalLight | null {
-		const lights = this.renderer.scene?.getLights?.() || [];
-		let primary: DirectionalLight | null = null;
-		let maxIntensity = -Infinity;
-
-		for (const light of lights) {
-			if (light.type !== LightType.Directional) continue;
-			const intensity = light.intensity ?? 1;
-			if (intensity > maxIntensity) {
-				maxIntensity = intensity;
-				primary = light;
-			}
-		}
-
-		return primary;
 	}
 
 	private _getCameraBasis(context: FrameContext): CameraBasis {
@@ -832,7 +811,7 @@ export class PostProcessor implements PostProcessorLike {
 		const sigmaT = airDensity * VolumetricConstants.SIGMA_T_SCALE;
 		const sigmaS = sigmaT * scatteringAlbedo;
 
-		const shadowsEnabled = this.renderer.features.enableShadows;
+		const shadowsEnabled = context.features.enableShadows;
 		const shadowSampler = createSoftwareShadowSampler(
 			context.shadowMaps,
 			getSoftwareShadowRuntimeMap(context.transient)
@@ -919,7 +898,7 @@ export class PostProcessor implements PostProcessorLike {
 
 					const ndcX = ((px + 0.5) / w) * 2 - 1;
 					const ndcY = 1 - ((py + 0.5) / h) * 2;
-					const posView = this._reconstructViewPos(ndcX, ndcY, dist);
+					const posView = this._reconstructViewPos(ndcX, ndcY, dist, camera);
 
 					const samplePoint = {
 						x:
@@ -1093,7 +1072,12 @@ export class PostProcessor implements PostProcessorLike {
 					);
 					const ndcX = ((screenPX + 0.5) / w) * 2 - 1;
 					const ndcY = 1 - ((screenPY + 0.5) / h) * 2;
-					const posView = this._reconstructViewPos(ndcX, ndcY, depthLimit);
+					const posView = this._reconstructViewPos(
+						ndcX,
+						ndcY,
+						depthLimit,
+						camera
+					);
 
 					const worldPos = {
 						x:
@@ -1327,10 +1311,15 @@ export class PostProcessor implements PostProcessorLike {
 						continue;
 					}
 
-				// Reconstruct view-space position
-				const ndcX = (x / w) * 2 - 1;
-				const ndcY = 1 - (y / h) * 2;
-				const posView = this._reconstructViewPos(ndcX, ndcY, originDepth);
+					// Reconstruct view-space position
+					const ndcX = (x / w) * 2 - 1;
+					const ndcY = 1 - (y / h) * 2;
+					const posView = this._reconstructViewPos(
+						ndcX,
+						ndcY,
+						originDepth,
+						camera
+					);
 
 				const nIdx = idx * 3;
 				const normal = {
@@ -1450,10 +1439,9 @@ export class PostProcessor implements PostProcessorLike {
 	private _reconstructViewPos(
 		ndcX: number,
 		ndcY: number,
-		zView: number
+		zView: number,
+		camera: FrameContext["camera"]
 	): IVector3 {
-		const camera = this.renderer.camera;
-
 		if (camera.type === CameraType.Orthographic) {
 			const orthoCam = camera as OrthographicCamera;
 			const bounds = orthoCam.getBounds();

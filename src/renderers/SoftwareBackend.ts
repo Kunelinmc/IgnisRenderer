@@ -105,6 +105,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this.requestedRasterMode = options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
+		this._ensureRuntime();
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {
@@ -117,6 +118,13 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
+		this._ensureRuntime();
+	}
+
+	private _ensureRuntime(): void {
+		if (this._rasterizer) {
+			return;
+		}
 		this._rasterizer = new Rasterizer();
 		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
@@ -125,7 +133,7 @@ export class SoftwareBackend implements IRenderBackend {
 		});
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
-		this._postProcessor = new PostProcessor(renderer);
+		this._postProcessor = new PostProcessor();
 		this._particleSimulator = new DefaultParticleSimulator({
 			backendTag: this.type,
 		});
@@ -423,11 +431,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _resolveFramePixels(renderer: RendererBackendBridge): Uint8ClampedArray {
-		const legacyPixels = (
-			renderer as RendererBackendBridge & {
-				pixels?: Uint8ClampedArray | null;
-			}
-		).pixels;
+		const legacyPixels = renderer.pixels;
 		const pixels = this._pixels || legacyPixels;
 
 		if (!pixels) {
