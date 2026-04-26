@@ -140,6 +140,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _reflectionProbeCaptureRuntime: ReflectionProbeCaptureRuntime;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
+	private _allowSkyboxSpecularFallback: boolean;
 
 	constructor(
 		backend: IRenderBackend,
@@ -166,6 +167,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			new ReflectionProbeCaptureRuntime();
 		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 		this._lastKnownSceneVersion = 0;
+		this._allowSkyboxSpecularFallback = true;
 
 		this.features = {
 			enableLighting: true,
@@ -300,6 +302,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		options: WarmupOptions
 	): Promise<boolean> {
 		const includeEnvironmentIBLBake = options.includeEnvironmentIBLBake ?? true;
+		this._setAllowSkyboxSpecularFallback(includeEnvironmentIBLBake);
 		if (includeEnvironmentIBLBake === false) {
 			return false;
 		}
@@ -507,8 +510,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this._camera;
 	}
 
+	public get allowSkyboxSpecularFallback(): boolean {
+		return this._allowSkyboxSpecularFallback;
+	}
+
 	public get lastTime(): number {
 		return this._lastTime;
+	}
+
+	private _setAllowSkyboxSpecularFallback(value: boolean): void {
+		if (this._allowSkyboxSpecularFallback === value) {
+			return;
+		}
+		this._allowSkyboxSpecularFallback = value;
+		this._preparedSceneCache.reset();
+		this._markFrameDirty("lighting");
 	}
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {

@@ -438,6 +438,30 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	assert.equal(skyboxState.reflectionProbeCount, 0);
 }
 
+function testLightCollectorCanDisableSkyboxSpecularFallback() {
+	const warnings = [];
+	const warn = (key, message) => warnings.push({ key, message });
+	const skybox = createTinyCubeTexture(2, 0.5);
+	const state = collectWebGLLights(
+		[],
+		true,
+		warn,
+		false,
+		undefined,
+		false,
+		skybox,
+		false,
+		false
+	);
+	assert.equal(state.envSpecularMap, null);
+	assert.equal(state.reflectionProbeCount, 0);
+	assert.equal(state.reflectionProbes.length, 0);
+	assert.equal(
+		warnings.some((warning) => warning.key.startsWith("webgl-skybox-")),
+		false
+	);
+}
+
 function testProgramLibraryCompileErrorMessage() {
 	const library = createProgramLibrary(createProgramCompileFailGL(), () => {});
 	assert.throws(
@@ -1130,6 +1154,7 @@ async function run() {
 	testLightCollectorLimitsAndWarnings();
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
 	testLightCollectorSupportsCubeTextureEnvironmentMaps();
+	testLightCollectorCanDisableSkyboxSpecularFallback();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();

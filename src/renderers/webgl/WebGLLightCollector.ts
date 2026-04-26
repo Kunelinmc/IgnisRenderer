@@ -121,7 +121,8 @@ export function collectWebGLLights(
 	shadowMaps?: WebGLLightCollectorShadowMapLookup,
 	enableSH?: boolean,
 	skybox?: Texture | null,
-	enableClusteredLighting?: boolean
+	enableClusteredLighting?: boolean,
+	allowSkyboxSpecularFallback?: boolean
 ): WebGLLightState;
 export function collectWebGLLights(
 	lights: SceneLight[],
@@ -131,7 +132,8 @@ export function collectWebGLLights(
 	shadowMaps?: WebGLLightCollectorShadowMapLookup,
 	enableSH?: boolean,
 	skybox?: Texture | null,
-	enableClusteredLighting?: boolean
+	enableClusteredLighting?: boolean,
+	allowSkyboxSpecularFallback?: boolean
 ): WebGLLightState;
 
 export function collectWebGLLights(
@@ -144,7 +146,8 @@ export function collectWebGLLights(
 	shadowMapsOrEnableSH?: WebGLLightCollectorShadowMapLookup | boolean,
 	enableSHOrSkybox: boolean | Texture | null = false,
 	skyboxOrEnableClusteredLighting: Texture | null | boolean = null,
-	enableClusteredLightingMaybe = false
+	enableClusteredLightingMaybe = false,
+	allowSkyboxSpecularFallbackMaybe = true
 ): WebGLLightState {
 	let warn: WebGLLightCollectorWarn | undefined;
 	let enableShadows = false;
@@ -152,6 +155,7 @@ export function collectWebGLLights(
 	let enableSH = false;
 	let skybox: Texture | null = null;
 	let enableClusteredLighting = false;
+	let allowSkyboxSpecularFallback = true;
 	if (typeof warnOrEnableShadows === "function") {
 		warn = warnOrEnableShadows;
 		enableShadows = enableShadowsOrShadowMaps === true;
@@ -168,6 +172,10 @@ export function collectWebGLLights(
 			typeof enableClusteredLightingMaybe === "boolean" ?
 				enableClusteredLightingMaybe
 			:	false;
+		allowSkyboxSpecularFallback =
+			typeof allowSkyboxSpecularFallbackMaybe === "boolean" ?
+				allowSkyboxSpecularFallbackMaybe
+			:	true;
 	} else {
 		enableShadows = warnOrEnableShadows === true;
 		shadowMaps =
@@ -180,6 +188,10 @@ export function collectWebGLLights(
 			typeof skyboxOrEnableClusteredLighting === "boolean" ?
 				skyboxOrEnableClusteredLighting
 			:	false;
+		allowSkyboxSpecularFallback =
+			typeof enableClusteredLightingMaybe === "boolean" ?
+				enableClusteredLightingMaybe
+			:	true;
 	}
 	const emitWarning: WebGLLightCollectorWarn = (key, message) => {
 		warn?.(key, message);
@@ -370,7 +382,7 @@ export function collectWebGLLights(
 		}
 	}
 
-	if (!state.envSpecularMap) {
+	if (!state.envSpecularMap && allowSkyboxSpecularFallback) {
 		state.envSpecularMap = resolveEnvironmentSkyboxMap(skybox, emitWarning);
 		state.reflectionProbeCount = 0;
 		state.reflectionProbes = [];

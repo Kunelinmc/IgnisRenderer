@@ -241,6 +241,10 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 			.getLights()
 			.filter((light) => light.type === "lightProbe");
 		assert.equal(probes.length, 0);
+		assert.equal(
+			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
+			false
+		);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;
@@ -282,6 +286,14 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 		assert.equal(renderIncremental.firstPass, null);
 		assert.equal(warmupIncremental.forceFullFrame, true);
 		assert.equal(renderIncremental.forceFullFrame, true);
+		assert.equal(
+			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
+			false
+		);
+		assert.equal(
+			backend.lastBeginFrameContext?.scene?.allowSkyboxSpecularFallback,
+			false
+		);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;

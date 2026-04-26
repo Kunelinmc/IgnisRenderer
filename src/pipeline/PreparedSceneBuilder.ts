@@ -87,6 +87,7 @@ export class PreparedSceneBuilder {
 			hasActiveAnimations: renderer.animationSystem.hasActiveActions(),
 			camera: renderer.camera,
 			skybox: renderer.scene.skybox,
+			allowSkyboxSpecularFallback: renderer.allowSkyboxSpecularFallback,
 			meshInstances,
 			shadowMaps: renderer.shadowMaps,
 			opaquePackets,

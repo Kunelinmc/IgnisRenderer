@@ -552,6 +552,21 @@ function testEnvironmentCollection() {
 	assert.equal(failedOnlySkybox.skyboxTexture, null);
 	assert.equal(failedOnlySkybox.envSpecularTexture, null);
 	assert.equal(failedOnlySkybox.reflectionProbeCount, 0);
+
+	const disabledFallback = collectWebGPUEnvironment(
+		{
+			skybox,
+			lights: [],
+			allowSkyboxSpecularFallback: false,
+		},
+		true,
+		sh
+	);
+	assert.equal(disabledFallback.skyboxTexture, skybox);
+	assert.equal(disabledFallback.envSpecularTexture, null);
+	assert.equal(disabledFallback.reflectionProbeCount, 0);
+	assert.equal(disabledFallback.brdfLUTTexture, null);
+	assert.equal(disabledFallback.envSpecularMaxMipLevel, 0);
 }
 
 function testEnvironmentCollectionWithCubeTextures() {

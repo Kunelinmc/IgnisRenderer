@@ -296,7 +296,8 @@ export class WebGLFrameExecutor {
 			context.shadowMaps,
 			context.features.enableSH,
 			context.scene.skybox,
-			context.features.enableClusteredLighting
+			context.features.enableClusteredLighting,
+			context.scene.allowSkyboxSpecularFallback !== false
 		);
 		this._clusteredLighting.prepare(
 			context,

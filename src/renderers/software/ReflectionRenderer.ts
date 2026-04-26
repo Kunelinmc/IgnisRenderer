@@ -361,6 +361,8 @@ export class ReflectionRenderer {
 				sampleShadow,
 				shAmbientCoeffs: context.shAmbientCoeffs,
 				skybox: context.scene.skybox,
+				allowSkyboxSpecularFallback:
+					context.scene.allowSkyboxSpecularFallback !== false,
 				features: {
 				enableLighting: context.features.enableLighting,
 				enableSH: context.features.enableSH,

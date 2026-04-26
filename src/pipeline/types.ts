@@ -145,6 +145,7 @@ export interface PreparedScene {
 	hasActiveAnimations: boolean;
 	camera: Camera;
 	skybox?: Texture | null;
+	allowSkyboxSpecularFallback?: boolean;
 	meshInstances: MeshInstance[];
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	opaquePackets: DrawPacket[];

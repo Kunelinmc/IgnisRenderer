@@ -31,6 +31,8 @@ export function collectWebGPUEnvironment(
 	shAmbientCoeffs: SHCoefficients | null
 ): WebGPUEnvironmentState {
 	const warnings: WebGPUWarning[] = [];
+	const allowSkyboxSpecularFallback =
+		scene.allowSkyboxSpecularFallback !== false;
 	const sceneSkyboxTexture = resolveEnvironmentTexture(
 		scene.skybox,
 		"skybox",
@@ -80,7 +82,7 @@ export function collectWebGPUEnvironment(
 				"WebGPU reflection probes are active but atlas build failed or is not ready; falling back to skybox environment specular.",
 		});
 	}
-	if (!envSpecularTexture) {
+	if (!envSpecularTexture && allowSkyboxSpecularFallback) {
 		envSpecularTexture = sceneSkyboxTexture;
 	}
 	const hasEnvSpecular = !!envSpecularTexture;
