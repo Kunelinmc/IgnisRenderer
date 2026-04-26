@@ -459,25 +459,39 @@ function buildDirectionalCascadeSlice(
 		maxZ = Math.max(maxZ, lightSpace.z);
 	}
 
-	let spanX = Math.max(0.001, maxX - minX);
-	let spanY = Math.max(0.001, maxY - minY);
-	const span = Math.max(spanX, spanY);
-	const halfSpan = span * 0.5;
-	let centerLSX = (minX + maxX) * 0.5;
-	let centerLSY = (minY + maxY) * 0.5;
+	let spanForPadding = 0;
 	if (stabilize) {
+		// Use a sphere-based extent to keep cascade scale stable under camera rotation.
+		const halfSpan = radius;
+		const span = Math.max(0.001, halfSpan * 2);
 		const texelSize = span / Math.max(1, shadowMapSize);
-		centerLSX = Math.floor(centerLSX / texelSize) * texelSize;
-		centerLSY = Math.floor(centerLSY / texelSize) * texelSize;
+		const centerLS = Matrix4.transformPoint(view, center);
+		let centerLSX = centerLS.x;
+		let centerLSY = centerLS.y;
+		if (texelSize > 0) {
+			centerLSX = Math.round(centerLSX / texelSize) * texelSize;
+			centerLSY = Math.round(centerLSY / texelSize) * texelSize;
+		}
+		minX = centerLSX - halfSpan;
+		maxX = centerLSX + halfSpan;
+		minY = centerLSY - halfSpan;
+		maxY = centerLSY + halfSpan;
+		spanForPadding = span;
+	} else {
+		const spanX = Math.max(0.001, maxX - minX);
+		const spanY = Math.max(0.001, maxY - minY);
+		const span = Math.max(spanX, spanY);
+		const halfSpan = span * 0.5;
+		const centerLSX = (minX + maxX) * 0.5;
+		const centerLSY = (minY + maxY) * 0.5;
+		minX = centerLSX - halfSpan;
+		maxX = centerLSX + halfSpan;
+		minY = centerLSY - halfSpan;
+		maxY = centerLSY + halfSpan;
+		spanForPadding = span;
 	}
-	minX = centerLSX - halfSpan;
-	maxX = centerLSX + halfSpan;
-	minY = centerLSY - halfSpan;
-	maxY = centerLSY + halfSpan;
-	spanX = span;
-	spanY = span;
 
-	const depthPadding = Math.max(10, span * 0.5);
+	const depthPadding = Math.max(10, spanForPadding * 0.5);
 	const near = Math.max(MIN_SHADOW_NEAR, -maxZ - depthPadding);
 	const far = Math.max(near + SHADOW_NEAR_FAR_GAP, -minZ + depthPadding);
 	const projection = Matrix4.ortho(minX, maxX, minY, maxY, near, far);

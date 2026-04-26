@@ -22,6 +22,7 @@ function createSceneBounds(radius = 80) {
 function createCamera(overrides = {}) {
 	const position = overrides.position ?? { x: 0, y: 4, z: 16 };
 	const up = overrides.up ?? { x: 0, y: 1, z: 0 };
+	const forward = overrides.forward ?? { x: 0, y: 0, z: -1 };
 	return {
 		near: overrides.near ?? 0.1,
 		far: overrides.far ?? 100,
@@ -36,9 +37,14 @@ function createCamera(overrides = {}) {
 			return target;
 		},
 		getWorldDirection(localDirection, target = { x: 0, y: 0, z: 0 }) {
-			target.x = localDirection.x;
-			target.y = localDirection.y;
-			target.z = localDirection.z;
+			const useUpDirection =
+				Math.abs(localDirection.x - up.x) <= 1e-6 &&
+				Math.abs(localDirection.y - up.y) <= 1e-6 &&
+				Math.abs(localDirection.z - up.z) <= 1e-6;
+			const source = useUpDirection ? up : forward;
+			target.x = source.x;
+			target.y = source.y;
+			target.z = source.z;
 			return target;
 		},
 	};
@@ -150,6 +156,48 @@ function testLambdaBoundarySplits() {
 	assert.ok(Math.abs(uniformSet.slices[0].splitFar - expectedUniform) < 1e-5);
 	assert.ok(Math.abs(logSet.slices[0].splitFar - expectedLog) < 1e-5);
 	assert.ok(logSet.slices[0].splitFar < uniformSet.slices[0].splitFar);
+}
+
+function readCascadeOrthoSpan(slice) {
+	const projection = slice.shadowMap.projectionMatrix;
+	assert.ok(projection);
+	const m00 = projection.elements[0][0];
+	const m11 = projection.elements[1][1];
+	const width = Math.abs(2 / m00);
+	const height = Math.abs(2 / m11);
+	return { width, height };
+}
+
+function testCSMStabilizedExtentIsCameraRotationInvariant() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 4,
+	});
+	const forwardA = { x: 0, y: 0, z: -1 };
+	const invSqrt2 = 1 / Math.sqrt(2);
+	const forwardB = { x: invSqrt2, y: 0, z: -invSqrt2 };
+	const cameraA = createCamera({ near: 0.1, far: 100, forward: forwardA });
+	const cameraB = createCamera({ near: 0.1, far: 100, forward: forwardB });
+	const bounds = createSceneBounds(120);
+	const renderSetA = createShadowRenderSet(light.shadow);
+	const renderSetB = createShadowRenderSet(light.shadow);
+
+	updateShadowMapMetadata(renderSetA, light, bounds, { camera: cameraA });
+	updateShadowMapMetadata(renderSetB, light, bounds, { camera: cameraB });
+
+	for (let index = 0; index < renderSetA.slices.length; index++) {
+		const spanA = readCascadeOrthoSpan(renderSetA.slices[index]);
+		const spanB = readCascadeOrthoSpan(renderSetB.slices[index]);
+		assert.ok(
+			Math.abs(spanA.width - spanB.width) < 1e-6,
+			`Cascade ${index} width should be stable across camera rotation`
+		);
+		assert.ok(
+			Math.abs(spanA.height - spanB.height) < 1e-6,
+			`Cascade ${index} height should be stable across camera rotation`
+		);
+	}
 }
 
 function testBlendRatioNormalization() {
@@ -286,6 +334,7 @@ function testAreaLightSingleMapUsesCastShadowProperty() {
 function run() {
 	testCSMSplitsMonotonicAndCovered();
 	testLambdaBoundarySplits();
+	testCSMStabilizedExtentIsCameraRotationInvariant();
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();
 	testCSMSelectionPriority();
