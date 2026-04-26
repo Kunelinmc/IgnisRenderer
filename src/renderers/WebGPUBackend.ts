@@ -22,6 +22,10 @@ import {
 } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
+import {
+	WebGPUReflectionProbeCapturePass,
+	type WebGPUReflectionProbeCaptureFaceRequest,
+} from "./webgpu/WebGPUReflectionProbeCapturePass";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import {
 	attachWebGPUTexture,
@@ -329,6 +333,8 @@ export class WebGPUBackend implements IRenderBackend {
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
+	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null =
+		null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: GPUDeviceLostInfo | null = null;
@@ -526,6 +532,10 @@ export class WebGPUBackend implements IRenderBackend {
 			this._resources = new WebGPURenderResources(this);
 			await this._resources.init();
 			this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+			this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
+				this,
+				this._resources
+			);
 			this._particleSimulator = new DefaultParticleSimulator({
 				backendTag: this.type,
 				maxParticlesPerSystem: 300000,
@@ -697,6 +707,19 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		this._resources.unregisterExternalTexture(texture);
+	}
+
+	public getFrameSceneTargetMode(): "mrt" | "single" {
+		return this._frameExecutor?.getSceneTargetModeForFrame() ?? "single";
+	}
+
+	public async captureReflectionProbeFace(
+		request: WebGPUReflectionProbeCaptureFaceRequest
+	): Promise<Float32Array | null> {
+		if (!this._reflectionProbeCapturePass) {
+			return null;
+		}
+		return this._reflectionProbeCapturePass.captureFace(request);
 	}
 
 	public destroy(): void {
@@ -1432,6 +1455,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._copyPendingCount = 0;
 		this._copyFlushScheduled = false;
 		invalidateWebGPUComputeFacade(this);
+		this._reflectionProbeCapturePass?.destroy();
+		this._reflectionProbeCapturePass = null;
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
 		this._resources?.destroy();

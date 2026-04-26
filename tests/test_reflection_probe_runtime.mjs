@@ -141,10 +141,14 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 	assert.equal(probe.source, "skybox");
 	assert.equal(probe.captureUpdateMode, "onSceneDirty");
 	assert.equal(probe.captureIntervalSeconds, 1);
-	assert.equal(probe.captureResolution.width, 128);
-	assert.equal(probe.captureResolution.height, 64);
+	assert.equal(probe.captureResolution.width, 512);
+	assert.equal(probe.captureResolution.height, 256);
 	assert.equal(probe.captureFar, 200);
 	assert.equal(probe.includeSkybox, true);
+	assert.equal(probe.includeMeshes, true);
+	assert.equal(probe.includeTransparent, true);
+	assert.equal(probe.includeParticles, true);
+	assert.equal(probe.includeShadows, true);
 
 	const cloned = probe.clone(false);
 	assert.equal(cloned.source, probe.source);
@@ -154,6 +158,10 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 	assert.equal(cloned.captureResolution.height, probe.captureResolution.height);
 	assert.equal(cloned.captureFar, probe.captureFar);
 	assert.equal(cloned.includeSkybox, probe.includeSkybox);
+	assert.equal(cloned.includeMeshes, probe.includeMeshes);
+	assert.equal(cloned.includeTransparent, probe.includeTransparent);
+	assert.equal(cloned.includeParticles, probe.includeParticles);
+	assert.equal(cloned.includeShadows, probe.includeShadows);
 }
 
 function testReflectionProbeRequestCaptureFlags() {

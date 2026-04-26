@@ -45,6 +45,10 @@ export interface ReflectionProbeParams extends LightParams {
 	captureResolution?: Partial<ReflectionProbeCaptureResolution>;
 	captureFar?: number;
 	includeSkybox?: boolean;
+	includeMeshes?: boolean;
+	includeTransparent?: boolean;
+	includeParticles?: boolean;
+	includeShadows?: boolean;
 }
 
 const REFLECTION_PROBE_NUMERIC_EPSILON = 1e-6;
@@ -65,6 +69,10 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	public captureResolution: ReflectionProbeCaptureResolution;
 	public captureFar: number;
 	public includeSkybox: boolean;
+	public includeMeshes: boolean;
+	public includeTransparent: boolean;
+	public includeParticles: boolean;
+	public includeShadows: boolean;
 
 	private _runtimeCache: ReflectionProbeRuntimeCache;
 	private _runtimeDirty = true;
@@ -104,6 +112,10 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		);
 		this.captureFar = sanitizeCaptureFar(params.captureFar ?? 200);
 		this.includeSkybox = params.includeSkybox ?? true;
+		this.includeMeshes = params.includeMeshes ?? true;
+		this.includeTransparent = params.includeTransparent ?? true;
+		this.includeParticles = params.includeParticles ?? true;
+		this.includeShadows = params.includeShadows ?? true;
 
 		this._runtimeCache = {
 			probeToWorldMatrix: Matrix4.identity(),
@@ -181,6 +193,10 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		target.captureResolution.height = this.captureResolution.height;
 		target.captureFar = this.captureFar;
 		target.includeSkybox = this.includeSkybox;
+		target.includeMeshes = this.includeMeshes;
+		target.includeTransparent = this.includeTransparent;
+		target.includeParticles = this.includeParticles;
+		target.includeShadows = this.includeShadows;
 		target._captureRequestToken = this._captureRequestToken;
 		target._captureRevision = this._captureRevision;
 		target.markRuntimeDirty();
@@ -346,8 +362,8 @@ function sanitizeCaptureFar(value: number): number {
 function sanitizeCaptureResolution(
 	value: Partial<ReflectionProbeCaptureResolution> | undefined
 ): ReflectionProbeCaptureResolution {
-	const width = Math.max(8, Math.floor(value?.width ?? 128));
-	const height = Math.max(4, Math.floor(value?.height ?? 64));
+	const width = Math.max(8, Math.floor(value?.width ?? 512));
+	const height = Math.max(4, Math.floor(value?.height ?? 256));
 	return { width, height };
 }
 

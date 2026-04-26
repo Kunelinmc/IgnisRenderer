@@ -340,6 +340,10 @@ export class WebGPUFrameExecutor {
 		this._postGraph.unregisterPass(id);
 	}
 
+	public getSceneTargetModeForFrame(): "mrt" | "single" {
+		return this._mrtEnabled ? "mrt" : "single";
+	}
+
 	/**
 	 * Force frame targets to be rebuilt on the next beginFrame().
 	 * Call on canvas resize so the post-process pipeline picks up

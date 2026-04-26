@@ -12,6 +12,7 @@ import {
 } from "../lights";
 import { sRGBToLinear } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
+import type { FrameContext } from "./types";
 import {
 	bakeEnvironmentIBLFromEnvironmentMap,
 	type BakedEnvironmentIBL,
@@ -27,6 +28,8 @@ const DIRECTIONAL_LOBE_EXPONENT = 96;
 const LOCAL_LIGHT_LOBE_EXPONENT = 64;
 const AREA_LIGHT_LOBE_EXPONENT = 48;
 const DEFAULT_MAX_BAKES_PER_FRAME = 1;
+const DEFAULT_CAPTURE_BUDGET_MS = 4;
+const CAPTURE_RESOLUTION_SCALE_STEPS = [1, 0.75, 0.5] as const;
 const MIN_LIGHT_DISTANCE = 1e-4;
 
 interface CaptureTaskState {
@@ -36,6 +39,16 @@ interface CaptureTaskState {
 	captureRequestToken: number;
 	startedAtSeconds: number;
 	scene: Scene;
+	baseCaptureWidth: number;
+	baseCaptureHeight: number;
+	scaleIndex: number;
+	captureWidth: number;
+	captureHeight: number;
+	faceSize: number;
+	pendingFaces: number[];
+	capturedFaces: Array<Float32Array | null>;
+	useMeshCapture: boolean;
+	lightingState: CaptureLightingState | null;
 }
 
 interface RGBLinear {
@@ -64,14 +77,35 @@ interface CaptureLightingState {
 	areaLights: CapturedLocalLight[];
 }
 
+export interface ReflectionProbeWebGPUCaptureFaceRequest {
+	frameContext: FrameContext;
+	probe: ReflectionProbe;
+	faceIndex: number;
+	faceSize: number;
+	includeSkybox: boolean;
+	includeTransparent: boolean;
+	includeParticles: boolean;
+	includeShadows: boolean;
+}
+
+export interface ReflectionProbeWebGPUCaptureSource {
+	captureReflectionProbeFace(
+		request: ReflectionProbeWebGPUCaptureFaceRequest
+	): Promise<Float32Array | null>;
+}
+
 export interface ReflectionProbeCaptureRuntimeExecuteContext {
 	scene: Scene;
 	nowMs: number;
+	frameContext?: FrameContext | null;
+	cameraWorldPosition?: IVector3 | null;
 	webgpuSource?: WebGPUComputeFacadeSource | null;
+	webgpuCaptureSource?: ReflectionProbeWebGPUCaptureSource | null;
 }
 
 export interface ReflectionProbeCaptureRuntimeOptions {
 	maxBakesPerFrame?: number;
+	captureBudgetMs?: number;
 	bakeEnvironmentIBL?: (
 		envMap: Texture,
 		options: EnvironmentIBLBakeOptions
@@ -79,10 +113,11 @@ export interface ReflectionProbeCaptureRuntimeOptions {
 }
 
 export class ReflectionProbeCaptureRuntime {
-	private _inFlightTask: CaptureTaskState | null = null;
+	private _activeTask: CaptureTaskState | null = null;
+	private _inFlightQuantum: Promise<void> | null = null;
 	private _nextTaskId = 0;
-	private _nextProbeCursor = 0;
 	private _maxBakesPerFrame: number;
+	private _captureBudgetMs: number;
 	private _bakeEnvironmentIBL: (
 		envMap: Texture,
 		options: EnvironmentIBLBakeOptions
@@ -96,34 +131,65 @@ export class ReflectionProbeCaptureRuntime {
 			1,
 			Math.floor(options.maxBakesPerFrame ?? DEFAULT_MAX_BAKES_PER_FRAME)
 		);
+		this._captureBudgetMs = Math.max(
+			0.1,
+			Number.isFinite(options.captureBudgetMs) ?
+				Number(options.captureBudgetMs)
+			:	DEFAULT_CAPTURE_BUDGET_MS
+		);
 		this._bakeEnvironmentIBL =
 			options.bakeEnvironmentIBL ?? bakeEnvironmentIBLFromEnvironmentMap;
 	}
 
 	public execute(context: ReflectionProbeCaptureRuntimeExecuteContext): void {
-		const probes = collectCapturedSceneProbes(context.scene.getLights());
+		const probes = collectCapturedSceneProbes(
+			context.scene.getLights(),
+			context.cameraWorldPosition ?? null
+		);
 		this._pruneProbeState(probes);
-		if (probes.length === 0 || this._inFlightTask) {
+		if (probes.length <= 0) {
+			return;
+		}
+		if (this._inFlightQuantum) {
 			return;
 		}
 
-		const nowSeconds = Math.max(0, context.nowMs) / 1000;
-		const sceneVersion = context.scene.version;
-		let startedBakes = 0;
+		if (!this._activeTask) {
+			const nowSeconds = Math.max(0, context.nowMs) / 1000;
+			const sceneVersion = context.scene.version;
+			const candidates = probes.filter((probe) =>
+				this._shouldCaptureProbe(probe, sceneVersion, nowSeconds)
+			);
+			if (candidates.length <= 0) {
+				return;
+			}
 
-		for (let offset = 0; offset < probes.length; offset++) {
-			if (startedBakes >= this._maxBakesPerFrame) break;
-			const index = (this._nextProbeCursor + offset) % probes.length;
-			const probe = probes[index];
-			if (!this._shouldCaptureProbe(probe, sceneVersion, nowSeconds)) {
-				continue;
+			let started = 0;
+			for (const probe of candidates) {
+				if (started >= this._maxBakesPerFrame) {
+					break;
+				}
+				const task = this._createTask(probe, context);
+				if (!task) continue;
+				this._activeTask = task;
+				started++;
+				break;
 			}
-			this._nextProbeCursor = (index + 1) % probes.length;
-			if (this._startCaptureForProbe(probe, context) === false) {
-				continue;
+			if (!this._activeTask) {
+				return;
 			}
-			startedBakes++;
 		}
+
+		const quantum = this._runQuantum(context)
+			.catch(() => {
+				this._activeTask = null;
+			})
+			.finally(() => {
+				if (this._inFlightQuantum === quantum) {
+					this._inFlightQuantum = null;
+				}
+			});
+		this._inFlightQuantum = quantum;
 	}
 
 	private _shouldCaptureProbe(
@@ -154,10 +220,22 @@ export class ReflectionProbeCaptureRuntime {
 		return nowSeconds - lastCaptureSeconds >= probe.captureIntervalSeconds;
 	}
 
-	private _startCaptureForProbe(
+	private _createTask(
 		probe: ReflectionProbe,
 		context: ReflectionProbeCaptureRuntimeExecuteContext
-	): boolean {
+	): CaptureTaskState | null {
+		const baseCaptureWidth = Math.max(
+			8,
+			Math.floor(probe.captureResolution.width)
+		);
+		const baseCaptureHeight = Math.max(
+			4,
+			Math.floor(probe.captureResolution.height)
+		);
+		const useMeshCapture =
+			probe.includeMeshes &&
+			!!context.frameContext &&
+			!!context.webgpuCaptureSource;
 		const task: CaptureTaskState = {
 			taskId: ++this._nextTaskId,
 			probeId: probe.id,
@@ -165,18 +243,133 @@ export class ReflectionProbeCaptureRuntime {
 			captureRequestToken: probe.captureRequestToken,
 			startedAtSeconds: Math.max(0, context.nowMs) / 1000,
 			scene: context.scene,
+			baseCaptureWidth,
+			baseCaptureHeight,
+			scaleIndex: 0,
+			captureWidth: baseCaptureWidth,
+			captureHeight: baseCaptureHeight,
+			faceSize: Math.max(
+				4,
+				Math.floor(Math.min(baseCaptureWidth / 4, baseCaptureHeight / 2))
+			),
+			pendingFaces: [0, 1, 2, 3, 4, 5],
+			capturedFaces: [null, null, null, null, null, null],
+			useMeshCapture,
+			lightingState:
+				useMeshCapture ? null : buildCaptureLightingState(context.scene, probe),
 		};
+		applyTaskScale(task, 0);
+		return task;
+	}
 
-		let environmentMap: Texture;
-		try {
-			environmentMap = captureProbeEnvironmentMap(task.scene, probe);
-		} catch {
-			return false;
+	private async _runQuantum(
+		context: ReflectionProbeCaptureRuntimeExecuteContext
+	): Promise<void> {
+		const task = this._activeTask;
+		if (!task) {
+			return;
 		}
 
-		this._inFlightTask = task;
-		void this._runCaptureBake(task, environmentMap, context.webgpuSource ?? null);
+		const probe = findCapturedSceneProbe(task.scene, task.probeId);
+		if (!probe || !this._isTaskFresh(task, probe)) {
+			this._activeTask = null;
+			return;
+		}
+
+		const quantumStart = resolveNowMs();
+		while (task.pendingFaces.length > 0) {
+			const faceIndex = task.pendingFaces.shift()!;
+			const faceStart = resolveNowMs();
+			const faceData = await this._captureFace(
+				task,
+				probe,
+				faceIndex,
+				context
+			);
+			if (!faceData) {
+				this._activeTask = null;
+				return;
+			}
+			task.capturedFaces[faceIndex] = faceData;
+
+			const faceDurationMs = resolveNowMs() - faceStart;
+			if (
+				faceDurationMs > this._captureBudgetMs &&
+				this._downgradeTaskResolution(task)
+			) {
+				return;
+			}
+
+			if (resolveNowMs() - quantumStart >= this._captureBudgetMs) {
+				break;
+			}
+		}
+
+		if (task.pendingFaces.length > 0) {
+			return;
+		}
+
+		if (!this._isTaskFresh(task, probe)) {
+			this._activeTask = null;
+			return;
+		}
+
+		const environmentMap = buildCapturedEnvironmentMap(task);
+		if (!environmentMap) {
+			this._activeTask = null;
+			return;
+		}
+
+		await this._runCaptureBake(task, environmentMap, context.webgpuSource ?? null);
+		if (this._activeTask?.taskId === task.taskId) {
+			this._activeTask = null;
+		}
+	}
+
+	private _downgradeTaskResolution(task: CaptureTaskState): boolean {
+		if (task.scaleIndex + 1 >= CAPTURE_RESOLUTION_SCALE_STEPS.length) {
+			return false;
+		}
+		applyTaskScale(task, task.scaleIndex + 1);
 		return true;
+	}
+
+	private async _captureFace(
+		task: CaptureTaskState,
+		probe: ReflectionProbe,
+		faceIndex: number,
+		context: ReflectionProbeCaptureRuntimeExecuteContext
+	): Promise<Float32Array | null> {
+		if (
+			task.useMeshCapture &&
+			context.frameContext &&
+			context.webgpuCaptureSource &&
+			probe.includeMeshes
+		) {
+			try {
+				const captured =
+					await context.webgpuCaptureSource.captureReflectionProbeFace({
+						frameContext: context.frameContext,
+						probe,
+						faceIndex,
+						faceSize: task.faceSize,
+						includeSkybox: probe.includeSkybox,
+						includeTransparent: probe.includeTransparent,
+						includeParticles: probe.includeParticles,
+						includeShadows: probe.includeShadows,
+					});
+				if (captured && captured.length >= task.faceSize * task.faceSize * 4) {
+					return captured;
+				}
+			} catch {
+				// fall through to CPU fallback
+			}
+		}
+
+		if (!task.lightingState) {
+			task.lightingState = buildCaptureLightingState(task.scene, probe);
+		}
+		return captureCubeFace(task.faceSize, faceIndex, task.lightingState);
 	}
 
 	private async _runCaptureBake(
@@ -184,44 +377,37 @@ export class ReflectionProbeCaptureRuntime {
 		environmentMap: Texture,
 		webgpuSource: WebGPUComputeFacadeSource | null
 	): Promise<void> {
-		const bakeOptions: EnvironmentIBLBakeOptions = {};
+		const bakeOptions: EnvironmentIBLBakeOptions = {
+			acceleration: "auto",
+		};
 		if (webgpuSource) {
 			bakeOptions.webgpuSource = webgpuSource;
 		}
 
-		try {
-			const baked = await this._bakeEnvironmentIBL(environmentMap, bakeOptions);
-			const probe = findCapturedSceneProbe(task.scene, task.probeId);
-			if (!probe || !this._isTaskFresh(task, probe)) {
-				return;
-			}
-
-			probe.prefilteredMap = baked.prefilteredMap;
-			probe.markCaptureUpdated();
-			probe.markRuntimeDirty();
-			task.scene.invalidate("lighting");
-
-			this._lastCaptureSecondsByProbeId.set(
-				task.probeId,
-				task.startedAtSeconds
-			);
-			this._lastCaptureSceneVersionByProbeId.set(
-				task.probeId,
-				task.scene.version
-			);
-			this._lastHandledRequestTokenByProbeId.set(
-				task.probeId,
-				task.captureRequestToken
-			);
-		} finally {
-			if (this._inFlightTask?.taskId === task.taskId) {
-				this._inFlightTask = null;
-			}
+		const baked = await this._bakeEnvironmentIBL(environmentMap, bakeOptions);
+		const probe = findCapturedSceneProbe(task.scene, task.probeId);
+		if (!probe || !this._isTaskFresh(task, probe)) {
+			return;
 		}
+
+		probe.prefilteredMap = baked.prefilteredMap;
+		probe.markCaptureUpdated();
+		probe.markRuntimeDirty();
+		task.scene.invalidate("lighting");
+
+		this._lastCaptureSecondsByProbeId.set(task.probeId, task.startedAtSeconds);
+		this._lastCaptureSceneVersionByProbeId.set(
+			task.probeId,
+			task.scene.version
+		);
+		this._lastHandledRequestTokenByProbeId.set(
+			task.probeId,
+			task.captureRequestToken
+		);
 	}
 
 	private _isTaskFresh(task: CaptureTaskState, probe: ReflectionProbe): boolean {
-		if (this._inFlightTask?.taskId !== task.taskId) {
+		if (this._activeTask?.taskId !== task.taskId) {
 			return false;
 		}
 		if (probe.source !== "capturedScene") {
@@ -239,15 +425,18 @@ export class ReflectionProbeCaptureRuntime {
 		pruneProbeMap(this._lastCaptureSceneVersionByProbeId, activeProbeIds);
 		pruneProbeMap(this._lastHandledRequestTokenByProbeId, activeProbeIds);
 		if (
-			this._inFlightTask &&
-			activeProbeIds.has(this._inFlightTask.probeId) === false
+			this._activeTask &&
+			activeProbeIds.has(this._activeTask.probeId) === false
 		) {
-			this._inFlightTask = null;
+			this._activeTask = null;
 		}
 	}
 }
 
-function collectCapturedSceneProbes(lights: SceneLight[]): ReflectionProbe[] {
+function collectCapturedSceneProbes(
+	lights: SceneLight[],
+	cameraWorldPosition: IVector3 | null
+): ReflectionProbe[] {
 	const probes: ReflectionProbe[] = [];
 	for (const light of lights) {
 		if (light.type !== LightType.ReflectionProbe) continue;
@@ -255,7 +444,22 @@ function collectCapturedSceneProbes(lights: SceneLight[]): ReflectionProbe[] {
 		if (probe.source !== "capturedScene") continue;
 		probes.push(probe);
 	}
-	probes.sort((left, right) => left.id.localeCompare(right.id));
+	probes.sort((left, right) => {
+		if (cameraWorldPosition) {
+			const leftDistance = squaredDistanceToProbe(
+				cameraWorldPosition,
+				left.getWorldPosition({ x: 0, y: 0, z: 0 })
+			);
+			const rightDistance = squaredDistanceToProbe(
+				cameraWorldPosition,
+				right.getWorldPosition({ x: 0, y: 0, z: 0 })
+			);
+			if (leftDistance !== rightDistance) {
+				return leftDistance - rightDistance;
+			}
+		}
+		return left.id.localeCompare(right.id);
+	});
 	return probes;
 }
 
@@ -300,33 +504,80 @@ function buildProbeCaptureSignature(probe: ReflectionProbe): string {
 		probe.captureResolution.height,
 		probe.captureFar.toFixed(6),
 		probe.includeSkybox ? 1 : 0,
+		probe.includeMeshes ? 1 : 0,
+		probe.includeTransparent ? 1 : 0,
+		probe.includeParticles ? 1 : 0,
+		probe.includeShadows ? 1 : 0,
 		probe.captureRequestToken,
 		...matrix,
 	].join("|");
 }
 
-function captureProbeEnvironmentMap(
-	scene: Scene,
-	probe: ReflectionProbe
-): Texture {
-	const width = Math.max(8, Math.floor(probe.captureResolution.width));
-	const height = Math.max(4, Math.floor(probe.captureResolution.height));
-	const faceSize = Math.max(4, Math.floor(Math.min(width / 4, height / 2)));
-	const lightingState = buildCaptureLightingState(scene, probe);
-	const cubeFaces = captureCubeFaces(faceSize, lightingState);
+function applyTaskScale(task: CaptureTaskState, scaleIndex: number): void {
+	const scale =
+		CAPTURE_RESOLUTION_SCALE_STEPS[
+			Math.max(0, Math.min(CAPTURE_RESOLUTION_SCALE_STEPS.length - 1, scaleIndex))
+		];
+	const captureWidth = Math.max(
+		8,
+		Math.floor(task.baseCaptureWidth * scale)
+	);
+	const captureHeight = Math.max(
+		4,
+		Math.floor(task.baseCaptureHeight * scale)
+	);
+	const faceSize = Math.max(
+		4,
+		Math.floor(Math.min(captureWidth / 4, captureHeight / 2))
+	);
+	task.scaleIndex = scaleIndex;
+	task.captureWidth = captureWidth;
+	task.captureHeight = captureHeight;
+	task.faceSize = faceSize;
+	task.pendingFaces = [0, 1, 2, 3, 4, 5];
+	task.capturedFaces = [null, null, null, null, null, null];
+}
+
+function buildCapturedEnvironmentMap(task: CaptureTaskState): Texture | null {
+	const cubeFaces: Float32Array[] = [];
+	for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+		const faceData = task.capturedFaces[faceIndex];
+		if (!faceData) {
+			return null;
+		}
+		cubeFaces.push(faceData);
+	}
 	const equirectData = convertCubeFacesToEquirect(
 		cubeFaces,
-		faceSize,
-		width,
-		height
+		task.faceSize,
+		task.captureWidth,
+		task.captureHeight
 	);
-
-	const texture = new Texture(equirectData, width, height, "HDR");
+	const texture = new Texture(
+		equirectData,
+		task.captureWidth,
+		task.captureHeight,
+		"HDR"
+	);
 	texture.wrapS = "Repeat";
 	texture.wrapT = "Clamp";
 	texture.minFilter = "Linear";
 	texture.magFilter = "Linear";
 	return texture;
+}
+
+function squaredDistanceToProbe(from: IVector3, to: IVector3): number {
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	const dz = to.z - from.z;
+	return dx * dx + dy * dy + dz * dz;
+}
+
+function resolveNowMs(): number {
+	if (typeof performance !== "undefined" && typeof performance.now === "function") {
+		return performance.now();
+	}
+	return Date.now();
 }
 
 function buildCaptureLightingState(
@@ -508,27 +759,24 @@ function computeSpotConeWeight(
 	return smoothstep(outerCos, innerCos, cosTheta);
 }
 
-function captureCubeFaces(
+function captureCubeFace(
 	faceSize: number,
+	faceIndex: number,
 	lightingState: CaptureLightingState
-): Float32Array[] {
-	const faces: Float32Array[] = [];
-	for (let face = 0; face < 6; face++) {
-		const data = new Float32Array(faceSize * faceSize * 4);
-		for (let y = 0; y < faceSize; y++) {
-			for (let x = 0; x < faceSize; x++) {
-				const direction = directionFromCubeFace(face, x, y, faceSize);
-				const radiance = sampleCapturedRadiance(direction, lightingState);
-				const index = (y * faceSize + x) * 4;
-				data[index] = radiance.r;
-				data[index + 1] = radiance.g;
-				data[index + 2] = radiance.b;
-				data[index + 3] = 1;
-			}
+): Float32Array {
+	const data = new Float32Array(faceSize * faceSize * 4);
+	for (let y = 0; y < faceSize; y++) {
+		for (let x = 0; x < faceSize; x++) {
+			const direction = directionFromCubeFace(faceIndex, x, y, faceSize);
+			const radiance = sampleCapturedRadiance(direction, lightingState);
+			const index = (y * faceSize + x) * 4;
+			data[index] = radiance.r;
+			data[index + 1] = radiance.g;
+			data[index + 2] = radiance.b;
+			data[index + 3] = 1;
 		}
-		faces.push(data);
 	}
-	return faces;
+	return data;
 }
 
 function convertCubeFacesToEquirect(

@@ -32,6 +32,17 @@ async function flushAsyncTasks() {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function createCapturedFace(faceSize, seed = 1) {
+	const data = new Float32Array(faceSize * faceSize * 4);
+	for (let i = 0; i < data.length; i += 4) {
+		data[i] = seed;
+		data[i + 1] = seed * 0.5;
+		data[i + 2] = seed * 0.25;
+		data[i + 3] = 1;
+	}
+	return data;
+}
+
 async function testCaptureRuntimeTriggerModes() {
 	const bakeCalls = [];
 	const runtime = new ReflectionProbeCaptureRuntime({
@@ -144,12 +155,14 @@ async function testCaptureRuntimeThrottlesToOneInFlightBake() {
 
 	runtime.execute({ scene, nowMs: 0 });
 	runtime.execute({ scene, nowMs: 16 });
+	await flushAsyncTasks();
 	assert.equal(deferredBakes.length, 1);
 
 	deferredBakes[0].resolve(createBakedEnvironment(1));
 	await flushAsyncTasks();
 
 	runtime.execute({ scene, nowMs: 32 });
+	await flushAsyncTasks();
 	assert.equal(deferredBakes.length, 2);
 }
 
@@ -175,6 +188,7 @@ async function testCaptureRuntimeDropsStaleBakeResults() {
 
 	probe.requestCapture();
 	runtime.execute({ scene, nowMs: 0 });
+	await flushAsyncTasks();
 	assert.equal(bakeCallCount, 1);
 
 	probe.position.set(2, 0, 0);
@@ -183,6 +197,174 @@ async function testCaptureRuntimeDropsStaleBakeResults() {
 	deferred.resolve(createBakedEnvironment(1));
 	await flushAsyncTasks();
 	assert.equal(probe.prefilteredMap, null);
+}
+
+async function testCaptureRuntimeDropsStaleBakeResultsWhenCaptureFlagsChange() {
+	const deferred = createDeferred();
+	let bakeCallCount = 0;
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: () => {
+			bakeCallCount++;
+			return deferred.promise;
+		},
+	});
+
+	const scene = new Scene();
+	const probe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 32, height: 16 },
+			includeTransparent: true,
+		})
+	);
+	scene.updateWorldMatrices();
+
+	probe.requestCapture();
+	runtime.execute({ scene, nowMs: 0 });
+	await flushAsyncTasks();
+	assert.equal(bakeCallCount, 1);
+
+	probe.includeTransparent = false;
+	deferred.resolve(createBakedEnvironment(2));
+	await flushAsyncTasks();
+	assert.equal(probe.prefilteredMap, null);
+}
+
+async function testCaptureRuntimeSchedulesNearestProbeFirst() {
+	const captureOrder = [];
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: async () => createBakedEnvironment(1),
+	});
+	const scene = new Scene();
+	const nearProbe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 32, height: 16 },
+		})
+	);
+	nearProbe.position.set(1, 0, 0);
+	const farProbe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 32, height: 16 },
+		})
+	);
+	farProbe.position.set(20, 0, 0);
+	scene.updateWorldMatrices();
+
+	nearProbe.requestCapture();
+	farProbe.requestCapture();
+	runtime.execute({
+		scene,
+		nowMs: 0,
+		frameContext: {},
+		cameraWorldPosition: { x: 0, y: 0, z: 0 },
+		webgpuCaptureSource: {
+			async captureReflectionProbeFace(request) {
+				captureOrder.push(request.probe.id);
+				return createCapturedFace(request.faceSize, 1);
+			},
+		},
+	});
+	await flushAsyncTasks();
+
+	assert.ok(captureOrder.length > 0);
+	assert.equal(captureOrder[0], nearProbe.id);
+}
+
+async function testCaptureRuntimeBudgetDowngradesResolution() {
+	const capturedFaceSizes = [];
+	let bakeCallCount = 0;
+	const runtime = new ReflectionProbeCaptureRuntime({
+		captureBudgetMs: 0.2,
+		bakeEnvironmentIBL: async () => {
+			bakeCallCount++;
+			return createBakedEnvironment(1);
+		},
+	});
+
+	const scene = new Scene();
+	const probe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 512, height: 256 },
+		})
+	);
+	scene.updateWorldMatrices();
+	probe.requestCapture();
+
+	for (let i = 0; i < 40 && bakeCallCount === 0; i++) {
+		runtime.execute({
+			scene,
+			nowMs: i * 16,
+			frameContext: {},
+			webgpuCaptureSource: {
+				async captureReflectionProbeFace(request) {
+					capturedFaceSizes.push(request.faceSize);
+					await new Promise((resolve) => setTimeout(resolve, 1));
+					return createCapturedFace(request.faceSize, 0.8);
+				},
+			},
+		});
+		await flushAsyncTasks();
+	}
+
+	assert.equal(bakeCallCount, 1);
+	assert.ok(probe.prefilteredMap);
+	const uniqueSizes = Array.from(new Set(capturedFaceSizes));
+	assert.ok(uniqueSizes.length >= 2);
+	assert.ok(Math.min(...uniqueSizes) < Math.max(...uniqueSizes));
+}
+
+async function testCaptureRuntimeForwardsMeshCaptureFlags() {
+	const capturedFlags = [];
+	const runtime = new ReflectionProbeCaptureRuntime({
+		bakeEnvironmentIBL: async () => createBakedEnvironment(1),
+	});
+	const scene = new Scene();
+	const probe = scene.add(
+		new ReflectionProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 32, height: 16 },
+			includeSkybox: false,
+			includeTransparent: false,
+			includeParticles: false,
+			includeShadows: false,
+		})
+	);
+	scene.updateWorldMatrices();
+	probe.requestCapture();
+
+	runtime.execute({
+		scene,
+		nowMs: 0,
+		frameContext: {},
+		webgpuCaptureSource: {
+			async captureReflectionProbeFace(request) {
+				capturedFlags.push({
+					includeSkybox: request.includeSkybox,
+					includeTransparent: request.includeTransparent,
+					includeParticles: request.includeParticles,
+					includeShadows: request.includeShadows,
+				});
+				return createCapturedFace(request.faceSize, 0.7);
+			},
+		},
+	});
+	await flushAsyncTasks();
+
+	assert.ok(capturedFlags.length > 0);
+	for (const flags of capturedFlags) {
+		assert.equal(flags.includeSkybox, false);
+		assert.equal(flags.includeTransparent, false);
+		assert.equal(flags.includeParticles, false);
+		assert.equal(flags.includeShadows, false);
+	}
 }
 
 class RendererCaptureStageBackendStub {
@@ -279,6 +461,10 @@ async function run() {
 	await testCaptureRuntimeTriggerModes();
 	await testCaptureRuntimeThrottlesToOneInFlightBake();
 	await testCaptureRuntimeDropsStaleBakeResults();
+	await testCaptureRuntimeDropsStaleBakeResultsWhenCaptureFlagsChange();
+	await testCaptureRuntimeSchedulesNearestProbeFirst();
+	await testCaptureRuntimeBudgetDowngradesResolution();
+	await testCaptureRuntimeForwardsMeshCaptureFlags();
 	await testRendererCaptureStageRunsWithoutReflectivePackets();
 	console.log("Reflection probe capture runtime tests passed");
 }

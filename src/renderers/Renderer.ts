@@ -26,7 +26,10 @@ import {
 	PreparedSceneCache,
 	type PreparedSceneCacheBuildResult,
 } from "../pipeline/PreparedSceneCache";
-import { ReflectionProbeCaptureRuntime } from "../pipeline/ReflectionProbeCaptureRuntime";
+import {
+	ReflectionProbeCaptureRuntime,
+	type ReflectionProbeWebGPUCaptureSource,
+} from "../pipeline/ReflectionProbeCaptureRuntime";
 import {
 	RendererStageGraph,
 	type RendererStageDefinition,
@@ -883,12 +886,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					break;
 				}
 				case "reflection-probe-capture": {
+					const cameraWorldPosition = this.camera.getWorldPosition(
+						_tmpRendererCameraWorldPosition
+					);
 					this._reflectionProbeCaptureRuntime.execute({
 						scene: this.scene,
 						nowMs: now,
+						frameContext: context,
+						cameraWorldPosition,
 						webgpuSource:
 							this.backend.type === "webgpu" ?
 								(this.backend as unknown as WebGPUComputeFacadeSource)
+							:	null,
+						webgpuCaptureSource:
+							this.backend.type === "webgpu" ?
+								(this.backend as unknown as ReflectionProbeWebGPUCaptureSource)
 							:	null,
 					});
 					break;
