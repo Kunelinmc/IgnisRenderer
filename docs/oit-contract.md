@@ -1,47 +1,62 @@
-# WebGPU OIT Contract
+# OIT Contract
 ## Scope
 This document defines the v1 contract for `Weighted Blended OIT` in the
-WebGPU backend, including feature negotiation, runtime gating, pass ordering,
-fallback behavior, and diagnostics.
+`WebGPUBackend` and `WebGLBackend`, including feature negotiation, runtime
+gating, pass ordering, fallback behavior, and diagnostics.
 
 ## Background
 `Weighted Blended OIT` allows transparent surfaces to be composited without
 strict back-to-front sorting for supported content. In v1, OIT is implemented
 for standard transparent meshes and alpha-blended particles, while
-`transmission` remains on the legacy transparent path.
+`transmission` remains on the legacy transparent path. `WebGLBackend` mirrors
+the `WebGPUBackend` pass ordering, but resolves OIT through separate `accum`
+and `reveal` draws because WebGL does not provide per-attachment blend state.
 
 ## API/Contract
 - `BackendCapabilities.oit` must exist on all backends.
 - `WebGPUBackend.capabilities.oit` must be `true`.
-- `WebGLBackend.capabilities.oit` and `SoftwareBackend.capabilities.oit` must be
-  `false`.
+- `WebGLBackend.capabilities.oit` must be `true`.
+- `SoftwareBackend.capabilities.oit` must be `false`.
 - `RendererFeatureRequest.enableOIT` must be accepted by feature resolution.
 - `Renderer.features.enableOIT` defaults to `false`.
 - `resolveFeatureState(...)` must auto-disable `enableOIT` when backend
   capability is `false` and must emit a feature warning.
 - OIT must activate only when all runtime constraints are satisfied:
-  - Backend is WebGPU.
-  - MRT scene targets are available.
-  - `sampleCount` is exactly `1`.
+  - Backend is `WebGPU` or `WebGL`.
   - OIT runtime textures are available.
-  - Native command encoder texture-copy access is available.
+  - For `WebGPU`:
+    - MRT scene targets must be available.
+    - `sampleCount` must be exactly `1`.
+    - Native command-encoder texture-copy access must be available.
+  - For `WebGL`:
+    - `EXT_color_buffer_float` must be available.
+    - scene, post-process, and OIT framebuffers must be complete.
 - When active, transparent packets must be partitioned:
   - `materialUsesTransmission(packet.material) === true`:
     route to legacy transmission path.
-  - otherwise: route to OIT path.
+  - In `WebGLBackend`, `packet.material instanceof ShaderMaterial`:
+    route to legacy transparent path.
+  - otherwise:
+    route to OIT path.
 - Particle routing must follow:
-  - `ParticleBlendMode.Alpha` -> OIT particle pipeline (`fsMainOIT`).
-  - `ParticleBlendMode.Additive` -> legacy additive pipeline (`fsMain`).
+  - `ParticleBlendMode.Alpha` -> OIT particle pipeline.
+    - `WebGPUBackend` should use `fsMainOIT`.
+    - `WebGLBackend` should use OIT pass-mode shading with separate `accum`
+      and `reveal` draws.
+  - `ParticleBlendMode.Additive` -> legacy additive pipeline.
 - OIT resolve must use a separate fullscreen pass and must not read/write the
-  same texture simultaneously. The implementation must copy `sceneColorMain`
-  into `oitSceneColorCopy`, then resolve back into `sceneColorMain`.
+  same texture simultaneously.
+  - `WebGPUBackend` must copy `sceneColorMain` into `oitSceneColorCopy`, then
+    resolve back into `sceneColorMain`.
+  - `WebGLBackend` must copy `sceneColor` into `postColorTexture`, then resolve
+    back into `sceneColor`.
 
 ## Usage
 ```ts
 import { Renderer } from "../src/renderers/Renderer";
-import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+import { WebGLBackend } from "../src/renderers/WebGLBackend";
 
-const backend = new WebGPUBackend();
+const backend = new WebGLBackend();
 const renderer = new Renderer(backend, canvas, camera);
 await renderer.init();
 
@@ -61,8 +76,6 @@ const resolved = resolveFeatureState(
 ```
 
 ## Errors & Diagnostics
-- `webgpu-feature-oit`:
-  emitted when `enableOIT=true` but backend capability `oit=false`.
 - `webgpu-oit-disabled-mrt-unavailable`:
   emitted when OIT is requested but MRT targets are unavailable.
 - `webgpu-oit-disabled-msaa`:
@@ -71,6 +84,9 @@ const resolved = resolveFeatureState(
   emitted when runtime OIT resources or native copy capability are unavailable.
 - `webgpu-oit-copy-scene-color-failed`:
   emitted when scene-color copy for OIT resolve fails.
+- `webgl-oit-disabled-runtime`:
+  emitted when OIT is requested but WebGL float color-buffer OIT targets are
+  unavailable.
 
 All warnings should be emitted via `warn once` behavior.
 
