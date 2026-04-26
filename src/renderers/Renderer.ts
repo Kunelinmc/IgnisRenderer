@@ -27,7 +27,6 @@ import {
 	type PreparedSceneCacheBuildResult,
 } from "../pipeline/PreparedSceneCache";
 import { ReflectionProbeCaptureRuntime } from "../pipeline/ReflectionProbeCaptureRuntime";
-import { getDirectionalLightWorldDirection } from "../pipeline/LightTransforms";
 import {
 	RendererStageGraph,
 	type RendererStageDefinition,
@@ -995,7 +994,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		for (const light of this.scene.getLights()) {
 			if (light.type !== LightType.Directional) continue;
 
-			const worldDirection = getDirectionalLightWorldDirection(light);
+			const worldDirection = light.getWorldLightDirection();
 			const direction = Vector3.normalize({
 				x: -worldDirection.x,
 				y: -worldDirection.y,

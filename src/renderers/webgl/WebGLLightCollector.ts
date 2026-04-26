@@ -15,13 +15,6 @@ import {
 } from "../../lights/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {
-	getDirectionalLightWorldDirection,
-	getPointLightWorldPosition,
-	getSpotLightInnerAngle,
-	getSpotLightWorldDirection,
-	getSpotLightWorldPosition,
-} from "../../pipeline/LightTransforms";
-import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_REFLECTION_PROBES,
@@ -224,7 +217,7 @@ export function collectWebGLLights(
 					);
 					break;
 				}
-				const direction = getDirectionalLightWorldDirection(light);
+				const direction = light.getWorldLightDirection();
 				const intensity = light.intensity ?? 1;
 				state.directionalLights.push({
 					direction: [-direction.x, -direction.y, -direction.z],
@@ -243,9 +236,9 @@ export function collectWebGLLights(
 				break;
 			}
 			case LightType.Point: {
-				const position = getPointLightWorldPosition(light);
+				const position = light.getWorldLightPosition();
 				const intensity = light.intensity ?? 1;
-				const range = Math.max(0.001, (light as any).range ?? 1000);
+				const range = Math.max(0.001, light.range);
 				const color: [number, number, number] = [
 					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
 					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
@@ -282,12 +275,12 @@ export function collectWebGLLights(
 				break;
 			}
 			case LightType.Spot: {
-				const position = getSpotLightWorldPosition(light);
-				const direction = getSpotLightWorldDirection(light);
-				const outerCos = Math.cos((light as any).outerAngle ?? Math.PI / 4);
-				const innerCos = Math.cos(getSpotLightInnerAngle(light as any));
+				const position = light.getWorldLightPosition();
+				const direction = light.getWorldLightDirection();
+				const outerCos = Math.cos(light.outerAngle);
+				const innerCos = Math.cos(light.getInnerAngle());
 				const intensity = light.intensity ?? 1;
-				const range = Math.max(0.001, (light as any).range ?? 1000);
+				const range = Math.max(0.001, light.range);
 				const color: [number, number, number] = [
 					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
 					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,

@@ -12,13 +12,6 @@ import type { PointLight } from "../../lights/PointLight";
 import type { LightProbe } from "../../lights/LightProbe";
 import type { ReflectionProbe } from "../../lights/ReflectionProbe";
 import type { SpotLight } from "../../lights/SpotLight";
-import {
-	getDirectionalLightWorldDirection,
-	getPointLightWorldPosition,
-	getSpotLightInnerAngle,
-	getSpotLightWorldDirection,
-	getSpotLightWorldPosition,
-} from "../../pipeline/LightTransforms";
 
 type SceneLight =
 	| AmbientLight
@@ -105,7 +98,7 @@ function evaluateDirectionalLight(
 	light: DirectionalLight,
 	out: MutableLightContribution
 ): LightContribution {
-	const direction = getDirectionalLightWorldDirection(light, out.direction);
+	const direction = light.getWorldLightDirection(out.direction);
 	direction.x = -direction.x;
 	direction.y = -direction.y;
 	direction.z = -direction.z;
@@ -124,7 +117,7 @@ function evaluatePointLight(
 	out: MutableLightContribution
 ): LightContribution | null {
 	const position = requireSurfacePosition(surface);
-	const lightPos = getPointLightWorldPosition(light);
+	const lightPos = light.getWorldLightPosition();
 	const dx = lightPos.x - position.x;
 	const dy = lightPos.y - position.y;
 	const dz = lightPos.z - position.z;
@@ -163,8 +156,8 @@ function evaluateSpotLight(
 	out: MutableLightContribution
 ): LightContribution | null {
 	const position = requireSurfacePosition(surface);
-	const lightPos = getSpotLightWorldPosition(light);
-	const lightDir = getSpotLightWorldDirection(light);
+	const lightPos = light.getWorldLightPosition();
+	const lightDir = light.getWorldLightDirection();
 	const dx = lightPos.x - position.x;
 	const dy = lightPos.y - position.y;
 	const dz = lightPos.z - position.z;
@@ -192,7 +185,7 @@ function evaluateSpotLight(
 		lightToPointZ * lightDir.z;
 
 	const outerCutoff = Math.cos(light.outerAngle);
-	const innerCutoff = Math.cos(getSpotLightInnerAngle(light));
+	const innerCutoff = Math.cos(light.getInnerAngle());
 	const cutoffRange = innerCutoff - outerCutoff;
 
 	if (cosTheta < outerCutoff) return null;

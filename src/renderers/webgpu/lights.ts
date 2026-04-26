@@ -10,13 +10,6 @@ import {
 	type SpotLight,
 } from "../../lights";
 import type { ShadowMap, ShadowRenderSet } from "../../lights/ShadowMapping";
-import {
-	getDirectionalLightWorldDirection,
-	getPointLightWorldPosition,
-	getSpotLightInnerAngle,
-	getSpotLightWorldDirection,
-	getSpotLightWorldPosition,
-} from "../../pipeline/LightTransforms";
 import type { RGB } from "../../foundation/Color";
 import type { Matrix4 } from "../../maths/Matrix4";
 
@@ -132,7 +125,7 @@ function collectDirectionalLight(
 	enableShadows: boolean,
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
 ): void {
-	const direction = getDirectionalLightWorldDirection(light);
+	const direction = light.getWorldLightDirection();
 	const color = toLinearLightColor(light.color, light.intensity);
 	pushVolumetricDirectionalLight(state, direction, color);
 
@@ -160,7 +153,7 @@ function collectPointLight(
 	light: PointLight,
 	enableClusteredLighting: boolean
 ): void {
-	const position = getPointLightWorldPosition(light);
+	const position = light.getWorldLightPosition();
 	const color = toLinearLightColor(light.color, light.intensity);
 	const range = Math.max(light.range, 0.001);
 	pushVolumetricPointLight(state, position, range, color);
@@ -189,10 +182,10 @@ function collectSpotLight(
 	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
 	enableClusteredLighting: boolean = false
 ): void {
-	const position = getSpotLightWorldPosition(light);
-	const direction = getSpotLightWorldDirection(light);
+	const position = light.getWorldLightPosition();
+	const direction = light.getWorldLightDirection();
 	const outerAngle = light.outerAngle;
-	const innerAngle = getSpotLightInnerAngle(light);
+	const innerAngle = light.getInnerAngle();
 	const range = Math.max(light.range, 0.001);
 	const color = toLinearLightColor(light.color, light.intensity);
 	pushVolumetricSpotLight(

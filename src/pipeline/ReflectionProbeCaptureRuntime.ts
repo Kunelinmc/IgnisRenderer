@@ -18,13 +18,6 @@ import {
 	type EnvironmentIBLBakeOptions,
 } from "./EnvironmentIBLBaker";
 import {
-	getDirectionalLightWorldDirection,
-	getPointLightWorldPosition,
-	getSpotLightInnerAngle,
-	getSpotLightWorldDirection,
-	getSpotLightWorldPosition,
-} from "./LightTransforms";
-import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevel,
 } from "./environmentMapRuntime";
@@ -358,7 +351,7 @@ function buildCaptureLightingState(
 			}
 			case LightType.Directional: {
 				const directional = light as DirectionalLight;
-				const worldDirection = getDirectionalLightWorldDirection(directional);
+				const worldDirection = directional.getWorldLightDirection();
 				const incoming = normalizeDirection({
 					x: -worldDirection.x,
 					y: -worldDirection.y,
@@ -372,7 +365,7 @@ function buildCaptureLightingState(
 			}
 			case LightType.Point: {
 				const point = light as PointLight;
-				const worldPosition = getPointLightWorldPosition(point);
+				const worldPosition = point.getWorldLightPosition();
 				const captured = buildCapturedLocalLight(
 					probePosition,
 					worldPosition,
@@ -387,18 +380,18 @@ function buildCaptureLightingState(
 			}
 			case LightType.Spot: {
 				const spot = light as SpotLight;
-				const worldPosition = getSpotLightWorldPosition(spot);
+				const worldPosition = spot.getWorldLightPosition();
 				const directionToProbe = normalizeDirection({
 					x: probePosition.x - worldPosition.x,
 					y: probePosition.y - worldPosition.y,
 					z: probePosition.z - worldPosition.z,
 				});
-				const worldDirection = getSpotLightWorldDirection(spot);
+				const worldDirection = spot.getWorldLightDirection();
 				const coneWeight = computeSpotConeWeight(
 					worldDirection,
 					directionToProbe,
 					spot.outerAngle,
-					getSpotLightInnerAngle(spot)
+					spot.getInnerAngle()
 				);
 				if (coneWeight <= 0) {
 					break;

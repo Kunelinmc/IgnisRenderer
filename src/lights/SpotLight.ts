@@ -40,6 +40,27 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.castShadow = params.castShadow ?? true;
 	}
 
+	/**
+	 * Resolves the light origin in world space.
+	 */
+	public getWorldLightPosition(out?: IVector3): IVector3 {
+		return this.getWorldPosition(out);
+	}
+
+	/**
+	 * Resolves the spotlight direction in world space.
+	 */
+	public getWorldLightDirection(out?: IVector3): IVector3 {
+		return this.getWorldDirection(this.direction, out);
+	}
+
+	/**
+	 * Resolves the effective inner cone angle.
+	 */
+	public getInnerAngle(): number {
+		return this.innerAngle ?? this.outerAngle * (1 - this.penumbra);
+	}
+
 	protected override _copyClonePropertiesTo(target: this): void {
 		super._copyClonePropertiesTo(target);
 		target.direction = {

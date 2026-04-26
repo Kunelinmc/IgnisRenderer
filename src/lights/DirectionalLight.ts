@@ -24,6 +24,13 @@ export class DirectionalLight extends Light<LightType.Directional> {
 		this.castShadow = params.castShadow ?? true;
 	}
 
+	/**
+	 * Resolves the light direction in world space.
+	 */
+	public getWorldLightDirection(out?: IVector3): IVector3 {
+		return this.getWorldDirection(this.direction, out);
+	}
+
 	protected override _copyClonePropertiesTo(target: this): void {
 		super._copyClonePropertiesTo(target);
 		target.direction = {

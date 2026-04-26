@@ -21,6 +21,13 @@ export class PointLight extends Light<LightType.Point> {
 		};
 	}
 
+	/**
+	 * Resolves the light origin in world space.
+	 */
+	public getWorldLightPosition(out?: IVector3): IVector3 {
+		return this.getWorldPosition(out);
+	}
+
 	protected override _copyClonePropertiesTo(target: this): void {
 		super._copyClonePropertiesTo(target);
 		target.range = this.range;
