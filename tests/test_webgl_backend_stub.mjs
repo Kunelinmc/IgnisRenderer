@@ -6,6 +6,7 @@ import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 function createFakeWebGL2Context() {
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
+		MAX_RENDERBUFFER_SIZE: 0x84e8,
 		VERTEX_SHADER: 0x8b31,
 		FRAGMENT_SHADER: 0x8b30,
 		COMPILE_STATUS: 0x8b81,
@@ -53,10 +54,15 @@ function createFakeWebGL2Context() {
 		POINTS: 0x0000,
 		SRC_ALPHA: 0x0302,
 		ONE_MINUS_SRC_ALPHA: 0x0303,
+		ZERO: 0,
 		ONE: 1,
 		getParameter(param) {
 			if (param === this.MAX_TEXTURE_SIZE) return 4096;
+			if (param === this.MAX_RENDERBUFFER_SIZE) return 4096;
 			return 0;
+		},
+		getExtension() {
+			return null;
 		},
 		createVertexArray() {
 			return {};
@@ -255,6 +261,7 @@ async function testInitAndPassRouting() {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
+		oit: true,
 	});
 
 	const calls = [];

@@ -20,6 +20,7 @@ function createFXAATestGL() {
 		CULL_FACE: 0x0b44,
 		DEPTH_TEST: 0x0b71,
 		BLEND: 0x0be2,
+		ZERO: 0,
 		ONE: 1,
 		SRC_ALPHA: 0x0302,
 		ONE_MINUS_SRC_ALPHA: 0x0303,
@@ -31,6 +32,9 @@ function createFXAATestGL() {
 				return 4096;
 			}
 			return 0;
+		},
+		getExtension() {
+			return null;
 		},
 		createVertexArray() {
 			return {};
@@ -310,6 +314,142 @@ function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 			(warning) => warning.includes("[webgl-motion-float-unsupported]")
 		)
 	);
+}
+
+function testFrameTargetsCreateOITResourcesWithFloatExtension() {
+	const gl = createFrameTargetTestGL({ floatExtension: true });
+	const executor = new WebGLFrameExecutor(gl);
+
+	executor._ensureFrameTargets(320, 180);
+
+	assert.ok(executor._oitFramebuffer);
+	assert.ok(executor._oitAccumTexture);
+	assert.ok(executor._oitRevealTexture);
+}
+
+function testConfigureOITWarnsWithoutRuntimeTargets() {
+	const gl = createFrameTargetTestGL({ floatExtension: false });
+	const executor = new WebGLFrameExecutor(gl);
+	const warnings = captureWarnMessages(() => {
+		executor._configureOIT({
+			features: {
+				enableOIT: true,
+			},
+		});
+	});
+
+	assert.equal(executor._oitActive, false);
+	assert.ok(
+		warnings.some((warning) =>
+			warning.includes("[webgl-oit-disabled-runtime]")
+		)
+	);
+}
+
+function testOITTransparentAndParticleExecutionOrder() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const events = [];
+
+	executor._oitActive = true;
+	executor._oitFramebuffer = { id: "oit-fbo" };
+	executor._sceneFramebuffer = { id: "scene-fbo" };
+	executor._sceneColorTexture = { id: "scene-color" };
+	executor._postFramebuffer = { id: "post-fbo" };
+	executor._postColorTexture = { id: "post-color" };
+	executor._oitAccumTexture = { id: "oit-accum" };
+	executor._oitRevealTexture = { id: "oit-reveal" };
+	executor._fullscreenVao = { id: "fullscreen-vao" };
+
+	executor._clearOITTargets = () => {
+		events.push("clear");
+	};
+	executor._resolveOITComposition = () => {
+		events.push("resolve");
+	};
+	executor._renderPackets = (_context, packets, _transparent, options = {}) => {
+		events.push(
+			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
+		);
+	};
+	executor._renderParticles = (_context, options = {}) => {
+		const blendModes = options.includeBlendModes ?? [];
+		const label =
+			blendModes.length === 0 ? "all" : blendModes.map(String).join(",");
+		events.push(`particles:${label}:${options.oitPassMode ?? 0}`);
+	};
+
+	const context = {
+		scene: {
+			transparentPackets: [
+				{ id: "oit-packet", material: {} },
+				{ id: "legacy-packet", material: { transmissionFactor: 1 } },
+			],
+			particleSystems: [{ id: "ps-0" }],
+		},
+	};
+
+	executor._renderOITTransparentPass(context);
+	executor._renderOITParticlePass(context);
+
+	assert.deepEqual(events, [
+		"clear",
+		"packets:oit-accum:1:1",
+		"packets:oit-reveal:2:1",
+		"particles:alpha:1",
+		"particles:alpha:2",
+		"resolve",
+		"packets:legacy:0:1",
+		"particles:additive:0",
+	]);
+}
+
+function testOITTransparentResolvesImmediatelyWithoutParticles() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const events = [];
+
+	executor._oitActive = true;
+	executor._oitFramebuffer = { id: "oit-fbo" };
+	executor._sceneFramebuffer = { id: "scene-fbo" };
+	executor._sceneColorTexture = { id: "scene-color" };
+	executor._postFramebuffer = { id: "post-fbo" };
+	executor._postColorTexture = { id: "post-color" };
+	executor._oitAccumTexture = { id: "oit-accum" };
+	executor._oitRevealTexture = { id: "oit-reveal" };
+	executor._fullscreenVao = { id: "fullscreen-vao" };
+
+	executor._clearOITTargets = () => {
+		events.push("clear");
+	};
+	executor._resolveOITComposition = () => {
+		events.push("resolve");
+	};
+	executor._renderPackets = (_context, packets, _transparent, options = {}) => {
+		events.push(
+			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
+		);
+	};
+
+	const context = {
+		scene: {
+			transparentPackets: [
+				{ id: "oit-packet", material: {} },
+				{ id: "legacy-packet", material: { transmissionFactor: 1 } },
+			],
+			particleSystems: [],
+		},
+	};
+
+	executor._renderOITTransparentPass(context);
+
+	assert.deepEqual(events, [
+		"clear",
+		"packets:oit-accum:1:1",
+		"packets:oit-reveal:2:1",
+		"resolve",
+		"packets:legacy:0:1",
+	]);
 }
 
 function testSceneFramebufferFailureCleansAllAllocatedTargets() {
@@ -702,6 +842,10 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
+	testFrameTargetsCreateOITResourcesWithFloatExtension();
+	testConfigureOITWarnsWithoutRuntimeTargets();
+	testOITTransparentAndParticleExecutionOrder();
+	testOITTransparentResolvesImmediatelyWithoutParticles();
 	testSceneFramebufferFailureCleansAllAllocatedTargets();
 	testEndFramePrunesStaleModelMatrixCache();
 	testShadowSkinningWarningKeyIsStable();

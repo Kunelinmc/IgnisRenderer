@@ -60,7 +60,7 @@ function run() {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
-		oit: false,
+		oit: true,
 	});
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");

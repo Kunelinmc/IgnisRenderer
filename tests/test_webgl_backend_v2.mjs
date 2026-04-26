@@ -615,10 +615,12 @@ function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
 
 	const motionBlurProgram = library.getMotionBlurProgram();
 	const dofProgram = library.getDOFProgram();
+	const oitResolveProgram = library.getOITResolveProgram();
 
 	assert.ok(motionBlurProgram.program);
 	assert.ok(dofProgram.program);
-	assert.equal(gl.programCount, 2);
+	assert.ok(oitResolveProgram.program);
+	assert.equal(gl.programCount, 3);
 }
 
 function testLightCollectorShadowBias() {
@@ -751,6 +753,28 @@ function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	assert.ok(shader.fragment.includes("uniform vec4 uBaseMapTransformA;"));
 	assert.ok(shader.fragment.includes("uniform vec2 uBaseMapTransformB;"));
 	assert.ok(shader.fragment.includes("vec2 resolveMappedUV("));
+}
+
+function testSceneShaderIncludesOITPassMode() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+
+	assert.ok(shader.fragment.includes("uniform int uOITPassMode;"));
+	assert.ok(shader.fragment.includes("float resolveOITWeight("));
+	assert.ok(shader.fragment.includes("if (uOITPassMode == 1)"));
+	assert.ok(shader.fragment.includes("if (uOITPassMode == 2)"));
+}
+
+function testParticleShaderIncludesOITPassMode() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.getRawPart("particleFragment");
+
+	assert.ok(shader.includes("uniform int uOITPassMode;"));
+	assert.ok(shader.includes("float resolveParticleOITWeight("));
+	assert.ok(shader.includes("if (uOITPassMode == 1)"));
+	assert.ok(shader.includes("if (uOITPassMode == 2)"));
 }
 
 function testGeometryRegistryRejectsOutOfRangeIndices() {
@@ -1119,6 +1143,8 @@ async function run() {
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesPBRTextureAndUV1Pipeline();
+	testSceneShaderIncludesOITPassMode();
+	testParticleShaderIncludesOITPassMode();
 	testGeometryRegistryRejectsOutOfRangeIndices();
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testGeometryRegistryUploadsUV1Attribute();

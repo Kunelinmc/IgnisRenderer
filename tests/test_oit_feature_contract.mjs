@@ -33,12 +33,12 @@ function testEnableOITNegotiationAcrossBackends() {
 		webgl.capabilities,
 		webgl.type
 	);
-	assert.equal(webglResolved.enableOIT, false);
+	assert.equal(webglResolved.enableOIT, true);
 	assert.equal(
 		webglResolved.warnings.some((warning) =>
 			warning.key === "webgl-feature-oit"
 		),
-		true
+		false
 	);
 
 	const softwareResolved = resolveFeatureState(
