@@ -1333,6 +1333,57 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	}
 }
 
+async function testExplicitSceneTargetModeOverridesSharedMRTState() {
+	const backend = new FakeBackend();
+	backend.canvasFormat = "bgra8unorm";
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.skybox = createTinyTexture(1);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+			enableSkybox: true,
+			enableClusteredLighting: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: true,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+
+	resources.setSceneTargetMode("mrt");
+	resources.prepareFrame(frame, features);
+
+	const skyboxResources = await resources.getSkyboxResources("single");
+	assert.ok(skyboxResources);
+	assert.equal(skyboxResources.pipeline.label, "WebGPUSkyboxPipeline_single");
+
+	const drawResources = await resources.getDrawResources(packet, {
+		sceneTargetMode: "single",
+	});
+	assert.ok(drawResources);
+	assert.equal(drawResources[0].pipeline.label.endsWith("_single"), true);
+}
+
 async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
@@ -2008,6 +2059,7 @@ async function run() {
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 	await testWebGPUEnvironmentCombinationsRegression();
+	await testExplicitSceneTargetModeOverridesSharedMRTState();
 	await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();

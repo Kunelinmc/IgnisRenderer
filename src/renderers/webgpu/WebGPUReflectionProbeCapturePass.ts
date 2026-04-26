@@ -208,7 +208,9 @@ export class WebGPUReflectionProbeCapturePass {
 		});
 
 		if (includeSkybox) {
-			const skyboxResources = await this._resources.getSkyboxResources();
+			const skyboxResources = await this._resources.getSkyboxResources(
+				"single"
+			);
 			if (skyboxResources) {
 				encoder.setPipeline(skyboxResources.pipeline);
 				encoder.setBindingGroup(0, skyboxResources.frameBinding);
@@ -221,7 +223,9 @@ export class WebGPUReflectionProbeCapturePass {
 			...context.scene.transparentPackets,
 		];
 		for (const packet of packets) {
-			const drawResources = await this._resources.getDrawResources(packet);
+			const drawResources = await this._resources.getDrawResources(packet, {
+				sceneTargetMode: "single",
+			});
 			if (!drawResources || drawResources.length <= 0) {
 				continue;
 			}

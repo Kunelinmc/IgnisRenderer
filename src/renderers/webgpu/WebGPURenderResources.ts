@@ -133,6 +133,7 @@ interface WebGPUParticleBindingCacheEntry {
 
 interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
+	sceneTargetMode?: WebGPUSceneTargetMode;
 }
 
 interface WebGPUParticleRenderOptions {
@@ -647,6 +648,7 @@ export class WebGPURenderResources {
 	): Promise<WebGPUDrawResources[] | null> {
 		const transparentPipelineMode =
 			options.transparentPipelineMode ?? "default";
+		const sceneTargetMode = options.sceneTargetMode ?? this._sceneTargetMode;
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
@@ -667,7 +669,7 @@ export class WebGPURenderResources {
 
 		const solidPipeline = await this._pipelineLibrary.getPipeline(
 			packet.material,
-			this._sceneTargetMode,
+			sceneTargetMode,
 			false,
 			topology,
 			transparentPipelineMode
@@ -708,7 +710,7 @@ export class WebGPURenderResources {
 			);
 			const wirePipeline = await this._pipelineLibrary.getPipeline(
 				packet.material,
-				this._sceneTargetMode,
+				sceneTargetMode,
 				true,
 				topology,
 				transparentPipelineMode
@@ -742,7 +744,9 @@ export class WebGPURenderResources {
 		return results;
 	}
 
-	public async getSkyboxResources(): Promise<WebGPUSkyboxDrawResources | null> {
+	public async getSkyboxResources(
+		sceneTargetMode: WebGPUSceneTargetMode = this._sceneTargetMode
+	): Promise<WebGPUSkyboxDrawResources | null> {
 		if (
 			!this._featureState?.enableSkybox ||
 			!this._environmentState?.skyboxTexture
@@ -751,7 +755,7 @@ export class WebGPURenderResources {
 		}
 
 		const pipeline = await this._pipelineLibrary.getSkyboxPipeline(
-			this._sceneTargetMode
+			sceneTargetMode
 		);
 		const frameBinding = this._frameBindings.getSkyboxBinding();
 
