@@ -205,24 +205,20 @@ fn vsMain(
 	}
 	let safeInstanceIndex = min(instanceIndex, min(mvpCount, instanceDataCount) - 1u);
 	let instanceData = shadowInstances[safeInstanceIndex];
-	let localInstanceIndex =
-		if (safeInstanceIndex >= instanceData.instanceBaseOffset) {
-			safeInstanceIndex - instanceData.instanceBaseOffset
-		} else {
-			0u
-		};
+	var localInstanceIndex = 0u;
+	if (safeInstanceIndex >= instanceData.instanceBaseOffset) {
+		localInstanceIndex = safeInstanceIndex - instanceData.instanceBaseOffset;
+	}
 	let jointOffset =
 		instanceData.jointBaseOffset +
 		localInstanceIndex * animationParams.jointStride;
 	let morphWeightOffset =
 		instanceData.morphWeightBaseOffset +
 		localInstanceIndex * animationParams.morphWeightStride;
-	let localVertexIndex =
-		if (vertexIndex >= instanceData.vertexBaseOffset) {
-			vertexIndex - instanceData.vertexBaseOffset
-		} else {
-			0u
-		};
+	var localVertexIndex = 0u;
+	if (vertexIndex >= instanceData.vertexBaseOffset) {
+		localVertexIndex = vertexIndex - instanceData.vertexBaseOffset;
+	}
 
 	let morphedPosition = applyMorphPosition(
 		input.position,
