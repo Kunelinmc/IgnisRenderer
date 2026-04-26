@@ -8,7 +8,6 @@ import {
 	type IRenderBuffer,
 } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
-import { recordComputePass } from "./computeUtils";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_VOLUMETRIC,
@@ -40,6 +39,18 @@ import type {
 	WebGPULightingState,
 } from "./types";
 import { Logger } from "../../foundation/Logger";
+
+export interface ComputePassBinding {
+	index: number;
+	group: IBindingGroup;
+}
+
+export interface ComputePassDispatch {
+	x: number;
+	y: number;
+	z: number;
+}
+
 
 const CLUSTERED_SHADER_WORKGROUP_SIZE = 128;
 const CLUSTERED_PARAMS_FLOATS = 12;
@@ -100,6 +111,35 @@ interface FrameClusterState {
 	tilesX: number;
 	tilesY: number;
 	zSlices: number;
+}
+
+function recordComputePass(
+	encoder: ICommandEncoder,
+	label: string,
+	pipeline: IComputePipeline,
+	bindings: ComputePassBinding[],
+	dispatch: ComputePassDispatch,
+): void {
+	const x = assertPositiveInteger(dispatch.x, "dispatch.x");
+	const y = assertPositiveInteger(dispatch.y, "dispatch.y");
+	const z = assertPositiveInteger(dispatch.z, "dispatch.z");
+
+	encoder.beginComputePass({ label });
+	encoder.setComputePipeline(pipeline);
+	for (const binding of bindings) {
+		encoder.setBindingGroup(binding.index, binding.group);
+	}
+	encoder.dispatchWorkgroups(x, y, z);
+	encoder.endComputePass();
+}
+
+function assertPositiveInteger(value: number, name: string): number {
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(
+			`recordComputePass() requires ${name} to be a positive integer, received ${value}.`,
+		);
+	}
+	return value;
 }
 
 export class WebGPUClusteredLightingRuntime {
