@@ -1,4 +1,3 @@
-import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import {
@@ -25,6 +24,12 @@ import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
 } from "../../pipeline/environmentMapRuntime";
+import {
+	accumulateAmbientLightColor,
+	accumulateLightProbeFallbackAmbientColor,
+	resolveShadowData as resolveSharedShadowData,
+	toLinearLightColor,
+} from "../../pipeline/lightingRuntime";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];
@@ -104,8 +109,6 @@ export interface WebGLClusteredLight {
 	castsShadow: boolean;
 	shadowIndex: number;
 }
-
-const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 
 type WebGLLightCollectorWarn = (key: string, message: string) => void;
 type WebGLLightCollectorShadowMapLookup =
@@ -201,12 +204,11 @@ export function collectWebGLLights(
 	for (const light of lights) {
 		switch (light.type) {
 			case LightType.Ambient: {
-				state.ambientColor[0] +=
-					sRGBToLinear((light.color.r ?? 255) / 255) * (light.intensity ?? 1);
-				state.ambientColor[1] +=
-					sRGBToLinear((light.color.g ?? 255) / 255) * (light.intensity ?? 1);
-				state.ambientColor[2] +=
-					sRGBToLinear((light.color.b ?? 255) / 255) * (light.intensity ?? 1);
+				accumulateAmbientLightColor(
+					state.ambientColor,
+					light.color,
+					light.intensity ?? 1
+				);
 				break;
 			}
 			case LightType.Directional: {
@@ -218,14 +220,9 @@ export function collectWebGLLights(
 					break;
 				}
 				const direction = light.getWorldLightDirection();
-				const intensity = light.intensity ?? 1;
 				state.directionalLights.push({
 					direction: [-direction.x, -direction.y, -direction.z],
-					color: [
-						sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
-						sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
-					],
+					color: toLinearLightColor(light.color, light.intensity ?? 1),
 				});
 				state.directionalShadows.push(
 					resolveWebGLShadowData(
@@ -237,13 +234,8 @@ export function collectWebGLLights(
 			}
 			case LightType.Point: {
 				const position = light.getWorldLightPosition();
-				const intensity = light.intensity ?? 1;
 				const range = Math.max(0.001, light.range);
-				const color: [number, number, number] = [
-					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
-					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
-					sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
-				];
+				const color = toLinearLightColor(light.color, light.intensity ?? 1);
 				if (enableClusteredLighting) {
 					state.clusteredLights.push({
 						type: 0,
@@ -279,13 +271,8 @@ export function collectWebGLLights(
 				const direction = light.getWorldLightDirection();
 				const outerCos = Math.cos(light.outerAngle);
 				const innerCos = Math.cos(light.getInnerAngle());
-				const intensity = light.intensity ?? 1;
 				const range = Math.max(0.001, light.range);
-				const color: [number, number, number] = [
-					sRGBToLinear((light.color.r ?? 255) / 255) * intensity,
-					sRGBToLinear((light.color.g ?? 255) / 255) * intensity,
-					sRGBToLinear((light.color.b ?? 255) / 255) * intensity,
-				];
+				const color = toLinearLightColor(light.color, light.intensity ?? 1);
 				const resolvedShadow = resolveWebGLShadowData(
 					enableShadows,
 					shadowMaps?.get(light as ShadowCastingLight)
@@ -397,21 +384,12 @@ function collectLightProbe(
 	light: LightProbe,
 	enableSH: boolean
 ): void {
-	if (!enableSH) {
-		const dc = light.sh[0];
-		if (dc) {
-			const intensity = light.intensity ?? 1;
-			state.ambientColor[0] +=
-				(Math.max(0, dc.r * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
-				intensity;
-			state.ambientColor[1] +=
-				(Math.max(0, dc.g * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
-				intensity;
-			state.ambientColor[2] +=
-				(Math.max(0, dc.b * LIGHT_PROBE_DC_IRRADIANCE_SCALE) / 255) *
-				intensity;
-		}
-	}
+	if (enableSH) return;
+	accumulateLightProbeFallbackAmbientColor(
+		state.ambientColor,
+		light.sh[0],
+		light.intensity ?? 1
+	);
 }
 
 function resolveEnvSpecularMap(
@@ -495,132 +473,5 @@ function resolveWebGLShadowData(
 	enableShadows: boolean,
 	renderSetInput?: ShadowRenderSet | ShadowMap
 ): WebGLShadowData {
-	const renderSet =
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		Array.isArray((renderSetInput as { slices?: unknown }).slices) ?
-			(renderSetInput as ShadowRenderSet)
-		:	null;
-	const legacyShadowMap =
-		!renderSet &&
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		"viewProjectionMatrix" in renderSetInput ?
-			(renderSetInput as ShadowMap)
-		:	null;
-	const primarySlice = renderSet?.slices[0] ?? null;
-	const shadowMap = primarySlice?.shadowMap ?? null;
-	const resolvedShadowMap = shadowMap ?? legacyShadowMap;
-
-	if (!enableShadows || !resolvedShadowMap?.viewProjectionMatrix) {
-		return {
-			enabled: false,
-			strategyType: "single-map",
-			cascadeCount: 1,
-			cascadeBlendRatio: 0,
-			cascadeViewProjectionMatrices: [null, null, null, null],
-			cascadeSplits: [
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-			],
-			viewProjectionMatrix: null,
-			depthBias: 0,
-			slopeBias: 0,
-			normalBias: 0,
-			normalBiasMin: 0,
-			pcfRadius: 0,
-			shadowStrength: 0,
-			shadowMapBaseSize: 0,
-			shadowMapSize: 0,
-			atlasTileSize: 0,
-			shadowMap: null,
-		};
-	}
-
-	const size = Math.max(1, resolvedShadowMap.size | 0);
-	const texelBias =
-		(resolvedShadowMap.params.shadowTexelBias ?? 1.0) * (1.0 / size);
-	const maxBias = resolvedShadowMap.params.shadowMaxBias ?? 0.05;
-	const depthBias = Math.min(
-		maxBias,
-		(resolvedShadowMap.params.shadowBias ?? 0.008) + texelBias
-	);
-	const pcfRadius =
-		resolvedShadowMap.params.shadowRadius &&
-		resolvedShadowMap.params.shadowRadius > 0 ?
-			resolvedShadowMap.params.shadowRadius
-		:	Math.max(1, resolvedShadowMap.params.shadowPCF ?? 1);
-
-	const cascadeViewProjectionMatrices: Array<Matrix4 | null> = [
-		null,
-		null,
-		null,
-		null,
-	];
-	const cascadeSplits: Array<[number, number, number, number]> = [
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-	];
-	if (renderSet) {
-		for (let index = 0; index < Math.min(renderSet.slices.length, 4); index++) {
-			const slice = renderSet.slices[index];
-			cascadeViewProjectionMatrices[index] =
-				slice.shadowMap.viewProjectionMatrix ?? null;
-			const localTileX = index % 2;
-			const localTileY = Math.floor(index / 2);
-			cascadeSplits[index] = [
-				Math.max(0, slice.splitNear),
-				Math.max(0, slice.splitFar),
-				localTileX,
-				localTileY,
-			];
-		}
-	} else {
-		cascadeViewProjectionMatrices[0] = resolvedShadowMap.viewProjectionMatrix;
-		cascadeSplits[0] = [0, 1, 0, 0];
-	}
-
-	const strategyType = renderSet?.effectiveStrategyType ?? "single-map";
-	const availableCascadeCount = cascadeViewProjectionMatrices.reduce(
-		(count, matrix) => (matrix ? count + 1 : count),
-		0
-	);
-	const cascadeCount =
-		strategyType === "csm" ?
-			Math.max(1, Math.min(4, availableCascadeCount || 1))
-		:	1;
-	const cascadeBlendRatio =
-		strategyType === "csm" &&
-		cascadeCount > 1 &&
-		renderSet &&
-		renderSet.resolvedConfig.strategy === "csm" ?
-			Math.max(0, Math.min(1, renderSet.resolvedConfig.blendRatio ?? 0.1))
-		:	0;
-
-	return {
-		enabled: true,
-		strategyType,
-		cascadeCount,
-		cascadeBlendRatio,
-		cascadeViewProjectionMatrices,
-		cascadeSplits,
-		viewProjectionMatrix: resolvedShadowMap.viewProjectionMatrix,
-		depthBias,
-		slopeBias: Math.max(0, resolvedShadowMap.params.shadowSlopeBias ?? 0.03),
-		normalBias: Math.max(0, resolvedShadowMap.params.shadowNormalBias ?? 1.0),
-		normalBiasMin: Math.max(
-			0,
-			resolvedShadowMap.params.shadowNormalBiasMin ?? 0.05
-		),
-		pcfRadius: Math.max(1, pcfRadius),
-		shadowStrength: clamp(resolvedShadowMap.params.shadowStrength ?? 1.0, 0, 1),
-		shadowMapBaseSize: Math.max(1, renderSet?.size ?? resolvedShadowMap.size),
-		shadowMapSize: size,
-		atlasTileSize: 0,
-		shadowMap: resolvedShadowMap,
-	};
+	return resolveSharedShadowData(enableShadows, renderSetInput);
 }

@@ -1,4 +1,3 @@
-import { sRGBToLinear, clamp } from "../../maths/Common";
 import {
 	LightType,
 	type AmbientLight,
@@ -9,9 +8,13 @@ import {
 	type ShadowCastingLight,
 	type SpotLight,
 } from "../../lights";
-import type { ShadowMap, ShadowRenderSet } from "../../lights/ShadowMapping";
-import type { RGB } from "../../foundation/Color";
-import type { Matrix4 } from "../../maths/Matrix4";
+import type { ShadowRenderSet } from "../../lights/ShadowMapping";
+import {
+	accumulateAmbientLightColor,
+	accumulateLightProbeFallbackAmbientColor,
+	resolveShadowData as resolveSharedShadowData,
+	toLinearLightColor,
+} from "../../pipeline/lightingRuntime";
 
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
@@ -95,9 +98,7 @@ function accumulateAmbientLight(
 	state: WebGPULightingState,
 	light: AmbientLight
 ): void {
-	state.ambientColor[0] += sRGBToLinear(light.color.r / 255) * light.intensity;
-	state.ambientColor[1] += sRGBToLinear(light.color.g / 255) * light.intensity;
-	state.ambientColor[2] += sRGBToLinear(light.color.b / 255) * light.intensity;
+	accumulateAmbientLightColor(state.ambientColor, light.color, light.intensity);
 }
 
 function accumulateLightProbeFallbackAmbient(
@@ -107,16 +108,11 @@ function accumulateLightProbeFallbackAmbient(
 ): void {
 	if (enableSH) return;
 
-	const dc = light.sh[0];
-	if (!dc) return;
-
-	const irradianceScale = Math.PI * 0.282095;
-	state.ambientColor[0] +=
-		(Math.max(0, dc.r * irradianceScale) / 255) * light.intensity;
-	state.ambientColor[1] +=
-		(Math.max(0, dc.g * irradianceScale) / 255) * light.intensity;
-	state.ambientColor[2] +=
-		(Math.max(0, dc.b * irradianceScale) / 255) * light.intensity;
+	accumulateLightProbeFallbackAmbientColor(
+		state.ambientColor,
+		light.sh[0],
+		light.intensity
+	);
 }
 
 function collectDirectionalLight(
@@ -253,14 +249,6 @@ function createUnsupportedLightWarning(light: SceneLight): WebGPUWarning {
 	};
 }
 
-function toLinearLightColor(color: RGB, intensity: number): WebGPUVec3 {
-	return [
-		sRGBToLinear(color.r / 255) * intensity,
-		sRGBToLinear(color.g / 255) * intensity,
-		sRGBToLinear(color.b / 255) * intensity,
-	];
-}
-
 function pushVolumetricDirectionalLight(
 	state: WebGPULightingState,
 	direction: { x: number; y: number; z: number },
@@ -374,133 +362,9 @@ function pushClusteredSpotLight(
 
 function resolveWebGPUShadowData(
 	enableShadows: boolean,
-	renderSetInput?: ShadowRenderSet | ShadowMap
+	renderSetInput?: ShadowRenderSet
 ): WebGPUShadowData {
-	const renderSet =
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		Array.isArray((renderSetInput as { slices?: unknown }).slices) ?
-			(renderSetInput as ShadowRenderSet)
-		:	null;
-	const legacyShadowMap =
-		!renderSet &&
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		"viewProjectionMatrix" in renderSetInput ?
-			(renderSetInput as ShadowMap)
-		:	null;
-	const primarySlice = renderSet?.slices[0] ?? null;
-	const shadowMap = primarySlice?.shadowMap ?? null;
-	const resolvedShadowMap = shadowMap ?? legacyShadowMap;
-	if (!enableShadows || !resolvedShadowMap?.viewProjectionMatrix) {
-		return {
-			enabled: false,
-			strategyType: "single-map",
-			cascadeCount: 1,
-			cascadeBlendRatio: 0,
-			cascadeViewProjectionMatrices: [null, null, null, null],
-			cascadeSplits: [
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-			],
-			viewProjectionMatrix: null,
-			depthBias: 0,
-			slopeBias: 0,
-			normalBias: 0,
-			normalBiasMin: 0,
-			pcfRadius: 0,
-			shadowStrength: 0,
-			shadowMapBaseSize: 0,
-			shadowMapSize: 0,
-			atlasTileSize: 0,
-			shadowMap: resolvedShadowMap,
-		};
-	}
-
-	const size = Math.max(1, resolvedShadowMap.size | 0);
-	const texelBias =
-		(resolvedShadowMap.params.shadowTexelBias ?? 1.0) * (1.0 / size);
-	const maxBias = resolvedShadowMap.params.shadowMaxBias ?? 0.05;
-	const depthBias = Math.min(
-		maxBias,
-		(resolvedShadowMap.params.shadowBias ?? 0.008) + texelBias
-	);
-	const pcfRadius =
-		resolvedShadowMap.params.shadowRadius &&
-		resolvedShadowMap.params.shadowRadius > 0 ?
-			resolvedShadowMap.params.shadowRadius
-		:	Math.max(1, resolvedShadowMap.params.shadowPCF ?? 1);
-
-	const cascadeViewProjectionMatrices: Array<Matrix4 | null> = [
-		null,
-		null,
-		null,
-		null,
-	];
-	const cascadeSplits: Array<[number, number, number, number]> = [
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-	];
-	if (renderSet) {
-		for (let index = 0; index < Math.min(renderSet.slices.length, 4); index++) {
-			const slice = renderSet.slices[index];
-			cascadeViewProjectionMatrices[index] =
-				slice.shadowMap.viewProjectionMatrix ?? null;
-			const localTileX = index % 2;
-			const localTileY = Math.floor(index / 2);
-			cascadeSplits[index] = [
-				Math.max(0, slice.splitNear),
-				Math.max(0, slice.splitFar),
-				localTileX,
-				localTileY,
-			];
-		}
-	} else {
-		cascadeViewProjectionMatrices[0] = resolvedShadowMap.viewProjectionMatrix;
-		cascadeSplits[0] = [0, 1, 0, 0];
-	}
-
-	const strategyType = renderSet?.effectiveStrategyType ?? "single-map";
-	const availableCascadeCount = cascadeViewProjectionMatrices.reduce(
-		(count, matrix) => (matrix ? count + 1 : count),
-		0
-	);
-	const cascadeCount =
-		strategyType === "csm" ?
-			Math.max(1, Math.min(4, availableCascadeCount || 1))
-		: 	1;
-	const cascadeBlendRatio =
-		strategyType === "csm" &&
-		cascadeCount > 1 &&
-		renderSet &&
-		renderSet.resolvedConfig.strategy === "csm" ?
-			Math.max(0, Math.min(1, renderSet.resolvedConfig.blendRatio ?? 0.1))
-		: 	0;
-
-	return {
-		enabled: true,
-		strategyType,
-		cascadeCount,
-		cascadeBlendRatio,
-		cascadeViewProjectionMatrices,
-		cascadeSplits,
-		viewProjectionMatrix: resolvedShadowMap.viewProjectionMatrix,
-		depthBias,
-		slopeBias: Math.max(0, resolvedShadowMap.params.shadowSlopeBias ?? 0.03),
-		normalBias: Math.max(0, resolvedShadowMap.params.shadowNormalBias ?? 1.0),
-		normalBiasMin: Math.max(
-			0,
-			resolvedShadowMap.params.shadowNormalBiasMin ?? 0.05
-		),
-		pcfRadius: Math.max(1, pcfRadius),
-		shadowStrength: clamp(resolvedShadowMap.params.shadowStrength ?? 1.0, 0, 1),
-		shadowMapBaseSize: Math.max(1, renderSet?.size ?? resolvedShadowMap.size),
-		shadowMapSize: size,
-		atlasTileSize: 0,
-		shadowMap: resolvedShadowMap,
-	};
+	return resolveSharedShadowData(enableShadows, renderSetInput, {
+		keepShadowMapWhenDisabled: true,
+	});
 }
