@@ -43,6 +43,7 @@ export class BVH implements SpatialIndex3D {
 	private _entryIndexByMeshInstance: Map<MeshInstance, number>;
 	private _structureDirty: boolean;
 	private _boundsDirtyMeshInstances: Set<MeshInstance>;
+	private _boundsScratch: BoundingBox;
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -56,6 +57,7 @@ export class BVH implements SpatialIndex3D {
 		this._entryIndexByMeshInstance = new Map();
 		this._structureDirty = false;
 		this._boundsDirtyMeshInstances = new Set();
+		this._boundsScratch = createBoundingBox();
 		this.rebuild(meshInstances);
 	}
 
@@ -327,8 +329,8 @@ export class BVH implements SpatialIndex3D {
 			const entryIndex = this._entryIndexByMeshInstance.get(meshInstance);
 			if (entryIndex === undefined) continue;
 			const entry = this._entries[entryIndex];
-			const updatedBounds = meshInstance.getWorldBoundingBox();
-			copyBoundingBoxValues(entry.bounds, updatedBounds);
+			meshInstance.getWorldBoundingBox(this._boundsScratch);
+			copyBoundingBoxValues(entry.bounds, this._boundsScratch);
 			entry.centroidX = (entry.bounds.min.x + entry.bounds.max.x) * 0.5;
 			entry.centroidY = (entry.bounds.min.y + entry.bounds.max.y) * 0.5;
 			entry.centroidZ = (entry.bounds.min.z + entry.bounds.max.z) * 0.5;
@@ -830,6 +832,13 @@ function computeRangeStats(
 		centroidExtentX: centroidMaxX - centroidMinX,
 		centroidExtentY: centroidMaxY - centroidMinY,
 		centroidExtentZ: centroidMaxZ - centroidMinZ,
+	};
+}
+
+function createBoundingBox(): BoundingBox {
+	return {
+		min: { x: 0, y: 0, z: 0 },
+		max: { x: 0, y: 0, z: 0 },
 	};
 }
 

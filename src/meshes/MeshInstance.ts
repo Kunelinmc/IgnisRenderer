@@ -15,6 +15,8 @@ export class MeshInstance extends Node {
 	public mesh: MeshAsset;
 	public skeleton: Skeleton | null;
 	public morphWeights: Float32Array[];
+	private _localBoundsCorner: IVector3 = { x: 0, y: 0, z: 0 };
+	private _worldBoundsCorner: IVector3 = { x: 0, y: 0, z: 0 };
 
 	constructor(params: MeshInstanceParams) {
 		super({
@@ -45,18 +47,10 @@ export class MeshInstance extends Node {
 		return target;
 	}
 
-	protected override getOwnWorldBoundingBox(): BoundingBox {
+	protected override getOwnWorldBoundingBox(out?: BoundingBox): BoundingBox {
 		const box = this.mesh.boundingBox;
-		const corners: IVector3[] = [
-			{ x: box.min.x, y: box.min.y, z: box.min.z },
-			{ x: box.max.x, y: box.min.y, z: box.min.z },
-			{ x: box.min.x, y: box.max.y, z: box.min.z },
-			{ x: box.max.x, y: box.max.y, z: box.min.z },
-			{ x: box.min.x, y: box.min.y, z: box.max.z },
-			{ x: box.max.x, y: box.min.y, z: box.max.z },
-			{ x: box.min.x, y: box.max.y, z: box.max.z },
-			{ x: box.max.x, y: box.max.y, z: box.max.z },
-		];
+		const localCorner = this._localBoundsCorner;
+		const worldCorner = this._worldBoundsCorner;
 
 		let minX = Infinity;
 		let minY = Infinity;
@@ -65,20 +59,32 @@ export class MeshInstance extends Node {
 		let maxY = -Infinity;
 		let maxZ = -Infinity;
 
-		for (const corner of corners) {
-			const worldPoint = Matrix4.transformPoint(this.worldMatrix, corner);
-			if (worldPoint.x < minX) minX = worldPoint.x;
-			if (worldPoint.y < minY) minY = worldPoint.y;
-			if (worldPoint.z < minZ) minZ = worldPoint.z;
-			if (worldPoint.x > maxX) maxX = worldPoint.x;
-			if (worldPoint.y > maxY) maxY = worldPoint.y;
-			if (worldPoint.z > maxZ) maxZ = worldPoint.z;
+		for (let cornerIndex = 0; cornerIndex < 8; cornerIndex++) {
+			localCorner.x = (cornerIndex & 1) === 0 ? box.min.x : box.max.x;
+			localCorner.y = (cornerIndex & 2) === 0 ? box.min.y : box.max.y;
+			localCorner.z = (cornerIndex & 4) === 0 ? box.min.z : box.max.z;
+			Matrix4.transformPoint(this.worldMatrix, localCorner, worldCorner);
+			if (worldCorner.x < minX) minX = worldCorner.x;
+			if (worldCorner.y < minY) minY = worldCorner.y;
+			if (worldCorner.z < minZ) minZ = worldCorner.z;
+			if (worldCorner.x > maxX) maxX = worldCorner.x;
+			if (worldCorner.y > maxY) maxY = worldCorner.y;
+			if (worldCorner.z > maxZ) maxZ = worldCorner.z;
 		}
 
-		return {
-			min: { x: minX, y: minY, z: minZ },
-			max: { x: maxX, y: maxY, z: maxZ },
-		};
+		const target =
+			out ??
+			{
+				min: { x: 0, y: 0, z: 0 },
+				max: { x: 0, y: 0, z: 0 },
+			};
+		target.min.x = minX;
+		target.min.y = minY;
+		target.min.z = minZ;
+		target.max.x = maxX;
+		target.max.y = maxY;
+		target.max.z = maxZ;
+		return target;
 	}
 
 	protected override _createCloneInstance(): this {

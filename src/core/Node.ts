@@ -168,16 +168,17 @@ export class Node {
 		return target;
 	}
 
-	public getWorldBoundingBox(): BoundingBox {
+	public getWorldBoundingBox(out?: BoundingBox): BoundingBox {
 		let minX = Infinity;
 		let minY = Infinity;
 		let minZ = Infinity;
 		let maxX = -Infinity;
 		let maxY = -Infinity;
 		let maxZ = -Infinity;
+		const ownBounds = createBoundingBox();
 
 		this.traverse((node) => {
-			const box = node.getOwnWorldBoundingBox();
+			const box = node.getOwnWorldBoundingBox(ownBounds);
 			if (box) {
 				if (box.min.x < minX) minX = box.min.x;
 				if (box.min.y < minY) minY = box.min.y;
@@ -188,18 +189,28 @@ export class Node {
 			}
 		});
 
+		const target = out ?? createBoundingBox();
 		if (minX === Infinity) {
-			const pos = this.getWorldPosition();
-			return {
-				min: { x: pos.x, y: pos.y, z: pos.z },
-				max: { x: pos.x, y: pos.y, z: pos.z },
-			};
+			const elements = this.worldMatrix.elements;
+			const x = elements[0][3];
+			const y = elements[1][3];
+			const z = elements[2][3];
+			target.min.x = x;
+			target.min.y = y;
+			target.min.z = z;
+			target.max.x = x;
+			target.max.y = y;
+			target.max.z = z;
+			return target;
 		}
 
-		return {
-			min: { x: minX, y: minY, z: minZ },
-			max: { x: maxX, y: maxY, z: maxZ },
-		};
+		target.min.x = minX;
+		target.min.y = minY;
+		target.min.z = minZ;
+		target.max.x = maxX;
+		target.max.y = maxY;
+		target.max.z = maxZ;
+		return target;
 	}
 
 	public getWorldDirection(localDirection: IVector3, out?: IVector3): IVector3 {
@@ -248,7 +259,7 @@ export class Node {
 		this.worldMatrix.copyTo(target.worldMatrix);
 	}
 
-	protected getOwnWorldBoundingBox(): BoundingBox | null {
+	protected getOwnWorldBoundingBox(_out?: BoundingBox): BoundingBox | null {
 		return null;
 	}
 
@@ -269,4 +280,11 @@ function createQuaternion(
 		return new Quaternion();
 	}
 	return new Quaternion(value.x, value.y, value.z, value.w).normalize();
+}
+
+function createBoundingBox(): BoundingBox {
+	return {
+		min: { x: 0, y: 0, z: 0 },
+		max: { x: 0, y: 0, z: 0 },
+	};
 }

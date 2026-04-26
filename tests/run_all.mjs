@@ -44,6 +44,7 @@ const tests = [
 	"test_interaction_manager_selection.mjs",
 	"test_interaction_outline_shape.mjs",
 	"test_node_clone.mjs",
+	"test_node_world_bounds_out.mjs",
 	"test_ecs_world.mjs",
 	"test_scene_ecs_sync.mjs",
 	"test_animation_core.mjs",
