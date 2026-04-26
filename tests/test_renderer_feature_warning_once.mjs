@@ -21,6 +21,7 @@ class StubBackend {
 			dof: false,
 			bloom: false,
 			clusteredLighting: false,
+			oit: false,
 		};
 		this.frameScheduling = "continuous";
 		this.passExecutors = {};

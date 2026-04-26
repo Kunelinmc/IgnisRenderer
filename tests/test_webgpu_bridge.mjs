@@ -325,6 +325,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(1) @binding(30)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
 	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
@@ -365,6 +369,9 @@ async function testParticleShaderDepthConsistency() {
 			"rotatedUV + particleUVTransform.transformA.zw"
 		)
 	);
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleOITOutput"));
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn fsMainOIT("));
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn resolveParticleOITWeight("));
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
@@ -921,6 +928,305 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 	);
 }
 
+async function testWebGPUOITTransparentPipelineUsesDualTargets() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		opacity: 0.6,
+	});
+	material.alphaMode = AlphaMode.Blend;
+	const model = createModel([material]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.opaquePackets = [];
+	frame.transparentPackets = [packet];
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+				enableOIT: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				oit: true,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet, {
+		transparentPipelineMode: "oit",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainOIT");
+	assert.equal(pipelineDesc.fragment.targets.length, 2);
+	assert.equal(pipelineDesc.fragment.targets[0].format, "rgba16float");
+	assert.equal(pipelineDesc.fragment.targets[1].format, "r8unorm");
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,
+		"one"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.dstFactor,
+		"one"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[1].blend?.color?.srcFactor,
+		"zero"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[1].blend?.color?.dstFactor,
+		"one-minus-src"
+	);
+}
+
+async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		roughness: 0.05,
+		metalness: 0,
+		transmissionFactor: 1,
+		ior: 1.52,
+	});
+	const model = createModel([material]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.opaquePackets = [];
+	frame.transparentPackets = [packet];
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+				enableOIT: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				oit: true,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet, {
+		transparentPipelineMode: "transmission",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.fragment.entryPoint, "fsMain");
+	assert.equal(pipelineDesc.fragment.targets.length, 5);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,
+		"src-alpha"
+	);
+	assert.equal(
+		pipelineDesc.fragment.targets[0].blend?.color?.dstFactor,
+		"one-minus-src-alpha"
+	);
+}
+
+async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+			enableOIT: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			oit: true,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	resources.prepareFrame(frame, features);
+
+	const texture = new Texture(
+		new Uint8Array([255, 255, 255, 255]),
+		1,
+		1,
+		"sRGB"
+	);
+	const context = {
+		camera: frame.camera,
+		attachments: { width: 16, height: 16 },
+		features,
+		shadowMaps: frame.shadowMaps,
+		scene: { ...frame, particleSystems: [] },
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		transient: new Map([
+			[
+				PARTICLE_TRANSIENT_BATCHES_KEY,
+				[
+					{
+						systemId: "particleSystem-oit-alpha",
+						blendMode: ParticleBlendMode.Alpha,
+						texture,
+						receiveShadows: true,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 1,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+					{
+						systemId: "particleSystem-oit-add",
+						blendMode: ParticleBlendMode.Additive,
+						texture,
+						receiveShadows: false,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 1,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+				],
+			],
+		]),
+	};
+	const encoder = new FakeRenderEncoder();
+	const renderTarget = { width: 16, height: 16, destroy() {} };
+	const alphaCount = await resources.renderParticles(
+		encoder,
+		context,
+		{
+			label: "WebGPUParticlesOIT_Test",
+			colorAttachments: [
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depth: renderTarget,
+		},
+		"single",
+		{
+			includeBlendModes: [ParticleBlendMode.Alpha],
+			pipelineMode: "oit",
+		}
+	);
+	assert.equal(alphaCount, 1);
+
+	const additiveCount = await resources.renderParticles(
+		encoder,
+		context,
+		{
+			label: "WebGPUParticlesAdd_Test",
+			colorAttachments: [
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depth: renderTarget,
+		},
+		"single",
+		{
+			includeBlendModes: [ParticleBlendMode.Additive],
+			pipelineMode: "legacy",
+		}
+	);
+	assert.equal(additiveCount, 1);
+
+	const oitPipeline = backend.pipelines.find(
+		(pipeline) => pipeline.label === "WebGPUParticlePipeline_oit-alpha_single"
+	);
+	assert.ok(oitPipeline);
+	assert.equal(oitPipeline.desc.fragment.entryPoint, "fsMainOIT");
+	assert.equal(oitPipeline.desc.fragment.targets.length, 2);
+	assert.equal(oitPipeline.desc.fragment.targets[1].format, "r8unorm");
+
+	const additivePipeline = backend.pipelines.find(
+		(pipeline) => pipeline.label === "WebGPUParticlePipeline_additive_single"
+	);
+	assert.ok(additivePipeline);
+	assert.equal(additivePipeline.desc.fragment.entryPoint, "fsMain");
+	assert.equal(additivePipeline.desc.fragment.targets.length, 1);
+	assert.equal(
+		additivePipeline.desc.fragment.targets[0].blend?.color?.dstFactor,
+		"one"
+	);
+}
+
 async function testWebGPUEnvironmentCombinationsRegression() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -1098,7 +1404,17 @@ async function testParticleUVLayoutAndUniformBinding() {
 	await resources.renderParticles(
 		encoder,
 		context,
-		{ color: renderTarget, depth: renderTarget },
+		{
+			label: "WebGPUParticles_TestUV",
+			colorAttachments: [
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depth: renderTarget,
+		},
 		"single"
 	);
 
@@ -1309,7 +1625,17 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	await resources.renderParticles(
 		encoder,
 		context,
-		{ color: renderTarget, depth: renderTarget },
+		{
+			label: "WebGPUParticles_TestEvict",
+			colorAttachments: [
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depth: renderTarget,
+		},
 		"single"
 	);
 
@@ -1410,7 +1736,17 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	await resources.renderParticles(
 		encoder,
 		context,
-		{ color: renderTarget, depth: renderTarget },
+		{
+			label: "WebGPUParticles_TestDestroy",
+			colorAttachments: [
+				{
+					view: renderTarget,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depth: renderTarget,
+		},
 		"single"
 	);
 	const particleBinding = backend.bindingGroups.find(
@@ -1537,6 +1873,9 @@ async function run() {
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
+	await testWebGPUOITTransparentPipelineUsesDualTargets();
+	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
+	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();

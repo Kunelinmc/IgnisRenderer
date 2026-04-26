@@ -24,6 +24,7 @@ function run() {
 		dof: false,
 		bloom: false,
 		clusteredLighting: false,
+		oit: false,
 	});
 
 	assert.deepEqual(webgpu.capabilities, {
@@ -41,6 +42,7 @@ function run() {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
+		oit: true,
 	});
 
 	assert.deepEqual(webgl.capabilities, {
@@ -58,6 +60,7 @@ function run() {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
+		oit: false,
 	});
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");
