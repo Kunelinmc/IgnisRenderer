@@ -54,6 +54,39 @@ async function testReadTextureSkipsPaddingInNormalizedConversion() {
 	runtime.destroy();
 }
 
+async function testReadTextureNormalizesBGRA8Unorm() {
+	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const texture = runtime.createTexture({
+		width: 1,
+		height: 1,
+		format: TextureFormat.BGRA8Unorm,
+		usage:
+			TextureUsage.CopyDst |
+			TextureUsage.CopySrc |
+			TextureUsage.TextureBinding,
+		label: "BgraTexture",
+	});
+	const upload = new Uint8Array([30, 20, 10, 255]);
+	runtime.writeTexture(
+		texture,
+		upload,
+		{ bytesPerRow: 4, rowsPerImage: 1 },
+		{ width: 1, height: 1, depthOrArrayLayers: 1 }
+	);
+
+	const readback = await runtime.readTexture({
+		texture,
+		format: TextureFormat.BGRA8Unorm,
+	});
+	const normalized = readback.toNormalizedRGBA8Float32();
+	assert.equal(normalized.length, 4);
+	nearlyEqual(normalized[0], 10 / 255);
+	nearlyEqual(normalized[1], 20 / 255);
+	nearlyEqual(normalized[2], 30 / 255);
+	nearlyEqual(normalized[3], 255 / 255);
+	runtime.destroy();
+}
+
 async function testKernelSchemaValidation() {
 	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
 	await assert.rejects(
@@ -147,6 +180,7 @@ async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
 }
 
 await testReadTextureSkipsPaddingInNormalizedConversion();
+await testReadTextureNormalizesBGRA8Unorm();
 await testKernelSchemaValidation();
 await testDispatchValidationRules();
 await testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone();

@@ -960,9 +960,12 @@ function createTextureReadbackResult(input: {
 		bytesPerRow: input.bytesPerRow,
 		toFloat32: () => bytesToFloat32Array(input.bytes),
 		toNormalizedRGBA8Float32: () => {
-			if (input.format !== TextureFormat.RGBA8Unorm) {
+			if (
+				input.format !== TextureFormat.RGBA8Unorm &&
+				input.format !== TextureFormat.BGRA8Unorm
+			) {
 				throw new Error(
-					"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm readback."
+					"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm or TextureFormat.BGRA8Unorm readback."
 				);
 			}
 			if (input.bytesPerPixel !== 4) {
@@ -977,15 +980,22 @@ function createTextureReadbackResult(input: {
 				);
 			}
 			const output = new Float32Array(input.width * input.height * 4);
+			const isBgra = input.format === TextureFormat.BGRA8Unorm;
 			for (let y = 0; y < input.height; y++) {
 				const srcRowOffset = y * input.bytesPerRow;
 				const dstRowOffset = y * input.width * 4;
 				for (let x = 0; x < input.width; x++) {
 					const srcOffset = srcRowOffset + x * 4;
 					const dstOffset = dstRowOffset + x * 4;
-					output[dstOffset] = input.bytes[srcOffset] / 255;
-					output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
-					output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
+					if (isBgra) {
+						output[dstOffset] = input.bytes[srcOffset + 2] / 255;
+						output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
+						output[dstOffset + 2] = input.bytes[srcOffset] / 255;
+					} else {
+						output[dstOffset] = input.bytes[srcOffset] / 255;
+						output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
+						output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
+					}
 					output[dstOffset + 3] = input.bytes[srcOffset + 3] / 255;
 				}
 			}

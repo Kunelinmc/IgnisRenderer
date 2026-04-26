@@ -106,10 +106,12 @@ export class WebGPUReflectionProbeCapturePass {
 			transient: captureTransient,
 		};
 
+		const captureColorFormat = this._backend.canvasFormat as TextureFormat;
+		const captureDepthFormat = this._backend.canvasDepthFormat;
 		const colorTexture = this._backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA8Unorm,
+			format: captureColorFormat,
 			usage:
 				TextureUsage.RenderAttachment |
 				TextureUsage.CopySrc |
@@ -119,7 +121,7 @@ export class WebGPUReflectionProbeCapturePass {
 		const depthTexture = this._backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.Depth32Float,
+			format: captureDepthFormat,
 			usage: TextureUsage.RenderAttachment,
 			label: `WebGPUReflectionProbeCaptureDepth_face${resolvedFaceIndex}`,
 		});
@@ -165,7 +167,7 @@ export class WebGPUReflectionProbeCapturePass {
 				texture: colorTexture,
 				width: faceSize,
 				height: faceSize,
-				format: TextureFormat.RGBA8Unorm,
+				format: captureColorFormat,
 			});
 			return readback.toNormalizedRGBA8Float32();
 		} finally {

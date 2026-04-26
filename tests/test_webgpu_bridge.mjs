@@ -16,6 +16,7 @@ import {
 	remapClipSpaceDepth,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 } from "../src/renderers/webgpu/index.ts";
+import { WebGPUReflectionProbeCapturePass } from "../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
@@ -1332,6 +1333,121 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	}
 }
 
+async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
+	const backend = new FakeBackend();
+	backend.canvasFormat = "bgra8unorm";
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const preparedScene = {
+		...createFrame(packet),
+		particleSystems: [],
+		hasActiveAnimations: false,
+		allowSkyboxSpecularFallback: false,
+		spatialIndex: null,
+	};
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableClusteredLighting: true,
+			enableSkybox: false,
+			enableShadows: false,
+			enableReflection: false,
+			enableOIT: false,
+			enableSSAO: false,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableFog: false,
+			enableMotionBlur: false,
+			enableDOF: false,
+			enableBloom: false,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			skybox: false,
+			oit: false,
+			ssao: false,
+			ssgi: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	const frameContext = {
+		camera: preparedScene.camera,
+		attachments: { width: 1, height: 1 },
+		features,
+		shadowMaps: preparedScene.shadowMaps,
+		scene: preparedScene,
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }],
+			dirtyTileSize: 1,
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: true,
+		},
+		transient: new Map(),
+	};
+	const resources = {
+		setSceneTargetMode() {},
+		prepareFrame() {},
+		async buildClusteredLighting() {},
+		async getSkyboxResources() {
+			return null;
+		},
+		async getDrawResources() {
+			return null;
+		},
+		async renderParticles() {
+			return 0;
+		},
+	};
+	const probe = new ReflectionProbe({
+		includeMeshes: false,
+		includeSkybox: false,
+		includeTransparent: false,
+		includeParticles: false,
+		includeShadows: false,
+	});
+	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	const result = await capturePass.captureFace({
+		frameContext,
+		probe,
+		faceIndex: 0,
+		faceSize: 1,
+		includeSkybox: false,
+		includeTransparent: false,
+		includeParticles: false,
+		includeShadows: false,
+	});
+
+	assert.ok(result);
+	assert.equal(result.length, 4);
+	assert.equal(backend.createTextureCalls.length >= 2, true);
+	assert.equal(backend.createTextureCalls[0].format, backend.canvasFormat);
+	assert.equal(backend.createTextureCalls[1].format, backend.canvasDepthFormat);
+}
+
 async function testParticleUVLayoutAndUniformBinding() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -1892,6 +2008,7 @@ async function run() {
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 	await testWebGPUEnvironmentCombinationsRegression();
+	await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
 	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();
