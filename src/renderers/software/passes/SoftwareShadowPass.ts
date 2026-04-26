@@ -460,6 +460,7 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 	private _lightDirModel = new Vector3();
 	private _shadowLightsScratch: ShadowCastingLight[] = [];
 	private _projectedVertsPool: ProjectedVertex[] = [];
+	private _projectedVertsView: ProjectedVertex[] = [];
 	private _clipInputPool: ClipVertex[] = [];
 	private _clipVertsPool: ClipVertex[] = [];
 	private _clipPoolCursor = 0;
@@ -784,6 +785,7 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		}
 
 		const activeVertices = this._projectedVertsPool;
+		const projectedView = this._projectedVertsView;
 		for (let i = 0; i < clippedCount; i++) {
 			const clipVertex = clippedVertices[i];
 			const outputVertex = activeVertices[i];
@@ -794,8 +796,10 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 			outputVertex.w = invW;
 			outputVertex.u = clipVertex.u;
 			outputVertex.v = clipVertex.v;
+			projectedView[i] = outputVertex;
 		}
 
-		return activeVertices.slice(0, clippedCount);
+		projectedView.length = clippedCount;
+		return projectedView;
 	}
 }
