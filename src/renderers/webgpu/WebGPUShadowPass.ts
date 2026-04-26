@@ -41,15 +41,22 @@ import type { IShaderModule } from "../types";
 const WEBGPU_SHADOW_DEPTH_SHADER = /* wgsl */ `
 const EPSILON: f32 = 1e-6;
 
-struct ShadowUniforms {
-	mvp: mat4x4<f32>,
+struct AnimationParams {
+	jointCount: u32,
+	morphTargetCount: u32,
+	jointStride: u32,
+	morphWeightStride: u32,
 }
 
-struct AnimationParams {
-	jointCount: f32,
-	morphTargetCount: f32,
-	_pad0: f32,
-	_pad1: f32,
+struct ShadowInstanceData {
+	instanceBaseOffset: u32,
+	vertexBaseOffset: u32,
+	jointBaseOffset: u32,
+	morphWeightBaseOffset: u32,
+	morphDeltaBaseOffset: u32,
+	_pad0: u32,
+	_pad1: u32,
+	_pad2: u32,
 }
 
 struct ShadowVertexInput {
@@ -60,7 +67,8 @@ struct ShadowVertexInput {
 	@location(8) weights1: vec4<f32>,
 }
 
-@group(0) @binding(0) var<uniform> shadow: ShadowUniforms;
+@group(0) @binding(0) var<storage, read> shadowMvps: array<mat4x4<f32>>;
+@group(0) @binding(1) var<storage, read> shadowInstances: array<ShadowInstanceData>;
 @group(1) @binding(0) var<uniform> animationParams: AnimationParams;
 @group(1) @binding(1) var<storage, read> jointMatrices: array<mat4x4<f32>>;
 @group(1) @binding(2) var<storage, read> morphWeights: array<f32>;
@@ -69,7 +77,9 @@ struct ShadowVertexInput {
 fn applyMorphPosition(
 	basePosition: vec3<f32>,
 	vertexIndex: u32,
-	morphTargetCount: u32
+	morphTargetCount: u32,
+	morphWeightOffset: u32,
+	morphDeltaOffset: u32
 ) -> vec3<f32> {
 	if (morphTargetCount == 0u) {
 		return basePosition;
@@ -81,23 +91,26 @@ fn applyMorphPosition(
 		return basePosition;
 	}
 
-	let vertexCount = max(morphDeltaCount / morphTargetCount, 1u);
+	let deltaBase = min(morphDeltaOffset, morphDeltaCount);
+	let deltaRange = morphDeltaCount - deltaBase;
+	let vertexCount = max(deltaRange / morphTargetCount, 1u);
 	var position = basePosition;
 	for (
 		var targetIndex: u32 = 0u;
 		targetIndex < morphTargetCount;
 		targetIndex = targetIndex + 1u
 	) {
-		if (targetIndex >= morphWeightCount) {
+		let weightIndex = morphWeightOffset + targetIndex;
+		if (weightIndex >= morphWeightCount) {
 			continue;
 		}
 
-		let weight = morphWeights[targetIndex];
+		let weight = morphWeights[weightIndex];
 		if (abs(weight) <= EPSILON) {
 			continue;
 		}
 
-		let deltaIndex = targetIndex * vertexCount + vertexIndex;
+		let deltaIndex = deltaBase + targetIndex * vertexCount + vertexIndex;
 		if (deltaIndex >= morphDeltaCount) {
 			continue;
 		}
@@ -112,7 +125,8 @@ fn applySkinningPosition(
 	basePosition: vec3<f32>,
 	jointIndices: array<f32, 8>,
 	jointWeights: array<f32, 8>,
-	jointCount: u32
+	jointCount: u32,
+	jointOffset: u32
 ) -> vec3<f32> {
 	if (jointCount == 0u) {
 		return basePosition;
@@ -133,11 +147,16 @@ fn applySkinningPosition(
 
 		let rawJoint = max(jointIndices[influence], 0.0);
 		let jointIndex = u32(rawJoint + 0.5);
-		if (jointIndex >= jointCount || jointIndex >= matrixCount) {
+		if (jointIndex >= jointCount) {
 			continue;
 		}
 
-		let skinMatrix = jointMatrices[jointIndex];
+		let matrixIndex = jointOffset + jointIndex;
+		if (matrixIndex >= matrixCount) {
+			continue;
+		}
+
+		let skinMatrix = jointMatrices[matrixIndex];
 		skinnedPosition += (skinMatrix * vec4<f32>(basePosition, 1.0)).xyz * weight;
 		weightSum += weight;
 	}
@@ -152,10 +171,11 @@ fn applySkinningPosition(
 @vertex
 fn vsMain(
 	input: ShadowVertexInput,
-	@builtin(vertex_index) vertexIndex: u32
+	@builtin(vertex_index) vertexIndex: u32,
+	@builtin(instance_index) instanceIndex: u32
 ) -> @builtin(position) vec4<f32> {
-	let morphTargetCount = u32(animationParams.morphTargetCount + 0.5);
-	let jointCount = u32(animationParams.jointCount + 0.5);
+	let morphTargetCount = animationParams.morphTargetCount;
+	let jointCount = animationParams.jointCount;
 
 	let joints = array<f32, 8>(
 		input.joints0.x,
@@ -178,19 +198,47 @@ fn vsMain(
 		input.weights1.w
 	);
 
+	let mvpCount = arrayLength(&shadowMvps);
+	let instanceDataCount = arrayLength(&shadowInstances);
+	if (mvpCount == 0u || instanceDataCount == 0u) {
+		return vec4<f32>(0.0);
+	}
+	let safeInstanceIndex = min(instanceIndex, min(mvpCount, instanceDataCount) - 1u);
+	let instanceData = shadowInstances[safeInstanceIndex];
+	let localInstanceIndex =
+		if (safeInstanceIndex >= instanceData.instanceBaseOffset) {
+			safeInstanceIndex - instanceData.instanceBaseOffset
+		} else {
+			0u
+		};
+	let jointOffset =
+		instanceData.jointBaseOffset +
+		localInstanceIndex * animationParams.jointStride;
+	let morphWeightOffset =
+		instanceData.morphWeightBaseOffset +
+		localInstanceIndex * animationParams.morphWeightStride;
+	let localVertexIndex =
+		if (vertexIndex >= instanceData.vertexBaseOffset) {
+			vertexIndex - instanceData.vertexBaseOffset
+		} else {
+			0u
+		};
+
 	let morphedPosition = applyMorphPosition(
 		input.position,
-		vertexIndex,
-		morphTargetCount
+		localVertexIndex,
+		morphTargetCount,
+		morphWeightOffset,
+		instanceData.morphDeltaBaseOffset
 	);
 	let skinnedPosition = applySkinningPosition(
 		morphedPosition,
 		joints,
 		weights,
-		jointCount
+		jointCount,
+		jointOffset
 	);
-
-	return shadow.mvp * vec4<f32>(skinnedPosition, 1.0);
+	return shadowMvps[safeInstanceIndex] * vec4<f32>(skinnedPosition, 1.0);
 }
 `;
 
@@ -231,6 +279,15 @@ interface ShadowDrawCandidate {
 	indexBuffer: GPUBuffer;
 }
 
+interface ShadowInstancedDrawBatch {
+	candidate: ShadowDrawCandidate;
+	animationBindGroup: GPUBindGroup;
+	firstInstance: number;
+	instanceCount: number;
+}
+
+const SHADOW_INSTANCE_DATA_UINTS = 8;
+
 export class WebGPUShadowPass {
 	private _backend: WebGPUBackend;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -243,16 +300,18 @@ export class WebGPUShadowPass {
 	]);
 	private _shadowViewProjectionMatrix = Matrix4.identity();
 	private _mvpMatrix = Matrix4.identity();
-	private _uniformData = new Float32Array(16);
+	private _instanceMvpData = new Float32Array(0);
+	private _instanceMetaData = new Uint32Array(0);
 	private _shaderModule: IShaderModule | null = null;
 	private _shaderModulePromise: Promise<IShaderModule> | null = null;
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
 	private _animationBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _pipeline: GPURenderPipeline | null = null;
-	private _drawUniformBuffers: GPUBuffer[] = [];
-	private _drawBindGroups: GPUBindGroup[] = [];
-	private _drawResourceCursor = 0;
+	private _instanceMvpBuffer: GPUBuffer | null = null;
+	private _instanceMetaBuffer: GPUBuffer | null = null;
+	private _instanceMvpBindGroup: GPUBindGroup | null = null;
+	private _instanceMvpCapacity = 0;
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
 	private _fallbackStorageBuffer: GPUBuffer | null = null;
@@ -295,7 +354,6 @@ export class WebGPUShadowPass {
 		}
 
 		this._frameId++;
-		this._drawResourceCursor = 0;
 		const drawCandidates = this._collectShadowDrawCandidates(
 			frame.shadowCasterPackets
 		);
@@ -379,7 +437,6 @@ export class WebGPUShadowPass {
 		if (submitAtEnd) {
 			this._requireBackendQueue().submit([commandEncoder.finish()]);
 		}
-		this._trimDrawResources();
 		this._trimAnimationResources();
 	}
 
@@ -400,11 +457,14 @@ export class WebGPUShadowPass {
 		this._animationBindGroupLayout = null;
 		this._pipelineLayout = null;
 		this._pipeline = null;
-		for (const buffer of this._drawUniformBuffers) {
-			buffer?.destroy();
-		}
-		this._drawUniformBuffers = [];
-		this._drawBindGroups = [];
+		this._instanceMvpBuffer?.destroy();
+		this._instanceMetaBuffer?.destroy();
+		this._instanceMvpBuffer = null;
+		this._instanceMetaBuffer = null;
+		this._instanceMvpBindGroup = null;
+		this._instanceMvpCapacity = 0;
+		this._instanceMvpData = new Float32Array(0);
+		this._instanceMetaData = new Uint32Array(0);
 		for (const entry of this._animationBindings.values()) {
 			entry.paramsBuffer.destroy();
 			entry.jointBuffer.destroy();
@@ -413,7 +473,6 @@ export class WebGPUShadowPass {
 		this._animationBindings.clear();
 		this._fallbackStorageBuffer?.destroy();
 		this._fallbackStorageBuffer = null;
-		this._drawResourceCursor = 0;
 		this._frameId = 0;
 	}
 
@@ -424,6 +483,42 @@ export class WebGPUShadowPass {
 		context: FrameContext,
 		animationBindingCache: Map<string, GPUBindGroup | null>
 	): void {
+		const drawBatches = this._buildShadowDrawBatches(
+			drawCandidates,
+			viewProjectionMatrix,
+			context,
+			animationBindingCache
+		);
+		if (
+			drawBatches.length === 0 ||
+			!this._instanceMvpBindGroup
+		) {
+			return;
+		}
+
+		passEncoder.setBindGroup(0, this._instanceMvpBindGroup);
+		for (const batch of drawBatches) {
+			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
+			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			passEncoder.setBindGroup(1, batch.animationBindGroup);
+			passEncoder.drawIndexed(
+				batch.candidate.geometry.indexCount,
+				batch.instanceCount,
+				0,
+				0,
+				batch.firstInstance
+			);
+		}
+	}
+
+	private _buildShadowDrawBatches(
+		drawCandidates: ShadowDrawCandidate[],
+		viewProjectionMatrix: Matrix4,
+		context: FrameContext,
+		animationBindingCache: Map<string, GPUBindGroup | null>
+	): ShadowInstancedDrawBatch[] {
+		const drawBatches: ShadowInstancedDrawBatch[] = [];
+		let instanceCount = 0;
 		for (const candidate of drawCandidates) {
 			const packet = candidate.packet;
 			// Per-light Frustum Culling
@@ -451,16 +546,145 @@ export class WebGPUShadowPass {
 				packet.worldMatrix,
 				this._mvpMatrix
 			);
-			const shadowBindGroup = this._nextDrawBindGroup();
-			if (!shadowBindGroup) continue;
-			this._writeUniformMatrix(this._mvpMatrix, shadowBindGroup.buffer);
 
-			passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
-			passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
-			passEncoder.setBindGroup(0, shadowBindGroup.group);
-			passEncoder.setBindGroup(1, animationBindGroup);
-			passEncoder.drawIndexed(candidate.geometry.indexCount);
+			this._ensureInstanceDataCapacity(instanceCount + 1);
+			const mvpOffset = instanceCount * 16;
+			this._setMatrixInArray(this._mvpMatrix, this._instanceMvpData, mvpOffset);
+			const metaOffset = instanceCount * SHADOW_INSTANCE_DATA_UINTS;
+			this._setShadowInstanceMetaInArray(
+				this._instanceMetaData,
+				metaOffset,
+				instanceCount,
+				0,
+				0,
+				0,
+				0
+			);
+			instanceCount++;
+
+			const lastBatch = drawBatches[drawBatches.length - 1];
+			if (
+				lastBatch &&
+				lastBatch.animationBindGroup === animationBindGroup &&
+				lastBatch.candidate.vertexBuffer === candidate.vertexBuffer &&
+				lastBatch.candidate.indexBuffer === candidate.indexBuffer &&
+				lastBatch.candidate.geometry.indexCount === candidate.geometry.indexCount
+			) {
+				lastBatch.instanceCount++;
+				continue;
+			}
+
+			drawBatches.push({
+				candidate,
+				animationBindGroup,
+				firstInstance: instanceCount - 1,
+				instanceCount: 1,
+			});
 		}
+
+		if (
+			instanceCount === 0 ||
+			!this._upsertShadowInstanceResources(instanceCount)
+		) {
+			return [];
+		}
+		this._requireBackendQueue().writeBuffer(
+			this._instanceMvpBuffer!,
+			0,
+			this._instanceMvpData.subarray(
+				0,
+				instanceCount * 16
+			) as Float32Array<ArrayBuffer>
+		);
+		this._requireBackendQueue().writeBuffer(
+			this._instanceMetaBuffer!,
+			0,
+			this._instanceMetaData.subarray(
+				0,
+				instanceCount * SHADOW_INSTANCE_DATA_UINTS
+			) as Uint32Array<ArrayBuffer>
+		);
+
+		return drawBatches;
+	}
+
+	private _ensureInstanceDataCapacity(instanceCount: number): void {
+		const requiredLength = Math.max(1, instanceCount) * 16;
+		if (this._instanceMvpData.length < requiredLength) {
+			const nextLength = Math.max(requiredLength, this._instanceMvpData.length * 2);
+			const next = new Float32Array(nextLength);
+			next.set(this._instanceMvpData);
+			this._instanceMvpData = next;
+		}
+
+		const requiredMetaLength =
+			Math.max(1, instanceCount) * SHADOW_INSTANCE_DATA_UINTS;
+		if (this._instanceMetaData.length >= requiredMetaLength) {
+			return;
+		}
+		const nextMetaLength = Math.max(
+			requiredMetaLength,
+			this._instanceMetaData.length * 2
+		);
+		const nextMeta = new Uint32Array(nextMetaLength);
+		nextMeta.set(this._instanceMetaData);
+		this._instanceMetaData = nextMeta;
+	}
+
+	private _upsertShadowInstanceResources(instanceCount: number): boolean {
+		if (!this._bindGroupLayout) {
+			return false;
+		}
+		const device = this._requireBackendDevice();
+		const requiredCapacity = Math.max(1, instanceCount);
+
+		if (
+			!this._instanceMvpBuffer ||
+			!this._instanceMetaBuffer ||
+			requiredCapacity > this._instanceMvpCapacity
+		) {
+			this._instanceMvpBuffer?.destroy();
+			this._instanceMetaBuffer?.destroy();
+			this._instanceMvpBuffer = device.createBuffer({
+				label: "WebGPUShadowDepthMvpStorage",
+				size: requiredCapacity * 16 * 4,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			});
+			this._instanceMetaBuffer = device.createBuffer({
+				label: "WebGPUShadowDepthInstanceMeta",
+				size: requiredCapacity * SHADOW_INSTANCE_DATA_UINTS * 4,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			});
+			this._instanceMvpBindGroup = null;
+			this._instanceMvpCapacity = requiredCapacity;
+		}
+
+		if (
+			!this._instanceMvpBindGroup &&
+			this._instanceMvpBuffer &&
+			this._instanceMetaBuffer
+		) {
+			this._instanceMvpBindGroup = device.createBindGroup({
+				label: "WebGPUShadowDepthMvpBindGroup",
+				layout: this._bindGroupLayout,
+				entries: [
+					{
+						binding: 0,
+						resource: { buffer: this._instanceMvpBuffer },
+					},
+					{
+						binding: 1,
+						resource: { buffer: this._instanceMetaBuffer },
+					},
+				],
+			});
+		}
+
+		return (
+			!!this._instanceMvpBuffer &&
+			!!this._instanceMetaBuffer &&
+			!!this._instanceMvpBindGroup
+		);
 	}
 
 	private _collectShadowDrawCandidates(
@@ -577,7 +801,7 @@ export class WebGPUShadowPass {
 		queue.writeBuffer(
 			entry.paramsBuffer,
 			0,
-			new Float32Array([jointCount, morphCount, 0, 0])
+			new Uint32Array([jointCount, morphCount, jointCount, morphCount])
 		);
 		if (jointCount > 0 && state.jointMatrices) {
 			queue.writeBuffer(
@@ -692,26 +916,47 @@ export class WebGPUShadowPass {
 		};
 	}
 
-	private _writeUniformMatrix(matrix: Matrix4, buffer: GPUBuffer): void {
+	private _setMatrixInArray(
+		matrix: Matrix4,
+		target: Float32Array,
+		offset: number
+	): void {
 		const elements = matrix.elements;
-		const data = this._uniformData;
-		data[0] = elements[0][0];
-		data[1] = elements[1][0];
-		data[2] = elements[2][0];
-		data[3] = elements[3][0];
-		data[4] = elements[0][1];
-		data[5] = elements[1][1];
-		data[6] = elements[2][1];
-		data[7] = elements[3][1];
-		data[8] = elements[0][2];
-		data[9] = elements[1][2];
-		data[10] = elements[2][2];
-		data[11] = elements[3][2];
-		data[12] = elements[0][3];
-		data[13] = elements[1][3];
-		data[14] = elements[2][3];
-		data[15] = elements[3][3];
-		this._requireBackendQueue().writeBuffer(buffer, 0, data);
+		target[offset] = elements[0][0];
+		target[offset + 1] = elements[1][0];
+		target[offset + 2] = elements[2][0];
+		target[offset + 3] = elements[3][0];
+		target[offset + 4] = elements[0][1];
+		target[offset + 5] = elements[1][1];
+		target[offset + 6] = elements[2][1];
+		target[offset + 7] = elements[3][1];
+		target[offset + 8] = elements[0][2];
+		target[offset + 9] = elements[1][2];
+		target[offset + 10] = elements[2][2];
+		target[offset + 11] = elements[3][2];
+		target[offset + 12] = elements[0][3];
+		target[offset + 13] = elements[1][3];
+		target[offset + 14] = elements[2][3];
+		target[offset + 15] = elements[3][3];
+	}
+
+	private _setShadowInstanceMetaInArray(
+		target: Uint32Array,
+		offset: number,
+		instanceBaseOffset: number,
+		vertexBaseOffset: number,
+		jointBaseOffset: number,
+		morphWeightBaseOffset: number,
+		morphDeltaBaseOffset: number
+	): void {
+		target[offset] = instanceBaseOffset >>> 0;
+		target[offset + 1] = vertexBaseOffset >>> 0;
+		target[offset + 2] = jointBaseOffset >>> 0;
+		target[offset + 3] = morphWeightBaseOffset >>> 0;
+		target[offset + 4] = morphDeltaBaseOffset >>> 0;
+		target[offset + 5] = 0;
+		target[offset + 6] = 0;
+		target[offset + 7] = 0;
 	}
 
 	private _collectShadowSlots(
@@ -857,7 +1102,12 @@ export class WebGPUShadowPass {
 					{
 						binding: 0,
 						visibility: GPUShaderStage.VERTEX,
-						buffer: { type: "uniform" },
+						buffer: { type: "read-only-storage" },
+					},
+					{
+						binding: 1,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "read-only-storage" },
 					},
 				],
 			});
@@ -972,43 +1222,6 @@ export class WebGPUShadowPass {
 		}
 	}
 
-	private _nextDrawBindGroup(): {
-		buffer: GPUBuffer;
-		group: GPUBindGroup;
-	} | null {
-		if (!this._bindGroupLayout) return null;
-		const device = this._requireBackendDevice();
-
-		const slot = this._drawResourceCursor++;
-		let buffer = this._drawUniformBuffers[slot];
-		let group = this._drawBindGroups[slot];
-
-		if (!buffer) {
-			buffer = device.createBuffer({
-				label: `WebGPUShadowDepthUniforms_${slot}`,
-				size: 16 * 4,
-				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-			});
-			this._drawUniformBuffers[slot] = buffer;
-		}
-
-		if (!group) {
-			group = device.createBindGroup({
-				label: `WebGPUShadowDepthBindGroup_${slot}`,
-				layout: this._bindGroupLayout,
-				entries: [
-					{
-						binding: 0,
-						resource: { buffer },
-					},
-				],
-			});
-			this._drawBindGroups[slot] = group;
-		}
-
-		return { buffer, group };
-	}
-
 	private _createAnimationBindingEntry(
 		key: string
 	): ShadowAnimationBindingEntry {
@@ -1055,22 +1268,6 @@ export class WebGPUShadowPass {
 			);
 		}
 		return queue;
-	}
-
-	private _trimDrawResources(): void {
-		const used = this._drawResourceCursor;
-		const allocated = this._drawUniformBuffers.length;
-		// Trim when usage drops below 1/3 of allocated capacity and there
-		// are at least 16 excess slots, to avoid trimming on small
-		// fluctuations.
-		if (allocated > 16 && used < allocated / 3) {
-			const keep = Math.max(used, 8);
-			for (let i = keep; i < allocated; i++) {
-				this._drawUniformBuffers[i]?.destroy();
-			}
-			this._drawUniformBuffers.length = keep;
-			this._drawBindGroups.length = keep;
-		}
 	}
 
 	private _trimAnimationResources(): void {
