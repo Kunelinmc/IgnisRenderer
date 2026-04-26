@@ -1,5 +1,4 @@
 import { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
 import type { Texture } from "./Texture";
 import { Node } from "./Node";
 import type { BoundingSphere } from "./types";
@@ -22,6 +21,7 @@ import {
 
 const ROOT_PATH = "/sceneRoot";
 const SPATIAL_MATRIX_EPSILON = 1e-8;
+const DEFAULT_SCENE_BOUNDS_RADIUS = 100;
 
 interface SpatialMeshSignature {
 	mesh: MeshInstance["mesh"];
@@ -38,8 +38,22 @@ export class Scene {
 	private _version: number;
 	private _dirtyReasonMask = 0;
 	private _reparentingNodes = new WeakSet<Node>();
+	private _sceneGraphDirty = false;
+	private _meshInstancesCache: MeshInstance[] = [];
+	private _meshInstancesCacheDirty = true;
+	private _boundsDirty = true;
+	private _boundsCache: BoundingSphere = {
+		center: { x: 0, y: 0, z: 0 },
+		radius: DEFAULT_SCENE_BOUNDS_RADIUS,
+	};
+	private _boundsScratch: BoundingSphere = {
+		center: { x: 0, y: 0, z: 0 },
+		radius: 0,
+	};
 	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
 	private _spatialSignaturesByMeshInstance = new Map<MeshInstance, SpatialMeshSignature>();
+	private _spatialSeenEpochByMeshInstance = new Map<MeshInstance, number>();
+	private _spatialSeenEpoch = 0;
 	private _spatialIndexMode: SpatialIndexMode;
 
 	constructor() {
@@ -94,7 +108,11 @@ export class Scene {
 	}
 
 	public getMeshInstances(): MeshInstance[] {
-		return this.ecs.findMeshInstances();
+		if (this._meshInstancesCacheDirty) {
+			this._meshInstancesCache = this.ecs.findMeshInstances();
+			this._meshInstancesCacheDirty = false;
+		}
+		return this._meshInstancesCache;
 	}
 
 	public getLights(): SceneLight[] {
@@ -126,6 +144,7 @@ export class Scene {
 		this.spatial = null;
 		this._spatialTrackedMeshInstances.clear();
 		this._spatialSignaturesByMeshInstance.clear();
+		this._spatialSeenEpochByMeshInstance.clear();
 		this.invalidate("unknown");
 	}
 
@@ -135,32 +154,31 @@ export class Scene {
 			this.spatial = spatial;
 			this._spatialTrackedMeshInstances = new Set(meshInstances);
 			this._spatialSignaturesByMeshInstance.clear();
+			this._spatialSeenEpochByMeshInstance.clear();
+			const seenEpoch = ++this._spatialSeenEpoch;
 			for (const meshInstance of meshInstances) {
 				this._spatialSignaturesByMeshInstance.set(
 					meshInstance,
 					createSpatialMeshSignature(meshInstance),
 				);
+				this._spatialSeenEpochByMeshInstance.set(meshInstance, seenEpoch);
 			}
 			return spatial;
 		}
 
 		const spatial = this.spatial;
-		const nextMeshSet = new Set(meshInstances);
-		const removedMeshInstances: MeshInstance[] = [];
-		for (const tracked of this._spatialTrackedMeshInstances) {
-			if (!nextMeshSet.has(tracked)) {
-				removedMeshInstances.push(tracked);
-			}
-		}
-
-		for (const removed of removedMeshInstances) {
-			spatial.remove(removed);
-			this._spatialTrackedMeshInstances.delete(removed);
-			this._spatialSignaturesByMeshInstance.delete(removed);
-		}
+		const seenEpoch = ++this._spatialSeenEpoch;
+		let requiresRemovalScan =
+			this._spatialTrackedMeshInstances.size !== meshInstances.length;
 
 		for (const meshInstance of meshInstances) {
+			if (this._spatialSeenEpochByMeshInstance.get(meshInstance) === seenEpoch) {
+				requiresRemovalScan = true;
+				continue;
+			}
+			this._spatialSeenEpochByMeshInstance.set(meshInstance, seenEpoch);
 			if (!this._spatialTrackedMeshInstances.has(meshInstance)) {
+				requiresRemovalScan = true;
 				this._spatialTrackedMeshInstances.add(meshInstance);
 				this._spatialSignaturesByMeshInstance.set(
 					meshInstance,
@@ -185,6 +203,18 @@ export class Scene {
 			}
 		}
 
+		if (requiresRemovalScan) {
+			for (const tracked of this._spatialTrackedMeshInstances) {
+				if (this._spatialSeenEpochByMeshInstance.get(tracked) === seenEpoch) {
+					continue;
+				}
+				spatial.remove(tracked);
+				this._spatialTrackedMeshInstances.delete(tracked);
+				this._spatialSignaturesByMeshInstance.delete(tracked);
+				this._spatialSeenEpochByMeshInstance.delete(tracked);
+			}
+		}
+
 		return spatial;
 	}
 
@@ -198,10 +228,22 @@ export class Scene {
 
 	public updateWorldMatrices(): void {
 		this.root.updateWorldMatrix();
+		this._boundsDirty = true;
 		this.syncNodeToECS();
 	}
 
 	public syncNodeToECS(): void {
+		if (this._sceneGraphDirty) {
+			this._syncSceneGraphToECS();
+			return;
+		}
+		this._syncNodeStateRecursive(this.root, ROOT_PATH);
+		if (this._sceneGraphDirty) {
+			this._syncSceneGraphToECS();
+		}
+	}
+
+	private _syncSceneGraphToECS(): void {
 		const activeNodes = new Set<Node>();
 		const rootEntity = this.root.entityId;
 		if (rootEntity === null) {
@@ -216,6 +258,9 @@ export class Scene {
 				this.ecs.destroyEntity(entity);
 			}
 		}
+		this._sceneGraphDirty = false;
+		this._meshInstancesCacheDirty = true;
+		this._boundsDirty = true;
 	}
 
 	public syncECSToNode(): void {
@@ -236,24 +281,36 @@ export class Scene {
 	public onNodeAttachedFromAPI(parent: Node, child: Node): void {
 		if (parent.scene !== this) return;
 		this._setSceneRecursive(child, this);
+		this._sceneGraphDirty = true;
+		this._meshInstancesCacheDirty = true;
+		this._boundsDirty = true;
 		this.syncNodeToECS();
 		this.invalidate();
 	}
 
 	public onNodeDetachedFromAPI(_parent: Node, child: Node): void {
 		if (this._reparentingNodes.has(child)) {
+			this._sceneGraphDirty = true;
+			this._meshInstancesCacheDirty = true;
+			this._boundsDirty = true;
 			this.invalidate();
 			return;
 		}
 
 		this._unregisterNodeRecursive(child);
 		this._setSceneRecursive(child, null);
+		this._sceneGraphDirty = true;
+		this._meshInstancesCacheDirty = true;
+		this._boundsDirty = true;
 		this.invalidate();
 	}
 
 	public invalidate(reason: RenderDirtyReason = "unknown"): void {
 		this._version++;
 		this._dirtyReasonMask |= renderDirtyReasonToMask(reason);
+		if (shouldInvalidateSceneBounds(reason)) {
+			this._boundsDirty = true;
+		}
 	}
 
 	public get version(): number {
@@ -271,40 +328,58 @@ export class Scene {
 	}
 
 	public getBounds(): BoundingSphere {
-		let min: IVector3 = { x: Infinity, y: Infinity, z: Infinity };
-		let max: IVector3 = { x: -Infinity, y: -Infinity, z: -Infinity };
+		if (this._boundsDirty) {
+			let minX = Infinity;
+			let minY = Infinity;
+			let minZ = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			let maxZ = -Infinity;
 
-		for (const meshInstance of this.getMeshInstances()) {
-			if (meshInstance.visible === false) continue;
-			const worldBounds = meshInstance.getWorldBoundingSphere();
-			const center = worldBounds.center;
-			const radius = worldBounds.radius;
+			for (const meshInstance of this.getMeshInstances()) {
+				if (meshInstance.visible === false) continue;
+				const worldBounds = meshInstance.getWorldBoundingSphere(
+					this._boundsScratch,
+				);
+				const center = worldBounds.center;
+				const radius = worldBounds.radius;
+				minX = Math.min(minX, center.x - radius);
+				minY = Math.min(minY, center.y - radius);
+				minZ = Math.min(minZ, center.z - radius);
+				maxX = Math.max(maxX, center.x + radius);
+				maxY = Math.max(maxY, center.y + radius);
+				maxZ = Math.max(maxZ, center.z + radius);
+			}
 
-			min.x = Math.min(min.x, center.x - radius);
-			min.y = Math.min(min.y, center.y - radius);
-			min.z = Math.min(min.z, center.z - radius);
-			max.x = Math.max(max.x, center.x + radius);
-			max.y = Math.max(max.y, center.y + radius);
-			max.z = Math.max(max.z, center.z + radius);
+			if (minX === Infinity) {
+				this._boundsCache.center.x = 0;
+				this._boundsCache.center.y = 0;
+				this._boundsCache.center.z = 0;
+				this._boundsCache.radius = DEFAULT_SCENE_BOUNDS_RADIUS;
+			} else {
+				const centerX = (minX + maxX) * 0.5;
+				const centerY = (minY + maxY) * 0.5;
+				const centerZ = (minZ + maxZ) * 0.5;
+				const sizeX = maxX - minX;
+				const sizeY = maxY - minY;
+				const sizeZ = maxZ - minZ;
+				this._boundsCache.center.x = centerX;
+				this._boundsCache.center.y = centerY;
+				this._boundsCache.center.z = centerZ;
+				this._boundsCache.radius =
+					Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) * 0.5;
+			}
+			this._boundsDirty = false;
 		}
 
-		if (min.x === Infinity) {
-			return { center: { x: 0, y: 0, z: 0 }, radius: 100 };
-		}
-
-		const center: IVector3 = {
-			x: (min.x + max.x) / 2,
-			y: (min.y + max.y) / 2,
-			z: (min.z + max.z) / 2,
+		return {
+			center: {
+				x: this._boundsCache.center.x,
+				y: this._boundsCache.center.y,
+				z: this._boundsCache.center.z,
+			},
+			radius: this._boundsCache.radius,
 		};
-		const size: IVector3 = {
-			x: max.x - min.x,
-			y: max.y - min.y,
-			z: max.z - min.z,
-		};
-		const radius = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z) / 2;
-
-		return { center, radius };
 	}
 
 	private _collectByType<T extends Node>(predicate: (node: Node) => node is T): T[] {
@@ -329,7 +404,6 @@ export class Scene {
 		node._setSceneInternal(this);
 		this.ecs.setExternalId(entity, node.id);
 		this.ecs.setComponent(entity, "PathBinding", { path });
-		this.ecs.syncNodeToEntity(node, path);
 
 		const childEntities: number[] = [];
 		for (const child of node.children) {
@@ -343,6 +417,22 @@ export class Scene {
 		}
 		this.ecs.setHierarchy(entity, parentEntity, childEntities);
 		return entity;
+	}
+
+	private _syncNodeStateRecursive(node: Node, path: string): void {
+		const entity = node.entityId;
+		if (entity === null || !this.ecs.hasEntity(entity)) {
+			this._sceneGraphDirty = true;
+			return;
+		}
+		node._setSceneInternal(this);
+		this.ecs.syncNodeToEntity(node, path);
+		for (const child of node.children) {
+			this._syncNodeStateRecursive(
+				child,
+				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
+			);
+		}
 	}
 
 	private _unregisterNodeRecursive(node: Node): void {
@@ -370,13 +460,17 @@ export class Scene {
 	}
 }
 
-function hasLightType(value: unknown): value is SceneLight {
-	if (!value || typeof value !== "object") return false;
-	return "type" in value && "intensity" in value && "color" in value;
-}
-
 function sanitizePathSegment(value: string): string {
 	return value.replace(/[^\w\-]+/g, "_");
+}
+
+function shouldInvalidateSceneBounds(reason: RenderDirtyReason): boolean {
+	return (
+		reason === "unknown" ||
+		reason === "transform" ||
+		reason === "physics" ||
+		reason === "particles"
+	);
 }
 
 function createSpatialMeshSignature(

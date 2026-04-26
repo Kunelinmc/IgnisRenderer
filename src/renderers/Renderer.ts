@@ -1112,7 +1112,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const cameraWorldPosition = this.camera.getWorldPosition(
 			_tmpRendererCameraWorldPosition
 		);
-		const meshInstances = this.scene.ecs.findMeshInstances();
+		const meshInstances = this.scene.getMeshInstances();
 		for (const meshInstance of meshInstances) {
 			if (!(meshInstance instanceof LODMeshInstance)) continue;
 			meshInstance.updateLODForCamera(cameraWorldPosition, {
@@ -1122,7 +1122,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	private async _resolveCSGMeshes(): Promise<void> {
-		const meshInstances = this.scene.ecs.findMeshInstances();
+		const meshInstances = this.scene.getMeshInstances();
 		for (const meshInstance of meshInstances) {
 			if (!(meshInstance instanceof CSGMeshInstance)) continue;
 			if (!meshInstance.isCSGDirty) continue;

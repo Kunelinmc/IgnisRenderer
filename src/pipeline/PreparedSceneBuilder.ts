@@ -23,7 +23,7 @@ export class PreparedSceneBuilder {
 		const shadowCasterPackets: DrawPacket[] = [];
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
-		const meshInstances = renderer.scene.ecs.findMeshInstances();
+		const meshInstances = renderer.scene.getMeshInstances();
 		const renderableMeshInstances = meshInstances.filter(
 			(meshInstance) => meshInstance.visible !== false
 		);
