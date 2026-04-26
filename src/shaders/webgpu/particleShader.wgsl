@@ -44,6 +44,11 @@ struct ParticleUVTransform {
 	transformB: vec4<f32>, // x: cos(rotation), y: sin(rotation)
 }
 
+struct ParticleOITOutput {
+	@location(0) accum: vec4<f32>,
+	@location(1) reveal: vec4<f32>,
+}
+
 struct FogUniforms {
 	fogParams0: vec4<f32>,
 	fogParams1: vec4<f32>,
@@ -58,6 +63,15 @@ struct FogUniforms {
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
 @group(1) @binding(2) var<uniform> particleUVTransform: ParticleUVTransform;
+
+fn resolveParticleOITWeight(alpha: f32, viewDepth: f32) -> f32 {
+	let clampedAlpha = clamp(alpha, 0.0, 1.0);
+	let normalizedDepth = clamp(viewDepth / 400.0, 0.0, 1.0);
+	let depthWeight = clamp(1.0 - normalizedDepth, 0.05, 1.0);
+	let alphaWeight = max(clampedAlpha * 8.0 + 0.01, 0.01);
+	let weight = alphaWeight * alphaWeight * alphaWeight * depthWeight;
+	return clamp(weight, 1e-2, 3e3);
+}
 
 @vertex
 fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
@@ -132,8 +146,7 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 	return select(1.0, 1.0 - strength, occluded);
 }
 
-@fragment
-fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
+fn shadeParticle(input: ParticleVertexOutput) -> vec4<f32> {
 	// Procedural soft radial falloff (circle mask)
 	let dist = distance(input.localUV, vec2<f32>(0.5, 0.5));
 	let radialMask = 1.0 - smoothstep(0.4, 0.5, dist);
@@ -180,4 +193,21 @@ fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
 		color.a
 	);
 	return color;
+}
+
+@fragment
+fn fsMain(input: ParticleVertexOutput) -> @location(0) vec4<f32> {
+	return shadeParticle(input);
+}
+
+@fragment
+fn fsMainOIT(input: ParticleVertexOutput) -> ParticleOITOutput {
+	let color = shadeParticle(input);
+	let alpha = clamp(color.a, 0.0, 1.0);
+	let viewDepth = length(frame.cameraPosition.xyz - input.worldPosition);
+	let weight = resolveParticleOITWeight(alpha, viewDepth);
+	var output: ParticleOITOutput;
+	output.accum = vec4<f32>(color.rgb * alpha, alpha) * weight;
+	output.reveal = vec4<f32>(alpha, alpha, alpha, alpha);
+	return output;
 }

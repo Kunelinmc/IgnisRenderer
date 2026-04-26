@@ -48,6 +48,9 @@ import {
 	POST_PROCESS_STAGES,
 } from "../constants";
 import { Logger } from "../../foundation/Logger";
+import { materialUsesTransmission } from "../../materials/transparency";
+import { ParticleBlendMode } from "../../particles";
+import { getWebGPUTexture } from "./WebGPUResourceAccess";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -108,12 +111,56 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f3
 }
 `;
 
+const WEBGPU_OIT_RESOLVE_SHADER = /* wgsl */ `
+struct ResolveVSOut {
+	@builtin(position) position: vec4<f32>,
+	@location(0) uv: vec2<f32>,
+}
+
+@group(0) @binding(0) var sceneColorTexture: texture_2d<f32>;
+@group(0) @binding(1) var oitAccumTexture: texture_2d<f32>;
+@group(0) @binding(2) var oitRevealTexture: texture_2d<f32>;
+@group(0) @binding(3) var linearSampler: sampler;
+
+@vertex
+fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> ResolveVSOut {
+	var positions = array<vec2<f32>, 3>(
+		vec2<f32>(-1.0, -1.0),
+		vec2<f32>(3.0, -1.0),
+		vec2<f32>(-1.0, 3.0)
+	);
+	let pos = positions[vertexIndex];
+	var output: ResolveVSOut;
+	output.position = vec4<f32>(pos, 0.0, 1.0);
+	output.uv = vec2<f32>(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
+	return output;
+}
+
+@fragment
+fn fsMain(input: ResolveVSOut) -> @location(0) vec4<f32> {
+	let base = textureSample(sceneColorTexture, linearSampler, input.uv);
+	let accum = textureSample(oitAccumTexture, linearSampler, input.uv);
+	let reveal = clamp(
+		textureSample(oitRevealTexture, linearSampler, input.uv).r,
+		0.0,
+		1.0
+	);
+	let weightedColor = accum.rgb / max(accum.a, 1e-5);
+	let alpha = clamp(1.0 - reveal, 0.0, 1.0);
+	let color = weightedColor * alpha + base.rgb * reveal;
+	return vec4<f32>(max(color, vec3<f32>(0.0)), base.a);
+}
+`;
+
 const WEBGPU_TAA_HISTORY_VALID_KEY =
 	defineTransientKey<boolean>("webgpu-taa-history-valid");
 const WEBGPU_SSR_HISTORY_VALID_KEY =
 	defineTransientKey<boolean>("webgpu-ssr-history-valid");
 const WEBGPU_POST_ORDER_KEY =
 	defineTransientKey<string[]>("webgpu-post-order");
+const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
+const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
+const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 
 interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -170,6 +217,17 @@ export class WebGPUFrameExecutor {
 	private _presentParamsBuffer: IRenderBuffer | null = null;
 	private _presentBinding: IBindingGroup | null = null;
 	private _presentBindingSource: IRenderTexture | null = null;
+	private _oitResolveShaderModule: IShaderModule | null = null;
+	private _oitResolvePipeline: IRenderPipeline | null = null;
+	private _oitResolveSampler: ISampler | null = null;
+	private _oitResolveBinding: IBindingGroup | null = null;
+	private _oitResolveBindingScene: IRenderTexture | null = null;
+	private _oitResolveBindingAccum: IRenderTexture | null = null;
+	private _oitResolveBindingReveal: IRenderTexture | null = null;
+	private _oitActive = false;
+	private _oitHasContributors = false;
+	private _oitTransmissionPackets: DrawPacket[] = [];
+	private _oitNeedsTransmissionAfterParticles = false;
 	private _depthDirtyClearShaderModule: IShaderModule | null = null;
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
@@ -222,6 +280,10 @@ export class WebGPUFrameExecutor {
 		this._taaHistoryUpdated = false;
 		this._ssrHistoryUpdated = false;
 		this._volumetricHistoryUpdated = false;
+		this._oitActive = false;
+		this._oitHasContributors = false;
+		this._oitTransmissionPackets = [];
+		this._oitNeedsTransmissionAfterParticles = false;
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -267,6 +329,7 @@ export class WebGPUFrameExecutor {
 			this._destroyFrameTargets();
 			this._resources.setSceneTargetMode("single");
 		}
+		this._configureOIT(context);
 	}
 
 	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
@@ -296,6 +359,17 @@ export class WebGPUFrameExecutor {
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._destroyManagedResource(this._oitResolveShaderModule);
+		this._destroyManagedResource(this._oitResolvePipeline);
+		this._destroyManagedResource(this._oitResolveSampler);
+		this._oitResolveShaderModule = null;
+		this._oitResolvePipeline = null;
+		this._oitResolveSampler = null;
+		this._destroyBindingGroup(this._oitResolveBinding);
+		this._oitResolveBinding = null;
+		this._oitResolveBindingScene = null;
+		this._oitResolveBindingAccum = null;
+		this._oitResolveBindingReveal = null;
 		this._destroyManagedResource(this._depthDirtyClearShaderModule);
 		for (const pipeline of this._depthDirtyClearPipelines.values()) {
 			this._destroyManagedResource(pipeline);
@@ -378,6 +452,17 @@ export class WebGPUFrameExecutor {
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._destroyManagedResource(this._oitResolveShaderModule);
+		this._destroyManagedResource(this._oitResolvePipeline);
+		this._destroyManagedResource(this._oitResolveSampler);
+		this._oitResolveShaderModule = null;
+		this._oitResolvePipeline = null;
+		this._oitResolveSampler = null;
+		this._destroyBindingGroup(this._oitResolveBinding);
+		this._oitResolveBinding = null;
+		this._oitResolveBindingScene = null;
+		this._oitResolveBindingAccum = null;
+		this._oitResolveBindingReveal = null;
 		this._destroyManagedResource(this._depthDirtyClearShaderModule);
 		for (const pipeline of this._depthDirtyClearPipelines.values()) {
 			this._destroyManagedResource(pipeline);
@@ -491,17 +576,25 @@ export class WebGPUFrameExecutor {
 			[
 				"main-transparent",
 				async (context) => {
-					await this._recordMainPass(
-						context,
-						context.scene.transparentPackets,
-						false
-					);
+					if (this._oitActive) {
+						await this._recordOITTransparentPass(context);
+					} else {
+						await this._recordMainPass(
+							context,
+							context.scene.transparentPackets,
+							false
+						);
+					}
 				},
 			],
 			[
 				"particles",
 				async (context) => {
-					await this._recordParticlePass(context);
+					if (this._oitActive) {
+						await this._recordOITParticlePass(context);
+					} else {
+						await this._recordParticlePass(context);
+					}
 				},
 			],
 		]);
@@ -547,6 +640,57 @@ export class WebGPUFrameExecutor {
 				{ scope: "WebGPUFrameExecutor", onceKey: key }
 			);
 		}
+	}
+
+	private _configureOIT(context: FrameContext): void {
+		if (context.features.enableOIT !== true) {
+			this._oitActive = false;
+			return;
+		}
+		if (!this._mrtEnabled || !this._frameTargets) {
+			this._warnOITDisabled(
+				WEBGPU_OIT_DISABLED_MRT_KEY,
+				"WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering."
+			);
+			this._oitActive = false;
+			return;
+		}
+		if (this._targetMSAASampleCount > 1) {
+			this._warnOITDisabled(
+				WEBGPU_OIT_DISABLED_MSAA_KEY,
+				"WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering."
+			);
+			this._oitActive = false;
+			return;
+		}
+		if (
+			!this._frameTargets.oitAccum ||
+			!this._frameTargets.oitReveal ||
+			!this._frameTargets.oitSceneColorCopy
+		) {
+			this._warnOITDisabled(
+				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
+				"WebGPU OIT runtime targets are unavailable; falling back to legacy transparent rendering."
+			);
+			this._oitActive = false;
+			return;
+		}
+		if (typeof this._encoder?.getNativeWebGPUCommandEncoder !== "function") {
+			this._warnOITDisabled(
+				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
+				"WebGPU OIT requires native command-encoder access; falling back to legacy transparent rendering."
+			);
+			this._oitActive = false;
+			return;
+		}
+		this._oitActive = true;
+	}
+
+	private _warnOITDisabled(key: string, message: string): void {
+		Logger.warn(`[${key}] ${message}`, {
+			scope: "WebGPUFrameExecutor",
+			onceKey: key,
+		});
 	}
 
 	private _ensureFrameTargets(
@@ -697,6 +841,36 @@ export class WebGPUFrameExecutor {
 				width,
 				height,
 				TextureFormat.Depth32Float
+			);
+			const oitAccum = acquireTexture(
+				"oit-accum",
+				{
+					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+					label: "WebGPUOITAccum",
+				},
+				width,
+				height,
+				TextureFormat.RGBA16Float
+			);
+			const oitReveal = acquireTexture(
+				"oit-reveal",
+				{
+					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+					label: "WebGPUOITReveal",
+				},
+				width,
+				height,
+				TextureFormat.R8Unorm
+			);
+			const oitSceneColorCopy = acquireTexture(
+				"oit-scene-copy",
+				{
+					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+					label: "WebGPUOITSceneColorCopy",
+				},
+				width,
+				height,
+				TextureFormat.RGBA16Float
 			);
 			const historyA = acquireTexture(
 				"rgba16-storage",
@@ -874,6 +1048,9 @@ export class WebGPUFrameExecutor {
 				gEmissiveOcclusion,
 				gMotionDepth,
 				depth,
+				oitAccum,
+				oitReveal,
+				oitSceneColorCopy,
 				aoRaw,
 				aoBlur,
 				ssrRaw,
@@ -1009,6 +1186,9 @@ export class WebGPUFrameExecutor {
 			textures.add(this._frameTargets.gEmissiveOcclusion);
 			textures.add(this._frameTargets.gMotionDepth);
 			textures.add(this._frameTargets.depth);
+			textures.add(this._frameTargets.oitAccum);
+			textures.add(this._frameTargets.oitReveal);
+			textures.add(this._frameTargets.oitSceneColorCopy);
 			textures.add(this._frameTargets.aoRaw);
 			textures.add(this._frameTargets.aoBlur);
 			textures.add(this._frameTargets.ssrRaw);
@@ -1050,6 +1230,11 @@ export class WebGPUFrameExecutor {
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
+		this._destroyBindingGroup(this._oitResolveBinding);
+		this._oitResolveBinding = null;
+		this._oitResolveBindingScene = null;
+		this._oitResolveBindingAccum = null;
+		this._oitResolveBindingReveal = null;
 		this._targetWidth = 0;
 		this._targetHeight = 0;
 		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
@@ -1063,6 +1248,10 @@ export class WebGPUFrameExecutor {
 		this._ssrHistoryFlip = false;
 		this._volumetricHistoryFlip = false;
 		this._motionHistoryFlip = false;
+		this._oitActive = false;
+		this._oitHasContributors = false;
+		this._oitTransmissionPackets = [];
+		this._oitNeedsTransmissionAfterParticles = false;
 	}
 
 	private _resolveAttachmentDimension(value: number): number {
@@ -1124,6 +1313,7 @@ export class WebGPUFrameExecutor {
 	private _handleFeatureHistoryTransitions(context: FrameContext): void {
 		const historyKey =
 			`mrt:${this._mrtEnabled ? 1 : 0}` +
+			`|oit:${context.features.enableOIT ? 1 : 0}` +
 			`|ssao:${context.features.enableSSAO ? 1 : 0}` +
 			`|ssgi:${context.features.enableSSGI ? 1 : 0}` +
 			`|taa:${context.features.enableTAA ? 1 : 0}` +
@@ -1198,6 +1388,26 @@ export class WebGPUFrameExecutor {
 			return spatialIndex.queryTransparentPackets(rect);
 		}
 		return packets;
+	}
+
+	private _resolveTransparentSubsetForRect(
+		context: FrameContext,
+		packets: DrawPacket[],
+		rect: { x: number; y: number; width: number; height: number }
+	): DrawPacket[] {
+		const spatialIndex = context.scene.spatialIndex;
+		if (!spatialIndex) {
+			return packets;
+		}
+		const rectPackets = spatialIndex.queryTransparentPackets(rect);
+		if (packets === context.scene.transparentPackets) {
+			return rectPackets;
+		}
+		if (packets.length <= 0 || rectPackets.length <= 0) {
+			return [];
+		}
+		const packetSet = new Set(packets);
+		return rectPackets.filter((packet) => packetSet.has(packet));
 	}
 
 	private async _clearDepthForDirtyRects(
@@ -1442,6 +1652,483 @@ export class WebGPUFrameExecutor {
 		this._hasPresentedInFrame = true;
 	}
 
+	private _partitionTransparentPackets(packets: DrawPacket[]): {
+		oitPackets: DrawPacket[];
+		transmissionPackets: DrawPacket[];
+	} {
+		const oitPackets: DrawPacket[] = [];
+		const transmissionPackets: DrawPacket[] = [];
+		for (const packet of packets) {
+			if (materialUsesTransmission(packet.material)) {
+				transmissionPackets.push(packet);
+				continue;
+			}
+			oitPackets.push(packet);
+		}
+		return {
+			oitPackets,
+			transmissionPackets,
+		};
+	}
+
+	private _clearOITTargets(): void {
+		if (!this._encoder || !this._frameTargets) {
+			return;
+		}
+		this._encoder.beginRenderPass({
+			label: "WebGPUOITClear",
+			colorAttachments: [
+				{
+					view: this._frameTargets.oitAccum,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.oitReveal,
+					clearValue: { r: 1, g: 1, b: 1, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		this._encoder.endRenderPass();
+	}
+
+	private async _drawOITPackets(
+		context: FrameContext,
+		packets: DrawPacket[]
+	): Promise<number> {
+		if (!this._encoder || !this._frameTargets || packets.length <= 0) {
+			return 0;
+		}
+		const depthAttachment = this._msaaTargets?.depth ?? this._frameTargets.depth;
+		this._resources.setSceneTargetMode("mrt");
+		this._encoder.beginRenderPass({
+			label: "WebGPUOITDraw",
+			colorAttachments: [
+				{
+					view: this._frameTargets.oitAccum,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.oitReveal,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: depthAttachment,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		let drawCount = 0;
+		const dirtyRects = this._resolveDirtyRects(context);
+		for (const rect of dirtyRects) {
+			const packetsInRect = this._resolveTransparentSubsetForRect(
+				context,
+				packets,
+				rect
+			);
+			if (packetsInRect.length <= 0) {
+				continue;
+			}
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			for (const packet of packetsInRect) {
+				const resourcesList = await this._resources.getDrawResources(packet, {
+					transparentPipelineMode: "oit",
+				});
+				if (!resourcesList || resourcesList.length <= 0) {
+					continue;
+				}
+				for (const resources of resourcesList) {
+					this._encoder.setPipeline(resources.pipeline);
+					this._encoder.setBindingGroup(0, resources.frameBinding);
+					this._encoder.setBindingGroup(1, resources.modelBinding);
+					this._encoder.setBindingGroup(2, resources.clusteredBinding);
+					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+					this._encoder.drawIndexed(resources.indexCount);
+					drawCount++;
+				}
+			}
+		}
+		this._encoder.endRenderPass();
+		return drawCount;
+	}
+
+	private async _drawTransmissionPackets(
+		context: FrameContext,
+		packets: DrawPacket[]
+	): Promise<void> {
+		if (!this._encoder || packets.length <= 0) {
+			return;
+		}
+		if (!this._mrtEnabled || !this._frameTargets) {
+			this._resources.setSceneTargetMode("single");
+			await this._recordLegacyMainPass(context, packets, false);
+			return;
+		}
+		this._resources.setSceneTargetMode("mrt");
+		const msaaTargets = this._msaaTargets;
+		const sceneColorAttachment =
+			msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain;
+		const gAlbedoAttachment =
+			msaaTargets?.gAlbedoAlpha ?? this._frameTargets.gAlbedoAlpha;
+		const gNormalAttachment =
+			msaaTargets?.gNormalRoughMetal ?? this._frameTargets.gNormalRoughMetal;
+		const gEmissiveAttachment =
+			msaaTargets?.gEmissiveOcclusion ?? this._frameTargets.gEmissiveOcclusion;
+		const gMotionAttachment =
+			msaaTargets?.gMotionDepth ?? this._frameTargets.gMotionDepth;
+		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
+		this._encoder.beginRenderPass({
+			label: "WebGPUTransmissionMRT",
+			colorAttachments: [
+				{
+					view: sceneColorAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: gAlbedoAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gAlbedoAlpha : undefined,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: gNormalAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gNormalRoughMetal : undefined,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: gEmissiveAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gEmissiveOcclusion : undefined,
+					loadOp: "load",
+					storeOp: "store",
+				},
+				{
+					view: gMotionAttachment,
+					resolveTarget:
+						msaaTargets ? this._frameTargets.gMotionDepth : undefined,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: depthAttachment,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		const dirtyRects = this._resolveDirtyRects(context);
+		for (const rect of dirtyRects) {
+			const packetsInRect = this._resolveTransparentSubsetForRect(
+				context,
+				packets,
+				rect
+			);
+			if (packetsInRect.length <= 0) {
+				continue;
+			}
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			for (const packet of packetsInRect) {
+				const resourcesList = await this._resources.getDrawResources(packet, {
+					transparentPipelineMode: "transmission",
+				});
+				if (!resourcesList || resourcesList.length <= 0) {
+					continue;
+				}
+				for (const resources of resourcesList) {
+					this._encoder.setPipeline(resources.pipeline);
+					this._encoder.setBindingGroup(0, resources.frameBinding);
+					this._encoder.setBindingGroup(1, resources.modelBinding);
+					this._encoder.setBindingGroup(2, resources.clusteredBinding);
+					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+					this._encoder.drawIndexed(resources.indexCount);
+				}
+			}
+		}
+		this._encoder.endRenderPass();
+	}
+
+	private async _ensureOITResolveResources(): Promise<void> {
+		if (!this._oitResolveShaderModule) {
+			const composite = createInlineCompositeShaderSource(
+				WEBGPU_OIT_RESOLVE_SHADER,
+				"<webgpu-oit-resolve-shader>",
+				"source"
+			);
+			this._oitResolveShaderModule = await this._backend.createShaderModule({
+				label: "WebGPUOITResolveShader",
+				code: composite.code,
+				sourceMap: composite.sourceMap,
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._oitResolvePipeline) {
+			this._oitResolvePipeline = this._backend.createPipeline({
+				label: "WebGPUOITResolvePipeline",
+				vertex: {
+					module: this._oitResolveShaderModule,
+					entryPoint: "vsMain",
+				},
+				fragment: {
+					module: this._oitResolveShaderModule,
+					entryPoint: "fsMain",
+					targets: [{ format: TextureFormat.RGBA16Float }],
+				},
+				primitive: {
+					topology: "triangle-list" as any,
+					cullMode: "none",
+					frontFace: "ccw",
+				},
+			} as any);
+		}
+		if (!this._oitResolveSampler) {
+			this._oitResolveSampler = this._backend.createSampler({
+				label: "WebGPUOITResolveSampler",
+				magFilter: FilterMode.Linear,
+				minFilter: FilterMode.Linear,
+				mipmapFilter: FilterMode.Linear,
+				addressModeU: AddressMode.ClampToEdge,
+				addressModeV: AddressMode.ClampToEdge,
+			});
+		}
+	}
+
+	private _copySceneColorForOITResolve(): boolean {
+		if (!this._encoder || !this._frameTargets) {
+			return false;
+		}
+		const nativeEncoder = this._encoder.getNativeWebGPUCommandEncoder?.();
+		if (
+			!nativeEncoder ||
+			typeof (nativeEncoder as GPUCommandEncoder).copyTextureToTexture !==
+				"function"
+		) {
+			this._warnOITDisabled(
+				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
+				"WebGPU OIT requires native command-encoder texture copy support; falling back to legacy transparent rendering."
+			);
+			this._oitActive = false;
+			return false;
+		}
+		try {
+			const sourceTexture = getWebGPUTexture(this._frameTargets.sceneColorMain);
+			const destinationTexture = getWebGPUTexture(
+				this._frameTargets.oitSceneColorCopy
+			);
+			(nativeEncoder as GPUCommandEncoder).copyTextureToTexture(
+				{
+					texture: sourceTexture.texture,
+				},
+				{
+					texture: destinationTexture.texture,
+				},
+				{
+					width: Math.max(1, this._targetWidth),
+					height: Math.max(1, this._targetHeight),
+					depthOrArrayLayers: 1,
+				}
+			);
+			return true;
+		} catch (error) {
+			const key = "webgpu-oit-copy-scene-color-failed";
+			Logger.warn(
+				`[${key}] WebGPU OIT scene-color copy failed; falling back to legacy transparent rendering. ${String(error)}`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
+			this._oitActive = false;
+			return false;
+		}
+	}
+
+	private async _resolveOITComposition(context: FrameContext): Promise<void> {
+		if (!this._encoder || !this._frameTargets || !this._oitHasContributors) {
+			return;
+		}
+		if (!this._copySceneColorForOITResolve()) {
+			return;
+		}
+		await this._ensureOITResolveResources();
+		if (
+			!this._oitResolvePipeline ||
+			!this._oitResolveSampler ||
+			!this._frameTargets
+		) {
+			return;
+		}
+		if (
+			!this._oitResolveBinding ||
+			this._oitResolveBindingScene !== this._frameTargets.oitSceneColorCopy ||
+			this._oitResolveBindingAccum !== this._frameTargets.oitAccum ||
+			this._oitResolveBindingReveal !== this._frameTargets.oitReveal
+		) {
+			this._destroyBindingGroup(this._oitResolveBinding);
+			this._oitResolveBinding = this._backend.createBindingGroup({
+				pipeline: this._oitResolvePipeline,
+				layoutIndex: 0,
+				entries: [
+					{
+						binding: 0,
+						resource: this._frameTargets.oitSceneColorCopy,
+					},
+					{
+						binding: 1,
+						resource: this._frameTargets.oitAccum,
+					},
+					{
+						binding: 2,
+						resource: this._frameTargets.oitReveal,
+					},
+					{
+						binding: 3,
+						resource: this._oitResolveSampler,
+					},
+				],
+				label: "WebGPUOITResolveBinding",
+			});
+			this._oitResolveBindingScene = this._frameTargets.oitSceneColorCopy;
+			this._oitResolveBindingAccum = this._frameTargets.oitAccum;
+			this._oitResolveBindingReveal = this._frameTargets.oitReveal;
+		}
+		this._encoder.beginRenderPass({
+			label: "WebGPUOITResolvePass",
+			colorAttachments: [
+				{
+					view: this._frameTargets.sceneColorMain,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+		});
+		this._encoder.setPipeline(this._oitResolvePipeline);
+		this._encoder.setBindingGroup(0, this._oitResolveBinding);
+		const dirtyRects = this._resolveDirtyRects(context);
+		for (const rect of dirtyRects) {
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			this._encoder.draw(3);
+		}
+		this._encoder.endRenderPass();
+	}
+
+	private async _recordOITTransparentPass(context: FrameContext): Promise<void> {
+		if (!this._encoder) {
+			return;
+		}
+		if (!this._mrtEnabled || !this._frameTargets) {
+			await this._recordMainPass(context, context.scene.transparentPackets, false);
+			return;
+		}
+		await this._resources.buildClusteredLighting(this._encoder);
+		const { oitPackets, transmissionPackets } =
+			this._partitionTransparentPackets(context.scene.transparentPackets);
+		this._oitTransmissionPackets = transmissionPackets;
+		this._oitNeedsTransmissionAfterParticles =
+			(context.scene.particleSystems?.length ?? 0) > 0;
+		this._oitHasContributors = false;
+		if (oitPackets.length > 0) {
+			this._clearOITTargets();
+			const draws = await this._drawOITPackets(context, oitPackets);
+			this._oitHasContributors = draws > 0;
+		}
+		if (!this._oitNeedsTransmissionAfterParticles) {
+			if (this._oitHasContributors) {
+				await this._resolveOITComposition(context);
+			}
+			await this._drawTransmissionPackets(context, this._oitTransmissionPackets);
+			this._oitTransmissionPackets = [];
+			this._oitHasContributors = false;
+		}
+	}
+
+	private async _recordOITParticlePass(context: FrameContext): Promise<void> {
+		if (!this._encoder) {
+			return;
+		}
+		if (!this._mrtEnabled || !this._frameTargets) {
+			await this._recordParticlePass(context);
+			return;
+		}
+		const msaaTargets = this._msaaTargets;
+		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
+		if (!this._oitHasContributors) {
+			this._clearOITTargets();
+		}
+		const alphaParticleCount = await this._resources.renderParticles(
+			this._encoder,
+			context,
+			{
+				label: "WebGPUParticlesOIT",
+				colorAttachments: [
+					{
+						view: this._frameTargets.oitAccum,
+						loadOp: "load",
+						storeOp: "store",
+					},
+					{
+						view: this._frameTargets.oitReveal,
+						loadOp: "load",
+						storeOp: "store",
+					},
+				],
+				depth: depthAttachment,
+			},
+			"mrt",
+			{
+				includeBlendModes: [ParticleBlendMode.Alpha],
+				pipelineMode: "oit",
+			}
+		);
+		if (alphaParticleCount > 0) {
+			this._oitHasContributors = true;
+		}
+		if (this._oitHasContributors) {
+			await this._resolveOITComposition(context);
+		}
+		if (this._oitTransmissionPackets.length > 0) {
+			await this._drawTransmissionPackets(context, this._oitTransmissionPackets);
+		}
+		await this._resources.renderParticles(
+			this._encoder,
+			context,
+			{
+				label: "WebGPUParticlesMRT_Additive",
+				colorAttachments: [
+					{
+						view:
+							msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain,
+						resolveTarget:
+							msaaTargets ? this._frameTargets.sceneColorMain : undefined,
+						loadOp: "load",
+						storeOp: "store",
+					},
+				],
+				depth: depthAttachment,
+			},
+			"mrt",
+			{
+				includeBlendModes: [ParticleBlendMode.Additive],
+				pipelineMode: "legacy",
+			}
+		);
+		this._oitTransmissionPackets = [];
+		this._oitHasContributors = false;
+		this._oitNeedsTransmissionAfterParticles = false;
+	}
+
 	private async _recordMainPass(
 		context: FrameContext,
 		packets: DrawPacket[],
@@ -1681,13 +2368,25 @@ export class WebGPUFrameExecutor {
 				this._encoder,
 				context,
 				{
-					color:
-						msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain,
-					colorResolve:
-						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
+					label: "WebGPUParticlesMRT",
+					colorAttachments: [
+						{
+							view:
+								msaaTargets?.sceneColorMain ??
+								this._frameTargets.sceneColorMain,
+							resolveTarget:
+								msaaTargets ? this._frameTargets.sceneColorMain : undefined,
+							clearValue: { r: 0, g: 0, b: 0, a: 1 },
+							loadOp: "load",
+							storeOp: "store",
+						},
+					],
 					depth: msaaTargets?.depth ?? this._frameTargets.depth,
 				},
-				"mrt"
+				"mrt",
+				{
+					pipelineMode: "legacy",
+				}
 			);
 			return;
 		}
@@ -1696,10 +2395,21 @@ export class WebGPUFrameExecutor {
 			this._encoder,
 			context,
 			{
-				color: this._backend.getCanvasColorTexture(),
+				label: "WebGPUParticlesSingle",
+				colorAttachments: [
+					{
+						view: this._backend.getCanvasColorTexture(),
+						clearValue: { r: 0, g: 0, b: 0, a: 1 },
+						loadOp: "load",
+						storeOp: "store",
+					},
+				],
 				depth: this._backend.getCanvasDepthTexture(),
 			},
-			"single"
+			"single",
+			{
+				pipelineMode: "legacy",
+			}
 		);
 	}
 }

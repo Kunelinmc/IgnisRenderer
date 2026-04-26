@@ -104,6 +104,7 @@ export interface WebGPUFeatureState {
 	enableShadows: boolean;
 	enableReflection: boolean;
 	enableSkybox: boolean;
+	enableOIT: boolean;
 	enableSSAO: boolean;
 	enableSSGI: boolean;
 	enableTAA: boolean;

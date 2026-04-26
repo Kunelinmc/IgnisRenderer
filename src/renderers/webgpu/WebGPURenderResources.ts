@@ -48,7 +48,10 @@ import {
 	type WebGPUModelAnimationBindingState,
 } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
-import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
+import type {
+	WebGPUSceneTargetMode,
+	WebGPUTransparentPipelineMode,
+} from "./WebGPUPipelineLibrary";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
@@ -106,9 +109,15 @@ export interface WebGPUSkyboxDrawResources {
 }
 
 export interface WebGPUParticlePassTargets {
-	color: any;
-	colorResolve?: any;
+	colorAttachments: Array<{
+		view: any;
+		resolveTarget?: any;
+		clearValue?: { r: number; g: number; b: number; a: number };
+		loadOp: "clear" | "load";
+		storeOp: "store" | "discard";
+	}>;
 	depth: any;
+	label: string;
 }
 
 const WEBGPU_PARTICLE_BINDING_CACHE_MAX_AGE_FRAMES = 120;
@@ -120,6 +129,15 @@ interface WebGPUParticleBindingCacheEntry {
 	sampler: any;
 	uvTransformBuffer: IRenderBuffer;
 	lastUsedFrame: number;
+}
+
+interface WebGPUDrawResourceOptions {
+	transparentPipelineMode?: WebGPUTransparentPipelineMode;
+}
+
+interface WebGPUParticleRenderOptions {
+	includeBlendModes?: readonly ParticleBlendMode[];
+	pipelineMode?: "legacy" | "oit";
 }
 
 export class WebGPURenderResources {
@@ -145,6 +163,10 @@ export class WebGPURenderResources {
 	private _particleInstanceBuffer: IRenderBuffer | null = null;
 	private _particleInstanceCapacity = 0;
 	private _particlePipelineAlpha = new Map<
+		WebGPUSceneTargetMode,
+		IRenderPipeline
+	>();
+	private _particlePipelineOITAlpha = new Map<
 		WebGPUSceneTargetMode,
 		IRenderPipeline
 	>();
@@ -285,7 +307,11 @@ export class WebGPURenderResources {
 		if (plan.enableParticles) {
 			total++;
 			try {
-				await this._ensureParticleResources(plan.sceneTargetMode, 1);
+				await this._ensureParticleResources(
+					plan.sceneTargetMode,
+					1,
+					"legacy"
+				);
 				compiled++;
 			} catch (error) {
 				failed++;
@@ -347,6 +373,7 @@ export class WebGPURenderResources {
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,
 			enableSkybox: features.enableSkybox,
+			enableOIT: features.enableOIT,
 			enableSSAO: features.enableSSAO,
 			enableSSGI: features.enableSSGI,
 			enableTAA: features.enableTAA,
@@ -468,6 +495,7 @@ export class WebGPURenderResources {
 		this._pipelineLibrary.invalidateShaderRuntimeCaches();
 		this._particleShaderModule = null;
 		this._particlePipelineAlpha.clear();
+		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
 		this._clearParticleBindingCache();
 		this._clusteredLighting.onShaderRuntimeChanged();
@@ -484,6 +512,7 @@ export class WebGPURenderResources {
 		this._clearParticleBindingCache();
 		this._particleShaderModule = null;
 		this._particlePipelineAlpha.clear();
+		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
 		this._particleQuadBuffer?.destroy();
 		this._particleQuadBuffer = null;
@@ -607,8 +636,11 @@ export class WebGPURenderResources {
 	}
 
 	public async getDrawResources(
-		packet: DrawPacket
+		packet: DrawPacket,
+		options: WebGPUDrawResourceOptions = {}
 	): Promise<WebGPUDrawResources[] | null> {
+		const transparentPipelineMode =
+			options.transparentPipelineMode ?? "default";
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
@@ -631,7 +663,8 @@ export class WebGPURenderResources {
 			packet.material,
 			this._sceneTargetMode,
 			false,
-			topology
+			topology,
+			transparentPipelineMode
 		);
 		const solidTextures = solidMaterialData.textureSlots.map((slot, index) =>
 			this._textureRegistry.getTextureForSlot(slot.map, index)
@@ -671,7 +704,8 @@ export class WebGPURenderResources {
 				packet.material,
 				this._sceneTargetMode,
 				true,
-				topology
+				topology,
+				transparentPipelineMode
 			);
 			const wireTextures = wireMaterialData.textureSlots.map((slot, index) =>
 				this._textureRegistry.getTextureForSlot(slot.map, index)
@@ -725,22 +759,33 @@ export class WebGPURenderResources {
 		encoder: ICommandEncoder,
 		context: FrameContext,
 		targets: WebGPUParticlePassTargets,
-		mode: WebGPUSceneTargetMode
-	): Promise<void> {
+		mode: WebGPUSceneTargetMode,
+		options: WebGPUParticleRenderOptions = {}
+	): Promise<number> {
+		const includeBlendModes = options.includeBlendModes ?? null;
+		const pipelineMode = options.pipelineMode ?? "legacy";
 		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
-		if (!batches || batches.length === 0) return;
+		if (!batches || batches.length === 0) return 0;
 
-		const drawBatches = batches.filter((batch) => batch.particles.length > 0);
-		if (drawBatches.length === 0) return;
+		const drawBatches = batches.filter((batch) => {
+			if (batch.particles.length <= 0) {
+				return false;
+			}
+			if (!includeBlendModes || includeBlendModes.length === 0) {
+				return true;
+			}
+			return includeBlendModes.includes(batch.blendMode);
+		});
+		if (drawBatches.length === 0) return 0;
 
 		const totalParticles = drawBatches.reduce(
 			(sum, batch) => sum + batch.particles.length,
 			0
 		);
-		if (totalParticles <= 0) return;
+		if (totalParticles <= 0) return 0;
 
-		await this._ensureParticleResources(mode, totalParticles);
-		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return;
+		await this._ensureParticleResources(mode, totalParticles, pipelineMode);
+		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return 0;
 
 		const floatsPerInstance = WEBGPU_PARTICLE_INSTANCE_FLOATS;
 		const instanceData = new Float32Array(totalParticles * floatsPerInstance);
@@ -788,20 +833,19 @@ export class WebGPURenderResources {
 		this._backend.writeBuffer(this._particleInstanceBuffer, instanceData);
 		const frameBinding = this._frameBindings.getSceneBinding();
 		const alphaPipeline = this._particlePipelineAlpha.get(mode);
+		const oitAlphaPipeline = this._particlePipelineOITAlpha.get(mode);
 		const additivePipeline = this._particlePipelineAdditive.get(mode);
-		if (!alphaPipeline || !additivePipeline) return;
+		if (pipelineMode === "oit") {
+			if (!oitAlphaPipeline) {
+				return 0;
+			}
+		} else if (!alphaPipeline || !additivePipeline) {
+			return 0;
+		}
 
 		encoder.beginRenderPass({
-			label: mode === "mrt" ? "WebGPUParticlesMRT" : "WebGPUParticlesSingle",
-			colorAttachments: [
-				{
-					view: targets.color,
-					resolveTarget: targets.colorResolve,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: "load",
-					storeOp: "store",
-				},
-			],
+			label: targets.label,
+			colorAttachments: targets.colorAttachments,
 			depthStencilAttachment: {
 				view: targets.depth,
 				depthLoadOp: "load",
@@ -881,10 +925,15 @@ export class WebGPURenderResources {
 				range.batch.texture
 			);
 			this._backend.writeBuffer(uvTransformBuffer, uvTransformData);
-			const pipeline =
-				range.batch.blendMode === ParticleBlendMode.Additive ?
-					additivePipeline
-				:	alphaPipeline;
+			let pipeline: IRenderPipeline;
+			if (pipelineMode === "oit") {
+				pipeline = oitAlphaPipeline!;
+			} else {
+				pipeline =
+					range.batch.blendMode === ParticleBlendMode.Additive ?
+						additivePipeline!
+					:	alphaPipeline!;
+			}
 			encoder.setPipeline(pipeline);
 			encoder.setBindingGroup(1, particleBinding);
 			for (const rect of dirtyRects) {
@@ -895,6 +944,7 @@ export class WebGPURenderResources {
 
 		encoder.endRenderPass();
 		this._evictParticleBindings(activeCacheKeys);
+		return totalParticles;
 	}
 
 	private _evictParticleBindings(activeCacheKeys?: Set<string>): void {
@@ -955,7 +1005,8 @@ export class WebGPURenderResources {
 
 	private async _ensureParticleResources(
 		mode: WebGPUSceneTargetMode,
-		totalParticles: number
+		totalParticles: number,
+		pipelineMode: "legacy" | "oit"
 	): Promise<void> {
 		if (!this._particleShaderModule) {
 			const shader = await getWebGPUParticleShaderComposite();
@@ -982,8 +1033,12 @@ export class WebGPURenderResources {
 		}
 
 		this._ensureParticleInstanceBuffer(totalParticles);
-		this._ensureParticlePipeline(mode, ParticleBlendMode.Alpha);
-		this._ensureParticlePipeline(mode, ParticleBlendMode.Additive);
+		if (pipelineMode === "oit") {
+			this._ensureParticlePipeline(mode, "oit-alpha");
+		} else {
+			this._ensureParticlePipeline(mode, "alpha");
+			this._ensureParticlePipeline(mode, "additive");
+		}
 	}
 
 	private _ensureParticleInstanceBuffer(totalParticles: number): void {
@@ -1019,16 +1074,16 @@ export class WebGPURenderResources {
 
 	private _ensureParticlePipeline(
 		mode: WebGPUSceneTargetMode,
-		blendMode: ParticleBlendMode
+		pipelineType: "alpha" | "additive" | "oit-alpha"
 	): void {
 		const cache =
-			blendMode === ParticleBlendMode.Additive ?
-				this._particlePipelineAdditive
-			:	this._particlePipelineAlpha;
+			pipelineType === "additive" ? this._particlePipelineAdditive
+			: pipelineType === "oit-alpha" ? this._particlePipelineOITAlpha
+			: this._particlePipelineAlpha;
 		if (cache.has(mode) || !this._particleShaderModule) return;
 
 		const blend =
-			blendMode === ParticleBlendMode.Additive ?
+			pipelineType === "additive" ?
 				{
 					color: {
 						srcFactor: "src-alpha",
@@ -1071,9 +1126,52 @@ export class WebGPURenderResources {
 			}
 		}
 
+		const fragmentEntryPoint =
+			pipelineType === "oit-alpha" ? "fsMainOIT" : "fsMain";
+		const fragmentTargets =
+			pipelineType === "oit-alpha" ?
+				[
+					{
+						format: TextureFormat.RGBA16Float,
+						blend: {
+							color: {
+								srcFactor: "one",
+								dstFactor: "one",
+								operation: "add",
+							},
+							alpha: {
+								srcFactor: "one",
+								dstFactor: "one",
+								operation: "add",
+							},
+						},
+					},
+					{
+						format: TextureFormat.R8Unorm,
+						blend: {
+							color: {
+								srcFactor: "zero",
+								dstFactor: "one-minus-src",
+								operation: "add",
+							},
+							alpha: {
+								srcFactor: "zero",
+								dstFactor: "one-minus-src",
+								operation: "add",
+							},
+						},
+					},
+				]
+			:	[
+					{
+						format: colorFormat,
+						blend,
+					},
+				];
+
 		const pipeline = this._backend.createPipeline({
 			layout: this._layouts.particlePipelineLayout,
-			label: `WebGPUParticlePipeline_${blendMode}_${mode}`,
+			label: `WebGPUParticlePipeline_${pipelineType}_${mode}`,
 			vertex: {
 				module: this._particleShaderModule,
 				entryPoint: "vsMain",
@@ -1081,13 +1179,8 @@ export class WebGPURenderResources {
 			},
 			fragment: {
 				module: this._particleShaderModule,
-				entryPoint: "fsMain",
-				targets: [
-					{
-						format: colorFormat,
-						blend,
-					},
-				],
+				entryPoint: fragmentEntryPoint,
+				targets: fragmentTargets,
 			},
 			primitive: {
 				topology: "triangle-list" as any,

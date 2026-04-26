@@ -174,6 +174,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableShadows: true,
 			enableReflection: true,
 			enableSkybox: true,
+			enableOIT: false,
 			enableSSAO: false,
 			enableSSGI: false,
 			enableTAA: false,

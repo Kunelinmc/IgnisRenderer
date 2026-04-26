@@ -18,6 +18,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	shadows: "feature-shadows",
 	reflection: "feature-reflection",
 	skybox: "feature-skybox",
+	oit: "feature-oit",
 	ssao: "feature-ssao",
 	ssgi: "feature-ssgi",
 	taa: "feature-taa",
@@ -35,6 +36,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	shadows: "shadows",
 	reflection: "planar reflections",
 	skybox: "skybox rendering",
+	oit: "order-independent transparency",
 	ssao: "SSAO",
 	ssgi: "SSGI",
 	taa: "TAA",
@@ -111,6 +113,13 @@ export function resolveFeatureState(
 			request.enableSkybox,
 			capabilities.skybox,
 			"skybox",
+			backendType,
+			warnings
+		),
+		enableOIT: resolveBooleanFeature(
+			request.enableOIT,
+			capabilities.oit,
+			"oit",
 			backendType,
 			warnings
 		),

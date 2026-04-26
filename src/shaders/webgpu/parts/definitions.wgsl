@@ -120,6 +120,11 @@ struct SceneFragmentOutput {
 	@location(4) gMotionDepth: vec4<f32>,
 }
 
+struct SceneFragmentOITOutput {
+	@location(0) accum: vec4<f32>,
+	@location(1) reveal: vec4<f32>,
+}
+
 struct RefractionResult {
 	direction: vec3<f32>,
 	valid: f32,

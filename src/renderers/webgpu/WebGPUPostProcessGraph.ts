@@ -15,6 +15,9 @@ export interface WebGPUFrameTargets {
 	gEmissiveOcclusion: IRenderTexture;
 	gMotionDepth: IRenderTexture;
 	depth: IRenderTexture;
+	oitAccum: IRenderTexture;
+	oitReveal: IRenderTexture;
+	oitSceneColorCopy: IRenderTexture;
 	aoRaw: IRenderTexture;
 	aoBlur: IRenderTexture;
 	ssrRaw: IRenderTexture;

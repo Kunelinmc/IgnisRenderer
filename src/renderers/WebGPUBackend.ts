@@ -279,6 +279,7 @@ export class WebGPUBackend implements IRenderBackend {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
+		oit: true,
 	};
 
 	private _canvas: HTMLCanvasElement | null = null;

@@ -18,6 +18,10 @@ import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
 
 export type WebGPUSceneTargetMode = "single" | "mrt";
+export type WebGPUTransparentPipelineMode =
+	| "default"
+	| "transmission"
+	| "oit";
 const COLOR_WRITE_NONE = 0;
 const ALPHA_BLEND_STATE = {
 	color: {
@@ -34,10 +38,35 @@ const ALPHA_BLEND_STATE = {
 // Transmission shading currently outputs straight (non-premultiplied) color.
 // Use regular alpha blending to avoid over-bright transmission composition.
 const TRANSMISSION_BLEND_STATE = ALPHA_BLEND_STATE;
+const OIT_ACCUM_BLEND_STATE = {
+	color: {
+		srcFactor: "one",
+		dstFactor: "one",
+		operation: "add",
+	},
+	alpha: {
+		srcFactor: "one",
+		dstFactor: "one",
+		operation: "add",
+	},
+};
+const OIT_REVEAL_BLEND_STATE = {
+	color: {
+		srcFactor: "zero",
+		dstFactor: "one-minus-src",
+		operation: "add",
+	},
+	alpha: {
+		srcFactor: "zero",
+		dstFactor: "one-minus-src",
+		operation: "add",
+	},
+};
 
 interface CachedPipelineEntry {
 	key: string;
 	mode: WebGPUSceneTargetMode;
+	transparentMode: WebGPUTransparentPipelineMode;
 	shaderKey: string;
 	sampleCount: number;
 	topology: PrimitiveDrawTopology;
@@ -103,7 +132,8 @@ export class WebGPUPipelineLibrary {
 		material: Material,
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false,
-		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
+		transparentMode: WebGPUTransparentPipelineMode = "default"
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
@@ -116,6 +146,7 @@ export class WebGPUPipelineLibrary {
 			cached &&
 			cached.key === pipelineKey &&
 			cached.mode === mode &&
+			cached.transparentMode === transparentMode &&
 			cached.shaderKey === initialShaderKey &&
 			cached.sampleCount === sampleCount &&
 			cached.topology === topology
@@ -124,7 +155,7 @@ export class WebGPUPipelineLibrary {
 		}
 
 		const initialCacheKey =
-			`${pipelineKey}|${mode}|${initialShaderKey}` +
+			`${pipelineKey}|${mode}|${transparentMode}|${initialShaderKey}` +
 			`|topology:${topology}|msaa:${sampleCount}`;
 		let pipeline = this._pipelineCache.get(initialCacheKey);
 		if (!pipeline) {
@@ -132,12 +163,13 @@ export class WebGPUPipelineLibrary {
 				material,
 				mode,
 				isWireframe,
-				topology
+				topology,
+				transparentMode
 			);
 		}
 		const finalShaderKey = this._getShaderCacheKey(material);
 		const finalCacheKey =
-			`${pipelineKey}|${mode}|${finalShaderKey}` +
+			`${pipelineKey}|${mode}|${transparentMode}|${finalShaderKey}` +
 			`|topology:${topology}|msaa:${sampleCount}`;
 		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
 		if (cachedFinalPipeline) {
@@ -152,6 +184,7 @@ export class WebGPUPipelineLibrary {
 		this._materialPipelineCache.set(material, {
 			key: pipelineKey,
 			mode,
+			transparentMode,
 			shaderKey: finalShaderKey,
 			sampleCount,
 			topology,
@@ -165,20 +198,26 @@ export class WebGPUPipelineLibrary {
 		material: Material,
 		mode: WebGPUSceneTargetMode,
 		isWireframe: boolean,
-		topology: PrimitiveDrawTopology
+		topology: PrimitiveDrawTopology,
+		transparentMode: WebGPUTransparentPipelineMode
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
 		);
-		const sceneProgram = await this._resolveSceneProgram(material, mode);
+		const sceneProgram = await this._resolveSceneProgram(
+			material,
+			mode,
+			transparentMode
+		);
 		const isTransparent = isMaterialTransparentPass(material);
 		const usesTransmission = materialUsesTransmission(material);
 		const fragmentTargets = this._createSceneFragmentTargets(
 			mode,
 			isTransparent,
-			usesTransmission
+			usesTransmission,
+			transparentMode
 		);
 
 		const effectiveTopology = isWireframe ? "line-list" : topology;
@@ -231,11 +270,15 @@ export class WebGPUPipelineLibrary {
 	private _createSceneFragmentTargets(
 		mode: WebGPUSceneTargetMode,
 		isTransparent: boolean,
-		usesTransmission: boolean
+		usesTransmission: boolean,
+		transparentMode: WebGPUTransparentPipelineMode
 	): ColorTargetState[] {
+		const useTransmissionBlend =
+			transparentMode === "transmission" ||
+			(transparentMode === "default" && usesTransmission);
 		const colorBlend =
 			!isTransparent ? undefined
-			: usesTransmission ? TRANSMISSION_BLEND_STATE
+			: useTransmissionBlend ? TRANSMISSION_BLEND_STATE
 			: ALPHA_BLEND_STATE;
 		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
 
@@ -244,6 +287,19 @@ export class WebGPUPipelineLibrary {
 				{
 					format: this._backend.canvasFormat as any,
 					blend: colorBlend,
+				},
+			];
+		}
+
+		if (isTransparent && transparentMode === "oit") {
+			return [
+				{
+					format: TextureFormat.RGBA16Float,
+					blend: OIT_ACCUM_BLEND_STATE,
+				},
+				{
+					format: TextureFormat.R8Unorm,
+					blend: OIT_REVEAL_BLEND_STATE,
 				},
 			];
 		}
@@ -274,7 +330,8 @@ export class WebGPUPipelineLibrary {
 
 	private async _resolveSceneProgram(
 		material: Material,
-		mode: WebGPUSceneTargetMode
+		mode: WebGPUSceneTargetMode,
+		transparentMode: WebGPUTransparentPipelineMode
 	): Promise<WebGPUSceneProgram> {
 		if (!(material instanceof ShaderMaterial)) {
 			const shaderModule = await this._getSceneShaderModule();
@@ -282,7 +339,11 @@ export class WebGPUPipelineLibrary {
 				vertexModule: shaderModule,
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint: mode === "mrt" ? "fsMain" : "fsMainSingle",
+				fragmentEntryPoint:
+					mode === "mrt" ?
+						transparentMode === "oit" ? "fsMainOIT"
+						: "fsMain"
+					:	"fsMainSingle",
 			};
 		}
 
@@ -326,7 +387,11 @@ export class WebGPUPipelineLibrary {
 				vertexModule: shaderModule,
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint: mode === "mrt" ? "fsMain" : "fsMainSingle",
+				fragmentEntryPoint:
+					mode === "mrt" ?
+						transparentMode === "oit" ? "fsMainOIT"
+						: "fsMain"
+					:	"fsMainSingle",
 			};
 		}
 	}

@@ -69,6 +69,7 @@ export interface BackendCapabilities {
 	dof: boolean;
 	bloom: boolean;
 	clusteredLighting: boolean;
+	oit: boolean;
 }
 
 export interface RendererBackendBridge {

@@ -26,6 +26,7 @@ export enum TextureUsage {
 export enum TextureFormat {
 	RGBA8Unorm = "rgba8unorm",
 	BGRA8Unorm = "bgra8unorm",
+	R8Unorm = "r8unorm",
 	RGBA16Float = "rgba16float",
 	Depth24Plus = "depth24plus",
 	Depth32Float = "depth32float",
