@@ -52,6 +52,7 @@ export interface WebGLScenePassHost {
 	};
 	_sceneFramebuffer: WebGLFramebuffer | null;
 	_sceneNormalTexture: WebGLTexture | null;
+	_oitPassMode: 0 | 1 | 2;
 	_width: number;
 	_height: number;
 	_maxTextureImageUnits: number;
@@ -91,16 +92,25 @@ export interface WebGLScenePassHost {
 	): void;
 }
 
+export interface WebGLSceneRenderOptions {
+	framebuffer?: WebGLFramebuffer | null;
+	drawBuffers?: number[];
+	blendMode?: "legacy" | "oit-accum" | "oit-reveal";
+	oitPassMode?: 0 | 1 | 2;
+}
+
 export function renderWebGLPackets(
 	host: WebGLScenePassHost,
 	context: FrameContext,
 	packets: DrawPacket[],
-	transparent: boolean
+	transparent: boolean,
+	options: WebGLSceneRenderOptions = {}
 ): void {
 	if (packets.length === 0) {
 		return;
 	}
-	if (!host._sceneFramebuffer) {
+	const framebuffer = options.framebuffer ?? host._sceneFramebuffer;
+	if (!framebuffer) {
 		return;
 	}
 
@@ -110,60 +120,49 @@ export function renderWebGLPackets(
 	if (incrementalPartial && dirtyRects.length === 0) {
 		return;
 	}
-	gl.bindFramebuffer(gl.FRAMEBUFFER, host._sceneFramebuffer);
-	if (!transparent && host._sceneNormalTexture) {
-		gl.drawBuffers([
-			gl.COLOR_ATTACHMENT0,
-			gl.COLOR_ATTACHMENT1,
-			gl.COLOR_ATTACHMENT2,
-		]);
-	} else {
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+	const drawBuffers =
+		options.drawBuffers ??
+		(!transparent && host._sceneNormalTexture ?
+			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
+		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+	gl.drawBuffers(drawBuffers);
 	gl.activeTexture(gl.TEXTURE0);
 
 	gl.enable(gl.DEPTH_TEST);
 	gl.depthMask(!transparent);
 	if (transparent) {
 		gl.enable(gl.BLEND);
-		gl.blendFuncSeparate(
-			gl.SRC_ALPHA,
-			gl.ONE_MINUS_SRC_ALPHA,
-			gl.ONE,
-			gl.ONE_MINUS_SRC_ALPHA
-		);
+		switch (options.blendMode) {
+			case "oit-accum":
+				gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
+				break;
+			case "oit-reveal":
+				gl.blendFuncSeparate(
+					gl.ZERO,
+					gl.ONE_MINUS_SRC_ALPHA,
+					gl.ZERO,
+					gl.ONE_MINUS_SRC_ALPHA
+				);
+				break;
+			default:
+				gl.blendFuncSeparate(
+					gl.SRC_ALPHA,
+					gl.ONE_MINUS_SRC_ALPHA,
+					gl.ONE,
+					gl.ONE_MINUS_SRC_ALPHA
+				);
+				break;
+		}
 	} else {
 		gl.disable(gl.BLEND);
 	}
-
-	const drawPackets = (): void => {
-		let activeProgram: WebGLSceneProgram | null = null;
-		for (const packet of packets) {
-			const sceneProgram = host._programs.getSceneProgram(packet.material);
-			if (activeProgram !== sceneProgram) {
-				gl.useProgram(sceneProgram.program);
-				host._bindGlobalUniforms(sceneProgram, context);
-				activeProgram = sceneProgram;
-			}
-			host._drawPacket(sceneProgram, packet, transparent, context);
-		}
-	};
-	if (incrementalPartial) {
-		gl.enable(gl.SCISSOR_TEST);
-		for (const rect of dirtyRects) {
-			const rectPackets = host._resolvePacketsForRect(context, packets, rect);
-			if (rectPackets.length === 0) {
-				continue;
-			}
-			host._setScissorRect(
-				rect.x,
-				rect.y,
-				rect.width,
-				rect.height,
-				host._height
-			);
+	const previousOITPassMode = host._oitPassMode;
+	host._oitPassMode = options.oitPassMode ?? 0;
+	try {
+		const drawPackets = (): void => {
 			let activeProgram: WebGLSceneProgram | null = null;
-			for (const packet of rectPackets) {
+			for (const packet of packets) {
 				const sceneProgram = host._programs.getSceneProgram(packet.material);
 				if (activeProgram !== sceneProgram) {
 					gl.useProgram(sceneProgram.program);
@@ -172,10 +171,38 @@ export function renderWebGLPackets(
 				}
 				host._drawPacket(sceneProgram, packet, transparent, context);
 			}
+		};
+		if (incrementalPartial) {
+			gl.enable(gl.SCISSOR_TEST);
+			for (const rect of dirtyRects) {
+				const rectPackets = host._resolvePacketsForRect(context, packets, rect);
+				if (rectPackets.length === 0) {
+					continue;
+				}
+				host._setScissorRect(
+					rect.x,
+					rect.y,
+					rect.width,
+					rect.height,
+					host._height
+				);
+				let activeProgram: WebGLSceneProgram | null = null;
+				for (const packet of rectPackets) {
+					const sceneProgram = host._programs.getSceneProgram(packet.material);
+					if (activeProgram !== sceneProgram) {
+						gl.useProgram(sceneProgram.program);
+						host._bindGlobalUniforms(sceneProgram, context);
+						activeProgram = sceneProgram;
+					}
+					host._drawPacket(sceneProgram, packet, transparent, context);
+				}
+			}
+			gl.disable(gl.SCISSOR_TEST);
+		} else {
+			drawPackets();
 		}
-		gl.disable(gl.SCISSOR_TEST);
-	} else {
-		drawPackets();
+	} finally {
+		host._oitPassMode = previousOITPassMode;
 	}
 
 	const currentViewProjection = toFiniteColumnMajorMat4(
@@ -336,6 +363,9 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.alpha) {
 		gl.uniform4fv(sceneProgram.uniforms.alpha, uniforms.alpha);
+	}
+	if (sceneProgram.uniforms.oitPassMode) {
+		gl.uniform1i(sceneProgram.uniforms.oitPassMode, host._oitPassMode);
 	}
 	if (sceneProgram.uniforms.baseMap) {
 		gl.uniform1i(sceneProgram.uniforms.baseMap, WEBGL_TEXTURE_UNIT_BASE_MAP);

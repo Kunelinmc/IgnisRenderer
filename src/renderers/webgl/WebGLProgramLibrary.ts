@@ -38,6 +38,15 @@ export interface WebGLCopyProgram {
 	};
 }
 
+export interface WebGLOITResolveProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		oitAccumMap: WebGLUniformLocation | null;
+		oitRevealMap: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLSSAORawProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -223,6 +232,7 @@ export interface WebGLSceneProgram {
 		prevModel: WebGLUniformLocation | null;
 		fogParams0: WebGLUniformLocation | null;
 		fogParams1: WebGLUniformLocation | null;
+		oitPassMode: WebGLUniformLocation | null;
 		customSamplers: Record<string, WebGLUniformLocation | null>;
 	};
 }
@@ -260,6 +270,7 @@ export interface WebGLParticleProgram {
 		cameraPosition: WebGLUniformLocation | null;
 		fogParams0: WebGLUniformLocation | null;
 		fogParams1: WebGLUniformLocation | null;
+		oitPassMode: WebGLUniformLocation | null;
 	};
 }
 
@@ -346,6 +357,7 @@ export class WebGLProgramLibrary {
 
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
 	private _copyProgram: WebGLCopyProgram | null = null;
+	private _oitResolveProgram: WebGLOITResolveProgram | null = null;
 	private _ssaoRawProgram: WebGLSSAORawProgram | null = null;
 	private _ssaoBlurProgram: WebGLSSAOBlurProgram | null = null;
 	private _ssaoCombineProgram: WebGLSSAOCombineProgram | null = null;
@@ -782,6 +794,7 @@ export class WebGLProgramLibrary {
 				prevModel: this._gl.getUniformLocation(program, "uPrevModel"),
 				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
 				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
+				oitPassMode: this._gl.getUniformLocation(program, "uOITPassMode"),
 				customSamplers,
 			},
 		};
@@ -851,6 +864,7 @@ export class WebGLProgramLibrary {
 				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
 				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
 				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
+				oitPassMode: this._gl.getUniformLocation(program, "uOITPassMode"),
 			},
 		};
 		return this._particleProgram;
@@ -997,6 +1011,26 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._copyProgram;
+	}
+
+	public getOITResolveProgram(): WebGLOITResolveProgram {
+		if (this._oitResolveProgram) {
+			return this._oitResolveProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("oitResolveFragment"),
+			"WebGLOITResolveProgram",
+		);
+		this._oitResolveProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				oitAccumMap: this._gl.getUniformLocation(program, "uOITAccumMap"),
+				oitRevealMap: this._gl.getUniformLocation(program, "uOITRevealMap"),
+			},
+		};
+		return this._oitResolveProgram;
 	}
 
 	public getSSAORawProgram(): WebGLSSAORawProgram {
@@ -1430,6 +1464,10 @@ export class WebGLProgramLibrary {
 		if (this._copyProgram) {
 			this._gl.deleteProgram(this._copyProgram.program);
 			this._copyProgram = null;
+		}
+		if (this._oitResolveProgram) {
+			this._gl.deleteProgram(this._oitResolveProgram.program);
+			this._oitResolveProgram = null;
 		}
 		if (this._ssaoRawProgram) {
 			this._gl.deleteProgram(this._ssaoRawProgram.program);

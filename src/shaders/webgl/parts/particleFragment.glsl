@@ -14,9 +14,19 @@ uniform vec2 uUvTransformB;
 uniform int uMapIsLinear;
 uniform vec4 uFogParams0;
 uniform vec4 uFogParams1;
+uniform int uOITPassMode;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
+
+float resolveParticleOITWeight(float alpha, float viewDepth) {
+	float clampedAlpha = clamp(alpha, 0.0, 1.0);
+	float normalizedDepth = clamp(viewDepth / 400.0, 0.0, 1.0);
+	float depthWeight = clamp(1.0 - normalizedDepth, 0.05, 1.0);
+	float alphaWeight = max(clampedAlpha * 8.0 + 0.01, 0.01);
+	float weight = alphaWeight * alphaWeight * alphaWeight * depthWeight;
+	return clamp(weight, 1e-2, 3e3);
+}
 
 void main() {
 	float radialDistance = distance(vLocalUv, vec2(0.5, 0.5));
@@ -49,6 +59,18 @@ void main() {
 		uFogParams1.w
 	);
 	vec3 foggedColor = max(mix(color.rgb, uFogParams1.rgb, fogFactor), vec3(0.0));
-	fragColor = vec4(foggedColor, clamp(color.a, 0.0, 1.0));
+	float finalAlpha = clamp(color.a, 0.0, 1.0);
+	if (uOITPassMode == 1) {
+		float weight = resolveParticleOITWeight(finalAlpha, max(vViewDepth, 0.0));
+		fragColor = vec4(foggedColor * finalAlpha, finalAlpha) * weight;
+		fragMotion = vec4(0.0);
+		return;
+	}
+	if (uOITPassMode == 2) {
+		fragColor = vec4(finalAlpha);
+		fragMotion = vec4(0.0);
+		return;
+	}
+	fragColor = vec4(foggedColor, finalAlpha);
 	fragMotion = vec4(0, 0, 0, 1);
 }

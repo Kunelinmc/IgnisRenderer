@@ -89,7 +89,7 @@ export class WebGLBackend implements IRenderBackend {
 		dof: true,
 		bloom: true,
 		clusteredLighting: true,
-		oit: false,
+		oit: true,
 	};
 
 	private _renderer: RendererBackendBridge | null = null;

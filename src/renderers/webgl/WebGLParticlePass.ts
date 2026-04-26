@@ -40,6 +40,7 @@ export interface WebGLParticlePassHost {
 				mapIsLinear?: WebGLUniformLocation | string | null;
 				uvTransformA?: WebGLUniformLocation | string | null;
 				uvTransformB?: WebGLUniformLocation | string | null;
+				oitPassMode?: WebGLUniformLocation | string | null;
 			};
 		};
 	};
@@ -50,6 +51,7 @@ export interface WebGLParticlePassHost {
 		};
 	};
 	_sceneFramebuffer: WebGLFramebuffer | null;
+	_oitPassMode: 0 | 1 | 2;
 	_particleVao: WebGLVertexArrayObject | null;
 	_particleQuadBuffer: WebGLBuffer | null;
 	_particleInstanceBuffer: WebGLBuffer | null;
@@ -79,11 +81,20 @@ export interface WebGLParticlePassHost {
 	_bindParticleInstanceAttributes(): void;
 }
 
+export interface WebGLParticleRenderOptions {
+	framebuffer?: WebGLFramebuffer | null;
+	drawBuffers?: number[];
+	includeBlendModes?: ParticleBlendMode[];
+	oitPassMode?: 0 | 1 | 2;
+}
+
 export function renderWebGLParticles(
 	host: WebGLParticlePassHost,
-	context: FrameContext
+	context: FrameContext,
+	options: WebGLParticleRenderOptions = {}
 ): void {
-	if (!host._sceneFramebuffer) {
+	const framebuffer = options.framebuffer ?? host._sceneFramebuffer;
+	if (!framebuffer) {
 		return;
 	}
 
@@ -112,8 +123,10 @@ export function renderWebGLParticles(
 		return;
 	}
 
-	gl.bindFramebuffer(gl.FRAMEBUFFER, host._sceneFramebuffer);
-	gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+	gl.drawBuffers(
+		options.drawBuffers ?? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]
+	);
 	gl.useProgram(particleProgram.program);
 	gl.bindVertexArray(host._particleVao);
 	gl.enable(gl.DEPTH_TEST);
@@ -122,6 +135,14 @@ export function renderWebGLParticles(
 	gl.enable(gl.BLEND);
 	if (incrementalPartial) {
 		gl.enable(gl.SCISSOR_TEST);
+	}
+	const previousOITPassMode = host._oitPassMode;
+	host._oitPassMode = options.oitPassMode ?? 0;
+	if (particleProgram.uniforms.oitPassMode) {
+		gl.uniform1i(
+			particleProgram.uniforms.oitPassMode as WebGLUniformLocation,
+			host._oitPassMode
+		);
 	}
 
 	if (particleProgram.uniforms.viewProjection) {
@@ -179,80 +200,104 @@ export function renderWebGLParticles(
 		);
 	}
 
-	for (const batch of batches) {
-		const preflightCount = Math.min(
-			PARTICLE_MAX_INSTANCES_PER_DRAW,
-			batch?.particles?.length ?? 0
-		);
-		if (preflightCount <= 0) {
-			continue;
-		}
-
-		host._ensureParticleCapacity(preflightCount);
-		const instanceCount = host._writeParticleInstances(batch);
-		if (instanceCount <= 0 || !host._particleInstanceBuffer) {
-			continue;
-		}
-		gl.bindBuffer(gl.ARRAY_BUFFER, host._particleInstanceBuffer);
-		gl.bufferSubData(
-			gl.ARRAY_BUFFER,
-			0,
-			host._particleScratch.subarray(0, instanceCount * PARTICLE_INSTANCE_FLOATS)
-		);
-
-		const resolvedTexture = host._textures.getBaseColorTexture(batch.texture ?? null);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, resolvedTexture.texture);
-		if (particleProgram.uniforms.mapIsLinear) {
-			gl.uniform1i(
-				particleProgram.uniforms.mapIsLinear as WebGLUniformLocation,
-				resolvedTexture.isLinear ? 1 : 0
+	try {
+		for (const batch of batches) {
+			if (
+				options.includeBlendModes &&
+				!options.includeBlendModes.includes(batch.blendMode)
+			) {
+				continue;
+			}
+			const preflightCount = Math.min(
+				PARTICLE_MAX_INSTANCES_PER_DRAW,
+				batch?.particles?.length ?? 0
 			);
-		}
+			if (preflightCount <= 0) {
+				continue;
+			}
 
-		const uvTransform = resolveTextureUVTransform(batch.texture);
-		if (particleProgram.uniforms.uvTransformA) {
-			gl.uniform4f(
-				particleProgram.uniforms.uvTransformA as WebGLUniformLocation,
-				uvTransform.repeatX,
-				uvTransform.repeatY,
-				uvTransform.offsetX,
-				uvTransform.offsetY
+			host._ensureParticleCapacity(preflightCount);
+			const instanceCount = host._writeParticleInstances(batch);
+			if (instanceCount <= 0 || !host._particleInstanceBuffer) {
+				continue;
+			}
+			gl.bindBuffer(gl.ARRAY_BUFFER, host._particleInstanceBuffer);
+			gl.bufferSubData(
+				gl.ARRAY_BUFFER,
+				0,
+				host._particleScratch.subarray(
+					0,
+					instanceCount * PARTICLE_INSTANCE_FLOATS
+				)
 			);
-		}
-		if (particleProgram.uniforms.uvTransformB) {
-			gl.uniform2f(
-				particleProgram.uniforms.uvTransformB as WebGLUniformLocation,
-				uvTransform.cosRotation,
-				uvTransform.sinRotation
-			);
-		}
 
-		if (batch.blendMode === ParticleBlendMode.Additive) {
-			gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
-		} else {
-			gl.blendFuncSeparate(
-				gl.SRC_ALPHA,
-				gl.ONE_MINUS_SRC_ALPHA,
-				gl.ONE,
-				gl.ONE_MINUS_SRC_ALPHA
+			const resolvedTexture = host._textures.getBaseColorTexture(
+				batch.texture ?? null
 			);
-		}
-
-		if (incrementalPartial) {
-			for (const rect of dirtyRects) {
-				host._setScissorRect(
-					rect.x,
-					rect.y,
-					rect.width,
-					rect.height,
-					host._height
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, resolvedTexture.texture);
+			if (particleProgram.uniforms.mapIsLinear) {
+				gl.uniform1i(
+					particleProgram.uniforms.mapIsLinear as WebGLUniformLocation,
+					resolvedTexture.isLinear ? 1 : 0
 				);
+			}
+
+			const uvTransform = resolveTextureUVTransform(batch.texture);
+			if (particleProgram.uniforms.uvTransformA) {
+				gl.uniform4f(
+					particleProgram.uniforms.uvTransformA as WebGLUniformLocation,
+					uvTransform.repeatX,
+					uvTransform.repeatY,
+					uvTransform.offsetX,
+					uvTransform.offsetY
+				);
+			}
+			if (particleProgram.uniforms.uvTransformB) {
+				gl.uniform2f(
+					particleProgram.uniforms.uvTransformB as WebGLUniformLocation,
+					uvTransform.cosRotation,
+					uvTransform.sinRotation
+				);
+			}
+
+			if (host._oitPassMode === 1) {
+				gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
+			} else if (host._oitPassMode === 2) {
+				gl.blendFuncSeparate(
+					gl.ZERO,
+					gl.ONE_MINUS_SRC_ALPHA,
+					gl.ZERO,
+					gl.ONE_MINUS_SRC_ALPHA
+				);
+			} else if (batch.blendMode === ParticleBlendMode.Additive) {
+				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+			} else {
+				gl.blendFuncSeparate(
+					gl.SRC_ALPHA,
+					gl.ONE_MINUS_SRC_ALPHA,
+					gl.ONE,
+					gl.ONE_MINUS_SRC_ALPHA
+				);
+			}
+
+			if (incrementalPartial) {
+				for (const rect of dirtyRects) {
+					host._setScissorRect(
+						rect.x,
+						rect.y,
+						rect.width,
+						rect.height,
+						host._height
+					);
+					gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
+				}
+			} else {
 				gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
 			}
-		} else {
-			gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, instanceCount);
 		}
+	} finally {
+		host._oitPassMode = previousOITPassMode;
 	}
 
 	gl.blendFuncSeparate(

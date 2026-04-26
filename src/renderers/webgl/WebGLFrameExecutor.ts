@@ -5,6 +5,7 @@ import {
 	AlphaMode,
 	type Material,
 } from "../../materials/Material";
+import { materialUsesTransmission } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
@@ -95,6 +96,7 @@ import {
 } from "./WebGLMaterialUniformResolver";
 import { Logger } from "../../foundation/Logger";
 import {
+	bindWebGLOITSingleColorTarget,
 	bindWebGLPostSingleColorTarget,
 	destroyWebGLFrameTargets,
 	ensureWebGLFrameTargets,
@@ -179,6 +181,9 @@ export class WebGLFrameExecutor {
 	private _sceneMotionTexture: WebGLTexture | null = null;
 	private _sceneNormalTexture: WebGLTexture | null = null;
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
+	private _oitFramebuffer: WebGLFramebuffer | null = null;
+	private _oitAccumTexture: WebGLTexture | null = null;
+	private _oitRevealTexture: WebGLTexture | null = null;
 	private _shadowFramebuffer: WebGLFramebuffer | null = null;
 	private _shadowAtlasTexture: WebGLTexture | null = null;
 	private _shadowAtlasTileSize = 0;
@@ -226,6 +231,11 @@ export class WebGLFrameExecutor {
 	private _interactionOutlineCircles = new Float32Array(
 		MAX_INTERACTION_OUTLINE_CIRCLES * 4
 	);
+	private _oitPassMode: 0 | 1 | 2 = 0;
+	private _oitActive = false;
+	private _oitHasContributors = false;
+	private _oitLegacyTransparentPackets: DrawPacket[] = [];
+	private _oitNeedsLegacyAfterParticles = false;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 
 	constructor(
@@ -272,7 +282,12 @@ export class WebGLFrameExecutor {
 			DEFAULT_SSAO_OPTIONS.downsample
 		);
 		this._ensureFrameTargets(this._width, this._height, ssaoDownsample);
+		this._configureOIT(context);
 		this._presentSourceTexture = this._sceneColorTexture;
+		this._oitPassMode = 0;
+		this._oitHasContributors = false;
+		this._oitLegacyTransparentPackets = [];
+		this._oitNeedsLegacyAfterParticles = false;
 		this._syncShadowMetadata(context);
 		this._lightState = collectWebGLLights(
 			context.scene.lights,
@@ -415,6 +430,11 @@ export class WebGLFrameExecutor {
 		if (plan.enableParticles) {
 			compile("WebGLParticleProgram", () => {
 				this._programs.getParticleProgram();
+			});
+		}
+		if (context.features.enableOIT) {
+			compile("WebGLOITResolveProgram", () => {
+				this._programs.getOITResolveProgram();
 			});
 		}
 
@@ -567,12 +587,20 @@ export class WebGLFrameExecutor {
 			[
 				"main-transparent",
 				(context) => {
+					if (this._oitActive) {
+						this._renderOITTransparentPass(context);
+						return;
+					}
 					this._renderPackets(context, context.scene.transparentPackets, true);
 				},
 			],
 			[
 				"particles",
 				(context) => {
+					if (this._oitActive) {
+						this._renderOITParticlePass(context);
+						return;
+					}
 					this._renderParticles(context);
 				},
 			],
@@ -708,6 +736,54 @@ export class WebGLFrameExecutor {
 				},
 			},
 		];
+	}
+
+	private _configureOIT(context: FrameContext): void {
+		if (context.features.enableOIT !== true) {
+			this._oitActive = false;
+			return;
+		}
+		if (
+			!this._oitFramebuffer ||
+			!this._oitAccumTexture ||
+			!this._oitRevealTexture ||
+			!this._postFramebuffer ||
+			!this._postColorTexture
+		) {
+			const key = "webgl-oit-disabled-runtime";
+			Logger.warn(
+				`[${key}] WebGL OIT requires float color-buffer render targets; falling back to legacy transparent rendering.`,
+				{
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				}
+			);
+			this._oitActive = false;
+			return;
+		}
+		this._oitActive = true;
+	}
+
+	private _partitionTransparentPackets(packets: DrawPacket[]): {
+		oitPackets: DrawPacket[];
+		legacyPackets: DrawPacket[];
+	} {
+		const oitPackets: DrawPacket[] = [];
+		const legacyPackets: DrawPacket[] = [];
+		for (const packet of packets) {
+			if (
+				materialUsesTransmission(packet.material) ||
+				packet.material instanceof ShaderMaterial
+			) {
+				legacyPackets.push(packet);
+				continue;
+			}
+			oitPackets.push(packet);
+		}
+		return {
+			oitPackets,
+			legacyPackets,
+		};
 	}
 
 	private _syncShadowMetadata(context: FrameContext): void {
@@ -996,13 +1072,20 @@ export class WebGLFrameExecutor {
 	private _renderPackets(
 		context: FrameContext,
 		packets: DrawPacket[],
-		transparent: boolean
+		transparent: boolean,
+		options: {
+			framebuffer?: WebGLFramebuffer | null;
+			drawBuffers?: number[];
+			blendMode?: "legacy" | "oit-accum" | "oit-reveal";
+			oitPassMode?: 0 | 1 | 2;
+		} = {}
 	): void {
 		renderWebGLPackets(
 			this as unknown as WebGLScenePassHost,
 			context,
 			packets,
-			transparent
+			transparent,
+			options
 		);
 	}
 
@@ -1032,8 +1115,202 @@ export class WebGLFrameExecutor {
 		);
 	}
 
-	private _renderParticles(context: FrameContext): void {
-		renderWebGLParticles(this as unknown as WebGLParticlePassHost, context);
+	private _renderParticles(
+		context: FrameContext,
+		options: {
+			framebuffer?: WebGLFramebuffer | null;
+			drawBuffers?: number[];
+			includeBlendModes?: ParticleBlendMode[];
+			oitPassMode?: 0 | 1 | 2;
+		} = {}
+	): void {
+		renderWebGLParticles(
+			this as unknown as WebGLParticlePassHost,
+			context,
+			options
+		);
+	}
+
+	private _clearOITTargets(): void {
+		if (!this._oitFramebuffer || !this._oitAccumTexture || !this._oitRevealTexture) {
+			return;
+		}
+		const gl = this._gl;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._oitFramebuffer);
+		this._bindOITSingleColorTarget(this._oitAccumTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.disable(gl.BLEND);
+		gl.clearColor(0, 0, 0, 0);
+		gl.clear(gl.COLOR_BUFFER_BIT);
+		this._bindOITSingleColorTarget(this._oitRevealTexture);
+		gl.clearColor(1, 1, 1, 1);
+		gl.clear(gl.COLOR_BUFFER_BIT);
+	}
+
+	private _copySceneColorForOITResolve(context: FrameContext): boolean {
+		if (
+			!this._postFramebuffer ||
+			!this._postColorTexture ||
+			!this._sceneColorTexture ||
+			!this._fullscreenVao
+		) {
+			return false;
+		}
+		const gl = this._gl;
+		const copyProgram = this._programs.getCopyProgram();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(this._postColorTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(copyProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, this._sceneColorTexture);
+		if (copyProgram.uniforms.sourceMap) {
+			gl.uniform1i(copyProgram.uniforms.sourceMap, 0);
+		}
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			context
+		);
+		gl.bindVertexArray(null);
+		return true;
+	}
+
+	private _resolveOITComposition(context: FrameContext): void {
+		if (
+			!this._oitHasContributors ||
+			!this._sceneFramebuffer ||
+			!this._sceneColorTexture ||
+			!this._postColorTexture ||
+			!this._oitAccumTexture ||
+			!this._oitRevealTexture ||
+			!this._fullscreenVao
+		) {
+			return;
+		}
+		if (!this._copySceneColorForOITResolve(context)) {
+			return;
+		}
+		const gl = this._gl;
+		const resolveProgram = this._programs.getOITResolveProgram();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(resolveProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, this._postColorTexture);
+		if (resolveProgram.uniforms.sceneColor) {
+			gl.uniform1i(resolveProgram.uniforms.sceneColor, 0);
+		}
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, this._oitAccumTexture);
+		if (resolveProgram.uniforms.oitAccumMap) {
+			gl.uniform1i(resolveProgram.uniforms.oitAccumMap, 1);
+		}
+		gl.activeTexture(gl.TEXTURE2);
+		gl.bindTexture(gl.TEXTURE_2D, this._oitRevealTexture);
+		if (resolveProgram.uniforms.oitRevealMap) {
+			gl.uniform1i(resolveProgram.uniforms.oitRevealMap, 2);
+		}
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			context
+		);
+		gl.bindVertexArray(null);
+		gl.activeTexture(gl.TEXTURE0);
+		this._presentSourceTexture = this._sceneColorTexture;
+	}
+
+	private _renderOITTransparentPass(context: FrameContext): void {
+		if (!this._oitActive || !this._oitFramebuffer) {
+			this._renderPackets(context, context.scene.transparentPackets, true);
+			return;
+		}
+		const { oitPackets, legacyPackets } = this._partitionTransparentPackets(
+			context.scene.transparentPackets
+		);
+		this._oitLegacyTransparentPackets = legacyPackets;
+		this._oitNeedsLegacyAfterParticles =
+			(context.scene.particleSystems?.length ?? 0) > 0;
+		this._oitHasContributors = false;
+		if (oitPackets.length > 0) {
+			this._clearOITTargets();
+			// WebGL cannot assign different blend states per attachment, so OIT
+			// accum and reveal are emitted as separate draws.
+			this._renderPackets(context, oitPackets, true, {
+				framebuffer: this._oitFramebuffer,
+				drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+				blendMode: "oit-accum",
+				oitPassMode: 1,
+			});
+			this._renderPackets(context, oitPackets, true, {
+				framebuffer: this._oitFramebuffer,
+				drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+				blendMode: "oit-reveal",
+				oitPassMode: 2,
+			});
+			this._oitHasContributors = true;
+		}
+		if (!this._oitNeedsLegacyAfterParticles) {
+			if (this._oitHasContributors) {
+				this._resolveOITComposition(context);
+			}
+			if (this._oitLegacyTransparentPackets.length > 0) {
+				this._renderPackets(
+					context,
+					this._oitLegacyTransparentPackets,
+					true
+				);
+			}
+			this._oitLegacyTransparentPackets = [];
+			this._oitHasContributors = false;
+		}
+	}
+
+	private _renderOITParticlePass(context: FrameContext): void {
+		if (!this._oitActive || !this._oitFramebuffer) {
+			this._renderParticles(context);
+			return;
+		}
+		if (!this._oitHasContributors) {
+			this._clearOITTargets();
+		}
+		// Match mesh OIT routing: alpha particles render accum/reveal
+		// sequentially, additive particles remain on the legacy path.
+		this._renderParticles(context, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			includeBlendModes: [ParticleBlendMode.Alpha],
+			oitPassMode: 1,
+		});
+		this._renderParticles(context, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			includeBlendModes: [ParticleBlendMode.Alpha],
+			oitPassMode: 2,
+		});
+		this._oitHasContributors = true;
+		if (this._oitHasContributors) {
+			this._resolveOITComposition(context);
+		}
+		if (this._oitLegacyTransparentPackets.length > 0) {
+			this._renderPackets(context, this._oitLegacyTransparentPackets, true);
+		}
+		this._renderParticles(context, {
+			includeBlendModes: [ParticleBlendMode.Additive],
+		});
+		this._oitLegacyTransparentPackets = [];
+		this._oitHasContributors = false;
+		this._oitNeedsLegacyAfterParticles = false;
 	}
 
 	private _writeParticleInstances(batch: ParticleRenderBatch): number {
@@ -2119,6 +2396,13 @@ export class WebGLFrameExecutor {
 
 	private _bindPostSingleColorTarget(texture: WebGLTexture): void {
 		bindWebGLPostSingleColorTarget(
+			this as unknown as WebGLFrameTargetLifecycleHost,
+			texture
+		);
+	}
+
+	private _bindOITSingleColorTarget(texture: WebGLTexture): void {
+		bindWebGLOITSingleColorTarget(
 			this as unknown as WebGLFrameTargetLifecycleHost,
 			texture
 		);

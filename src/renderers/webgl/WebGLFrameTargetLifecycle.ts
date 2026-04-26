@@ -10,6 +10,9 @@ export interface WebGLFrameTargetLifecycleHost {
 	_sceneMotionTexture: WebGLTexture | null;
 	_sceneNormalTexture: WebGLTexture | null;
 	_sceneDepthBuffer: WebGLRenderbuffer | null;
+	_oitFramebuffer: WebGLFramebuffer | null;
+	_oitAccumTexture: WebGLTexture | null;
+	_oitRevealTexture: WebGLTexture | null;
 	_taaHistoryTextures: [WebGLTexture | null, WebGLTexture | null];
 	_taaMotionHistoryTextures: [WebGLTexture | null, WebGLTexture | null];
 	_taaHistoryIndex: number;
@@ -84,6 +87,35 @@ export function bindWebGLPostSingleColorTarget(
 	gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 }
 
+export function bindWebGLOITSingleColorTarget(
+	host: WebGLFrameTargetLifecycleHost,
+	texture: WebGLTexture
+): void {
+	const gl = host._gl;
+	gl.framebufferTexture2D(
+		gl.FRAMEBUFFER,
+		gl.COLOR_ATTACHMENT0,
+		gl.TEXTURE_2D,
+		texture,
+		0
+	);
+	gl.framebufferTexture2D(
+		gl.FRAMEBUFFER,
+		gl.COLOR_ATTACHMENT1,
+		gl.TEXTURE_2D,
+		null,
+		0
+	);
+	gl.framebufferTexture2D(
+		gl.FRAMEBUFFER,
+		gl.COLOR_ATTACHMENT2,
+		gl.TEXTURE_2D,
+		null,
+		0
+	);
+	gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+}
+
 export function resolveWebGLPostProcessTargetTexture(
 	host: WebGLFrameTargetLifecycleHost,
 	sourceTexture: WebGLTexture
@@ -106,12 +138,19 @@ export function ensureWebGLFrameTargets(
 	height: number,
 	ssaoDownsample: number
 ): void {
+	const supportsFloatColorBuffer = !!host._gl.getExtension(
+		"EXT_color_buffer_float"
+	);
 	if (
 		host._sceneFramebuffer &&
 		host._sceneColorTexture &&
 		host._sceneMotionTexture &&
 		host._sceneNormalTexture &&
 		host._sceneDepthBuffer &&
+		(!supportsFloatColorBuffer ||
+			(host._oitFramebuffer &&
+				host._oitAccumTexture &&
+				host._oitRevealTexture)) &&
 		host._postFramebuffer &&
 		host._postColorTexture &&
 		host._ssaoRawTexture &&
@@ -138,8 +177,6 @@ export function ensureWebGLFrameTargets(
 
 	destroyWebGLFrameTargets(host);
 	const gl = host._gl;
-
-	const supportsFloatColorBuffer = !!gl.getExtension("EXT_color_buffer_float");
 	const colorInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
 	const colorType = supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
 	const motionInternalFormat = supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
@@ -182,6 +219,27 @@ export function ensureWebGLFrameTargets(
 		normalType
 	);
 	const sceneDepthBuffer = gl.createRenderbuffer();
+	const oitFramebuffer = supportsFloatColorBuffer ? gl.createFramebuffer() : null;
+	const oitAccumTexture =
+		supportsFloatColorBuffer ?
+			createColorTexture(
+				gl,
+				width,
+				height,
+				gl.RGBA16F,
+				gl.HALF_FLOAT
+			)
+		:	null;
+	const oitRevealTexture =
+		supportsFloatColorBuffer ?
+			createColorTexture(
+				gl,
+				width,
+				height,
+				gl.RGBA8,
+				gl.UNSIGNED_BYTE
+			)
+		:	null;
 	const postFramebuffer = gl.createFramebuffer();
 	const postColorTexture = createColorTexture(
 		gl,
@@ -250,6 +308,15 @@ export function ensureWebGLFrameTargets(
 		if (sceneDepthBuffer) {
 			gl.deleteRenderbuffer(sceneDepthBuffer);
 		}
+		if (oitFramebuffer) {
+			gl.deleteFramebuffer(oitFramebuffer);
+		}
+		if (oitAccumTexture) {
+			gl.deleteTexture(oitAccumTexture);
+		}
+		if (oitRevealTexture) {
+			gl.deleteTexture(oitRevealTexture);
+		}
 		if (postFramebuffer) {
 			gl.deleteFramebuffer(postFramebuffer);
 		}
@@ -282,6 +349,8 @@ export function ensureWebGLFrameTargets(
 		!sceneMotionTexture ||
 		!sceneNormalTexture ||
 		!sceneDepthBuffer ||
+		(supportsFloatColorBuffer &&
+			(!oitFramebuffer || !oitAccumTexture || !oitRevealTexture)) ||
 		!postFramebuffer ||
 		!postColorTexture ||
 		!ssaoRawTexture ||
@@ -346,6 +415,39 @@ export function ensureWebGLFrameTargets(
 		);
 	}
 
+	if (oitFramebuffer && oitAccumTexture && oitRevealTexture) {
+		gl.bindFramebuffer(gl.FRAMEBUFFER, oitFramebuffer);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			oitAccumTexture,
+			0
+		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT1,
+			gl.TEXTURE_2D,
+			oitRevealTexture,
+			0
+		);
+		gl.framebufferRenderbuffer(
+			gl.FRAMEBUFFER,
+			gl.DEPTH_ATTACHMENT,
+			gl.RENDERBUFFER,
+			sceneDepthBuffer
+		);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+		status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+		if (status !== gl.FRAMEBUFFER_COMPLETE) {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			cleanupAllocatedTargets();
+			throw new Error(
+				`WebGL OIT framebuffer is incomplete (status=0x${status.toString(16)})`
+			);
+		}
+	}
+
 	gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
 	gl.framebufferTexture2D(
 		gl.FRAMEBUFFER,
@@ -368,6 +470,9 @@ export function ensureWebGLFrameTargets(
 	host._sceneMotionTexture = sceneMotionTexture;
 	host._sceneNormalTexture = sceneNormalTexture;
 	host._sceneDepthBuffer = sceneDepthBuffer;
+	host._oitFramebuffer = oitFramebuffer;
+	host._oitAccumTexture = oitAccumTexture;
+	host._oitRevealTexture = oitRevealTexture;
 	host._taaHistoryTextures = [history0, history1];
 	host._taaMotionHistoryTextures = [motionHistory0, motionHistory1];
 	host._taaHistoryIndex = 0;
@@ -406,6 +511,18 @@ export function destroyWebGLFrameTargets(
 	if (host._sceneDepthBuffer) {
 		gl.deleteRenderbuffer(host._sceneDepthBuffer);
 		host._sceneDepthBuffer = null;
+	}
+	if (host._oitFramebuffer) {
+		gl.deleteFramebuffer(host._oitFramebuffer);
+		host._oitFramebuffer = null;
+	}
+	if (host._oitAccumTexture) {
+		gl.deleteTexture(host._oitAccumTexture);
+		host._oitAccumTexture = null;
+	}
+	if (host._oitRevealTexture) {
+		gl.deleteTexture(host._oitRevealTexture);
+		host._oitRevealTexture = null;
 	}
 	for (const texture of host._taaHistoryTextures) {
 		if (texture) {

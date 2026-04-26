@@ -120,6 +120,7 @@ uniform vec2 uClusterIndexTexSize;
 uniform vec2 uClusterLightTexSize;
 uniform vec4 uFogParams0;
 uniform vec4 uFogParams1;
+uniform int uOITPassMode;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragMotion;
@@ -128,6 +129,15 @@ layout(location = 2) out vec4 fragNormal;
 vec3 safeNormalize(vec3 value, vec3 fallback) {
 	float len = length(value);
 	return len > EPSILON ? value / len : fallback;
+}
+
+float resolveOITWeight(float alpha, float linearDepth) {
+	float clampedAlpha = clamp(alpha, 0.0, 1.0);
+	float normalizedDepth = clamp(linearDepth / 400.0, 0.0, 1.0);
+	float depthWeight = clamp(1.0 - normalizedDepth, 0.05, 1.0);
+	float alphaWeight = max(clampedAlpha * 8.0 + 0.01, 0.01);
+	float weight = alphaWeight * alphaWeight * alphaWeight * depthWeight;
+	return clamp(weight, 1e-2, 3e3);
 }
 
 vec2 resolveUV(int uvSet) {
@@ -1577,7 +1587,22 @@ void main() {
 		uFogParams1.w
 	);
 	color = max(mix(color, uFogParams1.rgb, fogFactor), vec3(0.0));
-	fragColor = vec4(max(color, vec3(0.0)), alpha);
+	vec3 finalColor = max(color, vec3(0.0));
+	float finalAlpha = clamp(alpha, 0.0, 1.0);
+	if (uOITPassMode == 1) {
+		float weight = resolveOITWeight(finalAlpha, max(vViewDepth, 0.0));
+		fragColor = vec4(finalColor * finalAlpha, finalAlpha) * weight;
+		fragMotion = vec4(0.0);
+		fragNormal = vec4(0.0);
+		return;
+	}
+	if (uOITPassMode == 2) {
+		fragColor = vec4(finalAlpha);
+		fragMotion = vec4(0.0);
+		fragNormal = vec4(0.0);
+		return;
+	}
+	fragColor = vec4(finalColor, finalAlpha);
 	fragNormal = vec4(normal * 0.5 + 0.5, 1.0);
 	vec2 curUV = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;
 	vec2 prevUV = (vPrevClip.xy / vPrevClip.w) * 0.5 + 0.5;
