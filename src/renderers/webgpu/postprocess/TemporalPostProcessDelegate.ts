@@ -15,7 +15,7 @@ import {
 	type IShaderModule,
 } from "../../types";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
-import { ceilDiv, finiteOr } from "../../../maths/screenSpaceMath";
+import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import type { WebGPULightingState } from "../types";
 import {

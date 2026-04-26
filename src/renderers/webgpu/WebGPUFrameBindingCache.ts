@@ -22,10 +22,7 @@ import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import {
-	computeHaltonJitterNDC,
-	finiteOr,
-} from "../../maths/screenSpaceMath";
+import { computeHaltonJitterNDC, finiteOr } from "../../maths/Misc";
 import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";

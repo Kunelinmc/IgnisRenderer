@@ -36,7 +36,7 @@ import {
 	structOf,
 	vec,
 } from "../StructuredBufferLayout";
-import { ceilDiv, finiteOr } from "../../../maths/screenSpaceMath";
+import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
