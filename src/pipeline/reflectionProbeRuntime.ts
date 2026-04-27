@@ -21,6 +21,8 @@ export const REFLECTION_PROBE_WEIGHT_EPSILON = 1e-6;
 const REFLECTION_PROBE_RAY_EPSILON = 1e-5;
 
 const _atlasCacheByKey = new Map<string, Texture>();
+const _textureIdentityByTexture = new WeakMap<Texture, number>();
+let _nextTextureIdentity = 0;
 
 export interface ReflectionProbeSelectionResult {
 	firstIndex: number;
@@ -344,8 +346,9 @@ export function buildReflectionProbeAtlasTexture(
 			return null;
 		}
 		maps.push(normalizedMap);
+		const textureIdentity = resolveTextureIdentity(sourceMap);
 		atlasKeyParts.push(
-			`${probe.id}:${sourceMap.version}:${normalizedMap.width}x${normalizedMap.height}:${getEnvironmentMipLevelCount(normalizedMap)}`
+			`${probe.id}:r${probe.captureRevision}:t${textureIdentity}:v${sourceMap.version}:${normalizedMap.width}x${normalizedMap.height}:${getEnvironmentMipLevelCount(normalizedMap)}`
 		);
 	}
 
@@ -636,4 +639,14 @@ function blitMipIntoAtlas(
 		const targetStart = row * targetRowWidth + targetStartPixel;
 		target.set(source.subarray(sourceStart, sourceStart + sourceRowWidth), targetStart);
 	}
+}
+
+function resolveTextureIdentity(texture: Texture): number {
+	const cached = _textureIdentityByTexture.get(texture);
+	if (cached !== undefined) {
+		return cached;
+	}
+	const identity = ++_nextTextureIdentity;
+	_textureIdentityByTexture.set(texture, identity);
+	return identity;
 }

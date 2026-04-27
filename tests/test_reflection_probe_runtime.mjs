@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
+import { Texture } from "../src/core/Texture.ts";
 import {
 	buildReflectionProbeAtlasTexture,
 	computeParallaxCorrectedDirection,
@@ -211,12 +212,43 @@ function testCubemapSpecularSamplingAndAtlasBuild() {
 	assert.ok(atlas.data || atlas.mipmaps.length > 0);
 }
 
+function testAtlasCacheInvalidatesWhenProbeTextureObjectChanges() {
+	const probe = new ReflectionProbe();
+	const firstMap = createTinyEquirectTexture(0.2);
+	const secondMap = createTinyEquirectTexture(0.8);
+	probe.prefilteredMap = firstMap;
+
+	const firstAtlas = buildReflectionProbeAtlasTexture([probe]);
+	assert.ok(firstAtlas);
+	const firstValue = readTextureFirstChannel(firstAtlas);
+	assert.ok(Math.abs(firstValue - 0.2) < 1e-6);
+
+	probe.prefilteredMap = secondMap;
+	const secondAtlas = buildReflectionProbeAtlasTexture([probe]);
+	assert.ok(secondAtlas);
+	const secondValue = readTextureFirstChannel(secondAtlas);
+	assert.ok(Math.abs(secondValue - 0.8) < 1e-6);
+	assert.notEqual(secondAtlas, firstAtlas);
+}
+
 function createTinyCubeTexture(faces) {
 	return new CubeTexture({
 		faces,
 		size: 1,
 		colorSpace: "sRGB",
 	});
+}
+
+function createTinyEquirectTexture(value) {
+	const data = new Float32Array([value, value, value, 1]);
+	const texture = new Texture(data, 1, 1, "HDR");
+	texture.mipmaps = [new Float32Array(data)];
+	return texture;
+}
+
+function readTextureFirstChannel(texture) {
+	const data = texture.data ?? texture.mipmaps[0];
+	return data ? data[0] : 0;
 }
 
 function run() {
@@ -228,6 +260,7 @@ function run() {
 	testReflectionProbeCaptureDefaultsAndClone();
 	testReflectionProbeRequestCaptureFlags();
 	testCubemapSpecularSamplingAndAtlasBuild();
+	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();
 	console.log("Reflection probe runtime tests passed");
 }
 

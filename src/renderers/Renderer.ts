@@ -889,7 +889,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					const cameraWorldPosition = this.camera.getWorldPosition(
 						_tmpRendererCameraWorldPosition
 					);
-					this._reflectionProbeCaptureRuntime.execute({
+					await this._reflectionProbeCaptureRuntime.execute({
 						scene: this.scene,
 						nowMs: now,
 						frameContext: context,

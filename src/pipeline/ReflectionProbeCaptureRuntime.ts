@@ -30,6 +30,8 @@ const AREA_LIGHT_LOBE_EXPONENT = 48;
 const DEFAULT_MAX_BAKES_PER_FRAME = 1;
 const DEFAULT_CAPTURE_BUDGET_MS = 4;
 const CAPTURE_RESOLUTION_SCALE_STEPS = [1, 0.75, 0.5] as const;
+const CAPTURE_RESOLUTION_DOWNSCALE_OVERBUDGET_RATIO = 4;
+const CAPTURE_PREFILTER_MAX_MIP_LEVELS = 9;
 const MIN_LIGHT_DISTANCE = 1e-4;
 
 interface CaptureTaskState {
@@ -141,17 +143,19 @@ export class ReflectionProbeCaptureRuntime {
 			options.bakeEnvironmentIBL ?? bakeEnvironmentIBLFromEnvironmentMap;
 	}
 
-	public execute(context: ReflectionProbeCaptureRuntimeExecuteContext): void {
+	public execute(
+		context: ReflectionProbeCaptureRuntimeExecuteContext
+	): Promise<void> {
 		const probes = collectCapturedSceneProbes(
 			context.scene.getLights(),
 			context.cameraWorldPosition ?? null
 		);
 		this._pruneProbeState(probes);
 		if (probes.length <= 0) {
-			return;
+			return Promise.resolve();
 		}
 		if (this._inFlightQuantum) {
-			return;
+			return this._inFlightQuantum;
 		}
 
 		if (!this._activeTask) {
@@ -161,7 +165,7 @@ export class ReflectionProbeCaptureRuntime {
 				this._shouldCaptureProbe(probe, sceneVersion, nowSeconds)
 			);
 			if (candidates.length <= 0) {
-				return;
+				return Promise.resolve();
 			}
 
 			let started = 0;
@@ -176,7 +180,7 @@ export class ReflectionProbeCaptureRuntime {
 				break;
 			}
 			if (!this._activeTask) {
-				return;
+				return Promise.resolve();
 			}
 		}
 
@@ -190,6 +194,7 @@ export class ReflectionProbeCaptureRuntime {
 				}
 			});
 		this._inFlightQuantum = quantum;
+		return quantum;
 	}
 
 	private _shouldCaptureProbe(
@@ -294,7 +299,9 @@ export class ReflectionProbeCaptureRuntime {
 
 			const faceDurationMs = resolveNowMs() - faceStart;
 			if (
-				faceDurationMs > this._captureBudgetMs &&
+				faceDurationMs >
+					this._captureBudgetMs *
+						CAPTURE_RESOLUTION_DOWNSCALE_OVERBUDGET_RATIO &&
 				this._downgradeTaskResolution(task)
 			) {
 				return;
@@ -377,8 +384,16 @@ export class ReflectionProbeCaptureRuntime {
 		environmentMap: Texture,
 		webgpuSource: WebGPUComputeFacadeSource | null
 	): Promise<void> {
+		const prefilterMaxSampleWidth = Math.max(1, Math.floor(task.captureWidth));
+		const prefilterMaxSampleHeight = Math.max(1, Math.floor(task.captureHeight));
 		const bakeOptions: EnvironmentIBLBakeOptions = {
 			acceleration: "auto",
+			prefilterMaxSampleWidth,
+			prefilterMaxSampleHeight,
+			prefilterMaxMipLevels: resolveCapturePrefilterMipLevels(
+				prefilterMaxSampleWidth,
+				prefilterMaxSampleHeight
+			),
 		};
 		if (webgpuSource) {
 			bakeOptions.webgpuSource = webgpuSource;
@@ -1019,4 +1034,13 @@ function normalizeDirection(direction: IVector3): IVector3 {
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
+}
+
+function resolveCapturePrefilterMipLevels(width: number, height: number): number {
+	const longestSide = Math.max(1, Math.floor(Math.max(width, height)));
+	const fullMipLevels = Math.floor(Math.log2(longestSide)) + 1;
+	return Math.max(
+		1,
+		Math.min(CAPTURE_PREFILTER_MAX_MIP_LEVELS, fullMipLevels)
+	);
 }

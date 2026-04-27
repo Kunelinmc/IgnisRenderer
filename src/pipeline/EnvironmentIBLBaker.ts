@@ -94,6 +94,15 @@ export interface EnvironmentIBLBakeOptions {
 	acceleration?: EnvironmentIBLBakeAcceleration;
 	workerCount?: number;
 	webgpuSource?: WebGPUComputeFacadeSource | null;
+	prefilterMaxSampleWidth?: number;
+	prefilterMaxSampleHeight?: number;
+	prefilterMaxMipLevels?: number;
+}
+
+interface ResolvedEnvironmentIBLPrefilterOptions {
+	maxSampleWidth: number;
+	maxSampleHeight: number;
+	maxMipLevels: number;
 }
 
 export interface BakedEnvironmentIBL {
@@ -114,6 +123,45 @@ function assertBakeNotAborted(signal?: AbortSignal | null): void {
 
 function resolveTextureIsLinear(texture: Texture): boolean {
 	return texture.colorSpace === "HDR" || texture.colorSpace === "Linear";
+}
+
+function sanitizePrefilterDimension(
+	value: number | undefined,
+	fallback: number
+): number {
+	if (!Number.isFinite(value)) {
+		return Math.max(1, Math.floor(fallback));
+	}
+	return Math.max(1, Math.floor(value as number));
+}
+
+function sanitizePrefilterMipLevelCount(
+	value: number | undefined,
+	fallback: number
+): number {
+	if (!Number.isFinite(value)) {
+		return Math.max(1, Math.floor(fallback));
+	}
+	return Math.max(1, Math.floor(value as number));
+}
+
+function resolveEnvironmentIBLPrefilterOptions(
+	options: EnvironmentIBLBakeOptions
+): ResolvedEnvironmentIBLPrefilterOptions {
+	return {
+		maxSampleWidth: sanitizePrefilterDimension(
+			options.prefilterMaxSampleWidth,
+			ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH
+		),
+		maxSampleHeight: sanitizePrefilterDimension(
+			options.prefilterMaxSampleHeight,
+			ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT
+		),
+		maxMipLevels: sanitizePrefilterMipLevelCount(
+			options.prefilterMaxMipLevels,
+			ENVIRONMENT_IBL_MAX_MIP_LEVELS
+		),
+	};
 }
 
 function resolveRoughnessFromMipLevel(level: number, maxMipLevels: number): number {
@@ -220,13 +268,27 @@ export function projectEquirectTextureToSH(
 	return sh;
 }
 
-export function resolvePrefilterBaseDimensions(envMap: Texture): {
+export function resolvePrefilterBaseDimensions(
+	envMap: Texture,
+	options: {
+		maxSampleWidth?: number;
+		maxSampleHeight?: number;
+	} = {}
+): {
 	baseWidth: number;
 	baseHeight: number;
 } {
+	const maxSampleWidth = sanitizePrefilterDimension(
+		options.maxSampleWidth,
+		ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH
+	);
+	const maxSampleHeight = sanitizePrefilterDimension(
+		options.maxSampleHeight,
+		ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT
+	);
 	return {
-		baseWidth: Math.min(envMap.width, ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH),
-		baseHeight: Math.min(envMap.height, ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT),
+		baseWidth: Math.min(envMap.width, maxSampleWidth),
+		baseHeight: Math.min(envMap.height, maxSampleHeight),
 	};
 }
 
@@ -300,11 +362,19 @@ export function buildPrefilteredTexture(
 
 export function prefilterEnvMapCPU(
 	envMap: Texture,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	signal?: AbortSignal | null,
 	onMipComplete?: (level: number, total: number) => void
 ): Texture {
-	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
-	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
+	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap, {
+		maxSampleWidth: prefilterOptions.maxSampleWidth,
+		maxSampleHeight: prefilterOptions.maxSampleHeight,
+	});
+	const totalMipLevels = Math.max(1, prefilterOptions.maxMipLevels);
 	const mipmaps: EnvironmentIBLPrefilterMipData[] = [];
 	for (let level = 0; level < totalMipLevels; level++) {
 		const mip = prefilterEnvMapMipLevel(
@@ -574,16 +644,24 @@ function destroyWebGPUResources(resources: EnvironmentIBLWebGPUResources): void 
 export async function prefilterEnvMapWithWebGPU(
 	envMap: Texture,
 	source: WebGPUComputeFacadeSource,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	signal?: AbortSignal | null,
 	onMipComplete?: (level: number) => void
 ): Promise<Texture> {
 	assertBakeNotAborted(signal);
 
 	const sourceIsLinear = resolveTextureIsLinear(envMap);
-	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
+	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap, {
+		maxSampleWidth: prefilterOptions.maxSampleWidth,
+		maxSampleHeight: prefilterOptions.maxSampleHeight,
+	});
 	const resources = await createWebGPUResources(envMap, source);
 	const mipmaps: EnvironmentIBLPrefilterMipData[] = [];
-	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
+	const totalMipLevels = Math.max(1, prefilterOptions.maxMipLevels);
 
 	try {
 		uploadSourceTexture(resources.runtime, resources.inputTexture, envMap);
@@ -714,15 +792,23 @@ function toWorkerEnvMapPayload(envMap: Texture): EnvironmentIBLBakeWorkerEnvMapP
 async function prefilterEnvMapWithWorkers(
 	envMap: Texture,
 	options: EnvironmentIBLBakeOptions,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	const poolId = resolveWorkerPoolId();
-	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
+	const totalMipLevels = Math.max(1, prefilterOptions.maxMipLevels);
 	const workerCount = Math.min(
 		resolveWorkerCount(options.workerCount),
 		totalMipLevels
 	);
-	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap);
+	const { baseWidth, baseHeight } = resolvePrefilterBaseDimensions(envMap, {
+		maxSampleWidth: prefilterOptions.maxSampleWidth,
+		maxSampleHeight: prefilterOptions.maxSampleHeight,
+	});
 	const envPayload = toWorkerEnvMapPayload(envMap);
 
 	globalWorkerScheduler.registerPool({
@@ -785,11 +871,21 @@ async function prefilterEnvMapWithWorkers(
 function prefilterEnvMapOnCPU(
 	envMap: Texture,
 	options: EnvironmentIBLBakeOptions,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	onMipComplete: (level: number) => void
 ): Texture {
-	return prefilterEnvMapCPU(envMap, options.signal ?? null, (level) => {
-		onMipComplete(level);
-	});
+	return prefilterEnvMapCPU(
+		envMap,
+		prefilterOptions,
+		options.signal ?? null,
+		(level) => {
+			onMipComplete(level);
+		}
+	);
 }
 
 function canUseWorkerAcceleration(options: EnvironmentIBLBakeOptions): boolean {
@@ -814,6 +910,11 @@ function canUseWebGPUAcceleration(options: EnvironmentIBLBakeOptions): boolean {
 async function prefilterEnvMapOnWebGPU(
 	envMap: Texture,
 	options: EnvironmentIBLBakeOptions,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	if (!options.webgpuSource) {
@@ -824,6 +925,7 @@ async function prefilterEnvMapOnWebGPU(
 	return prefilterEnvMapWithWebGPU(
 		envMap,
 		options.webgpuSource,
+		prefilterOptions,
 		options.signal ?? null,
 		onMipComplete
 	);
@@ -832,11 +934,21 @@ async function prefilterEnvMapOnWebGPU(
 async function prefilterEnvMap(
 	envMap: Texture,
 	options: EnvironmentIBLBakeOptions,
+	prefilterOptions: {
+		maxSampleWidth: number;
+		maxSampleHeight: number;
+		maxMipLevels: number;
+	},
 	onMipComplete: (level: number) => void
 ): Promise<Texture> {
 	if (canUseWebGPUAcceleration(options)) {
 		try {
-			return await prefilterEnvMapOnWebGPU(envMap, options, onMipComplete);
+			return await prefilterEnvMapOnWebGPU(
+				envMap,
+				options,
+				prefilterOptions,
+				onMipComplete
+			);
 		} catch (error) {
 			if (options.acceleration === "webgpu") {
 				throw error;
@@ -850,16 +962,31 @@ async function prefilterEnvMap(
 				"Worker acceleration was requested for environment IBL baking, but Worker API is unavailable."
 			);
 		}
-		return prefilterEnvMapOnCPU(envMap, options, onMipComplete);
+		return prefilterEnvMapOnCPU(
+			envMap,
+			options,
+			prefilterOptions,
+			onMipComplete
+		);
 	}
 
 	try {
-		return await prefilterEnvMapWithWorkers(envMap, options, onMipComplete);
+		return await prefilterEnvMapWithWorkers(
+			envMap,
+			options,
+			prefilterOptions,
+			onMipComplete
+		);
 	} catch (error) {
 		if (options.acceleration === "worker") {
 			throw error;
 		}
-		return prefilterEnvMapOnCPU(envMap, options, onMipComplete);
+		return prefilterEnvMapOnCPU(
+			envMap,
+			options,
+			prefilterOptions,
+			onMipComplete
+		);
 	}
 }
 
@@ -877,7 +1004,8 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 			"Environment IBL bake requires a valid environment texture (2D equirect or cubemap)."
 		);
 	}
-	const totalMipLevels = ENVIRONMENT_IBL_MAX_MIP_LEVELS;
+	const prefilterOptions = resolveEnvironmentIBLPrefilterOptions(options);
+	const totalMipLevels = prefilterOptions.maxMipLevels;
 	const totalProgress = totalMipLevels + 2;
 	let completed = 0;
 
@@ -895,14 +1023,15 @@ export async function bakeEnvironmentIBLFromEnvironmentMap(
 	const prefiltered = await prefilterEnvMap(
 		sampledEnvironment,
 		options,
+		prefilterOptions,
 		(level) => {
-		completed++;
-		emitProgress(options, {
-			phase: "prefilter",
-			completed,
-			total: totalProgress,
-			detail: `mip ${level + 1}/${totalMipLevels}`,
-		});
+			completed++;
+			emitProgress(options, {
+				phase: "prefilter",
+				completed,
+				total: totalProgress,
+				detail: `mip ${level + 1}/${totalMipLevels}`,
+			});
 		}
 	);
 

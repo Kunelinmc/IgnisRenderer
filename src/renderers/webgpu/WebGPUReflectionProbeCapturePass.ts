@@ -169,7 +169,10 @@ export class WebGPUReflectionProbeCapturePass {
 				height: faceSize,
 				format: captureColorFormat,
 			});
-			return readback.toNormalizedRGBA8Float32();
+			return flipFaceRowsVertically(
+				readback.toNormalizedRGBA8Float32(),
+				faceSize
+			);
 		} finally {
 			colorTexture.destroy();
 			depthTexture.destroy();
@@ -569,4 +572,15 @@ function createFullFrameIncrementalContext(
 		reasonMask: 0,
 		temporalHistoryReset: true,
 	};
+}
+
+function flipFaceRowsVertically(data: Float32Array, faceSize: number): Float32Array {
+	const rowStride = faceSize * 4;
+	const flipped = new Float32Array(data.length);
+	for (let y = 0; y < faceSize; y++) {
+		const srcOffset = y * rowStride;
+		const dstOffset = (faceSize - 1 - y) * rowStride;
+		flipped.set(data.subarray(srcOffset, srcOffset + rowStride), dstOffset);
+	}
+	return flipped;
 }
