@@ -4,6 +4,7 @@ import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import { Logger } from "../../foundation/Logger";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
 import {
@@ -593,7 +594,7 @@ export function bindWebGLGlobalUniforms(
 				light.direction[1],
 				light.direction[2],
 				0,
-			]),
+			], WEBGL_MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirection.hadInvalid) {
@@ -611,7 +612,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				0,
-			]),
+			], WEBGL_MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedColor.hadInvalid) {
@@ -728,7 +729,7 @@ export function bindWebGLGlobalUniforms(
 				light.position[1],
 				light.position[2],
 				light.range,
-			]),
+			], WEBGL_MAX_POINT_LIGHTS),
 			0
 		);
 		if (packedPointPositionRange.hadInvalid) {
@@ -746,7 +747,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				0,
-			]),
+			], WEBGL_MAX_POINT_LIGHTS),
 			0
 		);
 		if (packedPointColor.hadInvalid) {
@@ -768,7 +769,7 @@ export function bindWebGLGlobalUniforms(
 				light.position[1],
 				light.position[2],
 				light.range,
-			]),
+			], WEBGL_MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotPositionRange.hadInvalid) {
@@ -786,7 +787,7 @@ export function bindWebGLGlobalUniforms(
 				light.direction[1],
 				light.direction[2],
 				light.outerCos,
-			]),
+			], WEBGL_MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotDirectionOuter.hadInvalid) {
@@ -804,7 +805,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				light.innerCos,
-			]),
+			], WEBGL_MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotColorInner.hadInvalid) {

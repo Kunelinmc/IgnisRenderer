@@ -22,6 +22,7 @@ const tests = [
 	"test_webgl_post_graph.mjs",
 	"test_webgl_clustered_lighting_runtime.mjs",
 	"test_webgl_sh_texture_upload.mjs",
+	"test_webgl_global_uniform_binder_lights.mjs",
 	"test_layer_boundaries.mjs",
 	"test_frame_planner.mjs",
 	"test_incremental_frame_planner.mjs",

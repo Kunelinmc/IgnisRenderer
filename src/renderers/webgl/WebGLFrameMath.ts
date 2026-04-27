@@ -63,10 +63,15 @@ export function computeHaltonJitterNDC(
 
 export function flattenVec4<T>(
 	values: T[],
-	mapper: (value: T) => [number, number, number, number]
+	mapper: (value: T) => [number, number, number, number],
+	maxCount: number
 ): Float32Array {
-	const packed = new Float32Array(16);
-	const count = Math.min(4, values.length);
+	const resolvedMaxCount =
+		typeof maxCount === "number" && Number.isFinite(maxCount) ?
+			Math.max(0, Math.floor(maxCount))
+		:	0;
+	const packed = new Float32Array(resolvedMaxCount * 4);
+	const count = Math.min(resolvedMaxCount, values.length);
 	for (let i = 0; i < count; i++) {
 		const value = mapper(values[i]);
 		const offset = i * 4;
