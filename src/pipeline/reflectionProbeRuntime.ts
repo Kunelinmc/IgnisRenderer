@@ -41,6 +41,14 @@ export interface ReflectionProbeEnvironmentCollection {
 	atlas: Texture | null;
 }
 
+interface ReflectionProbeAtlasCandidate {
+	probe: ReflectionProbe;
+	width: number;
+	height: number;
+	mipCount: number;
+	qualityScore: number;
+}
+
 export function collectActiveReflectionProbes(
 	lights: SceneLight[],
 	maxCount = MAX_ACTIVE_REFLECTION_PROBES
@@ -72,10 +80,87 @@ export function collectReflectionProbeEnvironment(
 			atlas: null,
 		};
 	}
+	const atlasCompatibleProbes = selectAtlasCompatibleReflectionProbes(probes);
 	return {
-		probes,
-		atlas: buildReflectionProbeAtlasTexture(probes),
+		probes: atlasCompatibleProbes,
+		atlas: buildReflectionProbeAtlasTexture(atlasCompatibleProbes),
 	};
+}
+
+function selectAtlasCompatibleReflectionProbes(
+	probes: ReflectionProbe[]
+): ReflectionProbe[] {
+	if (probes.length <= 1) {
+		return probes;
+	}
+
+	const candidates = collectReflectionProbeAtlasCandidates(probes);
+	if (candidates.length <= 1) {
+		return candidates.map((candidate) => candidate.probe);
+	}
+
+	const groupsBySignature = new Map<string, ReflectionProbeAtlasCandidate[]>();
+	for (const candidate of candidates) {
+		const signature = `${candidate.width}x${candidate.height}:${candidate.mipCount}`;
+		const group = groupsBySignature.get(signature);
+		if (group) {
+			group.push(candidate);
+			continue;
+		}
+		groupsBySignature.set(signature, [candidate]);
+	}
+
+	let bestGroup: ReflectionProbeAtlasCandidate[] | null = null;
+	for (const group of groupsBySignature.values()) {
+		if (!bestGroup) {
+			bestGroup = group;
+			continue;
+		}
+		const groupScore = computeReflectionProbeAtlasGroupScore(group);
+		const bestScore = computeReflectionProbeAtlasGroupScore(bestGroup);
+		if (
+			group.length > bestGroup.length ||
+			(group.length === bestGroup.length && groupScore > bestScore)
+		) {
+			bestGroup = group;
+		}
+	}
+
+	return (bestGroup ?? candidates).map((candidate) => candidate.probe);
+}
+
+function computeReflectionProbeAtlasGroupScore(
+	group: ReflectionProbeAtlasCandidate[]
+): number {
+	if (group.length <= 0) {
+		return 0;
+	}
+	return group[0].qualityScore;
+}
+
+function collectReflectionProbeAtlasCandidates(
+	probes: ReflectionProbe[]
+): ReflectionProbeAtlasCandidate[] {
+	const candidates: ReflectionProbeAtlasCandidate[] = [];
+	for (const probe of probes) {
+		const sourceMap = probe.prefilteredMap;
+		if (!sourceMap) continue;
+		const normalizedMap = ensureEnvironmentTextureEquirect(sourceMap);
+		if (!isTextureReadyForEnvironmentShared(normalizedMap)) {
+			continue;
+		}
+		candidates.push({
+			probe,
+			width: normalizedMap.width,
+			height: normalizedMap.height,
+			mipCount: getEnvironmentMipLevelCount(normalizedMap),
+			qualityScore:
+				normalizedMap.width *
+				normalizedMap.height *
+				getEnvironmentMipLevelCount(normalizedMap),
+		});
+	}
+	return candidates;
 }
 
 export function refreshReflectionProbeCaches(lights: SceneLight[]): void {

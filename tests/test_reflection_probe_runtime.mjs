@@ -3,6 +3,7 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Texture } from "../src/core/Texture.ts";
 import {
 	buildReflectionProbeAtlasTexture,
+	collectReflectionProbeEnvironment,
 	computeParallaxCorrectedDirection,
 	computeProbeDepthOcclusion,
 	computeProbeRawWeight,
@@ -231,6 +232,20 @@ function testAtlasCacheInvalidatesWhenProbeTextureObjectChanges() {
 	assert.notEqual(secondAtlas, firstAtlas);
 }
 
+function testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer() {
+	const lowQualityMap = createEquirectTexture(0.2, 1, 1, 1);
+	const highQualityMap = createEquirectTexture(0.8, 8, 4, 4);
+	const lowProbe = new ReflectionProbe({ prefilteredMap: lowQualityMap });
+	const highProbe = new ReflectionProbe({ prefilteredMap: highQualityMap });
+
+	const collected = collectReflectionProbeEnvironment([lowProbe, highProbe], 8);
+	assert.equal(collected.probes.length, 1);
+	assert.equal(collected.probes[0].id, highProbe.id);
+	assert.ok(collected.atlas);
+	assert.equal(collected.atlas.width, 8);
+	assert.equal(collected.atlas.height, 4);
+}
+
 function createTinyCubeTexture(faces) {
 	return new CubeTexture({
 		faces,
@@ -243,6 +258,29 @@ function createTinyEquirectTexture(value) {
 	const data = new Float32Array([value, value, value, 1]);
 	const texture = new Texture(data, 1, 1, "HDR");
 	texture.mipmaps = [new Float32Array(data)];
+	return texture;
+}
+
+function createEquirectTexture(value, width, height, mipCount) {
+	const resolvedWidth = Math.max(1, Math.floor(width));
+	const resolvedHeight = Math.max(1, Math.floor(height));
+	const resolvedMipCount = Math.max(1, Math.floor(mipCount));
+	const mipmaps = [];
+	for (let level = 0; level < resolvedMipCount; level++) {
+		const mipWidth = Math.max(1, resolvedWidth >> level);
+		const mipHeight = Math.max(1, resolvedHeight >> level);
+		const mipData = new Float32Array(mipWidth * mipHeight * 4);
+		for (let i = 0; i < mipData.length; i += 4) {
+			mipData[i] = value;
+			mipData[i + 1] = value;
+			mipData[i + 2] = value;
+			mipData[i + 3] = 1;
+		}
+		mipmaps.push(mipData);
+	}
+	const texture = new Texture(mipmaps[0], resolvedWidth, resolvedHeight, "HDR");
+	texture.mipmaps = mipmaps;
+	texture.data = mipmaps[0];
 	return texture;
 }
 
@@ -261,6 +299,7 @@ function run() {
 	testReflectionProbeRequestCaptureFlags();
 	testCubemapSpecularSamplingAndAtlasBuild();
 	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();
+	testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer();
 	console.log("Reflection probe runtime tests passed");
 }
 
