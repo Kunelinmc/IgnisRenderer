@@ -291,6 +291,10 @@ export class FakeCommandEncoder {
 		return this; 
 	}
 	setPipeline(pipeline) { this.calls.push(["setPipeline", pipeline]); return this; }
+	setScissorRect(x, y, width, height) {
+		this.calls.push(["setScissorRect", x, y, width, height]);
+		return this;
+	}
 	setVertexBuffer(index, buffer) { this.calls.push(["setVertexBuffer", index, buffer]); return this; }
 	setIndexBuffer(buffer) { this.calls.push(["setIndexBuffer", buffer]); return this; }
 	setBindGroup(index, group) { this.calls.push(["setBindGroup", index, group]); return this; }
@@ -366,6 +370,7 @@ export class FakeWebGPUBackend {
 		this.createTextureCallsCount = 0;
 		this.createTextureCalls = [];
 		this.createCommandEncoderCalls = 0;
+		this.commandEncoders = [];
 		this.recordedRenderPasses = [];
 		this.shaderModules = [];
 		this.pipelines = [];
@@ -393,8 +398,16 @@ export class FakeWebGPUBackend {
 		this.warnings = [];
 		this._slotTextureCache = new WeakMap();
 		this._externalTextureResources = new WeakMap();
-		this.canvasColorTexture = { destroy: () => this.destroyCalls++ };
-		this.canvasDepthTexture = { destroy: () => this.destroyCalls++ };
+		this.canvasColorTexture = {
+			width: 1,
+			height: 1,
+			destroy: () => this.destroyCalls++,
+		};
+		this.canvasDepthTexture = {
+			width: 1,
+			height: 1,
+			destroy: () => this.destroyCalls++,
+		};
 		
 		this.queue = {
 			copyExternalImageToTexture: (...args) => {
@@ -440,6 +453,12 @@ export class FakeWebGPUBackend {
 	getMSAASampleCount() { return 1; }
 	getCanvasColorTexture() { return this.canvasColorTexture; }
 	getCanvasDepthTexture() { return this.canvasDepthTexture; }
+	getCanvasRenderTargetSize() {
+		return {
+			width: Math.max(1, Math.floor(this.canvasColorTexture.width ?? 1)),
+			height: Math.max(1, Math.floor(this.canvasColorTexture.height ?? 1)),
+		};
+	}
 
 	getComputeFacade() {
 		this.getComputeFacadeCalls++;
@@ -660,7 +679,9 @@ export class FakeWebGPUBackend {
 
 	createCommandEncoder() {
 		this.createCommandEncoderCalls++;
-		return new FakeCommandEncoder(this);
+		const encoder = new FakeCommandEncoder(this);
+		this.commandEncoders.push(encoder);
+		return encoder;
 	}
 
 	getTextureForSlot(texture, slotIndex) {

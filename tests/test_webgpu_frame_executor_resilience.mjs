@@ -274,6 +274,54 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 	assert.equal(mainPass.depthStencilAttachment.depthLoadOp, "load");
 }
 
+async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
+	const backend = new FakeBackend();
+	backend.canvasColorTexture.width = 1223;
+	backend.canvasColorTexture.height = 869;
+	backend.canvasDepthTexture.width = 1223;
+	backend.canvasDepthTexture.height = 869;
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(1920, 869);
+	context.scene.opaquePackets = [{ id: "packet" }];
+	context.incremental = {
+		enabled: true,
+		forceFullFrame: false,
+		dirtyRects: [{
+			x: 960,
+			y: 0,
+			width: 960,
+			height: 869,
+		}],
+		dirtyTileSize: 32,
+		dirtyTileColumns: 60,
+		dirtyTileRows: 28,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 0.5,
+		firstPass: "main-opaque",
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+
+	executor.beginFrame(context);
+	executor._mrtEnabled = false;
+	executor._frameTargets = null;
+
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const frameEncoder = backend.commandEncoders[0];
+	assert.ok(frameEncoder);
+	const scissorCalls = frameEncoder.calls.filter(
+		(call) => call[0] === "setScissorRect"
+	);
+	assert.deepEqual(scissorCalls, [
+		["setScissorRect", 611, 0, 612, 869],
+		["setScissorRect", 611, 0, 612, 869],
+	]);
+}
+
 function testFrameTargetsIncludeAndReleaseOITResources() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -467,6 +515,7 @@ async function run() {
 	testInvalidateFrameTargetsDestroysPresentBinding();
 	await testLegacyMainPassForcesSingleSceneTargetMode();
 	await testIncrementalMainPassUsesDepthPartialReuse();
+	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsIncludeAndReleaseOITResources();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();

@@ -1350,30 +1350,62 @@ export class WebGPUFrameExecutor {
 	}
 
 	private _resolveDirtyRects(
-		context: FrameContext | null
+		context: FrameContext | null,
+		targetWidth: number,
+		targetHeight: number
 	): Array<{ x: number; y: number; width: number; height: number }> {
+		const width = Math.max(1, Math.floor(targetWidth));
+		const height = Math.max(1, Math.floor(targetHeight));
 		if (!context) {
 			return [{
 				x: 0,
 				y: 0,
-				width: Math.max(1, this._targetWidth),
-				height: Math.max(1, this._targetHeight),
+				width,
+				height,
 			}];
 		}
 		if (!this._isIncrementalPartial(context)) {
 			return [{
 				x: 0,
 				y: 0,
-				width: Math.max(1, context.attachments.width),
-				height: Math.max(1, context.attachments.height),
+				width,
+				height,
 			}];
 		}
-		return context.incremental.dirtyRects.map((rect) => ({
-			x: Math.max(0, Math.floor(rect.x)),
-			y: Math.max(0, Math.floor(rect.y)),
-			width: Math.max(1, Math.floor(rect.width)),
-			height: Math.max(1, Math.floor(rect.height)),
-		}));
+		const sourceWidth = Math.max(1, Math.floor(context.attachments.width));
+		const sourceHeight = Math.max(1, Math.floor(context.attachments.height));
+		const scaleX = width / sourceWidth;
+		const scaleY = height / sourceHeight;
+		const resolved: Array<{
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		}> = [];
+		for (const rect of context.incremental.dirtyRects) {
+			const minX = Math.max(0, Math.floor(rect.x * scaleX));
+			const minY = Math.max(0, Math.floor(rect.y * scaleY));
+			const maxX = Math.min(
+				width,
+				Math.ceil((rect.x + rect.width) * scaleX)
+			);
+			const maxY = Math.min(
+				height,
+				Math.ceil((rect.y + rect.height) * scaleY)
+			);
+			const rectWidth = maxX - minX;
+			const rectHeight = maxY - minY;
+			if (rectWidth <= 0 || rectHeight <= 0) {
+				continue;
+			}
+			resolved.push({
+				x: minX,
+				y: minY,
+				width: rectWidth,
+				height: rectHeight,
+			});
+		}
+		return resolved;
 	}
 
 	private _resolvePacketsForRect(
@@ -1647,7 +1679,12 @@ export class WebGPUFrameExecutor {
 		});
 		this._encoder.setPipeline(this._presentPipeline);
 		this._encoder.setBindingGroup(0, this._presentBinding);
-		const dirtyRects = this._resolveDirtyRects(this._frameContext);
+		const canvasTarget = this._backend.getCanvasColorTexture();
+		const dirtyRects = this._resolveDirtyRects(
+			this._frameContext,
+			canvasTarget.width,
+			canvasTarget.height
+		);
 		for (const rect of dirtyRects) {
 			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
 			this._encoder.draw(3);
@@ -1729,7 +1766,11 @@ export class WebGPUFrameExecutor {
 			},
 		});
 		let drawCount = 0;
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			this._frameTargets.sceneColorMain.width,
+			this._frameTargets.sceneColorMain.height
+		);
 		for (const rect of dirtyRects) {
 			const packetsInRect = this._resolveTransparentSubsetForRect(
 				context,
@@ -1833,7 +1874,11 @@ export class WebGPUFrameExecutor {
 				depthStoreOp: "store",
 			},
 		});
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			this._frameTargets.oitAccum.width,
+			this._frameTargets.oitAccum.height
+		);
 		for (const rect of dirtyRects) {
 			const packetsInRect = this._resolveTransparentSubsetForRect(
 				context,
@@ -2020,7 +2065,11 @@ export class WebGPUFrameExecutor {
 		});
 		this._encoder.setPipeline(this._oitResolvePipeline);
 		this._encoder.setBindingGroup(0, this._oitResolveBinding);
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			this._frameTargets.sceneColorMain.width,
+			this._frameTargets.sceneColorMain.height
+		);
 		for (const rect of dirtyRects) {
 			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
 			this._encoder.draw(3);
@@ -2159,7 +2208,11 @@ export class WebGPUFrameExecutor {
 		const gMotionAttachment =
 			msaaTargets?.gMotionDepth ?? this._frameTargets.gMotionDepth;
 		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			sceneColorAttachment.width,
+			sceneColorAttachment.height
+		);
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 		let depthPartialReuseApplied = false;
 		if (incrementalPartial && dirtyRects.length > 0) {
@@ -2296,7 +2349,11 @@ export class WebGPUFrameExecutor {
 		const colorTexture = this._backend.getCanvasColorTexture();
 		const depthTexture = this._backend.getCanvasDepthTexture();
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			colorTexture.width,
+			colorTexture.height
+		);
 		let depthPartialReuseApplied = false;
 		if (incrementalPartial && dirtyRects.length > 0) {
 			depthPartialReuseApplied = await this._clearDepthForDirtyRects(

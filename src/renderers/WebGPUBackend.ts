@@ -261,6 +261,31 @@ function resolveWebGPUBackendCtorArgs(
 		options: fallbackOptions,
 	};
 }
+
+function resolveGPUTextureExtent(
+	texture: GPUTexture,
+	fallbackWidth: number,
+	fallbackHeight: number
+): { width: number; height: number } {
+	const textureWithExtent = texture as GPUTexture & {
+		width?: unknown;
+		height?: unknown;
+	};
+	const width =
+		typeof textureWithExtent.width === "number" &&
+		Number.isFinite(textureWithExtent.width) ?
+			textureWithExtent.width
+		:	fallbackWidth;
+	const height =
+		typeof textureWithExtent.height === "number" &&
+		Number.isFinite(textureWithExtent.height) ?
+			textureWithExtent.height
+		:	fallbackHeight;
+	return {
+		width: Math.max(1, Math.floor(width)),
+		height: Math.max(1, Math.floor(height)),
+	};
+}
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
@@ -1241,9 +1266,14 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		const current = this._getCurrentCanvasTexture();
+		const size = resolveGPUTextureExtent(
+			current.texture,
+			this.canvas.width,
+			this.canvas.height
+		);
 		const texture: InternalTexture = {
-			width: this.canvas.width,
-			height: this.canvas.height,
+			width: size.width,
+			height: size.height,
 			destroy: () => {},
 			_gpuResource: current.texture,
 			_gpuTexture: current.texture,
@@ -3323,6 +3353,8 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 	private _commandBufferOwnerToken: object;
 	private _renderPass: GPURenderPassEncoder | null = null;
 	private _computePass: GPUComputePassEncoder | null = null;
+	private _renderPassWidth = 1;
+	private _renderPassHeight = 1;
 
 	constructor(
 		encoder: GPUCommandEncoder,
@@ -3338,6 +3370,9 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		const timestampWrites = this._backend.createPassTimestampWrites(
 			desc.label ?? "render-pass"
 		);
+		const passExtent = this._resolveRenderPassExtent(desc);
+		this._renderPassWidth = passExtent.width;
+		this._renderPassHeight = passExtent.height;
 		this._renderPass = this._encoder.beginRenderPass({
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
 				view:
@@ -3456,17 +3491,33 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 		if (resolvedWidth <= 0 || resolvedHeight <= 0) {
 			return;
 		}
+		const resolvedX = Math.max(0, Math.floor(x));
+		const resolvedY = Math.max(0, Math.floor(y));
+		const maxWidth = Math.max(1, Math.floor(this._renderPassWidth));
+		const maxHeight = Math.max(1, Math.floor(this._renderPassHeight));
+		if (resolvedX >= maxWidth || resolvedY >= maxHeight) {
+			return;
+		}
+		const maxX = Math.min(maxWidth, resolvedX + resolvedWidth);
+		const maxY = Math.min(maxHeight, resolvedY + resolvedHeight);
+		const clampedWidth = maxX - resolvedX;
+		const clampedHeight = maxY - resolvedY;
+		if (clampedWidth <= 0 || clampedHeight <= 0) {
+			return;
+		}
 		this._renderPass?.setScissorRect(
-			Math.max(0, Math.floor(x)),
-			Math.max(0, Math.floor(y)),
-			resolvedWidth,
-			resolvedHeight
+			resolvedX,
+			resolvedY,
+			clampedWidth,
+			clampedHeight
 		);
 	}
 
 	public endRenderPass(): void {
 		this._renderPass?.end();
 		this._renderPass = null;
+		this._renderPassWidth = 1;
+		this._renderPassHeight = 1;
 	}
 
 	public finish(): ICommandBuffer {
@@ -3480,5 +3531,25 @@ class WebGPUCommandEncoder implements ICommandEncoder {
 
 	public getNativeWebGPUCommandEncoder(): GPUCommandEncoder {
 		return this._encoder;
+	}
+
+	private _resolveRenderPassExtent(
+		desc: RenderPassDesc
+	): { width: number; height: number } {
+		const colorTarget =
+			desc.colorAttachments.find((attachment) => attachment.view)?.view ?? null;
+		const depthTarget = desc.depthStencilAttachment?.view ?? null;
+		const target = colorTarget ?? depthTarget;
+		if (target) {
+			return {
+				width: Math.max(1, Math.floor(target.width)),
+				height: Math.max(1, Math.floor(target.height)),
+			};
+		}
+		const canvasTarget = this._backend.getCanvasColorTexture();
+		return {
+			width: Math.max(1, Math.floor(canvasTarget.width)),
+			height: Math.max(1, Math.floor(canvasTarget.height)),
+		};
 	}
 }

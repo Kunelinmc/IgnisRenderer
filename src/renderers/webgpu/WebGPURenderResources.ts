@@ -865,16 +865,72 @@ export class WebGPURenderResources {
 		encoder.setBindingGroup(0, frameBinding);
 		encoder.setVertexBuffer(0, this._particleQuadBuffer);
 		encoder.setVertexBuffer(1, this._particleInstanceBuffer);
+		const targetView =
+			targets.colorAttachments.find((attachment) => attachment.view)?.view ??
+			targets.depth;
+		const targetWidth = Math.max(
+			1,
+			Math.floor(
+				typeof targetView?.width === "number" ?
+					targetView.width
+				:	context.attachments.width
+			)
+		);
+		const targetHeight = Math.max(
+			1,
+			Math.floor(
+				typeof targetView?.height === "number" ?
+					targetView.height
+				:	context.attachments.height
+			)
+		);
 		const dirtyRects =
 			context.incremental?.enabled &&
 			!context.incremental.forceFullFrame &&
 			(context.incremental.dirtyRects?.length ?? 0) > 0 ?
 				context.incremental.dirtyRects
+					.map((rect) => {
+						const minX = Math.max(
+							0,
+							Math.floor(
+								(rect.x * targetWidth) /
+									Math.max(1, context.attachments.width)
+							)
+						);
+						const minY = Math.max(
+							0,
+							Math.floor(
+								(rect.y * targetHeight) /
+									Math.max(1, context.attachments.height)
+							)
+						);
+						const maxX = Math.min(
+							targetWidth,
+							Math.ceil(
+								((rect.x + rect.width) * targetWidth) /
+									Math.max(1, context.attachments.width)
+							)
+						);
+						const maxY = Math.min(
+							targetHeight,
+							Math.ceil(
+								((rect.y + rect.height) * targetHeight) /
+									Math.max(1, context.attachments.height)
+							)
+						);
+						return {
+							x: minX,
+							y: minY,
+							width: maxX - minX,
+							height: maxY - minY,
+						};
+					})
+					.filter((rect) => rect.width > 0 && rect.height > 0)
 			:	[{
 					x: 0,
 					y: 0,
-					width: Math.max(1, context.attachments.width),
-					height: Math.max(1, context.attachments.height),
+					width: targetWidth,
+					height: targetHeight,
 				}];
 
 		for (const range of drawRanges) {
