@@ -1,4 +1,6 @@
-export type BufferAddressSpace = "uniform" | "storage";
+import type { VertexBufferLayout, VertexFormat } from "../types";
+
+export type BufferAddressSpace = "uniform" | "storage" | "vertex";
 export type BufferScalarType = "f32" | "u32" | "i32";
 
 export interface BufferScalarSchema {
@@ -106,6 +108,18 @@ export type Matrix4Like =
 			elements: number[][];
 	  };
 
+export interface StructuredVertexAttribute {
+	path: BufferPath;
+	shaderLocation: number;
+	format?: VertexFormat;
+}
+
+export interface StructuredVertexLayoutOptions {
+	attributes: StructuredVertexAttribute[];
+	arrayStride?: number;
+	stepMode?: "vertex" | "instance";
+}
+
 export function scalar(scalarType: BufferScalarType): BufferScalarSchema {
 	return {
 		kind: "scalar",
@@ -181,8 +195,89 @@ export class StructuredBufferLayout {
 		return this._layout;
 	}
 
+	public byteOffsetOf(path: BufferPath): number {
+		return resolvePathLayout(this._layout, path).byteOffset;
+	}
+
+	public byteSizeOf(path: BufferPath): number {
+		return resolvePathLayout(this._layout, path).layout.size;
+	}
+
 	public createWriter(): StructuredBufferWriter {
 		return new StructuredBufferWriter(this);
+	}
+
+	public createVertexBufferLayout(
+		options: StructuredVertexLayoutOptions
+	): VertexBufferLayout {
+		if (this._addressSpace !== "vertex") {
+			throw new Error(
+				`StructuredBufferLayout.createVertexBufferLayout() requires addressSpace "vertex", received "${this._addressSpace}".`
+			);
+		}
+		if (!options || !Array.isArray(options.attributes)) {
+			throw new Error(
+				"StructuredBufferLayout.createVertexBufferLayout() requires an attributes array."
+			);
+		}
+		if (options.attributes.length <= 0) {
+			throw new Error(
+				"StructuredBufferLayout.createVertexBufferLayout() requires at least one attribute."
+			);
+		}
+
+		const attributes: VertexBufferLayout["attributes"] = [];
+		const seenLocations = new Set<number>();
+		let requiredStride = 0;
+		for (const attribute of options.attributes) {
+			const shaderLocation = assertNonNegativeInteger(
+				attribute.shaderLocation,
+				"vertex.shaderLocation"
+			);
+			if (seenLocations.has(shaderLocation)) {
+				throw new Error(
+					`StructuredBufferLayout.createVertexBufferLayout() duplicate shaderLocation ${shaderLocation}.`
+				);
+			}
+			seenLocations.add(shaderLocation);
+
+			const resolved = resolvePathLayout(this._layout, attribute.path);
+			const format =
+				attribute.format ??
+				inferVertexFormatFromLayout(resolved.layout, attribute.path);
+			assertVertexFormatCompatible(
+				format,
+				resolved.layout,
+				attribute.path
+			);
+			const byteSize = vertexFormatByteSize(format);
+			requiredStride = Math.max(requiredStride, resolved.byteOffset + byteSize);
+			attributes.push({
+				shaderLocation,
+				offset: resolved.byteOffset,
+				format,
+			});
+		}
+
+		const arrayStride =
+			options.arrayStride !== undefined ? options.arrayStride : this.byteSize;
+		assertNonNegativeInteger(arrayStride, "vertex.arrayStride");
+		if (arrayStride <= 0) {
+			throw new Error(
+				`StructuredBufferLayout.createVertexBufferLayout() requires arrayStride > 0, received ${arrayStride}.`
+			);
+		}
+		if (arrayStride < requiredStride) {
+			throw new Error(
+				`StructuredBufferLayout.createVertexBufferLayout() arrayStride ${arrayStride} is smaller than required ${requiredStride}.`
+			);
+		}
+
+		return {
+			arrayStride,
+			stepMode: options.stepMode ?? "vertex",
+			attributes,
+		};
 	}
 
 	public assertByteSize(expectedBytes: number, label = "buffer"): void {
@@ -339,53 +434,7 @@ export class StructuredBufferWriter {
 		layout: BufferTypeLayout;
 		byteOffset: number;
 	} {
-		const segments = normalizePath(path);
-		let currentLayout = this._layout.rootLayout;
-		let byteOffset = 0;
-
-		for (const segment of segments) {
-			if (currentLayout.kind === "struct") {
-				if (typeof segment !== "string") {
-					throw new Error(
-						`Path ${formatPath(path)} expected struct field segment but received ${String(segment)}.`
-					);
-				}
-				const field = currentLayout.fieldMap.get(segment);
-				if (!field) {
-					throw new Error(
-						`Path ${formatPath(path)} references unknown struct field "${segment}".`
-					);
-				}
-				byteOffset += field.offset;
-				currentLayout = field.type;
-				continue;
-			}
-
-			if (currentLayout.kind === "array") {
-				if (typeof segment !== "number" || !Number.isInteger(segment)) {
-					throw new Error(
-						`Path ${formatPath(path)} expected array index segment but received ${String(segment)}.`
-					);
-				}
-				if (segment < 0 || segment >= currentLayout.length) {
-					throw new Error(
-						`Path ${formatPath(path)} array index ${segment} is out of bounds (length ${currentLayout.length}).`
-					);
-				}
-				byteOffset += segment * currentLayout.stride;
-				currentLayout = currentLayout.element;
-				continue;
-			}
-
-			throw new Error(
-				`Path ${formatPath(path)} attempts to descend into non-composite type ${describeLayout(currentLayout)}.`
-			);
-		}
-
-		return {
-			layout: currentLayout,
-			byteOffset,
-		};
+		return resolvePathLayout(this._layout.rootLayout, path);
 	}
 
 	private _writeScalarF32(byteOffset: number, value: number): void {
@@ -434,7 +483,8 @@ function resolveTypeLayout(
 			};
 		case "vector": {
 			const align =
-				schema.size === 2 ? 8
+				addressSpace === "vertex" ? 4
+				: schema.size === 2 ? 8
 				: schema.size === 3 ? 16
 				: 16;
 			return {
@@ -554,6 +604,191 @@ function resolveMemberAlign(
 	return layout.align;
 }
 
+function resolvePathLayout(
+	rootLayout: BufferTypeLayout,
+	path: BufferPath
+): {
+	layout: BufferTypeLayout;
+	byteOffset: number;
+} {
+	const segments = normalizePath(path);
+	let currentLayout = rootLayout;
+	let byteOffset = 0;
+
+	for (const segment of segments) {
+		if (currentLayout.kind === "struct") {
+			if (typeof segment !== "string") {
+				throw new Error(
+					`Path ${formatPath(path)} expected struct field segment but received ${String(segment)}.`
+				);
+			}
+			const field = currentLayout.fieldMap.get(segment);
+			if (!field) {
+				throw new Error(
+					`Path ${formatPath(path)} references unknown struct field "${segment}".`
+				);
+			}
+			byteOffset += field.offset;
+			currentLayout = field.type;
+			continue;
+		}
+
+		if (currentLayout.kind === "array") {
+			if (typeof segment !== "number" || !Number.isInteger(segment)) {
+				throw new Error(
+					`Path ${formatPath(path)} expected array index segment but received ${String(segment)}.`
+				);
+			}
+			if (segment < 0 || segment >= currentLayout.length) {
+				throw new Error(
+					`Path ${formatPath(path)} array index ${segment} is out of bounds (length ${currentLayout.length}).`
+				);
+			}
+			byteOffset += segment * currentLayout.stride;
+			currentLayout = currentLayout.element;
+			continue;
+		}
+
+		throw new Error(
+			`Path ${formatPath(path)} attempts to descend into non-composite type ${describeLayout(currentLayout)}.`
+		);
+	}
+
+	return {
+		layout: currentLayout,
+		byteOffset,
+	};
+}
+
+function inferVertexFormatFromLayout(
+	layout: BufferTypeLayout,
+	path: BufferPath
+): VertexFormat {
+	if (layout.kind === "scalar") {
+		switch (layout.scalar) {
+			case "f32":
+				return "float32";
+			case "u32":
+				return "uint32";
+			default:
+				throw new Error(
+					`Unable to infer VertexFormat for ${formatPath(path)} from ${describeLayout(layout)}. Please provide an explicit format.`
+				);
+		}
+	}
+	if (layout.kind === "vector") {
+		if (layout.scalar === "f32") {
+			switch (layout.components) {
+				case 2:
+					return "float32x2";
+				case 3:
+					return "float32x3";
+				default:
+					return "float32x4";
+			}
+		}
+		if (layout.scalar === "u32") {
+			switch (layout.components) {
+				case 2:
+					return "uint32x2";
+				case 3:
+					return "uint32x3";
+				default:
+					return "uint32x4";
+			}
+		}
+	}
+	throw new Error(
+		`Unable to infer VertexFormat for ${formatPath(path)} from ${describeLayout(layout)}.`
+	);
+}
+
+function assertVertexFormatCompatible(
+	format: VertexFormat,
+	layout: BufferTypeLayout,
+	path: BufferPath
+): void {
+	const info = describeVertexFormat(format);
+	if (layout.kind === "scalar") {
+		if (info.kind === "unorm8x4" && layout.size === info.byteSize) {
+			return;
+		}
+		if (info.components !== 1) {
+			throw new Error(
+				`Vertex format ${format} is incompatible with ${describeLayout(layout)} at ${formatPath(path)}.`
+			);
+		}
+		if (
+			(info.kind === "f32" && layout.scalar === "f32") ||
+			(info.kind === "u32" && layout.scalar === "u32")
+		) {
+			return;
+		}
+		throw new Error(
+			`Vertex format ${format} is incompatible with ${describeLayout(layout)} at ${formatPath(path)}.`
+		);
+	}
+
+	if (layout.kind === "vector") {
+		if (info.kind === "unorm8x4") {
+			throw new Error(
+				`Vertex format ${format} is incompatible with ${describeLayout(layout)} at ${formatPath(path)}.`
+			);
+		}
+		if (info.components !== layout.components) {
+			throw new Error(
+				`Vertex format ${format} component count mismatch for ${describeLayout(layout)} at ${formatPath(path)}.`
+			);
+		}
+		if (
+			(info.kind === "f32" && layout.scalar === "f32") ||
+			(info.kind === "u32" && layout.scalar === "u32")
+		) {
+			return;
+		}
+		throw new Error(
+			`Vertex format ${format} is incompatible with ${describeLayout(layout)} at ${formatPath(path)}.`
+		);
+	}
+
+	throw new Error(
+		`Vertex format ${format} requires scalar or vector layout at ${formatPath(path)}, got ${describeLayout(layout)}.`
+	);
+}
+
+function vertexFormatByteSize(format: VertexFormat): number {
+	return describeVertexFormat(format).byteSize;
+}
+
+function describeVertexFormat(format: VertexFormat): {
+	kind: "f32" | "u32" | "unorm8x4";
+	components: 1 | 2 | 3 | 4;
+	byteSize: number;
+} {
+	switch (format) {
+		case "float32":
+			return { kind: "f32", components: 1, byteSize: 4 };
+		case "float32x2":
+			return { kind: "f32", components: 2, byteSize: 8 };
+		case "float32x3":
+			return { kind: "f32", components: 3, byteSize: 12 };
+		case "float32x4":
+			return { kind: "f32", components: 4, byteSize: 16 };
+		case "uint32":
+			return { kind: "u32", components: 1, byteSize: 4 };
+		case "uint32x2":
+			return { kind: "u32", components: 2, byteSize: 8 };
+		case "uint32x3":
+			return { kind: "u32", components: 3, byteSize: 12 };
+		case "uint32x4":
+			return { kind: "u32", components: 4, byteSize: 16 };
+		case "unorm8x4":
+			return { kind: "unorm8x4", components: 4, byteSize: 4 };
+		default:
+			throw new Error(`Unsupported VertexFormat "${format}".`);
+	}
+}
+
 function normalizePath(path: BufferPath): Array<string | number> {
 	if (typeof path === "string" || typeof path === "number") {
 		return [path];
@@ -631,6 +866,15 @@ function validateSignedInteger(value: number): number {
 	) {
 		throw new Error(
 			`Expected i32 integer in [-2147483648, 2147483647], received ${value}.`
+		);
+	}
+	return value;
+}
+
+function assertNonNegativeInteger(value: number, label: string): number {
+	if (!Number.isInteger(value) || value < 0) {
+		throw new Error(
+			`${label} must be a non-negative integer, received ${value}.`
 		);
 	}
 	return value;
