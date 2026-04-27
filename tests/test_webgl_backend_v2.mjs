@@ -19,6 +19,11 @@ import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.t
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
 import { drawWebGLPacket } from "../src/renderers/webgl/WebGLScenePass.ts";
+import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "../src/renderers/webgl/constants.ts";
 import { createWebGLShaderSourceFactory } from "../src/shaders/webgl/WebGLShaderSourceFactory.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
@@ -331,20 +336,20 @@ function testLightCollectorLimitsAndWarnings() {
 	const warn = (key, message) => warnings.push({ key, message });
 	const lights = [new AmbientLight()];
 
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < WEBGL_MAX_DIRECTIONAL_LIGHTS + 2; i++) {
 		lights.push(new DirectionalLight({ intensity: 1 + i * 0.1 }));
 	}
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < WEBGL_MAX_POINT_LIGHTS + 2; i++) {
 		lights.push(new PointLight({ range: 100 + i }));
 	}
-	for (let i = 0; i < 10; i++) {
+	for (let i = 0; i < WEBGL_MAX_SPOT_LIGHTS + 2; i++) {
 		lights.push(new SpotLight({ range: 100 + i }));
 	}
 
 	const state = collectWebGLLights(lights, true, warn);
-	assert.equal(state.directionalLights.length, 4);
-	assert.equal(state.pointLights.length, 4);
-	assert.equal(state.spotLights.length, 8);
+	assert.equal(state.directionalLights.length, WEBGL_MAX_DIRECTIONAL_LIGHTS);
+	assert.equal(state.pointLights.length, WEBGL_MAX_POINT_LIGHTS);
+	assert.equal(state.spotLights.length, WEBGL_MAX_SPOT_LIGHTS);
 	assert.ok(warnings.some((warning) => warning.key === "webgl-directional-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-point-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-spot-light-limit"));

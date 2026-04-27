@@ -1,5 +1,5 @@
 export const WEBGL_MAX_DIRECTIONAL_LIGHTS = 4;
-export const WEBGL_MAX_POINT_LIGHTS = 4;
+export const WEBGL_MAX_POINT_LIGHTS = 16;
 export const WEBGL_MAX_SPOT_LIGHTS = 8;
 export const WEBGL_MAX_REFLECTION_PROBES = 8;
 export const WEBGL_MAX_LOCAL_LIGHT_PROBES = 8;
