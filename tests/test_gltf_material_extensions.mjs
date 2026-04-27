@@ -55,7 +55,7 @@ function testUnlitExtensionParsing() {
 	assert.equal(mat.doubleSided, true);
 	assert.equal(mat.alphaMode, "MASK");
 	approx(mat.alphaCutoff, 0.25);
-	assert.ok(mat.map !== baseTex);
+	assert.equal(mat.map, baseTex);
 	assert.equal(mat.map.data, baseTex.data);
 }
 
@@ -124,8 +124,77 @@ function testSpecularExtensionParsing() {
 	approx(mat.specularColor.b, 255);
 	assert.ok(mat.specularMap !== specTex);
 	assert.equal(mat.specularMap.data, specTex.data);
-	assert.ok(mat.specularColorMap !== specColorTex);
+	assert.equal(mat.specularColorMap, specColorTex);
 	assert.equal(mat.specularColorMap.data, specColorTex.data);
+}
+
+function testSharedBaseColorTextureDoesNotCloneWithoutOverrides() {
+	const loader = new GLTFLoader();
+	const baseTex = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1
+	);
+
+	const materials = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: { index: 0 },
+					},
+				},
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: { index: 0 },
+					},
+				},
+			],
+		},
+		[baseTex]
+	);
+
+	assert.equal(materials.length, 2);
+	assert.equal(materials[0].map, baseTex);
+	assert.equal(materials[1].map, baseTex);
+}
+
+function testTextureTransformStillCreatesDistinctTextureInstance() {
+	const loader = new GLTFLoader();
+	const baseTex = new Texture(
+		new Uint8ClampedArray([255, 255, 255, 255]),
+		1,
+		1
+	);
+
+	const [material] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {
+						baseColorTexture: {
+							index: 0,
+							extensions: {
+								KHR_texture_transform: {
+									offset: [0.25, 0.5],
+									scale: [2, 3],
+									rotation: 0.2,
+								},
+							},
+						},
+					},
+				},
+			],
+		},
+		[baseTex]
+	);
+
+	assert.ok(material.map !== baseTex);
+	approx(material.map.offset.x, 0.25);
+	approx(material.map.offset.y, 0.5);
+	approx(material.map.repeat.x, 2);
+	approx(material.map.repeat.y, 3);
+	approx(material.map.rotation, 0.2);
 }
 
 function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
@@ -356,6 +425,8 @@ function run() {
 		testIorExtensionUpdatesReflectance();
 		testPBRMaterialIorSetterSyncsReflectance();
 		testSpecularExtensionParsing();
+		testSharedBaseColorTextureDoesNotCloneWithoutOverrides();
+		testTextureTransformStillCreatesDistinctTextureInstance();
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();
 		testLinearFactorsStayLinearAcrossLoaderAndEvaluator();
 		testGLTFMaterialTexturesUseExpectedColorSpaces();

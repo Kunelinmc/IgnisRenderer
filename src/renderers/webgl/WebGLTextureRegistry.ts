@@ -203,6 +203,15 @@ export class WebGLTextureRegistry {
 		label: string
 	): boolean {
 		const gl = this._gl;
+		const mipCount = Math.max(1, texture.mipmaps.length || 1);
+		const shouldGenerateMipmaps =
+			mipCount <= 1 && requiresMipmaps(texture.minFilter);
+		const hasMipmaps = mipCount > 1 || shouldGenerateMipmaps;
+		const maxMipLevel =
+			shouldGenerateMipmaps ?
+				resolveMaxMipmapLevel(texture.width, texture.height)
+			:	mipCount - 1;
+
 		gl.bindTexture(gl.TEXTURE_2D, targetTexture);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texParameteri(
@@ -223,12 +232,11 @@ export class WebGLTextureRegistry {
 		gl.texParameteri(
 			gl.TEXTURE_2D,
 			gl.TEXTURE_MIN_FILTER,
-			mapMinFilter(gl, texture.minFilter, texture.mipmaps.length > 1)
+			mapMinFilter(gl, texture.minFilter, hasMipmaps)
 		);
 
-		const mipCount = Math.max(1, texture.mipmaps.length || 1);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, mipCount - 1);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, maxMipLevel);
 		for (let level = 0; level < mipCount; level++) {
 			const width = Math.max(1, texture.width >> level);
 			const height = Math.max(1, texture.height >> level);
@@ -262,11 +270,7 @@ export class WebGLTextureRegistry {
 			);
 		}
 
-		if (
-			texture.mipmaps.length <= 1 &&
-			(texture.minFilter === "NearestMipmapNearest" ||
-				texture.minFilter === "Linear")
-		) {
+		if (shouldGenerateMipmaps) {
 			gl.generateMipmap(gl.TEXTURE_2D);
 		}
 
@@ -313,13 +317,38 @@ function mapMinFilter(
 	value: string | undefined,
 	hasMipmaps: boolean
 ): number {
-	if (value === "Nearest") {
-		return hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST;
+	switch (value) {
+		case "Nearest":
+			return gl.NEAREST;
+		case "NearestMipmapNearest":
+			return hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST;
+		case "NearestMipmapLinear":
+			return hasMipmaps ? gl.NEAREST_MIPMAP_LINEAR : gl.NEAREST;
+		case "LinearMipmapNearest":
+			return hasMipmaps ? gl.LINEAR_MIPMAP_NEAREST : gl.LINEAR;
+		case "LinearMipmapLinear":
+			return hasMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+		case "Linear":
+		default:
+			return gl.LINEAR;
 	}
-	if (value === "NearestMipmapNearest") {
-		return hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST;
+}
+
+function requiresMipmaps(value: string | undefined): boolean {
+	switch (value) {
+		case "NearestMipmapNearest":
+		case "NearestMipmapLinear":
+		case "LinearMipmapNearest":
+		case "LinearMipmapLinear":
+			return true;
+		default:
+			return false;
 	}
-	return hasMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+}
+
+function resolveMaxMipmapLevel(width: number, height: number): number {
+	const maxDimension = Math.max(1, width | 0, height | 0);
+	return Math.max(0, Math.floor(Math.log2(maxDimension)));
 }
 
 function toRGBA8Data(

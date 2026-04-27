@@ -485,10 +485,15 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (!tex) return null;
 
 		const transform = texInfo.extensions?.KHR_texture_transform;
-
-		// ALWAYS clone here to avoid shared sampler settings between textures
+		const requiresClone =
+			!!transform || (colorSpace !== undefined && colorSpace !== tex.colorSpace);
+		if (!requiresClone) {
+			return tex;
+		}
 		const cloned = tex.clone();
-		if (colorSpace) cloned.colorSpace = colorSpace;
+		if (colorSpace !== undefined) {
+			cloned.colorSpace = colorSpace;
+		}
 
 		if (transform) {
 			if (transform.offset !== undefined) {

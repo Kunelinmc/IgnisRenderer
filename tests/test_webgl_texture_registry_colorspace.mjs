@@ -5,6 +5,7 @@ import { WebGLTextureRegistry } from "../src/renderers/webgl/WebGLTextureRegistr
 function createTextureRegistryTestGL() {
 	let textureId = 0;
 	const textureParameterCalls = [];
+	let generateMipmapCallCount = 0;
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		TEXTURE_2D: 0x0de1,
@@ -18,6 +19,8 @@ function createTextureRegistryTestGL() {
 		LINEAR: 0x2601,
 		NEAREST: 0x2600,
 		NEAREST_MIPMAP_NEAREST: 0x2700,
+		LINEAR_MIPMAP_NEAREST: 0x2701,
+		NEAREST_MIPMAP_LINEAR: 0x2702,
 		LINEAR_MIPMAP_LINEAR: 0x2703,
 		REPEAT: 0x2901,
 		CLAMP_TO_EDGE: 0x812f,
@@ -40,8 +43,13 @@ function createTextureRegistryTestGL() {
 			textureParameterCalls.push({ target, pname, value });
 		},
 		texImage2D() {},
-		generateMipmap() {},
+		generateMipmap() {
+			generateMipmapCallCount++;
+		},
 		textureParameterCalls,
+		get generateMipmapCallCount() {
+			return generateMipmapCallCount;
+		},
 	};
 }
 
@@ -107,10 +115,76 @@ function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
 	assert.equal(maxLevelCall.value, envTexture.mipmaps.length - 1);
 }
 
+function testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	texture.minFilter = "LinearMipmapLinear";
+
+	registry.getBaseColorTexture(texture);
+
+	const maxLevelCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MAX_LEVEL
+	);
+	const minFilterCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MIN_FILTER
+	);
+	assert.ok(maxLevelCall);
+	assert.ok(minFilterCall);
+	assert.equal(maxLevelCall.value, 2);
+	assert.equal(minFilterCall.value, gl.LINEAR_MIPMAP_LINEAR);
+	assert.equal(gl.generateMipmapCallCount, 1);
+}
+
+function testLinearFilterSkipsMipmapGenerationForSingleLevelTexture() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	texture.minFilter = "Linear";
+
+	registry.getBaseColorTexture(texture);
+
+	const maxLevelCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MAX_LEVEL
+	);
+	const minFilterCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MIN_FILTER
+	);
+	assert.ok(maxLevelCall);
+	assert.ok(minFilterCall);
+	assert.equal(maxLevelCall.value, 0);
+	assert.equal(minFilterCall.value, gl.LINEAR);
+	assert.equal(gl.generateMipmapCallCount, 0);
+}
+
+function testNearestMipmapLinearMapsToNearestMipmapLinear() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	texture.mipmaps = [
+		new Uint8Array(4 * 4 * 4),
+		new Uint8Array(2 * 2 * 4),
+	];
+	texture.data = texture.mipmaps[0];
+	texture.minFilter = "NearestMipmapLinear";
+
+	registry.getBaseColorTexture(texture);
+
+	const minFilterCall = gl.textureParameterCalls.find(
+		(call) => call.pname === gl.TEXTURE_MIN_FILTER
+	);
+	assert.ok(minFilterCall);
+	assert.equal(minFilterCall.value, gl.NEAREST_MIPMAP_LINEAR);
+	assert.equal(gl.generateMipmapCallCount, 0);
+}
+
 function run() {
 	testSkyboxTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
 	testEnvironmentTextureLimitsMaxMipLevelToUploadedChain();
+	testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists();
+	testLinearFilterSkipsMipmapGenerationForSingleLevelTexture();
+	testNearestMipmapLinearMapsToNearestMipmapLinear();
 	console.log("WebGL texture registry color-space tests passed");
 }
 
