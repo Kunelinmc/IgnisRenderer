@@ -714,15 +714,15 @@ function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },
 		scene: { getLights: () => [probe] },
-		shAmbientCoeffs: SH.empty(),
-		shCoeffs: SH.empty(),
+		_shAmbientCoeffs: SH.empty(),
+		_shCoeffs: SH.empty(),
 	};
 
 	Renderer.prototype.updateSH.call(fakeRenderer);
 
-	assert.equal(fakeRenderer.shAmbientCoeffs[15].r, 7);
-	assert.equal(fakeRenderer.shAmbientCoeffs[15].g, 3);
-	assert.equal(fakeRenderer.shAmbientCoeffs[15].b, 1);
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 7);
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 3);
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 1);
 }
 
 function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
@@ -736,15 +736,59 @@ function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
 	const fakeRenderer = {
 		params: { worldMatrix: undefined },
 		scene: { getLights: () => [probe, reflectionProbe] },
-		shAmbientCoeffs: SH.empty(),
-		shCoeffs: SH.empty(),
+		_shAmbientCoeffs: SH.empty(),
+		_shCoeffs: SH.empty(),
 	};
 
 	Renderer.prototype.updateSH.call(fakeRenderer);
 
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].r - 7) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].g - 3) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer.shAmbientCoeffs[15].b - 1) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].r - 7) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].g - 3) < 1e-6);
+	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].b - 1) < 1e-6);
+}
+
+function testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend() {
+	const probe = new LightProbe(SH.empty(), 1);
+	probe.shape = "sphere";
+	probe.sh[15] = { r: 7, g: 3, b: 1 };
+
+	const fakeRenderer = {
+		params: { worldMatrix: undefined },
+		scene: { getLights: () => [probe] },
+		_shAmbientCoeffs: SH.empty(),
+		_shCoeffs: SH.empty(),
+	};
+
+	Renderer.prototype.updateSH.call(fakeRenderer);
+
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 7);
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 3);
+	assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 1);
+}
+
+function testRendererUpdateSHSkipsLocalizedProbeForGPUBackends() {
+	const globalProbe = new LightProbe(SH.empty(), 1);
+	globalProbe.sh[15] = { r: 2, g: 1, b: 0.5 };
+
+	const localizedProbe = new LightProbe(SH.empty(), 1);
+	localizedProbe.shape = "box";
+	localizedProbe.sh[15] = { r: 7, g: 3, b: 1 };
+
+	for (const backendType of ["webgl", "webgpu"]) {
+		const fakeRenderer = {
+			backend: { type: backendType },
+			params: { worldMatrix: undefined },
+			scene: { getLights: () => [globalProbe, localizedProbe] },
+			_shAmbientCoeffs: SH.empty(),
+			_shCoeffs: SH.empty(),
+		};
+
+		Renderer.prototype.updateSH.call(fakeRenderer);
+
+		assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 2);
+		assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 1);
+		assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 0.5);
+	}
 }
 
 function run() {
@@ -765,6 +809,8 @@ function run() {
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		testRendererUpdateSHIgnoresReflectionProbeSpecularMap();
+		testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend();
+		testRendererUpdateSHSkipsLocalizedProbeForGPUBackends();
 		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
 		console.error("❌ Shader semantics test failed");

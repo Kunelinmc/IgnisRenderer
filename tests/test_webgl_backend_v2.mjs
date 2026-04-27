@@ -400,6 +400,41 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	assert.equal(withSH.ambientColor[2], 0);
 }
 
+function testLightCollectorCollectsLocalizedLightProbes() {
+	const warnings = [];
+	const warn = (key, message) => warnings.push({ key, message });
+	const globalProbe = new LightProbe(SH.empty(), 1);
+
+	const localProbe = new LightProbe({
+		sh: SH.empty(),
+		shape: "box",
+		halfExtents: { x: 2, y: 2, z: 2 },
+		priority: 7,
+	});
+	localProbe.position.set(0, 0, 0);
+	localProbe.updateWorldMatrix();
+	localProbe.markRuntimeDirty();
+
+	const state = collectWebGLLights(
+		[globalProbe, localProbe],
+		true,
+		warn,
+		false,
+		undefined,
+		true,
+		null,
+		false,
+		true,
+		{ x: 0, y: 0, z: 0 }
+	);
+	assert.equal(state.localLightProbeCount, 1);
+	assert.equal(state.localLightProbes.length, 1);
+	assert.equal(state.localLightProbes[0].priority, 7);
+	assert.equal(state.localLightProbes[0].shape, 1);
+	assert.equal(state.ambientColor[0], 0);
+	assert.equal(warnings.length, 0);
+}
+
 function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	const warn = () => {};
 	const cubeProbeMap = createTinyCubeTexture(3, 0.75);
@@ -797,6 +832,20 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("refract(-viewDir, refractNormal, eta)"));
 }
 
+function testSceneShaderIncludesLocalizedLightProbeUniforms() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	assert.ok(shader.fragment.includes("uniform int uLocalLightProbeCount;"));
+	assert.ok(shader.fragment.includes("uLocalLightProbeWorldToProbeRow0"));
+	assert.ok(shader.fragment.includes("uLocalLightProbeCoeffs"));
+	assert.ok(shader.fragment.includes("selectTopTwoLocalLightProbes"));
+	assert.ok(shader.fragment.includes("sampleBlendedLocalLightProbeIrradiance"));
+	assert.ok(shader.fragment.includes("sampleBlendedLocalLightProbeRadiance"));
+}
+
 function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
 		maxDirectionalLights: 4,
@@ -1190,6 +1239,7 @@ async function run() {
 	await WEBGL_SHADER_SOURCE_FACTORY.prepareAll();
 	testLightCollectorLimitsAndWarnings();
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
+	testLightCollectorCollectsLocalizedLightProbes();
 	testLightCollectorSupportsCubeTextureEnvironmentMaps();
 	testLightCollectorUsesParentedProbeCaptureOrigin();
 	testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot();
@@ -1206,6 +1256,7 @@ async function run() {
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();
+	testSceneShaderIncludesLocalizedLightProbeUniforms();
 	testSceneShaderIncludesPBRTextureAndUV1Pipeline();
 	testSceneShaderIncludesOITPassMode();
 	testParticleShaderIncludesOITPassMode();

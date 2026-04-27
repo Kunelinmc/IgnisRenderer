@@ -66,6 +66,7 @@ const tests = [
 	"test_renderer_particle_stage.mjs",
 	"test_renderer_postanimation_hook.mjs",
 	"test_renderer_warmup_lightprobe.mjs",
+	"test_light_probe_runtime.mjs",
 	"test_reflection_probe_capture_runtime.mjs",
 	"test_camera_shake_plugin.mjs",
 	"test_sobel_normal_mapper.mjs",

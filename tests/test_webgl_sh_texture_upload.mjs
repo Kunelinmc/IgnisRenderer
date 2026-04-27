@@ -4,6 +4,7 @@ import { Logger } from "../src/foundation/Logger.ts";
 
 function createFakeGL() {
 	let textureId = 0;
+	const texImage2DCalls = [];
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		MAX_RENDERBUFFER_SIZE: 0x84e8,
@@ -40,7 +41,10 @@ function createFakeGL() {
 		deleteTexture() {},
 		bindTexture() {},
 		texParameteri() {},
-		texImage2D() {},
+		texImage2D(_target, _level, _internalFormat, width, height) {
+			texImage2DCalls.push({ width, height });
+		},
+		texImage2DCalls,
 	};
 }
 
@@ -74,8 +78,39 @@ function testUploadSHAmbientCoefficients() {
 	}
 }
 
+function testUploadLocalLightProbeCoefficients() {
+	const executor = new WebGLFrameExecutor(createFakeGL());
+	const probes = [
+		{
+			sh: Array.from({ length: 16 }, (_, index) => ({
+				r: index + 1,
+				g: index + 2,
+				b: index + 3,
+			})),
+		},
+		{
+			sh: Array.from({ length: 16 }, (_, index) => ({
+				r: index + 4,
+				g: index + 5,
+				b: index + 6,
+			})),
+		},
+	];
+
+	const uploaded = executor._uploadLocalLightProbeCoefficients(probes);
+	assert.equal(uploaded, true);
+	assert.ok(executor._localLightProbeSHTexture);
+	assert.equal(executor._localLightProbeSHTextureWidth, 16);
+	assert.equal(executor._localLightProbeSHTextureHeight, 2);
+	assert.deepEqual(
+		executor._gl.texImage2DCalls.at(-1),
+		{ width: 16, height: 2 }
+	);
+}
+
 function run() {
 	testUploadSHAmbientCoefficients();
+	testUploadLocalLightProbeCoefficients();
 	console.log("WebGL SH texture upload tests passed");
 }
 

@@ -40,6 +40,7 @@ import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
@@ -317,6 +318,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("shadowData.paramsC.x"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("calculateIrradianceFromSH"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("localLightProbeCounts"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("selectTopTwoLocalLightProbes"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeIrradiance"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeRadiance"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
@@ -402,6 +407,11 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			`shAmbientCoeffs: array<vec4<f32>, ${WEBGPU_SH_COEFFICIENT_COUNT}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`localLightProbeWorldToProbeRow0: array<vec4<f32>, ${WEBGPU_MAX_LOCAL_LIGHT_PROBES}>`
 		)
 	);
 	assert.ok(
@@ -659,6 +669,58 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 	assert.ok(Math.abs(state.shAmbientCoeffs[5].r - 1.5) < 1e-6);
 	assert.ok(Math.abs(state.shAmbientCoeffs[5].g - 1.0) < 1e-6);
 	assert.ok(Math.abs(state.shAmbientCoeffs[5].b - 0.5) < 1e-6);
+}
+
+function testEnvironmentCollectsLocalizedLightProbesWithoutPollutingGlobalSH() {
+	const globalSH = SH.empty();
+	globalSH[5] = { r: 4, g: 2, b: 1 };
+	const globalProbe = new LightProbe(globalSH, 1);
+
+	const localASh = SH.empty();
+	localASh[5] = { r: 90, g: 45, b: 22.5 };
+	const localA = new LightProbe({
+		sh: localASh,
+		shape: "sphere",
+		radius: 2,
+		priority: 5,
+	});
+	localA.position.set(0, 0, 0);
+	localA.updateWorldMatrix();
+	localA.markRuntimeDirty();
+
+	const localBSh = SH.empty();
+	localBSh[5] = { r: 60, g: 30, b: 15 };
+	const localB = new LightProbe({
+		sh: localBSh,
+		shape: "box",
+		halfExtents: { x: 2, y: 2, z: 2 },
+		priority: 5,
+	});
+	localB.position.set(0.5, 0, 0);
+	localB.updateWorldMatrix();
+	localB.markRuntimeDirty();
+
+	const state = collectWebGPUEnvironment(
+		{
+			skybox: null,
+			lights: [globalProbe, localA, localB],
+			camera: {
+				getWorldPosition() {
+					return { x: 0, y: 0, z: 0 };
+				},
+			},
+		},
+		true,
+		null
+	);
+	assert.equal(state.localLightProbeCount, 2);
+	assert.equal(state.localLightProbes.length, 2);
+	assert.equal(state.hasSHAmbient, true);
+	assert.ok(state.shAmbientCoeffs);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].r - 4) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].g - 2) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].b - 1) < 1e-6);
+	assert.equal(state.localLightProbes[0].priority, 5);
 }
 
 function testWebGPUShadowBiasAvoidsSlopeOffset() {
@@ -2207,6 +2269,7 @@ async function run() {
 	testEnvironmentCollectionUsesParentedProbeCaptureOrigin();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH();
+	testEnvironmentCollectsLocalizedLightProbesWithoutPollutingGlobalSH();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	testWebGPUPointLightLimit();
 	await testRenderResourcesUseCopyDstForUploads();
