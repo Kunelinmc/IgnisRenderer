@@ -169,7 +169,7 @@ export interface WebGPUReflectionProbeUniform {
 	probeToWorldMatrix: Matrix4;
 	invHalfExtents: [number, number, number];
 	radiusInv: number;
-	probeWorldPosition: [number, number, number];
+	captureWorldPosition: [number, number, number];
 	shape: 0 | 1;
 	parallaxMode: 0 | 1 | 2;
 	blendDistance: number;

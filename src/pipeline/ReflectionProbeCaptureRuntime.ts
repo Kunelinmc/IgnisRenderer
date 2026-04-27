@@ -657,7 +657,7 @@ function buildCaptureLightingState(
 	probe: ReflectionProbe
 ): CaptureLightingState {
 	const lights = scene.getLights();
-	const probePosition = probe.getWorldPosition({ x: 0, y: 0, z: 0 });
+	const capturePosition = probe.getRuntimeCache().captureWorldPosition;
 	const captureRange = Math.max(1, probe.captureFar);
 	const ambient: RGBLinear = { r: 0, g: 0, b: 0 };
 	const directionalLights: CapturedDirectionalLight[] = [];
@@ -690,7 +690,7 @@ function buildCaptureLightingState(
 				const point = light as PointLight;
 				const worldPosition = point.getWorldLightPosition();
 				const captured = buildCapturedLocalLight(
-					probePosition,
+					capturePosition,
 					worldPosition,
 					point.range,
 					captureRange,
@@ -705,9 +705,9 @@ function buildCaptureLightingState(
 				const spot = light as SpotLight;
 				const worldPosition = spot.getWorldLightPosition();
 				const directionToProbe = normalizeDirection({
-					x: probePosition.x - worldPosition.x,
-					y: probePosition.y - worldPosition.y,
-					z: probePosition.z - worldPosition.z,
+					x: capturePosition.x - worldPosition.x,
+					y: capturePosition.y - worldPosition.y,
+					z: capturePosition.z - worldPosition.z,
 				});
 				const worldDirection = spot.getWorldLightDirection();
 				const coneWeight = computeSpotConeWeight(
@@ -721,7 +721,7 @@ function buildCaptureLightingState(
 				}
 				const color = toLinearColor(spot.color, (spot.intensity ?? 1) * coneWeight);
 				const captured = buildCapturedLocalLight(
-					probePosition,
+					capturePosition,
 					worldPosition,
 					spot.range,
 					captureRange,
@@ -741,7 +741,7 @@ function buildCaptureLightingState(
 					(area.intensity ?? 1) * areaScale
 				);
 				const captured = buildCapturedLocalLight(
-					probePosition,
+					capturePosition,
 					worldPosition,
 					area.range,
 					captureRange,
@@ -779,16 +779,16 @@ function accumulateAmbient(
 }
 
 function buildCapturedLocalLight(
-	probePosition: IVector3,
+	capturePosition: IVector3,
 	lightPosition: IVector3,
 	lightRange: number,
 	captureFar: number,
 	color: RGBLinear
 ): CapturedLocalLight | null {
 	const toLight = {
-		x: lightPosition.x - probePosition.x,
-		y: lightPosition.y - probePosition.y,
-		z: lightPosition.z - probePosition.z,
+		x: lightPosition.x - capturePosition.x,
+		y: lightPosition.y - capturePosition.y,
+		z: lightPosition.z - capturePosition.z,
 	};
 	const distance = Math.hypot(toLight.x, toLight.y, toLight.z);
 	const range = Math.max(

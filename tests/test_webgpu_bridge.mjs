@@ -30,6 +30,7 @@ import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { AlphaMode } from "../src/materials/Material.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { CubeTexture } from "../src/core/CubeTexture.ts";
+import { Node } from "../src/core/Node.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../src/meshes/MeshInstance.ts";
@@ -596,6 +597,30 @@ function testEnvironmentCollectionWithCubeTextures() {
 	assert.equal(state.envSpecularTexture.height, 2);
 	assert.equal(state.reflectionProbeCount, 1);
 	assert.equal(state.envSpecularMaxMipLevel, 2);
+}
+
+function testEnvironmentCollectionUsesParentedProbeCaptureOrigin() {
+	const probeMap = createTinyCubeTexture(3, 0.75);
+	const model = new Node();
+	model.position.set(4, 0, 0);
+	const probe = new ReflectionProbe({
+		shape: "box",
+		prefilteredMap: probeMap,
+	});
+	model.addChild(probe);
+	probe.position.set(2, 0, 0);
+	model.updateWorldMatrix();
+
+	const state = collectWebGPUEnvironment(
+		{
+			skybox: null,
+			lights: [probe],
+		},
+		false,
+		null
+	);
+	assert.equal(state.reflectionProbeCount, 1);
+	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [4, 0, 0]);
 }
 
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
@@ -1508,6 +1533,128 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	assert.equal(backend.createTextureCalls[1].format, backend.canvasDepthFormat);
 }
 
+async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const preparedScene = {
+		...createFrame(packet),
+		particleSystems: [],
+		hasActiveAnimations: false,
+		allowSkyboxSpecularFallback: false,
+		spatialIndex: null,
+	};
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableClusteredLighting: true,
+			enableSkybox: false,
+			enableShadows: false,
+			enableReflection: false,
+			enableOIT: false,
+			enableSSAO: false,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableFog: false,
+			enableMotionBlur: false,
+			enableDOF: false,
+			enableBloom: false,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			skybox: false,
+			oit: false,
+			ssao: false,
+			ssgi: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	const frameContext = {
+		camera: preparedScene.camera,
+		attachments: { width: 1, height: 1 },
+		features,
+		shadowMaps: preparedScene.shadowMaps,
+		scene: preparedScene,
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }],
+			dirtyTileSize: 1,
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: true,
+		},
+		transient: new Map(),
+	};
+	const preparedCameraPositions = [];
+	const resources = {
+		setSceneTargetMode() {},
+		prepareFrame(context) {
+			preparedCameraPositions.push(
+				context.camera.getWorldPosition({ x: 0, y: 0, z: 0 })
+			);
+		},
+		async buildClusteredLighting() {},
+		async getSkyboxResources() {
+			return null;
+		},
+		async getDrawResources() {
+			return null;
+		},
+		async renderParticles() {
+			return 0;
+		},
+	};
+	const modelRoot = new Node();
+	modelRoot.position.set(3, 0, 0);
+	const probe = new ReflectionProbe({
+		includeMeshes: false,
+		includeSkybox: false,
+		includeTransparent: false,
+		includeParticles: false,
+		includeShadows: false,
+	});
+	modelRoot.addChild(probe);
+	probe.position.set(2, 0, 0);
+	modelRoot.updateWorldMatrix();
+	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+
+	await capturePass.captureFace({
+		frameContext,
+		probe,
+		faceIndex: 0,
+		faceSize: 1,
+		includeSkybox: false,
+		includeTransparent: false,
+		includeParticles: false,
+		includeShadows: false,
+	});
+
+	assert.ok(preparedCameraPositions.length >= 1);
+	assert.deepEqual(preparedCameraPositions[0], { x: 3, y: 0, z: 0 });
+}
+
 async function testParticleUVLayoutAndUniformBinding() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -2057,6 +2204,7 @@ async function run() {
 	await testWebGPUShaderConstantTokenInjection();
 	testEnvironmentCollection();
 	testEnvironmentCollectionWithCubeTextures();
+	testEnvironmentCollectionUsesParentedProbeCaptureOrigin();
 	testLightProbeDCAmbientFallbackWhenSHDisabled();
 	testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH();
 	testWebGPUShadowBiasAvoidsSlopeOffset();
@@ -2070,6 +2218,7 @@ async function run() {
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testExplicitSceneTargetModeOverridesSharedMRTState();
 	await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
+	await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
 	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();

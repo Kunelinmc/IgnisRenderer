@@ -381,9 +381,9 @@ export function computeParallaxCorrectedDirection(
 
 	const worldHit = Matrix4.transformPoint(cache.probeToWorldMatrix, hitLocal);
 	const corrected = {
-		x: worldHit.x - cache.probeWorldPosition.x,
-		y: worldHit.y - cache.probeWorldPosition.y,
-		z: worldHit.z - cache.probeWorldPosition.z,
+		x: worldHit.x - cache.captureWorldPosition.x,
+		y: worldHit.y - cache.captureWorldPosition.y,
+		z: worldHit.z - cache.captureWorldPosition.z,
 	};
 	return {
 		direction: normalizeDirection(corrected),

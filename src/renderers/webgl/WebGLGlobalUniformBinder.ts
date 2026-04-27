@@ -407,9 +407,9 @@ export function bindWebGLGlobalUniforms(
 			gl.uniform4fv(
 				uniforms.reflectionProbeDataB,
 				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
-					probe.probeWorldPosition[0],
-					probe.probeWorldPosition[1],
-					probe.probeWorldPosition[2],
+					probe.captureWorldPosition[0],
+					probe.captureWorldPosition[1],
+					probe.captureWorldPosition[2],
 					probe.shape,
 				])
 			);

@@ -252,7 +252,7 @@ function clampFaceIndex(faceIndex: number): number {
 }
 
 function createCubeFaceCamera(probe: ReflectionProbe, faceIndex: number): Camera {
-	const probeWorldPosition = probe.getWorldPosition({ x: 0, y: 0, z: 0 });
+	const captureWorldPosition = probe.getRuntimeCache().captureWorldPosition;
 	const direction = CUBE_FACE_DIRECTIONS[faceIndex] ?? CUBE_FACE_DIRECTIONS[0];
 	const up = CUBE_FACE_UP_VECTORS[faceIndex] ?? CUBE_FACE_UP_VECTORS[0];
 	const captureFar = Math.max(1, probe.captureFar);
@@ -263,18 +263,18 @@ function createCubeFaceCamera(probe: ReflectionProbe, faceIndex: number): Camera
 		far: captureFar,
 	});
 	camera.position.set(
-		probeWorldPosition.x,
-		probeWorldPosition.y,
-		probeWorldPosition.z
+		captureWorldPosition.x,
+		captureWorldPosition.y,
+		captureWorldPosition.z
 	);
 	camera.updateWorldMatrix();
 
 	const target = {
-		x: probeWorldPosition.x + direction.x,
-		y: probeWorldPosition.y + direction.y,
-		z: probeWorldPosition.z + direction.z,
+		x: captureWorldPosition.x + direction.x,
+		y: captureWorldPosition.y + direction.y,
+		z: captureWorldPosition.z + direction.z,
 	};
-	camera.viewMatrix = Matrix4.lookAt(probeWorldPosition, target, up);
+	camera.viewMatrix = Matrix4.lookAt(captureWorldPosition, target, up);
 	camera.projectionMatrix = Matrix4.perspective(
 		camera.fov,
 		camera.aspectRatio,

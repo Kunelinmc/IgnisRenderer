@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
+import { Node } from "../src/core/Node.ts";
 import { Texture } from "../src/core/Texture.ts";
 import {
 	buildReflectionProbeAtlasTexture,
@@ -104,6 +105,25 @@ function testParallaxIntersectionAndFallback() {
 	);
 	assert.equal(fallback.valid, false);
 	assert.ok(Math.abs(fallback.direction.x - 1) < 1e-6);
+
+	const parent = new Node();
+	const parentedProbe = new ReflectionProbe({
+		shape: "sphere",
+		radius: 2,
+		parallaxMode: "sphere",
+	});
+	parent.addChild(parentedProbe);
+	parentedProbe.position.set(2, 0, 0);
+	parent.updateWorldMatrix();
+	parentedProbe.markRuntimeDirty();
+	const parented = computeParallaxCorrectedDirection(
+		{ x: 2, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		parentedProbe
+	);
+	assert.equal(parented.valid, true);
+	assert.ok(Math.abs(parented.direction.x - Math.SQRT1_2) < 1e-6);
+	assert.ok(Math.abs(parented.direction.z - Math.SQRT1_2) < 1e-6);
 }
 
 function testRuntimeCacheDirtyBehavior() {

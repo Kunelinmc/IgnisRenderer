@@ -68,10 +68,10 @@ export function collectWebGPUEnvironment(
 					cache.invHalfExtents.z,
 				],
 				radiusInv: cache.radiusInv,
-				probeWorldPosition: [
-					cache.probeWorldPosition.x,
-					cache.probeWorldPosition.y,
-					cache.probeWorldPosition.z,
+				captureWorldPosition: [
+					cache.captureWorldPosition.x,
+					cache.captureWorldPosition.y,
+					cache.captureWorldPosition.z,
 				],
 				shape: probe.shape === "box" ? 1 : 0,
 				parallaxMode: mapParallaxModeCode(probe.parallaxMode),

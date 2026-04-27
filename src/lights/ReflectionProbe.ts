@@ -25,6 +25,7 @@ export interface ReflectionProbeRuntimeCache {
 	worldToProbeMatrix: Matrix4;
 	worldToProbe3x3: Matrix3Arr;
 	probeWorldPosition: IVector3;
+	captureWorldPosition: IVector3;
 	invHalfExtents: IVector3;
 	radiusInv: number;
 	effectiveBlendDistance: number;
@@ -126,6 +127,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 				[0, 0, 1],
 			],
 			probeWorldPosition: { x: 0, y: 0, z: 0 },
+			captureWorldPosition: { x: 0, y: 0, z: 0 },
 			invHalfExtents: { x: 1, y: 1, z: 1 },
 			radiusInv: 1,
 			effectiveBlendDistance: this.blendDistance,
@@ -273,6 +275,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		probePosition.x = worldPosition.x;
 		probePosition.y = worldPosition.y;
 		probePosition.z = worldPosition.z;
+		resolveCaptureWorldPosition(this, this._runtimeCache.captureWorldPosition);
 
 		const safeHalfX = Math.max(
 			Math.abs(this.halfExtents.x),
@@ -357,6 +360,17 @@ function sanitizeCaptureIntervalSeconds(value: number): number {
 function sanitizeCaptureFar(value: number): number {
 	if (!Number.isFinite(value)) return 200;
 	return Math.max(1, value);
+}
+
+function resolveCaptureWorldPosition(
+	probe: ReflectionProbe,
+	out: IVector3
+): void {
+	const captureNode = probe.parent ?? probe;
+	const elements = captureNode.worldMatrix.elements;
+	out.x = elements[0][3];
+	out.y = elements[1][3];
+	out.z = elements[2][3];
 }
 
 function sanitizeCaptureResolution(

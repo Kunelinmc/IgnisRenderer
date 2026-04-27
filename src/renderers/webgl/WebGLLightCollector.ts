@@ -95,7 +95,7 @@ export interface WebGLReflectionProbeUniform {
 	parallaxMode: 0 | 1 | 2;
 	blendDistance: number;
 	blendExponent: number;
-	probeWorldPosition: [number, number, number];
+	captureWorldPosition: [number, number, number];
 	layer: number;
 }
 
@@ -360,10 +360,10 @@ export function collectWebGLLights(
 				parallaxMode: mapParallaxModeCode(probe),
 				blendDistance: cache.effectiveBlendDistance,
 				blendExponent: cache.blendExponent,
-				probeWorldPosition: [
-					cache.probeWorldPosition.x,
-					cache.probeWorldPosition.y,
-					cache.probeWorldPosition.z,
+				captureWorldPosition: [
+					cache.captureWorldPosition.x,
+					cache.captureWorldPosition.y,
+					cache.captureWorldPosition.z,
 				],
 				layer: index,
 			};

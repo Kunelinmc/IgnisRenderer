@@ -430,9 +430,9 @@ export function packFrameUniformData(
 		const probe = input.reflectionProbes[i];
 		if (probe) {
 			writer.writeVec(["reflectionProbeDataB", i], [
-				probe.probeWorldPosition[0],
-				probe.probeWorldPosition[1],
-				probe.probeWorldPosition[2],
+				probe.captureWorldPosition[0],
+				probe.captureWorldPosition[1],
+				probe.captureWorldPosition[2],
 				probe.shape,
 			]);
 		}
