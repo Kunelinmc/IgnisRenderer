@@ -361,6 +361,221 @@ fn sampleSHRadiance(direction: vec3<f32>) -> vec3<f32> {
 	return max(result, vec3<f32>(0.0));
 }
 
+fn localLightProbeCount() -> u32 {
+	let count = u32(max(frame.localLightProbeCounts.x + 0.5, 0.0));
+	return min(count, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__u);
+}
+
+fn worldToLocalLightProbePoint(
+	probeIndex: u32,
+	worldPosition: vec3<f32>
+) -> vec3<f32> {
+	let row0 = frame.localLightProbeWorldToProbeRow0[probeIndex];
+	let row1 = frame.localLightProbeWorldToProbeRow1[probeIndex];
+	let row2 = frame.localLightProbeWorldToProbeRow2[probeIndex];
+	return vec3<f32>(
+		dot(row0.xyz, worldPosition) + row0.w,
+		dot(row1.xyz, worldPosition) + row1.w,
+		dot(row2.xyz, worldPosition) + row2.w
+	);
+}
+
+fn computeLocalLightProbeMetric(
+	worldPosition: vec3<f32>,
+	probeIndex: u32
+) -> f32 {
+	let localPosition = worldToLocalLightProbePoint(probeIndex, worldPosition);
+	let dataA = frame.localLightProbeDataA[probeIndex];
+	let shape = frame.localLightProbeDataB[probeIndex].z;
+	if (shape > 0.5) {
+		return max(
+			max(abs(localPosition.x) * dataA.x, abs(localPosition.y) * dataA.y),
+			abs(localPosition.z) * dataA.z
+		);
+	}
+	return length(localPosition) * dataA.w;
+}
+
+fn computeLocalLightProbeWeight(metric: f32, probeIndex: u32) -> f32 {
+	let blendDistance = max(frame.localLightProbeDataB[probeIndex].x, 1e-5);
+	let x = clamp((metric - 1.0) / blendDistance, 0.0, 1.0);
+	return 1.0 - smoothstep(0.0, 1.0, x);
+}
+
+fn localLightProbePriority(probeIndex: u32) -> i32 {
+	return i32(frame.localLightProbeDataB[probeIndex].y);
+}
+
+fn localLightProbeCoeffIndex(probeIndex: u32, coeffIndex: u32) -> u32 {
+	return probeIndex * 16u + coeffIndex;
+}
+
+fn sampleLocalLightProbeSHCoeff(probeIndex: u32, coeffIndex: u32) -> vec3<f32> {
+	return frame.localLightProbeSHAmbientCoeffs[
+		localLightProbeCoeffIndex(probeIndex, coeffIndex)
+	].xyz;
+}
+
+fn sampleLocalLightProbeIrradiance(
+	probeIndex: u32,
+	normal: vec3<f32>
+) -> vec3<f32> {
+	let basis = evalSHBasis(normal);
+	let c1 = PI;
+	let c2 = (2.0 * PI) / 3.0;
+	let c3 = PI / 4.0;
+	var result = vec3<f32>(0.0);
+	for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+		var factor = select(0.0, c3, i >= 4u && i < 9u);
+		factor = select(factor, c2, i >= 1u && i < 4u);
+		factor = select(factor, c1, i == 0u);
+		result += sampleLocalLightProbeSHCoeff(probeIndex, i) * basis[i] * factor;
+	}
+	return max(result, vec3<f32>(0.0));
+}
+
+fn sampleLocalLightProbeRadiance(
+	probeIndex: u32,
+	direction: vec3<f32>
+) -> vec3<f32> {
+	let basis = evalSHBasis(direction);
+	var result = vec3<f32>(0.0);
+	for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+		result += sampleLocalLightProbeSHCoeff(probeIndex, i) * basis[i];
+	}
+	return max(result, vec3<f32>(0.0));
+}
+
+fn isBetterLocalLightProbeCandidate(
+	candidateWeight: f32,
+	candidateIndex: i32,
+	currentWeight: f32,
+	currentIndex: i32
+) -> bool {
+	if (candidateWeight > currentWeight + 1e-6) {
+		return true;
+	}
+	if (abs(candidateWeight - currentWeight) <= 1e-6 && candidateIndex < currentIndex) {
+		return true;
+	}
+	return false;
+}
+
+fn selectTopTwoLocalLightProbes(worldPosition: vec3<f32>) -> vec4<f32> {
+	let count = localLightProbeCount();
+	var bestPriority = -2147483647;
+	var firstIndex: i32 = -1;
+	var secondIndex: i32 = -1;
+	var firstWeight = 0.0;
+	var secondWeight = 0.0;
+
+	for (var i: u32 = 0u; i < count; i = i + 1u) {
+		let metric = computeLocalLightProbeMetric(worldPosition, i);
+		let weight = computeLocalLightProbeWeight(metric, i);
+		if (!isFiniteF32(weight) || weight <= 1e-6) {
+			continue;
+		}
+
+		let priority = localLightProbePriority(i);
+		let index = i32(i);
+		if (priority > bestPriority) {
+			bestPriority = priority;
+			firstIndex = index;
+			secondIndex = -1;
+			firstWeight = weight;
+			secondWeight = 0.0;
+			continue;
+		}
+		if (priority < bestPriority) {
+			continue;
+		}
+
+		if (
+			firstIndex < 0 ||
+			isBetterLocalLightProbeCandidate(weight, index, firstWeight, firstIndex)
+		) {
+			secondIndex = firstIndex;
+			secondWeight = firstWeight;
+			firstIndex = index;
+			firstWeight = weight;
+			continue;
+		}
+
+		if (
+			secondIndex < 0 ||
+			isBetterLocalLightProbeCandidate(weight, index, secondWeight, secondIndex)
+		) {
+			secondIndex = index;
+			secondWeight = weight;
+		}
+	}
+
+	return vec4<f32>(
+		f32(firstIndex),
+		f32(secondIndex),
+		firstWeight,
+		secondWeight
+	);
+}
+
+fn sampleBlendedLocalLightProbeIrradiance(
+	selection: vec4<f32>,
+	normal: vec3<f32>
+) -> vec4<f32> {
+	if (selection.x < 0.0 || selection.z <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+
+	let rawSum = selection.z + max(selection.w, 0.0);
+	let coverage = clamp(rawSum, 0.0, 1.0);
+	if (coverage <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+
+	let invWeight = 1.0 / max(rawSum, 1e-6);
+	var result = sampleLocalLightProbeIrradiance(
+		u32(max(selection.x, 0.0)),
+		normal
+	) * (selection.z * invWeight);
+	if (selection.y >= 0.0 && selection.w > 1e-6) {
+		result += sampleLocalLightProbeIrradiance(
+			u32(max(selection.y, 0.0)),
+			normal
+		) * (selection.w * invWeight);
+	}
+
+	return vec4<f32>(result, coverage);
+}
+
+fn sampleBlendedLocalLightProbeRadiance(
+	selection: vec4<f32>,
+	direction: vec3<f32>
+) -> vec4<f32> {
+	if (selection.x < 0.0 || selection.z <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+
+	let rawSum = selection.z + max(selection.w, 0.0);
+	let coverage = clamp(rawSum, 0.0, 1.0);
+	if (coverage <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+
+	let invWeight = 1.0 / max(rawSum, 1e-6);
+	var result = sampleLocalLightProbeRadiance(
+		u32(max(selection.x, 0.0)),
+		direction
+	) * (selection.z * invWeight);
+	if (selection.y >= 0.0 && selection.w > 1e-6) {
+		result += sampleLocalLightProbeRadiance(
+			u32(max(selection.y, 0.0)),
+			direction
+		) * (selection.w * invWeight);
+	}
+
+	return vec4<f32>(result, coverage);
+}
+
 fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	let phi = atan2(direction.x, direction.z);
 	let theta = acos(clamp(direction.y, -1.0, 1.0));

@@ -100,6 +100,8 @@ export class WebGPUFrameBindingCache {
 			skyboxIsOrthographic: isOrthographic,
 			ambientColor: lightingState.ambientColor,
 			shAmbientCoeffs: environmentState.shAmbientCoeffs,
+			localLightProbeCount: environmentState.localLightProbeCount,
+			localLightProbes: environmentState.localLightProbes,
 			directionalLights: lightingState.directionalLights,
 			directionalShadows: lightingState.directionalShadows,
 			pointLights: lightingState.pointLights,

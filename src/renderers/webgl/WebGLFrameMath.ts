@@ -2,8 +2,12 @@ import { clamp } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
-import { WEBGL_MAX_REFLECTION_PROBES } from "./constants";
+import {
+	WEBGL_MAX_LOCAL_LIGHT_PROBES,
+	WEBGL_MAX_REFLECTION_PROBES,
+} from "./constants";
 import type {
+	WebGLLocalLightProbeUniform,
 	WebGLReflectionProbeUniform,
 	WebGLShadowData,
 } from "./WebGLLightCollector";
@@ -227,6 +231,40 @@ export function flattenReflectionProbeVec4(
 ): Float32Array {
 	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
 	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const mapped = mapper(values[i]);
+		const offset = i * 4;
+		packed[offset] = finiteOr(mapped[0], 0);
+		packed[offset + 1] = finiteOr(mapped[1], 0);
+		packed[offset + 2] = finiteOr(mapped[2], 0);
+		packed[offset + 3] = finiteOr(mapped[3], 0);
+	}
+	return packed;
+}
+
+export function flattenLocalLightProbeRows(
+	values: WebGLLocalLightProbeUniform[],
+	row: 0 | 1 | 2
+): Float32Array {
+	const packed = new Float32Array(WEBGL_MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(WEBGL_MAX_LOCAL_LIGHT_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i].worldToProbeMatrix.elements;
+		const offset = i * 4;
+		packed[offset] = finiteOr(matrix[row][0], 0);
+		packed[offset + 1] = finiteOr(matrix[row][1], 0);
+		packed[offset + 2] = finiteOr(matrix[row][2], 0);
+		packed[offset + 3] = finiteOr(matrix[row][3], 0);
+	}
+	return packed;
+}
+
+export function flattenLocalLightProbeVec4(
+	values: WebGLLocalLightProbeUniform[],
+	mapper: (probe: WebGLLocalLightProbeUniform) => [number, number, number, number]
+): Float32Array {
+	const packed = new Float32Array(WEBGL_MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(WEBGL_MAX_LOCAL_LIGHT_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const mapped = mapper(values[i]);
 		const offset = i * 4;

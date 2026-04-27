@@ -105,8 +105,10 @@ import {
 } from "./WebGLFrameTargetLifecycle";
 import {
 	bindWebGLGlobalUniforms,
+	uploadWebGLLocalLightProbeCoefficients,
 	uploadWebGLSHAmbientCoefficients,
 	type WebGLGlobalUniformBinderHost,
+	type WebGLLocalLightProbeUploadHost,
 	type WebGLSHAmbientUploadHost,
 } from "./WebGLGlobalUniformBinder";
 import {
@@ -226,6 +228,9 @@ export class WebGLFrameExecutor {
 	private _shAmbientTexture: WebGLTexture | null = null;
 	private _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
 	private _shAmbientTextureHeight = 1;
+	private _localLightProbeSHTexture: WebGLTexture | null = null;
+	private _localLightProbeSHTextureWidth = SH_COEFFICIENT_COUNT;
+	private _localLightProbeSHTextureHeight = 1;
 	private _ssaoFrameIndex = 0;
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
@@ -552,6 +557,10 @@ export class WebGLFrameExecutor {
 		if (this._shAmbientTexture) {
 			this._gl.deleteTexture(this._shAmbientTexture);
 			this._shAmbientTexture = null;
+		}
+		if (this._localLightProbeSHTexture) {
+			this._gl.deleteTexture(this._localLightProbeSHTexture);
+			this._localLightProbeSHTexture = null;
 		}
 		this._modelMatrixCache.clear();
 		this._modelMatrixKeysThisFrame.clear();
@@ -1363,6 +1372,15 @@ export class WebGLFrameExecutor {
 		return uploadWebGLSHAmbientCoefficients(
 			this as unknown as WebGLSHAmbientUploadHost,
 			coeffs
+		);
+	}
+
+	private _uploadLocalLightProbeCoefficients(
+		probes: NonNullable<WebGLLightState["localLightProbes"]>
+	): boolean {
+		return uploadWebGLLocalLightProbeCoefficients(
+			this as unknown as WebGLLocalLightProbeUploadHost,
+			probes
 		);
 	}
 

@@ -13,8 +13,11 @@ import {
 	type ShadowRenderSet,
 } from "../../lights/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
+import type { IVector3, SHCoefficients } from "../../maths/types";
+import { collectActiveLocalizedLightProbes } from "../../pipeline/lightProbeRuntime";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_LOCAL_LIGHT_PROBES,
 	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_MAX_SPOT_LIGHTS,
@@ -30,7 +33,6 @@ import {
 	resolveShadowData as resolveSharedShadowData,
 	toLinearLightColor,
 } from "../../pipeline/lightingRuntime";
-import type { IVector3 } from "../../maths/types";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];
@@ -81,8 +83,21 @@ export interface WebGLLightState {
 	spotShadows: WebGLShadowData[];
 	clusteredLights: WebGLClusteredLight[];
 	envSpecularMap: Texture | null;
+	localLightProbeCount: number;
+	localLightProbes: WebGLLocalLightProbeUniform[];
 	reflectionProbeCount: number;
 	reflectionProbes: WebGLReflectionProbeUniform[];
+}
+
+export interface WebGLLocalLightProbeUniform {
+	id: string;
+	worldToProbeMatrix: Matrix4;
+	invHalfExtents: [number, number, number];
+	radiusInv: number;
+	shape: 0 | 1;
+	blendDistance: number;
+	priority: number;
+	sh: SHCoefficients;
 }
 
 export interface WebGLReflectionProbeUniform {
@@ -198,6 +213,8 @@ export function collectWebGLLights(
 		spotShadows: [],
 		clusteredLights: [],
 		envSpecularMap: null,
+		localLightProbeCount: 0,
+		localLightProbes: [],
 		reflectionProbeCount: 0,
 		reflectionProbes: [],
 	};
@@ -338,6 +355,15 @@ export function collectWebGLLights(
 		}
 	}
 
+	if (enableSH) {
+		state.localLightProbes = collectActiveLocalizedLightProbes(
+			lights,
+			WEBGL_MAX_LOCAL_LIGHT_PROBES,
+			cameraWorldPosition
+		).map((probe) => createWebGLLocalLightProbeUniform(probe));
+		state.localLightProbeCount = state.localLightProbes.length;
+	}
+
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		lights,
 		WEBGL_MAX_REFLECTION_PROBES,
@@ -395,6 +421,30 @@ function collectLightProbe(
 		light.sh[0],
 		light.intensity ?? 1
 	);
+}
+
+function createWebGLLocalLightProbeUniform(
+	probe: LightProbe
+): WebGLLocalLightProbeUniform {
+	const cache = probe.getRuntimeCache();
+	return {
+		id: probe.id,
+		worldToProbeMatrix: cache.worldToProbeMatrix.clone(),
+		invHalfExtents: [
+			cache.invHalfExtents.x,
+			cache.invHalfExtents.y,
+			cache.invHalfExtents.z,
+		],
+		radiusInv: cache.radiusInv,
+		shape: probe.shape === "box" ? 1 : 0,
+		blendDistance: cache.effectiveBlendDistance,
+		priority: cache.priority,
+		sh: probe.sh.map((coefficient) => ({
+			r: coefficient.r,
+			g: coefficient.g,
+			b: coefficient.b,
+		})),
+	};
 }
 
 function resolveEnvSpecularMap(

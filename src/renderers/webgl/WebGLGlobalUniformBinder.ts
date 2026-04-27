@@ -8,6 +8,8 @@ import {
 } from "./constants";
 import {
 	finiteOr,
+	flattenLocalLightProbeRows,
+	flattenLocalLightProbeVec4,
 	flattenReflectionProbeRows,
 	flattenReflectionProbeVec4,
 	flattenShadowParamsA,
@@ -32,6 +34,7 @@ const WEBGL_TEXTURE_UNIT_SH_AMBIENT = 4;
 const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
 const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
+const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 8;
 const SH_COEFFICIENT_COUNT = 16;
 
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
@@ -90,11 +93,17 @@ export interface WebGLGlobalUniformBinderHost {
 	_shAmbientTexture: WebGLTexture | null;
 	_shAmbientTextureWidth: number;
 	_shAmbientTextureHeight: number;
+	_localLightProbeSHTexture: WebGLTexture | null;
+	_localLightProbeSHTextureWidth: number;
+	_localLightProbeSHTextureHeight: number;
 	_fogParams0: Float32Array;
 	_fogParams1: Float32Array;
 	_updateFogParams(options: FogOptions | undefined, enabled: boolean): void;
 	_uploadSHAmbientCoefficients(
 		coeffs: SHCoefficients | null | undefined
+	): boolean;
+	_uploadLocalLightProbeCoefficients(
+		probes: WebGLLightState["localLightProbes"]
 	): boolean;
 }
 
@@ -103,6 +112,13 @@ export interface WebGLSHAmbientUploadHost {
 	_shAmbientTexture: WebGLTexture | null;
 	_shAmbientTextureWidth: number;
 	_shAmbientTextureHeight: number;
+}
+
+export interface WebGLLocalLightProbeUploadHost {
+	_gl: WebGL2RenderingContext;
+	_localLightProbeSHTexture: WebGLTexture | null;
+	_localLightProbeSHTextureWidth: number;
+	_localLightProbeSHTextureHeight: number;
 }
 
 export function bindWebGLGlobalUniforms(
@@ -121,6 +137,8 @@ export function bindWebGLGlobalUniforms(
 		spotShadows: [],
 		clusteredLights: [] as WebGLClusteredLight[],
 		envSpecularMap: null,
+		localLightProbeCount: 0,
+		localLightProbes: [],
 		reflectionProbeCount: 0,
 		reflectionProbes: [],
 	};
@@ -199,6 +217,11 @@ export function bindWebGLGlobalUniforms(
 		gl.uniform3f(uniforms.ambientColor, ambientR, ambientG, ambientB);
 	}
 	const shTextureReady = host._uploadSHAmbientCoefficients(context.shAmbientCoeffs);
+	const localLightProbeTextureReady = host._uploadLocalLightProbeCoefficients(
+		lights.localLightProbes
+	);
+	const resolvedLocalLightProbeCount =
+		localLightProbeTextureReady ? Math.max(0, Math.floor(lights.localLightProbeCount)) : 0;
 	if (uniforms.shAmbientCoeffs) {
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SH_AMBIENT);
 		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
@@ -214,7 +237,68 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.enableSH) {
 		gl.uniform1i(
 			uniforms.enableSH,
-			context.features.enableSH && shTextureReady ? 1 : 0
+			context.features.enableSH &&
+				(shTextureReady || resolvedLocalLightProbeCount > 0) ?
+				1
+			:	0
+		);
+	}
+	if (uniforms.localLightProbeCount) {
+		gl.uniform1i(uniforms.localLightProbeCount, resolvedLocalLightProbeCount);
+	}
+	if (uniforms.localLightProbeWorldToProbeRow0) {
+		gl.uniform4fv(
+			uniforms.localLightProbeWorldToProbeRow0,
+			flattenLocalLightProbeRows(lights.localLightProbes, 0)
+		);
+	}
+	if (uniforms.localLightProbeWorldToProbeRow1) {
+		gl.uniform4fv(
+			uniforms.localLightProbeWorldToProbeRow1,
+			flattenLocalLightProbeRows(lights.localLightProbes, 1)
+		);
+	}
+	if (uniforms.localLightProbeWorldToProbeRow2) {
+		gl.uniform4fv(
+			uniforms.localLightProbeWorldToProbeRow2,
+			flattenLocalLightProbeRows(lights.localLightProbes, 2)
+		);
+	}
+	if (uniforms.localLightProbeDataA) {
+		gl.uniform4fv(
+			uniforms.localLightProbeDataA,
+			flattenLocalLightProbeVec4(lights.localLightProbes, (probe) => [
+				probe.invHalfExtents[0],
+				probe.invHalfExtents[1],
+				probe.invHalfExtents[2],
+				probe.radiusInv,
+			])
+		);
+	}
+	if (uniforms.localLightProbeDataB) {
+		gl.uniform4fv(
+			uniforms.localLightProbeDataB,
+			flattenLocalLightProbeVec4(lights.localLightProbes, (probe) => [
+				probe.blendDistance,
+				probe.priority,
+				probe.shape,
+				0,
+			])
+		);
+	}
+	if (uniforms.localLightProbeCoeffs) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH);
+		gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
+		gl.uniform1i(
+			uniforms.localLightProbeCoeffs,
+			WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH
+		);
+	}
+	if (uniforms.localLightProbeCoeffsSize) {
+		gl.uniform2f(
+			uniforms.localLightProbeCoeffsSize,
+			host._localLightProbeSHTextureWidth,
+			host._localLightProbeSHTextureHeight
 		);
 	}
 
@@ -804,6 +888,81 @@ export function uploadWebGLSHAmbientCoefficients(
 		logWebGLGlobalUniformWarning(
 			"webgl-sh-ambient-texture-upload-failed",
 			`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
+		);
+		return false;
+	}
+}
+
+export function uploadWebGLLocalLightProbeCoefficients(
+	host: WebGLLocalLightProbeUploadHost,
+	probes: WebGLLightState["localLightProbes"]
+): boolean {
+	const gl = host._gl;
+	const width = SH_COEFFICIENT_COUNT;
+	const height = Math.max(1, probes.length);
+	const data = new Float32Array(width * height * 4);
+
+	for (let probeIndex = 0; probeIndex < probes.length; probeIndex++) {
+		const probe = probes[probeIndex];
+		for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
+			const coeff = probe.sh[coeffIndex];
+			const base = (probeIndex * width + coeffIndex) * 4;
+			data[base] = finiteOr(coeff?.r, 0);
+			data[base + 1] = finiteOr(coeff?.g, 0);
+			data[base + 2] = finiteOr(coeff?.b, 0);
+			data[base + 3] = 0;
+		}
+	}
+
+	if (!host._localLightProbeSHTexture) {
+		if (typeof gl.createTexture !== "function") {
+			logWebGLGlobalUniformWarning(
+				"webgl-local-light-probe-texture-create-unsupported",
+				"WebGL context does not expose createTexture(); disabling local light probe SH for this frame."
+			);
+			return false;
+		}
+		host._localLightProbeSHTexture = gl.createTexture();
+		if (!host._localLightProbeSHTexture) {
+			logWebGLGlobalUniformWarning(
+				"webgl-local-light-probe-texture-create-failed",
+				"Failed to create WebGL local light probe texture; disabling local light probe SH for this frame."
+			);
+			return false;
+		}
+		gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	}
+
+	gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
+	try {
+		const internalFormat =
+			(
+				gl as WebGL2RenderingContext & {
+					RGBA32F?: number;
+				}
+			).RGBA32F ?? gl.RGBA;
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			internalFormat,
+			width,
+			height,
+			0,
+			gl.RGBA,
+			gl.FLOAT,
+			data
+		);
+		host._localLightProbeSHTextureWidth = width;
+		host._localLightProbeSHTextureHeight = height;
+		return true;
+	} catch (error) {
+		logWebGLGlobalUniformWarning(
+			"webgl-local-light-probe-texture-upload-failed",
+			`WebGL local light probe texture upload failed; disabling local light probe SH for this frame (${String(error)})`
 		);
 		return false;
 	}

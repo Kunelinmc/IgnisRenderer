@@ -1,6 +1,7 @@
 import type { Texture } from "../../core/Texture";
 import {
 	LightType,
+	type LightProbe,
 	type SceneLight,
 } from "../../lights";
 import { PBR_AMBIENT_FALLBACK_LINEAR } from "../../lights/constants";
@@ -8,6 +9,10 @@ import { sRGBToLinear } from "../../maths/Common";
 import { SH } from "../../maths/SH";
 import type { SHCoefficients } from "../../maths/types";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import {
+	collectActiveLocalizedLightProbes,
+	collectGlobalLightProbes,
+} from "../../pipeline/lightProbeRuntime";
 import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
 import {
 	ensureEnvironmentTextureEquirect,
@@ -16,9 +21,13 @@ import {
 } from "../../pipeline/environmentMapRuntime";
 import type { PreparedScene } from "../../pipeline/types";
 
-import { WEBGPU_MAX_REFLECTION_PROBES } from "./constants";
+import {
+	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+	WEBGPU_MAX_REFLECTION_PROBES,
+} from "./constants";
 import type {
 	WebGPUEnvironmentState,
+	WebGPULocalLightProbeUniform,
 	WebGPUReflectionProbeUniform,
 	WebGPUWarning,
 } from "./types";
@@ -43,6 +52,13 @@ export function collectWebGPUEnvironment(
 		typeof scene.camera?.getWorldPosition === "function" ?
 			scene.camera.getWorldPosition(_tmpWebGPUReflectionProbeCameraWorldPosition)
 		:	null;
+	const localLightProbes = enableSH ?
+			collectActiveLocalizedLightProbes(
+				scene.lights,
+				WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+				reflectionProbeCameraWorldPosition
+			)
+		:	[];
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		scene.lights,
 		WEBGPU_MAX_REFLECTION_PROBES,
@@ -97,9 +113,14 @@ export function collectWebGPUEnvironment(
 		enableSH,
 		shAmbientCoeffs
 	);
+	const localizedProbeUniforms = localLightProbes.map((probe) =>
+		createWebGPULocalLightProbeUniform(probe)
+	);
+	const localLightProbeCount = localizedProbeUniforms.length;
 
 	const hasInputSHAmbient = hasNonZeroSH(resolvedSHAmbientCoeffs);
-	const hasSHAmbient = enableSH && hasInputSHAmbient;
+	const hasSHAmbient =
+		enableSH && (hasInputSHAmbient || localLightProbeCount > 0);
 
 	return {
 		shAmbientCoeffs: resolvedSHAmbientCoeffs,
@@ -107,6 +128,8 @@ export function collectWebGPUEnvironment(
 		hasSHAmbient,
 		skyboxTexture: sceneSkyboxTexture ?? envSpecularTexture,
 		envSpecularTexture,
+		localLightProbeCount,
+		localLightProbes: localizedProbeUniforms,
 		reflectionProbeCount,
 		reflectionProbes,
 		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
@@ -134,6 +157,7 @@ function synthesizeSHAmbientCoeffsFromLights(
 	let ambientG = 0;
 	let ambientB = 0;
 	let hasAmbient = false;
+	const globalLightProbes = collectGlobalLightProbes(lights);
 
 	for (const light of lights) {
 		if (light.type === LightType.Ambient) {
@@ -146,10 +170,9 @@ function synthesizeSHAmbientCoeffsFromLights(
 			continue;
 		}
 
-		if (light.type !== LightType.LightProbe) {
-			continue;
-		}
+	}
 
+	for (const light of globalLightProbes) {
 		const probeSH = light.sh;
 		const intensity = light.intensity ?? 1;
 		const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
@@ -176,6 +199,30 @@ function synthesizeSHAmbientCoeffsFromLights(
 	ambientProbeSH[0].g += ambientG / SH_DC_IRRADIANCE_SCALE;
 	ambientProbeSH[0].b += ambientB / SH_DC_IRRADIANCE_SCALE;
 	return ambientProbeSH;
+}
+
+function createWebGPULocalLightProbeUniform(
+	probe: LightProbe
+): WebGPULocalLightProbeUniform {
+	const cache = probe.getRuntimeCache();
+	return {
+		id: probe.id,
+		worldToProbeMatrix: cache.worldToProbeMatrix.clone(),
+		invHalfExtents: [
+			cache.invHalfExtents.x,
+			cache.invHalfExtents.y,
+			cache.invHalfExtents.z,
+		],
+		radiusInv: cache.radiusInv,
+		shape: probe.shape === "box" ? 1 : 0,
+		blendDistance: cache.effectiveBlendDistance,
+		priority: cache.priority,
+		sh: probe.sh.map((coefficient) => ({
+			r: coefficient.r,
+			g: coefficient.g,
+			b: coefficient.b,
+		})),
+	};
 }
 
 function hasNonZeroSH(coeffs: SHCoefficients | null): boolean {

@@ -39,6 +39,7 @@ import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
 } from "../pipeline/environmentMapRuntime";
+import { isLocalizedLightProbe } from "../pipeline/lightProbeRuntime";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
@@ -964,6 +965,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public updateSH(): void {
+		const backendType = this.backend?.type ?? "software";
 		let ambientProbeSH: SHCoefficients = SH.empty();
 		let ambientR = 0;
 		let ambientG = 0;
@@ -982,6 +984,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 			if (light.type === LightType.LightProbe) {
 				const probe = light as LightProbe;
+				if (
+					backendType !== "software" &&
+					isLocalizedLightProbe(probe)
+				) {
+					continue;
+				}
 				const probeSH = probe.sh;
 				const intensity = light.intensity ?? 1;
 				const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);

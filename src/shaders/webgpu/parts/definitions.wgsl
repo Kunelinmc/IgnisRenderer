@@ -18,6 +18,14 @@ struct FrameUniforms {
 	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
 	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 	reflectionProbes: array<ReflectionProbeData, __WEBGPU_MAX_REFLECTION_PROBES__>,
+	localLightProbeCounts: vec4<f32>,
+	localLightProbeWorldToProbeRow0: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
+	localLightProbeWorldToProbeRow1: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
+	localLightProbeWorldToProbeRow2: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
+	localLightProbeDataA: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
+	localLightProbeDataB: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
+	localLightProbeSHAmbientCoeffs:
+		array<vec4<f32>, __WEBGPU_LOCAL_LIGHT_PROBE_COEFFICIENT_COUNT__>,
 }
 
 struct ClusterGridParams {

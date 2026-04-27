@@ -156,11 +156,24 @@ export interface WebGPUEnvironmentState {
 	hasSHAmbient: boolean;
 	skyboxTexture: Texture | null;
 	envSpecularTexture: Texture | null;
+	localLightProbeCount: number;
+	localLightProbes: WebGPULocalLightProbeUniform[];
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	brdfLUTTexture: Texture | null;
 	envSpecularMaxMipLevel: number;
 	warnings: WebGPUWarning[];
+}
+
+export interface WebGPULocalLightProbeUniform {
+	id: string;
+	worldToProbeMatrix: Matrix4;
+	invHalfExtents: [number, number, number];
+	radiusInv: number;
+	shape: 0 | 1;
+	blendDistance: number;
+	priority: number;
+	sh: SHCoefficients;
 }
 
 export interface WebGPUReflectionProbeUniform {
@@ -213,6 +226,8 @@ export interface WebGPUFrameUniformInput {
 	skyboxIsOrthographic: boolean;
 	ambientColor: WebGPULightingState["ambientColor"];
 	shAmbientCoeffs: SHCoefficients | null;
+	localLightProbeCount: number;
+	localLightProbes: WebGPULocalLightProbeUniform[];
 	directionalLights: WebGPULightingState["directionalLights"];
 	directionalShadows: WebGPULightingState["directionalShadows"];
 	pointLights: WebGPULightingState["pointLights"];

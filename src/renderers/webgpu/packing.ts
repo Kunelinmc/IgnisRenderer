@@ -4,6 +4,7 @@ import type { Matrix3Arr } from "../../maths/types";
 import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
@@ -124,6 +125,34 @@ const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{
 			name: "reflectionProbeDataC",
 			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
+		},
+		{ name: "localLightProbeCounts", type: VEC4_F32 },
+		{
+			name: "localLightProbeWorldToProbeRow0",
+			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+		},
+		{
+			name: "localLightProbeWorldToProbeRow1",
+			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+		},
+		{
+			name: "localLightProbeWorldToProbeRow2",
+			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+		},
+		{
+			name: "localLightProbeDataA",
+			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+		},
+		{
+			name: "localLightProbeDataB",
+			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+		},
+		{
+			name: "localLightProbeSHAmbientCoeffs",
+			type: arrayOf(
+				VEC4_F32,
+				WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
+			),
 		},
 	]),
 	"uniform"
@@ -447,6 +476,95 @@ export function packFrameUniformData(
 				probe.blendExponent,
 				probe.layer,
 			]);
+		}
+	}
+
+	writer.writeVec("localLightProbeCounts", [
+		Math.max(0, input.localLightProbeCount),
+		0,
+		0,
+		0,
+	]);
+
+	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
+		const probe = input.localLightProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			writer.writeVec(["localLightProbeWorldToProbeRow0", i], [
+				worldToProbe[0][0],
+				worldToProbe[0][1],
+				worldToProbe[0][2],
+				worldToProbe[0][3],
+			]);
+		}
+	}
+	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
+		const probe = input.localLightProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			writer.writeVec(["localLightProbeWorldToProbeRow1", i], [
+				worldToProbe[1][0],
+				worldToProbe[1][1],
+				worldToProbe[1][2],
+				worldToProbe[1][3],
+			]);
+		}
+	}
+	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
+		const probe = input.localLightProbes[i];
+		if (probe) {
+			const worldToProbe = probe.worldToProbeMatrix.elements;
+			writer.writeVec(["localLightProbeWorldToProbeRow2", i], [
+				worldToProbe[2][0],
+				worldToProbe[2][1],
+				worldToProbe[2][2],
+				worldToProbe[2][3],
+			]);
+		}
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
+		const probe = input.localLightProbes[i];
+		if (probe) {
+			writer.writeVec(["localLightProbeDataA", i], [
+				probe.invHalfExtents[0],
+				probe.invHalfExtents[1],
+				probe.invHalfExtents[2],
+				probe.radiusInv,
+			]);
+		}
+	}
+
+	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
+		const probe = input.localLightProbes[i];
+		if (probe) {
+			writer.writeVec(["localLightProbeDataB", i], [
+				probe.blendDistance,
+				probe.priority,
+				probe.shape,
+				0,
+			]);
+		}
+	}
+
+	for (let probeIndex = 0; probeIndex < WEBGPU_MAX_LOCAL_LIGHT_PROBES; probeIndex++) {
+		const probe = input.localLightProbes[probeIndex];
+		if (!probe) continue;
+		for (let coeffIndex = 0; coeffIndex < WEBGPU_SH_COEFFICIENT_COUNT; coeffIndex++) {
+			const coefficient = probe.sh[coeffIndex];
+			if (!coefficient) continue;
+			writer.writeVec(
+				[
+					"localLightProbeSHAmbientCoeffs",
+					probeIndex * WEBGPU_SH_COEFFICIENT_COUNT + coeffIndex,
+				],
+				[
+					coefficient.r,
+					coefficient.g,
+					coefficient.b,
+					0,
+				]
+			);
 		}
 	}
 

@@ -7,8 +7,28 @@ if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
 var diffuseAmbient = ambientColor;
 var specularAmbientRadiance = ambientColor / PI;
 if (shAmbientEnabled) {
-	diffuseAmbient = calculateIrradianceFromSH(pbrNormal) / 255.0;
-	specularAmbientRadiance = sampleSHRadiance(reflectionDir) / 255.0;
+	let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
+	let globalDiffuseAmbient = calculateIrradianceFromSH(pbrNormal);
+	let localDiffuseAmbient = sampleBlendedLocalLightProbeIrradiance(
+		localSelection,
+		pbrNormal
+	);
+	diffuseAmbient = mix(
+		globalDiffuseAmbient,
+		localDiffuseAmbient.rgb,
+		localDiffuseAmbient.w
+	) / 255.0;
+
+	let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
+	let localSpecularAmbient = sampleBlendedLocalLightProbeRadiance(
+		localSelection,
+		reflectionDir
+	);
+	specularAmbientRadiance = mix(
+		globalSpecularAmbient,
+		localSpecularAmbient.rgb,
+		localSpecularAmbient.w
+	) / 255.0;
 }
 
 let fAmbient = fresnelSchlick(nDotV, realF0);
@@ -39,7 +59,17 @@ if (transmission > 0.0 && refractionResult.valid > 0.5) {
 			input.worldPosition
 		);
 	} else if (shAmbientEnabled) {
-		transmissionRadiance = sampleSHRadiance(refractionResult.direction) / 255.0;
+		let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
+		let globalTransmissionRadiance = sampleSHRadiance(refractionResult.direction);
+		let localTransmissionRadiance = sampleBlendedLocalLightProbeRadiance(
+			localSelection,
+			refractionResult.direction
+		);
+		transmissionRadiance = mix(
+			globalTransmissionRadiance,
+			localTransmissionRadiance.rgb,
+			localTransmissionRadiance.w
+		) / 255.0;
 	}
 	ambientLight +=
 		transmissionRadiance *

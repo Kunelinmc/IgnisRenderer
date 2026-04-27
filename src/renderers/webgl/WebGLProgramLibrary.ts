@@ -186,6 +186,14 @@ export interface WebGLSceneProgram {
 		envSpecularMapIsLinear: WebGLUniformLocation | null;
 		envSpecularMaxMipLevel: WebGLUniformLocation | null;
 		brdfLUT: WebGLUniformLocation | null;
+		localLightProbeCount: WebGLUniformLocation | null;
+		localLightProbeWorldToProbeRow0: WebGLUniformLocation | null;
+		localLightProbeWorldToProbeRow1: WebGLUniformLocation | null;
+		localLightProbeWorldToProbeRow2: WebGLUniformLocation | null;
+		localLightProbeDataA: WebGLUniformLocation | null;
+		localLightProbeDataB: WebGLUniformLocation | null;
+		localLightProbeCoeffs: WebGLUniformLocation | null;
+		localLightProbeCoeffsSize: WebGLUniformLocation | null;
 		reflectionProbeCount: WebGLUniformLocation | null;
 		reflectionProbeWorldToProbeRow0: WebGLUniformLocation | null;
 		reflectionProbeWorldToProbeRow1: WebGLUniformLocation | null;
@@ -700,6 +708,38 @@ export class WebGLProgramLibrary {
 					"uEnvSpecularMaxMipLevel",
 				),
 				brdfLUT: this._gl.getUniformLocation(program, "uBrdfLUT"),
+				localLightProbeCount: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeCount"
+				),
+				localLightProbeWorldToProbeRow0: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeWorldToProbeRow0[0]"
+				),
+				localLightProbeWorldToProbeRow1: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeWorldToProbeRow1[0]"
+				),
+				localLightProbeWorldToProbeRow2: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeWorldToProbeRow2[0]"
+				),
+				localLightProbeDataA: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeDataA[0]"
+				),
+				localLightProbeDataB: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeDataB[0]"
+				),
+				localLightProbeCoeffs: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeCoeffs"
+				),
+				localLightProbeCoeffsSize: this._gl.getUniformLocation(
+					program,
+					"uLocalLightProbeCoeffsSize"
+				),
 				reflectionProbeCount: this._gl.getUniformLocation(program, "uReflectionProbeCount"),
 				reflectionProbeWorldToProbeRow0: this._gl.getUniformLocation(
 					program,
