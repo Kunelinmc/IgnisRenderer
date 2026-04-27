@@ -11,8 +11,9 @@ import {
 	type SceneLight,
 	type SpotLight,
 } from "../lights";
-import { sRGBToLinear } from "../maths/Common";
+import { sRGBToLinear, clamp } from "../maths/Common";
 import type { IVector3 } from "../maths/types";
+import { Vector3 } from "../maths/Vector3";
 import type { FrameContext } from "./types";
 import {
 	bakeEnvironmentIBLFromEnvironmentMap,
@@ -818,7 +819,7 @@ function computeSpotConeWeight(
 	outerAngle: number,
 	innerAngle: number
 ): number {
-	const cosTheta = dot(lightDirection, directionToProbe);
+	const cosTheta = Vector3.dot(lightDirection, directionToProbe);
 	const outerCos = Math.cos(Math.max(outerAngle, 0));
 	const innerCos = Math.cos(Math.max(0, Math.min(innerAngle, outerAngle)));
 	if (cosTheta <= outerCos) {
@@ -892,8 +893,8 @@ function sampleCapturedRadiance(
 
 	for (const directional of lightingState.directionalLights) {
 		const lobe = Math.pow(
-			Math.max(0, dot(direction, directional.direction)),
-			DIRECTIONAL_LOBE_EXPONENT
+			Math.max(0, Vector3.dot(direction, directional.direction)),
+			DIRECTIONAL_LOBE_EXPONENT,
 		);
 		result.r += directional.color.r * lobe;
 		result.g += directional.color.g * lobe;
@@ -902,8 +903,8 @@ function sampleCapturedRadiance(
 
 	for (const point of lightingState.pointLights) {
 		const lobe = Math.pow(
-			Math.max(0, dot(direction, point.direction)),
-			LOCAL_LIGHT_LOBE_EXPONENT
+			Math.max(0, Vector3.dot(direction, point.direction)),
+			LOCAL_LIGHT_LOBE_EXPONENT,
 		);
 		result.r += point.color.r * lobe;
 		result.g += point.color.g * lobe;
@@ -912,8 +913,8 @@ function sampleCapturedRadiance(
 
 	for (const spot of lightingState.spotLights) {
 		const lobe = Math.pow(
-			Math.max(0, dot(direction, spot.direction)),
-			LOCAL_LIGHT_LOBE_EXPONENT
+			Math.max(0, Vector3.dot(direction, spot.direction)),
+			LOCAL_LIGHT_LOBE_EXPONENT,
 		);
 		result.r += spot.color.r * lobe;
 		result.g += spot.color.g * lobe;
@@ -922,8 +923,8 @@ function sampleCapturedRadiance(
 
 	for (const area of lightingState.areaLights) {
 		const lobe = Math.pow(
-			Math.max(0, dot(direction, area.direction)),
-			AREA_LIGHT_LOBE_EXPONENT
+			Math.max(0, Vector3.dot(direction, area.direction)),
+			AREA_LIGHT_LOBE_EXPONENT,
 		);
 		result.r += area.color.r * lobe;
 		result.g += area.color.g * lobe;
@@ -1071,9 +1072,6 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 	return t * t * (3 - 2 * t);
 }
 
-function dot(left: IVector3, right: IVector3): number {
-	return left.x * right.x + left.y * right.y + left.z * right.z;
-}
 
 function normalizeDirection(direction: IVector3): IVector3 {
 	const length = Math.hypot(direction.x, direction.y, direction.z);
@@ -1086,10 +1084,6 @@ function normalizeDirection(direction: IVector3): IVector3 {
 		y: direction.y * inv,
 		z: direction.z * inv,
 	};
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.max(min, Math.min(max, value));
 }
 
 function resolveCapturePrefilterMipLevels(width: number, height: number): number {
