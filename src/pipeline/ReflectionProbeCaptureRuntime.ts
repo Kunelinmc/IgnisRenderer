@@ -1,5 +1,6 @@
 import type { Scene } from "../core/Scene";
 import { Texture } from "../core/Texture";
+import { Logger } from "../foundation/Logger";
 import {
 	LightType,
 	type AmbientLight,
@@ -22,6 +23,7 @@ import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevel,
 } from "./environmentMapRuntime";
+import { RENDER_DIRTY_REASON_MASK } from "./incremental";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 
 const DIRECTIONAL_LOBE_EXPONENT = 96;
@@ -33,12 +35,22 @@ const CAPTURE_RESOLUTION_SCALE_STEPS = [1, 0.75, 0.5] as const;
 const CAPTURE_RESOLUTION_DOWNSCALE_OVERBUDGET_RATIO = 4;
 const CAPTURE_PREFILTER_MAX_MIP_LEVELS = 9;
 const MIN_LIGHT_DISTANCE = 1e-4;
+const CAPTURE_RELEVANT_SCENE_DIRTY_MASK =
+	RENDER_DIRTY_REASON_MASK.unknown |
+	RENDER_DIRTY_REASON_MASK.transform |
+	RENDER_DIRTY_REASON_MASK.material |
+	RENDER_DIRTY_REASON_MASK.texture |
+	RENDER_DIRTY_REASON_MASK.lighting |
+	RENDER_DIRTY_REASON_MASK.shadow |
+	RENDER_DIRTY_REASON_MASK.physics |
+	RENDER_DIRTY_REASON_MASK.particles;
 
 interface CaptureTaskState {
 	taskId: number;
 	probeId: string;
 	probeSignature: string;
 	captureRequestToken: number;
+	sceneDirtyStamp: number;
 	startedAtSeconds: number;
 	scene: Scene;
 	baseCaptureWidth: number;
@@ -99,6 +111,7 @@ export interface ReflectionProbeWebGPUCaptureSource {
 export interface ReflectionProbeCaptureRuntimeExecuteContext {
 	scene: Scene;
 	nowMs: number;
+	frameDirtyReasonMask?: number | null;
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
 	webgpuSource?: WebGPUComputeFacadeSource | null;
@@ -125,8 +138,10 @@ export class ReflectionProbeCaptureRuntime {
 		options: EnvironmentIBLBakeOptions
 	) => Promise<BakedEnvironmentIBL>;
 	private _lastCaptureSecondsByProbeId = new Map<string, number>();
-	private _lastCaptureSceneVersionByProbeId = new Map<string, number>();
+	private _lastCaptureSceneDirtyStampByProbeId = new Map<string, number>();
 	private _lastHandledRequestTokenByProbeId = new Map<string, number>();
+	private _sceneDirtyStampByScene = new WeakMap<Scene, number>();
+	private _lastRelevantSceneVersionByScene = new WeakMap<Scene, number>();
 
 	constructor(options: ReflectionProbeCaptureRuntimeOptions = {}) {
 		this._maxBakesPerFrame = Math.max(
@@ -146,6 +161,12 @@ export class ReflectionProbeCaptureRuntime {
 	public execute(
 		context: ReflectionProbeCaptureRuntimeExecuteContext
 	): Promise<void> {
+		const frameDirtyReasonMask =
+			context.frameDirtyReasonMask ?? context.scene.consumeDirtyReasonMask();
+		const sceneDirtyStamp = this._resolveSceneDirtyStamp(
+			context.scene,
+			frameDirtyReasonMask
+		);
 		const probes = collectCapturedSceneProbes(
 			context.scene.getLights(),
 			context.cameraWorldPosition ?? null
@@ -160,21 +181,20 @@ export class ReflectionProbeCaptureRuntime {
 
 		if (!this._activeTask) {
 			const nowSeconds = Math.max(0, context.nowMs) / 1000;
-			const sceneVersion = context.scene.version;
 			const candidates = probes.filter((probe) =>
-				this._shouldCaptureProbe(probe, sceneVersion, nowSeconds)
+				this._shouldCaptureProbe(probe, sceneDirtyStamp, nowSeconds)
 			);
 			if (candidates.length <= 0) {
 				return Promise.resolve();
 			}
 
 			let started = 0;
-			for (const probe of candidates) {
-				if (started >= this._maxBakesPerFrame) {
-					break;
-				}
-				const task = this._createTask(probe, context);
-				if (!task) continue;
+				for (const probe of candidates) {
+					if (started >= this._maxBakesPerFrame) {
+						break;
+					}
+					const task = this._createTask(probe, context, sceneDirtyStamp);
+					if (!task) continue;
 				this._activeTask = task;
 				started++;
 				break;
@@ -199,7 +219,7 @@ export class ReflectionProbeCaptureRuntime {
 
 	private _shouldCaptureProbe(
 		probe: ReflectionProbe,
-		sceneVersion: number,
+		sceneDirtyStamp: number,
 		nowSeconds: number
 	): boolean {
 		const lastHandledToken =
@@ -213,9 +233,9 @@ export class ReflectionProbeCaptureRuntime {
 		}
 
 		if (probe.captureUpdateMode === "onSceneDirty") {
-			const lastCapturedSceneVersion =
-				this._lastCaptureSceneVersionByProbeId.get(probe.id);
-			return lastCapturedSceneVersion !== sceneVersion;
+			const lastCapturedSceneDirtyStamp =
+				this._lastCaptureSceneDirtyStampByProbeId.get(probe.id);
+			return lastCapturedSceneDirtyStamp !== sceneDirtyStamp;
 		}
 
 		const lastCaptureSeconds = this._lastCaptureSecondsByProbeId.get(probe.id);
@@ -227,7 +247,8 @@ export class ReflectionProbeCaptureRuntime {
 
 	private _createTask(
 		probe: ReflectionProbe,
-		context: ReflectionProbeCaptureRuntimeExecuteContext
+		context: ReflectionProbeCaptureRuntimeExecuteContext,
+		sceneDirtyStamp: number
 	): CaptureTaskState | null {
 		const baseCaptureWidth = Math.max(
 			8,
@@ -241,11 +262,21 @@ export class ReflectionProbeCaptureRuntime {
 			probe.includeMeshes &&
 			!!context.frameContext &&
 			!!context.webgpuCaptureSource;
+		if (probe.includeMeshes && !useMeshCapture) {
+			Logger.warn(
+				"[reflection-probe-mesh-capture-unsupported] Reflection probe scene mesh capture requested without a compatible GPU face capture source; falling back to skybox and analytic lights only.",
+				{
+					scope: "ReflectionProbeCaptureRuntime",
+					onceKey: "reflection-probe-mesh-capture-unsupported",
+				}
+			);
+		}
 		const task: CaptureTaskState = {
 			taskId: ++this._nextTaskId,
 			probeId: probe.id,
 			probeSignature: buildProbeCaptureSignature(probe),
 			captureRequestToken: probe.captureRequestToken,
+			sceneDirtyStamp,
 			startedAtSeconds: Math.max(0, context.nowMs) / 1000,
 			scene: context.scene,
 			baseCaptureWidth,
@@ -408,12 +439,12 @@ export class ReflectionProbeCaptureRuntime {
 		probe.prefilteredMap = baked.prefilteredMap;
 		probe.markCaptureUpdated();
 		probe.markRuntimeDirty();
-		task.scene.invalidate("lighting");
+		task.scene.invalidate("reflection-probe");
 
 		this._lastCaptureSecondsByProbeId.set(task.probeId, task.startedAtSeconds);
-		this._lastCaptureSceneVersionByProbeId.set(
+		this._lastCaptureSceneDirtyStampByProbeId.set(
 			task.probeId,
-			task.scene.version
+			task.sceneDirtyStamp
 		);
 		this._lastHandledRequestTokenByProbeId.set(
 			task.probeId,
@@ -431,13 +462,16 @@ export class ReflectionProbeCaptureRuntime {
 		if (probe.captureRequestToken !== task.captureRequestToken) {
 			return false;
 		}
+		if (this._getSceneDirtyStamp(task.scene) !== task.sceneDirtyStamp) {
+			return false;
+		}
 		return buildProbeCaptureSignature(probe) === task.probeSignature;
 	}
 
 	private _pruneProbeState(probes: ReflectionProbe[]): void {
 		const activeProbeIds = new Set(probes.map((probe) => probe.id));
 		pruneProbeMap(this._lastCaptureSecondsByProbeId, activeProbeIds);
-		pruneProbeMap(this._lastCaptureSceneVersionByProbeId, activeProbeIds);
+		pruneProbeMap(this._lastCaptureSceneDirtyStampByProbeId, activeProbeIds);
 		pruneProbeMap(this._lastHandledRequestTokenByProbeId, activeProbeIds);
 		if (
 			this._activeTask &&
@@ -445,6 +479,28 @@ export class ReflectionProbeCaptureRuntime {
 		) {
 			this._activeTask = null;
 		}
+	}
+
+	private _resolveSceneDirtyStamp(scene: Scene, dirtyReasonMask: number): number {
+		const currentStamp = this._getSceneDirtyStamp(scene);
+		const relevantDirtyReasonMask =
+			(dirtyReasonMask >>> 0) & CAPTURE_RELEVANT_SCENE_DIRTY_MASK;
+		if (relevantDirtyReasonMask === 0) {
+			return currentStamp;
+		}
+		const lastRelevantSceneVersion =
+			this._lastRelevantSceneVersionByScene.get(scene);
+		if (lastRelevantSceneVersion === scene.version) {
+			return currentStamp;
+		}
+		const nextStamp = currentStamp + 1;
+		this._sceneDirtyStampByScene.set(scene, nextStamp);
+		this._lastRelevantSceneVersionByScene.set(scene, scene.version);
+		return nextStamp;
+	}
+
+	private _getSceneDirtyStamp(scene: Scene): number {
+		return this._sceneDirtyStampByScene.get(scene) ?? 0;
 	}
 }
 

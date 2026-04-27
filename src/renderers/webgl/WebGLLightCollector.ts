@@ -30,6 +30,7 @@ import {
 	resolveShadowData as resolveSharedShadowData,
 	toLinearLightColor,
 } from "../../pipeline/lightingRuntime";
+import type { IVector3 } from "../../maths/types";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];
@@ -117,28 +118,6 @@ type WebGLLightCollectorShadowMapLookup =
 export function collectWebGLLights(
 	lights: SceneLight[],
 	enableLighting: boolean,
-	enableShadows?: boolean,
-	shadowMaps?: WebGLLightCollectorShadowMapLookup,
-	enableSH?: boolean,
-	skybox?: Texture | null,
-	enableClusteredLighting?: boolean,
-	allowSkyboxSpecularFallback?: boolean
-): WebGLLightState;
-export function collectWebGLLights(
-	lights: SceneLight[],
-	enableLighting: boolean,
-	warn: WebGLLightCollectorWarn,
-	enableShadows?: boolean,
-	shadowMaps?: WebGLLightCollectorShadowMapLookup,
-	enableSH?: boolean,
-	skybox?: Texture | null,
-	enableClusteredLighting?: boolean,
-	allowSkyboxSpecularFallback?: boolean
-): WebGLLightState;
-
-export function collectWebGLLights(
-	lights: SceneLight[],
-	enableLighting: boolean,
 	warnOrEnableShadows: WebGLLightCollectorWarn | boolean = false,
 	enableShadowsOrShadowMaps:
 		| boolean
@@ -146,8 +125,15 @@ export function collectWebGLLights(
 	shadowMapsOrEnableSH?: WebGLLightCollectorShadowMapLookup | boolean,
 	enableSHOrSkybox: boolean | Texture | null = false,
 	skyboxOrEnableClusteredLighting: Texture | null | boolean = null,
-	enableClusteredLightingMaybe = false,
-	allowSkyboxSpecularFallbackMaybe = true
+	enableClusteredLightingOrAllowSkyboxMaybe:
+		| boolean
+		| IVector3
+		| null = false,
+	allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe:
+		| boolean
+		| IVector3
+		| null = true,
+	cameraWorldPositionMaybe: IVector3 | null = null
 ): WebGLLightState {
 	let warn: WebGLLightCollectorWarn | undefined;
 	let enableShadows = false;
@@ -156,6 +142,7 @@ export function collectWebGLLights(
 	let skybox: Texture | null = null;
 	let enableClusteredLighting = false;
 	let allowSkyboxSpecularFallback = true;
+	let cameraWorldPosition: IVector3 | null = null;
 	if (typeof warnOrEnableShadows === "function") {
 		warn = warnOrEnableShadows;
 		enableShadows = enableShadowsOrShadowMaps === true;
@@ -169,13 +156,14 @@ export function collectWebGLLights(
 				skyboxOrEnableClusteredLighting
 			:	null;
 		enableClusteredLighting =
-			typeof enableClusteredLightingMaybe === "boolean" ?
-				enableClusteredLightingMaybe
+			typeof enableClusteredLightingOrAllowSkyboxMaybe === "boolean" ?
+				enableClusteredLightingOrAllowSkyboxMaybe
 			:	false;
 		allowSkyboxSpecularFallback =
-			typeof allowSkyboxSpecularFallbackMaybe === "boolean" ?
-				allowSkyboxSpecularFallbackMaybe
+			typeof allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe === "boolean" ?
+				allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe
 			:	true;
+		cameraWorldPosition = isVector3Like(cameraWorldPositionMaybe) ? cameraWorldPositionMaybe : null;
 	} else {
 		enableShadows = warnOrEnableShadows === true;
 		shadowMaps =
@@ -189,9 +177,13 @@ export function collectWebGLLights(
 				skyboxOrEnableClusteredLighting
 			:	false;
 		allowSkyboxSpecularFallback =
-			typeof enableClusteredLightingMaybe === "boolean" ?
-				enableClusteredLightingMaybe
+			typeof enableClusteredLightingOrAllowSkyboxMaybe === "boolean" ?
+				enableClusteredLightingOrAllowSkyboxMaybe
 			:	true;
+		cameraWorldPosition =
+			isVector3Like(allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe) ?
+				allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe
+			:	null;
 	}
 	const emitWarning: WebGLLightCollectorWarn = (key, message) => {
 		warn?.(key, message);
@@ -348,7 +340,8 @@ export function collectWebGLLights(
 
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		lights,
-		WEBGL_MAX_REFLECTION_PROBES
+		WEBGL_MAX_REFLECTION_PROBES,
+		cameraWorldPosition
 	);
 	if (reflectionEnvironment.probes.length > 0) {
 		state.reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
@@ -472,6 +465,16 @@ function isShadowMapLookup(
 
 function isTextureOrNull(value: unknown): value is Texture | null {
 	return value === null || value instanceof Texture;
+}
+
+function isVector3Like(value: unknown): value is IVector3 {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"x" in value &&
+		"y" in value &&
+		"z" in value
+	);
 }
 
 function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {

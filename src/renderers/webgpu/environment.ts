@@ -24,6 +24,7 @@ import type {
 } from "./types";
 
 const SH_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
+const _tmpWebGPUReflectionProbeCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export function collectWebGPUEnvironment(
 	scene: PreparedScene,
@@ -38,9 +39,14 @@ export function collectWebGPUEnvironment(
 		"skybox",
 		warnings
 	);
+	const reflectionProbeCameraWorldPosition =
+		typeof scene.camera?.getWorldPosition === "function" ?
+			scene.camera.getWorldPosition(_tmpWebGPUReflectionProbeCameraWorldPosition)
+		:	null;
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		scene.lights,
-		WEBGPU_MAX_REFLECTION_PROBES
+		WEBGPU_MAX_REFLECTION_PROBES,
+		reflectionProbeCameraWorldPosition
 	);
 	let reflectionProbeCount = 0;
 	let reflectionProbes: WebGPUReflectionProbeUniform[] = [];

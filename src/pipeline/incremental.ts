@@ -21,6 +21,7 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"postfx-light": 1 << 12,
 	"postfx-standard": 1 << 13,
 	"postfx-cinematic": 1 << 14,
+	"reflection-probe": 1 << 15,
 } as const;
 
 export type RenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
@@ -35,7 +36,8 @@ export const RENDER_DIRTY_GROUP = {
 		RENDER_DIRTY_REASON_MASK.material |
 		RENDER_DIRTY_REASON_MASK.texture |
 		RENDER_DIRTY_REASON_MASK.lighting |
-		RENDER_DIRTY_REASON_MASK.shadow,
+		RENDER_DIRTY_REASON_MASK.shadow |
+		RENDER_DIRTY_REASON_MASK["reflection-probe"],
 } as const;
 
 export interface DirtyRect {
@@ -207,6 +209,7 @@ const TEMPORAL_RESET_MASK =
 	RENDER_DIRTY_REASON_MASK.material |
 	RENDER_DIRTY_REASON_MASK.lighting |
 	RENDER_DIRTY_REASON_MASK.shadow |
+	RENDER_DIRTY_REASON_MASK["reflection-probe"] |
 	RENDER_DIRTY_REASON_MASK.physics |
 	RENDER_DIRTY_REASON_MASK["postfx-cinematic"] |
 	RENDER_DIRTY_REASON_MASK.unknown;
@@ -216,6 +219,7 @@ const FORCE_FULL_FRAME_MASK =
 	RENDER_DIRTY_REASON_MASK.camera |
 	RENDER_DIRTY_REASON_MASK.lighting |
 	RENDER_DIRTY_REASON_MASK.shadow |
+	RENDER_DIRTY_REASON_MASK["reflection-probe"] |
 	RENDER_DIRTY_REASON_MASK.unknown;
 
 export const DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE = 32;

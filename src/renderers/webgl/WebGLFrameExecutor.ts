@@ -133,6 +133,7 @@ import {
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
 const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
+const _tmpWebGLReflectionProbeCameraWorldPosition = { x: 0, y: 0, z: 0 };
 const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
 const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
 const TAA_VARIANCE_GAMMA_RANGE: [number, number] = [0, 8];
@@ -289,16 +290,19 @@ export class WebGLFrameExecutor {
 		this._oitLegacyTransparentPackets = [];
 		this._oitNeedsLegacyAfterParticles = false;
 		this._syncShadowMetadata(context);
-		this._lightState = collectWebGLLights(
-			context.scene.lights,
-			context.features.enableLighting,
-			context.features.enableShadows,
-			context.shadowMaps,
-			context.features.enableSH,
-			context.scene.skybox,
-			context.features.enableClusteredLighting,
-			context.scene.allowSkyboxSpecularFallback !== false
-		);
+			this._lightState = collectWebGLLights(
+				context.scene.lights,
+				context.features.enableLighting,
+				context.features.enableShadows,
+				context.shadowMaps,
+				context.features.enableSH,
+				context.scene.skybox,
+				context.features.enableClusteredLighting,
+				context.scene.allowSkyboxSpecularFallback !== false,
+				context.camera.getWorldPosition(
+					_tmpWebGLReflectionProbeCameraWorldPosition
+				)
+			);
 		this._clusteredLighting.prepare(
 			context,
 			this._lightState,

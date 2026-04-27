@@ -889,12 +889,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					const cameraWorldPosition = this.camera.getWorldPosition(
 						_tmpRendererCameraWorldPosition
 					);
-					await this._reflectionProbeCaptureRuntime.execute({
-						scene: this.scene,
-						nowMs: now,
-						frameContext: context,
-						cameraWorldPosition,
-						webgpuSource:
+						await this._reflectionProbeCaptureRuntime.execute({
+							scene: this.scene,
+							nowMs: now,
+							frameDirtyReasonMask,
+							frameContext: context,
+							cameraWorldPosition,
+							webgpuSource:
 							this.backend.type === "webgpu" ?
 								(this.backend as unknown as WebGPUComputeFacadeSource)
 							:	null,

@@ -50,8 +50,7 @@ interface ReflectionProbeAtlasCandidate {
 }
 
 export function collectActiveReflectionProbes(
-	lights: SceneLight[],
-	maxCount = MAX_ACTIVE_REFLECTION_PROBES
+	lights: SceneLight[]
 ): ReflectionProbe[] {
 	const probes: ReflectionProbe[] = [];
 	for (const light of lights) {
@@ -63,28 +62,85 @@ export function collectActiveReflectionProbes(
 	}
 
 	probes.sort((left, right) => left.id.localeCompare(right.id));
-	if (probes.length > maxCount) {
-		probes.length = maxCount;
-	}
 	return probes;
 }
 
 export function collectReflectionProbeEnvironment(
 	lights: SceneLight[],
-	maxCount = MAX_ACTIVE_REFLECTION_PROBES
+	maxCount = MAX_ACTIVE_REFLECTION_PROBES,
+	worldPosition: IVector3 | null = null
 ): ReflectionProbeEnvironmentCollection {
-	const probes = collectActiveReflectionProbes(lights, maxCount);
+	const probes = collectActiveReflectionProbes(lights);
 	if (probes.length <= 0) {
 		return {
 			probes,
 			atlas: null,
 		};
 	}
-	const atlasCompatibleProbes = selectAtlasCompatibleReflectionProbes(probes);
+	const atlasCompatibleProbes = limitReflectionProbeEnvironmentProbes(
+		selectAtlasCompatibleReflectionProbes(probes),
+		maxCount,
+		worldPosition
+	);
 	return {
 		probes: atlasCompatibleProbes,
 		atlas: buildReflectionProbeAtlasTexture(atlasCompatibleProbes),
 	};
+}
+
+function limitReflectionProbeEnvironmentProbes(
+	probes: ReflectionProbe[],
+	maxCount: number,
+	worldPosition: IVector3 | null
+): ReflectionProbe[] {
+	const resolvedMaxCount = Number.isFinite(maxCount) ?
+			Math.max(0, Math.floor(maxCount))
+		:	MAX_ACTIVE_REFLECTION_PROBES;
+	if (resolvedMaxCount <= 0) {
+		return [];
+	}
+	if (probes.length <= resolvedMaxCount) {
+		return probes.slice();
+	}
+	if (!worldPosition) {
+		return probes.slice(0, resolvedMaxCount);
+	}
+
+	const ranked = probes.map((probe) => {
+		const cache = probe.getRuntimeCache();
+		const metric = computeProbeMetric(worldPosition, probe);
+		const weight = computeProbeRawWeight(
+			metric,
+			cache.effectiveBlendDistance,
+			cache.blendExponent
+		);
+		return {
+			probe,
+			metric,
+			weight: Number.isFinite(weight) ? weight : 0,
+		};
+	});
+
+	ranked.sort((left, right) => {
+		const leftActive = left.weight > REFLECTION_PROBE_WEIGHT_EPSILON;
+		const rightActive = right.weight > REFLECTION_PROBE_WEIGHT_EPSILON;
+		if (leftActive !== rightActive) {
+			return leftActive ? -1 : 1;
+		}
+		if (Math.abs(left.weight - right.weight) > REFLECTION_PROBE_WEIGHT_EPSILON) {
+			return right.weight - left.weight;
+		}
+		if (left.metric !== right.metric) {
+			return left.metric - right.metric;
+		}
+		return left.probe.id.localeCompare(right.probe.id);
+	});
+
+	const selected = ranked
+		.slice(0, resolvedMaxCount)
+		.map((entry) => entry.probe);
+	selected.sort((left, right) => left.id.localeCompare(right.id));
+	return selected;
 }
 
 function selectAtlasCompatibleReflectionProbes(

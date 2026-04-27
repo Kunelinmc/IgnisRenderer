@@ -3,6 +3,7 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Texture } from "../src/core/Texture.ts";
 import {
 	buildReflectionProbeAtlasTexture,
+	collectActiveReflectionProbes,
 	collectReflectionProbeEnvironment,
 	computeParallaxCorrectedDirection,
 	computeProbeDepthOcclusion,
@@ -246,6 +247,43 @@ function testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer()
 	assert.equal(collected.atlas.height, 4);
 }
 
+function testReflectionProbeCollectionKeepsFullSoftwareSetAndCameraRelevantHardwareSubset() {
+	const farProbes = Array.from({ length: 8 }, (_, index) => {
+		const probe = new ReflectionProbe({
+			prefilteredMap: createTinyEquirectTexture(0.1 + index * 0.05),
+			shape: "sphere",
+			radius: 2,
+		});
+		probe.id = `a${index}`;
+		probe.position.set(100 + index, 0, 0);
+		probe.updateWorldMatrix();
+		probe.markRuntimeDirty();
+		return probe;
+	});
+	const nearProbe = new ReflectionProbe({
+		prefilteredMap: createTinyEquirectTexture(0.95),
+		shape: "sphere",
+		radius: 4,
+	});
+	nearProbe.id = "z-near";
+	nearProbe.position.set(0, 0, 0);
+	nearProbe.updateWorldMatrix();
+	nearProbe.markRuntimeDirty();
+
+	const allLights = [...farProbes, nearProbe];
+	const active = collectActiveReflectionProbes(allLights);
+	assert.equal(active.length, 9);
+
+	const collected = collectReflectionProbeEnvironment(
+		allLights,
+		8,
+		{ x: 0, y: 0, z: 0 }
+	);
+	assert.equal(collected.probes.length, 8);
+	assert.ok(collected.probes.some((probe) => probe.id === nearProbe.id));
+	assert.ok(collected.atlas);
+}
+
 function createTinyCubeTexture(faces) {
 	return new CubeTexture({
 		faces,
@@ -300,6 +338,7 @@ function run() {
 	testCubemapSpecularSamplingAndAtlasBuild();
 	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();
 	testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer();
+	testReflectionProbeCollectionKeepsFullSoftwareSetAndCameraRelevantHardwareSubset();
 	console.log("Reflection probe runtime tests passed");
 }
 
