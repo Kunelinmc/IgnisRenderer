@@ -128,19 +128,46 @@ export function bindWebGLGlobalUniforms(
 ): void {
 	const gl = host._gl;
 	const uniforms = sceneProgram.uniforms;
-	const lights = host._lightState ?? {
-		ambientColor: [0, 0, 0] as [number, number, number],
-		directionalLights: [],
-		directionalShadows: [],
-		pointLights: [],
-		spotLights: [],
-		spotShadows: [],
-		clusteredLights: [] as WebGLClusteredLight[],
-		envSpecularMap: null,
-		localLightProbeCount: 0,
-		localLightProbes: [],
-		reflectionProbeCount: 0,
-		reflectionProbes: [],
+	const lightState = host._lightState as Partial<WebGLLightState> | null;
+	const ambientColorCandidate = lightState?.ambientColor;
+	const ambientColor: [number, number, number] =
+		Array.isArray(ambientColorCandidate) && ambientColorCandidate.length >= 3 ?
+			[
+				ambientColorCandidate[0],
+				ambientColorCandidate[1],
+				ambientColorCandidate[2],
+			]
+		:	[0, 0, 0];
+	const directionalLights = lightState?.directionalLights ?? [];
+	const directionalShadows = lightState?.directionalShadows ?? [];
+	const pointLights = lightState?.pointLights ?? [];
+	const spotLights = lightState?.spotLights ?? [];
+	const spotShadows = lightState?.spotShadows ?? [];
+	const clusteredLights =
+		lightState?.clusteredLights ?? ([] as WebGLClusteredLight[]);
+	const localLightProbes = lightState?.localLightProbes ?? [];
+	const localLightProbeCountSource =
+		Number.isFinite(lightState?.localLightProbeCount) ?
+			(lightState?.localLightProbeCount as number)
+		:	localLightProbes.length;
+	const reflectionProbes = lightState?.reflectionProbes ?? [];
+	const reflectionProbeCountSource =
+		Number.isFinite(lightState?.reflectionProbeCount) ?
+			(lightState?.reflectionProbeCount as number)
+		:	reflectionProbes.length;
+	const lights = {
+		ambientColor,
+		directionalLights,
+		directionalShadows,
+		pointLights,
+		spotLights,
+		spotShadows,
+		clusteredLights,
+		envSpecularMap: lightState?.envSpecularMap ?? null,
+		localLightProbeCount: localLightProbeCountSource,
+		localLightProbes,
+		reflectionProbeCount: reflectionProbeCountSource,
+		reflectionProbes,
 	};
 
 	if (uniforms.viewProjection) {
@@ -218,10 +245,12 @@ export function bindWebGLGlobalUniforms(
 	}
 	const shTextureReady = host._uploadSHAmbientCoefficients(context.shAmbientCoeffs);
 	const localLightProbeTextureReady = host._uploadLocalLightProbeCoefficients(
-		lights.localLightProbes
+		localLightProbes
 	);
 	const resolvedLocalLightProbeCount =
-		localLightProbeTextureReady ? Math.max(0, Math.floor(lights.localLightProbeCount)) : 0;
+		localLightProbeTextureReady ?
+			Math.max(0, Math.floor(localLightProbeCountSource))
+		:	0;
 	if (uniforms.shAmbientCoeffs) {
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SH_AMBIENT);
 		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
@@ -249,25 +278,25 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.localLightProbeWorldToProbeRow0) {
 		gl.uniform4fv(
 			uniforms.localLightProbeWorldToProbeRow0,
-			flattenLocalLightProbeRows(lights.localLightProbes, 0)
+			flattenLocalLightProbeRows(localLightProbes, 0)
 		);
 	}
 	if (uniforms.localLightProbeWorldToProbeRow1) {
 		gl.uniform4fv(
 			uniforms.localLightProbeWorldToProbeRow1,
-			flattenLocalLightProbeRows(lights.localLightProbes, 1)
+			flattenLocalLightProbeRows(localLightProbes, 1)
 		);
 	}
 	if (uniforms.localLightProbeWorldToProbeRow2) {
 		gl.uniform4fv(
 			uniforms.localLightProbeWorldToProbeRow2,
-			flattenLocalLightProbeRows(lights.localLightProbes, 2)
+			flattenLocalLightProbeRows(localLightProbes, 2)
 		);
 	}
 	if (uniforms.localLightProbeDataA) {
 		gl.uniform4fv(
 			uniforms.localLightProbeDataA,
-			flattenLocalLightProbeVec4(lights.localLightProbes, (probe) => [
+			flattenLocalLightProbeVec4(localLightProbes, (probe) => [
 				probe.invHalfExtents[0],
 				probe.invHalfExtents[1],
 				probe.invHalfExtents[2],
@@ -278,7 +307,7 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.localLightProbeDataB) {
 		gl.uniform4fv(
 			uniforms.localLightProbeDataB,
-			flattenLocalLightProbeVec4(lights.localLightProbes, (probe) => [
+			flattenLocalLightProbeVec4(localLightProbes, (probe) => [
 				probe.blendDistance,
 				probe.priority,
 				probe.shape,
@@ -433,53 +462,74 @@ export function bindWebGLGlobalUniforms(
 		if (uniforms.envSpecularMaxMipLevel) {
 			gl.uniform1f(uniforms.envSpecularMaxMipLevel, envSpecularMaxMipLevel);
 		}
-		const reflectionProbeCount = Math.max(
-			0,
-			Math.floor(lights.reflectionProbeCount)
-		);
+		const reflectionProbeCount = Math.max(0, Math.floor(reflectionProbeCountSource));
 		if (uniforms.reflectionProbeCount) {
 			gl.uniform1i(uniforms.reflectionProbeCount, reflectionProbeCount);
 		}
 		if (uniforms.reflectionProbeWorldToProbeRow0) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeWorldToProbeRow0,
-				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 0)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"worldToProbeMatrix",
+					0
+				)
 			);
 		}
 		if (uniforms.reflectionProbeWorldToProbeRow1) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeWorldToProbeRow1,
-				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 1)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"worldToProbeMatrix",
+					1
+				)
 			);
 		}
 		if (uniforms.reflectionProbeWorldToProbeRow2) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeWorldToProbeRow2,
-				flattenReflectionProbeRows(lights.reflectionProbes, "worldToProbeMatrix", 2)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"worldToProbeMatrix",
+					2
+				)
 			);
 		}
 		if (uniforms.reflectionProbeProbeToWorldRow0) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeProbeToWorldRow0,
-				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 0)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"probeToWorldMatrix",
+					0
+				)
 			);
 		}
 		if (uniforms.reflectionProbeProbeToWorldRow1) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeProbeToWorldRow1,
-				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 1)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"probeToWorldMatrix",
+					1
+				)
 			);
 		}
 		if (uniforms.reflectionProbeProbeToWorldRow2) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeProbeToWorldRow2,
-				flattenReflectionProbeRows(lights.reflectionProbes, "probeToWorldMatrix", 2)
+				flattenReflectionProbeRows(
+					reflectionProbes,
+					"probeToWorldMatrix",
+					2
+				)
 			);
 		}
 		if (uniforms.reflectionProbeDataA) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeDataA,
-				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+				flattenReflectionProbeVec4(reflectionProbes, (probe) => [
 					probe.invHalfExtents[0],
 					probe.invHalfExtents[1],
 					probe.invHalfExtents[2],
@@ -490,7 +540,7 @@ export function bindWebGLGlobalUniforms(
 		if (uniforms.reflectionProbeDataB) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeDataB,
-				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+				flattenReflectionProbeVec4(reflectionProbes, (probe) => [
 					probe.captureWorldPosition[0],
 					probe.captureWorldPosition[1],
 					probe.captureWorldPosition[2],
@@ -501,7 +551,7 @@ export function bindWebGLGlobalUniforms(
 		if (uniforms.reflectionProbeDataC) {
 			gl.uniform4fv(
 				uniforms.reflectionProbeDataC,
-				flattenReflectionProbeVec4(lights.reflectionProbes, (probe) => [
+				flattenReflectionProbeVec4(reflectionProbes, (probe) => [
 					probe.parallaxMode,
 					probe.blendDistance,
 					probe.blendExponent,
@@ -895,15 +945,16 @@ export function uploadWebGLSHAmbientCoefficients(
 
 export function uploadWebGLLocalLightProbeCoefficients(
 	host: WebGLLocalLightProbeUploadHost,
-	probes: WebGLLightState["localLightProbes"]
+	probes: WebGLLightState["localLightProbes"] | null | undefined
 ): boolean {
 	const gl = host._gl;
+	const resolvedProbes = Array.isArray(probes) ? probes : [];
 	const width = SH_COEFFICIENT_COUNT;
-	const height = Math.max(1, probes.length);
+	const height = Math.max(1, resolvedProbes.length);
 	const data = new Float32Array(width * height * 4);
 
-	for (let probeIndex = 0; probeIndex < probes.length; probeIndex++) {
-		const probe = probes[probeIndex];
+	for (let probeIndex = 0; probeIndex < resolvedProbes.length; probeIndex++) {
+		const probe = resolvedProbes[probeIndex];
 		for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
 			const coeff = probe.sh[coeffIndex];
 			const base = (probeIndex * width + coeffIndex) * 4;

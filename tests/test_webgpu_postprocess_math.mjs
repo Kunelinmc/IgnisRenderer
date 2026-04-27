@@ -8,7 +8,7 @@ import {
 	reprojectHistoryUv,
 	rgbToYCoCg,
 	traceSSRDepthHit,
-} from "../src/maths/screenSpaceMath.ts";
+} from "../src/maths/Misc";
 
 function testHaltonSequenceAndJitterRange() {
 	assert.equal(halton(1, 2), 0.5);

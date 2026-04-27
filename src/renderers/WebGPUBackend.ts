@@ -214,6 +214,7 @@ const RESOURCE_ID_REBASE_THRESHOLD = 0x40000000;
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
 const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
+const WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT = 4;
 
 export interface WebGPUBackendOptions {
 	canvas?: HTMLCanvasElement;
@@ -1336,7 +1337,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const sampleCount =
 			this._preferredMSAASampleCount > 1 ?
 				this._preferredMSAASampleCount
-			:	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+			:	WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT;
 		this.setMSAASampleCount(sampleCount);
 	}
 
