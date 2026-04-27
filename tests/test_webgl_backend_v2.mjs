@@ -14,6 +14,7 @@ import { SH } from "../src/maths/SH.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { CubeTexture } from "../src/core/CubeTexture.ts";
 import { Node } from "../src/core/Node.ts";
+import { Scene } from "../src/core/Scene.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
@@ -451,6 +452,23 @@ function testLightCollectorUsesParentedProbeCaptureOrigin() {
 	model.addChild(probe);
 	probe.position.set(2, 0, 0);
 	model.updateWorldMatrix();
+
+	const state = collectWebGLLights([probe], true, warn);
+	assert.equal(state.reflectionProbeCount, 1);
+	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [5, 0, 0]);
+}
+
+function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
+	const warn = () => {};
+	const probeMap = createTinyCubeTexture(3, 0.75);
+	const scene = new Scene();
+	const probe = new ReflectionProbe({
+		prefilteredMap: probeMap,
+		shape: "box",
+	});
+	scene.add(probe);
+	probe.position.set(5, 0, 0);
+	scene.updateWorldMatrices();
 
 	const state = collectWebGLLights([probe], true, warn);
 	assert.equal(state.reflectionProbeCount, 1);
@@ -1174,6 +1192,7 @@ async function run() {
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
 	testLightCollectorSupportsCubeTextureEnvironmentMaps();
 	testLightCollectorUsesParentedProbeCaptureOrigin();
+	testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot();
 	testLightCollectorCanDisableSkyboxSpecularFallback();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();

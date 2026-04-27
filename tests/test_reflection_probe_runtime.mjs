@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Node } from "../src/core/Node.ts";
+import { Scene } from "../src/core/Scene.ts";
 import { Texture } from "../src/core/Texture.ts";
 import {
 	buildReflectionProbeAtlasTexture,
@@ -124,6 +125,35 @@ function testParallaxIntersectionAndFallback() {
 	assert.equal(parented.valid, true);
 	assert.ok(Math.abs(parented.direction.x - Math.SQRT1_2) < 1e-6);
 	assert.ok(Math.abs(parented.direction.z - Math.SQRT1_2) < 1e-6);
+}
+
+function testCaptureOriginUsesProbePositionWhenParentedToSceneRoot() {
+	const scene = new Scene();
+	const probe = new ReflectionProbe({
+		source: "capturedScene",
+	});
+	scene.add(probe);
+	probe.position.set(10, 2, -3);
+	scene.updateWorldMatrices();
+	probe.markRuntimeDirty();
+	const cache = probe.getRuntimeCache();
+	assert.deepEqual(cache.probeWorldPosition, { x: 10, y: 2, z: -3 });
+	assert.deepEqual(cache.captureWorldPosition, { x: 10, y: 2, z: -3 });
+}
+
+function testCaptureOriginUsesParentPositionWhenParentedToModelNode() {
+	const model = new Node();
+	model.position.set(4, 1, 0);
+	const probe = new ReflectionProbe({
+		source: "capturedScene",
+	});
+	model.addChild(probe);
+	probe.position.set(2, 0, 0);
+	model.updateWorldMatrix();
+	probe.markRuntimeDirty();
+	const cache = probe.getRuntimeCache();
+	assert.deepEqual(cache.probeWorldPosition, { x: 6, y: 1, z: 0 });
+	assert.deepEqual(cache.captureWorldPosition, { x: 4, y: 1, z: 0 });
 }
 
 function testRuntimeCacheDirtyBehavior() {
@@ -352,6 +382,8 @@ function run() {
 	testProbeDepthOcclusionAttenuatesBoundarySamples();
 	testTopTwoTieBreakByProbeId();
 	testParallaxIntersectionAndFallback();
+	testCaptureOriginUsesProbePositionWhenParentedToSceneRoot();
+	testCaptureOriginUsesParentPositionWhenParentedToModelNode();
 	testRuntimeCacheDirtyBehavior();
 	testReflectionProbeCaptureDefaultsAndClone();
 	testReflectionProbeRequestCaptureFlags();

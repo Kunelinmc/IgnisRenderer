@@ -366,7 +366,10 @@ function resolveCaptureWorldPosition(
 	probe: ReflectionProbe,
 	out: IVector3
 ): void {
-	const captureNode = probe.parent ?? probe;
+	const parent = probe.parent;
+	const sceneRoot = probe.scene?.root ?? null;
+	const captureNode =
+		parent && sceneRoot && parent === sceneRoot ? probe : (parent ?? probe);
 	const elements = captureNode.worldMatrix.elements;
 	out.x = elements[0][3];
 	out.y = elements[1][3];
