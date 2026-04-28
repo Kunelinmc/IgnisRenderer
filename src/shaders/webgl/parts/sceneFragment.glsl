@@ -74,6 +74,10 @@ uniform sampler2D uEnvSpecularMap;
 uniform int uHasEnvSpecularMap;
 uniform int uEnvSpecularMapIsLinear;
 uniform float uEnvSpecularMaxMipLevel;
+uniform sampler2D uEnvSpecularFallbackMap;
+uniform int uHasEnvSpecularFallbackMap;
+uniform int uEnvSpecularFallbackMapIsLinear;
+uniform float uEnvSpecularFallbackMaxMipLevel;
 uniform sampler2D uBrdfLUT;
 uniform int uLocalLightProbeCount;
 uniform vec4 uLocalLightProbeWorldToProbeRow0[MAX_LOCAL_LIGHT_PROBES];
@@ -535,6 +539,23 @@ vec3 samplePrefilteredEnvSpecularLayer(
 	return decodeEnvSpecularSample(sampled);
 }
 
+vec3 sampleFallbackEnvSpecular(vec3 direction, float roughness) {
+	if (uHasEnvSpecularFallbackMap == 0) {
+		return vec3(0.0);
+	}
+
+	vec2 uv = directionToEquirectUV(safeNormalize(direction, vec3(0.0, 1.0, 0.0)));
+	float mipLevel = clamp(
+		roughness * max(uEnvSpecularFallbackMaxMipLevel, 0.0),
+		0.0,
+		max(uEnvSpecularFallbackMaxMipLevel, 0.0)
+	);
+	vec3 sampled = textureLod(uEnvSpecularFallbackMap, uv, mipLevel).rgb;
+	return uEnvSpecularFallbackMapIsLinear == 1 ?
+		sampled
+	:	srgbToLinear(sampled);
+}
+
 vec3 worldToProbePoint(int probeIndex, vec3 worldPosition) {
 	vec4 row0 = uReflectionProbeWorldToProbeRow0[probeIndex];
 	vec4 row1 = uReflectionProbeWorldToProbeRow1[probeIndex];
@@ -839,8 +860,9 @@ vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughne
 	ivec2 indices;
 	vec2 weights;
 	selectTopTwoReflectionProbes(worldPosition, probeCount, indices, weights);
+	vec3 fallbackSample = sampleFallbackEnvSpecular(normalizedDirection, roughness);
 	if (indices.x < 0) {
-		return vec3(0.0);
+		return fallbackSample;
 	}
 
 	int firstIndex = indices.x;
@@ -861,9 +883,11 @@ vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughne
 		firstIndex,
 		firstMetric
 	);
+	float firstContribution = weights.x * firstDepthOcclusion;
 
 	if (indices.y < 0 || weights.y <= 1e-6) {
-		return firstSample * firstDepthOcclusion;
+		return firstSample * firstContribution +
+			fallbackSample * (1.0 - clamp(firstContribution, 0.0, 1.0));
 	}
 
 	int secondIndex = indices.y;
@@ -884,10 +908,17 @@ vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughne
 		secondIndex,
 		secondMetric
 	);
+	float secondContribution = weights.y * secondDepthOcclusion;
+	float combinedContribution = clamp(
+		firstContribution + secondContribution,
+		0.0,
+		1.0
+	);
 
 	return
-		firstSample * (weights.x * firstDepthOcclusion) +
-		secondSample * (weights.y * secondDepthOcclusion);
+		firstSample * firstContribution +
+		secondSample * secondContribution +
+		fallbackSample * (1.0 - combinedContribution);
 }
 
 float pointAttenuation(float distanceSq, float range) {

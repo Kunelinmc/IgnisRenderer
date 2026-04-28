@@ -148,7 +148,9 @@ struct FogUniforms {
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
-@group(0) @binding(4) var<uniform> fog: FogUniforms;
+@group(0) @binding(4) var envSpecularFallbackTexture: texture_2d<f32>;
+@group(0) @binding(5) var envSpecularFallbackSampler: sampler;
+@group(0) @binding(6) var<uniform> fog: FogUniforms;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

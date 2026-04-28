@@ -23,7 +23,7 @@ import {
 } from "../src/renderers/webgpu/index.ts";
 import { WebGPUReflectionProbeCapturePass } from "../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
-import { BufferUsage } from "../src/renderers/types.ts";
+import { BufferUsage, TextureFormat } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
@@ -564,7 +564,9 @@ function testEnvironmentCollection() {
 	assert.equal(prioritized.skyboxTexture, skybox);
 	assert.ok(prioritized.envSpecularTexture);
 	assert.notEqual(prioritized.envSpecularTexture, skybox);
+	assert.equal(prioritized.envSpecularFallbackTexture, skybox);
 	assert.equal(prioritized.envSpecularMaxMipLevel, 2);
+	assert.equal(prioritized.envSpecularFallbackMaxMipLevel, 0);
 	assert.equal(prioritized.reflectionProbeCount, 2);
 	assert.equal(prioritized.reflectionProbes.length, 2);
 	assert.equal(prioritized.hasSHAmbient, true);
@@ -580,6 +582,7 @@ function testEnvironmentCollection() {
 	);
 	assert.equal(fallback.skyboxTexture, null);
 	assert.ok(fallback.envSpecularTexture);
+	assert.equal(fallback.envSpecularFallbackTexture, null);
 	assert.equal(fallback.reflectionProbeCount, 2);
 
 	const failedSkybox = createTinyTexture(1);
@@ -624,6 +627,7 @@ function testEnvironmentCollection() {
 	);
 	assert.equal(disabledFallback.skyboxTexture, skybox);
 	assert.equal(disabledFallback.envSpecularTexture, null);
+	assert.equal(disabledFallback.envSpecularFallbackTexture, null);
 	assert.equal(disabledFallback.reflectionProbeCount, 0);
 	assert.equal(disabledFallback.brdfLUTTexture, null);
 	assert.equal(disabledFallback.envSpecularMaxMipLevel, 0);
@@ -890,7 +894,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 5);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 7);
 	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
@@ -1639,8 +1643,13 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	assert.ok(result);
 	assert.equal(result.length, 4);
 	assert.equal(backend.createTextureCalls.length >= 2, true);
-	assert.equal(backend.createTextureCalls[0].format, backend.canvasFormat);
-	assert.equal(backend.createTextureCalls[1].format, backend.canvasDepthFormat);
+	assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA16Float);
+	assert.equal(
+		backend.createTextureCalls.some(
+			(call) => call.format === TextureFormat.Depth32Float
+		),
+		true
+	);
 }
 
 async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {

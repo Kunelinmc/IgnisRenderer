@@ -83,6 +83,7 @@ export interface WebGLLightState {
 	spotShadows: WebGLShadowData[];
 	clusteredLights: WebGLClusteredLight[];
 	envSpecularMap: Texture | null;
+	envSpecularFallbackMap: Texture | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGLLocalLightProbeUniform[];
 	reflectionProbeCount: number;
@@ -213,6 +214,7 @@ export function collectWebGLLights(
 		spotShadows: [],
 		clusteredLights: [],
 		envSpecularMap: null,
+		envSpecularFallbackMap: null,
 		localLightProbeCount: 0,
 		localLightProbes: [],
 		reflectionProbeCount: 0,
@@ -369,6 +371,12 @@ export function collectWebGLLights(
 		WEBGL_MAX_REFLECTION_PROBES,
 		cameraWorldPosition
 	);
+	if (allowSkyboxSpecularFallback) {
+		state.envSpecularFallbackMap = resolveEnvironmentSkyboxMap(
+			skybox,
+			emitWarning
+		);
+	}
 	if (reflectionEnvironment.probes.length > 0) {
 		state.reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
 			const cache = probe.getRuntimeCache();
@@ -402,7 +410,7 @@ export function collectWebGLLights(
 	}
 
 	if (!state.envSpecularMap && allowSkyboxSpecularFallback) {
-		state.envSpecularMap = resolveEnvironmentSkyboxMap(skybox, emitWarning);
+		state.envSpecularMap = state.envSpecularFallbackMap;
 		state.reflectionProbeCount = 0;
 		state.reflectionProbes = [];
 	}

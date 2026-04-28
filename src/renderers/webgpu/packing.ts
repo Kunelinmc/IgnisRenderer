@@ -278,7 +278,9 @@ export function packFrameUniformData(
 	writer.writeVec("environmentOptionsA", [
 		input.enableSH ? 1 : 0,
 		input.hasSHAmbient ? 1 : 0,
-		input.hasSkybox ? 1 : 0,
+		input.hasEnvSpecularFallback ?
+			Math.max(0, input.envSpecularFallbackMaxMipLevel) + 1
+		:	0,
 		input.hasEnvSpecular ? 1 : 0,
 	]);
 	writer.writeVec("environmentOptionsB", [

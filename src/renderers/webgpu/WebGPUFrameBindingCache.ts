@@ -40,8 +40,10 @@ export class WebGPUFrameBindingCache {
 	private _shadowAtlas: IRenderTexture | null = null;
 	private _skyboxTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
+	private _envSpecularFallbackTexture: IRenderTexture | null = null;
 	private _skyboxSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
+	private _envSpecularFallbackSampler: ISampler | null = null;
 	private _prevViewProjection:
 		| PreparedScene["camera"]["viewProjectionMatrix"]
 		| null = null;
@@ -122,8 +124,11 @@ export class WebGPUFrameBindingCache {
 				!environmentState.skyboxTexture ||
 				environmentState.skyboxTexture.colorSpace !== "sRGB",
 			hasEnvSpecular: !!environmentState.envSpecularTexture,
+			hasEnvSpecularFallback: !!environmentState.envSpecularFallbackTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
+			envSpecularFallbackMaxMipLevel:
+				environmentState.envSpecularFallbackMaxMipLevel,
 			taaJitterCurrentPrev: taaJitter,
 		});
 
@@ -161,13 +166,28 @@ export class WebGPUFrameBindingCache {
 					environmentState.envSpecularTexture
 				)
 			:	this._textureRegistry.getWhiteSampler();
+		const currentEnvSpecularFallback =
+			environmentState.envSpecularFallbackTexture ?
+				this._textureRegistry.getTextureForSlot(
+					environmentState.envSpecularFallbackTexture,
+					0
+				)
+			:	this._textureRegistry.getWhiteTexture();
+		const currentEnvSpecularFallbackSampler =
+			environmentState.envSpecularFallbackTexture ?
+				this._textureRegistry.getSamplerForTexture(
+					environmentState.envSpecularFallbackTexture
+				)
+			:	this._textureRegistry.getWhiteSampler();
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
 			this._skyboxTexture !== currentSkybox ||
 			this._envSpecularTexture !== currentEnvSpecular ||
+			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
 			this._skyboxSampler !== currentSkyboxSampler ||
-			this._envSpecularSampler !== currentEnvSpecularSampler
+			this._envSpecularSampler !== currentEnvSpecularSampler ||
+			this._envSpecularFallbackSampler !== currentEnvSpecularFallbackSampler
 		) {
 			this._destroyBindingGroup(this._sceneBinding);
 			this._destroyBindingGroup(this._skyboxBinding);
@@ -176,8 +196,10 @@ export class WebGPUFrameBindingCache {
 			this._shadowAtlas = currentShadowAtlas;
 			this._skyboxTexture = currentSkybox;
 			this._envSpecularTexture = currentEnvSpecular;
+			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
 			this._skyboxSampler = currentSkyboxSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
+			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
 		}
 	}
 
@@ -246,7 +268,19 @@ export class WebGPUFrameBindingCache {
 							this._envSpecularSampler ??
 							this._textureRegistry.getWhiteSampler(),
 					},
-					{ binding: 4, resource: this._getFogUniformBuffer() },
+					{
+						binding: 4,
+						resource:
+							this._envSpecularFallbackTexture ??
+							this._textureRegistry.getWhiteTexture(),
+					},
+					{
+						binding: 5,
+						resource:
+							this._envSpecularFallbackSampler ??
+							this._textureRegistry.getWhiteSampler(),
+					},
+					{ binding: 6, resource: this._getFogUniformBuffer() },
 				],
 			});
 		}
@@ -358,8 +392,10 @@ export class WebGPUFrameBindingCache {
 		this._shadowAtlas = null;
 		this._skyboxTexture = null;
 		this._envSpecularTexture = null;
+		this._envSpecularFallbackTexture = null;
 		this._skyboxSampler = null;
 		this._envSpecularSampler = null;
+		this._envSpecularFallbackSampler = null;
 		this._prevViewProjection = null;
 		this._taaFrameIndex = 0;
 		this._taaJitterCurrent = [0, 0];

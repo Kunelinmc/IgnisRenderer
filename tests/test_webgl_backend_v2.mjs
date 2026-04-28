@@ -473,8 +473,12 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	);
 	assert.ok(probeState.envSpecularMap);
 	assert.notEqual(probeState.envSpecularMap, cubeProbeMap);
+	assert.ok(probeState.envSpecularFallbackMap);
+	assert.notEqual(probeState.envSpecularFallbackMap, cubeSkybox);
 	assert.equal(probeState.envSpecularMap.width, 4);
 	assert.equal(probeState.envSpecularMap.height, 2);
+	assert.equal(probeState.envSpecularFallbackMap.width, 4);
+	assert.equal(probeState.envSpecularFallbackMap.height, 2);
 	assert.equal(probeState.reflectionProbeCount, 1);
 
 	const skyboxState = collectWebGLLights(
@@ -488,8 +492,12 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	);
 	assert.ok(skyboxState.envSpecularMap);
 	assert.notEqual(skyboxState.envSpecularMap, cubeSkybox);
+	assert.ok(skyboxState.envSpecularFallbackMap);
+	assert.notEqual(skyboxState.envSpecularFallbackMap, cubeSkybox);
 	assert.equal(skyboxState.envSpecularMap.width, 4);
 	assert.equal(skyboxState.envSpecularMap.height, 2);
+	assert.equal(skyboxState.envSpecularFallbackMap.width, 4);
+	assert.equal(skyboxState.envSpecularFallbackMap.height, 2);
 	assert.equal(skyboxState.reflectionProbeCount, 0);
 }
 
@@ -544,6 +552,7 @@ function testLightCollectorCanDisableSkyboxSpecularFallback() {
 		false
 	);
 	assert.equal(state.envSpecularMap, null);
+	assert.equal(state.envSpecularFallbackMap, null);
 	assert.equal(state.reflectionProbeCount, 0);
 	assert.equal(state.reflectionProbes.length, 0);
 	assert.equal(

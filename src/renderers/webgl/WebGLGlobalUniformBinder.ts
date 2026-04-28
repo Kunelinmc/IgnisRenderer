@@ -36,6 +36,7 @@ const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
 const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
 const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 8;
+const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
 const SH_COEFFICIENT_COUNT = 16;
 
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
@@ -165,6 +166,7 @@ export function bindWebGLGlobalUniforms(
 		spotShadows,
 		clusteredLights,
 		envSpecularMap: lightState?.envSpecularMap ?? null,
+		envSpecularFallbackMap: lightState?.envSpecularFallbackMap ?? null,
 		localLightProbeCount: localLightProbeCountSource,
 		localLightProbes,
 		reflectionProbeCount: reflectionProbeCountSource,
@@ -417,6 +419,10 @@ export function bindWebGLGlobalUniforms(
 		!!uniforms.hasEnvSpecularMap ||
 		!!uniforms.envSpecularMapIsLinear ||
 		!!uniforms.envSpecularMaxMipLevel ||
+		!!uniforms.envSpecularFallbackMap ||
+		!!uniforms.hasEnvSpecularFallbackMap ||
+		!!uniforms.envSpecularFallbackMapIsLinear ||
+		!!uniforms.envSpecularFallbackMaxMipLevel ||
 		!!uniforms.brdfLUT ||
 		!!uniforms.reflectionProbeCount ||
 		!!uniforms.reflectionProbeWorldToProbeRow0 ||
@@ -430,13 +436,23 @@ export function bindWebGLGlobalUniforms(
 		!!uniforms.reflectionProbeDataC;
 	if (usesEnvSpecularUniforms) {
 		const envSpecularMap = lights.envSpecularMap;
+		const envSpecularFallbackMap = lights.envSpecularFallbackMap;
 		const hasEnvSpecularMap = !!envSpecularMap;
+		const hasEnvSpecularFallbackMap = !!envSpecularFallbackMap;
 		const envSpecularMaxMipLevel =
 			hasEnvSpecularMap && envSpecularMap ?
 				Math.max(0, envSpecularMap.mipmaps.length - 1)
 			:	0;
+		const envSpecularFallbackMaxMipLevel =
+			hasEnvSpecularFallbackMap && envSpecularFallbackMap ?
+				Math.max(0, envSpecularFallbackMap.mipmaps.length - 1)
+			:	0;
 		const resolvedEnvSpecular =
 			host._textures.getEnvironmentSpecularTexture(envSpecularMap ?? null);
+		const resolvedEnvSpecularFallback =
+			host._textures.getEnvironmentSpecularTexture(
+				envSpecularFallbackMap ?? null
+			);
 		const resolvedBrdfLUT = host._textures.getBRDFLUTTexture(
 			hasEnvSpecularMap ? IBLBRDF.getLUT() : null
 		);
@@ -445,6 +461,19 @@ export function bindWebGLGlobalUniforms(
 			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
 			gl.bindTexture(gl.TEXTURE_2D, resolvedEnvSpecular.texture);
 			gl.uniform1i(uniforms.envSpecularMap, WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
+		}
+		if (uniforms.envSpecularFallbackMap) {
+			gl.activeTexture(
+				gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK
+			);
+			gl.bindTexture(
+				gl.TEXTURE_2D,
+				resolvedEnvSpecularFallback.texture
+			);
+			gl.uniform1i(
+				uniforms.envSpecularFallbackMap,
+				WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK
+			);
 		}
 		if (uniforms.brdfLUT) {
 			gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BRDF_LUT);
@@ -462,6 +491,24 @@ export function bindWebGLGlobalUniforms(
 		}
 		if (uniforms.envSpecularMaxMipLevel) {
 			gl.uniform1f(uniforms.envSpecularMaxMipLevel, envSpecularMaxMipLevel);
+		}
+		if (uniforms.hasEnvSpecularFallbackMap) {
+			gl.uniform1i(
+				uniforms.hasEnvSpecularFallbackMap,
+				hasEnvSpecularFallbackMap ? 1 : 0
+			);
+		}
+		if (uniforms.envSpecularFallbackMapIsLinear) {
+			gl.uniform1i(
+				uniforms.envSpecularFallbackMapIsLinear,
+				resolvedEnvSpecularFallback.isLinear ? 1 : 0
+			);
+		}
+		if (uniforms.envSpecularFallbackMaxMipLevel) {
+			gl.uniform1f(
+				uniforms.envSpecularFallbackMaxMipLevel,
+				envSpecularFallbackMaxMipLevel
+			);
 		}
 		const reflectionProbeCount = Math.max(0, Math.floor(reflectionProbeCountSource));
 		if (uniforms.reflectionProbeCount) {

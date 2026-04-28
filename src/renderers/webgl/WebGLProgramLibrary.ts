@@ -188,6 +188,10 @@ export interface WebGLSceneProgram {
 		hasEnvSpecularMap: WebGLUniformLocation | null;
 		envSpecularMapIsLinear: WebGLUniformLocation | null;
 		envSpecularMaxMipLevel: WebGLUniformLocation | null;
+		envSpecularFallbackMap: WebGLUniformLocation | null;
+		hasEnvSpecularFallbackMap: WebGLUniformLocation | null;
+		envSpecularFallbackMapIsLinear: WebGLUniformLocation | null;
+		envSpecularFallbackMaxMipLevel: WebGLUniformLocation | null;
 		brdfLUT: WebGLUniformLocation | null;
 		localLightProbeCount: WebGLUniformLocation | null;
 		localLightProbeWorldToProbeRow0: WebGLUniformLocation | null;
@@ -725,6 +729,22 @@ export class WebGLProgramLibrary {
 				envSpecularMaxMipLevel: this._gl.getUniformLocation(
 					program,
 					"uEnvSpecularMaxMipLevel",
+				),
+				envSpecularFallbackMap: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularFallbackMap",
+				),
+				hasEnvSpecularFallbackMap: this._gl.getUniformLocation(
+					program,
+					"uHasEnvSpecularFallbackMap",
+				),
+				envSpecularFallbackMapIsLinear: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularFallbackMapIsLinear",
+				),
+				envSpecularFallbackMaxMipLevel: this._gl.getUniformLocation(
+					program,
+					"uEnvSpecularFallbackMaxMipLevel",
 				),
 				brdfLUT: this._gl.getUniformLocation(program, "uBrdfLUT"),
 				localLightProbeCount: this._gl.getUniformLocation(

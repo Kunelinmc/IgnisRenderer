@@ -156,12 +156,14 @@ export interface WebGPUEnvironmentState {
 	hasSHAmbient: boolean;
 	skyboxTexture: Texture | null;
 	envSpecularTexture: Texture | null;
+	envSpecularFallbackTexture: Texture | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGPULocalLightProbeUniform[];
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	brdfLUTTexture: Texture | null;
 	envSpecularMaxMipLevel: number;
+	envSpecularFallbackMaxMipLevel: number;
 	warnings: WebGPUWarning[];
 }
 
@@ -245,7 +247,9 @@ export interface WebGPUFrameUniformInput {
 	hasSkybox: boolean;
 	skyboxIsLinear: boolean;
 	hasEnvSpecular: boolean;
+	hasEnvSpecularFallback: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;
+	envSpecularFallbackMaxMipLevel: number;
 	taaJitterCurrentPrev: [number, number, number, number];
 }

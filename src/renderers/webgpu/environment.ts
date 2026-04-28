@@ -71,6 +71,8 @@ export function collectWebGPUEnvironment(
 		"env-specular",
 		warnings
 	);
+	const envSpecularFallbackTexture =
+		allowSkyboxSpecularFallback ? sceneSkyboxTexture : null;
 	if (envSpecularTexture) {
 		reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
 			const cache = probe.getRuntimeCache();
@@ -128,6 +130,7 @@ export function collectWebGPUEnvironment(
 		hasSHAmbient,
 		skyboxTexture: sceneSkyboxTexture,
 		envSpecularTexture,
+		envSpecularFallbackTexture,
 		localLightProbeCount,
 		localLightProbes: localizedProbeUniforms,
 		reflectionProbeCount,
@@ -135,6 +138,10 @@ export function collectWebGPUEnvironment(
 		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
 		envSpecularMaxMipLevel:
 			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
+		envSpecularFallbackMaxMipLevel:
+			envSpecularFallbackTexture ?
+				Math.max(0, getEnvironmentMipLevelCount(envSpecularFallbackTexture) - 1)
+			:	0,
 		warnings,
 	};
 }

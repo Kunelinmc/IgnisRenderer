@@ -11,6 +11,7 @@ import {
 	computeProbeDepthOcclusion,
 	computeProbeRawWeight,
 	samplePrefilteredEquirect,
+	sampleReflectionProbesSpecular,
 	selectTopTwoReflectionProbes,
 } from "../src/pipeline/reflectionProbeRuntime.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
@@ -334,6 +335,29 @@ function testReflectionProbeCollectionKeepsFullSoftwareSetAndCameraRelevantHardw
 	assert.ok(collected.atlas);
 }
 
+function testReflectionProbeSamplingFallsBackOutsideLocalizedCoverage() {
+	const probe = new ReflectionProbe({
+		prefilteredMap: createTinyEquirectTexture(0.8),
+		shape: "sphere",
+		radius: 1,
+	});
+	probe.updateWorldMatrix();
+	probe.markRuntimeDirty();
+
+	const fallback = createTinyEquirectTexture(0.2);
+	const sampled = sampleReflectionProbesSpecular(
+		{ x: 3, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		0,
+		[probe],
+		fallback
+	);
+	assert.ok(sampled);
+	assert.ok(Math.abs(sampled.r - 0.2) < 1e-6);
+	assert.ok(Math.abs(sampled.g - 0.2) < 1e-6);
+	assert.ok(Math.abs(sampled.b - 0.2) < 1e-6);
+}
+
 function createTinyCubeTexture(faces) {
 	return new CubeTexture({
 		faces,
@@ -391,6 +415,7 @@ function run() {
 	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();
 	testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer();
 	testReflectionProbeCollectionKeepsFullSoftwareSetAndCameraRelevantHardwareSubset();
+	testReflectionProbeSamplingFallsBackOutsideLocalizedCoverage();
 	console.log("Reflection probe runtime tests passed");
 }
 

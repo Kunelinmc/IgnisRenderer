@@ -283,12 +283,20 @@ fn hasEnvSpecular() -> bool {
 	return frame.environmentOptionsA.w > 0.5;
 }
 
+fn hasEnvSpecularFallback() -> bool {
+	return frame.environmentOptionsA.z > 0.5;
+}
+
 fn hasBRDFLUT() -> bool {
 	return frame.environmentOptionsB.x > 0.5;
 }
 
 fn envSpecularMaxMipLevel() -> f32 {
 	return max(frame.environmentOptionsB.y, 0.0);
+}
+
+fn envSpecularFallbackMaxMipLevel() -> f32 {
+	return max(frame.environmentOptionsA.z - 1.0, 0.0);
 }
 
 fn reflectionProbeCount() -> u32 {
@@ -594,7 +602,41 @@ fn sampleEnvironmentSpecularFromDirection(
 		uv.x = (uv.x + f32(layer)) / f32(layerCount);
 	}
 	let level = clamp(roughness, 0.0, 1.0) * envSpecularMaxMipLevel();
-	return textureSampleLevel(envSpecularTexture, envSpecularSampler, uv, level).rgb;
+	var sampled = textureSampleLevel(
+		envSpecularTexture,
+		envSpecularSampler,
+		uv,
+		level
+	).rgb;
+	if (layerCount <= 1u && frame.environmentOptionsB.z < 0.5) {
+		sampled = srgbToLinear(sampled);
+	}
+	return sampled;
+}
+
+fn sampleFallbackEnvironmentSpecular(
+	direction: vec3<f32>,
+	roughness: f32
+) -> vec3<f32> {
+	if (!hasEnvSpecularFallback()) {
+		return vec3<f32>(0.0);
+	}
+
+	let uv = directionToEquirectUV(
+		safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0))
+	);
+	let level =
+		clamp(roughness, 0.0, 1.0) * envSpecularFallbackMaxMipLevel();
+	var sampled = textureSampleLevel(
+		envSpecularFallbackTexture,
+		envSpecularFallbackSampler,
+		uv,
+		level
+	).rgb;
+	if (frame.environmentOptionsB.z < 0.5) {
+		sampled = srgbToLinear(sampled);
+	}
+	return sampled;
 }
 
 fn worldToProbePoint(probe: ReflectionProbeData, worldPosition: vec3<f32>) -> vec3<f32> {
@@ -888,9 +930,13 @@ fn sampleEnvironmentSpecular(
 		);
 	}
 
+	let fallbackSample = sampleFallbackEnvironmentSpecular(
+		normalizedDirection,
+		roughness
+	);
 	let selection = selectTopTwoReflectionProbes(worldPosition);
 	if (selection.x < 0.0) {
-		return vec3<f32>(0.0);
+		return fallbackSample;
 	}
 
 	let firstIndex = u32(max(selection.x, 0.0));
@@ -912,9 +958,11 @@ fn sampleEnvironmentSpecular(
 		firstMetric,
 		firstProbe
 	);
+	let firstContribution = selection.z * firstDepthOcclusion;
 
 	if (selection.y < 0.0 || selection.w <= 1e-6) {
-		return firstSample * firstDepthOcclusion;
+		return firstSample * firstContribution +
+			fallbackSample * (1.0 - clamp(firstContribution, 0.0, 1.0));
 	}
 
 	let secondIndex = u32(max(selection.y, 0.0));
@@ -936,10 +984,17 @@ fn sampleEnvironmentSpecular(
 		secondMetric,
 		secondProbe
 	);
+	let secondContribution = selection.w * secondDepthOcclusion;
+	let combinedContribution = clamp(
+		firstContribution + secondContribution,
+		0.0,
+		1.0
+	);
 
 	return
-		firstSample * (selection.z * firstDepthOcclusion) +
-		secondSample * (selection.w * secondDepthOcclusion);
+		firstSample * firstContribution +
+		secondSample * secondContribution +
+		fallbackSample * (1.0 - combinedContribution);
 }
 
 fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {

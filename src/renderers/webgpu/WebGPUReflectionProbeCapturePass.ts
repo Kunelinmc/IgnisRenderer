@@ -105,39 +105,27 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
-
-		const captureColorFormat = this._backend.canvasFormat as TextureFormat;
-		const captureDepthFormat = this._backend.canvasDepthFormat;
-		const colorTexture = this._backend.createTexture({
-			width: faceSize,
-			height: faceSize,
-			format: captureColorFormat,
-			usage:
-				TextureUsage.RenderAttachment |
-				TextureUsage.CopySrc |
-				TextureUsage.TextureBinding,
-			label: `WebGPUReflectionProbeCaptureColor_face${resolvedFaceIndex}`,
-		});
-		const depthTexture = this._backend.createTexture({
-			width: faceSize,
-			height: faceSize,
-			format: captureDepthFormat,
-			usage: TextureUsage.RenderAttachment,
-			label: `WebGPUReflectionProbeCaptureDepth_face${resolvedFaceIndex}`,
-		});
 		const restoreSceneTargetMode =
 			this._backend.getFrameSceneTargetMode?.() ?? "single";
+		const restoreMSAASampleCount = this._backend.getMSAASampleCount();
+		const captureTargets = createCaptureRenderTargets(
+			this._backend,
+			faceSize,
+			resolvedFaceIndex
+		);
 
 		try {
-			this._resources.setSceneTargetMode("single");
+			if (restoreMSAASampleCount !== 1) {
+				this._backend.setMSAASampleCount(1);
+			}
+			this._resources.setSceneTargetMode("mrt");
 			this._resources.prepareFrame(captureContext);
 			const encoder = this._backend.createCommandEncoder();
 			await this._resources.buildClusteredLighting(encoder);
 			await this._recordSceneCapture(
 				encoder,
 				captureContext,
-				colorTexture,
-				depthTexture,
+				captureTargets,
 				request.includeSkybox
 			);
 			if (request.includeParticles) {
@@ -148,14 +136,14 @@ export class WebGPUReflectionProbeCapturePass {
 						label: "WebGPUReflectionProbeCaptureParticles",
 						colorAttachments: [
 							{
-								view: colorTexture,
+								view: captureTargets.sceneColor,
 								loadOp: "load",
 								storeOp: "store",
 							},
 						],
-						depth: depthTexture,
+						depth: captureTargets.depth,
 					},
-					"single",
+					"mrt",
 					{
 						pipelineMode: "legacy",
 					}
@@ -164,18 +152,20 @@ export class WebGPUReflectionProbeCapturePass {
 
 			this._backend.submit([encoder.finish()]);
 			const readback = await this._readbackRuntime.readTexture({
-				texture: colorTexture,
+				texture: captureTargets.sceneColor,
 				width: faceSize,
 				height: faceSize,
-				format: captureColorFormat,
+				format: TextureFormat.RGBA16Float,
 			});
 			return flipFaceRowsVertically(
-				readback.toNormalizedRGBA8Float32(),
+				decodeRGBA16FloatReadback(readback),
 				faceSize
 			);
 		} finally {
-			colorTexture.destroy();
-			depthTexture.destroy();
+			destroyCaptureRenderTargets(captureTargets);
+			if (restoreMSAASampleCount !== 1) {
+				this._backend.setMSAASampleCount(restoreMSAASampleCount);
+			}
 			this._resources.setSceneTargetMode(restoreSceneTargetMode);
 			this._resources.prepareFrame(request.frameContext);
 		}
@@ -188,38 +178,54 @@ export class WebGPUReflectionProbeCapturePass {
 	private async _recordSceneCapture(
 		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
 		context: FrameContext,
-		colorTexture: ReturnType<WebGPUBackend["createTexture"]>,
-		depthTexture: ReturnType<WebGPUBackend["createTexture"]>,
+		targets: CaptureRenderTargets,
 		includeSkybox: boolean
 	): Promise<void> {
+		const drewSkybox = includeSkybox ?
+				await this._recordSkyboxCapturePass(encoder, targets)
+			:	false;
+
 		encoder.beginRenderPass({
 			label: "WebGPUReflectionProbeCaptureMain",
 			colorAttachments: [
 				{
-					view: colorTexture,
+					view: targets.sceneColor,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: drewSkybox ? "load" : "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gAlbedoAlpha,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gNormalRoughMetal,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gEmissiveOcclusion,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gMotionDepth,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
 					loadOp: "clear",
 					storeOp: "store",
 				},
 			],
 			depthStencilAttachment: {
-				view: depthTexture,
+				view: targets.depth,
 				depthClearValue: 1,
-				depthLoadOp: "clear",
+				depthLoadOp: drewSkybox ? "load" : "clear",
 				depthStoreOp: "store",
 			},
 		});
-
-		if (includeSkybox) {
-			const skyboxResources = await this._resources.getSkyboxResources(
-				"single"
-			);
-			if (skyboxResources) {
-				encoder.setPipeline(skyboxResources.pipeline);
-				encoder.setBindingGroup(0, skyboxResources.frameBinding);
-				encoder.draw(3);
-			}
-		}
 
 		const packets = [
 			...context.scene.opaquePackets,
@@ -227,7 +233,7 @@ export class WebGPUReflectionProbeCapturePass {
 		];
 		for (const packet of packets) {
 			const drawResources = await this._resources.getDrawResources(packet, {
-				sceneTargetMode: "single",
+				sceneTargetMode: "mrt",
 			});
 			if (!drawResources || drawResources.length <= 0) {
 				continue;
@@ -244,6 +250,160 @@ export class WebGPUReflectionProbeCapturePass {
 		}
 		encoder.endRenderPass();
 	}
+
+	private async _recordSkyboxCapturePass(
+		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
+		targets: CaptureRenderTargets
+	): Promise<boolean> {
+		const skyboxResources = await this._resources.getSkyboxResources("mrt");
+		if (!skyboxResources) {
+			return false;
+		}
+
+		encoder.beginRenderPass({
+			label: "WebGPUReflectionProbeCaptureSkybox",
+			colorAttachments: [
+				{
+					view: targets.sceneColor,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: targets.depth,
+				depthClearValue: 1,
+				depthLoadOp: "clear",
+				depthStoreOp: "store",
+			},
+		});
+		encoder.setPipeline(skyboxResources.pipeline);
+		encoder.setBindingGroup(0, skyboxResources.frameBinding);
+		encoder.draw(3);
+		encoder.endRenderPass();
+		return true;
+	}
+}
+
+interface CaptureRenderTargets {
+	sceneColor: ReturnType<WebGPUBackend["createTexture"]>;
+	gAlbedoAlpha: ReturnType<WebGPUBackend["createTexture"]>;
+	gNormalRoughMetal: ReturnType<WebGPUBackend["createTexture"]>;
+	gEmissiveOcclusion: ReturnType<WebGPUBackend["createTexture"]>;
+	gMotionDepth: ReturnType<WebGPUBackend["createTexture"]>;
+	depth: ReturnType<WebGPUBackend["createTexture"]>;
+}
+
+function createCaptureRenderTargets(
+	backend: WebGPUBackend,
+	faceSize: number,
+	faceIndex: number
+): CaptureRenderTargets {
+	return {
+		sceneColor: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.RGBA16Float,
+			usage:
+				TextureUsage.RenderAttachment |
+				TextureUsage.CopySrc |
+				TextureUsage.TextureBinding,
+			label: `WebGPUReflectionProbeCaptureSceneColor_face${faceIndex}`,
+		}),
+		gAlbedoAlpha: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.RGBA8Unorm,
+			usage: TextureUsage.RenderAttachment,
+			label: `WebGPUReflectionProbeCaptureAlbedo_face${faceIndex}`,
+		}),
+		gNormalRoughMetal: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.RenderAttachment,
+			label: `WebGPUReflectionProbeCaptureNormal_face${faceIndex}`,
+		}),
+		gEmissiveOcclusion: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.RenderAttachment,
+			label: `WebGPUReflectionProbeCaptureEmissive_face${faceIndex}`,
+		}),
+		gMotionDepth: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.RGBA16Float,
+			usage: TextureUsage.RenderAttachment,
+			label: `WebGPUReflectionProbeCaptureMotion_face${faceIndex}`,
+		}),
+		depth: backend.createTexture({
+			width: faceSize,
+			height: faceSize,
+			format: TextureFormat.Depth32Float,
+			usage: TextureUsage.RenderAttachment,
+			label: `WebGPUReflectionProbeCaptureDepth_face${faceIndex}`,
+		}),
+	};
+}
+
+function destroyCaptureRenderTargets(targets: CaptureRenderTargets): void {
+	targets.sceneColor.destroy();
+	targets.gAlbedoAlpha.destroy();
+	targets.gNormalRoughMetal.destroy();
+	targets.gEmissiveOcclusion.destroy();
+	targets.gMotionDepth.destroy();
+	targets.depth.destroy();
+}
+
+function decodeRGBA16FloatReadback(readback: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	bytesPerRow: number;
+}): Float32Array {
+	const output = new Float32Array(readback.width * readback.height * 4);
+	const view = new DataView(
+		readback.bytes.buffer,
+		readback.bytes.byteOffset,
+		readback.bytes.byteLength
+	);
+	for (let y = 0; y < readback.height; y++) {
+		const srcRowOffset = y * readback.bytesPerRow;
+		const dstRowOffset = y * readback.width * 4;
+		for (let x = 0; x < readback.width; x++) {
+			const srcOffset = srcRowOffset + x * 8;
+			const dstOffset = dstRowOffset + x * 4;
+			output[dstOffset] = decodeFloat16(view.getUint16(srcOffset, true));
+			output[dstOffset + 1] = decodeFloat16(
+				view.getUint16(srcOffset + 2, true)
+			);
+			output[dstOffset + 2] = decodeFloat16(
+				view.getUint16(srcOffset + 4, true)
+			);
+			output[dstOffset + 3] = decodeFloat16(
+				view.getUint16(srcOffset + 6, true)
+			);
+		}
+	}
+	return output;
+}
+
+function decodeFloat16(value: number): number {
+	const sign = (value & 0x8000) !== 0 ? -1 : 1;
+	const exponent = (value >> 10) & 0x1f;
+	const mantissa = value & 0x03ff;
+	if (exponent === 0) {
+		if (mantissa === 0) {
+			return sign * 0;
+		}
+		return sign * Math.pow(2, -14) * (mantissa / 1024);
+	}
+	if (exponent === 0x1f) {
+		return mantissa === 0 ? sign * Infinity : Number.NaN;
+	}
+	return sign * Math.pow(2, exponent - 15) * (1 + mantissa / 1024);
 }
 
 function clampFaceIndex(faceIndex: number): number {

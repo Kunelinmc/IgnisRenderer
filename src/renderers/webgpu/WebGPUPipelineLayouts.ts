@@ -53,6 +53,16 @@ export function createWebGPUPipelineLayouts(
 			},
 			{
 				binding: 4,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 5,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+				sampler: { type: "filtering" },
+			},
+			{
+				binding: 6,
 				visibility:
 					GPUShaderStage.VERTEX |
 					GPUShaderStage.FRAGMENT |

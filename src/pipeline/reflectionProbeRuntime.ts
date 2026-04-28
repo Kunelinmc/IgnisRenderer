@@ -400,15 +400,18 @@ export function sampleReflectionProbesSpecular(
 ): { r: number; g: number; b: number } | null {
 	const selection = selectTopTwoReflectionProbes(worldPosition, probes);
 	if (selection.firstIndex < 0) {
-		return fallbackTexture ?
-				samplePrefilteredEquirect(
-					fallbackTexture,
-					reflectionDirection,
-					roughness
-				)
-			:	null;
+		return sampleFallbackSpecular(
+			fallbackTexture,
+			reflectionDirection,
+			roughness
+		);
 	}
 
+	const fallbackSample = sampleFallbackSpecular(
+		fallbackTexture,
+		reflectionDirection,
+		roughness
+	);
 	const firstProbe = probes[selection.firstIndex];
 	const firstDirection = computeParallaxCorrectedDirection(
 		worldPosition,
@@ -425,13 +428,18 @@ export function sampleReflectionProbesSpecular(
 		firstMetric,
 		firstProbe.getRuntimeCache().effectiveBlendDistance
 	);
+	const firstContribution = selection.firstWeight * firstDepthOcclusion;
 
 	if (selection.secondIndex < 0 || selection.secondWeight <= REFLECTION_PROBE_WEIGHT_EPSILON) {
-		return {
-			r: firstSample.r * firstDepthOcclusion,
-			g: firstSample.g * firstDepthOcclusion,
-			b: firstSample.b * firstDepthOcclusion,
-		};
+		return blendProbeAndFallback(
+			{
+				r: firstSample.r * firstContribution,
+				g: firstSample.g * firstContribution,
+				b: firstSample.b * firstContribution,
+			},
+			firstContribution,
+			fallbackSample
+		);
 	}
 
 	const secondProbe = probes[selection.secondIndex];
@@ -450,18 +458,28 @@ export function sampleReflectionProbesSpecular(
 		secondMetric,
 		secondProbe.getRuntimeCache().effectiveBlendDistance
 	);
+	const secondContribution = selection.secondWeight * secondDepthOcclusion;
+	const combinedContribution = clamp(
+		firstContribution + secondContribution,
+		0,
+		1
+	);
 
-	return {
-		r:
-			firstSample.r * selection.firstWeight * firstDepthOcclusion +
-			secondSample.r * selection.secondWeight * secondDepthOcclusion,
-		g:
-			firstSample.g * selection.firstWeight * firstDepthOcclusion +
-			secondSample.g * selection.secondWeight * secondDepthOcclusion,
-		b:
-			firstSample.b * selection.firstWeight * firstDepthOcclusion +
-			secondSample.b * selection.secondWeight * secondDepthOcclusion,
-	};
+	return blendProbeAndFallback(
+		{
+			r:
+				firstSample.r * firstContribution +
+				secondSample.r * secondContribution,
+			g:
+				firstSample.g * firstContribution +
+				secondSample.g * secondContribution,
+			b:
+				firstSample.b * firstContribution +
+				secondSample.b * secondContribution,
+		},
+		combinedContribution,
+		fallbackSample
+	);
 }
 
 export function samplePrefilteredEquirect(
@@ -790,4 +808,35 @@ function resolveTextureIdentity(texture: Texture): number {
 	const identity = ++_nextTextureIdentity;
 	_textureIdentityByTexture.set(texture, identity);
 	return identity;
+}
+
+function sampleFallbackSpecular(
+	fallbackTexture: Texture | null,
+	reflectionDirection: IVector3,
+	roughness: number
+): { r: number; g: number; b: number } | null {
+	return fallbackTexture ?
+			samplePrefilteredEquirect(
+				fallbackTexture,
+				reflectionDirection,
+				roughness
+			)
+		:	null;
+}
+
+function blendProbeAndFallback(
+	probeSample: { r: number; g: number; b: number },
+	probeCoverage: number,
+	fallbackSample: { r: number; g: number; b: number } | null
+): { r: number; g: number; b: number } {
+	if (!fallbackSample) {
+		return probeSample;
+	}
+
+	const fallbackWeight = 1 - clamp(probeCoverage, 0, 1);
+	return {
+		r: probeSample.r + fallbackSample.r * fallbackWeight,
+		g: probeSample.g + fallbackSample.g * fallbackWeight,
+		b: probeSample.b + fallbackSample.b * fallbackWeight,
+	};
 }
