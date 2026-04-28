@@ -329,6 +329,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeRadiance"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var envSpecularFallbackTexture"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(6) var<uniform> fog"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
@@ -370,6 +373,9 @@ async function testParticleShaderDepthConsistency() {
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleUVTransform"));
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes("@group(1) @binding(2) var<uniform>")
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(6) var<uniform> fog")
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -1955,6 +1961,28 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.notEqual(secondSkybox.frameBinding, firstBinding);
 }
 
+async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const sceneLayout = backend.device.bindGroupLayouts.find(
+		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
+	);
+	assert.ok(sceneLayout);
+	assert.equal(sceneLayout.desc.entries.length, 7);
+	assert.deepEqual(
+		sceneLayout.desc.entries.map((entry) => entry.binding),
+		[0, 1, 2, 3, 4, 5, 6]
+	);
+	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
+	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
+	assert.equal(sceneLayout.desc.entries[6].buffer?.type, "uniform");
+
+	resources.destroy();
+}
+
 async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -2341,6 +2369,7 @@ async function run() {
 	await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
+	await testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract();
 	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();
 	await testParticleBindingCacheEvictsStaleSystems();
 	await testRenderResourcesDestroyCleansParticleAndGeometryResources();

@@ -53,6 +53,7 @@ import {
 	WEBGPU_COPY_BATCH_SIZE,
 	WEBGPU_TIMESTAMP_QUERY_CAPACITY,
 	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
+	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 } from "./webgpu/constants";
 import {
 	BufferUsage,
@@ -493,6 +494,8 @@ export class WebGPUBackend implements IRenderBackend {
 			const requiredFeatures: GPUFeatureName[] = [];
 			const adapterMaxTextureDimension2D =
 				adapter.limits?.maxTextureDimension2D ?? 0;
+			const adapterMaxSampledTexturesPerShaderStage =
+				adapter.limits?.maxSampledTexturesPerShaderStage;
 			if (
 				(adapter.limits?.maxColorAttachments ?? 0) >=
 				WEBGPU_MRT_COLOR_TARGET_COUNT
@@ -508,6 +511,22 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 			if (adapterMaxTextureDimension2D > 0) {
 				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
+			}
+			if (typeof adapterMaxSampledTexturesPerShaderStage === "number") {
+				if (
+					adapterMaxSampledTexturesPerShaderStage >=
+					WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
+				) {
+					requiredLimits.maxSampledTexturesPerShaderStage =
+						WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
+				} else {
+					throw new Error(
+						"WebGPU adapter maxSampledTexturesPerShaderStage " +
+							`(${adapterMaxSampledTexturesPerShaderStage}) is below required ` +
+							"scene pipeline sampled texture count " +
+							`(${WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT}).`
+					);
+				}
 			}
 			if (
 				typeof adapter.features?.has === "function" &&

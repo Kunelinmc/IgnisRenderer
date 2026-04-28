@@ -59,7 +59,7 @@ struct FogUniforms {
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
-@group(0) @binding(4) var<uniform> fog: FogUniforms;
+@group(0) @binding(6) var<uniform> fog: FogUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;

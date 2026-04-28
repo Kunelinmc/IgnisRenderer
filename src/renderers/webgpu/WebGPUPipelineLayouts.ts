@@ -9,6 +9,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
 
 export interface WebGPUPipelineLayouts {
@@ -125,7 +126,7 @@ export function createWebGPUPipelineLayouts(
 		},
 	];
 
-	for (let i = 0; i < 14; i++) {
+	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
 		modelEntries.push({
 			binding: 1 + i * 2,
 			visibility: GPUShaderStage.FRAGMENT,
