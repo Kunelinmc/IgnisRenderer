@@ -139,6 +139,7 @@ function testDefaultPassGraphOrder() {
 			"bloom",
 			"fxaa",
 			"interaction-outline",
+			"tonemap",
 			"gamma",
 		]
 	);
@@ -209,6 +210,10 @@ async function testInteractionAndGammaWiring() {
 	assert.equal(executeCalls.length, 1);
 	assert.equal(executeCalls[0].passId, "interaction-outline");
 	assert.equal(executeCalls[0].state, interactionState);
+
+	await byId.get("tonemap").execute(context);
+	assert.equal(executeCalls.length, 2);
+	assert.equal(executeCalls[1].passId, "tonemap");
 
 	await byId.get("gamma").execute(context);
 	assert.equal(presentCalls.length, 1);

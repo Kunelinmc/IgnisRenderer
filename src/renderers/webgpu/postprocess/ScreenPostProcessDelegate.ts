@@ -78,6 +78,7 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		"bloom",
 		"fxaa",
 		"interaction-outline",
+		"tonemap",
 	];
 
 	private _shared: PostProcessSharedContext;
@@ -115,6 +116,8 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	private _fxaaModule: IShaderModule | null = null;
 	private _fxaaPipeline: IComputePipeline | null = null;
 	private _fxaaParams: IRenderBuffer | null = null;
+	private _toneMappingModule: IShaderModule | null = null;
+	private _toneMappingPipeline: IComputePipeline | null = null;
 	private _interactionOutlineModule: IShaderModule | null = null;
 	private _interactionOutlinePipeline: IComputePipeline | null = null;
 	private _interactionOutlineParams: IRenderBuffer | null = null;
@@ -167,6 +170,8 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		this._fxaaPipeline = null;
 		this._fxaaParams?.destroy();
 		this._fxaaParams = null;
+		this._toneMappingModule = null;
+		this._toneMappingPipeline = null;
 		this._interactionOutlineModule = null;
 		this._interactionOutlinePipeline = null;
 		this._interactionOutlineParams?.destroy();
@@ -192,6 +197,9 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 				return true;
 			case "postprocess:interaction-outline":
 				await this._ensureInteractionOutlineResources();
+				return true;
+			case "postprocess:tonemap":
+				await this._ensureToneMappingResources();
 				return true;
 			default:
 				return false;
@@ -232,6 +240,9 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 				return { ran: true };
 			case "fxaa":
 				await this._executeFXAA(request.encoder, request.targets);
+				return { ran: true };
+			case "tonemap":
+				await this._executeToneMapping(request.encoder, request.targets);
 				return { ran: true };
 			case "interaction-outline":
 				await this._executeInteractionOutline(
@@ -740,6 +751,37 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		targets.sceneColor = target;
 	}
 
+	private async _executeToneMapping(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets
+	): Promise<void> {
+		await this._ensureToneMappingResources();
+		if (!this._toneMappingPipeline) {
+			return;
+		}
+		const target =
+			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const binding = this._shared.getCachedBindGroup(
+			`tonemap-${target === targets.postPing ? "ping" : "pong"}`,
+			this._toneMappingPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: target },
+			],
+			"WebGPUToneMapping_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUToneMapping" });
+		encoder.setComputePipeline(this._toneMappingPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
 	private async _executeInteractionOutline(
 		request: WebGPUPostProcessInteractionOutlineExecuteRequest
 	): Promise<void> {
@@ -1224,6 +1266,26 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 				label: "WebGPUFXAAParams",
 				size: 6 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
+	}
+
+	private async _ensureToneMappingResources(): Promise<void> {
+		if (!this._toneMappingModule) {
+			const shader = await loadPostProcessShaderPartComposite("toneMapping");
+			this._toneMappingModule = await this._shared.compute.createShaderModule({
+				label: "WebGPUToneMappingShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._toneMappingPipeline) {
+			this._toneMappingPipeline = this._shared.compute.createComputePipeline({
+				label: "WebGPUToneMappingPipeline",
+				compute: { module: this._toneMappingModule, entryPoint: "csMain" },
 			});
 		}
 	}

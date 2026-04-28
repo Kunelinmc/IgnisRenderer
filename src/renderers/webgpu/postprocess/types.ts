@@ -16,6 +16,7 @@ export const WEBGPU_POST_PROCESS_PASS_IDS = [
 	"bloom",
 	"fxaa",
 	"interaction-outline",
+	"tonemap",
 ] as const;
 
 export type WebGPUPostProcessPassId =
@@ -90,6 +91,11 @@ export interface WebGPUPostProcessInteractionOutlineExecuteRequest
 	state?: InteractionTransientState | null;
 }
 
+export interface WebGPUPostProcessTonemapExecuteRequest
+	extends WebGPUPostProcessExecuteBaseRequest {
+	passId: "tonemap";
+}
+
 export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessSSAOExecuteRequest
 	| WebGPUPostProcessSSGIExecuteRequest
@@ -101,7 +107,8 @@ export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessDOFExecuteRequest
 	| WebGPUPostProcessBloomExecuteRequest
 	| WebGPUPostProcessFXAAExecuteRequest
-	| WebGPUPostProcessInteractionOutlineExecuteRequest;
+	| WebGPUPostProcessInteractionOutlineExecuteRequest
+	| WebGPUPostProcessTonemapExecuteRequest;
 
 export interface WebGPUPostProcessExecuteResult {
 	ran: boolean;

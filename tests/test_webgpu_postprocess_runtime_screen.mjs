@@ -71,6 +71,48 @@ async function testFXAARuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testToneMappingRuntimeUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(18, 10, "scene");
+	const postPing = createTexture(18, 10, "ping");
+	const postPong = createTexture(18, 10, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+
+	await runtime.executePass({
+		passId: "tonemap",
+		encoder,
+		targets,
+		frameContext: createFrameContext(),
+	});
+
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUToneMappingShader");
+	assert.ok(backend.shaderModules[0].desc.code.includes("acesFitted"));
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUToneMappingPipeline");
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 2);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[0].resource,
+		sceneColorMain
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, postPong);
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUToneMapping"],
+		["setComputePipeline", "WebGPUToneMappingPipeline"],
+		["setBindingGroup", 0, "WebGPUToneMapping_Binding"],
+		["dispatchWorkgroups", 3, 2, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testBloomRuntimeUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -522,6 +564,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 
 export async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
+	await testToneMappingRuntimeUsesDedicatedPipeline();
 	await testBloomRuntimeUsesDedicatedPipeline();
 	await testFogRuntimeUsesDedicatedPipeline();
 	await testMotionBlurRuntimeUsesDedicatedPipeline();

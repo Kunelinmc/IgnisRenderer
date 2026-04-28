@@ -216,9 +216,24 @@ export function createWebGPUDefaultPostProcessPasses(
 			},
 		},
 		{
+			id: "tonemap",
+			kind: "compute",
+			dependsOn: ["interaction-outline"],
+			precompileHints: ["postprocess:tonemap"],
+			isEnabled: (features) => features.enableGamma,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "tonemap",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
 			id: "gamma",
 			kind: "render",
-			dependsOn: ["interaction-outline"],
+			dependsOn: ["tonemap"],
 			precompileHints: [],
 			isEnabled: (features) => features.enableGamma,
 			execute: async (ctx) => {
