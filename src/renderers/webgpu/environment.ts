@@ -126,7 +126,7 @@ export function collectWebGPUEnvironment(
 		shAmbientCoeffs: resolvedSHAmbientCoeffs,
 		enableSH,
 		hasSHAmbient,
-		skyboxTexture: sceneSkyboxTexture ?? envSpecularTexture,
+		skyboxTexture: sceneSkyboxTexture,
 		envSpecularTexture,
 		localLightProbeCount,
 		localLightProbes: localizedProbeUniforms,

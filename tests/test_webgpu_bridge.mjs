@@ -578,7 +578,7 @@ function testEnvironmentCollection() {
 		true,
 		sh
 	);
-	assert.ok(fallback.skyboxTexture);
+	assert.equal(fallback.skyboxTexture, null);
 	assert.ok(fallback.envSpecularTexture);
 	assert.equal(fallback.reflectionProbeCount, 2);
 
@@ -592,7 +592,7 @@ function testEnvironmentCollection() {
 		true,
 		sh
 	);
-	assert.ok(fallbackFromFailedSkybox.skyboxTexture);
+	assert.equal(fallbackFromFailedSkybox.skyboxTexture, null);
 	assert.ok(fallbackFromFailedSkybox.envSpecularTexture);
 	assert.equal(fallbackFromFailedSkybox.reflectionProbeCount, 1);
 	assert.ok(
@@ -1422,7 +1422,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 			skybox: null,
 			lights: [probe],
 			enableSH: true,
-			expectSkybox: true,
+			expectSkybox: false,
 		},
 		{
 			skybox: null,
