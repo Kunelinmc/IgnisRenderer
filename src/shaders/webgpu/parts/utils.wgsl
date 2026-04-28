@@ -1,5 +1,6 @@
 #import <ignis/color/srgb>
 #import <ignis/postprocess/fog>
+#import <ignis/webgpu/constants>
 fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }

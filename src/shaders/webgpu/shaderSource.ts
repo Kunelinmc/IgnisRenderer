@@ -1,15 +1,6 @@
 import { Platform } from "../../foundation/Platform";
 import { ShaderLoader, fromRawShaderModuleLoader } from "../../loaders/ShaderLoader";
 import {
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_REFLECTION_PROBES,
-	WEBGPU_MAX_SPOT_LIGHTS,
-	WEBGPU_SH_COEFFICIENT_COUNT,
-	WEBGPU_TEXTURE_SLOT_COUNT,
-} from "../../renderers/webgpu/constants";
-import {
 	composeCompositeShaderSources,
 	type CompositeShaderSource,
 } from "../runtime";
@@ -68,57 +59,17 @@ const postProcessParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 const _shaderLoader = new ShaderLoader();
 const _compositeCache = new Map<string, Promise<CompositeShaderSource>>();
 
-const WEBGPU_WGSL_CONSTANT_TOKENS = new Map<string, number>([
-	["__WEBGPU_MAX_DIRECTIONAL_LIGHTS__", WEBGPU_MAX_DIRECTIONAL_LIGHTS],
-	["__WEBGPU_MAX_POINT_LIGHTS__", WEBGPU_MAX_POINT_LIGHTS],
-	["__WEBGPU_MAX_SPOT_LIGHTS__", WEBGPU_MAX_SPOT_LIGHTS],
-	["__WEBGPU_MAX_LOCAL_LIGHT_PROBES__", WEBGPU_MAX_LOCAL_LIGHT_PROBES],
-	["__WEBGPU_MAX_REFLECTION_PROBES__", WEBGPU_MAX_REFLECTION_PROBES],
-	["__WEBGPU_SH_COEFFICIENT_COUNT__", WEBGPU_SH_COEFFICIENT_COUNT],
-	[
-		"__WEBGPU_LOCAL_LIGHT_PROBE_COEFFICIENT_COUNT__",
-		WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT,
-	],
-	["__WEBGPU_TEXTURE_SLOT_COUNT__", WEBGPU_TEXTURE_SLOT_COUNT],
-	["__WEBGPU_FRAME_DIRECTIONAL_LIGHT_VEC4_COUNT__", WEBGPU_MAX_DIRECTIONAL_LIGHTS * 2],
-	["__WEBGPU_FRAME_POINT_LIGHT_VEC4_COUNT__", WEBGPU_MAX_POINT_LIGHTS * 2],
-	["__WEBGPU_FRAME_SPOT_LIGHT_VEC4_COUNT__", WEBGPU_MAX_SPOT_LIGHTS * 3],
-]);
-
-function injectWebGPUWGSLConstants(code: string): string {
-	let resolved = code;
-	for (const [token, value] of WEBGPU_WGSL_CONSTANT_TOKENS) {
-		resolved = resolved.replaceAll(token, String(value));
-	}
-	return resolved;
-}
-
-function injectWebGPUWGSLConstantsComposite(
-	composite: CompositeShaderSource
-): CompositeShaderSource {
-	const nextCode = injectWebGPUWGSLConstants(composite.code);
-	if (nextCode === composite.code) {
-		return composite;
-	}
-	return {
-		code: nextCode,
-		sourceMap: composite.sourceMap,
-	};
-}
-
 function loadShaderCompositeFromFile(
 	key: string,
 	nodeRelativePath: string,
 	browserLoader: () => Promise<string>
 ): Promise<CompositeShaderSource> {
-	return _shaderLoader
-		.loadComposite({
-			key,
-			nodeRelativePath,
-			nodeBaseUrl: import.meta.url,
-			browserLoader,
-		})
-		.then(injectWebGPUWGSLConstantsComposite);
+	return _shaderLoader.loadComposite({
+		key,
+		nodeRelativePath,
+		nodeBaseUrl: import.meta.url,
+		browserLoader,
+	});
 }
 
 function loadShader(
@@ -126,14 +77,12 @@ function loadShader(
 	nodeRelativePath: string,
 	browserLoader: () => Promise<string>
 ): Promise<string> {
-	return _shaderLoader
-		.loadSource({
-			key,
-			nodeRelativePath,
-			nodeBaseUrl: import.meta.url,
-			browserLoader,
-		})
-		.then(injectWebGPUWGSLConstants);
+	return _shaderLoader.loadSource({
+		key,
+		nodeRelativePath,
+		nodeBaseUrl: import.meta.url,
+		browserLoader,
+	});
 }
 
 const sceneShaderFiles: Record<SceneShaderPart, string> = {

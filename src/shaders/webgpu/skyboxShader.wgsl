@@ -1,3 +1,4 @@
+#import <ignis/webgpu/constants>
 #import <ignis/color/srgb>
 const PI: f32 = 3.14159265359;
 

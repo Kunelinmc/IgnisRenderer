@@ -1,3 +1,4 @@
+#import <ignis/webgpu/constants>
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,

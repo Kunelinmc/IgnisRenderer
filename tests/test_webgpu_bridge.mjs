@@ -9,6 +9,11 @@ import {
 	loadPostProcessShaderPart,
 } from "../src/shaders/webgpu/shaderSource.ts";
 import {
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+	ShaderBackendCompileStage,
+	ShaderRuntime,
+} from "../src/shaders/runtime/index.ts";
+import {
 	collectWebGPUEnvironment,
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
@@ -382,12 +387,55 @@ async function testParticleShaderDepthConsistency() {
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
-	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
-	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader();
-	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader();
-	const WEBGPU_SSR_SHADER = await loadPostProcessShaderPart("ssr");
-	const WEBGPU_CLUSTERED_CULL_SHADER =
+	const rawSceneShader = await getWebGPUSceneShader();
+	const rawSkyboxShader = await getWebGPUSkyboxShader();
+	const rawParticleShader = await getWebGPUParticleShader();
+	const rawSSRShader = await loadPostProcessShaderPart("ssr");
+	const rawClusteredCullShader =
 		(await loadClusteredLightingCullShaderComposite()).code;
+	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
+
+	const compileStage = new ShaderBackendCompileStage({
+		backend: "webgpu",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		mode: "strict",
+	});
+	const compileShader = async (code, label, sourceKind) => {
+		const result = await compileStage.compileAsync({
+			code,
+			language: "wgsl",
+			stage: "unknown",
+			label,
+			sourceKind,
+		});
+		return result.code;
+	};
+	const WEBGPU_SCENE_SHADER = await compileShader(
+		rawSceneShader,
+		"test-webgpu-scene-shader",
+		"builtin-scene"
+	);
+	const WEBGPU_SKYBOX_SHADER = await compileShader(
+		rawSkyboxShader,
+		"test-webgpu-skybox-shader",
+		"builtin-skybox"
+	);
+	const WEBGPU_PARTICLE_SHADER = await compileShader(
+		rawParticleShader,
+		"test-webgpu-particle-shader",
+		"particle"
+	);
+	const WEBGPU_SSR_SHADER = await compileShader(
+		rawSSRShader,
+		"test-webgpu-ssr-shader",
+		"postprocess"
+	);
+	const WEBGPU_CLUSTERED_CULL_SHADER = await compileShader(
+		rawClusteredCullShader,
+		"test-webgpu-clustered-cull-shader",
+		"clustered"
+	);
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(

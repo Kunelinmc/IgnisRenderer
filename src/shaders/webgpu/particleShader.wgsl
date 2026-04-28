@@ -1,3 +1,4 @@
+#import <ignis/webgpu/constants>
 #import <ignis/postprocess/fog>
 struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
