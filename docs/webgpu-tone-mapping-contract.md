@@ -9,15 +9,16 @@ presentation.
 
 ## API/Contract
 - The default WebGPU post-process graph must register a `tonemap` pass.
-- The `tonemap` pass must run after `interaction-outline` and before `gamma`.
-- The `tonemap` pass must be enabled when `enableGamma` is `true`.
+- The `tonemap` pass must run after `bloom` and before `fxaa`.
+- The `tonemap` pass must be enabled when `enableGamma` or `enableFXAA`
+  is `true`.
 - The `tonemap` pass must read from `targets.sceneColor` and write to
   ping-pong post targets, then update `targets.sceneColor` to the
   written target.
 - The shader `src/shaders/webgpu/postprocess/toneMapping.wgsl` must
   implement ACES-fitted mapping on linear RGB and preserve alpha.
-- Warmup planning should include `tonemap` whenever `gamma` is enabled
-  so shader compilation can happen before frame rendering.
+- Warmup planning should include `tonemap` whenever `gamma` or `fxaa`
+  is enabled so shader compilation can happen before frame rendering.
 
 ## Usage
 Use the existing WebGPU post-process runtime path. No additional user-side API call is required.

@@ -181,7 +181,7 @@ export function createWebGPUDefaultPostProcessPasses(
 		{
 			id: "fxaa",
 			kind: "compute",
-			dependsOn: ["bloom"],
+			dependsOn: ["tonemap"],
 			precompileHints: ["postprocess:fxaa"],
 			isEnabled: (features) => features.enableFXAA,
 			execute: async (ctx) => {
@@ -218,9 +218,9 @@ export function createWebGPUDefaultPostProcessPasses(
 		{
 			id: "tonemap",
 			kind: "compute",
-			dependsOn: ["interaction-outline"],
+			dependsOn: ["bloom"],
 			precompileHints: ["postprocess:tonemap"],
-			isEnabled: (features) => features.enableGamma,
+			isEnabled: (features) => features.enableGamma || features.enableFXAA,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "tonemap",

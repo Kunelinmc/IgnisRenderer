@@ -137,9 +137,9 @@ function testDefaultPassGraphOrder() {
 			"motion-blur",
 			"dof",
 			"bloom",
+			"tonemap",
 			"fxaa",
 			"interaction-outline",
-			"tonemap",
 			"gamma",
 		]
 	);
@@ -153,6 +153,27 @@ function testDefaultPassGraphOrder() {
 		() => {}
 	);
 	assert.equal(sceneFogOrder.some((pass) => pass.id === "fog"), false);
+
+	const fxaaOnlyOrder = graph.getExecutionOrder(
+		createFeatures({
+			enableGamma: false,
+			enableSSAO: false,
+			enableSSGI: false,
+			enableTAA: false,
+			enableSSR: false,
+			enableVolumetric: false,
+			enableFog: false,
+			enableMotionBlur: false,
+			enableDOF: false,
+			enableBloom: false,
+			enableFXAA: true,
+		}),
+		() => {}
+	);
+	assert.deepEqual(
+		fxaaOnlyOrder.map((pass) => pass.id),
+		["tonemap", "fxaa", "interaction-outline"]
+	);
 }
 
 async function testTemporalPassWiring() {
