@@ -4,7 +4,10 @@ import {
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
 import type { Material } from "../../materials/Material";
-import { ShaderMaterial } from "../../materials/ShaderMaterial";
+import {
+	ShaderMaterial,
+	type ShaderTargetMode,
+} from "../../materials/ShaderMaterial";
 import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
@@ -442,12 +445,15 @@ export class WebGLProgramLibrary {
 		}
 	}
 
-	public getSceneProgram(material?: Material): WebGLSceneProgram {
+	public getSceneProgram(
+		material?: Material,
+		mode: ShaderTargetMode = "single"
+	): WebGLSceneProgram {
 		if (!(material instanceof ShaderMaterial)) {
 			return this._getBuiltinSceneProgram();
 		}
 
-		const custom = this._getShaderMaterialSceneProgram(material);
+		const custom = this._getShaderMaterialSceneProgram(material, mode);
 		return custom ?? this._getBuiltinSceneProgram();
 	}
 
@@ -492,10 +498,14 @@ export class WebGLProgramLibrary {
 		return this._sceneProgram;
 	}
 
-	private _getShaderMaterialSceneProgram(material: ShaderMaterial): WebGLSceneProgram | null {
+	private _getShaderMaterialSceneProgram(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode
+	): WebGLSceneProgram | null {
 		const initialDirectiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
 		const shaderKey =
 			`${material.getWebGLCacheKey()}` +
+			`|mode:${mode}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${initialDirectiveTag}`;
 		const cached = this._customScenePrograms.get(shaderKey);
@@ -506,7 +516,7 @@ export class WebGLProgramLibrary {
 		let source: { vertexCode: string; fragmentCode: string };
 		let customSamplerUniforms: string[] = [];
 		try {
-			source = material.resolveWebGLProgram({
+			source = material.resolveWebGLProgram(mode, {
 				enableRuntimeInjects: this._supportsRuntimeInjects(),
 			});
 			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
@@ -562,6 +572,7 @@ export class WebGLProgramLibrary {
 			this._shaderCompileStage?.getCacheFingerprintTag() ?? initialDirectiveTag;
 		const finalShaderKey =
 			`${material.getWebGLCacheKey()}` +
+			`|mode:${mode}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${finalDirectiveTag}`;
 		const existingFinal = this._customScenePrograms.get(finalShaderKey);

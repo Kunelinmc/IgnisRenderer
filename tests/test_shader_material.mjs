@@ -70,6 +70,21 @@ void main() {
 }
 `;
 
+const WEBGL_FRAGMENT_MRT = /* glsl */ `
+#version 300 es
+precision highp float;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outMotionDepth;
+layout(location = 2) out vec4 outNormal;
+
+void main() {
+	outColor = vec4(0.0, 1.0, 0.0, 1.0);
+	outMotionDepth = vec4(0.0, 0.0, 0.0, 1.0);
+	outNormal = vec4(0.5, 0.5, 1.0, 1.0);
+}
+`;
+
 function getChunkCode(material, selector) {
 	const chunk = material.chunks.find((entry) => {
 		const backend = entry.backend ?? "webgpu";
@@ -309,6 +324,63 @@ function testResolveWebGLProgramPrefersWebGLSource() {
 
 	const program = material.resolveWebGLProgram();
 	assert.equal(program.vertexCode, WEBGL_VERTEX);
+	assert.equal(program.fragmentCode, WEBGL_FRAGMENT);
+}
+
+function testResolveWebGLProgramSupportsModeAwareWebGLFragments() {
+	const material = new ShaderMaterial({
+		name: "WebGLModeAwareMaterial",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: WEBGL_FRAGMENT,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "mrt",
+				code: WEBGL_FRAGMENT_MRT,
+			},
+		],
+	});
+
+	const singleProgram = material.resolveWebGLProgram("single");
+	const mrtProgram = material.resolveWebGLProgram("mrt");
+	assert.equal(singleProgram.fragmentCode, WEBGL_FRAGMENT);
+	assert.equal(mrtProgram.fragmentCode, WEBGL_FRAGMENT_MRT);
+}
+
+function testResolveWebGLProgramMRTFallsBackToSingleFragment() {
+	const material = new ShaderMaterial({
+		name: "WebGLMRTFallbackMaterial",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: WEBGL_FRAGMENT,
+			},
+		],
+	});
+
+	const program = material.resolveWebGLProgram("mrt");
 	assert.equal(program.fragmentCode, WEBGL_FRAGMENT);
 }
 
@@ -566,6 +638,8 @@ async function run() {
 	await testGLSLWithoutTranspilerThrows();
 	await testWarnModeFallbackToBuiltinShader();
 	testResolveWebGLProgramPrefersWebGLSource();
+	testResolveWebGLProgramSupportsModeAwareWebGLFragments();
+	testResolveWebGLProgramMRTFallsBackToSingleFragment();
 	testResolveWebGLProgramFallsBackToWebGPUGLSL();
 	testResolveWebGLProgramMissingSourceThrows();
 	testChunkApiSupportsUnifiedShaderUpdates();

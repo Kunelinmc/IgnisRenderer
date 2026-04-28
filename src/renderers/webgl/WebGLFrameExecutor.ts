@@ -6,7 +6,10 @@ import {
 	type Material,
 } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
-import { ShaderMaterial } from "../../materials/ShaderMaterial";
+import {
+	ShaderMaterial,
+	type ShaderTargetMode,
+} from "../../materials/ShaderMaterial";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { SHCoefficients } from "../../maths/types";
@@ -418,13 +421,17 @@ export class WebGLFrameExecutor {
 		compile("WebGLSceneProgram:builtin", () => {
 			this._programs.getSceneProgram();
 		});
+		const materialWarmupModes: ShaderTargetMode[] =
+			plan.sceneTargetMode === "mrt" ? ["mrt", "single"] : ["single"];
 		for (const material of plan.materials) {
 			if (!(material instanceof ShaderMaterial)) {
 				continue;
 			}
-			compile(`WebGLSceneProgram:material:${material.shaderId}`, () => {
-				this._programs.getSceneProgram(material);
-			});
+			for (const mode of materialWarmupModes) {
+				compile(`WebGLSceneProgram:material:${material.shaderId}:${mode}`, () => {
+					this._programs.getSceneProgram(material, mode);
+				});
+			}
 		}
 
 		if (plan.enableSkybox) {

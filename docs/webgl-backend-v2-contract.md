@@ -27,6 +27,11 @@ WebGL-specific implementation constraints.
   submissions even when `alphaMode` is `OPAQUE`.
 - WebGL PBR shading must consume transmission through `uPBR.w` and must modulate
   composite alpha so transmissive surfaces do not render as fully opaque.
+- `ShaderMaterial` custom WebGL scene shaders must be mode-aware:
+  - `single` mode must resolve `webgl` GLSL `fragment-single`.
+  - `mrt` mode must resolve `webgl` GLSL `fragment-mrt`.
+  - when `fragment-mrt` is absent, `mrt` mode may fall back to
+    `fragment-single`.
 
 ## Usage
 ```ts
@@ -45,6 +50,35 @@ renderer.features.clusteredLightingOptions = {
 
 await renderer.init();
 renderer.requestRender();
+```
+
+```ts
+import { ShaderMaterial } from "../src/materials/ShaderMaterial";
+
+const material = new ShaderMaterial({
+	chunks: [
+		{
+			backend: "webgl",
+			language: "glsl",
+			stage: "vertex",
+			code: "/* ... */",
+		},
+		{
+			backend: "webgl",
+			language: "glsl",
+			stage: "fragment",
+			mode: "single",
+			code: "/* single output contract */",
+		},
+		{
+			backend: "webgl",
+			language: "glsl",
+			stage: "fragment",
+			mode: "mrt",
+			code: "/* mrt output contract */",
+		},
+	],
+});
 ```
 
 ```bash

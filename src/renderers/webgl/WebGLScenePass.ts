@@ -2,7 +2,10 @@
 	type Material,
 } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
-import { ShaderMaterial } from "../../materials/ShaderMaterial";
+import {
+	ShaderMaterial,
+	type ShaderTargetMode,
+} from "../../materials/ShaderMaterial";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
 	isFiniteMatrix,
@@ -34,7 +37,10 @@ function logWebGLScenePassWarning(key: string, message: string): void {
 export interface WebGLScenePassHost {
 	_gl: WebGL2RenderingContext;
 	_programs: {
-		getSceneProgram(material?: Material): WebGLSceneProgram;
+		getSceneProgram(
+			material?: Material,
+			mode?: ShaderTargetMode
+		): WebGLSceneProgram;
 	};
 	_geometry: {
 		getGeometry(packet: DrawPacket): {
@@ -126,6 +132,8 @@ export function renderWebGLPackets(
 		(!transparent && host._sceneNormalTexture ?
 			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+	const sceneProgramMode: ShaderTargetMode =
+		drawBuffers.length >= 3 ? "mrt" : "single";
 	gl.drawBuffers(drawBuffers);
 	gl.activeTexture(gl.TEXTURE0);
 
@@ -163,7 +171,10 @@ export function renderWebGLPackets(
 		const drawPackets = (): void => {
 			let activeProgram: WebGLSceneProgram | null = null;
 			for (const packet of packets) {
-				const sceneProgram = host._programs.getSceneProgram(packet.material);
+				const sceneProgram = host._programs.getSceneProgram(
+					packet.material,
+					sceneProgramMode
+				);
 				if (activeProgram !== sceneProgram) {
 					gl.useProgram(sceneProgram.program);
 					host._bindGlobalUniforms(sceneProgram, context);
@@ -188,7 +199,10 @@ export function renderWebGLPackets(
 				);
 				let activeProgram: WebGLSceneProgram | null = null;
 				for (const packet of rectPackets) {
-					const sceneProgram = host._programs.getSceneProgram(packet.material);
+					const sceneProgram = host._programs.getSceneProgram(
+						packet.material,
+						sceneProgramMode
+					);
 					if (activeProgram !== sceneProgram) {
 						gl.useProgram(sceneProgram.program);
 						host._bindGlobalUniforms(sceneProgram, context);

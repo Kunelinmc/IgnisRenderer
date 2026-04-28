@@ -331,6 +331,19 @@ void main() {
 }
 `;
 
+const CUSTOM_WEBGL_FRAGMENT_MRT = /* glsl */ `
+#version 300 es
+precision highp float;
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outMotionDepth;
+layout(location = 2) out vec4 outNormal;
+void main() {
+	outColor = vec4(0.0, 1.0, 0.0, 1.0);
+	outMotionDepth = vec4(0.0, 0.0, 0.0, 1.0);
+	outNormal = vec4(0.5, 0.5, 1.0, 1.0);
+}
+`;
+
 function testLightCollectorLimitsAndWarnings() {
 	const warnings = [];
 	const warn = (key, message) => warnings.push({ key, message });
@@ -607,6 +620,52 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
 	);
 	assert.equal(warnings.length, 0);
+}
+
+function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, () => {});
+	const material = new ShaderMaterial({
+		name: "ModeAwareCustomWebGLShader",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: CUSTOM_WEBGL_FRAGMENT,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "mrt",
+				code: CUSTOM_WEBGL_FRAGMENT_MRT,
+			},
+		],
+	});
+
+	const singleA = library.getSceneProgram(material, "single");
+	const singleB = library.getSceneProgram(material, "single");
+	const mrtA = library.getSceneProgram(material, "mrt");
+	const mrtB = library.getSceneProgram(material, "mrt");
+
+	assert.strictEqual(singleA, singleB);
+	assert.strictEqual(mrtA, mrtB);
+	assert.notStrictEqual(singleA, mrtA);
+	assert.equal(gl.programCount, 2);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
+	);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT_MRT)
+	);
 }
 
 function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
@@ -1252,6 +1311,7 @@ async function run() {
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();
+	testProgramLibraryShaderMaterialCachesPerSceneTargetMode();
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();

@@ -71,7 +71,8 @@ type ShaderChunkKey =
 	| "webgpu:glsl:fragment-single"
 	| "webgpu:glsl:fragment-mrt"
 	| "webgl:glsl:vertex"
-	| "webgl:glsl:fragment";
+	| "webgl:glsl:fragment-single"
+	| "webgl:glsl:fragment-mrt";
 
 interface ShaderMaterialTextureBindingRecord {
 	name: string;
@@ -90,7 +91,8 @@ const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
 	"webgpu:glsl:fragment-single",
 	"webgpu:glsl:fragment-mrt",
 	"webgl:glsl:vertex",
-	"webgl:glsl:fragment",
+	"webgl:glsl:fragment-single",
+	"webgl:glsl:fragment-mrt",
 ];
 
 const SHADER_MATERIAL_TEXTURE_SLOT_COUNT = 14;
@@ -289,17 +291,18 @@ export class ShaderMaterial extends Material {
 	}
 
 	public resolveWebGLProgram(
-		options: ShaderProgramResolveOptions = {}
+		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions = "single",
+		options?: ShaderProgramResolveOptions
 	): ResolvedWebGLShaderProgram {
+		const { mode, resolveOptions } = this._resolveWebGLProgramArgs(
+			modeOrOptions,
+			options
+		);
 		const vertexCode =
 			this._chunks.get("webgl:glsl:vertex") ??
 			this._chunks.get("webgpu:glsl:vertex") ??
 			null;
-		const rawFragmentCode =
-			this._chunks.get("webgl:glsl:fragment") ??
-			this._chunks.get("webgpu:glsl:fragment-single") ??
-			this._chunks.get("webgpu:glsl:fragment-mrt") ??
-			null;
+		const rawFragmentCode = this._resolveWebGLStageCode(mode);
 
 		if (
 			typeof vertexCode !== "string" ||
@@ -309,7 +312,8 @@ export class ShaderMaterial extends Material {
 		) {
 			throw new Error(
 				`ShaderMaterial ${this.name} is missing WebGL GLSL source; ` +
-					"provide webgl GLSL chunks directly, or webgpu GLSL " +
+					"provide webgl GLSL vertex and fragment-single chunks " +
+					"(optionally fragment-mrt for MRT), or webgpu GLSL " +
 					"vertex/fragment-single chunks as fallback"
 			);
 		}
@@ -319,7 +323,7 @@ export class ShaderMaterial extends Material {
 			fragmentCode: this._decorateFragmentSource(
 				rawFragmentCode,
 				"glsl",
-				options.enableRuntimeInjects === true
+				resolveOptions.enableRuntimeInjects === true
 			),
 		};
 	}
@@ -410,12 +414,21 @@ export class ShaderMaterial extends Material {
 					stage: "vertex",
 					code,
 				};
-			case "webgl:glsl:fragment":
+			case "webgl:glsl:fragment-single":
+				return {
+					backend: "webgl",
+					language: "glsl",
+					stage: "fragment",
+					mode: "single",
+					code,
+				};
+			case "webgl:glsl:fragment-mrt":
 			default:
 				return {
 					backend: "webgl",
 					language: "glsl",
 					stage: "fragment",
+					mode: "mrt",
 					code,
 				};
 		}
@@ -447,7 +460,13 @@ export class ShaderMaterial extends Material {
 			if (language !== "glsl") {
 				throw new Error("WebGL shader chunks must use GLSL.");
 			}
-			return stage === "vertex" ? "webgl:glsl:vertex" : "webgl:glsl:fragment";
+			if (stage === "vertex") {
+				return "webgl:glsl:vertex";
+			}
+			if (mode !== "single" && mode !== "mrt") {
+				throw new Error(`Unsupported shader chunk mode "${mode}".`);
+			}
+			return `webgl:glsl:fragment-${mode}` as ShaderChunkKey;
 		}
 
 		if (backend !== "webgpu") {
@@ -487,6 +506,42 @@ export class ShaderMaterial extends Material {
 			default:
 				return null;
 		}
+	}
+
+	private _resolveWebGLProgramArgs(
+		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions,
+		options?: ShaderProgramResolveOptions
+	): { mode: ShaderTargetMode; resolveOptions: ShaderProgramResolveOptions } {
+		if (typeof modeOrOptions === "string") {
+			if (modeOrOptions !== "single" && modeOrOptions !== "mrt") {
+				throw new Error(`Unsupported WebGL shader target mode "${modeOrOptions}".`);
+			}
+			return {
+				mode: modeOrOptions,
+				resolveOptions: options ?? {},
+			};
+		}
+		return {
+			mode: "single",
+			resolveOptions: modeOrOptions ?? {},
+		};
+	}
+
+	private _resolveWebGLStageCode(mode: ShaderTargetMode): string | null {
+		if (mode === "mrt") {
+			return (
+				this._chunks.get("webgl:glsl:fragment-mrt") ??
+				this._chunks.get("webgl:glsl:fragment-single") ??
+				this._chunks.get("webgpu:glsl:fragment-mrt") ??
+				this._chunks.get("webgpu:glsl:fragment-single") ??
+				null
+			);
+		}
+		return (
+			this._chunks.get("webgl:glsl:fragment-single") ??
+			this._chunks.get("webgpu:glsl:fragment-single") ??
+			null
+		);
 	}
 
 	private _normalizeTextureBinding(
