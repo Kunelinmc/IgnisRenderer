@@ -488,6 +488,11 @@ export class WebGLFrameExecutor {
 						this._programs.getFXAAProgram();
 					});
 					break;
+				case "postprocess:tonemap":
+					compile("WebGLToneMappingProgram", () => {
+						this._programs.getToneMappingProgram();
+					});
+					break;
 				case "postprocess:interaction-outline":
 					compile("WebGLInteractionOutlineProgram", () => {
 						this._programs.getInteractionOutlineProgram();
@@ -730,8 +735,17 @@ export class WebGLFrameExecutor {
 				},
 			},
 			{
-				id: "fxaa",
+				id: "tonemap",
 				dependsOn: ["bloom"],
+				precompileHints: ["postprocess:tonemap"],
+				isEnabled: (features) => features.enableGamma || features.enableFXAA,
+				execute: () => {
+					this._applyToneMapping();
+				},
+			},
+			{
+				id: "fxaa",
+				dependsOn: ["tonemap"],
 				precompileHints: ["postprocess:fxaa"],
 				isEnabled: (features) => features.enableFXAA,
 				execute: () => {
@@ -749,7 +763,7 @@ export class WebGLFrameExecutor {
 			},
 			{
 				id: "gamma",
-				dependsOn: ["interaction-outline"],
+				dependsOn: ["tonemap"],
 				precompileHints: ["postprocess:gamma"],
 				isEnabled: (features) => features.enableGamma,
 				execute: ({ frameContext }) => {
@@ -2024,6 +2038,52 @@ export class WebGLFrameExecutor {
 				intensity,
 				radius
 			);
+		}
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
+		gl.bindVertexArray(null);
+
+		this._presentSourceTexture = targetTexture;
+	}
+
+	private _applyToneMapping(): void {
+		if (
+			!this._postFramebuffer ||
+			!this._sceneColorTexture ||
+			!this._postColorTexture
+		) {
+			return;
+		}
+		if (!this._fullscreenVao) {
+			return;
+		}
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
+			return;
+		}
+		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
+		if (!targetTexture) {
+			return;
+		}
+
+		const gl = this._gl;
+		const toneMappingProgram = this._programs.getToneMappingProgram();
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(targetTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(toneMappingProgram.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+		if (toneMappingProgram.uniforms.sourceMap) {
+			gl.uniform1i(toneMappingProgram.uniforms.sourceMap, 0);
 		}
 		this._drawFullscreenTrianglesWithDirtyScissor(
 			this._width,

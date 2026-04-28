@@ -16,6 +16,7 @@ export type WebGLShaderPart =
 	| "copyFragment"
 	| "oitResolveFragment"
 	| "postProcessStubFragment"
+	| "toneMappingFragment"
 	| "fxaaFragment"
 	| "bloomFragment"
 	| "interactionOutlineFragment"
@@ -41,6 +42,7 @@ export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"copyFragment",
 	"oitResolveFragment",
 	"postProcessStubFragment",
+	"toneMappingFragment",
 	"fxaaFragment",
 	"bloomFragment",
 	"interactionOutlineFragment",
@@ -105,6 +107,7 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 	copyFragment: "./parts/copyFragment.glsl",
 	oitResolveFragment: "./parts/oitResolveFragment.glsl",
 	postProcessStubFragment: "./parts/postProcessStubFragment.glsl",
+	toneMappingFragment: "./parts/toneMappingFragment.glsl",
 	fxaaFragment: "./parts/fxaaFragment.glsl",
 	bloomFragment: "./parts/bloomFragment.glsl",
 	interactionOutlineFragment: "./parts/interactionOutlineFragment.glsl",

@@ -293,6 +293,13 @@ export interface WebGLFXAAProgram {
 	};
 }
 
+export interface WebGLToneMappingProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLInteractionOutlineProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -360,6 +367,7 @@ export class WebGLProgramLibrary {
 	private _skyboxProgram: WebGLSkyboxProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
+	private _toneMappingProgram: WebGLToneMappingProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
 	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null = null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
@@ -940,6 +948,24 @@ export class WebGLProgramLibrary {
 		return this._fxaaProgram;
 	}
 
+	public getToneMappingProgram(): WebGLToneMappingProgram {
+		if (this._toneMappingProgram) {
+			return this._toneMappingProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("toneMappingFragment"),
+			"WebGLToneMappingProgram",
+		);
+		this._toneMappingProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+			},
+		};
+		return this._toneMappingProgram;
+	}
+
 	public getInteractionOutlineProgram(): WebGLInteractionOutlineProgram {
 		if (this._interactionOutlineProgram) {
 			return this._interactionOutlineProgram;
@@ -1491,6 +1517,10 @@ export class WebGLProgramLibrary {
 		if (this._fxaaProgram) {
 			this._gl.deleteProgram(this._fxaaProgram.program);
 			this._fxaaProgram = null;
+		}
+		if (this._toneMappingProgram) {
+			this._gl.deleteProgram(this._toneMappingProgram.program);
+			this._toneMappingProgram = null;
 		}
 		if (this._interactionOutlineProgram) {
 			this._gl.deleteProgram(this._interactionOutlineProgram.program);

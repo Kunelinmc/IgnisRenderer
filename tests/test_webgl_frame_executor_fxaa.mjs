@@ -252,6 +252,41 @@ function captureWarnMessages(run) {
 	return warnings;
 }
 
+function createPostProcessFeatures(overrides = {}) {
+	return {
+		enableLighting: true,
+		enableGamma: true,
+		enableSH: false,
+		enableShadows: false,
+		enableReflection: false,
+		enableSkybox: false,
+		enableSSAO: false,
+		enableSSGI: false,
+		enableTAA: false,
+		enableSSR: false,
+		enableVolumetric: false,
+		enableFog: false,
+		enableMotionBlur: false,
+		enableDOF: false,
+		enableBloom: false,
+		enableFXAA: false,
+		enableClusteredLighting: false,
+		enableOIT: false,
+		warnings: [],
+		ssrOptions: {},
+		ssaoOptions: {},
+		ssgiOptions: {},
+		taaOptions: {},
+		volumetricOptions: {},
+		fogOptions: {},
+		bloomOptions: {},
+		motionBlurOptions: {},
+		dofOptions: {},
+		clusteredLightingOptions: {},
+		...overrides,
+	};
+}
+
 function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
@@ -296,6 +331,85 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	assert.equal(sourceBind?.texture, taaHistory);
 
 	assert.equal(executor._presentSourceTexture, postColor);
+}
+
+function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const sceneColor = { id: "scene-color" };
+	const bloomColor = { id: "bloom-color" };
+	const postColor = { id: "post-color" };
+	const postFramebuffer = { id: "post-fbo" };
+	const fullscreenVao = { id: "fullscreen-vao" };
+
+	executor._programs = {
+		getToneMappingProgram() {
+			return {
+				program: { id: "tonemap-program" },
+				uniforms: {
+					sourceMap: { id: "uSourceMap" },
+				},
+			};
+		},
+	};
+	executor._sceneColorTexture = sceneColor;
+	executor._presentSourceTexture = bloomColor;
+	executor._postColorTexture = postColor;
+	executor._postFramebuffer = postFramebuffer;
+	executor._fullscreenVao = fullscreenVao;
+	executor._width = 1280;
+	executor._height = 720;
+
+	executor._applyToneMapping();
+
+	const attachmentWrite = gl.calls.find(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT0
+	);
+	assert.equal(attachmentWrite?.texture, postColor);
+
+	const sourceBindCalls = gl.calls.filter(
+		(call) => call.name === "bindTexture" && call.target === gl.TEXTURE_2D
+	);
+	const sourceBind = sourceBindCalls[sourceBindCalls.length - 1];
+	assert.equal(sourceBind?.texture, bloomColor);
+
+	assert.equal(executor._presentSourceTexture, postColor);
+}
+
+function testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const events = [];
+
+	executor._applyToneMapping = () => {
+		events.push("tonemap");
+	};
+	executor._applyFXAA = () => {
+		events.push("fxaa");
+	};
+	executor._applyInteractionOutline = () => {
+		events.push("interaction-outline");
+	};
+	executor._present = () => {
+		events.push("gamma");
+	};
+
+	executor._runPostProcessGraph({
+		features: createPostProcessFeatures({
+			enableGamma: true,
+			enableFXAA: true,
+		}),
+		transient: new Map(),
+	});
+
+	assert.deepEqual(events, [
+		"tonemap",
+		"fxaa",
+		"interaction-outline",
+		"gamma",
+	]);
 }
 
 function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
@@ -841,6 +955,8 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 
 function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
+	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
+	testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
 	testConfigureOITWarnsWithoutRuntimeTargets();

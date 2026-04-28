@@ -67,8 +67,16 @@ function testExecutionOrder() {
 		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
-		createPass("fxaa", ["bloom"], "enableFXAA"),
-		createPass("gamma", ["fxaa"], "enableGamma"),
+		{
+			id: "tonemap",
+			dependsOn: ["bloom"],
+			isEnabled(features) {
+				return features.enableGamma || features.enableFXAA;
+			},
+			execute() {},
+		},
+		createPass("fxaa", ["tonemap"], "enableFXAA"),
+		createPass("gamma", ["tonemap"], "enableGamma"),
 	]);
 	const warnings = [];
 	const order = graph.getExecutionOrder(createFeatures(), (key, message) => {
@@ -84,6 +92,7 @@ function testExecutionOrder() {
 			"motion-blur",
 			"dof",
 			"bloom",
+			"tonemap",
 			"fxaa",
 			"gamma",
 		]

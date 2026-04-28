@@ -30,6 +30,7 @@ export const POST_PROCESS_STAGES = [
 	"motion-blur",
 	"dof",
 	"bloom",
+	"tonemap",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
