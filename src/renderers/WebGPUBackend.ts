@@ -2501,6 +2501,9 @@ export class WebGPUBackend implements IRenderBackend {
 		if (context.features.enableBloom) {
 			this._plannedPasses.add("bloom");
 		}
+		if (context.features.enableToneMapping !== false) {
+			this._plannedPasses.add("tonemap");
+		}
 		if (context.features.enableFXAA) {
 			this._plannedPasses.add("fxaa");
 		}

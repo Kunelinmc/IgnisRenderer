@@ -129,6 +129,7 @@ const FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"motion-blur",
 	"dof",
 	"bloom",
+	"tonemap",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -150,6 +151,7 @@ type PostProcessStage = Extract<
 	| "motion-blur"
 	| "dof"
 	| "bloom"
+	| "tonemap"
 	| "fxaa"
 	| "gamma"
 >;
@@ -165,6 +167,7 @@ type PostProcessFeatureFlag = keyof Pick<
 	| "enableMotionBlur"
 	| "enableDOF"
 	| "enableBloom"
+	| "enableToneMapping"
 	| "enableFXAA"
 	| "enableGamma"
 >;
@@ -181,6 +184,7 @@ const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
 	["motion-blur", "enableMotionBlur"],
 	["dof", "enableDOF"],
 	["bloom", "enableBloom"],
+	["tonemap", "enableToneMapping"],
 	["fxaa", "enableFXAA"],
 	["gamma", "enableGamma"],
 ];
@@ -660,7 +664,11 @@ export function resolvePostProcessGrade(
 	if (features.enableSSAO || features.enableSSGI || features.enableBloom) {
 		return "standard";
 	}
-	if (features.enableFXAA || features.enableGamma) {
+	if (
+		features.enableToneMapping ||
+		features.enableFXAA ||
+		features.enableGamma
+	) {
 		return "light";
 	}
 	return "none";

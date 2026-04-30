@@ -9,6 +9,7 @@ function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
 		enableGamma: false,
+		enableToneMapping: false,
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
@@ -35,6 +36,10 @@ function testResolvePostProcessGrade() {
 		"light"
 	);
 	assert.equal(
+		resolvePostProcessGrade(createFeatures({ enableToneMapping: true })),
+		"light"
+	);
+	assert.equal(
 		resolvePostProcessGrade(createFeatures({ enableSSGI: true })),
 		"standard"
 	);
@@ -48,6 +53,12 @@ function testComputePostProcessInflationRadius() {
 	assert.equal(computePostProcessInflationRadius(createFeatures()), 0);
 	assert.equal(
 		computePostProcessInflationRadius(createFeatures({ enableGamma: true })),
+		2
+	);
+	assert.equal(
+		computePostProcessInflationRadius(
+			createFeatures({ enableToneMapping: true })
+		),
 		2
 	);
 	assert.equal(

@@ -738,7 +738,7 @@ export class WebGLFrameExecutor {
 				id: "tonemap",
 				dependsOn: ["bloom"],
 				precompileHints: ["postprocess:tonemap"],
-				isEnabled: (features) => features.enableGamma || features.enableFXAA,
+				isEnabled: (features) => features.enableToneMapping !== false,
 				execute: () => {
 					this._applyToneMapping();
 				},

@@ -158,7 +158,7 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	if (context.features.enableDOF) passes.push("dof");
 	if (context.features.enableBloom) passes.push("bloom");
 	if (context.features.enableFXAA) passes.push("fxaa");
-	if (context.features.enableGamma || context.features.enableFXAA) {
+	if (context.features.enableToneMapping !== false) {
 		passes.push("tonemap");
 	}
 	if (context.features.enableGamma) {

@@ -1327,6 +1327,7 @@ export class WebGPUFrameExecutor {
 			`|mblur:${context.features.enableMotionBlur ? 1 : 0}` +
 			`|dof:${context.features.enableDOF ? 1 : 0}` +
 			`|bloom:${context.features.enableBloom ? 1 : 0}` +
+			`|tonemap:${context.features.enableToneMapping !== false ? 1 : 0}` +
 			`|fxaa:${context.features.enableFXAA ? 1 : 0}`;
 
 		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {

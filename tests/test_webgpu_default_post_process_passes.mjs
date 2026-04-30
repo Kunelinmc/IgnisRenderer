@@ -9,6 +9,7 @@ function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
 		enableGamma: true,
+		enableToneMapping: true,
 		enableSH: false,
 		enableShadows: false,
 		enableReflection: false,
@@ -173,6 +174,18 @@ function testDefaultPassGraphOrder() {
 	assert.deepEqual(
 		fxaaOnlyOrder.map((pass) => pass.id),
 		["tonemap", "fxaa", "interaction-outline"]
+	);
+
+	const tonemapDisabledOrder = graph.getExecutionOrder(
+		createFeatures({
+			enableToneMapping: false,
+			enableFXAA: true,
+		}),
+		() => {}
+	);
+	assert.equal(
+		tonemapDisabledOrder.some((pass) => pass.id === "tonemap"),
+		false
 	);
 }
 

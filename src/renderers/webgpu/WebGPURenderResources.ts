@@ -376,6 +376,7 @@ export class WebGPURenderResources {
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableGamma: features.enableGamma,
+			enableToneMapping: features.enableToneMapping,
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,

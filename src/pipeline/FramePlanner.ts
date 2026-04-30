@@ -22,6 +22,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"motion-blur",
 	"dof",
 	"bloom",
+	"tonemap",
 	"fxaa",
 	"gamma",
 ];
@@ -78,6 +79,8 @@ function shouldEnablePass(
 			return features.enableDOF;
 		case "bloom":
 			return features.enableBloom;
+		case "tonemap":
+			return features.enableToneMapping !== false;
 		case "fxaa":
 			return features.enableFXAA;
 		case "gamma":

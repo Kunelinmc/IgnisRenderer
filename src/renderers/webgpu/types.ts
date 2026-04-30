@@ -100,6 +100,7 @@ export interface WebGPULightingState {
 export interface WebGPUFeatureState {
 	enableLighting: boolean;
 	enableGamma: boolean;
+	enableToneMapping: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;

@@ -59,6 +59,7 @@ export function resolveFeatureState(
 	return {
 		enableLighting: request.enableLighting !== false,
 		enableGamma: request.enableGamma !== false,
+		enableToneMapping: request.enableToneMapping !== false,
 		enableFXAA: request.enableFXAA === true,
 		ssrOptions: { ...DEFAULT_SSR_OPTIONS, ...(request.ssrOptions ?? {}) },
 		ssaoOptions: { ...DEFAULT_SSAO_OPTIONS, ...(request.ssaoOptions ?? {}) },

@@ -8,6 +8,7 @@ function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
 		enableGamma: true,
+		enableToneMapping: true,
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
@@ -133,6 +134,22 @@ function testPostFxSkipsFogInSceneMode() {
 			},
 		}),
 	});
+	assert.equal(plan.firstPass, "tonemap");
+}
+
+function testPostFxSkipsToneMappingWhenDisabled() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: createFeatures({
+			enableFog: true,
+			enableToneMapping: false,
+			enableFXAA: true,
+			fogOptions: {
+				application: "scene",
+			},
+		}),
+	});
 	assert.equal(plan.firstPass, "fxaa");
 }
 
@@ -194,6 +211,7 @@ function run() {
 	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
 	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
 	testPostFxSkipsFogInSceneMode();
+	testPostFxSkipsToneMappingWhenDisabled();
 	testPostFxCinematicReasonResetsTemporalHistory();
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();

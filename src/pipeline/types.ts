@@ -195,6 +195,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"motion-blur",
 	"dof",
 	"bloom",
+	"tonemap",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -227,9 +228,10 @@ export const FRAME_PASS_DEPENDENCIES = new Map<
 	["motion-blur", ["fog"]],
 	["dof", ["motion-blur"]],
 	["bloom", ["dof"]],
-	["fxaa", ["bloom"]],
+	["tonemap", ["bloom"]],
+	["fxaa", ["tonemap"]],
 	["interaction-outline", ["fxaa"]],
-	["gamma", ["interaction-outline"]],
+	["gamma", ["tonemap"]],
 ]);
 
 export interface VolumetricOptions {
@@ -564,6 +566,7 @@ export interface FeatureWarning {
 export interface RendererFeatureRequest {
 	enableLighting?: boolean;
 	enableGamma?: boolean;
+	enableToneMapping?: boolean;
 	enableSH?: boolean;
 	enableShadows?: boolean;
 	enableReflection?: boolean;

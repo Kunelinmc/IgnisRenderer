@@ -22,6 +22,7 @@ function run() {
 	const baseResolved = {
 		enableLighting: true,
 		enableGamma: true,
+		enableToneMapping: true,
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
@@ -87,6 +88,7 @@ function run() {
 			"motion-blur",
 			"dof",
 			"bloom",
+			"tonemap",
 			"fxaa",
 			"gamma",
 		]
@@ -117,6 +119,7 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "fog")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "bloom")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "tonemap")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
 

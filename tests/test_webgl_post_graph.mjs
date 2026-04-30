@@ -5,6 +5,7 @@ function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
 		enableGamma: true,
+		enableToneMapping: true,
 		enableSH: true,
 		enableShadows: true,
 		enableReflection: false,
@@ -71,7 +72,7 @@ function testExecutionOrder() {
 			id: "tonemap",
 			dependsOn: ["bloom"],
 			isEnabled(features) {
-				return features.enableGamma || features.enableFXAA;
+				return features.enableToneMapping !== false;
 			},
 			execute() {},
 		},

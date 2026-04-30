@@ -220,7 +220,7 @@ export function createWebGPUDefaultPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["bloom"],
 			precompileHints: ["postprocess:tonemap"],
-			isEnabled: (features) => features.enableGamma || features.enableFXAA,
+			isEnabled: (features) => features.enableToneMapping !== false,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "tonemap",

@@ -176,6 +176,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.features = {
 			enableLighting: true,
 			enableGamma: true,
+			enableToneMapping: true,
 			enableSH: false,
 			enableShadows: true,
 			enableReflection: true,
@@ -1111,6 +1112,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableDOF;
 			case "bloom":
 				return features.enableBloom;
+			case "tonemap":
+				return features.enableToneMapping !== false;
 			case "fxaa":
 				return features.enableFXAA;
 			case "interaction-outline": {
@@ -1201,6 +1204,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"motion-blur",
 	"dof",
 	"bloom",
+	"tonemap",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -1249,9 +1253,10 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "motion-blur", dependsOn: ["fog"] },
 		{ id: "dof", dependsOn: ["motion-blur"] },
 		{ id: "bloom", dependsOn: ["dof"] },
-		{ id: "fxaa", dependsOn: ["bloom"] },
+		{ id: "tonemap", dependsOn: ["bloom"] },
+		{ id: "fxaa", dependsOn: ["tonemap"] },
 		{ id: "interaction-outline", dependsOn: ["fxaa"] },
-		{ id: "gamma", dependsOn: ["interaction-outline"] },
+		{ id: "gamma", dependsOn: ["interaction-outline", "tonemap"] },
 		{ id: "sync-out", dependsOn: ["gamma"] },
 	];
 }

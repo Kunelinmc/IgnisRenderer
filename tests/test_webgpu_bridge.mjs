@@ -267,6 +267,7 @@ function testFeatureGate() {
 
 	assert.equal(featureState.enableLighting, true);
 	assert.equal(featureState.enableGamma, true);
+	assert.equal(featureState.enableToneMapping, true);
 	assert.equal(featureState.enableSH, false);
 	assert.equal(featureState.enableShadows, true);
 	assert.equal(featureState.enableReflection, false);
