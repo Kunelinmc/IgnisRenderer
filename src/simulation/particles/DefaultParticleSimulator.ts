@@ -4,8 +4,9 @@ import {
 	type FrameContext,
 } from "../../pipeline/types";
 import { ParticleBatchBuilder } from "./ParticleBatchBuilder";
-import { type IParticleSimulator } from "./IParticleSimulator";
+import type { IParticleSimulator } from "./IParticleSimulator";
 import { ParticleSimulationCore } from "./ParticleSimulationCore";
+import { CameraType } from "../../cameras/Camera";
 import { MAX_STEP_SECONDS } from "./constants";
 import type { SystemRuntimeState } from "./types";
 
@@ -289,7 +290,7 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 
 		if (estimatedRadius <= 0) return 0;
 
-		if (context.camera.type === "orthographic") {
+		if (context.camera.type === CameraType.Orthographic) {
 			return estimatedRadius * 2;
 		}
 
