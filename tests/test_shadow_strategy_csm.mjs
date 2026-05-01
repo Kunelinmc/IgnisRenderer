@@ -368,6 +368,112 @@ function testCSMStabilizedViewTranslationSnapsToTexelGrid() {
 	);
 }
 
+function testCSMCenterHysteresisKeepsSmallCameraMovesStable() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 2,
+		stabilize: true,
+		direction: { x: 0, y: -1, z: 0 },
+	});
+	const bounds = createSceneBounds(120);
+	const baseCameraPosition = { x: 0, y: 4, z: 16 };
+	const cameraA = createCamera({
+		near: 0.1,
+		far: 100,
+		position: baseCameraPosition,
+	});
+	const renderSet = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSet, light, bounds, { camera: cameraA });
+
+	const cascade = renderSet.slices[0];
+	const span = readCascadeOrthoSpan(cascade);
+	const texelSize = span.width / cascade.shadowMap.size;
+	const initialViews = renderSet.slices.map((slice) => {
+		assert.ok(slice.shadowMap.viewMatrix);
+		return slice.shadowMap.viewMatrix;
+	});
+
+	const cameraB = createCamera({
+		near: 0.1,
+		far: 100,
+		position: {
+			x: baseCameraPosition.x + texelSize * 8,
+			y: baseCameraPosition.y,
+			z: baseCameraPosition.z,
+		},
+	});
+	updateShadowMapMetadata(renderSet, light, bounds, { camera: cameraB });
+
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const viewA = initialViews[index];
+		const viewB = renderSet.slices[index].shadowMap.viewMatrix;
+		assert.ok(viewA && viewB);
+		assert.ok(
+			Math.abs(viewB.elements[0][3] - viewA.elements[0][3]) < 1e-9,
+			`Cascade ${index} should keep small light-space moves stable`
+		);
+		assert.ok(
+			Math.abs(viewB.elements[1][3] - viewA.elements[1][3]) < 1e-9,
+			`Cascade ${index} should not drift on the orthogonal light axis`
+		);
+	}
+}
+
+function testCSMCenterHysteresisMovesAfterSafeAreaExit() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 1,
+		stabilize: true,
+		direction: { x: 0, y: -1, z: 0 },
+	});
+	const bounds = createSceneBounds(120);
+	const baseCameraPosition = { x: 0, y: 4, z: 16 };
+	const cameraA = createCamera({
+		near: 0.1,
+		far: 100,
+		position: baseCameraPosition,
+	});
+	const renderSet = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSet, light, bounds, { camera: cameraA });
+
+	const cascade = renderSet.slices[0];
+	const span = readCascadeOrthoSpan(cascade);
+	const texelSize = span.width / cascade.shadowMap.size;
+	const viewA = cascade.shadowMap.viewMatrix;
+	assert.ok(viewA);
+
+	const moveInTexels = 64;
+	const cameraB = createCamera({
+		near: 0.1,
+		far: 100,
+		position: {
+			x: baseCameraPosition.x + texelSize * moveInTexels,
+			y: baseCameraPosition.y,
+			z: baseCameraPosition.z,
+		},
+	});
+	updateShadowMapMetadata(renderSet, light, bounds, { camera: cameraB });
+
+	const viewB = renderSet.slices[0].shadowMap.viewMatrix;
+	assert.ok(viewB);
+	const deltaXInTexelUnits =
+		(viewB.elements[0][3] - viewA.elements[0][3]) / texelSize;
+	assert.ok(
+		Math.abs(deltaXInTexelUnits) > 1,
+		"CSM center hysteresis should move after the camera leaves the safety region"
+	);
+	assert.ok(
+		Math.abs(deltaXInTexelUnits) < moveInTexels,
+		"CSM center hysteresis should preserve a light-space safety margin"
+	);
+	assert.ok(
+		distanceToNearestInteger(deltaXInTexelUnits) < 1e-4,
+		`CSM center hysteresis should retain texel snapping, got ${deltaXInTexelUnits}`
+	);
+}
+
 function testCSMUnstabilizedViewTranslationRemainsContinuous() {
 	const light = createDirectionalCSMLight({
 		lambda: 0.65,
@@ -596,6 +702,8 @@ function run() {
 	testOrthographicCSMUsesOrthoBoundsInsteadOfFov();
 	testDirectionalCSMDepthIncludesCasterBounds();
 	testCSMStabilizedViewTranslationSnapsToTexelGrid();
+	testCSMCenterHysteresisKeepsSmallCameraMovesStable();
+	testCSMCenterHysteresisMovesAfterSafeAreaExit();
 	testCSMUnstabilizedViewTranslationRemainsContinuous();
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();

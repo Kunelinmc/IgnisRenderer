@@ -161,6 +161,9 @@ export class ShadowMap {
 	public viewProjectionMatrix: Matrix4 | null = null;
 	public latestLightDir: IVector3 = { x: 0, y: -1, z: 0 };
 	public stabilizedBoundsRadius: number | null = null;
+	public csmStableCenterLightX: number | null = null;
+	public csmStableCenterLightY: number | null = null;
+	public csmStableLightDir: IVector3 | null = null;
 
 	constructor(size = 1024, params: ShadowParams = {}) {
 		this.size = size;

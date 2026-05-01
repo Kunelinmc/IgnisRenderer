@@ -12,6 +12,10 @@ The previous model bound shadow controls to `Light` (`castShadow` and `light.sha
 - `CSM` must support `DirectionalLight`, `SpotLight`, and `PointLight`.
 - Cascade defaults must be `4/3/2` for `directional/spot/point`.
 - Directional `CSM` must use practical camera-frustum splits.
+- When `stabilize` is `true`, directional `CSM` must retain a per-cascade
+  light-space center across metadata updates, move the retained center only
+  after the current frustum center leaves the cascade safety region, and snap
+  the retained center to the shadow texel grid.
 - Spot `CSM` must use cone-depth practical splits.
 - Point `CSM` must use full cube cascades with total slice count `cascadeCount * 6`.
 - `cascadeCount` must be normalized to `1..4`.

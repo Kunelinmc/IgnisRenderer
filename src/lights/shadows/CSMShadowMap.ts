@@ -3,7 +3,7 @@ import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
 import { LightType, type DirectionalLight, type PointLight, type SpotLight } from "..";
 import { MIN_SHADOW_NEAR, SHADOW_NEAR_FAR_GAP } from "../constants";
-import type { CSMShadowConfig, ShadowConfig } from "./ShadowMapping";
+import type { CSMShadowConfig, ShadowConfig, ShadowMap } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import type {
@@ -21,6 +21,8 @@ const DEFAULT_CASCADE_COUNTS: ShadowCSMDefaults = {
 	spot: 3,
 	point: 2,
 };
+const CSM_CENTER_HYSTERESIS_RATIO = 0.1;
+const CSM_LIGHT_DIRECTION_RESET_EPSILON = 1e-4;
 
 const _tmpCamPos = { x: 0, y: 0, z: 0 };
 const _tmpCamForward = { x: 0, y: 0, z: -1 };
@@ -171,7 +173,8 @@ export class CSMShadowMap extends ShadowMapBase {
 					stabilize,
 					splitNear,
 					splitFar,
-					context.sceneBounds
+					context.sceneBounds,
+					context.renderSet.slices[index]?.shadowMap
 				)
 			);
 		}
@@ -474,7 +477,8 @@ export class CSMShadowMap extends ShadowMapBase {
 		stabilize: boolean,
 		splitNear: number,
 		splitFar: number,
-		sceneBounds?: SceneBounds
+		sceneBounds?: SceneBounds,
+		sliceShadowMap?: ShadowMap
 	): ShadowSliceDescriptor {
 		let centerX = 0;
 		let centerY = 0;
@@ -498,16 +502,21 @@ export class CSMShadowMap extends ShadowMapBase {
 				dx * dx + dy * dy + dz * dz
 			);
 		}
-		const radius = Math.max(0.001, Math.sqrt(maxRadiusSquared));
+		const boundsRadius = Math.max(0.001, Math.sqrt(maxRadiusSquared));
+		let projectionHalfSpan = boundsRadius;
 		if (stabilize) {
-			const span = Math.max(0.001, radius * 2);
+			projectionHalfSpan = Math.max(
+				boundsRadius,
+				boundsRadius * (1 + CSM_CENTER_HYSTERESIS_RATIO)
+			);
+			const span = Math.max(0.001, projectionHalfSpan * 2);
 			const texelSize = span / Math.max(1, shadowMapSize);
 			if (texelSize > 0) {
-				const lightBackward = {
+				const lightBackward = Vector3.normalize({
 					x: -lightDir.x,
 					y: -lightDir.y,
 					z: -lightDir.z,
-				};
+				});
 				const lightUpReference = SingleShadowMap.chooseUpVector(lightDir);
 				const lightRight = Vector3.normalize(
 					Vector3.cross(lightUpReference, lightBackward)
@@ -521,19 +530,26 @@ export class CSMShadowMap extends ShadowMapBase {
 					centerZ * lightRight.z;
 				const centerLightY =
 					centerX * lightUp.x + centerY * lightUp.y + centerZ * lightUp.z;
-				const snappedCenterLightX =
-					Math.round(centerLightX / texelSize) * texelSize;
-				const snappedCenterLightY =
-					Math.round(centerLightY / texelSize) * texelSize;
-				const deltaX = snappedCenterLightX - centerLightX;
-				const deltaY = snappedCenterLightY - centerLightY;
+				const stabilizedCenter = CSMShadowMap.resolveStabilizedCenterLightSpace(
+					centerLightX,
+					centerLightY,
+					boundsRadius,
+					projectionHalfSpan,
+					texelSize,
+					lightDir,
+					sliceShadowMap
+				);
+				const deltaX = stabilizedCenter.x - centerLightX;
+				const deltaY = stabilizedCenter.y - centerLightY;
 
 				centerX += lightRight.x * deltaX + lightUp.x * deltaY;
 				centerY += lightRight.y * deltaX + lightUp.y * deltaY;
 				centerZ += lightRight.z * deltaX + lightUp.z * deltaY;
 			}
+		} else if (sliceShadowMap) {
+			CSMShadowMap.resetStabilizedCenterLightSpace(sliceShadowMap);
 		}
-		let lightDistance = radius * 2;
+		let lightDistance = projectionHalfSpan * 2;
 		if (
 			sceneBounds &&
 			Number.isFinite(sceneBounds.radius) &&
@@ -591,7 +607,7 @@ export class CSMShadowMap extends ShadowMapBase {
 
 		let spanForPadding = 0;
 		if (stabilize) {
-			const halfSpan = radius;
+			const halfSpan = projectionHalfSpan;
 			const span = Math.max(0.001, halfSpan * 2);
 			minX = -halfSpan;
 			maxX = halfSpan;
@@ -624,6 +640,93 @@ export class CSMShadowMap extends ShadowMapBase {
 			splitNear,
 			splitFar,
 		};
+	}
+
+	private static resolveStabilizedCenterLightSpace(
+		centerLightX: number,
+		centerLightY: number,
+		boundsRadius: number,
+		projectionHalfSpan: number,
+		texelSize: number,
+		lightDir: IVector3,
+		shadowMap?: ShadowMap
+	): {
+		x: number;
+		y: number;
+	} {
+		let stableX = centerLightX;
+		let stableY = centerLightY;
+		const previousX = shadowMap?.csmStableCenterLightX;
+		const previousY = shadowMap?.csmStableCenterLightY;
+		const hasPrevious =
+			typeof previousX === "number" &&
+			Number.isFinite(previousX) &&
+			typeof previousY === "number" &&
+			Number.isFinite(previousY) &&
+			CSMShadowMap.matchesStabilizedLightDirection(shadowMap, lightDir);
+
+		if (hasPrevious) {
+			stableX = previousX;
+			stableY = previousY;
+			const safeMargin = Math.max(
+				0,
+				projectionHalfSpan - boundsRadius - texelSize * 0.5
+			);
+
+			if (safeMargin > 0) {
+				const deltaX = centerLightX - stableX;
+				const deltaY = centerLightY - stableY;
+				if (deltaX > safeMargin) {
+					stableX = centerLightX - safeMargin;
+				} else if (deltaX < -safeMargin) {
+					stableX = centerLightX + safeMargin;
+				}
+				if (deltaY > safeMargin) {
+					stableY = centerLightY - safeMargin;
+				} else if (deltaY < -safeMargin) {
+					stableY = centerLightY + safeMargin;
+				}
+			}
+		}
+
+		stableX = Math.round(stableX / texelSize) * texelSize;
+		stableY = Math.round(stableY / texelSize) * texelSize;
+
+		if (shadowMap) {
+			shadowMap.csmStableCenterLightX = stableX;
+			shadowMap.csmStableCenterLightY = stableY;
+			shadowMap.csmStableLightDir = {
+				x: lightDir.x,
+				y: lightDir.y,
+				z: lightDir.z,
+			};
+		}
+
+		return {
+			x: stableX,
+			y: stableY,
+		};
+	}
+
+	private static matchesStabilizedLightDirection(
+		shadowMap: ShadowMap | undefined,
+		lightDir: IVector3
+	): boolean {
+		const previous = shadowMap?.csmStableLightDir;
+		if (!previous) {
+			return false;
+		}
+		return (
+			Math.abs(previous.x - lightDir.x) <= CSM_LIGHT_DIRECTION_RESET_EPSILON &&
+			Math.abs(previous.y - lightDir.y) <= CSM_LIGHT_DIRECTION_RESET_EPSILON &&
+			Math.abs(previous.z - lightDir.z) <= CSM_LIGHT_DIRECTION_RESET_EPSILON
+		);
+	}
+
+	private static resetStabilizedCenterLightSpace(shadowMap: ShadowMap): void {
+		shadowMap.csmStableCenterLightX = null;
+		shadowMap.csmStableCenterLightY = null;
+		shadowMap.csmStableLightDir = null;
 	}
 }
 

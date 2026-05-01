@@ -168,6 +168,9 @@ function resetShadowMapMetadata(shadowMap: ShadowMap): void {
 	shadowMap.viewProjectionMatrix = null;
 	shadowMap.latestLightDir = { x: 0, y: -1, z: 0 };
 	shadowMap.stabilizedBoundsRadius = null;
+	shadowMap.csmStableCenterLightX = null;
+	shadowMap.csmStableCenterLightY = null;
+	shadowMap.csmStableLightDir = null;
 }
 
 function resetRenderSetMetadata(renderSet: ShadowRenderSet): void {
