@@ -61,8 +61,12 @@ function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 	const sun = scene.add(new DirectionalLight());
 	const vsm = scene.shadows.createVSM({
 		size: 1536,
+		momentBias: 0.004,
+		bleedReduction: 0.35,
+		minVariance: 0.00008,
 		sampling: {
 			pcfRadius: 1.25,
+			filterMode: "pcf",
 		},
 	});
 	scene.shadows.bind(sun, vsm);
@@ -71,6 +75,10 @@ function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 	assert.ok(config);
 	assert.equal(config?.strategy, "single-map");
 	assert.equal(config?.size, 1536);
+	assert.equal(vsm.filterMode, "vsm");
+	assert.equal(config?.params?.shadowMomentBias, 0.004);
+	assert.equal(config?.params?.shadowBleedReduction, 0.35);
+	assert.equal(config?.params?.shadowMinVariance, 0.00008);
 
 	const frameState = scene.shadows.buildFrameState({
 		lights: [sun],
@@ -80,6 +88,47 @@ function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 	assert.equal(frameState.records[0].shadowMapKind, "vsm");
 	assert.equal(frameState.records[0].filterMode, "vsm");
 	assert.equal(frameState.records[0].renderSet.resolvedConfig.strategy, "single-map");
+}
+
+function testVSMShadowMapNormalizesParametersAndUpdatesSignature() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight());
+	const vsm = scene.shadows.createVSM({
+		momentBias: 0.001,
+		bleedReduction: 0.2,
+		minVariance: 0.00002,
+	});
+	scene.shadows.bind(sun, vsm);
+
+	const frameA = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+	});
+	const renderSetA = frameA.get(sun);
+	assert.ok(renderSetA);
+	const signatureA = renderSetA.configSignature;
+
+	vsm.setVSMParameters({
+		momentBias: -1,
+		bleedReduction: 5,
+		minVariance: 0,
+	});
+	assert.equal(vsm.momentBias, 0);
+	assert.equal(vsm.bleedReduction, 1);
+	assert.equal(vsm.minVariance, 1e-8);
+
+	const frameB = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+	});
+	const renderSetB = frameB.get(sun);
+	assert.ok(renderSetB);
+	assert.notEqual(renderSetB?.configSignature, signatureA);
+
+	const nextConfig = scene.shadows.getLegacyShadowConfig(sun);
+	assert.equal(nextConfig?.params?.shadowMomentBias, 0);
+	assert.equal(nextConfig?.params?.shadowBleedReduction, 1);
+	assert.equal(nextConfig?.params?.shadowMinVariance, 1e-8);
 }
 
 function testRenderSetSignatureUpdatesWhenShadowMapConfigChanges() {
@@ -211,6 +260,7 @@ function testDynamicBudgetCanReduceResolutionAfterCascadeReduction() {
 function run() {
 	testShadowManagerBindingLifecycle();
 	testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig();
+	testVSMShadowMapNormalizesParametersAndUpdatesSignature();
 	testRenderSetSignatureUpdatesWhenShadowMapConfigChanges();
 	testPointCSMGeneratesCubeCascadeSlices();
 	testDynamicBudgetDegradesCascadeThenDisablesLowerScoreShadows();

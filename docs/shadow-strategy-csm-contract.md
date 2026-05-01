@@ -23,7 +23,7 @@ The previous model bound shadow controls to `Light` (`castShadow` and `light.sha
   - `slices[]`
 - Dynamic budget selection must rank shadows by `priority`, then `light.intensity`, then camera relation score.
 - Dynamic degradation order must be: reduce cascade count, then reduce resolution, then disable low-score shadows.
-- `VSMShadowMap` may keep `filterMode: "vsm"` metadata but runtime filtering should fallback to PCF in v1.
+- `VSMShadowMap` must keep `filterMode: "vsm"` metadata and preserve `shadowMomentBias`, `shadowBleedReduction`, and `shadowMinVariance` in `ShadowConfig.params`, while runtime filtering should fallback to PCF in v1.
 
 ## Usage
 Example: configure and bind directional CSM through `Scene`.

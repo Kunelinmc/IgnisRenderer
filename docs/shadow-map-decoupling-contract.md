@@ -19,7 +19,7 @@ The previous model stored shadow configuration directly in `Light` (`castShadow`
 	- Directional cascades.
 	- Spot cascades.
 	- Point cube cascades (`cascadeCount * 6` slices).
-- `VSMShadowMap` may preserve VSM parameters while runtime sampling should fallback to PCF in v1.
+- `VSMShadowMap` must preserve VSM parameters in `ShadowConfig.params` (`shadowMomentBias`, `shadowBleedReduction`, `shadowMinVariance`) while runtime sampling should fallback to PCF in v1.
 
 ## Usage
 ```ts
