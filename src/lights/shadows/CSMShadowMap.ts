@@ -419,6 +419,40 @@ export class CSMShadowMap extends ShadowMapBase {
 			);
 		}
 		const radius = Math.max(0.001, Math.sqrt(maxRadiusSquared));
+		if (stabilize) {
+			const span = Math.max(0.001, radius * 2);
+			const texelSize = span / Math.max(1, shadowMapSize);
+			if (texelSize > 0) {
+				const lightBackward = {
+					x: -lightDir.x,
+					y: -lightDir.y,
+					z: -lightDir.z,
+				};
+				const lightUpReference = SingleShadowMap.chooseUpVector(lightDir);
+				const lightRight = Vector3.normalize(
+					Vector3.cross(lightUpReference, lightBackward)
+				);
+				const lightUp = Vector3.normalize(
+					Vector3.cross(lightBackward, lightRight)
+				);
+				const centerLightX =
+					centerX * lightRight.x +
+					centerY * lightRight.y +
+					centerZ * lightRight.z;
+				const centerLightY =
+					centerX * lightUp.x + centerY * lightUp.y + centerZ * lightUp.z;
+				const snappedCenterLightX =
+					Math.round(centerLightX / texelSize) * texelSize;
+				const snappedCenterLightY =
+					Math.round(centerLightY / texelSize) * texelSize;
+				const deltaX = snappedCenterLightX - centerLightX;
+				const deltaY = snappedCenterLightY - centerLightY;
+
+				centerX += lightRight.x * deltaX + lightUp.x * deltaY;
+				centerY += lightRight.y * deltaX + lightUp.y * deltaY;
+				centerZ += lightRight.z * deltaX + lightUp.z * deltaY;
+			}
+		}
 		const lightPosition = {
 			x: centerX - lightDir.x * (radius * 2),
 			y: centerY - lightDir.y * (radius * 2),
@@ -451,18 +485,10 @@ export class CSMShadowMap extends ShadowMapBase {
 		if (stabilize) {
 			const halfSpan = radius;
 			const span = Math.max(0.001, halfSpan * 2);
-			const texelSize = span / Math.max(1, shadowMapSize);
-			const centerLS = Matrix4.transformPoint(view, center);
-			let centerLSX = centerLS.x;
-			let centerLSY = centerLS.y;
-			if (texelSize > 0) {
-				centerLSX = Math.round(centerLSX / texelSize) * texelSize;
-				centerLSY = Math.round(centerLSY / texelSize) * texelSize;
-			}
-			minX = centerLSX - halfSpan;
-			maxX = centerLSX + halfSpan;
-			minY = centerLSY - halfSpan;
-			maxY = centerLSY + halfSpan;
+			minX = -halfSpan;
+			maxX = halfSpan;
+			minY = -halfSpan;
+			maxY = halfSpan;
 			spanForPadding = span;
 		} else {
 			const spanX = Math.max(0.001, maxX - minX);

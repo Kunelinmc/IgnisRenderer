@@ -58,6 +58,7 @@ function createDirectionalCSMLight({
 	maxDistance,
 	blendRatio = 0.1,
 	cascadeCount = 4,
+	stabilize = true,
 } = {}) {
 	const scene = new Scene();
 	const light = new DirectionalLight({
@@ -71,7 +72,7 @@ function createDirectionalCSMLight({
 		lambda,
 		maxDistance,
 		blendRatio,
-		stabilize: true,
+		stabilize,
 		cascadeCounts: {
 			directional: cascadeCount,
 		},
@@ -213,6 +214,106 @@ function testCSMStabilizedExtentIsCameraRotationInvariant() {
 	}
 }
 
+function distanceToNearestInteger(value) {
+	return Math.abs(value - Math.round(value));
+}
+
+function testCSMStabilizedViewTranslationSnapsToTexelGrid() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 4,
+		stabilize: true,
+	});
+	const bounds = createSceneBounds(120);
+	const baseCameraPosition = { x: 0, y: 4, z: 16 };
+	const cameraA = createCamera({
+		near: 0.1,
+		far: 100,
+		position: baseCameraPosition,
+	});
+	const renderSetA = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSetA, light, bounds, { camera: cameraA });
+
+	const cascadeA = renderSetA.slices[0];
+	const spanA = readCascadeOrthoSpan(cascadeA);
+	const texelSize = spanA.width / cascadeA.shadowMap.size;
+	const moveDistance = texelSize * 0.37;
+	const cameraB = createCamera({
+		near: 0.1,
+		far: 100,
+		position: {
+			x: baseCameraPosition.x + moveDistance,
+			y: baseCameraPosition.y,
+			z: baseCameraPosition.z + moveDistance * 0.5,
+		},
+	});
+	const renderSetB = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSetB, light, bounds, { camera: cameraB });
+
+	const viewA = renderSetA.slices[0].shadowMap.viewMatrix;
+	const viewB = renderSetB.slices[0].shadowMap.viewMatrix;
+	assert.ok(viewA && viewB);
+
+	const deltaXInTexelUnits = (viewB.elements[0][3] - viewA.elements[0][3]) / texelSize;
+	const deltaYInTexelUnits = (viewB.elements[1][3] - viewA.elements[1][3]) / texelSize;
+	assert.ok(
+		distanceToNearestInteger(deltaXInTexelUnits) < 1e-4,
+		`Stabilized CSM x-translation should move in texel steps, got ${deltaXInTexelUnits}`
+	);
+	assert.ok(
+		distanceToNearestInteger(deltaYInTexelUnits) < 1e-4,
+		`Stabilized CSM y-translation should move in texel steps, got ${deltaYInTexelUnits}`
+	);
+}
+
+function testCSMUnstabilizedViewTranslationRemainsContinuous() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 4,
+		stabilize: false,
+	});
+	const bounds = createSceneBounds(120);
+	const baseCameraPosition = { x: 0, y: 4, z: 16 };
+	const cameraA = createCamera({
+		near: 0.1,
+		far: 100,
+		position: baseCameraPosition,
+	});
+	const renderSetA = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSetA, light, bounds, { camera: cameraA });
+
+	const cascadeA = renderSetA.slices[0];
+	const spanA = readCascadeOrthoSpan(cascadeA);
+	const texelSize = spanA.width / cascadeA.shadowMap.size;
+	const moveDistance = texelSize * 0.37;
+	const cameraB = createCamera({
+		near: 0.1,
+		far: 100,
+		position: {
+			x: baseCameraPosition.x + moveDistance,
+			y: baseCameraPosition.y,
+			z: baseCameraPosition.z + moveDistance * 0.5,
+		},
+	});
+	const renderSetB = createRenderSetForBoundLight(light);
+	updateShadowMapMetadata(renderSetB, light, bounds, { camera: cameraB });
+
+	const viewA = renderSetA.slices[0].shadowMap.viewMatrix;
+	const viewB = renderSetB.slices[0].shadowMap.viewMatrix;
+	assert.ok(viewA && viewB);
+
+	const deltaXInTexelUnits = (viewB.elements[0][3] - viewA.elements[0][3]) / texelSize;
+	const deltaYInTexelUnits = (viewB.elements[1][3] - viewA.elements[1][3]) / texelSize;
+	const nearestX = distanceToNearestInteger(deltaXInTexelUnits);
+	const nearestY = distanceToNearestInteger(deltaYInTexelUnits);
+	assert.ok(
+		nearestX > 1e-3 || nearestY > 1e-3,
+		"Unstabilized CSM should allow continuous sub-texel shadow movement"
+	);
+}
+
 function testBlendRatioNormalization() {
 	const clampedLow = normalizeShadowConfig({
 		strategy: "csm",
@@ -345,6 +446,8 @@ function run() {
 	testCSMSplitsMonotonicAndCovered();
 	testLambdaBoundarySplits();
 	testCSMStabilizedExtentIsCameraRotationInvariant();
+	testCSMStabilizedViewTranslationSnapsToTexelGrid();
+	testCSMUnstabilizedViewTranslationRemainsContinuous();
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();
 	testCSMSelectionPriority();
