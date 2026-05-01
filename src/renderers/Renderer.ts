@@ -55,6 +55,7 @@ import {
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
+import type { IShadowBackendCapabilities } from "../shadows";
 import {
 	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
@@ -652,6 +653,17 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		transient: TransientStore,
 		incremental: IncrementalFrameContext
 	): FrameContext {
+		const cameraPosition = this.camera.getWorldPosition(
+			_tmpRendererCameraWorldPosition
+		);
+		const shadowFrameState = this.scene.shadows.buildFrameState({
+			lights: frame.lights,
+			enableShadows: resolved.enableShadows,
+			cameraPosition,
+			backendCapabilities: this._resolveShadowBackendCapabilities(),
+		});
+		this._shadowMaps = shadowFrameState.shadowMaps;
+
 		const attachments = this.backend.getAttachments(
 			this.canvas.width,
 			this.canvas.height
@@ -668,6 +680,31 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			incremental,
 			transient,
 		};
+	}
+
+	private _resolveShadowBackendCapabilities(): IShadowBackendCapabilities {
+		const supportsDirectionalCSM = this.backend.type !== "unknown";
+		return {
+			backendKey: this.backend.type,
+			supportsFilterModes: ["pcf", "vsm"],
+			supportsDirectionalCSM,
+			supportsSpotCSM: true,
+			supportsPointCSM: true,
+			maxDynamicShadowCost: this._resolveShadowBudgetFromBackend(),
+		};
+	}
+
+	private _resolveShadowBudgetFromBackend(): number {
+		switch (this.backend.type) {
+			case "webgpu":
+				return 48;
+			case "webgl":
+				return 24;
+			case "software":
+				return 20;
+			default:
+				return 16;
+		}
 	}
 
 	private _buildIncrementalFrameContext(

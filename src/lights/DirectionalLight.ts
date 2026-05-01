@@ -4,11 +4,9 @@ import {
 	LightType,
 	type LightParams,
 } from "./Light";
-import type { ShadowConfig } from "./ShadowMapping";
 
 export interface DirectionalLightParams extends LightParams {
 	direction?: IVector3;
-	shadow?: ShadowConfig;
 }
 
 export class DirectionalLight extends Light<LightType.Directional> {
@@ -17,11 +15,6 @@ export class DirectionalLight extends Light<LightType.Directional> {
 	constructor(params: DirectionalLightParams = {}) {
 		super(LightType.Directional, params);
 		this.direction = params.direction ?? { x: 0, y: -1, z: 0 };
-		this.shadow = params.shadow ?? {
-			strategy: "single-map",
-			size: 1024,
-		};
-		this.castShadow = params.castShadow ?? true;
 	}
 
 	/**

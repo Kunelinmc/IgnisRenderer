@@ -1,0 +1,113 @@
+import type { Matrix4 } from "../maths/Matrix4";
+import type { IVector3 } from "../maths/types";
+import type { ShadowCastingLight } from "../lights";
+import type { ShadowRenderSet } from "../lights/ShadowMapping";
+
+export type ShadowMapKind = "single" | "vsm" | "csm";
+export type ShadowFilterMode = "pcf" | "vsm";
+export type ShadowBoundLightType =
+	| "directional"
+	| "point"
+	| "spot"
+	| "rectArea";
+
+export interface ShadowBiasSettings {
+	constant?: number;
+	slope?: number;
+	normal?: number;
+	normalMin?: number;
+	texel?: number;
+	max?: number;
+}
+
+export interface ShadowSamplingSettings {
+	filterMode?: ShadowFilterMode;
+	pcfRadius?: number;
+	strength?: number;
+	radius?: number;
+	samples?: number;
+	searchSamples?: number;
+}
+
+export interface ShadowMapBaseOptions {
+	id?: string;
+	enabled?: boolean;
+	priority?: number;
+	size?: number;
+	bias?: ShadowBiasSettings;
+	sampling?: ShadowSamplingSettings;
+}
+
+export interface ShadowCSMDefaults {
+	directional: number;
+	spot: number;
+	point: number;
+}
+
+export interface ShadowCSMOptions extends ShadowMapBaseOptions {
+	cascadeCounts?: Partial<ShadowCSMDefaults>;
+	lambda?: number;
+	maxDistance?: number;
+	blendRatio?: number;
+	stabilize?: boolean;
+}
+
+export interface ShadowRuntimeSlice {
+	index: number;
+	view: Matrix4 | null;
+	projection: Matrix4 | null;
+	viewProjection: Matrix4 | null;
+	lightDir: IVector3;
+	splitNear: number;
+	splitFar: number;
+}
+
+export interface ShadowBindingRecord {
+	light: ShadowCastingLight;
+	shadowMapId: string;
+	shadowMapKind: ShadowMapKind;
+	filterMode: ShadowFilterMode;
+	priority: number;
+	renderSet: ShadowRenderSet;
+	cost: number;
+	score: number;
+}
+
+export interface ShadowBudgetDecision {
+	size: number;
+	cascadeCount?: number;
+	enabled: boolean;
+	cost: number;
+}
+
+export interface IShadowBackendCapabilities {
+	backendKey: string;
+	supportsFilterModes: ShadowFilterMode[];
+	supportsDirectionalCSM: boolean;
+	supportsSpotCSM: boolean;
+	supportsPointCSM: boolean;
+	maxDynamicShadowCost?: number;
+}
+
+export interface ShadowSliceAllocation {
+	lightId: string;
+	shadowMapId: string;
+	sliceIndex: number;
+	tileX: number;
+	tileY: number;
+	size: number;
+}
+
+export interface IShadowSliceAllocator {
+	allocate(records: ShadowBindingRecord[]): ShadowSliceAllocation[];
+}
+
+export interface ShadowPassSliceInput {
+	light: ShadowCastingLight;
+	record: ShadowBindingRecord;
+	allocation: ShadowSliceAllocation;
+}
+
+export interface IShadowPassExecutor {
+	executeShadowPass(slices: ShadowPassSliceInput[]): void | Promise<void>;
+}

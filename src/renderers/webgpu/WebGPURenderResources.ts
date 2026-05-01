@@ -90,7 +90,10 @@ const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgpu",
 	supportsSingleMap: true,
 	supportsDirectionalCSM: true,
+	supportsSpotCSM: true,
+	supportsPointCSM: true,
 	maxCsmDirectionalLights: 1,
+	maxDynamicShadowCost: 48,
 };
 
 export interface WebGPUDrawResources {

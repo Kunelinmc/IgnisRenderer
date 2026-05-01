@@ -5,7 +5,6 @@ import { SpotLight } from "./SpotLight";
 import { LightProbe } from "./LightProbe";
 import { ReflectionProbe } from "./ReflectionProbe";
 import { AreaLight } from "./AreaLight";
-import type { ShadowConfig } from "./ShadowMapping";
 
 export * from "./constants";
 export * from "./Light";
@@ -26,10 +25,22 @@ export type SceneLight =
 	| ReflectionProbe
 	| AreaLight;
 
-export type ShadowCastingLight = SceneLight & { shadow: ShadowConfig };
+export type ShadowCastingLight =
+	| DirectionalLight
+	| PointLight
+	| SpotLight
+	| AreaLight;
 
 export function isShadowCastingLight(
 	light: SceneLight
 ): light is ShadowCastingLight {
-	return light.castShadow && light.shadow !== undefined;
+	if (
+		light.type !== "directional" &&
+		light.type !== "point" &&
+		light.type !== "spot" &&
+		light.type !== "rectArea"
+	) {
+		return false;
+	}
+	return light.scene?.shadows.getBoundShadowMap(light) !== undefined;
 }

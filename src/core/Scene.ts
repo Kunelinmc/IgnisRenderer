@@ -14,6 +14,7 @@ import {
 	type SpatialIndex3D,
 	type SpatialIndexMode,
 } from "../spatial";
+import { ShadowManager } from "../shadows";
 import {
 	renderDirtyReasonToMask,
 	type RenderDirtyReason,
@@ -32,6 +33,7 @@ interface SpatialMeshSignature {
 export class Scene {
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
+	public readonly shadows: ShadowManager;
 	public skybox: Texture | null;
 	public spatial: SpatialIndex3D | null;
 
@@ -62,6 +64,7 @@ export class Scene {
 			name: "sceneRoot",
 		});
 		this.ecs = new ECSWorld();
+		this.shadows = new ShadowManager();
 		this.skybox = null;
 		this.spatial = null;
 		this._version = 0;

@@ -47,7 +47,10 @@ const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "software",
 	supportsSingleMap: true,
 	supportsDirectionalCSM: true,
+	supportsSpotCSM: true,
+	supportsPointCSM: true,
 	maxCsmDirectionalLights: 1,
+	maxDynamicShadowCost: 20,
 };
 
 export class SoftwareBackend implements IRenderBackend {

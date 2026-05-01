@@ -176,7 +176,10 @@ const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgl",
 	supportsSingleMap: true,
 	supportsDirectionalCSM: true,
+	supportsSpotCSM: true,
+	supportsPointCSM: true,
 	maxCsmDirectionalLights: 1,
+	maxDynamicShadowCost: 24,
 };
 
 export class WebGLFrameExecutor {

@@ -34,7 +34,7 @@ const DEFAULT_SHADOW_PARAMS: ShadowParams = {
 };
 
 export type ShadowStrategyType = "single-map" | "csm";
-export type CSMCascadeCount = 2 | 3 | 4;
+export type CSMCascadeCount = 1 | 2 | 3 | 4;
 
 interface BaseShadowConfig {
 	strategy: ShadowStrategyType;
@@ -85,7 +85,7 @@ function clampFinite(value: unknown, fallback: number, min = -Infinity, max = In
 }
 
 function resolveCascadeCount(value: unknown, fallback: CSMCascadeCount): CSMCascadeCount {
-	if (value === 2 || value === 3 || value === 4) {
+	if (value === 1 || value === 2 || value === 3 || value === 4) {
 		return value;
 	}
 	return fallback;

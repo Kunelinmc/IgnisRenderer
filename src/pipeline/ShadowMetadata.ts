@@ -7,6 +7,7 @@ import {
 	normalizeShadowConfig,
 	shadowConfigSignature,
 	ShadowMap,
+	type ShadowSlice,
 	type ShadowConfig,
 	type ShadowRenderSet,
 } from "../lights/ShadowMapping";
@@ -206,15 +207,20 @@ function resolveStabilizedShadowRadius(
 function resolveEffectiveConfig(
 	light: ShadowCastingLight,
 	renderSet: ShadowRenderSet,
+	requestedConfig: ShadowConfig,
 	options?: ShadowMetadataUpdateOptions
 ): ShadowConfig {
-	const requested = normalizeShadowConfig(light.shadow);
+	const requested = normalizeShadowConfig(requestedConfig);
 	const capabilities = options?.backendCapabilities;
 	let effective = requested;
 
 	if (requested.strategy === "csm") {
 		const supportsCSM =
-			!capabilities || capabilities.supportsDirectionalCSM === true;
+			!capabilities ||
+			(light.type === "directional" && capabilities.supportsDirectionalCSM === true) ||
+			(light.type === "spot" && capabilities.supportsSpotCSM !== false) ||
+			(light.type === "point" && capabilities.supportsPointCSM !== false) ||
+			(light.type !== "directional" && light.type !== "spot" && light.type !== "point");
 		const needsDirectionalBudgetSelection = light.type === "directional";
 		const selectedForCSM =
 			!needsDirectionalBudgetSelection ||
@@ -261,27 +267,95 @@ function reconfigureRenderSet(renderSet: ShadowRenderSet, config: ShadowConfig):
 	renderSet.metadataVersion++;
 }
 
+function resolveRequiredSliceCount(
+	light: ShadowCastingLight,
+	config: ShadowConfig
+): number {
+	if (config.strategy !== "csm") {
+		return 1;
+	}
+	const baseCount = Math.max(1, config.cascadeCount ?? 4);
+	switch (light.type) {
+		case "point":
+			return baseCount * 6;
+		case "spot":
+			return baseCount;
+		default:
+			return baseCount;
+	}
+}
+
+function createExtraShadowSlice(
+	index: number,
+	size: number,
+	params: ShadowMap["params"]
+): ShadowSlice {
+	return {
+		index,
+		shadowMap: new ShadowMap(size, params),
+		splitNear: 0,
+		splitFar: 0,
+		atlasRect: null,
+	};
+}
+
+function ensureRenderSetSliceCount(
+	light: ShadowCastingLight,
+	renderSet: ShadowRenderSet,
+	config: ShadowConfig
+): void {
+	const requiredSliceCount = resolveRequiredSliceCount(light, config);
+	if (renderSet.slices.length === requiredSliceCount) {
+		return;
+	}
+
+	if (renderSet.slices.length > requiredSliceCount) {
+		renderSet.slices.length = requiredSliceCount;
+		return;
+	}
+
+	const params = config.params ?? {};
+	const sliceSize =
+		config.strategy === "csm" ?
+			Math.max(1, Math.floor((config.size ?? renderSet.size ?? 1024) / 2))
+		:	Math.max(1, config.size ?? renderSet.size ?? 1024);
+	for (let index = renderSet.slices.length; index < requiredSliceCount; index++) {
+		renderSet.slices.push(createExtraShadowSlice(index, sliceSize, params));
+	}
+}
+
 export function syncShadowMapRegistry(
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
 	activeLights: ShadowCastingLight[]
 ): void {
+	const activeLightSet = new Set(activeLights);
 	for (const [light] of shadowMaps) {
-		if (!activeLights.includes(light)) {
+		if (!activeLightSet.has(light)) {
 			shadowMaps.delete(light);
 		}
 	}
 
 	for (const light of activeLights) {
+		const requestedConfig = light.scene?.shadows.getLegacyShadowConfig(light);
+		if (!requestedConfig) {
+			shadowMaps.delete(light);
+			continue;
+		}
 		const existing = shadowMaps.get(light);
 		if (!existing) {
-			shadowMaps.set(light, createShadowRenderSet(light.shadow));
+			const created = createShadowRenderSet(requestedConfig);
+			ensureRenderSetSliceCount(light, created, requestedConfig);
+			shadowMaps.set(light, created);
 			continue;
 		}
 
-		const next = ensureShadowRenderSetMatchesConfig(existing, light.shadow);
+		const next = ensureShadowRenderSetMatchesConfig(existing, requestedConfig);
 		if (next !== existing) {
 			shadowMaps.set(light, next);
+			ensureRenderSetSliceCount(light, next, requestedConfig);
+			continue;
 		}
+		ensureRenderSetSliceCount(light, existing, requestedConfig);
 	}
 }
 
@@ -291,13 +365,20 @@ export function updateShadowMapMetadata(
 	sceneBounds: SceneBounds,
 	options?: ShadowMetadataUpdateOptions
 ): void {
-	if (!light.shadow) {
+	const requestedConfig = light.scene?.shadows.getLegacyShadowConfig(light);
+	if (!requestedConfig) {
 		resetRenderSetMetadata(renderSet);
 		return;
 	}
 
-	const effectiveConfig = resolveEffectiveConfig(light, renderSet, options);
+	const effectiveConfig = resolveEffectiveConfig(
+		light,
+		renderSet,
+		requestedConfig,
+		options
+	);
 	reconfigureRenderSet(renderSet, effectiveConfig);
+	ensureRenderSetSliceCount(light, renderSet, effectiveConfig);
 
 	const stabilizedSceneBounds: SceneBounds = {
 		center: sceneBounds.center,

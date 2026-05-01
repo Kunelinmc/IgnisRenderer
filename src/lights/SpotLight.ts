@@ -4,7 +4,6 @@ import {
 	LightType,
 	type LightParams,
 } from "./Light";
-import type { ShadowConfig } from "./ShadowMapping";
 
 export interface SpotLightParams extends LightParams {
 	position?: IVector3;
@@ -13,7 +12,6 @@ export interface SpotLightParams extends LightParams {
 	innerAngle?: number;
 	penumbra?: number;
 	range?: number;
-	shadow?: ShadowConfig;
 }
 
 export class SpotLight extends Light<LightType.Spot> {
@@ -33,11 +31,6 @@ export class SpotLight extends Light<LightType.Spot> {
 		this.innerAngle = params.innerAngle;
 		this.penumbra = params.penumbra ?? 0;
 		this.range = params.range ?? 1000;
-		this.shadow = params.shadow ?? {
-			strategy: "single-map",
-			size: 1024,
-		};
-		this.castShadow = params.castShadow ?? true;
 	}
 
 	/**

@@ -9,6 +9,7 @@ import {
 import {
 	LightType,
 	type DirectionalLight,
+	type PointLight,
 	type ShadowCastingLight,
 	type SpotLight,
 } from "../lights";
@@ -62,7 +63,10 @@ export interface ShadowBackendCapabilities {
 	backendKey: string;
 	supportsSingleMap: boolean;
 	supportsDirectionalCSM: boolean;
+	supportsSpotCSM?: boolean;
+	supportsPointCSM?: boolean;
 	maxCsmDirectionalLights: number;
+	maxDynamicShadowCost?: number;
 }
 
 const _tmpCamPos = { x: 0, y: 0, z: 0 };
@@ -505,6 +509,93 @@ function buildDirectionalCascadeSlice(
 	};
 }
 
+function buildSpotCascadeSlices(
+	light: SpotLight,
+	sceneBounds: SceneBounds,
+	config: CSMShadowConfig
+): ShadowSliceDescriptor[] {
+	const baseSlice = buildSpotSingleMapSlice(light, sceneBounds);
+	const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 3));
+	const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
+	const splits = calculatePracticalCascadeSplits(
+		cascadeCount,
+		baseSlice.splitNear,
+		baseSlice.splitFar,
+		lambda
+	);
+	const slices: ShadowSliceDescriptor[] = [];
+	for (let index = 0; index < cascadeCount; index++) {
+		const splitNear = splits[index];
+		const splitFar = splits[index + 1];
+		slices.push({
+			view: baseSlice.view,
+			projection: Matrix4.perspective(
+				light.outerAngle * 2 * (180 / Math.PI),
+				1,
+				splitNear,
+				splitFar
+			),
+			lightDir: baseSlice.lightDir,
+			splitNear,
+			splitFar,
+		});
+	}
+	return slices;
+}
+
+function buildPointCubeCascadeSlices(
+	light: PointLight,
+	sceneBounds: SceneBounds,
+	config: CSMShadowConfig
+): ShadowSliceDescriptor[] {
+	const position = Matrix4.transformPoint(light.worldMatrix, {
+		x: 0,
+		y: 0,
+		z: 0,
+	});
+	const distanceToCenter = Vector3.length(
+		Vector3.sub(position, sceneBounds.center)
+	);
+	const autoFar = distanceToCenter + sceneBounds.radius;
+	const far = Math.max(
+		MIN_SHADOW_FAR,
+		Math.min(Math.max(MIN_SHADOW_FAR, autoFar), Math.max(MIN_SHADOW_FAR, light.range))
+	);
+	const near = MIN_SHADOW_NEAR;
+	const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 2));
+	const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
+	const splits = calculatePracticalCascadeSplits(cascadeCount, near, far, lambda);
+	const faces: Array<{ direction: IVector3; up: IVector3 }> = [
+		{ direction: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } },
+		{ direction: { x: -1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } },
+		{ direction: { x: 0, y: 1, z: 0 }, up: { x: 0, y: 0, z: -1 } },
+		{ direction: { x: 0, y: -1, z: 0 }, up: { x: 0, y: 0, z: 1 } },
+		{ direction: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } },
+		{ direction: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } },
+	];
+	const slices: ShadowSliceDescriptor[] = [];
+	for (let cascadeIndex = 0; cascadeIndex < cascadeCount; cascadeIndex++) {
+		const splitNear = splits[cascadeIndex];
+		const splitFar = splits[cascadeIndex + 1];
+		for (const face of faces) {
+			const target = {
+				x: position.x + face.direction.x,
+				y: position.y + face.direction.y,
+				z: position.z + face.direction.z,
+			};
+			slices.push({
+				view: Matrix4.lookAt(position, target, face.up),
+				projection: Matrix4.perspective(90, 1, splitNear, splitFar),
+				lightDir: face.direction,
+				splitNear,
+				splitFar,
+			});
+		}
+	}
+
+	return slices;
+}
+
 class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 	public readonly type: ShadowStrategyType = "csm";
 
@@ -513,13 +604,20 @@ class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 	}
 
 	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
+		const config = context.config as CSMShadowConfig;
 		if (context.light.type === LightType.Spot) {
-			return [
-				buildSpotSingleMapSlice(
-					context.light as SpotLight,
-					context.sceneBounds
-				),
-			];
+			return buildSpotCascadeSlices(
+				context.light as SpotLight,
+				context.sceneBounds,
+				config
+			);
+		}
+		if (context.light.type === LightType.Point) {
+			return buildPointCubeCascadeSlices(
+				context.light as PointLight,
+				context.sceneBounds,
+				config
+			);
 		}
 		if (context.light.type !== LightType.Directional) {
 			return [
@@ -538,7 +636,6 @@ class CSMShadowStrategyProvider implements IShadowStrategyProvider {
 			];
 		}
 
-		const config = context.config as CSMShadowConfig;
 		const cameraNear = Math.max(0.01, context.camera.near ?? 0.1);
 		const cameraFarLimit =
 			typeof context.camera.far === "number" && Number.isFinite(context.camera.far) ?
@@ -625,10 +722,11 @@ export function getDefaultShadowStrategyRegistry(): ShadowStrategyRegistry {
 }
 
 function resolveShadowPriority(light: ShadowCastingLight): number {
-	if (!light.shadow) {
+	const config = light.scene?.shadows.getLegacyShadowConfig(light);
+	if (!config) {
 		return 0;
 	}
-	const priority = (light.shadow as { priority?: unknown }).priority;
+	const priority = (config as { priority?: unknown }).priority;
 	if (typeof priority !== "number" || !Number.isFinite(priority)) {
 		return 0;
 	}
@@ -637,10 +735,14 @@ function resolveShadowPriority(light: ShadowCastingLight): number {
 
 export function selectCSMDirectionalLights(
 	lights: ShadowCastingLight[],
-	maxCount: number
+	maxCount: number,
+	resolveConfig: (light: ShadowCastingLight) => ShadowConfig | undefined = (light) =>
+		light.scene?.shadows.getLegacyShadowConfig(light)
 ): Set<ShadowCastingLight> {
 	const requested = lights.filter(
-		(light) => light.type === LightType.Directional && light.shadow?.strategy === "csm"
+		(light) =>
+			light.type === LightType.Directional &&
+			resolveConfig(light)?.strategy === "csm"
 	);
 	if (requested.length <= 0 || maxCount <= 0) {
 		return new Set();
