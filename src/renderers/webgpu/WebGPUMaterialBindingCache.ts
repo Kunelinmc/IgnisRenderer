@@ -16,7 +16,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
-	WEBGPU_MODEL_UNIFORM_FLOATS,
+	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	packModelUniformData,
 	type WebGPUMaterialUniformData,
 } from "./";
@@ -260,7 +260,7 @@ export class WebGPUMaterialBindingCache {
 	private _createEntry(cacheKey: string): MaterialBindingEntry {
 		return {
 			uniformBuffer: this._backend.createBuffer({
-				size: WEBGPU_MODEL_UNIFORM_FLOATS * 4,
+				size: WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: `ModelUniform_${cacheKey}`,
 			}),

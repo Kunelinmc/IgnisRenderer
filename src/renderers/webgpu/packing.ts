@@ -2,13 +2,11 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 
 import {
-	WEBGPU_FRAME_UNIFORM_FLOATS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
-	WEBGPU_MODEL_UNIFORM_FLOATS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
@@ -188,14 +186,8 @@ const MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	"uniform"
 );
 
-FRAME_UNIFORM_LAYOUT.assertByteSize(
-	WEBGPU_FRAME_UNIFORM_FLOATS * 4,
-	"FrameUniforms"
-);
-MODEL_UNIFORM_LAYOUT.assertByteSize(
-	WEBGPU_MODEL_UNIFORM_FLOATS * 4,
-	"ModelUniforms"
-);
+export const WEBGPU_FRAME_UNIFORM_BYTE_SIZE = FRAME_UNIFORM_LAYOUT.byteSize;
+export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE = MODEL_UNIFORM_LAYOUT.byteSize;
 
 export function packMatrix4ForWGSL(matrix: Matrix4 | number[][]): Float32Array {
 	const elements = resolveMatrixRows(matrix);
@@ -230,7 +222,7 @@ export function packFrameUniformData(
 	input: WebGPUFrameUniformInput
 ): Float32Array {
 	const writer = FRAME_UNIFORM_LAYOUT.createWriter();
-	writer.expectByteLength(WEBGPU_FRAME_UNIFORM_FLOATS * 4, "FrameUniforms");
+	writer.expectByteLength(WEBGPU_FRAME_UNIFORM_BYTE_SIZE, "FrameUniforms");
 
 	writer.writeMat4("viewProjection", input.viewProjectionMatrix);
 	writer.writeMat4("prevViewProjection", input.prevViewProjectionMatrix);
@@ -585,7 +577,7 @@ export function packModelUniformData(
 	prevModelMatrix: Matrix4 | number[][]
 ): Float32Array {
 	const writer = MODEL_UNIFORM_LAYOUT.createWriter();
-	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_FLOATS * 4, "ModelUniforms");
+	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_BYTE_SIZE, "ModelUniforms");
 
 	writer.writeMat4("modelMatrix", modelMatrix);
 	writer.writeMat4("prevModelMatrix", prevModelMatrix);

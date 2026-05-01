@@ -7,7 +7,7 @@ import type {
 import { BufferUsage } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
-	WEBGPU_FRAME_UNIFORM_FLOATS,
+	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
 	packFrameUniformData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
@@ -315,7 +315,7 @@ export class WebGPUFrameBindingCache {
 	private _getFrameUniformBuffer(): IRenderBuffer {
 		if (!this._frameUniformBuffer) {
 			this._frameUniformBuffer = this._backend.createBuffer({
-				size: WEBGPU_FRAME_UNIFORM_FLOATS * 4,
+				size: WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: "WebGPUFrameUniforms",
 			});
