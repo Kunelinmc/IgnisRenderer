@@ -104,6 +104,7 @@ const tests = [
 	"test_worker_scheduler.mjs",
 	"test_worker_transport_plugins.mjs",
 	"test_light_probe_baker_async.mjs",
+	"test_environment_ibl_update_runtime.mjs",
 ];
 
 function getDefaultJobs() {

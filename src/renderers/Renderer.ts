@@ -36,6 +36,12 @@ import {
 } from "../pipeline/RendererStageGraph";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
+	DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
+	EnvironmentIBLUpdateRuntime,
+	normalizeEnvironmentIBLUpdateOptions,
+	type EnvironmentIBLUpdateOptions,
+} from "../pipeline/EnvironmentIBLUpdateRuntime";
+import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
 } from "../pipeline/environmentMapRuntime";
@@ -82,6 +88,7 @@ export type {
 	IncrementalRenderingOptions,
 	RenderDirtyReason,
 } from "../pipeline/incremental";
+export type { EnvironmentIBLUpdateOptions } from "../pipeline/EnvironmentIBLUpdateRuntime";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
@@ -142,6 +149,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null;
 	private _preparedSceneCache: PreparedSceneCache;
 	private _reflectionProbeCaptureRuntime: ReflectionProbeCaptureRuntime;
+	private _environmentIBLUpdateRuntime: EnvironmentIBLUpdateRuntime;
+	private _environmentIBLUpdateOptions: EnvironmentIBLUpdateOptions;
+	private _environmentIBLUpdateRequestToken: number;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
 	private _allowSkyboxSpecularFallback: boolean;
@@ -169,6 +179,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._preparedSceneCache = new PreparedSceneCache();
 		this._reflectionProbeCaptureRuntime =
 			new ReflectionProbeCaptureRuntime();
+		this._environmentIBLUpdateRuntime = new EnvironmentIBLUpdateRuntime();
+		this._environmentIBLUpdateOptions = {
+			...DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
+		};
+		this._environmentIBLUpdateRequestToken = 0;
 		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 		this._lastKnownSceneVersion = 0;
 		this._allowSkyboxSpecularFallback = true;
@@ -403,6 +418,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._scene = scene;
 		this._lastKnownSceneVersion = scene.version;
 		this._preparedSceneCache.reset();
+		this._environmentIBLUpdateRuntime.reset();
+		this._environmentIBLUpdateRequestToken = 0;
 		if (this._physicsSystem) {
 			this._physicsSystem.setEntityNodeResolver((entityId) => {
 				return this.scene.ecs.getNodeByEntity(entityId);
@@ -480,6 +497,46 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			})),
 			dirtyTiles: this._lastIncrementalFrameStats.dirtyTiles.slice(),
 		};
+	}
+
+	public setEnvironmentIBLUpdateOptions(
+		options: Partial<EnvironmentIBLUpdateOptions>
+	): void {
+		const next = normalizeEnvironmentIBLUpdateOptions({
+			...this._environmentIBLUpdateOptions,
+			...(options ?? {}),
+		});
+		if (
+			next.enabled === this._environmentIBLUpdateOptions.enabled &&
+			next.autoUpdate === this._environmentIBLUpdateOptions.autoUpdate &&
+			next.mipsPerFrame === this._environmentIBLUpdateOptions.mipsPerFrame &&
+			next.temporalBlendFactor ===
+				this._environmentIBLUpdateOptions.temporalBlendFactor &&
+			next.temporalBlendEpsilon ===
+				this._environmentIBLUpdateOptions.temporalBlendEpsilon &&
+			next.acceleration === this._environmentIBLUpdateOptions.acceleration &&
+			next.prefilterMaxSampleWidth ===
+				this._environmentIBLUpdateOptions.prefilterMaxSampleWidth &&
+			next.prefilterMaxSampleHeight ===
+				this._environmentIBLUpdateOptions.prefilterMaxSampleHeight &&
+			next.prefilterMaxMipLevels ===
+				this._environmentIBLUpdateOptions.prefilterMaxMipLevels &&
+			next.resetTemporalHistoryOnComplete ===
+				this._environmentIBLUpdateOptions.resetTemporalHistoryOnComplete
+		) {
+			return;
+		}
+		this._environmentIBLUpdateOptions = next;
+		this._markFrameDirty("environment-ibl");
+	}
+
+	public getEnvironmentIBLUpdateOptions(): EnvironmentIBLUpdateOptions {
+		return { ...this._environmentIBLUpdateOptions };
+	}
+
+	public requestEnvironmentIBLUpdate(): void {
+		this._environmentIBLUpdateRequestToken++;
+		this._markFrameDirty("environment-ibl");
 	}
 
 	public setStageGraph(stages: RendererStageDefinition[]): void {
@@ -774,6 +831,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							scope: "Renderer",
 							onceKey: warning.key,
 						});
+					}
+					break;
+				}
+				case "environment-ibl-update": {
+					const updateResult = this._environmentIBLUpdateRuntime.execute({
+						scene: this.scene,
+						requestToken: this._environmentIBLUpdateRequestToken,
+						options: this._environmentIBLUpdateOptions,
+						webgpuSource:
+							this.backend.type === "webgpu" ?
+								(this.backend as unknown as WebGPUComputeFacadeSource)
+							:	null,
+					});
+					if (updateResult.dirtyReason) {
+						this._markFrameDirty(updateResult.dirtyReason);
 					}
 					break;
 				}
@@ -1218,7 +1290,8 @@ const BACKEND_PASS_STAGES = new Set<string>([
 function createDefaultRendererStages(): RendererStageDefinition[] {
 	return [
 		{ id: "feature-resolution", dependsOn: [] },
-		{ id: "sync-in", dependsOn: ["feature-resolution"] },
+		{ id: "environment-ibl-update", dependsOn: ["feature-resolution"] },
+		{ id: "sync-in", dependsOn: ["environment-ibl-update"] },
 		{
 			id: "animation-sim",
 			dependsOn: ["sync-in"],
