@@ -64,7 +64,7 @@ import {
 	type ShadowBackendCapabilities,
 } from "../../pipeline/ShadowStrategyRegistry";
 import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
-import type { ShadowRenderSet } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
 import { clamp } from "../../maths/Common";

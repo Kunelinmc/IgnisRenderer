@@ -18,7 +18,7 @@ import type {
 	ShadowConfig,
 	ShadowRenderSet,
 	ShadowStrategyType,
-} from "../lights/ShadowMapping";
+} from "../lights/shadows/ShadowMapping";
 
 export interface SceneBounds {
 	center: IVector3;

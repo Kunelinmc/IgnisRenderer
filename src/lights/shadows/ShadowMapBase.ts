@@ -5,7 +5,7 @@ import type {
 	ShadowConfig,
 	ShadowParams,
 	SingleMapShadowConfig,
-} from "../ShadowMapping";
+} from "./ShadowMapping";
 import type {
 	ShadowBiasSettings,
 	ShadowBoundLightType,

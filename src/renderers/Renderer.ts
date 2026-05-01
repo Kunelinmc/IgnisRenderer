@@ -9,7 +9,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import type { ShadowRenderSet } from "../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import {
 	PBR_AMBIENT_FALLBACK_LINEAR,
 } from "../lights/constants";

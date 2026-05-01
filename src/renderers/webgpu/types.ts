@@ -1,9 +1,6 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import type {
-	getPrimaryShadowMap,
-	ShadowStrategyType,
-} from "../../lights/ShadowMapping";
+import type { getPrimaryShadowMap, ShadowStrategyType } from "../../lights/shadows/ShadowMapping";
 import type {
 	BloomOptions,
 	ClusteredLightingOptions,

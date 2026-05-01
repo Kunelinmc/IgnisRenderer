@@ -5,7 +5,7 @@ import {
 	ensureShadowRenderSetMatchesConfig,
 	type ShadowConfig,
 	type ShadowRenderSet,
-} from "../ShadowMapping";
+} from "./ShadowMapping";
 import type { IVector3 } from "../../maths/types";
 import { CSMShadowMap } from "./CSMShadowMap";
 import { ShadowFrameState } from "./ShadowFrameState";

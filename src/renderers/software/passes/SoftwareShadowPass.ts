@@ -10,7 +10,7 @@ import {
 	type ShadowMap,
 	type ShadowParams,
 	type ShadowRenderSet,
-} from "../../../lights/ShadowMapping";
+} from "../../../lights/shadows/ShadowMapping";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
 import {
 	defineTransientKey,

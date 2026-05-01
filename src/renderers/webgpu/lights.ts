@@ -8,7 +8,7 @@ import {
 	type ShadowCastingLight,
 	type SpotLight,
 } from "../../lights";
-import type { ShadowRenderSet } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import {
 	accumulateAmbientLightColor,
 	accumulateLightProbeFallbackAmbientColor,

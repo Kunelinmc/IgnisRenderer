@@ -11,7 +11,7 @@ import {
 	type ShadowMap,
 	type ShadowStrategyType,
 	type ShadowRenderSet,
-} from "../../lights/ShadowMapping";
+} from "../../lights/shadows/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import { collectActiveLocalizedLightProbes } from "../../pipeline/lightProbeRuntime";

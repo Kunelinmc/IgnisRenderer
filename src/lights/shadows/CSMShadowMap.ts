@@ -1,5 +1,5 @@
 import { LightType } from "..";
-import type { ShadowConfig } from "../ShadowMapping";
+import type { ShadowConfig } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import type {
 	ShadowBoundLightType,

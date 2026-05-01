@@ -9,7 +9,7 @@ import {
 	getPrimaryShadowMap,
 	type ShadowMap,
 	type ShadowRenderSet,
-} from "../../lights/ShadowMapping";
+} from "../../lights/shadows/ShadowMapping";
 import type {
 	DrawPacket,
 	FrameContext,

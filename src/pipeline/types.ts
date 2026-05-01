@@ -5,7 +5,7 @@ import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
-import type { ShadowRenderSet } from "../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import type { DirtyRect, IncrementalFrameContext } from "./incremental";
 import type {
 	BoundingSphere,

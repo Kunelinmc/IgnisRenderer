@@ -10,7 +10,7 @@ import {
 	type ShadowSlice,
 	type ShadowConfig,
 	type ShadowRenderSet,
-} from "../lights/ShadowMapping";
+} from "../lights/shadows/ShadowMapping";
 import type { DrawPacket } from "./types";
 import {
 	getDefaultShadowStrategyRegistry,

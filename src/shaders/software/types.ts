@@ -12,7 +12,7 @@ import type { Material } from "../../materials";
 import type { RGB } from "../../foundation/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
 import type { ReflectionProbe } from "../../lights/ReflectionProbe";
-import type { ShadowRenderSet } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 
 export interface ShaderContext {
 	cameraPos: IVector3;

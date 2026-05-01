@@ -24,7 +24,7 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
-import type { ShadowRenderSet } from "../../lights/ShadowMapping";
+import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {

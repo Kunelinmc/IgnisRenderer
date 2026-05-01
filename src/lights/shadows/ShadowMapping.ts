@@ -4,8 +4,8 @@
  * Runtime shadow buffers and sampling logic are implemented inside each backend.
  */
 
-import type { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
+import type { Matrix4 } from "../../maths/Matrix4";
+import type { IVector3 } from "../../maths/types";
 
 export interface ShadowParams {
 	shadowBias?: number;

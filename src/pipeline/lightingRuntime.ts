@@ -3,7 +3,7 @@ import type {
 	ShadowMap,
 	ShadowRenderSet,
 	ShadowStrategyType,
-} from "../lights/ShadowMapping";
+} from "../lights/shadows/ShadowMapping";
 import { clamp, sRGBToLinear } from "../maths/Common";
 import type { Matrix4 } from "../maths/Matrix4";
 
