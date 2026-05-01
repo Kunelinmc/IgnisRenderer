@@ -36,6 +36,7 @@ function run() {
 		enableMotionBlur: false,
 		enableDOF: false,
 		enableBloom: false,
+		enableColorFilter: false,
 		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],
@@ -48,6 +49,7 @@ function run() {
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
+		colorFilterOptions: {},
 		clusteredLightingOptions: {},
 	};
 
@@ -89,6 +91,7 @@ function run() {
 			"dof",
 			"bloom",
 			"tonemap",
+			"color-filter",
 			"fxaa",
 			"gamma",
 		]

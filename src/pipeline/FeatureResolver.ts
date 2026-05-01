@@ -2,6 +2,7 @@ import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_COLOR_FILTER_OPTIONS,
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
 	DEFAULT_FOG_OPTIONS,
@@ -28,6 +29,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	motionBlur: "feature-motion-blur",
 	dof: "feature-dof",
 	bloom: "feature-bloom",
+	colorFilter: "feature-color-filter",
 	clusteredLighting: "feature-clustered-lighting",
 };
 
@@ -46,6 +48,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	motionBlur: "motion blur",
 	dof: "depth of field",
 	bloom: "bloom",
+	colorFilter: "color filter",
 	clusteredLighting: "clustered lighting",
 };
 
@@ -84,6 +87,10 @@ export function resolveFeatureState(
 		dofOptions: {
 			...DEFAULT_DOF_OPTIONS,
 			...(request.dofOptions ?? {}),
+		},
+		colorFilterOptions: {
+			...DEFAULT_COLOR_FILTER_OPTIONS,
+			...(request.colorFilterOptions ?? {}),
 		},
 		clusteredLightingOptions: {
 			...DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
@@ -184,6 +191,13 @@ export function resolveFeatureState(
 			request.enableBloom,
 			capabilities.bloom,
 			"bloom",
+			backendType,
+			warnings
+		),
+		enableColorFilter: resolveBooleanFeature(
+			request.enableColorFilter,
+			capabilities.colorFilter,
+			"colorFilter",
 			backendType,
 			warnings
 		),

@@ -25,6 +25,7 @@ import {
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_COLOR_FILTER_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
 	DEFAULT_FOG_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
@@ -33,6 +34,7 @@ import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 	type DrawPacket,
 	type BloomOptions,
+	type ColorFilterOptions,
 	type DOFOptions,
 	type FogOptions,
 	type FrameContext,
@@ -493,6 +495,11 @@ export class WebGLFrameExecutor {
 						this._programs.getToneMappingProgram();
 					});
 					break;
+				case "postprocess:color-filter":
+					compile("WebGLColorFilterProgram", () => {
+						this._programs.getColorFilterProgram();
+					});
+					break;
 				case "postprocess:interaction-outline":
 					compile("WebGLInteractionOutlineProgram", () => {
 						this._programs.getInteractionOutlineProgram();
@@ -734,23 +741,32 @@ export class WebGLFrameExecutor {
 					this._applyBloom(frameContext.features.bloomOptions);
 				},
 			},
-			{
-				id: "tonemap",
-				dependsOn: ["bloom"],
-				precompileHints: ["postprocess:tonemap"],
-				isEnabled: (features) => features.enableToneMapping !== false,
-				execute: () => {
-					this._applyToneMapping();
+				{
+					id: "tonemap",
+					dependsOn: ["bloom"],
+					precompileHints: ["postprocess:tonemap"],
+					isEnabled: (features) => features.enableToneMapping !== false,
+					execute: () => {
+						this._applyToneMapping();
+					},
 				},
-			},
-			{
-				id: "fxaa",
-				dependsOn: ["tonemap"],
-				precompileHints: ["postprocess:fxaa"],
-				isEnabled: (features) => features.enableFXAA,
-				execute: () => {
-					this._applyFXAA();
+				{
+					id: "color-filter",
+					dependsOn: ["tonemap"],
+					precompileHints: ["postprocess:color-filter"],
+					isEnabled: (features) => features.enableColorFilter,
+					execute: ({ frameContext }) => {
+						this._applyColorFilter(frameContext.features.colorFilterOptions);
+					},
 				},
+				{
+					id: "fxaa",
+					dependsOn: ["color-filter"],
+					precompileHints: ["postprocess:fxaa"],
+					isEnabled: (features) => features.enableFXAA,
+					execute: () => {
+						this._applyFXAA();
+					},
 			},
 			{
 				id: "interaction-outline",
@@ -2084,6 +2100,95 @@ export class WebGLFrameExecutor {
 		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		if (toneMappingProgram.uniforms.sourceMap) {
 			gl.uniform1i(toneMappingProgram.uniforms.sourceMap, 0);
+		}
+		this._drawFullscreenTrianglesWithDirtyScissor(
+			this._width,
+			this._height,
+			this._activeContext
+		);
+		gl.bindVertexArray(null);
+
+		this._presentSourceTexture = targetTexture;
+	}
+
+	private _applyColorFilter(options?: ColorFilterOptions): void {
+		if (
+			!this._postFramebuffer ||
+			!this._sceneColorTexture ||
+			!this._postColorTexture
+		) {
+			return;
+		}
+		if (!this._fullscreenVao) {
+			return;
+		}
+		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
+		if (!sourceTexture) {
+			return;
+		}
+		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
+		if (!targetTexture) {
+			return;
+		}
+
+		const brightness = sanitizeFiniteClamped(
+			options?.brightness,
+			DEFAULT_COLOR_FILTER_OPTIONS.brightness,
+			-1,
+			1
+		);
+		const saturation = sanitizeFiniteClamped(
+			options?.saturation,
+			DEFAULT_COLOR_FILTER_OPTIONS.saturation,
+			0,
+			2
+		);
+		const contrast = sanitizeFiniteClamped(
+			options?.contrast,
+			DEFAULT_COLOR_FILTER_OPTIONS.contrast,
+			0,
+			2
+		);
+		const temperature = sanitizeFiniteClamped(
+			options?.temperature,
+			DEFAULT_COLOR_FILTER_OPTIONS.temperature,
+			-1,
+			1
+		);
+		const tint = sanitizeFiniteClamped(
+			options?.tint,
+			DEFAULT_COLOR_FILTER_OPTIONS.tint,
+			-1,
+			1
+		);
+
+		const gl = this._gl;
+		const program = this._programs.getColorFilterProgram();
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
+		this._bindPostSingleColorTarget(targetTexture);
+		gl.viewport(0, 0, this._width, this._height);
+		gl.useProgram(program.program);
+		gl.bindVertexArray(this._fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+		if (program.uniforms.sourceMap) {
+			gl.uniform1i(program.uniforms.sourceMap, 0);
+		}
+		if (program.uniforms.filterParams0) {
+			gl.uniform4f(
+				program.uniforms.filterParams0,
+				brightness,
+				saturation,
+				contrast,
+				temperature
+			);
+		}
+		if (program.uniforms.filterParams1) {
+			gl.uniform4f(program.uniforms.filterParams1, tint, 0, 0, 0);
 		}
 		this._drawFullscreenTrianglesWithDirtyScissor(
 			this._width,

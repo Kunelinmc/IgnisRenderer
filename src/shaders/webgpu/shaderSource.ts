@@ -36,6 +36,7 @@ type PostProcessShaderPart =
 	| "bloomUpsample"
 	| "bloomComposite"
 	| "toneMapping"
+	| "colorFilter"
 	| "interactionOutline"
 	| "fxaa"
 	| "copy"
@@ -234,6 +235,7 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	bloomUpsample: "./postprocess/bloomUpsample.wgsl",
 	bloomComposite: "./postprocess/bloomComposite.wgsl",
 	toneMapping: "./postprocess/toneMapping.wgsl",
+	colorFilter: "./postprocess/colorFilter.wgsl",
 	interactionOutline: "./postprocess/interactionOutline.wgsl",
 	fxaa: "./postprocess/fxaa.wgsl",
 	copy: "./postprocess/copy.wgsl",

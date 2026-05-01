@@ -14,6 +14,7 @@ export const WEBGPU_POST_PROCESS_PASS_IDS = [
 	"motion-blur",
 	"dof",
 	"bloom",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"tonemap",
@@ -80,6 +81,11 @@ export interface WebGPUPostProcessBloomExecuteRequest
 	passId: "bloom";
 }
 
+export interface WebGPUPostProcessColorFilterExecuteRequest
+	extends WebGPUPostProcessExecuteBaseRequest {
+	passId: "color-filter";
+}
+
 export interface WebGPUPostProcessFXAAExecuteRequest
 	extends WebGPUPostProcessExecuteBaseRequest {
 	passId: "fxaa";
@@ -106,6 +112,7 @@ export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessMotionBlurExecuteRequest
 	| WebGPUPostProcessDOFExecuteRequest
 	| WebGPUPostProcessBloomExecuteRequest
+	| WebGPUPostProcessColorFilterExecuteRequest
 	| WebGPUPostProcessFXAAExecuteRequest
 	| WebGPUPostProcessInteractionOutlineExecuteRequest
 	| WebGPUPostProcessTonemapExecuteRequest;

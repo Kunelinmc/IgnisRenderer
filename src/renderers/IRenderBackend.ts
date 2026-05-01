@@ -66,6 +66,7 @@ export interface BackendCapabilities {
 	motionBlur: boolean;
 	dof: boolean;
 	bloom: boolean;
+	colorFilter: boolean;
 	clusteredLighting: boolean;
 	oit: boolean;
 }

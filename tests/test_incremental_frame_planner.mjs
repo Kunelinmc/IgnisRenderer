@@ -22,6 +22,7 @@ function createFeatures(overrides = {}) {
 		enableMotionBlur: false,
 		enableDOF: false,
 		enableBloom: false,
+		enableColorFilter: false,
 		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],

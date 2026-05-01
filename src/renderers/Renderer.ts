@@ -191,6 +191,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableMotionBlur: false,
 			enableDOF: false,
 			enableBloom: false,
+			enableColorFilter: false,
 			enableFXAA: false,
 			enableClusteredLighting: false,
 			ssrOptions: {},
@@ -202,6 +203,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			bloomOptions: {},
 			motionBlurOptions: {},
 			dofOptions: {},
+			colorFilterOptions: {},
 			clusteredLightingOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
@@ -1114,6 +1116,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return features.enableBloom;
 			case "tonemap":
 				return features.enableToneMapping !== false;
+			case "color-filter":
+				return features.enableColorFilter;
 			case "fxaa":
 				return features.enableFXAA;
 			case "interaction-outline": {
@@ -1205,6 +1209,7 @@ const BACKEND_PASS_STAGES = new Set<string>([
 	"dof",
 	"bloom",
 	"tonemap",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -1254,7 +1259,8 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "dof", dependsOn: ["motion-blur"] },
 		{ id: "bloom", dependsOn: ["dof"] },
 		{ id: "tonemap", dependsOn: ["bloom"] },
-		{ id: "fxaa", dependsOn: ["tonemap"] },
+		{ id: "color-filter", dependsOn: ["tonemap"] },
+		{ id: "fxaa", dependsOn: ["color-filter"] },
 		{ id: "interaction-outline", dependsOn: ["fxaa"] },
 		{ id: "gamma", dependsOn: ["interaction-outline", "tonemap"] },
 		{ id: "sync-out", dependsOn: ["gamma"] },

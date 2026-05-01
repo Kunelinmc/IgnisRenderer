@@ -157,10 +157,11 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	if (context.features.enableMotionBlur) passes.push("motion-blur");
 	if (context.features.enableDOF) passes.push("dof");
 	if (context.features.enableBloom) passes.push("bloom");
-	if (context.features.enableFXAA) passes.push("fxaa");
 	if (context.features.enableToneMapping !== false) {
 		passes.push("tonemap");
 	}
+	if (context.features.enableColorFilter) passes.push("color-filter");
+	if (context.features.enableFXAA) passes.push("fxaa");
 	if (context.features.enableGamma) {
 		passes.push("gamma");
 	}

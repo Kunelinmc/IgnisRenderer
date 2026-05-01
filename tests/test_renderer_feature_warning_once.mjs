@@ -20,6 +20,7 @@ class StubBackend {
 			motionBlur: false,
 			dof: false,
 			bloom: false,
+			colorFilter: false,
 			clusteredLighting: false,
 			oit: false,
 		};

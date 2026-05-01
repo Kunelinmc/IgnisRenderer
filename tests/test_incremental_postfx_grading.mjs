@@ -22,6 +22,7 @@ function createFeatures(overrides = {}) {
 		enableMotionBlur: false,
 		enableDOF: false,
 		enableBloom: false,
+		enableColorFilter: false,
 		enableFXAA: false,
 		enableClusteredLighting: false,
 		warnings: [],
@@ -37,6 +38,10 @@ function testResolvePostProcessGrade() {
 	);
 	assert.equal(
 		resolvePostProcessGrade(createFeatures({ enableToneMapping: true })),
+		"light"
+	);
+	assert.equal(
+		resolvePostProcessGrade(createFeatures({ enableColorFilter: true })),
 		"light"
 	);
 	assert.equal(

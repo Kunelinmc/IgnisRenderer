@@ -31,6 +31,7 @@ export const POST_PROCESS_STAGES = [
 	"dof",
 	"bloom",
 	"tonemap",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"gamma",

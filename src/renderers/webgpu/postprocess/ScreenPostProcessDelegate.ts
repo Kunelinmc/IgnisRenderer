@@ -1,10 +1,12 @@
 import type { FrameContext } from "../../../pipeline/types";
 import {
 	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_COLOR_FILTER_OPTIONS,
 	DEFAULT_DOF_OPTIONS,
 	DEFAULT_FOG_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
+	type ColorFilterOptions,
 	type FogOptions,
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
@@ -76,6 +78,7 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		"motion-blur",
 		"dof",
 		"bloom",
+		"color-filter",
 		"fxaa",
 		"interaction-outline",
 		"tonemap",
@@ -118,6 +121,9 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 	private _fxaaParams: IRenderBuffer | null = null;
 	private _toneMappingModule: IShaderModule | null = null;
 	private _toneMappingPipeline: IComputePipeline | null = null;
+	private _colorFilterModule: IShaderModule | null = null;
+	private _colorFilterPipeline: IComputePipeline | null = null;
+	private _colorFilterParams: IRenderBuffer | null = null;
 	private _interactionOutlineModule: IShaderModule | null = null;
 	private _interactionOutlinePipeline: IComputePipeline | null = null;
 	private _interactionOutlineParams: IRenderBuffer | null = null;
@@ -172,6 +178,10 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		this._fxaaParams = null;
 		this._toneMappingModule = null;
 		this._toneMappingPipeline = null;
+		this._colorFilterModule = null;
+		this._colorFilterPipeline = null;
+		this._colorFilterParams?.destroy();
+		this._colorFilterParams = null;
 		this._interactionOutlineModule = null;
 		this._interactionOutlinePipeline = null;
 		this._interactionOutlineParams?.destroy();
@@ -200,6 +210,9 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 				return true;
 			case "postprocess:tonemap":
 				await this._ensureToneMappingResources();
+				return true;
+			case "postprocess:color-filter":
+				await this._ensureColorFilterResources();
 				return true;
 			default:
 				return false;
@@ -243,6 +256,13 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 				return { ran: true };
 			case "tonemap":
 				await this._executeToneMapping(request.encoder, request.targets);
+				return { ran: true };
+			case "color-filter":
+				await this._executeColorFilter(
+					request.encoder,
+					request.targets,
+					request.frameContext.features.colorFilterOptions
+				);
 				return { ran: true };
 			case "interaction-outline":
 				await this._executeInteractionOutline(
@@ -782,6 +802,84 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		targets.sceneColor = target;
 	}
 
+	private async _executeColorFilter(
+		encoder: ICommandEncoder,
+		targets: WebGPUFrameTargets,
+		options: ColorFilterOptions | undefined
+	): Promise<void> {
+		await this._ensureColorFilterResources();
+		if (
+			!this._shared.sampler ||
+			!this._colorFilterPipeline ||
+			!this._colorFilterParams
+		) {
+			return;
+		}
+		const target =
+			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const brightness = clamp(
+			finiteOr(options?.brightness, DEFAULT_COLOR_FILTER_OPTIONS.brightness),
+			-1,
+			1
+		);
+		const saturation = clamp(
+			finiteOr(options?.saturation, DEFAULT_COLOR_FILTER_OPTIONS.saturation),
+			0,
+			2
+		);
+		const contrast = clamp(
+			finiteOr(options?.contrast, DEFAULT_COLOR_FILTER_OPTIONS.contrast),
+			0,
+			2
+		);
+		const temperature = clamp(
+			finiteOr(options?.temperature, DEFAULT_COLOR_FILTER_OPTIONS.temperature),
+			-1,
+			1
+		);
+		const tint = clamp(
+			finiteOr(options?.tint, DEFAULT_COLOR_FILTER_OPTIONS.tint),
+			-1,
+			1
+		);
+
+		this._shared.compute.writeBuffer(
+			this._colorFilterParams,
+			new Float32Array([
+				brightness,
+				saturation,
+				contrast,
+				temperature,
+				tint,
+				0,
+				0,
+				0,
+			])
+		);
+
+		const binding = this._shared.getCachedBindGroup(
+			`color-filter-${target === targets.postPing ? "ping" : "pong"}`,
+			this._colorFilterPipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: this._shared.sampler },
+				{ binding: 2, resource: this._colorFilterParams },
+				{ binding: 3, resource: target },
+			],
+			"WebGPUColorFilter_Binding"
+		);
+		encoder.beginComputePass({ label: "WebGPUColorFilter" });
+		encoder.setComputePipeline(this._colorFilterPipeline);
+		encoder.setBindingGroup(0, binding);
+		encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WORKGROUP_SIZE),
+			ceilDiv(target.height, WORKGROUP_SIZE),
+			1
+		);
+		encoder.endComputePass();
+		targets.sceneColor = target;
+	}
+
 	private async _executeInteractionOutline(
 		request: WebGPUPostProcessInteractionOutlineExecuteRequest
 	): Promise<void> {
@@ -1286,6 +1384,34 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 			this._toneMappingPipeline = this._shared.compute.createComputePipeline({
 				label: "WebGPUToneMappingPipeline",
 				compute: { module: this._toneMappingModule, entryPoint: "csMain" },
+			});
+		}
+	}
+
+	private async _ensureColorFilterResources(): Promise<void> {
+		await this._shared.ensureCommonResources();
+		if (!this._colorFilterModule) {
+			const shader = await loadPostProcessShaderPartComposite("colorFilter");
+			this._colorFilterModule = await this._shared.compute.createShaderModule({
+				label: "WebGPUColorFilterShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!this._colorFilterPipeline) {
+			this._colorFilterPipeline = this._shared.compute.createComputePipeline({
+				label: "WebGPUColorFilterPipeline",
+				compute: { module: this._colorFilterModule, entryPoint: "csMain" },
+			});
+		}
+		if (!this._colorFilterParams) {
+			this._colorFilterParams = this._shared.compute.createBuffer({
+				label: "WebGPUColorFilterParams",
+				size: 8 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
 	}

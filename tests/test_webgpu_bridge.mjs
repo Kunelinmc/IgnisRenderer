@@ -251,19 +251,22 @@ function testFeatureGate() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
-			ssao: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
-			motionBlur: false,
-			dof: false,
-			bloom: false,
-			clusteredLighting: false,
-		},
-		"webgpu"
-	);
+				skybox: false,
+				ssao: false,
+				ssgi: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				colorFilter: false,
+				clusteredLighting: false,
+				oit: false,
+			},
+			"webgpu"
+		);
 
 	assert.equal(featureState.enableLighting, true);
 	assert.equal(featureState.enableGamma, true);
@@ -274,9 +277,10 @@ function testFeatureGate() {
 	assert.equal(featureState.enableSkybox, false);
 	assert.equal(featureState.enableSSAO, false);
 	assert.equal(featureState.enableTAA, false);
-	assert.equal(featureState.enableSSR, false);
-	assert.equal(featureState.enableVolumetric, false);
-	assert.equal(featureState.enableBloom, false);
+		assert.equal(featureState.enableSSR, false);
+		assert.equal(featureState.enableVolumetric, false);
+		assert.equal(featureState.enableBloom, false);
+		assert.equal(featureState.enableColorFilter, false);
 	assert.ok(featureState.ssaoOptions);
 	assert.ok(featureState.taaOptions);
 	assert.ok(featureState.ssrOptions);

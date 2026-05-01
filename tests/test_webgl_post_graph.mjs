@@ -19,6 +19,7 @@ function createFeatures(overrides = {}) {
 		enableMotionBlur: true,
 		enableDOF: true,
 		enableBloom: true,
+		enableColorFilter: true,
 		enableFXAA: true,
 		enableClusteredLighting: true,
 		warnings: [],
@@ -33,6 +34,7 @@ function createFeatures(overrides = {}) {
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
+		colorFilterOptions: {},
 		clusteredLightingOptions: {},
 		...overrides,
 	};
@@ -76,7 +78,8 @@ function testExecutionOrder() {
 			},
 			execute() {},
 		},
-		createPass("fxaa", ["tonemap"], "enableFXAA"),
+		createPass("color-filter", ["tonemap"], "enableColorFilter"),
+		createPass("fxaa", ["color-filter"], "enableFXAA"),
 		createPass("gamma", ["tonemap"], "enableGamma"),
 	]);
 	const warnings = [];
@@ -94,6 +97,7 @@ function testExecutionOrder() {
 			"dof",
 			"bloom",
 			"tonemap",
+			"color-filter",
 			"fxaa",
 			"gamma",
 		]

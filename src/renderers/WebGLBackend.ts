@@ -50,6 +50,7 @@ const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"motion-blur",
 	"dof",
 	"tonemap",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"taa",
@@ -89,6 +90,7 @@ export class WebGLBackend implements IRenderBackend {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
 	};
@@ -407,6 +409,9 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		if (context.features.enableToneMapping !== false) {
 			this._plannedPasses.add("tonemap");
+		}
+		if (context.features.enableColorFilter) {
+			this._plannedPasses.add("color-filter");
 		}
 		if (context.features.enableFXAA) {
 			this._plannedPasses.add("fxaa");

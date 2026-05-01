@@ -23,6 +23,7 @@ function run() {
 		motionBlur: false,
 		dof: false,
 		bloom: false,
+		colorFilter: true,
 		clusteredLighting: false,
 		oit: false,
 	});
@@ -41,6 +42,7 @@ function run() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
 	});
@@ -59,6 +61,7 @@ function run() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
 	});

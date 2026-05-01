@@ -304,6 +304,7 @@ export class WebGPUBackend implements IRenderBackend {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
 	};
@@ -2503,6 +2504,9 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (context.features.enableToneMapping !== false) {
 			this._plannedPasses.add("tonemap");
+		}
+		if (context.features.enableColorFilter) {
+			this._plannedPasses.add("color-filter");
 		}
 		if (context.features.enableFXAA) {
 			this._plannedPasses.add("fxaa");

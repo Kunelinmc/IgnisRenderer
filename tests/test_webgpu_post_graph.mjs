@@ -18,6 +18,7 @@ function createFeatures(overrides = {}) {
 		enableMotionBlur: true,
 		enableDOF: true,
 		enableBloom: true,
+		enableColorFilter: true,
 		enableFXAA: true,
 		warnings: [],
 		ssrOptions: {},
@@ -31,6 +32,7 @@ function createFeatures(overrides = {}) {
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
+		colorFilterOptions: {},
 		...overrides,
 	};
 }
@@ -69,7 +71,8 @@ function testPostGraphOrder() {
 		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
-		createPass("fxaa", ["bloom"], "enableFXAA"),
+		createPass("color-filter", ["bloom"], "enableColorFilter"),
+		createPass("fxaa", ["color-filter"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
 	const warnings = [];
@@ -89,6 +92,7 @@ function testPostGraphOrder() {
 			"motion-blur",
 			"dof",
 			"bloom",
+			"color-filter",
 			"fxaa",
 			"gamma",
 		]
@@ -118,7 +122,8 @@ function testEnabledSubsetShrinksDependencyChain() {
 		createPass("motion-blur", ["fog"], "enableMotionBlur"),
 		createPass("dof", ["motion-blur"], "enableDOF"),
 		createPass("bloom", ["dof"], "enableBloom"),
-		createPass("fxaa", ["bloom"], "enableFXAA"),
+		createPass("color-filter", ["bloom"], "enableColorFilter"),
+		createPass("fxaa", ["color-filter"], "enableFXAA"),
 		createPass("gamma", ["fxaa"], "enableGamma"),
 	]);
 
@@ -133,6 +138,7 @@ function testEnabledSubsetShrinksDependencyChain() {
 			enableMotionBlur: false,
 			enableDOF: false,
 			enableBloom: false,
+			enableColorFilter: false,
 			enableFXAA: false,
 			enableGamma: true,
 		}),

@@ -196,6 +196,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"dof",
 	"bloom",
 	"tonemap",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -229,7 +230,8 @@ export const FRAME_PASS_DEPENDENCIES = new Map<
 	["dof", ["motion-blur"]],
 	["bloom", ["dof"]],
 	["tonemap", ["bloom"]],
-	["fxaa", ["tonemap"]],
+	["color-filter", ["tonemap"]],
+	["fxaa", ["color-filter"]],
 	["interaction-outline", ["fxaa"]],
 	["gamma", ["tonemap"]],
 ]);
@@ -341,6 +343,15 @@ export interface DOFOptions {
 	highlightThreshold?: number;
 	highlightGain?: number;
 	chromaticAberration?: number;
+	[key: string]: unknown;
+}
+
+export interface ColorFilterOptions {
+	brightness?: number;
+	saturation?: number;
+	contrast?: number;
+	temperature?: number;
+	tint?: number;
 	[key: string]: unknown;
 }
 
@@ -546,6 +557,19 @@ export const DEFAULT_DOF_OPTIONS: Required<
 	chromaticAberration: 0.2,
 };
 
+export const DEFAULT_COLOR_FILTER_OPTIONS: Required<
+	Pick<
+		ColorFilterOptions,
+		"brightness" | "saturation" | "contrast" | "temperature" | "tint"
+	>
+> = {
+	brightness: 0,
+	saturation: 1,
+	contrast: 1,
+	temperature: 0,
+	tint: 0,
+};
+
 export const DEFAULT_CLUSTERED_LIGHTING_OPTIONS: Required<
 	Pick<
 		ClusteredLightingOptions,
@@ -581,6 +605,7 @@ export interface RendererFeatureRequest {
 	enableMotionBlur?: boolean;
 	enableDOF?: boolean;
 	enableBloom?: boolean;
+	enableColorFilter?: boolean;
 	enableFXAA?: boolean;
 	enableClusteredLighting?: boolean;
 	ssrOptions?: SSROptions;
@@ -592,6 +617,7 @@ export interface RendererFeatureRequest {
 	bloomOptions?: BloomOptions;
 	motionBlurOptions?: MotionBlurOptions;
 	dofOptions?: DOFOptions;
+	colorFilterOptions?: ColorFilterOptions;
 	clusteredLightingOptions?: ClusteredLightingOptions;
 }
 

@@ -252,6 +252,7 @@ async function testInitAndPassRouting() {
 		motionBlur: true,
 		dof: true,
 		bloom: true,
+		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
 	});
@@ -375,6 +376,7 @@ function createDependencyContext() {
 			enableMotionBlur: true,
 			enableDOF: true,
 			enableBloom: false,
+			enableColorFilter: false,
 			enableFXAA: false,
 			enableClusteredLighting: true,
 			warnings: [],

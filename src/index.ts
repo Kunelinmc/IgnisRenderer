@@ -64,6 +64,7 @@ export type {
 	TAAOptions,
 	MotionBlurOptions,
 	DOFOptions,
+	ColorFilterOptions,
 	FogOptions,
 	VolumetricOptions,
 } from "./pipeline/types";

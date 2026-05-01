@@ -71,6 +71,7 @@ export class SoftwareBackend implements IRenderBackend {
 		motionBlur: false,
 		dof: false,
 		bloom: false,
+		colorFilter: true,
 		clusteredLighting: false,
 		oit: false,
 	};
@@ -574,6 +575,12 @@ export class SoftwareBackend implements IRenderBackend {
 						return;
 					}
 					this._postProcessor?.applyGamma(context, this._ctx);
+				},
+			],
+			[
+				"color-filter",
+				(context) => {
+					this._postProcessor?.applyColorFilter(context);
 				},
 			],
 		]);

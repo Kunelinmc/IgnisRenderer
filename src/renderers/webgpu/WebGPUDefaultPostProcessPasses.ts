@@ -181,12 +181,27 @@ export function createWebGPUDefaultPostProcessPasses(
 		{
 			id: "fxaa",
 			kind: "compute",
-			dependsOn: ["tonemap"],
+			dependsOn: ["color-filter"],
 			precompileHints: ["postprocess:fxaa"],
 			isEnabled: (features) => features.enableFXAA,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "fxaa",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "color-filter",
+			kind: "compute",
+			dependsOn: ["tonemap"],
+			precompileHints: ["postprocess:color-filter"],
+			isEnabled: (features) => features.enableColorFilter,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "color-filter",
 					encoder: ctx.encoder,
 					targets: ctx.targets,
 					frameContext: ctx.frameContext,

@@ -23,6 +23,7 @@ function createFeatures(overrides = {}) {
 		enableMotionBlur: true,
 		enableDOF: true,
 		enableBloom: true,
+		enableColorFilter: true,
 		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],
@@ -37,6 +38,7 @@ function createFeatures(overrides = {}) {
 		bloomOptions: {},
 		motionBlurOptions: {},
 		dofOptions: {},
+		colorFilterOptions: {},
 		...overrides,
 	};
 }
@@ -139,6 +141,7 @@ function testDefaultPassGraphOrder() {
 			"dof",
 			"bloom",
 			"tonemap",
+			"color-filter",
 			"fxaa",
 			"interaction-outline",
 			"gamma",
@@ -167,13 +170,14 @@ function testDefaultPassGraphOrder() {
 			enableMotionBlur: false,
 			enableDOF: false,
 			enableBloom: false,
+			enableColorFilter: true,
 			enableFXAA: true,
 		}),
 		() => {}
 	);
 	assert.deepEqual(
 		fxaaOnlyOrder.map((pass) => pass.id),
-		["tonemap", "fxaa", "interaction-outline"]
+		["tonemap", "color-filter", "fxaa", "interaction-outline"]
 	);
 
 	const tonemapDisabledOrder = graph.getExecutionOrder(

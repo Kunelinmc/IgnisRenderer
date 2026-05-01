@@ -130,6 +130,7 @@ const FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"dof",
 	"bloom",
 	"tonemap",
+	"color-filter",
 	"fxaa",
 	"interaction-outline",
 	"gamma",
@@ -152,6 +153,7 @@ type PostProcessStage = Extract<
 	| "dof"
 	| "bloom"
 	| "tonemap"
+	| "color-filter"
 	| "fxaa"
 	| "gamma"
 >;
@@ -168,6 +170,7 @@ type PostProcessFeatureFlag = keyof Pick<
 	| "enableDOF"
 	| "enableBloom"
 	| "enableToneMapping"
+	| "enableColorFilter"
 	| "enableFXAA"
 	| "enableGamma"
 >;
@@ -185,6 +188,7 @@ const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
 	["dof", "enableDOF"],
 	["bloom", "enableBloom"],
 	["tonemap", "enableToneMapping"],
+	["color-filter", "enableColorFilter"],
 	["fxaa", "enableFXAA"],
 	["gamma", "enableGamma"],
 ];
@@ -644,6 +648,7 @@ export function computePostProcessInflationRadius(
 	if (features.enableMotionBlur) radius = Math.max(radius, 24);
 	if (features.enableDOF) radius = Math.max(radius, 32);
 	if (features.enableBloom) radius = Math.max(radius, 48);
+	if (features.enableColorFilter) radius = Math.max(radius, 2);
 	if (features.enableFXAA) radius = Math.max(radius, 2);
 	return radius;
 }
@@ -666,6 +671,7 @@ export function resolvePostProcessGrade(
 	}
 	if (
 		features.enableToneMapping ||
+		features.enableColorFilter ||
 		features.enableFXAA ||
 		features.enableGamma
 	) {

@@ -304,6 +304,15 @@ export interface WebGLToneMappingProgram {
 	};
 }
 
+export interface WebGLColorFilterProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sourceMap: WebGLUniformLocation | null;
+		filterParams0: WebGLUniformLocation | null;
+		filterParams1: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLInteractionOutlineProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -372,6 +381,7 @@ export class WebGLProgramLibrary {
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _toneMappingProgram: WebGLToneMappingProgram | null = null;
+	private _colorFilterProgram: WebGLColorFilterProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
 	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null = null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
@@ -1009,6 +1019,26 @@ export class WebGLProgramLibrary {
 		return this._interactionOutlineProgram;
 	}
 
+	public getColorFilterProgram(): WebGLColorFilterProgram {
+		if (this._colorFilterProgram) {
+			return this._colorFilterProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("colorFilterFragment"),
+			"WebGLColorFilterProgram",
+		);
+		this._colorFilterProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				filterParams0: this._gl.getUniformLocation(program, "uFilterParams0"),
+				filterParams1: this._gl.getUniformLocation(program, "uFilterParams1"),
+			},
+		};
+		return this._colorFilterProgram;
+	}
+
 	public getBloomProgram(): WebGLBloomProgram {
 		if (this._bloomProgram) {
 			return this._bloomProgram;
@@ -1541,6 +1571,10 @@ export class WebGLProgramLibrary {
 		if (this._toneMappingProgram) {
 			this._gl.deleteProgram(this._toneMappingProgram.program);
 			this._toneMappingProgram = null;
+		}
+		if (this._colorFilterProgram) {
+			this._gl.deleteProgram(this._colorFilterProgram.program);
+			this._colorFilterProgram = null;
 		}
 		if (this._interactionOutlineProgram) {
 			this._gl.deleteProgram(this._interactionOutlineProgram.program);
