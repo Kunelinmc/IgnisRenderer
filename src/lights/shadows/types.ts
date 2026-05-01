@@ -124,8 +124,19 @@ export interface ShadowStrategyCamera {
 	far?: number;
 	fov?: number;
 	aspectRatio?: number;
+	size?: number;
+	left?: number | null;
+	right?: number | null;
+	bottom?: number | null;
+	top?: number | null;
 	up?: IVector3;
 	position?: IVector3;
+	getBounds?: () => {
+		left: number;
+		right: number;
+		bottom: number;
+		top: number;
+	};
 	getWorldPosition?: (target?: IVector3) => IVector3;
 	getWorldDirection?: (localDirection: IVector3, target?: IVector3) => IVector3;
 }

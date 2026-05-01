@@ -176,8 +176,8 @@ const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgl",
 	supportsSingleMap: true,
 	supportsDirectionalCSM: true,
-	supportsSpotCSM: true,
-	supportsPointCSM: true,
+	supportsSpotCSM: false,
+	supportsPointCSM: false,
 	maxCsmDirectionalLights: 1,
 	maxDynamicShadowCost: 24,
 };
@@ -850,8 +850,7 @@ export class WebGLFrameExecutor {
 
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			context.scene.shadowCasterPackets,
-			context.scene.sceneBounds,
-			context.scene.camera
+			context.scene.sceneBounds
 		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,

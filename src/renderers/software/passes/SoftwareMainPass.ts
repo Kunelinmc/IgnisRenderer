@@ -50,7 +50,8 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 	const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 	const sampleShadow = createSoftwareShadowSampler(
 		context.shadowMaps,
-		runtimeMap
+		runtimeMap,
+		{ camera: context.camera }
 	);
 
 	return {

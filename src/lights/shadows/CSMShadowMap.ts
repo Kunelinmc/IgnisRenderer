@@ -132,7 +132,7 @@ export class CSMShadowMap extends ShadowMapBase {
 				)
 			:	cameraFarLimit;
 
-		const cascadeCount = Math.max(2, Math.min(4, config.cascadeCount ?? 4));
+		const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 4));
 		const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
 		const splits = CSMShadowMap.calculatePracticalCascadeSplits(
 			cascadeCount,
@@ -170,7 +170,8 @@ export class CSMShadowMap extends ShadowMapBase {
 					shadowMapSize,
 					stabilize,
 					splitNear,
-					splitFar
+					splitFar,
+					context.sceneBounds
 				)
 			);
 		}
@@ -354,6 +355,37 @@ export class CSMShadowMap extends ShadowMapBase {
 		const right = Vector3.normalize(Vector3.cross(forward, upVector));
 		const up = Vector3.normalize(Vector3.cross(right, forward));
 
+		if (camera.type === "orthographic") {
+			const bounds = CSMShadowMap.resolveOrthographicBounds(camera, aspect);
+			const nearCenter = Vector3.add(
+				cameraPosition,
+				Vector3.scale(forward, splitNear)
+			);
+			const farCenter = Vector3.add(
+				cameraPosition,
+				Vector3.scale(forward, splitFar)
+			);
+			const left = Vector3.scale(right, bounds.left);
+			const rightOffset = Vector3.scale(right, bounds.right);
+			const top = Vector3.scale(up, bounds.top);
+			const bottom = Vector3.scale(up, bounds.bottom);
+			const corners: IVector3[] = [
+				Vector3.add(Vector3.add(nearCenter, left), top),
+				Vector3.add(Vector3.add(nearCenter, rightOffset), top),
+				Vector3.add(Vector3.add(nearCenter, left), bottom),
+				Vector3.add(Vector3.add(nearCenter, rightOffset), bottom),
+				Vector3.add(Vector3.add(farCenter, left), top),
+				Vector3.add(Vector3.add(farCenter, rightOffset), top),
+				Vector3.add(Vector3.add(farCenter, left), bottom),
+				Vector3.add(Vector3.add(farCenter, rightOffset), bottom),
+			];
+
+			for (let index = 0; index < corners.length; index++) {
+				output[index] = corners[index];
+			}
+			return true;
+		}
+
 		const halfTan = Math.tan((fov * Math.PI) / 360);
 		const nearHalfHeight = splitNear * halfTan;
 		const nearHalfWidth = nearHalfHeight * aspect;
@@ -388,13 +420,61 @@ export class CSMShadowMap extends ShadowMapBase {
 		return true;
 	}
 
+	private static resolveOrthographicBounds(
+		camera: ShadowStrategyCamera,
+		aspect: number
+	): {
+		left: number;
+		right: number;
+		bottom: number;
+		top: number;
+	} {
+		if (typeof camera.getBounds === "function") {
+			const bounds = camera.getBounds();
+			if (
+				Number.isFinite(bounds.left) &&
+				Number.isFinite(bounds.right) &&
+				Number.isFinite(bounds.bottom) &&
+				Number.isFinite(bounds.top)
+			) {
+				return bounds;
+			}
+		}
+
+		const size =
+			typeof camera.size === "number" && Number.isFinite(camera.size) ?
+				Math.max(0.001, camera.size)
+			:	100;
+		const halfHeight = size * 0.5;
+		const halfWidth = halfHeight * aspect;
+		return {
+			left:
+				typeof camera.left === "number" && Number.isFinite(camera.left) ?
+					camera.left
+				:	-halfWidth,
+			right:
+				typeof camera.right === "number" && Number.isFinite(camera.right) ?
+					camera.right
+				:	halfWidth,
+			bottom:
+				typeof camera.bottom === "number" && Number.isFinite(camera.bottom) ?
+					camera.bottom
+				:	-halfHeight,
+			top:
+				typeof camera.top === "number" && Number.isFinite(camera.top) ?
+					camera.top
+				:	halfHeight,
+		};
+	}
+
 	private static buildDirectionalCascadeSlice(
 		lightDir: IVector3,
 		cascadeCorners: IVector3[],
 		shadowMapSize: number,
 		stabilize: boolean,
 		splitNear: number,
-		splitFar: number
+		splitFar: number,
+		sceneBounds?: SceneBounds
 	): ShadowSliceDescriptor {
 		let centerX = 0;
 		let centerY = 0;
@@ -453,10 +533,29 @@ export class CSMShadowMap extends ShadowMapBase {
 				centerZ += lightRight.z * deltaX + lightUp.z * deltaY;
 			}
 		}
+		let lightDistance = radius * 2;
+		if (
+			sceneBounds &&
+			Number.isFinite(sceneBounds.radius) &&
+			sceneBounds.radius > 0
+		) {
+			const dx = sceneBounds.center.x - centerX;
+			const dy = sceneBounds.center.y - centerY;
+			const dz = sceneBounds.center.z - centerZ;
+			const upstreamDistance =
+				-(dx * lightDir.x + dy * lightDir.y + dz * lightDir.z) +
+				sceneBounds.radius;
+			if (Number.isFinite(upstreamDistance) && upstreamDistance > 0) {
+				lightDistance = Math.max(
+					lightDistance,
+					upstreamDistance + MIN_SHADOW_NEAR + SHADOW_NEAR_FAR_GAP
+				);
+			}
+		}
 		const lightPosition = {
-			x: centerX - lightDir.x * (radius * 2),
-			y: centerY - lightDir.y * (radius * 2),
-			z: centerZ - lightDir.z * (radius * 2),
+			x: centerX - lightDir.x * lightDistance,
+			y: centerY - lightDir.y * lightDistance,
+			z: centerZ - lightDir.z * lightDistance,
 		};
 		const center = { x: centerX, y: centerY, z: centerZ };
 		const view = Matrix4.lookAt(
@@ -479,6 +578,15 @@ export class CSMShadowMap extends ShadowMapBase {
 			maxY = Math.max(maxY, lightSpace.y);
 			minZ = Math.min(minZ, lightSpace.z);
 			maxZ = Math.max(maxZ, lightSpace.z);
+		}
+		if (
+			sceneBounds &&
+			Number.isFinite(sceneBounds.radius) &&
+			sceneBounds.radius > 0
+		) {
+			const lightSpaceCenter = Matrix4.transformPoint(view, sceneBounds.center);
+			minZ = Math.min(minZ, lightSpaceCenter.z - sceneBounds.radius);
+			maxZ = Math.max(maxZ, lightSpaceCenter.z + sceneBounds.radius);
 		}
 
 		let spanForPadding = 0;

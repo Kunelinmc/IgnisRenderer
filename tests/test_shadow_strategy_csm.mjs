@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Scene } from "../src/core/Scene.ts";
 import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import {
@@ -59,11 +60,12 @@ function createDirectionalCSMLight({
 	blendRatio = 0.1,
 	cascadeCount = 4,
 	stabilize = true,
+	direction = { x: 0, y: -1, z: -0.3 },
 } = {}) {
 	const scene = new Scene();
 	const light = new DirectionalLight({
 		intensity,
-		direction: { x: 0, y: -1, z: -0.3 },
+		direction,
 	});
 	scene.add(light);
 	const shadowMap = scene.shadows.createCSM({
@@ -79,6 +81,25 @@ function createDirectionalCSMLight({
 	});
 	scene.shadows.bind(light, shadowMap);
 	return light;
+}
+
+function createOrthographicCamera(overrides = {}) {
+	const camera = createCamera(overrides);
+	const bounds = overrides.bounds ?? {
+		left: -12,
+		right: 12,
+		bottom: -6,
+		top: 6,
+	};
+	return {
+		...camera,
+		type: "orthographic",
+		fov: overrides.fov ?? 60,
+		size: overrides.size ?? 12,
+		getBounds() {
+			return bounds;
+		},
+	};
 }
 
 function createSpotCSMLight({
@@ -172,6 +193,25 @@ function testLambdaBoundarySplits() {
 	assert.ok(logSet.slices[0].splitFar < uniformSet.slices[0].splitFar);
 }
 
+function testDirectionalCSMSingleCascadeCoversMaxDistance() {
+	const camera = createCamera({ near: 0.2, far: 120 });
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 1,
+	});
+	const renderSet = createRenderSetForBoundLight(light);
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(120), {
+		camera,
+	});
+
+	assert.equal(renderSet.effectiveStrategyType, "csm");
+	assert.equal(renderSet.slices.length, 1);
+	assert.ok(Math.abs(renderSet.slices[0].splitNear - 0.2) < 1e-6);
+	assert.ok(Math.abs(renderSet.slices[0].splitFar - 80) < 1e-6);
+}
+
 function readCascadeOrthoSpan(slice) {
 	const projection = slice.shadowMap.projectionMatrix;
 	assert.ok(projection);
@@ -212,6 +252,67 @@ function testCSMStabilizedExtentIsCameraRotationInvariant() {
 			`Cascade ${index} height should be stable across camera rotation`
 		);
 	}
+}
+
+function testOrthographicCSMUsesOrthoBoundsInsteadOfFov() {
+	const light = createDirectionalCSMLight({
+		lambda: 0.65,
+		maxDistance: 80,
+		cascadeCount: 4,
+	});
+	const cameraA = createOrthographicCamera({
+		near: 0.1,
+		far: 100,
+		fov: 30,
+	});
+	const cameraB = createOrthographicCamera({
+		near: 0.1,
+		far: 100,
+		fov: 120,
+	});
+	const bounds = createSceneBounds(120);
+	const renderSetA = createRenderSetForBoundLight(light);
+	const renderSetB = createRenderSetForBoundLight(light);
+
+	updateShadowMapMetadata(renderSetA, light, bounds, { camera: cameraA });
+	updateShadowMapMetadata(renderSetB, light, bounds, { camera: cameraB });
+
+	for (let index = 0; index < renderSetA.slices.length; index++) {
+		const spanA = readCascadeOrthoSpan(renderSetA.slices[index]);
+		const spanB = readCascadeOrthoSpan(renderSetB.slices[index]);
+		assert.ok(Math.abs(spanA.width - spanB.width) < 1e-6);
+		assert.ok(Math.abs(spanA.height - spanB.height) < 1e-6);
+	}
+}
+
+function testDirectionalCSMDepthIncludesCasterBounds() {
+	const camera = createCamera({
+		near: 0.1,
+		far: 20,
+		aspectRatio: 1,
+	});
+	const light = createDirectionalCSMLight({
+		cascadeCount: 1,
+		maxDistance: 20,
+		stabilize: false,
+		direction: { x: 0, y: -1, z: 0 },
+	});
+	const renderSet = createRenderSetForBoundLight(light);
+	const casterBounds = {
+		center: { x: 0, y: 80, z: -8 },
+		radius: 2,
+	};
+
+	updateShadowMapMetadata(renderSet, light, casterBounds, { camera });
+
+	const viewProjection = renderSet.slices[0].shadowMap.viewProjectionMatrix;
+	assert.ok(viewProjection);
+	const clip = Matrix4.transformPoint(viewProjection, casterBounds.center);
+	const ndcZ = clip.z / clip.w;
+	assert.ok(
+		ndcZ >= -1 && ndcZ <= 1,
+		`Caster bounds should be inside CSM depth range, got ndcZ=${ndcZ}`
+	);
 }
 
 function distanceToNearestInteger(value) {
@@ -357,6 +458,51 @@ function testBackendFallbackToSingleMap() {
 	assert.ok(warnings[0].key.includes(`webgl-${light.id}`));
 }
 
+function testUnsupportedPositionalCSMFallbackToSingleMap() {
+	const spotLight = createSpotCSMLight();
+	const spotRenderSet = createRenderSetForBoundLight(spotLight);
+	updateShadowMapMetadata(spotRenderSet, spotLight, createSceneBounds(60), {
+		backendCapabilities: {
+			backendKey: "webgpu",
+			supportsSingleMap: true,
+			supportsDirectionalCSM: true,
+			supportsSpotCSM: false,
+			supportsPointCSM: false,
+			maxCsmDirectionalLights: 1,
+		},
+	});
+	assert.equal(spotRenderSet.requestedStrategyType, "csm");
+	assert.equal(spotRenderSet.effectiveStrategyType, "single-map");
+	assert.equal(spotRenderSet.slices.length, 1);
+
+	const scene = new Scene();
+	const pointLight = new PointLight({ range: 80 });
+	scene.add(pointLight);
+	scene.shadows.bind(
+		pointLight,
+		scene.shadows.createCSM({
+			size: 1024,
+			cascadeCounts: {
+				point: 2,
+			},
+		})
+	);
+	const pointRenderSet = createRenderSetForBoundLight(pointLight);
+	updateShadowMapMetadata(pointRenderSet, pointLight, createSceneBounds(60), {
+		backendCapabilities: {
+			backendKey: "webgpu",
+			supportsSingleMap: true,
+			supportsDirectionalCSM: true,
+			supportsSpotCSM: false,
+			supportsPointCSM: false,
+			maxCsmDirectionalLights: 1,
+		},
+	});
+	assert.equal(pointRenderSet.requestedStrategyType, "csm");
+	assert.equal(pointRenderSet.effectiveStrategyType, "single-map");
+	assert.equal(pointRenderSet.slices.length, 1);
+}
+
 function testCSMSelectionPriority() {
 	const lightA = createDirectionalCSMLight({ priority: 1, intensity: 10 });
 	const lightB = createDirectionalCSMLight({ priority: 3, intensity: 1 });
@@ -445,11 +591,15 @@ function testAreaLightSingleMapUsesSceneShadowBinding() {
 function run() {
 	testCSMSplitsMonotonicAndCovered();
 	testLambdaBoundarySplits();
+	testDirectionalCSMSingleCascadeCoversMaxDistance();
 	testCSMStabilizedExtentIsCameraRotationInvariant();
+	testOrthographicCSMUsesOrthoBoundsInsteadOfFov();
+	testDirectionalCSMDepthIncludesCasterBounds();
 	testCSMStabilizedViewTranslationSnapsToTexelGrid();
 	testCSMUnstabilizedViewTranslationRemainsContinuous();
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();
+	testUnsupportedPositionalCSMFallbackToSingleMap();
 	testCSMSelectionPriority();
 	testSpotLightCSMUsesCascadeSlices();
 	testPointLightSingleMapUsesSceneShadowBinding();

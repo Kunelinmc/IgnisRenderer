@@ -197,12 +197,94 @@ function testCSMSamplerUsesAvailableCascadeSlice() {
 	);
 }
 
+function testDirectionalCSMSamplerUsesCameraDepthSplit() {
+	const scene = new Scene();
+	const light = new DirectionalLight();
+	scene.add(light);
+	const csmShadowMap = scene.shadows.createCSM({
+		size: 8,
+		cascadeCounts: {
+			directional: 2,
+		},
+		bias: {
+			constant: 0,
+			slope: 0,
+			texel: 0,
+			max: 1,
+			normal: 0,
+			normalMin: 0,
+		},
+		sampling: {
+			pcfRadius: 0,
+			strength: 1,
+			radius: 0,
+			samples: 1,
+			searchSamples: 1,
+		},
+	});
+	scene.shadows.bind(light, csmShadowMap);
+	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig);
+
+	const renderSet = createShadowRenderSet(shadowConfig);
+	renderSet.effectiveStrategyType = "csm";
+	for (const slice of renderSet.slices) {
+		slice.shadowMap.viewProjectionMatrix = Matrix4.ortho(-1, 1, -1, 1, 0, 10);
+		slice.shadowMap.projectionMatrix = Matrix4.ortho(-1, 1, -1, 1, 0, 10);
+		slice.shadowMap.latestLightDir = { x: 0, y: -1, z: 0 };
+	}
+	renderSet.slices[0].splitNear = 0;
+	renderSet.slices[0].splitFar = 2;
+	renderSet.slices[1].splitNear = 2;
+	renderSet.slices[1].splitFar = 10;
+
+	const sliceSize = renderSet.slices[0].shadowMap.size;
+	const litRuntime = {
+		size: sliceSize,
+		depthBuffer: new Float32Array(sliceSize * sliceSize),
+		transmissionBuffer: new Float32Array(sliceSize * sliceSize * 3),
+	};
+	litRuntime.depthBuffer.fill(1);
+	litRuntime.transmissionBuffer.fill(1);
+
+	const shadowedRuntime = {
+		size: sliceSize,
+		depthBuffer: new Float32Array(sliceSize * sliceSize),
+		transmissionBuffer: new Float32Array(sliceSize * sliceSize * 3),
+	};
+	shadowedRuntime.depthBuffer.fill(1);
+	shadowedRuntime.transmissionBuffer.fill(1);
+	const centerIndex = 1 * sliceSize + 1;
+	shadowedRuntime.depthBuffer[centerIndex] = -1;
+
+	const shadowSampler = createSoftwareShadowSampler(
+		new Map([[light, renderSet]]),
+		new Map([[light, [litRuntime, shadowedRuntime]]]),
+		{
+			camera: {
+				viewMatrix: Matrix4.identity(),
+			},
+		}
+	);
+	const visibility = shadowSampler(
+		light,
+		{ x: 0, y: 0, z: -5 },
+		{ x: 0, y: 0, z: 1 }
+	);
+
+	assert.ok(
+		visibility.r < 0.01 && visibility.g < 0.01 && visibility.b < 0.01,
+		"Directional CSM sampler should select the cascade matching camera depth"
+	);
+}
+
 function run() {
 	testBasicShadowOcclusion();
 	testTransmissionTintOnLitSamples();
 	testNormalBiasAffectsSamplingPosition();
 	testPCSSPathHandlesBlockers();
 	testCSMSamplerUsesAvailableCascadeSlice();
+	testDirectionalCSMSamplerUsesCameraDepthSplit();
 	console.log("Software shadow sampling tests passed");
 }
 

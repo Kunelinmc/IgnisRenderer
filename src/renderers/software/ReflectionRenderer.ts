@@ -345,7 +345,8 @@ export class ReflectionRenderer {
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 		const sampleShadow = createSoftwareShadowSampler(
 			context.shadowMaps,
-			runtimeMap
+			runtimeMap,
+			{ camera: context.camera }
 		);
 
 		const rasterizerContext = {

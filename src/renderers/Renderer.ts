@@ -688,12 +688,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private _resolveShadowBackendCapabilities(): IShadowBackendCapabilities {
 		const supportsDirectionalCSM = this.backend.type !== "unknown";
+		const supportsPositionalCSM = this.backend.type === "software";
 		return {
 			backendKey: this.backend.type,
 			supportsFilterModes: ["pcf", "vsm"],
 			supportsDirectionalCSM,
-			supportsSpotCSM: true,
-			supportsPointCSM: true,
+			supportsSpotCSM: supportsPositionalCSM,
+			supportsPointCSM: supportsPositionalCSM,
 			maxDynamicShadowCost: this._resolveShadowBudgetFromBackend(),
 		};
 	}

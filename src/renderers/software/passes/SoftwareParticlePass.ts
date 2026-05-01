@@ -32,7 +32,11 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		}
 
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
-		const sampleShadow = createSoftwareShadowSampler(context.shadowMaps, runtimeMap);
+		const sampleShadow = createSoftwareShadowSampler(
+			context.shadowMaps,
+			runtimeMap,
+			{ camera: context.camera }
+		);
 
 		for (const batch of batches) {
 			for (const particle of batch.particles) {

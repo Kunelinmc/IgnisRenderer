@@ -818,7 +818,8 @@ export class PostProcessor implements PostProcessorLike {
 		const shadowsEnabled = context.features.enableShadows;
 		const shadowSampler = createSoftwareShadowSampler(
 			context.shadowMaps,
-			getSoftwareShadowRuntimeMap(context.transient)
+			getSoftwareShadowRuntimeMap(context.transient),
+			{ camera: context.camera }
 		);
 		const shadowInterval = Math.round(
 			clamp(

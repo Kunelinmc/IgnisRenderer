@@ -239,7 +239,6 @@ export class SoftwareBackend implements IRenderBackend {
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			context.scene.shadowCasterPackets,
 			context.scene.sceneBounds,
-			context.scene.camera,
 		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,

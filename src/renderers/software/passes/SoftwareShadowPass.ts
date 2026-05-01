@@ -40,6 +40,17 @@ interface SoftwareShadowSampleContext {
 	params: ShadowParams;
 }
 
+interface SoftwareShadowSamplerCamera {
+	viewMatrix?: Matrix4 | null;
+	position?: IVector3;
+	getWorldPosition?: (target?: IVector3) => IVector3;
+	getWorldDirection?: (localDirection: IVector3, target?: IVector3) => IVector3;
+}
+
+interface SoftwareShadowSamplerOptions {
+	camera?: SoftwareShadowSamplerCamera | null;
+}
+
 interface ClipVertex {
 	x: number;
 	y: number;
@@ -151,10 +162,12 @@ function isWorldPointInsideShadowMap(shadowMap: ShadowMap, worldPoint: IVector3)
 }
 
 function sampleFromRenderSet(
+	light: ShadowCastingLight,
 	renderSet: ShadowRenderSet,
 	runtimeTargets: SoftwareShadowRenderTarget[] | undefined,
 	worldPoint: IVector3,
 	normal?: IVector3 | null,
+	options: SoftwareShadowSamplerOptions = {},
 ): RGB {
 	if (!runtimeTargets || runtimeTargets.length <= 0) {
 		return { r: 1, g: 1, b: 1 };
@@ -168,6 +181,29 @@ function sampleFromRenderSet(
 			return { r: 1, g: 1, b: 1 };
 		}
 		return sampleSoftwareShadow(shadowMap, runtimeTarget, worldPoint, normal);
+	}
+
+	if (light.type === "directional") {
+		const selectedIndex = resolveDirectionalCSMSliceIndex(
+			renderSet,
+			worldPoint,
+			options.camera
+		);
+		if (selectedIndex >= 0) {
+			const selectedSlice = renderSet.slices[selectedIndex];
+			const selectedRuntimeTarget = runtimeTargets[selectedIndex];
+			if (
+				selectedRuntimeTarget &&
+				selectedSlice?.shadowMap.viewProjectionMatrix
+			) {
+				return sampleSoftwareShadow(
+					selectedSlice.shadowMap,
+					selectedRuntimeTarget,
+					worldPoint,
+					normal
+				);
+			}
+		}
 	}
 
 	let fallbackShadowMap: ShadowMap | null = null;
@@ -197,6 +233,7 @@ function sampleFromRenderSet(
 export function createSoftwareShadowSampler(
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
 	runtimeMap: SoftwareShadowRuntimeMap | null,
+	options: SoftwareShadowSamplerOptions = {},
 ): (light: ShadowCastingLight, worldPoint: IVector3, normal?: IVector3 | null) => RGB {
 	return (light: ShadowCastingLight, worldPoint: IVector3, normal?: IVector3 | null): RGB => {
 		if (!runtimeMap) return { r: 1, g: 1, b: 1 };
@@ -204,8 +241,76 @@ export function createSoftwareShadowSampler(
 		const shadowRenderSet = shadowMaps.get(light);
 		if (!shadowRenderSet) return { r: 1, g: 1, b: 1 };
 		const runtimeTargets = runtimeMap.get(light);
-		return sampleFromRenderSet(shadowRenderSet, runtimeTargets, worldPoint, normal);
+		return sampleFromRenderSet(
+			light,
+			shadowRenderSet,
+			runtimeTargets,
+			worldPoint,
+			normal,
+			options
+		);
 	};
+}
+
+function resolveDirectionalCSMSliceIndex(
+	renderSet: ShadowRenderSet,
+	worldPoint: IVector3,
+	camera?: SoftwareShadowSamplerCamera | null
+): number {
+	const viewDepth = resolveCameraViewDepth(worldPoint, camera);
+	if (!Number.isFinite(viewDepth)) {
+		return -1;
+	}
+
+	let fallbackIndex = -1;
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		const slice = renderSet.slices[index];
+		if (!slice.shadowMap.viewProjectionMatrix) {
+			continue;
+		}
+		if (fallbackIndex < 0) {
+			fallbackIndex = index;
+		}
+		if (viewDepth <= slice.splitFar + 1e-6) {
+			return index;
+		}
+	}
+
+	return fallbackIndex;
+}
+
+function resolveCameraViewDepth(
+	worldPoint: IVector3,
+	camera?: SoftwareShadowSamplerCamera | null
+): number {
+	if (!camera) {
+		return Number.NaN;
+	}
+
+	if (camera.viewMatrix) {
+		const viewPoint = Matrix4.transformPoint(camera.viewMatrix, worldPoint);
+		return Math.max(0, -viewPoint.z);
+	}
+
+	const position =
+		typeof camera.getWorldPosition === "function" ?
+			camera.getWorldPosition()
+		:	camera.position;
+	if (!position) {
+		return Number.NaN;
+	}
+
+	if (typeof camera.getWorldDirection === "function") {
+		const forward = camera.getWorldDirection({ x: 0, y: 0, z: -1 });
+		return Math.max(
+			0,
+			(worldPoint.x - position.x) * forward.x +
+				(worldPoint.y - position.y) * forward.y +
+				(worldPoint.z - position.z) * forward.z
+		);
+	}
+
+	return Math.max(0, position.z - worldPoint.z);
 }
 
 function getVogelSample(index: number, numSamples: number, theta: number) {
