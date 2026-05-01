@@ -55,7 +55,7 @@ import {
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
-import type { IShadowBackendCapabilities } from "../shadows";
+import type { IShadowBackendCapabilities } from "../lights/shadows";
 import {
 	buildDirtyTileCoverage,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,

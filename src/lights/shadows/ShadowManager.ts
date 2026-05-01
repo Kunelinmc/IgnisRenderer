@@ -1,12 +1,12 @@
-import type { SceneLight, ShadowCastingLight } from "../lights";
-import { LightType } from "../lights";
+import type { SceneLight, ShadowCastingLight } from "..";
+import { LightType } from "..";
 import {
 	createShadowRenderSet,
 	ensureShadowRenderSetMatchesConfig,
 	type ShadowConfig,
 	type ShadowRenderSet,
-} from "../lights/ShadowMapping";
-import type { IVector3 } from "../maths/types";
+} from "../ShadowMapping";
+import type { IVector3 } from "../../maths/types";
 import { CSMShadowMap } from "./CSMShadowMap";
 import { ShadowFrameState } from "./ShadowFrameState";
 import { SingleShadowMap } from "./SingleShadowMap";

@@ -115,7 +115,7 @@ export * from "./animation";
 export * from "./particles";
 export * from "./physics";
 export * from "./lights";
-export * from "./shadows";
+export * from "./lights/shadows";
 export { Texture, type TextureColorSpace } from "./core/Texture";
 export {
 	CubeTexture,

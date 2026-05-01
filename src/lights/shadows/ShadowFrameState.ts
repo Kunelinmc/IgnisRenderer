@@ -1,5 +1,5 @@
-import type { ShadowCastingLight } from "../lights";
-import type { ShadowRenderSet } from "../lights/ShadowMapping";
+import type { ShadowCastingLight } from "..";
+import type { ShadowRenderSet } from "../ShadowMapping";
 import type { ShadowBindingRecord } from "./types";
 
 export class ShadowFrameState {

@@ -1,7 +1,7 @@
-import type { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
-import type { ShadowCastingLight } from "../lights";
-import type { ShadowRenderSet } from "../lights/ShadowMapping";
+import type { Matrix4 } from "../../maths/Matrix4";
+import type { IVector3 } from "../../maths/types";
+import type { ShadowCastingLight } from "..";
+import type { ShadowRenderSet } from "../ShadowMapping";
 
 export type ShadowMapKind = "single" | "vsm" | "csm";
 export type ShadowFilterMode = "pcf" | "vsm";

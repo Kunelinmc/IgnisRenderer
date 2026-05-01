@@ -1,11 +1,11 @@
-import { IdGenerator } from "../foundation/IdGenerator";
-import { LightType } from "../lights";
+import { IdGenerator } from "../../foundation/IdGenerator";
+import { LightType } from "..";
 import type {
 	CSMShadowConfig,
 	ShadowConfig,
 	ShadowParams,
 	SingleMapShadowConfig,
-} from "../lights/ShadowMapping";
+} from "../ShadowMapping";
 import type {
 	ShadowBiasSettings,
 	ShadowBoundLightType,

@@ -14,7 +14,7 @@ import {
 	type SpatialIndex3D,
 	type SpatialIndexMode,
 } from "../spatial";
-import { ShadowManager } from "../shadows";
+import { ShadowManager } from "../lights/shadows";
 import {
 	renderDirtyReasonToMask,
 	type RenderDirtyReason,
