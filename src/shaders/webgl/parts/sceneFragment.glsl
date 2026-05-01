@@ -118,10 +118,12 @@ uniform vec4 uDirShadowCascadeSplits[MAX_DIRECTIONAL_LIGHTS * 4];
 uniform vec4 uDirShadowParamsA[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsB[MAX_DIRECTIONAL_LIGHTS];
 uniform vec4 uDirShadowParamsC[MAX_DIRECTIONAL_LIGHTS];
+uniform vec4 uDirShadowParamsD[MAX_DIRECTIONAL_LIGHTS];
 uniform mat4 uSpotShadowViewProjection[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsA[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsC[MAX_SPOT_LIGHTS];
+uniform vec4 uSpotShadowParamsD[MAX_SPOT_LIGHTS];
 uniform int uEnableClusteredLighting;
 uniform vec4 uClusterParams0;
 uniform vec4 uClusterParams1;
@@ -936,6 +938,26 @@ float spotAttenuation(float cosTheta, float outerCos, float innerCos) {
 	return clamp((cosTheta - outerCos) / cutoffRange, 0.0, 1.0);
 }
 
+const float SHADOW_GOLDEN_ANGLE = 2.39996323;
+const int MAX_PCSS_FILTER_SAMPLES = 64;
+const int MAX_PCSS_SEARCH_SAMPLES = 64;
+
+float hashShadowRotation(vec3 position) {
+	return
+		fract(
+			sin(dot(position, vec3(12.9898, 78.233, 37.719))) * 43758.5453123
+		) *
+		(2.0 * PI);
+}
+
+vec2 vogelDiskSample(int sampleIndex, int sampleCount, float theta) {
+	float indexF = float(sampleIndex);
+	float countF = max(float(sampleCount), 1.0);
+	float radius = sqrt((indexF + 0.5) / countF);
+	float angle = indexF * SHADOW_GOLDEN_ANGLE + theta;
+	return vec2(cos(angle), sin(angle)) * radius;
+}
+
 float sampleShadowVisibility(
 	int shadowType,
 	int index,
@@ -943,6 +965,7 @@ float sampleShadowVisibility(
 	vec4 paramsA,
 	vec4 paramsB,
 	vec4 paramsC,
+	vec4 paramsD,
 	vec3 worldPosition,
 	vec3 normal,
 	vec3 lightDirection,
@@ -989,6 +1012,14 @@ float sampleShadowVisibility(
 	}
 
 	float pcfRadius = max(paramsB.x, 1.0);
+	bool pcssEnabled = paramsD.x > 0.5 && paramsD.y > 0.0;
+	float pcssRadius = max(paramsD.y, 0.0);
+	int pcssFilterSamples = int(
+		clamp(floor(paramsD.z + 0.5), 1.0, float(MAX_PCSS_FILTER_SAMPLES))
+	);
+	int pcssSearchSamples = int(
+		clamp(floor(paramsD.w + 0.5), 1.0, float(MAX_PCSS_SEARCH_SAMPLES))
+	);
 	vec2 texelPosition = shadowUv * vec2(shadowSize - 1.0);
 	vec2 atlasExtent = vec2(textureSize(uShadowAtlas, 0));
 	if (atlasExtent.x < 1.0 || atlasExtent.y < 1.0) {
@@ -1005,11 +1036,56 @@ float sampleShadowVisibility(
 		vec2(localTileX * subTileSize, localTileY * subTileSize);
 	float visible = 0.0;
 	float sampleCount = 0.0;
-
-	for (int y = -1; y <= 1; y++) {
-		for (int x = -1; x <= 1; x++) {
+	if (pcssEnabled) {
+		float theta = hashShadowRotation(worldPosition);
+		float blockerDepthSum = 0.0;
+		float blockerCount = 0.0;
+		for (int i = 0; i < MAX_PCSS_SEARCH_SAMPLES; i++) {
+			if (i >= pcssSearchSamples) {
+				break;
+			}
 			vec2 samplePosition =
-				texelPosition + vec2(float(x), float(y)) * pcfRadius;
+				texelPosition + vogelDiskSample(i, pcssSearchSamples, theta) * pcssRadius;
+			if (
+				samplePosition.x < 0.0 ||
+				samplePosition.x > shadowSize - 1.0 ||
+				samplePosition.y < 0.0 ||
+				samplePosition.y > shadowSize - 1.0
+			) {
+				continue;
+			}
+			vec2 sampleCoord = round(samplePosition);
+			vec2 atlasCoord = tileOffset + sampleCoord + vec2(0.5);
+			vec2 atlasUv = atlasCoord / atlasExtent;
+			float sampleDepth = texture(uShadowAtlas, atlasUv).r;
+			if (currentDepth - bias > sampleDepth) {
+				blockerDepthSum += sampleDepth;
+				blockerCount += 1.0;
+			}
+		}
+
+		if (blockerCount <= 0.0) {
+			return 1.0;
+		}
+
+		float avgBlockerDepth = blockerDepthSum / blockerCount;
+		float penumbraRatio = 0.0;
+		if (currentDepth > avgBlockerDepth) {
+			penumbraRatio = clamp(
+				(currentDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4),
+				0.0,
+				1.0
+			);
+		}
+		float filterRadius = pcssRadius * penumbraRatio;
+		float effectiveRadius = filterRadius < 0.1 ? pcfRadius : filterRadius;
+
+		for (int i = 0; i < MAX_PCSS_FILTER_SAMPLES; i++) {
+			if (i >= pcssFilterSamples) {
+				break;
+			}
+			vec2 samplePosition =
+				texelPosition + vogelDiskSample(i, pcssFilterSamples, theta) * effectiveRadius;
 			if (
 				samplePosition.x < 0.0 ||
 				samplePosition.x > shadowSize - 1.0 ||
@@ -1024,6 +1100,27 @@ float sampleShadowVisibility(
 			float sampleDepth = texture(uShadowAtlas, atlasUv).r;
 			visible += currentDepth - bias <= sampleDepth ? 1.0 : 0.0;
 			sampleCount += 1.0;
+		}
+	} else {
+		for (int y = -1; y <= 1; y++) {
+			for (int x = -1; x <= 1; x++) {
+				vec2 samplePosition =
+					texelPosition + vec2(float(x), float(y)) * pcfRadius;
+				if (
+					samplePosition.x < 0.0 ||
+					samplePosition.x > shadowSize - 1.0 ||
+					samplePosition.y < 0.0 ||
+					samplePosition.y > shadowSize - 1.0
+				) {
+					continue;
+				}
+				vec2 sampleCoord = round(samplePosition);
+				vec2 atlasCoord = tileOffset + sampleCoord + vec2(0.5);
+				vec2 atlasUv = atlasCoord / atlasExtent;
+				float sampleDepth = texture(uShadowAtlas, atlasUv).r;
+				visible += currentDepth - bias <= sampleDepth ? 1.0 : 0.0;
+				sampleCount += 1.0;
+			}
 		}
 	}
 
@@ -1065,6 +1162,7 @@ float sampleDirectionalShadowVisibility(
 	vec4 paramsA = uDirShadowParamsA[index];
 	vec4 paramsB = uDirShadowParamsB[index];
 	vec4 paramsC = uDirShadowParamsC[index];
+	vec4 paramsD = uDirShadowParamsD[index];
 	bool isCSM = paramsC.y > 0.5 && paramsC.z > 1.5;
 	int cascadeCount = isCSM ?
 		int(clamp(floor(paramsC.z + 0.5), 1.0, 4.0)) :
@@ -1092,6 +1190,7 @@ float sampleDirectionalShadowVisibility(
 		paramsA,
 		paramsB,
 		paramsC,
+		paramsD,
 		worldPosition,
 		normal,
 		lightDirection,
@@ -1127,6 +1226,7 @@ float sampleDirectionalShadowVisibility(
 		paramsA,
 		paramsB,
 		paramsC,
+		paramsD,
 		worldPosition,
 		normal,
 		lightDirection,
@@ -1155,6 +1255,7 @@ float sampleSpotShadowVisibility(
 		uSpotShadowParamsA[index],
 		uSpotShadowParamsB[index],
 		uSpotShadowParamsC[index],
+		uSpotShadowParamsD[index],
 		worldPosition,
 		normal,
 		lightDirection,

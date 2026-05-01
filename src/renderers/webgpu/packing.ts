@@ -50,6 +50,7 @@ const SHADOW_DATA_SCHEMA = structOf([
 	{ name: "paramsA", type: VEC4_F32 },
 	{ name: "paramsB", type: VEC4_F32 },
 	{ name: "paramsC", type: VEC4_F32 },
+	{ name: "paramsD", type: VEC4_F32 },
 ]);
 
 const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
@@ -685,5 +686,11 @@ function writeShadowData(
 		isCSM ? 1 : 0,
 		cascadeCount,
 		cascadeBlendRatio,
+	]);
+	writer.writeVec([arrayField, index, "paramsD"], [
+		shadow?.pcssEnabled ? 1 : 0,
+		shadow?.pcssRadius ?? 0,
+		shadow?.shadowSamples ?? 0,
+		shadow?.shadowSearchSamples ?? 0,
 	]);
 }

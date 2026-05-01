@@ -1019,6 +1019,24 @@ fn loadShadowDepthTexel(coord: vec2<i32>) -> f32 {
 	return textureLoad(shadowAtlas, coord, 0);
 }
 
+const SHADOW_GOLDEN_ANGLE: f32 = 2.39996323;
+const MAX_PCSS_FILTER_SAMPLES: i32 = 64;
+const MAX_PCSS_SEARCH_SAMPLES: i32 = 64;
+
+fn hashShadowRotation(position: vec3<f32>) -> f32 {
+	return
+		fract(sin(dot(position, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453123) *
+		(2.0 * PI);
+}
+
+fn vogelDiskSample(sampleIndex: i32, sampleCount: i32, theta: f32) -> vec2<f32> {
+	let indexF = f32(sampleIndex);
+	let countF = max(f32(sampleCount), 1.0);
+	let radius = sqrt((indexF + 0.5) / countF);
+	let angle = indexF * SHADOW_GOLDEN_ANGLE + theta;
+	return vec2<f32>(cos(angle), sin(angle)) * radius;
+}
+
 fn sampleShadowVisibilityForCascade(
 	shadowType: u32,
 	index: u32,
@@ -1086,6 +1104,14 @@ fn sampleShadowVisibilityForCascade(
 	}
 
 	let pcfRadius = max(shadowData.paramsB.x, 1.0);
+	let pcssEnabled = shadowData.paramsD.x > 0.5 && shadowData.paramsD.y > 0.0;
+	let pcssRadius = max(shadowData.paramsD.y, 0.0);
+	let pcssFilterSamples = i32(
+		clamp(floor(shadowData.paramsD.z + 0.5), 1.0, f32(MAX_PCSS_FILTER_SAMPLES))
+	);
+	let pcssSearchSamples = i32(
+		clamp(floor(shadowData.paramsD.w + 0.5), 1.0, f32(MAX_PCSS_SEARCH_SAMPLES))
+	);
 	let texelPosition = shadowUv * vec2<f32>(f32(shadowSize - 1), f32(shadowSize - 1));
 	let atlasDimensions = textureDimensions(shadowAtlas);
 	let atlasWidth = max(i32(atlasDimensions.x), 1);
@@ -1102,11 +1128,16 @@ fn sampleShadowVisibilityForCascade(
 		vec2<i32>(localTileX * subTileSize, localTileY * subTileSize);
 	var visible = 0.0;
 	var sampleCount = 0.0;
-
-	for (var y: i32 = -1; y <= 1; y = y + 1) {
-		for (var x: i32 = -1; x <= 1; x = x + 1) {
+	if (pcssEnabled) {
+		let theta = hashShadowRotation(worldPosition);
+		var blockerDepthSum = 0.0;
+		var blockerCount = 0.0;
+		for (var i: i32 = 0; i < MAX_PCSS_SEARCH_SAMPLES; i = i + 1) {
+			if (i >= pcssSearchSamples) {
+				break;
+			}
 			let samplePosition =
-				texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
+				texelPosition + vogelDiskSample(i, pcssSearchSamples, theta) * pcssRadius;
 			if (
 				samplePosition.x < 0.0 ||
 				samplePosition.x > f32(shadowSize - 1) ||
@@ -1115,14 +1146,77 @@ fn sampleShadowVisibilityForCascade(
 			) {
 				continue;
 			}
-			let roundedSamplePosition = round(samplePosition);
 			let sampleCoord = vec2<i32>(
-				i32(roundedSamplePosition.x),
-				i32(roundedSamplePosition.y)
+				i32(round(samplePosition.x)),
+				i32(round(samplePosition.y))
+			);
+			let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
+			if (currentDepth - bias > sampleDepth) {
+				blockerDepthSum += sampleDepth;
+				blockerCount += 1.0;
+			}
+		}
+
+		if (blockerCount < 1.0) {
+			return 1.0;
+		}
+
+		let avgBlockerDepth = blockerDepthSum / blockerCount;
+		var penumbraRatio = 0.0;
+		if (currentDepth > avgBlockerDepth) {
+			penumbraRatio = clamp(
+				(currentDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4),
+				0.0,
+				1.0
+			);
+		}
+		let filterRadius = pcssRadius * penumbraRatio;
+		let effectiveRadius = select(filterRadius, pcfRadius, filterRadius < 0.1);
+
+		for (var i: i32 = 0; i < MAX_PCSS_FILTER_SAMPLES; i = i + 1) {
+			if (i >= pcssFilterSamples) {
+				break;
+			}
+			let samplePosition =
+				texelPosition + vogelDiskSample(i, pcssFilterSamples, theta) * effectiveRadius;
+			if (
+				samplePosition.x < 0.0 ||
+				samplePosition.x > f32(shadowSize - 1) ||
+				samplePosition.y < 0.0 ||
+				samplePosition.y > f32(shadowSize - 1)
+			) {
+				continue;
+			}
+			let sampleCoord = vec2<i32>(
+				i32(round(samplePosition.x)),
+				i32(round(samplePosition.y))
 			);
 			let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
 			visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
 			sampleCount += 1.0;
+		}
+	} else {
+		for (var y: i32 = -1; y <= 1; y = y + 1) {
+			for (var x: i32 = -1; x <= 1; x = x + 1) {
+				let samplePosition =
+					texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
+				if (
+					samplePosition.x < 0.0 ||
+					samplePosition.x > f32(shadowSize - 1) ||
+					samplePosition.y < 0.0 ||
+					samplePosition.y > f32(shadowSize - 1)
+				) {
+					continue;
+				}
+				let roundedSamplePosition = round(samplePosition);
+				let sampleCoord = vec2<i32>(
+					i32(roundedSamplePosition.x),
+					i32(roundedSamplePosition.y)
+				);
+				let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
+				visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
+				sampleCount += 1.0;
+			}
 		}
 	}
 

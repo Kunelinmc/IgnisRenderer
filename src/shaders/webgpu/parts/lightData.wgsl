@@ -21,6 +21,7 @@ struct ShadowData {
 	paramsA: vec4<f32>,
 	paramsB: vec4<f32>,
 	paramsC: vec4<f32>,
+	paramsD: vec4<f32>,
 }
 
 struct ReflectionProbeData {

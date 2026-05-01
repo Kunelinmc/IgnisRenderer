@@ -16,6 +16,7 @@ import {
 	flattenShadowParamsA,
 	flattenShadowParamsB,
 	flattenShadowParamsC,
+	flattenShadowParamsD,
 	flattenShadowCascadeSplits,
 	flattenShadowCascadeViewProjection,
 	flattenShadowViewProjection,
@@ -765,6 +766,19 @@ export function bindWebGLGlobalUniforms(
 		}
 		gl.uniform4fv(uniforms.dirShadowParamsC, packedDirShadowParamsC.values);
 	}
+	if (uniforms.dirShadowParamsD) {
+		const packedDirShadowParamsD = sanitizeFloat32Array(
+			flattenShadowParamsD(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			0
+		);
+		if (packedDirShadowParamsD.hadInvalid) {
+			logWebGLGlobalUniformWarning(
+				"webgl-dir-shadow-params-d-invalid",
+				"WebGL directional shadow PCSS parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.dirShadowParamsD, packedDirShadowParamsD.values);
+	}
 
 	if (uniforms.pointLightCount) {
 		gl.uniform1i(uniforms.pointLightCount, lights.pointLights.length);
@@ -918,6 +932,19 @@ export function bindWebGLGlobalUniforms(
 			);
 		}
 		gl.uniform4fv(uniforms.spotShadowParamsC, packedSpotShadowParamsC.values);
+	}
+	if (uniforms.spotShadowParamsD) {
+		const packedSpotShadowParamsD = sanitizeFloat32Array(
+			flattenShadowParamsD(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			0
+		);
+		if (packedSpotShadowParamsD.hadInvalid) {
+			logWebGLGlobalUniformWarning(
+				"webgl-spot-shadow-params-d-invalid",
+				"WebGL spot shadow PCSS parameters contain non-finite values; using sanitized values."
+			);
+		}
+		gl.uniform4fv(uniforms.spotShadowParamsD, packedSpotShadowParamsD.values);
 	}
 }
 

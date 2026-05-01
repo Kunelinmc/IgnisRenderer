@@ -813,6 +813,38 @@ function testLightCollectorShadowBias() {
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
 	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
 	assert.equal(shadow.shadowMapSize, 1024);
+	assert.equal(shadow.pcssEnabled, false);
+	assert.equal(shadow.pcssRadius, 0);
+	assert.equal(shadow.shadowSamples, 16);
+	assert.equal(shadow.shadowSearchSamples, 16);
+}
+
+function testLightCollectorPCSSShadowParams() {
+	const light = new DirectionalLight();
+	const shadowMap = new ShadowMap(1024, {
+		shadowBias: 0.008,
+		shadowSlopeBias: 0.03,
+		shadowTexelBias: 1,
+		shadowMaxBias: 0.05,
+		shadowPCF: 1.25,
+		shadowRadius: 5,
+		shadowSamples: 24,
+		shadowSearchSamples: 12,
+	});
+	shadowMap.viewProjectionMatrix = Matrix4.identity();
+	const state = collectWebGLLights(
+		[light],
+		true,
+		() => {},
+		true,
+		new Map([[light, shadowMap]])
+	);
+	const shadow = state.directionalShadows[0];
+	assert.equal(shadow.pcfRadius, 1.25);
+	assert.equal(shadow.pcssEnabled, true);
+	assert.equal(shadow.pcssRadius, 5);
+	assert.equal(shadow.shadowSamples, 24);
+	assert.equal(shadow.shadowSearchSamples, 12);
 }
 
 function testLightCollectorDirectionalCSMShadowData() {
@@ -1326,6 +1358,7 @@ async function run() {
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
 	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
 	testLightCollectorShadowBias();
+	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderUsesDecoupledShadowNormal();

@@ -212,6 +212,23 @@ export function flattenShadowParamsC(
 	return packed;
 }
 
+export function flattenShadowParamsD(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = shadow.pcssEnabled ? 1 : 0;
+		packed[offset + 1] = finiteOr(shadow.pcssRadius, 0);
+		packed[offset + 2] = finiteOr(shadow.shadowSamples, 0);
+		packed[offset + 3] = finiteOr(shadow.shadowSearchSamples, 0);
+	}
+	return packed;
+}
+
 export function flattenReflectionProbeRows(
 	values: WebGLReflectionProbeUniform[],
 	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",

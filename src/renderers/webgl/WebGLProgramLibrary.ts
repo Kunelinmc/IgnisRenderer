@@ -228,10 +228,12 @@ export interface WebGLSceneProgram {
 		dirShadowParamsA: WebGLUniformLocation | null;
 		dirShadowParamsB: WebGLUniformLocation | null;
 		dirShadowParamsC: WebGLUniformLocation | null;
+		dirShadowParamsD: WebGLUniformLocation | null;
 		spotShadowViewProjection: WebGLUniformLocation | null;
 		spotShadowParamsA: WebGLUniformLocation | null;
 		spotShadowParamsB: WebGLUniformLocation | null;
 		spotShadowParamsC: WebGLUniformLocation | null;
+		spotShadowParamsD: WebGLUniformLocation | null;
 		shAmbientCoeffs: WebGLUniformLocation | null;
 		shCoeffsSize: WebGLUniformLocation | null;
 		clusterParams0: WebGLUniformLocation | null;
@@ -861,6 +863,7 @@ export class WebGLProgramLibrary {
 				dirShadowParamsA: this._gl.getUniformLocation(program, "uDirShadowParamsA[0]"),
 				dirShadowParamsB: this._gl.getUniformLocation(program, "uDirShadowParamsB[0]"),
 				dirShadowParamsC: this._gl.getUniformLocation(program, "uDirShadowParamsC[0]"),
+				dirShadowParamsD: this._gl.getUniformLocation(program, "uDirShadowParamsD[0]"),
 				spotShadowViewProjection: this._gl.getUniformLocation(
 					program,
 					"uSpotShadowViewProjection[0]",
@@ -868,6 +871,7 @@ export class WebGLProgramLibrary {
 				spotShadowParamsA: this._gl.getUniformLocation(program, "uSpotShadowParamsA[0]"),
 				spotShadowParamsB: this._gl.getUniformLocation(program, "uSpotShadowParamsB[0]"),
 				spotShadowParamsC: this._gl.getUniformLocation(program, "uSpotShadowParamsC[0]"),
+				spotShadowParamsD: this._gl.getUniformLocation(program, "uSpotShadowParamsD[0]"),
 				shAmbientCoeffs: this._gl.getUniformLocation(program, "uSHAmbientCoeffs"),
 				shCoeffsSize: this._gl.getUniformLocation(program, "uSHCoeffsSize"),
 				clusterParams0: this._gl.getUniformLocation(program, "uClusterParams0"),

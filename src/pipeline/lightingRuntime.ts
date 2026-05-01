@@ -22,6 +22,10 @@ export interface ResolvedShadowData {
 	normalBias: number;
 	normalBiasMin: number;
 	pcfRadius: number;
+	pcssEnabled: boolean;
+	pcssRadius: number;
+	shadowSamples: number;
+	shadowSearchSamples: number;
 	shadowStrength: number;
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
@@ -120,6 +124,10 @@ export function resolveShadowData(
 			normalBias: 0,
 			normalBiasMin: 0,
 			pcfRadius: 0,
+			pcssEnabled: false,
+			pcssRadius: 0,
+			shadowSamples: 0,
+			shadowSearchSamples: 0,
 			shadowStrength: 0,
 			shadowMapBaseSize: 0,
 			shadowMapSize: 0,
@@ -136,11 +144,17 @@ export function resolveShadowData(
 		maxBias,
 		(resolvedShadowMap.params.shadowBias ?? 0.008) + texelBias
 	);
-	const pcfRadius =
-		resolvedShadowMap.params.shadowRadius &&
-		resolvedShadowMap.params.shadowRadius > 0 ?
-			resolvedShadowMap.params.shadowRadius
-		:	Math.max(1, resolvedShadowMap.params.shadowPCF ?? 1);
+	const pcfRadius = Math.max(1, resolvedShadowMap.params.shadowPCF ?? 1);
+	const pcssRadius = Math.max(0, resolvedShadowMap.params.shadowRadius ?? 0);
+	const pcssEnabled = pcssRadius > 0;
+	const shadowSamples = Math.max(
+		1,
+		Math.min(64, Math.floor(resolvedShadowMap.params.shadowSamples ?? 16))
+	);
+	const shadowSearchSamples = Math.max(
+		1,
+		Math.min(64, Math.floor(resolvedShadowMap.params.shadowSearchSamples ?? 16))
+	);
 
 	const cascadeViewProjectionMatrices: Array<Matrix4 | null> = [
 		null,
@@ -206,6 +220,10 @@ export function resolveShadowData(
 			resolvedShadowMap.params.shadowNormalBiasMin ?? 0.05
 		),
 		pcfRadius: Math.max(1, pcfRadius),
+		pcssEnabled,
+		pcssRadius,
+		shadowSamples,
+		shadowSearchSamples,
 		shadowStrength: clamp(resolvedShadowMap.params.shadowStrength ?? 1.0, 0, 1),
 		shadowMapBaseSize: Math.max(1, renderSet?.size ?? resolvedShadowMap.size),
 		shadowMapSize: size,

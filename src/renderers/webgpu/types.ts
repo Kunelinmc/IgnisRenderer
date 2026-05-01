@@ -78,6 +78,10 @@ export interface WebGPUShadowData {
 	normalBias: number;
 	normalBiasMin: number;
 	pcfRadius: number;
+	pcssEnabled: boolean;
+	pcssRadius: number;
+	shadowSamples: number;
+	shadowSearchSamples: number;
 	shadowStrength: number;
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
