@@ -3,18 +3,14 @@ import { CSMShadowMap } from "../lights/shadows/CSMShadowMap";
 import { SingleShadowMap } from "../lights/shadows/SingleShadowMap";
 import type { ShadowConfig, ShadowStrategyType } from "../lights/shadows/ShadowMapping";
 import type {
-	IShadowStrategyProvider,
-	ShadowSliceDescriptor,
-	ShadowStrategyBuildContext,
-} from "../lights/shadows/ShadowStrategyTypes";
-
-export type {
-	IShadowStrategyProvider,
 	SceneBounds,
+	IShadowStrategyProvider,
 	ShadowSliceDescriptor,
 	ShadowStrategyBuildContext,
 	ShadowStrategyCamera,
-} from "../lights/shadows/ShadowStrategyTypes";
+} from "../lights/shadows/types";
+
+export type { ShadowStrategyCamera, ShadowSliceDescriptor, SceneBounds };
 
 export interface ShadowBackendCapabilities {
 	backendKey: string;

@@ -7,16 +7,14 @@ import type { CSMShadowConfig, ShadowConfig } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import type {
-	ShadowBoundLightType,
-	ShadowCSMDefaults,
-	ShadowCSMOptions,
-} from "./types";
-import type {
 	SceneBounds,
 	ShadowSliceDescriptor,
 	ShadowStrategyBuildContext,
 	ShadowStrategyCamera,
-} from "./ShadowStrategyTypes";
+	ShadowBoundLightType,
+	ShadowCSMDefaults,
+	ShadowCSMOptions,
+} from "./types";
 
 const DEFAULT_CASCADE_COUNTS: ShadowCSMDefaults = {
 	directional: 4,

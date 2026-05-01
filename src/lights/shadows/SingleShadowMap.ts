@@ -14,12 +14,12 @@ import {
 } from "../constants";
 import type { ShadowConfig } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
-import type { ShadowMapBaseOptions } from "./types";
 import type {
 	SceneBounds,
 	ShadowSliceDescriptor,
 	ShadowStrategyBuildContext,
-} from "./ShadowStrategyTypes";
+	ShadowMapBaseOptions,
+} from "./types";
 
 type PositionalShadowLight = ShadowCastingLight & {
 	direction?: IVector3;
