@@ -7,7 +7,7 @@ import { SpotLight } from "../src/lights/SpotLight.ts";
 import {
 	createShadowRenderSet,
 	normalizeShadowConfig,
-} from "../src/lights/ShadowMapping.ts";
+} from "../src/lights/shadows/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
 import { selectCSMDirectionalLights } from "../src/pipeline/ShadowStrategyRegistry.ts";
 import { collectWebGPULighting } from "../src/renderers/webgpu/lights.ts";

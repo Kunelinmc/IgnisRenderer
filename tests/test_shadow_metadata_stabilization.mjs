@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Scene } from "../src/core/Scene.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
-import { createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
+import { createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
 
 function createSceneBounds(radius) {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Scene } from "../src/core/Scene.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
-import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
+import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import {
 	createSoftwareShadowSampler,
 	sampleSoftwareShadow,

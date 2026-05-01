@@ -40,7 +40,7 @@ import { Node } from "../src/core/Node.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../src/meshes/MeshInstance.ts";
-import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
+import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";

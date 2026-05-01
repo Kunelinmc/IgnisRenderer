@@ -5,7 +5,7 @@ import { LightProbe } from "../src/lights/LightProbe.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
-import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
+import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import { Material } from "../src/materials/Material.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
