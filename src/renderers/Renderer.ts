@@ -324,9 +324,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private async _warmupBakeEnvironmentIBL(
 		options: WarmupOptions
 	): Promise<boolean> {
+		if (typeof options.allowSkyboxSpecularFallback === "boolean") {
+			this._setAllowSkyboxSpecularFallback(
+				options.allowSkyboxSpecularFallback
+			);
+		}
 		const includeEnvironmentIBLBake =
 			options.includeEnvironmentIBLBake ?? !!options.environmentIBLBake;
-		this._setAllowSkyboxSpecularFallback(includeEnvironmentIBLBake);
 		if (includeEnvironmentIBLBake === false) {
 			return false;
 		}

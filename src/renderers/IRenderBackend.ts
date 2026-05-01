@@ -26,6 +26,7 @@ export interface WarmupOptions {
 	includePostProcess?: boolean;
 	includeParticles?: boolean;
 	includeEnvironmentIBLBake?: boolean;
+	allowSkyboxSpecularFallback?: boolean;
 	environmentIBLBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
 	logCompilationInfo?: boolean;
 	onProgress?: (progress: WarmupProgress) => void;

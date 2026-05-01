@@ -243,7 +243,7 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 		assert.equal(probes.length, 0);
 		assert.equal(
 			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
-			false
+			true
 		);
 	} finally {
 		globalThis.window = originalWindow;
@@ -288,6 +288,47 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 		assert.equal(renderIncremental.forceFullFrame, true);
 		assert.equal(
 			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
+			true
+		);
+		assert.equal(
+			backend.lastBeginFrameContext?.scene?.allowSkyboxSpecularFallback,
+			true
+		);
+	} finally {
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
+	}
+}
+
+async function testWarmupCanSetSkyboxSpecularFallbackIndependently() {
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
+
+	try {
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
+
+		const backend = new StubBackend();
+		const camera = new Camera();
+		const canvas = {
+			width: 320,
+			height: 180,
+			getBoundingClientRect() {
+				return { width: 320, height: 180 };
+			},
+		};
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.scene.skybox = createSkyboxTexture();
+
+		await renderer.warmup({
+			includeEnvironmentIBLBake: false,
+			allowSkyboxSpecularFallback: false,
+		});
+		await renderer.renderScene(0);
+
+		assert.equal(
+			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
 			false
 		);
 		assert.equal(
@@ -305,6 +346,7 @@ async function run() {
 	await testWarmupCreatesProbeWhenSceneHasNone();
 	await testWarmupSkipsLightProbeBakeWhenDisabled();
 	await testWarmupAndRenderIncrementalContextContractMatches();
+	await testWarmupCanSetSkyboxSpecularFallbackIndependently();
 	console.log("Renderer warmup light probe tests passed");
 }
 
