@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Scene } from "../src/core/Scene.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../src/pipeline/ShadowMetadata.ts";
@@ -11,13 +12,13 @@ function createSceneBounds(radius) {
 }
 
 function testShadowRadiusShrinkUsesHysteresis() {
+	const scene = new Scene();
 	const light = new DirectionalLight();
-	light.castShadow = true;
-	light.shadow = {
-		strategy: "single-map",
-		size: 1024,
-	};
-	const renderSet = createShadowRenderSet(light.shadow);
+	scene.add(light);
+	scene.shadows.bind(light, scene.shadows.createSingle({ size: 1024 }));
+	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig);
+	const renderSet = createShadowRenderSet(shadowConfig);
 
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(100));
 	const radiusAfterFirst = renderSet.slices[0].shadowMap.stabilizedBoundsRadius;

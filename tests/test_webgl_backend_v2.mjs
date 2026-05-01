@@ -848,15 +848,22 @@ function testLightCollectorPCSSShadowParams() {
 }
 
 function testLightCollectorDirectionalCSMShadowData() {
+	const scene = new Scene();
 	const light = new DirectionalLight();
-	light.castShadow = true;
-	light.shadow = {
-		strategy: "csm",
-		size: 1024,
-		cascadeCount: 4,
-		blendRatio: 0.2,
-	};
-	const renderSet = createShadowRenderSet(light.shadow);
+	scene.add(light);
+	scene.shadows.bind(
+		light,
+		scene.shadows.createCSM({
+			size: 1024,
+			blendRatio: 0.2,
+			cascadeCounts: {
+				directional: 4,
+			},
+		})
+	);
+	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig);
+	const renderSet = createShadowRenderSet(shadowConfig);
 	for (let index = 0; index < renderSet.slices.length; index++) {
 		const slice = renderSet.slices[index];
 		slice.shadowMap.viewProjectionMatrix = Matrix4.identity();

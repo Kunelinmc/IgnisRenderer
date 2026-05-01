@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Scene } from "../src/core/Scene.ts";
 import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
@@ -58,21 +59,24 @@ function createDirectionalCSMLight({
 	blendRatio = 0.1,
 	cascadeCount = 4,
 } = {}) {
+	const scene = new Scene();
 	const light = new DirectionalLight({
 		intensity,
 		direction: { x: 0, y: -1, z: -0.3 },
 	});
-	light.castShadow = true;
-	light.shadow = {
-		strategy: "csm",
+	scene.add(light);
+	const shadowMap = scene.shadows.createCSM({
 		size: 1024,
 		priority,
 		lambda,
 		maxDistance,
 		blendRatio,
-		cascadeCount,
 		stabilize: true,
-	};
+		cascadeCounts: {
+			directional: cascadeCount,
+		},
+	});
+	scene.shadows.bind(light, shadowMap);
 	return light;
 }
 
@@ -81,23 +85,32 @@ function createSpotCSMLight({
 	intensity = 1,
 	range = 80,
 } = {}) {
+	const scene = new Scene();
 	const light = new SpotLight({
 		intensity,
 		range,
 		direction: { x: 0, y: -1, z: 0 },
 		outerAngle: Math.PI / 3,
 	});
-	light.castShadow = true;
-	light.shadow = {
-		strategy: "csm",
+	scene.add(light);
+	const shadowMap = scene.shadows.createCSM({
 		size: 1024,
 		priority,
 		lambda: 0.65,
 		blendRatio: 0.1,
-		cascadeCount: 4,
 		stabilize: true,
-	};
+		cascadeCounts: {
+			spot: 4,
+		},
+	});
+	scene.shadows.bind(light, shadowMap);
 	return light;
+}
+
+function createRenderSetForBoundLight(light) {
+	const shadowConfig = light.scene?.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig, `Expected bound shadow config for light ${light.id}`);
+	return createShadowRenderSet(shadowConfig);
 }
 
 function testCSMSplitsMonotonicAndCovered() {
@@ -107,7 +120,7 @@ function testCSMSplitsMonotonicAndCovered() {
 		maxDistance: 80,
 		cascadeCount: 4,
 	});
-	const renderSet = createShadowRenderSet(light.shadow);
+	const renderSet = createRenderSetForBoundLight(light);
 
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(120), {
 		camera,
@@ -137,7 +150,7 @@ function testLambdaBoundarySplits() {
 		maxDistance: 100,
 		cascadeCount: 4,
 	});
-	const uniformSet = createShadowRenderSet(uniformLight.shadow);
+	const uniformSet = createRenderSetForBoundLight(uniformLight);
 	updateShadowMapMetadata(uniformSet, uniformLight, bounds, { camera });
 
 	const logLight = createDirectionalCSMLight({
@@ -145,7 +158,7 @@ function testLambdaBoundarySplits() {
 		maxDistance: 100,
 		cascadeCount: 4,
 	});
-	const logSet = createShadowRenderSet(logLight.shadow);
+	const logSet = createRenderSetForBoundLight(logLight);
 	updateShadowMapMetadata(logSet, logLight, bounds, { camera });
 
 	const near = 0.1;
@@ -180,8 +193,8 @@ function testCSMStabilizedExtentIsCameraRotationInvariant() {
 	const cameraA = createCamera({ near: 0.1, far: 100, forward: forwardA });
 	const cameraB = createCamera({ near: 0.1, far: 100, forward: forwardB });
 	const bounds = createSceneBounds(120);
-	const renderSetA = createShadowRenderSet(light.shadow);
-	const renderSetB = createShadowRenderSet(light.shadow);
+	const renderSetA = createRenderSetForBoundLight(light);
+	const renderSetB = createRenderSetForBoundLight(light);
 
 	updateShadowMapMetadata(renderSetA, light, bounds, { camera: cameraA });
 	updateShadowMapMetadata(renderSetB, light, bounds, { camera: cameraB });
@@ -221,7 +234,7 @@ function testBackendFallbackToSingleMap() {
 		maxDistance: 90,
 		cascadeCount: 4,
 	});
-	const renderSet = createShadowRenderSet(light.shadow);
+	const renderSet = createRenderSetForBoundLight(light);
 	const warnings = [];
 
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(100), {
@@ -254,9 +267,9 @@ function testCSMSelectionPriority() {
 	assert.ok(!selected.has(lightA));
 }
 
-function testSpotLightCSMUsesSingleSliceEquivalentPath() {
+function testSpotLightCSMUsesCascadeSlices() {
 	const light = createSpotCSMLight();
-	const renderSet = createShadowRenderSet(light.shadow);
+	const renderSet = createRenderSetForBoundLight(light);
 	const emptyDirectionalBudget = new Set();
 
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(60), {
@@ -264,6 +277,7 @@ function testSpotLightCSMUsesSingleSliceEquivalentPath() {
 			backendKey: "webgpu",
 			supportsSingleMap: true,
 			supportsDirectionalCSM: true,
+			supportsSpotCSM: true,
 			maxCsmDirectionalLights: 0,
 		},
 		allowCSMDirectionalLights: emptyDirectionalBudget,
@@ -271,9 +285,9 @@ function testSpotLightCSMUsesSingleSliceEquivalentPath() {
 
 	assert.equal(renderSet.requestedStrategyType, "csm");
 	assert.equal(renderSet.effectiveStrategyType, "csm");
-	assert.ok(renderSet.slices[0].shadowMap.viewProjectionMatrix);
-	for (let index = 1; index < renderSet.slices.length; index++) {
-		assert.equal(renderSet.slices[index].shadowMap.viewProjectionMatrix, null);
+	assert.equal(renderSet.slices.length, 4);
+	for (let index = 0; index < renderSet.slices.length; index++) {
+		assert.ok(renderSet.slices[index].shadowMap.viewProjectionMatrix);
 	}
 
 	const shadowMaps = new Map([[light, renderSet]]);
@@ -286,7 +300,7 @@ function testSpotLightCSMUsesSingleSliceEquivalentPath() {
 		false
 	);
 	assert.equal(webgpuLighting.spotShadows[0]?.strategyType, "csm");
-	assert.equal(webgpuLighting.spotShadows[0]?.cascadeCount, 1);
+	assert.equal(webgpuLighting.spotShadows[0]?.cascadeCount, 4);
 
 	const webglLighting = collectWebGLLights(
 		[light],
@@ -298,17 +312,15 @@ function testSpotLightCSMUsesSingleSliceEquivalentPath() {
 		false
 	);
 	assert.equal(webglLighting.spotShadows[0]?.strategyType, "csm");
-	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 1);
+	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 4);
 }
 
-function testPointLightSingleMapUsesCastShadowProperty() {
-	const light = new PointLight({
-		range: 60,
-		castShadow: true,
-	});
-	assert.ok(light.shadow, "PointLight should provide a default shadow config.");
-
-	const renderSet = createShadowRenderSet(light.shadow);
+function testPointLightSingleMapUsesSceneShadowBinding() {
+	const scene = new Scene();
+	const light = new PointLight({ range: 60 });
+	scene.add(light);
+	scene.shadows.bind(light, scene.shadows.createSingle({ size: 1024 }));
+	const renderSet = createRenderSetForBoundLight(light);
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(50));
 
 	assert.equal(renderSet.effectiveStrategyType, "single-map");
@@ -316,14 +328,12 @@ function testPointLightSingleMapUsesCastShadowProperty() {
 	assert.ok(renderSet.slices[0].splitFar > renderSet.slices[0].splitNear);
 }
 
-function testAreaLightSingleMapUsesCastShadowProperty() {
-	const light = new AreaLight({
-		range: 80,
-		castShadow: true,
-	});
-	assert.ok(light.shadow, "AreaLight should provide a default shadow config.");
-
-	const renderSet = createShadowRenderSet(light.shadow);
+function testAreaLightSingleMapUsesSceneShadowBinding() {
+	const scene = new Scene();
+	const light = new AreaLight({ range: 80 });
+	scene.add(light);
+	scene.shadows.bind(light, scene.shadows.createSingle({ size: 1024 }));
+	const renderSet = createRenderSetForBoundLight(light);
 	updateShadowMapMetadata(renderSet, light, createSceneBounds(70));
 
 	assert.equal(renderSet.effectiveStrategyType, "single-map");
@@ -338,9 +348,9 @@ function run() {
 	testBlendRatioNormalization();
 	testBackendFallbackToSingleMap();
 	testCSMSelectionPriority();
-	testSpotLightCSMUsesSingleSliceEquivalentPath();
-	testPointLightSingleMapUsesCastShadowProperty();
-	testAreaLightSingleMapUsesCastShadowProperty();
+	testSpotLightCSMUsesCascadeSlices();
+	testPointLightSingleMapUsesSceneShadowBinding();
+	testAreaLightSingleMapUsesSceneShadowBinding();
 	console.log("Shadow strategy CSM tests passed");
 }
 

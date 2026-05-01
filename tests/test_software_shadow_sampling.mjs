@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Scene } from "../src/core/Scene.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { ShadowMap, createShadowRenderSet } from "../src/lights/ShadowMapping.ts";
@@ -127,27 +128,35 @@ function testPCSSPathHandlesBlockers() {
 }
 
 function testCSMSamplerUsesAvailableCascadeSlice() {
+	const scene = new Scene();
 	const light = new DirectionalLight();
-	light.castShadow = true;
-	light.shadow = {
-		strategy: "csm",
+	scene.add(light);
+	const csmShadowMap = scene.shadows.createCSM({
 		size: 8,
-		cascadeCount: 2,
-		params: {
-			shadowBias: 0,
-			shadowSlopeBias: 0,
-			shadowTexelBias: 0,
-			shadowMaxBias: 1,
-			shadowNormalBias: 0,
-			shadowNormalBiasMin: 0,
-			shadowPCF: 0,
-			shadowStrength: 1,
-			shadowSamples: 1,
-			shadowSearchSamples: 1,
+		cascadeCounts: {
+			directional: 2,
 		},
-	};
+		bias: {
+			constant: 0,
+			slope: 0,
+			texel: 0,
+			max: 1,
+			normal: 0,
+			normalMin: 0,
+		},
+		sampling: {
+			pcfRadius: 0,
+			strength: 1,
+			radius: 0,
+			samples: 1,
+			searchSamples: 1,
+		},
+	});
+	scene.shadows.bind(light, csmShadowMap);
+	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig);
 
-	const renderSet = createShadowRenderSet(light.shadow);
+	const renderSet = createShadowRenderSet(shadowConfig);
 	renderSet.effectiveStrategyType = "csm";
 	renderSet.slices[0].shadowMap.viewProjectionMatrix = null;
 	renderSet.slices[1].shadowMap.viewProjectionMatrix = Matrix4.identity();

@@ -4,6 +4,7 @@ import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { Scene } from "../src/core/Scene.ts";
 import { evaluateLightContribution } from "../src/renderers/software/LightEvaluator.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
@@ -60,10 +61,17 @@ function testDirectional() {
 	// L should be (0, 0, 1)
 	assert.ok(contributionRotated.direction.z > 0.999);
 
-	// Test shadow config defaults
-	assert.ok(light.shadow);
-	assert.equal(light.shadow.strategy, "single-map");
-	assert.ok((light.shadow.size ?? 0) > 0);
+	// Shadow config is now scene-managed, not light-owned.
+	const scene = new Scene();
+	scene.add(light);
+	const shadowMap = scene.shadows.createSingle({ size: 1024 });
+	scene.shadows.bind(light, shadowMap);
+	const boundShadow = scene.shadows.getBoundShadowMap(light);
+	const legacyConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.equal(boundShadow, shadowMap);
+	assert.ok(legacyConfig);
+	assert.equal(legacyConfig?.strategy, "single-map");
+	assert.equal(legacyConfig?.size, 1024);
 }
 
 function testPoint() {

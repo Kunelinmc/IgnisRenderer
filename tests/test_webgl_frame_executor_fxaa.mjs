@@ -791,11 +791,18 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 	const envProbeMap = {
 		mipmaps: [new Float32Array(4), new Float32Array(4), new Float32Array(4)],
 	};
+	let envSpecularMapCalls = 0;
+	let fallbackMapCalls = 0;
 
 	executor._textures = {
 		getEnvironmentSpecularTexture(texture) {
-			assert.equal(texture, envProbeMap);
-			return { texture: envTexture, isLinear: true };
+			if (texture === envProbeMap) {
+				envSpecularMapCalls++;
+				return { texture: envTexture, isLinear: true };
+			}
+			assert.equal(texture, null);
+			fallbackMapCalls++;
+			return { texture: null, isLinear: true };
 		},
 		getBRDFLUTTexture(texture) {
 			assert.ok(texture);
@@ -851,6 +858,8 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 		.map((call) => call.unit);
 	assert.ok(activeTextureUnits.includes(gl.TEXTURE2));
 	assert.ok(activeTextureUnits.includes(gl.TEXTURE3));
+	assert.equal(envSpecularMapCalls, 1);
+	assert.equal(fallbackMapCalls, 1);
 }
 
 function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
