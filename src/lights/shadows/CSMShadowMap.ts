@@ -99,7 +99,8 @@ export class CSMShadowMap extends ShadowMapBase {
 			return CSMShadowMap.buildSpotCascadeSlices(
 				context.light as SpotLight,
 				context.sceneBounds,
-				config
+				config,
+				context.camera?.aspectRatio
 			);
 		}
 		if (context.light.type === LightType.Point) {
@@ -202,9 +203,16 @@ export class CSMShadowMap extends ShadowMapBase {
 	private static buildSpotCascadeSlices(
 		light: SpotLight,
 		sceneBounds: SceneBounds,
-		config: CSMShadowConfig
+		config: CSMShadowConfig,
+		aspectRatio?: number
 	): ShadowSliceDescriptor[] {
-		const baseSlice = SingleShadowMap.buildSpotSlice(light, sceneBounds);
+		const projectionAspectRatio =
+			SingleShadowMap.resolvePerspectiveAspectRatio(aspectRatio);
+		const baseSlice = SingleShadowMap.buildSpotSlice(
+			light,
+			sceneBounds,
+			projectionAspectRatio
+		);
 		const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 3));
 		const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
 		const splits = CSMShadowMap.calculatePracticalCascadeSplits(
@@ -221,7 +229,7 @@ export class CSMShadowMap extends ShadowMapBase {
 				view: baseSlice.view,
 				projection: Matrix4.perspective(
 					light.outerAngle * 2 * (180 / Math.PI),
-					1,
+					projectionAspectRatio,
 					splitNear,
 					splitFar
 				),

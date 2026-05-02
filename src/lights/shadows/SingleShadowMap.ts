@@ -31,6 +31,7 @@ const DEFAULT_POSITIONAL_SHADOW_FOV_DEGREES = 120;
 const MIN_POSITIONAL_SHADOW_FOV_DEGREES = 1;
 const MAX_POSITIONAL_SHADOW_FOV_DEGREES = 175;
 const DEFAULT_POSITIONAL_SHADOW_DIRECTION = { x: 0, y: -1, z: 0 };
+const DEFAULT_SHADOW_PERSPECTIVE_ASPECT_RATIO = 1;
 
 export class SingleShadowMap extends ShadowMapBase {
 	public readonly kind: "single" | "vsm" = "single";
@@ -51,6 +52,9 @@ export class SingleShadowMap extends ShadowMapBase {
 	public static buildSlices(
 		context: ShadowStrategyBuildContext
 	): ShadowSliceDescriptor[] {
+		const perspectiveAspectRatio = SingleShadowMap.resolvePerspectiveAspectRatio(
+			context.camera?.aspectRatio
+		);
 		switch (context.light.type) {
 			case LightType.Directional:
 				return [
@@ -63,7 +67,8 @@ export class SingleShadowMap extends ShadowMapBase {
 				return [
 					SingleShadowMap.buildSpotSlice(
 						context.light as SpotLight,
-						context.sceneBounds
+						context.sceneBounds,
+						perspectiveAspectRatio
 					),
 				];
 			default:
@@ -109,7 +114,8 @@ export class SingleShadowMap extends ShadowMapBase {
 
 	public static buildSpotSlice(
 		light: SpotLight,
-		sceneBounds: SceneBounds
+		sceneBounds: SceneBounds,
+		aspectRatio = DEFAULT_SHADOW_PERSPECTIVE_ASPECT_RATIO
 	): ShadowSliceDescriptor {
 		const position = Matrix4.transformPoint(light.worldMatrix, {
 			x: 0,
@@ -143,7 +149,7 @@ export class SingleShadowMap extends ShadowMapBase {
 
 		const projection = Matrix4.perspective(
 			light.outerAngle * 2 * (180 / Math.PI),
-			1,
+			SingleShadowMap.resolvePerspectiveAspectRatio(aspectRatio),
 			near,
 			far
 		);
@@ -159,7 +165,8 @@ export class SingleShadowMap extends ShadowMapBase {
 
 	public static buildPositionalSlice(
 		light: PositionalShadowLight,
-		sceneBounds: SceneBounds
+		sceneBounds: SceneBounds,
+		aspectRatio = DEFAULT_SHADOW_PERSPECTIVE_ASPECT_RATIO
 	): ShadowSliceDescriptor {
 		const position = Matrix4.transformPoint(light.worldMatrix, {
 			x: 0,
@@ -193,7 +200,7 @@ export class SingleShadowMap extends ShadowMapBase {
 		);
 		const projection = Matrix4.perspective(
 			SingleShadowMap.resolvePositionalShadowFov(light),
-			1,
+			SingleShadowMap.resolvePerspectiveAspectRatio(aspectRatio),
 			near,
 			far
 		);
@@ -218,6 +225,17 @@ export class SingleShadowMap extends ShadowMapBase {
 			return { x: 0, y: 1, z: 0 };
 		}
 		return { x: 0, y: 0, z: 1 };
+	}
+
+	public static resolvePerspectiveAspectRatio(aspectRatio: unknown): number {
+		if (
+			typeof aspectRatio === "number" &&
+			Number.isFinite(aspectRatio) &&
+			aspectRatio > 0
+		) {
+			return aspectRatio;
+		}
+		return DEFAULT_SHADOW_PERSPECTIVE_ASPECT_RATIO;
 	}
 
 	private static resolvePositionalShadowDirection(

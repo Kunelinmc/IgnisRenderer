@@ -129,6 +129,27 @@ function createSpotCSMLight({
 	return light;
 }
 
+function createSpotSingleMapLight({
+	priority = 0,
+	intensity = 1,
+	range = 80,
+} = {}) {
+	const scene = new Scene();
+	const light = new SpotLight({
+		intensity,
+		range,
+		direction: { x: 0, y: -1, z: 0 },
+		outerAngle: Math.PI / 3,
+	});
+	scene.add(light);
+	const shadowMap = scene.shadows.createSingle({
+		size: 1024,
+		priority,
+	});
+	scene.shadows.bind(light, shadowMap);
+	return light;
+}
+
 function createRenderSetForBoundLight(light) {
 	const shadowConfig = light.scene?.shadows.getLegacyShadowConfig(light);
 	assert.ok(shadowConfig, `Expected bound shadow config for light ${light.id}`);
@@ -668,6 +689,42 @@ function testSpotLightCSMUsesCascadeSlices() {
 	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 4);
 }
 
+function resolveProjectionAspectRatio(slice) {
+	const projection = slice.shadowMap.projectionMatrix;
+	assert.ok(projection);
+	const m00 = projection.elements[0][0];
+	const m11 = projection.elements[1][1];
+	return Math.abs(m11 / m00);
+}
+
+function testSpotLightSingleMapUsesCameraAspectRatio() {
+	const light = createSpotSingleMapLight();
+	const renderSet = createRenderSetForBoundLight(light);
+	const expectedAspectRatio = 2.4;
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(60), {
+		camera: createCamera({ aspectRatio: expectedAspectRatio }),
+	});
+
+	assert.equal(renderSet.effectiveStrategyType, "single-map");
+	const resolvedAspectRatio = resolveProjectionAspectRatio(renderSet.slices[0]);
+	assert.ok(Math.abs(resolvedAspectRatio - expectedAspectRatio) < 1e-6);
+}
+
+function testSpotLightCSMUsesCameraAspectRatio() {
+	const light = createSpotCSMLight();
+	const renderSet = createRenderSetForBoundLight(light);
+	const expectedAspectRatio = 1.85;
+
+	updateShadowMapMetadata(renderSet, light, createSceneBounds(60), {
+		camera: createCamera({ aspectRatio: expectedAspectRatio }),
+	});
+
+	assert.equal(renderSet.effectiveStrategyType, "csm");
+	const resolvedAspectRatio = resolveProjectionAspectRatio(renderSet.slices[0]);
+	assert.ok(Math.abs(resolvedAspectRatio - expectedAspectRatio) < 1e-6);
+}
+
 function testPointLightSingleMapUsesSceneShadowBinding() {
 	const scene = new Scene();
 	const light = new PointLight({ range: 60 });
@@ -710,6 +767,8 @@ function run() {
 	testUnsupportedPositionalCSMFallbackToSingleMap();
 	testCSMSelectionPriority();
 	testSpotLightCSMUsesCascadeSlices();
+	testSpotLightSingleMapUsesCameraAspectRatio();
+	testSpotLightCSMUsesCameraAspectRatio();
 	testPointLightSingleMapUsesSceneShadowBinding();
 	testAreaLightSingleMapUsesSceneShadowBinding();
 	console.log("Shadow strategy CSM tests passed");
