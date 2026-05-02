@@ -13,7 +13,7 @@ import {
 } from "../lights/shadows/ShadowMapping";
 import type { DrawPacket } from "./types";
 import {
-	getDefaultShadowStrategyRegistry,
+	ShadowStrategyRegistry,
 	type ShadowBackendCapabilities,
 	type ShadowStrategyCamera,
 	type SceneBounds,
@@ -33,7 +33,6 @@ export interface ShadowMetadataUpdateOptions {
 }
 
 const _tmpShadowBoundsCameraPosition: IVector3 = { x: 0, y: 0, z: 0 };
-const _strategyRegistry = getDefaultShadowStrategyRegistry();
 
 function hasFiniteRadius(bounds: SceneBounds): boolean {
 	return Number.isFinite(bounds.radius) && bounds.radius > 1e-6;
@@ -394,7 +393,7 @@ export function updateShadowMapMetadata(
 			:	sceneBounds.radius,
 	};
 
-	const descriptors = _strategyRegistry.build({
+	const descriptors = ShadowStrategyRegistry.buildWithDefault({
 		light,
 		renderSet,
 		config: effectiveConfig,

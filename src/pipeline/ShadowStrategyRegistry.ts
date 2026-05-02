@@ -27,6 +27,10 @@ export interface ShadowBackendCapabilities {
 }
 
 export class ShadowStrategyRegistry {
+	private static readonly _defaultRegistry = new ShadowStrategyRegistry()
+		.register("single-map", SingleShadowMap)
+		.register("csm", CSMShadowMap);
+
 	private readonly _providers = new Map<ShadowStrategyType, IShadowStrategyProvider>();
 
 	public register(provider: IShadowStrategyProvider): this;
@@ -70,14 +74,20 @@ export class ShadowStrategyRegistry {
 		}
 		return provider.build(context);
 	}
+
+	public static getDefault(): ShadowStrategyRegistry {
+		return ShadowStrategyRegistry._defaultRegistry;
+	}
+
+	public static buildWithDefault(
+		context: ShadowStrategyBuildContext
+	): ShadowSliceDescriptor[] {
+		return ShadowStrategyRegistry._defaultRegistry.build(context);
+	}
 }
 
-const _defaultRegistry = new ShadowStrategyRegistry()
-	.register("single-map", SingleShadowMap)
-	.register("csm", CSMShadowMap);
-
 export function getDefaultShadowStrategyRegistry(): ShadowStrategyRegistry {
-	return _defaultRegistry;
+	return ShadowStrategyRegistry.getDefault();
 }
 
 function resolveShadowPriority(light: ShadowCastingLight): number {
