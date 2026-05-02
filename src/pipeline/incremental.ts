@@ -239,7 +239,7 @@ export const DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE = 32;
 
 export const DEFAULT_INCREMENTAL_RENDERING_OPTIONS: IncrementalRenderingOptions =
 	{
-		enabled: false,
+		enabled: true,
 		maxDirtyRects: 16,
 		dirtyTileSize: DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,
 		fullFrameFallbackAreaRatio: 0.3,
