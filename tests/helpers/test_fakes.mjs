@@ -300,6 +300,10 @@ export class FakeCommandEncoder {
 	setBindGroup(index, group) { this.calls.push(["setBindGroup", index, group]); return this; }
 	setBindingGroup(index, group) { this.calls.push(["setBindGroup", index, group]); return this; } // Compatibility
 	draw(v, i, firstV, firstI) { this.calls.push(["draw", v, i, firstV, firstI]); return this; }
+	drawIndirect(buffer, offset = 0) {
+		this.calls.push(["drawIndirect", buffer, offset]);
+		return this;
+	}
 	drawIndexed(i, instance, firstI, baseV, firstInst) { this.calls.push(["drawIndexed", i, instance, firstI, baseV, firstInst]); return this; }
 	endRenderPass() { this.calls.push(["endRenderPass"]); return this; }
 

@@ -45,6 +45,9 @@ export interface ICommandEncoder {
 		firstInstance?: number
 	): void;
 
+	/** Indirect non-indexed draw call (optional by backend support) */
+	drawIndirect?(buffer: IRenderBuffer, offset?: number): void;
+
 	/** Optional render-pass scissor rect for partial updates */
 	setScissorRect?(
 		x: number,

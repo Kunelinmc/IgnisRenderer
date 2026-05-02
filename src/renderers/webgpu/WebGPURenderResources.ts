@@ -78,6 +78,10 @@ import {
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
 } from "./particleLayout";
+import {
+	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
+	type WebGPUParticleDrawBatch,
+} from "./particleTransient";
 import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
@@ -777,6 +781,28 @@ export class WebGPURenderResources {
 	): Promise<number> {
 		const includeBlendModes = options.includeBlendModes ?? null;
 		const pipelineMode = options.pipelineMode ?? "legacy";
+		const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY);
+		if (gpuBatches && gpuBatches.length > 0) {
+			const drawBatches = gpuBatches.filter((batch) => {
+				if (batch.instanceCount <= 0) {
+					return false;
+				}
+				if (!includeBlendModes || includeBlendModes.length === 0) {
+					return true;
+				}
+				return includeBlendModes.includes(batch.blendMode);
+			});
+			if (drawBatches.length > 0) {
+				return this._renderParticlesFromGPUBatches(
+					encoder,
+					context,
+					targets,
+					mode,
+					pipelineMode,
+					drawBatches
+				);
+			}
+		}
 		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
 		if (!batches || batches.length === 0) return 0;
 
@@ -1014,6 +1040,206 @@ export class WebGPURenderResources {
 		encoder.endRenderPass();
 		this._evictParticleBindings(activeCacheKeys);
 		return totalParticles;
+	}
+
+	private async _renderParticlesFromGPUBatches(
+		encoder: ICommandEncoder,
+		context: FrameContext,
+		targets: WebGPUParticlePassTargets,
+		mode: WebGPUSceneTargetMode,
+		pipelineMode: "legacy" | "oit",
+		drawBatches: readonly WebGPUParticleDrawBatch[]
+	): Promise<number> {
+		const totalParticles = drawBatches.reduce(
+			(sum, batch) => sum + batch.instanceCount,
+			0
+		);
+		if (totalParticles <= 0) {
+			return 0;
+		}
+		await this._ensureParticleResources(mode, 0, pipelineMode);
+		if (!this._particleQuadBuffer) {
+			return 0;
+		}
+		const frameBinding = this._frameBindings.getSceneBinding();
+		const alphaPipeline = this._particlePipelineAlpha.get(mode);
+		const oitAlphaPipeline = this._particlePipelineOITAlpha.get(mode);
+		const additivePipeline = this._particlePipelineAdditive.get(mode);
+		if (pipelineMode === "oit") {
+			if (!oitAlphaPipeline) {
+				return 0;
+			}
+		} else if (!alphaPipeline || !additivePipeline) {
+			return 0;
+		}
+
+		encoder.beginRenderPass({
+			label: targets.label,
+			colorAttachments: targets.colorAttachments,
+			depthStencilAttachment: {
+				view: targets.depth,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		encoder.setBindingGroup(0, frameBinding);
+		encoder.setVertexBuffer(0, this._particleQuadBuffer);
+		const dirtyRects = this._resolveParticleDirtyRects(context, targets);
+		const activeCacheKeys = new Set<string>();
+
+		for (const batch of drawBatches) {
+			const texture = this._textureRegistry.getTextureForSlot(batch.texture, 0);
+			const sampler = this._textureRegistry.getSamplerForTexture(batch.texture);
+			const cacheKey = `particle_${batch.systemId}`;
+			activeCacheKeys.add(cacheKey);
+			const cachedBinding = this._particleBindingCache.get(cacheKey);
+			const uvTransformBuffer =
+				cachedBinding?.uvTransformBuffer ??
+				this._backend.createBuffer({
+					size: WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
+					usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+					label: `ParticleUVTransform_${batch.systemId}`,
+				});
+			let particleBinding: IBindingGroup;
+			if (
+				cachedBinding &&
+				cachedBinding.texture === texture &&
+				cachedBinding.sampler === sampler
+			) {
+				particleBinding = cachedBinding.group;
+				cachedBinding.lastUsedFrame = this._frameId;
+			} else {
+				this._destroyBindingGroup(cachedBinding?.group ?? null);
+				particleBinding = this._backend.createBindingGroup({
+					layout: this._layouts.particleBindGroupLayout,
+					entries: [
+						{
+							binding: WEBGPU_PARTICLE_BINDING_TEXTURE,
+							resource: texture,
+						},
+						{
+							binding: WEBGPU_PARTICLE_BINDING_SAMPLER,
+							resource: sampler,
+						},
+						{
+							binding: WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
+							resource: uvTransformBuffer,
+						},
+					],
+					label: `ParticleBinding_${batch.systemId}`,
+				});
+				this._particleBindingCache.set(cacheKey, {
+					group: particleBinding,
+					texture,
+					sampler,
+					uvTransformBuffer,
+					lastUsedFrame: this._frameId,
+				});
+			}
+
+			const uvTransformData = this._createParticleUVTransformData(batch.texture);
+			this._backend.writeBuffer(uvTransformBuffer, uvTransformData);
+			let pipeline: IRenderPipeline;
+			if (pipelineMode === "oit") {
+				pipeline = oitAlphaPipeline!;
+			} else {
+				pipeline =
+					batch.blendMode === ParticleBlendMode.Additive ?
+						additivePipeline!
+					:	alphaPipeline!;
+			}
+
+			encoder.setPipeline(pipeline);
+			encoder.setBindingGroup(1, particleBinding);
+			encoder.setVertexBuffer(1, batch.instanceBuffer);
+			for (const rect of dirtyRects) {
+				encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+				if (typeof encoder.drawIndirect === "function") {
+					encoder.drawIndirect(batch.indirectBuffer, batch.indirectOffset);
+				} else {
+					encoder.draw(6, batch.instanceCount, 0, 0);
+				}
+			}
+		}
+
+		encoder.endRenderPass();
+		this._evictParticleBindings(activeCacheKeys);
+		return totalParticles;
+	}
+
+	private _resolveParticleDirtyRects(
+		context: FrameContext,
+		targets: WebGPUParticlePassTargets
+	): Array<{ x: number; y: number; width: number; height: number }> {
+		const targetView =
+			targets.colorAttachments.find((attachment) => attachment.view)?.view ??
+			targets.depth;
+		const targetWidth = Math.max(
+			1,
+			Math.floor(
+				typeof targetView?.width === "number" ?
+					targetView.width
+				:	context.attachments.width
+			)
+		);
+		const targetHeight = Math.max(
+			1,
+			Math.floor(
+				typeof targetView?.height === "number" ?
+					targetView.height
+				:	context.attachments.height
+			)
+		);
+		const hasIncrementalRects =
+			context.incremental?.enabled &&
+			!context.incremental.forceFullFrame &&
+			(context.incremental.dirtyRects?.length ?? 0) > 0;
+		if (!hasIncrementalRects) {
+			return [
+				{
+					x: 0,
+					y: 0,
+					width: targetWidth,
+					height: targetHeight,
+				},
+			];
+		}
+		return context.incremental.dirtyRects
+			.map((rect) => {
+				const minX = Math.max(
+					0,
+					Math.floor(
+						(rect.x * targetWidth) / Math.max(1, context.attachments.width)
+					)
+				);
+				const minY = Math.max(
+					0,
+					Math.floor(
+						(rect.y * targetHeight) / Math.max(1, context.attachments.height)
+					)
+				);
+				const maxX = Math.min(
+					targetWidth,
+					Math.ceil(
+						((rect.x + rect.width) * targetWidth) /
+							Math.max(1, context.attachments.width)
+					)
+				);
+				const maxY = Math.min(
+					targetHeight,
+					Math.ceil(
+						((rect.y + rect.height) * targetHeight) /
+							Math.max(1, context.attachments.height)
+					)
+				);
+				return {
+					x: minX,
+					y: minY,
+					width: maxX - minX,
+					height: maxY - minY,
+				};
+			})
+			.filter((rect) => rect.width > 0 && rect.height > 0);
 	}
 
 	private _evictParticleBindings(activeCacheKeys?: Set<string>): void {

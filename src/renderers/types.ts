@@ -12,6 +12,7 @@ export enum BufferUsage {
 	CopyDst = 1 << 5,
 	MapRead = 1 << 6,
 	MapWrite = 1 << 7,
+	Indirect = 1 << 8,
 }
 
 export enum TextureUsage {
