@@ -637,7 +637,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		fullFrameTiles: DirtyTileCoverage
 	): IncrementalFrameContext {
 		return {
-			enabled: false,
+			enabled: true,
 			forceFullFrame: true,
 			dirtyRects: [fullFrameRect],
 			dirtyTileSize: fullFrameTiles.tileSize,
