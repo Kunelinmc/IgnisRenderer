@@ -12,6 +12,10 @@ import type {
 
 export type { ShadowStrategyCamera, ShadowSliceDescriptor, SceneBounds };
 
+interface IShadowStrategyBuilder {
+	buildSlices(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[];
+}
+
 export interface ShadowBackendCapabilities {
 	backendKey: string;
 	supportsSingleMap: boolean;
@@ -22,35 +26,36 @@ export interface ShadowBackendCapabilities {
 	maxDynamicShadowCost?: number;
 }
 
-class SingleMapShadowStrategyProvider implements IShadowStrategyProvider {
-	public readonly type: ShadowStrategyType = "single-map";
-
-	public supports(_light: ShadowCastingLight): boolean {
-		return true;
-	}
-
-	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
-		return SingleShadowMap.buildSlices(context);
-	}
-}
-
-class CSMShadowStrategyProvider implements IShadowStrategyProvider {
-	public readonly type: ShadowStrategyType = "csm";
-
-	public supports(_light: ShadowCastingLight): boolean {
-		return true;
-	}
-
-	public build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[] {
-		return CSMShadowMap.buildSlices(context);
-	}
-}
-
 export class ShadowStrategyRegistry {
 	private readonly _providers = new Map<ShadowStrategyType, IShadowStrategyProvider>();
 
-	public register(provider: IShadowStrategyProvider): this {
-		this._providers.set(provider.type, provider);
+	public register(provider: IShadowStrategyProvider): this;
+	public register(
+		type: ShadowStrategyType,
+		strategy: IShadowStrategyBuilder,
+		supports?: (light: ShadowCastingLight) => boolean
+	): this;
+	public register(
+		providerOrType: IShadowStrategyProvider | ShadowStrategyType,
+		strategy?: IShadowStrategyBuilder,
+		supports: (light: ShadowCastingLight) => boolean = () => true
+	): this {
+		if (typeof providerOrType !== "string") {
+			this._providers.set(providerOrType.type, providerOrType);
+			return this;
+		}
+
+		if (!strategy) {
+			throw new Error(
+				`Shadow strategy ${providerOrType} requires a builder with buildSlices().`
+			);
+		}
+
+		this._providers.set(providerOrType, {
+			type: providerOrType,
+			supports,
+			build: (context) => strategy.buildSlices(context),
+		});
 		return this;
 	}
 
@@ -68,8 +73,8 @@ export class ShadowStrategyRegistry {
 }
 
 const _defaultRegistry = new ShadowStrategyRegistry()
-	.register(new SingleMapShadowStrategyProvider())
-	.register(new CSMShadowStrategyProvider());
+	.register("single-map", SingleShadowMap)
+	.register("csm", CSMShadowMap);
 
 export function getDefaultShadowStrategyRegistry(): ShadowStrategyRegistry {
 	return _defaultRegistry;
