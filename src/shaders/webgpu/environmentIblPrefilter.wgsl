@@ -1,5 +1,7 @@
 const PI: f32 = 3.141592653589793;
 const TWO_PI: f32 = 6.283185307179586;
+const PREFILTER_EPSILON: f32 = 1e-6;
+const EQUIRECT_DISTORTION_EPSILON: f32 = 1e-4;
 
 struct PrefilterParams {
 	outputWidth: u32,
@@ -9,7 +11,7 @@ struct PrefilterParams {
 	roughness: f32,
 	sampleCount: u32,
 	sourceIsLinear: u32,
-	_pad: u32,
+	sourceMipLevelCount: u32,
 };
 
 @group(0) @binding(0) var envSampler: sampler;
@@ -61,6 +63,52 @@ fn importanceSampleGGX(xi: vec2<f32>, normal: vec3<f32>, roughness: f32) -> vec3
 	);
 }
 
+fn distributionGGX(nDotH: f32, roughness: f32) -> f32 {
+	let alpha = max(roughness * roughness, 1e-4);
+	let alpha2 = alpha * alpha;
+	let denom = nDotH * nDotH * (alpha2 - 1.0) + 1.0;
+	return alpha2 / max(PI * denom * denom, PREFILTER_EPSILON);
+}
+
+fn computeGGXSamplePDF(nDotH: f32, vDotH: f32, roughness: f32) -> f32 {
+	if (nDotH <= 0.0 || vDotH <= 0.0) {
+		return PREFILTER_EPSILON;
+	}
+	let d = distributionGGX(nDotH, roughness);
+	return max(
+		(d * nDotH) / max(4.0 * vDotH, PREFILTER_EPSILON),
+		PREFILTER_EPSILON
+	);
+}
+
+fn computeEquirectTexelSolidAngle(directionY: f32) -> f32 {
+	let sourceWidth = max(f32(params.sourceWidth), 1.0);
+	let sourceHeight = max(f32(params.sourceHeight), 1.0);
+	let sinTheta = sqrt(max(1.0 - directionY * directionY, 0.0));
+	return (
+		2.0 *
+		PI *
+		PI *
+		max(sinTheta, EQUIRECT_DISTORTION_EPSILON)
+	) / (sourceWidth * sourceHeight);
+}
+
+fn resolveSampleLevel(
+	roughness: f32,
+	sampleCount: u32,
+	pdf: f32,
+	directionY: f32
+) -> f32 {
+	let mipCount = max(params.sourceMipLevelCount, 1u);
+	if (mipCount <= 1u || roughness <= PREFILTER_EPSILON) {
+		return 0.0;
+	}
+	let texelSolidAngle = computeEquirectTexelSolidAngle(directionY);
+	let sampleSolidAngle = 1.0 / max(f32(sampleCount) * pdf, PREFILTER_EPSILON);
+	let lod = 0.5 * log2(sampleSolidAngle / max(texelSolidAngle, PREFILTER_EPSILON));
+	return clamp(lod, 0.0, f32(mipCount - 1u));
+}
+
 fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	let normalized = normalize(direction);
 	let phi = atan2(normalized.x, normalized.z);
@@ -100,6 +148,10 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		let xi = hammersley(i, sampleCount);
 		let halfVector = importanceSampleGGX(xi, normal, params.roughness);
 		let nDotH = max(dot(normal, halfVector), 0.0);
+		let vDotH = max(dot(normal, halfVector), 0.0);
+		if (vDotH <= PREFILTER_EPSILON) {
+			continue;
+		}
 		let lightDir = normalize(2.0 * nDotH * halfVector - normal);
 		let nDotL = max(dot(normal, lightDir), 0.0);
 		if (nDotL <= 0.0) {
@@ -107,7 +159,19 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		}
 
 		let sampleUv = directionToEquirectUV(lightDir);
-		var sampleColor = textureSampleLevel(envTexture, envSampler, sampleUv, 0.0).rgb;
+		let pdf = computeGGXSamplePDF(nDotH, vDotH, params.roughness);
+		let sampleLevel = resolveSampleLevel(
+			params.roughness,
+			sampleCount,
+			pdf,
+			lightDir.y
+		);
+		var sampleColor = textureSampleLevel(
+			envTexture,
+			envSampler,
+			sampleUv,
+			sampleLevel
+		).rgb;
 		if (params.sourceIsLinear == 0u) {
 			sampleColor = sRGBToLinear(sampleColor);
 		}

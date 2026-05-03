@@ -21,7 +21,7 @@ import type {
 } from "../renderers/IComputeRuntime";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
-import { createTextureUploadData } from "../renderers/webgpu/texture";
+import { createTextureMipUploadLevels } from "../renderers/webgpu/texture";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
@@ -47,6 +47,8 @@ const CPU_MIN_SAMPLE_COUNT = 64;
 const GPU_MAX_SAMPLE_COUNT = 256;
 const GPU_MIN_SAMPLE_COUNT = 48;
 const DEFAULT_BAKE_POOL_PREFIX = "environment-ibl-bake";
+const PREFILTER_EPSILON = 1e-6;
+const EQUIRECT_DISTORTION_EPSILON = 1e-4;
 
 const SRGB_TO_LINEAR_LUT = createSRGBToLinearLUT();
 
@@ -193,6 +195,66 @@ function decodeSRGBToLinear01(value255: number): number {
 		return SRGB_TO_LINEAR_LUT[value255];
 	}
 	return sRGBToLinear(value255 / 255);
+}
+
+function distributionGGX(nDotH: number, roughness: number): number {
+	const alpha = Math.max(roughness * roughness, 1e-4);
+	const alpha2 = alpha * alpha;
+	const denom = nDotH * nDotH * (alpha2 - 1.0) + 1.0;
+	return alpha2 / Math.max(Math.PI * denom * denom, PREFILTER_EPSILON);
+}
+
+function computeGGXSamplePDF(
+	nDotH: number,
+	vDotH: number,
+	roughness: number
+): number {
+	if (nDotH <= 0 || vDotH <= 0) {
+		return PREFILTER_EPSILON;
+	}
+	const d = distributionGGX(nDotH, roughness);
+	return Math.max(
+		(d * nDotH) / Math.max(4.0 * vDotH, PREFILTER_EPSILON),
+		PREFILTER_EPSILON
+	);
+}
+
+function computeEquirectTexelSolidAngle(
+	sourceWidth: number,
+	sourceHeight: number,
+	directionY: number
+): number {
+	const safeWidth = Math.max(1, sourceWidth);
+	const safeHeight = Math.max(1, sourceHeight);
+	const sinTheta = Math.sqrt(Math.max(0, 1.0 - directionY * directionY));
+	return (
+		(2.0 *
+			Math.PI *
+			Math.PI *
+			Math.max(sinTheta, EQUIRECT_DISTORTION_EPSILON)) /
+		(safeWidth * safeHeight)
+	);
+}
+
+function resolvePrefilterSampleMipLevel(
+	envMap: Texture,
+	roughness: number,
+	sampleCount: number,
+	pdf: number,
+	directionY: number
+): number {
+	const mipCount = Math.max(1, envMap.mipmaps.length || 1);
+	if (mipCount <= 1 || roughness <= PREFILTER_EPSILON) {
+		return 0;
+	}
+	const texelSolidAngle = computeEquirectTexelSolidAngle(
+		envMap.width,
+		envMap.height,
+		directionY
+	);
+	const sampleSolidAngle = 1.0 / Math.max(sampleCount * pdf, PREFILTER_EPSILON);
+	const lod = 0.5 * Math.log2(sampleSolidAngle / texelSolidAngle);
+	return Math.max(0, Math.min(mipCount - 1, lod));
 }
 
 export function projectEquirectTextureToSH(
@@ -409,6 +471,8 @@ function prefilterSpecular(
 		const view = normal;
 		const half = importanceSampleGGX_VNDF(xi, view, normal, roughness);
 		const nDotH = Math.max(Vector3.dot(normal, half), 0);
+		const vDotH = Math.max(Vector3.dot(view, half), 0);
+		if (vDotH <= 0) continue;
 		const lightDir = Vector3.normalize({
 			x: 2.0 * nDotH * half.x - view.x,
 			y: 2.0 * nDotH * half.y - view.y,
@@ -422,7 +486,15 @@ function prefilterSpecular(
 		const theta = Math.acos(Math.max(-1, Math.min(1, lightDir.y)));
 		const u = (phi + Math.PI) / (2 * Math.PI);
 		const v = theta / Math.PI;
-		const sample = envMap.sample(u, v);
+		const pdf = computeGGXSamplePDF(nDotH, vDotH, roughness);
+		const sampleMipLevel = resolvePrefilterSampleMipLevel(
+			envMap,
+			roughness,
+			sampleCount,
+			pdf,
+			lightDir.y
+		);
+		const sample = envMap.sampleLevel(u, v, sampleMipLevel);
 
 		const r = sourceIsLinear ? sample.r / 255 : decodeSRGBToLinear01(sample.r);
 		const g = sourceIsLinear ? sample.g / 255 : decodeSRGBToLinear01(sample.g);
@@ -450,7 +522,8 @@ function createPrefilterParamsBuffer(
 	sourceHeight: number,
 	roughness: number,
 	sampleCount: number,
-	sourceIsLinear: boolean
+	sourceIsLinear: boolean,
+	sourceMipLevelCount: number
 ): ArrayBuffer {
 	const buffer = new ArrayBuffer(PREFILTER_PARAMS_SIZE);
 	const view = new DataView(buffer);
@@ -461,7 +534,7 @@ function createPrefilterParamsBuffer(
 	view.setFloat32(16, roughness, true);
 	view.setUint32(20, sampleCount, true);
 	view.setUint32(24, sourceIsLinear ? 1 : 0, true);
-	view.setUint32(28, 0, true);
+	view.setUint32(28, Math.max(1, Math.floor(sourceMipLevelCount)), true);
 	return buffer;
 }
 
@@ -530,6 +603,7 @@ async function createWebGPUResources(
 			height: Math.max(1, envMap.height),
 			format: TextureFormat.RGBA8Unorm,
 			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
+			mipLevelCount: Math.max(1, envMap.mipmaps.length || 1),
 			label: "EnvironmentIBLBakeInputTexture",
 		});
 
@@ -550,29 +624,32 @@ function uploadSourceTexture(
 	inputTexture: IRenderTexture,
 	envMap: Texture
 ): void {
-	const upload = createTextureUploadData(envMap);
-	const uploadData =
-		upload.data.buffer instanceof ArrayBuffer ?
-			new Uint8Array(
-				upload.data.buffer,
-				upload.data.byteOffset,
-				upload.data.byteLength
-			)
-		: 	new Uint8Array(upload.data);
-	runtime.writeTexture(
-		inputTexture,
-		uploadData,
-		{
-			offset: 0,
-			bytesPerRow: upload.bytesPerRow,
-			rowsPerImage: upload.height,
-		},
-		{
-			width: upload.width,
-			height: upload.height,
-			depthOrArrayLayers: 1,
-		}
-	);
+	const uploads = createTextureMipUploadLevels(envMap);
+	for (const upload of uploads) {
+		const uploadData =
+			upload.data.buffer instanceof ArrayBuffer ?
+				new Uint8Array(
+					upload.data.buffer,
+					upload.data.byteOffset,
+					upload.data.byteLength
+				)
+			: 	new Uint8Array(upload.data);
+		runtime.writeTexture(
+			inputTexture,
+			uploadData,
+			{
+				offset: 0,
+				bytesPerRow: upload.bytesPerRow,
+				rowsPerImage: upload.height,
+				mipLevel: upload.mipLevel,
+			},
+			{
+				width: upload.width,
+				height: upload.height,
+				depthOrArrayLayers: 1,
+			}
+		);
+	}
 }
 
 async function bakeMipLevelWithWebGPU(
@@ -701,7 +778,8 @@ export async function prefilterEnvMapWithWebGPU(
 				envMap.height,
 				roughness,
 				sampleCount,
-				sourceIsLinear
+				sourceIsLinear,
+				Math.max(1, envMap.mipmaps.length || 1)
 			);
 			resources.runtime.writeBuffer(paramsBuffer, params, 0);
 
