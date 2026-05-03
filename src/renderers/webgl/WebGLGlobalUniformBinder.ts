@@ -38,6 +38,7 @@ const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
 const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 8;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
+const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
 const SH_COEFFICIENT_COUNT = 16;
 
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
@@ -91,6 +92,10 @@ export interface WebGLGlobalUniformBinderHost {
 	};
 	_shadowAtlasTexture: WebGLTexture | null;
 	_shadowAtlasTileSize: number;
+	_particleShadowVolumeTexture: WebGLTexture | null;
+	_particleShadowVolumeAtlasSize: Float32Array;
+	_particleShadowVolumeGridSize: Float32Array;
+	_particleShadowVolumeSliceParams: Float32Array;
 	_taaJitter: Float32Array;
 	_prevViewProjection: Float32Array | null;
 	_shAmbientTexture: WebGLTexture | null;
@@ -413,6 +418,35 @@ export function bindWebGLGlobalUniforms(
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
 		gl.bindTexture(gl.TEXTURE_2D, host._shadowAtlasTexture);
 		gl.uniform1i(uniforms.shadowAtlas, WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
+	}
+	if (uniforms.particleShadowVolumeAtlas) {
+		gl.activeTexture(
+			gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME
+		);
+		gl.bindTexture(gl.TEXTURE_2D, host._particleShadowVolumeTexture);
+		gl.uniform1i(
+			uniforms.particleShadowVolumeAtlas,
+			WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME
+		);
+	}
+	if (uniforms.particleShadowVolumeAtlasSize) {
+		gl.uniform2f(
+			uniforms.particleShadowVolumeAtlasSize,
+			host._particleShadowVolumeAtlasSize[0],
+			host._particleShadowVolumeAtlasSize[1]
+		);
+	}
+	if (uniforms.particleShadowVolumeGridSize) {
+		gl.uniform4fv(
+			uniforms.particleShadowVolumeGridSize,
+			host._particleShadowVolumeGridSize
+		);
+	}
+	if (uniforms.particleShadowVolumeSliceParams) {
+		gl.uniform4fv(
+			uniforms.particleShadowVolumeSliceParams,
+			host._particleShadowVolumeSliceParams
+		);
 	}
 
 	const usesEnvSpecularUniforms =

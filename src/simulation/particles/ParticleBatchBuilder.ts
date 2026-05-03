@@ -1,6 +1,7 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import { clamp } from "../../maths/Common";
 import {
+	ParticleBlendMode,
 	ParticleSpaceMode,
 	type ParticleGradientKey,
 	type ParticleSystem,
@@ -85,6 +86,10 @@ export class ParticleBatchBuilder {
 			blendMode: system.blendMode,
 			texture: system.texture,
 			receiveShadows: system.receiveShadows,
+			castShadows:
+				system.castShadows && system.blendMode !== ParticleBlendMode.Additive,
+			shadowDensity: Math.max(0, system.shadowDensity),
+			shadowSoftness: Math.max(0, system.shadowSoftness),
 			particles,
 		};
 	}

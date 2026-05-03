@@ -60,6 +60,10 @@ import {
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
 import {
+	mergeParticleShadowBounds,
+	resolveParticleShadowCasterBounds,
+} from "../../pipeline/ParticleShadowVolume";
+import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
 } from "../../pipeline/ShadowStrategyRegistry";
@@ -411,6 +415,10 @@ export class WebGPURenderResources {
 			scene.shadowCasterPackets,
 			scene.sceneBounds
 		);
+		const combinedShadowCasterBounds = mergeParticleShadowBounds(
+			shadowCasterBounds,
+			resolveParticleShadowCasterBounds(scene.particleSystems)
+		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
 			WEBGPU_SHADOW_CAPABILITIES.maxCsmDirectionalLights
@@ -422,7 +430,7 @@ export class WebGPURenderResources {
 					updateShadowMapMetadata(
 						shadowRenderSet,
 						light,
-						shadowCasterBounds,
+						combinedShadowCasterBounds,
 						{
 							camera: scene.camera,
 							backendCapabilities: WEBGPU_SHADOW_CAPABILITIES,
@@ -493,6 +501,13 @@ export class WebGPURenderResources {
 
 	public getClusteredSceneBinding(): IBindingGroup {
 		return this._clusteredLighting.getSceneBinding();
+	}
+
+	public updateParticleShadowVolumes(context: FrameContext): void {
+		if (!this._lightingState) {
+			return;
+		}
+		this._frameBindings.updateParticleShadowVolumes(context, this._lightingState);
 	}
 
 	public async buildClusteredLighting(encoder: ICommandEncoder): Promise<void> {

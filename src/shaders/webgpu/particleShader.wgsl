@@ -55,11 +55,17 @@ struct FogUniforms {
 	fogParams1: vec4<f32>,
 }
 
+struct ParticleShadowVolumeBuffer {
+	data: array<f32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
 @group(0) @binding(6) var<uniform> fog: FogUniforms;
+@group(0) @binding(7) var<storage, read> particleShadowVolumes:
+	ParticleShadowVolumeBuffer;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
@@ -144,7 +150,102 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 	let currentDepth = ndc.z * 0.5 + 0.5;
 	let occluded = (currentDepth - depthBias) > sampledDepth;
 	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
-	return select(1.0, 1.0 - strength, occluded);
+	return select(1.0, 1.0 - strength, occluded) *
+		sampleParticleShadowVolumeTransmittance(0u, 0u, 0u, worldPosition);
+}
+
+fn sampleParticleShadowVolumeTransmittance(
+	shadowType: u32,
+	index: u32,
+	cascadeIndex: u32,
+	worldPosition: vec3<f32>
+) -> f32 {
+	if (shadowType != 0u || index != 0u || cascadeIndex >= 4u) {
+		return 1.0;
+	}
+
+	let metaBase = cascadeIndex * 24u;
+	let bufferLength = arrayLength(&particleShadowVolumes.data);
+	if (metaBase + 20u >= bufferLength) {
+		return 1.0;
+	}
+	if (particleShadowVolumes.data[metaBase + 16u] < 0.5) {
+		return 1.0;
+	}
+
+	let width = u32(max(particleShadowVolumes.data[metaBase + 17u], 1.0));
+	let height = u32(max(particleShadowVolumes.data[metaBase + 18u], 1.0));
+	let depth = u32(max(particleShadowVolumes.data[metaBase + 19u], 1.0));
+	let densityOffset = u32(max(particleShadowVolumes.data[metaBase + 20u], 0.0));
+	let viewProjection = mat4x4<f32>(
+		vec4<f32>(
+			particleShadowVolumes.data[metaBase + 0u],
+			particleShadowVolumes.data[metaBase + 1u],
+			particleShadowVolumes.data[metaBase + 2u],
+			particleShadowVolumes.data[metaBase + 3u]
+		),
+		vec4<f32>(
+			particleShadowVolumes.data[metaBase + 4u],
+			particleShadowVolumes.data[metaBase + 5u],
+			particleShadowVolumes.data[metaBase + 6u],
+			particleShadowVolumes.data[metaBase + 7u]
+		),
+		vec4<f32>(
+			particleShadowVolumes.data[metaBase + 8u],
+			particleShadowVolumes.data[metaBase + 9u],
+			particleShadowVolumes.data[metaBase + 10u],
+			particleShadowVolumes.data[metaBase + 11u]
+		),
+		vec4<f32>(
+			particleShadowVolumes.data[metaBase + 12u],
+			particleShadowVolumes.data[metaBase + 13u],
+			particleShadowVolumes.data[metaBase + 14u],
+			particleShadowVolumes.data[metaBase + 15u]
+		)
+	);
+	let clip = viewProjection * vec4<f32>(worldPosition, 1.0);
+	if (clip.w <= 1e-6) {
+		return 1.0;
+	}
+	let ndc = clip.xyz / clip.w;
+	if (
+		ndc.x < -1.0 || ndc.x > 1.0 ||
+		ndc.y < -1.0 || ndc.y > 1.0 ||
+		ndc.z < -1.0 || ndc.z > 1.0
+	) {
+		return 1.0;
+	}
+
+	let x = u32(clamp(
+		round((ndc.x * 0.5 + 0.5) * f32(width - 1u)),
+		0.0,
+		f32(width - 1u)
+	));
+	let y = u32(clamp(
+		round((0.5 - ndc.y * 0.5) * f32(height - 1u)),
+		0.0,
+		f32(height - 1u)
+	));
+	let zMax = u32(clamp(
+		round((ndc.z * 0.5 + 0.5) * f32(depth - 1u)),
+		0.0,
+		f32(depth - 1u)
+	));
+
+	var opticalDepth = 0.0;
+	var z = 0u;
+	loop {
+		if (z > zMax) {
+			break;
+		}
+		let densityIndex = densityOffset + z * width * height + y * width + x;
+		if (densityIndex < bufferLength) {
+			opticalDepth += particleShadowVolumes.data[densityIndex];
+		}
+		z = z + 1u;
+	}
+
+	return exp(-max(opticalDepth / max(f32(depth), 1.0), 0.0));
 }
 
 fn shadeParticle(input: ParticleVertexOutput) -> vec4<f32> {

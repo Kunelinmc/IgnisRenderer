@@ -1,6 +1,8 @@
 ﻿import type { Material } from "../../materials/Material";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
+import { hasParticleShadowCastingBatches } from "../../pipeline/ParticleShadowVolume";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
@@ -70,7 +72,14 @@ export function renderWebGLShadows(
 		getMaxShadowSize(lights.directionalShadows),
 		getMaxShadowSize(lights.spotShadows)
 	);
-	if (maxShadowSize <= 0 || context.scene.shadowCasterPackets.length <= 0) {
+	const particleBatches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
+	const hasParticleShadowVolumes = hasParticleShadowCastingBatches(
+		particleBatches
+	);
+	if (
+		maxShadowSize <= 0 ||
+		(context.scene.shadowCasterPackets.length <= 0 && !hasParticleShadowVolumes)
+	) {
 		host._shadowAtlasTileSize = 0;
 		return;
 	}

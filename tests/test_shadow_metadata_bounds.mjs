@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { resolveShadowCasterBounds } from "../src/pipeline/ShadowMetadata.ts";
+import {
+	mergeParticleShadowBounds,
+	resolveParticleShadowCasterBounds,
+} from "../src/pipeline/ParticleShadowVolume.ts";
+import { ParticleSystem } from "../src/particles/ParticleSystem.ts";
+import { ParticleBlendMode } from "../src/particles/types.ts";
 
 function createPacket(id, center, radius = 1) {
 	return {
@@ -62,9 +68,45 @@ function testShadowBoundsFallbackToNearestCasterWhenNothingVisible() {
 	);
 }
 
+function testParticleCastersExpandShadowBounds() {
+	const particle = new ParticleSystem({
+		position: { x: 12, y: 0, z: 0 },
+		blendMode: ParticleBlendMode.Alpha,
+		castShadows: true,
+		shadowDensity: 1,
+		emit: {
+			spawnRadius: 1,
+			lifetimeRange: [1, 1],
+			speedRange: [0, 0],
+			sizeRange: [2, 2],
+		},
+	});
+	const additive = new ParticleSystem({
+		position: { x: 100, y: 0, z: 0 },
+		blendMode: ParticleBlendMode.Additive,
+		castShadows: true,
+		shadowDensity: 1,
+	});
+
+	const particleBounds = resolveParticleShadowCasterBounds([particle, additive]);
+	assert.ok(particleBounds);
+	assert.ok(particleBounds.center.x > 10);
+	assert.ok(particleBounds.radius > 0);
+
+	const merged = mergeParticleShadowBounds(
+		{ center: { x: 0, y: 0, z: 0 }, radius: 1 },
+		particleBounds
+	);
+	assert.ok(
+		merged.radius > 6,
+		`Expected particle caster to expand shadow bounds, got ${merged.radius}`
+	);
+}
+
 function run() {
 	testShadowBoundsUseCameraVisibleCasters();
 	testShadowBoundsFallbackToNearestCasterWhenNothingVisible();
+	testParticleCastersExpandShadowBounds();
 	console.log("Shadow metadata bounds tests passed");
 }
 

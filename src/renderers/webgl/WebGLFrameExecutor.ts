@@ -19,6 +19,13 @@ import {
 	updateShadowMapMetadata,
 } from "../../pipeline/ShadowMetadata";
 import {
+	mergeParticleShadowBounds,
+	createParticleShadowVolumeGrid,
+	hasParticleShadowCastingBatches,
+	injectParticleBatchIntoShadowVolume,
+	resolveParticleShadowCasterBounds,
+} from "../../pipeline/ParticleShadowVolume";
+import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
 } from "../../pipeline/ShadowStrategyRegistry";
@@ -59,6 +66,7 @@ import {
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
+import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import {
 	WebGLProgramLibrary,
 	type WebGLSceneProgram,
@@ -164,6 +172,12 @@ const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
 const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
 const WEBGL_TEXTURE_UNIT_CUSTOM_START = 12;
+const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
+const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH = 64;
+const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT = 64;
+const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH = 32;
+const WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES = 4;
+const WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS = 8;
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	1, 0, 0, 0,
 	0, 1, 0, 0,
@@ -199,6 +213,15 @@ export class WebGLFrameExecutor {
 	private _shadowAtlasTexture: WebGLTexture | null = null;
 	private _shadowAtlasTileSize = 0;
 	private _shadowMvpMatrix = Matrix4.identity();
+	private _particleShadowVolumeTexture: WebGLTexture | null = null;
+	private _particleShadowVolumeAtlasWidth = 0;
+	private _particleShadowVolumeAtlasHeight = 0;
+	private _particleShadowVolumeAtlasSize = new Float32Array(2);
+	private _particleShadowVolumeGridSize = new Float32Array(4);
+	private _particleShadowVolumeSliceParams = new Float32Array(
+		WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES * 4
+	);
+	private _particleShadowVolumePixels = new Float32Array(0);
 	private _taaHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 	private _taaMotionHistoryTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 	private _taaHistoryIndex = 0;
@@ -302,6 +325,9 @@ export class WebGLFrameExecutor {
 		this._oitHasContributors = false;
 		this._oitLegacyTransparentPackets = [];
 		this._oitNeedsLegacyAfterParticles = false;
+		this._particleShadowVolumeAtlasSize.fill(0);
+		this._particleShadowVolumeGridSize.fill(0);
+		this._particleShadowVolumeSliceParams.fill(0);
 		this._syncShadowMetadata(context);
 			this._lightState = collectWebGLLights(
 				context.scene.lights,
@@ -584,6 +610,10 @@ export class WebGLFrameExecutor {
 			this._gl.deleteTexture(this._localLightProbeSHTexture);
 			this._localLightProbeSHTexture = null;
 		}
+		if (this._particleShadowVolumeTexture) {
+			this._gl.deleteTexture(this._particleShadowVolumeTexture);
+			this._particleShadowVolumeTexture = null;
+		}
 		this._modelMatrixCache.clear();
 		this._modelMatrixKeysThisFrame.clear();
 		if (this._fullscreenVao) {
@@ -611,6 +641,7 @@ export class WebGLFrameExecutor {
 			[
 				"shadow",
 				(context) => {
+					this._updateParticleShadowVolumes(context);
 					this._renderShadows(context);
 				},
 			],
@@ -651,6 +682,211 @@ export class WebGLFrameExecutor {
 			handlers.set(stage, runPostProcess);
 		}
 		return handlers;
+	}
+
+	private _updateParticleShadowVolumes(context: FrameContext): void {
+		this._particleShadowVolumeAtlasSize.fill(0);
+		this._particleShadowVolumeGridSize.fill(0);
+		this._particleShadowVolumeSliceParams.fill(0);
+
+		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
+			| readonly ParticleRenderBatch[]
+			| undefined;
+		const directionalShadow = this._lightState?.directionalShadows[0];
+		if (
+			!context.features.enableShadows ||
+			!directionalShadow?.enabled ||
+			!hasParticleShadowCastingBatches(batches)
+		) {
+			return;
+		}
+		if (this._maxTextureImageUnits <= WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME) {
+			Logger.warn(
+				"[webgl-particle-shadow-volume-texture-units] WebGL fragment texture unit budget is too small for particle shadow volumes; disabling particle volume shadows for this frame.",
+				{
+					scope: "WebGLFrameExecutor",
+					onceKey: "webgl-particle-shadow-volume-texture-units",
+				}
+			);
+			return;
+		}
+
+		const atlasWidth =
+			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH *
+			WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
+		const atlasRows = Math.ceil(
+			(
+				WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH *
+				WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES
+			) / WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS
+		);
+		const atlasHeight =
+			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT * atlasRows;
+		if (atlasWidth > this._maxTextureSize || atlasHeight > this._maxTextureSize) {
+			Logger.warn(
+				`[webgl-particle-shadow-volume-atlas-limit] WebGL particle shadow volume atlas ${atlasWidth}x${atlasHeight} exceeds MAX_TEXTURE_SIZE=${this._maxTextureSize}; disabling particle volume shadows for this frame.`,
+				{
+					scope: "WebGLFrameExecutor",
+					onceKey: "webgl-particle-shadow-volume-atlas-limit",
+				}
+			);
+			return;
+		}
+
+		const texture = this._ensureParticleShadowVolumeTexture(
+			atlasWidth,
+			atlasHeight
+		);
+		if (!texture) {
+			return;
+		}
+
+		const requiredPixels = atlasWidth * atlasHeight;
+		if (this._particleShadowVolumePixels.length !== requiredPixels) {
+			this._particleShadowVolumePixels = new Float32Array(requiredPixels);
+		}
+		this._particleShadowVolumePixels.fill(0);
+
+		const matrices =
+			directionalShadow.strategyType === "csm" ?
+				directionalShadow.cascadeViewProjectionMatrices
+			:	[directionalShadow.viewProjectionMatrix];
+		const cascadeCount =
+			directionalShadow.strategyType === "csm" ?
+				Math.max(1, Math.min(4, directionalShadow.cascadeCount | 0))
+			:	1;
+		let activeSliceCount = 0;
+		for (
+			let sliceIndex = 0;
+			sliceIndex < Math.min(WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES, cascadeCount);
+			sliceIndex++
+		) {
+			const matrix = matrices[sliceIndex];
+			if (!matrix) {
+				continue;
+			}
+			const grid = createParticleShadowVolumeGrid({
+				width: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH,
+				height: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT,
+				depth: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH,
+			});
+			const shadowMap = {
+				viewProjectionMatrix: matrix,
+			} as ShadowMap;
+			for (const batch of batches ?? []) {
+				injectParticleBatchIntoShadowVolume(grid, shadowMap, batch);
+			}
+			if (!grid.active) {
+				continue;
+			}
+			this._packParticleShadowVolumeSlice(
+				grid.density,
+				sliceIndex,
+				atlasWidth
+			);
+			const sliceOffset = sliceIndex * 4;
+			this._particleShadowVolumeSliceParams[sliceOffset] = 1;
+			this._particleShadowVolumeSliceParams[sliceOffset + 1] =
+				sliceIndex * WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
+			activeSliceCount++;
+		}
+
+		if (activeSliceCount <= 0) {
+			this._particleShadowVolumeSliceParams.fill(0);
+			return;
+		}
+
+		this._particleShadowVolumeAtlasSize[0] = atlasWidth;
+		this._particleShadowVolumeAtlasSize[1] = atlasHeight;
+		this._particleShadowVolumeGridSize[0] =
+			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
+		this._particleShadowVolumeGridSize[1] =
+			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
+		this._particleShadowVolumeGridSize[2] =
+			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
+		this._particleShadowVolumeGridSize[3] =
+			WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
+
+		const gl = this._gl;
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			gl.R32F,
+			atlasWidth,
+			atlasHeight,
+			0,
+			gl.RED,
+			gl.FLOAT,
+			this._particleShadowVolumePixels
+		);
+	}
+
+	private _ensureParticleShadowVolumeTexture(
+		width: number,
+		height: number
+	): WebGLTexture | null {
+		const gl = this._gl;
+		if (
+			this._particleShadowVolumeTexture &&
+			this._particleShadowVolumeAtlasWidth === width &&
+			this._particleShadowVolumeAtlasHeight === height
+		) {
+			return this._particleShadowVolumeTexture;
+		}
+		if (this._particleShadowVolumeTexture) {
+			gl.deleteTexture(this._particleShadowVolumeTexture);
+		}
+		const texture = gl.createTexture();
+		if (!texture) {
+			Logger.warn(
+				"[webgl-particle-shadow-volume-create-failed] Failed to create WebGL particle shadow volume atlas; disabling particle volume shadows for this frame.",
+				{
+					scope: "WebGLFrameExecutor",
+					onceKey: "webgl-particle-shadow-volume-create-failed",
+				}
+			);
+			this._particleShadowVolumeTexture = null;
+			this._particleShadowVolumeAtlasWidth = 0;
+			this._particleShadowVolumeAtlasHeight = 0;
+			return null;
+		}
+		this._particleShadowVolumeTexture = texture;
+		this._particleShadowVolumeAtlasWidth = width;
+		this._particleShadowVolumeAtlasHeight = height;
+
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		return texture;
+	}
+
+	private _packParticleShadowVolumeSlice(
+		density: Float32Array,
+		sliceIndex: number,
+		atlasWidth: number
+	): void {
+		const width = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
+		const height = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
+		const depth = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
+		for (let z = 0; z < depth; z++) {
+			const tileIndex = sliceIndex * depth + z;
+			const tileX = tileIndex % WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
+			const tileY = Math.floor(
+				tileIndex / WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS
+			);
+			for (let y = 0; y < height; y++) {
+				const sourceOffset = z * width * height + y * width;
+				const targetOffset =
+					(tileY * height + y) * atlasWidth + tileX * width;
+				this._particleShadowVolumePixels.set(
+					density.subarray(sourceOffset, sourceOffset + width),
+					targetOffset
+				);
+			}
+		}
 	}
 
 	private _runPostProcessGraph(context: FrameContext): void {
@@ -852,6 +1088,10 @@ export class WebGLFrameExecutor {
 			context.scene.shadowCasterPackets,
 			context.scene.sceneBounds
 		);
+		const combinedShadowCasterBounds = mergeParticleShadowBounds(
+			shadowCasterBounds,
+			resolveParticleShadowCasterBounds(context.scene.particleSystems)
+		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
 			WEBGL_SHADOW_CAPABILITIES.maxCsmDirectionalLights
@@ -862,7 +1102,7 @@ export class WebGLFrameExecutor {
 			updateShadowMapMetadata(
 				shadowRenderSet,
 				light,
-				shadowCasterBounds,
+				combinedShadowCasterBounds,
 				{
 					camera: context.scene.camera,
 					backendCapabilities: WEBGL_SHADOW_CAPABILITIES,

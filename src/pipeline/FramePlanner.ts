@@ -4,6 +4,7 @@ import {
 	type PreparedScene,
 	type ResolvedFeatureState,
 } from "./types";
+import { hasParticleShadowCasters } from "./ParticleShadowVolume";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"animation-sim",
@@ -53,7 +54,11 @@ function shouldEnablePass(
 		case "particle-sim":
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "shadow":
-			return features.enableShadows && frame.shadowCasterPackets.length > 0;
+			return (
+				features.enableShadows &&
+				(frame.shadowCasterPackets.length > 0 ||
+					hasParticleShadowCasters(frame.particleSystems))
+			);
 		case "reflection":
 			return features.enableReflection && frame.reflectivePackets.length > 0;
 		case "main-opaque":

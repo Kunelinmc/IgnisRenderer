@@ -116,5 +116,8 @@ export interface ParticleSystemParams {
 	colliders?: ParticleCollider[];
 	subEmitter?: ParticleSubEmitterConfig | null;
 	receiveShadows?: boolean;
+	castShadows?: boolean;
+	shadowDensity?: number;
+	shadowSoftness?: number;
 	lod?: ParticleLODSettings;
 }

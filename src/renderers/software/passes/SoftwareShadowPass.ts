@@ -14,9 +14,18 @@ import {
 import type { IVertex, ProjectedVertex } from "../../../core/types";
 import {
 	defineTransientKey,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
 	type TransientStore,
 } from "../../../pipeline/types";
+import {
+	clearParticleShadowVolumeGrid,
+	createParticleShadowVolumeGrid,
+	hasParticleShadowCastingBatches,
+	injectParticleBatchIntoShadowVolume,
+	sampleParticleShadowVolumeTransmittance,
+	type ParticleShadowVolumeGrid,
+} from "../../../pipeline/ParticleShadowVolume";
 import { Projector } from "../Projector";
 import type { Rasterizer } from "../Rasterizer";
 import type { SoftwarePassLike } from "./types";
@@ -28,6 +37,7 @@ export interface SoftwareShadowRenderTarget {
 	size: number;
 	depthBuffer: Float32Array;
 	transmissionBuffer: Float32Array;
+	particleVolume: ParticleShadowVolumeGrid;
 }
 
 export type SoftwareShadowRuntimeMap = Map<ShadowCastingLight, SoftwareShadowRenderTarget[]>;
@@ -109,6 +119,7 @@ export function ensureSoftwareShadowRenderTarget(
 			size,
 			depthBuffer: new Float32Array(size * size),
 			transmissionBuffer: new Float32Array(size * size * 3),
+			particleVolume: createParticleShadowVolumeGrid(),
 		};
 		targets[sliceIndex] = target;
 	}
@@ -119,6 +130,7 @@ export function ensureSoftwareShadowRenderTarget(
 export function clearSoftwareShadowRenderTarget(target: SoftwareShadowRenderTarget): void {
 	target.depthBuffer.fill(Infinity);
 	target.transmissionBuffer.fill(1.0);
+	clearParticleShadowVolumeGrid(target.particleVolume);
 }
 
 export function syncSoftwareShadowRuntimeMap(
@@ -550,13 +562,23 @@ export function sampleSoftwareShadow(
 	worldPoint: IVector3,
 	normal?: IVector3 | null,
 ): RGB {
-	return calculateShadowFactor({
+	const base = calculateShadowFactor({
 		worldPoint,
 		normal,
 		shadowMap,
 		runtimeTarget,
 		params: shadowMap.params,
 	});
+	const volumeTransmittance = sampleParticleShadowVolumeTransmittance(
+		runtimeTarget.particleVolume,
+		shadowMap,
+		worldPoint
+	);
+	return {
+		r: base.r * volumeTransmittance,
+		g: base.g * volumeTransmittance,
+		b: base.b * volumeTransmittance,
+	};
 }
 
 export class SoftwareShadowPass implements SoftwarePassLike {
@@ -685,7 +707,27 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 						);
 					}
 				}
+
+				this._injectParticleShadowVolume(context, shadowMap, shadowRuntime);
 			}
+		}
+	}
+
+	private _injectParticleShadowVolume(
+		context: FrameContext,
+		shadowMap: ShadowMap,
+		shadowRuntime: SoftwareShadowRenderTarget
+	): void {
+		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
+		if (!hasParticleShadowCastingBatches(batches)) {
+			return;
+		}
+		for (const batch of batches ?? []) {
+			injectParticleBatchIntoShadowVolume(
+				shadowRuntime.particleVolume,
+				shadowMap,
+				batch
+			);
 		}
 	}
 

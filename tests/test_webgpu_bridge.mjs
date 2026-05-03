@@ -938,7 +938,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 7);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 8);
+	assert.ok(
+		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
+	);
 	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
@@ -2009,14 +2012,125 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 7);
+	assert.equal(sceneLayout.desc.entries.length, 8);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6]
+		[0, 1, 2, 3, 4, 5, 6, 7]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
 	assert.equal(sceneLayout.desc.entries[6].buffer?.type, "uniform");
+	assert.equal(sceneLayout.desc.entries[7].buffer?.type, "read-only-storage");
+
+	resources.destroy();
+}
+
+async function testParticleShadowVolumeBufferUpdatesForDirectionalSlice() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const scene = new Scene();
+	const light = new DirectionalLight();
+	scene.add(light);
+	scene.shadows.bind(light, scene.shadows.createSingle({
+		size: 8,
+		bias: {
+			constant: 0,
+			slope: 0,
+			texel: 0,
+			max: 1,
+			normal: 0,
+			normalMin: 0,
+		},
+	}));
+	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
+	assert.ok(shadowConfig);
+	const renderSet = createShadowRenderSet(shadowConfig);
+	renderSet.slices[0].shadowMap.viewProjectionMatrix = Matrix4.identity();
+	frame.lights = [light];
+	frame.shadowMaps = new Map([[light, renderSet]]);
+
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: true,
+		},
+		{
+			sh: false,
+			shadows: true,
+			reflection: false,
+			skybox: false,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	resources.prepareFrame(frame, features);
+	resources.updateParticleShadowVolumes({
+		camera: frame.camera,
+		attachments: { width: 16, height: 16 },
+		features,
+		shadowMaps: frame.shadowMaps,
+		scene: { ...frame, particleSystems: [] },
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		transient: new Map([
+			[
+				PARTICLE_TRANSIENT_BATCHES_KEY,
+				[
+					{
+						systemId: "particle-shadow-volume",
+						blendMode: ParticleBlendMode.Alpha,
+						texture: null,
+						receiveShadows: true,
+						castShadows: true,
+						shadowDensity: 8,
+						shadowSoftness: 1,
+						particles: [
+							{
+								position: { x: 0, y: 0, z: 0 },
+								size: 2,
+								color: { r: 255, g: 255, b: 255, a: 1 },
+								rotation: 0,
+								depth: 1,
+								uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+							},
+						],
+					},
+				],
+			],
+		]),
+	});
+
+	const volumeBuffer = backend.buffers.findLast(
+		(buffer) =>
+			buffer.label === "WebGPUParticleShadowVolumeBuffer" &&
+			!buffer.destroyed
+	);
+	assert.ok(volumeBuffer);
+	assert.ok(volumeBuffer.size > 1024);
+	assert.equal(volumeBuffer.lastWrite[16], 1);
+	assert.equal(volumeBuffer.lastWrite[17], 64);
+	assert.equal(volumeBuffer.lastWrite[18], 64);
+	assert.equal(volumeBuffer.lastWrite[19], 32);
+	assert.equal(volumeBuffer.lastWrite[20], 96);
+	assert.ok(
+		volumeBuffer.lastWrite.slice(96).some((value) => value > 0),
+		"Particle shadow volume buffer should contain injected density"
+	);
 
 	resources.destroy();
 }
@@ -2414,6 +2528,7 @@ async function run() {
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
 	await testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract();
+	await testParticleShadowVolumeBufferUpdatesForDirectionalSlice();
 	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();
 	await testParticleBindingCacheEvictsStaleSystems();
 	await testRenderResourcesDestroyCleansParticleAndGeometryResources();

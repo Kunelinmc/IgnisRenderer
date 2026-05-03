@@ -46,6 +46,7 @@ import {
 	isTextureReadyForEnvironment,
 } from "../pipeline/environmentMapRuntime";
 import { isLocalizedLightProbe } from "../pipeline/lightProbeRuntime";
+import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
@@ -1198,7 +1199,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			case "particle-sim":
 				return (frame.particleSystems?.length ?? 0) > 0;
 			case "shadow":
-				return features.enableShadows && frame.shadowCasterPackets.length > 0;
+				return (
+					features.enableShadows &&
+					(frame.shadowCasterPackets.length > 0 ||
+						hasParticleShadowCasters(frame.particleSystems))
+				);
 			case "reflection":
 				return features.enableReflection && frame.reflectivePackets.length > 0;
 			case "main-opaque":

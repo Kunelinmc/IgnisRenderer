@@ -144,6 +144,10 @@ struct FogUniforms {
 	fogParams1: vec4<f32>,
 }
 
+struct ParticleShadowVolumeBuffer {
+	data: array<f32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
@@ -151,6 +155,8 @@ struct FogUniforms {
 @group(0) @binding(4) var envSpecularFallbackTexture: texture_2d<f32>;
 @group(0) @binding(5) var envSpecularFallbackSampler: sampler;
 @group(0) @binding(6) var<uniform> fog: FogUniforms;
+@group(0) @binding(7) var<storage, read> particleShadowVolumes:
+	ParticleShadowVolumeBuffer;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

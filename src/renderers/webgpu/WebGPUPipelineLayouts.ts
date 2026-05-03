@@ -70,6 +70,11 @@ export function createWebGPUPipelineLayouts(
 					GPUShaderStage.COMPUTE,
 				buffer: { type: "uniform" },
 			},
+			{
+				binding: 7,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: { type: "read-only-storage" },
+			},
 		],
 	});
 	const skyboxFrameBindGroupLayout = device.createBindGroupLayout({

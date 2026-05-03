@@ -3,6 +3,11 @@ import { Scene } from "../src/core/Scene.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
+import { ParticleBlendMode } from "../src/particles/types.ts";
+import {
+	createParticleShadowVolumeGrid,
+	injectParticleBatchIntoShadowVolume,
+} from "../src/pipeline/ParticleShadowVolume.ts";
 import {
 	createSoftwareShadowSampler,
 	sampleSoftwareShadow,
@@ -124,6 +129,94 @@ function testPCSSPathHandlesBlockers() {
 	assert.ok(
 		visibility.r < 0.01 && visibility.g < 0.01 && visibility.b < 0.01,
 		"PCSS branch should detect blockers and return shadowed visibility"
+	);
+}
+
+function testParticleVolumeReducesLitVisibility() {
+	const { shadowMap, runtime } = createShadowFixture({
+		shadowNormalBias: 0,
+		shadowNormalBiasMin: 0,
+	});
+	runtime.particleVolume = createParticleShadowVolumeGrid({
+		width: 16,
+		height: 16,
+		depth: 8,
+	});
+	injectParticleBatchIntoShadowVolume(runtime.particleVolume, shadowMap, {
+		systemId: "particle-shadow",
+		blendMode: ParticleBlendMode.Alpha,
+		texture: null,
+		receiveShadows: true,
+		castShadows: true,
+		shadowDensity: 12,
+		shadowSoftness: 1,
+		particles: [
+			{
+				position: { x: 0, y: 0, z: 0 },
+				size: 2,
+				color: { r: 255, g: 255, b: 255, a: 1 },
+				rotation: 0,
+				depth: 1,
+				uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+			},
+		],
+	});
+
+	const visibility = sampleSoftwareShadow(
+		shadowMap,
+		runtime,
+		{ x: 0, y: 0, z: 0 },
+		null
+	);
+
+	assert.ok(
+		visibility.r < 0.99 && visibility.g < 0.99 && visibility.b < 0.99,
+		"Particle volume should attenuate otherwise lit software shadow samples"
+	);
+}
+
+function testAdditiveParticleVolumeDoesNotReduceVisibility() {
+	const { shadowMap, runtime } = createShadowFixture({
+		shadowNormalBias: 0,
+		shadowNormalBiasMin: 0,
+	});
+	runtime.particleVolume = createParticleShadowVolumeGrid({
+		width: 16,
+		height: 16,
+		depth: 8,
+	});
+	injectParticleBatchIntoShadowVolume(runtime.particleVolume, shadowMap, {
+		systemId: "additive-particle-shadow",
+		blendMode: ParticleBlendMode.Additive,
+		texture: null,
+		receiveShadows: true,
+		castShadows: true,
+		shadowDensity: 12,
+		shadowSoftness: 1,
+		particles: [
+			{
+				position: { x: 0, y: 0, z: 0 },
+				size: 2,
+				color: { r: 255, g: 255, b: 255, a: 1 },
+				rotation: 0,
+				depth: 1,
+				uvRect: { u0: 0, v0: 0, u1: 1, v1: 1 },
+			},
+		],
+	});
+
+	const visibility = sampleSoftwareShadow(
+		shadowMap,
+		runtime,
+		{ x: 0, y: 0, z: 0 },
+		null
+	);
+
+	assert.ok(
+		Math.abs(visibility.r - 1) < 1e-6 &&
+			Math.abs(visibility.g - 1) < 1e-6 &&
+			Math.abs(visibility.b - 1) < 1e-6,
+		"Additive particles should not inject particle shadow density"
 	);
 }
 
@@ -283,6 +376,8 @@ function run() {
 	testTransmissionTintOnLitSamples();
 	testNormalBiasAffectsSamplingPosition();
 	testPCSSPathHandlesBlockers();
+	testParticleVolumeReducesLitVisibility();
+	testAdditiveParticleVolumeDoesNotReduceVisibility();
 	testCSMSamplerUsesAvailableCascadeSlice();
 	testDirectionalCSMSamplerUsesCameraDepthSplit();
 	console.log("Software shadow sampling tests passed");

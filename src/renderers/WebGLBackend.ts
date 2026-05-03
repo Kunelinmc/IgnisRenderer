@@ -36,6 +36,7 @@ import {
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
 import { Logger } from "../foundation/Logger";
+import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
@@ -363,7 +364,8 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		if (
 			context.features.enableShadows &&
-			context.scene.shadowCasterPackets.length > 0
+			(context.scene.shadowCasterPackets.length > 0 ||
+				hasParticleShadowCasters(context.scene.particleSystems))
 		) {
 			this._plannedPasses.add("shadow");
 		}

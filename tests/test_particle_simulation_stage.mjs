@@ -5,7 +5,7 @@ import { SH } from "../src/maths/SH.ts";
 import { ParticleSimulationStage } from "../src/pipeline/ParticleSimulationStage.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleSystem } from "../src/particles/ParticleSystem.ts";
-import { ParticleSpaceMode } from "../src/particles/types.ts";
+import { ParticleBlendMode, ParticleSpaceMode } from "../src/particles/types.ts";
 
 function createContext(systems) {
 	const camera = new Camera();
@@ -104,6 +104,57 @@ function testRateAndBurstSpawn() {
 	stage.execute(context, 1);
 	const particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 5);
+}
+
+function testShadowDefaultsAndBatchParams() {
+	const defaultSystem = new ParticleSystem();
+	assert.equal(defaultSystem.castShadows, true);
+	assert.equal(defaultSystem.shadowDensity, 1);
+	assert.equal(defaultSystem.shadowSoftness, 1);
+
+	const stage = new ParticleSimulationStage();
+	const alphaSystem = new ParticleSystem({
+		blendMode: ParticleBlendMode.Alpha,
+		castShadows: true,
+		shadowDensity: 2.5,
+		shadowSoftness: 0.75,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 1 }],
+			lifetimeRange: [2, 2],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+	});
+	const additiveSystem = new ParticleSystem({
+		blendMode: ParticleBlendMode.Additive,
+		castShadows: true,
+		shadowDensity: 2,
+		shadowSoftness: 2,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 1 }],
+			lifetimeRange: [2, 2],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+	});
+	const context = createContext([alphaSystem, additiveSystem]);
+	stage.execute(context, 0.016);
+	const batches = getBatches(context);
+	const alphaBatch = batches.find((batch) => batch.systemId === alphaSystem.id);
+	const additiveBatch = batches.find(
+		(batch) => batch.systemId === additiveSystem.id
+	);
+
+	assert.ok(alphaBatch);
+	assert.equal(alphaBatch.castShadows, true);
+	assert.equal(alphaBatch.shadowDensity, 2.5);
+	assert.equal(alphaBatch.shadowSoftness, 0.75);
+	assert.ok(additiveBatch);
+	assert.equal(additiveBatch.castShadows, false);
+	assert.equal(additiveBatch.shadowDensity, 2);
+	assert.equal(additiveBatch.shadowSoftness, 2);
 }
 
 function testGradientAndAtlas() {
@@ -345,6 +396,7 @@ function testStrictFailureWhenLODStillOverBudget() {
 function run() {
 	testDeterministicSeed();
 	testRateAndBurstSpawn();
+	testShadowDefaultsAndBatchParams();
 	testGradientAndAtlas();
 	testLocalSpaceFollowsSystemPosition();
 	testCollisionAndSubEmitter();

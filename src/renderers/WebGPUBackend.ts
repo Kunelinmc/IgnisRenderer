@@ -18,6 +18,7 @@ import {
 	isFogPostProcessEnabled,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
+import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPUCommandEncoder } from "./webgpu/WebGPUCommandEncoder";
@@ -2330,7 +2331,11 @@ export class WebGPUBackend implements IRenderBackend {
 		if (hasParticleSystems) {
 			this._plannedPasses.add("particle-sim");
 		}
-		if (context.features.enableShadows && context.scene.shadowCasterPackets.length) {
+		if (
+			context.features.enableShadows &&
+			(context.scene.shadowCasterPackets.length ||
+				hasParticleShadowCasters(context.scene.particleSystems))
+		) {
 			this._plannedPasses.add("shadow");
 		}
 		if (context.features.enableReflection && context.scene.reflectivePackets.length) {
@@ -3208,6 +3213,7 @@ export class WebGPUBackend implements IRenderBackend {
 						this._resolveParticleDeltaTime(context),
 					);
 					this._particleSimulator?.emitRenderBatches(context);
+					this._resources?.updateParticleShadowVolumes?.(context);
 				},
 			],
 		]);

@@ -96,6 +96,9 @@ export class ParticleSystem extends Node {
 	public colliders: ParticleCollider[];
 	public subEmitter: ParticleSubEmitterConfig | null;
 	public receiveShadows: boolean;
+	public castShadows: boolean;
+	public shadowDensity: number;
+	public shadowSoftness: number;
 	public lod: ParticleLODSettings;
 
 	constructor(params: ParticleSystemParams = {}) {
@@ -152,6 +155,9 @@ export class ParticleSystem extends Node {
 		);
 		this.subEmitter = params.subEmitter ? { ...params.subEmitter } : null;
 		this.receiveShadows = params.receiveShadows ?? true;
+		this.castShadows = params.castShadows ?? true;
+		this.shadowDensity = resolveNonNegativeFinite(params.shadowDensity, 1);
+		this.shadowSoftness = resolveNonNegativeFinite(params.shadowSoftness, 1);
 		this.lod = cloneLOD(params.lod ?? DEFAULT_LOD);
 	}
 
@@ -202,8 +208,18 @@ export class ParticleSystem extends Node {
 		);
 		target.subEmitter = this.subEmitter ? { ...this.subEmitter } : null;
 		target.receiveShadows = this.receiveShadows;
+		target.castShadows = this.castShadows;
+		target.shadowDensity = this.shadowDensity;
+		target.shadowSoftness = this.shadowSoftness;
 		target.lod = cloneLOD(this.lod);
 	}
+}
+
+function resolveNonNegativeFinite(value: unknown, fallback: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.max(0, value);
 }
 
 function cloneVector(source: IVector3): IVector3 {

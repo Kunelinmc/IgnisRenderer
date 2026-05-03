@@ -222,6 +222,10 @@ export interface WebGLSceneProgram {
 		spotLightDirectionOuter: WebGLUniformLocation | null;
 		spotLightColorInner: WebGLUniformLocation | null;
 		shadowAtlas: WebGLUniformLocation | null;
+		particleShadowVolumeAtlas: WebGLUniformLocation | null;
+		particleShadowVolumeAtlasSize: WebGLUniformLocation | null;
+		particleShadowVolumeGridSize: WebGLUniformLocation | null;
+		particleShadowVolumeSliceParams: WebGLUniformLocation | null;
 		dirShadowViewProjection: WebGLUniformLocation | null;
 		dirShadowCascadeViewProjection: WebGLUniformLocation | null;
 		dirShadowCascadeSplits: WebGLUniformLocation | null;
@@ -848,6 +852,22 @@ export class WebGLProgramLibrary {
 				),
 				spotLightColorInner: this._gl.getUniformLocation(program, "uSpotLightColorInner"),
 				shadowAtlas: this._gl.getUniformLocation(program, "uShadowAtlas"),
+				particleShadowVolumeAtlas: this._gl.getUniformLocation(
+					program,
+					"uParticleShadowVolumeAtlas",
+				),
+				particleShadowVolumeAtlasSize: this._gl.getUniformLocation(
+					program,
+					"uParticleShadowVolumeAtlasSize",
+				),
+				particleShadowVolumeGridSize: this._gl.getUniformLocation(
+					program,
+					"uParticleShadowVolumeGridSize",
+				),
+				particleShadowVolumeSliceParams: this._gl.getUniformLocation(
+					program,
+					"uParticleShadowVolumeSliceParams[0]",
+				),
 				dirShadowViewProjection: this._gl.getUniformLocation(
 					program,
 					"uDirShadowViewProjection[0]",

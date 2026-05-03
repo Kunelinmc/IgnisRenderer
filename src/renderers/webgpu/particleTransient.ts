@@ -8,6 +8,9 @@ export interface WebGPUParticleDrawBatch {
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
 	receiveShadows: boolean;
+	castShadows: boolean;
+	shadowDensity: number;
+	shadowSoftness: number;
 	instanceBuffer: IRenderBuffer;
 	instanceCount: number;
 	indirectBuffer: IRenderBuffer;

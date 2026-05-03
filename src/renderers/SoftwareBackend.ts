@@ -20,6 +20,10 @@ import {
 	updateShadowMapMetadata,
 } from "../pipeline/ShadowMetadata";
 import {
+	mergeParticleShadowBounds,
+	resolveParticleShadowCasterBounds,
+} from "../pipeline/ParticleShadowVolume";
+import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
 } from "../pipeline/ShadowStrategyRegistry";
@@ -240,6 +244,10 @@ export class SoftwareBackend implements IRenderBackend {
 			context.scene.shadowCasterPackets,
 			context.scene.sceneBounds,
 		);
+		const combinedShadowCasterBounds = mergeParticleShadowBounds(
+			shadowCasterBounds,
+			resolveParticleShadowCasterBounds(context.scene.particleSystems)
+		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
 			SOFTWARE_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
@@ -247,7 +255,7 @@ export class SoftwareBackend implements IRenderBackend {
 		for (const shadowLight of shadowLights) {
 			const shadowRenderSet = context.shadowMaps.get(shadowLight);
 			if (shadowRenderSet) {
-				updateShadowMapMetadata(shadowRenderSet, shadowLight, shadowCasterBounds, {
+				updateShadowMapMetadata(shadowRenderSet, shadowLight, combinedShadowCasterBounds, {
 					camera: context.scene.camera,
 					backendCapabilities: SOFTWARE_SHADOW_CAPABILITIES,
 					allowCSMDirectionalLights: selectedCSMLights,

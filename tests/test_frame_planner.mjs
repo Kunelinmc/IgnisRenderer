@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
+import { ParticleBlendMode } from "../src/particles/types.ts";
 
 function createFrame(overrides = {}) {
 	return {
@@ -155,6 +156,45 @@ function run() {
 		plan.find((pass) => pass.stage === "particle-sim")?.executor,
 		"backend"
 	);
+
+	const particleCasterPlan = FramePlanner.build(
+		createFrame({
+			particleSystems: [
+				{
+					visible: true,
+					castShadows: true,
+					blendMode: ParticleBlendMode.Alpha,
+					shadowDensity: 1,
+				},
+			],
+			shadowCasterPackets: [],
+		}),
+		baseResolved
+	);
+	assert.equal(
+		particleCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
+		true
+	);
+
+	const additiveCasterPlan = FramePlanner.build(
+		createFrame({
+			particleSystems: [
+				{
+					visible: true,
+					castShadows: true,
+					blendMode: ParticleBlendMode.Additive,
+					shadowDensity: 1,
+				},
+			],
+			shadowCasterPackets: [],
+		}),
+		baseResolved
+	);
+	assert.equal(
+		additiveCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
+		false
+	);
+
 	const sceneFogPlan = FramePlanner.build(createFrame(), {
 		...baseResolved,
 		enableFog: true,
