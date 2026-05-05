@@ -81,6 +81,33 @@ const WEBGPU_BUFFER_USAGE_MAP_READ =
 		GPUBufferUsage?: { MAP_READ?: number };
 	}).GPUBufferUsage?.MAP_READ ?? 0x0001;
 
+type OwnedResourceKind =
+	| "buffer"
+	| "texture"
+	| "sampler"
+	| "shaderModule"
+	| "computePipeline"
+	| "unknown";
+
+interface ComputeRuntimeResourceKindStats {
+	buffer: number;
+	texture: number;
+	sampler: number;
+	shaderModule: number;
+	computePipeline: number;
+	unknown: number;
+}
+
+export interface ComputeRuntimeResourceStats {
+	destroyed: boolean;
+	kernelCount: number;
+	ownedResourceCount: number;
+	activeResourceCount: number;
+	destroyRequestedResourceCount: number;
+	inflightReferenceCount: number;
+	byKind: ComputeRuntimeResourceKindStats;
+}
+
 interface WebGPUComputeContext {
 	device: GPUDevice;
 	queue: GPUQueue;
@@ -88,6 +115,7 @@ interface WebGPUComputeContext {
 
 interface OwnedResourceRecord {
 	label: string;
+	kind: OwnedResourceKind;
 	target: object;
 	proxy: object;
 	inflightRefs: number;
@@ -135,7 +163,11 @@ export class ComputeRuntime implements IComputeRuntime {
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
 		this._assertAlive("create buffers");
 		const resource = this._computeFacade.createBuffer(desc);
-		return this._wrapOwnedResource(resource, desc.label ?? "ComputeRuntimeBuffer");
+		return this._wrapOwnedResource(
+			resource,
+			desc.label ?? "ComputeRuntimeBuffer",
+			"buffer"
+		);
 	}
 
 	public createTexture(desc: TextureDesc): IRenderTexture {
@@ -143,7 +175,8 @@ export class ComputeRuntime implements IComputeRuntime {
 		const resource = this._computeFacade.createTexture(desc);
 		const wrapped = this._wrapOwnedResource(
 			resource,
-			desc.label ?? "ComputeRuntimeTexture"
+			desc.label ?? "ComputeRuntimeTexture",
+			"texture"
 		);
 		this._textureMetadata.set(wrapped as unknown as object, {
 			width: Math.max(1, Math.floor(desc.width)),
@@ -156,7 +189,11 @@ export class ComputeRuntime implements IComputeRuntime {
 	public createSampler(desc: SamplerDesc): ISampler {
 		this._assertAlive("create samplers");
 		const resource = this._computeFacade.createSampler(desc);
-		return this._wrapOwnedResource(resource, desc.label ?? "ComputeRuntimeSampler");
+		return this._wrapOwnedResource(
+			resource,
+			desc.label ?? "ComputeRuntimeSampler",
+			"sampler"
+		);
 	}
 
 	public writeBuffer(
@@ -239,11 +276,13 @@ export class ComputeRuntime implements IComputeRuntime {
 
 		const moduleRecord = this._registerOwnedResource(
 			module as unknown as object,
-			`${label}Module`
+			`${label}Module`,
+			"shaderModule"
 		);
 		const pipelineRecord = this._registerOwnedResource(
 			pipeline as unknown as object,
-			`${label}Pipeline`
+			`${label}Pipeline`,
+			"computePipeline"
 		);
 		const kernelResources: KernelResourceSet = {
 			module,
@@ -378,6 +417,41 @@ export class ComputeRuntime implements IComputeRuntime {
 		}
 	}
 
+	public getResourceStats(): ComputeRuntimeResourceStats {
+		const byKind: ComputeRuntimeResourceKindStats = {
+			buffer: 0,
+			texture: 0,
+			sampler: 0,
+			shaderModule: 0,
+			computePipeline: 0,
+			unknown: 0,
+		};
+		let destroyRequestedResourceCount = 0;
+		let inflightReferenceCount = 0;
+
+		for (const record of this._ownedResources) {
+			byKind[record.kind]++;
+			inflightReferenceCount += Math.max(0, record.inflightRefs);
+			if (record.destroyRequested) {
+				destroyRequestedResourceCount++;
+			}
+		}
+
+		const ownedResourceCount = this._ownedResources.size;
+		return {
+			destroyed: this._destroyed,
+			kernelCount: this._kernels.size,
+			ownedResourceCount,
+			activeResourceCount: Math.max(
+				0,
+				ownedResourceCount - destroyRequestedResourceCount
+			),
+			destroyRequestedResourceCount,
+			inflightReferenceCount,
+			byKind,
+		};
+	}
+
 	public destroy(): void {
 		if (this._destroyed) {
 			return;
@@ -474,9 +548,10 @@ export class ComputeRuntime implements IComputeRuntime {
 
 	private _wrapOwnedResource<TResource extends object>(
 		resource: TResource,
-		label: string
+		label: string,
+		kind: OwnedResourceKind
 	): TResource {
-		const record = this._registerOwnedResource(resource, label);
+		const record = this._registerOwnedResource(resource, label, kind);
 		const runtime = this;
 		const proxy = new Proxy(resource, {
 			get(target, prop, receiver) {
@@ -525,14 +600,19 @@ export class ComputeRuntime implements IComputeRuntime {
 
 	private _registerOwnedResource(
 		resource: object,
-		label: string
+		label: string,
+		kind: OwnedResourceKind = "unknown"
 	): OwnedResourceRecord {
 		const existing = this._ownedResourceByObject.get(resource);
 		if (existing) {
+			if (existing.kind === "unknown" && kind !== "unknown") {
+				existing.kind = kind;
+			}
 			return existing;
 		}
 		const record: OwnedResourceRecord = {
 			label,
+			kind,
 			target: resource,
 			proxy: resource,
 			inflightRefs: 0,

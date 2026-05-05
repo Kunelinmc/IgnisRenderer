@@ -40,6 +40,7 @@ export {
 	ComputeRuntime,
 	ComputeKernel,
 	type BufferReadbackResult,
+	type ComputeRuntimeResourceStats,
 	type TextureReadbackResult,
 	type ComputeBindingSchemaEntry,
 	type ComputeKernelDescriptor,

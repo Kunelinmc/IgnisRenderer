@@ -179,9 +179,68 @@ async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
 	runtime.destroy();
 }
 
+async function testGetResourceStatsForDebugging() {
+	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const kernel = await runtime.createKernel({
+		code: "@compute @workgroup_size(1) fn csMain() {}",
+		bindings: [{ key: "params", binding: 0, type: "buffer" }],
+		workgroupSize: { x: 1, y: 1, z: 1 },
+	});
+	const paramsBuffer = runtime.createBuffer({
+		size: 16,
+		usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+	});
+
+	const beforeDispatch = runtime.getResourceStats();
+	assert.equal(beforeDispatch.destroyed, false);
+	assert.equal(beforeDispatch.kernelCount, 1);
+	assert.equal(beforeDispatch.ownedResourceCount, 3);
+	assert.equal(beforeDispatch.activeResourceCount, 3);
+	assert.equal(beforeDispatch.destroyRequestedResourceCount, 0);
+	assert.equal(beforeDispatch.inflightReferenceCount, 0);
+	assert.equal(beforeDispatch.byKind.buffer, 1);
+	assert.equal(beforeDispatch.byKind.shaderModule, 1);
+	assert.equal(beforeDispatch.byKind.computePipeline, 1);
+
+	const ticket = kernel.dispatch({
+		resources: { params: paramsBuffer },
+		dispatch: { x: 1, y: 1, z: 1 },
+	});
+	paramsBuffer.destroy();
+
+	const pendingDestroy = runtime.getResourceStats();
+	assert.equal(pendingDestroy.ownedResourceCount, 3);
+	assert.equal(pendingDestroy.activeResourceCount, 2);
+	assert.equal(pendingDestroy.destroyRequestedResourceCount, 1);
+	assert.equal(pendingDestroy.inflightReferenceCount, 3);
+	assert.equal(pendingDestroy.byKind.buffer, 1);
+
+	await ticket.done;
+
+	const afterDispatch = runtime.getResourceStats();
+	assert.equal(afterDispatch.ownedResourceCount, 2);
+	assert.equal(afterDispatch.activeResourceCount, 2);
+	assert.equal(afterDispatch.destroyRequestedResourceCount, 0);
+	assert.equal(afterDispatch.inflightReferenceCount, 0);
+	assert.equal(afterDispatch.byKind.buffer, 0);
+	assert.equal(afterDispatch.byKind.shaderModule, 1);
+	assert.equal(afterDispatch.byKind.computePipeline, 1);
+
+	kernel.destroy();
+	const afterKernelDestroy = runtime.getResourceStats();
+	assert.equal(afterKernelDestroy.kernelCount, 0);
+	assert.equal(afterKernelDestroy.ownedResourceCount, 0);
+
+	runtime.destroy();
+	const afterRuntimeDestroy = runtime.getResourceStats();
+	assert.equal(afterRuntimeDestroy.destroyed, true);
+	assert.equal(afterRuntimeDestroy.ownedResourceCount, 0);
+}
+
 await testReadTextureSkipsPaddingInNormalizedConversion();
 await testReadTextureNormalizesBGRA8Unorm();
 await testKernelSchemaValidation();
 await testDispatchValidationRules();
 await testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone();
+await testGetResourceStatsForDebugging();
 console.log("WebGPU compute runtime tests passed");
