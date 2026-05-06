@@ -26,6 +26,7 @@ function createModeTrackingResourcesStub() {
 		modeTransitions: [],
 		skyboxModeAtRequest: null,
 		drawModeAtRequest: null,
+		drawPipelineModeAtRequest: null,
 	};
 	return {
 		sceneFrameLayout: {},
@@ -42,8 +43,9 @@ function createModeTrackingResourcesStub() {
 				frameBinding: {},
 			};
 		},
-		async getDrawResources() {
+		async getDrawResources(_packet, options = {}) {
 			state.drawModeAtRequest = state.mode;
+			state.drawPipelineModeAtRequest = options.drawMode ?? "default";
 			return null;
 		},
 		async renderParticles() {},
@@ -147,7 +149,7 @@ function createOITSequencingResourcesStub() {
 		},
 		async getDrawResources(packet, options = {}) {
 			state.events.push(
-				`draw:${packet.id}:${options.transparentPipelineMode ?? "default"}`
+				`draw:${packet.id}:${options.transparentPipelineMode ?? "default"}:${options.drawMode ?? "default"}`
 			);
 			return [drawResource];
 		},
@@ -266,12 +268,35 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 		context
 	);
 
-	assert.equal(backend.recordedRenderPasses.length >= 2, true);
+	assert.equal(backend.recordedRenderPasses.length >= 3, true);
 	const depthClearPass = backend.recordedRenderPasses[0];
 	assert.equal(depthClearPass.depthStencilAttachment.depthLoadOp, "load");
 	assert.equal(depthClearPass.colorAttachments.length, 0);
-	const mainPass = backend.recordedRenderPasses[1];
+	const earlyZPass = backend.recordedRenderPasses[1];
+	assert.equal(earlyZPass.label, "WebGPUEarlyZPrepassMRT");
+	assert.equal(earlyZPass.colorAttachments.length, 0);
+	assert.equal(earlyZPass.depthStencilAttachment.depthLoadOp, "load");
+	const mainPass = backend.recordedRenderPasses[2];
 	assert.equal(mainPass.depthStencilAttachment.depthLoadOp, "load");
+}
+
+async function testMainOpaqueDisablesEarlyZWhenConfiguredOff() {
+	const backend = new FakeBackend();
+	backend.enableEarlyZPrepass = false;
+	const resources = createModeTrackingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [{ id: "packet" }];
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	assert.equal(labels.includes("WebGPUEarlyZPrepassMRT"), false);
+	assert.equal(resources._state.drawPipelineModeAtRequest, "default");
 }
 
 async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
@@ -317,6 +342,7 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 		(call) => call[0] === "setScissorRect"
 	);
 	assert.deepEqual(scissorCalls, [
+		["setScissorRect", 611, 0, 612, 869],
 		["setScissorRect", 611, 0, 612, 869],
 		["setScissorRect", 611, 0, 612, 869],
 	]);
@@ -382,11 +408,11 @@ async function testOITTransparentAndParticleExecutionOrder() {
 		"WebGPUParticlesMRT_Additive",
 	]);
 	assert.ok(
-		resources._state.events.includes("draw:transparent-oit:oit")
+		resources._state.events.includes("draw:transparent-oit:oit:default")
 	);
 	assert.ok(
 		resources._state.events.includes(
-			"draw:transparent-transmission:transmission"
+			"draw:transparent-transmission:transmission:default"
 		)
 	);
 	assert.ok(
@@ -435,7 +461,7 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	]);
 	assert.ok(
 		resources._state.events.includes(
-			"draw:transparent-transmission-only:transmission"
+			"draw:transparent-transmission-only:transmission:default"
 		)
 	);
 	assert.equal(
@@ -515,6 +541,7 @@ async function run() {
 	testInvalidateFrameTargetsDestroysPresentBinding();
 	await testLegacyMainPassForcesSingleSceneTargetMode();
 	await testIncrementalMainPassUsesDepthPartialReuse();
+	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsIncludeAndReleaseOITResources();
 	await testOITTransparentAndParticleExecutionOrder();

@@ -48,6 +48,12 @@ fn customFsMRT() -> MRTOut {
 }
 `;
 
+const WGSL_FRAGMENT_DEPTH = /* wgsl */ `
+@fragment
+fn customDepth() {
+}
+`;
+
 const WEBGL_VERTEX = /* glsl */ `
 #version 300 es
 precision highp float;
@@ -167,6 +173,44 @@ async function testWGSLProgramSelection() {
 	await library.getPipeline(material, "single");
 	await library.getPipeline(material, "mrt");
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
+}
+
+function testResolveWebGPUDepthPrepassProgramContract() {
+	const material = new ShaderMaterial({
+		name: "DepthPrepassMaterial",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+		],
+		vertexEntryPoint: "customVs",
+		depthFragmentEntryPoint: "customDepth",
+		depthFragmentCode: WGSL_FRAGMENT_DEPTH,
+	});
+
+	const depthProgram = material.resolveWebGPUDepthPrepassProgram("single");
+	assert.ok(depthProgram);
+	assert.equal(depthProgram.vertexEntryPoint, "customVs");
+	assert.equal(depthProgram.fragmentEntryPoint, "customDepth");
+	assert.equal(depthProgram.fragmentCode, WGSL_FRAGMENT_DEPTH);
+
+	const missingDepthContract = new ShaderMaterial({
+		name: "DepthPrepassMissing",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+		],
+		vertexEntryPoint: "customVs",
+	});
+	assert.equal(
+		missingDepthContract.resolveWebGPUDepthPrepassProgram("single"),
+		null
+	);
 }
 
 async function testGLSLProgramUsesTranspiler() {
@@ -634,6 +678,7 @@ function testTextureBindingUvSetGreaterThanOneUsesSecondSet() {
 
 async function run() {
 	await testWGSLProgramSelection();
+	testResolveWebGPUDepthPrepassProgramContract();
 	await testGLSLProgramUsesTranspiler();
 	await testGLSLWithoutTranspilerThrows();
 	await testWarnModeFallbackToBuiltinShader();

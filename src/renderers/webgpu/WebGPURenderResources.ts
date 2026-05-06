@@ -49,6 +49,7 @@ import {
 } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import type {
+	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
 	WebGPUTransparentPipelineMode,
 } from "./WebGPUPipelineLibrary";
@@ -145,6 +146,7 @@ interface WebGPUParticleBindingCacheEntry {
 interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
+	drawMode?: WebGPUScenePipelineDrawMode;
 }
 
 interface WebGPUParticleRenderOptions {
@@ -671,6 +673,7 @@ export class WebGPURenderResources {
 		const transparentPipelineMode =
 			options.transparentPipelineMode ?? "default";
 		const sceneTargetMode = options.sceneTargetMode ?? this._sceneTargetMode;
+		const drawMode = options.drawMode ?? "default";
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
@@ -689,13 +692,25 @@ export class WebGPURenderResources {
 			});
 		}
 
-		const solidPipeline = await this._pipelineLibrary.getPipeline(
-			packet.material,
-			sceneTargetMode,
-			false,
-			topology,
-			transparentPipelineMode
-		);
+		const solidPipeline =
+			drawMode === "early-z-prepass" ?
+				await this._pipelineLibrary.getEarlyZPrepassPipeline(
+					packet.material,
+					sceneTargetMode,
+					false,
+					topology
+				)
+			:	await this._pipelineLibrary.getPipeline(
+					packet.material,
+					sceneTargetMode,
+					false,
+					topology,
+					transparentPipelineMode,
+					drawMode
+				);
+		if (!solidPipeline) {
+			return null;
+		}
 		const solidTextures = solidMaterialData.textureSlots.map((slot, index) =>
 			this._textureRegistry.getTextureForSlot(slot.map, index)
 		);
@@ -723,6 +738,7 @@ export class WebGPURenderResources {
 
 		// ----- WIREFRAME OVERLAY -----
 		if (
+			drawMode !== "early-z-prepass" &&
 			packet.material.wireframe &&
 			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
@@ -735,7 +751,8 @@ export class WebGPURenderResources {
 				sceneTargetMode,
 				true,
 				topology,
-				transparentPipelineMode
+				transparentPipelineMode,
+				drawMode
 			);
 			const wireTextures = wireMaterialData.textureSlots.map((slot, index) =>
 				this._textureRegistry.getTextureForSlot(slot.map, index)

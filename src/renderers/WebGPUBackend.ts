@@ -219,6 +219,7 @@ export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
 	enableMSAA?: boolean;
+	enableEarlyZPrepass?: boolean;
 }
 
 type WebGPUPassHandler = (
@@ -413,6 +414,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _defaultMSAASampleCount: number;
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
+	private _enableEarlyZPrepass = true;
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
 
@@ -425,6 +427,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._defaultMSAASampleCount =
 			resolved.options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
+		this._enableEarlyZPrepass = resolved.options.enableEarlyZPrepass !== false;
 		this._canvas = resolved.canvas ?? null;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
@@ -452,6 +455,10 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public getShaderDirectiveCacheTag(): string {
 		return this._shaderCompileStage.getCacheFingerprintTag();
+	}
+
+	public isEarlyZPrepassEnabled(): boolean {
+		return this._enableEarlyZPrepass;
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {

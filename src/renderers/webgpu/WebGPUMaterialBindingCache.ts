@@ -203,7 +203,6 @@ export class WebGPUMaterialBindingCache {
 		if (
 			!cached.bindingGroup ||
 			requiresRebind ||
-			cached.pipeline !== pipeline ||
 			!areTexturesEqual(cached.textures, textures) ||
 			!areSamplersEqual(cached.samplers, samplers) ||
 			cached.morphPositionBuffer !== morphPositionBuffer ||

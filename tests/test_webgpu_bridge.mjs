@@ -33,6 +33,7 @@ import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
 import { AlphaMode } from "../src/materials/Material.ts";
+import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { CubeTexture } from "../src/core/CubeTexture.ts";
 import { Scene } from "../src/core/Scene.ts";
@@ -1128,6 +1129,239 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 		pipelineDesc.fragment.targets[4].blend?.color?.dstFactor,
 		"one-minus-src-alpha"
 	);
+}
+
+async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet, {
+		drawMode: "early-z-prepass",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(typeof pipelineDesc.fragment, "undefined");
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, true);
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "less");
+}
+
+async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const material = new PBRMaterial();
+	material.alphaMode = AlphaMode.Mask;
+	const model = createModel([material]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet, {
+		drawMode: "early-z-prepass",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainDepthMask");
+	assert.equal(pipelineDesc.fragment.targets.length, 0);
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, true);
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "less");
+}
+
+async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const draw = await resources.getDrawResources(packet, {
+		drawMode: "early-z-color",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "less-equal");
+}
+
+async function testWebGPUEarlyZShaderMaterialDepthContract() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const shaderMaterial = new ShaderMaterial({
+		name: "EarlyZShaderMask",
+		alphaMode: AlphaMode.Mask,
+		vertexEntryPoint: "customVs",
+		depthFragmentEntryPoint: "customDepth",
+		depthFragmentCode: /* wgsl */ `
+@fragment
+fn customDepth() {
+}
+`,
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: /* wgsl */ `
+@vertex
+fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+	return vec4<f32>(position, 1.0);
+}
+`,
+			},
+		],
+	});
+	const supportedModel = createModel([shaderMaterial]);
+	const supportedPacket = createPacket(supportedModel);
+	const frame = createFrame(supportedPacket);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				skybox: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const supportedDraw = await resources.getDrawResources(supportedPacket, {
+		drawMode: "early-z-prepass",
+	});
+	assert.ok(supportedDraw && supportedDraw.length > 0);
+	assert.equal(
+		supportedDraw[0].pipeline.desc.fragment.entryPoint,
+		"customDepth"
+	);
+
+	const missingContractMaterial = new ShaderMaterial({
+		name: "EarlyZShaderMaskMissingDepth",
+		alphaMode: AlphaMode.Mask,
+		vertexEntryPoint: "customVs",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: /* wgsl */ `
+@vertex
+fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+	return vec4<f32>(position, 1.0);
+}
+`,
+			},
+		],
+	});
+	const unsupportedModel = createModel([missingContractMaterial]);
+	const unsupportedPacket = createPacket(unsupportedModel);
+	const unsupportedDraw = await resources.getDrawResources(unsupportedPacket, {
+		drawMode: "early-z-prepass",
+	});
+	assert.equal(unsupportedDraw, null);
 }
 
 async function testWebGPUOITTransparentPipelineUsesDualTargets() {
@@ -2518,6 +2752,10 @@ async function run() {
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
+	await testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState();
+	await testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment();
+	await testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState();
+	await testWebGPUEarlyZShaderMaterialDepthContract();
 	await testWebGPUOITTransparentPipelineUsesDualTargets();
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
