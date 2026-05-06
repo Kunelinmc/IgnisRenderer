@@ -44,6 +44,10 @@ export interface RasterizerLike {
 		context: RasterizerContext,
 		isTransparent?: boolean
 	): void;
+	drawCameraDepthTriangle(
+		pts: ProjectedVertex[],
+		context: RasterizerContext
+	): void;
 	drawDepthTriangle(
 		pts: ProjectedVertex[],
 		shadowTarget: SoftwareShadowRenderTarget,
@@ -96,6 +100,7 @@ export interface RasterizerContext {
 	width: number;
 	height: number;
 	depthBuffer: Float32Array;
+	earlyDepthBuffer?: Float32Array | null;
 	clipRect?: {
 		minX: number;
 		minY: number;
@@ -628,6 +633,109 @@ export class Rasterizer implements RasterizerLike {
 		res.zCamO = vA.zCamO + (vB.zCamO - vA.zCamO) * t;
 	}
 
+	public drawCameraDepthTriangle(
+		pts: ProjectedVertex[],
+		context: RasterizerContext
+	): void {
+		const { width, height } = context;
+		const depthTarget = context.earlyDepthBuffer ?? context.depthBuffer;
+		if (!depthTarget) return;
+		const clipRect = context.clipRect;
+		const clipMinX =
+			clipRect ? Math.max(0, Math.floor(clipRect.minX)) : 0;
+		const clipMinY =
+			clipRect ? Math.max(0, Math.floor(clipRect.minY)) : 0;
+		const clipMaxX =
+			clipRect ? Math.min(width - 1, Math.floor(clipRect.maxX)) : width - 1;
+		const clipMaxY =
+			clipRect ?
+				Math.min(height - 1, Math.floor(clipRect.maxY))
+			:	height - 1;
+		if (
+			clipMinX > clipMaxX ||
+			clipMinY > clipMaxY ||
+			width <= 0 ||
+			height <= 0
+		) {
+			return;
+		}
+
+		const verts = this._vertsCache;
+		for (let i = 0; i < 3; i++) {
+			const p = pts[i];
+			const iz = p.w;
+			const linearDepth =
+				p.zView !== undefined ? -p.zView
+				: p.world.z !== undefined ? -p.world.z
+				: 0;
+			const v = verts[i];
+			v.x = p.x;
+			v.y = p.y;
+			v.iz = iz;
+			v.zCamO = linearDepth * iz;
+		}
+
+		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+		if (vMid.y > vBot.y) [vMid, vBot] = [vBot, vMid];
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+
+		const minY = Math.max(clipMinY, Math.ceil(vTop.y - 0.5));
+		const maxY = Math.min(clipMaxY, Math.floor(vBot.y - 0.5));
+		if (minY > maxY) return;
+
+		for (let y = minY; y <= maxY; y++) {
+			const py = y + 0.5;
+			let left = this._edgeRes1;
+			let right = this._edgeRes2;
+
+			if (py < vMid.y) {
+				this._fillEdgeRes(left, vTop, vMid, py);
+				this._fillEdgeRes(right, vTop, vBot, py);
+			} else {
+				this._fillEdgeRes(left, vMid, vBot, py);
+				this._fillEdgeRes(right, vTop, vBot, py);
+			}
+
+			if (left.x > right.x) {
+				const tmp = left;
+				left = right;
+				right = tmp;
+			}
+
+			const startX = Math.max(clipMinX, Math.ceil(left.x - 0.5));
+			const endX = Math.min(clipMaxX, Math.floor(right.x - 0.5));
+			if (endX < startX) continue;
+
+			const spanWidth = right.x - left.x;
+			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+			const diz = (right.iz - left.iz) * spanInv;
+			const dzCamO = (right.zCamO - left.zCamO) * spanInv;
+
+			const dx = startX + 0.5 - left.x;
+			let iz = left.iz + dx * diz;
+			let zCamO = left.zCamO + dx * dzCamO;
+			const rowStart = y * width;
+
+			for (let x = startX; x <= endX; x++) {
+				const bufIdx = rowStart + x;
+				const safeIz =
+					Math.abs(iz) > CoreConstants.EPSILON ? iz
+					: iz >= 0 ? CoreConstants.EPSILON
+					: -CoreConstants.EPSILON;
+				const zCam = 1 / safeIz;
+				if (zCam > 0) {
+					const zCamValue = zCamO * zCam;
+					if (zCamValue > 0 && zCamValue < depthTarget[bufIdx]) {
+						depthTarget[bufIdx] = zCamValue;
+					}
+				}
+				iz += diz;
+				zCamO += dzCamO;
+			}
+		}
+	}
+
 	public drawTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
@@ -636,6 +744,7 @@ export class Rasterizer implements RasterizerLike {
 		isTransparent: boolean = false
 	): void {
 		const { width, height, depthBuffer } = context;
+		const earlyDepthBuffer = context.earlyDepthBuffer ?? null;
 		const clipRect = context.clipRect;
 		const clipMinX =
 			clipRect ? Math.max(0, Math.floor(clipRect.minX)) : 0;
@@ -824,25 +933,50 @@ export class Rasterizer implements RasterizerLike {
 
 				// Use w for early z-test check, but final shade depth uses linear depth
 				if (zCam > 0) {
-					input.zCam = zCam;
-					input.world.x = worldOx * zCam;
-					input.world.y = worldOy * zCam;
-					input.world.z = worldOz * zCam;
-					input.normal.x = normalOx * zCam;
-					input.normal.y = normalOy * zCam;
-					input.normal.z = normalOz * zCam;
-					input.tangent.x = tangentOx * zCam;
-					input.tangent.y = tangentOy * zCam;
-					input.tangent.z = tangentOz * zCam;
-					input.tangent.w = tangentOw * zCam;
-					input.u = uO * zCam;
-					input.v = vO * zCam;
-					input.u2 = u2O * zCam;
-					input.v2 = v2O * zCam;
-					input.zCam = zCamO * zCam;
+					const zCamValue = zCamO * zCam;
+					if (zCamValue > 0) {
+						const earlyDepthValue =
+							earlyDepthBuffer ? earlyDepthBuffer[bufIdx] : depthBuffer[bufIdx];
+						const passedEarlyDepth =
+							earlyDepthBuffer ?
+								zCamValue <= earlyDepthValue + CoreConstants.EPSILON
+							:	zCamValue < earlyDepthValue;
+						if (!passedEarlyDepth) {
+							iz += diz;
+							worldOx += dWorldOx;
+							worldOy += dWorldOy;
+							worldOz += dWorldOz;
+							normalOx += dNormalOx;
+							normalOy += dNormalOy;
+							normalOz += dNormalOz;
+							tangentOx += dTangentOx;
+							tangentOy += dTangentOy;
+							tangentOz += dTangentOz;
+							tangentOw += dTangentOw;
+							uO += duO;
+							vO += dvO;
+							u2O += du2O;
+							v2O += dv2O;
+							continue;
+						}
 
-					const zCamValue = input.zCam;
-					if (zCamValue > 0 && zCamValue < depthBuffer[bufIdx]) {
+						input.zCam = zCam;
+						input.world.x = worldOx * zCam;
+						input.world.y = worldOy * zCam;
+						input.world.z = worldOz * zCam;
+						input.normal.x = normalOx * zCam;
+						input.normal.y = normalOy * zCam;
+						input.normal.z = normalOz * zCam;
+						input.tangent.x = tangentOx * zCam;
+						input.tangent.y = tangentOy * zCam;
+						input.tangent.z = tangentOz * zCam;
+						input.tangent.w = tangentOw * zCam;
+						input.u = uO * zCam;
+						input.v = vO * zCam;
+						input.u2 = u2O * zCam;
+						input.v2 = v2O * zCam;
+						input.zCam = zCamValue;
+
 						const finalOutput = shader.shade(input);
 						let finalColor = finalOutput?.color;
 						const shadedDepth = finalOutput?.depth ?? zCamValue;

@@ -138,6 +138,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
 			mode: this.requestedRasterMode,
 			tile: this._options.tile,
+			enableEarlyZPrepass: this._options.enableEarlyZPrepass,
 		});
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);

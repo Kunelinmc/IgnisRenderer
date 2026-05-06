@@ -1,4 +1,5 @@
 import { Platform } from "../../../foundation/Platform";
+import { AlphaMode } from "../../../materials/Material";
 import { Projector } from "../Projector";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type {
@@ -44,6 +45,7 @@ interface SoftwareMainRasterExecutorLike extends SoftwarePassLike<
 export interface SoftwareMainPassOptions {
 	mode?: SoftwareRasterMode;
 	tile?: SoftwareTileOptions;
+	enableEarlyZPrepass?: boolean;
 }
 
 function createRasterizerContext(context: FrameContext): RasterizerContext {
@@ -298,11 +300,59 @@ function triangleIntersectsAnyDirtyRect(
 	);
 }
 
+function shouldRunEarlyDepthPrepass(
+	transparent: boolean,
+	enabled: boolean
+): boolean {
+	return !transparent && enabled;
+}
+
+function isMaskTriangle(triangle: TileTriangleWorkItem): boolean {
+	return triangle.face.material?.alphaMode === AlphaMode.Mask;
+}
+
+function prepareEarlyDepthBuffer(
+	previous: Float32Array | null,
+	context: FrameContext,
+	dirtyRects: TileClipRect[]
+): Float32Array {
+	const width = Math.max(1, context.attachments.width | 0);
+	const height = Math.max(1, context.attachments.height | 0);
+	const size = width * height;
+	const depthBuffer = context.attachments.depthBuffer!;
+	const next =
+		previous && previous.length === size ? previous : new Float32Array(size);
+	next.set(depthBuffer);
+
+	for (const rect of dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.minX));
+		const minY = Math.max(0, Math.floor(rect.minY));
+		const maxX = Math.min(width - 1, Math.floor(rect.maxX));
+		const maxY = Math.min(height - 1, Math.floor(rect.maxY));
+		if (minX > maxX || minY > maxY) continue;
+
+		for (let y = minY; y <= maxY; y++) {
+			const rowStart = y * width;
+			for (let x = minX; x <= maxX; x++) {
+				next[rowStart + x] = Infinity;
+			}
+		}
+	}
+
+	return next;
+}
+
 class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _rasterizer: Rasterizer;
+	private _enableEarlyZPrepass: boolean;
+	private _earlyDepthBuffer: Float32Array | null = null;
 
-	public constructor(rasterizer: Rasterizer) {
+	public constructor(
+		rasterizer: Rasterizer,
+		enableEarlyZPrepass: boolean = true
+	) {
 		this._rasterizer = rasterizer;
+		this._enableEarlyZPrepass = enableEarlyZPrepass;
 	}
 
 	public async render(
@@ -324,6 +374,21 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			return;
 		}
 		const rasterizerContext = createRasterizerContext(context);
+		if (shouldRunEarlyDepthPrepass(transparent, this._enableEarlyZPrepass)) {
+			this._earlyDepthBuffer = prepareEarlyDepthBuffer(
+				this._earlyDepthBuffer,
+				context,
+				dirtyRects
+			);
+			rasterizerContext.earlyDepthBuffer = this._earlyDepthBuffer;
+			for (const triangle of triangles) {
+				if (isMaskTriangle(triangle)) continue;
+				this._rasterizer.drawCameraDepthTriangle(
+					triangle.pts,
+					rasterizerContext
+				);
+			}
+		}
 		for (const triangle of triangles) {
 			this._rasterizer.drawTriangle(
 				triangle.pts,
@@ -339,7 +404,9 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 		return "scanline";
 	}
 
-	public destroy(): void {}
+	public destroy(): void {
+		this._earlyDepthBuffer = null;
+	}
 }
 
 class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
@@ -350,16 +417,22 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 	private _scheduler: typeof globalWorkerScheduler;
 	private _poolId: string;
 	private _defaultTimeoutMs: number;
+	private _enableEarlyZPrepass: boolean;
+	private _earlyDepthBuffer: Float32Array | null = null;
 	private _poolOwned = false;
 	private _poolReady = false;
 	private _failedOverToScanline = false;
 
 	public constructor(
 		rasterizer: Rasterizer,
-		tileOptions: SoftwareTileOptions = {}
+		tileOptions: SoftwareTileOptions = {},
+		enableEarlyZPrepass: boolean = true
 	) {
 		this._rasterizer = rasterizer;
-		this._scanlineFallback = new ScanlineMainRasterExecutor(rasterizer);
+		this._scanlineFallback = new ScanlineMainRasterExecutor(
+			rasterizer,
+			enableEarlyZPrepass
+		);
 		this._tileSize = Math.max(
 			1,
 			Math.floor(tileOptions.tileSize ?? DEFAULT_SOFTWARE_TILE_SIZE)
@@ -378,6 +451,7 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			0,
 			Math.floor(tileOptions.defaultTimeoutMs ?? 0)
 		);
+		this._enableEarlyZPrepass = enableEarlyZPrepass;
 	}
 
 	public async render(
@@ -435,6 +509,49 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 		const sortedTileIndices = [...bins.keys()].sort((left, right) => left - right);
 		const pixels = context.attachments.pixels!;
 		const baseContext = createRasterizerContext(context);
+		if (shouldRunEarlyDepthPrepass(transparent, this._enableEarlyZPrepass)) {
+			this._earlyDepthBuffer = prepareEarlyDepthBuffer(
+				this._earlyDepthBuffer,
+				context,
+				dirtyRects
+			);
+			baseContext.earlyDepthBuffer = this._earlyDepthBuffer;
+			for (const tileIndex of sortedTileIndices) {
+				const triangleIndices = bins.get(tileIndex);
+				if (!triangleIndices || triangleIndices.length === 0) continue;
+
+				const clipRect = createTileClipRect(
+					tileIndex,
+					this._tileSize,
+					tileColumns,
+					width,
+					height
+				);
+				if (
+					clipRect.minX > clipRect.maxX ||
+					clipRect.minY > clipRect.maxY ||
+					tileIndex < 0 ||
+					tileIndex >= tileColumns * tileRows ||
+					!intersectsAnyDirtyRect(clipRect, dirtyRects)
+				) {
+					continue;
+				}
+
+				const tileContext: RasterizerContext = {
+					...baseContext,
+					clipRect,
+				};
+
+				for (const triangleIndex of triangleIndices) {
+					const triangle = triangles[triangleIndex];
+					if (!triangle || isMaskTriangle(triangle)) continue;
+					this._rasterizer.drawCameraDepthTriangle(
+						triangle.pts,
+						tileContext
+					);
+				}
+			}
+		}
 
 		for (const tileIndex of sortedTileIndices) {
 			const triangleIndices = bins.get(tileIndex);
@@ -490,6 +607,7 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 		}
 		this._poolOwned = false;
 		this._poolReady = false;
+		this._earlyDepthBuffer = null;
 	}
 
 	private _ensureWorkerPool(): boolean {
@@ -623,11 +741,19 @@ export class SoftwareMainPass implements SoftwarePassLike<
 	private _executor: SoftwareMainRasterExecutorLike;
 
 	public constructor(rasterizer: Rasterizer, options: SoftwareMainPassOptions = {}) {
+		const enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		const mode = options.mode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		if (mode === "tile") {
-			this._executor = new TileMainRasterExecutor(rasterizer, options.tile);
+			this._executor = new TileMainRasterExecutor(
+				rasterizer,
+				options.tile,
+				enableEarlyZPrepass
+			);
 		} else {
-			this._executor = new ScanlineMainRasterExecutor(rasterizer);
+			this._executor = new ScanlineMainRasterExecutor(
+				rasterizer,
+				enableEarlyZPrepass
+			);
 		}
 	}
 

@@ -18,6 +18,7 @@ const tests = [
 	"test_shadow_manager.mjs",
 	"test_backend_capabilities.mjs",
 	"test_software_raster_modes.mjs",
+	"test_software_early_z_prepass.mjs",
 	"test_platform.mjs",
 	"test_webgl_backend_stub.mjs",
 	"test_webgl_backend_v2.mjs",

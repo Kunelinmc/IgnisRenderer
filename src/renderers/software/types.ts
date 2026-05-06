@@ -13,4 +13,5 @@ export interface SoftwareTileOptions {
 export interface SoftwareBackendOptions {
 	rasterMode?: SoftwareRasterMode;
 	tile?: SoftwareTileOptions;
+	enableEarlyZPrepass?: boolean;
 }
