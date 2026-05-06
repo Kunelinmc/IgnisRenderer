@@ -29,8 +29,10 @@ function createDeferred() {
 }
 
 async function flushAsyncTasks() {
-	await Promise.resolve();
-	await new Promise((resolve) => setTimeout(resolve, 0));
+	for (let i = 0; i < 3; i++) {
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
 }
 
 function createCapturedFace(faceSize, seed = 1) {
@@ -63,18 +65,18 @@ async function testCaptureRuntimeTriggerModes() {
 	);
 	manualScene.updateWorldMatrices();
 
-	runtime.execute({ scene: manualScene, nowMs: 0 });
+	await runtime.execute({ scene: manualScene, nowMs: 0 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 0);
 	assert.equal(manualProbe.prefilteredMap, null);
 
 	manualProbe.requestCapture();
-	runtime.execute({ scene: manualScene, nowMs: 16 });
+	await runtime.execute({ scene: manualScene, nowMs: 16 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 1);
 	assert.ok(manualProbe.prefilteredMap);
 
-	runtime.execute({ scene: manualScene, nowMs: 32 });
+	await runtime.execute({ scene: manualScene, nowMs: 32 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 1);
 
@@ -88,17 +90,17 @@ async function testCaptureRuntimeTriggerModes() {
 	);
 	dirtyScene.updateWorldMatrices();
 
-	runtime.execute({ scene: dirtyScene, nowMs: 100 });
+	await runtime.execute({ scene: dirtyScene, nowMs: 100 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 2);
 	assert.ok(dirtyProbe.prefilteredMap);
 
-	runtime.execute({ scene: dirtyScene, nowMs: 116 });
+	await runtime.execute({ scene: dirtyScene, nowMs: 116 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 2);
 
 	dirtyScene.invalidate("transform");
-	runtime.execute({ scene: dirtyScene, nowMs: 132 });
+	await runtime.execute({ scene: dirtyScene, nowMs: 132 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 3);
 
@@ -113,16 +115,16 @@ async function testCaptureRuntimeTriggerModes() {
 	);
 	intervalScene.updateWorldMatrices();
 
-	runtime.execute({ scene: intervalScene, nowMs: 0 });
+	await runtime.execute({ scene: intervalScene, nowMs: 0 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 4);
 	assert.ok(intervalProbe.prefilteredMap);
 
-	runtime.execute({ scene: intervalScene, nowMs: 200 });
+	await runtime.execute({ scene: intervalScene, nowMs: 200 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 4);
 
-	runtime.execute({ scene: intervalScene, nowMs: 700 });
+	await runtime.execute({ scene: intervalScene, nowMs: 700 });
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 5);
 }

@@ -10,33 +10,32 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import {
-	FRAME_PASS_DEPENDENCIES,
 	type FrameAttachments,
 	type FrameContext,
 	type FramePass,
-	INTERACTION_TRANSIENT_STATE_KEY,
-	isFogPostProcessEnabled,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
-import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
-import { WebGPUCommandEncoder } from "./webgpu/WebGPUCommandEncoder";
+import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
+import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
+import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
+import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler";
 import {
 	WebGPUReflectionProbeCapturePass,
 	type WebGPUReflectionProbeCaptureFaceRequest,
 } from "./webgpu/WebGPUReflectionProbeCapturePass";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
+import { WebGPUPassPlanner } from "./webgpu/WebGPUFramePlanner";
+import type {
+	WebGPUCommandSchedulerHost,
+	WebGPUFramePlannerState,
+} from "./webgpu/WebGPUBackendContracts";
 import {
-	attachWebGPUTexture,
-	createWebGPUTexture,
-	getWebGPUBuffer,
 	getWebGPUPipeline,
 	getWebGPUShaderModule,
-	getWebGPUTexture,
 	tryGetWebGPUBuffer,
 	tryGetWebGPUTexture,
-	type WebGPUTexture,
 } from "./webgpu/WebGPUResourceAccess";
 import type { WebGPUPostProcessPassPlugin } from "./webgpu/WebGPUPostProcessGraph";
 import type { IParticleSimulator } from "../simulation/particles/IParticleSimulator";
@@ -48,8 +47,6 @@ import {
 	WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES,
 	WEBGPU_PIPELINE_CACHE_LIMIT,
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
-	WEBGPU_COPY_BATCH_SIZE,
-	WEBGPU_TIMESTAMP_QUERY_CAPACITY,
 	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 } from "./webgpu/constants";
@@ -83,10 +80,8 @@ import {
 	ShaderRuntime,
 } from "../shaders/runtime";
 import type {
-	ShaderBackendCompileResult,
 	ShaderCompilerMessage,
 	ShaderDirectiveCompileHook,
-	ShaderProcessResult,
 	ShaderRuntimeMode,
 } from "../shaders/runtime";
 import {
@@ -103,17 +98,6 @@ import {
 	type IWebGPUComputeFacade,
 } from "./webgpu/ComputeFacade";
 import { Logger } from "../foundation/Logger";
-
-interface InternalRenderBuffer extends IRenderBuffer {
-	_gpuResource: GPUBuffer;
-}
-
-interface InternalTexture extends IRenderTexture {
-	_gpuResource: GPUTexture;
-	_gpuTexture: GPUTexture;
-	_gpuView: GPUTextureView;
-	_webgpuTexture: WebGPUTexture;
-}
 
 interface InternalSampler extends ISampler {
 	destroy(): void;
@@ -138,12 +122,6 @@ interface InternalComputePipeline extends IComputePipeline {
 interface InternalBindingGroup extends IBindingGroup {
 	destroy(): void;
 	_gpuResource: GPUBindGroup;
-}
-
-interface InternalCommandBuffer {
-	_backendCommandBuffer: GPUCommandBuffer;
-	_ownerToken: object;
-	_submitted: boolean;
 }
 
 interface CachedSamplerEntry {
@@ -191,12 +169,6 @@ interface CachedBindingGroupEntry {
 	lastUsedFrame: number;
 	lastTouchedTick: number;
 	refCount: number;
-}
-
-interface TimestampPairEntry {
-	label: string;
-	startIndex: number;
-	endIndex: number;
 }
 
 type BindingResourceInput = BindingGroupDesc["entries"][number]["resource"];
@@ -262,30 +234,6 @@ function resolveWebGPUBackendCtorArgs(
 	};
 }
 
-function resolveGPUTextureExtent(
-	texture: GPUTexture,
-	fallbackWidth: number,
-	fallbackHeight: number
-): { width: number; height: number } {
-	const textureWithExtent = texture as GPUTexture & {
-		width?: unknown;
-		height?: unknown;
-	};
-	const width =
-		typeof textureWithExtent.width === "number" &&
-		Number.isFinite(textureWithExtent.width) ?
-			textureWithExtent.width
-		:	fallbackWidth;
-	const height =
-		typeof textureWithExtent.height === "number" &&
-		Number.isFinite(textureWithExtent.height) ?
-			textureWithExtent.height
-		:	fallbackHeight;
-	return {
-		width: Math.max(1, Math.floor(width)),
-		height: Math.max(1, Math.floor(height)),
-	};
-}
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
@@ -353,9 +301,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
 
-	private _depthTexture: IRenderTexture | null = null;
-	private _currentCanvasTexture: GPUTexture | null = null;
-	private _currentCanvasView: GPUTextureView | null = null;
+	private readonly _canvasTargets = new WebGPUCanvasTargetManager();
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
@@ -375,7 +321,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _pipelineBindGroupLayoutCache = new Map<string, GPUBindGroupLayout>();
 	private _autoRenderPipelineLayoutCache = new Map<string, GPUPipelineLayout>();
 	private _autoComputePipelineLayoutCache = new Map<string, GPUPipelineLayout>();
-	private _commandBufferOwnerToken: object = {};
 	private _resourceIds = new WeakMap<object, number>();
 	private _nextResourceId = 1;
 	private _destroyRequested = false;
@@ -396,18 +341,6 @@ export class WebGPUBackend implements IRenderBackend {
 					);
 				})
 			: null;
-	private _copyCommandEncoder: GPUCommandEncoder | null = null;
-	private _copyPendingCount = 0;
-	private _copyFlushScheduled = false;
-	private _timestampSupported = false;
-	private _timestampQuerySet: GPUQuerySet | null = null;
-	private _timestampResolveBuffer: GPUBuffer | null = null;
-	private _timestampReadBuffer: GPUBuffer | null = null;
-	private _timestampQueryCursor = 0;
-	private _timestampPairs: TimestampPairEntry[] = [];
-	private _timestampReadPending = false;
-	private _timestampPeriodNs = 1;
-	private _timestampResults = new Map<string, number>();
 	private _pendingPostProcessPasses = new Map<string, WebGPUPostProcessPassPlugin>();
 	private _warmupLogCompilationInfo = false;
 	private _msaaSelectionCache = new Map<string, number>();
@@ -416,6 +349,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _msaaSampleCount = 1;
 	private _enableEarlyZPrepass = true;
 	private _shaderCompileStage: ShaderBackendCompileStage;
+	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
+	private readonly _framePlanner = new WebGPUPassPlanner();
+	private readonly _commandScheduler: WebGPUCommandScheduler;
+	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
 
 	constructor(
@@ -439,7 +376,16 @@ export class WebGPUBackend implements IRenderBackend {
 			hook: resolved.options.directiveHook ?? null,
 			mode: shaderMode,
 		});
+		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(
+			this._shaderCompileStage
+		);
 		this._passHandlers = this._createPassHandlers();
+		this._commandScheduler = new WebGPUCommandScheduler(
+			this._createCommandSchedulerHost()
+		);
+		this._resourceManager = new WebGPUResourceManager(
+			this._createResourceManagerHost()
+		);
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
@@ -565,7 +511,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this.canvasDepthFormat = this._selectCanvasDepthFormat();
 			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 			this._msaaSampleCount = this._selectMSAASampleCount();
-			this._initTimestampResources();
+			this._commandScheduler.initTimestampResources();
 			this._context = context;
 			this._configureContext();
 			this._recreateDepthTexture();
@@ -606,7 +552,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this.canvas.height = resolvedHeight;
 		}
 
-		this._submitPendingCopyCommands();
+		this._commandScheduler.submitPendingCopyCommands();
 		this._configureContext();
 		this._resetCurrentCanvasTargets();
 		this._bindingGroupCache.clear();
@@ -621,7 +567,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._frameSerial++;
-		this._submitPendingCopyCommands();
+		this._commandScheduler.submitPendingCopyCommands();
 		this._evictStaleBindingGroups();
 		this._prepareFramePassPlan(context);
 		this._executedPasses.clear();
@@ -749,7 +695,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._deviceRecoveryNonce++;
 		this._deviceRecoveryPromise = null;
 		if (!this._deviceLost && this.queue) {
-			this._submitPendingCopyCommands();
+			this._commandScheduler.submitPendingCopyCommands();
 		}
 		this._rollbackInitializationState();
 		this._pendingPostProcessPasses.clear();
@@ -759,94 +705,11 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
-		this._assertDeviceOperational("create buffers");
-		const hasInitialData = !!desc.initialData;
-		const mappedAtCreation = hasInitialData || !!desc.mappedAtCreation;
-		const gpuBuffer = this.device.createBuffer({
-			size: desc.size,
-			usage: this._mapBufferUsage(desc.usage),
-			mappedAtCreation,
-			label: desc.label,
-		});
-		if (hasInitialData) {
-			const source = desc.initialData as BufferSource;
-			const mappedRange = gpuBuffer.getMappedRange();
-			const target = new Uint8Array(mappedRange);
-			const srcView = this._toUint8View(source);
-			const copyLength = Math.min(target.byteLength, srcView.byteLength);
-			target.set(srcView.subarray(0, copyLength), 0);
-			gpuBuffer.unmap();
-		}
-
-		const buffer = {
-			size: desc.size,
-			destroy: () => {},
-			unmap: () => {},
-			_gpuResource: gpuBuffer,
-		} as InternalRenderBuffer;
-		buffer.unmap = () => {
-			this._tryUnmapBuffer(gpuBuffer);
-		};
-		buffer.destroy = this._createManagedDestroy(buffer, {
-			label: desc.label ?? "WebGPUBuffer",
-			dispose: () => {
-				this._tryUnmapBuffer(gpuBuffer);
-				gpuBuffer.destroy();
-			},
-		});
-		return buffer;
+		return this._resourceManager.createBuffer(desc);
 	}
 
 	public createTexture(desc: TextureDesc): IRenderTexture {
-		this._assertDeviceOperational("create textures");
-		const dimension = (desc.dimension ?? "2d") as GPUTextureDimension;
-		const resolvedWidth = this._resolvePositiveInteger(desc.width, 1);
-		const resolvedHeight = this._resolvePositiveInteger(desc.height, 1);
-		const depthOrArrayLayers = this._resolvePositiveInteger(desc.depthOrArrayLayers ?? 1, 1);
-		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
-		const sampleCount =
-			dimension === "2d"
-				? this._resolveSupportedMSAASampleCount(requestedSampleCount, [
-						desc.format as GPUTextureFormat,
-					])
-				: 1;
-		const size: GPUExtent3DStrict =
-			dimension === "1d"
-				? {
-						width: resolvedWidth,
-					}
-				: {
-						width: resolvedWidth,
-						height: resolvedHeight,
-						depthOrArrayLayers,
-					};
-		const baseDescriptor: GPUTextureDescriptor = {
-			size,
-			dimension,
-			sampleCount,
-			format: desc.format as GPUTextureFormat,
-			usage: this._mapTextureUsage(desc.usage),
-			mipLevelCount: Math.max(1, desc.mipLevelCount ?? 1),
-			viewFormats: desc.viewFormats as GPUTextureFormat[] | undefined,
-			label: desc.label,
-		};
-		const gpuTexture = this.device.createTexture(baseDescriptor);
-		const webgpuTexture = createWebGPUTexture(gpuTexture);
-		const texture: InternalTexture = {
-			width: resolvedWidth,
-			height: dimension === "1d" ? 1 : resolvedHeight,
-			destroy: () => {},
-			_gpuResource: gpuTexture,
-			_gpuTexture: gpuTexture,
-			_gpuView: webgpuTexture.view,
-			_webgpuTexture: webgpuTexture,
-		};
-		texture.destroy = this._createManagedDestroy(texture, {
-			label: desc.label ?? "WebGPUTexture",
-			dispose: () => gpuTexture.destroy(),
-		});
-		attachWebGPUTexture(texture, webgpuTexture);
-		return texture;
+		return this._resourceManager.createTexture(desc);
 	}
 
 	public createSampler(desc: SamplerDesc): ISampler {
@@ -880,9 +743,9 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public async createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule> {
 		this._assertDeviceOperational("create shader modules");
-		const processed = await this._processShaderSource(desc);
+		const processed = await this._shaderModuleCompiler.processShaderSource(desc);
 		if (processed.hasErrors) {
-			this._reportShaderRuntimeDiagnostics(desc, processed);
+			this._shaderModuleCompiler.reportShaderRuntimeDiagnostics(desc, processed);
 		}
 		const effectiveSourceMap = processed.sourceMap ?? desc.sourceMap ?? null;
 		const effectiveCodeHash = processed.code === desc.code ? desc.codeHash : undefined;
@@ -967,7 +830,10 @@ export class WebGPUBackend implements IRenderBackend {
 					this._shaderModuleCache.set(cacheKey, entry);
 					return entry;
 				} catch (error) {
-					lastError = this._createShaderModuleError(error, effectiveDesc);
+					lastError = this._shaderModuleCompiler.createShaderModuleError(
+						error,
+						effectiveDesc
+					);
 					if (attempt === 0) {
 						continue;
 					}
@@ -1121,17 +987,11 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public createCommandEncoder(): ICommandEncoder {
-		this._assertDeviceOperational("create command encoders");
-		return new WebGPUCommandEncoder(
-			this.device.createCommandEncoder(),
-			this,
-			this._commandBufferOwnerToken,
-		);
+		return this._commandScheduler.createCommandEncoder();
 	}
 
 	public writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset: number = 0): void {
-		this._assertDeviceOperational("write buffers");
-		this.queue.writeBuffer(getWebGPUBuffer(buffer), offset, data);
+		this._resourceManager.writeBuffer(buffer, data, offset);
 	}
 
 	public writeTexture(
@@ -1140,21 +1000,7 @@ export class WebGPUBackend implements IRenderBackend {
 		desc: TextureDataLayout,
 		size: { width: number; height: number; depthOrArrayLayers?: number },
 	): void {
-		this._assertDeviceOperational("write textures");
-		const gpuTexture = getWebGPUTexture(texture).texture;
-		this.queue.writeTexture(
-			{
-				texture: gpuTexture,
-				mipLevel: Math.max(0, desc.mipLevel ?? 0),
-			},
-			data,
-			{
-				offset: desc.offset ?? 0,
-				bytesPerRow: desc.bytesPerRow,
-				rowsPerImage: desc.rowsPerImage,
-			},
-			size,
-		);
+		this._resourceManager.writeTexture(texture, data, desc, size);
 	}
 
 	public copyTextureToTexture(
@@ -1170,104 +1016,29 @@ export class WebGPUBackend implements IRenderBackend {
 		},
 		copySize: { width: number; height: number; depthOrArrayLayers?: number },
 	): void {
-		this._assertDeviceOperational("copy textures");
-		const commandEncoder = this._getCopyCommandEncoder();
-		const sourceTexture = getWebGPUTexture(source.texture).texture;
-		const destinationTexture = getWebGPUTexture(destination.texture).texture;
-
-		commandEncoder.copyTextureToTexture(
-			{
-				texture: sourceTexture,
-				origin: source.origin,
-				aspect: source.aspect,
-			},
-			{
-				texture: destinationTexture,
-				origin: destination.origin,
-				aspect: destination.aspect,
-			},
-			copySize,
-		);
-		this._copyPendingCount++;
-		if (this._copyPendingCount >= WEBGPU_COPY_BATCH_SIZE) {
-			this._submitPendingCopyCommands();
-			return;
-		}
-		this._scheduleCopyFlush();
+		this._commandScheduler.copyTextureToTexture(source, destination, copySize);
 	}
 
 	public submit(commands: ICommandBuffer[]): void {
-		this._assertDeviceOperational("submit command buffers");
-		const submitted: GPUCommandBuffer[] = [];
-		const copyCommandBuffer = this._flushPendingCopyCommandBuffer();
-		if (copyCommandBuffer) {
-			submitted.push(copyCommandBuffer);
-		}
-		for (const command of commands) {
-			const internal = this._toInternalCommandBuffer(command);
-			internal._submitted = true;
-			submitted.push(internal._backendCommandBuffer);
-		}
-		if (submitted.length <= 0) {
-			return;
-		}
-		const timestampResolve = this._buildTimestampResolveCommand();
-		if (timestampResolve) {
-			submitted.push(timestampResolve.commandBuffer);
-		}
-		this._runValidationScope("queue.submit", () => {
-			this.queue.submit(submitted);
-		});
-		if (timestampResolve) {
-			this._readTimestampResultsAsync(timestampResolve.queryCount, timestampResolve.pairs);
-		}
-		this._resetCurrentCanvasTargets();
+		this._commandScheduler.submit(commands);
 	}
 
 	public getCanvasColorTexture(): IRenderTexture {
 		if (!this.context || !this.canvas) {
 			throw new Error("WebGPU not initialized");
 		}
-
-		const current = this._getCurrentCanvasTexture();
-		const size = resolveGPUTextureExtent(
-			current.texture,
-			this.canvas.width,
-			this.canvas.height,
-		);
-		const texture: InternalTexture = {
-			width: size.width,
-			height: size.height,
-			destroy: () => {},
-			_gpuResource: current.texture,
-			_gpuTexture: current.texture,
-			_gpuView: current.view,
-			_webgpuTexture: current,
-		};
-		attachWebGPUTexture(texture, current);
-		return texture;
+		return this._canvasTargets.getCanvasColorTexture(this.context, this.canvas);
 	}
 
 	public getCanvasDepthTexture(): IRenderTexture {
-		if (!this._depthTexture) {
-			// fallback/safeguard for 0-dimension canvas
-			throw new Error("Depth texture not initialized (possibly zero dimension canvas)");
-		}
-		return this._depthTexture;
+		return this._canvasTargets.getCanvasDepthTexture();
 	}
 
 	public createTextureView(
 		texture: IRenderTexture,
 		desc?: GPUTextureViewDescriptor,
 	): GPUTextureView {
-		this._assertDeviceOperational("create texture views");
-		const gpuTexture = getWebGPUTexture(texture);
-		return this._runValidationScope("device.createTextureView", () => {
-			if (desc) {
-				return gpuTexture.texture.createView(desc);
-			}
-			return gpuTexture.view;
-		});
+		return this._resourceManager.createTextureView(texture, desc);
 	}
 
 	public getCurrentColorView(): GPUTextureView {
@@ -1275,15 +1046,11 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU canvas context is not initialized.");
 		}
 
-		return this._getCurrentCanvasTexture().view;
+		return this._canvasTargets.getCurrentColorView(this.context);
 	}
 
 	public getCurrentDepthView(): GPUTextureView {
-		if (!this._depthTexture) {
-			throw new Error("WebGPU depth texture is not initialized.");
-		}
-
-		return getWebGPUTexture(this._depthTexture).view;
+		return this._canvasTargets.getCurrentDepthView();
 	}
 
 	public getMSAASampleCount(): number {
@@ -1317,7 +1084,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
-		return this._timestampResults;
+		return this._commandScheduler.getTimestampDurationsMs();
 	}
 
 	public createPassTimestampWrites(label: string):
@@ -1327,23 +1094,93 @@ export class WebGPUBackend implements IRenderBackend {
 				endOfPassWriteIndex: number;
 		  }
 		| undefined {
-		if (!this._timestampSupported || !this._timestampQuerySet) {
-			return undefined;
-		}
-		if (this._timestampQueryCursor + 1 >= WEBGPU_TIMESTAMP_QUERY_CAPACITY) {
-			return undefined;
-		}
-		const startIndex = this._timestampQueryCursor++;
-		const endIndex = this._timestampQueryCursor++;
-		this._timestampPairs.push({
-			label: label || "pass",
-			startIndex,
-			endIndex,
-		});
+		return this._commandScheduler.createPassTimestampWrites(label);
+	}
+
+	private _createCommandSchedulerHost(): WebGPUCommandSchedulerHost {
+		const thisRef = this;
 		return {
-			querySet: this._timestampQuerySet,
-			beginningOfPassWriteIndex: startIndex,
-			endOfPassWriteIndex: endIndex,
+			get device() {
+				return thisRef.device;
+			},
+			get queue() {
+				return thisRef.queue;
+			},
+			assertDeviceOperational: (operation) => {
+				this._assertDeviceOperational(operation);
+			},
+			runValidationScope: (label, operation) => {
+				return this._runValidationScope(label, operation);
+			},
+			reportNonFatalError: (scope, error) => {
+				this._reportNonFatalError(scope, error);
+			},
+			onSubmittedCommandBuffers: () => {
+				this._resetCurrentCanvasTargets();
+			},
+			isFrameActive: () => {
+				return this._isFrameActive();
+			},
+			createPassTimestampWrites: (label) => {
+				return this.createPassTimestampWrites(label);
+			},
+			getCurrentColorView: () => {
+				return this.getCurrentColorView();
+			},
+			getCurrentDepthView: () => {
+				return this.getCurrentDepthView();
+			},
+			getCanvasColorTexture: () => {
+				return this.getCanvasColorTexture();
+			},
+		};
+	}
+
+	private _createResourceManagerHost() {
+		const thisRef = this;
+		return {
+			get device() {
+				return thisRef.device;
+			},
+			get queue() {
+				return thisRef.queue;
+			},
+			assertDeviceOperational: (operation: string) => {
+				this._assertDeviceOperational(operation);
+			},
+			mapBufferUsage: (usage: number) => {
+				return this._mapBufferUsage(usage);
+			},
+			mapTextureUsage: (usage: number) => {
+				return this._mapTextureUsage(usage);
+			},
+			resolveSupportedMSAASampleCount: (
+				requested: number,
+				probeFormats?: readonly GPUTextureFormat[]
+			) => {
+				return this._resolveSupportedMSAASampleCount(requested, probeFormats);
+			},
+			resolvePositiveInteger: (value: number, fallback: number) => {
+				return this._resolvePositiveInteger(value, fallback);
+			},
+			toUint8View: (data: BufferSource) => {
+				return this._toUint8View(data);
+			},
+			tryUnmapBuffer: (buffer: GPUBuffer | null) => {
+				this._tryUnmapBuffer(buffer);
+			},
+			createManagedDestroy: (
+				target: object,
+				options: {
+					label: string;
+					dispose: () => void;
+				}
+			) => {
+				return this._createManagedDestroy(target, options);
+			},
+			runValidationScope: <T>(label: string, operation: () => T): T => {
+				return this._runValidationScope(label, operation);
+			},
 		};
 	}
 
@@ -1433,9 +1270,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _rollbackInitializationState(): void {
-		this._copyCommandEncoder = null;
-		this._copyPendingCount = 0;
-		this._copyFlushScheduled = false;
+		this._commandScheduler.reset();
 		invalidateWebGPUComputeFacade(this);
 		this._reflectionProbeCapturePass?.destroy();
 		this._reflectionProbeCapturePass = null;
@@ -1448,9 +1283,7 @@ export class WebGPUBackend implements IRenderBackend {
 			| null;
 		particleSimulator?.destroy?.();
 		this._particleSimulator = null;
-		this._depthTexture?.destroy();
-		this._depthTexture = null;
-		this._releaseTimestampResources();
+		this._canvasTargets.release();
 		this._resetCurrentCanvasTargets();
 		this._errorScopes = null;
 		this._samplerCache.clear();
@@ -1466,7 +1299,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._autoComputePipelineLayoutCache.clear();
 		this._resourceIds = new WeakMap<object, number>();
 		this._nextResourceId = 1;
-		this._commandBufferOwnerToken = {};
 		this._frameSerial = 0;
 		this._bindingGroupTouchTick = 0;
 		this._executedPasses.clear();
@@ -1519,22 +1351,8 @@ export class WebGPUBackend implements IRenderBackend {
 		return Math.max(1, Math.floor(value));
 	}
 
-	private _getCurrentCanvasTexture(): WebGPUTexture {
-		if (!this.context) {
-			throw new Error("WebGPU canvas context is not initialized.");
-		}
-
-		if (!this._currentCanvasTexture || !this._currentCanvasView) {
-			this._currentCanvasTexture = this.context.getCurrentTexture();
-			this._currentCanvasView = this._currentCanvasTexture.createView();
-		}
-
-		return createWebGPUTexture(this._currentCanvasTexture, this._currentCanvasView);
-	}
-
 	private _resetCurrentCanvasTargets(): void {
-		this._currentCanvasTexture = null;
-		this._currentCanvasView = null;
+		this._canvasTargets.resetCurrentCanvasTargets();
 	}
 
 	private _getSamplerCacheKey(desc: SamplerDesc): string {
@@ -2331,235 +2149,31 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
-
-		const hasParticleSystems = (context.scene.particleSystems?.length ?? 0) > 0;
-		if (hasParticleSystems) {
-			this._plannedPasses.add("particle-sim");
-		}
-		if (
-			context.features.enableShadows &&
-			(context.scene.shadowCasterPackets.length ||
-				hasParticleShadowCasters(context.scene.particleSystems))
-		) {
-			this._plannedPasses.add("shadow");
-		}
-		if (context.features.enableReflection && context.scene.reflectivePackets.length) {
-			this._plannedPasses.add("reflection");
-		}
-		this._plannedPasses.add("main-opaque");
-		if (context.scene.transparentPackets.length > 0) {
-			this._plannedPasses.add("main-transparent");
-		}
-		if (hasParticleSystems) {
-			this._plannedPasses.add("particles");
-		}
-		if (context.features.enableSSAO) {
-			this._plannedPasses.add("ssao");
-		}
-		if (context.features.enableSSGI) {
-			this._plannedPasses.add("ssgi");
-		}
-		if (context.features.enableTAA) {
-			this._plannedPasses.add("taa");
-		}
-		if (context.features.enableSSR) {
-			this._plannedPasses.add("ssr");
-		}
-		if (context.features.enableVolumetric) {
-			this._plannedPasses.add("volumetric");
-		}
-		if (isFogPostProcessEnabled(context.features)) {
-			this._plannedPasses.add("fog");
-		}
-		if (context.features.enableMotionBlur) {
-			this._plannedPasses.add("motion-blur");
-		}
-		if (context.features.enableDOF) {
-			this._plannedPasses.add("dof");
-		}
-		if (context.features.enableBloom) {
-			this._plannedPasses.add("bloom");
-		}
-		if (context.features.enableToneMapping !== false) {
-			this._plannedPasses.add("tonemap");
-		}
-		if (context.features.enableColorFilter) {
-			this._plannedPasses.add("color-filter");
-		}
-		if (context.features.enableFXAA) {
-			this._plannedPasses.add("fxaa");
-		}
-		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
-			this._plannedPasses.add("interaction-outline");
-		}
-		if (context.features.enableGamma) {
-			this._plannedPasses.add("gamma");
-		}
-		this._validatePlannedPassGraph();
+		this._framePlanner.preparePlan(context, this._getFramePlannerState());
 	}
 
 	private _validatePassDependencies(pass: FramePass): void {
-		if (this._plannedPasses.size > 0 && !this._plannedPasses.has(pass.stage)) {
-			return;
-		}
-		const plannedIndex = this._plannedPassOrder.get(pass.stage);
-		if (plannedIndex !== undefined) {
-			const violated = Array.from(this._executedPasses).some((executedStage) => {
-				const index = this._plannedPassOrder.get(executedStage);
-				return index !== undefined && index > plannedIndex;
-			});
-			if (violated) {
-				throw new Error(
-					`WebGPU pass "${pass.stage}" execution order violates prevalidated pass plan.`,
-				);
-			}
-		}
-		const dependencies = this._resolvePassDependencies(pass.stage);
-		if (!dependencies || dependencies.length <= 0) {
-			return;
-		}
-		const missing = dependencies.filter(
-			(dependency) =>
-				this._plannedPasses.has(dependency) &&
-				this._isDependencyApplicable(pass.stage, dependency) &&
-				!this._executedPasses.has(dependency),
+		this._framePlanner.validatePassDependencies(
+			pass,
+			this._getFramePlannerState(),
+			{ reportNonFatalError: (scope, error) => this._reportNonFatalError(scope, error) },
 		);
-		if (missing.length <= 0) {
-			return;
-		}
-		throw new Error(
-			`WebGPU pass "${pass.stage}" executed before dependencies: ${missing.join(", ")}`,
-		);
-	}
-
-	private _validatePlannedPassGraph(): void {
-		const visiting = new Set<FramePass["stage"]>();
-		const visited = new Set<FramePass["stage"]>();
-		const order: FramePass["stage"][] = [];
-
-		const visit = (stage: FramePass["stage"]): void => {
-			if (visited.has(stage)) {
-				return;
-			}
-			if (visiting.has(stage)) {
-				throw new Error(
-					`WebGPU pass plan cycle detected at "${stage}" during _prepareFramePassPlan.`,
-				);
-			}
-			visiting.add(stage);
-			const dependencies = this._resolvePassDependencies(stage);
-			for (const dependency of dependencies) {
-				if (!this._plannedPasses.has(dependency)) {
-					continue;
-				}
-				visit(dependency);
-			}
-			visiting.delete(stage);
-			visited.add(stage);
-			order.push(stage);
-		};
-
-		for (const stage of this._plannedPasses) {
-			visit(stage);
-		}
-		for (let i = 0; i < order.length; i++) {
-			this._plannedPassOrder.set(order[i], i);
-		}
-	}
-
-	private _resolvePassDependencies(stage: FramePass["stage"]): FramePass["stage"][] {
-		const dependencies = FRAME_PASS_DEPENDENCIES.get(stage);
-		return dependencies ? Array.from(dependencies) : [];
-	}
-
-	private _isDependencyApplicable(
-		stage: FramePass["stage"],
-		dependency: FramePass["stage"],
-	): boolean {
-		const stageIndex = this._plannedPassOrder.get(stage);
-		const dependencyIndex = this._plannedPassOrder.get(dependency);
-		if (stageIndex === undefined || dependencyIndex === undefined) {
-			return true;
-		}
-		if (dependencyIndex < stageIndex) {
-			return true;
-		}
-		this._reportNonFatalError(
-			"pass dependency order",
-			`Ignoring stale dependency "${dependency}" for "${stage}".`,
-		);
-		return false;
 	}
 
 	private _markPassExecuted(stage: FramePass["stage"]): void {
-		this._executedPasses.add(stage);
-	}
-
-	private _getCopyCommandEncoder(): GPUCommandEncoder {
-		this._assertDeviceOperational("encode copy commands");
-		if (!this._copyCommandEncoder) {
-			this._copyCommandEncoder = this.device.createCommandEncoder({
-				label: "WebGPUCopyBatchEncoder",
-			});
-		}
-		return this._copyCommandEncoder;
-	}
-
-	private _flushPendingCopyCommandBuffer(): GPUCommandBuffer | null {
-		if (!this._copyCommandEncoder || this._copyPendingCount <= 0) {
-			this._copyCommandEncoder = null;
-			this._copyPendingCount = 0;
-			this._copyFlushScheduled = false;
-			return null;
-		}
-		const commandBuffer = this._copyCommandEncoder.finish();
-		this._copyCommandEncoder = null;
-		this._copyPendingCount = 0;
-		this._copyFlushScheduled = false;
-		return commandBuffer;
-	}
-
-	private _submitPendingCopyCommands(): void {
-		const commandBuffer = this._flushPendingCopyCommandBuffer();
-		if (!commandBuffer) {
-			return;
-		}
-		if (!this.queue) {
-			return;
-		}
-		this._runValidationScope("queue.submit.copyBatch", () => {
-			this.queue.submit([commandBuffer]);
-		});
-	}
-
-	private _scheduleCopyFlush(): void {
-		if (!this._isFrameActive()) {
-			this._submitPendingCopyCommands();
-			return;
-		}
-		if (this._copyFlushScheduled) {
-			return;
-		}
-		this._copyFlushScheduled = true;
-		const scheduleMicrotask =
-			typeof queueMicrotask === "function"
-				? queueMicrotask
-				: (callback: () => void) => {
-						void Promise.resolve().then(callback);
-					};
-		scheduleMicrotask(() => {
-			if (!this._copyFlushScheduled) {
-				return;
-			}
-			this._submitPendingCopyCommands();
-		});
+		this._framePlanner.markPassExecuted(stage, this._getFramePlannerState());
 	}
 
 	private _isFrameActive(): boolean {
 		return this._plannedPasses.size > 0 || this._executedPasses.size > 0;
+	}
+
+	private _getFramePlannerState(): WebGPUFramePlannerState {
+		return {
+			executedPasses: this._executedPasses,
+			plannedPasses: this._plannedPasses,
+			plannedPassOrder: this._plannedPassOrder,
+		};
 	}
 
 	private _selectCanvasDepthFormat(): TextureFormat {
@@ -2590,7 +2204,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _onMSAASampleCountChanged(): void {
-		this._submitPendingCopyCommands();
+		this._commandScheduler.submitPendingCopyCommands();
 		this._renderPipelineCache.clear();
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
@@ -2600,7 +2214,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _onShaderRuntimeChanged(): void {
-		this._submitPendingCopyCommands();
+		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
@@ -2618,82 +2232,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._pipelineBindGroupLayoutCache.clear();
 		this._autoRenderPipelineLayoutCache.clear();
 		this._autoComputePipelineLayoutCache.clear();
-	}
-
-	private _stripUtf8BomCharacters(code: string, label?: string): string {
-		if (!code.includes("\uFEFF")) {
-			return code;
-		}
-		const shaderLabel = label && label.length > 0 ? label : "unnamed";
-		const key = `webgpu-shader-bom:${shaderLabel}`;
-		Logger.warn(
-			`[${key}] WebGPU shader source [${shaderLabel}] contained UTF-8 BOM characters; stripping before compilation.`,
-			{ scope: "WebGPUBackend", onceKey: key },
-		);
-		return code.replace(/\uFEFF/g, "");
-	}
-
-	private async _processShaderSource(
-		desc: ShaderModuleDesc,
-	): Promise<ShaderBackendCompileResult> {
-		const sanitizedCode = this._stripUtf8BomCharacters(desc.code, desc.label);
-		const directiveSourcePath =
-			desc.sourceMap?.segments[0]?.sourcePath ?? desc.label ?? "<webgpu-shader>";
-		return this._shaderCompileStage.compileAsync({
-			code: sanitizedCode,
-			language: desc.language ?? "wgsl",
-			stage: desc.stage ?? "unknown",
-			entryPoint: desc.entryPoint,
-			label: desc.label,
-			sourceKind: desc.sourceKind ?? "unknown",
-			sourceMap: desc.sourceMap ?? null,
-			directiveSourcePath,
-		});
-	}
-
-	private _createShaderModuleError(error: unknown, desc: ShaderModuleDesc): Error {
-		if (error instanceof ShaderCompileError) {
-			return error;
-		}
-		const compilerMessage: ShaderCompilerMessage = {
-			type: "error",
-			message: String(error),
-		};
-		return new ShaderCompileError({
-			backend: "webgpu",
-			language: desc.language ?? "wgsl",
-			stage: desc.stage ?? "unknown",
-			label: desc.label,
-			sourceKind: desc.sourceKind ?? "unknown",
-			variantKey: desc.variantKey,
-			materialId: desc.materialId,
-			code: desc.code,
-			sourceMap: desc.sourceMap ?? null,
-			messages: [compilerMessage],
-			cause: error,
-		});
-	}
-
-	private _reportShaderRuntimeDiagnostics(
-		desc: ShaderModuleDesc,
-		result: ShaderProcessResult,
-	): void {
-		const keyPrefix = desc.label && desc.label.length > 0 ? desc.label : "unnamed";
-		for (const diagnostic of result.diagnostics) {
-			const locationSuffix =
-				diagnostic.sourcePath && typeof diagnostic.line === "number"
-					? ` (${diagnostic.sourcePath}:${diagnostic.line}:${diagnostic.column ?? 1})`
-					: "";
-			const key =
-				`webgpu-shader-runtime-${diagnostic.severity}` +
-				`-${diagnostic.code}-${keyPrefix}` +
-				`-${diagnostic.sourcePath ?? ""}-${diagnostic.line ?? ""}-${diagnostic.column ?? ""}`;
-			Logger.warn(
-				`[${key}] WebGPU shader runtime ${diagnostic.severity} [${keyPrefix}] ` +
-					`${diagnostic.code}: ${diagnostic.message}${locationSuffix}`,
-				{ scope: "WebGPUBackend", onceKey: key },
-			);
-		}
 	}
 
 	private _resolveSupportedMSAASampleCount(
@@ -2803,204 +2341,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 	}
 
-	private _initTimestampResources(): void {
-		this._timestampSupported = false;
-		this._timestampQuerySet = null;
-		this._timestampResolveBuffer = null;
-		this._timestampReadBuffer = null;
-		this._timestampQueryCursor = 0;
-		this._timestampPairs = [];
-		this._timestampResults.clear();
-		this._timestampReadPending = false;
-		const queue = this.queue;
-		if (!queue) {
-			return;
-		}
-		const queueWithTimestamp = queue as GPUQueue & {
-			getTimestampPeriod?: () => number;
-		};
-		this._timestampPeriodNs =
-			typeof queueWithTimestamp.getTimestampPeriod === "function"
-				? queueWithTimestamp.getTimestampPeriod()
-				: 1;
-		const device = this.device;
-		if (!device || typeof device.createQuerySet !== "function") {
-			return;
-		}
-		if (
-			typeof device.features?.has === "function" &&
-			!device.features.has("timestamp-query" as GPUFeatureName)
-		) {
-			return;
-		}
-		try {
-			this._timestampQuerySet = device.createQuerySet({
-				type: "timestamp",
-				count: WEBGPU_TIMESTAMP_QUERY_CAPACITY,
-			});
-			this._timestampResolveBuffer = device.createBuffer({
-				label: "WebGPUTimestampResolveBuffer",
-				size: WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
-				usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-			});
-			this._timestampReadBuffer = device.createBuffer({
-				label: "WebGPUTimestampReadBuffer",
-				size: WEBGPU_TIMESTAMP_QUERY_CAPACITY * BigUint64Array.BYTES_PER_ELEMENT,
-				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-			});
-			this._timestampSupported = true;
-		} catch (error) {
-			this._reportNonFatalError("init timestamp resources", error);
-			this._releaseTimestampResources();
-		}
-	}
-
-	private _buildTimestampResolveCommand():
-		| {
-				commandBuffer: GPUCommandBuffer;
-				queryCount: number;
-				pairs: TimestampPairEntry[];
-		  }
-		| undefined {
-		if (
-			!this._timestampSupported ||
-			!this._timestampQuerySet ||
-			!this._timestampResolveBuffer ||
-			!this._timestampReadBuffer
-		) {
-			return undefined;
-		}
-		const queryCount = this._timestampQueryCursor;
-		if (queryCount <= 0) {
-			return undefined;
-		}
-		if (this._timestampReadPending) {
-			this._dropPendingTimestampSamples();
-			return undefined;
-		}
-		this._tryUnmapBuffer(this._timestampReadBuffer);
-		if (this._isBufferMapped(this._timestampReadBuffer)) {
-			this._dropPendingTimestampSamples();
-			return undefined;
-		}
-		const pairs = this._timestampPairs.slice();
-		if (!this.device) {
-			return undefined;
-		}
-		const resolveEncoder = this.device.createCommandEncoder({
-			label: "WebGPUTimestampResolveEncoder",
-		});
-		resolveEncoder.resolveQuerySet(
-			this._timestampQuerySet,
-			0,
-			queryCount,
-			this._timestampResolveBuffer,
-			0,
-		);
-		resolveEncoder.copyBufferToBuffer(
-			this._timestampResolveBuffer,
-			0,
-			this._timestampReadBuffer,
-			0,
-			queryCount * BigUint64Array.BYTES_PER_ELEMENT,
-		);
-		this._timestampQueryCursor = 0;
-		this._timestampPairs = [];
-		return {
-			commandBuffer: resolveEncoder.finish(),
-			queryCount,
-			pairs,
-		};
-	}
-
-	private _readTimestampResultsAsync(queryCount: number, pairs: TimestampPairEntry[]): void {
-		if (this._timestampReadPending || !this._timestampReadBuffer || queryCount <= 0) {
-			return;
-		}
-		this._tryUnmapBuffer(this._timestampReadBuffer);
-		if (this._isBufferMapped(this._timestampReadBuffer)) {
-			return;
-		}
-		this._timestampReadPending = true;
-		const byteLength = queryCount * BigUint64Array.BYTES_PER_ELEMENT;
-		void this._timestampReadBuffer
-			.mapAsync(GPUMapMode.READ, 0, byteLength)
-			.then(() => {
-				if (!this._timestampReadBuffer) {
-					return;
-				}
-				const view = this._timestampReadBuffer.getMappedRange(0, byteLength);
-				const data = new BigUint64Array(view.slice(0));
-				const result = new Map<string, number>();
-				for (let i = 0; i < pairs.length; i++) {
-					const pair = pairs[i];
-					if (pair.endIndex >= data.length || pair.startIndex >= data.length) {
-						continue;
-					}
-					const start = data[pair.startIndex];
-					const end = data[pair.endIndex];
-					const deltaTicks = end >= start ? end - start : 0n;
-					const durationMs = (Number(deltaTicks) * this._timestampPeriodNs) / 1_000_000;
-					result.set(`${pair.label}#${i}`, durationMs);
-				}
-				this._timestampResults = result;
-				this._timestampReadBuffer.unmap();
-			})
-			.catch((error) => {
-				Logger.warn(`WebGPU timestamp readback failed: ${String(error)}`, {
-					scope: "WebGPUBackend",
-				});
-				if (this._timestampReadBuffer) {
-					try {
-						this._timestampReadBuffer.unmap();
-					} catch (unmapError) {
-						this._reportNonFatalError("timestamp readback unmap", unmapError);
-					}
-				}
-			})
-			.finally(() => {
-				this._timestampReadPending = false;
-			});
-	}
-
-	private _releaseTimestampResources(): void {
-		this._timestampSupported = false;
-		this._timestampQueryCursor = 0;
-		this._timestampPairs = [];
-		this._timestampReadPending = false;
-		this._timestampResults.clear();
-		if (this._timestampReadBuffer) {
-			this._tryUnmapBuffer(this._timestampReadBuffer);
-			try {
-				this._timestampReadBuffer.destroy();
-			} catch (error) {
-				this._reportNonFatalError("timestamp read buffer destroy", error);
-			}
-			this._timestampReadBuffer = null;
-		}
-		if (this._timestampResolveBuffer) {
-			try {
-				this._timestampResolveBuffer.destroy();
-			} catch (error) {
-				this._reportNonFatalError("timestamp resolve buffer destroy", error);
-			}
-			this._timestampResolveBuffer = null;
-		}
-		if (this._timestampQuerySet) {
-			try {
-				this._timestampQuerySet.destroy();
-			} catch (error) {
-				this._reportNonFatalError("timestamp query set destroy", error);
-			}
-			this._timestampQuerySet = null;
-		}
-	}
-
-	private _dropPendingTimestampSamples(): void {
-		this._timestampQueryCursor = 0;
-		this._timestampPairs = [];
-	}
-
 	private _isBufferMapped(buffer: GPUBuffer | null): boolean {
 		if (!buffer) {
 			return false;
@@ -3043,37 +2383,18 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this.context || !this.canvas || !this.device) {
 			return;
 		}
-
-		this._resetCurrentCanvasTargets();
-		this.context.configure({
-			device: this.device,
-			format: this.canvasFormat,
-			alphaMode: "premultiplied",
-			usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-		});
+		this._canvasTargets.configureContext(this.context, this.device, this.canvasFormat);
 	}
 
 	private _recreateDepthTexture(): void {
 		if (!this.device || !this.canvas) {
 			return;
 		}
-
-		if (this.canvas.width <= 0 || this.canvas.height <= 0) {
-			if (this._depthTexture) {
-				this._depthTexture.destroy();
-				this._depthTexture = null;
-			}
-			return;
-		}
-
-		this._depthTexture?.destroy();
-		this._depthTexture = this.createTexture({
-			width: this.canvas.width,
-			height: this.canvas.height,
-			format: this.canvasDepthFormat,
-			usage: TextureUsage.RenderAttachment,
-			label: "WebGPUCanvasDepth",
-		});
+		this._canvasTargets.recreateDepthTexture(
+			this.canvas,
+			this.canvasDepthFormat,
+			(desc) => this.createTexture(desc),
+		);
 	}
 
 	private _mapBindingResource(resource: BindingResourceInput): GPUBindingResource {
@@ -3174,31 +2495,6 @@ export class WebGPUBackend implements IRenderBackend {
 			flags |= GPUTextureUsage.STORAGE_BINDING;
 		}
 		return flags;
-	}
-
-	private _toInternalCommandBuffer(command: ICommandBuffer): InternalCommandBuffer {
-		const internal = command as
-			| (Partial<InternalCommandBuffer> & {
-					_backendCommandBuffer?: unknown;
-					_gpuCommandBuffer?: unknown;
-			  })
-			| null;
-		if (!internal || typeof internal !== "object") {
-			throw new Error("Invalid command buffer for WebGPU submit().");
-		}
-		if (!internal._backendCommandBuffer && !internal._gpuCommandBuffer) {
-			throw new Error("Invalid command buffer for WebGPU submit().");
-		}
-		if (!internal._backendCommandBuffer && internal._gpuCommandBuffer) {
-			internal._backendCommandBuffer = internal._gpuCommandBuffer as GPUCommandBuffer;
-		}
-		if (internal._ownerToken !== this._commandBufferOwnerToken) {
-			throw new Error("Command buffer does not belong to this WebGPU backend instance.");
-		}
-		if (internal._submitted) {
-			throw new Error("WebGPU command buffer has already been submitted.");
-		}
-		return internal as InternalCommandBuffer;
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {

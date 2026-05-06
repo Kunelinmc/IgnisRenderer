@@ -202,6 +202,7 @@ export class WebGPUMaterialBindingCache {
 
 		if (
 			!cached.bindingGroup ||
+			cached.pipeline !== pipeline ||
 			requiresRebind ||
 			!areTexturesEqual(cached.textures, textures) ||
 			!areSamplersEqual(cached.samplers, samplers) ||

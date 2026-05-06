@@ -18,11 +18,11 @@ import {
 	getWebGPURenderPipeline,
 	tryGetWebGPUTexture,
 } from "./WebGPUResourceAccess";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUCommandEncoderHost } from "./WebGPUBackendContracts";
 
 export class WebGPUCommandEncoder implements ICommandEncoder {
 	private _encoder: GPUCommandEncoder;
-	private _backend: WebGPUBackend;
+	private _host: WebGPUCommandEncoderHost;
 	private _commandBufferOwnerToken: object;
 	private _renderPass: GPURenderPassEncoder | null = null;
 	private _computePass: GPUComputePassEncoder | null = null;
@@ -31,16 +31,16 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 
 	constructor(
 		encoder: GPUCommandEncoder,
-		backend: WebGPUBackend,
+		host: WebGPUCommandEncoderHost,
 		commandBufferOwnerToken: object
 	) {
 		this._encoder = encoder;
-		this._backend = backend;
+		this._host = host;
 		this._commandBufferOwnerToken = commandBufferOwnerToken;
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
-		const timestampWrites = this._backend.createPassTimestampWrites(
+		const timestampWrites = this._host.createPassTimestampWrites(
 			desc.label ?? "render-pass"
 		);
 		const passExtent = this._resolveRenderPassExtent(desc);
@@ -50,7 +50,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 			colorAttachments: desc.colorAttachments.map((attachment) => ({
 				view:
 					tryGetWebGPUTexture(attachment.view)?.view ??
-					this._backend.getCurrentColorView(),
+					this._host.getCurrentColorView(),
 				resolveTarget:
 					attachment.resolveTarget ? (
 						tryGetWebGPUTexture(attachment.resolveTarget)?.view
@@ -65,7 +65,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 					{
 						view:
 							tryGetWebGPUTexture(desc.depthStencilAttachment.view)?.view ??
-							this._backend.getCurrentDepthView(),
+							this._host.getCurrentDepthView(),
 						depthClearValue:
 							(desc.depthStencilAttachment.depthLoadOp ?? "clear") === "clear" ?
 								(desc.depthStencilAttachment.depthClearValue ?? 1)
@@ -80,7 +80,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 	}
 
 	public beginComputePass(desc?: ComputePassDesc): void {
-		const timestampWrites = this._backend.createPassTimestampWrites(
+		const timestampWrites = this._host.createPassTimestampWrites(
 			desc?.label ?? "compute-pass"
 		);
 		this._computePass = this._encoder.beginComputePass({
@@ -223,7 +223,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 				height: Math.max(1, Math.floor(target.height)),
 			};
 		}
-		const canvasTarget = this._backend.getCanvasColorTexture();
+		const canvasTarget = this._host.getCanvasColorTexture();
 		return {
 			width: Math.max(1, Math.floor(canvasTarget.width)),
 			height: Math.max(1, Math.floor(canvasTarget.height)),
