@@ -24,6 +24,10 @@ export type {
 	BoundingBox,
 } from "./core/types";
 export { Renderer } from "./renderers/Renderer";
+export type {
+	IRenderBackend,
+	RenderBackendDeviceLostInfo,
+} from "./renderers/IRenderBackend";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
 export { SoftwareBackend } from "./renderers/SoftwareBackend";

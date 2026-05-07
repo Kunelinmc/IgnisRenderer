@@ -9,6 +9,7 @@ import {
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
+	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
 	WarmupReport,
@@ -154,6 +155,29 @@ export class WebGLBackend implements IRenderBackend {
 		this._installContextLifecycleListeners(canvas);
 		await this._shaderSourceFactory.prepareAll();
 		this._initializeGLContext(canvas);
+	}
+
+	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
+		if (this._contextLost) {
+			return;
+		}
+		this._contextLost = true;
+		const detail =
+			typeof info?.message === "string" && info.message.length > 0
+				? `: ${info.message}`
+				: "";
+		Logger.warn(
+			`WebGL context was lost${detail}. Rendering is paused until context restoration.`,
+			{ scope: "WebGLBackend" }
+		);
+	}
+
+	public restore(canvas?: HTMLCanvasElement): void {
+		const targetCanvas = this._resolveRestoreCanvas(canvas);
+		this._ensureParticleSimulator();
+		this._canvas = targetCanvas;
+		this._installContextLifecycleListeners(targetCanvas);
+		this._initializeGLContext(targetCanvas);
 	}
 
 	public resize(width: number, height: number): void {
@@ -323,21 +347,20 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		this._contextLossHandler = (event: Event) => {
-			(event as WebGLContextEvent).preventDefault?.();
-			this._contextLost = true;
-			Logger.warn(
-				"WebGL context was lost. Rendering is paused until context restoration.",
-				{ scope: "WebGLBackend" }
-			);
+			const webglEvent = event as WebGLContextEvent;
+			webglEvent.preventDefault?.();
+			this.onDeviceLost({
+				reason: "context-lost",
+				message: webglEvent.statusMessage,
+			});
 		};
 		this._contextRestoreHandler = () => {
 			Logger.warn(
 				"WebGL context was restored. Rebuilding WebGL resources.",
 				{ scope: "WebGLBackend" }
 			);
-			if (!this._canvas) return;
 			try {
-				this._initializeGLContext(this._canvas);
+				this.restore();
 			} catch (error) {
 				Logger.warn(`WebGL context restore failed: ${String(error)}`, {
 					scope: "WebGLBackend",
@@ -347,6 +370,16 @@ export class WebGLBackend implements IRenderBackend {
 
 		canvas.addEventListener("webglcontextlost", this._contextLossHandler);
 		canvas.addEventListener("webglcontextrestored", this._contextRestoreHandler);
+	}
+
+	private _resolveRestoreCanvas(canvas?: HTMLCanvasElement): HTMLCanvasElement {
+		const targetCanvas = canvas ?? this._canvas;
+		if (!targetCanvas) {
+			throw new Error(
+				"WebGL backend cannot restore before a canvas has been initialized."
+			);
+		}
+		return targetCanvas;
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {

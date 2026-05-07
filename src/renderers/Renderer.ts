@@ -80,6 +80,7 @@ import type {
 } from "../pipeline/types";
 import type {
 	IRenderBackend,
+	RenderBackendDeviceLostInfo,
 	WarmupOptions,
 	WarmupProgress,
 	WarmupReport,
@@ -258,6 +259,31 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		await this.backend.init(this.canvas);
 		this.resizeCanvas();
 		requestAnimationFrame((time) => this.renderScene(time));
+	}
+
+	/**
+	 * Forwards device/context loss notification to the active backend.
+	 */
+	public onDeviceLost(
+		info?: RenderBackendDeviceLostInfo
+	): void | Promise<void> {
+		const result = this.backend.onDeviceLost?.(info);
+		this._preparedSceneCache.reset();
+		this._markFrameDirty("unknown");
+		return result;
+	}
+
+	/**
+	 * Rebuilds the active backend after device/context loss.
+	 */
+	public async restore(): Promise<void> {
+		if (this.backend.restore) {
+			await this.backend.restore(this.canvas);
+		} else {
+			await this.backend.init(this.canvas);
+		}
+		this._preparedSceneCache.reset();
+		this.resizeCanvas();
 	}
 
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {

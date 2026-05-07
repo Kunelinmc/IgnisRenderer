@@ -9,6 +9,12 @@ import type { ShaderCompileError } from "../shaders/runtime";
 export type KnownBackendType = "software" | "webgpu" | "webgl";
 export type RenderBackendType = KnownBackendType | (string & {});
 export type FrameSchedulingMode = "always" | "on-demand";
+
+export interface RenderBackendDeviceLostInfo {
+	reason?: string;
+	message?: string;
+}
+
 export type PassExecutorMap = Partial<
 	Record<FramePass["stage"], FramePass["executor"]>
 >;
@@ -88,6 +94,14 @@ export interface IRenderBackend {
 	readonly passExecutors?: PassExecutorMap;
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
+	/**
+	 * Marks backend device or graphics context resources as lost.
+	 */
+	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
+	/**
+	 * Rebuilds backend device or graphics context resources after loss.
+	 */
+	restore?(canvas?: HTMLCanvasElement): void | Promise<void>;
 	resize(width: number, height: number): void;
 	destroy?(): void;
 	getAttachments(width: number, height: number): FrameAttachments;

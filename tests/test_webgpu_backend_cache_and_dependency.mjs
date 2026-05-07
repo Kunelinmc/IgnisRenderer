@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Logger } from "../src/foundation/Logger.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import {
 	createInlineShaderSourceMap,
@@ -526,6 +527,37 @@ function testResizeUsesProvidedDimensions() {
 	assert.equal(invalidateCalls, 1);
 }
 
+async function testPublicDeviceLifecycleMethods() {
+	const { backend } = createBackend();
+	let resourcesDestroyed = false;
+	backend._resources = {
+		destroy() {
+			resourcesDestroyed = true;
+		},
+	};
+
+	Logger.configure({ level: "silent", resetOnceKeys: true });
+	try {
+		backend.onDeviceLost({
+			reason: "destroyed",
+			message: "simulated loss",
+		});
+	} finally {
+		Logger.reset();
+	}
+
+	assert.equal(backend._deviceLost, true);
+	assert.equal(backend._deviceLostInfo.message, "simulated loss");
+	assert.equal(resourcesDestroyed, true);
+	assert.equal(backend.device, null);
+	assert.equal(backend.queue, null);
+
+	await assert.rejects(
+		() => backend.restore(),
+		/cannot restore before a canvas has been initialized/
+	);
+}
+
 function testMapBindingResourceRejectsPrimitive() {
 	const { backend } = createBackend();
 	assert.throws(
@@ -724,6 +756,7 @@ async function run() {
 	testExplicitMSAASwitchCanEnableAndDisable();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
+	await testPublicDeviceLifecycleMethods();
 	testMapBindingResourceRejectsPrimitive();
 	testCreateTextureClampsPublicDimensions();
 	testCommandBufferOwnershipAndOneShotSubmit();

@@ -350,6 +350,32 @@ async function testContextLostAndRestored() {
 	);
 }
 
+async function testPublicLifecycleMethods() {
+	const backend = new WebGLBackend();
+	const { bridge } = createRendererBridge();
+	backend.setRenderer(bridge);
+	const canvas = createFakeCanvas(createFakeWebGL2Context());
+	await backend.init(canvas);
+
+	const originalExecutor = backend._frameExecutor;
+	const warnings = captureWarnMessages(() => {
+		backend.onDeviceLost({
+			reason: "manual-test",
+			message: "manual loss",
+		});
+		assert.equal(backend._contextLost, true);
+
+		backend.restore();
+		assert.equal(backend._contextLost, false);
+		assert.notStrictEqual(backend._frameExecutor, originalExecutor);
+	});
+
+	assert.equal(
+		warnings.some((warning) => warning.includes("manual loss")),
+		true
+	);
+}
+
 function testParticleDeltaTimeIsClampedToSafeMaximum() {
 	const backend = new WebGLBackend();
 	const transient = new Map([
@@ -428,6 +454,7 @@ async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
 	await testContextLostAndRestored();
+	await testPublicLifecycleMethods();
 	testParticleDeltaTimeIsClampedToSafeMaximum();
 	testDependencyValidationRejectsOutOfOrderPass();
 	console.log("WebGL backend v2 tests passed");

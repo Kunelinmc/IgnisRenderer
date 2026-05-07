@@ -5,6 +5,7 @@ import {
 } from "./ICommandEncoder";
 import type {
 	IRenderBackend,
+	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
 	WarmupReport,
@@ -308,7 +309,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
 	private _deviceLost = false;
-	private _deviceLostInfo: GPUDeviceLostInfo | null = null;
+	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
 	private _samplerCache = new Map<string, CachedSamplerEntry>();
 	private _shaderModuleCache = new Map<string, CachedShaderModuleEntry>();
@@ -502,7 +503,7 @@ export class WebGPUBackend implements IRenderBackend {
 			if (this.device !== requestedDevice) {
 				return info;
 			}
-			this._handleDeviceLost(info);
+			this.onDeviceLost(info);
 			return info;
 		});
 
@@ -535,6 +536,31 @@ export class WebGPUBackend implements IRenderBackend {
 			this._rollbackInitializationState();
 			throw error;
 		}
+	}
+
+	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
+		this._handleDeviceLost(this._normalizeDeviceLostInfo(info));
+	}
+
+	public async restore(canvas?: HTMLCanvasElement): Promise<void> {
+		const activeRecovery = this._deviceRecoveryPromise;
+		if (activeRecovery) {
+			await activeRecovery;
+			if (!canvas && this.device && this.queue && !this._deviceLost) {
+				return;
+			}
+		}
+
+		const targetCanvas = this._resolveRestoreCanvas(canvas);
+		this._deviceRecoveryNonce++;
+		this._deviceRecoveryPromise = null;
+		if (!this._deviceLost && this.queue) {
+			this._commandScheduler.submitPendingCopyCommands();
+		}
+		this._rollbackInitializationState();
+		this._deviceLost = false;
+		this._deviceLostInfo = null;
+		await this.init(targetCanvas);
 	}
 
 	public resize(width: number, height: number): void {
@@ -1191,7 +1217,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._errorScopes.run("validation", label, operation);
 	}
 
-	private _handleDeviceLost(info: GPUDeviceLostInfo): void {
+	private _handleDeviceLost(info: RenderBackendDeviceLostInfo): void {
 		if (this._deviceLost) {
 			return;
 		}
@@ -1209,7 +1235,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._scheduleDeviceRecovery(info);
 	}
 
-	private _scheduleDeviceRecovery(info: GPUDeviceLostInfo): void {
+	private _scheduleDeviceRecovery(info: RenderBackendDeviceLostInfo): void {
 		if (this._deviceRecoveryPromise || this._destroyRequested) {
 			return;
 		}
@@ -1233,7 +1259,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private async _recoverDeviceAfterLoss(
 		canvas: HTMLCanvasElement,
 		nonce: number,
-		info: GPUDeviceLostInfo,
+		info: RenderBackendDeviceLostInfo,
 	): Promise<void> {
 		let lastError: unknown = null;
 		for (let attempt = 1; attempt <= DEVICE_RECOVERY_MAX_ATTEMPTS; attempt++) {
@@ -1267,6 +1293,30 @@ export class WebGPUBackend implements IRenderBackend {
 		if (lastError) {
 			this._reportNonFatalError("device recovery exhausted", lastError);
 		}
+	}
+
+	private _normalizeDeviceLostInfo(
+		info?: RenderBackendDeviceLostInfo,
+	): RenderBackendDeviceLostInfo {
+		const reason =
+			typeof info?.reason === "string" && info.reason.length > 0
+				? info.reason
+				: undefined;
+		const message =
+			typeof info?.message === "string" && info.message.length > 0
+				? info.message
+				: "Device loss was reported without a diagnostic message.";
+		return reason ? { reason, message } : { message };
+	}
+
+	private _resolveRestoreCanvas(canvas?: HTMLCanvasElement): HTMLCanvasElement {
+		const targetCanvas = canvas ?? this.canvas;
+		if (!targetCanvas) {
+			throw new Error(
+				"WebGPU backend cannot restore before a canvas has been initialized.",
+			);
+		}
+		return targetCanvas;
 	}
 
 	private _rollbackInitializationState(): void {

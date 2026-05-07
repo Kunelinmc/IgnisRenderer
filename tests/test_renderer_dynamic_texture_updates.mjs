@@ -21,9 +21,21 @@ class StubBackend {
 		};
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;
+		this.deviceLostInfos = [];
+		this.restoreCanvases = [];
 	}
 
-	async init() {}
+	async init(canvas) {
+		this.initCanvas = canvas;
+	}
+
+	onDeviceLost(info) {
+		this.deviceLostInfos.push(info);
+	}
+
+	restore(canvas) {
+		this.restoreCanvases.push(canvas);
+	}
 
 	resize() {}
 
@@ -64,6 +76,17 @@ async function run() {
 		};
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
+		await renderer.onDeviceLost({
+			reason: "manual-test",
+			message: "simulated loss",
+		});
+		assert.equal(backend.deviceLostInfos.length, 1);
+		assert.equal(backend.deviceLostInfos[0].message, "simulated loss");
+
+		await renderer.restore();
+		assert.equal(backend.restoreCanvases.length, 1);
+		assert.equal(backend.restoreCanvases[0], canvas);
+
 		const dynamicTexture = new FakeDynamicTexture(2);
 		const originalWarn = console.warn;
 		const warnedMessages = [];
