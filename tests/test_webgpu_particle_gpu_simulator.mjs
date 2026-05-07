@@ -140,6 +140,119 @@ function testWebGPUParticleSimulatorPublishesDrawBatches() {
 	simulator.destroy();
 }
 
+async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
+	const backend = new FakeBackend();
+	const simulator = new WebGPUParticleSimulator({
+		backend,
+		backendTag: "webgpu-test",
+		maxParticlesPerSystem: 1024,
+	});
+	const system = new ParticleSystem({
+		maxParticles: 64,
+		blendMode: ParticleBlendMode.Additive,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 3 }],
+			lifetimeRange: [5, 5],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+	});
+	const context = createContext([system]);
+
+	simulator.beginFrame(context);
+	await simulator.simulateAndEmitRenderBatches(context, 0.016);
+
+	const cpuBatches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? [];
+	const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY) ?? [];
+	assert.equal(cpuBatches.length, 0);
+	assert.equal(gpuBatches.length, 1);
+	assert.equal(gpuBatches[0].systemId, system.id);
+	assert.equal(gpuBatches[0].blendMode, ParticleBlendMode.Additive);
+	assert.equal(gpuBatches[0].instanceCount, 64);
+	assert.ok(backend.dispatches.length >= 3);
+	assert.ok(
+		backend.shaderModules.some(
+			(module) => module.label === "WebGPUParticleSimulateModule",
+		),
+	);
+
+	const instanceBuffer = backend.buffers.find(
+		(buffer) => buffer.label === `WebGPUParticleInstances_${system.id}`,
+	);
+	assert.ok(instanceBuffer);
+	assert.ok(instanceBuffer.usage & BufferUsage.Storage);
+	assert.ok(instanceBuffer.usage & BufferUsage.Vertex);
+	assert.equal(instanceBuffer.lastWrite, null);
+
+	const indirectBuffer = backend.buffers.find(
+		(buffer) => buffer.label === `WebGPUParticleIndirect_${system.id}`,
+	);
+	assert.ok(indirectBuffer);
+	assert.ok(indirectBuffer.usage & BufferUsage.Storage);
+	assert.ok(indirectBuffer.usage & BufferUsage.Indirect);
+
+	simulator.destroy();
+}
+
+async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
+	const backend = new FakeBackend();
+	const simulator = new WebGPUParticleSimulator({
+		backend,
+		backendTag: "webgpu-test",
+		maxParticlesPerSystem: 1024,
+	});
+	const computeSystem = new ParticleSystem({
+		maxParticles: 64,
+		blendMode: ParticleBlendMode.Additive,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 2 }],
+			lifetimeRange: [5, 5],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+	});
+	const fallbackSystem = new ParticleSystem({
+		maxParticles: 64,
+		blendMode: ParticleBlendMode.Alpha,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 2 }],
+			lifetimeRange: [5, 5],
+			speedRange: [0, 0],
+			sizeRange: [1, 1],
+		},
+	});
+	const context = createContext([computeSystem, fallbackSystem]);
+
+	simulator.beginFrame(context);
+	await simulator.simulateAndEmitRenderBatches(context, 0.016);
+
+	const cpuBatches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? [];
+	const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY) ?? [];
+	assert.equal(cpuBatches.length, 1);
+	assert.equal(cpuBatches[0].systemId, fallbackSystem.id);
+	assert.equal(gpuBatches.length, 2);
+	assert.ok(
+		gpuBatches.some(
+			(batch) =>
+				batch.systemId === computeSystem.id &&
+				batch.blendMode === ParticleBlendMode.Additive,
+		),
+	);
+	assert.ok(
+		gpuBatches.some(
+			(batch) =>
+				batch.systemId === fallbackSystem.id &&
+				batch.blendMode === ParticleBlendMode.Alpha &&
+				batch.instanceCount === 2,
+		),
+	);
+
+	simulator.destroy();
+}
+
 async function testRenderResourcesPrefersGPUDrawBatches() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -202,6 +315,8 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 async function run() {
 	testWebGPUParticleSimulatorPublishesDrawBatches();
+	await testWebGPUParticleSimulatorDispatchesComputeSimulation();
+	await testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches();
 	await testRenderResourcesPrefersGPUDrawBatches();
 	console.log("WebGPU particle GPU simulator tests passed");
 }

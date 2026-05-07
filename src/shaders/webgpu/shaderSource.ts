@@ -219,6 +219,14 @@ export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSour
 	);
 }
 
+export function loadParticleSimulationShaderSource(): Promise<string> {
+	return loadShader(
+		"particle-simulation",
+		"./particleSimulation.wgsl",
+		fromRawShaderModuleLoader(() => import("./particleSimulation.wgsl?raw"))
+	);
+}
+
 const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	ssao: "./postprocess/ssao.wgsl",
 	ssgi: "./postprocess/ssgi.wgsl",

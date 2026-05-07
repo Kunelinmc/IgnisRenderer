@@ -2510,12 +2510,25 @@ export class WebGPUBackend implements IRenderBackend {
 			["animation-sim", () => {}],
 			[
 				"particle-sim",
-				(_pass, context) => {
-					this._particleSimulator?.simulate(
-						context,
-						this._resolveParticleDeltaTime(context),
-					);
-					this._particleSimulator?.emitRenderBatches(context);
+				async (_pass, context) => {
+					const deltaTimeSeconds = this._resolveParticleDeltaTime(context);
+					const simulator = this._particleSimulator as
+						| (IParticleSimulator & {
+								simulateAndEmitRenderBatches?: (
+									context: FrameContext,
+									deltaTimeSeconds: number
+								) => Promise<void>;
+						  })
+						| null;
+					if (simulator?.simulateAndEmitRenderBatches) {
+						await simulator.simulateAndEmitRenderBatches(
+							context,
+							deltaTimeSeconds
+						);
+					} else {
+						simulator?.simulate(context, deltaTimeSeconds);
+						simulator?.emitRenderBatches(context);
+					}
 					this._resources?.updateParticleShadowVolumes?.(context);
 				},
 			],
