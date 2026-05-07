@@ -296,6 +296,7 @@ export interface SSROptions {
 }
 
 export interface SSGIOptions {
+	samples?: number;
 	radius?: number;
 	intensity?: number;
 	falloff?: number;
@@ -436,9 +437,16 @@ export const DEFAULT_SSR_OPTIONS: Required<
 export const DEFAULT_SSGI_OPTIONS: Required<
 	Pick<
 		SSGIOptions,
-		"radius" | "intensity" | "falloff" | "depthPhi" | "normalPhi" | "albedoBoost"
+		| "samples"
+		| "radius"
+		| "intensity"
+		| "falloff"
+		| "depthPhi"
+		| "normalPhi"
+		| "albedoBoost"
 	>
 > = {
+	samples: 8,
 	radius: 3,
 	intensity: 0.35,
 	falloff: 1.5,

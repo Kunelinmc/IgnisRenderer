@@ -66,6 +66,7 @@ export { PostProcessor } from "./renderers/software/PostProcessor";
 export type {
 	SSROptions,
 	SSAOOptions,
+	SSGIOptions,
 	TAAOptions,
 	MotionBlurOptions,
 	DOFOptions,

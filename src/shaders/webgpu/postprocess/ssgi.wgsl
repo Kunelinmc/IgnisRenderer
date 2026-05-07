@@ -1,6 +1,7 @@
 struct Params {
 	invSizeRadiusIntensity: vec4<f32>,
 	tuning: vec4<f32>,
+	extra: vec4<f32>,
 }
 
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
@@ -11,7 +12,8 @@ struct Params {
 @group(0) @binding(5) var<uniform> params: Params;
 @group(0) @binding(6) var outTex: texture_storage_2d<rgba16float, write>;
 
-const SAMPLE_OFFSETS = array<vec2<f32>, 8>(
+const MAX_SSGI_SAMPLES = 16u;
+const SAMPLE_OFFSETS = array<vec2<f32>, 16>(
 	vec2<f32>(1.0, 0.0),
 	vec2<f32>(-1.0, 0.0),
 	vec2<f32>(0.0, 1.0),
@@ -20,6 +22,14 @@ const SAMPLE_OFFSETS = array<vec2<f32>, 8>(
 	vec2<f32>(-0.70710677, 0.70710677),
 	vec2<f32>(0.70710677, -0.70710677),
 	vec2<f32>(-0.70710677, -0.70710677),
+	vec2<f32>(0.9238795, 0.38268343),
+	vec2<f32>(-0.9238795, 0.38268343),
+	vec2<f32>(0.9238795, -0.38268343),
+	vec2<f32>(-0.9238795, -0.38268343),
+	vec2<f32>(0.38268343, 0.9238795),
+	vec2<f32>(-0.38268343, 0.9238795),
+	vec2<f32>(0.38268343, -0.9238795),
+	vec2<f32>(-0.38268343, -0.9238795),
 );
 
 fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
@@ -51,11 +61,12 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let depthPhi = max(params.tuning.y, 0.01);
 	let normalPhi = max(params.tuning.z, 0.1);
 	let albedoBoost = max(params.tuning.w, 0.0);
+	let sampleCount = min(max(u32(params.extra.x), 1u), MAX_SSGI_SAMPLES);
 
 	var indirectAccum = vec3<f32>(0.0);
 	var weightSum = 0.0;
 
-	for (var i = 0u; i < 8u; i = i + 1u) {
+	for (var i = 0u; i < sampleCount; i = i + 1u) {
 		let offset = SAMPLE_OFFSETS[i];
 		let sampleUv = clamp(
 			uv + offset * radiusPixels * params.invSizeRadiusIntensity.xy,

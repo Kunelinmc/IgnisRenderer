@@ -25,6 +25,7 @@ import type {
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
+const SSGI_MAX_SAMPLES = 16;
 
 export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate {
 	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
@@ -289,6 +290,11 @@ export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate
 			1,
 			6
 		);
+		const samples = clamp(
+			Math.floor(finiteOr(options.samples, DEFAULT_SSGI_OPTIONS.samples)),
+			1,
+			SSGI_MAX_SAMPLES
+		);
 		const intensity = Math.max(
 			0,
 			finiteOr(options.intensity, DEFAULT_SSGI_OPTIONS.intensity)
@@ -320,6 +326,10 @@ export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate
 				depthPhi,
 				normalPhi,
 				albedoBoost,
+				samples,
+				0,
+				0,
+				0,
 			])
 		);
 		const binding = this._shared.getCachedBindGroup(
@@ -410,7 +420,7 @@ export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate
 		if (!this._ssgiParams) {
 			this._ssgiParams = this._shared.compute.createBuffer({
 				label: "WebGPUSSGIParams",
-				size: 8 * 4,
+				size: 12 * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}

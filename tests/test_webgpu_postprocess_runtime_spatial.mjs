@@ -147,6 +147,7 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 				depthPhi: 1.4,
 				normalPhi: 2.5,
 				albedoBoost: 1.2,
+				samples: 24,
 			},
 		},
 	};
@@ -163,11 +164,12 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 	assert.equal(backend.shaderModules.length, 1);
 	assert.equal(backend.shaderModules[0].label, "WebGPUSSGIShader");
 	assert.ok(backend.shaderModules[0].desc.code.includes("SAMPLE_OFFSETS"));
+	assert.ok(backend.shaderModules[0].desc.code.includes("MAX_SSGI_SAMPLES"));
 	assert.equal(backend.computePipelines.length, 1);
 	assert.equal(backend.computePipelines[0].label, "WebGPUSSGIPipeline");
 	assert.equal(backend.buffers.length, 1);
 	assert.equal(backend.buffers[0].desc.label, "WebGPUSSGIParams");
-	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.buffers[0].desc.size, 48);
 	assert.equal(backend.bindingGroups.length, 1);
 	assert.equal(backend.bindingGroups[0].desc.entries.length, 7);
 	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
@@ -180,7 +182,7 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 	assert.equal(backend.bindingGroups[0].desc.entries[6].resource, postPong);
 
 	const params = backend.buffers[0].lastWrite;
-	assert.equal(params.length, 8);
+	assert.equal(params.length, 12);
 	assertClose(params[0], 1 / 32);
 	assertClose(params[1], 1 / 16);
 	assertClose(params[2], 4);
@@ -189,6 +191,10 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 	assertClose(params[5], 1.4);
 	assertClose(params[6], 2.5);
 	assertClose(params[7], 1.2);
+	assertClose(params[8], 16);
+	assertClose(params[9], 0);
+	assertClose(params[10], 0);
+	assertClose(params[11], 0);
 
 	assert.deepEqual(encoder.calls, [
 		["beginComputePass", "WebGPUSSGI"],
