@@ -16,16 +16,16 @@ export interface MaterialUniformState {
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
 	baseMap: any | null;
-	baseMapUV: 0 | 1;
+	baseMapUV: 0 | 1 | 2 | 3;
 	metallicRoughnessMap: any | null;
-	metallicRoughnessMapUV: 0 | 1;
+	metallicRoughnessMapUV: 0 | 1 | 2 | 3;
 	normalMap: any | null;
-	normalMapUV: 0 | 1;
+	normalMapUV: 0 | 1 | 2 | 3;
 	normalScale: number;
 	emissiveMap: any | null;
-	emissiveMapUV: 0 | 1;
+	emissiveMapUV: 0 | 1 | 2 | 3;
 	occlusionMap: any | null;
-	occlusionMapUV: 0 | 1;
+	occlusionMapUV: 0 | 1 | 2 | 3;
 	occlusionStrength: number;
 }
 
@@ -33,15 +33,11 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	const isPBR =
 		material.shading === ShadingModel.PBR || material.type === "PBR";
 	const isUnlit = material.shading === ShadingModel.Unlit;
-	const resolveUVSet = (value: unknown): 0 | 1 => {
-		if (
-			typeof value === "number" &&
-			Number.isFinite(value) &&
-			Math.floor(value) > 0
-		) {
-			return 1;
+	const resolveUVSet = (value: unknown): 0 | 1 | 2 | 3 => {
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			return 0;
 		}
-		return 0;
+		return Math.max(0, Math.min(3, Math.floor(value))) as 0 | 1 | 2 | 3;
 	};
 
 	let baseColor: [number, number, number] = [1, 1, 1];
@@ -56,16 +52,16 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
 	let baseMap: any | null = material.map ?? null;
-	let baseMapUV: 0 | 1 = 0;
+	let baseMapUV: 0 | 1 | 2 | 3 = 0;
 	let metallicRoughnessMap: any | null = null;
-	let metallicRoughnessMapUV: 0 | 1 = 0;
+	let metallicRoughnessMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalMap: any | null = null;
-	let normalMapUV: 0 | 1 = 0;
+	let normalMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalScale = 1;
 	let emissiveMap: any | null = null;
-	let emissiveMapUV: 0 | 1 = 0;
+	let emissiveMapUV: 0 | 1 | 2 | 3 = 0;
 	let occlusionMap: any | null = null;
-	let occlusionMapUV: 0 | 1 = 0;
+	let occlusionMapUV: 0 | 1 | 2 | 3 = 0;
 	let occlusionStrength = 1;
 
 	if (isPBR) {

@@ -199,6 +199,8 @@ export class GeometryBuilder {
 		const tangents: number[] = [];
 		const uv0: number[] = [];
 		const uv1: number[] = [];
+		const uv2: number[] = [];
+		const uv3: number[] = [];
 		const colors: number[] = [];
 		const indices: number[] = [];
 
@@ -206,6 +208,8 @@ export class GeometryBuilder {
 		let hasTangents = false;
 		let hasUv0 = false;
 		let hasUv1 = false;
+		let hasUv2 = false;
+		let hasUv3 = false;
 		let hasColors = false;
 		let vertexIndex = 0;
 
@@ -251,6 +255,16 @@ export class GeometryBuilder {
 					}
 					uv1.push(vertex.u2 ?? 0, vertex.v2 ?? 0);
 
+					if (vertex.u3 !== undefined || vertex.v3 !== undefined) {
+						hasUv2 = true;
+					}
+					uv2.push(vertex.u3 ?? 0, vertex.v3 ?? 0);
+
+					if (vertex.u4 !== undefined || vertex.v4 !== undefined) {
+						hasUv3 = true;
+					}
+					uv3.push(vertex.u4 ?? 0, vertex.v4 ?? 0);
+
 					if (vertex.color) {
 						hasColors = true;
 						colors.push(
@@ -275,6 +289,8 @@ export class GeometryBuilder {
 			tangents: hasTangents ? new Float32Array(tangents) : null,
 			uv0: hasUv0 ? new Float32Array(uv0) : null,
 			uv1: hasUv1 ? new Float32Array(uv1) : null,
+			uv2: hasUv2 ? new Float32Array(uv2) : null,
+			uv3: hasUv3 ? new Float32Array(uv3) : null,
 			colors: hasColors ? new Float32Array(colors) : null,
 		};
 
@@ -444,6 +460,16 @@ export class GeometryBuilder {
 			vertex.v2 = geometry.uv1[uvOffset + 1];
 		}
 
+		if (geometry.uv2) {
+			vertex.u3 = geometry.uv2[uvOffset];
+			vertex.v3 = geometry.uv2[uvOffset + 1];
+		}
+
+		if (geometry.uv3) {
+			vertex.u4 = geometry.uv3[uvOffset];
+			vertex.v4 = geometry.uv3[uvOffset + 1];
+		}
+
 		if (geometry.colors) {
 			vertex.color = {
 				r: Math.round(geometry.colors[colorOffset] * 255),
@@ -508,6 +534,8 @@ function mergeGeometry(
 		tangents: override.tangents ?? base.tangents,
 		uv0: override.uv0 ?? base.uv0,
 		uv1: override.uv1 ?? base.uv1,
+		uv2: override.uv2 ?? base.uv2,
+		uv3: override.uv3 ?? base.uv3,
 		colors: override.colors ?? base.colors,
 		joints0: override.joints0 ?? base.joints0,
 		weights0: override.weights0 ?? base.weights0,

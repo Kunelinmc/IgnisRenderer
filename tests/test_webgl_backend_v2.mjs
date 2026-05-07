@@ -1077,6 +1077,8 @@ function testGeometryRegistryUploadsUV1Attribute() {
 			]),
 			uv0: new Float32Array([0, 0, 1, 0, 0, 1]),
 			uv1: new Float32Array([0.25, 0.5, 0.75, 0.5, 0.25, 0.9]),
+			uv2: new Float32Array([0.125, 0.25, 0.375, 0.5, 0.625, 0.75]),
+			uv3: new Float32Array([0.875, 0.75, 0.625, 0.5, 0.375, 0.25]),
 			indices: new Uint32Array([0, 1, 2]),
 		},
 		topology: "triangle-list",
@@ -1090,18 +1092,44 @@ function testGeometryRegistryUploadsUV1Attribute() {
 	const handle = registry.getGeometry(packet);
 	assert.ok(handle);
 	assert.ok(gl.calls.vertexData instanceof Float32Array);
-	assert.equal(gl.calls.vertexData.length, 30);
+	assert.equal(gl.calls.vertexData.length, 42);
 	assert.equal(gl.calls.vertexData[8], 0.25);
 	assert.equal(gl.calls.vertexData[9], 0.5);
-	assert.equal(gl.calls.vertexData[18], 0.75);
-	assert.equal(gl.calls.vertexData[19], 0.5);
+	assert.equal(gl.calls.vertexData[10], 0.125);
+	assert.equal(gl.calls.vertexData[11], 0.25);
+	assert.equal(gl.calls.vertexData[12], 0.875);
+	assert.equal(gl.calls.vertexData[13], 0.75);
+	assert.equal(gl.calls.vertexData[22], 0.75);
+	assert.equal(gl.calls.vertexData[23], 0.5);
+	assert.equal(gl.calls.vertexData[24], 0.375);
+	assert.equal(gl.calls.vertexData[25], 0.5);
+	assert.equal(gl.calls.vertexData[26], 0.625);
+	assert.equal(gl.calls.vertexData[27], 0.5);
 	assert.ok(
 		gl.calls.attributePointers.some(
 			(call) =>
 				call.index === 3 &&
 				call.size === 2 &&
-				call.stride === 40 &&
+				call.stride === 56 &&
 				call.offset === 32
+		)
+	);
+	assert.ok(
+		gl.calls.attributePointers.some(
+			(call) =>
+				call.index === 4 &&
+				call.size === 2 &&
+				call.stride === 56 &&
+				call.offset === 40
+		)
+	);
+	assert.ok(
+		gl.calls.attributePointers.some(
+			(call) =>
+				call.index === 5 &&
+				call.size === 2 &&
+				call.stride === 56 &&
+				call.offset === 48
 		)
 	);
 }
@@ -1130,16 +1158,16 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	occlusionMap.offset = { x: 0.05, y: -0.1 };
 	occlusionMap.rotation = Math.PI / 3;
 	material.map = baseMap;
-	material.albedoMapUV = 1;
+	material.albedoMapUV = 2;
 	material.normalMap = normalMap;
-	material.normalMapUV = 1;
+	material.normalMapUV = 3;
 	material.normalScale = 0.35;
 	material.metallicRoughnessMap = metallicRoughnessMap;
-	material.metallicRoughnessMapUV = 1;
+	material.metallicRoughnessMapUV = 2;
 	material.emissiveMap = emissiveMap;
-	material.emissiveMapUV = 1;
+	material.emissiveMapUV = 3;
 	material.occlusionMap = occlusionMap;
-	material.occlusionMapUV = 1;
+	material.occlusionMapUV = 2;
 	material.occlusionStrength = 0.4;
 	const textureTable = new Map([
 		[baseMap, { texture: { id: "base" }, isLinear: false }],
@@ -1233,11 +1261,11 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	assert.equal(unitFor("uMetallicRoughnessMap"), 9);
 	assert.equal(unitFor("uEmissiveMap"), 10);
 	assert.equal(unitFor("uOcclusionMap"), 11);
-	assert.equal(unitFor("uBaseMapUV"), 1);
-	assert.equal(unitFor("uNormalMapUV"), 1);
-	assert.equal(unitFor("uMetallicRoughnessMapUV"), 1);
-	assert.equal(unitFor("uEmissiveMapUV"), 1);
-	assert.equal(unitFor("uOcclusionMapUV"), 1);
+	assert.equal(unitFor("uBaseMapUV"), 2);
+	assert.equal(unitFor("uNormalMapUV"), 3);
+	assert.equal(unitFor("uMetallicRoughnessMapUV"), 2);
+	assert.equal(unitFor("uEmissiveMapUV"), 3);
+	assert.equal(unitFor("uOcclusionMapUV"), 2);
 	assert.equal(unitFor("uHasNormalMap"), 1);
 	assert.equal(unitFor("uHasMetallicRoughnessMap"), 1);
 	assert.equal(unitFor("uHasEmissiveMap"), 1);

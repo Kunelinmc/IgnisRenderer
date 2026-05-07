@@ -5,6 +5,8 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aUv0;
 layout(location = 3) in vec2 aUv1;
+layout(location = 4) in vec2 aUv2;
+layout(location = 5) in vec2 aUv3;
 
 uniform mat4 uModel;
 uniform mat4 uViewMatrix;
@@ -18,6 +20,8 @@ out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUv;
 out vec2 vUv1;
+out vec2 vUv2;
+out vec2 vUv3;
 out vec4 vCurrentClip;
 out vec4 vPrevClip;
 out float vViewDepth;
@@ -28,6 +32,8 @@ void main() {
 	vNormal = normalize(uNormalMatrix * aNormal);
 	vUv = aUv0;
 	vUv1 = aUv1;
+	vUv2 = aUv2;
+	vUv3 = aUv3;
 	vViewDepth = max(-(uViewMatrix * worldPos).z, 0.0);
 	
 	vec4 clipPos = uViewProjection * worldPos;

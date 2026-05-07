@@ -35,8 +35,8 @@ must fail with diagnostics.
 - CSG inputs must be closed manifold meshes; non-closed inputs must fail with
 diagnostics.
 - v1 CSG must preserve only `position`, `normal`, and `uv0`.
-- v1 CSG may drop `uv1`, vertex colors, skinning, and morph data; when dropped,
-implementation should emit diagnostics.
+- v1 CSG may drop `uv1`, `uv2`, `uv3`, vertex colors, skinning, and morph
+data; when dropped, implementation should emit diagnostics.
 - Output triangles must be capped by `maxOutputTriangles` (default `200000`).
 - Solver preference `auto` must prefer registered wasm solver and must fall back
 to builtin solver when wasm solve fails.

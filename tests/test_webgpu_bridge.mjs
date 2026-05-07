@@ -213,6 +213,11 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6);
 	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6);
 	assert.equal(pbrData.textureSlots.length, 14);
+	pbr.albedoMapUV = 2;
+	pbr.normalMapUV = 3;
+	const pbrUVData = createWebGPUMaterialUniformData(pbr);
+	assert.equal(pbrUVData.textureSlots[0].transformB[1], 2);
+	assert.equal(pbrUVData.textureSlots[2].transformB[1], 3);
 
 	const phong = new PhongMaterial({
 		diffuse: { r: 128, g: 128, b: 128 },

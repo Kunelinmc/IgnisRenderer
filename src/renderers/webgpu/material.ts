@@ -241,7 +241,7 @@ function createTextureSlot(
 			transformA: [0, 0, 1, 1],
 			transformB: [
 				0,
-				uvSet > 0 ? 1 : 0,
+				normalizeTextureUVSet(uvSet),
 				(forcedLinear ?? fallbackLinear) ? 1 : 0,
 				0,
 			],
@@ -253,13 +253,20 @@ function createTextureSlot(
 		transformA: [map.offset.x, map.offset.y, map.repeat.x, map.repeat.y],
 		transformB: [
 			map.rotation,
-			uvSet > 0 ? 1 : 0,
+			normalizeTextureUVSet(uvSet),
 			forcedLinear !== null ?
 				(forcedLinear ? 1 : 0)
 			:	(map.colorSpace === "sRGB" ? 0 : 1),
 			0,
 		],
 	};
+}
+
+function normalizeTextureUVSet(uvSet: number): number {
+	if (!Number.isFinite(uvSet)) {
+		return 0;
+	}
+	return Math.max(0, Math.min(3, Math.floor(uvSet)));
 }
 
 function getMaterialBaseColor(

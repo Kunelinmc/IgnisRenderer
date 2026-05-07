@@ -99,14 +99,14 @@ export class WebGPUGeometryRegistry {
 		const geometry = primitive.geometry;
 		const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
-		const vertexData = new Float32Array(vertexCount * 30);
+		const vertexData = new Float32Array(vertexCount * 34);
 
 		for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
 			const sourcePosition = vertexIndex * 3;
 			const sourceUv = vertexIndex * 2;
 			const sourceTangent = vertexIndex * 4;
 			const sourceJoint = vertexIndex * 4;
-			const base = vertexIndex * 30;
+			const base = vertexIndex * 34;
 
 			vertexData[base] = geometry.positions[sourcePosition];
 			vertexData[base + 1] = geometry.positions[sourcePosition + 1];
@@ -146,6 +146,11 @@ export class WebGPUGeometryRegistry {
 			vertexData[base + 27] = geometry.weights1?.[sourceJoint + 1] ?? 0;
 			vertexData[base + 28] = geometry.weights1?.[sourceJoint + 2] ?? 0;
 			vertexData[base + 29] = geometry.weights1?.[sourceJoint + 3] ?? 0;
+
+			vertexData[base + 30] = geometry.uv2?.[sourceUv] ?? 0;
+			vertexData[base + 31] = geometry.uv2?.[sourceUv + 1] ?? 0;
+			vertexData[base + 32] = geometry.uv3?.[sourceUv] ?? 0;
+			vertexData[base + 33] = geometry.uv3?.[sourceUv + 1] ?? 0;
 		}
 
 		const indexCount = geometry.indices.length;

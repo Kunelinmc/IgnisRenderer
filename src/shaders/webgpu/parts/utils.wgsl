@@ -14,10 +14,24 @@ fn safeNormalize(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	return select(fallback, value / max(len, EPSILON), len > EPSILON);
 }
 
-fn transformUV(slotIndex: u32, uv0: vec2<f32>, uv1: vec2<f32>) -> vec2<f32> {
+fn transformUV(
+	slotIndex: u32,
+	uv0: vec2<f32>,
+	uv1: vec2<f32>,
+	uv2: vec2<f32>,
+	uv3: vec2<f32>
+) -> vec2<f32> {
 	let transformA = model.textureTransformA[slotIndex];
 	let transformB = model.textureTransformB[slotIndex];
-	var uv = select(uv0, uv1, transformB.y > 0.5);
+	let uvSet = u32(clamp(floor(transformB.y + 0.5), 0.0, 3.0));
+	var uv = uv0;
+	if (uvSet == 1u) {
+		uv = uv1;
+	} else if (uvSet == 2u) {
+		uv = uv2;
+	} else if (uvSet >= 3u) {
+		uv = uv3;
+	}
 	uv = uv * transformA.zw;
 
 	let rotation = transformB.x;
@@ -35,9 +49,15 @@ fn sampleLinearTexture(
 	samplerRef: sampler,
 	slotIndex: u32,
 	uv0: vec2<f32>,
-	uv1: vec2<f32>
+	uv1: vec2<f32>,
+	uv2: vec2<f32>,
+	uv3: vec2<f32>
 ) -> vec4<f32> {
-	return textureSample(textureRef, samplerRef, transformUV(slotIndex, uv0, uv1));
+	return textureSample(
+		textureRef,
+		samplerRef,
+		transformUV(slotIndex, uv0, uv1, uv2, uv3)
+	);
 }
 
 fn sampleColorTexture(
@@ -45,9 +65,19 @@ fn sampleColorTexture(
 	samplerRef: sampler,
 	slotIndex: u32,
 	uv0: vec2<f32>,
-	uv1: vec2<f32>
+	uv1: vec2<f32>,
+	uv2: vec2<f32>,
+	uv3: vec2<f32>
 ) -> vec4<f32> {
-	let sampled = sampleLinearTexture(textureRef, samplerRef, slotIndex, uv0, uv1);
+	let sampled = sampleLinearTexture(
+		textureRef,
+		samplerRef,
+		slotIndex,
+		uv0,
+		uv1,
+		uv2,
+		uv3
+	);
 	let isLinear = model.textureTransformB[slotIndex].z > 0.5;
 	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
 }

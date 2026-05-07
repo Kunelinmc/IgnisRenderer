@@ -2,86 +2,110 @@ let mrSample = sampleLinearTexture(
 	metallicRoughnessTexture,
 	metallicRoughnessSampler,
 	TEX_METALLIC_ROUGHNESS,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let occlusionSample = sampleLinearTexture(
 	occlusionTexture,
 	occlusionSampler,
 	TEX_OCCLUSION,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let specularSample = sampleLinearTexture(
 	specularTexture,
 	specularSampler,
 	TEX_SPECULAR,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let specularColorSample = sampleColorTexture(
 	specularColorTexture,
 	specularColorSampler,
 	TEX_SPECULAR_COLOR,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let clearcoatSample = sampleLinearTexture(
 	clearcoatTexture,
 	clearcoatSampler,
 	TEX_CLEARCOAT,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let clearcoatRoughnessSample = sampleLinearTexture(
 	clearcoatRoughnessTexture,
 	clearcoatRoughnessSampler,
 	TEX_CLEARCOAT_ROUGHNESS,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let sheenColorSample = sampleColorTexture(
 	sheenColorTexture,
 	sheenColorSampler,
 	TEX_SHEEN_COLOR,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let sheenRoughnessSample = sampleLinearTexture(
 	sheenRoughnessTexture,
 	sheenRoughnessSampler,
 	TEX_SHEEN_ROUGHNESS,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let transmissionSample = sampleLinearTexture(
 	transmissionTexture,
 	transmissionSampler,
 	TEX_TRANSMISSION,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 let thicknessSample = sampleLinearTexture(
 	thicknessTexture,
 	thicknessSampler,
 	TEX_THICKNESS,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 );
 
 let normalSample = sampleLinearTexture(
 	normalTexture,
 	normalSampler,
 	TEX_NORMAL,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 ).rgb;
 let clearcoatNormalSample = sampleLinearTexture(
 	clearcoatNormalTexture,
 	clearcoatNormalSampler,
 	TEX_CLEARCOAT_NORMAL,
-	input.uv,
-	input.uv2
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
 ).rgb;
 
 let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);

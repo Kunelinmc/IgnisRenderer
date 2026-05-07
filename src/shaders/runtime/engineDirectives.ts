@@ -140,12 +140,15 @@ function normalizeTextureSlot(value: ShaderInjectionArgValue | undefined): numbe
 
 function normalizeTextureUVSet(
 	value: ShaderInjectionArgValue | undefined
-): 0 | 1 {
+): 0 | 1 | 2 | 3 {
 	const numeric =
 		typeof value === "number" ? value
 		: typeof value === "string" ? Number(value)
 		:	NaN;
-	return Number.isFinite(numeric) && Math.floor(numeric) > 0 ? 1 : 0;
+	if (!Number.isFinite(numeric)) {
+		return 0;
+	}
+	return Math.max(0, Math.min(3, Math.floor(numeric))) as 0 | 1 | 2 | 3;
 }
 
 function normalizeIdentifierToken(
@@ -265,8 +268,11 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 				return {
 					header: headerBlocks.join("\n"),
 					functions:
-						`vec4 ${fnName}(vec2 uv0, vec2 uv1) {\n` +
-						`\tvec2 uv = ${uvConst} == 1 ? uv1 : uv0;\n` +
+						`vec4 ${fnName}(vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {\n` +
+						`\tvec2 uv = uv0;\n` +
+						`\tif (${uvConst} == 1) uv = uv1;\n` +
+						`\telse if (${uvConst} == 2) uv = uv2;\n` +
+						`\telse if (${uvConst} >= 3) uv = uv3;\n` +
 						`\tvec4 sampled = texture(${uniformName}, uv);\n` +
 						`\treturn ${decodeExpression};\n` +
 						`}`,
@@ -307,8 +313,16 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 			return {
 				header: headerBlocks.join("\n"),
 				functions:
-					`fn ${fnName}(uv0: vec2<f32>, uv1: vec2<f32>) -> vec4<f32> {\n` +
-					`\tlet uv = select(uv0, uv1, ${uvConst} == 1u);\n` +
+					`fn ${fnName}(\n` +
+					`\tuv0: vec2<f32>,\n` +
+					`\tuv1: vec2<f32>,\n` +
+					`\tuv2: vec2<f32>,\n` +
+					`\tuv3: vec2<f32>\n` +
+					`) -> vec4<f32> {\n` +
+					`\tvar uv = uv0;\n` +
+					`\tif (${uvConst} == 1u) { uv = uv1; }\n` +
+					`\telse if (${uvConst} == 2u) { uv = uv2; }\n` +
+					`\telse if (${uvConst} >= 3u) { uv = uv3; }\n` +
 					`\tlet sampled = textureSample(${textureName}, ${samplerName}, uv);\n` +
 					`\treturn ${decodeExpression};\n` +
 					`}`,

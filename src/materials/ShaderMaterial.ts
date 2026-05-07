@@ -28,7 +28,7 @@ export interface ShaderMaterialTextureBinding {
 	name: string;
 	texture: Texture | null;
 	slot?: number;
-	uvSet?: 0 | 1;
+	uvSet?: 0 | 1 | 2 | 3;
 	linear?: boolean;
 	webglUniform?: string;
 }
@@ -37,7 +37,7 @@ export interface ResolvedShaderMaterialTextureBinding {
 	name: string;
 	texture: Texture | null;
 	slot: number;
-	uvSet: 0 | 1;
+	uvSet: 0 | 1 | 2 | 3;
 	linear: boolean;
 	webglUniform: string;
 }
@@ -93,7 +93,7 @@ interface ShaderMaterialTextureBindingRecord {
 	name: string;
 	texture: Texture | null;
 	explicitSlot: number | null;
-	uvSet: 0 | 1;
+	uvSet: 0 | 1 | 2 | 3;
 	linearOverride: boolean | null;
 	webglUniform: string;
 }
@@ -665,7 +665,7 @@ export class ShaderMaterial extends Material {
 		}
 
 		const explicitSlot = this._normalizeTextureBindingSlot(binding.slot);
-		const uvSet = typeof binding.uvSet === "number" && binding.uvSet > 0 ? 1 : 0;
+		const uvSet = this._normalizeTextureBindingUVSet(binding.uvSet);
 		const linearOverride =
 			typeof binding.linear === "boolean" ? binding.linear : null;
 		const webglUniform =
@@ -702,6 +702,15 @@ export class ShaderMaterial extends Material {
 			);
 		}
 		return resolved;
+	}
+
+	private _normalizeTextureBindingUVSet(
+		uvSet: number | undefined
+	): 0 | 1 | 2 | 3 {
+		if (typeof uvSet !== "number" || !Number.isFinite(uvSet)) {
+			return 0;
+		}
+		return Math.max(0, Math.min(3, Math.floor(uvSet))) as 0 | 1 | 2 | 3;
 	}
 
 	private _normalizeWebGLUniformName(name: string | undefined): string | null {

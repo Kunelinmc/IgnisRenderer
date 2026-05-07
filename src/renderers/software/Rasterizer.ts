@@ -72,6 +72,10 @@ interface CachedVertex {
 	vO: number;
 	u2O: number;
 	v2O: number;
+	u3O: number;
+	v3O: number;
+	u4O: number;
+	v4O: number;
 	zCamO: number;
 }
 
@@ -85,6 +89,10 @@ interface EdgeInterpolationResult {
 	vO: number;
 	u2O: number;
 	v2O: number;
+	u3O: number;
+	v3O: number;
+	u4O: number;
+	v4O: number;
 	zCamO: number;
 }
 
@@ -155,6 +163,10 @@ export class Rasterizer implements RasterizerLike {
 		v: 0,
 		u2: 0,
 		v2: 0,
+		u3: 0,
+		v3: 0,
+		u4: 0,
+		v4: 0,
 	};
 	constructor() {
 		this._defaultMaterial = new Material();
@@ -170,6 +182,10 @@ export class Rasterizer implements RasterizerLike {
 			vO: 0,
 			u2O: 0,
 			v2O: 0,
+			u3O: 0,
+			v3O: 0,
+			u4O: 0,
+			v4O: 0,
 			zCamO: 0,
 		}));
 
@@ -201,6 +217,10 @@ export class Rasterizer implements RasterizerLike {
 			vO: 0,
 			u2O: 0,
 			v2O: 0,
+			u3O: 0,
+			v3O: 0,
+			u4O: 0,
+			v4O: 0,
 			zCamO: 0,
 		};
 	}
@@ -630,6 +650,10 @@ export class Rasterizer implements RasterizerLike {
 		res.vO = vA.vO + (vB.vO - vA.vO) * t;
 		res.u2O = vA.u2O + (vB.u2O - vA.u2O) * t;
 		res.v2O = vA.v2O + (vB.v2O - vA.v2O) * t;
+		res.u3O = vA.u3O + (vB.u3O - vA.u3O) * t;
+		res.v3O = vA.v3O + (vB.v3O - vA.v3O) * t;
+		res.u4O = vA.u4O + (vB.u4O - vA.u4O) * t;
+		res.v4O = vA.v4O + (vB.v4O - vA.v4O) * t;
 		res.zCamO = vA.zCamO + (vB.zCamO - vA.zCamO) * t;
 	}
 
@@ -839,6 +863,10 @@ export class Rasterizer implements RasterizerLike {
 			v.vO = (p.v ?? 0) * iz;
 			v.u2O = (p.u2 ?? 0) * iz;
 			v.v2O = (p.v2 ?? 0) * iz;
+			v.u3O = (p.u3 ?? 0) * iz;
+			v.v3O = (p.v3 ?? 0) * iz;
+			v.u4O = (p.u4 ?? 0) * iz;
+			v.v4O = (p.v4 ?? 0) * iz;
 
 			// Reconstruct linear depth (positive camera-space distance) for depth buffer.
 			// For perspective, iz = 1/w = 1/depth, so linearDepth * iz = 1.
@@ -900,6 +928,10 @@ export class Rasterizer implements RasterizerLike {
 			const dvO = (right.vO - left.vO) * spanInv;
 			const du2O = (right.u2O - left.u2O) * spanInv;
 			const dv2O = (right.v2O - left.v2O) * spanInv;
+			const du3O = (right.u3O - left.u3O) * spanInv;
+			const dv3O = (right.v3O - left.v3O) * spanInv;
+			const du4O = (right.u4O - left.u4O) * spanInv;
+			const dv4O = (right.v4O - left.v4O) * spanInv;
 			const dzCamO = (right.zCamO - left.zCamO) * spanInv;
 
 			const dx = startX + 0.5 - left.x;
@@ -918,6 +950,10 @@ export class Rasterizer implements RasterizerLike {
 			let vO = left.vO + dx * dvO;
 			let u2O = left.u2O + dx * du2O;
 			let v2O = left.v2O + dx * dv2O;
+			let u3O = left.u3O + dx * du3O;
+			let v3O = left.v3O + dx * dv3O;
+			let u4O = left.u4O + dx * du4O;
+			let v4O = left.v4O + dx * dv4O;
 			let zCamO = left.zCamO + dx * dzCamO;
 
 			const bufRow = y * width;
@@ -957,6 +993,10 @@ export class Rasterizer implements RasterizerLike {
 							vO += dvO;
 							u2O += du2O;
 							v2O += dv2O;
+							u3O += du3O;
+							v3O += dv3O;
+							u4O += du4O;
+							v4O += dv4O;
 							continue;
 						}
 
@@ -975,6 +1015,10 @@ export class Rasterizer implements RasterizerLike {
 						input.v = vO * zCam;
 						input.u2 = u2O * zCam;
 						input.v2 = v2O * zCam;
+						input.u3 = u3O * zCam;
+						input.v3 = v3O * zCam;
+						input.u4 = u4O * zCam;
+						input.v4 = v4O * zCam;
 						input.zCam = zCamValue;
 
 						const finalOutput = shader.shade(input);
@@ -1065,6 +1109,10 @@ export class Rasterizer implements RasterizerLike {
 				vO += dvO;
 				u2O += du2O;
 				v2O += dv2O;
+				u3O += du3O;
+				v3O += dv3O;
+				u4O += du4O;
+				v4O += dv4O;
 			}
 		}
 

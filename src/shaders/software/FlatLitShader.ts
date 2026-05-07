@@ -25,6 +25,10 @@ export class FlatLitShader<
 				v: 0,
 				u2: 0,
 				v2: 0,
+				u3: 0,
+				v3: 0,
+				u4: 0,
+				v4: 0,
 				world: { x: face.center.x, y: face.center.y, z: face.center.z },
 				normal: {
 					x: face.normal?.x ?? 0,

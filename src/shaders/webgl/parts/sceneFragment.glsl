@@ -22,6 +22,8 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUv;
 in vec2 vUv1;
+in vec2 vUv2;
+in vec2 vUv3;
 in vec4 vCurrentClip;
 in vec4 vPrevClip;
 in float vViewDepth;
@@ -160,7 +162,10 @@ float resolveOITWeight(float alpha, float linearDepth) {
 }
 
 vec2 resolveUV(int uvSet) {
-	return uvSet == 1 ? vUv1 : vUv;
+	if (uvSet == 1) return vUv1;
+	if (uvSet == 2) return vUv2;
+	if (uvSet >= 3) return vUv3;
+	return vUv;
 }
 
 vec2 applyUVTransform(vec2 uv, vec4 transformA, vec2 transformB) {

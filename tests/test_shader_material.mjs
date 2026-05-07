@@ -664,7 +664,7 @@ function testTextureBindingInjectDirectivesDecoratePrograms() {
 	);
 }
 
-function testTextureBindingUvSetGreaterThanOneUsesSecondSet() {
+function testTextureBindingUvSetGreaterThanOneIsPreserved() {
 	const material = new ShaderMaterial({ name: "TextureBindingUvClamp" });
 	material.setTextureBinding({
 		name: "detail",
@@ -673,7 +673,7 @@ function testTextureBindingUvSetGreaterThanOneUsesSecondSet() {
 	});
 	const bindings = material.getTextureBindings();
 	assert.equal(bindings.length, 1);
-	assert.equal(bindings[0].uvSet, 1);
+	assert.equal(bindings[0].uvSet, 2);
 }
 
 async function run() {
@@ -690,7 +690,7 @@ async function run() {
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingInjectDirectivesDecoratePrograms();
-	testTextureBindingUvSetGreaterThanOneUsesSecondSet();
+	testTextureBindingUvSetGreaterThanOneIsPreserved();
 	console.log("ShaderMaterial tests passed");
 }
 

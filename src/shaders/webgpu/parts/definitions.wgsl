@@ -100,25 +100,29 @@ struct AnimationParams {
 
 struct VertexInput {
 	@location(0) position: vec3<f32>,
-	@location(1) uv: vec2<f32>,
+	@location(1) uv0: vec2<f32>,
 	@location(2) normal: vec3<f32>,
 	@location(3) tangent: vec4<f32>,
-	@location(4) uv2: vec2<f32>,
+	@location(4) uv1: vec2<f32>,
 	@location(5) joints0: vec4<f32>,
 	@location(6) weights0: vec4<f32>,
 	@location(7) joints1: vec4<f32>,
 	@location(8) weights1: vec4<f32>,
+	@location(9) uv2: vec2<f32>,
+	@location(10) uv3: vec2<f32>,
 }
 
 struct VertexOutput {
 	@builtin(position) position: vec4<f32>,
 	@location(0) worldPosition: vec3<f32>,
 	@location(1) worldNormal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
+	@location(2) uv0: vec2<f32>,
 	@location(3) worldTangent: vec4<f32>,
-	@location(4) uv2: vec2<f32>,
+	@location(4) uv1: vec2<f32>,
 	@location(5) currentClip: vec4<f32>,
 	@location(6) prevClip: vec4<f32>,
+	@location(7) uv2: vec2<f32>,
+	@location(8) uv3: vec2<f32>,
 }
 
 struct SceneFragmentOutput {

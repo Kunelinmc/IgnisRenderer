@@ -27,8 +27,10 @@ fn fsMainDepthMask(input: VertexOutput) {
 			baseColorTexture,
 			baseColorSampler,
 			TEX_BASE_COLOR,
-			input.uv,
-			input.uv2
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
 		);
 	}
 	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);

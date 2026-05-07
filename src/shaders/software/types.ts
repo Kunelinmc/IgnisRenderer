@@ -59,6 +59,10 @@ export interface FragmentInput {
 	v: number;
 	u2: number;
 	v2: number;
+	u3: number;
+	v3: number;
+	u4: number;
+	v4: number;
 	lightAmbient?: RGB;
 	lightDiffuse?: RGB;
 	lightSpecular?: RGB;

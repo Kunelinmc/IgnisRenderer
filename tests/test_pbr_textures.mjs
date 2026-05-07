@@ -23,6 +23,10 @@ function createMockInput() {
 		v: 0.5,
 		u2: 0.5,
 		v2: 0.5,
+		u3: 0.5,
+		v3: 0.5,
+		u4: 0.5,
+		v4: 0.5,
 	};
 }
 
@@ -268,8 +272,8 @@ function testSheenRoughnessMapUsesNormalizedAlpha() {
 	);
 }
 
-function testUV2ChannelAliasesSecondUVSet() {
-	console.log("Testing UVChannel.UV2 aliasing to second UV set...");
+function testUV2ChannelUsesThirdUVSet() {
+	console.log("Testing UVChannel.UV2 uses third UV set...");
 	const material = new PBRMaterial({
 		albedo: { r: 255, g: 255, b: 255 },
 		albedoMapUV: UVChannel.UV2,
@@ -294,8 +298,48 @@ function testUV2ChannelAliasesSecondUVSet() {
 	const input = createMockInput();
 	input.u = 0;
 	input.v = 0;
-	input.u2 = 0.75;
+	input.u2 = 0;
 	input.v2 = 0;
+	input.u3 = 0.75;
+	input.v3 = 0;
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	assertColorClose(surface.albedo, { r: 0, g: 255, b: 0 });
+}
+
+function testUV3ChannelUsesFourthUVSet() {
+	console.log("Testing UVChannel.UV3 uses fourth UV set...");
+	const material = new PBRMaterial({
+		albedo: { r: 255, g: 255, b: 255 },
+		albedoMapUV: UVChannel.UV3,
+	});
+	material.map = new Texture(
+		new Uint8ClampedArray([
+			255,
+			0,
+			0,
+			255,
+			0,
+			255,
+			0,
+			255,
+		]),
+		2,
+		1
+	);
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+	input.u = 0;
+	input.v = 0;
+	input.u2 = 0;
+	input.v2 = 0;
+	input.u3 = 0;
+	input.v3 = 0;
+	input.u4 = 0.75;
+	input.v4 = 0;
 
 	const surface = evaluator.evaluate(input, face);
 	assert.ok(surface);
@@ -315,7 +359,8 @@ function run() {
 		testClearcoatNormalMapMatchesBaseNormalMap();
 		testLegacyF0Compatibility();
 		testSheenRoughnessMapUsesNormalizedAlpha();
-		testUV2ChannelAliasesSecondUVSet();
+		testUV2ChannelUsesThirdUVSet();
+		testUV3ChannelUsesFourthUVSet();
 		console.log("✅ All PBR texture tests passed!");
 	} catch (e) {
 		console.error("❌ Test Failed:");

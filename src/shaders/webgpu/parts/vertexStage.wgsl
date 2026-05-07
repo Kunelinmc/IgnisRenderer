@@ -204,12 +204,14 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	output.position = clipPosition;
 	output.worldPosition = worldPosition.xyz;
 	output.worldNormal = worldNormal;
-	output.uv = input.uv;
+	output.uv0 = input.uv0;
 	output.worldTangent = vec4<f32>(
 		safeNormalize(worldTangent, vec3<f32>(1.0, 0.0, 0.0)),
 		input.tangent.w
 	);
+	output.uv1 = input.uv1;
 	output.uv2 = input.uv2;
+	output.uv3 = input.uv3;
 	output.currentClip = clipPosition;
 	output.prevClip = prevClipPosition;
 	return output;

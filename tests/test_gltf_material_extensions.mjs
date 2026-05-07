@@ -304,6 +304,10 @@ function testLinearFactorsStayLinearAcrossLoaderAndEvaluator() {
 		v: 0,
 		u2: 0,
 		v2: 0,
+		u3: 0,
+		v3: 0,
+		u4: 0,
+		v4: 0,
 	};
 
 	const surface = evaluator.evaluate(input, face);
@@ -370,7 +374,7 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	assert.equal(mat.transmissionMap?.colorSpace, "Linear");
 }
 
-function testTexCoordAboveOneUsesSecondUVSet() {
+function testTexCoordAboveOnePreservesUVSet() {
 	const loader = new GLTFLoader();
 	const texture = new Texture(
 		new Uint8ClampedArray([255, 255, 255, 255]),
@@ -393,7 +397,7 @@ function testTexCoordAboveOneUsesSecondUVSet() {
 		},
 		[texture]
 	);
-	assert.equal(baseTexCoordMaterial.albedoMapUV, UVChannel.UV1);
+	assert.equal(baseTexCoordMaterial.albedoMapUV, UVChannel.UV2);
 
 	const [khrTransformMaterial] = loader.parseMaterials(
 		{
@@ -415,7 +419,7 @@ function testTexCoordAboveOneUsesSecondUVSet() {
 		},
 		[texture]
 	);
-	assert.equal(khrTransformMaterial.albedoMapUV, UVChannel.UV1);
+	assert.equal(khrTransformMaterial.albedoMapUV, UVChannel.UV3);
 }
 
 function run() {
@@ -430,7 +434,7 @@ function run() {
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();
 		testLinearFactorsStayLinearAcrossLoaderAndEvaluator();
 		testGLTFMaterialTexturesUseExpectedColorSpaces();
-		testTexCoordAboveOneUsesSecondUVSet();
+		testTexCoordAboveOnePreservesUVSet();
 		console.log("✅ glTF material extensions tests passed");
 	} catch (error) {
 		console.error("❌ glTF material extensions test failed");

@@ -517,8 +517,11 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (texInfo.extensions?.KHR_texture_transform?.texCoord !== undefined) {
 			uv = texInfo.extensions.KHR_texture_transform.texCoord;
 		}
-		if (typeof uv === "number" && Number.isFinite(uv) && Math.floor(uv) > 0) {
-			return UVChannel.UV1;
+		if (typeof uv === "number" && Number.isFinite(uv)) {
+			const channel = Math.floor(uv);
+			if (channel >= 3) return UVChannel.UV3;
+			if (channel === 2) return UVChannel.UV2;
+			if (channel === 1) return UVChannel.UV1;
 		}
 		return UVChannel.UV0;
 	}
@@ -1102,6 +1105,14 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			attrs.TEXCOORD_1 !== undefined ?
 				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_1))
 			:	null;
+		const uv2 =
+			attrs.TEXCOORD_2 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_2))
+			:	null;
+		const uv3 =
+			attrs.TEXCOORD_3 !== undefined ?
+				toFloat32Array(this.getAccessorData(json, buffers, attrs.TEXCOORD_3))
+			:	null;
 		const colors =
 			attrs.COLOR_0 !== undefined ?
 				toFloat32Array(this.getAccessorData(json, buffers, attrs.COLOR_0))
@@ -1143,6 +1154,8 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			tangents,
 			uv0,
 			uv1,
+			uv2,
+			uv3,
 			colors,
 			joints0,
 			weights0,

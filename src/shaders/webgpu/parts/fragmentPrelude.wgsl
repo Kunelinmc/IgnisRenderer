@@ -11,8 +11,10 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 			baseColorTexture,
 			baseColorSampler,
 			TEX_BASE_COLOR,
-			input.uv,
-			input.uv2
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
 		);
 	}
 
@@ -43,8 +45,10 @@ fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
 		emissiveTexture,
 		emissiveSampler,
 		TEX_EMISSIVE,
-		input.uv,
-		input.uv2
+		input.uv0,
+		input.uv1,
+		input.uv2,
+		input.uv3
 	);
 	let emissive = model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
 	let linearDepth = dot(frame.cameraPosition.xyz - input.worldPosition, frame.skyboxBasisBackward.xyz);

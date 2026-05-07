@@ -113,9 +113,16 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		channel: UVChannel | undefined,
 		input: FragmentInput
 	): { u: number; v: number } {
-		return channel !== UVChannel.UV0
-			? { u: input.u2, v: input.v2 }
-			: { u: input.u, v: input.v };
+		switch (channel) {
+			case UVChannel.UV1:
+				return { u: input.u2, v: input.v2 };
+			case UVChannel.UV2:
+				return { u: input.u3, v: input.v3 };
+			case UVChannel.UV3:
+				return { u: input.u4, v: input.v4 };
+			default:
+				return { u: input.u, v: input.v };
+		}
 	}
 
 	public evaluate(
