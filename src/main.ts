@@ -45,12 +45,13 @@ async function init() {
 	canvas = bootstrap.canvas;
 	const renderer = bootstrap.renderer;
 
-	// Load environment map for skybox and light probe baking
+	// Load environment map for background and light probe baking.
 	const hdrLoader = new HDRLoader();
-	const skybox = await hdrLoader.load("puresky_1k.hdr");
-	scene.skybox = skybox;
+	const environmentMap = await hdrLoader.load("puresky_1k.hdr");
+	scene.environment.backgroundTexture = environmentMap;
+	scene.environment.iblTexture = environmentMap;
 
-	// Bakes environment IBL data from the skybox.
+	// Bakes environment IBL data from the environment map.
 	await renderer.warmup({ includeEnvironmentIBLBake: true });
 
 	renderer.updateSH();
@@ -97,7 +98,7 @@ function buildPlayground(scene: Scene): void {
 	scene.add(cube);
 
 	// Add a global probe so specular IBL uses prefiltered mip levels instead of
-	// directly sampling the raw skybox texture.
+	// directly sampling the raw environment texture.
 	const reflectionProbe = new ReflectionProbe({
 		shape: "sphere",
 		radius: 5000,
