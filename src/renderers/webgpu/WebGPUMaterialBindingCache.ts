@@ -17,6 +17,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	packModelUniformData,
 	type WebGPUMaterialUniformData,
 } from "./";
@@ -215,7 +216,9 @@ export class WebGPUMaterialBindingCache {
 			];
 			for (let i = 0; i < textures.length; i++) {
 				entries.push({ binding: 1 + i * 2, resource: textures[i] });
-				entries.push({ binding: 2 + i * 2, resource: samplers[i] });
+				if (i < WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT) {
+					entries.push({ binding: 2 + i * 2, resource: samplers[i] });
+				}
 			}
 			entries.push(
 				{

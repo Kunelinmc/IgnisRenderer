@@ -56,6 +56,7 @@ import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
 } from "../src/renderers/webgpu/constants.ts";
@@ -353,7 +354,14 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(1) @binding(30)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(1) @binding(29) var iridescenceTexture"));
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"@group(1) @binding(31) var iridescenceThicknessTexture"
+		)
+	);
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceThicknessSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
@@ -401,6 +409,7 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
+	assert.ok(samplerCount <= 16);
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -1004,7 +1013,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal(
 		firstDraw.modelBinding.desc.entries.length,
-		1 + WEBGPU_TEXTURE_SLOT_COUNT * 2 + 5
+		1 +
+			WEBGPU_TEXTURE_SLOT_COUNT +
+			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
+			5
 	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
@@ -1023,10 +1035,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		(entry) => entry.binding
 	);
 	assert.ok(modelBindingIndices.includes(29));
-	assert.ok(modelBindingIndices.includes(30));
 	assert.ok(modelBindingIndices.includes(31));
-	assert.ok(modelBindingIndices.includes(32));
 	assert.ok(modelBindingIndices.includes(33));
+	assert.equal(modelBindingIndices.includes(30), false);
+	assert.equal(modelBindingIndices.includes(32), false);
 	const sceneVertexAttributes =
 		firstDraw.pipeline.desc.vertex.buffers[0].attributes;
 	assert.ok(

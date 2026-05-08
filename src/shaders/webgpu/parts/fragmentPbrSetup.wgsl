@@ -90,7 +90,7 @@ let thicknessSample = sampleLinearTexture(
 );
 let iridescenceSample = sampleLinearTexture(
 	iridescenceTexture,
-	iridescenceSampler,
+	thicknessSampler,
 	TEX_IRIDESCENCE,
 	input.uv0,
 	input.uv1,
@@ -99,7 +99,7 @@ let iridescenceSample = sampleLinearTexture(
 );
 let iridescenceThicknessSample = sampleLinearTexture(
 	iridescenceThicknessTexture,
-	iridescenceThicknessSampler,
+	thicknessSampler,
 	TEX_IRIDESCENCE_THICKNESS,
 	input.uv0,
 	input.uv1,

@@ -9,6 +9,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
 
@@ -142,11 +143,13 @@ export function createWebGPUPipelineLayouts(
 			visibility: GPUShaderStage.FRAGMENT,
 			texture: { sampleType: "float" },
 		});
-		modelEntries.push({
-			binding: 2 + i * 2,
-			visibility: GPUShaderStage.FRAGMENT,
-			sampler: { type: "filtering" },
-		});
+		if (i < WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT) {
+			modelEntries.push({
+				binding: 2 + i * 2,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
+			});
+		}
 	}
 
 	modelEntries.push(
