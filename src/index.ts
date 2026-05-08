@@ -13,6 +13,7 @@ export * from "./foundation/Color";
 export * from "./foundation/Logger";
 export * from "./foundation/Platform";
 export { Node } from "./core/Node";
+export { Environment } from "./core/Environment";
 export { MeshAsset, MeshInstance, LODMeshInstance, MeshFactory } from "./meshes";
 export * from "./csg";
 export * from "./spatial";
