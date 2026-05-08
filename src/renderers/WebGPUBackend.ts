@@ -49,6 +49,7 @@ import {
 	WEBGPU_PIPELINE_CACHE_LIMIT,
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
 	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
+	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 } from "./webgpu/constants";
 import {
@@ -435,8 +436,12 @@ export class WebGPUBackend implements IRenderBackend {
 			const adapterMaxTextureDimension2D = adapter.limits?.maxTextureDimension2D ?? 0;
 			const adapterMaxSampledTexturesPerShaderStage =
 				adapter.limits?.maxSampledTexturesPerShaderStage;
+			const adapterMaxSamplersPerShaderStage =
+				adapter.limits?.maxSamplersPerShaderStage;
 			const requiredSampledTexturesPerShaderStage =
 				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
+			const requiredSamplersPerShaderStage =
+				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT;
 			if ((adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_MRT_COLOR_TARGET_COUNT) {
 				requiredLimits.maxColorAttachments = WEBGPU_MRT_COLOR_TARGET_COUNT;
 			}
@@ -450,6 +455,7 @@ export class WebGPUBackend implements IRenderBackend {
 				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
 			}
 			requiredLimits.maxSampledTexturesPerShaderStage = requiredSampledTexturesPerShaderStage;
+			requiredLimits.maxSamplersPerShaderStage = requiredSamplersPerShaderStage;
 			if (
 				typeof adapterMaxSampledTexturesPerShaderStage === "number" &&
 				adapterMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
@@ -459,6 +465,17 @@ export class WebGPUBackend implements IRenderBackend {
 						`(${adapterMaxSampledTexturesPerShaderStage}) is below required ` +
 						"scene pipeline sampled texture count " +
 						`(${requiredSampledTexturesPerShaderStage}).`,
+				);
+			}
+			if (
+				typeof adapterMaxSamplersPerShaderStage === "number" &&
+				adapterMaxSamplersPerShaderStage < requiredSamplersPerShaderStage
+			) {
+				throw new Error(
+					"WebGPU adapter maxSamplersPerShaderStage " +
+						`(${adapterMaxSamplersPerShaderStage}) is below required ` +
+						"scene pipeline sampler count " +
+						`(${requiredSamplersPerShaderStage}).`,
 				);
 			}
 			if (
@@ -475,6 +492,8 @@ export class WebGPUBackend implements IRenderBackend {
 			});
 			const deviceMaxSampledTexturesPerShaderStage =
 				requestedDevice.limits?.maxSampledTexturesPerShaderStage;
+			const deviceMaxSamplersPerShaderStage =
+				requestedDevice.limits?.maxSamplersPerShaderStage;
 			if (
 				typeof deviceMaxSampledTexturesPerShaderStage === "number" &&
 				deviceMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
@@ -484,6 +503,17 @@ export class WebGPUBackend implements IRenderBackend {
 						`(${deviceMaxSampledTexturesPerShaderStage}) is below required ` +
 						"scene pipeline sampled texture count " +
 						`(${requiredSampledTexturesPerShaderStage}).`,
+				);
+			}
+			if (
+				typeof deviceMaxSamplersPerShaderStage === "number" &&
+				deviceMaxSamplersPerShaderStage < requiredSamplersPerShaderStage
+			) {
+				throw new Error(
+					"Requested WebGPU device maxSamplersPerShaderStage " +
+						`(${deviceMaxSamplersPerShaderStage}) is below required ` +
+						"scene pipeline sampler count " +
+						`(${requiredSamplersPerShaderStage}).`,
 				);
 			}
 		} catch (error) {

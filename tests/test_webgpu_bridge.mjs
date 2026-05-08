@@ -22,6 +22,7 @@ import {
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 } from "../src/renderers/webgpu/index.ts";
 import { WebGPUReflectionProbeCapturePass } from "../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
+import { createWebGPUPipelineLayouts } from "../src/renderers/webgpu/WebGPUPipelineLayouts.ts";
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage, TextureFormat } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
@@ -53,6 +54,8 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
+	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
+	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
 } from "../src/renderers/webgpu/constants.ts";
@@ -364,6 +367,40 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("atan2(direction.x, direction.z)"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("frame.environmentOptionsB.z < 0.5"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("frame.options.w > 0.5"));
+}
+
+function testScenePipelineLimitConstantsMatchLayout() {
+	const device = {
+		bindGroupLayouts: [],
+		pipelineLayouts: [],
+		createBindGroupLayout(desc) {
+			const layout = { desc };
+			this.bindGroupLayouts.push(layout);
+			return layout;
+		},
+		createPipelineLayout(desc) {
+			const layout = { desc };
+			this.pipelineLayouts.push(layout);
+			return layout;
+		},
+	};
+	const layouts = createWebGPUPipelineLayouts(device);
+	const fragmentEntries = layouts.scenePipelineLayout.desc.bindGroupLayouts.flatMap(
+		(layout) =>
+			layout.desc.entries.filter(
+				(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
+			)
+	);
+	const sampledTextureCount = fragmentEntries.filter(
+		(entry) => !!entry.texture
+	).length;
+	const samplerCount = fragmentEntries.filter((entry) => !!entry.sampler).length;
+
+	assert.equal(
+		sampledTextureCount,
+		WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
+	);
+	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -2785,6 +2822,7 @@ async function run() {
 	testRenderResourcesRequestsComputeFacadeFromBackend();
 	testFrameExecutorRequestsComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
+	testScenePipelineLimitConstantsMatchLayout();
 	await testParticleShaderDepthConsistency();
 	await testWebGPUShaderConstantTokenInjection();
 	testEnvironmentCollection();
