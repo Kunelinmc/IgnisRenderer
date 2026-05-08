@@ -1,5 +1,5 @@
 import { Matrix4 } from "../maths/Matrix4";
-import type { Texture } from "./Texture";
+import { Environment } from "./Environment";
 import { Node } from "./Node";
 import type { BoundingSphere } from "./types";
 import { MeshInstance } from "../meshes";
@@ -34,7 +34,7 @@ export class Scene {
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
 	public readonly shadows: ShadowManager;
-	public skybox: Texture | null;
+	public readonly environment: Environment;
 	public spatial: SpatialIndex3D | null;
 
 	private _version: number;
@@ -65,7 +65,9 @@ export class Scene {
 		});
 		this.ecs = new ECSWorld();
 		this.shadows = new ShadowManager();
-		this.skybox = null;
+		this.environment = new Environment({}, () => {
+			this.invalidate("unknown");
+		});
 		this.spatial = null;
 		this._version = 0;
 		this._spatialIndexMode = "bvh";
