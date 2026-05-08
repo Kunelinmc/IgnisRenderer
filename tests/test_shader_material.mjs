@@ -9,7 +9,7 @@ import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 function createLayouts() {
 	return {
 		scenePipelineLayout: { id: "scene-layout" },
-		skyboxPipelineLayout: { id: "skybox-layout" },
+		environmentPipelineLayout: { id: "environment-layout" },
 	};
 }
 

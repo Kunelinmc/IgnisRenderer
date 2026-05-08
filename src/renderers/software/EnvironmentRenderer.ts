@@ -3,15 +3,29 @@ import { CameraType } from "../../cameras/Camera";
 import type { Texture } from "../../core/Texture";
 import { sRGBToLinear } from "../../maths/Common";
 
-export class SkyboxRenderer {
+export interface EnvironmentBackgroundRenderOptions {
+	strength: number;
+	tintLinear: {
+		r: number;
+		g: number;
+		b: number;
+	};
+	exposure: number;
+}
+
+export class EnvironmentBackgroundRenderer {
 	public static render(
-		skybox: Texture,
+		environmentBackgroundTexture: Texture,
+		options: EnvironmentBackgroundRenderOptions,
 		pixels: Uint8ClampedArray,
 		camera: Camera,
 		width: number,
 		height: number
 	): void {
-		const decodeSRGB = skybox.colorSpace === "sRGB";
+		const decodeSRGB = environmentBackgroundTexture.colorSpace === "sRGB";
+		const strength = Math.max(0, options.strength);
+		const exposure = Math.max(1e-6, options.exposure);
+		const tint = options.tintLinear;
 		const view = camera.viewMatrix.elements;
 		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
 		const up = { x: view[1][0], y: view[1][1], z: view[1][2] };
@@ -40,26 +54,17 @@ export class SkyboxRenderer {
 				const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
 				const u = (phi + Math.PI) / (2 * Math.PI);
 				const v = theta / Math.PI;
-				const color = skybox.sample(u, v);
+				const color = environmentBackgroundTexture.sample(u, v);
 				const idx = rowBase + x * 4;
-				if (decodeSRGB) {
-					pixels[idx] = Math.max(
-						0,
-						Math.min(255, Math.round(sRGBToLinear(color.r / 255) * 255))
-					);
-					pixels[idx + 1] = Math.max(
-						0,
-						Math.min(255, Math.round(sRGBToLinear(color.g / 255) * 255))
-					);
-					pixels[idx + 2] = Math.max(
-						0,
-						Math.min(255, Math.round(sRGBToLinear(color.b / 255) * 255))
-					);
-				} else {
-					pixels[idx] = color.r;
-					pixels[idx + 1] = color.g;
-					pixels[idx + 2] = color.b;
-				}
+				const linearR = decodeSRGB ? sRGBToLinear(color.r / 255) : color.r / 255;
+				const linearG = decodeSRGB ? sRGBToLinear(color.g / 255) : color.g / 255;
+				const linearB = decodeSRGB ? sRGBToLinear(color.b / 255) : color.b / 255;
+				const scaledR = linearR * tint.r * exposure * strength;
+				const scaledG = linearG * tint.g * exposure * strength;
+				const scaledB = linearB * tint.b * exposure * strength;
+				pixels[idx] = Math.max(0, Math.min(255, Math.round(scaledR * 255)));
+				pixels[idx + 1] = Math.max(0, Math.min(255, Math.round(scaledG * 255)));
+				pixels[idx + 2] = Math.max(0, Math.min(255, Math.round(scaledB * 255)));
 				pixels[idx + 3] = 255;
 			}
 		}

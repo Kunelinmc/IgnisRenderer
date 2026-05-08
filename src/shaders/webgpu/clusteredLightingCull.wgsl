@@ -3,9 +3,9 @@ struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
-	skyboxBasisRight: vec4<f32>,
-	skyboxBasisUp: vec4<f32>,
-	skyboxBasisBackward: vec4<f32>,
+	environmentBasisRight: vec4<f32>,
+	environmentBasisUp: vec4<f32>,
+	environmentBasisBackward: vec4<f32>,
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<f32>,
 	options: vec4<f32>,
@@ -100,17 +100,17 @@ fn clusteredEnabled() -> bool {
 
 fn worldToView(worldPos: vec3<f32>) -> vec3<f32> {
 	let rel = worldPos - frame.cameraPosition.xyz;
-	let viewX = dot(rel, frame.skyboxBasisRight.xyz);
-	let viewY = dot(rel, frame.skyboxBasisUp.xyz);
-	let depth = dot(frame.cameraPosition.xyz - worldPos, frame.skyboxBasisBackward.xyz);
+	let viewX = dot(rel, frame.environmentBasisRight.xyz);
+	let viewY = dot(rel, frame.environmentBasisUp.xyz);
+	let depth = dot(frame.cameraPosition.xyz - worldPos, frame.environmentBasisBackward.xyz);
 	return vec3<f32>(viewX, viewY, depth);
 }
 
 fn dirToView(dir: vec3<f32>) -> vec3<f32> {
 	return vec3<f32>(
-		dot(dir, frame.skyboxBasisRight.xyz),
-		dot(dir, frame.skyboxBasisUp.xyz),
-		-dot(dir, frame.skyboxBasisBackward.xyz)
+		dot(dir, frame.environmentBasisRight.xyz),
+		dot(dir, frame.environmentBasisUp.xyz),
+		-dot(dir, frame.environmentBasisBackward.xyz)
 	);
 }
 
@@ -268,8 +268,8 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
 	// Pre-compute the cluster AABB once - moves ALL projection math
 	// out of the per-light loop.
-	let tanHalfFov = max(frame.skyboxBasisRight.w, 1e-6);
-	let aspect = max(frame.skyboxBasisUp.w, 1e-6);
+	let tanHalfFov = max(frame.environmentBasisRight.w, 1e-6);
+	let aspect = max(frame.environmentBasisUp.w, 1e-6);
 	let aabb = buildClusterAABB(clusterX, clusterY, zSlice, tanHalfFov, aspect);
 
 	var count: u32 = 0u;

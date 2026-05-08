@@ -192,13 +192,13 @@ function testRuntimeCacheDirtyBehavior() {
 
 function testReflectionProbeCaptureDefaultsAndClone() {
 	const probe = new ReflectionProbe();
-	assert.equal(probe.source, "skybox");
+	assert.equal(probe.source, "environment");
 	assert.equal(probe.captureUpdateMode, "onSceneDirty");
 	assert.equal(probe.captureIntervalSeconds, 1);
 	assert.equal(probe.captureResolution.width, 512);
 	assert.equal(probe.captureResolution.height, 256);
 	assert.equal(probe.captureFar, 200);
-	assert.equal(probe.includeSkybox, true);
+	assert.equal(probe.includeEnvironment, true);
 	assert.equal(probe.includeMeshes, true);
 	assert.equal(probe.includeTransparent, true);
 	assert.equal(probe.includeParticles, true);
@@ -211,7 +211,7 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 	assert.equal(cloned.captureResolution.width, probe.captureResolution.width);
 	assert.equal(cloned.captureResolution.height, probe.captureResolution.height);
 	assert.equal(cloned.captureFar, probe.captureFar);
-	assert.equal(cloned.includeSkybox, probe.includeSkybox);
+	assert.equal(cloned.includeEnvironment, probe.includeEnvironment);
 	assert.equal(cloned.includeMeshes, probe.includeMeshes);
 	assert.equal(cloned.includeTransparent, probe.includeTransparent);
 	assert.equal(cloned.includeParticles, probe.includeParticles);

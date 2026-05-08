@@ -56,9 +56,9 @@ const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "viewProjection", type: MAT4X4_F32 },
 		{ name: "prevViewProjection", type: MAT4X4_F32 },
 		{ name: "cameraPosition", type: VEC4_F32 },
-		{ name: "skyboxBasisRight", type: VEC4_F32 },
-		{ name: "skyboxBasisUp", type: VEC4_F32 },
-		{ name: "skyboxBasisBackward", type: VEC4_F32 },
+		{ name: "environmentBasisRight", type: VEC4_F32 },
+		{ name: "environmentBasisUp", type: VEC4_F32 },
+		{ name: "environmentBasisBackward", type: VEC4_F32 },
 		{ name: "ambientColor", type: VEC4_F32 },
 		{ name: "lightCounts", type: VEC4_F32 },
 		{ name: "options", type: VEC4_F32 },
@@ -232,23 +232,23 @@ export function packFrameUniformData(
 		input.cameraPosition.z,
 		1,
 	]);
-	writer.writeVec("skyboxBasisRight", [
-		input.skyboxRight[0],
-		input.skyboxRight[1],
-		input.skyboxRight[2],
-		input.skyboxTanHalfFov,
+	writer.writeVec("environmentBasisRight", [
+		input.environmentRight[0],
+		input.environmentRight[1],
+		input.environmentRight[2],
+		input.environmentTanHalfFov,
 	]);
-	writer.writeVec("skyboxBasisUp", [
-		input.skyboxUp[0],
-		input.skyboxUp[1],
-		input.skyboxUp[2],
-		input.skyboxAspect,
+	writer.writeVec("environmentBasisUp", [
+		input.environmentUp[0],
+		input.environmentUp[1],
+		input.environmentUp[2],
+		input.environmentAspect,
 	]);
-	writer.writeVec("skyboxBasisBackward", [
-		input.skyboxBackward[0],
-		input.skyboxBackward[1],
-		input.skyboxBackward[2],
-		input.skyboxIsOrthographic ? 1 : 0,
+	writer.writeVec("environmentBasisBackward", [
+		input.environmentBackward[0],
+		input.environmentBackward[1],
+		input.environmentBackward[2],
+		input.environmentIsOrthographic ? 1 : 0,
 	]);
 	writer.writeVec("ambientColor", [
 		input.ambientColor[0],
@@ -279,7 +279,7 @@ export function packFrameUniformData(
 	writer.writeVec("environmentOptionsB", [
 		input.hasBRDFLUT ? 1 : 0,
 		Math.max(0, input.envSpecularMaxMipLevel),
-		input.skyboxIsLinear ? 1 : 0,
+		input.environmentIsLinear ? 1 : 0,
 		input.enableClusteredLighting ? 1 : 0,
 	]);
 	writer.writeVec("taaJitterCurrentPrev", input.taaJitterCurrentPrev);

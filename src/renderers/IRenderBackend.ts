@@ -32,7 +32,6 @@ export interface WarmupOptions {
 	includePostProcess?: boolean;
 	includeParticles?: boolean;
 	includeEnvironmentIBLBake?: boolean;
-	allowSkyboxSpecularFallback?: boolean;
 	environmentIBLBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
 	logCompilationInfo?: boolean;
 	onProgress?: (progress: WarmupProgress) => void;
@@ -63,7 +62,7 @@ export interface BackendCapabilities {
 	sh: boolean;
 	shadows: boolean;
 	reflection: boolean;
-	skybox: boolean;
+	environment: boolean;
 	ssao: boolean;
 	ssgi: boolean;
 	taa: boolean;

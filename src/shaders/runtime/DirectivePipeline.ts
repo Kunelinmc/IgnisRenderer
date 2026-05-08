@@ -125,7 +125,7 @@ function normalizeStage(stage?: ShaderStage): ShaderStage {
 function normalizeSourceKind(sourceKind?: ShaderSourceKind): ShaderSourceKind {
 	switch (sourceKind) {
 		case "builtin-scene":
-		case "builtin-skybox":
+		case "builtin-environment":
 		case "builtin-present":
 		case "postprocess":
 		case "clustered":

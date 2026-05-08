@@ -9,7 +9,7 @@ function createFeatures(overrides = {}) {
 		enableSH: true,
 		enableShadows: true,
 		enableReflection: false,
-		enableSkybox: true,
+		enableEnvironment: true,
 		enableSSAO: true,
 		enableSSGI: false,
 		enableTAA: true,

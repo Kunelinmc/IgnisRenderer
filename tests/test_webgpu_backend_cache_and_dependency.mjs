@@ -189,7 +189,7 @@ function createFrameContext(overrides = {}) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableSkybox: false,
+			enableEnvironment: false,
 			enableSSAO: true,
 			enableSSGI: true,
 			enableTAA: true,

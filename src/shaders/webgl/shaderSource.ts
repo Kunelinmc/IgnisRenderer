@@ -5,8 +5,8 @@ import type { CompositeShaderSource } from "../runtime";
 export type WebGLShaderPart =
 	| "sceneVertex"
 	| "sceneFragment"
-	| "skyboxVertex"
-	| "skyboxFragment"
+	| "environmentVertex"
+	| "environmentFragment"
 	| "presentVertex"
 	| "presentFragment"
 	| "particleVertex"
@@ -32,8 +32,8 @@ export type WebGLShaderPart =
 export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"sceneVertex",
 	"sceneFragment",
-	"skyboxVertex",
-	"skyboxFragment",
+	"environmentVertex",
+	"environmentFragment",
 	"presentVertex",
 	"presentFragment",
 	"particleVertex",
@@ -98,8 +98,8 @@ function loadShader(
 const shaderFiles: Record<WebGLShaderPart, string> = {
 	sceneVertex: "./parts/sceneVertex.glsl",
 	sceneFragment: "./parts/sceneFragment.glsl",
-	skyboxVertex: "./parts/skyboxVertex.glsl",
-	skyboxFragment: "./parts/skyboxFragment.glsl",
+	environmentVertex: "./parts/environmentVertex.glsl",
+	environmentFragment: "./parts/environmentFragment.glsl",
 	presentVertex: "./parts/presentVertex.glsl",
 	presentFragment: "./parts/presentFragment.glsl",
 	particleVertex: "./parts/particleVertex.glsl",

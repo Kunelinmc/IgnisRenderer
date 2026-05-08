@@ -442,7 +442,6 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 		true,
 		null,
 		false,
-		true,
 		{ x: 0, y: 0, z: 0 }
 	);
 	assert.equal(state.localLightProbeCount, 1);
@@ -456,7 +455,7 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	const warn = () => {};
 	const cubeProbeMap = createTinyCubeTexture(3, 0.75);
-	const cubeSkybox = createTinyCubeTexture(2, 0.5);
+	const cubeEnvironment = createTinyCubeTexture(2, 0.5);
 	const reflectionProbe = new ReflectionProbe({
 		prefilteredMap: cubeProbeMap,
 		shape: "sphere",
@@ -469,36 +468,30 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 		false,
 		undefined,
 		false,
-		cubeSkybox
+		cubeEnvironment
 	);
 	assert.ok(probeState.envSpecularMap);
 	assert.notEqual(probeState.envSpecularMap, cubeProbeMap);
-	assert.ok(probeState.envSpecularFallbackMap);
-	assert.notEqual(probeState.envSpecularFallbackMap, cubeSkybox);
+	assert.equal(probeState.envSpecularFallbackMap, null);
 	assert.equal(probeState.envSpecularMap.width, 4);
 	assert.equal(probeState.envSpecularMap.height, 2);
-	assert.equal(probeState.envSpecularFallbackMap.width, 4);
-	assert.equal(probeState.envSpecularFallbackMap.height, 2);
 	assert.equal(probeState.reflectionProbeCount, 1);
 
-	const skyboxState = collectWebGLLights(
+	const environmentState = collectWebGLLights(
 		[],
 		true,
 		warn,
 		false,
 		undefined,
 		false,
-		cubeSkybox
+		cubeEnvironment
 	);
-	assert.ok(skyboxState.envSpecularMap);
-	assert.notEqual(skyboxState.envSpecularMap, cubeSkybox);
-	assert.ok(skyboxState.envSpecularFallbackMap);
-	assert.notEqual(skyboxState.envSpecularFallbackMap, cubeSkybox);
-	assert.equal(skyboxState.envSpecularMap.width, 4);
-	assert.equal(skyboxState.envSpecularMap.height, 2);
-	assert.equal(skyboxState.envSpecularFallbackMap.width, 4);
-	assert.equal(skyboxState.envSpecularFallbackMap.height, 2);
-	assert.equal(skyboxState.reflectionProbeCount, 0);
+	assert.ok(environmentState.envSpecularMap);
+	assert.notEqual(environmentState.envSpecularMap, cubeEnvironment);
+	assert.equal(environmentState.envSpecularFallbackMap, null);
+	assert.equal(environmentState.envSpecularMap.width, 4);
+	assert.equal(environmentState.envSpecularMap.height, 2);
+	assert.equal(environmentState.reflectionProbeCount, 0);
 }
 
 function testLightCollectorUsesParentedProbeCaptureOrigin() {
@@ -536,10 +529,10 @@ function testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot() {
 	assert.deepEqual(state.reflectionProbes[0].captureWorldPosition, [5, 0, 0]);
 }
 
-function testLightCollectorCanDisableSkyboxSpecularFallback() {
+function testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap() {
 	const warnings = [];
 	const warn = (key, message) => warnings.push({ key, message });
-	const skybox = createTinyCubeTexture(2, 0.5);
+	const environment = createTinyCubeTexture(2, 0.5);
 	const state = collectWebGLLights(
 		[],
 		true,
@@ -547,16 +540,15 @@ function testLightCollectorCanDisableSkyboxSpecularFallback() {
 		false,
 		undefined,
 		false,
-		skybox,
-		false,
+		environment,
 		false
 	);
-	assert.equal(state.envSpecularMap, null);
+	assert.ok(state.envSpecularMap);
 	assert.equal(state.envSpecularFallbackMap, null);
 	assert.equal(state.reflectionProbeCount, 0);
 	assert.equal(state.reflectionProbes.length, 0);
 	assert.equal(
-		warnings.some((warning) => warning.key.startsWith("webgl-skybox-")),
+		warnings.some((warning) => warning.key.startsWith("webgl-environment-")),
 		false
 	);
 }
@@ -1403,7 +1395,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableSkybox: false,
+			enableEnvironment: false,
 			enableSSAO: false,
 			enableTAA: false,
 			enableSSR: false,
@@ -1413,7 +1405,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 		},
 		shadowMaps: new Map(),
 		scene: {
-			skybox: null,
+			environment: null,
 			particleSystems: [],
 			opaquePackets: [],
 			transparentPackets: [],
@@ -1439,7 +1431,7 @@ async function run() {
 	testLightCollectorSupportsCubeTextureEnvironmentMaps();
 	testLightCollectorUsesParentedProbeCaptureOrigin();
 	testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot();
-	testLightCollectorCanDisableSkyboxSpecularFallback();
+	testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap();
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();

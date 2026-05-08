@@ -105,7 +105,7 @@ export interface WebGPUFeatureState {
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;
-	enableSkybox: boolean;
+	enableEnvironment: boolean;
 	enableOIT: boolean;
 	enableSSAO: boolean;
 	enableSSGI: boolean;
@@ -156,7 +156,7 @@ export interface WebGPUEnvironmentState {
 	shAmbientCoeffs: SHCoefficients | null;
 	enableSH: boolean;
 	hasSHAmbient: boolean;
-	skyboxTexture: Texture | null;
+	environmentTexture: Texture | null;
 	envSpecularTexture: Texture | null;
 	envSpecularFallbackTexture: Texture | null;
 	localLightProbeCount: number;
@@ -222,12 +222,12 @@ export interface WebGPUFrameUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];
 	prevViewProjectionMatrix: Matrix4 | number[][];
 	cameraPosition: IVector3;
-	skyboxRight: WebGPUVec3;
-	skyboxUp: WebGPUVec3;
-	skyboxBackward: WebGPUVec3;
-	skyboxTanHalfFov: number;
-	skyboxAspect: number;
-	skyboxIsOrthographic: boolean;
+	environmentRight: WebGPUVec3;
+	environmentUp: WebGPUVec3;
+	environmentBackward: WebGPUVec3;
+	environmentTanHalfFov: number;
+	environmentAspect: number;
+	environmentIsOrthographic: boolean;
 	ambientColor: WebGPULightingState["ambientColor"];
 	shAmbientCoeffs: SHCoefficients | null;
 	localLightProbeCount: number;
@@ -246,8 +246,8 @@ export interface WebGPUFrameUniformInput {
 	enableClusteredLighting: boolean;
 	encodeGammaInShader: boolean;
 	hasSHAmbient: boolean;
-	hasSkybox: boolean;
-	skyboxIsLinear: boolean;
+	hasEnvironment: boolean;
+	environmentIsLinear: boolean;
 	hasEnvSpecular: boolean;
 	hasEnvSpecularFallback: boolean;
 	hasBRDFLUT: boolean;

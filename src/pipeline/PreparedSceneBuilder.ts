@@ -79,6 +79,7 @@ export class PreparedSceneBuilder {
 
 		opaquePackets.sort(compareOpaquePackets);
 		transparentPackets.sort(compareTransparentPackets);
+		const environment = renderer.scene.environment;
 
 		return {
 			sceneBounds: renderer.scene.getBounds(),
@@ -86,8 +87,17 @@ export class PreparedSceneBuilder {
 			particleSystems: renderer.scene.ecs.findParticleSystems(),
 			hasActiveAnimations: renderer.animationSystem.hasActiveActions(),
 			camera: renderer.camera,
-			skybox: renderer.scene.skybox,
-			allowSkyboxSpecularFallback: renderer.allowSkyboxSpecularFallback,
+			environment: {
+				backgroundEnabled: environment.backgroundEnabled,
+				lightingEnabled: environment.lightingEnabled,
+				backgroundTexture: environment.backgroundTexture,
+				iblTexture: environment.iblTexture,
+				backgroundStrength: environment.backgroundStrength,
+				diffuseStrength: environment.diffuseStrength,
+				specularStrength: environment.specularStrength,
+				backgroundTintLinear: environment.backgroundTintLinear,
+				backgroundExposure: environment.backgroundExposure,
+			},
 			meshInstances,
 			shadowMaps: renderer.shadowMaps,
 			opaquePackets,

@@ -3,7 +3,13 @@ import { CameraType } from "../src/cameras/Camera.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { sRGBToLinear } from "../src/maths/Common.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { SkyboxRenderer } from "../src/renderers/software/SkyboxRenderer.ts";
+import { EnvironmentBackgroundRenderer } from "../src/renderers/software/EnvironmentRenderer.ts";
+
+const DEFAULT_BACKGROUND_OPTIONS = {
+	strength: 1,
+	tintLinear: { r: 1, g: 1, b: 1 },
+	exposure: 1,
+};
 
 function createCamera() {
 	return {
@@ -14,8 +20,8 @@ function createCamera() {
 	};
 }
 
-function testSkyboxRendererDecodesSRGBToLinear() {
-	const skybox = new Texture(
+function testEnvironmentRendererDecodesSRGBToLinear() {
+	const environment = new Texture(
 		new Uint8ClampedArray([128, 64, 32, 255]),
 		1,
 		1,
@@ -23,7 +29,14 @@ function testSkyboxRendererDecodesSRGBToLinear() {
 	);
 	const pixels = new Uint8ClampedArray(4);
 
-	SkyboxRenderer.render(skybox, pixels, createCamera(), 1, 1);
+	EnvironmentBackgroundRenderer.render(
+		environment,
+		DEFAULT_BACKGROUND_OPTIONS,
+		pixels,
+		createCamera(),
+		1,
+		1
+	);
 
 	const expectedR = Math.round(sRGBToLinear(128 / 255) * 255);
 	const expectedG = Math.round(sRGBToLinear(64 / 255) * 255);
@@ -34,8 +47,8 @@ function testSkyboxRendererDecodesSRGBToLinear() {
 	assert.equal(pixels[3], 255);
 }
 
-function testSkyboxRendererPreservesLinearTextureValues() {
-	const skybox = new Texture(
+function testEnvironmentRendererPreservesLinearTextureValues() {
+	const environment = new Texture(
 		new Uint8ClampedArray([128, 64, 32, 255]),
 		1,
 		1,
@@ -43,25 +56,39 @@ function testSkyboxRendererPreservesLinearTextureValues() {
 	);
 	const pixels = new Uint8ClampedArray(4);
 
-	SkyboxRenderer.render(skybox, pixels, createCamera(), 1, 1);
+	EnvironmentBackgroundRenderer.render(
+		environment,
+		DEFAULT_BACKGROUND_OPTIONS,
+		pixels,
+		createCamera(),
+		1,
+		1
+	);
 
 	assert.deepEqual(Array.from(pixels), [128, 64, 32, 255]);
 }
 
-function testSkyboxRendererPreservesHDRTextureValues() {
-	const skybox = new Texture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, "HDR");
+function testEnvironmentRendererPreservesHDRTextureValues() {
+	const environment = new Texture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, "HDR");
 	const pixels = new Uint8ClampedArray(4);
 
-	SkyboxRenderer.render(skybox, pixels, createCamera(), 1, 1);
+	EnvironmentBackgroundRenderer.render(
+		environment,
+		DEFAULT_BACKGROUND_OPTIONS,
+		pixels,
+		createCamera(),
+		1,
+		1
+	);
 
 	assert.deepEqual(Array.from(pixels), [255, 128, 64, 255]);
 }
 
 function run() {
-	testSkyboxRendererDecodesSRGBToLinear();
-	testSkyboxRendererPreservesLinearTextureValues();
-	testSkyboxRendererPreservesHDRTextureValues();
-	console.log("Software skybox color-space tests passed");
+	testEnvironmentRendererDecodesSRGBToLinear();
+	testEnvironmentRendererPreservesLinearTextureValues();
+	testEnvironmentRendererPreservesHDRTextureValues();
+	console.log("Software environment color-space tests passed");
 }
 
 run();

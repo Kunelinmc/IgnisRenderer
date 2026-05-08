@@ -14,7 +14,7 @@ const OPEN_TO_CLOSE = new Map<string, string>([
 
 const RUNTIME_METADATA_INJECTION_SOURCE_KINDS = new Set([
 	"builtin-scene",
-	"builtin-skybox",
+	"builtin-environment",
 	"builtin-present",
 	"postprocess",
 	"clustered",

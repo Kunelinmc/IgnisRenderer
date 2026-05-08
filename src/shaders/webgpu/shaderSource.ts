@@ -189,17 +189,17 @@ export function loadSceneShaderPartComposite(
 	return cached;
 }
 
-export function loadSkyboxShaderSource(): Promise<string> {
-	return loadSkyboxShaderSourceComposite().then((composite) => composite.code);
+export function loadEnvironmentShaderSource(): Promise<string> {
+	return loadEnvironmentShaderSourceComposite().then((composite) => composite.code);
 }
 
-export function loadSkyboxShaderSourceComposite(): Promise<CompositeShaderSource> {
+export function loadEnvironmentShaderSourceComposite(): Promise<CompositeShaderSource> {
 	return composeWithSharedLightData(
-		"skybox-composite",
+		"environment-composite",
 		loadShaderCompositeFromFile(
-			"skybox",
-			"./skyboxShader.wgsl",
-			fromRawShaderModuleLoader(() => import("./skyboxShader.wgsl?raw"))
+			"environment",
+			"./environmentShader.wgsl",
+			fromRawShaderModuleLoader(() => import("./environmentShader.wgsl?raw"))
 		)
 	);
 }

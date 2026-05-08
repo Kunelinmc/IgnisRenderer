@@ -1,6 +1,6 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
-import { getWebGPUSkyboxShaderComposite } from "../../shaders/webgpu/skyboxShader";
+import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
 import { createWebGPUMaterialUniformData } from "./";
 import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -94,10 +94,10 @@ export class WebGPUPipelineLibrary {
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
-	private _skyboxShaderModule: IShaderModule | null = null;
-	private _skyboxShaderDirectiveTag = "";
+	private _environmentShaderModule: IShaderModule | null = null;
+	private _environmentShaderDirectiveTag = "";
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
-	private _skyboxPipelines = new Map<string, IRenderPipeline>();
+	private _environmentPipelines = new Map<string, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
@@ -122,10 +122,10 @@ export class WebGPUPipelineLibrary {
 	public invalidateShaderRuntimeCaches(): void {
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
-		this._skyboxShaderModule = null;
-		this._skyboxShaderDirectiveTag = "";
+		this._environmentShaderModule = null;
+		this._environmentShaderDirectiveTag = "";
 		this._customShaderModuleCache.clear();
-		this._skyboxPipelines.clear();
+		this._environmentPipelines.clear();
 		this._materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
 		this._pipelineCache.clear();
 		this._earlyZPrepassCache.clear();
@@ -134,7 +134,7 @@ export class WebGPUPipelineLibrary {
 	public async init(): Promise<void> {
 		await Promise.all([
 			this._getSceneShaderModule(),
-			this._getSkyboxShaderModule(),
+			this._getEnvironmentShaderModule(),
 		]);
 	}
 
@@ -640,25 +640,25 @@ export class WebGPUPipelineLibrary {
 		);
 	}
 
-	public async getSkyboxPipeline(
+	public async getEnvironmentPipeline(
 		mode: WebGPUSceneTargetMode = "single"
 	): Promise<IRenderPipeline> {
 		const sampleCount = this._resolveSampleCount(mode);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${sampleCount}`;
-		const cached = this._skyboxPipelines.get(cacheKey);
+		const cached = this._environmentPipelines.get(cacheKey);
 		if (cached) {
 			return cached;
 		}
 
-		const shaderModule = await this._getSkyboxShaderModule();
+		const shaderModule = await this._getEnvironmentShaderModule();
 		const targetFormat =
 			mode === "mrt" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
 		const pipeline = this._backend.createPipeline({
-			layout: this._layouts.skyboxPipelineLayout,
-			label: `WebGPUSkyboxPipeline_${mode}`,
+			layout: this._layouts.environmentPipelineLayout,
+			label: `WebGPUEnvironmentPipeline_${mode}`,
 			vertex: {
 				module: shaderModule,
 				entryPoint: "vsMain",
@@ -680,7 +680,7 @@ export class WebGPUPipelineLibrary {
 			},
 			sampleCount,
 		} as any);
-		this._skyboxPipelines.set(cacheKey, pipeline);
+		this._environmentPipelines.set(cacheKey, pipeline);
 		return pipeline;
 	}
 
@@ -734,28 +734,28 @@ export class WebGPUPipelineLibrary {
 		return this._sceneShaderModule;
 	}
 
-	private async _getSkyboxShaderModule(): Promise<IShaderModule> {
+	private async _getEnvironmentShaderModule(): Promise<IShaderModule> {
 		const directiveTag = this._getDirectiveCacheTag();
 		if (
-			this._skyboxShaderModule &&
-			this._skyboxShaderDirectiveTag === directiveTag
+			this._environmentShaderModule &&
+			this._environmentShaderDirectiveTag === directiveTag
 		) {
-			return this._skyboxShaderModule;
+			return this._environmentShaderModule;
 		}
-		if (!this._skyboxShaderModule || this._skyboxShaderDirectiveTag !== directiveTag) {
-			const shader = await getWebGPUSkyboxShaderComposite();
-			this._skyboxShaderModule = await this._backend.createShaderModule({
+		if (!this._environmentShaderModule || this._environmentShaderDirectiveTag !== directiveTag) {
+			const shader = await getWebGPUEnvironmentShaderComposite();
+			this._environmentShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
 				sourceMap: shader.sourceMap,
-				label: "WebGPUSkyboxShader",
+				label: "WebGPUEnvironmentShader",
 				language: "wgsl",
 				stage: "unknown",
-				sourceKind: "builtin-skybox",
+				sourceKind: "builtin-environment",
 			});
-			this._skyboxShaderDirectiveTag = this._getDirectiveCacheTag();
+			this._environmentShaderDirectiveTag = this._getDirectiveCacheTag();
 		}
 
-		return this._skyboxShaderModule;
+		return this._environmentShaderModule;
 	}
 
 	private _isWarnMode(): boolean {

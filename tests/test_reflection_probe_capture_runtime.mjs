@@ -71,8 +71,10 @@ async function testCaptureRuntimeTriggerModes() {
 	assert.equal(manualProbe.prefilteredMap, null);
 
 	manualProbe.requestCapture();
-	await runtime.execute({ scene: manualScene, nowMs: 16 });
-	await flushAsyncTasks();
+	for (let step = 0; step < 12 && bakeCalls.length < 1; step++) {
+		await runtime.execute({ scene: manualScene, nowMs: 16 + step * 16 });
+		await flushAsyncTasks();
+	}
 	assert.equal(bakeCalls.length, 1);
 	assert.ok(manualProbe.prefilteredMap);
 
@@ -395,7 +397,7 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 			source: "capturedScene",
 			captureUpdateMode: "manual",
 			captureResolution: { width: 32, height: 16 },
-			includeSkybox: false,
+			includeEnvironment: false,
 			includeTransparent: false,
 			includeParticles: false,
 			includeShadows: false,
@@ -411,7 +413,7 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 		webgpuCaptureSource: {
 			async captureReflectionProbeFace(request) {
 				capturedFlags.push({
-					includeSkybox: request.includeSkybox,
+					includeEnvironment: request.includeEnvironment,
 					includeTransparent: request.includeTransparent,
 					includeParticles: request.includeParticles,
 					includeShadows: request.includeShadows,
@@ -424,7 +426,7 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 
 	assert.ok(capturedFlags.length > 0);
 	for (const flags of capturedFlags) {
-		assert.equal(flags.includeSkybox, false);
+		assert.equal(flags.includeEnvironment, false);
 		assert.equal(flags.includeTransparent, false);
 		assert.equal(flags.includeParticles, false);
 		assert.equal(flags.includeShadows, false);
@@ -455,7 +457,7 @@ async function testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable() {
 				source: "capturedScene",
 				captureUpdateMode: "manual",
 				includeMeshes: true,
-				includeSkybox: false,
+				includeEnvironment: false,
 				captureResolution: { width: 16, height: 8 },
 			})
 		);
@@ -484,7 +486,7 @@ class RendererCaptureStageBackendStub {
 			sh: false,
 			shadows: false,
 			reflection: true,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			ssgi: false,
 			taa: false,

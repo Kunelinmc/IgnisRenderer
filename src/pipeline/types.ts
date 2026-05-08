@@ -13,6 +13,7 @@ import type {
 	IPrimitiveGeometry,
 } from "../core/types";
 import type { MeshAsset, MeshInstance } from "../meshes";
+import type { EnvironmentTintLinear } from "../core/Environment";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;
@@ -147,8 +148,7 @@ export interface PreparedScene {
 	particleSystems: ParticleSystem[];
 	hasActiveAnimations: boolean;
 	camera: Camera;
-	skybox?: Texture | null;
-	allowSkyboxSpecularFallback?: boolean;
+	environment: PreparedSceneEnvironment;
 	meshInstances: MeshInstance[];
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	opaquePackets: DrawPacket[];
@@ -157,6 +157,18 @@ export interface PreparedScene {
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
 	spatialIndex: PreparedSceneSpatialIndex | null;
+}
+
+export interface PreparedSceneEnvironment {
+	backgroundEnabled: boolean;
+	lightingEnabled: boolean;
+	backgroundTexture: Texture | null;
+	iblTexture: Texture | null;
+	backgroundStrength: number;
+	diffuseStrength: number;
+	specularStrength: number;
+	backgroundTintLinear: EnvironmentTintLinear;
+	backgroundExposure: number;
 }
 
 export interface FrameAttachments {
@@ -605,7 +617,7 @@ export interface RendererFeatureRequest {
 	enableSH?: boolean;
 	enableShadows?: boolean;
 	enableReflection?: boolean;
-	enableSkybox?: boolean;
+	enableEnvironment?: boolean;
 	enableOIT?: boolean;
 	enableSSAO?: boolean;
 	enableSSGI?: boolean;

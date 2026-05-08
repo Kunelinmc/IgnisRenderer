@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 } from "../src/pipeline/types.ts";
@@ -23,7 +23,7 @@ function createCapabilities(clusteredLighting) {
 		sh: false,
 		shadows: false,
 		reflection: false,
-		skybox: false,
+		environment: false,
 		ssao: false,
 		taa: false,
 		ssr: false,

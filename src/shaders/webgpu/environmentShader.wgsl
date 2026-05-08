@@ -6,9 +6,9 @@ struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
-	skyboxBasisRight: vec4<f32>,
-	skyboxBasisUp: vec4<f32>,
-	skyboxBasisBackward: vec4<f32>,
+	environmentBasisRight: vec4<f32>,
+	environmentBasisUp: vec4<f32>,
+	environmentBasisBackward: vec4<f32>,
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<f32>,
 	options: vec4<f32>,
@@ -28,9 +28,14 @@ struct VertexOutput {
 	@location(0) ndc: vec2<f32>,
 }
 
+struct EnvironmentBackgroundParams {
+	tintExposureStrength: vec4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
-@group(0) @binding(1) var skyboxTexture: texture_2d<f32>;
-@group(0) @binding(2) var skyboxSampler: sampler;
+@group(0) @binding(1) var environmentTexture: texture_2d<f32>;
+@group(0) @binding(2) var environmentSampler: sampler;
+@group(0) @binding(3) var<uniform> environmentBackground: EnvironmentBackgroundParams;
 
 @vertex
 fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
@@ -49,11 +54,11 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
 @fragment
 fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
-	let backward = frame.skyboxBasisBackward.xyz;
-	let tanHalfFov = frame.skyboxBasisRight.w;
-	let aspect = frame.skyboxBasisUp.w;
+	let right = frame.environmentBasisRight.xyz;
+	let up = frame.environmentBasisUp.xyz;
+	let backward = frame.environmentBasisBackward.xyz;
+	let tanHalfFov = frame.environmentBasisRight.w;
+	let aspect = frame.environmentBasisUp.w;
 	let jitteredNdc = input.ndc + frame.taaJitterCurrentPrev.xy;
 
 	let cx = jitteredNdc.x * aspect * tanHalfFov;
@@ -63,10 +68,13 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 	let phi = atan2(direction.x, direction.z);
 	let theta = acos(clamp(direction.y, -1.0, 1.0));
 	let uv = vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
-	var skyColor = textureSample(skyboxTexture, skyboxSampler, uv).rgb;
+	var skyColor = textureSample(environmentTexture, environmentSampler, uv).rgb;
 	if (frame.environmentOptionsB.z < 0.5) {
 		skyColor = srgbToLinear(skyColor);
 	}
+	skyColor *=
+		environmentBackground.tintExposureStrength.xyz *
+		environmentBackground.tintExposureStrength.w;
 
 	if (frame.options.w > 0.5) {
 		skyColor = linearToSrgb(skyColor);

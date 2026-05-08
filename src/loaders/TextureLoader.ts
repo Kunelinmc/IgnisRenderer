@@ -102,7 +102,7 @@ export class TextureLoader extends Loader {
 
 	private _createLoadErrorFallbackTexture(): Texture {
 		// Keep magenta for diagnostics, but tag it so renderer code can avoid
-		// using it as a skybox/environment by mistake.
+		// using it as a environment/environment by mistake.
 		const texture = this.createSolidColorTexture(255, 0, 255);
 		texture.markAsLoadErrorFallback();
 		return texture;

@@ -12,7 +12,7 @@ import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
 import type { SoftwarePassLike } from "./software/passes/types";
-import { SkyboxRenderer } from "./software/SkyboxRenderer";
+import { EnvironmentBackgroundRenderer } from "./software/EnvironmentRenderer";
 import { isShadowCastingLight } from "../lights";
 import {
 	resolveShadowCasterBounds,
@@ -57,6 +57,57 @@ const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	maxDynamicShadowCost: 20,
 };
 
+function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
+	backgroundEnabled: boolean;
+	lightingEnabled: boolean;
+	backgroundTexture: any;
+	iblTexture: any;
+	backgroundStrength: number;
+	backgroundTintLinear: { r: number; g: number; b: number };
+	backgroundExposure: number;
+} {
+	const environment = (scene as { environment?: unknown }).environment as
+		| {
+				backgroundEnabled?: boolean;
+				lightingEnabled?: boolean;
+				backgroundTexture?: unknown;
+				iblTexture?: unknown;
+				backgroundStrength?: number;
+				backgroundTintLinear?: { r?: number; g?: number; b?: number };
+				backgroundExposure?: number;
+		  }
+		| undefined;
+	return {
+		backgroundEnabled: environment?.backgroundEnabled ?? true,
+		lightingEnabled: environment?.lightingEnabled ?? true,
+		backgroundTexture:
+			(environment?.backgroundTexture as any | null | undefined) ?? null,
+		iblTexture: (environment?.iblTexture as any | null | undefined) ?? null,
+		backgroundStrength:
+			typeof environment?.backgroundStrength === "number" ?
+				environment.backgroundStrength
+			:	1,
+		backgroundTintLinear: {
+			r:
+				typeof environment?.backgroundTintLinear?.r === "number" ?
+					environment.backgroundTintLinear.r
+				:	1,
+			g:
+				typeof environment?.backgroundTintLinear?.g === "number" ?
+					environment.backgroundTintLinear.g
+				:	1,
+			b:
+				typeof environment?.backgroundTintLinear?.b === "number" ?
+					environment.backgroundTintLinear.b
+				:	1,
+		},
+		backgroundExposure:
+			typeof environment?.backgroundExposure === "number" ?
+				environment.backgroundExposure
+			:	1,
+	};
+}
+
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "on-demand";
@@ -68,7 +119,7 @@ export class SoftwareBackend implements IRenderBackend {
 		sh: true,
 		shadows: true,
 		reflection: true,
-		skybox: true,
+		environment: true,
 		ssao: true,
 		ssgi: false,
 		taa: false,
@@ -269,9 +320,20 @@ export class SoftwareBackend implements IRenderBackend {
 			}
 		}
 
-		if (!incrementalPartial && context.features.enableSkybox && context.scene.skybox) {
-			SkyboxRenderer.render(
-				context.scene.skybox,
+		const environment = resolvePreparedSceneEnvironment(context.scene);
+		if (
+			!incrementalPartial &&
+			context.features.enableEnvironment &&
+			environment.backgroundEnabled &&
+			environment.backgroundTexture
+		) {
+			EnvironmentBackgroundRenderer.render(
+				environment.backgroundTexture,
+				{
+					strength: environment.backgroundStrength,
+					tintLinear: environment.backgroundTintLinear,
+					exposure: environment.backgroundExposure,
+				},
 				pixels,
 				context.camera,
 				context.attachments.width,

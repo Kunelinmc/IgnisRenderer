@@ -15,11 +15,11 @@ import {
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
-	skyboxFrameBindGroupLayout: GPUBindGroupLayout;
+	environmentFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayout: GPUBindGroupLayout;
 	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayout: GPUPipelineLayout;
-	skyboxPipelineLayout: GPUPipelineLayout;
+	environmentPipelineLayout: GPUPipelineLayout;
 	particlePipelineLayout: GPUPipelineLayout;
 }
 
@@ -77,8 +77,8 @@ export function createWebGPUPipelineLayouts(
 			},
 		],
 	});
-	const skyboxFrameBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUSkyboxFrameBindGroupLayout",
+	const environmentFrameBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUEnvironmentFrameBindGroupLayout",
 		entries: [
 			{
 				binding: 0,
@@ -94,6 +94,11 @@ export function createWebGPUPipelineLayouts(
 				binding: 2,
 				visibility: GPUShaderStage.FRAGMENT,
 				sampler: { type: "filtering" },
+			},
+			{
+				binding: 3,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: { type: "uniform" },
 			},
 		],
 	});
@@ -205,9 +210,9 @@ export function createWebGPUPipelineLayouts(
 			clusteredSceneBindGroupLayout,
 		],
 	});
-	const skyboxPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUSkyboxPipelineLayout",
-		bindGroupLayouts: [skyboxFrameBindGroupLayout],
+	const environmentPipelineLayout = device.createPipelineLayout({
+		label: "WebGPUEnvironmentPipelineLayout",
+		bindGroupLayouts: [environmentFrameBindGroupLayout],
 	});
 	const particlePipelineLayout = device.createPipelineLayout({
 		label: "WebGPUParticlePipelineLayout",
@@ -217,11 +222,11 @@ export function createWebGPUPipelineLayouts(
 	return {
 		sceneFrameBindGroupLayout,
 		clusteredSceneBindGroupLayout,
-		skyboxFrameBindGroupLayout,
+		environmentFrameBindGroupLayout,
 		modelBindGroupLayout,
 		particleBindGroupLayout,
 		scenePipelineLayout,
-		skyboxPipelineLayout,
+		environmentPipelineLayout,
 		particlePipelineLayout,
 	};
 }

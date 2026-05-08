@@ -5,8 +5,8 @@ import {
 } from "./WebGLShaderSourceFactory";
 
 const PIPELINE_PARTS: readonly WebGLShaderPart[] = [
-	"skyboxVertex",
-	"skyboxFragment",
+	"environmentVertex",
+	"environmentFragment",
 	"presentVertex",
 	"presentFragment",
 	"particleVertex",

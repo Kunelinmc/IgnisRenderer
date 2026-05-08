@@ -10,7 +10,7 @@ class StubBackend {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			ssgi: false,
 			taa: false,
@@ -77,7 +77,7 @@ async function run() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableGamma = false;
 
 		await renderer.renderScene(0);

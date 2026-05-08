@@ -3,9 +3,9 @@ struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
-	skyboxBasisRight: vec4<f32>,
-	skyboxBasisUp: vec4<f32>,
-	skyboxBasisBackward: vec4<f32>,
+	environmentBasisRight: vec4<f32>,
+	environmentBasisUp: vec4<f32>,
+	environmentBasisBackward: vec4<f32>,
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<f32>,
 	options: vec4<f32>,
@@ -129,11 +129,11 @@ struct CameraBasis {
 
 fn getCameraBasis() -> CameraBasis {
 	return CameraBasis(
-		frame.skyboxBasisRight.xyz,
-		frame.skyboxBasisUp.xyz,
-		frame.skyboxBasisBackward.xyz,
-		frame.skyboxBasisRight.w,
-		frame.skyboxBasisUp.w
+		frame.environmentBasisRight.xyz,
+		frame.environmentBasisUp.xyz,
+		frame.environmentBasisBackward.xyz,
+		frame.environmentBasisRight.w,
+		frame.environmentBasisUp.w
 	);
 }
 
@@ -174,7 +174,7 @@ fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
 
 fn worldToLinearDepth(worldPos: vec3<f32>) -> f32 {
 	let rel = worldPos - frame.cameraPosition.xyz;
-	return dot(rel, -frame.skyboxBasisBackward.xyz);
+	return dot(rel, -frame.environmentBasisBackward.xyz);
 }
 
 // ---------------------------------------------------------------------------

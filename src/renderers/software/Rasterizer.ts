@@ -124,8 +124,7 @@ export interface RasterizerContext {
 	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
-	skybox?: Texture | null;
-	allowSkyboxSpecularFallback?: boolean;
+	environmentSpecularTexture?: Texture | null;
 	features: {
 		enableLighting: boolean;
 		enableSH: boolean;
@@ -802,9 +801,8 @@ export class Rasterizer implements RasterizerLike {
 		const lights = context.lights;
 		const reflectionProbes = collectActiveReflectionProbes(lights);
 		const reflectionProbeFallbackMap =
-			reflectionProbes.length <= 0 &&
-			context.allowSkyboxSpecularFallback !== false ?
-				(context.skybox ?? null)
+			reflectionProbes.length <= 0 ?
+				(context.environmentSpecularTexture ?? null)
 			:	null;
 
 		const shaderContext: ShaderContext = {

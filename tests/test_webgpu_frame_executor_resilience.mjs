@@ -10,7 +10,7 @@ function createResourcesStub() {
 		setSceneTargetMode() {},
 		async buildClusteredLighting() {},
 		renderShadows() {},
-		async getSkyboxResources() {
+		async getEnvironmentResources() {
 			return null;
 		},
 		async getDrawResources() {
@@ -24,7 +24,7 @@ function createModeTrackingResourcesStub() {
 	const state = {
 		mode: "single",
 		modeTransitions: [],
-		skyboxModeAtRequest: null,
+		environmentModeAtRequest: null,
 		drawModeAtRequest: null,
 		drawPipelineModeAtRequest: null,
 	};
@@ -36,8 +36,8 @@ function createModeTrackingResourcesStub() {
 		},
 		async buildClusteredLighting() {},
 		renderShadows() {},
-		async getSkyboxResources() {
-			state.skyboxModeAtRequest = state.mode;
+		async getEnvironmentResources() {
+			state.environmentModeAtRequest = state.mode;
 			return {
 				pipeline: {},
 				frameBinding: {},
@@ -63,7 +63,7 @@ function createFrameContext(width, height) {
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
-			enableSkybox: false,
+			enableEnvironment: false,
 			enableOIT: false,
 			enableSSAO: true,
 			enableSSGI: false,
@@ -144,7 +144,7 @@ function createOITSequencingResourcesStub() {
 			state.events.push("clustered:build");
 		},
 		renderShadows() {},
-		async getSkyboxResources() {
+		async getEnvironmentResources() {
 			return null;
 		},
 		async getDrawResources(packet, options = {}) {
@@ -234,7 +234,7 @@ async function testLegacyMainPassForcesSingleSceneTargetMode() {
 		context
 	);
 
-	assert.equal(resources._state.skyboxModeAtRequest, "single");
+	assert.equal(resources._state.environmentModeAtRequest, "single");
 	assert.equal(resources._state.drawModeAtRequest, "single");
 }
 

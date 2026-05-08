@@ -16,7 +16,7 @@ class StubBackend {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -92,7 +92,7 @@ async function run() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 
 		const system = new ParticleSystem({
 			position: { x: 0, y: 0, z: -5 },

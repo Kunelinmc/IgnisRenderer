@@ -47,6 +47,16 @@ const PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS = 64 * 64 * 32;
 const PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS =
 	PARTICLE_SHADOW_VOLUME_HEADER_FLOATS + 1;
 
+interface PreparedSceneEnvironmentLike {
+	backgroundEnabled: boolean;
+	lightingEnabled: boolean;
+	backgroundTexture: unknown;
+	iblTexture: unknown;
+	backgroundStrength: number;
+	backgroundTintLinear: { r: number; g: number; b: number };
+	backgroundExposure: number;
+}
+
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
@@ -54,16 +64,19 @@ export class WebGPUFrameBindingCache {
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
+	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
+	private _environmentBackgroundParamsData: Float32Array<ArrayBuffer> =
+		new Float32Array(4);
 	private _particleShadowVolumeBuffer: IRenderBuffer | null = null;
 	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
-	private _skyboxBinding: IBindingGroup | null = null;
+	private _environmentBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
-	private _skyboxTexture: IRenderTexture | null = null;
+	private _environmentTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
 	private _envSpecularFallbackTexture: IRenderTexture | null = null;
-	private _skyboxSampler: ISampler | null = null;
+	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
 	private _envSpecularFallbackSampler: ISampler | null = null;
 	private _prevViewProjection:
@@ -112,16 +125,16 @@ export class WebGPUFrameBindingCache {
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
 			prevViewProjectionMatrix: prevViewProjection,
 			cameraPosition: frame.camera.getWorldPosition(),
-			skyboxRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
-			skyboxUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
-			skyboxBackward: [
+			environmentRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
+			environmentUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
+			environmentBackward: [
 				viewElements[2][0],
 				viewElements[2][1],
 				viewElements[2][2],
 			],
-			skyboxTanHalfFov: tanHalfFov,
-			skyboxAspect: aspect,
-			skyboxIsOrthographic: isOrthographic,
+			environmentTanHalfFov: tanHalfFov,
+			environmentAspect: aspect,
+			environmentIsOrthographic: isOrthographic,
 			ambientColor: lightingState.ambientColor,
 			shAmbientCoeffs: environmentState.shAmbientCoeffs,
 			localLightProbeCount: environmentState.localLightProbeCount,
@@ -141,10 +154,10 @@ export class WebGPUFrameBindingCache {
 				features.enableGamma && sceneTargetMode === "single",
 			enableSH: environmentState.enableSH,
 			hasSHAmbient: environmentState.hasSHAmbient,
-			hasSkybox: !!environmentState.skyboxTexture,
-			skyboxIsLinear:
-				!environmentState.skyboxTexture ||
-				environmentState.skyboxTexture.colorSpace !== "sRGB",
+			hasEnvironment: !!environmentState.environmentTexture,
+			environmentIsLinear:
+				!environmentState.environmentTexture ||
+				environmentState.environmentTexture.colorSpace !== "sRGB",
 			hasEnvSpecular: !!environmentState.envSpecularTexture,
 			hasEnvSpecularFallback: !!environmentState.envSpecularFallbackTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
@@ -159,23 +172,27 @@ export class WebGPUFrameBindingCache {
 			this._getFogUniformBuffer(),
 			this._packFogUniformData(features)
 		);
+		this._backend.writeBuffer(
+			this._getEnvironmentBackgroundParamsBuffer(),
+			this._packEnvironmentBackgroundParams(frame)
+		);
 		this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
 		this._writeParticleShadowVolumeData(
 			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS)
 		);
 
 		const currentShadowAtlas = this._shadowAtlases.atlas;
-		const currentSkybox =
-			environmentState.skyboxTexture ?
+		const currentEnvironment =
+			environmentState.environmentTexture ?
 				this._textureRegistry.getTextureForSlot(
-					environmentState.skyboxTexture,
+					environmentState.environmentTexture,
 					0
 				)
 			:	this._textureRegistry.getWhiteTexture();
-		const currentSkyboxSampler =
-			environmentState.skyboxTexture ?
+		const currentEnvironmentSampler =
+			environmentState.environmentTexture ?
 				this._textureRegistry.getSamplerForTexture(
-					environmentState.skyboxTexture
+					environmentState.environmentTexture
 				)
 			:	this._textureRegistry.getWhiteSampler();
 		const currentEnvSpecular =
@@ -207,22 +224,22 @@ export class WebGPUFrameBindingCache {
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
-			this._skyboxTexture !== currentSkybox ||
+			this._environmentTexture !== currentEnvironment ||
 			this._envSpecularTexture !== currentEnvSpecular ||
 			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
-			this._skyboxSampler !== currentSkyboxSampler ||
+			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler ||
 			this._envSpecularFallbackSampler !== currentEnvSpecularFallbackSampler
 		) {
 			this._destroyBindingGroup(this._sceneBinding);
-			this._destroyBindingGroup(this._skyboxBinding);
+			this._destroyBindingGroup(this._environmentBinding);
 			this._sceneBinding = null;
-			this._skyboxBinding = null;
+			this._environmentBinding = null;
 			this._shadowAtlas = currentShadowAtlas;
-			this._skyboxTexture = currentSkybox;
+			this._environmentTexture = currentEnvironment;
 			this._envSpecularTexture = currentEnvSpecular;
 			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
-			this._skyboxSampler = currentSkyboxSampler;
+			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
 		}
@@ -314,28 +331,32 @@ export class WebGPUFrameBindingCache {
 		return this._sceneBinding;
 	}
 
-	public getSkyboxBinding(): IBindingGroup {
-		if (!this._skyboxBinding) {
-			this._skyboxBinding = this._backend.createBindingGroup({
-				label: "FrameBinding_skybox",
-				layout: this._layouts.skyboxFrameBindGroupLayout,
+	public getEnvironmentBinding(): IBindingGroup {
+		if (!this._environmentBinding) {
+			this._environmentBinding = this._backend.createBindingGroup({
+				label: "FrameBinding_environment",
+				layout: this._layouts.environmentFrameBindGroupLayout,
 				entries: [
 					{ binding: 0, resource: this._getFrameUniformBuffer() },
 					{
 						binding: 1,
 						resource:
-							this._skyboxTexture ?? this._textureRegistry.getWhiteTexture(),
+							this._environmentTexture ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 2,
 						resource:
-							this._skyboxSampler ?? this._textureRegistry.getWhiteSampler(),
+							this._environmentSampler ?? this._textureRegistry.getWhiteSampler(),
+					},
+					{
+						binding: 3,
+						resource: this._getEnvironmentBackgroundParamsBuffer(),
 					},
 				],
 			});
 		}
 
-		return this._skyboxBinding;
+		return this._environmentBinding;
 	}
 
 	private _getFrameUniformBuffer(): IRenderBuffer {
@@ -358,6 +379,17 @@ export class WebGPUFrameBindingCache {
 			});
 		}
 		return this._fogUniformBuffer;
+	}
+
+	private _getEnvironmentBackgroundParamsBuffer(): IRenderBuffer {
+		if (!this._environmentBackgroundParamsBuffer) {
+			this._environmentBackgroundParamsBuffer = this._backend.createBuffer({
+				size: 4 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUEnvironmentBackgroundParams",
+			});
+		}
+		return this._environmentBackgroundParamsBuffer;
 	}
 
 	public updateParticleShadowVolumes(
@@ -496,6 +528,20 @@ export class WebGPUFrameBindingCache {
 		return data;
 	}
 
+	private _packEnvironmentBackgroundParams(
+		frame: PreparedScene
+	): Float32Array<ArrayBuffer> {
+		const environment = resolvePreparedSceneEnvironment(frame);
+		const data = this._environmentBackgroundParamsData;
+		data[0] = clamp(environment.backgroundTintLinear.r, 0, 1);
+		data[1] = clamp(environment.backgroundTintLinear.g, 0, 1);
+		data[2] = clamp(environment.backgroundTintLinear.b, 0, 1);
+		data[3] =
+			Math.max(1e-6, environment.backgroundExposure) *
+			Math.max(0, environment.backgroundStrength);
+		return data;
+	}
+
 	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
 		switch (mode) {
 			case "exp":
@@ -509,21 +555,23 @@ export class WebGPUFrameBindingCache {
 
 	public destroy(): void {
 		this._destroyBindingGroup(this._sceneBinding);
-		this._destroyBindingGroup(this._skyboxBinding);
+		this._destroyBindingGroup(this._environmentBinding);
 		this._sceneBinding = null;
-		this._skyboxBinding = null;
+		this._environmentBinding = null;
 		this._frameUniformBuffer?.destroy();
 		this._frameUniformBuffer = null;
 		this._fogUniformBuffer?.destroy();
 		this._fogUniformBuffer = null;
+		this._environmentBackgroundParamsBuffer?.destroy();
+		this._environmentBackgroundParamsBuffer = null;
 		this._particleShadowVolumeBuffer?.destroy();
 		this._particleShadowVolumeBuffer = null;
 		this._particleShadowVolumeBufferSize = 0;
 		this._shadowAtlas = null;
-		this._skyboxTexture = null;
+		this._environmentTexture = null;
 		this._envSpecularTexture = null;
 		this._envSpecularFallbackTexture = null;
-		this._skyboxSampler = null;
+		this._environmentSampler = null;
 		this._envSpecularSampler = null;
 		this._envSpecularFallbackSampler = null;
 		this._prevViewProjection = null;
@@ -538,6 +586,52 @@ export class WebGPUFrameBindingCache {
 			destroyFn.call(group);
 		}
 	}
+}
+
+function resolvePreparedSceneEnvironment(
+	scene: PreparedScene
+): PreparedSceneEnvironmentLike {
+	const rawEnvironment = (scene as { environment?: unknown }).environment;
+	if (!rawEnvironment || typeof rawEnvironment !== "object") {
+		return {
+			backgroundEnabled: true,
+			lightingEnabled: true,
+			backgroundTexture: null,
+			iblTexture: null,
+			backgroundStrength: 1,
+			backgroundTintLinear: { r: 1, g: 1, b: 1 },
+			backgroundExposure: 1,
+		};
+	}
+	const environment = rawEnvironment as Partial<PreparedSceneEnvironmentLike>;
+	return {
+		backgroundEnabled: environment.backgroundEnabled ?? true,
+		lightingEnabled: environment.lightingEnabled ?? true,
+		backgroundTexture: environment.backgroundTexture ?? null,
+		iblTexture: environment.iblTexture ?? null,
+		backgroundStrength:
+			typeof environment.backgroundStrength === "number" ?
+				environment.backgroundStrength
+			:	1,
+		backgroundTintLinear: {
+			r:
+				typeof environment.backgroundTintLinear?.r === "number" ?
+					environment.backgroundTintLinear.r
+				:	1,
+			g:
+				typeof environment.backgroundTintLinear?.g === "number" ?
+					environment.backgroundTintLinear.g
+				:	1,
+			b:
+				typeof environment.backgroundTintLinear?.b === "number" ?
+					environment.backgroundTintLinear.b
+				:	1,
+		},
+		backgroundExposure:
+			typeof environment.backgroundExposure === "number" ?
+				environment.backgroundExposure
+			:	1,
+	};
 }
 
 function writeParticleShadowVolumeMatrix(

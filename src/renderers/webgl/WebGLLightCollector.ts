@@ -143,25 +143,20 @@ export function collectWebGLLights(
 		| boolean
 		| WebGLLightCollectorShadowMapLookup = false,
 	shadowMapsOrEnableSH?: WebGLLightCollectorShadowMapLookup | boolean,
-	enableSHOrSkybox: boolean | Texture | null = false,
-	skyboxOrEnableClusteredLighting: Texture | null | boolean = null,
-	enableClusteredLightingOrAllowSkyboxMaybe:
+	enableSHOrEnvironment: boolean | Texture | null = false,
+	environmentOrEnableClusteredLighting: Texture | null | boolean = null,
+	enableClusteredLightingOrCameraWorldPositionMaybe:
 		| boolean
 		| IVector3
 		| null = false,
-	allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe:
-		| boolean
-		| IVector3
-		| null = true,
 	cameraWorldPositionMaybe: IVector3 | null = null
 ): WebGLLightState {
 	let warn: WebGLLightCollectorWarn | undefined;
 	let enableShadows = false;
 	let shadowMaps: WebGLLightCollectorShadowMapLookup | undefined;
 	let enableSH = false;
-	let skybox: Texture | null = null;
+	let environmentTexture: Texture | null = null;
 	let enableClusteredLighting = false;
-	let allowSkyboxSpecularFallback = true;
 	let cameraWorldPosition: IVector3 | null = null;
 	if (typeof warnOrEnableShadows === "function") {
 		warn = warnOrEnableShadows;
@@ -170,19 +165,15 @@ export function collectWebGLLights(
 			isShadowMapLookup(shadowMapsOrEnableSH) ?
 				shadowMapsOrEnableSH
 			:	undefined;
-		enableSH = typeof enableSHOrSkybox === "boolean" ? enableSHOrSkybox : false;
-		skybox =
-			isTextureOrNull(skyboxOrEnableClusteredLighting) ?
-				skyboxOrEnableClusteredLighting
+		enableSH = typeof enableSHOrEnvironment === "boolean" ? enableSHOrEnvironment : false;
+		environmentTexture =
+			isTextureOrNull(environmentOrEnableClusteredLighting) ?
+				environmentOrEnableClusteredLighting
 			:	null;
 		enableClusteredLighting =
-			typeof enableClusteredLightingOrAllowSkyboxMaybe === "boolean" ?
-				enableClusteredLightingOrAllowSkyboxMaybe
+			typeof enableClusteredLightingOrCameraWorldPositionMaybe === "boolean" ?
+				enableClusteredLightingOrCameraWorldPositionMaybe
 			:	false;
-		allowSkyboxSpecularFallback =
-			typeof allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe === "boolean" ?
-				allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe
-			:	true;
 		cameraWorldPosition = isVector3Like(cameraWorldPositionMaybe) ? cameraWorldPositionMaybe : null;
 	} else {
 		enableShadows = warnOrEnableShadows === true;
@@ -191,18 +182,15 @@ export function collectWebGLLights(
 				enableShadowsOrShadowMaps
 			:	undefined;
 		enableSH = typeof shadowMapsOrEnableSH === "boolean" ? shadowMapsOrEnableSH : false;
-		skybox = isTextureOrNull(enableSHOrSkybox) ? enableSHOrSkybox : null;
+		environmentTexture = isTextureOrNull(enableSHOrEnvironment) ? enableSHOrEnvironment : null;
 		enableClusteredLighting =
-			typeof skyboxOrEnableClusteredLighting === "boolean" ?
-				skyboxOrEnableClusteredLighting
+			typeof environmentOrEnableClusteredLighting === "boolean" ?
+				environmentOrEnableClusteredLighting
 			:	false;
-		allowSkyboxSpecularFallback =
-			typeof enableClusteredLightingOrAllowSkyboxMaybe === "boolean" ?
-				enableClusteredLightingOrAllowSkyboxMaybe
-			:	true;
 		cameraWorldPosition =
-			isVector3Like(allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe) ?
-				allowSkyboxSpecularFallbackOrCameraWorldPositionMaybe
+			isVector3Like(enableClusteredLightingOrCameraWorldPositionMaybe) ?
+				enableClusteredLightingOrCameraWorldPositionMaybe
+			:	isVector3Like(cameraWorldPositionMaybe) ? cameraWorldPositionMaybe
 			:	null;
 	}
 	const emitWarning: WebGLLightCollectorWarn = (key, message) => {
@@ -375,12 +363,7 @@ export function collectWebGLLights(
 		WEBGL_MAX_REFLECTION_PROBES,
 		cameraWorldPosition
 	);
-	if (allowSkyboxSpecularFallback) {
-		state.envSpecularFallbackMap = resolveEnvironmentSkyboxMap(
-			skybox,
-			emitWarning
-		);
-	}
+	state.envSpecularFallbackMap = null;
 	if (reflectionEnvironment.probes.length > 0) {
 		state.reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
 			const cache = probe.getRuntimeCache();
@@ -413,10 +396,8 @@ export function collectWebGLLights(
 		}
 	}
 
-	if (!state.envSpecularMap && allowSkyboxSpecularFallback) {
-		state.envSpecularMap = state.envSpecularFallbackMap;
-		state.reflectionProbeCount = 0;
-		state.reflectionProbes = [];
+	if (!state.envSpecularMap) {
+		state.envSpecularMap = resolveEnvSpecularMap(environmentTexture, emitWarning);
 	}
 
 	return state;
@@ -478,29 +459,6 @@ function resolveEnvSpecularMap(
 		warn(
 			"webgl-env-specular-texture-not-ready",
 			"WebGL environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular."
-		);
-		return null;
-	}
-	return normalizedTexture;
-}
-
-function resolveEnvironmentSkyboxMap(
-	texture: Texture | null,
-	warn: WebGLLightCollectorWarn
-): Texture | null {
-	const normalizedTexture = ensureEnvironmentTextureEquirect(texture);
-	if (!normalizedTexture) return null;
-	if (normalizedTexture.isLoadErrorFallback) {
-		warn(
-			"webgl-skybox-load-error-fallback",
-			"WebGL skybox texture resolved to a load-error fallback; skipping skybox IBL fallback."
-		);
-		return null;
-	}
-	if (!isTextureReadyForEnvironment(normalizedTexture)) {
-		warn(
-			"webgl-skybox-texture-not-ready",
-			"WebGL skybox texture is not ready (missing pixels or invalid dimensions); skipping skybox IBL fallback."
 		);
 		return null;
 	}

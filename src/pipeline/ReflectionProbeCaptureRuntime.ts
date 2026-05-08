@@ -83,8 +83,8 @@ interface CapturedLocalLight {
 }
 
 interface CaptureLightingState {
-	skybox: Texture | null;
-	includeSkybox: boolean;
+	environmentBackgroundTexture: Texture | null;
+	includeEnvironmentBackground: boolean;
 	ambient: RGBLinear;
 	directionalLights: CapturedDirectionalLight[];
 	pointLights: CapturedLocalLight[];
@@ -97,7 +97,7 @@ export interface ReflectionProbeWebGPUCaptureFaceRequest {
 	probe: ReflectionProbe;
 	faceIndex: number;
 	faceSize: number;
-	includeSkybox: boolean;
+	includeEnvironment: boolean;
 	includeTransparent: boolean;
 	includeParticles: boolean;
 	includeShadows: boolean;
@@ -265,7 +265,7 @@ export class ReflectionProbeCaptureRuntime {
 			!!context.webgpuCaptureSource;
 		if (probe.includeMeshes && !useMeshCapture) {
 			Logger.warn(
-				"[reflection-probe-mesh-capture-unsupported] Reflection probe scene mesh capture requested without a compatible GPU face capture source; falling back to skybox and analytic lights only.",
+				"[reflection-probe-mesh-capture-unsupported] Reflection probe scene mesh capture requested without a compatible GPU face capture source; falling back to environment background and analytic lights only.",
 				{
 					scope: "ReflectionProbeCaptureRuntime",
 					onceKey: "reflection-probe-mesh-capture-unsupported",
@@ -392,7 +392,7 @@ export class ReflectionProbeCaptureRuntime {
 						probe,
 						faceIndex,
 						faceSize: task.faceSize,
-						includeSkybox: probe.includeSkybox,
+						includeEnvironment: probe.includeEnvironment,
 						includeTransparent: probe.includeTransparent,
 						includeParticles: probe.includeParticles,
 						includeShadows: probe.includeShadows,
@@ -575,7 +575,7 @@ function buildProbeCaptureSignature(probe: ReflectionProbe): string {
 		probe.captureResolution.width,
 		probe.captureResolution.height,
 		probe.captureFar.toFixed(6),
-		probe.includeSkybox ? 1 : 0,
+		probe.includeEnvironment ? 1 : 0,
 		probe.includeMeshes ? 1 : 0,
 		probe.includeTransparent ? 1 : 0,
 		probe.includeParticles ? 1 : 0,
@@ -758,8 +758,12 @@ function buildCaptureLightingState(
 	}
 
 	return {
-		skybox: probe.includeSkybox ? scene.skybox : null,
-		includeSkybox: probe.includeSkybox,
+		environmentBackgroundTexture:
+			probe.includeEnvironment && scene.environment.backgroundEnabled ?
+				scene.environment.backgroundTexture
+			:	null,
+		includeEnvironmentBackground:
+			probe.includeEnvironment && scene.environment.backgroundEnabled,
 		ambient,
 		directionalLights,
 		pointLights,
@@ -884,8 +888,14 @@ function sampleCapturedRadiance(
 		b: lightingState.ambient.b,
 	};
 
-	if (lightingState.includeSkybox && lightingState.skybox) {
-		const sky = sampleSkyboxLinear(lightingState.skybox, direction);
+	if (
+		lightingState.includeEnvironmentBackground &&
+		lightingState.environmentBackgroundTexture
+	) {
+		const sky = sampleEnvironmentBackgroundLinear(
+			lightingState.environmentBackgroundTexture,
+			direction
+		);
 		result.r += sky.r;
 		result.g += sky.g;
 		result.b += sky.b;
@@ -1025,12 +1035,16 @@ function directionToCubeFaceUV(direction: IVector3): {
 	};
 }
 
-function sampleSkyboxLinear(
-	skybox: Texture,
+function sampleEnvironmentBackgroundLinear(
+	environmentBackgroundTexture: Texture,
 	direction: IVector3
 ): RGBLinear {
-	const sample = sampleEnvironmentTextureLevel(skybox, direction, 0);
-	if (skybox.colorSpace === "sRGB") {
+	const sample = sampleEnvironmentTextureLevel(
+		environmentBackgroundTexture,
+		direction,
+		0
+	);
+	if (environmentBackgroundTexture.colorSpace === "sRGB") {
 		return {
 			r: sRGBToLinear(sample.r / 255),
 			g: sRGBToLinear(sample.g / 255),

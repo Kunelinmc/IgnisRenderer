@@ -35,8 +35,8 @@ export class WebGLTextureRegistry {
 		return this._resolveTexture(texture, "base-color", true);
 	}
 
-	public getSkyboxTexture(texture: Texture | null): ResolvedWebGLTexture {
-		return this._resolveTexture(texture, "skybox", true);
+	public getEnvironmentTexture(texture: Texture | null): ResolvedWebGLTexture {
+		return this._resolveTexture(texture, "environment", true);
 	}
 
 	public getEnvironmentSpecularTexture(

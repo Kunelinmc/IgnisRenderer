@@ -14,7 +14,7 @@ class StubBackend {
 			sh: true,
 			shadows: false,
 			reflection: false,
-			skybox: true,
+			environment: true,
 			ssao: false,
 			ssgi: false,
 			taa: false,
@@ -73,7 +73,7 @@ class StubBackend {
 	}
 }
 
-function createSkyboxTexture(width = 32, height = 16) {
+function createEnvironmentTexture(width = 32, height = 16) {
 	const data = new Uint8ClampedArray(width * height * 4);
 	for (let i = 0; i < data.length; i += 4) {
 		const pixel = i >> 2;
@@ -85,7 +85,7 @@ function createSkyboxTexture(width = 32, height = 16) {
 	return new Texture(data, width, height, "sRGB");
 }
 
-async function testWarmupOverwritesOnlySkyboxReflectionProbes() {
+async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
 
@@ -105,7 +105,9 @@ async function testWarmupOverwritesOnlySkyboxReflectionProbes() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableSH = true;
-		renderer.scene.skybox = createSkyboxTexture();
+		const environmentTexture = createEnvironmentTexture();
+		renderer.scene.environment.backgroundTexture = environmentTexture;
+		renderer.scene.environment.iblTexture = environmentTexture;
 
 		const probeA = renderer.scene.add(new LightProbe(SH.empty(), 2));
 		const probeB = renderer.scene.add(new LightProbe(SH.empty(), 0.5));
@@ -191,7 +193,9 @@ async function testWarmupCreatesProbeWhenSceneHasNone() {
 		};
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.scene.skybox = createSkyboxTexture();
+		const environmentTexture = createEnvironmentTexture();
+		renderer.scene.environment.backgroundTexture = environmentTexture;
+		renderer.scene.environment.iblTexture = environmentTexture;
 
 		await renderer.warmup({
 			environmentIBLBake: { acceleration: "cpu" },
@@ -230,7 +234,9 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 		};
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.scene.skybox = createSkyboxTexture();
+		const environmentTexture = createEnvironmentTexture();
+		renderer.scene.environment.backgroundTexture = environmentTexture;
+		renderer.scene.environment.iblTexture = environmentTexture;
 
 		await renderer.warmup({
 			includeEnvironmentIBLBake: false,
@@ -241,10 +247,6 @@ async function testWarmupSkipsLightProbeBakeWhenDisabled() {
 			.getLights()
 			.filter((light) => light.type === "lightProbe");
 		assert.equal(probes.length, 0);
-		assert.equal(
-			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
-			true
-		);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;
@@ -286,21 +288,13 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 		assert.equal(renderIncremental.firstPass, null);
 		assert.equal(warmupIncremental.forceFullFrame, true);
 		assert.equal(renderIncremental.forceFullFrame, true);
-		assert.equal(
-			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
-			true
-		);
-		assert.equal(
-			backend.lastBeginFrameContext?.scene?.allowSkyboxSpecularFallback,
-			true
-		);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;
 	}
 }
 
-async function testWarmupCanSetSkyboxSpecularFallbackIndependently() {
+async function testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset() {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
 
@@ -319,22 +313,19 @@ async function testWarmupCanSetSkyboxSpecularFallbackIndependently() {
 		};
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.scene.skybox = createSkyboxTexture();
+		const environmentTexture = createEnvironmentTexture();
+		renderer.scene.environment.backgroundTexture = environmentTexture;
+		renderer.scene.environment.iblTexture = environmentTexture;
+		const reflectionProbe = renderer.scene.add(
+			new ReflectionProbe({ source: "environment", prefilteredMap: null })
+		);
 
 		await renderer.warmup({
 			includeEnvironmentIBLBake: false,
-			allowSkyboxSpecularFallback: false,
 		});
 		await renderer.renderScene(0);
 
-		assert.equal(
-			backend.lastWarmupContext?.scene?.allowSkyboxSpecularFallback,
-			false
-		);
-		assert.equal(
-			backend.lastBeginFrameContext?.scene?.allowSkyboxSpecularFallback,
-			false
-		);
+		assert.equal(reflectionProbe.prefilteredMap, null);
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;
@@ -342,11 +333,11 @@ async function testWarmupCanSetSkyboxSpecularFallbackIndependently() {
 }
 
 async function run() {
-	await testWarmupOverwritesOnlySkyboxReflectionProbes();
+	await testWarmupOverwritesOnlyEnvironmentReflectionProbes();
 	await testWarmupCreatesProbeWhenSceneHasNone();
 	await testWarmupSkipsLightProbeBakeWhenDisabled();
 	await testWarmupAndRenderIncrementalContextContractMatches();
-	await testWarmupCanSetSkyboxSpecularFallbackIndependently();
+	await testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset();
 	console.log("Renderer warmup light probe tests passed");
 }
 

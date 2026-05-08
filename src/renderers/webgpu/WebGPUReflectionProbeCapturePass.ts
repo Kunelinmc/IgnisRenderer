@@ -37,7 +37,7 @@ export interface WebGPUReflectionProbeCaptureFaceRequest {
 	probe: ReflectionProbe;
 	faceIndex: number;
 	faceSize: number;
-	includeSkybox: boolean;
+	includeEnvironment: boolean;
 	includeTransparent: boolean;
 	includeParticles: boolean;
 	includeShadows: boolean;
@@ -71,7 +71,7 @@ export class WebGPUReflectionProbeCapturePass {
 			request.frameContext,
 			captureCamera,
 			request.probe,
-			request.includeSkybox,
+			request.includeEnvironment,
 			request.includeTransparent,
 			request.includeParticles
 		);
@@ -126,7 +126,7 @@ export class WebGPUReflectionProbeCapturePass {
 				encoder,
 				captureContext,
 				captureTargets,
-				request.includeSkybox
+				request.includeEnvironment
 			);
 			if (request.includeParticles) {
 				await this._resources.renderParticles(
@@ -179,10 +179,10 @@ export class WebGPUReflectionProbeCapturePass {
 		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
 		context: FrameContext,
 		targets: CaptureRenderTargets,
-		includeSkybox: boolean
+		includeEnvironment: boolean
 	): Promise<void> {
-		const drewSkybox = includeSkybox ?
-				await this._recordSkyboxCapturePass(encoder, targets)
+		const drewEnvironment = includeEnvironment ?
+				await this._recordEnvironmentCapturePass(encoder, targets)
 			:	false;
 
 		encoder.beginRenderPass({
@@ -191,7 +191,7 @@ export class WebGPUReflectionProbeCapturePass {
 				{
 					view: targets.sceneColor,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: drewSkybox ? "load" : "clear",
+					loadOp: drewEnvironment ? "load" : "clear",
 					storeOp: "store",
 				},
 				{
@@ -222,7 +222,7 @@ export class WebGPUReflectionProbeCapturePass {
 			depthStencilAttachment: {
 				view: targets.depth,
 				depthClearValue: 1,
-				depthLoadOp: drewSkybox ? "load" : "clear",
+				depthLoadOp: drewEnvironment ? "load" : "clear",
 				depthStoreOp: "store",
 			},
 		});
@@ -251,17 +251,17 @@ export class WebGPUReflectionProbeCapturePass {
 		encoder.endRenderPass();
 	}
 
-	private async _recordSkyboxCapturePass(
+	private async _recordEnvironmentCapturePass(
 		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
 		targets: CaptureRenderTargets
 	): Promise<boolean> {
-		const skyboxResources = await this._resources.getSkyboxResources("mrt");
-		if (!skyboxResources) {
+		const environmentResources = await this._resources.getEnvironmentResources("mrt");
+		if (!environmentResources) {
 			return false;
 		}
 
 		encoder.beginRenderPass({
-			label: "WebGPUReflectionProbeCaptureSkybox",
+			label: "WebGPUReflectionProbeCaptureEnvironment",
 			colorAttachments: [
 				{
 					view: targets.sceneColor,
@@ -277,8 +277,8 @@ export class WebGPUReflectionProbeCapturePass {
 				depthStoreOp: "store",
 			},
 		});
-		encoder.setPipeline(skyboxResources.pipeline);
-		encoder.setBindingGroup(0, skyboxResources.frameBinding);
+		encoder.setPipeline(environmentResources.pipeline);
+		encoder.setBindingGroup(0, environmentResources.frameBinding);
 		encoder.draw(3);
 		encoder.endRenderPass();
 		return true;
@@ -453,7 +453,7 @@ function buildCapturePreparedScene(
 	frameContext: FrameContext,
 	captureCamera: Camera,
 	probe: ReflectionProbe,
-	includeSkybox: boolean,
+	includeEnvironment: boolean,
 	includeTransparent: boolean,
 	includeParticles: boolean
 ): PreparedScene {
@@ -520,8 +520,13 @@ function buildCapturePreparedScene(
 		particleSystems: includeParticles ? baseScene.particleSystems : [],
 		hasActiveAnimations: baseScene.hasActiveAnimations,
 		camera: captureCamera,
-		skybox: includeSkybox ? baseScene.skybox : null,
-		allowSkyboxSpecularFallback: baseScene.allowSkyboxSpecularFallback,
+		environment: {
+			...baseScene.environment,
+			backgroundEnabled:
+				includeEnvironment && baseScene.environment.backgroundEnabled,
+			backgroundTexture:
+				includeEnvironment ? baseScene.environment.backgroundTexture : null,
+		},
 		meshInstances: baseScene.meshInstances,
 		shadowMaps: baseScene.shadowMaps,
 		opaquePackets,

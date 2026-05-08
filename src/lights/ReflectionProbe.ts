@@ -7,7 +7,7 @@ import { Light, LightType, type LightParams } from "./Light";
 export type ReflectionProbeShape = "sphere" | "box";
 export type ReflectionProbeParallaxMode = "off" | "box" | "sphere";
 export type ReflectionProbeSource =
-	| "skybox"
+	| "environment"
 	| "capturedScene"
 	| "manual";
 export type ReflectionProbeCaptureUpdateMode =
@@ -45,7 +45,7 @@ export interface ReflectionProbeParams extends LightParams {
 	captureIntervalSeconds?: number;
 	captureResolution?: Partial<ReflectionProbeCaptureResolution>;
 	captureFar?: number;
-	includeSkybox?: boolean;
+	includeEnvironment?: boolean;
 	includeMeshes?: boolean;
 	includeTransparent?: boolean;
 	includeParticles?: boolean;
@@ -69,7 +69,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	public captureIntervalSeconds: number;
 	public captureResolution: ReflectionProbeCaptureResolution;
 	public captureFar: number;
-	public includeSkybox: boolean;
+	public includeEnvironment: boolean;
 	public includeMeshes: boolean;
 	public includeTransparent: boolean;
 	public includeParticles: boolean;
@@ -101,7 +101,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		this.parallaxMode =
 			params.parallaxMode ?? (this.shape === "box" ? "box" : "off");
 		this.prefilteredMap = params.prefilteredMap ?? null;
-		this.source = sanitizeReflectionProbeSource(params.source ?? "skybox");
+		this.source = sanitizeReflectionProbeSource(params.source ?? "environment");
 		this.captureUpdateMode = sanitizeCaptureUpdateMode(
 			params.captureUpdateMode ?? "onSceneDirty"
 		);
@@ -112,7 +112,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 			params.captureResolution
 		);
 		this.captureFar = sanitizeCaptureFar(params.captureFar ?? 200);
-		this.includeSkybox = params.includeSkybox ?? true;
+		this.includeEnvironment = params.includeEnvironment ?? true;
 		this.includeMeshes = params.includeMeshes ?? true;
 		this.includeTransparent = params.includeTransparent ?? true;
 		this.includeParticles = params.includeParticles ?? true;
@@ -194,7 +194,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		target.captureResolution.width = this.captureResolution.width;
 		target.captureResolution.height = this.captureResolution.height;
 		target.captureFar = this.captureFar;
-		target.includeSkybox = this.includeSkybox;
+		target.includeEnvironment = this.includeEnvironment;
 		target.includeMeshes = this.includeMeshes;
 		target.includeTransparent = this.includeTransparent;
 		target.includeParticles = this.includeParticles;
@@ -334,13 +334,13 @@ function sanitizeReflectionProbeSource(
 	value: ReflectionProbeSource
 ): ReflectionProbeSource {
 	if (
-		value === "skybox" ||
+		value === "environment" ||
 		value === "capturedScene" ||
 		value === "manual"
 	) {
 		return value;
 	}
-	return "skybox";
+	return "environment";
 }
 
 function sanitizeCaptureUpdateMode(

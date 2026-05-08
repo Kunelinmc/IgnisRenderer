@@ -5,7 +5,7 @@ import { RenderConstants } from "./constants";
 import type { FrameContext } from "../../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../../core/types";
 import type { Rasterizer } from "./Rasterizer";
-import { SkyboxRenderer } from "./SkyboxRenderer";
+import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
 import { AlphaMode } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
 import {
@@ -21,6 +21,57 @@ interface ReflectionBuffer {
 
 interface PlaneAggregateInfo {
 	plane: Plane;
+}
+
+function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
+	backgroundEnabled: boolean;
+	lightingEnabled: boolean;
+	backgroundTexture: any;
+	iblTexture: any;
+	backgroundStrength: number;
+	backgroundTintLinear: { r: number; g: number; b: number };
+	backgroundExposure: number;
+} {
+	const environment = (scene as { environment?: unknown }).environment as
+		| {
+				backgroundEnabled?: boolean;
+				lightingEnabled?: boolean;
+				backgroundTexture?: unknown;
+				iblTexture?: unknown;
+				backgroundStrength?: number;
+				backgroundTintLinear?: { r?: number; g?: number; b?: number };
+				backgroundExposure?: number;
+		  }
+		| undefined;
+	return {
+		backgroundEnabled: environment?.backgroundEnabled ?? true,
+		lightingEnabled: environment?.lightingEnabled ?? true,
+		backgroundTexture:
+			(environment?.backgroundTexture as any | null | undefined) ?? null,
+		iblTexture: (environment?.iblTexture as any | null | undefined) ?? null,
+		backgroundStrength:
+			typeof environment?.backgroundStrength === "number" ?
+				environment.backgroundStrength
+			:	1,
+		backgroundTintLinear: {
+			r:
+				typeof environment?.backgroundTintLinear?.r === "number" ?
+					environment.backgroundTintLinear.r
+				:	1,
+			g:
+				typeof environment?.backgroundTintLinear?.g === "number" ?
+					environment.backgroundTintLinear.g
+				:	1,
+			b:
+				typeof environment?.backgroundTintLinear?.b === "number" ?
+					environment.backgroundTintLinear.b
+				:	1,
+		},
+		backgroundExposure:
+			typeof environment?.backgroundExposure === "number" ?
+				environment.backgroundExposure
+			:	1,
+	};
 }
 
 export class ReflectionRenderer {
@@ -161,10 +212,20 @@ export class ReflectionRenderer {
 		context: FrameContext
 	): void {
 		const pixels = buffer.imageData.data;
+		const environment = resolvePreparedSceneEnvironment(context.scene);
 
-		if (context.features.enableSkybox && context.scene.skybox) {
-			SkyboxRenderer.render(
-				context.scene.skybox,
+		if (
+			context.features.enableEnvironment &&
+			environment.backgroundEnabled &&
+			environment.backgroundTexture
+		) {
+			EnvironmentBackgroundRenderer.render(
+				environment.backgroundTexture,
+				{
+					strength: environment.backgroundStrength,
+					tintLinear: environment.backgroundTintLinear,
+					exposure: environment.backgroundExposure,
+				},
 				pixels,
 				context.camera,
 				buffer.width,
@@ -348,6 +409,7 @@ export class ReflectionRenderer {
 			runtimeMap,
 			{ camera: context.camera }
 		);
+		const environment = resolvePreparedSceneEnvironment(context.scene);
 
 		const rasterizerContext = {
 			width: overrideSize.width,
@@ -361,9 +423,10 @@ export class ReflectionRenderer {
 				shadowMaps: context.shadowMaps,
 				sampleShadow,
 				shAmbientCoeffs: context.shAmbientCoeffs,
-				skybox: context.scene.skybox,
-				allowSkyboxSpecularFallback:
-					context.scene.allowSkyboxSpecularFallback !== false,
+				environmentSpecularTexture:
+					environment.lightingEnabled ?
+						environment.iblTexture
+					:	null,
 				features: {
 				enableLighting: context.features.enableLighting,
 				enableSH: context.features.enableSH,

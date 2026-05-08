@@ -139,7 +139,7 @@ export class EnvironmentIBLUpdateRuntime {
 	private _nextTaskId = 0;
 	private _lastHandledRequestToken = 0;
 	private _lastRequestedSignature: string | null = null;
-	private _lastSkyboxSignatureByScene = new WeakMap<Scene, string | null>();
+	private _lastEnvironmentSignatureByScene = new WeakMap<Scene, string | null>();
 	private _textureIdentityByTexture = new WeakMap<Texture, number>();
 	private _nextTextureIdentity = 0;
 
@@ -227,25 +227,32 @@ export class EnvironmentIBLUpdateRuntime {
 	}
 
 	private _resolveEnvironmentSignature(scene: Scene): EnvironmentIBLSignature | null {
-		const normalizedSkybox = ensureEnvironmentTextureEquirect(scene.skybox);
-		if (!isTextureReadyForEnvironment(normalizedSkybox)) {
-			this._lastSkyboxSignatureByScene.set(scene, null);
+		const environment = scene.environment;
+		if (!environment.lightingEnabled) {
+			this._lastEnvironmentSignatureByScene.set(scene, null);
 			return null;
 		}
-		const textureIdentity = this._resolveTextureIdentity(normalizedSkybox);
+		const normalizedEnvironment = ensureEnvironmentTextureEquirect(
+			environment.iblTexture
+		);
+		if (!isTextureReadyForEnvironment(normalizedEnvironment)) {
+			this._lastEnvironmentSignatureByScene.set(scene, null);
+			return null;
+		}
+		const textureIdentity = this._resolveTextureIdentity(normalizedEnvironment);
 		const signature =
-			`${textureIdentity}:${normalizedSkybox.version}:` +
-			`${normalizedSkybox.width}x${normalizedSkybox.height}:` +
-			`${getEnvironmentMipLevelCount(normalizedSkybox)}:${normalizedSkybox.colorSpace}`;
+			`${textureIdentity}:${normalizedEnvironment.version}:` +
+			`${normalizedEnvironment.width}x${normalizedEnvironment.height}:` +
+			`${getEnvironmentMipLevelCount(normalizedEnvironment)}:${normalizedEnvironment.colorSpace}`;
 		return {
 			signature,
-			texture: normalizedSkybox,
+			texture: normalizedEnvironment,
 		};
 	}
 
 	private _shouldAutoUpdate(scene: Scene, signature: string): boolean {
-		const previous = this._lastSkyboxSignatureByScene.get(scene);
-		this._lastSkyboxSignatureByScene.set(scene, signature);
+		const previous = this._lastEnvironmentSignatureByScene.get(scene);
+		this._lastEnvironmentSignatureByScene.set(scene, signature);
 		if (previous === undefined) {
 			return true;
 		}
@@ -369,7 +376,7 @@ export class EnvironmentIBLUpdateRuntime {
 			options.temporalBlendFactor,
 			options.temporalBlendEpsilon
 		);
-		const specularConverged = this._blendSkyboxReflectionSpecular(
+		const specularConverged = this._blendEnvironmentReflectionSpecular(
 			pending,
 			options
 		);
@@ -410,17 +417,18 @@ export class EnvironmentIBLUpdateRuntime {
 		return converged;
 	}
 
-	private _blendSkyboxReflectionSpecular(
+	private _blendEnvironmentReflectionSpecular(
 		pending: PendingApplyState,
 		options: EnvironmentIBLUpdateOptions
 	): boolean {
-		const skyboxProbes = pending.scene
+		const environmentProbes = pending.scene
 			.getLights()
 			.filter(
 				(light): light is ReflectionProbe =>
-					light.type === LightType.ReflectionProbe && light.source === "skybox"
+					light.type === LightType.ReflectionProbe &&
+					light.source === "environment"
 			);
-		if (skyboxProbes.length <= 0) {
+		if (environmentProbes.length <= 0) {
 			return true;
 		}
 
@@ -434,7 +442,7 @@ export class EnvironmentIBLUpdateRuntime {
 			!isBlendTextureCompatible(pending.blendedSpecularMap, targetMap)
 		) {
 			const initialSource = this._resolveInitialSpecularSource(
-				skyboxProbes,
+				environmentProbes,
 				targetMap
 			);
 			pending.blendedSpecularMap = cloneTextureWithMipmaps(initialSource);
@@ -470,11 +478,11 @@ export class EnvironmentIBLUpdateRuntime {
 		if (processed > 0) {
 			blendedMap.markNeedsUpdate();
 		}
-		for (const probe of skyboxProbes) {
+		for (const probe of environmentProbes) {
 			probe.prefilteredMap = blendedMap;
 			probe.markRuntimeDirty();
 		}
-		for (const probe of skyboxProbes) {
+		for (const probe of environmentProbes) {
 			probe.markCaptureUpdated();
 		}
 

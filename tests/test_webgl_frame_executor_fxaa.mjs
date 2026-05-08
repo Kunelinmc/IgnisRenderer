@@ -259,7 +259,7 @@ function createPostProcessFeatures(overrides = {}) {
 		enableSH: false,
 		enableShadows: false,
 		enableReflection: false,
-		enableSkybox: false,
+		enableEnvironment: false,
 		enableSSAO: false,
 		enableSSGI: false,
 		enableTAA: false,

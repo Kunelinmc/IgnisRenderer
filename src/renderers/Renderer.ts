@@ -157,7 +157,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _environmentIBLUpdateRequestToken: number;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
-	private _allowSkyboxSpecularFallback: boolean;
 
 	constructor(
 		backend: IRenderBackend,
@@ -189,7 +188,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._environmentIBLUpdateRequestToken = 0;
 		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 		this._lastKnownSceneVersion = 0;
-		this._allowSkyboxSpecularFallback = true;
 
 		this.features = {
 			enableLighting: true,
@@ -198,7 +196,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableSH: false,
 			enableShadows: true,
 			enableReflection: true,
-			enableSkybox: true,
+			enableEnvironment: true,
 			enableOIT: false,
 			enableSSAO: false,
 			enableSSGI: false,
@@ -351,19 +349,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private async _warmupBakeEnvironmentIBL(
 		options: WarmupOptions
 	): Promise<boolean> {
-		if (typeof options.allowSkyboxSpecularFallback === "boolean") {
-			this._setAllowSkyboxSpecularFallback(
-				options.allowSkyboxSpecularFallback
-			);
-		}
 		const includeEnvironmentIBLBake =
 			options.includeEnvironmentIBLBake ?? !!options.environmentIBLBake;
 		if (includeEnvironmentIBLBake === false) {
 			return false;
 		}
 
-		const skybox = ensureEnvironmentTextureEquirect(this.scene.skybox);
-		if (!skybox || !isTextureReadyForEnvironment(skybox)) {
+		const environment = this.scene.environment;
+		if (!environment.lightingEnabled) {
+			return false;
+		}
+
+		const iblTexture = ensureEnvironmentTextureEquirect(
+			environment.iblTexture
+		);
+		if (!iblTexture || !isTextureReadyForEnvironment(iblTexture)) {
 			return false;
 		}
 
@@ -375,20 +375,24 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				this.backend as unknown as WebGPUComputeFacadeSource;
 		}
 
-		const bakedEnvironment = await bakeEnvironmentIBLFromEnvironmentMap(skybox, {
-			...bakeOptions,
-			onProgress: options.onProgress ?
-				(progress) => {
-					const event: WarmupProgress = {
-						phase: `environment-ibl-bake:${progress.phase}`,
-						completed: progress.completed,
-						total: progress.total,
-						detail: progress.detail,
-					};
-					options.onProgress?.(event);
-				}
-			:	undefined,
-		});
+		const bakedEnvironment = await bakeEnvironmentIBLFromEnvironmentMap(
+			iblTexture,
+			{
+				...bakeOptions,
+				onProgress:
+					options.onProgress ?
+						(progress) => {
+							const event: WarmupProgress = {
+								phase: `environment-ibl-bake:${progress.phase}`,
+								completed: progress.completed,
+								total: progress.total,
+								detail: progress.detail,
+							};
+							options.onProgress?.(event);
+						}
+					:	undefined,
+			}
+		);
 
 		const lights = this.scene.getLights();
 		const probes = lights.filter(
@@ -408,7 +412,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				light.type === LightType.ReflectionProbe
 		);
 		for (const reflectionProbe of reflectionProbes) {
-			if (reflectionProbe.source !== "skybox") continue;
+			if (reflectionProbe.source !== "environment") continue;
 			reflectionProbe.prefilteredMap = bakedEnvironment.prefilteredMap;
 			reflectionProbe.markRuntimeDirty();
 		}
@@ -607,21 +611,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this._camera;
 	}
 
-	public get allowSkyboxSpecularFallback(): boolean {
-		return this._allowSkyboxSpecularFallback;
-	}
-
 	public get lastTime(): number {
 		return this._lastTime;
-	}
-
-	private _setAllowSkyboxSpecularFallback(value: boolean): void {
-		if (this._allowSkyboxSpecularFallback === value) {
-			return;
-		}
-		this._allowSkyboxSpecularFallback = value;
-		this._preparedSceneCache.reset();
-		this._markFrameDirty("lighting");
 	}
 
 	private _markFrameDirty(reason: RenderDirtyReason = "unknown"): void {

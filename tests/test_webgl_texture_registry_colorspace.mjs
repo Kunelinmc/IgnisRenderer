@@ -57,7 +57,7 @@ function createSolidTexture(colorSpace) {
 	return new Texture(new Uint8Array([128, 64, 32, 255]), 1, 1, colorSpace);
 }
 
-function testSkyboxTextureRespectsTextureColorSpace() {
+function testEnvironmentTextureRespectsTextureColorSpace() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
 
@@ -65,10 +65,10 @@ function testSkyboxTextureRespectsTextureColorSpace() {
 	const linearTexture = createSolidTexture("Linear");
 	const hdrTexture = createSolidTexture("HDR");
 
-	const srgbResolvedA = registry.getSkyboxTexture(srgbTexture);
-	const srgbResolvedB = registry.getSkyboxTexture(srgbTexture);
-	const linearResolved = registry.getSkyboxTexture(linearTexture);
-	const hdrResolved = registry.getSkyboxTexture(hdrTexture);
+	const srgbResolvedA = registry.getEnvironmentTexture(srgbTexture);
+	const srgbResolvedB = registry.getEnvironmentTexture(srgbTexture);
+	const linearResolved = registry.getEnvironmentTexture(linearTexture);
+	const hdrResolved = registry.getEnvironmentTexture(hdrTexture);
 
 	assert.equal(srgbResolvedA.isLinear, false);
 	assert.equal(srgbResolvedB.isLinear, false);
@@ -179,7 +179,7 @@ function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 }
 
 function run() {
-	testSkyboxTextureRespectsTextureColorSpace();
+	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
 	testEnvironmentTextureLimitsMaxMipLevelToUploadedChain();
 	testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists();

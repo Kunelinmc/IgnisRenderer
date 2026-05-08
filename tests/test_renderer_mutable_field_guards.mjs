@@ -10,7 +10,7 @@ class StubBackend {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			ssgi: false,
 			taa: false,

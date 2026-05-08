@@ -113,7 +113,7 @@ export interface ShaderModuleDesc {
 	/** Optional source kind tag used for diagnostics/fallback policy */
 	sourceKind?:
 		| "builtin-scene"
-		| "builtin-skybox"
+		| "builtin-environment"
 		| "builtin-present"
 		| "postprocess"
 		| "clustered"

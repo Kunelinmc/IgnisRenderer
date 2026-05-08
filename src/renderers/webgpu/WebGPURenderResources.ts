@@ -115,7 +115,7 @@ export interface WebGPUDrawResources {
 	indexCount: number;
 }
 
-export interface WebGPUSkyboxDrawResources {
+export interface WebGPUEnvironmentDrawResources {
 	pipeline: any;
 	frameBinding: any;
 }
@@ -277,15 +277,15 @@ export class WebGPURenderResources {
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPrepareFrame"));
 		}
 
-		if (plan.enableSkybox) {
+		if (plan.enableEnvironment) {
 			total++;
 			try {
-				await this.getSkyboxResources();
+				await this.getEnvironmentResources();
 				compiled++;
 			} catch (error) {
 				failed++;
 				errors.push(
-					toShaderCompileError(error, "webgpu", "WebGPUSkyboxWarmup")
+					toShaderCompileError(error, "webgpu", "WebGPUEnvironmentWarmup")
 				);
 			}
 		}
@@ -393,7 +393,7 @@ export class WebGPURenderResources {
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,
-			enableSkybox: features.enableSkybox,
+			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
 			enableSSAO: features.enableSSAO,
 			enableSSGI: features.enableSSGI,
@@ -783,20 +783,20 @@ export class WebGPURenderResources {
 		return results;
 	}
 
-	public async getSkyboxResources(
+	public async getEnvironmentResources(
 		sceneTargetMode: WebGPUSceneTargetMode = this._sceneTargetMode
-	): Promise<WebGPUSkyboxDrawResources | null> {
+	): Promise<WebGPUEnvironmentDrawResources | null> {
 		if (
-			!this._featureState?.enableSkybox ||
-			!this._environmentState?.skyboxTexture
+			!this._featureState?.enableEnvironment ||
+			!this._environmentState?.environmentTexture
 		) {
 			return null;
 		}
 
-		const pipeline = await this._pipelineLibrary.getSkyboxPipeline(
+		const pipeline = await this._pipelineLibrary.getEnvironmentPipeline(
 			sceneTargetMode
 		);
-		const frameBinding = this._frameBindings.getSkyboxBinding();
+		const frameBinding = this._frameBindings.getEnvironmentBinding();
 
 		return {
 			pipeline,

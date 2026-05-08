@@ -4,9 +4,9 @@ struct FrameUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
-	skyboxBasisRight: vec4<f32>,
-	skyboxBasisUp: vec4<f32>,
-	skyboxBasisBackward: vec4<f32>,
+	environmentBasisRight: vec4<f32>,
+	environmentBasisUp: vec4<f32>,
+	environmentBasisBackward: vec4<f32>,
 	ambientColor: vec4<f32>,
 	lightCounts: vec4<f32>,
 	options: vec4<f32>,
@@ -83,8 +83,8 @@ fn resolveParticleOITWeight(alpha: f32, viewDepth: f32) -> f32 {
 @vertex
 fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
 	var output: ParticleVertexOutput;
-	let right = frame.skyboxBasisRight.xyz;
-	let up = frame.skyboxBasisUp.xyz;
+	let right = frame.environmentBasisRight.xyz;
+	let up = frame.environmentBasisUp.xyz;
 	let c = cos(input.instanceRotation);
 	let s = sin(input.instanceRotation);
 	let rotated = vec2<f32>(

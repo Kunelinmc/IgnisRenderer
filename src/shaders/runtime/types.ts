@@ -5,7 +5,7 @@ export type ShaderStage = "vertex" | "fragment" | "compute" | "unknown";
 
 export type ShaderSourceKind =
 	| "builtin-scene"
-	| "builtin-skybox"
+	| "builtin-environment"
 	| "builtin-present"
 	| "postprocess"
 	| "clustered"

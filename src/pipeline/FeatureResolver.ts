@@ -18,7 +18,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	sh: "feature-sh",
 	shadows: "feature-shadows",
 	reflection: "feature-reflection",
-	skybox: "feature-skybox",
+	environment: "feature-environment",
 	oit: "feature-oit",
 	ssao: "feature-ssao",
 	ssgi: "feature-ssgi",
@@ -37,7 +37,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	sh: "spherical harmonics",
 	shadows: "shadows",
 	reflection: "planar reflections",
-	skybox: "skybox rendering",
+	environment: "environment rendering",
 	oit: "order-independent transparency",
 	ssao: "SSAO",
 	ssgi: "SSGI",
@@ -117,10 +117,10 @@ export function resolveFeatureState(
 			backendType,
 			warnings
 		),
-		enableSkybox: resolveBooleanFeature(
-			request.enableSkybox,
-			capabilities.skybox,
-			"skybox",
+		enableEnvironment: resolveBooleanFeature(
+			request.enableEnvironment,
+			capabilities.environment,
+			"environment",
 			backendType,
 			warnings
 		),

@@ -82,7 +82,7 @@ export class WebGLBackend implements IRenderBackend {
 		sh: true,
 		shadows: true,
 		reflection: false,
-		skybox: true,
+		environment: true,
 		ssao: true,
 		ssgi: false,
 		taa: true,

@@ -27,7 +27,7 @@ function run() {
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
-		enableSkybox: false,
+		enableEnvironment: false,
 		enableSSAO: false,
 		enableSSGI: false,
 		enableTAA: false,

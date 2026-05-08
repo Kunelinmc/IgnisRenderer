@@ -269,15 +269,18 @@ export interface WebGLSceneProgram {
 	};
 }
 
-export interface WebGLSkyboxProgram {
+export interface WebGLEnvironmentProgram {
 	program: WebGLProgram;
 	uniforms: {
-		skyboxMap: WebGLUniformLocation | null;
-		skyboxBasisRight: WebGLUniformLocation | null;
-		skyboxBasisUp: WebGLUniformLocation | null;
-		skyboxBasisBackward: WebGLUniformLocation | null;
-		skyboxIsOrthographic: WebGLUniformLocation | null;
-		skyboxMapIsLinear: WebGLUniformLocation | null;
+		environmentMap: WebGLUniformLocation | null;
+		environmentBasisRight: WebGLUniformLocation | null;
+		environmentBasisUp: WebGLUniformLocation | null;
+		environmentBasisBackward: WebGLUniformLocation | null;
+		environmentIsOrthographic: WebGLUniformLocation | null;
+		environmentMapIsLinear: WebGLUniformLocation | null;
+		environmentBackgroundTint: WebGLUniformLocation | null;
+		environmentBackgroundExposure: WebGLUniformLocation | null;
+		environmentBackgroundStrength: WebGLUniformLocation | null;
 	};
 }
 
@@ -394,7 +397,7 @@ export class WebGLProgramLibrary {
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _sceneProgramDirectiveTag: string = "";
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
-	private _skyboxProgram: WebGLSkyboxProgram | null = null;
+	private _environmentProgram: WebGLEnvironmentProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _toneMappingProgram: WebGLToneMappingProgram | null = null;
@@ -962,27 +965,39 @@ export class WebGLProgramLibrary {
 		};
 	}
 
-	public getSkyboxProgram(): WebGLSkyboxProgram {
-		if (this._skyboxProgram) {
-			return this._skyboxProgram;
+	public getEnvironmentProgram(): WebGLEnvironmentProgram {
+		if (this._environmentProgram) {
+			return this._environmentProgram;
 		}
 		const program = this._createProgram(
-			this._shaderSource("skyboxVertex"),
-			this._shaderSource("skyboxFragment"),
-			"WebGLSkyboxProgram",
+			this._shaderSource("environmentVertex"),
+			this._shaderSource("environmentFragment"),
+			"WebGLEnvironmentProgram",
 		);
-		this._skyboxProgram = {
+		this._environmentProgram = {
 			program,
 			uniforms: {
-				skyboxMap: this._gl.getUniformLocation(program, "uSkyboxMap"),
-				skyboxBasisRight: this._gl.getUniformLocation(program, "uSkyboxBasisRight"),
-				skyboxBasisUp: this._gl.getUniformLocation(program, "uSkyboxBasisUp"),
-				skyboxBasisBackward: this._gl.getUniformLocation(program, "uSkyboxBasisBackward"),
-				skyboxIsOrthographic: this._gl.getUniformLocation(program, "uSkyboxIsOrthographic"),
-				skyboxMapIsLinear: this._gl.getUniformLocation(program, "uSkyboxMapIsLinear"),
+				environmentMap: this._gl.getUniformLocation(program, "uEnvironmentMap"),
+				environmentBasisRight: this._gl.getUniformLocation(program, "uEnvironmentBasisRight"),
+				environmentBasisUp: this._gl.getUniformLocation(program, "uEnvironmentBasisUp"),
+				environmentBasisBackward: this._gl.getUniformLocation(program, "uEnvironmentBasisBackward"),
+				environmentIsOrthographic: this._gl.getUniformLocation(program, "uEnvironmentIsOrthographic"),
+				environmentMapIsLinear: this._gl.getUniformLocation(program, "uEnvironmentMapIsLinear"),
+				environmentBackgroundTint: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundTint"
+				),
+				environmentBackgroundExposure: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundExposure"
+				),
+				environmentBackgroundStrength: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundStrength"
+				),
 			},
 		};
-		return this._skyboxProgram;
+		return this._environmentProgram;
 	}
 
 	public getPresentProgram(): WebGLPresentProgram {
@@ -1625,9 +1640,9 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(sceneProgram.program);
 		}
 		this._customScenePrograms.clear();
-		if (this._skyboxProgram) {
-			this._gl.deleteProgram(this._skyboxProgram.program);
-			this._skyboxProgram = null;
+		if (this._environmentProgram) {
+			this._gl.deleteProgram(this._environmentProgram.program);
+			this._environmentProgram = null;
 		}
 		if (this._presentProgram) {
 			this._gl.deleteProgram(this._presentProgram.program);

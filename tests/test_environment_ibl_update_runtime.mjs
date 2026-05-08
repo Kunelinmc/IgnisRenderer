@@ -8,7 +8,7 @@ import {
 	normalizeEnvironmentIBLUpdateOptions,
 } from "../src/pipeline/EnvironmentIBLUpdateRuntime.ts";
 
-function createSkyboxTexture(width = 16, height = 8, seed = 1) {
+function createEnvironmentTexture(width = 16, height = 8, seed = 1) {
 	const data = new Uint8ClampedArray(width * height * 4);
 	for (let i = 0; i < data.length; i += 4) {
 		const pixel = i >> 2;
@@ -87,14 +87,14 @@ async function testManualTriggerAndTemporalBlending() {
 		},
 	});
 	const scene = new Scene();
-	scene.skybox = createSkyboxTexture();
+	scene.environment.iblTexture = createEnvironmentTexture();
 	const probe = scene.add(new LightProbe());
-	const initialSkyboxMap = createPrefilteredTexture(0.05);
+	const initialEnvironmentMap = createPrefilteredTexture(0.05);
 	const manualMap = createPrefilteredTexture(0.8);
-	const skyboxProbe = scene.add(
+	const environmentProbe = scene.add(
 		new ReflectionProbe({
-			source: "skybox",
-			prefilteredMap: initialSkyboxMap,
+			source: "environment",
+			prefilteredMap: initialEnvironmentMap,
 		})
 	);
 	const manualProbe = scene.add(
@@ -141,14 +141,14 @@ async function testManualTriggerAndTemporalBlending() {
 	assert.equal(settled.sawComplete, true);
 	assert.equal(bakeCallCount, 1);
 
-	assert.notEqual(skyboxProbe.prefilteredMap, initialSkyboxMap);
+	assert.notEqual(environmentProbe.prefilteredMap, initialEnvironmentMap);
 	assert.equal(manualProbe.prefilteredMap, manualMap);
 	assert.ok(probe.sh[0].r > 0);
 	assert.ok(probe.sh[0].g > 0);
 	assert.ok(probe.sh[0].b > 0);
 }
 
-async function testAutoTriggerOnSkyboxSignatureChange() {
+async function testAutoTriggerOnEnvironmentSignatureChange() {
 	let bakeCallCount = 0;
 	const runtime = new EnvironmentIBLUpdateRuntime({
 		bakeEnvironmentIBL: async () => {
@@ -157,7 +157,7 @@ async function testAutoTriggerOnSkyboxSignatureChange() {
 		},
 	});
 	const scene = new Scene();
-	scene.skybox = createSkyboxTexture(16, 8, 1);
+	scene.environment.iblTexture = createEnvironmentTexture(16, 8, 1);
 	scene.add(new LightProbe());
 
 	const options = normalizeEnvironmentIBLUpdateOptions({
@@ -184,7 +184,7 @@ async function testAutoTriggerOnSkyboxSignatureChange() {
 	});
 	assert.equal(stable.inProgress, false);
 
-	scene.skybox.markNeedsUpdate();
+	scene.environment.iblTexture?.markNeedsUpdate();
 	const restarted = runtime.execute({
 		scene,
 		requestToken,
@@ -204,7 +204,7 @@ async function testAutoTriggerOnSkyboxSignatureChange() {
 
 async function run() {
 	await testManualTriggerAndTemporalBlending();
-	await testAutoTriggerOnSkyboxSignatureChange();
+	await testAutoTriggerOnEnvironmentSignatureChange();
 	console.log("Environment IBL update runtime tests passed");
 }
 

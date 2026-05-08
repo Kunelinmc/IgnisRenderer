@@ -2250,12 +2250,12 @@ export class WebGPUFrameExecutor {
 			);
 		}
 
-		let skyboxDrawn = false;
+		let environmentDrawn = false;
 		if (shouldClearAttachments) {
-			const skyboxResources = await this._resources.getSkyboxResources();
-			if (skyboxResources) {
+			const environmentResources = await this._resources.getEnvironmentResources();
+			if (environmentResources) {
 				this._encoder.beginRenderPass({
-					label: "WebGPUSkyboxMRT",
+					label: "WebGPUEnvironmentMRT",
 					colorAttachments: [
 						{
 							view: sceneColorAttachment,
@@ -2273,11 +2273,11 @@ export class WebGPUFrameExecutor {
 						depthStoreOp: "store",
 					},
 				});
-				this._encoder.setPipeline(skyboxResources.pipeline);
-				this._encoder.setBindingGroup(0, skyboxResources.frameBinding);
+				this._encoder.setPipeline(environmentResources.pipeline);
+				this._encoder.setBindingGroup(0, environmentResources.frameBinding);
 				this._encoder.draw(3);
 				this._encoder.endRenderPass();
-				skyboxDrawn = true;
+				environmentDrawn = true;
 			}
 		}
 		const shouldRunEarlyZ =
@@ -2296,7 +2296,7 @@ export class WebGPUFrameExecutor {
 						depthPartialReuseApplied,
 						incrementalPartial,
 						shouldClearAttachments,
-						skyboxDrawn,
+						environmentDrawn,
 						false
 					)
 				)
@@ -2312,7 +2312,7 @@ export class WebGPUFrameExecutor {
 					resolveTarget:
 						msaaTargets ? this._frameTargets.sceneColorMain : undefined,
 					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: shouldClearAttachments && !skyboxDrawn ? "clear" : "load",
+					loadOp: shouldClearAttachments && !environmentDrawn ? "clear" : "load",
 					storeOp: "store",
 				},
 				{
@@ -2355,7 +2355,7 @@ export class WebGPUFrameExecutor {
 					depthPartialReuseApplied,
 					incrementalPartial,
 					shouldClearAttachments,
-					skyboxDrawn,
+					environmentDrawn,
 					earlyZExecuted
 				),
 				depthStoreOp: "store",
@@ -2464,10 +2464,10 @@ export class WebGPUFrameExecutor {
 		});
 
 		if (shouldClearAttachments) {
-			const skyboxResources = await this._resources.getSkyboxResources();
-			if (skyboxResources) {
-				this._encoder.setPipeline(skyboxResources.pipeline);
-				this._encoder.setBindingGroup(0, skyboxResources.frameBinding);
+			const environmentResources = await this._resources.getEnvironmentResources();
+			if (environmentResources) {
+				this._encoder.setPipeline(environmentResources.pipeline);
+				this._encoder.setBindingGroup(0, environmentResources.frameBinding);
 				this._encoder.draw(3);
 			}
 		}
@@ -2564,13 +2564,13 @@ export class WebGPUFrameExecutor {
 		depthPartialReuseApplied: boolean,
 		incrementalPartial: boolean,
 		shouldClearAttachments: boolean,
-		skyboxDrawn: boolean,
+		environmentDrawn: boolean,
 		earlyZExecuted: boolean
 	): "load" | "clear" {
 		if (earlyZExecuted || depthPartialReuseApplied) {
 			return "load";
 		}
-		return incrementalPartial || (shouldClearAttachments && !skyboxDrawn) ?
+		return incrementalPartial || (shouldClearAttachments && !environmentDrawn) ?
 				"clear"
 			:	"load";
 	}

@@ -16,7 +16,7 @@ class StubBackend {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -135,7 +135,7 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
@@ -188,7 +188,7 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin();
@@ -231,7 +231,7 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
@@ -296,7 +296,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({

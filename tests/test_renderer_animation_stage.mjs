@@ -15,7 +15,7 @@ class StubBackend {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -124,7 +124,7 @@ async function run() {
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.features.enableGamma = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableSkybox = false;
+		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
 
 		const meshInstance = renderer.scene.add(

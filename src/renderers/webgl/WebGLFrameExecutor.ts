@@ -335,9 +335,10 @@ export class WebGLFrameExecutor {
 				context.features.enableShadows,
 				context.shadowMaps,
 				context.features.enableSH,
-				context.scene.skybox,
+				context.scene.environment.lightingEnabled ?
+					context.scene.environment.iblTexture
+				:	null,
 				context.features.enableClusteredLighting,
-				context.scene.allowSkyboxSpecularFallback !== false,
 				context.camera.getWorldPosition(
 					_tmpWebGLReflectionProbeCameraWorldPosition
 				)
@@ -394,8 +395,13 @@ export class WebGLFrameExecutor {
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		}
 
-		if (!incrementalPartial && context.features.enableSkybox && context.scene.skybox) {
-			this._renderSkybox(context);
+		if (
+			!incrementalPartial &&
+			context.features.enableEnvironment &&
+			context.scene.environment.backgroundEnabled &&
+			context.scene.environment.backgroundTexture
+		) {
+			this._renderEnvironment(context);
 		}
 	}
 
@@ -465,9 +471,9 @@ export class WebGLFrameExecutor {
 			}
 		}
 
-		if (plan.enableSkybox) {
-			compile("WebGLSkyboxProgram", () => {
-				this._programs.getSkyboxProgram();
+		if (plan.enableEnvironment) {
+			compile("WebGLEnvironmentProgram", () => {
+				this._programs.getEnvironmentProgram();
 			});
 		}
 		if (plan.enableShadows) {
@@ -1663,13 +1669,15 @@ export class WebGLFrameExecutor {
 		);
 	}
 
-	private _renderSkybox(context: FrameContext): void {
-		const skyboxTexture = context.scene.skybox;
-		if (!skyboxTexture || !this._fullscreenVao) return;
+	private _renderEnvironment(context: FrameContext): void {
+		const environmentBackgroundTexture =
+			context.scene.environment.backgroundTexture;
+		if (!environmentBackgroundTexture || !this._fullscreenVao) return;
+		const environment = context.scene.environment;
 
 		const gl = this._gl;
-		const skyboxProgram = this._programs.getSkyboxProgram();
-		const resolved = this._textures.getSkyboxTexture(skyboxTexture);
+		const environmentProgram = this._programs.getEnvironmentProgram();
+		const resolved = this._textures.getEnvironmentTexture(environmentBackgroundTexture);
 		const view = context.camera.viewMatrix.elements;
 		const isOrthographic = context.camera.type === CameraType.Orthographic;
 		const tanHalfFov =
@@ -1678,7 +1686,7 @@ export class WebGLFrameExecutor {
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-		gl.useProgram(skyboxProgram.program);
+		gl.useProgram(environmentProgram.program);
 		gl.bindVertexArray(this._fullscreenVao);
 		gl.disable(gl.CULL_FACE);
 		gl.disable(gl.BLEND);
@@ -1687,45 +1695,65 @@ export class WebGLFrameExecutor {
 
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
-		if (skyboxProgram.uniforms.skyboxMap) {
-			gl.uniform1i(skyboxProgram.uniforms.skyboxMap, 0);
+		if (environmentProgram.uniforms.environmentMap) {
+			gl.uniform1i(environmentProgram.uniforms.environmentMap, 0);
 		}
-		if (skyboxProgram.uniforms.skyboxBasisRight) {
+		if (environmentProgram.uniforms.environmentBasisRight) {
 			gl.uniform4f(
-				skyboxProgram.uniforms.skyboxBasisRight,
+				environmentProgram.uniforms.environmentBasisRight,
 				view[0][0],
 				view[0][1],
 				view[0][2],
 				tanHalfFov
 			);
 		}
-		if (skyboxProgram.uniforms.skyboxBasisUp) {
+		if (environmentProgram.uniforms.environmentBasisUp) {
 			gl.uniform4f(
-				skyboxProgram.uniforms.skyboxBasisUp,
+				environmentProgram.uniforms.environmentBasisUp,
 				view[1][0],
 				view[1][1],
 				view[1][2],
 				aspect
 			);
 		}
-		if (skyboxProgram.uniforms.skyboxBasisBackward) {
+		if (environmentProgram.uniforms.environmentBasisBackward) {
 			gl.uniform3f(
-				skyboxProgram.uniforms.skyboxBasisBackward,
+				environmentProgram.uniforms.environmentBasisBackward,
 				view[2][0],
 				view[2][1],
 				view[2][2]
 			);
 		}
-		if (skyboxProgram.uniforms.skyboxIsOrthographic) {
+		if (environmentProgram.uniforms.environmentIsOrthographic) {
 			gl.uniform1f(
-				skyboxProgram.uniforms.skyboxIsOrthographic,
+				environmentProgram.uniforms.environmentIsOrthographic,
 				isOrthographic ? 1 : 0
 			);
 		}
-		if (skyboxProgram.uniforms.skyboxMapIsLinear) {
+		if (environmentProgram.uniforms.environmentMapIsLinear) {
 			gl.uniform1i(
-				skyboxProgram.uniforms.skyboxMapIsLinear,
+				environmentProgram.uniforms.environmentMapIsLinear,
 				resolved.isLinear ? 1 : 0
+			);
+		}
+		if (environmentProgram.uniforms.environmentBackgroundTint) {
+			gl.uniform3f(
+				environmentProgram.uniforms.environmentBackgroundTint,
+				environment.backgroundTintLinear.r,
+				environment.backgroundTintLinear.g,
+				environment.backgroundTintLinear.b
+			);
+		}
+		if (environmentProgram.uniforms.environmentBackgroundExposure) {
+			gl.uniform1f(
+				environmentProgram.uniforms.environmentBackgroundExposure,
+				Math.max(1e-6, environment.backgroundExposure)
+			);
+		}
+		if (environmentProgram.uniforms.environmentBackgroundStrength) {
+			gl.uniform1f(
+				environmentProgram.uniforms.environmentBackgroundStrength,
+				Math.max(0, environment.backgroundStrength)
 			);
 		}
 		gl.drawArrays(gl.TRIANGLES, 0, 3);

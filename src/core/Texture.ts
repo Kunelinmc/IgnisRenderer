@@ -94,7 +94,7 @@ export class Texture {
 
 	/**
 	 * Marks this texture as a loader fallback generated from a load failure.
-	 * Renderers can use this to avoid presenting diagnostic colors as skyboxes.
+	 * Renderers can use this to avoid presenting diagnostic colors as environmentes.
 	 */
 	public markAsLoadErrorFallback(): void {
 		this._isLoadErrorFallback = true;

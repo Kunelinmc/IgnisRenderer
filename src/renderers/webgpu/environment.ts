@@ -35,19 +35,39 @@ import type {
 const SH_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 const _tmpWebGPUReflectionProbeCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
+interface PreparedSceneEnvironmentLike {
+	backgroundEnabled: boolean;
+	lightingEnabled: boolean;
+	backgroundTexture: Texture | null;
+	iblTexture: Texture | null;
+	backgroundStrength: number;
+	backgroundTintLinear: { r: number; g: number; b: number };
+	backgroundExposure: number;
+}
+
 export function collectWebGPUEnvironment(
 	scene: PreparedScene,
 	enableSH: boolean,
 	shAmbientCoeffs: SHCoefficients | null
 ): WebGPUEnvironmentState {
 	const warnings: WebGPUWarning[] = [];
-	const allowSkyboxSpecularFallback =
-		scene.allowSkyboxSpecularFallback !== false;
-	const sceneSkyboxTexture = resolveEnvironmentTexture(
-		scene.skybox,
-		"skybox",
-		warnings
-	);
+	const environment = resolvePreparedSceneEnvironment(scene);
+	const environmentBackgroundTexture =
+		environment.backgroundEnabled ?
+			resolveEnvironmentTexture(
+				environment.backgroundTexture,
+				"background",
+				warnings
+			)
+		:	null;
+	const environmentSpecularTexture =
+		environment.lightingEnabled ?
+			resolveEnvironmentTexture(
+				environment.iblTexture,
+				"env-specular",
+				warnings
+			)
+		:	null;
 	const reflectionProbeCameraWorldPosition =
 		typeof scene.camera?.getWorldPosition === "function" ?
 			scene.camera.getWorldPosition(_tmpWebGPUReflectionProbeCameraWorldPosition)
@@ -71,8 +91,6 @@ export function collectWebGPUEnvironment(
 		"env-specular",
 		warnings
 	);
-	const envSpecularFallbackTexture =
-		allowSkyboxSpecularFallback ? sceneSkyboxTexture : null;
 	if (envSpecularTexture) {
 		reflectionProbes = reflectionEnvironment.probes.map((probe, index) => {
 			const cache = probe.getRuntimeCache();
@@ -103,11 +121,11 @@ export function collectWebGPUEnvironment(
 		warnings.push({
 			key: "webgpu-reflection-probe-atlas-missing",
 			message:
-				"WebGPU reflection probes are active but atlas build failed or is not ready; falling back to skybox environment specular.",
+				"WebGPU reflection probes are active but atlas build failed or is not ready; using environment IBL texture only.",
 		});
 	}
-	if (!envSpecularTexture && allowSkyboxSpecularFallback) {
-		envSpecularTexture = sceneSkyboxTexture;
+	if (!envSpecularTexture) {
+		envSpecularTexture = environmentSpecularTexture;
 	}
 	const hasEnvSpecular = !!envSpecularTexture;
 	const resolvedSHAmbientCoeffs = resolveSHAmbientCoeffs(
@@ -128,9 +146,9 @@ export function collectWebGPUEnvironment(
 		shAmbientCoeffs: resolvedSHAmbientCoeffs,
 		enableSH,
 		hasSHAmbient,
-		skyboxTexture: sceneSkyboxTexture,
+		environmentTexture: environmentBackgroundTexture,
 		envSpecularTexture,
-		envSpecularFallbackTexture,
+		envSpecularFallbackTexture: null,
 		localLightProbeCount,
 		localLightProbes: localizedProbeUniforms,
 		reflectionProbeCount,
@@ -138,10 +156,7 @@ export function collectWebGPUEnvironment(
 		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
 		envSpecularMaxMipLevel:
 			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
-		envSpecularFallbackMaxMipLevel:
-			envSpecularFallbackTexture ?
-				Math.max(0, getEnvironmentMipLevelCount(envSpecularFallbackTexture) - 1)
-			:	0,
+		envSpecularFallbackMaxMipLevel: 0,
 		warnings,
 	};
 }
@@ -242,7 +257,7 @@ function hasNonZeroSH(coeffs: SHCoefficients | null): boolean {
 	return false;
 }
 
-type EnvironmentTextureSlot = "skybox" | "env-specular";
+type EnvironmentTextureSlot = "background" | "env-specular";
 
 function resolveEnvironmentTexture(
 	texture: Texture | null | undefined,
@@ -257,12 +272,12 @@ function resolveEnvironmentTexture(
 	if (normalizedTexture.isLoadErrorFallback) {
 		warnings.push({
 			key:
-				slot === "skybox" ?
-					"webgpu-skybox-load-error-fallback"
+				slot === "background" ?
+					"webgpu-environment-background-load-error-fallback"
 				:	"webgpu-env-specular-load-error-fallback",
 			message:
-				slot === "skybox" ?
-					"WebGPU skybox texture resolved to a load-error fallback; skipping skybox rendering."
+				slot === "background" ?
+					"WebGPU environment background texture resolved to a load-error fallback; skipping environment background rendering."
 				:	"WebGPU environment specular texture resolved to a load-error fallback; skipping IBL specular.",
 		});
 		return null;
@@ -271,12 +286,12 @@ function resolveEnvironmentTexture(
 	if (!isTextureReadyForEnvironmentShared(normalizedTexture)) {
 		warnings.push({
 			key:
-				slot === "skybox" ?
-					"webgpu-skybox-texture-not-ready"
+				slot === "background" ?
+					"webgpu-environment-background-texture-not-ready"
 				:	"webgpu-env-specular-texture-not-ready",
 			message:
-				slot === "skybox" ?
-					"WebGPU skybox texture is not ready (missing pixels or invalid dimensions); skipping skybox rendering for this frame."
+				slot === "background" ?
+					"WebGPU environment background texture is not ready (missing pixels or invalid dimensions); skipping environment background rendering for this frame."
 				:	"WebGPU environment specular texture is not ready (missing pixels or invalid dimensions); skipping IBL specular for this frame.",
 		});
 		return null;
@@ -289,4 +304,50 @@ function mapParallaxModeCode(mode: string): 0 | 1 | 2 {
 	if (mode === "box") return 1;
 	if (mode === "sphere") return 2;
 	return 0;
+}
+
+function resolvePreparedSceneEnvironment(
+	scene: PreparedScene
+): PreparedSceneEnvironmentLike {
+	const rawEnvironment = (scene as { environment?: unknown }).environment;
+	if (!rawEnvironment || typeof rawEnvironment !== "object") {
+		return {
+			backgroundEnabled: true,
+			lightingEnabled: true,
+			backgroundTexture: null,
+			iblTexture: null,
+			backgroundStrength: 1,
+			backgroundTintLinear: { r: 1, g: 1, b: 1 },
+			backgroundExposure: 1,
+		};
+	}
+	const environment = rawEnvironment as Partial<PreparedSceneEnvironmentLike>;
+	return {
+		backgroundEnabled: environment.backgroundEnabled ?? true,
+		lightingEnabled: environment.lightingEnabled ?? true,
+		backgroundTexture: (environment.backgroundTexture ?? null) as Texture | null,
+		iblTexture: (environment.iblTexture ?? null) as Texture | null,
+		backgroundStrength:
+			typeof environment.backgroundStrength === "number" ?
+				environment.backgroundStrength
+			:	1,
+		backgroundTintLinear: {
+			r:
+				typeof environment.backgroundTintLinear?.r === "number" ?
+					environment.backgroundTintLinear.r
+				:	1,
+			g:
+				typeof environment.backgroundTintLinear?.g === "number" ?
+					environment.backgroundTintLinear.g
+				:	1,
+			b:
+				typeof environment.backgroundTintLinear?.b === "number" ?
+					environment.backgroundTintLinear.b
+				:	1,
+		},
+		backgroundExposure:
+			typeof environment.backgroundExposure === "number" ?
+				environment.backgroundExposure
+			:	1,
+	};
 }

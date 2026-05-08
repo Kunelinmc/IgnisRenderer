@@ -3,7 +3,7 @@ import { WebGPURenderResources } from "../src/renderers/webgpu/WebGPURenderResou
 import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts";
 import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
-import { getWebGPUSkyboxShader } from "../src/shaders/webgpu/skyboxShader.ts";
+import { getWebGPUEnvironmentShader } from "../src/shaders/webgpu/environmentShader.ts";
 import {
 	loadClusteredLightingCullShaderComposite,
 	loadPostProcessShaderPart,
@@ -141,7 +141,7 @@ function createFrame(packet) {
 			aspectRatio: 1,
 			type: "perspective",
 		},
-		skybox: null,
+		environment: createEnvironmentSnapshot(null, null),
 		meshInstances: [packet.meshInstance],
 		shadowMaps: new Map(),
 		opaquePackets: [packet],
@@ -247,7 +247,7 @@ function testFeatureGate() {
 			enableSH: true,
 			enableShadows: true,
 			enableReflection: true,
-			enableSkybox: true,
+			enableEnvironment: true,
 			enableSSAO: true,
 			enableTAA: true,
 			enableSSR: true,
@@ -258,7 +258,7 @@ function testFeatureGate() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				ssgi: false,
 				taa: false,
@@ -281,7 +281,7 @@ function testFeatureGate() {
 	assert.equal(featureState.enableSH, false);
 	assert.equal(featureState.enableShadows, true);
 	assert.equal(featureState.enableReflection, false);
-	assert.equal(featureState.enableSkybox, false);
+	assert.equal(featureState.enableEnvironment, false);
 	assert.equal(featureState.enableSSAO, false);
 	assert.equal(featureState.enableTAA, false);
 		assert.equal(featureState.enableSSR, false);
@@ -315,7 +315,7 @@ function testFeatureGate() {
 
 async function testSceneShaderCoverage() {
 	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
-	const WEBGPU_SKYBOX_SHADER = await getWebGPUSkyboxShader();
+	const WEBGPU_ENVIRONMENT_SHADER = await getWebGPUEnvironmentShader();
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -358,12 +358,12 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("@group(0) @binding(1)"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("prevViewProjection"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("taaJitterCurrentPrev"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("atan2(direction.x, direction.z)"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("frame.environmentOptionsB.z < 0.5"));
-	assert.ok(WEBGPU_SKYBOX_SHADER.includes("frame.options.w > 0.5"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("@group(0) @binding(1)"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("prevViewProjection"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("taaJitterCurrentPrev"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("atan2(direction.x, direction.z)"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("frame.environmentOptionsB.z < 0.5"));
+	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("frame.options.w > 0.5"));
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -406,7 +406,7 @@ async function testParticleShaderDepthConsistency() {
 
 async function testWebGPUShaderConstantTokenInjection() {
 	const rawSceneShader = await getWebGPUSceneShader();
-	const rawSkyboxShader = await getWebGPUSkyboxShader();
+	const rawEnvironmentShader = await getWebGPUEnvironmentShader();
 	const rawParticleShader = await getWebGPUParticleShader();
 	const rawSSRShader = await loadPostProcessShaderPart("ssr");
 	const rawClusteredCullShader =
@@ -434,10 +434,10 @@ async function testWebGPUShaderConstantTokenInjection() {
 		"test-webgpu-scene-shader",
 		"builtin-scene"
 	);
-	const WEBGPU_SKYBOX_SHADER = await compileShader(
-		rawSkyboxShader,
-		"test-webgpu-skybox-shader",
-		"builtin-skybox"
+	const WEBGPU_ENVIRONMENT_SHADER = await compileShader(
+		rawEnvironmentShader,
+		"test-webgpu-environment-shader",
+		"builtin-environment"
 	);
 	const WEBGPU_PARTICLE_SHADER = await compileShader(
 		rawParticleShader,
@@ -496,7 +496,7 @@ async function testWebGPUShaderConstantTokenInjection() {
 		)
 	);
 	assert.ok(
-		WEBGPU_SKYBOX_SHADER.includes(
+		WEBGPU_ENVIRONMENT_SHADER.includes(
 			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
 		)
 	);
@@ -526,7 +526,7 @@ async function testWebGPUShaderConstantTokenInjection() {
 		)
 	);
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("__WEBGPU_"));
-	assert.ok(!WEBGPU_SKYBOX_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_ENVIRONMENT_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_PARTICLE_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_SSR_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_CLUSTERED_CULL_SHADER.includes("__WEBGPU_"));
@@ -557,8 +557,25 @@ function createTinyCubeTexture(mips = 1, value = 1) {
 	});
 }
 
+function createEnvironmentSnapshot(
+	backgroundTexture = null,
+	iblTexture = null
+) {
+	return {
+		backgroundEnabled: true,
+		lightingEnabled: true,
+		backgroundTexture,
+		iblTexture,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+}
+
 function testEnvironmentCollection() {
-	const skybox = createTinyTexture(1);
+	const environment = createTinyTexture(1);
 	const probeMap = createTinyTexture(3);
 	const sh = SH.empty();
 	sh[0] = { r: 10, g: 10, b: 10 };
@@ -573,16 +590,16 @@ function testEnvironmentCollection() {
 
 	const prioritized = collectWebGPUEnvironment(
 		{
-			skybox,
+			environment: createEnvironmentSnapshot(environment),
 			lights: [probeA, probeB],
 		},
 		true,
 		sh
 	);
-	assert.equal(prioritized.skyboxTexture, skybox);
+	assert.equal(prioritized.environmentTexture, environment);
 	assert.ok(prioritized.envSpecularTexture);
-	assert.notEqual(prioritized.envSpecularTexture, skybox);
-	assert.equal(prioritized.envSpecularFallbackTexture, skybox);
+	assert.notEqual(prioritized.envSpecularTexture, environment);
+	assert.equal(prioritized.envSpecularFallbackTexture, null);
 	assert.equal(prioritized.envSpecularMaxMipLevel, 2);
 	assert.equal(prioritized.envSpecularFallbackMaxMipLevel, 0);
 	assert.equal(prioritized.reflectionProbeCount, 2);
@@ -592,67 +609,67 @@ function testEnvironmentCollection() {
 
 	const fallback = collectWebGPUEnvironment(
 		{
-			skybox: null,
+			environment: createEnvironmentSnapshot(null, null),
 			lights: [probeA, probeB],
 		},
 		true,
 		sh
 	);
-	assert.equal(fallback.skyboxTexture, null);
+	assert.equal(fallback.environmentTexture, null);
 	assert.ok(fallback.envSpecularTexture);
 	assert.equal(fallback.envSpecularFallbackTexture, null);
 	assert.equal(fallback.reflectionProbeCount, 2);
 
-	const failedSkybox = createTinyTexture(1);
-	failedSkybox.markAsLoadErrorFallback();
-	const fallbackFromFailedSkybox = collectWebGPUEnvironment(
+	const failedEnvironment = createTinyTexture(1);
+	failedEnvironment.markAsLoadErrorFallback();
+	const fallbackFromFailedEnvironment = collectWebGPUEnvironment(
 		{
-			skybox: failedSkybox,
+			environment: createEnvironmentSnapshot(failedEnvironment),
 			lights: [probeA],
 		},
 		true,
 		sh
 	);
-	assert.equal(fallbackFromFailedSkybox.skyboxTexture, null);
-	assert.ok(fallbackFromFailedSkybox.envSpecularTexture);
-	assert.equal(fallbackFromFailedSkybox.reflectionProbeCount, 1);
+	assert.equal(fallbackFromFailedEnvironment.environmentTexture, null);
+	assert.ok(fallbackFromFailedEnvironment.envSpecularTexture);
+	assert.equal(fallbackFromFailedEnvironment.reflectionProbeCount, 1);
 	assert.ok(
-		fallbackFromFailedSkybox.warnings.some(
-			(warning) => warning.key === "webgpu-skybox-load-error-fallback"
+		fallbackFromFailedEnvironment.warnings.some(
+			(warning) =>
+				warning.key === "webgpu-environment-background-load-error-fallback"
 		)
 	);
 
-	const failedOnlySkybox = collectWebGPUEnvironment(
+	const failedOnlyEnvironment = collectWebGPUEnvironment(
 		{
-			skybox: failedSkybox,
+			environment: createEnvironmentSnapshot(failedEnvironment, null),
 			lights: [],
 		},
 		true,
 		sh
 	);
-	assert.equal(failedOnlySkybox.skyboxTexture, null);
-	assert.equal(failedOnlySkybox.envSpecularTexture, null);
-	assert.equal(failedOnlySkybox.reflectionProbeCount, 0);
+	assert.equal(failedOnlyEnvironment.environmentTexture, null);
+	assert.equal(failedOnlyEnvironment.envSpecularTexture, null);
+	assert.equal(failedOnlyEnvironment.reflectionProbeCount, 0);
 
 	const disabledFallback = collectWebGPUEnvironment(
 		{
-			skybox,
+			environment: createEnvironmentSnapshot(environment, environment),
 			lights: [],
-			allowSkyboxSpecularFallback: false,
 		},
 		true,
 		sh
 	);
-	assert.equal(disabledFallback.skyboxTexture, skybox);
-	assert.equal(disabledFallback.envSpecularTexture, null);
+	assert.equal(disabledFallback.environmentTexture, environment);
+	assert.equal(disabledFallback.envSpecularTexture, environment);
 	assert.equal(disabledFallback.envSpecularFallbackTexture, null);
 	assert.equal(disabledFallback.reflectionProbeCount, 0);
-	assert.equal(disabledFallback.brdfLUTTexture, null);
+	assert.ok(disabledFallback.brdfLUTTexture);
 	assert.equal(disabledFallback.envSpecularMaxMipLevel, 0);
 }
 
 function testEnvironmentCollectionWithCubeTextures() {
-	const skybox = createTinyCubeTexture(2, 0.5);
+	const environment = createTinyCubeTexture(2, 0.5);
 	const probeMap = createTinyCubeTexture(3, 0.75);
 	const probe = new ReflectionProbe({
 		shape: "sphere",
@@ -661,18 +678,18 @@ function testEnvironmentCollectionWithCubeTextures() {
 
 	const state = collectWebGPUEnvironment(
 		{
-			skybox,
+			environment: createEnvironmentSnapshot(environment),
 			lights: [probe],
 		},
 		false,
 		null
 	);
-	assert.ok(state.skyboxTexture);
+	assert.ok(state.environmentTexture);
 	assert.ok(state.envSpecularTexture);
-	assert.notEqual(state.skyboxTexture, skybox);
+	assert.notEqual(state.environmentTexture, environment);
 	assert.notEqual(state.envSpecularTexture, probeMap);
-	assert.equal(state.skyboxTexture.width, 4);
-	assert.equal(state.skyboxTexture.height, 2);
+	assert.equal(state.environmentTexture.width, 4);
+	assert.equal(state.environmentTexture.height, 2);
 	assert.equal(state.envSpecularTexture.width, 4);
 	assert.equal(state.envSpecularTexture.height, 2);
 	assert.equal(state.reflectionProbeCount, 1);
@@ -693,7 +710,7 @@ function testEnvironmentCollectionUsesParentedProbeCaptureOrigin() {
 
 	const state = collectWebGPUEnvironment(
 		{
-			skybox: null,
+			environment: null,
 			lights: [probe],
 		},
 		false,
@@ -724,7 +741,7 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 	const probe = new LightProbe(sh, 0.5);
 	const state = collectWebGPUEnvironment(
 		{
-			skybox: null,
+			environment: null,
 			lights: [probe],
 		},
 		true,
@@ -772,7 +789,7 @@ function testEnvironmentCollectsLocalizedLightProbesWithoutPollutingGlobalSH() {
 
 	const state = collectWebGPUEnvironment(
 		{
-			skybox: null,
+			environment: null,
 			lights: [globalProbe, localA, localB],
 			camera: {
 				getWorldPosition() {
@@ -924,7 +941,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1034,7 +1051,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1101,7 +1118,7 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1160,7 +1177,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1208,7 +1225,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1255,7 +1272,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1323,7 +1340,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				ssao: false,
 				taa: false,
 				ssr: false,
@@ -1401,7 +1418,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				oit: true,
 				ssao: false,
 				taa: false,
@@ -1476,7 +1493,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 				sh: false,
 				shadows: true,
 				reflection: false,
-				skybox: false,
+				environment: false,
 				oit: true,
 				ssao: false,
 				taa: false,
@@ -1529,7 +1546,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			oit: true,
 			ssao: false,
 			taa: false,
@@ -1684,7 +1701,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		sh: true,
 		shadows: true,
 		reflection: false,
-		skybox: true,
+		environment: true,
 		ssao: false,
 		taa: false,
 		ssr: false,
@@ -1706,29 +1723,32 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 
 	const cases = [
 		{
-			skybox: createTinyTexture(1),
+			environment: createEnvironmentSnapshot(
+				createTinyTexture(1),
+				createTinyTexture(1)
+			),
 			lights: [probe],
 			enableSH: true,
-			expectSkybox: true,
+			expectEnvironment: true,
 		},
 		{
-			skybox: null,
+			environment: createEnvironmentSnapshot(null, null),
 			lights: [probe],
 			enableSH: true,
-			expectSkybox: false,
+			expectEnvironment: false,
 		},
 		{
-			skybox: null,
+			environment: createEnvironmentSnapshot(null, null),
 			lights: [],
 			enableSH: false,
-			expectSkybox: false,
+			expectEnvironment: false,
 		},
 	];
 
 	for (const scenario of cases) {
 		const scene = {
 			...baseScene,
-			skybox: scenario.skybox,
+			environment: scenario.environment,
 			lights: scenario.lights,
 		};
 		const features = resolveFeatureState(
@@ -1737,7 +1757,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 				enableGamma: true,
 				enableSH: scenario.enableSH,
 				enableShadows: true,
-				enableSkybox: true,
+				enableEnvironment: true,
 			},
 			caps,
 			"webgpu"
@@ -1754,8 +1774,8 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 			transient: new Map(),
 		});
 
-		const skyboxResources = await resources.getSkyboxResources();
-		assert.equal(!!skyboxResources, scenario.expectSkybox);
+		const environmentResources = await resources.getEnvironmentResources();
+		assert.equal(!!environmentResources, scenario.expectEnvironment);
 		const draw = await resources.getDrawResources(packet);
 		assert.ok(draw);
 	}
@@ -1769,7 +1789,10 @@ async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	frame.skybox = createTinyTexture(1);
+	frame.environment = createEnvironmentSnapshot(
+		createTinyTexture(1),
+		createTinyTexture(1)
+	);
 	const resources = new WebGPURenderResources(renderer, backend);
 	await resources.init();
 
@@ -1778,14 +1801,14 @@ async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 			enableLighting: true,
 			enableGamma: true,
 			enableShadows: true,
-			enableSkybox: true,
+			enableEnvironment: true,
 			enableClusteredLighting: true,
 		},
 		{
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: true,
+			environment: true,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -1802,11 +1825,11 @@ async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 	resources.setSceneTargetMode("mrt");
 	resources.prepareFrame(frame, features);
 
-	const skyboxResources = await resources.getSkyboxResources("single");
-	assert.ok(skyboxResources);
-	assert.equal(skyboxResources.pipeline.label, "WebGPUSkyboxPipeline_single");
+	const environmentResources = await resources.getEnvironmentResources("single");
+	assert.ok(environmentResources);
+	assert.equal(environmentResources.pipeline.label, "WebGPUEnvironmentPipeline_single");
 	assert.equal(
-		skyboxResources.pipeline.desc.depthStencil.format,
+		environmentResources.pipeline.desc.depthStencil.format,
 		backend.canvasDepthFormat
 	);
 
@@ -1831,7 +1854,6 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		...createFrame(packet),
 		particleSystems: [],
 		hasActiveAnimations: false,
-		allowSkyboxSpecularFallback: false,
 		spatialIndex: null,
 	};
 	const features = resolveFeatureState(
@@ -1839,7 +1861,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 			enableLighting: true,
 			enableGamma: true,
 			enableClusteredLighting: true,
-			enableSkybox: false,
+			enableEnvironment: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableOIT: false,
@@ -1857,7 +1879,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			oit: false,
 			ssao: false,
 			ssgi: false,
@@ -1900,7 +1922,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		setSceneTargetMode() {},
 		prepareFrame() {},
 		async buildClusteredLighting() {},
-		async getSkyboxResources() {
+		async getEnvironmentResources() {
 			return null;
 		},
 		async getDrawResources() {
@@ -1912,7 +1934,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	};
 	const probe = new ReflectionProbe({
 		includeMeshes: false,
-		includeSkybox: false,
+		includeEnvironment: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
@@ -1923,7 +1945,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		probe,
 		faceIndex: 0,
 		faceSize: 1,
-		includeSkybox: false,
+		includeEnvironment: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
@@ -1950,7 +1972,6 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		...createFrame(packet),
 		particleSystems: [],
 		hasActiveAnimations: false,
-		allowSkyboxSpecularFallback: false,
 		spatialIndex: null,
 	};
 	const features = resolveFeatureState(
@@ -1958,7 +1979,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 			enableLighting: true,
 			enableGamma: true,
 			enableClusteredLighting: true,
-			enableSkybox: false,
+			enableEnvironment: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableOIT: false,
@@ -1976,7 +1997,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			oit: false,
 			ssao: false,
 			ssgi: false,
@@ -2024,7 +2045,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 			);
 		},
 		async buildClusteredLighting() {},
-		async getSkyboxResources() {
+		async getEnvironmentResources() {
 			return null;
 		},
 		async getDrawResources() {
@@ -2038,7 +2059,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	modelRoot.position.set(3, 0, 0);
 	const probe = new ReflectionProbe({
 		includeMeshes: false,
-		includeSkybox: false,
+		includeEnvironment: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
@@ -2053,7 +2074,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		probe,
 		faceIndex: 0,
 		faceSize: 1,
-		includeSkybox: false,
+		includeEnvironment: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
@@ -2082,7 +2103,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -2210,13 +2231,13 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 		{
 			enableLighting: true,
 			enableGamma: true,
-			enableSkybox: true,
+			enableEnvironment: true,
 		},
 		{
 			sh: false,
 			shadows: false,
 			reflection: false,
-			skybox: true,
+			environment: true,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -2230,18 +2251,36 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 		"webgpu"
 	);
 
-	resources.prepareFrame({ ...frame, skybox: createTinyTexture(1) }, features);
-	const firstSkybox = await resources.getSkyboxResources();
-	assert.ok(firstSkybox);
-	const firstBinding = firstSkybox.frameBinding;
+	resources.prepareFrame(
+		{
+			...frame,
+			environment: createEnvironmentSnapshot(
+				createTinyTexture(1),
+				createTinyTexture(1)
+			),
+		},
+		features
+	);
+	const firstEnvironment = await resources.getEnvironmentResources();
+	assert.ok(firstEnvironment);
+	const firstBinding = firstEnvironment.frameBinding;
 	assert.equal(firstBinding.destroyed, false);
 
-	resources.prepareFrame({ ...frame, skybox: createTinyTexture(1) }, features);
+	resources.prepareFrame(
+		{
+			...frame,
+			environment: createEnvironmentSnapshot(
+				createTinyTexture(1),
+				createTinyTexture(1)
+			),
+		},
+		features
+	);
 	assert.equal(firstBinding.destroyed, true);
 
-	const secondSkybox = await resources.getSkyboxResources();
-	assert.ok(secondSkybox);
-	assert.notEqual(secondSkybox.frameBinding, firstBinding);
+	const secondEnvironment = await resources.getEnvironmentResources();
+	assert.ok(secondEnvironment);
+	assert.notEqual(secondEnvironment.frameBinding, firstBinding);
 }
 
 async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
@@ -2306,7 +2345,7 @@ async function testParticleShadowVolumeBufferUpdatesForDirectionalSlice() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -2405,7 +2444,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			ssgi: false,
 			taa: false,
@@ -2450,7 +2489,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
@@ -2558,7 +2597,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 			sh: false,
 			shadows: true,
 			reflection: false,
-			skybox: false,
+			environment: false,
 			ssao: false,
 			taa: false,
 			ssr: false,
