@@ -25,15 +25,12 @@ const DEFAULT_TINT_LINEAR: EnvironmentTintLinear = {
 	b: 1,
 };
 
-type EnvironmentChangeListener = () => void;
-
 export interface EnvironmentEvents {
 	change: [];
 	[key: string]: any[];
 }
 
 export class Environment extends EventEmitter<EnvironmentEvents> {
-	private _legacyChangeListener: EnvironmentChangeListener | null;
 	private _backgroundEnabled: boolean;
 	private _lightingEnabled: boolean;
 	private _backgroundTexture: Texture | null;
@@ -44,12 +41,8 @@ export class Environment extends EventEmitter<EnvironmentEvents> {
 	private _backgroundTintLinear: EnvironmentTintLinear;
 	private _backgroundExposure: number;
 
-	constructor(
-		params: EnvironmentParams = {},
-		onChange: EnvironmentChangeListener | null = null
-	) {
+	constructor(params: EnvironmentParams = {}) {
 		super();
-		this._legacyChangeListener = null;
 		this._backgroundEnabled = params.backgroundEnabled ?? true;
 		this._lightingEnabled = params.lightingEnabled ?? true;
 		this._backgroundTexture = params.backgroundTexture ?? null;
@@ -62,19 +55,6 @@ export class Environment extends EventEmitter<EnvironmentEvents> {
 		this._specularStrength = clampNonNegativeNumber(params.specularStrength, 1);
 		this._backgroundTintLinear = sanitizeTintLinear(params.backgroundTintLinear);
 		this._backgroundExposure = clampPositiveNumber(params.backgroundExposure, 1);
-		if (onChange) {
-			this.setChangeListener(onChange);
-		}
-	}
-
-	public setChangeListener(listener: EnvironmentChangeListener | null): void {
-		if (this._legacyChangeListener) {
-			this.off("change", this._legacyChangeListener);
-		}
-		this._legacyChangeListener = listener;
-		if (listener) {
-			this.on("change", listener);
-		}
 	}
 
 	public get backgroundEnabled(): boolean {
