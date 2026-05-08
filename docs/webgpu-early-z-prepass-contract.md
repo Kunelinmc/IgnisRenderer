@@ -19,7 +19,7 @@ main color pass.
 		  behavior.
 - Pass scope contract:
 	- Early Z pre-pass must apply only to `main-opaque`.
-	- `main-transparent`, OIT, transmission, particles, and skybox must not use
+	- `main-transparent`, OIT, transmission, particles, and environment must not use
 	  this pre-pass.
 - Pipeline contract:
 	- Opaque non-mask pre-pass must use depth-only pipeline state with

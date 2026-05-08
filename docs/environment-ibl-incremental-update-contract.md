@@ -5,7 +5,7 @@ The contract covers update triggering, per-frame incremental application, tempor
 
 ## Background
 Before this contract, environment IBL baking was primarily driven by `warmup()` and produced one-shot updates.
-Runtime scene changes to the skybox did not provide a dedicated incremental environment IBL update pipeline.
+Runtime scene changes to the environment did not provide a dedicated incremental environment IBL update pipeline.
 
 ## API/Contract
 - `Renderer.setEnvironmentIBLUpdateOptions(options)` must accept partial `EnvironmentIBLUpdateOptions` and must normalize values before storing them.
@@ -24,13 +24,13 @@ Runtime scene changes to the skybox did not provide a dedicated incremental envi
 	- `resetTemporalHistoryOnComplete`
 - Runtime behavior requirements:
 	- When `enabled` is `false`, the runtime updater must not schedule or apply new environment IBL work.
-	- When `autoUpdate` is `true`, the updater must detect skybox signature changes and schedule a new bake.
-	- Manual requests via `requestEnvironmentIBLUpdate()` must schedule a new bake when a valid skybox exists.
+	- When `autoUpdate` is `true`, the updater must detect environment signature changes and schedule a new bake.
+	- Manual requests via `requestEnvironmentIBLUpdate()` must schedule a new bake when a valid environment exists.
 	- The updater must apply at most `mipsPerFrame` reflection-specular mip levels per frame.
-	- Temporal blending must be applied to both `LightProbe.sh` and skybox `ReflectionProbe.prefilteredMap`.
-	- Skybox IBL update must target:
+	- Temporal blending must be applied to both `LightProbe.sh` and environment `ReflectionProbe.prefilteredMap`.
+	- Environment IBL update must target:
 		- all `LightType.LightProbe` instances for SH coefficients
-		- only `ReflectionProbe` instances with `source === "skybox"` for specular maps
+		- only `ReflectionProbe` instances with `source === "environment"` for specular maps
 	- Runtime must emit dirty reason `environment-ibl` while update is in progress.
 	- Runtime must emit dirty reason `environment-ibl-complete` when one update round converges and finishes.
 - Incremental planner requirements:
@@ -59,7 +59,7 @@ bun tests/test_environment_ibl_update_runtime.mjs
 ## Errors & Diagnostics
 - `environment-ibl-update-bake-failed` must be emitted as a warning when runtime bake fails.
 - When a bake task is aborted due to a newer request, the aborted task result must not be applied.
-- When skybox texture is unavailable or invalid, runtime update must skip scheduling and must not mutate probe data.
+- When environment texture is unavailable or invalid, runtime update must skip scheduling and must not mutate probe data.
 
 ## Compatibility / Breaking Changes
 No breaking API changes are introduced.

@@ -6,7 +6,7 @@ The contract must be treated as authoritative for runtime behavior and defaults
 in WebGPU backend integration.
 
 ## Background
-Historically, `capturedScene` capture used an analytical light and skybox
+Historically, `capturedScene` capture used an analytical light and environment
 approximation and did not render scene `Mesh` content.
 WebGPU v1 introduces per-face scene rendering for probe capture to produce
 reflective environment maps from real scene geometry and effects.
@@ -20,7 +20,7 @@ reflective environment maps from real scene geometry and effects.
 - `ReflectionProbe` must expose `includeShadows: boolean`.
 - The new flags must default to `true`.
 - `captureResolution` default must be `512x256` for v1 capture quality.
-- Existing field `includeSkybox` must remain supported.
+- Existing field `includeEnvironment` must remain supported.
 - Existing field `captureUpdateMode` must remain supported.
 - Existing field `captureFar` must remain supported.
 - Existing method `requestCapture()` must remain supported.
@@ -51,7 +51,7 @@ const probe = new ReflectionProbe({
 	captureUpdateMode: "manual",
 	captureResolution: { width: 512, height: 256 },
 	captureFar: 200,
-	includeSkybox: true,
+	includeEnvironment: true,
 	includeMeshes: true,
 	includeTransparent: true,
 	includeParticles: true,
