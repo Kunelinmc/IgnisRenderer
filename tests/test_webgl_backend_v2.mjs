@@ -958,6 +958,23 @@ function testSceneShaderIncludesLocalizedLightProbeUniforms() {
 	assert.ok(shader.fragment.includes("sampleBlendedLocalLightProbeRadiance"));
 }
 
+function testSceneShaderFitsCommonWebGLTextureUnitLimit() {
+	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
+		maxDirectionalLights: 4,
+		maxPointLights: 4,
+		maxSpotLights: 4,
+	});
+	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
+
+	assert.equal(samplerMatches.length, 16);
+	assert.ok(
+		shader.fragment.includes(
+			"uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];"
+		)
+	);
+	assert.ok(!shader.fragment.includes("uniform sampler2D uSHAmbientCoeffs;"));
+}
+
 function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
 		maxDirectionalLights: 4,
@@ -1447,6 +1464,7 @@ async function run() {
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesLocalizedLightProbeUniforms();
+	testSceneShaderFitsCommonWebGLTextureUnitLimit();
 	testSceneShaderIncludesPBRTextureAndUV1Pipeline();
 	testSceneShaderIncludesOITPassMode();
 	testParticleShaderIncludesOITPassMode();

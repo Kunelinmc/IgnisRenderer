@@ -32,8 +32,7 @@ uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
 uniform int uEnableLighting;
 uniform int uEnableSH;
-uniform sampler2D uSHAmbientCoeffs;
-uniform vec2 uSHCoeffsSize;
+uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];
 uniform int uShadingModel;
 uniform int uDoubleSided;
 uniform vec4 uBaseColor;
@@ -228,8 +227,7 @@ ivec2 linearIndexToTexel(int linearIndex, vec2 textureSizeValue) {
 }
 
 vec3 sampleSHAmbientCoeff(int index) {
-	ivec2 texel = linearIndexToTexel(index, uSHCoeffsSize);
-	return texelFetch(uSHAmbientCoeffs, texel, 0).rgb;
+	return uSHAmbientCoeffs[index];
 }
 
 void evalSHBasis(vec3 direction, out float basis[16]) {

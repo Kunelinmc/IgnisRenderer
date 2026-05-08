@@ -32,14 +32,14 @@ const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
 const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR = 2;
 const WEBGL_TEXTURE_UNIT_BRDF_LUT = 3;
-const WEBGL_TEXTURE_UNIT_SH_AMBIENT = 4;
 const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
 const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
-const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 8;
+const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 4;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
 const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
 const SH_COEFFICIENT_COUNT = 16;
+const SH_AMBIENT_UNIFORM_VALUES = new Float32Array(SH_COEFFICIENT_COUNT * 3);
 
 const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	1, 0, 0, 0,
@@ -53,6 +53,19 @@ function logWebGLGlobalUniformWarning(key: string, message: string): void {
 		scope: "WebGLGlobalUniformBinder",
 		onceKey: key,
 	});
+}
+
+function packSHAmbientUniformValues(
+	coeffs: SHCoefficients | null | undefined
+): Float32Array {
+	for (let index = 0; index < SH_COEFFICIENT_COUNT; index++) {
+		const coeff = coeffs?.[index];
+		const base = index * 3;
+		SH_AMBIENT_UNIFORM_VALUES[base] = finiteOr(coeff?.r, 0);
+		SH_AMBIENT_UNIFORM_VALUES[base + 1] = finiteOr(coeff?.g, 0);
+		SH_AMBIENT_UNIFORM_VALUES[base + 2] = finiteOr(coeff?.b, 0);
+	}
+	return SH_AMBIENT_UNIFORM_VALUES;
 }
 
 export interface WebGLGlobalUniformBinderHost {
@@ -252,7 +265,8 @@ export function bindWebGLGlobalUniforms(
 		}
 		gl.uniform3f(uniforms.ambientColor, ambientR, ambientG, ambientB);
 	}
-	const shTextureReady = host._uploadSHAmbientCoefficients(context.shAmbientCoeffs);
+	const hasSHAmbientCoefficients =
+		Array.isArray(context.shAmbientCoeffs) && context.shAmbientCoeffs.length > 0;
 	const localLightProbeTextureReady = host._uploadLocalLightProbeCoefficients(
 		localLightProbes
 	);
@@ -261,22 +275,16 @@ export function bindWebGLGlobalUniforms(
 			Math.max(0, Math.floor(localLightProbeCountSource))
 		:	0;
 	if (uniforms.shAmbientCoeffs) {
-		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SH_AMBIENT);
-		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
-		gl.uniform1i(uniforms.shAmbientCoeffs, WEBGL_TEXTURE_UNIT_SH_AMBIENT);
-	}
-	if (uniforms.shCoeffsSize) {
-		gl.uniform2f(
-			uniforms.shCoeffsSize,
-			host._shAmbientTextureWidth,
-			host._shAmbientTextureHeight
+		gl.uniform3fv(
+			uniforms.shAmbientCoeffs,
+			packSHAmbientUniformValues(context.shAmbientCoeffs)
 		);
 	}
 	if (uniforms.enableSH) {
 		gl.uniform1i(
 			uniforms.enableSH,
 			context.features.enableSH &&
-				(shTextureReady || resolvedLocalLightProbeCount > 0) ?
+				(hasSHAmbientCoefficients || resolvedLocalLightProbeCount > 0) ?
 				1
 			:	0
 		);

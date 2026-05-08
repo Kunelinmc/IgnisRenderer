@@ -944,7 +944,10 @@ export class WebGLProgramLibrary {
 				spotShadowParamsB: this._gl.getUniformLocation(program, "uSpotShadowParamsB[0]"),
 				spotShadowParamsC: this._gl.getUniformLocation(program, "uSpotShadowParamsC[0]"),
 				spotShadowParamsD: this._gl.getUniformLocation(program, "uSpotShadowParamsD[0]"),
-				shAmbientCoeffs: this._gl.getUniformLocation(program, "uSHAmbientCoeffs"),
+				shAmbientCoeffs: this._gl.getUniformLocation(
+					program,
+					"uSHAmbientCoeffs[0]",
+				),
 				shCoeffsSize: this._gl.getUniformLocation(program, "uSHCoeffsSize"),
 				clusterParams0: this._gl.getUniformLocation(program, "uClusterParams0"),
 				clusterParams1: this._gl.getUniformLocation(program, "uClusterParams1"),

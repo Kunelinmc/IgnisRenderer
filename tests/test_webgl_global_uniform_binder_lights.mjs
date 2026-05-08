@@ -11,18 +11,25 @@ function approxEqual(actual, expected, epsilon = 1e-5) {
 
 function createFakeGLRecorder() {
 	const uniform1iCalls = new Map();
+	const uniform3fvCalls = new Map();
 	const uniform4fvCalls = new Map();
 	return {
 		TEXTURE0: 0x84c0,
+		TEXTURE_2D: 0x0de1,
 		uniform1i(location, value) {
 			uniform1iCalls.set(location, value);
+		},
+		uniform3fv(location, values) {
+			uniform3fvCalls.set(location, values.slice());
 		},
 		uniform4fv(location, values) {
 			uniform4fvCalls.set(location, values);
 		},
 		activeTexture() {},
+		bindTexture() {},
 		_calls: {
 			uniform1iCalls,
+			uniform3fvCalls,
 			uniform4fvCalls,
 		},
 	};
@@ -163,8 +170,60 @@ function testPointLightUniformPackingUsesConfiguredBudget() {
 	assert.equal(packedColor[24], 0);
 }
 
+function testSHAmbientCoefficientsUseUniformVectors() {
+	const gl = createFakeGLRecorder();
+	const host = createBinderHost(gl, []);
+	const frameContext = createFrameContext();
+	const shAmbientCoeffs = Array.from({ length: 16 }, (_, index) => ({
+		r: index + 1,
+		g: index + 2,
+		b: index + 3,
+	}));
+	frameContext.features.enableSH = true;
+	frameContext.shAmbientCoeffs = shAmbientCoeffs;
+
+	const enableSH = { id: "enable-sh" };
+	const shAmbientCoeffsLocation = { id: "sh-ambient-coeffs" };
+	const sceneProgram = {
+		uniforms: {
+			enableSH,
+			shAmbientCoeffs: shAmbientCoeffsLocation,
+		},
+	};
+
+	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
+
+	assert.equal(gl._calls.uniform1iCalls.get(enableSH), 1);
+	const packed = gl._calls.uniform3fvCalls.get(shAmbientCoeffsLocation);
+	assert.equal(packed.length, 48);
+	assert.equal(packed[0], 1);
+	assert.equal(packed[1], 2);
+	assert.equal(packed[2], 3);
+	assert.equal(packed[45], 16);
+	assert.equal(packed[46], 17);
+	assert.equal(packed[47], 18);
+}
+
+function testLocalLightProbeSHUsesFreedTextureUnit() {
+	const gl = createFakeGLRecorder();
+	const host = createBinderHost(gl, []);
+	const frameContext = createFrameContext();
+	const localLightProbeCoeffs = { id: "local-light-probe-coeffs" };
+	const sceneProgram = {
+		uniforms: {
+			localLightProbeCoeffs,
+		},
+	};
+
+	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
+
+	assert.equal(gl._calls.uniform1iCalls.get(localLightProbeCoeffs), 4);
+}
+
 function run() {
 	testPointLightUniformPackingUsesConfiguredBudget();
+	testSHAmbientCoefficientsUseUniformVectors();
+	testLocalLightProbeSHUsesFreedTextureUnit();
 	console.log("WebGL global uniform binder light packing tests passed");
 }
 
