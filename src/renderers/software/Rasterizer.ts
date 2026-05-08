@@ -1,4 +1,5 @@
 import { Material, ShadingModel, AlphaMode } from "../../materials/Material";
+import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import { PostProcessConstants } from "./constants";
 import { CoreConstants } from "./constants";
@@ -535,29 +536,10 @@ export class Rasterizer implements RasterizerLike {
 		const material = face.material;
 		if (!material || !transmissionBuffer) return;
 
-		// Extract material color and opacity
-		let r = 1,
-			g = 1,
-			b = 1;
-		const opacity = material.opacity ?? 1;
-
-		if (material.type === "PBR") {
-			const pbr = material as any;
-			r = pbr.albedo.r / 255;
-			g = pbr.albedo.g / 255;
-			b = pbr.albedo.b / 255;
-		} else if (material.type === "Phong") {
-			const phong = material as any;
-			r = phong.diffuse.r / 255;
-			g = phong.diffuse.g / 255;
-			b = phong.diffuse.b / 255;
-		}
-
-		// Calculate transmission multiplier: Color * Opacity + White * (1 - Opacity)
-		// This means: more opaque -> more color; more transparent -> more white passes
-		const transR = r * opacity + (1 - opacity);
-		const transG = g * opacity + (1 - opacity);
-		const transB = b * opacity + (1 - opacity);
+		const transmittance = resolveMaterialShadowTransmittance(material);
+		const transR = transmittance.r;
+		const transG = transmittance.g;
+		const transB = transmittance.b;
 
 		let [vTop, vMid, vBot] = pts;
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];

@@ -31,7 +31,7 @@ function testAtlasTileSizeIsClampedToDeviceLimit() {
 
 	allocator.ensureAtlasForTileSize(4096);
 	assert.equal(allocator.tileSize, 2048);
-	assert.equal(backend.createTextureCalls.length, 1);
+	assert.equal(backend.createTextureCalls.length, 2);
 	assert.equal(
 		backend.createTextureCalls[0].width,
 		2048 * WEBGPU_SHADOW_ATLAS_COLUMNS
@@ -40,9 +40,11 @@ function testAtlasTileSizeIsClampedToDeviceLimit() {
 		backend.createTextureCalls[0].height,
 		2048 * WEBGPU_SHADOW_ATLAS_ROWS
 	);
+	assert.equal(backend.createTextureCalls[0].format, "depth32float");
+	assert.equal(backend.createTextureCalls[1].format, "rgba16float");
 
 	allocator.ensureAtlasForTileSize(4096);
-	assert.equal(backend.createTextureCalls.length, 1);
+	assert.equal(backend.createTextureCalls.length, 2);
 }
 
 function testAtlasUsesHigherRequestedDeviceLimit() {
@@ -51,13 +53,21 @@ function testAtlasUsesHigherRequestedDeviceLimit() {
 
 	allocator.ensureAtlasForTileSize(4096);
 	assert.equal(allocator.tileSize, 4096);
-	assert.equal(backend.createTextureCalls.length, 1);
+	assert.equal(backend.createTextureCalls.length, 2);
 	assert.equal(
 		backend.createTextureCalls[0].width,
 		4096 * WEBGPU_SHADOW_ATLAS_COLUMNS
 	);
 	assert.equal(
 		backend.createTextureCalls[0].height,
+		4096 * WEBGPU_SHADOW_ATLAS_ROWS
+	);
+	assert.equal(
+		backend.createTextureCalls[1].width,
+		4096 * WEBGPU_SHADOW_ATLAS_COLUMNS
+	);
+	assert.equal(
+		backend.createTextureCalls[1].height,
 		4096 * WEBGPU_SHADOW_ATLAS_ROWS
 	);
 }

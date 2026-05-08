@@ -73,6 +73,7 @@ export class WebGPUFrameBindingCache {
 	private _sceneBinding: IBindingGroup | null = null;
 	private _environmentBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
+	private _shadowTransmittanceAtlas: IRenderTexture | null = null;
 	private _environmentTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
 	private _envSpecularFallbackTexture: IRenderTexture | null = null;
@@ -182,6 +183,8 @@ export class WebGPUFrameBindingCache {
 		);
 
 		const currentShadowAtlas = this._shadowAtlases.atlas;
+		const currentShadowTransmittanceAtlas =
+			this._shadowAtlases.transmittanceAtlas;
 		const currentEnvironment =
 			environmentState.environmentTexture ?
 				this._textureRegistry.getTextureForSlot(
@@ -224,6 +227,7 @@ export class WebGPUFrameBindingCache {
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
+			this._shadowTransmittanceAtlas !== currentShadowTransmittanceAtlas ||
 			this._environmentTexture !== currentEnvironment ||
 			this._envSpecularTexture !== currentEnvSpecular ||
 			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
@@ -236,6 +240,7 @@ export class WebGPUFrameBindingCache {
 			this._sceneBinding = null;
 			this._environmentBinding = null;
 			this._shadowAtlas = currentShadowAtlas;
+			this._shadowTransmittanceAtlas = currentShadowTransmittanceAtlas;
 			this._environmentTexture = currentEnvironment;
 			this._envSpecularTexture = currentEnvSpecular;
 			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
@@ -324,6 +329,12 @@ export class WebGPUFrameBindingCache {
 					},
 					{ binding: 6, resource: this._getFogUniformBuffer() },
 					{ binding: 7, resource: this._getParticleShadowVolumeBuffer() },
+					{
+						binding: 8,
+						resource:
+							this._shadowTransmittanceAtlas ??
+							this._textureRegistry.getWhiteTexture(),
+					},
 				],
 			});
 		}
@@ -568,6 +579,7 @@ export class WebGPUFrameBindingCache {
 		this._particleShadowVolumeBuffer = null;
 		this._particleShadowVolumeBufferSize = 0;
 		this._shadowAtlas = null;
+		this._shadowTransmittanceAtlas = null;
 		this._environmentTexture = null;
 		this._envSpecularTexture = null;
 		this._envSpecularFallbackTexture = null;

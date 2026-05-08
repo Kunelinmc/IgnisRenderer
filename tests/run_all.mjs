@@ -13,6 +13,7 @@ const tests = [
 	"test_sh_lighting_regression.mjs",
 	"test_lighting_shader_semantics.mjs",
 	"test_software_shadow_sampling.mjs",
+	"test_transparent_shadow_transmission.mjs",
 	"test_shadow_strategy_csm.mjs",
 	"test_shadow_metadata_stabilization.mjs",
 	"test_shadow_manager.mjs",

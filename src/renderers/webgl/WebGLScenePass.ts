@@ -27,7 +27,7 @@ const WEBGL_TEXTURE_UNIT_EMISSIVE_MAP = 10;
 const WEBGL_TEXTURE_UNIT_OCCLUSION_MAP = 11;
 const WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP = 12;
 const WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP = 15;
-const WEBGL_TEXTURE_UNIT_CUSTOM_START = 16;
+const WEBGL_TEXTURE_UNIT_CUSTOM_START = 17;
 
 function logWebGLScenePassWarning(key: string, message: string): void {
 	Logger.warn(`[${key}] ${message}`, {

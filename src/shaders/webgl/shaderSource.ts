@@ -13,6 +13,7 @@ export type WebGLShaderPart =
 	| "particleFragment"
 	| "shadowDepthVertex"
 	| "shadowDepthFragment"
+	| "shadowTransmittanceFragment"
 	| "copyFragment"
 	| "oitResolveFragment"
 	| "postProcessStubFragment"
@@ -40,6 +41,7 @@ export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"particleFragment",
 	"shadowDepthVertex",
 	"shadowDepthFragment",
+	"shadowTransmittanceFragment",
 	"copyFragment",
 	"oitResolveFragment",
 	"postProcessStubFragment",
@@ -106,6 +108,7 @@ const shaderFiles: Record<WebGLShaderPart, string> = {
 	particleFragment: "./parts/particleFragment.glsl",
 	shadowDepthVertex: "./parts/shadowDepthVertex.glsl",
 	shadowDepthFragment: "./parts/shadowDepthFragment.glsl",
+	shadowTransmittanceFragment: "./parts/shadowTransmittanceFragment.glsl",
 	copyFragment: "./parts/copyFragment.glsl",
 	oitResolveFragment: "./parts/oitResolveFragment.glsl",
 	postProcessStubFragment: "./parts/postProcessStubFragment.glsl",

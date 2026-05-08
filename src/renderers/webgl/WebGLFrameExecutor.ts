@@ -71,6 +71,7 @@ import {
 	WebGLProgramLibrary,
 	type WebGLSceneProgram,
 	type WebGLShadowDepthProgram,
+	type WebGLShadowTransmittanceProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
 import type { WebGLShaderSourceFactory } from "../../shaders/webgl/WebGLShaderSourceFactory";
@@ -126,6 +127,7 @@ import {
 } from "./WebGLGlobalUniformBinder";
 import {
 	drawWebGLShadowPacket,
+	drawWebGLShadowTransmittancePacket,
 	renderWebGLShadows,
 	renderWebGLShadowSlice,
 	type WebGLShadowPassHost,
@@ -202,6 +204,7 @@ export class WebGLFrameExecutor {
 	private _oitRevealTexture: WebGLTexture | null = null;
 	private _shadowFramebuffer: WebGLFramebuffer | null = null;
 	private _shadowAtlasTexture: WebGLTexture | null = null;
+	private _shadowTransmittanceTexture: WebGLTexture | null = null;
 	private _shadowAtlasTileSize = 0;
 	private _shadowMvpMatrix = Matrix4.identity();
 	private _particleShadowVolumeTexture: WebGLTexture | null = null;
@@ -1276,6 +1279,19 @@ export class WebGLFrameExecutor {
 		);
 	}
 
+	private _drawShadowTransmittancePacket(
+		shadowProgram: WebGLShadowTransmittanceProgram,
+		packet: DrawPacket,
+		viewProjectionMatrix: Matrix4
+	): void {
+		drawWebGLShadowTransmittancePacket(
+			this as unknown as WebGLShadowPassHost,
+			shadowProgram,
+			packet,
+			viewProjectionMatrix
+		);
+	}
+
 	private _ensureShadowTargets(tileSize: number): void {
 		if (
 			this._shadowFramebuffer &&
@@ -1296,9 +1312,11 @@ export class WebGLFrameExecutor {
 		this._destroyShadowTargets();
 		const gl = this._gl;
 		const shadowTexture = gl.createTexture();
+		const transmittanceTexture = gl.createTexture();
 		const shadowFramebuffer = gl.createFramebuffer();
-		if (!shadowTexture || !shadowFramebuffer) {
+		if (!shadowTexture || !transmittanceTexture || !shadowFramebuffer) {
 			if (shadowTexture) gl.deleteTexture(shadowTexture);
+			if (transmittanceTexture) gl.deleteTexture(transmittanceTexture);
 			if (shadowFramebuffer) gl.deleteFramebuffer(shadowFramebuffer);
 			throw new Error("Failed to create WebGL shadow atlas targets");
 		}
@@ -1321,12 +1339,37 @@ export class WebGLFrameExecutor {
 		);
 		gl.bindTexture(gl.TEXTURE_2D, null);
 
+		gl.bindTexture(gl.TEXTURE_2D, transmittanceTexture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			gl.RGBA8,
+			atlasWidth,
+			atlasHeight,
+			0,
+			gl.RGBA,
+			gl.UNSIGNED_BYTE,
+			null
+		);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+
 		gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
 		gl.framebufferTexture2D(
 			gl.FRAMEBUFFER,
 			gl.DEPTH_ATTACHMENT,
 			gl.TEXTURE_2D,
 			shadowTexture,
+			0
+		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			transmittanceTexture,
 			0
 		);
 		gl.drawBuffers([gl.NONE]);
@@ -1336,6 +1379,7 @@ export class WebGLFrameExecutor {
 		if (status !== gl.FRAMEBUFFER_COMPLETE) {
 			gl.deleteFramebuffer(shadowFramebuffer);
 			gl.deleteTexture(shadowTexture);
+			gl.deleteTexture(transmittanceTexture);
 			throw new Error(
 				`WebGL shadow framebuffer is incomplete (status=0x${status.toString(16)})`
 			);
@@ -1343,6 +1387,7 @@ export class WebGLFrameExecutor {
 
 		this._shadowFramebuffer = shadowFramebuffer;
 		this._shadowAtlasTexture = shadowTexture;
+		this._shadowTransmittanceTexture = transmittanceTexture;
 		this._shadowAtlasTileSize = tileSize;
 	}
 
@@ -1355,6 +1400,10 @@ export class WebGLFrameExecutor {
 		if (this._shadowAtlasTexture) {
 			gl.deleteTexture(this._shadowAtlasTexture);
 			this._shadowAtlasTexture = null;
+		}
+		if (this._shadowTransmittanceTexture) {
+			gl.deleteTexture(this._shadowTransmittanceTexture);
+			this._shadowTransmittanceTexture = null;
 		}
 		this._shadowAtlasTileSize = 0;
 	}

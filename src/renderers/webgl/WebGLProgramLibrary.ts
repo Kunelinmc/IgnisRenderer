@@ -34,6 +34,14 @@ export interface WebGLShadowDepthProgram {
 	};
 }
 
+export interface WebGLShadowTransmittanceProgram {
+	program: WebGLProgram;
+	uniforms: {
+		mvp: WebGLUniformLocation | null;
+		transmittance: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLCopyProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -233,6 +241,8 @@ export interface WebGLSceneProgram {
 		spotLightDirectionOuter: WebGLUniformLocation | null;
 		spotLightColorInner: WebGLUniformLocation | null;
 		shadowAtlas: WebGLUniformLocation | null;
+		shadowTransmittanceAtlas: WebGLUniformLocation | null;
+		shadowTransmittanceAtlasAvailable: WebGLUniformLocation | null;
 		particleShadowVolumeAtlas: WebGLUniformLocation | null;
 		particleShadowVolumeAtlasSize: WebGLUniformLocation | null;
 		particleShadowVolumeGridSize: WebGLUniformLocation | null;
@@ -386,12 +396,36 @@ interface ShaderCompileMetadata {
 
 type WebGLProgramWarn = (key: string, message: string) => void;
 
+const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE = 17;
+
+function supportsShadowTransmittanceSampler(
+	gl: WebGL2RenderingContext
+): boolean {
+	const textureUnitParameter = gl.MAX_TEXTURE_IMAGE_UNITS;
+	if (
+		!Number.isFinite(textureUnitParameter) ||
+		typeof gl.getParameter !== "function"
+	) {
+		return false;
+	}
+	try {
+		const textureUnits = gl.getParameter(textureUnitParameter);
+		return (
+			Number.isFinite(textureUnits) &&
+			Math.floor(textureUnits) >=
+				WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE
+		);
+	} catch {
+		return false;
+	}
+}
 
 export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _shaderSourceFactory: WebGLShaderSourceFactory;
+	private _enableShadowTransmittanceSampling: boolean;
 	private _warnCallback: WebGLProgramWarn | null = null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneProgram: WebGLSceneProgram | null = null;
@@ -409,6 +443,7 @@ export class WebGLProgramLibrary {
 	private _dofProgram: WebGLDOFProgram | null = null;
 
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
+	private _shadowTransmittanceProgram: WebGLShadowTransmittanceProgram | null = null;
 	private _copyProgram: WebGLCopyProgram | null = null;
 	private _oitResolveProgram: WebGLOITResolveProgram | null = null;
 	private _ssaoRawProgram: WebGLSSAORawProgram | null = null;
@@ -442,6 +477,8 @@ export class WebGLProgramLibrary {
 		shaderSourceFactoryMaybe?: WebGLShaderSourceFactory,
 	) {
 		this._gl = gl;
+		this._enableShadowTransmittanceSampling =
+			supportsShadowTransmittanceSampler(gl);
 		let shaderRuntime: ShaderRuntime | null = null;
 		let shaderCompileStage: ShaderBackendCompileStage | null = null;
 		let shaderSourceFactory: WebGLShaderSourceFactory | undefined;
@@ -513,12 +550,14 @@ export class WebGLProgramLibrary {
 				maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
 				maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 				maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+				enableShadowTransmittance: this._enableShadowTransmittanceSampling,
 			});
 			const sceneCompositeSource = this._shaderSourceFactory.createSceneCompositeShaderSource(
 				{
 					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
 					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					enableShadowTransmittance: this._enableShadowTransmittanceSampling,
 				},
 			);
 			this._sceneProgram = this._createSceneProgram(
@@ -904,6 +943,14 @@ export class WebGLProgramLibrary {
 				),
 				spotLightColorInner: this._gl.getUniformLocation(program, "uSpotLightColorInner"),
 				shadowAtlas: this._gl.getUniformLocation(program, "uShadowAtlas"),
+				shadowTransmittanceAtlas: this._gl.getUniformLocation(
+					program,
+					"uShadowTransmittanceAtlas",
+				),
+				shadowTransmittanceAtlasAvailable: this._gl.getUniformLocation(
+					program,
+					"uShadowTransmittanceAtlasAvailable",
+				),
 				particleShadowVolumeAtlas: this._gl.getUniformLocation(
 					program,
 					"uParticleShadowVolumeAtlas",
@@ -1211,6 +1258,25 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._shadowDepthProgram;
+	}
+
+	public getShadowTransmittanceProgram(): WebGLShadowTransmittanceProgram {
+		if (this._shadowTransmittanceProgram) {
+			return this._shadowTransmittanceProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("shadowDepthVertex"),
+			this._shaderSource("shadowTransmittanceFragment"),
+			"WebGLShadowTransmittanceProgram",
+		);
+		this._shadowTransmittanceProgram = {
+			program,
+			uniforms: {
+				mvp: this._gl.getUniformLocation(program, "uMvp"),
+				transmittance: this._gl.getUniformLocation(program, "uTransmittance"),
+			},
+		};
+		return this._shadowTransmittanceProgram;
 	}
 
 	public getCopyProgram(): WebGLCopyProgram {
@@ -1686,6 +1752,10 @@ export class WebGLProgramLibrary {
 		if (this._shadowDepthProgram) {
 			this._gl.deleteProgram(this._shadowDepthProgram.program);
 			this._shadowDepthProgram = null;
+		}
+		if (this._shadowTransmittanceProgram) {
+			this._gl.deleteProgram(this._shadowTransmittanceProgram.program);
+			this._shadowTransmittanceProgram = null;
 		}
 		if (this._copyProgram) {
 			this._gl.deleteProgram(this._copyProgram.program);

@@ -24,6 +24,7 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		if (
 			context.features.enableShadows &&
 			(context.scene.shadowCasterPackets.length ||
+				context.scene.shadowTransmitterPackets.length ||
 				hasParticleShadowCasters(context.scene.particleSystems))
 		) {
 			state.plannedPasses.add("shadow");

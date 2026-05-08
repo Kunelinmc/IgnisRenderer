@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+__WEBGL_SHADOW_TRANSMITTANCE_DEFINE__
 #import <ignis/color/srgb>
 #import <ignis/postprocess/fog>
 
@@ -124,6 +125,7 @@ uniform vec4 uSpotLightDirectionOuter[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
 uniform int uEnableShadows;
 uniform sampler2D uShadowAtlas;
+__WEBGL_SHADOW_TRANSMITTANCE_UNIFORMS__
 uniform sampler2D uParticleShadowVolumeAtlas;
 uniform vec2 uParticleShadowVolumeAtlasSize;
 uniform vec4 uParticleShadowVolumeGridSize;
@@ -1039,7 +1041,18 @@ float sampleParticleShadowVolumeTransmittance(
 	return exp(-max(opticalDepth / max(float(gridDepth), 1.0), 0.0));
 }
 
-float sampleShadowVisibility(
+vec3 sampleShadowTransmittance(vec2 atlasUv) {
+#ifdef WEBGL_SHADOW_TRANSMITTANCE
+	if (uShadowTransmittanceAtlasAvailable == 0) {
+		return vec3(1.0);
+	}
+	return texture(uShadowTransmittanceAtlas, atlasUv).rgb;
+#else
+	return vec3(1.0);
+#endif
+}
+
+vec3 sampleShadowVisibility(
 	int shadowType,
 	int index,
 	int cascadeIndex,
@@ -1056,10 +1069,10 @@ float sampleShadowVisibility(
 	float localTileSpan
 ) {
 	if (uEnableShadows == 0 || paramsA.x < 0.5) {
-		return 1.0;
+		return vec3(1.0);
 	}
 	if (dot(normal, lightDirection) <= 0.0) {
-		return 1.0;
+		return vec3(1.0);
 	}
 
 	float requestedShadowSize = max(paramsB.z, 1.0);
@@ -1076,7 +1089,7 @@ float sampleShadowVisibility(
 	vec3 shadowWorldPosition = worldPosition + normal * normalBias;
 	vec4 shadowClip = shadowViewProjection * vec4(shadowWorldPosition, 1.0);
 	if (shadowClip.w <= EPSILON) {
-		return 1.0;
+		return vec3(1.0);
 	}
 
 	vec3 shadowNdc = shadowClip.xyz / shadowClip.w;
@@ -1090,7 +1103,7 @@ float sampleShadowVisibility(
 		currentDepth < 0.0 ||
 		currentDepth > 1.0
 	) {
-		return 1.0;
+		return vec3(1.0);
 	}
 
 	float pcfRadius = max(paramsB.x, 1.0);
@@ -1105,7 +1118,7 @@ float sampleShadowVisibility(
 	vec2 texelPosition = shadowUv * vec2(shadowSize - 1.0);
 	vec2 atlasExtent = vec2(textureSize(uShadowAtlas, 0));
 	if (atlasExtent.x < 1.0 || atlasExtent.y < 1.0) {
-		return 1.0;
+		return vec3(1.0);
 	}
 	float atlasColumns = max(floor(atlasExtent.x / max(atlasTileSize, 1.0)), 1.0);
 	float tileIndex = shadowType == 1 ?
@@ -1116,7 +1129,7 @@ float sampleShadowVisibility(
 	vec2 tileOffset =
 		vec2(tileX * atlasTileSize, tileY * atlasTileSize) +
 		vec2(localTileX * subTileSize, localTileY * subTileSize);
-	float visible = 0.0;
+	vec3 visible = vec3(0.0);
 	float sampleCount = 0.0;
 	if (pcssEnabled) {
 		float theta = hashShadowRotation(worldPosition);
@@ -1147,7 +1160,7 @@ float sampleShadowVisibility(
 		}
 
 		if (blockerCount <= 0.0) {
-			return 1.0;
+			return vec3(1.0);
 		}
 
 		float avgBlockerDepth = blockerDepthSum / blockerCount;
@@ -1180,7 +1193,9 @@ float sampleShadowVisibility(
 			vec2 atlasCoord = tileOffset + sampleCoord + vec2(0.5);
 			vec2 atlasUv = atlasCoord / atlasExtent;
 			float sampleDepth = texture(uShadowAtlas, atlasUv).r;
-			visible += currentDepth - bias <= sampleDepth ? 1.0 : 0.0;
+			if (currentDepth - bias <= sampleDepth) {
+				visible += sampleShadowTransmittance(atlasUv);
+			}
 			sampleCount += 1.0;
 		}
 	} else {
@@ -1200,19 +1215,21 @@ float sampleShadowVisibility(
 				vec2 atlasCoord = tileOffset + sampleCoord + vec2(0.5);
 				vec2 atlasUv = atlasCoord / atlasExtent;
 				float sampleDepth = texture(uShadowAtlas, atlasUv).r;
-				visible += currentDepth - bias <= sampleDepth ? 1.0 : 0.0;
+				if (currentDepth - bias <= sampleDepth) {
+					visible += sampleShadowTransmittance(atlasUv);
+				}
 				sampleCount += 1.0;
 			}
 		}
 	}
 
 	if (sampleCount <= 0.0) {
-		return 1.0;
+		return vec3(1.0);
 	}
 
-	float filteredVisibility = visible / sampleCount;
+	vec3 filteredVisibility = visible / sampleCount;
 	float strength = clamp(paramsB.y, 0.0, 1.0);
-	return (1.0 - strength + strength * filteredVisibility) *
+	return (vec3(1.0 - strength) + strength * filteredVisibility) *
 		sampleParticleShadowVolumeTransmittance(
 			shadowType,
 			index,
@@ -1241,7 +1258,7 @@ int resolveDirectionalCascadeIndex(
 	return selected;
 }
 
-float sampleDirectionalShadowVisibility(
+vec3 sampleDirectionalShadowVisibility(
 	int index,
 	vec3 worldPosition,
 	vec3 normal,
@@ -1271,7 +1288,7 @@ float sampleDirectionalShadowVisibility(
 		uDirShadowCascadeViewProjection[cascadePackedIndex] :
 		uDirShadowViewProjection[index];
 
-	float baseVisibility = sampleShadowVisibility(
+	vec3 baseVisibility = sampleShadowVisibility(
 		0,
 		index,
 		cascadeIndex,
@@ -1308,7 +1325,7 @@ float sampleDirectionalShadowVisibility(
 	vec4 nextCascadeSplit = uDirShadowCascadeSplits[nextPackedIndex];
 	float nextLocalTileX = clamp(floor(nextCascadeSplit.z + 0.5), 0.0, 1.0);
 	float nextLocalTileY = clamp(floor(nextCascadeSplit.w + 0.5), 0.0, 1.0);
-	float nextVisibility = sampleShadowVisibility(
+	vec3 nextVisibility = sampleShadowVisibility(
 		0,
 		index,
 		nextCascadeIndex,
@@ -1332,7 +1349,7 @@ float sampleDirectionalShadowVisibility(
 	return mix(baseVisibility, nextVisibility, blendFactor);
 }
 
-float sampleSpotShadowVisibility(
+vec3 sampleSpotShadowVisibility(
 	int index,
 	vec3 worldPosition,
 	vec3 normal,
@@ -1553,7 +1570,7 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 		if (i >= uDirLightCount) break;
 		vec3 l = safeNormalize(uDirLightDirection[i].xyz, vec3(0.0, 1.0, 0.0));
 		float nDotL = max(dot(n, l), 0.0);
-		float shadow = sampleDirectionalShadowVisibility(
+		vec3 shadow = sampleDirectionalShadowVisibility(
 			i,
 			vWorldPos,
 			shadowNormal,
@@ -1621,7 +1638,7 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 					if (coneFactor <= 0.0) {
 						continue;
 					}
-					float shadow = 1.0;
+					vec3 shadow = vec3(1.0);
 					if (lightD.y > 0.5) {
 						int shadowIndex = int(floor(lightD.z + 0.5));
 						if (shadowIndex >= 0 && shadowIndex < MAX_SPOT_LIGHTS) {
@@ -1696,7 +1713,7 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 				continue;
 			}
 			float nDotL = max(dot(n, l), 0.0);
-			float shadow = sampleSpotShadowVisibility(
+			vec3 shadow = sampleSpotShadowVisibility(
 				i,
 				vWorldPos,
 				shadowNormal,
@@ -1898,7 +1915,7 @@ vec3 shadePBR(
 			uDirLightDirection[i].xyz,
 			vec3(0.0, 1.0, 0.0)
 		);
-		float shadow = sampleDirectionalShadowVisibility(
+		vec3 shadow = sampleDirectionalShadowVisibility(
 			i,
 			vWorldPos,
 			shadowNormal,
@@ -1982,7 +1999,7 @@ vec3 shadePBR(
 					vec3 radiance = lightC.xyz *
 						pointAttenuation(distanceSq, lightRange) *
 						coneFactor;
-					float shadow = 1.0;
+					vec3 shadow = vec3(1.0);
 					if (lightD.y > 0.5) {
 						int shadowIndex = int(floor(lightD.z + 0.5));
 						if (shadowIndex >= 0 && shadowIndex < MAX_SPOT_LIGHTS) {
@@ -2068,7 +2085,7 @@ vec3 shadePBR(
 			vec3 radiance = uSpotLightColorInner[i].xyz *
 				pointAttenuation(distanceSq, lightRange) *
 				coneFactor;
-			float shadow = sampleSpotShadowVisibility(
+			vec3 shadow = sampleSpotShadowVisibility(
 				i,
 				vWorldPos,
 				shadowNormal,

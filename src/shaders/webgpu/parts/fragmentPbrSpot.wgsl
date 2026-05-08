@@ -50,7 +50,7 @@ if (isClusteredLightingEnabled()) {
 			continue;
 		}
 
-		var shadow = 1.0;
+		var shadow = vec3<f32>(1.0);
 		if (clusterRef.shadowed && clusterLight.shadowIndex < 8u) {
 			shadow = sampleSpotShadowVisibility(
 				clusterLight.shadowIndex,

@@ -1219,6 +1219,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				return (
 					features.enableShadows &&
 					(frame.shadowCasterPackets.length > 0 ||
+						frame.shadowTransmitterPackets.length > 0 ||
 						hasParticleShadowCasters(frame.particleSystems))
 				);
 			case "reflection":

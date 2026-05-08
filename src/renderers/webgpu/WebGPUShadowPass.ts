@@ -20,6 +20,7 @@ import {
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
+import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
@@ -31,6 +32,7 @@ import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
 import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
+import { TextureFormat } from "../types";
 import type {
 	WebGPUGeometryHandle,
 	WebGPUGeometryRegistry,
@@ -67,8 +69,14 @@ struct ShadowVertexInput {
 	@location(8) weights1: vec4<f32>,
 }
 
+struct ShadowVertexOutput {
+	@builtin(position) position: vec4<f32>,
+	@location(0) transmittance: vec4<f32>,
+}
+
 @group(0) @binding(0) var<storage, read> shadowMvps: array<mat4x4<f32>>;
 @group(0) @binding(1) var<storage, read> shadowInstances: array<ShadowInstanceData>;
+@group(0) @binding(2) var<storage, read> shadowTransmittance: array<vec4<f32>>;
 @group(1) @binding(0) var<uniform> animationParams: AnimationParams;
 @group(1) @binding(1) var<storage, read> jointMatrices: array<mat4x4<f32>>;
 @group(1) @binding(2) var<storage, read> morphWeights: array<f32>;
@@ -173,7 +181,10 @@ fn vsMain(
 	input: ShadowVertexInput,
 	@builtin(vertex_index) vertexIndex: u32,
 	@builtin(instance_index) instanceIndex: u32
-) -> @builtin(position) vec4<f32> {
+) -> ShadowVertexOutput {
+	var output: ShadowVertexOutput;
+	output.position = vec4<f32>(0.0);
+	output.transmittance = vec4<f32>(1.0);
 	let morphTargetCount = animationParams.morphTargetCount;
 	let jointCount = animationParams.jointCount;
 
@@ -201,9 +212,13 @@ fn vsMain(
 	let mvpCount = arrayLength(&shadowMvps);
 	let instanceDataCount = arrayLength(&shadowInstances);
 	if (mvpCount == 0u || instanceDataCount == 0u) {
-		return vec4<f32>(0.0);
+		return output;
 	}
 	let safeInstanceIndex = min(instanceIndex, min(mvpCount, instanceDataCount) - 1u);
+	let transmittanceCount = arrayLength(&shadowTransmittance);
+	if (transmittanceCount > 0u) {
+		output.transmittance = shadowTransmittance[min(safeInstanceIndex, transmittanceCount - 1u)];
+	}
 	let instanceData = shadowInstances[safeInstanceIndex];
 	var localInstanceIndex = 0u;
 	if (safeInstanceIndex >= instanceData.instanceBaseOffset) {
@@ -234,7 +249,13 @@ fn vsMain(
 		jointCount,
 		jointOffset
 	);
-	return shadowMvps[safeInstanceIndex] * vec4<f32>(skinnedPosition, 1.0);
+	output.position = shadowMvps[safeInstanceIndex] * vec4<f32>(skinnedPosition, 1.0);
+	return output;
+}
+
+@fragment
+fn fsTransmittance(input: ShadowVertexOutput) -> @location(0) vec4<f32> {
+	return clamp(input.transmittance, vec4<f32>(0.0), vec4<f32>(1.0));
 }
 `;
 
@@ -304,14 +325,17 @@ export class WebGPUShadowPass {
 	private _animationBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _pipeline: GPURenderPipeline | null = null;
+	private _transmittancePipeline: GPURenderPipeline | null = null;
 	private _instanceMvpBuffer: GPUBuffer | null = null;
 	private _instanceMetaBuffer: GPUBuffer | null = null;
+	private _instanceTransmittanceBuffer: GPUBuffer | null = null;
 	private _instanceMvpBindGroup: GPUBindGroup | null = null;
 	private _instanceMvpCapacity = 0;
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
 	private _fallbackStorageBuffer: GPUBuffer | null = null;
 	private _frameId = 0;
+	private _instanceTransmittanceData = new Float32Array(0);
 
 	constructor(
 		backend: WebGPUBackend,
@@ -336,13 +360,19 @@ export class WebGPUShadowPass {
 		const requestedAtlasTileSize = Math.max(1, maxShadowSize);
 		const atlasTexture =
 			this._shadowAtlases.ensureAtlasForTileSize(requestedAtlasTileSize);
+		const transmittanceAtlasTexture = this._shadowAtlases.transmittanceAtlas;
 		const atlasTileSize = Math.max(1, this._shadowAtlases.tileSize);
 		const atlasView = getWebGPUTexture(atlasTexture).view;
-		if (!atlasView) return;
+		const transmittanceAtlasView =
+			transmittanceAtlasTexture ?
+				getWebGPUTexture(transmittanceAtlasTexture).view
+			:	null;
+		if (!atlasView || !transmittanceAtlasView) return;
 
 		await this._ensurePipelineResources();
 		if (
 			!this._pipeline ||
+			!this._transmittancePipeline ||
 			!this._bindGroupLayout ||
 			!this._animationBindGroupLayout
 		) {
@@ -352,6 +382,9 @@ export class WebGPUShadowPass {
 		this._frameId++;
 		const drawCandidates = this._collectShadowDrawCandidates(
 			frame.shadowCasterPackets
+		);
+		const transmitterCandidates = this._collectShadowDrawCandidates(
+			frame.shadowTransmitterPackets
 		);
 		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 
@@ -430,6 +463,66 @@ export class WebGPUShadowPass {
 		}
 
 		passEncoder.end();
+		const transmittancePassEncoder = commandEncoder.beginRenderPass({
+			label: "WebGPUShadowTransmittancePass",
+			colorAttachments: [
+				{
+					view: transmittanceAtlasView,
+					clearValue: { r: 1, g: 1, b: 1, a: 1 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: atlasView,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		transmittancePassEncoder.setPipeline(this._transmittancePipeline);
+		for (const slot of slots) {
+			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
+			const baseOffsetX = slot.tileX * atlasTileSize;
+			const baseOffsetY = slot.tileY * atlasTileSize;
+			const subTileSize =
+				slot.localTileSpan > 1 ?
+					Math.max(1, Math.floor(atlasTileSize / slot.localTileSpan))
+				:	atlasTileSize;
+			const viewportX = baseOffsetX + slot.localTileX * subTileSize;
+			const viewportY = baseOffsetY + slot.localTileY * subTileSize;
+			const viewportSize = Math.min(
+				shadowMapSize,
+				slot.localTileSpan > 1 ? subTileSize : atlasTileSize
+			);
+			transmittancePassEncoder.setViewport(
+				viewportX,
+				viewportY,
+				viewportSize,
+				viewportSize,
+				0,
+				1
+			);
+			transmittancePassEncoder.setScissorRect(
+				viewportX,
+				viewportY,
+				viewportSize,
+				viewportSize
+			);
+			Matrix4.multiply(
+				this._depthRemapMatrix,
+				slot.shadowMap.viewProjectionMatrix!,
+				this._shadowViewProjectionMatrix
+			);
+			this._frustum.setFromMatrix(slot.shadowMap.viewProjectionMatrix!);
+			this._drawShadowTransmitters(
+				transmittancePassEncoder,
+				transmitterCandidates,
+				this._shadowViewProjectionMatrix,
+				context,
+				animationBindingCache
+			);
+		}
+		transmittancePassEncoder.end();
 		if (submitAtEnd) {
 			this._requireBackendQueue().submit([commandEncoder.finish()]);
 		}
@@ -440,6 +533,7 @@ export class WebGPUShadowPass {
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._pipeline = null;
+		this._transmittancePipeline = null;
 	}
 
 	public async warmup(): Promise<void> {
@@ -453,14 +547,18 @@ export class WebGPUShadowPass {
 		this._animationBindGroupLayout = null;
 		this._pipelineLayout = null;
 		this._pipeline = null;
+		this._transmittancePipeline = null;
 		this._instanceMvpBuffer?.destroy();
 		this._instanceMetaBuffer?.destroy();
+		this._instanceTransmittanceBuffer?.destroy();
 		this._instanceMvpBuffer = null;
 		this._instanceMetaBuffer = null;
+		this._instanceTransmittanceBuffer = null;
 		this._instanceMvpBindGroup = null;
 		this._instanceMvpCapacity = 0;
 		this._instanceMvpData = new Float32Array(0);
 		this._instanceMetaData = new Uint32Array(0);
+		this._instanceTransmittanceData = new Float32Array(0);
 		for (const entry of this._animationBindings.values()) {
 			entry.paramsBuffer.destroy();
 			entry.jointBuffer.destroy();
@@ -483,7 +581,44 @@ export class WebGPUShadowPass {
 			drawCandidates,
 			viewProjectionMatrix,
 			context,
-			animationBindingCache
+			animationBindingCache,
+			false
+		);
+		if (
+			drawBatches.length === 0 ||
+			!this._instanceMvpBindGroup
+		) {
+			return;
+		}
+
+		passEncoder.setBindGroup(0, this._instanceMvpBindGroup);
+		for (const batch of drawBatches) {
+			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
+			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			passEncoder.setBindGroup(1, batch.animationBindGroup);
+			passEncoder.drawIndexed(
+				batch.candidate.geometry.indexCount,
+				batch.instanceCount,
+				0,
+				0,
+				batch.firstInstance
+			);
+		}
+	}
+
+	private _drawShadowTransmitters(
+		passEncoder: GPURenderPassEncoder,
+		drawCandidates: ShadowDrawCandidate[],
+		viewProjectionMatrix: Matrix4,
+		context: FrameContext,
+		animationBindingCache: Map<string, GPUBindGroup | null>
+	): void {
+		const drawBatches = this._buildShadowDrawBatches(
+			drawCandidates,
+			viewProjectionMatrix,
+			context,
+			animationBindingCache,
+			true
 		);
 		if (
 			drawBatches.length === 0 ||
@@ -511,7 +646,8 @@ export class WebGPUShadowPass {
 		drawCandidates: ShadowDrawCandidate[],
 		viewProjectionMatrix: Matrix4,
 		context: FrameContext,
-		animationBindingCache: Map<string, GPUBindGroup | null>
+		animationBindingCache: Map<string, GPUBindGroup | null>,
+		resolveTransmittance: boolean
 	): ShadowInstancedDrawBatch[] {
 		const drawBatches: ShadowInstancedDrawBatch[] = [];
 		let instanceCount = 0;
@@ -546,6 +682,24 @@ export class WebGPUShadowPass {
 			this._ensureInstanceDataCapacity(instanceCount + 1);
 			const mvpOffset = instanceCount * 16;
 			this._setMatrixInArray(this._mvpMatrix, this._instanceMvpData, mvpOffset);
+			const transmittanceOffset = instanceCount * 4;
+			if (resolveTransmittance) {
+				const transmittance = resolveMaterialShadowTransmittance(
+					packet.material
+				);
+				this._instanceTransmittanceData[transmittanceOffset] =
+					transmittance.r;
+				this._instanceTransmittanceData[transmittanceOffset + 1] =
+					transmittance.g;
+				this._instanceTransmittanceData[transmittanceOffset + 2] =
+					transmittance.b;
+				this._instanceTransmittanceData[transmittanceOffset + 3] = 1;
+			} else {
+				this._instanceTransmittanceData[transmittanceOffset] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 1] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 2] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 3] = 1;
+			}
 			const metaOffset = instanceCount * SHADOW_INSTANCE_DATA_UINTS;
 			this._setShadowInstanceMetaInArray(
 				this._instanceMetaData,
@@ -600,6 +754,14 @@ export class WebGPUShadowPass {
 				instanceCount * SHADOW_INSTANCE_DATA_UINTS
 			) as Uint32Array<ArrayBuffer>
 		);
+		this._requireBackendQueue().writeBuffer(
+			this._instanceTransmittanceBuffer!,
+			0,
+			this._instanceTransmittanceData.subarray(
+				0,
+				instanceCount * 4
+			) as Float32Array<ArrayBuffer>
+		);
 
 		return drawBatches;
 	}
@@ -615,6 +777,16 @@ export class WebGPUShadowPass {
 
 		const requiredMetaLength =
 			Math.max(1, instanceCount) * SHADOW_INSTANCE_DATA_UINTS;
+		const requiredTransmittanceLength = Math.max(1, instanceCount) * 4;
+		if (this._instanceTransmittanceData.length < requiredTransmittanceLength) {
+			const nextTransmittanceLength = Math.max(
+				requiredTransmittanceLength,
+				this._instanceTransmittanceData.length * 2
+			);
+			const nextTransmittance = new Float32Array(nextTransmittanceLength);
+			nextTransmittance.set(this._instanceTransmittanceData);
+			this._instanceTransmittanceData = nextTransmittance;
+		}
 		if (this._instanceMetaData.length >= requiredMetaLength) {
 			return;
 		}
@@ -637,10 +809,12 @@ export class WebGPUShadowPass {
 		if (
 			!this._instanceMvpBuffer ||
 			!this._instanceMetaBuffer ||
+			!this._instanceTransmittanceBuffer ||
 			requiredCapacity > this._instanceMvpCapacity
 		) {
 			this._instanceMvpBuffer?.destroy();
 			this._instanceMetaBuffer?.destroy();
+			this._instanceTransmittanceBuffer?.destroy();
 			this._instanceMvpBuffer = device.createBuffer({
 				label: "WebGPUShadowDepthMvpStorage",
 				size: requiredCapacity * 16 * 4,
@@ -649,6 +823,11 @@ export class WebGPUShadowPass {
 			this._instanceMetaBuffer = device.createBuffer({
 				label: "WebGPUShadowDepthInstanceMeta",
 				size: requiredCapacity * SHADOW_INSTANCE_DATA_UINTS * 4,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			});
+			this._instanceTransmittanceBuffer = device.createBuffer({
+				label: "WebGPUShadowTransmittanceStorage",
+				size: requiredCapacity * 4 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 			this._instanceMvpBindGroup = null;
@@ -672,6 +851,10 @@ export class WebGPUShadowPass {
 						binding: 1,
 						resource: { buffer: this._instanceMetaBuffer },
 					},
+					{
+						binding: 2,
+						resource: { buffer: this._instanceTransmittanceBuffer },
+					},
 				],
 			});
 		}
@@ -679,6 +862,7 @@ export class WebGPUShadowPass {
 		return (
 			!!this._instanceMvpBuffer &&
 			!!this._instanceMetaBuffer &&
+			!!this._instanceTransmittanceBuffer &&
 			!!this._instanceMvpBindGroup
 		);
 	}
@@ -1057,6 +1241,7 @@ export class WebGPUShadowPass {
 	private async _ensurePipelineResources(): Promise<void> {
 		if (
 			this._pipeline &&
+			this._transmittancePipeline &&
 			this._bindGroupLayout &&
 			this._animationBindGroupLayout &&
 			this._fallbackStorageBuffer
@@ -1102,6 +1287,11 @@ export class WebGPUShadowPass {
 					},
 					{
 						binding: 1,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "read-only-storage" },
+					},
+					{
+						binding: 2,
 						visibility: GPUShaderStage.VERTEX,
 						buffer: { type: "read-only-storage" },
 					},
@@ -1212,6 +1402,83 @@ export class WebGPUShadowPass {
 				depthStencil: {
 					format: "depth32float",
 					depthWriteEnabled: true,
+					depthCompare: "less",
+				},
+			});
+		}
+		if (
+			!this._transmittancePipeline &&
+			this._shaderModule &&
+			this._pipelineLayout
+		) {
+			this._transmittancePipeline = device.createRenderPipeline({
+				label: "WebGPUShadowTransmittancePipeline",
+				layout: this._pipelineLayout,
+				vertex: {
+					module: getWebGPUShaderModule(this._shaderModule),
+					entryPoint: "vsMain",
+					buffers: [
+						{
+							arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
+							attributes: [
+								{
+									shaderLocation: 0,
+									offset: 0,
+									format: "float32x3",
+								},
+								{
+									shaderLocation: 5,
+									offset: 56,
+									format: "float32x4",
+								},
+								{
+									shaderLocation: 6,
+									offset: 72,
+									format: "float32x4",
+								},
+								{
+									shaderLocation: 7,
+									offset: 88,
+									format: "float32x4",
+								},
+								{
+									shaderLocation: 8,
+									offset: 104,
+									format: "float32x4",
+								},
+							],
+						},
+					],
+				},
+				fragment: {
+					module: getWebGPUShaderModule(this._shaderModule),
+					entryPoint: "fsTransmittance",
+					targets: [
+						{
+							format: TextureFormat.RGBA16Float,
+							blend: {
+								color: {
+									operation: "add",
+									srcFactor: "zero",
+									dstFactor: "src",
+								},
+								alpha: {
+									operation: "add",
+									srcFactor: "zero",
+									dstFactor: "one",
+								},
+							},
+						},
+					],
+				},
+				primitive: {
+					topology: "triangle-list",
+					cullMode: "none",
+					frontFace: "ccw",
+				},
+				depthStencil: {
+					format: "depth32float",
+					depthWriteEnabled: false,
 					depthCompare: "less",
 				},
 			});

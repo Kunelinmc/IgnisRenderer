@@ -161,6 +161,7 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(6) var<uniform> fog: FogUniforms;
 @group(0) @binding(7) var<storage, read> particleShadowVolumes:
 	ParticleShadowVolumeBuffer;
+@group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

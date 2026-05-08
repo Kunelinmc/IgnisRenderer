@@ -1179,6 +1179,10 @@ fn loadShadowDepthTexel(coord: vec2<i32>) -> f32 {
 	return textureLoad(shadowAtlas, coord, 0);
 }
 
+fn loadShadowTransmittanceTexel(coord: vec2<i32>) -> vec3<f32> {
+	return textureLoad(shadowTransmittanceAtlas, coord, 0).rgb;
+}
+
 const SHADOW_GOLDEN_ANGLE: f32 = 2.39996323;
 const MAX_PCSS_FILTER_SAMPLES: i32 = 64;
 const MAX_PCSS_SEARCH_SAMPLES: i32 = 64;
@@ -1205,9 +1209,9 @@ fn sampleShadowVisibilityForCascade(
 	normal: vec3<f32>,
 	lightDirection: vec3<f32>,
 	cascadeIndex: u32
-) -> f32 {
+) -> vec3<f32> {
 	if (frame.options.z < 0.5 || shadowData.paramsA.x < 0.5) {
-		return 1.0;
+		return vec3<f32>(1.0);
 	}
 
 	let requestedShadowSize = max(i32(shadowData.paramsB.z + 0.5), 1);
@@ -1242,7 +1246,7 @@ fn sampleShadowVisibilityForCascade(
 	}
 	let shadowClip = shadowMatrix * vec4<f32>(shadowWorldPosition, 1.0);
 	if (shadowClip.w <= EPSILON) {
-		return 1.0;
+		return vec3<f32>(1.0);
 	}
 
 	let invW = 1.0 / shadowClip.w;
@@ -1260,7 +1264,7 @@ fn sampleShadowVisibilityForCascade(
 		currentDepth < 0.0 ||
 		currentDepth > 1.0
 	) {
-		return 1.0;
+		return vec3<f32>(1.0);
 	}
 
 	let pcfRadius = max(shadowData.paramsB.x, 1.0);
@@ -1286,7 +1290,7 @@ fn sampleShadowVisibilityForCascade(
 	let tileOffset =
 		vec2<i32>(tileX * atlasTileSize, tileY * atlasTileSize) +
 		vec2<i32>(localTileX * subTileSize, localTileY * subTileSize);
-	var visible = 0.0;
+	var visible = vec3<f32>(0.0);
 	var sampleCount = 0.0;
 	if (pcssEnabled) {
 		let theta = hashShadowRotation(worldPosition);
@@ -1318,7 +1322,7 @@ fn sampleShadowVisibilityForCascade(
 		}
 
 		if (blockerCount < 1.0) {
-			return 1.0;
+			return vec3<f32>(1.0);
 		}
 
 		let avgBlockerDepth = blockerDepthSum / blockerCount;
@@ -1351,8 +1355,11 @@ fn sampleShadowVisibilityForCascade(
 				i32(round(samplePosition.x)),
 				i32(round(samplePosition.y))
 			);
-			let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
-			visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
+			let atlasCoord = tileOffset + sampleCoord;
+			let sampleDepth = loadShadowDepthTexel(atlasCoord);
+			if (currentDepth - bias <= sampleDepth) {
+				visible += loadShadowTransmittanceTexel(atlasCoord);
+			}
 			sampleCount += 1.0;
 		}
 	} else {
@@ -1373,20 +1380,23 @@ fn sampleShadowVisibilityForCascade(
 					i32(roundedSamplePosition.x),
 					i32(roundedSamplePosition.y)
 				);
-				let sampleDepth = loadShadowDepthTexel(tileOffset + sampleCoord);
-				visible += select(0.0, 1.0, currentDepth - bias <= sampleDepth);
+				let atlasCoord = tileOffset + sampleCoord;
+				let sampleDepth = loadShadowDepthTexel(atlasCoord);
+				if (currentDepth - bias <= sampleDepth) {
+					visible += loadShadowTransmittanceTexel(atlasCoord);
+				}
 				sampleCount += 1.0;
 			}
 		}
 	}
 
 	if (sampleCount < 1.0) {
-		return 1.0;
+		return vec3<f32>(1.0);
 	}
 
 	let filteredVisibility = visible / max(sampleCount, 1.0);
 	let strength = clamp(shadowData.paramsB.y, 0.0, 1.0);
-	return (1.0 - strength + strength * filteredVisibility) *
+	return (vec3<f32>(1.0 - strength) + strength * filteredVisibility) *
 		sampleParticleShadowVolumeTransmittance(shadowType, index, cascadeIndex, worldPosition);
 }
 
@@ -1510,7 +1520,7 @@ fn sampleDirectionalShadowVisibility(
 	normal: vec3<f32>,
 	lightDirection: vec3<f32>,
 	linearDepth: f32
-) -> f32 {
+) -> vec3<f32> {
 	let shadowData = frame.directionalShadows[index];
 	let cascadeIndex = resolveDirectionalCascadeIndex(shadowData, linearDepth);
 	let baseVisibility = sampleShadowVisibilityForCascade(
@@ -1561,7 +1571,7 @@ fn sampleSpotShadowVisibility(
 	worldPosition: vec3<f32>,
 	normal: vec3<f32>,
 	lightDirection: vec3<f32>
-) -> f32 {
+) -> vec3<f32> {
 	return sampleShadowVisibilityForCascade(
 		1u,
 		index,

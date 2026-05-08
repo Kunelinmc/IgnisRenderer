@@ -38,6 +38,7 @@ const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
 const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 4;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
 const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
+const WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE = 16;
 const SH_COEFFICIENT_COUNT = 16;
 const SH_AMBIENT_UNIFORM_VALUES = new Float32Array(SH_COEFFICIENT_COUNT * 3);
 
@@ -104,7 +105,9 @@ export interface WebGLGlobalUniformBinderHost {
 		};
 	};
 	_shadowAtlasTexture: WebGLTexture | null;
+	_shadowTransmittanceTexture: WebGLTexture | null;
 	_shadowAtlasTileSize: number;
+	_maxTextureImageUnits: number;
 	_particleShadowVolumeTexture: WebGLTexture | null;
 	_particleShadowVolumeAtlasSize: Float32Array;
 	_particleShadowVolumeGridSize: Float32Array;
@@ -426,6 +429,24 @@ export function bindWebGLGlobalUniforms(
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
 		gl.bindTexture(gl.TEXTURE_2D, host._shadowAtlasTexture);
 		gl.uniform1i(uniforms.shadowAtlas, WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
+	}
+	const hasShadowTransmittance =
+		shadowsEnabled &&
+		!!host._shadowTransmittanceTexture &&
+		host._maxTextureImageUnits > WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE;
+	if (uniforms.shadowTransmittanceAtlasAvailable) {
+		gl.uniform1i(
+			uniforms.shadowTransmittanceAtlasAvailable,
+			hasShadowTransmittance ? 1 : 0
+		);
+	}
+	if (uniforms.shadowTransmittanceAtlas && hasShadowTransmittance) {
+		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE);
+		gl.bindTexture(gl.TEXTURE_2D, host._shadowTransmittanceTexture);
+		gl.uniform1i(
+			uniforms.shadowTransmittanceAtlas,
+			WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE
+		);
 	}
 	if (uniforms.particleShadowVolumeAtlas) {
 		gl.activeTexture(

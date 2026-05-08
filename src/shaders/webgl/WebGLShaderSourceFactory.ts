@@ -16,6 +16,11 @@ export interface WebGLSceneLightLimits {
 	maxDirectionalLights: number;
 	maxPointLights: number;
 	maxSpotLights: number;
+	/**
+	 * Enables the optional transparent-shadow transmittance sampler. Leave disabled
+	 * on devices that only expose the WebGL2 minimum of 16 fragment texture units.
+	 */
+	enableShadowTransmittance?: boolean;
 }
 
 export interface WebGLSceneShaderSource {
@@ -34,6 +39,29 @@ function replaceLightLimit(
 	value: number
 ): string {
 	return source.replaceAll(placeholder, String(Math.max(0, value | 0)));
+}
+
+function replaceOptionalDefines(
+	source: string,
+	limits: WebGLSceneLightLimits
+): string {
+	const shadowTransmittanceEnabled = !!limits.enableShadowTransmittance;
+	return source
+		.replaceAll(
+			"__WEBGL_SHADOW_TRANSMITTANCE_DEFINE__",
+			shadowTransmittanceEnabled ?
+				"#define WEBGL_SHADOW_TRANSMITTANCE 1"
+			:	""
+		)
+		.replaceAll(
+			"__WEBGL_SHADOW_TRANSMITTANCE_UNIFORMS__",
+			shadowTransmittanceEnabled ?
+				[
+					"uniform sampler2D uShadowTransmittanceAtlas;",
+					"uniform int uShadowTransmittanceAtlasAvailable;",
+				].join("\n")
+			:	""
+		);
 }
 
 function cloneCompositeSource(
@@ -133,7 +161,10 @@ export class WebGLShaderSourceFactory {
 		limits: WebGLSceneLightLimits
 	): WebGLSceneShaderSource {
 		const sceneVertexSource = this.getRawPart("sceneVertex");
-		const sceneFragmentTemplate = this.getRawPart("sceneFragment");
+		const sceneFragmentTemplate = replaceOptionalDefines(
+			this.getRawPart("sceneFragment"),
+			limits
+		);
 		const withDirectional = replaceLightLimit(
 			sceneFragmentTemplate,
 			"__MAX_DIRECTIONAL_LIGHTS__",

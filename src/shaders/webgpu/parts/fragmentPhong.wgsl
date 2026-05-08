@@ -68,7 +68,7 @@
 
 				let lightDirection = toLight / distanceValue;
 				var attenuation = pointAttenuation(distanceSq, lightRange);
-				var shadow = 1.0;
+				var shadow = vec3<f32>(1.0);
 
 				// Spot light cone + shadow
 				if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {

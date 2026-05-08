@@ -398,6 +398,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (
 			context.features.enableShadows &&
 			(context.scene.shadowCasterPackets.length > 0 ||
+				context.scene.shadowTransmitterPackets.length > 0 ||
 				hasParticleShadowCasters(context.scene.particleSystems))
 		) {
 			this._plannedPasses.add("shadow");

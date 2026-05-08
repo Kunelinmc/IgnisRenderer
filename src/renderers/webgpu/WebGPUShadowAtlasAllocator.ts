@@ -9,6 +9,7 @@ import type { WebGPULightingState } from "./";
 interface ShadowAtlas {
 	tileSize: number;
 	texture: IRenderTexture;
+	transmittanceTexture: IRenderTexture;
 }
 
 interface ShadowSlice {
@@ -55,6 +56,7 @@ export class WebGPUShadowAtlasAllocator {
 
 		if (!this._atlas || this._atlas.tileSize !== safeTileSize) {
 			this._atlas?.texture.destroy();
+			this._atlas?.transmittanceTexture.destroy();
 
 			this._atlas = {
 				tileSize: safeTileSize,
@@ -65,6 +67,13 @@ export class WebGPUShadowAtlasAllocator {
 					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
 					label: "WebGPUShadowDepthAtlas",
 				}),
+				transmittanceTexture: this._backend.createTexture({
+					width: safeTileSize * WEBGPU_SHADOW_ATLAS_COLUMNS,
+					height: safeTileSize * WEBGPU_SHADOW_ATLAS_ROWS,
+					format: TextureFormat.RGBA16Float,
+					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+					label: "WebGPUShadowTransmittanceAtlas",
+				}),
 			};
 		}
 
@@ -73,6 +82,10 @@ export class WebGPUShadowAtlasAllocator {
 
 	public get atlas(): IRenderTexture | null {
 		return this._atlas?.texture ?? null;
+	}
+
+	public get transmittanceAtlas(): IRenderTexture | null {
+		return this._atlas?.transmittanceTexture ?? null;
 	}
 
 	public get tileSize(): number {
@@ -97,6 +110,7 @@ export class WebGPUShadowAtlasAllocator {
 
 	public destroy(): void {
 		this._atlas?.texture.destroy();
+		this._atlas?.transmittanceTexture.destroy();
 		this._atlas = null;
 	}
 

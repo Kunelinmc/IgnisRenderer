@@ -13,6 +13,7 @@ const PIPELINE_PARTS: readonly WebGLShaderPart[] = [
 	"particleFragment",
 	"shadowDepthVertex",
 	"shadowDepthFragment",
+	"shadowTransmittanceFragment",
 	"copyFragment",
 	"postProcessStubFragment",
 	"toneMappingFragment",

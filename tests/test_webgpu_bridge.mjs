@@ -333,6 +333,7 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("texture_depth_2d"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
@@ -1007,7 +1008,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 8);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 9);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
 	);
@@ -2342,15 +2343,16 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 8);
+	assert.equal(sceneLayout.desc.entries.length, 9);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
 	assert.equal(sceneLayout.desc.entries[6].buffer?.type, "uniform");
 	assert.equal(sceneLayout.desc.entries[7].buffer?.type, "read-only-storage");
+	assert.equal(sceneLayout.desc.entries[8].texture?.sampleType, "float");
 
 	resources.destroy();
 }
@@ -2512,9 +2514,17 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 	const shadowAtlasEntry = frameBinding.desc.entries.find(
 		(entry) => entry.binding === 1
 	);
+	const shadowTransmittanceAtlasEntry = frameBinding.desc.entries.find(
+		(entry) => entry.binding === 8
+	);
 	assert.ok(shadowAtlasEntry?.resource);
+	assert.ok(shadowTransmittanceAtlasEntry?.resource);
 	assert.equal(
 		shadowAtlasEntry.resource.width,
+		1024 * WEBGPU_SHADOW_ATLAS_COLUMNS
+	);
+	assert.equal(
+		shadowTransmittanceAtlasEntry.resource.width,
 		1024 * WEBGPU_SHADOW_ATLAS_COLUMNS
 	);
 }
