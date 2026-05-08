@@ -8,6 +8,7 @@ interface TextureEntry {
 	width: number;
 	height: number;
 	isLinear: boolean;
+	uploadKind: WebGLTextureUploadKind;
 }
 
 export interface ResolvedWebGLTexture {
@@ -15,13 +16,28 @@ export interface ResolvedWebGLTexture {
 	isLinear: boolean;
 }
 
+type WebGLTextureUploadKind = "rgba8" | "rgba16f" | "rgba32f";
+
+interface WebGLTextureUploadFormat {
+	kind: WebGLTextureUploadKind;
+	internalFormat: number;
+	format: number;
+	type: number;
+	isFloat: boolean;
+}
+
+interface WebGLTextureResolveOptions {
+	preferFloat?: boolean;
+}
+
 export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _maxTextureSize: number;
-	private _cache = new WeakMap<Texture, TextureEntry>();
+	private _cache = new WeakMap<Texture, Map<string, TextureEntry>>();
 	private _owned = new Set<WebGLTexture>();
 	private _whiteTexture: WebGLTexture | null = null;
 	private _neutralNormalTexture: WebGLTexture | null = null;
+	private _supportsFloatLinearFiltering: boolean | null = null;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -42,7 +58,9 @@ export class WebGLTextureRegistry {
 	public getEnvironmentSpecularTexture(
 		texture: Texture | null
 	): ResolvedWebGLTexture {
-		return this._resolveTexture(texture, "env-specular", true);
+		return this._resolveTexture(texture, "env-specular", true, {
+			preferFloat: true,
+		});
 	}
 
 	public getBRDFLUTTexture(texture: Texture | null): ResolvedWebGLTexture {
@@ -121,7 +139,8 @@ export class WebGLTextureRegistry {
 	private _resolveTexture(
 		texture: Texture | null,
 		label: string,
-		srgbDefault: boolean
+		srgbDefault: boolean,
+		options: WebGLTextureResolveOptions = {}
 	): ResolvedWebGLTexture {
 		if (!texture) {
 			return this.getWhiteTexture();
@@ -152,13 +171,22 @@ export class WebGLTextureRegistry {
 
 		const isLinear =
 			texture.colorSpace === "Linear" || texture.colorSpace === "HDR";
-		const cached = this._cache.get(texture);
+		const uploadFormat = this._resolveUploadFormat(
+			texture,
+			label,
+			isLinear,
+			options
+		);
+		const cacheKey = uploadFormat.kind;
+		const cachedEntries = this._cache.get(texture);
+		const cached = cachedEntries?.get(cacheKey);
 		if (
 			cached &&
 			cached.version === texture.version &&
 			cached.width === width &&
 			cached.height === height &&
-			cached.isLinear === isLinear
+			cached.isLinear === isLinear &&
+			cached.uploadKind === uploadFormat.kind
 		) {
 			return {
 				texture: cached.texture,
@@ -180,17 +208,27 @@ export class WebGLTextureRegistry {
 			this._owned.add(glTexture);
 		}
 
-		const uploadOk = this._uploadTexture(glTexture, texture, label);
+		const uploadOk = this._uploadTexture(
+			glTexture,
+			texture,
+			label,
+			uploadFormat
+		);
 		if (!uploadOk) {
 			return this.getWhiteTexture();
 		}
-		this._cache.set(texture, {
+		const entries = cachedEntries ?? new Map<string, TextureEntry>();
+		entries.set(cacheKey, {
 			texture: glTexture,
 			version: texture.version,
 			width,
 			height,
 			isLinear,
+			uploadKind: uploadFormat.kind,
 		});
+		if (!cachedEntries) {
+			this._cache.set(texture, entries);
+		}
 		return {
 			texture: glTexture,
 			isLinear: isLinear || !srgbDefault,
@@ -200,17 +238,22 @@ export class WebGLTextureRegistry {
 	private _uploadTexture(
 		targetTexture: WebGLTexture,
 		texture: Texture,
-		label: string
+		label: string,
+		uploadFormat: WebGLTextureUploadFormat
 	): boolean {
 		const gl = this._gl;
 		const mipCount = Math.max(1, texture.mipmaps.length || 1);
 		const shouldGenerateMipmaps =
-			mipCount <= 1 && requiresMipmaps(texture.minFilter);
+			!uploadFormat.isFloat &&
+			mipCount <= 1 &&
+			requiresMipmaps(texture.minFilter);
 		const hasMipmaps = mipCount > 1 || shouldGenerateMipmaps;
 		const maxMipLevel =
 			shouldGenerateMipmaps ?
 				resolveMaxMipmapLevel(texture.width, texture.height)
 			:	mipCount - 1;
+		const supportsLinearFiltering =
+			!uploadFormat.isFloat || this._canLinearlyFilterFloatTextures();
 
 		gl.bindTexture(gl.TEXTURE_2D, targetTexture);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -227,12 +270,17 @@ export class WebGLTextureRegistry {
 		gl.texParameteri(
 			gl.TEXTURE_2D,
 			gl.TEXTURE_MAG_FILTER,
-			mapMagFilter(gl, texture.magFilter)
+			mapMagFilter(gl, texture.magFilter, supportsLinearFiltering)
 		);
 		gl.texParameteri(
 			gl.TEXTURE_2D,
 			gl.TEXTURE_MIN_FILTER,
-			mapMinFilter(gl, texture.minFilter, hasMipmaps)
+			mapMinFilter(
+				gl,
+				texture.minFilter,
+				hasMipmaps,
+				supportsLinearFiltering
+			)
 		);
 
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0);
@@ -256,16 +304,16 @@ export class WebGLTextureRegistry {
 				return false;
 			}
 
-			const data = toRGBA8Data(source, width, height);
+			const data = createUploadData(source, width, height, uploadFormat);
 			gl.texImage2D(
 				gl.TEXTURE_2D,
 				level,
-				gl.RGBA,
+				uploadFormat.internalFormat,
 				width,
 				height,
 				0,
-				gl.RGBA,
-				gl.UNSIGNED_BYTE,
+				uploadFormat.format,
+				uploadFormat.type,
 				data
 			);
 		}
@@ -276,6 +324,86 @@ export class WebGLTextureRegistry {
 
 		gl.bindTexture(gl.TEXTURE_2D, null);
 		return true;
+	}
+
+	private _resolveUploadFormat(
+		texture: Texture,
+		label: string,
+		isLinear: boolean,
+		options: WebGLTextureResolveOptions
+	): WebGLTextureUploadFormat {
+		const gl = this._gl;
+		if (options.preferFloat && isLinear && hasFloat32PixelData(texture)) {
+			const floatFormat = this._resolveFloatUploadFormat(label);
+			if (floatFormat) {
+				return floatFormat;
+			}
+		}
+		return {
+			kind: "rgba8",
+			internalFormat: gl.RGBA,
+			format: gl.RGBA,
+			type: gl.UNSIGNED_BYTE,
+			isFloat: false,
+		};
+	}
+
+	private _resolveFloatUploadFormat(
+		label: string
+	): WebGLTextureUploadFormat | null {
+		const gl = this._gl as WebGL2RenderingContext & {
+			RGBA16F?: number;
+			RGBA32F?: number;
+			HALF_FLOAT?: number;
+			FLOAT?: number;
+		};
+		if (
+			typeof gl.RGBA16F === "number" &&
+			typeof gl.HALF_FLOAT === "number"
+		) {
+			return {
+				kind: "rgba16f",
+				internalFormat: gl.RGBA16F,
+				format: gl.RGBA,
+				type: gl.HALF_FLOAT,
+				isFloat: true,
+			};
+		}
+		if (
+			typeof gl.RGBA32F === "number" &&
+			typeof gl.FLOAT === "number"
+		) {
+			return {
+				kind: "rgba32f",
+				internalFormat: gl.RGBA32F,
+				format: gl.RGBA,
+				type: gl.FLOAT,
+				isFloat: true,
+			};
+		}
+
+		const key = `webgl-texture-float-unsupported-${label}`;
+		Logger.warn(
+			`[${key}] WebGL ${label} texture has Float32 pixel data, but neither RGBA16F/HALF_FLOAT nor RGBA32F/FLOAT upload is available; falling back to RGBA8`,
+			{ scope: "WebGLTextureRegistry", onceKey: key }
+		);
+		return null;
+	}
+
+	private _canLinearlyFilterFloatTextures(): boolean {
+		if (this._supportsFloatLinearFiltering !== null) {
+			return this._supportsFloatLinearFiltering;
+		}
+		const gl = this._gl as WebGL2RenderingContext & {
+			getExtension?: (name: string) => unknown;
+		};
+		this._supportsFloatLinearFiltering =
+			typeof gl.getExtension === "function" &&
+			!!(
+				gl.getExtension("OES_texture_float_linear") ||
+				gl.getExtension("OES_texture_half_float_linear")
+			);
+		return this._supportsFloatLinearFiltering;
 	}
 
 	private _createTexture(): WebGLTexture | null {
@@ -308,15 +436,26 @@ function mapWrapMode(gl: WebGL2RenderingContext, value?: string): number {
 	}
 }
 
-function mapMagFilter(gl: WebGL2RenderingContext, value?: string): number {
+function mapMagFilter(
+	gl: WebGL2RenderingContext,
+	value?: string,
+	linearFilteringAllowed = true
+): number {
+	if (!linearFilteringAllowed) {
+		return gl.NEAREST;
+	}
 	return value === "Nearest" ? gl.NEAREST : gl.LINEAR;
 }
 
 function mapMinFilter(
 	gl: WebGL2RenderingContext,
 	value: string | undefined,
-	hasMipmaps: boolean
+	hasMipmaps: boolean,
+	linearFilteringAllowed = true
 ): number {
+	if (!linearFilteringAllowed) {
+		return hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST;
+	}
 	switch (value) {
 		case "Nearest":
 			return gl.NEAREST;
@@ -351,6 +490,35 @@ function resolveMaxMipmapLevel(width: number, height: number): number {
 	return Math.max(0, Math.floor(Math.log2(maxDimension)));
 }
 
+function hasFloat32PixelData(texture: Texture): boolean {
+	if (texture.data instanceof Float32Array) {
+		return true;
+	}
+	for (const mip of texture.mipmaps) {
+		if (mip instanceof Float32Array) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function createUploadData(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number,
+	format: WebGLTextureUploadFormat
+): Uint8Array | Uint16Array | Float32Array {
+	switch (format.kind) {
+		case "rgba16f":
+			return toRGBA16FData(source, width, height);
+		case "rgba32f":
+			return toRGBA32FData(source, width, height);
+		case "rgba8":
+		default:
+			return toRGBA8Data(source, width, height);
+	}
+}
+
 function toRGBA8Data(
 	source: Uint8Array | Uint8ClampedArray | Float32Array,
 	width: number,
@@ -377,4 +545,84 @@ function toRGBA8Data(
 		data[i] = clamp(Math.round((source[i] ?? 0) * 255), 0, 255);
 	}
 	return data;
+}
+
+function toRGBA32FData(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number
+): Float32Array {
+	const expectedLength = Math.max(1, width * height * 4);
+	if (source instanceof Float32Array) {
+		if (source.length === expectedLength) {
+			return source;
+		}
+		const resized = new Float32Array(expectedLength);
+		resized.set(source.subarray(0, expectedLength));
+		return resized;
+	}
+
+	const data = new Float32Array(expectedLength);
+	for (let i = 0; i < expectedLength; i++) {
+		data[i] = (source[i] ?? 0) / 255;
+	}
+	return data;
+}
+
+function toRGBA16FData(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number
+): Uint16Array {
+	const expectedLength = Math.max(1, width * height * 4);
+	const data = new Uint16Array(expectedLength);
+	if (source instanceof Float32Array) {
+		const limit = Math.min(source.length, expectedLength);
+		for (let i = 0; i < limit; i++) {
+			data[i] = float32ToFloat16Bits(source[i] ?? 0);
+		}
+		return data;
+	}
+
+	for (let i = 0; i < expectedLength; i++) {
+		data[i] = float32ToFloat16Bits((source[i] ?? 0) / 255);
+	}
+	return data;
+}
+
+const FLOAT32_TO_FLOAT16_FLOAT = new Float32Array(1);
+const FLOAT32_TO_FLOAT16_INT = new Int32Array(FLOAT32_TO_FLOAT16_FLOAT.buffer);
+
+function float32ToFloat16Bits(value: number): number {
+	if (!Number.isFinite(value)) {
+		return 0;
+	}
+	FLOAT32_TO_FLOAT16_FLOAT[0] = value;
+	const bits = FLOAT32_TO_FLOAT16_INT[0];
+	const sign = (bits >> 16) & 0x8000;
+	let exponent = ((bits >> 23) & 0xff) - 127 + 15;
+	let mantissa = bits & 0x7fffff;
+
+	if (exponent <= 0) {
+		if (exponent < -10) {
+			return sign;
+		}
+		mantissa = (mantissa | 0x800000) >> (1 - exponent);
+		return sign | ((mantissa + 0x1000) >> 13);
+	}
+
+	if (exponent >= 31) {
+		return sign | 0x7bff;
+	}
+
+	let halfMantissa = (mantissa + 0x1000) >> 13;
+	if (halfMantissa === 0x400) {
+		halfMantissa = 0;
+		exponent++;
+		if (exponent >= 31) {
+			return sign | 0x7bff;
+		}
+	}
+
+	return sign | (exponent << 10) | halfMantissa;
 }

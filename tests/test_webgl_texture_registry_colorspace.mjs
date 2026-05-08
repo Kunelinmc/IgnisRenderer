@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { Texture } from "../src/core/Texture.ts";
 import { WebGLTextureRegistry } from "../src/renderers/webgl/WebGLTextureRegistry.ts";
 
-function createTextureRegistryTestGL() {
+function createTextureRegistryTestGL(options = {}) {
 	let textureId = 0;
 	const textureParameterCalls = [];
+	const texImage2DCalls = [];
 	let generateMipmapCallCount = 0;
-	return {
+	const gl = {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		TEXTURE_2D: 0x0de1,
 		TEXTURE_WRAP_S: 0x2802,
@@ -26,12 +27,25 @@ function createTextureRegistryTestGL() {
 		CLAMP_TO_EDGE: 0x812f,
 		MIRRORED_REPEAT: 0x8370,
 		RGBA: 0x1908,
+		RGBA16F: 0x881a,
+		RGBA32F: 0x8814,
 		UNSIGNED_BYTE: 0x1401,
+		HALF_FLOAT: 0x140b,
+		FLOAT: 0x1406,
 		getParameter(parameter) {
 			if (parameter === this.MAX_TEXTURE_SIZE) {
 				return 4096;
 			}
 			return 0;
+		},
+		getExtension(name) {
+			if (
+				name === "OES_texture_float_linear" ||
+				name === "OES_texture_half_float_linear"
+			) {
+				return options.floatLinearExtension ? {} : null;
+			}
+			return null;
 		},
 		createTexture() {
 			return { id: `tex-${++textureId}` };
@@ -42,15 +56,47 @@ function createTextureRegistryTestGL() {
 		texParameteri(target, pname, value) {
 			textureParameterCalls.push({ target, pname, value });
 		},
-		texImage2D() {},
+		texImage2D(
+			target,
+			level,
+			internalFormat,
+			width,
+			height,
+			border,
+			format,
+			type,
+			pixels
+		) {
+			texImage2DCalls.push({
+				target,
+				level,
+				internalFormat,
+				width,
+				height,
+				border,
+				format,
+				type,
+				pixels,
+			});
+		},
 		generateMipmap() {
 			generateMipmapCallCount++;
 		},
 		textureParameterCalls,
+		texImage2DCalls,
 		get generateMipmapCallCount() {
 			return generateMipmapCallCount;
 		},
 	};
+	if (options.rgba16f === false) {
+		delete gl.RGBA16F;
+		delete gl.HALF_FLOAT;
+	}
+	if (options.rgba32f === false) {
+		delete gl.RGBA32F;
+		delete gl.FLOAT;
+	}
+	return gl;
 }
 
 function createSolidTexture(colorSpace) {
@@ -178,6 +224,74 @@ function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 	assert.equal(gl.generateMipmapCallCount, 0);
 }
 
+function testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F() {
+	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const envTexture = new Texture(null, 2, 1, "HDR");
+	envTexture.mipmaps = [
+		new Float32Array([2, 0.5, 0.25, 1, 4, 2, 1, 1]),
+		new Float32Array([3, 1.5, 0.75, 1]),
+	];
+	envTexture.data = envTexture.mipmaps[0];
+
+	registry.getEnvironmentSpecularTexture(envTexture);
+
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA16F);
+	assert.equal(gl.texImage2DCalls[0].format, gl.RGBA);
+	assert.equal(gl.texImage2DCalls[0].type, gl.HALF_FLOAT);
+	assert.ok(gl.texImage2DCalls[0].pixels instanceof Uint16Array);
+	assert.equal(gl.texImage2DCalls[0].pixels[0], 0x4000);
+	assert.equal(gl.texImage2DCalls[0].pixels[3], 0x3c00);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.RGBA16F);
+	assert.ok(gl.texImage2DCalls[1].pixels instanceof Uint16Array);
+}
+
+function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
+	const gl = createTextureRegistryTestGL({
+		rgba16f: false,
+		floatLinearExtension: true,
+	});
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const envTexture = new Texture(
+		new Float32Array([2, 0.5, 0.25, 1]),
+		1,
+		1,
+		"HDR"
+	);
+
+	registry.getEnvironmentSpecularTexture(envTexture);
+
+	assert.equal(gl.texImage2DCalls.length, 1);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA32F);
+	assert.equal(gl.texImage2DCalls[0].type, gl.FLOAT);
+	assert.ok(gl.texImage2DCalls[0].pixels instanceof Float32Array);
+	assert.equal(gl.texImage2DCalls[0].pixels[0], 2);
+}
+
+function testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor() {
+	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture(
+		new Float32Array([2, 0.5, 0.25, 1]),
+		1,
+		1,
+		"HDR"
+	);
+
+	registry.getBaseColorTexture(texture);
+	registry.getEnvironmentSpecularTexture(texture);
+
+	assert.equal(gl.texImage2DCalls.length, 2);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.RGBA);
+	assert.equal(gl.texImage2DCalls[0].type, gl.UNSIGNED_BYTE);
+	assert.ok(gl.texImage2DCalls[0].pixels instanceof Uint8Array);
+	assert.equal(gl.texImage2DCalls[0].pixels[0], 255);
+	assert.equal(gl.texImage2DCalls[1].internalFormat, gl.RGBA16F);
+	assert.equal(gl.texImage2DCalls[1].type, gl.HALF_FLOAT);
+	assert.ok(gl.texImage2DCalls[1].pixels instanceof Uint16Array);
+}
+
 function run() {
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
@@ -185,6 +299,9 @@ function run() {
 	testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists();
 	testLinearFilterSkipsMipmapGenerationForSingleLevelTexture();
 	testNearestMipmapLinearMapsToNearestMipmapLinear();
+	testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F();
+	testEnvironmentSpecularFloatUploadFallsBackToRGBA32F();
+	testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor();
 	console.log("WebGL texture registry color-space tests passed");
 }
 
