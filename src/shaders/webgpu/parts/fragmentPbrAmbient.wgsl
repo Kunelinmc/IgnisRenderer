@@ -31,12 +31,18 @@ if (shAmbientEnabled) {
 	) / 255.0;
 }
 
-let fAmbient = fresnelSchlick(nDotV, realF0);
+let fAmbient = resolveIridescenceFresnel(
+	nDotV,
+	realF0,
+	iridescence,
+	iridescenceThickness,
+	iridescenceIor
+);
 let refractionResult = refractViewDirection(viewDir, pbrNormal, ior);
 let isTIR = transmission > 0.0 && refractionResult.valid < 0.5;
 let effectiveFAmbient = select(fAmbient, vec3<f32>(1.0), isTIR);
 let kdAmbient =
-	(vec3<f32>(1.0) - effectiveFAmbient) *
+	diffuseFresnelWeight(effectiveFAmbient, iridescence) *
 	(1.0 - metalness) *
 	(1.0 - transmission);
 let ktAmbient =
@@ -130,7 +136,15 @@ if (maxSheenColor > 0.0) {
 ambientLight *= occlusion;
 
 let finalLinear = max(directLight + ambientLight + emissive, vec3<f32>(0.0));
-let outputAlpha = resolveTransmissionAlpha(alpha, transmission, nDotV, realF0);
+let outputAlpha = resolveTransmissionAlpha(
+	alpha,
+	transmission,
+	nDotV,
+	realF0,
+	iridescence,
+	iridescenceThickness,
+	iridescenceIor
+);
 return buildSceneOutput(
 	finalLinear,
 	outputAlpha,

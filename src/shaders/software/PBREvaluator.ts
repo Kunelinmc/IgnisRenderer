@@ -33,6 +33,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		sheenRoughness: 0.0,
 		transmission: 0.0,
 		ior: 1.5,
+		iridescence: 0.0,
+		iridescenceIor: 1.3,
+		iridescenceThickness: 400.0,
 		thickness: 0.0,
 		attenuationDistance: Infinity,
 		attenuationColor: { r: 255, g: 255, b: 255 },
@@ -351,6 +354,42 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			transmission *= transmissionTex.r / 255;
 		}
 
+		let iridescence = mat.iridescenceFactor ?? 0.0;
+		const iridescenceUV = this._resolveUV(mat.iridescenceMapUV, input);
+		const iridescenceTex = this._sampleTextureMap(
+			mat.iridescenceMap,
+			iridescenceUV.u,
+			iridescenceUV.v
+		);
+		if (iridescenceTex) {
+			iridescence *= iridescenceTex.r / 255;
+		}
+
+		const iridescenceThicknessMinimum = Math.max(
+			mat.iridescenceThicknessMinimum ?? 100.0,
+			0
+		);
+		const iridescenceThicknessMaximum = Math.max(
+			mat.iridescenceThicknessMaximum ?? 400.0,
+			0
+		);
+		let iridescenceThickness = iridescenceThicknessMaximum;
+		const iridescenceThicknessUV = this._resolveUV(
+			mat.iridescenceThicknessMapUV,
+			input
+		);
+		const iridescenceThicknessTex = this._sampleTextureMap(
+			mat.iridescenceThicknessMap,
+			iridescenceThicknessUV.u,
+			iridescenceThicknessUV.v
+		);
+		if (iridescenceThicknessTex) {
+			iridescenceThickness =
+				iridescenceThicknessMinimum +
+				(iridescenceThicknessMaximum - iridescenceThicknessMinimum) *
+					(iridescenceThicknessTex.g / 255);
+		}
+
 		let thickness = mat.thicknessFactor;
 		const thicknessUV = this._resolveUV(mat.thicknessMapUV, input);
 		const thicknessTex = this._sampleTextureMap(
@@ -387,6 +426,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.sheenRoughness = clamp(sheenRoughness);
 		res.transmission = clamp(transmission);
 		res.ior = mat.ior ?? 1.5;
+		res.iridescence = clamp(iridescence, 0, 1);
+		res.iridescenceIor = Math.max(mat.iridescenceIor ?? 1.3, 1.0);
+		res.iridescenceThickness = Math.max(0, iridescenceThickness);
 		res.thickness = Math.max(0, thickness);
 		res.attenuationDistance = mat.attenuationDistance;
 		res.attenuationColor.r = clamp(mat.attenuationColor.r, 0, 255);

@@ -65,6 +65,8 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _shBasis = new Float32Array(16);
 	private _shIrradiance: RGB = { r: 0, g: 0, b: 0 };
 	private _shRadiance: RGB = { r: 0, g: 0, b: 0 };
+	private _iridescenceFresnel: RGB = { r: 0, g: 0, b: 0 };
+	private _iridescenceSensitivity: RGB = { r: 0, g: 0, b: 0 };
 
 	public calculate(
 		world: IVector3,
@@ -116,6 +118,12 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const maxSheenColor = Math.max(sheenColorR, sheenColorG, sheenColorB);
 
 		const transmission = clamp(surface.transmission ?? 0.0, 0.0, 1.0);
+		const iridescence = clamp(surface.iridescence ?? 0.0, 0.0, 1.0);
+		const iridescenceIor = Math.max(surface.iridescenceIor ?? 1.3, 1.0);
+		const iridescenceThickness = Math.max(
+			surface.iridescenceThickness ?? 400.0,
+			0.0
+		);
 		const thickness = surface.thickness ?? 0.0;
 		const attenuationDist = surface.attenuationDistance ?? Infinity;
 		const attenuationInput = surface.attenuationColor;
@@ -227,10 +235,19 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				shadowB = shadow.b;
 			}
 
-			const fresnelViewFactor = this._pow5(Math.max(1.0 - NdotV, 0));
-			const FviewR = realF0R + (1.0 - realF0R) * fresnelViewFactor;
-			const FviewG = realF0G + (1.0 - realF0G) * fresnelViewFactor;
-			const FviewB = realF0B + (1.0 - realF0B) * fresnelViewFactor;
+			const fView = this._resolveIridescenceFresnel(
+				NdotV,
+				realF0R,
+				realF0G,
+				realF0B,
+				iridescence,
+				iridescenceIor,
+				iridescenceThickness,
+				this._iridescenceFresnel
+			);
+			const FviewR = fView.r;
+			const FviewG = fView.g;
+			const FviewB = fView.b;
 
 			const kTR = (1.0 - FviewR) * oneMinusMetal * transmission;
 			const kTG = (1.0 - FviewG) * oneMinusMetal * transmission;
@@ -268,19 +285,38 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				const NDF = this._DistributionGGX(N, H, rough);
 				const G = this._GeometrySmith(NdotV, NdotL, rough);
 				const HdotV = Math.max(Vector3.dot(H, V), 0);
-				const fresnelFactor = this._pow5(Math.max(1.0 - HdotV, 0));
-				const FR = realF0R + (1.0 - realF0R) * fresnelFactor;
-				const FG = realF0G + (1.0 - realF0G) * fresnelFactor;
-				const FB = realF0B + (1.0 - realF0B) * fresnelFactor;
+				const fresnel = this._resolveIridescenceFresnel(
+					HdotV,
+					realF0R,
+					realF0G,
+					realF0B,
+					iridescence,
+					iridescenceIor,
+					iridescenceThickness,
+					this._iridescenceFresnel
+				);
+				const FR = fresnel.r;
+				const FG = fresnel.g;
+				const FB = fresnel.b;
 				const denominator = 4 * NdotV * NdotL + PBR_DENOM_EPSILON;
 
 				specularR = (NDF * G * FR) / denominator * energyCompensationR;
 				specularG = (NDF * G * FG) / denominator * energyCompensationG;
 				specularB = (NDF * G * FB) / denominator * energyCompensationB;
 
-				const kDR = (1.0 - FR) * oneMinusMetal * oneMinusTransmission;
-				const kDG = (1.0 - FG) * oneMinusMetal * oneMinusTransmission;
-				const kDB = (1.0 - FB) * oneMinusMetal * oneMinusTransmission;
+				const fresnelMax = Math.max(FR, FG, FB);
+				const kDR =
+					(1.0 - (iridescence > 0 ? fresnelMax : FR)) *
+					oneMinusMetal *
+					oneMinusTransmission;
+				const kDG =
+					(1.0 - (iridescence > 0 ? fresnelMax : FG)) *
+					oneMinusMetal *
+					oneMinusTransmission;
+				const kDB =
+					(1.0 - (iridescence > 0 ? fresnelMax : FB)) *
+					oneMinusMetal *
+					oneMinusTransmission;
 				diffuseR = (kDR * albR) / Math.PI;
 				diffuseG = (kDG * albG) / Math.PI;
 				diffuseB = (kDB * albB) / Math.PI;
@@ -382,10 +418,19 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const specRadianceLinearG = specRadiance.g / 255;
 			const specRadianceLinearB = specRadiance.b / 255;
 
-			const fresnelAmbientFactor = this._pow5(Math.max(1.0 - NdotV, 0));
-			const FambR = realF0R + (1.0 - realF0R) * fresnelAmbientFactor;
-			const FambG = realF0G + (1.0 - realF0G) * fresnelAmbientFactor;
-			const FambB = realF0B + (1.0 - realF0B) * fresnelAmbientFactor;
+			const fAmbient = this._resolveIridescenceFresnel(
+				NdotV,
+				realF0R,
+				realF0G,
+				realF0B,
+				iridescence,
+				iridescenceIor,
+				iridescenceThickness,
+				this._iridescenceFresnel
+			);
+			const FambR = fAmbient.r;
+			const FambG = fAmbient.g;
+			const FambB = fAmbient.b;
 
 			const hasRefraction =
 				transmission > 0 && this._refract(V, N, ior, this._refractionDir);
@@ -394,12 +439,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const effectiveFambG = isTIR ? 1.0 : FambG;
 			const effectiveFambB = isTIR ? 1.0 : FambB;
 
+			const effectiveFambMax = Math.max(
+				effectiveFambR,
+				effectiveFambG,
+				effectiveFambB
+			);
+			const diffuseFambR = iridescence > 0 ? effectiveFambMax : effectiveFambR;
+			const diffuseFambG = iridescence > 0 ? effectiveFambMax : effectiveFambG;
+			const diffuseFambB = iridescence > 0 ? effectiveFambMax : effectiveFambB;
 			const kDambR =
-				(1.0 - effectiveFambR) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambR) * oneMinusMetal * oneMinusTransmission;
 			const kDambG =
-				(1.0 - effectiveFambG) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambG) * oneMinusMetal * oneMinusTransmission;
 			const kDambB =
-				(1.0 - effectiveFambB) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambB) * oneMinusMetal * oneMinusTransmission;
 			const kTambR = (1.0 - effectiveFambR) * oneMinusMetal * transmission;
 			const kTambG = (1.0 - effectiveFambG) * oneMinusMetal * transmission;
 			const kTambB = (1.0 - effectiveFambB) * oneMinusMetal * transmission;
@@ -577,10 +630,19 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const ambientRadianceR = ambientColR / Math.PI;
 			const ambientRadianceG = ambientColG / Math.PI;
 			const ambientRadianceB = ambientColB / Math.PI;
-			const fresnelAmbientFactor = this._pow5(Math.max(1.0 - NdotV, 0));
-			const FambR = realF0R + (1.0 - realF0R) * fresnelAmbientFactor;
-			const FambG = realF0G + (1.0 - realF0G) * fresnelAmbientFactor;
-			const FambB = realF0B + (1.0 - realF0B) * fresnelAmbientFactor;
+			const fAmbient = this._resolveIridescenceFresnel(
+				NdotV,
+				realF0R,
+				realF0G,
+				realF0B,
+				iridescence,
+				iridescenceIor,
+				iridescenceThickness,
+				this._iridescenceFresnel
+			);
+			const FambR = fAmbient.r;
+			const FambG = fAmbient.g;
+			const FambB = fAmbient.b;
 
 			const hasRefraction =
 				transmission > 0 && this._refract(V, N, ior, this._refractionDir);
@@ -589,12 +651,20 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const effectiveFambG = isTIR ? 1.0 : FambG;
 			const effectiveFambB = isTIR ? 1.0 : FambB;
 
+			const effectiveFambMax = Math.max(
+				effectiveFambR,
+				effectiveFambG,
+				effectiveFambB
+			);
+			const diffuseFambR = iridescence > 0 ? effectiveFambMax : effectiveFambR;
+			const diffuseFambG = iridescence > 0 ? effectiveFambMax : effectiveFambG;
+			const diffuseFambB = iridescence > 0 ? effectiveFambMax : effectiveFambB;
 			const kDambR =
-				(1.0 - effectiveFambR) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambR) * oneMinusMetal * oneMinusTransmission;
 			const kDambG =
-				(1.0 - effectiveFambG) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambG) * oneMinusMetal * oneMinusTransmission;
 			const kDambB =
-				(1.0 - effectiveFambB) * oneMinusMetal * oneMinusTransmission;
+				(1.0 - diffuseFambB) * oneMinusMetal * oneMinusTransmission;
 			const kTambR = (1.0 - effectiveFambR) * oneMinusMetal * transmission;
 			const kTambG = (1.0 - effectiveFambG) * oneMinusMetal * transmission;
 			const kTambB = (1.0 - effectiveFambB) * oneMinusMetal * transmission;
@@ -741,6 +811,193 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _FresnelSchlickScalar(cosTheta: number, F0: number) {
 		const f = Math.pow(Math.max(1.0 - cosTheta, 0), 5.0);
 		return F0 + (1.0 - F0) * f;
+	}
+
+	private _resolveIridescenceFresnel(
+		cosTheta: number,
+		baseF0R: number,
+		baseF0G: number,
+		baseF0B: number,
+		iridescence: number,
+		iridescenceIor: number,
+		iridescenceThickness: number,
+		out: RGB
+	): RGB {
+		const baseR = this._FresnelSchlickScalar(cosTheta, baseF0R);
+		const baseG = this._FresnelSchlickScalar(cosTheta, baseF0G);
+		const baseB = this._FresnelSchlickScalar(cosTheta, baseF0B);
+		const strength = clamp(iridescence, 0.0, 1.0);
+		if (strength <= 1e-6 || iridescenceThickness <= 0.0) {
+			out.r = baseR;
+			out.g = baseG;
+			out.b = baseB;
+			return out;
+		}
+
+		this._iridescentFresnel(
+			cosTheta,
+			baseF0R,
+			baseF0G,
+			baseF0B,
+			iridescenceIor,
+			iridescenceThickness,
+			out
+		);
+		out.r = clamp(baseR * (1.0 - strength) + out.r * strength, 0.0, 1.0);
+		out.g = clamp(baseG * (1.0 - strength) + out.g * strength, 0.0, 1.0);
+		out.b = clamp(baseB * (1.0 - strength) + out.b * strength, 0.0, 1.0);
+		return out;
+	}
+
+	private _iridescentFresnel(
+		cosTheta1: number,
+		baseF0R: number,
+		baseF0G: number,
+		baseF0B: number,
+		iridescenceIor: number,
+		iridescenceThickness: number,
+		out: RGB
+	): RGB {
+		const outsideIor = 1.0;
+		const filmIor = Math.max(iridescenceIor, 1e-6);
+		const cos1 = clamp(cosTheta1, 0.0, 1.0);
+		const eta = outsideIor / filmIor;
+		const sinTheta2Sq = eta * eta * (1.0 - cos1 * cos1);
+		if (sinTheta2Sq > 1.0) {
+			out.r = 1.0;
+			out.g = 1.0;
+			out.b = 1.0;
+			return out;
+		}
+
+		const cosTheta2 = Math.sqrt(Math.max(1.0 - sinTheta2Sq, 0.0));
+		const r0 = this._iorToFresnel0(filmIor, outsideIor);
+		const r12 = this._FresnelSchlickScalar(cos1, r0);
+		const t121 = 1.0 - r12;
+
+		const baseIorR = this._fresnel0ToIor(
+			clamp(baseF0R + 0.0001, 0.0, 0.9999)
+		);
+		const baseIorG = this._fresnel0ToIor(
+			clamp(baseF0G + 0.0001, 0.0, 0.9999)
+		);
+		const baseIorB = this._fresnel0ToIor(
+			clamp(baseF0B + 0.0001, 0.0, 0.9999)
+		);
+		const r23R = this._FresnelSchlickScalar(
+			cosTheta2,
+			this._iorToFresnel0(baseIorR, filmIor)
+		);
+		const r23G = this._FresnelSchlickScalar(
+			cosTheta2,
+			this._iorToFresnel0(baseIorG, filmIor)
+		);
+		const r23B = this._FresnelSchlickScalar(
+			cosTheta2,
+			this._iorToFresnel0(baseIorB, filmIor)
+		);
+
+		const phi12 = filmIor < outsideIor ? Math.PI : 0.0;
+		const phi21 = Math.PI - phi12;
+		const phiR = phi21 + (baseIorR < filmIor ? Math.PI : 0.0);
+		const phiG = phi21 + (baseIorG < filmIor ? Math.PI : 0.0);
+		const phiB = phi21 + (baseIorB < filmIor ? Math.PI : 0.0);
+
+		const opd = 2.0 * filmIor * iridescenceThickness * cosTheta2;
+		const r123R = clamp(r12 * r23R, 1e-5, 0.9999);
+		const r123G = clamp(r12 * r23G, 1e-5, 0.9999);
+		const r123B = clamp(r12 * r23B, 1e-5, 0.9999);
+		const sqrtR123R = Math.sqrt(r123R);
+		const sqrtR123G = Math.sqrt(r123G);
+		const sqrtR123B = Math.sqrt(r123B);
+		const t121Sq = t121 * t121;
+		const rsR = (t121Sq * r23R) / (1.0 - r123R);
+		const rsG = (t121Sq * r23G) / (1.0 - r123G);
+		const rsB = (t121Sq * r23B) / (1.0 - r123B);
+
+		let irR = r12 + rsR;
+		let irG = r12 + rsG;
+		let irB = r12 + rsB;
+		let cmR = rsR - t121;
+		let cmG = rsG - t121;
+		let cmB = rsB - t121;
+		for (let order = 1; order <= 2; order++) {
+			cmR *= sqrtR123R;
+			cmG *= sqrtR123G;
+			cmB *= sqrtR123B;
+			const sensitivity = this._evalIridescenceSensitivity(
+				order * opd,
+				order * phiR,
+				order * phiG,
+				order * phiB,
+				this._iridescenceSensitivity
+			);
+			irR += cmR * 2.0 * sensitivity.r;
+			irG += cmG * 2.0 * sensitivity.g;
+			irB += cmB * 2.0 * sensitivity.b;
+		}
+
+		out.r = Math.max(irR, 0.0);
+		out.g = Math.max(irG, 0.0);
+		out.b = Math.max(irB, 0.0);
+		return out;
+	}
+
+	private _evalIridescenceSensitivity(
+		opd: number,
+		shiftR: number,
+		shiftG: number,
+		shiftB: number,
+		out: RGB
+	): RGB {
+		const phase = 2.0 * Math.PI * opd * 1.0e-9;
+		const phaseSq = phase * phase;
+		const sqrtTwoPi = Math.sqrt(2.0 * Math.PI);
+		let x =
+			5.4856e-13 *
+			sqrtTwoPi *
+			Math.sqrt(4.3278e9) *
+			Math.cos(1.6810e6 * phase + shiftR) *
+			Math.exp(-4.3278e9 * phaseSq);
+		const y =
+			4.4201e-13 *
+			sqrtTwoPi *
+			Math.sqrt(9.3046e9) *
+			Math.cos(1.7953e6 * phase + shiftG) *
+			Math.exp(-9.3046e9 * phaseSq);
+		const z =
+			5.2481e-13 *
+			sqrtTwoPi *
+			Math.sqrt(6.6121e9) *
+			Math.cos(2.2084e6 * phase + shiftB) *
+			Math.exp(-6.6121e9 * phaseSq);
+		x +=
+			9.7470e-14 *
+			sqrtTwoPi *
+			Math.sqrt(4.5282e9) *
+			Math.cos(2.2399e6 * phase + shiftR) *
+			Math.exp(-4.5282e9 * phaseSq);
+
+		const scale = 1.0 / 1.0685e-7;
+		x *= scale;
+		const scaledY = y * scale;
+		const scaledZ = z * scale;
+		out.r = 3.2404542 * x - 1.5371385 * scaledY - 0.4985314 * scaledZ;
+		out.g = -0.9692660 * x + 1.8760108 * scaledY + 0.0415560 * scaledZ;
+		out.b = 0.0556434 * x - 0.2040259 * scaledY + 1.0572252 * scaledZ;
+		return out;
+	}
+
+	private _iorToFresnel0(transmittedIor: number, incidentIor: number): number {
+		const denom = transmittedIor + incidentIor;
+		if (Math.abs(denom) <= 1e-6) return 1.0;
+		const value = (transmittedIor - incidentIor) / denom;
+		return value * value;
+	}
+
+	private _fresnel0ToIor(f0: number): number {
+		const sqrtF0 = Math.sqrt(clamp(f0, 0.0, 0.9999));
+		return (1.0 + sqrtF0) / Math.max(1.0 - sqrtF0, 1e-6);
 	}
 
 	private _reflectViewDirection(

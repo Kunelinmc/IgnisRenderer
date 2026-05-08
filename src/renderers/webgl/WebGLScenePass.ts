@@ -25,7 +25,9 @@ const WEBGL_TEXTURE_UNIT_NORMAL_MAP = 8;
 const WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP = 9;
 const WEBGL_TEXTURE_UNIT_EMISSIVE_MAP = 10;
 const WEBGL_TEXTURE_UNIT_OCCLUSION_MAP = 11;
-const WEBGL_TEXTURE_UNIT_CUSTOM_START = 12;
+const WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP = 12;
+const WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP = 15;
+const WEBGL_TEXTURE_UNIT_CUSTOM_START = 16;
 
 function logWebGLScenePassWarning(key: string, message: string): void {
 	Logger.warn(`[${key}] ${message}`, {
@@ -282,6 +284,12 @@ export function drawWebGLPacket(
 	const normalMapUVTransform = resolveTextureUVTransform(uniforms.normalMap);
 	const emissiveMapUVTransform = resolveTextureUVTransform(uniforms.emissiveMap);
 	const occlusionMapUVTransform = resolveTextureUVTransform(uniforms.occlusionMap);
+	const iridescenceMapUVTransform = resolveTextureUVTransform(
+		uniforms.iridescenceMap
+	);
+	const iridescenceThicknessMapUVTransform = resolveTextureUVTransform(
+		uniforms.iridescenceThicknessMap
+	);
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
 		logWebGLScenePassWarning(
@@ -302,6 +310,12 @@ export function drawWebGLPacket(
 	const resolvedOcclusionMap = host._textures.getBaseColorTexture(
 		uniforms.occlusionMap
 	);
+	const resolvedIridescenceMap = host._textures.getBaseColorTexture(
+		uniforms.iridescenceMap
+	);
+	const resolvedIridescenceThicknessMap = host._textures.getBaseColorTexture(
+		uniforms.iridescenceThicknessMap
+	);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_NORMAL_MAP);
@@ -312,6 +326,10 @@ export function drawWebGLPacket(
 	gl.bindTexture(gl.TEXTURE_2D, resolvedEmissiveMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedOcclusionMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceThicknessMap.texture);
 	host._bindShaderMaterialTextures(sceneProgram, material);
 
 	host._setCullMode(material);
@@ -365,6 +383,9 @@ export function drawWebGLPacket(
 			sceneProgram.uniforms.transmissionVolume,
 			uniforms.transmissionVolume
 		);
+	}
+	if (sceneProgram.uniforms.iridescence) {
+		gl.uniform4fv(sceneProgram.uniforms.iridescence, uniforms.iridescence);
 	}
 	if (sceneProgram.uniforms.attenuationColor) {
 		gl.uniform4fv(
@@ -532,6 +553,74 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.occlusionStrength) {
 		gl.uniform1f(sceneProgram.uniforms.occlusionStrength, uniforms.occlusionStrength);
+	}
+	if (sceneProgram.uniforms.iridescenceMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.iridescenceMap,
+			WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP
+		);
+	}
+	if (sceneProgram.uniforms.hasIridescenceMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.hasIridescenceMap,
+			uniforms.iridescenceMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceMapUV) {
+		gl.uniform1i(
+			sceneProgram.uniforms.iridescenceMapUV,
+			uniforms.iridescenceMapUV
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.iridescenceMapTransformA,
+			iridescenceMapUVTransform.repeatX,
+			iridescenceMapUVTransform.repeatY,
+			iridescenceMapUVTransform.offsetX,
+			iridescenceMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.iridescenceMapTransformB,
+			iridescenceMapUVTransform.cosRotation,
+			iridescenceMapUVTransform.sinRotation
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceThicknessMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.iridescenceThicknessMap,
+			WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP
+		);
+	}
+	if (sceneProgram.uniforms.hasIridescenceThicknessMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.hasIridescenceThicknessMap,
+			uniforms.iridescenceThicknessMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceThicknessMapUV) {
+		gl.uniform1i(
+			sceneProgram.uniforms.iridescenceThicknessMapUV,
+			uniforms.iridescenceThicknessMapUV
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceThicknessMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.iridescenceThicknessMapTransformA,
+			iridescenceThicknessMapUVTransform.repeatX,
+			iridescenceThicknessMapUVTransform.repeatY,
+			iridescenceThicknessMapUVTransform.offsetX,
+			iridescenceThicknessMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.iridescenceThicknessMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.iridescenceThicknessMapTransformB,
+			iridescenceThicknessMapUVTransform.cosRotation,
+			iridescenceThicknessMapUVTransform.sinRotation
+		);
 	}
 	if (sceneProgram.uniforms.doubleSided) {
 		gl.uniform1i(

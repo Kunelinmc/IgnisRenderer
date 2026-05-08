@@ -12,6 +12,7 @@ export interface MaterialUniformState {
 	emissive: [number, number, number];
 	pbr: [number, number, number, number];
 	transmissionVolume: [number, number, number, number];
+	iridescence: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
@@ -27,6 +28,10 @@ export interface MaterialUniformState {
 	occlusionMap: any | null;
 	occlusionMapUV: 0 | 1 | 2 | 3;
 	occlusionStrength: number;
+	iridescenceMap: any | null;
+	iridescenceMapUV: 0 | 1 | 2 | 3;
+	iridescenceThicknessMap: any | null;
+	iridescenceThicknessMapUV: 0 | 1 | 2 | 3;
 }
 
 export function resolveMaterialUniforms(material: Material): MaterialUniformState {
@@ -48,6 +53,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let transmission = 0;
 	let ior = 1.5;
 	let thickness = 0;
+	let iridescenceFactor = 0;
+	let iridescenceIor = 1.3;
+	let iridescenceThicknessMinimum = 100;
+	let iridescenceThicknessMaximum = 400;
 	let attenuationDistance = -1;
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
@@ -63,6 +72,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let occlusionMap: any | null = null;
 	let occlusionMapUV: 0 | 1 | 2 | 3 = 0;
 	let occlusionStrength = 1;
+	let iridescenceMap: any | null = null;
+	let iridescenceMapUV: 0 | 1 | 2 | 3 = 0;
+	let iridescenceThicknessMap: any | null = null;
+	let iridescenceThicknessMapUV: 0 | 1 | 2 | 3 = 0;
 
 	if (isPBR) {
 		const pbr = material as any;
@@ -85,6 +98,16 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		transmission = getMaterialTransmissionFactor(material);
 		ior = Math.max(1, pbr.ior ?? 1.5);
 		thickness = Math.max(0, pbr.thicknessFactor ?? 0);
+		iridescenceFactor = clamp(pbr.iridescenceFactor ?? 0, 0, 1);
+		iridescenceIor = Math.max(1, pbr.iridescenceIor ?? 1.3);
+		iridescenceThicknessMinimum = Math.max(
+			pbr.iridescenceThicknessMinimum ?? 100,
+			0
+		);
+		iridescenceThicknessMaximum = Math.max(
+			pbr.iridescenceThicknessMaximum ?? 400,
+			0
+		);
 		attenuationDistance =
 			Number.isFinite(pbr.attenuationDistance) ?
 				Math.max(pbr.attenuationDistance, 0)
@@ -107,6 +130,12 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		occlusionMap = pbr.occlusionMap ?? null;
 		occlusionMapUV = resolveUVSet(pbr.occlusionMapUV);
 		occlusionStrength = clamp(pbr.occlusionStrength ?? 1, 0, 1);
+		iridescenceMap = pbr.iridescenceMap ?? null;
+		iridescenceMapUV = resolveUVSet(pbr.iridescenceMapUV);
+		iridescenceThicknessMap = pbr.iridescenceThicknessMap ?? null;
+		iridescenceThicknessMapUV = resolveUVSet(
+			pbr.iridescenceThicknessMapUV
+		);
 	} else {
 		const basic = material as any;
 		const diffuse = basic.diffuse ?? { r: 255, g: 255, b: 255 };
@@ -143,6 +172,12 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		emissive,
 		pbr: [roughness, metalness, reflectance, transmission],
 		transmissionVolume: [ior, thickness, attenuationDistance, 0],
+		iridescence: [
+			iridescenceFactor,
+			iridescenceIor,
+			iridescenceThicknessMinimum,
+			iridescenceThicknessMaximum,
+		],
 		attenuationColor: [
 			attenuationColor[0],
 			attenuationColor[1],
@@ -163,6 +198,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		occlusionMap,
 		occlusionMapUV,
 		occlusionStrength,
+		iridescenceMap,
+		iridescenceMapUV,
+		iridescenceThicknessMap,
+		iridescenceThicknessMapUV,
 	};
 }
 

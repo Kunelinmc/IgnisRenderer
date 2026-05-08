@@ -91,6 +91,9 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	sheenRoughness: number;
 	transmission: number;
 	ior: number;
+	iridescence: number;
+	iridescenceIor: number;
+	iridescenceThickness: number;
 	thickness: number;
 	attenuationDistance: number;
 	attenuationColor: RGB;

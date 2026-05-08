@@ -59,7 +59,13 @@ if (isClusteredLightingEnabled()) {
 				lightDirection
 			);
 		}
-		let fView = fresnelSchlick(nDotV, realF0);
+		let fView = resolveIridescenceFresnel(
+			nDotV,
+			realF0,
+			iridescence,
+			iridescenceThickness,
+			iridescenceIor
+		);
 		let kT = (vec3<f32>(1.0) - fView) * (1.0 - metalness) * transmission;
 		let transmittedDiffuse = (kT * volumeAttenuation * albedo) / PI;
 		let ncDotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
@@ -77,12 +83,21 @@ if (isClusteredLightingEnabled()) {
 			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
 			let ndf = distributionGGX(pbrNormal, halfVector, roughness);
 			let geometry = geometrySmith(nDotV, nDotL, roughness);
-			let fresnel = fresnelSchlick(max(dot(halfVector, viewDir), 0.0), realF0);
+			let fresnel = resolveIridescenceFresnel(
+				max(dot(halfVector, viewDir), 0.0),
+				realF0,
+				iridescence,
+				iridescenceThickness,
+				iridescenceIor
+			);
 			let denominator = max(4.0 * nDotV * nDotL, 0.0001);
 
 			specular = (ndf * geometry * fresnel) / denominator;
 
-			let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - metalness) * (1.0 - transmission);
+			let kd =
+				diffuseFresnelWeight(fresnel, iridescence) *
+				(1.0 - metalness) *
+				(1.0 - transmission);
 			diffuse = (kd * albedo) / PI;
 
 			var clearcoatFresnel = vec3<f32>(0.0);
@@ -166,7 +181,13 @@ if (isClusteredLightingEnabled()) {
 			pbrShadowNormal,
 			lightDirection
 		);
-		let fView = fresnelSchlick(nDotV, realF0);
+		let fView = resolveIridescenceFresnel(
+			nDotV,
+			realF0,
+			iridescence,
+			iridescenceThickness,
+			iridescenceIor
+		);
 		let kT = (vec3<f32>(1.0) - fView) * (1.0 - metalness) * transmission;
 		let transmittedDiffuse = (kT * volumeAttenuation * albedo) / PI;
 		let ncDotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
@@ -184,12 +205,21 @@ if (isClusteredLightingEnabled()) {
 			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
 			let ndf = distributionGGX(pbrNormal, halfVector, roughness);
 			let geometry = geometrySmith(nDotV, nDotL, roughness);
-			let fresnel = fresnelSchlick(max(dot(halfVector, viewDir), 0.0), realF0);
+			let fresnel = resolveIridescenceFresnel(
+				max(dot(halfVector, viewDir), 0.0),
+				realF0,
+				iridescence,
+				iridescenceThickness,
+				iridescenceIor
+			);
 			let denominator = max(4.0 * nDotV * nDotL, 0.0001);
 
 			specular = (ndf * geometry * fresnel) / denominator;
 
-			let kd = (vec3<f32>(1.0) - fresnel) * (1.0 - metalness) * (1.0 - transmission);
+			let kd =
+				diffuseFresnelWeight(fresnel, iridescence) *
+				(1.0 - metalness) *
+				(1.0 - transmission);
 			diffuse = (kd * albedo) / PI;
 
 			var clearcoatFresnel = vec3<f32>(0.0);

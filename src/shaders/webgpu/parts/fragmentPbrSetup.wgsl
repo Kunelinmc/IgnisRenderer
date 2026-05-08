@@ -88,6 +88,24 @@ let thicknessSample = sampleLinearTexture(
 	input.uv2,
 	input.uv3
 );
+let iridescenceSample = sampleLinearTexture(
+	iridescenceTexture,
+	iridescenceSampler,
+	TEX_IRIDESCENCE,
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
+);
+let iridescenceThicknessSample = sampleLinearTexture(
+	iridescenceThicknessTexture,
+	iridescenceThicknessSampler,
+	TEX_IRIDESCENCE_THICKNESS,
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
+);
 
 let normalSample = sampleLinearTexture(
 	normalTexture,
@@ -128,6 +146,16 @@ let transmission = clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0
 let ior = max(model.surfaceParams2.z, 1.0);
 let thickness = max(model.surfaceParams2.w * thicknessSample.g, 0.0);
 let attenuationDistance = model.surfaceParams3.x;
+let iridescence = clamp(model.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
+let iridescenceIor = max(model.surfaceParams3.z, 1.0);
+let iridescenceThickness = max(
+	mix(
+		model.surfaceParams3.w,
+		model.attenuationColor.a,
+		iridescenceThicknessSample.g
+	),
+	0.0
+);
 let attenuationColor = clamp(model.attenuationColor.rgb, vec3<f32>(0.0001), vec3<f32>(1.0));
 
 let specularFactor = clamp(model.specularColorFactor.a * specularSample.a, 0.0, 1.0);

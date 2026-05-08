@@ -168,18 +168,148 @@ fn fresnelSchlickScalar(cosTheta: f32, f0: f32) -> f32 {
 	return f0 + (1.0 - f0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }
 
+fn iorToFresnel0(transmittedIor: f32, incidentIor: f32) -> f32 {
+	let value = (transmittedIor - incidentIor) / max(transmittedIor + incidentIor, EPSILON);
+	return value * value;
+}
+
+fn fresnel0ToIor(f0: vec3<f32>) -> vec3<f32> {
+	let sqrtF0 = sqrt(clamp(f0, vec3<f32>(0.0), vec3<f32>(0.9999)));
+	return (vec3<f32>(1.0) + sqrtF0) /
+		max(vec3<f32>(1.0) - sqrtF0, vec3<f32>(EPSILON));
+}
+
+fn evalIridescenceSensitivity(opd: f32, shift: vec3<f32>) -> vec3<f32> {
+	let phase = 2.0 * PI * opd * 1.0e-9;
+	let phaseSq = phase * phase;
+	let val = vec3<f32>(5.4856e-13, 4.4201e-13, 5.2481e-13);
+	let pos = vec3<f32>(1.6810e6, 1.7953e6, 2.2084e6);
+	let variance = vec3<f32>(4.3278e9, 9.3046e9, 6.6121e9);
+	var xyz =
+		val *
+		sqrt(vec3<f32>(2.0 * PI) * variance) *
+		cos(pos * phase + shift) *
+		exp(-variance * phaseSq);
+	xyz.x =
+		xyz.x +
+		9.7470e-14 *
+			sqrt(2.0 * PI * 4.5282e9) *
+			cos(2.2399e6 * phase + shift.x) *
+			exp(-4.5282e9 * phaseSq);
+	xyz = xyz / 1.0685e-7;
+
+	let xyzToRec709 = mat3x3<f32>(
+		vec3<f32>(3.2404542, -0.9692660, 0.0556434),
+		vec3<f32>(-1.5371385, 1.8760108, -0.2040259),
+		vec3<f32>(-0.4985314, 0.0415560, 1.0572252)
+	);
+	return xyzToRec709 * xyz;
+}
+
+fn iridescentFresnel(
+	outsideIor: f32,
+	iridescenceIor: f32,
+	baseF0: vec3<f32>,
+	iridescenceThickness: f32,
+	cosTheta1: f32
+) -> vec3<f32> {
+	let filmIor = max(iridescenceIor, EPSILON);
+	let cos1 = clamp(cosTheta1, 0.0, 1.0);
+	let eta = outsideIor / filmIor;
+	let sinTheta2Sq = eta * eta * (1.0 - cos1 * cos1);
+	if (sinTheta2Sq > 1.0) {
+		return vec3<f32>(1.0);
+	}
+
+	let cosTheta2 = sqrt(max(1.0 - sinTheta2Sq, 0.0));
+	let r0 = iorToFresnel0(filmIor, outsideIor);
+	let r12 = fresnelSchlickScalar(cos1, r0);
+	let t121 = 1.0 - r12;
+	let baseIor = fresnel0ToIor(baseF0 + vec3<f32>(0.0001));
+	let r1 = vec3<f32>(
+		iorToFresnel0(baseIor.x, filmIor),
+		iorToFresnel0(baseIor.y, filmIor),
+		iorToFresnel0(baseIor.z, filmIor)
+	);
+	let r23 = fresnelSchlick(cosTheta2, r1);
+
+	let phi12 = select(0.0, PI, filmIor < outsideIor);
+	let phi21 = PI - phi12;
+	let phi23 = select(
+		vec3<f32>(0.0),
+		vec3<f32>(PI),
+		baseIor < vec3<f32>(filmIor)
+	);
+	let phi = vec3<f32>(phi21) + phi23;
+	let opd = 2.0 * filmIor * iridescenceThickness * cosTheta2;
+	let r123 = clamp(vec3<f32>(r12) * r23, vec3<f32>(1e-5), vec3<f32>(0.9999));
+	let sqrtR123 = sqrt(r123);
+	let rs = (t121 * t121) * r23 / (vec3<f32>(1.0) - r123);
+
+	var interference = vec3<f32>(r12) + rs;
+	var cm = rs - vec3<f32>(t121);
+	for (var order = 1; order <= 2; order = order + 1) {
+		cm = cm * sqrtR123;
+		let orderValue = f32(order);
+		let sensitivity = evalIridescenceSensitivity(orderValue * opd, orderValue * phi);
+		interference = interference + cm * 2.0 * sensitivity;
+	}
+
+	return max(interference, vec3<f32>(0.0));
+}
+
+fn resolveIridescenceFresnel(
+	cosTheta: f32,
+	baseF0: vec3<f32>,
+	iridescence: f32,
+	iridescenceThickness: f32,
+	iridescenceIor: f32
+) -> vec3<f32> {
+	let base = fresnelSchlick(cosTheta, baseF0);
+	let strength = clamp(iridescence, 0.0, 1.0);
+	if (strength <= EPSILON || iridescenceThickness <= 0.0) {
+		return base;
+	}
+
+	let iridescent = iridescentFresnel(
+		1.0,
+		max(iridescenceIor, 1.0),
+		clamp(baseF0, vec3<f32>(0.0), vec3<f32>(0.9999)),
+		iridescenceThickness,
+		cosTheta
+	);
+	return clamp(mix(base, iridescent, vec3<f32>(strength)), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn diffuseFresnelWeight(fresnel: vec3<f32>, iridescence: f32) -> vec3<f32> {
+	if (iridescence > EPSILON) {
+		let fresnelMax = max(max(fresnel.x, fresnel.y), fresnel.z);
+		return vec3<f32>(1.0 - fresnelMax);
+	}
+	return vec3<f32>(1.0) - fresnel;
+}
+
 fn resolveTransmissionAlpha(
 	baseAlpha: f32,
 	transmission: f32,
 	nDotV: f32,
-	f0: vec3<f32>
+	f0: vec3<f32>,
+	iridescence: f32,
+	iridescenceThickness: f32,
+	iridescenceIor: f32
 ) -> f32 {
 	let clampedTransmission = clamp(transmission, 0.0, 1.0);
 	if (clampedTransmission <= EPSILON) {
 		return clamp(baseAlpha, 0.0, 1.0);
 	}
 
-	let fresnel = fresnelSchlick(nDotV, f0);
+	let fresnel = resolveIridescenceFresnel(
+		nDotV,
+		f0,
+		iridescence,
+		iridescenceThickness,
+		iridescenceIor
+	);
 	let fresnelAverage = clamp(
 		(fresnel.x + fresnel.y + fresnel.z) * (1.0 / 3.0),
 		0.0,

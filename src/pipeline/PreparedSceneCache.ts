@@ -57,6 +57,8 @@ const MATERIAL_TEXTURE_FIELDS = [
 	"sheenColorMap",
 	"sheenRoughnessMap",
 	"transmissionMap",
+	"iridescenceMap",
+	"iridescenceThicknessMap",
 	"thicknessMap",
 ] as const;
 const MATERIAL_TEXTURE_FIELD_HASHES = MATERIAL_TEXTURE_FIELDS.map(hashStaticToken32);
@@ -434,6 +436,16 @@ function writeMaterialSignature(
 	mixMaterialString(state, material.alphaMode);
 	mixMaterialFloat(state, material.alphaCutoff);
 	mixMaterialFloat(state, getMaterialTransmissionFactor(material));
+	mixMaterialFloat(state, resolveMaterialNumber(mat.iridescenceFactor, 0));
+	mixMaterialFloat(state, resolveMaterialNumber(mat.iridescenceIor, 1.3));
+	mixMaterialFloat(
+		state,
+		resolveMaterialNumber(mat.iridescenceThicknessMinimum, 100)
+	);
+	mixMaterialFloat(
+		state,
+		resolveMaterialNumber(mat.iridescenceThicknessMaximum, 400)
+	);
 	mixMaterialUint32(state, material.doubleSided ? 1 : 0);
 	mixMaterialString(state, material.cullMode);
 	mixMaterialUint32(state, material.wireframe ? 1 : 0);
@@ -464,6 +476,13 @@ function writeMaterialSignature(
 }
 
 function resolveColorChannel(value: unknown, fallback: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return value;
+}
+
+function resolveMaterialNumber(value: unknown, fallback: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) {
 		return fallback;
 	}

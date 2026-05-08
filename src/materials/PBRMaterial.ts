@@ -96,6 +96,14 @@ export interface PBRMaterialParams extends MaterialParams {
 	transmissionFactor?: number;
 	transmissionMap?: TextureLike;
 	transmissionMapUV?: UVChannel;
+	iridescenceFactor?: number;
+	iridescenceMap?: TextureLike;
+	iridescenceMapUV?: UVChannel;
+	iridescenceIor?: number;
+	iridescenceThicknessMinimum?: number;
+	iridescenceThicknessMaximum?: number;
+	iridescenceThicknessMap?: TextureLike;
+	iridescenceThicknessMapUV?: UVChannel;
 	thicknessFactor?: number;
 	thicknessMap?: TextureLike;
 	thicknessMapUV?: UVChannel;
@@ -151,6 +159,15 @@ export class PBRMaterial extends Material {
 	public transmissionFactor: number;
 	public transmissionMap: TextureLike;
 	public transmissionMapUV: UVChannel;
+
+	public iridescenceFactor: number;
+	public iridescenceMap: TextureLike;
+	public iridescenceMapUV: UVChannel;
+	public iridescenceIor: number;
+	public iridescenceThicknessMinimum: number;
+	public iridescenceThicknessMaximum: number;
+	public iridescenceThicknessMap: TextureLike;
+	public iridescenceThicknessMapUV: UVChannel;
 
 	public thicknessFactor: number;
 	public thicknessMap: TextureLike;
@@ -261,6 +278,23 @@ export class PBRMaterial extends Material {
 		this.transmissionFactor = clamp(params.transmissionFactor ?? 0.0, 0, 1);
 		this.transmissionMap = params.transmissionMap || null;
 		this.transmissionMapUV = normalizeUVChannel(params.transmissionMapUV);
+
+		this.iridescenceFactor = clamp(params.iridescenceFactor ?? 0.0, 0, 1);
+		this.iridescenceMap = params.iridescenceMap || null;
+		this.iridescenceMapUV = normalizeUVChannel(params.iridescenceMapUV);
+		this.iridescenceIor = Math.max(params.iridescenceIor ?? 1.3, 1.0);
+		this.iridescenceThicknessMinimum = Math.max(
+			params.iridescenceThicknessMinimum ?? 100.0,
+			0
+		);
+		this.iridescenceThicknessMaximum = Math.max(
+			params.iridescenceThicknessMaximum ?? 400.0,
+			0
+		);
+		this.iridescenceThicknessMap = params.iridescenceThicknessMap || null;
+		this.iridescenceThicknessMapUV = normalizeUVChannel(
+			params.iridescenceThicknessMapUV
+		);
 
 		this.thicknessFactor = Math.max(params.thicknessFactor ?? 0.0, 0);
 		this.thicknessMap = params.thicknessMap || null;

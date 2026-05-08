@@ -152,6 +152,7 @@ export interface WebGLSceneProgram {
 		emissive: WebGLUniformLocation | null;
 		pbr: WebGLUniformLocation | null;
 		transmissionVolume: WebGLUniformLocation | null;
+		iridescence: WebGLUniformLocation | null;
 		attenuationColor: WebGLUniformLocation | null;
 		phong: WebGLUniformLocation | null;
 		alpha: WebGLUniformLocation | null;
@@ -184,6 +185,16 @@ export interface WebGLSceneProgram {
 		occlusionMapTransformA: WebGLUniformLocation | null;
 		occlusionMapTransformB: WebGLUniformLocation | null;
 		occlusionStrength: WebGLUniformLocation | null;
+		iridescenceMap: WebGLUniformLocation | null;
+		hasIridescenceMap: WebGLUniformLocation | null;
+		iridescenceMapUV: WebGLUniformLocation | null;
+		iridescenceMapTransformA: WebGLUniformLocation | null;
+		iridescenceMapTransformB: WebGLUniformLocation | null;
+		iridescenceThicknessMap: WebGLUniformLocation | null;
+		hasIridescenceThicknessMap: WebGLUniformLocation | null;
+		iridescenceThicknessMapUV: WebGLUniformLocation | null;
+		iridescenceThicknessMapTransformA: WebGLUniformLocation | null;
+		iridescenceThicknessMapTransformB: WebGLUniformLocation | null;
 		envSpecularMap: WebGLUniformLocation | null;
 		hasEnvSpecularMap: WebGLUniformLocation | null;
 		envSpecularMapIsLinear: WebGLUniformLocation | null;
@@ -659,6 +670,7 @@ export class WebGLProgramLibrary {
 					program,
 					"uTransmissionVolume",
 				),
+				iridescence: this._gl.getUniformLocation(program, "uIridescence"),
 				attenuationColor: this._gl.getUniformLocation(program, "uAttenuationColor"),
 				phong: this._gl.getUniformLocation(program, "uPhong"),
 				alpha: this._gl.getUniformLocation(program, "uAlpha"),
@@ -735,6 +747,43 @@ export class WebGLProgramLibrary {
 				occlusionStrength: this._gl.getUniformLocation(
 					program,
 					"uOcclusionStrength",
+				),
+				iridescenceMap: this._gl.getUniformLocation(program, "uIridescenceMap"),
+				hasIridescenceMap: this._gl.getUniformLocation(
+					program,
+					"uHasIridescenceMap",
+				),
+				iridescenceMapUV: this._gl.getUniformLocation(
+					program,
+					"uIridescenceMapUV",
+				),
+				iridescenceMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uIridescenceMapTransformA",
+				),
+				iridescenceMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uIridescenceMapTransformB",
+				),
+				iridescenceThicknessMap: this._gl.getUniformLocation(
+					program,
+					"uIridescenceThicknessMap",
+				),
+				hasIridescenceThicknessMap: this._gl.getUniformLocation(
+					program,
+					"uHasIridescenceThicknessMap",
+				),
+				iridescenceThicknessMapUV: this._gl.getUniformLocation(
+					program,
+					"uIridescenceThicknessMapUV",
+				),
+				iridescenceThicknessMapTransformA: this._gl.getUniformLocation(
+					program,
+					"uIridescenceThicknessMapTransformA",
+				),
+				iridescenceThicknessMapTransformB: this._gl.getUniformLocation(
+					program,
+					"uIridescenceThicknessMapTransformB",
 				),
 				envSpecularMap: this._gl.getUniformLocation(program, "uEnvSpecularMap"),
 				hasEnvSpecularMap: this._gl.getUniformLocation(program, "uHasEnvSpecularMap"),

@@ -42,6 +42,16 @@ export function createWebGPUMaterialUniformData(
 	const transmission = clamp(mat.transmissionFactor ?? 0, 0, 1);
 	const ior = Math.max(1, mat.ior ?? 1.5);
 	const thickness = Math.max(0, mat.thicknessFactor ?? 0);
+	const iridescenceFactor = clamp(mat.iridescenceFactor ?? 0, 0, 1);
+	const iridescenceIor = Math.max(1, mat.iridescenceIor ?? 1.3);
+	const iridescenceThicknessMinimum = Math.max(
+		mat.iridescenceThicknessMinimum ?? 100,
+		0
+	);
+	const iridescenceThicknessMaximum = Math.max(
+		mat.iridescenceThicknessMaximum ?? 400,
+		0
+	);
 	const attenuationDistance = Number.isFinite(mat.attenuationDistance)
 		? Math.max(mat.attenuationDistance, 0)
 		: -1;
@@ -80,7 +90,12 @@ export function createWebGPUMaterialUniformData(
 			clearcoatRoughness,
 		],
 		surfaceParams2: [sheenRoughness, transmission, ior, thickness],
-		surfaceParams3: [attenuationDistance, 0, 0, 0],
+		surfaceParams3: [
+			attenuationDistance,
+			iridescenceFactor,
+			iridescenceIor,
+			iridescenceThicknessMinimum,
+		],
 		specularColorFactor: [
 			specularColor[0],
 			specularColor[1],
@@ -109,7 +124,7 @@ export function createWebGPUMaterialUniformData(
 			attenuationColor[0],
 			attenuationColor[1],
 			attenuationColor[2],
-			1,
+			iridescenceThicknessMaximum,
 		],
 		materialFlags: [
 			shadingMode,
@@ -208,6 +223,16 @@ function createMaterialTextureSlots(
 	slots[WEBGPU_TEXTURE_SLOT.THICKNESS] = createTextureSlot(
 		mat.thicknessMap ?? null,
 		mat.thicknessMapUV ?? 0,
+		true
+	);
+	slots[WEBGPU_TEXTURE_SLOT.IRIDESCENCE] = createTextureSlot(
+		mat.iridescenceMap ?? null,
+		mat.iridescenceMapUV ?? 0,
+		true
+	);
+	slots[WEBGPU_TEXTURE_SLOT.IRIDESCENCE_THICKNESS] = createTextureSlot(
+		mat.iridescenceThicknessMap ?? null,
+		mat.iridescenceThicknessMapUV ?? 0,
 		true
 	);
 
