@@ -788,6 +788,50 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					}
 				}
 			}
+			// KHR_materials_iridescence extension
+			if (m.extensions?.KHR_materials_iridescence) {
+				const iriExt = m.extensions.KHR_materials_iridescence;
+				if (iriExt.iridescenceFactor !== undefined) {
+					material.iridescenceFactor = iriExt.iridescenceFactor;
+				}
+				if (iriExt.iridescenceTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						iriExt.iridescenceTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.iridescenceMap = tex;
+						material.iridescenceMapUV = this._getTexCoord(
+							iriExt.iridescenceTexture
+						);
+					}
+				}
+				if (iriExt.iridescenceIor !== undefined) {
+					material.iridescenceIor = iriExt.iridescenceIor;
+				}
+				if (iriExt.iridescenceThicknessMinimum !== undefined) {
+					material.iridescenceThicknessMinimum =
+						iriExt.iridescenceThicknessMinimum;
+				}
+				if (iriExt.iridescenceThicknessMaximum !== undefined) {
+					material.iridescenceThicknessMaximum =
+						iriExt.iridescenceThicknessMaximum;
+				}
+				if (iriExt.iridescenceThicknessTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						iriExt.iridescenceThicknessTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.iridescenceThicknessMap = tex;
+						material.iridescenceThicknessMapUV = this._getTexCoord(
+							iriExt.iridescenceThicknessTexture
+						);
+					}
+				}
+			}
 			// KHR_materials_transmission extension
 			if (m.extensions?.KHR_materials_transmission) {
 				const transExt = m.extensions.KHR_materials_transmission;
