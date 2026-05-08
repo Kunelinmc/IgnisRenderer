@@ -65,7 +65,8 @@ export class Scene {
 		});
 		this.ecs = new ECSWorld();
 		this.shadows = new ShadowManager();
-		this.environment = new Environment({}, () => {
+		this.environment = new Environment();
+		this.environment.on("change", () => {
 			this.invalidate("unknown");
 		});
 		this.spatial = null;
