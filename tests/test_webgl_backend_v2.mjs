@@ -942,9 +942,14 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 	assert.ok(shader.fragment.includes("sampleEnvironmentSpecular"));
 	assert.ok(shader.fragment.includes("uniform vec4 uTransmissionVolume;"));
 	assert.ok(shader.fragment.includes("uniform vec4 uAttenuationColor;"));
+	assert.ok(shader.fragment.includes("uniform vec4 uIridescence;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uIridescenceMap;"));
+	assert.ok(shader.fragment.includes("uniform sampler2D uIridescenceThicknessMap;"));
 	assert.ok(shader.fragment.includes("float ior = max(uTransmissionVolume.x, 1.0);"));
 	assert.ok(shader.fragment.includes("volumeAttenuation = exp(-absorb * thickness);"));
 	assert.ok(shader.fragment.includes("refract(-viewDir, refractNormal, eta)"));
+	assert.ok(shader.fragment.includes("resolveIridescenceFresnel"));
+	assert.ok(shader.fragment.includes("diffuseFresnelWeight"));
 }
 
 function testSceneShaderIncludesLocalizedLightProbeUniforms() {
@@ -1142,6 +1147,11 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	const metallicRoughnessMap = { id: "mr-map", linear: true };
 	const emissiveMap = { id: "emissive-map", linear: false };
 	const occlusionMap = { id: "occlusion-map", linear: true };
+	const iridescenceMap = { id: "iridescence-map", linear: true };
+	const iridescenceThicknessMap = {
+		id: "iridescence-thickness-map",
+		linear: true,
+	};
 	baseMap.repeat = { x: 0.5, y: 1.5 };
 	baseMap.offset = { x: 0.25, y: -0.125 };
 	baseMap.rotation = Math.PI / 6;
@@ -1157,6 +1167,12 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	occlusionMap.repeat = { x: 1.1, y: 1.2 };
 	occlusionMap.offset = { x: 0.05, y: -0.1 };
 	occlusionMap.rotation = Math.PI / 3;
+	iridescenceMap.repeat = { x: 0.7, y: 1.4 };
+	iridescenceMap.offset = { x: 0.12, y: -0.07 };
+	iridescenceMap.rotation = Math.PI / 5;
+	iridescenceThicknessMap.repeat = { x: 1.3, y: 0.6 };
+	iridescenceThicknessMap.offset = { x: -0.11, y: 0.09 };
+	iridescenceThicknessMap.rotation = -Math.PI / 7;
 	material.map = baseMap;
 	material.albedoMapUV = 2;
 	material.normalMap = normalMap;
@@ -1169,12 +1185,22 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	material.occlusionMap = occlusionMap;
 	material.occlusionMapUV = 2;
 	material.occlusionStrength = 0.4;
+	material.iridescenceFactor = 0.8;
+	material.iridescenceMap = iridescenceMap;
+	material.iridescenceMapUV = 3;
+	material.iridescenceThicknessMap = iridescenceThicknessMap;
+	material.iridescenceThicknessMapUV = 2;
 	const textureTable = new Map([
 		[baseMap, { texture: { id: "base" }, isLinear: false }],
 		[normalMap, { texture: { id: "normal" }, isLinear: true }],
 		[metallicRoughnessMap, { texture: { id: "mr" }, isLinear: true }],
 		[emissiveMap, { texture: { id: "emissive" }, isLinear: false }],
 		[occlusionMap, { texture: { id: "occlusion" }, isLinear: true }],
+		[iridescenceMap, { texture: { id: "iridescence" }, isLinear: true }],
+		[
+			iridescenceThicknessMap,
+			{ texture: { id: "iridescence-thickness" }, isLinear: true },
+		],
 	]);
 	const sceneProgram = {
 		program: {},
@@ -1187,6 +1213,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			emissive: null,
 			pbr: null,
 			transmissionVolume: null,
+			iridescence: "uIridescence",
 			attenuationColor: null,
 			phong: null,
 			alpha: null,
@@ -1219,6 +1246,16 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			occlusionMapTransformA: "uOcclusionMapTransformA",
 			occlusionMapTransformB: "uOcclusionMapTransformB",
 			occlusionStrength: "uOcclusionStrength",
+			iridescenceMap: "uIridescenceMap",
+			hasIridescenceMap: "uHasIridescenceMap",
+			iridescenceMapUV: "uIridescenceMapUV",
+			iridescenceMapTransformA: "uIridescenceMapTransformA",
+			iridescenceMapTransformB: "uIridescenceMapTransformB",
+			iridescenceThicknessMap: "uIridescenceThicknessMap",
+			hasIridescenceThicknessMap: "uHasIridescenceThicknessMap",
+			iridescenceThicknessMapUV: "uIridescenceThicknessMapUV",
+			iridescenceThicknessMapTransformA: "uIridescenceThicknessMapTransformA",
+			iridescenceThicknessMapTransformB: "uIridescenceThicknessMapTransformB",
 			doubleSided: null,
 			customSamplers: {},
 		},
@@ -1261,15 +1298,21 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	assert.equal(unitFor("uMetallicRoughnessMap"), 9);
 	assert.equal(unitFor("uEmissiveMap"), 10);
 	assert.equal(unitFor("uOcclusionMap"), 11);
+	assert.equal(unitFor("uIridescenceMap"), 12);
+	assert.equal(unitFor("uIridescenceThicknessMap"), 15);
 	assert.equal(unitFor("uBaseMapUV"), 2);
 	assert.equal(unitFor("uNormalMapUV"), 3);
 	assert.equal(unitFor("uMetallicRoughnessMapUV"), 2);
 	assert.equal(unitFor("uEmissiveMapUV"), 3);
 	assert.equal(unitFor("uOcclusionMapUV"), 2);
+	assert.equal(unitFor("uIridescenceMapUV"), 3);
+	assert.equal(unitFor("uIridescenceThicknessMapUV"), 2);
 	assert.equal(unitFor("uHasNormalMap"), 1);
 	assert.equal(unitFor("uHasMetallicRoughnessMap"), 1);
 	assert.equal(unitFor("uHasEmissiveMap"), 1);
 	assert.equal(unitFor("uHasOcclusionMap"), 1);
+	assert.equal(unitFor("uHasIridescenceMap"), 1);
+	assert.equal(unitFor("uHasIridescenceThicknessMap"), 1);
 	assert.equal(unitFor("uBaseMapIsLinear"), 0);
 	assert.equal(unitFor("uEmissiveMapIsLinear"), 0);
 	assert.ok(
@@ -1315,6 +1358,16 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 		"uOcclusionMapTransformA",
 		"uOcclusionMapTransformB",
 		occlusionMap
+	);
+	assertUVTransform(
+		"uIridescenceMapTransformA",
+		"uIridescenceMapTransformB",
+		iridescenceMap
+	);
+	assertUVTransform(
+		"uIridescenceThicknessMapTransformA",
+		"uIridescenceThicknessMapTransformB",
+		iridescenceThicknessMap
 	);
 }
 

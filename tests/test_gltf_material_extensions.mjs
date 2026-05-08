@@ -128,6 +128,83 @@ function testSpecularExtensionParsing() {
 	assert.equal(mat.specularColorMap.data, specColorTex.data);
 }
 
+function testIridescenceExtensionParsingAndEvaluation() {
+	const loader = new GLTFLoader();
+	const iridescenceTex = new Texture(
+		new Uint8ClampedArray([128, 0, 0, 255]),
+		1,
+		1
+	);
+	const thicknessTex = new Texture(
+		new Uint8ClampedArray([0, 64, 0, 255]),
+		1,
+		1
+	);
+
+	const [mat] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {},
+					extensions: {
+						KHR_materials_iridescence: {
+							iridescenceFactor: 0.8,
+							iridescenceTexture: { index: 0, texCoord: 2 },
+							iridescenceIor: 1.45,
+							iridescenceThicknessMinimum: 200,
+							iridescenceThicknessMaximum: 600,
+							iridescenceThicknessTexture: { index: 1, texCoord: 3 },
+						},
+					},
+				},
+			],
+		},
+		[iridescenceTex, thicknessTex]
+	);
+
+	assert.equal(mat.type, "PBR");
+	approx(mat.iridescenceFactor, 0.8);
+	approx(mat.iridescenceIor, 1.45);
+	approx(mat.iridescenceThicknessMinimum, 200);
+	approx(mat.iridescenceThicknessMaximum, 600);
+	assert.ok(mat.iridescenceMap !== iridescenceTex);
+	assert.equal(mat.iridescenceMap.data, iridescenceTex.data);
+	assert.equal(mat.iridescenceMap.colorSpace, "Linear");
+	assert.equal(mat.iridescenceMapUV, UVChannel.UV2);
+	assert.ok(mat.iridescenceThicknessMap !== thicknessTex);
+	assert.equal(mat.iridescenceThicknessMap.data, thicknessTex.data);
+	assert.equal(mat.iridescenceThicknessMap.colorSpace, "Linear");
+	assert.equal(mat.iridescenceThicknessMapUV, UVChannel.UV3);
+
+	const evaluator = new PBREvaluator(mat);
+	const surface = evaluator.evaluate(
+		{
+			zCam: 1,
+			world: { x: 0, y: 0, z: 0 },
+			normal: { x: 0, y: 0, z: 1 },
+			tangent: { x: 1, y: 0, z: 0, w: 1 },
+			u: 0,
+			v: 0,
+			u2: 0,
+			v2: 0,
+			u3: 0,
+			v3: 0,
+			u4: 0,
+			v4: 0,
+		},
+		{
+			vertices: [],
+			projected: [],
+			center: { x: 0, y: 0, z: 0 },
+			depthInfo: { min: 0, max: 0, avg: 0 },
+		}
+	);
+	assert.ok(surface);
+	approx(surface.iridescence, 0.8 * (128 / 255));
+	approx(surface.iridescenceIor, 1.45);
+	approx(surface.iridescenceThickness, 200 + (600 - 200) * (64 / 255));
+}
+
 function testSharedBaseColorTextureDoesNotCloneWithoutOverrides() {
 	const loader = new GLTFLoader();
 	const baseTex = new Texture(
@@ -331,7 +408,7 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	const makeTexture = () =>
 		new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
 
-	const textures = Array.from({ length: 10 }, makeTexture);
+	const textures = Array.from({ length: 12 }, makeTexture);
 	const [mat] = loader.parseMaterials(
 		{
 			materials: [
@@ -355,6 +432,10 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 						KHR_materials_transmission: {
 							transmissionTexture: { index: 9 },
 						},
+						KHR_materials_iridescence: {
+							iridescenceTexture: { index: 10 },
+							iridescenceThicknessTexture: { index: 11 },
+						},
 					},
 				},
 			],
@@ -372,6 +453,8 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	assert.equal(mat.sheenColorMap?.colorSpace, "sRGB");
 	assert.equal(mat.sheenRoughnessMap?.colorSpace, "Linear");
 	assert.equal(mat.transmissionMap?.colorSpace, "Linear");
+	assert.equal(mat.iridescenceMap?.colorSpace, "Linear");
+	assert.equal(mat.iridescenceThicknessMap?.colorSpace, "Linear");
 }
 
 function testTexCoordAboveOnePreservesUVSet() {
@@ -429,6 +512,7 @@ function run() {
 		testIorExtensionUpdatesReflectance();
 		testPBRMaterialIorSetterSyncsReflectance();
 		testSpecularExtensionParsing();
+		testIridescenceExtensionParsingAndEvaluation();
 		testSharedBaseColorTextureDoesNotCloneWithoutOverrides();
 		testTextureTransformStillCreatesDistinctTextureInstance();
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();

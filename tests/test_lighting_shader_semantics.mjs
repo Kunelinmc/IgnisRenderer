@@ -706,6 +706,83 @@ function testTransmissionVolumeAttenuationUsesLinear255Color() {
 	);
 }
 
+function testIridescenceChangesPBRSpecularHue() {
+	const strategy = new PBRStrategy();
+	const context = createContext({
+		enableSH: false,
+		lights: [
+			new DirectionalLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 4,
+				direction: { x: 0, y: 0, z: -1 },
+			}),
+		],
+	});
+	const baseSurface = {
+		type: "pbr",
+		albedo: { r: 0, g: 0, b: 0 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 0.35,
+		metalness: 0,
+		reflectance: 0.5,
+		specularFactor: 1,
+		specularColor: { r: 255, g: 255, b: 255 },
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+		sheenColor: { r: 0, g: 0, b: 0 },
+		sheenRoughness: 0,
+		transmission: 0,
+		ior: 1.5,
+		thickness: 0,
+		attenuationDistance: Infinity,
+		attenuationColor: { r: 255, g: 255, b: 255 },
+	};
+
+	const plain = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			...baseSurface,
+			iridescence: 0,
+			iridescenceIor: 1.3,
+			iridescenceThickness: 400,
+		},
+		context
+	);
+	const iridescent = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			...baseSurface,
+			iridescence: 1,
+			iridescenceIor: 1.3,
+			iridescenceThickness: 450,
+		},
+		context
+	);
+
+	const delta = Math.max(
+		Math.abs(iridescent.r - plain.r),
+		Math.abs(iridescent.g - plain.g),
+		Math.abs(iridescent.b - plain.b)
+	);
+	const iridescentSpread =
+		Math.max(iridescent.r, iridescent.g, iridescent.b) -
+		Math.min(iridescent.r, iridescent.g, iridescent.b);
+
+	assert.ok(delta > 0.5, "Iridescence should change the base specular response");
+	assert.ok(
+		iridescentSpread > 0.5,
+		"Iridescence should introduce wavelength-dependent specular color"
+	);
+}
+
 function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 	const probe = new LightProbe(SH.empty(), 1);
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
@@ -807,6 +884,7 @@ function run() {
 		testTransmissionOnlyRespondsToBackLighting();
 		testMetalnessSuppressesTransmission();
 		testTransmissionVolumeAttenuationUsesLinear255Color();
+		testIridescenceChangesPBRSpecularHue();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		testRendererUpdateSHIgnoresReflectionProbeSpecularMap();
 		testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend();

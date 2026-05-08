@@ -212,7 +212,7 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrData.surfaceParams0[0] - 0.25) < 1e-6);
 	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6);
 	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6);
-	assert.equal(pbrData.textureSlots.length, 14);
+	assert.equal(pbrData.textureSlots.length, WEBGPU_TEXTURE_SLOT_COUNT);
 	pbr.albedoMapUV = 2;
 	pbr.normalMapUV = 3;
 	const pbrUVData = createWebGPUMaterialUniformData(pbr);
@@ -948,7 +948,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
 	);
-	assert.equal(firstDraw.modelBinding.desc.entries.length, 34);
+	assert.equal(
+		firstDraw.modelBinding.desc.entries.length,
+		1 + WEBGPU_TEXTURE_SLOT_COUNT * 2 + 5
+	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
 		backend.device.pipelineLayouts[0]
