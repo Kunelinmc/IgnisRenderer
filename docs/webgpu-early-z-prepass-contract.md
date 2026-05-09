@@ -26,10 +26,12 @@ main color pass.
 	  `depthWriteEnabled = true` and `depthCompare = less`.
 	- Opaque mask pre-pass must run alpha-test discard in a depth fragment entry
 	  and must not write color targets.
+	- Materials with `depthWrite === false` must be skipped by Early Z pre-pass.
 	- Opaque color draws that were pre-passed must use read-only depth state with
 	  `depthWriteEnabled = false` and `depthCompare = less-equal`.
 	- Opaque color draws that were not pre-passed must keep legacy depth state
-	  (`depthWriteEnabled = true`, `depthCompare = less`).
+	  (`depthWriteEnabled = material.depthWrite !== false`,
+	  `depthCompare = less`).
 - `ShaderMaterial` contract:
 	- `alphaMode = MASK` materials must provide explicit depth pre-pass fragment
 	  contract via `depthFragmentCode` and `depthFragmentEntryPoint`.

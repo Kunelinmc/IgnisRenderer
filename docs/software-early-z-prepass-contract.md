@@ -23,6 +23,11 @@ unnecessary fragment shading when opaque geometry is heavily overlapping.
 	- Triangles with `material.alphaMode === MASK` must be skipped in the
 	  pre-pass.
 	- These triangles must still be evaluated in the regular color pass.
+- Depth-write material contract:
+	- Triangles with `material.depthWrite === false` must be skipped in the
+	  pre-pass.
+	- These triangles must still be depth-tested and shaded in the regular color
+	  pass, but they must not update `attachments.depthBuffer`.
 - Buffer contract:
 	- The implementation must maintain an internal reusable early-depth buffer.
 	- Full-frame render must clear the full early-depth buffer region to
