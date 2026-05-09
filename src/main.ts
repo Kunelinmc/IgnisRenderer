@@ -42,13 +42,13 @@ async function init() {
 
 	scene.add(camera);
 
-	// Load model from public/test.glb
+	// Load model from assets/model.glb
 	const gltfLoader = new GLTFLoader();
 	gltfLoader.on("progress", (event) => {
 		const percent = (event.loaded / event.total) * 100;
 		Logger.info(`Loading model: ${percent.toFixed(2)}% (${event.loaded}/${event.total} bytes)`);
 	});
-	const model = await gltfLoader.load("test.glb");
+	const model = await gltfLoader.load("assets/model.glb");
 	scene.add(model);
 
 	// Add some light
