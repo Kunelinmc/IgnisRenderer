@@ -19,14 +19,15 @@ IgnisRenderer without converting them to Radiance `.hdr` first.
 - `EXRLoader.load(url, options?)` must return a 1x1 black HDR fallback texture
   marked with `isLoadErrorFallback` when fetching or parsing fails.
 - `EXRLoader.parse(buffer, options?)` must synchronously parse single-part
-  scanline EXR files that use `NO_COMPRESSION` or `RLE_COMPRESSION`.
+  scanline EXR files that use `NO_COMPRESSION`, `RLE_COMPRESSION`, or
+  `PIZ_COMPRESSION`.
 - `EXRLoader.parseAsync(buffer, options?)` must parse single-part scanline EXR
   files that use `NO_COMPRESSION`, `RLE_COMPRESSION`, `ZIPS_COMPRESSION`, or
-  `ZIP_COMPRESSION`.
+  `ZIP_COMPRESSION`, or `PIZ_COMPRESSION`.
 - `ZIPS_COMPRESSION` and `ZIP_COMPRESSION` must require runtime
   `DecompressionStream` support.
-- The parser must reject multi-part, tiled, deep, PIZ, PXR24, B44, B44A, DWAA,
-  DWAB, and HTJ2K files with explicit diagnostics.
+- The parser must reject multi-part, tiled, deep, PXR24, B44, B44A, DWAA, DWAB,
+  and HTJ2K files with explicit diagnostics.
 - The parser must require `R`, `G`, and `B` channels. It may use exact channel
   names or layer-suffixed names such as `beauty.R`.
 - The parser must accept `HALF`, `FLOAT`, and `UINT` channel sample types with

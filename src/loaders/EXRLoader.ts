@@ -63,11 +63,34 @@ interface EXRComponentMap {
 	a: number;
 }
 
+interface PIZChannelData {
+	start: number;
+	readOffset: number;
+	wordsPerSample: number;
+}
+
+interface HuffmanDecodeEntry {
+	length: number;
+	symbol: number;
+	longSymbols: number[] | null;
+}
+
 const EXR_MAGIC = 20000630;
 const VERSION_TILED_FLAG = 1 << 9;
 const VERSION_DEEP_FLAG = 1 << 11;
 const VERSION_MULTIPART_FLAG = 1 << 12;
 const DEFAULT_ALPHA = 1;
+const PIZ_USHORT_RANGE = 1 << 16;
+const PIZ_BITMAP_SIZE = PIZ_USHORT_RANGE >> 3;
+const HUF_ENCBITS = 16;
+const HUF_DECBITS = 14;
+const HUF_ENCSIZE = (1 << HUF_ENCBITS) + 1;
+const HUF_DECSIZE = 1 << HUF_DECBITS;
+const HUF_DECMASK = HUF_DECSIZE - 1;
+const HUF_SHORT_ZERO_RUN = 59;
+const HUF_LONG_ZERO_RUN = 63;
+const HUF_SHORTEST_LONG_RUN = 2 + HUF_LONG_ZERO_RUN - HUF_SHORT_ZERO_RUN;
+const HUF_MAX_SAFE_CODE_LENGTH = 45;
 
 enum EXRPixelType {
 	UINT = 0,
@@ -112,10 +135,11 @@ export class EXRLoader extends Loader {
 	 * is present.
 	 * @returns A linear HDR `Texture` backed by `Float32Array` RGBA pixels.
 	 * @remarks The loader supports single-part scanline EXR files with
-	 * uncompressed, RLE, ZIPS, or ZIP pixel data. ZIP and ZIPS require
-	 * `DecompressionStream` at runtime. On load failure a 1x1 black HDR fallback
-	 * texture is returned and marked as a load-error fallback. The method emits
-	 * normal `Loader` lifecycle events and uses the shared loader cache.
+	 * uncompressed, RLE, ZIPS, ZIP, or PIZ pixel data. ZIP and ZIPS require
+	 * `DecompressionStream` at runtime. On load failure a 1x1 black HDR
+	 * fallback texture is returned and marked as a load-error fallback. The
+	 * method emits normal `Loader` lifecycle events and uses the shared loader
+	 * cache.
 	 */
 	public async load(
 		url: string,
@@ -194,7 +218,8 @@ export class EXRLoader extends Loader {
 	}
 
 	/**
-	 * Parses uncompressed or RLE-compressed OpenEXR bytes synchronously.
+	 * Parses uncompressed, RLE-compressed, or PIZ-compressed OpenEXR bytes
+	 * synchronously.
 	 *
 	 * @param buffer OpenEXR file bytes.
 	 * @param options Parse options. `defaultAlpha` is used when no alpha channel
@@ -202,8 +227,8 @@ export class EXRLoader extends Loader {
 	 * @returns A linear HDR `Texture` backed by `Float32Array` RGBA pixels.
 	 * @remarks This synchronous parser cannot inflate ZIP/ZIPS chunks. Use
 	 * `parseAsync` or `load` for ZIP/ZIPS files. The parser supports single-part
-	 * scanline images with `R`, `G`, `B`, and optional `A` channels using `HALF`,
-	 * `FLOAT`, or `UINT` sample types and unit sampling.
+	 * scanline images with `R`, `G`, `B`, and optional `A` channels using
+	 * `HALF`, `FLOAT`, or `UINT` sample types and unit sampling.
 	 */
 	public parse(
 		buffer: ArrayBuffer,
@@ -221,8 +246,9 @@ export class EXRLoader extends Loader {
 	 * is present.
 	 * @returns A linear HDR `Texture` backed by `Float32Array` RGBA pixels.
 	 * @remarks Supports single-part scanline EXR files with uncompressed, RLE,
-	 * ZIPS, or ZIP pixel data. ZIP and ZIPS require `DecompressionStream`; if the
-	 * runtime does not provide it, parsing rejects with an actionable error.
+	 * ZIPS, ZIP, or PIZ pixel data. ZIP and ZIPS require `DecompressionStream`;
+	 * if the runtime does not provide it, parsing rejects with an actionable
+	 * error.
 	 */
 	public async parseAsync(
 		buffer: ArrayBuffer,
@@ -540,6 +566,8 @@ class EXRScanlineParser {
 				);
 			case EXRCompression.RLE_COMPRESSION:
 				return decodePredictor(deinterleave(decodeRLE(payload, expectedByteLength)));
+			case EXRCompression.PIZ_COMPRESSION:
+				return decodePIZ(payload, header.channels, this._width, expectedByteLength);
 			case EXRCompression.ZIPS_COMPRESSION:
 			case EXRCompression.ZIP_COMPRESSION:
 				throw new Error(
@@ -568,6 +596,8 @@ class EXRScanlineParser {
 				);
 			case EXRCompression.RLE_COMPRESSION:
 				return decodePredictor(deinterleave(decodeRLE(payload, expectedByteLength)));
+			case EXRCompression.PIZ_COMPRESSION:
+				return decodePIZ(payload, header.channels, this._width, expectedByteLength);
 			case EXRCompression.ZIPS_COMPRESSION:
 			case EXRCompression.ZIP_COMPRESSION: {
 				const inflated = await inflateZlib(payload);
@@ -778,7 +808,8 @@ function isSupportedCompression(value: number): boolean {
 		value === EXRCompression.NO_COMPRESSION ||
 		value === EXRCompression.RLE_COMPRESSION ||
 		value === EXRCompression.ZIPS_COMPRESSION ||
-		value === EXRCompression.ZIP_COMPRESSION
+		value === EXRCompression.ZIP_COMPRESSION ||
+		value === EXRCompression.PIZ_COMPRESSION
 	);
 }
 
@@ -841,6 +872,8 @@ function getPixelTypeByteSize(pixelType: EXRPixelType): number {
 
 function getScanlinesPerChunk(compression: EXRCompression): number {
 	switch (compression) {
+		case EXRCompression.PIZ_COMPRESSION:
+			return 32;
 		case EXRCompression.ZIP_COMPRESSION:
 			return 16;
 		case EXRCompression.NO_COMPRESSION:
@@ -978,6 +1011,608 @@ function decodePredictor(data: Uint8Array): Uint8Array {
 		data[i] = previous;
 	}
 	return data;
+}
+
+function decodePIZ(
+	data: Uint8Array,
+	channels: EXRChannel[],
+	width: number,
+	expectedByteLength: number
+): Uint8Array {
+	const bytesPerLine = calculateBytesPerLine(channels, width);
+	if (
+		bytesPerLine <= 0 ||
+		expectedByteLength % bytesPerLine !== 0 ||
+		(expectedByteLength & 1) !== 0
+	) {
+		throw new Error("EXRLoader: Invalid PIZ chunk byte layout.");
+	}
+
+	const rowCount = expectedByteLength / bytesPerLine;
+	const offset = { value: 0 };
+	const minNonZero = readPIZUint16(data, offset);
+	const maxNonZero = readPIZUint16(data, offset);
+	if (maxNonZero >= PIZ_BITMAP_SIZE) {
+		throw new Error("EXRLoader: PIZ bitmap range exceeds 16-bit LUT size.");
+	}
+
+	const bitmap = new Uint8Array(PIZ_BITMAP_SIZE);
+	if (minNonZero <= maxNonZero) {
+		const byteLength = maxNonZero - minNonZero + 1;
+		requirePIZBytes(data, offset.value, byteLength);
+		bitmap.set(data.subarray(offset.value, offset.value + byteLength), minNonZero);
+		offset.value += byteLength;
+	}
+
+	const lut = new Uint16Array(PIZ_USHORT_RANGE);
+	const maxValue = buildPIZReverseLut(bitmap, lut);
+	const huffmanByteLength = readPIZUint32(data, offset);
+	requirePIZBytes(data, offset.value, huffmanByteLength);
+
+	const channelData: PIZChannelData[] = [];
+	let wordCount = 0;
+	for (const channel of channels) {
+		const wordsPerSample = getPixelTypeByteSize(channel.pixelType) / 2;
+		channelData.push({
+			start: wordCount,
+			readOffset: wordCount,
+			wordsPerSample,
+		});
+		wordCount += width * rowCount * wordsPerSample;
+	}
+	if (wordCount * 2 !== expectedByteLength) {
+		throw new Error("EXRLoader: PIZ word count does not match chunk size.");
+	}
+
+	const words = new Uint16Array(wordCount);
+	hufUncompress(
+		data.subarray(offset.value, offset.value + huffmanByteLength),
+		words
+	);
+
+	for (let channelIndex = 0; channelIndex < channels.length; channelIndex++) {
+		const channel = channelData[channelIndex];
+		for (let wordLane = 0; wordLane < channel.wordsPerSample; wordLane++) {
+			decodePIZWavelet(
+				words,
+				channel.start + wordLane,
+				width,
+				channel.wordsPerSample,
+				rowCount,
+				width * channel.wordsPerSample,
+				maxValue
+			);
+		}
+	}
+
+	for (let i = 0; i < words.length; i++) {
+		words[i] = lut[words[i]];
+	}
+
+	const decoded = new Uint8Array(expectedByteLength);
+	let targetOffset = 0;
+	for (let y = 0; y < rowCount; y++) {
+		for (const channel of channelData) {
+			const wordsPerRow = width * channel.wordsPerSample;
+			for (let i = 0; i < wordsPerRow; i++) {
+				writeUint16LE(decoded, targetOffset, words[channel.readOffset++]);
+				targetOffset += 2;
+			}
+		}
+	}
+
+	return decoded;
+}
+
+function readPIZUint16(data: Uint8Array, offset: { value: number }): number {
+	requirePIZBytes(data, offset.value, 2);
+	const value = readUint16LE(data, offset.value);
+	offset.value += 2;
+	return value;
+}
+
+function readPIZUint32(data: Uint8Array, offset: { value: number }): number {
+	requirePIZBytes(data, offset.value, 4);
+	const value = readUint32LE(data, offset.value);
+	offset.value += 4;
+	return value;
+}
+
+function requirePIZBytes(
+	data: Uint8Array,
+	offset: number,
+	byteLength: number
+): void {
+	if (
+		!Number.isInteger(byteLength) ||
+		byteLength < 0 ||
+		offset < 0 ||
+		offset + byteLength > data.byteLength
+	) {
+		throw new Error("EXRLoader: PIZ chunk payload is truncated.");
+	}
+}
+
+function buildPIZReverseLut(
+	bitmap: Uint8Array,
+	lut: Uint16Array
+): number {
+	let target = 0;
+	for (let value = 0; value < PIZ_USHORT_RANGE; value++) {
+		if (value === 0 || (bitmap[value >> 3] & (1 << (value & 7))) !== 0) {
+			lut[target++] = value;
+		}
+	}
+	return target - 1;
+}
+
+function decodePIZWavelet(
+	data: Uint16Array,
+	offset: number,
+	width: number,
+	xStride: number,
+	height: number,
+	yStride: number,
+	maxValue: number
+): void {
+	const useSmallRange = maxValue < (1 << 14);
+	const minDimension = Math.min(width, height);
+	let p = 1;
+	while (p <= minDimension) {
+		p <<= 1;
+	}
+	p >>= 1;
+	let p2 = p;
+	p >>= 1;
+
+	while (p >= 1) {
+		let py = 0;
+		const yEnd = yStride * (height - p2);
+		const yStride1 = yStride * p;
+		const yStride2 = yStride * p2;
+		const xStride1 = xStride * p;
+		const xStride2 = xStride * p2;
+
+		for (; py <= yEnd; py += yStride2) {
+			let px = py;
+			const xEnd = py + xStride * (width - p2);
+			for (; px <= xEnd; px += xStride2) {
+				const p01 = px + xStride1;
+				const p10 = px + yStride1;
+				const p11 = p10 + xStride1;
+				const first = decodePIZWaveletPair(
+					data[px + offset],
+					data[p10 + offset],
+					useSmallRange
+				);
+				const second = decodePIZWaveletPair(
+					data[p01 + offset],
+					data[p11 + offset],
+					useSmallRange
+				);
+				const top = decodePIZWaveletPair(first.a, second.a, useSmallRange);
+				const bottom = decodePIZWaveletPair(first.b, second.b, useSmallRange);
+				data[px + offset] = top.a;
+				data[p01 + offset] = top.b;
+				data[p10 + offset] = bottom.a;
+				data[p11 + offset] = bottom.b;
+			}
+
+			if ((width & p) !== 0) {
+				const p10 = px + yStride1;
+				const pair = decodePIZWaveletPair(
+					data[px + offset],
+					data[p10 + offset],
+					useSmallRange
+				);
+				data[px + offset] = pair.a;
+				data[p10 + offset] = pair.b;
+			}
+		}
+
+		if ((height & p) !== 0) {
+			let px = py;
+			const xEnd = py + xStride * (width - p2);
+			for (; px <= xEnd; px += xStride2) {
+				const p01 = px + xStride1;
+				const pair = decodePIZWaveletPair(
+					data[px + offset],
+					data[p01 + offset],
+					useSmallRange
+				);
+				data[px + offset] = pair.a;
+				data[p01 + offset] = pair.b;
+			}
+		}
+
+		p2 = p;
+		p >>= 1;
+	}
+}
+
+function decodePIZWaveletPair(
+	low: number,
+	high: number,
+	useSmallRange: boolean
+): { a: number; b: number } {
+	if (useSmallRange) {
+		const signedHigh = toInt16(high);
+		const a = toInt16(low) + (signedHigh & 1) + (signedHigh >> 1);
+		return {
+			a: toUint16(a),
+			b: toUint16(a - signedHigh),
+		};
+	}
+
+	const unsignedLow = toUint16(low);
+	const unsignedHigh = toUint16(high);
+	const b = toUint16(unsignedLow - (unsignedHigh >> 1));
+	return {
+		a: toUint16(unsignedHigh + b - 0x8000),
+		b,
+	};
+}
+
+function toUint16(value: number): number {
+	return value & 0xffff;
+}
+
+function toInt16(value: number): number {
+	const unsigned = toUint16(value);
+	return unsigned > 0x7fff ? unsigned - 0x10000 : unsigned;
+}
+
+function hufUncompress(data: Uint8Array, output: Uint16Array): void {
+	if (data.byteLength < 20) {
+		if (output.length === 0) {
+			return;
+		}
+		throw new Error("EXRLoader: PIZ Huffman data is truncated.");
+	}
+
+	const minSymbol = readUint32LE(data, 0);
+	const maxSymbol = readUint32LE(data, 4);
+	const tableByteLength = readUint32LE(data, 8);
+	const bitCount = readUint32LE(data, 12);
+	const tableOffset = { value: 20 };
+	const tableEnd = tableOffset.value + tableByteLength;
+	if (
+		minSymbol >= HUF_ENCSIZE ||
+		maxSymbol >= HUF_ENCSIZE ||
+		minSymbol > maxSymbol ||
+		tableEnd > data.byteLength
+	) {
+		throw new Error("EXRLoader: Invalid PIZ Huffman table header.");
+	}
+
+	const encodingTable = new Float64Array(HUF_ENCSIZE);
+	unpackHuffmanEncodingTable(
+		data,
+		tableOffset,
+		tableByteLength,
+		minSymbol,
+		maxSymbol,
+		encodingTable
+	);
+
+	const dataByteLength = Math.ceil(bitCount / 8);
+	if (tableEnd + dataByteLength > data.byteLength) {
+		throw new Error("EXRLoader: Invalid PIZ Huffman bit count.");
+	}
+
+	const decodingTable = buildHuffmanDecodingTable(
+		encodingTable,
+		minSymbol,
+		maxSymbol
+	);
+	decodeHuffmanData(
+		data,
+		tableEnd,
+		bitCount,
+		maxSymbol,
+		encodingTable,
+		decodingTable,
+		output
+	);
+}
+
+function unpackHuffmanEncodingTable(
+	data: Uint8Array,
+	offset: { value: number },
+	byteLength: number,
+	minSymbol: number,
+	maxSymbol: number,
+	encodingTable: Float64Array
+): void {
+	const reader = new HuffmanBitReader(data, offset.value, offset.value + byteLength);
+	for (let symbol = minSymbol; symbol <= maxSymbol; symbol++) {
+		const length = reader.readBits(6);
+		encodingTable[symbol] = length;
+		if (length === HUF_LONG_ZERO_RUN) {
+			let zeroRun = reader.readBits(8) + HUF_SHORTEST_LONG_RUN;
+			if (symbol + zeroRun > maxSymbol + 1) {
+				throw new Error("EXRLoader: PIZ Huffman zero run exceeds table.");
+			}
+			while (zeroRun > 0) {
+				encodingTable[symbol++] = 0;
+				zeroRun--;
+			}
+			symbol--;
+		} else if (length >= HUF_SHORT_ZERO_RUN) {
+			let zeroRun = length - HUF_SHORT_ZERO_RUN + 2;
+			if (symbol + zeroRun > maxSymbol + 1) {
+				throw new Error("EXRLoader: PIZ Huffman zero run exceeds table.");
+			}
+			while (zeroRun > 0) {
+				encodingTable[symbol++] = 0;
+				zeroRun--;
+			}
+			symbol--;
+		}
+	}
+	offset.value = reader.byteOffset;
+	canonicalizeHuffmanCodes(encodingTable);
+}
+
+function canonicalizeHuffmanCodes(encodingTable: Float64Array): void {
+	const lengthCounts = new Float64Array(59);
+	for (let i = 0; i < encodingTable.length; i++) {
+		const length = encodingTable[i];
+		if (length < 0 || length > 58) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman code length.");
+		}
+		lengthCounts[length]++;
+	}
+
+	let code = 0;
+	for (let length = 58; length > 0; length--) {
+		const nextCode = Math.floor((code + lengthCounts[length]) / 2);
+		lengthCounts[length] = code;
+		code = nextCode;
+	}
+
+	for (let i = 0; i < encodingTable.length; i++) {
+		const length = encodingTable[i];
+		if (length > 0) {
+			encodingTable[i] = lengthCounts[length] * 64 + length;
+			lengthCounts[length]++;
+		}
+	}
+}
+
+function buildHuffmanDecodingTable(
+	encodingTable: Float64Array,
+	minSymbol: number,
+	maxSymbol: number
+): HuffmanDecodeEntry[] {
+	const table: HuffmanDecodeEntry[] = [];
+	for (let i = 0; i < HUF_DECSIZE; i++) {
+		table.push({
+			length: 0,
+			symbol: 0,
+			longSymbols: null,
+		});
+	}
+
+	for (let symbol = minSymbol; symbol <= maxSymbol; symbol++) {
+		const packedCode = encodingTable[symbol];
+		const length = hufLength(packedCode);
+		if (length === 0) {
+			continue;
+		}
+		if (length > HUF_MAX_SAFE_CODE_LENGTH) {
+			throw new Error("EXRLoader: PIZ Huffman code length is too large.");
+		}
+
+		const code = hufCode(packedCode);
+		if (code >= 2 ** length) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman table entry.");
+		}
+
+		if (length > HUF_DECBITS) {
+			const entry = table[Math.floor(code / 2 ** (length - HUF_DECBITS))];
+			if (entry.length !== 0) {
+				throw new Error("EXRLoader: Invalid PIZ Huffman table entry.");
+			}
+			if (entry.longSymbols === null) {
+				entry.longSymbols = [];
+			}
+			entry.longSymbols.push(symbol);
+			continue;
+		}
+
+		const base = code * 2 ** (HUF_DECBITS - length);
+		const count = 2 ** (HUF_DECBITS - length);
+		for (let i = 0; i < count; i++) {
+			const entry = table[base + i];
+			if (entry.length !== 0 || entry.longSymbols !== null) {
+				throw new Error("EXRLoader: Invalid PIZ Huffman table entry.");
+			}
+			entry.length = length;
+			entry.symbol = symbol;
+		}
+	}
+
+	return table;
+}
+
+function decodeHuffmanData(
+	data: Uint8Array,
+	offset: number,
+	bitCount: number,
+	runSymbol: number,
+	encodingTable: Float64Array,
+	decodingTable: HuffmanDecodeEntry[],
+	output: Uint16Array
+): void {
+	const byteLength = Math.ceil(bitCount / 8);
+	const reader = new HuffmanBitReader(data, offset, offset + byteLength);
+	let outputOffset = 0;
+
+	while (reader.consumedBits < bitCount) {
+		const remainingBits = bitCount - reader.consumedBits;
+		const lookupBits = Math.min(HUF_DECBITS, remainingBits);
+		const lookupCode = reader.peekBits(lookupBits);
+		const tableIndex = lookupCode * 2 ** (HUF_DECBITS - lookupBits);
+		const entry = decodingTable[tableIndex & HUF_DECMASK];
+
+		if (entry.length !== 0) {
+			if (entry.length > remainingBits) {
+				throw new Error("EXRLoader: Invalid PIZ Huffman code.");
+			}
+			reader.skipBits(entry.length);
+			outputOffset = writeHuffmanSymbol(
+				entry.symbol,
+				runSymbol,
+				reader,
+				bitCount,
+				output,
+				outputOffset
+			);
+			continue;
+		}
+
+		if (entry.longSymbols === null) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman code.");
+		}
+
+		let matched = false;
+		for (const symbol of entry.longSymbols) {
+			const packedCode = encodingTable[symbol];
+			const length = hufLength(packedCode);
+			if (length > remainingBits) {
+				continue;
+			}
+			if (reader.peekBits(length) === hufCode(packedCode)) {
+				reader.skipBits(length);
+				outputOffset = writeHuffmanSymbol(
+					symbol,
+					runSymbol,
+					reader,
+					bitCount,
+					output,
+					outputOffset
+				);
+				matched = true;
+				break;
+			}
+		}
+
+		if (!matched) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman code.");
+		}
+	}
+
+	if (outputOffset !== output.length) {
+		throw new Error(
+			`EXRLoader: PIZ Huffman decoded ${outputOffset} words; expected ${output.length}.`
+		);
+	}
+}
+
+function writeHuffmanSymbol(
+	symbol: number,
+	runSymbol: number,
+	reader: HuffmanBitReader,
+	bitLimit: number,
+	output: Uint16Array,
+	outputOffset: number
+): number {
+	if (symbol === runSymbol) {
+		if (outputOffset <= 0) {
+			throw new Error("EXRLoader: PIZ Huffman run has no previous value.");
+		}
+		if (reader.consumedBits + 8 > bitLimit) {
+			throw new Error("EXRLoader: PIZ Huffman run is truncated.");
+		}
+		const repeatCount = reader.readBits(8);
+		if (outputOffset + repeatCount > output.length) {
+			throw new Error("EXRLoader: PIZ Huffman run exceeds output size.");
+		}
+		const value = output[outputOffset - 1];
+		for (let i = 0; i < repeatCount; i++) {
+			output[outputOffset++] = value;
+		}
+		return outputOffset;
+	}
+
+	if (outputOffset >= output.length) {
+		throw new Error("EXRLoader: PIZ Huffman output exceeds chunk size.");
+	}
+	output[outputOffset++] = symbol;
+	return outputOffset;
+}
+
+function hufLength(packedCode: number): number {
+	return packedCode % 64;
+}
+
+function hufCode(packedCode: number): number {
+	return Math.floor(packedCode / 64);
+}
+
+function writeUint16LE(data: Uint8Array, offset: number, value: number): void {
+	data[offset] = value & 0xff;
+	data[offset + 1] = (value >> 8) & 0xff;
+}
+
+class HuffmanBitReader {
+	public byteOffset: number;
+	public consumedBits = 0;
+	private _bitBuffer = 0;
+	private _bitCount = 0;
+	private readonly _data: Uint8Array;
+	private readonly _byteEnd: number;
+
+	constructor(data: Uint8Array, byteOffset: number, byteEnd: number) {
+		this._data = data;
+		this.byteOffset = byteOffset;
+		this._byteEnd = byteEnd;
+	}
+
+	public readBits(bitCount: number): number {
+		const value = this.peekBits(bitCount);
+		this.skipBits(bitCount);
+		return value;
+	}
+
+	public peekBits(bitCount: number): number {
+		if (bitCount < 0 || bitCount > HUF_MAX_SAFE_CODE_LENGTH) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman bit length.");
+		}
+		this._ensureBits(bitCount);
+		if (this._bitCount < bitCount) {
+			throw new Error("EXRLoader: PIZ Huffman data is truncated.");
+		}
+		if (bitCount === 0) {
+			return 0;
+		}
+		const shift = this._bitCount - bitCount;
+		return Math.floor(this._bitBuffer / 2 ** shift) % 2 ** bitCount;
+	}
+
+	public skipBits(bitCount: number): void {
+		if (bitCount < 0 || bitCount > this._bitCount) {
+			throw new Error("EXRLoader: Invalid PIZ Huffman bit length.");
+		}
+		this._bitCount -= bitCount;
+		this.consumedBits += bitCount;
+		if (this._bitCount === 0) {
+			this._bitBuffer = 0;
+		} else {
+			this._bitBuffer %= 2 ** this._bitCount;
+		}
+	}
+
+	private _ensureBits(bitCount: number): void {
+		while (this._bitCount < bitCount && this.byteOffset < this._byteEnd) {
+			if (this._bitCount > HUF_MAX_SAFE_CODE_LENGTH - 8) {
+				throw new Error("EXRLoader: PIZ Huffman code length is too large.");
+			}
+			this._bitBuffer = this._bitBuffer * 256 + this._data[this.byteOffset++];
+			this._bitCount += 8;
+		}
+	}
 }
 
 async function inflateZlib(data: Uint8Array): Promise<Uint8Array> {

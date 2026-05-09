@@ -7,6 +7,7 @@ import { EXRLoader } from "../src/loaders/EXRLoader.ts";
 
 const COMPRESSION_NONE = 0;
 const COMPRESSION_ZIP = 3;
+const COMPRESSION_PIZ = 4;
 const PIXEL_HALF = 1;
 const PIXEL_FLOAT = 2;
 
@@ -69,6 +70,27 @@ function testParseLayeredFloatChannelsWithDefaultAlpha() {
 	assertNearly(texture.data[1], 0.25, "layered G");
 	assertNearly(texture.data[2], 0.125, "layered B");
 	assertNearly(texture.data[3], 0.75, "layered default alpha");
+}
+
+function testParsePizHalfRGB() {
+	const bytes = createScanlineEXR({
+		width: 1,
+		height: 1,
+		compression: COMPRESSION_PIZ,
+		channels: [
+			{ name: "B", pixelType: PIXEL_HALF, sample: () => 0.125 },
+			{ name: "G", pixelType: PIXEL_HALF, sample: () => 0.25 },
+			{ name: "R", pixelType: PIXEL_HALF, sample: () => 0.5 },
+		],
+	});
+	const texture = new EXRLoader().parse(toArrayBuffer(bytes));
+
+	assert.equal(texture.width, 1);
+	assert.equal(texture.height, 1);
+	assertNearly(texture.data[0], 0.5, "piz R");
+	assertNearly(texture.data[1], 0.25, "piz G");
+	assertNearly(texture.data[2], 0.125, "piz B");
+	assertNearly(texture.data[3], 1, "piz A default");
 }
 
 async function testZipParseAndEnvironmentAssignment() {
@@ -156,12 +178,12 @@ function createScanlineEXR({ width, height, compression, channels }) {
 	pushAttribute(header, "screenWindowWidth", "float", createFloat32Payload([1]));
 	header.push(0);
 
-	const rowsPerChunk = compression === COMPRESSION_ZIP ? 16 : 1;
+	const rowsPerChunk = getRowsPerChunk(compression);
 	const chunks = [];
 	for (let y = 0; y < height; y += rowsPerChunk) {
 		const rowCount = Math.min(rowsPerChunk, height - y);
 		const raw = createPixelBlock(width, y, rowCount, sortedChannels);
-		const payload = compression === COMPRESSION_ZIP ? zipCompressEXR(raw) : raw;
+		const payload = compressEXRTestPayload(compression, raw);
 		const chunk = [];
 		pushI32(chunk, y);
 		pushU32(chunk, payload.length);
@@ -177,6 +199,26 @@ function createScanlineEXR({ width, height, compression, channels }) {
 	}
 
 	return concatBytes(new Uint8Array(header), new Uint8Array(offsetTable), ...chunks);
+}
+
+function getRowsPerChunk(compression) {
+	if (compression === COMPRESSION_PIZ) {
+		return 32;
+	}
+	if (compression === COMPRESSION_ZIP) {
+		return 16;
+	}
+	return 1;
+}
+
+function compressEXRTestPayload(compression, raw) {
+	if (compression === COMPRESSION_ZIP) {
+		return zipCompressEXR(raw);
+	}
+	if (compression === COMPRESSION_PIZ) {
+		return pizCompressSinglePixelEXR(raw);
+	}
+	return raw;
 }
 
 function createChannelList(channels) {
@@ -243,6 +285,65 @@ function zipCompressEXR(raw) {
 		}
 	}
 	return new Uint8Array(deflateSync(interleaved));
+}
+
+function pizCompressSinglePixelEXR(raw) {
+	assert.equal(
+		raw.length,
+		6,
+		"test PIZ fixture only supports one RGB half pixel"
+	);
+	const values = [
+		raw[0] | (raw[1] << 8),
+		raw[2] | (raw[3] << 8),
+		raw[4] | (raw[5] << 8),
+	];
+	const bitmap = new Uint8Array(8192);
+	for (const value of values) {
+		bitmap[value >> 3] |= 1 << (value & 7);
+	}
+	const minNonZero = bitmap.findIndex((value) => value !== 0);
+	let maxNonZero = bitmap.length - 1;
+	while (maxNonZero > minNonZero && bitmap[maxNonZero] === 0) {
+		maxNonZero--;
+	}
+
+	const huffmanTable = packBits([2, 2, 2, 2], 6);
+	const huffmanPayload = packBits([0, 1, 2], 2);
+	const huffman = [];
+	pushU32(huffman, 1);
+	pushU32(huffman, 4);
+	pushU32(huffman, huffmanTable.length);
+	pushU32(huffman, 6);
+	pushU32(huffman, 0);
+	pushBytes(huffman, huffmanTable);
+	pushBytes(huffman, huffmanPayload);
+
+	const payload = [];
+	pushU16(payload, minNonZero);
+	pushU16(payload, maxNonZero);
+	pushBytes(payload, bitmap.subarray(minNonZero, maxNonZero + 1));
+	pushU32(payload, huffman.length);
+	pushBytes(payload, huffman);
+	return new Uint8Array(payload);
+}
+
+function packBits(values, bitCount) {
+	const bytes = [];
+	let buffer = 0;
+	let bufferedBits = 0;
+	for (const value of values) {
+		buffer = (buffer << bitCount) | value;
+		bufferedBits += bitCount;
+		while (bufferedBits >= 8) {
+			bufferedBits -= 8;
+			bytes.push((buffer >> bufferedBits) & 0xff);
+		}
+	}
+	if (bufferedBits > 0) {
+		bytes.push((buffer << (8 - bufferedBits)) & 0xff);
+	}
+	return bytes;
 }
 
 function pushAttribute(bytes, name, type, payload) {
@@ -345,6 +446,7 @@ function float32ToFloat16Bits(value) {
 async function run() {
 	testParseUncompressedHalfRGB();
 	testParseLayeredFloatChannelsWithDefaultAlpha();
+	testParsePizHalfRGB();
 	await testZipParseAndEnvironmentAssignment();
 	testSyncParseRejectsZipCompression();
 	console.log("EXR loader tests passed");
