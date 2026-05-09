@@ -575,10 +575,53 @@ export function packModelUniformData(
 	normalMatrix: Matrix3Arr | Matrix4,
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][]
-): Float32Array {
+): Float32Array<ArrayBuffer> {
 	const writer = MODEL_UNIFORM_LAYOUT.createWriter();
 	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_BYTE_SIZE, "ModelUniforms");
+	return writeModelUniformData(
+		writer,
+		modelMatrix,
+		normalMatrix,
+		materialData,
+		prevModelMatrix
+	);
+}
 
+export type WebGPUModelUniformWriter = ReturnType<
+	StructuredBufferLayout["createWriter"]
+>;
+
+/**
+ * Creates a reusable writer for `ModelUniforms` data.
+ *
+ * @returns A zero-initialized structured buffer writer matching the WebGPU
+ * model uniform layout.
+ */
+export function createModelUniformWriter(): WebGPUModelUniformWriter {
+	const writer = MODEL_UNIFORM_LAYOUT.createWriter();
+	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_BYTE_SIZE, "ModelUniforms");
+	return writer;
+}
+
+/**
+ * Writes `ModelUniforms` into an existing writer and returns its typed view.
+ *
+ * @param writer - Reusable writer created by `createModelUniformWriter`.
+ * @param modelMatrix - Current model transform in engine row-major layout.
+ * @param normalMatrix - Current normal matrix; only its upper-left 3x3 is used.
+ * @param materialData - Packed material scalar and texture transform data.
+ * @param prevModelMatrix - Previous-frame model transform for motion vectors.
+ * @returns The writer-owned `Float32Array`; callers must consume it before
+ * reusing the same writer.
+ */
+export function writeModelUniformData(
+	writer: WebGPUModelUniformWriter,
+	modelMatrix: Matrix4 | number[][],
+	normalMatrix: Matrix3Arr | Matrix4,
+	materialData: WebGPUMaterialUniformData,
+	prevModelMatrix: Matrix4 | number[][]
+): Float32Array<ArrayBuffer> {
+	writer.clear();
 	writer.writeMat4("modelMatrix", modelMatrix);
 	writer.writeMat4("prevModelMatrix", prevModelMatrix);
 	writer.writeMat4("normalMatrix", createNormalMatrixRows(normalMatrix));
