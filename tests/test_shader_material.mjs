@@ -213,6 +213,17 @@ function testResolveWebGPUDepthPrepassProgramContract() {
 	);
 }
 
+function testDepthWriteParamIsInheritedFromMaterial() {
+	const defaultMaterial = new ShaderMaterial();
+	assert.equal(defaultMaterial.depthWrite, true);
+
+	const depthReadMaterial = new ShaderMaterial({
+		name: "DepthReadShader",
+		depthWrite: false,
+	});
+	assert.equal(depthReadMaterial.depthWrite, false);
+}
+
 async function testGLSLProgramUsesTranspiler() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
@@ -679,6 +690,7 @@ function testTextureBindingUvSetGreaterThanOneIsPreserved() {
 async function run() {
 	await testWGSLProgramSelection();
 	testResolveWebGPUDepthPrepassProgramContract();
+	testDepthWriteParamIsInheritedFromMaterial();
 	await testGLSLProgramUsesTranspiler();
 	await testGLSLWithoutTranspilerThrows();
 	await testWarnModeFallbackToBuiltinShader();

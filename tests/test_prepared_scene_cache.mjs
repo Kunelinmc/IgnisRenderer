@@ -287,11 +287,56 @@ function testMaterialDiffDetectsSmallFloatChanges() {
 	}
 }
 
+function testMaterialDiffDetectsDepthWriteChanges() {
+	const camera = createCamera();
+	const packetBase = createPacket("D", 0, 0.08);
+	const packetDepthRead = createPacket("D", 0, 0.08);
+	packetDepthRead.material.depthWrite = false;
+
+	const frames = [
+		createFrame(camera, [packetBase]),
+		createFrame(camera, [packetDepthRead]),
+	];
+	let frameIndex = 0;
+
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => {
+		const resolved = frames[Math.min(frameIndex, frames.length - 1)];
+		frameIndex++;
+		return resolved;
+	};
+
+	try {
+		const buildInput = {
+			renderer: {},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+			},
+		};
+
+		const first = cache.build(buildInput);
+		assert.equal(first.forceFullFrame, true);
+
+		const second = cache.build(buildInput);
+		assert.equal(second.forceFullFrame, false);
+		assert.ok(second.dirtyRects.length > 0);
+		assert.ok(second.dirtyTiles.length > 0);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
 function run() {
 	testPacketDiffLifecycle();
 	testAreaFallbackToFullFrame();
 	testMatrixDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsSmallFloatChanges();
+	testMaterialDiffDetectsDepthWriteChanges();
 	console.log("Prepared scene cache tests passed");
 }
 

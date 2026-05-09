@@ -106,6 +106,7 @@ function createTrianglePacket(id, color, options = {}) {
 		doubleSided: true,
 		alphaMode,
 		opacity,
+		depthWrite: options.depthWrite ?? true,
 		map: options.map ?? null,
 	});
 	if (typeof options.alphaCutoff === "number") {
@@ -423,6 +424,99 @@ async function testMaskPacketParity() {
 	assertAttachmentEqual(withoutPrepass, withPrepass);
 }
 
+function createDepthWriteDisabledPackets() {
+	return [
+		createTrianglePacket("depth-read-near-red", { r: 255, g: 0, b: 0 }, {
+			zOffset: 0.2,
+			depthWrite: false,
+		}),
+		createTrianglePacket("depth-write-far-blue", { r: 0, g: 0, b: 255 }, {
+			zOffset: -0.2,
+		}),
+	];
+}
+
+async function testDepthWriteDisabledScanlinePrepassParity() {
+	const backendA = new SoftwareBackend({
+		rasterMode: "scanline",
+		enableEarlyZPrepass: false,
+	});
+	backendA.setRenderer(createRendererBridge());
+	const withoutPrepass = copyAttachments(
+		await renderOpaqueFrame(
+			backendA,
+			createCamera(),
+			createDepthWriteDisabledPackets()
+		)
+	);
+
+	const backendB = new SoftwareBackend({
+		rasterMode: "scanline",
+		enableEarlyZPrepass: true,
+	});
+	backendB.setRenderer(createRendererBridge());
+	const withPrepass = copyAttachments(
+		await renderOpaqueFrame(
+			backendB,
+			createCamera(),
+			createDepthWriteDisabledPackets()
+		)
+	);
+
+	assertAttachmentEqual(withoutPrepass, withPrepass);
+}
+
+async function testDepthWriteDisabledTilePrepassParity() {
+	const originalWorker = globalThis.Worker;
+	globalThis.Worker = class FakeWorker {};
+
+	try {
+		const backendA = new SoftwareBackend({
+			rasterMode: "tile",
+			enableEarlyZPrepass: false,
+			tile: {
+				tileSize: 16,
+				workerCount: 2,
+				poolId: "software-depth-write-tile-off",
+				scheduler: createMockScheduler(),
+			},
+		});
+		backendA.setRenderer(createRendererBridge());
+		const withoutPrepass = copyAttachments(
+			await renderOpaqueFrame(
+				backendA,
+				createCamera(),
+				createDepthWriteDisabledPackets()
+			)
+		);
+
+		const backendB = new SoftwareBackend({
+			rasterMode: "tile",
+			enableEarlyZPrepass: true,
+			tile: {
+				tileSize: 16,
+				workerCount: 2,
+				poolId: "software-depth-write-tile-on",
+				scheduler: createMockScheduler(),
+			},
+		});
+		backendB.setRenderer(createRendererBridge());
+		const withPrepass = copyAttachments(
+			await renderOpaqueFrame(
+				backendB,
+				createCamera(),
+				createDepthWriteDisabledPackets()
+			)
+		);
+
+		assertAttachmentEqual(withoutPrepass, withPrepass);
+		backendA.destroy();
+		backendB.destroy();
+	} finally {
+		globalThis.Worker = originalWorker;
+	}
+}
+
 async function runIncrementalScenario(enableEarlyZPrepass) {
 	const camera = createCamera();
 	const backend = new SoftwareBackend({
@@ -464,6 +558,8 @@ async function run() {
 	await testScanlinePrepassParity();
 	await testTilePrepassParity();
 	await testMaskPacketParity();
+	await testDepthWriteDisabledScanlinePrepassParity();
+	await testDepthWriteDisabledTilePrepassParity();
 	await testIncrementalParity();
 	console.log("Software early Z pre-pass tests passed");
 }

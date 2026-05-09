@@ -1439,6 +1439,95 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 	assert.equal(unsupportedDraw, null);
 }
 
+async function testWebGPUShaderMaterialDepthWriteFalseSkipsDepthPrepass() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const shaderMaterial = new ShaderMaterial({
+		name: "DepthReadShader",
+		depthWrite: false,
+		vertexEntryPoint: "customVs",
+		fragmentSingleEntryPoint: "customFs",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: /* wgsl */ `
+@vertex
+fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+	return vec4<f32>(position, 1.0);
+}
+`,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: /* wgsl */ `
+@fragment
+fn customFs() -> @location(0) vec4<f32> {
+	return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+`,
+			},
+		],
+	});
+	const model = createModel([shaderMaterial]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				environment: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const prepassDraw = await resources.getDrawResources(packet, {
+		sceneTargetMode: "single",
+		drawMode: "early-z-prepass",
+	});
+	assert.equal(prepassDraw, null);
+
+	const draw = await resources.getDrawResources(packet, {
+		sceneTargetMode: "single",
+	});
+	assert.ok(draw && draw.length > 0);
+	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(pipelineDesc.depthStencil.depthCompare, "less");
+
+	const earlyZColorDraw = await resources.getDrawResources(packet, {
+		sceneTargetMode: "single",
+		drawMode: "early-z-color",
+	});
+	assert.ok(earlyZColorDraw && earlyZColorDraw.length > 0);
+	const earlyZColorPipelineDesc = earlyZColorDraw[0].pipeline.desc;
+	assert.equal(earlyZColorPipelineDesc.depthStencil.depthWriteEnabled, false);
+	assert.equal(earlyZColorPipelineDesc.depthStencil.depthCompare, "less");
+}
+
 async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -2863,6 +2952,7 @@ async function run() {
 	await testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment();
 	await testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState();
 	await testWebGPUEarlyZShaderMaterialDepthContract();
+	await testWebGPUShaderMaterialDepthWriteFalseSkipsDepthPrepass();
 	await testWebGPUOITTransparentPipelineUsesDualTargets();
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();

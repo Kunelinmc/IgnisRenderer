@@ -178,6 +178,7 @@ function createScenePassCaptureGL() {
 		uniform1f: [],
 		uniform2f: [],
 		uniform4f: [],
+		depthMask: [],
 	};
 	return {
 		TEXTURE0: 0x84c0,
@@ -204,6 +205,9 @@ function createScenePassCaptureGL() {
 		},
 		uniform1f(location, value) {
 			calls.uniform1f.push({ location, value });
+		},
+		depthMask(flag) {
+			calls.depthMask.push(flag);
 		},
 		drawElements() {},
 	};
@@ -1380,6 +1384,53 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	);
 }
 
+function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
+	const gl = createScenePassCaptureGL();
+	const sceneProgram = {
+		program: {},
+		uniforms: {},
+	};
+	const host = {
+		_gl: gl,
+		_geometry: {
+			getGeometry() {
+				return {
+					vao: {},
+					topology: 4,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture() {
+				return { texture: null, isLinear: true };
+			},
+		},
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_setCullMode() {},
+		_bindShaderMaterialTextures() {},
+	};
+	const material = new Material({
+		depthWrite: false,
+	});
+	const packet = {
+		id: "packet-depth-read",
+		meshInstance: { id: "mesh-depth-read", skeleton: null },
+		material,
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+	};
+
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	assert.deepEqual(gl.calls.depthMask, [false]);
+
+	material.depthWrite = true;
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	assert.deepEqual(gl.calls.depthMask, [false, true]);
+}
+
 function testWebGLBackendParticleDeltaTimeClamp() {
 	const backend = new WebGLBackend();
 	const transient = new Map([
@@ -1472,6 +1523,7 @@ async function run() {
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testGeometryRegistryUploadsUV1Attribute();
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets();
+	testDrawWebGLPacketAppliesMaterialDepthWriteState();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();
 	console.log("WebGL backend v2 unit tests passed");
