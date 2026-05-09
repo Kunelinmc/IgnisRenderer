@@ -8,7 +8,6 @@ import {
 	WebGPUBackend,
 	WebGLBackend,
 	GLTFLoader,
-	Quaternion,
 	InteractionManager,
 	MeshInstance,
 	DirectionalLight,
@@ -101,7 +100,7 @@ async function init() {
 	renderer.updateSH();
 	renderer.requestRender("unknown");
 
-	bindControls(canvas, camera, renderer, scene);
+	bindControls(canvas, camera, renderer);
 	setupInteraction(renderer, scene, camera);
 
 	window.addEventListener("resize", () => {
@@ -166,12 +165,7 @@ async function createRenderer(
 	return { canvas, renderer };
 }
 
-function bindControls(
-	canvas: HTMLCanvasElement,
-	camera: FPSCamera,
-	renderer: Renderer,
-	scene: Scene,
-): void {
+function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Renderer): void {
 	const keys = new Set<string>();
 
 	// Keyboard Events
@@ -203,52 +197,44 @@ function bindControls(
 		// Convert ms to seconds and cap to avoid spiral of death
 		accumulator += Math.min(deltaTime / 1000, 0.25);
 
-		const moveSpeed = camera.moveSpeed;
 		let cameraMoved = false;
 
 		while (accumulator >= fixedTimeStep) {
-			const qYaw = Quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, camera.yaw);
-			const forward = qYaw.rotatePoint({ x: 0, y: 0, z: -1 });
-			const right = qYaw.rotatePoint({ x: 1, y: 0, z: 0 });
-
-			const moveDir = { x: 0, y: 0, z: 0 };
+			const stepDistance = camera.moveSpeed * fixedTimeStep;
+			let forwardInput = 0;
+			let rightInput = 0;
+			let upInput = 0;
 
 			if (keys.has("KeyW")) {
-				moveDir.x += forward.x;
-				moveDir.z += forward.z;
+				forwardInput += 1;
 			}
 			if (keys.has("KeyS")) {
-				moveDir.x -= forward.x;
-				moveDir.z -= forward.z;
+				forwardInput -= 1;
 			}
 			if (keys.has("KeyA")) {
-				moveDir.x -= right.x;
-				moveDir.z -= right.z;
+				rightInput -= 1;
 			}
 			if (keys.has("KeyD")) {
-				moveDir.x += right.x;
-				moveDir.z += right.z;
+				rightInput += 1;
 			}
 
-			// Normalize move direction if moving
-			const length = Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
-			if (length > 0) {
-				moveDir.x = (moveDir.x / length) * moveSpeed;
-				moveDir.z = (moveDir.z / length) * moveSpeed;
+			const planarLength = Math.hypot(forwardInput, rightInput);
+			if (planarLength > 0) {
+				camera.moveForward((forwardInput / planarLength) * stepDistance);
+				camera.moveRight((rightInput / planarLength) * stepDistance);
+				cameraMoved = true;
 			}
 
 			if (keys.has("Space")) {
-				moveDir.y = moveSpeed;
+				upInput += 1;
 			}
 
 			if (keys.has("ShiftLeft")) {
-				moveDir.y = -moveSpeed;
+				upInput -= 1;
 			}
 
-			if (moveDir.x !== 0 || moveDir.y !== 0 || moveDir.z !== 0) {
-				camera.position.x += moveDir.x * fixedTimeStep;
-				camera.position.y += moveDir.y * fixedTimeStep;
-				camera.position.z += moveDir.z * fixedTimeStep;
+			if (upInput !== 0) {
+				camera.moveUp(upInput * stepDistance);
 				cameraMoved = true;
 			}
 
@@ -256,7 +242,6 @@ function bindControls(
 		}
 
 		if (cameraMoved) {
-			camera.updateMatrices();
 			renderer.requestRender("camera");
 		}
 	});
