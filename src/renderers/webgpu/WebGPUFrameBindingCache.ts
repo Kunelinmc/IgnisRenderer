@@ -77,6 +77,7 @@ export class WebGPUFrameBindingCache {
 	private _environmentTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
 	private _envSpecularFallbackTexture: IRenderTexture | null = null;
+	private _brdfLUTTexture: IRenderTexture | null = null;
 	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
 	private _envSpecularFallbackSampler: ISampler | null = null;
@@ -224,6 +225,13 @@ export class WebGPUFrameBindingCache {
 					environmentState.envSpecularFallbackTexture
 				)
 			:	this._textureRegistry.getWhiteSampler();
+		const currentBRDFLUT =
+			environmentState.brdfLUTTexture ?
+				this._textureRegistry.getTextureForSlot(
+					environmentState.brdfLUTTexture,
+					0
+				)
+			:	this._textureRegistry.getWhiteTexture();
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
@@ -231,6 +239,7 @@ export class WebGPUFrameBindingCache {
 			this._environmentTexture !== currentEnvironment ||
 			this._envSpecularTexture !== currentEnvSpecular ||
 			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
+			this._brdfLUTTexture !== currentBRDFLUT ||
 			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler ||
 			this._envSpecularFallbackSampler !== currentEnvSpecularFallbackSampler
@@ -244,6 +253,7 @@ export class WebGPUFrameBindingCache {
 			this._environmentTexture = currentEnvironment;
 			this._envSpecularTexture = currentEnvSpecular;
 			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
+			this._brdfLUTTexture = currentBRDFLUT;
 			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
@@ -333,6 +343,12 @@ export class WebGPUFrameBindingCache {
 						binding: 8,
 						resource:
 							this._shadowTransmittanceAtlas ??
+							this._textureRegistry.getWhiteTexture(),
+					},
+					{
+						binding: 9,
+						resource:
+							this._brdfLUTTexture ??
 							this._textureRegistry.getWhiteTexture(),
 					},
 				],
@@ -583,6 +599,7 @@ export class WebGPUFrameBindingCache {
 		this._environmentTexture = null;
 		this._envSpecularTexture = null;
 		this._envSpecularFallbackTexture = null;
+		this._brdfLUTTexture = null;
 		this._environmentSampler = null;
 		this._envSpecularSampler = null;
 		this._envSpecularFallbackSampler = null;

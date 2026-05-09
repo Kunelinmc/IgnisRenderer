@@ -349,6 +349,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var envSpecularFallbackTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(6) var<uniform> fog"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var brdfLUTTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
@@ -1008,7 +1009,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 9);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 10);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
 	);
@@ -2432,16 +2433,17 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 9);
+	assert.equal(sceneLayout.desc.entries.length, 10);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7, 8]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
 	assert.equal(sceneLayout.desc.entries[6].buffer?.type, "uniform");
 	assert.equal(sceneLayout.desc.entries[7].buffer?.type, "read-only-storage");
 	assert.equal(sceneLayout.desc.entries[8].texture?.sampleType, "float");
+	assert.equal(sceneLayout.desc.entries[9].texture?.sampleType, "float");
 
 	resources.destroy();
 }

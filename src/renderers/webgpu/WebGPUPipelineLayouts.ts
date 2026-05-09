@@ -81,6 +81,11 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "float" },
 			},
+			{
+				binding: 9,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
 		],
 	});
 	const environmentFrameBindGroupLayout = device.createBindGroupLayout({

@@ -1160,6 +1160,14 @@ fn sampleEnvironmentSpecular(
 fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {
 	let nv = clamp(nDotV, 0.0, 1.0);
 	let r = clamp(roughness, 0.0, 1.0);
+	if (hasBRDFLUT()) {
+		return textureSampleLevel(
+			brdfLUTTexture,
+			envSpecularSampler,
+			vec2<f32>(min(nv, 0.999999), min(sqrt(r), 0.999999)),
+			0.0
+		).rg;
+	}
 	let a = r * r;
 	let k = a * 0.5;
 	let visibility = nv / max(nv * (1.0 - k) + k, 0.0001);
