@@ -136,6 +136,13 @@ export { TextureLoader } from "./loaders/TextureLoader";
 export { OBJLoader } from "./loaders/OBJLoader";
 export { GLTFLoader } from "./loaders/GLTFLoader";
 export { HDRLoader } from "./loaders/HDRLoader";
+export {
+	EXRLoader,
+	type EXREnvironmentApplyOptions,
+	type EXREnvironmentTarget,
+	type EXRLoadEnvironmentOptions,
+	type EXRParseOptions,
+} from "./loaders/EXRLoader";
 export { BVHLoader } from "./loaders/BVHLoader";
 export { Loader } from "./loaders/Loader";
 export * as experimentalECS from "./ecs";
