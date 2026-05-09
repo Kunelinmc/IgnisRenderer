@@ -8,6 +8,8 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { DrawPacket } from "../../pipeline/types";
+import type { Matrix3Arr } from "../../maths/types";
+import { Matrix4 } from "../../maths/Matrix4";
 import {
 	WEBGPU_MAX_MORPH_TARGETS,
 	WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS,
@@ -18,8 +20,11 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
-	packModelUniformData,
+	WEBGPU_TEXTURE_SLOT_COUNT,
+	createModelUniformWriter,
+	writeModelUniformData,
 	type WebGPUMaterialUniformData,
+	type WebGPUModelUniformWriter,
 } from "./";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 
@@ -31,24 +36,50 @@ export interface WebGPUModelAnimationBindingState {
 	morphNormalBuffer: IRenderBuffer | null;
 }
 
+type MatrixRows = number[][];
+type FloatBuffer = Float32Array<ArrayBuffer>;
+
 interface MaterialBindingEntry {
 	uniformBuffer: IRenderBuffer;
 	animationParamsBuffer: IRenderBuffer;
 	jointMatricesBuffer: IRenderBuffer;
 	morphWeightsBuffer: IRenderBuffer;
 	bindingGroup: IBindingGroup | null;
-	pipeline: IRenderPipeline | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
 	morphPositionBuffer: IRenderBuffer;
 	morphNormalBuffer: IRenderBuffer;
-	prevModelMatrix: DrawPacket["worldMatrix"] | null;
-	prevJointMatrices: Float32Array | null;
-	prevMorphWeights: Float32Array | null;
+	modelUniformWriter: WebGPUModelUniformWriter;
+	currentModelMatrix: MatrixRows;
+	previousModelMatrix: MatrixRows;
+	normalMatrix: MatrixRows;
+	materialSnapshot: FloatBuffer;
+	hasModelSnapshot: boolean;
+	hasMaterialSnapshot: boolean;
+	hasPackedUniform: boolean;
+	modelFrame: number;
+	animationParamsData: FloatBuffer;
+	jointPayload: FloatBuffer;
+	morphPayload: FloatBuffer;
+	currentJointMatrices: FloatBuffer | null;
+	previousJointMatrices: FloatBuffer | null;
+	currentMorphWeights: FloatBuffer | null;
+	previousMorphWeights: FloatBuffer | null;
+	currentJointCount: number;
+	previousJointCount: number;
+	currentMorphCount: number;
+	previousMorphCount: number;
+	animationFrame: number;
+	animationParamsWritten: boolean;
+	jointPayloadWritten: boolean;
+	morphPayloadWritten: boolean;
 	jointMatrixCapacity: number;
 	morphWeightCapacity: number;
 	lastUsedFrame: number;
 }
+
+const MATERIAL_SNAPSHOT_FLOATS = (12 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
+const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
 
 export class WebGPUMaterialBindingCache {
 	private _backend: WebGPUBackend;
@@ -66,7 +97,7 @@ export class WebGPUMaterialBindingCache {
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
 			label: "WebGPUFallbackAnimationStorageBuffer",
 		});
-		this._backend.writeBuffer(this._fallbackStorageBuffer, new Float32Array(4));
+		this._backend.writeBuffer(this._fallbackStorageBuffer, FALLBACK_STORAGE_DATA);
 	}
 
 	public beginFrame(): void {
@@ -121,33 +152,15 @@ export class WebGPUMaterialBindingCache {
 			cached.lastUsedFrame = this._currentFrame;
 		}
 
-		const uniformData = packModelUniformData(
-			packet.worldMatrix,
-			packet.normalMatrix as any,
-			materialData,
-			cached.prevModelMatrix ?? packet.worldMatrix
-		);
-		this._backend.writeBuffer(
-			cached.uniformBuffer,
-			new Float32Array(uniformData)
-		);
-		cached.prevModelMatrix = packet.worldMatrix.clone();
+		this._updateModelUniform(cached, packet, materialData);
 
 		const jointCount = this._resolveJointCount(animation.jointMatrices);
 		const morphCount = this._resolveMorphCount(
 			animation.morphWeights,
 			animation.morphTargetCount
 		);
-		const jointCapacity = Math.max(
-			1,
-			jointCount,
-			this._resolveJointCount(cached.prevJointMatrices)
-		);
-		const morphCapacity = Math.max(
-			1,
-			morphCount,
-			cached.prevMorphWeights?.length ?? 0
-		);
+		const jointCapacity = Math.max(1, jointCount);
+		const morphCapacity = Math.max(1, morphCount);
 
 		let requiresRebind = false;
 		requiresRebind =
@@ -157,38 +170,7 @@ export class WebGPUMaterialBindingCache {
 			this._ensureMorphBufferCapacity(cached, cacheKey, morphCapacity) ||
 			requiresRebind;
 
-		const jointPayload = this._buildJointPayload(
-			animation.jointMatrices,
-			cached.prevJointMatrices,
-			jointCount,
-			jointCapacity
-		);
-		const morphPayload = this._buildMorphPayload(
-			animation.morphWeights,
-			cached.prevMorphWeights,
-			morphCount,
-			morphCapacity
-		);
-		this._backend.writeBuffer(
-			cached.jointMatricesBuffer,
-			new Float32Array(jointPayload)
-		);
-		this._backend.writeBuffer(
-			cached.morphWeightsBuffer,
-			new Float32Array(morphPayload)
-		);
-		this._backend.writeBuffer(
-			cached.animationParamsBuffer,
-			new Float32Array([jointCount, morphCount, jointCapacity, morphCapacity])
-		);
-		cached.prevJointMatrices =
-			jointCount > 0 && animation.jointMatrices ?
-				new Float32Array(animation.jointMatrices.subarray(0, jointCount * 16))
-			:	null;
-		cached.prevMorphWeights =
-			morphCount > 0 && animation.morphWeights ?
-				new Float32Array(animation.morphWeights.subarray(0, morphCount))
-			:	null;
+		this._updateAnimationBuffers(cached, animation, jointCount, morphCount);
 
 		const morphPositionBuffer =
 			animation.morphPositionBuffer ?? this._fallbackStorageBuffer;
@@ -203,7 +185,6 @@ export class WebGPUMaterialBindingCache {
 
 		if (
 			!cached.bindingGroup ||
-			cached.pipeline !== pipeline ||
 			requiresRebind ||
 			!areTexturesEqual(cached.textures, textures) ||
 			!areSamplersEqual(cached.samplers, samplers) ||
@@ -250,7 +231,6 @@ export class WebGPUMaterialBindingCache {
 			if (previousBindingGroup && previousBindingGroup !== cached.bindingGroup) {
 				this._destroyBindingGroup(previousBindingGroup);
 			}
-			cached.pipeline = pipeline;
 			cached.textures = textures.slice();
 			cached.samplers = samplers.slice();
 			cached.morphPositionBuffer = morphPositionBuffer;
@@ -261,7 +241,7 @@ export class WebGPUMaterialBindingCache {
 	}
 
 	private _createEntry(cacheKey: string): MaterialBindingEntry {
-		return {
+		const entry: MaterialBindingEntry = {
 			uniformBuffer: this._backend.createBuffer({
 				size: WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -283,18 +263,262 @@ export class WebGPUMaterialBindingCache {
 				label: `ModelMorphWeights_${cacheKey}`,
 			}),
 			bindingGroup: null,
-			pipeline: null,
 			textures: [],
 			samplers: [],
 			morphPositionBuffer: this._fallbackStorageBuffer,
 			morphNormalBuffer: this._fallbackStorageBuffer,
-			prevModelMatrix: null,
-			prevJointMatrices: null,
-			prevMorphWeights: null,
+			modelUniformWriter: createModelUniformWriter(),
+			currentModelMatrix: createMatrixRows(),
+			previousModelMatrix: createMatrixRows(),
+			normalMatrix: createMatrixRows(),
+			materialSnapshot: new Float32Array(MATERIAL_SNAPSHOT_FLOATS),
+			hasModelSnapshot: false,
+			hasMaterialSnapshot: false,
+			hasPackedUniform: false,
+			modelFrame: -1,
+			animationParamsData: new Float32Array([0, 0, 1, 1]),
+			jointPayload: createJointPayload(1),
+			morphPayload: new Float32Array(2),
+			currentJointMatrices: null,
+			previousJointMatrices: null,
+			currentMorphWeights: null,
+			previousMorphWeights: null,
+			currentJointCount: 0,
+			previousJointCount: 0,
+			currentMorphCount: 0,
+			previousMorphCount: 0,
+			animationFrame: -1,
+			animationParamsWritten: true,
+			jointPayloadWritten: false,
+			morphPayloadWritten: false,
 			jointMatrixCapacity: 1,
 			morphWeightCapacity: 1,
 			lastUsedFrame: this._currentFrame,
 		};
+		this._backend.writeBuffer(entry.animationParamsBuffer, entry.animationParamsData);
+		return entry;
+	}
+
+	private _updateModelUniform(
+		entry: MaterialBindingEntry,
+		packet: DrawPacket,
+		materialData: WebGPUMaterialUniformData
+	): void {
+		let uniformDirty = !entry.hasPackedUniform;
+
+		if (entry.modelFrame !== this._currentFrame) {
+			if (!entry.hasModelSnapshot) {
+				copyMatrixToRows(packet.worldMatrix, entry.currentModelMatrix);
+				copyRows(entry.currentModelMatrix, entry.previousModelMatrix);
+				entry.hasModelSnapshot = true;
+			} else {
+				uniformDirty =
+					copyRows(entry.currentModelMatrix, entry.previousModelMatrix) ||
+					uniformDirty;
+			}
+			entry.modelFrame = this._currentFrame;
+		}
+
+		uniformDirty =
+			copyMatrixToRows(packet.worldMatrix, entry.currentModelMatrix) ||
+			uniformDirty;
+		uniformDirty =
+			copyNormalMatrixToRows(packet.normalMatrix, entry.normalMatrix) ||
+			uniformDirty;
+		uniformDirty =
+			updateMaterialSnapshot(
+				entry.materialSnapshot,
+				materialData,
+				entry.hasMaterialSnapshot
+			) || uniformDirty;
+		entry.hasMaterialSnapshot = true;
+
+		if (!uniformDirty) {
+			return;
+		}
+
+		const uniformData = writeModelUniformData(
+			entry.modelUniformWriter,
+			entry.currentModelMatrix,
+			entry.normalMatrix,
+			materialData,
+			entry.previousModelMatrix
+		);
+		this._backend.writeBuffer(entry.uniformBuffer, uniformData);
+		entry.hasPackedUniform = true;
+	}
+
+	private _updateAnimationBuffers(
+		entry: MaterialBindingEntry,
+		animation: WebGPUModelAnimationBindingState,
+		jointCount: number,
+		morphCount: number
+	): void {
+		let jointPayloadDirty = false;
+		let morphPayloadDirty = false;
+
+		if (entry.animationFrame !== this._currentFrame) {
+			if (entry.currentJointMatrices && entry.currentJointCount > 0) {
+				this._ensureJointSnapshots(entry);
+				jointPayloadDirty =
+					copyFloatPrefix(
+						entry.currentJointMatrices,
+						entry.previousJointMatrices!,
+						entry.currentJointCount * 16
+					) || jointPayloadDirty;
+				entry.previousJointCount = entry.currentJointCount;
+			} else if (entry.previousJointCount !== 0) {
+				entry.previousJointCount = 0;
+				jointPayloadDirty = true;
+			}
+
+			if (entry.currentMorphWeights && entry.currentMorphCount > 0) {
+				this._ensureMorphSnapshots(entry);
+				morphPayloadDirty =
+					copyFloatPrefix(
+						entry.currentMorphWeights,
+						entry.previousMorphWeights!,
+						entry.currentMorphCount
+					) || morphPayloadDirty;
+				entry.previousMorphCount = entry.currentMorphCount;
+			} else if (entry.previousMorphCount !== 0) {
+				entry.previousMorphCount = 0;
+				morphPayloadDirty = true;
+			}
+
+			entry.animationFrame = this._currentFrame;
+		}
+
+		if (jointCount > 0 && animation.jointMatrices) {
+			const hadPreviousJointState = entry.currentJointCount > 0;
+			this._ensureJointSnapshots(entry);
+			jointPayloadDirty =
+				copyFloatPrefix(
+					animation.jointMatrices,
+					entry.currentJointMatrices!,
+					jointCount * 16
+				) || jointPayloadDirty;
+			if (entry.currentJointCount !== jointCount) {
+				entry.currentJointCount = jointCount;
+				jointPayloadDirty = true;
+			}
+			if (!hadPreviousJointState || entry.previousJointCount <= 0) {
+				copyFloatPrefix(
+					entry.currentJointMatrices!,
+					entry.previousJointMatrices!,
+					jointCount * 16
+				);
+				entry.previousJointCount = jointCount;
+				jointPayloadDirty = true;
+			}
+		} else if (entry.currentJointCount !== 0) {
+			entry.currentJointCount = 0;
+			jointPayloadDirty = true;
+		}
+
+		if (morphCount > 0) {
+			const hadPreviousMorphState = entry.currentMorphCount > 0;
+			this._ensureMorphSnapshots(entry);
+			if (animation.morphWeights) {
+				morphPayloadDirty =
+					copyFloatPrefix(
+						animation.morphWeights,
+						entry.currentMorphWeights!,
+						morphCount
+					) || morphPayloadDirty;
+			} else {
+				morphPayloadDirty =
+					zeroFloatPrefix(entry.currentMorphWeights!, morphCount) ||
+					morphPayloadDirty;
+			}
+			if (entry.currentMorphCount !== morphCount) {
+				entry.currentMorphCount = morphCount;
+				morphPayloadDirty = true;
+			}
+			if (!hadPreviousMorphState || entry.previousMorphCount <= 0) {
+				copyFloatPrefix(
+					entry.currentMorphWeights!,
+					entry.previousMorphWeights!,
+					morphCount
+				);
+				entry.previousMorphCount = morphCount;
+				morphPayloadDirty = true;
+			}
+		} else if (entry.currentMorphCount !== 0) {
+			entry.currentMorphCount = 0;
+			morphPayloadDirty = true;
+		}
+
+		this._writeAnimationParamsIfNeeded(entry, jointCount, morphCount);
+
+		if (jointCount > 0 && (jointPayloadDirty || !entry.jointPayloadWritten)) {
+			this._writeJointPayload(entry, jointCount);
+		}
+		if (morphCount > 0 && (morphPayloadDirty || !entry.morphPayloadWritten)) {
+			this._writeMorphPayload(entry, morphCount);
+		}
+	}
+
+	private _writeAnimationParamsIfNeeded(
+		entry: MaterialBindingEntry,
+		jointCount: number,
+		morphCount: number
+	): void {
+		const params = entry.animationParamsData;
+		let dirty = !entry.animationParamsWritten;
+		dirty = setArrayValue(params, 0, jointCount) || dirty;
+		dirty = setArrayValue(params, 1, morphCount) || dirty;
+		dirty = setArrayValue(params, 2, entry.jointMatrixCapacity) || dirty;
+		dirty = setArrayValue(params, 3, entry.morphWeightCapacity) || dirty;
+		if (!dirty) {
+			return;
+		}
+		this._backend.writeBuffer(entry.animationParamsBuffer, params);
+		entry.animationParamsWritten = true;
+	}
+
+	private _writeJointPayload(
+		entry: MaterialBindingEntry,
+		jointCount: number
+	): void {
+		const capacity = entry.jointMatrixCapacity;
+		const payload = entry.jointPayload;
+		payload.fill(0);
+		fillIdentityMatrices(payload, 0, capacity);
+		fillIdentityMatrices(payload, capacity * 16, capacity);
+		if (entry.currentJointMatrices && jointCount > 0) {
+			payload.set(entry.currentJointMatrices.subarray(0, jointCount * 16), 0);
+		}
+		const prevCount = Math.min(entry.previousJointCount, jointCount);
+		if (entry.previousJointMatrices && prevCount > 0) {
+			payload.set(
+				entry.previousJointMatrices.subarray(0, prevCount * 16),
+				capacity * 16
+			);
+		}
+		this._backend.writeBuffer(entry.jointMatricesBuffer, payload);
+		entry.jointPayloadWritten = true;
+	}
+
+	private _writeMorphPayload(
+		entry: MaterialBindingEntry,
+		morphCount: number
+	): void {
+		const capacity = entry.morphWeightCapacity;
+		const payload = entry.morphPayload;
+		payload.fill(0);
+		if (entry.currentMorphWeights && morphCount > 0) {
+			payload.set(entry.currentMorphWeights.subarray(0, morphCount), 0);
+		}
+		const prevCount = Math.min(entry.previousMorphCount, morphCount);
+		if (entry.previousMorphWeights && prevCount > 0) {
+			payload.set(
+				entry.previousMorphWeights.subarray(0, prevCount),
+				capacity
+			);
+		}
+		this._backend.writeBuffer(entry.morphWeightsBuffer, payload);
+		entry.morphPayloadWritten = true;
 	}
 
 	private _resolveJointCount(matrices: Float32Array | null): number {
@@ -328,7 +552,18 @@ export class WebGPUMaterialBindingCache {
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
 			label: `ModelJointMatrices_${cacheKey}`,
 		});
+		entry.jointPayload = createJointPayload(capacity);
+		entry.currentJointMatrices = resizeFloatArray(
+			entry.currentJointMatrices,
+			capacity * 16
+		);
+		entry.previousJointMatrices = resizeFloatArray(
+			entry.previousJointMatrices,
+			capacity * 16
+		);
 		entry.jointMatrixCapacity = capacity;
+		entry.jointPayloadWritten = false;
+		entry.animationParamsWritten = false;
 		return true;
 	}
 
@@ -346,8 +581,39 @@ export class WebGPUMaterialBindingCache {
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
 			label: `ModelMorphWeights_${cacheKey}`,
 		});
+		entry.morphPayload = new Float32Array(capacity * 2);
+		entry.currentMorphWeights = resizeFloatArray(
+			entry.currentMorphWeights,
+			capacity
+		);
+		entry.previousMorphWeights = resizeFloatArray(
+			entry.previousMorphWeights,
+			capacity
+		);
 		entry.morphWeightCapacity = capacity;
+		entry.morphPayloadWritten = false;
+		entry.animationParamsWritten = false;
 		return true;
+	}
+
+	private _ensureJointSnapshots(entry: MaterialBindingEntry): void {
+		const length = entry.jointMatrixCapacity * 16;
+		if (!entry.currentJointMatrices) {
+			entry.currentJointMatrices = new Float32Array(length);
+		}
+		if (!entry.previousJointMatrices) {
+			entry.previousJointMatrices = new Float32Array(length);
+		}
+	}
+
+	private _ensureMorphSnapshots(entry: MaterialBindingEntry): void {
+		const length = entry.morphWeightCapacity;
+		if (!entry.currentMorphWeights) {
+			entry.currentMorphWeights = new Float32Array(length);
+		}
+		if (!entry.previousMorphWeights) {
+			entry.previousMorphWeights = new Float32Array(length);
+		}
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
@@ -355,52 +621,6 @@ export class WebGPUMaterialBindingCache {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
 		}
-	}
-
-	private _buildJointPayload(
-		currentJointMatrices: Float32Array | null,
-		prevJointMatrices: Float32Array | null,
-		jointCount: number,
-		jointCapacity: number
-	): Float32Array {
-		const result = new Float32Array(jointCapacity * 2 * 16);
-		fillIdentityMatrices(result, 0, jointCapacity);
-		fillIdentityMatrices(result, jointCapacity * 16, jointCapacity);
-
-		if (jointCount > 0 && currentJointMatrices) {
-			result.set(currentJointMatrices.subarray(0, jointCount * 16), 0);
-		}
-
-		const prevSource = prevJointMatrices ?? currentJointMatrices;
-		const prevCount = Math.min(
-			this._resolveJointCount(prevSource),
-			jointCapacity
-		);
-		if (prevSource && prevCount > 0) {
-			result.set(prevSource.subarray(0, prevCount * 16), jointCapacity * 16);
-		}
-
-		return result;
-	}
-
-	private _buildMorphPayload(
-		currentMorphWeights: Float32Array | null,
-		prevMorphWeights: Float32Array | null,
-		morphCount: number,
-		morphCapacity: number
-	): Float32Array {
-		const result = new Float32Array(morphCapacity * 2);
-		if (morphCount > 0 && currentMorphWeights) {
-			result.set(currentMorphWeights.subarray(0, morphCount), 0);
-		}
-
-		const prevSource = prevMorphWeights ?? currentMorphWeights;
-		const prevCount = Math.min(prevSource?.length ?? 0, morphCapacity);
-		if (prevSource && prevCount > 0) {
-			result.set(prevSource.subarray(0, prevCount), morphCapacity);
-		}
-
-		return result;
 	}
 }
 
@@ -423,8 +643,184 @@ function areSamplersEqual(left: ISampler[], right: ISampler[]): boolean {
 	return true;
 }
 
+function createMatrixRows(): MatrixRows {
+	return [
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+	];
+}
+
+function resolveMatrixRows(matrix: Matrix4 | number[][]): number[][] {
+	return matrix instanceof Matrix4 ? matrix.elements : matrix;
+}
+
+function copyMatrixToRows(
+	source: Matrix4 | number[][],
+	target: MatrixRows
+): boolean {
+	return copyRows(resolveMatrixRows(source), target);
+}
+
+function copyNormalMatrixToRows(
+	source: Matrix4 | Matrix3Arr,
+	target: MatrixRows
+): boolean {
+	const rows = source instanceof Matrix4 ? source.elements : source;
+	let changed = false;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			const value =
+				row < 3 && column < 3 ? rows[row]?.[column] ?? 0
+				: row === 3 && column === 3 ? 1
+				: 0;
+			if (target[row][column] !== value) {
+				target[row][column] = value;
+				changed = true;
+			}
+		}
+	}
+	return changed;
+}
+
+function copyRows(source: MatrixRows, target: MatrixRows): boolean {
+	let changed = false;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			const value = source[row]?.[column] ?? 0;
+			if (target[row][column] !== value) {
+				target[row][column] = value;
+				changed = true;
+			}
+		}
+	}
+	return changed;
+}
+
+function updateMaterialSnapshot(
+	target: FloatBuffer,
+	materialData: WebGPUMaterialUniformData,
+	hasSnapshot: boolean
+): boolean {
+	let offset = 0;
+	let changed = !hasSnapshot;
+	for (const values of [
+		materialData.baseColorFactor,
+		materialData.emissiveFactor,
+		materialData.surfaceParams0,
+		materialData.surfaceParams1,
+		materialData.surfaceParams2,
+		materialData.surfaceParams3,
+		materialData.specularColorFactor,
+		materialData.phongAmbientShininess,
+		materialData.phongSpecularShading,
+		materialData.sheenColorClearcoatNormalScale,
+		materialData.attenuationColor,
+		materialData.materialFlags,
+	]) {
+		changed = writeSnapshotVec4(target, offset, values) || changed;
+		offset += 4;
+	}
+
+	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
+		const slot = materialData.textureSlots[i];
+		changed =
+			writeSnapshotVec4(
+				target,
+				offset,
+				slot?.transformA ?? ZERO_VEC4
+			) || changed;
+		offset += 4;
+		changed =
+			writeSnapshotVec4(
+				target,
+				offset,
+				slot?.transformB ?? ZERO_VEC4
+			) || changed;
+		offset += 4;
+	}
+
+	return changed;
+}
+
+const ZERO_VEC4: [number, number, number, number] = [0, 0, 0, 0];
+
+function writeSnapshotVec4(
+	target: FloatBuffer,
+	offset: number,
+	values: readonly number[]
+): boolean {
+	let changed = false;
+	for (let i = 0; i < 4; i++) {
+		const value = values[i] ?? 0;
+		if (target[offset + i] !== value) {
+			target[offset + i] = value;
+			changed = true;
+		}
+	}
+	return changed;
+}
+
+function setArrayValue(
+	target: FloatBuffer,
+	index: number,
+	value: number
+): boolean {
+	if (target[index] === value) {
+		return false;
+	}
+	target[index] = value;
+	return true;
+}
+
+function copyFloatPrefix(
+	source: Float32Array,
+	target: FloatBuffer,
+	count: number
+): boolean {
+	let changed = false;
+	for (let i = 0; i < count; i++) {
+		const value = source[i] ?? 0;
+		if (target[i] !== value) {
+			target[i] = value;
+			changed = true;
+		}
+	}
+	return changed;
+}
+
+function zeroFloatPrefix(target: FloatBuffer, count: number): boolean {
+	let changed = false;
+	for (let i = 0; i < count; i++) {
+		if (target[i] !== 0) {
+			target[i] = 0;
+			changed = true;
+		}
+	}
+	return changed;
+}
+
+function resizeFloatArray(
+	source: Float32Array | null,
+	length: number
+): FloatBuffer {
+	const target = new Float32Array(length);
+	if (source) {
+		target.set(source.subarray(0, Math.min(source.length, length)));
+	}
+	return target;
+}
+
+function createJointPayload(jointCapacity: number): FloatBuffer {
+	const payload = new Float32Array(jointCapacity * 2 * 16);
+	fillIdentityMatrices(payload, 0, jointCapacity);
+	fillIdentityMatrices(payload, jointCapacity * 16, jointCapacity);
+	return payload;
+}
+
 function fillIdentityMatrices(
-	target: Float32Array,
+	target: FloatBuffer,
 	startFloatOffset: number,
 	count: number
 ): void {
