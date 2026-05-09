@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+.vscode/
+.env
+*.log
+.DS_Store
+Thumbs.db
+public/
+assets/
+.obsidian/
