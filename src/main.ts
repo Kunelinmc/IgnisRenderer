@@ -190,6 +190,7 @@ function bindControls(
 
 	window.addEventListener("mousemove", (event: MouseEvent) => {
 		if (document.pointerLockElement === canvas) {
+			if (event.movementX === 0 && event.movementY === 0) return;
 			camera.rotate(event.movementX, event.movementY);
 			renderer.requestRender("camera");
 		}
@@ -203,6 +204,7 @@ function bindControls(
 		accumulator += Math.min(deltaTime / 1000, 0.25);
 
 		const moveSpeed = camera.moveSpeed;
+		let cameraMoved = false;
 
 		while (accumulator >= fixedTimeStep) {
 			const qYaw = Quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, camera.yaw);
@@ -243,15 +245,20 @@ function bindControls(
 				moveDir.y = -moveSpeed;
 			}
 
-			camera.position.x += moveDir.x * fixedTimeStep;
-			camera.position.y += moveDir.y * fixedTimeStep;
-			camera.position.z += moveDir.z * fixedTimeStep;
+			if (moveDir.x !== 0 || moveDir.y !== 0 || moveDir.z !== 0) {
+				camera.position.x += moveDir.x * fixedTimeStep;
+				camera.position.y += moveDir.y * fixedTimeStep;
+				camera.position.z += moveDir.z * fixedTimeStep;
+				cameraMoved = true;
+			}
 
 			accumulator -= fixedTimeStep;
 		}
 
-		camera.updateRotation();
-		renderer.requestRender("camera");
+		if (cameraMoved) {
+			camera.updateMatrices();
+			renderer.requestRender("camera");
+		}
 	});
 }
 
