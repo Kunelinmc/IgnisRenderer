@@ -1,26 +1,25 @@
 import {
-	AmbientLight,
-	DirectionalLight,
-	MeshFactory,
-	OrbitCamera,
-	PBRMaterial,
+	FPSCamera,
+	Camera,
 	Platform,
 	Renderer,
-	ReflectionProbe,
 	Scene,
 	SoftwareBackend,
 	WebGPUBackend,
 	WebGLBackend,
-	Vector3,
-	HDRLoader,
+	GLTFLoader,
+	Quaternion,
+	InteractionManager,
+	MeshInstance,
+	DirectionalLight,
+	Logger,
+	AmbientLight,
 } from "./index";
 
 async function init() {
 	const platform = Platform.detect();
 	if (!platform.isBrowserRuntime) {
-		throw new Error(
-			`Main entry requires browser runtime, got "${platform.runtime}".`
-		);
+		throw new Error(`Main entry requires browser runtime, got "${platform.runtime}".`);
 	}
 
 	const canvasElement = document.getElementById("canvas3d");
@@ -29,185 +28,266 @@ async function init() {
 	}
 
 	let canvas = canvasElement;
-	const camera = new OrbitCamera(new Vector3(0, 0, 0), 1200);
-	camera.phi = Math.PI / 4;
-	camera.theta = Math.PI / 4;
-	camera.minDistance = 100;
-	camera.maxDistance = 5000;
-	camera.updatePosition();
+	const camera = new FPSCamera();
+	camera.near = 0.1;
+	camera.far = 100;
+	camera.moveSpeed = 5;
+	camera.position.set(5, 4, 7);
+	camera.updateMatrices();
 
 	const scene = new Scene();
+
+	// Set spatial index mode to hybrid
+	scene.spatialIndexMode = "hybrid";
+
 	scene.add(camera);
 
-	buildPlayground(scene);
+	// Load model from public/test.glb
+	const gltfLoader = new GLTFLoader();
+	gltfLoader.on("progress", (event) => {
+		const percent = (event.loaded / event.total) * 100;
+		Logger.info(`Loading model: ${percent.toFixed(2)}% (${event.loaded}/${event.total} bytes)`);
+	});
+	const model = await gltfLoader.load("test.glb");
+	scene.add(model);
+
+	// Add some light
+	scene.add(
+		new AmbientLight({
+			intensity: 0.1,
+			color: {
+				r: 250,
+				g: 254,
+				b: 255,
+			},
+		}),
+	);
+
+	const sun = new DirectionalLight({
+		intensity: 5.0,
+		direction: { x: 0.5, y: -1, z: -1 },
+	});
+	scene.add(sun);
+
+	const shadowMap = scene.shadows.createSingle({
+		size: 4096,
+		sampling: {
+			filterMode: "pcf",
+			radius: 0.1,
+			samples: 16,
+			searchSamples: 8,
+			strength: 1,
+		},
+		bias: {
+			constant: 0,
+			slope: 0.001,
+			normal: 0.01,
+			normalMin: 0.01,
+			texel: 1,
+			max: 0.01,
+		},
+	});
+
+	scene.shadows.bind(sun, shadowMap);
 
 	const bootstrap = await createRenderer(canvas, camera, scene);
 	canvas = bootstrap.canvas;
 	const renderer = bootstrap.renderer;
 
-	// Load environment map for background and light probe baking.
-	const hdrLoader = new HDRLoader();
-	const environmentMap = await hdrLoader.load("puresky_1k.hdr");
-	scene.environment.backgroundTexture = environmentMap;
-	scene.environment.iblTexture = environmentMap;
-
-	// Bakes environment IBL data from the environment map.
-	await renderer.warmup({ includeEnvironmentIBLBake: true });
+	await renderer.warmup({
+		includeEnvironmentIBLBake: false,
+	});
 
 	renderer.updateSH();
-	renderer.requestRender();
+	renderer.requestRender("unknown");
 
-	bindControls(canvas, camera, renderer);
+	bindControls(canvas, camera, renderer, scene);
+	setupInteraction(renderer, scene, camera);
 
 	window.addEventListener("resize", () => {
 		renderer.resizeCanvas();
-		renderer.requestRender();
+		renderer.requestRender("camera");
 	});
-}
-
-function buildPlayground(scene: Scene): void {
-	// Create a grounded plane and a single metallic cube to show off the renderer's capabilities, along with a directional light and some ambient light for basic illumination.
-	const ground = MeshFactory.createPlane(
-		{ x: 0, y: 0, z: 0 },
-		2000,
-		2000,
-		new PBRMaterial({
-			albedo: { r: 60, g: 65, b: 70 },
-			roughness: 0.88,
-			metalness: 0.0,
-			doubleSided: true,
-		})
-	);
-	ground.name = "ground-plane";
-	scene.add(ground);
-
-	// Create a single prominent metallic cube
-	const size = 150;
-	const cube = MeshFactory.createBox(
-		{ x: 0, y: size / 2, z: 0 },
-		size,
-		size,
-		size,
-		new PBRMaterial({
-			albedo: { r: 255, g: 200, b: 50 },
-			roughness: 0.25,
-			metalness: 1.0,
-		})
-	);
-	cube.name = "metallic-cube";
-	scene.add(cube);
-
-	// Add a global probe so specular IBL uses prefiltered mip levels instead of
-	// directly sampling the raw environment texture.
-	const reflectionProbe = new ReflectionProbe({
-		shape: "sphere",
-		radius: 5000,
-		parallaxMode: "off",
-	});
-	reflectionProbe.name = "global-environment-probe";
-	scene.add(reflectionProbe);
-
-	// Add lights
-	scene.add(
-		new DirectionalLight({
-			color: { r: 255, g: 255, b: 245 },
-			intensity: 4,
-			direction: { x: -1, y: -2, z: -1 },
-		})
-	);
-
-	scene.add(
-		new AmbientLight({
-			color: { r: 180, g: 200, b: 255 },
-			intensity: 0.1,
-		})
-	);
 }
 
 async function createRenderer(
 	canvas: HTMLCanvasElement,
-	camera: OrbitCamera,
-	scene: Scene
+	camera: Camera,
+	scene: Scene,
 ): Promise<{ canvas: HTMLCanvasElement; renderer: Renderer }> {
+	let renderer: Renderer;
+
 	if (Platform.hasWebGPU()) {
-		const webgpuRenderer = new Renderer(new WebGPUBackend(), canvas, camera);
-		webgpuRenderer.setScene(scene);
-		webgpuRenderer.features.enableTAA = true;
+		renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+		renderer.setScene(scene);
+		renderer.features.enableFXAA = true;
+		renderer.features.enableOIT = true;
 
 		try {
-			await webgpuRenderer.init();
+			await renderer.init();
 
-			console.info("Using WebGPU backend");
-			return { canvas, renderer: webgpuRenderer };
+			Logger.info("Using WebGPU backend");
+			return { canvas, renderer };
 		} catch (error) {
-			console.warn(["WebGPU initialization failed, trying WebGL.", error], {
+			Logger.warn(["WebGPU initialization failed, trying WebGL.", error], {
 				scope: "Main",
 			});
 		}
 	}
 
 	try {
-		const webglRenderer = new Renderer(new WebGLBackend(), canvas, camera);
-		webglRenderer.setScene(scene);
-		webglRenderer.features.enableTAA = true;
+		renderer = new Renderer(new WebGLBackend(), canvas, camera);
+		renderer.setScene(scene);
+		renderer.features.enableFXAA = true;
+		renderer.features.enableOIT = true;
 
-		await webglRenderer.init();
+		await renderer.init();
 
-		console.info("Using WebGL backend");
-		return { canvas, renderer: webglRenderer };
+		Logger.info("Using WebGL backend");
+		return { canvas, renderer };
 	} catch (error) {
-		console.warn(["WebGL initialization failed, fallback to software.", error], {
+		Logger.warn(["WebGL initialization failed, fallback to software.", error], {
 			scope: "Main",
 		});
 	}
 
-	const softwareRenderer = new Renderer(new SoftwareBackend(), canvas, camera);
-	softwareRenderer.setScene(scene);
+	renderer = new Renderer(
+		new SoftwareBackend({
+			rasterMode: "tile",
+		}),
+		canvas,
+		camera,
+	);
+	renderer.setScene(scene);
 
-	await softwareRenderer.init();
+	await renderer.init();
 
-	console.info("Using software backend");
-	return { canvas, renderer: softwareRenderer };
+	Logger.info("Using software backend");
+	return { canvas, renderer };
 }
 
 function bindControls(
 	canvas: HTMLCanvasElement,
-	camera: OrbitCamera,
-	renderer: Renderer
+	camera: FPSCamera,
+	renderer: Renderer,
+	scene: Scene,
 ): void {
-	let isDraggingCamera = false;
-	let lastMouse = { x: 0, y: 0 };
+	const keys = new Set<string>();
 
-	canvas.addEventListener("mousedown", (event: MouseEvent) => {
-		isDraggingCamera = true;
-		lastMouse = { x: event.clientX, y: event.clientY };
+	// Keyboard Events
+	window.addEventListener("keydown", (event: KeyboardEvent) => {
+		keys.add(event.code);
+	});
+
+	window.addEventListener("keyup", (event: KeyboardEvent) => {
+		keys.delete(event.code);
+	});
+
+	// Mouse Events
+	canvas.addEventListener("mousedown", () => {
+		canvas.requestPointerLock();
 	});
 
 	window.addEventListener("mousemove", (event: MouseEvent) => {
-		if (isDraggingCamera) {
-			camera.rotate(event.clientX - lastMouse.x, event.clientY - lastMouse.y);
-			lastMouse = { x: event.clientX, y: event.clientY };
-			renderer.requestRender();
+		if (document.pointerLockElement === canvas) {
+			camera.rotate(event.movementX, event.movementY);
+			renderer.requestRender("camera");
 		}
 	});
 
-	window.addEventListener("mouseup", () => {
-		isDraggingCamera = false;
+	let accumulator = 0;
+	const fixedTimeStep = 1 / 60; // 60Hz fixed update
+
+	renderer.on("tick", async ({ deltaTime }) => {
+		// Convert ms to seconds and cap to avoid spiral of death
+		accumulator += Math.min(deltaTime / 1000, 0.25);
+
+		const moveSpeed = camera.moveSpeed;
+
+		while (accumulator >= fixedTimeStep) {
+			const qYaw = Quaternion.fromAxisAngle({ x: 0, y: 1, z: 0 }, camera.yaw);
+			const forward = qYaw.rotatePoint({ x: 0, y: 0, z: -1 });
+			const right = qYaw.rotatePoint({ x: 1, y: 0, z: 0 });
+
+			const moveDir = { x: 0, y: 0, z: 0 };
+
+			if (keys.has("KeyW")) {
+				moveDir.x += forward.x;
+				moveDir.z += forward.z;
+			}
+			if (keys.has("KeyS")) {
+				moveDir.x -= forward.x;
+				moveDir.z -= forward.z;
+			}
+			if (keys.has("KeyA")) {
+				moveDir.x -= right.x;
+				moveDir.z -= right.z;
+			}
+			if (keys.has("KeyD")) {
+				moveDir.x += right.x;
+				moveDir.z += right.z;
+			}
+
+			// Normalize move direction if moving
+			const length = Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
+			if (length > 0) {
+				moveDir.x = (moveDir.x / length) * moveSpeed;
+				moveDir.z = (moveDir.z / length) * moveSpeed;
+			}
+
+			if (keys.has("Space")) {
+				moveDir.y = moveSpeed;
+			}
+
+			if (keys.has("ShiftLeft")) {
+				moveDir.y = -moveSpeed;
+			}
+
+			camera.position.x += moveDir.x * fixedTimeStep;
+			camera.position.y += moveDir.y * fixedTimeStep;
+			camera.position.z += moveDir.z * fixedTimeStep;
+
+			accumulator -= fixedTimeStep;
+		}
+
+		camera.updateRotation();
+		renderer.requestRender("camera");
+	});
+}
+
+/**
+ * Setup real-time click interaction
+ */
+export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camera) {
+	const interaction = new InteractionManager();
+	interaction.attach(renderer, scene, camera);
+
+	// Listen for selection events
+	interaction.on("selectionChanged", ({ node }) => {
+		if (node instanceof MeshInstance) {
+			Logger.info(`Clicked mesh: ${node.name}`);
+		}
 	});
 
-	canvas.addEventListener(
-		"wheel",
-		(event) => {
-			event.preventDefault();
-			camera.zoom(event.deltaY);
-			renderer.requestRender();
-		},
-		{ passive: false }
-	);
+	// Handle mouse input
+	const canvas = renderer.canvas;
+	const handlePointer = (type: any, e: MouseEvent) => {
+		interaction.updatePointer({
+			type,
+			screenX: e.clientX,
+			screenY: e.clientY,
+			viewportWidth: canvas.clientWidth,
+			viewportHeight: canvas.clientHeight,
+		});
+	};
+
+	canvas.addEventListener("mousedown", (e) => handlePointer("down", e));
+	canvas.addEventListener("mousemove", (e) => handlePointer("move", e));
+	canvas.addEventListener("mouseup", (e) => handlePointer("up", e));
 }
 
 init().catch((error) => {
-	console.error(["Failed to initialize scene:", error], {
+	Logger.error(["Failed to initialize scene:", error], {
 		scope: "Main",
 	});
 });
