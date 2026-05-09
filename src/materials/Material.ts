@@ -37,6 +37,7 @@ export interface MaterialParams {
 	wireframe?: boolean;
 	alphaMode?: AlphaMode;
 	alphaCutoff?: number;
+	depthWrite?: boolean;
 	map?: TextureLike;
 	reflectivity?: number;
 	mirrorPlane?: MirrorPlane;
@@ -52,6 +53,11 @@ export class Material {
 	public wireframe: boolean;
 	public alphaMode: AlphaMode;
 	public alphaCutoff: number;
+	/**
+	 * Controls whether opaque draws update the scene depth buffer after passing
+	 * the depth test. Transparent draws remain depth-read-only.
+	 */
+	public depthWrite: boolean;
 	public map: TextureLike;
 	public reflectivity: number;
 	public mirrorPlane: MirrorPlane | null;
@@ -68,9 +74,22 @@ export class Material {
 
 		this.alphaMode = params.alphaMode ?? AlphaMode.Opaque;
 		this.alphaCutoff = params.alphaCutoff ?? 0.5;
+		this.depthWrite = params.depthWrite ?? true;
 		this.map = params.map ?? null;
 
 		this.reflectivity = params.reflectivity ?? 0;
 		this.mirrorPlane = params.mirrorPlane ?? null;
 	}
+}
+
+/**
+ * Returns whether a material is allowed to update the main scene depth buffer.
+ *
+ * @param material - Material whose depth-write policy should be resolved.
+ * @returns `false` only when `material.depthWrite` is explicitly `false`.
+ *
+ * Observable side effects: none.
+ */
+export function materialWritesDepth(material: Material): boolean {
+	return material.depthWrite !== false;
 }
