@@ -1,4 +1,9 @@
-import { Material, ShadingModel, AlphaMode } from "../../materials/Material";
+import {
+	AlphaMode,
+	Material,
+	materialWritesDepth,
+	ShadingModel,
+} from "../../materials/Material";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import { PostProcessConstants } from "./constants";
@@ -775,6 +780,7 @@ export class Rasterizer implements RasterizerLike {
 		const viewMat = context.camera.viewMatrix;
 
 		const verts = this._vertsCache;
+		const shouldWriteDepth = !isTransparent && materialWritesDepth(material);
 		const shadingModel = material.shading || ShadingModel.Flat;
 		const isLightingEnabled = context.features.enableLighting !== false;
 		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
@@ -1044,7 +1050,9 @@ export class Rasterizer implements RasterizerLike {
 							shadedDepth > 0 &&
 							shadedDepth < depthBuffer[bufIdx]
 						) {
-							depthBuffer[bufIdx] = shadedDepth;
+							if (shouldWriteDepth) {
+								depthBuffer[bufIdx] = shadedDepth;
+							}
 							const idx = bufIdx << 2;
 							if (!isTransparent) {
 								pixels[idx] = finalColor.r;

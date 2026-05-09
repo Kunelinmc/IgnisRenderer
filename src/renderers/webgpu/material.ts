@@ -3,6 +3,7 @@ import {
 	type Material,
 	ShadingModel,
 	AlphaMode,
+	materialWritesDepth,
 } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
@@ -29,6 +30,7 @@ export function createWebGPUMaterialUniformData(
 	const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
 	const alphaModeMask = alphaMode === AlphaMode.Mask ? 1 : 0;
 	const isTransmissive = materialUsesTransmission(material);
+	const depthWrite = materialWritesDepth(material);
 	const alphaCutoff = clamp(material.alphaCutoff ?? 0.5, 0, 1);
 
 	const roughness = clamp(mat.roughness ?? 0.5, 0.04, 1);
@@ -141,6 +143,7 @@ export function createWebGPUMaterialUniformData(
 					? "blend"
 					: isTransmissive ? "transmission"
 					: "opaque",
+			depthWrite ? "depth-write" : "depth-read",
 			isWireframe ? "wireframe" : "solid",
 		].join("-"),
 		warnings,

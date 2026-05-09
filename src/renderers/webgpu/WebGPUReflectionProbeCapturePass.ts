@@ -1,5 +1,5 @@
 import { Camera } from "../../cameras/Camera";
-import { AlphaMode } from "../../materials/Material";
+import { AlphaMode, materialWritesDepth } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, Matrix3Arr } from "../../maths/types";
@@ -607,6 +607,7 @@ function createDrawPacket(
 			material.shading,
 			material.alphaMode ?? AlphaMode.Opaque,
 			material.doubleSided ? "double" : "single",
+			materialWritesDepth(material) ? "depth-write" : "depth-read",
 		].join(":"),
 		passFlags,
 	};

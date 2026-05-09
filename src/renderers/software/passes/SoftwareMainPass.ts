@@ -1,5 +1,5 @@
 import { Platform } from "../../../foundation/Platform";
-import { AlphaMode } from "../../../materials/Material";
+import { AlphaMode, materialWritesDepth } from "../../../materials/Material";
 import { Projector } from "../Projector";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type {
@@ -366,6 +366,16 @@ function isMaskTriangle(triangle: TileTriangleWorkItem): boolean {
 	return triangle.face.material?.alphaMode === AlphaMode.Mask;
 }
 
+function shouldSkipEarlyDepthPrepassTriangle(
+	triangle: TileTriangleWorkItem
+): boolean {
+	const material = triangle.face.material;
+	return (
+		isMaskTriangle(triangle) ||
+		(!!material && !materialWritesDepth(material))
+	);
+}
+
 function prepareEarlyDepthBuffer(
 	previous: Float32Array | null,
 	context: FrameContext,
@@ -437,7 +447,7 @@ class ScanlineMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 			);
 			rasterizerContext.earlyDepthBuffer = this._earlyDepthBuffer;
 			for (const triangle of triangles) {
-				if (isMaskTriangle(triangle)) continue;
+				if (shouldSkipEarlyDepthPrepassTriangle(triangle)) continue;
 				this._rasterizer.drawCameraDepthTriangle(
 					triangle.pts,
 					rasterizerContext
@@ -599,7 +609,9 @@ class TileMainRasterExecutor implements SoftwareMainRasterExecutorLike {
 
 				for (const triangleIndex of triangleIndices) {
 					const triangle = triangles[triangleIndex];
-					if (!triangle || isMaskTriangle(triangle)) continue;
+					if (!triangle || shouldSkipEarlyDepthPrepassTriangle(triangle)) {
+						continue;
+					}
 					this._rasterizer.drawCameraDepthTriangle(
 						triangle.pts,
 						tileContext

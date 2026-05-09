@@ -6,7 +6,11 @@ import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
-import { AlphaMode, type Material } from "../../materials/Material";
+import {
+	AlphaMode,
+	materialWritesDepth,
+	type Material,
+} from "../../materials/Material";
 import {
 	isMaterialTransparentPass,
 	materialUsesTransmission,
@@ -238,9 +242,11 @@ export class WebGPUPipelineLibrary {
 			transparentMode
 		);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
+		const depthWrite = materialWritesDepth(material);
 		const isEarlyZColor =
 			drawMode === "early-z-color" &&
-			!isTransparent;
+			!isTransparent &&
+			depthWrite;
 
 		const effectiveTopology = isWireframe ? "line-list" : topology;
 		const triangleTopology =
@@ -287,7 +293,8 @@ export class WebGPUPipelineLibrary {
 			},
 			depthStencil: {
 				format: depthFormat,
-				depthWriteEnabled: isEarlyZColor ? false : !isTransparent,
+				depthWriteEnabled:
+					isEarlyZColor ? false : depthWrite && !isTransparent,
 				depthCompare: isEarlyZColor ? "less-equal" : "less",
 			},
 			sampleCount,
@@ -301,6 +308,9 @@ export class WebGPUPipelineLibrary {
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 	): Promise<IRenderPipeline | null> {
 		if (isMaterialTransparentPass(material)) {
+			return null;
+		}
+		if (!materialWritesDepth(material)) {
 			return null;
 		}
 		const isMask = isMaterialMask(material);
