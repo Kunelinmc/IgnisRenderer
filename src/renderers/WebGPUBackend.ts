@@ -38,7 +38,10 @@ import {
 	tryGetWebGPUBuffer,
 	tryGetWebGPUTexture,
 } from "./webgpu/WebGPUResourceAccess";
-import type { WebGPUPostProcessPassPlugin } from "./webgpu/WebGPUPostProcessGraph";
+import {
+	isWebGPUBuiltinPostProcessPassId,
+	type WebGPUPostProcessPassPlugin,
+} from "./webgpu/WebGPUPostProcessGraph";
 import type { IParticleSimulator } from "../simulation/particles/IParticleSimulator";
 import { WebGPUParticleSimulator } from "../simulation/particles/WebGPUParticleSimulator";
 import {
@@ -692,13 +695,56 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
-		this._pendingPostProcessPasses.set(pass.id, pass);
+		this._assertCanRegisterPostProcessPass(pass);
 		this._frameExecutor?.registerPostProcessPass(pass);
+		this._pendingPostProcessPasses.set(pass.id, pass);
 	}
 
 	public unregisterPostProcessPass(id: string): void {
-		this._pendingPostProcessPasses.delete(id);
+		if (isWebGPUBuiltinPostProcessPassId(id)) {
+			throw new Error(
+				`Cannot unregister built-in WebGPU post-process pass "${id}".`
+			);
+		}
 		this._frameExecutor?.unregisterPostProcessPass(id);
+		this._pendingPostProcessPasses.delete(id);
+	}
+
+	private _assertCanRegisterPostProcessPass(
+		pass: WebGPUPostProcessPassPlugin
+	): void {
+		if (!pass.id) {
+			throw new Error("Post-process pass id is required.");
+		}
+		if (isWebGPUBuiltinPostProcessPassId(pass.id)) {
+			throw new Error(
+				`Cannot register built-in WebGPU post-process pass "${pass.id}".`
+			);
+		}
+		if (this._pendingPostProcessPasses.has(pass.id)) {
+			throw new Error(
+				`WebGPU post-process pass "${pass.id}" is already registered.`
+			);
+		}
+		if (!pass.runtime) {
+			return;
+		}
+		const runtimeId = pass.runtime.id;
+		if (!runtimeId) {
+			throw new Error("WebGPU post-process runtime pass id is required.");
+		}
+		if (isWebGPUBuiltinPostProcessPassId(runtimeId)) {
+			throw new Error(
+				`Cannot register built-in WebGPU post-process runtime pass "${runtimeId}".`
+			);
+		}
+		for (const pending of this._pendingPostProcessPasses.values()) {
+			if (pending.runtime?.id === runtimeId) {
+				throw new Error(
+					`WebGPU post-process runtime pass "${runtimeId}" is already registered.`
+				);
+			}
+		}
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {

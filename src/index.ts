@@ -59,9 +59,21 @@ export {
 	type ReadTextureOptions,
 } from "./renderers/webgpu/ComputeRuntime";
 export type {
+	WebGPUBuiltinPostProcessPassId,
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessPassKind,
 } from "./renderers/webgpu/WebGPUPostProcessGraph";
+export {
+	WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS,
+	isWebGPUBuiltinPostProcessPassId,
+} from "./renderers/webgpu/WebGPUPostProcessGraph";
+export type {
+	WebGPUCustomPostProcessExecuteRequest,
+	WebGPUPostProcessExecuteResult,
+	WebGPUPostProcessRuntimeContext,
+	WebGPUPostProcessRuntimeExecuteRequest,
+	WebGPUPostProcessRuntimePass,
+} from "./renderers/webgpu/WebGPUPostProcessRuntime";
 export { Rasterizer } from "./renderers/software/Rasterizer";
 export { PostProcessor } from "./renderers/software/PostProcessor";
 export type {

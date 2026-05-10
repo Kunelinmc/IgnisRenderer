@@ -28,6 +28,7 @@ import {
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "./constants";
 import {
+	isWebGPUBuiltinPostProcessPassId,
 	WebGPUPostProcessGraph,
 	type WebGPUFrameTargets,
 	type WebGPUPostProcessPassContext,
@@ -345,11 +346,22 @@ export class WebGPUFrameExecutor {
 	}
 
 	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
+		this._postGraph.assertCanRegisterPass(pass);
+		if (pass.runtime) {
+			this._postRuntime.assertCanRegisterRuntimePass(pass.runtime);
+		}
 		this._postGraph.registerPass(pass);
+		if (pass.runtime) {
+			this._postRuntime.registerRuntimePass(pass.runtime);
+		}
 	}
 
 	public unregisterPostProcessPass(id: string): void {
+		const pass = this._postGraph.getPass(id);
 		this._postGraph.unregisterPass(id);
+		if (pass?.runtime) {
+			this._postRuntime.unregisterRuntimePass(pass.runtime.id);
+		}
 	}
 
 	public getSceneTargetModeForFrame(): "mrt" | "single" {
@@ -422,12 +434,21 @@ export class WebGPUFrameExecutor {
 		);
 		const allowedPassIds = new Set(plan.postProcessPasses);
 		const hints = new Set<string>();
-		for (const pass of enabledPasses) {
-			if (!allowedPassIds.has(pass.id)) {
-				continue;
-			}
-			for (const hint of pass.precompileHints ?? [`postprocess:${pass.id}`]) {
-				hints.add(hint);
+		if (plan.includePostProcess) {
+			for (const pass of enabledPasses) {
+				if (
+					isWebGPUBuiltinPostProcessPassId(pass.id) &&
+					!allowedPassIds.has(pass.id)
+				) {
+					continue;
+				}
+				const passHints =
+					pass.precompileHints ??
+					pass.runtime?.warmupHints ??
+					[`postprocess:${pass.id}`];
+				for (const hint of passHints) {
+					hints.add(hint);
+				}
 			}
 		}
 		if (hints.size > 0) {
@@ -1571,6 +1592,7 @@ export class WebGPUFrameExecutor {
 			encoder: this._encoder,
 			frameContext: context,
 			targets: this._frameTargets,
+			executeRuntimePass: (request) => this._postRuntime.executePass(request),
 		};
 		const executed = await this._postGraph.execute(
 			postContext,

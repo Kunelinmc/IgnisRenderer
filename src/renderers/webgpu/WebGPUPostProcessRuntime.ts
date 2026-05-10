@@ -5,49 +5,98 @@ import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext
 import { ScreenPostProcessDelegate } from "./postprocess/ScreenPostProcessDelegate";
 import { SpatialPostProcessDelegate } from "./postprocess/SpatialPostProcessDelegate";
 import { TemporalPostProcessDelegate } from "./postprocess/TemporalPostProcessDelegate";
+import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessGraph";
 import type {
-	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,
-	WebGPUPostProcessPassDelegate,
-	WebGPUPostProcessPassId,
+	WebGPUPostProcessRuntimeExecuteRequest,
+	WebGPUPostProcessRuntimePass,
+	WebGPUPostProcessRuntimePassRegistry,
 } from "./postprocess/types";
 
 export type {
+	WebGPUCustomPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteRequest,
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessPassId,
+	WebGPUPostProcessRuntimeContext,
+	WebGPUPostProcessRuntimeExecuteRequest,
+	WebGPUPostProcessRuntimePass,
 } from "./postprocess/types";
 
+interface RegisteredRuntimePass {
+	pass: WebGPUPostProcessRuntimePass;
+	builtIn: boolean;
+}
+
 export class WebGPUPostProcessRuntime {
-	private _compute: IWebGPUComputeFacade;
 	private _shared: PostProcessSharedContext;
-	private _delegates: readonly WebGPUPostProcessPassDelegate[];
-	private _passDelegateById = new Map<
-		WebGPUPostProcessPassId,
-		WebGPUPostProcessPassDelegate
-	>();
+	private _runtimePassById = new Map<string, RegisteredRuntimePass>();
+	private _warmupPassesByHint = new Map<string, RegisteredRuntimePass[]>();
 
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
 		warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout
 	) {
-		this._compute = computeFacade;
 		this._shared = new PostProcessSharedContext(
 			computeFacade,
 			warn,
 			frameBindGroupLayout
 		);
-		this._delegates = [
+		const delegates = [
 			new SpatialPostProcessDelegate(this._shared),
 			new TemporalPostProcessDelegate(this._shared),
 			new ScreenPostProcessDelegate(this._shared),
 		];
-		for (const delegate of this._delegates) {
-			for (const passId of delegate.passIds) {
-				this._passDelegateById.set(passId, delegate);
-			}
+		const builtInRegistry: WebGPUPostProcessRuntimePassRegistry = {
+			registerRuntimePass: (pass) =>
+				this._registerRuntimePass(pass, { builtIn: true }),
+		};
+		for (const delegate of delegates) {
+			delegate.registerPasses(builtInRegistry);
 		}
+	}
+
+	/**
+	 * Throws when a custom runtime pass cannot be registered.
+	 *
+	 * @param pass Runtime pass descriptor to validate.
+	 * @throws If the id is empty, reserved by a built-in pass, or duplicated.
+	 */
+	public assertCanRegisterRuntimePass(
+		pass: WebGPUPostProcessRuntimePass
+	): void {
+		this._assertRuntimePassCanRegister(pass, false);
+	}
+
+	/**
+	 * Registers a custom runtime pass used by post-process graph plugins.
+	 *
+	 * @param pass Runtime pass descriptor. The `id` must be a unique custom id.
+	 * @throws If the pass id is empty, reserved, or already registered.
+	 */
+	public registerRuntimePass(pass: WebGPUPostProcessRuntimePass): void {
+		this._registerRuntimePass(pass, { builtIn: false });
+	}
+
+	/**
+	 * Unregisters a custom runtime pass by id.
+	 *
+	 * @param id Runtime pass id to remove. Unknown custom ids are ignored.
+	 * @throws If `id` belongs to a built-in runtime pass.
+	 */
+	public unregisterRuntimePass(id: string): void {
+		const entry = this._runtimePassById.get(id);
+		if (entry?.builtIn || isWebGPUBuiltinPostProcessPassId(id)) {
+			throw new Error(
+				`Cannot unregister built-in WebGPU post-process runtime pass "${id}".`
+			);
+		}
+		if (!entry) {
+			return;
+		}
+		this._runtimePassById.delete(id);
+		this._removeWarmupPass(entry);
 	}
 
 	/**
@@ -57,15 +106,15 @@ export class WebGPUPostProcessRuntime {
 	 */
 	public invalidateBindings(): void {
 		this._shared.invalidateBindings();
-		for (const delegate of this._delegates) {
-			delegate.invalidateBindings();
+		for (const entry of this._runtimePassById.values()) {
+			entry.pass.invalidateBindings?.(this._shared);
 		}
 	}
 
 	public onShaderRuntimeChanged(): void {
 		this._shared.onShaderRuntimeChanged();
-		for (const delegate of this._delegates) {
-			delegate.onShaderRuntimeChanged();
+		for (const entry of this._runtimePassById.values()) {
+			entry.pass.onShaderRuntimeChanged?.(this._shared);
 		}
 	}
 
@@ -103,23 +152,81 @@ export class WebGPUPostProcessRuntime {
 	}
 
 	public async executePass(
-		request: WebGPUPostProcessExecuteRequest
+		request: WebGPUPostProcessRuntimeExecuteRequest
 	): Promise<WebGPUPostProcessExecuteResult> {
-		const delegate = this._passDelegateById.get(request.passId);
-		if (!delegate) {
+		const entry = this._runtimePassById.get(request.passId);
+		if (!entry) {
 			return { ran: false };
 		}
-		const result = await delegate.execute(request);
-		return result ?? { ran: false };
+		const result = await entry.pass.execute(request, this._shared);
+		if (result && typeof result === "object") {
+			return result;
+		}
+		return { ran: true };
 	}
 
 	private async _warmupHint(hint: string): Promise<boolean> {
-		for (const delegate of this._delegates) {
-			const warmed = await delegate.warmupHint(hint);
-			if (warmed) {
-				return true;
+		const entries = this._warmupPassesByHint.get(hint);
+		if (!entries) {
+			return false;
+		}
+		let warmed = false;
+		for (const entry of entries) {
+			if (!entry.pass.warmup) {
+				continue;
+			}
+			const result = await entry.pass.warmup(hint, this._shared);
+			if (result !== false) {
+				warmed = true;
 			}
 		}
-		return false;
+		return warmed;
+	}
+
+	private _registerRuntimePass(
+		pass: WebGPUPostProcessRuntimePass,
+		options: { builtIn: boolean }
+	): void {
+		this._assertRuntimePassCanRegister(pass, options.builtIn);
+		const entry: RegisteredRuntimePass = {
+			pass,
+			builtIn: options.builtIn,
+		};
+		this._runtimePassById.set(pass.id, entry);
+		for (const hint of pass.warmupHints ?? []) {
+			const entries = this._warmupPassesByHint.get(hint) ?? [];
+			entries.push(entry);
+			this._warmupPassesByHint.set(hint, entries);
+		}
+	}
+
+	private _assertRuntimePassCanRegister(
+		pass: WebGPUPostProcessRuntimePass,
+		allowBuiltIn: boolean
+	): void {
+		if (!pass.id) {
+			throw new Error("WebGPU post-process runtime pass id is required.");
+		}
+		if (!allowBuiltIn && isWebGPUBuiltinPostProcessPassId(pass.id)) {
+			throw new Error(
+				`Cannot register built-in WebGPU post-process runtime pass "${pass.id}".`
+			);
+		}
+		if (this._runtimePassById.has(pass.id)) {
+			throw new Error(
+				`WebGPU post-process runtime pass "${pass.id}" is already registered.`
+			);
+		}
+	}
+
+	private _removeWarmupPass(entry: RegisteredRuntimePass): void {
+		for (const [hint, entries] of this._warmupPassesByHint.entries()) {
+			const filtered = entries.filter((candidate) => candidate !== entry);
+			if (filtered.length === 0) {
+				this._warmupPassesByHint.delete(hint);
+			} else if (filtered.length !== entries.length) {
+				this._warmupPassesByHint.set(hint, filtered);
+			}
+		}
 	}
 }

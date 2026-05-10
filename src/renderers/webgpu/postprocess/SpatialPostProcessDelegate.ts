@@ -18,21 +18,13 @@ import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
-	WebGPUPostProcessExecuteRequest,
-	WebGPUPostProcessExecuteResult,
-	WebGPUPostProcessPassDelegate,
-	WebGPUPostProcessPassId,
+	WebGPUPostProcessRuntimePassRegistry,
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
 const SSGI_MAX_SAMPLES = 16;
 
-export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate {
-	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
-		"ssao",
-		"ssgi",
-	];
-
+export class SpatialPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
 	private _ssaoModule: IShaderModule | null = null;
 	private _ssaoRawPipeline: IComputePipeline | null = null;
@@ -48,6 +40,48 @@ export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate
 		this._shared = shared;
 	}
 
+	/**
+	 * Registers spatial post-process runtime passes with the owning runtime.
+	 */
+	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
+		registry.registerRuntimePass({
+			id: "ssao",
+			warmupHints: ["postprocess:ssao"],
+			warmup: async () => {
+				await this._ensureSSAOResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeSSAO(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "ssgi",
+			warmupHints: ["postprocess:ssgi"],
+			warmup: async () => {
+				await this._ensureSSGIResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeSSGI(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+	}
+
 	public invalidateBindings(): void {}
 
 	public onShaderRuntimeChanged(): void {
@@ -61,42 +95,6 @@ export class SpatialPostProcessDelegate implements WebGPUPostProcessPassDelegate
 		this._ssgiPipeline = null;
 		this._ssgiParams?.destroy();
 		this._ssgiParams = null;
-	}
-
-	public async warmupHint(hint: string): Promise<boolean> {
-		switch (hint) {
-			case "postprocess:ssao":
-				await this._ensureSSAOResources();
-				return true;
-			case "postprocess:ssgi":
-				await this._ensureSSGIResources();
-				return true;
-			default:
-				return false;
-		}
-	}
-
-	public async execute(
-		request: WebGPUPostProcessExecuteRequest
-	): Promise<WebGPUPostProcessExecuteResult | null> {
-		switch (request.passId) {
-			case "ssao":
-				await this._executeSSAO(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			case "ssgi":
-				await this._executeSSGI(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			default:
-				return null;
-		}
 	}
 
 	private async _executeSSAO(

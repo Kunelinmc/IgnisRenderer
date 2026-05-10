@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../src/pipeline/types.ts";
+import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { createWebGPUDefaultPostProcessPasses } from "../src/renderers/webgpu/WebGPUDefaultPostProcessPasses.ts";
 import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
+import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
+import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 
 function createFeatures(overrides = {}) {
 	return {
@@ -118,6 +121,30 @@ function createPassContext() {
 		},
 		targets: {
 			sceneColor: { id: "sceneColor" },
+		},
+	};
+}
+
+function createCustomPass(id, runtime = null) {
+	return {
+		id,
+		kind: "compute",
+		dependsOn: [],
+		precompileHints: runtime?.warmupHints,
+		runtime: runtime ?? undefined,
+		isEnabled() {
+			return true;
+		},
+		async execute(ctx) {
+			if (!runtime) {
+				return;
+			}
+			await ctx.executeRuntimePass({
+				passId: runtime.id,
+				encoder: ctx.encoder,
+				targets: ctx.targets,
+				frameContext: ctx.frameContext,
+			});
 		},
 	};
 }
@@ -259,10 +286,142 @@ async function testInteractionAndGammaWiring() {
 	assert.equal(presentCalls[0].applyGamma, true);
 }
 
+async function testCustomRuntimePassRegistry() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const calls = {
+		execute: 0,
+		warmup: 0,
+		invalidate: 0,
+		shaderRuntimeChanged: 0,
+	};
+	const runtimePass = {
+		id: "custom-registry",
+		warmupHints: ["postprocess:custom-registry"],
+		warmup(hint, context) {
+			calls.warmup++;
+			assert.equal(hint, "postprocess:custom-registry");
+			assert.equal(context.compute, backend);
+			return true;
+		},
+		execute(request, context) {
+			calls.execute++;
+			assert.equal(request.passId, "custom-registry");
+			assert.equal(context.compute, backend);
+			return { ran: true };
+		},
+		invalidateBindings(context) {
+			calls.invalidate++;
+			assert.equal(context.compute, backend);
+		},
+		onShaderRuntimeChanged(context) {
+			calls.shaderRuntimeChanged++;
+			assert.equal(context.compute, backend);
+		},
+	};
+	const graph = new WebGPUPostProcessGraph();
+	graph.registerPass(createCustomPass("custom-registry", runtimePass));
+	runtime.registerRuntimePass(runtimePass);
+
+	const context = {
+		...createPassContext(),
+		executeRuntimePass: (request) => runtime.executePass(request),
+	};
+	const executed = await graph.execute(context, createFeatures(), () => {});
+	assert.deepEqual(executed, ["custom-registry"]);
+	assert.equal(calls.execute, 1);
+
+	const warmup = await runtime.warmupHints([
+		"postprocess:custom-registry",
+		"postprocess:custom-registry",
+	]);
+	assert.equal(warmup.compiled, 1);
+	assert.equal(warmup.failed, 0);
+	assert.equal(calls.warmup, 1);
+
+	runtime.invalidateBindings();
+	assert.equal(calls.invalidate, 1);
+	runtime.onShaderRuntimeChanged();
+	assert.equal(calls.shaderRuntimeChanged, 1);
+
+	graph.unregisterPass("custom-registry");
+	runtime.unregisterRuntimePass("custom-registry");
+	assert.equal(graph.hasPass("custom-registry"), false);
+	const result = await runtime.executePass({
+		passId: "custom-registry",
+		encoder: context.encoder,
+		targets: context.targets,
+		frameContext: context.frameContext,
+	});
+	assert.deepEqual(result, { ran: false });
+}
+
+function testReservedAndDuplicateRegistrationGuards() {
+	const { deps } = createDeps();
+	const graph = new WebGPUPostProcessGraph(
+		createWebGPUDefaultPostProcessPasses(deps)
+	);
+	assert.throws(
+		() => graph.registerPass(createCustomPass("ssao")),
+		/built-in WebGPU post-process pass/
+	);
+	assert.throws(
+		() => graph.unregisterPass("gamma"),
+		/Cannot unregister built-in/
+	);
+	graph.registerPass(createCustomPass("custom-graph"));
+	assert.throws(
+		() => graph.registerPass(createCustomPass("custom-graph")),
+		/already registered/
+	);
+
+	const runtime = new WebGPUPostProcessRuntime(new FakeBackend(), () => {});
+	const customRuntime = {
+		id: "custom-runtime",
+		execute() {
+			return { ran: true };
+		},
+	};
+	runtime.registerRuntimePass(customRuntime);
+	assert.throws(
+		() => runtime.registerRuntimePass(customRuntime),
+		/already registered/
+	);
+	assert.throws(
+		() =>
+			runtime.registerRuntimePass({
+				id: "tonemap",
+				execute() {
+					return { ran: true };
+				},
+			}),
+		/built-in WebGPU post-process runtime pass/
+	);
+
+	const backend = new WebGPUBackend();
+	backend.registerPostProcessPass(createCustomPass("custom-backend"));
+	assert.throws(
+		() => backend.registerPostProcessPass(createCustomPass("custom-backend")),
+		/already registered/
+	);
+	assert.throws(
+		() => backend.registerPostProcessPass(createCustomPass("gamma")),
+		/built-in WebGPU post-process pass/
+	);
+	assert.throws(
+		() => backend.unregisterPostProcessPass("gamma"),
+		/Cannot unregister built-in/
+	);
+	backend.unregisterPostProcessPass("custom-backend");
+	backend.registerPostProcessPass(createCustomPass("custom-backend"));
+}
+
 async function run() {
 	testDefaultPassGraphOrder();
 	await testTemporalPassWiring();
 	await testInteractionAndGammaWiring();
+	await testCustomRuntimePassRegistry();
+	testReservedAndDuplicateRegistrationGuards();
 	console.log("WebGPU default post-process pass factory tests passed");
 }
 

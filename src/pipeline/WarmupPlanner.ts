@@ -18,6 +18,7 @@ export interface WarmupPlan {
 	enableEnvironment: boolean;
 	enableShadows: boolean;
 	enableParticles: boolean;
+	includePostProcess: boolean;
 	postProcessPasses: string[];
 	sceneTargetMode: WarmupSceneTargetMode;
 }
@@ -58,6 +59,7 @@ export function buildWarmupPlan(
 		enableParticles:
 			includeParticles &&
 			(context.scene.particleSystems?.length ?? 0) > 0,
+		includePostProcess: includePost,
 		postProcessPasses,
 		sceneTargetMode: useMRT ? "mrt" : "single",
 	};

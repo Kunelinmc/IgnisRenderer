@@ -2,8 +2,36 @@ import type { FrameContext, ResolvedFeatureState } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { IRenderTexture } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import {
+	WEBGPU_POST_PROCESS_PASS_IDS,
+	type WebGPUPostProcessExecuteResult,
+	type WebGPUPostProcessRuntimeExecuteRequest,
+	type WebGPUPostProcessRuntimePass,
+} from "./postprocess/types";
 
 export type WebGPUPostProcessPassKind = "compute" | "render";
+
+export const WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS = [
+	...WEBGPU_POST_PROCESS_PASS_IDS,
+	"gamma",
+] as const;
+
+export type WebGPUBuiltinPostProcessPassId =
+	(typeof WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS)[number];
+
+const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>(
+	WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS
+);
+
+/**
+ * Returns whether `id` is reserved by a built-in WebGPU post-process pass.
+ *
+ * @param id Candidate graph or runtime pass id.
+ * @returns `true` when the id cannot be used by custom post-process passes.
+ */
+export function isWebGPUBuiltinPostProcessPassId(id: string): boolean {
+	return WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET.has(id);
+}
 
 export interface WebGPUFrameTargets {
 	sceneColor: IRenderTexture;
@@ -39,6 +67,9 @@ export interface WebGPUPostProcessPassContext {
 	encoder: ICommandEncoder;
 	frameContext: FrameContext;
 	targets: WebGPUFrameTargets;
+	executeRuntimePass(
+		request: WebGPUPostProcessRuntimeExecuteRequest
+	): Promise<WebGPUPostProcessExecuteResult>;
 }
 
 export interface WebGPUPostProcessPassPlugin {
@@ -46,6 +77,7 @@ export interface WebGPUPostProcessPassPlugin {
 	dependsOn: string[];
 	kind?: WebGPUPostProcessPassKind;
 	precompileHints?: string[];
+	runtime?: WebGPUPostProcessRuntimePass;
 	isEnabled(features: ResolvedFeatureState): boolean;
 	execute(context: WebGPUPostProcessPassContext): Promise<void> | void;
 }
@@ -55,18 +87,30 @@ export class WebGPUPostProcessGraph {
 
 	constructor(passes: WebGPUPostProcessPassPlugin[] = []) {
 		for (const pass of passes) {
-			this.registerPass(pass);
+			this._registerPass(pass, true);
 		}
+	}
+
+	/**
+	 * Throws when a custom pass cannot be registered in this graph.
+	 *
+	 * @param pass Pass descriptor to validate.
+	 * @throws If the id is empty, reserved by a built-in pass, or duplicated.
+	 */
+	public assertCanRegisterPass(pass: WebGPUPostProcessPassPlugin): void {
+		this._assertPassCanRegister(pass, false);
 	}
 
 	public registerPass(pass: WebGPUPostProcessPassPlugin): void {
-		if (!pass.id) {
-			throw new Error("Post-process pass id is required.");
-		}
-		this._passes.set(pass.id, pass);
+		this._registerPass(pass, false);
 	}
 
 	public unregisterPass(id: string): void {
+		if (isWebGPUBuiltinPostProcessPassId(id)) {
+			throw new Error(
+				`Cannot unregister built-in WebGPU post-process pass "${id}".`
+			);
+		}
 		this._passes.delete(id);
 	}
 
@@ -155,5 +199,50 @@ export class WebGPUPostProcessGraph {
 			await pass.execute(context);
 		}
 		return order.map((pass) => pass.id);
+	}
+
+	private _registerPass(
+		pass: WebGPUPostProcessPassPlugin,
+		allowBuiltIn: boolean
+	): void {
+		this._assertPassCanRegister(pass, allowBuiltIn);
+		this._passes.set(pass.id, pass);
+	}
+
+	private _assertPassCanRegister(
+		pass: WebGPUPostProcessPassPlugin,
+		allowBuiltIn: boolean
+	): void {
+		if (!pass.id) {
+			throw new Error("Post-process pass id is required.");
+		}
+		if (!allowBuiltIn && isWebGPUBuiltinPostProcessPassId(pass.id)) {
+			throw new Error(
+				`Cannot register built-in WebGPU post-process pass "${pass.id}".`
+			);
+		}
+		if (this._passes.has(pass.id)) {
+			throw new Error(
+				`WebGPU post-process pass "${pass.id}" is already registered.`
+			);
+		}
+		if (!pass.runtime) {
+			return;
+		}
+		if (!pass.runtime.id) {
+			throw new Error("WebGPU post-process runtime pass id is required.");
+		}
+		if (!allowBuiltIn && isWebGPUBuiltinPostProcessPassId(pass.runtime.id)) {
+			throw new Error(
+				`Cannot register built-in WebGPU post-process runtime pass "${pass.runtime.id}".`
+			);
+		}
+		for (const registered of this._passes.values()) {
+			if (registered.runtime?.id === pass.runtime.id) {
+				throw new Error(
+					`WebGPU post-process runtime pass "${pass.runtime.id}" is already registered.`
+				);
+			}
+		}
 	}
 }

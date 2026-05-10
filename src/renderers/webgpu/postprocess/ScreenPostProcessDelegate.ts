@@ -42,11 +42,8 @@ import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
-	WebGPUPostProcessExecuteRequest,
-	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessInteractionOutlineExecuteRequest,
-	WebGPUPostProcessPassDelegate,
-	WebGPUPostProcessPassId,
+	WebGPUPostProcessRuntimePassRegistry,
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
@@ -72,18 +69,7 @@ INTERACTION_OUTLINE_LAYOUT.assertByteSize(
 	"OutlineParams"
 );
 
-export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate {
-	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
-		"fog",
-		"motion-blur",
-		"dof",
-		"bloom",
-		"color-filter",
-		"fxaa",
-		"interaction-outline",
-		"tonemap",
-	];
-
+export class ScreenPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
 	private _fogModule: IShaderModule | null = null;
 	private _fogPipeline: IComputePipeline | null = null;
@@ -132,6 +118,146 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 
 	constructor(shared: PostProcessSharedContext) {
 		this._shared = shared;
+	}
+
+	/**
+	 * Registers screen-space post-process runtime passes with the owning runtime.
+	 */
+	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
+		registry.registerRuntimePass({
+			id: "fog",
+			warmupHints: ["postprocess:fog"],
+			warmup: async () => {
+				await this._ensureFogResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeFog(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "motion-blur",
+			warmupHints: ["postprocess:motion-blur"],
+			warmup: async () => {
+				await this._ensureMotionBlurResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeMotionBlur(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "dof",
+			warmupHints: ["postprocess:dof"],
+			warmup: async () => {
+				await this._ensureDOFResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeDOF(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "bloom",
+			warmupHints: ["postprocess:bloom"],
+			warmup: async () => {
+				await this._ensureBloomResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeBloom(
+					request.encoder,
+					request.targets,
+					request.frameContext
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "fxaa",
+			warmupHints: ["postprocess:fxaa"],
+			warmup: async () => {
+				await this._ensureFXAAResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeFXAA(request.encoder, request.targets);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "tonemap",
+			warmupHints: ["postprocess:tonemap"],
+			warmup: async () => {
+				await this._ensureToneMappingResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeToneMapping(request.encoder, request.targets);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "color-filter",
+			warmupHints: ["postprocess:color-filter"],
+			warmup: async () => {
+				await this._ensureColorFilterResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeColorFilter(
+					request.encoder,
+					request.targets,
+					request.frameContext.features.colorFilterOptions
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "interaction-outline",
+			warmupHints: ["postprocess:interaction-outline"],
+			warmup: async () => {
+				await this._ensureInteractionOutlineResources();
+				return true;
+			},
+			execute: async (request) => {
+				await this._executeInteractionOutline(
+					request as WebGPUPostProcessInteractionOutlineExecuteRequest
+				);
+				return { ran: true };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
 	}
 
 	public invalidateBindings(): void {
@@ -186,92 +312,6 @@ export class ScreenPostProcessDelegate implements WebGPUPostProcessPassDelegate 
 		this._interactionOutlinePipeline = null;
 		this._interactionOutlineParams?.destroy();
 		this._interactionOutlineParams = null;
-	}
-
-	public async warmupHint(hint: string): Promise<boolean> {
-		switch (hint) {
-			case "postprocess:fog":
-				await this._ensureFogResources();
-				return true;
-			case "postprocess:motion-blur":
-				await this._ensureMotionBlurResources();
-				return true;
-			case "postprocess:dof":
-				await this._ensureDOFResources();
-				return true;
-			case "postprocess:bloom":
-				await this._ensureBloomResources();
-				return true;
-			case "postprocess:fxaa":
-				await this._ensureFXAAResources();
-				return true;
-			case "postprocess:interaction-outline":
-				await this._ensureInteractionOutlineResources();
-				return true;
-			case "postprocess:tonemap":
-				await this._ensureToneMappingResources();
-				return true;
-			case "postprocess:color-filter":
-				await this._ensureColorFilterResources();
-				return true;
-			default:
-				return false;
-		}
-	}
-
-	public async execute(
-		request: WebGPUPostProcessExecuteRequest
-	): Promise<WebGPUPostProcessExecuteResult | null> {
-		switch (request.passId) {
-			case "fog":
-				await this._executeFog(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			case "motion-blur":
-				await this._executeMotionBlur(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			case "dof":
-				await this._executeDOF(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			case "bloom":
-				await this._executeBloom(
-					request.encoder,
-					request.targets,
-					request.frameContext
-				);
-				return { ran: true };
-			case "fxaa":
-				await this._executeFXAA(request.encoder, request.targets);
-				return { ran: true };
-			case "tonemap":
-				await this._executeToneMapping(request.encoder, request.targets);
-				return { ran: true };
-			case "color-filter":
-				await this._executeColorFilter(
-					request.encoder,
-					request.targets,
-					request.frameContext.features.colorFilterOptions
-				);
-				return { ran: true };
-			case "interaction-outline":
-				await this._executeInteractionOutline(
-					request as WebGPUPostProcessInteractionOutlineExecuteRequest
-				);
-				return { ran: true };
-			default:
-				return null;
-		}
 	}
 
 	private async _executeFog(

@@ -26,12 +26,9 @@ import {
 } from "../StructuredBufferLayout";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
-	WebGPUPostProcessExecuteRequest,
-	WebGPUPostProcessExecuteResult,
-	WebGPUPostProcessPassDelegate,
-	WebGPUPostProcessPassId,
 	WebGPUPostProcessSSRExecuteRequest,
 	WebGPUPostProcessTAAExecuteRequest,
+	WebGPUPostProcessRuntimePassRegistry,
 	WebGPUPostProcessVolumetricExecuteRequest,
 } from "./types";
 
@@ -48,13 +45,7 @@ const VOLUMETRIC_LIGHT_RECORD_SCHEMA = structOf([
 
 const VOLUMETRIC_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
 
-export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegate {
-	public readonly passIds: readonly WebGPUPostProcessPassId[] = [
-		"taa",
-		"ssr",
-		"volumetric",
-	];
-
+export class TemporalPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
 	private _taaModule: IShaderModule | null = null;
 	private _taaPipeline: IComputePipeline | null = null;
@@ -84,6 +75,78 @@ export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegat
 
 	constructor(shared: PostProcessSharedContext) {
 		this._shared = shared;
+	}
+
+	/**
+	 * Registers temporal post-process runtime passes with the owning runtime.
+	 */
+	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
+		registry.registerRuntimePass({
+			id: "taa",
+			warmupHints: ["postprocess:taa"],
+			warmup: async () => {
+				await this._ensureTAAResources();
+				return true;
+			},
+			execute: async (request) => {
+				const historyUpdated = await this._executeTAA(
+					request as WebGPUPostProcessTAAExecuteRequest
+				);
+				return { ran: historyUpdated, historyUpdated };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "ssr",
+			warmupHints: [
+				"postprocess:ssr",
+				"postprocess:hiz",
+				"postprocess:copy",
+			],
+			warmup: async (hint) => {
+				switch (hint) {
+					case "postprocess:hiz":
+						await this._ensureHiZResources();
+						break;
+					case "postprocess:copy":
+						await this._ensureCopyResources();
+						break;
+					default:
+						await this._ensureSSRResources();
+						break;
+				}
+				return true;
+			},
+			execute: async (request) => {
+				const historyUpdated = await this._executeSSR(
+					request as WebGPUPostProcessSSRExecuteRequest
+				);
+				return { ran: historyUpdated, historyUpdated };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
+		registry.registerRuntimePass({
+			id: "volumetric",
+			warmupHints: ["postprocess:volumetric", "postprocess:hiz"],
+			warmup: async (hint) => {
+				if (hint === "postprocess:hiz") {
+					await this._ensureHiZResources();
+				} else {
+					await this._ensureVolumetricResources();
+				}
+				return true;
+			},
+			execute: async (request) => {
+				const historyUpdated = await this._executeVolumetric(
+					request as WebGPUPostProcessVolumetricExecuteRequest
+				);
+				return { ran: historyUpdated, historyUpdated };
+			},
+			invalidateBindings: () => this.invalidateBindings(),
+			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
+		});
 	}
 
 	public invalidateBindings(): void {}
@@ -117,49 +180,6 @@ export class TemporalPostProcessDelegate implements WebGPUPostProcessPassDelegat
 		this._ssrTracePipelineLayout = null;
 		this._volumetricGroupLayout0 = null;
 		this._volumetricPipelineLayout = null;
-	}
-
-	public async warmupHint(hint: string): Promise<boolean> {
-		switch (hint) {
-			case "postprocess:taa":
-				await this._ensureTAAResources();
-				return true;
-			case "postprocess:hiz":
-				await this._ensureHiZResources();
-				return true;
-			case "postprocess:ssr":
-				await this._ensureSSRResources();
-				return true;
-			case "postprocess:volumetric":
-				await this._ensureVolumetricResources();
-				return true;
-			case "postprocess:copy":
-				await this._ensureCopyResources();
-				return true;
-			default:
-				return false;
-		}
-	}
-
-	public async execute(
-		request: WebGPUPostProcessExecuteRequest
-	): Promise<WebGPUPostProcessExecuteResult | null> {
-		switch (request.passId) {
-			case "taa": {
-				const historyUpdated = await this._executeTAA(request);
-				return { ran: historyUpdated, historyUpdated };
-			}
-			case "ssr": {
-				const historyUpdated = await this._executeSSR(request);
-				return { ran: historyUpdated, historyUpdated };
-			}
-			case "volumetric": {
-				const historyUpdated = await this._executeVolumetric(request);
-				return { ran: historyUpdated, historyUpdated };
-			}
-			default:
-				return null;
-		}
 	}
 
 	private async _executeTAA(
