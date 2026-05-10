@@ -59,7 +59,7 @@ const tests = [
 	"test_animation_core.mjs",
 	"test_animation_entity_binding.mjs",
 	"test_animation_state_blendtree.mjs",
-	"test_particle_simulation_stage.mjs",
+	"test_default_particle_simulator.mjs",
 	"test_physics_stepper.mjs",
 	"test_physics_system_bindings.mjs",
 	"test_physics_entity_target.mjs",

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+
 import { Camera } from "../src/cameras/Camera.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
-import { ParticleSimulationStage } from "../src/pipeline/ParticleSimulationStage.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleSystem } from "../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode, ParticleSpaceMode } from "../src/particles/types.ts";
+import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
 
 function createContext(systems) {
 	const camera = new Camera();
@@ -58,9 +59,22 @@ function getBatches(context) {
 	return context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? [];
 }
 
+function createSimulator() {
+	return new DefaultParticleSimulator({
+		backendTag: "test",
+	});
+}
+
+function executeSimulator(simulator, context, deltaTimeSeconds) {
+	simulator.beginFrame(context);
+	simulator.simulate(context, deltaTimeSeconds);
+	simulator.emitRenderBatches(context);
+	simulator.endFrame();
+}
+
 function testDeterministicSeed() {
 	const run = (seed) => {
-		const stage = new ParticleSimulationStage();
+		const simulator = createSimulator();
 		const system = new ParticleSystem({
 			seed,
 			space: ParticleSpaceMode.World,
@@ -76,7 +90,7 @@ function testDeterministicSeed() {
 			},
 		});
 		const context = createContext([system]);
-		stage.execute(context, 0.016);
+		executeSimulator(simulator, context, 0.016);
 		const particles = getBatches(context)[0]?.particles ?? [];
 		return particles.map((particle) => ({
 			x: Number(particle.position.x.toFixed(6)),
@@ -90,7 +104,7 @@ function testDeterministicSeed() {
 }
 
 function testRateAndBurstSpawn() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 64,
 		emit: {
@@ -101,7 +115,7 @@ function testRateAndBurstSpawn() {
 		},
 	});
 	const context = createContext([system]);
-	stage.execute(context, 1);
+	executeSimulator(simulator, context, 1);
 	const particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 5);
 }
@@ -112,7 +126,7 @@ function testShadowDefaultsAndBatchParams() {
 	assert.equal(defaultSystem.shadowDensity, 1);
 	assert.equal(defaultSystem.shadowSoftness, 1);
 
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const alphaSystem = new ParticleSystem({
 		blendMode: ParticleBlendMode.Alpha,
 		castShadows: true,
@@ -140,7 +154,7 @@ function testShadowDefaultsAndBatchParams() {
 		},
 	});
 	const context = createContext([alphaSystem, additiveSystem]);
-	stage.execute(context, 0.016);
+	executeSimulator(simulator, context, 0.016);
 	const batches = getBatches(context);
 	const alphaBatch = batches.find((batch) => batch.systemId === alphaSystem.id);
 	const additiveBatch = batches.find(
@@ -158,7 +172,7 @@ function testShadowDefaultsAndBatchParams() {
 }
 
 function testGradientAndAtlas() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 8,
 		atlas: {
@@ -185,7 +199,7 @@ function testGradientAndAtlas() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 1);
+	executeSimulator(simulator, context, 1);
 	const particle = getBatches(context)[0]?.particles?.[0];
 	assert.ok(particle);
 	assert.ok(Math.abs(particle.size - 8) < 1e-6);
@@ -197,7 +211,7 @@ function testGradientAndAtlas() {
 }
 
 function testLocalSpaceFollowsSystemPosition() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		space: ParticleSpaceMode.Local,
 		position: { x: 4, y: 0, z: 0 },
@@ -209,18 +223,18 @@ function testLocalSpaceFollowsSystemPosition() {
 		},
 	});
 	const context = createContext([system]);
-	stage.execute(context, 0.016);
+	executeSimulator(simulator, context, 0.016);
 	let particle = getBatches(context)[0]?.particles?.[0];
 	assert.ok(Math.abs(particle.position.x - 4) < 1e-6);
 
 	system.position.x = 9;
-	stage.execute(context, 0);
+	executeSimulator(simulator, context, 0);
 	particle = getBatches(context)[0]?.particles?.[0];
 	assert.ok(Math.abs(particle.position.x - 9) < 1e-6);
 }
 
 function testCollisionAndSubEmitter() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		space: ParticleSpaceMode.World,
 		position: { x: 0, y: 0.2, z: 0 },
@@ -253,12 +267,12 @@ function testCollisionAndSubEmitter() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 0.05);
+	executeSimulator(simulator, context, 0.05);
 	let particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 1);
 	assert.ok(particles[0].position.y >= 0);
 
-	stage.execute(context, 0.1);
+	executeSimulator(simulator, context, 0.1);
 	particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 2);
 	for (const particle of particles) {
@@ -267,7 +281,7 @@ function testCollisionAndSubEmitter() {
 }
 
 function testLODScalesSimulationAndRenderSubset() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 10,
 		position: { x: 0, y: 0, z: -200 },
@@ -304,17 +318,17 @@ function testLODScalesSimulationAndRenderSubset() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 0.016);
+	executeSimulator(simulator, context, 0.016);
 	let particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 0);
 
-	stage.execute(context, 0.016);
+	executeSimulator(simulator, context, 0.016);
 	particles = getBatches(context)[0]?.particles ?? [];
 	assert.equal(particles.length, 2);
 }
 
 function testLODHysteresis() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 128,
 		position: { x: 0, y: 0, z: 8 },
@@ -350,22 +364,22 @@ function testLODHysteresis() {
 	});
 
 	const context = createContext([system]);
-	stage.execute(context, 1);
+	executeSimulator(simulator, context, 1);
 	let total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 10);
 
 	system.position.z = -200;
-	stage.execute(context, 1);
+	executeSimulator(simulator, context, 1);
 	total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 20);
 
-	stage.execute(context, 1);
+	executeSimulator(simulator, context, 1);
 	total = getBatches(context)[0]?.particles?.length ?? 0;
 	assert.equal(total, 20);
 }
 
 function testStrictFailureWhenLODStillOverBudget() {
-	const stage = new ParticleSimulationStage();
+	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 8,
 		emit: {
@@ -390,7 +404,10 @@ function testStrictFailureWhenLODStillOverBudget() {
 		},
 	});
 	const context = createContext([system]);
-	assert.throws(() => stage.execute(context, 0.016), /required=16 available=8/);
+	assert.throws(
+		() => executeSimulator(simulator, context, 0.016),
+		/required=16 available=8/
+	);
 }
 
 function run() {
@@ -403,7 +420,7 @@ function run() {
 	testLODScalesSimulationAndRenderSubset();
 	testLODHysteresis();
 	testStrictFailureWhenLODStillOverBudget();
-	console.log("Particle simulation stage tests passed");
+	console.log("Default particle simulator tests passed");
 }
 
 run();

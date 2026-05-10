@@ -9,7 +9,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- **SoftwareBackend**: Multi-threaded CPU rasterizer with modular executors for rasterization, light evaluation, and post-processing.
 	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
-- **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a high-level interface synchronized with the ECS. Integrated with Animation, Physics, and Particle simulation stages.
+- **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a high-level interface synchronized with the ECS. Integrated with Animation, Physics, and backend-owned Particle simulation runtimes.
 
 ## Build & Test Commands
 
@@ -90,7 +90,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **Simulation Logic**: Integrated into the rendering pipeline via `src/simulation/` runtime modules:
 	- `AnimationSimulationStage`: Handles mixers, blend trees, and skeletal updates.
 	- `PhysicsSystem`: Manages collision detection and rigid body dynamics via adapters.
-	- `ParticleSimulationStage`: Updates high-density particle state.
+	- `DefaultParticleSimulator` / `WebGPUParticleSimulator`: Update high-density particle state through backend-owned `particle-sim` passes.
 
 ### Foundation & Utility Layer
 - **`src/foundation/`**: Core primitives used across the entire engine.

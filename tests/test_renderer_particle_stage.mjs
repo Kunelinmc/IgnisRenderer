@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
+
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { ParticleSimulationStage } from "../src/pipeline/ParticleSimulationStage.ts";
 import { ParticleSystem } from "../src/particles/ParticleSystem.ts";
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../src/pipeline/types.ts";
+import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
 import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -34,7 +35,9 @@ class StubBackend {
 		this.sharedStages = [];
 		this.executedStages = [];
 		this.particleBatchCount = 0;
-		this.particleStage = new ParticleSimulationStage();
+		this.particleSimulator = new DefaultParticleSimulator({
+			backendTag: "stub",
+		});
 	}
 
 	async init() {}
@@ -51,7 +54,9 @@ class StubBackend {
 		};
 	}
 
-	beginFrame() {}
+	beginFrame(context) {
+		this.particleSimulator.beginFrame(context);
+	}
 
 	executeSharedPass(pass) {
 		this.sharedStages.push(pass.stage);
@@ -60,10 +65,11 @@ class StubBackend {
 	executePass(pass, context) {
 		this.executedStages.push(pass.stage);
 		if (pass.stage === "particle-sim") {
-			this.particleStage.execute(
+			this.particleSimulator.simulate(
 				context,
 				context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY) ?? 0
 			);
+			this.particleSimulator.emitRenderBatches(context);
 		}
 		if (pass.stage === "particles") {
 			const batches =
@@ -72,7 +78,9 @@ class StubBackend {
 		}
 	}
 
-	endFrame() {}
+	endFrame() {
+		this.particleSimulator.endFrame();
+	}
 }
 
 async function run() {
