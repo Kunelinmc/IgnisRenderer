@@ -15,6 +15,7 @@ import {
 	FakeCommandEncoder as FakeRenderEncoder,
 	FakeWebGPUBackend as FakeBackend,
 } from "./helpers/test_fakes.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -80,6 +81,7 @@ function createContext(particleSystems = []) {
 			height: 64,
 		},
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: scene.shadowMaps,
 		scene,
 		shCoeffs: SH.empty(),

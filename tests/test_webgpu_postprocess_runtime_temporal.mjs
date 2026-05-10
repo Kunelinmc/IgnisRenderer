@@ -6,6 +6,7 @@ import {
 	FakeEncoder,
 	createTexture,
 } from "./helpers/webgpu_postprocess_runtime_test_helpers.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createTemporalTargets(width = 32, height = 16) {
 	return {
@@ -36,14 +37,15 @@ function createTemporalTargets(width = 32, height = 16) {
 	};
 }
 
-function createPerspectiveFrameContext(features = {}) {
+function createPerspectiveFrameContext(postProcessRequest = {}) {
 	return {
 		camera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 2,
 		},
-		features,
+		features: {},
+		postProcess: createResolvedPostProcess(postProcessRequest),
 		transient: new Map(),
 	};
 }
@@ -76,8 +78,11 @@ async function testTAAExecutePassReportsHistoryUpdate() {
 		encoder: new FakeEncoder(),
 		targets,
 		frameContext: createPerspectiveFrameContext({
-			taaOptions: {
-				historyWeight: 0.8,
+			taa: {
+				enabled: true,
+				options: {
+					historyWeight: 0.8,
+				},
 			},
 		}),
 		historyValid: true,
@@ -99,8 +104,11 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		encoder: new FakeEncoder(),
 		targets: ssrTargets,
 		frameContext: createPerspectiveFrameContext({
-			ssrOptions: {
-				maxSteps: 24,
+			ssr: {
+				enabled: true,
+				options: {
+					maxSteps: 24,
+				},
 			},
 		}),
 		historyValid: true,
@@ -115,8 +123,11 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		encoder: new FakeEncoder(),
 		targets: volumetricTargets,
 		frameContext: createPerspectiveFrameContext({
-			volumetricOptions: {
-				samples: 12,
+			volumetric: {
+				enabled: true,
+				options: {
+					samples: 12,
+				},
 			},
 		}),
 		historyValid: true,
@@ -135,6 +146,7 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 			type: "orthographic",
 		},
 		features: {},
+		postProcess: createResolvedPostProcess(),
 		transient: new Map(),
 	};
 	const frameBinding = { label: "frame-binding" };
@@ -251,7 +263,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 		passId: "fxaa",
 		encoder: new FakeEncoder(),
 		targets,
-		frameContext: { features: {}, transient: new Map() },
+		frameContext: createPerspectiveFrameContext(),
 	});
 	await runtime.warmupHints([
 		"postprocess:ssao",

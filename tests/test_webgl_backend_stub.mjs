@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Logger } from "../src/foundation/Logger.ts";
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFakeWebGL2Context() {
 	return {
@@ -243,18 +244,24 @@ async function testInitAndPassRouting() {
 		shadows: true,
 		reflection: false,
 		environment: true,
+		clusteredLighting: true,
+		oit: true,
+	});
+	assert.deepEqual(backend.postProcess.capabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: true,
 		ssr: false,
 		volumetric: false,
 		fog: true,
-		motionBlur: true,
+		"motion-blur": true,
 		dof: true,
 		bloom: true,
-		colorFilter: true,
-		clusteredLighting: true,
-		oit: true,
+		tonemap: true,
+		"color-filter": true,
+		fxaa: true,
+		"interaction-outline": true,
+		gamma: true,
 	});
 
 	const calls = [];
@@ -389,33 +396,18 @@ function createDependencyContext() {
 	return {
 		features: {
 			enableLighting: true,
-			enableGamma: true,
 			enableSH: true,
 			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: true,
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableMotionBlur: true,
-			enableDOF: true,
-			enableBloom: false,
-			enableColorFilter: false,
-			enableFXAA: false,
 			enableClusteredLighting: true,
 			warnings: [],
-			ssrOptions: {},
-			ssaoOptions: {},
-			ssgiOptions: {},
-			taaOptions: {},
-			volumetricOptions: {},
-			bloomOptions: {},
-			motionBlurOptions: {},
-			dofOptions: {},
 			clusteredLightingOptions: {},
 		},
+		postProcess: createResolvedPostProcess({
+			"motion-blur": { enabled: true },
+			dof: { enabled: true },
+		}),
 		scene: {
 			particleSystems: [],
 			shadowCasterPackets: [],

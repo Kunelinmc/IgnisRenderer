@@ -4,6 +4,7 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { PreparedSceneBuilder } from "../src/pipeline/PreparedSceneBuilder.ts";
 import { PreparedSceneCache } from "../src/pipeline/PreparedSceneCache.ts";
 import { DEFAULT_INCREMENTAL_RENDERING_OPTIONS } from "../src/pipeline/incremental.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFeatures(overrides = {}) {
 	return {
@@ -119,6 +120,9 @@ function testPacketDiffLifecycle() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -182,6 +186,9 @@ function testAreaFallbackToFullFrame() {
 			viewportWidth: 256,
 			viewportHeight: 256,
 			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -225,6 +232,9 @@ function testMatrixDiffDetectsSmallFloatChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -269,6 +279,9 @@ function testMaterialDiffDetectsSmallFloatChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,
@@ -313,6 +326,9 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 			viewportWidth: 320,
 			viewportHeight: 180,
 			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
 			incrementalOptions: {
 				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
 				enabled: true,

@@ -20,6 +20,12 @@ import { Logger, type LoggerStatic } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
+import {
+	PostProcessController,
+	resolvePostProcessState,
+	isFogPostProcessEnabled,
+	type ResolvedPostProcessState,
+} from "../pipeline/PostProcess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
@@ -131,6 +137,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
+	public readonly postProcess: PostProcessController;
 	public animationAutoRender: boolean;
 
 	public readonly logger: Pick<LoggerStatic, "warn">;
@@ -166,6 +173,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		super();
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
+		this.postProcess = new PostProcessController();
 		this._canvas = canvas;
 		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -191,35 +199,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		this.features = {
 			enableLighting: true,
-			enableGamma: true,
-			enableToneMapping: true,
 			enableSH: false,
 			enableShadows: true,
 			enableReflection: true,
 			enableEnvironment: true,
 			enableOIT: false,
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFog: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: false,
-			enableColorFilter: false,
-			enableFXAA: false,
 			enableClusteredLighting: false,
-			ssrOptions: {},
-			volumetricOptions: {},
-			fogOptions: {},
-			ssaoOptions: {},
-			ssgiOptions: {},
-			taaOptions: {},
-			bloomOptions: {},
-			motionBlurOptions: {},
-			dofOptions: {},
-			colorFilterOptions: {},
 			clusteredLightingOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
@@ -306,7 +291,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.capabilities,
 			this.backend.type
 		);
-		for (const warning of resolved.warnings) {
+		const resolvedPostProcess = resolvePostProcessState(
+			this.postProcess.getState(),
+			this.backend.postProcess.capabilities,
+			this.backend.type
+		);
+		for (const warning of [
+			...resolved.warnings,
+			...resolvedPostProcess.warnings,
+		]) {
 			this.logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "Renderer",
 				onceKey: warning.key,
@@ -325,6 +318,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const context = this._createFrameContext(
 			frame,
 			resolved,
+			resolvedPostProcess,
 			transient,
 			incrementalFrameContext
 		);
@@ -672,6 +666,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _createFrameContext(
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
 		resolved: ReturnType<typeof resolveFeatureState>,
+		postProcess: ResolvedPostProcessState,
 		transient: TransientStore,
 		incremental: IncrementalFrameContext
 	): FrameContext {
@@ -694,6 +689,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			camera: this.camera,
 			attachments,
 			features: resolved,
+			postProcess,
 			shadowMaps: this.shadowMaps,
 			scene: frame,
 			shCoeffs: this.shCoeffs,
@@ -843,6 +839,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.capabilities,
 			this.backend.type
 		);
+		let resolvedPostProcess = resolvePostProcessState(
+			this.postProcess.getState(),
+			this.backend.postProcess.capabilities,
+			this.backend.type
+		);
 		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
 		let preparedResult: PreparedSceneCacheBuildResult | null = null;
 		let context: FrameContext | null = null;
@@ -886,7 +887,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.capabilities,
 						this.backend.type
 					);
-					for (const warning of resolved.warnings) {
+					resolvedPostProcess = resolvePostProcessState(
+						this.postProcess.getState(),
+						this.backend.postProcess.capabilities,
+						this.backend.type
+					);
+					for (const warning of [
+						...resolved.warnings,
+						...resolvedPostProcess.warnings,
+					]) {
 						this.logger.warn(`[${warning.key}] ${warning.message}`, {
 							scope: "Renderer",
 							onceKey: warning.key,
@@ -971,6 +980,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						viewportWidth: this.canvas.width,
 						viewportHeight: this.canvas.height,
 						features: resolved,
+						postProcess: resolvedPostProcess,
 						incrementalOptions: this._incrementalOptions,
 					});
 					frame = preparedResult.frame;
@@ -978,6 +988,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						enabled: this._incrementalOptions.enabled,
 						reasonMask: frameDirtyReasonMask,
 						features: resolved,
+						postProcess: resolvedPostProcess,
 					});
 					incrementalFrameContext = this._buildIncrementalFrameContext(
 						incrementalPlan,
@@ -1015,6 +1026,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					context = this._createFrameContext(
 						frame,
 						resolved,
+						resolvedPostProcess,
 						transient,
 						incrementalFrameContext
 					);
@@ -1064,6 +1076,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							stage.id,
 							frame,
 							resolved,
+							resolvedPostProcess,
 							transient,
 							incrementalFrameContext
 						)
@@ -1202,6 +1215,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		stage: string,
 		frame: ReturnType<typeof PreparedSceneBuilder.build>,
 		features: ReturnType<typeof resolveFeatureState>,
+		postProcess: ResolvedPostProcessState,
 		transient: TransientStore,
 		incremental?: IncrementalFrameContext
 	): boolean {
@@ -1231,38 +1245,38 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			case "particles":
 				return (frame.particleSystems?.length ?? 0) > 0;
 			case "ssao":
-				return features.enableSSAO;
+				return postProcess.enabled.ssao;
 			case "ssgi":
-				return features.enableSSGI;
+				return postProcess.enabled.ssgi;
 			case "taa":
-				return features.enableTAA;
+				return postProcess.enabled.taa;
 			case "ssr":
-				return features.enableSSR;
+				return postProcess.enabled.ssr;
 			case "volumetric":
-				return features.enableVolumetric;
+				return postProcess.enabled.volumetric;
 			case "fog":
-				return (
-					features.enableFog &&
-					(features.fogOptions?.application ?? "postprocess") !== "scene"
-				);
+				return isFogPostProcessEnabled(postProcess);
 			case "motion-blur":
-				return features.enableMotionBlur;
+				return postProcess.enabled["motion-blur"];
 			case "dof":
-				return features.enableDOF;
+				return postProcess.enabled.dof;
 			case "bloom":
-				return features.enableBloom;
+				return postProcess.enabled.bloom;
 			case "tonemap":
-				return features.enableToneMapping !== false;
+				return postProcess.enabled.tonemap;
 			case "color-filter":
-				return features.enableColorFilter;
+				return postProcess.enabled["color-filter"];
 			case "fxaa":
-				return features.enableFXAA;
+				return postProcess.enabled.fxaa;
 			case "interaction-outline": {
 				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-				return (interaction?.selectedEntityIds?.length ?? 0) > 0;
+				return (
+					postProcess.enabled["interaction-outline"] &&
+					(interaction?.selectedEntityIds?.length ?? 0) > 0
+				);
 			}
 			case "gamma":
-				return features.enableGamma;
+				return postProcess.enabled.gamma;
 			default:
 				return false;
 		}

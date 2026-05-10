@@ -1,35 +1,28 @@
 # WebGPU Tone Mapping Contract
 ## Scope
-This document defines the post-process tone mapping contract for the WebGPU backend.
+This document defines the `tonemap` post-process contract for the WebGPU backend.
 
 ## Background
-WebGPU scene color is stored in HDR-capable intermediate textures.
-Without tone mapping, highlights may be hard-clipped during final
-presentation.
+WebGPU scene color is stored in HDR-capable intermediate textures. Without tone mapping, highlights may be hard-clipped during final presentation.
 
 ## API/Contract
 - The default WebGPU post-process graph must register a `tonemap` pass.
-- The `tonemap` pass must run after `bloom` and before `fxaa`.
-- The `tonemap` pass must be controlled by `enableToneMapping`.
-- `enableToneMapping` should default to `true`.
-- If `enableToneMapping` is `false`, the `tonemap` pass must be skipped
-  even when `enableGamma` or `enableFXAA` is `true`.
-- The `tonemap` pass must read from `targets.sceneColor` and write to
-  ping-pong post targets, then update `targets.sceneColor` to the
-  written target.
-- The shader `src/shaders/webgpu/postprocess/toneMapping.wgsl` must
-  implement ACES-fitted mapping on linear RGB and preserve alpha.
-- Warmup planning should include `tonemap` whenever
-  `enableToneMapping=true` so shader compilation can happen before frame
-  rendering.
+- `renderer.postProcess` must enable `tonemap` by default.
+- `renderer.postProcess.disable("tonemap")` must skip the pass.
+- `renderer.postProcess.enable("tonemap")` must re-enable the pass.
+- `WebGPUBackend.postProcess.capabilities.tonemap` must be `true`.
+- The `tonemap` pass must run after `bloom` and before `color-filter`.
+- The `tonemap` pass must read from `targets.sceneColor`, write to a ping-pong post target, and update `targets.sceneColor` to the written target.
+- `src/shaders/webgpu/postprocess/toneMapping.wgsl` must implement ACES-fitted mapping on linear RGB and preserve alpha.
+- Warmup planning should include `tonemap` whenever resolved post-process state has `postProcess.enabled.tonemap = true`.
 
 ## Usage
-Use the existing WebGPU post-process runtime path and set
-`renderer.features.enableToneMapping` explicitly when needed.
-
 ```ts
-renderer.features.enableToneMapping = true;  // enable
-renderer.features.enableToneMapping = false; // disable
+import { Renderer, WebGPUBackend } from "ignis-renderer";
+
+const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+renderer.postProcess.disable("tonemap");
+renderer.postProcess.enable("tonemap");
 renderer.requestRender("postfx");
 ```
 
@@ -37,15 +30,9 @@ renderer.requestRender("postfx");
 bun -e "import('./tests/test_webgpu_postprocess_runtime_screen.mjs').then((m) => m.run())"
 ```
 
-The command above should pass and verify that `tonemap` compiles, dispatches, and updates `sceneColor`.
-
 ## Errors & Diagnostics
-- If tone mapping shader compilation fails, warmup/reporting must
-  surface a shader compile error in the WebGPU warmup phase.
-- If post-process execution fails before `gamma`, presentation may fall
-  back to direct scene color output, which can look overexposed.
+- If tone mapping shader compilation fails, warmup reporting must surface a shader compile error in the WebGPU warmup phase.
+- If post-process execution fails before `gamma`, presentation may fall back to direct scene color output, which can look overexposed.
 
 ## Compatibility / Breaking Changes
-`enableToneMapping` is a new feature flag. Existing behavior is preserved
-because the default value is `true`. Setting `enableToneMapping=false`
-may produce harder highlight clipping before final presentation.
+`Renderer.features.enableToneMapping` is removed. Code must use `renderer.postProcess.enable("tonemap")` and `renderer.postProcess.disable("tonemap")`.

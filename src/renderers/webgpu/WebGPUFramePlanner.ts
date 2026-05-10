@@ -3,8 +3,8 @@ import {
 	type FrameContext,
 	type FramePass,
 	INTERACTION_TRANSIENT_STATE_KEY,
-	isFogPostProcessEnabled,
 } from "../../pipeline/types";
+import { isFogPostProcessEnabled } from "../../pipeline/PostProcess";
 import { hasParticleShadowCasters } from "../../pipeline/ParticleShadowVolume";
 import type {
 	WebGPUFramePlanner,
@@ -39,47 +39,51 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		if (hasParticleSystems) {
 			state.plannedPasses.add("particles");
 		}
-		if (context.features.enableSSAO) {
+		const postProcess = context.postProcess;
+		if (postProcess.enabled.ssao) {
 			state.plannedPasses.add("ssao");
 		}
-		if (context.features.enableSSGI) {
+		if (postProcess.enabled.ssgi) {
 			state.plannedPasses.add("ssgi");
 		}
-		if (context.features.enableTAA) {
+		if (postProcess.enabled.taa) {
 			state.plannedPasses.add("taa");
 		}
-		if (context.features.enableSSR) {
+		if (postProcess.enabled.ssr) {
 			state.plannedPasses.add("ssr");
 		}
-		if (context.features.enableVolumetric) {
+		if (postProcess.enabled.volumetric) {
 			state.plannedPasses.add("volumetric");
 		}
-		if (isFogPostProcessEnabled(context.features)) {
+		if (isFogPostProcessEnabled(postProcess)) {
 			state.plannedPasses.add("fog");
 		}
-		if (context.features.enableMotionBlur) {
+		if (postProcess.enabled["motion-blur"]) {
 			state.plannedPasses.add("motion-blur");
 		}
-		if (context.features.enableDOF) {
+		if (postProcess.enabled.dof) {
 			state.plannedPasses.add("dof");
 		}
-		if (context.features.enableBloom) {
+		if (postProcess.enabled.bloom) {
 			state.plannedPasses.add("bloom");
 		}
-		if (context.features.enableToneMapping !== false) {
+		if (postProcess.enabled.tonemap) {
 			state.plannedPasses.add("tonemap");
 		}
-		if (context.features.enableColorFilter) {
+		if (postProcess.enabled["color-filter"]) {
 			state.plannedPasses.add("color-filter");
 		}
-		if (context.features.enableFXAA) {
+		if (postProcess.enabled.fxaa) {
 			state.plannedPasses.add("fxaa");
 		}
 		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
+		if (
+			postProcess.enabled["interaction-outline"] &&
+			(interaction?.selectedEntityIds?.length ?? 0) > 0
+		) {
 			state.plannedPasses.add("interaction-outline");
 		}
-		if (context.features.enableGamma) {
+		if (postProcess.enabled.gamma) {
 			state.plannedPasses.add("gamma");
 		}
 		this._validatePlannedPassGraph(state);

@@ -3,6 +3,7 @@ import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor
 import { Logger } from "../src/foundation/Logger.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createResourcesStub() {
 	return {
@@ -59,35 +60,19 @@ function createFrameContext(width, height) {
 		attachments: { width, height },
 		features: {
 			enableLighting: true,
-			enableGamma: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: false,
 			enableOIT: false,
-			enableSSAO: true,
-			enableSSGI: false,
-			enableTAA: true,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFog: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: false,
 			enableClusteredLighting: false,
-			enableFXAA: false,
 			warnings: [],
-			ssrOptions: {},
-			ssaoOptions: {},
-			ssgiOptions: {},
-			taaOptions: {},
-			volumetricOptions: {},
-			fogOptions: {},
-			motionBlurOptions: {},
-			dofOptions: {},
-			bloomOptions: {},
 			clusteredLightingOptions: {},
 		},
+		postProcess: createResolvedPostProcess({
+			ssao: { enabled: true },
+			taa: { enabled: true },
+		}),
 		shadowMaps: new Map(),
 		scene: {
 			particleSystems: [],

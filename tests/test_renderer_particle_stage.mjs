@@ -8,6 +8,7 @@ import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../src/pipeline/types.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -22,6 +23,9 @@ class StubBackend {
 			ssr: false,
 			volumetric: false,
 			fog: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "always";
 		this.passExecutors = {
@@ -90,7 +94,7 @@ async function run() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 

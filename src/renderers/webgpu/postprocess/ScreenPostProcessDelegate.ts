@@ -235,7 +235,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeColorFilter(
 					request.encoder,
 					request.targets,
-					request.frameContext.features.colorFilterOptions
+					request.frameContext.postProcess.options["color-filter"]
 				);
 				return { ran: true };
 			},
@@ -325,7 +325,7 @@ export class ScreenPostProcessDelegate {
 		}
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
-		this._uploadFogParams(frameContext.features.fogOptions);
+		this._uploadFogParams(frameContext.postProcess.options.fog);
 		const binding = this._shared.getCachedBindGroup(
 			`fog-${target === targets.postPing ? "ping" : "pong"}`,
 			this._fogPipeline,
@@ -363,7 +363,7 @@ export class ScreenPostProcessDelegate {
 		) {
 			return;
 		}
-		const options = frameContext.features.motionBlurOptions ?? {};
+		const options = frameContext.postProcess.options["motion-blur"] ?? {};
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
 		const shutterScale = clamp(
@@ -438,7 +438,7 @@ export class ScreenPostProcessDelegate {
 		if (!this._shared.sampler || !this._dofPipeline || !this._dofParams) {
 			return;
 		}
-		const options = frameContext.features.dofOptions ?? {};
+		const options = frameContext.postProcess.options.dof ?? {};
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
 		const focusDistance = Math.max(
@@ -548,7 +548,7 @@ export class ScreenPostProcessDelegate {
 			return;
 		}
 
-		const options = frameContext.features.bloomOptions ?? {};
+		const options = frameContext.postProcess.options.bloom ?? {};
 		const threshold = Math.max(
 			0,
 			finiteOr(options.threshold, DEFAULT_BLOOM_OPTIONS.threshold)

@@ -4,8 +4,8 @@ import {
 	DEFAULT_SSR_OPTIONS,
 	defineTransientKey,
 	INTERACTION_TRANSIENT_STATE_KEY,
-	isFogPostProcessEnabled,
 } from "../../pipeline/types";
+import { isFogPostProcessEnabled } from "../../pipeline/PostProcess";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,
@@ -208,7 +208,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: [],
 			precompileHints: ["postprocess:ssao"],
-			isEnabled: (features) => features.enableSSAO,
+			isEnabled: (postProcess) => postProcess.enabled.ssao,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "ssao",
@@ -223,7 +223,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["ssao"],
 			precompileHints: ["postprocess:ssgi"],
-			isEnabled: (features) => features.enableSSGI,
+			isEnabled: (postProcess) => postProcess.enabled.ssgi,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "ssgi",
@@ -238,7 +238,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["ssgi", "ssao"],
 			precompileHints: ["postprocess:taa"],
-			isEnabled: (features) => features.enableTAA,
+			isEnabled: (postProcess) => postProcess.enabled.taa,
 			execute: async (ctx) => {
 				const result = await deps.executeRuntimePass({
 					passId: "taa",
@@ -256,7 +256,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["taa"],
 			precompileHints: ["postprocess:ssr", "postprocess:hiz"],
-			isEnabled: (features) => features.enableSSR,
+			isEnabled: (postProcess) => postProcess.enabled.ssr,
 			execute: async (ctx) => {
 				const result = await deps.executeRuntimePass({
 					passId: "ssr",
@@ -275,7 +275,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["ssr"],
 			precompileHints: ["postprocess:volumetric", "postprocess:hiz"],
-			isEnabled: (features) => features.enableVolumetric,
+			isEnabled: (postProcess) => postProcess.enabled.volumetric,
 			execute: async (ctx) => {
 				const result = await deps.executeRuntimePass({
 					passId: "volumetric",
@@ -295,7 +295,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["volumetric"],
 			precompileHints: ["postprocess:fog"],
-			isEnabled: (features) => isFogPostProcessEnabled(features),
+			isEnabled: (postProcess) => isFogPostProcessEnabled(postProcess),
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "fog",
@@ -310,7 +310,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["fog"],
 			precompileHints: ["postprocess:motion-blur"],
-			isEnabled: (features) => features.enableMotionBlur,
+			isEnabled: (postProcess) => postProcess.enabled["motion-blur"],
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "motion-blur",
@@ -325,7 +325,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["motion-blur"],
 			precompileHints: ["postprocess:dof"],
-			isEnabled: (features) => features.enableDOF,
+			isEnabled: (postProcess) => postProcess.enabled.dof,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "dof",
@@ -340,7 +340,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["dof"],
 			precompileHints: ["postprocess:bloom"],
-			isEnabled: (features) => features.enableBloom,
+			isEnabled: (postProcess) => postProcess.enabled.bloom,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "bloom",
@@ -355,7 +355,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["color-filter"],
 			precompileHints: ["postprocess:fxaa"],
-			isEnabled: (features) => features.enableFXAA,
+			isEnabled: (postProcess) => postProcess.enabled.fxaa,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "fxaa",
@@ -370,7 +370,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["tonemap"],
 			precompileHints: ["postprocess:color-filter"],
-			isEnabled: (features) => features.enableColorFilter,
+			isEnabled: (postProcess) => postProcess.enabled["color-filter"],
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "color-filter",
@@ -385,7 +385,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["fxaa"],
 			precompileHints: ["postprocess:interaction-outline"],
-			isEnabled: () => true,
+			isEnabled: (postProcess) => postProcess.enabled["interaction-outline"],
 			execute: async (ctx) => {
 				const interaction = ctx.frameContext.transient.get(
 					INTERACTION_TRANSIENT_STATE_KEY
@@ -407,7 +407,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "compute",
 			dependsOn: ["bloom"],
 			precompileHints: ["postprocess:tonemap"],
-			isEnabled: (features) => features.enableToneMapping !== false,
+			isEnabled: (postProcess) => postProcess.enabled.tonemap,
 			execute: async (ctx) => {
 				await deps.executeRuntimePass({
 					passId: "tonemap",
@@ -422,7 +422,7 @@ export function createWebGPUBuiltInPostProcessPasses(
 			kind: "render",
 			dependsOn: ["tonemap"],
 			precompileHints: [],
-			isEnabled: (features) => features.enableGamma,
+			isEnabled: (postProcess) => postProcess.enabled.gamma,
 			execute: async (ctx) => {
 				await deps.presentToCanvas(ctx.targets.sceneColor, true);
 			},
@@ -582,11 +582,11 @@ export class WebGPUFrameExecutor {
 		}
 		if (this._mrtEnabled) {
 			const ssaoDownsample = clampDownsample(
-				context.features.ssaoOptions?.downsample,
+				context.postProcess.options.ssao.downsample,
 				DEFAULT_SSAO_OPTIONS.downsample
 			);
 			const ssrDownsample = clampDownsample(
-				context.features.ssrOptions?.downsample,
+				context.postProcess.options.ssr.downsample,
 				DEFAULT_SSR_OPTIONS.downsample
 			);
 			this._ensureFrameTargets(
@@ -687,7 +687,7 @@ export class WebGPUFrameExecutor {
 		}
 
 		const enabledPasses = this._postGraph.getExecutionOrder(
-			context.features,
+			context.postProcess,
 			() => {}
 		);
 		const allowedPassIds = new Set(plan.postProcessPasses);
@@ -790,7 +790,7 @@ export class WebGPUFrameExecutor {
 		if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
 			await this._presentToCanvas(
 				this._frameTargets.sceneColor,
-				this._frameContext?.features.enableGamma !== false
+				this._frameContext?.postProcess.enabled.gamma !== false
 			);
 		}
 
@@ -1611,17 +1611,17 @@ export class WebGPUFrameExecutor {
 		const historyKey =
 			`mrt:${this._mrtEnabled ? 1 : 0}` +
 			`|oit:${context.features.enableOIT ? 1 : 0}` +
-			`|ssao:${context.features.enableSSAO ? 1 : 0}` +
-			`|ssgi:${context.features.enableSSGI ? 1 : 0}` +
-			`|taa:${context.features.enableTAA ? 1 : 0}` +
-			`|ssr:${context.features.enableSSR ? 1 : 0}` +
-			`|vol:${context.features.enableVolumetric ? 1 : 0}` +
-			`|fog:${isFogPostProcessEnabled(context.features) ? 1 : 0}` +
-			`|mblur:${context.features.enableMotionBlur ? 1 : 0}` +
-			`|dof:${context.features.enableDOF ? 1 : 0}` +
-			`|bloom:${context.features.enableBloom ? 1 : 0}` +
-			`|tonemap:${context.features.enableToneMapping !== false ? 1 : 0}` +
-			`|fxaa:${context.features.enableFXAA ? 1 : 0}`;
+			`|ssao:${context.postProcess.enabled.ssao ? 1 : 0}` +
+			`|ssgi:${context.postProcess.enabled.ssgi ? 1 : 0}` +
+			`|taa:${context.postProcess.enabled.taa ? 1 : 0}` +
+			`|ssr:${context.postProcess.enabled.ssr ? 1 : 0}` +
+			`|vol:${context.postProcess.enabled.volumetric ? 1 : 0}` +
+			`|fog:${isFogPostProcessEnabled(context.postProcess) ? 1 : 0}` +
+			`|mblur:${context.postProcess.enabled["motion-blur"] ? 1 : 0}` +
+			`|dof:${context.postProcess.enabled.dof ? 1 : 0}` +
+			`|bloom:${context.postProcess.enabled.bloom ? 1 : 0}` +
+			`|tonemap:${context.postProcess.enabled.tonemap ? 1 : 0}` +
+			`|fxaa:${context.postProcess.enabled.fxaa ? 1 : 0}`;
 
 		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {
 			this._taaHistoryValid = false;
@@ -1849,12 +1849,13 @@ export class WebGPUFrameExecutor {
 			backend: this._backend,
 			encoder: this._encoder,
 			frameContext: context,
+			postProcess: context.postProcess,
 			targets: this._frameTargets,
 			executeRuntimePass: (request) => this._postRuntime.executePass(request),
 		};
 		const executed = await this._postGraph.execute(
 			postContext,
-			context.features,
+			context.postProcess,
 			(key, message) =>
 				Logger.warn(`[${key}] ${message}`, {
 					scope: "WebGPUFrameExecutor",
@@ -1866,7 +1867,7 @@ export class WebGPUFrameExecutor {
 		if (!executed.includes("gamma")) {
 			await this._presentToCanvas(
 				this._frameTargets.sceneColor,
-				context.features.enableGamma !== false
+				context.postProcess.enabled.gamma
 			);
 		}
 	}

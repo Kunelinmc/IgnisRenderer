@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
 import { Logger } from "../src/foundation/Logger.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFXAATestGL() {
 	const calls = [];
@@ -252,41 +253,6 @@ function captureWarnMessages(run) {
 	return warnings;
 }
 
-function createPostProcessFeatures(overrides = {}) {
-	return {
-		enableLighting: true,
-		enableGamma: true,
-		enableSH: false,
-		enableShadows: false,
-		enableReflection: false,
-		enableEnvironment: false,
-		enableSSAO: false,
-		enableSSGI: false,
-		enableTAA: false,
-		enableSSR: false,
-		enableVolumetric: false,
-		enableFog: false,
-		enableMotionBlur: false,
-		enableDOF: false,
-		enableBloom: false,
-		enableFXAA: false,
-		enableClusteredLighting: false,
-		enableOIT: false,
-		warnings: [],
-		ssrOptions: {},
-		ssaoOptions: {},
-		ssgiOptions: {},
-		taaOptions: {},
-		volumetricOptions: {},
-		fogOptions: {},
-		bloomOptions: {},
-		motionBlurOptions: {},
-		dofOptions: {},
-		clusteredLightingOptions: {},
-		...overrides,
-	};
-}
-
 function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
@@ -397,9 +363,10 @@ function testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma() {
 	};
 
 	executor._runPostProcessGraph({
-		features: createPostProcessFeatures({
-			enableGamma: true,
-			enableFXAA: true,
+		features: {},
+		postProcess: createResolvedPostProcess({
+			gamma: { enabled: true },
+			fxaa: { enabled: true },
 		}),
 		transient: new Map(),
 	});
@@ -832,6 +799,7 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 			enableLighting: true,
 			enableShadows: false,
 		},
+		postProcess: createResolvedPostProcess(),
 	};
 
 	executor._bindGlobalUniforms(sceneProgram, context);
@@ -925,6 +893,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 			enableLighting: true,
 			enableShadows: true,
 		},
+		postProcess: createResolvedPostProcess(),
 	};
 
 	const warnings = captureWarnMessages(() => {

@@ -1,6 +1,7 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
-import { isFogPostProcessEnabled, type FrameContext } from "./types";
+import type { FrameContext } from "./types";
+import { isFogPostProcessEnabled } from "./PostProcess";
 import { ShaderCompileError } from "../shaders/runtime";
 import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
@@ -154,21 +155,22 @@ function collectUniqueMaterials(context: FrameContext): Material[] {
 
 function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	const passes: string[] = [];
-	if (context.features.enableSSAO) passes.push("ssao");
-	if (context.features.enableSSGI) passes.push("ssgi");
-	if (context.features.enableTAA) passes.push("taa");
-	if (context.features.enableSSR) passes.push("ssr");
-	if (context.features.enableVolumetric) passes.push("volumetric");
-	if (isFogPostProcessEnabled(context.features)) passes.push("fog");
-	if (context.features.enableMotionBlur) passes.push("motion-blur");
-	if (context.features.enableDOF) passes.push("dof");
-	if (context.features.enableBloom) passes.push("bloom");
-	if (context.features.enableToneMapping !== false) {
+	const postProcess = context.postProcess;
+	if (postProcess.enabled.ssao) passes.push("ssao");
+	if (postProcess.enabled.ssgi) passes.push("ssgi");
+	if (postProcess.enabled.taa) passes.push("taa");
+	if (postProcess.enabled.ssr) passes.push("ssr");
+	if (postProcess.enabled.volumetric) passes.push("volumetric");
+	if (isFogPostProcessEnabled(postProcess)) passes.push("fog");
+	if (postProcess.enabled["motion-blur"]) passes.push("motion-blur");
+	if (postProcess.enabled.dof) passes.push("dof");
+	if (postProcess.enabled.bloom) passes.push("bloom");
+	if (postProcess.enabled.tonemap) {
 		passes.push("tonemap");
 	}
-	if (context.features.enableColorFilter) passes.push("color-filter");
-	if (context.features.enableFXAA) passes.push("fxaa");
-	if (context.features.enableGamma) {
+	if (postProcess.enabled["color-filter"]) passes.push("color-filter");
+	if (postProcess.enabled.fxaa) passes.push("fxaa");
+	if (postProcess.enabled.gamma) {
 		passes.push("gamma");
 	}
 	return passes;

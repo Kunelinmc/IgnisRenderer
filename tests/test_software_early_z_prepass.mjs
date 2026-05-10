@@ -4,6 +4,7 @@ import { Texture } from "../src/core/Texture.ts";
 import { BasicMaterial, AlphaMode } from "../src/materials/index.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../src/renderers/SoftwareBackend.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const WIDTH = 64;
 const HEIGHT = 64;
@@ -38,24 +39,16 @@ function createContext(backend, camera, packetsByStage = {}, incremental = {}) {
 		attachments,
 		features: {
 			enableLighting: false,
-			enableGamma: false,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: false,
-			enableSSAO: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFXAA: false,
-			enableColorFilter: false,
-			enableToneMapping: false,
-			ssrOptions: {},
-			volumetricOptions: {},
-			ssaoOptions: {},
-			taaOptions: {},
 			warnings: [],
 		},
+		postProcess: createResolvedPostProcess({
+			gamma: { enabled: false },
+			tonemap: { enabled: false },
+		}),
 		shadowMaps: new Map(),
 		scene: {
 			sceneBounds: {

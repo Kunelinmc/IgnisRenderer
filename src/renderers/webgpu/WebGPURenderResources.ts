@@ -7,6 +7,10 @@ import type {
 	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
+import {
+	resolvePostProcessState,
+	type ResolvedPostProcessState,
+} from "../../pipeline/PostProcess";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";
@@ -383,29 +387,29 @@ export class WebGPURenderResources {
 			this._morphWeightMap = null;
 		}
 
-		const { scene, features, shAmbientCoeffs, renderWidth, renderHeight } =
+		const { scene, features, postProcess, shAmbientCoeffs, renderWidth, renderHeight } =
 			this._resolveFrameInputs(contextOrScene, featuresArg);
 		this._frameId++;
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
-			enableGamma: features.enableGamma,
-			enableToneMapping: features.enableToneMapping,
+			enableGamma: postProcess.enabled.gamma,
+			enableToneMapping: postProcess.enabled.tonemap,
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,
 			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
-			enableSSAO: features.enableSSAO,
-			enableSSGI: features.enableSSGI,
-			enableTAA: features.enableTAA,
-			enableSSR: features.enableSSR,
-			enableVolumetric: features.enableVolumetric,
-			enableFog: features.enableFog,
-			enableBloom: features.enableBloom,
+			enableSSAO: postProcess.enabled.ssao,
+			enableSSGI: postProcess.enabled.ssgi,
+			enableTAA: postProcess.enabled.taa,
+			enableSSR: postProcess.enabled.ssr,
+			enableVolumetric: postProcess.enabled.volumetric,
+			enableFog: postProcess.enabled.fog,
+			enableBloom: postProcess.enabled.bloom,
 			enableClusteredLighting: features.enableClusteredLighting,
-			taaOptions: features.taaOptions,
-			fogOptions: features.fogOptions,
-			bloomOptions: features.bloomOptions,
+			taaOptions: postProcess.options.taa,
+			fogOptions: postProcess.options.fog,
+			bloomOptions: postProcess.options.bloom,
 			clusteredLightingOptions: features.clusteredLightingOptions,
 			warnings: [],
 		};
@@ -604,6 +608,7 @@ export class WebGPURenderResources {
 	): {
 		scene: PreparedScene;
 		features: ResolvedFeatureState;
+		postProcess: ResolvedPostProcessState;
 		shAmbientCoeffs: FrameContext["shAmbientCoeffs"] | null;
 		renderWidth: number;
 		renderHeight: number;
@@ -612,6 +617,7 @@ export class WebGPURenderResources {
 			return {
 				scene: contextOrScene.scene,
 				features: contextOrScene.features,
+				postProcess: contextOrScene.postProcess,
 				shAmbientCoeffs: contextOrScene.shAmbientCoeffs,
 				renderWidth: Math.max(1, contextOrScene.attachments.width || 1),
 				renderHeight: Math.max(1, contextOrScene.attachments.height || 1),
@@ -627,6 +633,11 @@ export class WebGPURenderResources {
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
+			postProcess: resolvePostProcessState(
+				{},
+				this._backend.postProcess.capabilities,
+				this._backend.type
+			),
 			shAmbientCoeffs: null,
 			renderWidth: 1,
 			renderHeight: 1,
@@ -639,6 +650,7 @@ export class WebGPURenderResources {
 		return (
 			"scene" in value &&
 			"features" in value &&
+			"postProcess" in value &&
 			"attachments" in value &&
 			"transient" in value
 		);

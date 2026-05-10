@@ -28,6 +28,7 @@ import { createWebGLShaderSourceFactory } from "../src/shaders/webgl/WebGLShader
 import { WebGLBackend } from "../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../src/pipeline/types.ts";
 import { ShaderCompileError, ShaderRuntime } from "../src/shaders/runtime/index.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const WEBGL_SHADER_SOURCE_FACTORY = createWebGLShaderSourceFactory();
 
@@ -1459,18 +1460,13 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 		attachments: { width: 1, height: 1 },
 		features: {
 			enableLighting: true,
-			enableGamma: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: false,
-			enableSSAO: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFXAA: false,
 			warnings: [],
 		},
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: new Map(),
 		scene: {
 			environment: null,

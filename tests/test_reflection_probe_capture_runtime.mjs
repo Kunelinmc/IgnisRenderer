@@ -7,6 +7,7 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 function createBakedEnvironment(seed = 1) {
 	return {
@@ -498,6 +499,9 @@ class RendererCaptureStageBackendStub {
 			bloom: false,
 			clusteredLighting: false,
 		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
+		};
 		this.frameScheduling = "on-demand";
 		this.executedStages = [];
 	}
@@ -543,7 +547,7 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 		};
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 
 		const capturedProbe = renderer.scene.add(
 			new ReflectionProbe({

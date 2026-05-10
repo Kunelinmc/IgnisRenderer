@@ -5,6 +5,7 @@ import {
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
+import type { PostProcessCapabilities } from "../pipeline/PostProcess";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
@@ -55,6 +56,23 @@ const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	supportsPointCSM: true,
 	maxCsmDirectionalLights: 1,
 	maxDynamicShadowCost: 20,
+};
+
+const SOFTWARE_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
+	ssao: true,
+	ssgi: false,
+	taa: false,
+	ssr: false,
+	volumetric: true,
+	fog: false,
+	"motion-blur": false,
+	dof: false,
+	bloom: false,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
 };
 
 function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
@@ -120,18 +138,11 @@ export class SoftwareBackend implements IRenderBackend {
 		shadows: true,
 		reflection: true,
 		environment: true,
-		ssao: true,
-		ssgi: false,
-		taa: false,
-		ssr: false,
-		volumetric: true,
-		fog: false,
-		motionBlur: false,
-		dof: false,
-		bloom: false,
-		colorFilter: true,
 		clusteredLighting: false,
 		oit: false,
+	};
+	public readonly postProcess = {
+		capabilities: SOFTWARE_POST_PROCESS_CAPABILITIES,
 	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
@@ -648,6 +659,12 @@ export class SoftwareBackend implements IRenderBackend {
 						return;
 					}
 					this._postProcessor?.applyGamma(context, this._ctx);
+				},
+			],
+			[
+				"tonemap",
+				(context) => {
+					this._postProcessor?.applyToneMapping(context);
 				},
 			],
 			[

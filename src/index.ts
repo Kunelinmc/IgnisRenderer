@@ -87,6 +87,20 @@ export type {
 	FogOptions,
 	VolumetricOptions,
 } from "./pipeline/types";
+export {
+	POST_PROCESS_PASS_IDS,
+	PostProcessController,
+	isFogPostProcessEnabled,
+	resolvePostProcessState,
+} from "./pipeline/PostProcess";
+export type {
+	PostProcessCapabilities,
+	PostProcessOptionsMap,
+	PostProcessPassId,
+	PostProcessPassRequest,
+	PostProcessRequest,
+	ResolvedPostProcessState,
+} from "./pipeline/PostProcess";
 export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";
 export type {
 	EnvironmentIBLBakeAcceleration,

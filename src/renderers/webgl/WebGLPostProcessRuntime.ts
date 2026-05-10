@@ -1,4 +1,5 @@
-import type { FrameContext, ResolvedFeatureState } from "../../pipeline/types";
+import type { FrameContext } from "../../pipeline/types";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcess";
 import {
 	WebGLPostProcessGraph,
 	type WebGLPostProcessPassContext,
@@ -25,12 +26,12 @@ export class WebGLPostProcessRuntime {
 	}
 
 	public collectWarmupHints(
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void,
 		allowedPassIds?: ReadonlySet<string>
 	): string[] {
 		const hints = new Set<string>();
-		const orderedPasses = this._graph.getExecutionOrder(features, warn);
+		const orderedPasses = this._graph.getExecutionOrder(postProcess, warn);
 		for (const pass of orderedPasses) {
 			if (allowedPassIds && !allowedPassIds.has(pass.id)) {
 				continue;
@@ -44,13 +45,14 @@ export class WebGLPostProcessRuntime {
 
 	public execute(
 		frameContext: FrameContext,
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void
 	): string[] {
 		const context: WebGLPostProcessPassContext = {
 			frameContext,
+			postProcess,
 		};
-		return this._graph.execute(context, features, warn);
+		return this._graph.execute(context, postProcess, warn);
 	}
 }
 

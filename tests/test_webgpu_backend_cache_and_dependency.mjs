@@ -10,6 +10,7 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "../src/renderers/types.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 if (!globalThis.GPUBufferUsage) {
 	globalThis.GPUBufferUsage = {
@@ -185,24 +186,17 @@ function createFrameContext(overrides = {}) {
 		attachments: { width: 4, height: 4 },
 		features: {
 			enableLighting: true,
-			enableGamma: true,
 			enableSH: false,
 			enableShadows: false,
 			enableReflection: false,
 			enableEnvironment: false,
-			enableSSAO: true,
-			enableSSGI: true,
-			enableTAA: true,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFXAA: false,
 			warnings: [],
-			ssrOptions: {},
-			ssaoOptions: {},
-			ssgiOptions: {},
-			taaOptions: {},
-			volumetricOptions: {},
 		},
+		postProcess: createResolvedPostProcess({
+			ssao: { enabled: true },
+			ssgi: { enabled: true },
+			taa: { enabled: true },
+		}),
 		shadowMaps: new Map(),
 		scene: {
 			particleSystems: [],

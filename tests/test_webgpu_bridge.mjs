@@ -62,6 +62,7 @@ import {
 } from "../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -73,6 +74,7 @@ import {
 	FakeCommandEncoder as FakeRenderEncoder,
 	FakeWebGPUBackend as FakeBackend,
 } from "./helpers/test_fakes.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createModel(materials) {
 	const mesh = MeshAsset.fromFaces(
@@ -247,74 +249,67 @@ function testFeatureGate() {
 	const featureState = resolveFeatureState(
 		{
 			enableLighting: true,
-			enableGamma: true,
 			enableSH: true,
 			enableShadows: true,
 			enableReflection: true,
 			enableEnvironment: true,
-			enableSSAO: true,
-			enableTAA: true,
-			enableSSR: true,
-			enableVolumetric: true,
-			enableBloom: true,
 		},
 		{
 			sh: false,
 			shadows: true,
 			reflection: false,
-				environment: false,
-				ssao: false,
-				ssgi: false,
-				taa: false,
-				ssr: false,
-				volumetric: false,
-				fog: false,
-				motionBlur: false,
-				dof: false,
-				bloom: false,
-				colorFilter: false,
-				clusteredLighting: false,
-				oit: false,
-			},
-			"webgpu"
-		);
+			environment: false,
+			clusteredLighting: false,
+			oit: false,
+		},
+		"webgpu"
+	);
 
 	assert.equal(featureState.enableLighting, true);
-	assert.equal(featureState.enableGamma, true);
-	assert.equal(featureState.enableToneMapping, true);
 	assert.equal(featureState.enableSH, false);
 	assert.equal(featureState.enableShadows, true);
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableEnvironment, false);
-	assert.equal(featureState.enableSSAO, false);
-	assert.equal(featureState.enableTAA, false);
-		assert.equal(featureState.enableSSR, false);
-		assert.equal(featureState.enableVolumetric, false);
-		assert.equal(featureState.enableBloom, false);
-		assert.equal(featureState.enableColorFilter, false);
-	assert.ok(featureState.ssaoOptions);
-	assert.ok(featureState.taaOptions);
-	assert.ok(featureState.ssrOptions);
-	assert.ok(featureState.volumetricOptions);
-	assert.ok(featureState.bloomOptions);
-	assert.equal(featureState.ssaoOptions.downsample, 2);
-	assert.equal(featureState.ssaoOptions.blurRadius, 2);
-	assert.equal(featureState.ssaoOptions.blurSharpness, 8);
-	assert.equal(featureState.taaOptions.jitterScale, 1);
-	assert.equal(featureState.taaOptions.historyWeight, 0.9);
-	assert.equal(featureState.taaOptions.disocclusionDepthThreshold, 0.02);
-	assert.equal(featureState.taaOptions.motionFactor, 80);
-	assert.equal(featureState.taaOptions.varianceClampGamma, 1);
-	assert.equal(featureState.taaOptions.sharpen, 0.1);
-	assert.equal(featureState.ssrOptions.downsample, 2);
-	assert.equal(featureState.ssrOptions.binarySearchSteps, 6);
-	assert.equal(featureState.ssrOptions.edgeFade, 0.12);
-	assert.equal(featureState.ssrOptions.maxRoughness, 0.85);
-	assert.equal(featureState.bloomOptions.threshold, 1);
-	assert.equal(featureState.bloomOptions.softKnee, 0.5);
-	assert.equal(featureState.bloomOptions.intensity, 0.8);
-	assert.equal(featureState.bloomOptions.radius, 1);
-	assert.ok(featureState.warnings.length >= 8);
+	assert.ok(featureState.warnings.length >= 3);
+
+	const postProcess = resolvePostProcessState(
+		{
+			ssao: { enabled: true },
+			taa: { enabled: true },
+			ssr: { enabled: true },
+			volumetric: { enabled: true },
+			bloom: { enabled: true },
+		},
+		{
+			ssao: false,
+			ssgi: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			"motion-blur": false,
+			dof: false,
+			bloom: false,
+			tonemap: true,
+			"color-filter": false,
+			fxaa: false,
+			"interaction-outline": true,
+			gamma: true,
+		},
+		"webgpu"
+	);
+	assert.equal(postProcess.enabled.gamma, true);
+	assert.equal(postProcess.enabled.tonemap, true);
+	assert.equal(postProcess.enabled.ssao, false);
+	assert.equal(postProcess.enabled.taa, false);
+	assert.equal(postProcess.enabled.ssr, false);
+	assert.equal(postProcess.enabled.volumetric, false);
+	assert.equal(postProcess.enabled.bloom, false);
+	assert.equal(postProcess.options.ssao.downsample, 2);
+	assert.equal(postProcess.options.taa.historyWeight, 0.9);
+	assert.equal(postProcess.options.ssr.maxRoughness, 0.85);
+	assert.equal(postProcess.options.bloom.radius, 1);
+	assert.ok(postProcess.warnings.length >= 5);
 }
 
 async function testSceneShaderCoverage() {
@@ -957,7 +952,7 @@ function testFrameExecutorRequestsComputeFacadeFromBackend() {
 
 	assert.equal(backend.getComputeFacadeCalls, 1);
 	assert.equal(
-		typeof executor._postRuntime._compute.createComputePipeline,
+		typeof executor._postRuntime._shared.compute.createComputePipeline,
 		"function"
 	);
 }
@@ -1712,6 +1707,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: frame.shadowMaps,
 		scene: { ...frame, particleSystems: [] },
 		shCoeffs: SH.empty(),
@@ -1906,6 +1902,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 			camera: scene.camera,
 			attachments: { width: 16, height: 16 },
 			features,
+			postProcess: createResolvedPostProcess(),
 			shadowMaps: scene.shadowMaps,
 			scene,
 			shCoeffs: SH.empty(),
@@ -2038,6 +2035,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		camera: preparedScene.camera,
 		attachments: { width: 1, height: 1 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: preparedScene.shadowMaps,
 		scene: preparedScene,
 		shCoeffs: SH.empty(),
@@ -2156,6 +2154,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		camera: preparedScene.camera,
 		attachments: { width: 1, height: 1 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: preparedScene.shadowMaps,
 		scene: preparedScene,
 		shCoeffs: SH.empty(),
@@ -2273,6 +2272,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: frame.shadowMaps,
 		scene: {
 			...frame,
@@ -2505,6 +2505,7 @@ async function testParticleShadowVolumeBufferUpdatesForDirectionalSlice() {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: frame.shadowMaps,
 		scene: { ...frame, particleSystems: [] },
 		shCoeffs: SH.empty(),
@@ -2664,6 +2665,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: frame.shadowMaps,
 		scene: { ...frame, particleSystems: [] },
 		shCoeffs: SH.empty(),
@@ -2775,6 +2777,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
 		features,
+		postProcess: createResolvedPostProcess(),
 		shadowMaps: frame.shadowMaps,
 		scene: { ...frame, particleSystems: [] },
 		shCoeffs: SH.empty(),

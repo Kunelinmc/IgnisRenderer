@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -11,18 +12,11 @@ class StubBackend {
 			shadows: false,
 			reflection: false,
 			environment: false,
-			ssao: false,
-			ssgi: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
-			motionBlur: false,
-			dof: false,
-			bloom: false,
-			colorFilter: false,
 			clusteredLighting: false,
 			oit: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "continuous";
 		this.passExecutors = {};
@@ -78,7 +72,7 @@ async function run() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 
 		await renderer.renderScene(0);
 		await renderer.renderScene(16);

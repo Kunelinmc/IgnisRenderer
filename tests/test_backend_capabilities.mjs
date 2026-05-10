@@ -14,18 +14,24 @@ function run() {
 		shadows: true,
 		reflection: true,
 		environment: true,
+		clusteredLighting: false,
+		oit: false,
+	});
+	assert.deepEqual(software.postProcess.capabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: false,
 		ssr: false,
 		volumetric: true,
 		fog: false,
-		motionBlur: false,
+		"motion-blur": false,
 		dof: false,
 		bloom: false,
-		colorFilter: true,
-		clusteredLighting: false,
-		oit: false,
+		tonemap: true,
+		"color-filter": true,
+		fxaa: true,
+		"interaction-outline": true,
+		gamma: true,
 	});
 
 	assert.deepEqual(webgpu.capabilities, {
@@ -33,18 +39,24 @@ function run() {
 		shadows: true,
 		reflection: false,
 		environment: true,
+		clusteredLighting: true,
+		oit: true,
+	});
+	assert.deepEqual(webgpu.postProcess.capabilities, {
 		ssao: true,
 		ssgi: true,
 		taa: true,
 		ssr: true,
 		volumetric: true,
 		fog: true,
-		motionBlur: true,
+		"motion-blur": true,
 		dof: true,
 		bloom: true,
-		colorFilter: true,
-		clusteredLighting: true,
-		oit: true,
+		tonemap: true,
+		"color-filter": true,
+		fxaa: true,
+		"interaction-outline": true,
+		gamma: true,
 	});
 
 	assert.deepEqual(webgl.capabilities, {
@@ -52,18 +64,24 @@ function run() {
 		shadows: true,
 		reflection: false,
 		environment: true,
+		clusteredLighting: true,
+		oit: true,
+	});
+	assert.deepEqual(webgl.postProcess.capabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: true,
 		ssr: false,
 		volumetric: false,
 		fog: true,
-		motionBlur: true,
+		"motion-blur": true,
 		dof: true,
 		bloom: true,
-		colorFilter: true,
-		clusteredLighting: true,
-		oit: true,
+		tonemap: true,
+		"color-filter": true,
+		fxaa: true,
+		"interaction-outline": true,
+		gamma: true,
 	});
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");

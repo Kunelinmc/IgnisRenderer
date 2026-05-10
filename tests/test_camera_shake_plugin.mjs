@@ -7,6 +7,7 @@ import {
 	Renderer,
 	Vector3,
 } from "../src/index.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor(frameScheduling = "always") {
@@ -23,6 +24,9 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 			bloom: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.beginFrameCount = 0;
 		this.beginSnapshots = [];
@@ -133,7 +137,7 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -186,7 +190,7 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -229,7 +233,7 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -294,7 +298,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;

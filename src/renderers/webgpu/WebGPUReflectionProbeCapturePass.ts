@@ -8,6 +8,7 @@ import type { ReflectionProbe } from "../../lights";
 import type { IPrimitive } from "../../core/types";
 import type { DrawPacket, FrameContext, ParticleRenderBatch, ParticleRenderItem, PreparedScene, ResolvedFeatureState } from "../../pipeline/types";
 import { DRAW_PACKET_FLAG_TRANSPARENT, PARTICLE_TRANSIENT_BATCHES_KEY, createTransientStore } from "../../pipeline/types";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
@@ -79,6 +80,9 @@ export class WebGPUReflectionProbeCapturePass {
 			request.frameContext.features,
 			request.includeShadows
 		);
+		const capturePostProcess = createCapturePostProcess(
+			request.frameContext.postProcess
+		);
 		const captureTransient = createTransientStore();
 		if (request.includeParticles) {
 			populateParticleBatchesForCapture(
@@ -97,6 +101,7 @@ export class WebGPUReflectionProbeCapturePass {
 				height: faceSize,
 			},
 			features: captureFeatures,
+			postProcess: capturePostProcess,
 			shadowMaps: captureScene.shadowMaps,
 			scene: captureScene,
 			shCoeffs: request.frameContext.shCoeffs,
@@ -719,9 +724,21 @@ function createCaptureFeatures(
 	return {
 		...features,
 		enableReflection: false,
-		enableSSR: false,
 		enableShadows: includeShadows && features.enableShadows,
 		warnings: features.warnings.slice(),
+	};
+}
+
+function createCapturePostProcess(
+	postProcess: ResolvedPostProcessState
+): ResolvedPostProcessState {
+	return {
+		enabled: {
+			...postProcess.enabled,
+			ssr: false,
+		},
+		options: postProcess.options,
+		warnings: postProcess.warnings.slice(),
 	};
 }
 

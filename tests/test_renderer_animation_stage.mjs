@@ -7,6 +7,7 @@ import { MeshInstance } from "../src/meshes/MeshInstance.ts";
 import { AnimationClip } from "../src/animation/AnimationClip.ts";
 import { KeyframeTrack } from "../src/animation/KeyframeTrack.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -21,6 +22,9 @@ class StubBackend {
 			ssr: false,
 			volumetric: false,
 			fog: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "on-demand";
 		this.passExecutors = {
@@ -122,7 +126,7 @@ async function run() {
 		camera.position.set(0, 0, 5);
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;

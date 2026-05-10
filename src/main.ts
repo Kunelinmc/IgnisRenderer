@@ -119,7 +119,7 @@ async function createRenderer(
 	if (Platform.hasWebGPU()) {
 		renderer = new Renderer(new WebGPUBackend(), canvas, camera);
 		renderer.setScene(scene);
-		renderer.features.enableFXAA = true;
+		renderer.postProcess.enable("fxaa");
 		renderer.features.enableOIT = true;
 
 		try {
@@ -137,7 +137,7 @@ async function createRenderer(
 	try {
 		renderer = new Renderer(new WebGLBackend(), canvas, camera);
 		renderer.setScene(scene);
-		renderer.features.enableFXAA = true;
+		renderer.postProcess.enable("fxaa");
 		renderer.features.enableOIT = true;
 
 		await renderer.init();

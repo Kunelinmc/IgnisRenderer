@@ -4,77 +4,92 @@ import {
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../src/pipeline/incremental.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 
-function createFeatures(overrides = {}) {
+const capabilities = {
+	ssao: true,
+	ssgi: true,
+	taa: true,
+	ssr: true,
+	volumetric: true,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+function createPostProcess(overrides = {}) {
+	return resolvePostProcessState(
+		{
+			tonemap: { enabled: false },
+			"interaction-outline": { enabled: false },
+			gamma: { enabled: false },
+			...overrides,
+		},
+		capabilities,
+		"test"
+	);
+}
+
+function enable(id, options) {
 	return {
-		enableLighting: true,
-		enableGamma: false,
-		enableToneMapping: false,
-		enableSH: false,
-		enableShadows: true,
-		enableReflection: false,
-		enableEnvironment: false,
-		enableSSAO: false,
-		enableSSGI: false,
-		enableTAA: false,
-		enableSSR: false,
-		enableVolumetric: false,
-		enableMotionBlur: false,
-		enableDOF: false,
-		enableBloom: false,
-		enableColorFilter: false,
-		enableFXAA: false,
-		enableClusteredLighting: false,
-		warnings: [],
-		...overrides,
+		[id]: {
+			enabled: true,
+			options,
+		},
 	};
 }
 
 function testResolvePostProcessGrade() {
-	assert.equal(resolvePostProcessGrade(createFeatures()), "none");
+	assert.equal(resolvePostProcessGrade(createPostProcess()), "none");
 	assert.equal(
-		resolvePostProcessGrade(createFeatures({ enableFXAA: true })),
+		resolvePostProcessGrade(createPostProcess(enable("fxaa"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createFeatures({ enableToneMapping: true })),
+		resolvePostProcessGrade(createPostProcess(enable("tonemap"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createFeatures({ enableColorFilter: true })),
+		resolvePostProcessGrade(createPostProcess(enable("color-filter"))),
 		"light"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createFeatures({ enableSSGI: true })),
+		resolvePostProcessGrade(createPostProcess(enable("ssgi"))),
 		"standard"
 	);
 	assert.equal(
-		resolvePostProcessGrade(createFeatures({ enableDOF: true })),
+		resolvePostProcessGrade(createPostProcess(enable("dof"))),
 		"cinematic"
 	);
 }
 
 function testComputePostProcessInflationRadius() {
-	assert.equal(computePostProcessInflationRadius(createFeatures()), 0);
+	assert.equal(computePostProcessInflationRadius(createPostProcess()), 0);
 	assert.equal(
-		computePostProcessInflationRadius(createFeatures({ enableGamma: true })),
+		computePostProcessInflationRadius(createPostProcess(enable("gamma"))),
 		2
 	);
 	assert.equal(
 		computePostProcessInflationRadius(
-			createFeatures({ enableToneMapping: true })
+			createPostProcess(enable("tonemap"))
 		),
 		2
 	);
 	assert.equal(
-		computePostProcessInflationRadius(createFeatures({ enableSSGI: true })),
+		computePostProcessInflationRadius(createPostProcess(enable("ssgi"))),
 		12
 	);
 	assert.equal(
 		computePostProcessInflationRadius(
-			createFeatures({
-				enableTAA: true,
-				enableDOF: true,
+			createPostProcess({
+				...enable("taa"),
+				...enable("dof"),
 			})
 		),
 		32
@@ -85,15 +100,15 @@ function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 	const baseRatio = 0.3;
 	const noneRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
-		createFeatures()
+		createPostProcess()
 	);
 	const standardRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
-		createFeatures({ enableBloom: true })
+		createPostProcess(enable("bloom"))
 	);
 	const cinematicRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
 		baseRatio,
-		createFeatures({ enableTAA: true })
+		createPostProcess(enable("taa"))
 	);
 	assert.equal(noneRatio, 0.3);
 	assert.equal(standardRatio, 0.27);

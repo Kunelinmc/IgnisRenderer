@@ -3,32 +3,40 @@ import {
 	IncrementalFramePlanner,
 	renderDirtyReasonToMask,
 } from "../src/pipeline/incremental.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 
 function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
-		enableGamma: true,
-		enableToneMapping: true,
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
 		enableEnvironment: false,
-		enableSSAO: false,
-		enableSSGI: false,
-		enableTAA: false,
-		enableSSR: false,
-		enableVolumetric: false,
-		enableFog: false,
-		enableMotionBlur: false,
-		enableDOF: false,
-		enableBloom: false,
-		enableColorFilter: false,
-		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],
-		fogOptions: {},
 		...overrides,
 	};
+}
+
+const capabilities = {
+	ssao: true,
+	ssgi: true,
+	taa: true,
+	ssr: true,
+	volumetric: true,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+function createPostProcess(overrides = {}) {
+	return resolvePostProcessState(overrides, capabilities, "test");
 }
 
 function testNoDirtyReasonsReturnsNoPass() {
@@ -36,6 +44,7 @@ function testNoDirtyReasonsReturnsNoPass() {
 		enabled: true,
 		reasonMask: 0,
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, null);
 	assert.equal(plan.forceFullFrame, false);
@@ -47,6 +56,7 @@ function testInteractionStartsAtInteractionOutline() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("interaction"),
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "interaction-outline");
 	assert.equal(plan.forceFullFrame, false);
@@ -57,6 +67,7 @@ function testParticlesStartAtParticleSim() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("particles"),
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "particle-sim");
 	assert.equal(plan.forceFullFrame, false);
@@ -66,16 +77,10 @@ function testPostFxStartsAtFirstEnabledPostStage() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures({
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: true,
-			enableFXAA: true,
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			bloom: { enabled: true },
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "bloom");
@@ -85,16 +90,11 @@ function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx-standard"),
-		features: createFeatures({
-			enableSSAO: true,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: true,
-			enableFXAA: true,
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			ssao: { enabled: true },
+			bloom: { enabled: true },
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "ssao");
@@ -104,20 +104,15 @@ function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures({
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFog: true,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: false,
-			enableFXAA: true,
-			fogOptions: {
-				application: "postprocess",
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "postprocess",
+				},
 			},
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "fog");
@@ -127,12 +122,15 @@ function testPostFxSkipsFogInSceneMode() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures({
-			enableFog: true,
-			enableFXAA: true,
-			fogOptions: {
-				application: "scene",
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "scene",
+				},
 			},
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "tonemap");
@@ -142,13 +140,16 @@ function testPostFxSkipsToneMappingWhenDisabled() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: createFeatures({
-			enableFog: true,
-			enableToneMapping: false,
-			enableFXAA: true,
-			fogOptions: {
-				application: "scene",
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "scene",
+				},
 			},
+			tonemap: { enabled: false },
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "fxaa");
@@ -158,9 +159,10 @@ function testPostFxCinematicReasonResetsTemporalHistory() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx-cinematic"),
-		features: createFeatures({
-			enableTAA: true,
-			enableFXAA: true,
+		features: createFeatures(),
+		postProcess: createPostProcess({
+			taa: { enabled: true },
+			fxaa: { enabled: true },
 		}),
 	});
 	assert.equal(plan.firstPass, "taa");
@@ -172,6 +174,7 @@ function testCameraForcesFullAndResetsTemporal() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("camera"),
 		features: createFeatures({ enableShadows: true }),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "shadow");
 	assert.equal(plan.forceFullFrame, true);
@@ -187,6 +190,7 @@ function testGeometryFallsBackToMainWhenShadowsDisabled() {
 		enabled: true,
 		reasonMask: mask,
 		features: createFeatures({ enableShadows: false }),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
 	assert.equal(plan.forceFullFrame, false);
@@ -198,6 +202,7 @@ function testDisabledIncrementalAlwaysFullFrame() {
 		enabled: false,
 		reasonMask: renderDirtyReasonToMask("interaction"),
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, null);
 	assert.equal(plan.forceFullFrame, true);
@@ -209,6 +214,7 @@ function testEnvironmentIBLForcesFullFrameWithoutTemporalReset() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("environment-ibl"),
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, false);
@@ -220,6 +226,7 @@ function testEnvironmentIBLCompleteResetsTemporalHistory() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("environment-ibl-complete"),
 		features: createFeatures(),
+		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);

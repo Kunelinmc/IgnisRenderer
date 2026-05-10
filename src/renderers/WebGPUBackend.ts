@@ -5,11 +5,13 @@ import {
 } from "./ICommandEncoder";
 import type {
 	IRenderBackend,
+	RenderBackendPostProcessSupport,
 	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
+import type { PostProcessCapabilities } from "../pipeline/PostProcess";
 import {
 	type FrameAttachments,
 	type FrameContext,
@@ -204,6 +206,43 @@ type WebGPUPassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
 
+const WEBGPU_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
+	ssao: true,
+	ssgi: true,
+	taa: true,
+	ssr: true,
+	volumetric: true,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+export interface WebGPUPostProcessSupport
+	extends RenderBackendPostProcessSupport {
+	/**
+	 * Registers a custom WebGPU post-process graph pass.
+	 *
+	 * @param pass Custom pass descriptor. Built-in ids are reserved.
+	 * @returns Nothing.
+	 * @sideEffects Mutates the backend post-process graph registration state.
+	 */
+	registerPass(pass: WebGPUPostProcessPassPlugin): void;
+	/**
+	 * Removes a custom WebGPU post-process graph pass.
+	 *
+	 * @param id Custom pass id to remove.
+	 * @returns Nothing.
+	 * @sideEffects Mutates the backend post-process graph registration state.
+	 */
+	unregisterPass(id: string): void;
+}
+
 function isWebGPUBackendOptions(
 	value: unknown
 ): value is WebGPUBackendOptions {
@@ -251,18 +290,13 @@ export class WebGPUBackend implements IRenderBackend {
 		shadows: true,
 		reflection: false,
 		environment: true,
-		ssao: true,
-		ssgi: true,
-		taa: true,
-		ssr: true,
-		volumetric: true,
-		fog: true,
-		motionBlur: true,
-		dof: true,
-		bloom: true,
-		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
+	};
+	public readonly postProcess: WebGPUPostProcessSupport = {
+		capabilities: WEBGPU_POST_PROCESS_CAPABILITIES,
+		registerPass: (pass) => this._registerPostProcessPass(pass),
+		unregisterPass: (id) => this._unregisterPostProcessPass(id),
 	};
 
 	private _canvas: HTMLCanvasElement | null = null;
@@ -694,13 +728,13 @@ export class WebGPUBackend implements IRenderBackend {
 		this._plannedPassOrder.clear();
 	}
 
-	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
+	private _registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
 		this._assertCanRegisterPostProcessPass(pass);
 		this._frameExecutor?.registerPostProcessPass(pass);
 		this._pendingPostProcessPasses.set(pass.id, pass);
 	}
 
-	public unregisterPostProcessPass(id: string): void {
+	private _unregisterPostProcessPass(id: string): void {
 		if (isWebGPUBuiltinPostProcessPassId(id)) {
 			throw new Error(
 				`Cannot unregister built-in WebGPU post-process pass "${id}".`

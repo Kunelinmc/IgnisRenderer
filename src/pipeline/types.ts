@@ -14,6 +14,7 @@ import type {
 } from "../core/types";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
+import type { ResolvedPostProcessState } from "./PostProcess";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;
@@ -183,6 +184,7 @@ export interface FrameContext {
 	readonly camera: Camera;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
+	readonly postProcess: ResolvedPostProcessState;
 	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;
@@ -612,35 +614,12 @@ export interface FeatureWarning {
 
 export interface RendererFeatureRequest {
 	enableLighting?: boolean;
-	enableGamma?: boolean;
-	enableToneMapping?: boolean;
 	enableSH?: boolean;
 	enableShadows?: boolean;
 	enableReflection?: boolean;
 	enableEnvironment?: boolean;
 	enableOIT?: boolean;
-	enableSSAO?: boolean;
-	enableSSGI?: boolean;
-	enableTAA?: boolean;
-	enableSSR?: boolean;
-	enableVolumetric?: boolean;
-	enableFog?: boolean;
-	enableMotionBlur?: boolean;
-	enableDOF?: boolean;
-	enableBloom?: boolean;
-	enableColorFilter?: boolean;
-	enableFXAA?: boolean;
 	enableClusteredLighting?: boolean;
-	ssrOptions?: SSROptions;
-	ssaoOptions?: SSAOOptions;
-	ssgiOptions?: SSGIOptions;
-	taaOptions?: TAAOptions;
-	volumetricOptions?: VolumetricOptions;
-	fogOptions?: FogOptions;
-	bloomOptions?: BloomOptions;
-	motionBlurOptions?: MotionBlurOptions;
-	dofOptions?: DOFOptions;
-	colorFilterOptions?: ColorFilterOptions;
 	clusteredLightingOptions?: ClusteredLightingOptions;
 }
 
@@ -671,15 +650,3 @@ export type ResolvedFeatureState = RendererFeatureFlags &
 	RendererFeatureRequestExtras & {
 		warnings: FeatureWarning[];
 	};
-
-/**
- * Returns whether fog should execute as a post-process pass.
- */
-export function isFogPostProcessEnabled(
-	features: ResolvedFeatureState
-): boolean {
-	return (
-		features.enableFog &&
-		(features.fogOptions?.application ?? "postprocess") !== "scene"
-	);
-}

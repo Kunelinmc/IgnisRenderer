@@ -42,6 +42,7 @@ export interface PostProcessorLike {
 		context: FrameContext,
 		ctx: CanvasRenderingContext2D
 	): void;
+	applyToneMapping(context: FrameContext): void;
 	applyGamma(context: FrameContext, ctx: CanvasRenderingContext2D): void;
 	applySSAO(context: FrameContext): void;
 	applyInteractionOutline(context: FrameContext): void;
@@ -241,6 +242,16 @@ export class PostProcessor implements PostProcessorLike {
 	private _toFiniteNumber(value: unknown, fallback: number): number {
 		if (typeof value === "number" && Number.isFinite(value)) return value;
 		return fallback;
+	}
+
+	private _acesFitted(value: number): number {
+		const a = 2.51;
+		const b = 0.03;
+		const c = 2.43;
+		const d = 0.59;
+		const e = 0.14;
+		const mapped = (value * (a * value + b)) / (value * (c * value + d) + e);
+		return clamp(mapped, 0, 1);
 	}
 
 	private _resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
@@ -727,7 +738,7 @@ export class PostProcessor implements PostProcessorLike {
 		ctx: CanvasRenderingContext2D
 	): void {
 		const depthBuffer = context.attachments.depthBuffer;
-		const options = context.features.volumetricOptions || {};
+		const options = context.postProcess.options.volumetric || {};
 		const maxRayDistance = Math.max(
 			VolumetricConstants.MIN_RAY_DISTANCE,
 			this._toFiniteNumber(options.maxRayDistance, 500)
@@ -1282,7 +1293,7 @@ export class PostProcessor implements PostProcessorLike {
 	public applySSAO(context: FrameContext): void {
 		const depthBuffer = context.attachments.depthBuffer;
 		const normalBuffer = context.attachments.normalBuffer;
-		const options = context.features.ssaoOptions || {};
+		const options = context.postProcess.options.ssao || {};
 		if (!depthBuffer || !normalBuffer) return;
 		const dirtyRects = this._resolveDirtyRects(context);
 		if (dirtyRects.length === 0) {
@@ -1664,7 +1675,7 @@ export class PostProcessor implements PostProcessorLike {
 		if (dirtyRects.length === 0) {
 			return;
 		}
-		const options = context.features.colorFilterOptions;
+		const options = context.postProcess.options["color-filter"];
 		const brightness = clamp(
 			this._toFiniteNumber(
 				options?.brightness,
@@ -1761,13 +1772,48 @@ export class PostProcessor implements PostProcessorLike {
 		});
 	}
 
+	/**
+	 * Applies ACES-fitted tone mapping to the frame color buffer.
+	 *
+	 * @param context Current frame context containing color attachments and dirty
+	 * rect metadata.
+	 * @returns Nothing.
+	 * @sideEffects Mutates RGB channels in `context.attachments.pixels` while
+	 * preserving alpha.
+	 */
+	public applyToneMapping(context: FrameContext): void {
+		const pixels = context.attachments.pixels;
+		if (!pixels || pixels.length === 0) {
+			return;
+		}
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
+		const width = context.attachments.width;
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * width;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const index = (row + x) << 2;
+					const red = this._acesFitted(pixels[index] / 255);
+					const green = this._acesFitted(pixels[index + 1] / 255);
+					const blue = this._acesFitted(pixels[index + 2] / 255);
+					pixels[index] = Math.round(red * 255);
+					pixels[index + 1] = Math.round(green * 255);
+					pixels[index + 2] = Math.round(blue * 255);
+				}
+			}
+		});
+	}
+
 	public applyGamma(
 		context: FrameContext,
 		ctx: CanvasRenderingContext2D
 	): void {
 		const w = context.attachments.width,
 			h = context.attachments.height;
-		const gamma = context.features.enableGamma
+		const gamma = context.postProcess.enabled.gamma
 			? PostProcessConstants.DEFAULT_GAMMA
 			: 1.0; // Simplification, usually from features
 		let pixels = context.attachments.pixels;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 
 function createFrame(overrides = {}) {
@@ -22,37 +23,32 @@ function createFrame(overrides = {}) {
 function run() {
 	const baseResolved = {
 		enableLighting: true,
-		enableGamma: true,
-		enableToneMapping: true,
 		enableSH: false,
 		enableShadows: true,
 		enableReflection: false,
 		enableEnvironment: false,
-		enableSSAO: false,
-		enableSSGI: false,
-		enableTAA: false,
-		enableSSR: false,
-		enableVolumetric: false,
-		enableFog: false,
-		enableMotionBlur: false,
-		enableDOF: false,
-		enableBloom: false,
-		enableColorFilter: false,
-		enableFXAA: true,
 		enableClusteredLighting: false,
 		warnings: [],
-		ssrOptions: {},
-		ssaoOptions: {},
-		ssgiOptions: {},
-		taaOptions: {},
-		volumetricOptions: {},
-		fogOptions: {},
-		bloomOptions: {},
-		motionBlurOptions: {},
-		dofOptions: {},
-		colorFilterOptions: {},
 		clusteredLightingOptions: {},
 	};
+	const capabilities = {
+		ssao: true,
+		ssgi: true,
+		taa: true,
+		ssr: true,
+		volumetric: true,
+		fog: true,
+		"motion-blur": true,
+		dof: true,
+		bloom: true,
+		tonemap: true,
+		"color-filter": true,
+		fxaa: true,
+		"interaction-outline": true,
+		gamma: true,
+	};
+	const createPostProcess = (overrides = {}) =>
+		resolvePostProcessState(overrides, capabilities, "test");
 
 	const frame = createFrame({
 		particleSystems: [{}],
@@ -60,17 +56,23 @@ function run() {
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
 	});
-	const plan = FramePlanner.build(frame, {
-		...baseResolved,
-		enableReflection: true,
-		enableSSAO: true,
-		enableSSGI: true,
-		enableTAA: true,
-		enableSSR: true,
-		enableVolumetric: true,
-		enableFog: true,
-		enableBloom: true,
-	});
+	const plan = FramePlanner.build(
+		frame,
+		{
+			...baseResolved,
+			enableReflection: true,
+		},
+		createPostProcess({
+			ssao: { enabled: true },
+			ssgi: { enabled: true },
+			taa: { enabled: true },
+			ssr: { enabled: true },
+			volumetric: { enabled: true },
+			fog: { enabled: true },
+			bloom: { enabled: true },
+			fxaa: { enabled: true },
+		})
+	);
 
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
@@ -127,7 +129,15 @@ function run() {
 	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
 
-	const disabledPlan = FramePlanner.build(createFrame(), baseResolved);
+	const disabledPlan = FramePlanner.build(
+		createFrame(),
+		baseResolved,
+		createPostProcess({
+			tonemap: { enabled: false },
+			gamma: { enabled: false },
+			"interaction-outline": { enabled: false },
+		})
+	);
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === "animation-sim")?.enabled,
 		false
@@ -169,7 +179,8 @@ function run() {
 			],
 			shadowCasterPackets: [],
 		}),
-		baseResolved
+		baseResolved,
+		createPostProcess()
 	);
 	assert.equal(
 		particleCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
@@ -188,20 +199,26 @@ function run() {
 			],
 			shadowCasterPackets: [],
 		}),
-		baseResolved
+		baseResolved,
+		createPostProcess()
 	);
 	assert.equal(
 		additiveCasterPlan.find((pass) => pass.stage === "shadow")?.enabled,
 		false
 	);
 
-	const sceneFogPlan = FramePlanner.build(createFrame(), {
-		...baseResolved,
-		enableFog: true,
-		fogOptions: {
-			application: "scene",
-		},
-	});
+	const sceneFogPlan = FramePlanner.build(
+		createFrame(),
+		baseResolved,
+		createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "scene",
+				},
+			},
+		})
+	);
 	assert.equal(sceneFogPlan.find((pass) => pass.stage === "fog")?.enabled, false);
 
 	console.log("Frame planner tests passed");

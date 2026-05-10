@@ -243,9 +243,9 @@ export function bindWebGLGlobalUniforms(
 		gl.uniform3f(uniforms.cameraPosition, cameraX, cameraY, cameraZ);
 	}
 	const sceneFogEnabled =
-		context.features.enableFog &&
-		(context.features.fogOptions?.application ?? "postprocess") === "scene";
-	host._updateFogParams(context.features.fogOptions, sceneFogEnabled);
+		context.postProcess.enabled.fog &&
+		(context.postProcess.options.fog.application ?? "postprocess") === "scene";
+	host._updateFogParams(context.postProcess.options.fog, sceneFogEnabled);
 	if (uniforms.fogParams0) {
 		gl.uniform4fv(uniforms.fogParams0, host._fogParams0);
 	}

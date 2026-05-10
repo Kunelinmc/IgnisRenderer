@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { bindWebGLGlobalUniforms } from "../src/renderers/webgl/WebGLGlobalUniformBinder.ts";
 import { WEBGL_MAX_POINT_LIGHTS } from "../src/renderers/webgl/constants.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function approxEqual(actual, expected, epsilon = 1e-5) {
 	assert.ok(
@@ -122,12 +123,14 @@ function createFrameContext() {
 			},
 		},
 		features: {
-			enableFog: false,
 			enableClusteredLighting: false,
 			enableLighting: true,
 			enableShadows: false,
 			enableSH: false,
 		},
+		postProcess: createResolvedPostProcess({
+			fog: { enabled: false },
+		}),
 		shAmbientCoeffs: null,
 	};
 }

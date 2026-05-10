@@ -19,6 +19,7 @@ import {
 	type IncrementalRenderingOptions,
 } from "./incremental";
 import type { DrawPacket, PreparedScene, ResolvedFeatureState } from "./types";
+import type { ResolvedPostProcessState } from "./PostProcess";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 
@@ -71,6 +72,7 @@ export interface PreparedSceneCacheBuildInput {
 	viewportWidth: number;
 	viewportHeight: number;
 	features: ResolvedFeatureState;
+	postProcess: ResolvedPostProcessState;
 	incrementalOptions: IncrementalRenderingOptions;
 }
 
@@ -220,7 +222,7 @@ export class PreparedSceneCache {
 			width,
 			height
 		);
-		const inflationRadius = computePostProcessInflationRadius(input.features);
+		const inflationRadius = computePostProcessInflationRadius(input.postProcess);
 		if (inflationRadius > 0) {
 			dirtyRects = mergeDirtyRects(
 				inflateDirtyRects(dirtyRects, inflationRadius, width, height),
@@ -249,7 +251,7 @@ export class PreparedSceneCache {
 		);
 		const fallbackAreaRatio = scaleFullFrameFallbackAreaRatioForPostProcess(
 			input.incrementalOptions.fullFrameFallbackAreaRatio,
-			input.features
+			input.postProcess
 		);
 		if (dirtyAreaRatio > fallbackAreaRatio) {
 			return {

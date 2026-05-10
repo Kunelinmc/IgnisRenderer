@@ -6,6 +6,7 @@ import {
 	assertClose,
 	createTexture,
 } from "./helpers/webgpu_postprocess_runtime_test_helpers.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 async function testSSAORuntimeRunsGTAOPipeline() {
 	const backend = new FakeBackend();
@@ -33,16 +34,20 @@ async function testSSAORuntimeRunsGTAOPipeline() {
 			fov: 60,
 			aspectRatio: 2,
 		},
-		features: {
-			ssaoOptions: {
-				radius: 10,
-				bias: 0.2,
-				intensity: 1.3,
-				samples: 20,
-				blurRadius: 3,
-				blurSharpness: 12,
+		features: {},
+		postProcess: createResolvedPostProcess({
+			ssao: {
+				enabled: true,
+				options: {
+					radius: 10,
+					bias: 0.2,
+					intensity: 1.3,
+					samples: 20,
+					blurRadius: 3,
+					blurSharpness: 12,
+				},
 			},
-		},
+		}),
 	};
 
 	const result = await runtime.executePass({
@@ -139,17 +144,21 @@ async function testSSGIRuntimeUsesDedicatedPipeline() {
 		gMotionDepth,
 	};
 	const frameContext = {
-		features: {
-			ssgiOptions: {
-				radius: 4,
-				intensity: 0.5,
-				falloff: 1.8,
-				depthPhi: 1.4,
-				normalPhi: 2.5,
-				albedoBoost: 1.2,
-				samples: 24,
+		features: {},
+		postProcess: createResolvedPostProcess({
+			ssgi: {
+				enabled: true,
+				options: {
+					radius: 4,
+					intensity: 0.5,
+					falloff: 1.8,
+					depthPhi: 1.4,
+					normalPhi: 2.5,
+					albedoBoost: 1.2,
+					samples: 24,
+				},
 			},
-		},
+		}),
 	};
 
 	const result = await runtime.executePass({

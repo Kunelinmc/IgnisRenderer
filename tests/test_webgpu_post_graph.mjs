@@ -1,49 +1,59 @@
 import assert from "node:assert/strict";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
 
-function createFeatures(overrides = {}) {
-	return {
-		enableLighting: true,
-		enableGamma: true,
-		enableSH: false,
-		enableShadows: false,
-		enableReflection: false,
-		enableEnvironment: false,
-		enableSSAO: true,
-		enableSSGI: true,
-		enableTAA: true,
-		enableSSR: true,
-		enableVolumetric: true,
-		enableFog: true,
-		enableMotionBlur: true,
-		enableDOF: true,
-		enableBloom: true,
-		enableColorFilter: true,
-		enableFXAA: true,
-		warnings: [],
-		ssrOptions: {},
-		ssaoOptions: {},
-		ssgiOptions: {},
-		taaOptions: {},
-		volumetricOptions: {},
-		fogOptions: {
-			application: "postprocess",
+const POST_PROCESS_CAPABILITIES = {
+	ssao: true,
+	ssgi: true,
+	taa: true,
+	ssr: true,
+	volumetric: true,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+const ENABLED_POST_PROCESS_REQUEST = {
+	ssao: { enabled: true },
+	ssgi: { enabled: true },
+	taa: { enabled: true },
+	ssr: { enabled: true },
+	volumetric: { enabled: true },
+	fog: { enabled: true, options: { application: "postprocess" } },
+	"motion-blur": { enabled: true },
+	dof: { enabled: true },
+	bloom: { enabled: true },
+	tonemap: { enabled: true },
+	"color-filter": { enabled: true },
+	fxaa: { enabled: true },
+	"interaction-outline": { enabled: true },
+	gamma: { enabled: true },
+};
+
+function createPostProcess(overrides = {}) {
+	return resolvePostProcessState(
+		{
+			...ENABLED_POST_PROCESS_REQUEST,
+			...overrides,
 		},
-		bloomOptions: {},
-		motionBlurOptions: {},
-		dofOptions: {},
-		colorFilterOptions: {},
-		...overrides,
-	};
+		POST_PROCESS_CAPABILITIES,
+		"webgpu"
+	);
 }
 
-function createPass(id, dependsOn, key) {
+function createPass(id, dependsOn, enabledId = id) {
 	return {
 		id,
 		kind: "compute",
 		dependsOn,
-		isEnabled(features) {
-			return !!features[key];
+		isEnabled(postProcess) {
+			return !!postProcess.enabled[enabledId];
 		},
 		execute() {},
 	};
@@ -51,32 +61,32 @@ function createPass(id, dependsOn, key) {
 
 function testPostGraphOrder() {
 	const graph = new WebGPUPostProcessGraph([
-		createPass("ssao", [], "enableSSAO"),
-		createPass("ssgi", ["ssao"], "enableSSGI"),
-		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
-		createPass("ssr", ["taa"], "enableSSR"),
-		createPass("volumetric", ["ssr"], "enableVolumetric"),
+		createPass("ssao", []),
+		createPass("ssgi", ["ssao"]),
+		createPass("taa", ["ssgi", "ssao"]),
+		createPass("ssr", ["taa"]),
+		createPass("volumetric", ["ssr"]),
 		{
 			id: "fog",
 			kind: "compute",
 			dependsOn: ["volumetric"],
-			isEnabled(features) {
+			isEnabled(postProcess) {
 				return (
-					features.enableFog &&
-					(features.fogOptions?.application ?? "postprocess") !== "scene"
+					postProcess.enabled.fog &&
+					(postProcess.options.fog.application ?? "postprocess") !== "scene"
 				);
 			},
 			execute() {},
 		},
-		createPass("motion-blur", ["fog"], "enableMotionBlur"),
-		createPass("dof", ["motion-blur"], "enableDOF"),
-		createPass("bloom", ["dof"], "enableBloom"),
-		createPass("color-filter", ["bloom"], "enableColorFilter"),
-		createPass("fxaa", ["color-filter"], "enableFXAA"),
-		createPass("gamma", ["fxaa"], "enableGamma"),
+		createPass("motion-blur", ["fog"]),
+		createPass("dof", ["motion-blur"]),
+		createPass("bloom", ["dof"]),
+		createPass("color-filter", ["bloom"]),
+		createPass("fxaa", ["color-filter"]),
+		createPass("gamma", ["fxaa"]),
 	]);
 	const warnings = [];
-	const order = graph.getExecutionOrder(createFeatures(), (key, message) => {
+	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
 		warnings.push({ key, message });
 	});
 
@@ -102,45 +112,45 @@ function testPostGraphOrder() {
 
 function testEnabledSubsetShrinksDependencyChain() {
 	const graph = new WebGPUPostProcessGraph([
-		createPass("ssao", [], "enableSSAO"),
-		createPass("ssgi", ["ssao"], "enableSSGI"),
-		createPass("taa", ["ssgi", "ssao"], "enableTAA"),
-		createPass("ssr", ["taa"], "enableSSR"),
-		createPass("volumetric", ["ssr"], "enableVolumetric"),
+		createPass("ssao", []),
+		createPass("ssgi", ["ssao"]),
+		createPass("taa", ["ssgi", "ssao"]),
+		createPass("ssr", ["taa"]),
+		createPass("volumetric", ["ssr"]),
 		{
 			id: "fog",
 			kind: "compute",
 			dependsOn: ["volumetric"],
-			isEnabled(features) {
+			isEnabled(postProcess) {
 				return (
-					features.enableFog &&
-					(features.fogOptions?.application ?? "postprocess") !== "scene"
+					postProcess.enabled.fog &&
+					(postProcess.options.fog.application ?? "postprocess") !== "scene"
 				);
 			},
 			execute() {},
 		},
-		createPass("motion-blur", ["fog"], "enableMotionBlur"),
-		createPass("dof", ["motion-blur"], "enableDOF"),
-		createPass("bloom", ["dof"], "enableBloom"),
-		createPass("color-filter", ["bloom"], "enableColorFilter"),
-		createPass("fxaa", ["color-filter"], "enableFXAA"),
-		createPass("gamma", ["fxaa"], "enableGamma"),
+		createPass("motion-blur", ["fog"]),
+		createPass("dof", ["motion-blur"]),
+		createPass("bloom", ["dof"]),
+		createPass("color-filter", ["bloom"]),
+		createPass("fxaa", ["color-filter"]),
+		createPass("gamma", ["fxaa"]),
 	]);
 
 	const order = graph.getExecutionOrder(
-		createFeatures({
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFog: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: false,
-			enableColorFilter: false,
-			enableFXAA: false,
-			enableGamma: true,
+		createPostProcess({
+			ssao: { enabled: false },
+			ssgi: { enabled: false },
+			taa: { enabled: false },
+			ssr: { enabled: false },
+			volumetric: { enabled: false },
+			fog: { enabled: false },
+			"motion-blur": { enabled: false },
+			dof: { enabled: false },
+			bloom: { enabled: false },
+			"color-filter": { enabled: false },
+			fxaa: { enabled: false },
+			gamma: { enabled: true },
 		}),
 		() => {}
 	);
@@ -153,10 +163,10 @@ function testEnabledSubsetShrinksDependencyChain() {
 
 function testUnknownDependencySkipsPass() {
 	const graph = new WebGPUPostProcessGraph([
-		createPass("gamma", ["missing-pass"], "enableGamma"),
+		createPass("gamma", ["missing-pass"]),
 	]);
 	const warnings = [];
-	const order = graph.getExecutionOrder(createFeatures(), (key, message) => {
+	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
 		warnings.push({ key, message });
 	});
 
@@ -170,11 +180,11 @@ function testUnknownDependencySkipsPass() {
 
 function testCycleSkipsPassBranch() {
 	const graph = new WebGPUPostProcessGraph([
-		createPass("a", ["b"], "enableGamma"),
-		createPass("b", ["a"], "enableGamma"),
+		createPass("a", ["b"], "gamma"),
+		createPass("b", ["a"], "gamma"),
 	]);
 	const warnings = [];
-	const order = graph.getExecutionOrder(createFeatures(), (key, message) => {
+	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
 		warnings.push({ key, message });
 	});
 
@@ -187,26 +197,28 @@ function testCycleSkipsPassBranch() {
 
 function testFogSceneModeSkipsFogPass() {
 	const graph = new WebGPUPostProcessGraph([
-		createPass("volumetric", [], "enableVolumetric"),
+		createPass("volumetric", []),
 		{
 			id: "fog",
 			kind: "compute",
 			dependsOn: ["volumetric"],
-			isEnabled(features) {
+			isEnabled(postProcess) {
 				return (
-					features.enableFog &&
-					(features.fogOptions?.application ?? "postprocess") !== "scene"
+					postProcess.enabled.fog &&
+					(postProcess.options.fog.application ?? "postprocess") !== "scene"
 				);
 			},
 			execute() {},
 		},
-		createPass("motion-blur", ["fog"], "enableMotionBlur"),
+		createPass("motion-blur", ["fog"]),
 	]);
 	const order = graph.getExecutionOrder(
-		createFeatures({
-			enableFog: true,
-			fogOptions: {
-				application: "scene",
+		createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "scene",
+				},
 			},
 		}),
 		() => {}

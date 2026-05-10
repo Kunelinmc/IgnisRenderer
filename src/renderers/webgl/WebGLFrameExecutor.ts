@@ -309,7 +309,7 @@ export class WebGLFrameExecutor {
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
 		const ssaoDownsample = clampDownsample(
-			context.features.ssaoOptions?.downsample,
+			context.postProcess.options.ssao.downsample,
 			DEFAULT_SSAO_OPTIONS.downsample
 		);
 		this._ensureFrameTargets(this._width, this._height, ssaoDownsample);
@@ -343,7 +343,7 @@ export class WebGLFrameExecutor {
 			this._maxTextureSize
 		);
 		
-		if (context.features.enableTAA) {
+		if (context.postProcess.enabled.taa) {
 			this._taaJitter[2] = this._taaJitter[0];
 			this._taaJitter[3] = this._taaJitter[1];
 			const nextJitter = computeHaltonJitterNDC(this._taaFrameIndex++, this._width, this._height);
@@ -422,7 +422,7 @@ export class WebGLFrameExecutor {
 
 	public endFrame(): void {
 		if (!this._presentedInFrame) {
-			this._present(this._activeContext?.features.enableGamma !== false);
+			this._present(this._activeContext?.postProcess.enabled.gamma !== false);
 		}
 		this._pruneModelMatrixCache();
 		this._activeContext = null;
@@ -488,7 +488,7 @@ export class WebGLFrameExecutor {
 
 		const allowedPassIds = new Set(plan.postProcessPasses);
 		const warmupHints = this._postProcessRuntime.collectWarmupHints(
-			context.features,
+			context.postProcess,
 			(key, message) =>
 				Logger.warn(`[${key}] ${message}`, {
 					scope: "WebGLFrameExecutor",
@@ -575,7 +575,10 @@ export class WebGLFrameExecutor {
 			}
 		}
 
-		if (context.features.enableGamma && !plan.postProcessPasses.includes("gamma")) {
+		if (
+			context.postProcess.enabled.gamma &&
+			!plan.postProcessPasses.includes("gamma")
+		) {
 			compile("WebGLPresentProgram", () => {
 				this._programs.getPresentProgram();
 			});
@@ -892,7 +895,7 @@ export class WebGLFrameExecutor {
 	private _runPostProcessGraph(context: FrameContext): void {
 		this._postProcessRuntime.execute(
 			context,
-			context.features,
+			context.postProcess,
 			(key, message) =>
 				Logger.warn(`[${key}] ${message}`, {
 					scope: "WebGLFrameExecutor",
@@ -907,111 +910,113 @@ export class WebGLFrameExecutor {
 				id: "ssao",
 				dependsOn: [],
 				precompileHints: ["postprocess:ssao"],
-				isEnabled: (features) => features.enableSSAO,
+				isEnabled: (postProcess) => postProcess.enabled.ssao,
 				execute: ({ frameContext }) => {
-					this._applySSAO(frameContext.features.ssaoOptions, frameContext);
+					this._applySSAO(frameContext.postProcess.options.ssao, frameContext);
 				},
 			},
 			{
 				id: "ssgi",
 				dependsOn: ["ssao"],
 				precompileHints: ["postprocess:ssgi"],
-				isEnabled: (features) => features.enableSSGI,
+				isEnabled: (postProcess) => postProcess.enabled.ssgi,
 				execute: () => {},
 			},
 			{
 				id: "taa",
 				dependsOn: ["ssgi", "ssao"],
 				precompileHints: ["postprocess:taa"],
-				isEnabled: (features) => features.enableTAA,
+				isEnabled: (postProcess) => postProcess.enabled.taa,
 				execute: ({ frameContext }) => {
-					this._applyTAA(frameContext.features.taaOptions);
+					this._applyTAA(frameContext.postProcess.options.taa);
 				},
 			},
 			{
 				id: "ssr",
 				dependsOn: ["taa"],
 				precompileHints: ["postprocess:ssr"],
-				isEnabled: (features) => features.enableSSR,
+				isEnabled: (postProcess) => postProcess.enabled.ssr,
 				execute: () => {},
 			},
 			{
 				id: "volumetric",
 				dependsOn: ["ssr"],
 				precompileHints: ["postprocess:volumetric"],
-				isEnabled: (features) => features.enableVolumetric,
+				isEnabled: (postProcess) => postProcess.enabled.volumetric,
 				execute: () => {},
 			},
 			{
 				id: "fog",
 				dependsOn: ["volumetric"],
 				precompileHints: ["postprocess:fog"],
-				isEnabled: (features) =>
-					features.enableFog &&
-					(features.fogOptions?.application ?? "postprocess") !== "scene",
+				isEnabled: (postProcess) =>
+					postProcess.enabled.fog &&
+					(postProcess.options.fog.application ?? "postprocess") !== "scene",
 				execute: ({ frameContext }) => {
-					this._applyFog(frameContext.features.fogOptions);
+					this._applyFog(frameContext.postProcess.options.fog);
 				},
 			},
 			{
 				id: "motion-blur",
 				dependsOn: ["fog"],
 				precompileHints: ["postprocess:motion-blur"],
-				isEnabled: (features) => features.enableMotionBlur,
+				isEnabled: (postProcess) => postProcess.enabled["motion-blur"],
 				execute: ({ frameContext }) => {
-					this._applyMotionBlur(frameContext.features.motionBlurOptions);
+					this._applyMotionBlur(frameContext.postProcess.options["motion-blur"]);
 				},
 			},
 			{
 				id: "dof",
 				dependsOn: ["motion-blur"],
 				precompileHints: ["postprocess:dof"],
-				isEnabled: (features) => features.enableDOF,
+				isEnabled: (postProcess) => postProcess.enabled.dof,
 				execute: ({ frameContext }) => {
-					this._applyDOF(frameContext.features.dofOptions);
+					this._applyDOF(frameContext.postProcess.options.dof);
 				},
 			},
 			{
 				id: "bloom",
 				dependsOn: ["dof"],
 				precompileHints: ["postprocess:bloom"],
-				isEnabled: (features) => features.enableBloom,
+				isEnabled: (postProcess) => postProcess.enabled.bloom,
 				execute: ({ frameContext }) => {
-					this._applyBloom(frameContext.features.bloomOptions);
+					this._applyBloom(frameContext.postProcess.options.bloom);
 				},
 			},
-				{
-					id: "tonemap",
-					dependsOn: ["bloom"],
-					precompileHints: ["postprocess:tonemap"],
-					isEnabled: (features) => features.enableToneMapping !== false,
-					execute: () => {
-						this._applyToneMapping();
-					},
+			{
+				id: "tonemap",
+				dependsOn: ["bloom"],
+				precompileHints: ["postprocess:tonemap"],
+				isEnabled: (postProcess) => postProcess.enabled.tonemap,
+				execute: () => {
+					this._applyToneMapping();
 				},
-				{
-					id: "color-filter",
-					dependsOn: ["tonemap"],
-					precompileHints: ["postprocess:color-filter"],
-					isEnabled: (features) => features.enableColorFilter,
-					execute: ({ frameContext }) => {
-						this._applyColorFilter(frameContext.features.colorFilterOptions);
-					},
+			},
+			{
+				id: "color-filter",
+				dependsOn: ["tonemap"],
+				precompileHints: ["postprocess:color-filter"],
+				isEnabled: (postProcess) => postProcess.enabled["color-filter"],
+				execute: ({ frameContext }) => {
+					this._applyColorFilter(
+						frameContext.postProcess.options["color-filter"]
+					);
 				},
-				{
-					id: "fxaa",
-					dependsOn: ["color-filter"],
-					precompileHints: ["postprocess:fxaa"],
-					isEnabled: (features) => features.enableFXAA,
-					execute: () => {
-						this._applyFXAA();
-					},
+			},
+			{
+				id: "fxaa",
+				dependsOn: ["color-filter"],
+				precompileHints: ["postprocess:fxaa"],
+				isEnabled: (postProcess) => postProcess.enabled.fxaa,
+				execute: () => {
+					this._applyFXAA();
+				},
 			},
 			{
 				id: "interaction-outline",
 				dependsOn: ["fxaa"],
 				precompileHints: ["postprocess:interaction-outline"],
-				isEnabled: () => true,
+				isEnabled: (postProcess) => postProcess.enabled["interaction-outline"],
 				execute: ({ frameContext }) => {
 					this._applyInteractionOutline(frameContext);
 				},
@@ -1020,9 +1025,9 @@ export class WebGLFrameExecutor {
 				id: "gamma",
 				dependsOn: ["tonemap"],
 				precompileHints: ["postprocess:gamma"],
-				isEnabled: (features) => features.enableGamma,
+				isEnabled: (postProcess) => postProcess.enabled.gamma,
 				execute: ({ frameContext }) => {
-					this._present(frameContext.features.enableGamma !== false);
+					this._present(frameContext.postProcess.enabled.gamma);
 				},
 			},
 		];

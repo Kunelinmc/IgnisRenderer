@@ -112,7 +112,7 @@ export class SpatialPostProcessDelegate {
 		) {
 			return;
 		}
-		const options = frameContext.features.ssaoOptions ?? {};
+		const options = frameContext.postProcess.options.ssao ?? {};
 		const ssaoParams = this._ssaoParams;
 		const radius = Math.max(
 			1,
@@ -278,7 +278,7 @@ export class SpatialPostProcessDelegate {
 		if (!this._shared.sampler || !this._ssgiPipeline || !this._ssgiParams) {
 			return;
 		}
-		const options = frameContext.features.ssgiOptions ?? {};
+		const options = frameContext.postProcess.options.ssgi ?? {};
 		const target =
 			targets.sceneColor === targets.postPong ?
 				targets.postPing

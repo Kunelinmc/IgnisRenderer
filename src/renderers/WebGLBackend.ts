@@ -2,13 +2,17 @@ import {
 	FRAME_PASS_DEPENDENCIES,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	INTERACTION_TRANSIENT_STATE_KEY,
-	isFogPostProcessEnabled,
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
+import {
+	isFogPostProcessEnabled,
+	type PostProcessCapabilities,
+} from "../pipeline/PostProcess";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
+	RenderBackendPostProcessSupport,
 	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
@@ -71,6 +75,43 @@ type WebGLBackendPassHandler = (
 	context: FrameContext
 ) => void;
 
+const WEBGL_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
+	ssao: true,
+	ssgi: false,
+	taa: true,
+	ssr: false,
+	volumetric: false,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+export interface WebGLPostProcessSupport
+	extends RenderBackendPostProcessSupport {
+	/**
+	 * Registers a custom WebGL post-process graph pass.
+	 *
+	 * @param pass Custom pass descriptor.
+	 * @returns Nothing.
+	 * @sideEffects Mutates the backend post-process graph registration state.
+	 */
+	registerPass(pass: WebGLPostProcessPassPlugin): void;
+	/**
+	 * Removes a custom WebGL post-process graph pass.
+	 *
+	 * @param id Custom pass id to remove.
+	 * @returns Nothing.
+	 * @sideEffects Mutates the backend post-process graph registration state.
+	 */
+	unregisterPass(id: string): void;
+}
+
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
@@ -83,18 +124,13 @@ export class WebGLBackend implements IRenderBackend {
 		shadows: true,
 		reflection: false,
 		environment: true,
-		ssao: true,
-		ssgi: false,
-		taa: true,
-		ssr: false,
-		volumetric: false,
-		fog: true,
-		motionBlur: true,
-		dof: true,
-		bloom: true,
-		colorFilter: true,
 		clusteredLighting: true,
 		oit: true,
+	};
+	public readonly postProcess: WebGLPostProcessSupport = {
+		capabilities: WEBGL_POST_PROCESS_CAPABILITIES,
+		registerPass: (pass) => this._registerPostProcessPass(pass),
+		unregisterPass: (id) => this._unregisterPostProcessPass(id),
 	};
 
 	private _canvas: HTMLCanvasElement | null = null;
@@ -139,12 +175,12 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 	}
 
-	public registerPostProcessPass(pass: WebGLPostProcessPassPlugin): void {
+	private _registerPostProcessPass(pass: WebGLPostProcessPassPlugin): void {
 		this._pendingPostProcessPasses.set(pass.id, pass);
 		this._frameExecutor?.registerPostProcessPass(pass);
 	}
 
-	public unregisterPostProcessPass(id: string): void {
+	private _unregisterPostProcessPass(id: string): void {
 		this._pendingPostProcessPasses.delete(id);
 		this._frameExecutor?.unregisterPostProcessPass(id);
 	}
@@ -416,49 +452,53 @@ export class WebGLBackend implements IRenderBackend {
 		if (hasParticleSystems) {
 			this._plannedPasses.add("particles");
 		}
-		if (context.features.enableSSAO) {
+		const postProcess = context.postProcess;
+		if (postProcess.enabled.ssao) {
 			this._plannedPasses.add("ssao");
 		}
-		if (context.features.enableSSGI) {
+		if (postProcess.enabled.ssgi) {
 			this._plannedPasses.add("ssgi");
 		}
-		if (context.features.enableTAA) {
+		if (postProcess.enabled.taa) {
 			this._plannedPasses.add("taa");
 		}
-		if (context.features.enableSSR) {
+		if (postProcess.enabled.ssr) {
 			this._plannedPasses.add("ssr");
 		}
-		if (context.features.enableVolumetric) {
+		if (postProcess.enabled.volumetric) {
 			this._plannedPasses.add("volumetric");
 		}
-		if (isFogPostProcessEnabled(context.features)) {
+		if (isFogPostProcessEnabled(postProcess)) {
 			this._plannedPasses.add("fog");
 		}
-		if (context.features.enableMotionBlur) {
+		if (postProcess.enabled["motion-blur"]) {
 			this._plannedPasses.add("motion-blur");
 		}
-		if (context.features.enableDOF) {
+		if (postProcess.enabled.dof) {
 			this._plannedPasses.add("dof");
 		}
-		if (context.features.enableBloom) {
+		if (postProcess.enabled.bloom) {
 			this._plannedPasses.add("bloom");
 		}
-		if (context.features.enableToneMapping !== false) {
+		if (postProcess.enabled.tonemap) {
 			this._plannedPasses.add("tonemap");
 		}
-		if (context.features.enableColorFilter) {
+		if (postProcess.enabled["color-filter"]) {
 			this._plannedPasses.add("color-filter");
 		}
-		if (context.features.enableFXAA) {
+		if (postProcess.enabled.fxaa) {
 			this._plannedPasses.add("fxaa");
 		}
 		const interaction = context.transient.get(
 			INTERACTION_TRANSIENT_STATE_KEY
 		);
-		if ((interaction?.selectedEntityIds?.length ?? 0) > 0) {
+		if (
+			postProcess.enabled["interaction-outline"] &&
+			(interaction?.selectedEntityIds?.length ?? 0) > 0
+		) {
 			this._plannedPasses.add("interaction-outline");
 		}
-		if (context.features.enableGamma) {
+		if (postProcess.enabled.gamma) {
 			this._plannedPasses.add("gamma");
 		}
 		this._validatePlannedPassGraph();

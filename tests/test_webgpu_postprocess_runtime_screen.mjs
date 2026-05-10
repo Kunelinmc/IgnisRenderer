@@ -6,10 +6,12 @@ import {
 	assertClose,
 	createTexture,
 } from "./helpers/webgpu_postprocess_runtime_test_helpers.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
-function createFrameContext(features = {}) {
+function createFrameContext(postProcessRequest = {}) {
 	return {
-		features,
+		features: {},
+		postProcess: createResolvedPostProcess(postProcessRequest),
 		transient: new Map(),
 	};
 }
@@ -131,11 +133,14 @@ async function testBloomRuntimeUsesDedicatedPipeline() {
 		encoder,
 		targets,
 		frameContext: createFrameContext({
-			bloomOptions: {
-				threshold: 1.2,
-				softKnee: 0.35,
-				intensity: 1.5,
-				radius: 2,
+			bloom: {
+				enabled: true,
+				options: {
+					threshold: 1.2,
+					softKnee: 0.35,
+					intensity: 1.5,
+					radius: 2,
+				},
 			},
 		}),
 	});
@@ -223,12 +228,15 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 		encoder,
 		targets,
 		frameContext: createFrameContext({
-			motionBlurOptions: {
-				shutterScale: 1.1,
-				maxSamples: 18,
-				velocityClamp: 0.08,
-				depthReject: 0.03,
-				centerWeight: 1.25,
+			"motion-blur": {
+				enabled: true,
+				options: {
+					shutterScale: 1.1,
+					maxSamples: 18,
+					velocityClamp: 0.08,
+					depthReject: 0.03,
+					centerWeight: 1.25,
+				},
 			},
 		}),
 	});
@@ -292,13 +300,16 @@ async function testFogRuntimeUsesDedicatedPipeline() {
 		encoder,
 		targets,
 		frameContext: createFrameContext({
-			fogOptions: {
-				mode: "exp2",
-				color: [0.1, 0.2, 0.3],
-				start: 10,
-				end: 120,
-				density: 0.02,
-				strength: 0.75,
+			fog: {
+				enabled: true,
+				options: {
+					mode: "exp2",
+					color: [0.1, 0.2, 0.3],
+					start: 10,
+					end: 120,
+					density: 0.02,
+					strength: 0.75,
+				},
 			},
 		}),
 	});
@@ -359,16 +370,19 @@ async function testDOFRuntimeUsesDedicatedPipeline() {
 		encoder,
 		targets,
 		frameContext: createFrameContext({
-			dofOptions: {
-				focusDistance: 6,
-				focusRange: 2,
-				nearStrength: 0.7,
-				farStrength: 1.2,
-				maxBlurRadius: 10,
-				depthCurve: 1.5,
-				highlightThreshold: 1.1,
-				highlightGain: 0.4,
-				chromaticAberration: 0.3,
+			dof: {
+				enabled: true,
+				options: {
+					focusDistance: 6,
+					focusRange: 2,
+					nearStrength: 0.7,
+					farStrength: 1.2,
+					maxBlurRadius: 10,
+					depthCurve: 1.5,
+					highlightThreshold: 1.1,
+					highlightGain: 0.4,
+					chromaticAberration: 0.3,
+				},
 			},
 		}),
 	});
@@ -430,12 +444,15 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 		gMotionDepth,
 	};
 	const frameContext = createFrameContext({
-		motionBlurOptions: {
-			shutterScale: 1.1,
-			maxSamples: 18,
-			velocityClamp: 0.08,
-			depthReject: 0.03,
-			centerWeight: 1.25,
+		"motion-blur": {
+			enabled: true,
+			options: {
+				shutterScale: 1.1,
+				maxSamples: 18,
+				velocityClamp: 0.08,
+				depthReject: 0.03,
+				centerWeight: 1.25,
+			},
 		},
 	});
 

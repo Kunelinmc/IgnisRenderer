@@ -4,6 +4,7 @@ import { Renderer } from "../src/renderers/Renderer.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { Node } from "../src/core/Node.ts";
 import { PhysicsSystem } from "../src/physics/PhysicsSystem.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -18,6 +19,9 @@ class StubBackend {
 			ssr: false,
 			volumetric: false,
 			fog: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "always";
 		this.postAnimationSeenBeforeBegin = false;
@@ -66,7 +70,7 @@ async function testPostAnimationHookOrder() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 
 		renderer.on("postanimation", () => {
 			backend._postAnimationFlag = true;

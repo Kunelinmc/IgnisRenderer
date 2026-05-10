@@ -1,37 +1,28 @@
 # WebGL Backend V2 Contract
-
 ## Scope
-This document defines the Phase 1 contract for `WebGLBackend` V2 in IgnisRenderer.
-`WebGLBackend` must keep the public constructor and type name unchanged.
+This document defines the Phase 1 contract for `WebGLBackend` V2 in IgnisRenderer. `WebGLBackend` must keep the public constructor and type name unchanged.
 
 ## Background
-The previous WebGL path provided a V1-style pass execution and feature subset.
-Phase 1 of V2 must align orchestration semantics with WebGPU while keeping
-WebGL-specific implementation constraints.
+The previous WebGL path provided a V1-style pass execution and feature subset. Phase 1 of V2 must align orchestration semantics with WebGPU while keeping WebGL-specific implementation constraints.
 
 ## API/Contract
-- `WebGLBackend` must report `capabilities.sh = true` and `capabilities.clusteredLighting = true`.
-- `WebGLBackend` must keep `capabilities.ssgi = false`, `capabilities.ssr = false`, and `capabilities.volumetric = false` in Phase 1.
-- `WebGLBackend` must expose `capabilities.fog = true` and support both postprocess fog and scene-mode fog.
-- `WebGLBackend` must provide post-process pass registration methods:
-  - `registerPostProcessPass(pass)`
-  - `unregisterPostProcessPass(id)`
+- `WebGLBackend` must report core `capabilities.sh = true` and `capabilities.clusteredLighting = true`.
+- `WebGLBackend.capabilities` must not expose post-process capability fields.
+- `WebGLBackend.postProcess.capabilities.ssgi` must be `false`.
+- `WebGLBackend.postProcess.capabilities.ssr` must be `false`.
+- `WebGLBackend.postProcess.capabilities.volumetric` must be `false`.
+- `WebGLBackend.postProcess.capabilities.fog` must be `true` and must support both post-process fog and scene-mode fog.
+- `WebGLBackend.postProcess.registerPass(pass)` must register a custom WebGL post-process pass.
+- `WebGLBackend.postProcess.unregisterPass(id)` must unregister a custom WebGL post-process pass.
 - The backend must validate pass dependency order per frame and must treat `skipPass` as an executed stage.
 - SH lighting must use 16 coefficients and must be uploaded through texture-backed data for shader sampling.
-- Clustered lighting must be CPU-built (`tile + z-slice`) and must provide runtime fallback to legacy forward lighting when requirements are not met.
+- Clustered lighting must be CPU-built with tile and z-slice partitioning, and must provide runtime fallback to legacy forward lighting when requirements are not met.
 - For non-perspective cameras, clustered lighting must be disabled for the frame and a warning key must be emitted.
-- Forward-lighting uniform budgets must clamp to `4` directional lights, `16`
-  point lights, and `8` spot lights. Extra lights must be ignored with the
-  existing light-limit diagnostics.
-- PBR materials with `transmissionFactor > 0` must be treated as transparent pass
-  submissions even when `alphaMode` is `OPAQUE`.
-- WebGL PBR shading must consume transmission through `uPBR.w` and must modulate
-  composite alpha so transmissive surfaces do not render as fully opaque.
-- `ShaderMaterial` custom WebGL scene shaders must be mode-aware:
-  - `single` mode must resolve `webgl` GLSL `fragment-single`.
-  - `mrt` mode must resolve `webgl` GLSL `fragment-mrt`.
-  - when `fragment-mrt` is absent, `mrt` mode may fall back to
-    `fragment-single`.
+- Forward-lighting uniform budgets must clamp to `4` directional lights, `16` point lights, and `8` spot lights.
+- PBR materials with `transmissionFactor > 0` must be treated as transparent pass submissions even when `alphaMode` is `OPAQUE`.
+- WebGL PBR shading must consume transmission through `uPBR.w` and must modulate composite alpha so transmissive surfaces do not render as fully opaque.
+- `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL `fragment-single` for `single` mode.
+- `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL `fragment-mrt` for `mrt` mode and may fall back to `fragment-single` when `fragment-mrt` is absent.
 
 ## Usage
 ```ts
@@ -47,38 +38,12 @@ renderer.features.clusteredLightingOptions = {
 	maxLights: 256,
 	maxLightsPerCluster: 64,
 };
+renderer.postProcess.enable("fog", {
+	application: "postprocess",
+});
 
 await renderer.init();
 renderer.requestRender();
-```
-
-```ts
-import { ShaderMaterial } from "../src/materials/ShaderMaterial";
-
-const material = new ShaderMaterial({
-	chunks: [
-		{
-			backend: "webgl",
-			language: "glsl",
-			stage: "vertex",
-			code: "/* ... */",
-		},
-		{
-			backend: "webgl",
-			language: "glsl",
-			stage: "fragment",
-			mode: "single",
-			code: "/* single output contract */",
-		},
-		{
-			backend: "webgl",
-			language: "glsl",
-			stage: "fragment",
-			mode: "mrt",
-			code: "/* mrt output contract */",
-		},
-	],
-});
 ```
 
 ```bash
@@ -86,17 +51,17 @@ bun tests/test_webgl_backend_v2.mjs
 ```
 
 ## Errors & Diagnostics
-- `webgl-clustered-perspective-only`: triggered when `enableClusteredLighting` is true on a non-perspective camera.
+- `webgl-clustered-perspective-only`: triggered when `enableClusteredLighting` is `true` on a non-perspective camera.
 - `webgl-clustered-light-budget`: triggered when light count exceeds `clusteredLightingOptions.maxLights`.
 - `webgl-clustered-texture-size-overflow`: triggered when clustered buffers cannot fit within texture capacity.
 - `webgl-sh-ambient-texture-create-failed`: triggered when SH coefficient texture allocation fails.
 - `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient texture upload fails.
+- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit post-process request is unsupported by `backend.postProcess.capabilities`.
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.
-- Capability semantics changed:
-  - `sh` changed from disabled to enabled.
-  - `clusteredLighting` changed from disabled to enabled.
-- Forward-lighting point-light budget changed from `4` to `16` to match the
-  WebGPU backend budget.
+- Core capability fields `sh` and `clusteredLighting` changed from disabled to enabled.
+- Post-process capability fields moved from `WebGLBackend.capabilities` to `WebGLBackend.postProcess.capabilities`.
+- `WebGLBackend.registerPostProcessPass(pass)` and `WebGLBackend.unregisterPostProcessPass(id)` are removed.
+- Forward-lighting point-light budget changed from `4` to `16` to match the WebGPU backend budget.
 - Test entrypoint changed from `tests/test_webgl_backend_v1.mjs` to `tests/test_webgl_backend_v2.mjs`.

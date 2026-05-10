@@ -1,4 +1,5 @@
-import type { FrameContext, ResolvedFeatureState } from "../../pipeline/types";
+import type { FrameContext } from "../../pipeline/types";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcess";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { IRenderTexture } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
@@ -66,6 +67,7 @@ export interface WebGPUPostProcessPassContext {
 	backend: WebGPUBackend;
 	encoder: ICommandEncoder;
 	frameContext: FrameContext;
+	postProcess: ResolvedPostProcessState;
 	targets: WebGPUFrameTargets;
 	executeRuntimePass(
 		request: WebGPUPostProcessRuntimeExecuteRequest
@@ -78,7 +80,7 @@ export interface WebGPUPostProcessPassPlugin {
 	kind?: WebGPUPostProcessPassKind;
 	precompileHints?: string[];
 	runtime?: WebGPUPostProcessRuntimePass;
-	isEnabled(features: ResolvedFeatureState): boolean;
+	isEnabled(postProcess: ResolvedPostProcessState): boolean;
 	execute(context: WebGPUPostProcessPassContext): Promise<void> | void;
 }
 
@@ -123,12 +125,12 @@ export class WebGPUPostProcessGraph {
 	}
 
 	public getExecutionOrder(
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void
 	): WebGPUPostProcessPassPlugin[] {
 		const enabled = new Map<string, WebGPUPostProcessPassPlugin>();
 		for (const [id, pass] of this._passes.entries()) {
-			if (pass.isEnabled(features)) {
+			if (pass.isEnabled(postProcess)) {
 				enabled.set(id, pass);
 			}
 		}
@@ -191,10 +193,10 @@ export class WebGPUPostProcessGraph {
 
 	public async execute(
 		context: WebGPUPostProcessPassContext,
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void
 	): Promise<string[]> {
-		const order = this.getExecutionOrder(features, warn);
+		const order = this.getExecutionOrder(postProcess, warn);
 		for (const pass of order) {
 			await pass.execute(context);
 		}

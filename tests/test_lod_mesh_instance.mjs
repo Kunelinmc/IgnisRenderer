@@ -4,6 +4,7 @@ import { Material } from "../src/materials/Material.ts";
 import { LODMeshInstance } from "../src/meshes/LODMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -18,6 +19,9 @@ class StubBackend {
 			ssr: false,
 			volumetric: false,
 			fog: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;
@@ -150,7 +154,7 @@ async function testRendererResolvesLODStage() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 
 		const lodMesh = renderer.scene.add(
 			new LODMeshInstance({

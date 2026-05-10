@@ -1,14 +1,16 @@
-import type { FrameContext, ResolvedFeatureState } from "../../pipeline/types";
+import type { FrameContext } from "../../pipeline/types";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcess";
 
 export interface WebGLPostProcessPassContext {
 	frameContext: FrameContext;
+	postProcess: ResolvedPostProcessState;
 }
 
 export interface WebGLPostProcessPassPlugin {
 	id: string;
 	dependsOn: string[];
 	precompileHints?: string[];
-	isEnabled(features: ResolvedFeatureState): boolean;
+	isEnabled(postProcess: ResolvedPostProcessState): boolean;
 	execute(context: WebGLPostProcessPassContext): void;
 }
 
@@ -41,12 +43,12 @@ export class WebGLPostProcessGraph {
 	}
 
 	public getExecutionOrder(
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void
 	): WebGLPostProcessPassPlugin[] {
 		const enabled = new Map<string, WebGLPostProcessPassPlugin>();
 		for (const [id, pass] of this._passes.entries()) {
-			if (pass.isEnabled(features)) {
+			if (pass.isEnabled(postProcess)) {
 				enabled.set(id, pass);
 			}
 		}
@@ -106,10 +108,10 @@ export class WebGLPostProcessGraph {
 
 	public execute(
 		context: WebGLPostProcessPassContext,
-		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		warn: (key: string, message: string) => void
 	): string[] {
-		const order = this.getExecutionOrder(features, warn);
+		const order = this.getExecutionOrder(postProcess, warn);
 		for (const pass of order) {
 			pass.execute(context);
 		}

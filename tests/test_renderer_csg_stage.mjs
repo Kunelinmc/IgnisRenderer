@@ -5,6 +5,7 @@ import { CSG } from "../src/csg/CSGBuilder.ts";
 import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
+import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -19,6 +20,9 @@ class StubBackend {
 			ssr: false,
 			volumetric: false,
 			fog: false,
+		};
+		this.postProcess = {
+			capabilities: ALL_POST_PROCESS_CAPABILITIES,
 		};
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;
@@ -98,7 +102,7 @@ async function run() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
-		renderer.features.enableGamma = false;
+		renderer.postProcess.disable("gamma");
 
 		const { left, right } = createOperands();
 		const dirty = renderer.scene.add(

@@ -1,9 +1,12 @@
 import {
-	isFogPostProcessEnabled,
 	type FramePass,
 	type PreparedScene,
 	type ResolvedFeatureState,
 } from "./types";
+import {
+	isFogPostProcessEnabled,
+	type ResolvedPostProcessState,
+} from "./PostProcess";
 import { hasParticleShadowCasters } from "./ParticleShadowVolume";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
@@ -33,12 +36,13 @@ export class FramePlanner {
 	public static build(
 		frame: PreparedScene,
 		features: ResolvedFeatureState,
+		postProcess: ResolvedPostProcessState,
 		executors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>
 	): FramePass[] {
 		return FRAME_PASS_ORDER.map((stage) => ({
 			stage,
 			executor: executors?.[stage] ?? "backend",
-			enabled: shouldEnablePass(stage, frame, features),
+			enabled: shouldEnablePass(stage, frame, features, postProcess),
 		}));
 	}
 }
@@ -46,7 +50,8 @@ export class FramePlanner {
 function shouldEnablePass(
 	stage: FramePass["stage"],
 	frame: PreparedScene,
-	features: ResolvedFeatureState
+	features: ResolvedFeatureState,
+	postProcess: ResolvedPostProcessState
 ): boolean {
 	switch (stage) {
 		case "animation-sim":
@@ -69,31 +74,31 @@ function shouldEnablePass(
 		case "particles":
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "ssao":
-			return features.enableSSAO;
+			return postProcess.enabled.ssao;
 		case "ssgi":
-			return features.enableSSGI;
+			return postProcess.enabled.ssgi;
 		case "taa":
-			return features.enableTAA;
+			return postProcess.enabled.taa;
 		case "ssr":
-			return features.enableSSR;
+			return postProcess.enabled.ssr;
 		case "volumetric":
-			return features.enableVolumetric;
+			return postProcess.enabled.volumetric;
 		case "fog":
-			return isFogPostProcessEnabled(features);
+			return isFogPostProcessEnabled(postProcess);
 		case "motion-blur":
-			return features.enableMotionBlur;
+			return postProcess.enabled["motion-blur"];
 		case "dof":
-			return features.enableDOF;
+			return postProcess.enabled.dof;
 		case "bloom":
-			return features.enableBloom;
+			return postProcess.enabled.bloom;
 		case "tonemap":
-			return features.enableToneMapping !== false;
+			return postProcess.enabled.tonemap;
 		case "color-filter":
-			return features.enableColorFilter;
+			return postProcess.enabled["color-filter"];
 		case "fxaa":
-			return features.enableFXAA;
+			return postProcess.enabled.fxaa;
 		case "gamma":
-			return features.enableGamma;
+			return postProcess.enabled.gamma;
 		default:
 			return false;
 	}

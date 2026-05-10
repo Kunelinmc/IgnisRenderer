@@ -2,48 +2,32 @@ import assert from "node:assert/strict";
 import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../src/pipeline/types.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { createWebGPUBuiltInPostProcessPasses } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 
-function createFeatures(overrides = {}) {
-	return {
-		enableLighting: true,
-		enableGamma: true,
-		enableToneMapping: true,
-		enableSH: false,
-		enableShadows: false,
-		enableReflection: false,
-		enableEnvironment: false,
-		enableSSAO: true,
-		enableSSGI: true,
-		enableTAA: true,
-		enableSSR: true,
-		enableVolumetric: true,
-		enableFog: true,
-		enableMotionBlur: true,
-		enableDOF: true,
-		enableBloom: true,
-		enableColorFilter: true,
-		enableFXAA: true,
-		enableClusteredLighting: false,
-		warnings: [],
-		ssrOptions: {},
-		ssaoOptions: {},
-		ssgiOptions: {},
-		taaOptions: {},
-		volumetricOptions: {},
-		fogOptions: {
-			application: "postprocess",
-		},
-		bloomOptions: {},
-		motionBlurOptions: {},
-		dofOptions: {},
-		colorFilterOptions: {},
-		...overrides,
-	};
+const capabilities = {
+	ssao: true,
+	ssgi: true,
+	taa: true,
+	ssr: true,
+	volumetric: true,
+	fog: true,
+	"motion-blur": true,
+	dof: true,
+	bloom: true,
+	tonemap: true,
+	"color-filter": true,
+	fxaa: true,
+	"interaction-outline": true,
+	gamma: true,
+};
+
+function createPostProcess(overrides = {}) {
+	return resolvePostProcessState(overrides, capabilities, "webgpu");
 }
 
 function createDeps() {
@@ -153,7 +137,22 @@ function testBuiltInPassGraphOrder() {
 	const { deps } = createDeps();
 	const passes = createWebGPUBuiltInPostProcessPasses(deps);
 	const graph = new WebGPUPostProcessGraph(passes);
-	const order = graph.getExecutionOrder(createFeatures(), () => {});
+	const order = graph.getExecutionOrder(
+		createPostProcess({
+			ssao: { enabled: true },
+			ssgi: { enabled: true },
+			taa: { enabled: true },
+			ssr: { enabled: true },
+			volumetric: { enabled: true },
+			fog: { enabled: true },
+			"motion-blur": { enabled: true },
+			dof: { enabled: true },
+			bloom: { enabled: true },
+			"color-filter": { enabled: true },
+			fxaa: { enabled: true },
+		}),
+		() => {}
+	);
 
 	assert.deepEqual(
 		order.map((pass) => pass.id),
@@ -176,9 +175,12 @@ function testBuiltInPassGraphOrder() {
 	);
 
 	const sceneFogOrder = graph.getExecutionOrder(
-		createFeatures({
-			fogOptions: {
-				application: "scene",
+		createPostProcess({
+			fog: {
+				enabled: true,
+				options: {
+					application: "scene",
+				},
 			},
 		}),
 		() => {}
@@ -186,19 +188,10 @@ function testBuiltInPassGraphOrder() {
 	assert.equal(sceneFogOrder.some((pass) => pass.id === "fog"), false);
 
 	const fxaaOnlyOrder = graph.getExecutionOrder(
-		createFeatures({
-			enableGamma: false,
-			enableSSAO: false,
-			enableSSGI: false,
-			enableTAA: false,
-			enableSSR: false,
-			enableVolumetric: false,
-			enableFog: false,
-			enableMotionBlur: false,
-			enableDOF: false,
-			enableBloom: false,
-			enableColorFilter: true,
-			enableFXAA: true,
+		createPostProcess({
+			gamma: { enabled: false },
+			"color-filter": { enabled: true },
+			fxaa: { enabled: true },
 		}),
 		() => {}
 	);
@@ -208,9 +201,9 @@ function testBuiltInPassGraphOrder() {
 	);
 
 	const tonemapDisabledOrder = graph.getExecutionOrder(
-		createFeatures({
-			enableToneMapping: false,
-			enableFXAA: true,
+		createPostProcess({
+			tonemap: { enabled: false },
+			fxaa: { enabled: true },
 		}),
 		() => {}
 	);
@@ -327,7 +320,7 @@ async function testCustomRuntimePassRegistry() {
 		...createPassContext(),
 		executeRuntimePass: (request) => runtime.executePass(request),
 	};
-	const executed = await graph.execute(context, createFeatures(), () => {});
+	const executed = await graph.execute(context, createPostProcess(), () => {});
 	assert.deepEqual(executed, ["custom-registry"]);
 	assert.equal(calls.execute, 1);
 
@@ -399,21 +392,21 @@ function testReservedAndDuplicateRegistrationGuards() {
 	);
 
 	const backend = new WebGPUBackend();
-	backend.registerPostProcessPass(createCustomPass("custom-backend"));
+	backend.postProcess.registerPass(createCustomPass("custom-backend"));
 	assert.throws(
-		() => backend.registerPostProcessPass(createCustomPass("custom-backend")),
+		() => backend.postProcess.registerPass(createCustomPass("custom-backend")),
 		/already registered/
 	);
 	assert.throws(
-		() => backend.registerPostProcessPass(createCustomPass("gamma")),
+		() => backend.postProcess.registerPass(createCustomPass("gamma")),
 		/built-in WebGPU post-process pass/
 	);
 	assert.throws(
-		() => backend.unregisterPostProcessPass("gamma"),
+		() => backend.postProcess.unregisterPass("gamma"),
 		/Cannot unregister built-in/
 	);
-	backend.unregisterPostProcessPass("custom-backend");
-	backend.registerPostProcessPass(createCustomPass("custom-backend"));
+	backend.postProcess.unregisterPass("custom-backend");
+	backend.postProcess.registerPass(createCustomPass("custom-backend"));
 }
 
 async function run() {

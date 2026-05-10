@@ -189,7 +189,7 @@ export class TemporalPostProcessDelegate {
 		if (!this._shared.sampler || !this._taaPipeline || !this._taaParams) {
 			return false;
 		}
-		const options = request.frameContext.features.taaOptions ?? {};
+		const options = request.frameContext.postProcess.options.taa ?? {};
 		const taaTarget =
 			request.targets.sceneColor === request.targets.postPong ?
 				request.targets.postPing
@@ -265,7 +265,7 @@ export class TemporalPostProcessDelegate {
 		) {
 			return false;
 		}
-		const options = request.frameContext.features.ssrOptions ?? {};
+		const options = request.frameContext.postProcess.options.ssr ?? {};
 		const hiZMips = this._getHiZMipViews(request.targets.hiZ);
 		if (!this._buildHiZ(request.encoder, request.targets, hiZMips)) {
 			return false;
@@ -390,7 +390,7 @@ export class TemporalPostProcessDelegate {
 			return false;
 		}
 
-		const options = request.frameContext.features.volumetricOptions ?? {};
+		const options = request.frameContext.postProcess.options.volumetric ?? {};
 		const samples = Math.max(
 			1,
 			Math.min(

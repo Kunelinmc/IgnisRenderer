@@ -178,9 +178,9 @@ export function renderWebGLParticles(
 		);
 	}
 	const sceneFogEnabled =
-		context.features.enableFog &&
-		(context.features.fogOptions?.application ?? "postprocess") === "scene";
-	host._updateFogParams(context.features.fogOptions, sceneFogEnabled);
+		context.postProcess.enabled.fog &&
+		(context.postProcess.options.fog.application ?? "postprocess") === "scene";
+	host._updateFogParams(context.postProcess.options.fog, sceneFogEnabled);
 	if (particleProgram.uniforms.fogParams0) {
 		gl.uniform4fv(
 			particleProgram.uniforms.fogParams0 as WebGLUniformLocation,

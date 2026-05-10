@@ -1,9 +1,13 @@
 import {
-	isFogPostProcessEnabled,
 	type BuiltinFramePassStage,
 	type FramePassStage,
 	type ResolvedFeatureState,
 } from "./types";
+import {
+	isFogPostProcessEnabled,
+	type PostProcessPassId,
+	type ResolvedPostProcessState,
+} from "./PostProcess";
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
@@ -98,6 +102,7 @@ export interface IncrementalPlanInput {
 	enabled: boolean;
 	reasonMask: number;
 	features: ResolvedFeatureState;
+	postProcess: ResolvedPostProcessState;
 }
 
 export interface IncrementalPlan {
@@ -160,39 +165,22 @@ type PostProcessStage = Extract<
 	| "gamma"
 >;
 
-type PostProcessFeatureFlag = keyof Pick<
-	ResolvedFeatureState,
-	| "enableSSAO"
-	| "enableSSGI"
-	| "enableTAA"
-	| "enableSSR"
-	| "enableVolumetric"
-	| "enableFog"
-	| "enableMotionBlur"
-	| "enableDOF"
-	| "enableBloom"
-	| "enableToneMapping"
-	| "enableColorFilter"
-	| "enableFXAA"
-	| "enableGamma"
->;
-
 const POST_PROCESS_STAGE_FEATURE_ORDER: ReadonlyArray<
-	readonly [PostProcessStage, PostProcessFeatureFlag]
+	readonly [PostProcessStage, PostProcessPassId]
 > = [
-	["ssao", "enableSSAO"],
-	["ssgi", "enableSSGI"],
-	["taa", "enableTAA"],
-	["ssr", "enableSSR"],
-	["volumetric", "enableVolumetric"],
-	["fog", "enableFog"],
-	["motion-blur", "enableMotionBlur"],
-	["dof", "enableDOF"],
-	["bloom", "enableBloom"],
-	["tonemap", "enableToneMapping"],
-	["color-filter", "enableColorFilter"],
-	["fxaa", "enableFXAA"],
-	["gamma", "enableGamma"],
+	["ssao", "ssao"],
+	["ssgi", "ssgi"],
+	["taa", "taa"],
+	["ssr", "ssr"],
+	["volumetric", "volumetric"],
+	["fog", "fog"],
+	["motion-blur", "motion-blur"],
+	["dof", "dof"],
+	["bloom", "bloom"],
+	["tonemap", "tonemap"],
+	["color-filter", "color-filter"],
+	["fxaa", "fxaa"],
+	["gamma", "gamma"],
 ];
 
 const POSTFX_REASON_MASK = RENDER_DIRTY_GROUP.postfx;
@@ -358,7 +346,7 @@ export class IncrementalFramePlanner {
 
 		if ((reasonMask & POSTFX_REASON_MASK) !== 0) {
 			candidates.push(
-				resolveFirstEnabledPostProcessStage(input.features) ?? "gamma"
+				resolveFirstEnabledPostProcessStage(input.postProcess) ?? "gamma"
 			);
 		}
 
@@ -641,44 +629,50 @@ export function getDirtyRectsAreaRatio(
 }
 
 export function computePostProcessInflationRadius(
-	features: ResolvedFeatureState
+	postProcess: ResolvedPostProcessState
 ): number {
-	let radius = getPostProcessGradeInflationRadius(resolvePostProcessGrade(features));
-	if (features.enableSSAO) radius = Math.max(radius, 8);
-	if (features.enableSSGI) radius = Math.max(radius, 12);
-	if (features.enableTAA) radius = Math.max(radius, 8);
-	if (features.enableSSR) radius = Math.max(radius, 16);
-	if (features.enableVolumetric) radius = Math.max(radius, 16);
-	if (isFogPostProcessEnabled(features)) radius = Math.max(radius, 20);
-	if (features.enableMotionBlur) radius = Math.max(radius, 24);
-	if (features.enableDOF) radius = Math.max(radius, 32);
-	if (features.enableBloom) radius = Math.max(radius, 48);
-	if (features.enableColorFilter) radius = Math.max(radius, 2);
-	if (features.enableFXAA) radius = Math.max(radius, 2);
+	let radius = getPostProcessGradeInflationRadius(
+		resolvePostProcessGrade(postProcess)
+	);
+	if (postProcess.enabled.ssao) radius = Math.max(radius, 8);
+	if (postProcess.enabled.ssgi) radius = Math.max(radius, 12);
+	if (postProcess.enabled.taa) radius = Math.max(radius, 8);
+	if (postProcess.enabled.ssr) radius = Math.max(radius, 16);
+	if (postProcess.enabled.volumetric) radius = Math.max(radius, 16);
+	if (isFogPostProcessEnabled(postProcess)) radius = Math.max(radius, 20);
+	if (postProcess.enabled["motion-blur"]) radius = Math.max(radius, 24);
+	if (postProcess.enabled.dof) radius = Math.max(radius, 32);
+	if (postProcess.enabled.bloom) radius = Math.max(radius, 48);
+	if (postProcess.enabled["color-filter"]) radius = Math.max(radius, 2);
+	if (postProcess.enabled.fxaa) radius = Math.max(radius, 2);
 	return radius;
 }
 
 export function resolvePostProcessGrade(
-	features: ResolvedFeatureState
+	postProcess: ResolvedPostProcessState
 ): PostProcessGrade {
 	if (
-		features.enableTAA ||
-		features.enableSSR ||
-		features.enableVolumetric ||
-		isFogPostProcessEnabled(features) ||
-		features.enableMotionBlur ||
-		features.enableDOF
+		postProcess.enabled.taa ||
+		postProcess.enabled.ssr ||
+		postProcess.enabled.volumetric ||
+		isFogPostProcessEnabled(postProcess) ||
+		postProcess.enabled["motion-blur"] ||
+		postProcess.enabled.dof
 	) {
 		return "cinematic";
 	}
-	if (features.enableSSAO || features.enableSSGI || features.enableBloom) {
+	if (
+		postProcess.enabled.ssao ||
+		postProcess.enabled.ssgi ||
+		postProcess.enabled.bloom
+	) {
 		return "standard";
 	}
 	if (
-		features.enableToneMapping ||
-		features.enableColorFilter ||
-		features.enableFXAA ||
-		features.enableGamma
+		postProcess.enabled.tonemap ||
+		postProcess.enabled["color-filter"] ||
+		postProcess.enabled.fxaa ||
+		postProcess.enabled.gamma
 	) {
 		return "light";
 	}
@@ -693,7 +687,7 @@ export function getPostProcessGradeInflationRadius(
 
 export function scaleFullFrameFallbackAreaRatioForPostProcess(
 	baseRatio: number,
-	features: ResolvedFeatureState
+	postProcess: ResolvedPostProcessState
 ): number {
 	const normalizedBaseRatio = clampNumber(
 		baseRatio,
@@ -701,7 +695,7 @@ export function scaleFullFrameFallbackAreaRatioForPostProcess(
 		1,
 		DEFAULT_INCREMENTAL_RENDERING_OPTIONS.fullFrameFallbackAreaRatio
 	);
-	const grade = resolvePostProcessGrade(features);
+	const grade = resolvePostProcessGrade(postProcess);
 	const scale = POST_PROCESS_GRADE_FALLBACK_SCALE[grade] ?? 1;
 	return clampNumber(normalizedBaseRatio * scale, 0.01, 1, normalizedBaseRatio);
 }
@@ -720,13 +714,13 @@ export function unionDirtyRect(left: DirtyRect, right: DirtyRect): DirtyRect {
 }
 
 function resolveFirstEnabledPostProcessStage(
-	features: ResolvedFeatureState
+	postProcess: ResolvedPostProcessState
 ): PostProcessStage | null {
-	for (const [stage, featureFlag] of POST_PROCESS_STAGE_FEATURE_ORDER) {
-		if (stage === "fog" && !isFogPostProcessEnabled(features)) {
+	for (const [stage, passId] of POST_PROCESS_STAGE_FEATURE_ORDER) {
+		if (stage === "fog" && !isFogPostProcessEnabled(postProcess)) {
 			continue;
 		}
-		if (features[featureFlag]) {
+		if (postProcess.enabled[passId]) {
 			return stage;
 		}
 	}

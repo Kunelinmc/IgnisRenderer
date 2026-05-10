@@ -3,6 +3,7 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
+import type { PostProcessCapabilities } from "../pipeline/PostProcess";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -63,16 +64,6 @@ export interface BackendCapabilities {
 	shadows: boolean;
 	reflection: boolean;
 	environment: boolean;
-	ssao: boolean;
-	ssgi: boolean;
-	taa: boolean;
-	ssr: boolean;
-	volumetric: boolean;
-	fog: boolean;
-	motionBlur: boolean;
-	dof: boolean;
-	bloom: boolean;
-	colorFilter: boolean;
 	clusteredLighting: boolean;
 	oit: boolean;
 }
@@ -86,9 +77,14 @@ export interface RendererBackendBridge {
 	pixels?: Uint8ClampedArray | null;
 }
 
+export interface RenderBackendPostProcessSupport {
+	readonly capabilities: PostProcessCapabilities;
+}
+
 export interface IRenderBackend {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
+	readonly postProcess: RenderBackendPostProcessSupport;
 	readonly frameScheduling: FrameSchedulingMode;
 	readonly passExecutors?: PassExecutorMap;
 	setRenderer?(renderer: RendererBackendBridge): void;
