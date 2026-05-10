@@ -8,7 +8,7 @@ import {
 import {
 	isFogPostProcessEnabled,
 	type PostProcessCapabilities,
-} from "../pipeline/PostProcess";
+} from "../pipeline/PostProcessController";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
@@ -93,7 +93,7 @@ const WEBGL_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 };
 
 export interface WebGLPostProcessSupport
-	extends RenderBackendPostProcessSupport {
+	extends RenderBackendPostProcessSupport<WebGLPostProcessPassPlugin> {
 	/**
 	 * Registers a custom WebGL post-process graph pass.
 	 *

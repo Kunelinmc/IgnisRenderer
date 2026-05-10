@@ -4,7 +4,10 @@ import {
 	type FramePass,
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
-import { isFogPostProcessEnabled } from "../../pipeline/PostProcess";
+import {
+	hasEnabledCustomPostProcessPass,
+	isFogPostProcessEnabled,
+} from "../../pipeline/PostProcessController";
 import { hasParticleShadowCasters } from "../../pipeline/ParticleShadowVolume";
 import type {
 	WebGPUFramePlanner,
@@ -83,7 +86,10 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		) {
 			state.plannedPasses.add("interaction-outline");
 		}
-		if (postProcess.enabled.gamma) {
+		if (
+			postProcess.enabled.gamma ||
+			hasEnabledCustomPostProcessPass(postProcess)
+		) {
 			state.plannedPasses.add("gamma");
 		}
 		this._validatePlannedPassGraph(state);

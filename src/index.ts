@@ -27,6 +27,7 @@ export type {
 export { Renderer } from "./renderers/Renderer";
 export type {
 	IRenderBackend,
+	RenderBackendPostProcessPass,
 	RenderBackendDeviceLostInfo,
 } from "./renderers/IRenderBackend";
 export { EventEmitter } from "./core/EventEmitter";
@@ -90,17 +91,22 @@ export type {
 export {
 	POST_PROCESS_PASS_IDS,
 	PostProcessController,
+	getEnabledCustomPostProcessPassIds,
+	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
 	resolvePostProcessState,
-} from "./pipeline/PostProcess";
+} from "./pipeline/PostProcessController";
 export type {
 	PostProcessCapabilities,
+	PostProcessControllerOptions,
+	PostProcessCustomPassDescriptor,
 	PostProcessOptionsMap,
 	PostProcessPassId,
+	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessRequest,
 	ResolvedPostProcessState,
-} from "./pipeline/PostProcess";
+} from "./pipeline/PostProcessController";
 export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";
 export type {
 	EnvironmentIBLBakeAcceleration,

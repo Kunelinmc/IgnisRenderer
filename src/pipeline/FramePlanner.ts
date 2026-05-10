@@ -4,9 +4,10 @@ import {
 	type ResolvedFeatureState,
 } from "./types";
 import {
+	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
 	type ResolvedPostProcessState,
-} from "./PostProcess";
+} from "./PostProcessController";
 import { hasParticleShadowCasters } from "./ParticleShadowVolume";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
@@ -98,7 +99,10 @@ function shouldEnablePass(
 		case "fxaa":
 			return postProcess.enabled.fxaa;
 		case "gamma":
-			return postProcess.enabled.gamma;
+			return (
+				postProcess.enabled.gamma ||
+				hasEnabledCustomPostProcessPass(postProcess)
+			);
 		default:
 			return false;
 	}

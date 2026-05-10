@@ -62,7 +62,7 @@ import {
 } from "../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,

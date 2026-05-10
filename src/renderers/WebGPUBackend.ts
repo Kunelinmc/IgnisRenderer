@@ -11,7 +11,7 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
-import type { PostProcessCapabilities } from "../pipeline/PostProcess";
+import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import {
 	type FrameAttachments,
 	type FrameContext,
@@ -224,7 +224,7 @@ const WEBGPU_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 };
 
 export interface WebGPUPostProcessSupport
-	extends RenderBackendPostProcessSupport {
+	extends RenderBackendPostProcessSupport<WebGPUPostProcessPassPlugin> {
 	/**
 	 * Registers a custom WebGPU post-process graph pass.
 	 *

@@ -24,8 +24,11 @@ import {
 	PostProcessController,
 	resolvePostProcessState,
 	isFogPostProcessEnabled,
+	hasEnabledCustomPostProcessPass,
+	type PostProcessCustomPassDescriptor,
+	type PostProcessPassRegistry,
 	type ResolvedPostProcessState,
-} from "../pipeline/PostProcess";
+} from "../pipeline/PostProcessController";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
@@ -133,6 +136,23 @@ export type RendererFeatures = RendererFeatureFlags &
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
+function createBackendPostProcessPassRegistry(
+	backend: IRenderBackend
+): PostProcessPassRegistry<PostProcessCustomPassDescriptor> | null {
+	const postProcess = backend.postProcess as IRenderBackend["postProcess"] &
+		Partial<PostProcessPassRegistry<PostProcessCustomPassDescriptor>>;
+	if (
+		typeof postProcess.registerPass !== "function" ||
+		typeof postProcess.unregisterPass !== "function"
+	) {
+		return null;
+	}
+	return {
+		registerPass: (pass) => postProcess.registerPass?.(pass),
+		unregisterPass: (id) => postProcess.unregisterPass?.(id),
+	};
+}
+
 export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
@@ -173,7 +193,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		super();
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
-		this.postProcess = new PostProcessController();
+		this.postProcess = new PostProcessController(undefined, {
+			passRegistry: createBackendPostProcessPassRegistry(backend),
+			onChange: () => this._markFrameDirty("postfx"),
+		});
 		this._canvas = canvas;
 		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -1276,7 +1299,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				);
 			}
 			case "gamma":
-				return postProcess.enabled.gamma;
+				return (
+					postProcess.enabled.gamma ||
+					hasEnabledCustomPostProcessPass(postProcess)
+				);
 			default:
 				return false;
 		}

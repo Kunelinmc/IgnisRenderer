@@ -1,7 +1,10 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
 import type { FrameContext } from "./types";
-import { isFogPostProcessEnabled } from "./PostProcess";
+import {
+	getEnabledCustomPostProcessPassIds,
+	isFogPostProcessEnabled,
+} from "./PostProcessController";
 import { ShaderCompileError } from "../shaders/runtime";
 import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
@@ -170,6 +173,9 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 	}
 	if (postProcess.enabled["color-filter"]) passes.push("color-filter");
 	if (postProcess.enabled.fxaa) passes.push("fxaa");
+	for (const id of getEnabledCustomPostProcessPassIds(postProcess)) {
+		passes.push(id);
+	}
 	if (postProcess.enabled.gamma) {
 		passes.push("gamma");
 	}

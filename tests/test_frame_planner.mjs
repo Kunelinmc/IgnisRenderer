@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 
 function createFrame(overrides = {}) {

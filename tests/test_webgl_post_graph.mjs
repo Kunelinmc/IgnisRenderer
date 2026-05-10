@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 import { WebGLPostProcessGraph } from "../src/renderers/webgl/WebGLPostProcessGraph.ts";
 
 const POST_PROCESS_CAPABILITIES = {

@@ -10,7 +10,7 @@ import type {
 import {
 	resolvePostProcessState,
 	type ResolvedPostProcessState,
-} from "../../pipeline/PostProcess";
+} from "../../pipeline/PostProcessController";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";

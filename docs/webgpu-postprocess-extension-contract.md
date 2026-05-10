@@ -3,9 +3,12 @@
 This document defines the public WebGPU post-process extension contract for custom graph passes and optional runtime pass handlers.
 
 ## Background
-`WebGPUBackend.postProcess.registerPass(pass)` registers a custom pass in the WebGPU post-process graph. A pass may include `runtime` metadata when it needs the shared WebGPU post-process runtime to own shader, pipeline, buffer, bind group, or warmup lifecycle work.
+`renderer.postProcess.registerPass(pass)` registers a custom pass through the active WebGPU backend and makes the custom id available to `renderer.postProcess.enable(id, options)`. `WebGPUBackend.postProcess.registerPass(pass)` remains the lower-level backend entry point. A pass may include `runtime` metadata when it needs the shared WebGPU post-process runtime to own shader, pipeline, buffer, bind group, or warmup lifecycle work.
 
 ## API/Contract
+- `renderer.postProcess.registerPass(pass)` must register a custom WebGPU post-process graph pass when the renderer uses `WebGPUBackend`.
+- `renderer.postProcess.enable(id, options)` must enable a registered custom pass id and expose custom options through `ResolvedPostProcessState.options[id]`.
+- `renderer.postProcess.unregisterPass(id)` must unregister the custom pass from the active backend and remove stored request state for that id.
 - `WebGPUBackend.postProcess.registerPass(pass)` must register a custom post-process graph pass.
 - `WebGPUBackend.postProcess.unregisterPass(id)` must unregister a custom post-process graph pass.
 - `WebGPUPostProcessPassPlugin.id` must be a non-empty custom id.
@@ -27,7 +30,7 @@ import type {
 	WebGPUPostProcessPassPlugin,
 	WebGPUPostProcessRuntimePass,
 } from "ignisrenderer";
-import { WebGPUBackend } from "ignisrenderer";
+import { Camera, Renderer, WebGPUBackend } from "ignisrenderer";
 
 const runtime: WebGPUPostProcessRuntimePass = {
 	id: "custom-edge",
@@ -49,7 +52,7 @@ const pass: WebGPUPostProcessPassPlugin = {
 	dependsOn: ["tonemap"],
 	runtime,
 	isEnabled(postProcess) {
-		return postProcess.enabled.tonemap;
+		return postProcess.enabled["custom-edge"];
 	},
 	async execute(context) {
 		await context.executeRuntimePass({
@@ -61,11 +64,16 @@ const pass: WebGPUPostProcessPassPlugin = {
 	},
 };
 
+const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+const camera = new Camera();
 const backend = new WebGPUBackend();
-backend.postProcess.registerPass(pass);
+const renderer = new Renderer(backend, canvas, camera);
+renderer.postProcess.registerPass(pass).enable("custom-edge");
 ```
 
 ## Errors & Diagnostics
+- Calling `renderer.postProcess.enable(id)` before `renderer.postProcess.registerPass(pass)` for a custom id must throw `Unknown post-process pass "<id>".`.
+- Calling `renderer.postProcess.registerPass(pass)` on a renderer whose backend does not expose a post-process pass registry must throw a backend registry availability error.
 - Registering an empty graph id must throw `Post-process pass id is required.`.
 - Registering an empty runtime id must throw `WebGPU post-process runtime pass id is required.`.
 - Registering a reserved graph id must throw a built-in pass error.

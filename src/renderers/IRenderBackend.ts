@@ -3,7 +3,10 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type { PostProcessCapabilities } from "../pipeline/PostProcess";
+import type {
+	PostProcessCapabilities,
+	PostProcessCustomPassDescriptor,
+} from "../pipeline/PostProcessController";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -77,8 +80,15 @@ export interface RendererBackendBridge {
 	pixels?: Uint8ClampedArray | null;
 }
 
-export interface RenderBackendPostProcessSupport {
+export type RenderBackendPostProcessPass = PostProcessCustomPassDescriptor;
+
+export interface RenderBackendPostProcessSupport<
+	TPostProcessPass extends RenderBackendPostProcessPass =
+		RenderBackendPostProcessPass,
+> {
 	readonly capabilities: PostProcessCapabilities;
+	registerPass?(pass: TPostProcessPass): void;
+	unregisterPass?(id: string): void;
 }
 
 export interface IRenderBackend {

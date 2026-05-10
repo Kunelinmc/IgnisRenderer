@@ -19,6 +19,7 @@ const tests = [
 	"test_shadow_manager.mjs",
 	"test_backend_capabilities.mjs",
 	"test_postprocess_public_api.mjs",
+	"test_renderer_postprocess_registry.mjs",
 	"test_software_raster_modes.mjs",
 	"test_software_early_z_prepass.mjs",
 	"test_software_tone_mapping.mjs",

@@ -4,7 +4,7 @@ import {
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../src/pipeline/incremental.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 
 const capabilities = {
 	ssao: true,

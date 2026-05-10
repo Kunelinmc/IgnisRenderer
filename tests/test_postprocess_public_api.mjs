@@ -3,7 +3,7 @@ import {
 	DEFAULT_POST_PROCESS_CAPABILITIES,
 	PostProcessController,
 	resolvePostProcessState,
-} from "../src/pipeline/PostProcess.ts";
+} from "../src/pipeline/PostProcessController.ts";
 import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
 
 function testControllerDefaultsAndOptionsMerge() {
@@ -106,9 +106,70 @@ function testUnsupportedExplicitEnableWarning() {
 	);
 }
 
+function testCustomPassRequestState() {
+	const calls = {
+		changed: 0,
+		register: [],
+		unregister: [],
+	};
+	const controller = new PostProcessController(undefined, {
+		passRegistry: {
+			registerPass(pass) {
+				calls.register.push(pass);
+			},
+			unregisterPass(id) {
+				calls.unregister.push(id);
+			},
+		},
+		onChange() {
+			calls.changed++;
+		},
+	});
+	const pass = { id: "custom-edge" };
+
+	assert.throws(
+		() => new PostProcessController().registerPass(pass),
+		/backend pass registry is not available/
+	);
+	assert.throws(
+		() => controller.enable("custom-edge"),
+		/Unknown post-process pass/
+	);
+
+	controller.registerPass(pass).enable("custom-edge", {
+		strength: 0.75,
+	});
+
+	const state = resolvePostProcessState(
+		controller.getState(),
+		ALL_POST_PROCESS_CAPABILITIES,
+		"webgpu"
+	);
+	assert.strictEqual(calls.register[0], pass);
+	assert.equal(state.enabled["custom-edge"], true);
+	assert.deepEqual(state.options["custom-edge"], { strength: 0.75 });
+
+	controller.disable("custom-edge");
+	const disabledState = resolvePostProcessState(
+		controller.getState(),
+		ALL_POST_PROCESS_CAPABILITIES,
+		"webgpu"
+	);
+	assert.equal(disabledState.enabled["custom-edge"], false);
+
+	controller.unregisterPass("custom-edge");
+	assert.deepEqual(calls.unregister, ["custom-edge"]);
+	assert.throws(
+		() => controller.enable("custom-edge"),
+		/Unknown post-process pass/
+	);
+	assert.ok(calls.changed >= 4);
+}
+
 function run() {
 	testControllerDefaultsAndOptionsMerge();
 	testUnsupportedExplicitEnableWarning();
+	testCustomPassRequestState();
 	console.log("Postprocess public API tests passed");
 }
 

@@ -3,7 +3,7 @@ import {
 	IncrementalFramePlanner,
 	renderDirtyReasonToMask,
 } from "../src/pipeline/incremental.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 
 function createFeatures(overrides = {}) {
 	return {

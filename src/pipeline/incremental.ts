@@ -4,10 +4,11 @@ import {
 	type ResolvedFeatureState,
 } from "./types";
 import {
+	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
 	type PostProcessPassId,
 	type ResolvedPostProcessState,
-} from "./PostProcess";
+} from "./PostProcessController";
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
@@ -645,6 +646,7 @@ export function computePostProcessInflationRadius(
 	if (postProcess.enabled.bloom) radius = Math.max(radius, 48);
 	if (postProcess.enabled["color-filter"]) radius = Math.max(radius, 2);
 	if (postProcess.enabled.fxaa) radius = Math.max(radius, 2);
+	if (hasEnabledCustomPostProcessPass(postProcess)) radius = Math.max(radius, 2);
 	return radius;
 }
 
@@ -672,7 +674,8 @@ export function resolvePostProcessGrade(
 		postProcess.enabled.tonemap ||
 		postProcess.enabled["color-filter"] ||
 		postProcess.enabled.fxaa ||
-		postProcess.enabled.gamma
+		postProcess.enabled.gamma ||
+		hasEnabledCustomPostProcessPass(postProcess)
 	) {
 		return "light";
 	}

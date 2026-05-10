@@ -5,7 +5,7 @@ import {
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
-import type { PostProcessCapabilities } from "../pipeline/PostProcess";
+import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";

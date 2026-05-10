@@ -15,6 +15,9 @@ Post-process controls were previously mixed with backend-agnostic renderer featu
 - `renderer.postProcess.reset(id)` must reset one pass to default request state.
 - `renderer.postProcess.reset()` must reset all post-process request state.
 - `renderer.postProcess.getState()` must return a cloned `PostProcessRequest`.
+- `renderer.postProcess.registerPass(pass)` must register a custom backend post-process pass through the active backend post-process registry.
+- `renderer.postProcess.unregisterPass(id)` must unregister a custom backend post-process pass through the active backend post-process registry.
+- Registered custom pass ids must be accepted by `renderer.postProcess.enable(id, options)`, `renderer.postProcess.disable(id)`, `renderer.postProcess.setOptions(id, options)`, and `renderer.postProcess.reset(id)`.
 - `FrameContext.postProcess` must contain the resolved `ResolvedPostProcessState` for the current frame.
 - `BackendCapabilities` must not expose post-process capability fields.
 - `backend.postProcess.capabilities` must expose `PostProcessCapabilities`.
@@ -37,6 +40,27 @@ renderer.postProcess.disable("gamma");
 ```
 
 ```ts
+renderer.postProcess.registerPass({
+	id: "custom-edge",
+	dependsOn: ["tonemap"],
+	isEnabled(postProcess) {
+		return postProcess.enabled["custom-edge"];
+	},
+	execute(context) {
+		context.executeRuntimePass({
+			passId: "custom-edge",
+			encoder: context.encoder,
+			targets: context.targets,
+			frameContext: context.frameContext,
+		});
+	},
+});
+renderer.postProcess.enable("custom-edge", {
+	strength: 0.75,
+});
+```
+
+```ts
 const supportsSSR = renderer.backend.postProcess.capabilities.ssr;
 if (supportsSSR) {
 	renderer.postProcess.enable("ssr");
@@ -49,6 +73,8 @@ bun tests/test_postprocess_public_api.mjs
 
 ## Errors & Diagnostics
 - `"<backend>-postprocess-unsupported-<passId>"` must be emitted when `renderer.postProcess.enable(passId)` requests a pass unsupported by `backend.postProcess.capabilities`.
+- `renderer.postProcess.enable(id)` must throw `Unknown post-process pass "<id>".` when `id` is neither a built-in pass id nor a registered custom pass id.
+- `renderer.postProcess.registerPass(pass)` must throw when the active backend does not expose a post-process pass registry.
 - A custom backend that omits `postProcess.capabilities` must fail during render setup because post-process resolution requires backend support metadata.
 - Invalid option values must be handled by the pass implementation according to that pass contract.
 

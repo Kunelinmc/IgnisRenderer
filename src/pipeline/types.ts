@@ -14,7 +14,7 @@ import type {
 } from "../core/types";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
-import type { ResolvedPostProcessState } from "./PostProcess";
+import type { ResolvedPostProcessState } from "./PostProcessController";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../src/pipeline/types.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { createWebGPUBuiltInPostProcessPasses } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";

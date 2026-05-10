@@ -1,5 +1,5 @@
 import type { FrameContext } from "../../pipeline/types";
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcess";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import {
 	WebGLPostProcessGraph,
 	type WebGLPostProcessPassContext,

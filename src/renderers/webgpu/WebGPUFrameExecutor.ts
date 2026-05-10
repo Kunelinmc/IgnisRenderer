@@ -5,7 +5,7 @@ import {
 	defineTransientKey,
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
-import { isFogPostProcessEnabled } from "../../pipeline/PostProcess";
+import { isFogPostProcessEnabled } from "../../pipeline/PostProcessController";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,

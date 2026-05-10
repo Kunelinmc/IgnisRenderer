@@ -1,4 +1,4 @@
-import { resolvePostProcessState } from "../../src/pipeline/PostProcess.ts";
+import { resolvePostProcessState } from "../../src/pipeline/PostProcessController.ts";
 
 export const ALL_POST_PROCESS_CAPABILITIES = {
 	ssao: true,

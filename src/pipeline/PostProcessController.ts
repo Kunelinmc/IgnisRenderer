@@ -180,17 +180,11 @@ export class PostProcessController<
 	 * @returns This controller for call chaining.
 	 * @sideEffects Mutates the renderer post-process request state.
 	 */
-	public enable<TPassId extends PostProcessPassId>(
+	public enable<TPassId extends string>(
 		id: TPassId,
-		options?: PostProcessOptionsMap[TPassId]
-	): this;
-	public enable<TOptions extends Record<string, unknown>>(
-		id: string,
-		options?: TOptions
-	): this;
-	public enable(
-		id: string,
-		options?: Record<string, unknown>
+		options?: TPassId extends PostProcessPassId
+			? PostProcessOptionsMap[TPassId]
+			: Record<string, unknown>
 	): this {
 		this._assertKnownPassId(id);
 		const mutable = this._request as MutablePostProcessRequest;
@@ -198,7 +192,7 @@ export class PostProcessController<
 		mutable[id] = {
 			...current,
 			enabled: true,
-			options: mergeOptions(current.options, options),
+			options: mergeOptions(current.options, options as Record<string, unknown>),
 		};
 		this._notifyChanged();
 		return this;
@@ -231,24 +225,18 @@ export class PostProcessController<
 	 * @returns This controller for call chaining.
 	 * @sideEffects Mutates the renderer post-process request state.
 	 */
-	public setOptions<TPassId extends PostProcessPassId>(
+	public setOptions<TPassId extends string>(
 		id: TPassId,
-		options: PostProcessOptionsMap[TPassId]
-	): this;
-	public setOptions<TOptions extends Record<string, unknown>>(
-		id: string,
-		options: TOptions
-	): this;
-	public setOptions(
-		id: string,
-		options: Record<string, unknown>
+		options: TPassId extends PostProcessPassId
+			? PostProcessOptionsMap[TPassId]
+			: Record<string, unknown>
 	): this {
 		this._assertKnownPassId(id);
 		const mutable = this._request as MutablePostProcessRequest;
 		const current = (mutable[id] ?? {}) as PostProcessPassRequest<any>;
 		mutable[id] = {
 			...current,
-			options: mergeOptions(current.options, options),
+			options: mergeOptions(current.options, options as Record<string, unknown>),
 		};
 		this._notifyChanged();
 		return this;
