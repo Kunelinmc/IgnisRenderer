@@ -100,7 +100,7 @@ const tests = [
 	"test_webgpu_backend_cache_and_dependency.mjs",
 	"test_webgpu_material_binding_cache.mjs",
 	"test_webgpu_shadow_atlas_allocator.mjs",
-	"test_webgpu_default_post_process_passes.mjs",
+	"test_webgpu_built_in_post_process_passes.mjs",
 	"test_webgpu_post_graph.mjs",
 	"test_webgpu_frame_executor_resilience.mjs",
 	"test_renderer_stage_graph.mjs",

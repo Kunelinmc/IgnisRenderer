@@ -3,7 +3,7 @@ import {
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../src/pipeline/types.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
-import { createWebGPUDefaultPostProcessPasses } from "../src/renderers/webgpu/WebGPUDefaultPostProcessPasses.ts";
+import { createWebGPUBuiltInPostProcessPasses } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
@@ -149,9 +149,9 @@ function createCustomPass(id, runtime = null) {
 	};
 }
 
-function testDefaultPassGraphOrder() {
+function testBuiltInPassGraphOrder() {
 	const { deps } = createDeps();
-	const passes = createWebGPUDefaultPostProcessPasses(deps);
+	const passes = createWebGPUBuiltInPostProcessPasses(deps);
 	const graph = new WebGPUPostProcessGraph(passes);
 	const order = graph.getExecutionOrder(createFeatures(), () => {});
 
@@ -229,7 +229,7 @@ async function testTemporalPassWiring() {
 		frameBinding,
 		lightingState,
 	} = createDeps();
-	const passes = createWebGPUDefaultPostProcessPasses(deps);
+	const passes = createWebGPUBuiltInPostProcessPasses(deps);
 	const byId = new Map(passes.map((pass) => [pass.id, pass]));
 	const context = createPassContext();
 
@@ -259,7 +259,7 @@ async function testTemporalPassWiring() {
 
 async function testInteractionAndGammaWiring() {
 	const { deps, executeCalls, presentCalls } = createDeps();
-	const passes = createWebGPUDefaultPostProcessPasses(deps);
+	const passes = createWebGPUBuiltInPostProcessPasses(deps);
 	const byId = new Map(passes.map((pass) => [pass.id, pass]));
 	const context = createPassContext();
 
@@ -359,7 +359,7 @@ async function testCustomRuntimePassRegistry() {
 function testReservedAndDuplicateRegistrationGuards() {
 	const { deps } = createDeps();
 	const graph = new WebGPUPostProcessGraph(
-		createWebGPUDefaultPostProcessPasses(deps)
+		createWebGPUBuiltInPostProcessPasses(deps)
 	);
 	assert.throws(
 		() => graph.registerPass(createCustomPass("ssao")),
@@ -417,12 +417,12 @@ function testReservedAndDuplicateRegistrationGuards() {
 }
 
 async function run() {
-	testDefaultPassGraphOrder();
+	testBuiltInPassGraphOrder();
 	await testTemporalPassWiring();
 	await testInteractionAndGammaWiring();
 	await testCustomRuntimePassRegistry();
 	testReservedAndDuplicateRegistrationGuards();
-	console.log("WebGPU default post-process pass factory tests passed");
+	console.log("WebGPU built-in post-process pass factory tests passed");
 }
 
 await run();

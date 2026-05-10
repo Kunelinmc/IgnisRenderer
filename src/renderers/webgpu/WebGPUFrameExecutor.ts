@@ -3,6 +3,7 @@ import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
 	defineTransientKey,
+	INTERACTION_TRANSIENT_STATE_KEY,
 	isFogPostProcessEnabled,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
@@ -21,6 +22,7 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
+import type { WebGPULightingState } from "./types";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
@@ -34,8 +36,11 @@ import {
 	type WebGPUPostProcessPassContext,
 	type WebGPUPostProcessPassPlugin,
 } from "./WebGPUPostProcessGraph";
-import { WebGPUPostProcessRuntime } from "./WebGPUPostProcessRuntime";
-import { createWebGPUDefaultPostProcessPasses } from "./WebGPUDefaultPostProcessPasses";
+import {
+	WebGPUPostProcessRuntime,
+	type WebGPUPostProcessExecuteRequest,
+	type WebGPUPostProcessExecuteResult,
+} from "./WebGPUPostProcessRuntime";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
 	WarmupPhaseCounters,
@@ -172,6 +177,259 @@ interface WebGPUFrameMSAATargets {
 	depth: IRenderTexture;
 }
 
+export interface WebGPUBuiltInPostProcessPassFactoryDeps {
+	executeRuntimePass(
+		request: WebGPUPostProcessExecuteRequest
+	): Promise<WebGPUPostProcessExecuteResult>;
+	getFrameBinding(): IBindingGroup;
+	getLightingState(): WebGPULightingState | null;
+	presentToCanvas(source: IRenderTexture, applyGamma: boolean): Promise<void>;
+	getTAAHistoryValid(): boolean;
+	getSSRHistoryValid(): boolean;
+	getVolumetricHistoryValid(): boolean;
+	getMotionHistoryValid(): boolean;
+	setTAAHistoryUpdated(updated: boolean): void;
+	setSSRHistoryUpdated(updated: boolean): void;
+	setVolumetricHistoryUpdated(updated: boolean): void;
+}
+
+/**
+ * Builds the built-in post-process graph owned by `WebGPUFrameExecutor`.
+ *
+ * The graph pass only decides ordering, feature gating, and per-frame request
+ * wiring. Shader, pipeline, and binding work stays in the runtime delegates.
+ */
+export function createWebGPUBuiltInPostProcessPasses(
+	deps: WebGPUBuiltInPostProcessPassFactoryDeps
+): WebGPUPostProcessPassPlugin[] {
+	return [
+		{
+			id: "ssao",
+			kind: "compute",
+			dependsOn: [],
+			precompileHints: ["postprocess:ssao"],
+			isEnabled: (features) => features.enableSSAO,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "ssao",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "ssgi",
+			kind: "compute",
+			dependsOn: ["ssao"],
+			precompileHints: ["postprocess:ssgi"],
+			isEnabled: (features) => features.enableSSGI,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "ssgi",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "taa",
+			kind: "compute",
+			dependsOn: ["ssgi", "ssao"],
+			precompileHints: ["postprocess:taa"],
+			isEnabled: (features) => features.enableTAA,
+			execute: async (ctx) => {
+				const result = await deps.executeRuntimePass({
+					passId: "taa",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+					historyValid:
+						deps.getTAAHistoryValid() && deps.getMotionHistoryValid(),
+				});
+				deps.setTAAHistoryUpdated(result.historyUpdated === true);
+			},
+		},
+		{
+			id: "ssr",
+			kind: "compute",
+			dependsOn: ["taa"],
+			precompileHints: ["postprocess:ssr", "postprocess:hiz"],
+			isEnabled: (features) => features.enableSSR,
+			execute: async (ctx) => {
+				const result = await deps.executeRuntimePass({
+					passId: "ssr",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+					historyValid:
+						deps.getSSRHistoryValid() && deps.getMotionHistoryValid(),
+					frameBinding: deps.getFrameBinding(),
+				});
+				deps.setSSRHistoryUpdated(result.historyUpdated === true);
+			},
+		},
+		{
+			id: "volumetric",
+			kind: "compute",
+			dependsOn: ["ssr"],
+			precompileHints: ["postprocess:volumetric", "postprocess:hiz"],
+			isEnabled: (features) => features.enableVolumetric,
+			execute: async (ctx) => {
+				const result = await deps.executeRuntimePass({
+					passId: "volumetric",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+					historyValid:
+						deps.getVolumetricHistoryValid() && deps.getMotionHistoryValid(),
+					frameBinding: deps.getFrameBinding(),
+					lightingState: deps.getLightingState(),
+				});
+				deps.setVolumetricHistoryUpdated(result.historyUpdated === true);
+			},
+		},
+		{
+			id: "fog",
+			kind: "compute",
+			dependsOn: ["volumetric"],
+			precompileHints: ["postprocess:fog"],
+			isEnabled: (features) => isFogPostProcessEnabled(features),
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "fog",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "motion-blur",
+			kind: "compute",
+			dependsOn: ["fog"],
+			precompileHints: ["postprocess:motion-blur"],
+			isEnabled: (features) => features.enableMotionBlur,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "motion-blur",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "dof",
+			kind: "compute",
+			dependsOn: ["motion-blur"],
+			precompileHints: ["postprocess:dof"],
+			isEnabled: (features) => features.enableDOF,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "dof",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "bloom",
+			kind: "compute",
+			dependsOn: ["dof"],
+			precompileHints: ["postprocess:bloom"],
+			isEnabled: (features) => features.enableBloom,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "bloom",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "fxaa",
+			kind: "compute",
+			dependsOn: ["color-filter"],
+			precompileHints: ["postprocess:fxaa"],
+			isEnabled: (features) => features.enableFXAA,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "fxaa",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "color-filter",
+			kind: "compute",
+			dependsOn: ["tonemap"],
+			precompileHints: ["postprocess:color-filter"],
+			isEnabled: (features) => features.enableColorFilter,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "color-filter",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "interaction-outline",
+			kind: "compute",
+			dependsOn: ["fxaa"],
+			precompileHints: ["postprocess:interaction-outline"],
+			isEnabled: () => true,
+			execute: async (ctx) => {
+				const interaction = ctx.frameContext.transient.get(
+					INTERACTION_TRANSIENT_STATE_KEY
+				);
+				if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
+					return;
+				}
+				await deps.executeRuntimePass({
+					passId: "interaction-outline",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+					state: interaction,
+				});
+			},
+		},
+		{
+			id: "tonemap",
+			kind: "compute",
+			dependsOn: ["bloom"],
+			precompileHints: ["postprocess:tonemap"],
+			isEnabled: (features) => features.enableToneMapping !== false,
+			execute: async (ctx) => {
+				await deps.executeRuntimePass({
+					passId: "tonemap",
+					encoder: ctx.encoder,
+					targets: ctx.targets,
+					frameContext: ctx.frameContext,
+				});
+			},
+		},
+		{
+			id: "gamma",
+			kind: "render",
+			dependsOn: ["tonemap"],
+			precompileHints: [],
+			isEnabled: (features) => features.enableGamma,
+			execute: async (ctx) => {
+				await deps.presentToCanvas(ctx.targets.sceneColor, true);
+			},
+		},
+	];
+}
+
 export class WebGPUFrameExecutor {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
@@ -261,7 +519,7 @@ export class WebGPUFrameExecutor {
 			resources.sceneFrameLayout
 		);
 		this._postGraph = new WebGPUPostProcessGraph(
-			createWebGPUDefaultPostProcessPasses({
+			createWebGPUBuiltInPostProcessPasses({
 				executeRuntimePass: (request) =>
 					this._postRuntime.executePass(request),
 				getFrameBinding: () => this._resources.getFrameBinding(),
