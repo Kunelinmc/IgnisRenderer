@@ -9,6 +9,8 @@ This document defines the public WebGPU post-process extension contract for cust
 - `renderer.postProcess.registerPass(pass)` must register a custom WebGPU post-process graph pass when the renderer uses `WebGPUBackend`.
 - `renderer.postProcess.enable(id, options)` must enable a registered custom pass id and expose custom options through `ResolvedPostProcessState.options[id]`.
 - `renderer.postProcess.unregisterPass(id)` must unregister the custom pass from the active backend and remove stored request state for that id.
+- `WebGPUPostProcessPassPlugin.incremental` may define `firstPass`, `grade`, `inflationRadius`, and `fallbackScale` for incremental rendering.
+- If `WebGPUPostProcessPassPlugin.incremental` is omitted, incremental rendering must treat the custom pass as `firstPass: "gamma"`, `grade: "light"`, and `inflationRadius: 2`.
 - `WebGPUBackend.postProcess.registerPass(pass)` must register a custom post-process graph pass.
 - `WebGPUBackend.postProcess.unregisterPass(id)` must unregister a custom post-process graph pass.
 - `WebGPUPostProcessPassPlugin.id` must be a non-empty custom id.
@@ -50,6 +52,11 @@ const pass: WebGPUPostProcessPassPlugin = {
 	id: "custom-edge",
 	kind: "compute",
 	dependsOn: ["tonemap"],
+	incremental: {
+		firstPass: "tonemap",
+		grade: "light",
+		inflationRadius: 2,
+	},
 	runtime,
 	isEnabled(postProcess) {
 		return postProcess.enabled["custom-edge"];

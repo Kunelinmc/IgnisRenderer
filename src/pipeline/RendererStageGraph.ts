@@ -33,6 +33,31 @@ export class RendererStageGraph {
 		this._stages.delete(id);
 	}
 
+	public hasStage(id: string): boolean {
+		return this._stages.has(id);
+	}
+
+	public addDependency(id: string, dependencyId: string): void {
+		const stage = this._stages.get(id);
+		if (!stage) {
+			return;
+		}
+		if (stage.dependsOn.includes(dependencyId)) {
+			return;
+		}
+		stage.dependsOn.push(dependencyId);
+	}
+
+	public removeDependency(id: string, dependencyId: string): void {
+		const stage = this._stages.get(id);
+		if (!stage) {
+			return;
+		}
+		stage.dependsOn = stage.dependsOn.filter(
+			(candidate) => candidate !== dependencyId
+		);
+	}
+
 	public setStages(stages: RendererStageDefinition[]): void {
 		this._stages.clear();
 		for (const stage of stages) {

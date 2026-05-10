@@ -16,6 +16,7 @@ import {
 } from "../spatial";
 import { ShadowManager } from "../lights/shadows";
 import {
+	doesRenderDirtyReasonInvalidateSceneBounds,
 	renderDirtyReasonToMask,
 	type RenderDirtyReason,
 } from "../pipeline/incremental";
@@ -471,12 +472,7 @@ function sanitizePathSegment(value: string): string {
 }
 
 function shouldInvalidateSceneBounds(reason: RenderDirtyReason): boolean {
-	return (
-		reason === "unknown" ||
-		reason === "transform" ||
-		reason === "physics" ||
-		reason === "particles"
-	);
+	return doesRenderDirtyReasonInvalidateSceneBounds(reason);
 }
 
 function createSpatialMeshSignature(

@@ -23,6 +23,7 @@ import {
 	DEFAULT_TAA_OPTIONS,
 	DEFAULT_VOLUMETRIC_OPTIONS,
 } from "./types";
+import type { PostProcessIncrementalMetadata } from "./incremental";
 
 export const POST_PROCESS_PASS_IDS = [
 	"ssao",
@@ -132,6 +133,7 @@ const POST_PROCESS_WARNING_LABELS: Record<PostProcessPassId, string> = {
 
 export interface PostProcessCustomPassDescriptor {
 	readonly id: string;
+	readonly incremental?: PostProcessIncrementalMetadata;
 }
 
 export interface PostProcessPassRegistry<
@@ -148,6 +150,8 @@ export interface PostProcessControllerOptions<
 > {
 	passRegistry?: PostProcessPassRegistry<TBackendPass> | null;
 	onChange?: (() => void) | null;
+	onRegisterPass?: ((pass: TBackendPass) => void) | null;
+	onUnregisterPass?: ((id: string) => void) | null;
 }
 
 /**
@@ -161,6 +165,8 @@ export class PostProcessController<
 	private _customPasses = new Map<string, TBackendPass>();
 	private _passRegistry: PostProcessPassRegistry<TBackendPass> | null;
 	private _onChange: (() => void) | null;
+	private _onRegisterPass: ((pass: TBackendPass) => void) | null;
+	private _onUnregisterPass: ((id: string) => void) | null;
 
 	constructor(
 		initial?: PostProcessRequest,
@@ -169,6 +175,8 @@ export class PostProcessController<
 		this._request = clonePostProcessRequest(initial ?? {});
 		this._passRegistry = options.passRegistry ?? null;
 		this._onChange = options.onChange ?? null;
+		this._onRegisterPass = options.onRegisterPass ?? null;
+		this._onUnregisterPass = options.onUnregisterPass ?? null;
 	}
 
 	/**
@@ -291,6 +299,7 @@ export class PostProcessController<
 		}
 		this._passRegistry.registerPass(pass);
 		this._customPasses.set(pass.id, pass);
+		this._onRegisterPass?.(pass);
 		this._notifyChanged();
 		return this;
 	}
@@ -315,6 +324,7 @@ export class PostProcessController<
 		}
 		this._passRegistry.unregisterPass(id);
 		this._customPasses.delete(id);
+		this._onUnregisterPass?.(id);
 		const mutable = this._request as MutablePostProcessRequest;
 		delete mutable[id];
 		this._notifyChanged();

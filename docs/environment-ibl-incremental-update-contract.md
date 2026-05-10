@@ -8,6 +8,11 @@ Before this contract, environment IBL baking was primarily driven by `warmup()` 
 Runtime scene changes to the environment did not provide a dedicated incremental environment IBL update pipeline.
 
 ## API/Contract
+- `Renderer.pipeline` must expose the renderer `RenderPipelineRegistry`.
+- `renderer.pipeline.registerDirtyReason(descriptor)` must register a custom dirty reason in the default incremental registry and must return the allocated mask.
+- `renderer.pipeline.unregisterDirtyReason(id)` must unregister a custom dirty reason and must not reuse its allocated mask.
+- `renderer.pipeline.registerBackendPass(pass)` must register a backend or shared pass stage and its incremental pass ordering metadata.
+- `renderer.pipeline.unregisterBackendPass(id)` must unregister a custom backend pass and must remove the corresponding incremental pass metadata.
 - `Renderer.setEnvironmentIBLUpdateOptions(options)` must accept partial `EnvironmentIBLUpdateOptions` and must normalize values before storing them.
 - `Renderer.getEnvironmentIBLUpdateOptions()` must return a normalized snapshot.
 - `Renderer.requestEnvironmentIBLUpdate()` must enqueue a manual update request token and must mark the frame dirty.
@@ -36,6 +41,7 @@ Runtime scene changes to the environment did not provide a dedicated incremental
 - Incremental planner requirements:
 	- `environment-ibl` must force full-frame rendering and must not reset temporal history.
 	- `environment-ibl-complete` must force full-frame rendering and must reset temporal history.
+	- Built-in dirty reason behavior must be registered through the default incremental registry so custom dirty reasons can coexist with environment IBL reasons.
 
 ## Usage
 ```ts
@@ -50,6 +56,14 @@ renderer.setEnvironmentIBLUpdateOptions({
 });
 
 renderer.requestEnvironmentIBLUpdate();
+```
+
+```ts
+const mask = renderer.pipeline.registerDirtyReason({
+	id: "custom-post-update",
+	firstPass: "gamma",
+});
+renderer.requestRender("custom-post-update");
 ```
 
 ```bash

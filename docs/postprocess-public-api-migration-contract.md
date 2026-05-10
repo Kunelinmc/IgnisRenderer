@@ -16,8 +16,10 @@ Post-process controls were previously mixed with backend-agnostic renderer featu
 - `renderer.postProcess.reset()` must reset all post-process request state.
 - `renderer.postProcess.getState()` must return a cloned `PostProcessRequest`.
 - `renderer.postProcess.registerPass(pass)` must register a custom backend post-process pass through the active backend post-process registry.
+- `renderer.postProcess.registerPass(pass)` may include `pass.incremental` metadata with `firstPass`, `grade`, `inflationRadius`, and `fallbackScale`.
 - `renderer.postProcess.unregisterPass(id)` must unregister a custom backend post-process pass through the active backend post-process registry.
 - Registered custom pass ids must be accepted by `renderer.postProcess.enable(id, options)`, `renderer.postProcess.disable(id)`, `renderer.postProcess.setOptions(id, options)`, and `renderer.postProcess.reset(id)`.
+- Registered custom pass incremental metadata must be removed when `renderer.postProcess.unregisterPass(id)` succeeds.
 - `FrameContext.postProcess` must contain the resolved `ResolvedPostProcessState` for the current frame.
 - `BackendCapabilities` must not expose post-process capability fields.
 - `backend.postProcess.capabilities` must expose `PostProcessCapabilities`.
@@ -42,6 +44,11 @@ renderer.postProcess.disable("gamma");
 ```ts
 renderer.postProcess.registerPass({
 	id: "custom-edge",
+	incremental: {
+		firstPass: "tonemap",
+		grade: "light",
+		inflationRadius: 2,
+	},
 	dependsOn: ["tonemap"],
 	isEnabled(postProcess) {
 		return postProcess.enabled["custom-edge"];

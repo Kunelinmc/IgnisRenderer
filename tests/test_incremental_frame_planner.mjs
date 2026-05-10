@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	IncrementalFramePlanner,
+	getDefaultIncrementalRegistry,
 	renderDirtyReasonToMask,
 } from "../src/pipeline/incremental.ts";
 import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
@@ -233,6 +234,58 @@ function testEnvironmentIBLCompleteResetsTemporalHistory() {
 	assert.equal(plan.firstPass, "main-opaque");
 }
 
+function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
+	const registry = getDefaultIncrementalRegistry();
+	const passId = "custom-incremental-pass-test";
+	const reasonId = "custom-incremental-reason-test";
+	registry.registerFramePass({ id: passId, order: 3.5 });
+	const mask = registry.registerDirtyReason({
+		id: reasonId,
+		firstPass: passId,
+		temporalHistoryReset: true,
+	});
+	try {
+		assert.equal(renderDirtyReasonToMask(reasonId), mask);
+		assert.notEqual(mask, renderDirtyReasonToMask("unknown"));
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask: mask,
+			features: createFeatures(),
+			postProcess: createPostProcess(),
+			registry,
+		});
+		assert.equal(plan.firstPass, passId);
+		assert.equal(plan.forceFullFrame, false);
+		assert.equal(plan.temporalHistoryReset, true);
+	} finally {
+		registry.unregisterDirtyReason(reasonId);
+		registry.unregisterFramePass(passId);
+	}
+}
+
+function testCustomDirtyReasonUsesGroups() {
+	const registry = getDefaultIncrementalRegistry();
+	const reasonId = "custom-geometry-reason-test";
+	const mask = registry.registerDirtyReason({
+		id: reasonId,
+		groups: ["geometry"],
+		forceFullFrame: true,
+	});
+	try {
+		const plan = IncrementalFramePlanner.plan({
+			enabled: true,
+			reasonMask: mask,
+			features: createFeatures({ enableShadows: false }),
+			postProcess: createPostProcess(),
+			registry,
+		});
+		assert.equal(plan.firstPass, "main-opaque");
+		assert.equal(plan.forceFullFrame, true);
+	} finally {
+		registry.unregisterDirtyReason(reasonId);
+	}
+}
+
 function run() {
 	testNoDirtyReasonsReturnsNoPass();
 	testInteractionStartsAtInteractionOutline();
@@ -248,6 +301,8 @@ function run() {
 	testDisabledIncrementalAlwaysFullFrame();
 	testEnvironmentIBLForcesFullFrameWithoutTemporalReset();
 	testEnvironmentIBLCompleteResetsTemporalHistory();
+	testCustomDirtyReasonAllocatesMaskAndPlansFirstPass();
+	testCustomDirtyReasonUsesGroups();
 	console.log("Incremental frame planner tests passed");
 }
 

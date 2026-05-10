@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	computePostProcessInflationRadius,
+	getDefaultIncrementalRegistry,
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../src/pipeline/incremental.ts";
@@ -115,10 +116,43 @@ function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 	assert.equal(cinematicRatio, 0.24);
 }
 
+function testCustomPostProcessDefaultIncrementalMetadata() {
+	const postProcess = createPostProcess(enable("custom-edge"));
+	assert.equal(resolvePostProcessGrade(postProcess), "light");
+	assert.equal(computePostProcessInflationRadius(postProcess), 2);
+}
+
+function testCustomPostProcessIncrementalMetadataOverride() {
+	const registry = getDefaultIncrementalRegistry();
+	registry.registerPostProcessPass("custom-cinematic", {
+		firstPass: "dof",
+		grade: "cinematic",
+		inflationRadius: 40,
+		fallbackScale: 0.5,
+	});
+	try {
+		const postProcess = createPostProcess(enable("custom-cinematic"));
+		assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
+		assert.equal(
+			registry.resolveFirstEnabledPostProcessStage(postProcess),
+			"dof"
+		);
+		assert.equal(computePostProcessInflationRadius(postProcess), 40);
+		assert.equal(
+			scaleFullFrameFallbackAreaRatioForPostProcess(0.3, postProcess),
+			0.15
+		);
+	} finally {
+		registry.unregisterPostProcessPass("custom-cinematic");
+	}
+}
+
 function run() {
 	testResolvePostProcessGrade();
 	testComputePostProcessInflationRadius();
 	testScaleFullFrameFallbackAreaRatioForPostProcess();
+	testCustomPostProcessDefaultIncrementalMetadata();
+	testCustomPostProcessIncrementalMetadataOverride();
 	console.log("Incremental postfx grading tests passed");
 }
 

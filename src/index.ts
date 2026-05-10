@@ -107,6 +107,42 @@ export type {
 	PostProcessRequest,
 	ResolvedPostProcessState,
 } from "./pipeline/PostProcessController";
+export {
+	DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,
+	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+	IncrementalFramePlanner,
+	RENDER_DIRTY_GROUP,
+	RENDER_DIRTY_REASON_MASK,
+	doesRenderDirtyReasonInvalidateSceneBounds,
+	getDefaultIncrementalRegistry,
+	hasAnyDirtyReason,
+	registerRenderDirtyReason,
+	renderDirtyReasonToMask,
+	unregisterRenderDirtyReason,
+} from "./pipeline/incremental";
+export type {
+	BuiltinRenderDirtyReason,
+	DirtyRect,
+	DirtyTileCoverage,
+	IncrementalDirtyReasonDescriptor,
+	IncrementalFrameContext,
+	IncrementalFramePassDescriptor,
+	IncrementalFrameStats,
+	IncrementalPlan,
+	IncrementalPlanInput,
+	IncrementalRenderingOptions,
+	PostProcessGrade,
+	PostProcessIncrementalMetadata,
+	RenderDirtyReason,
+} from "./pipeline/incremental";
+export {
+	RenderPipelineRegistry,
+	type RenderPipelineBackendPassRegistration,
+	type RenderPipelinePassPredicate,
+	type RenderPipelinePassRunContext,
+	type RenderPipelineBackendPassIncrementalOptions,
+} from "./pipeline/RenderPipelineRegistry";
+export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
 export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";
 export type {
 	EnvironmentIBLBakeAcceleration,

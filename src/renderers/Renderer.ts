@@ -39,10 +39,11 @@ import {
 	ReflectionProbeCaptureRuntime,
 	type ReflectionProbeWebGPUCaptureSource,
 } from "../pipeline/ReflectionProbeCaptureRuntime";
+import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import {
-	RendererStageGraph,
-	type RendererStageDefinition,
-} from "../pipeline/RendererStageGraph";
+	RenderPipelineRegistry,
+	type RenderPipelineBackendPassRegistration,
+} from "../pipeline/RenderPipelineRegistry";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
 	DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
@@ -157,6 +158,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
+	public readonly pipeline: RenderPipelineRegistry;
 	public readonly postProcess: PostProcessController;
 	public animationAutoRender: boolean;
 
@@ -172,7 +174,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _deltaTime: number;
 	private _frameDirty: boolean;
 	private _animationStage: AnimationSimulationStage;
-	private _stageGraph: RendererStageGraph;
 	private _physicsSystem: PhysicsSystem | null;
 	private _frameTransientContributors: Set<FrameTransientContributor>;
 	private _incrementalOptions: IncrementalRenderingOptions;
@@ -193,8 +194,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		super();
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
+		this.pipeline = new RenderPipelineRegistry({
+			stages: createDefaultRendererStages(),
+			backendPasses: createDefaultBackendPasses(),
+		});
 		this.postProcess = new PostProcessController(undefined, {
 			passRegistry: createBackendPostProcessPassRegistry(backend),
+			onRegisterPass: (pass) => this.pipeline.registerPostProcessPass(pass),
+			onUnregisterPass: (id) => this.pipeline.unregisterPostProcessPass(id),
 			onChange: () => this._markFrameDirty("postfx"),
 		});
 		this._canvas = canvas;
@@ -204,7 +211,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._frameDirty = true;
 		this.animationAutoRender = true;
 		this._animationStage = new AnimationSimulationStage(this.animationSystem);
-		this._stageGraph = new RendererStageGraph(createDefaultRendererStages());
 		this._physicsSystem = null;
 		this._frameTransientContributors = new Set();
 		this._incrementalOptions = { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS };
@@ -593,11 +599,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	public setStageGraph(stages: RendererStageDefinition[]): void {
-		this._stageGraph.setStages(stages);
+		this.pipeline.setStages(stages);
 	}
 
 	public registerStage(stage: RendererStageDefinition): void {
-		this._stageGraph.registerStage(stage);
+		this.pipeline.registerStage(stage);
 	}
 
 	public get backendType(): IRenderBackend["type"] {
@@ -882,7 +888,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			initialFullFrameTiles
 		);
 
-		const stageOrder = this._stageGraph.getExecutionOrder(
+		const stageOrder = this.pipeline.getExecutionOrder(
 			{
 				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
 				hasParticleSystems,
@@ -1012,6 +1018,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						reasonMask: frameDirtyReasonMask,
 						features: resolved,
 						postProcess: resolvedPostProcess,
+						registry: this.pipeline.incremental,
 					});
 					incrementalFrameContext = this._buildIncrementalFrameContext(
 						incrementalPlan,
@@ -1223,15 +1230,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	private _isBackendPassStage(stageId: string): boolean {
-		return BACKEND_PASS_STAGES.has(stageId);
+		return this.pipeline.isBackendPassStage(stageId);
 	}
 
 	private _createBackendPass(stageId: string): FramePass {
-		return {
-			stage: stageId,
-			executor: this.backend.passExecutors?.[stageId] ?? "backend",
-			enabled: true,
-		};
+		return this.pipeline.createBackendPass(stageId, this.backend.passExecutors);
 	}
 
 	private _shouldRunBackendPass(
@@ -1242,70 +1245,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		transient: TransientStore,
 		incremental?: IncrementalFrameContext
 	): boolean {
-		if (
-			incremental?.enabled &&
-			!incremental.forceFullFrame &&
-			incremental.dirtyRects.length === 0
-		) {
-			return false;
-		}
-		switch (stage) {
-			case "particle-sim":
-				return (frame.particleSystems?.length ?? 0) > 0;
-			case "shadow":
-				return (
-					features.enableShadows &&
-					(frame.shadowCasterPackets.length > 0 ||
-						frame.shadowTransmitterPackets.length > 0 ||
-						hasParticleShadowCasters(frame.particleSystems))
-				);
-			case "reflection":
-				return features.enableReflection && frame.reflectivePackets.length > 0;
-			case "main-opaque":
-				return true;
-			case "main-transparent":
-				return frame.transparentPackets.length > 0;
-			case "particles":
-				return (frame.particleSystems?.length ?? 0) > 0;
-			case "ssao":
-				return postProcess.enabled.ssao;
-			case "ssgi":
-				return postProcess.enabled.ssgi;
-			case "taa":
-				return postProcess.enabled.taa;
-			case "ssr":
-				return postProcess.enabled.ssr;
-			case "volumetric":
-				return postProcess.enabled.volumetric;
-			case "fog":
-				return isFogPostProcessEnabled(postProcess);
-			case "motion-blur":
-				return postProcess.enabled["motion-blur"];
-			case "dof":
-				return postProcess.enabled.dof;
-			case "bloom":
-				return postProcess.enabled.bloom;
-			case "tonemap":
-				return postProcess.enabled.tonemap;
-			case "color-filter":
-				return postProcess.enabled["color-filter"];
-			case "fxaa":
-				return postProcess.enabled.fxaa;
-			case "interaction-outline": {
-				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-				return (
-					postProcess.enabled["interaction-outline"] &&
-					(interaction?.selectedEntityIds?.length ?? 0) > 0
-				);
-			}
-			case "gamma":
-				return (
-					postProcess.enabled.gamma ||
-					hasEnabledCustomPostProcessPass(postProcess)
-				);
-			default:
-				return false;
-		}
+		return this.pipeline.shouldRunBackendPass(stage, {
+			frame,
+			features,
+			postProcess,
+			transient,
+			incremental,
+		});
 	}
 
 	private _getSafeAspectRatio(width: number, height: number): number {
@@ -1369,28 +1315,123 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 }
 
-const BACKEND_PASS_STAGES = new Set<string>([
-	"particle-sim",
-	"shadow",
-	"reflection",
-	"main-opaque",
-	"main-transparent",
-	"particles",
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
-]);
+function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
+	return [
+		{
+			id: "particle-sim",
+			dependsOn: ["prepared-scene-build"],
+			enabled: (context) => context.hasParticleSystems,
+			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
+		},
+		{
+			id: "shadow",
+			dependsOn: ["prepared-scene-build", "particle-sim"],
+			shouldRun: ({ frame, features }) =>
+				features.enableShadows &&
+				(frame.shadowCasterPackets.length > 0 ||
+					frame.shadowTransmitterPackets.length > 0 ||
+					hasParticleShadowCasters(frame.particleSystems)),
+		},
+		{
+			id: "reflection",
+			dependsOn: ["prepared-scene-build", "reflection-probe-capture"],
+			shouldRun: ({ frame, features }) =>
+				features.enableReflection && frame.reflectivePackets.length > 0,
+		},
+		{
+			id: "main-opaque",
+			dependsOn: ["reflection", "shadow"],
+		},
+		{
+			id: "main-transparent",
+			dependsOn: ["main-opaque"],
+			shouldRun: ({ frame }) => frame.transparentPackets.length > 0,
+		},
+		{
+			id: "particles",
+			dependsOn: ["main-transparent"],
+			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
+		},
+		{
+			id: "ssao",
+			dependsOn: ["particles"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.ssao,
+		},
+		{
+			id: "ssgi",
+			dependsOn: ["ssao"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.ssgi,
+		},
+		{
+			id: "taa",
+			dependsOn: ["ssgi", "ssao"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.taa,
+		},
+		{
+			id: "ssr",
+			dependsOn: ["taa"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.ssr,
+		},
+		{
+			id: "volumetric",
+			dependsOn: ["ssr"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.volumetric,
+		},
+		{
+			id: "fog",
+			dependsOn: ["volumetric"],
+			shouldRun: ({ postProcess }) => isFogPostProcessEnabled(postProcess),
+		},
+		{
+			id: "motion-blur",
+			dependsOn: ["fog"],
+			shouldRun: ({ postProcess }) => postProcess.enabled["motion-blur"],
+		},
+		{
+			id: "dof",
+			dependsOn: ["motion-blur"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.dof,
+		},
+		{
+			id: "bloom",
+			dependsOn: ["dof"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.bloom,
+		},
+		{
+			id: "tonemap",
+			dependsOn: ["bloom"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.tonemap,
+		},
+		{
+			id: "color-filter",
+			dependsOn: ["tonemap"],
+			shouldRun: ({ postProcess }) => postProcess.enabled["color-filter"],
+		},
+		{
+			id: "fxaa",
+			dependsOn: ["color-filter"],
+			shouldRun: ({ postProcess }) => postProcess.enabled.fxaa,
+		},
+		{
+			id: "interaction-outline",
+			dependsOn: ["fxaa"],
+			shouldRun: ({ postProcess, transient }) => {
+				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
+				return (
+					postProcess.enabled["interaction-outline"] &&
+					(interaction?.selectedEntityIds?.length ?? 0) > 0
+				);
+			},
+		},
+		{
+			id: "gamma",
+			dependsOn: ["interaction-outline", "tonemap"],
+			shouldRun: ({ postProcess }) =>
+				postProcess.enabled.gamma ||
+				hasEnabledCustomPostProcessPass(postProcess),
+		},
+	];
+}
 
 function createDefaultRendererStages(): RendererStageDefinition[] {
 	return [

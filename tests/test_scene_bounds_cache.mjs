@@ -3,6 +3,7 @@ import { Scene } from "../src/core/Scene.ts";
 import { Material } from "../src/materials/Material.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../src/meshes/MeshInstance.ts";
+import { getDefaultIncrementalRegistry } from "../src/pipeline/incremental.ts";
 
 function createMeshInstance(x) {
 	const mesh = MeshAsset.fromFaces([
@@ -47,6 +48,24 @@ function run() {
 	scene.updateWorldMatrices();
 	const cleared = scene.getBounds();
 	assert.equal(cleared.radius, 100);
+
+	const registry = getDefaultIncrementalRegistry();
+	registry.registerDirtyReason({ id: "custom-no-bounds-test" });
+	registry.registerDirtyReason({
+		id: "custom-bounds-test",
+		invalidatesSceneBounds: true,
+	});
+	try {
+		scene.getBounds();
+		assert.equal(scene._boundsDirty, false);
+		scene.invalidate("custom-no-bounds-test");
+		assert.equal(scene._boundsDirty, false);
+		scene.invalidate("custom-bounds-test");
+		assert.equal(scene._boundsDirty, true);
+	} finally {
+		registry.unregisterDirtyReason("custom-no-bounds-test");
+		registry.unregisterDirtyReason("custom-bounds-test");
+	}
 
 	console.log("Scene bounds tests passed");
 }
