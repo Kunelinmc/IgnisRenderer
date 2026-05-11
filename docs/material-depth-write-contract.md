@@ -29,6 +29,13 @@ compositing.
 	  pre-passes.
 	- Color draws for these materials must not be promoted to read-only
 	  `early-z-color` pipelines because they were never pre-passed.
+- WebGPU deferred lighting contract:
+	- Materials with `depthWrite === false` must not enter the deferred G-buffer
+	  path.
+	- These materials must use the legacy forward fallback after deferred
+	  lighting resolve when MRT scene targets are available.
+	- Transparent and transmission materials must stay outside the deferred
+	  opaque G-buffer path regardless of `depthWrite`.
 - Cache contract:
 	- Material signatures and backend pipeline keys must include `depthWrite`.
 

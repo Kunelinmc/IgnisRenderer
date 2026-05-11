@@ -6,7 +6,8 @@ This document defines the `WebGPUBackend` Early Z depth pre-pass contract for
 ## Background
 WebGPU opaque shading cost increases under overdraw. A depth pre-pass should
 reduce unnecessary fragment shading by rejecting covered fragments before the
-main color pass.
+main color pass. When deferred lighting is active, the color pass is the
+G-buffer geometry pass and the lighting resolve occurs after it.
 
 ## API/Contract
 - `WebGPUBackendOptions.enableEarlyZPrepass?: boolean`
@@ -21,6 +22,9 @@ main color pass.
 	- Early Z pre-pass must apply only to `main-opaque`.
 	- `main-transparent`, OIT, transmission, particles, and environment must not use
 	  this pre-pass.
+	- When deferred lighting is active, Early Z pre-pass must run before the
+	  G-buffer geometry pass and must not run before the fullscreen lighting
+	  pass.
 - Pipeline contract:
 	- Opaque non-mask pre-pass must use depth-only pipeline state with
 	  `depthWriteEnabled = true` and `depthCompare = less`.
@@ -32,6 +36,8 @@ main color pass.
 	- Opaque color draws that were not pre-passed must keep legacy depth state
 	  (`depthWriteEnabled = material.depthWrite !== false`,
 	  `depthCompare = less`).
+	- G-buffer draws that were pre-passed must use the same read-only
+	  `early-z-color` depth state as legacy MRT color draws.
 - `ShaderMaterial` contract:
 	- `alphaMode = MASK` materials must provide explicit depth pre-pass fragment
 	  contract via `depthFragmentCode` and `depthFragmentEntryPoint`.
@@ -40,7 +46,8 @@ main color pass.
 - Incremental contract:
 	- Incremental dirty-rect flow must continue to clear dirty depth region to
 	  `1.0` before pre-pass.
-	- Early Z pre-pass and color pass must both clip to resolved dirty rects.
+	- Early Z pre-pass, G-buffer geometry pass, and legacy color pass must clip
+	  to resolved dirty rects.
 
 ## Usage
 ```ts

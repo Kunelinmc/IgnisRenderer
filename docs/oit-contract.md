@@ -11,6 +11,8 @@ for standard transparent meshes and alpha-blended particles, while
 `transmission` remains on the legacy transparent path. `WebGLBackend` mirrors
 the `WebGPUBackend` pass ordering, but resolves OIT through separate `accum`
 and `reveal` draws because WebGL does not provide per-attachment blend state.
+When WebGPU deferred lighting is active, OIT still runs after opaque deferred
+lighting has resolved into `sceneColorMain`.
 
 ## API/Contract
 - `BackendCapabilities.oit` must exist on all backends.
@@ -50,6 +52,11 @@ and `reveal` draws because WebGL does not provide per-attachment blend state.
     resolve back into `sceneColorMain`.
   - `WebGLBackend` must copy `sceneColor` into `postColorTexture`, then resolve
     back into `sceneColor`.
+- WebGPU deferred ordering contract:
+  - OIT must not write G-buffer deferred material payload textures.
+  - OIT must execute after `main-opaque` deferred lighting resolve.
+  - `transmission` materials must remain on the legacy transparent path after
+    OIT resolve or after alpha particles, matching existing pass ordering.
 
 ## Usage
 ```ts
