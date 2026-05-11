@@ -25,10 +25,7 @@ import {
 	injectParticleBatchIntoShadowVolume,
 	resolveParticleShadowCasterBounds,
 } from "../../pipeline/ParticleShadowVolume";
-import {
-	selectCSMDirectionalLights,
-	type ShadowBackendCapabilities,
-} from "../../pipeline/ShadowStrategyRegistry";
+import { selectCSMDirectionalLights } from "../../pipeline/ShadowStrategyRegistry";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	DEFAULT_BLOOM_OPTIONS,
@@ -61,10 +58,35 @@ import {
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import { POST_PROCESS_STAGES } from "../constants";
 import {
+	DOF_CHROMATIC_ABERRATION_RANGE,
+	DOF_DEPTH_CURVE_RANGE,
+	DOF_HIGHLIGHT_GAIN_RANGE,
+	DOF_MAX_BLUR_RADIUS_RANGE,
+	DOF_NEAR_FAR_STRENGTH_RANGE,
+	IDENTITY_MATRIX4_COLUMN_MAJOR,
+	MOTION_BLUR_CENTER_WEIGHT_RANGE,
+	MOTION_BLUR_DEPTH_REJECT_RANGE,
+	MOTION_BLUR_MAX_SAMPLES_RANGE,
+	MOTION_BLUR_SHUTTER_SCALE_RANGE,
+	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
+	SH_COEFFICIENT_COUNT,
+	TAA_DEPTH_THRESHOLD_RANGE,
+	TAA_HISTORY_WEIGHT_RANGE,
+	TAA_MOTION_FACTOR_RANGE,
+	TAA_SHARPEN_RANGE,
+	TAA_VARIANCE_GAMMA_RANGE,
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
+	WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS,
+	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH,
+	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT,
+	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH,
+	WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES,
+	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
+	WEBGL_SHADOW_CAPABILITIES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
+	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
 } from "./constants";
 import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import {
@@ -149,45 +171,6 @@ import {
 } from "./WebGLParticlePass";
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
-const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
-const _tmpWebGLReflectionProbeCameraWorldPosition = { x: 0, y: 0, z: 0 };
-const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
-const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
-const TAA_VARIANCE_GAMMA_RANGE: [number, number] = [0, 8];
-const TAA_SHARPEN_RANGE: [number, number] = [0, 2];
-const MOTION_BLUR_SHUTTER_SCALE_RANGE: [number, number] = [0, 2];
-const MOTION_BLUR_MAX_SAMPLES_RANGE: [number, number] = [4, 64];
-const MOTION_BLUR_VELOCITY_CLAMP_RANGE: [number, number] = [0.005, 0.25];
-const MOTION_BLUR_DEPTH_REJECT_RANGE: [number, number] = [0.0001, 0.25];
-const MOTION_BLUR_CENTER_WEIGHT_RANGE: [number, number] = [0, 4];
-const DOF_NEAR_FAR_STRENGTH_RANGE: [number, number] = [0, 2];
-const DOF_MAX_BLUR_RADIUS_RANGE: [number, number] = [0, 32];
-const DOF_DEPTH_CURVE_RANGE: [number, number] = [0.25, 4];
-const DOF_HIGHLIGHT_GAIN_RANGE: [number, number] = [0, 3];
-const DOF_CHROMATIC_ABERRATION_RANGE: [number, number] = [0, 2];
-const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
-const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH = 64;
-const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT = 64;
-const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH = 32;
-const WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES = 4;
-const WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS = 8;
-const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
-	1, 0, 0, 0,
-	0, 1, 0, 0,
-	0, 0, 1, 0,
-	0, 0, 0, 1,
-]);
-const SH_COEFFICIENT_COUNT = 16;
-
-const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
-	backendKey: "webgl",
-	supportsSingleMap: true,
-	supportsDirectionalCSM: true,
-	supportsSpotCSM: false,
-	supportsPointCSM: false,
-	maxCsmDirectionalLights: 1,
-	maxDynamicShadowCost: 24,
-};
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
@@ -334,7 +317,7 @@ export class WebGLFrameExecutor {
 				:	null,
 				context.features.enableClusteredLighting,
 				context.camera.getWorldPosition(
-					_tmpWebGLReflectionProbeCameraWorldPosition
+					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH
 				)
 			);
 		this._clusteredLighting.prepare(
