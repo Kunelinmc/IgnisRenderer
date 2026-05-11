@@ -102,6 +102,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	- `transports.ts`: Efficient zero-copy data transfer using `SharedArrayBuffer` where available.
 
 ### Advanced Rendering Features
+- **WebGPU Deferred Lighting**: `main-opaque` may internally split into background, G-buffer, deferred lighting resolve, and forward fallback GPU passes. This is WebGPU-internal and must not add global renderer frame-pass stages for Software/WebGL.
 - **WebGPU Post-Processing Graph**: Modular plugin system supporting:
     - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
     - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.
