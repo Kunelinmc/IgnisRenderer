@@ -125,6 +125,7 @@ struct CameraBasis {
 	backward: vec3<f32>,
 	tanHalfFov: f32,
 	aspect: f32,
+	orthographic: f32,
 }
 
 fn getCameraBasis() -> CameraBasis {
@@ -133,7 +134,8 @@ fn getCameraBasis() -> CameraBasis {
 		frame.environmentBasisUp.xyz,
 		frame.environmentBasisBackward.xyz,
 		frame.environmentBasisRight.w,
-		frame.environmentBasisUp.w
+		frame.environmentBasisUp.w,
+		frame.environmentBasisBackward.w
 	);
 }
 
@@ -150,6 +152,12 @@ fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
 fn getPosition(uv: vec2<f32>, depth: f32) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
 	let basis = getCameraBasis();
+	if (basis.orthographic > 0.5) {
+		return frame.cameraPosition.xyz
+			+ basis.right * ndc.x * basis.tanHalfFov
+			+ basis.up * ndc.y * basis.aspect
+			- basis.backward * depth;
+	}
 	let cx = ndc.x * basis.aspect * basis.tanHalfFov * depth;
 	let cy = ndc.y * basis.tanHalfFov * depth;
 	return frame.cameraPosition.xyz
@@ -163,6 +171,12 @@ fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
 	let basis = getCameraBasis();
 	let depth = dot(rel, -basis.backward);
 	if (depth <= 1e-4) { return vec2<f32>(-1.0); }
+
+	if (basis.orthographic > 0.5) {
+		let cx = dot(rel, basis.right) / max(basis.tanHalfFov, 1e-6);
+		let cy = dot(rel, basis.up) / max(basis.aspect, 1e-6);
+		return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+	}
 
 	let cx =
 		dot(rel, basis.right) /

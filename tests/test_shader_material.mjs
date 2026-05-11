@@ -48,6 +48,31 @@ fn customFsMRT() -> MRTOut {
 }
 `;
 
+const WGSL_FRAGMENT_DEFERRED = /* wgsl */ `
+struct DeferredOut {
+	@location(0) g0: vec4<f32>,
+	@location(1) g1: vec4<f32>,
+	@location(2) g2: vec4<f32>,
+	@location(3) g3: vec4<f32>,
+	@location(4) g4: vec4<f32>,
+	@location(5) g5: vec4<f32>,
+	@location(6) g6: vec4<f32>,
+}
+
+@fragment
+fn customFsDeferred() -> DeferredOut {
+	return DeferredOut(
+		vec4<f32>(1.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0)
+	);
+}
+`;
+
 const WGSL_FRAGMENT_DEPTH = /* wgsl */ `
 @fragment
 fn customDepth() {
@@ -173,6 +198,52 @@ async function testWGSLProgramSelection() {
 	await library.getPipeline(material, "single");
 	await library.getPipeline(material, "mrt");
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
+}
+
+async function testWebGPUDeferredProgramSelection() {
+	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
+	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const material = new ShaderMaterial({
+		name: "DeferredCustomMaterial",
+		deferredLighting: true,
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "deferred",
+				code: WGSL_FRAGMENT_DEFERRED,
+			},
+		],
+		vertexEntryPoint: "customVs",
+		fragmentDeferredEntryPoint: "customFsDeferred",
+	});
+
+	assert.equal(material.hasWebGPUDeferredProgram(), true);
+	const program = material.resolveWebGPUProgram("deferred");
+	assert.equal(program.fragmentEntryPoint, "customFsDeferred");
+	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
+
+	const pipeline = await library.getPipeline(material, "gbuffer");
+	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferred");
+	assert.equal(pipeline.desc.fragment.targets.length, 7);
+
+	const missingOptIn = new ShaderMaterial({
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "deferred",
+				code: WGSL_FRAGMENT_DEFERRED,
+			},
+		],
+	});
+	assert.equal(missingOptIn.hasWebGPUDeferredProgram(), false);
 }
 
 function testResolveWebGPUDepthPrepassProgramContract() {
@@ -689,6 +760,7 @@ function testTextureBindingUvSetGreaterThanOneIsPreserved() {
 
 async function run() {
 	await testWGSLProgramSelection();
+	await testWebGPUDeferredProgramSelection();
 	testResolveWebGPUDepthPrepassProgramContract();
 	testDepthWriteParamIsInheritedFromMaterial();
 	await testGLSLProgramUsesTranspiler();

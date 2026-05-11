@@ -133,6 +133,16 @@ struct SceneFragmentOutput {
 	@location(4) gMotionDepth: vec4<f32>,
 }
 
+struct GBufferFragmentOutput {
+	@location(0) gAlbedoAlpha: vec4<f32>,
+	@location(1) gNormalRoughMetal: vec4<f32>,
+	@location(2) gEmissiveOcclusion: vec4<f32>,
+	@location(3) gMotionDepth: vec4<f32>,
+	@location(4) gSpecular: vec4<f32>,
+	@location(5) gCoatSheen: vec4<f32>,
+	@location(6) gSheenReflectance: vec4<f32>,
+}
+
 struct SceneFragmentOITOutput {
 	@location(0) accum: vec4<f32>,
 	@location(1) reveal: vec4<f32>,

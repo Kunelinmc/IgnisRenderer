@@ -47,6 +47,9 @@ import {
 import type { IParticleSimulator } from "../simulation/particles/IParticleSimulator";
 import { WebGPUParticleSimulator } from "../simulation/particles/WebGPUParticleSimulator";
 import {
+	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
+	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 	WEBGPU_BINDING_GROUP_CACHE_LIMIT,
@@ -475,18 +478,45 @@ export class WebGPUBackend implements IRenderBackend {
 				adapter.limits?.maxSampledTexturesPerShaderStage;
 			const adapterMaxSamplersPerShaderStage =
 				adapter.limits?.maxSamplersPerShaderStage;
+			const adapterMaxStorageTexturesPerShaderStage =
+				adapter.limits?.maxStorageTexturesPerShaderStage;
 			const requiredSampledTexturesPerShaderStage =
 				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
 			const requiredSamplersPerShaderStage =
 				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT;
-			if ((adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_MRT_COLOR_TARGET_COUNT) {
-				requiredLimits.maxColorAttachments = WEBGPU_MRT_COLOR_TARGET_COUNT;
+			if (
+				(adapter.limits?.maxColorAttachments ?? 0) >=
+				WEBGPU_DEFERRED_COLOR_TARGET_COUNT
+			) {
+				requiredLimits.maxColorAttachments =
+					WEBGPU_DEFERRED_COLOR_TARGET_COUNT;
+			} else if (
+				(adapter.limits?.maxColorAttachments ?? 0) >=
+				WEBGPU_MRT_COLOR_TARGET_COUNT
+			) {
+				requiredLimits.maxColorAttachments =
+					WEBGPU_MRT_COLOR_TARGET_COUNT;
 			}
 			if (
 				(adapter.limits?.maxColorAttachmentBytesPerSample ?? 0) >=
+				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE
+			) {
+				requiredLimits.maxColorAttachmentBytesPerSample =
+					WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE;
+			} else if (
+				(adapter.limits?.maxColorAttachmentBytesPerSample ?? 0) >=
 				WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
 			) {
-				requiredLimits.maxColorAttachmentBytesPerSample = WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
+				requiredLimits.maxColorAttachmentBytesPerSample =
+					WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
+			}
+			if (
+				typeof adapterMaxStorageTexturesPerShaderStage === "number" &&
+				adapterMaxStorageTexturesPerShaderStage >=
+					WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+			) {
+				requiredLimits.maxStorageTexturesPerShaderStage =
+					WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
 			}
 			if (adapterMaxTextureDimension2D > 0) {
 				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
@@ -813,7 +843,14 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resources.unregisterExternalTexture(texture);
 	}
 
-	public getFrameSceneTargetMode(): "mrt" | "single" {
+	/**
+	 * Returns the scene target mode selected for the current WebGPU frame.
+	 *
+	 * @returns `"gbuffer"` for deferred opaque lighting, `"mrt"` for legacy
+	 * MRT rendering, or `"single"` for direct canvas fallback.
+	 * @sideEffects None.
+	 */
+	public getFrameSceneTargetMode(): "gbuffer" | "mrt" | "single" {
 		return this._frameExecutor?.getSceneTargetModeForFrame() ?? "single";
 	}
 

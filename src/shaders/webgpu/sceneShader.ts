@@ -14,6 +14,7 @@ const SCENE_PARTS = [
 	"fragmentPbrPoint",
 	"fragmentPbrSpot",
 	"fragmentPbrAmbient",
+	"fragmentGBuffer",
 	"fragmentSingleTarget",
 ] as const;
 

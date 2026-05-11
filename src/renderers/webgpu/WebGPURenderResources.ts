@@ -509,6 +509,38 @@ export class WebGPURenderResources {
 		return this._clusteredLighting.getSceneBinding();
 	}
 
+	/**
+	 * Returns the bind group layout used by G-buffer geometry shaders to write
+	 * deferred storage payload textures.
+	 *
+	 * @returns The WebGPU bind group layout for `gMaterialExt0/1/2` writes.
+	 * @sideEffects None.
+	 */
+	public getGBufferWriteLayout(): GPUBindGroupLayout {
+		return this._layouts.gbufferWriteBindGroupLayout;
+	}
+
+	/**
+	 * Returns the bind group layout used by the deferred lighting shader to read
+	 * color and storage G-buffer payload textures.
+	 *
+	 * @returns The WebGPU bind group layout for deferred G-buffer reads.
+	 * @sideEffects None.
+	 */
+	public getGBufferReadLayout(): GPUBindGroupLayout {
+		return this._layouts.gbufferReadBindGroupLayout;
+	}
+
+	/**
+	 * Resolves the fullscreen deferred lighting render pipeline.
+	 *
+	 * @returns A pipeline that reads the G-buffer and writes `sceneColorMain`.
+	 * @sideEffects May compile and cache the deferred lighting pipeline.
+	 */
+	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
+		return this._pipelineLibrary.getDeferredLightingPipeline();
+	}
+
 	public updateParticleShadowVolumes(context: FrameContext): void {
 		if (!this._lightingState) {
 			return;

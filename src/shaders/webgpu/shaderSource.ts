@@ -18,6 +18,7 @@ type SceneShaderPart =
 	| "fragmentPbrPoint"
 	| "fragmentPbrSpot"
 	| "fragmentPbrAmbient"
+	| "fragmentGBuffer"
 	| "fragmentSingleTarget";
 
 type PostProcessShaderPart =
@@ -100,6 +101,7 @@ const sceneShaderFiles: Record<SceneShaderPart, string> = {
 	fragmentPbrPoint: "./parts/fragmentPbrPoint.wgsl",
 	fragmentPbrSpot: "./parts/fragmentPbrSpot.wgsl",
 	fragmentPbrAmbient: "./parts/fragmentPbrAmbient.wgsl",
+	fragmentGBuffer: "./parts/fragmentGBuffer.wgsl",
 	fragmentSingleTarget: "./parts/fragmentSingleTarget.wgsl",
 };
 
@@ -204,6 +206,46 @@ export function loadEnvironmentShaderSourceComposite(): Promise<CompositeShaderS
 	);
 }
 
+export function loadDeferredLightingShaderComposite():
+	Promise<CompositeShaderSource> {
+	const key = "deferred-lighting-composite";
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = Promise.all([
+			loadSceneShaderPartComposite("lightData"),
+			loadSceneShaderPartComposite("constants"),
+			loadSceneShaderPartComposite("definitions"),
+			loadSceneShaderPartComposite("utils"),
+			loadShaderCompositeFromFile(
+				"deferred-lighting",
+				"./deferredLightingShader.wgsl",
+				fromRawShaderModuleLoader(() =>
+					import("./deferredLightingShader.wgsl?raw")
+				)
+			),
+		]).then((parts) =>
+			composeCompositeShaderSources(
+				parts.map((part) => ({
+					code: part.code,
+					sourceMap: part.sourceMap,
+					sourcePath:
+						part.sourceMap.segments[0]?.sourcePath ??
+						"<webgpu-deferred-lighting-part>",
+					kind: "template",
+				})),
+				"\n\n",
+				"template"
+			)
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
+export function loadDeferredLightingShaderSource(): Promise<string> {
+	return loadDeferredLightingShaderComposite().then((composite) => composite.code);
+}
+
 export function loadParticleShaderSource(): Promise<string> {
 	return loadParticleShaderSourceComposite().then((composite) => composite.code);
 }
@@ -214,7 +256,9 @@ export function loadParticleShaderSourceComposite(): Promise<CompositeShaderSour
 		loadShaderCompositeFromFile(
 			"particle",
 			"./particleShader.wgsl",
-			fromRawShaderModuleLoader(() => import("./particleShader.wgsl?raw"))
+			fromRawShaderModuleLoader(() =>
+				import("./particleShader.wgsl?raw")
+			)
 		)
 	);
 }

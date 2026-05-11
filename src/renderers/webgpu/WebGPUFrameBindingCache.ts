@@ -112,8 +112,37 @@ export class WebGPUFrameBindingCache {
 		const viewElements = frame.camera.viewMatrix.elements;
 		const isOrthographic = frame.camera.type === CameraType.Orthographic;
 		const fovRad = (frame.camera.fov * Math.PI) / 180;
-		const tanHalfFov = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
+		let environmentProjectionX = isOrthographic ? 0 : Math.tan(fovRad * 0.5);
 		const aspect = frame.camera.aspectRatio || 1;
+		let environmentProjectionY = aspect;
+		if (isOrthographic) {
+			const orthographicCamera = frame.camera as unknown as {
+				getBounds?: () => {
+					left: number;
+					right: number;
+					bottom: number;
+					top: number;
+				};
+				size?: number;
+			};
+			const bounds =
+				typeof orthographicCamera.getBounds === "function" ?
+					orthographicCamera.getBounds()
+				:	{
+						left: -((orthographicCamera.size ?? 100) * aspect) * 0.5,
+						right: ((orthographicCamera.size ?? 100) * aspect) * 0.5,
+						bottom: -((orthographicCamera.size ?? 100) * 0.5),
+						top: (orthographicCamera.size ?? 100) * 0.5,
+					};
+			environmentProjectionX = Math.max(
+				1e-6,
+				Math.abs(bounds.right - bounds.left) * 0.5
+			);
+			environmentProjectionY = Math.max(
+				1e-6,
+				Math.abs(bounds.top - bounds.bottom) * 0.5
+			);
+		}
 		const frameUniform = this._getFrameUniformBuffer();
 		const prevViewProjection =
 			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
@@ -134,8 +163,8 @@ export class WebGPUFrameBindingCache {
 				viewElements[2][1],
 				viewElements[2][2],
 			],
-			environmentTanHalfFov: tanHalfFov,
-			environmentAspect: aspect,
+			environmentTanHalfFov: environmentProjectionX,
+			environmentAspect: environmentProjectionY,
 			environmentIsOrthographic: isOrthographic,
 			ambientColor: lightingState.ambientColor,
 			shAmbientCoeffs: environmentState.shAmbientCoeffs,

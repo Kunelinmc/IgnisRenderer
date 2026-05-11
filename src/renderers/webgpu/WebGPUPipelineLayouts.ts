@@ -16,10 +16,13 @@ import {
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
+	gbufferWriteBindGroupLayout: GPUBindGroupLayout;
+	gbufferReadBindGroupLayout: GPUBindGroupLayout;
 	environmentFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayout: GPUBindGroupLayout;
 	particleBindGroupLayout: GPUBindGroupLayout;
 	scenePipelineLayout: GPUPipelineLayout;
+	deferredLightingPipelineLayout: GPUPipelineLayout;
 	environmentPipelineLayout: GPUPipelineLayout;
 	particlePipelineLayout: GPUPipelineLayout;
 }
@@ -138,6 +141,50 @@ export function createWebGPUPipelineLayouts(
 			},
 		],
 	});
+	const gbufferWriteBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUGBufferWriteBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.FRAGMENT,
+				storageTexture: {
+					access: "write-only",
+					format: "rgba16float",
+					viewDimension: "2d",
+				},
+			},
+			{
+				binding: 1,
+				visibility: GPUShaderStage.FRAGMENT,
+				storageTexture: {
+					access: "write-only",
+					format: "rgba16float",
+					viewDimension: "2d",
+				},
+			},
+			{
+				binding: 2,
+				visibility: GPUShaderStage.FRAGMENT,
+				storageTexture: {
+					access: "write-only",
+					format: "rgba16float",
+					viewDimension: "2d",
+				},
+			},
+		],
+	});
+	const gbufferReadEntries: GPUBindGroupLayoutEntry[] = [];
+	for (let binding = 0; binding < 10; binding++) {
+		gbufferReadEntries.push({
+			binding,
+			visibility: GPUShaderStage.FRAGMENT,
+			texture: { sampleType: "float" },
+		});
+	}
+	const gbufferReadBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUGBufferReadBindGroupLayout",
+		entries: gbufferReadEntries,
+	});
 
 	const modelEntries: GPUBindGroupLayoutEntry[] = [
 		{
@@ -221,6 +268,16 @@ export function createWebGPUPipelineLayouts(
 			sceneFrameBindGroupLayout,
 			modelBindGroupLayout,
 			clusteredSceneBindGroupLayout,
+			gbufferWriteBindGroupLayout,
+		],
+	});
+	const deferredLightingPipelineLayout = device.createPipelineLayout({
+		label: "WebGPUDeferredLightingPipelineLayout",
+		bindGroupLayouts: [
+			sceneFrameBindGroupLayout,
+			modelBindGroupLayout,
+			clusteredSceneBindGroupLayout,
+			gbufferReadBindGroupLayout,
 		],
 	});
 	const environmentPipelineLayout = device.createPipelineLayout({
@@ -235,10 +292,13 @@ export function createWebGPUPipelineLayouts(
 	return {
 		sceneFrameBindGroupLayout,
 		clusteredSceneBindGroupLayout,
+		gbufferWriteBindGroupLayout,
+		gbufferReadBindGroupLayout,
 		environmentFrameBindGroupLayout,
 		modelBindGroupLayout,
 		particleBindGroupLayout,
 		scenePipelineLayout,
+		deferredLightingPipelineLayout,
 		environmentPipelineLayout,
 		particlePipelineLayout,
 	};

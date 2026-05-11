@@ -1,4 +1,3 @@
-import { CameraType } from "../../../cameras/Camera";
 import type { FrameContext } from "../../../pipeline/types";
 import {
 	DEFAULT_SSR_OPTIONS,
@@ -246,13 +245,6 @@ export class TemporalPostProcessDelegate {
 	private async _executeSSR(
 		request: WebGPUPostProcessSSRExecuteRequest
 	): Promise<boolean> {
-		if (request.frameContext.camera.type === CameraType.Orthographic) {
-			this._shared.warn(
-				"webgpu-ssr-orthographic-disabled",
-				"WebGPU SSR is disabled for OrthographicCamera in v1"
-			);
-			return false;
-		}
 		await this._ensureSSRResources();
 		if (
 			!this._shared.sampler ||
@@ -368,13 +360,6 @@ export class TemporalPostProcessDelegate {
 	private async _executeVolumetric(
 		request: WebGPUPostProcessVolumetricExecuteRequest
 	): Promise<boolean> {
-		if (request.frameContext.camera.type === CameraType.Orthographic) {
-			this._shared.warn(
-				"webgpu-volumetric-orthographic-disabled",
-				"WebGPU volumetric lighting is disabled for OrthographicCamera in v1"
-			);
-			return false;
-		}
 		await this._ensureVolumetricResources();
 		const lightCount = this._updateVolumetricLightBuffer(request.lightingState);
 		if (

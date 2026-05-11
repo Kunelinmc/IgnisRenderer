@@ -5,7 +5,10 @@ import {
 	AlphaMode,
 	materialWritesDepth,
 } from "../../materials/Material";
-import { materialUsesTransmission } from "../../materials/transparency";
+import {
+	isMaterialTransparentPass,
+	materialUsesTransmission,
+} from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { Texture } from "../../core/Texture";
 
@@ -148,6 +151,30 @@ export function createWebGPUMaterialUniformData(
 		].join("-"),
 		warnings,
 	};
+}
+
+export function materialSupportsWebGPUDeferredLighting(
+	material: Material | null | undefined
+): boolean {
+	if (!material) {
+		return false;
+	}
+	if (material instanceof ShaderMaterial) {
+		return material.hasWebGPUDeferredProgram();
+	}
+	if (material.wireframe) {
+		return false;
+	}
+	if (!materialWritesDepth(material)) {
+		return false;
+	}
+	if (isMaterialTransparentPass(material)) {
+		return false;
+	}
+	if (materialUsesTransmission(material)) {
+		return false;
+	}
+	return true;
 }
 
 function createMaterialTextureSlots(

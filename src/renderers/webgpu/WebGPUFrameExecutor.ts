@@ -26,6 +26,9 @@ import type { WebGPULightingState } from "./types";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
+	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
+	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "./constants";
@@ -57,6 +60,7 @@ import { Logger } from "../../foundation/Logger";
 import { materialUsesTransmission } from "../../materials/transparency";
 import { ParticleBlendMode } from "../../particles";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
+import { materialSupportsWebGPUDeferredLighting } from "./material";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -467,6 +471,8 @@ export class WebGPUFrameExecutor {
 	private _motionHistoryFlip = false;
 	private _mrtEnabled = true;
 	private _mrtSupportChecked = false;
+	private _deferredEnabled = false;
+	private _targetDeferredEnabled = false;
 	private _featureHistoryKey = "";
 	private _postGraph: WebGPUPostProcessGraph;
 	private _postRuntime: WebGPUPostProcessRuntime;
@@ -483,6 +489,10 @@ export class WebGPUFrameExecutor {
 	private _oitResolveBindingScene: IRenderTexture | null = null;
 	private _oitResolveBindingAccum: IRenderTexture | null = null;
 	private _oitResolveBindingReveal: IRenderTexture | null = null;
+	private _gbufferWriteBinding: IBindingGroup | null = null;
+	private _gbufferWriteBindingSources: IRenderTexture[] = [];
+	private _gbufferReadBinding: IBindingGroup | null = null;
+	private _gbufferReadBindingSources: IRenderTexture[] = [];
 	private _oitActive = false;
 	private _oitHasContributors = false;
 	private _oitTransmissionPackets: DrawPacket[] = [];
@@ -573,6 +583,7 @@ export class WebGPUFrameExecutor {
 		this._encoder = this._backend.createCommandEncoder();
 
 		this._ensureMRTSupport();
+		this._configureDeferredLightingSupport();
 		this._handleFeatureHistoryTransitions(context);
 		if (context.incremental?.temporalHistoryReset) {
 			this._taaHistoryValid = false;
@@ -593,9 +604,12 @@ export class WebGPUFrameExecutor {
 				targetWidth,
 				targetHeight,
 				ssaoDownsample,
-				ssrDownsample
+				ssrDownsample,
+				this._deferredEnabled
 			);
-			this._resources.setSceneTargetMode("mrt");
+			this._resources.setSceneTargetMode(
+				this._deferredEnabled ? "gbuffer" : "mrt"
+			);
 		} else {
 			this._destroyFrameTargets();
 			this._resources.setSceneTargetMode("single");
@@ -622,8 +636,11 @@ export class WebGPUFrameExecutor {
 		}
 	}
 
-	public getSceneTargetModeForFrame(): "mrt" | "single" {
-		return this._mrtEnabled ? "mrt" : "single";
+	public getSceneTargetModeForFrame(): "gbuffer" | "mrt" | "single" {
+		if (!this._mrtEnabled) {
+			return "single";
+		}
+		return this._deferredEnabled ? "gbuffer" : "mrt";
 	}
 
 	/**
@@ -656,6 +673,7 @@ export class WebGPUFrameExecutor {
 		this._oitResolveBindingScene = null;
 		this._oitResolveBindingAccum = null;
 		this._oitResolveBindingReveal = null;
+		this._destroyDeferredBindings();
 		this._destroyManagedResource(this._depthDirtyClearShaderModule);
 		for (const pipeline of this._depthDirtyClearPipelines.values()) {
 			this._destroyManagedResource(pipeline);
@@ -674,8 +692,11 @@ export class WebGPUFrameExecutor {
 		let failed = 0;
 		const errors: ShaderCompileError[] = [];
 		this._ensureMRTSupport();
+		this._configureDeferredLightingSupport();
 		const sceneMode =
-			this._mrtEnabled && plan.sceneTargetMode === "mrt" ? "mrt" : "single";
+			this._mrtEnabled && plan.sceneTargetMode === "mrt" ?
+				this._deferredEnabled ? "gbuffer" : "mrt"
+			:	"single";
 		this._resources.setSceneTargetMode(sceneMode);
 
 		try {
@@ -861,12 +882,7 @@ export class WebGPUFrameExecutor {
 			[
 				"main-opaque",
 				async (context) => {
-					await this._recordMainPass(
-						context,
-						context.scene.opaquePackets,
-						true,
-						true
-					);
+					await this._recordOpaquePass(context);
 				},
 			],
 			[
@@ -939,6 +955,69 @@ export class WebGPUFrameExecutor {
 		}
 	}
 
+	private _configureDeferredLightingSupport(): void {
+		if (!this._mrtEnabled) {
+			this._deferredEnabled = false;
+			return;
+		}
+
+		const sampleCount = this._resolveMSAASampleCount();
+		const maxColorAttachments =
+			this._backend.device?.limits?.maxColorAttachments ?? 8;
+		const maxColorAttachmentBytesPerSample =
+			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
+		const maxStorageTexturesPerShaderStage =
+			this._backend.device?.limits?.maxStorageTexturesPerShaderStage ?? 4;
+
+		const supportsDeferred =
+			sampleCount === 1 &&
+			maxColorAttachments >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT &&
+			maxColorAttachmentBytesPerSample >=
+				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
+			maxStorageTexturesPerShaderStage >=
+				WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
+
+		this._deferredEnabled = supportsDeferred;
+		if (supportsDeferred) {
+			return;
+		}
+
+		if (sampleCount !== 1) {
+			const key = "webgpu-deferred-disabled-msaa";
+			Logger.warn(
+				`[${key}] WebGPU deferred lighting requires sampleCount=1; using legacy MRT forward path for ${sampleCount}x MSAA.`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
+		}
+		if (maxColorAttachments < WEBGPU_DEFERRED_COLOR_TARGET_COUNT) {
+			const key = "webgpu-deferred-disabled-attachments";
+			Logger.warn(
+				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_DEFERRED_COLOR_TARGET_COUNT}; using legacy MRT forward path.`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
+		}
+		if (
+			maxColorAttachmentBytesPerSample <
+			WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE
+		) {
+			const key = "webgpu-deferred-disabled-bytes";
+			Logger.warn(
+				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE}; using legacy MRT forward path.`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
+		}
+		if (
+			maxStorageTexturesPerShaderStage <
+			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+		) {
+			const key = "webgpu-deferred-disabled-storage-textures";
+			Logger.warn(
+				`[${key}] WebGPU device maxStorageTexturesPerShaderStage is ${maxStorageTexturesPerShaderStage}, requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT}; using legacy MRT forward path.`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
+		}
+	}
+
 	private _configureOIT(context: FrameContext): void {
 		if (context.features.enableOIT !== true) {
 			this._oitActive = false;
@@ -994,7 +1073,8 @@ export class WebGPUFrameExecutor {
 		width: number,
 		height: number,
 		ssaoDownsample: number,
-		ssrDownsample: number
+		ssrDownsample: number,
+		enableDeferred: boolean
 	): void {
 		const msaaSampleCount = this._resolveMSAASampleCount();
 		if (width <= 0 || height <= 0) {
@@ -1008,7 +1088,8 @@ export class WebGPUFrameExecutor {
 			this._targetHeight === height &&
 			this._targetSSAODownsample === ssaoDownsample &&
 			this._targetSSRDownsample === ssrDownsample &&
-			this._targetMSAASampleCount === msaaSampleCount
+			this._targetMSAASampleCount === msaaSampleCount &&
+			this._targetDeferredEnabled === enableDeferred
 		) {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 			this._applyTAAHistoryFlip(this._frameTargets);
@@ -1045,6 +1126,7 @@ export class WebGPUFrameExecutor {
 			this._targetSSAODownsample = ssaoDownsample;
 			this._targetSSRDownsample = ssrDownsample;
 			this._targetMSAASampleCount = msaaSampleCount;
+			this._targetDeferredEnabled = enableDeferred;
 			this._taaHistoryValid = false;
 			this._ssrHistoryValid = false;
 			this._volumetricHistoryValid = false;
@@ -1129,6 +1211,74 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
+			const deferredColorPool: TexturePoolOptions = {
+				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				label: "WebGPUGBufferDeferredRGBA16",
+			};
+			const deferredStoragePool: TexturePoolOptions = {
+				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+				label: "WebGPUGBufferDeferredStorageRGBA16",
+			};
+			const gSpecular =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-color",
+						deferredColorPool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gCoatSheen =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-color",
+						deferredColorPool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gSheenReflectance =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-color",
+						deferredColorPool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gMaterialExt0 =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-storage",
+						deferredStoragePool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gMaterialExt1 =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-storage",
+						deferredStoragePool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gMaterialExt2 =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-storage",
+						deferredStoragePool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
 			const depth = acquireTexture(
 				"depth-sampleable",
 				{
@@ -1344,6 +1494,12 @@ export class WebGPUFrameExecutor {
 				gNormalRoughMetal,
 				gEmissiveOcclusion,
 				gMotionDepth,
+				gSpecular,
+				gCoatSheen,
+				gSheenReflectance,
+				gMaterialExt0,
+				gMaterialExt1,
+				gMaterialExt2,
 				depth,
 				oitAccum,
 				oitReveal,
@@ -1387,6 +1543,22 @@ export class WebGPUFrameExecutor {
 				}
 			}
 			this._destroyFrameTargets();
+			if (enableDeferred) {
+				this._deferredEnabled = false;
+				const key = "webgpu-deferred-runtime-fallback";
+				Logger.warn(
+					`[${key}] WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path. ${String(error)}`,
+					{ scope: "WebGPUFrameExecutor", onceKey: key }
+				);
+				this._ensureFrameTargets(
+					width,
+					height,
+					ssaoDownsample,
+					ssrDownsample,
+					false
+				);
+				return;
+			}
 			if (msaaSampleCount > 1) {
 				const setter = (
 					this._backend as {
@@ -1401,7 +1573,14 @@ export class WebGPUFrameExecutor {
 					`[${key}] WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`,
 					{ scope: "WebGPUFrameExecutor", onceKey: key }
 				);
-				this._ensureFrameTargets(width, height, ssaoDownsample, ssrDownsample);
+				this._configureDeferredLightingSupport();
+				this._ensureFrameTargets(
+					width,
+					height,
+					ssaoDownsample,
+					ssrDownsample,
+					this._deferredEnabled
+				);
 				return;
 			}
 			throw error;
@@ -1482,6 +1661,24 @@ export class WebGPUFrameExecutor {
 			textures.add(this._frameTargets.gNormalRoughMetal);
 			textures.add(this._frameTargets.gEmissiveOcclusion);
 			textures.add(this._frameTargets.gMotionDepth);
+			if (this._frameTargets.gSpecular) {
+				textures.add(this._frameTargets.gSpecular);
+			}
+			if (this._frameTargets.gCoatSheen) {
+				textures.add(this._frameTargets.gCoatSheen);
+			}
+			if (this._frameTargets.gSheenReflectance) {
+				textures.add(this._frameTargets.gSheenReflectance);
+			}
+			if (this._frameTargets.gMaterialExt0) {
+				textures.add(this._frameTargets.gMaterialExt0);
+			}
+			if (this._frameTargets.gMaterialExt1) {
+				textures.add(this._frameTargets.gMaterialExt1);
+			}
+			if (this._frameTargets.gMaterialExt2) {
+				textures.add(this._frameTargets.gMaterialExt2);
+			}
 			textures.add(this._frameTargets.depth);
 			textures.add(this._frameTargets.oitAccum);
 			textures.add(this._frameTargets.oitReveal);
@@ -1532,11 +1729,13 @@ export class WebGPUFrameExecutor {
 		this._oitResolveBindingScene = null;
 		this._oitResolveBindingAccum = null;
 		this._oitResolveBindingReveal = null;
+		this._destroyDeferredBindings();
 		this._targetWidth = 0;
 		this._targetHeight = 0;
 		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 		this._targetMSAASampleCount = 1;
+		this._targetDeferredEnabled = false;
 		this._taaHistoryValid = false;
 		this._ssrHistoryValid = false;
 		this._volumetricHistoryValid = false;
@@ -1600,6 +1799,15 @@ export class WebGPUFrameExecutor {
 		}
 	}
 
+	private _destroyDeferredBindings(): void {
+		this._destroyBindingGroup(this._gbufferWriteBinding);
+		this._gbufferWriteBinding = null;
+		this._gbufferWriteBindingSources = [];
+		this._destroyBindingGroup(this._gbufferReadBinding);
+		this._gbufferReadBinding = null;
+		this._gbufferReadBindingSources = [];
+	}
+
 	private _destroyManagedResource(resource: unknown): void {
 		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroyFn === "function") {
@@ -1610,6 +1818,7 @@ export class WebGPUFrameExecutor {
 	private _handleFeatureHistoryTransitions(context: FrameContext): void {
 		const historyKey =
 			`mrt:${this._mrtEnabled ? 1 : 0}` +
+			`|deferred:${this._deferredEnabled ? 1 : 0}` +
 			`|oit:${context.features.enableOIT ? 1 : 0}` +
 			`|ssao:${context.postProcess.enabled.ssao ? 1 : 0}` +
 			`|ssgi:${context.postProcess.enabled.ssgi ? 1 : 0}` +
@@ -2483,6 +2692,355 @@ export class WebGPUFrameExecutor {
 		this._oitNeedsTransmissionAfterParticles = false;
 	}
 
+	private _getGBufferWriteBinding(): IBindingGroup {
+		if (
+			!this._frameTargets?.gMaterialExt0 ||
+			!this._frameTargets.gMaterialExt1 ||
+			!this._frameTargets.gMaterialExt2
+		) {
+			throw new Error("WebGPU deferred G-buffer storage targets are unavailable.");
+		}
+		const sources = [
+			this._frameTargets.gMaterialExt0,
+			this._frameTargets.gMaterialExt1,
+			this._frameTargets.gMaterialExt2,
+		];
+		if (
+			this._gbufferWriteBinding &&
+			this._gbufferWriteBindingSources.length === sources.length &&
+			this._gbufferWriteBindingSources.every(
+				(source, index) => source === sources[index]
+			)
+		) {
+			return this._gbufferWriteBinding;
+		}
+		this._destroyBindingGroup(this._gbufferWriteBinding);
+		this._gbufferWriteBinding = this._backend.createBindingGroup({
+			layout: this._resources.getGBufferWriteLayout(),
+			entries: [
+				{ binding: 0, resource: sources[0] },
+				{ binding: 1, resource: sources[1] },
+				{ binding: 2, resource: sources[2] },
+			],
+			label: "WebGPUGBufferWriteBinding",
+		});
+		this._gbufferWriteBindingSources = sources;
+		return this._gbufferWriteBinding;
+	}
+
+	private _getGBufferReadBinding(): IBindingGroup {
+		if (
+			!this._frameTargets?.gSpecular ||
+			!this._frameTargets.gCoatSheen ||
+			!this._frameTargets.gSheenReflectance ||
+			!this._frameTargets.gMaterialExt0 ||
+			!this._frameTargets.gMaterialExt1 ||
+			!this._frameTargets.gMaterialExt2
+		) {
+			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
+		}
+		const sources = [
+			this._frameTargets.gAlbedoAlpha,
+			this._frameTargets.gNormalRoughMetal,
+			this._frameTargets.gEmissiveOcclusion,
+			this._frameTargets.gMotionDepth,
+			this._frameTargets.gSpecular,
+			this._frameTargets.gCoatSheen,
+			this._frameTargets.gSheenReflectance,
+			this._frameTargets.gMaterialExt0,
+			this._frameTargets.gMaterialExt1,
+			this._frameTargets.gMaterialExt2,
+		];
+		if (
+			this._gbufferReadBinding &&
+			this._gbufferReadBindingSources.length === sources.length &&
+			this._gbufferReadBindingSources.every(
+				(source, index) => source === sources[index]
+			)
+		) {
+			return this._gbufferReadBinding;
+		}
+		this._destroyBindingGroup(this._gbufferReadBinding);
+		this._gbufferReadBinding = this._backend.createBindingGroup({
+			layout: this._resources.getGBufferReadLayout(),
+			entries: sources.map((resource, binding) => ({
+				binding,
+				resource,
+			})),
+			label: "WebGPUGBufferReadBinding",
+		});
+		this._gbufferReadBindingSources = sources;
+		return this._gbufferReadBinding;
+	}
+
+	private async _recordOpaquePass(context: FrameContext): Promise<void> {
+		if (!this._deferredEnabled || !this._mrtEnabled || !this._frameTargets) {
+			await this._recordMainPass(
+				context,
+				context.scene.opaquePackets,
+				true,
+				true
+			);
+			return;
+		}
+
+		const deferredPackets: DrawPacket[] = [];
+		const fallbackPackets: DrawPacket[] = [];
+		for (const packet of context.scene.opaquePackets) {
+			if (materialSupportsWebGPUDeferredLighting(packet.material)) {
+				deferredPackets.push(packet);
+			} else {
+				fallbackPackets.push(packet);
+			}
+		}
+
+		if (deferredPackets.length <= 0 && fallbackPackets.length > 0) {
+			await this._recordMainPass(context, fallbackPackets, true, true);
+			return;
+		}
+
+		await this._recordDeferredOpaquePass(
+			context,
+			deferredPackets,
+			true,
+			true
+		);
+		if (fallbackPackets.length > 0) {
+			await this._recordMainPass(context, fallbackPackets, false, false);
+		}
+	}
+
+	private async _recordDeferredOpaquePass(
+		context: FrameContext,
+		packets: DrawPacket[],
+		clearAttachments: boolean,
+		allowEarlyZPrepass: boolean
+	): Promise<void> {
+		if (!this._encoder || !this._frameTargets) {
+			return;
+		}
+		if (
+			!this._frameTargets.gSpecular ||
+			!this._frameTargets.gCoatSheen ||
+			!this._frameTargets.gSheenReflectance ||
+			!this._frameTargets.gMaterialExt0 ||
+			!this._frameTargets.gMaterialExt1 ||
+			!this._frameTargets.gMaterialExt2
+		) {
+			await this._recordMainPass(context, packets, clearAttachments, true);
+			return;
+		}
+
+		await this._resources.buildClusteredLighting(this._encoder);
+		this._resources.setSceneTargetMode("gbuffer");
+		const incrementalPartial = this._isIncrementalPartial(context);
+		const sceneColorAttachment = this._frameTargets.sceneColorMain;
+		const depthAttachment = this._frameTargets.depth;
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			sceneColorAttachment.width,
+			sceneColorAttachment.height
+		);
+		const shouldClearAttachments = clearAttachments && !incrementalPartial;
+		let depthPartialReuseApplied = false;
+		if (incrementalPartial && dirtyRects.length > 0) {
+			depthPartialReuseApplied = await this._clearDepthForDirtyRects(
+				depthAttachment,
+				TextureFormat.Depth32Float,
+				1,
+				dirtyRects
+			);
+		}
+
+		let environmentDrawn = false;
+		if (shouldClearAttachments) {
+			const environmentResources =
+				await this._resources.getEnvironmentResources("gbuffer");
+			if (environmentResources) {
+				this._encoder.beginRenderPass({
+					label: "WebGPUEnvironmentDeferred",
+					colorAttachments: [
+						{
+							view: sceneColorAttachment,
+							clearValue: { r: 0, g: 0, b: 0, a: 1 },
+							loadOp: "clear",
+							storeOp: "store",
+						},
+					],
+					depthStencilAttachment: {
+						view: depthAttachment,
+						depthClearValue: 1,
+						depthLoadOp: "clear",
+						depthStoreOp: "store",
+					},
+				});
+				this._encoder.setPipeline(environmentResources.pipeline);
+				this._encoder.setBindingGroup(0, environmentResources.frameBinding);
+				this._encoder.draw(3);
+				this._encoder.endRenderPass();
+				environmentDrawn = true;
+			}
+		}
+
+		const shouldRunEarlyZ =
+			allowEarlyZPrepass &&
+			this._enableEarlyZPrepass &&
+			packets.length > 0;
+		const earlyZPacketIds =
+			shouldRunEarlyZ ?
+				await this._recordEarlyZPrepass(
+					context,
+					packets,
+					dirtyRects,
+					"gbuffer",
+					depthAttachment,
+					this._resolveMRTMainDepthLoadOp(
+						depthPartialReuseApplied,
+						incrementalPartial,
+						shouldClearAttachments,
+						environmentDrawn,
+						false
+					)
+				)
+			:	new Set<string>();
+		const earlyZExecuted = earlyZPacketIds.size > 0;
+		const gbufferWriteBinding = this._getGBufferWriteBinding();
+
+		this._encoder.beginRenderPass({
+			label:
+				shouldClearAttachments ?
+					"WebGPUGBuffer_Clear"
+				:	"WebGPUGBuffer_Load",
+			colorAttachments: [
+				{
+					view: this._frameTargets.gAlbedoAlpha,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gNormalRoughMetal,
+					clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gEmissiveOcclusion,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gMotionDepth,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gSpecular,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gCoatSheen,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+				{
+					view: this._frameTargets.gSheenReflectance,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: shouldClearAttachments ? "clear" : "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: depthAttachment,
+				depthClearValue: 1,
+				depthLoadOp: this._resolveMRTMainDepthLoadOp(
+					depthPartialReuseApplied,
+					incrementalPartial,
+					shouldClearAttachments,
+					environmentDrawn,
+					earlyZExecuted
+				),
+				depthStoreOp: "store",
+			},
+		});
+
+		for (const rect of dirtyRects) {
+			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
+			if (packetsInRect.length === 0) {
+				continue;
+			}
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			for (const packet of packetsInRect) {
+				const resourcesList = await this._resources.getDrawResources(packet, {
+					sceneTargetMode: "gbuffer",
+					drawMode:
+						earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+							"early-z-color"
+						:	"default",
+				});
+				if (!resourcesList) continue;
+
+				for (const resources of resourcesList) {
+					this._encoder.setPipeline(resources.pipeline);
+					this._encoder.setBindingGroup(0, resources.frameBinding);
+					this._encoder.setBindingGroup(1, resources.modelBinding);
+					this._encoder.setBindingGroup(2, resources.clusteredBinding);
+					this._encoder.setBindingGroup(3, gbufferWriteBinding);
+					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
+					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
+					this._encoder.drawIndexed(resources.indexCount);
+				}
+			}
+		}
+
+		this._encoder.endRenderPass();
+		await this._recordDeferredLightingPass(
+			context,
+			shouldClearAttachments && !environmentDrawn
+		);
+	}
+
+	private async _recordDeferredLightingPass(
+		context: FrameContext,
+		clearSceneColor: boolean
+	): Promise<void> {
+		if (!this._encoder || !this._frameTargets) {
+			return;
+		}
+		const pipeline = await this._resources.getDeferredLightingPipeline();
+		const gbufferReadBinding = this._getGBufferReadBinding();
+		this._encoder.beginRenderPass({
+			label: "WebGPUDeferredLighting",
+			colorAttachments: [
+				{
+					view: this._frameTargets.sceneColorMain,
+					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					loadOp: clearSceneColor ? "clear" : "load",
+					storeOp: "store",
+				},
+			],
+		});
+		this._encoder.setPipeline(pipeline);
+		this._encoder.setBindingGroup(0, this._resources.getFrameBinding());
+		this._encoder.setBindingGroup(2, this._resources.getClusteredSceneBinding());
+		this._encoder.setBindingGroup(3, gbufferReadBinding);
+		const dirtyRects = this._resolveDirtyRects(
+			context,
+			this._frameTargets.sceneColorMain.width,
+			this._frameTargets.sceneColorMain.height
+		);
+		for (const rect of dirtyRects) {
+			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+			this._encoder.draw(3);
+		}
+		this._encoder.endRenderPass();
+	}
+
 	private async _recordMainPass(
 		context: FrameContext,
 		packets: DrawPacket[],
@@ -2788,7 +3346,7 @@ export class WebGPUFrameExecutor {
 		context: FrameContext,
 		packets: DrawPacket[],
 		dirtyRects: Array<{ x: number; y: number; width: number; height: number }>,
-		sceneTargetMode: "mrt" | "single",
+		sceneTargetMode: "gbuffer" | "mrt" | "single",
 		depthAttachment: IRenderTexture,
 		depthLoadOp: "clear" | "load"
 	): Promise<Set<string>> {
@@ -2798,7 +3356,8 @@ export class WebGPUFrameExecutor {
 		}
 		this._encoder.beginRenderPass({
 			label:
-				sceneTargetMode === "mrt" ?
+				sceneTargetMode === "gbuffer" ? "WebGPUEarlyZPrepassGBuffer"
+				: sceneTargetMode === "mrt" ?
 					"WebGPUEarlyZPrepassMRT"
 				:	"WebGPUEarlyZPrepassSingle",
 			colorAttachments: [],

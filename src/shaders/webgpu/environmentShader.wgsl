@@ -63,7 +63,12 @@ fn fsMain(input: VertexOutput) -> @location(0) vec4<f32> {
 
 	let cx = jitteredNdc.x * aspect * tanHalfFov;
 	let cy = jitteredNdc.y * tanHalfFov;
-	let direction = normalize(right * cx + up * cy - backward);
+	let perspectiveDirection = normalize(right * cx + up * cy - backward);
+	let direction = select(
+		perspectiveDirection,
+		-backward,
+		frame.environmentBasisBackward.w > 0.5
+	);
 
 	let phi = atan2(direction.x, direction.z);
 	let theta = acos(clamp(direction.y, -1.0, 1.0));

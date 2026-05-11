@@ -361,6 +361,9 @@ async function testSceneShaderCoverage() {
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceThicknessSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("struct GBufferFragmentOutput"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainGBuffer("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt0Out"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
@@ -1021,7 +1024,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts.length,
-		3
+		4
 	);
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(

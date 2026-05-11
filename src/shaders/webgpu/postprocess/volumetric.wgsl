@@ -71,6 +71,7 @@ struct CameraBasis {
 	backward: vec3<f32>,
 	tanHalfFov: f32,
 	aspect: f32,
+	orthographic: f32,
 }
 
 @group(0) @binding(0) var sceneColor: texture_2d<f32>;
@@ -167,13 +168,17 @@ fn getCameraBasis() -> CameraBasis {
 		frame.environmentBasisUp.xyz,
 		frame.environmentBasisBackward.xyz,
 		frame.environmentBasisRight.w,
-		frame.environmentBasisUp.w
+		frame.environmentBasisUp.w,
+		frame.environmentBasisBackward.w
 	);
 }
 
 fn getWorldRayDirection(uv: vec2<f32>) -> vec3<f32> {
 	let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
 	let basis = getCameraBasis();
+	if (basis.orthographic > 0.5) {
+		return -basis.backward;
+	}
 	let camRay = vec3<f32>(
 		ndc.x * basis.aspect * basis.tanHalfFov,
 		ndc.y * basis.tanHalfFov,
@@ -190,6 +195,11 @@ fn worldToUv(worldPos: vec3<f32>) -> vec2<f32> {
 	let basis = getCameraBasis();
 	let depth = dot(rel, -basis.backward);
 	if (depth <= 1e-4) { return vec2<f32>(-1.0); }
+	if (basis.orthographic > 0.5) {
+		let cx = dot(rel, basis.right) / max(basis.tanHalfFov, 1e-6);
+		let cy = dot(rel, basis.up) / max(basis.aspect, 1e-6);
+		return vec2<f32>(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+	}
 	let cx =
 		dot(rel, basis.right) /
 		(depth * basis.aspect * basis.tanHalfFov);

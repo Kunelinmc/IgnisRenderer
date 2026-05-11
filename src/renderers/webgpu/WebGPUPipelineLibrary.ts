@@ -1,4 +1,7 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
+import {
+	getWebGPUDeferredLightingShaderComposite,
+} from "../../shaders/webgpu/deferredLightingShader";
 import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
 import { createWebGPUMaterialUniformData } from "./";
@@ -23,7 +26,7 @@ import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
 
-export type WebGPUSceneTargetMode = "single" | "mrt";
+export type WebGPUSceneTargetMode = "single" | "mrt" | "gbuffer";
 export type WebGPUTransparentPipelineMode =
 	| "default"
 	| "transmission"
@@ -100,6 +103,9 @@ export class WebGPUPipelineLibrary {
 	private _sceneShaderDirectiveTag = "";
 	private _environmentShaderModule: IShaderModule | null = null;
 	private _environmentShaderDirectiveTag = "";
+	private _deferredLightingShaderModule: IShaderModule | null = null;
+	private _deferredLightingShaderDirectiveTag = "";
+	private _deferredLightingPipeline: IRenderPipeline | null = null;
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _environmentPipelines = new Map<string, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
@@ -128,6 +134,9 @@ export class WebGPUPipelineLibrary {
 		this._sceneShaderDirectiveTag = "";
 		this._environmentShaderModule = null;
 		this._environmentShaderDirectiveTag = "";
+		this._deferredLightingShaderModule = null;
+		this._deferredLightingShaderDirectiveTag = "";
+		this._deferredLightingPipeline = null;
 		this._customShaderModuleCache.clear();
 		this._environmentPipelines.clear();
 		this._materialPipelineCache = new WeakMap<Material, CachedPipelineEntry>();
@@ -139,6 +148,7 @@ export class WebGPUPipelineLibrary {
 		await Promise.all([
 			this._getSceneShaderModule(),
 			this._getEnvironmentShaderModule(),
+			this._getDeferredLightingShaderModule(),
 		]);
 	}
 
@@ -405,6 +415,18 @@ export class WebGPUPipelineLibrary {
 			: ALPHA_BLEND_STATE;
 		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
 
+		if (mode === "gbuffer") {
+			return [
+				{ format: TextureFormat.RGBA8Unorm },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+			];
+		}
+
 		if (mode !== "mrt") {
 			return [
 				{
@@ -463,7 +485,8 @@ export class WebGPUPipelineLibrary {
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
 				fragmentEntryPoint:
-					mode === "mrt" ?
+					mode === "gbuffer" ? "fsMainGBuffer"
+					: mode === "mrt" ?
 						transparentMode === "oit" ? "fsMainOIT"
 						: "fsMain"
 					:	"fsMainSingle",
@@ -471,7 +494,8 @@ export class WebGPUPipelineLibrary {
 		}
 
 		try {
-			const program = material.resolveWebGPUProgram(mode, {
+			const shaderMode = mode === "gbuffer" ? "deferred" : mode;
+			const program = material.resolveWebGPUProgram(shaderMode, {
 				enableRuntimeInjects: this._supportsRuntimeInjects(),
 			});
 			const shaderCacheKey = material.getWebGPUCacheKey();
@@ -511,7 +535,8 @@ export class WebGPUPipelineLibrary {
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
 				fragmentEntryPoint:
-					mode === "mrt" ?
+					mode === "gbuffer" ? "fsMainGBuffer"
+					: mode === "mrt" ?
 						transparentMode === "oit" ? "fsMainOIT"
 						: "fsMain"
 					:	"fsMainSingle",
@@ -541,8 +566,9 @@ export class WebGPUPipelineLibrary {
 
 		try {
 			const shaderCacheKey = material.getWebGPUCacheKey();
+			const shaderMode = mode === "gbuffer" ? "deferred" : mode;
 			if (isMask) {
-				const depthProgram = material.resolveWebGPUDepthPrepassProgram(mode, {
+				const depthProgram = material.resolveWebGPUDepthPrepassProgram(shaderMode, {
 					enableRuntimeInjects: this._supportsRuntimeInjects(),
 				});
 				if (!depthProgram) {
@@ -574,7 +600,7 @@ export class WebGPUPipelineLibrary {
 				};
 			}
 
-			const regularProgram = material.resolveWebGPUProgram(mode, {
+			const regularProgram = material.resolveWebGPUProgram(shaderMode, {
 				enableRuntimeInjects: this._supportsRuntimeInjects(),
 			});
 			const vertexModule = await this._getCustomShaderModule(
@@ -663,7 +689,7 @@ export class WebGPUPipelineLibrary {
 
 		const shaderModule = await this._getEnvironmentShaderModule();
 		const targetFormat =
-			mode === "mrt" ?
+			mode === "mrt" || mode === "gbuffer" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
 		const pipeline = this._backend.createPipeline({
@@ -694,8 +720,41 @@ export class WebGPUPipelineLibrary {
 		return pipeline;
 	}
 
+	/**
+	 * Returns the fullscreen pipeline that resolves WebGPU deferred lighting.
+	 *
+	 * @returns A cached render pipeline for `fsMainDeferredLighting`.
+	 * @sideEffects May compile the deferred lighting shader module and pipeline.
+	 */
+	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
+		if (this._deferredLightingPipeline) {
+			return this._deferredLightingPipeline;
+		}
+		const shaderModule = await this._getDeferredLightingShaderModule();
+		this._deferredLightingPipeline = this._backend.createPipeline({
+			layout: this._layouts.deferredLightingPipelineLayout,
+			label: "WebGPUDeferredLightingPipeline",
+			vertex: {
+				module: shaderModule,
+				entryPoint: "vsMainDeferredLighting",
+			},
+			fragment: {
+				module: shaderModule,
+				entryPoint: "fsMainDeferredLighting",
+				targets: [{ format: TextureFormat.RGBA16Float }],
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			sampleCount: 1,
+		} as any);
+		return this._deferredLightingPipeline;
+	}
+
 	private _resolveSceneDepthFormat(mode: WebGPUSceneTargetMode): TextureFormat {
-		if (mode === "mrt") {
+		if (mode === "mrt" || mode === "gbuffer") {
 			return TextureFormat.Depth32Float;
 		}
 		const backend = this._backend as {
@@ -766,6 +825,35 @@ export class WebGPUPipelineLibrary {
 		}
 
 		return this._environmentShaderModule;
+	}
+
+	private async _getDeferredLightingShaderModule(): Promise<IShaderModule> {
+		const directiveTag = this._getDirectiveCacheTag();
+		if (
+			this._deferredLightingShaderModule &&
+			this._deferredLightingShaderDirectiveTag === directiveTag
+		) {
+			return this._deferredLightingShaderModule;
+		}
+		if (
+			!this._deferredLightingShaderModule ||
+			this._deferredLightingShaderDirectiveTag !== directiveTag
+		) {
+			const shader = await getWebGPUDeferredLightingShaderComposite();
+			this._deferredLightingShaderModule =
+				await this._backend.createShaderModule({
+					code: shader.code,
+					sourceMap: shader.sourceMap,
+					label: "WebGPUDeferredLightingShader",
+					language: "wgsl",
+					stage: "unknown",
+					sourceKind: "builtin-scene",
+				});
+			this._deferredLightingShaderDirectiveTag =
+				this._getDirectiveCacheTag();
+		}
+
+		return this._deferredLightingShaderModule;
 	}
 
 	private _isWarnMode(): boolean {
