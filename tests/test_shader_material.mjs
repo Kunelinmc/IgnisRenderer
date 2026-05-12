@@ -9,6 +9,8 @@ import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 function createLayouts() {
 	return {
 		scenePipelineLayout: { id: "scene-layout" },
+		sceneGBufferPipelineLayout: { id: "scene-gbuffer-layout" },
+		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
 		environmentPipelineLayout: { id: "environment-layout" },
 	};
 }
@@ -180,11 +182,13 @@ async function testWGSLProgramSelection() {
 	});
 
 	const singlePipeline = await library.getPipeline(material, "single");
+	assert.equal(singlePipeline.desc.layout.id, "scene-layout");
 	assert.equal(singlePipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(singlePipeline.desc.fragment.entryPoint, "customFsSingle");
 	assert.equal(singlePipeline.desc.fragment.targets.length, 1);
 
 	const mrtPipeline = await library.getPipeline(material, "mrt");
+	assert.equal(mrtPipeline.desc.layout.id, "scene-layout");
 	assert.equal(mrtPipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(mrtPipeline.desc.fragment.entryPoint, "customFsMRT");
 	assert.equal(mrtPipeline.desc.fragment.targets.length, 5);
@@ -230,6 +234,7 @@ async function testWebGPUDeferredProgramSelection() {
 	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
 
 	const pipeline = await library.getPipeline(material, "gbuffer");
+	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout");
 	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferred");
 	assert.equal(pipeline.desc.fragment.targets.length, 7);
 

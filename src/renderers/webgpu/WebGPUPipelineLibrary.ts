@@ -263,7 +263,10 @@ export class WebGPUPipelineLibrary {
 			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
 		return this._backend.createPipeline({
-			layout: this._layouts.scenePipelineLayout,
+			layout:
+				mode === "gbuffer" ?
+					this._layouts.sceneGBufferPipelineLayout
+				:	this._layouts.scenePipelineLayout,
 			label:
 				drawMode === "default" ?
 					`WebGPUScenePipeline_${pipelineKey}_${mode}`
@@ -350,7 +353,7 @@ export class WebGPUPipelineLibrary {
 		}
 
 		const desc: any = {
-			layout: this._layouts.scenePipelineLayout,
+			layout: this._layouts.sceneDepthPrepassPipelineLayout,
 			label: `WebGPUSceneEarlyZPipeline_${pipelineKey}_${mode}`,
 			vertex: {
 				module: resolved.vertexModule,

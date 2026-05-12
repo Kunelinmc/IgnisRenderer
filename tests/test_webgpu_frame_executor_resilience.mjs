@@ -159,6 +159,53 @@ function createOITSequencingResourcesStub() {
 	};
 }
 
+function createDeferredLightingResourcesStub() {
+	const state = {
+		deferredUnusedBinding: { id: "deferred-unused-binding" },
+	};
+	const drawResource = {
+		pipeline: { id: "gbuffer-pipeline" },
+		frameBinding: { id: "frame-binding" },
+		modelBinding: { id: "model-binding" },
+		clusteredBinding: { id: "clustered-binding" },
+		vertexBuffer: { id: "vertex-buffer" },
+		indexBuffer: { id: "index-buffer" },
+		indexCount: 3,
+	};
+	return {
+		sceneFrameLayout: {},
+		setSceneTargetMode() {},
+		async buildClusteredLighting() {},
+		renderShadows() {},
+		async getEnvironmentResources() {
+			return null;
+		},
+		async getDrawResources() {
+			return [drawResource];
+		},
+		async renderParticles() {},
+		getGBufferWriteLayout() {
+			return { id: "gbuffer-write-layout" };
+		},
+		getGBufferReadLayout() {
+			return { id: "gbuffer-read-layout" };
+		},
+		async getDeferredLightingPipeline() {
+			return { id: "deferred-lighting-pipeline" };
+		},
+		getFrameBinding() {
+			return { id: "frame-binding" };
+		},
+		getDeferredUnusedBinding() {
+			return state.deferredUnusedBinding;
+		},
+		getClusteredSceneBinding() {
+			return { id: "clustered-binding" };
+		},
+		_state: state,
+	};
+}
+
 async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -458,6 +505,42 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	assert.equal(backend.nativeCopyCalls.length >= 1, true);
 }
 
+async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [{ id: "deferred-opaque", material: {} }];
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const frameEncoder = backend.commandEncoders[0];
+	assert.ok(frameEncoder);
+	const deferredPassIndex = frameEncoder.calls.findIndex(
+		(call) =>
+			call[0] === "beginRenderPass" &&
+			call[1].label === "WebGPUDeferredLighting"
+	);
+	assert.notEqual(deferredPassIndex, -1);
+	const drawIndex = frameEncoder.calls.findIndex(
+		(call, index) => index > deferredPassIndex && call[0] === "draw"
+	);
+	assert.notEqual(drawIndex, -1);
+	const groupOneBinding = frameEncoder.calls.find(
+		(call, index) =>
+			index > deferredPassIndex &&
+			index < drawIndex &&
+			call[0] === "setBindGroup" &&
+			call[1] === 1
+	);
+	assert.ok(groupOneBinding);
+	assert.equal(groupOneBinding[2], resources._state.deferredUnusedBinding);
+}
+
 async function testOITMSAAFallsBackToLegacyAndWarns() {
 	const backend = createOITBackend({ sampleCount: 4 });
 	const resources = createModeTrackingResourcesStub();
@@ -531,6 +614,7 @@ async function run() {
 	testFrameTargetsIncludeAndReleaseOITResources();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
+	await testDeferredLightingBindsUnusedGroupOnePlaceholder();
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutNativeEncoder();
 	console.log("WebGPU frame executor resilience tests passed");

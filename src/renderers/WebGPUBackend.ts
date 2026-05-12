@@ -57,8 +57,8 @@ import {
 	WEBGPU_PIPELINE_CACHE_LIMIT,
 	WEBGPU_PIPELINE_LAYOUT_CACHE_LIMIT,
 	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
+	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
-	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 } from "./webgpu/constants";
 import {
 	BufferUsage,
@@ -481,7 +481,7 @@ export class WebGPUBackend implements IRenderBackend {
 			const adapterMaxStorageTexturesPerShaderStage =
 				adapter.limits?.maxStorageTexturesPerShaderStage;
 			const requiredSampledTexturesPerShaderStage =
-				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
+				WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
 			const requiredSamplersPerShaderStage =
 				WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT;
 			if (
@@ -521,16 +521,18 @@ export class WebGPUBackend implements IRenderBackend {
 			if (adapterMaxTextureDimension2D > 0) {
 				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
 			}
-			requiredLimits.maxSampledTexturesPerShaderStage = requiredSampledTexturesPerShaderStage;
+			requiredLimits.maxSampledTexturesPerShaderStage =
+				requiredSampledTexturesPerShaderStage;
 			requiredLimits.maxSamplersPerShaderStage = requiredSamplersPerShaderStage;
 			if (
 				typeof adapterMaxSampledTexturesPerShaderStage === "number" &&
-				adapterMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
+				adapterMaxSampledTexturesPerShaderStage <
+					requiredSampledTexturesPerShaderStage
 			) {
 				throw new Error(
 					"WebGPU adapter maxSampledTexturesPerShaderStage " +
 						`(${adapterMaxSampledTexturesPerShaderStage}) is below required ` +
-						"scene pipeline sampled texture count " +
+						"WebGPU pipeline sampled texture count " +
 						`(${requiredSampledTexturesPerShaderStage}).`,
 				);
 			}
@@ -563,12 +565,13 @@ export class WebGPUBackend implements IRenderBackend {
 				requestedDevice.limits?.maxSamplersPerShaderStage;
 			if (
 				typeof deviceMaxSampledTexturesPerShaderStage === "number" &&
-				deviceMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
+				deviceMaxSampledTexturesPerShaderStage <
+					requiredSampledTexturesPerShaderStage
 			) {
 				throw new Error(
 					"Requested WebGPU device maxSampledTexturesPerShaderStage " +
 						`(${deviceMaxSampledTexturesPerShaderStage}) is below required ` +
-						"scene pipeline sampled texture count " +
+						"WebGPU pipeline sampled texture count " +
 						`(${requiredSampledTexturesPerShaderStage}).`,
 				);
 			}

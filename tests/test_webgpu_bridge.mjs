@@ -52,10 +52,15 @@ import {
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
+	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
+	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
@@ -393,23 +398,60 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		},
 	};
 	const layouts = createWebGPUPipelineLayouts(device);
-	const fragmentEntries = layouts.scenePipelineLayout.desc.bindGroupLayouts.flatMap(
-		(layout) =>
+	const getFragmentEntries = (pipelineLayout) =>
+		pipelineLayout.desc.bindGroupLayouts.flatMap((layout) =>
 			layout.desc.entries.filter(
 				(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
 			)
+		);
+	const sceneFragmentEntries = getFragmentEntries(layouts.scenePipelineLayout);
+	const deferredFragmentEntries = getFragmentEntries(
+		layouts.deferredLightingPipelineLayout
 	);
-	const sampledTextureCount = fragmentEntries.filter(
+	const sceneSampledTextureCount = sceneFragmentEntries.filter(
 		(entry) => !!entry.texture
 	).length;
-	const samplerCount = fragmentEntries.filter((entry) => !!entry.sampler).length;
+	const deferredSampledTextureCount = deferredFragmentEntries.filter(
+		(entry) => !!entry.texture
+	).length;
+	const samplerCount = sceneFragmentEntries.filter(
+		(entry) => !!entry.sampler
+	).length;
 
 	assert.equal(
-		sampledTextureCount,
+		sceneSampledTextureCount,
 		WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
+	assert.equal(
+		deferredSampledTextureCount,
+		WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
+	);
+	assert.equal(
+		deferredSampledTextureCount,
+		WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT +
+			WEBGPU_GBUFFER_READ_TEXTURE_COUNT
+	);
+	assert.equal(
+		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+		sceneSampledTextureCount
+	);
+	assert.equal(
+		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],
+		layouts.deferredUnusedBindGroupLayout
+	);
+	assert.equal(layouts.scenePipelineLayout.desc.bindGroupLayouts.length, 3);
+	assert.equal(
+		layouts.sceneGBufferPipelineLayout.desc.bindGroupLayouts.length,
+		4
+	);
+	assert.equal(
+		layouts.sceneGBufferPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.gbufferWriteBindGroupLayout
+	);
+	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
 	assert.ok(samplerCount <= 16);
+	assert.equal(WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE, 56);
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -1024,7 +1066,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout.desc.bindGroupLayouts.length,
-		4
+		3
 	);
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
@@ -1246,6 +1288,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.layout.desc.bindGroupLayouts.length, 3);
 	assert.equal(typeof pipelineDesc.fragment, "undefined");
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, true);
 	assert.equal(pipelineDesc.depthStencil.depthCompare, "less");
@@ -1294,6 +1337,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
+	assert.equal(pipelineDesc.layout.desc.bindGroupLayouts.length, 3);
 	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainDepthMask");
 	assert.equal(pipelineDesc.fragment.targets.length, 0);
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, true);

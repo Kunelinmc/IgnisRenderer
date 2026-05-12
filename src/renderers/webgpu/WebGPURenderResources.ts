@@ -195,6 +195,7 @@ export class WebGPURenderResources {
 		string,
 		WebGPUParticleBindingCacheEntry
 	>();
+	private _deferredUnusedBinding: IBindingGroup | null = null;
 	private _frameId = 0;
 	private _destroyed = false;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
@@ -532,6 +533,27 @@ export class WebGPURenderResources {
 	}
 
 	/**
+	 * Returns the empty placeholder bind group used to preserve deferred shader
+	 * group indices without binding per-model material resources.
+	 *
+	 * Constraints: The returned bind group is only valid for the deferred
+	 * lighting layout's empty group index 1.
+	 *
+	 * @returns A bind group compatible with deferred layout group index 1.
+	 * @sideEffects May create and cache the placeholder bind group.
+	 */
+	public getDeferredUnusedBinding(): IBindingGroup {
+		if (!this._deferredUnusedBinding) {
+			this._deferredUnusedBinding = this._backend.createBindingGroup({
+				layout: this._layouts.deferredUnusedBindGroupLayout,
+				entries: [],
+				label: "WebGPUDeferredUnusedBinding",
+			});
+		}
+		return this._deferredUnusedBinding;
+	}
+
+	/**
 	 * Resolves the fullscreen deferred lighting render pipeline.
 	 *
 	 * @returns A pipeline that reads the G-buffer and writes `sceneColorMain`.
@@ -586,6 +608,8 @@ export class WebGPURenderResources {
 		this._particleInstanceBuffer?.destroy();
 		this._particleInstanceBuffer = null;
 		this._particleInstanceCapacity = 0;
+		this._destroyBindingGroup(this._deferredUnusedBinding);
+		this._deferredUnusedBinding = null;
 		this._frameBindings.destroy();
 		this._clusteredLighting.destroy();
 		this._materialBindings.destroy();

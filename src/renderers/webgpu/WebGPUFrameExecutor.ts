@@ -3027,6 +3027,10 @@ export class WebGPUFrameExecutor {
 		});
 		this._encoder.setPipeline(pipeline);
 		this._encoder.setBindingGroup(0, this._resources.getFrameBinding());
+		this._encoder.setBindingGroup(
+			1,
+			this._resources.getDeferredUnusedBinding()
+		);
 		this._encoder.setBindingGroup(2, this._resources.getClusteredSceneBinding());
 		this._encoder.setBindingGroup(3, gbufferReadBinding);
 		const dirtyRects = this._resolveDirtyRects(
