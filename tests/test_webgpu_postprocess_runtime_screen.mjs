@@ -579,6 +579,64 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
+async function testDestroyReleasesFXAAAndToneMappingResources() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const sceneColorMain = createTexture(32, 18, "scene");
+	const postPing = createTexture(32, 18, "ping");
+	const postPong = createTexture(32, 18, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+	const frameContext = createFrameContext();
+
+	await runtime.executePass({
+		passId: "fxaa",
+		encoder: new FakeEncoder(),
+		targets,
+		frameContext,
+	});
+	await runtime.executePass({
+		passId: "tonemap",
+		encoder: new FakeEncoder(),
+		targets,
+		frameContext,
+	});
+	assert.equal(backend.shaderModuleDestroyCalls, 0);
+	assert.equal(backend.computePipelineDestroyCalls, 0);
+	assert.equal(backend.samplerDestroyCalls, 0);
+
+	runtime.destroy();
+	assert.equal(backend.shaderModuleDestroyCalls, 2);
+	assert.equal(backend.computePipelineDestroyCalls, 2);
+	assert.equal(backend.samplerDestroyCalls, 1);
+	assert.equal(backend.bufferDestroyCalls, 1);
+	assert.equal(backend.bindingGroupDestroyCalls, 2);
+	assert.deepEqual(
+		backend.shaderModules
+			.filter((module) => module.destroyed)
+			.map((module) => module.label)
+			.sort(),
+		["WebGPUFXAAShader", "WebGPUToneMappingShader"]
+	);
+	assert.deepEqual(
+		backend.computePipelines
+			.filter((pipeline) => pipeline.destroyed)
+			.map((pipeline) => pipeline.label)
+			.sort(),
+		["WebGPUFXAAPipeline", "WebGPUToneMappingPipeline"]
+	);
+
+	runtime.destroy();
+	assert.equal(backend.shaderModuleDestroyCalls, 2);
+	assert.equal(backend.computePipelineDestroyCalls, 2);
+	assert.equal(backend.samplerDestroyCalls, 1);
+	assert.equal(backend.bufferDestroyCalls, 1);
+	assert.equal(backend.bindingGroupDestroyCalls, 2);
+}
+
 export async function run() {
 	await testFXAARuntimeUsesDedicatedPipeline();
 	await testToneMappingRuntimeUsesDedicatedPipeline();
@@ -590,6 +648,7 @@ export async function run() {
 	await testFXAARuntimePingPongsAndCachesResources();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
+	await testDestroyReleasesFXAAAndToneMappingResources();
 	console.log("WebGPU postprocess screen runtime tests passed");
 }
 

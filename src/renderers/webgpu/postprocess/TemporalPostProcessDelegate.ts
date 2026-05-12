@@ -1,3 +1,4 @@
+import { CameraType } from "../../../cameras/Camera";
 import type { FrameContext } from "../../../pipeline/types";
 import {
 	DEFAULT_SSR_OPTIONS,
@@ -151,34 +152,80 @@ export class TemporalPostProcessDelegate {
 	public invalidateBindings(): void {}
 
 	public onShaderRuntimeChanged(): void {
+		this._shared.destroyManagedResource(this._taaPipeline, "TAA pipeline");
+		this._shared.destroyManagedResource(this._taaModule, "TAA shader module");
 		this._taaModule = null;
 		this._taaPipeline = null;
-		this._taaParams?.destroy();
+		this._shared.destroyManagedResource(this._taaParams, "TAA params buffer");
 		this._taaParams = null;
+		this._shared.destroyManagedResource(
+			this._hizInitPipeline,
+			"Hi-Z init pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._hizReducePipeline,
+			"Hi-Z reduce pipeline"
+		);
+		this._shared.destroyManagedResource(this._hizModule, "Hi-Z shader module");
 		this._hizModule = null;
 		this._hizInitPipeline = null;
 		this._hizReducePipeline = null;
+		this._shared.destroyManagedResource(
+			this._ssrTracePipeline,
+			"SSR trace pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._ssrComposePipeline,
+			"SSR compose pipeline"
+		);
+		this._shared.destroyManagedResource(this._ssrModule, "SSR shader module");
 		this._ssrModule = null;
 		this._ssrTracePipeline = null;
 		this._ssrComposePipeline = null;
-		this._ssrTraceParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._ssrTraceParams,
+			"SSR trace params buffer"
+		);
 		this._ssrTraceParams = null;
-		this._ssrComposeParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._ssrComposeParams,
+			"SSR compose params buffer"
+		);
 		this._ssrComposeParams = null;
+		this._shared.destroyManagedResource(
+			this._volumetricPipeline,
+			"volumetric pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._volumetricModule,
+			"volumetric shader module"
+		);
 		this._volumetricModule = null;
 		this._volumetricPipeline = null;
-		this._volumetricParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._volumetricParams,
+			"volumetric params buffer"
+		);
 		this._volumetricParams = null;
-		this._volumetricLightBuffer?.destroy();
+		this._shared.destroyManagedResource(
+			this._volumetricLightBuffer,
+			"volumetric light buffer"
+		);
 		this._volumetricLightBuffer = null;
 		this._volumetricLightCapacity = 0;
 		this._volumetricFrameIndex = 0;
+		this._shared.destroyManagedResource(this._copyPipeline, "copy pipeline");
+		this._shared.destroyManagedResource(this._copyModule, "copy shader module");
 		this._copyModule = null;
 		this._copyPipeline = null;
 		this._ssrTraceGroupLayout0 = null;
 		this._ssrTracePipelineLayout = null;
 		this._volumetricGroupLayout0 = null;
 		this._volumetricPipelineLayout = null;
+	}
+
+	public destroy(): void {
+		this.onShaderRuntimeChanged();
 	}
 
 	private async _executeTAA(
@@ -245,6 +292,13 @@ export class TemporalPostProcessDelegate {
 	private async _executeSSR(
 		request: WebGPUPostProcessSSRExecuteRequest
 	): Promise<boolean> {
+		if (request.frameContext.camera.type === CameraType.Orthographic) {
+			this._shared.warn(
+				"webgpu-ssr-orthographic-disabled",
+				"WebGPU SSR is disabled for orthographic cameras."
+			);
+			return false;
+		}
 		await this._ensureSSRResources();
 		if (
 			!this._shared.sampler ||
@@ -360,6 +414,13 @@ export class TemporalPostProcessDelegate {
 	private async _executeVolumetric(
 		request: WebGPUPostProcessVolumetricExecuteRequest
 	): Promise<boolean> {
+		if (request.frameContext.camera.type === CameraType.Orthographic) {
+			this._shared.warn(
+				"webgpu-volumetric-orthographic-disabled",
+				"WebGPU volumetric lighting is disabled for orthographic cameras."
+			);
+			return false;
+		}
 		await this._ensureVolumetricResources();
 		const lightCount = this._updateVolumetricLightBuffer(request.lightingState);
 		if (

@@ -100,6 +100,12 @@ export class PostProcessSharedContext {
 		this._destroyCachedBindGroups();
 	}
 
+	public destroy(): void {
+		this._destroyCachedBindGroups();
+		this.destroyManagedResource(this._sampler, "post-process sampler");
+		this._sampler = null;
+	}
+
 	public invalidateBindingsByPrefix(prefix: string): void {
 		for (const key of Array.from(this._bindGroupCache.keys())) {
 			if (!key.startsWith(prefix)) {
@@ -110,6 +116,23 @@ export class PostProcessSharedContext {
 				this.destroyBindingGroup(cached.group);
 			}
 			this._bindGroupCache.delete(key);
+		}
+	}
+
+	public destroyManagedResource(
+		resource: unknown,
+		description = "post-process resource"
+	): void {
+		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn !== "function") {
+			return;
+		}
+		try {
+			destroyFn.call(resource);
+		} catch (error) {
+			const detail =
+				error instanceof Error ? error.message : String(error);
+			throw new Error(`Failed to destroy ${description}: ${detail}`);
 		}
 	}
 

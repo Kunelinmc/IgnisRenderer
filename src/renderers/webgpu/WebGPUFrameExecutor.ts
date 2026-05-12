@@ -756,7 +756,7 @@ export class WebGPUFrameExecutor {
 	public destroy(): void {
 		this._destroyFrameTargets();
 		this._destroyTexturePools();
-		this._postRuntime.invalidateBindings();
+		this._postRuntime.destroy();
 		this._destroyManagedResource(this._presentShaderModule);
 		this._destroyManagedResource(this._presentPipeline);
 		this._destroyManagedResource(this._presentSampler);

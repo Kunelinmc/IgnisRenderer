@@ -85,16 +85,38 @@ export class SpatialPostProcessDelegate {
 	public invalidateBindings(): void {}
 
 	public onShaderRuntimeChanged(): void {
+		this._shared.destroyManagedResource(
+			this._ssaoRawPipeline,
+			"SSAO raw pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._ssaoBlurPipeline,
+			"SSAO blur pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._ssaoCombinePipeline,
+			"SSAO combine pipeline"
+		);
+		this._shared.destroyManagedResource(this._ssaoModule, "SSAO shader module");
 		this._ssaoModule = null;
 		this._ssaoRawPipeline = null;
 		this._ssaoBlurPipeline = null;
 		this._ssaoCombinePipeline = null;
-		this._ssaoParams?.destroy();
+		this._shared.destroyManagedResource(this._ssaoParams, "SSAO params buffer");
 		this._ssaoParams = null;
+		this._shared.destroyManagedResource(
+			this._ssgiPipeline,
+			"SSGI pipeline"
+		);
+		this._shared.destroyManagedResource(this._ssgiModule, "SSGI shader module");
 		this._ssgiModule = null;
 		this._ssgiPipeline = null;
-		this._ssgiParams?.destroy();
+		this._shared.destroyManagedResource(this._ssgiParams, "SSGI params buffer");
 		this._ssgiParams = null;
+	}
+
+	public destroy(): void {
+		this.onShaderRuntimeChanged();
 	}
 
 	private async _executeSSAO(

@@ -400,6 +400,10 @@ export class FakeWebGPUBackend {
 		this.writeCalls = [];
 		this.writeBufferCalls = 0;
 		this.bindingGroupDestroyCalls = 0;
+		this.shaderModuleDestroyCalls = 0;
+		this.computePipelineDestroyCalls = 0;
+		this.renderPipelineDestroyCalls = 0;
+		this.samplerDestroyCalls = 0;
 		this.bufferDestroyCalls = 0;
 		this.textureDestroyCalls = 0;
 		this.failTextureAtCall = null;
@@ -479,7 +483,17 @@ export class FakeWebGPUBackend {
 		if (this.failCustomShaderModules && typeof desc.label === "string" && desc.label.startsWith("WebGPUShaderMaterial")) {
 			throw new Error("simulated custom shader module compile failure");
 		}
-		const module = { kind: "shader-module", label: desc.label, desc, destroy: () => this.destroyCalls++ };
+		const module = {
+			kind: "shader-module",
+			label: desc.label,
+			desc,
+			destroyed: false,
+			destroy: () => {
+				this.destroyCalls++;
+				this.shaderModuleDestroyCalls++;
+				module.destroyed = true;
+			}
+		};
 		this.shaderModules.push(module);
 		return module;
 	}
@@ -489,7 +503,12 @@ export class FakeWebGPUBackend {
 			kind: "compute-pipeline",
 			desc, 
 			label: desc.label, 
-			destroy: () => this.destroyCalls++,
+			destroyed: false,
+			destroy: () => {
+				this.destroyCalls++;
+				this.computePipelineDestroyCalls++;
+				pipeline.destroyed = true;
+			},
 			_gpuResource: { getBindGroupLayout: () => {
 				const layout = { kind: "bind-group-layout" };
 				this.bindGroupLayouts.push(layout);
@@ -510,7 +529,12 @@ export class FakeWebGPUBackend {
 			kind: "render-pipeline",
 			desc,
 			label: desc.label,
-			destroy: () => this.destroyCalls++
+			destroyed: false,
+			destroy: () => {
+				this.destroyCalls++;
+				this.renderPipelineDestroyCalls++;
+				pipeline.destroyed = true;
+			}
 		};
 		this.pipelines.push(pipeline);
 		this.renderPipelines.push(pipeline);
@@ -593,7 +617,12 @@ export class FakeWebGPUBackend {
 			kind: "sampler",
 			desc, 
 			label: desc.label, 
-			destroy: () => this.destroyCalls++,
+			destroyed: false,
+			destroy: () => {
+				this.destroyCalls++;
+				this.samplerDestroyCalls++;
+				sampler.destroyed = true;
+			},
 			_gpuResource: { [Symbol.toStringTag]: "GPUSampler" }
 		};
 		this.samplers.push(sampler);

@@ -28,10 +28,16 @@ interface RegisteredRuntimePass {
 	builtIn: boolean;
 }
 
+interface BuiltInPostProcessDelegate {
+	registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void;
+	destroy(): void;
+}
+
 export class WebGPUPostProcessRuntime {
 	private _shared: PostProcessSharedContext;
 	private _runtimePassById = new Map<string, RegisteredRuntimePass>();
 	private _warmupPassesByHint = new Map<string, RegisteredRuntimePass[]>();
+	private _builtInDelegates: BuiltInPostProcessDelegate[];
 
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
@@ -43,7 +49,7 @@ export class WebGPUPostProcessRuntime {
 			warn,
 			frameBindGroupLayout
 		);
-		const delegates = [
+		this._builtInDelegates = [
 			new SpatialPostProcessDelegate(this._shared),
 			new TemporalPostProcessDelegate(this._shared),
 			new ScreenPostProcessDelegate(this._shared),
@@ -52,7 +58,7 @@ export class WebGPUPostProcessRuntime {
 			registerRuntimePass: (pass) =>
 				this._registerRuntimePass(pass, { builtIn: true }),
 		};
-		for (const delegate of delegates) {
+		for (const delegate of this._builtInDelegates) {
 			delegate.registerPasses(builtInRegistry);
 		}
 	}
@@ -116,6 +122,15 @@ export class WebGPUPostProcessRuntime {
 		for (const entry of this._runtimePassById.values()) {
 			entry.pass.onShaderRuntimeChanged?.(this._shared);
 		}
+	}
+
+	public destroy(): void {
+		this._shared.destroy();
+		for (const delegate of this._builtInDelegates) {
+			delegate.destroy();
+		}
+		this._runtimePassById.clear();
+		this._warmupPassesByHint.clear();
 	}
 
 	public async warmupHints(hints: readonly string[]): Promise<{

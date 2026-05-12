@@ -276,10 +276,14 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	]);
 	assert.equal(backend.bufferDestroyCalls, 0);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
+	assert.equal(backend.shaderModuleDestroyCalls, 0);
+	assert.equal(backend.computePipelineDestroyCalls, 0);
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 	assert.equal(backend.bufferDestroyCalls, 9);
+	assert.equal(backend.shaderModuleDestroyCalls, 9);
+	assert.equal(backend.computePipelineDestroyCalls, 13);
 	const destroyedLabels = new Set(
 		backend.buffers
 			.filter((buffer) => buffer.destroyed)
@@ -294,10 +298,26 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
 	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
 	assert.ok(destroyedLabels.has("WebGPUFXAAParams"));
+	const destroyedShaderLabels = new Set(
+		backend.shaderModules
+			.filter((module) => module.destroyed)
+			.map((module) => module.label)
+	);
+	assert.ok(destroyedShaderLabels.has("WebGPUSSAOShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUSSGIShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUTAAShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUHiZShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUSSRShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUVolumetricShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUMotionBlurShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUDOFShader"));
+	assert.ok(destroyedShaderLabels.has("WebGPUFXAAShader"));
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 	assert.equal(backend.bufferDestroyCalls, 9);
+	assert.equal(backend.shaderModuleDestroyCalls, 9);
+	assert.equal(backend.computePipelineDestroyCalls, 13);
 }
 
 async function run() {

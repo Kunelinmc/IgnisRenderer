@@ -265,20 +265,75 @@ export class ScreenPostProcessDelegate {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		this._shared.destroyManagedResource(this._fogPipeline, "fog pipeline");
+		this._shared.destroyManagedResource(this._fogModule, "fog shader module");
 		this._fogModule = null;
 		this._fogPipeline = null;
-		this._fogParams?.destroy();
+		this._shared.destroyManagedResource(this._fogParams, "fog params buffer");
 		this._fogParams = null;
 		this._fogParamUploaded = false;
+		this._shared.destroyManagedResource(
+			this._motionBlurPipeline,
+			"motion blur pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._motionBlurModule,
+			"motion blur shader module"
+		);
 		this._motionBlurModule = null;
 		this._motionBlurPipeline = null;
-		this._motionBlurParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._motionBlurParams,
+			"motion blur params buffer"
+		);
 		this._motionBlurParams = null;
 		this._motionBlurParamUploaded = false;
+		this._shared.destroyManagedResource(this._dofPipeline, "DoF pipeline");
+		this._shared.destroyManagedResource(this._dofModule, "DoF shader module");
 		this._dofModule = null;
 		this._dofPipeline = null;
-		this._dofParams?.destroy();
+		this._shared.destroyManagedResource(this._dofParams, "DoF params buffer");
 		this._dofParams = null;
+		this._shared.destroyManagedResource(
+			this._bloomDownsamplePipeline,
+			"bloom downsample pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomBlurHPipeline,
+			"bloom horizontal blur pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomBlurVPipeline,
+			"bloom vertical blur pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomUpsamplePipeline,
+			"bloom upsample pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomCompositePipeline,
+			"bloom composite pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomDownsampleModule,
+			"bloom downsample shader module"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomBlurHModule,
+			"bloom horizontal blur shader module"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomBlurVModule,
+			"bloom vertical blur shader module"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomUpsampleModule,
+			"bloom upsample shader module"
+		);
+		this._shared.destroyManagedResource(
+			this._bloomCompositeModule,
+			"bloom composite shader module"
+		);
 		this._bloomDownsampleModule = null;
 		this._bloomBlurHModule = null;
 		this._bloomBlurVModule = null;
@@ -289,29 +344,80 @@ export class ScreenPostProcessDelegate {
 		this._bloomBlurVPipeline = null;
 		this._bloomUpsamplePipeline = null;
 		this._bloomCompositePipeline = null;
-		this._bloomDownsampleParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._bloomDownsampleParams,
+			"bloom downsample params buffer"
+		);
 		this._bloomDownsampleParams = null;
-		this._bloomBlurParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._bloomBlurParams,
+			"bloom blur params buffer"
+		);
 		this._bloomBlurParams = null;
-		this._bloomUpsampleParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._bloomUpsampleParams,
+			"bloom upsample params buffer"
+		);
 		this._bloomUpsampleParams = null;
-		this._bloomCompositeParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._bloomCompositeParams,
+			"bloom composite params buffer"
+		);
 		this._bloomCompositeParams = null;
 		this._destroyBloomMipTextures();
+		this._shared.destroyManagedResource(this._fxaaPipeline, "FXAA pipeline");
+		this._shared.destroyManagedResource(
+			this._fxaaModule,
+			"FXAA shader module"
+		);
 		this._fxaaModule = null;
 		this._fxaaPipeline = null;
-		this._fxaaParams?.destroy();
+		this._shared.destroyManagedResource(this._fxaaParams, "FXAA params buffer");
 		this._fxaaParams = null;
+		this._shared.destroyManagedResource(
+			this._toneMappingPipeline,
+			"tone mapping pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._toneMappingModule,
+			"tone mapping shader module"
+		);
 		this._toneMappingModule = null;
 		this._toneMappingPipeline = null;
+		this._shared.destroyManagedResource(
+			this._colorFilterPipeline,
+			"color filter pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._colorFilterModule,
+			"color filter shader module"
+		);
 		this._colorFilterModule = null;
 		this._colorFilterPipeline = null;
-		this._colorFilterParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._colorFilterParams,
+			"color filter params buffer"
+		);
 		this._colorFilterParams = null;
+		this._shared.destroyManagedResource(
+			this._interactionOutlinePipeline,
+			"interaction outline pipeline"
+		);
+		this._shared.destroyManagedResource(
+			this._interactionOutlineModule,
+			"interaction outline shader module"
+		);
 		this._interactionOutlineModule = null;
 		this._interactionOutlinePipeline = null;
-		this._interactionOutlineParams?.destroy();
+		this._shared.destroyManagedResource(
+			this._interactionOutlineParams,
+			"interaction outline params buffer"
+		);
 		this._interactionOutlineParams = null;
+	}
+
+	public destroy(): void {
+		this.onShaderRuntimeChanged();
 	}
 
 	private async _executeFog(
