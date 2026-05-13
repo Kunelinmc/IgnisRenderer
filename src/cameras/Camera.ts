@@ -18,10 +18,6 @@ export interface CameraParams extends NodeParams {
 	far?: number;
 }
 
-const _tmpCameraPosition = { x: 0, y: 0, z: 0 };
-const _tmpCameraForward = { x: 0, y: 0, z: -1 };
-const _tmpCameraUp = { x: 0, y: 1, z: 0 };
-
 export class Camera extends Node {
 	public type: CameraType;
 	public up: Vector3;
@@ -33,6 +29,9 @@ export class Camera extends Node {
 	public projectionMatrix: Matrix4;
 	public viewProjectionMatrix: Matrix4;
 	private _frustum: Frustum;
+	private readonly _tmpWorldPosition: IVector3;
+	private readonly _tmpWorldForward: IVector3;
+	private readonly _tmpWorldUp: IVector3;
 
 	constructor(params: CameraParams = {}) {
 		super({
@@ -49,6 +48,9 @@ export class Camera extends Node {
 		this.projectionMatrix = Matrix4.identity();
 		this.viewProjectionMatrix = Matrix4.identity();
 		this._frustum = new Frustum();
+		this._tmpWorldPosition = { x: 0, y: 0, z: 0 };
+		this._tmpWorldForward = { x: 0, y: 0, z: -1 };
+		this._tmpWorldUp = { x: 0, y: 1, z: 0 };
 		this.updateMatrices();
 	}
 
@@ -68,12 +70,12 @@ export class Camera extends Node {
 	}
 
 	public calculateViewMatrix(): Matrix4 {
-		const worldPosition = this.getWorldPosition(_tmpCameraPosition);
+		const worldPosition = this.getWorldPosition(this._tmpWorldPosition);
 		const worldForward = this.getWorldDirection(
 			{ x: 0, y: 0, z: -1 },
-			_tmpCameraForward
+			this._tmpWorldForward
 		);
-		const worldUp = this.getWorldDirection(this.up, _tmpCameraUp);
+		const worldUp = this.getWorldDirection(this.up, this._tmpWorldUp);
 
 		return Matrix4.lookAt(
 			worldPosition,
