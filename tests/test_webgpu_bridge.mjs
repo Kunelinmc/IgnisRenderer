@@ -811,7 +811,7 @@ function testEnvironmentCollectionUsesParentedProbeCaptureOrigin() {
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
 	const sh = SH.empty();
 	sh[0] = { r: 120, g: 60, b: 30 };
-	const probe = new LightProbe(sh, 0.75);
+	const probe = new LightProbe(sh);
 	const withoutSH = collectWebGPULighting([probe], true, false);
 	assert.ok(withoutSH.ambientColor[0] > 0);
 	assert.ok(withoutSH.ambientColor[1] > 0);
@@ -826,7 +826,7 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 	const sh = SH.empty();
 	sh[0] = { r: 80, g: 40, b: 20 };
 	sh[5] = { r: 3, g: 2, b: 1 };
-	const probe = new LightProbe(sh, 0.5);
+	const probe = new LightProbe(sh);
 	const state = collectWebGPUEnvironment(
 		{
 			environment: null,
@@ -838,18 +838,18 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 	assert.equal(state.enableSH, true);
 	assert.equal(state.hasSHAmbient, true);
 	assert.ok(state.shAmbientCoeffs);
-	assert.ok(Math.abs(state.shAmbientCoeffs[0].r - 40) < 1e-6);
-	assert.ok(Math.abs(state.shAmbientCoeffs[0].g - 20) < 1e-6);
-	assert.ok(Math.abs(state.shAmbientCoeffs[0].b - 10) < 1e-6);
-	assert.ok(Math.abs(state.shAmbientCoeffs[5].r - 1.5) < 1e-6);
-	assert.ok(Math.abs(state.shAmbientCoeffs[5].g - 1.0) < 1e-6);
-	assert.ok(Math.abs(state.shAmbientCoeffs[5].b - 0.5) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].r - 80) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].g - 40) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[0].b - 20) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].r - 3) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].g - 2) < 1e-6);
+	assert.ok(Math.abs(state.shAmbientCoeffs[5].b - 1) < 1e-6);
 }
 
 function testEnvironmentCollectsLocalizedLightProbesWithoutPollutingGlobalSH() {
 	const globalSH = SH.empty();
 	globalSH[5] = { r: 4, g: 2, b: 1 };
-	const globalProbe = new LightProbe(globalSH, 1);
+	const globalProbe = new LightProbe(globalSH);
 
 	const localASh = SH.empty();
 	localASh[5] = { r: 90, g: 45, b: 22.5 };

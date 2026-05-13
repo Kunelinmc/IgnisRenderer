@@ -53,17 +53,15 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 	constructor();
 	constructor(params: LightProbeParams);
-	constructor(sh: SHCoefficients | null, intensity?: number);
+	constructor(sh: SHCoefficients | null);
 	constructor(
-		shOrParams: LightProbeParams | SHCoefficients | null = null,
-		intensity = 1.0
+		shOrParams: LightProbeParams | SHCoefficients | null = null
 	) {
 		const params =
 			isLightProbeParams(shOrParams) ?
 				shOrParams
 			:	{
 					sh: shOrParams,
-					intensity,
 				};
 		super(LightType.LightProbe, params);
 		this.sh = cloneSHCoefficients(params.sh);
@@ -113,7 +111,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		}
 
 		if (source instanceof LightProbe) {
-			this.intensity = source.intensity;
 			this.shape = sanitizeLightProbeShape(source.shape);
 			this.radius = sanitizeLightProbeRadius(source.radius);
 			this.halfExtents.copy(sanitizeHalfExtents(source.halfExtents));

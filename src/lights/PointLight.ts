@@ -1,16 +1,31 @@
+import type { RGB } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
 import { Light, LightType, type LightParams } from "./Light";
 
 export interface PointLightParams extends LightParams {
+	color?: RGB;
+	intensity?: number;
 	position?: IVector3;
 	range?: number;
 }
 
 export class PointLight extends Light<LightType.Point> {
+	/**
+	 * Point light color in sRGB 0..255 channel values.
+	 */
+	public color: RGB;
+
+	/**
+	 * Scalar strength applied to point light contribution before attenuation.
+	 */
+	public intensity: number;
+
 	public range: number;
 
 	constructor(params: PointLightParams = {}) {
 		super(LightType.Point, params);
+		this.color = params.color ?? { r: 255, g: 255, b: 255 };
+		this.intensity = params.intensity ?? 1;
 		if (params.position) {
 			this.position.copy(params.position);
 		}
@@ -26,6 +41,12 @@ export class PointLight extends Light<LightType.Point> {
 
 	protected override _copyClonePropertiesTo(target: this): void {
 		super._copyClonePropertiesTo(target);
+		target.color = {
+			r: this.color.r,
+			g: this.color.g,
+			b: this.color.b,
+		};
+		target.intensity = this.intensity;
 		target.range = this.range;
 	}
 }

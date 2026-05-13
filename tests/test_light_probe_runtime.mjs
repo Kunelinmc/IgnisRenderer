@@ -37,11 +37,11 @@ function createLocalizedProbe({
 	return probe;
 }
 
-function testLegacyConstructorAndLocalizedClone() {
-	const legacy = new LightProbe(null, 0.5);
-	assert.equal(legacy.shape, "global");
-	assert.equal(legacy.intensity, 0.5);
-	assert.equal(legacy.sh.length, 16);
+function testConstructorAndLocalizedClone() {
+	const probeFromSH = new LightProbe(null);
+	assert.equal(probeFromSH.shape, "global");
+	assert.equal("intensity" in probeFromSH, false);
+	assert.equal(probeFromSH.sh.length, 16);
 
 	const probe = new LightProbe({
 		sh: SH.empty(),
@@ -77,7 +77,7 @@ function testCopyPreservesLocalizedState() {
 	});
 	source.sh[5] = { r: 7, g: 3, b: 1 };
 
-	const target = new LightProbe(SH.empty(), 1);
+	const target = new LightProbe(SH.empty());
 	target.copy(source);
 
 	assert.equal(target.shape, "box");
@@ -158,7 +158,7 @@ function testPrioritySelectionAndTieBreak() {
 }
 
 function testCollectionSeparatesGlobalAndLocalizedProbes() {
-	const globalProbe = new LightProbe(SH.empty(), 1);
+	const globalProbe = new LightProbe(SH.empty());
 	globalProbe.id = "global";
 	const farLocalized = Array.from({ length: 8 }, (_, index) =>
 		createLocalizedProbe({
@@ -187,7 +187,7 @@ function testCollectionSeparatesGlobalAndLocalizedProbes() {
 }
 
 function run() {
-	testLegacyConstructorAndLocalizedClone();
+	testConstructorAndLocalizedClone();
 	testCopyPreservesLocalizedState();
 	testMetricAndBlendCurve();
 	testPrioritySelectionAndTieBreak();

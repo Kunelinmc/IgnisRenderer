@@ -439,7 +439,7 @@ function testLightProbeFallbackContributionFromDC() {
 	const sh = SH.empty();
 	sh[0] = { r: 120, g: 60, b: 0 };
 
-	const probe = new LightProbe(sh, 0.75);
+	const probe = new LightProbe(sh);
 	const contribution = evaluateLightContribution(probe, {
 		position: { x: 0, y: 0, z: 0 },
 	});
@@ -449,7 +449,7 @@ function testLightProbeFallbackContributionFromDC() {
 		"LightProbe should provide ambient fallback from SH DC term"
 	);
 	assert.equal(contribution.type, "irradiance");
-	assert.ok(Math.abs((contribution.intensity ?? 0) - 0.75) < 1e-6);
+	assert.ok(Math.abs((contribution.intensity ?? 0) - 1) < 1e-6);
 	assert.ok(contribution.color.r > 0 || contribution.color.g > 0);
 }
 
@@ -784,7 +784,7 @@ function testIridescenceChangesPBRSpecularHue() {
 }
 
 function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
-	const probe = new LightProbe(SH.empty(), 1);
+	const probe = new LightProbe(SH.empty());
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
 	probe.sh[15] = { r: 7, g: 3, b: 1 };
 
@@ -803,7 +803,7 @@ function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 }
 
 function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
-	const probe = new LightProbe(SH.empty(), 1);
+	const probe = new LightProbe(SH.empty());
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
 	probe.sh[15] = { r: 7, g: 3, b: 1 };
 	const reflectionProbe = new ReflectionProbe({
@@ -825,7 +825,7 @@ function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
 }
 
 function testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend() {
-	const probe = new LightProbe(SH.empty(), 1);
+	const probe = new LightProbe(SH.empty());
 	probe.shape = "sphere";
 	probe.sh[15] = { r: 7, g: 3, b: 1 };
 
@@ -844,10 +844,10 @@ function testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend() {
 }
 
 function testRendererUpdateSHSkipsLocalizedProbeForGPUBackends() {
-	const globalProbe = new LightProbe(SH.empty(), 1);
+	const globalProbe = new LightProbe(SH.empty());
 	globalProbe.sh[15] = { r: 2, g: 1, b: 0.5 };
 
-	const localizedProbe = new LightProbe(SH.empty(), 1);
+	const localizedProbe = new LightProbe(SH.empty());
 	localizedProbe.shape = "box";
 	localizedProbe.sh[15] = { r: 7, g: 3, b: 1 };
 

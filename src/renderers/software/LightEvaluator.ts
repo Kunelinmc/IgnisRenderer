@@ -238,7 +238,7 @@ function evaluateLightProbe(
 			g: toSrgb255(irrG),
 			b: toSrgb255(irrB),
 		},
-		intensity: light.intensity,
+		intensity: 1,
 	});
 }
 

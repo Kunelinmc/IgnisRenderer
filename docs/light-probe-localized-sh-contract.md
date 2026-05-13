@@ -11,8 +11,10 @@ multi-room transitions, caves, and indoor/outdoor boundaries require localized
 probe influence with deterministic overlap resolution.
 
 ## API/Contract
-- `LightProbe` must accept both `new LightProbe(sh, intensity)` and
+- `LightProbe` must accept both `new LightProbe(sh)` and
   `new LightProbe({ ...params })`.
+- `LightProbe` must not expose `color` or `intensity`; SH coefficients must
+  carry the probe radiance scale directly.
 - `LightProbe.shape` must support `"global"`, `"sphere"`, and `"box"`.
 - `LightProbe.shape` must default to `"global"`.
 - `LightProbe.radius` must be finite and must be sanitized to a positive value.
@@ -50,7 +52,6 @@ const hallwayProbe = new LightProbe({
 	blendDistance: 0.2,
 	priority: 20,
 	sh: SH.empty(),
-	intensity: 1,
 });
 
 const courtyardProbe = new LightProbe({
@@ -59,10 +60,9 @@ const courtyardProbe = new LightProbe({
 	blendDistance: 0.35,
 	priority: 5,
 	sh: SH.empty(),
-	intensity: 1,
 });
 
-const fallbackProbe = new LightProbe(SH.empty(), 0.5);
+const fallbackProbe = new LightProbe(SH.empty());
 fallbackProbe.shape = "global";
 ```
 
@@ -83,7 +83,8 @@ bun tests/test_light_probe_runtime.mjs
   zero SH outside probe influence regions.
 
 ## Compatibility / Breaking Changes
-- Existing code using `new LightProbe(sh, intensity)` remains supported.
+- Existing code using `new LightProbe(sh, intensity)` must encode the scale into
+  the provided SH coefficients and call `new LightProbe(sh)`.
 - Existing scenes that do not set `shape` remain behaviorally compatible because
   `shape` defaults to `"global"`.
 - WebGPU and WebGL scene lighting may change when localized probes are added

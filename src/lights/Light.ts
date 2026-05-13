@@ -1,6 +1,5 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
-import type { RGB } from "../foundation/Color";
 import { Node, type NodeParams } from "../core/Node";
 
 export enum LightType {
@@ -19,15 +18,10 @@ export interface ShadowCameraResult {
 	lightDir: IVector3;
 }
 
-export interface LightParams extends NodeParams {
-	color?: RGB;
-	intensity?: number;
-}
+export interface LightParams extends NodeParams {}
 
 export abstract class Light<TType extends LightType = LightType> extends Node {
 	public readonly type: TType;
-	public color: RGB;
-	public intensity: number;
 
 	protected constructor(type: TType, params: LightParams = {}) {
 		super({
@@ -35,17 +29,5 @@ export abstract class Light<TType extends LightType = LightType> extends Node {
 			idPrefix: "light",
 		});
 		this.type = type;
-		this.color = params.color ?? { r: 255, g: 255, b: 255 };
-		this.intensity = params.intensity ?? 1;
-	}
-
-	protected override _copyClonePropertiesTo(target: this): void {
-		super._copyClonePropertiesTo(target);
-		target.color = {
-			r: this.color.r,
-			g: this.color.g,
-			b: this.color.b,
-		};
-		target.intensity = this.intensity;
 	}
 }

@@ -196,12 +196,11 @@ function synthesizeSHAmbientCoeffsFromLights(
 
 	for (const light of globalLightProbes) {
 		const probeSH = light.sh;
-		const intensity = light.intensity ?? 1;
 		const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
 		for (let i = 0; i < coeffCount; i++) {
-			ambientProbeSH[i].r += probeSH[i].r * intensity;
-			ambientProbeSH[i].g += probeSH[i].g * intensity;
-			ambientProbeSH[i].b += probeSH[i].b * intensity;
+			ambientProbeSH[i].r += probeSH[i].r;
+			ambientProbeSH[i].g += probeSH[i].g;
+			ambientProbeSH[i].b += probeSH[i].b;
 		}
 	}
 

@@ -412,7 +412,7 @@ function collectLightProbe(
 	accumulateLightProbeFallbackAmbientColor(
 		state.ambientColor,
 		light.sh[0],
-		light.intensity ?? 1
+		1
 	);
 }
 

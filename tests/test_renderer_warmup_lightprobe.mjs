@@ -113,8 +113,8 @@ async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
 		renderer.scene.environment.backgroundTexture = environmentTexture;
 		renderer.scene.environment.iblTexture = environmentTexture;
 
-		const probeA = renderer.scene.add(new LightProbe(SH.empty(), 2));
-		const probeB = renderer.scene.add(new LightProbe(SH.empty(), 0.5));
+		const probeA = renderer.scene.add(new LightProbe(SH.empty()));
+		const probeB = renderer.scene.add(new LightProbe(SH.empty()));
 		const reflectionA = renderer.scene.add(
 			new ReflectionProbe({ shape: "box", prefilteredMap: null })
 		);
@@ -165,8 +165,8 @@ async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
 		assert.ok(reflectionB.prefilteredMap);
 		assert.equal(reflectionCaptured.prefilteredMap, capturedPrefiltered);
 		assert.equal(reflectionManual.prefilteredMap, manualPrefiltered);
-		assert.equal(probeA.intensity, 2);
-		assert.equal(probeB.intensity, 0.5);
+		assert.equal("intensity" in probeA, false);
+		assert.equal("intensity" in probeB, false);
 		assert.ok(
 			progress.some((event) =>
 				event.phase.startsWith("environment-ibl-bake:")

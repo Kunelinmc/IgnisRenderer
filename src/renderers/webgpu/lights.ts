@@ -111,7 +111,7 @@ function accumulateLightProbeFallbackAmbient(
 	accumulateLightProbeFallbackAmbientColor(
 		state.ambientColor,
 		light.sh[0],
-		light.intensity
+		1
 	);
 }
 
