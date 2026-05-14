@@ -18,7 +18,10 @@ import { Scene } from "../src/core/Scene.ts";
 import { collectWebGLLights } from "../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramLibrary } from "../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../src/renderers/webgl/WebGLGeometryRegistry.ts";
-import { drawWebGLPacket } from "../src/renderers/webgl/WebGLScenePass.ts";
+import {
+	bindWebGLShaderMaterialUniforms,
+	drawWebGLPacket,
+} from "../src/renderers/webgl/WebGLScenePass.ts";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,
@@ -176,9 +179,20 @@ function createScenePassCaptureGL() {
 		activeTextures: [],
 		boundTextures: [],
 		uniform1i: [],
+		uniform1ui: [],
 		uniform1f: [],
+		uniform2fv: [],
+		uniform3fv: [],
+		uniform4fv: [],
+		uniform2iv: [],
+		uniform3iv: [],
+		uniform4iv: [],
+		uniform2uiv: [],
+		uniform3uiv: [],
+		uniform4uiv: [],
 		uniform2f: [],
 		uniform4f: [],
+		uniformMatrix4fv: [],
 		depthMask: [],
 	};
 	return {
@@ -192,9 +206,41 @@ function createScenePassCaptureGL() {
 			calls.boundTextures.push({ target, texture });
 		},
 		bindVertexArray() {},
-		uniformMatrix4fv() {},
+		uniformMatrix4fv(location, transpose, values) {
+			calls.uniformMatrix4fv.push({
+				location,
+				transpose,
+				values: Array.from(values),
+			});
+		},
 		uniformMatrix3fv() {},
-		uniform4fv() {},
+		uniform4fv(location, values) {
+			calls.uniform4fv.push({ location, values: Array.from(values) });
+		},
+		uniform2fv(location, values) {
+			calls.uniform2fv.push({ location, values: Array.from(values) });
+		},
+		uniform3fv(location, values) {
+			calls.uniform3fv.push({ location, values: Array.from(values) });
+		},
+		uniform2iv(location, values) {
+			calls.uniform2iv.push({ location, values: Array.from(values) });
+		},
+		uniform3iv(location, values) {
+			calls.uniform3iv.push({ location, values: Array.from(values) });
+		},
+		uniform4iv(location, values) {
+			calls.uniform4iv.push({ location, values: Array.from(values) });
+		},
+		uniform2uiv(location, values) {
+			calls.uniform2uiv.push({ location, values: Array.from(values) });
+		},
+		uniform3uiv(location, values) {
+			calls.uniform3uiv.push({ location, values: Array.from(values) });
+		},
+		uniform4uiv(location, values) {
+			calls.uniform4uiv.push({ location, values: Array.from(values) });
+		},
 		uniform2f(location, x, y) {
 			calls.uniform2f.push({ location, x, y });
 		},
@@ -203,6 +249,9 @@ function createScenePassCaptureGL() {
 		},
 		uniform1i(location, value) {
 			calls.uniform1i.push({ location, value });
+		},
+		uniform1ui(location, value) {
+			calls.uniform1ui.push({ location, value });
 		},
 		uniform1f(location, value) {
 			calls.uniform1f.push({ location, value });
@@ -1295,6 +1344,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 		_modelMatrixKeysThisFrame: new Set(),
 		_setCullMode() {},
 		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
 	};
 	const packet = {
 		id: "packet-pbr-textures",
@@ -1412,6 +1462,7 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 		_modelMatrixKeysThisFrame: new Set(),
 		_setCullMode() {},
 		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
 	};
 	const material = new Material({
 		depthWrite: false,
@@ -1430,6 +1481,75 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 	material.depthWrite = true;
 	drawWebGLPacket(host, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false, true]);
+}
+
+function testShaderMaterialCustomUniformBinding() {
+	const gl = createScenePassCaptureGL();
+	const material = new ShaderMaterial({
+		uniformBindings: [
+			{ name: "time", type: "f32", value: 1.5, webglUniform: "uTime" },
+			{ name: "mode", type: "i32", value: 2, webglUniform: "uMode" },
+			{ name: "flags", type: "u32", value: 3, webglUniform: "uFlags" },
+			{ name: "uvScale", type: "vec2f", value: [4, 5], webglUniform: "uUVScale" },
+			{ name: "normal", type: "vec3f", value: [6, 7, 8], webglUniform: "uNormal" },
+			{ name: "tint", type: "vec4f", value: [1, 0.5, 0.25, 1], webglUniform: "uTint" },
+			{ name: "offset", type: "vec2i", value: [9, 10], webglUniform: "uOffset" },
+			{ name: "indices", type: "vec3i", value: [11, 12, 13], webglUniform: "uIndices" },
+			{ name: "mask", type: "vec4i", value: [14, 15, 16, 17], webglUniform: "uMask" },
+			{ name: "uoffset", type: "vec2u", value: [18, 19], webglUniform: "uUOffset" },
+			{ name: "uindices", type: "vec3u", value: [20, 21, 22], webglUniform: "uUIndices" },
+			{ name: "umask", type: "vec4u", value: [23, 24, 25, 26], webglUniform: "uUMask" },
+			{
+				name: "matrix",
+				type: "mat4x4f",
+				value: [
+					[1, 2, 3, 4],
+					[5, 6, 7, 8],
+					[9, 10, 11, 12],
+					[13, 14, 15, 16],
+				],
+				webglUniform: "uMatrix",
+			},
+			{ name: "unused", type: "f32", value: 99, webglUniform: "uUnused" },
+		],
+	});
+	const customUniforms = {};
+	for (const binding of material.getUniformBindings()) {
+		customUniforms[binding.webglUniform] =
+			binding.webglUniform === "uUnused" ? null : binding.webglUniform;
+	}
+	const sceneProgram = { uniforms: { customUniforms } };
+	const host = { _gl: gl };
+
+	bindWebGLShaderMaterialUniforms(host, sceneProgram, material);
+
+	assert.deepEqual(gl.calls.uniform1f, [{ location: "uTime", value: 1.5 }]);
+	assert.deepEqual(gl.calls.uniform1i, [{ location: "uMode", value: 2 }]);
+	assert.deepEqual(gl.calls.uniform1ui, [{ location: "uFlags", value: 3 }]);
+	assert.deepEqual(gl.calls.uniform2fv[0], {
+		location: "uUVScale",
+		values: [4, 5],
+	});
+	assert.deepEqual(gl.calls.uniform3fv[0], {
+		location: "uNormal",
+		values: [6, 7, 8],
+	});
+	assert.deepEqual(gl.calls.uniform4fv[0], {
+		location: "uTint",
+		values: [1, 0.5, 0.25, 1],
+	});
+	assert.deepEqual(gl.calls.uniform2iv[0].values, [9, 10]);
+	assert.deepEqual(gl.calls.uniform3iv[0].values, [11, 12, 13]);
+	assert.deepEqual(gl.calls.uniform4iv[0].values, [14, 15, 16, 17]);
+	assert.deepEqual(gl.calls.uniform2uiv[0].values, [18, 19]);
+	assert.deepEqual(gl.calls.uniform3uiv[0].values, [20, 21, 22]);
+	assert.deepEqual(gl.calls.uniform4uiv[0].values, [23, 24, 25, 26]);
+	assert.deepEqual(gl.calls.uniformMatrix4fv[0], {
+		location: "uMatrix",
+		transpose: false,
+		values: [1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15, 4, 8, 12, 16],
+	});
+	assert.equal(gl.calls.uniform1f.length, 1);
 }
 
 function testWebGLBackendParticleDeltaTimeClamp() {
@@ -1520,6 +1640,7 @@ async function run() {
 	testGeometryRegistryUploadsUV1Attribute();
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets();
 	testDrawWebGLPacketAppliesMaterialDepthWriteState();
+	testShaderMaterialCustomUniformBinding();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();
 	console.log("WebGL backend v2 unit tests passed");

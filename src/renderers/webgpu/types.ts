@@ -200,6 +200,13 @@ export interface WebGPUTextureSlotData {
 	transformB: [number, number, number, number];
 }
 
+export interface WebGPUShaderUniformData {
+	cacheKey: string;
+	byteLength: number;
+	valueRevision: number;
+	data: Uint8Array<ArrayBuffer> | null;
+}
+
 export interface WebGPUMaterialUniformData {
 	baseColorFactor: [number, number, number, number];
 	emissiveFactor: [number, number, number, number];
@@ -214,6 +221,7 @@ export interface WebGPUMaterialUniformData {
 	attenuationColor: [number, number, number, number];
 	materialFlags: [number, number, number, number];
 	textureSlots: WebGPUTextureSlotData[];
+	shaderUniforms: WebGPUShaderUniformData;
 	pipelineKey: string;
 	warnings: WebGPUWarning[];
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Logger } from "../src/foundation/Logger.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { WebGPUPipelineLibrary } from "../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
 import { ShaderRuntime } from "../src/shaders/runtime/index.ts";
@@ -763,6 +764,147 @@ function testTextureBindingUvSetGreaterThanOneIsPreserved() {
 	assert.equal(bindings[0].uvSet, 2);
 }
 
+function testUniformBindingSchemaAndValueRevision() {
+	const material = new ShaderMaterial({ name: "UniformBindingMaterial" });
+	const initialShaderRevision = material.shaderRevision;
+	material.setUniformBindings([
+		{ name: "time", type: "f32", value: 1 },
+		{ name: "mode", type: "i32", value: 2, stage: "fragment" },
+		{ name: "flags", type: "u32", value: 3 },
+		{ name: "uvScale", type: "vec2f", value: [1, 2] },
+		{ name: "offset", type: "vec3i", value: [1, 2, 3] },
+		{ name: "mask", type: "vec4u", value: [1, 2, 3, 4] },
+		{ name: "transform", type: "mat4x4f", value: Matrix4.identity() },
+	]);
+	assert.ok(material.shaderRevision > initialShaderRevision);
+	const schemaRevision = material.shaderRevision;
+	const valueRevision = material.uniformValueRevision;
+	const bindings = material.getUniformBindings();
+	assert.equal(bindings.length, 7);
+	assert.equal(bindings[0].webglUniform, "uShaderUniform_time");
+	assert.equal(bindings[0].wgslField, "time");
+	assert.equal(bindings[1].stage, "fragment");
+	assert.deepEqual(bindings[3].value, [1, 2]);
+
+	const external = [4, 5];
+	material.setUniform("uvScale", external);
+	external[0] = 99;
+	assert.deepEqual(
+		material.getUniformBindings().find((binding) => binding.name === "uvScale")
+			.value,
+		[4, 5]
+	);
+	assert.equal(material.shaderRevision, schemaRevision);
+	assert.ok(material.uniformValueRevision > valueRevision);
+
+	assert.throws(
+		() => material.setUniform("missing", 1),
+		/not declared/
+	);
+	assert.throws(
+		() => material.setUniform("mode", 1.5),
+		/requires integer/
+	);
+	assert.throws(
+		() => material.setUniform("transform", Array(16).fill(1)),
+		/Matrix4 or number\[4\]\[4\]/
+	);
+}
+
+function testUniformBindingDuplicateDiagnostics() {
+	const material = new ShaderMaterial({ name: "UniformDuplicateDiagnostics" });
+	assert.throws(
+		() =>
+			material.setUniformBindings([
+				{ name: "a", type: "f32" },
+				{ name: "a", type: "i32" },
+			]),
+		/duplicate uniform binding/
+	);
+	assert.throws(
+		() =>
+			material.setUniformBindings([
+				{ name: "a", type: "f32", wgslField: "same" },
+				{ name: "b", type: "f32", wgslField: "same" },
+			]),
+		/duplicate WGSL field/
+	);
+	assert.throws(
+		() =>
+			material.setUniformBindings([
+				{ name: "a", type: "f32", webglUniform: "uSame" },
+				{ name: "b", type: "f32", webglUniform: "uSame" },
+			]),
+		/duplicate WebGL uniform/
+	);
+}
+
+function testUniformBindingInjectDirectivesDecoratePrograms() {
+	const material = new ShaderMaterial({
+		name: "UniformInjectMaterial",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: WEBGL_FRAGMENT,
+			},
+		],
+		uniformBindings: [
+			{
+				name: "vertexTime",
+				type: "f32",
+				stage: "vertex",
+				webglUniform: "uVertexTime",
+			},
+			{
+				name: "fragmentTint",
+				type: "vec4f",
+				stage: "fragment",
+				wgslField: "fragmentTint",
+				webglUniform: "uFragmentTint",
+			},
+		],
+	});
+
+	const webgpu = material.resolveWebGPUProgram("single", {
+		enableRuntimeInjects: true,
+	});
+	assert.ok(webgpu.vertexCode.includes("ignis/material/uniform-block"));
+	assert.ok(webgpu.vertexCode.includes("vertexTime:f32:uVertexTime"));
+	assert.ok(!webgpu.vertexCode.includes("fragmentTint:vec4f:uFragmentTint"));
+	assert.ok(webgpu.vertexCode.includes("__ignisPad_vertex_1:vec4f:uFragmentTint"));
+	assert.ok(webgpu.fragmentCode.includes("fragmentTint:vec4f:uFragmentTint"));
+	assert.ok(!webgpu.fragmentCode.includes("vertexTime:f32:uVertexTime"));
+	assert.ok(webgpu.fragmentCode.includes("__ignisPad_fragment_0:f32:uVertexTime"));
+
+	const webgl = material.resolveWebGLProgram({
+		enableRuntimeInjects: true,
+	});
+	assert.ok(webgl.vertexCode.trimStart().startsWith("#version 300 es"));
+	assert.ok(webgl.vertexCode.includes("vertexTime:f32:uVertexTime"));
+	assert.ok(!webgl.vertexCode.includes("__ignisPad"));
+	assert.ok(webgl.fragmentCode.includes("fragmentTint:vec4f:uFragmentTint"));
+	assert.ok(!webgl.fragmentCode.includes("__ignisPad"));
+}
+
 async function run() {
 	await testWGSLProgramSelection();
 	await testWebGPUDeferredProgramSelection();
@@ -780,6 +922,9 @@ async function run() {
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingInjectDirectivesDecoratePrograms();
 	testTextureBindingUvSetGreaterThanOneIsPreserved();
+	testUniformBindingSchemaAndValueRevision();
+	testUniformBindingDuplicateDiagnostics();
+	testUniformBindingInjectDirectivesDecoratePrograms();
 	console.log("ShaderMaterial tests passed");
 }
 

@@ -18,6 +18,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
@@ -41,6 +42,7 @@ type FloatBuffer = Float32Array<ArrayBuffer>;
 
 interface MaterialBindingEntry {
 	uniformBuffer: IRenderBuffer;
+	shaderUniformBuffer: IRenderBuffer | null;
 	animationParamsBuffer: IRenderBuffer;
 	jointMatricesBuffer: IRenderBuffer;
 	morphWeightsBuffer: IRenderBuffer;
@@ -54,6 +56,9 @@ interface MaterialBindingEntry {
 	previousModelMatrix: MatrixRows;
 	normalMatrix: MatrixRows;
 	materialSnapshot: FloatBuffer;
+	shaderUniformBufferSize: number;
+	shaderUniformCacheKey: string;
+	shaderUniformValueRevision: number;
 	hasModelSnapshot: boolean;
 	hasMaterialSnapshot: boolean;
 	hasPackedUniform: boolean;
@@ -80,6 +85,7 @@ interface MaterialBindingEntry {
 
 const MATERIAL_SNAPSHOT_FLOATS = (12 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
 const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
+const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
 export class WebGPUMaterialBindingCache {
 	private _backend: WebGPUBackend;
@@ -87,6 +93,7 @@ export class WebGPUMaterialBindingCache {
 	private _cache = new Map<string, MaterialBindingEntry>();
 	private _currentFrame = 0;
 	private _fallbackStorageBuffer: IRenderBuffer;
+	private _fallbackShaderUniformBuffer: IRenderBuffer;
 	private _destroyed = false;
 
 	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
@@ -97,7 +104,16 @@ export class WebGPUMaterialBindingCache {
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
 			label: "WebGPUFallbackAnimationStorageBuffer",
 		});
+		this._fallbackShaderUniformBuffer = this._backend.createBuffer({
+			size: 16,
+			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			label: "WebGPUFallbackShaderUniformBuffer",
+		});
 		this._backend.writeBuffer(this._fallbackStorageBuffer, FALLBACK_STORAGE_DATA);
+		this._backend.writeBuffer(
+			this._fallbackShaderUniformBuffer,
+			FALLBACK_UNIFORM_DATA
+		);
 	}
 
 	public beginFrame(): void {
@@ -111,6 +127,7 @@ export class WebGPUMaterialBindingCache {
 				this._destroyBindingGroup(entry.bindingGroup);
 				entry.bindingGroup = null;
 				entry.uniformBuffer.destroy();
+				entry.shaderUniformBuffer?.destroy();
 				entry.animationParamsBuffer.destroy();
 				entry.jointMatricesBuffer.destroy();
 				entry.morphWeightsBuffer.destroy();
@@ -127,12 +144,14 @@ export class WebGPUMaterialBindingCache {
 		for (const entry of this._cache.values()) {
 			this._destroyBindingGroup(entry.bindingGroup);
 			entry.uniformBuffer.destroy();
+			entry.shaderUniformBuffer?.destroy();
 			entry.animationParamsBuffer.destroy();
 			entry.jointMatricesBuffer.destroy();
 			entry.morphWeightsBuffer.destroy();
 		}
 		this._cache.clear();
 		this._fallbackStorageBuffer.destroy();
+		this._fallbackShaderUniformBuffer.destroy();
 	}
 
 	public getBinding(
@@ -163,6 +182,12 @@ export class WebGPUMaterialBindingCache {
 		const morphCapacity = Math.max(1, morphCount);
 
 		let requiresRebind = false;
+		requiresRebind =
+			this._updateShaderUniformBuffer(
+				cached,
+				cacheKey,
+				materialData
+			) || requiresRebind;
 		requiresRebind =
 			this._ensureJointBufferCapacity(cached, cacheKey, jointCapacity) ||
 			requiresRebind;
@@ -221,6 +246,12 @@ export class WebGPUMaterialBindingCache {
 				{
 					binding: WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 					resource: morphNormalBuffer,
+				},
+				{
+					binding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+					resource:
+						cached.shaderUniformBuffer ??
+						this._fallbackShaderUniformBuffer,
 				}
 			);
 			cached.bindingGroup = this._backend.createBindingGroup({
@@ -247,6 +278,7 @@ export class WebGPUMaterialBindingCache {
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: `ModelUniform_${cacheKey}`,
 			}),
+			shaderUniformBuffer: null,
 			animationParamsBuffer: this._backend.createBuffer({
 				size: WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
@@ -272,6 +304,9 @@ export class WebGPUMaterialBindingCache {
 			previousModelMatrix: createMatrixRows(),
 			normalMatrix: createMatrixRows(),
 			materialSnapshot: new Float32Array(MATERIAL_SNAPSHOT_FLOATS),
+			shaderUniformBufferSize: 0,
+			shaderUniformCacheKey: "none",
+			shaderUniformValueRevision: -1,
 			hasModelSnapshot: false,
 			hasMaterialSnapshot: false,
 			hasPackedUniform: false,
@@ -346,6 +381,51 @@ export class WebGPUMaterialBindingCache {
 		);
 		this._backend.writeBuffer(entry.uniformBuffer, uniformData);
 		entry.hasPackedUniform = true;
+	}
+
+	private _updateShaderUniformBuffer(
+		entry: MaterialBindingEntry,
+		cacheKey: string,
+		materialData: WebGPUMaterialUniformData
+	): boolean {
+		const shaderUniforms = materialData.shaderUniforms;
+		if (!shaderUniforms.data || shaderUniforms.byteLength <= 0) {
+			const hadBuffer = entry.shaderUniformBuffer !== null;
+			if (entry.shaderUniformBuffer) {
+				entry.shaderUniformBuffer.destroy();
+				entry.shaderUniformBuffer = null;
+			}
+			entry.shaderUniformBufferSize = 0;
+			entry.shaderUniformCacheKey = "none";
+			entry.shaderUniformValueRevision = shaderUniforms.valueRevision;
+			return hadBuffer;
+		}
+
+		const requiredSize = Math.max(16, shaderUniforms.byteLength);
+		let requiresRebind = false;
+		if (
+			!entry.shaderUniformBuffer ||
+			entry.shaderUniformBufferSize !== requiredSize
+		) {
+			entry.shaderUniformBuffer?.destroy();
+			entry.shaderUniformBuffer = this._backend.createBuffer({
+				size: requiredSize,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: `ShaderMaterialUniform_${cacheKey}`,
+			});
+			entry.shaderUniformBufferSize = requiredSize;
+			requiresRebind = true;
+		}
+
+		const mustWrite =
+			entry.shaderUniformCacheKey !== shaderUniforms.cacheKey ||
+			entry.shaderUniformValueRevision !== shaderUniforms.valueRevision;
+		if (mustWrite) {
+			this._backend.writeBuffer(entry.shaderUniformBuffer, shaderUniforms.data);
+			entry.shaderUniformCacheKey = shaderUniforms.cacheKey;
+			entry.shaderUniformValueRevision = shaderUniforms.valueRevision;
+		}
+		return requiresRebind;
 	}
 
 	private _updateAnimationBuffers(

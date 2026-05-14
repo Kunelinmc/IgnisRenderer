@@ -9,6 +9,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
@@ -242,6 +243,11 @@ export function createWebGPUPipelineLayouts(
 			binding: WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 			visibility: GPUShaderStage.VERTEX,
 			buffer: { type: "read-only-storage" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: { type: "uniform" },
 		}
 	);
 

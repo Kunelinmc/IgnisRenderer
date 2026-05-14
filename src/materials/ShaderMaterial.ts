@@ -1,4 +1,5 @@
 import type { Texture } from "../core/Texture";
+import { Matrix4 } from "../maths/Matrix4";
 import { Material, type MaterialParams, ShadingModel } from "./Material";
 
 export type ShaderTargetMode = "single" | "mrt" | "deferred";
@@ -43,6 +44,55 @@ export interface ResolvedShaderMaterialTextureBinding {
 	webglUniform: string;
 }
 
+export type ShaderMaterialUniformType =
+	| "f32"
+	| "i32"
+	| "u32"
+	| "vec2f"
+	| "vec3f"
+	| "vec4f"
+	| "vec2i"
+	| "vec3i"
+	| "vec4i"
+	| "vec2u"
+	| "vec3u"
+	| "vec4u"
+	| "mat4x4f";
+
+export type ShaderMaterialUniformStage = "vertex" | "fragment" | "both";
+
+export type ShaderMaterialUniformValue =
+	| number
+	| readonly number[]
+	| Float32Array
+	| Int32Array
+	| Uint32Array
+	| Matrix4
+	| number[][];
+
+export type ResolvedShaderMaterialUniformValue =
+	| number
+	| readonly number[]
+	| readonly (readonly number[])[];
+
+export interface ShaderMaterialUniformBinding {
+	name: string;
+	type: ShaderMaterialUniformType;
+	value?: ShaderMaterialUniformValue;
+	webglUniform?: string;
+	wgslField?: string;
+	stage?: ShaderMaterialUniformStage;
+}
+
+export interface ResolvedShaderMaterialUniformBinding {
+	name: string;
+	type: ShaderMaterialUniformType;
+	value: ResolvedShaderMaterialUniformValue;
+	webglUniform: string;
+	wgslField: string;
+	stage: ShaderMaterialUniformStage;
+}
+
 export interface ShaderMaterialParams extends MaterialParams {
 	vertexEntryPoint?: string;
 	fragmentSingleEntryPoint?: string;
@@ -56,6 +106,7 @@ export interface ShaderMaterialParams extends MaterialParams {
 	glslToWgsl?: ShaderMaterialGLSLToWGSL;
 	chunks?: ShaderChunk[];
 	textureBindings?: ShaderMaterialTextureBinding[];
+	uniformBindings?: ShaderMaterialUniformBinding[];
 }
 
 export interface ResolvedWebGPUShaderProgram {
@@ -105,6 +156,21 @@ interface ShaderMaterialTextureBindingRecord {
 	webglUniform: string;
 }
 
+interface ShaderMaterialUniformBindingRecord {
+	name: string;
+	type: ShaderMaterialUniformType;
+	value: ResolvedShaderMaterialUniformValue;
+	webglUniform: string;
+	wgslField: string;
+	stage: ShaderMaterialUniformStage;
+}
+
+interface ShaderMaterialUniformTypeInfo {
+	kind: "scalar" | "vector" | "matrix";
+	scalar: "f32" | "i32" | "u32";
+	components: 1 | 2 | 3 | 4 | 16;
+}
+
 const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
 	"webgpu:wgsl:vertex",
 	"webgpu:wgsl:fragment-single",
@@ -125,6 +191,23 @@ const SHADER_MATERIAL_TEXTURE_SLOT_COUNT = 14;
 export const SHADER_MATERIAL_MAX_TEXTURE_SLOTS =
 	SHADER_MATERIAL_TEXTURE_SLOT_COUNT;
 
+const SHADER_MATERIAL_UNIFORM_TYPE_INFO:
+	Record<ShaderMaterialUniformType, ShaderMaterialUniformTypeInfo> = {
+		f32: { kind: "scalar", scalar: "f32", components: 1 },
+		i32: { kind: "scalar", scalar: "i32", components: 1 },
+		u32: { kind: "scalar", scalar: "u32", components: 1 },
+		vec2f: { kind: "vector", scalar: "f32", components: 2 },
+		vec3f: { kind: "vector", scalar: "f32", components: 3 },
+		vec4f: { kind: "vector", scalar: "f32", components: 4 },
+		vec2i: { kind: "vector", scalar: "i32", components: 2 },
+		vec3i: { kind: "vector", scalar: "i32", components: 3 },
+		vec4i: { kind: "vector", scalar: "i32", components: 4 },
+		vec2u: { kind: "vector", scalar: "u32", components: 2 },
+		vec3u: { kind: "vector", scalar: "u32", components: 3 },
+		vec4u: { kind: "vector", scalar: "u32", components: 4 },
+		mat4x4f: { kind: "matrix", scalar: "f32", components: 16 },
+	};
+
 let SHADER_MATERIAL_ID = 1;
 
 export class ShaderMaterial extends Material {
@@ -140,8 +223,10 @@ export class ShaderMaterial extends Material {
 
 	private _chunks: Map<ShaderChunkKey, string>;
 	private _textureBindings: Map<string, ShaderMaterialTextureBindingRecord>;
+	private _uniformBindings: Map<string, ShaderMaterialUniformBindingRecord>;
 	private _glslToWgsl: ShaderMaterialGLSLToWGSL | null;
 	private _shaderRevision: number;
+	private _uniformValueRevision: number;
 
 	constructor(params: ShaderMaterialParams = {}) {
 		super({ ...params, shading: params.shading ?? ShadingModel.Flat });
@@ -158,8 +243,10 @@ export class ShaderMaterial extends Material {
 		this.deferredLighting = params.deferredLighting === true;
 		this._chunks = new Map<ShaderChunkKey, string>();
 		this._textureBindings = new Map();
+		this._uniformBindings = new Map();
 		this._glslToWgsl = params.glslToWgsl ?? null;
 		this._shaderRevision = 0;
+		this._uniformValueRevision = 0;
 
 		if (Array.isArray(params.chunks) && params.chunks.length > 0) {
 			this.setChunks(params.chunks);
@@ -179,10 +266,17 @@ export class ShaderMaterial extends Material {
 		if (Array.isArray(params.textureBindings) && params.textureBindings.length > 0) {
 			this.setTextureBindings(params.textureBindings);
 		}
+		if (Array.isArray(params.uniformBindings) && params.uniformBindings.length > 0) {
+			this.setUniformBindings(params.uniformBindings);
+		}
 	}
 
 	public get shaderRevision(): number {
 		return this._shaderRevision;
+	}
+
+	public get uniformValueRevision(): number {
+		return this._uniformValueRevision;
 	}
 
 	public get chunks(): ShaderChunk[] {
@@ -300,6 +394,133 @@ export class ShaderMaterial extends Material {
 		return this._resolveTextureBindings();
 	}
 
+	/**
+	 * Replaces the custom numeric uniform schema and values for this material.
+	 *
+	 * @param bindings - Complete set of custom uniform bindings to expose to
+	 * custom WebGPU/WebGL shader chunks.
+	 * @sideEffects Bumps `shaderRevision` when layout/schema changes. Bumps
+	 * `uniformValueRevision` when resolved values change.
+	 */
+	public setUniformBindings(bindings: ShaderMaterialUniformBinding[]): void {
+		const next = new Map<string, ShaderMaterialUniformBindingRecord>();
+		for (const binding of bindings) {
+			const normalized = this._normalizeUniformBinding(binding);
+			if (next.has(normalized.name)) {
+				throw new Error(
+					`ShaderMaterial has duplicate uniform binding "${normalized.name}".`
+				);
+			}
+			next.set(normalized.name, normalized);
+		}
+		this._validateUniformBindings(next);
+		const schemaChanged = this._didUniformBindingSchemaChange(next);
+		const valueChanged = this._didUniformBindingValuesChange(next);
+		if (!schemaChanged && !valueChanged) {
+			return;
+		}
+		this._uniformBindings = next;
+		if (schemaChanged) {
+			this._touchShaderRevision();
+		}
+		this._touchUniformValueRevision();
+	}
+
+	/**
+	 * Adds or replaces one custom numeric uniform binding.
+	 *
+	 * @param binding - Uniform schema and optional initial value to upsert.
+	 * @sideEffects Bumps `shaderRevision` only when schema fields change; value
+	 * only updates bump `uniformValueRevision`.
+	 */
+	public setUniformBinding(binding: ShaderMaterialUniformBinding): void {
+		const normalized = this._normalizeUniformBinding(binding);
+		const next = new Map(this._uniformBindings);
+		next.set(normalized.name, normalized);
+		this._validateUniformBindings(next);
+		const schemaChanged = this._didUniformBindingSchemaChange(next);
+		const valueChanged = this._didUniformBindingValuesChange(next);
+		if (!schemaChanged && !valueChanged) {
+			return;
+		}
+		this._uniformBindings = next;
+		if (schemaChanged) {
+			this._touchShaderRevision();
+		}
+		this._touchUniformValueRevision();
+	}
+
+	/**
+	 * Updates the value of an existing custom uniform binding.
+	 *
+	 * @param name - Binding name previously declared through
+	 * `setUniformBinding()` or `setUniformBindings()`.
+	 * @param value - New value matching the declared uniform type.
+	 * @sideEffects Bumps `uniformValueRevision` when the copied value differs.
+	 */
+	public setUniform(name: string, value: ShaderMaterialUniformValue): void {
+		const key = this._normalizeUniformBindingName(name);
+		const current = this._uniformBindings.get(key);
+		if (!current) {
+			throw new Error(
+				`ShaderMaterial uniform "${name}" is not declared; call setUniformBinding() before setUniform().`
+			);
+		}
+		const nextValue = this._normalizeUniformValue(current.type, value);
+		if (this._areUniformValuesEqual(current.value, nextValue)) {
+			return;
+		}
+		this._uniformBindings.set(key, {
+			...current,
+			value: nextValue,
+		});
+		this._touchUniformValueRevision();
+	}
+
+	/**
+	 * Removes a custom numeric uniform binding.
+	 *
+	 * @param name - Binding name to remove.
+	 * @returns `true` when a binding was removed.
+	 * @sideEffects Bumps shader and uniform value revisions when removed.
+	 */
+	public removeUniformBinding(name: string): boolean {
+		const key = this._normalizeUniformBindingName(name);
+		if (key.length <= 0) {
+			return false;
+		}
+		const removed = this._uniformBindings.delete(key);
+		if (removed) {
+			this._touchShaderRevision();
+			this._touchUniformValueRevision();
+		}
+		return removed;
+	}
+
+	/**
+	 * Clears every custom numeric uniform binding from this material.
+	 *
+	 * @sideEffects Bumps shader and uniform value revisions when bindings exist.
+	 */
+	public clearUniformBindings(): void {
+		if (this._uniformBindings.size <= 0) {
+			return;
+		}
+		this._uniformBindings.clear();
+		this._touchShaderRevision();
+		this._touchUniformValueRevision();
+	}
+
+	/**
+	 * Returns resolved custom numeric uniform bindings in declaration order.
+	 *
+	 * @returns Copies of resolved binding metadata and values.
+	 * @sideEffects None.
+	 */
+	public getUniformBindings(): ResolvedShaderMaterialUniformBinding[] {
+		return this._resolveUniformBindings();
+	}
+
 	public getWebGPUCacheKey(): string {
 		return [
 			this.shaderId,
@@ -321,15 +542,22 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode,
 		options: ShaderProgramResolveOptions = {}
 	): ResolvedWebGPUShaderProgram {
-		const vertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const rawVertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const vertexCode = this._decorateShaderSource(
+			rawVertexCode,
+			"wgsl",
+			"vertex",
+			options.enableRuntimeInjects === true
+		);
 		const fragmentStage =
 			mode === "deferred" ? "fragment-deferred"
 			: mode === "mrt" ? "fragment-mrt"
 			: "fragment-single";
 		const rawFragmentCode = this._resolveWebGPUStageCode(fragmentStage, mode);
-		const fragmentCode = this._decorateFragmentSource(
+		const fragmentCode = this._decorateShaderSource(
 			rawFragmentCode,
 			"wgsl",
+			"fragment",
 			options.enableRuntimeInjects === true
 		);
 		return {
@@ -367,14 +595,21 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode,
 		options: ShaderProgramResolveOptions = {}
 	): ResolvedWebGPUDepthPrepassProgram | null {
-		const vertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const rawVertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const vertexCode = this._decorateShaderSource(
+			rawVertexCode,
+			"wgsl",
+			"vertex",
+			options.enableRuntimeInjects === true
+		);
 		const rawDepthCode = this._resolveWebGPUDepthStageCode(mode);
 		if (!rawDepthCode) {
 			return null;
 		}
-		const fragmentCode = this._decorateFragmentSource(
+		const fragmentCode = this._decorateShaderSource(
 			rawDepthCode,
 			"wgsl",
+			"fragment",
 			options.enableRuntimeInjects === true
 		);
 		return {
@@ -414,10 +649,16 @@ export class ShaderMaterial extends Material {
 		}
 
 		return {
-			vertexCode,
-			fragmentCode: this._decorateFragmentSource(
+			vertexCode: this._decorateShaderSource(
+				vertexCode,
+				"glsl",
+				"vertex",
+				resolveOptions.enableRuntimeInjects === true
+			),
+			fragmentCode: this._decorateShaderSource(
 				rawFragmentCode,
 				"glsl",
+				"fragment",
 				resolveOptions.enableRuntimeInjects === true
 			),
 		};
@@ -793,6 +1034,206 @@ export class ShaderMaterial extends Material {
 		return trimmed;
 	}
 
+	private _normalizeUniformBinding(
+		binding: ShaderMaterialUniformBinding
+	): ShaderMaterialUniformBindingRecord {
+		const name = this._normalizeUniformBindingName(binding.name);
+		if (name.length <= 0) {
+			throw new Error("ShaderMaterial uniform binding name must be non-empty.");
+		}
+		const type = this._normalizeUniformType(binding.type);
+		const nameToken = this._toIdentifierToken(name);
+		const webglUniform =
+			this._normalizeShaderIdentifierName(binding.webglUniform, "WebGL uniform") ??
+			`uShaderUniform_${nameToken}`;
+		const wgslField =
+			this._normalizeShaderIdentifierName(binding.wgslField, "WGSL field") ??
+			nameToken;
+		const stage = this._normalizeUniformStage(binding.stage);
+		return {
+			name,
+			type,
+			value: this._normalizeUniformValue(type, binding.value),
+			webglUniform,
+			wgslField,
+			stage,
+		};
+	}
+
+	private _normalizeUniformBindingName(name: string): string {
+		if (typeof name !== "string") {
+			return "";
+		}
+		return name.trim();
+	}
+
+	private _normalizeUniformType(
+		type: ShaderMaterialUniformType
+	): ShaderMaterialUniformType {
+		if (
+			typeof type === "string" &&
+			type in SHADER_MATERIAL_UNIFORM_TYPE_INFO
+		) {
+			return type;
+		}
+		throw new Error(`Unsupported ShaderMaterial uniform type "${type}".`);
+	}
+
+	private _normalizeUniformStage(
+		stage: ShaderMaterialUniformStage | undefined
+	): ShaderMaterialUniformStage {
+		if (stage === "vertex" || stage === "fragment" || stage === "both") {
+			return stage;
+		}
+		return "both";
+	}
+
+	private _normalizeShaderIdentifierName(
+		name: string | undefined,
+		label: string
+	): string | null {
+		if (typeof name !== "string") {
+			return null;
+		}
+		const trimmed = name.trim();
+		if (trimmed.length <= 0) {
+			return null;
+		}
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+			throw new Error(
+				`Invalid ${label} name "${name}". Expected shader identifier.`
+			);
+		}
+		return trimmed;
+	}
+
+	private _normalizeUniformValue(
+		type: ShaderMaterialUniformType,
+		value: ShaderMaterialUniformValue | undefined
+	): ResolvedShaderMaterialUniformValue {
+		const info = SHADER_MATERIAL_UNIFORM_TYPE_INFO[type];
+		if (info.kind === "matrix") {
+			return this._normalizeUniformMatrixValue(value);
+		}
+		if (info.kind === "scalar") {
+			if (value === undefined) {
+				return 0;
+			}
+			if (typeof value !== "number") {
+				throw new Error(
+					`ShaderMaterial uniform type "${type}" expects a scalar number.`
+				);
+			}
+			return this._normalizeUniformNumber(value, info.scalar, type);
+		}
+		if (value === undefined) {
+			return Array.from({ length: info.components }, () => 0);
+		}
+		if (
+			typeof value === "number" ||
+			value instanceof Matrix4 ||
+			!this._isNumericArrayLike(value)
+		) {
+			throw new Error(
+				`ShaderMaterial uniform type "${type}" expects ${info.components} numeric components.`
+			);
+		}
+		if (value.length !== info.components) {
+			throw new Error(
+				`ShaderMaterial uniform type "${type}" expects ${info.components} components, got ${value.length}.`
+			);
+		}
+		return Array.from(value, (component) =>
+			this._normalizeUniformNumber(component, info.scalar, type)
+		);
+	}
+
+	private _normalizeUniformMatrixValue(
+		value: ShaderMaterialUniformValue | undefined
+	): readonly (readonly number[])[] {
+		if (value === undefined) {
+			return [
+				[0, 0, 0, 0],
+				[0, 0, 0, 0],
+				[0, 0, 0, 0],
+				[0, 0, 0, 0],
+			];
+		}
+		const rows = value instanceof Matrix4 ? value.elements : value;
+		if (
+			!Array.isArray(rows) ||
+			rows.length !== 4 ||
+			rows.some((row) => !Array.isArray(row) || row.length !== 4)
+		) {
+			throw new Error(
+				"ShaderMaterial mat4x4f uniforms require Matrix4 or number[4][4] row-major values."
+			);
+		}
+		return rows.map((row) =>
+			row.map((component) =>
+				this._normalizeUniformNumber(component, "f32", "mat4x4f")
+			)
+		);
+	}
+
+	private _normalizeUniformNumber(
+		value: number,
+		scalar: "f32" | "i32" | "u32",
+		type: ShaderMaterialUniformType
+	): number {
+		if (!Number.isFinite(value)) {
+			throw new Error(
+				`ShaderMaterial uniform type "${type}" received a non-finite value.`
+			);
+		}
+		if (scalar === "f32") {
+			return value;
+		}
+		if (!Number.isInteger(value)) {
+			throw new Error(
+				`ShaderMaterial uniform type "${type}" requires integer values.`
+			);
+		}
+		if (scalar === "u32" && value < 0) {
+			throw new Error(
+				`ShaderMaterial uniform type "${type}" requires unsigned integer values.`
+			);
+		}
+		return value;
+	}
+
+	private _isNumericArrayLike(
+		value: unknown
+	): value is readonly number[] | Float32Array | Int32Array | Uint32Array {
+		return (
+			Array.isArray(value) ||
+			value instanceof Float32Array ||
+			value instanceof Int32Array ||
+			value instanceof Uint32Array
+		);
+	}
+
+	private _validateUniformBindings(
+		bindings: Map<string, ShaderMaterialUniformBindingRecord>
+	): void {
+		const webglUniforms = new Set<string>();
+		const wgslFields = new Set<string>();
+		for (const binding of bindings.values()) {
+			if (webglUniforms.has(binding.webglUniform)) {
+				throw new Error(
+					`ShaderMaterial has duplicate WebGL uniform "${binding.webglUniform}".`
+				);
+			}
+			if (wgslFields.has(binding.wgslField)) {
+				throw new Error(
+					`ShaderMaterial has duplicate WGSL field "${binding.wgslField}".`
+				);
+			}
+			webglUniforms.add(binding.webglUniform);
+			wgslFields.add(binding.wgslField);
+		}
+	}
+
 	private _resolveTextureBindings(): ResolvedShaderMaterialTextureBinding[] {
 		if (this._textureBindings.size <= 0) {
 			return [];
@@ -896,15 +1337,50 @@ export class ShaderMaterial extends Material {
 		);
 	}
 
-	private _decorateFragmentSource(
+	private _buildUniformBindingInjectBlock(
+		language: ShaderChunkLanguage,
+		stage: "vertex" | "fragment"
+	): string {
+		const allBindings = this._resolveUniformBindings();
+		const activeBindings = allBindings.filter(
+			(binding) => binding.stage === "both" || binding.stage === stage
+		);
+		if (activeBindings.length <= 0) {
+			return "";
+		}
+		const bindings =
+			language === "wgsl" ?
+				this._buildWGSLUniformLayoutBindings(allBindings, stage)
+			:	activeBindings;
+		const fields = bindings
+			.map((binding) =>
+				[
+					binding.wgslField,
+					binding.type,
+					binding.webglUniform,
+				].join(":")
+			)
+			.join(";");
+		return (
+			`#inject <ignis/material/uniform-block>(` +
+			`fields="${this._escapeInjectString(fields)}")`
+		);
+	}
+
+	private _decorateShaderSource(
 		code: string,
 		language: ShaderChunkLanguage,
+		stage: "vertex" | "fragment",
 		enableRuntimeInjects: boolean
 	): string {
 		if (!enableRuntimeInjects) {
 			return code;
 		}
-		const injectBlock = this._buildTextureBindingInjectBlock(language);
+		const injectBlocks = [
+			this._buildUniformBindingInjectBlock(language, stage),
+			stage === "fragment" ? this._buildTextureBindingInjectBlock(language) : "",
+		].filter((block) => block.length > 0);
+		const injectBlock = injectBlocks.join("\n");
 		if (injectBlock.length <= 0) {
 			return code;
 		}
@@ -917,6 +1393,37 @@ export class ShaderMaterial extends Material {
 			}
 		}
 		return `${injectBlock}\n${code}`;
+	}
+
+	private _buildWGSLUniformLayoutBindings(
+		bindings: ResolvedShaderMaterialUniformBinding[],
+		stage: "vertex" | "fragment"
+	): ResolvedShaderMaterialUniformBinding[] {
+		const usedFields = new Set(bindings.map((binding) => binding.wgslField));
+		return bindings.map((binding, index) => {
+			if (binding.stage === "both" || binding.stage === stage) {
+				return binding;
+			}
+			return {
+				...binding,
+				wgslField: this._createWGSLPaddingField(stage, index, usedFields),
+			};
+		});
+	}
+
+	private _createWGSLPaddingField(
+		stage: "vertex" | "fragment",
+		index: number,
+		usedFields: Set<string>
+	): string {
+		let suffix = 0;
+		let field = `__ignisPad_${stage}_${index}`;
+		while (usedFields.has(field)) {
+			suffix++;
+			field = `__ignisPad_${stage}_${index}_${suffix}`;
+		}
+		usedFields.add(field);
+		return field;
 	}
 
 	private _toIdentifierToken(value: string): string {
@@ -967,7 +1474,116 @@ export class ShaderMaterial extends Material {
 		return false;
 	}
 
+	private _resolveUniformBindings(): ResolvedShaderMaterialUniformBinding[] {
+		return [...this._uniformBindings.values()].map((binding) => ({
+			name: binding.name,
+			type: binding.type,
+			value: this._cloneUniformValue(binding.value),
+			webglUniform: binding.webglUniform,
+			wgslField: binding.wgslField,
+			stage: binding.stage,
+		}));
+	}
+
+	private _cloneUniformValue(
+		value: ResolvedShaderMaterialUniformValue
+	): ResolvedShaderMaterialUniformValue {
+		if (typeof value === "number") {
+			return value;
+		}
+		if (value.length > 0 && Array.isArray(value[0])) {
+			return (value as readonly (readonly number[])[]).map((row) =>
+				row.slice()
+			);
+		}
+		return (value as readonly number[]).slice();
+	}
+
+	private _didUniformBindingSchemaChange(
+		next: Map<string, ShaderMaterialUniformBindingRecord>
+	): boolean {
+		if (next.size !== this._uniformBindings.size) {
+			return true;
+		}
+		const currentKeys = [...this._uniformBindings.keys()];
+		const nextKeys = [...next.keys()];
+		for (let i = 0; i < nextKeys.length; i++) {
+			if (currentKeys[i] !== nextKeys[i]) {
+				return true;
+			}
+		}
+		for (const [key, value] of next) {
+			const current = this._uniformBindings.get(key);
+			if (!current) {
+				return true;
+			}
+			if (
+				current.type !== value.type ||
+				current.webglUniform !== value.webglUniform ||
+				current.wgslField !== value.wgslField ||
+				current.stage !== value.stage
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private _didUniformBindingValuesChange(
+		next: Map<string, ShaderMaterialUniformBindingRecord>
+	): boolean {
+		if (next.size !== this._uniformBindings.size) {
+			return true;
+		}
+		for (const [key, value] of next) {
+			const current = this._uniformBindings.get(key);
+			if (!current || !this._areUniformValuesEqual(current.value, value.value)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private _areUniformValuesEqual(
+		left: ResolvedShaderMaterialUniformValue,
+		right: ResolvedShaderMaterialUniformValue
+	): boolean {
+		if (typeof left === "number" || typeof right === "number") {
+			return left === right;
+		}
+		if (left.length !== right.length) {
+			return false;
+		}
+		for (let i = 0; i < left.length; i++) {
+			const leftValue = left[i];
+			const rightValue = right[i];
+			if (Array.isArray(leftValue) || Array.isArray(rightValue)) {
+				if (
+					!Array.isArray(leftValue) ||
+					!Array.isArray(rightValue) ||
+					leftValue.length !== rightValue.length
+				) {
+					return false;
+				}
+				for (let j = 0; j < leftValue.length; j++) {
+					if (leftValue[j] !== rightValue[j]) {
+						return false;
+					}
+				}
+				continue;
+			}
+			if (leftValue !== rightValue) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	private _touchShaderRevision(): void {
 		this._shaderRevision++;
+	}
+
+	private _touchUniformValueRevision(): void {
+		this._uniformValueRevision++;
 	}
 }

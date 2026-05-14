@@ -155,6 +155,7 @@ import {
 	type WebGLShadowPassHost,
 } from "./WebGLShadowPass";
 import {
+	bindWebGLShaderMaterialUniforms,
 	bindWebGLShaderMaterialTextures,
 	drawWebGLPacket,
 	renderWebGLPackets,
@@ -1436,6 +1437,17 @@ export class WebGLFrameExecutor {
 		material: Material
 	): void {
 		bindWebGLShaderMaterialTextures(
+			this as unknown as WebGLScenePassHost,
+			sceneProgram,
+			material
+		);
+	}
+
+	private _bindShaderMaterialUniforms(
+		sceneProgram: WebGLSceneProgram,
+		material: Material
+	): void {
+		bindWebGLShaderMaterialUniforms(
 			this as unknown as WebGLScenePassHost,
 			sceneProgram,
 			material

@@ -467,11 +467,13 @@ export class WebGLProgramLibrary {
 
 		let source: { vertexCode: string; fragmentCode: string };
 		let customSamplerUniforms: string[] = [];
+		let customUniforms: string[] = [];
 		try {
 			source = material.resolveWebGLProgram(mode, {
 				enableRuntimeInjects: this._supportsRuntimeInjects(),
 			});
 			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
+			customUniforms = this._collectCustomUniforms(material);
 		} catch (error) {
 			const key = `webgl-shader-material-missing-source-${material.shaderId}`;
 			const message =
@@ -508,6 +510,7 @@ export class WebGLProgramLibrary {
 					sourceKind: "custom-material",
 				},
 				customSamplerUniforms,
+				customUniforms,
 			);
 		} catch (error) {
 			if (!this._isWarnMode()) {
@@ -546,6 +549,7 @@ export class WebGLProgramLibrary {
 		vertexMetadata?: ShaderCompileMetadata,
 		fragmentMetadata?: ShaderCompileMetadata,
 		customSamplerUniforms: string[] = [],
+		customUniforms: string[] = [],
 	): WebGLSceneProgram {
 		const program = this._createProgram(
 			vertexSource,
@@ -559,7 +563,8 @@ export class WebGLProgramLibrary {
 			uniforms: createWebGLSceneUniforms(
 				this._gl,
 				program,
-				customSamplerUniforms
+				customSamplerUniforms,
+				customUniforms
 			),
 		};
 	}
@@ -1162,6 +1167,17 @@ export class WebGLProgramLibrary {
 	private _collectCustomSamplerUniforms(material: ShaderMaterial): string[] {
 		const uniforms = new Set<string>();
 		for (const binding of material.getTextureBindings()) {
+			if (binding.webglUniform.trim().length <= 0) {
+				continue;
+			}
+			uniforms.add(binding.webglUniform);
+		}
+		return [...uniforms];
+	}
+
+	private _collectCustomUniforms(material: ShaderMaterial): string[] {
+		const uniforms = new Set<string>();
+		for (const binding of material.getUniformBindings()) {
 			if (binding.webglUniform.trim().length <= 0) {
 				continue;
 			}

@@ -61,6 +61,7 @@ import {
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
@@ -248,6 +249,25 @@ function testMaterialAdaptation() {
 	});
 	const unlitData = createWebGPUMaterialUniformData(unlit);
 	assert.equal(unlitData.materialFlags[0], 2);
+
+	const shader = new ShaderMaterial({
+		uniformBindings: [
+			{ name: "time", type: "f32", value: 2 },
+			{ name: "mode", type: "i32", value: 7 },
+			{ name: "flags", type: "u32", value: 3 },
+			{ name: "tint", type: "vec4f", value: [1, 0.5, 0.25, 1] },
+		],
+	});
+	const shaderData = createWebGPUMaterialUniformData(shader);
+	assert.notEqual(shaderData.shaderUniforms.data, null);
+	assert.ok(shaderData.shaderUniforms.byteLength >= 32);
+	assert.ok(shaderData.shaderUniforms.cacheKey.includes("time:f32"));
+	assert.equal(shaderData.shaderUniforms.valueRevision, shader.uniformValueRevision);
+	const shaderRevision = shader.shaderRevision;
+	shader.setUniform("time", 3);
+	const shaderDataUpdated = createWebGPUMaterialUniformData(shader);
+	assert.equal(shaderDataUpdated.shaderUniforms.valueRevision, shader.uniformValueRevision);
+	assert.equal(shader.shaderRevision, shaderRevision);
 }
 
 function testFeatureGate() {
@@ -1058,7 +1078,12 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
-			5
+			6
+	);
+	assert.ok(
+		firstDraw.modelBinding.desc.entries.some(
+			(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
+		)
 	);
 	assert.equal(
 		firstDraw.pipeline.desc.layout,
@@ -1569,6 +1594,118 @@ fn customFs() -> @location(0) vec4<f32> {
 	const earlyZColorPipelineDesc = earlyZColorDraw[0].pipeline.desc;
 	assert.equal(earlyZColorPipelineDesc.depthStencil.depthWriteEnabled, false);
 	assert.equal(earlyZColorPipelineDesc.depthStencil.depthCompare, "less");
+}
+
+async function testWebGPUShaderMaterialCustomUniformBufferBinding() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const shaderMaterial = new ShaderMaterial({
+		name: "CustomUniformShader",
+		vertexEntryPoint: "customVs",
+		fragmentSingleEntryPoint: "customFs",
+		uniformBindings: [
+			{ name: "time", type: "f32", value: 1 },
+		],
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: /* wgsl */ `
+@vertex
+fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+	return vec4<f32>(position, 1.0);
+}
+`,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: /* wgsl */ `
+@fragment
+fn customFs() -> @location(0) vec4<f32> {
+	return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+`,
+			},
+		],
+	});
+	const model = createModel([shaderMaterial]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	await resources.init();
+	resources.prepareFrame(
+		frame,
+		resolveFeatureState(
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: true,
+			},
+			{
+				sh: false,
+				shadows: true,
+				reflection: false,
+				environment: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+			"webgpu"
+		)
+	);
+
+	const firstDraw = await resources.getDrawResources(packet);
+	assert.ok(firstDraw && firstDraw.length > 0);
+	const firstUniformEntry = firstDraw[0].modelBinding.desc.entries.find(
+		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
+	);
+	assert.ok(firstUniformEntry);
+	assert.ok(
+		String(firstUniformEntry.resource.label).startsWith(
+			"ShaderMaterialUniform_"
+		)
+	);
+	assert.deepEqual(firstUniformEntry.resource.lastWrite.slice(0, 4), [
+		0,
+		0,
+		128,
+		63,
+	]);
+
+	const firstResource = firstUniformEntry.resource;
+	shaderMaterial.setUniform("time", 2);
+	const secondDraw = await resources.getDrawResources(packet);
+	const secondUniformEntry = secondDraw[0].modelBinding.desc.entries.find(
+		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
+	);
+	assert.strictEqual(secondUniformEntry.resource, firstResource);
+	assert.deepEqual(secondUniformEntry.resource.lastWrite.slice(0, 4), [
+		0,
+		0,
+		0,
+		64,
+	]);
+
+	shaderMaterial.setUniformBinding({
+		name: "transform",
+		type: "mat4x4f",
+		value: Matrix4.identity(),
+	});
+	const thirdDraw = await resources.getDrawResources(packet);
+	const thirdUniformEntry = thirdDraw[0].modelBinding.desc.entries.find(
+		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
+	);
+	assert.notStrictEqual(thirdUniformEntry.resource, firstResource);
+	assert.ok(thirdUniformEntry.resource.size > firstResource.size);
 }
 
 async function testWebGPUOITTransparentPipelineUsesDualTargets() {
@@ -3005,6 +3142,7 @@ async function run() {
 	await testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState();
 	await testWebGPUEarlyZShaderMaterialDepthContract();
 	await testWebGPUShaderMaterialDepthWriteFalseSkipsDepthPrepass();
+	await testWebGPUShaderMaterialCustomUniformBufferBinding();
 	await testWebGPUOITTransparentPipelineUsesDualTargets();
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();

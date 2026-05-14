@@ -23,12 +23,32 @@ import {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 7;
+const PROFILE_REVISION = 8;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
+const MATERIAL_SHADER_UNIFORM_BINDING = 38;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 type LumaProfile = "bt601" | "bt709";
 type VecDimension = 2 | 3 | 4;
+type ShaderMaterialUniformType =
+	| "f32"
+	| "i32"
+	| "u32"
+	| "vec2f"
+	| "vec3f"
+	| "vec4f"
+	| "vec2i"
+	| "vec3i"
+	| "vec4i"
+	| "vec2u"
+	| "vec3u"
+	| "vec4u"
+	| "mat4x4f";
+interface ShaderMaterialUniformField {
+	wgslField: string;
+	type: ShaderMaterialUniformType;
+	webglUniform: string;
+}
 const FXAA_EDGE_THRESHOLD_MIN_LITERAL = toShaderFloat(
 	FXAA_EDGE_THRESHOLD_MIN
 );
@@ -172,6 +192,126 @@ function hasGLSLSamplerUniform(source: string, uniformName: string): boolean {
 		"m"
 	);
 	return pattern.test(source);
+}
+
+function hasGLSLUniform(source: string, uniformName: string): boolean {
+	const pattern = new RegExp(
+		`\\buniform\\s+[A-Za-z_][A-Za-z0-9_]*(?:\\s*<[^>]+>)?\\s+${uniformName}\\b`,
+		"m"
+	);
+	return pattern.test(source);
+}
+
+function parseMaterialUniformFields(
+	value: ShaderInjectionArgValue | undefined
+): ShaderMaterialUniformField[] {
+	if (typeof value !== "string" || value.trim().length <= 0) {
+		return [];
+	}
+	const fields: ShaderMaterialUniformField[] = [];
+	for (const rawField of value.split(";")) {
+		const trimmed = rawField.trim();
+		if (trimmed.length <= 0) {
+			continue;
+		}
+		const [rawWgslField, rawType, rawWebglUniform] = trimmed.split(":");
+		const wgslField = normalizeIdentifierToken(rawWgslField, "field");
+		const webglUniform = normalizeIdentifierToken(rawWebglUniform, "uShaderUniform");
+		const type = normalizeMaterialUniformType(rawType);
+		fields.push({
+			wgslField,
+			type,
+			webglUniform,
+		});
+	}
+	return fields;
+}
+
+function normalizeMaterialUniformType(
+	value: string | undefined
+): ShaderMaterialUniformType {
+	switch (value) {
+		case "f32":
+		case "i32":
+		case "u32":
+		case "vec2f":
+		case "vec3f":
+		case "vec4f":
+		case "vec2i":
+		case "vec3i":
+		case "vec4i":
+		case "vec2u":
+		case "vec3u":
+		case "vec4u":
+		case "mat4x4f":
+			return value;
+		default:
+			return "f32";
+	}
+}
+
+function getWGSLUniformType(type: ShaderMaterialUniformType): string {
+	switch (type) {
+		case "i32":
+			return "i32";
+		case "u32":
+			return "u32";
+		case "vec2f":
+			return "vec2<f32>";
+		case "vec3f":
+			return "vec3<f32>";
+		case "vec4f":
+			return "vec4<f32>";
+		case "vec2i":
+			return "vec2<i32>";
+		case "vec3i":
+			return "vec3<i32>";
+		case "vec4i":
+			return "vec4<i32>";
+		case "vec2u":
+			return "vec2<u32>";
+		case "vec3u":
+			return "vec3<u32>";
+		case "vec4u":
+			return "vec4<u32>";
+		case "mat4x4f":
+			return "mat4x4<f32>";
+		case "f32":
+		default:
+			return "f32";
+	}
+}
+
+function getGLSLUniformType(type: ShaderMaterialUniformType): string {
+	switch (type) {
+		case "i32":
+			return "int";
+		case "u32":
+			return "uint";
+		case "vec2f":
+			return "vec2";
+		case "vec3f":
+			return "vec3";
+		case "vec4f":
+			return "vec4";
+		case "vec2i":
+			return "ivec2";
+		case "vec3i":
+			return "ivec3";
+		case "vec4i":
+			return "ivec4";
+		case "vec2u":
+			return "uvec2";
+		case "vec3u":
+			return "uvec3";
+		case "vec4u":
+			return "uvec4";
+		case "mat4x4f":
+			return "mat4";
+		case "f32":
+		default:
+			return "float";
+	}
 }
 
 function findWGSLBindingVariableName(
@@ -341,6 +481,64 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 	};
 }
 
+function createMaterialUniformBlockInjectionScript(): ShaderInjectionScript {
+	return {
+		id: "ignis/material/uniform-block",
+		description:
+			"Inject per-material numeric uniform declarations for custom shader materials.",
+		run(args, context) {
+			if (
+				context.sourceKind !== "custom-material" ||
+				(context.stage !== "vertex" && context.stage !== "fragment")
+			) {
+				return null;
+			}
+
+			const fields = parseMaterialUniformFields(args.fields);
+			if (fields.length <= 0) {
+				return null;
+			}
+
+			if (context.language === "glsl") {
+				const declarations = fields
+					.filter((field) => !hasGLSLUniform(context.source, field.webglUniform))
+					.map(
+						(field) =>
+							`uniform ${getGLSLUniformType(field.type)} ${field.webglUniform};`
+					);
+				if (declarations.length <= 0) {
+					return null;
+				}
+				return {
+					header: declarations.join("\n"),
+					symbols: fields.map((field) => field.webglUniform),
+					headerAnchor: "afterUniforms",
+				};
+			}
+
+			const structFields = fields
+				.map(
+					(field) =>
+						`\t${field.wgslField}: ${getWGSLUniformType(field.type)},`
+				)
+				.join("\n");
+			const header =
+				`struct IgnisShaderUniforms {\n${structFields}\n}\n` +
+				`@group(1) @binding(${MATERIAL_SHADER_UNIFORM_BINDING}) ` +
+				`var<uniform> ignisShaderUniforms: IgnisShaderUniforms;`;
+			return {
+				header,
+				symbols: [
+					"IgnisShaderUniforms",
+					"ignisShaderUniforms",
+					...fields.map((field) => field.wgslField),
+				],
+				headerAnchor: "afterStruct",
+			};
+		},
+	};
+}
+
 function createWebGPUProfile(): ShaderDirectiveProfile {
 	return {
 		id: WEBGPU_PROFILE_ID,
@@ -459,6 +657,7 @@ fn ignisLumaInternal(
 		],
 		injectionScripts: [
 			createPostProcessLumaInjectionScript(),
+			createMaterialUniformBlockInjectionScript(),
 			createMaterialTextureBindingInjectionScript(),
 		],
 	};
@@ -553,6 +752,7 @@ float ignisLumaInternal(vec3 color, vec3 weights, bool clampInput) {
 		],
 		injectionScripts: [
 			createPostProcessLumaInjectionScript(),
+			createMaterialUniformBlockInjectionScript(),
 			createMaterialTextureBindingInjectionScript(),
 		],
 	};

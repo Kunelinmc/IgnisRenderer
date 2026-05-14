@@ -10,10 +10,23 @@ import {
 	materialUsesTransmission,
 } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
+import type {
+	ResolvedShaderMaterialUniformBinding,
+	ShaderMaterialUniformType,
+} from "../../materials/ShaderMaterial";
 import type { Texture } from "../../core/Texture";
 
 import { WEBGPU_TEXTURE_SLOT, WEBGPU_TEXTURE_SLOT_COUNT } from "./constants";
+import {
+	StructuredBufferLayout,
+	mat4x4f32,
+	scalar,
+	structOf,
+	vec,
+	type BufferTypeSchema,
+} from "./StructuredBufferLayout";
 import type {
+	WebGPUShaderUniformData,
 	WebGPUMaterialUniformData,
 	WebGPUTextureSlotData,
 	WebGPUWarning,
@@ -81,6 +94,7 @@ export function createWebGPUMaterialUniformData(
 	const phongShininess = Math.max(mat.shininess ?? 32, 0);
 	const emissiveIntensity = clamp(mat.emissiveIntensity ?? 1, 0, 64);
 	const textureSlots = createMaterialTextureSlots(material);
+	const shaderUniforms = createShaderUniformData(material);
 
 	pushMaterialWarnings(material, warnings);
 
@@ -138,6 +152,7 @@ export function createWebGPUMaterialUniformData(
 			isWireframe ? 1 : 0,
 		],
 		textureSlots,
+		shaderUniforms,
 		pipelineKey: [
 			material.cullMode,
 			alphaModeMask
@@ -282,6 +297,117 @@ function createMaterialTextureSlots(
 	}
 
 	return slots;
+}
+
+function createShaderUniformData(material: Material): WebGPUShaderUniformData {
+	if (!(material instanceof ShaderMaterial)) {
+		return createEmptyShaderUniformData();
+	}
+	const bindings = material.getUniformBindings();
+	if (bindings.length <= 0) {
+		return createEmptyShaderUniformData(material.uniformValueRevision);
+	}
+
+	const layout = new StructuredBufferLayout(
+		structOf(
+			bindings.map((binding) => ({
+				name: binding.wgslField,
+				type: createShaderUniformTypeSchema(binding.type),
+			}))
+		),
+		"uniform"
+	);
+	const writer = layout.createWriter();
+	writer.expectByteLength(layout.byteSize, "ShaderMaterialUniforms");
+	for (const binding of bindings) {
+		writeShaderUniformValue(writer, binding);
+	}
+	const data = new Uint8Array(writer.toArrayBuffer()).slice();
+	return {
+		cacheKey: bindings
+			.map((binding) =>
+				[
+					binding.wgslField,
+					binding.type,
+					binding.stage,
+				].join(":")
+			)
+			.join("|"),
+		byteLength: Math.max(16, layout.byteSize),
+		valueRevision: material.uniformValueRevision,
+		data,
+	};
+}
+
+function createEmptyShaderUniformData(
+	valueRevision = 0
+): WebGPUShaderUniformData {
+	return {
+		cacheKey: "none",
+		byteLength: 16,
+		valueRevision,
+		data: null,
+	};
+}
+
+function createShaderUniformTypeSchema(
+	type: ShaderMaterialUniformType
+): BufferTypeSchema {
+	switch (type) {
+		case "i32":
+			return scalar("i32");
+		case "u32":
+			return scalar("u32");
+		case "vec2f":
+			return vec(2, "f32");
+		case "vec3f":
+			return vec(3, "f32");
+		case "vec4f":
+			return vec(4, "f32");
+		case "vec2i":
+			return vec(2, "i32");
+		case "vec3i":
+			return vec(3, "i32");
+		case "vec4i":
+			return vec(4, "i32");
+		case "vec2u":
+			return vec(2, "u32");
+		case "vec3u":
+			return vec(3, "u32");
+		case "vec4u":
+			return vec(4, "u32");
+		case "mat4x4f":
+			return mat4x4f32();
+		case "f32":
+		default:
+			return scalar("f32");
+	}
+}
+
+function writeShaderUniformValue(
+	writer: ReturnType<StructuredBufferLayout["createWriter"]>,
+	binding: ResolvedShaderMaterialUniformBinding
+): void {
+	if (binding.type === "mat4x4f") {
+		writer.writeMat4(
+			binding.wgslField,
+			binding.value as number[][]
+		);
+		return;
+	}
+	if (binding.type === "f32") {
+		writer.writeF32(binding.wgslField, binding.value as number);
+		return;
+	}
+	if (binding.type === "i32") {
+		writer.writeI32(binding.wgslField, binding.value as number);
+		return;
+	}
+	if (binding.type === "u32") {
+		writer.writeU32(binding.wgslField, binding.value as number);
+		return;
+	}
+	writer.writeVec(binding.wgslField, binding.value as readonly number[]);
 }
 
 function createTextureSlot(

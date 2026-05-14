@@ -6,6 +6,7 @@ import { isMaterialTransparentPass } from "../../materials/transparency";
 import {
 	ShaderMaterial,
 	type ShaderTargetMode,
+	type ResolvedShaderMaterialUniformBinding,
 } from "../../materials/ShaderMaterial";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
@@ -96,6 +97,10 @@ export interface WebGLScenePassHost {
 		context: FrameContext
 	): void;
 	_bindShaderMaterialTextures(
+		sceneProgram: WebGLSceneProgram,
+		material: Material
+	): void;
+	_bindShaderMaterialUniforms(
 		sceneProgram: WebGLSceneProgram,
 		material: Material
 	): void;
@@ -332,6 +337,7 @@ export function drawWebGLPacket(
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceThicknessMap.texture);
 	host._bindShaderMaterialTextures(sceneProgram, material);
+	host._bindShaderMaterialUniforms(sceneProgram, material);
 
 	host._setCullMode(material);
 	gl.bindVertexArray(geometry.vao);
@@ -679,5 +685,80 @@ export function bindWebGLShaderMaterialTextures(
 		textureUnit++;
 	}
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
+}
+
+export function bindWebGLShaderMaterialUniforms(
+	host: WebGLScenePassHost,
+	sceneProgram: WebGLSceneProgram,
+	material: Material
+): void {
+	if (!(material instanceof ShaderMaterial)) {
+		return;
+	}
+	const bindings = material.getUniformBindings();
+	if (bindings.length <= 0) {
+		return;
+	}
+	const gl = host._gl;
+	for (const binding of bindings) {
+		const uniform = sceneProgram.uniforms.customUniforms[binding.webglUniform];
+		if (!uniform) {
+			continue;
+		}
+		bindWebGLShaderMaterialUniform(gl, uniform, binding);
+	}
+}
+
+function bindWebGLShaderMaterialUniform(
+	gl: WebGL2RenderingContext,
+	uniform: WebGLUniformLocation,
+	binding: ResolvedShaderMaterialUniformBinding
+): void {
+	const value = binding.value;
+	switch (binding.type) {
+		case "f32":
+			gl.uniform1f(uniform, value as number);
+			break;
+		case "i32":
+			gl.uniform1i(uniform, value as number);
+			break;
+		case "u32":
+			gl.uniform1ui(uniform, value as number);
+			break;
+		case "vec2f":
+			gl.uniform2fv(uniform, value as readonly number[]);
+			break;
+		case "vec3f":
+			gl.uniform3fv(uniform, value as readonly number[]);
+			break;
+		case "vec4f":
+			gl.uniform4fv(uniform, value as readonly number[]);
+			break;
+		case "vec2i":
+			gl.uniform2iv(uniform, value as readonly number[]);
+			break;
+		case "vec3i":
+			gl.uniform3iv(uniform, value as readonly number[]);
+			break;
+		case "vec4i":
+			gl.uniform4iv(uniform, value as readonly number[]);
+			break;
+		case "vec2u":
+			gl.uniform2uiv(uniform, value as readonly number[]);
+			break;
+		case "vec3u":
+			gl.uniform3uiv(uniform, value as readonly number[]);
+			break;
+		case "vec4u":
+			gl.uniform4uiv(uniform, value as readonly number[]);
+			break;
+		case "mat4x4f":
+			gl.uniformMatrix4fv(
+				uniform,
+				false,
+				toColumnMajorMat4(value as number[][])
+			);
+			break;
+	}
 }
 

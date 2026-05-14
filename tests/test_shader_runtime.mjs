@@ -6,6 +6,7 @@ import {
 	parseWebGLShaderInfoLog,
 	SOURCE_MAP_SCHEMA_VERSION,
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
 } from "../src/shaders/runtime/index.ts";
 
@@ -853,6 +854,56 @@ function testExtendedAnchorsAndDryRun() {
 	);
 }
 
+function testShaderMaterialUniformBlockInjection() {
+	const wgslRuntime = new ShaderRuntime({ mode: "warn" });
+	for (const script of DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY.webgpu
+		.injectionScripts) {
+		wgslRuntime.registerInjectionScript(script);
+	}
+	const wgsl = wgslRuntime.process({
+		code: `#inject <ignis/material/uniform-block>(fields="time:f32:uTime;tint:vec4f:uTint;mode:i32:uMode")
+@fragment
+fn fsMain() -> @location(0) vec4<f32> {
+	return vec4<f32>(ignisShaderUniforms.tint.xyz, ignisShaderUniforms.time);
+}`,
+		language: "wgsl",
+		stage: "fragment",
+		entryPoint: "fsMain",
+		label: "ShaderMaterialUniformWGSL",
+		sourceKind: "custom-material",
+	});
+	assert.equal(wgsl.hasErrors, false);
+	assert.ok(wgsl.code.includes("struct IgnisShaderUniforms"));
+	assert.ok(wgsl.code.includes("@group(1) @binding(38) var<uniform> ignisShaderUniforms"));
+	assert.ok(wgsl.code.includes("time: f32"));
+	assert.ok(wgsl.code.includes("tint: vec4<f32>"));
+	assert.ok(wgsl.code.includes("mode: i32"));
+
+	const glslRuntime = new ShaderRuntime({ mode: "warn" });
+	for (const script of DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY.webgl
+		.injectionScripts) {
+		glslRuntime.registerInjectionScript(script);
+	}
+	const glsl = glslRuntime.process({
+		code: `#version 300 es
+precision highp float;
+#inject <ignis/material/uniform-block>(fields="time:f32:uTime;tint:vec4f:uTint;mode:i32:uMode")
+out vec4 outColor;
+void main() {
+	outColor = vec4(uTint.xyz, uTime + float(uMode));
+}`,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "ShaderMaterialUniformGLSL",
+		sourceKind: "custom-material",
+	});
+	assert.equal(glsl.hasErrors, false);
+	assert.ok(glsl.code.includes("uniform float uTime;"));
+	assert.ok(glsl.code.includes("uniform vec4 uTint;"));
+	assert.ok(glsl.code.includes("uniform int uMode;"));
+}
+
 function testSilentModeAndDiagnosticFilters() {
 	const silentRuntime = new ShaderRuntime({ mode: "silent" });
 	silentRuntime.registerRule({
@@ -1653,6 +1704,7 @@ async function run() {
 	testRuleDependenciesAndOrdering();
 	testUserSymbolConflictsStaticAndDynamic();
 	testExtendedAnchorsAndDryRun();
+	testShaderMaterialUniformBlockInjection();
 	testSilentModeAndDiagnosticFilters();
 	testRuleScopedInvalidationAndCacheStats();
 	testChangeEventsAndSourceHashValidation();

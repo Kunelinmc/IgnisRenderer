@@ -387,6 +387,24 @@ export class WebGLSceneCustomSamplerUniforms {
 	}
 }
 
+export class WebGLSceneCustomUniforms {
+	public readonly customUniforms: Record<string, WebGLSceneUniformLocation>;
+
+	public constructor(
+		gl: WebGL2RenderingContext,
+		program: WebGLProgram,
+		customUniforms: string[]
+	) {
+		this.customUniforms = {};
+		for (const uniformName of customUniforms) {
+			this.customUniforms[uniformName] = gl.getUniformLocation(
+				program,
+				uniformName
+			);
+		}
+	}
+}
+
 export type WebGLSceneUniforms =
 	WebGLSceneTransformUniforms &
 	WebGLSceneFrameUniforms &
@@ -397,7 +415,8 @@ export type WebGLSceneUniforms =
 	WebGLSceneShadowUniforms &
 	WebGLSceneClusterUniforms &
 	WebGLSceneFogUniforms &
-	WebGLSceneCustomSamplerUniforms;
+	WebGLSceneCustomSamplerUniforms &
+	WebGLSceneCustomUniforms;
 
 /**
  * Resolves all scene-program uniform locations while keeping the declarations
@@ -406,7 +425,8 @@ export type WebGLSceneUniforms =
 export function createWebGLSceneUniforms(
 	gl: WebGL2RenderingContext,
 	program: WebGLProgram,
-	customSamplerUniforms: string[] = []
+	customSamplerUniforms: string[] = [],
+	customUniforms: string[] = []
 ): WebGLSceneUniforms {
 	return Object.assign(
 		new WebGLSceneTransformUniforms(gl, program),
@@ -418,6 +438,7 @@ export function createWebGLSceneUniforms(
 		new WebGLSceneShadowUniforms(gl, program),
 		new WebGLSceneClusterUniforms(gl, program),
 		new WebGLSceneFogUniforms(gl, program),
-		new WebGLSceneCustomSamplerUniforms(gl, program, customSamplerUniforms)
+		new WebGLSceneCustomSamplerUniforms(gl, program, customSamplerUniforms),
+		new WebGLSceneCustomUniforms(gl, program, customUniforms)
 	) as WebGLSceneUniforms;
 }
