@@ -1,6 +1,8 @@
 export { CSG, CSGBuilder, type CSGGraphInput } from "./CSGBuilder";
 export {
 	buildCSGMeshAsset,
+	CSGSolver,
+	defaultCSGSolver,
 	listWasmCSGSolvers,
 	registerWasmCSGSolver,
 	unregisterWasmCSGSolver,

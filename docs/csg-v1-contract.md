@@ -14,12 +14,23 @@ renderer stages, BVH, or physics collider refresh.
 The public surface must provide:
 
 - `CSG.from(input): CSGBuilder`
+- `new CSGSolver(wasmSolvers?): CSGSolver`
 - `builder.union(input): CSGBuilder`
 - `builder.subtract(input): CSGBuilder`
 - `builder.intersect(input): CSGBuilder`
 - `builder.xor(input): CSGBuilder`
 - `builder.toMeshAsset(options?): MeshAsset`
 - `builder.solve(options?): CSGRebuildResult`
+- `solver.buildMeshAsset(graph, options?): CSGRebuildResult`
+- `solver.registerWasmSolver(adapter): void`
+- `solver.unregisterWasmSolver(id): void`
+- `solver.listWasmSolvers(): string[]`
+- `solver.createEmptyResult(solverId?): CSGRebuildResult`
+- `defaultCSGSolver: CSGSolver`
+- `buildCSGMeshAsset(graph, options?): CSGRebuildResult`
+- `registerWasmCSGSolver(adapter): void`
+- `unregisterWasmCSGSolver(id): void`
+- `listWasmCSGSolvers(): string[]`
 - `CSGMeshInstance.markCSGDirty(): void`
 - `CSGMeshInstance.flushCSG(options?): CSGRebuildResult | Promise<CSGRebuildResult>`
 - `CSGMeshInstance.setGraph(input): this`
@@ -40,6 +51,9 @@ data; when dropped, implementation should emit diagnostics.
 - Output triangles must be capped by `maxOutputTriangles` (default `200000`).
 - Solver preference `auto` must prefer registered wasm solver and must fall back
 to builtin solver when wasm solve fails.
+- Each `CSGSolver` instance must maintain an isolated wasm solver registry.
+- Module-level helper functions must delegate to `defaultCSGSolver` for backward
+compatible behavior.
 - `CSGMeshInstance` updates must mark scene transform dirty and must mark spatial
 BVH bounds dirty for the instance.
 - `IPrimitive.geometryVersion` must be incremented when CSG-generated geometry is
@@ -51,7 +65,9 @@ replaced, and render backends must re-upload geometry when version changes.
 ```ts
 import {
 	CSG,
+	CSGSolver,
 	buildCSGMeshAsset,
+	defaultCSGSolver,
 	CSGMeshInstance,
 	MeshFactory,
 	Material,
@@ -94,6 +110,23 @@ if (result.ok) {
 
 // Builder one-shot bake
 const bakedAsset = CSG.from(left).union(right).toMeshAsset();
+
+// Isolated solver instance with its own wasm registry
+const isolatedSolver = new CSGSolver();
+const graph = CSG.from(left).intersect(right).getGraph();
+const isolatedResult = isolatedSolver.buildMeshAsset(graph);
+
+// Legacy helper delegates to the shared default solver
+defaultCSGSolver.registerWasmSolver({
+	id: "example-wasm",
+	solve(request) {
+		return buildCSGMeshAsset(request.graph, {
+			...request.options,
+			solverPreference: "builtin",
+		});
+	},
+});
+defaultCSGSolver.unregisterWasmSolver("example-wasm");
 ```
 
 ## Errors & Diagnostics
@@ -118,3 +151,5 @@ Output exceeds `maxOutputTriangles`.
 This change is additive for runtime behavior and APIs, but it introduces
 `IPrimitive.geometryVersion` as a required contract field in TypeScript source
 construction paths.
+`CSGSolver` and `defaultCSGSolver` are additive APIs; existing module-level
+solver helper functions remain supported.

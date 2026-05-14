@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { CSG } from "../src/csg/CSGBuilder.ts";
+import { CSGSolver } from "../src/csg/solvers.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { MeshAsset } from "../src/meshes/MeshAsset.ts";
 import { Material } from "../src/materials/Material.ts";
@@ -124,12 +125,101 @@ function testAttributeDropDiagnostics() {
 	);
 }
 
+function testSolverClassAutoFallback() {
+	const { left, right } = createOverlapBoxes();
+	const graph = CSG.from(left).union(right).getGraph();
+	const solver = new CSGSolver();
+
+	solver.registerWasmSolver({
+		id: "failing-wasm",
+		solve() {
+			throw new Error("expected wasm failure");
+		},
+	});
+
+	assert.deepEqual(solver.listWasmSolvers(), ["failing-wasm"]);
+
+	const result = solver.buildMeshAsset(graph);
+	assert.equal(result.ok, true);
+	assert.equal(result.solverId, "builtin");
+	assert.equal(result.fallbackUsed, true);
+	assert.ok(
+		result.diagnostics.some((diagnostic) =>
+			diagnostic.code === "csg-solver-auto-fallback"
+		)
+	);
+
+	solver.unregisterWasmSolver("failing-wasm");
+	assert.deepEqual(solver.listWasmSolvers(), []);
+	assert.deepEqual(new CSGSolver().listWasmSolvers(), []);
+}
+
+function testSolverClassWasmSelection() {
+	const { left, right } = createOverlapBoxes();
+	const graph = CSG.from(left).union(right).getGraph();
+	const solver = new CSGSolver([
+		{
+			id: "mock-wasm",
+			solve(request) {
+				assert.equal(request.options.solverPreference, "auto");
+				return {
+					meshAsset: MeshAsset.fromFaces([]),
+					triangleCount: 0,
+					diagnostics: [
+						{
+							code: "mock-wasm-used",
+							message: "Mock wasm solver was selected",
+							severity: "info",
+						},
+					],
+				};
+			},
+		},
+	]);
+
+	const wasmResult = solver.buildMeshAsset(graph);
+	assert.equal(wasmResult.ok, true);
+	assert.equal(wasmResult.solverId, "mock-wasm");
+	assert.ok(
+		wasmResult.diagnostics.some((diagnostic) =>
+			diagnostic.code === "mock-wasm-used"
+		)
+	);
+
+	const builtinResult = solver.buildMeshAsset(graph, {
+		solverPreference: "builtin",
+	});
+	assert.equal(builtinResult.ok, true);
+	assert.equal(builtinResult.solverId, "builtin");
+	assert.ok(builtinResult.triangleCount > 0);
+}
+
+function testSolverClassMissingWasmDiagnostic() {
+	const { left, right } = createOverlapBoxes();
+	const graph = CSG.from(left).union(right).getGraph();
+	const solver = new CSGSolver();
+	const result = solver.buildMeshAsset(graph, {
+		solverPreference: "wasm",
+	});
+
+	assert.equal(result.ok, false);
+	assert.equal(result.solverId, "wasm");
+	assert.ok(
+		result.diagnostics.some((diagnostic) =>
+			diagnostic.code === "csg-solver-missing"
+		)
+	);
+}
+
 function run() {
 	testBooleanOperations();
 	testClosedManifoldValidation();
 	testTopologyValidation();
 	testOutputTriangleLimit();
 	testAttributeDropDiagnostics();
+	testSolverClassAutoFallback();
+	testSolverClassWasmSelection();
+	testSolverClassMissingWasmDiagnostic();
 	console.log("CSG core tests passed");
 }
 

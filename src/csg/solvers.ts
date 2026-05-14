@@ -25,8 +25,6 @@ const DEFAULT_EPSILON = 1e-5;
 const DEFAULT_MAX_OUTPUT_TRIANGLES = 200000;
 const LARGE_VALUE = 1e9;
 
-const _registeredWasmSolvers = new Map<string, CSGSolverAdapter>();
-
 interface VertexPayload {
 	position: Vector3;
 	normal: Vector3;
@@ -430,9 +428,208 @@ const POLYGON_FRONT = 1;
 const POLYGON_BACK = 2;
 const POLYGON_SPANNING = POLYGON_FRONT | POLYGON_BACK;
 
-const _builtinSolver: CSGSolverAdapter = {
-	id: "builtin",
-	solve(request: CSGSolveRequest): CSGSolveResult {
+/**
+ * Synchronous CSG solver coordinator with an isolated wasm adapter registry.
+ *
+ * `CSGSolver` owns solver selection, diagnostics, auto fallback, and the
+ * built-in BSP mesh path used by `buildCSGMeshAsset`.
+ */
+export class CSGSolver {
+	/** Stable id used by the built-in TypeScript BSP solver. */
+	public readonly builtinSolverId = "builtin";
+
+	private readonly _registeredWasmSolvers =
+		new Map<string, CSGSolverAdapter>();
+	private readonly _builtinSolver: CSGSolverAdapter;
+
+	/**
+	 * Creates an isolated CSG solver registry.
+	 *
+	 * @param wasmSolvers Optional wasm-backed adapters to register immediately.
+	 * @remarks Registered adapters are instance-local and affect only subsequent
+	 * calls to `buildMeshAsset` on this solver. The built-in solver is always
+	 * available and is used as the fallback for `solverPreference="auto"`.
+	 */
+	constructor(wasmSolvers: Iterable<CSGSolverAdapter> = []) {
+		this._builtinSolver = {
+			id: this.builtinSolverId,
+			solve: (request) => this._solveBuiltin(request),
+		};
+		for (const adapter of wasmSolvers) {
+			this.registerWasmSolver(adapter);
+		}
+	}
+
+	/**
+	 * Returns the built-in BSP solver adapter.
+	 *
+	 * @returns The read-only adapter used for `solverPreference="builtin"` and
+	 * auto fallback paths.
+	 * @remarks The returned adapter is shared by this solver instance; callers
+	 * should not mutate its `id` or `solve` members.
+	 */
+	public get builtinSolver(): CSGSolverAdapter {
+		return this._builtinSolver;
+	}
+
+	/**
+	 * Registers or replaces a wasm-backed CSG solver adapter.
+	 *
+	 * @param adapter Adapter with a non-empty `id` and a synchronous `solve`
+	 * implementation that returns a complete mesh result.
+	 * @returns Nothing.
+	 * @throws Error when `adapter.id` is empty.
+	 * @remarks Replaces any adapter with the same id and changes solver selection
+	 * for future `buildMeshAsset` calls on this instance.
+	 */
+	public registerWasmSolver(adapter: CSGSolverAdapter): void {
+		if (!adapter.id || adapter.id.trim().length === 0) {
+			throw new Error("CSG wasm solver id must be a non-empty string");
+		}
+		this._registeredWasmSolvers.set(adapter.id, adapter);
+	}
+
+	/**
+	 * Removes a wasm-backed solver adapter from this instance.
+	 *
+	 * @param id Adapter id to remove.
+	 * @returns Nothing.
+	 * @remarks Future solve calls no longer select the removed adapter. Existing
+	 * solve results are not modified.
+	 */
+	public unregisterWasmSolver(id: string): void {
+		this._registeredWasmSolvers.delete(id);
+	}
+
+	/**
+	 * Lists the wasm-backed solver adapters registered on this instance.
+	 *
+	 * @returns Registered adapter ids in insertion order.
+	 * @remarks The returned array is a snapshot and mutating it does not change
+	 * this solver's registry.
+	 */
+	public listWasmSolvers(): string[] {
+		return Array.from(this._registeredWasmSolvers.keys());
+	}
+
+	/**
+	 * Builds a mesh asset from a CSG graph.
+	 *
+	 * @param graph Normalized CSG graph to evaluate.
+	 * @param options Build constraints, materials, and solver selection.
+	 * @returns A `CSGRebuildResult` with either the generated mesh or diagnostics.
+	 * @remarks This method is synchronous. With `solverPreference="auto"`, the
+	 * first registered wasm adapter is tried before the built-in solver; wasm
+	 * failure emits a warning and falls back to the built-in implementation.
+	 */
+	public buildMeshAsset(
+		graph: CSGGraph,
+		options: CSGBuildOptions = {}
+	): CSGRebuildResult {
+		const diagnostics: CSGDiagnostic[] = [];
+		const resolved = this._resolveBuildOptions(graph, options);
+		let fallbackUsed = false;
+		let selected: CSGSolverAdapter | null = null;
+		let solverId: string = resolved.solverPreference;
+
+		try {
+			selected = this._selectSolver(resolved.solverPreference);
+			solverId = selected.id;
+			const result = selected.solve({
+				graph,
+				options: resolved,
+			});
+			if (result.diagnostics?.length) {
+				diagnostics.push(...result.diagnostics);
+			}
+			return {
+				ok: true,
+				meshAsset: result.meshAsset,
+				triangleCount: result.triangleCount,
+				solverId,
+				fallbackUsed,
+				stale: false,
+				diagnostics,
+			};
+		} catch (error) {
+			if (
+				resolved.solverPreference === "auto" &&
+				selected &&
+				selected.id !== this._builtinSolver.id
+			) {
+				fallbackUsed = true;
+				diagnostics.push({
+					code: "csg-solver-auto-fallback",
+					message:
+						`CSG solver "${selected.id}" failed and fell back to ` +
+						`"${this._builtinSolver.id}"`,
+					severity: "warning",
+					context: {
+						cause:
+							error instanceof Error ? error.message : String(error),
+					},
+				});
+				solverId = this._builtinSolver.id;
+				try {
+					const fallback = this._builtinSolver.solve({
+						graph,
+						options: resolved,
+					});
+					if (fallback.diagnostics?.length) {
+						diagnostics.push(...fallback.diagnostics);
+					}
+					return {
+						ok: true,
+						meshAsset: fallback.meshAsset,
+						triangleCount: fallback.triangleCount,
+						solverId,
+						fallbackUsed,
+						stale: false,
+						diagnostics,
+					};
+				} catch (fallbackError) {
+					this._appendFailureDiagnostic(diagnostics, fallbackError);
+				}
+			} else {
+				this._appendFailureDiagnostic(diagnostics, error);
+			}
+		}
+
+		return {
+			ok: false,
+			meshAsset: null,
+			triangleCount: 0,
+			solverId,
+			fallbackUsed,
+			stale: false,
+			diagnostics,
+		};
+	}
+
+	/**
+	 * Creates an empty CSG result using this solver's result shape.
+	 *
+	 * @param solverId Solver id to attach to the result. Defaults to the built-in
+	 * solver id.
+	 * @returns A failed, non-stale result with no mesh and no diagnostics.
+	 * @remarks This is useful for callers that need a sentinel before a graph has
+	 * been assigned. It does not execute any solver.
+	 */
+	public createEmptyResult(
+		solverId: string = this._builtinSolver.id
+	): CSGRebuildResult {
+		return {
+			ok: false,
+			meshAsset: null,
+			triangleCount: 0,
+			solverId,
+			fallbackUsed: false,
+			stale: false,
+			diagnostics: [],
+		};
+	}
+
+	private _solveBuiltin(request: CSGSolveRequest): CSGSolveResult {
 		const context: SolveContext = {
 			options: request.options,
 			diagnostics: [],
@@ -453,177 +650,111 @@ const _builtinSolver: CSGSolverAdapter = {
 
 		const mesh = solidToMeshAsset(
 			solid,
-			request.options.capMaterial ?? resolveGraphFallbackMaterial(request.graph)
+			request.options.capMaterial ??
+				this._resolveGraphFallbackMaterial(request.graph)
 		);
 		return {
 			meshAsset: mesh,
 			triangleCount,
 			diagnostics: context.diagnostics,
 		};
-	},
-};
+	}
+
+	private _appendFailureDiagnostic(
+		diagnostics: CSGDiagnostic[],
+		error: unknown
+	): void {
+		if (error instanceof CSGBuildError) {
+			diagnostics.push(error.diagnostic);
+			return;
+		}
+		diagnostics.push({
+			code: "csg-build-failed",
+			message:
+				error instanceof Error ?
+					error.message
+				:	"CSG build failed unexpectedly",
+			severity: "error",
+		});
+	}
+
+	private _selectSolver(preference: CSGSolverPreference): CSGSolverAdapter {
+		if (preference === "builtin") {
+			return this._builtinSolver;
+		}
+		if (preference === "wasm") {
+			const first = this._registeredWasmSolvers.values().next().value;
+			if (!first) {
+				throw new CSGBuildError({
+					code: "csg-solver-missing",
+					message:
+						'CSG solver preference is "wasm" but no wasm solver is registered',
+					severity: "error",
+				});
+			}
+			return first;
+		}
+		const first = this._registeredWasmSolvers.values().next().value;
+		return first ?? this._builtinSolver;
+	}
+
+	private _resolveBuildOptions(
+		graph: CSGGraph,
+		options: CSGBuildOptions
+	): CSGResolvedBuildOptions {
+		return {
+			epsilon:
+				Number.isFinite(options.epsilon) && (options.epsilon ?? 0) > 0 ?
+					Math.max(1e-8, Number(options.epsilon))
+				:	DEFAULT_EPSILON,
+			maxOutputTriangles:
+				Number.isFinite(options.maxOutputTriangles) &&
+				(options.maxOutputTriangles ?? 0) > 0 ?
+					Math.floor(options.maxOutputTriangles as number)
+				:	DEFAULT_MAX_OUTPUT_TRIANGLES,
+			capMaterial:
+				options.capMaterial ?? this._resolveGraphFallbackMaterial(graph),
+			solverPreference: options.solverPreference ?? "auto",
+		};
+	}
+
+	private _resolveGraphFallbackMaterial(graph: CSGGraph): Material {
+		const leftmost = this._resolveLeftmostLeaf(graph);
+		const operand = resolveOperandDescriptor(leftmost.operand);
+		const firstMaterial = operand.mesh.primitives[0]?.material ?? null;
+		return operand.material ??
+			firstMaterial ??
+			new Material({ name: "CSGCap" });
+	}
+
+	private _resolveLeftmostLeaf(graph: CSGGraph): CSGLeafNode {
+		if (graph.kind === "leaf") return graph;
+		return this._resolveLeftmostLeaf(graph.left);
+	}
+}
+
+/**
+ * Shared solver instance used by the legacy module-level CSG helper functions.
+ */
+export const defaultCSGSolver = new CSGSolver();
 
 export function registerWasmCSGSolver(adapter: CSGSolverAdapter): void {
-	if (!adapter.id || adapter.id.trim().length === 0) {
-		throw new Error("CSG wasm solver id must be a non-empty string");
-	}
-	_registeredWasmSolvers.set(adapter.id, adapter);
+	defaultCSGSolver.registerWasmSolver(adapter);
 }
 
 export function unregisterWasmCSGSolver(id: string): void {
-	_registeredWasmSolvers.delete(id);
+	defaultCSGSolver.unregisterWasmSolver(id);
 }
 
 export function listWasmCSGSolvers(): string[] {
-	return Array.from(_registeredWasmSolvers.keys());
+	return defaultCSGSolver.listWasmSolvers();
 }
 
 export function buildCSGMeshAsset(
 	graph: CSGGraph,
 	options: CSGBuildOptions = {}
 ): CSGRebuildResult {
-	const diagnostics: CSGDiagnostic[] = [];
-	const resolved = resolveBuildOptions(graph, options);
-	const selected = selectSolver(resolved.solverPreference);
-	let fallbackUsed = false;
-	let solverId = selected.id;
-
-	try {
-		const result = selected.solve({
-			graph,
-			options: resolved,
-		});
-		if (result.diagnostics?.length) {
-			diagnostics.push(...result.diagnostics);
-		}
-		return {
-			ok: true,
-			meshAsset: result.meshAsset,
-			triangleCount: result.triangleCount,
-			solverId,
-			fallbackUsed,
-			stale: false,
-			diagnostics,
-		};
-	} catch (error) {
-		if (
-			resolved.solverPreference === "auto" &&
-			selected.id !== _builtinSolver.id
-		) {
-			fallbackUsed = true;
-			diagnostics.push({
-				code: "csg-solver-auto-fallback",
-				message:
-					`CSG solver "${selected.id}" failed and fell back to ` +
-					`"${_builtinSolver.id}"`,
-				severity: "warning",
-				context: {
-					cause: error instanceof Error ? error.message : String(error),
-				},
-			});
-			solverId = _builtinSolver.id;
-			try {
-				const fallback = _builtinSolver.solve({
-					graph,
-					options: resolved,
-				});
-				if (fallback.diagnostics?.length) {
-					diagnostics.push(...fallback.diagnostics);
-				}
-				return {
-					ok: true,
-					meshAsset: fallback.meshAsset,
-					triangleCount: fallback.triangleCount,
-					solverId,
-					fallbackUsed,
-					stale: false,
-					diagnostics,
-				};
-			} catch (fallbackError) {
-				appendFailureDiagnostic(diagnostics, fallbackError);
-			}
-		} else {
-			appendFailureDiagnostic(diagnostics, error);
-		}
-	}
-
-	return {
-		ok: false,
-		meshAsset: null,
-		triangleCount: 0,
-		solverId,
-		fallbackUsed,
-		stale: false,
-		diagnostics,
-	};
-}
-
-function appendFailureDiagnostic(
-	diagnostics: CSGDiagnostic[],
-	error: unknown
-): void {
-	if (error instanceof CSGBuildError) {
-		diagnostics.push(error.diagnostic);
-		return;
-	}
-	diagnostics.push({
-		code: "csg-build-failed",
-		message:
-			error instanceof Error ? error.message : "CSG build failed unexpectedly",
-		severity: "error",
-	});
-}
-
-function selectSolver(preference: CSGSolverPreference): CSGSolverAdapter {
-	if (preference === "builtin") {
-		return _builtinSolver;
-	}
-	if (preference === "wasm") {
-		const first = _registeredWasmSolvers.values().next().value;
-		if (!first) {
-			throw new CSGBuildError({
-				code: "csg-solver-missing",
-				message:
-					'CSG solver preference is "wasm" but no wasm solver is registered',
-				severity: "error",
-			});
-		}
-		return first;
-	}
-	const first = _registeredWasmSolvers.values().next().value;
-	return first ?? _builtinSolver;
-}
-
-function resolveBuildOptions(
-	graph: CSGGraph,
-	options: CSGBuildOptions
-): CSGResolvedBuildOptions {
-	return {
-		epsilon:
-			Number.isFinite(options.epsilon) && (options.epsilon ?? 0) > 0 ?
-				Math.max(1e-8, Number(options.epsilon))
-			:	DEFAULT_EPSILON,
-		maxOutputTriangles:
-			Number.isFinite(options.maxOutputTriangles) &&
-			(options.maxOutputTriangles ?? 0) > 0 ?
-				Math.floor(options.maxOutputTriangles as number)
-			:	DEFAULT_MAX_OUTPUT_TRIANGLES,
-		capMaterial:
-			options.capMaterial ?? resolveGraphFallbackMaterial(graph),
-		solverPreference: options.solverPreference ?? "auto",
-	};
-}
-
-function resolveGraphFallbackMaterial(graph: CSGGraph): Material {
-	const leftmost = resolveLeftmostLeaf(graph);
-	const operand = resolveOperandDescriptor(leftmost.operand);
-	const firstMaterial = operand.mesh.primitives[0]?.material ?? null;
-	return operand.material ?? firstMaterial ?? new Material({ name: "CSGCap" });
-}
-
-function resolveLeftmostLeaf(graph: CSGGraph): CSGLeafNode {
-	if (graph.kind === "leaf") return graph;
-	return resolveLeftmostLeaf(graph.left);
+	return defaultCSGSolver.buildMeshAsset(graph, options);
 }
 
 function evaluateGraphToSolid(
@@ -995,17 +1126,9 @@ function quantizedPointKey(point: Vector3, epsilon: number): string {
 }
 
 export function createEmptyCSGResult(
-	solverId: string = _builtinSolver.id
+	solverId: string = defaultCSGSolver.builtinSolverId
 ): CSGRebuildResult {
-	return {
-		ok: false,
-		meshAsset: null,
-		triangleCount: 0,
-		solverId,
-		fallbackUsed: false,
-		stale: false,
-		diagnostics: [],
-	};
+	return defaultCSGSolver.createEmptyResult(solverId);
 }
 
 export function expandBoundsForDiagnostics(mesh: MeshAsset): {
