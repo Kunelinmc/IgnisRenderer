@@ -71,7 +71,8 @@ function testParticlesStartAtParticleSim() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "particle-sim");
-	assert.equal(plan.forceFullFrame, false);
+	assert.equal(plan.forceFullFrame, true);
+	assert.equal(plan.temporalHistoryReset, true);
 }
 
 function testPostFxStartsAtFirstEnabledPostStage() {

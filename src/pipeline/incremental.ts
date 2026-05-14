@@ -329,6 +329,8 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		id: "particles",
 		mask: RENDER_DIRTY_REASON_MASK.particles,
 		groups: ["simulation"],
+		forceFullFrame: true,
+		temporalHistoryReset: true,
 		invalidatesSceneBounds: true,
 	},
 	{

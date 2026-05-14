@@ -120,6 +120,9 @@ async function run() {
 		await renderer.renderScene(16);
 		await renderer.renderScene(32);
 
+		const incrementalStats = renderer.getLastIncrementalFrameStats();
+		assert.equal(incrementalStats?.forceFullFrame, true);
+		assert.equal(incrementalStats?.temporalHistoryReset, true);
 		assert.equal(backend.sharedStages.includes("particle-sim"), false);
 		assert.ok(backend.executedStages.includes("particle-sim"));
 		assert.ok(backend.executedStages.includes("main-opaque"));
