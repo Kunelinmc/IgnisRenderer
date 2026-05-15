@@ -17,9 +17,21 @@ import {
 	structOf,
 	vec,
 } from "./StructuredBufferLayout";
+import {
+	arrayStruct as packArrayStruct,
+	arrayVec4 as packArrayVec4,
+	createStructuredBufferPacker,
+	custom as packCustom,
+	mat4 as packMat4,
+	vec4 as packVec4,
+} from "./StructuredBufferPacker";
 import type {
+	WebGPUDirectionalLightUniform,
 	WebGPUFrameUniformInput,
 	WebGPUMaterialUniformData,
+	WebGPUPointLightUniform,
+	WebGPUReflectionProbeUniform,
+	WebGPUSpotLightUniform,
 } from "./types";
 
 const VEC4_F32 = vec(4, "f32");
@@ -49,6 +61,18 @@ const SHADOW_DATA_SCHEMA = structOf([
 	{ name: "paramsB", type: VEC4_F32 },
 	{ name: "paramsC", type: VEC4_F32 },
 	{ name: "paramsD", type: VEC4_F32 },
+]);
+
+const REFLECTION_PROBE_SCHEMA = structOf([
+	{ name: "worldToProbeRow0", type: VEC4_F32 },
+	{ name: "worldToProbeRow1", type: VEC4_F32 },
+	{ name: "worldToProbeRow2", type: VEC4_F32 },
+	{ name: "probeToWorldRow0", type: VEC4_F32 },
+	{ name: "probeToWorldRow1", type: VEC4_F32 },
+	{ name: "probeToWorldRow2", type: VEC4_F32 },
+	{ name: "dataA", type: VEC4_F32 },
+	{ name: "dataB", type: VEC4_F32 },
+	{ name: "dataC", type: VEC4_F32 },
 ]);
 
 const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
@@ -90,40 +114,8 @@ const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 			type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT),
 		},
 		{
-			name: "reflectionProbeWorldToProbeRow0",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeWorldToProbeRow1",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeWorldToProbeRow2",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeProbeToWorldRow0",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeProbeToWorldRow1",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeProbeToWorldRow2",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeDataA",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeDataB",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{
-			name: "reflectionProbeDataC",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_REFLECTION_PROBES),
+			name: "reflectionProbes",
+			type: arrayOf(REFLECTION_PROBE_SCHEMA, WEBGPU_MAX_REFLECTION_PROBES),
 		},
 		{ name: "localLightProbeCounts", type: VEC4_F32 },
 		{
@@ -192,6 +184,329 @@ const MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 export const WEBGPU_FRAME_UNIFORM_BYTE_SIZE = FRAME_UNIFORM_LAYOUT.byteSize;
 export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE = MODEL_UNIFORM_LAYOUT.byteSize;
 
+interface WebGPUModelUniformInput {
+	modelMatrix: Matrix4 | number[][];
+	normalMatrix: Matrix3Arr | Matrix4;
+	materialData: WebGPUMaterialUniformData;
+	prevModelMatrix: Matrix4 | number[][];
+}
+
+const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUFrameUniformInput,
+	"float32Array"
+>({
+	label: "FrameUniforms",
+	layout: FRAME_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packMat4("viewProjection", (input) => input.viewProjectionMatrix),
+		packMat4("prevViewProjection", (input) => input.prevViewProjectionMatrix),
+		packVec4("cameraPosition", (input) => [
+			input.cameraPosition.x,
+			input.cameraPosition.y,
+			input.cameraPosition.z,
+			1,
+		]),
+		packVec4("environmentBasisRight", (input) => [
+			input.environmentRight[0],
+			input.environmentRight[1],
+			input.environmentRight[2],
+			input.environmentTanHalfFov,
+		]),
+		packVec4("environmentBasisUp", (input) => [
+			input.environmentUp[0],
+			input.environmentUp[1],
+			input.environmentUp[2],
+			input.environmentAspect,
+		]),
+		packVec4("environmentBasisBackward", (input) => [
+			input.environmentBackward[0],
+			input.environmentBackward[1],
+			input.environmentBackward[2],
+			input.environmentIsOrthographic ? 1 : 0,
+		]),
+		packVec4("ambientColor", (input) => [
+			input.ambientColor[0],
+			input.ambientColor[1],
+			input.ambientColor[2],
+			1,
+		]),
+		packVec4("lightCounts", (input) => [
+			input.directionalLights.length,
+			input.pointLights.length,
+			input.spotLights.length,
+			input.reflectionProbeCount,
+		]),
+		packVec4("options", (input) => [
+			input.enableLighting ? 1 : 0,
+			input.enableGamma ? 1 : 0,
+			input.enableShadows ? 1 : 0,
+			input.encodeGammaInShader ? 1 : 0,
+		]),
+		packVec4("environmentOptionsA", (input) => [
+			input.enableSH ? 1 : 0,
+			input.hasSHAmbient ? 1 : 0,
+			input.hasEnvSpecularFallback ?
+				Math.max(0, input.envSpecularFallbackMaxMipLevel) + 1
+			:	0,
+			input.hasEnvSpecular ? 1 : 0,
+		]),
+		packVec4("environmentOptionsB", (input) => [
+			input.hasBRDFLUT ? 1 : 0,
+			Math.max(0, input.envSpecularMaxMipLevel),
+			input.environmentIsLinear ? 1 : 0,
+			input.enableClusteredLighting ? 1 : 0,
+		]),
+		packVec4("taaJitterCurrentPrev", (input) => input.taaJitterCurrentPrev),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUDirectionalLightUniform>(
+			"directionalLights",
+			WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+			(input, index) => input.directionalLights[index],
+			[
+				packVec4("direction", (light) => [
+					light.direction[0],
+					light.direction[1],
+					light.direction[2],
+					0,
+				]),
+				packVec4("color", (light) => [
+					light.color[0],
+					light.color[1],
+					light.color[2],
+					0,
+				]),
+			]
+		),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUPointLightUniform>(
+			"pointLights",
+			WEBGPU_MAX_POINT_LIGHTS,
+			(input, index) => input.pointLights[index],
+			[
+				packVec4("positionRange", (light) => [
+					light.position[0],
+					light.position[1],
+					light.position[2],
+					light.range,
+				]),
+				packVec4("color", (light) => [
+					light.color[0],
+					light.color[1],
+					light.color[2],
+					0,
+				]),
+			]
+		),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUSpotLightUniform>(
+			"spotLights",
+			WEBGPU_MAX_SPOT_LIGHTS,
+			(input, index) => input.spotLights[index],
+			[
+				packVec4("positionRange", (light) => [
+					light.position[0],
+					light.position[1],
+					light.position[2],
+					light.range,
+				]),
+				packVec4("directionOuter", (light) => [
+					light.direction[0],
+					light.direction[1],
+					light.direction[2],
+					light.outerCos,
+				]),
+				packVec4("colorInner", (light) => [
+					light.color[0],
+					light.color[1],
+					light.color[2],
+					light.innerCos,
+				]),
+			]
+		),
+		packCustom("directionalShadows", (writer, input) => {
+			for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
+				writeShadowData(writer, "directionalShadows", i, input.directionalShadows[i]);
+			}
+		}),
+		packCustom("spotShadows", (writer, input) => {
+			for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
+				writeShadowData(writer, "spotShadows", i, input.spotShadows[i]);
+			}
+		}),
+		packArrayVec4("shAmbientCoeffs", WEBGPU_SH_COEFFICIENT_COUNT, (input, i) => {
+			const coefficient = input.shAmbientCoeffs?.[i];
+			return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
+		}),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUReflectionProbeUniform>(
+			"reflectionProbes",
+			WEBGPU_MAX_REFLECTION_PROBES,
+			(input, index) => input.reflectionProbes[index],
+			[
+				packVec4("worldToProbeRow0", (probe) =>
+					matrixRow(probe.worldToProbeMatrix, 0)
+				),
+				packVec4("worldToProbeRow1", (probe) =>
+					matrixRow(probe.worldToProbeMatrix, 1)
+				),
+				packVec4("worldToProbeRow2", (probe) =>
+					matrixRow(probe.worldToProbeMatrix, 2)
+				),
+				packVec4("probeToWorldRow0", (probe) =>
+					matrixRow(probe.probeToWorldMatrix, 0)
+				),
+				packVec4("probeToWorldRow1", (probe) =>
+					matrixRow(probe.probeToWorldMatrix, 1)
+				),
+				packVec4("probeToWorldRow2", (probe) =>
+					matrixRow(probe.probeToWorldMatrix, 2)
+				),
+				packVec4("dataA", (probe) => [
+					probe.invHalfExtents[0],
+					probe.invHalfExtents[1],
+					probe.invHalfExtents[2],
+					probe.radiusInv,
+				]),
+				packVec4("dataB", (probe) => [
+					probe.captureWorldPosition[0],
+					probe.captureWorldPosition[1],
+					probe.captureWorldPosition[2],
+					probe.shape,
+				]),
+				packVec4("dataC", (probe) => [
+					probe.parallaxMode,
+					probe.blendDistance,
+					probe.blendExponent,
+					probe.layer,
+				]),
+			]
+		),
+		packVec4("localLightProbeCounts", (input) => [
+			Math.max(0, input.localLightProbeCount),
+			0,
+			0,
+			0,
+		]),
+		packArrayVec4(
+			"localLightProbeWorldToProbeRow0",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			(input, i) => {
+				const probe = input.localLightProbes[i];
+				return probe ? matrixRow(probe.worldToProbeMatrix, 0) : null;
+			}
+		),
+		packArrayVec4(
+			"localLightProbeWorldToProbeRow1",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			(input, i) => {
+				const probe = input.localLightProbes[i];
+				return probe ? matrixRow(probe.worldToProbeMatrix, 1) : null;
+			}
+		),
+		packArrayVec4(
+			"localLightProbeWorldToProbeRow2",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			(input, i) => {
+				const probe = input.localLightProbes[i];
+				return probe ? matrixRow(probe.worldToProbeMatrix, 2) : null;
+			}
+		),
+		packArrayVec4(
+			"localLightProbeDataA",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			(input, i) => {
+				const probe = input.localLightProbes[i];
+				return probe ?
+						[
+							probe.invHalfExtents[0],
+							probe.invHalfExtents[1],
+							probe.invHalfExtents[2],
+							probe.radiusInv,
+						]
+					:	null;
+			}
+		),
+		packArrayVec4(
+			"localLightProbeDataB",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			(input, i) => {
+				const probe = input.localLightProbes[i];
+				return probe ?
+						[
+							probe.blendDistance,
+							probe.priority,
+							probe.shape,
+							0,
+						]
+					:	null;
+			}
+		),
+		packArrayVec4(
+			"localLightProbeSHAmbientCoeffs",
+			WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT,
+			(input, i) => {
+				const probeIndex = Math.floor(i / WEBGPU_SH_COEFFICIENT_COUNT);
+				const coefficientIndex = i % WEBGPU_SH_COEFFICIENT_COUNT;
+				const coefficient =
+					input.localLightProbes[probeIndex]?.sh[coefficientIndex];
+				return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
+			}
+		),
+	],
+});
+
+const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUModelUniformInput,
+	"float32Array"
+>({
+	label: "ModelUniforms",
+	layout: MODEL_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packMat4("modelMatrix", (input) => input.modelMatrix),
+		packMat4("prevModelMatrix", (input) => input.prevModelMatrix),
+		packMat4("normalMatrix", (input) =>
+			createNormalMatrixRows(input.normalMatrix)
+		),
+		packVec4("baseColorFactor", (input) => input.materialData.baseColorFactor),
+		packVec4("emissiveFactor", (input) => input.materialData.emissiveFactor),
+		packVec4("surfaceParams0", (input) => input.materialData.surfaceParams0),
+		packVec4("surfaceParams1", (input) => input.materialData.surfaceParams1),
+		packVec4("surfaceParams2", (input) => input.materialData.surfaceParams2),
+		packVec4("surfaceParams3", (input) => input.materialData.surfaceParams3),
+		packVec4(
+			"specularColorFactor",
+			(input) => input.materialData.specularColorFactor
+		),
+		packVec4(
+			"phongAmbientShininess",
+			(input) => input.materialData.phongAmbientShininess
+		),
+		packVec4(
+			"phongSpecularShading",
+			(input) => input.materialData.phongSpecularShading
+		),
+		packVec4(
+			"sheenColorClearcoatNormalScale",
+			(input) => input.materialData.sheenColorClearcoatNormalScale
+		),
+		packVec4("attenuationColor", (input) => input.materialData.attenuationColor),
+		packVec4("anisotropyParams", (input) => input.materialData.anisotropyParams),
+		packVec4(
+			"anisotropyTextureTransformA",
+			(input) => input.materialData.anisotropyTexture.transformA
+		),
+		packVec4(
+			"anisotropyTextureTransformB",
+			(input) => input.materialData.anisotropyTexture.transformB
+		),
+		packVec4("materialFlags", (input) => input.materialData.materialFlags),
+		packArrayVec4("textureTransformA", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
+			input.materialData.textureSlots[i]?.transformA
+		),
+		packArrayVec4("textureTransformB", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
+			input.materialData.textureSlots[i]?.transformB
+		),
+	],
+});
+
 export function packMatrix4ForWGSL(matrix: Matrix4 | number[][]): Float32Array {
 	const elements = resolveMatrixRows(matrix);
 
@@ -224,349 +539,7 @@ export function packNormalMatrix4ForWGSL(
 export function packFrameUniformData(
 	input: WebGPUFrameUniformInput
 ): Float32Array {
-	const writer = FRAME_UNIFORM_LAYOUT.createWriter();
-	writer.expectByteLength(WEBGPU_FRAME_UNIFORM_BYTE_SIZE, "FrameUniforms");
-
-	writer.writeMat4("viewProjection", input.viewProjectionMatrix);
-	writer.writeMat4("prevViewProjection", input.prevViewProjectionMatrix);
-	writer.writeVec("cameraPosition", [
-		input.cameraPosition.x,
-		input.cameraPosition.y,
-		input.cameraPosition.z,
-		1,
-	]);
-	writer.writeVec("environmentBasisRight", [
-		input.environmentRight[0],
-		input.environmentRight[1],
-		input.environmentRight[2],
-		input.environmentTanHalfFov,
-	]);
-	writer.writeVec("environmentBasisUp", [
-		input.environmentUp[0],
-		input.environmentUp[1],
-		input.environmentUp[2],
-		input.environmentAspect,
-	]);
-	writer.writeVec("environmentBasisBackward", [
-		input.environmentBackward[0],
-		input.environmentBackward[1],
-		input.environmentBackward[2],
-		input.environmentIsOrthographic ? 1 : 0,
-	]);
-	writer.writeVec("ambientColor", [
-		input.ambientColor[0],
-		input.ambientColor[1],
-		input.ambientColor[2],
-		1,
-	]);
-	writer.writeVec("lightCounts", [
-		input.directionalLights.length,
-		input.pointLights.length,
-		input.spotLights.length,
-		input.reflectionProbeCount,
-	]);
-	writer.writeVec("options", [
-		input.enableLighting ? 1 : 0,
-		input.enableGamma ? 1 : 0,
-		input.enableShadows ? 1 : 0,
-		input.encodeGammaInShader ? 1 : 0,
-	]);
-	writer.writeVec("environmentOptionsA", [
-		input.enableSH ? 1 : 0,
-		input.hasSHAmbient ? 1 : 0,
-		input.hasEnvSpecularFallback ?
-			Math.max(0, input.envSpecularFallbackMaxMipLevel) + 1
-		:	0,
-		input.hasEnvSpecular ? 1 : 0,
-	]);
-	writer.writeVec("environmentOptionsB", [
-		input.hasBRDFLUT ? 1 : 0,
-		Math.max(0, input.envSpecularMaxMipLevel),
-		input.environmentIsLinear ? 1 : 0,
-		input.enableClusteredLighting ? 1 : 0,
-	]);
-	writer.writeVec("taaJitterCurrentPrev", input.taaJitterCurrentPrev);
-
-	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
-		const light = input.directionalLights[i];
-		if (light) {
-			writer.writeVec(["directionalLights", i, "direction"], [
-				light.direction[0],
-				light.direction[1],
-				light.direction[2],
-				0,
-			]);
-			writer.writeVec(["directionalLights", i, "color"], [
-				light.color[0],
-				light.color[1],
-				light.color[2],
-				0,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_POINT_LIGHTS; i++) {
-		const light = input.pointLights[i];
-		if (light) {
-			writer.writeVec(["pointLights", i, "positionRange"], [
-				light.position[0],
-				light.position[1],
-				light.position[2],
-				light.range,
-			]);
-			writer.writeVec(["pointLights", i, "color"], [
-				light.color[0],
-				light.color[1],
-				light.color[2],
-				0,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
-		const light = input.spotLights[i];
-		if (light) {
-			writer.writeVec(["spotLights", i, "positionRange"], [
-				light.position[0],
-				light.position[1],
-				light.position[2],
-				light.range,
-			]);
-			writer.writeVec(["spotLights", i, "directionOuter"], [
-				light.direction[0],
-				light.direction[1],
-				light.direction[2],
-				light.outerCos,
-			]);
-			writer.writeVec(["spotLights", i, "colorInner"], [
-				light.color[0],
-				light.color[1],
-				light.color[2],
-				light.innerCos,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
-		writeShadowData(writer, "directionalShadows", i, input.directionalShadows[i]);
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
-		writeShadowData(writer, "spotShadows", i, input.spotShadows[i]);
-	}
-
-	for (let i = 0; i < WEBGPU_SH_COEFFICIENT_COUNT; i++) {
-		const coefficient = input.shAmbientCoeffs?.[i];
-		if (coefficient) {
-			writer.writeVec(["shAmbientCoeffs", i], [
-				coefficient.r,
-				coefficient.g,
-				coefficient.b,
-				0,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["reflectionProbeWorldToProbeRow0", i], [
-				worldToProbe[0][0],
-				worldToProbe[0][1],
-				worldToProbe[0][2],
-				worldToProbe[0][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["reflectionProbeWorldToProbeRow1", i], [
-				worldToProbe[1][0],
-				worldToProbe[1][1],
-				worldToProbe[1][2],
-				worldToProbe[1][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["reflectionProbeWorldToProbeRow2", i], [
-				worldToProbe[2][0],
-				worldToProbe[2][1],
-				worldToProbe[2][2],
-				worldToProbe[2][3],
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const probeToWorld = probe.probeToWorldMatrix.elements;
-			writer.writeVec(["reflectionProbeProbeToWorldRow0", i], [
-				probeToWorld[0][0],
-				probeToWorld[0][1],
-				probeToWorld[0][2],
-				probeToWorld[0][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const probeToWorld = probe.probeToWorldMatrix.elements;
-			writer.writeVec(["reflectionProbeProbeToWorldRow1", i], [
-				probeToWorld[1][0],
-				probeToWorld[1][1],
-				probeToWorld[1][2],
-				probeToWorld[1][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			const probeToWorld = probe.probeToWorldMatrix.elements;
-			writer.writeVec(["reflectionProbeProbeToWorldRow2", i], [
-				probeToWorld[2][0],
-				probeToWorld[2][1],
-				probeToWorld[2][2],
-				probeToWorld[2][3],
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			writer.writeVec(["reflectionProbeDataA", i], [
-				probe.invHalfExtents[0],
-				probe.invHalfExtents[1],
-				probe.invHalfExtents[2],
-				probe.radiusInv,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			writer.writeVec(["reflectionProbeDataB", i], [
-				probe.captureWorldPosition[0],
-				probe.captureWorldPosition[1],
-				probe.captureWorldPosition[2],
-				probe.shape,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_REFLECTION_PROBES; i++) {
-		const probe = input.reflectionProbes[i];
-		if (probe) {
-			writer.writeVec(["reflectionProbeDataC", i], [
-				probe.parallaxMode,
-				probe.blendDistance,
-				probe.blendExponent,
-				probe.layer,
-			]);
-		}
-	}
-
-	writer.writeVec("localLightProbeCounts", [
-		Math.max(0, input.localLightProbeCount),
-		0,
-		0,
-		0,
-	]);
-
-	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
-		const probe = input.localLightProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["localLightProbeWorldToProbeRow0", i], [
-				worldToProbe[0][0],
-				worldToProbe[0][1],
-				worldToProbe[0][2],
-				worldToProbe[0][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
-		const probe = input.localLightProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["localLightProbeWorldToProbeRow1", i], [
-				worldToProbe[1][0],
-				worldToProbe[1][1],
-				worldToProbe[1][2],
-				worldToProbe[1][3],
-			]);
-		}
-	}
-	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
-		const probe = input.localLightProbes[i];
-		if (probe) {
-			const worldToProbe = probe.worldToProbeMatrix.elements;
-			writer.writeVec(["localLightProbeWorldToProbeRow2", i], [
-				worldToProbe[2][0],
-				worldToProbe[2][1],
-				worldToProbe[2][2],
-				worldToProbe[2][3],
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
-		const probe = input.localLightProbes[i];
-		if (probe) {
-			writer.writeVec(["localLightProbeDataA", i], [
-				probe.invHalfExtents[0],
-				probe.invHalfExtents[1],
-				probe.invHalfExtents[2],
-				probe.radiusInv,
-			]);
-		}
-	}
-
-	for (let i = 0; i < WEBGPU_MAX_LOCAL_LIGHT_PROBES; i++) {
-		const probe = input.localLightProbes[i];
-		if (probe) {
-			writer.writeVec(["localLightProbeDataB", i], [
-				probe.blendDistance,
-				probe.priority,
-				probe.shape,
-				0,
-			]);
-		}
-	}
-
-	for (let probeIndex = 0; probeIndex < WEBGPU_MAX_LOCAL_LIGHT_PROBES; probeIndex++) {
-		const probe = input.localLightProbes[probeIndex];
-		if (!probe) continue;
-		for (let coeffIndex = 0; coeffIndex < WEBGPU_SH_COEFFICIENT_COUNT; coeffIndex++) {
-			const coefficient = probe.sh[coeffIndex];
-			if (!coefficient) continue;
-			writer.writeVec(
-				[
-					"localLightProbeSHAmbientCoeffs",
-					probeIndex * WEBGPU_SH_COEFFICIENT_COUNT + coeffIndex,
-				],
-				[
-					coefficient.r,
-					coefficient.g,
-					coefficient.b,
-					0,
-				]
-			);
-		}
-	}
-
-	return writer.toFloat32Array();
+	return FRAME_UNIFORM_PACKER.pack(input);
 }
 
 export function remapClipSpaceDepth(clipZ: number, clipW: number): number {
@@ -579,15 +552,12 @@ export function packModelUniformData(
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][]
 ): Float32Array<ArrayBuffer> {
-	const writer = MODEL_UNIFORM_LAYOUT.createWriter();
-	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_BYTE_SIZE, "ModelUniforms");
-	return writeModelUniformData(
-		writer,
+	return MODEL_UNIFORM_PACKER.pack({
 		modelMatrix,
 		normalMatrix,
 		materialData,
-		prevModelMatrix
-	);
+		prevModelMatrix,
+	});
 }
 
 export type WebGPUModelUniformWriter = ReturnType<
@@ -601,9 +571,7 @@ export type WebGPUModelUniformWriter = ReturnType<
  * model uniform layout.
  */
 export function createModelUniformWriter(): WebGPUModelUniformWriter {
-	const writer = MODEL_UNIFORM_LAYOUT.createWriter();
-	writer.expectByteLength(WEBGPU_MODEL_UNIFORM_BYTE_SIZE, "ModelUniforms");
-	return writer;
+	return MODEL_UNIFORM_PACKER.createWriter();
 }
 
 /**
@@ -624,45 +592,12 @@ export function writeModelUniformData(
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][]
 ): Float32Array<ArrayBuffer> {
-	writer.clear();
-	writer.writeMat4("modelMatrix", modelMatrix);
-	writer.writeMat4("prevModelMatrix", prevModelMatrix);
-	writer.writeMat4("normalMatrix", createNormalMatrixRows(normalMatrix));
-	writer.writeVec("baseColorFactor", materialData.baseColorFactor);
-	writer.writeVec("emissiveFactor", materialData.emissiveFactor);
-	writer.writeVec("surfaceParams0", materialData.surfaceParams0);
-	writer.writeVec("surfaceParams1", materialData.surfaceParams1);
-	writer.writeVec("surfaceParams2", materialData.surfaceParams2);
-	writer.writeVec("surfaceParams3", materialData.surfaceParams3);
-	writer.writeVec("specularColorFactor", materialData.specularColorFactor);
-	writer.writeVec("phongAmbientShininess", materialData.phongAmbientShininess);
-	writer.writeVec("phongSpecularShading", materialData.phongSpecularShading);
-	writer.writeVec(
-		"sheenColorClearcoatNormalScale",
-		materialData.sheenColorClearcoatNormalScale
-	);
-	writer.writeVec("attenuationColor", materialData.attenuationColor);
-	writer.writeVec("anisotropyParams", materialData.anisotropyParams);
-	writer.writeVec(
-		"anisotropyTextureTransformA",
-		materialData.anisotropyTexture.transformA
-	);
-	writer.writeVec(
-		"anisotropyTextureTransformB",
-		materialData.anisotropyTexture.transformB
-	);
-	writer.writeVec("materialFlags", materialData.materialFlags);
-
-	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
-		const slot = materialData.textureSlots[i];
-		if (!slot) {
-			continue;
-		}
-		writer.writeVec(["textureTransformA", i], slot.transformA);
-		writer.writeVec(["textureTransformB", i], slot.transformB);
-	}
-
-	return writer.toFloat32Array();
+	return MODEL_UNIFORM_PACKER.packInto(writer, {
+		modelMatrix,
+		normalMatrix,
+		materialData,
+		prevModelMatrix,
+	});
 }
 
 function resolveMatrixRows(matrix: Matrix4 | number[][]): number[][] {
@@ -678,6 +613,19 @@ function createNormalMatrixRows(normalMatrix: Matrix3Arr | Matrix4): number[][] 
 		[rows[1][0], rows[1][1], rows[1][2], 0],
 		[rows[2][0], rows[2][1], rows[2][2], 0],
 		[0, 0, 0, 1],
+	];
+}
+
+function matrixRow(
+	matrix: Matrix4,
+	row: 0 | 1 | 2
+): [number, number, number, number] {
+	const elements = matrix.elements;
+	return [
+		elements[row][0],
+		elements[row][1],
+		elements[row][2],
+		elements[row][3],
 	];
 }
 
