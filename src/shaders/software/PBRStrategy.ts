@@ -1,4 +1,5 @@
 import { Vector3 } from "../../maths/Vector3";
+import { SH } from "../../maths/SH";
 import {
 	isShadowCastingLight,
 } from "../../lights";
@@ -1230,26 +1231,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	}
 
 	private _evaluateSHBasis(direction: IVector3): Float32Array {
-		const { x, y, z } = direction;
-		const basis = this._shBasis;
-		const yy = y * y;
-		basis[0] = 0.282095;
-		basis[1] = 0.488603 * x;
-		basis[2] = 0.488603 * y;
-		basis[3] = 0.488603 * z;
-		basis[4] = 1.092548 * x * z;
-		basis[5] = 1.092548 * x * y;
-		basis[6] = 0.315392 * (3 * yy - 1);
-		basis[7] = 1.092548 * y * z;
-		basis[8] = 0.546274 * (x * x - z * z);
-		basis[9] = 0.590835 * x * (x * x - 3 * z * z);
-		basis[10] = 2.893641 * x * y * z;
-		basis[11] = 0.457619 * x * (5 * yy - 1);
-		basis[12] = 0.373176 * y * (5 * yy - 3);
-		basis[13] = 0.457619 * z * (5 * yy - 1);
-		basis[14] = 1.446821 * y * (x * x - z * z);
-		basis[15] = 0.590835 * z * (3 * x * x - z * z);
-		return basis;
+		return SH.evalBasis(direction, this._shBasis);
 	}
 
 	/**

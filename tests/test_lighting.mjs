@@ -170,6 +170,23 @@ function testLightProbe() {
 	assert.ok(Math.abs((contribution.intensity ?? 0) - 1.0) < 1e-6);
 }
 
+function testSHBasisBufferReuse() {
+	console.log("Testing SH basis buffer reuse...");
+	const invLen = 1 / Math.sqrt(14);
+	const direction = { x: invLen, y: 2 * invLen, z: 3 * invLen };
+	const expected = SH.evalBasis(direction);
+	const buffer = new Float32Array(16);
+	const actual = SH.evalBasis(direction, buffer);
+
+	assert.equal(actual, buffer);
+	for (let i = 0; i < expected.length; i++) {
+		assert.ok(
+			Math.abs(buffer[i] - expected[i]) < 1e-6,
+			`SH basis mismatch at index ${i}: got ${buffer[i]}, expected ${expected[i]}`
+		);
+	}
+}
+
 function run() {
 	try {
 		console.log("Starting Comprehensive Lighting Tests...");
@@ -178,6 +195,7 @@ function run() {
 		testPoint();
 		testSpot();
 		testLightProbe();
+		testSHBasisBufferReuse();
 		console.log("✅ All lighting tests passed!");
 	} catch (e) {
 		console.error("❌ Test Failed:");

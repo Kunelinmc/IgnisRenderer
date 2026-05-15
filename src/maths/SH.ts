@@ -6,57 +6,50 @@
 import type { IVector3, SHCoefficients } from "./types";
 import type { RGB } from "../foundation/Color";
 
+type SHBasisBuffer = number[] | Float32Array;
+
 export class SH {
 	/**
-	 * Compute SH basis functions for a given direction vector (normal)
-	 * @param {IVector3} n - Direction vector {x, y, z}, must be normalized
-	 * @returns {number[]} 16 SH basis values (L=0..3)
+	 * Compute SH basis functions for a given direction vector.
+	 *
+	 * @param n Direction vector, which must be normalized by the caller.
+	 * @param out Optional 16-element destination buffer. When provided, this
+	 * method writes all basis values into `out` and returns the same buffer.
+	 * @returns The 16 SH basis values for L=0..3.
+	 * @sideEffects Writes indices 0..15 of `out` when a destination is provided.
 	 */
-	public static evalBasis(n: IVector3): number[] {
+	public static evalBasis(n: IVector3): number[];
+	public static evalBasis(n: IVector3, out: Float32Array): Float32Array;
+	public static evalBasis(n: IVector3, out: number[]): number[];
+	public static evalBasis(n: IVector3, out?: SHBasisBuffer): SHBasisBuffer {
 		const { x, y, z } = n;
+		const basis = out ?? new Array<number>(16);
 		// Basis constants adjusted for Y-up coordinate system
 		// L=0
-		const Y00 = 0.282095;
+		basis[0] = 0.282095;
 
 		// L=1
-		const Y1_1 = 0.488603 * x; // m = -1
-		const Y10 = 0.488603 * y; // m = 0 (UP)
-		const Y11 = 0.488603 * z; // m = 1
+		basis[1] = 0.488603 * x; // m = -1
+		basis[2] = 0.488603 * y; // m = 0 (UP)
+		basis[3] = 0.488603 * z; // m = 1
 
 		// L=2
-		const Y2_2 = 1.092548 * x * z; // m = -2
-		const Y2_1 = 1.092548 * x * y; // m = -1
-		const Y20 = 0.315392 * (3 * y * y - 1); // m = 0
-		const Y21 = 1.092548 * y * z; // m = 1
-		const Y22 = 0.546274 * (x * x - z * z); // m = 2
+		const yy = y * y;
+		basis[4] = 1.092548 * x * z; // m = -2
+		basis[5] = 1.092548 * x * y; // m = -1
+		basis[6] = 0.315392 * (3 * yy - 1); // m = 0
+		basis[7] = 1.092548 * y * z; // m = 1
+		basis[8] = 0.546274 * (x * x - z * z); // m = 2
 
 		// L=3
-		const Y3_3 = 0.590835 * x * (x * x - 3 * z * z); // m = -3
-		const Y3_2 = 2.893641 * x * y * z; // m = -2
-		const Y3_1 = 0.457619 * x * (5 * y * y - 1); // m = -1
-		const Y30 = 0.373176 * y * (5 * y * y - 3); // m = 0
-		const Y31 = 0.457619 * z * (5 * y * y - 1); // m = 1
-		const Y32 = 1.446821 * y * (x * x - z * z); // m = 2
-		const Y33 = 0.590835 * z * (3 * x * x - z * z); // m = 3
-
-		return [
-			Y00,
-			Y1_1,
-			Y10,
-			Y11,
-			Y2_2,
-			Y2_1,
-			Y20,
-			Y21,
-			Y22,
-			Y3_3,
-			Y3_2,
-			Y3_1,
-			Y30,
-			Y31,
-			Y32,
-			Y33,
-		];
+		basis[9] = 0.590835 * x * (x * x - 3 * z * z); // m = -3
+		basis[10] = 2.893641 * x * y * z; // m = -2
+		basis[11] = 0.457619 * x * (5 * yy - 1); // m = -1
+		basis[12] = 0.373176 * y * (5 * yy - 3); // m = 0
+		basis[13] = 0.457619 * z * (5 * yy - 1); // m = 1
+		basis[14] = 1.446821 * y * (x * x - z * z); // m = 2
+		basis[15] = 0.590835 * z * (3 * x * x - z * z); // m = 3
+		return basis;
 	}
 
 	/**
