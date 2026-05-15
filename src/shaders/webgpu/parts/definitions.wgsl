@@ -86,6 +86,9 @@ struct ModelUniforms {
 	phongSpecularShading: vec4<f32>,
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
+	anisotropyParams: vec4<f32>,
+	anisotropyTextureTransformA: vec4<f32>,
+	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
 	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
@@ -210,6 +213,7 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(33) var<storage, read> morphWeights: array<f32>;
 @group(1) @binding(34) var<storage, read> morphPositionDeltas: array<vec4<f32>>;
 @group(1) @binding(35) var<storage, read> morphNormalDeltas: array<vec4<f32>>;
+@group(1) @binding(37) var anisotropyTexture: texture_2d<f32>;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
 @group(2) @binding(1) var<storage, read> clusterLights: ClusterLightBuffer;

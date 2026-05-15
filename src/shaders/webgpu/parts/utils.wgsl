@@ -44,6 +44,35 @@ fn transformUV(
 	return uv + transformA.xy;
 }
 
+fn transformAnisotropyUV(
+	uv0: vec2<f32>,
+	uv1: vec2<f32>,
+	uv2: vec2<f32>,
+	uv3: vec2<f32>
+) -> vec2<f32> {
+	let transformA = model.anisotropyTextureTransformA;
+	let transformB = model.anisotropyTextureTransformB;
+	let uvSet = u32(clamp(floor(transformB.y + 0.5), 0.0, 3.0));
+	var uv = uv0;
+	if (uvSet == 1u) {
+		uv = uv1;
+	} else if (uvSet == 2u) {
+		uv = uv2;
+	} else if (uvSet >= 3u) {
+		uv = uv3;
+	}
+	uv = uv * transformA.zw;
+
+	let rotation = transformB.x;
+	if (abs(rotation) > EPSILON) {
+		let c = cos(rotation);
+		let s = sin(rotation);
+		uv = vec2<f32>(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
+	}
+
+	return uv + transformA.xy;
+}
+
 fn sampleLinearTexture(
 	textureRef: texture_2d<f32>,
 	samplerRef: sampler,
@@ -115,6 +144,128 @@ fn applyNormalMap(
 		t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z,
 		n
 	);
+}
+
+fn fallbackTangentFromNormal(n: vec3<f32>) -> vec3<f32> {
+	let axis = select(
+		vec3<f32>(0.0, 1.0, 0.0),
+		vec3<f32>(1.0, 0.0, 0.0),
+		abs(n.y) > 0.999
+	);
+	return safeNormalize(cross(axis, n), vec3<f32>(1.0, 0.0, 0.0));
+}
+
+fn resolveAnisotropyDirection(
+	uv0: vec2<f32>,
+	uv1: vec2<f32>,
+	uv2: vec2<f32>,
+	uv3: vec2<f32>
+) -> vec3<f32> {
+	var strength = clamp(model.anisotropyParams.x, 0.0, 1.0);
+	var direction = vec2<f32>(1.0, 0.0);
+	if (model.anisotropyTextureTransformB.w > 0.5) {
+		let texel = textureSample(
+			anisotropyTexture,
+			thicknessSampler,
+			transformAnisotropyUV(uv0, uv1, uv2, uv3)
+		);
+		direction = texel.rg * 2.0 - vec2<f32>(1.0);
+		let directionLen = length(direction);
+		if (directionLen > EPSILON) {
+			direction = direction / directionLen;
+		} else {
+			direction = vec2<f32>(1.0, 0.0);
+		}
+		strength = clamp(strength * texel.b, 0.0, 1.0);
+	}
+
+	let c = model.anisotropyParams.y;
+	let s = model.anisotropyParams.z;
+	let rotated = vec2<f32>(
+		direction.x * c - direction.y * s,
+		direction.x * s + direction.y * c
+	);
+	return vec3<f32>(normalize(rotated), strength);
+}
+
+fn resolveAnisotropyTangent(
+	n: vec3<f32>,
+	tangent: vec4<f32>,
+	direction: vec2<f32>
+) -> vec3<f32> {
+	let tangentLenSq = dot(tangent.xyz, tangent.xyz);
+	let hasValidTangent = tangentLenSq > 1e-12 && abs(tangent.w) > EPSILON;
+	var t = fallbackTangentFromNormal(n);
+	var handedness = 1.0;
+	if (hasValidTangent) {
+		let candidate = tangent.xyz - n * dot(n, tangent.xyz);
+		let candidateLen = length(candidate);
+		if (candidateLen > EPSILON) {
+			t = candidate / candidateLen;
+			handedness = select(1.0, -1.0, tangent.w < 0.0);
+		}
+	}
+	let b = cross(n, t) * handedness;
+	return safeNormalize(t * direction.x + b * direction.y, t);
+}
+
+fn distributionAnisotropicGGX(
+	nDotH: f32,
+	tDotH: f32,
+	bDotH: f32,
+	at: f32,
+	ab: f32
+) -> f32 {
+	let a2 = max(at * ab, 1e-6);
+	let f = vec3<f32>(ab * tDotH, at * bDotH, a2 * nDotH);
+	let w2 = a2 / max(dot(f, f), 0.0001);
+	return a2 * w2 * w2 / PI;
+}
+
+fn visibilityAnisotropicGGX(
+	nDotL: f32,
+	nDotV: f32,
+	bDotV: f32,
+	tDotV: f32,
+	tDotL: f32,
+	bDotL: f32,
+	at: f32,
+	ab: f32
+) -> f32 {
+	let ggxV = nDotL * length(vec3<f32>(at * tDotV, ab * bDotV, nDotV));
+	let ggxL = nDotV * length(vec3<f32>(at * tDotL, ab * bDotL, nDotL));
+	return clamp(0.5 / max(ggxV + ggxL, 0.0001), 0.0, 1.0);
+}
+
+fn resolveAnisotropicSpecular(
+	fresnel: vec3<f32>,
+	roughness: f32,
+	anisotropy: f32,
+	nDotL: f32,
+	nDotV: f32,
+	nDotH: f32,
+	tDotV: f32,
+	bDotV: f32,
+	tDotL: f32,
+	bDotL: f32,
+	tDotH: f32,
+	bDotH: f32
+) -> vec3<f32> {
+	let alphaRoughness = roughness * roughness;
+	let at = mix(alphaRoughness, 1.0, anisotropy * anisotropy);
+	let ab = alphaRoughness;
+	let d = distributionAnisotropicGGX(nDotH, tDotH, bDotH, at, ab);
+	let v = visibilityAnisotropicGGX(
+		nDotL,
+		nDotV,
+		bDotV,
+		tDotV,
+		tDotL,
+		bDotL,
+		at,
+		ab
+	);
+	return fresnel * d * v;
 }
 
 fn pointAttenuation(distanceSq: f32, range: f32) -> f32 {
@@ -335,6 +486,29 @@ fn visibilityAshikhmin(nDotL: f32, nDotV: f32) -> f32 {
 
 fn reflectViewDirection(n: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
 	return safeNormalize(reflect(-v, n), n);
+}
+
+fn resolveAnisotropicReflectionDirection(
+	n: vec3<f32>,
+	v: vec3<f32>,
+	anisotropicB: vec3<f32>,
+	roughness: f32,
+	anisotropy: f32
+) -> vec3<f32> {
+	var bentNormal = cross(anisotropicB, v);
+	bentNormal = safeNormalize(
+		cross(bentNormal, anisotropicB),
+		n
+	);
+	let a = 1.0 - anisotropy * (1.0 - roughness);
+	let blendToNormal = a * a * a * a;
+	bentNormal = safeNormalize(mix(bentNormal, n, blendToNormal), n);
+	var reflectionDir = reflectViewDirection(bentNormal, v);
+	reflectionDir = safeNormalize(
+		mix(reflectionDir, bentNormal, roughness * roughness),
+		reflectionDir
+	);
+	return reflectionDir;
 }
 
 fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResult {

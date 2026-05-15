@@ -173,6 +173,9 @@ const MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "phongSpecularShading", type: VEC4_F32 },
 		{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
 		{ name: "attenuationColor", type: VEC4_F32 },
+		{ name: "anisotropyParams", type: VEC4_F32 },
+		{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
+		{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 		{ name: "materialFlags", type: VEC4_F32 },
 		{
 			name: "textureTransformA",
@@ -639,6 +642,15 @@ export function writeModelUniformData(
 		materialData.sheenColorClearcoatNormalScale
 	);
 	writer.writeVec("attenuationColor", materialData.attenuationColor);
+	writer.writeVec("anisotropyParams", materialData.anisotropyParams);
+	writer.writeVec(
+		"anisotropyTextureTransformA",
+		materialData.anisotropyTexture.transformA
+	);
+	writer.writeVec(
+		"anisotropyTextureTransformB",
+		materialData.anisotropyTexture.transformB
+	);
 	writer.writeVec("materialFlags", materialData.materialFlags);
 
 	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {

@@ -785,12 +785,17 @@ export class WebGPURenderResources {
 		const solidSamplers = solidMaterialData.textureSlots.map((slot) =>
 			this._textureRegistry.getSamplerForTexture(slot.map)
 		);
+		const solidAnisotropyTexture = this._textureRegistry.getTextureForSlot(
+			solidMaterialData.anisotropyTexture.map,
+			-1
+		);
 		const solidModelBinding = this._materialBindings.getBinding(
 			packet,
 			solidPipeline,
 			solidMaterialData,
 			solidTextures,
 			solidSamplers,
+			solidAnisotropyTexture,
 			animationState
 		);
 
@@ -828,12 +833,17 @@ export class WebGPURenderResources {
 			const wireSamplers = wireMaterialData.textureSlots.map((slot) =>
 				this._textureRegistry.getSamplerForTexture(slot.map)
 			);
+			const wireAnisotropyTexture = this._textureRegistry.getTextureForSlot(
+				wireMaterialData.anisotropyTexture.map,
+				-1
+			);
 			const wireModelBinding = this._materialBindings.getBinding(
 				packet,
 				wirePipeline,
 				wireMaterialData,
 				wireTextures,
 				wireSamplers,
+				wireAnisotropyTexture,
 				animationState
 			);
 

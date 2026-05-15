@@ -832,6 +832,35 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					}
 				}
 			}
+			// KHR_materials_anisotropy extension
+			if (m.extensions?.KHR_materials_anisotropy) {
+				const anisExt = m.extensions.KHR_materials_anisotropy;
+				if (anisExt.anisotropyStrength !== undefined) {
+					material.anisotropyStrength = Math.max(
+						0,
+						Math.min(1, anisExt.anisotropyStrength)
+					);
+				}
+				if (
+					anisExt.anisotropyRotation !== undefined &&
+					Number.isFinite(anisExt.anisotropyRotation)
+				) {
+					material.anisotropyRotation = anisExt.anisotropyRotation;
+				}
+				if (anisExt.anisotropyTexture !== undefined) {
+					const tex = this._getMaterialTexture(
+						anisExt.anisotropyTexture,
+						textures,
+						"Linear"
+					);
+					if (tex) {
+						material.anisotropyMap = tex;
+						material.anisotropyMapUV = this._getTexCoord(
+							anisExt.anisotropyTexture
+						);
+					}
+				}
+			}
 			// KHR_materials_transmission extension
 			if (m.extensions?.KHR_materials_transmission) {
 				const transExt = m.extensions.KHR_materials_transmission;

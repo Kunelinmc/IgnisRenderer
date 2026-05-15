@@ -191,7 +191,33 @@ let baseF0 = 0.16 * reflectance * reflectance;
 let f0Norm = min(vec3<f32>(baseF0) * specularColor * specularFactor, vec3<f32>(1.0));
 let realF0 = mix(f0Norm, albedo, vec3<f32>(metalness));
 let nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
-let reflectionDir = reflectViewDirection(pbrNormal, viewDir);
+let anisotropyData = resolveAnisotropyDirection(
+	input.uv0,
+	input.uv1,
+	input.uv2,
+	input.uv3
+);
+let anisotropyStrength = anisotropyData.z;
+let anisotropyTangent = resolveAnisotropyTangent(
+	pbrNormal,
+	input.worldTangent,
+	anisotropyData.xy
+);
+let anisotropyBitangent = safeNormalize(
+	cross(pbrNormal, anisotropyTangent),
+	fallbackTangentFromNormal(pbrNormal)
+);
+let reflectionDir = select(
+	reflectViewDirection(pbrNormal, viewDir),
+	resolveAnisotropicReflectionDirection(
+		pbrNormal,
+		viewDir,
+		anisotropyBitangent,
+		roughness,
+		anisotropyStrength
+	),
+	anisotropyStrength > EPSILON
+);
 let maxSheenColor = max(max(sheenColor.x, sheenColor.y), sheenColor.z);
 
 var volumeAttenuation = vec3<f32>(1.0);

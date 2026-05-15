@@ -42,6 +42,7 @@ uniform vec4 uPBR;
 uniform vec4 uTransmissionVolume;
 uniform vec4 uIridescence;
 uniform vec4 uAttenuationColor;
+uniform vec4 uAnisotropy;
 uniform vec4 uPhong;
 uniform vec4 uAlpha;
 uniform sampler2D uBaseMap;
@@ -83,6 +84,10 @@ uniform int uHasIridescenceThicknessMap;
 uniform int uIridescenceThicknessMapUV;
 uniform vec4 uIridescenceThicknessMapTransformA;
 uniform vec2 uIridescenceThicknessMapTransformB;
+uniform int uHasAnisotropyMap;
+uniform int uAnisotropyMapUV;
+uniform vec4 uAnisotropyMapTransformA;
+uniform vec2 uAnisotropyMapTransformB;
 uniform sampler2D uEnvSpecularMap;
 uniform int uHasEnvSpecularMap;
 uniform int uEnvSpecularMapIsLinear;
@@ -219,6 +224,111 @@ vec3 applyNormalMap(vec3 baseNormal, vec2 uv, vec3 normalSample, float scale) {
 		t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z,
 		n
 	);
+}
+
+vec3 fallbackTangentFromNormal(vec3 n) {
+	vec3 axis = abs(n.y) > 0.999 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	return safeNormalize(cross(axis, n), vec3(1.0, 0.0, 0.0));
+}
+
+void resolveDerivativeTangentFrame(vec3 n, vec2 uv, out vec3 t, out vec3 b) {
+	vec3 dp1 = dFdx(vWorldPos);
+	vec3 dp2 = dFdy(vWorldPos);
+	vec2 duv1 = dFdx(uv);
+	vec2 duv2 = dFdy(uv);
+	vec3 dp2perp = cross(dp2, n);
+	vec3 dp1perp = cross(n, dp1);
+	t = dp2perp * duv1.x + dp1perp * duv2.x;
+	b = dp2perp * duv1.y + dp1perp * duv2.y;
+	float maxLenSq = max(dot(t, t), dot(b, b));
+	if (maxLenSq <= EPSILON) {
+		t = fallbackTangentFromNormal(n);
+		b = safeNormalize(cross(n, t), fallbackTangentFromNormal(n));
+		return;
+	}
+	float invMax = inversesqrt(maxLenSq);
+	t *= invMax;
+	b *= invMax;
+}
+
+vec2 rotateAnisotropyDirection(vec2 direction) {
+	return vec2(
+		direction.x * uAnisotropy.y - direction.y * uAnisotropy.z,
+		direction.x * uAnisotropy.z + direction.y * uAnisotropy.y
+	);
+}
+
+float distributionAnisotropicGGX(float nDotH, float tDotH, float bDotH, float at, float ab) {
+	float a2 = max(at * ab, 1e-6);
+	vec3 f = vec3(ab * tDotH, at * bDotH, a2 * nDotH);
+	float w2 = a2 / max(dot(f, f), 0.0001);
+	return a2 * w2 * w2 / PI;
+}
+
+float visibilityAnisotropicGGX(
+	float nDotL,
+	float nDotV,
+	float bDotV,
+	float tDotV,
+	float tDotL,
+	float bDotL,
+	float at,
+	float ab
+) {
+	float ggxV = nDotL * length(vec3(at * tDotV, ab * bDotV, nDotV));
+	float ggxL = nDotV * length(vec3(at * tDotL, ab * bDotL, nDotL));
+	return clamp(0.5 / max(ggxV + ggxL, 0.0001), 0.0, 1.0);
+}
+
+vec3 resolveAnisotropicSpecular(
+	vec3 fresnel,
+	float roughness,
+	float anisotropy,
+	float nDotL,
+	float nDotV,
+	float nDotH,
+	float tDotV,
+	float bDotV,
+	float tDotL,
+	float bDotL,
+	float tDotH,
+	float bDotH
+) {
+	float alphaRoughness = roughness * roughness;
+	float at = mix(alphaRoughness, 1.0, anisotropy * anisotropy);
+	float ab = alphaRoughness;
+	float d = distributionAnisotropicGGX(nDotH, tDotH, bDotH, at, ab);
+	float v = visibilityAnisotropicGGX(
+		nDotL,
+		nDotV,
+		bDotV,
+		tDotV,
+		tDotL,
+		bDotL,
+		at,
+		ab
+	);
+	return fresnel * d * v;
+}
+
+vec3 resolveAnisotropicReflectionDirection(
+	vec3 n,
+	vec3 v,
+	vec3 anisotropicB,
+	float roughness,
+	float anisotropy
+) {
+	vec3 bentNormal = cross(anisotropicB, v);
+	bentNormal = safeNormalize(cross(bentNormal, anisotropicB), n);
+	float a = 1.0 - anisotropy * (1.0 - roughness);
+	float blendToNormal = a * a * a * a;
+	bentNormal = safeNormalize(mix(bentNormal, n, blendToNormal), n);
+	vec3 reflectionDir = safeNormalize(reflect(-v, bentNormal), bentNormal);
+	reflectionDir = safeNormalize(
+		mix(reflectionDir, bentNormal, roughness * roughness),
+		reflectionDir
+	);
+	return reflectionDir;
 }
 
 ivec2 linearIndexToTexel(int linearIndex, vec2 textureSizeValue) {
@@ -1748,6 +1858,9 @@ vec3 evalPBRLight(
 	float transmission,
 	vec3 f0,
 	float nDotV,
+	float anisotropyStrength,
+	vec3 anisotropyTangent,
+	vec3 anisotropyBitangent,
 	float iridescence,
 	float iridescenceThickness,
 	float iridescenceIor
@@ -1758,8 +1871,6 @@ vec3 evalPBRLight(
 	}
 
 	vec3 halfVector = safeNormalize(viewDir + lightDir, viewDir);
-	float ndf = distributionGGX(pbrNormal, halfVector, roughness);
-	float geometry = geometrySmith(nDotV, nDotL, roughness);
 	vec3 fresnel = resolveIridescenceFresnel(
 		max(dot(halfVector, viewDir), 0.0),
 		f0,
@@ -1767,8 +1878,28 @@ vec3 evalPBRLight(
 		iridescenceThickness,
 		iridescenceIor
 	);
-	float denominator = max(4.0 * nDotV * nDotL, 0.0001);
-	vec3 specular = (ndf * geometry * fresnel) / denominator;
+	vec3 specular;
+	if (anisotropyStrength > EPSILON) {
+		specular = resolveAnisotropicSpecular(
+			fresnel,
+			roughness,
+			anisotropyStrength,
+			nDotL,
+			nDotV,
+			max(dot(pbrNormal, halfVector), 0.0),
+			dot(anisotropyTangent, viewDir),
+			dot(anisotropyBitangent, viewDir),
+			dot(anisotropyTangent, lightDir),
+			dot(anisotropyBitangent, lightDir),
+			dot(anisotropyTangent, halfVector),
+			dot(anisotropyBitangent, halfVector)
+		);
+	} else {
+		float ndf = distributionGGX(pbrNormal, halfVector, roughness);
+		float geometry = geometrySmith(nDotV, nDotL, roughness);
+		float denominator = max(4.0 * nDotV * nDotL, 0.0001);
+		specular = (ndf * geometry * fresnel) / denominator;
+	}
 
 	vec3 kd =
 		diffuseFresnelWeight(fresnel, iridescence) *
@@ -1787,6 +1918,9 @@ vec3 shadePBR(
 	float metalness,
 	float reflectance,
 	float transmission,
+	float anisotropyStrength,
+	vec3 anisotropyTangent,
+	vec3 anisotropyBitangent,
 	float iridescence,
 	float iridescenceThickness,
 	float iridescenceIor,
@@ -1804,7 +1938,16 @@ vec3 shadePBR(
 	float dielectricF0 = 0.16 * reflectance * reflectance;
 	vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
-	vec3 reflectionDir = reflect(-viewDir, pbrNormal);
+	vec3 reflectionDir =
+		anisotropyStrength > EPSILON ?
+			resolveAnisotropicReflectionDirection(
+				pbrNormal,
+				viewDir,
+				anisotropyBitangent,
+				roughness,
+				anisotropyStrength
+			)
+		:	reflect(-viewDir, pbrNormal);
 	ivec2 localProbeIndices = ivec2(-1);
 	vec2 localProbeWeights = vec2(0.0);
 
@@ -1932,6 +2075,9 @@ vec3 shadePBR(
 			transmission,
 			f0,
 			nDotV,
+			anisotropyStrength,
+			anisotropyTangent,
+			anisotropyBitangent,
 			iridescence,
 			iridescenceThickness,
 			iridescenceIor
@@ -1981,6 +2127,9 @@ vec3 shadePBR(
 						transmission,
 						f0,
 						nDotV,
+						anisotropyStrength,
+						anisotropyTangent,
+						anisotropyBitangent,
 						iridescence,
 						iridescenceThickness,
 						iridescenceIor
@@ -2022,6 +2171,9 @@ vec3 shadePBR(
 						transmission,
 						f0,
 						nDotV,
+						anisotropyStrength,
+						anisotropyTangent,
+						anisotropyBitangent,
 						iridescence,
 						iridescenceThickness,
 						iridescenceIor
@@ -2053,6 +2205,9 @@ vec3 shadePBR(
 				transmission,
 				f0,
 				nDotV,
+				anisotropyStrength,
+				anisotropyTangent,
+				anisotropyBitangent,
 				iridescence,
 				iridescenceThickness,
 				iridescenceIor
@@ -2102,6 +2257,9 @@ vec3 shadePBR(
 				transmission,
 				f0,
 				nDotV,
+				anisotropyStrength,
+				anisotropyTangent,
+				anisotropyBitangent,
 				iridescence,
 				iridescenceThickness,
 				iridescenceIor
@@ -2194,12 +2352,12 @@ void main() {
 	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
 	}
+	vec2 normalUv = resolveMappedUV(
+		uNormalMapUV,
+		uNormalMapTransformA,
+		uNormalMapTransformB
+	);
 	if (uShadingModel == 1 && uHasNormalMap == 1) {
-		vec2 normalUv = resolveMappedUV(
-			uNormalMapUV,
-			uNormalMapTransformA,
-			uNormalMapTransformB
-		);
 		normal = applyNormalMap(
 			normal,
 			normalUv,
@@ -2207,6 +2365,47 @@ void main() {
 			max(uNormalScale, 0.0)
 		);
 	}
+	float anisotropyStrength = clamp(uAnisotropy.x, 0.0, 1.0);
+	vec2 anisotropyDirection = vec2(1.0, 0.0);
+	vec2 anisotropyFrameUv = uHasNormalMap == 1 ? normalUv : baseUv;
+	if (uHasAnisotropyMap == 1) {
+		vec2 anisotropyUv = resolveMappedUV(
+			uAnisotropyMapUV,
+			uAnisotropyMapTransformA,
+			uAnisotropyMapTransformB
+		);
+		vec3 anisotropyTexel = texture(uIridescenceThicknessMap, anisotropyUv).rgb;
+		anisotropyDirection = anisotropyTexel.rg * 2.0 - vec2(1.0);
+		float anisotropyDirectionLen = length(anisotropyDirection);
+		anisotropyDirection =
+			anisotropyDirectionLen > EPSILON ?
+				anisotropyDirection / anisotropyDirectionLen
+			:	vec2(1.0, 0.0);
+		anisotropyStrength = clamp(
+			anisotropyStrength * anisotropyTexel.b,
+			0.0,
+			1.0
+		);
+		anisotropyFrameUv = anisotropyUv;
+	}
+	anisotropyDirection = rotateAnisotropyDirection(anisotropyDirection);
+	vec3 anisotropyBaseTangent;
+	vec3 anisotropyBaseBitangent;
+	resolveDerivativeTangentFrame(
+		normal,
+		anisotropyFrameUv,
+		anisotropyBaseTangent,
+		anisotropyBaseBitangent
+	);
+	vec3 anisotropyTangent = safeNormalize(
+		anisotropyBaseTangent * anisotropyDirection.x +
+			anisotropyBaseBitangent * anisotropyDirection.y,
+		anisotropyBaseTangent
+	);
+	vec3 anisotropyBitangent = safeNormalize(
+		cross(normal, anisotropyTangent),
+		anisotropyBaseBitangent
+	);
 	vec3 emissive = uEmissive.rgb;
 	if (uHasEmissiveMap == 1) {
 		vec2 emissiveUv = resolveMappedUV(
@@ -2231,6 +2430,9 @@ void main() {
 			metalness,
 			reflectance,
 			transmission,
+			anisotropyStrength,
+			anisotropyTangent,
+			anisotropyBitangent,
 			iridescence,
 			iridescenceThickness,
 			iridescenceIor,

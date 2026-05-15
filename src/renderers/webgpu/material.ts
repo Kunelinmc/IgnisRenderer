@@ -75,6 +75,9 @@ export function createWebGPUMaterialUniformData(
 		: -1;
 	const specularFactor = clamp(mat.specularFactor ?? 1, 0, 1);
 	const clearcoatNormalScale = Math.max(0, mat.clearcoatNormalScale ?? 1);
+	const anisotropyStrength = clamp(mat.anisotropyStrength ?? 0, 0, 1);
+	const anisotropyRotation =
+		Number.isFinite(mat.anisotropyRotation) ? mat.anisotropyRotation : 0;
 
 	const specularColor = getPBRLinearColor(
 		mat.specularColor ?? { r: 255, g: 255, b: 255 }
@@ -94,6 +97,12 @@ export function createWebGPUMaterialUniformData(
 	const phongShininess = Math.max(mat.shininess ?? 32, 0);
 	const emissiveIntensity = clamp(mat.emissiveIntensity ?? 1, 0, 64);
 	const textureSlots = createMaterialTextureSlots(material);
+	const anisotropyTexture = createTextureSlot(
+		mat.anisotropyMap ?? null,
+		mat.anisotropyMapUV ?? 0,
+		true
+	);
+	anisotropyTexture.transformB[3] = mat.anisotropyMap ? 1 : 0;
 	const shaderUniforms = createShaderUniformData(material);
 
 	pushMaterialWarnings(material, warnings);
@@ -145,6 +154,13 @@ export function createWebGPUMaterialUniformData(
 			attenuationColor[2],
 			iridescenceThicknessMaximum,
 		],
+		anisotropyParams: [
+			anisotropyStrength,
+			Math.cos(anisotropyRotation),
+			Math.sin(anisotropyRotation),
+			0,
+		],
+		anisotropyTexture,
 		materialFlags: [
 			shadingMode,
 			alphaModeMask,
@@ -187,6 +203,10 @@ export function materialSupportsWebGPUDeferredLighting(
 		return false;
 	}
 	if (materialUsesTransmission(material)) {
+		return false;
+	}
+	const mat = material as any;
+	if ((mat.anisotropyStrength ?? 0) > 0 || mat.anisotropyMap) {
 		return false;
 	}
 	return true;

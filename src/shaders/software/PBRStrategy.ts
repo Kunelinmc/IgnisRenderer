@@ -62,6 +62,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _clearcoatReflectionDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _lightDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _halfDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _anisotropicBentNormal: IVector3 = { x: 0, y: 0, z: 1 };
 	private _shBasis = new Float32Array(16);
 	private _shIrradiance: RGB = { r: 0, g: 0, b: 0 };
 	private _shRadiance: RGB = { r: 0, g: 0, b: 0 };
@@ -109,6 +110,23 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const occlusion = clamp(surface.occlusion, 0.0, 1.0);
 		const clearcoat = clamp(surface.clearcoat, 0.0, 1.0);
 		const clearcoatRoughness = clamp(surface.clearcoatRoughness, 0.04, 1.0);
+		const anisotropy = clamp(surface.anisotropyStrength ?? 0.0, 0.0, 1.0);
+		const anisotropyT = surface.anisotropyTangent;
+		const anisotropyB = surface.anisotropyBitangent;
+		const hasAnisotropy =
+			anisotropy > 1e-6 &&
+			!!anisotropyT &&
+			!!anisotropyB;
+		if (hasAnisotropy) {
+			this._resolveAnisotropicReflectionDirection(
+				N,
+				V,
+				anisotropyB,
+				rough,
+				anisotropy,
+				reflectionDir
+			);
+		}
 
 		const sheenInput = surface.sheenColor;
 		const sheenColorR = (sheenInput?.r ?? 0) / 255;
@@ -282,8 +300,6 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				H.z = L.z + V.z;
 				Vector3.normalizeInPlace(H);
 
-				const NDF = this._DistributionGGX(N, H, rough);
-				const G = this._GeometrySmith(NdotV, NdotL, rough);
 				const HdotV = Math.max(Vector3.dot(H, V), 0);
 				const fresnel = this._resolveIridescenceFresnel(
 					HdotV,
@@ -298,11 +314,59 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				const FR = fresnel.r;
 				const FG = fresnel.g;
 				const FB = fresnel.b;
-				const denominator = 4 * NdotV * NdotL + PBR_DENOM_EPSILON;
-
-				specularR = (NDF * G * FR) / denominator * energyCompensationR;
-				specularG = (NDF * G * FG) / denominator * energyCompensationG;
-				specularB = (NDF * G * FB) / denominator * energyCompensationB;
+				if (hasAnisotropy) {
+					const alphaRoughness = rough * rough;
+					const at =
+						alphaRoughness * (1.0 - anisotropy * anisotropy) +
+						anisotropy * anisotropy;
+					const ab = alphaRoughness;
+					const NdotH = Math.max(Vector3.dot(N, H), 0);
+					const TdotV = Vector3.dot(anisotropyT, V);
+					const BdotV = Vector3.dot(anisotropyB, V);
+					const TdotL = Vector3.dot(anisotropyT, L);
+					const BdotL = Vector3.dot(anisotropyB, L);
+					const TdotH = Vector3.dot(anisotropyT, H);
+					const BdotH = Vector3.dot(anisotropyB, H);
+					const anisotropicNDF = this._DistributionAnisotropicGGX(
+						NdotH,
+						TdotH,
+						BdotH,
+						at,
+						ab
+					);
+					const anisotropicVisibility = this._VisibilityAnisotropicGGX(
+						NdotL,
+						NdotV,
+						BdotV,
+						TdotV,
+						TdotL,
+						BdotL,
+						at,
+						ab
+					);
+					specularR =
+						anisotropicNDF *
+						anisotropicVisibility *
+						FR *
+						energyCompensationR;
+					specularG =
+						anisotropicNDF *
+						anisotropicVisibility *
+						FG *
+						energyCompensationG;
+					specularB =
+						anisotropicNDF *
+						anisotropicVisibility *
+						FB *
+						energyCompensationB;
+				} else {
+					const NDF = this._DistributionGGX(N, H, rough);
+					const G = this._GeometrySmith(NdotV, NdotL, rough);
+					const denominator = 4 * NdotV * NdotL + PBR_DENOM_EPSILON;
+					specularR = (NDF * G * FR) / denominator * energyCompensationR;
+					specularG = (NDF * G * FG) / denominator * energyCompensationG;
+					specularB = (NDF * G * FB) / denominator * energyCompensationB;
+				}
 
 				const fresnelMax = Math.max(FR, FG, FB);
 				const kDR =
@@ -790,6 +854,41 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		return G1V * G1L;
 	}
 
+	private _DistributionAnisotropicGGX(
+		NdotH: number,
+		TdotH: number,
+		BdotH: number,
+		at: number,
+		ab: number
+	): number {
+		const a2 = Math.max(at * ab, 1e-6);
+		const fx = ab * TdotH;
+		const fy = at * BdotH;
+		const fz = a2 * NdotH;
+		const denom = Math.max(fx * fx + fy * fy + fz * fz, GGX_EPSILON);
+		const w2 = a2 / denom;
+		return (a2 * w2 * w2) / Math.PI;
+	}
+
+	private _VisibilityAnisotropicGGX(
+		NdotL: number,
+		NdotV: number,
+		BdotV: number,
+		TdotV: number,
+		TdotL: number,
+		BdotL: number,
+		at: number,
+		ab: number
+	): number {
+		const ggxV =
+			NdotL *
+			Math.hypot(at * TdotV, ab * BdotV, NdotV);
+		const ggxL =
+			NdotV *
+			Math.hypot(at * TdotL, ab * BdotL, NdotL);
+		return clamp(0.5 / Math.max(ggxV + ggxL, GGX_EPSILON), 0.0, 1.0);
+	}
+
 	private _pow5(value: number): number {
 		const value2 = value * value;
 		return value2 * value2 * value;
@@ -1009,6 +1108,42 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		out.x = 2 * NdotV * N.x - V.x;
 		out.y = 2 * NdotV * N.y - V.y;
 		out.z = 2 * NdotV * N.z - V.z;
+		Vector3.normalizeInPlace(out);
+		return out;
+	}
+
+	private _resolveAnisotropicReflectionDirection(
+		N: IVector3,
+		V: IVector3,
+		B: IVector3,
+		roughness: number,
+		anisotropy: number,
+		out: IVector3
+	): IVector3 {
+		const cx = B.y * V.z - B.z * V.y;
+		const cy = B.z * V.x - B.x * V.z;
+		const cz = B.x * V.y - B.y * V.x;
+		const bent = this._anisotropicBentNormal;
+		bent.x = cy * B.z - cz * B.y;
+		bent.y = cz * B.x - cx * B.z;
+		bent.z = cx * B.y - cy * B.x;
+		Vector3.normalizeInPlace(bent);
+
+		const oneMinusBent = 1.0 - anisotropy * (1.0 - roughness);
+		const blendToNormal = oneMinusBent * oneMinusBent * oneMinusBent * oneMinusBent;
+		bent.x = bent.x * (1.0 - blendToNormal) + N.x * blendToNormal;
+		bent.y = bent.y * (1.0 - blendToNormal) + N.y * blendToNormal;
+		bent.z = bent.z * (1.0 - blendToNormal) + N.z * blendToNormal;
+		Vector3.normalizeInPlace(bent);
+
+		const bentDotV = Vector3.dot(bent, V);
+		out.x = 2 * bentDotV * bent.x - V.x;
+		out.y = 2 * bentDotV * bent.y - V.y;
+		out.z = 2 * bentDotV * bent.z - V.z;
+		const roughnessSq = roughness * roughness;
+		out.x = out.x * (1.0 - roughnessSq) + bent.x * roughnessSq;
+		out.y = out.y * (1.0 - roughnessSq) + bent.y * roughnessSq;
+		out.z = out.z * (1.0 - roughnessSq) + bent.z * roughnessSq;
 		Vector3.normalizeInPlace(out);
 		return out;
 	}

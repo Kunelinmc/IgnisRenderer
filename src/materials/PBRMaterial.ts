@@ -104,6 +104,23 @@ export interface PBRMaterialParams extends MaterialParams {
 	iridescenceThicknessMaximum?: number;
 	iridescenceThicknessMap?: TextureLike;
 	iridescenceThicknessMapUV?: UVChannel;
+	/**
+	 * KHR_materials_anisotropy strength in the range 0..1.
+	 * `anisotropyMap` multiplies this value by its blue channel.
+	 */
+	anisotropyStrength?: number;
+	/**
+	 * KHR_materials_anisotropy rotation in radians, counter-clockwise in
+	 * tangent/bitangent space.
+	 */
+	anisotropyRotation?: number;
+	/**
+	 * KHR_materials_anisotropy direction/strength texture.
+	 * Red/green encode direction and blue encodes strength.
+	 */
+	anisotropyMap?: TextureLike;
+	/** UV set used by `anisotropyMap`. */
+	anisotropyMapUV?: UVChannel;
 	thicknessFactor?: number;
 	thicknessMap?: TextureLike;
 	thicknessMapUV?: UVChannel;
@@ -168,6 +185,15 @@ export class PBRMaterial extends Material {
 	public iridescenceThicknessMaximum: number;
 	public iridescenceThicknessMap: TextureLike;
 	public iridescenceThicknessMapUV: UVChannel;
+
+	/** KHR_materials_anisotropy strength in the range 0..1. */
+	public anisotropyStrength: number;
+	/** KHR_materials_anisotropy rotation in radians. */
+	public anisotropyRotation: number;
+	/** KHR_materials_anisotropy direction/strength texture. */
+	public anisotropyMap: TextureLike;
+	/** UV set used by `anisotropyMap`. */
+	public anisotropyMapUV: UVChannel;
 
 	public thicknessFactor: number;
 	public thicknessMap: TextureLike;
@@ -295,6 +321,14 @@ export class PBRMaterial extends Material {
 		this.iridescenceThicknessMapUV = normalizeUVChannel(
 			params.iridescenceThicknessMapUV
 		);
+
+		this.anisotropyStrength = clamp(params.anisotropyStrength ?? 0.0, 0, 1);
+		this.anisotropyRotation =
+			Number.isFinite(params.anisotropyRotation) ?
+				params.anisotropyRotation!
+			:	0.0;
+		this.anisotropyMap = params.anisotropyMap || null;
+		this.anisotropyMapUV = normalizeUVChannel(params.anisotropyMapUV);
 
 		this.thicknessFactor = Math.max(params.thicknessFactor ?? 0.0, 0);
 		this.thicknessMap = params.thicknessMap || null;

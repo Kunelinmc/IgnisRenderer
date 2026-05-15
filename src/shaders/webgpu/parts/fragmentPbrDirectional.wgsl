@@ -41,8 +41,6 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 
 	if (nDotL > 0.0) {
 		let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-		let ndf = distributionGGX(pbrNormal, halfVector, roughness);
-		let geometry = geometrySmith(nDotV, nDotL, roughness);
 		let fresnel = resolveIridescenceFresnel(
 			max(dot(halfVector, viewDir), 0.0),
 			realF0,
@@ -50,9 +48,27 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			iridescenceThickness,
 			iridescenceIor
 		);
-		let denominator = max(4.0 * nDotV * nDotL, 0.0001);
-
-		specular = (ndf * geometry * fresnel) / denominator;
+		if (anisotropyStrength > EPSILON) {
+			specular = resolveAnisotropicSpecular(
+				fresnel,
+				roughness,
+				anisotropyStrength,
+				nDotL,
+				nDotV,
+				max(dot(pbrNormal, halfVector), 0.0),
+				dot(anisotropyTangent, viewDir),
+				dot(anisotropyBitangent, viewDir),
+				dot(anisotropyTangent, lightDirection),
+				dot(anisotropyBitangent, lightDirection),
+				dot(anisotropyTangent, halfVector),
+				dot(anisotropyBitangent, halfVector)
+			);
+		} else {
+			let ndf = distributionGGX(pbrNormal, halfVector, roughness);
+			let geometry = geometrySmith(nDotV, nDotL, roughness);
+			let denominator = max(4.0 * nDotV * nDotL, 0.0001);
+			specular = (ndf * geometry * fresnel) / denominator;
+		}
 
 		let kd =
 			diffuseFresnelWeight(fresnel, iridescence) *

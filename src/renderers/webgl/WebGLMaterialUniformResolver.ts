@@ -14,6 +14,7 @@ export interface MaterialUniformState {
 	transmissionVolume: [number, number, number, number];
 	iridescence: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
+	anisotropy: [number, number, number, number];
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
 	baseMap: any | null;
@@ -32,6 +33,8 @@ export interface MaterialUniformState {
 	iridescenceMapUV: 0 | 1 | 2 | 3;
 	iridescenceThicknessMap: any | null;
 	iridescenceThicknessMapUV: 0 | 1 | 2 | 3;
+	anisotropyMap: any | null;
+	anisotropyMapUV: 0 | 1 | 2 | 3;
 }
 
 export function resolveMaterialUniforms(material: Material): MaterialUniformState {
@@ -57,6 +60,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let iridescenceIor = 1.3;
 	let iridescenceThicknessMinimum = 100;
 	let iridescenceThicknessMaximum = 400;
+	let anisotropyStrength = 0;
+	let anisotropyRotation = 0;
 	let attenuationDistance = -1;
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
@@ -76,6 +81,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let iridescenceMapUV: 0 | 1 | 2 | 3 = 0;
 	let iridescenceThicknessMap: any | null = null;
 	let iridescenceThicknessMapUV: 0 | 1 | 2 | 3 = 0;
+	let anisotropyMap: any | null = null;
+	let anisotropyMapUV: 0 | 1 | 2 | 3 = 0;
 
 	if (isPBR) {
 		const pbr = material as any;
@@ -136,6 +143,11 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		iridescenceThicknessMapUV = resolveUVSet(
 			pbr.iridescenceThicknessMapUV
 		);
+		anisotropyStrength = clamp(pbr.anisotropyStrength ?? 0, 0, 1);
+		anisotropyRotation =
+			Number.isFinite(pbr.anisotropyRotation) ? pbr.anisotropyRotation : 0;
+		anisotropyMap = pbr.anisotropyMap ?? null;
+		anisotropyMapUV = resolveUVSet(pbr.anisotropyMapUV);
 	} else {
 		const basic = material as any;
 		const diffuse = basic.diffuse ?? { r: 255, g: 255, b: 255 };
@@ -184,6 +196,12 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			attenuationColor[2],
 			1,
 		],
+		anisotropy: [
+			anisotropyStrength,
+			Math.cos(anisotropyRotation),
+			Math.sin(anisotropyRotation),
+			0,
+		],
 		phong: [shininess, 0, 0, 0],
 		alpha: [alphaCutoff, alphaModeMask, 0, 0],
 		baseMap,
@@ -202,6 +220,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		iridescenceMapUV,
 		iridescenceThicknessMap,
 		iridescenceThicknessMapUV,
+		anisotropyMap,
+		anisotropyMapUV,
 	};
 }
 

@@ -94,6 +94,9 @@ export interface PBRSurfaceProperties extends BaseSurfaceProperties {
 	iridescence: number;
 	iridescenceIor: number;
 	iridescenceThickness: number;
+	anisotropyStrength: number;
+	anisotropyTangent: IVector3;
+	anisotropyBitangent: IVector3;
 	thickness: number;
 	attenuationDistance: number;
 	attenuationColor: RGB;

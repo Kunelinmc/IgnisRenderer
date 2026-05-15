@@ -296,6 +296,9 @@ export function drawWebGLPacket(
 	const iridescenceThicknessMapUVTransform = resolveTextureUVTransform(
 		uniforms.iridescenceThicknessMap
 	);
+	const anisotropyMapUVTransform = resolveTextureUVTransform(
+		uniforms.anisotropyMap
+	);
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
 		logWebGLScenePassWarning(
@@ -322,6 +325,21 @@ export function drawWebGLPacket(
 	const resolvedIridescenceThicknessMap = host._textures.getBaseColorTexture(
 		uniforms.iridescenceThicknessMap
 	);
+	const resolvedAnisotropyMap = host._textures.getBaseColorTexture(
+		uniforms.anisotropyMap
+	);
+	const canBindAnisotropyMap =
+		!!uniforms.anisotropyMap && !uniforms.iridescenceThicknessMap;
+	const iridescenceThicknessTexture =
+		canBindAnisotropyMap ?
+			resolvedAnisotropyMap.texture
+			: resolvedIridescenceThicknessMap.texture;
+	if (uniforms.anisotropyMap && uniforms.iridescenceThicknessMap) {
+		logWebGLScenePassWarning(
+			"webgl-anisotropy-iridescence-thickness-texture-conflict",
+			`WebGL backend cannot bind anisotropy map for material ${material.name} while iridescence thickness map uses the shared texture slot.`
+		);
+	}
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_NORMAL_MAP);
@@ -335,7 +353,7 @@ export function drawWebGLPacket(
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP);
-	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceThicknessMap.texture);
+	gl.bindTexture(gl.TEXTURE_2D, iridescenceThicknessTexture);
 	host._bindShaderMaterialTextures(sceneProgram, material);
 	host._bindShaderMaterialUniforms(sceneProgram, material);
 
@@ -399,6 +417,9 @@ export function drawWebGLPacket(
 			sceneProgram.uniforms.attenuationColor,
 			uniforms.attenuationColor
 		);
+	}
+	if (sceneProgram.uniforms.anisotropy) {
+		gl.uniform4fv(sceneProgram.uniforms.anisotropy, uniforms.anisotropy);
 	}
 	if (sceneProgram.uniforms.phong) {
 		gl.uniform4fv(sceneProgram.uniforms.phong, uniforms.phong);
@@ -627,6 +648,34 @@ export function drawWebGLPacket(
 			sceneProgram.uniforms.iridescenceThicknessMapTransformB,
 			iridescenceThicknessMapUVTransform.cosRotation,
 			iridescenceThicknessMapUVTransform.sinRotation
+		);
+	}
+	if (sceneProgram.uniforms.hasAnisotropyMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.hasAnisotropyMap,
+			canBindAnisotropyMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.anisotropyMapUV) {
+		gl.uniform1i(
+			sceneProgram.uniforms.anisotropyMapUV,
+			uniforms.anisotropyMapUV
+		);
+	}
+	if (sceneProgram.uniforms.anisotropyMapTransformA) {
+		gl.uniform4f(
+			sceneProgram.uniforms.anisotropyMapTransformA,
+			anisotropyMapUVTransform.repeatX,
+			anisotropyMapUVTransform.repeatY,
+			anisotropyMapUVTransform.offsetX,
+			anisotropyMapUVTransform.offsetY
+		);
+	}
+	if (sceneProgram.uniforms.anisotropyMapTransformB) {
+		gl.uniform2f(
+			sceneProgram.uniforms.anisotropyMapTransformB,
+			anisotropyMapUVTransform.cosRotation,
+			anisotropyMapUVTransform.sinRotation
 		);
 	}
 	if (sceneProgram.uniforms.doubleSided) {

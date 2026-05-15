@@ -36,6 +36,9 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		iridescence: 0.0,
 		iridescenceIor: 1.3,
 		iridescenceThickness: 400.0,
+		anisotropyStrength: 0.0,
+		anisotropyTangent: { x: 1, y: 0, z: 0 },
+		anisotropyBitangent: { x: 0, y: 1, z: 0 },
 		thickness: 0.0,
 		attenuationDistance: Infinity,
 		attenuationColor: { r: 255, g: 255, b: 255 },
@@ -110,6 +113,91 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		normalOut.y = ty * tNormX + by * tNormY + ny * tNormZ;
 		normalOut.z = tz * tNormX + bz * tNormY + nz * tNormZ;
 		Vector3.normalizeInPlace(normalOut);
+	}
+
+	private _setFallbackTangent(
+		nx: number,
+		ny: number,
+		nz: number,
+		tangentOut: FragmentInput["normal"]
+	): void {
+		const ax = Math.abs(ny) < 0.999 ? 0 : 1;
+		const ay = Math.abs(ny) < 0.999 ? 1 : 0;
+		const az = 0;
+		tangentOut.x = ay * nz - az * ny;
+		tangentOut.y = az * nx - ax * nz;
+		tangentOut.z = ax * ny - ay * nx;
+		Vector3.normalizeInPlace(tangentOut);
+	}
+
+	private _resolveAnisotropyFrame(
+		input: FragmentInput,
+		normalIn: FragmentInput["normal"],
+		directionX: number,
+		directionY: number,
+		tangentOut: FragmentInput["normal"],
+		bitangentOut: FragmentInput["normal"]
+	): void {
+		let nx = normalIn.x;
+		let ny = normalIn.y;
+		let nz = normalIn.z;
+		const invNLen = 1 / (Math.hypot(nx, ny, nz) || 1);
+		nx *= invNLen;
+		ny *= invNLen;
+		nz *= invNLen;
+
+		const tangentLenSq =
+			input.tangent.x * input.tangent.x +
+			input.tangent.y * input.tangent.y +
+			input.tangent.z * input.tangent.z;
+		const hasValidTangent =
+			tangentLenSq > 1e-12 && Math.abs(input.tangent.w) > 1e-6;
+
+		let tx = 0;
+		let ty = 0;
+		let tz = 0;
+		let handedness = 1;
+		if (hasValidTangent) {
+			const ndotT =
+				nx * input.tangent.x + ny * input.tangent.y + nz * input.tangent.z;
+			tx = input.tangent.x - nx * ndotT;
+			ty = input.tangent.y - ny * ndotT;
+			tz = input.tangent.z - nz * ndotT;
+			const tLen = Math.hypot(tx, ty, tz);
+			if (tLen > 1e-6) {
+				tx /= tLen;
+				ty /= tLen;
+				tz /= tLen;
+				handedness = input.tangent.w < 0 ? -1 : 1;
+			} else {
+				this._setFallbackTangent(nx, ny, nz, tangentOut);
+				tx = tangentOut.x;
+				ty = tangentOut.y;
+				tz = tangentOut.z;
+			}
+		} else {
+			this._setFallbackTangent(nx, ny, nz, tangentOut);
+			tx = tangentOut.x;
+			ty = tangentOut.y;
+			tz = tangentOut.z;
+		}
+
+		let bx = (ny * tz - nz * ty) * handedness;
+		let by = (nz * tx - nx * tz) * handedness;
+		let bz = (nx * ty - ny * tx) * handedness;
+		const dirLen = Math.hypot(directionX, directionY);
+		const dirX = dirLen > 1e-6 ? directionX / dirLen : 1;
+		const dirY = dirLen > 1e-6 ? directionY / dirLen : 0;
+
+		tangentOut.x = tx * dirX + bx * dirY;
+		tangentOut.y = ty * dirX + by * dirY;
+		tangentOut.z = tz * dirX + bz * dirY;
+		Vector3.normalizeInPlace(tangentOut);
+
+		bitangentOut.x = ny * tangentOut.z - nz * tangentOut.y;
+		bitangentOut.y = nz * tangentOut.x - nx * tangentOut.z;
+		bitangentOut.z = nx * tangentOut.y - ny * tangentOut.x;
+		Vector3.normalizeInPlace(bitangentOut);
 	}
 
 	private _resolveUV(
@@ -390,6 +478,42 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 					(iridescenceThicknessTex.g / 255);
 		}
 
+		let anisotropyStrength = mat.anisotropyStrength ?? 0.0;
+		let anisotropyDirectionX = 1.0;
+		let anisotropyDirectionY = 0.0;
+		const anisotropyUV = this._resolveUV(mat.anisotropyMapUV, input);
+		const anisotropyTex = this._sampleTextureMap(
+			mat.anisotropyMap,
+			anisotropyUV.u,
+			anisotropyUV.v
+		);
+		if (anisotropyTex) {
+			anisotropyDirectionX = (anisotropyTex.r / 255) * 2.0 - 1.0;
+			anisotropyDirectionY = (anisotropyTex.g / 255) * 2.0 - 1.0;
+			anisotropyStrength *= anisotropyTex.b / 255;
+		}
+		const anisotropyDirLen = Math.hypot(
+			anisotropyDirectionX,
+			anisotropyDirectionY
+		);
+		if (anisotropyDirLen <= 1e-6) {
+			anisotropyDirectionX = 1.0;
+			anisotropyDirectionY = 0.0;
+		} else {
+			anisotropyDirectionX /= anisotropyDirLen;
+			anisotropyDirectionY /= anisotropyDirLen;
+		}
+		const anisotropyRotation =
+			Number.isFinite(mat.anisotropyRotation) ? mat.anisotropyRotation : 0.0;
+		const anisotropyCos = Math.cos(anisotropyRotation);
+		const anisotropySin = Math.sin(anisotropyRotation);
+		const rotatedAnisotropyX =
+			anisotropyDirectionX * anisotropyCos -
+			anisotropyDirectionY * anisotropySin;
+		const rotatedAnisotropyY =
+			anisotropyDirectionX * anisotropySin +
+			anisotropyDirectionY * anisotropyCos;
+
 		let thickness = mat.thicknessFactor;
 		const thicknessUV = this._resolveUV(mat.thicknessMapUV, input);
 		const thicknessTex = this._sampleTextureMap(
@@ -429,6 +553,7 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		res.iridescence = clamp(iridescence, 0, 1);
 		res.iridescenceIor = Math.max(mat.iridescenceIor ?? 1.3, 1.0);
 		res.iridescenceThickness = Math.max(0, iridescenceThickness);
+		res.anisotropyStrength = clamp(anisotropyStrength, 0, 1);
 		res.thickness = Math.max(0, thickness);
 		res.attenuationDistance = mat.attenuationDistance;
 		res.attenuationColor.r = clamp(mat.attenuationColor.r, 0, 255);
@@ -473,6 +598,15 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			clearcoatNormal.y = normal.y;
 			clearcoatNormal.z = normal.z;
 		}
+
+		this._resolveAnisotropyFrame(
+			input,
+			normal,
+			rotatedAnisotropyX,
+			rotatedAnisotropyY,
+			res.anisotropyTangent,
+			res.anisotropyBitangent
+		);
 
 		return res;
 	}

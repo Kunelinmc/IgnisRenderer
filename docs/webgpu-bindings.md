@@ -117,12 +117,14 @@ The following pipeline layouts must preserve these bind group roles:
 | `34` | `morphPositionDeltas` | Read-only storage buffer |
 | `35` | `morphNormalDeltas` | Read-only storage buffer |
 | `36` | `shaderUniforms` | Optional material shader uniform buffer |
+| `37` | `anisotropyTexture` | `texture_2d<f32>` |
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
 are `1 + slot * 2`. Dedicated sampler bindings are `2 + slot * 2` only for
-slots `0..13`. `iridescenceTexture` and `iridescenceThicknessTexture` do not
-have dedicated sampler bindings; shader code samples them with
-`thicknessSampler`.
+slots `0..13`. `iridescenceTexture`, `iridescenceThicknessTexture`, and
+`anisotropyTexture` do not have dedicated sampler bindings; shader code samples
+them with `thicknessSampler`. `anisotropyTexture` uses binding `37` and is not a
+`WEBGPU_TEXTURE_SLOT` entry.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
 

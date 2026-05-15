@@ -47,6 +47,7 @@ export class WebGLSceneMaterialUniforms {
 	public readonly transmissionVolume: WebGLSceneUniformLocation;
 	public readonly iridescence: WebGLSceneUniformLocation;
 	public readonly attenuationColor: WebGLSceneUniformLocation;
+	public readonly anisotropy: WebGLSceneUniformLocation;
 	public readonly phong: WebGLSceneUniformLocation;
 	public readonly alpha: WebGLSceneUniformLocation;
 	public readonly oitPassMode: WebGLSceneUniformLocation;
@@ -61,6 +62,7 @@ export class WebGLSceneMaterialUniforms {
 		this.transmissionVolume = get("uTransmissionVolume");
 		this.iridescence = get("uIridescence");
 		this.attenuationColor = get("uAttenuationColor");
+		this.anisotropy = get("uAnisotropy");
 		this.phong = get("uPhong");
 		this.alpha = get("uAlpha");
 		this.oitPassMode = get("uOITPassMode");
@@ -107,6 +109,10 @@ export class WebGLSceneMaterialTextureUniforms {
 	public readonly iridescenceThicknessMapUV: WebGLSceneUniformLocation;
 	public readonly iridescenceThicknessMapTransformA: WebGLSceneUniformLocation;
 	public readonly iridescenceThicknessMapTransformB: WebGLSceneUniformLocation;
+	public readonly hasAnisotropyMap: WebGLSceneUniformLocation;
+	public readonly anisotropyMapUV: WebGLSceneUniformLocation;
+	public readonly anisotropyMapTransformA: WebGLSceneUniformLocation;
+	public readonly anisotropyMapTransformB: WebGLSceneUniformLocation;
 
 	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
 		const get = createUniformLookup(gl, program);
@@ -157,6 +163,10 @@ export class WebGLSceneMaterialTextureUniforms {
 		this.iridescenceThicknessMapTransformB = get(
 			"uIridescenceThicknessMapTransformB"
 		);
+		this.hasAnisotropyMap = get("uHasAnisotropyMap");
+		this.anisotropyMapUV = get("uAnisotropyMapUV");
+		this.anisotropyMapTransformA = get("uAnisotropyMapTransformA");
+		this.anisotropyMapTransformB = get("uAnisotropyMapTransformB");
 	}
 }
 

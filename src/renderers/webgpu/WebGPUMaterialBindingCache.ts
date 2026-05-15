@@ -18,6 +18,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
@@ -49,6 +50,7 @@ interface MaterialBindingEntry {
 	bindingGroup: IBindingGroup | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
+	anisotropyTexture: IRenderTexture | null;
 	morphPositionBuffer: IRenderBuffer;
 	morphNormalBuffer: IRenderBuffer;
 	modelUniformWriter: WebGPUModelUniformWriter;
@@ -83,7 +85,7 @@ interface MaterialBindingEntry {
 	lastUsedFrame: number;
 }
 
-const MATERIAL_SNAPSHOT_FLOATS = (12 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
+const MATERIAL_SNAPSHOT_FLOATS = (15 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
 const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
@@ -160,6 +162,7 @@ export class WebGPUMaterialBindingCache {
 		materialData: WebGPUMaterialUniformData,
 		textures: IRenderTexture[],
 		samplers: ISampler[],
+		anisotropyTexture: IRenderTexture,
 		animation: WebGPUModelAnimationBindingState
 	): IBindingGroup {
 		const cacheKey = `${packet.id}-${materialData.pipelineKey}`;
@@ -213,6 +216,7 @@ export class WebGPUMaterialBindingCache {
 			requiresRebind ||
 			!areTexturesEqual(cached.textures, textures) ||
 			!areSamplersEqual(cached.samplers, samplers) ||
+			cached.anisotropyTexture !== anisotropyTexture ||
 			cached.morphPositionBuffer !== morphPositionBuffer ||
 			cached.morphNormalBuffer !== morphNormalBuffer
 		) {
@@ -252,6 +256,10 @@ export class WebGPUMaterialBindingCache {
 					resource:
 						cached.shaderUniformBuffer ??
 						this._fallbackShaderUniformBuffer,
+				},
+				{
+					binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
+					resource: anisotropyTexture,
 				}
 			);
 			cached.bindingGroup = this._backend.createBindingGroup({
@@ -264,6 +272,7 @@ export class WebGPUMaterialBindingCache {
 			}
 			cached.textures = textures.slice();
 			cached.samplers = samplers.slice();
+			cached.anisotropyTexture = anisotropyTexture;
 			cached.morphPositionBuffer = morphPositionBuffer;
 			cached.morphNormalBuffer = morphNormalBuffer;
 		}
@@ -297,6 +306,7 @@ export class WebGPUMaterialBindingCache {
 			bindingGroup: null,
 			textures: [],
 			samplers: [],
+			anisotropyTexture: null,
 			morphPositionBuffer: this._fallbackStorageBuffer,
 			morphNormalBuffer: this._fallbackStorageBuffer,
 			modelUniformWriter: createModelUniformWriter(),
@@ -797,6 +807,9 @@ function updateMaterialSnapshot(
 		materialData.phongSpecularShading,
 		materialData.sheenColorClearcoatNormalScale,
 		materialData.attenuationColor,
+		materialData.anisotropyParams,
+		materialData.anisotropyTexture.transformA,
+		materialData.anisotropyTexture.transformB,
 		materialData.materialFlags,
 	]) {
 		changed = writeSnapshotVec4(target, offset, values) || changed;

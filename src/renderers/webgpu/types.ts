@@ -219,6 +219,8 @@ export interface WebGPUMaterialUniformData {
 	phongSpecularShading: [number, number, number, number];
 	sheenColorClearcoatNormalScale: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
+	anisotropyParams: [number, number, number, number];
+	anisotropyTexture: WebGPUTextureSlotData;
 	materialFlags: [number, number, number, number];
 	textureSlots: WebGPUTextureSlotData[];
 	shaderUniforms: WebGPUShaderUniformData;
