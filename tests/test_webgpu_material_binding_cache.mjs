@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { WebGPUMaterialBindingCache } from "../src/renderers/webgpu/WebGPUMaterialBindingCache.ts";
 
+const fallbackAnisotropyTexture = { id: "anisotropy:fallback" };
+
 function createBackendStub() {
 	const backend = {
 		bufferDestroyCalls: 0,
@@ -54,6 +56,12 @@ function createMaterialData(pipelineKey = "none-opaque-solid") {
 		phongSpecularShading: vec4,
 		sheenColorClearcoatNormalScale: vec4,
 		attenuationColor: vec4,
+		anisotropyParams: vec4,
+		anisotropyTexture: {
+			map: null,
+			transformA: vec4,
+			transformB: vec4,
+		},
 		materialFlags: vec4,
 		textureSlots: [],
 		shaderUniforms: {
@@ -110,6 +118,7 @@ function testEvictionDestroysModelBindingGroup() {
 		materialData,
 		[],
 		[],
+		fallbackAnisotropyTexture,
 		animation
 	);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
@@ -134,6 +143,7 @@ function testTextureRebindDestroysPreviousModelBindingGroup() {
 		materialData,
 		[{ id: "texture:a" }],
 		[{ id: "sampler:a" }],
+		fallbackAnisotropyTexture,
 		animation
 	);
 	const secondGroup = cache.getBinding(
@@ -142,6 +152,7 @@ function testTextureRebindDestroysPreviousModelBindingGroup() {
 		materialData,
 		[{ id: "texture:b" }],
 		[{ id: "sampler:a" }],
+		fallbackAnisotropyTexture,
 		animation
 	);
 
@@ -162,6 +173,7 @@ function testPipelineChangeReusesModelBindingGroup() {
 		materialData,
 		[],
 		[],
+		fallbackAnisotropyTexture,
 		animation
 	);
 	const writeCount = backend.writeBufferCalls;
@@ -171,6 +183,7 @@ function testPipelineChangeReusesModelBindingGroup() {
 		materialData,
 		[],
 		[],
+		fallbackAnisotropyTexture,
 		animation
 	);
 
@@ -193,6 +206,7 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 		materialData,
 		[],
 		[],
+		fallbackAnisotropyTexture,
 		animation
 	);
 	cache.getBinding(
@@ -201,6 +215,7 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 		materialData,
 		[],
 		[],
+		fallbackAnisotropyTexture,
 		animation
 	);
 

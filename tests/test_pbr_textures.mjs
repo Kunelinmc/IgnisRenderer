@@ -272,6 +272,31 @@ function testSheenRoughnessMapUsesNormalizedAlpha() {
 	);
 }
 
+function testAnisotropyMapUsesBlueStrengthAndRotatesDirection() {
+	console.log("Testing Anisotropy map strength and rotation...");
+	const material = new PBRMaterial({
+		anisotropyStrength: 0.8,
+		anisotropyRotation: Math.PI / 2,
+	});
+	material.anisotropyMap = create1x1Texture(255, 128, 64, 255, "Linear");
+
+	const evaluator = new PBREvaluator(material);
+	const face = createMockFace();
+	const input = createMockInput();
+
+	const surface = evaluator.evaluate(input, face);
+	assert.ok(surface);
+	assert.ok(
+		Math.abs(surface.anisotropyStrength - 0.8 * (64 / 255)) < 0.001,
+		`Expected anisotropy strength near ${0.8 * (64 / 255)}, got ${surface.anisotropyStrength}`
+	);
+	assert.ok(
+		Math.abs(surface.anisotropyTangent.x) < 0.01 &&
+			surface.anisotropyTangent.y > 0.99,
+		`Expected rotated anisotropy tangent near +Y, got {${surface.anisotropyTangent.x}, ${surface.anisotropyTangent.y}, ${surface.anisotropyTangent.z}}`
+	);
+}
+
 function testUV2ChannelUsesThirdUVSet() {
 	console.log("Testing UVChannel.UV2 uses third UV set...");
 	const material = new PBRMaterial({
@@ -359,6 +384,7 @@ function run() {
 		testClearcoatNormalMapMatchesBaseNormalMap();
 		testLegacyF0Compatibility();
 		testSheenRoughnessMapUsesNormalizedAlpha();
+		testAnisotropyMapUsesBlueStrengthAndRotatesDirection();
 		testUV2ChannelUsesThirdUVSet();
 		testUV3ChannelUsesFourthUVSet();
 		console.log("✅ All PBR texture tests passed!");

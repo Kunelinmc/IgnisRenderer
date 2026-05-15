@@ -783,6 +783,71 @@ function testIridescenceChangesPBRSpecularHue() {
 	);
 }
 
+function testAnisotropyChangesPBRSpecularLobe() {
+	const strategy = new PBRStrategy();
+	const context = createContext({
+		enableSH: false,
+		lights: [
+			new DirectionalLight({
+				color: { r: 255, g: 255, b: 255 },
+				intensity: 4,
+				direction: { x: 0, y: 0, z: -1 },
+			}),
+		],
+	});
+	const baseSurface = {
+		type: "pbr",
+		albedo: { r: 0, g: 0, b: 0 },
+		opacity: 1,
+		normal: { x: 0, y: 0, z: 1 },
+		emissive: { r: 0, g: 0, b: 0 },
+		emissiveIntensity: 1,
+		roughness: 0.35,
+		metalness: 0,
+		reflectance: 1,
+		specularFactor: 1,
+		specularColor: { r: 255, g: 255, b: 255 },
+		occlusion: 1,
+		clearcoat: 0,
+		clearcoatRoughness: 0,
+		sheenColor: { r: 0, g: 0, b: 0 },
+		sheenRoughness: 0,
+		transmission: 0,
+		ior: 1.5,
+		thickness: 0,
+		attenuationDistance: Infinity,
+		attenuationColor: { r: 255, g: 255, b: 255 },
+		anisotropyTangent: { x: 1, y: 0, z: 0 },
+		anisotropyBitangent: { x: 0, y: 1, z: 0 },
+	};
+
+	const isotropic = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			...baseSurface,
+			anisotropyStrength: 0,
+		},
+		context
+	);
+	const anisotropic = strategy.calculate(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+		{ x: 0, y: 0, z: 1 },
+		{
+			...baseSurface,
+			anisotropyStrength: 1,
+		},
+		context
+	);
+
+	assert.ok(
+		Math.abs(anisotropic.r - isotropic.r) > 0.5,
+		"Anisotropy should change the base PBR specular lobe"
+	);
+}
+
 function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
 	const probe = new LightProbe(SH.empty());
 	probe.sh[0] = { r: 10, g: 0, b: 0 };
@@ -885,6 +950,7 @@ function run() {
 		testMetalnessSuppressesTransmission();
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testIridescenceChangesPBRSpecularHue();
+		testAnisotropyChangesPBRSpecularLobe();
 		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
 		testRendererUpdateSHIgnoresReflectionProbeSpecularMap();
 		testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend();

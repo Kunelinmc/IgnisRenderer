@@ -205,6 +205,68 @@ function testIridescenceExtensionParsingAndEvaluation() {
 	approx(surface.iridescenceThickness, 200 + (600 - 200) * (64 / 255));
 }
 
+function testAnisotropyExtensionParsingAndEvaluation() {
+	const loader = new GLTFLoader();
+	const anisotropyTex = new Texture(
+		new Uint8ClampedArray([255, 128, 64, 255]),
+		1,
+		1
+	);
+
+	const [mat] = loader.parseMaterials(
+		{
+			materials: [
+				{
+					pbrMetallicRoughness: {},
+					extensions: {
+						KHR_materials_anisotropy: {
+							anisotropyStrength: 0.75,
+							anisotropyRotation: Math.PI / 2,
+							anisotropyTexture: { index: 0, texCoord: 2 },
+						},
+					},
+				},
+			],
+		},
+		[anisotropyTex]
+	);
+
+	assert.equal(mat.type, "PBR");
+	approx(mat.anisotropyStrength, 0.75);
+	approx(mat.anisotropyRotation, Math.PI / 2);
+	assert.ok(mat.anisotropyMap !== anisotropyTex);
+	assert.equal(mat.anisotropyMap.data, anisotropyTex.data);
+	assert.equal(mat.anisotropyMap.colorSpace, "Linear");
+	assert.equal(mat.anisotropyMapUV, UVChannel.UV2);
+
+	const evaluator = new PBREvaluator(mat);
+	const surface = evaluator.evaluate(
+		{
+			zCam: 1,
+			world: { x: 0, y: 0, z: 0 },
+			normal: { x: 0, y: 0, z: 1 },
+			tangent: { x: 1, y: 0, z: 0, w: 1 },
+			u: 0,
+			v: 0,
+			u2: 0,
+			v2: 0,
+		},
+		{
+			vertices: [],
+			projected: [],
+			center: { x: 0, y: 0, z: 0 },
+			depthInfo: { min: 0, max: 0, avg: 0 },
+		}
+	);
+	assert.ok(surface);
+	approx(surface.anisotropyStrength, 0.75 * (64 / 255));
+	assert.ok(
+		Math.abs(surface.anisotropyTangent.x) < 0.01 &&
+			surface.anisotropyTangent.y > 0.99,
+		"KHR_materials_anisotropy direction should rotate in tangent space"
+	);
+}
+
 function testSharedBaseColorTextureDoesNotCloneWithoutOverrides() {
 	const loader = new GLTFLoader();
 	const baseTex = new Texture(
@@ -408,7 +470,7 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	const makeTexture = () =>
 		new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
 
-	const textures = Array.from({ length: 12 }, makeTexture);
+	const textures = Array.from({ length: 13 }, makeTexture);
 	const [mat] = loader.parseMaterials(
 		{
 			materials: [
@@ -436,6 +498,9 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 							iridescenceTexture: { index: 10 },
 							iridescenceThicknessTexture: { index: 11 },
 						},
+						KHR_materials_anisotropy: {
+							anisotropyTexture: { index: 12 },
+						},
 					},
 				},
 			],
@@ -455,6 +520,7 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	assert.equal(mat.transmissionMap?.colorSpace, "Linear");
 	assert.equal(mat.iridescenceMap?.colorSpace, "Linear");
 	assert.equal(mat.iridescenceThicknessMap?.colorSpace, "Linear");
+	assert.equal(mat.anisotropyMap?.colorSpace, "Linear");
 }
 
 function testTexCoordAboveOnePreservesUVSet() {
@@ -513,6 +579,7 @@ function run() {
 		testPBRMaterialIorSetterSyncsReflectance();
 		testSpecularExtensionParsing();
 		testIridescenceExtensionParsingAndEvaluation();
+		testAnisotropyExtensionParsingAndEvaluation();
 		testSharedBaseColorTextureDoesNotCloneWithoutOverrides();
 		testTextureTransformStillCreatesDistinctTextureInstance();
 		testSpecularColorUsesLinearSemanticsInPBRStrategy();

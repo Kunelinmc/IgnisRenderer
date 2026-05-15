@@ -1215,6 +1215,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 		id: "iridescence-thickness-map",
 		linear: true,
 	};
+	const anisotropyMap = { id: "anisotropy-map", linear: true };
 	baseMap.repeat = { x: 0.5, y: 1.5 };
 	baseMap.offset = { x: 0.25, y: -0.125 };
 	baseMap.rotation = Math.PI / 6;
@@ -1236,6 +1237,9 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	iridescenceThicknessMap.repeat = { x: 1.3, y: 0.6 };
 	iridescenceThicknessMap.offset = { x: -0.11, y: 0.09 };
 	iridescenceThicknessMap.rotation = -Math.PI / 7;
+	anisotropyMap.repeat = { x: 0.9, y: 1.1 };
+	anisotropyMap.offset = { x: 0.07, y: -0.03 };
+	anisotropyMap.rotation = Math.PI / 9;
 	material.map = baseMap;
 	material.albedoMapUV = 2;
 	material.normalMap = normalMap;
@@ -1253,6 +1257,10 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	material.iridescenceMapUV = 3;
 	material.iridescenceThicknessMap = iridescenceThicknessMap;
 	material.iridescenceThicknessMapUV = 2;
+	material.anisotropyStrength = 0.6;
+	material.anisotropyRotation = Math.PI / 4;
+	material.anisotropyMap = anisotropyMap;
+	material.anisotropyMapUV = 3;
 	const textureTable = new Map([
 		[baseMap, { texture: { id: "base" }, isLinear: false }],
 		[normalMap, { texture: { id: "normal" }, isLinear: true }],
@@ -1264,6 +1272,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			iridescenceThicknessMap,
 			{ texture: { id: "iridescence-thickness" }, isLinear: true },
 		],
+		[anisotropyMap, { texture: { id: "anisotropy" }, isLinear: true }],
 	]);
 	const sceneProgram = {
 		program: {},
@@ -1278,6 +1287,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			transmissionVolume: null,
 			iridescence: "uIridescence",
 			attenuationColor: null,
+			anisotropy: "uAnisotropy",
 			phong: null,
 			alpha: null,
 			baseMap: "uBaseMap",
@@ -1319,6 +1329,10 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			iridescenceThicknessMapUV: "uIridescenceThicknessMapUV",
 			iridescenceThicknessMapTransformA: "uIridescenceThicknessMapTransformA",
 			iridescenceThicknessMapTransformB: "uIridescenceThicknessMapTransformB",
+			hasAnisotropyMap: "uHasAnisotropyMap",
+			anisotropyMapUV: "uAnisotropyMapUV",
+			anisotropyMapTransformA: "uAnisotropyMapTransformA",
+			anisotropyMapTransformB: "uAnisotropyMapTransformB",
 			doubleSided: null,
 			customSamplers: {},
 		},
@@ -1371,12 +1385,14 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	assert.equal(unitFor("uOcclusionMapUV"), 2);
 	assert.equal(unitFor("uIridescenceMapUV"), 3);
 	assert.equal(unitFor("uIridescenceThicknessMapUV"), 2);
+	assert.equal(unitFor("uAnisotropyMapUV"), 3);
 	assert.equal(unitFor("uHasNormalMap"), 1);
 	assert.equal(unitFor("uHasMetallicRoughnessMap"), 1);
 	assert.equal(unitFor("uHasEmissiveMap"), 1);
 	assert.equal(unitFor("uHasOcclusionMap"), 1);
 	assert.equal(unitFor("uHasIridescenceMap"), 1);
 	assert.equal(unitFor("uHasIridescenceThicknessMap"), 1);
+	assert.equal(unitFor("uHasAnisotropyMap"), 0);
 	assert.equal(unitFor("uBaseMapIsLinear"), 0);
 	assert.equal(unitFor("uEmissiveMapIsLinear"), 0);
 	assert.ok(
@@ -1391,6 +1407,13 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			(entry) =>
 				entry.location === "uOcclusionStrength" &&
 				Math.abs(entry.value - 0.4) < 1e-6
+		)
+	);
+	assert.ok(
+		gl.calls.uniform4fv.some(
+			(entry) =>
+				entry.location === "uAnisotropy" &&
+				Math.abs(entry.values[0] - 0.6) < 1e-6
 		)
 	);
 
@@ -1433,6 +1456,95 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 		"uIridescenceThicknessMapTransformB",
 		iridescenceThicknessMap
 	);
+	assertUVTransform(
+		"uAnisotropyMapTransformA",
+		"uAnisotropyMapTransformB",
+		anisotropyMap
+	);
+}
+
+function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
+	const gl = createScenePassCaptureGL();
+	const material = new PBRMaterial();
+	const anisotropyMap = { id: "anisotropy-map", linear: true };
+	material.anisotropyStrength = 0.6;
+	material.anisotropyMap = anisotropyMap;
+	material.anisotropyMapUV = 3;
+	const sceneProgram = {
+		program: {},
+		uniforms: {
+			model: null,
+			normalMatrix: null,
+			prevModel: null,
+			shadingModel: null,
+			baseColor: null,
+			emissive: null,
+			pbr: null,
+			transmissionVolume: null,
+			iridescence: null,
+			attenuationColor: null,
+			anisotropy: null,
+			phong: null,
+			alpha: null,
+			iridescenceThicknessMap: "uIridescenceThicknessMap",
+			hasIridescenceThicknessMap: "uHasIridescenceThicknessMap",
+			hasAnisotropyMap: "uHasAnisotropyMap",
+			anisotropyMapUV: "uAnisotropyMapUV",
+			anisotropyMapTransformA: null,
+			anisotropyMapTransformB: null,
+			doubleSided: null,
+			customSamplers: {},
+		},
+	};
+	const textureTable = new Map([
+		[anisotropyMap, { texture: { id: "anisotropy" }, isLinear: true }],
+	]);
+	const host = {
+		_gl: gl,
+		_geometry: {
+			getGeometry() {
+				return {
+					vao: {},
+					topology: 4,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture(texture) {
+				return textureTable.get(texture) ?? { texture: null, isLinear: true };
+			},
+		},
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_setCullMode() {},
+		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
+	};
+	const packet = {
+		id: "packet-pbr-anisotropy",
+		meshInstance: { id: "mesh-0", skeleton: null },
+		material,
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+	};
+
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	const textureUnit15Index = gl.calls.activeTextures.findIndex(
+		(unit) => unit === gl.TEXTURE0 + 15
+	);
+	assert.notEqual(textureUnit15Index, -1);
+	assert.equal(
+		gl.calls.boundTextures[textureUnit15Index].texture.id,
+		"anisotropy"
+	);
+	const unitFor = (name) =>
+		gl.calls.uniform1i.find((entry) => entry.location === name)?.value;
+	assert.equal(unitFor("uIridescenceThicknessMap"), 15);
+	assert.equal(unitFor("uHasIridescenceThicknessMap"), 0);
+	assert.equal(unitFor("uHasAnisotropyMap"), 1);
+	assert.equal(unitFor("uAnisotropyMapUV"), 3);
 }
 
 function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
@@ -1639,6 +1751,7 @@ async function run() {
 	testGeometryRegistryRetriesAfterUploadAllocationFailure();
 	testGeometryRegistryUploadsUV1Attribute();
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets();
+	testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree();
 	testDrawWebGLPacketAppliesMaterialDepthWriteState();
 	testShaderMaterialCustomUniformBinding();
 	testWebGLBackendParticleDeltaTimeClamp();

@@ -66,6 +66,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
@@ -235,6 +236,21 @@ function testMaterialAdaptation() {
 	const pbrUVData = createWebGPUMaterialUniformData(pbr);
 	assert.equal(pbrUVData.textureSlots[0].transformB[1], 2);
 	assert.equal(pbrUVData.textureSlots[2].transformB[1], 3);
+	pbr.anisotropyStrength = 0.75;
+	pbr.anisotropyRotation = Math.PI / 2;
+	pbr.anisotropyMap = new Texture(
+		new Uint8ClampedArray([255, 128, 128, 255]),
+		1,
+		1,
+		"Linear"
+	);
+	pbr.anisotropyMapUV = 2;
+	const pbrAnisotropyData = createWebGPUMaterialUniformData(pbr);
+	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[0] - 0.75) < 1e-6);
+	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[1]) < 1e-6);
+	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[2] - 1) < 1e-6);
+	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[1], 2);
+	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[3], 1);
 
 	const phong = new PhongMaterial({
 		diffuse: { r: 128, g: 128, b: 128 },
@@ -395,6 +411,11 @@ async function testSceneShaderCoverage() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			"@group(1) @binding(32) var<storage, read> jointMatrices"
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"@group(1) @binding(37) var anisotropyTexture"
 		)
 	);
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
@@ -1093,11 +1114,16 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
-			6
+			7
 	);
 	assert.ok(
 		firstDraw.modelBinding.desc.entries.some(
 			(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
+		)
+	);
+	assert.ok(
+		firstDraw.modelBinding.desc.entries.some(
+			(entry) => entry.binding === WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE
 		)
 	);
 	assert.equal(
@@ -1132,6 +1158,9 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.ok(
 		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_MORPH_NORMAL)
+	);
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE)
 	);
 	assert.equal(modelBindingIndices.includes(38), false);
 	const sceneVertexAttributes =
