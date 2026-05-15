@@ -50,7 +50,7 @@ export class BVH implements SpatialIndex3D {
 		leafSize: number = DEFAULT_LEAF_SIZE
 	) {
 		this._root = null;
-		this._leafSize = resolveLeafSize(leafSize);
+		this._leafSize = BVH._resolveLeafSize(leafSize);
 		this._entries = [];
 		this._meshInstances = [];
 		this._meshInstanceSet = new Set();
@@ -373,7 +373,7 @@ export class BVH implements SpatialIndex3D {
 
 		const stats = computeRangeStats(this._entries, start, end);
 		if (count <= this._leafSize) {
-			return createLeafNode(this._entries, start, end, stats.bounds);
+			return this._createLeafNode(start, end, stats.bounds);
 		}
 
 		const axis = resolveSplitAxisFromExtents(
@@ -385,11 +385,10 @@ export class BVH implements SpatialIndex3D {
 			const middle = start + (count >> 1);
 			const left = this._buildRange(start, middle);
 			const right = this._buildRange(middle, end);
-			return createInnerNode(
+			return this._createInnerNode(
 				stats.bounds,
 				left,
 				right,
-				this._entries,
 				start,
 				end
 			);
@@ -400,14 +399,69 @@ export class BVH implements SpatialIndex3D {
 
 		const left = this._buildRange(start, middle);
 		const right = this._buildRange(middle, end);
-		return createInnerNode(
+		return this._createInnerNode(
 			stats.bounds,
 			left,
 			right,
-			this._entries,
 			start,
 			end
 		);
+	}
+
+	private static _resolveLeafSize(value: number): number {
+		if (!Number.isFinite(value)) return DEFAULT_LEAF_SIZE;
+		return Math.max(1, Math.floor(value));
+	}
+
+	private _createLeafNode(
+		start: number,
+		end: number,
+		bounds: BoundingBox
+	): SpatialNode {
+		const count = end - start;
+		const objects = new Array<MeshInstance>(count);
+		const objectBounds = new Array<BoundingBox>(count);
+
+		for (let index = 0; index < count; index++) {
+			const entry = this._entries[start + index];
+			objects[index] = entry.meshInstance;
+			objectBounds[index] = entry.bounds;
+		}
+
+		return {
+			bounds,
+			objects,
+			objectBounds,
+		};
+	}
+
+	private _createInnerNode(
+		bounds: BoundingBox,
+		left: SpatialNode | null,
+		right: SpatialNode | null,
+		start: number,
+		end: number
+	): SpatialNode {
+		if (!left && !right) {
+			return this._createLeafNode(start, end, bounds);
+		}
+		if (!left || !right) {
+			const fallbackMiddle = start + ((end - start) >> 1);
+			const fallbackLeft =
+				left ?? this._createLeafNode(start, fallbackMiddle, bounds);
+			const fallbackRight =
+				right ?? this._createLeafNode(fallbackMiddle, end, bounds);
+			return {
+				bounds,
+				left: fallbackLeft,
+				right: fallbackRight,
+			};
+		}
+		return {
+			bounds,
+			left,
+			right,
+		};
 	}
 
 	private _queryNode(
@@ -625,11 +679,6 @@ export class BVH implements SpatialIndex3D {
 	}
 }
 
-function resolveLeafSize(value: number): number {
-	if (!Number.isFinite(value)) return DEFAULT_LEAF_SIZE;
-	return Math.max(1, Math.floor(value));
-}
-
 function resolveMaxResults(value: number | undefined): number {
 	if (value === undefined) return Infinity;
 	if (!Number.isFinite(value)) return Infinity;
@@ -652,58 +701,6 @@ function createBuildEntry(
 		centroidX: (bounds.min.x + bounds.max.x) * 0.5,
 		centroidY: (bounds.min.y + bounds.max.y) * 0.5,
 		centroidZ: (bounds.min.z + bounds.max.z) * 0.5,
-	};
-}
-
-function createLeafNode(
-	entries: SpatialBuildEntry[],
-	start: number,
-	end: number,
-	bounds: BoundingBox
-): SpatialNode {
-	const count = end - start;
-	const objects = new Array<MeshInstance>(count);
-	const objectBounds = new Array<BoundingBox>(count);
-
-	for (let index = 0; index < count; index++) {
-		const entry = entries[start + index];
-		objects[index] = entry.meshInstance;
-		objectBounds[index] = entry.bounds;
-	}
-
-	return {
-		bounds,
-		objects,
-		objectBounds,
-	};
-}
-
-function createInnerNode(
-	bounds: BoundingBox,
-	left: SpatialNode | null,
-	right: SpatialNode | null,
-	entries: SpatialBuildEntry[],
-	start: number,
-	end: number
-): SpatialNode {
-	if (!left && !right) {
-		return createLeafNode(entries, start, end, bounds);
-	}
-	if (!left || !right) {
-		const fallbackMiddle = start + ((end - start) >> 1);
-		const fallbackLeft = left ?? createLeafNode(entries, start, fallbackMiddle, bounds);
-		const fallbackRight =
-			right ?? createLeafNode(entries, fallbackMiddle, end, bounds);
-		return {
-			bounds,
-			left: fallbackLeft,
-			right: fallbackRight,
-		};
-	}
-	return {
-		bounds,
-		left,
-		right,
 	};
 }
 
