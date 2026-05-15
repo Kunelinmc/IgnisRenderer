@@ -36,7 +36,7 @@ manage backend-specific bind group indices or WebGL uniform declarations.
   preserve buffer offsets.
 - WebGPU shaders must access values through `ignisShaderUniforms.<wgslField>`.
 - WebGL shaders must access values through the resolved `webglUniform` name.
-- WebGPU must bind the custom uniform buffer at `@group(1) @binding(38)`.
+- WebGPU must bind the custom uniform buffer at `@group(1) @binding(36)`.
 - Shader source injection must use `ignis/material/uniform-block`.
 - Schema changes must affect shader/program caches. Value-only changes must
   update backend uniform data without rebuilding shader modules or pipelines.
@@ -99,5 +99,7 @@ bun tests/test_webgl_backend_v2.mjs
 ## Compatibility / Breaking Changes
 No existing `ShaderMaterial` texture binding API is removed. Existing custom
 shader chunks remain valid unless they already declare WebGPU group `1` binding
-`38` with an incompatible resource. Builtin materials and `SoftwareBackend`
+`36` with an incompatible resource. WebGPU custom shader chunks that manually
+targeted binding `38` must use `#inject <ignis/material/uniform-block>` or move
+their declaration to binding `36`. Builtin materials and `SoftwareBackend`
 behavior are unchanged in v1.

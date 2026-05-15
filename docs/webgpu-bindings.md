@@ -110,19 +110,19 @@ The following pipeline layouts must preserve these bind group roles:
 | `27` | `thicknessTexture` | `texture_2d<f32>` |
 | `28` | `thicknessSampler` | Filtering sampler |
 | `29` | `iridescenceTexture` | `texture_2d<f32>` |
-| `30` | N/A | No dedicated sampler entry. The shader currently samples with `thicknessSampler`. |
+| `30` | `animationParams` | `AnimationParams` uniform buffer |
 | `31` | `iridescenceThicknessTexture` | `texture_2d<f32>` |
-| `32` | N/A | No dedicated sampler entry. The shader currently samples with `thicknessSampler`. |
-| `33` | `animationParams` | `AnimationParams` uniform buffer |
-| `34` | `jointMatrices` | Read-only storage buffer |
-| `35` | `morphWeights` | Read-only storage buffer |
-| `36` | `morphPositionDeltas` | Read-only storage buffer |
-| `37` | `morphNormalDeltas` | Read-only storage buffer |
-| `38` | `shaderUniforms` | Optional material shader uniform buffer |
+| `32` | `jointMatrices` | Read-only storage buffer |
+| `33` | `morphWeights` | Read-only storage buffer |
+| `34` | `morphPositionDeltas` | Read-only storage buffer |
+| `35` | `morphNormalDeltas` | Read-only storage buffer |
+| `36` | `shaderUniforms` | Optional material shader uniform buffer |
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
 are `1 + slot * 2`. Dedicated sampler bindings are `2 + slot * 2` only for
-slots `0..13`.
+slots `0..13`. `iridescenceTexture` and `iridescenceThicknessTexture` do not
+have dedicated sampler bindings; shader code samples them with
+`thicknessSampler`.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
 

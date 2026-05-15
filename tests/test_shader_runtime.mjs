@@ -874,7 +874,11 @@ fn fsMain() -> @location(0) vec4<f32> {
 	});
 	assert.equal(wgsl.hasErrors, false);
 	assert.ok(wgsl.code.includes("struct IgnisShaderUniforms"));
-	assert.ok(wgsl.code.includes("@group(1) @binding(38) var<uniform> ignisShaderUniforms"));
+	assert.ok(
+		wgsl.code.includes(
+			"@group(1) @binding(36) var<uniform> ignisShaderUniforms"
+		)
+	);
 	assert.ok(wgsl.code.includes("time: f32"));
 	assert.ok(wgsl.code.includes("tint: vec4<f32>"));
 	assert.ok(wgsl.code.includes("mode: i32"));

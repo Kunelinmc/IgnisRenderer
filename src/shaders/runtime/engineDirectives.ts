@@ -16,6 +16,7 @@ import {
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
 	WEBGPU_MAX_SPOT_LIGHTS,
+	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "../../renderers/webgpu/constants";
@@ -23,9 +24,9 @@ import {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 8;
+const PROFILE_REVISION = 9;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
-const MATERIAL_SHADER_UNIFORM_BINDING = 38;
+const MATERIAL_SHADER_UNIFORM_BINDING = WEBGPU_MODEL_BINDING_SHADER_UNIFORMS;
 const MIGRATION_HINT =
 	" Migration hint: use ShaderBackendCompileStage with explicit webgpu/webgl/software directive profiles.";
 type LumaProfile = "bt601" | "bt709";

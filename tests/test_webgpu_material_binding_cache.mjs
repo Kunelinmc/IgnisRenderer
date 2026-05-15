@@ -56,6 +56,12 @@ function createMaterialData(pipelineKey = "none-opaque-solid") {
 		attenuationColor: vec4,
 		materialFlags: vec4,
 		textureSlots: [],
+		shaderUniforms: {
+			cacheKey: "",
+			byteLength: 0,
+			valueRevision: 0,
+			data: null,
+		},
 		pipelineKey,
 		warnings: [],
 	};

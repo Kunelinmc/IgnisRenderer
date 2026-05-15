@@ -61,6 +61,11 @@ import {
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
+	WEBGPU_MODEL_BINDING_JOINT_MATRICES,
+	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
+	WEBGPU_MODEL_BINDING_MORPH_POSITION,
+	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
@@ -380,6 +385,16 @@ async function testSceneShaderCoverage() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			"@group(1) @binding(31) var iridescenceThicknessTexture"
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"@group(1) @binding(30) var<uniform> animationParams"
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"@group(1) @binding(32) var<storage, read> jointMatrices"
 		)
 	);
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
@@ -1102,10 +1117,23 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		(entry) => entry.binding
 	);
 	assert.ok(modelBindingIndices.includes(29));
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_ANIMATION_PARAMS)
+	);
 	assert.ok(modelBindingIndices.includes(31));
-	assert.ok(modelBindingIndices.includes(33));
-	assert.equal(modelBindingIndices.includes(30), false);
-	assert.equal(modelBindingIndices.includes(32), false);
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_JOINT_MATRICES)
+	);
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_MORPH_WEIGHTS)
+	);
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_MORPH_POSITION)
+	);
+	assert.ok(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_MORPH_NORMAL)
+	);
+	assert.equal(modelBindingIndices.includes(38), false);
 	const sceneVertexAttributes =
 		firstDraw.pipeline.desc.vertex.buffers[0].attributes;
 	assert.ok(
