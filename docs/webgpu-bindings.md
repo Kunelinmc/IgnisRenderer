@@ -247,7 +247,7 @@ indices:
 | --- | --- | --- |
 | `0` | `envSampler` | Sampler |
 | `1` | `envTexture` | `texture_2d<f32>` |
-| `2` | `outputTexture` | Write-only storage texture |
+| `2` | `outputTexture` | Write-only `rgba16float` storage texture |
 | `3` | `params` | `PrefilterParams` uniform buffer |
 
 ### Sobel Normal Compute

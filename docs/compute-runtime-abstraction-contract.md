@@ -22,6 +22,11 @@ on capabilities rather than backend-specific classes.
   `createKernel`, `destroy`.
 - `IComputeRuntime` must provide readback APIs:
   `readBuffer`, `readTexture`.
+- `TextureReadbackResult` must expose raw `bytes`, dimensions, row layout,
+  `toFloat32`, `toRGBAFloat32`, and `toNormalizedRGBA8Float32`.
+- `toRGBAFloat32` must decode `RGBA8Unorm`, `BGRA8Unorm`, and `RGBA16Float`
+  texture readbacks to linear or normalized RGBA `Float32Array` data while
+  skipping GPU row padding.
 - `createKernel` must return `Promise<IComputeKernel>`.
 - `IComputeKernel` must expose `label`, `bindings`, and `workgroupSize`.
 - `IComputeKernel` must provide `dispatch` and `destroy`.
