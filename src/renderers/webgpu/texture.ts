@@ -1,5 +1,7 @@
 import { clamp } from "../../maths/Common";
 import type { Texture } from "../../core/Texture";
+import { float32ToFloat16Bits } from "../../foundation/Float16";
+import { TextureFormat } from "../types";
 
 export interface WebGPUTextureUploadLevel {
 	data: Uint8Array;
@@ -7,6 +9,7 @@ export interface WebGPUTextureUploadLevel {
 	width: number;
 	height: number;
 	mipLevel: number;
+	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float;
 }
 
 export function createTextureUploadData(texture: Texture): {
@@ -24,20 +27,44 @@ export function createTextureUploadData(texture: Texture): {
 	};
 }
 
-export function createTextureMipUploadLevels(
+/**
+ * Resolves the WebGPU upload texture format needed to preserve source data.
+ *
+ * @param texture - Texture metadata and mip data to upload.
+ * @returns `rgba16float` for Float32-backed textures, otherwise `rgba8unorm`.
+ */
+export function resolveWebGPUTextureUploadFormat(
 	texture: Texture
+): TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float {
+	if (texture.data instanceof Float32Array) {
+		return TextureFormat.RGBA16Float;
+	}
+	for (const mip of texture.mipmaps) {
+		if (mip instanceof Float32Array) {
+			return TextureFormat.RGBA16Float;
+		}
+	}
+	return TextureFormat.RGBA8Unorm;
+}
+
+export function createTextureMipUploadLevels(
+	texture: Texture,
+	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float =
+		resolveWebGPUTextureUploadFormat(texture)
 ): WebGPUTextureUploadLevel[] {
 	const mipCount = Math.max(1, texture.mipmaps.length || 1);
 	const levels: WebGPUTextureUploadLevel[] = [];
 	for (let mipLevel = 0; mipLevel < mipCount; mipLevel++) {
-		levels.push(createTextureMipUploadData(texture, mipLevel));
+		levels.push(createTextureMipUploadData(texture, mipLevel, format));
 	}
 	return levels;
 }
 
 export function createTextureMipUploadData(
 	texture: Texture,
-	mipLevel: number
+	mipLevel: number,
+	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float =
+		resolveWebGPUTextureUploadFormat(texture)
 ): WebGPUTextureUploadLevel {
 	const level = Math.max(0, mipLevel | 0);
 	const width = Math.max(1, texture.width >> level);
@@ -47,8 +74,11 @@ export function createTextureMipUploadData(
 		(level === 0 ? texture.data : null) ??
 		texture.mipmaps[0] ??
 		null;
-	const pixelData = toUint8TextureData(sourceData, width, height);
-	const bytesPerPixel = 4;
+	const pixelData =
+		format === TextureFormat.RGBA16Float ?
+			toRGBA16FloatTextureData(sourceData, width, height)
+		:	toRGBA8TextureData(sourceData, width, height);
+	const bytesPerPixel = format === TextureFormat.RGBA16Float ? 8 : 4;
 	const unalignedBytesPerRow = width * bytesPerPixel;
 	const bytesPerRow = alignTo(unalignedBytesPerRow, 256);
 
@@ -59,6 +89,7 @@ export function createTextureMipUploadData(
 			width,
 			height,
 			mipLevel: level,
+			format,
 		};
 	}
 
@@ -78,6 +109,7 @@ export function createTextureMipUploadData(
 		width,
 		height,
 		mipLevel: level,
+		format,
 	};
 }
 
@@ -85,7 +117,7 @@ export function alignTo(value: number, alignment: number): number {
 	return Math.ceil(value / alignment) * alignment;
 }
 
-function toUint8TextureData(
+function toRGBA8TextureData(
 	data: Texture["data"] | null,
 	width: number,
 	height: number
@@ -119,4 +151,26 @@ function toUint8TextureData(
 	}
 
 	return converted;
+}
+
+function toRGBA16FloatTextureData(
+	data: Texture["data"] | null,
+	width: number,
+	height: number
+): Uint8Array {
+	const expectedLength = width * height * 4;
+	const output = new Uint8Array(expectedLength * 2);
+	if (!data) {
+		return output;
+	}
+
+	const view = new DataView(output.buffer);
+	for (let i = 0; i < expectedLength; i++) {
+		const value =
+			data instanceof Float32Array ?
+				data[i] ?? 0
+			:	(data[i] ?? 0) / 255;
+		view.setUint16(i * 2, float32ToFloat16Bits(value), true);
+	}
+	return output;
 }

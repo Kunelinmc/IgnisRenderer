@@ -1,8 +1,14 @@
 import { Texture } from "../core/Texture";
 import { CubeTexture } from "../core/CubeTexture";
-import { clamp } from "../maths/Common";
+import { clamp, sRGBToLinear } from "../maths/Common";
 import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
+
+interface LinearRGB {
+	r: number;
+	g: number;
+	b: number;
+}
 
 interface CachedEquirectMapEntry {
 	version: number;
@@ -56,12 +62,39 @@ export function sampleEnvironmentTextureSpecular(
 ): { r: number; g: number; b: number } {
 	const mipCount = getEnvironmentMipLevelCount(texture);
 	const level = clamp(roughness, 0, 1) * (mipCount - 1);
-	const sample = sampleEnvironmentTextureLevel(texture, direction, level);
-	return {
-		r: sample.r / 255,
-		g: sample.g / 255,
-		b: sample.b / 255,
-	};
+	return sampleEnvironmentTextureLevelLinear(texture, direction, level);
+}
+
+/**
+ * Samples an environment texture and returns linear radiance without clamping
+ * Float32-backed HDR sources to the legacy 0..255 RGBA contract.
+ *
+ * @param texture - Environment texture to sample.
+ * @param direction - World-space direction used for cube or equirect lookup.
+ * @param level - Mipmap level to sample. Fractional values are floored.
+ * @returns Linear RGB radiance in 0..1 or HDR range.
+ */
+export function sampleEnvironmentTextureLevelLinear(
+	texture: Texture,
+	direction: IVector3,
+	level = 0
+): LinearRGB {
+	const normalized = normalizeDirection(direction);
+	if (texture instanceof CubeTexture) {
+		const resolvedLevel = Math.max(
+			0,
+			Math.min(texture.mipLevelCount - 1, Math.floor(level))
+		);
+		const faceData = texture.getFaces(resolvedLevel)[0];
+		const sample = texture.sampleDirectionRaw(normalized, resolvedLevel);
+		return convertRawSampleToLinear(
+			sample,
+			texture.colorSpace,
+			faceData instanceof Float32Array
+		);
+	}
+	const uv = directionToEquirectUV(normalized);
+	return sampleEquirectTextureLevelLinear(texture, uv.u, uv.v, level);
 }
 
 export function sampleEnvironmentTextureLevel(
@@ -177,6 +210,112 @@ export function directionFromEquirectUV(u: number, v: number): IVector3 {
 		y: Math.cos(theta),
 		z: sinTheta * Math.cos(phi),
 	});
+}
+
+function sampleEquirectTextureLevelLinear(
+	texture: Texture,
+	u: number,
+	v: number,
+	level = 0
+): LinearRGB {
+	if (texture.mipmaps.length === 0) {
+		return { r: 1, g: 1, b: 1 };
+	}
+
+	const maxLevel = texture.mipmaps.length - 1;
+	const resolvedLevel = Math.max(0, Math.min(maxLevel, Math.floor(level)));
+	const levelWidth = Math.max(1, texture.width >> resolvedLevel);
+	const levelHeight = Math.max(1, texture.height >> resolvedLevel);
+	const data =
+		texture.mipmaps[resolvedLevel] ??
+		(resolvedLevel === 0 ? texture.data : null) ??
+		texture.mipmaps[0] ??
+		null;
+	if (!data) {
+		return { r: 1, g: 1, b: 1 };
+	}
+
+	let uu = u * texture.repeat.x;
+	let vv = v * texture.repeat.y;
+
+	if (texture.rotation !== 0) {
+		const c = Math.cos(texture.rotation);
+		const s = Math.sin(texture.rotation);
+		const rotatedU = uu * c - vv * s;
+		const rotatedV = uu * s + vv * c;
+		uu = rotatedU;
+		vv = rotatedV;
+	}
+
+	uu += texture.offset.x;
+	vv += texture.offset.y;
+
+	if (texture.wrapS === "Repeat") {
+		uu = uu - Math.floor(uu);
+	} else if (texture.wrapS === "MirroredRepeat") {
+		const iter = Math.floor(uu);
+		uu = uu - iter;
+		if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
+	} else {
+		uu = clamp(uu);
+	}
+
+	if (texture.wrapT === "Repeat") {
+		vv = vv - Math.floor(vv);
+	} else if (texture.wrapT === "MirroredRepeat") {
+		const iter = Math.floor(vv);
+		vv = vv - iter;
+		if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
+	} else {
+		vv = clamp(vv);
+	}
+
+	const x = Math.min(levelWidth - 1, Math.floor(uu * levelWidth));
+	const y = Math.min(levelHeight - 1, Math.floor(vv * levelHeight));
+	const idx = (y * levelWidth + x) << 2;
+	return convertRawSampleToLinear(
+		{
+			r: data[idx] ?? 255,
+			g: data[idx + 1] ?? 255,
+			b: data[idx + 2] ?? 255,
+			a: data[idx + 3] ?? 255,
+		},
+		texture.colorSpace,
+		data instanceof Float32Array
+	);
+}
+
+function convertRawSampleToLinear(
+	sample: RGBA,
+	colorSpace: Texture["colorSpace"],
+	sourceIsFloat: boolean
+): LinearRGB {
+	if (sourceIsFloat) {
+		if (colorSpace === "sRGB") {
+			return {
+				r: sRGBToLinear(sample.r),
+				g: sRGBToLinear(sample.g),
+				b: sRGBToLinear(sample.b),
+			};
+		}
+		return {
+			r: sample.r,
+			g: sample.g,
+			b: sample.b,
+		};
+	}
+	if (colorSpace === "sRGB") {
+		return {
+			r: sRGBToLinear(sample.r / 255),
+			g: sRGBToLinear(sample.g / 255),
+			b: sRGBToLinear(sample.b / 255),
+		};
+	}
+	return {
+		r: sample.r / 255,
+		g: sample.g / 255,
+		b: sample.b / 255,
+	};
 }
 
 function writeSample(

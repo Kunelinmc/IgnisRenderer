@@ -163,7 +163,7 @@ export class WebGPUReflectionProbeCapturePass {
 				format: TextureFormat.RGBA16Float,
 			});
 			return flipFaceRowsVertically(
-				decodeRGBA16FloatReadback(readback),
+				readback.toRGBAFloat32(),
 				faceSize
 			);
 		} finally {
@@ -360,55 +360,6 @@ function destroyCaptureRenderTargets(targets: CaptureRenderTargets): void {
 	targets.gEmissiveOcclusion.destroy();
 	targets.gMotionDepth.destroy();
 	targets.depth.destroy();
-}
-
-function decodeRGBA16FloatReadback(readback: {
-	bytes: Uint8Array;
-	width: number;
-	height: number;
-	bytesPerRow: number;
-}): Float32Array {
-	const output = new Float32Array(readback.width * readback.height * 4);
-	const view = new DataView(
-		readback.bytes.buffer,
-		readback.bytes.byteOffset,
-		readback.bytes.byteLength
-	);
-	for (let y = 0; y < readback.height; y++) {
-		const srcRowOffset = y * readback.bytesPerRow;
-		const dstRowOffset = y * readback.width * 4;
-		for (let x = 0; x < readback.width; x++) {
-			const srcOffset = srcRowOffset + x * 8;
-			const dstOffset = dstRowOffset + x * 4;
-			output[dstOffset] = decodeFloat16(view.getUint16(srcOffset, true));
-			output[dstOffset + 1] = decodeFloat16(
-				view.getUint16(srcOffset + 2, true)
-			);
-			output[dstOffset + 2] = decodeFloat16(
-				view.getUint16(srcOffset + 4, true)
-			);
-			output[dstOffset + 3] = decodeFloat16(
-				view.getUint16(srcOffset + 6, true)
-			);
-		}
-	}
-	return output;
-}
-
-function decodeFloat16(value: number): number {
-	const sign = (value & 0x8000) !== 0 ? -1 : 1;
-	const exponent = (value >> 10) & 0x1f;
-	const mantissa = value & 0x03ff;
-	if (exponent === 0) {
-		if (mantissa === 0) {
-			return sign * 0;
-		}
-		return sign * Math.pow(2, -14) * (mantissa / 1024);
-	}
-	if (exponent === 0x1f) {
-		return mantissa === 0 ? sign * Infinity : Number.NaN;
-	}
-	return sign * Math.pow(2, exponent - 15) * (1 + mantissa / 1024);
 }
 
 function clampFaceIndex(faceIndex: number): number {

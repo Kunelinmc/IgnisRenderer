@@ -11,12 +11,17 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
-import { createTextureMipUploadLevels, WEBGPU_TEXTURE_SLOT } from "./";
+import {
+	createTextureMipUploadLevels,
+	resolveWebGPUTextureUploadFormat,
+	WEBGPU_TEXTURE_SLOT,
+} from "./";
 
 interface TextureCacheEntry {
 	resource: IRenderTexture;
 	mipLevelCount: number;
 	externalImageCopyCompatible: boolean;
+	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float;
 }
 
 interface SamplerCacheEntry {
@@ -53,6 +58,12 @@ export class WebGPUTextureRegistry {
 		}
 
 		let cacheEntry = this._textureCache.get(texture);
+		const externalImageCopyCompatible =
+			texture instanceof VideoTexture || texture instanceof CanvasTexture;
+		const uploadFormat =
+			externalImageCopyCompatible ?
+				TextureFormat.RGBA8Unorm
+			:	resolveWebGPUTextureUploadFormat(texture);
 		if (
 			!cacheEntry &&
 			(!this._isTextureDimensionValid(texture.width, texture.height) ||
@@ -74,16 +85,14 @@ export class WebGPUTextureRegistry {
 			cacheEntry.resource.width !== texture.width ||
 			cacheEntry.resource.height !== texture.height ||
 			cacheEntry.mipLevelCount !== mipLevelCount ||
-			((texture instanceof VideoTexture || texture instanceof CanvasTexture) &&
-				!cacheEntry.externalImageCopyCompatible);
+			cacheEntry.format !== uploadFormat ||
+			(externalImageCopyCompatible && !cacheEntry.externalImageCopyCompatible);
 
 		if (shouldRecreateTexture) {
 			if (cacheEntry?.resource) {
 				cacheEntry.resource.destroy();
 				this._ownedTextures.delete(cacheEntry.resource);
 			}
-			const externalImageCopyCompatible =
-				texture instanceof VideoTexture || texture instanceof CanvasTexture;
 			const usage =
 				TextureUsage.TextureBinding |
 				TextureUsage.CopyDst |
@@ -92,7 +101,7 @@ export class WebGPUTextureRegistry {
 			const resource = this._backend.createTexture({
 				width: texture.width,
 				height: texture.height,
-				format: TextureFormat.RGBA8Unorm,
+				format: uploadFormat,
 				usage,
 				mipLevelCount,
 				label: `Texture_${slotIndex}_${texture.width}x${texture.height}`,
@@ -102,6 +111,7 @@ export class WebGPUTextureRegistry {
 				resource,
 				mipLevelCount,
 				externalImageCopyCompatible,
+				format: uploadFormat,
 			};
 			this._ownedTextures.add(resource);
 			this._textureCache.set(texture, cacheEntry);
@@ -118,7 +128,7 @@ export class WebGPUTextureRegistry {
 				this._tryUploadCanvasFrame(texture, cacheEntry.resource);
 
 			if (!usedExternalImageFastPath && !usedCanvasFastPath) {
-				const uploads = createTextureMipUploadLevels(texture);
+				const uploads = createTextureMipUploadLevels(texture, cacheEntry.format);
 				for (const upload of uploads) {
 					const uploadData = this._toArrayBufferBackedView(upload.data);
 					this._backend.writeTexture(
@@ -166,6 +176,7 @@ export class WebGPUTextureRegistry {
 			resource,
 			mipLevelCount: Math.max(1, Math.floor(mipLevelCount)),
 			externalImageCopyCompatible: false,
+			format: resolveRegisteredTextureFormat(resource, texture),
 		});
 		this._uploadedVersionCache.set(texture, uploadedVersion);
 	}
@@ -453,4 +464,19 @@ export class WebGPUTextureRegistry {
 			destroyFn.call(sampler);
 		}
 	}
+}
+
+function resolveRegisteredTextureFormat(
+	resource: IRenderTexture,
+	texture: Texture
+): TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float {
+	const resourceFormat = (resource as { desc?: { format?: TextureFormat } }).desc
+		?.format;
+	if (resourceFormat === TextureFormat.RGBA16Float) {
+		return TextureFormat.RGBA16Float;
+	}
+	if (resourceFormat === TextureFormat.RGBA8Unorm) {
+		return TextureFormat.RGBA8Unorm;
+	}
+	return resolveWebGPUTextureUploadFormat(texture);
 }

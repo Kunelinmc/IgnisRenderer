@@ -21,7 +21,10 @@ import type {
 } from "../renderers/IComputeRuntime";
 import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
-import { createTextureMipUploadLevels } from "../renderers/webgpu/texture";
+import {
+	createTextureMipUploadLevels,
+	resolveWebGPUTextureUploadFormat,
+} from "../renderers/webgpu/texture";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
@@ -34,6 +37,7 @@ import type {
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
+	sampleEnvironmentTextureLevelLinear,
 } from "./environmentMapRuntime";
 
 export const ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH = 128;
@@ -63,6 +67,7 @@ interface EnvironmentIBLWebGPUResources {
 	sampler: ISampler;
 	kernel: IComputeKernel;
 	inputTexture: IRenderTexture;
+	inputTextureFormat: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float;
 }
 
 interface EnvironmentIBLMipResources {
@@ -372,8 +377,6 @@ export function prefilterEnvMapMipLevel(
 	const width = Math.max(1, baseWidth >> level);
 	const height = Math.max(1, baseHeight >> level);
 	const data = new Float32Array(width * height * 4);
-	const sourceIsLinear = resolveTextureIsLinear(envMap);
-
 	const normal: IVector3 = { x: 0, y: 0, z: 0 };
 	const radiance: MutableRGB = { r: 0, g: 0, b: 0 };
 
@@ -391,7 +394,6 @@ export function prefilterEnvMapMipLevel(
 				normal,
 				roughness,
 				sampleCount,
-				sourceIsLinear,
 				radiance
 			);
 			const idx = (j * width + i) * 4;
@@ -458,7 +460,6 @@ function prefilterSpecular(
 	normal: IVector3,
 	roughness: number,
 	sampleCount: number,
-	sourceIsLinear: boolean,
 	outColor: MutableRGB
 ): void {
 	let totalWeight = 0;
@@ -482,10 +483,6 @@ function prefilterSpecular(
 		const nDotL = Math.max(Vector3.dot(normal, lightDir), 0);
 		if (nDotL <= 0) continue;
 
-		const phi = Math.atan2(lightDir.x, lightDir.z);
-		const theta = Math.acos(Math.max(-1, Math.min(1, lightDir.y)));
-		const u = (phi + Math.PI) / (2 * Math.PI);
-		const v = theta / Math.PI;
 		const pdf = computeGGXSamplePDF(nDotH, vDotH, roughness);
 		const sampleMipLevel = resolvePrefilterSampleMipLevel(
 			envMap,
@@ -494,15 +491,15 @@ function prefilterSpecular(
 			pdf,
 			lightDir.y
 		);
-		const sample = envMap.sampleLevel(u, v, sampleMipLevel);
+		const sample = sampleEnvironmentTextureLevelLinear(
+			envMap,
+			lightDir,
+			sampleMipLevel
+		);
 
-		const r = sourceIsLinear ? sample.r / 255 : decodeSRGBToLinear01(sample.r);
-		const g = sourceIsLinear ? sample.g / 255 : decodeSRGBToLinear01(sample.g);
-		const b = sourceIsLinear ? sample.b / 255 : decodeSRGBToLinear01(sample.b);
-
-		outColor.r += r * nDotL;
-		outColor.g += g * nDotL;
-		outColor.b += b * nDotL;
+		outColor.r += sample.r * nDotL;
+		outColor.g += sample.g * nDotL;
+		outColor.b += sample.b * nDotL;
 		totalWeight += nDotL;
 	}
 
@@ -598,10 +595,11 @@ async function createWebGPUResources(
 			mipmapFilter: FilterMode.Linear,
 		});
 
+		const inputTextureFormat = resolveWebGPUTextureUploadFormat(envMap);
 		const inputTexture = runtime.createTexture({
 			width: Math.max(1, envMap.width),
 			height: Math.max(1, envMap.height),
-			format: TextureFormat.RGBA8Unorm,
+			format: inputTextureFormat,
 			usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
 			mipLevelCount: Math.max(1, envMap.mipmaps.length || 1),
 			label: "EnvironmentIBLBakeInputTexture",
@@ -612,6 +610,7 @@ async function createWebGPUResources(
 			sampler,
 			kernel,
 			inputTexture,
+			inputTextureFormat,
 		};
 	} catch (error) {
 		runtime.destroy();
@@ -622,9 +621,10 @@ async function createWebGPUResources(
 function uploadSourceTexture(
 	runtime: IComputeRuntime,
 	inputTexture: IRenderTexture,
-	envMap: Texture
+	envMap: Texture,
+	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float
 ): void {
-	const uploads = createTextureMipUploadLevels(envMap);
+	const uploads = createTextureMipUploadLevels(envMap, format);
 	for (const upload of uploads) {
 		const uploadData =
 			upload.data.buffer instanceof ArrayBuffer ?
@@ -685,10 +685,10 @@ async function bakeMipLevelWithWebGPU(
 		texture: outputTexture,
 		width,
 		height,
-		format: TextureFormat.RGBA8Unorm,
+		format: TextureFormat.RGBA16Float,
 	});
 	assertBakeNotAborted(signal);
-	const result = readback.toNormalizedRGBA8Float32();
+	const result = readback.toRGBAFloat32();
 	for (let i = 3; i < result.length; i += 4) {
 		result[i] = 1;
 	}
@@ -741,7 +741,12 @@ export async function prefilterEnvMapWithWebGPU(
 	const totalMipLevels = Math.max(1, prefilterOptions.maxMipLevels);
 
 	try {
-		uploadSourceTexture(resources.runtime, resources.inputTexture, envMap);
+		uploadSourceTexture(
+			resources.runtime,
+			resources.inputTexture,
+			envMap,
+			resources.inputTextureFormat
+		);
 
 		for (let level = 0; level < totalMipLevels; level++) {
 			assertBakeNotAborted(signal);
@@ -757,7 +762,7 @@ export async function prefilterEnvMapWithWebGPU(
 			const outputTexture = resources.runtime.createTexture({
 				width,
 				height,
-				format: TextureFormat.RGBA8Unorm,
+				format: TextureFormat.RGBA16Float,
 				usage:
 					TextureUsage.StorageBinding |
 					TextureUsage.CopySrc |
