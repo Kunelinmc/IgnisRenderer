@@ -72,9 +72,7 @@ fn isOrthographicDeferredCamera() -> bool {
 }
 
 fn decodeDeferredNormal(encoded: vec2<f32>) -> vec3<f32> {
-	let xy = encoded * 2.0 - vec2<f32>(1.0, 1.0);
-	let z2 = max(1.0 - dot(xy, xy), 0.0);
-	let vn = vec3<f32>(xy, sqrt(z2));
+	let vn = decodeOctahedralNormal(encoded);
 	return safeNormalize(
 		frame.environmentBasisRight.xyz * vn.x +
 			frame.environmentBasisUp.xyz * vn.y +

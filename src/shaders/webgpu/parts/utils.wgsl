@@ -532,12 +532,42 @@ fn encodeOutput(color: vec3<f32>) -> vec3<f32> {
 	return color;
 }
 
+fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
+	return vec2<f32>(
+		select(-1.0, 1.0, value.x >= 0.0),
+		select(-1.0, 1.0, value.y >= 0.0)
+	);
+}
+
+fn octahedralWrap(value: vec2<f32>) -> vec2<f32> {
+	return (vec2<f32>(1.0) - abs(value.yx)) * signNotZero2(value);
+}
+
+fn encodeOctahedralNormal(normal: vec3<f32>) -> vec2<f32> {
+	let n = safeNormalize(normal, vec3<f32>(0.0, 0.0, 1.0));
+	let denom = max(abs(n.x) + abs(n.y) + abs(n.z), EPSILON);
+	var oct = n.xy / denom;
+	if (n.z < 0.0) {
+		oct = octahedralWrap(oct);
+	}
+	return oct * 0.5 + vec2<f32>(0.5);
+}
+
+fn decodeOctahedralNormal(encoded: vec2<f32>) -> vec3<f32> {
+	let oct = encoded * 2.0 - vec2<f32>(1.0);
+	var n = vec3<f32>(oct.x, oct.y, 1.0 - abs(oct.x) - abs(oct.y));
+	if (n.z < 0.0) {
+		n = vec3<f32>(octahedralWrap(n.xy), n.z);
+	}
+	return safeNormalize(n, vec3<f32>(0.0, 0.0, 1.0));
+}
+
 fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
 	let right = frame.environmentBasisRight.xyz;
 	let up = frame.environmentBasisUp.xyz;
 	let backward = frame.environmentBasisBackward.xyz;
 	let vn = vec3<f32>(dot(normal, right), dot(normal, up), dot(normal, backward));
-	return vn.xy * 0.5 + vec2<f32>(0.5, 0.5);
+	return encodeOctahedralNormal(vn);
 }
 
 fn buildSceneOutput(

@@ -32,10 +32,24 @@ const SAMPLE_OFFSETS = array<vec2<f32>, 16>(
 	vec2<f32>(-0.38268343, -0.9238795),
 );
 
+fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
+	return vec2<f32>(
+		select(-1.0, 1.0, value.x >= 0.0),
+		select(-1.0, 1.0, value.y >= 0.0)
+	);
+}
+
+fn octahedralWrap(value: vec2<f32>) -> vec2<f32> {
+	return (vec2<f32>(1.0) - abs(value.yx)) * signNotZero2(value);
+}
+
 fn decodeNormal(encoded: vec2<f32>) -> vec3<f32> {
-	let xy = encoded * 2.0 - vec2<f32>(1.0, 1.0);
-	let z2 = max(1.0 - dot(xy, xy), 0.0);
-	return normalize(vec3<f32>(xy, sqrt(z2)));
+	let oct = encoded * 2.0 - vec2<f32>(1.0);
+	var n = vec3<f32>(oct.x, oct.y, 1.0 - abs(oct.x) - abs(oct.y));
+	if (n.z < 0.0) {
+		n = vec3<f32>(octahedralWrap(n.xy), n.z);
+	}
+	return normalize(n);
 }
 
 @compute @workgroup_size(8, 8, 1)

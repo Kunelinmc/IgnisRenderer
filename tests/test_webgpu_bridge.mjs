@@ -368,6 +368,9 @@ async function testSceneShaderCoverage() {
 	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
 	const WEBGPU_DEFERRED_LIGHTING_SHADER = await getWebGPUDeferredLightingShader();
 	const WEBGPU_ENVIRONMENT_SHADER = await getWebGPUEnvironmentShader();
+	const WEBGPU_SSAO_SHADER = await loadPostProcessShaderPart("ssao");
+	const WEBGPU_SSGI_SHADER = await loadPostProcessShaderPart("ssgi");
+	const WEBGPU_SSR_SHADER = await loadPostProcessShaderPart("ssr");
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -403,6 +406,22 @@ async function testSceneShaderCoverage() {
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
 	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn encodeOctahedralNormal("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("return encodeOctahedralNormal(vn);"));
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
+			"let vn = decodeOctahedralNormal(encoded);"
+		)
+	);
+	assert.ok(!WEBGPU_DEFERRED_LIGHTING_SHADER.includes("sqrt(z2)"));
+	for (const postProcessShader of [
+		WEBGPU_SSAO_SHADER,
+		WEBGPU_SSGI_SHADER,
+		WEBGPU_SSR_SHADER,
+	]) {
+		assert.ok(postProcessShader.includes("fn octahedralWrap("));
+		assert.ok(!postProcessShader.includes("sqrt(z2)"));
+	}
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var envSpecularFallbackTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
