@@ -10,9 +10,7 @@ import {
 	GLTFLoader,
 	InteractionManager,
 	MeshInstance,
-	DirectionalLight,
 	Logger,
-	AmbientLight,
 } from "./index";
 
 async function init() {
@@ -49,45 +47,6 @@ async function init() {
 	});
 	const model = await gltfLoader.load("assets/model.glb");
 	scene.add(model);
-
-	// Add some light
-	scene.add(
-		new AmbientLight({
-			intensity: 0.1,
-			color: {
-				r: 250,
-				g: 254,
-				b: 255,
-			},
-		}),
-	);
-
-	const sun = new DirectionalLight({
-		intensity: 5.0,
-		direction: { x: 0.5, y: -1, z: -1 },
-	});
-	scene.add(sun);
-
-	const shadowMap = scene.shadows.createSingle({
-		size: 4096,
-		sampling: {
-			filterMode: "pcf",
-			radius: 0.1,
-			samples: 16,
-			searchSamples: 8,
-			strength: 1,
-		},
-		bias: {
-			constant: 0,
-			slope: 0.001,
-			normal: 0.01,
-			normalMin: 0.01,
-			texel: 1,
-			max: 0.01,
-		},
-	});
-
-	scene.shadows.bind(sun, shadowMap);
 
 	const bootstrap = await createRenderer(canvas, camera, scene);
 	canvas = bootstrap.canvas;
@@ -138,6 +97,7 @@ async function createRenderer(
 		renderer = new Renderer(new WebGLBackend(), canvas, camera);
 		renderer.setScene(scene);
 		renderer.postProcess.enable("fxaa");
+		renderer.postProcess.enable("ssgi");
 		renderer.features.enableOIT = true;
 
 		await renderer.init();
