@@ -6,6 +6,12 @@ import {
 	StructuredBufferLayout,
 	vec,
 } from "../src/renderers/webgpu/StructuredBufferLayout.ts";
+import {
+	WEBGPU_SCENE_VERTEX_FLOATS,
+	WEBGPU_SCENE_VERTEX_LAYOUT,
+	createWebGPUSceneVertexBufferLayout,
+	createWebGPUShadowVertexBufferLayout,
+} from "../src/renderers/webgpu/sceneVertexLayout.ts";
 
 function testVertexAddressSpaceUsesPackedVectorAlignment() {
 	const vertexLayout = new StructuredBufferLayout(
@@ -136,9 +142,41 @@ function testPathAccessSupportsNestedArrayPaths() {
 	assert.equal(layout.byteSizeOf(["entries", 2, "weight"]), 4);
 }
 
+function testSceneVertexLayoutDerivesPipelineDescriptors() {
+	assert.equal(WEBGPU_SCENE_VERTEX_LAYOUT.byteSize, 136);
+	assert.equal(WEBGPU_SCENE_VERTEX_FLOATS, 34);
+
+	const sceneLayout = createWebGPUSceneVertexBufferLayout();
+	assert.equal(sceneLayout.arrayStride, WEBGPU_SCENE_VERTEX_LAYOUT.byteSize);
+	assert.deepEqual(sceneLayout.attributes, [
+		{ shaderLocation: 0, offset: 0, format: "float32x3" },
+		{ shaderLocation: 1, offset: 24, format: "float32x2" },
+		{ shaderLocation: 2, offset: 12, format: "float32x3" },
+		{ shaderLocation: 3, offset: 32, format: "float32x4" },
+		{ shaderLocation: 4, offset: 48, format: "float32x2" },
+		{ shaderLocation: 5, offset: 56, format: "float32x4" },
+		{ shaderLocation: 6, offset: 72, format: "float32x4" },
+		{ shaderLocation: 7, offset: 88, format: "float32x4" },
+		{ shaderLocation: 8, offset: 104, format: "float32x4" },
+		{ shaderLocation: 9, offset: 120, format: "float32x2" },
+		{ shaderLocation: 10, offset: 128, format: "float32x2" },
+	]);
+
+	const shadowLayout = createWebGPUShadowVertexBufferLayout();
+	assert.equal(shadowLayout.arrayStride, WEBGPU_SCENE_VERTEX_LAYOUT.byteSize);
+	assert.deepEqual(shadowLayout.attributes, [
+		{ shaderLocation: 0, offset: 0, format: "float32x3" },
+		{ shaderLocation: 5, offset: 56, format: "float32x4" },
+		{ shaderLocation: 6, offset: 72, format: "float32x4" },
+		{ shaderLocation: 7, offset: 88, format: "float32x4" },
+		{ shaderLocation: 8, offset: 104, format: "float32x4" },
+	]);
+}
+
 testVertexAddressSpaceUsesPackedVectorAlignment();
 testCreateVertexBufferLayoutInfersFormatsAndValidatesStride();
 testCreateVertexBufferLayoutSupportsExplicitPackedFormat();
 testCreateVertexBufferLayoutRequiresVertexAddressSpace();
 testPathAccessSupportsNestedArrayPaths();
+testSceneVertexLayoutDerivesPipelineDescriptors();
 console.log("WebGPU structured buffer layout tests passed");

@@ -28,9 +28,9 @@ import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_MORPH_TARGETS,
 	WEBGPU_MAX_SPOT_LIGHTS,
-	WEBGPU_SCENE_VERTEX_STRIDE,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
+import { createWebGPUShadowVertexBufferLayout } from "./sceneVertexLayout";
 import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
 import { TextureFormat } from "../types";
 import type {
@@ -1361,38 +1361,7 @@ export class WebGPUShadowPass {
 				vertex: {
 					module: getWebGPUShaderModule(this._shaderModule),
 					entryPoint: "vsMain",
-					buffers: [
-						{
-							arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
-							attributes: [
-								{
-									shaderLocation: 0,
-									offset: 0,
-									format: "float32x3",
-								},
-								{
-									shaderLocation: 5,
-									offset: 56,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 6,
-									offset: 72,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 7,
-									offset: 88,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 8,
-									offset: 104,
-									format: "float32x4",
-								},
-							],
-						},
-					],
+					buffers: [createWebGPUShadowVertexBufferLayout()],
 				},
 				primitive: {
 					topology: "triangle-list",
@@ -1417,38 +1386,7 @@ export class WebGPUShadowPass {
 				vertex: {
 					module: getWebGPUShaderModule(this._shaderModule),
 					entryPoint: "vsMain",
-					buffers: [
-						{
-							arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
-							attributes: [
-								{
-									shaderLocation: 0,
-									offset: 0,
-									format: "float32x3",
-								},
-								{
-									shaderLocation: 5,
-									offset: 56,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 6,
-									offset: 72,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 7,
-									offset: 88,
-									format: "float32x4",
-								},
-								{
-									shaderLocation: 8,
-									offset: 104,
-									format: "float32x4",
-								},
-							],
-						},
-					],
+					buffers: [createWebGPUShadowVertexBufferLayout()],
 				},
 				fragment: {
 					module: getWebGPUShaderModule(this._shaderModule),

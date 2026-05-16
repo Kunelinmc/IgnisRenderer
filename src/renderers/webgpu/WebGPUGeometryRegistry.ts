@@ -6,6 +6,10 @@ import {
 import { BufferUsage, type IRenderBuffer } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
+import {
+	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
+	WEBGPU_SCENE_VERTEX_FLOATS,
+} from "./sceneVertexLayout";
 
 export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;
@@ -99,58 +103,99 @@ export class WebGPUGeometryRegistry {
 		const geometry = primitive.geometry;
 		const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
-		const vertexData = new Float32Array(vertexCount * 34);
+		const vertexData = new Float32Array(
+			vertexCount * WEBGPU_SCENE_VERTEX_FLOATS
+		);
+		const vertexOffset = WEBGPU_SCENE_VERTEX_FLOAT_OFFSET;
 
 		for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
 			const sourcePosition = vertexIndex * 3;
 			const sourceUv = vertexIndex * 2;
 			const sourceTangent = vertexIndex * 4;
 			const sourceJoint = vertexIndex * 4;
-			const base = vertexIndex * 34;
+			const base = vertexIndex * WEBGPU_SCENE_VERTEX_FLOATS;
 
-			vertexData[base] = geometry.positions[sourcePosition];
-			vertexData[base + 1] = geometry.positions[sourcePosition + 1];
-			vertexData[base + 2] = geometry.positions[sourcePosition + 2];
+			vertexData[base + vertexOffset.position] =
+				geometry.positions[sourcePosition];
+			vertexData[base + vertexOffset.position + 1] =
+				geometry.positions[sourcePosition + 1];
+			vertexData[base + vertexOffset.position + 2] =
+				geometry.positions[sourcePosition + 2];
 
-			vertexData[base + 3] = geometry.normals?.[sourcePosition] ?? 0;
-			vertexData[base + 4] = geometry.normals?.[sourcePosition + 1] ?? 0;
-			vertexData[base + 5] = geometry.normals?.[sourcePosition + 2] ?? 0;
+			vertexData[base + vertexOffset.normal] =
+				geometry.normals?.[sourcePosition] ?? 0;
+			vertexData[base + vertexOffset.normal + 1] =
+				geometry.normals?.[sourcePosition + 1] ?? 0;
+			vertexData[base + vertexOffset.normal + 2] =
+				geometry.normals?.[sourcePosition + 2] ?? 0;
 
-			vertexData[base + 6] = geometry.uv0?.[sourceUv] ?? 0;
-			vertexData[base + 7] = geometry.uv0?.[sourceUv + 1] ?? 0;
+			vertexData[base + vertexOffset.uv0] = geometry.uv0?.[sourceUv] ?? 0;
+			vertexData[base + vertexOffset.uv0 + 1] =
+				geometry.uv0?.[sourceUv + 1] ?? 0;
 
-			vertexData[base + 8] = geometry.tangents?.[sourceTangent] ?? 0;
-			vertexData[base + 9] = geometry.tangents?.[sourceTangent + 1] ?? 0;
-			vertexData[base + 10] = geometry.tangents?.[sourceTangent + 2] ?? 0;
-			vertexData[base + 11] = geometry.tangents?.[sourceTangent + 3] ?? 0;
+			vertexData[base + vertexOffset.tangent] =
+				geometry.tangents?.[sourceTangent] ?? 0;
+			vertexData[base + vertexOffset.tangent + 1] =
+				geometry.tangents?.[sourceTangent + 1] ?? 0;
+			vertexData[base + vertexOffset.tangent + 2] =
+				geometry.tangents?.[sourceTangent + 2] ?? 0;
+			vertexData[base + vertexOffset.tangent + 3] =
+				geometry.tangents?.[sourceTangent + 3] ?? 0;
 
-			vertexData[base + 12] = geometry.uv1?.[sourceUv] ?? 0;
-			vertexData[base + 13] = geometry.uv1?.[sourceUv + 1] ?? 0;
+			vertexData[base + vertexOffset.uv1] = geometry.uv1?.[sourceUv] ?? 0;
+			vertexData[base + vertexOffset.uv1 + 1] =
+				geometry.uv1?.[sourceUv + 1] ?? 0;
 
-			vertexData[base + 14] = Number(geometry.joints0?.[sourceJoint] ?? 0);
-			vertexData[base + 15] = Number(geometry.joints0?.[sourceJoint + 1] ?? 0);
-			vertexData[base + 16] = Number(geometry.joints0?.[sourceJoint + 2] ?? 0);
-			vertexData[base + 17] = Number(geometry.joints0?.[sourceJoint + 3] ?? 0);
+			vertexData[base + vertexOffset.joints0] = Number(
+				geometry.joints0?.[sourceJoint] ?? 0
+			);
+			vertexData[base + vertexOffset.joints0 + 1] = Number(
+				geometry.joints0?.[sourceJoint + 1] ?? 0
+			);
+			vertexData[base + vertexOffset.joints0 + 2] = Number(
+				geometry.joints0?.[sourceJoint + 2] ?? 0
+			);
+			vertexData[base + vertexOffset.joints0 + 3] = Number(
+				geometry.joints0?.[sourceJoint + 3] ?? 0
+			);
 
-			vertexData[base + 18] = geometry.weights0?.[sourceJoint] ?? 0;
-			vertexData[base + 19] = geometry.weights0?.[sourceJoint + 1] ?? 0;
-			vertexData[base + 20] = geometry.weights0?.[sourceJoint + 2] ?? 0;
-			vertexData[base + 21] = geometry.weights0?.[sourceJoint + 3] ?? 0;
+			vertexData[base + vertexOffset.weights0] =
+				geometry.weights0?.[sourceJoint] ?? 0;
+			vertexData[base + vertexOffset.weights0 + 1] =
+				geometry.weights0?.[sourceJoint + 1] ?? 0;
+			vertexData[base + vertexOffset.weights0 + 2] =
+				geometry.weights0?.[sourceJoint + 2] ?? 0;
+			vertexData[base + vertexOffset.weights0 + 3] =
+				geometry.weights0?.[sourceJoint + 3] ?? 0;
 
-			vertexData[base + 22] = Number(geometry.joints1?.[sourceJoint] ?? 0);
-			vertexData[base + 23] = Number(geometry.joints1?.[sourceJoint + 1] ?? 0);
-			vertexData[base + 24] = Number(geometry.joints1?.[sourceJoint + 2] ?? 0);
-			vertexData[base + 25] = Number(geometry.joints1?.[sourceJoint + 3] ?? 0);
+			vertexData[base + vertexOffset.joints1] = Number(
+				geometry.joints1?.[sourceJoint] ?? 0
+			);
+			vertexData[base + vertexOffset.joints1 + 1] = Number(
+				geometry.joints1?.[sourceJoint + 1] ?? 0
+			);
+			vertexData[base + vertexOffset.joints1 + 2] = Number(
+				geometry.joints1?.[sourceJoint + 2] ?? 0
+			);
+			vertexData[base + vertexOffset.joints1 + 3] = Number(
+				geometry.joints1?.[sourceJoint + 3] ?? 0
+			);
 
-			vertexData[base + 26] = geometry.weights1?.[sourceJoint] ?? 0;
-			vertexData[base + 27] = geometry.weights1?.[sourceJoint + 1] ?? 0;
-			vertexData[base + 28] = geometry.weights1?.[sourceJoint + 2] ?? 0;
-			vertexData[base + 29] = geometry.weights1?.[sourceJoint + 3] ?? 0;
+			vertexData[base + vertexOffset.weights1] =
+				geometry.weights1?.[sourceJoint] ?? 0;
+			vertexData[base + vertexOffset.weights1 + 1] =
+				geometry.weights1?.[sourceJoint + 1] ?? 0;
+			vertexData[base + vertexOffset.weights1 + 2] =
+				geometry.weights1?.[sourceJoint + 2] ?? 0;
+			vertexData[base + vertexOffset.weights1 + 3] =
+				geometry.weights1?.[sourceJoint + 3] ?? 0;
 
-			vertexData[base + 30] = geometry.uv2?.[sourceUv] ?? 0;
-			vertexData[base + 31] = geometry.uv2?.[sourceUv + 1] ?? 0;
-			vertexData[base + 32] = geometry.uv3?.[sourceUv] ?? 0;
-			vertexData[base + 33] = geometry.uv3?.[sourceUv + 1] ?? 0;
+			vertexData[base + vertexOffset.uv2] = geometry.uv2?.[sourceUv] ?? 0;
+			vertexData[base + vertexOffset.uv2 + 1] =
+				geometry.uv2?.[sourceUv + 1] ?? 0;
+			vertexData[base + vertexOffset.uv3] = geometry.uv3?.[sourceUv] ?? 0;
+			vertexData[base + vertexOffset.uv3 + 1] =
+				geometry.uv3?.[sourceUv + 1] ?? 0;
 		}
 
 		const indexCount = geometry.indices.length;

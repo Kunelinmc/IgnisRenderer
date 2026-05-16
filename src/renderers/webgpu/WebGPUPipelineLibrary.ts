@@ -5,7 +5,7 @@ import {
 import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
 import { createWebGPUMaterialUniformData } from "./";
-import { WEBGPU_SCENE_VERTEX_STRIDE } from "./constants";
+import { createWebGPUSceneVertexBufferLayout } from "./sceneVertexLayout";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
@@ -274,24 +274,7 @@ export class WebGPUPipelineLibrary {
 			vertex: {
 				module: sceneProgram.vertexModule,
 				entryPoint: sceneProgram.vertexEntryPoint,
-				buffers: [
-					{
-						arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
-						attributes: [
-							{ format: "float32x3", offset: 0, shaderLocation: 0 },
-							{ format: "float32x2", offset: 24, shaderLocation: 1 },
-							{ format: "float32x3", offset: 12, shaderLocation: 2 },
-							{ format: "float32x4", offset: 32, shaderLocation: 3 },
-							{ format: "float32x2", offset: 48, shaderLocation: 4 },
-							{ format: "float32x4", offset: 56, shaderLocation: 5 },
-							{ format: "float32x4", offset: 72, shaderLocation: 6 },
-							{ format: "float32x4", offset: 88, shaderLocation: 7 },
-							{ format: "float32x4", offset: 104, shaderLocation: 8 },
-							{ format: "float32x2", offset: 120, shaderLocation: 9 },
-							{ format: "float32x2", offset: 128, shaderLocation: 10 },
-						],
-					},
-				],
+				buffers: [createWebGPUSceneVertexBufferLayout()],
 			},
 			fragment: {
 				module: sceneProgram.fragmentModule,
@@ -358,24 +341,7 @@ export class WebGPUPipelineLibrary {
 			vertex: {
 				module: resolved.vertexModule,
 				entryPoint: resolved.vertexEntryPoint,
-				buffers: [
-					{
-						arrayStride: WEBGPU_SCENE_VERTEX_STRIDE,
-						attributes: [
-							{ format: "float32x3", offset: 0, shaderLocation: 0 },
-							{ format: "float32x2", offset: 24, shaderLocation: 1 },
-							{ format: "float32x3", offset: 12, shaderLocation: 2 },
-							{ format: "float32x4", offset: 32, shaderLocation: 3 },
-							{ format: "float32x2", offset: 48, shaderLocation: 4 },
-							{ format: "float32x4", offset: 56, shaderLocation: 5 },
-							{ format: "float32x4", offset: 72, shaderLocation: 6 },
-							{ format: "float32x4", offset: 88, shaderLocation: 7 },
-							{ format: "float32x4", offset: 104, shaderLocation: 8 },
-							{ format: "float32x2", offset: 120, shaderLocation: 9 },
-							{ format: "float32x2", offset: 128, shaderLocation: 10 },
-						],
-					},
-				],
+				buffers: [createWebGPUSceneVertexBufferLayout()],
 			},
 			primitive: {
 				topology: effectiveTopology as any,
