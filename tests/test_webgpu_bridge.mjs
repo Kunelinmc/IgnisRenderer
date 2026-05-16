@@ -46,7 +46,7 @@ import { MeshInstance } from "../src/meshes/MeshInstance.ts";
 import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
-import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/particleLayout.ts";
+import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/bufferLayouts.ts";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,

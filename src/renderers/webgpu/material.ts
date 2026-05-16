@@ -17,13 +17,13 @@ import type {
 import type { Texture } from "../../core/Texture";
 
 import { WEBGPU_TEXTURE_SLOT, WEBGPU_TEXTURE_SLOT_COUNT } from "./constants";
+import { createWebGPUShaderMaterialUniformLayout } from "./bufferLayouts";
 import {
-	StructuredBufferLayout,
 	mat4x4f32,
 	scalar,
-	structOf,
 	vec,
 	type BufferTypeSchema,
+	type StructuredBufferLayout,
 } from "./StructuredBufferLayout";
 import type {
 	WebGPUShaderUniformData,
@@ -328,14 +328,11 @@ function createShaderUniformData(material: Material): WebGPUShaderUniformData {
 		return createEmptyShaderUniformData(material.uniformValueRevision);
 	}
 
-	const layout = new StructuredBufferLayout(
-		structOf(
-			bindings.map((binding) => ({
-				name: binding.wgslField,
-				type: createShaderUniformTypeSchema(binding.type),
-			}))
-		),
-		"uniform"
+	const layout = createWebGPUShaderMaterialUniformLayout(
+		bindings.map((binding) => ({
+			name: binding.wgslField,
+			type: createShaderUniformTypeSchema(binding.type),
+		}))
 	);
 	const writer = layout.createWriter();
 	writer.expectByteLength(layout.byteSize, "ShaderMaterialUniforms");

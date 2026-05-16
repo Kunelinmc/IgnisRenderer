@@ -22,14 +22,15 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_FLAG_TYPE_MASK,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
+	WEBGPU_CLUSTERED_HEADER_STRIDE_UINTS as CLUSTERED_HEADER_STRIDE_UINTS,
+	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS as CLUSTERED_LIGHT_STRIDE_FLOATS,
+	WEBGPU_CLUSTERED_PARAMS_FLOATS as CLUSTERED_PARAMS_FLOATS,
+	WEBGPU_CLUSTERED_SHADER_WORKGROUP_SIZE as CLUSTERED_SHADER_WORKGROUP_SIZE,
 } from "./constants";
 import {
-	StructuredBufferLayout,
-	arrayOf,
-	scalar,
-	structOf,
-	vec,
-} from "./StructuredBufferLayout";
+	WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT as CLUSTER_GRID_PARAMS_LAYOUT,
+	getWebGPUClusteredLightLayout,
+} from "./bufferLayouts";
 import {
 	loadClusteredLightingCullShaderComposite,
 } from "../../shaders/webgpu/shaderSource";
@@ -51,57 +52,12 @@ export interface ComputePassDispatch {
 	z: number;
 }
 
-
-const CLUSTERED_SHADER_WORKGROUP_SIZE = 128;
-const CLUSTERED_PARAMS_FLOATS = 12;
-const CLUSTERED_LIGHT_STRIDE_FLOATS = 16;
-const CLUSTERED_HEADER_STRIDE_UINTS = 4;
-
-const U32 = scalar("u32");
-const F32 = scalar("f32");
-const VEC4_F32 = vec(4, "f32");
-
-const CLUSTER_GRID_PARAMS_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "screenWidth", type: U32 },
-		{ name: "screenHeight", type: U32 },
-		{ name: "tilesX", type: U32 },
-		{ name: "tilesY", type: U32 },
-		{ name: "zSlices", type: U32 },
-		{ name: "clusterCount", type: U32 },
-		{ name: "near", type: F32 },
-		{ name: "far", type: F32 },
-		{ name: "logScale", type: F32 },
-		{ name: "logBias", type: F32 },
-		{ name: "reserved0", type: U32 },
-		{ name: "reserved1", type: U32 },
-	]),
-	"uniform"
-);
-
-const CLUSTERED_LIGHT_RECORD_SCHEMA = structOf([
-	{ name: "positionRange", type: VEC4_F32 },
-	{ name: "directionOuter", type: VEC4_F32 },
-	{ name: "colorInner", type: VEC4_F32 },
-	{ name: "packedFlags", type: U32 },
-	{ name: "shadowIndex", type: U32 },
-	{ name: "reserved0", type: U32 },
-	{ name: "reserved1", type: U32 },
-]);
-
-const CLUSTERED_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
-
 const CLUSTERED_PARAMS_DEFAULTS = {
 	tileSizePx: 64,
 	zSlices: 24,
 	maxLights: 256,
 	maxLightsPerCluster: 64,
 } as const;
-
-CLUSTER_GRID_PARAMS_LAYOUT.assertByteSize(
-	CLUSTERED_PARAMS_FLOATS * 4,
-	"ClusterGridParams"
-);
 
 interface FrameClusterState {
 	enabled: boolean;
@@ -603,7 +559,7 @@ export class WebGPUClusteredLightingRuntime {
 		count: number
 	): ArrayBuffer {
 		const safeCount = Math.max(1, count);
-		const layout = getClusteredLightLayout(safeCount);
+		const layout = getWebGPUClusteredLightLayout(safeCount);
 		const writer = layout.createWriter();
 		writer.expectByteLength(
 			safeCount * CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
@@ -667,24 +623,6 @@ export class WebGPUClusteredLightingRuntime {
 			);
 		}
 	}
-}
-
-function getClusteredLightLayout(count: number): StructuredBufferLayout {
-	const cached = CLUSTERED_LIGHT_LAYOUT_CACHE.get(count);
-	if (cached) {
-		return cached;
-	}
-
-	const layout = new StructuredBufferLayout(
-		arrayOf(CLUSTERED_LIGHT_RECORD_SCHEMA, count),
-		"storage"
-	);
-	layout.assertByteSize(
-		count * CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
-		"ClusterLightBuffer"
-	);
-	CLUSTERED_LIGHT_LAYOUT_CACHE.set(count, layout);
-	return layout;
 }
 
 export function packClusteredIndexRef(

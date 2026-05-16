@@ -19,7 +19,7 @@ import { ComputeRuntime } from "../../renderers/webgpu/ComputeRuntime";
 import {
 	WEBGPU_PARTICLE_INSTANCE_FLOATS,
 	WEBGPU_PARTICLE_INSTANCE_STRIDE,
-} from "../../renderers/webgpu/particleLayout";
+} from "../../renderers/webgpu/constants";
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,

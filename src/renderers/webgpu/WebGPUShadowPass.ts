@@ -30,7 +30,7 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
-import { createWebGPUShadowVertexBufferLayout } from "./sceneVertexLayout";
+import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
 import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
 import { TextureFormat } from "../types";
 import type {

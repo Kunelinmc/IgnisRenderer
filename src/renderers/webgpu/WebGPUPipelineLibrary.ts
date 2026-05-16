@@ -5,7 +5,7 @@ import {
 import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
 import { createWebGPUMaterialUniformData } from "./";
-import { createWebGPUSceneVertexBufferLayout } from "./sceneVertexLayout";
+import { createWebGPUSceneVertexBufferLayout } from "./bufferLayouts";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";

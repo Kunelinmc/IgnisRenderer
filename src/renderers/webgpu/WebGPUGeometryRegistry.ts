@@ -9,7 +9,7 @@ import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
 	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
 	WEBGPU_SCENE_VERTEX_FLOATS,
-} from "./sceneVertexLayout";
+} from "./constants";
 
 export interface WebGPUGeometryHandle {
 	vertexBuffer: IRenderBuffer;

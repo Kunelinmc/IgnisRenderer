@@ -32,12 +32,8 @@ import {
 	FXAA_SUBPIX_QUALITY,
 } from "../../constants";
 import {
-	StructuredBufferLayout,
-	arrayOf,
-	scalar,
-	structOf,
-	vec,
-} from "../StructuredBufferLayout";
+	WEBGPU_INTERACTION_OUTLINE_LAYOUT as INTERACTION_OUTLINE_LAYOUT,
+} from "../bufferLayouts";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
@@ -47,27 +43,6 @@ import type {
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
-const VEC2_F32 = vec(2, "f32");
-const VEC3_F32 = vec(3, "f32");
-const VEC4_F32 = vec(4, "f32");
-const INTERACTION_OUTLINE_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "invSize", type: VEC2_F32 },
-		{ name: "opacity", type: scalar("f32") },
-		{ name: "thickness", type: scalar("f32") },
-		{ name: "color", type: VEC4_F32 },
-		{ name: "circleCount", type: scalar("f32") },
-		{ name: "shape", type: scalar("f32") },
-		{ name: "pad0", type: VEC3_F32 },
-		{ name: "circles", type: arrayOf(VEC4_F32, MAX_INTERACTION_OUTLINE_CIRCLES) },
-	]),
-	"uniform"
-);
-
-INTERACTION_OUTLINE_LAYOUT.assertByteSize(
-	(16 + MAX_INTERACTION_OUTLINE_CIRCLES * 4) * 4,
-	"OutlineParams"
-);
 
 export class ScreenPostProcessDelegate {
 	private _shared: PostProcessSharedContext;

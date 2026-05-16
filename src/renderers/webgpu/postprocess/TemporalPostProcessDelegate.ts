@@ -19,11 +19,10 @@ import { ceilDiv, finiteOr } from "../../../maths/Misc";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
 import type { WebGPULightingState } from "../types";
 import {
-	StructuredBufferLayout,
-	arrayOf,
-	structOf,
-	vec,
-} from "../StructuredBufferLayout";
+	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,
+	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
+} from "../constants";
+import { getWebGPUVolumetricLightLayout } from "../bufferLayouts";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
 	WebGPUPostProcessSSRExecuteRequest,
@@ -33,17 +32,6 @@ import type {
 } from "./types";
 
 const WORKGROUP_SIZE = 8;
-const VOLUMETRIC_LIGHT_STRIDE_FLOATS = 12;
-const MAX_VOLUMETRIC_LIGHTS = 65000;
-const VEC4_F32 = vec(4, "f32");
-
-const VOLUMETRIC_LIGHT_RECORD_SCHEMA = structOf([
-	{ name: "positionRange", type: VEC4_F32 },
-	{ name: "directionOuter", type: VEC4_F32 },
-	{ name: "colorInner", type: VEC4_F32 },
-]);
-
-const VOLUMETRIC_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
 
 export class TemporalPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
@@ -615,7 +603,7 @@ export class TemporalPostProcessDelegate {
 		}
 
 		const packedCount = Math.max(1, clampedLightCount);
-		const layout = getVolumetricLightLayout(packedCount);
+		const layout = getWebGPUVolumetricLightLayout(packedCount);
 		const packed = layout.createWriter();
 		packed.expectByteLength(
 			packedCount * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
@@ -1027,22 +1015,4 @@ export class TemporalPostProcessDelegate {
 		this._hizViewCache.set(texture as object, views);
 		return views;
 	}
-}
-
-function getVolumetricLightLayout(count: number): StructuredBufferLayout {
-	const cached = VOLUMETRIC_LIGHT_LAYOUT_CACHE.get(count);
-	if (cached) {
-		return cached;
-	}
-
-	const layout = new StructuredBufferLayout(
-		arrayOf(VOLUMETRIC_LIGHT_RECORD_SCHEMA, count),
-		"storage"
-	);
-	layout.assertByteSize(
-		count * VOLUMETRIC_LIGHT_STRIDE_FLOATS * 4,
-		"VolumetricLightBuffer"
-	);
-	VOLUMETRIC_LIGHT_LAYOUT_CACHE.set(count, layout);
-	return layout;
 }

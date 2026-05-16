@@ -8,10 +8,12 @@ import {
 } from "../src/renderers/webgpu/StructuredBufferLayout.ts";
 import {
 	WEBGPU_SCENE_VERTEX_FLOATS,
+} from "../src/renderers/webgpu/constants.ts";
+import {
 	WEBGPU_SCENE_VERTEX_LAYOUT,
 	createWebGPUSceneVertexBufferLayout,
 	createWebGPUShadowVertexBufferLayout,
-} from "../src/renderers/webgpu/sceneVertexLayout.ts";
+} from "../src/renderers/webgpu/bufferLayouts.ts";
 
 function testVertexAddressSpaceUsesPackedVectorAlignment() {
 	const vertexLayout = new StructuredBufferLayout(

@@ -11,12 +11,10 @@ import {
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
 import {
-	StructuredBufferLayout,
-	arrayOf,
-	mat4x4f32,
-	structOf,
-	vec,
-} from "./StructuredBufferLayout";
+	WEBGPU_FRAME_UNIFORM_LAYOUT as FRAME_UNIFORM_LAYOUT,
+	WEBGPU_MODEL_UNIFORM_LAYOUT as MODEL_UNIFORM_LAYOUT,
+} from "./bufferLayouts";
+import type { StructuredBufferLayout } from "./StructuredBufferLayout";
 import {
 	arrayStruct as packArrayStruct,
 	arrayVec4 as packArrayVec4,
@@ -34,155 +32,10 @@ import type {
 	WebGPUSpotLightUniform,
 } from "./types";
 
-const VEC4_F32 = vec(4, "f32");
-const MAT4X4_F32 = mat4x4f32();
-
-const DIRECTIONAL_LIGHT_SCHEMA = structOf([
-	{ name: "direction", type: VEC4_F32 },
-	{ name: "color", type: VEC4_F32 },
-]);
-
-const POINT_LIGHT_SCHEMA = structOf([
-	{ name: "positionRange", type: VEC4_F32 },
-	{ name: "color", type: VEC4_F32 },
-]);
-
-const SPOT_LIGHT_SCHEMA = structOf([
-	{ name: "positionRange", type: VEC4_F32 },
-	{ name: "directionOuter", type: VEC4_F32 },
-	{ name: "colorInner", type: VEC4_F32 },
-]);
-
-const SHADOW_DATA_SCHEMA = structOf([
-	{ name: "viewProjection", type: MAT4X4_F32 },
-	{ name: "cascadeViewProjections", type: arrayOf(MAT4X4_F32, 4) },
-	{ name: "cascadeSplits", type: arrayOf(VEC4_F32, 4) },
-	{ name: "paramsA", type: VEC4_F32 },
-	{ name: "paramsB", type: VEC4_F32 },
-	{ name: "paramsC", type: VEC4_F32 },
-	{ name: "paramsD", type: VEC4_F32 },
-]);
-
-const REFLECTION_PROBE_SCHEMA = structOf([
-	{ name: "worldToProbeRow0", type: VEC4_F32 },
-	{ name: "worldToProbeRow1", type: VEC4_F32 },
-	{ name: "worldToProbeRow2", type: VEC4_F32 },
-	{ name: "probeToWorldRow0", type: VEC4_F32 },
-	{ name: "probeToWorldRow1", type: VEC4_F32 },
-	{ name: "probeToWorldRow2", type: VEC4_F32 },
-	{ name: "dataA", type: VEC4_F32 },
-	{ name: "dataB", type: VEC4_F32 },
-	{ name: "dataC", type: VEC4_F32 },
-]);
-
-const FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "viewProjection", type: MAT4X4_F32 },
-		{ name: "prevViewProjection", type: MAT4X4_F32 },
-		{ name: "cameraPosition", type: VEC4_F32 },
-		{ name: "environmentBasisRight", type: VEC4_F32 },
-		{ name: "environmentBasisUp", type: VEC4_F32 },
-		{ name: "environmentBasisBackward", type: VEC4_F32 },
-		{ name: "ambientColor", type: VEC4_F32 },
-		{ name: "lightCounts", type: VEC4_F32 },
-		{ name: "options", type: VEC4_F32 },
-		{ name: "environmentOptionsA", type: VEC4_F32 },
-		{ name: "environmentOptionsB", type: VEC4_F32 },
-		{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
-		{
-			name: "directionalLights",
-			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
-		},
-		{
-			name: "pointLights",
-			type: arrayOf(POINT_LIGHT_SCHEMA, WEBGPU_MAX_POINT_LIGHTS),
-		},
-		{
-			name: "spotLights",
-			type: arrayOf(SPOT_LIGHT_SCHEMA, WEBGPU_MAX_SPOT_LIGHTS),
-		},
-		{
-			name: "directionalShadows",
-			type: arrayOf(SHADOW_DATA_SCHEMA, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
-		},
-		{
-			name: "spotShadows",
-			type: arrayOf(SHADOW_DATA_SCHEMA, WEBGPU_MAX_SPOT_LIGHTS),
-		},
-		{
-			name: "shAmbientCoeffs",
-			type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT),
-		},
-		{
-			name: "reflectionProbes",
-			type: arrayOf(REFLECTION_PROBE_SCHEMA, WEBGPU_MAX_REFLECTION_PROBES),
-		},
-		{ name: "localLightProbeCounts", type: VEC4_F32 },
-		{
-			name: "localLightProbeWorldToProbeRow0",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
-		},
-		{
-			name: "localLightProbeWorldToProbeRow1",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
-		},
-		{
-			name: "localLightProbeWorldToProbeRow2",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
-		},
-		{
-			name: "localLightProbeDataA",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
-		},
-		{
-			name: "localLightProbeDataB",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
-		},
-		{
-			name: "localLightProbeSHAmbientCoeffs",
-			type: arrayOf(
-				VEC4_F32,
-				WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
-			),
-		},
-	]),
-	"uniform"
-);
-
-const MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "modelMatrix", type: MAT4X4_F32 },
-		{ name: "prevModelMatrix", type: MAT4X4_F32 },
-		{ name: "normalMatrix", type: MAT4X4_F32 },
-		{ name: "baseColorFactor", type: VEC4_F32 },
-		{ name: "emissiveFactor", type: VEC4_F32 },
-		{ name: "surfaceParams0", type: VEC4_F32 },
-		{ name: "surfaceParams1", type: VEC4_F32 },
-		{ name: "surfaceParams2", type: VEC4_F32 },
-		{ name: "surfaceParams3", type: VEC4_F32 },
-		{ name: "specularColorFactor", type: VEC4_F32 },
-		{ name: "phongAmbientShininess", type: VEC4_F32 },
-		{ name: "phongSpecularShading", type: VEC4_F32 },
-		{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
-		{ name: "attenuationColor", type: VEC4_F32 },
-		{ name: "anisotropyParams", type: VEC4_F32 },
-		{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
-		{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
-		{ name: "materialFlags", type: VEC4_F32 },
-		{
-			name: "textureTransformA",
-			type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
-		},
-		{
-			name: "textureTransformB",
-			type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
-		},
-	]),
-	"uniform"
-);
-
-export const WEBGPU_FRAME_UNIFORM_BYTE_SIZE = FRAME_UNIFORM_LAYOUT.byteSize;
-export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE = MODEL_UNIFORM_LAYOUT.byteSize;
+export {
+	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+} from "./constants";
 
 interface WebGPUModelUniformInput {
 	modelMatrix: Matrix4 | number[][];

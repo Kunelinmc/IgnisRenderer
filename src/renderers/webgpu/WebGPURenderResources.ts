@@ -85,8 +85,10 @@ import {
 	WEBGPU_PARTICLE_INSTANCE_STRIDE,
 	WEBGPU_PARTICLE_QUAD_VERTICES,
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
+} from "./constants";
+import {
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
-} from "./particleLayout";
+} from "./bufferLayouts";
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
