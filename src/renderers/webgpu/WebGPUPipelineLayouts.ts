@@ -203,11 +203,6 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT,
 				texture: { sampleType: "float" },
 			},
-			{
-				binding: 1,
-				visibility: GPUShaderStage.FRAGMENT,
-				sampler: { type: "filtering" },
-			},
 		],
 	});
 

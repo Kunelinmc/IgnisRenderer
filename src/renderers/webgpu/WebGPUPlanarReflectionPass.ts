@@ -3,13 +3,8 @@ import type { DrawPacket, FrameContext, PreparedScene } from "../../pipeline/typ
 import { createTransientStore } from "../../pipeline/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
-import type { IRenderTexture, IBindingGroup, ISampler } from "../types";
-import {
-	AddressMode,
-	FilterMode,
-	TextureFormat,
-	TextureUsage,
-} from "../types";
+import type { IRenderTexture, IBindingGroup } from "../types";
+import { TextureFormat, TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
@@ -57,7 +52,6 @@ export class WebGPUPlanarReflectionPass {
 	private _resources: WebGPURenderResources;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
-	private _sampler: ISampler | null = null;
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
@@ -180,11 +174,6 @@ export class WebGPUPlanarReflectionPass {
 			return;
 		}
 
-		await this._ensureSampler();
-		if (!this._sampler) {
-			return;
-		}
-
 		const activeByKey = new Map(
 			this._activeReflections.map((reflection) => [reflection.key, reflection])
 		);
@@ -270,7 +259,7 @@ export class WebGPUPlanarReflectionPass {
 	/**
 	 * Releases all GPU resources owned by this pass.
 	 *
-	 * @sideEffects Destroys cached render targets, bind groups, and sampler.
+	 * @sideEffects Destroys cached render targets and bind groups.
 	 */
 	public destroy(): void {
 		for (const targets of this._targets.values()) {
@@ -281,8 +270,6 @@ export class WebGPUPlanarReflectionPass {
 			destroyBindingGroup(binding);
 		}
 		this._bindings.clear();
-		destroyManagedResource(this._sampler);
-		this._sampler = null;
 		this._activeReflections = [];
 	}
 
@@ -428,20 +415,6 @@ export class WebGPUPlanarReflectionPass {
 		}
 	}
 
-	private async _ensureSampler(): Promise<void> {
-		if (this._sampler) {
-			return;
-		}
-		this._sampler = this._backend.createSampler({
-			label: "WebGPUPlanarReflectionSampler",
-			magFilter: FilterMode.Linear,
-			minFilter: FilterMode.Linear,
-			mipmapFilter: FilterMode.Linear,
-			addressModeU: AddressMode.ClampToEdge,
-			addressModeV: AddressMode.ClampToEdge,
-		});
-	}
-
 	private _getReflectionBinding(texture: IRenderTexture): IBindingGroup {
 		const cached = this._bindings.get(texture);
 		if (cached) {
@@ -451,7 +424,6 @@ export class WebGPUPlanarReflectionPass {
 			layout: this._resources.getPlanarReflectionLayout(),
 			entries: [
 				{ binding: 0, resource: texture },
-				{ binding: 1, resource: this._sampler! },
 			],
 			label: "WebGPUPlanarReflectionBinding",
 		});
@@ -745,13 +717,6 @@ function destroyBindingGroup(group: IBindingGroup | null): void {
 	const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
 	if (typeof destroyFn === "function") {
 		destroyFn.call(group);
-	}
-}
-
-function destroyManagedResource(resource: unknown): void {
-	const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
-	if (typeof destroyFn === "function") {
-		destroyFn.call(resource);
 	}
 }
 

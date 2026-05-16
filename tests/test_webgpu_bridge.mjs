@@ -61,6 +61,7 @@ import {
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
+	WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -501,13 +502,21 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	const deferredFragmentEntries = getFragmentEntries(
 		layouts.deferredLightingPipelineLayout
 	);
+	const planarReflectionFragmentEntries = getFragmentEntries(
+		layouts.planarReflectionPipelineLayout
+	);
 	const sceneSampledTextureCount = sceneFragmentEntries.filter(
 		(entry) => !!entry.texture
 	).length;
 	const deferredSampledTextureCount = deferredFragmentEntries.filter(
 		(entry) => !!entry.texture
 	).length;
+	const planarReflectionSampledTextureCount =
+		planarReflectionFragmentEntries.filter((entry) => !!entry.texture).length;
 	const samplerCount = sceneFragmentEntries.filter(
+		(entry) => !!entry.sampler
+	).length;
+	const planarReflectionSamplerCount = planarReflectionFragmentEntries.filter(
 		(entry) => !!entry.sampler
 	).length;
 
@@ -525,8 +534,12 @@ function testScenePipelineLimitConstantsMatchLayout() {
 			WEBGPU_GBUFFER_READ_TEXTURE_COUNT
 	);
 	assert.equal(
+		planarReflectionSampledTextureCount,
+		WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
+	);
+	assert.equal(
 		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		sceneSampledTextureCount
+		planarReflectionSampledTextureCount
 	);
 	assert.equal(
 		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],
@@ -543,7 +556,12 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	);
 	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
+	assert.equal(
+		planarReflectionSamplerCount,
+		WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT
+	);
 	assert.ok(samplerCount <= 16);
+	assert.ok(planarReflectionSamplerCount <= 16);
 	assert.equal(WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE, 56);
 }
 

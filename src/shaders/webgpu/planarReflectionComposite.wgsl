@@ -87,7 +87,6 @@ struct SkinnedVertex {
 @group(1) @binding(35) var<storage, read> morphNormalDeltas: array<vec4<f32>>;
 
 @group(2) @binding(0) var reflectionTexture: texture_2d<f32>;
-@group(2) @binding(1) var reflectionSampler: sampler;
 
 fn safeNormalize(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(value);
@@ -122,6 +121,36 @@ fn transformUV(
 	}
 
 	return uv + transformA.xy;
+}
+
+fn sampleReflection(uv: vec2<f32>) -> vec4<f32> {
+	let dimensions = vec2<f32>(textureDimensions(reflectionTexture));
+	let maxTexel = dimensions - vec2<f32>(1.0);
+	let texel =
+		clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) *
+		dimensions -
+		vec2<f32>(0.5);
+	let base = floor(texel);
+	let next = base + vec2<f32>(1.0);
+	let baseCoord = vec2<i32>(clamp(base, vec2<f32>(0.0), maxTexel));
+	let nextCoord = vec2<i32>(clamp(next, vec2<f32>(0.0), maxTexel));
+	let blend = texel - base;
+
+	let c00 = textureLoad(reflectionTexture, baseCoord, 0);
+	let c10 = textureLoad(
+		reflectionTexture,
+		vec2<i32>(nextCoord.x, baseCoord.y),
+		0
+	);
+	let c01 = textureLoad(
+		reflectionTexture,
+		vec2<i32>(baseCoord.x, nextCoord.y),
+		0
+	);
+	let c11 = textureLoad(reflectionTexture, nextCoord, 0);
+	let cx0 = mix(c00, c10, blend.x);
+	let cx1 = mix(c01, c11, blend.x);
+	return mix(cx0, cx1, blend.y);
 }
 
 fn applyMorphDeltas(
@@ -305,11 +334,7 @@ fn fsMain(input: VertexOutput) -> FragmentOutput {
 		}
 	}
 
-	let reflection = textureSample(
-		reflectionTexture,
-		reflectionSampler,
-		clamp(input.screenUv, vec2<f32>(0.0), vec2<f32>(1.0))
-	);
+	let reflection = sampleReflection(input.screenUv);
 
 	var output: FragmentOutput;
 	output.sceneColor = vec4<f32>(reflection.rgb, reflectivity);
