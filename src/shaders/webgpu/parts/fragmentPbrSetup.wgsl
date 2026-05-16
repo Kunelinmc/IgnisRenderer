@@ -191,6 +191,8 @@ let baseF0 = 0.16 * reflectance * reflectance;
 let f0Norm = min(vec3<f32>(baseF0) * specularColor * specularFactor, vec3<f32>(1.0));
 let realF0 = mix(f0Norm, albedo, vec3<f32>(metalness));
 let nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
+let energyCompensation =
+	resolveSpecularEnergyCompensation(nDotV, roughness, realF0);
 let anisotropyData = resolveAnisotropyDirection(
 	input.uv0,
 	input.uv1,

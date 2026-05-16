@@ -153,7 +153,7 @@ export function collectWebGPUEnvironment(
 		localLightProbes: localizedProbeUniforms,
 		reflectionProbeCount,
 		reflectionProbes,
-		brdfLUTTexture: hasEnvSpecular ? IBLBRDF.getLUT() : null,
+		brdfLUTTexture: IBLBRDF.getLUT(),
 		envSpecularMaxMipLevel:
 			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
 		envSpecularFallbackMaxMipLevel: 0,

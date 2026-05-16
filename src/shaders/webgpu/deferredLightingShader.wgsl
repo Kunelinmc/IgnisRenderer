@@ -44,6 +44,12 @@ struct DeferredSurface {
 	iridescenceThickness: f32,
 }
 
+struct DeferredPBRContext {
+	realF0: vec3<f32>,
+	nDotV: f32,
+	energyCompensation: vec3<f32>,
+}
+
 @vertex
 fn vsMainDeferredLighting(
 	@builtin(vertex_index) vertexIndex: u32
@@ -156,8 +162,25 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	);
 }
 
+fn buildDeferredPBRContext(surface: DeferredSurface) -> DeferredPBRContext {
+	let baseF0 = 0.16 * surface.reflectance * surface.reflectance;
+	let f0Norm = min(
+		vec3<f32>(baseF0) * surface.specularColor * surface.specularFactor,
+		vec3<f32>(1.0)
+	);
+	let realF0 = mix(f0Norm, surface.albedo, vec3<f32>(surface.metalness));
+	let nDotV = max(dot(surface.normal, surface.viewDir), PBR_MIN_NDOTV);
+	let energyCompensation = resolveSpecularEnergyCompensation(
+		nDotV,
+		surface.roughness,
+		realF0
+	);
+	return DeferredPBRContext(realF0, nDotV, energyCompensation);
+}
+
 fn evaluateDeferredPBRLight(
 	surface: DeferredSurface,
+	pbr: DeferredPBRContext,
 	lightDirection: vec3<f32>,
 	radiance: vec3<f32>,
 	shadow: vec3<f32>
@@ -167,28 +190,22 @@ fn evaluateDeferredPBRLight(
 		return vec3<f32>(0.0);
 	}
 
-	let baseF0 = 0.16 * surface.reflectance * surface.reflectance;
-	let f0Norm = min(
-		vec3<f32>(baseF0) * surface.specularColor * surface.specularFactor,
-		vec3<f32>(1.0)
-	);
-	let realF0 = mix(f0Norm, surface.albedo, vec3<f32>(surface.metalness));
-	let nDotV = max(dot(surface.normal, surface.viewDir), PBR_MIN_NDOTV);
 	let halfVector = safeNormalize(
 		surface.viewDir + lightDirection,
 		surface.viewDir
 	);
 	let ndf = distributionGGX(surface.normal, halfVector, surface.roughness);
-	let geometry = geometrySmith(nDotV, nDotL, surface.roughness);
+	let geometry = geometrySmith(pbr.nDotV, nDotL, surface.roughness);
 	let fresnel = resolveIridescenceFresnel(
 		max(dot(halfVector, surface.viewDir), 0.0),
-		realF0,
+		pbr.realF0,
 		surface.iridescence,
 		surface.iridescenceThickness,
 		surface.iridescenceIor
 	);
-	let denominator = max(4.0 * nDotV * nDotL, 0.0001);
-	let specular = (ndf * geometry * fresnel) / denominator;
+	let denominator = max(4.0 * pbr.nDotV * nDotL, 0.0001);
+	let specular = ((ndf * geometry * fresnel) / denominator) *
+		pbr.energyCompensation;
 	let kd =
 		diffuseFresnelWeight(fresnel, surface.iridescence) *
 		(1.0 - surface.metalness);
@@ -231,7 +248,7 @@ fn evaluateDeferredPBRLight(
 			nDotH,
 			max(surface.sheenRoughness, 0.04)
 		);
-		let sheenVisibility = visibilityAshikhmin(nDotL, nDotV);
+		let sheenVisibility = visibilityAshikhmin(nDotL, pbr.nDotV);
 		sheenSpecular = surface.sheenColor * sheenNdf * sheenVisibility;
 		let hDotV = max(dot(halfVector, surface.viewDir), 0.0);
 		let sheenFresnel = fresnelSchlick(hDotV, surface.sheenColor);
@@ -249,6 +266,7 @@ fn evaluateDeferredPBRLight(
 
 fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	var directLight = vec3<f32>(0.0);
+	let pbr = buildDeferredPBRContext(surface);
 	let directionalCount = u32(frame.lightCounts.x + 0.5);
 	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		let lightDirection = safeNormalize(
@@ -264,6 +282,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		);
 		directLight += evaluateDeferredPBRLight(
 			surface,
+			pbr,
 			lightDirection,
 			frame.directionalLights[i].color.xyz,
 			shadow
@@ -324,6 +343,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 
 			directLight += evaluateDeferredPBRLight(
 				surface,
+				pbr,
 				lightDirection,
 				clusterLight.colorInner.xyz * attenuation,
 				shadow
@@ -345,6 +365,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				pointAttenuation(distanceSq, lightRange);
 			directLight += evaluateDeferredPBRLight(
 				surface,
+				pbr,
 				lightDirection,
 				radiance,
 				vec3<f32>(1.0)
@@ -385,6 +406,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			);
 			directLight += evaluateDeferredPBRLight(
 				surface,
+				pbr,
 				lightDirection,
 				radiance,
 				shadow
@@ -425,16 +447,9 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		) / 255.0;
 	}
 
-	let baseF0 = 0.16 * surface.reflectance * surface.reflectance;
-	let f0Norm = min(
-		vec3<f32>(baseF0) * surface.specularColor * surface.specularFactor,
-		vec3<f32>(1.0)
-	);
-	let realF0 = mix(f0Norm, surface.albedo, vec3<f32>(surface.metalness));
-	let nDotV = max(dot(surface.normal, surface.viewDir), PBR_MIN_NDOTV);
 	let fAmbient = resolveIridescenceFresnel(
-		nDotV,
-		realF0,
+		pbr.nDotV,
+		pbr.realF0,
 		surface.iridescence,
 		surface.iridescenceThickness,
 		surface.iridescenceIor
@@ -444,7 +459,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		(1.0 - surface.metalness);
 	let ccAmbientFresnel = select(
 		0.0,
-		fresnelSchlickScalar(nDotV, 0.04),
+		fresnelSchlickScalar(pbr.nDotV, 0.04),
 		surface.clearcoat > 0.0
 	);
 	let clearcoatAmbientAttenuation =
@@ -468,10 +483,11 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			surface.roughness,
 			surface.worldPosition
 		);
-		let brdf = sampleBRDFLUT(nDotV, surface.roughness);
+		let brdf = sampleBRDFLUT(pbr.nDotV, surface.roughness);
 		ambientLight +=
 			prefiltered *
 			(fAmbient * brdf.x + vec3<f32>(brdf.y)) *
+			pbr.energyCompensation *
 			clearcoatAmbientAttenuation;
 
 		let clearcoatPrefiltered = sampleEnvironmentSpecular(

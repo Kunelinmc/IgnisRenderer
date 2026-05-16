@@ -1349,6 +1349,25 @@ fn sampleBRDFLUT(nDotV: f32, roughness: f32) -> vec2<f32> {
 	return vec2<f32>(visibility, grazingBias);
 }
 
+fn resolveSpecularEnergyCompensation(
+	nDotV: f32,
+	roughness: f32,
+	f0: vec3<f32>
+) -> vec3<f32> {
+	if (!hasBRDFLUT()) {
+		return vec3<f32>(1.0);
+	}
+
+	let brdf = sampleBRDFLUT(nDotV, roughness);
+	let singleScatterEnergy = brdf.x + brdf.y;
+	if (singleScatterEnergy <= 0.0 || singleScatterEnergy >= 1.0) {
+		return vec3<f32>(1.0);
+	}
+
+	let factor = 1.0 / singleScatterEnergy - 1.0;
+	return vec3<f32>(1.0) + clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)) * factor;
+}
+
 fn clampShadowTexelCoord(coord: vec2<i32>, size: i32) -> vec2<i32> {
 	let maxCoord = max(size - 1, 0);
 	return vec2<i32>(

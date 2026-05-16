@@ -69,6 +69,7 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			let denominator = max(4.0 * nDotV * nDotL, 0.0001);
 			specular = (ndf * geometry * fresnel) / denominator;
 		}
+		specular = specular * energyCompensation;
 
 		let kd =
 			diffuseFresnelWeight(fresnel, iridescence) *

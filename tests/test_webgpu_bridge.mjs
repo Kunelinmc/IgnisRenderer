@@ -3,6 +3,7 @@ import { WebGPURenderResources } from "../src/renderers/webgpu/WebGPURenderResou
 import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { getWebGPUParticleShader } from "../src/shaders/webgpu/particleShader.ts";
 import { getWebGPUSceneShader } from "../src/shaders/webgpu/sceneShader.ts";
+import { getWebGPUDeferredLightingShader } from "../src/shaders/webgpu/deferredLightingShader.ts";
 import { getWebGPUEnvironmentShader } from "../src/shaders/webgpu/environmentShader.ts";
 import {
 	loadClusteredLightingCullShaderComposite,
@@ -365,6 +366,7 @@ function testFeatureGate() {
 
 async function testSceneShaderCoverage() {
 	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
+	const WEBGPU_DEFERRED_LIGHTING_SHADER = await getWebGPUDeferredLightingShader();
 	const WEBGPU_ENVIRONMENT_SHADER = await getWebGPUEnvironmentShader();
 
 	assert.ok(
@@ -391,6 +393,16 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeIrradiance"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleBlendedLocalLightProbeRadiance"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("resolveSpecularEnergyCompensation"));
+	assert.ok(
+		(WEBGPU_SCENE_SHADER.match(
+			/specular = specular \* energyCompensation;/g
+		)?.length ?? 0) >= 5
+	);
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
+	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var envSpecularFallbackTexture"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
@@ -800,6 +812,7 @@ function testEnvironmentCollection() {
 	assert.equal(failedOnlyEnvironment.environmentTexture, null);
 	assert.equal(failedOnlyEnvironment.envSpecularTexture, null);
 	assert.equal(failedOnlyEnvironment.reflectionProbeCount, 0);
+	assert.ok(failedOnlyEnvironment.brdfLUTTexture);
 
 	const disabledFallback = collectWebGPUEnvironment(
 		{

@@ -97,6 +97,7 @@ if (hasEnvSpecular()) {
 	ambientLight +=
 		prefiltered *
 		(effectiveFAmbient * brdf.x + vec3<f32>(brdf.y)) *
+		energyCompensation *
 		clearcoatAmbientAttenuation;
 
 	let clearcoatNdotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);

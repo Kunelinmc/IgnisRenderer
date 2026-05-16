@@ -109,6 +109,7 @@ if (isClusteredLightingEnabled()) {
 				let denominator = max(4.0 * nDotV * nDotL, 0.0001);
 				specular = (ndf * geometry * fresnel) / denominator;
 			}
+			specular = specular * energyCompensation;
 
 			let kd =
 				diffuseFresnelWeight(fresnel, iridescence) *
@@ -247,6 +248,7 @@ if (isClusteredLightingEnabled()) {
 				let denominator = max(4.0 * nDotV * nDotL, 0.0001);
 				specular = (ndf * geometry * fresnel) / denominator;
 			}
+			specular = specular * energyCompensation;
 
 			let kd =
 				diffuseFresnelWeight(fresnel, iridescence) *
