@@ -97,6 +97,7 @@ export interface TextureReadbackResult {
 	bytesPerPixel: number;
 	bytesPerRow: number;
 	toFloat32(): Float32Array;
+	toRGBAFloat32(): Float32Array;
 	toNormalizedRGBA8Float32(): Float32Array;
 }
 

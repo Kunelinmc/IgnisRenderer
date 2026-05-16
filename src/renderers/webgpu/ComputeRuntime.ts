@@ -41,6 +41,7 @@ import {
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeSource,
 } from "./ComputeFacade";
+import { float16BitsToFloat32 } from "../../foundation/Float16";
 import { alignTo } from "./texture";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
 
@@ -1039,49 +1040,129 @@ function createTextureReadbackResult(input: {
 		bytesPerPixel: input.bytesPerPixel,
 		bytesPerRow: input.bytesPerRow,
 		toFloat32: () => bytesToFloat32Array(input.bytes),
-		toNormalizedRGBA8Float32: () => {
-			if (
-				input.format !== TextureFormat.RGBA8Unorm &&
-				input.format !== TextureFormat.BGRA8Unorm
-			) {
-				throw new Error(
-					"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm or TextureFormat.BGRA8Unorm readback."
-				);
-			}
-			if (input.bytesPerPixel !== 4) {
-				throw new Error(
-					`toNormalizedRGBA8Float32() requires 4-byte pixels, received ${input.bytesPerPixel}.`
-				);
-			}
-			const minByteLength = input.bytesPerRow * input.height;
-			if (input.bytes.byteLength < minByteLength) {
-				throw new Error(
-					`Texture readback byte length ${input.bytes.byteLength} is smaller than expected ${minByteLength}.`
-				);
-			}
-			const output = new Float32Array(input.width * input.height * 4);
-			const isBgra = input.format === TextureFormat.BGRA8Unorm;
-			for (let y = 0; y < input.height; y++) {
-				const srcRowOffset = y * input.bytesPerRow;
-				const dstRowOffset = y * input.width * 4;
-				for (let x = 0; x < input.width; x++) {
-					const srcOffset = srcRowOffset + x * 4;
-					const dstOffset = dstRowOffset + x * 4;
-					if (isBgra) {
-						output[dstOffset] = input.bytes[srcOffset + 2] / 255;
-						output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
-						output[dstOffset + 2] = input.bytes[srcOffset] / 255;
-					} else {
-						output[dstOffset] = input.bytes[srcOffset] / 255;
-						output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
-						output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
-					}
-					output[dstOffset + 3] = input.bytes[srcOffset + 3] / 255;
-				}
-			}
-			return output;
-		},
+		toRGBAFloat32: () => decodeTextureReadbackToRGBAFloat32(input),
+		toNormalizedRGBA8Float32: () => decodeNormalizedRGBA8Readback(input),
 	};
+}
+
+function decodeTextureReadbackToRGBAFloat32(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+}): Float32Array {
+	validateTextureReadbackBytes(input);
+	switch (input.format) {
+		case TextureFormat.RGBA8Unorm:
+		case TextureFormat.BGRA8Unorm:
+			return decodeNormalizedRGBA8Readback(input);
+		case TextureFormat.RGBA16Float:
+			if (input.bytesPerPixel !== 8) {
+				throw new Error(
+					`toRGBAFloat32() requires 8-byte pixels for RGBA16Float, received ${input.bytesPerPixel}.`
+				);
+			}
+			return decodeRGBA16FloatReadback(input);
+		default:
+			throw new Error(
+				`toRGBAFloat32() does not support texture format "${input.format}".`
+			);
+	}
+}
+
+function decodeNormalizedRGBA8Readback(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+}): Float32Array {
+	if (
+		input.format !== TextureFormat.RGBA8Unorm &&
+		input.format !== TextureFormat.BGRA8Unorm
+	) {
+		throw new Error(
+			"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm or TextureFormat.BGRA8Unorm readback."
+		);
+	}
+	if (input.bytesPerPixel !== 4) {
+		throw new Error(
+			`toNormalizedRGBA8Float32() requires 4-byte pixels, received ${input.bytesPerPixel}.`
+		);
+	}
+	validateTextureReadbackBytes(input);
+	const output = new Float32Array(input.width * input.height * 4);
+	const isBgra = input.format === TextureFormat.BGRA8Unorm;
+	for (let y = 0; y < input.height; y++) {
+		const srcRowOffset = y * input.bytesPerRow;
+		const dstRowOffset = y * input.width * 4;
+		for (let x = 0; x < input.width; x++) {
+			const srcOffset = srcRowOffset + x * 4;
+			const dstOffset = dstRowOffset + x * 4;
+			if (isBgra) {
+				output[dstOffset] = input.bytes[srcOffset + 2] / 255;
+				output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
+				output[dstOffset + 2] = input.bytes[srcOffset] / 255;
+			} else {
+				output[dstOffset] = input.bytes[srcOffset] / 255;
+				output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
+				output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
+			}
+			output[dstOffset + 3] = input.bytes[srcOffset + 3] / 255;
+		}
+	}
+	return output;
+}
+
+function decodeRGBA16FloatReadback(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	bytesPerRow: number;
+}): Float32Array {
+	const output = new Float32Array(input.width * input.height * 4);
+	const view = new DataView(
+		input.bytes.buffer,
+		input.bytes.byteOffset,
+		input.bytes.byteLength
+	);
+	for (let y = 0; y < input.height; y++) {
+		const srcRowOffset = y * input.bytesPerRow;
+		const dstRowOffset = y * input.width * 4;
+		for (let x = 0; x < input.width; x++) {
+			const srcOffset = srcRowOffset + x * 8;
+			const dstOffset = dstRowOffset + x * 4;
+			output[dstOffset] = float16BitsToFloat32(
+				view.getUint16(srcOffset, true)
+			);
+			output[dstOffset + 1] = float16BitsToFloat32(
+				view.getUint16(srcOffset + 2, true)
+			);
+			output[dstOffset + 2] = float16BitsToFloat32(
+				view.getUint16(srcOffset + 4, true)
+			);
+			output[dstOffset + 3] = float16BitsToFloat32(
+				view.getUint16(srcOffset + 6, true)
+			);
+		}
+	}
+	return output;
+}
+
+function validateTextureReadbackBytes(input: {
+	bytes: Uint8Array;
+	height: number;
+	bytesPerRow: number;
+}): void {
+	const minByteLength = input.bytesPerRow * input.height;
+	if (input.bytes.byteLength < minByteLength) {
+		throw new Error(
+			`Texture readback byte length ${input.bytes.byteLength} is smaller than expected ${minByteLength}.`
+		);
+	}
 }
 
 function bytesToFloat32Array(bytes: Uint8Array): Float32Array {
