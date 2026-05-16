@@ -5,6 +5,7 @@ import {
 	TextureUsage,
 } from "../src/renderers/types.ts";
 import { ComputeRuntime } from "../src/renderers/webgpu/ComputeRuntime.ts";
+import { float32ToFloat16Bits } from "../src/foundation/Float16.ts";
 
 import { FakeWebGPUBackend } from "./helpers/test_fakes.mjs";
 
@@ -46,11 +47,17 @@ async function testReadTextureSkipsPaddingInNormalizedConversion() {
 	});
 	assert.equal(readback.bytesPerRow, 256);
 	const normalized = readback.toNormalizedRGBA8Float32();
+	const rgba = readback.toRGBAFloat32();
 	assert.equal(normalized.length, 24);
+	assert.equal(rgba.length, 24);
 	nearlyEqual(normalized[0], 10 / 255);
 	nearlyEqual(normalized[4], 40 / 255);
 	nearlyEqual(normalized[12], 100 / 255);
 	nearlyEqual(normalized[20], 160 / 255);
+	nearlyEqual(rgba[0], 10 / 255);
+	nearlyEqual(rgba[4], 40 / 255);
+	nearlyEqual(rgba[12], 100 / 255);
+	nearlyEqual(rgba[20], 160 / 255);
 	runtime.destroy();
 }
 
@@ -79,11 +86,72 @@ async function testReadTextureNormalizesBGRA8Unorm() {
 		format: TextureFormat.BGRA8Unorm,
 	});
 	const normalized = readback.toNormalizedRGBA8Float32();
+	const rgba = readback.toRGBAFloat32();
 	assert.equal(normalized.length, 4);
 	nearlyEqual(normalized[0], 10 / 255);
 	nearlyEqual(normalized[1], 20 / 255);
 	nearlyEqual(normalized[2], 30 / 255);
 	nearlyEqual(normalized[3], 255 / 255);
+	nearlyEqual(rgba[0], 10 / 255);
+	nearlyEqual(rgba[1], 20 / 255);
+	nearlyEqual(rgba[2], 30 / 255);
+	nearlyEqual(rgba[3], 255 / 255);
+	runtime.destroy();
+}
+
+async function testReadTextureDecodesRGBA16FloatWithPadding() {
+	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const texture = runtime.createTexture({
+		width: 3,
+		height: 2,
+		format: TextureFormat.RGBA16Float,
+		usage:
+			TextureUsage.CopyDst |
+			TextureUsage.CopySrc |
+			TextureUsage.TextureBinding,
+		label: "HalfFloatTexture",
+	});
+	const bytesPerRow = 256;
+	const upload = new Uint8Array(bytesPerRow * 2);
+	const view = new DataView(upload.buffer);
+	const values = [
+		2, 1, 0.5, 1,
+		4, 2, 1, 1,
+		8, 4, 2, 1,
+		16, 8, 4, 1,
+		32, 16, 8, 1,
+		64, 32, 16, 1,
+	];
+	for (let pixel = 0; pixel < 6; pixel++) {
+		const row = Math.floor(pixel / 3);
+		const column = pixel % 3;
+		const base = row * bytesPerRow + column * 8;
+		for (let component = 0; component < 4; component++) {
+			view.setUint16(
+				base + component * 2,
+				float32ToFloat16Bits(values[pixel * 4 + component]),
+				true
+			);
+		}
+	}
+	runtime.writeTexture(
+		texture,
+		upload,
+		{ bytesPerRow, rowsPerImage: 2 },
+		{ width: 3, height: 2, depthOrArrayLayers: 1 }
+	);
+
+	const readback = await runtime.readTexture({
+		texture,
+		format: TextureFormat.RGBA16Float,
+	});
+	assert.equal(readback.bytesPerRow, 256);
+	const rgba = readback.toRGBAFloat32();
+	assert.equal(rgba.length, 24);
+	nearlyEqual(rgba[0], 2);
+	nearlyEqual(rgba[4], 4);
+	nearlyEqual(rgba[12], 16);
+	nearlyEqual(rgba[20], 64);
 	runtime.destroy();
 }
 
@@ -239,6 +307,7 @@ async function testGetResourceStatsForDebugging() {
 
 await testReadTextureSkipsPaddingInNormalizedConversion();
 await testReadTextureNormalizesBGRA8Unorm();
+await testReadTextureDecodesRGBA16FloatWithPadding();
 await testKernelSchemaValidation();
 await testDispatchValidationRules();
 await testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone();

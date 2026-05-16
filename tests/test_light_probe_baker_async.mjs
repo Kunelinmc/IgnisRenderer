@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { Texture } from "../src/core/Texture.ts";
+import { sampleEnvironmentTextureSpecular } from "../src/pipeline/environmentMapRuntime.ts";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../src/pipeline/EnvironmentIBLBaker.ts";
+import { TextureFormat } from "../src/renderers/types.ts";
+
+import { FakeWebGPUBackend } from "./helpers/test_fakes.mjs";
+
+function nearlyEqual(actual, expected, epsilon = 1e-4) {
+	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
+}
 
 function createTestTexture(width = 32, height = 16) {
 	const data = new Uint8ClampedArray(width * height * 4);
@@ -101,6 +109,52 @@ async function testBakeReportsProgressMonotonically() {
 	assert.equal(previousCompleted, total);
 }
 
+async function testCPUPrefilterPreservesHDRRadiance() {
+	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
+	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
+		acceleration: "cpu",
+		prefilterMaxSampleWidth: 1,
+		prefilterMaxSampleHeight: 1,
+		prefilterMaxMipLevels: 1,
+	});
+	const mip0 = baked.prefilteredMap.mipmaps[0];
+	assert.ok(mip0 instanceof Float32Array);
+	nearlyEqual(mip0[0], 4);
+	nearlyEqual(mip0[1], 2);
+	nearlyEqual(mip0[2], 1);
+
+	const sample = sampleEnvironmentTextureSpecular(
+		baked.prefilteredMap,
+		{ x: 0, y: 0, z: 1 },
+		0
+	);
+	nearlyEqual(sample.r, 4);
+	nearlyEqual(sample.g, 2);
+	nearlyEqual(sample.b, 1);
+}
+
+async function testWebGPUPrefilterUsesRGBA16FloatForHDR() {
+	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
+	const backend = new FakeWebGPUBackend();
+	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
+		acceleration: "webgpu",
+		webgpuSource: backend,
+		prefilterMaxSampleWidth: 1,
+		prefilterMaxSampleHeight: 1,
+		prefilterMaxMipLevels: 1,
+	});
+	assert.ok(baked.prefilteredMap.mipmaps[0] instanceof Float32Array);
+
+	const inputTexture = backend.createTextureCalls.find(
+		(call) => call.label === "EnvironmentIBLBakeInputTexture"
+	);
+	const outputTexture = backend.createTextureCalls.find(
+		(call) => call.label === "EnvironmentIBLBakePrefilterOutput_mip0"
+	);
+	assert.equal(inputTexture?.format, TextureFormat.RGBA16Float);
+	assert.equal(outputTexture?.format, TextureFormat.RGBA16Float);
+}
+
 async function run() {
 	await testBakeReturnsEnvironmentIBLData();
 	await testBakeSupportsAbortSignal();
@@ -108,6 +162,8 @@ async function run() {
 	await testExplicitWebGPUModeRequiresSource();
 	await testAutoFallsBackWhenWebGPUPathFails();
 	await testBakeReportsProgressMonotonically();
+	await testCPUPrefilterPreservesHDRRadiance();
+	await testWebGPUPrefilterUsesRGBA16FloatForHDR();
 	console.log("Environment IBL baker async tests passed");
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { VideoTexture } from "../src/core/VideoTexture.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
-import { TextureUsage } from "../src/renderers/types.ts";
+import { TextureFormat, TextureUsage } from "../src/renderers/types.ts";
 
 import { FakeVideo, FakeCanvas, FakeWebGPUBackend, FakeCanvasContext2D } from "./helpers/test_fakes.mjs";
 
@@ -139,6 +139,7 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.createTextureCalls.length, 1);
+		assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA8Unorm);
 		assert.ok(
 			(backend.createTextureCalls[0].usage & TextureUsage.CopyDst) !== 0
 		);

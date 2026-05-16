@@ -3,7 +3,7 @@ import { CanvasTexture } from "../src/core/CanvasTexture.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
 import { WEBGPU_TEXTURE_SLOT } from "../src/renderers/webgpu/constants.ts";
-import { TextureUsage } from "../src/renderers/types.ts";
+import { TextureFormat, TextureUsage } from "../src/renderers/types.ts";
 
 import { FakeCanvasContext2D, FakeWebGPUBackend, FakeCanvas } from "./helpers/test_fakes.mjs";
 
@@ -75,6 +75,7 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	try {
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.createTextureCalls.length, 1);
+		assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA8Unorm);
 		assert.ok(
 			(backend.createTextureCalls[0].usage & TextureUsage.CopyDst) !== 0
 		);
@@ -104,4 +105,3 @@ function run() {
 }
 
 run();
-

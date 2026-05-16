@@ -37,6 +37,7 @@ import { AlphaMode } from "../src/materials/Material.ts";
 import { ShaderMaterial } from "../src/materials/ShaderMaterial.ts";
 import { Texture } from "../src/core/Texture.ts";
 import { CubeTexture } from "../src/core/CubeTexture.ts";
+import { float16BitsToFloat32 } from "../src/foundation/Float16.ts";
 import { Scene } from "../src/core/Scene.ts";
 import { Node } from "../src/core/Node.ts";
 import { UnlitMaterial } from "../src/materials/UnlitMaterial.ts";
@@ -81,6 +82,10 @@ globalThis.GPUShaderStage ??= {
 	FRAGMENT: 2,
 	COMPUTE: 4,
 };
+
+function nearlyEqual(actual, expected, epsilon = 1e-6) {
+	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
+}
 
 import {
 	FakeCommandEncoder as FakeRenderEncoder,
@@ -3149,6 +3154,28 @@ function testDynamicTextureReuploadOnVersionChange() {
 	assert.equal(backend.textureWrites.length, 2);
 }
 
+function testHDRTextureUploadsAsRGBA16Float() {
+	const backend = new FakeBackend();
+	const registry = new WebGPUTextureRegistry(backend);
+	const texture = new Texture(
+		new Float32Array([2, 1, 0.5, 1]),
+		1,
+		1,
+		"HDR"
+	);
+
+	registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+
+	assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA16Float);
+	assert.equal(backend.textureWrites.length, 1);
+	const uploaded = Uint8Array.from(backend.textureWrites[0].data);
+	const view = new DataView(uploaded.buffer);
+	nearlyEqual(float16BitsToFloat32(view.getUint16(0, true)), 2);
+	nearlyEqual(float16BitsToFloat32(view.getUint16(2, true)), 1);
+	nearlyEqual(float16BitsToFloat32(view.getUint16(4, true)), 0.5);
+	nearlyEqual(float16BitsToFloat32(view.getUint16(6, true)), 1);
+}
+
 function testSamplerCacheInvalidatesWhenTextureSamplerStateChanges() {
 	const backend = new FakeBackend();
 	const registry = new WebGPUTextureRegistry(backend);
@@ -3216,6 +3243,7 @@ async function run() {
 	await testRenderResourcesDestroyCleansParticleAndGeometryResources();
 	testWebGPUGeometryRegistryReleaseGeometryDestroysBuffers();
 	testDynamicTextureReuploadOnVersionChange();
+	testHDRTextureUploadsAsRGBA16Float();
 	testSamplerCacheInvalidatesWhenTextureSamplerStateChanges();
 	console.log("WebGPU bridge tests passed");
 }

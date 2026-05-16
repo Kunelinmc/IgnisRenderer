@@ -242,7 +242,7 @@ export class FakeGPUTexture {
 		this.destroyed = false;
 		this.calls = [];
 		this.lastWrite = null;
-		const bpp = 4; // Default to 4 bytes per pixel for simulation
+		const bpp = getFakeTextureBytesPerPixel(desc.format);
 		this._bytes = new Uint8Array(this.width * this.height * this.depthOrArrayLayers * bpp);
 	}
 	get [Symbol.toStringTag]() { return "GPUTexture"; }
@@ -251,6 +251,22 @@ export class FakeGPUTexture {
 		return new FakeGPUTextureView(this, desc); 
 	}
 	destroy() { this.destroyed = true; this.calls.push(["destroy"]); }
+}
+
+function getFakeTextureBytesPerPixel(format) {
+	return format === "rgba16float" ? 8 : 4;
+}
+
+function resolveFakeTextureUploadFormat(texture) {
+	if (texture?.data instanceof Float32Array) {
+		return "rgba16float";
+	}
+	for (const mip of texture?.mipmaps ?? []) {
+		if (mip instanceof Float32Array) {
+			return "rgba16float";
+		}
+	}
+	return "rgba8unorm";
 }
 
 /**
@@ -317,7 +333,7 @@ export class FakeCommandEncoder {
 
 			const width = Math.max(1, Math.floor(size.width));
 			const height = Math.max(1, Math.floor(size.height));
-			const bytesPerPixel = 4;
+			const bytesPerPixel = getFakeTextureBytesPerPixel(texture.format);
 			const srcBytesPerRow = width * bytesPerPixel;
 			const dstBytesPerRow = Math.max(srcBytesPerRow, dst.bytesPerRow || 0);
 
@@ -678,7 +694,7 @@ export class FakeWebGPUBackend {
 		if (gpuTexture._bytes) {
 			const width = Math.max(1, Math.floor(size.width));
 			const height = Math.max(1, Math.floor(size.height));
-			const bytesPerPixel = 4;
+			const bytesPerPixel = getFakeTextureBytesPerPixel(gpuTexture.format);
 			const rowSize = width * bytesPerPixel;
 			const bytesPerRow = layout.bytesPerRow ?? rowSize;
 			for (let y = 0; y < height; y++) {
@@ -734,8 +750,14 @@ export class FakeWebGPUBackend {
 		const width = texture.width | 0;
 		const height = texture.height | 0;
 		if (width > 0 && height > 0) {
+			const format = resolveFakeTextureUploadFormat(texture);
 			const cached = this._slotTextureCache.get(texture);
-			if (cached && cached.width === width && cached.height === height) {
+			if (
+				cached &&
+				cached.width === width &&
+				cached.height === height &&
+				cached.desc?.format === format
+			) {
 				return cached;
 			}
 			if (cached && typeof cached.destroy === "function" && !cached.destroyed) {
@@ -744,7 +766,7 @@ export class FakeWebGPUBackend {
 			const created = this.createTexture({
 				width,
 				height,
-				format: "rgba8unorm",
+				format,
 				usage: 0,
 				label: `SlotTexture_${slotIndex}_${width}x${height}`,
 			});
