@@ -7,6 +7,7 @@ import { getWebGPUDeferredLightingShader } from "../src/shaders/webgpu/deferredL
 import { getWebGPUEnvironmentShader } from "../src/shaders/webgpu/environmentShader.ts";
 import {
 	loadClusteredLightingCullShaderComposite,
+	loadPlanarReflectionCompositeShaderComposite,
 	loadPostProcessShaderPart,
 } from "../src/shaders/webgpu/shaderSource.ts";
 import {
@@ -591,6 +592,8 @@ async function testWebGPUShaderConstantTokenInjection() {
 	const rawSSRShader = await loadPostProcessShaderPart("ssr");
 	const rawClusteredCullShader =
 		(await loadClusteredLightingCullShaderComposite()).code;
+	const rawPlanarReflectionCompositeShader =
+		(await loadPlanarReflectionCompositeShaderComposite()).code;
 	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({
@@ -633,6 +636,11 @@ async function testWebGPUShaderConstantTokenInjection() {
 		rawClusteredCullShader,
 		"test-webgpu-clustered-cull-shader",
 		"clustered"
+	);
+	const WEBGPU_PLANAR_REFLECTION_COMPOSITE_SHADER = await compileShader(
+		rawPlanarReflectionCompositeShader,
+		"test-webgpu-planar-reflection-composite-shader",
+		"builtin-scene"
 	);
 
 	assert.ok(
@@ -705,11 +713,27 @@ async function testWebGPUShaderConstantTokenInjection() {
 			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
 		)
 	);
+	assert.ok(
+		WEBGPU_SSR_SHADER.includes(
+			"@group(0) @binding(6) var composePlanarReflectionMask"
+		)
+	);
+	assert.ok(
+		WEBGPU_PLANAR_REFLECTION_COMPOSITE_SHADER.includes(
+			`textureTransformA: array<vec4<f32>, ${WEBGPU_TEXTURE_SLOT_COUNT}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_PLANAR_REFLECTION_COMPOSITE_SHADER.includes(
+			"@group(2) @binding(0) var reflectionTexture"
+		)
+	);
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_ENVIRONMENT_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_PARTICLE_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_SSR_SHADER.includes("__WEBGPU_"));
 	assert.ok(!WEBGPU_CLUSTERED_CULL_SHADER.includes("__WEBGPU_"));
+	assert.ok(!WEBGPU_PLANAR_REFLECTION_COMPOSITE_SHADER.includes("__WEBGPU_"));
 }
 
 function createTinyTexture(mips = 1) {

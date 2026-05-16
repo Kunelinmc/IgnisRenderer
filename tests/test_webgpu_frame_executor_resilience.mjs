@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { Logger } from "../src/foundation/Logger.ts";
+import { Camera } from "../src/cameras/Camera.ts";
+import { Material } from "../src/materials/Material.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
@@ -206,6 +209,52 @@ function createDeferredLightingResourcesStub() {
 	};
 }
 
+function createPlanarReflectionResourcesStub() {
+	const state = {
+		events: [],
+		prepareContexts: [],
+	};
+	const drawResource = {
+		pipeline: { id: "draw-pipeline" },
+		frameBinding: { id: "frame-binding" },
+		modelBinding: { id: "model-binding" },
+		clusteredBinding: { id: "clustered-binding" },
+		vertexBuffer: { id: "vertex-buffer" },
+		indexBuffer: { id: "index-buffer" },
+		indexCount: 3,
+	};
+	return {
+		sceneFrameLayout: {},
+		setSceneTargetMode(mode) {
+			state.events.push(`mode:${mode}`);
+		},
+		prepareFrame(context) {
+			state.prepareContexts.push(context);
+			state.events.push(
+				`prepare:reflection:${context.features.enableReflection}:ssr:${context.postProcess.enabled.ssr}:opaque:${context.scene.opaquePackets.map((packet) => packet.id).join(",")}`
+			);
+		},
+		async buildClusteredLighting() {
+			state.events.push("clustered:build");
+		},
+		renderShadows() {},
+		async getEnvironmentResources() {
+			return null;
+		},
+		async getDrawResources(packet, options = {}) {
+			state.events.push(
+				`draw:${packet.id}:${options.sceneTargetMode ?? "default"}:${options.drawMode ?? "default"}`
+			);
+			return [drawResource];
+		},
+		async renderParticles() {},
+		getPlanarReflectionLayout() {
+			return { id: "planar-reflection-layout" };
+		},
+		_state: state,
+	};
+}
+
 async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -387,19 +436,129 @@ function testFrameTargetsIncludeAndReleaseOITResources() {
 
 	executor.beginFrame(context);
 	assert.ok(executor._frameTargets);
-	const { oitAccum, oitReveal, oitSceneColorCopy } = executor._frameTargets;
+	const {
+		oitAccum,
+		oitReveal,
+		oitSceneColorCopy,
+		planarReflectionMask,
+	} = executor._frameTargets;
 	assert.ok(oitAccum);
 	assert.ok(oitReveal);
 	assert.ok(oitSceneColorCopy);
+	assert.ok(planarReflectionMask);
 	assert.equal(executor._texturePoolOwners.has(oitAccum), true);
 	assert.equal(executor._texturePoolOwners.has(oitReveal), true);
 	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), true);
+	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), true);
 
 	executor.invalidateFrameTargets();
 	assert.equal(executor._frameTargets, null);
 	assert.equal(executor._texturePoolOwners.has(oitAccum), false);
 	assert.equal(executor._texturePoolOwners.has(oitReveal), false);
 	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), false);
+	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), false);
+}
+
+async function testPlanarReflectionCaptureAndCompositeSequencing() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
+	const resources = createPlanarReflectionResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const camera = new Camera();
+	camera.position.set(0, 2, 5);
+	camera.updateMatrices();
+	context.camera = camera;
+	context.features.enableReflection = true;
+	context.postProcess = createResolvedPostProcess({
+		ssr: { enabled: true },
+	});
+	context.incremental = {
+		enabled: false,
+		forceFullFrame: true,
+		dirtyRects: [{ x: 0, y: 0, width: 64, height: 64 }],
+		dirtyTileSize: 64,
+		dirtyTileColumns: 1,
+		dirtyTileRows: 1,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 1,
+		firstPass: null,
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+	const mirrorMaterial = new Material({
+		name: "mirror",
+		reflectivity: 0.75,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+	});
+	const objectMaterial = new Material({ name: "object" });
+	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const objectPacket = createPlanarPacket("object", objectMaterial, 1);
+	context.scene.opaquePackets = [mirrorPacket, objectPacket];
+	context.scene.reflectivePackets = [mirrorPacket];
+	context.scene.transparentPackets = [];
+	context.scene.meshInstances = [];
+	context.scene.lights = [];
+	context.scene.shadowMaps = new Map();
+	context.scene.environment = {
+		backgroundEnabled: false,
+		lightingEnabled: false,
+		backgroundTexture: null,
+		iblTexture: null,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "reflection", executor: "backend", enabled: true },
+		context
+	);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const colorTarget = backend.createTextureCalls.find((desc) =>
+		String(desc.label).startsWith("WebGPUPlanarReflectionColor_")
+	);
+	assert.equal(colorTarget.width, 32);
+	assert.equal(colorTarget.height, 32);
+	assert.ok(
+		resources._state.events.includes(
+			"prepare:reflection:false:ssr:false:opaque:object"
+		)
+	);
+	assert.ok(
+		resources._state.events.includes("draw:object:mrt:reflection-capture")
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:mirror:mrt:planar-reflection-composite"
+		)
+	);
+	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	assert.ok(
+		labels.indexOf("WebGPUPlanarReflectionCaptureMain") <
+			labels.indexOf("WebGPUMainMRT_Clear")
+	);
+	assert.ok(
+		labels.indexOf("WebGPUPlanarReflectionComposite") >
+			labels.indexOf("WebGPUMainMRT_Clear")
+	);
+	const compositePass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUPlanarReflectionComposite"
+	);
+	assert.equal(compositePass.colorAttachments.length, 2);
+	assert.equal(
+		String(compositePass.colorAttachments[1].view.label).startsWith(
+			"WebGPUPlanarReflectionMask"
+		),
+		true
+	);
 }
 
 async function testOITTransparentAndParticleExecutionOrder() {
@@ -612,6 +771,7 @@ async function run() {
 	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsIncludeAndReleaseOITResources();
+	await testPlanarReflectionCaptureAndCompositeSequencing();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testDeferredLightingBindsUnusedGroupOnePlaceholder();
@@ -621,3 +781,26 @@ async function run() {
 }
 
 await run();
+
+function createPlanarPacket(id, material, y) {
+	const worldMatrix = Matrix4.identity();
+	return {
+		id,
+		meshInstance: { id: `${id}-mesh`, worldMatrix, mesh: { primitives: [] } },
+		mesh: { primitives: [], boundingSphere: { center: { x: 0, y, z: 0 }, radius: 1 } },
+		primitive: {
+			id: `${id}-primitive`,
+			material,
+			geometry: {},
+			boundingSphere: { center: { x: 0, y, z: 0 }, radius: 1 },
+		},
+		material,
+		geometry: {},
+		worldMatrix,
+		normalMatrix: worldMatrix,
+		worldBounds: { center: { x: 0, y, z: 0 }, radius: 1 },
+		sortDepth: 1,
+		pipelineKey: id,
+		passFlags: 0,
+	};
+}

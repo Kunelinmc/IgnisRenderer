@@ -61,6 +61,7 @@ struct ComposeParams {
 @group(0) @binding(3) var composeSampler: sampler;
 @group(0) @binding(4) var<uniform> composeParams: ComposeParams;
 @group(0) @binding(5) var composeOut: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var composePlanarReflectionMask: texture_2d<f32>;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -515,6 +516,10 @@ fn csCompose(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let coord = vec2<i32>(gid.xy);
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * composeParams.invFullSize;
 	let scene = textureLoad(composeScene, coord, 0);
+	if (textureLoad(composePlanarReflectionMask, coord, 0).r > 0.5) {
+		textureStore(composeOut, coord, scene);
+		return;
+	}
 	let centerDepth = textureSampleLevel(composeMotionDepth, composeSampler, uv, 0.0).z;
 	let step = composeParams.invFullSize;
 

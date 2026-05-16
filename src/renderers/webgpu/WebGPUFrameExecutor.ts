@@ -61,6 +61,10 @@ import { materialUsesTransmission } from "../../materials/transparency";
 import { ParticleBlendMode } from "../../particles";
 import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { materialSupportsWebGPUDeferredLighting } from "./material";
+import {
+	WebGPUPlanarReflectionPass,
+	type WebGPUPlanarReflectionMSAATargets,
+} from "./WebGPUPlanarReflectionPass";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -178,6 +182,7 @@ interface WebGPUFrameMSAATargets {
 	gNormalRoughMetal: IRenderTexture;
 	gEmissiveOcclusion: IRenderTexture;
 	gMotionDepth: IRenderTexture;
+	planarReflectionMask: IRenderTexture;
 	depth: IRenderTexture;
 }
 
@@ -502,6 +507,7 @@ export class WebGPUFrameExecutor {
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 	private _enableEarlyZPrepass = true;
+	private _planarReflectionPass: WebGPUPlanarReflectionPass;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUFramePassHandler>;
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
@@ -550,6 +556,10 @@ export class WebGPUFrameExecutor {
 					this._volumetricHistoryUpdated = updated;
 				},
 			})
+		);
+		this._planarReflectionPass = new WebGPUPlanarReflectionPass(
+			backend,
+			resources
 		);
 		this._passHandlers = this._createPassHandlers();
 	}
@@ -651,6 +661,7 @@ export class WebGPUFrameExecutor {
 	public invalidateFrameTargets(): void {
 		this._destroyFrameTargets();
 		this._postRuntime.invalidateBindings();
+		this._planarReflectionPass.destroy();
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -681,6 +692,7 @@ export class WebGPUFrameExecutor {
 		this._depthDirtyClearShaderModule = null;
 		this._depthDirtyClearPipelines.clear();
 		this._postRuntime.onShaderRuntimeChanged();
+		this._planarReflectionPass.destroy();
 	}
 
 	public async warmup(
@@ -757,6 +769,7 @@ export class WebGPUFrameExecutor {
 		this._destroyFrameTargets();
 		this._destroyTexturePools();
 		this._postRuntime.destroy();
+		this._planarReflectionPass.destroy();
 		this._destroyManagedResource(this._presentShaderModule);
 		this._destroyManagedResource(this._presentPipeline);
 		this._destroyManagedResource(this._presentSampler);
@@ -877,6 +890,12 @@ export class WebGPUFrameExecutor {
 						context,
 						this._encoder ?? undefined
 					);
+				},
+			],
+			[
+				"reflection",
+				async (context) => {
+					await this._recordPlanarReflectionPass(context);
 				},
 			],
 			[
@@ -1319,6 +1338,16 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.RGBA16Float
 			);
+			const planarReflectionMask = acquireTexture(
+				"planar-reflection-mask",
+				{
+					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+					label: "WebGPUPlanarReflectionMask",
+				},
+				width,
+				height,
+				TextureFormat.R8Unorm
+			);
 			const historyA = acquireTexture(
 				"rgba16-storage",
 				rgba16StoragePool,
@@ -1475,6 +1504,13 @@ export class WebGPUFrameExecutor {
 							height,
 							TextureFormat.RGBA16Float
 						),
+						planarReflectionMask: acquireTexture(
+							msaaPoolKey,
+							msaaPoolOptions,
+							width,
+							height,
+							TextureFormat.R8Unorm
+						),
 						depth: acquireTexture(
 							msaaPoolKey,
 							msaaPoolOptions,
@@ -1504,6 +1540,7 @@ export class WebGPUFrameExecutor {
 				oitAccum,
 				oitReveal,
 				oitSceneColorCopy,
+				planarReflectionMask,
 				aoRaw,
 				aoBlur,
 				ssrRaw,
@@ -1683,6 +1720,7 @@ export class WebGPUFrameExecutor {
 			textures.add(this._frameTargets.oitAccum);
 			textures.add(this._frameTargets.oitReveal);
 			textures.add(this._frameTargets.oitSceneColorCopy);
+			textures.add(this._frameTargets.planarReflectionMask);
 			textures.add(this._frameTargets.aoRaw);
 			textures.add(this._frameTargets.aoBlur);
 			textures.add(this._frameTargets.ssrRaw);
@@ -1704,6 +1742,7 @@ export class WebGPUFrameExecutor {
 			textures.add(this._msaaTargets.gNormalRoughMetal);
 			textures.add(this._msaaTargets.gEmissiveOcclusion);
 			textures.add(this._msaaTargets.gMotionDepth);
+			textures.add(this._msaaTargets.planarReflectionMask);
 			textures.add(this._msaaTargets.depth);
 		}
 		for (const texture of textures) {
@@ -2773,6 +2812,41 @@ export class WebGPUFrameExecutor {
 		return this._gbufferReadBinding;
 	}
 
+	private async _recordPlanarReflectionPass(
+		context: FrameContext
+	): Promise<void> {
+		if (!this._encoder) {
+			return;
+		}
+		this._submitCurrentFrameEncoder();
+		await this._planarReflectionPass.capture(context);
+		this._encoder = this._backend.createCommandEncoder();
+	}
+
+	private async _recordPlanarReflectionComposite(
+		context: FrameContext
+	): Promise<void> {
+		if (!this._encoder || !this._mrtEnabled || !this._frameTargets) {
+			return;
+		}
+		await this._planarReflectionPass.composite({
+			encoder: this._encoder,
+			context,
+			frameTargets: this._frameTargets,
+			msaaTargets:
+				this._msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
+		});
+	}
+
+	private _submitCurrentFrameEncoder(): void {
+		if (!this._encoder) {
+			return;
+		}
+		const encoder = this._encoder;
+		this._backend.submit([encoder.finish()]);
+		this._encoder = null;
+	}
+
 	private async _recordOpaquePass(context: FrameContext): Promise<void> {
 		if (!this._deferredEnabled || !this._mrtEnabled || !this._frameTargets) {
 			await this._recordMainPass(
@@ -2781,6 +2855,7 @@ export class WebGPUFrameExecutor {
 				true,
 				true
 			);
+			await this._recordPlanarReflectionComposite(context);
 			return;
 		}
 
@@ -2796,6 +2871,7 @@ export class WebGPUFrameExecutor {
 
 		if (deferredPackets.length <= 0 && fallbackPackets.length > 0) {
 			await this._recordMainPass(context, fallbackPackets, true, true);
+			await this._recordPlanarReflectionComposite(context);
 			return;
 		}
 
@@ -2808,6 +2884,7 @@ export class WebGPUFrameExecutor {
 		if (fallbackPackets.length > 0) {
 			await this._recordMainPass(context, fallbackPackets, false, false);
 		}
+		await this._recordPlanarReflectionComposite(context);
 	}
 
 	private async _recordDeferredOpaquePass(

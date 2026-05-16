@@ -383,6 +383,7 @@ export class TemporalPostProcessDelegate {
 				{ binding: 3, resource: this._shared.sampler },
 				{ binding: 4, resource: this._ssrComposeParams },
 				{ binding: 5, resource: composeTarget },
+				{ binding: 6, resource: request.targets.planarReflectionMask },
 			],
 			"WebGPUSSR_ComposeBinding"
 		);

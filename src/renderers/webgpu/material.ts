@@ -158,7 +158,7 @@ export function createWebGPUMaterialUniformData(
 			anisotropyStrength,
 			Math.cos(anisotropyRotation),
 			Math.sin(anisotropyRotation),
-			0,
+			clamp(material.reflectivity ?? 0, 0, 1),
 		],
 		anisotropyTexture,
 		materialFlags: [
@@ -553,22 +553,6 @@ function pushMaterialWarnings(
 	material: Material,
 	warnings: WebGPUWarning[]
 ): void {
-	const warn = (feature: string, message: string, enabled: boolean) => {
-		if (!enabled) return;
-		warnings.push({
-			key: `webgpu-material-${feature}:${material.type}:${material.name}`,
-			message,
-		});
-	};
-
-	warn(
-		"reflectivity",
-		`WebGPU backend does not support planar reflections yet; ignoring reflectivity on material ${material.name}`,
-		(material.reflectivity ?? 0) > 0
-	);
-	warn(
-		"mirror-plane",
-		`WebGPU backend does not support mirrorPlane yet; rendering material ${material.name} as a regular lit surface`,
-		!!material.mirrorPlane
-	);
+	void material;
+	void warnings;
 }

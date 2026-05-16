@@ -37,7 +37,7 @@ function run() {
 	assert.deepEqual(webgpu.capabilities, {
 		sh: true,
 		shadows: true,
-		reflection: false,
+		reflection: true,
 		environment: true,
 		clusteredLighting: true,
 		oit: true,

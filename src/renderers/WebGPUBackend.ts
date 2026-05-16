@@ -291,7 +291,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly capabilities = {
 		sh: true,
 		shadows: true,
-		reflection: false,
+		reflection: true,
 		environment: true,
 		clusteredLighting: true,
 		oit: true,

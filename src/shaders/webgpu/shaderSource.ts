@@ -43,6 +43,8 @@ type PostProcessShaderPart =
 	| "copy"
 	| "sobelNormal";
 
+type UtilityShaderPart = "planarReflectionComposite";
+
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
 const sceneParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
@@ -55,6 +57,13 @@ const sceneParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 const postProcessParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 	? {}
 	: import.meta.glob<string>("./postprocess/*.wgsl", {
+			query: "?raw",
+			import: "default",
+		});
+
+const utilityParts: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
+	? {}
+	: import.meta.glob<string>("./*.wgsl", {
 			query: "?raw",
 			import: "default",
 		});
@@ -294,6 +303,10 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	sobelNormal: "./postprocess/sobelNormal.wgsl",
 };
 
+const utilityShaderFiles: Record<UtilityShaderPart, string> = {
+	planarReflectionComposite: "./planarReflectionComposite.wgsl",
+};
+
 export function loadPostProcessShaderPart(
 	part: PostProcessShaderPart
 ): Promise<string> {
@@ -346,6 +359,30 @@ export function loadPostProcessShaderPartComposite(
 			}
 			return loader();
 		});
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
+export function loadPlanarReflectionCompositeShaderComposite():
+	Promise<CompositeShaderSource> {
+	const key = "planar-reflection-composite";
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadShaderCompositeFromFile(
+			key,
+			utilityShaderFiles.planarReflectionComposite,
+			() => {
+				const loader =
+					utilityParts["./planarReflectionComposite.wgsl"];
+				if (!loader) {
+					return Promise.reject(
+						new Error("Utility shader part not found: planarReflectionComposite")
+					);
+				}
+				return loader();
+			}
+		);
 		_compositeCache.set(key, cached);
 	}
 	return cached;

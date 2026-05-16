@@ -318,6 +318,68 @@ export class WebGPURenderResources {
 			}
 		}
 
+		if (
+			context.features.enableReflection &&
+			context.scene.reflectivePackets.length > 0
+		) {
+			const restoreSceneTargetMode = this._sceneTargetMode;
+			try {
+				this.setSceneTargetMode("mrt");
+				this.prepareFrame(context);
+
+				for (const packet of drawPackets) {
+					total++;
+					try {
+						const resources = await this.getDrawResources(packet, {
+							sceneTargetMode: "mrt",
+							drawMode: "reflection-capture",
+						});
+						if (resources && resources.length > 0) {
+							compiled++;
+						} else {
+							skipped++;
+						}
+					} catch (error) {
+						failed++;
+						errors.push(
+							toShaderCompileError(
+								error,
+								"webgpu",
+								`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`
+							)
+						);
+					}
+				}
+
+				for (const packet of context.scene.reflectivePackets) {
+					total++;
+					try {
+						const resources = await this.getDrawResources(packet, {
+							sceneTargetMode: "mrt",
+							drawMode: "planar-reflection-composite",
+						});
+						if (resources && resources.length > 0) {
+							compiled++;
+						} else {
+							skipped++;
+						}
+					} catch (error) {
+						failed++;
+						errors.push(
+							toShaderCompileError(
+								error,
+								"webgpu",
+								`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`
+							)
+						);
+					}
+				}
+			} finally {
+				this.setSceneTargetMode(restoreSceneTargetMode);
+				this.prepareFrame(context);
+			}
+		}
+
 		if (plan.enableShadows) {
 			total++;
 			try {
@@ -532,6 +594,16 @@ export class WebGPURenderResources {
 	 */
 	public getGBufferReadLayout(): GPUBindGroupLayout {
 		return this._layouts.gbufferReadBindGroupLayout;
+	}
+
+	/**
+	 * Returns the bind group layout used by planar reflection composite draws.
+	 *
+	 * @returns The WebGPU bind group layout for reflection texture sampling.
+	 * @sideEffects None.
+	 */
+	public getPlanarReflectionLayout(): GPUBindGroupLayout {
+		return this._layouts.planarReflectionBindGroupLayout;
 	}
 
 	/**

@@ -53,6 +53,7 @@ export interface WebGPUFrameTargets {
 	oitAccum: IRenderTexture;
 	oitReveal: IRenderTexture;
 	oitSceneColorCopy: IRenderTexture;
+	planarReflectionMask: IRenderTexture;
 	aoRaw: IRenderTexture;
 	aoBlur: IRenderTexture;
 	ssrRaw: IRenderTexture;

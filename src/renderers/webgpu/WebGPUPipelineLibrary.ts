@@ -4,6 +4,9 @@ import {
 } from "../../shaders/webgpu/deferredLightingShader";
 import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
 import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
+import {
+	loadPlanarReflectionCompositeShaderComposite,
+} from "../../shaders/webgpu/shaderSource";
 import { createWebGPUMaterialUniformData } from "./";
 import { createWebGPUSceneVertexBufferLayout } from "./bufferLayouts";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -34,7 +37,9 @@ export type WebGPUTransparentPipelineMode =
 export type WebGPUScenePipelineDrawMode =
 	| "default"
 	| "early-z-color"
-	| "early-z-prepass";
+	| "early-z-prepass"
+	| "reflection-capture"
+	| "planar-reflection-composite";
 const COLOR_WRITE_NONE = 0;
 const ALPHA_BLEND_STATE = {
 	color: {
@@ -45,6 +50,18 @@ const ALPHA_BLEND_STATE = {
 	alpha: {
 		srcFactor: "one",
 		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+};
+const PLANAR_REFLECTION_BLEND_STATE = {
+	color: {
+		srcFactor: "src-alpha",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+	alpha: {
+		srcFactor: "zero",
+		dstFactor: "one",
 		operation: "add",
 	},
 };
@@ -105,6 +122,8 @@ export class WebGPUPipelineLibrary {
 	private _environmentShaderDirectiveTag = "";
 	private _deferredLightingShaderModule: IShaderModule | null = null;
 	private _deferredLightingShaderDirectiveTag = "";
+	private _planarReflectionCompositeShaderModule: IShaderModule | null = null;
+	private _planarReflectionCompositeDirectiveTag = "";
 	private _deferredLightingPipeline: IRenderPipeline | null = null;
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _environmentPipelines = new Map<string, IRenderPipeline>();
@@ -136,6 +155,8 @@ export class WebGPUPipelineLibrary {
 		this._environmentShaderDirectiveTag = "";
 		this._deferredLightingShaderModule = null;
 		this._deferredLightingShaderDirectiveTag = "";
+		this._planarReflectionCompositeShaderModule = null;
+		this._planarReflectionCompositeDirectiveTag = "";
 		this._deferredLightingPipeline = null;
 		this._customShaderModuleCache.clear();
 		this._environmentPipelines.clear();
@@ -233,6 +254,14 @@ export class WebGPUPipelineLibrary {
 		transparentMode: WebGPUTransparentPipelineMode,
 		drawMode: WebGPUScenePipelineDrawMode
 	): Promise<IRenderPipeline> {
+		if (drawMode === "planar-reflection-composite") {
+			return this._createPlanarReflectionCompositePipeline(
+				material,
+				mode,
+				isWireframe,
+				topology
+			);
+		}
 		const sampleCount = this._resolveSampleCount(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
@@ -285,13 +314,70 @@ export class WebGPUPipelineLibrary {
 				topology: effectiveTopology as any,
 				cullMode:
 					isWireframe || !triangleTopology ? "none" : (material.cullMode as any),
-				frontFace: "ccw",
+				frontFace: drawMode === "reflection-capture" ? "cw" : "ccw",
 			},
 			depthStencil: {
 				format: depthFormat,
 				depthWriteEnabled:
 					isEarlyZColor ? false : depthWrite && !isTransparent,
 				depthCompare: isEarlyZColor ? "less-equal" : "less",
+			},
+			sampleCount,
+		} as any);
+	}
+
+	private async _createPlanarReflectionCompositePipeline(
+		material: Material,
+		mode: WebGPUSceneTargetMode,
+		isWireframe: boolean,
+		topology: PrimitiveDrawTopology
+	): Promise<IRenderPipeline> {
+		const sampleCount = this._resolveSampleCount(mode);
+		const depthFormat = this._resolveSceneDepthFormat(mode);
+		const { pipelineKey } = createWebGPUMaterialUniformData(
+			material,
+			isWireframe
+		);
+		const shaderModule =
+			await this._getPlanarReflectionCompositeShaderModule();
+		const effectiveTopology = isWireframe ? "line-list" : topology;
+		const triangleTopology =
+			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+
+		return this._backend.createPipeline({
+			layout: this._layouts.planarReflectionPipelineLayout,
+			label: `WebGPUPlanarReflectionCompositePipeline_${pipelineKey}_${mode}`,
+			vertex: {
+				module: shaderModule,
+				entryPoint: "vsMain",
+				buffers: [createWebGPUSceneVertexBufferLayout()],
+			},
+			fragment: {
+				module: shaderModule,
+				entryPoint: "fsMain",
+				targets: [
+					{
+						format:
+							mode === "mrt" || mode === "gbuffer" ?
+								TextureFormat.RGBA16Float
+							:	(this._backend.canvasFormat as any),
+						blend: PLANAR_REFLECTION_BLEND_STATE,
+					},
+					{
+						format: TextureFormat.R8Unorm,
+					},
+				],
+			},
+			primitive: {
+				topology: effectiveTopology as any,
+				cullMode:
+					isWireframe || !triangleTopology ? "none" : (material.cullMode as any),
+				frontFace: "ccw",
+			},
+			depthStencil: {
+				format: depthFormat,
+				depthWriteEnabled: false,
+				depthCompare: "less-equal",
 			},
 			sampleCount,
 		} as any);
@@ -823,6 +909,36 @@ export class WebGPUPipelineLibrary {
 		}
 
 		return this._deferredLightingShaderModule;
+	}
+
+	private async _getPlanarReflectionCompositeShaderModule():
+		Promise<IShaderModule> {
+		const directiveTag = this._getDirectiveCacheTag();
+		if (
+			this._planarReflectionCompositeShaderModule &&
+			this._planarReflectionCompositeDirectiveTag === directiveTag
+		) {
+			return this._planarReflectionCompositeShaderModule;
+		}
+		if (
+			!this._planarReflectionCompositeShaderModule ||
+			this._planarReflectionCompositeDirectiveTag !== directiveTag
+		) {
+			const shader = await loadPlanarReflectionCompositeShaderComposite();
+			this._planarReflectionCompositeShaderModule =
+				await this._backend.createShaderModule({
+					code: shader.code,
+					sourceMap: shader.sourceMap,
+					label: "WebGPUPlanarReflectionCompositeShader",
+					language: "wgsl",
+					stage: "unknown",
+					sourceKind: "builtin-scene",
+				});
+			this._planarReflectionCompositeDirectiveTag =
+				this._getDirectiveCacheTag();
+		}
+
+		return this._planarReflectionCompositeShaderModule;
 	}
 
 	private _isWarnMode(): boolean {

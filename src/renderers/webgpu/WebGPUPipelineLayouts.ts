@@ -19,6 +19,7 @@ export interface WebGPUPipelineLayouts {
 	clusteredSceneBindGroupLayout: GPUBindGroupLayout;
 	gbufferWriteBindGroupLayout: GPUBindGroupLayout;
 	gbufferReadBindGroupLayout: GPUBindGroupLayout;
+	planarReflectionBindGroupLayout: GPUBindGroupLayout;
 	deferredUnusedBindGroupLayout: GPUBindGroupLayout;
 	environmentFrameBindGroupLayout: GPUBindGroupLayout;
 	modelBindGroupLayout: GPUBindGroupLayout;
@@ -26,6 +27,7 @@ export interface WebGPUPipelineLayouts {
 	scenePipelineLayout: GPUPipelineLayout;
 	sceneGBufferPipelineLayout: GPUPipelineLayout;
 	sceneDepthPrepassPipelineLayout: GPUPipelineLayout;
+	planarReflectionPipelineLayout: GPUPipelineLayout;
 	deferredLightingPipelineLayout: GPUPipelineLayout;
 	environmentPipelineLayout: GPUPipelineLayout;
 	particlePipelineLayout: GPUPipelineLayout;
@@ -193,6 +195,21 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUDeferredUnusedBindGroupLayout",
 		entries: [],
 	});
+	const planarReflectionBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUPlanarReflectionBindGroupLayout",
+		entries: [
+			{
+				binding: 0,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 1,
+				visibility: GPUShaderStage.FRAGMENT,
+				sampler: { type: "filtering" },
+			},
+		],
+	});
 
 	const modelEntries: GPUBindGroupLayoutEntry[] = [
 		{
@@ -305,6 +322,14 @@ export function createWebGPUPipelineLayouts(
 			clusteredSceneBindGroupLayout,
 		],
 	});
+	const planarReflectionPipelineLayout = device.createPipelineLayout({
+		label: "WebGPUPlanarReflectionPipelineLayout",
+		bindGroupLayouts: [
+			sceneFrameBindGroupLayout,
+			modelBindGroupLayout,
+			planarReflectionBindGroupLayout,
+		],
+	});
 	const deferredLightingPipelineLayout = device.createPipelineLayout({
 		label: "WebGPUDeferredLightingPipelineLayout",
 		bindGroupLayouts: [
@@ -328,6 +353,7 @@ export function createWebGPUPipelineLayouts(
 		clusteredSceneBindGroupLayout,
 		gbufferWriteBindGroupLayout,
 		gbufferReadBindGroupLayout,
+		planarReflectionBindGroupLayout,
 		deferredUnusedBindGroupLayout,
 		environmentFrameBindGroupLayout,
 		modelBindGroupLayout,
@@ -335,6 +361,7 @@ export function createWebGPUPipelineLayouts(
 		scenePipelineLayout,
 		sceneGBufferPipelineLayout,
 		sceneDepthPrepassPipelineLayout,
+		planarReflectionPipelineLayout,
 		deferredLightingPipelineLayout,
 		environmentPipelineLayout,
 		particlePipelineLayout,
