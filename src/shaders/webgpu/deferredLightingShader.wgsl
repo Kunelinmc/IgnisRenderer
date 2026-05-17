@@ -412,6 +412,21 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		}
 	}
 
+	let areaCount = areaLightCount();
+	for (var i: u32 = 0u; i < areaCount; i = i + 1u) {
+		let areaLight = evaluateAreaLight(frame.areaLights[i], surface.worldPosition);
+		if (!areaLight.valid) {
+			continue;
+		}
+		directLight += evaluateDeferredPBRLight(
+			surface,
+			pbr,
+			areaLight.direction,
+			areaLight.radiance,
+			vec3<f32>(1.0)
+		);
+	}
+
 	var ambientColor = frame.ambientColor.rgb;
 	if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
 		ambientColor = vec3<f32>(PBR_AMBIENT_FALLBACK_LINEAR);
@@ -714,6 +729,26 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			direct += radiance * nDotL * surface.albedo;
 			direct += radiance * specFactor * surface.specularColor;
 		}
+	}
+
+	let areaCount = areaLightCount();
+	for (var i: u32 = 0u; i < areaCount; i = i + 1u) {
+		let areaLight = evaluateAreaLight(frame.areaLights[i], surface.worldPosition);
+		if (!areaLight.valid) {
+			continue;
+		}
+		let lightDirection = areaLight.direction;
+		let nDotL = max(dot(surface.normal, lightDirection), 0.0);
+		if (nDotL <= 0.0) {
+			continue;
+		}
+		let halfVector = safeNormalize(
+			surface.viewDir + lightDirection,
+			surface.viewDir
+		);
+		let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
+		direct += areaLight.radiance * nDotL * surface.albedo;
+		direct += areaLight.radiance * specFactor * surface.specularColor;
 	}
 
 	return max(ambientBase * surface.sheenColor + direct + surface.emissive, vec3<f32>(0.0));

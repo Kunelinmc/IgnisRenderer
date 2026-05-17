@@ -17,6 +17,7 @@ type SceneShaderPart =
 	| "fragmentPbrDirectional"
 	| "fragmentPbrPoint"
 	| "fragmentPbrSpot"
+	| "fragmentPbrArea"
 	| "fragmentPbrAmbient"
 	| "fragmentGBuffer"
 	| "fragmentSingleTarget";
@@ -109,6 +110,7 @@ const sceneShaderFiles: Record<SceneShaderPart, string> = {
 	fragmentPbrDirectional: "./parts/fragmentPbrDirectional.wgsl",
 	fragmentPbrPoint: "./parts/fragmentPbrPoint.wgsl",
 	fragmentPbrSpot: "./parts/fragmentPbrSpot.wgsl",
+	fragmentPbrArea: "./parts/fragmentPbrArea.wgsl",
 	fragmentPbrAmbient: "./parts/fragmentPbrAmbient.wgsl",
 	fragmentGBuffer: "./parts/fragmentGBuffer.wgsl",
 	fragmentSingleTarget: "./parts/fragmentSingleTarget.wgsl",

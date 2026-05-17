@@ -14,6 +14,7 @@ import {
 	packModelUniformData,
 } from "../src/renderers/webgpu/packing.ts";
 import {
+	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
@@ -73,6 +74,13 @@ function createFrameLayout() {
 		{ name: "positionRange", type: VEC4_F32 },
 		{ name: "directionOuter", type: VEC4_F32 },
 		{ name: "colorInner", type: VEC4_F32 },
+	]);
+	const areaLightSchema = structOf([
+		{ name: "positionRange", type: VEC4_F32 },
+		{ name: "rightWidth", type: VEC4_F32 },
+		{ name: "upHeight", type: VEC4_F32 },
+		{ name: "normalAreaScale", type: VEC4_F32 },
+		{ name: "color", type: VEC4_F32 },
 	]);
 	const shadowDataSchema = structOf([
 		{ name: "viewProjection", type: MAT4X4_F32 },
@@ -156,6 +164,8 @@ function createFrameLayout() {
 					WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 				),
 			},
+			{ name: "areaLightCounts", type: VEC4_F32 },
+			{ name: "areaLights", type: arrayOf(areaLightSchema, WEBGPU_MAX_AREA_LIGHTS) },
 		]),
 		"uniform"
 	);
@@ -311,6 +321,19 @@ function createFrameInput() {
 			},
 		],
 		spotShadows: [],
+		areaLights: [
+			{
+				position: [47, 48, 49],
+				range: 50,
+				right: [51, 52, 53],
+				width: 54,
+				up: [55, 56, 57],
+				height: 58,
+				normal: [59, 60, 61],
+				areaScale: 62,
+				color: [63, 64, 65],
+			},
+		],
 		reflectionProbeCount: 2,
 		reflectionProbes: [
 			createReflectionProbe(0),
@@ -360,6 +383,13 @@ function testFrameUniformPacking() {
 	]);
 	assert.deepEqual(readVec(layout, data, ["spotLights", 0, "colorInner"], 4), [
 		39, 40, 41, 42,
+	]);
+	assert.deepEqual(readVec(layout, data, "areaLightCounts", 4), [1, 0, 0, 0]);
+	assert.deepEqual(readVec(layout, data, ["areaLights", 0, "positionRange"], 4), [
+		47, 48, 49, 50,
+	]);
+	assert.deepEqual(readVec(layout, data, ["areaLights", 0, "normalAreaScale"], 4), [
+		59, 60, 61, 62,
 	]);
 	assert.deepEqual(
 		readVec(layout, data, ["reflectionProbes", 0, "worldToProbeRow0"], 4),

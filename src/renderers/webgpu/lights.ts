@@ -1,6 +1,7 @@
 import {
 	LightType,
 	type AmbientLight,
+	type AreaLight,
 	type DirectionalLight,
 	type LightProbe,
 	type PointLight,
@@ -17,6 +18,7 @@ import {
 } from "../../pipeline/lightingRuntime";
 
 import {
+	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_SPOT_LIGHTS,
@@ -66,6 +68,9 @@ export function collectWebGPULighting(
 					enableClusteredLighting
 				);
 				break;
+			case LightType.RectArea:
+				collectAreaLight(state, light);
+				break;
 			case LightType.LightProbe:
 				accumulateLightProbeFallbackAmbient(state, light, enableSH);
 				break;
@@ -88,6 +93,7 @@ function createEmptyWebGPULightingState(): WebGPULightingState {
 		pointLights: [],
 		spotLights: [],
 		spotShadows: [],
+		areaLights: [],
 		clusteredLights: [],
 		volumetricLights: [],
 		warnings: [],
@@ -232,6 +238,57 @@ function collectSpotLight(
 	state.spotShadows.push(shadowData);
 }
 
+function collectAreaLight(
+	state: WebGPULightingState,
+	light: AreaLight
+): void {
+	const width = Math.max(light.width, 0);
+	const height = Math.max(light.height, 0);
+	const range = Math.max(light.range, 0);
+	if (width <= 0 || height <= 0 || range <= 0) {
+		return;
+	}
+
+	if (state.areaLights.length >= WEBGPU_MAX_AREA_LIGHTS) {
+		state.warnings.push(
+			createLightLimitWarning("area", WEBGPU_MAX_AREA_LIGHTS)
+		);
+		return;
+	}
+
+	const matrix = light.worldMatrix.elements;
+	const right = normalizeVector3(
+		matrix[0][0],
+		matrix[1][0],
+		matrix[2][0],
+		[1, 0, 0]
+	);
+	const up = normalizeVector3(
+		matrix[0][2],
+		matrix[1][2],
+		matrix[2][2],
+		[0, 0, 1]
+	);
+	const normal = normalizeVector3(
+		matrix[0][1],
+		matrix[1][1],
+		matrix[2][1],
+		[0, 1, 0]
+	);
+
+	state.areaLights.push({
+		position: [matrix[0][3], matrix[1][3], matrix[2][3]],
+		range,
+		right,
+		width,
+		up,
+		height,
+		normal,
+		areaScale: (width * height) / 100,
+		color: toLinearLightColor(light.color, light.intensity),
+	});
+}
+
 function createLightLimitWarning(
 	kind: string,
 	maxCount: number
@@ -367,4 +424,18 @@ function resolveWebGPUShadowData(
 	return resolveSharedShadowData(enableShadows, renderSetInput, {
 		keepShadowMapWhenDisabled: true,
 	});
+}
+
+function normalizeVector3(
+	x: number,
+	y: number,
+	z: number,
+	fallback: WebGPUVec3
+): WebGPUVec3 {
+	const length = Math.hypot(x, y, z);
+	if (length <= 1e-6) {
+		return fallback;
+	}
+	const invLength = 1 / length;
+	return [x * invLength, y * invLength, z * invLength];
 }

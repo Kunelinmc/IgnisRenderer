@@ -175,6 +175,7 @@ export class WebGPUFrameBindingCache {
 			pointLights: lightingState.pointLights,
 			spotLights: lightingState.spotLights,
 			spotShadows: lightingState.spotShadows,
+			areaLights: lightingState.areaLights,
 			reflectionProbeCount: environmentState.reflectionProbeCount,
 			reflectionProbes: environmentState.reflectionProbes,
 			enableLighting: features.enableLighting,

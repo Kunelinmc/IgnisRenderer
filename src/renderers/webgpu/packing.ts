@@ -2,6 +2,7 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 
 import {
+	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
@@ -24,6 +25,7 @@ import {
 	vec4 as packVec4,
 } from "./StructuredBufferPacker";
 import type {
+	WebGPUAreaLightUniform,
 	WebGPUDirectionalLightUniform,
 	WebGPUFrameUniformInput,
 	WebGPUMaterialUniformData,
@@ -301,6 +303,49 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 					input.localLightProbes[probeIndex]?.sh[coefficientIndex];
 				return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
 			}
+		),
+		packVec4("areaLightCounts", (input) => [
+			Math.min(input.areaLights.length, WEBGPU_MAX_AREA_LIGHTS),
+			0,
+			0,
+			0,
+		]),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
+			"areaLights",
+			WEBGPU_MAX_AREA_LIGHTS,
+			(input, index) => input.areaLights[index],
+			[
+				packVec4("positionRange", (light) => [
+					light.position[0],
+					light.position[1],
+					light.position[2],
+					light.range,
+				]),
+				packVec4("rightWidth", (light) => [
+					light.right[0],
+					light.right[1],
+					light.right[2],
+					light.width,
+				]),
+				packVec4("upHeight", (light) => [
+					light.up[0],
+					light.up[1],
+					light.up[2],
+					light.height,
+				]),
+				packVec4("normalAreaScale", (light) => [
+					light.normal[0],
+					light.normal[1],
+					light.normal[2],
+					light.areaScale,
+				]),
+				packVec4("color", (light) => [
+					light.color[0],
+					light.color[1],
+					light.color[2],
+					0,
+				]),
+			]
 		),
 	],
 });

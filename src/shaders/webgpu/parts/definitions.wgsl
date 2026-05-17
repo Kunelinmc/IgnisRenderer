@@ -27,6 +27,8 @@ struct FrameUniforms {
 	localLightProbeDataB: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
 	localLightProbeSHAmbientCoeffs:
 		array<vec4<f32>, __WEBGPU_LOCAL_LIGHT_PROBE_COEFFICIENT_COUNT__>,
+	areaLightCounts: vec4<f32>,
+	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
 }
 
 struct ClusterGridParams {

@@ -35,9 +35,21 @@ export interface WebGPUSpotLightUniform extends WebGPUPointLightUniform {
 	innerCos: number;
 }
 
+export interface WebGPUAreaLightUniform extends WebGPULightUniformBase {
+	position: WebGPUVec3;
+	range: number;
+	right: WebGPUVec3;
+	width: number;
+	up: WebGPUVec3;
+	height: number;
+	normal: WebGPUVec3;
+	areaScale: number;
+}
+
 export type WebGPUDirectionalLight = WebGPUDirectionalLightUniform;
 export type WebGPUPointLight = WebGPUPointLightUniform;
 export type WebGPUSpotLight = WebGPUSpotLightUniform;
+export type WebGPUAreaLight = WebGPUAreaLightUniform;
 export type WebGPUVolumetricLightType = 0 | 1 | 2;
 export type WebGPUClusteredLightType = 0 | 1;
 
@@ -93,6 +105,7 @@ export interface WebGPULightingState {
 	pointLights: WebGPUPointLightUniform[];
 	spotLights: WebGPUSpotLightUniform[];
 	spotShadows: WebGPUShadowData[];
+	areaLights: WebGPUAreaLightUniform[];
 	clusteredLights: WebGPUClusteredLightUniform[];
 	volumetricLights: WebGPUVolumetricLightUniform[];
 	warnings: WebGPUWarning[];
@@ -247,6 +260,7 @@ export interface WebGPUFrameUniformInput {
 	pointLights: WebGPULightingState["pointLights"];
 	spotLights: WebGPULightingState["spotLights"];
 	spotShadows: WebGPULightingState["spotShadows"];
+	areaLights: WebGPULightingState["areaLights"];
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	enableLighting: boolean;

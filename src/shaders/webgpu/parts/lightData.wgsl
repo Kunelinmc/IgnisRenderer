@@ -14,6 +14,14 @@ struct SpotLightData {
 	colorInner: vec4<f32>,
 }
 
+struct AreaLightData {
+	positionRange: vec4<f32>,
+	rightWidth: vec4<f32>,
+	upHeight: vec4<f32>,
+	normalAreaScale: vec4<f32>,
+	color: vec4<f32>,
+}
+
 struct ShadowData {
 	viewProjection: mat4x4<f32>,
 	cascadeViewProjections: array<mat4x4<f32>, 4>,

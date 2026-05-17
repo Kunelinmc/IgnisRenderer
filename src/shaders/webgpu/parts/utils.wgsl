@@ -275,6 +275,67 @@ fn pointAttenuation(distanceSq: f32, range: f32) -> f32 {
 	return (smoothFactor * smoothFactor) / (distanceSq + 1.0);
 }
 
+struct AreaLightSample {
+	direction: vec3<f32>,
+	radiance: vec3<f32>,
+	valid: bool,
+}
+
+fn areaLightCount() -> u32 {
+	return min(
+		u32(max(frame.areaLightCounts.x + 0.5, 0.0)),
+		u32(__WEBGPU_MAX_AREA_LIGHTS__)
+	);
+}
+
+fn evaluateAreaLight(
+	light: AreaLightData,
+	worldPosition: vec3<f32>
+) -> AreaLightSample {
+	let range = max(light.positionRange.w, 0.0);
+	let width = max(light.rightWidth.w, 0.0);
+	let height = max(light.upHeight.w, 0.0);
+	if (range <= 0.0 || width <= 0.0 || height <= 0.0) {
+		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
+	}
+
+	let center = light.positionRange.xyz;
+	let right = safeNormalize(light.rightWidth.xyz, vec3<f32>(1.0, 0.0, 0.0));
+	let up = safeNormalize(light.upHeight.xyz, vec3<f32>(0.0, 0.0, 1.0));
+	let normal = safeNormalize(
+		light.normalAreaScale.xyz,
+		vec3<f32>(0.0, 1.0, 0.0)
+	);
+	let relPos = worldPosition - center;
+	let distToPlane = dot(relPos, normal);
+	if (distToPlane <= 0.0) {
+		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
+	}
+
+	let halfWidth = width * 0.5;
+	let halfHeight = height * 0.5;
+	let closestPoint =
+		center +
+		right * clamp(dot(relPos, right), -halfWidth, halfWidth) +
+		up * clamp(dot(relPos, up), -halfHeight, halfHeight);
+	let toLight = closestPoint - worldPosition;
+	let distanceSq = dot(toLight, toLight);
+	let distanceValue = sqrt(max(distanceSq, EPSILON));
+	if (distanceValue > range) {
+		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
+	}
+
+	let direction = toLight / distanceValue;
+	let cosLight = max(0.0, dot(-normal, direction));
+	if (cosLight <= 0.0) {
+		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
+	}
+
+	let attenuation =
+		max(light.normalAreaScale.w, 0.0) * cosLight / (distanceSq + 1.0);
+	return AreaLightSample(direction, light.color.xyz * attenuation, true);
+}
+
 fn spotAttenuation(cosTheta: f32, outerCos: f32, innerCos: f32) -> f32 {
 	if (cosTheta < outerCos) {
 		return 0.0;

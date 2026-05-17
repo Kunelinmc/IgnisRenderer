@@ -28,6 +28,7 @@ import { createWebGPUPipelineLayouts } from "../src/renderers/webgpu/WebGPUPipel
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
 import { BufferUsage, TextureFormat } from "../src/renderers/types.ts";
 import { LightProbe } from "../src/lights/LightProbe.ts";
+import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
@@ -51,6 +52,7 @@ import { ParticleBlendMode } from "../src/particles/types.ts";
 import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/bufferLayouts.ts";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_REFLECTION_PROBES,
@@ -384,6 +386,12 @@ async function testSceneShaderCoverage() {
 			"frame.pointLights[i].positionRange.xyz - input.worldPosition"
 		)
 	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("let areaCount = areaLightCount();"));
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"evaluateAreaLight(frame.areaLights[i], input.worldPosition)"
+		)
+	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
@@ -405,6 +413,11 @@ async function testSceneShaderCoverage() {
 		)?.length ?? 0) >= 5
 	);
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
+			"evaluateAreaLight(frame.areaLights[i], surface.worldPosition)"
+		)
+	);
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("pbr.energyCompensation")
 	);
@@ -674,6 +687,11 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			`spotLights: array<SpotLightData, ${WEBGPU_MAX_SPOT_LIGHTS}>`
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			`areaLights: array<AreaLightData, ${WEBGPU_MAX_AREA_LIGHTS}>`
 		)
 	);
 	assert.ok(
@@ -1108,6 +1126,45 @@ function testWebGPUPointLightLimit() {
 	assert.equal(overState.pointLights.length, WEBGPU_MAX_POINT_LIGHTS);
 	assert.ok(
 		overState.warnings.some((warning) => warning.key === "webgpu-point-limit")
+	);
+}
+
+function testWebGPUAreaLightCollection() {
+	const light = new AreaLight({
+		color: { r: 255, g: 128, b: 0 },
+		intensity: 2,
+		position: { x: 1, y: 2, z: 3 },
+		width: 20,
+		height: 10,
+		range: 50,
+	});
+	const state = collectWebGPULighting([light], true, false);
+	assert.equal(state.areaLights.length, 1);
+	assert.equal(
+		state.warnings.some((warning) => warning.key === "webgpu-light-rectArea"),
+		false
+	);
+
+	const area = state.areaLights[0];
+	assert.deepEqual(area.position, [1, 2, 3]);
+	assert.deepEqual(area.right, [1, 0, 0]);
+	assert.deepEqual(area.up, [0, 0, 1]);
+	assert.deepEqual(area.normal, [0, 1, 0]);
+	assert.equal(area.width, 20);
+	assert.equal(area.height, 10);
+	assert.equal(area.range, 50);
+	assert.equal(area.areaScale, 2);
+	assert.equal(area.color[0], 2);
+	assert.equal(area.color[2], 0);
+
+	const overLimit = Array.from(
+		{ length: WEBGPU_MAX_AREA_LIGHTS + 1 },
+		() => new AreaLight()
+	);
+	const overState = collectWebGPULighting(overLimit, true, false);
+	assert.equal(overState.areaLights.length, WEBGPU_MAX_AREA_LIGHTS);
+	assert.ok(
+		overState.warnings.some((warning) => warning.key === "webgpu-area-limit")
 	);
 }
 
@@ -3292,6 +3349,7 @@ async function run() {
 	testWebGPUShadowBiasAvoidsSlopeOffset();
 	testWebGPUShadowPCSSParams();
 	testWebGPUPointLightLimit();
+	testWebGPUAreaLightCollection();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();

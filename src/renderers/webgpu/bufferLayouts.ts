@@ -5,6 +5,7 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
 	WEBGPU_MAX_POINT_LIGHTS,
@@ -69,6 +70,14 @@ const SPOT_LIGHT_SCHEMA = structOf([
 	{ name: "positionRange", type: VEC4_F32 },
 	{ name: "directionOuter", type: VEC4_F32 },
 	{ name: "colorInner", type: VEC4_F32 },
+]);
+
+const AREA_LIGHT_SCHEMA = structOf([
+	{ name: "positionRange", type: VEC4_F32 },
+	{ name: "rightWidth", type: VEC4_F32 },
+	{ name: "upHeight", type: VEC4_F32 },
+	{ name: "normalAreaScale", type: VEC4_F32 },
+	{ name: "color", type: VEC4_F32 },
 ]);
 
 const SHADOW_DATA_SCHEMA = structOf([
@@ -292,6 +301,11 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 				VEC4_F32,
 				WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 			),
+		},
+		{ name: "areaLightCounts", type: VEC4_F32 },
+		{
+			name: "areaLights",
+			type: arrayOf(AREA_LIGHT_SCHEMA, WEBGPU_MAX_AREA_LIGHTS),
 		},
 	]),
 	"uniform"
