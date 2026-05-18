@@ -281,6 +281,10 @@ struct AreaLightSample {
 	valid: bool,
 }
 
+const AREA_LIGHT_SAMPLE_GRID_SIZE: u32 = 3u;
+const AREA_LIGHT_SAMPLE_COUNT: u32 =
+	AREA_LIGHT_SAMPLE_GRID_SIZE * AREA_LIGHT_SAMPLE_GRID_SIZE;
+
 fn areaLightCount() -> u32 {
 	return min(
 		u32(max(frame.areaLightCounts.x + 0.5, 0.0)),
@@ -288,14 +292,68 @@ fn areaLightCount() -> u32 {
 	);
 }
 
+fn areaLightRangeAttenuation(distanceSq: f32, range: f32) -> f32 {
+	let rangeSq = max(range * range, EPSILON);
+	let rangeFactor = distanceSq / rangeSq;
+	let smoothFactor = max(0.0, 1.0 - rangeFactor * rangeFactor);
+	return smoothFactor * smoothFactor;
+}
+
+fn sphericalTriangleSolidAngle(
+	a: vec3<f32>,
+	b: vec3<f32>,
+	c: vec3<f32>
+) -> f32 {
+	let an = safeNormalize(a, vec3<f32>(0.0, 1.0, 0.0));
+	let bn = safeNormalize(b, vec3<f32>(1.0, 0.0, 0.0));
+	let cn = safeNormalize(c, vec3<f32>(0.0, 0.0, 1.0));
+	let numerator = dot(an, cross(bn, cn));
+	let denominator = 1.0 + dot(an, bn) + dot(bn, cn) + dot(cn, an);
+	return 2.0 * atan2(numerator, denominator);
+}
+
+// Exact projected solid angle for one rectangular cell. The caller evaluates
+// the BRDF at the cell center, so large emitters no longer collapse to one point.
+fn rectangleProjectedSolidAngle(
+	center: vec3<f32>,
+	right: vec3<f32>,
+	up: vec3<f32>,
+	halfWidth: f32,
+	halfHeight: f32,
+	worldPosition: vec3<f32>
+) -> f32 {
+	let rightExtent = right * halfWidth;
+	let upExtent = up * halfHeight;
+	let p0 = center - rightExtent - upExtent - worldPosition;
+	let p1 = center + rightExtent - upExtent - worldPosition;
+	let p2 = center + rightExtent + upExtent - worldPosition;
+	let p3 = center - rightExtent + upExtent - worldPosition;
+	let solidAngle =
+		sphericalTriangleSolidAngle(p0, p1, p2) +
+		sphericalTriangleSolidAngle(p0, p2, p3);
+	return abs(solidAngle);
+}
+
+fn areaLightSampleOffset(sampleIndex: u32) -> vec2<f32> {
+	let gridSize = f32(AREA_LIGHT_SAMPLE_GRID_SIZE);
+	let sampleX = f32(sampleIndex % AREA_LIGHT_SAMPLE_GRID_SIZE);
+	let sampleY = f32(sampleIndex / AREA_LIGHT_SAMPLE_GRID_SIZE);
+	return vec2<f32>(
+		(sampleX + 0.5) / gridSize - 0.5,
+		(sampleY + 0.5) / gridSize - 0.5
+	);
+}
+
 fn evaluateAreaLight(
 	light: AreaLightData,
-	worldPosition: vec3<f32>
+	worldPosition: vec3<f32>,
+	sampleIndex: u32
 ) -> AreaLightSample {
 	let range = max(light.positionRange.w, 0.0);
 	let width = max(light.rightWidth.w, 0.0);
 	let height = max(light.upHeight.w, 0.0);
-	if (range <= 0.0 || width <= 0.0 || height <= 0.0) {
+	let area = max(light.normalAreaScale.w, 0.0);
+	if (range <= 0.0 || width <= 0.0 || height <= 0.0 || area <= 0.0) {
 		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
 	}
 
@@ -312,13 +370,12 @@ fn evaluateAreaLight(
 		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
 	}
 
-	let halfWidth = width * 0.5;
-	let halfHeight = height * 0.5;
-	let closestPoint =
+	let offset = areaLightSampleOffset(sampleIndex);
+	let samplePoint =
 		center +
-		right * clamp(dot(relPos, right), -halfWidth, halfWidth) +
-		up * clamp(dot(relPos, up), -halfHeight, halfHeight);
-	let toLight = closestPoint - worldPosition;
+		right * (offset.x * width) +
+		up * (offset.y * height);
+	let toLight = samplePoint - worldPosition;
 	let distanceSq = dot(toLight, toLight);
 	let distanceValue = sqrt(max(distanceSq, EPSILON));
 	if (distanceValue > range) {
@@ -331,8 +388,20 @@ fn evaluateAreaLight(
 		return AreaLightSample(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0), false);
 	}
 
+	let cellHalfWidth =
+		(width / f32(AREA_LIGHT_SAMPLE_GRID_SIZE)) * 0.5;
+	let cellHalfHeight =
+		(height / f32(AREA_LIGHT_SAMPLE_GRID_SIZE)) * 0.5;
+	let projectedSolidAngle = rectangleProjectedSolidAngle(
+		samplePoint,
+		right,
+		up,
+		cellHalfWidth,
+		cellHalfHeight,
+		worldPosition
+	);
 	let attenuation =
-		max(light.normalAreaScale.w, 0.0) * cosLight / (distanceSq + 1.0);
+		projectedSolidAngle * areaLightRangeAttenuation(distanceSq, range);
 	return AreaLightSample(direction, light.color.xyz * attenuation, true);
 }
 

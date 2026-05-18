@@ -181,21 +181,35 @@
 
 		let areaCount = areaLightCount();
 		for (var i: u32 = 0u; i < areaCount; i = i + 1u) {
-			let areaLight = evaluateAreaLight(frame.areaLights[i], input.worldPosition);
-			if (!areaLight.valid) {
-				continue;
-			}
+			for (
+				var sampleIndex: u32 = 0u;
+				sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
+				sampleIndex = sampleIndex + 1u
+			) {
+				let areaLight = evaluateAreaLight(
+					frame.areaLights[i],
+					input.worldPosition,
+					sampleIndex
+				);
+				if (!areaLight.valid) {
+					continue;
+				}
 
-			let lightDirection = areaLight.direction;
-			let nDotL = max(dot(normal, lightDirection), 0.0);
-			if (nDotL <= 0.0) {
-				continue;
-			}
+				let lightDirection = areaLight.direction;
+				let nDotL = max(dot(normal, lightDirection), 0.0);
+				if (nDotL <= 0.0) {
+					continue;
+				}
 
-			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-			let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);
-			direct += areaLight.radiance * nDotL * baseColor;
-			direct += areaLight.radiance * specFactor * phongSpecular;
+				let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
+				let specFactor = select(
+					0.0,
+					pow(max(dot(normal, halfVector), 0.0), shininess),
+					nDotL > 0.0
+				);
+				direct += areaLight.radiance * nDotL * baseColor;
+				direct += areaLight.radiance * specFactor * phongSpecular;
+			}
 		}
 
 		let finalLinear = ambient + direct + emissive;

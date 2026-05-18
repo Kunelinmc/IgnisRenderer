@@ -42,6 +42,9 @@ export interface MutableLightContribution extends LightContribution {
 const ORIGIN = { x: 0, y: 0, z: 0 };
 const DEFAULT_DIRECTION = { x: 0, y: 1, z: 0 };
 const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
+const AREA_LIGHT_SAMPLE_GRID_SIZE = 3;
+const AREA_LIGHT_SAMPLE_COUNT =
+	AREA_LIGHT_SAMPLE_GRID_SIZE * AREA_LIGHT_SAMPLE_GRID_SIZE;
 
 export function createLightContribution(): MutableLightContribution {
 	return {
@@ -248,6 +251,11 @@ function evaluateAreaLight(
 	out: MutableLightContribution
 ): LightContribution | null {
 	const surfacePos = requireSurfacePosition(surface);
+	const width = Math.max(light.width, 0);
+	const height = Math.max(light.height, 0);
+	const range = Math.max(light.range, 0);
+	if (width <= 0 || height <= 0 || range <= 0) return null;
+
 	const worldMatrix = light.worldMatrix;
 	const center = Matrix4.transformPoint(worldMatrix, { x: 0, y: 0, z: 0 });
 	const right = Vector3.normalize(
@@ -264,33 +272,87 @@ function evaluateAreaLight(
 	const distToPlane = Vector3.dot(relPos, normal);
 	if (distToPlane <= 0) return null;
 
-	const projX = Vector3.dot(relPos, right);
-	const projY = Vector3.dot(relPos, up);
-	const halfW = light.width / 2;
-	const halfH = light.height / 2;
-	const clampedX = Math.max(-halfW, Math.min(halfW, projX));
-	const clampedY = Math.max(-halfH, Math.min(halfH, projY));
-	const closestPoint = Vector3.add(
-		center,
-		Vector3.add(Vector3.scale(right, clampedX), Vector3.scale(up, clampedY))
-	);
-	const lightVector = Vector3.sub(closestPoint, surfacePos);
-	const distance = Vector3.length(lightVector);
-	if (distance > light.range) return null;
-
 	const direction = out.direction;
-	const normalized = Vector3.normalize(lightVector);
-	direction.x = normalized.x;
-	direction.y = normalized.y;
-	direction.z = normalized.z;
+	let accumulatedX = 0;
+	let accumulatedY = 0;
+	let accumulatedZ = 0;
+	let attenuation = 0;
+	const cellHalfWidth = (width / AREA_LIGHT_SAMPLE_GRID_SIZE) * 0.5;
+	const cellHalfHeight = (height / AREA_LIGHT_SAMPLE_GRID_SIZE) * 0.5;
 
-	const cosLight = Math.max(
-		0,
-		Vector3.dot(Vector3.scale(normal, -1), direction)
-	);
-	const distanceSq = distance * distance;
-	const attenuation =
-		((light.width * light.height) / 100) * (cosLight / (distanceSq + 1.0));
+	// Integrate finite emitter energy per cell, then expose one weighted
+	// direction because the software light contribution API is directional.
+	for (
+		let sampleIndex = 0;
+		sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
+		sampleIndex++
+	) {
+		const sampleX = sampleIndex % AREA_LIGHT_SAMPLE_GRID_SIZE;
+		const sampleY = Math.floor(sampleIndex / AREA_LIGHT_SAMPLE_GRID_SIZE);
+		const offsetX =
+			((sampleX + 0.5) / AREA_LIGHT_SAMPLE_GRID_SIZE - 0.5) * width;
+		const offsetY =
+			((sampleY + 0.5) / AREA_LIGHT_SAMPLE_GRID_SIZE - 0.5) * height;
+		const samplePoint = {
+			x: center.x + right.x * offsetX + up.x * offsetY,
+			y: center.y + right.y * offsetX + up.y * offsetY,
+			z: center.z + right.z * offsetX + up.z * offsetY,
+		};
+		const lightVector = {
+			x: samplePoint.x - surfacePos.x,
+			y: samplePoint.y - surfacePos.y,
+			z: samplePoint.z - surfacePos.z,
+		};
+		const distanceSq =
+			lightVector.x * lightVector.x +
+			lightVector.y * lightVector.y +
+			lightVector.z * lightVector.z;
+		const distance = Math.sqrt(Math.max(distanceSq, 1e-12));
+		if (distance > range) continue;
+
+		const normalized = {
+			x: lightVector.x / distance,
+			y: lightVector.y / distance,
+			z: lightVector.z / distance,
+		};
+		const cosLight = Math.max(
+			0,
+			-(
+				normal.x * normalized.x +
+				normal.y * normalized.y +
+				normal.z * normalized.z
+			)
+		);
+		if (cosLight <= 0) continue;
+
+		const projectedSolidAngle = rectangleProjectedSolidAngle(
+			samplePoint,
+			right,
+			up,
+			cellHalfWidth,
+			cellHalfHeight,
+			surfacePos
+		);
+		const sampleAttenuation =
+			projectedSolidAngle * areaLightRangeAttenuation(distanceSq, range);
+		accumulatedX += normalized.x * sampleAttenuation;
+		accumulatedY += normalized.y * sampleAttenuation;
+		accumulatedZ += normalized.z * sampleAttenuation;
+		attenuation += sampleAttenuation;
+	}
+
+	if (attenuation <= 0) return null;
+
+	const directionLength = Math.hypot(accumulatedX, accumulatedY, accumulatedZ);
+	if (directionLength > 1e-12) {
+		direction.x = accumulatedX / directionLength;
+		direction.y = accumulatedY / directionLength;
+		direction.z = accumulatedZ / directionLength;
+	} else {
+		direction.x = -normal.x;
+		direction.y = -normal.y;
+		direction.z = -normal.z;
+	}
 
 	return writeContribution(out, {
 		type: "direct",
@@ -298,6 +360,91 @@ function evaluateAreaLight(
 		intensity: light.intensity * attenuation,
 		direction,
 	});
+}
+
+function areaLightRangeAttenuation(distanceSq: number, range: number): number {
+	const rangeSq = Math.max(range * range, 1e-12);
+	const rangeFactor = distanceSq / rangeSq;
+	const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
+	return smoothFactor * smoothFactor;
+}
+
+function rectangleProjectedSolidAngle(
+	center: IVector3,
+	right: IVector3,
+	up: IVector3,
+	halfWidth: number,
+	halfHeight: number,
+	worldPosition: IVector3
+): number {
+	const rightExtent = {
+		x: right.x * halfWidth,
+		y: right.y * halfWidth,
+		z: right.z * halfWidth,
+	};
+	const upExtent = {
+		x: up.x * halfHeight,
+		y: up.y * halfHeight,
+		z: up.z * halfHeight,
+	};
+	const p0 = {
+		x: center.x - rightExtent.x - upExtent.x - worldPosition.x,
+		y: center.y - rightExtent.y - upExtent.y - worldPosition.y,
+		z: center.z - rightExtent.z - upExtent.z - worldPosition.z,
+	};
+	const p1 = {
+		x: center.x + rightExtent.x - upExtent.x - worldPosition.x,
+		y: center.y + rightExtent.y - upExtent.y - worldPosition.y,
+		z: center.z + rightExtent.z - upExtent.z - worldPosition.z,
+	};
+	const p2 = {
+		x: center.x + rightExtent.x + upExtent.x - worldPosition.x,
+		y: center.y + rightExtent.y + upExtent.y - worldPosition.y,
+		z: center.z + rightExtent.z + upExtent.z - worldPosition.z,
+	};
+	const p3 = {
+		x: center.x - rightExtent.x + upExtent.x - worldPosition.x,
+		y: center.y - rightExtent.y + upExtent.y - worldPosition.y,
+		z: center.z - rightExtent.z + upExtent.z - worldPosition.z,
+	};
+	const solidAngle =
+		sphericalTriangleSolidAngle(p0, p1, p2) +
+		sphericalTriangleSolidAngle(p0, p2, p3);
+	return Math.abs(solidAngle);
+}
+
+function sphericalTriangleSolidAngle(
+	a: IVector3,
+	b: IVector3,
+	c: IVector3
+): number {
+	const an = normalizeForSolidAngle(a);
+	const bn = normalizeForSolidAngle(b);
+	const cn = normalizeForSolidAngle(c);
+	const crossBC = {
+		x: bn.y * cn.z - bn.z * cn.y,
+		y: bn.z * cn.x - bn.x * cn.z,
+		z: bn.x * cn.y - bn.y * cn.x,
+	};
+	const numerator = an.x * crossBC.x + an.y * crossBC.y + an.z * crossBC.z;
+	const denominator =
+		1 +
+		(an.x * bn.x + an.y * bn.y + an.z * bn.z) +
+		(bn.x * cn.x + bn.y * cn.y + bn.z * cn.z) +
+		(cn.x * an.x + cn.y * an.y + cn.z * an.z);
+	return 2 * Math.atan2(numerator, denominator);
+}
+
+function normalizeForSolidAngle(value: IVector3): IVector3 {
+	const length = Math.hypot(value.x, value.y, value.z);
+	if (length <= 1e-12) {
+		return DEFAULT_DIRECTION;
+	}
+	return {
+		x: value.x / length,
+		y: value.y / length,
+		z: value.z / length,
+	};
 }
 
 function requireSurfacePosition(

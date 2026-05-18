@@ -284,7 +284,7 @@ function collectAreaLight(
 		up,
 		height,
 		normal,
-		areaScale: (width * height) / 100,
+		areaScale: width * height,
 		color: toLinearLightColor(light.color, light.intensity),
 	});
 }

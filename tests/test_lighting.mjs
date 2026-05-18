@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { AmbientLight } from "../src/lights/AmbientLight.ts";
+import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { SpotLight } from "../src/lights/SpotLight.ts";
@@ -143,6 +144,47 @@ function testSpot() {
 	assert.equal(outside, null);
 }
 
+function testArea() {
+	console.log("Testing AreaLight...");
+	const light = new AreaLight({
+		color: { r: 30, g: 30, b: 30 },
+		width: 20,
+		height: 10,
+		range: 1_000_000,
+		intensity: 1,
+	});
+
+	const contribution = evaluateLightContribution(light, {
+		position: { x: 0, y: 10, z: 0 },
+	});
+	assert.notEqual(contribution, null);
+	assert.ok(contribution.direction.y < -0.999);
+
+	const halfWidth = 10;
+	const halfHeight = 5;
+	const distance = 10;
+	const expectedSolidAngle =
+		4 *
+		Math.atan(
+			(halfWidth * halfHeight) /
+				(distance *
+					Math.sqrt(
+						distance * distance +
+							halfWidth * halfWidth +
+							halfHeight * halfHeight
+					))
+		);
+	assert.ok(
+		Math.abs((contribution.intensity ?? 0) - expectedSolidAngle) < 1e-5,
+		"AreaLight should use projected solid angle instead of arbitrary scale"
+	);
+
+	const behind = evaluateLightContribution(light, {
+		position: { x: 0, y: -10, z: 0 },
+	});
+	assert.equal(behind, null);
+}
+
 function testLightProbe() {
 	console.log("Testing LightProbe...");
 	const sh = SH.empty();
@@ -194,6 +236,7 @@ function run() {
 		testDirectional();
 		testPoint();
 		testSpot();
+		testArea();
 		testLightProbe();
 		testSHBasisBufferReuse();
 		console.log("✅ All lighting tests passed!");

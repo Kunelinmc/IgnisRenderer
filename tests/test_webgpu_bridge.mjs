@@ -389,9 +389,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let areaCount = areaLightCount();"));
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"evaluateAreaLight(frame.areaLights[i], input.worldPosition)"
+			"evaluateAreaLight(\n\t\t\tframe.areaLights[i],\n\t\t\tinput.worldPosition,\n\t\t\tsampleIndex\n\t\t)"
 		)
 	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("AREA_LIGHT_SAMPLE_COUNT"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
@@ -415,7 +416,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"evaluateAreaLight(frame.areaLights[i], surface.worldPosition)"
+			"evaluateAreaLight(\n\t\t\t\tframe.areaLights[i],\n\t\t\t\tsurface.worldPosition,\n\t\t\t\tsampleIndex\n\t\t\t)"
 		)
 	);
 	assert.ok(
@@ -1153,7 +1154,7 @@ function testWebGPUAreaLightCollection() {
 	assert.equal(area.width, 20);
 	assert.equal(area.height, 10);
 	assert.equal(area.range, 50);
-	assert.equal(area.areaScale, 2);
+	assert.equal(area.areaScale, 200);
 	assert.equal(area.color[0], 2);
 	assert.equal(area.color[2], 0);
 
