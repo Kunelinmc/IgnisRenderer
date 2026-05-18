@@ -27,6 +27,7 @@ const DEFAULT_SCENE_BOUNDS_RADIUS = 100;
 
 interface SpatialMeshSignature {
 	mesh: MeshInstance["mesh"];
+	bounds: BoundingSphere;
 	matrix: Float32Array;
 	dynamicState: boolean;
 }
@@ -53,6 +54,7 @@ export class Scene {
 		center: { x: 0, y: 0, z: 0 },
 		radius: 0,
 	};
+	private _boundsMeshSpheresByMesh = new WeakMap<MeshInstance["mesh"], BoundingSphere>();
 	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
 	private _spatialSignaturesByMeshInstance = new Map<MeshInstance, SpatialMeshSignature>();
 	private _spatialSeenEpochByMeshInstance = new Map<MeshInstance, number>();
@@ -175,8 +177,7 @@ export class Scene {
 
 		const spatial = this.spatial;
 		const seenEpoch = ++this._spatialSeenEpoch;
-		let requiresRemovalScan =
-			this._spatialTrackedMeshInstances.size !== meshInstances.length;
+		let requiresRemovalScan = this._spatialTrackedMeshInstances.size !== meshInstances.length;
 
 		for (const meshInstance of meshInstances) {
 			if (this._spatialSeenEpochByMeshInstance.get(meshInstance) === seenEpoch) {
@@ -211,7 +212,7 @@ export class Scene {
 		}
 
 		if (requiresRemovalScan) {
-			for (const tracked of this._spatialTrackedMeshInstances) {
+			for (const tracked of [...this._spatialTrackedMeshInstances]) {
 				if (this._spatialSeenEpochByMeshInstance.get(tracked) === seenEpoch) {
 					continue;
 				}
@@ -335,6 +336,10 @@ export class Scene {
 	}
 
 	public getBounds(): BoundingSphere {
+		if (!this._boundsDirty && this._haveMeshAssetBoundsChanged()) {
+			this._boundsDirty = true;
+		}
+
 		if (this._boundsDirty) {
 			let minX = Infinity;
 			let minY = Infinity;
@@ -345,9 +350,7 @@ export class Scene {
 
 			for (const meshInstance of this.getMeshInstances()) {
 				if (meshInstance.visible === false) continue;
-				const worldBounds = meshInstance.getWorldBoundingSphere(
-					this._boundsScratch,
-				);
+				const worldBounds = meshInstance.getWorldBoundingSphere(this._boundsScratch);
 				const center = worldBounds.center;
 				const radius = worldBounds.radius;
 				minX = Math.min(minX, center.x - radius);
@@ -377,6 +380,7 @@ export class Scene {
 					Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) * 0.5;
 			}
 			this._boundsDirty = false;
+			this._syncBoundsMeshAssetSnapshot();
 		}
 
 		return {
@@ -387,6 +391,23 @@ export class Scene {
 			},
 			radius: this._boundsCache.radius,
 		};
+	}
+
+	private _haveMeshAssetBoundsChanged(): boolean {
+		for (const meshInstance of this.getMeshInstances()) {
+			const meshBounds = meshInstance.mesh.boundingSphere;
+			if (this._boundsMeshSpheresByMesh.get(meshInstance.mesh) !== meshBounds) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private _syncBoundsMeshAssetSnapshot(): void {
+		this._boundsMeshSpheresByMesh = new WeakMap<MeshInstance["mesh"], BoundingSphere>();
+		for (const meshInstance of this.getMeshInstances()) {
+			this._boundsMeshSpheresByMesh.set(meshInstance.mesh, meshInstance.mesh.boundingSphere);
+		}
 	}
 
 	private _collectByType<T extends Node>(predicate: (node: Node) => node is T): T[] {
@@ -480,6 +501,7 @@ function createSpatialMeshSignature(
 ): SpatialMeshSignature {
 	return {
 		mesh: meshInstance.mesh,
+		bounds: meshInstance.mesh.boundingSphere,
 		matrix: captureWorldMatrix(meshInstance.worldMatrix),
 		dynamicState: isDynamicSpatialMeshInstance(meshInstance),
 	};
@@ -491,6 +513,12 @@ function updateSpatialMeshSignature(
 ): boolean {
 	let changed = signature.mesh !== meshInstance.mesh;
 	signature.mesh = meshInstance.mesh;
+	const bounds = meshInstance.mesh.boundingSphere;
+	if (!changed && signature.bounds !== bounds) {
+		changed = true;
+	}
+	signature.bounds = bounds;
+
 	const dynamicState = isDynamicSpatialMeshInstance(meshInstance);
 	if (!changed && signature.dynamicState !== dynamicState) {
 		changed = true;

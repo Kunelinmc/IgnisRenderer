@@ -40,6 +40,7 @@ const tests = [
 	"test_render_list_builder.mjs",
 	"test_shadow_metadata_bounds.mjs",
 	"test_orthographic_camera_bounds.mjs",
+	"test_mesh_asset_bounds_reactivity.mjs",
 	"test_scene_bounds_cache.mjs",
 	"test_prepared_scene_cache.mjs",
 	"test_prepared_scene_spatial_index_bvh.mjs",
