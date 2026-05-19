@@ -1,7 +1,6 @@
 import {
 	AlphaMode,
 	Material,
-	materialWritesDepth,
 	ShadingModel,
 } from "../../materials/Material";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
@@ -780,7 +779,7 @@ export class Rasterizer implements RasterizerLike {
 		const viewMat = context.camera.viewMatrix;
 
 		const verts = this._vertsCache;
-		const shouldWriteDepth = !isTransparent && materialWritesDepth(material);
+		const shouldWriteDepth = !isTransparent && material.depthWrite;
 		const shadingModel = material.shading || ShadingModel.Flat;
 		const isLightingEnabled = context.features.enableLighting !== false;
 		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;

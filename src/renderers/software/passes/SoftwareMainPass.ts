@@ -1,5 +1,5 @@
 import { Platform } from "../../../foundation/Platform";
-import { AlphaMode, materialWritesDepth } from "../../../materials/Material";
+import { AlphaMode } from "../../../materials/Material";
 import { Projector } from "../Projector";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type {
@@ -372,7 +372,7 @@ function shouldSkipEarlyDepthPrepassTriangle(
 	const material = triangle.face.material;
 	return (
 		isMaskTriangle(triangle) ||
-		(!!material && !materialWritesDepth(material))
+		(!!material && !material.depthWrite)
 	);
 }
 

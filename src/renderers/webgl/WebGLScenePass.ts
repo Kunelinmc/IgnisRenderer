@@ -1,7 +1,4 @@
-﻿import {
-	materialWritesDepth,
-	type Material,
-} from "../../materials/Material";
+﻿import type { Material } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
 import {
 	ShaderMaterial,
@@ -685,7 +682,7 @@ export function drawWebGLPacket(
 		);
 	}
 
-	gl.depthMask(!transparentPass && materialWritesDepth(material));
+	gl.depthMask(!transparentPass && material.depthWrite);
 	gl.drawElements(
 		geometry.topology,
 		geometry.indexCount,

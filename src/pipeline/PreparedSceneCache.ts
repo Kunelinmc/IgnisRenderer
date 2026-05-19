@@ -1,9 +1,6 @@
 import type { Camera } from "../cameras/Camera";
 import type { Matrix4 } from "../maths/Matrix4";
-import {
-	materialWritesDepth,
-	type Material,
-} from "../materials/Material";
+import type { Material } from "../materials/Material";
 import { getMaterialTransmissionFactor } from "../materials/transparency";
 import type { Renderer } from "../renderers/Renderer";
 import {
@@ -441,7 +438,7 @@ function writeMaterialSignature(
 	mixMaterialString(state, material.alphaMode);
 	mixMaterialFloat(state, material.alphaCutoff);
 	mixMaterialFloat(state, getMaterialTransmissionFactor(material));
-	mixMaterialUint32(state, materialWritesDepth(material) ? 1 : 0);
+	mixMaterialUint32(state, material.depthWrite ? 1 : 0);
 	mixMaterialFloat(state, resolveMaterialNumber(mat.iridescenceFactor, 0));
 	mixMaterialFloat(state, resolveMaterialNumber(mat.iridescenceIor, 1.3));
 	mixMaterialFloat(

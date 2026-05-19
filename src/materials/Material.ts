@@ -81,15 +81,3 @@ export class Material {
 		this.mirrorPlane = params.mirrorPlane ?? null;
 	}
 }
-
-/**
- * Returns whether a material is allowed to update the main scene depth buffer.
- *
- * @param material - Material whose depth-write policy should be resolved.
- * @returns `false` only when `material.depthWrite` is explicitly `false`.
- *
- * Observable side effects: none.
- */
-export function materialWritesDepth(material: Material): boolean {
-	return material.depthWrite !== false;
-}

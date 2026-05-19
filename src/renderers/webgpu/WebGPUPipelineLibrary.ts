@@ -14,7 +14,6 @@ import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
 import {
 	AlphaMode,
-	materialWritesDepth,
 	type Material,
 } from "../../materials/Material";
 import {
@@ -281,7 +280,7 @@ export class WebGPUPipelineLibrary {
 			transparentMode
 		);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
-		const depthWrite = materialWritesDepth(material);
+		const depthWrite = material.depthWrite;
 		const isEarlyZColor =
 			drawMode === "early-z-color" &&
 			!isTransparent &&
@@ -392,7 +391,7 @@ export class WebGPUPipelineLibrary {
 		if (isMaterialTransparentPass(material)) {
 			return null;
 		}
-		if (!materialWritesDepth(material)) {
+		if (!material.depthWrite) {
 			return null;
 		}
 		const isMask = isMaterialMask(material);

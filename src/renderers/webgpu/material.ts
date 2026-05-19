@@ -3,7 +3,6 @@ import {
 	type Material,
 	ShadingModel,
 	AlphaMode,
-	materialWritesDepth,
 } from "../../materials/Material";
 import {
 	isMaterialTransparentPass,
@@ -46,7 +45,7 @@ export function createWebGPUMaterialUniformData(
 	const alphaMode = material.alphaMode ?? AlphaMode.Opaque;
 	const alphaModeMask = alphaMode === AlphaMode.Mask ? 1 : 0;
 	const isTransmissive = materialUsesTransmission(material);
-	const depthWrite = materialWritesDepth(material);
+	const depthWrite = material.depthWrite;
 	const alphaCutoff = clamp(material.alphaCutoff ?? 0.5, 0, 1);
 
 	const roughness = clamp(mat.roughness ?? 0.5, 0.04, 1);
@@ -196,7 +195,7 @@ export function materialSupportsWebGPUDeferredLighting(
 	if (material.wireframe) {
 		return false;
 	}
-	if (!materialWritesDepth(material)) {
+	if (!material.depthWrite) {
 		return false;
 	}
 	if (isMaterialTransparentPass(material)) {
