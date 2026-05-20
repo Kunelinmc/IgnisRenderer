@@ -3,6 +3,7 @@ import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor
 import { Logger } from "../src/foundation/Logger.ts";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Material } from "../src/materials/Material.ts";
+import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
@@ -165,6 +166,7 @@ function createOITSequencingResourcesStub() {
 function createDeferredLightingResourcesStub() {
 	const state = {
 		deferredUnusedBinding: { id: "deferred-unused-binding" },
+		events: [],
 	};
 	const drawResource = {
 		pipeline: { id: "gbuffer-pipeline" },
@@ -183,7 +185,10 @@ function createDeferredLightingResourcesStub() {
 		async getEnvironmentResources() {
 			return null;
 		},
-		async getDrawResources() {
+		async getDrawResources(packet, options = {}) {
+			state.events.push(
+				`draw:${packet.id}:${options.sceneTargetMode ?? "none"}:${options.drawMode ?? "default"}`
+			);
 			return [drawResource];
 		},
 		async renderParticles() {},
@@ -669,7 +674,12 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	const resources = createDeferredLightingResourcesStub();
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
-	context.scene.opaquePackets = [{ id: "deferred-opaque", material: {} }];
+	context.scene.opaquePackets = [
+		{
+			id: "deferred-anisotropic",
+			material: new PBRMaterial({ anisotropyStrength: 0.8 }),
+		},
+	];
 
 	executor.beginFrame(context);
 	await executor.executePass(
@@ -698,6 +708,56 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	);
 	assert.ok(groupOneBinding);
 	assert.equal(groupOneBinding[2], resources._state.deferredUnusedBinding);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:deferred-anisotropic:gbuffer:early-z-prepass"
+		)
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:deferred-anisotropic:gbuffer:early-z-color"
+		)
+	);
+}
+
+async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [
+		{
+			id: "opaque-transmission",
+			material: new PBRMaterial({ transmissionFactor: 1 }),
+		},
+	];
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const frameEncoder = backend.commandEncoders[0];
+	assert.ok(frameEncoder);
+	assert.equal(
+		frameEncoder.calls.some(
+			(call) =>
+				call[0] === "beginRenderPass" &&
+				call[1].label === "WebGPUDeferredLighting"
+		),
+		false
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:opaque-transmission:mrt:early-z-prepass"
+		)
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:opaque-transmission:mrt:early-z-color"
+		)
+	);
 }
 
 async function testOITMSAAFallsBackToLegacyAndWarns() {
@@ -775,6 +835,7 @@ async function run() {
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testDeferredLightingBindsUnusedGroupOnePlaceholder();
+	await testDeferredLightingKeepsTransmissionOutOfGBuffer();
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutNativeEncoder();
 	console.log("WebGPU frame executor resilience tests passed");

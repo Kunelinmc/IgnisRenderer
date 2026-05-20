@@ -1,8 +1,9 @@
 @group(3) @binding(0) var gMaterialExt0Out: texture_storage_2d<rgba16float, write>;
 @group(3) @binding(1) var gMaterialExt1Out: texture_storage_2d<rgba16float, write>;
 @group(3) @binding(2) var gMaterialExt2Out: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(3) var gMaterialExt3Out: texture_storage_2d<rgba16float, write>;
 
-fn buildGBufferOutput(
+fn buildGBufferOutputExtended(
 	fragCoord: vec2<f32>,
 	alpha: f32,
 	albedo: vec3<f32>,
@@ -19,12 +20,14 @@ fn buildGBufferOutput(
 	sheenReflectanceData: vec4<f32>,
 	materialExt0: vec4<f32>,
 	materialExt1: vec4<f32>,
-	materialExt2: vec4<f32>
+	materialExt2: vec4<f32>,
+	materialExt3: vec4<f32>
 ) -> GBufferFragmentOutput {
 	let coord = vec2<i32>(fragCoord);
 	textureStore(gMaterialExt0Out, coord, materialExt0);
 	textureStore(gMaterialExt1Out, coord, materialExt1);
 	textureStore(gMaterialExt2Out, coord, materialExt2);
+	textureStore(gMaterialExt3Out, coord, materialExt3);
 
 	var output: GBufferFragmentOutput;
 	output.gAlbedoAlpha = vec4<f32>(
@@ -49,6 +52,47 @@ fn buildGBufferOutput(
 	output.gCoatSheen = coatSheenData;
 	output.gSheenReflectance = sheenReflectanceData;
 	return output;
+}
+
+fn buildGBufferOutput(
+	fragCoord: vec2<f32>,
+	alpha: f32,
+	albedo: vec3<f32>,
+	worldNormal: vec3<f32>,
+	roughness: f32,
+	metalness: f32,
+	emissive: vec3<f32>,
+	occlusion: f32,
+	motion: vec2<f32>,
+	linearDepth: f32,
+	shadingMode: u32,
+	specularData: vec4<f32>,
+	coatSheenData: vec4<f32>,
+	sheenReflectanceData: vec4<f32>,
+	materialExt0: vec4<f32>,
+	materialExt1: vec4<f32>,
+	materialExt2: vec4<f32>
+) -> GBufferFragmentOutput {
+	return buildGBufferOutputExtended(
+		fragCoord,
+		alpha,
+		albedo,
+		worldNormal,
+		roughness,
+		metalness,
+		emissive,
+		occlusion,
+		motion,
+		linearDepth,
+		shadingMode,
+		specularData,
+		coatSheenData,
+		sheenReflectanceData,
+		materialExt0,
+		materialExt1,
+		materialExt2,
+		vec4<f32>(0.5, 0.5, 0.0, 0.0)
+	);
 }
 
 @fragment
@@ -354,8 +398,21 @@ fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		clearcoatNormal = -clearcoatNormal;
 	}
 
+	let anisotropyData = resolveAnisotropyDirection(
+		input.uv0,
+		input.uv1,
+		input.uv2,
+		input.uv3
+	);
+	let anisotropyStrength = anisotropyData.z;
+	let anisotropyTangent = resolveAnisotropyTangent(
+		pbrNormal,
+		input.worldTangent,
+		anisotropyData.xy
+	);
+
 	let albedo = clamp(baseColor, vec3<f32>(0.0), vec3<f32>(1.0));
-	return buildGBufferOutput(
+	return buildGBufferOutputExtended(
 		input.position.xy,
 		alpha,
 		albedo,
@@ -372,6 +429,11 @@ fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		vec4<f32>(sheenColor, reflectance),
 		vec4<f32>(encodeNormalForGBuffer(clearcoatNormal), ior, thickness),
 		vec4<f32>(attenuationColor, attenuationDistance),
-		vec4<f32>(iridescence, iridescenceIor, iridescenceThickness, 0.0)
+		vec4<f32>(iridescence, iridescenceIor, iridescenceThickness, 0.0),
+		vec4<f32>(
+			encodeNormalForGBuffer(anisotropyTangent),
+			anisotropyStrength,
+			0.0
+		)
 	);
 }

@@ -14,9 +14,9 @@ does not add a global renderer frame-pass stage and does not affect
 	- Deferred lighting must require `sampleCount === 1`.
 	- Deferred lighting must require `maxColorAttachments >= 7`.
 	- Deferred lighting must require
-	  `maxColorAttachmentBytesPerSample >= 52`.
+	  `maxColorAttachmentBytesPerSample >= 56`.
 	- Deferred lighting must require
-	  `maxStorageTexturesPerShaderStage >= 3`.
+	  `maxStorageTexturesPerShaderStage >= 4`.
 	- If any requirement is not met, `WebGPUBackend` must use the legacy MRT
 	  forward path and must warn once.
 - Pass ordering contract:
@@ -38,10 +38,18 @@ does not add a global renderer frame-pass stage and does not affect
 	  `gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`,
 	  `gMotionDepth`, `gSpecular`, `gCoatSheen`, and `gSheenReflectance`.
 	- Deferred storage payload textures must be:
-	  `gMaterialExt0`, `gMaterialExt1`, and `gMaterialExt2`.
+	  `gMaterialExt0`, `gMaterialExt1`, `gMaterialExt2`, and
+	  `gMaterialExt3`.
 	- `gMotionDepth.w` must store the material shading model.
+	- `gMaterialExt3.xy` must store the encoded world-space anisotropy tangent,
+	  `gMaterialExt3.z` must store the resolved anisotropy strength, and
+	  `gMaterialExt3.w` is reserved.
 	- The deferred lighting shader must branch on `PBR`, `Phong`, `Flat`, and
 	  `Unlit` shading models inside the same fullscreen pass.
+	- Opaque and mask `PBRMaterial` instances with `anisotropyStrength > 0.0`
+	  or `anisotropyMap` may enter deferred lighting when all runtime gates pass.
+	- `transmissionFactor > 0.0`, `AlphaMode.Blend`, OIT, and transparent
+	  particles must remain on forward transparent paths.
 - `ShaderMaterial` contract:
 	- `ShaderTargetMode` must include `"deferred"`.
 	- `ShaderStageKind` must include `"fragment-deferred"`.
@@ -90,9 +98,9 @@ bun tests/test_webgpu_frame_executor_resilience.mjs
 - `webgpu-deferred-disabled-attachments`:
   emitted when `maxColorAttachments < 7`.
 - `webgpu-deferred-disabled-bytes`:
-  emitted when `maxColorAttachmentBytesPerSample < 52`.
+  emitted when `maxColorAttachmentBytesPerSample < 56`.
 - `webgpu-deferred-disabled-storage-textures`:
-  emitted when `maxStorageTexturesPerShaderStage < 3`.
+  emitted when `maxStorageTexturesPerShaderStage < 4`.
 - `webgpu-deferred-runtime-fallback`:
   emitted when deferred frame target allocation fails after limits passed.
 - Shader compile diagnostics for opt-in `ShaderMaterial` deferred chunks must

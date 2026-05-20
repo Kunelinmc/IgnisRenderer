@@ -1298,6 +1298,16 @@ export class WebGPUFrameExecutor {
 						TextureFormat.RGBA16Float
 					)
 				:	null;
+			const gMaterialExt3 =
+				enableDeferred ?
+					acquireTexture(
+						"gbuffer-deferred-storage",
+						deferredStoragePool,
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
 			const depth = acquireTexture(
 				"depth-sampleable",
 				{
@@ -1536,6 +1546,7 @@ export class WebGPUFrameExecutor {
 				gMaterialExt0,
 				gMaterialExt1,
 				gMaterialExt2,
+				gMaterialExt3,
 				depth,
 				oitAccum,
 				oitReveal,
@@ -1715,6 +1726,9 @@ export class WebGPUFrameExecutor {
 			}
 			if (this._frameTargets.gMaterialExt2) {
 				textures.add(this._frameTargets.gMaterialExt2);
+			}
+			if (this._frameTargets.gMaterialExt3) {
+				textures.add(this._frameTargets.gMaterialExt3);
 			}
 			textures.add(this._frameTargets.depth);
 			textures.add(this._frameTargets.oitAccum);
@@ -2735,7 +2749,8 @@ export class WebGPUFrameExecutor {
 		if (
 			!this._frameTargets?.gMaterialExt0 ||
 			!this._frameTargets.gMaterialExt1 ||
-			!this._frameTargets.gMaterialExt2
+			!this._frameTargets.gMaterialExt2 ||
+			!this._frameTargets.gMaterialExt3
 		) {
 			throw new Error("WebGPU deferred G-buffer storage targets are unavailable.");
 		}
@@ -2743,6 +2758,7 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.gMaterialExt0,
 			this._frameTargets.gMaterialExt1,
 			this._frameTargets.gMaterialExt2,
+			this._frameTargets.gMaterialExt3,
 		];
 		if (
 			this._gbufferWriteBinding &&
@@ -2760,6 +2776,7 @@ export class WebGPUFrameExecutor {
 				{ binding: 0, resource: sources[0] },
 				{ binding: 1, resource: sources[1] },
 				{ binding: 2, resource: sources[2] },
+				{ binding: 3, resource: sources[3] },
 			],
 			label: "WebGPUGBufferWriteBinding",
 		});
@@ -2774,7 +2791,8 @@ export class WebGPUFrameExecutor {
 			!this._frameTargets.gSheenReflectance ||
 			!this._frameTargets.gMaterialExt0 ||
 			!this._frameTargets.gMaterialExt1 ||
-			!this._frameTargets.gMaterialExt2
+			!this._frameTargets.gMaterialExt2 ||
+			!this._frameTargets.gMaterialExt3
 		) {
 			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
 		}
@@ -2789,6 +2807,7 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.gMaterialExt0,
 			this._frameTargets.gMaterialExt1,
 			this._frameTargets.gMaterialExt2,
+			this._frameTargets.gMaterialExt3,
 		];
 		if (
 			this._gbufferReadBinding &&
@@ -2902,7 +2921,8 @@ export class WebGPUFrameExecutor {
 			!this._frameTargets.gSheenReflectance ||
 			!this._frameTargets.gMaterialExt0 ||
 			!this._frameTargets.gMaterialExt1 ||
-			!this._frameTargets.gMaterialExt2
+			!this._frameTargets.gMaterialExt2 ||
+			!this._frameTargets.gMaterialExt3
 		) {
 			await this._recordMainPass(context, packets, clearAttachments, true);
 			return;

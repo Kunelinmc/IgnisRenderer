@@ -49,6 +49,7 @@ export interface WebGPUFrameTargets {
 	gMaterialExt0?: IRenderTexture | null;
 	gMaterialExt1?: IRenderTexture | null;
 	gMaterialExt2?: IRenderTexture | null;
+	gMaterialExt3?: IRenderTexture | null;
 	depth: IRenderTexture;
 	oitAccum: IRenderTexture;
 	oitReveal: IRenderTexture;

@@ -42,8 +42,9 @@ IgnisRenderer must parse supported extension payloads into backend-agnostic
 - `SoftwareBackend`, `WebGPUBackend`, and `WebGLBackend` built-in PBR lighting
   must use an anisotropic GGX base specular lobe when `anisotropyStrength` is
   greater than `0.0`.
-- `WebGPUBackend` deferred lighting must route anisotropic materials through the
-  forward fallback path until the G-buffer contract stores anisotropy frame data.
+- `WebGPUBackend` deferred lighting must encode the resolved anisotropy tangent
+  and strength in its G-buffer extension payload and must use them for direct
+  anisotropic specular and environment reflection direction.
 
 ## Usage
 

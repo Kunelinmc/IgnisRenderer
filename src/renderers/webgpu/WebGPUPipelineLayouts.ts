@@ -177,6 +177,15 @@ export function createWebGPUPipelineLayouts(
 					viewDimension: "2d",
 				},
 			},
+			{
+				binding: 3,
+				visibility: GPUShaderStage.FRAGMENT,
+				storageTexture: {
+					access: "write-only",
+					format: "rgba16float",
+					viewDimension: "2d",
+				},
+			},
 		],
 	});
 	const gbufferReadEntries: GPUBindGroupLayoutEntry[] = [];

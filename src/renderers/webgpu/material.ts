@@ -204,10 +204,6 @@ export function materialSupportsWebGPUDeferredLighting(
 	if (materialUsesTransmission(material)) {
 		return false;
 	}
-	const mat = material as any;
-	if ((mat.anisotropyStrength ?? 0) > 0 || mat.anisotropyMap) {
-		return false;
-	}
 	return true;
 }
 

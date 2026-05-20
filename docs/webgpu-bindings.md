@@ -157,6 +157,7 @@ them with `thicknessSampler`. `anisotropyTexture` uses binding `37` and is not a
 | `0` | `gMaterialExt0Out` | Write-only `rgba16float` storage texture |
 | `1` | `gMaterialExt1Out` | Write-only `rgba16float` storage texture |
 | `2` | `gMaterialExt2Out` | Write-only `rgba16float` storage texture |
+| `3` | `gMaterialExt3Out` | Write-only `rgba16float` storage texture |
 
 `gbufferReadBindGroupLayout` is used as `group(3)` by
 `deferredLightingPipelineLayout`:
@@ -173,6 +174,7 @@ them with `thicknessSampler`. `anisotropyTexture` uses binding `37` and is not a
 | `7` | `gMaterialExt0In` | `texture_2d<f32>` |
 | `8` | `gMaterialExt1In` | `texture_2d<f32>` |
 | `9` | `gMaterialExt2In` | `texture_2d<f32>` |
+| `10` | `gMaterialExt3In` | `texture_2d<f32>` |
 
 ### Particle Render Bindings
 

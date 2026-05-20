@@ -19,6 +19,7 @@ import {
 	collectWebGPUEnvironment,
 	collectWebGPULighting,
 	createWebGPUMaterialUniformData,
+	materialSupportsWebGPUDeferredLighting,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
@@ -59,6 +60,7 @@ import {
 	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
@@ -261,6 +263,10 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[2] - 1) < 1e-6);
 	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[1], 2);
 	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[3], 1);
+	assert.equal(materialSupportsWebGPUDeferredLighting(pbr), true);
+
+	const transmissivePBR = new PBRMaterial({ transmissionFactor: 1 });
+	assert.equal(materialSupportsWebGPUDeferredLighting(transmissivePBR), false);
 
 	const phong = new PhongMaterial({
 		diffuse: { r: 128, g: 128, b: 128 },
@@ -477,6 +483,19 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct GBufferFragmentOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainGBuffer("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt0Out"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt3Out"));
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("anisotropyTangent"));
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
+			"specular = resolveAnisotropicSpecular("
+		)
+	);
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
+			"resolveAnisotropicReflectionDirection(\n\t\t\t\tsurface.normal"
+		)
+	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
@@ -567,6 +586,10 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	assert.equal(
 		layouts.sceneGBufferPipelineLayout.desc.bindGroupLayouts[3],
 		layouts.gbufferWriteBindGroupLayout
+	);
+	assert.equal(
+		layouts.gbufferWriteBindGroupLayout.desc.entries.length,
+		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
 	);
 	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);

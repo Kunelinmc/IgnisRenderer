@@ -8,6 +8,7 @@
 @group(3) @binding(7) var gMaterialExt0In: texture_2d<f32>;
 @group(3) @binding(8) var gMaterialExt1In: texture_2d<f32>;
 @group(3) @binding(9) var gMaterialExt2In: texture_2d<f32>;
+@group(3) @binding(10) var gMaterialExt3In: texture_2d<f32>;
 
 struct DeferredVSOut {
 	@builtin(position) position: vec4<f32>,
@@ -42,6 +43,9 @@ struct DeferredSurface {
 	iridescence: f32,
 	iridescenceIor: f32,
 	iridescenceThickness: f32,
+	anisotropyTangent: vec3<f32>,
+	anisotropyBitangent: vec3<f32>,
+	anisotropyStrength: f32,
 }
 
 struct DeferredPBRContext {
@@ -122,8 +126,19 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	let materialExt0 = textureLoad(gMaterialExt0In, coord, 0);
 	let materialExt1 = textureLoad(gMaterialExt1In, coord, 0);
 	let materialExt2 = textureLoad(gMaterialExt2In, coord, 0);
+	let materialExt3 = textureLoad(gMaterialExt3In, coord, 0);
 	let normal = decodeDeferredNormal(normalRoughMetal.xy);
 	let clearcoatNormal = decodeDeferredNormal(materialExt0.xy);
+	let anisotropyTangentCandidate = decodeDeferredNormal(materialExt3.xy);
+	let anisotropyTangent = safeNormalize(
+		anisotropyTangentCandidate -
+			normal * dot(normal, anisotropyTangentCandidate),
+		fallbackTangentFromNormal(normal)
+	);
+	let anisotropyBitangent = safeNormalize(
+		cross(normal, anisotropyTangent),
+		fallbackTangentFromNormal(normal)
+	);
 	let worldPosition = reconstructDeferredWorldPosition(input.uv, motionDepth.z);
 	let viewDir = safeNormalize(
 		frame.cameraPosition.xyz - worldPosition,
@@ -156,7 +171,10 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		materialExt1.a,
 		clamp(materialExt2.x, 0.0, 1.0),
 		max(materialExt2.y, 1.0),
-		max(materialExt2.z, 0.0)
+		max(materialExt2.z, 0.0),
+		anisotropyTangent,
+		anisotropyBitangent,
+		clamp(materialExt3.z, 0.0, 1.0)
 	);
 }
 
@@ -192,8 +210,6 @@ fn evaluateDeferredPBRLight(
 		surface.viewDir + lightDirection,
 		surface.viewDir
 	);
-	let ndf = distributionGGX(surface.normal, halfVector, surface.roughness);
-	let geometry = geometrySmith(pbr.nDotV, nDotL, surface.roughness);
 	let fresnel = resolveIridescenceFresnel(
 		max(dot(halfVector, surface.viewDir), 0.0),
 		pbr.realF0,
@@ -201,9 +217,29 @@ fn evaluateDeferredPBRLight(
 		surface.iridescenceThickness,
 		surface.iridescenceIor
 	);
-	let denominator = max(4.0 * pbr.nDotV * nDotL, 0.0001);
-	let specular = ((ndf * geometry * fresnel) / denominator) *
-		pbr.energyCompensation;
+	var specular = vec3<f32>(0.0);
+	if (surface.anisotropyStrength > EPSILON) {
+		specular = resolveAnisotropicSpecular(
+			fresnel,
+			surface.roughness,
+			surface.anisotropyStrength,
+			nDotL,
+			pbr.nDotV,
+			max(dot(surface.normal, halfVector), 0.0),
+			dot(surface.anisotropyTangent, surface.viewDir),
+			dot(surface.anisotropyBitangent, surface.viewDir),
+			dot(surface.anisotropyTangent, lightDirection),
+			dot(surface.anisotropyBitangent, lightDirection),
+			dot(surface.anisotropyTangent, halfVector),
+			dot(surface.anisotropyBitangent, halfVector)
+		);
+	} else {
+		let ndf = distributionGGX(surface.normal, halfVector, surface.roughness);
+		let geometry = geometrySmith(pbr.nDotV, nDotL, surface.roughness);
+		let denominator = max(4.0 * pbr.nDotV * nDotL, 0.0001);
+		specular = (ndf * geometry * fresnel) / denominator;
+	}
+	specular = specular * pbr.energyCompensation;
 	let kd =
 		diffuseFresnelWeight(fresnel, surface.iridescence) *
 		(1.0 - surface.metalness);
@@ -457,7 +493,17 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			localDiffuseAmbient.w
 		) / 255.0;
 
-		let reflectionDir = reflectViewDirection(surface.normal, surface.viewDir);
+		let reflectionDir = select(
+			reflectViewDirection(surface.normal, surface.viewDir),
+			resolveAnisotropicReflectionDirection(
+				surface.normal,
+				surface.viewDir,
+				surface.anisotropyBitangent,
+				surface.roughness,
+				surface.anisotropyStrength
+			),
+			surface.anisotropyStrength > EPSILON
+		);
 		let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
 		let localSpecularAmbient = sampleBlendedLocalLightProbeRadiance(
 			localSelection,
@@ -493,7 +539,17 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	var ambientLight =
 		diffuseAmbient * surface.albedo * kdAmbient * baseAmbientAttenuation;
 
-	let reflectionDir = reflectViewDirection(surface.normal, surface.viewDir);
+	let reflectionDir = select(
+		reflectViewDirection(surface.normal, surface.viewDir),
+		resolveAnisotropicReflectionDirection(
+			surface.normal,
+			surface.viewDir,
+			surface.anisotropyBitangent,
+			surface.roughness,
+			surface.anisotropyStrength
+		),
+		surface.anisotropyStrength > EPSILON
+	);
 	let clearcoatNdotV =
 		max(dot(surface.clearcoatNormal, surface.viewDir), PBR_MIN_NDOTV);
 	let clearcoatReflectionDir = reflectViewDirection(
