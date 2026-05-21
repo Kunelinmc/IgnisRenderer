@@ -760,6 +760,79 @@ async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
 	);
 }
 
+async function testDeferredLightingCanBeExplicitlyDisabled() {
+	const backend = new FakeBackend();
+	backend.isDeferredLightingEnabled = () => false;
+	const resources = createDeferredLightingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [
+		{
+			id: "deferred-disabled",
+			material: new PBRMaterial({ anisotropyStrength: 0.8 }),
+		},
+	];
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	const frameEncoder = backend.commandEncoders[0];
+	assert.ok(frameEncoder);
+	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+	assert.equal(
+		frameEncoder.calls.some(
+			(call) =>
+				call[0] === "beginRenderPass" &&
+				call[1].label === "WebGPUDeferredLighting"
+		),
+		false
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:deferred-disabled:mrt:early-z-prepass"
+		)
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:deferred-disabled:mrt:early-z-color"
+		)
+	);
+}
+
+function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxColorAttachments = 1;
+	backend.device.limits.maxColorAttachmentBytesPerSample = 16;
+	const resources = createModeTrackingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const warnings = [];
+
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn: (...args) =>
+				warnings.push(args.map((arg) => String(arg)).join(" ")),
+		},
+	});
+	try {
+		executor.beginFrame(context);
+		assert.equal(executor.getSceneTargetModeForFrame(), "single");
+		assert.equal(
+			warnings.some((warning) =>
+				warning.includes("[webgpu-deferred-disabled-mrt]")
+			),
+			true
+		);
+	} finally {
+		Logger.reset();
+	}
+}
+
 async function testOITMSAAFallsBackToLegacyAndWarns() {
 	const backend = createOITBackend({ sampleCount: 4 });
 	const resources = createModeTrackingResourcesStub();
@@ -836,6 +909,8 @@ async function run() {
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testDeferredLightingBindsUnusedGroupOnePlaceholder();
 	await testDeferredLightingKeepsTransmissionOutOfGBuffer();
+	await testDeferredLightingCanBeExplicitlyDisabled();
+	testDeferredLightingWarnsWhenRequestedButMRTUnavailable();
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutNativeEncoder();
 	console.log("WebGPU frame executor resilience tests passed");

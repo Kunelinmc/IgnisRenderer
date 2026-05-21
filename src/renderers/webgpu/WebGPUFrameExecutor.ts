@@ -507,23 +507,29 @@ export class WebGPUFrameExecutor {
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 	private _enableEarlyZPrepass = true;
+	private _enableDeferredLighting = true;
 	private _planarReflectionPass: WebGPUPlanarReflectionPass;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUFramePassHandler>;
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
-		const earlyZGetter = (
-			this._backend as {
-				isEarlyZPrepassEnabled?: () => boolean;
-				enableEarlyZPrepass?: boolean;
-			}
-		).isEarlyZPrepassEnabled;
+		const backendOptions = this._backend as {
+			isEarlyZPrepassEnabled?: () => boolean;
+			enableEarlyZPrepass?: boolean;
+			isDeferredLightingEnabled?: () => boolean;
+			enableDeferredLighting?: boolean;
+		};
+		const earlyZGetter = backendOptions.isEarlyZPrepassEnabled;
 		this._enableEarlyZPrepass =
 			typeof earlyZGetter === "function" ?
 				earlyZGetter.call(this._backend)
-			:	(this._backend as { enableEarlyZPrepass?: boolean })
-					.enableEarlyZPrepass !== false;
+			:	backendOptions.enableEarlyZPrepass !== false;
+		const deferredLightingGetter = backendOptions.isDeferredLightingEnabled;
+		this._enableDeferredLighting =
+			typeof deferredLightingGetter === "function" ?
+				deferredLightingGetter.call(this._backend)
+			:	backendOptions.enableDeferredLighting !== false;
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
@@ -975,8 +981,17 @@ export class WebGPUFrameExecutor {
 	}
 
 	private _configureDeferredLightingSupport(): void {
+		if (!this._enableDeferredLighting) {
+			this._deferredEnabled = false;
+			return;
+		}
 		if (!this._mrtEnabled) {
 			this._deferredEnabled = false;
+			const key = "webgpu-deferred-disabled-mrt";
+			Logger.warn(
+				`[${key}] WebGPU deferred lighting requires MRT scene targets; using the non-deferred fallback path.`,
+				{ scope: "WebGPUFrameExecutor", onceKey: key }
+			);
 			return;
 		}
 

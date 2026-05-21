@@ -202,6 +202,11 @@ export interface WebGPUBackendOptions {
 	directiveHook?: ShaderDirectiveCompileHook | null;
 	enableMSAA?: boolean;
 	enableEarlyZPrepass?: boolean;
+	/**
+	 * Enables WebGPU deferred opaque lighting when runtime limits allow it.
+	 * Defaults to `true`; set to `false` to force the legacy MRT forward path.
+	 */
+	enableDeferredLighting?: boolean;
 }
 
 type WebGPUPassHandler = (
@@ -390,6 +395,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 	private _msaaSampleCount = 1;
 	private _enableEarlyZPrepass = true;
+	private _enableDeferredLighting = true;
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	private readonly _framePlanner = new WebGPUPassPlanner();
@@ -407,6 +413,8 @@ export class WebGPUBackend implements IRenderBackend {
 			resolved.options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
 		this._enableEarlyZPrepass = resolved.options.enableEarlyZPrepass !== false;
+		this._enableDeferredLighting =
+			resolved.options.enableDeferredLighting !== false;
 		this._canvas = resolved.canvas ?? null;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
@@ -447,6 +455,17 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public isEarlyZPrepassEnabled(): boolean {
 		return this._enableEarlyZPrepass;
+	}
+
+	/**
+	 * Returns whether deferred opaque lighting is allowed for WebGPU frames.
+	 *
+	 * @returns `true` when the backend may use deferred lighting if runtime
+	 * limits and frame targets support it.
+	 * @sideEffects None.
+	 */
+	public isDeferredLightingEnabled(): boolean {
+		return this._enableDeferredLighting;
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {

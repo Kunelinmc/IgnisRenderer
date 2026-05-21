@@ -10,8 +10,19 @@ does not add a global renderer frame-pass stage and does not affect
 `SoftwareBackend` or `WebGLBackend` pass graphs.
 
 ## API/Contract
+- Public control contract:
+	- `WebGPUBackendOptions.enableDeferredLighting` must default to `true`.
+	- When `enableDeferredLighting === false`, `WebGPUBackend` must not run the
+	  deferred lighting resolve and must route opaque materials through the
+	  legacy MRT forward path when MRT is available.
+	- When `enableDeferredLighting !== false`, `WebGPUBackend` must attempt to
+	  enable deferred lighting and must warn once if any runtime requirement
+	  prevents correct activation.
+	- `WebGPUBackend.isDeferredLightingEnabled()` must return the configured
+	  public switch value.
 - Runtime gating contract:
 	- Deferred lighting must require `sampleCount === 1`.
+	- Deferred lighting must require MRT scene targets.
 	- Deferred lighting must require `maxColorAttachments >= 7`.
 	- Deferred lighting must require
 	  `maxColorAttachmentBytesPerSample >= 56`.
@@ -70,6 +81,14 @@ does not add a global renderer frame-pass stage and does not affect
 
 ## Usage
 ```ts
+import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+
+const backend = new WebGPUBackend({
+	enableDeferredLighting: false,
+});
+```
+
+```ts
 import { ShaderMaterial } from "../src/materials/ShaderMaterial";
 
 const material = new ShaderMaterial({
@@ -93,6 +112,9 @@ bun tests/test_webgpu_frame_executor_resilience.mjs
 ```
 
 ## Errors & Diagnostics
+- `webgpu-deferred-disabled-mrt`:
+  emitted when deferred lighting is requested but MRT scene targets are
+  unavailable.
 - `webgpu-deferred-disabled-msaa`:
   emitted when deferred lighting is unavailable because `sampleCount !== 1`.
 - `webgpu-deferred-disabled-attachments`:
