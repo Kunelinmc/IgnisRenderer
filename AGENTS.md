@@ -103,7 +103,8 @@ This file provides critical context and collaboration guidance for AI/code agent
 
 ### Advanced Rendering Features
 - **WebGPU Deferred Lighting**: `main-opaque` may internally split into background, G-buffer, deferred lighting resolve, and forward fallback GPU passes. This is WebGPU-internal and must not add global renderer frame-pass stages for Software/WebGL.
-- **WebGPU Post-Processing Graph**: Modular plugin system supporting:
+- **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, dependency ordering, G-buffer semantic contracts, and temporal history validity. Backends expose `IPostProcessExecutor.executePass(passId, request)` plus `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs.
+- **Built-In Post-Processing Passes**: Cross-backend logical pass system supporting:
     - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
     - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.
     - **SSR**: Screen-Space Reflections using **Hi-Z (Hierarchical Z-Buffer)** tracing.
@@ -120,7 +121,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 	4. **Simulation**: Animation, Physics.
 	5. **Transform Update**: Updates world matrices for the scene.
 	6. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance`.
-	7. **Backend Dispatch**: Software rasterization, GPU command encoding, or WebGL batching.
+	7. **Backend Dispatch**: Software rasterization, GPU command encoding, WebGL batching, and the single renderer-level `postprocess` stage.
 	8. **Sync Out**: Syncs ECS results back to `Node`.
 
 ### Shader Management
@@ -166,7 +167,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - **Resource Management**: Use explicit `.destroy()` methods. Managed through specialized backend registries (e.g., `WebGPUTextureRegistry`) with `FinalizationRegistry` as a safety net.
 
 ## Collaboration Workflow
-1. Maintain backend-agnostic contracts in `src/core/` and `src/pipeline/`.
+1. Maintain backend-agnostic contracts in `src/core/`, `src/pipeline/`, and `src/postprocess/`.
 2. Ensure new features are accompanied by regression tests in `tests/`.
 3. **Refactoring Policy**: Avoid large-scale refactorings unless explicitly requested. Prioritize stability.
 4. When changing public APIs/behavior, update relevant `docs/` first, then add or update tests in the same PR.
