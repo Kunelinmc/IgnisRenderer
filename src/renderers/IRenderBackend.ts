@@ -5,8 +5,12 @@ import type {
 } from "../pipeline/types";
 import type {
 	PostProcessCapabilities,
-	PostProcessCustomPassDescriptor,
 } from "../pipeline/PostProcessController";
+import type {
+	IPostProcessExecutor,
+	LogicalGBufferBridge,
+	PostProcessPassDescriptor,
+} from "../postprocess";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -80,15 +84,15 @@ export interface RendererBackendBridge {
 	pixels?: Uint8ClampedArray | null;
 }
 
-export type RenderBackendPostProcessPass = PostProcessCustomPassDescriptor;
+export type RenderBackendPostProcessPass = PostProcessPassDescriptor;
 
 export interface RenderBackendPostProcessSupport<
 	TPostProcessPass extends RenderBackendPostProcessPass =
 		RenderBackendPostProcessPass,
 > {
 	readonly capabilities: PostProcessCapabilities;
-	registerPass?(pass: TPostProcessPass): void;
-	unregisterPass?(id: string): void;
+	readonly executor: IPostProcessExecutor;
+	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
 }
 
 export interface IRenderBackend {
