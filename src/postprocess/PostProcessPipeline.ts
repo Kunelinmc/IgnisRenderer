@@ -296,6 +296,12 @@ export class PostProcessPipeline {
 				startPassId,
 			});
 			if (result?.ran === false) {
+				if (!POST_PROCESS_PASS_ID_SET.has(pass.id)) {
+					warn(
+						`postprocess-custom-pass-skipped-${executor.backend}-${pass.id}`,
+						`Post-process custom pass "${pass.id}" returned ran=false on backend "${executor.backend}" and was skipped`
+					);
+				}
 				continue;
 			}
 			executedPassIds.push(pass.id);

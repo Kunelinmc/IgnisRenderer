@@ -6,6 +6,7 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { SH } from "../src/maths/SH.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { buildWarmupPlan } from "../src/pipeline/WarmupPlanner.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
 	createNoopPostProcessSupport,
@@ -340,12 +341,68 @@ async function testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset() {
 	}
 }
 
+async function testWarmupPostProcessPlanUsesPipelineOrder() {
+	const originalWindow = globalThis.window;
+	const originalRAF = globalThis.requestAnimationFrame;
+
+	try {
+		globalThis.window = { devicePixelRatio: 1 };
+		globalThis.requestAnimationFrame = () => 0;
+
+		const backend = new StubBackend();
+		const camera = new Camera();
+		const canvas = {
+			width: 320,
+			height: 180,
+			getBoundingClientRect() {
+				return { width: 320, height: 180 };
+			},
+		};
+		const renderer = new Renderer(backend, canvas, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+
+		renderer.postProcess.disable("tonemap");
+		renderer.postProcess.disable("interaction-outline");
+		renderer.postProcess.disable("gamma");
+		renderer.postProcess.enable("bloom");
+		renderer.postProcess.enable("color-filter");
+		renderer.postProcess
+			.registerPass({
+				id: "custom-warmup-order",
+				placement: "overlay",
+				isEnabled(postProcess) {
+					return postProcess.enabled["custom-warmup-order"];
+				},
+				implementations: {
+					stub: {},
+				},
+			})
+			.enable("custom-warmup-order");
+
+		await renderer.warmup({ includeEnvironmentIBLBake: false });
+
+		const plan = buildWarmupPlan(backend.lastWarmupContext, {
+			includePostProcess: true,
+		});
+		assert.deepEqual(plan.postProcessPasses, [
+			"bloom",
+			"color-filter",
+			"custom-warmup-order",
+			"gamma",
+		]);
+	} finally {
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
+	}
+}
+
 async function run() {
 	await testWarmupOverwritesOnlyEnvironmentReflectionProbes();
 	await testWarmupCreatesProbeWhenSceneHasNone();
 	await testWarmupSkipsLightProbeBakeWhenDisabled();
 	await testWarmupAndRenderIncrementalContextContractMatches();
 	await testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset();
+	await testWarmupPostProcessPlanUsesPipelineOrder();
 	console.log("Renderer warmup light probe tests passed");
 }
 

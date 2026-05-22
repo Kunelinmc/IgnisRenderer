@@ -27,6 +27,9 @@ export interface WarmupPlan {
 	sceneTargetMode: WarmupSceneTargetMode;
 }
 
+export const WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY =
+	"pipeline:warmup-postprocess-order";
+
 export interface WarmupPhaseCounters extends WarmupPhaseReport {
 	errors: ShaderCompileError[];
 }
@@ -157,6 +160,16 @@ function collectUniqueMaterials(context: FrameContext): Material[] {
 }
 
 function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
+	const orderedPasses = context.transient.get(
+		WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY
+	);
+	if (
+		Array.isArray(orderedPasses) &&
+		orderedPasses.every((passId) => typeof passId === "string")
+	) {
+		return orderedPasses.slice();
+	}
+
 	const passes: string[] = [];
 	const postProcess = context.postProcess;
 	if (postProcess.enabled.ssao) passes.push("ssao");

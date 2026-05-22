@@ -35,7 +35,7 @@ import {
 	WEBGPU_INTERACTION_OUTLINE_LAYOUT as INTERACTION_OUTLINE_LAYOUT,
 } from "../bufferLayouts";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
+import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
 	WebGPUPostProcessInteractionOutlineExecuteRequest,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
-import { WebGPUPostProcessGraph } from "../src/renderers/webgpu/WebGPUPostProcessGraph.ts";
+import { PostProcessPipeline } from "../src/postprocess/index.ts";
 
 const POST_PROCESS_CAPABILITIES = {
 	ssao: true,
@@ -19,77 +19,109 @@ const POST_PROCESS_CAPABILITIES = {
 	gamma: true,
 };
 
-const ENABLED_POST_PROCESS_REQUEST = {
-	ssao: { enabled: true },
-	ssgi: { enabled: true },
-	taa: { enabled: true },
-	ssr: { enabled: true },
-	volumetric: { enabled: true },
-	fog: { enabled: true, options: { application: "postprocess" } },
-	"motion-blur": { enabled: true },
-	dof: { enabled: true },
-	bloom: { enabled: true },
-	tonemap: { enabled: true },
-	"color-filter": { enabled: true },
-	fxaa: { enabled: true },
-	"interaction-outline": { enabled: true },
-	gamma: { enabled: true },
-};
-
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(
-		{
-			...ENABLED_POST_PROCESS_REQUEST,
-			...overrides,
-		},
-		POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
+	return resolvePostProcessState(overrides, POST_PROCESS_CAPABILITIES, "webgpu");
 }
 
-function createPass(id, dependsOn, enabledId = id) {
+function createExecutor() {
 	return {
-		id,
-		kind: "compute",
-		dependsOn,
-		isEnabled(postProcess) {
-			return !!postProcess.enabled[enabledId];
+		backend: "webgpu",
+		capabilities: POST_PROCESS_CAPABILITIES,
+		createResource() {
+			throw new Error("Unexpected history allocation in this test");
 		},
-		execute() {},
+		destroyResource() {},
+		executePass() {
+			return { ran: true };
+		},
 	};
 }
 
-function testPostGraphOrder() {
-	const graph = new WebGPUPostProcessGraph([
-		createPass("ssao", []),
-		createPass("ssgi", ["ssao"]),
-		createPass("taa", ["ssgi", "ssao"]),
-		createPass("ssr", ["taa"]),
-		createPass("volumetric", ["ssr"]),
-		{
-			id: "fog",
-			kind: "compute",
-			dependsOn: ["volumetric"],
-			isEnabled(postProcess) {
-				return (
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene"
-				);
-			},
-			execute() {},
+function createFrameContext(postProcess, incremental = {}) {
+	return {
+		camera: {
+			type: "perspective",
+			fov: 60,
+			aspectRatio: 1,
+			near: 0.1,
+			far: 100,
 		},
-		createPass("motion-blur", ["fog"]),
-		createPass("dof", ["motion-blur"]),
-		createPass("bloom", ["dof"]),
-		createPass("color-filter", ["bloom"]),
-		createPass("fxaa", ["color-filter"]),
-		createPass("gamma", ["fxaa"]),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
-	});
+		attachments: {
+			width: 64,
+			height: 32,
+			pixels: new Uint8ClampedArray(64 * 32 * 4),
+			depthBuffer: new Float32Array(64 * 32),
+			normalBuffer: new Float32Array(64 * 32 * 3),
+			motionBuffer: new Float32Array(64 * 32 * 2),
+		},
+		features: {},
+		scene: {},
+		shadowMaps: [],
+		shCoeffs: [],
+		shAmbientCoeffs: [],
+		worldMatrix: null,
+		postProcess,
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width: 64, height: 32 }],
+			dirtyTileSize: 64,
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			postProcessStartPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: false,
+			...incremental,
+		},
+		transient: new Map(),
+	};
+}
 
+function createGBufferBridge() {
+	return {
+		width: 64,
+		height: 32,
+		normalSpace: "world",
+		depthEncoding: "linear-view-z",
+		motionEncoding: "ndc-delta",
+		channels: {
+			color: { semantic: "color", handle: { backend: "test" }, width: 64, height: 32 },
+			depth: { semantic: "depth", handle: { backend: "test" }, width: 64, height: 32 },
+			normal: { semantic: "normal", handle: { backend: "test" }, width: 64, height: 32 },
+			albedo: { semantic: "albedo", handle: { backend: "test" }, width: 64, height: 32 },
+			motion: { semantic: "motion", handle: { backend: "test" }, width: 64, height: 32 },
+		},
+		worldPosition: {
+			source: "derived",
+			available: true,
+		},
+	};
+}
+
+function testBuiltInOrderUsesPipelineAuthority() {
+	const pipeline = new PostProcessPipeline();
+	const order = pipeline.getExecutionOrder(
+		createPostProcess({
+			ssao: { enabled: true },
+			ssgi: { enabled: true },
+			taa: { enabled: true },
+			ssr: { enabled: true },
+			volumetric: { enabled: true },
+			fog: { enabled: true, options: { application: "postprocess" } },
+			"motion-blur": { enabled: true },
+			dof: { enabled: true },
+			bloom: { enabled: true },
+			tonemap: { enabled: true },
+			"color-filter": { enabled: true },
+			fxaa: { enabled: true },
+			"interaction-outline": { enabled: true },
+			gamma: { enabled: true },
+		}),
+		createExecutor()
+	);
 	assert.deepEqual(
 		order.map((pass) => pass.id),
 		[
@@ -102,137 +134,69 @@ function testPostGraphOrder() {
 			"motion-blur",
 			"dof",
 			"bloom",
+			"tonemap",
 			"color-filter",
 			"fxaa",
+			"interaction-outline",
 			"gamma",
 		]
 	);
-	assert.equal(warnings.length, 0);
 }
 
-function testEnabledSubsetShrinksDependencyChain() {
-	const graph = new WebGPUPostProcessGraph([
-		createPass("ssao", []),
-		createPass("ssgi", ["ssao"]),
-		createPass("taa", ["ssgi", "ssao"]),
-		createPass("ssr", ["taa"]),
-		createPass("volumetric", ["ssr"]),
-		{
-			id: "fog",
-			kind: "compute",
-			dependsOn: ["volumetric"],
-			isEnabled(postProcess) {
-				return (
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene"
-				);
-			},
-			execute() {},
-		},
-		createPass("motion-blur", ["fog"]),
-		createPass("dof", ["motion-blur"]),
-		createPass("bloom", ["dof"]),
-		createPass("color-filter", ["bloom"]),
-		createPass("fxaa", ["color-filter"]),
-		createPass("gamma", ["fxaa"]),
-	]);
-
-	const order = graph.getExecutionOrder(
+function testFogSceneModeSkipsFogInPipelineOrder() {
+	const pipeline = new PostProcessPipeline();
+	const order = pipeline.getExecutionOrder(
 		createPostProcess({
-			ssao: { enabled: false },
-			ssgi: { enabled: false },
-			taa: { enabled: false },
-			ssr: { enabled: false },
-			volumetric: { enabled: false },
-			fog: { enabled: false },
-			"motion-blur": { enabled: false },
-			dof: { enabled: false },
-			bloom: { enabled: false },
-			"color-filter": { enabled: false },
-			fxaa: { enabled: false },
-			gamma: { enabled: true },
+			volumetric: { enabled: true },
+			fog: { enabled: true, options: { application: "scene" } },
+			"motion-blur": { enabled: true },
 		}),
-		() => {}
+		createExecutor()
 	);
-
-	assert.deepEqual(
-		order.map((pass) => pass.id),
-		["gamma"]
-	);
+	assert.equal(order.some((pass) => pass.id === "fog"), false);
 }
 
-function testUnknownDependencySkipsPass() {
-	const graph = new WebGPUPostProcessGraph([
-		createPass("gamma", ["missing-pass"]),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
+async function testIncrementalStartPassIsResolvedByPipeline() {
+	const pipeline = new PostProcessPipeline();
+	const executed = [];
+	const executor = {
+		...createExecutor(),
+		executePass(passId, request) {
+			executed.push({ passId, startPassId: request.startPassId });
+			return { ran: true };
+		},
+	};
+	const postProcess = createPostProcess({
+		bloom: { enabled: true },
+		tonemap: { enabled: true },
+		"color-filter": { enabled: true },
+		fxaa: { enabled: true },
+		gamma: { enabled: true },
+	});
+	const result = await pipeline.execute({
+		frameContext: createFrameContext(postProcess, {
+			enabled: true,
+			forceFullFrame: false,
+			firstPass: "postprocess",
+			postProcessStartPass: "color-filter",
+		}),
+		executor,
+		gBuffer: createGBufferBridge(),
 	});
 
+	assert.equal(result.startPassId, "color-filter");
 	assert.deepEqual(
-		order.map((pass) => pass.id),
-		[]
+		executed.map((entry) => entry.passId),
+		["color-filter", "fxaa", "interaction-outline", "gamma"]
 	);
-	assert.equal(warnings.length, 1);
-	assert.ok(warnings[0].message.includes("unknown pass"));
+	assert.ok(executed.every((entry) => entry.startPassId === "color-filter"));
 }
 
-function testCycleSkipsPassBranch() {
-	const graph = new WebGPUPostProcessGraph([
-		createPass("a", ["b"], "gamma"),
-		createPass("b", ["a"], "gamma"),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
-	});
-
-	assert.deepEqual(
-		order.map((pass) => pass.id),
-		[]
-	);
-	assert.ok(warnings.length >= 1);
+async function run() {
+	testBuiltInOrderUsesPipelineAuthority();
+	testFogSceneModeSkipsFogInPipelineOrder();
+	await testIncrementalStartPassIsResolvedByPipeline();
+	console.log("WebGPU post-process pipeline-order tests passed");
 }
 
-function testFogSceneModeSkipsFogPass() {
-	const graph = new WebGPUPostProcessGraph([
-		createPass("volumetric", []),
-		{
-			id: "fog",
-			kind: "compute",
-			dependsOn: ["volumetric"],
-			isEnabled(postProcess) {
-				return (
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene"
-				);
-			},
-			execute() {},
-		},
-		createPass("motion-blur", ["fog"]),
-	]);
-	const order = graph.getExecutionOrder(
-		createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "scene",
-				},
-			},
-		}),
-		() => {}
-	);
-	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "motion-blur"]);
-}
-
-function run() {
-	testPostGraphOrder();
-	testEnabledSubsetShrinksDependencyChain();
-	testUnknownDependencySkipsPass();
-	testCycleSkipsPassBranch();
-	testFogSceneModeSkipsFogPass();
-	console.log("WebGPU post graph tests passed");
-}
-
-run();
+await run();

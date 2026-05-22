@@ -9,10 +9,8 @@ import type {
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
-	defineTransientKey,
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
-import { isFogPostProcessEnabled } from "../../pipeline/PostProcessController";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,
@@ -29,7 +27,6 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
-import type { WebGPULightingState } from "./types";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
@@ -39,17 +36,10 @@ import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "./constants";
-import {
-	isWebGPUBuiltinPostProcessPassId,
-	WebGPUPostProcessGraph,
-	type WebGPUFrameTargets,
-	type WebGPUPostProcessPassContext,
-	type WebGPUPostProcessPassPlugin,
-} from "./WebGPUPostProcessGraph";
+import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
 	type WebGPUPostProcessExecuteRequest,
-	type WebGPUPostProcessExecuteResult,
 } from "./WebGPUPostProcessRuntime";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
@@ -173,15 +163,28 @@ fn fsMain(input: ResolveVSOut) -> @location(0) vec4<f32> {
 }
 `;
 
-const WEBGPU_TAA_HISTORY_VALID_KEY =
-	defineTransientKey<boolean>("webgpu-taa-history-valid");
-const WEBGPU_SSR_HISTORY_VALID_KEY =
-	defineTransientKey<boolean>("webgpu-ssr-history-valid");
-const WEBGPU_POST_ORDER_KEY =
-	defineTransientKey<string[]>("webgpu-post-order");
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
+
+const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
+	Record<string, readonly string[]>
+> = {
+	ssao: ["postprocess:ssao"],
+	ssgi: ["postprocess:ssgi"],
+	taa: ["postprocess:taa"],
+	ssr: ["postprocess:ssr", "postprocess:hiz", "postprocess:copy"],
+	volumetric: ["postprocess:volumetric", "postprocess:hiz"],
+	fog: ["postprocess:fog"],
+	"motion-blur": ["postprocess:motion-blur"],
+	dof: ["postprocess:dof"],
+	bloom: ["postprocess:bloom"],
+	tonemap: ["postprocess:tonemap"],
+	"color-filter": ["postprocess:color-filter"],
+	fxaa: ["postprocess:fxaa"],
+	"interaction-outline": ["postprocess:interaction-outline"],
+	gamma: [],
+};
 
 interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -191,259 +194,6 @@ interface WebGPUFrameMSAATargets {
 	gMotionDepth: IRenderTexture;
 	planarReflectionMask: IRenderTexture;
 	depth: IRenderTexture;
-}
-
-export interface WebGPUBuiltInPostProcessPassFactoryDeps {
-	executeRuntimePass(
-		request: WebGPUPostProcessExecuteRequest
-	): Promise<WebGPUPostProcessExecuteResult>;
-	getFrameBinding(): IBindingGroup;
-	getLightingState(): WebGPULightingState | null;
-	presentToCanvas(source: IRenderTexture, applyGamma: boolean): Promise<void>;
-	getTAAHistoryValid(): boolean;
-	getSSRHistoryValid(): boolean;
-	getVolumetricHistoryValid(): boolean;
-	getMotionHistoryValid(): boolean;
-	setTAAHistoryUpdated(updated: boolean): void;
-	setSSRHistoryUpdated(updated: boolean): void;
-	setVolumetricHistoryUpdated(updated: boolean): void;
-}
-
-/**
- * Builds the built-in post-process graph owned by `WebGPUFrameExecutor`.
- *
- * The graph pass only decides ordering, feature gating, and per-frame request
- * wiring. Shader, pipeline, and binding work stays in the runtime delegates.
- */
-export function createWebGPUBuiltInPostProcessPasses(
-	deps: WebGPUBuiltInPostProcessPassFactoryDeps
-): WebGPUPostProcessPassPlugin[] {
-	return [
-		{
-			id: "ssao",
-			kind: "compute",
-			dependsOn: [],
-			precompileHints: ["postprocess:ssao"],
-			isEnabled: (postProcess) => postProcess.enabled.ssao,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "ssao",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "ssgi",
-			kind: "compute",
-			dependsOn: ["ssao"],
-			precompileHints: ["postprocess:ssgi"],
-			isEnabled: (postProcess) => postProcess.enabled.ssgi,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "ssgi",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "taa",
-			kind: "compute",
-			dependsOn: ["ssgi", "ssao"],
-			precompileHints: ["postprocess:taa"],
-			isEnabled: (postProcess) => postProcess.enabled.taa,
-			execute: async (ctx) => {
-				const result = await deps.executeRuntimePass({
-					passId: "taa",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-					historyValid:
-						deps.getTAAHistoryValid() && deps.getMotionHistoryValid(),
-				});
-				deps.setTAAHistoryUpdated(result.historyUpdated === true);
-			},
-		},
-		{
-			id: "ssr",
-			kind: "compute",
-			dependsOn: ["taa"],
-			precompileHints: ["postprocess:ssr", "postprocess:hiz"],
-			isEnabled: (postProcess) => postProcess.enabled.ssr,
-			execute: async (ctx) => {
-				const result = await deps.executeRuntimePass({
-					passId: "ssr",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-					historyValid:
-						deps.getSSRHistoryValid() && deps.getMotionHistoryValid(),
-					frameBinding: deps.getFrameBinding(),
-				});
-				deps.setSSRHistoryUpdated(result.historyUpdated === true);
-			},
-		},
-		{
-			id: "volumetric",
-			kind: "compute",
-			dependsOn: ["ssr"],
-			precompileHints: ["postprocess:volumetric", "postprocess:hiz"],
-			isEnabled: (postProcess) => postProcess.enabled.volumetric,
-			execute: async (ctx) => {
-				const result = await deps.executeRuntimePass({
-					passId: "volumetric",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-					historyValid:
-						deps.getVolumetricHistoryValid() && deps.getMotionHistoryValid(),
-					frameBinding: deps.getFrameBinding(),
-					lightingState: deps.getLightingState(),
-				});
-				deps.setVolumetricHistoryUpdated(result.historyUpdated === true);
-			},
-		},
-		{
-			id: "fog",
-			kind: "compute",
-			dependsOn: ["volumetric"],
-			precompileHints: ["postprocess:fog"],
-			isEnabled: (postProcess) => isFogPostProcessEnabled(postProcess),
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "fog",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "motion-blur",
-			kind: "compute",
-			dependsOn: ["fog"],
-			precompileHints: ["postprocess:motion-blur"],
-			isEnabled: (postProcess) => postProcess.enabled["motion-blur"],
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "motion-blur",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "dof",
-			kind: "compute",
-			dependsOn: ["motion-blur"],
-			precompileHints: ["postprocess:dof"],
-			isEnabled: (postProcess) => postProcess.enabled.dof,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "dof",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "bloom",
-			kind: "compute",
-			dependsOn: ["dof"],
-			precompileHints: ["postprocess:bloom"],
-			isEnabled: (postProcess) => postProcess.enabled.bloom,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "bloom",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "fxaa",
-			kind: "compute",
-			dependsOn: ["color-filter"],
-			precompileHints: ["postprocess:fxaa"],
-			isEnabled: (postProcess) => postProcess.enabled.fxaa,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "fxaa",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "color-filter",
-			kind: "compute",
-			dependsOn: ["tonemap"],
-			precompileHints: ["postprocess:color-filter"],
-			isEnabled: (postProcess) => postProcess.enabled["color-filter"],
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "color-filter",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "interaction-outline",
-			kind: "compute",
-			dependsOn: ["fxaa"],
-			precompileHints: ["postprocess:interaction-outline"],
-			isEnabled: (postProcess) => postProcess.enabled["interaction-outline"],
-			execute: async (ctx) => {
-				const interaction = ctx.frameContext.transient.get(
-					INTERACTION_TRANSIENT_STATE_KEY
-				);
-				if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
-					return;
-				}
-				await deps.executeRuntimePass({
-					passId: "interaction-outline",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-					state: interaction,
-				});
-			},
-		},
-		{
-			id: "tonemap",
-			kind: "compute",
-			dependsOn: ["bloom"],
-			precompileHints: ["postprocess:tonemap"],
-			isEnabled: (postProcess) => postProcess.enabled.tonemap,
-			execute: async (ctx) => {
-				await deps.executeRuntimePass({
-					passId: "tonemap",
-					encoder: ctx.encoder,
-					targets: ctx.targets,
-					frameContext: ctx.frameContext,
-				});
-			},
-		},
-		{
-			id: "gamma",
-			kind: "render",
-			dependsOn: ["tonemap"],
-			precompileHints: [],
-			isEnabled: (postProcess) => postProcess.enabled.gamma,
-			execute: async (ctx) => {
-				await deps.presentToCanvas(ctx.targets.sceneColor, true);
-			},
-		},
-	];
 }
 
 export class WebGPUFrameExecutor {
@@ -468,25 +218,11 @@ export class WebGPUFrameExecutor {
 	private _volumetricReservoirHistoryB: IRenderTexture | null = null;
 	private _motionHistoryA: IRenderTexture | null = null;
 	private _motionHistoryB: IRenderTexture | null = null;
-	private _postGraphExecuted = false;
 	private _hasPresentedInFrame = false;
-	private _taaHistoryValid = false;
-	private _taaHistoryFlip = false;
-	private _taaHistoryUpdated = false;
-	private _ssrHistoryValid = false;
-	private _ssrHistoryFlip = false;
-	private _ssrHistoryUpdated = false;
-	private _volumetricHistoryValid = false;
-	private _volumetricHistoryFlip = false;
-	private _volumetricHistoryUpdated = false;
-	private _motionHistoryValid = false;
-	private _motionHistoryFlip = false;
 	private _mrtEnabled = true;
 	private _mrtSupportChecked = false;
 	private _deferredEnabled = false;
 	private _targetDeferredEnabled = false;
-	private _featureHistoryKey = "";
-	private _postGraph: WebGPUPostProcessGraph;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _presentShaderModule: IShaderModule | null = null;
 	private _presentPipeline: IRenderPipeline | null = null;
@@ -547,29 +283,6 @@ export class WebGPUFrameExecutor {
 				}),
 			resources.sceneFrameLayout
 		);
-		this._postGraph = new WebGPUPostProcessGraph(
-			createWebGPUBuiltInPostProcessPasses({
-				executeRuntimePass: (request) =>
-					this._postRuntime.executePass(request),
-				getFrameBinding: () => this._resources.getFrameBinding(),
-				getLightingState: () => this._resources.getLightingState(),
-				presentToCanvas: (source, applyGamma) =>
-					this._presentToCanvas(source, applyGamma),
-				getTAAHistoryValid: () => this._taaHistoryValid,
-				getSSRHistoryValid: () => this._ssrHistoryValid,
-				getVolumetricHistoryValid: () => this._volumetricHistoryValid,
-				getMotionHistoryValid: () => this._motionHistoryValid,
-				setTAAHistoryUpdated: (updated) => {
-					this._taaHistoryUpdated = updated;
-				},
-				setSSRHistoryUpdated: (updated) => {
-					this._ssrHistoryUpdated = updated;
-				},
-				setVolumetricHistoryUpdated: (updated) => {
-					this._volumetricHistoryUpdated = updated;
-				},
-			})
-		);
 		this._planarReflectionPass = new WebGPUPlanarReflectionPass(
 			backend,
 			resources
@@ -579,11 +292,7 @@ export class WebGPUFrameExecutor {
 
 	public beginFrame(context: FrameContext): void {
 		this._frameContext = context;
-		this._postGraphExecuted = false;
 		this._hasPresentedInFrame = false;
-		this._taaHistoryUpdated = false;
-		this._ssrHistoryUpdated = false;
-		this._volumetricHistoryUpdated = false;
 		this._oitActive = false;
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
@@ -607,13 +316,6 @@ export class WebGPUFrameExecutor {
 
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
-		this._handleFeatureHistoryTransitions(context);
-		if (context.incremental?.temporalHistoryReset) {
-			this._taaHistoryValid = false;
-			this._ssrHistoryValid = false;
-			this._volumetricHistoryValid = false;
-			this._motionHistoryValid = false;
-		}
 		if (this._mrtEnabled) {
 			const ssaoDownsample = clampDownsample(
 				context.postProcess.options.ssao.downsample,
@@ -638,25 +340,6 @@ export class WebGPUFrameExecutor {
 			this._resources.setSceneTargetMode("single");
 		}
 		this._configureOIT(context);
-	}
-
-	public registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
-		this._postGraph.assertCanRegisterPass(pass);
-		if (pass.runtime) {
-			this._postRuntime.assertCanRegisterRuntimePass(pass.runtime);
-		}
-		this._postGraph.registerPass(pass);
-		if (pass.runtime) {
-			this._postRuntime.registerRuntimePass(pass.runtime);
-		}
-	}
-
-	public unregisterPostProcessPass(id: string): void {
-		const pass = this._postGraph.getPass(id);
-		this._postGraph.unregisterPass(id);
-		if (pass?.runtime) {
-			this._postRuntime.unregisterRuntimePass(pass.runtime.id);
-		}
 	}
 
 	public createPostProcessResource(
@@ -932,24 +615,13 @@ export class WebGPUFrameExecutor {
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPresentWarmup"));
 		}
 
-		const enabledPasses = this._postGraph.getExecutionOrder(
-			context.postProcess,
-			() => {}
-		);
-		const allowedPassIds = new Set(plan.postProcessPasses);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
-			for (const pass of enabledPasses) {
-				if (
-					isWebGPUBuiltinPostProcessPassId(pass.id) &&
-					!allowedPassIds.has(pass.id)
-				) {
+			for (const passId of plan.postProcessPasses) {
+				const passHints = WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId];
+				if (!passHints) {
 					continue;
 				}
-				const passHints =
-					pass.precompileHints ??
-					pass.runtime?.warmupHints ??
-					[`postprocess:${pass.id}`];
 				for (const hint of passHints) {
 					hints.add(hint);
 				}
@@ -1059,35 +731,6 @@ export class WebGPUFrameExecutor {
 				{ texture: motionTarget },
 				{ width, height, depthOrArrayLayers: 1 }
 			);
-			this._motionHistoryValid = true;
-			this._motionHistoryFlip = !this._motionHistoryFlip;
-			if (this._frameTargets) {
-				this._applyMotionHistoryFlip(this._frameTargets);
-			}
-		}
-
-		if (this._taaHistoryUpdated) {
-			this._taaHistoryValid = true;
-			this._taaHistoryFlip = !this._taaHistoryFlip;
-			if (this._frameTargets) {
-				this._applyTAAHistoryFlip(this._frameTargets);
-			}
-		}
-
-		if (this._ssrHistoryUpdated) {
-			this._ssrHistoryValid = true;
-			this._ssrHistoryFlip = !this._ssrHistoryFlip;
-			if (this._frameTargets) {
-				this._applySSRHistoryFlip(this._frameTargets);
-			}
-		}
-
-		if (this._volumetricHistoryUpdated) {
-			this._volumetricHistoryValid = true;
-			this._volumetricHistoryFlip = !this._volumetricHistoryFlip;
-			if (this._frameTargets) {
-				this._applyVolumetricHistoryFlip(this._frameTargets);
-			}
 		}
 	}
 
@@ -1143,11 +786,7 @@ export class WebGPUFrameExecutor {
 				},
 			],
 		]);
-		const runPostProcess: WebGPUFramePassHandler = async (context) => {
-			if (!this._postGraphExecuted) {
-				await this._runPostGraph(context);
-			}
-		};
+		const runPostProcess: WebGPUFramePassHandler = async () => {};
 		for (const stage of POST_PROCESS_STAGES) {
 			handlers.set(stage, runPostProcess);
 		}
@@ -1333,10 +972,6 @@ export class WebGPUFrameExecutor {
 			this._targetDeferredEnabled === enableDeferred
 		) {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
-			this._applyTAAHistoryFlip(this._frameTargets);
-			this._applySSRHistoryFlip(this._frameTargets);
-			this._applyVolumetricHistoryFlip(this._frameTargets);
-			this._applyMotionHistoryFlip(this._frameTargets);
 			return;
 		}
 
@@ -1368,14 +1003,6 @@ export class WebGPUFrameExecutor {
 			this._targetSSRDownsample = ssrDownsample;
 			this._targetMSAASampleCount = msaaSampleCount;
 			this._targetDeferredEnabled = enableDeferred;
-			this._taaHistoryValid = false;
-			this._ssrHistoryValid = false;
-			this._volumetricHistoryValid = false;
-			this._motionHistoryValid = false;
-			this._taaHistoryFlip = false;
-			this._ssrHistoryFlip = false;
-			this._volumetricHistoryFlip = false;
-			this._motionHistoryFlip = false;
 
 			const sceneColorMain = acquireTexture(
 				"scene-color-main",
@@ -1802,10 +1429,6 @@ export class WebGPUFrameExecutor {
 			this._motionHistoryA = motionHistoryA;
 			this._motionHistoryB = motionHistoryB;
 			committed = true;
-			this._applyTAAHistoryFlip(nextFrameTargets);
-			this._applySSRHistoryFlip(nextFrameTargets);
-			this._applyVolumetricHistoryFlip(nextFrameTargets);
-			this._applyMotionHistoryFlip(nextFrameTargets);
 		} catch (error) {
 			if (!committed) {
 				for (const texture of new Set(acquiredTextures)) {
@@ -1868,57 +1491,6 @@ export class WebGPUFrameExecutor {
 			return 1;
 		}
 		return Math.max(1, Math.floor(sampleCount));
-	}
-
-	private _applyTAAHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._taaHistoryA || !this._taaHistoryB) return;
-		targets.historyRead =
-			this._taaHistoryFlip ? this._taaHistoryB : this._taaHistoryA;
-		targets.historyWrite =
-			this._taaHistoryFlip ? this._taaHistoryA : this._taaHistoryB;
-	}
-
-	private _applySSRHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._ssrHistoryA || !this._ssrHistoryB) return;
-		targets.ssrHistoryRead =
-			this._ssrHistoryFlip ? this._ssrHistoryB : this._ssrHistoryA;
-		targets.ssrHistoryWrite =
-			this._ssrHistoryFlip ? this._ssrHistoryA : this._ssrHistoryB;
-	}
-
-	private _applyVolumetricHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (
-			!this._volumetricHistoryA ||
-			!this._volumetricHistoryB ||
-			!this._volumetricReservoirHistoryA ||
-			!this._volumetricReservoirHistoryB
-		) {
-			return;
-		}
-		targets.volumetricHistoryRead =
-			this._volumetricHistoryFlip ?
-				this._volumetricHistoryB
-			:	this._volumetricHistoryA;
-		targets.volumetricHistoryWrite =
-			this._volumetricHistoryFlip ?
-				this._volumetricHistoryA
-			:	this._volumetricHistoryB;
-		targets.volumetricReservoirHistoryRead =
-			this._volumetricHistoryFlip ?
-				this._volumetricReservoirHistoryB
-			:	this._volumetricReservoirHistoryA;
-		targets.volumetricReservoirHistoryWrite =
-			this._volumetricHistoryFlip ?
-				this._volumetricReservoirHistoryA
-			:	this._volumetricReservoirHistoryB;
-	}
-
-	private _applyMotionHistoryFlip(targets: WebGPUFrameTargets): void {
-		if (!this._motionHistoryA || !this._motionHistoryB) return;
-		targets.motionHistoryRead =
-			this._motionHistoryFlip ? this._motionHistoryB : this._motionHistoryA;
-		targets.motionHistoryWrite =
-			this._motionHistoryFlip ? this._motionHistoryA : this._motionHistoryB;
 	}
 
 	private _applyPipelineHistories(request: PostProcessPassRequest): void {
@@ -2049,14 +1621,6 @@ export class WebGPUFrameExecutor {
 		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 		this._targetMSAASampleCount = 1;
 		this._targetDeferredEnabled = false;
-		this._taaHistoryValid = false;
-		this._ssrHistoryValid = false;
-		this._volumetricHistoryValid = false;
-		this._motionHistoryValid = false;
-		this._taaHistoryFlip = false;
-		this._ssrHistoryFlip = false;
-		this._volumetricHistoryFlip = false;
-		this._motionHistoryFlip = false;
 		this._oitActive = false;
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
@@ -2126,32 +1690,6 @@ export class WebGPUFrameExecutor {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(resource);
 		}
-	}
-
-	private _handleFeatureHistoryTransitions(context: FrameContext): void {
-		const historyKey =
-			`mrt:${this._mrtEnabled ? 1 : 0}` +
-			`|deferred:${this._deferredEnabled ? 1 : 0}` +
-			`|oit:${context.features.enableOIT ? 1 : 0}` +
-			`|ssao:${context.postProcess.enabled.ssao ? 1 : 0}` +
-			`|ssgi:${context.postProcess.enabled.ssgi ? 1 : 0}` +
-			`|taa:${context.postProcess.enabled.taa ? 1 : 0}` +
-			`|ssr:${context.postProcess.enabled.ssr ? 1 : 0}` +
-			`|vol:${context.postProcess.enabled.volumetric ? 1 : 0}` +
-			`|fog:${isFogPostProcessEnabled(context.postProcess) ? 1 : 0}` +
-			`|mblur:${context.postProcess.enabled["motion-blur"] ? 1 : 0}` +
-			`|dof:${context.postProcess.enabled.dof ? 1 : 0}` +
-			`|bloom:${context.postProcess.enabled.bloom ? 1 : 0}` +
-			`|tonemap:${context.postProcess.enabled.tonemap ? 1 : 0}` +
-			`|fxaa:${context.postProcess.enabled.fxaa ? 1 : 0}`;
-
-		if (this._featureHistoryKey && this._featureHistoryKey !== historyKey) {
-			this._taaHistoryValid = false;
-			this._ssrHistoryValid = false;
-			this._volumetricHistoryValid = false;
-			this._motionHistoryValid = false;
-		}
-		this._featureHistoryKey = historyKey;
 	}
 
 	private _isIncrementalPartial(context: FrameContext | null): boolean {
@@ -2350,48 +1888,6 @@ export class WebGPUFrameExecutor {
 		} as any);
 		this._depthDirtyClearPipelines.set(cacheKey, pipeline);
 		return pipeline;
-	}
-
-	private async _runPostGraph(context: FrameContext): Promise<void> {
-		this._postGraphExecuted = true;
-		if (!this._mrtEnabled || !this._frameTargets || !this._encoder) {
-			return;
-		}
-
-		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
-		context.transient.set(
-			WEBGPU_TAA_HISTORY_VALID_KEY,
-			this._taaHistoryValid && this._motionHistoryValid
-		);
-		context.transient.set(
-			WEBGPU_SSR_HISTORY_VALID_KEY,
-			this._ssrHistoryValid && this._motionHistoryValid
-		);
-		const postContext: WebGPUPostProcessPassContext = {
-			backend: this._backend,
-			encoder: this._encoder,
-			frameContext: context,
-			postProcess: context.postProcess,
-			targets: this._frameTargets,
-			executeRuntimePass: (request) => this._postRuntime.executePass(request),
-		};
-		const executed = await this._postGraph.execute(
-			postContext,
-			context.postProcess,
-			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGPUFrameExecutor",
-					onceKey: key,
-				})
-		);
-		context.transient.set(WEBGPU_POST_ORDER_KEY, executed);
-
-		if (!executed.includes("gamma")) {
-			await this._presentToCanvas(
-				this._frameTargets.sceneColor,
-				context.postProcess.enabled.gamma
-			);
-		}
 	}
 
 	private async _ensurePresentResources(): Promise<void> {

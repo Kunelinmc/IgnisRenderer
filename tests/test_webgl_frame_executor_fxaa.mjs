@@ -344,7 +344,7 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma() {
+function testExecutePostProcessPassRunsToneMappingBeforeFXAAAndGamma() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const events = [];
@@ -362,14 +362,22 @@ function testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma() {
 		events.push("gamma");
 	};
 
-	executor._runPostProcessGraph({
-		features: {},
+	const frameContext = {
 		postProcess: createResolvedPostProcess({
 			gamma: { enabled: true },
 			fxaa: { enabled: true },
 		}),
 		transient: new Map(),
-	});
+	};
+	const request = {
+		frameContext,
+		histories: {},
+	};
+
+	executor.executePostProcessPass("tonemap", request);
+	executor.executePostProcessPass("fxaa", request);
+	executor.executePostProcessPass("interaction-outline", request);
+	executor.executePostProcessPass("gamma", request);
 
 	assert.deepEqual(events, [
 		"tonemap",
@@ -931,10 +939,58 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 	);
 }
 
+function testWarmupCollectsPostProcessHintsFromPlanOrder() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const calls = [];
+
+	executor._programs = {
+		getSceneProgram() {
+			calls.push("scene");
+			return { program: { id: "scene" }, uniforms: {} };
+		},
+		getBloomProgram() {
+			calls.push("bloom");
+			return { program: { id: "bloom" }, uniforms: {} };
+		},
+		getFXAAProgram() {
+			calls.push("fxaa");
+			return { program: { id: "fxaa" }, uniforms: {} };
+		},
+		getPresentProgram() {
+			calls.push("present");
+			return { program: { id: "present" }, uniforms: {} };
+		},
+	};
+
+	executor.warmup(
+		{
+			features: {
+				enableOIT: false,
+			},
+			postProcess: createResolvedPostProcess({
+				gamma: { enabled: true },
+			}),
+		},
+		{
+			materials: [],
+			shaderMaterials: [],
+			enableEnvironment: false,
+			enableShadows: false,
+			enableParticles: false,
+			includePostProcess: true,
+			postProcessPasses: ["bloom", "fxaa", "custom-pass"],
+			sceneTargetMode: "mrt",
+		}
+	);
+
+	assert.deepEqual(calls, ["scene", "bloom", "fxaa", "present"]);
+}
+
 function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
-	testDefaultPostGraphRunsToneMappingBeforeFXAAAndGamma();
+	testExecutePostProcessPassRunsToneMappingBeforeFXAAAndGamma();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
 	testConfigureOITWarnsWithoutRuntimeTargets();
@@ -948,6 +1004,7 @@ function run() {
 	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();
 	testGlobalUniformsBindLightProbeIBLTextures();
 	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();
+	testWarmupCollectsPostProcessHintsFromPlanOrder();
 	console.log("WebGL FXAA frame executor tests passed");
 }
 

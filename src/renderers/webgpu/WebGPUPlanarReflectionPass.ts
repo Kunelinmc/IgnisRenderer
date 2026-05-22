@@ -8,7 +8,7 @@ import { TextureFormat, TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
-import type { WebGPUFrameTargets } from "./WebGPUPostProcessGraph";
+import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;

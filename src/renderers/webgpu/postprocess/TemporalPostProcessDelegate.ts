@@ -16,7 +16,7 @@ import {
 } from "../../types";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
+import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 import {
 	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,

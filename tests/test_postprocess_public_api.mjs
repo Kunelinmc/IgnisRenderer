@@ -414,6 +414,53 @@ async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 	);
 }
 
+async function testPipelineWarnsWhenCustomPassReturnsRanFalse() {
+	const pipeline = new PostProcessPipeline();
+	const warnings = [];
+	pipeline.registerPass({
+		id: "custom-skip",
+		placement: "overlay",
+		isEnabled: (state) => state.enabled["custom-skip"],
+		implementations: { webgpu: {} },
+	});
+	const state = resolvePostProcessState(
+		{
+			"custom-skip": { enabled: true },
+			gamma: { enabled: false },
+		},
+		ALL_POST_PROCESS_CAPABILITIES,
+		"webgpu"
+	);
+	const executor = new FakeExecutor("webgpu");
+	executor.executePass = function executePass(passId, request) {
+		this.executed.push({
+			passId,
+			startPassId: request.startPassId,
+			histories: request.histories,
+		});
+		if (passId === "custom-skip") {
+			return { ran: false };
+		}
+		return { ran: true };
+	};
+
+	const result = await pipeline.execute({
+		frameContext: createFrameContext(state),
+		executor,
+		gBuffer: createGBufferBridge(),
+		warn: (key, message) => warnings.push({ key, message }),
+	});
+
+	assert.ok(executor.executed.some((entry) => entry.passId === "custom-skip"));
+	assert.equal(result.executedPassIds.includes("custom-skip"), false);
+	assert.ok(
+		warnings.some(
+			(warning) =>
+				warning.key === "postprocess-custom-pass-skipped-webgpu-custom-skip"
+		)
+	);
+}
+
 function testHistoryManagerInvalidationAndResize() {
 	const manager = new PostProcessHistoryManager();
 	const executor = new FakeExecutor("webgpu");
@@ -511,6 +558,7 @@ async function run() {
 	testLogicalCustomPassRegistration();
 	await testPipelineBackendImplementationSelection();
 	await testPipelinePlacementOrderingAndIncrementalStartPass();
+	await testPipelineWarnsWhenCustomPassReturnsRanFalse();
 	testHistoryManagerInvalidationAndResize();
 	testLogicalGBufferBridgeHelperShape();
 	console.log("Postprocess public API tests passed");

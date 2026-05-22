@@ -119,10 +119,6 @@ import {
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
 import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
-import {
-	WebGLPostProcessRuntime,
-	type WebGLPostProcessPassPlugin,
-} from "./WebGLPostProcessRuntime";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
 	clampDownsample,
@@ -179,6 +175,25 @@ import {
 } from "./WebGLParticlePass";
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
+
+const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
+	Record<string, readonly string[]>
+> = {
+	ssao: ["postprocess:ssao"],
+	ssgi: ["postprocess:ssgi"],
+	taa: ["postprocess:taa"],
+	ssr: ["postprocess:ssr"],
+	volumetric: ["postprocess:volumetric"],
+	fog: ["postprocess:fog"],
+	"motion-blur": ["postprocess:motion-blur"],
+	dof: ["postprocess:dof"],
+	bloom: ["postprocess:bloom"],
+	tonemap: ["postprocess:tonemap"],
+	"color-filter": ["postprocess:color-filter"],
+	fxaa: ["postprocess:fxaa"],
+	"interaction-outline": ["postprocess:interaction-outline"],
+	gamma: ["postprocess:gamma"],
+};
 
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
@@ -239,8 +254,6 @@ export class WebGLFrameExecutor {
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
 	private _clusteredLighting: WebGLClusteredLightingRuntime;
-	private _postProcessRuntime: WebGLPostProcessRuntime;
-	private _postProcessExecuted = false;
 	private _shAmbientTexture: WebGLTexture | null = null;
 	private _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
 	private _shAmbientTextureHeight = 1;
@@ -286,16 +299,12 @@ export class WebGLFrameExecutor {
 			16
 		);
 		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
-		this._postProcessRuntime = new WebGLPostProcessRuntime(
-			this._createDefaultPostProcessPasses()
-		);
 		this._passHandlers = this._createPassHandlers();
 	}
 
 	public beginFrame(context: FrameContext): void {
 		this._activeContext = context;
 		this._presentedInFrame = false;
-		this._postProcessExecuted = false;
 		this._modelMatrixKeysThisFrame.clear();
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
@@ -401,14 +410,6 @@ export class WebGLFrameExecutor {
 			return;
 		}
 		handler(context);
-	}
-
-	public registerPostProcessPass(pass: WebGLPostProcessPassPlugin): void {
-		this._postProcessRuntime.registerPass(pass);
-	}
-
-	public unregisterPostProcessPass(id: string): void {
-		this._postProcessRuntime.unregisterPass(id);
 	}
 
 	public createPostProcessResource(
@@ -618,16 +619,16 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		const allowedPassIds = new Set(plan.postProcessPasses);
-		const warmupHints = this._postProcessRuntime.collectWarmupHints(
-			context.postProcess,
-			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGLFrameExecutor",
-					onceKey: key,
-				}),
-			allowedPassIds
-		);
+		const warmupHints = new Set<string>();
+		for (const passId of plan.postProcessPasses) {
+			const hints = WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId];
+			if (!hints) {
+				continue;
+			}
+			for (const hint of hints) {
+				warmupHints.add(hint);
+			}
+		}
 		for (const hint of warmupHints) {
 			switch (hint) {
 				case "postprocess:ssao":
@@ -765,13 +766,7 @@ export class WebGLFrameExecutor {
 		FramePass["stage"],
 		WebGLFramePassHandler
 	> {
-		const runPostProcess = (context: FrameContext) => {
-			if (this._postProcessExecuted) {
-				return;
-			}
-			this._runPostProcessGraph(context);
-			this._postProcessExecuted = true;
-		};
+		const runPostProcess = (_context: FrameContext) => {};
 		const handlers = new Map<FramePass["stage"], WebGLFramePassHandler>([
 			[
 				"shadow",
@@ -1024,18 +1019,6 @@ export class WebGLFrameExecutor {
 		}
 	}
 
-	private _runPostProcessGraph(context: FrameContext): void {
-		this._postProcessRuntime.execute(
-			context,
-			context.postProcess,
-			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGLFrameExecutor",
-					onceKey: key,
-				})
-		);
-	}
-
 	private _applyPipelineHistories(request: PostProcessPassRequest): void {
 		const taa = request.histories.taa;
 		if (taa) {
@@ -1053,135 +1036,6 @@ export class WebGLFrameExecutor {
 				motion.write.resource as WebGLTexture | null,
 			];
 		}
-	}
-
-	private _createDefaultPostProcessPasses(): WebGLPostProcessPassPlugin[] {
-		return [
-			{
-				id: "ssao",
-				dependsOn: [],
-				precompileHints: ["postprocess:ssao"],
-				isEnabled: (postProcess) => postProcess.enabled.ssao,
-				execute: ({ frameContext }) => {
-					this._applySSAO(frameContext.postProcess.options.ssao, frameContext);
-				},
-			},
-			{
-				id: "ssgi",
-				dependsOn: ["ssao"],
-				precompileHints: ["postprocess:ssgi"],
-				isEnabled: (postProcess) => postProcess.enabled.ssgi,
-				execute: () => {},
-			},
-			{
-				id: "taa",
-				dependsOn: ["ssgi", "ssao"],
-				precompileHints: ["postprocess:taa"],
-				isEnabled: (postProcess) => postProcess.enabled.taa,
-				execute: ({ frameContext }) => {
-					this._applyTAA(frameContext.postProcess.options.taa);
-				},
-			},
-			{
-				id: "ssr",
-				dependsOn: ["taa"],
-				precompileHints: ["postprocess:ssr"],
-				isEnabled: (postProcess) => postProcess.enabled.ssr,
-				execute: () => {},
-			},
-			{
-				id: "volumetric",
-				dependsOn: ["ssr"],
-				precompileHints: ["postprocess:volumetric"],
-				isEnabled: (postProcess) => postProcess.enabled.volumetric,
-				execute: () => {},
-			},
-			{
-				id: "fog",
-				dependsOn: ["volumetric"],
-				precompileHints: ["postprocess:fog"],
-				isEnabled: (postProcess) =>
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene",
-				execute: ({ frameContext }) => {
-					this._applyFog(frameContext.postProcess.options.fog);
-				},
-			},
-			{
-				id: "motion-blur",
-				dependsOn: ["fog"],
-				precompileHints: ["postprocess:motion-blur"],
-				isEnabled: (postProcess) => postProcess.enabled["motion-blur"],
-				execute: ({ frameContext }) => {
-					this._applyMotionBlur(frameContext.postProcess.options["motion-blur"]);
-				},
-			},
-			{
-				id: "dof",
-				dependsOn: ["motion-blur"],
-				precompileHints: ["postprocess:dof"],
-				isEnabled: (postProcess) => postProcess.enabled.dof,
-				execute: ({ frameContext }) => {
-					this._applyDOF(frameContext.postProcess.options.dof);
-				},
-			},
-			{
-				id: "bloom",
-				dependsOn: ["dof"],
-				precompileHints: ["postprocess:bloom"],
-				isEnabled: (postProcess) => postProcess.enabled.bloom,
-				execute: ({ frameContext }) => {
-					this._applyBloom(frameContext.postProcess.options.bloom);
-				},
-			},
-			{
-				id: "tonemap",
-				dependsOn: ["bloom"],
-				precompileHints: ["postprocess:tonemap"],
-				isEnabled: (postProcess) => postProcess.enabled.tonemap,
-				execute: () => {
-					this._applyToneMapping();
-				},
-			},
-			{
-				id: "color-filter",
-				dependsOn: ["tonemap"],
-				precompileHints: ["postprocess:color-filter"],
-				isEnabled: (postProcess) => postProcess.enabled["color-filter"],
-				execute: ({ frameContext }) => {
-					this._applyColorFilter(
-						frameContext.postProcess.options["color-filter"]
-					);
-				},
-			},
-			{
-				id: "fxaa",
-				dependsOn: ["color-filter"],
-				precompileHints: ["postprocess:fxaa"],
-				isEnabled: (postProcess) => postProcess.enabled.fxaa,
-				execute: () => {
-					this._applyFXAA();
-				},
-			},
-			{
-				id: "interaction-outline",
-				dependsOn: ["fxaa"],
-				precompileHints: ["postprocess:interaction-outline"],
-				isEnabled: (postProcess) => postProcess.enabled["interaction-outline"],
-				execute: ({ frameContext }) => {
-					this._applyInteractionOutline(frameContext);
-				},
-			},
-			{
-				id: "gamma",
-				dependsOn: ["tonemap"],
-				precompileHints: ["postprocess:gamma"],
-				isEnabled: (postProcess) => postProcess.enabled.gamma,
-				execute: ({ frameContext }) => {
-					this._present(frameContext.postProcess.enabled.gamma);
-				},
-			},
-		];
 	}
 
 	private _configureOIT(context: FrameContext): void {

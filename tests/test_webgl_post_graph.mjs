@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
-import { WebGLPostProcessGraph } from "../src/renderers/webgl/WebGLPostProcessGraph.ts";
+import { PostProcessPipeline } from "../src/postprocess/index.ts";
 
 const POST_PROCESS_CAPABILITIES = {
 	ssao: true,
-	ssgi: true,
+	ssgi: false,
 	taa: true,
-	ssr: true,
-	volumetric: true,
+	ssr: false,
+	volumetric: false,
 	fog: true,
 	"motion-blur": true,
 	dof: true,
@@ -19,79 +19,47 @@ const POST_PROCESS_CAPABILITIES = {
 	gamma: true,
 };
 
-const ENABLED_POST_PROCESS_REQUEST = {
-	ssao: { enabled: true },
-	ssgi: { enabled: true },
-	taa: { enabled: true },
-	ssr: { enabled: true },
-	volumetric: { enabled: true },
-	fog: { enabled: true, options: { application: "postprocess" } },
-	"motion-blur": { enabled: true },
-	dof: { enabled: true },
-	bloom: { enabled: true },
-	tonemap: { enabled: true },
-	"color-filter": { enabled: true },
-	fxaa: { enabled: true },
-	"interaction-outline": { enabled: true },
-	gamma: { enabled: true },
-};
-
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(
-		{
-			...ENABLED_POST_PROCESS_REQUEST,
-			...overrides,
-		},
-		POST_PROCESS_CAPABILITIES,
-		"webgl"
-	);
+	return resolvePostProcessState(overrides, POST_PROCESS_CAPABILITIES, "webgl");
 }
 
-function createPass(id, dependsOn, enabledId = id) {
+function createExecutor() {
 	return {
-		id,
-		dependsOn,
-		isEnabled(postProcess) {
-			return enabledId ? !!postProcess.enabled[enabledId] : true;
+		backend: "webgl",
+		capabilities: POST_PROCESS_CAPABILITIES,
+		createResource() {
+			throw new Error("Unexpected history allocation in this test");
 		},
-		execute() {},
+		destroyResource() {},
+		executePass() {
+			return { ran: true };
+		},
 	};
 }
 
-function testExecutionOrder() {
-	const graph = new WebGLPostProcessGraph([
-		createPass("ssao", []),
-		createPass("taa", ["ssao"]),
-		createPass("volumetric", ["taa"]),
-		{
-			id: "fog",
-			dependsOn: ["volumetric"],
-			isEnabled(postProcess) {
-				return (
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene"
-				);
-			},
-			execute() {},
-		},
-		createPass("motion-blur", ["fog"]),
-		createPass("dof", ["motion-blur"]),
-		createPass("bloom", ["dof"]),
-		createPass("tonemap", ["bloom"]),
-		createPass("color-filter", ["tonemap"]),
-		createPass("fxaa", ["color-filter"]),
-		createPass("gamma", ["tonemap"]),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
-	});
+function testBuiltInOrderUsesPipelineAuthority() {
+	const pipeline = new PostProcessPipeline();
+	const order = pipeline.getExecutionOrder(
+		createPostProcess({
+			ssao: { enabled: true },
+			taa: { enabled: true },
+			fog: { enabled: true, options: { application: "postprocess" } },
+			"motion-blur": { enabled: true },
+			dof: { enabled: true },
+			bloom: { enabled: true },
+			tonemap: { enabled: true },
+			"color-filter": { enabled: true },
+			fxaa: { enabled: true },
+			"interaction-outline": { enabled: true },
+			gamma: { enabled: true },
+		}),
+		createExecutor()
+	);
 	assert.deepEqual(
 		order.map((pass) => pass.id),
 		[
 			"ssao",
 			"taa",
-			"volumetric",
 			"fog",
 			"motion-blur",
 			"dof",
@@ -99,74 +67,29 @@ function testExecutionOrder() {
 			"tonemap",
 			"color-filter",
 			"fxaa",
+			"interaction-outline",
 			"gamma",
 		]
 	);
-	assert.equal(warnings.length, 0);
 }
 
-function testFogSceneModeSkipsFogPass() {
-	const graph = new WebGLPostProcessGraph([
-		createPass("volumetric", []),
-		{
-			id: "fog",
-			dependsOn: ["volumetric"],
-			isEnabled(postProcess) {
-				return (
-					postProcess.enabled.fog &&
-					(postProcess.options.fog.application ?? "postprocess") !== "scene"
-				);
-			},
-			execute() {},
-		},
-		createPass("motion-blur", ["fog"]),
-	]);
-	const order = graph.getExecutionOrder(
+function testFogSceneModeSkipsFogInPipelineOrder() {
+	const pipeline = new PostProcessPipeline();
+	const order = pipeline.getExecutionOrder(
 		createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "scene",
-				},
-			},
+			fog: { enabled: true, options: { application: "scene" } },
+			"motion-blur": { enabled: true },
 		}),
-		() => {}
+		createExecutor()
 	);
-	assert.deepEqual(order.map((pass) => pass.id), ["volumetric", "motion-blur"]);
-}
-
-function testUnknownDependencySkipsPass() {
-	const graph = new WebGLPostProcessGraph([
-		createPass("gamma", ["missing"]),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
-	});
-	assert.deepEqual(order.map((pass) => pass.id), []);
-	assert.equal(warnings.length, 1);
-	assert.ok(warnings[0].message.includes("unknown pass"));
-}
-
-function testCycleSkipsBranch() {
-	const graph = new WebGLPostProcessGraph([
-		createPass("a", ["b"], null),
-		createPass("b", ["a"], null),
-	]);
-	const warnings = [];
-	const order = graph.getExecutionOrder(createPostProcess(), (key, message) => {
-		warnings.push({ key, message });
-	});
-	assert.deepEqual(order.map((pass) => pass.id), []);
-	assert.ok(warnings.length >= 1);
+	assert.equal(order.some((pass) => pass.id === "fog"), false);
+	assert.ok(order.some((pass) => pass.id === "motion-blur"));
 }
 
 function run() {
-	testExecutionOrder();
-	testFogSceneModeSkipsFogPass();
-	testUnknownDependencySkipsPass();
-	testCycleSkipsBranch();
-	console.log("WebGL post-process graph tests passed");
+	testBuiltInOrderUsesPipelineAuthority();
+	testFogSceneModeSkipsFogInPipelineOrder();
+	console.log("WebGL post-process pipeline-order tests passed");
 }
 
 run();

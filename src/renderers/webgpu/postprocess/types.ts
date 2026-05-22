@@ -6,7 +6,7 @@ import type {
 	ISampler,
 } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessGraph";
+import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 
 export const WEBGPU_POST_PROCESS_PASS_IDS = [

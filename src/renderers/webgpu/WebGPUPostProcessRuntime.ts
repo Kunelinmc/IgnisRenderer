@@ -5,7 +5,7 @@ import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext
 import { ScreenPostProcessDelegate } from "./postprocess/ScreenPostProcessDelegate";
 import { SpatialPostProcessDelegate } from "./postprocess/SpatialPostProcessDelegate";
 import { TemporalPostProcessDelegate } from "./postprocess/TemporalPostProcessDelegate";
-import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessGraph";
+import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessContracts";
 import type {
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessRuntimeExecuteRequest,
