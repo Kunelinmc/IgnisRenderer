@@ -29,6 +29,10 @@ import {
 	type PostProcessPassRegistry,
 	type ResolvedPostProcessState,
 } from "../pipeline/PostProcessController";
+import {
+	PostProcessPipeline,
+	type PostProcessPassDescriptor,
+} from "../postprocess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
@@ -137,29 +141,12 @@ export type RendererFeatures = RendererFeatureFlags &
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
-function createBackendPostProcessPassRegistry(
-	backend: IRenderBackend
-): PostProcessPassRegistry<PostProcessCustomPassDescriptor> | null {
-	const postProcess = backend.postProcess as IRenderBackend["postProcess"] &
-		Partial<PostProcessPassRegistry<PostProcessCustomPassDescriptor>>;
-	if (
-		typeof postProcess.registerPass !== "function" ||
-		typeof postProcess.unregisterPass !== "function"
-	) {
-		return null;
-	}
-	return {
-		registerPass: (pass) => postProcess.registerPass?.(pass),
-		unregisterPass: (id) => postProcess.unregisterPass?.(id),
-	};
-}
-
 export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
-	public readonly postProcess: PostProcessController;
+	public readonly postProcess: PostProcessController<PostProcessPassDescriptor>;
 	public animationAutoRender: boolean;
 
 	public readonly logger: Pick<LoggerStatic, "warn">;
@@ -185,6 +172,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _environmentIBLUpdateRequestToken: number;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
+	private _postProcessPipeline: PostProcessPipeline;
 
 	constructor(
 		backend: IRenderBackend,
@@ -198,12 +186,21 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			stages: createDefaultRendererStages(),
 			backendPasses: createDefaultBackendPasses(),
 		});
-		this.postProcess = new PostProcessController(undefined, {
-			passRegistry: createBackendPostProcessPassRegistry(backend),
-			onRegisterPass: (pass) => this.pipeline.registerPostProcessPass(pass),
-			onUnregisterPass: (id) => this.pipeline.unregisterPostProcessPass(id),
-			onChange: () => this._markFrameDirty("postfx"),
-		});
+		this._postProcessPipeline = new PostProcessPipeline();
+		this.postProcess = new PostProcessController<PostProcessPassDescriptor>(
+			undefined,
+			{
+				onRegisterPass: (pass) => {
+					this._postProcessPipeline.registerPass(pass);
+					this.pipeline.registerPostProcessPass(pass);
+				},
+				onUnregisterPass: (id) => {
+					this._postProcessPipeline.unregisterPass(id);
+					this.pipeline.unregisterPostProcessPass(id);
+				},
+				onChange: () => this._markFrameDirty("postfx"),
+			}
+		);
 		this._canvas = canvas;
 		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -687,6 +684,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			dirtyTiles: fullFrameTiles.dirtyTiles.slice(),
 			dirtyAreaRatio: 1,
 			firstPass: null,
+			postProcessStartPass: null,
 			reasonMask,
 			temporalHistoryReset: true,
 		};
@@ -802,6 +800,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			dirtyTiles,
 			dirtyAreaRatio,
 			firstPass: forceFullFrame ? null : plan.firstPass,
+			postProcessStartPass: forceFullFrame ? null : plan.postProcessStartPass,
 			reasonMask: plan.reasonMask,
 			temporalHistoryReset: plan.temporalHistoryReset || forceFullFrame,
 		};
@@ -1039,6 +1038,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						temporalHistoryReset:
 							incrementalFrameContext.temporalHistoryReset,
 						firstPass: incrementalFrameContext.firstPass,
+						postProcessStartPass:
+							incrementalFrameContext.postProcessStartPass,
 						dirtyRectCount: incrementalFrameContext.dirtyRects.length,
 						dirtyTileCount: incrementalFrameContext.dirtyTiles.length,
 						dirtyTileSize: incrementalFrameContext.dirtyTileSize,
@@ -1115,15 +1116,28 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.skipPass?.(skippedPass);
 						break;
 					}
+					if (stage.id === "postprocess") {
+						await this._postProcessPipeline.execute({
+							frameContext: context,
+							executor: this.backend.postProcess.executor,
+							gBuffer: this.backend.postProcess.createGBufferBridge(context),
+							warn: (key, message) =>
+								this.logger.warn(`[${key}] ${message}`, {
+									scope: "Renderer",
+									onceKey: key,
+								}),
+						});
+						break;
+					}
 
-						const pass = this._createBackendPass(stage.id);
-						if (pass.executor === "shared") {
-							if (!this.backend.executeSharedPass) {
-								const key = `${this.backend.type}-shared-pass-${pass.stage}`;
-								Logger.warn(
-									`[${key}] ${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`,
-									{ scope: "Renderer" }
-								);
+					const pass = this._createBackendPass(stage.id);
+					if (pass.executor === "shared") {
+						if (!this.backend.executeSharedPass) {
+							const key = `${this.backend.type}-shared-pass-${pass.stage}`;
+							Logger.warn(
+								`[${key}] ${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`,
+								{ scope: "Renderer" }
+							);
 							break;
 						}
 						await this.backend.executeSharedPass(pass, context);
@@ -1352,82 +1366,29 @@ function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
 			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
 		},
 		{
-			id: "ssao",
+			id: "postprocess",
 			dependsOn: ["particles"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.ssao,
-		},
-		{
-			id: "ssgi",
-			dependsOn: ["ssao"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.ssgi,
-		},
-		{
-			id: "taa",
-			dependsOn: ["ssgi", "ssao"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.taa,
-		},
-		{
-			id: "ssr",
-			dependsOn: ["taa"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.ssr,
-		},
-		{
-			id: "volumetric",
-			dependsOn: ["ssr"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.volumetric,
-		},
-		{
-			id: "fog",
-			dependsOn: ["volumetric"],
-			shouldRun: ({ postProcess }) => isFogPostProcessEnabled(postProcess),
-		},
-		{
-			id: "motion-blur",
-			dependsOn: ["fog"],
-			shouldRun: ({ postProcess }) => postProcess.enabled["motion-blur"],
-		},
-		{
-			id: "dof",
-			dependsOn: ["motion-blur"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.dof,
-		},
-		{
-			id: "bloom",
-			dependsOn: ["dof"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.bloom,
-		},
-		{
-			id: "tonemap",
-			dependsOn: ["bloom"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.tonemap,
-		},
-		{
-			id: "color-filter",
-			dependsOn: ["tonemap"],
-			shouldRun: ({ postProcess }) => postProcess.enabled["color-filter"],
-		},
-		{
-			id: "fxaa",
-			dependsOn: ["color-filter"],
-			shouldRun: ({ postProcess }) => postProcess.enabled.fxaa,
-		},
-		{
-			id: "interaction-outline",
-			dependsOn: ["fxaa"],
 			shouldRun: ({ postProcess, transient }) => {
 				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 				return (
-					postProcess.enabled["interaction-outline"] &&
-					(interaction?.selectedEntityIds?.length ?? 0) > 0
+					postProcess.enabled.ssao ||
+					postProcess.enabled.ssgi ||
+					postProcess.enabled.taa ||
+					postProcess.enabled.ssr ||
+					postProcess.enabled.volumetric ||
+					isFogPostProcessEnabled(postProcess) ||
+					postProcess.enabled["motion-blur"] ||
+					postProcess.enabled.dof ||
+					postProcess.enabled.bloom ||
+					postProcess.enabled.tonemap ||
+					postProcess.enabled["color-filter"] ||
+					postProcess.enabled.fxaa ||
+					(postProcess.enabled["interaction-outline"] &&
+						(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
+					postProcess.enabled.gamma ||
+					hasEnabledCustomPostProcessPass(postProcess)
 				);
 			},
-		},
-		{
-			id: "gamma",
-			dependsOn: ["interaction-outline", "tonemap"],
-			shouldRun: ({ postProcess }) =>
-				postProcess.enabled.gamma ||
-				hasEnabledCustomPostProcessPass(postProcess),
 		},
 	];
 }
@@ -1467,20 +1428,7 @@ function createDefaultRendererStages(): RendererStageDefinition[] {
 		{ id: "main-opaque", dependsOn: ["reflection", "shadow"] },
 		{ id: "main-transparent", dependsOn: ["main-opaque"] },
 		{ id: "particles", dependsOn: ["main-transparent"] },
-		{ id: "ssao", dependsOn: ["particles"] },
-		{ id: "ssgi", dependsOn: ["ssao"] },
-		{ id: "taa", dependsOn: ["ssgi", "ssao"] },
-		{ id: "ssr", dependsOn: ["taa"] },
-		{ id: "volumetric", dependsOn: ["ssr"] },
-		{ id: "fog", dependsOn: ["volumetric"] },
-		{ id: "motion-blur", dependsOn: ["fog"] },
-		{ id: "dof", dependsOn: ["motion-blur"] },
-		{ id: "bloom", dependsOn: ["dof"] },
-		{ id: "tonemap", dependsOn: ["bloom"] },
-		{ id: "color-filter", dependsOn: ["tonemap"] },
-		{ id: "fxaa", dependsOn: ["color-filter"] },
-		{ id: "interaction-outline", dependsOn: ["fxaa"] },
-		{ id: "gamma", dependsOn: ["interaction-outline", "tonemap"] },
-		{ id: "sync-out", dependsOn: ["gamma"] },
+		{ id: "postprocess", dependsOn: ["particles"] },
+		{ id: "sync-out", dependsOn: ["postprocess"] },
 	];
 }
