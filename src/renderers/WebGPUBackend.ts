@@ -12,6 +12,16 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
+import type {
+	IPostProcessExecutor,
+	LogicalGBufferBridge,
+	PostProcessFrameEndRequest,
+	PostProcessFrameRequest,
+	PostProcessPassRequest,
+	PostProcessPassResult,
+	PostProcessResourceDescriptor,
+	PostProcessResourceHandle,
+} from "../postprocess";
 import {
 	type FrameAttachments,
 	type FrameContext,
@@ -40,10 +50,6 @@ import {
 	tryGetWebGPUBuffer,
 	tryGetWebGPUTexture,
 } from "./webgpu/WebGPUResourceAccess";
-import {
-	isWebGPUBuiltinPostProcessPassId,
-	type WebGPUPostProcessPassPlugin,
-} from "./webgpu/WebGPUPostProcessGraph";
 import type { IParticleSimulator } from "../simulation/particles/IParticleSimulator";
 import { WebGPUParticleSimulator } from "../simulation/particles/WebGPUParticleSimulator";
 import {
@@ -232,24 +238,7 @@ const WEBGPU_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 };
 
 export interface WebGPUPostProcessSupport
-	extends RenderBackendPostProcessSupport<WebGPUPostProcessPassPlugin> {
-	/**
-	 * Registers a custom WebGPU post-process graph pass.
-	 *
-	 * @param pass Custom pass descriptor. Built-in ids are reserved.
-	 * @returns Nothing.
-	 * @sideEffects Mutates the backend post-process graph registration state.
-	 */
-	registerPass(pass: WebGPUPostProcessPassPlugin): void;
-	/**
-	 * Removes a custom WebGPU post-process graph pass.
-	 *
-	 * @param id Custom pass id to remove.
-	 * @returns Nothing.
-	 * @sideEffects Mutates the backend post-process graph registration state.
-	 */
-	unregisterPass(id: string): void;
-}
+	extends RenderBackendPostProcessSupport {}
 
 function isWebGPUBackendOptions(
 	value: unknown
@@ -301,10 +290,20 @@ export class WebGPUBackend implements IRenderBackend {
 		clusteredLighting: true,
 		oit: true,
 	};
+	private readonly _postProcessExecutor: IPostProcessExecutor = {
+		backend: "webgpu",
+		capabilities: WEBGPU_POST_PROCESS_CAPABILITIES,
+		createResource: (desc) => this._createPostProcessResource(desc),
+		destroyResource: (handle) => this._destroyPostProcessResource(handle),
+		beginFrame: (_request) => {},
+		executePass: (passId, request) =>
+			this._executePostProcessPass(passId, request),
+		endFrame: (_request) => {},
+	};
 	public readonly postProcess: WebGPUPostProcessSupport = {
 		capabilities: WEBGPU_POST_PROCESS_CAPABILITIES,
-		registerPass: (pass) => this._registerPostProcessPass(pass),
-		unregisterPass: (id) => this._unregisterPostProcessPass(id),
+		executor: this._postProcessExecutor,
+		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
 	};
 
 	private _canvas: HTMLCanvasElement | null = null;
@@ -388,7 +387,6 @@ export class WebGPUBackend implements IRenderBackend {
 					);
 				})
 			: null;
-	private _pendingPostProcessPasses = new Map<string, WebGPUPostProcessPassPlugin>();
 	private _warmupLogCompilationInfo = false;
 	private _msaaSelectionCache = new Map<string, number>();
 	private readonly _defaultMSAASampleCount: number;
@@ -648,9 +646,6 @@ export class WebGPUBackend implements IRenderBackend {
 				backendTag: this.type,
 				maxParticlesPerSystem: 300000,
 			});
-			for (const pass of this._pendingPostProcessPasses.values()) {
-				this._frameExecutor.registerPostProcessPass(pass);
-			}
 		} catch (error) {
 			this._rollbackInitializationState();
 			throw error;
@@ -780,57 +775,46 @@ export class WebGPUBackend implements IRenderBackend {
 		this._plannedPassOrder.clear();
 	}
 
-	private _registerPostProcessPass(pass: WebGPUPostProcessPassPlugin): void {
-		this._assertCanRegisterPostProcessPass(pass);
-		this._frameExecutor?.registerPostProcessPass(pass);
-		this._pendingPostProcessPasses.set(pass.id, pass);
+	private _createPostProcessResource(
+		desc: PostProcessResourceDescriptor
+	): PostProcessResourceHandle {
+		this._assertDeviceOperational("create post-process resource");
+		if (!this._frameExecutor) {
+			throw new Error(
+				"WebGPU frame executor is not initialized; cannot create post-process resource."
+			);
+		}
+		return this._frameExecutor.createPostProcessResource(desc);
 	}
 
-	private _unregisterPostProcessPass(id: string): void {
-		if (isWebGPUBuiltinPostProcessPassId(id)) {
-			throw new Error(
-				`Cannot unregister built-in WebGPU post-process pass "${id}".`
-			);
-		}
-		this._frameExecutor?.unregisterPostProcessPass(id);
-		this._pendingPostProcessPasses.delete(id);
+	private _destroyPostProcessResource(handle: PostProcessResourceHandle): void {
+		this._frameExecutor?.destroyPostProcessResource(handle);
 	}
 
-	private _assertCanRegisterPostProcessPass(
-		pass: WebGPUPostProcessPassPlugin
-	): void {
-		if (!pass.id) {
-			throw new Error("Post-process pass id is required.");
-		}
-		if (isWebGPUBuiltinPostProcessPassId(pass.id)) {
-			throw new Error(
-				`Cannot register built-in WebGPU post-process pass "${pass.id}".`
-			);
-		}
-		if (this._pendingPostProcessPasses.has(pass.id)) {
-			throw new Error(
-				`WebGPU post-process pass "${pass.id}" is already registered.`
-			);
-		}
-		if (!pass.runtime) {
-			return;
-		}
-		const runtimeId = pass.runtime.id;
-		if (!runtimeId) {
-			throw new Error("WebGPU post-process runtime pass id is required.");
-		}
-		if (isWebGPUBuiltinPostProcessPassId(runtimeId)) {
-			throw new Error(
-				`Cannot register built-in WebGPU post-process runtime pass "${runtimeId}".`
-			);
-		}
-		for (const pending of this._pendingPostProcessPasses.values()) {
-			if (pending.runtime?.id === runtimeId) {
-				throw new Error(
-					`WebGPU post-process runtime pass "${runtimeId}" is already registered.`
-				);
-			}
-		}
+	private _createPostProcessGBuffer(
+		context: FrameContext
+	): LogicalGBufferBridge {
+		return this._frameExecutor?.createGBufferBridge(context) ?? {
+			width: Math.max(1, context.attachments.width),
+			height: Math.max(1, context.attachments.height),
+			normalSpace: "world",
+			depthEncoding: "hardware",
+			channels: {},
+			worldPosition: {
+				source: "derived",
+				available: false,
+			},
+		};
+	}
+
+	private _executePostProcessPass(
+		passId: string,
+		request: PostProcessPassRequest
+	): Promise<PostProcessPassResult> | PostProcessPassResult {
+		return (
+			this._frameExecutor?.executePostProcessPass(passId, request) ??
+			{ ran: false }
+		);
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
@@ -893,7 +877,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
 		this._rollbackInitializationState();
-		this._pendingPostProcessPasses.clear();
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
 		this._deviceLossPromise = null;

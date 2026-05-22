@@ -8,6 +8,10 @@ import {
 import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
+import {
+	SoftwarePostProcessExecutor,
+	createSoftwareGBufferBridge,
+} from "./software/SoftwarePostProcessExecutor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
@@ -141,8 +145,17 @@ export class SoftwareBackend implements IRenderBackend {
 		clusteredLighting: false,
 		oit: false,
 	};
+	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
+		SOFTWARE_POST_PROCESS_CAPABILITIES,
+		{
+			getPostProcessor: () => this._postProcessor,
+			getCanvasContext: () => this._ctx,
+		}
+	);
 	public readonly postProcess = {
 		capabilities: SOFTWARE_POST_PROCESS_CAPABILITIES,
+		executor: this._postProcessExecutor,
+		createGBufferBridge: createSoftwareGBufferBridge,
 	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
