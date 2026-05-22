@@ -43,54 +43,26 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 			state.plannedPasses.add("particles");
 		}
 		const postProcess = context.postProcess;
-		if (postProcess.enabled.ssao) {
-			state.plannedPasses.add("ssao");
-		}
-		if (postProcess.enabled.ssgi) {
-			state.plannedPasses.add("ssgi");
-		}
-		if (postProcess.enabled.taa) {
-			state.plannedPasses.add("taa");
-		}
-		if (postProcess.enabled.ssr) {
-			state.plannedPasses.add("ssr");
-		}
-		if (postProcess.enabled.volumetric) {
-			state.plannedPasses.add("volumetric");
-		}
-		if (isFogPostProcessEnabled(postProcess)) {
-			state.plannedPasses.add("fog");
-		}
-		if (postProcess.enabled["motion-blur"]) {
-			state.plannedPasses.add("motion-blur");
-		}
-		if (postProcess.enabled.dof) {
-			state.plannedPasses.add("dof");
-		}
-		if (postProcess.enabled.bloom) {
-			state.plannedPasses.add("bloom");
-		}
-		if (postProcess.enabled.tonemap) {
-			state.plannedPasses.add("tonemap");
-		}
-		if (postProcess.enabled["color-filter"]) {
-			state.plannedPasses.add("color-filter");
-		}
-		if (postProcess.enabled.fxaa) {
-			state.plannedPasses.add("fxaa");
-		}
 		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 		if (
-			postProcess.enabled["interaction-outline"] &&
-			(interaction?.selectedEntityIds?.length ?? 0) > 0
-		) {
-			state.plannedPasses.add("interaction-outline");
-		}
-		if (
+			postProcess.enabled.ssao ||
+			postProcess.enabled.ssgi ||
+			postProcess.enabled.taa ||
+			postProcess.enabled.ssr ||
+			postProcess.enabled.volumetric ||
+			isFogPostProcessEnabled(postProcess) ||
+			postProcess.enabled["motion-blur"] ||
+			postProcess.enabled.dof ||
+			postProcess.enabled.bloom ||
+			postProcess.enabled.tonemap ||
+			postProcess.enabled["color-filter"] ||
+			postProcess.enabled.fxaa ||
+			(postProcess.enabled["interaction-outline"] &&
+				(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
 			postProcess.enabled.gamma ||
 			hasEnabledCustomPostProcessPass(postProcess)
 		) {
-			state.plannedPasses.add("gamma");
+			state.plannedPasses.add("postprocess");
 		}
 		this._validatePlannedPassGraph(state);
 	}
