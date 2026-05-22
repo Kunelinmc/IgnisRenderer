@@ -80,7 +80,7 @@ async function run() {
 				grade: "standard",
 				inflationRadius: 18,
 			},
-			dependsOn: [],
+			placement: "overlay",
 			isEnabled(postProcess) {
 				return postProcess.enabled["custom-edge"];
 			},

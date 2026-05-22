@@ -7,8 +7,13 @@ import {
 } from "../pipeline/PostProcessController";
 import type { FrameContext } from "../pipeline/types";
 import { INTERACTION_TRANSIENT_STATE_KEY } from "../pipeline/types";
-import { PostProcessGraph } from "./PostProcessGraph";
 import { PostProcessHistoryManager } from "./PostProcessHistoryManager";
+import {
+	DEFAULT_POST_PROCESS_PLACEMENT,
+	getBuiltinPostProcessOrder,
+	getCustomPostProcessPlacementOrder,
+	isPostProcessPlacement,
+} from "./ordering";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferSemantic,
@@ -19,8 +24,11 @@ import type {
 } from "./types";
 
 const KNOWN_BACKENDS = ["software", "webgpu", "webgl"] as const;
+const POST_PROCESS_PASS_ID_SET = new Set<string>(POST_PROCESS_PASS_IDS);
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
+const CUSTOM_ORDER_SCALE = 0.001;
+const CUSTOM_ORDER_LIMIT = 999;
 
 function allBackendsImplementation(): PostProcessPassDescriptor["implementations"] {
 	return {
@@ -37,21 +45,21 @@ function enabled(id: string): (state: ResolvedPostProcessState) => boolean {
 const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 	{
 		id: "ssao",
-		dependsOn: [],
+		placement: "spatial",
 		requirements: { gBuffer: ["depth", "normal"] },
 		isEnabled: enabled("ssao"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "ssgi",
-		dependsOn: ["ssao"],
-		requirements: { gBuffer: ["depth", "normal"] },
+		placement: "spatial",
+		requirements: { gBuffer: ["color", "depth", "normal", "albedo"] },
 		isEnabled: enabled("ssgi"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "taa",
-		dependsOn: ["ssgi", "ssao"],
+		placement: "temporal",
 		requirements: { gBuffer: ["motion"] },
 		history: [
 			{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
@@ -62,7 +70,7 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 	},
 	{
 		id: "ssr",
-		dependsOn: ["taa"],
+		placement: "temporal",
 		requirements: { gBuffer: ["depth", "normal", "motion"] },
 		history: [
 			{ id: "ssr", usage: DEFAULT_HISTORY_USAGE },
@@ -73,7 +81,7 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 	},
 	{
 		id: "volumetric",
-		dependsOn: ["ssr"],
+		placement: "atmosphere",
 		requirements: { gBuffer: ["depth", "motion"] },
 		history: [
 			{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
@@ -85,58 +93,58 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 	},
 	{
 		id: "fog",
-		dependsOn: ["volumetric"],
+		placement: "atmosphere",
 		requirements: { gBuffer: ["depth"] },
 		isEnabled: isFogPostProcessEnabled,
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "motion-blur",
-		dependsOn: ["fog"],
-		requirements: { gBuffer: ["motion"] },
+		placement: "camera",
+		requirements: { gBuffer: ["depth", "motion"] },
 		isEnabled: enabled("motion-blur"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "dof",
-		dependsOn: ["motion-blur"],
+		placement: "camera",
 		requirements: { gBuffer: ["depth"] },
 		isEnabled: enabled("dof"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "bloom",
-		dependsOn: ["dof"],
+		placement: "hdr",
 		isEnabled: enabled("bloom"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "tonemap",
-		dependsOn: ["bloom"],
+		placement: "hdr",
 		isEnabled: enabled("tonemap"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "color-filter",
-		dependsOn: ["tonemap"],
+		placement: "ldr",
 		isEnabled: enabled("color-filter"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "fxaa",
-		dependsOn: ["color-filter"],
+		placement: "ldr",
 		isEnabled: enabled("fxaa"),
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "interaction-outline",
-		dependsOn: ["fxaa"],
+		placement: "overlay",
 		isEnabled: (state) => state.enabled["interaction-outline"],
 		implementations: allBackendsImplementation(),
 	},
 	{
 		id: "gamma",
-		dependsOn: ["interaction-outline", "tonemap"],
+		placement: "present",
 		isEnabled: (state) =>
 			state.enabled.gamma || hasEnabledCustomPostProcessPass(state),
 		implementations: allBackendsImplementation(),
@@ -147,10 +155,11 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
  * Executes logical post-process passes across backends.
  */
 export class PostProcessPipeline {
-	private _graph = new PostProcessGraph<PostProcessPassDescriptor>(
-		BUILTIN_POST_PROCESS_PASSES,
-		POST_PROCESS_PASS_IDS
+	private _passes = new Map<string, PostProcessPassDescriptor>(
+		BUILTIN_POST_PROCESS_PASSES.map((pass) => [pass.id, pass])
 	);
+	private _customInsertionOrder = new Map<string, number>();
+	private _nextCustomInsertionOrder = 0;
 	private _history = new PostProcessHistoryManager();
 
 	/**
@@ -159,10 +168,15 @@ export class PostProcessPipeline {
 	 * @param pass Descriptor with backend implementation metadata.
 	 * @returns Nothing.
 	 * @throws If the id is empty, built-in, or already registered.
-	 * @sideEffects Mutates the logical post-process graph.
+	 * @sideEffects Mutates the logical post-process pass registry.
 	 */
 	public registerPass(pass: PostProcessPassDescriptor): void {
-		this._graph.register(pass);
+		this._assertCanRegisterPass(pass);
+		this._passes.set(pass.id, pass);
+		this._customInsertionOrder.set(
+			pass.id,
+			this._nextCustomInsertionOrder++
+		);
 	}
 
 	/**
@@ -171,10 +185,14 @@ export class PostProcessPipeline {
 	 * @param id Custom pass id.
 	 * @returns Nothing.
 	 * @throws If `id` is a built-in pass id.
-	 * @sideEffects Mutates the logical post-process graph.
+	 * @sideEffects Mutates the logical post-process pass registry.
 	 */
 	public unregisterPass(id: string): void {
-		this._graph.unregister(id);
+		if (POST_PROCESS_PASS_ID_SET.has(id)) {
+			throw new Error(`Cannot unregister built-in post-process pass "${id}".`);
+		}
+		this._passes.delete(id);
+		this._customInsertionOrder.delete(id);
 	}
 
 	/**
@@ -194,18 +212,30 @@ export class PostProcessPipeline {
 	 * @param postProcess Resolved post-process state.
 	 * @param executor Active backend executor.
 	 * @param warn Diagnostic sink.
-	 * @returns Enabled descriptors in dependency order.
-	 * @sideEffects Emits graph diagnostics through `warn`.
+	 * @returns Enabled descriptors in placement order.
+	 * @sideEffects None.
 	 */
 	public getExecutionOrder(
 		postProcess: ResolvedPostProcessState,
 		executor: IPostProcessExecutor,
 		warn: (key: string, message: string) => void = () => {}
 	): PostProcessPassDescriptor[] {
-		return this._graph.getExecutionOrder(
-			(pass) => this._isPassEnabled(pass, postProcess, executor),
-			warn
+		void warn;
+		const enabled = Array.from(this._passes.values()).filter((pass) =>
+			this._isPassEnabled(pass, postProcess, executor)
 		);
+		enabled.sort((left, right) => {
+			const leftOrder = this._getPassSortOrder(left);
+			const rightOrder = this._getPassSortOrder(right);
+			if (leftOrder !== rightOrder) {
+				return leftOrder - rightOrder;
+			}
+			return (
+				(this._customInsertionOrder.get(left.id) ?? 0) -
+				(this._customInsertionOrder.get(right.id) ?? 0)
+			);
+		});
+		return enabled;
 	}
 
 	/**
@@ -309,6 +339,44 @@ export class PostProcessPipeline {
 			return executor.capabilities[pass.id] === true;
 		}
 		return !!pass.implementations[executor.backend];
+	}
+
+	private _assertCanRegisterPass(pass: PostProcessPassDescriptor): void {
+		if (!pass.id) {
+			throw new Error("Post-process pass id is required.");
+		}
+		if (POST_PROCESS_PASS_ID_SET.has(pass.id)) {
+			throw new Error(
+				`Cannot register built-in post-process pass "${pass.id}".`
+			);
+		}
+		if (this._passes.has(pass.id)) {
+			throw new Error(
+				`Post-process pass "${pass.id}" is already registered.`
+			);
+		}
+	}
+
+	private _getPassSortOrder(pass: PostProcessPassDescriptor): number {
+		const builtInOrder = getBuiltinPostProcessOrder(pass.id);
+		if (builtInOrder) {
+			return builtInOrder.order;
+		}
+		const placement =
+			isPostProcessPlacement(pass.placement) ?
+				pass.placement
+			:	DEFAULT_POST_PROCESS_PLACEMENT;
+		const localOrder =
+			typeof pass.order === "number" && Number.isFinite(pass.order) ?
+				Math.max(
+					-CUSTOM_ORDER_LIMIT,
+					Math.min(CUSTOM_ORDER_LIMIT, pass.order)
+				)
+			:	0;
+		return (
+			getCustomPostProcessPlacementOrder(placement) +
+			localOrder * CUSTOM_ORDER_SCALE
+		);
 	}
 
 	private _requirementsSatisfied(

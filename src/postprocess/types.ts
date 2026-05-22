@@ -7,6 +7,7 @@ import type {
 	PostProcessCapabilities,
 	ResolvedPostProcessState,
 } from "../pipeline/PostProcessController";
+import type { PostProcessPlacement } from "./ordering";
 
 export type PostProcessBackendKind = "software" | "webgpu" | "webgl" | (string & {});
 
@@ -106,8 +107,21 @@ export interface PostProcessPassImplementation {
 }
 
 export interface PostProcessPassDescriptor<TOptions = unknown> {
+	/**
+	 * Unique logical pass id used by resolved post-process state and backend
+	 * executors.
+	 */
 	readonly id: string;
-	readonly dependsOn?: readonly string[];
+	/**
+	 * Stable insertion bucket for custom pass scheduling. Built-in passes use
+	 * their fixed built-in order regardless of this value.
+	 */
+	readonly placement?: PostProcessPlacement;
+	/**
+	 * Fine-grained ordering offset inside the selected custom placement bucket.
+	 * This is not a dependency declaration.
+	 */
+	readonly order?: number;
 	readonly requirements?: PostProcessPassRequirements;
 	readonly history?: readonly PostProcessHistoryDescriptor[];
 	readonly incremental?: PostProcessIncrementalMetadata;

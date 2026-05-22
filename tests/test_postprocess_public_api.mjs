@@ -121,6 +121,12 @@ function createGBufferBridge() {
 				height: 32,
 				handle: { backend: "test", resource: "normal" },
 			},
+			albedo: {
+				semantic: "albedo",
+				width: 64,
+				height: 32,
+				handle: { backend: "test", resource: "albedo" },
+			},
 			motion: {
 				semantic: "motion",
 				width: 64,
@@ -298,7 +304,7 @@ async function testPipelineBackendImplementationSelection() {
 	const controller = new PostProcessController();
 	const pass = {
 		id: "custom-webgpu-only",
-		dependsOn: ["tonemap"],
+		placement: "ldr",
 		isEnabled: (state) => state.enabled["custom-webgpu-only"],
 		implementations: {
 			webgpu: {},
@@ -340,39 +346,53 @@ async function testPipelineBackendImplementationSelection() {
 	);
 }
 
-async function testPipelineDiagnosticsAndIncrementalStartPass() {
+async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 	const pipeline = new PostProcessPipeline();
 	const warnings = [];
 	pipeline.registerPass({
-		id: "missing-dependency-pass",
-		dependsOn: ["not-registered"],
-		isEnabled: (state) => state.enabled["missing-dependency-pass"],
+		id: "custom-hdr-pass",
+		placement: "hdr",
+		isEnabled: (state) => state.enabled["custom-hdr-pass"],
 		implementations: { webgpu: {} },
 	});
 	pipeline.registerPass({
-		id: "cycle-a",
-		dependsOn: ["cycle-b"],
-		isEnabled: (state) => state.enabled["cycle-a"],
-		implementations: { webgpu: {} },
-	});
-	pipeline.registerPass({
-		id: "cycle-b",
-		dependsOn: ["cycle-a"],
-		isEnabled: (state) => state.enabled["cycle-b"],
+		id: "custom-overlay-pass",
+		placement: "overlay",
+		order: -1,
+		isEnabled: (state) => state.enabled["custom-overlay-pass"],
 		implementations: { webgpu: {} },
 	});
 
 	const state = resolvePostProcessState(
 		{
+			bloom: { enabled: true },
+			"color-filter": { enabled: true },
 			fxaa: { enabled: true },
-			"missing-dependency-pass": { enabled: true },
-			"cycle-a": { enabled: true },
-			"cycle-b": { enabled: true },
+			"custom-hdr-pass": { enabled: true },
+			"custom-overlay-pass": { enabled: true },
 		},
 		ALL_POST_PROCESS_CAPABILITIES,
 		"webgpu"
 	);
 	const executor = new FakeExecutor("webgpu");
+	await pipeline.execute({
+		frameContext: createFrameContext(state),
+		executor,
+		gBuffer: createGBufferBridge(),
+		warn: (key, message) => warnings.push({ key, message }),
+	});
+
+	const fullOrder = executor.executed.map((entry) => entry.passId);
+	assert.ok(fullOrder.indexOf("bloom") < fullOrder.indexOf("custom-hdr-pass"));
+	assert.ok(
+		fullOrder.indexOf("custom-hdr-pass") < fullOrder.indexOf("tonemap")
+	);
+	assert.ok(fullOrder.indexOf("tonemap") < fullOrder.indexOf("color-filter"));
+	assert.ok(fullOrder.indexOf("fxaa") < fullOrder.indexOf("custom-overlay-pass"));
+	assert.ok(fullOrder.indexOf("custom-overlay-pass") < fullOrder.indexOf("gamma"));
+	assert.deepEqual(warnings, []);
+
+	const incrementalExecutor = new FakeExecutor("webgpu");
 	const result = await pipeline.execute({
 		frameContext: createFrameContext(state, {
 			enabled: true,
@@ -380,27 +400,17 @@ async function testPipelineDiagnosticsAndIncrementalStartPass() {
 			firstPass: "postprocess",
 			postProcessStartPass: "fxaa",
 		}),
-		executor,
+		executor: incrementalExecutor,
 		gBuffer: createGBufferBridge(),
 		warn: (key, message) => warnings.push({ key, message }),
 	});
 
 	assert.equal(result.firstStage, "postprocess");
 	assert.equal(result.startPassId, "fxaa");
-	assert.equal(executor.executed[0].passId, "fxaa");
+	assert.equal(incrementalExecutor.executed[0].passId, "fxaa");
 	assert.equal(
-		executor.executed.some((entry) => entry.passId === "tonemap"),
+		incrementalExecutor.executed.some((entry) => entry.passId === "tonemap"),
 		false
-	);
-	assert.ok(
-		warnings.some((warning) =>
-			warning.key.startsWith("postprocess-dependency-missing-")
-		)
-	);
-	assert.ok(
-		warnings.some((warning) =>
-			warning.key.startsWith("postprocess-cycle-")
-		)
 	);
 }
 
@@ -500,7 +510,7 @@ async function run() {
 	testUnsupportedExplicitEnableWarning();
 	testLogicalCustomPassRegistration();
 	await testPipelineBackendImplementationSelection();
-	await testPipelineDiagnosticsAndIncrementalStartPass();
+	await testPipelinePlacementOrderingAndIncrementalStartPass();
 	testHistoryManagerInvalidationAndResize();
 	testLogicalGBufferBridgeHelperShape();
 	console.log("Postprocess public API tests passed");

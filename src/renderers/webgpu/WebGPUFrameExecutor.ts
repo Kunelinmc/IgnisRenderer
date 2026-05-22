@@ -729,6 +729,14 @@ export class WebGPUFrameExecutor {
 						format: "rgba16float",
 						encoding: "encoded-world-normal",
 					},
+					albedo: {
+						semantic: "albedo",
+						handle: { backend: "webgpu", texture: targets.gAlbedoAlpha },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "linear-rgb-alpha",
+					},
 					motion: {
 						semantic: "motion",
 						handle: { backend: "webgpu", texture: targets.gMotionDepth },

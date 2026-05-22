@@ -3,14 +3,18 @@
 This document defines the cross-backend post-process abstraction used by `Renderer`, `PostProcessPipeline`, and render backends.
 
 ## Background
-The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` schedules logical passes inside that stage, owns temporal history handles, validates logical G-buffer requirements, and dispatches work through `IPostProcessExecutor.executePass(passId, request)`. Backends own concrete GPU or CPU resources but do not own pass scheduling or history validity.
+The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` schedules logical passes inside that stage using placement buckets and stable ordering, owns temporal history handles, validates logical G-buffer requirements, and dispatches work through `IPostProcessExecutor.executePass(passId, request)`. Backends own concrete GPU or CPU resources but do not own pass scheduling or history validity.
 
 ## API/Contract
 - `PostProcessPassDescriptor.id` must identify one logical pass.
-- `PostProcessPassDescriptor.dependsOn` must list logical pass ids that must execute before the pass when enabled.
+- `PostProcessPassDescriptor.placement` should identify where a custom pass enters the fixed post-process pipeline.
+- `PostProcessPassDescriptor.placement` may be `"spatial"`, `"temporal"`, `"atmosphere"`, `"camera"`, `"hdr"`, `"ldr"`, `"overlay"`, or `"present"`.
+- Custom passes that omit `PostProcessPassDescriptor.placement` must execute in the default `"overlay"` placement before `gamma`.
+- `PostProcessPassDescriptor.order` may refine ordering within a placement bucket. It must not be used as a cross-placement dependency mechanism.
 - `PostProcessPassDescriptor.requirements.gBuffer` must list required `LogicalGBufferSemantic` channels.
 - `PostProcessPassDescriptor.history` must list temporal resources owned by `PostProcessPipeline`.
 - `PostProcessPassDescriptor.implementations` must map backend kinds to backend-specific implementation metadata.
+- Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
 - `IPostProcessExecutor.capabilities` must expose the same capability set used by `resolvePostProcessState`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
@@ -30,7 +34,8 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 ```ts
 const descriptor = {
 	id: "custom-soft-glow",
-	dependsOn: ["bloom"],
+	placement: "hdr",
+	order: 10,
 	requirements: {
 		gBuffer: ["color", "depth"],
 	},
@@ -60,14 +65,13 @@ bun tests/test_postprocess_public_api.mjs
 ```
 
 ## Errors & Diagnostics
-- `postprocess-dependency-missing-<passId>-<dependencyId>` must be emitted when an enabled pass depends on an unknown pass.
-- `postprocess-cycle-<passId>` must be emitted when enabled logical passes contain a dependency cycle.
 - `postprocess-requirement-missing-<passId>` must be emitted when required logical G-buffer channels are unavailable.
 - `Unknown post-process pass "<id>".` must be thrown when a caller enables an unregistered custom pass id.
 - `Cannot register built-in post-process pass "<id>" as a custom pass.` must be thrown when a custom descriptor uses a built-in id.
 
 ## Compatibility / Breaking Changes
 - Backend-specific public post-process graph registration is removed.
+- `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.
 - Code that previously depended on per-pass frame stages such as `ssao`, `taa`, or `gamma` must use the single `postprocess` frame stage and inspect `IncrementalFrameContext.postProcessStartPass` for the internal pass start.

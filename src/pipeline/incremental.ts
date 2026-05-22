@@ -201,7 +201,7 @@ const BUILTIN_FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"postprocess",
 ];
 
-type PostProcessStage = PostProcessPassId | "interaction-outline";
+type PostProcessStage = PostProcessPassId | (string & {});
 
 const POST_PROCESS_GRADE_INFLATION_RADIUS: Record<PostProcessGrade, number> = {
 	none: 0,
@@ -448,9 +448,9 @@ const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
 const DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA: Required<
 	Omit<PostProcessIncrementalMetadata, "firstPass">
 > & {
-	firstPass: FramePassStage;
+	firstPass: null;
 } = {
-	firstPass: "gamma",
+	firstPass: null,
 	grade: "light",
 	inflationRadius: 2,
 	fallbackScale: 1,
@@ -657,6 +657,18 @@ export class IncrementalRegistry {
 		this._postProcessPasses.delete(id);
 	}
 
+	/**
+	 * Returns whether an id is known as a built-in or registered custom
+	 * post-process pass for incremental planning.
+	 *
+	 * @param id Candidate post-process pass id.
+	 * @returns `true` when the id belongs to the post-process sequence.
+	 * @sideEffects None.
+	 */
+	public isPostProcessPass(id: string): boolean {
+		return this._postProcessPasses.has(id) || isBuiltInPostProcessStage(id);
+	}
+
 	public resolveFirstEnabledPostProcessStage(
 		postProcess: ResolvedPostProcessState
 	): FramePassStage | null {
@@ -838,7 +850,7 @@ export class IncrementalRegistry {
 			id,
 			firstPass:
 				metadata.firstPass === undefined ?
-					DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA.firstPass
+					id
 				:	metadata.firstPass,
 			grade:
 				metadata.grade ??
@@ -979,7 +991,9 @@ export class IncrementalFramePlanner {
 
 		const firstPass = registry.pickEarliestPass(candidates);
 		const postProcessStartPass =
-			isPostProcessStage(firstPass) ? firstPass : null;
+			isPostProcessStage(firstPass, registry, input.postProcess) ?
+				firstPass
+			:	null;
 		return {
 			firstPass: postProcessStartPass ? "postprocess" : firstPass,
 			postProcessStartPass,
@@ -990,7 +1004,20 @@ export class IncrementalFramePlanner {
 	}
 }
 
-function isPostProcessStage(stage: FramePassStage | null): stage is PostProcessStage {
+function isPostProcessStage(
+	stage: FramePassStage | null,
+	registry: IncrementalRegistry,
+	postProcess: ResolvedPostProcessState
+): stage is PostProcessStage {
+	if (stage && registry.isPostProcessPass(stage)) {
+		return true;
+	}
+	return stage ? postProcess.enabled[stage] === true : false;
+}
+
+function isBuiltInPostProcessStage(
+	stage: FramePassStage | null
+): stage is PostProcessStage {
 	switch (stage) {
 		case "ssao":
 		case "ssgi":

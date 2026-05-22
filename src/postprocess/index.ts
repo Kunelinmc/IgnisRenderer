@@ -1,11 +1,17 @@
 export {
-	PostProcessGraph,
-	type PostProcessGraphNode,
-} from "./PostProcessGraph";
-export {
 	PostProcessHistoryManager,
 	type PostProcessHistoryPrepareRequest,
 } from "./PostProcessHistoryManager";
+export {
+	BUILTIN_POST_PROCESS_ORDER,
+	DEFAULT_POST_PROCESS_PLACEMENT,
+	POST_PROCESS_PLACEMENTS,
+	getBuiltinPostProcessOrder,
+	getCustomPostProcessPlacementOrder,
+	isPostProcessPlacement,
+	type BuiltinPostProcessOrderEntry,
+	type PostProcessPlacement,
+} from "./ordering";
 export {
 	PostProcessPipeline,
 	getBuiltinPostProcessPasses,

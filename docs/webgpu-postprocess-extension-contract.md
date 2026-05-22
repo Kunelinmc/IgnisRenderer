@@ -8,6 +8,7 @@ WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostPro
 ## API/Contract
 - `renderer.postProcess.registerPass(descriptor)` must register a logical `PostProcessPassDescriptor`.
 - A WebGPU custom pass must include `descriptor.implementations.webgpu`.
+- A WebGPU custom pass should use `descriptor.placement` and optional `descriptor.order` to enter the fixed post-process sequence.
 - `WebGPUBackend.postProcess.executor.backend` must be `"webgpu"`.
 - `WebGPUBackend.postProcess.executor.executePass(passId, request)` must dispatch the corresponding WebGPU post-process implementation.
 - `WebGPUBackend.postProcess.createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGPU texture handles.
@@ -24,9 +25,10 @@ import type { PostProcessPassDescriptor } from "ignisrenderer";
 
 const descriptor: PostProcessPassDescriptor = {
 	id: "custom-webgpu-edge",
-	dependsOn: ["tonemap"],
+	placement: "ldr",
+	order: 5,
 	incremental: {
-		firstPass: "tonemap",
+		firstPass: "custom-webgpu-edge",
 		grade: "light",
 		inflationRadius: 2,
 	},
@@ -53,8 +55,6 @@ bun tests/test_webgpu_postprocess_runtime_screen.mjs
 ## Errors & Diagnostics
 - `Unknown post-process pass "<id>".` must be thrown when `renderer.postProcess.enable(id)` is called before `renderer.postProcess.registerPass(descriptor)`.
 - `postprocess-requirement-missing-<passId>` must be emitted when the WebGPU G-buffer bridge lacks a required semantic channel.
-- `postprocess-dependency-missing-<passId>-<dependencyId>` must be emitted when a logical descriptor references an unknown dependency.
-- `postprocess-cycle-<passId>` must be emitted when logical descriptors form a cycle.
 - WebGPU device allocation failures during `createResource(desc)` must propagate as backend resource allocation errors.
 
 ## Compatibility / Breaking Changes
@@ -62,3 +62,4 @@ bun tests/test_webgpu_postprocess_runtime_screen.mjs
 - `WebGPUBackend.postProcess.registerPass(pass)` is removed.
 - `WebGPUBackend.postProcess.unregisterPass(id)` is removed.
 - Public custom passes must migrate to `PostProcessPassDescriptor` and `renderer.postProcess.registerPass(descriptor)`.
+- `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must migrate to `placement` and optional `order`.

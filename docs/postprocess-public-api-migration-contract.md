@@ -17,6 +17,7 @@ Post-process pass registration previously flowed through backend-owned WebGPU an
 - `renderer.postProcess.registerPass(pass)` must register a `PostProcessPassDescriptor`.
 - `renderer.postProcess.unregisterPass(id)` must remove the logical descriptor and any stored request state for `id`.
 - A custom `PostProcessPassDescriptor` must declare backend implementations through `implementations`.
+- A custom `PostProcessPassDescriptor` should declare `placement` instead of pass dependencies.
 - A custom pass without an implementation for the active `IPostProcessExecutor.backend` must be treated as unsupported for that backend.
 - `RenderBackendPostProcessSupport` must expose only `capabilities`, `executor`, and `createGBufferBridge(context)`.
 - `RenderBackendPostProcessSupport` must not expose `registerPass` or `unregisterPass`.
@@ -45,9 +46,10 @@ import type { PostProcessPassDescriptor } from "ignisrenderer";
 
 const customEdgePass: PostProcessPassDescriptor = {
 	id: "custom-edge",
-	dependsOn: ["tonemap"],
+	placement: "ldr",
+	order: 5,
 	incremental: {
-		firstPass: "tonemap",
+		firstPass: "custom-edge",
 		grade: "light",
 		inflationRadius: 2,
 	},
@@ -106,3 +108,4 @@ bun tests/test_postprocess_public_api.mjs
 - `backend.postProcess.registerPass(pass)` is removed.
 - `backend.postProcess.unregisterPass(id)` is removed.
 - `WebGPUPostProcessPassPlugin` and `WebGLPostProcessPassPlugin` are removed from the public API.
+- `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.

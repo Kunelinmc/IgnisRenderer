@@ -111,6 +111,15 @@ export function createNoopPostProcessSupport(
 							resource: attachments.normalBuffer ?? null,
 						},
 					},
+					albedo: {
+						semantic: "albedo",
+						width,
+						height,
+						handle: {
+							backend,
+							resource: attachments.albedoBuffer ?? attachments.pixels ?? null,
+						},
+					},
 					motion: {
 						semantic: "motion",
 						width,
