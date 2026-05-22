@@ -18,19 +18,7 @@ const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"main-opaque",
 	"main-transparent",
 	"particles",
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"gamma",
+	"postprocess",
 ];
 
 export class FramePlanner {
@@ -74,32 +62,20 @@ function shouldEnablePass(
 			return frame.transparentPackets.length > 0;
 		case "particles":
 			return (frame.particleSystems?.length ?? 0) > 0;
-		case "ssao":
-			return postProcess.enabled.ssao;
-		case "ssgi":
-			return postProcess.enabled.ssgi;
-		case "taa":
-			return postProcess.enabled.taa;
-		case "ssr":
-			return postProcess.enabled.ssr;
-		case "volumetric":
-			return postProcess.enabled.volumetric;
-		case "fog":
-			return isFogPostProcessEnabled(postProcess);
-		case "motion-blur":
-			return postProcess.enabled["motion-blur"];
-		case "dof":
-			return postProcess.enabled.dof;
-		case "bloom":
-			return postProcess.enabled.bloom;
-		case "tonemap":
-			return postProcess.enabled.tonemap;
-		case "color-filter":
-			return postProcess.enabled["color-filter"];
-		case "fxaa":
-			return postProcess.enabled.fxaa;
-		case "gamma":
+		case "postprocess":
 			return (
+				postProcess.enabled.ssao ||
+				postProcess.enabled.ssgi ||
+				postProcess.enabled.taa ||
+				postProcess.enabled.ssr ||
+				postProcess.enabled.volumetric ||
+				isFogPostProcessEnabled(postProcess) ||
+				postProcess.enabled["motion-blur"] ||
+				postProcess.enabled.dof ||
+				postProcess.enabled.bloom ||
+				postProcess.enabled.tonemap ||
+				postProcess.enabled["color-filter"] ||
+				postProcess.enabled.fxaa ||
 				postProcess.enabled.gamma ||
 				hasEnabledCustomPostProcessPass(postProcess)
 			);

@@ -203,20 +203,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"main-opaque",
 	"main-transparent",
 	"particles",
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
+	"postprocess",
 ] as const;
 
 export type BuiltinFramePassStage = (typeof BUILTIN_FRAME_PASS_STAGES)[number];
@@ -237,20 +224,7 @@ export const FRAME_PASS_DEPENDENCIES = new Map<
 	["main-opaque", ["reflection", "shadow"]],
 	["main-transparent", ["main-opaque"]],
 	["particles", ["main-transparent"]],
-	["ssao", ["particles"]],
-	["ssgi", ["ssao"]],
-	["taa", ["ssgi", "ssao"]],
-	["ssr", ["taa"]],
-	["volumetric", ["ssr"]],
-	["fog", ["volumetric"]],
-	["motion-blur", ["fog"]],
-	["dof", ["motion-blur"]],
-	["bloom", ["dof"]],
-	["tonemap", ["bloom"]],
-	["color-filter", ["tonemap"]],
-	["fxaa", ["color-filter"]],
-	["interaction-outline", ["fxaa"]],
-	["gamma", ["tonemap"]],
+	["postprocess", ["particles"]],
 ]);
 
 export interface VolumetricOptions {

@@ -21,20 +21,7 @@ export const TAA_JITTER_SEQUENCE_LENGTH = 16;
  * Shared post-process execution order across rendering backends.
  */
 export const POST_PROCESS_STAGES = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
+	"postprocess",
 ] as const;
 
 /**
