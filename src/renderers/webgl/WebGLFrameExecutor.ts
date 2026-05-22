@@ -48,6 +48,13 @@ import {
 	type SSAOOptions,
 	type TAAOptions,
 } from "../../pipeline/types";
+import type {
+	LogicalGBufferBridge,
+	PostProcessPassRequest,
+	PostProcessPassResult,
+	PostProcessResourceDescriptor,
+	PostProcessResourceHandle,
+} from "../../postprocess";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
@@ -402,6 +409,147 @@ export class WebGLFrameExecutor {
 
 	public unregisterPostProcessPass(id: string): void {
 		this._postProcessRuntime.unregisterPass(id);
+	}
+
+	public createPostProcessResource(
+		desc: PostProcessResourceDescriptor
+	): PostProcessResourceHandle {
+		const gl = this._gl;
+		const texture = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		const internalFormat =
+			desc.format === "rgba8unorm" ? gl.RGBA8 : gl.RGBA16F;
+		const type = desc.format === "rgba8unorm" ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
+		gl.texImage2D(
+			gl.TEXTURE_2D,
+			0,
+			internalFormat,
+			desc.width,
+			desc.height,
+			0,
+			gl.RGBA,
+			type,
+			null
+		);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		return {
+			id: desc.id,
+			backend: "webgl",
+			width: desc.width,
+			height: desc.height,
+			format: desc.format,
+			resource: texture,
+		};
+	}
+
+	public destroyPostProcessResource(handle: PostProcessResourceHandle): void {
+		this._gl.deleteTexture(handle.resource as WebGLTexture | null);
+	}
+
+	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+		const width = Math.max(1, context.attachments.width);
+		const height = Math.max(1, context.attachments.height);
+		return {
+			width,
+			height,
+			normalSpace: "world",
+			depthEncoding: "hardware",
+			motionEncoding: "ndc-delta",
+			channels: {
+				color: this._sceneColorTexture ?
+					{
+						semantic: "color",
+						handle: { backend: "webgl", texture: this._sceneColorTexture },
+						width,
+						height,
+						format: "rgba16float",
+					}
+				:	undefined,
+				depth: this._sceneMotionTexture ?
+					{
+						semantic: "depth",
+						handle: { backend: "webgl", texture: this._sceneMotionTexture },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "motion-depth.z",
+					}
+				:	undefined,
+				motion: this._sceneMotionTexture ?
+					{
+						semantic: "motion",
+						handle: { backend: "webgl", texture: this._sceneMotionTexture },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "motion-depth.xy",
+					}
+				:	undefined,
+				normal: this._sceneNormalTexture ?
+					{
+						semantic: "normal",
+						handle: { backend: "webgl", texture: this._sceneNormalTexture },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "world-normal",
+					}
+				:	undefined,
+			},
+			worldPosition: {
+				source: "derived",
+				available: !!this._sceneMotionTexture,
+			},
+		};
+	}
+
+	public executePostProcessPass(
+		passId: string,
+		request: PostProcessPassRequest
+	): PostProcessPassResult {
+		const context = request.frameContext;
+		switch (passId) {
+			case "ssao":
+				this._applySSAO(context.postProcess.options.ssao, context);
+				return { ran: true };
+			case "taa":
+				this._applyPipelineHistories(request);
+				this._applyTAA(context.postProcess.options.taa);
+				return { ran: true, updatedHistoryIds: ["taa"] };
+			case "fog":
+				this._applyFog(context.postProcess.options.fog);
+				return { ran: true };
+			case "motion-blur":
+				this._applyMotionBlur(context.postProcess.options["motion-blur"]);
+				return { ran: true };
+			case "dof":
+				this._applyDOF(context.postProcess.options.dof);
+				return { ran: true };
+			case "bloom":
+				this._applyBloom(context.postProcess.options.bloom);
+				return { ran: true };
+			case "tonemap":
+				this._applyToneMapping();
+				return { ran: true };
+			case "color-filter":
+				this._applyColorFilter(context.postProcess.options["color-filter"]);
+				return { ran: true };
+			case "fxaa":
+				this._applyFXAA();
+				return { ran: true };
+			case "interaction-outline":
+				this._applyInteractionOutline(context);
+				return { ran: true };
+			case "gamma":
+				this._present(context.postProcess.enabled.gamma);
+				return { ran: true };
+			default:
+				return { ran: false };
+		}
 	}
 
 	public endFrame(): void {
@@ -886,6 +1034,25 @@ export class WebGLFrameExecutor {
 					onceKey: key,
 				})
 		);
+	}
+
+	private _applyPipelineHistories(request: PostProcessPassRequest): void {
+		const taa = request.histories.taa;
+		if (taa) {
+			this._taaHistoryTextures = [
+				taa.read.resource as WebGLTexture | null,
+				taa.write.resource as WebGLTexture | null,
+			];
+			this._taaHistoryIndex = 0;
+			this._taaHistoryValid = taa.valid;
+		}
+		const motion = request.histories.motion;
+		if (motion) {
+			this._taaMotionHistoryTextures = [
+				motion.read.resource as WebGLTexture | null,
+				motion.write.resource as WebGLTexture | null,
+			];
+		}
 	}
 
 	private _createDefaultPostProcessPasses(): WebGLPostProcessPassPlugin[] {

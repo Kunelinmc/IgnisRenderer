@@ -1,4 +1,11 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
+import type {
+	LogicalGBufferBridge,
+	PostProcessPassRequest,
+	PostProcessPassResult,
+	PostProcessResourceDescriptor,
+	PostProcessResourceHandle,
+} from "../../postprocess";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
@@ -649,6 +656,198 @@ export class WebGPUFrameExecutor {
 		this._postGraph.unregisterPass(id);
 		if (pass?.runtime) {
 			this._postRuntime.unregisterRuntimePass(pass.runtime.id);
+		}
+	}
+
+	public createPostProcessResource(
+		desc: PostProcessResourceDescriptor
+	): PostProcessResourceHandle {
+		const texture = this._backend.createTexture({
+			width: desc.width,
+			height: desc.height,
+			format:
+				desc.format === "rgba8unorm" ?
+					TextureFormat.RGBA8Unorm
+				:	TextureFormat.RGBA16Float,
+			usage:
+				TextureUsage.TextureBinding |
+				TextureUsage.StorageBinding |
+				TextureUsage.RenderAttachment |
+				TextureUsage.CopyDst |
+				TextureUsage.CopySrc,
+			label: `WebGPUPostHistory_${desc.id}`,
+		});
+		return {
+			id: desc.id,
+			backend: "webgpu",
+			width: desc.width,
+			height: desc.height,
+			format: desc.format,
+			resource: texture,
+		};
+	}
+
+	public destroyPostProcessResource(handle: PostProcessResourceHandle): void {
+		(handle.resource as IRenderTexture | null)?.destroy?.();
+	}
+
+	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+		const targets = this._frameTargets;
+		const width = Math.max(1, context.attachments.width);
+		const height = Math.max(1, context.attachments.height);
+		return {
+			width,
+			height,
+			normalSpace: "world",
+			depthEncoding: "hardware",
+			motionEncoding: "ndc-delta",
+			channels: targets ?
+				{
+					color: {
+						semantic: "color",
+						handle: { backend: "webgpu", texture: targets.sceneColor },
+						width,
+						height,
+						format: "rgba16float",
+					},
+					depth: {
+						semantic: "depth",
+						handle: { backend: "webgpu", texture: targets.gMotionDepth },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "motion-depth.z",
+					},
+					normal: {
+						semantic: "normal",
+						handle: {
+							backend: "webgpu",
+							texture: targets.gNormalRoughMetal,
+						},
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "encoded-world-normal",
+					},
+					motion: {
+						semantic: "motion",
+						handle: { backend: "webgpu", texture: targets.gMotionDepth },
+						width,
+						height,
+						format: "rgba16float",
+						encoding: "motion-depth.xy",
+					},
+				}
+			:	{},
+			worldPosition: {
+				source: "derived",
+				available: !!targets,
+			},
+		};
+	}
+
+	public async executePostProcessPass(
+		passId: string,
+		request: PostProcessPassRequest
+	): Promise<PostProcessPassResult> {
+		if (!this._encoder || !this._frameTargets) {
+			return { ran: false };
+		}
+		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
+		this._applyPipelineHistories(request);
+		switch (passId) {
+			case "ssao":
+			case "ssgi":
+			case "fog":
+			case "motion-blur":
+			case "dof":
+			case "bloom":
+			case "fxaa":
+			case "color-filter":
+			case "tonemap": {
+				await this._postRuntime.executePass({
+					passId,
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					frameContext: request.frameContext,
+				} as WebGPUPostProcessExecuteRequest);
+				return { ran: true };
+			}
+			case "interaction-outline": {
+				const interaction = request.frameContext.transient.get(
+					INTERACTION_TRANSIENT_STATE_KEY
+				);
+				if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
+					return { ran: false };
+				}
+				await this._postRuntime.executePass({
+					passId,
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					frameContext: request.frameContext,
+					state: interaction,
+				} as WebGPUPostProcessExecuteRequest);
+				return { ran: true };
+			}
+			case "taa": {
+				const result = await this._postRuntime.executePass({
+					passId,
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					frameContext: request.frameContext,
+					historyValid:
+						(request.histories.taa?.valid ?? false) &&
+						(request.histories.motion?.valid ?? false),
+				} as WebGPUPostProcessExecuteRequest);
+				return {
+					ran: result.ran,
+					updatedHistoryIds: result.historyUpdated ? ["taa"] : [],
+				};
+			}
+			case "ssr": {
+				const result = await this._postRuntime.executePass({
+					passId,
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					frameContext: request.frameContext,
+					historyValid:
+						(request.histories.ssr?.valid ?? false) &&
+						(request.histories.motion?.valid ?? false),
+					frameBinding: this._resources.getFrameBinding(),
+				} as WebGPUPostProcessExecuteRequest);
+				return {
+					ran: result.ran,
+					updatedHistoryIds: result.historyUpdated ? ["ssr"] : [],
+				};
+			}
+			case "volumetric": {
+				const result = await this._postRuntime.executePass({
+					passId,
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					frameContext: request.frameContext,
+					historyValid:
+						(request.histories.volumetric?.valid ?? false) &&
+						(request.histories.motion?.valid ?? false),
+					frameBinding: this._resources.getFrameBinding(),
+					lightingState: this._resources.getLightingState(),
+				} as WebGPUPostProcessExecuteRequest);
+				return {
+					ran: result.ran,
+					updatedHistoryIds:
+						result.historyUpdated ?
+							["volumetric", "volumetric-reservoir"]
+						:	[],
+				};
+			}
+			case "gamma":
+				await this._presentToCanvas(
+					this._frameTargets.sceneColor,
+					request.frameContext.postProcess.enabled.gamma
+				);
+				return { ran: true };
+			default:
+				return { ran: false };
 		}
 	}
 
@@ -1712,6 +1911,44 @@ export class WebGPUFrameExecutor {
 			this._motionHistoryFlip ? this._motionHistoryB : this._motionHistoryA;
 		targets.motionHistoryWrite =
 			this._motionHistoryFlip ? this._motionHistoryA : this._motionHistoryB;
+	}
+
+	private _applyPipelineHistories(request: PostProcessPassRequest): void {
+		if (!this._frameTargets) {
+			return;
+		}
+		const texture = (id: string, side: "read" | "write"): IRenderTexture | null =>
+			(request.histories[id]?.[side].resource as IRenderTexture | null) ?? null;
+		const taaRead = texture("taa", "read");
+		const taaWrite = texture("taa", "write");
+		if (taaRead && taaWrite) {
+			this._frameTargets.historyRead = taaRead;
+			this._frameTargets.historyWrite = taaWrite;
+		}
+		const ssrRead = texture("ssr", "read");
+		const ssrWrite = texture("ssr", "write");
+		if (ssrRead && ssrWrite) {
+			this._frameTargets.ssrHistoryRead = ssrRead;
+			this._frameTargets.ssrHistoryWrite = ssrWrite;
+		}
+		const volumetricRead = texture("volumetric", "read");
+		const volumetricWrite = texture("volumetric", "write");
+		if (volumetricRead && volumetricWrite) {
+			this._frameTargets.volumetricHistoryRead = volumetricRead;
+			this._frameTargets.volumetricHistoryWrite = volumetricWrite;
+		}
+		const reservoirRead = texture("volumetric-reservoir", "read");
+		const reservoirWrite = texture("volumetric-reservoir", "write");
+		if (reservoirRead && reservoirWrite) {
+			this._frameTargets.volumetricReservoirHistoryRead = reservoirRead;
+			this._frameTargets.volumetricReservoirHistoryWrite = reservoirWrite;
+		}
+		const motionRead = texture("motion", "read");
+		const motionWrite = texture("motion", "write");
+		if (motionRead && motionWrite) {
+			this._frameTargets.motionHistoryRead = motionRead;
+			this._frameTargets.motionHistoryWrite = motionWrite;
+		}
 	}
 
 	private _destroyFrameTargets(): void {
