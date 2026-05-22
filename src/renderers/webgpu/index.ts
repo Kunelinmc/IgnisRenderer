@@ -9,5 +9,4 @@ export * from "./StructuredBufferPacker";
 export * from "./texture";
 export * from "./ComputeFacade";
 export * from "./ComputeRuntime";
-export * from "./WebGPUPostProcessGraph";
 export * from "./WebGPUClusteredLightingRuntime";

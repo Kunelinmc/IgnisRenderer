@@ -59,22 +59,6 @@ export {
 	type ReadBufferOptions,
 	type ReadTextureOptions,
 } from "./renderers/webgpu/ComputeRuntime";
-export type {
-	WebGPUBuiltinPostProcessPassId,
-	WebGPUPostProcessPassPlugin,
-	WebGPUPostProcessPassKind,
-} from "./renderers/webgpu/WebGPUPostProcessGraph";
-export {
-	WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS,
-	isWebGPUBuiltinPostProcessPassId,
-} from "./renderers/webgpu/WebGPUPostProcessGraph";
-export type {
-	WebGPUCustomPostProcessExecuteRequest,
-	WebGPUPostProcessExecuteResult,
-	WebGPUPostProcessRuntimeContext,
-	WebGPUPostProcessRuntimeExecuteRequest,
-	WebGPUPostProcessRuntimePass,
-} from "./renderers/webgpu/WebGPUPostProcessRuntime";
 export { Rasterizer } from "./renderers/software/Rasterizer";
 export { PostProcessor } from "./renderers/software/PostProcessor";
 export type {
@@ -107,6 +91,7 @@ export type {
 	PostProcessRequest,
 	ResolvedPostProcessState,
 } from "./pipeline/PostProcessController";
+export * from "./postprocess";
 export {
 	DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
