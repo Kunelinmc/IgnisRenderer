@@ -282,22 +282,17 @@ export class PostProcessController<
 	}
 
 	/**
-	 * Registers a custom backend post-process pass and makes its id available
+	 * Registers a custom logical post-process pass and makes its id available
 	 * to `enable`, `disable`, `setOptions`, and `reset`.
 	 *
-	 * @param pass Backend-specific pass descriptor with a unique custom id.
+	 * @param pass Logical pass descriptor with a unique custom id.
 	 * @returns This controller for call chaining.
-	 * @sideEffects Mutates controller registration state and forwards the pass
-	 * to the connected backend registry when available.
+	 * @sideEffects Mutates controller registration state and notifies the
+	 * connected post-process pipeline.
 	 */
 	public registerPass(pass: TBackendPass): this {
 		this._assertCanRegisterCustomPass(pass);
-		if (!this._passRegistry) {
-			throw new Error(
-				"Post-process backend pass registry is not available for this renderer."
-			);
-		}
-		this._passRegistry.registerPass(pass);
+		this._passRegistry?.registerPass(pass);
 		this._customPasses.set(pass.id, pass);
 		this._onRegisterPass?.(pass);
 		this._notifyChanged();
@@ -310,19 +305,13 @@ export class PostProcessController<
 	 * @param id Custom pass id to remove.
 	 * @returns This controller for call chaining.
 	 * @sideEffects Mutates controller registration state, removes any stored
-	 * request for the pass, and forwards unregister to the connected backend
-	 * registry when available.
+	 * request for the pass, and notifies the connected post-process pipeline.
 	 */
 	public unregisterPass(id: string): this {
 		if (!this._customPasses.has(id)) {
 			return this;
 		}
-		if (!this._passRegistry) {
-			throw new Error(
-				"Post-process backend pass registry is not available for this renderer."
-			);
-		}
-		this._passRegistry.unregisterPass(id);
+		this._passRegistry?.unregisterPass(id);
 		this._customPasses.delete(id);
 		this._onUnregisterPass?.(id);
 		const mutable = this._request as MutablePostProcessRequest;
