@@ -1,5 +1,4 @@
 import {
-	type BuiltinFramePassStage,
 	type FramePassStage,
 	type ResolvedFeatureState,
 } from "./types";
@@ -76,6 +75,7 @@ export interface IncrementalFrameStats {
 	forceFullFrame: boolean;
 	temporalHistoryReset: boolean;
 	firstPass: FramePassStage | null;
+	postProcessStartPass: string | null;
 	dirtyRectCount: number;
 	dirtyTileCount: number;
 	dirtyTileSize: number;
@@ -96,6 +96,7 @@ export interface IncrementalFrameContext {
 	dirtyTiles: number[];
 	dirtyAreaRatio: number;
 	firstPass: FramePassStage | null;
+	postProcessStartPass: string | null;
 	reasonMask: number;
 	temporalHistoryReset: boolean;
 }
@@ -110,6 +111,7 @@ export interface IncrementalPlanInput {
 
 export interface IncrementalPlan {
 	firstPass: FramePassStage | null;
+	postProcessStartPass: string | null;
 	forceFullFrame: boolean;
 	temporalHistoryReset: boolean;
 	reasonMask: number;
@@ -196,38 +198,10 @@ const BUILTIN_FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"main-opaque",
 	"main-transparent",
 	"particles",
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
+	"postprocess",
 ];
 
-type PostProcessStage = Extract<
-	BuiltinFramePassStage,
-	| "ssao"
-	| "ssgi"
-	| "taa"
-	| "ssr"
-	| "volumetric"
-	| "fog"
-	| "motion-blur"
-	| "dof"
-	| "bloom"
-	| "tonemap"
-	| "color-filter"
-	| "fxaa"
-	| "gamma"
->;
+type PostProcessStage = PostProcessPassId | "interaction-outline";
 
 const POST_PROCESS_GRADE_INFLATION_RADIUS: Record<PostProcessGrade, number> = {
 	none: 0,
@@ -966,6 +940,7 @@ export class IncrementalFramePlanner {
 		if (!input.enabled) {
 			return {
 				firstPass: null,
+				postProcessStartPass: null,
 				forceFullFrame: true,
 				temporalHistoryReset: true,
 				reasonMask,
@@ -975,6 +950,7 @@ export class IncrementalFramePlanner {
 		if (reasonMask === 0) {
 			return {
 				firstPass: null,
+				postProcessStartPass: null,
 				forceFullFrame: false,
 				temporalHistoryReset: false,
 				reasonMask,
@@ -1001,12 +977,38 @@ export class IncrementalFramePlanner {
 			candidates.push("main-opaque");
 		}
 
+		const firstPass = registry.pickEarliestPass(candidates);
+		const postProcessStartPass =
+			isPostProcessStage(firstPass) ? firstPass : null;
 		return {
-			firstPass: registry.pickEarliestPass(candidates),
+			firstPass: postProcessStartPass ? "postprocess" : firstPass,
+			postProcessStartPass,
 			forceFullFrame,
 			temporalHistoryReset,
 			reasonMask,
 		};
+	}
+}
+
+function isPostProcessStage(stage: FramePassStage | null): stage is PostProcessStage {
+	switch (stage) {
+		case "ssao":
+		case "ssgi":
+		case "taa":
+		case "ssr":
+		case "volumetric":
+		case "fog":
+		case "motion-blur":
+		case "dof":
+		case "bloom":
+		case "tonemap":
+		case "color-filter":
+		case "fxaa":
+		case "interaction-outline":
+		case "gamma":
+			return true;
+		default:
+			return false;
 	}
 }
 
