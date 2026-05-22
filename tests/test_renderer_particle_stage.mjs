@@ -9,7 +9,10 @@ import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../src/pipeline/types.ts";
 import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -25,9 +28,10 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "always";
 		this.passExecutors = {
 			shadow: "shared",

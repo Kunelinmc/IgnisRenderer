@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -15,9 +18,10 @@ class StubBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"webgpu",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "continuous";
 		this.passExecutors = {};
 	}

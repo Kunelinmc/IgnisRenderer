@@ -297,8 +297,7 @@ async function testInitAndPassRouting() {
 		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
 	);
 	backend.executePass({ stage: "particles" }, { frameId: 1 });
-	backend.executePass({ stage: "ssao" }, { frameId: 1 });
-	backend.executePass({ stage: "fxaa" }, { frameId: 1 });
+	backend.executePass({ stage: "postprocess" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.endFrame();
@@ -309,8 +308,7 @@ async function testInitAndPassRouting() {
 		["begin", { frameId: 1 }],
 		["pass", "main-opaque", { frameId: 1 }],
 		["pass", "particles", { frameId: 1 }],
-		["pass", "ssao", { frameId: 1 }],
-		["pass", "fxaa", { frameId: 1 }],
+		["pass", "postprocess", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["end"],
@@ -409,7 +407,7 @@ function createDependencyContext() {
 			dof: { enabled: true },
 		}),
 		scene: {
-			particleSystems: [],
+			particleSystems: [{}],
 			shadowCasterPackets: [],
 			reflectivePackets: [],
 			transparentPackets: [],
@@ -437,8 +435,8 @@ function testDependencyValidationRejectsOutOfOrderPass() {
 
 	backend.beginFrame(context);
 	assert.throws(
-		() => backend.executePass({ stage: "dof" }, context),
-		/executed before dependencies/
+		() => backend.executePass({ stage: "postprocess" }, context),
+		/executed before dependencies: particles/
 	);
 }
 

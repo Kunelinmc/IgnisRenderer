@@ -5,7 +5,10 @@
  */
 
 import assert from "node:assert/strict";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./postprocess.mjs";
 
 // --- Worker Fakes ---
 
@@ -377,11 +380,10 @@ export class FakeCommandEncoder {
 export class FakeWebGPUBackend {
 	constructor() {
 		this.type = "webgpu";
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-			registerPass() {},
-			unregisterPass() {},
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"webgpu",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.canvasFormat = "rgba8unorm";
 		this.canvasDepthFormat = "depth24plus";
 		this.dispatches = [];

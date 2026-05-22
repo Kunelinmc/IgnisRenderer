@@ -4,7 +4,10 @@ import { Renderer } from "../src/renderers/Renderer.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { Node } from "../src/core/Node.ts";
 import { PhysicsSystem } from "../src/physics/PhysicsSystem.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -20,9 +23,10 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "always";
 		this.postAnimationSeenBeforeBegin = false;
 		this._postAnimationFlag = false;

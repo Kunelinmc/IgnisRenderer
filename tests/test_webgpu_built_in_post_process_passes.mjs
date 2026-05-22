@@ -392,21 +392,11 @@ function testReservedAndDuplicateRegistrationGuards() {
 	);
 
 	const backend = new WebGPUBackend();
-	backend.postProcess.registerPass(createCustomPass("custom-backend"));
-	assert.throws(
-		() => backend.postProcess.registerPass(createCustomPass("custom-backend")),
-		/already registered/
-	);
-	assert.throws(
-		() => backend.postProcess.registerPass(createCustomPass("gamma")),
-		/built-in WebGPU post-process pass/
-	);
-	assert.throws(
-		() => backend.postProcess.unregisterPass("gamma"),
-		/Cannot unregister built-in/
-	);
-	backend.postProcess.unregisterPass("custom-backend");
-	backend.postProcess.registerPass(createCustomPass("custom-backend"));
+	assert.equal(backend.postProcess.executor.backend, "webgpu");
+	assert.equal(typeof backend.postProcess.executor.executePass, "function");
+	assert.equal(typeof backend.postProcess.createGBufferBridge, "function");
+	assert.equal("registerPass" in backend.postProcess, false);
+	assert.equal("unregisterPass" in backend.postProcess, false);
 }
 
 async function run() {

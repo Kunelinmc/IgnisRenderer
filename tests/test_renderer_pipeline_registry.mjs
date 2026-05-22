@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
 	constructor() {
@@ -14,9 +17,10 @@ class RegistryBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"webgpu",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "always";
 		this.passExecutors = {};
 		this.contexts = [];
@@ -99,7 +103,7 @@ async function run() {
 			assert.equal(stats.firstPass, customPassId);
 			assert.equal(stats.forceFullFrame, false);
 			assert.ok(backend.skippedPasses.includes("main-opaque"));
-			assert.ok(backend.skippedPasses.includes("gamma"));
+			assert.ok(backend.skippedPasses.includes("postprocess"));
 			assert.ok(backend.executedPasses.includes(customPassId));
 		} finally {
 			renderer.pipeline.unregisterDirtyReason(customReasonId);

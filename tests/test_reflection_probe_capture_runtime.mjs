@@ -7,7 +7,10 @@ import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 function createBakedEnvironment(seed = 1) {
 	return {
@@ -499,9 +502,10 @@ class RendererCaptureStageBackendStub {
 			bloom: false,
 			clusteredLighting: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "on-demand";
 		this.executedStages = [];
 	}

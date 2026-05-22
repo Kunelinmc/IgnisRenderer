@@ -34,6 +34,102 @@ export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	gamma: { enabled: true },
 };
 
+export function createNoopPostProcessSupport(
+	backend = "test",
+	capabilities = ALL_POST_PROCESS_CAPABILITIES
+) {
+	const executor = {
+		backend,
+		capabilities,
+		createdResources: [],
+		destroyedResources: [],
+		executedPasses: [],
+		createResource(desc) {
+			const handle = {
+				id: desc.id,
+				backend,
+				width: desc.width,
+				height: desc.height,
+				format: desc.format,
+				resource: {
+					id: desc.id,
+					width: desc.width,
+					height: desc.height,
+					format: desc.format,
+					usage: desc.usage,
+				},
+			};
+			this.createdResources.push(handle);
+			return handle;
+		},
+		destroyResource(handle) {
+			this.destroyedResources.push(handle);
+		},
+		executePass(passId) {
+			this.executedPasses.push(passId);
+			return { ran: true };
+		},
+	};
+	return {
+		capabilities,
+		executor,
+		createGBufferBridge(context) {
+			const attachments = context.attachments;
+			const width = attachments.width ?? 1;
+			const height = attachments.height ?? 1;
+			return {
+				width,
+				height,
+				normalSpace: "world",
+				depthEncoding: "linear-view-z",
+				motionEncoding: "ndc-delta",
+				channels: {
+					color: {
+						semantic: "color",
+						width,
+						height,
+						handle: {
+							backend,
+							resource: attachments.pixels ?? null,
+						},
+					},
+					depth: {
+						semantic: "depth",
+						width,
+						height,
+						handle: {
+							backend,
+							resource: attachments.depthBuffer ?? null,
+						},
+					},
+					normal: {
+						semantic: "normal",
+						width,
+						height,
+						handle: {
+							backend,
+							resource: attachments.normalBuffer ?? null,
+						},
+					},
+					motion: {
+						semantic: "motion",
+						width,
+						height,
+						handle: {
+							backend,
+							resource: attachments.motionBuffer ?? null,
+						},
+					},
+				},
+				worldPosition: {
+					source: "derived",
+					available: Boolean(attachments.depthBuffer),
+				},
+			};
+		},
+	};
+}
+
 export function createResolvedPostProcess(
 	request = {},
 	capabilities = ALL_POST_PROCESS_CAPABILITIES,

@@ -610,38 +610,38 @@ function testPassDependencyValidation() {
 		endFrame() {},
 	};
 
-	const context = createFrameContext();
+	const context = createFrameContext({
+		scene: {
+			particleSystems: [{}],
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			shadowTransmitterPackets: [],
+			reflectivePackets: [],
+		},
+	});
 	backend.beginFrame(context);
 	assert.ok(
-		backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("taa")
-	);
-	assert.ok(
-		backend._plannedPassOrder.get("ssao") < backend._plannedPassOrder.get("ssgi")
-	);
-	assert.ok(
-		backend._plannedPassOrder.get("ssgi") < backend._plannedPassOrder.get("taa")
+		backend._plannedPassOrder.get("particles") <
+			backend._plannedPassOrder.get("postprocess")
 	);
 
 	assert.throws(
 		() =>
 			backend.executePass(
-				{ stage: "taa", executor: "backend", enabled: true },
+				{ stage: "postprocess", executor: "backend", enabled: true },
 				context
 			),
-		/dependencies: ssgi, ssao/
+		/dependencies: particles/
 	);
 
 	backend.executePass(
-		{ stage: "ssao", executor: "backend", enabled: true },
-		context
-	);
-	backend.executePass(
-		{ stage: "ssgi", executor: "backend", enabled: true },
+		{ stage: "particles", executor: "backend", enabled: true },
 		context
 	);
 	assert.doesNotThrow(() =>
 		backend.executePass(
-			{ stage: "taa", executor: "backend", enabled: true },
+			{ stage: "postprocess", executor: "backend", enabled: true },
 			context
 		)
 	);

@@ -5,7 +5,10 @@ import { CSG } from "../src/csg/CSGBuilder.ts";
 import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -21,9 +24,10 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;
 	}

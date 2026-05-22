@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
 	constructor() {
@@ -14,19 +17,12 @@ class RegistryBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		this.registeredPasses = [];
-		this.unregisteredPasses = [];
 		this.contexts = [];
 		this.executedPasses = [];
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-			registerPass: (pass) => {
-				this.registeredPasses.push(pass);
-			},
-			unregisterPass: (id) => {
-				this.unregisteredPasses.push(id);
-			},
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"webgpu",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "always";
 		this.passExecutors = {};
 	}
@@ -88,7 +84,9 @@ async function run() {
 			isEnabled(postProcess) {
 				return postProcess.enabled["custom-edge"];
 			},
-			execute() {},
+			implementations: {
+				webgpu: {},
+			},
 		};
 
 		renderer.postProcess.registerPass(pass).enable("custom-edge", {
@@ -96,8 +94,6 @@ async function run() {
 		});
 		renderer.postProcess.disable("tonemap");
 		renderer.postProcess.disable("gamma");
-
-		assert.strictEqual(backend.registeredPasses[0], pass);
 
 		await renderer.renderScene(0);
 
@@ -118,11 +114,16 @@ async function run() {
 			),
 			18
 		);
-		assert.ok(backend.executedPasses.includes("gamma"));
-		assert.equal(backend.executedPasses.includes("tonemap"), false);
+		assert.ok(backend.postProcess.executor.executedPasses.includes("gamma"));
+		assert.ok(
+			backend.postProcess.executor.executedPasses.includes("custom-edge")
+		);
+		assert.equal(
+			backend.postProcess.executor.executedPasses.includes("tonemap"),
+			false
+		);
 
 		renderer.postProcess.unregisterPass("custom-edge");
-		assert.deepEqual(backend.unregisteredPasses, ["custom-edge"]);
 		assert.throws(
 			() => renderer.postProcess.enable("custom-edge"),
 			/Unknown post-process pass/

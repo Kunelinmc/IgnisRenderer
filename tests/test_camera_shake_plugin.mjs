@@ -7,7 +7,10 @@ import {
 	Renderer,
 	Vector3,
 } from "../src/index.ts";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor(frameScheduling = "always") {
@@ -25,9 +28,10 @@ class StubBackend {
 			fog: false,
 			bloom: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.beginFrameCount = 0;
 		this.beginSnapshots = [];
 	}

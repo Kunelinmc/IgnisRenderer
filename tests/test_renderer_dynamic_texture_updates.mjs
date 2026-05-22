@@ -4,7 +4,10 @@ import { Texture } from "../src/core/Texture.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 
 import { FakeDynamicTexture } from "./helpers/test_fakes.mjs";
-import { ALL_POST_PROCESS_CAPABILITIES } from "./helpers/postprocess.mjs";
+import {
+	ALL_POST_PROCESS_CAPABILITIES,
+	createNoopPostProcessSupport,
+} from "./helpers/postprocess.mjs";
 
 class StubBackend {
 	constructor() {
@@ -20,9 +23,10 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		this.postProcess = {
-			capabilities: ALL_POST_PROCESS_CAPABILITIES,
-		};
+		this.postProcess = createNoopPostProcessSupport(
+			"stub",
+			ALL_POST_PROCESS_CAPABILITIES
+		);
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;
 		this.deviceLostInfos = [];

@@ -48,6 +48,7 @@ function testNoDirtyReasonsReturnsNoPass() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, null);
+	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, false);
 	assert.equal(plan.temporalHistoryReset, false);
 }
@@ -59,7 +60,8 @@ function testInteractionStartsAtInteractionOutline() {
 		features: createFeatures(),
 		postProcess: createPostProcess(),
 	});
-	assert.equal(plan.firstPass, "interaction-outline");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "interaction-outline");
 	assert.equal(plan.forceFullFrame, false);
 }
 
@@ -71,6 +73,7 @@ function testParticlesStartAtParticleSim() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "particle-sim");
+	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -85,7 +88,8 @@ function testPostFxStartsAtFirstEnabledPostStage() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "bloom");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "bloom");
 }
 
 function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
@@ -99,7 +103,8 @@ function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "ssao");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "ssao");
 }
 
 function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
@@ -117,7 +122,8 @@ function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "fog");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "fog");
 }
 
 function testPostFxSkipsFogInSceneMode() {
@@ -135,7 +141,8 @@ function testPostFxSkipsFogInSceneMode() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "tonemap");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "tonemap");
 }
 
 function testPostFxSkipsToneMappingWhenDisabled() {
@@ -154,7 +161,8 @@ function testPostFxSkipsToneMappingWhenDisabled() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "fxaa");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "fxaa");
 }
 
 function testPostFxCinematicReasonResetsTemporalHistory() {
@@ -167,7 +175,8 @@ function testPostFxCinematicReasonResetsTemporalHistory() {
 			fxaa: { enabled: true },
 		}),
 	});
-	assert.equal(plan.firstPass, "taa");
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "taa");
 	assert.equal(plan.temporalHistoryReset, true);
 }
 
@@ -179,6 +188,7 @@ function testCameraForcesFullAndResetsTemporal() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "shadow");
+	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -195,6 +205,7 @@ function testGeometryFallsBackToMainWhenShadowsDisabled() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
+	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, false);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -207,6 +218,7 @@ function testDisabledIncrementalAlwaysFullFrame() {
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, null);
+	assert.equal(plan.postProcessStartPass, null);
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 }
@@ -221,6 +233,7 @@ function testEnvironmentIBLForcesFullFrameWithoutTemporalReset() {
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, false);
 	assert.equal(plan.firstPass, "main-opaque");
+	assert.equal(plan.postProcessStartPass, null);
 }
 
 function testEnvironmentIBLCompleteResetsTemporalHistory() {
@@ -233,6 +246,7 @@ function testEnvironmentIBLCompleteResetsTemporalHistory() {
 	assert.equal(plan.forceFullFrame, true);
 	assert.equal(plan.temporalHistoryReset, true);
 	assert.equal(plan.firstPass, "main-opaque");
+	assert.equal(plan.postProcessStartPass, null);
 }
 
 function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
@@ -256,6 +270,7 @@ function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
 			registry,
 		});
 		assert.equal(plan.firstPass, passId);
+		assert.equal(plan.postProcessStartPass, null);
 		assert.equal(plan.forceFullFrame, false);
 		assert.equal(plan.temporalHistoryReset, true);
 	} finally {
@@ -281,6 +296,7 @@ function testCustomDirtyReasonUsesGroups() {
 			registry,
 		});
 		assert.equal(plan.firstPass, "main-opaque");
+		assert.equal(plan.postProcessStartPass, null);
 		assert.equal(plan.forceFullFrame, true);
 	} finally {
 		registry.unregisterDirtyReason(reasonId);

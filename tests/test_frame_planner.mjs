@@ -84,19 +84,7 @@ function run() {
 			"main-opaque",
 			"main-transparent",
 			"particles",
-			"ssao",
-			"ssgi",
-			"taa",
-			"ssr",
-			"volumetric",
-			"fog",
-			"motion-blur",
-			"dof",
-			"bloom",
-			"tonemap",
-			"color-filter",
-			"fxaa",
-			"gamma",
+			"postprocess",
 		]
 	);
 	assert.equal(
@@ -118,16 +106,7 @@ function run() {
 		true
 	);
 	assert.equal(plan.find((pass) => pass.stage === "particles")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "ssao")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "ssgi")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "taa")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "ssr")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "volumetric")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "fog")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "bloom")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "tonemap")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "fxaa")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "gamma")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "postprocess")?.enabled, true);
 
 	const disabledPlan = FramePlanner.build(
 		createFrame(),
@@ -219,7 +198,10 @@ function run() {
 			},
 		})
 	);
-	assert.equal(sceneFogPlan.find((pass) => pass.stage === "fog")?.enabled, false);
+	assert.equal(
+		sceneFogPlan.find((pass) => pass.stage === "postprocess")?.enabled,
+		true
+	);
 
 	console.log("Frame planner tests passed");
 }
