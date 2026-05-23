@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { Logger } from "../src/foundation/Logger.ts";
-import { ScreenSpaceReflectionsPass } from "../src/postprocess/index.ts";
+import {
+	ScreenSpaceReflectionsPass,
+	VolumetricLightingPass,
+} from "../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -10,6 +13,7 @@ import {
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const SSR_PASS = new ScreenSpaceReflectionsPass({ enabled: true });
+const VOLUMETRIC_PASS = new VolumetricLightingPass({ enabled: true });
 
 function createTemporalTargets(width = 32, height = 16) {
 	return {
@@ -65,6 +69,35 @@ function createSSRPassRequest(frameContext, targets, historyValid = true) {
 	};
 }
 
+function createVolumetricPassRequest(frameContext, targets, historyValid = true) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {
+			volumetric: {
+				valid: historyValid,
+				read: { resource: targets.volumetricHistoryRead },
+				write: { resource: targets.volumetricHistoryWrite },
+			},
+			"volumetric-reservoir": {
+				valid: historyValid,
+				read: { resource: targets.volumetricReservoirHistoryRead },
+				write: { resource: targets.volumetricReservoirHistoryWrite },
+			},
+			motion: {
+				valid: historyValid,
+				read: { resource: targets.motionHistoryRead },
+				write: { resource: targets.motionHistoryWrite },
+			},
+		},
+		pass: VOLUMETRIC_PASS,
+		passId: "volumetric",
+		options: frameContext.postProcess.getOptions("volumetric"),
+		startPassId: null,
+	};
+}
+
 async function executeSSRImplementation(
 	backend,
 	runtime,
@@ -87,6 +120,49 @@ async function executeSSRImplementation(
 		targets,
 		shared: runtime.sharedContext,
 		frameBinding,
+		publishColorTarget: (texture) => {
+			published = texture;
+			targets.sceneColor = texture;
+		},
+		writeMotionHistoryFromCurrent: () => {
+			motionWrites++;
+		},
+	};
+	const result = await request.pass.getImplementation("webgpu").execute(
+		request,
+		context
+	);
+	return { result, published, motionWrites };
+}
+
+async function executeVolumetricImplementation(
+	backend,
+	runtime,
+	options = {}
+) {
+	const {
+		targets = createTemporalTargets(),
+		frameContext = createPerspectiveFrameContext(),
+		historyValid = true,
+		lightingState = null,
+	} = options;
+	const frameBinding =
+		Object.prototype.hasOwnProperty.call(options, "frameBinding") ?
+			options.frameBinding
+		:	{ label: "frame-binding" };
+	let published = null;
+	let motionWrites = 0;
+	const request = createVolumetricPassRequest(
+		frameContext,
+		targets,
+		historyValid
+	);
+	const context = {
+		encoder: new FakeEncoder(backend),
+		targets,
+		shared: runtime.sharedContext,
+		frameBinding,
+		lightingState,
 		publishColorTarget: (texture) => {
 			published = texture;
 			targets.sceneColor = texture;
@@ -186,9 +262,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.equal(ssrRun.motionWrites, 1);
 
 	const volumetricTargets = createTemporalTargets(32, 16);
-	const volumetricResult = await runtime.executePass({
-		passId: "volumetric",
-		encoder: new FakeEncoder(),
+	const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
 		targets: volumetricTargets,
 		frameContext: createPerspectiveFrameContext({
 			volumetric: {
@@ -202,8 +276,13 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		frameBinding,
 		lightingState: null,
 	});
-	assert.equal(volumetricResult.ran, true);
-	assert.equal(volumetricResult.historyUpdated, true);
+	assert.deepEqual(volumetricRun.result, {
+		ran: true,
+		updatedHistoryIds: ["volumetric", "volumetric-reservoir", "motion"],
+	});
+	assert.strictEqual(volumetricRun.published, volumetricTargets.postPong);
+	assert.strictEqual(volumetricTargets.sceneColor, volumetricTargets.postPong);
+	assert.equal(volumetricRun.motionWrites, 1);
 }
 
 async function testOrthographicTemporalPassesSkipAndReturnFalse() {
@@ -229,17 +308,15 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 		assert.deepEqual(ssrRun.result, { ran: false });
 		assert.equal(ssrRun.motionWrites, 0);
 
-		const volumetricResult = await runtime.executePass({
-			passId: "volumetric",
-			encoder: new FakeEncoder(),
+		const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
 			targets: createTemporalTargets(),
 			frameContext,
 			historyValid: true,
 			frameBinding,
 			lightingState: null,
 		});
-		assert.equal(volumetricResult.ran, false);
-		assert.equal(volumetricResult.historyUpdated, false);
+		assert.deepEqual(volumetricRun.result, { ran: false });
+		assert.equal(volumetricRun.motionWrites, 0);
 	});
 
 	assert.equal(warnings.length, 2);
@@ -309,7 +386,7 @@ async function testMissingSSRFrameBindingSkipsImplementation() {
 	assert.equal(backend.textureViews.length, 0);
 }
 
-async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
+async function testOnShaderRuntimeChangedDestroysRuntimeParameterBuffers() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const sceneColorMain = createTexture(24, 12, "scene");
@@ -323,7 +400,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	void targets;
 	await runtime.warmupHints([
-		"postprocess:volumetric",
 		"postprocess:motion-blur",
 		"postprocess:dof",
 	]);
@@ -339,9 +415,9 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 			.filter((buffer) => buffer.destroyed)
 			.map((buffer) => buffer.desc.label)
 	);
-	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
 	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
 	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
+	assert.equal(destroyedLabels.has("WebGPUVolumetricParams"), false);
 	assert.equal(destroyedLabels.has("WebGPUSSRTraceParams"), false);
 	assert.equal(destroyedLabels.has("WebGPUSSRComposeParams"), false);
 	assert.equal(destroyedLabels.has("WebGPUFXAAParams"), false);
@@ -350,10 +426,10 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 			.filter((module) => module.destroyed)
 			.map((module) => module.label)
 	);
-	assert.ok(destroyedShaderLabels.has("WebGPUHiZShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUVolumetricShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUMotionBlurShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUDOFShader"));
+	assert.equal(destroyedShaderLabels.has("WebGPUHiZShader"), false);
+	assert.equal(destroyedShaderLabels.has("WebGPUVolumetricShader"), false);
 	assert.equal(destroyedShaderLabels.has("WebGPUSSRShader"), false);
 	assert.equal(destroyedShaderLabels.has("WebGPUFXAAShader"), false);
 	const bufferDestroyCalls = backend.bufferDestroyCalls;
@@ -374,7 +450,7 @@ async function run() {
 	await testHiZMipViewsAreCachedAcrossSSRExecutions();
 	await testUnknownPassReturnsRanFalse();
 	await testMissingSSRFrameBindingSkipsImplementation();
-	await testOnShaderRuntimeChangedDestroysParameterBuffers();
+	await testOnShaderRuntimeChangedDestroysRuntimeParameterBuffers();
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }
 

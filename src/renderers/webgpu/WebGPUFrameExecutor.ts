@@ -73,6 +73,8 @@ import {
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
 import type { WebGPUFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
+import type { WebGPUBloomContext } from "../../postprocess/passes/BloomPass";
+import type { WebGPUFogContext } from "../../postprocess/passes/FogPass";
 import {
 	resolveSSAODownsample,
 	type WebGPUSSAOContext,
@@ -80,6 +82,7 @@ import {
 import type { WebGPUSSGIContext } from "../../postprocess/passes/ScreenSpaceGlobalIlluminationPass";
 import type { WebGPUSSRContext } from "../../postprocess/passes/ScreenSpaceReflectionsPass";
 import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
+import type { WebGPUVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -192,11 +195,11 @@ const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	ssgi: [],
 	taa: ["postprocess:taa"],
 	ssr: [],
-	volumetric: ["postprocess:volumetric", "postprocess:hiz"],
-	fog: ["postprocess:fog"],
+	volumetric: [],
+	fog: [],
 	"motion-blur": ["postprocess:motion-blur"],
 	dof: ["postprocess:dof"],
-	bloom: ["postprocess:bloom"],
+	bloom: [],
 	tonemap: ["postprocess:tonemap"],
 	"color-filter": ["postprocess:color-filter"],
 	fxaa: [],
@@ -469,13 +472,10 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || !this._frameTargets) {
 			return { ran: false };
 		}
-		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		this._applyPipelineHistories(request);
 		switch (passId) {
-			case "fog":
 			case "motion-blur":
 			case "dof":
-			case "bloom":
 			case "color-filter":
 			case "tonemap": {
 				await this._postRuntime.executePass({
@@ -504,30 +504,6 @@ export class WebGPUFrameExecutor {
 				} as WebGPUPostProcessExecuteRequest);
 				return { ran: true };
 			}
-			case "volumetric": {
-				const result = await this._postRuntime.executePass({
-					passId,
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					frameContext: request.frameContext,
-					options: request.options,
-					historyValid:
-						(request.histories.volumetric?.valid ?? false) &&
-						(request.histories.motion?.valid ?? false),
-					frameBinding: this._resources.getFrameBinding(),
-					lightingState: this._resources.getLightingState(),
-				} as WebGPUPostProcessExecuteRequest);
-				if (result.historyUpdated) {
-					this._motionHistoryWriteRequested = true;
-				}
-				return {
-					ran: result.ran,
-					updatedHistoryIds:
-						result.historyUpdated ?
-							["volumetric", "volumetric-reservoir", "motion"]
-						:	[],
-				};
-			}
 			case "gamma":
 				await this._presentToCanvas(
 					this._frameTargets.sceneColor,
@@ -553,7 +529,6 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || !this._frameTargets) {
 			return undefined;
 		}
-		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		this._applyPipelineHistories(request);
 		const publishColorTarget = (texture: IRenderTexture): void => {
 			if (this._frameTargets) {
@@ -606,6 +581,38 @@ export class WebGPUFrameExecutor {
 					targets: this._frameTargets,
 					shared: this._postRuntime.sharedContext,
 					frameBinding: this._resources.getFrameBinding(),
+					publishColorTarget,
+					writeMotionHistoryFromCurrent: () => {
+						this._motionHistoryWriteRequested = true;
+					},
+				};
+				return context;
+			}
+			case "fog": {
+				const context: WebGPUFogContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+				};
+				return context;
+			}
+			case "bloom": {
+				const context: WebGPUBloomContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+				};
+				return context;
+			}
+			case "volumetric": {
+				const context: WebGPUVolumetricLightingContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					frameBinding: this._resources.getFrameBinding(),
+					lightingState: this._resources.getLightingState(),
 					publishColorTarget,
 					writeMotionHistoryFromCurrent: () => {
 						this._motionHistoryWriteRequested = true;
@@ -791,6 +798,24 @@ export class WebGPUFrameExecutor {
 			}
 			case "ssr": {
 				const context: WebGPUSSRContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			case "fog": {
+				const context: WebGPUFogContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			case "bloom": {
+				const context: WebGPUBloomContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			case "volumetric": {
+				const context: WebGPUVolumetricLightingContext = {
 					shared: this._postRuntime.sharedContext,
 				};
 				return context;

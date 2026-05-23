@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { FastApproximateAntiAliasingPass } from "../src/postprocess/index.ts";
+import { pathToFileURL } from "node:url";
+import {
+	BloomPass,
+	FastApproximateAntiAliasingPass,
+	FogPass,
+} from "../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -17,8 +22,10 @@ function createFrameContext(postProcessRequest = {}) {
 	};
 }
 
-function createFXAAPassRequest(frameContext) {
-	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
+function createFXAAPassRequest(
+	frameContext,
+	pass = new FastApproximateAntiAliasingPass({ enabled: true })
+) {
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -31,8 +38,36 @@ function createFXAAPassRequest(frameContext) {
 	};
 }
 
-async function executeFXAAPass(runtime, encoder, targets, frameContext) {
-	const request = createFXAAPassRequest(frameContext);
+function createBloomPassRequest(frameContext) {
+	const pass = new BloomPass({ enabled: true });
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "bloom",
+		options: frameContext.postProcess.getOptions("bloom"),
+		startPassId: null,
+	};
+}
+
+function createFogPassRequest(frameContext) {
+	const pass = new FogPass({ enabled: true });
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "fog",
+		options: frameContext.postProcess.getOptions("fog"),
+		startPassId: null,
+	};
+}
+
+async function executeFXAAPass(runtime, encoder, targets, frameContext, pass) {
+	const request = createFXAAPassRequest(frameContext, pass);
 	return request.pass.getImplementation("webgpu").execute(request, {
 		encoder,
 		targets,
@@ -41,6 +76,32 @@ async function executeFXAAPass(runtime, encoder, targets, frameContext) {
 			targets.sceneColor = texture;
 		},
 	});
+}
+
+async function executeBloomPass(runtime, encoder, targets, frameContext) {
+	const request = createBloomPassRequest(frameContext);
+	const result = await request.pass.getImplementation("webgpu").execute(request, {
+		encoder,
+		targets,
+		shared: runtime.sharedContext,
+		publishColorTarget: (texture) => {
+			targets.sceneColor = texture;
+		},
+	});
+	return { request, result };
+}
+
+async function executeFogPass(runtime, encoder, targets, frameContext) {
+	const request = createFogPassRequest(frameContext);
+	const result = await request.pass.getImplementation("webgpu").execute(request, {
+		encoder,
+		targets,
+		shared: runtime.sharedContext,
+		publishColorTarget: (texture) => {
+			targets.sceneColor = texture;
+		},
+	});
+	return { request, result };
 }
 
 async function testFXAAPassImplementationUsesDedicatedPipeline() {
@@ -143,7 +204,7 @@ async function testToneMappingRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
-async function testBloomRuntimeUsesDedicatedPipeline() {
+async function testBloomPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -156,11 +217,11 @@ async function testBloomRuntimeUsesDedicatedPipeline() {
 		postPong,
 	};
 
-	await runtime.executePass({
-		passId: "bloom",
+	const { result } = await executeBloomPass(
+		runtime,
 		encoder,
 		targets,
-		frameContext: createFrameContext({
+		createFrameContext({
 			bloom: {
 				enabled: true,
 				options: {
@@ -170,8 +231,9 @@ async function testBloomRuntimeUsesDedicatedPipeline() {
 					radius: 2,
 				},
 			},
-		}),
-	});
+		})
+	);
+	assert.deepEqual(result, { ran: true });
 
 	assert.equal(backend.samplers.length, 1);
 	assert.deepEqual(
@@ -250,23 +312,25 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 		postPong,
 		gMotionDepth,
 	};
+	const frameContext = createFrameContext({
+		"motion-blur": {
+			enabled: true,
+			options: {
+				shutterScale: 1.1,
+				maxSamples: 18,
+				velocityClamp: 0.08,
+				depthReject: 0.03,
+				centerWeight: 1.25,
+			},
+		},
+	});
 
 	await runtime.executePass({
 		passId: "motion-blur",
 		encoder,
 		targets,
-		frameContext: createFrameContext({
-			"motion-blur": {
-				enabled: true,
-				options: {
-					shutterScale: 1.1,
-					maxSamples: 18,
-					velocityClamp: 0.08,
-					depthReject: 0.03,
-					centerWeight: 1.25,
-				},
-			},
-		}),
+		frameContext,
+		options: frameContext.postProcess.getOptions("motion-blur"),
 	});
 
 	assert.equal(backend.samplers.length, 1);
@@ -308,7 +372,7 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
-async function testFogRuntimeUsesDedicatedPipeline() {
+async function testFogPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -323,11 +387,11 @@ async function testFogRuntimeUsesDedicatedPipeline() {
 		gMotionDepth,
 	};
 
-	await runtime.executePass({
-		passId: "fog",
+	const { result } = await executeFogPass(
+		runtime,
 		encoder,
 		targets,
-		frameContext: createFrameContext({
+		createFrameContext({
 			fog: {
 				enabled: true,
 				options: {
@@ -339,8 +403,9 @@ async function testFogRuntimeUsesDedicatedPipeline() {
 					strength: 0.75,
 				},
 			},
-		}),
-	});
+		})
+	);
+	assert.deepEqual(result, { ran: true });
 
 	assert.equal(backend.samplers.length, 1);
 	assert.equal(backend.shaderModules.length, 1);
@@ -392,27 +457,29 @@ async function testDOFRuntimeUsesDedicatedPipeline() {
 		postPong,
 		gMotionDepth,
 	};
+	const frameContext = createFrameContext({
+		dof: {
+			enabled: true,
+			options: {
+				focusDistance: 6,
+				focusRange: 2,
+				nearStrength: 0.7,
+				farStrength: 1.2,
+				maxBlurRadius: 10,
+				depthCurve: 1.5,
+				highlightThreshold: 1.1,
+				highlightGain: 0.4,
+				chromaticAberration: 0.3,
+			},
+		},
+	});
 
 	await runtime.executePass({
 		passId: "dof",
 		encoder,
 		targets,
-		frameContext: createFrameContext({
-			dof: {
-				enabled: true,
-				options: {
-					focusDistance: 6,
-					focusRange: 2,
-					nearStrength: 0.7,
-					farStrength: 1.2,
-					maxBlurRadius: 10,
-					depthCurve: 1.5,
-					highlightThreshold: 1.1,
-					highlightGain: 0.4,
-					chromaticAberration: 0.3,
-				},
-			},
-		}),
+		frameContext,
+		options: frameContext.postProcess.getOptions("dof"),
 	});
 
 	assert.equal(backend.samplers.length, 1);
@@ -489,12 +556,14 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 		encoder: new FakeEncoder(),
 		targets,
 		frameContext,
+		options: frameContext.postProcess.getOptions("motion-blur"),
 	});
 	await runtime.executePass({
 		passId: "motion-blur",
 		encoder: new FakeEncoder(),
 		targets,
 		frameContext,
+		options: frameContext.postProcess.getOptions("motion-blur"),
 	});
 
 	assert.equal(backend.writeBufferCalls, 1);
@@ -514,9 +583,10 @@ async function testFXAAPassImplementationPingPongsAndCachesResources() {
 		postPong,
 	};
 	const frameContext = createFrameContext();
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 
-	await executeFXAAPass(runtime, firstEncoder, targets, frameContext);
-	await executeFXAAPass(runtime, secondEncoder, targets, frameContext);
+	await executeFXAAPass(runtime, firstEncoder, targets, frameContext, pass);
+	await executeFXAAPass(runtime, secondEncoder, targets, frameContext, pass);
 
 	assert.equal(backend.shaderModules.length, 1);
 	assert.equal(backend.computePipelines.length, 1);
@@ -545,12 +615,14 @@ async function testInvalidateBindingsDestroysCachedBindingGroups() {
 		postPing,
 		postPong,
 	};
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 
 	await executeFXAAPass(
 		runtime,
 		new FakeEncoder(),
 		targets,
-		createFrameContext()
+		createFrameContext(),
+		pass
 	);
 	assert.equal(backend.bindingGroups.length, 1);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
@@ -573,10 +645,11 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 		postPong,
 	};
 	const frameContext = createFrameContext();
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 
-	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext);
-	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext);
-	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext);
+	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext, pass);
+	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext, pass);
+	await executeFXAAPass(runtime, new FakeEncoder(), targets, frameContext, pass);
 
 	assert.equal(backend.bindingGroups.length, 3);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
@@ -634,11 +707,50 @@ async function testDestroyReleasesToneMappingRuntimeResources() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
+async function testBloomImplementationLifecycleReleasesOwnedResources() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const targets = {
+		sceneColor: createTexture(40, 20, "scene"),
+		postPing: createTexture(40, 20, "ping"),
+		postPong: createTexture(40, 20, "pong"),
+	};
+	const request = createBloomPassRequest(
+		createFrameContext({ bloom: { enabled: true } })
+	);
+	const implementation = request.pass.getImplementation("webgpu");
+
+	await implementation.execute(request, {
+		encoder,
+		targets,
+		shared: runtime.sharedContext,
+		publishColorTarget: (texture) => {
+			targets.sceneColor = texture;
+		},
+	});
+	assert.equal(backend.textureDestroyCalls, 0);
+
+	implementation.invalidate();
+	assert.equal(backend.textureDestroyCalls, 10);
+	implementation.invalidate();
+	assert.equal(backend.textureDestroyCalls, 10);
+
+	implementation.destroy();
+	assert.equal(backend.shaderModuleDestroyCalls, 5);
+	assert.equal(backend.computePipelineDestroyCalls, 5);
+	assert.equal(backend.bufferDestroyCalls, 4);
+	implementation.destroy();
+	assert.equal(backend.shaderModuleDestroyCalls, 5);
+	assert.equal(backend.computePipelineDestroyCalls, 5);
+	assert.equal(backend.bufferDestroyCalls, 4);
+}
+
 export async function run() {
 	await testFXAAPassImplementationUsesDedicatedPipeline();
 	await testToneMappingRuntimeUsesDedicatedPipeline();
-	await testBloomRuntimeUsesDedicatedPipeline();
-	await testFogRuntimeUsesDedicatedPipeline();
+	await testBloomPassImplementationUsesDedicatedPipeline();
+	await testFogPassImplementationUsesDedicatedPipeline();
 	await testMotionBlurRuntimeUsesDedicatedPipeline();
 	await testMotionBlurSkipsRedundantParamUploads();
 	await testDOFRuntimeUsesDedicatedPipeline();
@@ -646,9 +758,10 @@ export async function run() {
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
 	await testDestroyReleasesToneMappingRuntimeResources();
+	await testBloomImplementationLifecycleReleasesOwnedResources();
 	console.log("WebGPU postprocess screen runtime tests passed");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
 	await run();
 }

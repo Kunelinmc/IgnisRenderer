@@ -20,6 +20,7 @@ import type {
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -117,6 +118,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
+	private _postProcessRegistry: PostProcessPassRegistry | null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -150,7 +152,8 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 	}
 
-	public setRenderer(_renderer: RendererBackendBridge): void {
+	public setRenderer(renderer: RendererBackendBridge): void {
+		this._postProcessRegistry = renderer.postProcess ?? null;
 		this._ensureParticleSimulator();
 	}
 
@@ -251,6 +254,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._width = toSafeDimension(width);
 		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
+		this._postProcessRegistry?.invalidatePasses("webgl");
 		this._frameExecutor?.resize(this._width, this._height);
 	}
 
@@ -339,6 +343,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
+		this._postProcessRegistry?.destroyPasses("webgl");
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
 		this._particleSimulator = null;
@@ -387,6 +392,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 
 		this._gl = gl;
+		this._postProcessRegistry?.destroyPasses("webgl");
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,

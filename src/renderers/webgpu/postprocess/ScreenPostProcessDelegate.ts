@@ -95,24 +95,6 @@ export class ScreenPostProcessDelegate {
 	 */
 	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
 		registry.registerRuntimePass({
-			id: "fog",
-			warmupHints: ["postprocess:fog"],
-			warmup: async () => {
-				await this._ensureFogResources();
-				return true;
-			},
-			execute: async (request) => {
-				await this._executeFog(
-					request.encoder,
-					request.targets,
-					request.options as FogOptions
-				);
-				return { ran: true };
-			},
-			invalidateBindings: () => this.invalidateBindings(),
-			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
-		});
-		registry.registerRuntimePass({
 			id: "motion-blur",
 			warmupHints: ["postprocess:motion-blur"],
 			warmup: async () => {
@@ -142,24 +124,6 @@ export class ScreenPostProcessDelegate {
 					request.encoder,
 					request.targets,
 					request.options as DOFOptions
-				);
-				return { ran: true };
-			},
-			invalidateBindings: () => this.invalidateBindings(),
-			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
-		});
-		registry.registerRuntimePass({
-			id: "bloom",
-			warmupHints: ["postprocess:bloom"],
-			warmup: async () => {
-				await this._ensureBloomResources();
-				return true;
-			},
-			execute: async (request) => {
-				await this._executeBloom(
-					request.encoder,
-					request.targets,
-					request.options as BloomOptions
 				);
 				return { ran: true };
 			},

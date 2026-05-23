@@ -66,20 +66,38 @@ export {
 } from "./passes/TemporalAntiAliasingPass";
 export {
 	BloomPass,
+	WebGPUBloomImplementation,
+	WebGLBloomImplementation,
+	type BloomPassConfig,
+	type WebGPUBloomContext,
+	type WebGLBloomContext,
+} from "./passes/BloomPass";
+export {
+	FogPass,
+	WebGPUFogImplementation,
+	WebGLFogImplementation,
+	type FogPassConfig,
+	type WebGPUFogContext,
+	type WebGLFogContext,
+} from "./passes/FogPass";
+export {
+	VolumetricLightingPass,
+	SoftwareVolumetricLightingImplementation,
+	WebGPUVolumetricLightingImplementation,
+	type SoftwareVolumetricLightingContext,
+	type VolumetricLightingPassConfig,
+	type WebGPUVolumetricLightingContext,
+} from "./passes/VolumetricLightingPass";
+export {
 	ColorFilterPass,
 	DepthOfFieldPass,
-	FogPass,
 	GammaPass,
 	InteractionOutlinePass,
 	MotionBlurPass,
 	ToneMappingPass,
-	VolumetricLightingPass,
-	type BloomPassConfig,
 	type ColorFilterPassConfig,
 	type DepthOfFieldPassConfig,
-	type FogPassConfig,
 	type MotionBlurPassConfig,
-	type VolumetricLightingPassConfig,
 } from "./passes/BuiltinFallbackPasses";
 export {
 	DEFAULT_POST_PROCESS_CAPABILITIES,

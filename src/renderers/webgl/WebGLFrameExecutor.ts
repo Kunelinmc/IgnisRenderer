@@ -60,6 +60,9 @@ import {
 	resolveSSAODownsample,
 	type WebGLSSAOContext,
 } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
+import type { WebGLBloomContext } from "../../postprocess/passes/BloomPass";
+import type { WebGLFogContext } from "../../postprocess/passes/FogPass";
+import { resolveFogUniformParams } from "../../postprocess/passes/fogUtils";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
@@ -187,11 +190,11 @@ const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	ssgi: [],
 	taa: ["postprocess:taa"],
 	ssr: [],
-	volumetric: ["postprocess:volumetric"],
-	fog: ["postprocess:fog"],
+	volumetric: [],
+	fog: [],
 	"motion-blur": ["postprocess:motion-blur"],
 	dof: ["postprocess:dof"],
-	bloom: ["postprocess:bloom"],
+	bloom: [],
 	tonemap: ["postprocess:tonemap"],
 	"color-filter": ["postprocess:color-filter"],
 	fxaa: [],
@@ -527,17 +530,11 @@ export class WebGLFrameExecutor {
 	): PostProcessPassResult {
 		const context = request.frameContext;
 		switch (passId) {
-			case "fog":
-				this._applyFog(request.options as FogOptions);
-				return { ran: true };
 			case "motion-blur":
 				this._applyMotionBlur(request.options as MotionBlurOptions);
 				return { ran: true };
 			case "dof":
 				this._applyDOF(request.options as DOFOptions);
-				return { ran: true };
-			case "bloom":
-				this._applyBloom(request.options as BloomOptions);
 				return { ran: true };
 			case "tonemap":
 				this._applyToneMapping();
@@ -634,6 +631,65 @@ export class WebGLFrameExecutor {
 			}
 			case "fxaa": {
 				const context: WebGLFXAAContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					width: this._width,
+					height: this._height,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					drawFullscreen: () =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							this._width,
+							this._height,
+							this._activeContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
+			case "fog": {
+				const context: WebGLFogContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					sceneMotionTexture: this._sceneMotionTexture,
+					width: this._width,
+					height: this._height,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					drawFullscreen: () =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							this._width,
+							this._height,
+							this._activeContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
+			case "bloom": {
+				const context: WebGLBloomContext = {
 					gl: this._gl,
 					programs: this._programs,
 					fullscreenVao: this._fullscreenVao,
@@ -769,11 +825,6 @@ export class WebGLFrameExecutor {
 						this._programs.getInteractionOutlineProgram();
 					});
 					break;
-				case "postprocess:bloom":
-					compile("WebGLBloomProgram", () => {
-						this._programs.getBloomProgram();
-					});
-					break;
 				case "postprocess:motion-blur":
 					compile("WebGLMotionBlurProgram", () => {
 						this._programs.getMotionBlurProgram();
@@ -787,16 +838,6 @@ export class WebGLFrameExecutor {
 				case "postprocess:gamma":
 					compile("WebGLPresentProgram", () => {
 						this._programs.getPresentProgram();
-					});
-					break;
-				case "postprocess:volumetric":
-					compile("WebGLVolumetricProgram", () => {
-						this._programs.getVolumetricProgram();
-					});
-					break;
-				case "postprocess:fog":
-					compile("WebGLFogProgram", () => {
-						this._programs.getFogProgram();
 					});
 					break;
 				default:
@@ -903,6 +944,65 @@ export class WebGLFrameExecutor {
 			}
 			case "fxaa": {
 				const context: WebGLFXAAContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					width: this._width,
+					height: this._height,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					drawFullscreen: () =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							this._width,
+							this._height,
+							this._activeContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
+			case "fog": {
+				const context: WebGLFogContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					sceneMotionTexture: this._sceneMotionTexture,
+					width: this._width,
+					height: this._height,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					drawFullscreen: () =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							this._width,
+							this._height,
+							this._activeContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
+			case "bloom": {
+				const context: WebGLBloomContext = {
 					gl: this._gl,
 					programs: this._programs,
 					fullscreenVao: this._fullscreenVao,
@@ -2580,56 +2680,7 @@ export class WebGLFrameExecutor {
 	}
 
 	private _updateFogParams(options: FogOptions | undefined, enabled: boolean): void {
-		const source = options ?? DEFAULT_FOG_OPTIONS;
-		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
-		const start = Math.max(
-			0,
-			finiteOr(source.start, DEFAULT_FOG_OPTIONS.start)
-		);
-		const end = Math.max(
-			start + 1e-4,
-			finiteOr(source.end, DEFAULT_FOG_OPTIONS.end)
-		);
-		const density = Math.max(
-			0,
-			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
-		);
-		const strength = enabled ?
-			Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
-		:	0;
-
-		this._fogParams0[0] = this._resolveFogMode(source.mode);
-		this._fogParams0[1] = start;
-		this._fogParams0[2] = end;
-		this._fogParams0[3] = density;
-
-		this._fogParams1[0] = clamp(
-			finiteOr(color[0], DEFAULT_FOG_OPTIONS.color[0]),
-			0,
-			1
-		);
-		this._fogParams1[1] = clamp(
-			finiteOr(color[1], DEFAULT_FOG_OPTIONS.color[1]),
-			0,
-			1
-		);
-		this._fogParams1[2] = clamp(
-			finiteOr(color[2], DEFAULT_FOG_OPTIONS.color[2]),
-			0,
-			1
-		);
-		this._fogParams1[3] = strength;
-	}
-
-	private _resolveFogMode(mode: FogOptions["mode"] | undefined): number {
-		switch (mode) {
-			case "exp":
-				return 1;
-			case "exp2":
-				return 2;
-			default:
-				return 0;
-		}
+		resolveFogUniformParams(options, enabled, this._fogParams0, this._fogParams1);
 	}
 
 	private _applyInteractionOutline(context: FrameContext): void {

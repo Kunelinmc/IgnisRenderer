@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+	BloomPass,
 	FastApproximateAntiAliasingPass,
+	FogPass,
 	GammaPass,
 	PostProcessHistoryManager,
 	PostProcessPass,
@@ -9,6 +11,7 @@ import {
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceReflectionsPass,
 	ToneMappingPass,
+	VolumetricLightingPass,
 } from "../src/index.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
@@ -23,6 +26,7 @@ class FakeExecutor {
 		this.created = [];
 		this.destroyed = [];
 		this.executed = [];
+		this.volumetricApplications = 0;
 	}
 
 	createResource(desc) {
@@ -57,6 +61,16 @@ class FakeExecutor {
 			return {
 				attachments: request.frameContext.attachments,
 				canvasContext: null,
+			};
+		}
+		if (this.backend === "software" && passId === "volumetric") {
+			return {
+				processor: {
+					applyVolumetricLight: () => {
+						this.volumetricApplications++;
+					},
+				},
+				canvasContext: {},
 			};
 		}
 		return undefined;
@@ -151,6 +165,8 @@ function testRegistryOnlySurfaceAndPassMutation() {
 	const registry = new PostProcessPassRegistry();
 	assert.equal(typeof registry.registerPass, "function");
 	assert.equal(typeof registry.getPass, "function");
+	assert.equal(typeof registry.invalidatePasses, "function");
+	assert.equal(typeof registry.destroyPasses, "function");
 	assert.equal(registry.enable, undefined);
 	assert.equal(registry.disable, undefined);
 	assert.equal(registry.setOptions, undefined);
@@ -261,18 +277,97 @@ async function testPassOwnedImplementationsAndFallback() {
 	assert.deepEqual(result.executedPassIds, ["fxaa"]);
 	assert.deepEqual(executor.executed, []);
 
-	const fallbackSnapshot = createResolvedPostProcess(
-		{ bloom: { enabled: true } },
+	const webgpuSnapshot = createResolvedPostProcess(
+		{
+			volumetric: { enabled: true },
+			fog: { enabled: true, options: { application: "postprocess" } },
+			bloom: { enabled: true },
+		},
 		ALL_POST_PROCESS_CAPABILITIES,
 		"webgpu"
 	);
-	const fallbackExecutor = new FakeExecutor("webgpu");
+	const webgpuExecutor = new FakeExecutor("webgpu");
+	webgpuExecutor.executePass = function executePass(passId) {
+		this.executed.push({ passId });
+		throw new Error(`Unexpected fallback execution for ${passId}`);
+	};
+	await pipeline.execute({
+		frameContext: createFrameContext(webgpuSnapshot),
+		executor: webgpuExecutor,
+		gBuffer: createGBufferBridge(),
+	});
+	assert.deepEqual(webgpuExecutor.executed, []);
+
+	const volumetricSnapshot = createResolvedPostProcess(
+		{ volumetric: { enabled: true } },
+		ALL_POST_PROCESS_CAPABILITIES,
+		"software"
+	);
+	const volumetricExecutor = new FakeExecutor("software");
+	volumetricExecutor.executePass = function executePass(passId) {
+		this.executed.push({ passId });
+		throw new Error(`Unexpected fallback execution for ${passId}`);
+	};
+	const volumetricResult = await pipeline.execute({
+		frameContext: createFrameContext(volumetricSnapshot),
+		executor: volumetricExecutor,
+		gBuffer: createGBufferBridge(),
+	});
+	assert.deepEqual(volumetricResult.executedPassIds, ["volumetric"]);
+	assert.deepEqual(volumetricExecutor.executed, []);
+	assert.equal(volumetricExecutor.volumetricApplications, 1);
+
+	const fallbackSnapshot = createResolvedPostProcess(
+		{ tonemap: { enabled: true } },
+		ALL_POST_PROCESS_CAPABILITIES,
+		"software"
+	);
+	const fallbackExecutor = new FakeExecutor("software");
 	await pipeline.execute({
 		frameContext: createFrameContext(fallbackSnapshot),
 		executor: fallbackExecutor,
 		gBuffer: createGBufferBridge(),
 	});
-	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), ["bloom"]);
+	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), ["tonemap"]);
+}
+
+function testRegistryLifecycleDelegatesToPassImplementations() {
+	const registry = new PostProcessPassRegistry();
+	const passes = [
+		new FogPass({ enabled: true }),
+		new BloomPass({ enabled: true }),
+		new VolumetricLightingPass({ enabled: true }),
+	];
+	const calls = [];
+	for (const pass of passes) {
+		registry.registerPass(pass);
+		const implementation = pass.getImplementation("webgpu");
+		implementation.invalidate = () => {
+			calls.push(`${pass.id}:invalidate`);
+		};
+		implementation.destroy = () => {
+			calls.push(`${pass.id}:destroy`);
+		};
+	}
+
+	assert.equal(registry.invalidatePasses("software"), registry);
+	assert.deepEqual(calls, []);
+	assert.equal(registry.invalidatePasses("webgpu"), registry);
+	assert.deepEqual(calls, [
+		"fog:invalidate",
+		"bloom:invalidate",
+		"volumetric:invalidate",
+	]);
+	assert.equal(registry.destroyPasses("webgpu"), registry);
+	assert.deepEqual(calls.slice(3), [
+		"fog:destroy",
+		"bloom:destroy",
+		"volumetric:destroy",
+	]);
+
+	calls.length = 0;
+	registry.unregisterPass("bloom");
+	assert.deepEqual(calls, ["bloom:destroy"]);
 }
 
 async function testSSRHistorySignatureUsesOptions() {
@@ -391,6 +486,7 @@ async function run() {
 	testSnapshotNormalizationAndWarnings();
 	await testPipelineOrderingAndIncrementalStartPass();
 	await testPassOwnedImplementationsAndFallback();
+	testRegistryLifecycleDelegatesToPassImplementations();
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
 	testHistoryManagerInvalidationAndResize();

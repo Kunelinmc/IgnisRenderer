@@ -4,6 +4,7 @@ import type {
 	FramePass,
 } from "../pipeline/types";
 import type { PostProcessBackendSupport } from "../postprocess";
+import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -74,6 +75,7 @@ export interface BackendCapabilities {
  */
 export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
+	readonly postProcess?: PostProcessPassRegistry;
 	pixels?: Uint8ClampedArray | null;
 }
 

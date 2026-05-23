@@ -322,6 +322,7 @@ export class PostProcessPassRegistry extends EventEmitter<{
 			this._passChangeListeners.delete(id);
 		}
 		this._passes.delete(id);
+		pass.destroy();
 		this.emit("change", { passId: id, reason: "unregister" });
 		return this;
 	}
@@ -334,6 +335,34 @@ export class PostProcessPassRegistry extends EventEmitter<{
 
 	public getPasses(): readonly PostProcessPass[] {
 		return Array.from(this._passes.values());
+	}
+
+	/**
+	 * Invalidates backend resources owned by registered pass implementations.
+	 *
+	 * @param backend Optional backend kind to invalidate.
+	 * @returns This registry.
+	 * @sideEffects May clear implementation-owned backend caches.
+	 */
+	public invalidatePasses(backend?: PostProcessBackendKind): this {
+		for (const pass of this._passes.values()) {
+			pass.invalidate(backend);
+		}
+		return this;
+	}
+
+	/**
+	 * Destroys backend resources owned by registered pass implementations.
+	 *
+	 * @param backend Optional backend kind to destroy.
+	 * @returns This registry.
+	 * @sideEffects Releases implementation-owned backend resources.
+	 */
+	public destroyPasses(backend?: PostProcessBackendKind): this {
+		for (const pass of this._passes.values()) {
+			pass.destroy(backend);
+		}
+		return this;
 	}
 
 	public createSnapshot(

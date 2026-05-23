@@ -19,9 +19,14 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPassDescriptor.implementations` must map backend kinds to backend-specific implementation metadata or pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` may execute a pass directly when backend-specific logic is owned by the logical pass.
 - `PostProcessPassImplementation.warmup(context)` may allocate backend resources required by a pass-owned implementation.
+- `PostProcessPassImplementation.invalidate()` may release frame-size dependent implementation resources.
+- `PostProcessPassImplementation.destroy()` may release all implementation-owned resources for one backend implementation.
 - `PostProcessPipeline` must call `PostProcessPassImplementation.execute(request, context)` when it is present.
 - `PostProcessPipeline` must fall back to `IPostProcessExecutor.executePass(passId, request)` when `PostProcessPassImplementation.execute` is absent.
 - Backend warmup must call `PostProcessPassImplementation.warmup(context)` for planned pass-owned implementations when the method is present.
+- `PostProcessPassRegistry.invalidatePasses(backend)` must call `PostProcessPass.invalidate(backend)` on registered passes without changing pass enabled state, options, or ordering.
+- `PostProcessPassRegistry.destroyPasses(backend)` must call `PostProcessPass.destroy(backend)` on registered passes without changing pass enabled state, options, or ordering.
+- `PostProcessPassRegistry.unregisterPass(id)` must destroy the removed pass implementations after detaching change listeners.
 - Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
 - `IPostProcessExecutor.capabilities` must expose the same capability set used by `resolvePostProcessState`.
@@ -43,7 +48,10 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `ssao` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `ssgi` pass must own its WebGPU implementation under `src/postprocess/passes/`.
 - The built-in `ssr` pass must own its WebGPU implementation under `src/postprocess/passes/`.
-- Backend executors must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, or `ssr` kernel orchestration.
+- The built-in `volumetric` pass must own its WebGPU and Software implementations under `src/postprocess/passes/`.
+- The built-in `fog` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
+- The built-in `bloom` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
+- Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `volumetric`, `fog`, or `bloom` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
 ## Usage
@@ -118,6 +126,8 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - `IPostProcessExecutor.getPassExecutionContext(passId, request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.
 - `PostProcessPassImplementation.warmup(context)` is added for pass-owned warmup.
+- `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.
+- `PostProcessPassRegistry.destroyPasses(backend)` is added for pass-owned implementation destruction.
 - `PostProcessPassDescriptor.resolveHistory(request)` is added and takes precedence over static `history`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.

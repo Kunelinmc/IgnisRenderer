@@ -638,6 +638,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
+		this._renderer?.postProcess?.destroyPasses("software");
 		this._mainPass?.destroy();
 		this._mainPass = null;
 		this._particlePass = null;

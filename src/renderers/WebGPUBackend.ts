@@ -16,6 +16,7 @@ import type {
 	LogicalGBufferBridge,
 	PostProcessFrameEndRequest,
 	PostProcessFrameRequest,
+	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -363,6 +364,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
+	private _postProcessRegistry: PostProcessPassRegistry | null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
@@ -450,7 +452,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
-		void renderer;
+		this._postProcessRegistry = renderer.postProcess ?? null;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -681,6 +683,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._deviceLost && this.queue) {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
+		this._postProcessRegistry?.destroyPasses("webgpu");
 		this._rollbackInitializationState();
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
@@ -708,6 +711,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._recreateDepthTexture();
+		this._postProcessRegistry?.invalidatePasses("webgpu");
 		this._frameExecutor?.invalidateFrameTargets();
 	}
 
@@ -2428,6 +2432,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
+		this._postProcessRegistry?.invalidatePasses("webgpu");
 		this._frameExecutor?.invalidateFrameTargets();
 		this._resetCurrentCanvasTargets();
 	}
@@ -2435,6 +2440,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _onShaderRuntimeChanged(): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
+		this._postProcessRegistry?.destroyPasses("webgpu");
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();

@@ -9,6 +9,7 @@ import type {
 } from "../../postprocess";
 import type { PostProcessCapabilities } from "../../pipeline/PostProcessController";
 import type { PostProcessorLike } from "./PostProcessor";
+import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
 
 export interface SoftwarePostProcessExecutorHost {
 	getPostProcessor(): PostProcessorLike | null;
@@ -80,10 +81,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		const context = request.frameContext;
 		const canvasContext = this._host.getCanvasContext();
 		switch (passId) {
-			case "volumetric":
-				if (!canvasContext) return { ran: false };
-				processor.applyVolumetricLight(context, canvasContext);
-				return { ran: true };
 			case "interaction-outline":
 				processor.applyInteractionOutline(context);
 				return { ran: true };
@@ -115,6 +112,13 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 				return {
 					attachments: request.frameContext.attachments,
 				};
+			case "volumetric": {
+				const context: SoftwareVolumetricLightingContext = {
+					processor: this._host.getPostProcessor(),
+					canvasContext: this._host.getCanvasContext(),
+				};
+				return context;
+			}
 			case "fxaa":
 				return {
 					attachments: request.frameContext.attachments,

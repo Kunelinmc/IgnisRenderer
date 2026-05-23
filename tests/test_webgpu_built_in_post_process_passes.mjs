@@ -68,6 +68,7 @@ function createExecutorHarness() {
 		motionHistoryWrite: { id: "initial-motion-write" },
 	};
 	executor._postRuntime = {
+		sharedContext: { id: "shared-context" },
 		executePass: async (request) => {
 			runtimeCalls.push(request);
 			return {
@@ -117,18 +118,14 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(ssrContext.targets.motionHistoryRead.id, "motion-read");
 	assert.equal(ssrContext.targets.motionHistoryWrite.id, "motion-write");
 
-	const volumetricResult = await executor.executePostProcessPass(
+	const volumetricContext = executor.getPassExecutionContext(
 		"volumetric",
 		ssrRequest
 	);
-	assert.deepEqual(volumetricResult, {
-		ran: true,
-		updatedHistoryIds: ["volumetric", "volumetric-reservoir", "motion"],
-	});
-	assert.equal(runtimeCalls[0].passId, "volumetric");
-	assert.equal(runtimeCalls[0].historyValid, true);
-	assert.deepEqual(runtimeCalls[0].frameBinding, { id: "frame-binding" });
-	assert.deepEqual(runtimeCalls[0].lightingState, { id: "lighting-state" });
+	assert.equal(runtimeCalls.length, 0);
+	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
+	assert.deepEqual(volumetricContext.lightingState, { id: "lighting-state" });
+	assert.deepEqual(volumetricContext.shared, { id: "shared-context" });
 	assert.equal(executor._frameTargets.volumetricHistoryRead.id, "vol-read");
 	assert.equal(executor._frameTargets.volumetricHistoryWrite.id, "vol-write");
 	assert.equal(
@@ -141,6 +138,13 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	);
 	assert.equal(executor._frameTargets.motionHistoryRead.id, "motion-read");
 	assert.equal(executor._frameTargets.motionHistoryWrite.id, "motion-write");
+
+	const volumetricFallbackResult = await executor.executePostProcessPass(
+		"volumetric",
+		ssrRequest
+	);
+	assert.deepEqual(volumetricFallbackResult, { ran: false });
+	assert.equal(runtimeCalls.length, 0);
 }
 
 async function testWarmupHintsFollowPlanPostProcessPasses() {
@@ -159,7 +163,13 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	};
 
 	await executor.warmup(
-		{},
+		{
+			transient: new Map(),
+			postProcess: {
+				getEnabledPasses: () => [],
+				getOptions: () => undefined,
+			},
+		},
 		{
 			materials: [],
 			shaderMaterials: [],
@@ -172,10 +182,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		}
 	);
 
-	assert.deepEqual(warmupHints, [
-		"postprocess:volumetric",
-		"postprocess:hiz",
-	]);
+	assert.deepEqual(warmupHints, []);
 }
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
