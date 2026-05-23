@@ -34,6 +34,7 @@ import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
+import { computeHaltonJitterNDC } from "../src/maths/Misc.ts";
 import { SH } from "../src/maths/SH.ts";
 import { PBRMaterial } from "../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../src/materials/PhongMaterial.ts";
@@ -50,7 +51,10 @@ import { MeshInstance } from "../src/meshes/MeshInstance.ts";
 import { ShadowMap, createShadowRenderSet } from "../src/lights/shadows/ShadowMapping.ts";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../src/particles/types.ts";
-import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "../src/renderers/webgpu/bufferLayouts.ts";
+import {
+	WEBGPU_FRAME_UNIFORM_LAYOUT,
+	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
+} from "../src/renderers/webgpu/bufferLayouts.ts";
 import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_AREA_LIGHTS,
@@ -2824,6 +2828,211 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.notEqual(secondEnvironment.frameBinding, firstBinding);
 }
 
+function createWebGPUFrameContextForTemporalTest(
+	frame,
+	features,
+	postProcess,
+	width,
+	height,
+	temporalHistoryReset = false
+) {
+	return {
+		camera: frame.camera,
+		attachments: { width, height },
+		features,
+		postProcess,
+		shadowMaps: frame.shadowMaps,
+		scene: frame,
+		shCoeffs: SH.empty(),
+		shAmbientCoeffs: SH.empty(),
+		worldMatrix: Matrix4.identity(),
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width, height }],
+			dirtyTileSize: Math.max(width, height),
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			postProcessStartPass: null,
+			reasonMask: 0,
+			temporalHistoryReset,
+		},
+		transient: new Map(),
+	};
+}
+
+function readLatestFrameUniformField(backend, field) {
+	const frameWrites = backend.writeCalls.filter(
+		(call) =>
+			call[0] === "writeBuffer" &&
+			call[1]?.label === "WebGPUFrameUniforms"
+	);
+	assert.ok(frameWrites.length > 0);
+	const data = frameWrites[frameWrites.length - 1][2];
+	const offset = WEBGPU_FRAME_UNIFORM_LAYOUT.byteOffsetOf(field) / 4;
+	const length = WEBGPU_FRAME_UNIFORM_LAYOUT.byteSizeOf(field) / 4;
+	return Array.from(data.slice(offset, offset + length));
+}
+
+function assertArrayNearlyEqual(actual, expected, epsilon = 1e-6) {
+	assert.equal(actual.length, expected.length);
+	for (let i = 0; i < actual.length; i++) {
+		nearlyEqual(actual[i], expected[i], epsilon);
+	}
+}
+
+async function testWebGPUPrepareFrameTemporalStateModes() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			environment: false,
+			ssao: false,
+			taa: true,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	const postProcess = createResolvedPostProcess(
+		{ taa: { enabled: true, options: { jitterScale: 1 } } },
+		undefined,
+		"webgpu"
+	);
+	const width = 16;
+	const height = 8;
+	const previousViewProjection = new Matrix4([
+		[1, 0, 0, 10],
+		[0, 1, 0, 20],
+		[0, 0, 1, 30],
+		[0, 0, 0, 1],
+	]);
+	const currentViewProjection = new Matrix4([
+		[2, 0, 0, 40],
+		[0, 2, 0, 50],
+		[0, 0, 2, 60],
+		[0, 0, 0, 1],
+	]);
+	const captureViewProjection = new Matrix4([
+		[3, 0, 0, 70],
+		[0, 3, 0, 80],
+		[0, 0, 3, 90],
+		[0, 0, 0, 1],
+	]);
+
+	const previousFrame = createFrame(packet);
+	previousFrame.camera.viewProjectionMatrix = previousViewProjection;
+	const currentFrame = createFrame(packet);
+	currentFrame.camera.viewProjectionMatrix = currentViewProjection;
+	const captureFrame = createFrame(packet);
+	captureFrame.camera.viewProjectionMatrix = captureViewProjection;
+
+	const previousContext = createWebGPUFrameContextForTemporalTest(
+		previousFrame,
+		features,
+		postProcess,
+		width,
+		height
+	);
+	resources.prepareFrame(previousContext);
+	const firstJitter = computeHaltonJitterNDC(0, width, height, 1);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[firstJitter[0], firstJitter[1], 0, 0]
+	);
+
+	const currentContext = createWebGPUFrameContextForTemporalTest(
+		currentFrame,
+		features,
+		postProcess,
+		width,
+		height
+	);
+	resources.prepareFrame(currentContext);
+	const secondJitter = computeHaltonJitterNDC(1, width, height, 1);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "prevViewProjection"),
+		Array.from(packMatrix4ForWGSL(previousViewProjection))
+	);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
+	);
+
+	const captureContext = createWebGPUFrameContextForTemporalTest(
+		captureFrame,
+		features,
+		postProcess,
+		width,
+		height,
+		true
+	);
+	resources.prepareFrame(captureContext, { temporalStateMode: "disabled" });
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "prevViewProjection"),
+		Array.from(packMatrix4ForWGSL(captureViewProjection))
+	);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[0, 0, 0, 0]
+	);
+
+	resources.prepareFrame(currentContext, { temporalStateMode: "reuse" });
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "prevViewProjection"),
+		Array.from(packMatrix4ForWGSL(previousViewProjection))
+	);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
+	);
+
+	resources.prepareFrame(currentContext);
+	const thirdJitter = computeHaltonJitterNDC(2, width, height, 1);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[thirdJitter[0], thirdJitter[1], secondJitter[0], secondJitter[1]]
+	);
+
+	const resetContext = createWebGPUFrameContextForTemporalTest(
+		currentFrame,
+		features,
+		postProcess,
+		width,
+		height,
+		true
+	);
+	resources.prepareFrame(resetContext);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "prevViewProjection"),
+		Array.from(packMatrix4ForWGSL(currentViewProjection))
+	);
+	assertArrayNearlyEqual(
+		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		[firstJitter[0], firstJitter[1], 0, 0]
+	);
+}
+
 async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	const backend = new FakeBackend();
 	const renderer = { logger: { warn() {} } };
@@ -3392,6 +3601,7 @@ async function run() {
 	await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 	await testParticleUVLayoutAndUniformBinding();
 	await testFrameBindingReplacementDestroysOldBinding();
+	await testWebGPUPrepareFrameTemporalStateModes();
 	await testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract();
 	await testParticleShadowVolumeBufferUpdatesForDirectionalSlice();
 	await testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled();

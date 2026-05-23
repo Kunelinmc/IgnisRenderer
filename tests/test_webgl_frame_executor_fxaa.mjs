@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
 import { Logger } from "../src/foundation/Logger.ts";
+import { TEMPORAL_ANTI_ALIASING_PASS } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFXAATestGL() {
@@ -12,6 +13,8 @@ function createFXAATestGL() {
 		FRAMEBUFFER: 0x8d40,
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
+		COLOR_ATTACHMENT2: 0x8ce2,
+		MAX_DRAW_BUFFERS: 0x8824,
 		TEXTURE_2D: 0x0de1,
 		TEXTURE0: 0x84c0,
 		TEXTURE1: 0x84c1,
@@ -31,6 +34,9 @@ function createFXAATestGL() {
 				parameter === this.MAX_RENDERBUFFER_SIZE
 			) {
 				return 4096;
+			}
+			if (parameter === this.MAX_DRAW_BUFFERS) {
+				return 4;
 			}
 			return 0;
 		},
@@ -667,19 +673,65 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	executor._postFramebuffer = { id: "post-fbo" };
 	executor._sceneColorTexture = { id: "scene-color" };
 	executor._sceneMotionTexture = { id: "scene-motion" };
-	executor._taaHistoryTextures = [{ id: "history-a" }, { id: "history-b" }];
-	executor._taaMotionHistoryTextures = [{ id: "motion-a" }, { id: "motion-b" }];
+	executor._postColorTexture = { id: "post-color" };
 	executor._fullscreenVao = { id: "fullscreen-vao" };
 	executor._width = 1920;
 	executor._height = 1080;
 
-	executor._applyTAA({
-		historyWeight: Number.POSITIVE_INFINITY,
-		disocclusionDepthThreshold: Number.NaN,
-		motionFactor: 1e9,
-		varianceClampGamma: -5,
-		sharpen: 4,
-	});
+	const frameContext = {
+		postProcess: createResolvedPostProcess(
+			{
+				taa: {
+					enabled: true,
+					options: {
+						historyWeight: Number.POSITIVE_INFINITY,
+						disocclusionDepthThreshold: Number.NaN,
+						motionFactor: 1e9,
+						varianceClampGamma: -5,
+						sharpen: 4,
+					},
+				},
+			},
+			undefined,
+			"webgl"
+		),
+		transient: new Map(),
+	};
+	const request = {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {
+			taa: {
+				valid: false,
+				read: { resource: { id: "history-a" } },
+				write: { resource: { id: "history-b" } },
+			},
+			motion: {
+				valid: false,
+				read: { resource: { id: "motion-a" } },
+				write: { resource: { id: "motion-b" } },
+			},
+		},
+		pass: TEMPORAL_ANTI_ALIASING_PASS,
+		passId: "taa",
+		implementation: TEMPORAL_ANTI_ALIASING_PASS.implementations.webgl,
+		options: frameContext.postProcess.options.taa,
+		startPassId: null,
+	};
+	const context = executor.getPassExecutionContext("taa", request);
+	const result = TEMPORAL_ANTI_ALIASING_PASS.implementations.webgl.execute(
+		request,
+		context
+	);
+	assert.deepEqual(result, { ran: true, updatedHistoryIds: ["taa", "motion"] });
+
+	const attachment0Writes = gl.calls.filter(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT0
+	);
+	assert.equal(attachment0Writes[attachment0Writes.length - 1]?.texture.id, "post-color");
 
 	const attachment1Writes = gl.calls.filter(
 		(call) =>
@@ -687,11 +739,26 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 			call.attachment === gl.COLOR_ATTACHMENT1
 	);
 	assert.equal(attachment1Writes[attachment1Writes.length - 1]?.texture, null);
+	assert.equal(attachment1Writes[0]?.texture.id, "history-b");
+
+	const attachment2Writes = gl.calls.filter(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT2
+	);
+	assert.equal(attachment2Writes[0]?.texture.id, "motion-b");
+	assert.equal(attachment2Writes[attachment2Writes.length - 1]?.texture, null);
 
 	const drawBuffersCalls = gl.calls.filter((call) => call.name === "drawBuffers");
+	assert.deepEqual(drawBuffersCalls[0]?.buffers, [
+		gl.COLOR_ATTACHMENT0,
+		gl.COLOR_ATTACHMENT1,
+		gl.COLOR_ATTACHMENT2,
+	]);
 	assert.deepEqual(drawBuffersCalls[drawBuffersCalls.length - 1]?.buffers, [
 		gl.COLOR_ATTACHMENT0,
 	]);
+	assert.equal(executor._presentSourceTexture.id, "post-color");
 
 	const uniform1fCalls = gl.calls.filter((call) => call.name === "uniform1f");
 	const uniformMap = new Map(uniform1fCalls.map((call) => [call.location, call.value]));

@@ -99,25 +99,22 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const taaResult = await executor.executePostProcessPass("taa", taaRequest);
-	assert.deepEqual(taaResult, {
-		ran: true,
-		updatedHistoryIds: ["taa"],
-	});
-	assert.equal(runtimeCalls[0].passId, "taa");
-	assert.equal(runtimeCalls[0].historyValid, false);
+	const taaContext = executor.getPassExecutionContext("taa", taaRequest);
 	assert.equal(executor._frameTargets.historyRead.id, "taa-read");
 	assert.equal(executor._frameTargets.historyWrite.id, "taa-write");
+	assert.equal(taaContext.targets.motionHistoryRead.id, "motion-read");
+	assert.equal(taaContext.targets.motionHistoryWrite.id, "motion-write");
+	assert.equal(runtimeCalls.length, 0);
 
 	const ssrRequest = createTemporalRequest();
 	const ssrResult = await executor.executePostProcessPass("ssr", ssrRequest);
 	assert.deepEqual(ssrResult, {
 		ran: true,
-		updatedHistoryIds: ["ssr"],
+		updatedHistoryIds: ["ssr", "motion"],
 	});
-	assert.equal(runtimeCalls[1].passId, "ssr");
-	assert.equal(runtimeCalls[1].historyValid, true);
-	assert.deepEqual(runtimeCalls[1].frameBinding, { id: "frame-binding" });
+	assert.equal(runtimeCalls[0].passId, "ssr");
+	assert.equal(runtimeCalls[0].historyValid, true);
+	assert.deepEqual(runtimeCalls[0].frameBinding, { id: "frame-binding" });
 	assert.equal(executor._frameTargets.ssrHistoryRead.id, "ssr-read");
 	assert.equal(executor._frameTargets.ssrHistoryWrite.id, "ssr-write");
 
@@ -127,12 +124,12 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	);
 	assert.deepEqual(volumetricResult, {
 		ran: true,
-		updatedHistoryIds: ["volumetric", "volumetric-reservoir"],
+		updatedHistoryIds: ["volumetric", "volumetric-reservoir", "motion"],
 	});
-	assert.equal(runtimeCalls[2].passId, "volumetric");
-	assert.equal(runtimeCalls[2].historyValid, true);
-	assert.deepEqual(runtimeCalls[2].frameBinding, { id: "frame-binding" });
-	assert.deepEqual(runtimeCalls[2].lightingState, { id: "lighting-state" });
+	assert.equal(runtimeCalls[1].passId, "volumetric");
+	assert.equal(runtimeCalls[1].historyValid, true);
+	assert.deepEqual(runtimeCalls[1].frameBinding, { id: "frame-binding" });
+	assert.deepEqual(runtimeCalls[1].lightingState, { id: "lighting-state" });
 	assert.equal(executor._frameTargets.volumetricHistoryRead.id, "vol-read");
 	assert.equal(executor._frameTargets.volumetricHistoryWrite.id, "vol-write");
 	assert.equal(

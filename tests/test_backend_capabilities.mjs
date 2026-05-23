@@ -20,7 +20,7 @@ function run() {
 	assert.deepEqual(software.postProcessCapabilities, {
 		ssao: true,
 		ssgi: false,
-		taa: false,
+		taa: true,
 		ssr: false,
 		volumetric: true,
 		fog: false,

@@ -69,7 +69,7 @@ async function captureWarnMessagesAsync(run) {
 	return warnings;
 }
 
-async function testTAAExecutePassReportsHistoryUpdate() {
+async function testTAAIsOwnedByLogicalPassImplementation() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const targets = createTemporalTargets();
@@ -88,9 +88,9 @@ async function testTAAExecutePassReportsHistoryUpdate() {
 		historyValid: true,
 	});
 
-	assert.equal(result.ran, true);
-	assert.equal(result.historyUpdated, true);
-	assert.equal(targets.sceneColor, targets.postPong);
+	assert.equal(result.ran, false);
+	assert.equal(result.historyUpdated, undefined);
+	assert.equal(targets.sceneColor.label, "scene");
 }
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
@@ -281,9 +281,9 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 9);
-	assert.equal(backend.shaderModuleDestroyCalls, 9);
-	assert.equal(backend.computePipelineDestroyCalls, 13);
+	assert.equal(backend.bufferDestroyCalls, 8);
+	assert.equal(backend.shaderModuleDestroyCalls, 8);
+	assert.equal(backend.computePipelineDestroyCalls, 12);
 	const destroyedLabels = new Set(
 		backend.buffers
 			.filter((buffer) => buffer.destroyed)
@@ -291,7 +291,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	);
 	assert.ok(destroyedLabels.has("WebGPUSSAOParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSGIParams"));
-	assert.ok(destroyedLabels.has("WebGPUTAAParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSRTraceParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSRComposeParams"));
 	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
@@ -305,7 +304,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	);
 	assert.ok(destroyedShaderLabels.has("WebGPUSSAOShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUSSGIShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUTAAShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUHiZShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUSSRShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUVolumetricShader"));
@@ -315,13 +313,13 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 9);
-	assert.equal(backend.shaderModuleDestroyCalls, 9);
-	assert.equal(backend.computePipelineDestroyCalls, 13);
+	assert.equal(backend.bufferDestroyCalls, 8);
+	assert.equal(backend.shaderModuleDestroyCalls, 8);
+	assert.equal(backend.computePipelineDestroyCalls, 12);
 }
 
 async function run() {
-	await testTAAExecutePassReportsHistoryUpdate();
+	await testTAAIsOwnedByLogicalPassImplementation();
 	await testSSRAndVolumetricReportHistoryUpdates();
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
 	await testHiZMipViewsAreCachedAcrossSSRExecutions();
