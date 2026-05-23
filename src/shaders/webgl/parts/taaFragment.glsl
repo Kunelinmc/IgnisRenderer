@@ -22,6 +22,7 @@ uniform float uHistoryValid;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragHistory;
+layout(location = 2) out vec4 fragMotionHistory;
 
 const float PI = 3.14159265359;
 const float EPSILON = 0.000001;
@@ -142,4 +143,5 @@ void main() {
 	
 	fragColor = vec4(outRGB, temporalColor.a);
 	fragHistory = temporalColor;
+	fragMotionHistory = texture(uMotionMap, vUv);
 }
