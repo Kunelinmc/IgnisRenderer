@@ -107,16 +107,15 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(runtimeCalls.length, 0);
 
 	const ssrRequest = createTemporalRequest();
-	const ssrResult = await executor.executePostProcessPass("ssr", ssrRequest);
-	assert.deepEqual(ssrResult, {
-		ran: true,
-		updatedHistoryIds: ["ssr", "motion"],
-	});
-	assert.equal(runtimeCalls[0].passId, "ssr");
-	assert.equal(runtimeCalls[0].historyValid, true);
-	assert.deepEqual(runtimeCalls[0].frameBinding, { id: "frame-binding" });
+	const ssrContext = executor.getPassExecutionContext("ssr", ssrRequest);
+	assert.equal(runtimeCalls.length, 0);
+	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
 	assert.equal(executor._frameTargets.ssrHistoryRead.id, "ssr-read");
 	assert.equal(executor._frameTargets.ssrHistoryWrite.id, "ssr-write");
+	assert.equal(ssrContext.targets.ssrHistoryRead.id, "ssr-read");
+	assert.equal(ssrContext.targets.ssrHistoryWrite.id, "ssr-write");
+	assert.equal(ssrContext.targets.motionHistoryRead.id, "motion-read");
+	assert.equal(ssrContext.targets.motionHistoryWrite.id, "motion-write");
 
 	const volumetricResult = await executor.executePostProcessPass(
 		"volumetric",
@@ -126,10 +125,10 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 		ran: true,
 		updatedHistoryIds: ["volumetric", "volumetric-reservoir", "motion"],
 	});
-	assert.equal(runtimeCalls[1].passId, "volumetric");
-	assert.equal(runtimeCalls[1].historyValid, true);
-	assert.deepEqual(runtimeCalls[1].frameBinding, { id: "frame-binding" });
-	assert.deepEqual(runtimeCalls[1].lightingState, { id: "lighting-state" });
+	assert.equal(runtimeCalls[0].passId, "volumetric");
+	assert.equal(runtimeCalls[0].historyValid, true);
+	assert.deepEqual(runtimeCalls[0].frameBinding, { id: "frame-binding" });
+	assert.deepEqual(runtimeCalls[0].lightingState, { id: "lighting-state" });
 	assert.equal(executor._frameTargets.volumetricHistoryRead.id, "vol-read");
 	assert.equal(executor._frameTargets.volumetricHistoryWrite.id, "vol-write");
 	assert.equal(
@@ -174,10 +173,8 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	);
 
 	assert.deepEqual(warmupHints, [
-		"postprocess:ssr",
-		"postprocess:hiz",
-		"postprocess:copy",
 		"postprocess:volumetric",
+		"postprocess:hiz",
 	]);
 }
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Logger } from "../src/foundation/Logger.ts";
+import { SCREEN_SPACE_REFLECTIONS_PASS } from "../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -15,6 +16,7 @@ function createTemporalTargets(width = 32, height = 16) {
 		postPong: createTexture(width, height, "pong"),
 		gNormalRoughMetal: createTexture(width, height, "g-normal"),
 		gMotionDepth: createTexture(width, height, "g-motion-depth"),
+		planarReflectionMask: createTexture(width, height, "planar-reflection-mask"),
 		historyRead: createTexture(width, height, "history-read"),
 		historyWrite: createTexture(width, height, "history-write"),
 		motionHistoryRead: createTexture(width, height, "motion-history-read"),
@@ -35,6 +37,67 @@ function createTemporalTargets(width = 32, height = 16) {
 			"vol-reservoir-write"
 		),
 	};
+}
+
+function createSSRPassRequest(frameContext, targets, historyValid = true) {
+	const implementation = SCREEN_SPACE_REFLECTIONS_PASS.implementations.webgpu;
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {
+			ssr: {
+				valid: historyValid,
+				read: { resource: targets.ssrHistoryRead },
+				write: { resource: targets.ssrHistoryWrite },
+			},
+			motion: {
+				valid: historyValid,
+				read: { resource: targets.motionHistoryRead },
+				write: { resource: targets.motionHistoryWrite },
+			},
+		},
+		pass: SCREEN_SPACE_REFLECTIONS_PASS,
+		passId: "ssr",
+		implementation,
+		options: frameContext.postProcess.options.ssr,
+		startPassId: null,
+	};
+}
+
+async function executeSSRImplementation(
+	backend,
+	runtime,
+	options = {}
+) {
+	const {
+		targets = createTemporalTargets(),
+		frameContext = createPerspectiveFrameContext(),
+		historyValid = true,
+	} = options;
+	const frameBinding =
+		Object.prototype.hasOwnProperty.call(options, "frameBinding") ?
+			options.frameBinding
+		:	{ label: "frame-binding" };
+	let published = null;
+	let motionWrites = 0;
+	const implementation = SCREEN_SPACE_REFLECTIONS_PASS.implementations.webgpu;
+	const request = createSSRPassRequest(frameContext, targets, historyValid);
+	const context = {
+		encoder: new FakeEncoder(backend),
+		targets,
+		shared: runtime.sharedContext,
+		frameBinding,
+		publishColorTarget: (texture) => {
+			published = texture;
+			targets.sceneColor = texture;
+		},
+		writeMotionHistoryFromCurrent: () => {
+			motionWrites++;
+		},
+	};
+	const result = await implementation.execute(request, context);
+	return { result, published, motionWrites };
 }
 
 function createPerspectiveFrameContext(postProcessRequest = {}) {
@@ -99,9 +162,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	const frameBinding = { label: "frame-binding" };
 
 	const ssrTargets = createTemporalTargets(32, 16);
-	const ssrResult = await runtime.executePass({
-		passId: "ssr",
-		encoder: new FakeEncoder(),
+	const ssrRun = await executeSSRImplementation(backend, runtime, {
 		targets: ssrTargets,
 		frameContext: createPerspectiveFrameContext({
 			ssr: {
@@ -114,8 +175,13 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 		historyValid: true,
 		frameBinding,
 	});
-	assert.equal(ssrResult.ran, true);
-	assert.equal(ssrResult.historyUpdated, true);
+	assert.deepEqual(ssrRun.result, {
+		ran: true,
+		updatedHistoryIds: ["ssr", "motion"],
+	});
+	assert.strictEqual(ssrRun.published, ssrTargets.postPing);
+	assert.strictEqual(ssrTargets.sceneColor, ssrTargets.postPing);
+	assert.equal(ssrRun.motionWrites, 1);
 
 	const volumetricTargets = createTemporalTargets(32, 16);
 	const volumetricResult = await runtime.executePass({
@@ -152,16 +218,14 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	const frameBinding = { label: "frame-binding" };
 
 	const warnings = await captureWarnMessagesAsync(async () => {
-		const ssrResult = await runtime.executePass({
-			passId: "ssr",
-			encoder: new FakeEncoder(),
+		const ssrRun = await executeSSRImplementation(backend, runtime, {
 			targets: createTemporalTargets(),
 			frameContext,
 			historyValid: true,
 			frameBinding,
 		});
-		assert.equal(ssrResult.ran, false);
-		assert.equal(ssrResult.historyUpdated, false);
+		assert.deepEqual(ssrRun.result, { ran: false });
+		assert.equal(ssrRun.motionWrites, 0);
 
 		const volumetricResult = await runtime.executePass({
 			passId: "volumetric",
@@ -198,9 +262,7 @@ async function testHiZMipViewsAreCachedAcrossSSRExecutions() {
 	const targets = createTemporalTargets(16, 8);
 	const frameContext = createPerspectiveFrameContext({});
 
-	await runtime.executePass({
-		passId: "ssr",
-		encoder: new FakeEncoder(),
+	await executeSSRImplementation(backend, runtime, {
 		targets,
 		frameContext,
 		historyValid: false,
@@ -209,9 +271,7 @@ async function testHiZMipViewsAreCachedAcrossSSRExecutions() {
 	const firstViewCount = backend.textureViews.length;
 	assert.equal(firstViewCount, 5);
 
-	await runtime.executePass({
-		passId: "ssr",
-		encoder: new FakeEncoder(),
+	await executeSSRImplementation(backend, runtime, {
 		targets,
 		frameContext,
 		historyValid: false,
@@ -232,19 +292,19 @@ async function testUnknownPassReturnsRanFalse() {
 	assert.deepEqual(result, { ran: false });
 }
 
-async function testMissingSSRFrameBindingThrowsAtRuntime() {
+async function testMissingSSRFrameBindingSkipsImplementation() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const targets = createTemporalTargets(32, 16);
-	await assert.rejects(async () => {
-		await runtime.executePass({
-			passId: "ssr",
-			encoder: new FakeEncoder(),
-			targets,
-			frameContext: createPerspectiveFrameContext(),
-			historyValid: true,
-		});
+	const ssrRun = await executeSSRImplementation(backend, runtime, {
+		targets,
+		frameContext: createPerspectiveFrameContext(),
+		historyValid: true,
+		frameBinding: undefined,
 	});
+	assert.deepEqual(ssrRun.result, { ran: false });
+	assert.equal(ssrRun.motionWrites, 0);
+	assert.equal(backend.textureViews.length, 0);
 }
 
 async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
@@ -259,17 +319,10 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 		postPong,
 	};
 
-	await runtime.executePass({
-		passId: "fxaa",
-		encoder: new FakeEncoder(),
-		targets,
-		frameContext: createPerspectiveFrameContext(),
-	});
+	void targets;
 	await runtime.warmupHints([
 		"postprocess:ssao",
 		"postprocess:ssgi",
-		"postprocess:taa",
-		"postprocess:ssr",
 		"postprocess:volumetric",
 		"postprocess:motion-blur",
 		"postprocess:dof",
@@ -280,10 +333,7 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	assert.equal(backend.computePipelineDestroyCalls, 0);
 
 	runtime.onShaderRuntimeChanged();
-	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 8);
-	assert.equal(backend.shaderModuleDestroyCalls, 8);
-	assert.equal(backend.computePipelineDestroyCalls, 12);
+	assert.equal(backend.bindingGroupDestroyCalls, 0);
 	const destroyedLabels = new Set(
 		backend.buffers
 			.filter((buffer) => buffer.destroyed)
@@ -291,12 +341,12 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	);
 	assert.ok(destroyedLabels.has("WebGPUSSAOParams"));
 	assert.ok(destroyedLabels.has("WebGPUSSGIParams"));
-	assert.ok(destroyedLabels.has("WebGPUSSRTraceParams"));
-	assert.ok(destroyedLabels.has("WebGPUSSRComposeParams"));
 	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
 	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
 	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
-	assert.ok(destroyedLabels.has("WebGPUFXAAParams"));
+	assert.equal(destroyedLabels.has("WebGPUSSRTraceParams"), false);
+	assert.equal(destroyedLabels.has("WebGPUSSRComposeParams"), false);
+	assert.equal(destroyedLabels.has("WebGPUFXAAParams"), false);
 	const destroyedShaderLabels = new Set(
 		backend.shaderModules
 			.filter((module) => module.destroyed)
@@ -305,17 +355,20 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 	assert.ok(destroyedShaderLabels.has("WebGPUSSAOShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUSSGIShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUHiZShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUSSRShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUVolumetricShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUMotionBlurShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUDOFShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUFXAAShader"));
+	assert.equal(destroyedShaderLabels.has("WebGPUSSRShader"), false);
+	assert.equal(destroyedShaderLabels.has("WebGPUFXAAShader"), false);
+	const bufferDestroyCalls = backend.bufferDestroyCalls;
+	const shaderModuleDestroyCalls = backend.shaderModuleDestroyCalls;
+	const computePipelineDestroyCalls = backend.computePipelineDestroyCalls;
 
 	runtime.onShaderRuntimeChanged();
-	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(backend.bufferDestroyCalls, 8);
-	assert.equal(backend.shaderModuleDestroyCalls, 8);
-	assert.equal(backend.computePipelineDestroyCalls, 12);
+	assert.equal(backend.bindingGroupDestroyCalls, 0);
+	assert.equal(backend.bufferDestroyCalls, bufferDestroyCalls);
+	assert.equal(backend.shaderModuleDestroyCalls, shaderModuleDestroyCalls);
+	assert.equal(backend.computePipelineDestroyCalls, computePipelineDestroyCalls);
 }
 
 async function run() {
@@ -324,7 +377,7 @@ async function run() {
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
 	await testHiZMipViewsAreCachedAcrossSSRExecutions();
 	await testUnknownPassReturnsRanFalse();
-	await testMissingSSRFrameBindingThrowsAtRuntime();
+	await testMissingSSRFrameBindingSkipsImplementation();
 	await testOnShaderRuntimeChangedDestroysParameterBuffers();
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }

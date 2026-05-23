@@ -55,7 +55,10 @@ import {
 	normalizeEnvironmentIBLUpdateOptions,
 	type EnvironmentIBLUpdateOptions,
 } from "../pipeline/EnvironmentIBLUpdateRuntime";
-import { WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY } from "../pipeline/WarmupPlanner";
+import {
+	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
+	WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
+} from "../pipeline/WarmupPlanner";
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
@@ -323,15 +326,18 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
-		const warmupPostProcessOrder = this._postProcessPipeline
-			.getExecutionOrder(
-				resolvedPostProcess,
-				this.backend.postProcessExecutor
-			)
-			.map((pass) => pass.id);
+		const warmupPostProcessPasses = this._postProcessPipeline.getExecutionOrder(
+			resolvedPostProcess,
+			this.backend.postProcessExecutor
+		);
+		const warmupPostProcessOrder = warmupPostProcessPasses.map((pass) => pass.id);
 		transient.set(
 			WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
 			warmupPostProcessOrder
+		);
+		transient.set(
+			WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
+			warmupPostProcessPasses
 		);
 		for (const warning of [
 			...resolved.warnings,

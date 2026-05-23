@@ -18,6 +18,9 @@ Post-process pass registration previously flowed through backend-owned WebGPU an
 - `renderer.postProcess.unregisterPass(id)` must remove the logical descriptor and any stored request state for `id`.
 - A custom `PostProcessPassDescriptor` must declare backend implementations through `implementations`.
 - A custom `PostProcessPassDescriptor` should declare `placement` instead of pass dependencies.
+- A custom `PostProcessPassDescriptor` may declare static temporal resources through `history`.
+- A custom `PostProcessPassDescriptor` may declare dynamic temporal resources through `resolveHistory(request)`.
+- `PostProcessPassDescriptor.resolveHistory(request)` must replace `history` for the current frame when both are present.
 - A custom pass without an implementation for the active `IPostProcessExecutor.backend` must be treated as unsupported for that backend.
 - `PostProcessBackendSupport` must expose only `postProcessCapabilities`, `postProcessExecutor`, and `createPostProcessGBufferBridge(context)`.
 - `PostProcessBackendSupport` must not expose `registerPass` or `unregisterPass`.
@@ -112,3 +115,4 @@ bun tests/test_postprocess_public_api.mjs
 - `RenderBackendPostProcessPass` is removed. Code must use `PostProcessPassDescriptor`.
 - `WebGPUPostProcessPassPlugin` and `WebGLPostProcessPassPlugin` are removed from the public API.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
+- `PostProcessPassDescriptor.resolveHistory(request)` is added for passes whose history dimensions or usage depend on frame state or resolved options.

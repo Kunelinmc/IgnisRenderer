@@ -10,12 +10,16 @@ WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostPro
 - A WebGPU custom pass must include `descriptor.implementations.webgpu`.
 - A WebGPU custom pass should use `descriptor.placement` and optional `descriptor.order` to enter the fixed post-process sequence.
 - `WebGPUBackend.postProcessExecutor.backend` must be `"webgpu"`.
-- `WebGPUBackend.postProcessExecutor.executePass(passId, request)` must dispatch the corresponding WebGPU post-process implementation.
+- `WebGPUBackend.postProcessExecutor.executePass(passId, request)` must dispatch backend-owned fallback post-process passes.
+- `WebGPUBackend.postProcessExecutor.getPassExecutionContext(passId, request)` may provide low-level helpers for pass-owned WebGPU implementations.
+- Pass-owned WebGPU implementations must use `PostProcessPassImplementation.execute(request, context)` instead of WebGPU runtime registration.
+- WebGPU warmup must call `PostProcessPassImplementation.warmup(context)` for pass-owned implementations when it is present.
 - `WebGPUBackend.createPostProcessGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGPU texture handles.
 - WebGPU depth channels must declare `depthEncoding: "hardware"` unless the implementation provides a linearized depth texture.
 - WebGPU motion channels must declare `motionEncoding: "ndc-delta"` when motion vectors are available.
 - WebGPU temporal passes must read history resources from `request.histories`.
 - WebGPU temporal passes must return `updatedHistoryIds` or `historyUpdated` when they write pipeline-owned history resources.
+- The built-in `taa`, `fxaa`, and `ssr` WebGPU kernels must be pass-owned implementations.
 - WebGPU executor resource allocation must use backend-owned texture creation and destruction APIs.
 - WebGPU backends must not expose a public `postProcess` facade or backend-level post-process registration methods.
 

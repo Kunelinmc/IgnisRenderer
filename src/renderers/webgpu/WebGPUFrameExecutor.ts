@@ -3,9 +3,11 @@ import type {
 	LogicalGBufferBridge,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassDescriptor,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import { getBuiltinPostProcessPasses } from "../../postprocess/PostProcessPipeline";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
@@ -46,7 +48,10 @@ import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
-import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import {
+	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
+	toShaderCompileError,
+} from "../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import {
 	DEFAULT_GAMMA,
@@ -62,6 +67,8 @@ import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
+import type { WebGPUFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
+import type { WebGPUSSRContext } from "../../postprocess/passes/ScreenSpaceReflectionsPass";
 import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
@@ -174,7 +181,7 @@ const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	ssao: ["postprocess:ssao"],
 	ssgi: ["postprocess:ssgi"],
 	taa: ["postprocess:taa"],
-	ssr: ["postprocess:ssr", "postprocess:hiz", "postprocess:copy"],
+	ssr: [],
 	volumetric: ["postprocess:volumetric", "postprocess:hiz"],
 	fog: ["postprocess:fog"],
 	"motion-blur": ["postprocess:motion-blur"],
@@ -182,7 +189,7 @@ const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	bloom: ["postprocess:bloom"],
 	tonemap: ["postprocess:tonemap"],
 	"color-filter": ["postprocess:color-filter"],
-	fxaa: ["postprocess:fxaa"],
+	fxaa: [],
 	"interaction-outline": ["postprocess:interaction-outline"],
 	gamma: [],
 };
@@ -456,7 +463,6 @@ export class WebGPUFrameExecutor {
 			case "motion-blur":
 			case "dof":
 			case "bloom":
-			case "fxaa":
 			case "color-filter":
 			case "tonemap": {
 				await this._postRuntime.executePass({
@@ -482,25 +488,6 @@ export class WebGPUFrameExecutor {
 					state: interaction,
 				} as WebGPUPostProcessExecuteRequest);
 				return { ran: true };
-			}
-			case "ssr": {
-				const result = await this._postRuntime.executePass({
-					passId,
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					frameContext: request.frameContext,
-					historyValid:
-						(request.histories.ssr?.valid ?? false) &&
-						(request.histories.motion?.valid ?? false),
-					frameBinding: this._resources.getFrameBinding(),
-				} as WebGPUPostProcessExecuteRequest);
-				if (result.historyUpdated) {
-					this._motionHistoryWriteRequested = true;
-				}
-				return {
-					ran: result.ran,
-					updatedHistoryIds: result.historyUpdated ? ["ssr", "motion"] : [],
-				};
 			}
 			case "volumetric": {
 				const result = await this._postRuntime.executePass({
@@ -547,25 +534,54 @@ export class WebGPUFrameExecutor {
 		passId: string,
 		request: PostProcessPassRequest
 	): unknown {
-		if (passId !== "taa" || !this._encoder || !this._frameTargets) {
+		if (!this._encoder || !this._frameTargets) {
 			return undefined;
 		}
 		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		this._applyPipelineHistories(request);
-		const context: WebGPUTAAContext = {
-			encoder: this._encoder,
-			targets: this._frameTargets,
-			shared: this._postRuntime.sharedContext,
-			publishColorTarget: (texture) => {
-				if (this._frameTargets) {
-					this._frameTargets.sceneColor = texture;
-				}
-			},
-			writeMotionHistoryFromCurrent: () => {
-				this._motionHistoryWriteRequested = true;
-			},
+		const publishColorTarget = (texture: IRenderTexture): void => {
+			if (this._frameTargets) {
+				this._frameTargets.sceneColor = texture;
+			}
 		};
-		return context;
+		switch (passId) {
+			case "taa": {
+				const context: WebGPUTAAContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+					writeMotionHistoryFromCurrent: () => {
+						this._motionHistoryWriteRequested = true;
+					},
+				};
+				return context;
+			}
+			case "fxaa": {
+				const context: WebGPUFXAAContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+				};
+				return context;
+			}
+			case "ssr": {
+				const context: WebGPUSSRContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					frameBinding: this._resources.getFrameBinding(),
+					publishColorTarget,
+					writeMotionHistoryFromCurrent: () => {
+						this._motionHistoryWriteRequested = true;
+					},
+				};
+				return context;
+			}
+			default:
+				return undefined;
+		}
 	}
 
 	/**
@@ -656,6 +672,37 @@ export class WebGPUFrameExecutor {
 			}
 		}
 
+		const descriptorById = this._getWarmupPostProcessDescriptorMap(context);
+		const warmedPassImplementations = new Set<string>();
+		for (const passId of plan.postProcessPasses) {
+			if (warmedPassImplementations.has(passId)) {
+				continue;
+			}
+			const implementation = descriptorById
+				.get(passId)
+				?.implementations.webgpu;
+			if (typeof implementation?.warmup !== "function") {
+				continue;
+			}
+			warmedPassImplementations.add(passId);
+			total++;
+			try {
+				await implementation.warmup(
+					this._getPassWarmupExecutionContext(passId)
+				);
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(
+					toShaderCompileError(
+						error,
+						"webgpu",
+						`WebGPUPostWarmup:${passId}`
+					)
+				);
+			}
+		}
+
 		return {
 			phase: "webgpu-frame",
 			total,
@@ -664,6 +711,34 @@ export class WebGPUFrameExecutor {
 			failed,
 			errors,
 		};
+	}
+
+	private _getWarmupPostProcessDescriptorMap(
+		context: FrameContext
+	): Map<string, PostProcessPassDescriptor> {
+		const descriptors =
+			context.transient?.get(WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY) ??
+			getBuiltinPostProcessPasses();
+		return new Map(descriptors.map((pass) => [pass.id, pass]));
+	}
+
+	private _getPassWarmupExecutionContext(passId: string): unknown {
+		switch (passId) {
+			case "fxaa": {
+				const context: WebGPUFXAAContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			case "ssr": {
+				const context: WebGPUSSRContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			default:
+				return undefined;
+		}
 	}
 
 	/**

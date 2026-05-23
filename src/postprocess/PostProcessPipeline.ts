@@ -14,11 +14,14 @@ import {
 	getCustomPostProcessPlacementOrder,
 	isPostProcessPlacement,
 } from "./ordering";
+import { FAST_APPROXIMATE_ANTI_ALIASING_PASS } from "./passes/FastApproximateAntiAliasingPass";
+import { SCREEN_SPACE_REFLECTIONS_PASS } from "./passes/ScreenSpaceReflectionsPass";
 import { TEMPORAL_ANTI_ALIASING_PASS } from "./passes/TemporalAntiAliasingPass";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferSemantic,
 	PostProcessHistoryDescriptor,
+	PostProcessHistoryResolveRequest,
 	PostProcessPassDescriptor,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
@@ -59,17 +62,7 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 		implementations: allBackendsImplementation(),
 	},
 	TEMPORAL_ANTI_ALIASING_PASS,
-	{
-		id: "ssr",
-		placement: "temporal",
-		requirements: { gBuffer: ["depth", "normal", "motion"] },
-		history: [
-			{ id: "ssr", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-		],
-		isEnabled: enabled("ssr"),
-		implementations: allBackendsImplementation(),
-	},
+	SCREEN_SPACE_REFLECTIONS_PASS,
 	{
 		id: "volumetric",
 		placement: "atmosphere",
@@ -121,12 +114,7 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 		isEnabled: enabled("color-filter"),
 		implementations: allBackendsImplementation(),
 	},
-	{
-		id: "fxaa",
-		placement: "ldr",
-		isEnabled: enabled("fxaa"),
-		implementations: allBackendsImplementation(),
-	},
+	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
 	{
 		id: "interaction-outline",
 		placement: "overlay",
@@ -248,12 +236,23 @@ export class PostProcessPipeline {
 			orderedPasses
 		);
 		const passes = this._sliceFromStartPass(orderedPasses, startPassId);
-		const historyDescriptors = this._collectHistoryDescriptors(passes);
+		const historyResolveRequest: PostProcessHistoryResolveRequest = {
+			frameContext,
+			postProcess,
+			backend: executor.backend,
+			gBuffer,
+			width: Math.max(1, gBuffer.width),
+			height: Math.max(1, gBuffer.height),
+		};
+		const historyDescriptors = this._collectHistoryDescriptors(
+			passes,
+			historyResolveRequest
+		);
 		const histories = this._history.prepare({
 			executor,
 			descriptors: historyDescriptors,
-			width: Math.max(1, gBuffer.width),
-			height: Math.max(1, gBuffer.height),
+			width: historyResolveRequest.width,
+			height: historyResolveRequest.height,
 			reset: frameContext.incremental.temporalHistoryReset,
 			signature: this._createHistorySignature(frameContext),
 		});
@@ -307,7 +306,7 @@ export class PostProcessPipeline {
 				this._history.markUpdatedMany(result.updatedHistoryIds);
 			} else if (result?.historyUpdated) {
 				this._history.markUpdatedMany(
-					(pass.history ?? [])
+					this._resolvePassHistoryDescriptors(pass, historyResolveRequest)
 						.map((history) => history.id)
 						.filter((id) => id !== "motion")
 				);
@@ -396,15 +395,23 @@ export class PostProcessPipeline {
 	}
 
 	private _collectHistoryDescriptors(
-		passes: readonly PostProcessPassDescriptor[]
+		passes: readonly PostProcessPassDescriptor[],
+		request: PostProcessHistoryResolveRequest
 	): PostProcessHistoryDescriptor[] {
 		const descriptors = new Map<string, PostProcessHistoryDescriptor>();
 		for (const pass of passes) {
-			for (const history of pass.history ?? []) {
+			for (const history of this._resolvePassHistoryDescriptors(pass, request)) {
 				descriptors.set(history.id, history);
 			}
 		}
 		return Array.from(descriptors.values());
+	}
+
+	private _resolvePassHistoryDescriptors(
+		pass: PostProcessPassDescriptor,
+		request: PostProcessHistoryResolveRequest
+	): readonly PostProcessHistoryDescriptor[] {
+		return pass.resolveHistory?.(request) ?? pass.history ?? [];
 	}
 
 	private _sliceFromStartPass(

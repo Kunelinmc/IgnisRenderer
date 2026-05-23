@@ -1,30 +1,23 @@
 import { CameraType } from "../../../cameras/Camera";
 import type { FrameContext } from "../../../pipeline/types";
-import {
-	DEFAULT_SSR_OPTIONS,
-	DEFAULT_VOLUMETRIC_OPTIONS,
-} from "../../../pipeline/types";
-import type { ICommandEncoder } from "../../ICommandEncoder";
+import { DEFAULT_VOLUMETRIC_OPTIONS } from "../../../pipeline/types";
 import {
 	BufferUsage,
-	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderBuffer,
-	type IRenderTexture,
 	type IShaderModule,
 } from "../../types";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 import {
 	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
 } from "../constants";
 import { getWebGPUVolumetricLightLayout } from "../bufferLayouts";
+import { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
-	WebGPUPostProcessSSRExecuteRequest,
 	WebGPUPostProcessRuntimePassRegistry,
 	WebGPUPostProcessVolumetricExecuteRequest,
 } from "./types";
@@ -33,31 +26,19 @@ const WORKGROUP_SIZE = 8;
 
 export class TemporalPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
-	private _hizModule: IShaderModule | null = null;
-	private _hizInitPipeline: IComputePipeline | null = null;
-	private _hizReducePipeline: IComputePipeline | null = null;
-	private _ssrModule: IShaderModule | null = null;
-	private _ssrTracePipeline: IComputePipeline | null = null;
-	private _ssrComposePipeline: IComputePipeline | null = null;
-	private _ssrTraceParams: IRenderBuffer | null = null;
-	private _ssrComposeParams: IRenderBuffer | null = null;
+	private _hiz: WebGPUHiZPostProcessHelper;
 	private _volumetricModule: IShaderModule | null = null;
 	private _volumetricPipeline: IComputePipeline | null = null;
 	private _volumetricParams: IRenderBuffer | null = null;
 	private _volumetricLightBuffer: IRenderBuffer | null = null;
 	private _volumetricLightCapacity = 0;
 	private _volumetricFrameIndex = 0;
-	private _copyModule: IShaderModule | null = null;
-	private _copyPipeline: IComputePipeline | null = null;
-	private _hizViewCache = new WeakMap<object, GPUTextureView[]>();
-	private _ssrTraceGroupLayout0: GPUBindGroupLayout | null = null;
-	private _ssrTracePipelineLayout: GPUPipelineLayout | null = null;
 	private _volumetricGroupLayout0: GPUBindGroupLayout | null = null;
 	private _volumetricPipelineLayout: GPUPipelineLayout | null = null;
-	private _ssrFrameIndex = 0;
 
 	constructor(shared: PostProcessSharedContext) {
 		this._shared = shared;
+		this._hiz = new WebGPUHiZPostProcessHelper(shared);
 	}
 
 	/**
@@ -65,41 +46,11 @@ export class TemporalPostProcessDelegate {
 	 */
 	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
 		registry.registerRuntimePass({
-			id: "ssr",
-			warmupHints: [
-				"postprocess:ssr",
-				"postprocess:hiz",
-				"postprocess:copy",
-			],
-			warmup: async (hint) => {
-				switch (hint) {
-					case "postprocess:hiz":
-						await this._ensureHiZResources();
-						break;
-					case "postprocess:copy":
-						await this._ensureCopyResources();
-						break;
-					default:
-						await this._ensureSSRResources();
-						break;
-				}
-				return true;
-			},
-			execute: async (request) => {
-				const historyUpdated = await this._executeSSR(
-					request as WebGPUPostProcessSSRExecuteRequest
-				);
-				return { ran: historyUpdated, historyUpdated };
-			},
-			invalidateBindings: () => this.invalidateBindings(),
-			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
-		});
-		registry.registerRuntimePass({
 			id: "volumetric",
 			warmupHints: ["postprocess:volumetric", "postprocess:hiz"],
 			warmup: async (hint) => {
 				if (hint === "postprocess:hiz") {
-					await this._ensureHiZResources();
+					await this._hiz.ensureResources();
 				} else {
 					await this._ensureVolumetricResources();
 				}
@@ -119,40 +70,7 @@ export class TemporalPostProcessDelegate {
 	public invalidateBindings(): void {}
 
 	public onShaderRuntimeChanged(): void {
-		this._shared.destroyManagedResource(
-			this._hizInitPipeline,
-			"Hi-Z init pipeline"
-		);
-		this._shared.destroyManagedResource(
-			this._hizReducePipeline,
-			"Hi-Z reduce pipeline"
-		);
-		this._shared.destroyManagedResource(this._hizModule, "Hi-Z shader module");
-		this._hizModule = null;
-		this._hizInitPipeline = null;
-		this._hizReducePipeline = null;
-		this._shared.destroyManagedResource(
-			this._ssrTracePipeline,
-			"SSR trace pipeline"
-		);
-		this._shared.destroyManagedResource(
-			this._ssrComposePipeline,
-			"SSR compose pipeline"
-		);
-		this._shared.destroyManagedResource(this._ssrModule, "SSR shader module");
-		this._ssrModule = null;
-		this._ssrTracePipeline = null;
-		this._ssrComposePipeline = null;
-		this._shared.destroyManagedResource(
-			this._ssrTraceParams,
-			"SSR trace params buffer"
-		);
-		this._ssrTraceParams = null;
-		this._shared.destroyManagedResource(
-			this._ssrComposeParams,
-			"SSR compose params buffer"
-		);
-		this._ssrComposeParams = null;
+		this._hiz.destroy();
 		this._shared.destroyManagedResource(
 			this._volumetricPipeline,
 			"volumetric pipeline"
@@ -175,141 +93,12 @@ export class TemporalPostProcessDelegate {
 		this._volumetricLightBuffer = null;
 		this._volumetricLightCapacity = 0;
 		this._volumetricFrameIndex = 0;
-		this._shared.destroyManagedResource(this._copyPipeline, "copy pipeline");
-		this._shared.destroyManagedResource(this._copyModule, "copy shader module");
-		this._copyModule = null;
-		this._copyPipeline = null;
-		this._ssrTraceGroupLayout0 = null;
-		this._ssrTracePipelineLayout = null;
 		this._volumetricGroupLayout0 = null;
 		this._volumetricPipelineLayout = null;
 	}
 
 	public destroy(): void {
 		this.onShaderRuntimeChanged();
-	}
-
-	private async _executeSSR(
-		request: WebGPUPostProcessSSRExecuteRequest
-	): Promise<boolean> {
-		if (request.frameContext.camera.type === CameraType.Orthographic) {
-			this._shared.warn(
-				"webgpu-ssr-orthographic-disabled",
-				"WebGPU SSR is disabled for orthographic cameras."
-			);
-			return false;
-		}
-		await this._ensureSSRResources();
-		if (
-			!this._shared.sampler ||
-			!this._hizInitPipeline ||
-			!this._hizReducePipeline ||
-			!this._ssrTracePipeline ||
-			!this._ssrComposePipeline ||
-			!this._ssrTraceParams ||
-			!this._ssrComposeParams
-		) {
-			return false;
-		}
-		const options = request.frameContext.postProcess.options.ssr ?? {};
-		const hiZMips = this._getHiZMipViews(request.targets.hiZ);
-		if (!this._buildHiZ(request.encoder, request.targets, hiZMips)) {
-			return false;
-		}
-		this._ssrFrameIndex = (this._ssrFrameIndex + 1) % 1024;
-		this._shared.compute.writeBuffer(
-			this._ssrTraceParams,
-			new Float32Array([
-				1 / Math.max(request.targets.ssrRaw.width, 1),
-				1 / Math.max(request.targets.ssrRaw.height, 1),
-				finiteOr(options.maxDistance, DEFAULT_SSR_OPTIONS.maxDistance),
-				finiteOr(options.thickness, DEFAULT_SSR_OPTIONS.thickness),
-				finiteOr(options.stride, DEFAULT_SSR_OPTIONS.stride),
-				finiteOr(options.intensity, DEFAULT_SSR_OPTIONS.intensity),
-				finiteOr(options.maxRoughness, DEFAULT_SSR_OPTIONS.maxRoughness),
-				finiteOr(options.edgeFade, DEFAULT_SSR_OPTIONS.edgeFade),
-				finiteOr(options.maxSteps, DEFAULT_SSR_OPTIONS.maxSteps),
-				finiteOr(
-					options.binarySearchSteps,
-					DEFAULT_SSR_OPTIONS.binarySearchSteps
-				),
-				hiZMips.length - 1,
-				finiteOr(options.historyWeight, DEFAULT_SSR_OPTIONS.historyWeight),
-				request.historyValid ? 1 : 0,
-				0.02,
-				this._ssrFrameIndex,
-				0,
-			])
-		);
-		let binding = this._shared.getCachedBindGroup(
-			"ssr-trace",
-			this._ssrTracePipeline,
-			[
-				{ binding: 0, resource: request.targets.sceneColor },
-				{ binding: 1, resource: request.targets.gNormalRoughMetal },
-				{ binding: 2, resource: request.targets.gMotionDepth },
-				{ binding: 3, resource: request.targets.hiZ },
-				{ binding: 4, resource: request.targets.ssrHistoryRead },
-				{ binding: 5, resource: request.targets.motionHistoryRead },
-				{ binding: 6, resource: this._shared.sampler },
-				{ binding: 7, resource: this._ssrTraceParams },
-				{ binding: 8, resource: request.targets.ssrRaw },
-			],
-			"WebGPUSSR_TraceBinding"
-		);
-		request.encoder.beginComputePass({ label: "WebGPUSSR_TraceTemporal" });
-		request.encoder.setComputePipeline(this._ssrTracePipeline);
-		request.encoder.setBindingGroup(0, binding);
-		request.encoder.setBindingGroup(1, request.frameBinding);
-		request.encoder.dispatchWorkgroups(
-			ceilDiv(request.targets.ssrRaw.width, WORKGROUP_SIZE),
-			ceilDiv(request.targets.ssrRaw.height, WORKGROUP_SIZE),
-			1
-		);
-		request.encoder.endComputePass();
-		await this._copyTexture(
-			request.encoder,
-			request.targets.ssrRaw,
-			request.targets.ssrHistoryWrite
-		);
-		const composeTarget =
-			request.targets.sceneColor === request.targets.postPing ?
-				request.targets.postPong
-			:	request.targets.postPing;
-		this._shared.compute.writeBuffer(
-			this._ssrComposeParams,
-			new Float32Array([
-				1 / Math.max(composeTarget.width, 1),
-				1 / Math.max(composeTarget.height, 1),
-				0,
-				0,
-			])
-		);
-		binding = this._shared.getCachedBindGroup(
-			`ssr-compose-${composeTarget === request.targets.postPing ? "ping" : "pong"}`,
-			this._ssrComposePipeline,
-			[
-				{ binding: 0, resource: request.targets.sceneColor },
-				{ binding: 1, resource: request.targets.ssrRaw },
-				{ binding: 2, resource: request.targets.gMotionDepth },
-				{ binding: 3, resource: this._shared.sampler },
-				{ binding: 4, resource: this._ssrComposeParams },
-				{ binding: 5, resource: composeTarget },
-				{ binding: 6, resource: request.targets.planarReflectionMask },
-			],
-			"WebGPUSSR_ComposeBinding"
-		);
-		request.encoder.beginComputePass({ label: "WebGPUSSR_Compose" });
-		request.encoder.setComputePipeline(this._ssrComposePipeline);
-		request.encoder.setBindingGroup(0, binding);
-		request.encoder.dispatchWorkgroups(
-			ceilDiv(composeTarget.width, WORKGROUP_SIZE),
-			ceilDiv(composeTarget.height, WORKGROUP_SIZE),
-			1
-		);
-		request.encoder.endComputePass();
-		request.targets.sceneColor = composeTarget;
-		return true;
 	}
 
 	private async _executeVolumetric(
@@ -332,8 +121,8 @@ export class TemporalPostProcessDelegate {
 		) {
 			return false;
 		}
-		const hiZMips = this._getHiZMipViews(request.targets.hiZ);
-		if (!this._buildHiZ(request.encoder, request.targets, hiZMips)) {
+		const hiZMips = await this._hiz.build(request.encoder, request.targets);
+		if (hiZMips.length === 0) {
 			return false;
 		}
 
@@ -582,205 +371,8 @@ export class TemporalPostProcessDelegate {
 		this._volumetricLightCapacity = capacity;
 	}
 
-	private async _copyTexture(
-		encoder: ICommandEncoder,
-		src: IRenderTexture,
-		dst: IRenderTexture
-	): Promise<void> {
-		if (src === dst) {
-			return;
-		}
-		await this._ensureCopyResources();
-		if (!this._copyPipeline) {
-			return;
-		}
-		const binding = this._shared.getCachedBindGroup(
-			`copy-${src === dst ? "same" : "diff"}`,
-			this._copyPipeline,
-			[
-				{ binding: 0, resource: src },
-				{ binding: 1, resource: dst },
-			],
-			"WebGPUPost_CopyBinding"
-		);
-		encoder.beginComputePass({ label: "WebGPUPost_Copy" });
-		encoder.setComputePipeline(this._copyPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(dst.width, WORKGROUP_SIZE),
-			ceilDiv(dst.height, WORKGROUP_SIZE),
-			1
-		);
-		encoder.endComputePass();
-	}
-
-	private _buildHiZ(
-		encoder: ICommandEncoder,
-		targets: WebGPUFrameTargets,
-		hiZMips: GPUTextureView[]
-	): boolean {
-		if (!this._hizInitPipeline || !this._hizReducePipeline) {
-			return false;
-		}
-		if (hiZMips.length === 0) {
-			return false;
-		}
-
-		let binding = this._shared.getCachedBindGroup(
-			"hiz-init",
-			this._hizInitPipeline,
-			[
-				{ binding: 0, resource: targets.gMotionDepth },
-				{ binding: 1, resource: hiZMips[0] },
-			],
-			"WebGPUSSR_HiZInitBinding"
-		);
-		encoder.beginComputePass({ label: "WebGPUSSR_HiZInit" });
-		encoder.setComputePipeline(this._hizInitPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(targets.hiZ.width, WORKGROUP_SIZE),
-			ceilDiv(targets.hiZ.height, WORKGROUP_SIZE),
-			1
-		);
-		encoder.endComputePass();
-
-		let srcW = targets.hiZ.width;
-		let srcH = targets.hiZ.height;
-		for (let mip = 1; mip < hiZMips.length; mip++) {
-			const dstW = Math.max(1, srcW >> 1);
-			const dstH = Math.max(1, srcH >> 1);
-			binding = this._shared.getCachedBindGroup(
-				`hiz-reduce-${mip}`,
-				this._hizReducePipeline,
-				[
-					{ binding: 0, resource: hiZMips[mip - 1] },
-					{ binding: 1, resource: hiZMips[mip] },
-				],
-				`WebGPUSSR_HiZReduceBinding_${mip}`
-			);
-			encoder.beginComputePass({ label: `WebGPUSSR_HiZReduce_${mip}` });
-			encoder.setComputePipeline(this._hizReducePipeline);
-			encoder.setBindingGroup(0, binding);
-			encoder.dispatchWorkgroups(
-				ceilDiv(dstW, WORKGROUP_SIZE),
-				ceilDiv(dstH, WORKGROUP_SIZE),
-				1
-			);
-			encoder.endComputePass();
-			srcW = dstW;
-			srcH = dstH;
-		}
-		return true;
-	}
-
-	private async _ensureHiZResources(): Promise<void> {
-		await this._shared.ensureCommonResources();
-		if (!this._hizModule) {
-			const shader = await loadPostProcessShaderPartComposite("hiz");
-			this._hizModule = await this._shared.compute.createShaderModule({
-				label: "WebGPUHiZShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._hizInitPipeline) {
-			this._hizInitPipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUHiZInitPipeline",
-				compute: { module: this._hizModule, entryPoint: "csInit" },
-			});
-		}
-		if (!this._hizReducePipeline) {
-			this._hizReducePipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUHiZReducePipeline",
-				compute: { module: this._hizModule, entryPoint: "csReduce" },
-			});
-		}
-	}
-
-	private async _ensureSSRResources(): Promise<void> {
-		await this._ensureHiZResources();
-		if (!this._ssrModule) {
-			const shader = await loadPostProcessShaderPartComposite("ssr");
-			this._ssrModule = await this._shared.compute.createShaderModule({
-				label: "WebGPUSSRShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._ssrTracePipeline) {
-			if (this._shared.frameBindGroupLayout) {
-				this._ssrTraceGroupLayout0 = this._shared.compute.createBindGroupLayout({
-					label: "WebGPUSSRTrace_GroupLayout0",
-					entries: [
-						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 1, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 3, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 4, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 5, visibility: GPUShaderStage.COMPUTE, texture: {} },
-						{ binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} },
-						{
-							binding: 7,
-							visibility: GPUShaderStage.COMPUTE,
-							buffer: { type: "uniform" },
-						},
-						{
-							binding: 8,
-							visibility: GPUShaderStage.COMPUTE,
-							storageTexture: { format: "rgba16float", access: "write-only" },
-						},
-					],
-				});
-				this._ssrTracePipelineLayout = this._shared.compute.createPipelineLayout({
-					label: "WebGPUSSRTrace_PipelineLayout",
-					bindGroupLayouts: [
-						this._ssrTraceGroupLayout0,
-						this._shared.frameBindGroupLayout,
-					],
-				});
-				this._ssrTracePipeline = this._shared.compute.createComputePipeline({
-					label: "WebGPUSSRTracePipeline",
-					layout: this._ssrTracePipelineLayout,
-					compute: { module: this._ssrModule, entryPoint: "csTrace" },
-				});
-			} else {
-				this._ssrTracePipeline = this._shared.compute.createComputePipeline({
-					label: "WebGPUSSRTracePipeline",
-					compute: { module: this._ssrModule, entryPoint: "csTrace" },
-				});
-			}
-		}
-		if (!this._ssrComposePipeline) {
-			this._ssrComposePipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUSSRComposePipeline",
-				compute: { module: this._ssrModule, entryPoint: "csCompose" },
-			});
-		}
-		if (!this._ssrTraceParams) {
-			this._ssrTraceParams = this._shared.compute.createBuffer({
-				label: "WebGPUSSRTraceParams",
-				size: 16 * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
-		if (!this._ssrComposeParams) {
-			this._ssrComposeParams = this._shared.compute.createBuffer({
-				label: "WebGPUSSRComposeParams",
-				size: 4 * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
-	}
-
 	private async _ensureVolumetricResources(): Promise<void> {
-		await this._ensureHiZResources();
+		await this._hiz.ensureResources();
 		if (!this._volumetricModule) {
 			const shader = await loadPostProcessShaderPartComposite("volumetric");
 			this._volumetricModule = await this._shared.compute.createShaderModule({
@@ -859,45 +451,5 @@ export class TemporalPostProcessDelegate {
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
-	}
-
-	private async _ensureCopyResources(): Promise<void> {
-		if (!this._copyModule) {
-			const shader = await loadPostProcessShaderPartComposite("copy");
-			this._copyModule = await this._shared.compute.createShaderModule({
-				label: "WebGPUCopyShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._copyPipeline) {
-			this._copyPipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUCopyPipeline",
-				compute: { module: this._copyModule, entryPoint: "csMain" },
-			});
-		}
-	}
-
-	private _getHiZMipViews(texture: IRenderTexture): GPUTextureView[] {
-		const cached = this._hizViewCache.get(texture as object);
-		if (cached) {
-			return cached;
-		}
-		const mipCount =
-			Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
-		const views: GPUTextureView[] = [];
-		for (let i = 0; i < mipCount; i++) {
-			views.push(
-				this._shared.compute.createTextureView(texture, {
-					baseMipLevel: i,
-					mipLevelCount: 1,
-				})
-			);
-		}
-		this._hizViewCache.set(texture as object, views);
-		return views;
 	}
 }

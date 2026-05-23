@@ -19,6 +19,22 @@ export {
 	isPostProcessPassStage,
 } from "./PostProcessPipeline";
 export {
+	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+	createFXAAKernelParams,
+	type SoftwareFXAAContext,
+	type WebGPUFXAAContext,
+	type WebGLFXAAContext,
+} from "./passes/FastApproximateAntiAliasingPass";
+export {
+	SCREEN_SPACE_REFLECTIONS_PASS,
+	createSSRTraceParams,
+	resolveSSRHistoryDescriptors,
+	resolveSSRHistoryValid,
+	resolveSSROptions,
+	type ResolvedSSROptions,
+	type WebGPUSSRContext,
+} from "./passes/ScreenSpaceReflectionsPass";
+export {
 	TEMPORAL_ANTI_ALIASING_PASS,
 	resolveTAAOptions,
 	type ResolvedTAAOptions,
@@ -33,6 +49,7 @@ export type {
 	PostProcessFrameEndRequest,
 	PostProcessFrameRequest,
 	PostProcessHistoryDescriptor,
+	PostProcessHistoryResolveRequest,
 	PostProcessHistorySlot,
 	PostProcessHistorySlots,
 	PostProcessPassDescriptor,

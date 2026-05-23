@@ -24,6 +24,21 @@ function createPostProcess(overrides = {}) {
 }
 
 function createExecutor() {
+	const shared = {
+		sampler: null,
+		compute: {
+			createShaderModule: async () => ({ label: "fxaa-shader" }),
+			createComputePipeline: () => ({ label: "fxaa-pipeline" }),
+			createBuffer: () => ({ label: "fxaa-params" }),
+			writeBuffer() {},
+		},
+		async ensureCommonResources() {
+			this.sampler = this.sampler ?? { label: "fxaa-sampler" };
+		},
+		getCachedBindGroup() {
+			return { label: "fxaa-binding" };
+		},
+	};
 	return {
 		backend: "webgpu",
 		capabilities: POST_PROCESS_CAPABILITIES,
@@ -33,6 +48,30 @@ function createExecutor() {
 		destroyResource() {},
 		executePass() {
 			return { ran: true };
+		},
+		getPassExecutionContext(passId) {
+			if (passId !== "fxaa") {
+				return undefined;
+			}
+			const targets = {
+				sceneColor: { width: 64, height: 32, label: "scene" },
+				postPing: { width: 64, height: 32, label: "ping" },
+				postPong: { width: 64, height: 32, label: "pong" },
+			};
+			return {
+				encoder: {
+					beginComputePass() {},
+					setComputePipeline() {},
+					setBindingGroup() {},
+					dispatchWorkgroups() {},
+					endComputePass() {},
+				},
+				targets,
+				shared,
+				publishColorTarget(texture) {
+					targets.sceneColor = texture;
+				},
+			};
 		},
 	};
 }
@@ -186,8 +225,12 @@ async function testIncrementalStartPassIsResolvedByPipeline() {
 
 	assert.equal(result.startPassId, "color-filter");
 	assert.deepEqual(
-		executed.map((entry) => entry.passId),
+		result.executedPassIds,
 		["color-filter", "fxaa", "interaction-outline", "gamma"]
+	);
+	assert.deepEqual(
+		executed.map((entry) => entry.passId),
+		["color-filter", "interaction-outline", "gamma"]
 	);
 	assert.ok(executed.every((entry) => entry.startPassId === "color-filter"));
 }

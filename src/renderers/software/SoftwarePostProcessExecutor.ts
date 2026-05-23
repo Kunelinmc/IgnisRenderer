@@ -87,10 +87,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 				if (!canvasContext) return { ran: false };
 				processor.applyVolumetricLight(context, canvasContext);
 				return { ran: true };
-			case "fxaa":
-				if (!canvasContext) return { ran: false };
-				processor.applyFXAA(context, canvasContext);
-				return { ran: true };
 			case "interaction-outline":
 				processor.applyInteractionOutline(context);
 				return { ran: true };
@@ -113,12 +109,19 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		passId: string,
 		request: PostProcessPassRequest
 	): unknown {
-		if (passId !== "taa") {
-			return undefined;
+		switch (passId) {
+			case "taa":
+				return {
+					attachments: request.frameContext.attachments,
+				};
+			case "fxaa":
+				return {
+					attachments: request.frameContext.attachments,
+					canvasContext: this._host.getCanvasContext(),
+				};
+			default:
+				return undefined;
 		}
-		return {
-			attachments: request.frameContext.attachments,
-		};
 	}
 }
 

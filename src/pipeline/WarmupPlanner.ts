@@ -1,6 +1,6 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
-import type { FrameContext } from "./types";
+import { defineTransientKey, type FrameContext } from "./types";
 import {
 	getEnabledCustomPostProcessPassIds,
 	isFogPostProcessEnabled,
@@ -13,6 +13,7 @@ import type {
 	WarmupPhaseReport,
 	WarmupReport,
 } from "../renderers/IRenderBackend";
+import type { PostProcessPassDescriptor } from "../postprocess/types";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 
@@ -29,6 +30,11 @@ export interface WarmupPlan {
 
 export const WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY =
 	"pipeline:warmup-postprocess-order";
+
+export const WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY =
+	defineTransientKey<readonly PostProcessPassDescriptor[]>(
+		"pipeline:warmup-postprocess-descriptors"
+	);
 
 export interface WarmupPhaseCounters extends WarmupPhaseReport {
 	errors: ShaderCompileError[];

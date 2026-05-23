@@ -76,6 +76,15 @@ export interface PostProcessHistoryDescriptor {
 	readonly usage?: readonly string[];
 }
 
+export interface PostProcessHistoryResolveRequest {
+	readonly frameContext: FrameContext;
+	readonly postProcess: ResolvedPostProcessState;
+	readonly backend: PostProcessBackendKind;
+	readonly gBuffer: LogicalGBufferBridge;
+	readonly width: number;
+	readonly height: number;
+}
+
 export interface PostProcessResourceDescriptor {
 	readonly id: string;
 	readonly width: number;
@@ -158,6 +167,9 @@ export interface PostProcessPassDescriptor<TOptions = unknown> {
 	readonly order?: number;
 	readonly requirements?: PostProcessPassRequirements;
 	readonly history?: readonly PostProcessHistoryDescriptor[];
+	readonly resolveHistory?: (
+		request: PostProcessHistoryResolveRequest
+	) => readonly PostProcessHistoryDescriptor[];
 	readonly incremental?: PostProcessIncrementalMetadata;
 	readonly isEnabled?: (state: ResolvedPostProcessState) => boolean;
 	readonly implementations: Partial<

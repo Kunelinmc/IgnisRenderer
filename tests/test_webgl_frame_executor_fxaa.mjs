@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
 import { Logger } from "../src/foundation/Logger.ts";
-import { TEMPORAL_ANTI_ALIASING_PASS } from "../src/postprocess/index.ts";
+import {
+	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+	TEMPORAL_ANTI_ALIASING_PASS,
+} from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFXAATestGL() {
@@ -287,7 +290,31 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	executor._width = 1280;
 	executor._height = 720;
 
-	executor._applyFXAA();
+	const frameContext = {
+		postProcess: createResolvedPostProcess(
+			{ fxaa: { enabled: true } },
+			undefined,
+			"webgl"
+		),
+		transient: new Map(),
+	};
+	const request = {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass: FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+		passId: "fxaa",
+		implementation: FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgl,
+		options: frameContext.postProcess.options.fxaa,
+		startPassId: null,
+	};
+	const context = executor.getPassExecutionContext("fxaa", request);
+	const result = FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgl.execute(
+		request,
+		context
+	);
+	assert.deepEqual(result, { ran: true });
 
 	const attachmentWrite = gl.calls.find(
 		(call) =>
@@ -350,16 +377,13 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testExecutePostProcessPassRunsToneMappingBeforeFXAAAndGamma() {
+function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const events = [];
 
 	executor._applyToneMapping = () => {
 		events.push("tonemap");
-	};
-	executor._applyFXAA = () => {
-		events.push("fxaa");
 	};
 	executor._applyInteractionOutline = () => {
 		events.push("interaction-outline");
@@ -381,13 +405,13 @@ function testExecutePostProcessPassRunsToneMappingBeforeFXAAAndGamma() {
 	};
 
 	executor.executePostProcessPass("tonemap", request);
-	executor.executePostProcessPass("fxaa", request);
+	const fxaaResult = executor.executePostProcessPass("fxaa", request);
 	executor.executePostProcessPass("interaction-outline", request);
 	executor.executePostProcessPass("gamma", request);
 
+	assert.deepEqual(fxaaResult, { ran: false });
 	assert.deepEqual(events, [
 		"tonemap",
-		"fxaa",
 		"interaction-outline",
 		"gamma",
 	]);
@@ -1057,7 +1081,7 @@ function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
-	testExecutePostProcessPassRunsToneMappingBeforeFXAAAndGamma();
+	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
 	testConfigureOITWarnsWithoutRuntimeTargets();

@@ -13,10 +13,15 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPassDescriptor.order` may refine ordering within a placement bucket. It must not be used as a cross-placement dependency mechanism.
 - `PostProcessPassDescriptor.requirements.gBuffer` must list required `LogicalGBufferSemantic` channels.
 - `PostProcessPassDescriptor.history` must list temporal resources owned by `PostProcessPipeline`.
+- `PostProcessPassDescriptor.resolveHistory(request)` may compute temporal resources owned by `PostProcessPipeline` for the current frame.
+- If `PostProcessPassDescriptor.resolveHistory(request)` is present, `PostProcessPipeline` must use its returned descriptors instead of `PostProcessPassDescriptor.history`.
+- `PostProcessHistoryResolveRequest` must include `frameContext`, resolved `postProcess` state, executor `backend`, `gBuffer`, and frame `width` and `height`.
 - `PostProcessPassDescriptor.implementations` must map backend kinds to backend-specific implementation metadata or pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` may execute a pass directly when backend-specific logic is owned by the logical pass.
+- `PostProcessPassImplementation.warmup(context)` may allocate backend resources required by a pass-owned implementation.
 - `PostProcessPipeline` must call `PostProcessPassImplementation.execute(request, context)` when it is present.
 - `PostProcessPipeline` must fall back to `IPostProcessExecutor.executePass(passId, request)` when `PostProcessPassImplementation.execute` is absent.
+- Backend warmup must call `PostProcessPassImplementation.warmup(context)` for planned pass-owned implementations when the method is present.
 - Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
 - `IPostProcessExecutor.capabilities` must expose the same capability set used by `resolvePostProcessState`.
@@ -33,8 +38,10 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `LogicalGBufferBridge.worldPosition.source` must be `"derived"` unless a future contract explicitly defines a physical world-position channel.
 - `PostProcessPipeline` must invalidate temporal histories on camera signature changes, feature signature changes, explicit temporal resets, and resize.
 - `PostProcessPipeline` must recreate temporal resources only when dimensions, format, usage, or backend kind changes.
-- The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/taa`.
-- Backend executors must not contain backend-private TAA kernel orchestration.
+- The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `fxaa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `ssr` pass must own its WebGPU implementation under `src/postprocess/passes/`.
+- Backend executors must not contain backend-private `taa`, `fxaa`, or `ssr` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
 ## Usage
@@ -67,6 +74,30 @@ renderer.postProcess.registerPass(descriptor);
 renderer.postProcess.enable("custom-soft-glow");
 ```
 
+```ts
+const dynamicHistoryDescriptor = {
+	id: "custom-half-res-history",
+	placement: "temporal",
+	resolveHistory(request) {
+		const halfRes =
+			request.postProcess.options["custom-half-res-history"]?.halfRes === true;
+		return [{
+			id: "custom-half-res-history",
+			widthScale: halfRes ? 0.5 : 1,
+			heightScale: halfRes ? 0.5 : 1,
+			format: "rgba16float",
+			usage: ["sampled", "storage", "render-target"],
+		}];
+	},
+	isEnabled(state) {
+		return state.enabled["custom-half-res-history"] === true;
+	},
+	implementations: {
+		webgpu: { id: "custom-half-res-history" },
+	},
+};
+```
+
 ```bash
 bun tests/test_postprocess_public_api.mjs
 bun tests/test_temporal_anti_aliasing_pass.mjs
@@ -82,6 +113,8 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
 - `IPostProcessExecutor.getPassExecutionContext(passId, request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.
+- `PostProcessPassImplementation.warmup(context)` is added for pass-owned warmup.
+- `PostProcessPassDescriptor.resolveHistory(request)` is added and takes precedence over static `history`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.
 - Code that previously depended on per-pass frame stages such as `ssao`, `taa`, or `gamma` must use the single `postprocess` frame stage and inspect `IncrementalFrameContext.postProcessStartPass` for the internal pass start.

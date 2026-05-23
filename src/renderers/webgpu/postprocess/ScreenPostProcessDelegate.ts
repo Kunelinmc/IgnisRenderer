@@ -27,11 +27,6 @@ import {
 } from "../../../interaction/outlineProjection";
 import { getInteractionOutlineShapeCode } from "../../../interaction/outlineShape";
 import {
-	FXAA_EDGE_THRESHOLD_MIN,
-	FXAA_EDGE_THRESHOLD_MULTIPLIER,
-	FXAA_SUBPIX_QUALITY,
-} from "../../constants";
-import {
 	WEBGPU_INTERACTION_OUTLINE_LAYOUT as INTERACTION_OUTLINE_LAYOUT,
 } from "../bufferLayouts";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
@@ -77,9 +72,6 @@ export class ScreenPostProcessDelegate {
 	private _bloomMipWidth = 0;
 	private _bloomMipHeight = 0;
 	private _bloomMipCount = 0;
-	private _fxaaModule: IShaderModule | null = null;
-	private _fxaaPipeline: IComputePipeline | null = null;
-	private _fxaaParams: IRenderBuffer | null = null;
 	private _toneMappingModule: IShaderModule | null = null;
 	private _toneMappingPipeline: IComputePipeline | null = null;
 	private _colorFilterModule: IShaderModule | null = null;
@@ -166,20 +158,6 @@ export class ScreenPostProcessDelegate {
 					request.targets,
 					request.frameContext
 				);
-				return { ran: true };
-			},
-			invalidateBindings: () => this.invalidateBindings(),
-			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
-		});
-		registry.registerRuntimePass({
-			id: "fxaa",
-			warmupHints: ["postprocess:fxaa"],
-			warmup: async () => {
-				await this._ensureFXAAResources();
-				return true;
-			},
-			execute: async (request) => {
-				await this._executeFXAA(request.encoder, request.targets);
 				return { ran: true };
 			},
 			invalidateBindings: () => this.invalidateBindings(),
@@ -340,15 +318,6 @@ export class ScreenPostProcessDelegate {
 		);
 		this._bloomCompositeParams = null;
 		this._destroyBloomMipTextures();
-		this._shared.destroyManagedResource(this._fxaaPipeline, "FXAA pipeline");
-		this._shared.destroyManagedResource(
-			this._fxaaModule,
-			"FXAA shader module"
-		);
-		this._fxaaModule = null;
-		this._fxaaPipeline = null;
-		this._shared.destroyManagedResource(this._fxaaParams, "FXAA params buffer");
-		this._fxaaParams = null;
 		this._shared.destroyManagedResource(
 			this._toneMappingPipeline,
 			"tone mapping pipeline"
@@ -838,50 +807,6 @@ export class ScreenPostProcessDelegate {
 		);
 		encoder.beginComputePass({ label: "WebGPUBloom_Composite" });
 		encoder.setComputePipeline(this._bloomCompositePipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(target.width, WORKGROUP_SIZE),
-			ceilDiv(target.height, WORKGROUP_SIZE),
-			1
-		);
-		encoder.endComputePass();
-		targets.sceneColor = target;
-	}
-
-	private async _executeFXAA(
-		encoder: ICommandEncoder,
-		targets: WebGPUFrameTargets
-	): Promise<void> {
-		await this._ensureFXAAResources();
-		if (!this._shared.sampler || !this._fxaaPipeline || !this._fxaaParams) {
-			return;
-		}
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
-		this._shared.compute.writeBuffer(
-			this._fxaaParams,
-			new Float32Array([
-				1 / Math.max(target.width, 1),
-				1 / Math.max(target.height, 1),
-				FXAA_EDGE_THRESHOLD_MIN,
-				FXAA_EDGE_THRESHOLD_MULTIPLIER,
-				FXAA_SUBPIX_QUALITY,
-				0,
-			])
-		);
-		const binding = this._shared.getCachedBindGroup(
-			`fxaa-${target === targets.postPing ? "ping" : "pong"}`,
-			this._fxaaPipeline,
-			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: this._shared.sampler },
-				{ binding: 2, resource: this._fxaaParams },
-				{ binding: 3, resource: target },
-			],
-			"WebGPUFXAA_Binding"
-		);
-		encoder.beginComputePass({ label: "WebGPUFXAA" });
-		encoder.setComputePipeline(this._fxaaPipeline);
 		encoder.setBindingGroup(0, binding);
 		encoder.dispatchWorkgroups(
 			ceilDiv(target.width, WORKGROUP_SIZE),
@@ -1459,34 +1384,6 @@ export class ScreenPostProcessDelegate {
 		this._bloomMipHeight = 0;
 		this._bloomMipCount = 0;
 		this._shared.invalidateBindingsByPrefix("bloom-");
-	}
-
-	private async _ensureFXAAResources(): Promise<void> {
-		await this._shared.ensureCommonResources();
-		if (!this._fxaaModule) {
-			const shader = await loadPostProcessShaderPartComposite("fxaa");
-			this._fxaaModule = await this._shared.compute.createShaderModule({
-				label: "WebGPUFXAAShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._fxaaPipeline) {
-			this._fxaaPipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUFXAAPipeline",
-				compute: { module: this._fxaaModule, entryPoint: "csMain" },
-			});
-		}
-		if (!this._fxaaParams) {
-			this._fxaaParams = this._shared.compute.createBuffer({
-				label: "WebGPUFXAAParams",
-				size: 6 * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
 	}
 
 	private async _ensureToneMappingResources(): Promise<void> {

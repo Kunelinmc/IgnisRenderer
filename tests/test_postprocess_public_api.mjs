@@ -50,6 +50,16 @@ class FakeExecutor {
 			updatedHistoryIds: request.pass.history?.map((history) => history.id) ?? [],
 		};
 	}
+
+	getPassExecutionContext(passId, request) {
+		if (this.backend === "software" && passId === "fxaa") {
+			return {
+				attachments: request.frameContext.attachments,
+				canvasContext: null,
+			};
+		}
+		return undefined;
+	}
 }
 
 function createFrameContext(postProcess, incremental = {}) {
@@ -367,7 +377,6 @@ async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 		{
 			bloom: { enabled: true },
 			"color-filter": { enabled: true },
-			fxaa: { enabled: true },
 			"custom-hdr-pass": { enabled: true },
 			"custom-overlay-pass": { enabled: true },
 		},
@@ -388,7 +397,7 @@ async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 		fullOrder.indexOf("custom-hdr-pass") < fullOrder.indexOf("tonemap")
 	);
 	assert.ok(fullOrder.indexOf("tonemap") < fullOrder.indexOf("color-filter"));
-	assert.ok(fullOrder.indexOf("fxaa") < fullOrder.indexOf("custom-overlay-pass"));
+	assert.ok(fullOrder.indexOf("color-filter") < fullOrder.indexOf("custom-overlay-pass"));
 	assert.ok(fullOrder.indexOf("custom-overlay-pass") < fullOrder.indexOf("gamma"));
 	assert.deepEqual(warnings, []);
 
@@ -398,7 +407,7 @@ async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 			enabled: true,
 			forceFullFrame: false,
 			firstPass: "postprocess",
-			postProcessStartPass: "fxaa",
+			postProcessStartPass: "color-filter",
 		}),
 		executor: incrementalExecutor,
 		gBuffer: createGBufferBridge(),
@@ -406,12 +415,86 @@ async function testPipelinePlacementOrderingAndIncrementalStartPass() {
 	});
 
 	assert.equal(result.firstStage, "postprocess");
-	assert.equal(result.startPassId, "fxaa");
-	assert.equal(incrementalExecutor.executed[0].passId, "fxaa");
+	assert.equal(result.startPassId, "color-filter");
+	assert.equal(incrementalExecutor.executed[0].passId, "color-filter");
 	assert.equal(
 		incrementalExecutor.executed.some((entry) => entry.passId === "tonemap"),
 		false
 	);
+}
+
+async function testBuiltInPassOwnedImplementationsBypassExecutorFallback() {
+	const state = resolvePostProcessState(
+		{
+			fxaa: { enabled: true },
+			gamma: { enabled: false },
+			tonemap: { enabled: false },
+			"interaction-outline": { enabled: false },
+		},
+		ALL_POST_PROCESS_CAPABILITIES,
+		"software"
+	);
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("software");
+	executor.executePass = function executePass(passId) {
+		this.executed.push({ passId });
+		throw new Error(`Unexpected fallback execution for ${passId}`);
+	};
+
+	const result = await pipeline.execute({
+		frameContext: createFrameContext(state),
+		executor,
+		gBuffer: createGBufferBridge(),
+	});
+
+	assert.deepEqual(result.executedPassIds, ["fxaa"]);
+	assert.deepEqual(executor.executed, []);
+}
+
+async function testSSRResolveHistoryUsesDownsampleAndBypassesFallback() {
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+	const createState = (downsample) =>
+		resolvePostProcessState(
+			{
+				ssr: {
+					enabled: true,
+					options: { downsample },
+				},
+				gamma: { enabled: false },
+				tonemap: { enabled: false },
+				"interaction-outline": { enabled: false },
+			},
+			ALL_POST_PROCESS_CAPABILITIES,
+			"webgpu"
+		);
+
+	await pipeline.execute({
+		frameContext: createFrameContext(createState(2)),
+		executor,
+		gBuffer: createGBufferBridge(),
+	});
+	const firstSSRRead = executor.created.find((handle) => handle.id === "ssr:read");
+	const firstMotionRead = executor.created.find(
+		(handle) => handle.id === "motion:read"
+	);
+	assert.equal(firstSSRRead.width, 32);
+	assert.equal(firstSSRRead.height, 16);
+	assert.equal(firstMotionRead.width, 64);
+	assert.equal(firstMotionRead.height, 32);
+	assert.deepEqual(executor.executed, []);
+
+	await pipeline.execute({
+		frameContext: createFrameContext(createState(4)),
+		executor,
+		gBuffer: createGBufferBridge(),
+	});
+	const recreatedSSRReads = executor.created.filter(
+		(handle) => handle.id === "ssr:read"
+	);
+	assert.equal(recreatedSSRReads.at(-1).width, 16);
+	assert.equal(recreatedSSRReads.at(-1).height, 8);
+	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:read"));
 }
 
 async function testPipelineWarnsWhenCustomPassReturnsRanFalse() {
@@ -558,6 +641,8 @@ async function run() {
 	testLogicalCustomPassRegistration();
 	await testPipelineBackendImplementationSelection();
 	await testPipelinePlacementOrderingAndIncrementalStartPass();
+	await testBuiltInPassOwnedImplementationsBypassExecutorFallback();
+	await testSSRResolveHistoryUsesDownsampleAndBypassesFallback();
 	await testPipelineWarnsWhenCustomPassReturnsRanFalse();
 	testHistoryManagerInvalidationAndResize();
 	testLogicalGBufferBridgeHelperShape();
