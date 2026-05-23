@@ -108,6 +108,18 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 				return { ran: false };
 		}
 	}
+
+	public getPassExecutionContext(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown {
+		if (passId !== "taa") {
+			return undefined;
+		}
+		return {
+			attachments: request.frameContext.attachments,
+		};
+	}
 }
 
 /**
@@ -128,6 +140,7 @@ export function createSoftwareGBufferBridge(
 		height,
 		normalSpace: "view",
 		depthEncoding: "linear-view-z",
+		motionEncoding: "ndc-delta",
 		channels: {
 			color: {
 				semantic: "color",
@@ -166,6 +179,20 @@ export function createSoftwareGBufferBridge(
 					height,
 					format: "float32x3",
 					encoding: "view-normal",
+				}
+			:	undefined,
+			motion: attachments.motionBuffer ?
+				{
+					semantic: "motion",
+					handle: {
+						backend: "software",
+						data: attachments.motionBuffer,
+						stride: 4,
+					},
+					width,
+					height,
+					format: "float32x4",
+					encoding: "motion-depth.xy",
 				}
 			:	undefined,
 		},

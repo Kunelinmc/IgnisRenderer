@@ -102,8 +102,42 @@ export interface PostProcessHistorySlot {
 
 export type PostProcessHistorySlots = Record<string, PostProcessHistorySlot>;
 
-export interface PostProcessPassImplementation {
+export interface PostProcessPassImplementation<TContext = unknown> {
 	readonly id?: string;
+	/**
+	 * Executes the logical pass through pass-owned backend implementation logic.
+	 *
+	 * @param request Current pass request produced by `PostProcessPipeline`.
+	 * @param context Backend-provided low-level execution helpers.
+	 * @returns Pass execution result used for scheduling and history tracking.
+	 * @sideEffects May mutate backend render targets or post-process histories.
+	 */
+	execute?(
+		request: PostProcessPassRequest,
+		context: TContext
+	): PostProcessPassResult | Promise<PostProcessPassResult>;
+	/**
+	 * Prepares backend resources needed by this implementation.
+	 *
+	 * @param context Backend-provided low-level execution helpers.
+	 * @returns Nothing.
+	 * @sideEffects May allocate backend-owned pipelines, programs, or buffers.
+	 */
+	warmup?(context: TContext): void | Promise<void>;
+	/**
+	 * Invalidates cached backend bindings for this implementation.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Drops implementation-owned binding caches.
+	 */
+	invalidate?(): void;
+	/**
+	 * Destroys resources owned by this implementation.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Releases implementation-owned backend resources.
+	 */
+	destroy?(): void;
 }
 
 export interface PostProcessPassDescriptor<TOptions = unknown> {
@@ -165,6 +199,18 @@ export interface IPostProcessExecutor {
 	): PostProcessResourceHandle;
 	destroyResource(handle: PostProcessResourceHandle): void;
 	beginFrame?(request: PostProcessFrameRequest): void | Promise<void>;
+	/**
+	 * Provides backend-specific low-level helpers to pass-owned implementations.
+	 *
+	 * @param passId Logical pass id being executed.
+	 * @param request Current pass request.
+	 * @returns Backend context object consumed by the pass implementation.
+	 * @sideEffects May synchronize backend history handles into frame targets.
+	 */
+	getPassExecutionContext?(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown;
 	executePass(
 		passId: string,
 		request: PostProcessPassRequest

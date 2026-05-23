@@ -34,6 +34,11 @@ import {
 	type ShadowBackendCapabilities,
 } from "../pipeline/ShadowStrategyRegistry";
 import { FrameAttachments } from "../pipeline/types";
+import { CameraType } from "../cameras/Camera";
+import { TemporalJitterState } from "./temporal/TemporalJitterState";
+import {
+	SOFTWARE_TAA_RENDER_STATE_KEY,
+} from "../postprocess/passes/TemporalAntiAliasingPass";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
 import { DEFAULT_SOFTWARE_RASTER_MODE } from "./software/constants";
@@ -66,7 +71,7 @@ const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 const SOFTWARE_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 	ssao: true,
 	ssgi: false,
-	taa: false,
+	taa: true,
 	ssr: false,
 	volumetric: true,
 	fog: false,
@@ -169,6 +174,11 @@ export class SoftwareBackend implements IRenderBackend {
 	private _pixels: Uint8ClampedArray | null = null;
 	private _depthBuffer: Float32Array | null = null;
 	private _normalBuffer: Float32Array | null = null;
+	private _motionBuffer: Float32Array | null = null;
+	private _temporalJitterState = new TemporalJitterState();
+	private _previousViewProjection: FrameContext["camera"]["viewProjectionMatrix"] | null = null;
+	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
+	private _activeContext: FrameContext | null = null;
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
 	private _frameWidth = 0;
@@ -247,6 +257,7 @@ export class SoftwareBackend implements IRenderBackend {
 			this._pixels = new Uint8ClampedArray(width * height * 4);
 			this._depthBuffer = new Float32Array(width * height);
 			this._normalBuffer = new Float32Array(width * height * 3);
+			this._motionBuffer = new Float32Array(width * height * 4);
 		}
 		this._frameWidth = width;
 		this._frameHeight = height;
@@ -254,6 +265,7 @@ export class SoftwareBackend implements IRenderBackend {
 			pixels: this._pixels,
 			depthBuffer: this._depthBuffer,
 			normalBuffer: this._normalBuffer,
+			motionBuffer: this._motionBuffer,
 			width,
 			height,
 		};
@@ -276,11 +288,14 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._activeContext = context;
 		this._particleSimulator?.beginFrame(context);
+		this._prepareTAARenderState(context);
 
 		const pixels = context.attachments.pixels!;
 		const depthBuffer = context.attachments.depthBuffer!;
 		const normalBuffer = context.attachments.normalBuffer;
+		const motionBuffer = context.attachments.motionBuffer;
 		const frameWidth = context.attachments.width;
 		const frameHeight = context.attachments.height;
 		const incrementalPartial = this._isIncrementalPartial(context);
@@ -297,6 +312,7 @@ export class SoftwareBackend implements IRenderBackend {
 			}
 			depthBuffer.fill(Infinity);
 			normalBuffer?.fill(0);
+			motionBuffer?.fill(0);
 		} else {
 			for (const rect of dirtyRects) {
 				const minX = Math.max(0, Math.floor(rect.x));
@@ -321,6 +337,13 @@ export class SoftwareBackend implements IRenderBackend {
 							normalBuffer[normalIndex] = 0;
 							normalBuffer[normalIndex + 1] = 0;
 							normalBuffer[normalIndex + 2] = 0;
+						}
+						if (motionBuffer) {
+							const motionIndex = (rowStart + x) * 4;
+							motionBuffer[motionIndex] = 0;
+							motionBuffer[motionIndex + 1] = 0;
+							motionBuffer[motionIndex + 2] = 0;
+							motionBuffer[motionIndex + 3] = 0;
 						}
 					}
 				}
@@ -394,9 +417,11 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public endFrame(): void {
-		if (!this._renderer || !this._ctx) return;
-
 		this._particleSimulator?.endFrame();
+		this._commitTAARenderState();
+		this._activeContext = null;
+
+		if (!this._renderer || !this._ctx) return;
 
 		const imageData = this._getFrameImageData(this._renderer);
 		if (this._offscreenCtx && this._offscreenCanvas) {
@@ -407,6 +432,42 @@ export class SoftwareBackend implements IRenderBackend {
 		} else {
 			this._ctx.putImageData(imageData, 0, 0);
 		}
+	}
+
+	private _prepareTAARenderState(context: FrameContext): void {
+		const jitter = this._temporalJitterState.next({
+			enabled: context.postProcess.enabled.taa,
+			isOrthographic: context.camera.type === CameraType.Orthographic,
+			width: context.attachments.width,
+			height: context.attachments.height,
+			jitterScale: context.postProcess.options.taa.jitterScale,
+			reset: context.incremental.temporalHistoryReset,
+		});
+		if (!context.postProcess.enabled.taa || context.incremental.temporalHistoryReset) {
+			this._previousViewProjection = null;
+			this._previousWorldMatrices.clear();
+		}
+		context.transient.set(SOFTWARE_TAA_RENDER_STATE_KEY, {
+			currentJitter: [jitter[0], jitter[1]],
+			previousJitter: [jitter[2], jitter[3]],
+			previousViewProjection: this._previousViewProjection,
+			currentViewProjection: context.camera.viewProjectionMatrix,
+			previousWorldMatrices: this._previousWorldMatrices,
+			currentWorldMatrices: new Map(),
+		});
+	}
+
+	private _commitTAARenderState(): void {
+		const context = this._activeContext;
+		if (!context) {
+			return;
+		}
+		const state = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+		if (!state) {
+			return;
+		}
+		this._previousViewProjection = context.camera.viewProjectionMatrix.clone();
+		this._previousWorldMatrices = new Map(state.currentWorldMatrices);
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {

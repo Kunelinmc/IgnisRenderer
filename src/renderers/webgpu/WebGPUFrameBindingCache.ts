@@ -27,8 +27,8 @@ import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import { computeHaltonJitterNDC, finiteOr } from "../../maths/Misc";
-import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
+import { finiteOr } from "../../maths/Misc";
+import { TemporalJitterState } from "../temporal/TemporalJitterState";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
@@ -55,6 +55,13 @@ interface PreparedSceneEnvironmentLike {
 	backgroundStrength: number;
 	backgroundTintLinear: { r: number; g: number; b: number };
 	backgroundExposure: number;
+}
+
+export type WebGPUTemporalStateMode = "advance" | "reuse" | "disabled";
+
+export interface WebGPUFrameBindingPrepareOptions {
+	readonly temporalStateMode?: WebGPUTemporalStateMode;
+	readonly temporalHistoryReset?: boolean;
 }
 
 export class WebGPUFrameBindingCache {
@@ -84,9 +91,11 @@ export class WebGPUFrameBindingCache {
 	private _prevViewProjection:
 		| PreparedScene["camera"]["viewProjectionMatrix"]
 		| null = null;
-	private _taaFrameIndex = 0;
-	private _taaJitterCurrent: [number, number] = [0, 0];
-	private _taaEnabledLastFrame = false;
+	private _currentFramePrevViewProjection:
+		| PreparedScene["camera"]["viewProjectionMatrix"]
+		| null = null;
+	private _temporalJitterState = new TemporalJitterState();
+	private _temporalJitterCurrentPrev: [number, number, number, number] = [0, 0, 0, 0];
 
 	constructor(
 		backend: WebGPUBackend,
@@ -107,7 +116,8 @@ export class WebGPUFrameBindingCache {
 		features: WebGPUFeatureState,
 		renderWidth: number,
 		renderHeight: number,
-		sceneTargetMode: WebGPUSceneTargetMode
+		sceneTargetMode: WebGPUSceneTargetMode,
+		options: WebGPUFrameBindingPrepareOptions = {}
 	): void {
 		const viewElements = frame.camera.viewMatrix.elements;
 		const isOrthographic = frame.camera.type === CameraType.Orthographic;
@@ -144,13 +154,19 @@ export class WebGPUFrameBindingCache {
 			);
 		}
 		const frameUniform = this._getFrameUniformBuffer();
-		const prevViewProjection =
-			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
-		const taaJitter = this._computeTAAJitter(
+		const temporalStateMode = options.temporalStateMode ?? "advance";
+		const prevViewProjection = this._resolvePreviousViewProjection(
+			frame,
+			temporalStateMode,
+			options.temporalHistoryReset === true
+		);
+		const temporalJitter = this._computeTemporalJitter(
 			features,
 			isOrthographic,
 			renderWidth,
-			renderHeight
+			renderHeight,
+			temporalStateMode,
+			options.temporalHistoryReset === true
 		);
 		const frameData = packFrameUniformData({
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
@@ -196,7 +212,7 @@ export class WebGPUFrameBindingCache {
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
 			envSpecularFallbackMaxMipLevel:
 				environmentState.envSpecularFallbackMaxMipLevel,
-			taaJitterCurrentPrev: taaJitter,
+			taaJitterCurrentPrev: temporalJitter,
 		});
 
 		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
@@ -208,7 +224,9 @@ export class WebGPUFrameBindingCache {
 			this._getEnvironmentBackgroundParamsBuffer(),
 			this._packEnvironmentBackgroundParams(frame)
 		);
-		this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
+		if (temporalStateMode === "advance") {
+			this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
+		}
 		this._writeParticleShadowVolumeData(
 			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS)
 		);
@@ -290,44 +308,57 @@ export class WebGPUFrameBindingCache {
 		}
 	}
 
-	private _computeTAAJitter(
+	private _computeTemporalJitter(
 		features: WebGPUFeatureState,
 		isOrthographic: boolean,
 		renderWidth: number,
-		renderHeight: number
+		renderHeight: number,
+		temporalStateMode: WebGPUTemporalStateMode,
+		temporalHistoryReset: boolean
 	): [number, number, number, number] {
-		if (
-			!features.enableTAA ||
-			isOrthographic ||
-			renderWidth <= 0 ||
-			renderHeight <= 0
-		) {
-			this._taaJitterCurrent = [0, 0];
-			this._taaFrameIndex = 0;
-			this._taaEnabledLastFrame = false;
+		if (temporalStateMode === "disabled") {
 			return [0, 0, 0, 0];
 		}
+		if (temporalStateMode === "reuse") {
+			return this._temporalJitterCurrentPrev;
+		}
 
-		const prevJitter =
-			this._taaEnabledLastFrame ? this._taaJitterCurrent : [0, 0];
-		const jitterScale =
-			(
-				typeof features.taaOptions?.jitterScale === "number" &&
-				Number.isFinite(features.taaOptions.jitterScale)
-			) ?
-				Math.max(0, features.taaOptions.jitterScale)
-			:	1;
-		const nextJitter = computeHaltonJitterNDC(
-			this._taaFrameIndex,
-			renderWidth,
-			renderHeight,
-			jitterScale
-		);
-		this._taaJitterCurrent = nextJitter;
-		this._taaFrameIndex =
-			(this._taaFrameIndex + 1) % TAA_JITTER_SEQUENCE_LENGTH;
-		this._taaEnabledLastFrame = true;
-		return [nextJitter[0], nextJitter[1], prevJitter[0], prevJitter[1]];
+		const jitter = this._temporalJitterState.next({
+			enabled: features.enableTAA,
+			isOrthographic,
+			width: renderWidth,
+			height: renderHeight,
+			jitterScale: features.taaOptions?.jitterScale,
+			reset: temporalHistoryReset,
+		});
+		this._temporalJitterCurrentPrev = jitter;
+		return jitter;
+	}
+
+	private _resolvePreviousViewProjection(
+		frame: PreparedScene,
+		temporalStateMode: WebGPUTemporalStateMode,
+		temporalHistoryReset: boolean
+	): PreparedScene["camera"]["viewProjectionMatrix"] {
+		if (temporalStateMode === "disabled" || temporalHistoryReset) {
+			if (temporalStateMode === "advance") {
+				this._currentFramePrevViewProjection =
+					frame.camera.viewProjectionMatrix.clone();
+			}
+			return frame.camera.viewProjectionMatrix;
+		}
+		if (temporalStateMode === "reuse") {
+			return (
+				this._currentFramePrevViewProjection ??
+				this._prevViewProjection ??
+				frame.camera.viewProjectionMatrix
+			);
+		}
+
+		const prevViewProjection =
+			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
+		this._currentFramePrevViewProjection = prevViewProjection.clone();
+		return prevViewProjection;
 	}
 
 	public getSceneBinding(): IBindingGroup {
@@ -634,9 +665,9 @@ export class WebGPUFrameBindingCache {
 		this._envSpecularSampler = null;
 		this._envSpecularFallbackSampler = null;
 		this._prevViewProjection = null;
-		this._taaFrameIndex = 0;
-		this._taaJitterCurrent = [0, 0];
-		this._taaEnabledLastFrame = false;
+		this._currentFramePrevViewProjection = null;
+		this._temporalJitterState.reset();
+		this._temporalJitterCurrentPrev = [0, 0, 0, 0];
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

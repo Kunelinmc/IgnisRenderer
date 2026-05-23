@@ -176,6 +176,7 @@ export interface FrameAttachments {
 	pixels?: Uint8ClampedArray;
 	depthBuffer?: Float32Array;
 	normalBuffer?: Float32Array | null;
+	motionBuffer?: Float32Array | null;
 	width: number;
 	height: number;
 }

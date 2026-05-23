@@ -119,7 +119,9 @@ export class WebGPUPlanarReflectionPass {
 					height
 				);
 				this._resources.setSceneTargetMode("mrt");
-				this._resources.prepareFrame(captureContext);
+				this._resources.prepareFrame(captureContext, {
+					temporalStateMode: "disabled",
+				});
 				const encoder = this._backend.createCommandEncoder();
 				await this._resources.buildClusteredLighting(encoder);
 				await this._recordCapture(encoder, captureContext, targets);
@@ -135,7 +137,7 @@ export class WebGPUPlanarReflectionPass {
 				this._backend.setMSAASampleCount?.(restoreMSAASampleCount);
 			}
 			this._resources.setSceneTargetMode(restoreSceneTargetMode);
-			this._resources.prepareFrame(context);
+			this._resources.prepareFrame(context, { temporalStateMode: "reuse" });
 			this._releaseStaleTargets(activeKeys);
 		}
 

@@ -20,6 +20,9 @@ import type {
 	SoftwareRasterWorkerTaskPayload,
 	SoftwareRasterWorkerTaskResult,
 } from "../workers/softwareRasterWorkerProtocol";
+import {
+	SOFTWARE_TAA_RENDER_STATE_KEY,
+} from "../../../postprocess/passes/TemporalAntiAliasingPass";
 
 interface TileTriangleWorkItem {
 	index: number;
@@ -115,6 +118,8 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 		height: context.attachments.height,
 		depthBuffer: context.attachments.depthBuffer!,
 		normalBuffer: context.attachments.normalBuffer,
+		motionBuffer: context.attachments.motionBuffer,
+		taa: context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY),
 		camera: {
 			position: context.camera.getWorldPosition(),
 			viewMatrix: context.camera.viewMatrix,

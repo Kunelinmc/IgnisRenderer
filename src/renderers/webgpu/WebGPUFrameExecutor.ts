@@ -62,6 +62,7 @@ import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
+import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -245,6 +246,7 @@ export class WebGPUFrameExecutor {
 	private _oitHasContributors = false;
 	private _oitTransmissionPackets: DrawPacket[] = [];
 	private _oitNeedsTransmissionAfterParticles = false;
+	private _motionHistoryWriteRequested = false;
 	private _depthDirtyClearShaderModule: IShaderModule | null = null;
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
@@ -297,6 +299,7 @@ export class WebGPUFrameExecutor {
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
+		this._motionHistoryWriteRequested = false;
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -480,21 +483,6 @@ export class WebGPUFrameExecutor {
 				} as WebGPUPostProcessExecuteRequest);
 				return { ran: true };
 			}
-			case "taa": {
-				const result = await this._postRuntime.executePass({
-					passId,
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					frameContext: request.frameContext,
-					historyValid:
-						(request.histories.taa?.valid ?? false) &&
-						(request.histories.motion?.valid ?? false),
-				} as WebGPUPostProcessExecuteRequest);
-				return {
-					ran: result.ran,
-					updatedHistoryIds: result.historyUpdated ? ["taa"] : [],
-				};
-			}
 			case "ssr": {
 				const result = await this._postRuntime.executePass({
 					passId,
@@ -506,9 +494,12 @@ export class WebGPUFrameExecutor {
 						(request.histories.motion?.valid ?? false),
 					frameBinding: this._resources.getFrameBinding(),
 				} as WebGPUPostProcessExecuteRequest);
+				if (result.historyUpdated) {
+					this._motionHistoryWriteRequested = true;
+				}
 				return {
 					ran: result.ran,
-					updatedHistoryIds: result.historyUpdated ? ["ssr"] : [],
+					updatedHistoryIds: result.historyUpdated ? ["ssr", "motion"] : [],
 				};
 			}
 			case "volumetric": {
@@ -523,11 +514,14 @@ export class WebGPUFrameExecutor {
 					frameBinding: this._resources.getFrameBinding(),
 					lightingState: this._resources.getLightingState(),
 				} as WebGPUPostProcessExecuteRequest);
+				if (result.historyUpdated) {
+					this._motionHistoryWriteRequested = true;
+				}
 				return {
 					ran: result.ran,
 					updatedHistoryIds:
 						result.historyUpdated ?
-							["volumetric", "volumetric-reservoir"]
+							["volumetric", "volumetric-reservoir", "motion"]
 						:	[],
 				};
 			}
@@ -547,6 +541,31 @@ export class WebGPUFrameExecutor {
 			return "single";
 		}
 		return this._deferredEnabled ? "gbuffer" : "mrt";
+	}
+
+	public getPassExecutionContext(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown {
+		if (passId !== "taa" || !this._encoder || !this._frameTargets) {
+			return undefined;
+		}
+		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
+		this._applyPipelineHistories(request);
+		const context: WebGPUTAAContext = {
+			encoder: this._encoder,
+			targets: this._frameTargets,
+			shared: this._postRuntime.sharedContext,
+			publishColorTarget: (texture) => {
+				if (this._frameTargets) {
+					this._frameTargets.sceneColor = texture;
+				}
+			},
+			writeMotionHistoryFromCurrent: () => {
+				this._motionHistoryWriteRequested = true;
+			},
+		};
+		return context;
 	}
 
 	/**
@@ -722,9 +741,13 @@ export class WebGPUFrameExecutor {
 		this._frameContext = null;
 
 		const motionSource =
-			this._mrtEnabled ? this._frameTargets?.gMotionDepth : null;
+			this._mrtEnabled && this._motionHistoryWriteRequested ?
+				this._frameTargets?.gMotionDepth
+			:	null;
 		const motionTarget =
-			this._mrtEnabled ? this._frameTargets?.motionHistoryWrite : null;
+			this._mrtEnabled && this._motionHistoryWriteRequested ?
+				this._frameTargets?.motionHistoryWrite
+			:	null;
 		if (motionSource && motionTarget && width > 0 && height > 0) {
 			this._backend.copyTextureToTexture(
 				{ texture: motionSource },
@@ -732,6 +755,7 @@ export class WebGPUFrameExecutor {
 				{ width, height, depthOrArrayLayers: 1 }
 			);
 		}
+		this._motionHistoryWriteRequested = false;
 	}
 
 	private _createPassHandlers(): Map<

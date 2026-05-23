@@ -105,6 +105,8 @@ export class WebGLBackend implements IRenderBackend {
 		capabilities: WEBGL_POST_PROCESS_CAPABILITIES,
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
+		getPassExecutionContext: (passId, request) =>
+			this._getPostProcessPassExecutionContext(passId, request),
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 	};
@@ -205,6 +207,13 @@ export class WebGLBackend implements IRenderBackend {
 			this._frameExecutor?.executePostProcessPass(passId, request) ??
 			{ ran: false }
 		);
+	}
+
+	private _getPostProcessPassExecutionContext(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown {
+		return this._frameExecutor?.getPassExecutionContext(passId, request);
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {

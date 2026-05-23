@@ -34,7 +34,6 @@ import {
 	DEFAULT_FOG_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
-	DEFAULT_TAA_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	type DrawPacket,
 	type BloomOptions,
@@ -46,7 +45,6 @@ import {
 	type MotionBlurOptions,
 	type ParticleRenderBatch,
 	type SSAOOptions,
-	type TAAOptions,
 } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
@@ -77,11 +75,6 @@ import {
 	MOTION_BLUR_SHUTTER_SCALE_RANGE,
 	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 	SH_COEFFICIENT_COUNT,
-	TAA_DEPTH_THRESHOLD_RANGE,
-	TAA_HISTORY_WEIGHT_RANGE,
-	TAA_MOTION_FACTOR_RANGE,
-	TAA_SHARPEN_RANGE,
-	TAA_VARIANCE_GAMMA_RANGE,
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
 	WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS,
@@ -122,7 +115,6 @@ import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
 	clampDownsample,
-	computeHaltonJitterNDC,
 	finiteOr,
 	isFiniteMatrix,
 	sanitizeFiniteClamped,
@@ -173,6 +165,8 @@ import {
 	writeWebGLParticleInstances,
 	type WebGLParticlePassHost,
 } from "./WebGLParticlePass";
+import { TemporalJitterState } from "../temporal/TemporalJitterState";
+import type { WebGLTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
 
@@ -227,7 +221,7 @@ export class WebGLFrameExecutor {
 	private _taaHistoryIndex = 0;
 	private _taaHistoryValid = false;
 	private _taaJitter = new Float32Array(4); // currX, currY, prevX, prevY
-	private _taaFrameIndex = 0;
+	private _temporalJitterState = new TemporalJitterState();
 	private _prevViewProjection: Float32Array | null = null;
 	private _modelMatrixCache = new Map<string, Float32Array>();
 	private _modelMatrixKeysThisFrame = new Set<string>();
@@ -343,15 +337,19 @@ export class WebGLFrameExecutor {
 			this._maxTextureSize
 		);
 		
-		if (context.postProcess.enabled.taa) {
-			this._taaJitter[2] = this._taaJitter[0];
-			this._taaJitter[3] = this._taaJitter[1];
-			const nextJitter = computeHaltonJitterNDC(this._taaFrameIndex++, this._width, this._height);
-			this._taaJitter[0] = nextJitter[0];
-			this._taaJitter[1] = nextJitter[1];
-		} else {
-			this._taaJitter.fill(0);
-			this._taaFrameIndex = 0;
+		const temporalJitter = this._temporalJitterState.next({
+			enabled: context.postProcess.enabled.taa,
+			isOrthographic: context.camera.type === CameraType.Orthographic,
+			width: this._width,
+			height: this._height,
+			jitterScale: context.postProcess.options.taa.jitterScale,
+			reset: context.incremental.temporalHistoryReset,
+		});
+		this._taaJitter[0] = temporalJitter[0];
+		this._taaJitter[1] = temporalJitter[1];
+		this._taaJitter[2] = temporalJitter[2];
+		this._taaJitter[3] = temporalJitter[3];
+		if (!context.postProcess.enabled.taa) {
 			this._taaHistoryValid = false;
 		}
 		if (context.incremental.temporalHistoryReset) {
@@ -517,10 +515,6 @@ export class WebGLFrameExecutor {
 			case "ssao":
 				this._applySSAO(context.postProcess.options.ssao, context);
 				return { ran: true };
-			case "taa":
-				this._applyPipelineHistories(request);
-				this._applyTAA(context.postProcess.options.taa);
-				return { ran: true, updatedHistoryIds: ["taa"] };
 			case "fog":
 				this._applyFog(context.postProcess.options.fog);
 				return { ran: true };
@@ -551,6 +545,49 @@ export class WebGLFrameExecutor {
 			default:
 				return { ran: false };
 		}
+	}
+
+	public getPassExecutionContext(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown {
+		if (passId !== "taa") {
+			return undefined;
+		}
+		this._applyPipelineHistories(request);
+		const context: WebGLTAAContext = {
+			gl: this._gl,
+			programs: this._programs,
+			fullscreenVao: this._fullscreenVao,
+			postFramebuffer: this._postFramebuffer,
+			sceneColorTexture: this._sceneColorTexture,
+			sceneMotionTexture: this._sceneMotionTexture,
+			width: this._width,
+			height: this._height,
+			historyRead: request.histories.taa?.read.resource as WebGLTexture | null,
+			historyWrite: request.histories.taa?.write.resource as WebGLTexture | null,
+			motionHistoryRead: request.histories.motion?.read
+				.resource as WebGLTexture | null,
+			motionHistoryWrite: request.histories.motion?.write
+				.resource as WebGLTexture | null,
+			getSourceTexture: () =>
+				this._presentSourceTexture ?? this._sceneColorTexture,
+			resolveTargetTexture: (sourceTexture) =>
+				resolveWebGLPostProcessTargetTexture(
+					this as unknown as WebGLFrameTargetLifecycleHost,
+					sourceTexture
+				),
+			publishColorTexture: (texture) => {
+				this._presentSourceTexture = texture;
+				this._taaHistoryValid = true;
+			},
+			warn: (key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				}),
+		};
+		return context;
 	}
 
 	public endFrame(): void {
@@ -2751,132 +2788,6 @@ export class WebGLFrameExecutor {
 		);
 		gl.bindVertexArray(null);
 		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyTAA(options?: TAAOptions): void {
-		if (
-			!this._sceneMotionTexture ||
-			!this._postFramebuffer ||
-			!this._taaHistoryTextures[0] ||
-			!this._fullscreenVao
-		) {
-			return;
-		}
-
-		const gl = this._gl;
-		const taaProgram = this._programs.getTAAProgram();
-		const historyIndex = this._taaHistoryIndex;
-		const currentHistory = this._taaHistoryTextures[historyIndex];
-		const nextHistory = this._taaHistoryTextures[1 - historyIndex];
-		const currentMotionHistory = this._taaMotionHistoryTextures[historyIndex];
-		const nextMotionHistory = this._taaMotionHistoryTextures[1 - historyIndex];
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			nextHistory!,
-			0
-		);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT1,
-			gl.TEXTURE_2D,
-			nextMotionHistory!,
-			0
-		);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(taaProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, currentHistory!);
-		gl.activeTexture(gl.TEXTURE2);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-		gl.activeTexture(gl.TEXTURE3);
-		gl.bindTexture(gl.TEXTURE_2D, currentMotionHistory!);
-
-		const uniforms = taaProgram.uniforms;
-		if (uniforms.sceneColor) gl.uniform1i(uniforms.sceneColor, 0);
-		if (uniforms.historyMap) gl.uniform1i(uniforms.historyMap, 1);
-		if (uniforms.motionMap) gl.uniform1i(uniforms.motionMap, 2);
-		if (uniforms.motionHistory) gl.uniform1i(uniforms.motionHistory, 3);
-		if (uniforms.texelSize) {
-			gl.uniform2f(
-				uniforms.texelSize,
-				1 / Math.max(1, this._width),
-				1 / Math.max(1, this._height)
-			);
-		}
-
-		const weight = sanitizeFiniteClamped(
-			options?.historyWeight,
-			DEFAULT_TAA_OPTIONS.historyWeight,
-			TAA_HISTORY_WEIGHT_RANGE[0],
-			TAA_HISTORY_WEIGHT_RANGE[1]
-		);
-		const depthThreshold = sanitizeFiniteClamped(
-			options?.disocclusionDepthThreshold,
-			DEFAULT_TAA_OPTIONS.disocclusionDepthThreshold,
-			TAA_DEPTH_THRESHOLD_RANGE[0],
-			TAA_DEPTH_THRESHOLD_RANGE[1]
-		);
-		const motionFactor = sanitizeFiniteClamped(
-			options?.motionFactor,
-			DEFAULT_TAA_OPTIONS.motionFactor,
-			TAA_MOTION_FACTOR_RANGE[0],
-			TAA_MOTION_FACTOR_RANGE[1]
-		);
-		const varianceClampGamma = sanitizeFiniteClamped(
-			options?.varianceClampGamma,
-			DEFAULT_TAA_OPTIONS.varianceClampGamma,
-			TAA_VARIANCE_GAMMA_RANGE[0],
-			TAA_VARIANCE_GAMMA_RANGE[1]
-		);
-		const sharpen = sanitizeFiniteClamped(
-			options?.sharpen,
-			DEFAULT_TAA_OPTIONS.sharpen,
-			TAA_SHARPEN_RANGE[0],
-			TAA_SHARPEN_RANGE[1]
-		);
-
-		if (uniforms.historyWeight) gl.uniform1f(uniforms.historyWeight, weight);
-		if (uniforms.depthThreshold)
-			gl.uniform1f(uniforms.depthThreshold, depthThreshold);
-		if (uniforms.motionFactor) gl.uniform1f(uniforms.motionFactor, motionFactor);
-		if (uniforms.varianceClampGamma)
-			gl.uniform1f(uniforms.varianceClampGamma, varianceClampGamma);
-		if (uniforms.sharpen) gl.uniform1f(uniforms.sharpen, sharpen);
-		if (uniforms.historyValid)
-			gl.uniform1f(uniforms.historyValid, this._taaHistoryValid ? 1.0 : 0.0);
-
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT1,
-			gl.TEXTURE_2D,
-			null,
-			0
-		);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
-		gl.bindVertexArray(null);
-
-		this._taaHistoryIndex = 1 - historyIndex;
-		this._taaHistoryValid = true;
-		this._presentSourceTexture = nextHistory;
 	}
 
 	private _present(

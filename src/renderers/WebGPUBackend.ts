@@ -292,6 +292,8 @@ export class WebGPUBackend implements IRenderBackend {
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
 		beginFrame: (_request) => {},
+		getPassExecutionContext: (passId, request) =>
+			this._getPostProcessPassExecutionContext(passId, request),
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 		endFrame: (_request) => {},
@@ -823,6 +825,13 @@ export class WebGPUBackend implements IRenderBackend {
 			this._frameExecutor?.executePostProcessPass(passId, request) ??
 			{ ran: false }
 		);
+	}
+
+	private _getPostProcessPassExecutionContext(
+		passId: string,
+		request: PostProcessPassRequest
+	): unknown {
+		return this._frameExecutor?.getPassExecutionContext(passId, request);
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {

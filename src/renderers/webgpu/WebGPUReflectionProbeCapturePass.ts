@@ -124,7 +124,9 @@ export class WebGPUReflectionProbeCapturePass {
 				this._backend.setMSAASampleCount(1);
 			}
 			this._resources.setSceneTargetMode("mrt");
-			this._resources.prepareFrame(captureContext);
+			this._resources.prepareFrame(captureContext, {
+				temporalStateMode: "disabled",
+			});
 			const encoder = this._backend.createCommandEncoder();
 			await this._resources.buildClusteredLighting(encoder);
 			await this._recordSceneCapture(
@@ -172,7 +174,9 @@ export class WebGPUReflectionProbeCapturePass {
 				this._backend.setMSAASampleCount(restoreMSAASampleCount);
 			}
 			this._resources.setSceneTargetMode(restoreSceneTargetMode);
-			this._resources.prepareFrame(request.frameContext);
+			this._resources.prepareFrame(request.frameContext, {
+				temporalStateMode: "reuse",
+			});
 		}
 	}
 

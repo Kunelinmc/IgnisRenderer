@@ -71,6 +71,7 @@ interface CachedVertex {
 	z: number;
 	iz: number;
 	worldO: IVector3;
+	previousWorldO: IVector3;
 	normalO: IVector3;
 	tangentO: IVector4;
 	uO: number;
@@ -88,6 +89,7 @@ interface EdgeInterpolationResult {
 	x: number;
 	iz: number;
 	worldO: IVector3;
+	previousWorldO: IVector3;
 	normalO: IVector3;
 	tangentO: IVector4;
 	uO: number;
@@ -121,6 +123,12 @@ export interface RasterizerContext {
 		maxY: number;
 	} | null;
 	normalBuffer?: Float32Array | null;
+	motionBuffer?: Float32Array | null;
+	taa?: {
+		currentJitter: [number, number];
+		previousJitter: [number, number];
+		previousViewProjection: Matrix4 | null;
+	};
 	camera: {
 		position: IVector3;
 		viewMatrix: Matrix4;
@@ -180,6 +188,7 @@ export class Rasterizer implements RasterizerLike {
 			z: 0,
 			iz: 0,
 			worldO: { x: 0, y: 0, z: 0 },
+			previousWorldO: { x: 0, y: 0, z: 0 },
 			normalO: { x: 0, y: 0, z: 0 },
 			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
@@ -215,6 +224,7 @@ export class Rasterizer implements RasterizerLike {
 			x: 0,
 			iz: 0,
 			worldO: { x: 0, y: 0, z: 0 },
+			previousWorldO: { x: 0, y: 0, z: 0 },
 			normalO: { x: 0, y: 0, z: 0 },
 			tangentO: { x: 0, y: 0, z: 0, w: 0 },
 			uO: 0,
@@ -624,6 +634,12 @@ export class Rasterizer implements RasterizerLike {
 		res.worldO.x = vA.worldO.x + (vB.worldO.x - vA.worldO.x) * t;
 		res.worldO.y = vA.worldO.y + (vB.worldO.y - vA.worldO.y) * t;
 		res.worldO.z = vA.worldO.z + (vB.worldO.z - vA.worldO.z) * t;
+		res.previousWorldO.x =
+			vA.previousWorldO.x + (vB.previousWorldO.x - vA.previousWorldO.x) * t;
+		res.previousWorldO.y =
+			vA.previousWorldO.y + (vB.previousWorldO.y - vA.previousWorldO.y) * t;
+		res.previousWorldO.z =
+			vA.previousWorldO.z + (vB.previousWorldO.z - vA.previousWorldO.z) * t;
 		res.normalO.x = vA.normalO.x + (vB.normalO.x - vA.normalO.x) * t;
 		res.normalO.y = vA.normalO.y + (vB.normalO.y - vA.normalO.y) * t;
 		res.normalO.z = vA.normalO.z + (vB.normalO.z - vA.normalO.z) * t;
@@ -825,6 +841,7 @@ export class Rasterizer implements RasterizerLike {
 		for (let i = 0; i < 3; i++) {
 			const p = pts[i];
 			const world = p.world ?? { x: 0, y: 0, z: 0 };
+			const previousWorld = p.previousWorld ?? world;
 			const normal = p.normal ?? face.normal ?? { x: 0, y: 0, z: 1 };
 			const tangent = p.tangent ?? { x: 0, y: 0, z: 0, w: 0 };
 			const iz = p.w;
@@ -837,6 +854,9 @@ export class Rasterizer implements RasterizerLike {
 			v.worldO.x = world.x * iz;
 			v.worldO.y = world.y * iz;
 			v.worldO.z = world.z * iz;
+			v.previousWorldO.x = previousWorld.x * iz;
+			v.previousWorldO.y = previousWorld.y * iz;
+			v.previousWorldO.z = previousWorld.z * iz;
 			v.normalO.x = normal.x * iz;
 			v.normalO.y = normal.y * iz;
 			v.normalO.z = normal.z * iz;
@@ -902,6 +922,12 @@ export class Rasterizer implements RasterizerLike {
 			const dWorldOx = (right.worldO.x - left.worldO.x) * spanInv;
 			const dWorldOy = (right.worldO.y - left.worldO.y) * spanInv;
 			const dWorldOz = (right.worldO.z - left.worldO.z) * spanInv;
+			const dPreviousWorldOx =
+				(right.previousWorldO.x - left.previousWorldO.x) * spanInv;
+			const dPreviousWorldOy =
+				(right.previousWorldO.y - left.previousWorldO.y) * spanInv;
+			const dPreviousWorldOz =
+				(right.previousWorldO.z - left.previousWorldO.z) * spanInv;
 			const dNormalOx = (right.normalO.x - left.normalO.x) * spanInv;
 			const dNormalOy = (right.normalO.y - left.normalO.y) * spanInv;
 			const dNormalOz = (right.normalO.z - left.normalO.z) * spanInv;
@@ -924,6 +950,9 @@ export class Rasterizer implements RasterizerLike {
 			let worldOx = left.worldO.x + dx * dWorldOx;
 			let worldOy = left.worldO.y + dx * dWorldOy;
 			let worldOz = left.worldO.z + dx * dWorldOz;
+			let previousWorldOx = left.previousWorldO.x + dx * dPreviousWorldOx;
+			let previousWorldOy = left.previousWorldO.y + dx * dPreviousWorldOy;
+			let previousWorldOz = left.previousWorldO.z + dx * dPreviousWorldOz;
 			let normalOx = left.normalO.x + dx * dNormalOx;
 			let normalOy = left.normalO.y + dx * dNormalOy;
 			let normalOz = left.normalO.z + dx * dNormalOz;
@@ -967,6 +996,9 @@ export class Rasterizer implements RasterizerLike {
 							worldOx += dWorldOx;
 							worldOy += dWorldOy;
 							worldOz += dWorldOz;
+							previousWorldOx += dPreviousWorldOx;
+							previousWorldOy += dPreviousWorldOy;
+							previousWorldOz += dPreviousWorldOz;
 							normalOx += dNormalOx;
 							normalOy += dNormalOy;
 							normalOz += dNormalOz;
@@ -1067,6 +1099,20 @@ export class Rasterizer implements RasterizerLike {
 									context.normalBuffer[nIdx + 1] = nView.y / nLen;
 									context.normalBuffer[nIdx + 2] = nView.z / nLen;
 								}
+								if (context.motionBuffer) {
+									this._writeMotionDepth(
+										context,
+										bufIdx,
+										x,
+										y,
+										{
+											x: previousWorldOx * zCam,
+											y: previousWorldOy * zCam,
+											z: previousWorldOz * zCam,
+										},
+										shadedDepth
+									);
+								}
 							} else {
 								const faceAlpha = face.color?.a ?? 1;
 								const shaderAlpha = shader.getOpacity();
@@ -1085,6 +1131,9 @@ export class Rasterizer implements RasterizerLike {
 				worldOx += dWorldOx;
 				worldOy += dWorldOy;
 				worldOz += dWorldOz;
+				previousWorldOx += dPreviousWorldOx;
+				previousWorldOy += dPreviousWorldOy;
+				previousWorldOz += dPreviousWorldOz;
 				normalOx += dNormalOx;
 				normalOy += dNormalOy;
 				normalOz += dNormalOz;
@@ -1106,6 +1155,45 @@ export class Rasterizer implements RasterizerLike {
 		if (material.wireframe) {
 			this._drawWireframe(pts, face, pixels, context, isTransparent);
 		}
+	}
+
+	private _writeMotionDepth(
+		context: RasterizerContext,
+		pixelIndex: number,
+		x: number,
+		y: number,
+		previousWorld: IVector3,
+		depth: number
+	): void {
+		const motionBuffer = context.motionBuffer;
+		if (!motionBuffer) {
+			return;
+		}
+		const currentNdcX = ((x + 0.5) / Math.max(1, context.width)) * 2 - 1;
+		const currentNdcY = 1 - ((y + 0.5) / Math.max(1, context.height)) * 2;
+		let previousNdcX = currentNdcX;
+		let previousNdcY = currentNdcY;
+		if (context.taa?.previousViewProjection) {
+			const previousClip = Matrix4.transformPoint(
+				context.taa.previousViewProjection,
+				previousWorld
+			);
+			const previousW =
+				Math.abs(previousClip.w ?? 0) > CoreConstants.EPSILON ?
+					previousClip.w!
+				:	(previousClip.w ?? 0) >= 0 ?
+					CoreConstants.EPSILON
+				:	-CoreConstants.EPSILON;
+			previousNdcX =
+				previousClip.x / previousW + context.taa.previousJitter[0];
+			previousNdcY =
+				previousClip.y / previousW + context.taa.previousJitter[1];
+		}
+		const offset = pixelIndex << 2;
+		motionBuffer[offset] = currentNdcX - previousNdcX;
+		motionBuffer[offset + 1] = currentNdcY - previousNdcY;
+		motionBuffer[offset + 2] = depth;
+		motionBuffer[offset + 3] = 0;
 	}
 
 	private _drawWireframe(

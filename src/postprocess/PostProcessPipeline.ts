@@ -14,6 +14,7 @@ import {
 	getCustomPostProcessPlacementOrder,
 	isPostProcessPlacement,
 } from "./ordering";
+import { TEMPORAL_ANTI_ALIASING_PASS } from "./passes/TemporalAntiAliasingPass";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferSemantic,
@@ -57,17 +58,7 @@ const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
 		isEnabled: enabled("ssgi"),
 		implementations: allBackendsImplementation(),
 	},
-	{
-		id: "taa",
-		placement: "temporal",
-		requirements: { gBuffer: ["motion"] },
-		history: [
-			{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-		],
-		isEnabled: enabled("taa"),
-		implementations: allBackendsImplementation(),
-	},
+	TEMPORAL_ANTI_ALIASING_PASS,
 	{
 		id: "ssr",
 		placement: "temporal",
@@ -287,14 +278,21 @@ export class PostProcessPipeline {
 			if (!implementation) {
 				continue;
 			}
-			const result = await executor.executePass(pass.id, {
+			const passRequest = {
 				...frameRequest,
 				pass,
 				passId: pass.id,
 				implementation,
 				options: postProcess.options[pass.id],
 				startPassId,
-			});
+			};
+			const result =
+				typeof implementation.execute === "function" ?
+					await implementation.execute(
+						passRequest,
+						executor.getPassExecutionContext?.(pass.id, passRequest)
+					)
+				:	await executor.executePass(pass.id, passRequest);
 			if (result?.ran === false) {
 				if (!POST_PROCESS_PASS_ID_SET.has(pass.id)) {
 					warn(
@@ -314,9 +312,6 @@ export class PostProcessPipeline {
 						.filter((id) => id !== "motion")
 				);
 			}
-		}
-		if (historyDescriptors.some((history) => history.id === "motion")) {
-			this._history.markUpdated("motion");
 		}
 		await executor.endFrame?.({
 			...frameRequest,

@@ -12,10 +12,14 @@ import { MeshInstance } from "../../meshes";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import { ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY } from "../../simulation/animation/types";
+import {
+	SOFTWARE_TAA_RENDER_STATE_KEY,
+} from "../../postprocess/passes/TemporalAntiAliasingPass";
 
 interface ClippedVertexPair {
 	view: IVertex;
 	world: IVertex;
+	previousWorld?: IVertex;
 }
 
 export class Projector {
@@ -29,14 +33,23 @@ export class Projector {
 		const targetHeight = overrideSize?.height ?? context.attachments.height;
 		const projectionMatrix = context.camera.projectionMatrix;
 		const viewMatrix = context.camera.viewMatrix;
+		const taaState = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+		const previousWorldMatrix =
+			taaState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
+		taaState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
 		const projectedFaces: ProjectedFace[] = [];
 
 		for (const face of this.getPacketFacesWithContext(packet, context)) {
 			const worldVerts: IVertex[] = [];
 			const viewVerts: IVertex[] = [];
+			const previousWorldVerts: IVertex[] = [];
 
 			for (const vertex of face.vertices) {
 				const worldPoint = Matrix4.transformPoint(packet.worldMatrix, vertex);
+				const previousWorldPoint = Matrix4.transformPoint(
+					previousWorldMatrix,
+					vertex
+				);
 				const worldNormal =
 					vertex.normal ?
 						Vector3.normalize(
@@ -75,6 +88,22 @@ export class Projector {
 					color: vertex.color,
 				};
 				worldVerts.push(worldVertex);
+				previousWorldVerts.push({
+					x: previousWorldPoint.x,
+					y: previousWorldPoint.y,
+					z: previousWorldPoint.z,
+					u: vertex.u,
+					v: vertex.v,
+					u2: vertex.u2,
+					v2: vertex.v2,
+					u3: vertex.u3,
+					v3: vertex.v3,
+					u4: vertex.u4,
+					v4: vertex.v4,
+					normal: worldNormal,
+					tangent: worldTangent,
+					color: vertex.color,
+				});
 
 				const viewPoint = Matrix4.transformPoint(viewMatrix, worldVertex);
 				viewVerts.push({
@@ -95,7 +124,12 @@ export class Projector {
 				});
 			}
 
-			const clippedVerts = clipFaceToNearPlane(viewVerts, worldVerts, context);
+			const clippedVerts = clipFaceToNearPlane(
+				viewVerts,
+				worldVerts,
+				context,
+				previousWorldVerts
+			);
 			if (clippedVerts.length < 3) continue;
 
 			const cullNormal = Vector3.calculateNormal(
@@ -126,10 +160,12 @@ export class Projector {
 				const ndcX = projected.x / safeW;
 				const ndcY = projected.y / safeW;
 				const ndcZ = projected.z / safeW;
+				const jitteredNdcX = ndcX + (taaState?.currentJitter[0] ?? 0);
+				const jitteredNdcY = ndcY + (taaState?.currentJitter[1] ?? 0);
 
 				projectedVerts.push({
-					x: (ndcX * 0.5 + 0.5) * targetWidth,
-					y: (0.5 - ndcY * 0.5) * targetHeight,
+					x: (jitteredNdcX * 0.5 + 0.5) * targetWidth,
+					y: (0.5 - jitteredNdcY * 0.5) * targetHeight,
 					z: ndcZ,
 					w: 1 / safeW,
 					u: clipped.view.u,
@@ -143,6 +179,7 @@ export class Projector {
 					normal: clipped.view.normal,
 					tangent: clipped.view.tangent,
 					world: clipped.world,
+					previousWorld: clipped.previousWorld,
 					zView: clipped.view.z,
 				});
 			}
@@ -317,7 +354,8 @@ export class Projector {
 function clipFaceToNearPlane(
 	viewVerts: IVertex[],
 	worldVerts: IVertex[],
-	context: FrameContext
+	context: FrameContext,
+	previousWorldVerts?: IVertex[]
 ): ClippedVertexPair[] {
 	const nearZ = -context.camera.near;
 	const clippedVerts: ClippedVertexPair[] = [];
@@ -325,15 +363,17 @@ function clipFaceToNearPlane(
 	for (let i = 0; i < viewVerts.length; i++) {
 		const v1 = viewVerts[i];
 		const w1 = worldVerts[i];
+		const p1 = previousWorldVerts?.[i];
 		const nextIndex = (i + 1) % viewVerts.length;
 		const v2 = viewVerts[nextIndex];
 		const w2 = worldVerts[nextIndex];
+		const p2 = previousWorldVerts?.[nextIndex];
 		const in1 = v1.z <= nearZ;
 		const in2 = v2.z <= nearZ;
 
 		if (in1) {
 			if (in2) {
-				clippedVerts.push({ view: v2, world: w2 });
+				clippedVerts.push({ view: v2, world: w2, previousWorld: p2 });
 				continue;
 			}
 
@@ -341,6 +381,8 @@ function clipFaceToNearPlane(
 			clippedVerts.push({
 				view: interpolateVertex(v1, v2, t, nearZ),
 				world: interpolateVertex(w1, w2, t),
+				previousWorld:
+					p1 && p2 ? interpolateVertex(p1, p2, t) : undefined,
 			});
 			continue;
 		}
@@ -350,8 +392,10 @@ function clipFaceToNearPlane(
 			clippedVerts.push({
 				view: interpolateVertex(v1, v2, t, nearZ),
 				world: interpolateVertex(w1, w2, t),
+				previousWorld:
+					p1 && p2 ? interpolateVertex(p1, p2, t) : undefined,
 			});
-			clippedVerts.push({ view: v2, world: w2 });
+			clippedVerts.push({ view: v2, world: w2, previousWorld: p2 });
 		}
 	}
 

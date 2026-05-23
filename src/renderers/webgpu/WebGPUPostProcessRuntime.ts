@@ -63,6 +63,10 @@ export class WebGPUPostProcessRuntime {
 		}
 	}
 
+	public get sharedContext(): PostProcessSharedContext {
+		return this._shared;
+	}
+
 	/**
 	 * Throws when a custom runtime pass cannot be registered.
 	 *

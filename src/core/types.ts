@@ -102,6 +102,7 @@ export interface ProjectedVertex extends IVector3 {
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
 	world: IVertex;
+	previousWorld?: IVertex;
 	zView?: number;
 }
 

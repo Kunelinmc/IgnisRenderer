@@ -41,7 +41,10 @@ import {
 	type WebGPULightingState,
 } from "./";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
+import {
+	WebGPUFrameBindingCache,
+	type WebGPUTemporalStateMode,
+} from "./WebGPUFrameBindingCache";
 import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime";
 import {
 	WebGPUGeometryRegistry,
@@ -158,6 +161,10 @@ interface WebGPUDrawResourceOptions {
 interface WebGPUParticleRenderOptions {
 	includeBlendModes?: readonly ParticleBlendMode[];
 	pipelineMode?: "legacy" | "oit";
+}
+
+export interface WebGPUPrepareFrameOptions {
+	readonly temporalStateMode?: WebGPUTemporalStateMode;
 }
 
 export class WebGPURenderResources {
@@ -278,7 +285,7 @@ export class WebGPURenderResources {
 
 		try {
 			this.setSceneTargetMode(plan.sceneTargetMode);
-			this.prepareFrame(context);
+			this.prepareFrame(context, { temporalStateMode: "disabled" });
 		} catch (error) {
 			failed++;
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPrepareFrame"));
@@ -325,7 +332,7 @@ export class WebGPURenderResources {
 			const restoreSceneTargetMode = this._sceneTargetMode;
 			try {
 				this.setSceneTargetMode("mrt");
-				this.prepareFrame(context);
+				this.prepareFrame(context, { temporalStateMode: "disabled" });
 
 				for (const packet of drawPackets) {
 					total++;
@@ -376,7 +383,7 @@ export class WebGPURenderResources {
 				}
 			} finally {
 				this.setSceneTargetMode(restoreSceneTargetMode);
-				this.prepareFrame(context);
+				this.prepareFrame(context, { temporalStateMode: "disabled" });
 			}
 		}
 
@@ -431,16 +438,31 @@ export class WebGPURenderResources {
 		this._sceneTargetMode = mode;
 	}
 
-	public prepareFrame(context: FrameContext): void;
+	public prepareFrame(
+		context: FrameContext,
+		options?: WebGPUPrepareFrameOptions
+	): void;
 	public prepareFrame(
 		scene: PreparedScene,
-		features: ResolvedFeatureState
+		features: ResolvedFeatureState,
+		options?: WebGPUPrepareFrameOptions
 	): void;
 	public prepareFrame(
 		contextOrScene: FrameContext | PreparedScene,
-		featuresArg?: ResolvedFeatureState
+		featuresOrOptions?: ResolvedFeatureState | WebGPUPrepareFrameOptions,
+		optionsArg?: WebGPUPrepareFrameOptions
 	): void {
-		if (this._isFrameContext(contextOrScene)) {
+		const isFrameContext = this._isFrameContext(contextOrScene);
+		const featuresArg =
+			isFrameContext ?
+				undefined
+			:	(featuresOrOptions as ResolvedFeatureState | undefined);
+		const options =
+			isFrameContext ?
+				(featuresOrOptions as WebGPUPrepareFrameOptions | undefined)
+			:	optionsArg;
+
+		if (isFrameContext) {
 			this._jointMatrixMap =
 				contextOrScene.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ??
 				null;
@@ -452,8 +474,17 @@ export class WebGPURenderResources {
 			this._morphWeightMap = null;
 		}
 
-		const { scene, features, postProcess, shAmbientCoeffs, renderWidth, renderHeight } =
-			this._resolveFrameInputs(contextOrScene, featuresArg);
+		const {
+			scene,
+			features,
+			postProcess,
+			shAmbientCoeffs,
+			renderWidth,
+			renderHeight,
+			temporalHistoryReset,
+		} = this._resolveFrameInputs(contextOrScene, featuresArg);
+		const temporalStateMode =
+			options?.temporalStateMode ?? (isFrameContext ? "advance" : "disabled");
 		this._frameId++;
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
@@ -553,7 +584,11 @@ export class WebGPURenderResources {
 			featureState,
 			renderWidth,
 			renderHeight,
-			this._sceneTargetMode
+			this._sceneTargetMode,
+			{
+				temporalStateMode,
+				temporalHistoryReset,
+			}
 		);
 		this._clusteredLighting.prepareFrame(
 			scene,
@@ -742,6 +777,7 @@ export class WebGPURenderResources {
 		shAmbientCoeffs: FrameContext["shAmbientCoeffs"] | null;
 		renderWidth: number;
 		renderHeight: number;
+		temporalHistoryReset: boolean;
 	} {
 		if (this._isFrameContext(contextOrScene)) {
 			return {
@@ -751,6 +787,8 @@ export class WebGPURenderResources {
 				shAmbientCoeffs: contextOrScene.shAmbientCoeffs,
 				renderWidth: Math.max(1, contextOrScene.attachments.width || 1),
 				renderHeight: Math.max(1, contextOrScene.attachments.height || 1),
+				temporalHistoryReset:
+					contextOrScene.incremental?.temporalHistoryReset === true,
 			};
 		}
 
@@ -771,6 +809,7 @@ export class WebGPURenderResources {
 			shAmbientCoeffs: null,
 			renderWidth: 1,
 			renderHeight: 1,
+			temporalHistoryReset: false,
 		};
 	}
 
