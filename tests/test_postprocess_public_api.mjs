@@ -183,6 +183,9 @@ function testRegistryOnlySurfaceAndPassMutation() {
 	});
 	registry.on("change", () => changes++);
 	registry.registerPass(ssao);
+	assert.equal(ssao.builtIn, true);
+	assert.equal(ssao.capabilityId, "ssao");
+	assert.equal(ssao.warningLabel, "SSAO");
 	ssao.setOptions({ radius: 4 });
 	ssao.disable();
 	assert.equal(registry.getPass("ssao"), ssao);
@@ -201,12 +204,12 @@ function testSnapshotNormalizationAndWarnings() {
 		{ ...ALL_POST_PROCESS_CAPABILITIES, ssao: false },
 		"software"
 	);
+	const unsupportedWarning = snapshot
+		.getWarnings()
+		.find((warning) => warning.key === "software-postprocess-unsupported-ssao");
 	assert.equal(snapshot.isEnabled("ssao"), false);
-	assert.ok(
-		snapshot
-			.getWarnings()
-			.some((warning) => warning.key === "software-postprocess-unsupported-ssao")
-	);
+	assert.ok(unsupportedWarning);
+	assert.ok(unsupportedWarning.message.includes("SSAO post-processing"));
 
 	const supported = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "software");
 	assert.equal(supported.isEnabled("ssao"), true);
@@ -227,6 +230,8 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 		placement: "overlay",
 		order: -1,
 	}));
+	assert.equal(registry.getPass("custom-hdr").builtIn, false);
+	assert.equal(registry.getPass("custom-hdr").capabilityId, null);
 	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
 	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");

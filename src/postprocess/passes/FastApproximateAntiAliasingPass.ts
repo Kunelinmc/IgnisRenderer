@@ -29,6 +29,8 @@ import type {
 	PostProcessPassResult,
 } from "../types";
 
+export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
+
 interface IncrementalDirtyRect {
 	minX: number;
 	minY: number;
@@ -466,7 +468,13 @@ export class WebGLFastApproximateAntiAliasingImplementation
 export interface FastApproximateAntiAliasingPassConfig
 	extends Omit<
 		PostProcessPassConfig<Record<string, never>>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -479,8 +487,12 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 	public constructor(config: FastApproximateAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			id: "fxaa",
+			id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
+			builtIn: true,
+			capabilityId: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
+			warningLabel: "FXAA",
 			placement: "ldr",
+			order: 710,
 			implementations: {
 				software: new SoftwareFastApproximateAntiAliasingImplementation(),
 				webgpu: new WebGPUFastApproximateAntiAliasingImplementation(),

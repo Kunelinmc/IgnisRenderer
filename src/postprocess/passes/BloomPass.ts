@@ -31,6 +31,8 @@ import type {
 	PostProcessPassResult,
 } from "../types";
 
+export const BLOOM_PASS_ID = "bloom";
+
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUFrameTargets;
@@ -707,7 +709,13 @@ export class WebGLBloomImplementation
 export interface BloomPassConfig
 	extends Omit<
 		PostProcessPassConfig<BloomOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -717,8 +725,12 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 	public constructor(config: BloomPassConfig = {}) {
 		super({
 			...config,
-			id: "bloom",
+			id: BLOOM_PASS_ID,
+			builtIn: true,
+			capabilityId: BLOOM_PASS_ID,
+			warningLabel: "bloom",
 			placement: "hdr",
+			order: 500,
 			implementations: {
 				webgpu: new WebGPUBloomImplementation(),
 				webgl: new WebGLBloomImplementation(),

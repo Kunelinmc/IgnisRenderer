@@ -36,6 +36,7 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
+export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
 
 export type ResolvedSSROptions = Required<
 	Pick<
@@ -487,7 +488,13 @@ export class WebGPUScreenSpaceReflectionsImplementation
 export interface ScreenSpaceReflectionsPassConfig
 	extends Omit<
 		PostProcessPassConfig<SSROptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -500,8 +507,12 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceReflectionsPassConfig = {}) {
 		super({
 			...config,
-			id: "ssr",
+			id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
+			builtIn: true,
+			capabilityId: SCREEN_SPACE_REFLECTIONS_PASS_ID,
+			warningLabel: "SSR",
 			placement: "temporal",
+			order: 210,
 			implementations: {
 				webgpu: new WebGPUScreenSpaceReflectionsImplementation(),
 			},

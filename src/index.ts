@@ -72,7 +72,6 @@ export type {
 	VolumetricOptions,
 } from "./pipeline/types";
 export {
-	POST_PROCESS_PASS_IDS,
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
@@ -80,7 +79,6 @@ export {
 export type {
 	PostProcessCapabilities,
 	PostProcessCustomPassDescriptor,
-	PostProcessOptionsMap,
 	PostProcessPassId,
 	ResolvedPostProcessState,
 } from "./pipeline/PostProcessController";

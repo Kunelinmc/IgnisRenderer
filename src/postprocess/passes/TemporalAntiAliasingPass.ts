@@ -37,6 +37,7 @@ import type {
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
+export const TEMPORAL_ANTI_ALIASING_PASS_ID = "taa";
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
@@ -660,7 +661,13 @@ export class WebGLTemporalAntiAliasingImplementation
 export interface TemporalAntiAliasingPassConfig
 	extends Omit<
 		PostProcessPassConfig<TAAOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -673,8 +680,12 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 	public constructor(config: TemporalAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			id: "taa",
+			id: TEMPORAL_ANTI_ALIASING_PASS_ID,
+			builtIn: true,
+			capabilityId: TEMPORAL_ANTI_ALIASING_PASS_ID,
+			warningLabel: "TAA",
 			placement: "temporal",
+			order: 200,
 			implementations: {
 				software: new SoftwareTemporalAntiAliasingImplementation(),
 				webgpu: new WebGPUTemporalAntiAliasingImplementation(),

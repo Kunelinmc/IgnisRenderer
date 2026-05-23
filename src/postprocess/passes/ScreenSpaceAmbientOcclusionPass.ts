@@ -33,6 +33,7 @@ import type {
 
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
+export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
 
 export type ResolvedSSAOOptions = Required<
 	Pick<
@@ -913,7 +914,13 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 export interface ScreenSpaceAmbientOcclusionPassConfig
 	extends Omit<
 		PostProcessPassConfig<SSAOOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -926,8 +933,12 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
 		super({
 			...config,
-			id: "ssao",
+			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
+			builtIn: true,
+			capabilityId: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
+			warningLabel: "SSAO",
 			placement: "spatial",
+			order: 100,
 			implementations: {
 				software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
 				webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),

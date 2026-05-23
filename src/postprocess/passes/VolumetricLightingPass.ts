@@ -39,6 +39,7 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
+export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
 
 export interface SoftwareVolumetricLightingContext {
 	readonly processor: PostProcessorLike | null;
@@ -562,7 +563,13 @@ export class WebGPUVolumetricLightingImplementation
 export interface VolumetricLightingPassConfig
 	extends Omit<
 		PostProcessPassConfig<VolumetricOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -575,8 +582,12 @@ export class VolumetricLightingPass extends PostProcessPass<
 	public constructor(config: VolumetricLightingPassConfig = {}) {
 		super({
 			...config,
-			id: "volumetric",
+			id: VOLUMETRIC_LIGHTING_PASS_ID,
+			builtIn: true,
+			capabilityId: VOLUMETRIC_LIGHTING_PASS_ID,
+			warningLabel: "volumetric effects",
 			placement: "atmosphere",
+			order: 300,
 			implementations: {
 				software: new SoftwareVolumetricLightingImplementation(),
 				webgpu: new WebGPUVolumetricLightingImplementation(),

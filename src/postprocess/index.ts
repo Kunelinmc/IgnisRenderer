@@ -18,6 +18,7 @@ export {
 	isPostProcessPassStage,
 } from "./PostProcessPipeline";
 export {
+	FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
 	FastApproximateAntiAliasingPass,
 	createFXAAKernelParams,
 	type FastApproximateAntiAliasingPassConfig,
@@ -26,6 +27,7 @@ export {
 	type WebGLFXAAContext,
 } from "./passes/FastApproximateAntiAliasingPass";
 export {
+	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
 	ScreenSpaceAmbientOcclusionPass,
 	SoftwareScreenSpaceAmbientOcclusionImplementation,
 	WebGPUScreenSpaceAmbientOcclusionImplementation,
@@ -40,6 +42,7 @@ export {
 	type WebGLSSAOContext,
 } from "./passes/ScreenSpaceAmbientOcclusionPass";
 export {
+	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 	ScreenSpaceGlobalIlluminationPass,
 	WebGPUScreenSpaceGlobalIlluminationImplementation,
 	createSSGIKernelParams,
@@ -49,6 +52,7 @@ export {
 	type WebGPUSSGIContext,
 } from "./passes/ScreenSpaceGlobalIlluminationPass";
 export {
+	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	ScreenSpaceReflectionsPass,
 	createSSRTraceParams,
 	resolveSSRHistoryDescriptors,
@@ -59,12 +63,14 @@ export {
 	type WebGPUSSRContext,
 } from "./passes/ScreenSpaceReflectionsPass";
 export {
+	TEMPORAL_ANTI_ALIASING_PASS_ID,
 	TemporalAntiAliasingPass,
 	resolveTAAOptions,
 	type ResolvedTAAOptions,
 	type TemporalAntiAliasingPassConfig,
 } from "./passes/TemporalAntiAliasingPass";
 export {
+	BLOOM_PASS_ID,
 	BloomPass,
 	WebGPUBloomImplementation,
 	WebGLBloomImplementation,
@@ -73,6 +79,7 @@ export {
 	type WebGLBloomContext,
 } from "./passes/BloomPass";
 export {
+	FOG_PASS_ID,
 	FogPass,
 	WebGPUFogImplementation,
 	WebGLFogImplementation,
@@ -81,6 +88,7 @@ export {
 	type WebGLFogContext,
 } from "./passes/FogPass";
 export {
+	VOLUMETRIC_LIGHTING_PASS_ID,
 	VolumetricLightingPass,
 	SoftwareVolumetricLightingImplementation,
 	WebGPUVolumetricLightingImplementation,
@@ -89,26 +97,28 @@ export {
 	type WebGPUVolumetricLightingContext,
 } from "./passes/VolumetricLightingPass";
 export {
+	COLOR_FILTER_PASS_ID,
 	ColorFilterPass,
+	DEPTH_OF_FIELD_PASS_ID,
 	DepthOfFieldPass,
+	GAMMA_PASS_ID,
 	GammaPass,
+	INTERACTION_OUTLINE_PASS_ID,
 	InteractionOutlinePass,
+	MOTION_BLUR_PASS_ID,
 	MotionBlurPass,
+	TONE_MAPPING_PASS_ID,
 	ToneMappingPass,
 	type ColorFilterPassConfig,
 	type DepthOfFieldPassConfig,
 	type MotionBlurPassConfig,
 } from "./passes/BuiltinFallbackPasses";
 export {
-	DEFAULT_POST_PROCESS_CAPABILITIES,
-	POST_PROCESS_PASS_IDS,
 	PostProcessPass,
 	PostProcessPassRegistry,
 	PostProcessPassRegistrySnapshot,
 	getEnabledCustomPostProcessPassIds,
-	getPostProcessWarningLabel,
 	hasEnabledCustomPostProcessPass,
-	isBuiltInPostProcessPassId,
 	type PostProcessCapabilities,
 	type PostProcessPassChange,
 	type PostProcessPassConfig,

@@ -31,6 +31,8 @@ import type {
 	PostProcessPassResult,
 } from "../types";
 
+export const FOG_PASS_ID = "fog";
+
 export interface WebGPUFogContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUFrameTargets;
@@ -370,7 +372,13 @@ export class WebGLFogImplementation
 export interface FogPassConfig
 	extends Omit<
 		PostProcessPassConfig<FogOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -380,8 +388,12 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 	public constructor(config: FogPassConfig = {}) {
 		super({
 			...config,
-			id: "fog",
+			id: FOG_PASS_ID,
+			builtIn: true,
+			capabilityId: FOG_PASS_ID,
+			warningLabel: "fog",
 			placement: "atmosphere",
+			order: 310,
 			implementations: {
 				webgpu: new WebGPUFogImplementation(),
 				webgl: new WebGLFogImplementation(),

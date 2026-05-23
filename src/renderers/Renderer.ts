@@ -23,7 +23,6 @@ import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
 	isFogPostProcessEnabled,
 	hasEnabledCustomPostProcessPass,
-	isBuiltInPostProcessPassId,
 	type ResolvedPostProcessState,
 } from "../pipeline/PostProcessController";
 import {
@@ -194,13 +193,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.postProcess.on("change", (change) => {
 			if (change.reason === "register") {
 				const pass = this.postProcess.getPass(change.passId);
-				if (pass && !isBuiltInPostProcessPassId(pass.id)) {
+				if (pass && !pass.builtIn) {
 					this.pipeline.registerPostProcessPass(pass);
 				}
-			} else if (
-				change.reason === "unregister" &&
-				!isBuiltInPostProcessPassId(change.passId)
-			) {
+			} else if (change.reason === "unregister" && !change.builtIn) {
 				this.pipeline.unregisterPostProcessPass(change.passId);
 			}
 			if (this._scene) {

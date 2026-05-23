@@ -27,6 +27,7 @@ import type {
 } from "../types";
 
 const SSGI_MAX_SAMPLES = 16;
+export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
 
 export type ResolvedSSGIOptions = Required<
 	Pick<
@@ -240,7 +241,13 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 export interface ScreenSpaceGlobalIlluminationPassConfig
 	extends Omit<
 		PostProcessPassConfig<SSGIOptions>,
-		"id" | "placement" | "implementations"
+		| "id"
+		| "builtIn"
+		| "capabilityId"
+		| "warningLabel"
+		| "placement"
+		| "order"
+		| "implementations"
 	> {}
 
 /**
@@ -253,8 +260,12 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
 		super({
 			...config,
-			id: "ssgi",
+			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
+			builtIn: true,
+			capabilityId: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
+			warningLabel: "SSGI",
 			placement: "spatial",
+			order: 110,
 			implementations: {
 				webgpu: new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},

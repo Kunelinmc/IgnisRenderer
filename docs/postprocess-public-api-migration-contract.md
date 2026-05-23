@@ -13,6 +13,12 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - `renderer.postProcess.getPasses()` must return registered pass instances.
 - `renderer.postProcess` must not expose `enable`, `disable`, `setOptions`, `reset`, or `getState`.
 - Pass mutation must use `pass.enable(options)`, `pass.disable()`, `pass.setEnabled(enabled)`, `pass.setOptions(options)`, or `pass.resetOptions()`.
+- `PostProcessPass.builtIn` must identify engine-provided built-in passes.
+- `PostProcessPass.capabilityId` must provide the backend capability key used for unsupported-pass checks, or `null` when no backend capability gate applies.
+- `PostProcessPass.warningLabel` must provide the human-readable pass name used in diagnostics.
+- Built-in pass classes must define their ids, capability ids, ordering, and diagnostic labels internally.
+- Custom `PostProcessPassConfig.warningLabel` may provide a human-readable custom pass name; when omitted, diagnostics must use `PostProcessPass.id`.
+- `PostProcessCapabilities` must be a backend-owned capability map keyed by pass id.
 - `Renderer` must auto-register only `ToneMappingPass` and `GammaPass`, both enabled by default.
 - Other built-in passes must be explicitly registered before they can run.
 - `FrameContext.postProcess` must be a `PostProcessPassRegistrySnapshot`.
@@ -56,6 +62,7 @@ class CustomEdgePass extends PostProcessPass<
 		super({
 			id: "custom-edge",
 			placement: "ldr",
+			warningLabel: "custom edge",
 			order: 5,
 			enabled: true,
 			options: { strength: 0.75 },
@@ -88,6 +95,10 @@ bun tests/test_postprocess_public_api.mjs
 - Plain object pass descriptors are no longer accepted.
 - `PostProcessPassDescriptor` is removed.
 - `PostProcessController` is removed.
+- `DEFAULT_POST_PROCESS_CAPABILITIES` is removed. Callers must pass explicit backend capabilities.
+- `POST_PROCESS_PASS_IDS` is removed. Code must inspect registered `PostProcessPass` instances instead of relying on a global id list.
+- `PostProcessOptionsMap` is removed. Code must read typed options through the concrete pass or `PostProcessPassRegistrySnapshot.getOptions<TOptions>(id)`.
+- `getPostProcessWarningLabel(id)` is removed. Diagnostics must use `PostProcessPass.warningLabel`.
 - `resolvePostProcessState()` is removed.
 - `renderer.postProcess.enable(id, options)` is removed; construct or look up a pass and call `pass.enable(options)`.
 - `renderer.postProcess.disable(id)` is removed; call `renderer.postProcess.getPass(id)?.disable()`.

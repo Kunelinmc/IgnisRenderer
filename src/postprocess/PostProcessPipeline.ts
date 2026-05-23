@@ -180,9 +180,12 @@ export class PostProcessPipeline {
 	}
 
 	private _getPassSortOrder(pass: PostProcessPass): number {
-		const builtInOrder = getBuiltinPostProcessOrder(pass.id);
-		if (builtInOrder) {
-			return builtInOrder.order;
+		if (
+			pass.builtIn &&
+			typeof pass.order === "number" &&
+			Number.isFinite(pass.order)
+		) {
+			return pass.order;
 		}
 		const placement =
 			isPostProcessPlacement(pass.placement) ?

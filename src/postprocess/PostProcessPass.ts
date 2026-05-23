@@ -13,67 +13,31 @@ import type {
 	PostProcessPassResult,
 } from "./types";
 
-export const POST_PROCESS_PASS_IDS = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"tonemap",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"gamma",
-] as const;
+export type PostProcessPassId = string;
 
-export type PostProcessPassId = (typeof POST_PROCESS_PASS_IDS)[number];
-
-const POST_PROCESS_PASS_ID_SET = new Set<string>(POST_PROCESS_PASS_IDS);
-
-const POST_PROCESS_WARNING_LABELS: Record<PostProcessPassId, string> = {
-	ssao: "SSAO",
-	ssgi: "SSGI",
-	taa: "TAA",
-	ssr: "SSR",
-	volumetric: "volumetric effects",
-	fog: "fog",
-	"motion-blur": "motion blur",
-	dof: "depth of field",
-	bloom: "bloom",
-	tonemap: "tone mapping",
-	"color-filter": "color filter",
-	fxaa: "FXAA",
-	"interaction-outline": "interaction outline",
-	gamma: "gamma correction",
-};
-
-export type PostProcessCapabilities = {
-	[K in PostProcessPassId]: boolean;
-};
-
-export const DEFAULT_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
-	ssao: false,
-	ssgi: false,
-	taa: false,
-	ssr: false,
-	volumetric: false,
-	fog: false,
-	"motion-blur": false,
-	dof: false,
-	bloom: false,
-	tonemap: false,
-	"color-filter": false,
-	fxaa: false,
-	"interaction-outline": false,
-	gamma: false,
-};
+export type PostProcessCapabilities = Readonly<Record<string, boolean>>;
 
 export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly id: string;
+	/**
+	 * Marks pass-owned engine passes so registry consumers can separate them
+	 * from user-defined custom passes.
+	 *
+	 * Omit this value for custom passes.
+	 */
+	readonly builtIn?: boolean;
+	/**
+	 * Backend capability key used to disable unsupported passes.
+	 *
+	 * Omit this value when the pass should not be gated by backend capabilities.
+	 */
+	readonly capabilityId?: string | null;
+	/**
+	 * Human-readable pass name used in unsupported-pass diagnostics.
+	 *
+	 * Omit this value to use `id` as the diagnostic label.
+	 */
+	readonly warningLabel?: string;
 	readonly placement?: PostProcessPlacement;
 	readonly order?: number;
 	readonly enabled?: boolean;
@@ -86,6 +50,7 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 
 export interface PostProcessPassChange {
 	readonly passId: string;
+	readonly builtIn: boolean;
 	readonly reason: "enabled" | "options" | "reset" | "lifecycle";
 }
 
@@ -121,6 +86,24 @@ export abstract class PostProcessPass<
 	TOptions = TRawOptions,
 > extends EventEmitter<{ change: [PostProcessPassChange] }> {
 	public readonly id: string;
+	/**
+	 * Whether this pass is an engine-provided built-in pass.
+	 *
+	 * The value is resolved during construction and has no side effects.
+	 */
+	public readonly builtIn: boolean;
+	/**
+	 * Backend capability key used to decide whether this pass can run.
+	 *
+	 * `null` means the pass is not gated by backend capabilities.
+	 */
+	public readonly capabilityId: string | null;
+	/**
+	 * Human-readable pass name used by diagnostics.
+	 *
+	 * The value is resolved during construction and has no side effects.
+	 */
+	public readonly warningLabel: string;
 	public readonly placement?: PostProcessPlacement;
 	public readonly order?: number;
 	public readonly incremental?: PostProcessIncrementalMetadata;
@@ -137,6 +120,9 @@ export abstract class PostProcessPass<
 			throw new Error("Post-process pass id is required.");
 		}
 		this.id = config.id;
+		this.builtIn = config.builtIn === true;
+		this.capabilityId = config.capabilityId ?? null;
+		this.warningLabel = config.warningLabel ?? config.id;
 		this.placement = config.placement;
 		this.order = config.order;
 		this.incremental = config.incremental;
@@ -270,12 +256,17 @@ export abstract class PostProcessPass<
 	}
 
 	private _emitChange(reason: PostProcessPassChange["reason"]): void {
-		this.emit("change", { passId: this.id, reason });
+		this.emit("change", {
+			passId: this.id,
+			builtIn: this.builtIn,
+			reason,
+		});
 	}
 }
 
 export interface PostProcessPassRegistryChange {
 	readonly passId: string;
+	readonly builtIn: boolean;
 	readonly reason: PostProcessPassChange["reason"] | "register" | "unregister";
 }
 
@@ -302,12 +293,17 @@ export class PostProcessPassRegistry extends EventEmitter<{
 		const listener = (change: PostProcessPassChange): void => {
 			this.emit("change", {
 				passId: change.passId,
+				builtIn: change.builtIn,
 				reason: change.reason,
 			});
 		};
 		pass.on("change", listener);
 		this._passChangeListeners.set(pass.id, listener);
-		this.emit("change", { passId: pass.id, reason: "register" });
+		this.emit("change", {
+			passId: pass.id,
+			builtIn: pass.builtIn,
+			reason: "register",
+		});
 		return this;
 	}
 
@@ -323,7 +319,11 @@ export class PostProcessPassRegistry extends EventEmitter<{
 		}
 		this._passes.delete(id);
 		pass.destroy();
-		this.emit("change", { passId: id, reason: "unregister" });
+		this.emit("change", {
+			passId: id,
+			builtIn: pass.builtIn,
+			reason: "unregister",
+		});
 		return this;
 	}
 
@@ -383,6 +383,8 @@ export class PostProcessPassRegistry extends EventEmitter<{
 export class PostProcessPassRegistrySnapshot {
 	private _passes = new Map<string, ResolvedPostProcessPass>();
 	private _warnings: FeatureWarning[] = [];
+	private readonly _capabilities: PostProcessCapabilities;
+	private readonly _backendType: string;
 
 	constructor(
 		passes: readonly PostProcessPass[],
@@ -391,6 +393,8 @@ export class PostProcessPassRegistrySnapshot {
 		resolvedPasses?: readonly ResolvedPostProcessPass[],
 		warnings?: readonly FeatureWarning[]
 	) {
+		this._capabilities = capabilities;
+		this._backendType = backendType;
 		if (resolvedPasses) {
 			for (const pass of resolvedPasses) {
 				this._passes.set(pass.id, pass);
@@ -412,7 +416,7 @@ export class PostProcessPassRegistrySnapshot {
 					key: `${backendType}-postprocess-unsupported-${pass.id}`,
 					message:
 						`${backendType} backend does not support ` +
-						`${getPostProcessWarningLabel(pass.id)} post-processing; disabling it`,
+						`${pass.warningLabel} post-processing; disabling it`,
 				});
 				continue;
 			}
@@ -447,8 +451,8 @@ export class PostProcessPassRegistrySnapshot {
 	}
 
 	public hasEnabledCustomPass(): boolean {
-		for (const id of this._passes.keys()) {
-			if (!isBuiltInPostProcessPassId(id)) {
+		for (const pass of this._passes.values()) {
+			if (!pass.pass.builtIn) {
 				return true;
 			}
 		}
@@ -462,8 +466,8 @@ export class PostProcessPassRegistrySnapshot {
 	public withPassDisabled(id: string): PostProcessPassRegistrySnapshot {
 		return new PostProcessPassRegistrySnapshot(
 			[],
-			DEFAULT_POST_PROCESS_CAPABILITIES,
-			"snapshot",
+			this._capabilities,
+			this._backendType,
 			this.getEnabledPasses().filter((pass) => pass.id !== id),
 			this._warnings
 		);
@@ -473,24 +477,11 @@ export class PostProcessPassRegistrySnapshot {
 		pass: PostProcessPass,
 		capabilities: PostProcessCapabilities
 	): boolean {
-		if (!isBuiltInPostProcessPassId(pass.id)) {
+		if (!pass.capabilityId) {
 			return true;
 		}
-		return capabilities[pass.id] === true;
+		return capabilities[pass.capabilityId] === true;
 	}
-}
-
-export function isBuiltInPostProcessPassId(
-	id: string
-): id is PostProcessPassId {
-	return POST_PROCESS_PASS_ID_SET.has(id);
-}
-
-export function getPostProcessWarningLabel(id: string): string {
-	if (isBuiltInPostProcessPassId(id)) {
-		return POST_PROCESS_WARNING_LABELS[id];
-	}
-	return id;
 }
 
 export function getEnabledCustomPostProcessPassIds(
@@ -498,8 +489,8 @@ export function getEnabledCustomPostProcessPassIds(
 ): string[] {
 	return postProcess
 		.getEnabledPasses()
-		.map((pass) => pass.id)
-		.filter((id) => !isBuiltInPostProcessPassId(id));
+		.filter((pass) => !pass.pass.builtIn)
+		.map((pass) => pass.id);
 }
 
 export function hasEnabledCustomPostProcessPass(
