@@ -18,6 +18,11 @@ export {
 	getPostProcessRequirementChannels,
 	isPostProcessPassStage,
 } from "./PostProcessPipeline";
+export {
+	TEMPORAL_ANTI_ALIASING_PASS,
+	resolveTAAOptions,
+	type ResolvedTAAOptions,
+} from "./passes/TemporalAntiAliasingPass";
 export type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
