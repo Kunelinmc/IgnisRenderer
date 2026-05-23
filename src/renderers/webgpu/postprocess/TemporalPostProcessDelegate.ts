@@ -2,7 +2,6 @@ import { CameraType } from "../../../cameras/Camera";
 import type { FrameContext } from "../../../pipeline/types";
 import {
 	DEFAULT_SSR_OPTIONS,
-	DEFAULT_TAA_OPTIONS,
 	DEFAULT_VOLUMETRIC_OPTIONS,
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
@@ -26,7 +25,6 @@ import { getWebGPUVolumetricLightLayout } from "../bufferLayouts";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
 	WebGPUPostProcessSSRExecuteRequest,
-	WebGPUPostProcessTAAExecuteRequest,
 	WebGPUPostProcessRuntimePassRegistry,
 	WebGPUPostProcessVolumetricExecuteRequest,
 } from "./types";
@@ -35,9 +33,6 @@ const WORKGROUP_SIZE = 8;
 
 export class TemporalPostProcessDelegate {
 	private _shared: PostProcessSharedContext;
-	private _taaModule: IShaderModule | null = null;
-	private _taaPipeline: IComputePipeline | null = null;
-	private _taaParams: IRenderBuffer | null = null;
 	private _hizModule: IShaderModule | null = null;
 	private _hizInitPipeline: IComputePipeline | null = null;
 	private _hizReducePipeline: IComputePipeline | null = null;
@@ -69,22 +64,6 @@ export class TemporalPostProcessDelegate {
 	 * Registers temporal post-process runtime passes with the owning runtime.
 	 */
 	public registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void {
-		registry.registerRuntimePass({
-			id: "taa",
-			warmupHints: ["postprocess:taa"],
-			warmup: async () => {
-				await this._ensureTAAResources();
-				return true;
-			},
-			execute: async (request) => {
-				const historyUpdated = await this._executeTAA(
-					request as WebGPUPostProcessTAAExecuteRequest
-				);
-				return { ran: historyUpdated, historyUpdated };
-			},
-			invalidateBindings: () => this.invalidateBindings(),
-			onShaderRuntimeChanged: () => this.onShaderRuntimeChanged(),
-		});
 		registry.registerRuntimePass({
 			id: "ssr",
 			warmupHints: [
@@ -140,12 +119,6 @@ export class TemporalPostProcessDelegate {
 	public invalidateBindings(): void {}
 
 	public onShaderRuntimeChanged(): void {
-		this._shared.destroyManagedResource(this._taaPipeline, "TAA pipeline");
-		this._shared.destroyManagedResource(this._taaModule, "TAA shader module");
-		this._taaModule = null;
-		this._taaPipeline = null;
-		this._shared.destroyManagedResource(this._taaParams, "TAA params buffer");
-		this._taaParams = null;
 		this._shared.destroyManagedResource(
 			this._hizInitPipeline,
 			"Hi-Z init pipeline"
@@ -214,67 +187,6 @@ export class TemporalPostProcessDelegate {
 
 	public destroy(): void {
 		this.onShaderRuntimeChanged();
-	}
-
-	private async _executeTAA(
-		request: WebGPUPostProcessTAAExecuteRequest
-	): Promise<boolean> {
-		await this._ensureTAAResources();
-		if (!this._shared.sampler || !this._taaPipeline || !this._taaParams) {
-			return false;
-		}
-		const options = request.frameContext.postProcess.options.taa ?? {};
-		const taaTarget =
-			request.targets.sceneColor === request.targets.postPong ?
-				request.targets.postPing
-			:	request.targets.postPong;
-		const invW = 1 / Math.max(taaTarget.width, 1);
-		const invH = 1 / Math.max(taaTarget.height, 1);
-		this._shared.compute.writeBuffer(
-			this._taaParams,
-			new Float32Array([
-				invW,
-				invH,
-				finiteOr(options.historyWeight, DEFAULT_TAA_OPTIONS.historyWeight),
-				finiteOr(
-					options.disocclusionDepthThreshold,
-					DEFAULT_TAA_OPTIONS.disocclusionDepthThreshold
-				),
-				finiteOr(options.motionFactor, DEFAULT_TAA_OPTIONS.motionFactor),
-				finiteOr(
-					options.varianceClampGamma,
-					DEFAULT_TAA_OPTIONS.varianceClampGamma
-				),
-				finiteOr(options.sharpen, DEFAULT_TAA_OPTIONS.sharpen),
-				request.historyValid ? 1 : 0,
-			])
-		);
-		const binding = this._shared.getCachedBindGroup(
-			`taa-${taaTarget === request.targets.postPing ? "ping" : "pong"}`,
-			this._taaPipeline,
-			[
-				{ binding: 0, resource: request.targets.sceneColor },
-				{ binding: 1, resource: request.targets.historyRead },
-				{ binding: 2, resource: request.targets.gMotionDepth },
-				{ binding: 3, resource: request.targets.motionHistoryRead },
-				{ binding: 4, resource: this._shared.sampler },
-				{ binding: 5, resource: this._taaParams },
-				{ binding: 6, resource: taaTarget },
-				{ binding: 7, resource: request.targets.historyWrite },
-			],
-			"WebGPUTAA_Binding"
-		);
-		request.encoder.beginComputePass({ label: "WebGPUTAA" });
-		request.encoder.setComputePipeline(this._taaPipeline);
-		request.encoder.setBindingGroup(0, binding);
-		request.encoder.dispatchWorkgroups(
-			ceilDiv(taaTarget.width, WORKGROUP_SIZE),
-			ceilDiv(taaTarget.height, WORKGROUP_SIZE),
-			1
-		);
-		request.encoder.endComputePass();
-		request.targets.sceneColor = taaTarget;
-		return true;
 	}
 
 	private async _executeSSR(
@@ -760,34 +672,6 @@ export class TemporalPostProcessDelegate {
 			srcH = dstH;
 		}
 		return true;
-	}
-
-	private async _ensureTAAResources(): Promise<void> {
-		await this._shared.ensureCommonResources();
-		if (!this._taaModule) {
-			const shader = await loadPostProcessShaderPartComposite("taa");
-			this._taaModule = await this._shared.compute.createShaderModule({
-				label: "WebGPUTAAShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._taaPipeline) {
-			this._taaPipeline = this._shared.compute.createComputePipeline({
-				label: "WebGPUTAAPipeline",
-				compute: { module: this._taaModule, entryPoint: "csMain" },
-			});
-		}
-		if (!this._taaParams) {
-			this._taaParams = this._shared.compute.createBuffer({
-				label: "WebGPUTAAParams",
-				size: 8 * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
 	}
 
 	private async _ensureHiZResources(): Promise<void> {
