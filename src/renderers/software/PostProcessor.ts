@@ -25,6 +25,7 @@ import {
 	resolveInteractionOutlineShape,
 } from "../../interaction/outlineShape";
 import type {
+	ColorFilterOptions,
 	VolumetricOptions,
 	FramePassStage,
 	FrameContext,
@@ -691,7 +692,8 @@ export class PostProcessor implements PostProcessorLike {
 		ctx: CanvasRenderingContext2D
 	): void {
 		const depthBuffer = context.attachments.depthBuffer;
-		const options = context.postProcess.options.volumetric || {};
+		const options =
+			context.postProcess.getOptions<VolumetricOptions>("volumetric") || {};
 		const maxRayDistance = Math.max(
 			VolumetricConstants.MIN_RAY_DISTANCE,
 			this._toFiniteNumber(options.maxRayDistance, 500)
@@ -1431,7 +1433,8 @@ export class PostProcessor implements PostProcessorLike {
 		if (dirtyRects.length === 0) {
 			return;
 		}
-		const options = context.postProcess.options["color-filter"];
+		const options =
+			context.postProcess.getOptions<ColorFilterOptions>("color-filter");
 		const brightness = clamp(
 			this._toFiniteNumber(
 				options?.brightness,
@@ -1569,7 +1572,7 @@ export class PostProcessor implements PostProcessorLike {
 	): void {
 		const w = context.attachments.width,
 			h = context.attachments.height;
-		const gamma = context.postProcess.enabled.gamma
+		const gamma = context.postProcess.isEnabled("gamma")
 			? PostProcessConstants.DEFAULT_GAMMA
 			: 1.0; // Simplification, usually from features
 		let pixels = context.attachments.pixels;

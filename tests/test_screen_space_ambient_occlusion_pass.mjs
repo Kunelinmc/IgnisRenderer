@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
 	PostProcessPipeline,
-	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+	ScreenSpaceAmbientOcclusionPass,
 	SoftwareScreenSpaceAmbientOcclusionImplementation,
 	createSSAOKernelParams,
 	resolveSSAODownsample,
@@ -167,36 +167,36 @@ function createSoftwareExecutor() {
 	};
 }
 
-function createPassRequest(frameContext, implementation) {
+function createPassRequest(frameContext, pass) {
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(frameContext),
 		histories: {},
-		pass: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+		pass,
 		passId: "ssao",
-		implementation,
-		options: frameContext.postProcess.options.ssao,
+		options: frameContext.postProcess.getOptions("ssao"),
 		startPassId: null,
 	};
 }
 
 async function testSSAOPipelineUsesPassOwnedImplementation() {
-	assert.equal(SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.id, "ssao");
+	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
+	assert.equal(pass.id, "ssao");
 	assert.deepEqual(
-		SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.requirements.gBuffer,
+		pass.getRequirements({}).gBuffer,
 		["depth", "normal"]
 	);
 	assert.equal(
-		typeof SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.software.execute,
+		typeof pass.getImplementation("software").execute,
 		"function"
 	);
 	assert.equal(
-		typeof SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgpu.execute,
+		typeof pass.getImplementation("webgpu").execute,
 		"function"
 	);
 	assert.equal(
-		typeof SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgl.execute,
+		typeof pass.getImplementation("webgl").execute,
 		"function"
 	);
 
@@ -214,6 +214,7 @@ async function testSSAOPipelineUsesPassOwnedImplementation() {
 }
 
 function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
+	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
 	const implementation = new SoftwareScreenSpaceAmbientOcclusionImplementation();
 	implementation._kernel = new Array(4).fill({ x: 0, y: 0, z: -1 });
 	implementation._noise = new Array(16).fill({ x: 1, y: 0, z: 0 });
@@ -228,7 +229,7 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 	const centerIndex = ((1 * frameContext.attachments.width + 1) << 2);
 	const before = frameContext.attachments.pixels[centerIndex];
 	const result = implementation.execute(
-		createPassRequest(frameContext, implementation),
+		createPassRequest(frameContext, pass),
 		{ attachments: frameContext.attachments }
 	);
 
@@ -238,7 +239,7 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 	const missing = createSoftwareFrameContext();
 	missing.attachments.normalBuffer = null;
 	const skipped = implementation.execute(
-		createPassRequest(missing, implementation),
+		createPassRequest(missing, pass),
 		{ attachments: missing.attachments }
 	);
 	assert.deepEqual(skipped, { ran: false });

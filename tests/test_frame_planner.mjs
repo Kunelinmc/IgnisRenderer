@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 
 function createFrame(overrides = {}) {
@@ -48,7 +48,7 @@ function run() {
 		gamma: true,
 	};
 	const createPostProcess = (overrides = {}) =>
-		resolvePostProcessState(overrides, capabilities, "test");
+		createResolvedPostProcess(overrides, capabilities, "test");
 
 	const frame = createFrame({
 		particleSystems: [{}],
@@ -200,7 +200,7 @@ function run() {
 	);
 	assert.equal(
 		sceneFogPlan.find((pass) => pass.stage === "postprocess")?.enabled,
-		true
+		false
 	);
 
 	console.log("Frame planner tests passed");

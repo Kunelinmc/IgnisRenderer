@@ -1,6 +1,9 @@
 import { CameraType } from "../../../cameras/Camera";
 import type { FrameContext } from "../../../pipeline/types";
-import { DEFAULT_VOLUMETRIC_OPTIONS } from "../../../pipeline/types";
+import {
+	DEFAULT_VOLUMETRIC_OPTIONS,
+	type VolumetricOptions,
+} from "../../../pipeline/types";
 import {
 	BufferUsage,
 	type IComputePipeline,
@@ -126,7 +129,7 @@ export class TemporalPostProcessDelegate {
 			return false;
 		}
 
-		const options = request.frameContext.postProcess.options.volumetric ?? {};
+		const options = (request.options as VolumetricOptions) ?? {};
 		const samples = Math.max(
 			1,
 			Math.min(

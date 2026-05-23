@@ -5,7 +5,7 @@ import {
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../src/pipeline/incremental.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const capabilities = {
 	ssao: true,
@@ -25,7 +25,7 @@ const capabilities = {
 };
 
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(
+	return createResolvedPostProcess(
 		{
 			tonemap: { enabled: false },
 			"interaction-outline": { enabled: false },

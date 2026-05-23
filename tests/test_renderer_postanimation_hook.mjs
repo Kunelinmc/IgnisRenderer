@@ -75,7 +75,7 @@ async function testPostAnimationHookOrder() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		renderer.on("postanimation", () => {
 			backend._postAnimationFlag = true;

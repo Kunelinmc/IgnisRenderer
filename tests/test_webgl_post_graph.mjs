@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 import { PostProcessPipeline } from "../src/postprocess/index.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const POST_PROCESS_CAPABILITIES = {
 	ssao: true,
@@ -20,7 +20,7 @@ const POST_PROCESS_CAPABILITIES = {
 };
 
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(overrides, POST_PROCESS_CAPABILITIES, "webgl");
+	return createResolvedPostProcess(overrides, POST_PROCESS_CAPABILITIES, "webgl");
 }
 
 function createExecutor() {

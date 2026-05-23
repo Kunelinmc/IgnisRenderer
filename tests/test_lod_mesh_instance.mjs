@@ -159,7 +159,7 @@ async function testRendererResolvesLODStage() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		const lodMesh = renderer.scene.add(
 			new LODMeshInstance({

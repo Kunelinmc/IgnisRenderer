@@ -107,7 +107,7 @@ async function run() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		const { left, right } = createOperands();
 		const dirty = renderer.scene.add(

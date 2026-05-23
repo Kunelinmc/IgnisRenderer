@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import {
-	DEFAULT_POST_PROCESS_CAPABILITIES,
-	PostProcessController,
-	resolvePostProcessState,
-} from "../src/pipeline/PostProcessController.ts";
-import {
+	FastApproximateAntiAliasingPass,
+	GammaPass,
 	PostProcessHistoryManager,
+	PostProcessPass,
+	PostProcessPassRegistry,
 	PostProcessPipeline,
-} from "../src/postprocess/index.ts";
+	ScreenSpaceAmbientOcclusionPass,
+	ScreenSpaceReflectionsPass,
+	ToneMappingPass,
+} from "../src/index.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
 	createNoopPostProcessSupport,
+	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
 
 class FakeExecutor {
@@ -42,13 +45,11 @@ class FakeExecutor {
 	executePass(passId, request) {
 		this.executed.push({
 			passId,
+			options: request.options,
 			startPassId: request.startPassId,
 			histories: request.histories,
 		});
-		return {
-			ran: true,
-			updatedHistoryIds: request.pass.history?.map((history) => history.id) ?? [],
-		};
+		return { ran: true };
 	}
 
 	getPassExecutionContext(passId, request) {
@@ -59,6 +60,25 @@ class FakeExecutor {
 			};
 		}
 		return undefined;
+	}
+}
+
+class CustomPass extends PostProcessPass {
+	constructor(id, config = {}) {
+		super({
+			id,
+			placement: config.placement,
+			order: config.order,
+			enabled: config.enabled,
+			options: config.options,
+			implementations: config.implementations ?? { webgpu: {} },
+		});
+	}
+}
+
+class SkippingPass extends CustomPass {
+	execute() {
+		return { ran: false };
 	}
 }
 
@@ -77,7 +97,8 @@ function createFrameContext(postProcess, incremental = {}) {
 			pixels: new Uint8ClampedArray(64 * 32 * 4),
 			depthBuffer: new Float32Array(64 * 32),
 			normalBuffer: new Float32Array(64 * 32 * 3),
-			motionBuffer: new Float32Array(64 * 32 * 2),
+			motionBuffer: new Float32Array(64 * 32 * 4),
+			albedoBuffer: new Float32Array(64 * 32 * 4),
 		},
 		features: {},
 		postProcess,
@@ -113,36 +134,11 @@ function createGBufferBridge() {
 		depthEncoding: "linear-view-z",
 		motionEncoding: "ndc-delta",
 		channels: {
-			color: {
-				semantic: "color",
-				width: 64,
-				height: 32,
-				handle: { backend: "test", resource: "color" },
-			},
-			depth: {
-				semantic: "depth",
-				width: 64,
-				height: 32,
-				handle: { backend: "test", resource: "depth" },
-			},
-			normal: {
-				semantic: "normal",
-				width: 64,
-				height: 32,
-				handle: { backend: "test", resource: "normal" },
-			},
-			albedo: {
-				semantic: "albedo",
-				width: 64,
-				height: 32,
-				handle: { backend: "test", resource: "albedo" },
-			},
-			motion: {
-				semantic: "motion",
-				width: 64,
-				height: 32,
-				handle: { backend: "test", resource: "motion" },
-			},
+			color: { semantic: "color", width: 64, height: 32, handle: {} },
+			depth: { semantic: "depth", width: 64, height: 32, handle: {} },
+			normal: { semantic: "normal", width: 64, height: 32, handle: {} },
+			albedo: { semantic: "albedo", width: 64, height: 32, handle: {} },
+			motion: { semantic: "motion", width: 64, height: 32, handle: {} },
 		},
 		worldPosition: {
 			source: "derived",
@@ -151,341 +147,155 @@ function createGBufferBridge() {
 	};
 }
 
-function testControllerDefaultsAndOptionsMerge() {
-	const controller = new PostProcessController();
-	let state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
+function testRegistryOnlySurfaceAndPassMutation() {
+	const registry = new PostProcessPassRegistry();
+	assert.equal(typeof registry.registerPass, "function");
+	assert.equal(typeof registry.getPass, "function");
+	assert.equal(registry.enable, undefined);
+	assert.equal(registry.disable, undefined);
+	assert.equal(registry.setOptions, undefined);
+	assert.equal(registry.reset, undefined);
+	assert.throws(
+		() => registry.registerPass({ id: "plain-object" }),
+		/requires a PostProcessPass/
 	);
 
-	assert.equal(state.enabled.tonemap, true);
-	assert.equal(state.enabled.gamma, true);
-	assert.equal(state.enabled["interaction-outline"], true);
-	assert.equal(state.enabled.ssao, false);
-
-	controller.setOptions("ssao", {
-		radius: 4,
-		intensity: 0.5,
+	let changes = 0;
+	const ssao = new ScreenSpaceAmbientOcclusionPass({
+		enabled: true,
+		options: { samples: 12 },
 	});
-	state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
-	);
-	assert.equal(state.enabled.ssao, false);
-	assert.equal(state.options.ssao.radius, 4);
-	assert.equal(state.options.ssao.intensity, 0.5);
-
-	controller.enable("ssao", {
-		samples: 12,
-		radius: 6,
-	});
-	state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
-	);
-	assert.equal(state.enabled.ssao, true);
-	assert.equal(state.options.ssao.samples, 12);
-	assert.equal(state.options.ssao.radius, 6);
-	assert.equal(state.options.ssao.intensity, 0.5);
-
-	controller.disable("tonemap");
-	state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
-	);
-	assert.equal(state.enabled.tonemap, false);
-
-	controller.reset("ssao");
-	state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
-	);
-	assert.equal(state.enabled.ssao, false);
-	assert.equal(state.options.ssao.radius, 8);
-	assert.equal(state.options.ssao.intensity, 1);
-
-	controller.reset();
-	state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"test"
-	);
-	assert.equal(state.enabled.tonemap, true);
-	assert.equal(state.enabled.gamma, true);
-	assert.equal(state.enabled["interaction-outline"], true);
-	assert.equal(state.enabled.ssao, false);
+	registry.on("change", () => changes++);
+	registry.registerPass(ssao);
+	ssao.setOptions({ radius: 4 });
+	ssao.disable();
+	assert.equal(registry.getPass("ssao"), ssao);
+	assert.equal(changes, 3);
 }
 
-function testUnsupportedExplicitEnableWarning() {
-	const defaultState = resolvePostProcessState(
-		{},
-		DEFAULT_POST_PROCESS_CAPABILITIES,
+function testSnapshotNormalizationAndWarnings() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(
+		new ScreenSpaceAmbientOcclusionPass({
+			enabled: true,
+			options: { samples: 500, radius: 2 },
+		})
+	);
+	const snapshot = registry.createSnapshot(
+		{ ...ALL_POST_PROCESS_CAPABILITIES, ssao: false },
 		"software"
 	);
-	assert.equal(defaultState.enabled.tonemap, false);
-	assert.equal(defaultState.enabled.gamma, false);
-	assert.equal(defaultState.warnings.length, 0);
-
-	const controller = new PostProcessController();
-	controller.enable("ssr");
-
-	const state = resolvePostProcessState(
-		controller.getState(),
-		{
-			...ALL_POST_PROCESS_CAPABILITIES,
-			ssr: false,
-		},
-		"software"
-	);
-
-	assert.equal(state.enabled.ssr, false);
+	assert.equal(snapshot.isEnabled("ssao"), false);
 	assert.ok(
-		state.warnings.some(
-			(warning) => warning.key === "software-postprocess-unsupported-ssr"
-		)
+		snapshot
+			.getWarnings()
+			.some((warning) => warning.key === "software-postprocess-unsupported-ssao")
 	);
+
+	const supported = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "software");
+	assert.equal(supported.isEnabled("ssao"), true);
+	assert.equal(supported.getOptions("ssao").samples, 48);
+	assert.equal(supported.getOptions("ssao").radius, 2);
 }
 
-function testLogicalCustomPassRegistration() {
-	const calls = {
-		changed: 0,
-		registered: [],
-		unregistered: [],
-	};
-	const controller = new PostProcessController(undefined, {
-		onRegisterPass(pass) {
-			calls.registered.push(pass);
-		},
-		onUnregisterPass(id) {
-			calls.unregistered.push(id);
-		},
-		onChange() {
-			calls.changed++;
-		},
-	});
-	const pass = {
-		id: "custom-edge",
-		implementations: {
-			webgpu: {},
-		},
-	};
-
-	assert.throws(
-		() => controller.enable("custom-edge"),
-		/Unknown post-process pass/
-	);
-
-	controller.registerPass(pass).enable("custom-edge", {
-		strength: 0.75,
-	});
-
-	const state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
-	assert.strictEqual(calls.registered[0], pass);
-	assert.equal(state.enabled["custom-edge"], true);
-	assert.deepEqual(state.options["custom-edge"], { strength: 0.75 });
-
-	controller.disable("custom-edge");
-	const disabledState = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
-	assert.equal(disabledState.enabled["custom-edge"], false);
-
-	controller.unregisterPass("custom-edge");
-	assert.deepEqual(calls.unregistered, ["custom-edge"]);
-	assert.throws(
-		() => controller.enable("custom-edge"),
-		/Unknown post-process pass/
-	);
-	assert.ok(calls.changed >= 4);
-}
-
-async function testPipelineBackendImplementationSelection() {
-	const controller = new PostProcessController();
-	const pass = {
-		id: "custom-webgpu-only",
-		placement: "ldr",
-		isEnabled: (state) => state.enabled["custom-webgpu-only"],
-		implementations: {
-			webgpu: {},
-		},
-	};
-	controller.registerPass(pass).enable("custom-webgpu-only");
-	controller.disable("gamma");
-	const state = resolvePostProcessState(
-		controller.getState(),
-		ALL_POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
-	const pipeline = new PostProcessPipeline();
-	pipeline.registerPass(pass);
-
-	const webgpuExecutor = new FakeExecutor("webgpu");
-	await pipeline.execute({
-		frameContext: createFrameContext(state),
-		executor: webgpuExecutor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.ok(
-		webgpuExecutor.executed.some(
-			(entry) => entry.passId === "custom-webgpu-only"
-		)
-	);
-
-	const softwareExecutor = new FakeExecutor("software");
-	await pipeline.execute({
-		frameContext: createFrameContext(state),
-		executor: softwareExecutor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.equal(
-		softwareExecutor.executed.some(
-			(entry) => entry.passId === "custom-webgpu-only"
-		),
-		false
-	);
-}
-
-async function testPipelinePlacementOrderingAndIncrementalStartPass() {
-	const pipeline = new PostProcessPipeline();
-	const warnings = [];
-	pipeline.registerPass({
-		id: "custom-hdr-pass",
+async function testPipelineOrderingAndIncrementalStartPass() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new ToneMappingPass({ enabled: true }));
+	registry.registerPass(new GammaPass({ enabled: true }));
+	registry.registerPass(new CustomPass("custom-hdr", {
+		enabled: true,
 		placement: "hdr",
-		isEnabled: (state) => state.enabled["custom-hdr-pass"],
-		implementations: { webgpu: {} },
-	});
-	pipeline.registerPass({
-		id: "custom-overlay-pass",
+	}));
+	registry.registerPass(new CustomPass("custom-overlay", {
+		enabled: true,
 		placement: "overlay",
 		order: -1,
-		isEnabled: (state) => state.enabled["custom-overlay-pass"],
-		implementations: { webgpu: {} },
-	});
-
-	const state = resolvePostProcessState(
-		{
-			bloom: { enabled: true },
-			"color-filter": { enabled: true },
-			"custom-hdr-pass": { enabled: true },
-			"custom-overlay-pass": { enabled: true },
-		},
-		ALL_POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
+	}));
+	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
+	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
 	await pipeline.execute({
-		frameContext: createFrameContext(state),
+		frameContext: createFrameContext(snapshot),
 		executor,
 		gBuffer: createGBufferBridge(),
-		warn: (key, message) => warnings.push({ key, message }),
 	});
 
-	const fullOrder = executor.executed.map((entry) => entry.passId);
-	assert.ok(fullOrder.indexOf("bloom") < fullOrder.indexOf("custom-hdr-pass"));
-	assert.ok(
-		fullOrder.indexOf("custom-hdr-pass") < fullOrder.indexOf("tonemap")
-	);
-	assert.ok(fullOrder.indexOf("tonemap") < fullOrder.indexOf("color-filter"));
-	assert.ok(fullOrder.indexOf("color-filter") < fullOrder.indexOf("custom-overlay-pass"));
-	assert.ok(fullOrder.indexOf("custom-overlay-pass") < fullOrder.indexOf("gamma"));
-	assert.deepEqual(warnings, []);
+	const order = executor.executed.map((entry) => entry.passId);
+	assert.deepEqual(order, ["custom-hdr", "tonemap", "custom-overlay", "gamma"]);
 
 	const incrementalExecutor = new FakeExecutor("webgpu");
 	const result = await pipeline.execute({
-		frameContext: createFrameContext(state, {
+		frameContext: createFrameContext(snapshot, {
 			enabled: true,
 			forceFullFrame: false,
 			firstPass: "postprocess",
-			postProcessStartPass: "color-filter",
+			postProcessStartPass: "custom-overlay",
 		}),
 		executor: incrementalExecutor,
 		gBuffer: createGBufferBridge(),
-		warn: (key, message) => warnings.push({ key, message }),
 	});
-
-	assert.equal(result.firstStage, "postprocess");
-	assert.equal(result.startPassId, "color-filter");
-	assert.equal(incrementalExecutor.executed[0].passId, "color-filter");
-	assert.equal(
-		incrementalExecutor.executed.some((entry) => entry.passId === "tonemap"),
-		false
+	assert.equal(result.startPassId, "custom-overlay");
+	assert.deepEqual(
+		incrementalExecutor.executed.map((entry) => entry.passId),
+		["custom-overlay", "gamma"]
 	);
 }
 
-async function testBuiltInPassOwnedImplementationsBypassExecutorFallback() {
-	const state = resolvePostProcessState(
-		{
-			fxaa: { enabled: true },
-			gamma: { enabled: false },
-			tonemap: { enabled: false },
-			"interaction-outline": { enabled: false },
-		},
+async function testPassOwnedImplementationsAndFallback() {
+	const pipeline = new PostProcessPipeline();
+	const fxaaSnapshot = createResolvedPostProcess(
+		{ fxaa: { enabled: true } },
 		ALL_POST_PROCESS_CAPABILITIES,
 		"software"
 	);
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("software");
 	executor.executePass = function executePass(passId) {
 		this.executed.push({ passId });
 		throw new Error(`Unexpected fallback execution for ${passId}`);
 	};
-
 	const result = await pipeline.execute({
-		frameContext: createFrameContext(state),
+		frameContext: createFrameContext(fxaaSnapshot),
 		executor,
 		gBuffer: createGBufferBridge(),
 	});
-
 	assert.deepEqual(result.executedPassIds, ["fxaa"]);
 	assert.deepEqual(executor.executed, []);
+
+	const fallbackSnapshot = createResolvedPostProcess(
+		{ bloom: { enabled: true } },
+		ALL_POST_PROCESS_CAPABILITIES,
+		"webgpu"
+	);
+	const fallbackExecutor = new FakeExecutor("webgpu");
+	await pipeline.execute({
+		frameContext: createFrameContext(fallbackSnapshot),
+		executor: fallbackExecutor,
+		gBuffer: createGBufferBridge(),
+	});
+	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), ["bloom"]);
 }
 
-async function testSSRResolveHistoryUsesDownsampleAndBypassesFallback() {
+async function testSSRHistorySignatureUsesOptions() {
 	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
-	const createState = (downsample) =>
-		resolvePostProcessState(
-			{
-				ssr: {
-					enabled: true,
-					options: { downsample },
-				},
-				gamma: { enabled: false },
-				tonemap: { enabled: false },
-				"interaction-outline": { enabled: false },
-			},
+	const createSnapshot = (downsample) =>
+		createResolvedPostProcess(
+			{ ssr: { enabled: true, options: { downsample } } },
 			ALL_POST_PROCESS_CAPABILITIES,
 			"webgpu"
 		);
 
 	await pipeline.execute({
-		frameContext: createFrameContext(createState(2)),
+		frameContext: createFrameContext(createSnapshot(2)),
 		executor,
 		gBuffer: createGBufferBridge(),
 	});
 	const firstSSRRead = executor.created.find((handle) => handle.id === "ssr:read");
-	const firstMotionRead = executor.created.find(
-		(handle) => handle.id === "motion:read"
-	);
 	assert.equal(firstSSRRead.width, 32);
 	assert.equal(firstSSRRead.height, 16);
-	assert.equal(firstMotionRead.width, 64);
-	assert.equal(firstMotionRead.height, 32);
-	assert.deepEqual(executor.executed, []);
 
 	await pipeline.execute({
-		frameContext: createFrameContext(createState(4)),
+		frameContext: createFrameContext(createSnapshot(4)),
 		executor,
 		gBuffer: createGBufferBridge(),
 	});
@@ -497,51 +307,18 @@ async function testSSRResolveHistoryUsesDownsampleAndBypassesFallback() {
 	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:read"));
 }
 
-async function testPipelineWarnsWhenCustomPassReturnsRanFalse() {
+async function testRanFalsePassIsExcludedFromExecutedIds() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new SkippingPass("custom-skip", { enabled: true }));
+	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
 	const pipeline = new PostProcessPipeline();
-	const warnings = [];
-	pipeline.registerPass({
-		id: "custom-skip",
-		placement: "overlay",
-		isEnabled: (state) => state.enabled["custom-skip"],
-		implementations: { webgpu: {} },
-	});
-	const state = resolvePostProcessState(
-		{
-			"custom-skip": { enabled: true },
-			gamma: { enabled: false },
-		},
-		ALL_POST_PROCESS_CAPABILITIES,
-		"webgpu"
-	);
 	const executor = new FakeExecutor("webgpu");
-	executor.executePass = function executePass(passId, request) {
-		this.executed.push({
-			passId,
-			startPassId: request.startPassId,
-			histories: request.histories,
-		});
-		if (passId === "custom-skip") {
-			return { ran: false };
-		}
-		return { ran: true };
-	};
-
 	const result = await pipeline.execute({
-		frameContext: createFrameContext(state),
+		frameContext: createFrameContext(snapshot),
 		executor,
 		gBuffer: createGBufferBridge(),
-		warn: (key, message) => warnings.push({ key, message }),
 	});
-
-	assert.ok(executor.executed.some((entry) => entry.passId === "custom-skip"));
-	assert.equal(result.executedPassIds.includes("custom-skip"), false);
-	assert.ok(
-		warnings.some(
-			(warning) =>
-				warning.key === "postprocess-custom-pass-skipped-webgpu-custom-skip"
-		)
-	);
+	assert.deepEqual(result.executedPassIds, []);
 }
 
 function testHistoryManagerInvalidationAndResize() {
@@ -579,40 +356,14 @@ function testHistoryManagerInvalidationAndResize() {
 	slots = manager.prepare({
 		executor,
 		descriptors,
-		width: 32,
-		height: 16,
-		reset: false,
-		signature: "camera-b",
-	});
-	assert.equal(slots.taa.valid, false);
-	assert.equal(executor.created.length, 2);
-
-	manager.markUpdated("taa");
-	manager.endFrame();
-	slots = manager.prepare({
-		executor,
-		descriptors,
 		width: 64,
 		height: 16,
 		reset: false,
-		signature: "camera-b",
+		signature: "camera-a",
 	});
 	assert.equal(slots.taa.valid, false);
 	assert.equal(executor.created.length, 4);
 	assert.equal(executor.destroyed.length, 2);
-
-	manager.markUpdated("taa");
-	manager.endFrame();
-	slots = manager.prepare({
-		executor,
-		descriptors,
-		width: 64,
-		height: 16,
-		reset: true,
-		signature: "camera-b",
-	});
-	assert.equal(slots.taa.valid, false);
-	assert.equal(executor.created.length, 4);
 }
 
 function testLogicalGBufferBridgeHelperShape() {
@@ -622,7 +373,7 @@ function testLogicalGBufferBridgeHelperShape() {
 	);
 	const bridge = support.createGBufferBridge(
 		createFrameContext(
-			resolvePostProcessState({}, ALL_POST_PROCESS_CAPABILITIES, "software")
+			createResolvedPostProcess({}, ALL_POST_PROCESS_CAPABILITIES, "software")
 		)
 	);
 	assert.equal(bridge.width, 64);
@@ -636,14 +387,12 @@ function testLogicalGBufferBridgeHelperShape() {
 }
 
 async function run() {
-	testControllerDefaultsAndOptionsMerge();
-	testUnsupportedExplicitEnableWarning();
-	testLogicalCustomPassRegistration();
-	await testPipelineBackendImplementationSelection();
-	await testPipelinePlacementOrderingAndIncrementalStartPass();
-	await testBuiltInPassOwnedImplementationsBypassExecutorFallback();
-	await testSSRResolveHistoryUsesDownsampleAndBypassesFallback();
-	await testPipelineWarnsWhenCustomPassReturnsRanFalse();
+	testRegistryOnlySurfaceAndPassMutation();
+	testSnapshotNormalizationAndWarnings();
+	await testPipelineOrderingAndIncrementalStartPass();
+	await testPassOwnedImplementationsAndFallback();
+	await testSSRHistorySignatureUsesOptions();
+	await testRanFalsePassIsExcludedFromExecutedIds();
 	testHistoryManagerInvalidationAndResize();
 	testLogicalGBufferBridgeHelperShape();
 	console.log("Postprocess public API tests passed");

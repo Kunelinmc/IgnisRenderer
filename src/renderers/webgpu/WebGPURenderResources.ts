@@ -1,6 +1,11 @@
 import type { RendererBackendBridge } from "../IRenderBackend";
 import type { Texture } from "../../core/Texture";
-import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
+import {
+	DEFAULT_BLOOM_OPTIONS,
+	DEFAULT_FOG_OPTIONS,
+	DEFAULT_TAA_OPTIONS,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+} from "../../pipeline/types";
 import type {
 	DrawPacket,
 	FrameContext,
@@ -8,9 +13,13 @@ import type {
 	PreparedScene,
 } from "../../pipeline/types";
 import {
-	resolvePostProcessState,
 	type ResolvedPostProcessState,
 } from "../../pipeline/PostProcessController";
+import {
+	GammaPass,
+	PostProcessPassRegistry,
+	ToneMappingPass,
+} from "../../postprocess";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";
@@ -488,24 +497,24 @@ export class WebGPURenderResources {
 		this._frameId++;
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
-			enableGamma: postProcess.enabled.gamma,
-			enableToneMapping: postProcess.enabled.tonemap,
+			enableGamma: postProcess.isEnabled("gamma"),
+			enableToneMapping: postProcess.isEnabled("tonemap"),
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,
 			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
-			enableSSAO: postProcess.enabled.ssao,
-			enableSSGI: postProcess.enabled.ssgi,
-			enableTAA: postProcess.enabled.taa,
-			enableSSR: postProcess.enabled.ssr,
-			enableVolumetric: postProcess.enabled.volumetric,
-			enableFog: postProcess.enabled.fog,
-			enableBloom: postProcess.enabled.bloom,
+			enableSSAO: postProcess.isEnabled("ssao"),
+			enableSSGI: postProcess.isEnabled("ssgi"),
+			enableTAA: postProcess.isEnabled("taa"),
+			enableSSR: postProcess.isEnabled("ssr"),
+			enableVolumetric: postProcess.isEnabled("volumetric"),
+			enableFog: postProcess.isEnabled("fog"),
+			enableBloom: postProcess.isEnabled("bloom"),
 			enableClusteredLighting: features.enableClusteredLighting,
-			taaOptions: postProcess.options.taa,
-			fogOptions: postProcess.options.fog,
-			bloomOptions: postProcess.options.bloom,
+			taaOptions: postProcess.getOptions("taa") ?? DEFAULT_TAA_OPTIONS,
+			fogOptions: postProcess.getOptions("fog") ?? DEFAULT_FOG_OPTIONS,
+			bloomOptions: postProcess.getOptions("bloom") ?? DEFAULT_BLOOM_OPTIONS,
 			clusteredLightingOptions: features.clusteredLightingOptions,
 			warnings: [],
 		};
@@ -798,11 +807,13 @@ export class WebGPURenderResources {
 			);
 		}
 
+		const postProcess = new PostProcessPassRegistry();
+		postProcess.registerPass(new ToneMappingPass({ enabled: true }));
+		postProcess.registerPass(new GammaPass({ enabled: true }));
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
-			postProcess: resolvePostProcessState(
-				{},
+			postProcess: postProcess.createSnapshot(
 				this._backend.postProcessCapabilities,
 				this._backend.type
 			),

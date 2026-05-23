@@ -5,8 +5,11 @@ import type {
 } from "../pipeline/types";
 import type {
 	PostProcessCapabilities,
-	ResolvedPostProcessState,
-} from "../pipeline/PostProcessController";
+	PostProcessPass,
+	PostProcessPassRegistrySnapshot,
+	PostProcessPassResolveRequest,
+	PostProcessPassWarmupRequest,
+} from "./PostProcessPass";
 import type { PostProcessPlacement } from "./ordering";
 
 export type PostProcessBackendKind = "software" | "webgpu" | "webgl" | (string & {});
@@ -78,7 +81,7 @@ export interface PostProcessHistoryDescriptor {
 
 export interface PostProcessHistoryResolveRequest {
 	readonly frameContext: FrameContext;
-	readonly postProcess: ResolvedPostProcessState;
+	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly backend: PostProcessBackendKind;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly width: number;
@@ -111,7 +114,10 @@ export interface PostProcessHistorySlot {
 
 export type PostProcessHistorySlots = Record<string, PostProcessHistorySlot>;
 
-export interface PostProcessPassImplementation<TContext = unknown> {
+export interface PostProcessPassImplementation<
+	TContext = unknown,
+	TOptions = unknown,
+> {
 	readonly id?: string;
 	/**
 	 * Executes the logical pass through pass-owned backend implementation logic.
@@ -122,7 +128,7 @@ export interface PostProcessPassImplementation<TContext = unknown> {
 	 * @sideEffects May mutate backend render targets or post-process histories.
 	 */
 	execute?(
-		request: PostProcessPassRequest,
+		request: PostProcessPassRequest<TOptions>,
 		context: TContext
 	): PostProcessPassResult | Promise<PostProcessPassResult>;
 	/**
@@ -132,7 +138,10 @@ export interface PostProcessPassImplementation<TContext = unknown> {
 	 * @returns Nothing.
 	 * @sideEffects May allocate backend-owned pipelines, programs, or buffers.
 	 */
-	warmup?(context: TContext): void | Promise<void>;
+	warmup?(
+		context: TContext,
+		request?: PostProcessPassWarmupRequest<TOptions>
+	): void | Promise<void>;
 	/**
 	 * Invalidates cached backend bindings for this implementation.
 	 *
@@ -149,47 +158,18 @@ export interface PostProcessPassImplementation<TContext = unknown> {
 	destroy?(): void;
 }
 
-export interface PostProcessPassDescriptor<TOptions = unknown> {
-	/**
-	 * Unique logical pass id used by resolved post-process state and backend
-	 * executors.
-	 */
-	readonly id: string;
-	/**
-	 * Stable insertion bucket for custom pass scheduling. Built-in passes use
-	 * their fixed built-in order regardless of this value.
-	 */
-	readonly placement?: PostProcessPlacement;
-	/**
-	 * Fine-grained ordering offset inside the selected custom placement bucket.
-	 * This is not a dependency declaration.
-	 */
-	readonly order?: number;
-	readonly requirements?: PostProcessPassRequirements;
-	readonly history?: readonly PostProcessHistoryDescriptor[];
-	readonly resolveHistory?: (
-		request: PostProcessHistoryResolveRequest
-	) => readonly PostProcessHistoryDescriptor[];
-	readonly incremental?: PostProcessIncrementalMetadata;
-	readonly isEnabled?: (state: ResolvedPostProcessState) => boolean;
-	readonly implementations: Partial<
-		Record<PostProcessBackendKind, PostProcessPassImplementation>
-	>;
-	readonly defaultOptions?: TOptions;
-}
-
 export interface PostProcessFrameRequest {
 	readonly frameContext: FrameContext;
-	readonly postProcess: ResolvedPostProcessState;
+	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly histories: PostProcessHistorySlots;
 }
 
-export interface PostProcessPassRequest extends PostProcessFrameRequest {
-	readonly pass: PostProcessPassDescriptor;
+export interface PostProcessPassRequest<TOptions = unknown>
+	extends PostProcessFrameRequest {
+	readonly pass: PostProcessPass<unknown, TOptions>;
 	readonly passId: string;
-	readonly implementation: PostProcessPassImplementation;
-	readonly options: unknown;
+	readonly options: TOptions;
 	readonly startPassId: string | null;
 }
 
@@ -222,6 +202,10 @@ export interface IPostProcessExecutor {
 	getPassExecutionContext?(
 		passId: string,
 		request: PostProcessPassRequest
+	): unknown;
+	getPassWarmupContext?(
+		passId: string,
+		request: PostProcessPassWarmupRequest
 	): unknown;
 	executePass(
 		passId: string,

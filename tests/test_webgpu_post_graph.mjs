@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
 import { PostProcessPipeline } from "../src/postprocess/index.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const POST_PROCESS_CAPABILITIES = {
 	ssao: true,
@@ -20,7 +20,7 @@ const POST_PROCESS_CAPABILITIES = {
 };
 
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(overrides, POST_PROCESS_CAPABILITIES, "webgpu");
+	return createResolvedPostProcess(overrides, POST_PROCESS_CAPABILITIES, "webgpu");
 }
 
 function createExecutor() {
@@ -226,11 +226,11 @@ async function testIncrementalStartPassIsResolvedByPipeline() {
 	assert.equal(result.startPassId, "color-filter");
 	assert.deepEqual(
 		result.executedPassIds,
-		["color-filter", "fxaa", "interaction-outline", "gamma"]
+		["color-filter", "fxaa", "gamma"]
 	);
 	assert.deepEqual(
 		executed.map((entry) => entry.passId),
-		["color-filter", "interaction-outline", "gamma"]
+		["color-filter", "gamma"]
 	);
 	assert.ok(executed.every((entry) => entry.startPassId === "color-filter"));
 }

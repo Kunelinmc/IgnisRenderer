@@ -757,7 +757,7 @@ export class IncrementalRegistry {
 		if (metadata.isEnabled) {
 			return metadata.isEnabled(postProcess);
 		}
-		return postProcess.enabled[metadata.id] === true;
+		return postProcess.isEnabled(metadata.id);
 	}
 
 	private _registerDirtyReason(
@@ -1012,7 +1012,7 @@ function isPostProcessStage(
 	if (stage && registry.isPostProcessPass(stage)) {
 		return true;
 	}
-	return stage ? postProcess.enabled[stage] === true : false;
+	return stage ? postProcess.isEnabled(stage) : false;
 }
 
 function isBuiltInPostProcessStage(

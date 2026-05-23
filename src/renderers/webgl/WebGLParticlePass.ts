@@ -177,10 +177,11 @@ export function renderWebGLParticles(
 			finiteOr(cameraPosition.z, 0)
 		);
 	}
+	const fogOptions = context.postProcess.getOptions<FogOptions>("fog") ?? {};
 	const sceneFogEnabled =
-		context.postProcess.enabled.fog &&
-		(context.postProcess.options.fog.application ?? "postprocess") === "scene";
-	host._updateFogParams(context.postProcess.options.fog, sceneFogEnabled);
+		context.postProcess.isEnabled("fog") &&
+		(fogOptions.application ?? "postprocess") === "scene";
+	host._updateFogParams(fogOptions, sceneFogEnabled);
 	if (particleProgram.uniforms.fogParams0) {
 		gl.uniform4fv(
 			particleProgram.uniforms.fogParams0 as WebGLUniformLocation,
@@ -544,4 +545,3 @@ export function destroyWebGLParticleResources(host: WebGLParticlePassHost): void
 	host._particleInstanceCapacity = 0;
 	host._particleScratch = new Float32Array(0);
 }
-

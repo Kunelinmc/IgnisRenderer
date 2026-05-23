@@ -86,7 +86,7 @@ import {
 } from "../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../src/renderers/webgpu/WebGPUTextureRegistry.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 globalThis.GPUShaderStage ??= {
 	VERTEX: 1,
@@ -102,7 +102,6 @@ import {
 	FakeCommandEncoder as FakeRenderEncoder,
 	FakeWebGPUBackend as FakeBackend,
 } from "./helpers/test_fakes.mjs";
-import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createModel(materials) {
 	const mesh = MeshAsset.fromFaces(
@@ -338,13 +337,15 @@ function testFeatureGate() {
 	assert.equal(featureState.enableEnvironment, false);
 	assert.ok(featureState.warnings.length >= 3);
 
-	const postProcess = resolvePostProcessState(
+	const postProcess = createResolvedPostProcess(
 		{
 			ssao: { enabled: true },
 			taa: { enabled: true },
 			ssr: { enabled: true },
 			volumetric: { enabled: true },
 			bloom: { enabled: true },
+			tonemap: { enabled: true },
+			gamma: { enabled: true },
 		},
 		{
 			ssao: false,
@@ -364,18 +365,15 @@ function testFeatureGate() {
 		},
 		"webgpu"
 	);
-	assert.equal(postProcess.enabled.gamma, true);
-	assert.equal(postProcess.enabled.tonemap, true);
-	assert.equal(postProcess.enabled.ssao, false);
-	assert.equal(postProcess.enabled.taa, false);
-	assert.equal(postProcess.enabled.ssr, false);
-	assert.equal(postProcess.enabled.volumetric, false);
-	assert.equal(postProcess.enabled.bloom, false);
-	assert.equal(postProcess.options.ssao.downsample, 2);
-	assert.equal(postProcess.options.taa.historyWeight, 0.9);
-	assert.equal(postProcess.options.ssr.maxRoughness, 0.85);
-	assert.equal(postProcess.options.bloom.radius, 1);
-	assert.ok(postProcess.warnings.length >= 5);
+	assert.equal(postProcess.isEnabled("gamma"), true);
+	assert.equal(postProcess.isEnabled("tonemap"), true);
+	assert.equal(postProcess.isEnabled("ssao"), false);
+	assert.equal(postProcess.isEnabled("taa"), false);
+	assert.equal(postProcess.isEnabled("ssr"), false);
+	assert.equal(postProcess.isEnabled("volumetric"), false);
+	assert.equal(postProcess.isEnabled("bloom"), false);
+	assert.equal(postProcess.getOptions("gamma") !== null, true);
+	assert.ok(postProcess.getWarnings().length >= 5);
 }
 
 async function testSceneShaderCoverage() {

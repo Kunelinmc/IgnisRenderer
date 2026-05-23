@@ -45,21 +45,21 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		const postProcess = context.postProcess;
 		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 		if (
-			postProcess.enabled.ssao ||
-			postProcess.enabled.ssgi ||
-			postProcess.enabled.taa ||
-			postProcess.enabled.ssr ||
-			postProcess.enabled.volumetric ||
+			postProcess.isEnabled("ssao") ||
+			postProcess.isEnabled("ssgi") ||
+			postProcess.isEnabled("taa") ||
+			postProcess.isEnabled("ssr") ||
+			postProcess.isEnabled("volumetric") ||
 			isFogPostProcessEnabled(postProcess) ||
-			postProcess.enabled["motion-blur"] ||
-			postProcess.enabled.dof ||
-			postProcess.enabled.bloom ||
-			postProcess.enabled.tonemap ||
-			postProcess.enabled["color-filter"] ||
-			postProcess.enabled.fxaa ||
-			(postProcess.enabled["interaction-outline"] &&
+			postProcess.isEnabled("motion-blur") ||
+			postProcess.isEnabled("dof") ||
+			postProcess.isEnabled("bloom") ||
+			postProcess.isEnabled("tonemap") ||
+			postProcess.isEnabled("color-filter") ||
+			postProcess.isEnabled("fxaa") ||
+			(postProcess.isEnabled("interaction-outline") &&
 				(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
-			postProcess.enabled.gamma ||
+			postProcess.isEnabled("gamma") ||
 			hasEnabledCustomPostProcessPass(postProcess)
 		) {
 			state.plannedPasses.add("postprocess");

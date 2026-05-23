@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
+import { PostProcessPass } from "../src/postprocess/index.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
@@ -74,35 +75,36 @@ async function run() {
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 
-		const pass = {
-			id: "custom-edge",
-			incremental: {
-				firstPass: "tonemap",
-				grade: "standard",
-				inflationRadius: 18,
-			},
-			placement: "overlay",
-			isEnabled(postProcess) {
-				return postProcess.enabled["custom-edge"];
-			},
-			implementations: {
-				webgpu: {},
-			},
-		};
+		const pass = new (class CustomEdgePass extends PostProcessPass {
+			constructor() {
+				super({
+					id: "custom-edge",
+					incremental: {
+						firstPass: "tonemap",
+						grade: "standard",
+						inflationRadius: 18,
+					},
+					placement: "overlay",
+					enabled: true,
+					options: { strength: 0.5 },
+					implementations: {
+						webgpu: {},
+					},
+				});
+			}
+		})();
 
-		renderer.postProcess.registerPass(pass).enable("custom-edge", {
-			strength: 0.5,
-		});
-		renderer.postProcess.disable("tonemap");
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.registerPass(pass);
+		renderer.postProcess.getPass("tonemap")?.disable();
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		await renderer.renderScene(0);
 
 		const postProcess = backend.contexts.at(-1).postProcess;
-		assert.equal(postProcess.enabled["custom-edge"], true);
-		assert.equal(postProcess.enabled.tonemap, false);
-		assert.equal(postProcess.enabled.gamma, false);
-		assert.deepEqual(postProcess.options["custom-edge"], { strength: 0.5 });
+		assert.equal(postProcess.isEnabled("custom-edge"), true);
+		assert.equal(postProcess.isEnabled("tonemap"), false);
+		assert.equal(postProcess.isEnabled("gamma"), false);
+		assert.deepEqual(postProcess.getOptions("custom-edge"), { strength: 0.5 });
 		assert.equal(
 			renderer.pipeline.incremental.resolveFirstEnabledPostProcessStage(
 				postProcess
@@ -115,9 +117,12 @@ async function run() {
 			),
 			18
 		);
-		assert.ok(backend.postProcessExecutor.executedPasses.includes("gamma"));
 		assert.ok(
 			backend.postProcessExecutor.executedPasses.includes("custom-edge")
+		);
+		assert.equal(
+			backend.postProcessExecutor.executedPasses.includes("gamma"),
+			false
 		);
 		assert.equal(
 			backend.postProcessExecutor.executedPasses.includes("tonemap"),
@@ -126,8 +131,8 @@ async function run() {
 
 		renderer.postProcess.unregisterPass("custom-edge");
 		assert.throws(
-			() => renderer.postProcess.enable("custom-edge"),
-			/Unknown post-process pass/
+			() => renderer.postProcess.registerPass({ id: "custom-edge" }),
+			/requires a PostProcessPass/
 		);
 
 		console.log("Renderer postprocess registry tests passed");

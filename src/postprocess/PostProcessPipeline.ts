@@ -1,12 +1,4 @@
-import {
-	getEnabledCustomPostProcessPassIds,
-	hasEnabledCustomPostProcessPass,
-	isFogPostProcessEnabled,
-	POST_PROCESS_PASS_IDS,
-	type ResolvedPostProcessState,
-} from "../pipeline/PostProcessController";
-import type { FrameContext } from "../pipeline/types";
-import { INTERACTION_TRANSIENT_STATE_KEY } from "../pipeline/types";
+import type { FogOptions, FrameContext } from "../pipeline/types";
 import { PostProcessHistoryManager } from "./PostProcessHistoryManager";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
@@ -14,155 +6,30 @@ import {
 	getCustomPostProcessPlacementOrder,
 	isPostProcessPlacement,
 } from "./ordering";
-import { FAST_APPROXIMATE_ANTI_ALIASING_PASS } from "./passes/FastApproximateAntiAliasingPass";
-import { SCREEN_SPACE_AMBIENT_OCCLUSION_PASS } from "./passes/ScreenSpaceAmbientOcclusionPass";
-import { SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS } from "./passes/ScreenSpaceGlobalIlluminationPass";
-import { SCREEN_SPACE_REFLECTIONS_PASS } from "./passes/ScreenSpaceReflectionsPass";
-import { TEMPORAL_ANTI_ALIASING_PASS } from "./passes/TemporalAntiAliasingPass";
 import type {
-	IPostProcessExecutor,
 	LogicalGBufferSemantic,
+	IPostProcessExecutor,
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
-	PostProcessPassDescriptor,
+	PostProcessPassRequirements,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
 } from "./types";
+import type {
+	PostProcessPass,
+	PostProcessPassRegistrySnapshot,
+	PostProcessPassResolveRequest,
+	ResolvedPostProcessPass,
+} from "./PostProcessPass";
 
-const KNOWN_BACKENDS = ["software", "webgpu", "webgl"] as const;
-const POST_PROCESS_PASS_ID_SET = new Set<string>(POST_PROCESS_PASS_IDS);
-
-const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const CUSTOM_ORDER_SCALE = 0.001;
 const CUSTOM_ORDER_LIMIT = 999;
-
-function allBackendsImplementation(): PostProcessPassDescriptor["implementations"] {
-	return {
-		software: {},
-		webgpu: {},
-		webgl: {},
-	};
-}
-
-function enabled(id: string): (state: ResolvedPostProcessState) => boolean {
-	return (state) => state.enabled[id] === true;
-}
-
-const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
-	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
-	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
-	TEMPORAL_ANTI_ALIASING_PASS,
-	SCREEN_SPACE_REFLECTIONS_PASS,
-	{
-		id: "volumetric",
-		placement: "atmosphere",
-		requirements: { gBuffer: ["depth", "motion"] },
-		history: [
-			{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-		],
-		isEnabled: enabled("volumetric"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "fog",
-		placement: "atmosphere",
-		requirements: { gBuffer: ["depth"] },
-		isEnabled: isFogPostProcessEnabled,
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "motion-blur",
-		placement: "camera",
-		requirements: { gBuffer: ["depth", "motion"] },
-		isEnabled: enabled("motion-blur"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "dof",
-		placement: "camera",
-		requirements: { gBuffer: ["depth"] },
-		isEnabled: enabled("dof"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "bloom",
-		placement: "hdr",
-		isEnabled: enabled("bloom"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "tonemap",
-		placement: "hdr",
-		isEnabled: enabled("tonemap"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "color-filter",
-		placement: "ldr",
-		isEnabled: enabled("color-filter"),
-		implementations: allBackendsImplementation(),
-	},
-	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
-	{
-		id: "interaction-outline",
-		placement: "overlay",
-		isEnabled: (state) => state.enabled["interaction-outline"],
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "gamma",
-		placement: "present",
-		isEnabled: (state) =>
-			state.enabled.gamma || hasEnabledCustomPostProcessPass(state),
-		implementations: allBackendsImplementation(),
-	},
-];
 
 /**
  * Executes logical post-process passes across backends.
  */
 export class PostProcessPipeline {
-	private _passes = new Map<string, PostProcessPassDescriptor>(
-		BUILTIN_POST_PROCESS_PASSES.map((pass) => [pass.id, pass])
-	);
-	private _customInsertionOrder = new Map<string, number>();
-	private _nextCustomInsertionOrder = 0;
 	private _history = new PostProcessHistoryManager();
-
-	/**
-	 * Registers a custom logical post-process pass.
-	 *
-	 * @param pass Descriptor with backend implementation metadata.
-	 * @returns Nothing.
-	 * @throws If the id is empty, built-in, or already registered.
-	 * @sideEffects Mutates the logical post-process pass registry.
-	 */
-	public registerPass(pass: PostProcessPassDescriptor): void {
-		this._assertCanRegisterPass(pass);
-		this._passes.set(pass.id, pass);
-		this._customInsertionOrder.set(
-			pass.id,
-			this._nextCustomInsertionOrder++
-		);
-	}
-
-	/**
-	 * Unregisters a custom logical post-process pass.
-	 *
-	 * @param id Custom pass id.
-	 * @returns Nothing.
-	 * @throws If `id` is a built-in pass id.
-	 * @sideEffects Mutates the logical post-process pass registry.
-	 */
-	public unregisterPass(id: string): void {
-		if (POST_PROCESS_PASS_ID_SET.has(id)) {
-			throw new Error(`Cannot unregister built-in post-process pass "${id}".`);
-		}
-		this._passes.delete(id);
-		this._customInsertionOrder.delete(id);
-	}
 
 	/**
 	 * Destroys pipeline-owned history resources.
@@ -178,31 +45,31 @@ export class PostProcessPipeline {
 	/**
 	 * Resolves the enabled logical pass order for one backend.
 	 *
-	 * @param postProcess Resolved post-process state.
+	 * @param postProcess Per-frame post-process snapshot.
 	 * @param executor Active backend executor.
 	 * @param warn Diagnostic sink.
-	 * @returns Enabled descriptors in placement order.
+	 * @returns Enabled passes in placement order.
 	 * @sideEffects None.
 	 */
 	public getExecutionOrder(
-		postProcess: ResolvedPostProcessState,
+		postProcess: PostProcessPassRegistrySnapshot,
 		executor: IPostProcessExecutor,
 		warn: (key: string, message: string) => void = () => {}
-	): PostProcessPassDescriptor[] {
+	): ResolvedPostProcessPass[] {
+		void executor;
 		void warn;
-		const enabled = Array.from(this._passes.values()).filter((pass) =>
-			this._isPassEnabled(pass, postProcess, executor)
+		const enabled = Array.from(postProcess.getEnabledPasses()).filter(
+			(pass) =>
+				pass.id !== "fog" ||
+				((pass.options as FogOptions).application ?? "postprocess") !== "scene"
 		);
 		enabled.sort((left, right) => {
-			const leftOrder = this._getPassSortOrder(left);
-			const rightOrder = this._getPassSortOrder(right);
+			const leftOrder = this._getPassSortOrder(left.pass);
+			const rightOrder = this._getPassSortOrder(right.pass);
 			if (leftOrder !== rightOrder) {
 				return leftOrder - rightOrder;
 			}
-			return (
-				(this._customInsertionOrder.get(left.id) ?? 0) -
-				(this._customInsertionOrder.get(right.id) ?? 0)
-			);
+			return left.id.localeCompare(right.id);
 		});
 		return enabled;
 	}
@@ -236,7 +103,8 @@ export class PostProcessPipeline {
 		};
 		const historyDescriptors = this._collectHistoryDescriptors(
 			passes,
-			historyResolveRequest
+			historyResolveRequest,
+			warn
 		);
 		const histories = this._history.prepare({
 			executor,
@@ -244,7 +112,11 @@ export class PostProcessPipeline {
 			width: historyResolveRequest.width,
 			height: historyResolveRequest.height,
 			reset: frameContext.incremental.temporalHistoryReset,
-			signature: this._createHistorySignature(frameContext),
+			signature: this._createHistorySignature(
+				frameContext,
+				orderedPasses,
+				historyResolveRequest
+			),
 		});
 		const frameRequest = {
 			frameContext,
@@ -255,40 +127,32 @@ export class PostProcessPipeline {
 		const executedPassIds: string[] = [];
 
 		await executor.beginFrame?.(frameRequest);
-		for (const pass of passes) {
-			if (!this._requirementsSatisfied(pass, gBuffer)) {
+		for (const resolved of passes) {
+			const pass = resolved.pass;
+			const resolveRequest = this._createResolveRequest(
+				resolved,
+				historyResolveRequest
+			);
+			if (!this._requirementsSatisfied(pass.getRequirements(resolveRequest), gBuffer)) {
 				warn(
 					`postprocess-requirement-missing-${pass.id}`,
 					`Post-process pass "${pass.id}" is missing required G-buffer channels; skipping it`
 				);
 				continue;
 			}
-			const implementation = pass.implementations[executor.backend];
-			if (!implementation) {
-				continue;
-			}
 			const passRequest = {
 				...frameRequest,
 				pass,
 				passId: pass.id,
-				implementation,
-				options: postProcess.options[pass.id],
+				options: resolved.options,
 				startPassId,
 			};
-			const result =
-				typeof implementation.execute === "function" ?
-					await implementation.execute(
-						passRequest,
-						executor.getPassExecutionContext?.(pass.id, passRequest)
-					)
-				:	await executor.executePass(pass.id, passRequest);
+			const result = await pass.execute(
+				passRequest,
+				executor.getPassExecutionContext?.(pass.id, passRequest),
+				executor
+			);
 			if (result?.ran === false) {
-				if (!POST_PROCESS_PASS_ID_SET.has(pass.id)) {
-					warn(
-						`postprocess-custom-pass-skipped-${executor.backend}-${pass.id}`,
-						`Post-process custom pass "${pass.id}" returned ran=false on backend "${executor.backend}" and was skipped`
-					);
-				}
 				continue;
 			}
 			executedPassIds.push(pass.id);
@@ -296,7 +160,7 @@ export class PostProcessPipeline {
 				this._history.markUpdatedMany(result.updatedHistoryIds);
 			} else if (result?.historyUpdated) {
 				this._history.markUpdatedMany(
-					this._resolvePassHistoryDescriptors(pass, historyResolveRequest)
+					this._resolvePassHistoryDescriptors(resolved, historyResolveRequest)
 						.map((history) => history.id)
 						.filter((id) => id !== "motion")
 				);
@@ -315,39 +179,7 @@ export class PostProcessPipeline {
 		};
 	}
 
-	private _isPassEnabled(
-		pass: PostProcessPassDescriptor,
-		postProcess: ResolvedPostProcessState,
-		executor: IPostProcessExecutor
-	): boolean {
-		const enabledByState =
-			pass.isEnabled ? pass.isEnabled(postProcess) : postProcess.enabled[pass.id];
-		if (!enabledByState) {
-			return false;
-		}
-		if (POST_PROCESS_PASS_IDS.includes(pass.id as any)) {
-			return executor.capabilities[pass.id] === true;
-		}
-		return !!pass.implementations[executor.backend];
-	}
-
-	private _assertCanRegisterPass(pass: PostProcessPassDescriptor): void {
-		if (!pass.id) {
-			throw new Error("Post-process pass id is required.");
-		}
-		if (POST_PROCESS_PASS_ID_SET.has(pass.id)) {
-			throw new Error(
-				`Cannot register built-in post-process pass "${pass.id}".`
-			);
-		}
-		if (this._passes.has(pass.id)) {
-			throw new Error(
-				`Post-process pass "${pass.id}" is already registered.`
-			);
-		}
-	}
-
-	private _getPassSortOrder(pass: PostProcessPassDescriptor): number {
+	private _getPassSortOrder(pass: PostProcessPass): number {
 		const builtInOrder = getBuiltinPostProcessOrder(pass.id);
 		if (builtInOrder) {
 			return builtInOrder.order;
@@ -370,10 +202,10 @@ export class PostProcessPipeline {
 	}
 
 	private _requirementsSatisfied(
-		pass: PostProcessPassDescriptor,
+		requirements: PostProcessPassRequirements,
 		gBuffer: PostProcessPipelineExecuteRequest["gBuffer"]
 	): boolean {
-		for (const semantic of pass.requirements?.gBuffer ?? []) {
+		for (const semantic of requirements.gBuffer ?? []) {
 			if (!gBuffer.channels[semantic]) {
 				if (semantic === "world-position" && gBuffer.worldPosition.available) {
 					continue;
@@ -385,12 +217,24 @@ export class PostProcessPipeline {
 	}
 
 	private _collectHistoryDescriptors(
-		passes: readonly PostProcessPassDescriptor[],
-		request: PostProcessHistoryResolveRequest
+		passes: readonly ResolvedPostProcessPass[],
+		request: PostProcessHistoryResolveRequest,
+		warn: (key: string, message: string) => void
 	): PostProcessHistoryDescriptor[] {
 		const descriptors = new Map<string, PostProcessHistoryDescriptor>();
+		const descriptorKeys = new Map<string, string>();
 		for (const pass of passes) {
 			for (const history of this._resolvePassHistoryDescriptors(pass, request)) {
+				const key = this._createHistoryDescriptorKey(history);
+				const currentKey = descriptorKeys.get(history.id);
+				if (currentKey && currentKey !== key) {
+					warn(
+						`postprocess-history-conflict-${history.id}`,
+						`Post-process history "${history.id}" was requested with incompatible descriptors; keeping the first descriptor`
+					);
+					continue;
+				}
+				descriptorKeys.set(history.id, key);
 				descriptors.set(history.id, history);
 			}
 		}
@@ -398,16 +242,18 @@ export class PostProcessPipeline {
 	}
 
 	private _resolvePassHistoryDescriptors(
-		pass: PostProcessPassDescriptor,
+		resolved: ResolvedPostProcessPass,
 		request: PostProcessHistoryResolveRequest
 	): readonly PostProcessHistoryDescriptor[] {
-		return pass.resolveHistory?.(request) ?? pass.history ?? [];
+		return resolved.pass.getHistoryDescriptors(
+			this._createResolveRequest(resolved, request)
+		);
 	}
 
 	private _sliceFromStartPass(
-		passes: readonly PostProcessPassDescriptor[],
+		passes: readonly ResolvedPostProcessPass[],
 		startPassId: string | null
-	): PostProcessPassDescriptor[] {
+	): ResolvedPostProcessPass[] {
 		if (!startPassId) {
 			return Array.from(passes);
 		}
@@ -420,7 +266,7 @@ export class PostProcessPipeline {
 
 	private _resolveIncrementalStartPass(
 		frameContext: FrameContext,
-		passes: readonly PostProcessPassDescriptor[]
+		passes: readonly ResolvedPostProcessPass[]
 	): string | null {
 		if (
 			!frameContext.incremental.enabled ||
@@ -436,11 +282,12 @@ export class PostProcessPipeline {
 		return startPassId;
 	}
 
-	private _createHistorySignature(context: FrameContext): string {
+	private _createHistorySignature(
+		context: FrameContext,
+		passes: readonly ResolvedPostProcessPass[],
+		request: PostProcessHistoryResolveRequest
+	): string {
 		const camera = context.camera;
-		const postProcess = context.postProcess;
-		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-		const customIds = getEnabledCustomPostProcessPassIds(postProcess).join(",");
 		return [
 			context.attachments.width,
 			context.attachments.height,
@@ -449,27 +296,39 @@ export class PostProcessPipeline {
 			camera.aspectRatio,
 			camera.near,
 			camera.far,
-			`ssao:${postProcess.enabled.ssao ? 1 : 0}`,
-			`ssgi:${postProcess.enabled.ssgi ? 1 : 0}`,
-			`taa:${postProcess.enabled.taa ? 1 : 0}`,
-			`ssr:${postProcess.enabled.ssr ? 1 : 0}`,
-			`vol:${postProcess.enabled.volumetric ? 1 : 0}`,
-			`fog:${isFogPostProcessEnabled(postProcess) ? 1 : 0}`,
-			`mblur:${postProcess.enabled["motion-blur"] ? 1 : 0}`,
-			`dof:${postProcess.enabled.dof ? 1 : 0}`,
-			`bloom:${postProcess.enabled.bloom ? 1 : 0}`,
-			`tonemap:${postProcess.enabled.tonemap ? 1 : 0}`,
-			`color:${postProcess.enabled["color-filter"] ? 1 : 0}`,
-			`fxaa:${postProcess.enabled.fxaa ? 1 : 0}`,
-			`outline:${
-				postProcess.enabled["interaction-outline"] &&
-				((interaction as { selectedEntityIds?: unknown[] } | undefined)
-					?.selectedEntityIds?.length ?? 0) > 0 ?
-					1
-				:	0
-			}`,
-			`gamma:${postProcess.enabled.gamma ? 1 : 0}`,
-			`custom:${customIds}`,
+			...passes.map((resolved) =>
+				`${resolved.id}:${resolved.pass.getHistorySignature(
+					this._createResolveRequest(resolved, request)
+				)}`
+			),
+		].join("|");
+	}
+
+	private _createResolveRequest<TOptions>(
+		resolved: ResolvedPostProcessPass<TOptions>,
+		request: PostProcessHistoryResolveRequest
+	): PostProcessPassResolveRequest<TOptions> {
+		return {
+			frameContext: request.frameContext,
+			postProcess: request.postProcess,
+			backend: request.backend,
+			gBuffer: request.gBuffer,
+			width: request.width,
+			height: request.height,
+			options: resolved.options,
+		};
+	}
+
+	private _createHistoryDescriptorKey(
+		descriptor: PostProcessHistoryDescriptor
+	): string {
+		return [
+			descriptor.widthScale ?? 1,
+			descriptor.heightScale ?? 1,
+			descriptor.format ?? "rgba16float",
+			[...(descriptor.usage ?? ["sampled", "storage", "render-target"])]
+				.sort()
+				.join(","),
 		].join("|");
 	}
 }
@@ -482,28 +341,18 @@ export class PostProcessPipeline {
  * @sideEffects None.
  */
 export function isPostProcessPassStage(stage: string): boolean {
-	return stage === "postprocess" || POST_PROCESS_PASS_IDS.includes(stage as any);
-}
-
-/**
- * Returns the built-in logical post-process descriptors.
- *
- * @returns Read-only built-in descriptor list.
- * @sideEffects None.
- */
-export function getBuiltinPostProcessPasses(): readonly PostProcessPassDescriptor[] {
-	return BUILTIN_POST_PROCESS_PASSES;
+	return stage === "postprocess" || getBuiltinPostProcessOrder(stage) !== null;
 }
 
 /**
  * Returns required G-buffer channels for a logical pass.
  *
- * @param pass Logical pass descriptor.
+ * @param pass Logical pass instance.
  * @returns Required semantic channels, or an empty list.
  * @sideEffects None.
  */
 export function getPostProcessRequirementChannels(
-	pass: PostProcessPassDescriptor
+	pass: PostProcessPass
 ): readonly LogicalGBufferSemantic[] {
-	return pass.requirements?.gBuffer ?? [];
+	return pass.getRequirements({}).gBuffer ?? [];
 }

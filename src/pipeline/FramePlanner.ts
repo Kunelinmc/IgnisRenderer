@@ -64,19 +64,19 @@ function shouldEnablePass(
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "postprocess":
 			return (
-				postProcess.enabled.ssao ||
-				postProcess.enabled.ssgi ||
-				postProcess.enabled.taa ||
-				postProcess.enabled.ssr ||
-				postProcess.enabled.volumetric ||
+				postProcess.isEnabled("ssao") ||
+				postProcess.isEnabled("ssgi") ||
+				postProcess.isEnabled("taa") ||
+				postProcess.isEnabled("ssr") ||
+				postProcess.isEnabled("volumetric") ||
 				isFogPostProcessEnabled(postProcess) ||
-				postProcess.enabled["motion-blur"] ||
-				postProcess.enabled.dof ||
-				postProcess.enabled.bloom ||
-				postProcess.enabled.tonemap ||
-				postProcess.enabled["color-filter"] ||
-				postProcess.enabled.fxaa ||
-				postProcess.enabled.gamma ||
+				postProcess.isEnabled("motion-blur") ||
+				postProcess.isEnabled("dof") ||
+				postProcess.isEnabled("bloom") ||
+				postProcess.isEnabled("tonemap") ||
+				postProcess.isEnabled("color-filter") ||
+				postProcess.isEnabled("fxaa") ||
+				postProcess.isEnabled("gamma") ||
 				hasEnabledCustomPostProcessPass(postProcess)
 			);
 		default:

@@ -1,6 +1,5 @@
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import {
 	DEFAULT_SSGI_OPTIONS,
 	type SSGIOptions,
@@ -16,11 +15,12 @@ import {
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type {
-	PostProcessPassDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassRequirements,
 } from "../types";
 
 const WORKGROUP_SIZE = 8;
@@ -50,10 +50,6 @@ interface WebGPUSSGIResources {
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
-}
-
-function enabled(state: ResolvedPostProcessState): boolean {
-	return state.enabled.ssgi === true;
 }
 
 /**
@@ -170,7 +166,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		const targets = context.targets;
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
-		const options = resolveSSGIOptions(request.frameContext.postProcess.options.ssgi);
+		const options = resolveSSGIOptions(request.options as SSGIOptions);
 		context.shared.compute.writeBuffer(
 			resources.params,
 			createSSGIKernelParams(target.width, target.height, options) as unknown as BufferSource
@@ -239,12 +235,35 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	}
 }
 
-export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS: PostProcessPassDescriptor = {
-	id: "ssgi",
-	placement: "spatial",
-	requirements: { gBuffer: ["color", "depth", "normal", "albedo"] },
-	isEnabled: enabled,
-	implementations: {
-		webgpu: new WebGPUScreenSpaceGlobalIlluminationImplementation(),
-	},
-};
+export interface ScreenSpaceGlobalIlluminationPassConfig
+	extends Omit<
+		PostProcessPassConfig<SSGIOptions>,
+		"id" | "placement" | "implementations"
+	> {}
+
+/**
+ * Stateful logical SSGI pass shared by supported rendering backends.
+ */
+export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
+	SSGIOptions,
+	ResolvedSSGIOptions
+> {
+	public constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
+		super({
+			...config,
+			id: "ssgi",
+			placement: "spatial",
+			implementations: {
+				webgpu: new WebGPUScreenSpaceGlobalIlluminationImplementation(),
+			},
+		});
+	}
+
+	public override normalizeOptions(): ResolvedSSGIOptions {
+		return resolveSSGIOptions(this.getRawOptions());
+	}
+
+	public override getRequirements(): PostProcessPassRequirements {
+		return { gBuffer: ["color", "depth", "normal", "albedo"] };
+	}
+}

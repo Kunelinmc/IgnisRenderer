@@ -431,7 +431,7 @@ export class ReflectionRenderer {
 				enableLighting: context.features.enableLighting,
 				enableSH: context.features.enableSH,
 				enableShadows: context.features.enableShadows,
-				enableGamma: context.postProcess.enabled.gamma,
+				enableGamma: context.postProcess.isEnabled("gamma"),
 				enableReflection: context.features.enableReflection,
 				worldMatrix: context.worldMatrix,
 			},

@@ -14,19 +14,19 @@ export {
 } from "./ordering";
 export {
 	PostProcessPipeline,
-	getBuiltinPostProcessPasses,
 	getPostProcessRequirementChannels,
 	isPostProcessPassStage,
 } from "./PostProcessPipeline";
 export {
-	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+	FastApproximateAntiAliasingPass,
 	createFXAAKernelParams,
+	type FastApproximateAntiAliasingPassConfig,
 	type SoftwareFXAAContext,
 	type WebGPUFXAAContext,
 	type WebGLFXAAContext,
 } from "./passes/FastApproximateAntiAliasingPass";
 export {
-	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+	ScreenSpaceAmbientOcclusionPass,
 	SoftwareScreenSpaceAmbientOcclusionImplementation,
 	WebGPUScreenSpaceAmbientOcclusionImplementation,
 	WebGLScreenSpaceAmbientOcclusionImplementation,
@@ -34,32 +34,72 @@ export {
 	resolveSSAODownsample,
 	resolveSSAOOptions,
 	type ResolvedSSAOOptions,
+	type ScreenSpaceAmbientOcclusionPassConfig,
 	type SoftwareSSAOContext,
 	type WebGPUSSAOContext,
 	type WebGLSSAOContext,
 } from "./passes/ScreenSpaceAmbientOcclusionPass";
 export {
-	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
+	ScreenSpaceGlobalIlluminationPass,
 	WebGPUScreenSpaceGlobalIlluminationImplementation,
 	createSSGIKernelParams,
 	resolveSSGIOptions,
 	type ResolvedSSGIOptions,
+	type ScreenSpaceGlobalIlluminationPassConfig,
 	type WebGPUSSGIContext,
 } from "./passes/ScreenSpaceGlobalIlluminationPass";
 export {
-	SCREEN_SPACE_REFLECTIONS_PASS,
+	ScreenSpaceReflectionsPass,
 	createSSRTraceParams,
 	resolveSSRHistoryDescriptors,
 	resolveSSRHistoryValid,
 	resolveSSROptions,
 	type ResolvedSSROptions,
+	type ScreenSpaceReflectionsPassConfig,
 	type WebGPUSSRContext,
 } from "./passes/ScreenSpaceReflectionsPass";
 export {
-	TEMPORAL_ANTI_ALIASING_PASS,
+	TemporalAntiAliasingPass,
 	resolveTAAOptions,
 	type ResolvedTAAOptions,
+	type TemporalAntiAliasingPassConfig,
 } from "./passes/TemporalAntiAliasingPass";
+export {
+	BloomPass,
+	ColorFilterPass,
+	DepthOfFieldPass,
+	FogPass,
+	GammaPass,
+	InteractionOutlinePass,
+	MotionBlurPass,
+	ToneMappingPass,
+	VolumetricLightingPass,
+	type BloomPassConfig,
+	type ColorFilterPassConfig,
+	type DepthOfFieldPassConfig,
+	type FogPassConfig,
+	type MotionBlurPassConfig,
+	type VolumetricLightingPassConfig,
+} from "./passes/BuiltinFallbackPasses";
+export {
+	DEFAULT_POST_PROCESS_CAPABILITIES,
+	POST_PROCESS_PASS_IDS,
+	PostProcessPass,
+	PostProcessPassRegistry,
+	PostProcessPassRegistrySnapshot,
+	getEnabledCustomPostProcessPassIds,
+	getPostProcessWarningLabel,
+	hasEnabledCustomPostProcessPass,
+	isBuiltInPostProcessPassId,
+	type PostProcessCapabilities,
+	type PostProcessPassChange,
+	type PostProcessPassConfig,
+	type PostProcessPassId,
+	type PostProcessPassRegistryChange,
+	type PostProcessPassResolveRequest,
+	type PostProcessPassWarmupRequest,
+	type ResolvedPostProcessPass,
+} from "./PostProcessPass";
 export type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -73,7 +113,6 @@ export type {
 	PostProcessHistoryResolveRequest,
 	PostProcessHistorySlot,
 	PostProcessHistorySlots,
-	PostProcessPassDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassRequirements,

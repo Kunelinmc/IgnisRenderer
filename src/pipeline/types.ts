@@ -14,7 +14,7 @@ import type {
 } from "../core/types";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
-import type { ResolvedPostProcessState } from "./PostProcessController";
+import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;
@@ -185,7 +185,7 @@ export interface FrameContext {
 	readonly camera: Camera;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
-	readonly postProcess: ResolvedPostProcessState;
+	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;

@@ -73,21 +73,15 @@ export type {
 } from "./pipeline/types";
 export {
 	POST_PROCESS_PASS_IDS,
-	PostProcessController,
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
-	resolvePostProcessState,
 } from "./pipeline/PostProcessController";
 export type {
 	PostProcessCapabilities,
-	PostProcessControllerOptions,
 	PostProcessCustomPassDescriptor,
 	PostProcessOptionsMap,
 	PostProcessPassId,
-	PostProcessPassRegistry,
-	PostProcessPassRequest,
-	PostProcessRequest,
 	ResolvedPostProcessState,
 } from "./pipeline/PostProcessController";
 export * from "./postprocess";

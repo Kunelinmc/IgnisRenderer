@@ -12,6 +12,8 @@ import {
 	MeshInstance,
 	Logger,
 	DirectionalLight,
+	FastApproximateAntiAliasingPass,
+	ScreenSpaceGlobalIlluminationPass,
 } from "./index";
 
 async function init() {
@@ -106,7 +108,9 @@ async function createRenderer(
 	if (Platform.hasWebGPU()) {
 		renderer = new Renderer(new WebGPUBackend(), canvas, camera);
 		renderer.setScene(scene);
-		renderer.postProcess.enable("fxaa");
+		renderer.postProcess.registerPass(
+			new FastApproximateAntiAliasingPass({ enabled: true })
+		);
 		renderer.features.enableOIT = true;
 
 		try {
@@ -124,8 +128,12 @@ async function createRenderer(
 	try {
 		renderer = new Renderer(new WebGLBackend(), canvas, camera);
 		renderer.setScene(scene);
-		renderer.postProcess.enable("fxaa");
-		renderer.postProcess.enable("ssgi");
+		renderer.postProcess.registerPass(
+			new FastApproximateAntiAliasingPass({ enabled: true })
+		);
+		renderer.postProcess.registerPass(
+			new ScreenSpaceGlobalIlluminationPass({ enabled: true })
+		);
 		renderer.features.enableOIT = true;
 
 		await renderer.init();

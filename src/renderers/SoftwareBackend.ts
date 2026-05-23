@@ -1,9 +1,11 @@
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import {
+	DEFAULT_TAA_OPTIONS,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type DrawPacket,
 	type FrameContext,
 	type FramePass,
+	type TAAOptions,
 } from "../pipeline/types";
 import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import type { LogicalGBufferBridge } from "../postprocess";
@@ -435,15 +437,18 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _prepareTAARenderState(context: FrameContext): void {
+		const taaOptions =
+			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
+		const taaEnabled = context.postProcess.isEnabled("taa");
 		const jitter = this._temporalJitterState.next({
-			enabled: context.postProcess.enabled.taa,
+			enabled: taaEnabled,
 			isOrthographic: context.camera.type === CameraType.Orthographic,
 			width: context.attachments.width,
 			height: context.attachments.height,
-			jitterScale: context.postProcess.options.taa.jitterScale,
+			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
 			reset: context.incremental.temporalHistoryReset,
 		});
-		if (!context.postProcess.enabled.taa || context.incremental.temporalHistoryReset) {
+		if (!taaEnabled || context.incremental.temporalHistoryReset) {
 			this._previousViewProjection = null;
 			this._previousWorldMatrices.clear();
 		}

@@ -8,6 +8,11 @@ import { SH } from "../src/maths/SH.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { buildWarmupPlan } from "../src/pipeline/WarmupPlanner.ts";
 import {
+	BloomPass,
+	ColorFilterPass,
+	PostProcessPass,
+} from "../src/postprocess/index.ts";
+import {
 	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
@@ -362,23 +367,24 @@ async function testWarmupPostProcessPlanUsesPipelineOrder() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 
-		renderer.postProcess.disable("tonemap");
-		renderer.postProcess.disable("interaction-outline");
-		renderer.postProcess.disable("gamma");
-		renderer.postProcess.enable("bloom");
-		renderer.postProcess.enable("color-filter");
-		renderer.postProcess
-			.registerPass({
-				id: "custom-warmup-order",
-				placement: "overlay",
-				isEnabled(postProcess) {
-					return postProcess.enabled["custom-warmup-order"];
-				},
-				implementations: {
-					stub: {},
-				},
-			})
-			.enable("custom-warmup-order");
+		renderer.postProcess.getPass("tonemap")?.disable();
+		renderer.postProcess.getPass("gamma")?.disable();
+		renderer.postProcess.registerPass(new BloomPass({ enabled: true }));
+		renderer.postProcess.registerPass(new ColorFilterPass({ enabled: true }));
+		renderer.postProcess.registerPass(
+			new (class CustomWarmupPass extends PostProcessPass {
+				constructor() {
+					super({
+						id: "custom-warmup-order",
+						placement: "overlay",
+						enabled: true,
+						implementations: {
+							stub: {},
+						},
+					});
+				}
+			})()
+		);
 
 		await renderer.warmup({ includeEnvironmentIBLBake: false });
 
@@ -389,7 +395,6 @@ async function testWarmupPostProcessPlanUsesPipelineOrder() {
 			"bloom",
 			"color-filter",
 			"custom-warmup-order",
-			"gamma",
 		]);
 	} finally {
 		globalThis.window = originalWindow;

@@ -77,7 +77,7 @@ async function run() {
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableEnvironment = false;
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		await renderer.renderScene(0);
 		await renderer.renderScene(16);

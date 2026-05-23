@@ -142,7 +142,7 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -195,7 +195,7 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -238,7 +238,7 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;
@@ -303,7 +303,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 
 		const renderer = new Renderer(backend, TEST_CANVAS, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 		renderer.features.enableShadows = false;

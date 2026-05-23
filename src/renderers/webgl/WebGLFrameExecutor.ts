@@ -34,6 +34,7 @@ import {
 	DEFAULT_FOG_OPTIONS,
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
+	DEFAULT_TAA_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	type DrawPacket,
 	type BloomOptions,
@@ -44,16 +45,17 @@ import {
 	type FramePass,
 	type MotionBlurOptions,
 	type ParticleRenderBatch,
+	type SSAOOptions,
+	type TAAOptions,
 } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
+	PostProcessPass,
 	PostProcessPassRequest,
 	PostProcessPassResult,
-	PostProcessPassDescriptor,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import { getBuiltinPostProcessPasses } from "../../postprocess/PostProcessPipeline";
 import {
 	resolveSSAODownsample,
 	type WebGLSSAOContext,
@@ -310,8 +312,11 @@ export class WebGLFrameExecutor {
 		this._modelMatrixKeysThisFrame.clear();
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
+		const ssaoOptions =
+			context.postProcess.getOptions<SSAOOptions>("ssao") ??
+			DEFAULT_SSAO_OPTIONS;
 		const ssaoDownsample = resolveSSAODownsample(
-			context.postProcess.options.ssao.downsample
+			ssaoOptions.downsample
 		);
 		this._ensureFrameTargets(this._width, this._height, ssaoDownsample);
 		this._configureOIT(context);
@@ -344,19 +349,22 @@ export class WebGLFrameExecutor {
 			this._maxTextureSize
 		);
 		
+		const taaEnabled = context.postProcess.isEnabled("taa");
+		const taaOptions =
+			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
 		const temporalJitter = this._temporalJitterState.next({
-			enabled: context.postProcess.enabled.taa,
+			enabled: taaEnabled,
 			isOrthographic: context.camera.type === CameraType.Orthographic,
 			width: this._width,
 			height: this._height,
-			jitterScale: context.postProcess.options.taa.jitterScale,
+			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
 			reset: context.incremental.temporalHistoryReset,
 		});
 		this._taaJitter[0] = temporalJitter[0];
 		this._taaJitter[1] = temporalJitter[1];
 		this._taaJitter[2] = temporalJitter[2];
 		this._taaJitter[3] = temporalJitter[3];
-		if (!context.postProcess.enabled.taa) {
+		if (!taaEnabled) {
 			this._taaHistoryValid = false;
 		}
 		if (context.incremental.temporalHistoryReset) {
@@ -520,28 +528,28 @@ export class WebGLFrameExecutor {
 		const context = request.frameContext;
 		switch (passId) {
 			case "fog":
-				this._applyFog(context.postProcess.options.fog);
+				this._applyFog(request.options as FogOptions);
 				return { ran: true };
 			case "motion-blur":
-				this._applyMotionBlur(context.postProcess.options["motion-blur"]);
+				this._applyMotionBlur(request.options as MotionBlurOptions);
 				return { ran: true };
 			case "dof":
-				this._applyDOF(context.postProcess.options.dof);
+				this._applyDOF(request.options as DOFOptions);
 				return { ran: true };
 			case "bloom":
-				this._applyBloom(context.postProcess.options.bloom);
+				this._applyBloom(request.options as BloomOptions);
 				return { ran: true };
 			case "tonemap":
 				this._applyToneMapping();
 				return { ran: true };
 			case "color-filter":
-				this._applyColorFilter(context.postProcess.options["color-filter"]);
+				this._applyColorFilter(request.options as ColorFilterOptions);
 				return { ran: true };
 			case "interaction-outline":
 				this._applyInteractionOutline(context);
 				return { ran: true };
 			case "gamma":
-				this._present(context.postProcess.enabled.gamma);
+				this._present(context.postProcess.isEnabled("gamma"));
 				return { ran: true };
 			default:
 				return { ran: false };
@@ -660,7 +668,7 @@ export class WebGLFrameExecutor {
 
 	public endFrame(): void {
 		if (!this._presentedInFrame) {
-			this._present(this._activeContext?.postProcess.enabled.gamma !== false);
+			this._present(this._activeContext?.postProcess.isEnabled("gamma") !== false);
 		}
 		this._pruneModelMatrixCache();
 		this._activeContext = null;
@@ -803,18 +811,33 @@ export class WebGLFrameExecutor {
 			if (warmedPassImplementations.has(passId)) {
 				continue;
 			}
-			const implementation = descriptorById.get(passId)?.implementations.webgl;
+			const implementation = descriptorById.get(passId)?.getImplementation("webgl");
 			if (typeof implementation?.warmup !== "function") {
 				continue;
 			}
 			warmedPassImplementations.add(passId);
 			compile(`WebGLPostWarmup:${passId}`, () => {
-				implementation.warmup?.(this._getPassWarmupExecutionContext(passId));
+				implementation.warmup?.(
+					this._getPassWarmupExecutionContext(passId),
+					{
+						frameContext: context,
+						postProcess: context.postProcess,
+						backend: "webgl",
+						context: this._getPassWarmupExecutionContext(passId),
+						options:
+							context.postProcess.getOptions(passId) ??
+							descriptorById.get(passId)?.normalizeOptions({
+								frameContext: context,
+								postProcess: context.postProcess,
+								backend: "webgl",
+							}),
+					}
+				);
 			});
 		}
 
 		if (
-			context.postProcess.enabled.gamma &&
+			context.postProcess.isEnabled("gamma") &&
 			!plan.postProcessPasses.includes("gamma")
 		) {
 			compile("WebGLPresentProgram", () => {
@@ -834,10 +857,10 @@ export class WebGLFrameExecutor {
 
 	private _getWarmupPostProcessDescriptorMap(
 		context: FrameContext
-	): Map<string, PostProcessPassDescriptor> {
+	): Map<string, PostProcessPass> {
 		const descriptors =
 			context.transient?.get(WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY) ??
-			getBuiltinPostProcessPasses();
+			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
 	}
 

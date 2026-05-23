@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Logger } from "../src/foundation/Logger.ts";
-import { SCREEN_SPACE_REFLECTIONS_PASS } from "../src/postprocess/index.ts";
+import { ScreenSpaceReflectionsPass } from "../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -8,6 +8,8 @@ import {
 	createTexture,
 } from "./helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
+
+const SSR_PASS = new ScreenSpaceReflectionsPass({ enabled: true });
 
 function createTemporalTargets(width = 32, height = 16) {
 	return {
@@ -40,7 +42,6 @@ function createTemporalTargets(width = 32, height = 16) {
 }
 
 function createSSRPassRequest(frameContext, targets, historyValid = true) {
-	const implementation = SCREEN_SPACE_REFLECTIONS_PASS.implementations.webgpu;
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -57,10 +58,9 @@ function createSSRPassRequest(frameContext, targets, historyValid = true) {
 				write: { resource: targets.motionHistoryWrite },
 			},
 		},
-		pass: SCREEN_SPACE_REFLECTIONS_PASS,
+		pass: SSR_PASS,
 		passId: "ssr",
-		implementation,
-		options: frameContext.postProcess.options.ssr,
+		options: frameContext.postProcess.getOptions("ssr"),
 		startPassId: null,
 	};
 }
@@ -81,7 +81,6 @@ async function executeSSRImplementation(
 		:	{ label: "frame-binding" };
 	let published = null;
 	let motionWrites = 0;
-	const implementation = SCREEN_SPACE_REFLECTIONS_PASS.implementations.webgpu;
 	const request = createSSRPassRequest(frameContext, targets, historyValid);
 	const context = {
 		encoder: new FakeEncoder(backend),
@@ -96,7 +95,10 @@ async function executeSSRImplementation(
 			motionWrites++;
 		},
 	};
-	const result = await implementation.execute(request, context);
+	const result = await request.pass.getImplementation("webgpu").execute(
+		request,
+		context
+	);
 	return { result, published, motionWrites };
 }
 

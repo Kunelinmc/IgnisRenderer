@@ -1,4 +1,3 @@
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import {
 	DEFAULT_TAA_OPTIONS,
 	defineTransientKey,
@@ -24,12 +23,14 @@ import {
 	reprojectHistoryUv,
 } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type {
-	PostProcessPassDescriptor,
+	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessHistorySlots,
+	PostProcessPassRequirements,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
@@ -211,10 +212,6 @@ export function createTAAKernelParams(
 	]);
 }
 
-function enabled(state: ResolvedPostProcessState): boolean {
-	return state.enabled.taa === true;
-}
-
 /**
  * CPU implementation of the cross-backend temporal anti-aliasing pass.
  */
@@ -258,7 +255,7 @@ export class SoftwareTemporalAntiAliasingImplementation
 			return false;
 		}
 
-		const options = resolveTAAOptions(request.frameContext.postProcess.options.taa);
+		const options = resolveTAAOptions(request.options as TAAOptions);
 		const historyValid = resolveTAAHistoryValid(request.histories);
 		const source = new Uint8ClampedArray(pixels);
 		const invW = 1 / Math.max(1, width);
@@ -424,7 +421,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 		const params = createTAAKernelParams(
 			target.width,
 			target.height,
-			request.frameContext.postProcess.options.taa,
+			request.options as TAAOptions,
 			resolveTAAHistoryValid(request.histories)
 		);
 		context.shared.compute.writeBuffer(
@@ -550,7 +547,7 @@ export class WebGLTemporalAntiAliasingImplementation
 			return { ran: false };
 		}
 
-		const options = resolveTAAOptions(request.frameContext.postProcess.options.taa);
+		const options = resolveTAAOptions(request.options as TAAOptions);
 		const program = context.programs.getTAAProgram();
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		gl.framebufferTexture2D(
@@ -658,21 +655,47 @@ export class WebGLTemporalAntiAliasingImplementation
 	}
 }
 
-export const TEMPORAL_ANTI_ALIASING_PASS: PostProcessPassDescriptor = {
-	id: "taa",
-	placement: "temporal",
-	requirements: { gBuffer: ["motion"] },
-	history: [
-		{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-		{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-	],
-	isEnabled: enabled,
-	implementations: {
-		software: new SoftwareTemporalAntiAliasingImplementation(),
-		webgpu: new WebGPUTemporalAntiAliasingImplementation(),
-		webgl: new WebGLTemporalAntiAliasingImplementation(),
-	},
-};
+export interface TemporalAntiAliasingPassConfig
+	extends Omit<
+		PostProcessPassConfig<TAAOptions>,
+		"id" | "placement" | "implementations"
+	> {}
+
+/**
+ * Stateful logical temporal anti-aliasing pass shared by all rendering backends.
+ */
+export class TemporalAntiAliasingPass extends PostProcessPass<
+	TAAOptions,
+	ResolvedTAAOptions
+> {
+	public constructor(config: TemporalAntiAliasingPassConfig = {}) {
+		super({
+			...config,
+			id: "taa",
+			placement: "temporal",
+			implementations: {
+				software: new SoftwareTemporalAntiAliasingImplementation(),
+				webgpu: new WebGPUTemporalAntiAliasingImplementation(),
+				webgl: new WebGLTemporalAntiAliasingImplementation(),
+			},
+		});
+	}
+
+	public override normalizeOptions(): ResolvedTAAOptions {
+		return resolveTAAOptions(this.getRawOptions());
+	}
+
+	public override getRequirements(): PostProcessPassRequirements {
+		return { gBuffer: ["motion"] };
+	}
+
+	public override getHistoryDescriptors(): readonly PostProcessHistoryDescriptor[] {
+		return [
+			{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
+			{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
+		];
+	}
+}
 
 function samplePixel(
 	pixels: Uint8ClampedArray,

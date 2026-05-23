@@ -1,13 +1,18 @@
-import type { DrawPacket, FrameContext, FramePass } from "../../pipeline/types";
+import type {
+	DrawPacket,
+	FrameContext,
+	FramePass,
+	SSAOOptions,
+	SSROptions,
+} from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
+	PostProcessPass,
 	PostProcessPassRequest,
 	PostProcessPassResult,
-	PostProcessPassDescriptor,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import { getBuiltinPostProcessPasses } from "../../postprocess/PostProcessPipeline";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
@@ -332,11 +337,17 @@ export class WebGPUFrameExecutor {
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
 		if (this._mrtEnabled) {
+			const ssaoOptions =
+				context.postProcess.getOptions<SSAOOptions>("ssao") ??
+				DEFAULT_SSAO_OPTIONS;
+			const ssrOptions =
+				context.postProcess.getOptions<SSROptions>("ssr") ??
+				DEFAULT_SSR_OPTIONS;
 			const ssaoDownsample = resolveSSAODownsample(
-				context.postProcess.options.ssao.downsample
+				ssaoOptions.downsample
 			);
 			const ssrDownsample = clampDownsample(
-				context.postProcess.options.ssr.downsample,
+				ssrOptions.downsample,
 				DEFAULT_SSR_OPTIONS.downsample
 			);
 			this._ensureFrameTargets(
@@ -472,6 +483,7 @@ export class WebGPUFrameExecutor {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					frameContext: request.frameContext,
+					options: request.options,
 				} as WebGPUPostProcessExecuteRequest);
 				return { ran: true };
 			}
@@ -487,6 +499,7 @@ export class WebGPUFrameExecutor {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					frameContext: request.frameContext,
+					options: request.options,
 					state: interaction,
 				} as WebGPUPostProcessExecuteRequest);
 				return { ran: true };
@@ -497,6 +510,7 @@ export class WebGPUFrameExecutor {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					frameContext: request.frameContext,
+					options: request.options,
 					historyValid:
 						(request.histories.volumetric?.valid ?? false) &&
 						(request.histories.motion?.valid ?? false),
@@ -517,7 +531,7 @@ export class WebGPUFrameExecutor {
 			case "gamma":
 				await this._presentToCanvas(
 					this._frameTargets.sceneColor,
-					request.frameContext.postProcess.enabled.gamma
+					request.frameContext.postProcess.isEnabled("gamma")
 				);
 				return { ran: true };
 			default:
@@ -700,7 +714,7 @@ export class WebGPUFrameExecutor {
 			}
 			const implementation = descriptorById
 				.get(passId)
-				?.implementations.webgpu;
+				?.getImplementation("webgpu");
 			if (typeof implementation?.warmup !== "function") {
 				continue;
 			}
@@ -708,7 +722,20 @@ export class WebGPUFrameExecutor {
 			total++;
 			try {
 				await implementation.warmup(
-					this._getPassWarmupExecutionContext(passId)
+					this._getPassWarmupExecutionContext(passId),
+					{
+						frameContext: context,
+						postProcess: context.postProcess,
+						backend: "webgpu",
+						context: this._getPassWarmupExecutionContext(passId),
+						options:
+							context.postProcess.getOptions(passId) ??
+							descriptorById.get(passId)?.normalizeOptions({
+								frameContext: context,
+								postProcess: context.postProcess,
+								backend: "webgpu",
+							}),
+					}
 				);
 				compiled++;
 			} catch (error) {
@@ -735,10 +762,10 @@ export class WebGPUFrameExecutor {
 
 	private _getWarmupPostProcessDescriptorMap(
 		context: FrameContext
-	): Map<string, PostProcessPassDescriptor> {
+	): Map<string, PostProcessPass> {
 		const descriptors =
 			context.transient?.get(WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY) ??
-			getBuiltinPostProcessPasses();
+			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
 	}
 
@@ -835,7 +862,7 @@ export class WebGPUFrameExecutor {
 		if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
 			await this._presentToCanvas(
 				this._frameTargets.sceneColor,
-				this._frameContext?.postProcess.enabled.gamma !== false
+				this._frameContext?.postProcess.isEnabled("gamma") !== false
 			);
 		}
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
 	PostProcessPipeline,
-	TEMPORAL_ANTI_ALIASING_PASS,
+	TemporalAntiAliasingPass,
 } from "../src/postprocess/index.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
@@ -133,14 +133,15 @@ function createGBuffer(context) {
 }
 
 async function testTAADescriptorAndImplementationRoute() {
-	assert.equal(TEMPORAL_ANTI_ALIASING_PASS.id, "taa");
-	assert.deepEqual(TEMPORAL_ANTI_ALIASING_PASS.requirements.gBuffer, ["motion"]);
+	const pass = new TemporalAntiAliasingPass({ enabled: true });
+	assert.equal(pass.id, "taa");
+	assert.deepEqual(pass.getRequirements({}).gBuffer, ["motion"]);
 	assert.deepEqual(
-		TEMPORAL_ANTI_ALIASING_PASS.history.map((history) => history.id),
+		pass.getHistoryDescriptors({}).map((history) => history.id),
 		["taa", "motion"]
 	);
 	assert.equal(
-		typeof TEMPORAL_ANTI_ALIASING_PASS.implementations.software.execute,
+		typeof pass.getImplementation("software").execute,
 		"function"
 	);
 

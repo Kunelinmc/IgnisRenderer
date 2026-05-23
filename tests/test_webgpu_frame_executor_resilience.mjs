@@ -236,7 +236,7 @@ function createPlanarReflectionResourcesStub() {
 		prepareFrame(context) {
 			state.prepareContexts.push(context);
 			state.events.push(
-				`prepare:reflection:${context.features.enableReflection}:ssr:${context.postProcess.enabled.ssr}:opaque:${context.scene.opaquePackets.map((packet) => packet.id).join(",")}`
+				`prepare:reflection:${context.features.enableReflection}:ssr:${context.postProcess.isEnabled("ssr")}:opaque:${context.scene.opaquePackets.map((packet) => packet.id).join(",")}`
 			);
 		},
 		async buildClusteredLighting() {

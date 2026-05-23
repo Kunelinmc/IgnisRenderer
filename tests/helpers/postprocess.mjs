@@ -1,4 +1,21 @@
-import { resolvePostProcessState } from "../../src/pipeline/PostProcessController.ts";
+import {
+	BloomPass,
+	ColorFilterPass,
+	DepthOfFieldPass,
+	FastApproximateAntiAliasingPass,
+	FogPass,
+	GammaPass,
+	InteractionOutlinePass,
+	MotionBlurPass,
+	PostProcessPass,
+	PostProcessPassRegistry,
+	ScreenSpaceAmbientOcclusionPass,
+	ScreenSpaceGlobalIlluminationPass,
+	ScreenSpaceReflectionsPass,
+	TemporalAntiAliasingPass,
+	ToneMappingPass,
+	VolumetricLightingPass,
+} from "../../src/index.ts";
 
 export const ALL_POST_PROCESS_CAPABILITIES = {
 	ssao: true,
@@ -33,6 +50,59 @@ export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	"interaction-outline": { enabled: true },
 	gamma: { enabled: true },
 };
+
+const BUILTIN_PASS_FACTORIES = {
+	ssao: (config) => new ScreenSpaceAmbientOcclusionPass(config),
+	ssgi: (config) => new ScreenSpaceGlobalIlluminationPass(config),
+	taa: (config) => new TemporalAntiAliasingPass(config),
+	ssr: (config) => new ScreenSpaceReflectionsPass(config),
+	volumetric: (config) => new VolumetricLightingPass(config),
+	fog: (config) => new FogPass(config),
+	"motion-blur": (config) => new MotionBlurPass(config),
+	dof: (config) => new DepthOfFieldPass(config),
+	bloom: (config) => new BloomPass(config),
+	tonemap: (config) => new ToneMappingPass(config),
+	"color-filter": (config) => new ColorFilterPass(config),
+	fxaa: (config) => new FastApproximateAntiAliasingPass(config),
+	"interaction-outline": (config) => new InteractionOutlinePass(config),
+	gamma: (config) => new GammaPass(config),
+};
+
+class NoopCustomPostProcessPass extends PostProcessPass {
+	constructor(id, request, backendType) {
+		super({
+			id,
+			placement: request?.placement,
+			order: request?.order,
+			enabled: request?.enabled === true,
+			options: request?.options ?? {},
+			incremental: request?.incremental,
+			implementations: {
+				[backendType]: request?.implementation ?? {},
+			},
+		});
+	}
+}
+
+export function createPostProcessRegistryFromRequest(
+	request = {},
+	backendType = "test"
+) {
+	const registry = new PostProcessPassRegistry();
+	for (const [id, value] of Object.entries(request)) {
+		const passRequest =
+			value && typeof value === "object" ? value : { enabled: value === true };
+		const factory = BUILTIN_PASS_FACTORIES[id];
+		if (factory) {
+			registry.registerPass(factory(passRequest));
+		} else {
+			registry.registerPass(
+				new NoopCustomPostProcessPass(id, passRequest, backendType)
+			);
+		}
+	}
+	return registry;
+}
 
 export function createNoopPostProcessSupport(
 	backend = "test",
@@ -157,7 +227,10 @@ export function createResolvedPostProcess(
 	capabilities = ALL_POST_PROCESS_CAPABILITIES,
 	backendType = "test"
 ) {
-	return resolvePostProcessState(request, capabilities, backendType);
+	return createPostProcessRegistryFromRequest(request, backendType).createSnapshot(
+		capabilities,
+		backendType
+	);
 }
 
 export function createAllEnabledPostProcess(
@@ -165,7 +238,7 @@ export function createAllEnabledPostProcess(
 	capabilities = ALL_POST_PROCESS_CAPABILITIES,
 	backendType = "test"
 ) {
-	return resolvePostProcessState(
+	return createResolvedPostProcess(
 		{
 			...ALL_ENABLED_POST_PROCESS_REQUEST,
 			...request,

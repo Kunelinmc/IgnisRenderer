@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import {
-	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
-	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
-	TEMPORAL_ANTI_ALIASING_PASS,
+	FastApproximateAntiAliasingPass,
+	ScreenSpaceAmbientOcclusionPass,
+	TemporalAntiAliasingPass,
 } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
@@ -299,19 +299,19 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 		),
 		transient: new Map(),
 	};
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 	const request = {
 		frameContext,
 		postProcess: frameContext.postProcess,
 		gBuffer: {},
 		histories: {},
-		pass: FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+		pass,
 		passId: "fxaa",
-		implementation: FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgl,
-		options: frameContext.postProcess.options.fxaa,
+		options: frameContext.postProcess.getOptions("fxaa"),
 		startPassId: null,
 	};
 	const context = executor.getPassExecutionContext("fxaa", request);
-	const result = FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgl.execute(
+	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
 	);
@@ -400,6 +400,7 @@ function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 		}),
 		transient: new Map(),
 	};
+	const pass = new TemporalAntiAliasingPass({ enabled: true });
 	const request = {
 		frameContext,
 		histories: {},
@@ -722,6 +723,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 		),
 		transient: new Map(),
 	};
+	const pass = new TemporalAntiAliasingPass({ enabled: true });
 	const request = {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -738,14 +740,13 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 				write: { resource: { id: "motion-b" } },
 			},
 		},
-		pass: TEMPORAL_ANTI_ALIASING_PASS,
+		pass,
 		passId: "taa",
-		implementation: TEMPORAL_ANTI_ALIASING_PASS.implementations.webgl,
-		options: frameContext.postProcess.options.taa,
+		options: frameContext.postProcess.getOptions("taa"),
 		startPassId: null,
 	};
 	const context = executor.getPassExecutionContext("taa", request);
-	const result = TEMPORAL_ANTI_ALIASING_PASS.implementations.webgl.execute(
+	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
 	);
@@ -842,20 +843,20 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		}),
 	};
 
+	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
 	const request = {
 		frameContext: context,
 		postProcess: context.postProcess,
 		gBuffer: {},
 		histories: {},
-		pass: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+		pass,
 		passId: "ssao",
-		implementation: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgl,
-		options: context.postProcess.options.ssao,
+		options: context.postProcess.getOptions("ssao"),
 		startPassId: null,
 	};
 	const passContext = executor.getPassExecutionContext("ssao", request);
 	const result =
-		SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgl.execute(
+		pass.getImplementation("webgl").execute(
 			request,
 			passContext
 		);
@@ -1081,7 +1082,9 @@ function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 				enableOIT: false,
 			},
 			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
 				gamma: { enabled: true },
+				bloom: { enabled: true },
 			}),
 		},
 		{

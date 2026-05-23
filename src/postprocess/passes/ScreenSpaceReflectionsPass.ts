@@ -1,5 +1,4 @@
 import { CameraType } from "../../cameras/Camera";
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import {
 	DEFAULT_SSR_OPTIONS,
 	type SSROptions,
@@ -18,14 +17,18 @@ import { WebGPUHiZPostProcessHelper } from "../../renderers/webgpu/postprocess/H
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import {
+	PostProcessPass,
+	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
+} from "../PostProcessPass";
 import type {
 	PostProcessHistoryDescriptor,
-	PostProcessHistoryResolveRequest,
 	PostProcessHistorySlots,
-	PostProcessPassDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassRequirements,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
@@ -161,9 +164,9 @@ export function createSSRTraceParams(
  * @sideEffects None.
  */
 export function resolveSSRHistoryDescriptors(
-	request: PostProcessHistoryResolveRequest
+	request: PostProcessPassResolveRequest<ResolvedSSROptions>
 ): readonly PostProcessHistoryDescriptor[] {
-	const options = resolveSSROptions(request.postProcess.options.ssr);
+	const options = resolveSSROptions(request.options);
 	const scale = 1 / options.downsample;
 	return [
 		{
@@ -174,10 +177,6 @@ export function resolveSSRHistoryDescriptors(
 		},
 		{ id: "motion", usage: MOTION_HISTORY_USAGE },
 	];
-}
-
-function enabled(state: ResolvedPostProcessState): boolean {
-	return state.enabled.ssr === true;
 }
 
 /**
@@ -241,7 +240,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			return false;
 		}
 		resources.frameIndex = (resources.frameIndex + 1) % 1024;
-		const options = resolveSSROptions(request.frameContext.postProcess.options.ssr);
+		const options = resolveSSROptions(request.options as SSROptions);
 		context.shared.compute.writeBuffer(
 			resources.traceParams,
 			createSSRTraceParams(
@@ -483,16 +482,44 @@ export class WebGPUScreenSpaceReflectionsImplementation
 	}
 }
 
-export const SCREEN_SPACE_REFLECTIONS_PASS: PostProcessPassDescriptor = {
-	id: "ssr",
-	placement: "temporal",
-	requirements: { gBuffer: ["depth", "normal", "motion"] },
-	resolveHistory: resolveSSRHistoryDescriptors,
-	isEnabled: enabled,
-	implementations: {
-		webgpu: new WebGPUScreenSpaceReflectionsImplementation(),
-	},
-};
+export interface ScreenSpaceReflectionsPassConfig
+	extends Omit<
+		PostProcessPassConfig<SSROptions>,
+		"id" | "placement" | "implementations"
+	> {}
+
+/**
+ * Stateful logical screen-space reflections pass.
+ */
+export class ScreenSpaceReflectionsPass extends PostProcessPass<
+	SSROptions,
+	ResolvedSSROptions
+> {
+	public constructor(config: ScreenSpaceReflectionsPassConfig = {}) {
+		super({
+			...config,
+			id: "ssr",
+			placement: "temporal",
+			implementations: {
+				webgpu: new WebGPUScreenSpaceReflectionsImplementation(),
+			},
+		});
+	}
+
+	public override normalizeOptions(): ResolvedSSROptions {
+		return resolveSSROptions(this.getRawOptions());
+	}
+
+	public override getRequirements(): PostProcessPassRequirements {
+		return { gBuffer: ["depth", "normal", "motion"] };
+	}
+
+	public override getHistoryDescriptors(
+		request: PostProcessPassResolveRequest<ResolvedSSROptions>
+	): readonly PostProcessHistoryDescriptor[] {
+		return resolveSSRHistoryDescriptors(request);
+	}
+}
 
 function clampDownsample(value: unknown, fallback: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) {

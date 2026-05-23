@@ -1,83 +1,76 @@
 # Post-Process Public API Migration Contract
 ## Scope
-This document defines the breaking migration from backend-specific post-process plugin APIs to the cross-backend logical post-process API.
+This document defines the breaking migration from request-map post-processing to pass-owned post-processing.
 
 ## Background
-Post-process pass registration previously flowed through backend-owned WebGPU and WebGL graph registries. The renderer now owns a single public `postprocess` frame stage, and `PostProcessPipeline` owns logical pass ordering, G-buffer requirements, history handles, and history validity. Backends implement `PostProcessBackendSupport` directly through `postProcessCapabilities`, `postProcessExecutor`, and `createPostProcessGBufferBridge(context)`.
+Post-process state previously lived in `renderer.postProcess` as enable and option maps. The renderer now exposes `PostProcessPassRegistry` as a registry and lookup surface. Each `PostProcessPass` instance owns enabled state, raw options, option normalization, requirements, history descriptors, warmup metadata, backend implementation selection, execution, invalidation, and destruction.
 
 ## API/Contract
-- `Renderer.features` must contain only non-post-process feature requests.
-- `RendererFeatureRequest` must not expose post-process enable flags or pass option fields.
-- `renderer.postProcess.enable(id, options)` must enable a built-in or registered logical post-process pass and merge pass options.
-- `renderer.postProcess.disable(id)` must disable a built-in or registered logical post-process pass.
-- `renderer.postProcess.setOptions(id, options)` must merge pass options without enabling the pass.
-- `renderer.postProcess.reset(id)` must reset one pass to default request state.
-- `renderer.postProcess.reset()` must reset all post-process request state.
-- `renderer.postProcess.getState()` must return a cloned `PostProcessRequest`.
-- `renderer.postProcess.registerPass(pass)` must register a `PostProcessPassDescriptor`.
-- `renderer.postProcess.unregisterPass(id)` must remove the logical descriptor and any stored request state for `id`.
-- A custom `PostProcessPassDescriptor` must declare backend implementations through `implementations`.
-- A custom `PostProcessPassDescriptor` should declare `placement` instead of pass dependencies.
-- A custom `PostProcessPassDescriptor` may declare static temporal resources through `history`.
-- A custom `PostProcessPassDescriptor` may declare dynamic temporal resources through `resolveHistory(request)`.
-- `PostProcessPassDescriptor.resolveHistory(request)` must replace `history` for the current frame when both are present.
-- A custom pass without an implementation for the active `IPostProcessExecutor.backend` must be treated as unsupported for that backend.
-- `PostProcessBackendSupport` must expose only `postProcessCapabilities`, `postProcessExecutor`, and `createPostProcessGBufferBridge(context)`.
-- `PostProcessBackendSupport` must not expose `registerPass` or `unregisterPass`.
-- `FrameContext.postProcess` must contain the resolved `ResolvedPostProcessState` for the current frame.
-- `BackendCapabilities` must not expose post-process capability fields.
-- `backend.postProcessCapabilities` must expose `PostProcessCapabilities`.
-- `IRenderBackend` must implement `PostProcessBackendSupport` directly.
-- Default enabled passes must be `tonemap`, `gamma`, and `interaction-outline`.
-- Unsupported explicit enables must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
+- `renderer.postProcess` must be a `PostProcessPassRegistry`.
+- `renderer.postProcess.registerPass(pass)` must accept only `PostProcessPass` instances.
+- `renderer.postProcess.unregisterPass(id)` must remove the registered pass for `id`.
+- `renderer.postProcess.getPass(id)` must return the registered pass instance or `null`.
+- `renderer.postProcess.getPasses()` must return registered pass instances.
+- `renderer.postProcess` must not expose `enable`, `disable`, `setOptions`, `reset`, or `getState`.
+- Pass mutation must use `pass.enable(options)`, `pass.disable()`, `pass.setEnabled(enabled)`, `pass.setOptions(options)`, or `pass.resetOptions()`.
+- `Renderer` must auto-register only `ToneMappingPass` and `GammaPass`, both enabled by default.
+- Other built-in passes must be explicitly registered before they can run.
+- `FrameContext.postProcess` must be a `PostProcessPassRegistrySnapshot`.
+- Snapshot consumers must use `postProcess.isEnabled(id)` and `postProcess.getOptions(id)`.
+- Snapshot consumers must not use `postProcess.enabled` or `postProcess.options` maps.
+- `PostProcessPipeline` must execute enabled snapshot passes in built-in placement order and custom placement order.
+- Built-in pass classes must expose pass-owned normalization, requirements, history descriptors, and implementations when migrated.
+- Backends must expose `postProcessCapabilities`, `postProcessExecutor`, and `createPostProcessGBufferBridge(context)`.
+- Backends must not expose public post-process graph registration APIs.
+- Unsupported enabled built-in passes must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
 
 ## Usage
 ```ts
-renderer.postProcess.enable("ssao", {
-	radius: 6,
-	intensity: 1.2,
+import {
+	GammaPass,
+	ScreenSpaceAmbientOcclusionPass,
+	ToneMappingPass,
+} from "ignisrenderer";
+
+const ssao = new ScreenSpaceAmbientOcclusionPass({
+	enabled: true,
+	options: { samples: 24, radius: 3 },
 });
-renderer.postProcess.setOptions("fog", {
-	application: "scene",
-	density: 0.02,
-});
-renderer.postProcess.enable("fog");
-renderer.postProcess.disable("gamma");
+
+renderer.postProcess.registerPass(ssao);
+ssao.setOptions({ radius: 4 });
+ssao.disable();
+
+renderer.postProcess.getPass<GammaPass>("gamma")?.disable();
+renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable();
 ```
 
 ```ts
-import type { PostProcessPassDescriptor } from "ignisrenderer";
+import { PostProcessPass } from "ignisrenderer";
 
-const customEdgePass: PostProcessPassDescriptor = {
-	id: "custom-edge",
-	placement: "ldr",
-	order: 5,
-	incremental: {
-		firstPass: "custom-edge",
-		grade: "light",
-		inflationRadius: 2,
-	},
-	isEnabled(state) {
-		return state.enabled["custom-edge"] === true;
-	},
-	implementations: {
-		webgpu: { id: "custom-edge" },
-		webgl: { id: "custom-edge" },
-		software: { id: "custom-edge" },
-	},
-};
+class CustomEdgePass extends PostProcessPass<
+	{ strength?: number },
+	{ strength: number }
+> {
+	public constructor() {
+		super({
+			id: "custom-edge",
+			placement: "ldr",
+			order: 5,
+			enabled: true,
+			options: { strength: 0.75 },
+			implementations: {
+				webgpu: { id: "custom-edge:webgpu" },
+			},
+		});
+	}
 
-renderer.postProcess.registerPass(customEdgePass);
-renderer.postProcess.enable("custom-edge", {
-	strength: 0.75,
-});
-```
-
-```ts
-const supportsSSR = renderer.backend.postProcessCapabilities.ssr;
-if (supportsSSR) {
-	renderer.postProcess.enable("ssr");
+	public override normalizeOptions(): { strength: number } {
+		return { strength: this.getRawOptions().strength ?? 0.75 };
+	}
 }
+
+renderer.postProcess.registerPass(new CustomEdgePass());
 ```
 
 ```bash
@@ -85,34 +78,27 @@ bun tests/test_postprocess_public_api.mjs
 ```
 
 ## Errors & Diagnostics
-- `"<backend>-postprocess-unsupported-<passId>"` must be emitted when `renderer.postProcess.enable(passId)` requests a pass unsupported by `backend.postProcessCapabilities`.
-- `renderer.postProcess.enable(id)` must throw `Unknown post-process pass "<id>".` when `id` is neither a built-in pass id nor a registered custom pass id.
-- `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is empty.
-- `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is a built-in pass id.
+- `renderer.postProcess.registerPass(pass)` must throw when `pass` is not a `PostProcessPass`.
 - `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
+- `"<backend>-postprocess-unsupported-<passId>"` must be emitted when an enabled built-in pass is not supported by `backend.postProcessCapabilities`.
+- `postprocess-history-conflict-<historyId>` must be emitted when enabled passes request incompatible descriptors for the same history id.
 - A backend that omits `postProcessExecutor` or `createPostProcessGBufferBridge(context)` violates `IRenderBackend` and must not be used with `Renderer`.
-- Invalid option values must be handled by the pass implementation according to that pass contract.
 
 ## Compatibility / Breaking Changes
-- `renderer.features.enableSSAO = true` must migrate to `renderer.postProcess.enable("ssao")`.
-- `renderer.features.enableSSGI = true` must migrate to `renderer.postProcess.enable("ssgi")`.
-- `renderer.features.enableTAA = true` must migrate to `renderer.postProcess.enable("taa")`.
-- `renderer.features.enableSSR = true` must migrate to `renderer.postProcess.enable("ssr")`.
-- `renderer.features.enableVolumetric = true` must migrate to `renderer.postProcess.enable("volumetric")`.
-- `renderer.features.enableFog = true` must migrate to `renderer.postProcess.enable("fog")`.
-- `renderer.features.enableMotionBlur = true` must migrate to `renderer.postProcess.enable("motion-blur")`.
-- `renderer.features.enableDOF = true` must migrate to `renderer.postProcess.enable("dof")`.
-- `renderer.features.enableBloom = true` must migrate to `renderer.postProcess.enable("bloom")`.
-- `renderer.features.enableToneMapping = false` must migrate to `renderer.postProcess.disable("tonemap")`.
-- `renderer.features.enableColorFilter = true` must migrate to `renderer.postProcess.enable("color-filter")`.
-- `renderer.features.enableFXAA = true` must migrate to `renderer.postProcess.enable("fxaa")`.
-- `renderer.features.enableGamma = false` must migrate to `renderer.postProcess.disable("gamma")`.
-- `renderer.features.<pass>Options = options` must migrate to `renderer.postProcess.setOptions("<pass>", options)` or `renderer.postProcess.enable("<pass>", options)`.
-- `backend.capabilities.<postProcessField>` must migrate to `backend.postProcessCapabilities.<postProcessField>`.
-- `backend.postProcess` is removed.
-- `backend.postProcess.registerPass(pass)` and `backend.postProcess.unregisterPass(id)` are removed.
-- `RenderBackendPostProcessSupport` is removed. Code must use `PostProcessBackendSupport`.
-- `RenderBackendPostProcessPass` is removed. Code must use `PostProcessPassDescriptor`.
-- `WebGPUPostProcessPassPlugin` and `WebGLPostProcessPassPlugin` are removed from the public API.
-- `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
-- `PostProcessPassDescriptor.resolveHistory(request)` is added for passes whose history dimensions or usage depend on frame state or resolved options.
+- Plain object pass descriptors are no longer accepted.
+- `PostProcessPassDescriptor` is removed.
+- `PostProcessController` is removed.
+- `resolvePostProcessState()` is removed.
+- `renderer.postProcess.enable(id, options)` is removed; construct or look up a pass and call `pass.enable(options)`.
+- `renderer.postProcess.disable(id)` is removed; call `renderer.postProcess.getPass(id)?.disable()`.
+- `renderer.postProcess.setOptions(id, options)` is removed; call `renderer.postProcess.getPass(id)?.setOptions(options)`.
+- `renderer.postProcess.reset(id)` and `renderer.postProcess.reset()` are removed.
+- `renderer.postProcess.getState()` is removed.
+- Only `tonemap` and `gamma` are auto-registered.
+- `FrameContext.postProcess.enabled` and `FrameContext.postProcess.options` are removed.
+- `renderer.features.enableSSAO = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceAmbientOcclusionPass({ enabled: true }))`.
+- `renderer.features.enableSSGI = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({ enabled: true }))`.
+- `renderer.features.enableTAA = true` must migrate to `renderer.postProcess.registerPass(new TemporalAntiAliasingPass({ enabled: true }))`.
+- `renderer.features.enableSSR = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceReflectionsPass({ enabled: true }))`.
+- `renderer.features.enableFXAA = true` must migrate to `renderer.postProcess.registerPass(new FastApproximateAntiAliasingPass({ enabled: true }))`.
+- `renderer.features.enableGamma = false` must migrate to `renderer.postProcess.getPass("gamma")?.disable()`.

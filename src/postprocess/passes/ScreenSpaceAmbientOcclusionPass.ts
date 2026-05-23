@@ -7,7 +7,6 @@ import {
 	type FrameContext,
 	type SSAOOptions,
 } from "../../pipeline/types";
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -21,11 +20,12 @@ import type { PostProcessSharedContext } from "../../renderers/webgpu/postproces
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { ceilDiv } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type {
-	PostProcessPassDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassRequirements,
 } from "../types";
 
 const WORKGROUP_SIZE = 8;
@@ -95,10 +95,6 @@ interface WebGPUSSAOResources {
 	combinePipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
 	frameIndex: number;
-}
-
-function enabled(state: ResolvedPostProcessState): boolean {
-	return state.enabled.ssao === true;
 }
 
 function finiteClamped(
@@ -250,13 +246,14 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		if (!context) {
 			return { ran: false };
 		}
-		return this._runSSAOKernel(request.frameContext, context);
+		return this._runSSAOKernel(request, context);
 	}
 
 	private _runSSAOKernel(
-		frameContext: FrameContext,
+		request: PostProcessPassRequest,
 		context: SoftwareSSAOContext
 	): PostProcessPassResult {
+		const frameContext = request.frameContext;
 		const pixels = context.attachments.pixels;
 		const depthBuffer = context.attachments.depthBuffer;
 		const normalBuffer = context.attachments.normalBuffer;
@@ -270,7 +267,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 
 		const width = context.attachments.width;
 		const height = context.attachments.height;
-		const options = resolveSSAOOptions(frameContext.postProcess.options.ssao);
+		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		const pixelCount = width * height;
 		if (!this._aoBuffer || this._aoBuffer.length !== pixelCount) {
 			this._aoBuffer = new Float32Array(pixelCount);
@@ -514,7 +511,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		}
 
 		const targets = context.targets;
-		const options = resolveSSAOOptions(request.frameContext.postProcess.options.ssao);
+		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		resources.frameIndex = (resources.frameIndex + 1) % 1024;
 		const writeParams = (blurDirX: number, blurDirY: number): void => {
 			context.shared.compute.writeBuffer(
@@ -736,7 +733,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		const rawProgram = context.programs.getSSAORawProgram();
 		const blurProgram = context.programs.getSSAOBlurProgram();
 		const combineProgram = context.programs.getSSAOCombineProgram();
-		const options = resolveSSAOOptions(request.frameContext.postProcess.options.ssao);
+		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		const aoWidth = Math.max(
 			1,
 			Math.floor(context.width / Math.max(context.ssaoDownsample, 1))
@@ -911,17 +908,40 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 	}
 }
 
-export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS: PostProcessPassDescriptor = {
-	id: "ssao",
-	placement: "spatial",
-	requirements: { gBuffer: ["depth", "normal"] },
-	isEnabled: enabled,
-	implementations: {
-		software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
-		webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),
-		webgl: new WebGLScreenSpaceAmbientOcclusionImplementation(),
-	},
-};
+export interface ScreenSpaceAmbientOcclusionPassConfig
+	extends Omit<
+		PostProcessPassConfig<SSAOOptions>,
+		"id" | "placement" | "implementations"
+	> {}
+
+/**
+ * Stateful logical SSAO pass shared by all rendering backends.
+ */
+export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
+	SSAOOptions,
+	ResolvedSSAOOptions
+> {
+	public constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
+		super({
+			...config,
+			id: "ssao",
+			placement: "spatial",
+			implementations: {
+				software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
+				webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),
+				webgl: new WebGLScreenSpaceAmbientOcclusionImplementation(),
+			},
+		});
+	}
+
+	public override normalizeOptions(): ResolvedSSAOOptions {
+		return resolveSSAOOptions(this.getRawOptions());
+	}
+
+	public override getRequirements(): PostProcessPassRequirements {
+		return { gBuffer: ["depth", "normal"] };
+	}
+}
 
 function resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
 	const width = Math.max(1, context.attachments.width);

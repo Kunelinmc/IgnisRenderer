@@ -552,7 +552,7 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 		};
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 
 		const capturedProbe = renderer.scene.add(
 			new ReflectionProbe({

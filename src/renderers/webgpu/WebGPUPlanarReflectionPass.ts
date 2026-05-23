@@ -523,14 +523,7 @@ function createPlanarCaptureContext(
 		planeKey,
 		isCameraAbove
 	);
-	const capturePostProcess = {
-		enabled: {
-			...context.postProcess.enabled,
-			ssr: false,
-		},
-		options: context.postProcess.options,
-		warnings: context.postProcess.warnings.slice(),
-	};
+	const capturePostProcess = context.postProcess.withPassDisabled("ssr");
 	const transient = createTransientStore(context.transient);
 
 	return {

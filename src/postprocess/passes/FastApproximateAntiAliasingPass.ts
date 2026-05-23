@@ -1,4 +1,3 @@
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
 import type { FrameAttachments, FrameContext } from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
@@ -20,8 +19,8 @@ import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibr
 import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type {
-	PostProcessPassDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -93,10 +92,6 @@ export function createFXAAKernelParams(width: number, height: number): Float32Ar
 		FXAA_SUBPIX_QUALITY,
 		0,
 	]);
-}
-
-function enabled(state: ResolvedPostProcessState): boolean {
-	return state.enabled.fxaa === true;
 }
 
 /**
@@ -467,16 +462,32 @@ export class WebGLFastApproximateAntiAliasingImplementation
 	}
 }
 
-export const FAST_APPROXIMATE_ANTI_ALIASING_PASS: PostProcessPassDescriptor = {
-	id: "fxaa",
-	placement: "ldr",
-	isEnabled: enabled,
-	implementations: {
-		software: new SoftwareFastApproximateAntiAliasingImplementation(),
-		webgpu: new WebGPUFastApproximateAntiAliasingImplementation(),
-		webgl: new WebGLFastApproximateAntiAliasingImplementation(),
-	},
-};
+export interface FastApproximateAntiAliasingPassConfig
+	extends Omit<
+		PostProcessPassConfig<Record<string, never>>,
+		"id" | "placement" | "implementations"
+	> {}
+
+/**
+ * Stateful logical fast approximate anti-aliasing pass.
+ */
+export class FastApproximateAntiAliasingPass extends PostProcessPass<
+	Record<string, never>,
+	Record<string, never>
+> {
+	public constructor(config: FastApproximateAntiAliasingPassConfig = {}) {
+		super({
+			...config,
+			id: "fxaa",
+			placement: "ldr",
+			implementations: {
+				software: new SoftwareFastApproximateAntiAliasingImplementation(),
+				webgpu: new WebGPUFastApproximateAntiAliasingImplementation(),
+				webgl: new WebGLFastApproximateAntiAliasingImplementation(),
+			},
+		});
+	}
+}
 
 function resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
 	const width = Math.max(1, context.attachments.width);

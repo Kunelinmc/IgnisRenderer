@@ -242,10 +242,11 @@ export function bindWebGLGlobalUniforms(
 		}
 		gl.uniform3f(uniforms.cameraPosition, cameraX, cameraY, cameraZ);
 	}
+	const fogOptions = context.postProcess.getOptions<FogOptions>("fog") ?? {};
 	const sceneFogEnabled =
-		context.postProcess.enabled.fog &&
-		(context.postProcess.options.fog.application ?? "postprocess") === "scene";
-	host._updateFogParams(context.postProcess.options.fog, sceneFogEnabled);
+		context.postProcess.isEnabled("fog") &&
+		(fogOptions.application ?? "postprocess") === "scene";
+	host._updateFogParams(fogOptions, sceneFogEnabled);
 	if (uniforms.fogParams0) {
 		gl.uniform4fv(uniforms.fogParams0, host._fogParams0);
 	}
@@ -1156,4 +1157,3 @@ export function uploadWebGLLocalLightProbeCoefficients(
 		return false;
 	}
 }
-

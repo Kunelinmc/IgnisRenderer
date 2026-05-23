@@ -33,6 +33,7 @@ interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	encoder: ICommandEncoder;
 	targets: WebGPUFrameTargets;
 	frameContext: FrameContext;
+	options: unknown;
 }
 
 export interface WebGPUPostProcessSSAOExecuteRequest

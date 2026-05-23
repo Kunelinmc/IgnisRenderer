@@ -21,17 +21,16 @@ import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
-	PostProcessController,
-	resolvePostProcessState,
 	isFogPostProcessEnabled,
 	hasEnabledCustomPostProcessPass,
-	type PostProcessCustomPassDescriptor,
-	type PostProcessPassRegistry,
+	isBuiltInPostProcessPassId,
 	type ResolvedPostProcessState,
 } from "../pipeline/PostProcessController";
 import {
+	GammaPass,
+	PostProcessPassRegistry,
 	PostProcessPipeline,
-	type PostProcessPassDescriptor,
+	ToneMappingPass,
 } from "../postprocess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
@@ -150,7 +149,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
-	public readonly postProcess: PostProcessController<PostProcessPassDescriptor>;
+	public readonly postProcess: PostProcessPassRegistry;
 	public animationAutoRender: boolean;
 
 	public readonly logger: Pick<LoggerStatic, "warn">;
@@ -191,20 +190,28 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			backendPasses: createDefaultBackendPasses(),
 		});
 		this._postProcessPipeline = new PostProcessPipeline();
-		this.postProcess = new PostProcessController<PostProcessPassDescriptor>(
-			undefined,
-			{
-				onRegisterPass: (pass) => {
-					this._postProcessPipeline.registerPass(pass);
+		this.postProcess = new PostProcessPassRegistry();
+		this.postProcess.on("change", (change) => {
+			if (change.reason === "register") {
+				const pass = this.postProcess.getPass(change.passId);
+				if (pass && !isBuiltInPostProcessPassId(pass.id)) {
 					this.pipeline.registerPostProcessPass(pass);
-				},
-				onUnregisterPass: (id) => {
-					this._postProcessPipeline.unregisterPass(id);
-					this.pipeline.unregisterPostProcessPass(id);
-				},
-				onChange: () => this._markFrameDirty("postfx"),
+				}
+			} else if (
+				change.reason === "unregister" &&
+				!isBuiltInPostProcessPassId(change.passId)
+			) {
+				this.pipeline.unregisterPostProcessPass(change.passId);
 			}
-		);
+			if (this._scene) {
+				this._markFrameDirty("postfx");
+			} else {
+				this._frameDirty = true;
+				this._pendingDirtyReasonMask |= renderDirtyReasonToMask("postfx");
+			}
+		});
+		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
+		this.postProcess.registerPass(new GammaPass({ enabled: true }));
 		this._canvas = canvas;
 		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -321,8 +328,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.capabilities,
 			this.backend.type
 		);
-		const resolvedPostProcess = resolvePostProcessState(
-			this.postProcess.getState(),
+		const resolvedPostProcess = this.postProcess.createSnapshot(
 			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
@@ -337,11 +343,11 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		);
 		transient.set(
 			WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
-			warmupPostProcessPasses
+			warmupPostProcessPasses.map((pass) => pass.pass)
 		);
 		for (const warning of [
 			...resolved.warnings,
-			...resolvedPostProcess.warnings,
+			...resolvedPostProcess.getWarnings(),
 		]) {
 			this.logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "Renderer",
@@ -884,8 +890,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.capabilities,
 			this.backend.type
 		);
-		let resolvedPostProcess = resolvePostProcessState(
-			this.postProcess.getState(),
+		let resolvedPostProcess = this.postProcess.createSnapshot(
 			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
@@ -932,14 +937,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.capabilities,
 						this.backend.type
 					);
-					resolvedPostProcess = resolvePostProcessState(
-						this.postProcess.getState(),
+					resolvedPostProcess = this.postProcess.createSnapshot(
 						this.backend.postProcessCapabilities,
 						this.backend.type
 					);
 					for (const warning of [
 						...resolved.warnings,
-						...resolvedPostProcess.warnings,
+						...resolvedPostProcess.getWarnings(),
 					]) {
 						this.logger.warn(`[${warning.key}] ${warning.message}`, {
 							scope: "Renderer",
@@ -1388,21 +1392,21 @@ function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
 			shouldRun: ({ postProcess, transient }) => {
 				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 				return (
-					postProcess.enabled.ssao ||
-					postProcess.enabled.ssgi ||
-					postProcess.enabled.taa ||
-					postProcess.enabled.ssr ||
-					postProcess.enabled.volumetric ||
+					postProcess.isEnabled("ssao") ||
+					postProcess.isEnabled("ssgi") ||
+					postProcess.isEnabled("taa") ||
+					postProcess.isEnabled("ssr") ||
+					postProcess.isEnabled("volumetric") ||
 					isFogPostProcessEnabled(postProcess) ||
-					postProcess.enabled["motion-blur"] ||
-					postProcess.enabled.dof ||
-					postProcess.enabled.bloom ||
-					postProcess.enabled.tonemap ||
-					postProcess.enabled["color-filter"] ||
-					postProcess.enabled.fxaa ||
-					(postProcess.enabled["interaction-outline"] &&
+					postProcess.isEnabled("motion-blur") ||
+					postProcess.isEnabled("dof") ||
+					postProcess.isEnabled("bloom") ||
+					postProcess.isEnabled("tonemap") ||
+					postProcess.isEnabled("color-filter") ||
+					postProcess.isEnabled("fxaa") ||
+					(postProcess.isEnabled("interaction-outline") &&
 						(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
-					postProcess.enabled.gamma ||
+					postProcess.isEnabled("gamma") ||
 					hasEnabledCustomPostProcessPass(postProcess)
 				);
 			},

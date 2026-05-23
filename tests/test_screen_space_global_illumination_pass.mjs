@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
 	PostProcessPipeline,
-	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
+	ScreenSpaceGlobalIlluminationPass,
 	createSSGIKernelParams,
 	resolveSSGIOptions,
 } from "../src/postprocess/index.ts";
@@ -60,34 +60,33 @@ function createIncremental(width, height) {
 }
 
 function createRequest(frameContext) {
-	const implementation = SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.implementations.webgpu;
+	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
 		gBuffer: createWebGPUGBuffer(),
 		histories: {},
-		pass: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
+		pass,
 		passId: "ssgi",
-		implementation,
-		options: frameContext.postProcess.options.ssgi,
+		options: frameContext.postProcess.getOptions("ssgi"),
 		startPassId: null,
 	};
 }
 
 async function testSSGIDescriptorAndWebGPUExecution() {
-	assert.equal(SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.id, "ssgi");
+	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
+	assert.equal(pass.id, "ssgi");
 	assert.deepEqual(
-		SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.requirements.gBuffer,
+		pass.getRequirements({}).gBuffer,
 		["color", "depth", "normal", "albedo"]
 	);
 	assert.equal(
-		typeof SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.implementations.webgpu.execute,
+		typeof pass.getImplementation("webgpu").execute,
 		"function"
 	);
-	assert.equal(SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.implementations.webgl, undefined);
 	assert.equal(
-		SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.implementations.software,
-		undefined
+		pass.getImplementation("software"),
+		null
 	);
 
 	const backend = new FakeBackend();
@@ -124,7 +123,9 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 			},
 		}),
 	};
-	const implementation = SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS.implementations.webgpu;
+	const implementation = new ScreenSpaceGlobalIlluminationPass({
+		enabled: true,
+	}).getImplementation("webgpu");
 	const result = await implementation.execute(createRequest(frameContext), {
 		encoder,
 		targets,

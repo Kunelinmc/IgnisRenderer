@@ -13,7 +13,7 @@ import type {
 	WarmupPhaseReport,
 	WarmupReport,
 } from "../renderers/IRenderBackend";
-import type { PostProcessPassDescriptor } from "../postprocess/types";
+import type { PostProcessPass } from "../postprocess/PostProcessPass";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 
@@ -32,7 +32,7 @@ export const WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY =
 	"pipeline:warmup-postprocess-order";
 
 export const WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY =
-	defineTransientKey<readonly PostProcessPassDescriptor[]>(
+	defineTransientKey<readonly PostProcessPass[]>(
 		"pipeline:warmup-postprocess-descriptors"
 	);
 
@@ -178,24 +178,24 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 
 	const passes: string[] = [];
 	const postProcess = context.postProcess;
-	if (postProcess.enabled.ssao) passes.push("ssao");
-	if (postProcess.enabled.ssgi) passes.push("ssgi");
-	if (postProcess.enabled.taa) passes.push("taa");
-	if (postProcess.enabled.ssr) passes.push("ssr");
-	if (postProcess.enabled.volumetric) passes.push("volumetric");
+	if (postProcess.isEnabled("ssao")) passes.push("ssao");
+	if (postProcess.isEnabled("ssgi")) passes.push("ssgi");
+	if (postProcess.isEnabled("taa")) passes.push("taa");
+	if (postProcess.isEnabled("ssr")) passes.push("ssr");
+	if (postProcess.isEnabled("volumetric")) passes.push("volumetric");
 	if (isFogPostProcessEnabled(postProcess)) passes.push("fog");
-	if (postProcess.enabled["motion-blur"]) passes.push("motion-blur");
-	if (postProcess.enabled.dof) passes.push("dof");
-	if (postProcess.enabled.bloom) passes.push("bloom");
-	if (postProcess.enabled.tonemap) {
+	if (postProcess.isEnabled("motion-blur")) passes.push("motion-blur");
+	if (postProcess.isEnabled("dof")) passes.push("dof");
+	if (postProcess.isEnabled("bloom")) passes.push("bloom");
+	if (postProcess.isEnabled("tonemap")) {
 		passes.push("tonemap");
 	}
-	if (postProcess.enabled["color-filter"]) passes.push("color-filter");
-	if (postProcess.enabled.fxaa) passes.push("fxaa");
+	if (postProcess.isEnabled("color-filter")) passes.push("color-filter");
+	if (postProcess.isEnabled("fxaa")) passes.push("fxaa");
 	for (const id of getEnabledCustomPostProcessPassIds(postProcess)) {
 		passes.push(id);
 	}
-	if (postProcess.enabled.gamma) {
+	if (postProcess.isEnabled("gamma")) {
 		passes.push("gamma");
 	}
 	return passes;

@@ -687,14 +687,7 @@ function createCaptureFeatures(
 function createCapturePostProcess(
 	postProcess: ResolvedPostProcessState
 ): ResolvedPostProcessState {
-	return {
-		enabled: {
-			...postProcess.enabled,
-			ssr: false,
-		},
-		options: postProcess.options,
-		warnings: postProcess.warnings.slice(),
-	};
+	return postProcess.withPassDisabled("ssr");
 }
 
 function createFullFrameIncrementalContext(

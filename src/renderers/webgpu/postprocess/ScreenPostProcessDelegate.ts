@@ -6,8 +6,11 @@ import {
 	DEFAULT_FOG_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 	DEFAULT_MOTION_BLUR_OPTIONS,
+	type BloomOptions,
 	type ColorFilterOptions,
+	type DOFOptions,
 	type FogOptions,
+	type MotionBlurOptions,
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
@@ -102,7 +105,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeFog(
 					request.encoder,
 					request.targets,
-					request.frameContext
+					request.options as FogOptions
 				);
 				return { ran: true };
 			},
@@ -120,7 +123,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeMotionBlur(
 					request.encoder,
 					request.targets,
-					request.frameContext
+					request.options as MotionBlurOptions
 				);
 				return { ran: true };
 			},
@@ -138,7 +141,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeDOF(
 					request.encoder,
 					request.targets,
-					request.frameContext
+					request.options as DOFOptions
 				);
 				return { ran: true };
 			},
@@ -156,7 +159,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeBloom(
 					request.encoder,
 					request.targets,
-					request.frameContext
+					request.options as BloomOptions
 				);
 				return { ran: true };
 			},
@@ -188,7 +191,7 @@ export class ScreenPostProcessDelegate {
 				await this._executeColorFilter(
 					request.encoder,
 					request.targets,
-					request.frameContext.postProcess.options["color-filter"]
+					request.options as ColorFilterOptions
 				);
 				return { ran: true };
 			},
@@ -367,7 +370,7 @@ export class ScreenPostProcessDelegate {
 	private async _executeFog(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
-		frameContext: FrameContext
+		options: FogOptions
 	): Promise<void> {
 		await this._ensureFogResources();
 		if (!this._shared.sampler || !this._fogPipeline || !this._fogParams) {
@@ -375,7 +378,7 @@ export class ScreenPostProcessDelegate {
 		}
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
-		this._uploadFogParams(frameContext.postProcess.options.fog);
+		this._uploadFogParams(options);
 		const binding = this._shared.getCachedBindGroup(
 			`fog-${target === targets.postPing ? "ping" : "pong"}`,
 			this._fogPipeline,
@@ -403,7 +406,7 @@ export class ScreenPostProcessDelegate {
 	private async _executeMotionBlur(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
-		frameContext: FrameContext
+		options: MotionBlurOptions
 	): Promise<void> {
 		await this._ensureMotionBlurResources();
 		if (
@@ -413,7 +416,6 @@ export class ScreenPostProcessDelegate {
 		) {
 			return;
 		}
-		const options = frameContext.postProcess.options["motion-blur"] ?? {};
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
 		const shutterScale = clamp(
@@ -482,13 +484,12 @@ export class ScreenPostProcessDelegate {
 	private async _executeDOF(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
-		frameContext: FrameContext
+		options: DOFOptions
 	): Promise<void> {
 		await this._ensureDOFResources();
 		if (!this._shared.sampler || !this._dofPipeline || !this._dofParams) {
 			return;
 		}
-		const options = frameContext.postProcess.options.dof ?? {};
 		const target =
 			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
 		const focusDistance = Math.max(
@@ -580,7 +581,7 @@ export class ScreenPostProcessDelegate {
 	private async _executeBloom(
 		encoder: ICommandEncoder,
 		targets: WebGPUFrameTargets,
-		frameContext: FrameContext
+		options: BloomOptions
 	): Promise<void> {
 		await this._ensureBloomResources();
 		if (
@@ -598,7 +599,6 @@ export class ScreenPostProcessDelegate {
 			return;
 		}
 
-		const options = frameContext.postProcess.options.bloom ?? {};
 		const threshold = Math.max(
 			0,
 			finiteOr(options.threshold, DEFAULT_BLOOM_OPTIONS.threshold)

@@ -107,7 +107,7 @@ async function run() {
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
-		renderer.postProcess.disable("gamma");
+		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 

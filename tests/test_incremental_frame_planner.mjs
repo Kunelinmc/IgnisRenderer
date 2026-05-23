@@ -4,7 +4,7 @@ import {
 	getDefaultIncrementalRegistry,
 	renderDirtyReasonToMask,
 } from "../src/pipeline/incremental.ts";
-import { resolvePostProcessState } from "../src/pipeline/PostProcessController.ts";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFeatures(overrides = {}) {
 	return {
@@ -37,7 +37,7 @@ const capabilities = {
 };
 
 function createPostProcess(overrides = {}) {
-	return resolvePostProcessState(overrides, capabilities, "test");
+	return createResolvedPostProcess(overrides, capabilities, "test");
 }
 
 function testNoDirtyReasonsReturnsNoPass() {
@@ -142,7 +142,7 @@ function testPostFxSkipsFogInSceneMode() {
 		}),
 	});
 	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "tonemap");
+	assert.equal(plan.postProcessStartPass, "fxaa");
 }
 
 function testPostFxSkipsToneMappingWhenDisabled() {

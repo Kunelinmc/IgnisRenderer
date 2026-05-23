@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { FAST_APPROXIMATE_ANTI_ALIASING_PASS } from "../src/postprocess/index.ts";
+import { FastApproximateAntiAliasingPass } from "../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -18,24 +18,22 @@ function createFrameContext(postProcessRequest = {}) {
 }
 
 function createFXAAPassRequest(frameContext) {
-	const implementation = FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgpu;
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
 		gBuffer: {},
 		histories: {},
-		pass: FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+		pass,
 		passId: "fxaa",
-		implementation,
-		options: frameContext.postProcess.options.fxaa,
+		options: frameContext.postProcess.getOptions("fxaa"),
 		startPassId: null,
 	};
 }
 
 async function executeFXAAPass(runtime, encoder, targets, frameContext) {
-	const implementation = FAST_APPROXIMATE_ANTI_ALIASING_PASS.implementations.webgpu;
 	const request = createFXAAPassRequest(frameContext);
-	return implementation.execute(request, {
+	return request.pass.getImplementation("webgpu").execute(request, {
 		encoder,
 		targets,
 		shared: runtime.sharedContext,
