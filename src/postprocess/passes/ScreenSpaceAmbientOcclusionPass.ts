@@ -1,0 +1,999 @@
+import { CameraType } from "../../cameras/Camera";
+import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
+import type { IVector3 } from "../../maths/types";
+import {
+	DEFAULT_SSAO_OPTIONS,
+	type FrameAttachments,
+	type FrameContext,
+	type SSAOOptions,
+} from "../../pipeline/types";
+import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
+import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import {
+	BufferUsage,
+	type IComputePipeline,
+	type IRenderBuffer,
+	type IRenderTexture,
+	type IShaderModule,
+} from "../../renderers/types";
+import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import { ceilDiv } from "../../maths/Misc";
+import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import type {
+	PostProcessPassDescriptor,
+	PostProcessPassImplementation,
+	PostProcessPassRequest,
+	PostProcessPassResult,
+} from "../types";
+
+const WORKGROUP_SIZE = 8;
+const SSAO_NOISE_SIZE = 4;
+const SSAO_SOFTWARE_MAX_SAMPLES = 48;
+
+export type ResolvedSSAOOptions = Required<
+	Pick<
+		SSAOOptions,
+		| "samples"
+		| "radius"
+		| "bias"
+		| "intensity"
+		| "downsample"
+		| "blurRadius"
+		| "blurSharpness"
+	>
+>;
+
+export interface SoftwareSSAOContext {
+	readonly attachments: FrameAttachments;
+}
+
+export interface WebGPUSSAOContext {
+	readonly encoder?: ICommandEncoder;
+	readonly targets?: WebGPUFrameTargets;
+	readonly shared: PostProcessSharedContext;
+	publishColorTarget?(texture: IRenderTexture): void;
+}
+
+export interface WebGLSSAOContext {
+	readonly gl: WebGL2RenderingContext;
+	readonly programs: WebGLProgramLibrary;
+	readonly fullscreenVao: WebGLVertexArrayObject | null;
+	readonly postFramebuffer: WebGLFramebuffer | null;
+	readonly sceneColorTexture: WebGLTexture | null;
+	readonly sceneMotionTexture: WebGLTexture | null;
+	readonly sceneNormalTexture: WebGLTexture | null;
+	readonly ssaoRawTexture: WebGLTexture | null;
+	readonly ssaoBlurTexture: WebGLTexture | null;
+	readonly width: number;
+	readonly height: number;
+	readonly ssaoDownsample: number;
+	getSourceTexture(): WebGLTexture | null;
+	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
+	bindColorTarget(texture: WebGLTexture): void;
+	nextFrameJitter(): number;
+	drawFullscreen(
+		width: number,
+		height: number,
+		frameContext: FrameContext | null
+	): void;
+	publishColorTexture(texture: WebGLTexture): void;
+}
+
+interface IncrementalDirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
+interface WebGPUSSAOResources {
+	module: IShaderModule | null;
+	rawPipeline: IComputePipeline | null;
+	blurPipeline: IComputePipeline | null;
+	combinePipeline: IComputePipeline | null;
+	params: IRenderBuffer | null;
+	frameIndex: number;
+}
+
+function enabled(state: ResolvedPostProcessState): boolean {
+	return state.enabled.ssao === true;
+}
+
+function finiteClamped(
+	value: unknown,
+	fallback: number,
+	min: number,
+	max: number
+): number {
+	const resolved =
+		typeof value === "number" && Number.isFinite(value) ? value : fallback;
+	return Math.min(max, Math.max(min, resolved));
+}
+
+/**
+ * Resolves SSAO options with the same numeric ranges for every backend.
+ *
+ * @param options User-provided SSAO options.
+ * @returns Fully resolved SSAO options.
+ * @sideEffects None.
+ */
+export function resolveSSAOOptions(
+	options?: SSAOOptions | null
+): ResolvedSSAOOptions {
+	return {
+		samples: Math.round(
+			finiteClamped(options?.samples, DEFAULT_SSAO_OPTIONS.samples, 4, 48)
+		),
+		radius: finiteClamped(
+			options?.radius,
+			DEFAULT_SSAO_OPTIONS.radius,
+			1,
+			Number.POSITIVE_INFINITY
+		),
+		bias: finiteClamped(
+			options?.bias,
+			DEFAULT_SSAO_OPTIONS.bias,
+			1e-4,
+			Number.POSITIVE_INFINITY
+		),
+		intensity: finiteClamped(
+			options?.intensity,
+			DEFAULT_SSAO_OPTIONS.intensity,
+			0,
+			Number.POSITIVE_INFINITY
+		),
+		downsample: resolveSSAODownsample(options?.downsample),
+		blurRadius: Math.round(
+			finiteClamped(
+				options?.blurRadius,
+				DEFAULT_SSAO_OPTIONS.blurRadius,
+				1,
+				4
+			)
+		),
+		blurSharpness: finiteClamped(
+			options?.blurSharpness,
+			DEFAULT_SSAO_OPTIONS.blurSharpness,
+			1e-3,
+			Number.POSITIVE_INFINITY
+		),
+	};
+}
+
+/**
+ * Resolves the SSAO downsample factor shared by frame target allocation.
+ *
+ * @param value User-provided downsample factor.
+ * @returns Integer factor clamped to `[1, 8]`.
+ * @sideEffects None.
+ */
+export function resolveSSAODownsample(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return DEFAULT_SSAO_OPTIONS.downsample;
+	}
+	return Math.min(8, Math.max(1, Math.floor(value)));
+}
+
+/**
+ * Creates packed SSAO shader parameters.
+ *
+ * @param width Full-resolution target width.
+ * @param height Full-resolution target height.
+ * @param aoWidth Ambient occlusion target width.
+ * @param aoHeight Ambient occlusion target height.
+ * @param options Resolved SSAO options.
+ * @param camera Current frame camera.
+ * @param blurDirX Horizontal blur direction.
+ * @param blurDirY Vertical blur direction.
+ * @param frameJitter Temporal noise phase.
+ * @returns Sixteen float parameters expected by the SSAO kernels.
+ * @sideEffects None.
+ */
+export function createSSAOKernelParams(
+	width: number,
+	height: number,
+	aoWidth: number,
+	aoHeight: number,
+	options: ResolvedSSAOOptions,
+	camera: FrameContext["camera"],
+	blurDirX: number,
+	blurDirY: number,
+	frameJitter: number
+): Float32Array {
+	const isOrthographic = camera.type === CameraType.Orthographic;
+	const tanHalfFov =
+		isOrthographic ? 0 : Math.tan((camera.fov * Math.PI) / 360);
+	const aspect =
+		camera.aspectRatio || Math.max(width, 1) / Math.max(height, 1);
+	return new Float32Array([
+		1 / Math.max(width, 1),
+		1 / Math.max(height, 1),
+		1 / Math.max(aoWidth, 1),
+		1 / Math.max(aoHeight, 1),
+		options.radius,
+		options.bias,
+		options.intensity,
+		options.samples,
+		options.blurRadius,
+		options.blurSharpness,
+		tanHalfFov,
+		aspect,
+		blurDirX,
+		blurDirY,
+		isOrthographic ? 1 : 0,
+		frameJitter,
+	]);
+}
+
+/**
+ * CPU implementation of the cross-backend SSAO pass.
+ */
+export class SoftwareScreenSpaceAmbientOcclusionImplementation
+	implements PostProcessPassImplementation<SoftwareSSAOContext>
+{
+	public readonly id = "ssao:software";
+	private _kernel: IVector3[] = [];
+	private _noise: IVector3[] = [];
+	private _aoBuffer: Float32Array | null = null;
+	private _blurTemp: Float32Array | null = null;
+
+	constructor() {
+		this._initKernel();
+	}
+
+	public execute(
+		request: PostProcessPassRequest,
+		context: SoftwareSSAOContext | undefined
+	): PostProcessPassResult {
+		if (!context) {
+			return { ran: false };
+		}
+		return this._runSSAOKernel(request.frameContext, context);
+	}
+
+	private _runSSAOKernel(
+		frameContext: FrameContext,
+		context: SoftwareSSAOContext
+	): PostProcessPassResult {
+		const pixels = context.attachments.pixels;
+		const depthBuffer = context.attachments.depthBuffer;
+		const normalBuffer = context.attachments.normalBuffer;
+		if (!pixels || !depthBuffer || !normalBuffer) {
+			return { ran: false };
+		}
+		const dirtyRects = resolveDirtyRects(frameContext);
+		if (dirtyRects.length === 0) {
+			return { ran: false };
+		}
+
+		const width = context.attachments.width;
+		const height = context.attachments.height;
+		const options = resolveSSAOOptions(frameContext.postProcess.options.ssao);
+		const pixelCount = width * height;
+		if (!this._aoBuffer || this._aoBuffer.length !== pixelCount) {
+			this._aoBuffer = new Float32Array(pixelCount);
+		}
+		const aoBuffer = this._aoBuffer;
+		const camera = frameContext.camera;
+		const projection = camera.projectionMatrix.elements;
+
+		forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const idx = y * width + x;
+					const originDepth = depthBuffer[idx];
+					if (originDepth === Infinity || originDepth <= 0) {
+						aoBuffer[idx] = 1;
+						continue;
+					}
+
+					const ndcX = (x / width) * 2 - 1;
+					const ndcY = 1 - (y / height) * 2;
+					const posView = reconstructViewPos(ndcX, ndcY, originDepth, camera);
+
+					const nIdx = idx * 3;
+					const normal = {
+						x: normalBuffer[nIdx],
+						y: normalBuffer[nIdx + 1],
+						z: normalBuffer[nIdx + 2],
+					};
+					const noiseIdx =
+						(y % SSAO_NOISE_SIZE) * SSAO_NOISE_SIZE +
+						(x % SSAO_NOISE_SIZE);
+					const randomVec = this._noise[noiseIdx];
+					const tangent = {
+						x: randomVec.x - normal.x * dot(randomVec, normal),
+						y: randomVec.y - normal.y * dot(randomVec, normal),
+						z: randomVec.z - normal.z * dot(randomVec, normal),
+					};
+					const tangentLen = Math.hypot(tangent.x, tangent.y, tangent.z) || 1;
+					tangent.x /= tangentLen;
+					tangent.y /= tangentLen;
+					tangent.z /= tangentLen;
+
+					const bitangent = cross(normal, tangent);
+					const tbn = [
+						[tangent.x, bitangent.x, normal.x],
+						[tangent.y, bitangent.y, normal.y],
+						[tangent.z, bitangent.z, normal.z],
+					];
+
+					let occlusion = 0;
+					for (let i = 0; i < options.samples; i++) {
+						const sample = this._kernel[i];
+						const sampleViewOffset = {
+							x:
+								tbn[0][0] * sample.x +
+								tbn[0][1] * sample.y +
+								tbn[0][2] * sample.z,
+							y:
+								tbn[1][0] * sample.x +
+								tbn[1][1] * sample.y +
+								tbn[1][2] * sample.z,
+							z:
+								tbn[2][0] * sample.x +
+								tbn[2][1] * sample.y +
+								tbn[2][2] * sample.z,
+						};
+						const samplePos = {
+							x: posView.x + sampleViewOffset.x * options.radius,
+							y: posView.y + sampleViewOffset.y * options.radius,
+							z: posView.z + sampleViewOffset.z * options.radius,
+						};
+
+						let screenX: number;
+						let screenY: number;
+						if (camera.type === CameraType.Orthographic) {
+							const sx = projection[0][0] * samplePos.x + projection[0][3];
+							const sy = projection[1][1] * samplePos.y + projection[1][3];
+							screenX = Math.round((sx * 0.5 + 0.5) * width - 0.5);
+							screenY = Math.round((0.5 - sy * 0.5) * height - 0.5);
+						} else {
+							const offsetNDC = {
+								x:
+									(projection[0][0] * samplePos.x +
+										projection[0][2] * samplePos.z) /
+									-samplePos.z,
+								y:
+									(projection[1][1] * samplePos.y +
+										projection[1][2] * samplePos.z) /
+									-samplePos.z,
+							};
+							screenX = Math.round((offsetNDC.x * 0.5 + 0.5) * width - 0.5);
+							screenY = Math.round((0.5 - offsetNDC.y * 0.5) * height - 0.5);
+						}
+
+						if (
+							screenX >= 0 &&
+							screenX < width &&
+							screenY >= 0 &&
+							screenY < height
+						) {
+							const sampleDepth = depthBuffer[screenY * width + screenX];
+							const samplePosDepth = -samplePos.z;
+							const rangeCheck =
+								Math.abs(originDepth - sampleDepth) < options.radius ? 1 : 0;
+							occlusion +=
+								(sampleDepth <= samplePosDepth - options.bias ? 1 : 0) *
+								rangeCheck;
+						}
+					}
+
+					aoBuffer[idx] =
+						1 - (occlusion / Math.max(options.samples, 1)) * options.intensity;
+				}
+			}
+		});
+
+		this._blur(aoBuffer, width, height, dirtyRects, options.blurRadius);
+		forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * width;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const i = row + x;
+					const factor = aoBuffer[i];
+					const idx = i << 2;
+					pixels[idx] *= factor;
+					pixels[idx + 1] *= factor;
+					pixels[idx + 2] *= factor;
+				}
+			}
+		});
+		return { ran: true };
+	}
+
+	private _initKernel(): void {
+		for (let i = 0; i < SSAO_SOFTWARE_MAX_SAMPLES; i++) {
+			const sample = {
+				x: Math.random() * 2 - 1,
+				y: Math.random() * 2 - 1,
+				z: Math.random(),
+			};
+			const len = Math.hypot(sample.x, sample.y, sample.z) || 1;
+			sample.x /= len;
+			sample.y /= len;
+			sample.z /= len;
+
+			let scale = i / SSAO_SOFTWARE_MAX_SAMPLES;
+			scale = 0.1 + scale * scale * (1 - 0.1);
+			sample.x *= scale;
+			sample.y *= scale;
+			sample.z *= scale;
+			this._kernel.push(sample);
+		}
+
+		for (let i = 0; i < SSAO_NOISE_SIZE * SSAO_NOISE_SIZE; i++) {
+			const noise = {
+				x: Math.random() * 2 - 1,
+				y: Math.random() * 2 - 1,
+				z: 0,
+			};
+			const len = Math.hypot(noise.x, noise.y, noise.z) || 1;
+			this._noise.push({ x: noise.x / len, y: noise.y / len, z: 0 });
+		}
+	}
+
+	private _blur(
+		buffer: Float32Array,
+		width: number,
+		height: number,
+		dirtyRects: IncrementalDirtyRect[],
+		blurRadius: number
+	): void {
+		if (!this._blurTemp || this._blurTemp.length !== buffer.length) {
+			this._blurTemp = new Float32Array(buffer.length);
+		}
+		const temp = this._blurTemp;
+		temp.set(buffer);
+		const radius = Math.max(1, Math.min(4, Math.round(blurRadius)));
+		forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					let sum = 0;
+					let count = 0;
+					for (let dy = -radius; dy <= radius; dy++) {
+						for (let dx = -radius; dx <= radius; dx++) {
+							const nx = x + dx;
+							const ny = y + dy;
+							if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+								sum += temp[ny * width + nx];
+								count++;
+							}
+						}
+					}
+					buffer[y * width + x] = sum / Math.max(count, 1);
+				}
+			}
+		});
+	}
+}
+
+/**
+ * WebGPU implementation of the cross-backend SSAO pass.
+ */
+export class WebGPUScreenSpaceAmbientOcclusionImplementation
+	implements PostProcessPassImplementation<WebGPUSSAOContext>
+{
+	public readonly id = "ssao:webgpu";
+	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
+
+	public async warmup(context: WebGPUSSAOContext | undefined): Promise<void> {
+		if (context) {
+			await this._ensureResources(context.shared);
+		}
+	}
+
+	public async execute(
+		request: PostProcessPassRequest,
+		context: WebGPUSSAOContext | undefined
+	): Promise<PostProcessPassResult> {
+		if (!context?.encoder || !context.targets) {
+			return { ran: false };
+		}
+		const ran = await this._runSSAOKernel(request, context);
+		return ran ? { ran: true } : { ran: false };
+	}
+
+	private async _runSSAOKernel(
+		request: PostProcessPassRequest,
+		context: WebGPUSSAOContext
+	): Promise<boolean> {
+		const resources = await this._ensureResources(context.shared);
+		if (
+			!context.encoder ||
+			!context.targets ||
+			!context.shared.sampler ||
+			!resources.rawPipeline ||
+			!resources.blurPipeline ||
+			!resources.combinePipeline ||
+			!resources.params
+		) {
+			return false;
+		}
+
+		const targets = context.targets;
+		const options = resolveSSAOOptions(request.frameContext.postProcess.options.ssao);
+		resources.frameIndex = (resources.frameIndex + 1) % 1024;
+		const writeParams = (blurDirX: number, blurDirY: number): void => {
+			context.shared.compute.writeBuffer(
+				resources.params!,
+				createSSAOKernelParams(
+					targets.sceneColor.width,
+					targets.sceneColor.height,
+					targets.aoRaw.width,
+					targets.aoRaw.height,
+					options,
+					request.frameContext.camera,
+					blurDirX,
+					blurDirY,
+					resources.frameIndex / 1024
+				) as unknown as BufferSource
+			);
+		};
+
+		writeParams(1, 0);
+		let binding = context.shared.getCachedBindGroup(
+			"ssao-raw",
+			resources.rawPipeline,
+			[
+				{ binding: 0, resource: targets.gNormalRoughMetal },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: context.shared.sampler },
+				{ binding: 3, resource: resources.params },
+				{ binding: 4, resource: targets.aoRaw },
+			],
+			"WebGPUSSAO_RawBinding"
+		);
+		context.encoder.beginComputePass({ label: "WebGPUSSAO_Raw" });
+		context.encoder.setComputePipeline(resources.rawPipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(targets.aoRaw.width, WORKGROUP_SIZE),
+			ceilDiv(targets.aoRaw.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		binding = context.shared.getCachedBindGroup(
+			"ssao-blur-h",
+			resources.blurPipeline,
+			[
+				{ binding: 0, resource: targets.aoRaw },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: context.shared.sampler },
+				{ binding: 3, resource: resources.params },
+				{ binding: 4, resource: targets.aoBlur },
+			],
+			"WebGPUSSAO_BlurBinding"
+		);
+		context.encoder.beginComputePass({ label: "WebGPUSSAO_Blur" });
+		context.encoder.setComputePipeline(resources.blurPipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(targets.aoBlur.width, WORKGROUP_SIZE),
+			ceilDiv(targets.aoBlur.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		writeParams(0, 1);
+		binding = context.shared.getCachedBindGroup(
+			"ssao-blur-v",
+			resources.blurPipeline,
+			[
+				{ binding: 0, resource: targets.aoBlur },
+				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 2, resource: context.shared.sampler },
+				{ binding: 3, resource: resources.params },
+				{ binding: 4, resource: targets.aoRaw },
+			],
+			"WebGPUSSAO_BlurBindingVertical"
+		);
+		context.encoder.beginComputePass({ label: "WebGPUSSAO_BlurVertical" });
+		context.encoder.setComputePipeline(resources.blurPipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(targets.aoRaw.width, WORKGROUP_SIZE),
+			ceilDiv(targets.aoRaw.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		const combineTarget =
+			targets.sceneColor === targets.postPing ? targets.postPong : targets.postPing;
+		binding = context.shared.getCachedBindGroup(
+			`ssao-combine-${combineTarget === targets.postPing ? "ping" : "pong"}`,
+			resources.combinePipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: targets.aoRaw },
+				{ binding: 2, resource: context.shared.sampler },
+				{ binding: 3, resource: resources.params },
+				{ binding: 4, resource: combineTarget },
+			],
+			"WebGPUSSAO_CombineBinding"
+		);
+		context.encoder.beginComputePass({ label: "WebGPUSSAO_Combine" });
+		context.encoder.setComputePipeline(resources.combinePipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(combineTarget.width, WORKGROUP_SIZE),
+			ceilDiv(combineTarget.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+		context.publishColorTarget?.(combineTarget);
+		return true;
+	}
+
+	private async _ensureResources(
+		shared: PostProcessSharedContext
+	): Promise<WebGPUSSAOResources> {
+		let resources = this._resources.get(shared);
+		if (!resources) {
+			resources = {
+				module: null,
+				rawPipeline: null,
+				blurPipeline: null,
+				combinePipeline: null,
+				params: null,
+				frameIndex: 0,
+			};
+			this._resources.set(shared, resources);
+		}
+		await shared.ensureCommonResources();
+		if (!resources.module) {
+			const shader = await loadPostProcessShaderPartComposite("ssao");
+			resources.module = await shared.compute.createShaderModule({
+				label: "WebGPUSSAOShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!resources.rawPipeline) {
+			resources.rawPipeline = shared.compute.createComputePipeline({
+				label: "WebGPUSSAORawPipeline",
+				compute: { module: resources.module, entryPoint: "csRaw" },
+			});
+		}
+		if (!resources.blurPipeline) {
+			resources.blurPipeline = shared.compute.createComputePipeline({
+				label: "WebGPUSSAOBlurPipeline",
+				compute: { module: resources.module, entryPoint: "csBlur" },
+			});
+		}
+		if (!resources.combinePipeline) {
+			resources.combinePipeline = shared.compute.createComputePipeline({
+				label: "WebGPUSSAOCombinePipeline",
+				compute: { module: resources.module, entryPoint: "csCombine" },
+			});
+		}
+		if (!resources.params) {
+			resources.params = shared.compute.createBuffer({
+				label: "WebGPUSSAOParams",
+				size: 16 * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
+		return resources;
+	}
+}
+
+/**
+ * WebGL implementation of the cross-backend SSAO pass.
+ */
+export class WebGLScreenSpaceAmbientOcclusionImplementation
+	implements PostProcessPassImplementation<WebGLSSAOContext>
+{
+	public readonly id = "ssao:webgl";
+
+	public warmup(context: WebGLSSAOContext | undefined): void {
+		context?.programs.getSSAORawProgram();
+		context?.programs.getSSAOBlurProgram();
+		context?.programs.getSSAOCombineProgram();
+	}
+
+	public execute(
+		request: PostProcessPassRequest,
+		context: WebGLSSAOContext | undefined
+	): PostProcessPassResult {
+		if (!context) {
+			return { ran: false };
+		}
+		return this._runSSAOKernel(request, context);
+	}
+
+	private _runSSAOKernel(
+		request: PostProcessPassRequest,
+		context: WebGLSSAOContext
+	): PostProcessPassResult {
+		if (
+			!context.postFramebuffer ||
+			!context.sceneColorTexture ||
+			!context.sceneMotionTexture ||
+			!context.sceneNormalTexture ||
+			!context.ssaoRawTexture ||
+			!context.ssaoBlurTexture ||
+			!context.fullscreenVao
+		) {
+			return { ran: false };
+		}
+		const sourceTexture = context.getSourceTexture();
+		if (!sourceTexture) {
+			return { ran: false };
+		}
+		const targetTexture = context.resolveTargetTexture(sourceTexture);
+		if (!targetTexture) {
+			return { ran: false };
+		}
+
+		const gl = context.gl;
+		const rawProgram = context.programs.getSSAORawProgram();
+		const blurProgram = context.programs.getSSAOBlurProgram();
+		const combineProgram = context.programs.getSSAOCombineProgram();
+		const options = resolveSSAOOptions(request.frameContext.postProcess.options.ssao);
+		const aoWidth = Math.max(
+			1,
+			Math.floor(context.width / Math.max(context.ssaoDownsample, 1))
+		);
+		const aoHeight = Math.max(
+			1,
+			Math.floor(context.height / Math.max(context.ssaoDownsample, 1))
+		);
+		const params = createSSAOKernelParams(
+			context.width,
+			context.height,
+			aoWidth,
+			aoHeight,
+			options,
+			request.frameContext.camera,
+			1,
+			0,
+			context.nextFrameJitter()
+		);
+		const view = request.frameContext.camera.viewMatrix.elements;
+		const cameraPosition = request.frameContext.camera.getWorldPosition();
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
+		gl.bindVertexArray(context.fullscreenVao);
+		gl.disable(gl.CULL_FACE);
+		gl.disable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND);
+
+		context.bindColorTarget(context.ssaoRawTexture);
+		gl.viewport(0, 0, aoWidth, aoHeight);
+		gl.useProgram(rawProgram.program);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, context.sceneNormalTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		if (rawProgram.uniforms.normalMap) gl.uniform1i(rawProgram.uniforms.normalMap, 0);
+		if (rawProgram.uniforms.depthMap) gl.uniform1i(rawProgram.uniforms.depthMap, 1);
+		if (rawProgram.uniforms.invSize) {
+			gl.uniform4f(
+				rawProgram.uniforms.invSize,
+				params[0],
+				params[1],
+				params[2],
+				params[3]
+			);
+		}
+		if (rawProgram.uniforms.gtao) {
+			gl.uniform4f(
+				rawProgram.uniforms.gtao,
+				params[4],
+				params[5],
+				params[6],
+				params[7]
+			);
+		}
+		if (rawProgram.uniforms.blurProj) {
+			gl.uniform4f(
+				rawProgram.uniforms.blurProj,
+				params[8],
+				params[9],
+				params[10],
+				params[11]
+			);
+		}
+		if (rawProgram.uniforms.pass) {
+			gl.uniform4f(
+				rawProgram.uniforms.pass,
+				params[12],
+				params[13],
+				params[14],
+				params[15]
+			);
+		}
+		if (rawProgram.uniforms.cameraPosition) {
+			gl.uniform3f(
+				rawProgram.uniforms.cameraPosition,
+				cameraPosition.x,
+				cameraPosition.y,
+				cameraPosition.z
+			);
+		}
+		if (rawProgram.uniforms.basisRight) {
+			gl.uniform3f(
+				rawProgram.uniforms.basisRight,
+				view[0][0],
+				view[0][1],
+				view[0][2]
+			);
+		}
+		if (rawProgram.uniforms.basisUp) {
+			gl.uniform3f(rawProgram.uniforms.basisUp, view[1][0], view[1][1], view[1][2]);
+		}
+		if (rawProgram.uniforms.basisBackward) {
+			gl.uniform3f(
+				rawProgram.uniforms.basisBackward,
+				view[2][0],
+				view[2][1],
+				view[2][2]
+			);
+		}
+		context.drawFullscreen(aoWidth, aoHeight, request.frameContext);
+
+		context.bindColorTarget(context.ssaoBlurTexture);
+		gl.viewport(0, 0, aoWidth, aoHeight);
+		gl.useProgram(blurProgram.program);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, context.ssaoRawTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		if (blurProgram.uniforms.sourceMap) gl.uniform1i(blurProgram.uniforms.sourceMap, 0);
+		if (blurProgram.uniforms.depthMap) gl.uniform1i(blurProgram.uniforms.depthMap, 1);
+		if (blurProgram.uniforms.invSize) {
+			gl.uniform4f(
+				blurProgram.uniforms.invSize,
+				params[0],
+				params[1],
+				params[2],
+				params[3]
+			);
+		}
+		if (blurProgram.uniforms.blurProj) {
+			gl.uniform4f(
+				blurProgram.uniforms.blurProj,
+				params[8],
+				params[9],
+				params[10],
+				params[11]
+			);
+		}
+		if (blurProgram.uniforms.pass) {
+			gl.uniform4f(blurProgram.uniforms.pass, 1, 0, params[14], params[15]);
+		}
+		context.drawFullscreen(aoWidth, aoHeight, request.frameContext);
+
+		context.bindColorTarget(context.ssaoRawTexture);
+		gl.viewport(0, 0, aoWidth, aoHeight);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, context.ssaoBlurTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		if (blurProgram.uniforms.pass) {
+			gl.uniform4f(blurProgram.uniforms.pass, 0, 1, params[14], params[15]);
+		}
+		context.drawFullscreen(context.width, context.height, request.frameContext);
+
+		context.bindColorTarget(targetTexture);
+		gl.viewport(0, 0, context.width, context.height);
+		gl.useProgram(combineProgram.program);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+		gl.activeTexture(gl.TEXTURE1);
+		gl.bindTexture(gl.TEXTURE_2D, context.ssaoRawTexture);
+		if (combineProgram.uniforms.sceneColor) {
+			gl.uniform1i(combineProgram.uniforms.sceneColor, 0);
+		}
+		if (combineProgram.uniforms.aoMap) {
+			gl.uniform1i(combineProgram.uniforms.aoMap, 1);
+		}
+		if (combineProgram.uniforms.invSize) {
+			gl.uniform4f(
+				combineProgram.uniforms.invSize,
+				params[0],
+				params[1],
+				params[2],
+				params[3]
+			);
+		}
+		context.drawFullscreen(context.width, context.height, request.frameContext);
+		gl.bindVertexArray(null);
+		context.publishColorTexture(targetTexture);
+		return { ran: true };
+	}
+}
+
+export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS: PostProcessPassDescriptor = {
+	id: "ssao",
+	placement: "spatial",
+	requirements: { gBuffer: ["depth", "normal"] },
+	isEnabled: enabled,
+	implementations: {
+		software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
+		webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),
+		webgl: new WebGLScreenSpaceAmbientOcclusionImplementation(),
+	},
+};
+
+function resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
+	const width = Math.max(1, context.attachments.width);
+	const height = Math.max(1, context.attachments.height);
+	const incremental = context.incremental;
+	if (
+		!incremental.enabled ||
+		incremental.forceFullFrame ||
+		incremental.dirtyRects.length === 0
+	) {
+		return [{ minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 }];
+	}
+	const dirtyRects: IncrementalDirtyRect[] = [];
+	for (const rect of incremental.dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.x));
+		const minY = Math.max(0, Math.floor(rect.y));
+		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+		if (minX > maxX || minY > maxY) {
+			continue;
+		}
+		dirtyRects.push({ minX, minY, maxX, maxY });
+	}
+	return dirtyRects;
+}
+
+function forEachDirtyRect(
+	dirtyRects: IncrementalDirtyRect[],
+	callback: (rect: IncrementalDirtyRect) => void
+): void {
+	for (const rect of dirtyRects) {
+		if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
+			continue;
+		}
+		callback(rect);
+	}
+}
+
+function reconstructViewPos(
+	ndcX: number,
+	ndcY: number,
+	zView: number,
+	camera: FrameContext["camera"]
+): IVector3 {
+	if (camera.type === CameraType.Orthographic) {
+		const orthoCam = camera as OrthographicCamera;
+		const bounds = orthoCam.getBounds();
+		const xView =
+			((ndcX + 1) * 0.5) * (bounds.right - bounds.left) + bounds.left;
+		const yView =
+			((ndcY + 1) * 0.5) * (bounds.top - bounds.bottom) + bounds.bottom;
+		return { x: xView, y: yView, z: -zView };
+	}
+
+	const fovRad = (camera.fov * Math.PI) / 180;
+	const tanHalfFov = Math.tan(fovRad * 0.5);
+	const aspect = camera.aspectRatio;
+	return {
+		x: ndcX * aspect * tanHalfFov * zView,
+		y: ndcY * tanHalfFov * zView,
+		z: -zView,
+	};
+}
+
+function dot(a: IVector3, b: IVector3): number {
+	return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a: IVector3, b: IVector3): IVector3 {
+	return {
+		x: a.y * b.z - a.z * b.y,
+		y: a.z * b.x - a.x * b.z,
+		z: a.x * b.y - a.y * b.x,
+	};
+}

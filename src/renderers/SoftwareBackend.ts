@@ -707,12 +707,7 @@ export class SoftwareBackend implements IRenderBackend {
 					this._particlePass?.render(context);
 				},
 			],
-			[
-				"ssao",
-				(context) => {
-					this._postProcessor?.applySSAO(context);
-				},
-			],
+			["ssao", () => {}],
 			["taa", () => {}],
 			["ssr", () => {}],
 			[

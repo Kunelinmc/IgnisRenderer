@@ -3,6 +3,7 @@ import { WebGLFrameExecutor } from "../src/renderers/webgl/WebGLFrameExecutor.ts
 import { Logger } from "../src/foundation/Logger.ts";
 import {
 	FAST_APPROXIMATE_ANTI_ALIASING_PASS,
+	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
 	TEMPORAL_ANTI_ALIASING_PASS,
 } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
@@ -836,9 +837,29 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 				return { x: 0, y: 0, z: 5 };
 			},
 		},
+		postProcess: createResolvedPostProcess({
+			ssao: { enabled: true },
+		}),
 	};
 
-	executor._applySSAO(undefined, context);
+	const request = {
+		frameContext: context,
+		postProcess: context.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+		passId: "ssao",
+		implementation: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgl,
+		options: context.postProcess.options.ssao,
+		startPassId: null,
+	};
+	const passContext = executor.getPassExecutionContext("ssao", request);
+	const result =
+		SCREEN_SPACE_AMBIENT_OCCLUSION_PASS.implementations.webgl.execute(
+			request,
+			passContext
+		);
+	assert.equal(result.ran, true);
 
 	const detachCalls = gl.calls.filter(
 		(call) =>

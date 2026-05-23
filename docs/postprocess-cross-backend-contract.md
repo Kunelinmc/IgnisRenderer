@@ -40,8 +40,10 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPipeline` must recreate temporal resources only when dimensions, format, usage, or backend kind changes.
 - The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `fxaa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `ssao` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `ssgi` pass must own its WebGPU implementation under `src/postprocess/passes/`.
 - The built-in `ssr` pass must own its WebGPU implementation under `src/postprocess/passes/`.
-- Backend executors must not contain backend-private `taa`, `fxaa`, or `ssr` kernel orchestration.
+- Backend executors must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, or `ssr` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
 ## Usage
@@ -100,6 +102,8 @@ const dynamicHistoryDescriptor = {
 
 ```bash
 bun tests/test_postprocess_public_api.mjs
+bun tests/test_screen_space_ambient_occlusion_pass.mjs
+bun tests/test_screen_space_global_illumination_pass.mjs
 bun tests/test_temporal_anti_aliasing_pass.mjs
 ```
 

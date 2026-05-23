@@ -15,6 +15,8 @@ import {
 	isPostProcessPlacement,
 } from "./ordering";
 import { FAST_APPROXIMATE_ANTI_ALIASING_PASS } from "./passes/FastApproximateAntiAliasingPass";
+import { SCREEN_SPACE_AMBIENT_OCCLUSION_PASS } from "./passes/ScreenSpaceAmbientOcclusionPass";
+import { SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS } from "./passes/ScreenSpaceGlobalIlluminationPass";
 import { SCREEN_SPACE_REFLECTIONS_PASS } from "./passes/ScreenSpaceReflectionsPass";
 import { TEMPORAL_ANTI_ALIASING_PASS } from "./passes/TemporalAntiAliasingPass";
 import type {
@@ -47,20 +49,8 @@ function enabled(id: string): (state: ResolvedPostProcessState) => boolean {
 }
 
 const BUILTIN_POST_PROCESS_PASSES: readonly PostProcessPassDescriptor[] = [
-	{
-		id: "ssao",
-		placement: "spatial",
-		requirements: { gBuffer: ["depth", "normal"] },
-		isEnabled: enabled("ssao"),
-		implementations: allBackendsImplementation(),
-	},
-	{
-		id: "ssgi",
-		placement: "spatial",
-		requirements: { gBuffer: ["color", "depth", "normal", "albedo"] },
-		isEnabled: enabled("ssgi"),
-		implementations: allBackendsImplementation(),
-	},
+	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
 	TEMPORAL_ANTI_ALIASING_PASS,
 	SCREEN_SPACE_REFLECTIONS_PASS,
 	{

@@ -321,8 +321,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 
 	void targets;
 	await runtime.warmupHints([
-		"postprocess:ssao",
-		"postprocess:ssgi",
 		"postprocess:volumetric",
 		"postprocess:motion-blur",
 		"postprocess:dof",
@@ -339,8 +337,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 			.filter((buffer) => buffer.destroyed)
 			.map((buffer) => buffer.desc.label)
 	);
-	assert.ok(destroyedLabels.has("WebGPUSSAOParams"));
-	assert.ok(destroyedLabels.has("WebGPUSSGIParams"));
 	assert.ok(destroyedLabels.has("WebGPUVolumetricParams"));
 	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
 	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
@@ -352,8 +348,6 @@ async function testOnShaderRuntimeChangedDestroysParameterBuffers() {
 			.filter((module) => module.destroyed)
 			.map((module) => module.label)
 	);
-	assert.ok(destroyedShaderLabels.has("WebGPUSSAOShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUSSGIShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUHiZShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUVolumetricShader"));
 	assert.ok(destroyedShaderLabels.has("WebGPUMotionBlurShader"));

@@ -80,9 +80,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		const context = request.frameContext;
 		const canvasContext = this._host.getCanvasContext();
 		switch (passId) {
-			case "ssao":
-				processor.applySSAO(context);
-				return { ran: true };
 			case "volumetric":
 				if (!canvasContext) return { ran: false };
 				processor.applyVolumetricLight(context, canvasContext);
@@ -110,6 +107,10 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		request: PostProcessPassRequest
 	): unknown {
 		switch (passId) {
+			case "ssao":
+				return {
+					attachments: request.frameContext.attachments,
+				};
 			case "taa":
 				return {
 					attachments: request.frameContext.attachments,

@@ -22,6 +22,8 @@ Screen-space global illumination provides a local indirect-light approximation b
 - The `ssgi` pass must execute after `ssao` when `ssao` is enabled.
 - The `taa` pass must execute after `ssgi` when both passes are enabled.
 - The shader must preserve source alpha.
+- The `ssgi` pass must execute through the logical pass implementation exported by `src/postprocess/passes/ScreenSpaceGlobalIlluminationPass.ts`.
+- `WebGPUPostProcessRuntime` and WebGPU runtime delegates must not register or execute the `ssgi` kernel.
 
 ## Usage
 ```ts
@@ -41,6 +43,7 @@ renderer.postProcess.enable("taa");
 ```
 
 ```bash
+bun tests/test_screen_space_global_illumination_pass.mjs
 bun tests/test_webgpu_postprocess_runtime_spatial.mjs
 ```
 

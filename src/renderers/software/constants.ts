@@ -1,4 +1,4 @@
-import { DEFAULT_SSAO_OPTIONS, DEFAULT_VOLUMETRIC_OPTIONS } from "../../pipeline/types";
+import { DEFAULT_VOLUMETRIC_OPTIONS } from "../../pipeline/types";
 import type { SoftwareRasterMode } from "./types";
 import {
 	DEFAULT_GAMMA,
@@ -53,14 +53,6 @@ export const VolumetricConstants = Object.freeze({
 	SCENE_DEPTH_LIMIT_MULTIPLIER: 1.6,
 	MIN_SCENE_BOUNDS_RADIUS: 1.0,
 	TEMPORAL_ACCUMULATION_FACTOR: 0.95,
-});
-
-export const SSAOConstants = Object.freeze({
-	DEFAULT_SAMPLES: DEFAULT_SSAO_OPTIONS.samples,
-	DEFAULT_RADIUS: DEFAULT_SSAO_OPTIONS.radius,
-	DEFAULT_BIAS: DEFAULT_SSAO_OPTIONS.bias,
-	DEFAULT_INTENSITY: DEFAULT_SSAO_OPTIONS.intensity,
-	NOISE_SIZE: 4,
 });
 
 export const DEFAULT_SOFTWARE_RASTER_MODE: SoftwareRasterMode = "scanline";

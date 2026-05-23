@@ -26,6 +26,27 @@ export {
 	type WebGLFXAAContext,
 } from "./passes/FastApproximateAntiAliasingPass";
 export {
+	SCREEN_SPACE_AMBIENT_OCCLUSION_PASS,
+	SoftwareScreenSpaceAmbientOcclusionImplementation,
+	WebGPUScreenSpaceAmbientOcclusionImplementation,
+	WebGLScreenSpaceAmbientOcclusionImplementation,
+	createSSAOKernelParams,
+	resolveSSAODownsample,
+	resolveSSAOOptions,
+	type ResolvedSSAOOptions,
+	type SoftwareSSAOContext,
+	type WebGPUSSAOContext,
+	type WebGLSSAOContext,
+} from "./passes/ScreenSpaceAmbientOcclusionPass";
+export {
+	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS,
+	WebGPUScreenSpaceGlobalIlluminationImplementation,
+	createSSGIKernelParams,
+	resolveSSGIOptions,
+	type ResolvedSSGIOptions,
+	type WebGPUSSGIContext,
+} from "./passes/ScreenSpaceGlobalIlluminationPass";
+export {
 	SCREEN_SPACE_REFLECTIONS_PASS,
 	createSSRTraceParams,
 	resolveSSRHistoryDescriptors,

@@ -44,7 +44,6 @@ import {
 	type FramePass,
 	type MotionBlurOptions,
 	type ParticleRenderBatch,
-	type SSAOOptions,
 } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
@@ -55,6 +54,10 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { getBuiltinPostProcessPasses } from "../../postprocess/PostProcessPipeline";
+import {
+	resolveSSAODownsample,
+	type WebGLSSAOContext,
+} from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
@@ -119,7 +122,6 @@ import {
 import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
-	clampDownsample,
 	finiteOr,
 	isFiniteMatrix,
 	sanitizeFiniteClamped,
@@ -179,8 +181,8 @@ type WebGLFramePassHandler = (context: FrameContext) => void;
 const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	Record<string, readonly string[]>
 > = {
-	ssao: ["postprocess:ssao"],
-	ssgi: ["postprocess:ssgi"],
+	ssao: [],
+	ssgi: [],
 	taa: ["postprocess:taa"],
 	ssr: [],
 	volumetric: ["postprocess:volumetric"],
@@ -308,9 +310,8 @@ export class WebGLFrameExecutor {
 		this._modelMatrixKeysThisFrame.clear();
 		this._width = toSafeDimension(context.attachments.width);
 		this._height = toSafeDimension(context.attachments.height);
-		const ssaoDownsample = clampDownsample(
-			context.postProcess.options.ssao.downsample,
-			DEFAULT_SSAO_OPTIONS.downsample
+		const ssaoDownsample = resolveSSAODownsample(
+			context.postProcess.options.ssao.downsample
 		);
 		this._ensureFrameTargets(this._width, this._height, ssaoDownsample);
 		this._configureOIT(context);
@@ -518,9 +519,6 @@ export class WebGLFrameExecutor {
 	): PostProcessPassResult {
 		const context = request.frameContext;
 		switch (passId) {
-			case "ssao":
-				this._applySSAO(context.postProcess.options.ssao, context);
-				return { ran: true };
 			case "fog":
 				this._applyFog(context.postProcess.options.fog);
 				return { ran: true };
@@ -555,6 +553,41 @@ export class WebGLFrameExecutor {
 		request: PostProcessPassRequest
 	): unknown {
 		switch (passId) {
+			case "ssao": {
+				const context: WebGLSSAOContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					sceneMotionTexture: this._sceneMotionTexture,
+					sceneNormalTexture: this._sceneNormalTexture,
+					ssaoRawTexture: this._ssaoRawTexture,
+					ssaoBlurTexture: this._ssaoBlurTexture,
+					width: this._width,
+					height: this._height,
+					ssaoDownsample: this._targetSSAODownsample,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					nextFrameJitter: () => this._nextSSAOFrameJitter(),
+					drawFullscreen: (width, height, frameContext) =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							width,
+							height,
+							frameContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
 			case "taa": {
 				this._applyPipelineHistories(request);
 				const context: WebGLTAAContext = {
@@ -703,17 +736,6 @@ export class WebGLFrameExecutor {
 		}
 		for (const hint of warmupHints) {
 			switch (hint) {
-				case "postprocess:ssao":
-					compile("WebGLSSAORawProgram", () => {
-						this._programs.getSSAORawProgram();
-					});
-					compile("WebGLSSAOBlurProgram", () => {
-						this._programs.getSSAOBlurProgram();
-					});
-					compile("WebGLSSAOCombineProgram", () => {
-						this._programs.getSSAOCombineProgram();
-					});
-					break;
 				case "postprocess:taa":
 					compile("WebGLTAAProgram", () => {
 						this._programs.getTAAProgram();
@@ -821,6 +843,41 @@ export class WebGLFrameExecutor {
 
 	private _getPassWarmupExecutionContext(passId: string): unknown {
 		switch (passId) {
+			case "ssao": {
+				const context: WebGLSSAOContext = {
+					gl: this._gl,
+					programs: this._programs,
+					fullscreenVao: this._fullscreenVao,
+					postFramebuffer: this._postFramebuffer,
+					sceneColorTexture: this._sceneColorTexture,
+					sceneMotionTexture: this._sceneMotionTexture,
+					sceneNormalTexture: this._sceneNormalTexture,
+					ssaoRawTexture: this._ssaoRawTexture,
+					ssaoBlurTexture: this._ssaoBlurTexture,
+					width: this._width,
+					height: this._height,
+					ssaoDownsample: this._targetSSAODownsample,
+					getSourceTexture: () =>
+						this._presentSourceTexture ?? this._sceneColorTexture,
+					resolveTargetTexture: (sourceTexture) =>
+						resolveWebGLPostProcessTargetTexture(
+							this as unknown as WebGLFrameTargetLifecycleHost,
+							sourceTexture
+						),
+					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+					nextFrameJitter: () => this._nextSSAOFrameJitter(),
+					drawFullscreen: (width, height, frameContext) =>
+						this._drawFullscreenTrianglesWithDirtyScissor(
+							width,
+							height,
+							frameContext
+						),
+					publishColorTexture: (texture) => {
+						this._presentSourceTexture = texture;
+					},
+				};
+				return context;
+			}
 			case "fxaa": {
 				const context: WebGLFXAAContext = {
 					gl: this._gl,
@@ -1952,219 +2009,6 @@ export class WebGLFrameExecutor {
 		gl.bindVertexArray(null);
 	}
 
-	private _applySSAO(options: SSAOOptions | undefined, context: FrameContext): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture ||
-			!this._sceneMotionTexture ||
-			!this._sceneNormalTexture ||
-			!this._ssaoRawTexture ||
-			!this._ssaoBlurTexture ||
-			!this._fullscreenVao
-		) {
-			return;
-		}
-
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const gl = this._gl;
-		const rawProgram = this._programs.getSSAORawProgram();
-		const blurProgram = this._programs.getSSAOBlurProgram();
-		const combineProgram = this._programs.getSSAOCombineProgram();
-		const radius = Math.max(1, finiteOr(options?.radius, DEFAULT_SSAO_OPTIONS.radius));
-		const bias = Math.max(1e-4, finiteOr(options?.bias, DEFAULT_SSAO_OPTIONS.bias));
-		const intensity = Math.max(
-			0,
-			finiteOr(options?.intensity, DEFAULT_SSAO_OPTIONS.intensity)
-		);
-		const blurRadius = clamp(
-			finiteOr(options?.blurRadius, DEFAULT_SSAO_OPTIONS.blurRadius),
-			1,
-			4
-		);
-		const blurSharpness = Math.max(
-			1e-3,
-			finiteOr(options?.blurSharpness, DEFAULT_SSAO_OPTIONS.blurSharpness)
-		);
-		const samples = clamp(
-			Math.round(finiteOr(options?.samples, DEFAULT_SSAO_OPTIONS.samples)),
-			4,
-			48
-		);
-		const isOrthographic = context.camera.type === CameraType.Orthographic;
-		const tanHalfFov = isOrthographic ? 0 : Math.tan((context.camera.fov * Math.PI) / 360);
-		const aspect =
-			context.camera.aspectRatio || this._width / Math.max(this._height, 1);
-		const fullInvW = 1 / Math.max(this._width, 1);
-		const fullInvH = 1 / Math.max(this._height, 1);
-		const aoWidth = Math.max(
-			1,
-			Math.floor(this._width / Math.max(this._targetSSAODownsample, 1))
-		);
-		const aoHeight = Math.max(
-			1,
-			Math.floor(this._height / Math.max(this._targetSSAODownsample, 1))
-		);
-		const aoInvW = 1 / aoWidth;
-		const aoInvH = 1 / aoHeight;
-		this._ssaoFrameIndex = (this._ssaoFrameIndex + 1) % 1024;
-		const frameJitter = this._ssaoFrameIndex / 1024;
-		const view = context.camera.viewMatrix.elements;
-		const cameraPosition = context.camera.getWorldPosition();
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-
-		this._bindPostSingleColorTarget(this._ssaoRawTexture);
-		gl.viewport(0, 0, aoWidth, aoHeight);
-		gl.useProgram(rawProgram.program);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneNormalTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-		if (rawProgram.uniforms.normalMap) gl.uniform1i(rawProgram.uniforms.normalMap, 0);
-		if (rawProgram.uniforms.depthMap) gl.uniform1i(rawProgram.uniforms.depthMap, 1);
-		if (rawProgram.uniforms.invSize)
-			gl.uniform4f(rawProgram.uniforms.invSize, fullInvW, fullInvH, aoInvW, aoInvH);
-		if (rawProgram.uniforms.gtao)
-			gl.uniform4f(rawProgram.uniforms.gtao, radius, bias, intensity, samples);
-		if (rawProgram.uniforms.blurProj)
-			gl.uniform4f(
-				rawProgram.uniforms.blurProj,
-				blurRadius,
-				blurSharpness,
-				tanHalfFov,
-				aspect
-			);
-		if (rawProgram.uniforms.pass)
-			gl.uniform4f(
-				rawProgram.uniforms.pass,
-				1,
-				0,
-				isOrthographic ? 1 : 0,
-				frameJitter
-			);
-		if (rawProgram.uniforms.cameraPosition)
-			gl.uniform3f(
-				rawProgram.uniforms.cameraPosition,
-				cameraPosition.x,
-				cameraPosition.y,
-				cameraPosition.z
-			);
-		if (rawProgram.uniforms.basisRight)
-			gl.uniform3f(
-				rawProgram.uniforms.basisRight,
-				view[0][0],
-				view[0][1],
-				view[0][2]
-			);
-		if (rawProgram.uniforms.basisUp)
-			gl.uniform3f(rawProgram.uniforms.basisUp, view[1][0], view[1][1], view[1][2]);
-		if (rawProgram.uniforms.basisBackward)
-			gl.uniform3f(
-				rawProgram.uniforms.basisBackward,
-				view[2][0],
-				view[2][1],
-				view[2][2]
-			);
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			aoWidth,
-			aoHeight,
-			context
-		);
-
-		this._bindPostSingleColorTarget(this._ssaoBlurTexture);
-		gl.viewport(0, 0, aoWidth, aoHeight);
-		gl.useProgram(blurProgram.program);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, this._ssaoRawTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-		if (blurProgram.uniforms.sourceMap) gl.uniform1i(blurProgram.uniforms.sourceMap, 0);
-		if (blurProgram.uniforms.depthMap) gl.uniform1i(blurProgram.uniforms.depthMap, 1);
-		if (blurProgram.uniforms.invSize)
-			gl.uniform4f(blurProgram.uniforms.invSize, fullInvW, fullInvH, aoInvW, aoInvH);
-		if (blurProgram.uniforms.blurProj)
-			gl.uniform4f(
-				blurProgram.uniforms.blurProj,
-				blurRadius,
-				blurSharpness,
-				tanHalfFov,
-				aspect
-			);
-		if (blurProgram.uniforms.pass)
-			gl.uniform4f(
-				blurProgram.uniforms.pass,
-				1,
-				0,
-				isOrthographic ? 1 : 0,
-				frameJitter
-			);
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			aoWidth,
-			aoHeight,
-			context
-		);
-
-		this._bindPostSingleColorTarget(this._ssaoRawTexture);
-		gl.viewport(0, 0, aoWidth, aoHeight);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, this._ssaoBlurTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-		if (blurProgram.uniforms.pass)
-			gl.uniform4f(
-				blurProgram.uniforms.pass,
-				0,
-				1,
-				isOrthographic ? 1 : 0,
-				frameJitter
-			);
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(combineProgram.program);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._ssaoRawTexture);
-		if (combineProgram.uniforms.sceneColor)
-			gl.uniform1i(combineProgram.uniforms.sceneColor, 0);
-		if (combineProgram.uniforms.aoMap) gl.uniform1i(combineProgram.uniforms.aoMap, 1);
-		if (combineProgram.uniforms.invSize)
-			gl.uniform4f(
-				combineProgram.uniforms.invSize,
-				fullInvW,
-				fullInvH,
-				aoInvW,
-				aoInvH
-			);
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
 	private _applyFog(options?: FogOptions): void {
 		if (
 			!this._sceneMotionTexture ||
@@ -2927,6 +2771,11 @@ export class WebGLFrameExecutor {
 			this as unknown as WebGLFrameTargetLifecycleHost,
 			texture
 		);
+	}
+
+	private _nextSSAOFrameJitter(): number {
+		this._ssaoFrameIndex = (this._ssaoFrameIndex + 1) % 1024;
+		return this._ssaoFrameIndex / 1024;
 	}
 
 	private _bindOITSingleColorTarget(texture: WebGLTexture): void {

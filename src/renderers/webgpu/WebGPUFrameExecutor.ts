@@ -68,6 +68,11 @@ import {
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
 import type { WebGPUFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
+import {
+	resolveSSAODownsample,
+	type WebGPUSSAOContext,
+} from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
+import type { WebGPUSSGIContext } from "../../postprocess/passes/ScreenSpaceGlobalIlluminationPass";
 import type { WebGPUSSRContext } from "../../postprocess/passes/ScreenSpaceReflectionsPass";
 import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
@@ -178,8 +183,8 @@ const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	Record<string, readonly string[]>
 > = {
-	ssao: ["postprocess:ssao"],
-	ssgi: ["postprocess:ssgi"],
+	ssao: [],
+	ssgi: [],
 	taa: ["postprocess:taa"],
 	ssr: [],
 	volumetric: ["postprocess:volumetric", "postprocess:hiz"],
@@ -327,9 +332,8 @@ export class WebGPUFrameExecutor {
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
 		if (this._mrtEnabled) {
-			const ssaoDownsample = clampDownsample(
-				context.postProcess.options.ssao.downsample,
-				DEFAULT_SSAO_OPTIONS.downsample
+			const ssaoDownsample = resolveSSAODownsample(
+				context.postProcess.options.ssao.downsample
 			);
 			const ssrDownsample = clampDownsample(
 				context.postProcess.options.ssr.downsample,
@@ -457,8 +461,6 @@ export class WebGPUFrameExecutor {
 		this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 		this._applyPipelineHistories(request);
 		switch (passId) {
-			case "ssao":
-			case "ssgi":
 			case "fog":
 			case "motion-blur":
 			case "dof":
@@ -545,6 +547,24 @@ export class WebGPUFrameExecutor {
 			}
 		};
 		switch (passId) {
+			case "ssao": {
+				const context: WebGPUSSAOContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+				};
+				return context;
+			}
+			case "ssgi": {
+				const context: WebGPUSSGIContext = {
+					encoder: this._encoder,
+					targets: this._frameTargets,
+					shared: this._postRuntime.sharedContext,
+					publishColorTarget,
+				};
+				return context;
+			}
 			case "taa": {
 				const context: WebGPUTAAContext = {
 					encoder: this._encoder,
@@ -724,6 +744,18 @@ export class WebGPUFrameExecutor {
 
 	private _getPassWarmupExecutionContext(passId: string): unknown {
 		switch (passId) {
+			case "ssao": {
+				const context: WebGPUSSAOContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
+			case "ssgi": {
+				const context: WebGPUSSGIContext = {
+					shared: this._postRuntime.sharedContext,
+				};
+				return context;
+			}
 			case "fxaa": {
 				const context: WebGPUFXAAContext = {
 					shared: this._postRuntime.sharedContext,
