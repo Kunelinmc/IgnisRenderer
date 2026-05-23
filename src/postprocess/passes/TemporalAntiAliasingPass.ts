@@ -13,6 +13,9 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
@@ -34,7 +37,6 @@ import type {
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
-const WORKGROUP_SIZE = 8;
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];

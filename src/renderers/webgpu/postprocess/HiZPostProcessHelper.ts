@@ -6,10 +6,11 @@ import type {
 } from "../../types";
 import { ceilDiv } from "../../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../constants";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "./PostProcessSharedContext";
-
-const WORKGROUP_SIZE = 8;
 
 /**
  * Builds a Hi-Z pyramid used by depth-aware WebGPU post-process passes.

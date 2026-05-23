@@ -1,7 +1,10 @@
 import { Texture } from "../core/Texture";
 import { Renderer } from "../renderers/Renderer";
 import { loadPostProcessShaderPart } from "../shaders/webgpu/shaderSource";
-import { WEBGPU_TEXTURE_SLOT } from "../renderers/webgpu/constants";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as SOBEL_WORKGROUP_SIZE,
+	WEBGPU_TEXTURE_SLOT,
+} from "../renderers/webgpu/constants";
 import type { IWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
 import { resolveWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
 import type { IComputeKernel, IComputeRuntime } from "../renderers/IComputeRuntime";
@@ -14,7 +17,6 @@ import {
 	TextureUsage,
 } from "../renderers/types";
 
-const SOBEL_WORKGROUP_SIZE = 8;
 const DEFAULT_STRENGTH = 2.0;
 
 export interface SobelNormalMapperOptions {

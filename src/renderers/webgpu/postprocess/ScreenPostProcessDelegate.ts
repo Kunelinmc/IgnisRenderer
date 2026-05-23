@@ -33,14 +33,15 @@ import {
 	WEBGPU_INTERACTION_OUTLINE_LAYOUT as INTERACTION_OUTLINE_LAYOUT,
 } from "../bufferLayouts";
 import { ceilDiv, finiteOr } from "../../../maths/Misc";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../constants";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import { PostProcessSharedContext } from "./PostProcessSharedContext";
 import type {
 	WebGPUPostProcessInteractionOutlineExecuteRequest,
 	WebGPUPostProcessRuntimePassRegistry,
 } from "./types";
-
-const WORKGROUP_SIZE = 8;
 
 export class ScreenPostProcessDelegate {
 	private _shared: PostProcessSharedContext;

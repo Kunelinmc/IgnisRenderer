@@ -12,6 +12,9 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
@@ -23,7 +26,6 @@ import type {
 	PostProcessPassRequirements,
 } from "../types";
 
-const WORKGROUP_SIZE = 8;
 const SSGI_MAX_SAMPLES = 16;
 
 export type ResolvedSSGIOptions = Required<

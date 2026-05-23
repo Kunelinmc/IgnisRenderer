@@ -25,6 +25,9 @@ import {
 	createTextureMipUploadLevels,
 	resolveWebGPUTextureUploadFormat,
 } from "../renderers/webgpu/texture";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../renderers/webgpu/constants";
 import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
@@ -44,7 +47,6 @@ export const ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH = 128;
 export const ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT = 64;
 export const ENVIRONMENT_IBL_MAX_MIP_LEVELS = 5;
 
-const WORKGROUP_SIZE = 8;
 const PREFILTER_PARAMS_SIZE = 32;
 const CPU_MAX_SAMPLE_COUNT = 1024;
 const CPU_MIN_SAMPLE_COUNT = 64;

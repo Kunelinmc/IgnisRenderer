@@ -14,6 +14,7 @@ import {
 } from "../../renderers/types";
 import type { PostProcessorLike } from "../../renderers/software/PostProcessor";
 import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
 } from "../../renderers/webgpu/constants";
@@ -38,7 +39,6 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
-const WORKGROUP_SIZE = 8;
 
 export interface SoftwareVolumetricLightingContext {
 	readonly processor: PostProcessorLike | null;

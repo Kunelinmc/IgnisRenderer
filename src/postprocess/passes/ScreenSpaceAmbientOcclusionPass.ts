@@ -15,6 +15,9 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
@@ -28,7 +31,6 @@ import type {
 	PostProcessPassRequirements,
 } from "../types";
 
-const WORKGROUP_SIZE = 8;
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 

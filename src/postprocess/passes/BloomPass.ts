@@ -13,6 +13,9 @@ import {
 	type IShaderModule,
 } from "../../renderers/types";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { clamp } from "../../maths/Common";
@@ -27,8 +30,6 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 } from "../types";
-
-const WORKGROUP_SIZE = 8;
 
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;

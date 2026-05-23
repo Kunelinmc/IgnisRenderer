@@ -12,6 +12,9 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
+import {
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import { WebGPUHiZPostProcessHelper } from "../../renderers/webgpu/postprocess/HiZPostProcessHelper";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
@@ -33,7 +36,6 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
-const WORKGROUP_SIZE = 8;
 
 export type ResolvedSSROptions = Required<
 	Pick<

@@ -61,8 +61,10 @@ import {
 	type WebGLSSAOContext,
 } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import type { WebGLBloomContext } from "../../postprocess/passes/BloomPass";
-import type { WebGLFogContext } from "../../postprocess/passes/FogPass";
-import { resolveFogUniformParams } from "../../postprocess/passes/fogUtils";
+import {
+	resolveFogUniformParams,
+	type WebGLFogContext,
+} from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,
