@@ -10,10 +10,10 @@ The renderer provides post-process effects through `renderer.postProcess`. The `
 - `renderer.postProcess.setOptions("color-filter", options)` must merge `ColorFilterOptions` without enabling the pass.
 - `renderer.postProcess.disable("color-filter")` must disable the pass.
 - `renderer.postProcess.reset("color-filter")` must clear explicit `color-filter` request state.
-- `backend.postProcess.capabilities["color-filter"]` must report whether the active backend supports the pass.
-- `SoftwareBackend.postProcess.capabilities["color-filter"]` must be `true`.
-- `WebGLBackend.postProcess.capabilities["color-filter"]` must be `true`.
-- `WebGPUBackend.postProcess.capabilities["color-filter"]` must be `true`.
+- `backend.postProcessCapabilities["color-filter"]` must report whether the active backend supports the pass.
+- `SoftwareBackend.postProcessCapabilities["color-filter"]` must be `true`.
+- `WebGLBackend.postProcessCapabilities["color-filter"]` must be `true`.
+- `WebGPUBackend.postProcessCapabilities["color-filter"]` must be `true`.
 - `ColorFilterOptions.brightness` must use range `[-1, 1]` and default to `0`.
 - `ColorFilterOptions.saturation` must use range `[0, 2]` and default to `1`.
 - `ColorFilterOptions.contrast` must use range `[0, 2]` and default to `1`.
@@ -41,7 +41,7 @@ bun tests/test_incremental_postfx_grading.mjs
 ```
 
 ## Errors & Diagnostics
-- If `color-filter` is explicitly enabled on a backend where `backend.postProcess.capabilities["color-filter"]` is `false`, post-process resolution must disable the pass and emit warning key `"<backend>-postprocess-unsupported-color-filter"`.
+- If `color-filter` is explicitly enabled on a backend where `backend.postProcessCapabilities["color-filter"]` is `false`, post-process resolution must disable the pass and emit warning key `"<backend>-postprocess-unsupported-color-filter"`.
 - Invalid numeric option values such as `NaN` and `Infinity` should fall back to defaults during pass execution.
 - Out-of-range values must be clamped to the contract ranges before shader or pixel evaluation.
 

@@ -139,6 +139,19 @@ export function createNoopPostProcessSupport(
 	};
 }
 
+export function installNoopPostProcessSupport(
+	target,
+	backend = "test",
+	capabilities = ALL_POST_PROCESS_CAPABILITIES
+) {
+	const support = createNoopPostProcessSupport(backend, capabilities);
+	target.postProcessCapabilities = support.capabilities;
+	target.postProcessExecutor = support.executor;
+	target.createPostProcessGBufferBridge = (context) =>
+		support.createGBufferBridge(context);
+	return support;
+}
+
 export function createResolvedPostProcess(
 	request = {},
 	capabilities = ALL_POST_PROCESS_CAPABILITIES,

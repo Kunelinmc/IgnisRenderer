@@ -17,7 +17,7 @@ function run() {
 		clusteredLighting: false,
 		oit: false,
 	});
-	assert.deepEqual(software.postProcess.capabilities, {
+	assert.deepEqual(software.postProcessCapabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: false,
@@ -42,7 +42,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(webgpu.postProcess.capabilities, {
+	assert.deepEqual(webgpu.postProcessCapabilities, {
 		ssao: true,
 		ssgi: true,
 		taa: true,
@@ -67,7 +67,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(webgl.postProcess.capabilities, {
+	assert.deepEqual(webgl.postProcessCapabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: true,

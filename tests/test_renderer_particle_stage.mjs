@@ -11,7 +11,7 @@ import {
 import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -28,7 +28,8 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"stub",
 			ALL_POST_PROCESS_CAPABILITIES
 		);

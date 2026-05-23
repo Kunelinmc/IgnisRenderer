@@ -320,13 +320,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		);
 		const resolvedPostProcess = resolvePostProcessState(
 			this.postProcess.getState(),
-			this.backend.postProcess.capabilities,
+			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
 		const warmupPostProcessOrder = this._postProcessPipeline
 			.getExecutionOrder(
 				resolvedPostProcess,
-				this.backend.postProcess.executor
+				this.backend.postProcessExecutor
 			)
 			.map((pass) => pass.id);
 		transient.set(
@@ -880,7 +880,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		);
 		let resolvedPostProcess = resolvePostProcessState(
 			this.postProcess.getState(),
-			this.backend.postProcess.capabilities,
+			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
 		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
@@ -928,7 +928,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					);
 					resolvedPostProcess = resolvePostProcessState(
 						this.postProcess.getState(),
-						this.backend.postProcess.capabilities,
+						this.backend.postProcessCapabilities,
 						this.backend.type
 					);
 					for (const warning of [
@@ -1130,8 +1130,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					if (stage.id === "postprocess") {
 						await this._postProcessPipeline.execute({
 							frameContext: context,
-							executor: this.backend.postProcess.executor,
-							gBuffer: this.backend.postProcess.createGBufferBridge(context),
+							executor: this.backend.postProcessExecutor,
+							gBuffer: this.backend.createPostProcessGBufferBridge(context),
 							warn: (key, message) =>
 								this.logger.warn(`[${key}] ${message}`, {
 									scope: "Renderer",

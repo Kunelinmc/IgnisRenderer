@@ -4,7 +4,7 @@ import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -18,7 +18,8 @@ class StubBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"webgpu",
 			ALL_POST_PROCESS_CAPABILITIES
 		);

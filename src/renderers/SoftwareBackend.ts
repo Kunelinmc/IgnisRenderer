@@ -6,6 +6,7 @@ import {
 	type FramePass,
 } from "../pipeline/types";
 import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
+import type { LogicalGBufferBridge } from "../postprocess";
 import { Rasterizer } from "./software/Rasterizer";
 import { PostProcessor } from "./software/PostProcessor";
 import {
@@ -152,11 +153,8 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	public readonly postProcess = {
-		capabilities: SOFTWARE_POST_PROCESS_CAPABILITIES,
-		executor: this._postProcessExecutor,
-		createGBufferBridge: createSoftwareGBufferBridge,
-	};
+	public readonly postProcessCapabilities = SOFTWARE_POST_PROCESS_CAPABILITIES;
+	public readonly postProcessExecutor = this._postProcessExecutor;
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
@@ -193,6 +191,21 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public get activeRasterMode(): SoftwareRasterMode {
 		return this._activeRasterMode;
+	}
+
+	/**
+	 * Creates the logical G-buffer bridge for software post-process passes.
+	 *
+	 * @param context Frame context with software color, depth, and normal
+	 * buffers.
+	 * @returns A logical G-buffer bridge backed by software attachments.
+	 * @remarks This method does not allocate backend-owned graph passes or
+	 * mutate post-process pass registration.
+	 */
+	public createPostProcessGBufferBridge(
+		context: FrameContext
+	): LogicalGBufferBridge {
+		return createSoftwareGBufferBridge(context);
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {

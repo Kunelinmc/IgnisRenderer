@@ -186,11 +186,10 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	const backend = new WebGPUBackend();
-	assert.equal(backend.postProcess.executor.backend, "webgpu");
-	assert.equal(typeof backend.postProcess.executor.executePass, "function");
-	assert.equal(typeof backend.postProcess.createGBufferBridge, "function");
-	assert.equal("registerPass" in backend.postProcess, false);
-	assert.equal("unregisterPass" in backend.postProcess, false);
+	assert.equal(backend.postProcessExecutor.backend, "webgpu");
+	assert.equal(typeof backend.postProcessExecutor.executePass, "function");
+	assert.equal(typeof backend.createPostProcessGBufferBridge, "function");
+	assert.equal("postProcess" in backend, false);
 }
 
 async function run() {

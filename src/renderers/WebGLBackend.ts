@@ -12,7 +12,6 @@ import {
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
-	RenderBackendPostProcessSupport,
 	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
@@ -86,9 +85,6 @@ const WEBGL_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 	gamma: true,
 };
 
-export interface WebGLPostProcessSupport
-	extends RenderBackendPostProcessSupport {}
-
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
@@ -112,11 +108,8 @@ export class WebGLBackend implements IRenderBackend {
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 	};
-	public readonly postProcess: WebGLPostProcessSupport = {
-		capabilities: WEBGL_POST_PROCESS_CAPABILITIES,
-		executor: this._postProcessExecutor,
-		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
-	};
+	public readonly postProcessCapabilities = WEBGL_POST_PROCESS_CAPABILITIES;
+	public readonly postProcessExecutor = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
@@ -157,6 +150,22 @@ export class WebGLBackend implements IRenderBackend {
 
 	public setRenderer(_renderer: RendererBackendBridge): void {
 		this._ensureParticleSimulator();
+	}
+
+	/**
+	 * Creates the logical G-buffer bridge for WebGL post-process passes.
+	 *
+	 * @param context Frame context with WebGL frame attachments for the active
+	 * frame.
+	 * @returns A logical G-buffer bridge backed by WebGL texture handles when
+	 * the frame executor is available.
+	 * @remarks This method does not register backend graph passes or mutate
+	 * renderer-level post-process configuration.
+	 */
+	public createPostProcessGBufferBridge(
+		context: FrameContext
+	): LogicalGBufferBridge {
+		return this._createPostProcessGBuffer(context);
 	}
 
 	private _createPostProcessResource(

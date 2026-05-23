@@ -3,14 +3,7 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type {
-	PostProcessCapabilities,
-} from "../pipeline/PostProcessController";
-import type {
-	IPostProcessExecutor,
-	LogicalGBufferBridge,
-	PostProcessPassDescriptor,
-} from "../postprocess";
+import type { PostProcessBackendSupport } from "../postprocess";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -84,21 +77,9 @@ export interface RendererBackendBridge {
 	pixels?: Uint8ClampedArray | null;
 }
 
-export type RenderBackendPostProcessPass = PostProcessPassDescriptor;
-
-export interface RenderBackendPostProcessSupport<
-	TPostProcessPass extends RenderBackendPostProcessPass =
-		RenderBackendPostProcessPass,
-> {
-	readonly capabilities: PostProcessCapabilities;
-	readonly executor: IPostProcessExecutor;
-	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
-}
-
-export interface IRenderBackend {
+export interface IRenderBackend extends PostProcessBackendSupport {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
-	readonly postProcess: RenderBackendPostProcessSupport;
 	readonly frameScheduling: FrameSchedulingMode;
 	readonly passExecutors?: PassExecutorMap;
 	setRenderer?(renderer: RendererBackendBridge): void;

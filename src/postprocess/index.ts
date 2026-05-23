@@ -35,6 +35,7 @@ export type {
 	PostProcessPassRequest,
 	PostProcessPassRequirements,
 	PostProcessPassResult,
+	PostProcessBackendSupport,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
 	PostProcessResourceDescriptor,

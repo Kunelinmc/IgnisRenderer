@@ -3,7 +3,7 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
@@ -17,7 +17,8 @@ class RegistryBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"webgpu",
 			ALL_POST_PROCESS_CAPABILITIES
 		);

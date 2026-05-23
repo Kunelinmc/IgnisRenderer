@@ -9,7 +9,7 @@ import {
 } from "../src/index.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -28,7 +28,8 @@ class StubBackend {
 			fog: false,
 			bloom: false,
 		};
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"stub",
 			ALL_POST_PROCESS_CAPABILITIES
 		);

@@ -765,7 +765,7 @@ export class WebGPURenderResources {
 			features: featuresArg,
 			postProcess: resolvePostProcessState(
 				{},
-				this._backend.postProcess.capabilities,
+				this._backend.postProcessCapabilities,
 				this._backend.type
 			),
 			shAmbientCoeffs: null,

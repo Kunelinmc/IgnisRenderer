@@ -8,13 +8,13 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 ## API/Contract
 - `WebGLBackend` must report core `capabilities.sh = true` and `capabilities.clusteredLighting = true`.
 - `WebGLBackend.capabilities` must not expose post-process capability fields.
-- `WebGLBackend.postProcess.capabilities.ssgi` must be `false`.
-- `WebGLBackend.postProcess.capabilities.ssr` must be `false`.
-- `WebGLBackend.postProcess.capabilities.volumetric` must be `false`.
-- `WebGLBackend.postProcess.capabilities.fog` must be `true` and must support both post-process fog and scene-mode fog.
-- `WebGLBackend.postProcess.executor.backend` must be `"webgl"`.
-- `WebGLBackend.postProcess.createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
-- `WebGLBackend.postProcess` must not expose public `registerPass` or `unregisterPass` methods.
+- `WebGLBackend.postProcessCapabilities.ssgi` must be `false`.
+- `WebGLBackend.postProcessCapabilities.ssr` must be `false`.
+- `WebGLBackend.postProcessCapabilities.volumetric` must be `false`.
+- `WebGLBackend.postProcessCapabilities.fog` must be `true` and must support both post-process fog and scene-mode fog.
+- `WebGLBackend.postProcessExecutor.backend` must be `"webgl"`.
+- `WebGLBackend.createPostProcessGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
+- `WebGLBackend` must not expose a public `postProcess` facade or backend-level post-process registration methods.
 - The backend must validate pass dependency order per frame and must treat `skipPass` as an executed stage.
 - SH lighting must use 16 coefficients and must be uploaded through texture-backed data for shader sampling.
 - Clustered lighting must be CPU-built with tile and z-slice partitioning, and must provide runtime fallback to legacy forward lighting when requirements are not met.
@@ -57,13 +57,14 @@ bun tests/test_webgl_backend_v2.mjs
 - `webgl-clustered-texture-size-overflow`: triggered when clustered buffers cannot fit within texture capacity.
 - `webgl-sh-ambient-texture-create-failed`: triggered when SH coefficient texture allocation fails.
 - `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient texture upload fails.
-- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit post-process request is unsupported by `backend.postProcess.capabilities`.
+- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit post-process request is unsupported by `backend.postProcessCapabilities`.
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to enabled.
-- Post-process capability fields moved from `WebGLBackend.capabilities` to `WebGLBackend.postProcess.capabilities`.
+- Post-process capability fields moved from `WebGLBackend.capabilities` to `WebGLBackend.postProcessCapabilities`.
 - `WebGLBackend.registerPostProcessPass(pass)` and `WebGLBackend.unregisterPostProcessPass(id)` are removed.
+- `WebGLBackend.postProcess` is removed.
 - `WebGLBackend.postProcess.registerPass(pass)` and `WebGLBackend.postProcess.unregisterPass(id)` are removed.
 - Public WebGL custom post-process passes must migrate to `PostProcessPassDescriptor` through `renderer.postProcess.registerPass(descriptor)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the WebGPU backend budget.

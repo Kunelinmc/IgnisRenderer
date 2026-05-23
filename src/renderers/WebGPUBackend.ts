@@ -5,7 +5,6 @@ import {
 } from "./ICommandEncoder";
 import type {
 	IRenderBackend,
-	RenderBackendPostProcessSupport,
 	RenderBackendDeviceLostInfo,
 	RendererBackendBridge,
 	WarmupOptions,
@@ -237,9 +236,6 @@ const WEBGPU_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
 	gamma: true,
 };
 
-export interface WebGPUPostProcessSupport
-	extends RenderBackendPostProcessSupport {}
-
 function isWebGPUBackendOptions(
 	value: unknown
 ): value is WebGPUBackendOptions {
@@ -300,16 +296,28 @@ export class WebGPUBackend implements IRenderBackend {
 			this._executePostProcessPass(passId, request),
 		endFrame: (_request) => {},
 	};
-	public readonly postProcess: WebGPUPostProcessSupport = {
-		capabilities: WEBGPU_POST_PROCESS_CAPABILITIES,
-		executor: this._postProcessExecutor,
-		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
-	};
+	public readonly postProcessCapabilities = WEBGPU_POST_PROCESS_CAPABILITIES;
+	public readonly postProcessExecutor = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
 	private _device: GPUDevice | null = null;
 	private _queue: GPUQueue | null = null;
+
+	/**
+	 * Creates the logical G-buffer bridge for WebGPU post-process passes.
+	 *
+	 * @param context Frame context with WebGPU render resources for the active
+	 * frame.
+	 * @returns A logical G-buffer bridge backed by WebGPU texture handles.
+	 * @remarks This method exposes only backend-owned attachments and does not
+	 * mutate the renderer-level post-process registry.
+	 */
+	public createPostProcessGBufferBridge(
+		context: FrameContext
+	): LogicalGBufferBridge {
+		return this._createPostProcessGBuffer(context);
+	}
 
 	/**
 	 * Returns the current presentation canvas.

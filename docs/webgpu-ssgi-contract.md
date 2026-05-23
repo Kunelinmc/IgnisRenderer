@@ -6,11 +6,11 @@ This document defines the contract for the built-in `ssgi` post-process pass in 
 Screen-space global illumination provides a local indirect-light approximation by sampling visible scene color, albedo, normal, and depth buffers. The pass is intended for local color bounce and contact illumination, not full-scene physically complete global illumination.
 
 ## API/Contract
-- `renderer.postProcess.enable("ssgi", options)` must enable the `ssgi` pass only when `backend.postProcess.capabilities.ssgi` is `true`.
+- `renderer.postProcess.enable("ssgi", options)` must enable the `ssgi` pass only when `backend.postProcessCapabilities.ssgi` is `true`.
 - `renderer.postProcess.setOptions("ssgi", options)` must merge `SSGIOptions` without enabling the pass.
-- `WebGPUBackend.postProcess.capabilities.ssgi` must be `true`.
-- `WebGLBackend.postProcess.capabilities.ssgi` must be `false`.
-- `SoftwareBackend.postProcess.capabilities.ssgi` must be `false`.
+- `WebGPUBackend.postProcessCapabilities.ssgi` must be `true`.
+- `WebGLBackend.postProcessCapabilities.ssgi` must be `false`.
+- `SoftwareBackend.postProcessCapabilities.ssgi` must be `false`.
 - `SSGIOptions.samples` must control the number of shader samples used by the pass.
 - `SSGIOptions.samples` must default to `8` and must be clamped to `[1, 16]`.
 - `SSGIOptions.radius` must be clamped to `[1, 6]`.
@@ -45,7 +45,7 @@ bun tests/test_webgpu_postprocess_runtime_spatial.mjs
 ```
 
 ## Errors & Diagnostics
-- If `ssgi` is explicitly enabled on a backend where `backend.postProcess.capabilities.ssgi` is `false`, post-process resolution must disable the pass and emit warning key `"<backend>-postprocess-unsupported-ssgi"`.
+- If `ssgi` is explicitly enabled on a backend where `backend.postProcessCapabilities.ssgi` is `false`, post-process resolution must disable the pass and emit warning key `"<backend>-postprocess-unsupported-ssgi"`.
 - Invalid numeric option values such as `NaN` and `Infinity` should fall back to defaults during pass execution.
 - Values outside the supported range must be clamped before shader execution.
 

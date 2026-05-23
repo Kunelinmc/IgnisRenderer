@@ -3,7 +3,7 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
@@ -19,7 +19,8 @@ class RegistryBackend {
 		};
 		this.contexts = [];
 		this.executedPasses = [];
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"webgpu",
 			ALL_POST_PROCESS_CAPABILITIES
 		);
@@ -114,12 +115,12 @@ async function run() {
 			),
 			18
 		);
-		assert.ok(backend.postProcess.executor.executedPasses.includes("gamma"));
+		assert.ok(backend.postProcessExecutor.executedPasses.includes("gamma"));
 		assert.ok(
-			backend.postProcess.executor.executedPasses.includes("custom-edge")
+			backend.postProcessExecutor.executedPasses.includes("custom-edge")
 		);
 		assert.equal(
-			backend.postProcess.executor.executedPasses.includes("tonemap"),
+			backend.postProcessExecutor.executedPasses.includes("tonemap"),
 			false
 		);
 

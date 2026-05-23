@@ -247,7 +247,7 @@ async function testInitAndPassRouting() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(backend.postProcess.capabilities, {
+	assert.deepEqual(backend.postProcessCapabilities, {
 		ssao: true,
 		ssgi: false,
 		taa: true,

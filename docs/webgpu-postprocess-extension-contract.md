@@ -9,15 +9,15 @@ WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostPro
 - `renderer.postProcess.registerPass(descriptor)` must register a logical `PostProcessPassDescriptor`.
 - A WebGPU custom pass must include `descriptor.implementations.webgpu`.
 - A WebGPU custom pass should use `descriptor.placement` and optional `descriptor.order` to enter the fixed post-process sequence.
-- `WebGPUBackend.postProcess.executor.backend` must be `"webgpu"`.
-- `WebGPUBackend.postProcess.executor.executePass(passId, request)` must dispatch the corresponding WebGPU post-process implementation.
-- `WebGPUBackend.postProcess.createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGPU texture handles.
+- `WebGPUBackend.postProcessExecutor.backend` must be `"webgpu"`.
+- `WebGPUBackend.postProcessExecutor.executePass(passId, request)` must dispatch the corresponding WebGPU post-process implementation.
+- `WebGPUBackend.createPostProcessGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGPU texture handles.
 - WebGPU depth channels must declare `depthEncoding: "hardware"` unless the implementation provides a linearized depth texture.
 - WebGPU motion channels must declare `motionEncoding: "ndc-delta"` when motion vectors are available.
 - WebGPU temporal passes must read history resources from `request.histories`.
 - WebGPU temporal passes must return `updatedHistoryIds` or `historyUpdated` when they write pipeline-owned history resources.
 - WebGPU executor resource allocation must use backend-owned texture creation and destruction APIs.
-- WebGPU backends must not expose public `postProcess.registerPass` or `postProcess.unregisterPass`.
+- WebGPU backends must not expose a public `postProcess` facade or backend-level post-process registration methods.
 
 ## Usage
 ```ts
@@ -59,7 +59,7 @@ bun tests/test_webgpu_postprocess_runtime_screen.mjs
 
 ## Compatibility / Breaking Changes
 - `WebGPUPostProcessPassPlugin` is removed from the public API.
-- `WebGPUBackend.postProcess.registerPass(pass)` is removed.
-- `WebGPUBackend.postProcess.unregisterPass(id)` is removed.
+- `WebGPUBackend.postProcess` is removed.
+- `WebGPUBackend.postProcess.registerPass(pass)` and `WebGPUBackend.postProcess.unregisterPass(id)` are removed.
 - Public custom passes must migrate to `PostProcessPassDescriptor` and `renderer.postProcess.registerPass(descriptor)`.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must migrate to `placement` and optional `order`.

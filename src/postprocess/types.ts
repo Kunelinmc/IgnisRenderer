@@ -172,6 +172,27 @@ export interface IPostProcessExecutor {
 	endFrame?(request: PostProcessFrameEndRequest): void | Promise<void>;
 }
 
+export interface PostProcessBackendSupport {
+	/**
+	 * Declares the logical post-process passes supported by the backend.
+	 */
+	readonly postProcessCapabilities: PostProcessCapabilities;
+	/**
+	 * Executes logical post-process passes resolved by `PostProcessPipeline`.
+	 */
+	readonly postProcessExecutor: IPostProcessExecutor;
+	/**
+	 * Creates the logical G-buffer view consumed by cross-backend passes.
+	 *
+	 * @param context Frame context containing backend attachments for the
+	 * current render.
+	 * @returns A backend-specific bridge mapped to logical G-buffer semantics.
+	 * @remarks Implementations must not register graph passes or mutate the
+	 * public post-process registry. Resource ownership remains with the backend.
+	 */
+	createPostProcessGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+}
+
 export interface PostProcessPipelineExecuteRequest {
 	readonly frameContext: FrameContext;
 	readonly executor: IPostProcessExecutor;

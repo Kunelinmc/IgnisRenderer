@@ -9,7 +9,7 @@ import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCa
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	ALL_POST_PROCESS_CAPABILITIES,
-	createNoopPostProcessSupport,
+	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
 function createBakedEnvironment(seed = 1) {
@@ -502,7 +502,8 @@ class RendererCaptureStageBackendStub {
 			bloom: false,
 			clusteredLighting: false,
 		};
-		this.postProcess = createNoopPostProcessSupport(
+		installNoopPostProcessSupport(
+			this,
 			"stub",
 			ALL_POST_PROCESS_CAPABILITIES
 		);

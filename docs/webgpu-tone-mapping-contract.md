@@ -10,7 +10,7 @@ WebGPU scene color is stored in HDR-capable intermediate textures. Without tone 
 - `renderer.postProcess` must enable `tonemap` by default.
 - `renderer.postProcess.disable("tonemap")` must skip the pass.
 - `renderer.postProcess.enable("tonemap")` must re-enable the pass.
-- `WebGPUBackend.postProcess.capabilities.tonemap` must be `true`.
+- `WebGPUBackend.postProcessCapabilities.tonemap` must be `true`.
 - The `tonemap` pass must run after `bloom` and before `color-filter`.
 - The `tonemap` pass must read from `targets.sceneColor`, write to a ping-pong post target, and update `targets.sceneColor` to the written target.
 - `src/shaders/webgpu/postprocess/toneMapping.wgsl` must implement ACES-fitted mapping on linear RGB and preserve alpha.
