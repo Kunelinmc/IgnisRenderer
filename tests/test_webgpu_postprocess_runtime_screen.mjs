@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import {
 	BloomPass,
+	ColorFilterPass,
+	DepthOfFieldPass,
 	FastApproximateAntiAliasingPass,
 	FogPass,
+	InteractionOutlinePass,
+	MotionBlurPass,
+	ToneMappingPass,
 } from "../src/postprocess/index.ts";
+import { INTERACTION_TRANSIENT_STATE_KEY } from "../src/pipeline/types.ts";
+import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { WebGPUPostProcessRuntime } from "../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -66,6 +73,82 @@ function createFogPassRequest(frameContext) {
 	};
 }
 
+function createMotionBlurPassRequest(frameContext, pass) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "motion-blur",
+		options: frameContext.postProcess.getOptions("motion-blur"),
+		startPassId: null,
+	};
+}
+
+function createDepthOfFieldPassRequest(frameContext, pass) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "dof",
+		options: frameContext.postProcess.getOptions("dof"),
+		startPassId: null,
+	};
+}
+
+function createToneMappingPassRequest(frameContext, pass) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "tonemap",
+		options: frameContext.postProcess.getOptions("tonemap"),
+		startPassId: null,
+	};
+}
+
+function createColorFilterPassRequest(frameContext, pass) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "color-filter",
+		options: frameContext.postProcess.getOptions("color-filter"),
+		startPassId: null,
+	};
+}
+
+function createInteractionOutlinePassRequest(frameContext, pass) {
+	return {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "interaction-outline",
+		options: frameContext.postProcess.getOptions("interaction-outline"),
+		startPassId: null,
+	};
+}
+
+function createWebGPUImplementationContext(runtime, encoder, targets) {
+	return {
+		encoder,
+		targets,
+		shared: runtime.sharedContext,
+		publishColorTarget: (texture) => {
+			targets.sceneColor = texture;
+		},
+	};
+}
+
 async function executeFXAAPass(runtime, encoder, targets, frameContext, pass) {
 	const request = createFXAAPassRequest(frameContext, pass);
 	return request.pass.getImplementation("webgpu").execute(request, {
@@ -101,6 +184,91 @@ async function executeFogPass(runtime, encoder, targets, frameContext) {
 			targets.sceneColor = texture;
 		},
 	});
+	return { request, result };
+}
+
+async function executeMotionBlurPass(
+	runtime,
+	encoder,
+	targets,
+	frameContext,
+	pass = new MotionBlurPass({ enabled: true })
+) {
+	const request = createMotionBlurPassRequest(frameContext, pass);
+	const result = await request.pass
+		.getImplementation("webgpu")
+		.execute(
+			request,
+			createWebGPUImplementationContext(runtime, encoder, targets)
+		);
+	return { request, result };
+}
+
+async function executeDepthOfFieldPass(
+	runtime,
+	encoder,
+	targets,
+	frameContext,
+	pass = new DepthOfFieldPass({ enabled: true })
+) {
+	const request = createDepthOfFieldPassRequest(frameContext, pass);
+	const result = await request.pass
+		.getImplementation("webgpu")
+		.execute(
+			request,
+			createWebGPUImplementationContext(runtime, encoder, targets)
+		);
+	return { request, result };
+}
+
+async function executeToneMappingPass(
+	runtime,
+	encoder,
+	targets,
+	frameContext,
+	pass = new ToneMappingPass({ enabled: true })
+) {
+	const request = createToneMappingPassRequest(frameContext, pass);
+	const result = await request.pass
+		.getImplementation("webgpu")
+		.execute(
+			request,
+			createWebGPUImplementationContext(runtime, encoder, targets)
+		);
+	return { request, result };
+}
+
+async function executeColorFilterPass(
+	runtime,
+	encoder,
+	targets,
+	frameContext,
+	pass = new ColorFilterPass({ enabled: true })
+) {
+	const request = createColorFilterPassRequest(frameContext, pass);
+	const result = await request.pass
+		.getImplementation("webgpu")
+		.execute(
+			request,
+			createWebGPUImplementationContext(runtime, encoder, targets)
+		);
+	return { request, result };
+}
+
+async function executeInteractionOutlinePass(
+	runtime,
+	encoder,
+	targets,
+	frameContext,
+	pass = new InteractionOutlinePass({ enabled: true })
+) {
+	const request = createInteractionOutlinePassRequest(frameContext, pass);
+	const result = await request.pass
+		.getImplementation("webgpu")
+		.execute(
+			request,
+			createWebGPUImplementationContext(runtime, encoder, targets)
+		);
 	return { request, result };
 }
 
@@ -162,7 +330,7 @@ async function testFXAAPassImplementationUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
-async function testToneMappingRuntimeUsesDedicatedPipeline() {
+async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -175,12 +343,13 @@ async function testToneMappingRuntimeUsesDedicatedPipeline() {
 		postPong,
 	};
 
-	await runtime.executePass({
-		passId: "tonemap",
+	const { result } = await executeToneMappingPass(
+		runtime,
 		encoder,
 		targets,
-		frameContext: createFrameContext(),
-	});
+		createFrameContext()
+	);
+	assert.deepEqual(result, { ran: true });
 
 	assert.equal(backend.shaderModules.length, 1);
 	assert.equal(backend.shaderModules[0].label, "WebGPUToneMappingShader");
@@ -298,7 +467,7 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
-async function testMotionBlurRuntimeUsesDedicatedPipeline() {
+async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -325,13 +494,13 @@ async function testMotionBlurRuntimeUsesDedicatedPipeline() {
 		},
 	});
 
-	await runtime.executePass({
-		passId: "motion-blur",
+	const { result } = await executeMotionBlurPass(
+		runtime,
 		encoder,
 		targets,
-		frameContext,
-		options: frameContext.postProcess.getOptions("motion-blur"),
-	});
+		frameContext
+	);
+	assert.deepEqual(result, { ran: true });
 
 	assert.equal(backend.samplers.length, 1);
 	assert.equal(backend.shaderModules.length, 1);
@@ -443,7 +612,7 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
-async function testDOFRuntimeUsesDedicatedPipeline() {
+async function testDOFPassImplementationUsesDedicatedPipeline() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const encoder = new FakeEncoder();
@@ -474,13 +643,13 @@ async function testDOFRuntimeUsesDedicatedPipeline() {
 		},
 	});
 
-	await runtime.executePass({
-		passId: "dof",
+	const { result } = await executeDepthOfFieldPass(
+		runtime,
 		encoder,
 		targets,
-		frameContext,
-		options: frameContext.postProcess.getOptions("dof"),
-	});
+		frameContext
+	);
+	assert.deepEqual(result, { ran: true });
 
 	assert.equal(backend.samplers.length, 1);
 	assert.equal(backend.shaderModules.length, 1);
@@ -525,6 +694,159 @@ async function testDOFRuntimeUsesDedicatedPipeline() {
 	assert.equal(targets.sceneColor, postPong);
 }
 
+async function testColorFilterPassImplementationUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(30, 14, "scene");
+	const postPing = createTexture(30, 14, "ping");
+	const postPong = createTexture(30, 14, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+	const frameContext = createFrameContext({
+		"color-filter": {
+			enabled: true,
+			options: {
+				brightness: 0.2,
+				saturation: 1.4,
+				contrast: 0.75,
+				temperature: -0.25,
+				tint: 0.35,
+			},
+		},
+	});
+
+	const { result } = await executeColorFilterPass(
+		runtime,
+		encoder,
+		targets,
+		frameContext
+	);
+	assert.deepEqual(result, { ran: true });
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUColorFilterShader");
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(backend.computePipelines[0].label, "WebGPUColorFilterPipeline");
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUColorFilterParams");
+	assert.equal(backend.buffers[0].desc.size, 32);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 4);
+	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
+	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 8);
+	assertClose(params[0], 0.2);
+	assertClose(params[1], 1.4);
+	assertClose(params[2], 0.75);
+	assertClose(params[3], -0.25);
+	assertClose(params[4], 0.35);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUColorFilter"],
+		["setComputePipeline", "WebGPUColorFilterPipeline"],
+		["setBindingGroup", 0, "WebGPUColorFilter_Binding"],
+		["dispatchWorkgroups", 4, 2, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
+async function testInteractionOutlinePassImplementationUsesDedicatedPipeline() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const encoder = new FakeEncoder();
+	const sceneColorMain = createTexture(64, 32, "scene");
+	const postPing = createTexture(64, 32, "ping");
+	const postPong = createTexture(64, 32, "pong");
+	const targets = {
+		sceneColor: sceneColorMain,
+		postPing,
+		postPong,
+	};
+	const frameContext = createFrameContext({
+		"interaction-outline": { enabled: true },
+	});
+	frameContext.attachments = { width: 64, height: 32 };
+	frameContext.camera = {
+		type: "perspective",
+		fov: 60,
+		viewMatrix: Matrix4.identity(),
+		viewProjectionMatrix: Matrix4.identity(),
+	};
+	frameContext.scene = {
+		meshInstances: [
+			{
+				entityId: 7,
+				visible: true,
+				getWorldBoundingSphere() {
+					return {
+						center: { x: 0, y: 0, z: -5 },
+						radius: 1,
+					};
+				},
+			},
+		],
+	};
+	frameContext.transient.set(INTERACTION_TRANSIENT_STATE_KEY, {
+		selectedEntityIds: [7],
+		outline: {
+			color: { r: 128, g: 64, b: 255, a: 0.5 },
+			opacity: 0.8,
+			thickness: 3,
+			shape: "diamond",
+		},
+	});
+
+	const { result } = await executeInteractionOutlinePass(
+		runtime,
+		encoder,
+		targets,
+		frameContext
+	);
+	assert.deepEqual(result, { ran: true });
+
+	assert.equal(backend.samplers.length, 1);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.shaderModules[0].label, "WebGPUInteractionOutlineShader");
+	assert.equal(backend.computePipelines.length, 1);
+	assert.equal(
+		backend.computePipelines[0].label,
+		"WebGPUInteractionOutlinePipeline"
+	);
+	assert.equal(backend.buffers.length, 1);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUInteractionOutlineParams");
+	assert.equal(backend.buffers[0].desc.size, 1088);
+	assert.equal(backend.bindingGroups.length, 1);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 3);
+	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
+	assert.equal(backend.bindingGroups[0].desc.entries[2].resource, postPong);
+
+	const params = backend.buffers[0].lastWrite;
+	assert.equal(params.length, 272);
+	assertClose(params[0], 1 / 64);
+	assertClose(params[1], 1 / 32);
+	assertClose(params[2], 0.4);
+	assertClose(params[3], 3);
+	assertClose(params[8], 1);
+	assertClose(params[9], 2);
+
+	assert.deepEqual(encoder.calls, [
+		["beginComputePass", "WebGPUInteractionOutline"],
+		["setComputePipeline", "WebGPUInteractionOutlinePipeline"],
+		["setBindingGroup", 0, "WebGPUInteractionOutline_Binding"],
+		["dispatchWorkgroups", 8, 4, 1],
+		["endComputePass"],
+	]);
+	assert.equal(targets.sceneColor, postPong);
+}
+
 async function testMotionBlurSkipsRedundantParamUploads() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -550,21 +872,22 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 			},
 		},
 	});
+	const pass = new MotionBlurPass({ enabled: true });
 
-	await runtime.executePass({
-		passId: "motion-blur",
-		encoder: new FakeEncoder(),
+	await executeMotionBlurPass(
+		runtime,
+		new FakeEncoder(),
 		targets,
 		frameContext,
-		options: frameContext.postProcess.getOptions("motion-blur"),
-	});
-	await runtime.executePass({
-		passId: "motion-blur",
-		encoder: new FakeEncoder(),
+		pass
+	);
+	await executeMotionBlurPass(
+		runtime,
+		new FakeEncoder(),
 		targets,
 		frameContext,
-		options: frameContext.postProcess.getOptions("motion-blur"),
-	});
+		pass
+	);
 
 	assert.equal(backend.writeBufferCalls, 1);
 }
@@ -655,7 +978,7 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
-async function testDestroyReleasesToneMappingRuntimeResources() {
+async function testDestroyReleasesToneMappingImplementationResources() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const sceneColorMain = createTexture(32, 18, "scene");
@@ -667,18 +990,21 @@ async function testDestroyReleasesToneMappingRuntimeResources() {
 		postPong,
 	};
 	const frameContext = createFrameContext();
+	const pass = new ToneMappingPass({ enabled: true });
+	const implementation = pass.getImplementation("webgpu");
 
-	await runtime.executePass({
-		passId: "tonemap",
-		encoder: new FakeEncoder(),
+	await executeToneMappingPass(
+		runtime,
+		new FakeEncoder(),
 		targets,
 		frameContext,
-	});
+		pass
+	);
 	assert.equal(backend.shaderModuleDestroyCalls, 0);
 	assert.equal(backend.computePipelineDestroyCalls, 0);
 	assert.equal(backend.samplerDestroyCalls, 0);
 
-	runtime.destroy();
+	implementation.destroy();
 	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 1);
 	assert.equal(backend.samplerDestroyCalls, 0);
@@ -699,7 +1025,7 @@ async function testDestroyReleasesToneMappingRuntimeResources() {
 		["WebGPUToneMappingPipeline"]
 	);
 
-	runtime.destroy();
+	implementation.destroy();
 	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 1);
 	assert.equal(backend.samplerDestroyCalls, 0);
@@ -748,16 +1074,18 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 
 export async function run() {
 	await testFXAAPassImplementationUsesDedicatedPipeline();
-	await testToneMappingRuntimeUsesDedicatedPipeline();
+	await testToneMappingPassImplementationUsesDedicatedPipeline();
 	await testBloomPassImplementationUsesDedicatedPipeline();
 	await testFogPassImplementationUsesDedicatedPipeline();
-	await testMotionBlurRuntimeUsesDedicatedPipeline();
+	await testMotionBlurPassImplementationUsesDedicatedPipeline();
 	await testMotionBlurSkipsRedundantParamUploads();
-	await testDOFRuntimeUsesDedicatedPipeline();
+	await testDOFPassImplementationUsesDedicatedPipeline();
+	await testColorFilterPassImplementationUsesDedicatedPipeline();
+	await testInteractionOutlinePassImplementationUsesDedicatedPipeline();
 	await testFXAAPassImplementationPingPongsAndCachesResources();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();
-	await testDestroyReleasesToneMappingRuntimeResources();
+	await testDestroyReleasesToneMappingImplementationResources();
 	await testBloomImplementationLifecycleReleasesOwnedResources();
 	console.log("WebGPU postprocess screen runtime tests passed");
 }

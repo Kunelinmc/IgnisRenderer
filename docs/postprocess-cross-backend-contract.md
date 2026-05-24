@@ -35,9 +35,9 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `IPostProcessExecutor.getPassExecutionContext(passId, request)` may return backend-specific low-level helpers for pass-owned implementations.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
 - `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`.
-- WebGPU executors should dispatch WGSL compute or render work for `executePass(passId, request)`.
-- WebGL executors should dispatch GLSL fullscreen passes for `executePass(passId, request)`.
-- Software executors should dispatch optimized CPU post-process loops for `executePass(passId, request)`.
+- WebGPU executors should expose WebGPU context helpers and may dispatch WGSL compute or render work through `executePass(passId, request)` only for non-pass-owned fallback passes.
+- WebGL executors should expose WebGL context helpers and may dispatch GLSL fullscreen work through `executePass(passId, request)` only for non-pass-owned fallback passes.
+- Software executors should expose CPU post-process helpers and may dispatch optimized CPU loops through `executePass(passId, request)` only for non-pass-owned fallback passes.
 - `LogicalGBufferBridge` must describe semantic channels and must not expose a cross-backend low-level read/write API.
 - Software `FrameAttachments.motionBuffer` must store `motion-depth` data as `float32x4` when a pass requires the `motion` semantic.
 - `LogicalGBufferBridge.worldPosition.source` must be `"derived"` unless a future contract explicitly defines a physical world-position channel.
@@ -51,7 +51,13 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `volumetric` pass must own its WebGPU and Software implementations under `src/postprocess/passes/`.
 - The built-in `fog` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
 - The built-in `bloom` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
-- Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `volumetric`, `fog`, or `bloom` kernel orchestration.
+- The built-in `motion-blur` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
+- The built-in `dof` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
+- The built-in `tonemap` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `color-filter` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `interaction-outline` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
+- The built-in `gamma` pass must own final presentation for WebGPU and WebGL and gamma encoding for Software under `src/postprocess/passes/`.
+- Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `volumetric`, `fog`, `bloom`, `motion-blur`, `dof`, `tonemap`, `color-filter`, `interaction-outline`, or `gamma` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
 ## Usage

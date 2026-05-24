@@ -26,6 +26,7 @@ class FakeExecutor {
 		this.created = [];
 		this.destroyed = [];
 		this.executed = [];
+		this.ownedExecuted = [];
 		this.volumetricApplications = 0;
 	}
 
@@ -57,6 +58,84 @@ class FakeExecutor {
 	}
 
 	getPassExecutionContext(passId, request) {
+		if (
+			this.backend === "webgpu" &&
+			[
+				"motion-blur",
+				"dof",
+				"tonemap",
+				"color-filter",
+				"interaction-outline",
+			].includes(passId)
+		) {
+			const targets = {
+				sceneColor: { id: "scene", width: 64, height: 32 },
+				postPing: { id: "ping", width: 64, height: 32 },
+				postPong: { id: "pong", width: 64, height: 32 },
+				gMotionDepth: { id: "motion-depth", width: 64, height: 32 },
+			};
+			return {
+				encoder: {
+					beginComputePass() {},
+					setComputePipeline() {},
+					setBindingGroup() {},
+					dispatchWorkgroups() {},
+					endComputePass() {},
+				},
+				targets,
+				shared: {
+					sampler: { id: "sampler" },
+					compute: {
+						createShaderModule: async (desc) => ({ label: desc.label }),
+						createComputePipeline: (desc) => ({ label: desc.label }),
+						createBuffer: (desc) => ({ label: desc.label }),
+						writeBuffer() {},
+					},
+					async ensureCommonResources() {},
+					getCachedBindGroup(_key, _pipeline, _entries, label) {
+						return { label };
+					},
+					invalidateBindingsByPrefix() {},
+					destroyManagedResource() {},
+				},
+				publishColorTarget: (texture) => {
+					targets.sceneColor = texture;
+					this.ownedExecuted.push(passId);
+				},
+			};
+		}
+		if (this.backend === "webgpu" && passId === "gamma") {
+			return {
+				targets: {
+					sceneColor: { id: "scene" },
+				},
+				presentToCanvas: () => {
+					this.ownedExecuted.push(passId);
+				},
+			};
+		}
+		if (
+			this.backend === "software" &&
+			["tonemap", "color-filter", "interaction-outline", "gamma"].includes(passId)
+		) {
+			return {
+				processor: {
+					applyToneMapping: () => {
+						this.ownedExecuted.push("tonemap");
+					},
+					applyColorFilter: () => {
+						this.ownedExecuted.push("color-filter");
+					},
+					applyInteractionOutline: () => {
+						this.ownedExecuted.push("interaction-outline");
+					},
+					applyGamma: () => {
+						this.ownedExecuted.push("gamma");
+					},
+				},
+				canvasContext: {},
+			};
+		}
 		if (this.backend === "software" && passId === "fxaa") {
 			return {
 				attachments: request.frameContext.attachments,
@@ -235,17 +314,26 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
 	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
-	await pipeline.execute({
+	const result = await pipeline.execute({
 		frameContext: createFrameContext(snapshot),
 		executor,
 		gBuffer: createGBufferBridge(),
 	});
 
-	const order = executor.executed.map((entry) => entry.passId);
-	assert.deepEqual(order, ["custom-hdr", "tonemap", "custom-overlay", "gamma"]);
+	assert.deepEqual(result.executedPassIds, [
+		"custom-hdr",
+		"tonemap",
+		"custom-overlay",
+		"gamma",
+	]);
+	assert.deepEqual(
+		executor.executed.map((entry) => entry.passId),
+		["custom-hdr", "custom-overlay"]
+	);
+	assert.deepEqual(executor.ownedExecuted, ["tonemap", "gamma"]);
 
 	const incrementalExecutor = new FakeExecutor("webgpu");
-	const result = await pipeline.execute({
+	const incrementalResult = await pipeline.execute({
 		frameContext: createFrameContext(snapshot, {
 			enabled: true,
 			forceFullFrame: false,
@@ -255,11 +343,13 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 		executor: incrementalExecutor,
 		gBuffer: createGBufferBridge(),
 	});
-	assert.equal(result.startPassId, "custom-overlay");
+	assert.equal(incrementalResult.startPassId, "custom-overlay");
+	assert.deepEqual(incrementalResult.executedPassIds, ["custom-overlay", "gamma"]);
 	assert.deepEqual(
 		incrementalExecutor.executed.map((entry) => entry.passId),
-		["custom-overlay", "gamma"]
+		["custom-overlay"]
 	);
+	assert.deepEqual(incrementalExecutor.ownedExecuted, ["gamma"]);
 }
 
 async function testPassOwnedImplementationsAndFallback() {
@@ -333,7 +423,8 @@ async function testPassOwnedImplementationsAndFallback() {
 		executor: fallbackExecutor,
 		gBuffer: createGBufferBridge(),
 	});
-	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), ["tonemap"]);
+	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), []);
+	assert.deepEqual(fallbackExecutor.ownedExecuted, ["tonemap"]);
 }
 
 function testRegistryLifecycleDelegatesToPassImplementations() {

@@ -50,14 +50,45 @@ function createExecutor() {
 			return { ran: true };
 		},
 		getPassExecutionContext(passId) {
-			if (passId !== "fxaa") {
-				return undefined;
-			}
 			const targets = {
 				sceneColor: { width: 64, height: 32, label: "scene" },
 				postPing: { width: 64, height: 32, label: "ping" },
 				postPong: { width: 64, height: 32, label: "pong" },
+				gMotionDepth: { width: 64, height: 32, label: "motion-depth" },
 			};
+			if (
+				[
+					"motion-blur",
+					"dof",
+					"tonemap",
+					"color-filter",
+					"interaction-outline",
+				].includes(passId)
+			) {
+				return {
+					encoder: {
+						beginComputePass() {},
+						setComputePipeline() {},
+						setBindingGroup() {},
+						dispatchWorkgroups() {},
+						endComputePass() {},
+					},
+					targets,
+					shared,
+					publishColorTarget(texture) {
+						targets.sceneColor = texture;
+					},
+				};
+			}
+			if (passId === "gamma") {
+				return {
+					targets,
+					presentToCanvas() {},
+				};
+			}
+			if (passId !== "fxaa") {
+				return undefined;
+			}
 			return {
 				encoder: {
 					beginComputePass() {},
@@ -230,7 +261,7 @@ async function testIncrementalStartPassIsResolvedByPipeline() {
 	);
 	assert.deepEqual(
 		executed.map((entry) => entry.passId),
-		["color-filter", "gamma"]
+		[]
 	);
 	assert.ok(executed.every((entry) => entry.startPassId === "color-filter"));
 }

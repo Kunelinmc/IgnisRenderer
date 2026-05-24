@@ -10,7 +10,6 @@ import {
 	ShaderMaterial,
 	type ShaderTargetMode,
 } from "../../materials/ShaderMaterial";
-import { clamp, sRGBToLinear } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { SHCoefficients } from "../../maths/types";
 import {
@@ -28,22 +27,13 @@ import {
 import { selectCSMDirectionalLights } from "../../pipeline/ShadowStrategyRegistry";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	DEFAULT_BLOOM_OPTIONS,
-	DEFAULT_COLOR_FILTER_OPTIONS,
-	DEFAULT_DOF_OPTIONS,
 	DEFAULT_FOG_OPTIONS,
-	DEFAULT_MOTION_BLUR_OPTIONS,
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_TAA_OPTIONS,
-	INTERACTION_TRANSIENT_STATE_KEY,
 	type DrawPacket,
-	type BloomOptions,
-	type ColorFilterOptions,
-	type DOFOptions,
 	type FogOptions,
 	type FrameContext,
 	type FramePass,
-	type MotionBlurOptions,
 	type ParticleRenderBatch,
 	type SSAOOptions,
 	type TAAOptions,
@@ -75,17 +65,7 @@ import {
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import { POST_PROCESS_STAGES } from "../constants";
 import {
-	DOF_CHROMATIC_ABERRATION_RANGE,
-	DOF_DEPTH_CURVE_RANGE,
-	DOF_HIGHLIGHT_GAIN_RANGE,
-	DOF_MAX_BLUR_RADIUS_RANGE,
-	DOF_NEAR_FAR_STRENGTH_RANGE,
 	IDENTITY_MATRIX4_COLUMN_MAJOR,
-	MOTION_BLUR_CENTER_WEIGHT_RANGE,
-	MOTION_BLUR_DEPTH_REJECT_RANGE,
-	MOTION_BLUR_MAX_SAMPLES_RANGE,
-	MOTION_BLUR_SHUTTER_SCALE_RANGE,
-	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 	SH_COEFFICIENT_COUNT,
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
@@ -122,20 +102,22 @@ import {
 	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
 	toShaderCompileError,
 } from "../../pipeline/WarmupPlanner";
-import {
-	MAX_INTERACTION_OUTLINE_CIRCLES,
-	collectProjectedOutlineCircles,
-} from "../../interaction/outlineProjection";
-import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
-	finiteOr,
 	isFiniteMatrix,
-	sanitizeFiniteClamped,
 	toColumnMajorMat4,
 	toSafeDimension,
 } from "./WebGLFrameMath";
 import type { WebGLFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
+import type {
+	WebGLColorFilterContext,
+	WebGLDepthOfFieldContext,
+	WebGLGammaContext,
+	WebGLInteractionOutlineContext,
+	WebGLMotionBlurContext,
+	WebGLScreenPostProcessContext,
+	WebGLToneMappingContext,
+} from "../../postprocess/passes/BuiltinFallbackPasses";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
@@ -194,14 +176,14 @@ const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	ssr: [],
 	volumetric: [],
 	fog: [],
-	"motion-blur": ["postprocess:motion-blur"],
-	dof: ["postprocess:dof"],
+	"motion-blur": [],
+	dof: [],
 	bloom: [],
-	tonemap: ["postprocess:tonemap"],
-	"color-filter": ["postprocess:color-filter"],
+	tonemap: [],
+	"color-filter": [],
 	fxaa: [],
-	"interaction-outline": ["postprocess:interaction-outline"],
-	gamma: ["postprocess:gamma"],
+	"interaction-outline": [],
+	gamma: [],
 };
 
 export class WebGLFrameExecutor {
@@ -272,9 +254,6 @@ export class WebGLFrameExecutor {
 	private _ssaoFrameIndex = 0;
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
-	private _interactionOutlineCircles = new Float32Array(
-		MAX_INTERACTION_OUTLINE_CIRCLES * 4
-	);
 	private _oitPassMode: 0 | 1 | 2 = 0;
 	private _oitActive = false;
 	private _oitHasContributors = false;
@@ -532,25 +511,8 @@ export class WebGLFrameExecutor {
 	): PostProcessPassResult {
 		const context = request.frameContext;
 		switch (passId) {
-			case "motion-blur":
-				this._applyMotionBlur(request.options as MotionBlurOptions);
-				return { ran: true };
-			case "dof":
-				this._applyDOF(request.options as DOFOptions);
-				return { ran: true };
-			case "tonemap":
-				this._applyToneMapping();
-				return { ran: true };
-			case "color-filter":
-				this._applyColorFilter(request.options as ColorFilterOptions);
-				return { ran: true };
-			case "interaction-outline":
-				this._applyInteractionOutline(context);
-				return { ran: true };
-			case "gamma":
-				this._present(context.postProcess.isEnabled("gamma"));
-				return { ran: true };
 			default:
+				void context;
 				return { ran: false };
 		}
 	}
@@ -560,6 +522,36 @@ export class WebGLFrameExecutor {
 		request: PostProcessPassRequest
 	): unknown {
 		switch (passId) {
+			case "motion-blur": {
+				const context: WebGLMotionBlurContext =
+					this._createWebGLScreenPostProcessContext();
+				return context;
+			}
+			case "dof": {
+				const context: WebGLDepthOfFieldContext =
+					this._createWebGLScreenPostProcessContext();
+				return context;
+			}
+			case "tonemap": {
+				const context: WebGLToneMappingContext =
+					this._createWebGLScreenPostProcessContext();
+				return context;
+			}
+			case "color-filter": {
+				const context: WebGLColorFilterContext =
+					this._createWebGLScreenPostProcessContext();
+				return context;
+			}
+			case "interaction-outline": {
+				const context: WebGLInteractionOutlineContext =
+					this._createWebGLScreenPostProcessContext();
+				return context;
+			}
+			case "gamma": {
+				const context: WebGLGammaContext =
+					this._createWebGLGammaPostProcessContext();
+				return context;
+			}
 			case "ssao": {
 				const context: WebGLSSAOContext = {
 					gl: this._gl,
@@ -722,6 +714,55 @@ export class WebGLFrameExecutor {
 			default:
 				return undefined;
 		}
+	}
+
+	private _createWebGLScreenPostProcessContext(): WebGLScreenPostProcessContext {
+		return {
+			gl: this._gl,
+			programs: this._programs,
+			fullscreenVao: this._fullscreenVao,
+			postFramebuffer: this._postFramebuffer,
+			sceneColorTexture: this._sceneColorTexture,
+			sceneMotionTexture: this._sceneMotionTexture,
+			width: this._width,
+			height: this._height,
+			getSourceTexture: () => this._presentSourceTexture ?? this._sceneColorTexture,
+			resolveTargetTexture: (sourceTexture) =>
+				resolveWebGLPostProcessTargetTexture(
+					this as unknown as WebGLFrameTargetLifecycleHost,
+					sourceTexture
+				),
+			bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+			drawFullscreen: () =>
+				this._drawFullscreenTrianglesWithDirtyScissor(
+					this._width,
+					this._height,
+					this._activeContext
+				),
+			publishColorTexture: (texture) => {
+				this._presentSourceTexture = texture;
+			},
+		};
+	}
+
+	private _createWebGLGammaPostProcessContext(): WebGLGammaContext {
+		return {
+			gl: this._gl,
+			programs: this._programs,
+			fullscreenVao: this._fullscreenVao,
+			width: this._width,
+			height: this._height,
+			getSourceTexture: () => this._presentSourceTexture ?? this._sceneColorTexture,
+			drawFullscreen: () =>
+				this._drawFullscreenTrianglesWithDirtyScissor(
+					this._width,
+					this._height,
+					this._activeContext
+				),
+			markPresented: () => {
+				this._presentedInFrame = true;
+			},
+		};
 	}
 
 	public endFrame(): void {
@@ -909,6 +950,14 @@ export class WebGLFrameExecutor {
 
 	private _getPassWarmupExecutionContext(passId: string): unknown {
 		switch (passId) {
+			case "motion-blur":
+			case "dof":
+			case "tonemap":
+			case "color-filter":
+			case "interaction-outline":
+				return this._createWebGLScreenPostProcessContext();
+			case "gamma":
+				return this._createWebGLGammaPostProcessContext();
 			case "ssao": {
 				const context: WebGLSSAOContext = {
 					gl: this._gl,
@@ -2134,671 +2183,8 @@ export class WebGLFrameExecutor {
 		gl.bindVertexArray(null);
 	}
 
-	private _applyFog(options?: FogOptions): void {
-		if (
-			!this._sceneMotionTexture ||
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture ||
-			!this._fullscreenVao
-		) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		this._updateFogParams(options, true);
-
-		const gl = this._gl;
-		const fogProgram = this._programs.getFogProgram();
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(fogProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-
-		const uniforms = fogProgram.uniforms;
-		if (uniforms.sceneColor) {
-			gl.uniform1i(uniforms.sceneColor, 0);
-		}
-		if (uniforms.motionDepthMap) {
-			gl.uniform1i(uniforms.motionDepthMap, 1);
-		}
-		if (uniforms.fogParams0) {
-			gl.uniform4fv(uniforms.fogParams0, this._fogParams0);
-		}
-		if (uniforms.fogParams1) {
-			gl.uniform4fv(uniforms.fogParams1, this._fogParams1);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyMotionBlur(options?: MotionBlurOptions): void {
-		if (
-			!this._sceneMotionTexture ||
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture ||
-			!this._fullscreenVao
-		) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const shutterScale = sanitizeFiniteClamped(
-			options?.shutterScale,
-			DEFAULT_MOTION_BLUR_OPTIONS.shutterScale,
-			MOTION_BLUR_SHUTTER_SCALE_RANGE[0],
-			MOTION_BLUR_SHUTTER_SCALE_RANGE[1]
-		);
-		const maxSamples = clamp(
-			Math.round(
-				finiteOr(options?.maxSamples, DEFAULT_MOTION_BLUR_OPTIONS.maxSamples)
-			),
-			MOTION_BLUR_MAX_SAMPLES_RANGE[0],
-			MOTION_BLUR_MAX_SAMPLES_RANGE[1]
-		);
-		const velocityClamp = sanitizeFiniteClamped(
-			options?.velocityClamp,
-			DEFAULT_MOTION_BLUR_OPTIONS.velocityClamp,
-			MOTION_BLUR_VELOCITY_CLAMP_RANGE[0],
-			MOTION_BLUR_VELOCITY_CLAMP_RANGE[1]
-		);
-		const depthReject = sanitizeFiniteClamped(
-			options?.depthReject,
-			DEFAULT_MOTION_BLUR_OPTIONS.depthReject,
-			MOTION_BLUR_DEPTH_REJECT_RANGE[0],
-			MOTION_BLUR_DEPTH_REJECT_RANGE[1]
-		);
-		const centerWeight = sanitizeFiniteClamped(
-			options?.centerWeight,
-			DEFAULT_MOTION_BLUR_OPTIONS.centerWeight,
-			MOTION_BLUR_CENTER_WEIGHT_RANGE[0],
-			MOTION_BLUR_CENTER_WEIGHT_RANGE[1]
-		);
-
-		const gl = this._gl;
-		const motionBlurProgram = this._programs.getMotionBlurProgram();
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(motionBlurProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-
-		const uniforms = motionBlurProgram.uniforms;
-		if (uniforms.sourceMap) gl.uniform1i(uniforms.sourceMap, 0);
-		if (uniforms.motionDepthMap) gl.uniform1i(uniforms.motionDepthMap, 1);
-		if (uniforms.texelSize) {
-			gl.uniform2f(
-				uniforms.texelSize,
-				1 / Math.max(1, this._width),
-				1 / Math.max(1, this._height)
-			);
-		}
-		if (uniforms.motionParams) {
-			gl.uniform4f(
-				uniforms.motionParams,
-				shutterScale,
-				maxSamples,
-				velocityClamp,
-				depthReject
-			);
-		}
-		if (uniforms.centerWeight) {
-			gl.uniform1f(uniforms.centerWeight, centerWeight);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyDOF(options?: DOFOptions): void {
-		if (
-			!this._sceneMotionTexture ||
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture ||
-			!this._fullscreenVao
-		) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const focusDistance = Math.max(
-			0.01,
-			finiteOr(options?.focusDistance, DEFAULT_DOF_OPTIONS.focusDistance)
-		);
-		const focusRange = Math.max(
-			0.001,
-			finiteOr(options?.focusRange, DEFAULT_DOF_OPTIONS.focusRange)
-		);
-		const nearStrength = sanitizeFiniteClamped(
-			options?.nearStrength,
-			DEFAULT_DOF_OPTIONS.nearStrength,
-			DOF_NEAR_FAR_STRENGTH_RANGE[0],
-			DOF_NEAR_FAR_STRENGTH_RANGE[1]
-		);
-		const farStrength = sanitizeFiniteClamped(
-			options?.farStrength,
-			DEFAULT_DOF_OPTIONS.farStrength,
-			DOF_NEAR_FAR_STRENGTH_RANGE[0],
-			DOF_NEAR_FAR_STRENGTH_RANGE[1]
-		);
-		const maxBlurRadius = sanitizeFiniteClamped(
-			options?.maxBlurRadius,
-			DEFAULT_DOF_OPTIONS.maxBlurRadius,
-			DOF_MAX_BLUR_RADIUS_RANGE[0],
-			DOF_MAX_BLUR_RADIUS_RANGE[1]
-		);
-		const depthCurve = sanitizeFiniteClamped(
-			options?.depthCurve,
-			DEFAULT_DOF_OPTIONS.depthCurve,
-			DOF_DEPTH_CURVE_RANGE[0],
-			DOF_DEPTH_CURVE_RANGE[1]
-		);
-		const highlightThreshold = Math.max(
-			0,
-			finiteOr(options?.highlightThreshold, DEFAULT_DOF_OPTIONS.highlightThreshold)
-		);
-		const highlightGain = sanitizeFiniteClamped(
-			options?.highlightGain,
-			DEFAULT_DOF_OPTIONS.highlightGain,
-			DOF_HIGHLIGHT_GAIN_RANGE[0],
-			DOF_HIGHLIGHT_GAIN_RANGE[1]
-		);
-		const chromaticAberration = sanitizeFiniteClamped(
-			options?.chromaticAberration,
-			DEFAULT_DOF_OPTIONS.chromaticAberration,
-			DOF_CHROMATIC_ABERRATION_RANGE[0],
-			DOF_CHROMATIC_ABERRATION_RANGE[1]
-		);
-
-		const gl = this._gl;
-		const dofProgram = this._programs.getDOFProgram();
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(dofProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, this._sceneMotionTexture);
-
-		const uniforms = dofProgram.uniforms;
-		if (uniforms.sourceMap) gl.uniform1i(uniforms.sourceMap, 0);
-		if (uniforms.motionDepthMap) gl.uniform1i(uniforms.motionDepthMap, 1);
-		if (uniforms.texelSize) {
-			gl.uniform2f(
-				uniforms.texelSize,
-				1 / Math.max(1, this._width),
-				1 / Math.max(1, this._height)
-			);
-		}
-		if (uniforms.focusParams) {
-			gl.uniform4f(
-				uniforms.focusParams,
-				focusDistance,
-				focusRange,
-				nearStrength,
-				farStrength
-			);
-		}
-		if (uniforms.dofParams) {
-			gl.uniform4f(
-				uniforms.dofParams,
-				maxBlurRadius,
-				depthCurve,
-				highlightThreshold,
-				highlightGain
-			);
-		}
-		if (uniforms.chromaticAberration) {
-			gl.uniform1f(uniforms.chromaticAberration, chromaticAberration);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyBloom(options?: BloomOptions): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture
-		) {
-			return;
-		}
-		if (!this._fullscreenVao) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const gl = this._gl;
-		const bloomProgram = this._programs.getBloomProgram();
-		const threshold = Math.max(
-			0,
-			finiteOr(options?.threshold, DEFAULT_BLOOM_OPTIONS.threshold)
-		);
-		const softKnee = Math.max(
-			1e-4,
-			finiteOr(options?.softKnee, DEFAULT_BLOOM_OPTIONS.softKnee)
-		);
-		const intensity = Math.max(
-			0,
-			finiteOr(options?.intensity, DEFAULT_BLOOM_OPTIONS.intensity)
-		);
-		const radius = clamp(
-			finiteOr(options?.radius, DEFAULT_BLOOM_OPTIONS.radius),
-			0.5,
-			4
-		);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(bloomProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		if (bloomProgram.uniforms.sourceMap) {
-			gl.uniform1i(bloomProgram.uniforms.sourceMap, 0);
-		}
-		if (bloomProgram.uniforms.texelSize) {
-			gl.uniform2f(
-				bloomProgram.uniforms.texelSize,
-				1 / Math.max(1, this._width),
-				1 / Math.max(1, this._height)
-			);
-		}
-		if (bloomProgram.uniforms.bloomParams) {
-			gl.uniform4f(
-				bloomProgram.uniforms.bloomParams,
-				threshold,
-				softKnee,
-				intensity,
-				radius
-			);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyToneMapping(): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture
-		) {
-			return;
-		}
-		if (!this._fullscreenVao) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const gl = this._gl;
-		const toneMappingProgram = this._programs.getToneMappingProgram();
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(toneMappingProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		if (toneMappingProgram.uniforms.sourceMap) {
-			gl.uniform1i(toneMappingProgram.uniforms.sourceMap, 0);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyColorFilter(options?: ColorFilterOptions): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture
-		) {
-			return;
-		}
-		if (!this._fullscreenVao) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const brightness = sanitizeFiniteClamped(
-			options?.brightness,
-			DEFAULT_COLOR_FILTER_OPTIONS.brightness,
-			-1,
-			1
-		);
-		const saturation = sanitizeFiniteClamped(
-			options?.saturation,
-			DEFAULT_COLOR_FILTER_OPTIONS.saturation,
-			0,
-			2
-		);
-		const contrast = sanitizeFiniteClamped(
-			options?.contrast,
-			DEFAULT_COLOR_FILTER_OPTIONS.contrast,
-			0,
-			2
-		);
-		const temperature = sanitizeFiniteClamped(
-			options?.temperature,
-			DEFAULT_COLOR_FILTER_OPTIONS.temperature,
-			-1,
-			1
-		);
-		const tint = sanitizeFiniteClamped(
-			options?.tint,
-			DEFAULT_COLOR_FILTER_OPTIONS.tint,
-			-1,
-			1
-		);
-
-		const gl = this._gl;
-		const program = this._programs.getColorFilterProgram();
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(program.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		if (program.uniforms.sourceMap) {
-			gl.uniform1i(program.uniforms.sourceMap, 0);
-		}
-		if (program.uniforms.filterParams0) {
-			gl.uniform4f(
-				program.uniforms.filterParams0,
-				brightness,
-				saturation,
-				contrast,
-				temperature
-			);
-		}
-		if (program.uniforms.filterParams1) {
-			gl.uniform4f(program.uniforms.filterParams1, tint, 0, 0, 0);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
-	private _applyFXAA(): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture
-		) {
-			return;
-		}
-		if (!this._fullscreenVao) {
-			return;
-		}
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const gl = this._gl;
-		const fxaaProgram = this._programs.getFXAAProgram();
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(fxaaProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		if (fxaaProgram.uniforms.sourceMap) {
-			gl.uniform1i(fxaaProgram.uniforms.sourceMap, 0);
-		}
-		if (fxaaProgram.uniforms.texelSize) {
-			gl.uniform2f(
-				fxaaProgram.uniforms.texelSize,
-				1 / Math.max(1, this._width),
-				1 / Math.max(1, this._height)
-			);
-		}
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-
-		this._presentSourceTexture = targetTexture;
-	}
-
 	private _updateFogParams(options: FogOptions | undefined, enabled: boolean): void {
 		resolveFogUniformParams(options, enabled, this._fogParams0, this._fogParams1);
-	}
-
-	private _applyInteractionOutline(context: FrameContext): void {
-		if (
-			!this._postFramebuffer ||
-			!this._sceneColorTexture ||
-			!this._postColorTexture
-		) {
-			return;
-		}
-		if (!this._fullscreenVao) {
-			return;
-		}
-		const state = context.transient.get(
-			INTERACTION_TRANSIENT_STATE_KEY
-		);
-		const selectedEntityIds = state?.selectedEntityIds ?? [];
-		if (selectedEntityIds.length === 0) {
-			return;
-		}
-
-		const circles = collectProjectedOutlineCircles(
-			context,
-			selectedEntityIds,
-			MAX_INTERACTION_OUTLINE_CIRCLES
-		);
-		if (circles.length === 0) {
-			return;
-		}
-
-		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture) {
-			return;
-		}
-		const targetTexture = this._resolvePostProcessTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return;
-		}
-
-		const gl = this._gl;
-		const program = this._programs.getInteractionOutlineProgram();
-		const circleData = this._interactionOutlineCircles;
-		let writeOffset = 0;
-		for (const circle of circles) {
-			circleData[writeOffset] = circle.centerX;
-			circleData[writeOffset + 1] = circle.centerY;
-			circleData[writeOffset + 2] = circle.radius;
-			circleData[writeOffset + 3] = 0;
-			writeOffset += 4;
-		}
-
-		const outlineColor = state?.outline?.color ?? { r: 255, g: 196, b: 64, a: 1 };
-		const colorScale =
-			Math.max(outlineColor.r, outlineColor.g, outlineColor.b) > 1 ? 255 : 1;
-		const linearR = sRGBToLinear(
-			clamp(outlineColor.r / Math.max(1, colorScale), 0, 1)
-		);
-		const linearG = sRGBToLinear(
-			clamp(outlineColor.g / Math.max(1, colorScale), 0, 1)
-		);
-		const linearB = sRGBToLinear(
-			clamp(outlineColor.b / Math.max(1, colorScale), 0, 1)
-		);
-		const alpha = clamp(
-			finiteOr(state?.outline?.opacity, 0.9) *
-				finiteOr(outlineColor.a, 1),
-			0,
-			1
-		);
-		const thickness = Math.max(1, finiteOr(state?.outline?.thickness, 2));
-		const shapeCode = getInteractionOutlineShapeCode(state?.outline?.shape);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
-		this._bindPostSingleColorTarget(targetTexture);
-		gl.viewport(0, 0, this._width, this._height);
-		gl.useProgram(program.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-
-		if (program.uniforms.sourceMap) {
-			gl.uniform1i(program.uniforms.sourceMap, 0);
-		}
-		if (program.uniforms.outlineColor) {
-			gl.uniform4f(program.uniforms.outlineColor, linearR, linearG, linearB, 1);
-		}
-		if (program.uniforms.outlineParams) {
-			gl.uniform3f(program.uniforms.outlineParams, alpha, thickness, shapeCode);
-		}
-		if (program.uniforms.viewportSize) {
-			gl.uniform2f(
-				program.uniforms.viewportSize,
-				Math.max(1, this._width),
-				Math.max(1, this._height)
-			);
-		}
-		if (program.uniforms.circleCount) {
-			gl.uniform1i(program.uniforms.circleCount, circles.length);
-		}
-		if (program.uniforms.circles) {
-			gl.uniform4fv(
-				program.uniforms.circles,
-				circleData.subarray(0, circles.length * 4)
-			);
-		}
-
-		this._drawFullscreenTrianglesWithDirtyScissor(
-			this._width,
-			this._height,
-			this._activeContext
-		);
-		gl.bindVertexArray(null);
-		this._presentSourceTexture = targetTexture;
 	}
 
 	private _present(

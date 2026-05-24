@@ -16,7 +16,6 @@ import type {
 import {
 	DEFAULT_SSAO_OPTIONS,
 	DEFAULT_SSR_OPTIONS,
-	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
@@ -46,7 +45,6 @@ import {
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
-	type WebGPUPostProcessExecuteRequest,
 } from "./WebGPUPostProcessRuntime";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
@@ -83,6 +81,15 @@ import type { WebGPUSSGIContext } from "../../postprocess/passes/ScreenSpaceGlob
 import type { WebGPUSSRContext } from "../../postprocess/passes/ScreenSpaceReflectionsPass";
 import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import type { WebGPUVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
+import type {
+	WebGPUColorFilterContext,
+	WebGPUDepthOfFieldContext,
+	WebGPUGammaContext,
+	WebGPUInteractionOutlineContext,
+	WebGPUMotionBlurContext,
+	WebGPUScreenPostProcessContext,
+	WebGPUToneMappingContext,
+} from "../../postprocess/passes/BuiltinFallbackPasses";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -197,13 +204,13 @@ const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	ssr: [],
 	volumetric: [],
 	fog: [],
-	"motion-blur": ["postprocess:motion-blur"],
-	dof: ["postprocess:dof"],
+	"motion-blur": [],
+	dof: [],
 	bloom: [],
-	tonemap: ["postprocess:tonemap"],
-	"color-filter": ["postprocess:color-filter"],
+	tonemap: [],
+	"color-filter": [],
 	fxaa: [],
-	"interaction-outline": ["postprocess:interaction-outline"],
+	"interaction-outline": [],
 	gamma: [],
 };
 
@@ -474,42 +481,6 @@ export class WebGPUFrameExecutor {
 		}
 		this._applyPipelineHistories(request);
 		switch (passId) {
-			case "motion-blur":
-			case "dof":
-			case "color-filter":
-			case "tonemap": {
-				await this._postRuntime.executePass({
-					passId,
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					frameContext: request.frameContext,
-					options: request.options,
-				} as WebGPUPostProcessExecuteRequest);
-				return { ran: true };
-			}
-			case "interaction-outline": {
-				const interaction = request.frameContext.transient.get(
-					INTERACTION_TRANSIENT_STATE_KEY
-				);
-				if ((interaction?.selectedEntityIds?.length ?? 0) === 0) {
-					return { ran: false };
-				}
-				await this._postRuntime.executePass({
-					passId,
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					frameContext: request.frameContext,
-					options: request.options,
-					state: interaction,
-				} as WebGPUPostProcessExecuteRequest);
-				return { ran: true };
-			}
-			case "gamma":
-				await this._presentToCanvas(
-					this._frameTargets.sceneColor,
-					request.frameContext.postProcess.isEnabled("gamma")
-				);
-				return { ran: true };
 			default:
 				return { ran: false };
 		}
@@ -536,6 +507,40 @@ export class WebGPUFrameExecutor {
 			}
 		};
 		switch (passId) {
+			case "motion-blur": {
+				const context: WebGPUMotionBlurContext =
+					this._createWebGPUScreenPostProcessContext(publishColorTarget);
+				return context;
+			}
+			case "dof": {
+				const context: WebGPUDepthOfFieldContext =
+					this._createWebGPUScreenPostProcessContext(publishColorTarget);
+				return context;
+			}
+			case "tonemap": {
+				const context: WebGPUToneMappingContext =
+					this._createWebGPUScreenPostProcessContext(publishColorTarget);
+				return context;
+			}
+			case "color-filter": {
+				const context: WebGPUColorFilterContext =
+					this._createWebGPUScreenPostProcessContext(publishColorTarget);
+				return context;
+			}
+			case "interaction-outline": {
+				const context: WebGPUInteractionOutlineContext =
+					this._createWebGPUScreenPostProcessContext(publishColorTarget);
+				return context;
+			}
+			case "gamma": {
+				const context: WebGPUGammaContext = {
+					targets: this._frameTargets,
+					presentToCanvas: (source, applyGamma) =>
+						this._presentToCanvas(source, applyGamma),
+					warmupPresent: () => this._ensurePresentResources(),
+				};
+				return context;
+			}
 			case "ssao": {
 				const context: WebGPUSSAOContext = {
 					encoder: this._encoder,
@@ -623,6 +628,17 @@ export class WebGPUFrameExecutor {
 			default:
 				return undefined;
 		}
+	}
+
+	private _createWebGPUScreenPostProcessContext(
+		publishColorTarget?: (texture: IRenderTexture) => void
+	): WebGPUScreenPostProcessContext {
+		return {
+			encoder: this._encoder ?? undefined,
+			targets: this._frameTargets ?? undefined,
+			shared: this._postRuntime.sharedContext,
+			publishColorTarget,
+		};
 	}
 
 	/**
@@ -778,6 +794,22 @@ export class WebGPUFrameExecutor {
 
 	private _getPassWarmupExecutionContext(passId: string): unknown {
 		switch (passId) {
+			case "motion-blur":
+			case "dof":
+			case "tonemap":
+			case "color-filter":
+			case "interaction-outline": {
+				return this._createWebGPUScreenPostProcessContext();
+			}
+			case "gamma": {
+				const context: WebGPUGammaContext = {
+					targets: this._frameTargets ?? undefined,
+					warmupPresent: () => this._ensurePresentResources(),
+					presentToCanvas: (source, applyGamma) =>
+						this._presentToCanvas(source, applyGamma),
+				};
+				return context;
+			}
 			case "ssao": {
 				const context: WebGPUSSAOContext = {
 					shared: this._postRuntime.sharedContext,

@@ -386,23 +386,17 @@ async function testMissingSSRFrameBindingSkipsImplementation() {
 	assert.equal(backend.textureViews.length, 0);
 }
 
-async function testOnShaderRuntimeChangedDestroysRuntimeParameterBuffers() {
+async function testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const sceneColorMain = createTexture(24, 12, "scene");
-	const postPing = createTexture(24, 12, "ping");
-	const postPong = createTexture(24, 12, "pong");
-	const targets = {
-		sceneColor: sceneColorMain,
-		postPing,
-		postPong,
-	};
 
-	void targets;
 	await runtime.warmupHints([
 		"postprocess:motion-blur",
 		"postprocess:dof",
 	]);
+	assert.equal(backend.buffers.length, 0);
+	assert.equal(backend.shaderModules.length, 0);
+	assert.equal(backend.computePipelines.length, 0);
 	assert.equal(backend.bufferDestroyCalls, 0);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
 	assert.equal(backend.shaderModuleDestroyCalls, 0);
@@ -410,37 +404,15 @@ async function testOnShaderRuntimeChangedDestroysRuntimeParameterBuffers() {
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	const destroyedLabels = new Set(
-		backend.buffers
-			.filter((buffer) => buffer.destroyed)
-			.map((buffer) => buffer.desc.label)
-	);
-	assert.ok(destroyedLabels.has("WebGPUMotionBlurParams"));
-	assert.ok(destroyedLabels.has("WebGPUDOFParams"));
-	assert.equal(destroyedLabels.has("WebGPUVolumetricParams"), false);
-	assert.equal(destroyedLabels.has("WebGPUSSRTraceParams"), false);
-	assert.equal(destroyedLabels.has("WebGPUSSRComposeParams"), false);
-	assert.equal(destroyedLabels.has("WebGPUFXAAParams"), false);
-	const destroyedShaderLabels = new Set(
-		backend.shaderModules
-			.filter((module) => module.destroyed)
-			.map((module) => module.label)
-	);
-	assert.ok(destroyedShaderLabels.has("WebGPUMotionBlurShader"));
-	assert.ok(destroyedShaderLabels.has("WebGPUDOFShader"));
-	assert.equal(destroyedShaderLabels.has("WebGPUHiZShader"), false);
-	assert.equal(destroyedShaderLabels.has("WebGPUVolumetricShader"), false);
-	assert.equal(destroyedShaderLabels.has("WebGPUSSRShader"), false);
-	assert.equal(destroyedShaderLabels.has("WebGPUFXAAShader"), false);
-	const bufferDestroyCalls = backend.bufferDestroyCalls;
-	const shaderModuleDestroyCalls = backend.shaderModuleDestroyCalls;
-	const computePipelineDestroyCalls = backend.computePipelineDestroyCalls;
+	assert.equal(backend.bufferDestroyCalls, 0);
+	assert.equal(backend.shaderModuleDestroyCalls, 0);
+	assert.equal(backend.computePipelineDestroyCalls, 0);
 
 	runtime.onShaderRuntimeChanged();
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	assert.equal(backend.bufferDestroyCalls, bufferDestroyCalls);
-	assert.equal(backend.shaderModuleDestroyCalls, shaderModuleDestroyCalls);
-	assert.equal(backend.computePipelineDestroyCalls, computePipelineDestroyCalls);
+	assert.equal(backend.bufferDestroyCalls, 0);
+	assert.equal(backend.shaderModuleDestroyCalls, 0);
+	assert.equal(backend.computePipelineDestroyCalls, 0);
 }
 
 async function run() {
@@ -450,7 +422,7 @@ async function run() {
 	await testHiZMipViewsAreCachedAcrossSSRExecutions();
 	await testUnknownPassReturnsRanFalse();
 	await testMissingSSRFrameBindingSkipsImplementation();
-	await testOnShaderRuntimeChangedDestroysRuntimeParameterBuffers();
+	await testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources();
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }
 

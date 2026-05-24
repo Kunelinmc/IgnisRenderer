@@ -5,6 +5,7 @@ import {
 	FastApproximateAntiAliasingPass,
 	ScreenSpaceAmbientOcclusionPass,
 	TemporalAntiAliasingPass,
+	ToneMappingPass,
 } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
@@ -360,7 +361,27 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	executor._width = 1280;
 	executor._height = 720;
 
-	executor._applyToneMapping();
+	const frameContext = {
+		postProcess: createResolvedPostProcess({
+			tonemap: { enabled: true },
+		}),
+		transient: new Map(),
+	};
+	const pass = new ToneMappingPass({ enabled: true });
+	const request = {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "tonemap",
+		options: {},
+		startPassId: null,
+	};
+	const result = pass
+		.getImplementation("webgl")
+		.execute(request, executor.getPassExecutionContext("tonemap", request));
+	assert.deepEqual(result, { ran: true });
 
 	const attachmentWrite = gl.calls.find(
 		(call) =>
@@ -406,17 +427,19 @@ function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 		histories: {},
 	};
 
-	executor.executePostProcessPass("tonemap", request);
+	const toneMapResult = executor.executePostProcessPass("tonemap", request);
 	const fxaaResult = executor.executePostProcessPass("fxaa", request);
-	executor.executePostProcessPass("interaction-outline", request);
-	executor.executePostProcessPass("gamma", request);
-
-	assert.deepEqual(fxaaResult, { ran: false });
-	assert.deepEqual(events, [
-		"tonemap",
+	const outlineResult = executor.executePostProcessPass(
 		"interaction-outline",
-		"gamma",
-	]);
+		request
+	);
+	const gammaResult = executor.executePostProcessPass("gamma", request);
+
+	assert.deepEqual(toneMapResult, { ran: false });
+	assert.deepEqual(fxaaResult, { ran: false });
+	assert.deepEqual(outlineResult, { ran: false });
+	assert.deepEqual(gammaResult, { ran: false });
+	assert.deepEqual(events, []);
 }
 
 function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {

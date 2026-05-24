@@ -10,6 +10,7 @@ import type {
 import type { PostProcessCapabilities } from "../../pipeline/PostProcessController";
 import type { PostProcessorLike } from "./PostProcessor";
 import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
+import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/BuiltinFallbackPasses";
 
 export interface SoftwarePostProcessExecutorHost {
 	getPostProcessor(): PostProcessorLike | null;
@@ -74,29 +75,9 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		passId: string,
 		request: PostProcessPassRequest
 	): PostProcessPassResult {
-		const processor = this._host.getPostProcessor();
-		if (!processor) {
-			return { ran: false };
-		}
-		const context = request.frameContext;
-		const canvasContext = this._host.getCanvasContext();
-		switch (passId) {
-			case "interaction-outline":
-				processor.applyInteractionOutline(context);
-				return { ran: true };
-			case "gamma":
-				if (!canvasContext) return { ran: false };
-				processor.applyGamma(context, canvasContext);
-				return { ran: true };
-			case "tonemap":
-				processor.applyToneMapping(context);
-				return { ran: true };
-			case "color-filter":
-				processor.applyColorFilter(context);
-				return { ran: true };
-			default:
-				return { ran: false };
-		}
+		void passId;
+		void request;
+		return { ran: false };
 	}
 
 	public getPassExecutionContext(
@@ -124,6 +105,16 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 					attachments: request.frameContext.attachments,
 					canvasContext: this._host.getCanvasContext(),
 				};
+			case "tonemap":
+			case "color-filter":
+			case "interaction-outline":
+			case "gamma": {
+				const context: SoftwareBuiltinPostProcessContext = {
+					processor: this._host.getPostProcessor(),
+					canvasContext: this._host.getCanvasContext(),
+				};
+				return context;
+			}
 			default:
 				return undefined;
 		}

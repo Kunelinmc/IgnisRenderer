@@ -2,7 +2,6 @@ import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext";
-import { ScreenPostProcessDelegate } from "./postprocess/ScreenPostProcessDelegate";
 import { SpatialPostProcessDelegate } from "./postprocess/SpatialPostProcessDelegate";
 import { TemporalPostProcessDelegate } from "./postprocess/TemporalPostProcessDelegate";
 import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessContracts";
@@ -52,7 +51,6 @@ export class WebGPUPostProcessRuntime {
 		this._builtInDelegates = [
 			new SpatialPostProcessDelegate(this._shared),
 			new TemporalPostProcessDelegate(this._shared),
-			new ScreenPostProcessDelegate(this._shared),
 		];
 		const builtInRegistry: WebGPUPostProcessRuntimePassRegistry = {
 			registerRuntimePass: (pass) =>
