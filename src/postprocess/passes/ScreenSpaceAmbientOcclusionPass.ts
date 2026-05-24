@@ -1,6 +1,7 @@
 import { CameraType } from "../../cameras/Camera";
 import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
 import type { IVector3 } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
 import {
 	DEFAULT_SSAO_OPTIONS,
 	type FrameAttachments,
@@ -303,17 +304,18 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 						(y % SSAO_NOISE_SIZE) * SSAO_NOISE_SIZE +
 						(x % SSAO_NOISE_SIZE);
 					const randomVec = this._noise[noiseIdx];
+					const randomNormalDot = Vector3.dot(randomVec, normal);
 					const tangent = {
-						x: randomVec.x - normal.x * dot(randomVec, normal),
-						y: randomVec.y - normal.y * dot(randomVec, normal),
-						z: randomVec.z - normal.z * dot(randomVec, normal),
+						x: randomVec.x - normal.x * randomNormalDot,
+						y: randomVec.y - normal.y * randomNormalDot,
+						z: randomVec.z - normal.z * randomNormalDot,
 					};
 					const tangentLen = Math.hypot(tangent.x, tangent.y, tangent.z) || 1;
 					tangent.x /= tangentLen;
 					tangent.y /= tangentLen;
 					tangent.z /= tangentLen;
 
-					const bitangent = cross(normal, tangent);
+					const bitangent = Vector3.cross(normal, tangent);
 					const tbn = [
 						[tangent.x, bitangent.x, normal.x],
 						[tangent.y, bitangent.y, normal.y],
@@ -1016,17 +1018,5 @@ function reconstructViewPos(
 		x: ndcX * aspect * tanHalfFov * zView,
 		y: ndcY * tanHalfFov * zView,
 		z: -zView,
-	};
-}
-
-function dot(a: IVector3, b: IVector3): number {
-	return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-function cross(a: IVector3, b: IVector3): IVector3 {
-	return {
-		x: a.y * b.z - a.z * b.y,
-		y: a.z * b.x - a.x * b.z,
-		z: a.x * b.y - a.y * b.x,
 	};
 }
