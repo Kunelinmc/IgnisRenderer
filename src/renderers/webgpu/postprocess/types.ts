@@ -9,25 +9,6 @@ import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 
-export const WEBGPU_POST_PROCESS_PASS_IDS = [
-	"ssao",
-	"ssgi",
-	"taa",
-	"ssr",
-	"volumetric",
-	"fog",
-	"motion-blur",
-	"dof",
-	"bloom",
-	"color-filter",
-	"fxaa",
-	"interaction-outline",
-	"tonemap",
-] as const;
-
-export type WebGPUPostProcessPassId =
-	(typeof WEBGPU_POST_PROCESS_PASS_IDS)[number];
-
 interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	passId: TPassId;
 	encoder: ICommandEncoder;
@@ -128,6 +109,8 @@ export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessInteractionOutlineExecuteRequest
 	| WebGPUPostProcessTonemapExecuteRequest;
 
+export type WebGPUPostProcessPassId = WebGPUPostProcessExecuteRequest["passId"];
+
 export interface WebGPUPostProcessExecuteResult {
 	ran: boolean;
 	historyUpdated?: boolean;
@@ -172,8 +155,4 @@ export interface WebGPUPostProcessRuntimePass<
 		null;
 	invalidateBindings?(context: WebGPUPostProcessRuntimeContext): void;
 	onShaderRuntimeChanged?(context: WebGPUPostProcessRuntimeContext): void;
-}
-
-export interface WebGPUPostProcessRuntimePassRegistry {
-	registerRuntimePass(pass: WebGPUPostProcessRuntimePass): void;
 }

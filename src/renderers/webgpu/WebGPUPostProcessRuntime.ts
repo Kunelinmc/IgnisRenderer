@@ -2,14 +2,11 @@ import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext";
-import { SpatialPostProcessDelegate } from "./postprocess/SpatialPostProcessDelegate";
-import { TemporalPostProcessDelegate } from "./postprocess/TemporalPostProcessDelegate";
 import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessContracts";
 import type {
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessRuntimeExecuteRequest,
 	WebGPUPostProcessRuntimePass,
-	WebGPUPostProcessRuntimePassRegistry,
 } from "./postprocess/types";
 
 export type {
@@ -24,19 +21,12 @@ export type {
 
 interface RegisteredRuntimePass {
 	pass: WebGPUPostProcessRuntimePass;
-	builtIn: boolean;
-}
-
-interface BuiltInPostProcessDelegate {
-	registerPasses(registry: WebGPUPostProcessRuntimePassRegistry): void;
-	destroy(): void;
 }
 
 export class WebGPUPostProcessRuntime {
 	private _shared: PostProcessSharedContext;
 	private _runtimePassById = new Map<string, RegisteredRuntimePass>();
 	private _warmupPassesByHint = new Map<string, RegisteredRuntimePass[]>();
-	private _builtInDelegates: BuiltInPostProcessDelegate[];
 
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
@@ -48,17 +38,6 @@ export class WebGPUPostProcessRuntime {
 			warn,
 			frameBindGroupLayout
 		);
-		this._builtInDelegates = [
-			new SpatialPostProcessDelegate(this._shared),
-			new TemporalPostProcessDelegate(this._shared),
-		];
-		const builtInRegistry: WebGPUPostProcessRuntimePassRegistry = {
-			registerRuntimePass: (pass) =>
-				this._registerRuntimePass(pass, { builtIn: true }),
-		};
-		for (const delegate of this._builtInDelegates) {
-			delegate.registerPasses(builtInRegistry);
-		}
 	}
 
 	public get sharedContext(): PostProcessSharedContext {
@@ -74,7 +53,7 @@ export class WebGPUPostProcessRuntime {
 	public assertCanRegisterRuntimePass(
 		pass: WebGPUPostProcessRuntimePass
 	): void {
-		this._assertRuntimePassCanRegister(pass, false);
+		this._assertRuntimePassCanRegister(pass);
 	}
 
 	/**
@@ -84,7 +63,7 @@ export class WebGPUPostProcessRuntime {
 	 * @throws If the pass id is empty, reserved, or already registered.
 	 */
 	public registerRuntimePass(pass: WebGPUPostProcessRuntimePass): void {
-		this._registerRuntimePass(pass, { builtIn: false });
+		this._registerRuntimePass(pass);
 	}
 
 	/**
@@ -95,7 +74,7 @@ export class WebGPUPostProcessRuntime {
 	 */
 	public unregisterRuntimePass(id: string): void {
 		const entry = this._runtimePassById.get(id);
-		if (entry?.builtIn || isWebGPUBuiltinPostProcessPassId(id)) {
+		if (isWebGPUBuiltinPostProcessPassId(id)) {
 			throw new Error(
 				`Cannot unregister built-in WebGPU post-process runtime pass "${id}".`
 			);
@@ -128,9 +107,6 @@ export class WebGPUPostProcessRuntime {
 
 	public destroy(): void {
 		this._shared.destroy();
-		for (const delegate of this._builtInDelegates) {
-			delegate.destroy();
-		}
 		this._runtimePassById.clear();
 		this._warmupPassesByHint.clear();
 	}
@@ -200,14 +176,10 @@ export class WebGPUPostProcessRuntime {
 		return warmed;
 	}
 
-	private _registerRuntimePass(
-		pass: WebGPUPostProcessRuntimePass,
-		options: { builtIn: boolean }
-	): void {
-		this._assertRuntimePassCanRegister(pass, options.builtIn);
+	private _registerRuntimePass(pass: WebGPUPostProcessRuntimePass): void {
+		this._assertRuntimePassCanRegister(pass);
 		const entry: RegisteredRuntimePass = {
 			pass,
-			builtIn: options.builtIn,
 		};
 		this._runtimePassById.set(pass.id, entry);
 		for (const hint of pass.warmupHints ?? []) {
@@ -217,14 +189,11 @@ export class WebGPUPostProcessRuntime {
 		}
 	}
 
-	private _assertRuntimePassCanRegister(
-		pass: WebGPUPostProcessRuntimePass,
-		allowBuiltIn: boolean
-	): void {
+	private _assertRuntimePassCanRegister(pass: WebGPUPostProcessRuntimePass): void {
 		if (!pass.id) {
 			throw new Error("WebGPU post-process runtime pass id is required.");
 		}
-		if (!allowBuiltIn && isWebGPUBuiltinPostProcessPassId(pass.id)) {
+		if (isWebGPUBuiltinPostProcessPassId(pass.id)) {
 			throw new Error(
 				`Cannot register built-in WebGPU post-process runtime pass "${pass.id}".`
 			);

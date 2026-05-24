@@ -1,17 +1,26 @@
 import type { IRenderTexture } from "../types";
-import { WEBGPU_POST_PROCESS_PASS_IDS } from "./postprocess/types";
-
-export const WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS = [
-	...WEBGPU_POST_PROCESS_PASS_IDS,
-	"gamma",
-] as const;
+import type { WebGPUPostProcessPassId } from "./postprocess/types";
 
 export type WebGPUBuiltinPostProcessPassId =
-	(typeof WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS)[number];
+	| WebGPUPostProcessPassId
+	| "gamma";
 
-const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>(
-	WEBGPU_BUILTIN_POST_PROCESS_PASS_IDS
-);
+const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>([
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fog",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"color-filter",
+	"fxaa",
+	"interaction-outline",
+	"tonemap",
+	"gamma",
+]);
 
 /**
  * Returns whether `id` is reserved by a built-in WebGPU post-process pass.
