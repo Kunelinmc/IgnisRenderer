@@ -20,14 +20,12 @@ import {
 } from "./helpers/postprocess.mjs";
 
 class FakeExecutor {
-	constructor(backend = "webgpu", capabilities = ALL_POST_PROCESS_CAPABILITIES) {
+	constructor(backend = "webgpu") {
 		this.backend = backend;
-		this.capabilities = capabilities;
 		this.created = [];
 		this.destroyed = [];
 		this.executed = [];
 		this.ownedExecuted = [];
-		this.volumetricApplications = 0;
 	}
 
 	createResource(desc) {
@@ -119,20 +117,6 @@ class FakeExecutor {
 			["tonemap", "color-filter", "interaction-outline", "gamma"].includes(passId)
 		) {
 			return {
-				processor: {
-					applyToneMapping: () => {
-						this.ownedExecuted.push("tonemap");
-					},
-					applyColorFilter: () => {
-						this.ownedExecuted.push("color-filter");
-					},
-					applyInteractionOutline: () => {
-						this.ownedExecuted.push("interaction-outline");
-					},
-					applyGamma: () => {
-						this.ownedExecuted.push("gamma");
-					},
-				},
 				canvasContext: {},
 			};
 		}
@@ -144,11 +128,6 @@ class FakeExecutor {
 		}
 		if (this.backend === "software" && passId === "volumetric") {
 			return {
-				processor: {
-					applyVolumetricLight: () => {
-						this.volumetricApplications++;
-					},
-				},
 				canvasContext: {},
 			};
 		}
@@ -410,7 +389,6 @@ async function testPassOwnedImplementationsAndFallback() {
 	});
 	assert.deepEqual(volumetricResult.executedPassIds, ["volumetric"]);
 	assert.deepEqual(volumetricExecutor.executed, []);
-	assert.equal(volumetricExecutor.volumetricApplications, 1);
 
 	const fallbackSnapshot = createResolvedPostProcess(
 		{ tonemap: { enabled: true } },
@@ -418,13 +396,13 @@ async function testPassOwnedImplementationsAndFallback() {
 		"software"
 	);
 	const fallbackExecutor = new FakeExecutor("software");
-	await pipeline.execute({
+	const fallbackResult = await pipeline.execute({
 		frameContext: createFrameContext(fallbackSnapshot),
 		executor: fallbackExecutor,
 		gBuffer: createGBufferBridge(),
 	});
+	assert.deepEqual(fallbackResult.executedPassIds, ["tonemap"]);
 	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), []);
-	assert.deepEqual(fallbackExecutor.ownedExecuted, ["tonemap"]);
 }
 
 function testRegistryLifecycleDelegatesToPassImplementations() {

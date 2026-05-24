@@ -26,7 +26,6 @@ function createPostProcess(overrides = {}) {
 function createExecutor() {
 	return {
 		backend: "webgl",
-		capabilities: POST_PROCESS_CAPABILITIES,
 		createResource() {
 			throw new Error("Unexpected history allocation in this test");
 		},

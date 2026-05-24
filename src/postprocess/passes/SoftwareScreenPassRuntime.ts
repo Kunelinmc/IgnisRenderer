@@ -1,5 +1,4 @@
 import { Matrix4 } from "../../maths/Matrix4";
-import { PostProcessConstants, VolumetricConstants } from "./constants";
 import {
 	type DirectionalLight,
 	type PointLight,
@@ -10,11 +9,11 @@ import {
 import {
 	createLightContribution,
 	evaluateLightContribution,
-} from "./LightEvaluator";
+} from "../../renderers/software/LightEvaluator";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
-} from "./passes/SoftwareShadowPass";
+} from "../../renderers/software/passes/SoftwareShadowPass";
 import { clamp, linearToSRGB } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import { CameraType } from "../../cameras/Camera";
@@ -27,27 +26,82 @@ import {
 import type {
 	ColorFilterOptions,
 	VolumetricOptions,
-	FramePassStage,
 	FrameContext,
 } from "../../pipeline/types";
 import {
 	DEFAULT_COLOR_FILTER_OPTIONS,
+	DEFAULT_VOLUMETRIC_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
+import {
+	DEFAULT_GAMMA,
+	FXAA_EDGE_THRESHOLD_MIN,
+	FXAA_EDGE_THRESHOLD_MULTIPLIER,
+	FXAA_QUALITY,
+	FXAA_SUBPIX_QUALITY,
+	MAX_EXPOSURE,
+	MAX_GAMMA,
+	MIN_GAMMA,
+	POST_PROCESS_NOISE_REFERENCE_WIDTH,
+	VOLUMETRIC_SIGMA_T_SCALE,
+} from "../../renderers/constants";
 
-export interface PostProcessorLike {
-	applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void;
+const PostProcessConstants = Object.freeze({
+	FXAA_EDGE_THRESHOLD_MIN,
+	FXAA_EDGE_THRESHOLD_MULTIPLIER,
+	FXAA_SUBPIX_QUALITY,
+	FXAA_ITERATIONS: 12,
+	FXAA_QUALITY,
+	NOISE_REFERENCE_WIDTH: POST_PROCESS_NOISE_REFERENCE_WIDTH,
+	MIN_GAMMA,
+	MAX_GAMMA,
+	DEFAULT_GAMMA,
+	MAX_EXPOSURE,
+});
+
+const VolumetricConstants = Object.freeze({
+	SIGMA_T_SCALE: VOLUMETRIC_SIGMA_T_SCALE,
+	MIN_RAY_DISTANCE: 0.1,
+	MIN_RAY_DIR_Z: 1e-6,
+	MIN_ADAPTIVE_SAMPLE_COUNT: 8,
+	MIN_DOWN_SAMPLE: 1,
+	MAX_DOWN_SAMPLE: 8,
+	MIN_SAMPLES: 1,
+	MAX_SAMPLES: 256,
+	DEFAULT_DOWN_SAMPLE: DEFAULT_VOLUMETRIC_OPTIONS.downsample,
+	DEFAULT_SAMPLES: DEFAULT_VOLUMETRIC_OPTIONS.samples,
+	MIN_SHADOW_SAMPLE_INTERVAL: 1,
+	MAX_SHADOW_SAMPLE_INTERVAL: 32,
+	MIN_BILATERAL_DEPTH_SIGMA: 1e-4,
+	MAX_WEIGHT: 10,
+	DEFAULT_WEIGHT: DEFAULT_VOLUMETRIC_OPTIONS.weight,
+	MAX_AIR_DENSITY: 10,
+	TRANSMITTANCE_EARLY_EXIT: 0.001,
+	GRID_SAMPLE_JITTER_STRENGTH: 0.75,
+	SCENE_BOUNDS_FADE_START_MULTIPLIER: 1.05,
+	SCENE_BOUNDS_FADE_END_MULTIPLIER: 1.8,
+	SCENE_DEPTH_LIMIT_MULTIPLIER: 1.6,
+	MIN_SCENE_BOUNDS_RADIUS: 1.0,
+	TEMPORAL_ACCUMULATION_FACTOR: 0.95,
+});
+
+interface SoftwareScreenPassRuntimeLike {
+	applyFXAA(
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D | null
+	): void;
 	applyVolumetricLight(
 		context: FrameContext,
-		ctx: CanvasRenderingContext2D
+		ctx: CanvasRenderingContext2D | null
 	): void;
 	applyToneMapping(context: FrameContext): void;
-	applyGamma(context: FrameContext, ctx: CanvasRenderingContext2D): void;
+	applyGamma(
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D | null
+	): void;
 	applyInteractionOutline(context: FrameContext): void;
 	applyColorFilter(context: FrameContext): void;
 }
-
-// Feature options moved to types.ts
 
 interface CameraBasis {
 	right: IVector3;
@@ -69,9 +123,9 @@ interface IncrementalDirtyRect {
 }
 
 /**
- * PostProcessor handles various image-space effects like FXAA, Volumetric Lighting, and Gamma Correction.
+ * CPU runtime for software-backed logical screen-space post-process passes.
  */
-export class PostProcessor implements PostProcessorLike {
+export class SoftwareScreenPassRuntime implements SoftwareScreenPassRuntimeLike {
 	private _sRGBLUT: Uint8Array;
 	private _lutBuilt: boolean;
 	private _lastGamma: number;
@@ -501,12 +555,29 @@ export class PostProcessor implements PostProcessorLike {
 		);
 	}
 
-	public applyFXAA(context: FrameContext, ctx: CanvasRenderingContext2D): void {
+	/**
+	 * Applies CPU FXAA to the current frame color buffer.
+	 *
+	 * @param context Current frame context containing color attachments and
+	 * incremental dirty rect metadata.
+	 * @param ctx Optional 2D canvas context used only when frame pixels are not
+	 * attached directly.
+	 * @returns Nothing.
+	 * @sideEffects Mutates `context.attachments.pixels` or writes image data back
+	 * to `ctx`.
+	 */
+	public applyFXAA(
+		context: FrameContext,
+		ctx: CanvasRenderingContext2D | null
+	): void {
 		const { width: w, height: h } = context.attachments;
 		let pixels = context.attachments.pixels;
 		let imageData: ImageData | null = null;
 
 		if (!pixels) {
+			if (!ctx) {
+				return;
+			}
 			imageData = ctx.getImageData(0, 0, w, h);
 			pixels = imageData.data;
 		}
@@ -679,7 +750,7 @@ export class PostProcessor implements PostProcessorLike {
 			}
 		});
 
-		if (imageData) {
+		if (imageData && ctx) {
 			imageData.data.set(output);
 			ctx.putImageData(imageData, 0, 0);
 		} else {
@@ -687,10 +758,22 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
+	/**
+	 * Applies CPU volumetric lighting to the current frame color buffer.
+	 *
+	 * @param context Current frame context with color, depth, camera, scene, and
+	 * post-process option state.
+	 * @param ctx Reserved software presentation helper; current execution
+	 * requires direct frame pixels and does not read from the canvas.
+	 * @returns Nothing.
+	 * @sideEffects Mutates RGB channels in `context.attachments.pixels` and
+	 * updates temporal volumetric history buffers.
+	 */
 	public applyVolumetricLight(
 		context: FrameContext,
-		ctx: CanvasRenderingContext2D
+		ctx: CanvasRenderingContext2D | null
 	): void {
+		void ctx;
 		const depthBuffer = context.attachments.depthBuffer;
 		const options =
 			context.postProcess.getOptions<VolumetricOptions>("volumetric") || {};
@@ -717,8 +800,6 @@ export class PostProcessor implements PostProcessorLike {
 		if (volLights.length === 0) return;
 		const sampleSurface = { position: { x: 0, y: 0, z: 0 } };
 		const lightContribution = createLightContribution();
-
-		let imageData: ImageData | null = null;
 
 		const camera = context.camera;
 		const cameraPos = camera.getWorldPosition();
@@ -1132,8 +1213,6 @@ export class PostProcessor implements PostProcessorLike {
 				dirtyRects
 			);
 		}
-
-		if (imageData) ctx.putImageData(imageData, 0, 0);
 	}
 
 	private _bilateralUpscale(
@@ -1345,6 +1424,15 @@ export class PostProcessor implements PostProcessorLike {
 		this._lastGamma = gamma;
 	}
 
+	/**
+	 * Draws the active interaction outline overlay into the frame color buffer.
+	 *
+	 * @param context Current frame context containing interaction transient state
+	 * and frame attachments.
+	 * @returns Nothing.
+	 * @sideEffects Alpha-blends outline pixels into
+	 * `context.attachments.pixels`.
+	 */
 	public applyInteractionOutline(context: FrameContext): void {
 		const state = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
 		if (!state || state.selectedEntityIds.length === 0) {
@@ -1424,6 +1512,14 @@ export class PostProcessor implements PostProcessorLike {
 		}
 	}
 
+	/**
+	 * Applies the configured CPU color filter to the frame color buffer.
+	 *
+	 * @param context Current frame context containing color-filter options and
+	 * frame attachments.
+	 * @returns Nothing.
+	 * @sideEffects Mutates RGB channels in `context.attachments.pixels`.
+	 */
 	public applyColorFilter(context: FrameContext): void {
 		const pixels = context.attachments.pixels;
 		if (!pixels || pixels.length === 0) {
@@ -1566,9 +1662,20 @@ export class PostProcessor implements PostProcessorLike {
 		});
 	}
 
+	/**
+	 * Applies gamma encoding to the current frame color buffer.
+	 *
+	 * @param context Current frame context containing color attachments and
+	 * post-process enabled state.
+	 * @param ctx Optional 2D canvas context used only when frame pixels are not
+	 * attached directly.
+	 * @returns Nothing.
+	 * @sideEffects Mutates `context.attachments.pixels` or writes image data back
+	 * to `ctx`.
+	 */
 	public applyGamma(
 		context: FrameContext,
-		ctx: CanvasRenderingContext2D
+		ctx: CanvasRenderingContext2D | null
 	): void {
 		const w = context.attachments.width,
 			h = context.attachments.height;
@@ -1578,6 +1685,9 @@ export class PostProcessor implements PostProcessorLike {
 		let pixels = context.attachments.pixels;
 		let imageData: ImageData | null = null;
 		if (!pixels) {
+			if (!ctx) {
+				return;
+			}
 			imageData = ctx.getImageData(0, 0, w, h);
 			pixels = imageData.data;
 		}
@@ -1599,7 +1709,7 @@ export class PostProcessor implements PostProcessorLike {
 				}
 			}
 		});
-		if (imageData) ctx.putImageData(imageData, 0, 0);
+		if (imageData && ctx) ctx.putImageData(imageData, 0, 0);
 	}
 
 	private _drawShapeOutline(

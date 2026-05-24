@@ -7,13 +7,10 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import type { PostProcessCapabilities } from "../../pipeline/PostProcessController";
-import type { PostProcessorLike } from "./PostProcessor";
 import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
 import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/BuiltinFallbackPasses";
 
 export interface SoftwarePostProcessExecutorHost {
-	getPostProcessor(): PostProcessorLike | null;
 	getCanvasContext(): CanvasRenderingContext2D | null;
 }
 
@@ -22,14 +19,9 @@ export interface SoftwarePostProcessExecutorHost {
  */
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
-	public readonly capabilities: PostProcessCapabilities;
 	private _host: SoftwarePostProcessExecutorHost;
 
-	constructor(
-		capabilities: PostProcessCapabilities,
-		host: SoftwarePostProcessExecutorHost
-	) {
-		this.capabilities = capabilities;
+	constructor(host: SoftwarePostProcessExecutorHost) {
 		this._host = host;
 	}
 
@@ -95,7 +87,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 				};
 			case "volumetric": {
 				const context: SoftwareVolumetricLightingContext = {
-					processor: this._host.getPostProcessor(),
 					canvasContext: this._host.getCanvasContext(),
 				};
 				return context;
@@ -110,7 +101,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			case "interaction-outline":
 			case "gamma": {
 				const context: SoftwareBuiltinPostProcessContext = {
-					processor: this._host.getPostProcessor(),
 					canvasContext: this._host.getCanvasContext(),
 				};
 				return context;

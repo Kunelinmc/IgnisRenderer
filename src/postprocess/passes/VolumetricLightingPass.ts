@@ -12,7 +12,6 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
-import type { PostProcessorLike } from "../../renderers/software/PostProcessor";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,
@@ -36,13 +35,13 @@ import type {
 	PostProcessPassRequirements,
 	PostProcessPassResult,
 } from "../types";
+import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
 
 export interface SoftwareVolumetricLightingContext {
-	readonly processor: PostProcessorLike | null;
 	readonly canvasContext: CanvasRenderingContext2D | null;
 }
 
@@ -80,17 +79,21 @@ export class SoftwareVolumetricLightingImplementation
 		>
 {
 	public readonly id = "volumetric:software";
+	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest<VolumetricOptions>,
 		context: SoftwareVolumetricLightingContext | undefined
 	): PostProcessPassResult {
-		if (!context?.processor || !context.canvasContext) {
+		if (
+			!request.frameContext.attachments.pixels ||
+			!request.frameContext.attachments.depthBuffer
+		) {
 			return { ran: false };
 		}
-		context.processor.applyVolumetricLight(
+		this._runtime.applyVolumetricLight(
 			request.frameContext,
-			context.canvasContext
+			context?.canvasContext ?? null
 		);
 		return { ran: true };
 	}

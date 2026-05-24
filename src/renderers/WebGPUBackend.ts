@@ -289,7 +289,6 @@ export class WebGPUBackend implements IRenderBackend {
 	};
 	private readonly _postProcessExecutor: IPostProcessExecutor = {
 		backend: "webgpu",
-		capabilities: WEBGPU_POST_PROCESS_CAPABILITIES,
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
 		beginFrame: (_request) => {},

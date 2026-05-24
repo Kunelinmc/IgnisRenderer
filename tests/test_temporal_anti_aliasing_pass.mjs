@@ -16,7 +16,6 @@ const TAA_ONLY_CAPABILITIES = Object.fromEntries(
 function createSoftwareExecutor() {
 	return {
 		backend: "software",
-		capabilities: TAA_ONLY_CAPABILITIES,
 		created: [],
 		fallbackCalls: [],
 		createResource(desc) {

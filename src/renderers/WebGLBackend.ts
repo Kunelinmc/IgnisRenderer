@@ -103,7 +103,6 @@ export class WebGLBackend implements IRenderBackend {
 	};
 	private readonly _postProcessExecutor: IPostProcessExecutor = {
 		backend: "webgl",
-		capabilities: WEBGL_POST_PROCESS_CAPABILITIES,
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
 		getPassExecutionContext: (passId, request) =>

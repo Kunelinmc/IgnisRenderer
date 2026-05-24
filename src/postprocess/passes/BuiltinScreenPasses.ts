@@ -44,7 +44,6 @@ import {
 	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 } from "../../renderers/webgl/constants";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
-import type { PostProcessorLike } from "../../renderers/software/PostProcessor";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import {
 	PostProcessPass,
@@ -56,6 +55,7 @@ import type {
 	PostProcessPassRequirements,
 	PostProcessPassResult,
 } from "../types";
+import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 
 type EmptyOptions = Record<string, never>;
 
@@ -67,7 +67,6 @@ export const INTERACTION_OUTLINE_PASS_ID = "interaction-outline";
 export const GAMMA_PASS_ID = "gamma";
 
 export interface SoftwareBuiltinPostProcessContext {
-	readonly processor: PostProcessorLike | null;
 	readonly canvasContext: CanvasRenderingContext2D | null;
 }
 
@@ -132,15 +131,16 @@ export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
+	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
-		context: SoftwareBuiltinPostProcessContext | undefined
+		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!context?.processor) {
+		if (!request.frameContext.attachments.pixels) {
 			return { ran: false };
 		}
-		context.processor.applyToneMapping(request.frameContext);
+		this._runtime.applyToneMapping(request.frameContext);
 		return { ran: true };
 	}
 }
@@ -149,15 +149,16 @@ export class SoftwareColorFilterImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "color-filter:software";
+	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
-		context: SoftwareBuiltinPostProcessContext | undefined
+		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!context?.processor) {
+		if (!request.frameContext.attachments.pixels) {
 			return { ran: false };
 		}
-		context.processor.applyColorFilter(request.frameContext);
+		this._runtime.applyColorFilter(request.frameContext);
 		return { ran: true };
 	}
 }
@@ -166,15 +167,16 @@ export class SoftwareInteractionOutlineImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "interaction-outline:software";
+	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
-		context: SoftwareBuiltinPostProcessContext | undefined
+		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!context?.processor) {
+		if (!request.frameContext.attachments.pixels) {
 			return { ran: false };
 		}
-		context.processor.applyInteractionOutline(request.frameContext);
+		this._runtime.applyInteractionOutline(request.frameContext);
 		return { ran: true };
 	}
 }
@@ -183,15 +185,20 @@ export class SoftwareGammaImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "gamma:software";
+	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
 		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!context?.processor || !context.canvasContext) {
+		const canvasContext = context?.canvasContext ?? null;
+		if (!request.frameContext.attachments.pixels && !canvasContext) {
 			return { ran: false };
 		}
-		context.processor.applyGamma(request.frameContext, context.canvasContext);
+		this._runtime.applyGamma(
+			request.frameContext,
+			canvasContext
+		);
 		return { ran: true };
 	}
 }

@@ -110,7 +110,6 @@ export function createNoopPostProcessSupport(
 ) {
 	const executor = {
 		backend,
-		capabilities,
 		createdResources: [],
 		destroyedResources: [],
 		executedPasses: [],

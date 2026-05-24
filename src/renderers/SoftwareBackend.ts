@@ -10,7 +10,6 @@ import {
 import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import type { LogicalGBufferBridge } from "../postprocess";
 import { Rasterizer } from "./software/Rasterizer";
-import { PostProcessor } from "./software/PostProcessor";
 import {
 	SoftwarePostProcessExecutor,
 	createSoftwareGBufferBridge,
@@ -154,9 +153,7 @@ export class SoftwareBackend implements IRenderBackend {
 		oit: false,
 	};
 	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
-		SOFTWARE_POST_PROCESS_CAPABILITIES,
 		{
-			getPostProcessor: () => this._postProcessor,
 			getCanvasContext: () => this._ctx,
 		}
 	);
@@ -171,7 +168,6 @@ export class SoftwareBackend implements IRenderBackend {
 	private _particlePass: SoftwarePassLike | null = null;
 	private _shadowPass: SoftwarePassLike | null = null;
 	private _reflectionPass: SoftwarePassLike | null = null;
-	private _postProcessor: PostProcessor | null = null;
 	private _framePixelsShared = false;
 	private _pixels: Uint8ClampedArray | null = null;
 	private _depthBuffer: Float32Array | null = null;
@@ -242,7 +238,6 @@ export class SoftwareBackend implements IRenderBackend {
 		});
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
-		this._postProcessor = new PostProcessor();
 		this._particleSimulator = new DefaultParticleSimulator({
 			backendTag: this.type,
 		});
@@ -644,7 +639,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._particlePass = null;
 		this._shadowPass = null;
 		this._reflectionPass = null;
-		this._postProcessor = null;
 		this._particleSimulator = null;
 		this._rasterizer = null;
 	}
@@ -716,51 +710,6 @@ export class SoftwareBackend implements IRenderBackend {
 			["ssao", () => {}],
 			["taa", () => {}],
 			["ssr", () => {}],
-			[
-				"volumetric",
-				(context) => {
-					if (!this._ctx) {
-						return;
-					}
-					this._postProcessor?.applyVolumetricLight(context, this._ctx);
-				},
-			],
-			[
-				"fxaa",
-				(context) => {
-					if (!this._ctx) {
-						return;
-					}
-					this._postProcessor?.applyFXAA(context, this._ctx);
-				},
-			],
-			[
-				"interaction-outline",
-				(context) => {
-					this._postProcessor?.applyInteractionOutline(context);
-				},
-			],
-			[
-				"gamma",
-				(context) => {
-					if (!this._ctx) {
-						return;
-					}
-					this._postProcessor?.applyGamma(context, this._ctx);
-				},
-			],
-			[
-				"tonemap",
-				(context) => {
-					this._postProcessor?.applyToneMapping(context);
-				},
-			],
-			[
-				"color-filter",
-				(context) => {
-					this._postProcessor?.applyColorFilter(context);
-				},
-			],
 		]);
 	}
 }

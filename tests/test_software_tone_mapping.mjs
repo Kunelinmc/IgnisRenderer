@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { PostProcessor } from "../src/renderers/software/PostProcessor.ts";
+import { SoftwareToneMappingImplementation } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 function createFrameContext(pixels) {
@@ -29,8 +29,10 @@ function testToneMappingPreservesAlphaAndDirtyRect() {
 	]);
 	const before = Array.from(pixels);
 
-	const processor = new PostProcessor();
-	processor.applyToneMapping(createFrameContext(pixels));
+	const implementation = new SoftwareToneMappingImplementation();
+	implementation.execute({
+		frameContext: createFrameContext(pixels),
+	});
 
 	assert.deepEqual(Array.from(pixels.slice(0, 4)), before.slice(0, 4));
 	assert.deepEqual(Array.from(pixels.slice(8, 12)), before.slice(8, 12));

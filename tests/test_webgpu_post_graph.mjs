@@ -41,7 +41,6 @@ function createExecutor() {
 	};
 	return {
 		backend: "webgpu",
-		capabilities: POST_PROCESS_CAPABILITIES,
 		createResource() {
 			throw new Error("Unexpected history allocation in this test");
 		},

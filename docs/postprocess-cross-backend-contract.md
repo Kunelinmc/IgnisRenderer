@@ -29,7 +29,7 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPassRegistry.unregisterPass(id)` must destroy the removed pass implementations after detaching change listeners.
 - Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
-- `IPostProcessExecutor.capabilities` must expose the same capability set used by `resolvePostProcessState`.
+- Backend `postProcessCapabilities` must expose the logical pass capability set used when creating `PostProcessPassRegistrySnapshot`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
 - `IPostProcessExecutor.destroyResource(handle)` must release resources allocated by `createResource(desc)`.
 - `IPostProcessExecutor.getPassExecutionContext(passId, request)` may return backend-specific low-level helpers for pass-owned implementations.
@@ -57,6 +57,7 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `color-filter` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `interaction-outline` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `gamma` pass must own final presentation for WebGPU and WebGL and gamma encoding for Software under `src/postprocess/passes/`.
+- Software built-in screen pass CPU runtimes must live under `src/postprocess/passes/` and must not be owned by `src/renderers/software/`.
 - Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `volumetric`, `fog`, `bloom`, `motion-blur`, `dof`, `tonemap`, `color-filter`, `interaction-outline`, or `gamma` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
@@ -128,6 +129,7 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 
 ## Compatibility / Breaking Changes
 - Backend-specific public post-process graph registration is removed.
+- `IPostProcessExecutor.capabilities` is removed. Backend post-process support must be declared only through `postProcessCapabilities`.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
 - `IPostProcessExecutor.getPassExecutionContext(passId, request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.
@@ -135,6 +137,7 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.
 - `PostProcessPassRegistry.destroyPasses(backend)` is added for pass-owned implementation destruction.
 - `PostProcessPassDescriptor.resolveHistory(request)` is added and takes precedence over static `history`.
+- `PostProcessor` is removed from the public API. Software built-in post-process behavior is owned by pass implementations under `src/postprocess/passes/`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.
 - Code that previously depended on per-pass frame stages such as `ssao`, `taa`, or `gamma` must use the single `postprocess` frame stage and inspect `IncrementalFrameContext.postProcessStartPass` for the internal pass start.

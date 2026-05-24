@@ -185,7 +185,6 @@ export interface PostProcessFrameEndRequest extends PostProcessFrameRequest {
 
 export interface IPostProcessExecutor {
 	readonly backend: PostProcessBackendKind;
-	readonly capabilities: PostProcessCapabilities;
 	createResource(
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle;

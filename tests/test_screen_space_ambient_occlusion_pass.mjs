@@ -141,7 +141,6 @@ function createGBuffer(context) {
 function createSoftwareExecutor() {
 	return {
 		backend: "software",
-		capabilities: SSAO_ONLY_CAPABILITIES,
 		fallbackCalls: [],
 		createResource(desc) {
 			return {

@@ -214,7 +214,6 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 	};
 	const executor = {
 		backend: "webgpu",
-		capabilities: SSGI_ONLY_CAPABILITIES,
 		fallbackCalls: [],
 		createResource(desc) {
 			return {

@@ -59,7 +59,6 @@ export {
 	type ReadTextureOptions,
 } from "./renderers/webgpu/ComputeRuntime";
 export { Rasterizer } from "./renderers/software/Rasterizer";
-export { PostProcessor } from "./renderers/software/PostProcessor";
 export type {
 	SSROptions,
 	SSAOOptions,
