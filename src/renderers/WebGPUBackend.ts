@@ -203,7 +203,6 @@ const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
 const WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT = 4;
 
 export interface WebGPUBackendOptions {
-	canvas?: HTMLCanvasElement;
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
 	enableMSAA?: boolean;
@@ -219,41 +218,6 @@ type WebGPUPassHandler = (
 	pass: FramePass,
 	context: FrameContext
 ) => void | Promise<void>;
-
-function isWebGPUBackendOptions(
-	value: unknown
-): value is WebGPUBackendOptions {
-	return typeof value === "object" && value !== null;
-}
-
-function resolveWebGPUBackendCtorArgs(
-	canvasOrOptions?: HTMLCanvasElement | WebGPUBackendOptions,
-	options?: WebGPUBackendOptions
-): { canvas: HTMLCanvasElement | null; options: WebGPUBackendOptions } {
-	const fallbackOptions = options ?? {};
-	if (
-		typeof HTMLCanvasElement !== "undefined" &&
-		canvasOrOptions instanceof HTMLCanvasElement
-	) {
-		return {
-			canvas: canvasOrOptions,
-			options: fallbackOptions,
-		};
-	}
-	if (isWebGPUBackendOptions(canvasOrOptions)) {
-		return {
-			canvas: canvasOrOptions.canvas ?? null,
-			options: {
-				...canvasOrOptions,
-				...fallbackOptions,
-			},
-		};
-	}
-	return {
-		canvas: null,
-		options: fallbackOptions,
-	};
-}
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
@@ -394,19 +358,14 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
 
-	constructor(
-		canvasOrOptions?: HTMLCanvasElement | WebGPUBackendOptions,
-		options?: WebGPUBackendOptions,
-	) {
-		const resolved = resolveWebGPUBackendCtorArgs(canvasOrOptions, options);
-		const shaderMode = resolved.options.shaderMode ?? "strict";
+	constructor(options: WebGPUBackendOptions = {}) {
+		const shaderMode = options.shaderMode ?? "strict";
 		this._defaultMSAASampleCount =
-			resolved.options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
+			options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
-		this._enableEarlyZPrepass = resolved.options.enableEarlyZPrepass !== false;
+		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting =
-			resolved.options.enableDeferredLighting !== false;
-		this._canvas = resolved.canvas ?? null;
+			options.enableDeferredLighting !== false;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -414,7 +373,7 @@ export class WebGPUBackend implements IRenderBackend {
 			backend: "webgpu",
 			runtime: this.shaderRuntime,
 			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-			hook: resolved.options.directiveHook ?? null,
+			hook: options.directiveHook ?? null,
 			mode: shaderMode,
 		});
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(
