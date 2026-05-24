@@ -226,8 +226,8 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 			};
 		},
 		destroyResource() {},
-		getPassExecutionContext(passId) {
-			if (passId !== "ssgi") {
+		getPassExecutionContext(request) {
+			if (request.passId !== "ssgi") {
 				return undefined;
 			}
 			return {

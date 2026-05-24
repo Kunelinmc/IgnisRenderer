@@ -19,7 +19,7 @@ import {
 	type RenderDirtyReason,
 } from "./incremental";
 import type {
-	PostProcessCustomPassDescriptor,
+	PostProcessPass,
 	ResolvedPostProcessState,
 } from "./PostProcessController";
 
@@ -143,13 +143,16 @@ export class RenderPipelineRegistry {
 		this._incrementalRegistry.unregisterFramePass(id);
 	}
 
-	public registerPostProcessPass(
-		pass: PostProcessCustomPassDescriptor
-	): void {
-		this._incrementalRegistry.registerPostProcessPass(
-			pass.id,
-			pass.incremental
-		);
+	/**
+	 * Registers post-process incremental metadata from a logical pass.
+	 *
+	 * @param pass Logical post-process pass whose `builtIn` flag controls
+	 * incremental metadata ownership.
+	 * @returns Nothing.
+	 * @sideEffects Mutates the incremental post-process metadata registry.
+	 */
+	public registerPostProcessPass(pass: PostProcessPass): void {
+		this._incrementalRegistry.registerPostProcessPass(pass);
 	}
 
 	public unregisterPostProcessPass(id: string): void {

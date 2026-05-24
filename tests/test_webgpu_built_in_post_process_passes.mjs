@@ -49,6 +49,20 @@ function createTemporalRequest(overrides = {}) {
 	};
 }
 
+function createExecutionContextRequest(passId, request) {
+	return {
+		...request,
+		passId,
+		pass: {
+			id: passId,
+			builtIn: true,
+		},
+		implementation: {
+			id: `${passId}:test`,
+		},
+	};
+}
+
 function createExecutorHarness() {
 	const runtimeCalls = [];
 	const executor = Object.create(WebGPUFrameExecutor.prototype);
@@ -100,7 +114,9 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const taaContext = executor.getPassExecutionContext("taa", taaRequest);
+	const taaContext = executor.getPassExecutionContext(
+		createExecutionContextRequest("taa", taaRequest)
+	);
 	assert.equal(executor._frameTargets.historyRead.id, "taa-read");
 	assert.equal(executor._frameTargets.historyWrite.id, "taa-write");
 	assert.equal(taaContext.targets.motionHistoryRead.id, "motion-read");
@@ -108,7 +124,9 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(runtimeCalls.length, 0);
 
 	const ssrRequest = createTemporalRequest();
-	const ssrContext = executor.getPassExecutionContext("ssr", ssrRequest);
+	const ssrContext = executor.getPassExecutionContext(
+		createExecutionContextRequest("ssr", ssrRequest)
+	);
 	assert.equal(runtimeCalls.length, 0);
 	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
 	assert.equal(executor._frameTargets.ssrHistoryRead.id, "ssr-read");
@@ -119,8 +137,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(ssrContext.targets.motionHistoryWrite.id, "motion-write");
 
 	const volumetricContext = executor.getPassExecutionContext(
-		"volumetric",
-		ssrRequest
+		createExecutionContextRequest("volumetric", ssrRequest)
 	);
 	assert.equal(runtimeCalls.length, 0);
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });

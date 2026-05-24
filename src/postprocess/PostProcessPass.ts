@@ -228,7 +228,8 @@ export abstract class PostProcessPass<
 		context: unknown,
 		executor: IPostProcessExecutor
 	): PostProcessPassResult | Promise<PostProcessPassResult> {
-		const implementation = this.getImplementation(executor.backend);
+		const implementation =
+			request.implementation ?? this.getImplementation(executor.backend);
 		if (implementation?.execute) {
 			return implementation.execute(request, context);
 		}

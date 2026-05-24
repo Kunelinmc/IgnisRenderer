@@ -48,7 +48,8 @@ function createExecutor() {
 		executePass() {
 			return { ran: true };
 		},
-		getPassExecutionContext(passId) {
+		getPassExecutionContext(request) {
+			const passId = request.passId;
 			const targets = {
 				sceneColor: { width: 64, height: 32, label: "scene" },
 				postPing: { width: 64, height: 32, label: "ping" },

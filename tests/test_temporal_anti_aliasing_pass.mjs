@@ -31,8 +31,8 @@ function createSoftwareExecutor() {
 			return handle;
 		},
 		destroyResource() {},
-		getPassExecutionContext(passId, request) {
-			if (passId !== "taa") {
+		getPassExecutionContext(request) {
+			if (request.passId !== "taa") {
 				return undefined;
 			}
 			return { attachments: request.frameContext.attachments };

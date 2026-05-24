@@ -8,6 +8,7 @@ import type {
 import type {
 	LogicalGBufferBridge,
 	PostProcessPass,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -494,10 +495,12 @@ export class WebGPUFrameExecutor {
 	}
 
 	public getPassExecutionContext(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown {
 		if (!this._encoder || !this._frameTargets) {
+			return undefined;
+		}
+		if (!request.pass.builtIn) {
 			return undefined;
 		}
 		this._applyPipelineHistories(request);
@@ -506,7 +509,7 @@ export class WebGPUFrameExecutor {
 				this._frameTargets.sceneColor = texture;
 			}
 		};
-		switch (passId) {
+		switch (request.passId) {
 			case "motion-blur": {
 				const context: WebGPUMotionBlurContext =
 					this._createWebGPUScreenPostProcessContext(publishColorTarget);

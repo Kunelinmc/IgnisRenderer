@@ -2,6 +2,7 @@ import type { FrameContext } from "../../pipeline/types";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -72,11 +73,20 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		return { ran: false };
 	}
 
+	/**
+	 * Provides CPU helper objects for software built-in pass implementations.
+	 *
+	 * @param request Pass-owned implementation context request.
+	 * @returns Context object expected by the selected software implementation.
+	 * @sideEffects None.
+	 */
 	public getPassExecutionContext(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		switch (passId) {
+		if (!request.pass.builtIn) {
+			return undefined;
+		}
+		switch (request.passId) {
 			case "ssao":
 				return {
 					attachments: request.frameContext.attachments,

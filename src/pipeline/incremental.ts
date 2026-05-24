@@ -5,6 +5,7 @@ import {
 import {
 	getEnabledCustomPostProcessPassIds,
 	isFogPostProcessEnabled,
+	type PostProcessPass,
 	type PostProcessPassId,
 	type ResolvedPostProcessState,
 } from "./PostProcessController";
@@ -430,8 +431,15 @@ const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] = [
 		inflationRadius: 2,
 	},
 	{
-		id: "gamma",
+		id: "interaction-outline",
 		order: 12,
+		firstPass: "interaction-outline",
+		grade: "light",
+		inflationRadius: 2,
+	},
+	{
+		id: "gamma",
+		order: 13,
 		firstPass: "gamma",
 		grade: "light",
 		inflationRadius: 0,
@@ -632,16 +640,57 @@ export class IncrementalRegistry {
 		return this._framePasses.get(stage)?.order ?? Number.MAX_SAFE_INTEGER;
 	}
 
+	/**
+	 * Registers incremental metadata for a logical post-process pass.
+	 *
+	 * @param pass Pass instance whose `builtIn` flag controls ownership.
+	 * @param metadata Optional incremental metadata override.
+	 * @returns Nothing.
+	 * @sideEffects Mutates post-process incremental planning metadata.
+	 */
+	public registerPostProcessPass(
+		pass: PostProcessPass,
+		metadata?: PostProcessIncrementalMetadata
+	): void;
+	/**
+	 * Registers incremental metadata for a custom logical post-process pass id.
+	 *
+	 * @param id Custom pass id.
+	 * @param metadata Optional incremental metadata override.
+	 * @returns Nothing.
+	 * @sideEffects Mutates post-process incremental planning metadata.
+	 */
 	public registerPostProcessPass(
 		id: string,
-		metadata: PostProcessIncrementalMetadata = {}
+		metadata?: PostProcessIncrementalMetadata
+	): void;
+	public registerPostProcessPass(
+		passOrId: PostProcessPass | string,
+		metadata?: PostProcessIncrementalMetadata
 	): void {
-		if (this._postProcessPasses.get(id)?.builtIn) {
+		const id = typeof passOrId === "string" ? passOrId : passOrId.id;
+		const passMetadata =
+			typeof passOrId === "string" ?
+				metadata ?? {}
+			:	(metadata ?? passOrId.incremental ?? {});
+		const builtIn =
+			typeof passOrId === "string" ? false : passOrId.builtIn === true;
+		const current = this._postProcessPasses.get(id);
+		if (current?.builtIn && !builtIn) {
 			throw new Error(
 				`Cannot register built-in post-process incremental metadata "${id}".`
 			);
 		}
-		this._registerPostProcessPass({ id, ...metadata }, false);
+		if (
+			current?.builtIn &&
+			builtIn &&
+			metadata === undefined &&
+			typeof passOrId !== "string" &&
+			passOrId.incremental === undefined
+		) {
+			return;
+		}
+		this._registerPostProcessPass({ id, ...passMetadata }, builtIn);
 	}
 
 	public unregisterPostProcessPass(id: string): void {
@@ -665,8 +714,18 @@ export class IncrementalRegistry {
 	 * @returns `true` when the id belongs to the post-process sequence.
 	 * @sideEffects None.
 	 */
-	public isPostProcessPass(id: string): boolean {
-		return this._postProcessPasses.has(id) || isBuiltInPostProcessStage(id);
+	public isPostProcessPass(
+		id: string,
+		postProcess?: ResolvedPostProcessState
+	): boolean {
+		const metadata = this._postProcessPasses.get(id);
+		if (metadata && !metadata.builtIn) {
+			return true;
+		}
+		if (isBuiltInPostProcessStage(id, postProcess)) {
+			return true;
+		}
+		return metadata?.builtIn === true && postProcess === undefined;
 	}
 
 	public resolveFirstEnabledPostProcessStage(
@@ -1009,34 +1068,17 @@ function isPostProcessStage(
 	registry: IncrementalRegistry,
 	postProcess: ResolvedPostProcessState
 ): stage is PostProcessStage {
-	if (stage && registry.isPostProcessPass(stage)) {
+	if (stage && registry.isPostProcessPass(stage, postProcess)) {
 		return true;
 	}
 	return stage ? postProcess.isEnabled(stage) : false;
 }
 
 function isBuiltInPostProcessStage(
-	stage: FramePassStage | null
+	stage: FramePassStage | null,
+	postProcess?: ResolvedPostProcessState
 ): stage is PostProcessStage {
-	switch (stage) {
-		case "ssao":
-		case "ssgi":
-		case "taa":
-		case "ssr":
-		case "volumetric":
-		case "fog":
-		case "motion-blur":
-		case "dof":
-		case "bloom":
-		case "tonemap":
-		case "color-filter":
-		case "fxaa":
-		case "interaction-outline":
-		case "gamma":
-			return true;
-		default:
-			return false;
-	}
+	return !!stage && postProcess?.getPass(stage)?.pass.builtIn === true;
 }
 
 export function makeFullScreenRect(width: number, height: number): DirtyRect {
@@ -1360,13 +1402,25 @@ function resolveDirtyReasonFirstPass(
 				return "particle-sim";
 			case "geometry":
 				return input.features.enableShadows ? "shadow" : "main-opaque";
-			case "postfx":
-				return (
-					registry.resolveFirstEnabledPostProcessStage(input.postProcess) ??
-					"gamma"
-				);
+			case "postfx": {
+				const firstPostProcessPass =
+					registry.resolveFirstEnabledPostProcessStage(input.postProcess);
+				if (firstPostProcessPass) {
+					return firstPostProcessPass;
+				}
+				if (isBuiltInPostProcessStage("gamma", input.postProcess)) {
+					return "gamma";
+				}
+				return null;
+			}
 			case "interaction":
-				return "interaction-outline";
+				if (isBuiltInPostProcessStage(
+					"interaction-outline",
+					input.postProcess
+				)) {
+					return "interaction-outline";
+				}
+				return null;
 			default:
 				break;
 		}

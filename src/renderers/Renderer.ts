@@ -193,7 +193,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.postProcess.on("change", (change) => {
 			if (change.reason === "register") {
 				const pass = this.postProcess.getPass(change.passId);
-				if (pass && !pass.builtIn) {
+				if (pass) {
 					this.pipeline.registerPostProcessPass(pass);
 				}
 			} else if (change.reason === "unregister" && !change.builtIn) {

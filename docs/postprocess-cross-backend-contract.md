@@ -32,9 +32,12 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - Backend `postProcessCapabilities` must expose the logical pass capability set used when creating `PostProcessPassRegistrySnapshot`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
 - `IPostProcessExecutor.destroyResource(handle)` must release resources allocated by `createResource(desc)`.
-- `IPostProcessExecutor.getPassExecutionContext(passId, request)` may return backend-specific low-level helpers for pass-owned implementations.
+- `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
-- `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`.
+- `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`, or `null` when the pass falls back to `IPostProcessExecutor.executePass(passId, request)`.
+- `PostProcessPassExecutionContextRequest` must contain the full `PostProcessPassRequest` contract and a non-null `implementation`.
+- `PostProcessPipeline` must call `IPostProcessExecutor.getPassExecutionContext(request)` only when the selected implementation exposes `execute()`.
+- Backends must use `PostProcessPassExecutionContextRequest.pass.builtIn` and `PostProcessPassExecutionContextRequest.implementation` as the execution context contract; they must not infer built-in ownership from pass id strings alone.
 - WebGPU executors should expose WebGPU context helpers and may dispatch WGSL compute or render work through `executePass(passId, request)` only for non-pass-owned fallback passes.
 - WebGL executors should expose WebGL context helpers and may dispatch GLSL fullscreen work through `executePass(passId, request)` only for non-pass-owned fallback passes.
 - Software executors should expose CPU post-process helpers and may dispatch optimized CPU loops through `executePass(passId, request)` only for non-pass-owned fallback passes.
@@ -131,7 +134,7 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - Backend-specific public post-process graph registration is removed.
 - `IPostProcessExecutor.capabilities` is removed. Backend post-process support must be declared only through `postProcessCapabilities`.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
-- `IPostProcessExecutor.getPassExecutionContext(passId, request)` is added for pass-owned implementations.
+- `IPostProcessExecutor.getPassExecutionContext(request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.
 - `PostProcessPassImplementation.warmup(context)` is added for pass-owned warmup.
 - `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.

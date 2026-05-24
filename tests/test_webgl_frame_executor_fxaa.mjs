@@ -311,7 +311,10 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 		options: frameContext.postProcess.getOptions("fxaa"),
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext("fxaa", request);
+	const context = executor.getPassExecutionContext({
+		...request,
+		implementation: pass.getImplementation("webgl"),
+	});
 	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
@@ -380,7 +383,10 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	};
 	const result = pass
 		.getImplementation("webgl")
-		.execute(request, executor.getPassExecutionContext("tonemap", request));
+		.execute(request, executor.getPassExecutionContext({
+			...request,
+			implementation: pass.getImplementation("webgl"),
+		}));
 	assert.deepEqual(result, { ran: true });
 
 	const attachmentWrite = gl.calls.find(
@@ -768,7 +774,10 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 		options: frameContext.postProcess.getOptions("taa"),
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext("taa", request);
+	const context = executor.getPassExecutionContext({
+		...request,
+		implementation: pass.getImplementation("webgl"),
+	});
 	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
@@ -877,7 +886,10 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		options: context.postProcess.getOptions("ssao"),
 		startPassId: null,
 	};
-	const passContext = executor.getPassExecutionContext("ssao", request);
+	const passContext = executor.getPassExecutionContext({
+		...request,
+		implementation: pass.getImplementation("webgl"),
+	});
 	const result =
 		pass.getImplementation("webgl").execute(
 			request,

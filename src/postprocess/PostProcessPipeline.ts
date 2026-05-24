@@ -11,6 +11,7 @@ import type {
 	IPostProcessExecutor,
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequirements,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
@@ -140,16 +141,25 @@ export class PostProcessPipeline {
 				);
 				continue;
 			}
+			const implementation = pass.getImplementation(executor.backend);
 			const passRequest = {
 				...frameRequest,
 				pass,
 				passId: pass.id,
+				implementation,
 				options: resolved.options,
 				startPassId,
 			};
+			const executionContext =
+				implementation?.execute ?
+					executor.getPassExecutionContext?.({
+						...passRequest,
+						implementation,
+					} satisfies PostProcessPassExecutionContextRequest)
+				:	undefined;
 			const result = await pass.execute(
 				passRequest,
-				executor.getPassExecutionContext?.(pass.id, passRequest),
+				executionContext,
 				executor
 			);
 			if (result?.ran === false) {

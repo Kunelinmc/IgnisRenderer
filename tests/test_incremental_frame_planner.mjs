@@ -1,10 +1,28 @@
 import assert from "node:assert/strict";
 import {
 	IncrementalFramePlanner,
+	IncrementalRegistry,
 	getDefaultIncrementalRegistry,
 	renderDirtyReasonToMask,
 } from "../src/pipeline/incremental.ts";
+import {
+	PostProcessPass,
+	PostProcessPassRegistry,
+} from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
+
+class TestBuiltInPostProcessPass extends PostProcessPass {
+	constructor() {
+		super({
+			id: "test-built-in",
+			builtIn: true,
+			enabled: true,
+			implementations: {
+				test: {},
+			},
+		});
+	}
+}
 
 function createFeatures(overrides = {}) {
 	return {
@@ -58,7 +76,9 @@ function testInteractionStartsAtInteractionOutline() {
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("interaction"),
 		features: createFeatures(),
-		postProcess: createPostProcess(),
+		postProcess: createPostProcess({
+			"interaction-outline": { enabled: true },
+		}),
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "interaction-outline");
@@ -90,6 +110,27 @@ function testPostFxStartsAtFirstEnabledPostStage() {
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "bloom");
+}
+
+function testBuiltInPostProcessStageUsesPassMetadata() {
+	const registry = new IncrementalRegistry();
+	const reasonMask = registry.registerDirtyReason({
+		id: "test-built-in-dirty",
+		firstPass: "test-built-in",
+	});
+	const postProcessRegistry = new PostProcessPassRegistry();
+	postProcessRegistry.registerPass(new TestBuiltInPostProcessPass());
+
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask,
+		features: createFeatures(),
+		postProcess: postProcessRegistry.createSnapshot({}, "test"),
+		registry,
+	});
+
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "test-built-in");
 }
 
 function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
@@ -308,6 +349,7 @@ function run() {
 	testInteractionStartsAtInteractionOutline();
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();
+	testBuiltInPostProcessStageUsesPassMetadata();
 	testPostFxStandardReasonStartsAtEarliestEnabledPostStage();
 	testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled();
 	testPostFxSkipsFogInSceneMode();

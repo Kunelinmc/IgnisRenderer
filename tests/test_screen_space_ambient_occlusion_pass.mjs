@@ -153,8 +153,8 @@ function createSoftwareExecutor() {
 			};
 		},
 		destroyResource() {},
-		getPassExecutionContext(passId, request) {
-			if (passId !== "ssao") {
+		getPassExecutionContext(request) {
+			if (request.passId !== "ssao") {
 				return undefined;
 			}
 			return { attachments: request.frameContext.attachments };

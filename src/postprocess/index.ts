@@ -173,6 +173,7 @@ export type {
 	PostProcessHistoryResolveRequest,
 	PostProcessHistorySlot,
 	PostProcessHistorySlots,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassRequirements,

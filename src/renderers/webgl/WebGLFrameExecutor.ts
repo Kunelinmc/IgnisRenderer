@@ -41,6 +41,7 @@ import {
 import type {
 	LogicalGBufferBridge,
 	PostProcessPass,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -518,10 +519,12 @@ export class WebGLFrameExecutor {
 	}
 
 	public getPassExecutionContext(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		switch (passId) {
+		if (!request.pass.builtIn) {
+			return undefined;
+		}
+		switch (request.passId) {
 			case "motion-blur": {
 				const context: WebGLMotionBlurContext =
 					this._createWebGLScreenPostProcessContext();

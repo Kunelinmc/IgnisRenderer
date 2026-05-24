@@ -12,6 +12,7 @@ export {
 	type PostProcessCapabilities,
 	type PostProcessPassConfig,
 	type PostProcessPassId,
+	type PostProcessPass,
 } from "../postprocess/PostProcessPass";
 
 export type ResolvedPostProcessState = PostProcessPassRegistrySnapshot;

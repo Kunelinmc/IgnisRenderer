@@ -20,6 +20,7 @@ import type {
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -105,8 +106,8 @@ export class WebGLBackend implements IRenderBackend {
 		backend: "webgl",
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
-		getPassExecutionContext: (passId, request) =>
-			this._getPostProcessPassExecutionContext(passId, request),
+		getPassExecutionContext: (request) =>
+			this._getPostProcessPassExecutionContext(request),
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 	};
@@ -212,10 +213,9 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	private _getPostProcessPassExecutionContext(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		return this._frameExecutor?.getPassExecutionContext(passId, request);
+		return this._frameExecutor?.getPassExecutionContext(request);
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {

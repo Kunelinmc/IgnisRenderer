@@ -169,8 +169,24 @@ export interface PostProcessPassRequest<TOptions = unknown>
 	extends PostProcessFrameRequest {
 	readonly pass: PostProcessPass<unknown, TOptions>;
 	readonly passId: string;
+	readonly implementation:
+		| PostProcessPassImplementation<unknown, TOptions>
+		| null;
 	readonly options: TOptions;
 	readonly startPassId: string | null;
+}
+
+/**
+ * Backend context request for a pass-owned post-process implementation.
+ *
+ * `PostProcessPipeline` creates this only when the selected backend
+ * implementation exposes `execute()`. Backend executors must use `pass` and
+ * `implementation` from this request as the contract source instead of
+ * reclassifying passes from string ids alone.
+ */
+export interface PostProcessPassExecutionContextRequest<TOptions = unknown>
+	extends PostProcessPassRequest<TOptions> {
+	readonly implementation: PostProcessPassImplementation<unknown, TOptions>;
 }
 
 export interface PostProcessPassResult {
@@ -193,14 +209,12 @@ export interface IPostProcessExecutor {
 	/**
 	 * Provides backend-specific low-level helpers to pass-owned implementations.
 	 *
-	 * @param passId Logical pass id being executed.
-	 * @param request Current pass request.
+	 * @param request Current pass-owned implementation context request.
 	 * @returns Backend context object consumed by the pass implementation.
 	 * @sideEffects May synchronize backend history handles into frame targets.
 	 */
 	getPassExecutionContext?(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown;
 	getPassWarmupContext?(
 		passId: string,

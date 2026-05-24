@@ -48,6 +48,7 @@ class FakeExecutor {
 	executePass(passId, request) {
 		this.executed.push({
 			passId,
+			implementation: request.implementation,
 			options: request.options,
 			startPassId: request.startPassId,
 			histories: request.histories,
@@ -55,7 +56,8 @@ class FakeExecutor {
 		return { ran: true };
 	}
 
-	getPassExecutionContext(passId, request) {
+	getPassExecutionContext(request) {
+		const passId = request.passId;
 		if (
 			this.backend === "webgpu" &&
 			[
@@ -309,6 +311,7 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 		executor.executed.map((entry) => entry.passId),
 		["custom-hdr", "custom-overlay"]
 	);
+	assert.ok(executor.executed.every((entry) => entry.implementation));
 	assert.deepEqual(executor.ownedExecuted, ["tonemap", "gamma"]);
 
 	const incrementalExecutor = new FakeExecutor("webgpu");

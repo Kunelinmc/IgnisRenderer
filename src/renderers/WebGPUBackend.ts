@@ -16,6 +16,7 @@ import type {
 	LogicalGBufferBridge,
 	PostProcessFrameEndRequest,
 	PostProcessFrameRequest,
+	PostProcessPassExecutionContextRequest,
 	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -292,8 +293,8 @@ export class WebGPUBackend implements IRenderBackend {
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
 		beginFrame: (_request) => {},
-		getPassExecutionContext: (passId, request) =>
-			this._getPostProcessPassExecutionContext(passId, request),
+		getPassExecutionContext: (request) =>
+			this._getPostProcessPassExecutionContext(request),
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 		endFrame: (_request) => {},
@@ -831,10 +832,9 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _getPostProcessPassExecutionContext(
-		passId: string,
-		request: PostProcessPassRequest
+		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		return this._frameExecutor?.getPassExecutionContext(passId, request);
+		return this._frameExecutor?.getPassExecutionContext(request);
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
