@@ -8,21 +8,22 @@ WebGPU scene color is stored in HDR-capable intermediate textures. Without tone 
 ## API/Contract
 - The default WebGPU post-process graph must register a `tonemap` pass.
 - `renderer.postProcess` must enable `tonemap` by default.
-- `renderer.postProcess.disable("tonemap")` must skip the pass.
-- `renderer.postProcess.enable("tonemap")` must re-enable the pass.
-- `WebGPUBackend.postProcessCapabilities.tonemap` must be `true`.
+- `renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.disable()` must skip the pass.
+- `renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable()` must re-enable the pass.
+- `ToneMappingPass` must expose a WebGPU implementation.
+- `WebGPUBackend` must not expose `postProcessCapabilities`.
 - The `tonemap` pass must run after `bloom` and before `color-filter`.
 - The `tonemap` pass must read from `targets.sceneColor`, write to a ping-pong post target, and update `targets.sceneColor` to the written target.
 - `src/shaders/webgpu/postprocess/toneMapping.wgsl` must implement ACES-fitted mapping on linear RGB and preserve alpha.
-- Warmup planning should include `tonemap` whenever resolved post-process state has `postProcess.enabled.tonemap = true`.
+- Warmup planning should include `tonemap` whenever resolved post-process state returns `true` from `postProcess.isEnabled("tonemap")`.
 
 ## Usage
 ```ts
-import { Renderer, WebGPUBackend } from "ignis-renderer";
+import { Renderer, ToneMappingPass, WebGPUBackend } from "ignis-renderer";
 
 const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
-renderer.postProcess.disable("tonemap");
-renderer.postProcess.enable("tonemap");
+renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.disable();
+renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable();
 renderer.requestRender("postfx");
 ```
 
@@ -35,4 +36,4 @@ bun -e "import('./tests/test_webgpu_postprocess_runtime_screen.mjs').then((m) =>
 - If post-process execution fails before `gamma`, presentation may fall back to direct scene color output, which can look overexposed.
 
 ## Compatibility / Breaking Changes
-`Renderer.features.enableToneMapping` is removed. Code must use `renderer.postProcess.enable("tonemap")` and `renderer.postProcess.disable("tonemap")`.
+`Renderer.features.enableToneMapping` and backend `postProcessCapabilities` are removed. Code must look up `ToneMappingPass` from `renderer.postProcess` and mutate the pass instance.

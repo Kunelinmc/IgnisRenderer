@@ -22,7 +22,7 @@ import {
 import type {
 	PostProcessPass,
 	ResolvedPostProcessState,
-} from "./PostProcessController";
+} from "../postprocess";
 
 export interface RenderPipelinePassRunContext {
 	frame: PreparedScene;

@@ -15,8 +15,6 @@ import type {
 
 export type PostProcessPassId = string;
 
-export type PostProcessCapabilities = Readonly<Record<string, boolean>>;
-
 export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly id: string;
 	/**
@@ -26,12 +24,6 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	 * Omit this value for custom passes.
 	 */
 	readonly builtIn?: boolean;
-	/**
-	 * Backend capability key used to disable unsupported passes.
-	 *
-	 * Omit this value when the pass should not be gated by backend capabilities.
-	 */
-	readonly capabilityId?: string | null;
 	/**
 	 * Human-readable pass name used in unsupported-pass diagnostics.
 	 *
@@ -93,12 +85,6 @@ export abstract class PostProcessPass<
 	 */
 	public readonly builtIn: boolean;
 	/**
-	 * Backend capability key used to decide whether this pass can run.
-	 *
-	 * `null` means the pass is not gated by backend capabilities.
-	 */
-	public readonly capabilityId: string | null;
-	/**
 	 * Human-readable pass name used by diagnostics.
 	 *
 	 * The value is resolved during construction and has no side effects.
@@ -121,7 +107,6 @@ export abstract class PostProcessPass<
 		}
 		this.id = config.id;
 		this.builtIn = config.builtIn === true;
-		this.capabilityId = config.capabilityId ?? null;
 		this.warningLabel = config.warningLabel ?? config.id;
 		this.placement = config.placement;
 		this.order = config.order;
@@ -211,9 +196,10 @@ export abstract class PostProcessPass<
 	 * optional frame context.
 	 * @returns `true` when the pass should be ordered and considered for
 	 * execution.
-	 * @remarks Snapshot enablement and backend capability filtering happen
-	 * before this method. Implementations must keep this predicate deterministic
-	 * for the supplied request and must not allocate backend resources.
+	 * @remarks Snapshot enablement and backend implementation filtering happen
+	 * before this method. Implementations must keep this predicate
+	 * deterministic for the supplied request and must not allocate backend
+	 * resources.
 	 * @sideEffects None.
 	 */
 	public shouldExecute(_request: PostProcessPassResolveRequest<TOptions>): boolean {
@@ -383,15 +369,8 @@ export class PostProcessPassRegistry extends EventEmitter<{
 		return this;
 	}
 
-	public createSnapshot(
-		capabilities: PostProcessCapabilities,
-		backendType: string
-	): PostProcessPassRegistrySnapshot {
-		return new PostProcessPassRegistrySnapshot(
-			this.getPasses(),
-			capabilities,
-			backendType
-		);
+	public createSnapshot(backendType: string): PostProcessPassRegistrySnapshot {
+		return new PostProcessPassRegistrySnapshot(this.getPasses(), backendType);
 	}
 }
 
@@ -401,17 +380,14 @@ export class PostProcessPassRegistry extends EventEmitter<{
 export class PostProcessPassRegistrySnapshot {
 	private _passes = new Map<string, ResolvedPostProcessPass>();
 	private _warnings: FeatureWarning[] = [];
-	private readonly _capabilities: PostProcessCapabilities;
 	private readonly _backendType: string;
 
 	constructor(
 		passes: readonly PostProcessPass[],
-		capabilities: PostProcessCapabilities,
 		backendType: string,
 		resolvedPasses?: readonly ResolvedPostProcessPass[],
 		warnings?: readonly FeatureWarning[]
 	) {
-		this._capabilities = capabilities;
 		this._backendType = backendType;
 		if (resolvedPasses) {
 			for (const pass of resolvedPasses) {
@@ -429,16 +405,15 @@ export class PostProcessPassRegistrySnapshot {
 			if (!pass.isEnabled({ backend, postProcess: this, options })) {
 				continue;
 			}
-			if (!this._isCapabilitySupported(pass, capabilities)) {
-				this._warnings.push({
-					key: `${backendType}-postprocess-unsupported-${pass.id}`,
-					message:
-						`${backendType} backend does not support ` +
-						`${pass.warningLabel} post-processing; disabling it`,
-				});
-				continue;
-			}
 			if (!pass.supportsBackend(backend)) {
+				if (pass.builtIn) {
+					this._warnings.push({
+						key: `${backendType}-postprocess-unsupported-${pass.id}`,
+						message:
+							`${backendType} backend does not support ` +
+							`${pass.warningLabel} post-processing; disabling it`,
+					});
+				}
 				continue;
 			}
 			this._passes.set(pass.id, {
@@ -484,21 +459,10 @@ export class PostProcessPassRegistrySnapshot {
 	public withPassDisabled(id: string): PostProcessPassRegistrySnapshot {
 		return new PostProcessPassRegistrySnapshot(
 			[],
-			this._capabilities,
 			this._backendType,
 			this.getEnabledPasses().filter((pass) => pass.id !== id),
 			this._warnings
 		);
-	}
-
-	private _isCapabilitySupported(
-		pass: PostProcessPass,
-		capabilities: PostProcessCapabilities
-	): boolean {
-		if (!pass.capabilityId) {
-			return true;
-		}
-		return capabilities[pass.capabilityId] === true;
 	}
 }
 

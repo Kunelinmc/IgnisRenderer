@@ -4,7 +4,6 @@ import {
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
-import { type PostProcessCapabilities } from "../pipeline/PostProcessController";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
@@ -67,23 +66,6 @@ type WebGLBackendPassHandler = (
 	context: FrameContext
 ) => void;
 
-const WEBGL_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
-	ssao: true,
-	ssgi: false,
-	taa: true,
-	ssr: false,
-	volumetric: false,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
-
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
@@ -108,7 +90,6 @@ export class WebGLBackend implements IRenderBackend {
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 	};
-	public readonly postProcessCapabilities = WEBGL_POST_PROCESS_CAPABILITIES;
 	public readonly postProcessExecutor = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;

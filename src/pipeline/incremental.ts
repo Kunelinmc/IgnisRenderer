@@ -8,7 +8,7 @@ import {
 	type PostProcessPass,
 	type PostProcessPassId,
 	type ResolvedPostProcessState,
-} from "./PostProcessController";
+} from "../postprocess";
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,

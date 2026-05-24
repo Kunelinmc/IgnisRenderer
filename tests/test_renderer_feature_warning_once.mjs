@@ -3,7 +3,6 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -20,8 +19,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"webgpu",
-			ALL_POST_PROCESS_CAPABILITIES
+			"webgpu"
 		);
 		this.frameScheduling = "continuous";
 		this.passExecutors = {};

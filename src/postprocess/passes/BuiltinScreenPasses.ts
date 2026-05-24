@@ -1603,7 +1603,6 @@ export interface MotionBlurPassConfig
 		PostProcessPassConfig<MotionBlurOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -1622,7 +1621,6 @@ export class MotionBlurPass extends PostProcessPass<
 			...config,
 			id: MOTION_BLUR_PASS_ID,
 			builtIn: true,
-			capabilityId: MOTION_BLUR_PASS_ID,
 			warningLabel: "motion blur",
 			placement: "camera",
 			order: 400,
@@ -1650,7 +1648,6 @@ export interface DepthOfFieldPassConfig
 		PostProcessPassConfig<DOFOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -1666,7 +1663,6 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 			...config,
 			id: DEPTH_OF_FIELD_PASS_ID,
 			builtIn: true,
-			capabilityId: DEPTH_OF_FIELD_PASS_ID,
 			warningLabel: "depth of field",
 			placement: "camera",
 			order: 410,
@@ -1698,7 +1694,6 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			PostProcessPassConfig<EmptyOptions>,
 			| "id"
 			| "builtIn"
-			| "capabilityId"
 			| "warningLabel"
 			| "placement"
 			| "order"
@@ -1709,7 +1704,6 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			...config,
 			id: TONE_MAPPING_PASS_ID,
 			builtIn: true,
-			capabilityId: TONE_MAPPING_PASS_ID,
 			warningLabel: "tone mapping",
 			placement: "hdr",
 			order: 600,
@@ -1727,7 +1721,6 @@ export interface ColorFilterPassConfig
 		PostProcessPassConfig<ColorFilterOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -1746,7 +1739,6 @@ export class ColorFilterPass extends PostProcessPass<
 			...config,
 			id: COLOR_FILTER_PASS_ID,
 			builtIn: true,
-			capabilityId: COLOR_FILTER_PASS_ID,
 			warningLabel: "color filter",
 			placement: "ldr",
 			order: 700,
@@ -1778,7 +1770,6 @@ export class InteractionOutlinePass extends PostProcessPass<
 			PostProcessPassConfig<EmptyOptions>,
 			| "id"
 			| "builtIn"
-			| "capabilityId"
 			| "warningLabel"
 			| "placement"
 			| "order"
@@ -1789,7 +1780,6 @@ export class InteractionOutlinePass extends PostProcessPass<
 			...config,
 			id: INTERACTION_OUTLINE_PASS_ID,
 			builtIn: true,
-			capabilityId: INTERACTION_OUTLINE_PASS_ID,
 			warningLabel: "interaction outline",
 			placement: "overlay",
 			order: 800,
@@ -1823,7 +1813,6 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 			PostProcessPassConfig<EmptyOptions>,
 			| "id"
 			| "builtIn"
-			| "capabilityId"
 			| "warningLabel"
 			| "placement"
 			| "order"
@@ -1834,7 +1823,6 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 			...config,
 			id: GAMMA_PASS_ID,
 			builtIn: true,
-			capabilityId: GAMMA_PASS_ID,
 			warningLabel: "gamma correction",
 			placement: "present",
 			order: 900,

@@ -31,24 +31,8 @@ function run() {
 		warnings: [],
 		clusteredLightingOptions: {},
 	};
-	const capabilities = {
-		ssao: true,
-		ssgi: true,
-		taa: true,
-		ssr: true,
-		volumetric: true,
-		fog: true,
-		"motion-blur": true,
-		dof: true,
-		bloom: true,
-		tonemap: true,
-		"color-filter": true,
-		fxaa: true,
-		"interaction-outline": true,
-		gamma: true,
-	};
 	const createPostProcess = (overrides = {}) =>
-		createResolvedPostProcess(overrides, capabilities, "test");
+		createResolvedPostProcess(overrides, "test");
 
 	const frame = createFrame({
 		particleSystems: [{}],

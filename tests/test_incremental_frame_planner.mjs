@@ -37,25 +37,8 @@ function createFeatures(overrides = {}) {
 	};
 }
 
-const capabilities = {
-	ssao: true,
-	ssgi: true,
-	taa: true,
-	ssr: true,
-	volumetric: true,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
-
 function createPostProcess(overrides = {}) {
-	return createResolvedPostProcess(overrides, capabilities, "test");
+	return createResolvedPostProcess(overrides, "test");
 }
 
 function testNoDirtyReasonsReturnsNoPass() {
@@ -125,7 +108,7 @@ function testBuiltInPostProcessStageUsesPassMetadata() {
 		enabled: true,
 		reasonMask,
 		features: createFeatures(),
-		postProcess: postProcessRegistry.createSnapshot({}, "test"),
+		postProcess: postProcessRegistry.createSnapshot("test"),
 		registry,
 	});
 

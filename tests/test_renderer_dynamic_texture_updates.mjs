@@ -5,7 +5,6 @@ import { Renderer } from "../src/renderers/Renderer.ts";
 
 import { FakeDynamicTexture } from "./helpers/test_fakes.mjs";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -25,8 +24,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;

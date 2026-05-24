@@ -10,13 +10,8 @@ import {
 } from "../src/postprocess/index.ts";
 import { CameraType } from "../src/cameras/Camera.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
-
-const SSAO_ONLY_CAPABILITIES = Object.fromEntries(
-	Object.keys(ALL_POST_PROCESS_CAPABILITIES).map((key) => [key, key === "ssao"])
-);
 
 function createOrthographicCamera() {
 	const identity = [
@@ -90,7 +85,6 @@ function createSoftwareFrameContext(options = {}) {
 				ssao: { enabled: true, options },
 				gamma: { enabled: false },
 			},
-			SSAO_ONLY_CAPABILITIES,
 			"software"
 		),
 		shadowMaps: new Map(),

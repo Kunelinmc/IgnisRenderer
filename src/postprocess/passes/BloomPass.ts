@@ -711,7 +711,6 @@ export interface BloomPassConfig
 		PostProcessPassConfig<BloomOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -727,7 +726,6 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 			...config,
 			id: BLOOM_PASS_ID,
 			builtIn: true,
-			capabilityId: BLOOM_PASS_ID,
 			warningLabel: "bloom",
 			placement: "hdr",
 			order: 500,

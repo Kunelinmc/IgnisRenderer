@@ -7,23 +7,6 @@ import {
 } from "../src/pipeline/incremental.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
-const capabilities = {
-	ssao: true,
-	ssgi: true,
-	taa: true,
-	ssr: true,
-	volumetric: true,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
-
 function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(
 		{
@@ -32,7 +15,6 @@ function createPostProcess(overrides = {}) {
 			gamma: { enabled: false },
 			...overrides,
 		},
-		capabilities,
 		"test"
 	);
 }

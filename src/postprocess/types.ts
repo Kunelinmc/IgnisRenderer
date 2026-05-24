@@ -4,7 +4,6 @@ import type {
 	FramePassStage,
 } from "../pipeline/types";
 import type {
-	PostProcessCapabilities,
 	PostProcessPass,
 	PostProcessPassRegistrySnapshot,
 	PostProcessPassResolveRequest,
@@ -228,10 +227,6 @@ export interface IPostProcessExecutor {
 }
 
 export interface PostProcessBackendSupport {
-	/**
-	 * Declares the logical post-process passes supported by the backend.
-	 */
-	readonly postProcessCapabilities: PostProcessCapabilities;
 	/**
 	 * Executes logical post-process passes resolved by `PostProcessPipeline`.
 	 */

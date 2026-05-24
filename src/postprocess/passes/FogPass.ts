@@ -375,7 +375,6 @@ export interface FogPassConfig
 		PostProcessPassConfig<FogOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -391,7 +390,6 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 			...config,
 			id: FOG_PASS_ID,
 			builtIn: true,
-			capabilityId: FOG_PASS_ID,
 			warningLabel: "fog",
 			placement: "atmosphere",
 			order: 310,

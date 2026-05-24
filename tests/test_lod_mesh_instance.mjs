@@ -5,7 +5,6 @@ import { LODMeshInstance } from "../src/meshes/LODMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -25,8 +24,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;

@@ -3,7 +3,7 @@ import {
 	type PreparedScene,
 	type ResolvedFeatureState,
 } from "./types";
-import { type ResolvedPostProcessState } from "./PostProcessController";
+import { type ResolvedPostProcessState } from "../postprocess";
 import { hasParticleShadowCasters } from "./ParticleShadowVolume";
 import { hasPostProcessExecutionPasses } from "../postprocess/PostProcessPipeline";
 

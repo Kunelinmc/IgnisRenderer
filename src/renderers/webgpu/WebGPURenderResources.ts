@@ -13,12 +13,10 @@ import type {
 	PreparedScene,
 } from "../../pipeline/types";
 import {
-	type ResolvedPostProcessState,
-} from "../../pipeline/PostProcessController";
-import {
 	GammaPass,
 	PostProcessPassRegistry,
 	ToneMappingPass,
+	type ResolvedPostProcessState,
 } from "../../postprocess";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -813,10 +811,7 @@ export class WebGPURenderResources {
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
-			postProcess: postProcess.createSnapshot(
-				this._backend.postProcessCapabilities,
-				this._backend.type
-			),
+			postProcess: postProcess.createSnapshot(this._backend.type),
 			shAmbientCoeffs: null,
 			renderWidth: 1,
 			renderHeight: 1,

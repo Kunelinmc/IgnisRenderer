@@ -2,25 +2,8 @@ import assert from "node:assert/strict";
 import { PostProcessPipeline } from "../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
-const POST_PROCESS_CAPABILITIES = {
-	ssao: true,
-	ssgi: true,
-	taa: true,
-	ssr: true,
-	volumetric: true,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
-
 function createPostProcess(overrides = {}) {
-	return createResolvedPostProcess(overrides, POST_PROCESS_CAPABILITIES, "webgpu");
+	return createResolvedPostProcess(overrides, "webgpu");
 }
 
 function createExecutor() {

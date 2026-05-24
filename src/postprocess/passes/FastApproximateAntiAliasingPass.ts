@@ -470,7 +470,6 @@ export interface FastApproximateAntiAliasingPassConfig
 		PostProcessPassConfig<Record<string, never>>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -489,7 +488,6 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 			...config,
 			id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
 			builtIn: true,
-			capabilityId: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
 			warningLabel: "FXAA",
 			placement: "ldr",
 			order: 710,

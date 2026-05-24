@@ -20,13 +20,13 @@ import { Logger, type LoggerStatic } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
-import { type ResolvedPostProcessState } from "../pipeline/PostProcessController";
 import {
 	GammaPass,
 	hasPostProcessExecutionPasses,
 	PostProcessPassRegistry,
 	PostProcessPipeline,
 	ToneMappingPass,
+	type ResolvedPostProcessState,
 } from "../postprocess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
@@ -321,7 +321,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		const resolvedPostProcess = this.postProcess.createSnapshot(
-			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
 		const warmupPostProcessPasses = this._postProcessPipeline.getExecutionOrder(
@@ -883,7 +882,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			this.backend.type
 		);
 		let resolvedPostProcess = this.postProcess.createSnapshot(
-			this.backend.postProcessCapabilities,
 			this.backend.type
 		);
 		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
@@ -930,7 +928,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.type
 					);
 					resolvedPostProcess = this.postProcess.createSnapshot(
-						this.backend.postProcessCapabilities,
 						this.backend.type
 					);
 					for (const warning of [

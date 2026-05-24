@@ -35,7 +35,8 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `fog` pass must return `false` from `shouldExecute(request)` when `request.options.application` is `"scene"`.
 - The built-in `interaction-outline` pass must return `false` from `shouldExecute(request)` when `request.frameContext` exists and no entity is selected.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
-- Backend `postProcessCapabilities` must expose the logical pass capability set used when creating `PostProcessPassRegistrySnapshot`.
+- Backend support for a built-in pass must be derived from `PostProcessPassConfig.implementations`, not from a backend-owned capability map.
+- Backends must not expose `postProcessCapabilities`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
 - `IPostProcessExecutor.destroyResource(handle)` must release resources allocated by `createResource(desc)`.
 - `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations.
@@ -153,7 +154,7 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 
 ## Compatibility / Breaking Changes
 - Backend-specific public post-process graph registration is removed.
-- `IPostProcessExecutor.capabilities` is removed. Backend post-process support must be declared only through `postProcessCapabilities`.
+- `IPostProcessExecutor.capabilities`, `PostProcessCapabilities`, and backend `postProcessCapabilities` are removed. Backend post-process support must be declared through pass-owned implementations.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
 - `IPostProcessExecutor.getPassExecutionContext(request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.

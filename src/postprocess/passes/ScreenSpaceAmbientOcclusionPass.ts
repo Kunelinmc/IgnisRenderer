@@ -918,7 +918,6 @@ export interface ScreenSpaceAmbientOcclusionPassConfig
 		PostProcessPassConfig<SSAOOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -937,7 +936,6 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 			...config,
 			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
 			builtIn: true,
-			capabilityId: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
 			warningLabel: "SSAO",
 			placement: "spatial",
 			order: 100,

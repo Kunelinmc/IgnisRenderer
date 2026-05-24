@@ -295,7 +295,6 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const frameContext = {
 		postProcess: createResolvedPostProcess(
 			{ fxaa: { enabled: true } },
-			undefined,
 			"webgl"
 		),
 		transient: new Map(),
@@ -747,7 +746,6 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 					},
 				},
 			},
-			undefined,
 			"webgl"
 		),
 		transient: new Map(),

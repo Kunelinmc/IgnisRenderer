@@ -8,7 +8,6 @@ import { AnimationClip } from "../src/animation/AnimationClip.ts";
 import { KeyframeTrack } from "../src/animation/KeyframeTrack.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -28,8 +27,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "on-demand";
 		this.passExecutors = {

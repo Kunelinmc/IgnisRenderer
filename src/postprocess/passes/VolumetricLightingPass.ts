@@ -568,7 +568,6 @@ export interface VolumetricLightingPassConfig
 		PostProcessPassConfig<VolumetricOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -587,7 +586,6 @@ export class VolumetricLightingPass extends PostProcessPass<
 			...config,
 			id: VOLUMETRIC_LIGHTING_PASS_ID,
 			builtIn: true,
-			capabilityId: VOLUMETRIC_LIGHTING_PASS_ID,
 			warningLabel: "volumetric effects",
 			placement: "atmosphere",
 			order: 300,

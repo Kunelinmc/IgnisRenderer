@@ -339,41 +339,21 @@ function testFeatureGate() {
 
 	const postProcess = createResolvedPostProcess(
 		{
-			ssao: { enabled: true },
-			taa: { enabled: true },
+			ssgi: { enabled: true },
 			ssr: { enabled: true },
-			volumetric: { enabled: true },
 			bloom: { enabled: true },
 			tonemap: { enabled: true },
 			gamma: { enabled: true },
 		},
-		{
-			ssao: false,
-			ssgi: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
-			"motion-blur": false,
-			dof: false,
-			bloom: false,
-			tonemap: true,
-			"color-filter": false,
-			fxaa: false,
-			"interaction-outline": true,
-			gamma: true,
-		},
-		"webgpu"
+		"software"
 	);
 	assert.equal(postProcess.isEnabled("gamma"), true);
 	assert.equal(postProcess.isEnabled("tonemap"), true);
-	assert.equal(postProcess.isEnabled("ssao"), false);
-	assert.equal(postProcess.isEnabled("taa"), false);
+	assert.equal(postProcess.isEnabled("ssgi"), false);
 	assert.equal(postProcess.isEnabled("ssr"), false);
-	assert.equal(postProcess.isEnabled("volumetric"), false);
 	assert.equal(postProcess.isEnabled("bloom"), false);
 	assert.equal(postProcess.getOptions("gamma") !== null, true);
-	assert.ok(postProcess.getWarnings().length >= 5);
+	assert.ok(postProcess.getWarnings().length >= 3);
 }
 
 async function testSceneShaderCoverage() {
@@ -2914,7 +2894,6 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	);
 	const postProcess = createResolvedPostProcess(
 		{ taa: { enabled: true, options: { jitterScale: 1 } } },
-		undefined,
 		"webgpu"
 	);
 	const width = 16;

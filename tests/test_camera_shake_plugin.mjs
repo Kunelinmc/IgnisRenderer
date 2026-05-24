@@ -8,7 +8,6 @@ import {
 	Vector3,
 } from "../src/index.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -30,8 +29,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.beginFrameCount = 0;
 		this.beginSnapshots = [];

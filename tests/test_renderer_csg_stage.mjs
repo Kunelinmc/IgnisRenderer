@@ -6,7 +6,6 @@ import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -26,8 +25,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "on-demand";
 		this.beginFrameCount = 0;

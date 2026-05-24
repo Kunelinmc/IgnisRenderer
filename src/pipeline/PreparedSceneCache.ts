@@ -16,7 +16,7 @@ import {
 	type IncrementalRenderingOptions,
 } from "./incremental";
 import type { DrawPacket, PreparedScene, ResolvedFeatureState } from "./types";
-import type { ResolvedPostProcessState } from "./PostProcessController";
+import type { ResolvedPostProcessState } from "../postprocess";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 

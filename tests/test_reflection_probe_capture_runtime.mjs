@@ -8,7 +8,6 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -504,8 +503,7 @@ class RendererCaptureStageBackendStub {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "on-demand";
 		this.executedStages = [];

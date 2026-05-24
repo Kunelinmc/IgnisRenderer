@@ -7,7 +7,6 @@ import {
 	type FramePass,
 	type TAAOptions,
 } from "../pipeline/types";
-import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import type { LogicalGBufferBridge } from "../postprocess";
 import { Rasterizer } from "./software/Rasterizer";
 import {
@@ -67,23 +66,6 @@ const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	supportsPointCSM: true,
 	maxCsmDirectionalLights: 1,
 	maxDynamicShadowCost: 20,
-};
-
-const SOFTWARE_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
-	ssao: true,
-	ssgi: false,
-	taa: true,
-	ssr: false,
-	volumetric: true,
-	fog: false,
-	"motion-blur": false,
-	dof: false,
-	bloom: false,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
 };
 
 function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
@@ -157,7 +139,6 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	public readonly postProcessCapabilities = SOFTWARE_POST_PROCESS_CAPABILITIES;
 	public readonly postProcessExecutor = this._postProcessExecutor;
 	public readonly requestedRasterMode: SoftwareRasterMode;
 

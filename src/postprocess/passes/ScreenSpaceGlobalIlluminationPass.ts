@@ -243,7 +243,6 @@ export interface ScreenSpaceGlobalIlluminationPassConfig
 		PostProcessPassConfig<SSGIOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -262,7 +261,6 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 			...config,
 			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 			builtIn: true,
-			capabilityId: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 			warningLabel: "SSGI",
 			placement: "spatial",
 			order: 110,

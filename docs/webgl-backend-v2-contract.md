@@ -8,10 +8,9 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 ## API/Contract
 - `WebGLBackend` must report core `capabilities.sh = true` and `capabilities.clusteredLighting = true`.
 - `WebGLBackend.capabilities` must not expose post-process capability fields.
-- `WebGLBackend.postProcessCapabilities.ssgi` must be `false`.
-- `WebGLBackend.postProcessCapabilities.ssr` must be `false`.
-- `WebGLBackend.postProcessCapabilities.volumetric` must be `false`.
-- `WebGLBackend.postProcessCapabilities.fog` must be `true` and must support both post-process fog and scene-mode fog.
+- `WebGLBackend` must not expose `postProcessCapabilities`.
+- WebGL post-process support must be derived from pass-owned WebGL implementations.
+- `FogPass` must provide a WebGL implementation and must support both post-process fog and scene-mode fog.
 - `WebGLBackend.postProcessExecutor.backend` must be `"webgl"`.
 - `WebGLBackend.createPostProcessGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
 - `WebGLBackend` must not expose a public `postProcess` facade or backend-level post-process registration methods.
@@ -27,7 +26,7 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 
 ## Usage
 ```ts
-import { Renderer, WebGLBackend } from "../src";
+import { FogPass, Renderer, WebGLBackend } from "../src";
 
 const backend = new WebGLBackend();
 const renderer = new Renderer(backend, canvas, camera);
@@ -39,9 +38,12 @@ renderer.features.clusteredLightingOptions = {
 	maxLights: 256,
 	maxLightsPerCluster: 64,
 };
-renderer.postProcess.enable("fog", {
-	application: "postprocess",
-});
+renderer.postProcess.registerPass(new FogPass({
+	enabled: true,
+	options: {
+		application: "postprocess",
+	},
+}));
 
 await renderer.init();
 renderer.requestRender();
@@ -57,15 +59,15 @@ bun tests/test_webgl_backend_v2.mjs
 - `webgl-clustered-texture-size-overflow`: triggered when clustered buffers cannot fit within texture capacity.
 - `webgl-sh-ambient-texture-create-failed`: triggered when SH coefficient texture allocation fails.
 - `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient texture upload fails.
-- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit post-process request is unsupported by `backend.postProcessCapabilities`.
+- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit built-in post-process request has no WebGL implementation.
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to enabled.
-- Post-process capability fields moved from `WebGLBackend.capabilities` to `WebGLBackend.postProcessCapabilities`.
+- Backend post-process capability fields are removed.
 - `WebGLBackend.registerPostProcessPass(pass)` and `WebGLBackend.unregisterPostProcessPass(id)` are removed.
 - `WebGLBackend.postProcess` is removed.
 - `WebGLBackend.postProcess.registerPass(pass)` and `WebGLBackend.postProcess.unregisterPass(id)` are removed.
-- Public WebGL custom post-process passes must migrate to `PostProcessPassDescriptor` through `renderer.postProcess.registerPass(descriptor)`.
+- Public WebGL custom post-process passes must migrate to `PostProcessPass` instances registered through `renderer.postProcess.registerPass(pass)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the WebGPU backend budget.
 - Test entrypoint changed from `tests/test_webgl_backend_v1.mjs` to `tests/test_webgl_backend_v2.mjs`.

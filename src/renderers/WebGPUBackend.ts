@@ -10,7 +10,6 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
-import type { PostProcessCapabilities } from "../pipeline/PostProcessController";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -221,23 +220,6 @@ type WebGPUPassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
 
-const WEBGPU_POST_PROCESS_CAPABILITIES: PostProcessCapabilities = {
-	ssao: true,
-	ssgi: true,
-	taa: true,
-	ssr: true,
-	volumetric: true,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
-
 function isWebGPUBackendOptions(
 	value: unknown
 ): value is WebGPUBackendOptions {
@@ -299,7 +281,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._executePostProcessPass(passId, request),
 		endFrame: (_request) => {},
 	};
-	public readonly postProcessCapabilities = WEBGPU_POST_PROCESS_CAPABILITIES;
 	public readonly postProcessExecutor = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;

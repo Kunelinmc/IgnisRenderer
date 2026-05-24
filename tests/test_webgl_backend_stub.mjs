@@ -247,22 +247,7 @@ async function testInitAndPassRouting() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(backend.postProcessCapabilities, {
-		ssao: true,
-		ssgi: false,
-		taa: true,
-		ssr: false,
-		volumetric: false,
-		fog: true,
-		"motion-blur": true,
-		dof: true,
-		bloom: true,
-		tonemap: true,
-		"color-filter": true,
-		fxaa: true,
-		"interaction-outline": true,
-		gamma: true,
-	});
+	assert.equal("postProcessCapabilities" in backend, false);
 
 	const calls = [];
 	backend._frameExecutor = {

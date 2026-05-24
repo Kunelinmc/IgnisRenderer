@@ -3,7 +3,6 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { PostProcessPass } from "../src/postprocess/index.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -22,8 +21,7 @@ class RegistryBackend {
 		this.executedPasses = [];
 		installNoopPostProcessSupport(
 			this,
-			"webgpu",
-			ALL_POST_PROCESS_CAPABILITIES
+			"webgpu"
 		);
 		this.frameScheduling = "always";
 		this.passExecutors = {};

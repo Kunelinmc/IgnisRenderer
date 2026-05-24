@@ -6,7 +6,6 @@
 
 import assert from "node:assert/strict";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./postprocess.mjs";
 
@@ -382,8 +381,7 @@ export class FakeWebGPUBackend {
 		this.type = "webgpu";
 		installNoopPostProcessSupport(
 			this,
-			"webgpu",
-			ALL_POST_PROCESS_CAPABILITIES
+			"webgpu"
 		);
 		this.canvasFormat = "rgba8unorm";
 		this.canvasDepthFormat = "depth24plus";

@@ -663,7 +663,6 @@ export interface TemporalAntiAliasingPassConfig
 		PostProcessPassConfig<TAAOptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -682,7 +681,6 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 			...config,
 			id: TEMPORAL_ANTI_ALIASING_PASS_ID,
 			builtIn: true,
-			capabilityId: TEMPORAL_ANTI_ALIASING_PASS_ID,
 			warningLabel: "TAA",
 			placement: "temporal",
 			order: 200,

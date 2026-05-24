@@ -17,22 +17,7 @@ function run() {
 		clusteredLighting: false,
 		oit: false,
 	});
-	assert.deepEqual(software.postProcessCapabilities, {
-		ssao: true,
-		ssgi: false,
-		taa: true,
-		ssr: false,
-		volumetric: true,
-		fog: false,
-		"motion-blur": false,
-		dof: false,
-		bloom: false,
-		tonemap: true,
-		"color-filter": true,
-		fxaa: true,
-		"interaction-outline": true,
-		gamma: true,
-	});
+	assert.equal("postProcessCapabilities" in software, false);
 
 	assert.deepEqual(webgpu.capabilities, {
 		sh: true,
@@ -42,22 +27,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(webgpu.postProcessCapabilities, {
-		ssao: true,
-		ssgi: true,
-		taa: true,
-		ssr: true,
-		volumetric: true,
-		fog: true,
-		"motion-blur": true,
-		dof: true,
-		bloom: true,
-		tonemap: true,
-		"color-filter": true,
-		fxaa: true,
-		"interaction-outline": true,
-		gamma: true,
-	});
+	assert.equal("postProcessCapabilities" in webgpu, false);
 
 	assert.deepEqual(webgl.capabilities, {
 		sh: true,
@@ -67,22 +37,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 	});
-	assert.deepEqual(webgl.postProcessCapabilities, {
-		ssao: true,
-		ssgi: false,
-		taa: true,
-		ssr: false,
-		volumetric: false,
-		fog: true,
-		"motion-blur": true,
-		dof: true,
-		bloom: true,
-		tonemap: true,
-		"color-filter": true,
-		fxaa: true,
-		"interaction-outline": true,
-		gamma: true,
-	});
+	assert.equal("postProcessCapabilities" in webgl, false);
 
 	assert.equal(software.passExecutors["particle-sim"], "backend");
 	assert.equal(webgpu.passExecutors["particle-sim"], "backend");

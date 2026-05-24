@@ -15,13 +15,8 @@ import {
 	createTexture,
 } from "./helpers/webgpu_postprocess_runtime_test_helpers.mjs";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
-
-const SSGI_ONLY_CAPABILITIES = Object.fromEntries(
-	Object.keys(ALL_POST_PROCESS_CAPABILITIES).map((key) => [key, key === "ssgi"])
-);
 
 function createWebGPUGBuffer(width = 32, height = 16) {
 	return {
@@ -206,7 +201,6 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 		},
 		postProcess: createResolvedPostProcess(
 			{ ssgi: { enabled: true } },
-			SSGI_ONLY_CAPABILITIES,
 			"webgpu"
 		),
 		incremental: createIncremental(32, 16),

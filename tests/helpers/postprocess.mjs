@@ -17,22 +17,22 @@ import {
 	VolumetricLightingPass,
 } from "../../src/index.ts";
 
-export const ALL_POST_PROCESS_CAPABILITIES = {
-	ssao: true,
-	ssgi: true,
-	taa: true,
-	ssr: true,
-	volumetric: true,
-	fog: true,
-	"motion-blur": true,
-	dof: true,
-	bloom: true,
-	tonemap: true,
-	"color-filter": true,
-	fxaa: true,
-	"interaction-outline": true,
-	gamma: true,
-};
+export const ALL_POST_PROCESS_PASS_IDS = [
+	"ssao",
+	"ssgi",
+	"taa",
+	"ssr",
+	"volumetric",
+	"fog",
+	"motion-blur",
+	"dof",
+	"bloom",
+	"tonemap",
+	"color-filter",
+	"fxaa",
+	"interaction-outline",
+	"gamma",
+];
 
 export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	ssao: { enabled: true },
@@ -105,8 +105,7 @@ export function createPostProcessRegistryFromRequest(
 }
 
 export function createNoopPostProcessSupport(
-	backend = "test",
-	capabilities = ALL_POST_PROCESS_CAPABILITIES
+	backend = "test"
 ) {
 	const executor = {
 		backend,
@@ -140,7 +139,6 @@ export function createNoopPostProcessSupport(
 		},
 	};
 	return {
-		capabilities,
 		executor,
 		createGBufferBridge(context) {
 			const attachments = context.attachments;
@@ -210,11 +208,9 @@ export function createNoopPostProcessSupport(
 
 export function installNoopPostProcessSupport(
 	target,
-	backend = "test",
-	capabilities = ALL_POST_PROCESS_CAPABILITIES
+	backend = "test"
 ) {
-	const support = createNoopPostProcessSupport(backend, capabilities);
-	target.postProcessCapabilities = support.capabilities;
+	const support = createNoopPostProcessSupport(backend);
 	target.postProcessExecutor = support.executor;
 	target.createPostProcessGBufferBridge = (context) =>
 		support.createGBufferBridge(context);
@@ -223,18 +219,15 @@ export function installNoopPostProcessSupport(
 
 export function createResolvedPostProcess(
 	request = {},
-	capabilities = ALL_POST_PROCESS_CAPABILITIES,
 	backendType = "test"
 ) {
 	return createPostProcessRegistryFromRequest(request, backendType).createSnapshot(
-		capabilities,
 		backendType
 	);
 }
 
 export function createAllEnabledPostProcess(
 	request = {},
-	capabilities = ALL_POST_PROCESS_CAPABILITIES,
 	backendType = "test"
 ) {
 	return createResolvedPostProcess(
@@ -242,7 +235,6 @@ export function createAllEnabledPostProcess(
 			...ALL_ENABLED_POST_PROCESS_REQUEST,
 			...request,
 		},
-		capabilities,
 		backendType
 	);
 }

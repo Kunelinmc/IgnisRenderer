@@ -14,13 +14,11 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - `renderer.postProcess` must not expose `enable`, `disable`, `setOptions`, `reset`, or `getState`.
 - Pass mutation must use `pass.enable(options)`, `pass.disable()`, `pass.setEnabled(enabled)`, `pass.setOptions(options)`, or `pass.resetOptions()`.
 - `PostProcessPass.builtIn` must identify engine-provided built-in passes.
-- `PostProcessPass.capabilityId` must provide the backend capability key used for unsupported-pass checks, or `null` when no backend capability gate applies.
 - `PostProcessPass.warningLabel` must provide the human-readable pass name used in diagnostics.
 - `PostProcessPass.shouldExecute(request)` may exclude an enabled snapshot pass from a specific frame without changing registry enabled state.
 - `PostProcessPass.shouldExecute(request)` must be deterministic for the supplied `request` and must not allocate backend resources.
-- Built-in pass classes must define their ids, capability ids, ordering, and diagnostic labels internally.
+- Built-in pass classes must define their ids, ordering, implementations, and diagnostic labels internally.
 - Custom `PostProcessPassConfig.warningLabel` may provide a human-readable custom pass name; when omitted, diagnostics must use `PostProcessPass.id`.
-- `PostProcessCapabilities` must be a backend-owned capability map keyed by pass id.
 - `Renderer` must auto-register only `ToneMappingPass` and `GammaPass`, both enabled by default.
 - Other built-in passes must be explicitly registered before they can run.
 - `FrameContext.postProcess` must be a `PostProcessPassRegistrySnapshot`.
@@ -28,9 +26,10 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - Snapshot consumers must not use `postProcess.enabled` or `postProcess.options` maps.
 - `PostProcessPipeline` must execute enabled snapshot passes in built-in placement order and custom placement order.
 - Built-in pass classes must expose pass-owned normalization, requirements, history descriptors, and implementations when migrated.
-- Backends must expose `postProcessCapabilities`, `postProcessExecutor`, and `createPostProcessGBufferBridge(context)`.
+- Backends must expose `postProcessExecutor` and `createPostProcessGBufferBridge(context)`.
+- Backends must not expose `postProcessCapabilities`.
 - Backends must not expose public post-process graph registration APIs.
-- Unsupported enabled built-in passes must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
+- Unsupported enabled built-in passes must be determined by missing pass-owned backend implementations and must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
 
 ## Usage
 ```ts
@@ -98,7 +97,7 @@ bun tests/test_postprocess_public_api.mjs
 ## Errors & Diagnostics
 - `renderer.postProcess.registerPass(pass)` must throw when `pass` is not a `PostProcessPass`.
 - `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
-- `"<backend>-postprocess-unsupported-<passId>"` must be emitted when an enabled built-in pass is not supported by `backend.postProcessCapabilities`.
+- `"<backend>-postprocess-unsupported-<passId>"` must be emitted when an enabled built-in pass has no implementation for the active backend.
 - `postprocess-history-conflict-<historyId>` must be emitted when enabled passes request incompatible descriptors for the same history id.
 - A backend that omits `postProcessExecutor` or `createPostProcessGBufferBridge(context)` violates `IRenderBackend` and must not be used with `Renderer`.
 
@@ -106,7 +105,7 @@ bun tests/test_postprocess_public_api.mjs
 - Plain object pass descriptors are no longer accepted.
 - `PostProcessPassDescriptor` is removed.
 - `PostProcessController` is removed.
-- `DEFAULT_POST_PROCESS_CAPABILITIES` is removed. Callers must pass explicit backend capabilities.
+- `PostProcessCapabilities` and backend `postProcessCapabilities` are removed. Pass support is derived from pass-owned backend implementations.
 - `POST_PROCESS_PASS_IDS` is removed. Code must inspect registered `PostProcessPass` instances instead of relying on a global id list.
 - `PostProcessOptionsMap` is removed. Code must read typed options through the concrete pass or `PostProcessPassRegistrySnapshot.getOptions<TOptions>(id)`.
 - `getPostProcessWarningLabel(id)` is removed. Diagnostics must use `PostProcessPass.warningLabel`.

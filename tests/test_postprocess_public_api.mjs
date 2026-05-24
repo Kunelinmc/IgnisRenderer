@@ -11,12 +11,12 @@ import {
 	PostProcessPipeline,
 	resolvePostProcessExecutionOrder,
 	ScreenSpaceAmbientOcclusionPass,
+	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceReflectionsPass,
 	ToneMappingPass,
 	VolumetricLightingPass,
 } from "../src/index.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	createNoopPostProcessSupport,
 	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
@@ -252,7 +252,7 @@ function testRegistryOnlySurfaceAndPassMutation() {
 	registry.on("change", () => changes++);
 	registry.registerPass(ssao);
 	assert.equal(ssao.builtIn, true);
-	assert.equal(ssao.capabilityId, "ssao");
+	assert.equal("capabilityId" in ssao, false);
 	assert.equal(ssao.warningLabel, "SSAO");
 	ssao.setOptions({ radius: 4 });
 	ssao.disable();
@@ -261,6 +261,18 @@ function testRegistryOnlySurfaceAndPassMutation() {
 }
 
 function testSnapshotNormalizationAndWarnings() {
+	const unsupportedRegistry = new PostProcessPassRegistry();
+	unsupportedRegistry.registerPass(
+		new ScreenSpaceGlobalIlluminationPass({ enabled: true })
+	);
+	const snapshot = unsupportedRegistry.createSnapshot("software");
+	const unsupportedWarning = snapshot
+		.getWarnings()
+		.find((warning) => warning.key === "software-postprocess-unsupported-ssgi");
+	assert.equal(snapshot.isEnabled("ssgi"), false);
+	assert.ok(unsupportedWarning);
+	assert.ok(unsupportedWarning.message.includes("SSGI post-processing"));
+
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(
 		new ScreenSpaceAmbientOcclusionPass({
@@ -268,18 +280,7 @@ function testSnapshotNormalizationAndWarnings() {
 			options: { samples: 500, radius: 2 },
 		})
 	);
-	const snapshot = registry.createSnapshot(
-		{ ...ALL_POST_PROCESS_CAPABILITIES, ssao: false },
-		"software"
-	);
-	const unsupportedWarning = snapshot
-		.getWarnings()
-		.find((warning) => warning.key === "software-postprocess-unsupported-ssao");
-	assert.equal(snapshot.isEnabled("ssao"), false);
-	assert.ok(unsupportedWarning);
-	assert.ok(unsupportedWarning.message.includes("SSAO post-processing"));
-
-	const supported = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "software");
+	const supported = registry.createSnapshot("software");
 	assert.equal(supported.isEnabled("ssao"), true);
 	assert.equal(supported.getOptions("ssao").samples, 48);
 	assert.equal(supported.getOptions("ssao").radius, 2);
@@ -299,8 +300,8 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 		order: -1,
 	}));
 	assert.equal(registry.getPass("custom-hdr").builtIn, false);
-	assert.equal(registry.getPass("custom-hdr").capabilityId, null);
-	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
+	assert.equal("capabilityId" in registry.getPass("custom-hdr"), false);
+	const snapshot = registry.createSnapshot("webgpu");
 	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
 	const result = await pipeline.execute({
@@ -349,7 +350,7 @@ function testExecutionPredicatesDrivePipelineWork() {
 			enabled: true,
 		})
 	);
-	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
+	const snapshot = registry.createSnapshot("webgpu");
 	const frameContext = createFrameContext(snapshot);
 
 	assert.equal(
@@ -380,7 +381,6 @@ async function testPassOwnedImplementationsAndFallback() {
 	const pipeline = new PostProcessPipeline();
 	const fxaaSnapshot = createResolvedPostProcess(
 		{ fxaa: { enabled: true } },
-		ALL_POST_PROCESS_CAPABILITIES,
 		"software"
 	);
 	const executor = new FakeExecutor("software");
@@ -402,7 +402,6 @@ async function testPassOwnedImplementationsAndFallback() {
 			fog: { enabled: true, options: { application: "postprocess" } },
 			bloom: { enabled: true },
 		},
-		ALL_POST_PROCESS_CAPABILITIES,
 		"webgpu"
 	);
 	const webgpuExecutor = new FakeExecutor("webgpu");
@@ -419,7 +418,6 @@ async function testPassOwnedImplementationsAndFallback() {
 
 	const volumetricSnapshot = createResolvedPostProcess(
 		{ volumetric: { enabled: true } },
-		ALL_POST_PROCESS_CAPABILITIES,
 		"software"
 	);
 	const volumetricExecutor = new FakeExecutor("software");
@@ -437,7 +435,6 @@ async function testPassOwnedImplementationsAndFallback() {
 
 	const fallbackSnapshot = createResolvedPostProcess(
 		{ tonemap: { enabled: true } },
-		ALL_POST_PROCESS_CAPABILITIES,
 		"software"
 	);
 	const fallbackExecutor = new FakeExecutor("software");
@@ -495,7 +492,6 @@ async function testSSRHistorySignatureUsesOptions() {
 	const createSnapshot = (downsample) =>
 		createResolvedPostProcess(
 			{ ssr: { enabled: true, options: { downsample } } },
-			ALL_POST_PROCESS_CAPABILITIES,
 			"webgpu"
 		);
 
@@ -524,7 +520,7 @@ async function testSSRHistorySignatureUsesOptions() {
 async function testRanFalsePassIsExcludedFromExecutedIds() {
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new SkippingPass("custom-skip", { enabled: true }));
-	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
+	const snapshot = registry.createSnapshot("webgpu");
 	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
 	const result = await pipeline.execute({
@@ -582,12 +578,11 @@ function testHistoryManagerInvalidationAndResize() {
 
 function testLogicalGBufferBridgeHelperShape() {
 	const support = createNoopPostProcessSupport(
-		"software",
-		ALL_POST_PROCESS_CAPABILITIES
+		"software"
 	);
 	const bridge = support.createGBufferBridge(
 		createFrameContext(
-			createResolvedPostProcess({}, ALL_POST_PROCESS_CAPABILITIES, "software")
+			createResolvedPostProcess({}, "software")
 		)
 	);
 	assert.equal(bridge.width, 64);

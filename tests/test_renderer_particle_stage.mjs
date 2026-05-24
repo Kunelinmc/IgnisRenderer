@@ -10,7 +10,6 @@ import {
 } from "../src/pipeline/types.ts";
 import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -30,8 +29,7 @@ class StubBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"stub",
-			ALL_POST_PROCESS_CAPABILITIES
+			"stub"
 		);
 		this.frameScheduling = "always";
 		this.passExecutors = {

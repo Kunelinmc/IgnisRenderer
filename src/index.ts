@@ -74,13 +74,12 @@ export {
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
 	isFogPostProcessEnabled,
-} from "./pipeline/PostProcessController";
+} from "./postprocess";
 export type {
-	PostProcessCapabilities,
 	PostProcessCustomPassDescriptor,
 	PostProcessPassId,
 	ResolvedPostProcessState,
-} from "./pipeline/PostProcessController";
+} from "./postprocess";
 export * from "./postprocess";
 export {
 	DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,

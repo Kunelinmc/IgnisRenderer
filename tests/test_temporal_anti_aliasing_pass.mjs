@@ -5,13 +5,8 @@ import {
 	TemporalAntiAliasingPass,
 } from "../src/postprocess/index.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
-
-const TAA_ONLY_CAPABILITIES = Object.fromEntries(
-	Object.keys(ALL_POST_PROCESS_CAPABILITIES).map((key) => [key, key === "taa"])
-);
 
 function createSoftwareExecutor() {
 	return {
@@ -79,7 +74,6 @@ function createFrameContext() {
 				taa: { enabled: true, options: { sharpen: 0 } },
 				gamma: { enabled: false },
 			},
-			TAA_ONLY_CAPABILITIES,
 			"software"
 		),
 		shadowMaps: new Map(),

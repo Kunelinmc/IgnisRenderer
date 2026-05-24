@@ -490,7 +490,6 @@ export interface ScreenSpaceReflectionsPassConfig
 		PostProcessPassConfig<SSROptions>,
 		| "id"
 		| "builtIn"
-		| "capabilityId"
 		| "warningLabel"
 		| "placement"
 		| "order"
@@ -509,7 +508,6 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 			...config,
 			id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
 			builtIn: true,
-			capabilityId: SCREEN_SPACE_REFLECTIONS_PASS_ID,
 			warningLabel: "SSR",
 			placement: "temporal",
 			order: 210,

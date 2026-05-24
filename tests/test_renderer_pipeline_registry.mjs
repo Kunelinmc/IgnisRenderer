@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	ALL_POST_PROCESS_CAPABILITIES,
 	installNoopPostProcessSupport,
 } from "./helpers/postprocess.mjs";
 
@@ -19,8 +18,7 @@ class RegistryBackend {
 		};
 		installNoopPostProcessSupport(
 			this,
-			"webgpu",
-			ALL_POST_PROCESS_CAPABILITIES
+			"webgpu"
 		);
 		this.frameScheduling = "always";
 		this.passExecutors = {};

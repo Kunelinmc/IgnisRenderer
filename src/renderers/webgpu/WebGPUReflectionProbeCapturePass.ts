@@ -8,7 +8,7 @@ import type { ReflectionProbe } from "../../lights";
 import type { IPrimitive } from "../../core/types";
 import type { DrawPacket, FrameContext, ParticleRenderBatch, ParticleRenderItem, PreparedScene, ResolvedFeatureState } from "../../pipeline/types";
 import { DRAW_PACKET_FLAG_TRANSPARENT, PARTICLE_TRANSIENT_BATCHES_KEY, createTransientStore } from "../../pipeline/types";
-import type { ResolvedPostProcessState } from "../../pipeline/PostProcessController";
+import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type { WebGPURenderResources } from "./WebGPURenderResources";

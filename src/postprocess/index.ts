@@ -1,3 +1,29 @@
+import type { FogOptions } from "../pipeline/types";
+import type {
+	PostProcessPass,
+	PostProcessPassRegistrySnapshot,
+} from "./PostProcessPass";
+
+export type ResolvedPostProcessState = PostProcessPassRegistrySnapshot;
+export type PostProcessCustomPassDescriptor = PostProcessPass;
+
+/**
+ * Returns whether fog should execute as a post-process pass for this frame.
+ *
+ * @param postProcess Per-frame post-process registry snapshot.
+ * @returns `true` when `fog` is enabled and configured for post-process mode.
+ * @sideEffects None.
+ */
+export function isFogPostProcessEnabled(
+	postProcess: PostProcessPassRegistrySnapshot
+): boolean {
+	return (
+		postProcess.isEnabled("fog") &&
+		(postProcess.getOptions<FogOptions>("fog")?.application ?? "postprocess") !==
+			"scene"
+	);
+}
+
 export {
 	PostProcessHistoryManager,
 	type PostProcessHistoryPrepareRequest,
@@ -154,7 +180,6 @@ export {
 	PostProcessPassRegistrySnapshot,
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
-	type PostProcessCapabilities,
 	type PostProcessPassChange,
 	type PostProcessPassConfig,
 	type PostProcessPassId,
