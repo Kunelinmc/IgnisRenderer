@@ -15,7 +15,10 @@ export {
 export {
 	PostProcessPipeline,
 	getPostProcessRequirementChannels,
+	hasPostProcessExecutionPasses,
 	isPostProcessPassStage,
+	resolvePostProcessExecutionOrder,
+	type PostProcessExecutionOrderContext,
 } from "./PostProcessPipeline";
 export {
 	FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,

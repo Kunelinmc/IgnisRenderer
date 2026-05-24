@@ -3,7 +3,7 @@
 This document defines the breaking migration from request-map post-processing to pass-owned post-processing.
 
 ## Background
-Post-process state previously lived in `renderer.postProcess` as enable and option maps. The renderer now exposes `PostProcessPassRegistry` as a registry and lookup surface. Each `PostProcessPass` instance owns enabled state, raw options, option normalization, requirements, history descriptors, warmup metadata, backend implementation selection, execution, invalidation, and destruction.
+Post-process state previously lived in `renderer.postProcess` as enable and option maps. The renderer now exposes `PostProcessPassRegistry` as a registry and lookup surface. Each `PostProcessPass` instance owns enabled state, raw options, option normalization, requirements, frame-level execution predicates, history descriptors, warmup metadata, backend implementation selection, execution, invalidation, and destruction.
 
 ## API/Contract
 - `renderer.postProcess` must be a `PostProcessPassRegistry`.
@@ -16,6 +16,8 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - `PostProcessPass.builtIn` must identify engine-provided built-in passes.
 - `PostProcessPass.capabilityId` must provide the backend capability key used for unsupported-pass checks, or `null` when no backend capability gate applies.
 - `PostProcessPass.warningLabel` must provide the human-readable pass name used in diagnostics.
+- `PostProcessPass.shouldExecute(request)` may exclude an enabled snapshot pass from a specific frame without changing registry enabled state.
+- `PostProcessPass.shouldExecute(request)` must be deterministic for the supplied `request` and must not allocate backend resources.
 - Built-in pass classes must define their ids, capability ids, ordering, and diagnostic labels internally.
 - Custom `PostProcessPassConfig.warningLabel` may provide a human-readable custom pass name; when omitted, diagnostics must use `PostProcessPass.id`.
 - `PostProcessCapabilities` must be a backend-owned capability map keyed by pass id.
@@ -52,7 +54,10 @@ renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable();
 ```
 
 ```ts
-import { PostProcessPass } from "ignisrenderer";
+import {
+	PostProcessPass,
+	type PostProcessPassResolveRequest,
+} from "ignisrenderer";
 
 class CustomEdgePass extends PostProcessPass<
 	{ strength?: number },
@@ -74,6 +79,12 @@ class CustomEdgePass extends PostProcessPass<
 
 	public override normalizeOptions(): { strength: number } {
 		return { strength: this.getRawOptions().strength ?? 0.75 };
+	}
+
+	public override shouldExecute(
+		request: PostProcessPassResolveRequest<{ strength: number }>
+	): boolean {
+		return request.options.strength > 0;
 	}
 }
 

@@ -1,14 +1,10 @@
 import {
 	FRAME_PASS_DEPENDENCIES,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	INTERACTION_TRANSIENT_STATE_KEY,
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
-import {
-	isFogPostProcessEnabled,
-	type PostProcessCapabilities,
-} from "../pipeline/PostProcessController";
+import { type PostProcessCapabilities } from "../pipeline/PostProcessController";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
@@ -27,6 +23,7 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../postprocess";
+import { hasPostProcessExecutionPasses } from "../postprocess/PostProcessPipeline";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import {
 	ShaderBackendCompileStage,
@@ -485,27 +482,10 @@ export class WebGLBackend implements IRenderBackend {
 		if (hasParticleSystems) {
 			this._plannedPasses.add("particles");
 		}
-		const postProcess = context.postProcess;
-		const interaction = context.transient.get(
-			INTERACTION_TRANSIENT_STATE_KEY
-		);
-		if (
-			postProcess.isEnabled("ssao") ||
-			postProcess.isEnabled("ssgi") ||
-			postProcess.isEnabled("taa") ||
-			postProcess.isEnabled("ssr") ||
-			postProcess.isEnabled("volumetric") ||
-			isFogPostProcessEnabled(postProcess) ||
-			postProcess.isEnabled("motion-blur") ||
-			postProcess.isEnabled("dof") ||
-			postProcess.isEnabled("bloom") ||
-			postProcess.isEnabled("tonemap") ||
-			postProcess.isEnabled("color-filter") ||
-			postProcess.isEnabled("fxaa") ||
-			(postProcess.isEnabled("interaction-outline") &&
-				(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
-			postProcess.isEnabled("gamma")
-		) {
+		if (hasPostProcessExecutionPasses(context.postProcess, {
+			backend: "webgl",
+			frameContext: context,
+		})) {
 			this._plannedPasses.add("postprocess");
 		}
 		this._validatePlannedPassGraph();

@@ -48,6 +48,7 @@ import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderS
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type {
 	PostProcessPassImplementation,
@@ -1798,6 +1799,18 @@ export class InteractionOutlinePass extends PostProcessPass<
 				webgl: new WebGLInteractionOutlineImplementation(),
 			},
 		});
+	}
+
+	public override shouldExecute(
+		request: PostProcessPassResolveRequest<EmptyOptions>
+	): boolean {
+		if (!request.frameContext) {
+			return true;
+		}
+		const interactionState = request.frameContext.transient.get(
+			INTERACTION_TRANSIENT_STATE_KEY
+		);
+		return (interactionState?.selectedEntityIds?.length ?? 0) > 0;
 	}
 }
 

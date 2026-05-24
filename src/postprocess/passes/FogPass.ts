@@ -22,6 +22,7 @@ import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderS
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type {
 	IPostProcessExecutor,
@@ -410,6 +411,12 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 
 	public override getRequirements(): PostProcessPassRequirements {
 		return { gBuffer: ["depth"] };
+	}
+
+	public override shouldExecute(
+		request: PostProcessPassResolveRequest<FogOptions>
+	): boolean {
+		return (request.options?.application ?? "postprocess") !== "scene";
 	}
 
 	public override execute(

@@ -3,20 +3,24 @@
 This document defines the cross-backend post-process abstraction used by `Renderer`, `PostProcessPipeline`, and render backends.
 
 ## Background
-The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` schedules logical passes inside that stage using placement buckets and stable ordering, owns temporal history handles, validates logical G-buffer requirements, and dispatches work through pass-owned implementations when available. Backends own concrete GPU or CPU resources but do not own pass scheduling or history validity.
+The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` schedules logical passes inside that stage using placement buckets, pass-owned frame predicates, and stable ordering, owns temporal history handles, validates logical G-buffer requirements, and dispatches work through pass-owned implementations when available. Backends own concrete GPU or CPU resources but do not own pass scheduling or history validity.
 
 ## API/Contract
-- `PostProcessPassDescriptor.id` must identify one logical pass.
-- `PostProcessPassDescriptor.placement` should identify where a custom pass enters the fixed post-process pipeline.
-- `PostProcessPassDescriptor.placement` may be `"spatial"`, `"temporal"`, `"atmosphere"`, `"camera"`, `"hdr"`, `"ldr"`, `"overlay"`, or `"present"`.
-- Custom passes that omit `PostProcessPassDescriptor.placement` must execute in the default `"overlay"` placement before `gamma`.
-- `PostProcessPassDescriptor.order` may refine ordering within a placement bucket. It must not be used as a cross-placement dependency mechanism.
-- `PostProcessPassDescriptor.requirements.gBuffer` must list required `LogicalGBufferSemantic` channels.
-- `PostProcessPassDescriptor.history` must list temporal resources owned by `PostProcessPipeline`.
-- `PostProcessPassDescriptor.resolveHistory(request)` may compute temporal resources owned by `PostProcessPipeline` for the current frame.
-- If `PostProcessPassDescriptor.resolveHistory(request)` is present, `PostProcessPipeline` must use its returned descriptors instead of `PostProcessPassDescriptor.history`.
+- `PostProcessPass.id` must identify one logical pass.
+- `PostProcessPass.placement` should identify where a custom pass enters the fixed post-process pipeline.
+- `PostProcessPass.placement` may be `"spatial"`, `"temporal"`, `"atmosphere"`, `"camera"`, `"hdr"`, `"ldr"`, `"overlay"`, or `"present"`.
+- Custom passes that omit `PostProcessPass.placement` must execute in the default `"overlay"` placement before `gamma`.
+- `PostProcessPass.order` may refine ordering within a placement bucket. It must not be used as a cross-placement dependency mechanism.
+- `PostProcessPass.getRequirements(request).gBuffer` must list required `LogicalGBufferSemantic` channels.
+- `PostProcessPass.getHistoryDescriptors(request)` must list temporal resources owned by `PostProcessPipeline`.
+- `PostProcessPass.shouldExecute(request)` may exclude an enabled snapshot pass from a specific frame without changing registry enabled state.
+- `PostProcessPass.shouldExecute(request)` must be deterministic for the supplied `request` and must not allocate backend resources.
+- `PostProcessPass.shouldExecute(request)` must return `true` by default for custom passes that do not override it.
+- `resolvePostProcessExecutionOrder(postProcess, context)` must apply `PostProcessPass.shouldExecute(request)` before sorting passes.
+- `hasPostProcessExecutionPasses(postProcess, context)` must use the same frame predicate as `resolvePostProcessExecutionOrder(postProcess, context)`.
+- Renderer frame planners and backend prevalidation planners must use `hasPostProcessExecutionPasses(postProcess, context)` or `resolvePostProcessExecutionOrder(postProcess, context)` and must not duplicate built-in post-process pass id enablement lists.
 - `PostProcessHistoryResolveRequest` must include `frameContext`, resolved `postProcess` state, executor `backend`, `gBuffer`, and frame `width` and `height`.
-- `PostProcessPassDescriptor.implementations` must map backend kinds to backend-specific implementation metadata or pass-owned implementations.
+- `PostProcessPassConfig.implementations` must map backend kinds to backend-specific implementation metadata or pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` may execute a pass directly when backend-specific logic is owned by the logical pass.
 - `PostProcessPassImplementation.warmup(context)` may allocate backend resources required by a pass-owned implementation.
 - `PostProcessPassImplementation.invalidate()` may release frame-size dependent implementation resources.
@@ -28,6 +32,8 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPassRegistry.destroyPasses(backend)` must call `PostProcessPass.destroy(backend)` on registered passes without changing pass enabled state, options, or ordering.
 - `PostProcessPassRegistry.unregisterPass(id)` must destroy the removed pass implementations after detaching change listeners.
 - Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
+- The built-in `fog` pass must return `false` from `shouldExecute(request)` when `request.options.application` is `"scene"`.
+- The built-in `interaction-outline` pass must return `false` from `shouldExecute(request)` when `request.frameContext` exists and no entity is selected.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
 - Backend `postProcessCapabilities` must expose the logical pass capability set used when creating `PostProcessPassRegistrySnapshot`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
@@ -66,56 +72,71 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 
 ## Usage
 ```ts
-const descriptor = {
-	id: "custom-soft-glow",
-	placement: "hdr",
-	order: 10,
-	requirements: {
-		gBuffer: ["color", "depth"],
-	},
-	history: [
-		{
+import {
+	PostProcessPass,
+	type PostProcessHistoryDescriptor,
+	type PostProcessPassResolveRequest,
+} from "ignisrenderer";
+
+interface SoftGlowOptions {
+	halfRes?: boolean;
+	strength?: number;
+}
+
+class CustomSoftGlowPass extends PostProcessPass<
+	SoftGlowOptions,
+	Required<SoftGlowOptions>
+> {
+	public constructor() {
+		super({
 			id: "custom-soft-glow",
-			format: "rgba16float",
-			usage: ["sampled", "storage", "render-target"],
-		},
-	],
-	isEnabled(state) {
-		return state.enabled["custom-soft-glow"] === true;
-	},
-	implementations: {
-		webgpu: { id: "custom-soft-glow" }, // falls back to executor.executePass
-		webgl: { id: "custom-soft-glow" },
-		software: { id: "custom-soft-glow" },
-	},
-};
+			placement: "hdr",
+			order: 10,
+			enabled: true,
+			options: {
+				halfRes: true,
+				strength: 0.75,
+			},
+			implementations: {
+				webgpu: { id: "custom-soft-glow:webgpu" },
+				webgl: { id: "custom-soft-glow:webgl" },
+				software: { id: "custom-soft-glow:software" },
+			},
+		});
+	}
 
-renderer.postProcess.registerPass(descriptor);
-renderer.postProcess.enable("custom-soft-glow");
-```
+	public override normalizeOptions(): Required<SoftGlowOptions> {
+		const raw = this.getRawOptions();
+		return {
+			halfRes: raw.halfRes === true,
+			strength: raw.strength ?? 0.75,
+		};
+	}
 
-```ts
-const dynamicHistoryDescriptor = {
-	id: "custom-half-res-history",
-	placement: "temporal",
-	resolveHistory(request) {
-		const halfRes =
-			request.postProcess.options["custom-half-res-history"]?.halfRes === true;
+	public override shouldExecute(
+		request: PostProcessPassResolveRequest<Required<SoftGlowOptions>>
+	): boolean {
+		return request.options.strength > 0;
+	}
+
+	public override getRequirements() {
+		return { gBuffer: ["color", "depth"] as const };
+	}
+
+	public override getHistoryDescriptors(
+		request: PostProcessPassResolveRequest<Required<SoftGlowOptions>>
+	): readonly PostProcessHistoryDescriptor[] {
 		return [{
-			id: "custom-half-res-history",
-			widthScale: halfRes ? 0.5 : 1,
-			heightScale: halfRes ? 0.5 : 1,
+			id: "custom-soft-glow",
+			widthScale: request.options.halfRes ? 0.5 : 1,
+			heightScale: request.options.halfRes ? 0.5 : 1,
 			format: "rgba16float",
 			usage: ["sampled", "storage", "render-target"],
 		}];
-	},
-	isEnabled(state) {
-		return state.enabled["custom-half-res-history"] === true;
-	},
-	implementations: {
-		webgpu: { id: "custom-half-res-history" },
-	},
-};
+	}
+}
+
+renderer.postProcess.registerPass(new CustomSoftGlowPass());
 ```
 
 ```bash
@@ -127,8 +148,8 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 
 ## Errors & Diagnostics
 - `postprocess-requirement-missing-<passId>` must be emitted when required logical G-buffer channels are unavailable.
-- `Unknown post-process pass "<id>".` must be thrown when a caller enables an unregistered custom pass id.
-- `Cannot register built-in post-process pass "<id>" as a custom pass.` must be thrown when a custom descriptor uses a built-in id.
+- `renderer.postProcess.registerPass(pass)` must throw when `pass` is not a `PostProcessPass`.
+- `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
 
 ## Compatibility / Breaking Changes
 - Backend-specific public post-process graph registration is removed.
@@ -139,7 +160,8 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - `PostProcessPassImplementation.warmup(context)` is added for pass-owned warmup.
 - `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.
 - `PostProcessPassRegistry.destroyPasses(backend)` is added for pass-owned implementation destruction.
-- `PostProcessPassDescriptor.resolveHistory(request)` is added and takes precedence over static `history`.
+- `PostProcessPass.getHistoryDescriptors(request)` replaces static descriptor `history` and `resolveHistory` fields.
+- `PostProcessPass.shouldExecute(request)` is added for pass-owned frame-level execution predicates.
 - `PostProcessor` is removed from the public API. Software built-in post-process behavior is owned by pass implementations under `src/postprocess/passes/`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.

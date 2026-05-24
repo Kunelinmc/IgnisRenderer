@@ -1,10 +1,6 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
 import { defineTransientKey, type FrameContext } from "./types";
-import {
-	getEnabledCustomPostProcessPassIds,
-	isFogPostProcessEnabled,
-} from "./PostProcessController";
 import { ShaderCompileError } from "../shaders/runtime";
 import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
@@ -14,6 +10,7 @@ import type {
 	WarmupReport,
 } from "../renderers/IRenderBackend";
 import type { PostProcessPass } from "../postprocess/PostProcessPass";
+import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessPipeline";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 
@@ -176,27 +173,7 @@ function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
 		return orderedPasses.slice();
 	}
 
-	const passes: string[] = [];
-	const postProcess = context.postProcess;
-	if (postProcess.isEnabled("ssao")) passes.push("ssao");
-	if (postProcess.isEnabled("ssgi")) passes.push("ssgi");
-	if (postProcess.isEnabled("taa")) passes.push("taa");
-	if (postProcess.isEnabled("ssr")) passes.push("ssr");
-	if (postProcess.isEnabled("volumetric")) passes.push("volumetric");
-	if (isFogPostProcessEnabled(postProcess)) passes.push("fog");
-	if (postProcess.isEnabled("motion-blur")) passes.push("motion-blur");
-	if (postProcess.isEnabled("dof")) passes.push("dof");
-	if (postProcess.isEnabled("bloom")) passes.push("bloom");
-	if (postProcess.isEnabled("tonemap")) {
-		passes.push("tonemap");
-	}
-	if (postProcess.isEnabled("color-filter")) passes.push("color-filter");
-	if (postProcess.isEnabled("fxaa")) passes.push("fxaa");
-	for (const id of getEnabledCustomPostProcessPassIds(postProcess)) {
-		passes.push(id);
-	}
-	if (postProcess.isEnabled("gamma")) {
-		passes.push("gamma");
-	}
-	return passes;
+	return resolvePostProcessExecutionOrder(context.postProcess).map(
+		(pass) => pass.id
+	);
 }

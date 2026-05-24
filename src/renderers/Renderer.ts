@@ -20,13 +20,10 @@ import { Logger, type LoggerStatic } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
-import {
-	isFogPostProcessEnabled,
-	hasEnabledCustomPostProcessPass,
-	type ResolvedPostProcessState,
-} from "../pipeline/PostProcessController";
+import { type ResolvedPostProcessState } from "../pipeline/PostProcessController";
 import {
 	GammaPass,
+	hasPostProcessExecutionPasses,
 	PostProcessPassRegistry,
 	PostProcessPipeline,
 	ToneMappingPass,
@@ -66,7 +63,6 @@ import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
-	INTERACTION_TRANSIENT_STATE_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
 import { AnimationSystem } from "../animation/AnimationSystem";
@@ -1126,7 +1122,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							resolved,
 							resolvedPostProcess,
 							transient,
-							incrementalFrameContext
+							incrementalFrameContext,
+							context
 						)
 					) {
 						const skippedPass = this._createBackendPass(stage.id);
@@ -1273,13 +1270,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		features: ReturnType<typeof resolveFeatureState>,
 		postProcess: ResolvedPostProcessState,
 		transient: TransientStore,
-		incremental?: IncrementalFrameContext
+		incremental?: IncrementalFrameContext,
+		frameContext?: FrameContext
 	): boolean {
 		return this.pipeline.shouldRunBackendPass(stage, {
 			frame,
 			features,
 			postProcess,
 			transient,
+			frameContext,
 			incremental,
 		});
 	}
@@ -1385,27 +1384,10 @@ function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
 		{
 			id: "postprocess",
 			dependsOn: ["particles"],
-			shouldRun: ({ postProcess, transient }) => {
-				const interaction = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-				return (
-					postProcess.isEnabled("ssao") ||
-					postProcess.isEnabled("ssgi") ||
-					postProcess.isEnabled("taa") ||
-					postProcess.isEnabled("ssr") ||
-					postProcess.isEnabled("volumetric") ||
-					isFogPostProcessEnabled(postProcess) ||
-					postProcess.isEnabled("motion-blur") ||
-					postProcess.isEnabled("dof") ||
-					postProcess.isEnabled("bloom") ||
-					postProcess.isEnabled("tonemap") ||
-					postProcess.isEnabled("color-filter") ||
-					postProcess.isEnabled("fxaa") ||
-					(postProcess.isEnabled("interaction-outline") &&
-						(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
-					postProcess.isEnabled("gamma") ||
-					hasEnabledCustomPostProcessPass(postProcess)
-				);
-			},
+			shouldRun: ({ postProcess, frameContext }) =>
+				hasPostProcessExecutionPasses(postProcess, {
+					frameContext,
+				}),
 		},
 	];
 }

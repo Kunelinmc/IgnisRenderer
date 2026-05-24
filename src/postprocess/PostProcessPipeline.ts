@@ -1,4 +1,4 @@
-import type { FogOptions, FrameContext } from "../pipeline/types";
+import type { FrameContext } from "../pipeline/types";
 import { PostProcessHistoryManager } from "./PostProcessHistoryManager";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
@@ -11,6 +11,7 @@ import type {
 	IPostProcessExecutor,
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
+	PostProcessBackendKind,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequirements,
 	PostProcessPipelineExecuteRequest,
@@ -25,6 +26,59 @@ import type {
 
 const CUSTOM_ORDER_SCALE = 0.001;
 const CUSTOM_ORDER_LIMIT = 999;
+
+export interface PostProcessExecutionOrderContext {
+	readonly backend?: PostProcessBackendKind;
+	readonly frameContext?: FrameContext;
+}
+
+/**
+ * Resolves the logical post-process passes that should be considered for
+ * execution in the current frame.
+ *
+ * @param postProcess Per-frame post-process snapshot.
+ * @param context Optional backend and frame context used by frame-conditional
+ * passes.
+ * @returns Enabled executable passes in deterministic placement order.
+ * @sideEffects None.
+ */
+export function resolvePostProcessExecutionOrder(
+	postProcess: PostProcessPassRegistrySnapshot,
+	context: PostProcessExecutionOrderContext = {}
+): ResolvedPostProcessPass[] {
+	const enabled = Array.from(postProcess.getEnabledPasses()).filter((resolved) =>
+		resolved.pass.shouldExecute(
+			createPostProcessResolveRequest(postProcess, resolved, context)
+		)
+	);
+	enabled.sort(comparePostProcessPassOrder);
+	return enabled;
+}
+
+/**
+ * Returns whether the logical post-process pipeline has work for a frame.
+ *
+ * @param postProcess Per-frame post-process snapshot.
+ * @param context Optional backend and frame context used by frame-conditional
+ * passes.
+ * @returns `true` when at least one enabled pass should execute.
+ * @sideEffects None.
+ */
+export function hasPostProcessExecutionPasses(
+	postProcess: PostProcessPassRegistrySnapshot,
+	context: PostProcessExecutionOrderContext = {}
+): boolean {
+	for (const resolved of postProcess.getEnabledPasses()) {
+		if (
+			resolved.pass.shouldExecute(
+				createPostProcessResolveRequest(postProcess, resolved, context)
+			)
+		) {
+			return true;
+		}
+	}
+	return false;
+}
 
 /**
  * Executes logical post-process passes across backends.
@@ -49,30 +103,21 @@ export class PostProcessPipeline {
 	 * @param postProcess Per-frame post-process snapshot.
 	 * @param executor Active backend executor.
 	 * @param warn Diagnostic sink.
+	 * @param frameContext Optional frame context for frame-conditional passes.
 	 * @returns Enabled passes in placement order.
 	 * @sideEffects None.
 	 */
 	public getExecutionOrder(
 		postProcess: PostProcessPassRegistrySnapshot,
 		executor: IPostProcessExecutor,
-		warn: (key: string, message: string) => void = () => {}
+		warn: (key: string, message: string) => void = () => {},
+		frameContext?: FrameContext
 	): ResolvedPostProcessPass[] {
-		void executor;
 		void warn;
-		const enabled = Array.from(postProcess.getEnabledPasses()).filter(
-			(pass) =>
-				pass.id !== "fog" ||
-				((pass.options as FogOptions).application ?? "postprocess") !== "scene"
-		);
-		enabled.sort((left, right) => {
-			const leftOrder = this._getPassSortOrder(left.pass);
-			const rightOrder = this._getPassSortOrder(right.pass);
-			if (leftOrder !== rightOrder) {
-				return leftOrder - rightOrder;
-			}
-			return left.id.localeCompare(right.id);
+		return resolvePostProcessExecutionOrder(postProcess, {
+			backend: executor.backend,
+			frameContext,
 		});
-		return enabled;
 	}
 
 	/**
@@ -88,7 +133,12 @@ export class PostProcessPipeline {
 		const warn = request.warn ?? (() => {});
 		const { frameContext, executor, gBuffer } = request;
 		const postProcess = frameContext.postProcess;
-		const orderedPasses = this.getExecutionOrder(postProcess, executor, warn);
+		const orderedPasses = this.getExecutionOrder(
+			postProcess,
+			executor,
+			warn,
+			frameContext
+		);
 		const startPassId = request.startPassId ?? this._resolveIncrementalStartPass(
 			frameContext,
 			orderedPasses
@@ -187,31 +237,6 @@ export class PostProcessPipeline {
 			firstStage: "postprocess",
 			startPassId,
 		};
-	}
-
-	private _getPassSortOrder(pass: PostProcessPass): number {
-		if (
-			pass.builtIn &&
-			typeof pass.order === "number" &&
-			Number.isFinite(pass.order)
-		) {
-			return pass.order;
-		}
-		const placement =
-			isPostProcessPlacement(pass.placement) ?
-				pass.placement
-			:	DEFAULT_POST_PROCESS_PLACEMENT;
-		const localOrder =
-			typeof pass.order === "number" && Number.isFinite(pass.order) ?
-				Math.max(
-					-CUSTOM_ORDER_LIMIT,
-					Math.min(CUSTOM_ORDER_LIMIT, pass.order)
-				)
-			:	0;
-		return (
-			getCustomPostProcessPlacementOrder(placement) +
-			localOrder * CUSTOM_ORDER_SCALE
-		);
 	}
 
 	private _requirementsSatisfied(
@@ -344,6 +369,56 @@ export class PostProcessPipeline {
 				.join(","),
 		].join("|");
 	}
+}
+
+function comparePostProcessPassOrder(
+	left: ResolvedPostProcessPass,
+	right: ResolvedPostProcessPass
+): number {
+	const leftOrder = getPostProcessPassSortOrder(left.pass);
+	const rightOrder = getPostProcessPassSortOrder(right.pass);
+	if (leftOrder !== rightOrder) {
+		return leftOrder - rightOrder;
+	}
+	return left.id.localeCompare(right.id);
+}
+
+function getPostProcessPassSortOrder(pass: PostProcessPass): number {
+	if (
+		pass.builtIn &&
+		typeof pass.order === "number" &&
+		Number.isFinite(pass.order)
+	) {
+		return pass.order;
+	}
+	const placement =
+		isPostProcessPlacement(pass.placement) ?
+			pass.placement
+		:	DEFAULT_POST_PROCESS_PLACEMENT;
+	const localOrder =
+		typeof pass.order === "number" && Number.isFinite(pass.order) ?
+			Math.max(
+				-CUSTOM_ORDER_LIMIT,
+				Math.min(CUSTOM_ORDER_LIMIT, pass.order)
+			)
+		:	0;
+	return (
+		getCustomPostProcessPlacementOrder(placement) +
+		localOrder * CUSTOM_ORDER_SCALE
+	);
+}
+
+function createPostProcessResolveRequest<TOptions>(
+	postProcess: PostProcessPassRegistrySnapshot,
+	resolved: ResolvedPostProcessPass<TOptions>,
+	context: PostProcessExecutionOrderContext
+): PostProcessPassResolveRequest<TOptions> {
+	return {
+		frameContext: context.frameContext,
+		postProcess,
+		backend: context.backend,
+		options: resolved.options,
+	};
 }
 
 /**

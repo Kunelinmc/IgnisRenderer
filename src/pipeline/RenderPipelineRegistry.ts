@@ -1,5 +1,6 @@
 import {
 	FRAME_PASS_DEPENDENCIES,
+	type FrameContext,
 	type FramePass,
 	type PreparedScene,
 	type ResolvedFeatureState,
@@ -28,6 +29,7 @@ export interface RenderPipelinePassRunContext {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
+	frameContext?: FrameContext;
 	incremental?: IncrementalFrameContext;
 }
 

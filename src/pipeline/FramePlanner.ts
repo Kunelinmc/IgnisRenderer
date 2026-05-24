@@ -3,12 +3,9 @@ import {
 	type PreparedScene,
 	type ResolvedFeatureState,
 } from "./types";
-import {
-	hasEnabledCustomPostProcessPass,
-	isFogPostProcessEnabled,
-	type ResolvedPostProcessState,
-} from "./PostProcessController";
+import { type ResolvedPostProcessState } from "./PostProcessController";
 import { hasParticleShadowCasters } from "./ParticleShadowVolume";
+import { hasPostProcessExecutionPasses } from "../postprocess/PostProcessPipeline";
 
 const FRAME_PASS_ORDER: FramePass["stage"][] = [
 	"animation-sim",
@@ -63,22 +60,7 @@ function shouldEnablePass(
 		case "particles":
 			return (frame.particleSystems?.length ?? 0) > 0;
 		case "postprocess":
-			return (
-				postProcess.isEnabled("ssao") ||
-				postProcess.isEnabled("ssgi") ||
-				postProcess.isEnabled("taa") ||
-				postProcess.isEnabled("ssr") ||
-				postProcess.isEnabled("volumetric") ||
-				isFogPostProcessEnabled(postProcess) ||
-				postProcess.isEnabled("motion-blur") ||
-				postProcess.isEnabled("dof") ||
-				postProcess.isEnabled("bloom") ||
-				postProcess.isEnabled("tonemap") ||
-				postProcess.isEnabled("color-filter") ||
-				postProcess.isEnabled("fxaa") ||
-				postProcess.isEnabled("gamma") ||
-				hasEnabledCustomPostProcessPass(postProcess)
-			);
+			return hasPostProcessExecutionPasses(postProcess);
 		default:
 			return false;
 	}

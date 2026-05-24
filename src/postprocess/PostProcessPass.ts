@@ -203,6 +203,23 @@ export abstract class PostProcessPass<
 		return stableSerialize(request.options ?? this._options);
 	}
 
+	/**
+	 * Returns whether an enabled pass should participate in the logical
+	 * post-process pipeline for the current frame.
+	 *
+	 * @param request Resolved pass request with backend, normalized options, and
+	 * optional frame context.
+	 * @returns `true` when the pass should be ordered and considered for
+	 * execution.
+	 * @remarks Snapshot enablement and backend capability filtering happen
+	 * before this method. Implementations must keep this predicate deterministic
+	 * for the supplied request and must not allocate backend resources.
+	 * @sideEffects None.
+	 */
+	public shouldExecute(_request: PostProcessPassResolveRequest<TOptions>): boolean {
+		return true;
+	}
+
 	public getImplementation(
 		backend: PostProcessBackendKind
 	): PostProcessPassImplementation | null {

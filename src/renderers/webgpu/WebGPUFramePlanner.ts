@@ -2,13 +2,9 @@ import {
 	FRAME_PASS_DEPENDENCIES,
 	type FrameContext,
 	type FramePass,
-	INTERACTION_TRANSIENT_STATE_KEY,
 } from "../../pipeline/types";
-import {
-	hasEnabledCustomPostProcessPass,
-	isFogPostProcessEnabled,
-} from "../../pipeline/PostProcessController";
 import { hasParticleShadowCasters } from "../../pipeline/ParticleShadowVolume";
+import { hasPostProcessExecutionPasses } from "../../postprocess/PostProcessPipeline";
 import type {
 	WebGPUFramePlanner,
 	WebGPUFramePlannerReporter,
@@ -42,26 +38,10 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		if (hasParticleSystems) {
 			state.plannedPasses.add("particles");
 		}
-		const postProcess = context.postProcess;
-		const interaction = context.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-		if (
-			postProcess.isEnabled("ssao") ||
-			postProcess.isEnabled("ssgi") ||
-			postProcess.isEnabled("taa") ||
-			postProcess.isEnabled("ssr") ||
-			postProcess.isEnabled("volumetric") ||
-			isFogPostProcessEnabled(postProcess) ||
-			postProcess.isEnabled("motion-blur") ||
-			postProcess.isEnabled("dof") ||
-			postProcess.isEnabled("bloom") ||
-			postProcess.isEnabled("tonemap") ||
-			postProcess.isEnabled("color-filter") ||
-			postProcess.isEnabled("fxaa") ||
-			(postProcess.isEnabled("interaction-outline") &&
-				(interaction?.selectedEntityIds?.length ?? 0) > 0) ||
-			postProcess.isEnabled("gamma") ||
-			hasEnabledCustomPostProcessPass(postProcess)
-		) {
+		if (hasPostProcessExecutionPasses(context.postProcess, {
+			backend: "webgpu",
+			frameContext: context,
+		})) {
 			state.plannedPasses.add("postprocess");
 		}
 		this._validatePlannedPassGraph(state);

@@ -4,10 +4,12 @@ import {
 	FastApproximateAntiAliasingPass,
 	FogPass,
 	GammaPass,
+	hasPostProcessExecutionPasses,
 	PostProcessHistoryManager,
 	PostProcessPass,
 	PostProcessPassRegistry,
 	PostProcessPipeline,
+	resolvePostProcessExecutionOrder,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceReflectionsPass,
 	ToneMappingPass,
@@ -153,6 +155,12 @@ class CustomPass extends PostProcessPass {
 class SkippingPass extends CustomPass {
 	execute() {
 		return { ran: false };
+	}
+}
+
+class ConditionalPass extends CustomPass {
+	shouldExecute(request) {
+		return request.frameContext?.transient.get("run-conditional-pass") === true;
 	}
 }
 
@@ -332,6 +340,40 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 		["custom-overlay"]
 	);
 	assert.deepEqual(incrementalExecutor.ownedExecuted, ["gamma"]);
+}
+
+function testExecutionPredicatesDrivePipelineWork() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(
+		new ConditionalPass("custom-conditional", {
+			enabled: true,
+		})
+	);
+	const snapshot = registry.createSnapshot(ALL_POST_PROCESS_CAPABILITIES, "webgpu");
+	const frameContext = createFrameContext(snapshot);
+
+	assert.equal(
+		hasPostProcessExecutionPasses(snapshot, { frameContext }),
+		false
+	);
+	assert.deepEqual(
+		resolvePostProcessExecutionOrder(snapshot, { frameContext }).map(
+			(pass) => pass.id
+		),
+		[]
+	);
+
+	frameContext.transient.set("run-conditional-pass", true);
+	assert.equal(
+		hasPostProcessExecutionPasses(snapshot, { frameContext }),
+		true
+	);
+	assert.deepEqual(
+		resolvePostProcessExecutionOrder(snapshot, { frameContext }).map(
+			(pass) => pass.id
+		),
+		["custom-conditional"]
+	);
 }
 
 async function testPassOwnedImplementationsAndFallback() {
@@ -562,6 +604,7 @@ async function run() {
 	testRegistryOnlySurfaceAndPassMutation();
 	testSnapshotNormalizationAndWarnings();
 	await testPipelineOrderingAndIncrementalStartPass();
+	testExecutionPredicatesDrivePipelineWork();
 	await testPassOwnedImplementationsAndFallback();
 	testRegistryLifecycleDelegatesToPassImplementations();
 	await testSSRHistorySignatureUsesOptions();
