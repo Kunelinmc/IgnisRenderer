@@ -19,10 +19,17 @@ class RegistryBackend {
 		};
 		this.contexts = [];
 		this.executedPasses = [];
+		this.executionEvents = [];
 		installNoopPostProcessSupport(
 			this,
 			"webgpu"
 		);
+		const executePostProcessPass =
+			this.postProcessExecutor.executePass.bind(this.postProcessExecutor);
+		this.postProcessExecutor.executePass = (passId, request) => {
+			this.executionEvents.push(["postprocess", passId]);
+			return executePostProcessPass(passId, request);
+		};
 		this.frameScheduling = "always";
 		this.passExecutors = {};
 	}
@@ -47,6 +54,7 @@ class RegistryBackend {
 
 	executePass(pass) {
 		this.executedPasses.push(pass.stage);
+		this.executionEvents.push(["backend", pass.stage]);
 	}
 
 	endFrame() {}
@@ -118,6 +126,11 @@ async function run() {
 		assert.ok(
 			backend.postProcessExecutor.executedPasses.includes("custom-edge")
 		);
+		assert.ok(backend.executedPasses.includes("postprocess"));
+		assert.deepEqual(backend.executionEvents.at(-1), [
+			"backend",
+			"postprocess",
+		]);
 		assert.equal(
 			backend.postProcessExecutor.executedPasses.includes("gamma"),
 			false

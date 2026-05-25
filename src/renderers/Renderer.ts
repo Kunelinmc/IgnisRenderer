@@ -1128,6 +1128,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						break;
 					}
 					if (stage.id === "postprocess") {
+						const pass = this._createBackendPass(stage.id);
 						await this._postProcessPipeline.execute({
 							frameContext: context,
 							executor: this.backend.postProcessExecutor,
@@ -1138,6 +1139,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 									onceKey: key,
 								}),
 						});
+						await this.backend.executePass(pass, context);
 						break;
 					}
 
