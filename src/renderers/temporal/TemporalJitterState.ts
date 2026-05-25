@@ -10,6 +10,16 @@ export interface TemporalJitterStateRequest {
 }
 
 /**
+ * Current and previous temporal jitter values captured for one render frame.
+ */
+export interface TemporalJitterFrameState {
+	/** Current frame camera jitter in NDC units. */
+	readonly currentJitter: readonly [number, number];
+	/** Previous frame camera jitter in NDC units. */
+	readonly previousJitter: readonly [number, number];
+}
+
+/**
  * Tracks current and previous temporal jitter for scene rendering.
  */
 export class TemporalJitterState {
@@ -63,5 +73,22 @@ export class TemporalJitterState {
 		this._current = next;
 		this._enabledLastFrame = true;
 		return [next[0], next[1], previous[0], previous[1]];
+	}
+
+	/**
+	 * Advances and returns current/previous jitter as a frame state snapshot.
+	 *
+	 * @param request Current frame jitter inputs.
+	 * @returns Current and previous jitter in NDC units.
+	 * @sideEffects Advances the Halton sequence when enabled.
+	 */
+	public nextFrameState(
+		request: TemporalJitterStateRequest
+	): TemporalJitterFrameState {
+		const jitter = this.next(request);
+		return {
+			currentJitter: [jitter[0], jitter[1]],
+			previousJitter: [jitter[2], jitter[3]],
+		};
 	}
 }

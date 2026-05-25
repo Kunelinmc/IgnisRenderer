@@ -416,7 +416,7 @@ export class SoftwareBackend implements IRenderBackend {
 		const taaOptions =
 			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
 		const taaEnabled = context.postProcess.isEnabled("taa");
-		const jitter = this._temporalJitterState.next({
+		const jitter = this._temporalJitterState.nextFrameState({
 			enabled: taaEnabled,
 			isOrthographic: context.camera.type === CameraType.Orthographic,
 			width: context.attachments.width,
@@ -429,8 +429,7 @@ export class SoftwareBackend implements IRenderBackend {
 			this._previousWorldMatrices.clear();
 		}
 		context.transient.set(SOFTWARE_TAA_RENDER_STATE_KEY, {
-			currentJitter: [jitter[0], jitter[1]],
-			previousJitter: [jitter[2], jitter[3]],
+			...jitter,
 			previousViewProjection: this._previousViewProjection,
 			currentViewProjection: context.camera.viewProjectionMatrix,
 			previousWorldMatrices: this._previousWorldMatrices,

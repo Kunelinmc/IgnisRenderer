@@ -40,6 +40,7 @@ import {
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import { collectActiveReflectionProbes } from "../../pipeline/reflectionProbeRuntime";
+import type { TemporalJitterFrameState } from "../temporal/TemporalJitterState";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -124,9 +125,7 @@ export interface RasterizerContext {
 	} | null;
 	normalBuffer?: Float32Array | null;
 	motionBuffer?: Float32Array | null;
-	taa?: {
-		currentJitter: [number, number];
-		previousJitter: [number, number];
+	taa?: TemporalJitterFrameState & {
 		previousViewProjection: Matrix4 | null;
 	};
 	camera: {

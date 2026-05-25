@@ -5,6 +5,7 @@ import {
 	type TAAOptions,
 } from "../../pipeline/types";
 import type { Matrix4 } from "../../maths/Matrix4";
+import type { TemporalJitterFrameState } from "../../renderers/temporal/TemporalJitterState";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -58,9 +59,7 @@ export type ResolvedTAAOptions = Required<
 	>
 >;
 
-export interface SoftwareTAARenderState {
-	readonly currentJitter: [number, number];
-	readonly previousJitter: [number, number];
+export interface SoftwareTAARenderState extends TemporalJitterFrameState {
 	readonly previousViewProjection: Matrix4 | null;
 	readonly currentViewProjection: Matrix4;
 	readonly previousWorldMatrices: ReadonlyMap<string, Matrix4>;

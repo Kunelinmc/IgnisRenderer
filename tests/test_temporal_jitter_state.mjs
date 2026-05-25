@@ -60,6 +60,34 @@ function testOrthographicAndResetReturnZeroHistory() {
 	assert.deepEqual(restarted, [expected[0], expected[1], 0, 0]);
 }
 
+function testFrameStateSnapshotUsesCurrentAndPreviousJitter() {
+	const state = new TemporalJitterState();
+	const first = state.nextFrameState({
+		enabled: true,
+		isOrthographic: false,
+		width: 128,
+		height: 64,
+	});
+	const expectedFirst = computeHaltonJitterNDC(0, 128, 64, 1);
+	assert.deepEqual(first, {
+		currentJitter: [expectedFirst[0], expectedFirst[1]],
+		previousJitter: [0, 0],
+	});
+
+	const second = state.nextFrameState({
+		enabled: true,
+		isOrthographic: false,
+		width: 128,
+		height: 64,
+	});
+	const expectedSecond = computeHaltonJitterNDC(1, 128, 64, 1);
+	assert.deepEqual(second, {
+		currentJitter: [expectedSecond[0], expectedSecond[1]],
+		previousJitter: [expectedFirst[0], expectedFirst[1]],
+	});
+}
+
 testPerspectiveJitterTracksPreviousSample();
 testOrthographicAndResetReturnZeroHistory();
+testFrameStateSnapshotUsesCurrentAndPreviousJitter();
 console.log("Temporal jitter state tests passed");
