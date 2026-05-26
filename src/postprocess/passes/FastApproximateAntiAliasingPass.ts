@@ -16,7 +16,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	type WebGPUFrameTargets,
+} from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { clamp } from "../../maths/Common";
@@ -303,6 +306,9 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUFXAAContext>
 {
 	public readonly id = "fxaa:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUFXAAResources>();
 
 	public async warmup(context: WebGPUFXAAContext | undefined): Promise<void> {

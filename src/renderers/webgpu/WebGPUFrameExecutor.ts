@@ -9,6 +9,7 @@ import type {
 	LogicalGBufferBridge,
 	PostProcessPass,
 	PostProcessPassExecutionContextRequest,
+	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
@@ -42,7 +43,11 @@ import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "./constants";
-import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
+import {
+	isWebGPUPostProcessContextMetadata,
+	type WebGPUFrameTargets,
+	type WebGPUPostProcessContextMetadata,
+} from "./WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
 } from "./WebGPUPostProcessRuntime";
@@ -73,26 +78,9 @@ import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
-import type { WebGPUFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
-import type { WebGPUBloomContext } from "../../postprocess/passes/BloomPass";
-import type { WebGPUFogContext } from "../../postprocess/passes/FogPass";
 import {
 	resolveSSAODownsample,
-	type WebGPUSSAOContext,
 } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
-import type { WebGPUSSGIContext } from "../../postprocess/passes/ScreenSpaceGlobalIlluminationPass";
-import type { WebGPUSSRContext } from "../../postprocess/passes/ScreenSpaceReflectionsPass";
-import type { WebGPUTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
-import type { WebGPUVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
-import type {
-	WebGPUColorFilterContext,
-	WebGPUDepthOfFieldContext,
-	WebGPUGammaContext,
-	WebGPUInteractionOutlineContext,
-	WebGPUMotionBlurContext,
-	WebGPUScreenPostProcessContext,
-	WebGPUToneMappingContext,
-} from "../../postprocess/passes/BuiltinFallbackPasses";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -197,25 +185,6 @@ fn fsMain(input: ResolveVSOut) -> @location(0) vec4<f32> {
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
-
-const WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
-	Record<string, readonly string[]>
-> = {
-	ssao: [],
-	ssgi: [],
-	taa: ["postprocess:taa"],
-	ssr: [],
-	volumetric: [],
-	fog: [],
-	"motion-blur": [],
-	dof: [],
-	bloom: [],
-	tonemap: [],
-	"color-filter": [],
-	fxaa: [],
-	"interaction-outline": [],
-	gamma: [],
-};
 
 interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -478,209 +447,11 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || !this._frameTargets) {
 			return undefined;
 		}
-		if (!request.pass.builtIn) {
+		const metadata = request.implementation.metadata?.context;
+		if (!isWebGPUPostProcessContextMetadata(metadata)) {
 			return undefined;
 		}
-		const publishColorTarget = (texture: IRenderTexture): void => {
-			if (this._frameTargets) {
-				this._frameTargets.sceneColor = texture;
-			}
-		};
-		switch (request.passId) {
-			case "motion-blur": {
-				const context: WebGPUMotionBlurContext =
-					this._createWebGPUScreenPostProcessContext(publishColorTarget);
-				return context;
-			}
-			case "dof": {
-				const context: WebGPUDepthOfFieldContext =
-					this._createWebGPUScreenPostProcessContext(publishColorTarget);
-				return context;
-			}
-			case "tonemap": {
-				const context: WebGPUToneMappingContext =
-					this._createWebGPUScreenPostProcessContext(publishColorTarget);
-				return context;
-			}
-			case "color-filter": {
-				const context: WebGPUColorFilterContext =
-					this._createWebGPUScreenPostProcessContext(publishColorTarget);
-				return context;
-			}
-			case "interaction-outline": {
-				const context: WebGPUInteractionOutlineContext =
-					this._createWebGPUScreenPostProcessContext(publishColorTarget);
-				return context;
-			}
-			case "gamma": {
-				const context: WebGPUGammaContext = {
-					targets: this._frameTargets,
-					presentToCanvas: (source, applyGamma) =>
-						this._presentToCanvas(source, applyGamma),
-					warmupPresent: () => this._ensurePresentResources(),
-				};
-				return context;
-			}
-			case "ssao": {
-				const context: WebGPUSSAOContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					publishColorTarget,
-				};
-				return context;
-			}
-			case "ssgi": {
-				const context: WebGPUSSGIContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					publishColorTarget,
-				};
-				return context;
-			}
-			case "taa": {
-				const motionHistoryWrite = this._getPostProcessHistoryTexture(
-					request,
-					"motion",
-					"write"
-				);
-				const context: WebGPUTAAContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					historyRead: this._getPostProcessHistoryTexture(
-						request,
-						"taa",
-						"read"
-					),
-					historyWrite: this._getPostProcessHistoryTexture(
-						request,
-						"taa",
-						"write"
-					),
-					motionHistoryRead: this._getPostProcessHistoryTexture(
-						request,
-						"motion",
-						"read"
-					),
-					motionHistoryWrite,
-					publishColorTarget,
-					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteTarget = motionHistoryWrite;
-					},
-				};
-				return context;
-			}
-			case "fxaa": {
-				const context: WebGPUFXAAContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					publishColorTarget,
-				};
-				return context;
-			}
-			case "ssr": {
-				const motionHistoryWrite = this._getPostProcessHistoryTexture(
-					request,
-					"motion",
-					"write"
-				);
-				const context: WebGPUSSRContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					frameBinding: this._resources.getFrameBinding(),
-					historyRead: this._getPostProcessHistoryTexture(
-						request,
-						"ssr",
-						"read"
-					),
-					historyWrite: this._getPostProcessHistoryTexture(
-						request,
-						"ssr",
-						"write"
-					),
-					motionHistoryRead: this._getPostProcessHistoryTexture(
-						request,
-						"motion",
-						"read"
-					),
-					motionHistoryWrite,
-					publishColorTarget,
-					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteTarget = motionHistoryWrite;
-					},
-				};
-				return context;
-			}
-			case "fog": {
-				const context: WebGPUFogContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					publishColorTarget,
-				};
-				return context;
-			}
-			case "bloom": {
-				const context: WebGPUBloomContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					publishColorTarget,
-				};
-				return context;
-			}
-			case "volumetric": {
-				const motionHistoryWrite = this._getPostProcessHistoryTexture(
-					request,
-					"motion",
-					"write"
-				);
-				const context: WebGPUVolumetricLightingContext = {
-					encoder: this._encoder,
-					targets: this._frameTargets,
-					shared: this._postRuntime.sharedContext,
-					frameBinding: this._resources.getFrameBinding(),
-					lightingState: this._resources.getLightingState(),
-					historyRead: this._getPostProcessHistoryTexture(
-						request,
-						"volumetric",
-						"read"
-					),
-					historyWrite: this._getPostProcessHistoryTexture(
-						request,
-						"volumetric",
-						"write"
-					),
-					reservoirHistoryRead: this._getPostProcessHistoryTexture(
-						request,
-						"volumetric-reservoir",
-						"read"
-					),
-					reservoirHistoryWrite: this._getPostProcessHistoryTexture(
-						request,
-						"volumetric-reservoir",
-						"write"
-					),
-					motionHistoryRead: this._getPostProcessHistoryTexture(
-						request,
-						"motion",
-						"read"
-					),
-					motionHistoryWrite,
-					publishColorTarget,
-					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteTarget = motionHistoryWrite;
-					},
-				};
-				return context;
-			}
-			default:
-				return undefined;
-		}
+		return this._createWebGPUPostProcessContext(metadata, request, "execute");
 	}
 
 	private _getPostProcessHistoryTexture(
@@ -692,15 +463,60 @@ export class WebGPUFrameExecutor {
 		return (slot?.resource as IRenderTexture | null) ?? null;
 	}
 
-	private _createWebGPUScreenPostProcessContext(
-		publishColorTarget?: (texture: IRenderTexture) => void
-	): WebGPUScreenPostProcessContext {
-		return {
+	private _createWebGPUPostProcessContext(
+		metadata: WebGPUPostProcessContextMetadata,
+		request: PostProcessPassRequest | null,
+		mode: "execute" | "warmup"
+	): Record<string, unknown> | undefined {
+		if (mode === "execute" && (!this._encoder || !this._frameTargets)) {
+			return undefined;
+		}
+		if (metadata.kind === "present") {
+			return {
+				targets: this._frameTargets ?? undefined,
+				presentToCanvas: (source: IRenderTexture, applyGamma: boolean) =>
+					this._presentToCanvas(source, applyGamma),
+				warmupPresent: () => this._ensurePresentResources(),
+			};
+		}
+
+		const context: Record<string, unknown> = {
 			encoder: this._encoder ?? undefined,
 			targets: this._frameTargets ?? undefined,
 			shared: this._postRuntime.sharedContext,
-			publishColorTarget,
 		};
+		if (metadata.publishColorTarget && mode === "execute") {
+			context.publishColorTarget = (texture: IRenderTexture): void => {
+				if (this._frameTargets) {
+					this._frameTargets.sceneColor = texture;
+				}
+			};
+		}
+		if (metadata.frameBinding && mode === "execute") {
+			context.frameBinding = this._resources.getFrameBinding();
+		}
+		if (metadata.lightingState && mode === "execute") {
+			context.lightingState = this._resources.getLightingState();
+		}
+		if (request && mode === "execute") {
+			for (const binding of metadata.histories ?? []) {
+				context[binding.property] = this._getPostProcessHistoryTexture(
+					request,
+					binding.historyId,
+					binding.side
+				);
+			}
+			const motionCopy = metadata.motionHistoryCopy;
+			if (motionCopy) {
+				const method = motionCopy.method ?? "writeMotionHistoryFromCurrent";
+				context[method] = (): void => {
+					this._motionHistoryWriteTarget =
+						(context[motionCopy.writeProperty] as IRenderTexture | null) ??
+						null;
+				};
+			}
+		}
+		return context;
 	}
 
 	/**
@@ -769,14 +585,14 @@ export class WebGPUFrameExecutor {
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPresentWarmup"));
 		}
 
+		const descriptorById = this._getWarmupPostProcessDescriptorMap(context);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
 			for (const passId of plan.postProcessPasses) {
-				const passHints = WEBGPU_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId];
-				if (!passHints) {
-					continue;
-				}
-				for (const hint of passHints) {
+				const implementation = descriptorById
+					.get(passId)
+					?.getImplementation("webgpu");
+				for (const hint of implementation?.metadata?.warmupHints ?? []) {
 					hints.add(hint);
 				}
 			}
@@ -791,7 +607,6 @@ export class WebGPUFrameExecutor {
 			}
 		}
 
-		const descriptorById = this._getWarmupPostProcessDescriptorMap(context);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
@@ -806,22 +621,21 @@ export class WebGPUFrameExecutor {
 			warmedPassImplementations.add(passId);
 			total++;
 			try {
-				await implementation.warmup(
-					this._getPassWarmupExecutionContext(passId),
-					{
-						frameContext: context,
-						postProcess: context.postProcess,
-						backend: "webgpu",
-						context: this._getPassWarmupExecutionContext(passId),
-						options:
-							context.postProcess.getOptions(passId) ??
-							descriptorById.get(passId)?.normalizeOptions({
-								frameContext: context,
-								postProcess: context.postProcess,
-								backend: "webgpu",
-							}),
-					}
-				);
+				const warmupContext =
+					this._getPassWarmupExecutionContext(implementation);
+				await implementation.warmup(warmupContext, {
+					frameContext: context,
+					postProcess: context.postProcess,
+					backend: "webgpu",
+					context: warmupContext,
+					options:
+						context.postProcess.getOptions(passId) ??
+						descriptorById.get(passId)?.normalizeOptions({
+							frameContext: context,
+							postProcess: context.postProcess,
+							backend: "webgpu",
+						}),
+				});
 				compiled++;
 			} catch (error) {
 				failed++;
@@ -854,69 +668,14 @@ export class WebGPUFrameExecutor {
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
 	}
 
-	private _getPassWarmupExecutionContext(passId: string): unknown {
-		switch (passId) {
-			case "motion-blur":
-			case "dof":
-			case "tonemap":
-			case "color-filter":
-			case "interaction-outline": {
-				return this._createWebGPUScreenPostProcessContext();
-			}
-			case "gamma": {
-				const context: WebGPUGammaContext = {
-					targets: this._frameTargets ?? undefined,
-					warmupPresent: () => this._ensurePresentResources(),
-					presentToCanvas: (source, applyGamma) =>
-						this._presentToCanvas(source, applyGamma),
-				};
-				return context;
-			}
-			case "ssao": {
-				const context: WebGPUSSAOContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "ssgi": {
-				const context: WebGPUSSGIContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "fxaa": {
-				const context: WebGPUFXAAContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "ssr": {
-				const context: WebGPUSSRContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "fog": {
-				const context: WebGPUFogContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "bloom": {
-				const context: WebGPUBloomContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			case "volumetric": {
-				const context: WebGPUVolumetricLightingContext = {
-					shared: this._postRuntime.sharedContext,
-				};
-				return context;
-			}
-			default:
-				return undefined;
+	private _getPassWarmupExecutionContext(
+		implementation: PostProcessPassImplementation
+	): unknown {
+		const metadata = implementation.metadata?.context;
+		if (!isWebGPUPostProcessContextMetadata(metadata)) {
+			return undefined;
 		}
+		return this._createWebGPUPostProcessContext(metadata, null, "warmup");
 	}
 
 	/**

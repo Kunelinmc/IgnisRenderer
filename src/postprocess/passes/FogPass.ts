@@ -14,7 +14,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	type WebGPUFrameTargets,
+} from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
@@ -156,6 +159,9 @@ export class WebGPUFogImplementation
 	implements PostProcessPassImplementation<WebGPUFogContext, FogOptions>
 {
 	public readonly id = "fog:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUFogResources>();
 	private _resourceSet = new Set<WebGPUFogResources>();
 

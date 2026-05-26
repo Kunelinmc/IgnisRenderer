@@ -12,9 +12,15 @@ WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostPro
 - `WebGPUBackend.postProcessExecutor.backend` must be `"webgpu"`.
 - `WebGPUBackend.postProcessExecutor.executePass(passId, request)` must dispatch backend-owned fallback post-process passes.
 - `WebGPUBackend.postProcessExecutor.getPassExecutionContext(request)` may provide low-level helpers for pass-owned WebGPU implementations.
-- `PostProcessPassExecutionContextRequest.pass.builtIn` and `PostProcessPassExecutionContextRequest.implementation` must define whether WebGPU may provide built-in low-level helpers.
+- `PostProcessPassImplementation.metadata.context.backend` must be `"webgpu"` for WebGPU context packing.
+- `PostProcessPassImplementation.metadata.context.kind` must be `"screen"` or `"present"`.
+- `PostProcessPassImplementation.metadata.context` may request `publishColorTarget`, `frameBinding`, `lightingState`, history bindings, and a motion-history copy callback.
+- `PostProcessPassImplementation.metadata.warmupHints` may list WebGPU runtime warmup hint ids.
+- `PostProcessPassExecutionContextRequest.implementation.metadata.context` must define whether WebGPU provides low-level helpers.
+- `PostProcessPassExecutionContextRequest.pass.builtIn` must classify engine-owned passes and must not be required for WebGPU context packing.
 - Pass-owned WebGPU implementations must use `PostProcessPassImplementation.execute(request, context)` instead of WebGPU runtime registration.
 - WebGPU warmup must call `PostProcessPassImplementation.warmup(context)` for pass-owned implementations when it is present.
+- WebGPU warmup must collect runtime hints from `PostProcessPassImplementation.metadata.warmupHints`.
 - `WebGPUBackend.createPostProcessGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGPU texture handles.
 - WebGPU depth channels must declare `depthEncoding: "hardware"` unless the implementation provides a linearized depth texture.
 - WebGPU motion channels must declare `motionEncoding: "ndc-delta"` when motion vectors are available.
@@ -43,6 +49,13 @@ const descriptor: PostProcessPassDescriptor = {
 	implementations: {
 		webgpu: {
 			id: "custom-webgpu-edge",
+			metadata: {
+				context: {
+					backend: "webgpu",
+					kind: "screen",
+					publishColorTarget: true,
+				},
+			},
 		},
 	},
 };

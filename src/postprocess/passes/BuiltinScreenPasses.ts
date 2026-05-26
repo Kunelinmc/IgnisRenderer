@@ -28,7 +28,11 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	type WebGPUFrameTargets,
+} from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import {
@@ -247,6 +251,9 @@ export class WebGPUMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGPUMotionBlurContext, MotionBlurOptions>
 {
 	public readonly id = "motion-blur:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources =
 		new WeakMap<PostProcessSharedContext, WebGPUMotionBlurResources>();
 	private _resourceSet = new Set<WebGPUMotionBlurResources>();
@@ -433,6 +440,9 @@ export class WebGPUDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGPUDepthOfFieldContext, DOFOptions>
 {
 	public readonly id = "dof:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources =
 		new WeakMap<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
 	private _resourceSet = new Set<WebGPUDepthOfFieldResources>();
@@ -626,6 +636,9 @@ export class WebGPUToneMappingImplementation
 	implements PostProcessPassImplementation<WebGPUToneMappingContext, EmptyOptions>
 {
 	public readonly id = "tonemap:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources =
 		new WeakMap<PostProcessSharedContext, WebGPUToneMappingResources>();
 	private _resourceSet = new Set<WebGPUToneMappingResources>();
@@ -743,6 +756,9 @@ export class WebGPUColorFilterImplementation
 	implements PostProcessPassImplementation<WebGPUColorFilterContext, ColorFilterOptions>
 {
 	public readonly id = "color-filter:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources =
 		new WeakMap<PostProcessSharedContext, WebGPUColorFilterResources>();
 	private _resourceSet = new Set<WebGPUColorFilterResources>();
@@ -915,6 +931,9 @@ export class WebGPUInteractionOutlineImplementation
 	implements PostProcessPassImplementation<WebGPUInteractionOutlineContext, EmptyOptions>
 {
 	public readonly id = "interaction-outline:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources =
 		new WeakMap<PostProcessSharedContext, WebGPUInteractionOutlineResources>();
 	private _resourceSet = new Set<WebGPUInteractionOutlineResources>();
@@ -1119,6 +1138,9 @@ export class WebGPUGammaImplementation
 	implements PostProcessPassImplementation<WebGPUGammaContext, EmptyOptions>
 {
 	public readonly id = "gamma:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+	};
 
 	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
 		await context?.warmupPresent?.();

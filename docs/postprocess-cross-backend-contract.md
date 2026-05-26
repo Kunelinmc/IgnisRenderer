@@ -20,7 +20,9 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `hasPostProcessExecutionPasses(postProcess, context)` must use the same frame predicate as `resolvePostProcessExecutionOrder(postProcess, context)`.
 - Renderer frame planners and backend prevalidation planners must use `hasPostProcessExecutionPasses(postProcess, context)` or `resolvePostProcessExecutionOrder(postProcess, context)` and must not duplicate built-in post-process pass id enablement lists.
 - `PostProcessHistoryResolveRequest` must include `frameContext`, resolved `postProcess` state, executor `backend`, `gBuffer`, and frame `width` and `height`.
-- `PostProcessPassConfig.implementations` must map backend kinds to backend-specific implementation metadata or pass-owned implementations.
+- `PostProcessPassConfig.implementations` must map backend kinds to backend-specific pass-owned implementations.
+- `PostProcessPassImplementation.metadata.context` may declare backend-specific context requirements for pass-owned implementations.
+- `PostProcessPassImplementation.metadata.warmupHints` may declare backend-specific runtime warmup hint ids.
 - `PostProcessPassImplementation.execute(request, context)` may execute a pass directly when backend-specific logic is owned by the logical pass.
 - `PostProcessPassImplementation.warmup(context)` may allocate backend resources required by a pass-owned implementation.
 - `PostProcessPassImplementation.invalidate()` may release frame-size dependent implementation resources.
@@ -39,12 +41,13 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - Backends must not expose `postProcessCapabilities`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
 - `IPostProcessExecutor.destroyResource(handle)` must release resources allocated by `createResource(desc)`.
-- `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations.
+- `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations based on `PostProcessPassImplementation.metadata.context`.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
 - `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`, or `null` when the pass falls back to `IPostProcessExecutor.executePass(passId, request)`.
 - `PostProcessPassExecutionContextRequest` must contain the full `PostProcessPassRequest` contract and a non-null `implementation`.
 - `PostProcessPipeline` must call `IPostProcessExecutor.getPassExecutionContext(request)` only when the selected implementation exposes `execute()`.
-- Backends must use `PostProcessPassExecutionContextRequest.pass.builtIn` and `PostProcessPassExecutionContextRequest.implementation` as the execution context contract; they must not infer built-in ownership from pass id strings alone.
+- Backends must use `PostProcessPassExecutionContextRequest.implementation` and its `metadata.context` as the execution context contract; they must not infer context shape from pass id strings.
+- `PostProcessPassExecutionContextRequest.pass.builtIn` must classify engine-owned passes and must not be required for metadata-driven backend context packing.
 - WebGPU executors should expose WebGPU context helpers and may dispatch WGSL compute or render work through `executePass(passId, request)` only for non-pass-owned fallback passes.
 - WebGL executors should expose WebGL context helpers and may dispatch GLSL fullscreen work through `executePass(passId, request)` only for non-pass-owned fallback passes.
 - Software executors should expose CPU post-process helpers and may dispatch optimized CPU loops through `executePass(passId, request)` only for non-pass-owned fallback passes.

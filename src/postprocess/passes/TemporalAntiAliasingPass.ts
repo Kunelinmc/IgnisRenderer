@@ -395,6 +395,23 @@ export class WebGPUTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUTAAContext>
 {
 	public readonly id = "taa:webgpu";
+	public readonly metadata = {
+		context: {
+			backend: "webgpu",
+			kind: "screen",
+			publishColorTarget: true,
+			histories: [
+				{ property: "historyRead", historyId: "taa", side: "read" },
+				{ property: "historyWrite", historyId: "taa", side: "write" },
+				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
+				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+			],
+			motionHistoryCopy: {
+				writeProperty: "motionHistoryWrite",
+			},
+		},
+		warmupHints: ["postprocess:taa"],
+	} as const;
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUTAAResources>();
 
 	public async execute(

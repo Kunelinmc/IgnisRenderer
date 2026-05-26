@@ -10,3 +10,4 @@ export * from "./texture";
 export * from "./ComputeFacade";
 export * from "./ComputeRuntime";
 export * from "./WebGPUClusteredLightingRuntime";
+export * from "./WebGPUPostProcessContracts";

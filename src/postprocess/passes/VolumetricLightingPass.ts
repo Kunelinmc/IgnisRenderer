@@ -116,6 +116,34 @@ export class WebGPUVolumetricLightingImplementation
 		>
 {
 	public readonly id = "volumetric:webgpu";
+	public readonly metadata = {
+		context: {
+			backend: "webgpu",
+			kind: "screen",
+			publishColorTarget: true,
+			frameBinding: true,
+			lightingState: true,
+			histories: [
+				{ property: "historyRead", historyId: "volumetric", side: "read" },
+				{ property: "historyWrite", historyId: "volumetric", side: "write" },
+				{
+					property: "reservoirHistoryRead",
+					historyId: "volumetric-reservoir",
+					side: "read",
+				},
+				{
+					property: "reservoirHistoryWrite",
+					historyId: "volumetric-reservoir",
+					side: "write",
+				},
+				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
+				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+			],
+			motionHistoryCopy: {
+				writeProperty: "motionHistoryWrite",
+			},
+		},
+	} as const;
 	private _resources = new WeakMap<
 		PostProcessSharedContext,
 		WebGPUVolumetricResources

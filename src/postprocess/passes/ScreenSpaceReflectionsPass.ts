@@ -193,6 +193,23 @@ export class WebGPUScreenSpaceReflectionsImplementation
 	implements PostProcessPassImplementation<WebGPUSSRContext>
 {
 	public readonly id = "ssr:webgpu";
+	public readonly metadata = {
+		context: {
+			backend: "webgpu",
+			kind: "screen",
+			publishColorTarget: true,
+			frameBinding: true,
+			histories: [
+				{ property: "historyRead", historyId: "ssr", side: "read" },
+				{ property: "historyWrite", historyId: "ssr", side: "write" },
+				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
+				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+			],
+			motionHistoryCopy: {
+				writeProperty: "motionHistoryWrite",
+			},
+		},
+	} as const;
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSRResources>();
 
 	public async warmup(context: WebGPUSSRContext | undefined): Promise<void> {

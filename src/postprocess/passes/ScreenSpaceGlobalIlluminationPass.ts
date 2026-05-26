@@ -15,7 +15,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	type WebGPUFrameTargets,
+} from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
@@ -132,6 +135,9 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	implements PostProcessPassImplementation<WebGPUSSGIContext>
 {
 	public readonly id = "ssgi:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {

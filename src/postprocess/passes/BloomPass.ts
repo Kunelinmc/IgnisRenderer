@@ -12,7 +12,10 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../renderers/types";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	type WebGPUFrameTargets,
+} from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
@@ -84,6 +87,9 @@ export class WebGPUBloomImplementation
 	implements PostProcessPassImplementation<WebGPUBloomContext, BloomOptions>
 {
 	public readonly id = "bloom:webgpu";
+	public readonly metadata = {
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUBloomResources>();
 	private _resourceSet = new Set<WebGPUBloomResources>();
 

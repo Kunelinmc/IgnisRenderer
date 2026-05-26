@@ -203,6 +203,7 @@ export type {
 	PostProcessHistorySlots,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
+	PostProcessPassImplementationMetadata,
 	PostProcessPassRequest,
 	PostProcessPassRequirements,
 	PostProcessPassResult,

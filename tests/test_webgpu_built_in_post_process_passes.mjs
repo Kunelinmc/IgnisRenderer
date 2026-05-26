@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
+import {
+	ScreenSpaceReflectionsPass,
+	TemporalAntiAliasingPass,
+	VolumetricLightingPass,
+} from "../src/postprocess/index.ts";
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
+
+const BUILTIN_PASS_BY_ID = new Map([
+	["taa", new TemporalAntiAliasingPass({ enabled: true })],
+	["ssr", new ScreenSpaceReflectionsPass({ enabled: true })],
+	["volumetric", new VolumetricLightingPass({ enabled: true })],
+]);
 
 function createTemporalRequest(overrides = {}) {
 	const frameContext = overrides.frameContext ?? {
@@ -49,17 +60,23 @@ function createTemporalRequest(overrides = {}) {
 	};
 }
 
-function createExecutionContextRequest(passId, request) {
+function createExecutionContextRequest(passId, request, overrides = {}) {
+	const pass =
+		overrides.pass ??
+		BUILTIN_PASS_BY_ID.get(passId) ?? {
+			id: passId,
+			builtIn: true,
+		};
+	const implementation =
+		overrides.implementation ??
+		pass.getImplementation?.("webgpu") ?? {
+			id: `${passId}:test`,
+		};
 	return {
 		...request,
 		passId,
-		pass: {
-			id: passId,
-			builtIn: true,
-		},
-		implementation: {
-			id: `${passId}:test`,
-		},
+		pass,
+		implementation,
 	};
 }
 
@@ -143,6 +160,44 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(runtimeCalls.length, 0);
 }
 
+function testCustomImplementationMetadataPacksContext() {
+	const { executor } = createExecutorHarness();
+	const request = createTemporalRequest();
+	const context = executor.getPassExecutionContext(
+		createExecutionContextRequest("custom-webgpu", request, {
+			pass: {
+				id: "custom-webgpu",
+				builtIn: false,
+			},
+			implementation: {
+				id: "custom-webgpu:test",
+				metadata: {
+					context: {
+						backend: "webgpu",
+						kind: "screen",
+						publishColorTarget: true,
+						frameBinding: true,
+						histories: [
+							{
+								property: "customHistoryWrite",
+								historyId: "taa",
+								side: "write",
+							},
+						],
+					},
+				},
+			},
+		})
+	);
+
+	assert.equal(context.encoder.id, "encoder");
+	assert.deepEqual(context.shared, { id: "shared-context" });
+	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
+	assert.equal(context.customHistoryWrite.id, "taa-write");
+	context.publishColorTarget({ id: "custom-color" });
+	assert.equal(executor._frameTargets.sceneColor.id, "custom-color");
+}
+
 async function testWarmupHintsFollowPlanPostProcessPasses() {
 	const backend = new FakeBackend();
 	const resources = {
@@ -179,6 +234,29 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	);
 
 	assert.deepEqual(warmupHints, []);
+
+	const taaPass = new TemporalAntiAliasingPass({ enabled: true });
+	await executor.warmup(
+		{
+			transient: new Map(),
+			postProcess: {
+				getEnabledPasses: () => [{ pass: taaPass }],
+				getOptions: () => undefined,
+			},
+		},
+		{
+			materials: [],
+			shaderMaterials: [],
+			enableEnvironment: false,
+			enableShadows: false,
+			enableParticles: false,
+			includePostProcess: true,
+			postProcessPasses: ["taa", "custom-pass"],
+			sceneTargetMode: "mrt",
+		}
+	);
+
+	assert.deepEqual(warmupHints, ["postprocess:taa"]);
 }
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
@@ -191,6 +269,7 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 
 async function run() {
 	await testTemporalExecutePassUsesPipelineHistories();
+	testCustomImplementationMetadataPacksContext();
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	console.log("WebGPU post-process executor tests passed");

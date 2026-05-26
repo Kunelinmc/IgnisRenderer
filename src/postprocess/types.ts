@@ -113,11 +113,39 @@ export interface PostProcessHistorySlot {
 
 export type PostProcessHistorySlots = Record<string, PostProcessHistorySlot>;
 
+export interface PostProcessPassImplementationMetadata<TContextMetadata = unknown> {
+	/**
+	 * Backend-specific context declaration consumed by
+	 * `IPostProcessExecutor.getPassExecutionContext`.
+	 *
+	 * @remarks Backends that do not understand this metadata must ignore it.
+	 * @sideEffects None.
+	 */
+	readonly context?: TContextMetadata;
+	/**
+	 * Backend-specific warmup hints owned by this implementation.
+	 *
+	 * @remarks Backends may use these ids to pre-warm internal runtime passes.
+	 * @sideEffects None.
+	 */
+	readonly warmupHints?: readonly string[];
+}
+
 export interface PostProcessPassImplementation<
 	TContext = unknown,
 	TOptions = unknown,
+	TContextMetadata = unknown,
 > {
 	readonly id?: string;
+	/**
+	 * Optional backend-specific implementation metadata.
+	 *
+	 * @remarks This is declarative data used by backend executors to prepare
+	 * implementation-owned contexts and warmup work. Implementations must not
+	 * rely on unsupported backends interpreting this value.
+	 * @sideEffects None.
+	 */
+	readonly metadata?: PostProcessPassImplementationMetadata<TContextMetadata>;
 	/**
 	 * Executes the logical pass through pass-owned backend implementation logic.
 	 *
