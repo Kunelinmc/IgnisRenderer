@@ -166,6 +166,7 @@ function createPassRequest(frameContext, pass) {
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(frameContext),
 		histories: {},
+		transients: {},
 		pass,
 		passId: "ssao",
 		options: frameContext.postProcess.getOptions("ssao"),
@@ -280,7 +281,41 @@ function testSSAOOptionHelpersClampAndPackParams() {
 	assert.equal(params[15], 0.25);
 }
 
+function testWebGPUSSAOTransientDescriptorsFollowDownsample() {
+	const pass = new ScreenSpaceAmbientOcclusionPass({
+		enabled: true,
+		options: {
+			downsample: 99,
+		},
+	});
+	const descriptors = pass.getTransientResourceDescriptors({
+		backend: "webgpu",
+		options: pass.normalizeOptions(),
+		width: 64,
+		height: 32,
+	});
+
+	assert.deepEqual(
+		descriptors.map((descriptor) => descriptor.id),
+		["ssao:raw", "ssao:blur"]
+	);
+	assert.deepEqual(
+		descriptors.map((descriptor) => descriptor.widthScale),
+		[1 / 8, 1 / 8]
+	);
+	assert.deepEqual(
+		pass.getTransientResourceDescriptors({
+			backend: "software",
+			options: pass.normalizeOptions(),
+			width: 64,
+			height: 32,
+		}),
+		[]
+	);
+}
+
 await testSSAOPipelineUsesPassOwnedImplementation();
 testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers();
 testSSAOOptionHelpersClampAndPackParams();
+testWebGPUSSAOTransientDescriptorsFollowDownsample();
 console.log("ScreenSpaceAmbientOcclusionPass tests passed");

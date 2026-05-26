@@ -27,17 +27,24 @@ import type { PostProcessSharedContext } from "../../renderers/webgpu/postproces
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { ceilDiv } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
-import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
+import {
+	PostProcessPass,
+	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
+} from "../PostProcessPass";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessPassRequirements,
+	PostProcessTransientDescriptor,
 } from "../types";
 
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
+const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
+const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 
 export type ResolvedSSAOOptions = Required<
 	Pick<
@@ -60,6 +67,8 @@ export interface WebGPUSSAOContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUFrameTargets;
 	readonly shared: PostProcessSharedContext;
+	readonly aoRaw?: IRenderTexture | null;
+	readonly aoBlur?: IRenderTexture | null;
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
@@ -483,7 +492,19 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 {
 	public readonly id = "ssao:webgpu";
 	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+		context: {
+			...WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+			transients: [
+				{
+					property: "aoRaw",
+					transientId: WEBGPU_SSAO_RAW_TRANSIENT_ID,
+				},
+				{
+					property: "aoBlur",
+					transientId: WEBGPU_SSAO_BLUR_TRANSIENT_ID,
+				},
+			],
+		},
 	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
 
@@ -512,6 +533,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		if (
 			!context.encoder ||
 			!context.targets ||
+			!context.aoRaw ||
+			!context.aoBlur ||
 			!context.shared.sampler ||
 			!resources.rawPipeline ||
 			!resources.blurPipeline ||
@@ -522,6 +545,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		}
 
 		const targets = context.targets;
+		const aoRaw = context.aoRaw;
+		const aoBlur = context.aoBlur;
 		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		resources.frameIndex = (resources.frameIndex + 1) % 1024;
 		const writeParams = (blurDirX: number, blurDirY: number): void => {
@@ -530,8 +555,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				createSSAOKernelParams(
 					targets.sceneColor.width,
 					targets.sceneColor.height,
-					targets.aoRaw.width,
-					targets.aoRaw.height,
+					aoRaw.width,
+					aoRaw.height,
 					options,
 					request.frameContext.camera,
 					blurDirX,
@@ -550,7 +575,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
-				{ binding: 4, resource: targets.aoRaw },
+				{ binding: 4, resource: aoRaw },
 			],
 			"WebGPUSSAO_RawBinding"
 		);
@@ -558,8 +583,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		context.encoder.setComputePipeline(resources.rawPipeline);
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(targets.aoRaw.width, WORKGROUP_SIZE),
-			ceilDiv(targets.aoRaw.height, WORKGROUP_SIZE),
+			ceilDiv(aoRaw.width, WORKGROUP_SIZE),
+			ceilDiv(aoRaw.height, WORKGROUP_SIZE),
 			1
 		);
 		context.encoder.endComputePass();
@@ -568,11 +593,11 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			"ssao-blur-h",
 			resources.blurPipeline,
 			[
-				{ binding: 0, resource: targets.aoRaw },
+				{ binding: 0, resource: aoRaw },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
-				{ binding: 4, resource: targets.aoBlur },
+				{ binding: 4, resource: aoBlur },
 			],
 			"WebGPUSSAO_BlurBinding"
 		);
@@ -580,8 +605,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		context.encoder.setComputePipeline(resources.blurPipeline);
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(targets.aoBlur.width, WORKGROUP_SIZE),
-			ceilDiv(targets.aoBlur.height, WORKGROUP_SIZE),
+			ceilDiv(aoBlur.width, WORKGROUP_SIZE),
+			ceilDiv(aoBlur.height, WORKGROUP_SIZE),
 			1
 		);
 		context.encoder.endComputePass();
@@ -591,11 +616,11 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			"ssao-blur-v",
 			resources.blurPipeline,
 			[
-				{ binding: 0, resource: targets.aoBlur },
+				{ binding: 0, resource: aoBlur },
 				{ binding: 1, resource: targets.gMotionDepth },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
-				{ binding: 4, resource: targets.aoRaw },
+				{ binding: 4, resource: aoRaw },
 			],
 			"WebGPUSSAO_BlurBindingVertical"
 		);
@@ -603,8 +628,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		context.encoder.setComputePipeline(resources.blurPipeline);
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(targets.aoRaw.width, WORKGROUP_SIZE),
-			ceilDiv(targets.aoRaw.height, WORKGROUP_SIZE),
+			ceilDiv(aoRaw.width, WORKGROUP_SIZE),
+			ceilDiv(aoRaw.height, WORKGROUP_SIZE),
 			1
 		);
 		context.encoder.endComputePass();
@@ -616,7 +641,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.combinePipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.aoRaw },
+				{ binding: 1, resource: aoRaw },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: combineTarget },
@@ -959,6 +984,28 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 
 	public override getRequirements(): PostProcessPassRequirements {
 		return { gBuffer: ["depth", "normal"] };
+	}
+
+	public override getTransientResourceDescriptors(
+		request: PostProcessPassResolveRequest<ResolvedSSAOOptions>
+	): readonly PostProcessTransientDescriptor[] {
+		if (request.backend !== "webgpu") {
+			return [];
+		}
+		const options = resolveSSAOOptions(request.options);
+		const scale = 1 / options.downsample;
+		return [
+			{
+				id: WEBGPU_SSAO_RAW_TRANSIENT_ID,
+				widthScale: scale,
+				heightScale: scale,
+			},
+			{
+				id: WEBGPU_SSAO_BLUR_TRANSIENT_ID,
+				widthScale: scale,
+				heightScale: scale,
+			},
+		];
 	}
 }
 

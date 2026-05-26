@@ -31,11 +31,15 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessPassRequirements,
+	PostProcessTransientDescriptor,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
+const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
+const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
+const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 
 export type ResolvedSSROptions = Required<
 	Pick<
@@ -58,6 +62,8 @@ export interface WebGPUSSRContext {
 	readonly targets?: WebGPUFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
+	readonly ssrRaw?: IRenderTexture | null;
+	readonly hiZ?: IRenderTexture | null;
 	readonly historyRead?: IRenderTexture | null;
 	readonly historyWrite?: IRenderTexture | null;
 	readonly motionHistoryRead?: IRenderTexture | null;
@@ -203,6 +209,16 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
 				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
 			],
+			transients: [
+				{
+					property: "ssrRaw",
+					transientId: WEBGPU_SSR_RAW_TRANSIENT_ID,
+				},
+				{
+					property: "hiZ",
+					transientId: WEBGPU_HIZ_TRANSIENT_ID,
+				},
+			],
 			motionHistoryCopy: {
 				writeProperty: "motionHistoryWrite",
 			},
@@ -247,6 +263,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			!context.encoder ||
 			!context.targets ||
 			!context.frameBinding ||
+			!context.ssrRaw ||
+			!context.hiZ ||
 			!context.shared.sampler ||
 			!resources.tracePipeline ||
 			!resources.composePipeline ||
@@ -261,10 +279,12 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		}
 
 		const targets = context.targets;
+		const ssrRaw = context.ssrRaw;
+		const hiZ = context.hiZ;
 		const hiZMips = await context.shared.getHiZHelper().build({
 			encoder: context.encoder,
 			depth: targets.gMotionDepth,
-			hiZ: targets.hiZ,
+			hiZ,
 		});
 		if (hiZMips.length === 0) {
 			return false;
@@ -274,8 +294,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		context.shared.compute.writeBuffer(
 			resources.traceParams,
 			createSSRTraceParams(
-				targets.ssrRaw.width,
-				targets.ssrRaw.height,
+				ssrRaw.width,
+				ssrRaw.height,
 				options,
 				hiZMips.length - 1,
 				resolveSSRHistoryValid(request.histories),
@@ -290,12 +310,12 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				{ binding: 0, resource: targets.sceneColor },
 				{ binding: 1, resource: targets.gNormalRoughMetal },
 				{ binding: 2, resource: targets.gMotionDepth },
-				{ binding: 3, resource: targets.hiZ },
+				{ binding: 3, resource: hiZ },
 				{ binding: 4, resource: context.historyRead },
 				{ binding: 5, resource: context.motionHistoryRead },
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
-				{ binding: 8, resource: targets.ssrRaw },
+				{ binding: 8, resource: ssrRaw },
 			],
 			"WebGPUSSR_TraceBinding"
 		);
@@ -304,8 +324,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.setBindingGroup(1, context.frameBinding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(targets.ssrRaw.width, WORKGROUP_SIZE),
-			ceilDiv(targets.ssrRaw.height, WORKGROUP_SIZE),
+			ceilDiv(ssrRaw.width, WORKGROUP_SIZE),
+			ceilDiv(ssrRaw.height, WORKGROUP_SIZE),
 			1
 		);
 		context.encoder.endComputePass();
@@ -314,7 +334,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			context.shared,
 			resources,
 			context.encoder,
-			targets.ssrRaw,
+			ssrRaw,
 			context.historyWrite
 		);
 
@@ -334,7 +354,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			resources.composePipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.ssrRaw },
+				{ binding: 1, resource: ssrRaw },
 				{ binding: 2, resource: targets.gMotionDepth },
 				{ binding: 3, resource: context.shared.sampler },
 				{ binding: 4, resource: resources.composeParams },
@@ -555,6 +575,28 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 		request: PostProcessPassResolveRequest<ResolvedSSROptions>
 	): readonly PostProcessHistoryDescriptor[] {
 		return resolveSSRHistoryDescriptors(request);
+	}
+
+	public override getTransientResourceDescriptors(
+		request: PostProcessPassResolveRequest<ResolvedSSROptions>
+	): readonly PostProcessTransientDescriptor[] {
+		if (request.backend !== "webgpu") {
+			return [];
+		}
+		const options = resolveSSROptions(request.options);
+		const scale = 1 / options.downsample;
+		return [
+			{
+				id: WEBGPU_SSR_RAW_TRANSIENT_ID,
+				widthScale: scale,
+				heightScale: scale,
+			},
+			{
+				id: WEBGPU_HIZ_TRANSIENT_ID,
+				usage: WEBGPU_HIZ_TRANSIENT_USAGE,
+				mipMode: "full-chain",
+			},
+		];
 	}
 }
 

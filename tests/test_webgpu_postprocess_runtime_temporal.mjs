@@ -23,6 +23,11 @@ function createTemporalTargets(width = 32, height = 16) {
 		gNormalRoughMetal: createTexture(width, height, "g-normal"),
 		gMotionDepth: createTexture(width, height, "g-motion-depth"),
 		planarReflectionMask: createTexture(width, height, "planar-reflection-mask"),
+	};
+}
+
+function createTemporalTransients(width = 32, height = 16) {
+	return {
 		ssrRaw: createTexture(width, height, "ssr-raw"),
 		hiZ: createTexture(width, height, "hiz"),
 	};
@@ -68,6 +73,7 @@ function createSSRPassRequest(frameContext, histories, historyValid = true) {
 				write: { resource: histories.motionHistoryWrite },
 			},
 		},
+		transients: {},
 		pass: SSR_PASS,
 		passId: "ssr",
 		options: frameContext.postProcess.getOptions("ssr"),
@@ -97,6 +103,7 @@ function createVolumetricPassRequest(frameContext, histories, historyValid = tru
 				write: { resource: histories.motionHistoryWrite },
 			},
 		},
+		transients: {},
 		pass: VOLUMETRIC_PASS,
 		passId: "volumetric",
 		options: frameContext.postProcess.getOptions("volumetric"),
@@ -114,6 +121,10 @@ async function executeSSRImplementation(
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
 		histories = createTemporalHistories(
+			targets.sceneColor.width,
+			targets.sceneColor.height
+		),
+		transients = createTemporalTransients(
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
@@ -135,6 +146,8 @@ async function executeSSRImplementation(
 		historyWrite: histories.ssrHistoryWrite,
 		motionHistoryRead: histories.motionHistoryRead,
 		motionHistoryWrite: histories.motionHistoryWrite,
+		ssrRaw: transients.ssrRaw,
+		hiZ: transients.hiZ,
 		publishColorTarget: (texture) => {
 			published = texture;
 			targets.sceneColor = texture;
@@ -160,6 +173,10 @@ async function executeVolumetricImplementation(
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
 		histories = createTemporalHistories(
+			targets.sceneColor.width,
+			targets.sceneColor.height
+		),
+		transients = createTemporalTransients(
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
@@ -189,6 +206,7 @@ async function executeVolumetricImplementation(
 		reservoirHistoryWrite: histories.volumetricReservoirHistoryWrite,
 		motionHistoryRead: histories.motionHistoryRead,
 		motionHistoryWrite: histories.motionHistoryWrite,
+		hiZ: transients.hiZ,
 		publishColorTarget: (texture) => {
 			published = texture;
 			targets.sceneColor = texture;
@@ -365,6 +383,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const frameBinding = { label: "frame-binding" };
 	const targets = createTemporalTargets(16, 8);
+	const transients = createTemporalTransients(16, 8);
 	const frameContext = createPerspectiveFrameContext({});
 	const encoder = new FakeEncoder(backend);
 
@@ -373,6 +392,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		frameContext,
 		historyValid: false,
 		frameBinding,
+		transients,
 		encoder,
 	});
 	const firstViewCount = backend.textureViews.length;
@@ -390,6 +410,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		frameContext,
 		historyValid: false,
 		frameBinding,
+		transients,
 		encoder,
 	});
 	assert.equal(backend.textureViews.length, firstViewCount);
@@ -409,6 +430,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		historyValid: false,
 		frameBinding,
 		lightingState: null,
+		transients,
 		encoder,
 	});
 	assert.equal(backend.textureViews.length, firstViewCount);

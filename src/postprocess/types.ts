@@ -78,6 +78,17 @@ export interface PostProcessHistoryDescriptor {
 	readonly usage?: readonly string[];
 }
 
+export type PostProcessResourceMipMode = "single" | "full-chain";
+
+export interface PostProcessTransientDescriptor {
+	readonly id: string;
+	readonly widthScale?: number;
+	readonly heightScale?: number;
+	readonly format?: string;
+	readonly usage?: readonly string[];
+	readonly mipMode?: PostProcessResourceMipMode;
+}
+
 export interface PostProcessHistoryResolveRequest {
 	readonly frameContext: FrameContext;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
@@ -93,6 +104,7 @@ export interface PostProcessResourceDescriptor {
 	readonly height: number;
 	readonly format: string;
 	readonly usage: readonly string[];
+	readonly mipMode?: PostProcessResourceMipMode;
 }
 
 export interface PostProcessResourceHandle {
@@ -101,6 +113,7 @@ export interface PostProcessResourceHandle {
 	readonly width: number;
 	readonly height: number;
 	readonly format: string;
+	readonly mipMode?: PostProcessResourceMipMode;
 	readonly resource: unknown;
 }
 
@@ -112,6 +125,13 @@ export interface PostProcessHistorySlot {
 }
 
 export type PostProcessHistorySlots = Record<string, PostProcessHistorySlot>;
+
+export interface PostProcessTransientSlot {
+	readonly id: string;
+	readonly handle: PostProcessResourceHandle;
+}
+
+export type PostProcessTransientSlots = Record<string, PostProcessTransientSlot>;
 
 export interface PostProcessPassImplementationMetadata<TContextMetadata = unknown> {
 	/**
@@ -190,6 +210,7 @@ export interface PostProcessFrameRequest {
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly histories: PostProcessHistorySlots;
+	readonly transients: PostProcessTransientSlots;
 }
 
 export interface PostProcessPassRequest<TOptions = unknown>
@@ -232,6 +253,13 @@ export interface IPostProcessExecutor {
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle;
 	destroyResource(handle: PostProcessResourceHandle): void;
+	/**
+	 * Invalidates backend binding caches that may retain destroyed frame resources.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Drops backend-owned bind groups or equivalent cached bindings.
+	 */
+	invalidateResourceBindings?(): void;
 	beginFrame?(request: PostProcessFrameRequest): void | Promise<void>;
 	/**
 	 * Provides backend-specific low-level helpers to pass-owned implementations.

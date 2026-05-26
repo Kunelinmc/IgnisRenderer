@@ -1,5 +1,6 @@
 import type { FrameContext } from "../pipeline/types";
 import { PostProcessHistoryManager } from "./PostProcessHistoryManager";
+import { PostProcessTransientManager } from "./PostProcessTransientManager";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
 	getBuiltinPostProcessOrder,
@@ -16,6 +17,7 @@ import type {
 	PostProcessPassRequirements,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
+	PostProcessTransientDescriptor,
 } from "./types";
 import type {
 	PostProcessPass,
@@ -85,6 +87,7 @@ export function hasPostProcessExecutionPasses(
  */
 export class PostProcessPipeline {
 	private _history = new PostProcessHistoryManager();
+	private _transients = new PostProcessTransientManager();
 
 	/**
 	 * Destroys pipeline-owned history resources.
@@ -95,6 +98,7 @@ export class PostProcessPipeline {
 	 */
 	public destroy(executor: IPostProcessExecutor): void {
 		this._history.destroy(executor);
+		this._transients.destroy(executor);
 	}
 
 	/**
@@ -152,8 +156,19 @@ export class PostProcessPipeline {
 			width: Math.max(1, gBuffer.width),
 			height: Math.max(1, gBuffer.height),
 		};
-		const historyDescriptors = this._collectHistoryDescriptors(
+		const eligiblePasses = this._filterPassesByRequirements(
 			passes,
+			historyResolveRequest,
+			gBuffer,
+			warn
+		);
+		const historyDescriptors = this._collectHistoryDescriptors(
+			eligiblePasses,
+			historyResolveRequest,
+			warn
+		);
+		const transientDescriptors = this._collectTransientDescriptors(
+			eligiblePasses,
 			historyResolveRequest,
 			warn
 		);
@@ -165,32 +180,31 @@ export class PostProcessPipeline {
 			reset: frameContext.incremental.temporalHistoryReset,
 			signature: this._createHistorySignature(
 				frameContext,
-				orderedPasses,
+				eligiblePasses,
 				historyResolveRequest
 			),
 		});
+		const transientResult = this._transients.prepare({
+			executor,
+			descriptors: transientDescriptors,
+			width: historyResolveRequest.width,
+			height: historyResolveRequest.height,
+		});
+		if (transientResult.changed) {
+			executor.invalidateResourceBindings?.();
+		}
 		const frameRequest = {
 			frameContext,
 			postProcess,
 			gBuffer,
 			histories,
+			transients: transientResult.slots,
 		};
 		const executedPassIds: string[] = [];
 
 		await executor.beginFrame?.(frameRequest);
-		for (const resolved of passes) {
+		for (const resolved of eligiblePasses) {
 			const pass = resolved.pass;
-			const resolveRequest = this._createResolveRequest(
-				resolved,
-				historyResolveRequest
-			);
-			if (!this._requirementsSatisfied(pass.getRequirements(resolveRequest), gBuffer)) {
-				warn(
-					`postprocess-requirement-missing-${pass.id}`,
-					`Post-process pass "${pass.id}" is missing required G-buffer channels; skipping it`
-				);
-				continue;
-			}
 			const implementation = pass.getImplementation(executor.backend);
 			const passRequest = {
 				...frameRequest,
@@ -254,6 +268,28 @@ export class PostProcessPipeline {
 		return true;
 	}
 
+	private _filterPassesByRequirements(
+		passes: readonly ResolvedPostProcessPass[],
+		request: PostProcessHistoryResolveRequest,
+		gBuffer: PostProcessPipelineExecuteRequest["gBuffer"],
+		warn: (key: string, message: string) => void
+	): ResolvedPostProcessPass[] {
+		const eligible: ResolvedPostProcessPass[] = [];
+		for (const resolved of passes) {
+			const pass = resolved.pass;
+			const resolveRequest = this._createResolveRequest(resolved, request);
+			if (!this._requirementsSatisfied(pass.getRequirements(resolveRequest), gBuffer)) {
+				warn(
+					`postprocess-requirement-missing-${pass.id}`,
+					`Post-process pass "${pass.id}" is missing required G-buffer channels; skipping it`
+				);
+				continue;
+			}
+			eligible.push(resolved);
+		}
+		return eligible;
+	}
+
 	private _collectHistoryDescriptors(
 		passes: readonly ResolvedPostProcessPass[],
 		request: PostProcessHistoryResolveRequest,
@@ -284,6 +320,40 @@ export class PostProcessPipeline {
 		request: PostProcessHistoryResolveRequest
 	): readonly PostProcessHistoryDescriptor[] {
 		return resolved.pass.getHistoryDescriptors(
+			this._createResolveRequest(resolved, request)
+		);
+	}
+
+	private _collectTransientDescriptors(
+		passes: readonly ResolvedPostProcessPass[],
+		request: PostProcessHistoryResolveRequest,
+		warn: (key: string, message: string) => void
+	): PostProcessTransientDescriptor[] {
+		const descriptors = new Map<string, PostProcessTransientDescriptor>();
+		const descriptorKeys = new Map<string, string>();
+		for (const pass of passes) {
+			for (const transient of this._resolvePassTransientDescriptors(pass, request)) {
+				const key = this._createTransientDescriptorKey(transient);
+				const currentKey = descriptorKeys.get(transient.id);
+				if (currentKey && currentKey !== key) {
+					warn(
+						`postprocess-transient-conflict-${transient.id}`,
+						`Post-process transient "${transient.id}" was requested with incompatible descriptors; keeping the first descriptor`
+					);
+					continue;
+				}
+				descriptorKeys.set(transient.id, key);
+				descriptors.set(transient.id, transient);
+			}
+		}
+		return Array.from(descriptors.values());
+	}
+
+	private _resolvePassTransientDescriptors(
+		resolved: ResolvedPostProcessPass,
+		request: PostProcessHistoryResolveRequest
+	): readonly PostProcessTransientDescriptor[] {
+		return resolved.pass.getTransientResourceDescriptors(
 			this._createResolveRequest(resolved, request)
 		);
 	}
@@ -364,6 +434,20 @@ export class PostProcessPipeline {
 			descriptor.widthScale ?? 1,
 			descriptor.heightScale ?? 1,
 			descriptor.format ?? "rgba16float",
+			[...(descriptor.usage ?? ["sampled", "storage", "render-target"])]
+				.sort()
+				.join(","),
+		].join("|");
+	}
+
+	private _createTransientDescriptorKey(
+		descriptor: PostProcessTransientDescriptor
+	): string {
+		return [
+			descriptor.widthScale ?? 1,
+			descriptor.heightScale ?? 1,
+			descriptor.format ?? "rgba16float",
+			descriptor.mipMode ?? "single",
 			[...(descriptor.usage ?? ["sampled", "storage", "render-target"])]
 				.sort()
 				.join(","),

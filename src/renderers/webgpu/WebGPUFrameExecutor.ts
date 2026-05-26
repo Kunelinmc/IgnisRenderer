@@ -2,8 +2,6 @@ import type {
 	DrawPacket,
 	FrameContext,
 	FramePass,
-	SSAOOptions,
-	SSROptions,
 } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
@@ -14,10 +12,6 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import {
-	DEFAULT_SSAO_OPTIONS,
-	DEFAULT_SSR_OPTIONS,
-} from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	AddressMode,
@@ -78,9 +72,6 @@ import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
 } from "./WebGPUPlanarReflectionPass";
-import {
-	resolveSSAODownsample,
-} from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 
 type WebGPUFramePassHandler = (context: FrameContext) => Promise<void>;
 
@@ -205,8 +196,6 @@ export class WebGPUFrameExecutor {
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
 	private _targetHeight = 0;
-	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
-	private _targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 	private _targetMSAASampleCount = 1;
 	private _hasPresentedInFrame = false;
 	private _mrtEnabled = true;
@@ -309,24 +298,9 @@ export class WebGPUFrameExecutor {
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
 		if (this._mrtEnabled) {
-			const ssaoOptions =
-				context.postProcess.getOptions<SSAOOptions>("ssao") ??
-				DEFAULT_SSAO_OPTIONS;
-			const ssrOptions =
-				context.postProcess.getOptions<SSROptions>("ssr") ??
-				DEFAULT_SSR_OPTIONS;
-			const ssaoDownsample = resolveSSAODownsample(
-				ssaoOptions.downsample
-			);
-			const ssrDownsample = clampDownsample(
-				ssrOptions.downsample,
-				DEFAULT_SSR_OPTIONS.downsample
-			);
 			this._ensureFrameTargets(
 				targetWidth,
 				targetHeight,
-				ssaoDownsample,
-				ssrDownsample,
 				this._deferredEnabled
 			);
 			this._resources.setSceneTargetMode(
@@ -349,6 +323,10 @@ export class WebGPUFrameExecutor {
 				desc.format === "rgba8unorm" ?
 					TextureFormat.RGBA8Unorm
 				:	TextureFormat.RGBA16Float,
+			mipLevelCount:
+				desc.mipMode === "full-chain" ?
+					Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
+				:	undefined,
 			usage:
 				TextureUsage.TextureBinding |
 				TextureUsage.StorageBinding |
@@ -363,6 +341,7 @@ export class WebGPUFrameExecutor {
 			width: desc.width,
 			height: desc.height,
 			format: desc.format,
+			mipMode: desc.mipMode ?? "single",
 			resource: texture,
 		};
 	}
@@ -463,6 +442,14 @@ export class WebGPUFrameExecutor {
 		return (slot?.resource as IRenderTexture | null) ?? null;
 	}
 
+	private _getPostProcessTransientTexture(
+		request: PostProcessPassRequest,
+		id: string
+	): IRenderTexture | null {
+		const slot = request.transients?.[id];
+		return (slot?.handle.resource as IRenderTexture | null) ?? null;
+	}
+
 	private _createWebGPUPostProcessContext(
 		metadata: WebGPUPostProcessContextMetadata,
 		request: PostProcessPassRequest | null,
@@ -506,6 +493,12 @@ export class WebGPUFrameExecutor {
 					binding.side
 				);
 			}
+			for (const binding of metadata.transients ?? []) {
+				context[binding.property] = this._getPostProcessTransientTexture(
+					request,
+					binding.transientId
+				);
+			}
 			const motionCopy = metadata.motionHistoryCopy;
 			if (motionCopy) {
 				const method = motionCopy.method ?? "writeMotionHistoryFromCurrent";
@@ -528,6 +521,10 @@ export class WebGPUFrameExecutor {
 		this._destroyFrameTargets();
 		this._postRuntime.invalidateBindings();
 		this._planarReflectionPass.destroy();
+	}
+
+	public invalidatePostProcessBindings(): void {
+		this._postRuntime.invalidateBindings();
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -983,8 +980,6 @@ export class WebGPUFrameExecutor {
 	private _ensureFrameTargets(
 		width: number,
 		height: number,
-		ssaoDownsample: number,
-		ssrDownsample: number,
 		enableDeferred: boolean
 	): void {
 		const msaaSampleCount = this._resolveMSAASampleCount();
@@ -997,8 +992,6 @@ export class WebGPUFrameExecutor {
 			this._frameTargets &&
 			this._targetWidth === width &&
 			this._targetHeight === height &&
-			this._targetSSAODownsample === ssaoDownsample &&
-			this._targetSSRDownsample === ssrDownsample &&
 			this._targetMSAASampleCount === msaaSampleCount &&
 			this._targetDeferredEnabled === enableDeferred
 		) {
@@ -1030,8 +1023,6 @@ export class WebGPUFrameExecutor {
 			this._destroyFrameTargets();
 			this._targetWidth = width;
 			this._targetHeight = height;
-			this._targetSSAODownsample = ssaoDownsample;
-			this._targetSSRDownsample = ssrDownsample;
 			this._targetMSAASampleCount = msaaSampleCount;
 			this._targetDeferredEnabled = enableDeferred;
 
@@ -1238,41 +1229,6 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.R8Unorm
 			);
-			const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample));
-			const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample));
-			const ssrRaw = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				ssrWidth,
-				ssrHeight,
-				TextureFormat.RGBA16Float
-			);
-			const aoRaw = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				Math.max(1, Math.floor(width / ssaoDownsample)),
-				Math.max(1, Math.floor(height / ssaoDownsample)),
-				TextureFormat.RGBA16Float
-			);
-			const aoBlur = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				Math.max(1, Math.floor(width / ssaoDownsample)),
-				Math.max(1, Math.floor(height / ssaoDownsample)),
-				TextureFormat.RGBA16Float
-			);
-			const hiZ = acquireTexture(
-				"hiz",
-				{
-					usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-					label: "WebGPUHiZDepth",
-					mipLevelCount: (poolWidth, poolHeight) =>
-						Math.floor(Math.log2(Math.max(poolWidth, poolHeight))) + 1,
-				},
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
 			const useMSAA = msaaSampleCount > 1;
 			const msaaPoolKey = `msaa-${msaaSampleCount}`;
 			const msaaPoolOptions: TexturePoolOptions = {
@@ -1356,10 +1312,6 @@ export class WebGPUFrameExecutor {
 				oitReveal,
 				oitSceneColorCopy,
 				planarReflectionMask,
-				aoRaw,
-				aoBlur,
-				ssrRaw,
-				hiZ,
 			};
 			this._msaaTargets = nextMSAATargets;
 			this._frameTargets = nextFrameTargets;
@@ -1381,8 +1333,6 @@ export class WebGPUFrameExecutor {
 				this._ensureFrameTargets(
 					width,
 					height,
-					ssaoDownsample,
-					ssrDownsample,
 					false
 				);
 				return;
@@ -1405,8 +1355,6 @@ export class WebGPUFrameExecutor {
 				this._ensureFrameTargets(
 					width,
 					height,
-					ssaoDownsample,
-					ssrDownsample,
 					this._deferredEnabled
 				);
 				return;
@@ -1464,10 +1412,6 @@ export class WebGPUFrameExecutor {
 			textures.add(this._frameTargets.oitReveal);
 			textures.add(this._frameTargets.oitSceneColorCopy);
 			textures.add(this._frameTargets.planarReflectionMask);
-			textures.add(this._frameTargets.aoRaw);
-			textures.add(this._frameTargets.aoBlur);
-			textures.add(this._frameTargets.ssrRaw);
-			textures.add(this._frameTargets.hiZ);
 		}
 		if (this._msaaTargets) {
 			textures.add(this._msaaTargets.sceneColorMain);
@@ -1494,8 +1438,6 @@ export class WebGPUFrameExecutor {
 		this._destroyDeferredBindings();
 		this._targetWidth = 0;
 		this._targetHeight = 0;
-		this._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
-		this._targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 		this._targetMSAASampleCount = 1;
 		this._targetDeferredEnabled = false;
 		this._oitActive = false;
@@ -3132,11 +3074,4 @@ export class WebGPUFrameExecutor {
 			}
 		);
 	}
-}
-
-function clampDownsample(value: unknown, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return fallback;
-	}
-	return Math.min(8, Math.max(1, Math.floor(value)));
 }

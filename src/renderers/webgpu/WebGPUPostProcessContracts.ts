@@ -48,6 +48,23 @@ export interface WebGPUPostProcessMotionHistoryCopyMetadata {
 	readonly method?: string;
 }
 
+export interface WebGPUPostProcessTransientBindingMetadata {
+	/**
+	 * Context property that receives the resolved transient texture.
+	 *
+	 * @remarks The value is read from `PostProcessPassRequest.transients`.
+	 * @sideEffects None.
+	 */
+	readonly property: string;
+	/**
+	 * Pipeline-owned transient id to resolve.
+	 *
+	 * @remarks Must match a descriptor returned by the logical pass.
+	 * @sideEffects None.
+	 */
+	readonly transientId: string;
+}
+
 export interface WebGPUPostProcessContextMetadata {
 	/**
 	 * Backend that owns this context metadata.
@@ -92,6 +109,13 @@ export interface WebGPUPostProcessContextMetadata {
 	 * @sideEffects None.
 	 */
 	readonly histories?: readonly WebGPUPostProcessHistoryBindingMetadata[];
+	/**
+	 * Transient texture bindings to pack into the context.
+	 *
+	 * @remarks Each entry resolves one `request.transients` slot by id.
+	 * @sideEffects None.
+	 */
+	readonly transients?: readonly WebGPUPostProcessTransientBindingMetadata[];
 	/**
 	 * Motion-history copy callback to pack into the context.
 	 *
@@ -185,8 +209,4 @@ export interface WebGPUFrameTargets {
 	oitReveal: IRenderTexture;
 	oitSceneColorCopy: IRenderTexture;
 	planarReflectionMask: IRenderTexture;
-	aoRaw: IRenderTexture;
-	aoBlur: IRenderTexture;
-	ssrRaw: IRenderTexture;
-	hiZ: IRenderTexture;
 }

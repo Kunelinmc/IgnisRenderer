@@ -13,6 +13,8 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPass.order` may refine ordering within a placement bucket. It must not be used as a cross-placement dependency mechanism.
 - `PostProcessPass.getRequirements(request).gBuffer` must list required `LogicalGBufferSemantic` channels.
 - `PostProcessPass.getHistoryDescriptors(request)` must list temporal resources owned by `PostProcessPipeline`.
+- `PostProcessPass.getTransientResourceDescriptors(request)` must list single-frame resources owned by `PostProcessPipeline`.
+- `PostProcessPass.getTransientResourceDescriptors(request)` must return an empty list when a pass does not require transient resources for `request.backend`.
 - `PostProcessPass.shouldExecute(request)` may exclude an enabled snapshot pass from a specific frame without changing registry enabled state.
 - `PostProcessPass.shouldExecute(request)` must be deterministic for the supplied `request` and must not allocate backend resources.
 - `PostProcessPass.shouldExecute(request)` must return `true` by default for custom passes that do not override it.
@@ -41,9 +43,11 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - Backends must not expose `postProcessCapabilities`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
 - `IPostProcessExecutor.destroyResource(handle)` must release resources allocated by `createResource(desc)`.
+- `IPostProcessExecutor.invalidateResourceBindings()` may invalidate backend bind-group or descriptor caches after transient resources are recreated.
 - `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations based on `PostProcessPassImplementation.metadata.context`.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
 - `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`, or `null` when the pass falls back to `IPostProcessExecutor.executePass(passId, request)`.
+- `PostProcessPassRequest.transients` must contain the current frame's transient slots keyed by transient id.
 - `PostProcessPassExecutionContextRequest` must contain the full `PostProcessPassRequest` contract and a non-null `implementation`.
 - `PostProcessPipeline` must call `IPostProcessExecutor.getPassExecutionContext(request)` only when the selected implementation exposes `execute()`.
 - Backends must use `PostProcessPassExecutionContextRequest.implementation` and its `metadata.context` as the execution context contract; they must not infer context shape from pass id strings.
@@ -56,6 +60,11 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `LogicalGBufferBridge.worldPosition.source` must be `"derived"` unless a future contract explicitly defines a physical world-position channel.
 - `PostProcessPipeline` must invalidate temporal histories on camera signature changes, feature signature changes, explicit temporal resets, and resize.
 - `PostProcessPipeline` must recreate temporal resources only when dimensions, format, usage, or backend kind changes.
+- `PostProcessPipeline` must recreate transient resources only when dimensions, format, usage, mip mode, or backend kind changes.
+- `PostProcessPipeline` must collect history and transient descriptors only from passes whose G-buffer requirements are satisfied.
+- `PostProcessPipeline` must keep temporal history validity separate from transient resource lifetime.
+- `PostProcessResourceDescriptor.mipMode` may be `"single"` or `"full-chain"`, and omitted values must behave as `"single"`.
+- `PostProcessTransientManager` must destroy transient resources that are not requested by the current eligible pass set.
 - The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `fxaa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `ssao` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
@@ -80,6 +89,7 @@ import {
 	PostProcessPass,
 	type PostProcessHistoryDescriptor,
 	type PostProcessPassResolveRequest,
+	type PostProcessTransientDescriptor,
 } from "ignisrenderer";
 
 interface SoftGlowOptions {
@@ -138,6 +148,18 @@ class CustomSoftGlowPass extends PostProcessPass<
 			usage: ["sampled", "storage", "render-target"],
 		}];
 	}
+
+	public override getTransientResourceDescriptors(
+		request: PostProcessPassResolveRequest<Required<SoftGlowOptions>>
+	): readonly PostProcessTransientDescriptor[] {
+		return [{
+			id: "custom-soft-glow:temp",
+			widthScale: request.options.halfRes ? 0.5 : 1,
+			heightScale: request.options.halfRes ? 0.5 : 1,
+			format: "rgba16float",
+			usage: ["sampled", "storage", "render-target"],
+		}];
+	}
 }
 
 renderer.postProcess.registerPass(new CustomSoftGlowPass());
@@ -148,12 +170,14 @@ bun tests/test_postprocess_public_api.mjs
 bun tests/test_screen_space_ambient_occlusion_pass.mjs
 bun tests/test_screen_space_global_illumination_pass.mjs
 bun tests/test_temporal_anti_aliasing_pass.mjs
+bun tests/test_webgpu_postprocess_runtime_temporal.mjs
 ```
 
 ## Errors & Diagnostics
 - `postprocess-requirement-missing-<passId>` must be emitted when required logical G-buffer channels are unavailable.
 - `renderer.postProcess.registerPass(pass)` must throw when `pass` is not a `PostProcessPass`.
 - `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
+- `postprocess-transient-conflict-<transientId>` must be emitted when eligible passes request incompatible descriptors for the same transient id.
 
 ## Compatibility / Breaking Changes
 - Backend-specific public post-process graph registration is removed.
@@ -165,6 +189,9 @@ bun tests/test_temporal_anti_aliasing_pass.mjs
 - `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.
 - `PostProcessPassRegistry.destroyPasses(backend)` is added for pass-owned implementation destruction.
 - `PostProcessPass.getHistoryDescriptors(request)` replaces static descriptor `history` and `resolveHistory` fields.
+- `PostProcessPass.getTransientResourceDescriptors(request)` is added for single-frame pipeline-owned resources.
+- `PostProcessPassRequest.transients` is added for transient resource access.
+- `PostProcessResourceDescriptor.mipMode` is added for single-mip and full-chain resources.
 - `PostProcessPass.shouldExecute(request)` is added for pass-owned frame-level execution predicates.
 - `PostProcessor` is removed from the public API. Software built-in post-process behavior is owned by pass implementations under `src/postprocess/passes/`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.

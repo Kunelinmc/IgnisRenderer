@@ -3,18 +3,19 @@
 This document defines the WebGPU-specific behavior behind the cross-backend post-process contract.
 
 ## Background
-WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostProcessExecutor`. The public extension point is `renderer.postProcess.registerPass(descriptor)`. WebGPU-specific runtime objects remain internal implementation details used by `WebGPUPostProcessExecutor` and frame delegates.
+WebGPU post-processing is driven through `PostProcessPipeline` and `IPostProcessExecutor`. The public extension point is `renderer.postProcess.registerPass(pass)`. WebGPU-specific runtime objects remain internal implementation details used by `WebGPUBackend` and frame delegates.
 
 ## API/Contract
-- `renderer.postProcess.registerPass(descriptor)` must register a logical `PostProcessPassDescriptor`.
-- A WebGPU custom pass must include `descriptor.implementations.webgpu`.
-- A WebGPU custom pass should use `descriptor.placement` and optional `descriptor.order` to enter the fixed post-process sequence.
+- `renderer.postProcess.registerPass(pass)` must register a `PostProcessPass` instance.
+- A WebGPU custom pass must include a `webgpu` entry in `PostProcessPassConfig.implementations`.
+- A WebGPU custom pass should use `PostProcessPass.placement` and optional `PostProcessPass.order` to enter the fixed post-process sequence.
 - `WebGPUBackend.postProcessExecutor.backend` must be `"webgpu"`.
 - `WebGPUBackend.postProcessExecutor.executePass(passId, request)` must dispatch backend-owned fallback post-process passes.
 - `WebGPUBackend.postProcessExecutor.getPassExecutionContext(request)` may provide low-level helpers for pass-owned WebGPU implementations.
 - `PostProcessPassImplementation.metadata.context.backend` must be `"webgpu"` for WebGPU context packing.
 - `PostProcessPassImplementation.metadata.context.kind` must be `"screen"` or `"present"`.
-- `PostProcessPassImplementation.metadata.context` may request `publishColorTarget`, `frameBinding`, `lightingState`, history bindings, and a motion-history copy callback.
+- `PostProcessPassImplementation.metadata.context` may request `publishColorTarget`, `frameBinding`, `lightingState`, history bindings, transient bindings, and a motion-history copy callback.
+- `WebGPUPostProcessContextMetadata.transients` must map context properties to `PostProcessPassRequest.transients` ids.
 - `PostProcessPassImplementation.metadata.warmupHints` may list WebGPU runtime warmup hint ids.
 - `PostProcessPassExecutionContextRequest.implementation.metadata.context` must define whether WebGPU provides low-level helpers.
 - `PostProcessPassExecutionContextRequest.pass.builtIn` must classify engine-owned passes and must not be required for WebGPU context packing.
@@ -25,59 +26,91 @@ WebGPU post-processing is now driven through `PostProcessPipeline` and `IPostPro
 - WebGPU depth channels must declare `depthEncoding: "hardware"` unless the implementation provides a linearized depth texture.
 - WebGPU motion channels must declare `motionEncoding: "ndc-delta"` when motion vectors are available.
 - WebGPU temporal passes must read history resources from `request.histories`.
+- WebGPU transient resources must be read from injected context properties declared by `WebGPUPostProcessContextMetadata.transients`.
 - WebGPU temporal passes must return `updatedHistoryIds` or `historyUpdated` when they write pipeline-owned history resources.
-- The built-in `taa`, `fxaa`, and `ssr` WebGPU kernels must be pass-owned implementations.
+- The built-in `taa`, `fxaa`, `ssao`, `ssr`, and `volumetric` WebGPU kernels must be pass-owned implementations.
+- The built-in WebGPU `ssao` pass must request `ssao:raw` and `ssao:blur` transients sized by its resolved `downsample` option.
+- The built-in WebGPU `ssr` pass must request `ssr:raw` sized by its resolved `downsample` option and the shared `hiz` full-chain transient.
+- The built-in WebGPU `volumetric` pass must request the same shared `hiz` full-chain transient as `ssr`.
+- `WebGPUFrameTargets` must not contain post-process transient textures such as SSAO intermediates, SSR intermediates, or Hi-Z textures.
 - WebGPU executor resource allocation must use backend-owned texture creation and destruction APIs.
+- `WebGPUBackend.postProcessExecutor.createResource(desc)` must create a full mip chain when `desc.mipMode` is `"full-chain"`.
+- `WebGPUBackend.postProcessExecutor.invalidateResourceBindings()` must invalidate post-process binding caches when transient resources are recreated.
 - WebGPU backends must not expose a public `postProcess` facade or backend-level post-process registration methods.
 
 ## Usage
 ```ts
-import type { PostProcessPassDescriptor } from "ignisrenderer";
+import {
+	PostProcessPass,
+	type PostProcessPassResolveRequest,
+	type PostProcessTransientDescriptor,
+} from "ignisrenderer";
 
-const descriptor: PostProcessPassDescriptor = {
-	id: "custom-webgpu-edge",
-	placement: "ldr",
-	order: 5,
-	incremental: {
-		firstPass: "custom-webgpu-edge",
-		grade: "light",
-		inflationRadius: 2,
-	},
-	isEnabled(state) {
-		return state.enabled["custom-webgpu-edge"] === true;
-	},
-	implementations: {
-		webgpu: {
-			id: "custom-webgpu-edge",
-			metadata: {
-				context: {
-					backend: "webgpu",
-					kind: "screen",
-					publishColorTarget: true,
+class CustomWebGPUResolvePass extends PostProcessPass {
+	public constructor() {
+		super({
+			id: "custom-webgpu-resolve",
+			placement: "ldr",
+			order: 5,
+			enabled: true,
+			implementations: {
+				webgpu: {
+					id: "custom-webgpu-resolve:webgpu",
+					metadata: {
+						context: {
+							backend: "webgpu",
+							kind: "screen",
+							publishColorTarget: true,
+							transients: [{
+								property: "scratch",
+								transientId: "custom-webgpu-resolve:scratch",
+							}],
+						},
+					},
+					execute(_request, context) {
+						const webgpuContext = context as
+							| { scratch?: unknown }
+							| undefined;
+						return webgpuContext?.scratch ? { ran: true } : { ran: false };
+					},
 				},
 			},
-		},
-	},
-};
+		});
+	}
 
-renderer.postProcess.registerPass(descriptor);
-renderer.postProcess.enable("custom-webgpu-edge");
+	public override getTransientResourceDescriptors(
+		_request: PostProcessPassResolveRequest
+	): readonly PostProcessTransientDescriptor[] {
+		return [{
+			id: "custom-webgpu-resolve:scratch",
+			format: "rgba16float",
+			usage: ["sampled", "storage", "render-target"],
+		}];
+	}
+}
+
+renderer.postProcess.registerPass(new CustomWebGPUResolvePass());
 ```
 
 ```bash
+bun tests/test_postprocess_public_api.mjs
 bun tests/test_webgpu_postprocess_runtime_spatial.mjs
 bun tests/test_webgpu_postprocess_runtime_temporal.mjs
 bun tests/test_webgpu_postprocess_runtime_screen.mjs
 ```
 
 ## Errors & Diagnostics
-- `Unknown post-process pass "<id>".` must be thrown when `renderer.postProcess.enable(id)` is called before `renderer.postProcess.registerPass(descriptor)`.
+- `renderer.postProcess.registerPass(pass)` must throw when `pass` is not a `PostProcessPass`.
+- `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
 - `postprocess-requirement-missing-<passId>` must be emitted when the WebGPU G-buffer bridge lacks a required semantic channel.
+- `postprocess-transient-conflict-<transientId>` must be emitted when eligible passes request incompatible transient descriptors.
 - WebGPU device allocation failures during `createResource(desc)` must propagate as backend resource allocation errors.
 
 ## Compatibility / Breaking Changes
 - `WebGPUPostProcessPassPlugin` is removed from the public API.
 - `WebGPUBackend.postProcess` is removed.
 - `WebGPUBackend.postProcess.registerPass(pass)` and `WebGPUBackend.postProcess.unregisterPass(id)` are removed.
-- Public custom passes must migrate to `PostProcessPassDescriptor` and `renderer.postProcess.registerPass(descriptor)`.
+- Public custom passes must migrate to `PostProcessPass` and `renderer.postProcess.registerPass(pass)`.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must migrate to `placement` and optional `order`.
+- `WebGPUFrameTargets.aoRaw`, `WebGPUFrameTargets.aoBlur`, `WebGPUFrameTargets.ssrRaw`, and `WebGPUFrameTargets.hiZ` are removed.
+- WebGPU pass-owned implementations that need temporary textures must declare `getTransientResourceDescriptors(request)` and `metadata.context.transients`.

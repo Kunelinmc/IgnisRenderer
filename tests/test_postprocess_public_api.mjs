@@ -9,6 +9,7 @@ import {
 	PostProcessPass,
 	PostProcessPassRegistry,
 	PostProcessPipeline,
+	PostProcessTransientManager,
 	resolvePostProcessExecutionOrder,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
@@ -28,6 +29,7 @@ class FakeExecutor {
 		this.destroyed = [];
 		this.executed = [];
 		this.ownedExecuted = [];
+		this.invalidatedBindings = 0;
 	}
 
 	createResource(desc) {
@@ -37,6 +39,8 @@ class FakeExecutor {
 			width: desc.width,
 			height: desc.height,
 			format: desc.format,
+			usage: desc.usage,
+			mipMode: desc.mipMode ?? "single",
 			resource: { desc },
 		};
 		this.created.push(handle);
@@ -54,8 +58,13 @@ class FakeExecutor {
 			options: request.options,
 			startPassId: request.startPassId,
 			histories: request.histories,
+			transients: request.transients,
 		});
 		return { ran: true };
+	}
+
+	invalidateResourceBindings() {
+		this.invalidatedBindings++;
 	}
 
 	getPassExecutionContext(request) {
@@ -161,6 +170,19 @@ class SkippingPass extends CustomPass {
 class ConditionalPass extends CustomPass {
 	shouldExecute(request) {
 		return request.frameContext?.transient.get("run-conditional-pass") === true;
+	}
+}
+
+class TransientPass extends CustomPass {
+	constructor(id, descriptors) {
+		super(id, {
+			enabled: true,
+		});
+		this._descriptors = descriptors;
+	}
+
+	getTransientResourceDescriptors() {
+		return this._descriptors;
 	}
 }
 
@@ -503,6 +525,13 @@ async function testSSRHistorySignatureUsesOptions() {
 	const firstSSRRead = executor.created.find((handle) => handle.id === "ssr:read");
 	assert.equal(firstSSRRead.width, 32);
 	assert.equal(firstSSRRead.height, 16);
+	const firstSSRRaw = executor.created.find((handle) => handle.id === "ssr:raw");
+	assert.equal(firstSSRRaw.width, 32);
+	assert.equal(firstSSRRaw.height, 16);
+	const firstHiZ = executor.created.find((handle) => handle.id === "hiz");
+	assert.equal(firstHiZ.width, 64);
+	assert.equal(firstHiZ.height, 32);
+	assert.equal(firstHiZ.mipMode, "full-chain");
 
 	await pipeline.execute({
 		frameContext: createFrameContext(createSnapshot(4)),
@@ -515,6 +544,14 @@ async function testSSRHistorySignatureUsesOptions() {
 	assert.equal(recreatedSSRReads.at(-1).width, 16);
 	assert.equal(recreatedSSRReads.at(-1).height, 8);
 	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:read"));
+	const recreatedSSRRaw = executor.created.filter(
+		(handle) => handle.id === "ssr:raw"
+	);
+	assert.equal(recreatedSSRRaw.at(-1).width, 16);
+	assert.equal(recreatedSSRRaw.at(-1).height, 8);
+	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:raw"));
+	assert.equal(executor.created.filter((handle) => handle.id === "hiz").length, 1);
+	assert.equal(executor.invalidatedBindings, 2);
 }
 
 async function testRanFalsePassIsExcludedFromExecutedIds() {
@@ -576,6 +613,100 @@ function testHistoryManagerInvalidationAndResize() {
 	assert.equal(executor.destroyed.length, 2);
 }
 
+function testTransientManagerReuseRecreateAndDestroy() {
+	const manager = new PostProcessTransientManager();
+	const executor = new FakeExecutor("webgpu");
+	const descriptors = [
+		{
+			id: "tmp",
+			widthScale: 0.5,
+			heightScale: 0.25,
+			format: "rgba8unorm",
+			mipMode: "full-chain",
+			usage: ["sampled", "storage"],
+		},
+	];
+
+	let result = manager.prepare({
+		executor,
+		descriptors,
+		width: 64,
+		height: 32,
+	});
+	assert.equal(result.changed, true);
+	assert.equal(result.slots.tmp.handle.width, 32);
+	assert.equal(result.slots.tmp.handle.height, 8);
+	assert.equal(result.slots.tmp.handle.format, "rgba8unorm");
+	assert.equal(result.slots.tmp.handle.mipMode, "full-chain");
+	assert.equal(executor.created.length, 1);
+	const firstHandle = result.slots.tmp.handle;
+
+	result = manager.prepare({
+		executor,
+		descriptors,
+		width: 64,
+		height: 32,
+	});
+	assert.equal(result.changed, false);
+	assert.strictEqual(result.slots.tmp.handle, firstHandle);
+	assert.equal(executor.created.length, 1);
+
+	result = manager.prepare({
+		executor,
+		descriptors,
+		width: 32,
+		height: 32,
+	});
+	assert.equal(result.changed, true);
+	assert.equal(result.slots.tmp.handle.width, 16);
+	assert.equal(result.slots.tmp.handle.height, 8);
+	assert.equal(executor.created.length, 2);
+	assert.strictEqual(executor.destroyed[0], firstHandle);
+
+	result = manager.prepare({
+		executor,
+		descriptors: [],
+		width: 32,
+		height: 32,
+	});
+	assert.equal(result.changed, true);
+	assert.deepEqual(result.slots, {});
+	assert.equal(executor.destroyed.length, 2);
+}
+
+async function testTransientDescriptorConflictWarnsAndKeepsFirst() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new TransientPass("transient-a", [
+		{
+			id: "shared",
+			widthScale: 1,
+		},
+	]));
+	registry.registerPass(new TransientPass("transient-b", [
+		{
+			id: "shared",
+			widthScale: 0.5,
+		},
+	]));
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+	const warnings = [];
+
+	await pipeline.execute({
+		frameContext: createFrameContext(registry.createSnapshot("webgpu")),
+		executor,
+		gBuffer: createGBufferBridge(),
+		warn: (key) => warnings.push(key),
+	});
+
+	assert.deepEqual(warnings, ["postprocess-transient-conflict-shared"]);
+	const shared = executor.created.find((handle) => handle.id === "shared");
+	assert.equal(shared.width, 64);
+	assert.equal(shared.height, 32);
+	assert.equal(executor.created.filter((handle) => handle.id === "shared").length, 1);
+	assert.equal(executor.invalidatedBindings, 1);
+}
+
 function testLogicalGBufferBridgeHelperShape() {
 	const support = createNoopPostProcessSupport(
 		"software"
@@ -605,6 +736,8 @@ async function run() {
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
 	testHistoryManagerInvalidationAndResize();
+	testTransientManagerReuseRecreateAndDestroy();
+	await testTransientDescriptorConflictWarnsAndKeepsFirst();
 	testLogicalGBufferBridgeHelperShape();
 	console.log("Postprocess public API tests passed");
 }

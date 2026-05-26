@@ -26,6 +26,7 @@ import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderS
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type {
 	PostProcessHistoryDescriptor,
@@ -33,12 +34,15 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassRequirements,
 	PostProcessPassResult,
+	PostProcessTransientDescriptor,
 } from "../types";
 import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
+const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
+const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 
 export interface SoftwareVolumetricLightingContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
@@ -50,6 +54,7 @@ export interface WebGPUVolumetricLightingContext {
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
 	readonly lightingState?: WebGPULightingState | null;
+	readonly hiZ?: IRenderTexture | null;
 	readonly historyRead?: IRenderTexture | null;
 	readonly historyWrite?: IRenderTexture | null;
 	readonly reservoirHistoryRead?: IRenderTexture | null;
@@ -136,6 +141,12 @@ export class WebGPUVolumetricLightingImplementation
 				},
 				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
 				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+			],
+			transients: [
+				{
+					property: "hiZ",
+					transientId: WEBGPU_HIZ_TRANSIENT_ID,
+				},
 			],
 			motionHistoryCopy: {
 				writeProperty: "motionHistoryWrite",
@@ -239,6 +250,7 @@ export class WebGPUVolumetricLightingImplementation
 			!context.encoder ||
 			!context.targets ||
 			!context.frameBinding ||
+			!context.hiZ ||
 			!context.shared.sampler ||
 			!resources.pipeline ||
 			!resources.params ||
@@ -255,7 +267,7 @@ export class WebGPUVolumetricLightingImplementation
 		const hiZMips = await context.shared.getHiZHelper().build({
 			encoder: context.encoder,
 			depth: context.targets.gMotionDepth,
-			hiZ: context.targets.hiZ,
+			hiZ: context.hiZ,
 		});
 		if (hiZMips.length === 0) {
 			return false;
@@ -392,7 +404,7 @@ export class WebGPUVolumetricLightingImplementation
 			[
 				{ binding: 0, resource: context.targets.sceneColor },
 				{ binding: 1, resource: context.targets.gMotionDepth },
-				{ binding: 2, resource: context.targets.hiZ },
+				{ binding: 2, resource: context.hiZ },
 				{ binding: 3, resource: context.historyRead },
 				{ binding: 4, resource: context.motionHistoryRead },
 				{ binding: 5, resource: context.shared.sampler },
@@ -652,6 +664,21 @@ export class VolumetricLightingPass extends PostProcessPass<
 			{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
 			{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
 			{ id: "motion", usage: MOTION_HISTORY_USAGE },
+		];
+	}
+
+	public override getTransientResourceDescriptors(
+		request: PostProcessPassResolveRequest<VolumetricOptions>
+	): readonly PostProcessTransientDescriptor[] {
+		if (request.backend !== "webgpu") {
+			return [];
+		}
+		return [
+			{
+				id: WEBGPU_HIZ_TRANSIENT_ID,
+				usage: WEBGPU_HIZ_TRANSIENT_USAGE,
+				mipMode: "full-chain",
+			},
 		];
 	}
 }

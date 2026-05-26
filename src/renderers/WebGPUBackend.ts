@@ -238,6 +238,7 @@ export class WebGPUBackend implements IRenderBackend {
 		backend: "webgpu",
 		createResource: (desc) => this._createPostProcessResource(desc),
 		destroyResource: (handle) => this._destroyPostProcessResource(handle),
+		invalidateResourceBindings: () => this._invalidatePostProcessBindings(),
 		beginFrame: (_request) => {},
 		getPassExecutionContext: (request) =>
 			this._getPostProcessPassExecutionContext(request),
@@ -743,6 +744,10 @@ export class WebGPUBackend implements IRenderBackend {
 
 	private _destroyPostProcessResource(handle: PostProcessResourceHandle): void {
 		this._frameExecutor?.destroyPostProcessResource(handle);
+	}
+
+	private _invalidatePostProcessBindings(): void {
+		this._frameExecutor?.invalidatePostProcessBindings();
 	}
 
 	private _createPostProcessGBuffer(

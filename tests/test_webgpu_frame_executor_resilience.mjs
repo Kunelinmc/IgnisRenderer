@@ -282,7 +282,7 @@ function testFrameTargetAllocationFailureReleasesPartialResources() {
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 
 	assert.throws(
-		() => executor._ensureFrameTargets(64, 64, 2, 2),
+		() => executor._ensureFrameTargets(64, 64, false),
 		/simulated allocation failure/
 	);
 	assert.equal(executor._texturePoolOwners.size, 0);
@@ -462,6 +462,31 @@ function testFrameTargetsIncludeAndReleaseOITResources() {
 	assert.equal(executor._texturePoolOwners.has(oitReveal), false);
 	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), false);
 	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), false);
+}
+
+async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const firstContext = createFrameContext(64, 64);
+	firstContext.postProcess = createResolvedPostProcess({
+		ssao: { enabled: true, options: { downsample: 2 } },
+		ssr: { enabled: true, options: { downsample: 2 } },
+	});
+	executor.beginFrame(firstContext);
+	const firstTargets = executor._frameTargets;
+	const firstTextureCount = backend.createTextureCalls.length;
+	await executor.endFrame();
+
+	const secondContext = createFrameContext(64, 64);
+	secondContext.postProcess = createResolvedPostProcess({
+		ssao: { enabled: true, options: { downsample: 4 } },
+		ssr: { enabled: true, options: { downsample: 4 } },
+	});
+	executor.beginFrame(secondContext);
+	assert.strictEqual(executor._frameTargets, firstTargets);
+	assert.equal(backend.createTextureCalls.length, firstTextureCount);
+	await executor.endFrame();
+	executor.destroy();
 }
 
 async function testPlanarReflectionCaptureAndCompositeSequencing() {
@@ -904,6 +929,7 @@ async function run() {
 	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsIncludeAndReleaseOITResources();
+	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
 	await testPlanarReflectionCaptureAndCompositeSequencing();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();

@@ -11,6 +11,7 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassRequirements,
 	PostProcessPassResult,
+	PostProcessTransientDescriptor,
 } from "./types";
 
 export type PostProcessPassId = string;
@@ -179,6 +180,20 @@ export abstract class PostProcessPass<
 	public getHistoryDescriptors(
 		_request: PostProcessPassResolveRequest<TOptions>
 	): readonly PostProcessHistoryDescriptor[] {
+		return [];
+	}
+
+	/**
+	 * Returns transient resource descriptors required for the current frame.
+	 *
+	 * @param _request Resolved pass request with backend, dimensions, and options.
+	 * @returns Single-frame resource descriptors keyed by transient id.
+	 * @remarks The pipeline owns concrete resource allocation and reuse.
+	 * @sideEffects None.
+	 */
+	public getTransientResourceDescriptors(
+		_request: PostProcessPassResolveRequest<TOptions>
+	): readonly PostProcessTransientDescriptor[] {
 		return [];
 	}
 

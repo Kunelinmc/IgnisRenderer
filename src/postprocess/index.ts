@@ -29,6 +29,11 @@ export {
 	type PostProcessHistoryPrepareRequest,
 } from "./PostProcessHistoryManager";
 export {
+	PostProcessTransientManager,
+	type PostProcessTransientPrepareRequest,
+	type PostProcessTransientPrepareResult,
+} from "./PostProcessTransientManager";
+export {
 	BUILTIN_POST_PROCESS_ORDER,
 	DEFAULT_POST_PROCESS_PLACEMENT,
 	POST_PROCESS_PLACEMENTS,
@@ -210,6 +215,10 @@ export type {
 	PostProcessBackendSupport,
 	PostProcessPipelineExecuteRequest,
 	PostProcessPipelineExecuteResult,
+	PostProcessResourceMipMode,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
+	PostProcessTransientDescriptor,
+	PostProcessTransientSlot,
+	PostProcessTransientSlots,
 } from "./types";
