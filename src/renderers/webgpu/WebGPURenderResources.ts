@@ -159,7 +159,7 @@ interface WebGPUParticleBindingCacheEntry {
 	lastUsedFrame: number;
 }
 
-interface WebGPUDrawResourceOptions {
+export interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
 	drawMode?: WebGPUScenePipelineDrawMode;

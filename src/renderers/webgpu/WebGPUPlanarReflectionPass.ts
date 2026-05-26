@@ -9,6 +9,9 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
+import {
+	submitWebGPUDraws,
+} from "./WebGPUDrawSubmission";
 import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;
@@ -224,36 +227,29 @@ export class WebGPUPlanarReflectionPass {
 			},
 		});
 
-		for (const rect of dirtyRects) {
-			request.encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packets) {
+		await submitWebGPUDraws({
+			encoder: request.encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			resolveDrawOptions: () => ({
+				sceneTargetMode: "mrt",
+				drawMode: "planar-reflection-composite",
+			}),
+			resolveBindings: (draw, packet) => {
 				const reflection = activeByKey.get(
 					resolvePlaneKey(packet.material.mirrorPlane)
 				);
-				if (!reflection) {
-					continue;
-				}
-				const drawResources = await this._resources.getDrawResources(packet, {
-					sceneTargetMode: "mrt",
-					drawMode: "planar-reflection-composite",
-				});
-				if (!drawResources || drawResources.length <= 0) {
-					continue;
-				}
-				for (const draw of drawResources) {
-					const binding = this._getReflectionBinding(
-						reflection.targets.sceneColor
-					);
-					request.encoder.setPipeline(draw.pipeline);
-					request.encoder.setBindingGroup(0, draw.frameBinding);
-					request.encoder.setBindingGroup(1, draw.modelBinding);
-					request.encoder.setBindingGroup(2, binding);
-					request.encoder.setVertexBuffer(0, draw.vertexBuffer);
-					request.encoder.setIndexBuffer(draw.indexBuffer, "uint32");
-					request.encoder.drawIndexed(draw.indexCount);
-				}
-			}
-		}
+				const binding = this._getReflectionBinding(
+					reflection!.targets.sceneColor
+				);
+				return [
+					{ slot: 0, group: draw.frameBinding },
+					{ slot: 1, group: draw.modelBinding },
+					{ slot: 2, group: binding },
+				];
+			},
+		});
 
 		request.encoder.endRenderPass();
 	}
@@ -331,24 +327,15 @@ export class WebGPUPlanarReflectionPass {
 			...context.scene.opaquePackets,
 			...context.scene.transparentPackets,
 		];
-		for (const packet of packets) {
-			const drawResources = await this._resources.getDrawResources(packet, {
+		await submitWebGPUDraws({
+			encoder,
+			resources: this._resources,
+			packets,
+			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				drawMode: "reflection-capture",
-			});
-			if (!drawResources || drawResources.length <= 0) {
-				continue;
-			}
-			for (const draw of drawResources) {
-				encoder.setPipeline(draw.pipeline);
-				encoder.setBindingGroup(0, draw.frameBinding);
-				encoder.setBindingGroup(1, draw.modelBinding);
-				encoder.setBindingGroup(2, draw.clusteredBinding);
-				encoder.setVertexBuffer(0, draw.vertexBuffer);
-				encoder.setIndexBuffer(draw.indexBuffer, "uint32");
-				encoder.drawIndexed(draw.indexCount);
-			}
-		}
+			}),
+		});
 		encoder.endRenderPass();
 	}
 

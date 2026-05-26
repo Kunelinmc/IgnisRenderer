@@ -46,6 +46,10 @@ import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
 } from "./WebGPUPostProcessRuntime";
+import {
+	getDefaultWebGPUDrawBindings,
+	submitWebGPUDraws,
+} from "./WebGPUDrawSubmission";
 import { TexturePool, type TexturePoolOptions } from "./TexturePool";
 import type {
 	WarmupPhaseCounters,
@@ -2194,43 +2198,24 @@ export class WebGPUFrameExecutor {
 				depthStoreOp: "store",
 			},
 		});
-		let drawCount = 0;
 		const dirtyRects = this._resolveDirtyRects(
 			context,
 			this._frameTargets.sceneColorMain.width,
 			this._frameTargets.sceneColorMain.height
 		);
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolveTransparentSubsetForRect(
-				context,
-				packets,
-				rect
-			);
-			if (packetsInRect.length <= 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					transparentPipelineMode: "oit",
-				});
-				if (!resourcesList || resourcesList.length <= 0) {
-					continue;
-				}
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-					drawCount++;
-				}
-			}
-		}
+		const submission = await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolveTransparentSubsetForRect(context, candidatePackets, rect),
+			resolveDrawOptions: () => ({
+				transparentPipelineMode: "oit",
+			}),
+		});
 		this._encoder.endRenderPass();
-		return drawCount;
+		return submission.drawCount;
 	}
 
 	private async _drawTransmissionPackets(
@@ -2308,34 +2293,17 @@ export class WebGPUFrameExecutor {
 			this._frameTargets.oitAccum.width,
 			this._frameTargets.oitAccum.height
 		);
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolveTransparentSubsetForRect(
-				context,
-				packets,
-				rect
-			);
-			if (packetsInRect.length <= 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					transparentPipelineMode: "transmission",
-				});
-				if (!resourcesList || resourcesList.length <= 0) {
-					continue;
-				}
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-				}
-			}
-		}
+		await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolveTransparentSubsetForRect(context, candidatePackets, rect),
+			resolveDrawOptions: () => ({
+				transparentPipelineMode: "transmission",
+			}),
+		});
 		this._encoder.endRenderPass();
 	}
 
@@ -2937,34 +2905,25 @@ export class WebGPUFrameExecutor {
 			},
 		});
 
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
-			if (packetsInRect.length === 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					sceneTargetMode: "gbuffer",
-					drawMode:
-						earlyZExecuted && earlyZPacketIds.has(packet.id) ?
-							"early-z-color"
-						:	"default",
-				});
-				if (!resourcesList) continue;
-
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setBindingGroup(3, gbufferWriteBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-				}
-			}
-		}
+		await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolvePacketsForRect(context, candidatePackets, rect),
+			resolveDrawOptions: (packet) => ({
+				sceneTargetMode: "gbuffer",
+				drawMode:
+					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+						"early-z-color"
+					:	"default",
+			}),
+			resolveBindings: (draw) => [
+				...getDefaultWebGPUDrawBindings(draw),
+				{ slot: 3, group: gbufferWriteBinding },
+			],
+		});
 
 		this._encoder.endRenderPass();
 		await this._recordDeferredLightingPass(
@@ -3173,33 +3132,21 @@ export class WebGPUFrameExecutor {
 			},
 		});
 
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
-			if (packetsInRect.length === 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					sceneTargetMode: "mrt",
-					drawMode:
-						earlyZExecuted && earlyZPacketIds.has(packet.id) ?
-							"early-z-color"
-						:	"default",
-				});
-				if (!resourcesList) continue;
-
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-				}
-			}
-		}
+		await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolvePacketsForRect(context, candidatePackets, rect),
+			resolveDrawOptions: (packet) => ({
+				sceneTargetMode: "mrt",
+				drawMode:
+					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+						"early-z-color"
+					:	"default",
+			}),
+		});
 
 		this._encoder.endRenderPass();
 	}
@@ -3283,33 +3230,21 @@ export class WebGPUFrameExecutor {
 			}
 		}
 
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
-			if (packetsInRect.length === 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					sceneTargetMode: "single",
-					drawMode:
-						earlyZExecuted && earlyZPacketIds.has(packet.id) ?
-							"early-z-color"
-						:	"default",
-				});
-				if (!resourcesList) continue;
-
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-				}
-			}
-		}
+		await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolvePacketsForRect(context, candidatePackets, rect),
+			resolveDrawOptions: (packet) => ({
+				sceneTargetMode: "single",
+				drawMode:
+					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+						"early-z-color"
+					:	"default",
+			}),
+		});
 
 		this._encoder.endRenderPass();
 	}
@@ -3341,35 +3276,21 @@ export class WebGPUFrameExecutor {
 			},
 		});
 
-		for (const rect of dirtyRects) {
-			const packetsInRect = this._resolvePacketsForRect(context, packets, rect);
-			if (packetsInRect.length <= 0) {
-				continue;
-			}
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			for (const packet of packetsInRect) {
-				const resourcesList = await this._resources.getDrawResources(packet, {
-					sceneTargetMode,
-					drawMode: "early-z-prepass",
-				});
-				if (!resourcesList || resourcesList.length <= 0) {
-					continue;
-				}
-				prepassedPacketIds.add(packet.id);
-				for (const resources of resourcesList) {
-					this._encoder.setPipeline(resources.pipeline);
-					this._encoder.setBindingGroup(0, resources.frameBinding);
-					this._encoder.setBindingGroup(1, resources.modelBinding);
-					this._encoder.setBindingGroup(2, resources.clusteredBinding);
-					this._encoder.setVertexBuffer(0, resources.vertexBuffer);
-					this._encoder.setIndexBuffer(resources.indexBuffer, "uint32");
-					this._encoder.drawIndexed(resources.indexCount);
-				}
-			}
-		}
+		const submission = await submitWebGPUDraws({
+			encoder: this._encoder,
+			resources: this._resources,
+			packets,
+			dirtyRects,
+			selectPacketsForRect: (candidatePackets, rect) =>
+				this._resolvePacketsForRect(context, candidatePackets, rect),
+			resolveDrawOptions: () => ({
+				sceneTargetMode,
+				drawMode: "early-z-prepass",
+			}),
+		});
 
 		this._encoder.endRenderPass();
-		return prepassedPacketIds;
+		return submission.submittedPacketIds;
 	}
 
 	private _resolveMRTMainDepthLoadOp(

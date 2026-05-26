@@ -14,6 +14,7 @@ import { ComputeRuntime } from "./ComputeRuntime";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
+import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
 
 const CAPTURE_CAMERA_NEAR = 0.1;
 const CUBE_FACE_DIRECTIONS: IVector3[] = [
@@ -240,23 +241,14 @@ export class WebGPUReflectionProbeCapturePass {
 			...context.scene.opaquePackets,
 			...context.scene.transparentPackets,
 		];
-		for (const packet of packets) {
-			const drawResources = await this._resources.getDrawResources(packet, {
+		await submitWebGPUDraws({
+			encoder,
+			resources: this._resources,
+			packets,
+			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
-			});
-			if (!drawResources || drawResources.length <= 0) {
-				continue;
-			}
-			for (const draw of drawResources) {
-				encoder.setPipeline(draw.pipeline);
-				encoder.setBindingGroup(0, draw.frameBinding);
-				encoder.setBindingGroup(1, draw.modelBinding);
-				encoder.setBindingGroup(2, draw.clusteredBinding);
-				encoder.setVertexBuffer(0, draw.vertexBuffer);
-				encoder.setIndexBuffer(draw.indexBuffer, "uint32");
-				encoder.drawIndexed(draw.indexCount);
-			}
-		}
+			}),
+		});
 		encoder.endRenderPass();
 	}
 
