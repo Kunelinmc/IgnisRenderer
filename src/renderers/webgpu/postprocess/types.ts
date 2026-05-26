@@ -8,6 +8,7 @@ import type {
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
+import type { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
 
 interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	passId: TPassId;
@@ -126,6 +127,12 @@ export interface WebGPUPostProcessRuntimeContext {
 	readonly sampler: ISampler | null;
 	warn(key: string, message: string): void;
 	ensureCommonResources(): Promise<void>;
+	/**
+	 * Returns the shared Hi-Z helper for depth-aware runtime passes.
+	 *
+	 * @returns Helper owned by the current WebGPU post-process runtime.
+	 */
+	getHiZHelper(): WebGPUHiZPostProcessHelper;
 	getCachedBindGroup(
 		key: string,
 		pipeline: IComputePipeline,

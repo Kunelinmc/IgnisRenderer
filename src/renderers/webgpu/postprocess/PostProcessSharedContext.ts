@@ -2,6 +2,7 @@ import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
 import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import { Logger } from "../../../foundation/Logger";
+import { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -14,6 +15,7 @@ interface CachedBindGroup {
 export class PostProcessSharedContext {
 	private _compute: IWebGPUComputeFacade;
 	private _sampler: ISampler | null = null;
+	private _hiZHelper: WebGPUHiZPostProcessHelper | null = null;
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _frameBindGroupLayout: GPUBindGroupLayout | null;
 
@@ -37,6 +39,19 @@ export class PostProcessSharedContext {
 
 	public get sampler(): ISampler | null {
 		return this._sampler;
+	}
+
+	/**
+	 * Returns the shared Hi-Z helper used by depth-aware WebGPU passes.
+	 *
+	 * @returns Lazily allocated helper owned by this shared context.
+	 * @sideEffects Allocates the helper object on first use.
+	 */
+	public getHiZHelper(): WebGPUHiZPostProcessHelper {
+		if (!this._hiZHelper) {
+			this._hiZHelper = new WebGPUHiZPostProcessHelper(this);
+		}
+		return this._hiZHelper;
 	}
 
 	public warn(key: string, message: string): void {
@@ -98,9 +113,13 @@ export class PostProcessSharedContext {
 
 	public onShaderRuntimeChanged(): void {
 		this._destroyCachedBindGroups();
+		this._hiZHelper?.destroy();
+		this._hiZHelper = null;
 	}
 
 	public destroy(): void {
+		this._hiZHelper?.destroy();
+		this._hiZHelper = null;
 		this._destroyCachedBindGroups();
 		this.destroyManagedResource(this._sampler, "post-process sampler");
 		this._sampler = null;

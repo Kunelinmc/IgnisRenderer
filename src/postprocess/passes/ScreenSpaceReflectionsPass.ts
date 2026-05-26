@@ -16,7 +16,6 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import { WebGPUHiZPostProcessHelper } from "../../renderers/webgpu/postprocess/HiZPostProcessHelper";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
@@ -68,7 +67,6 @@ export interface WebGPUSSRContext {
 }
 
 interface WebGPUSSRResources {
-	hiz: WebGPUHiZPostProcessHelper;
 	module: IShaderModule | null;
 	tracePipeline: IComputePipeline | null;
 	composePipeline: IComputePipeline | null;
@@ -263,7 +261,11 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		}
 
 		const targets = context.targets;
-		const hiZMips = await resources.hiz.build(context.encoder, targets);
+		const hiZMips = await context.shared.getHiZHelper().build({
+			encoder: context.encoder,
+			depth: targets.gMotionDepth,
+			hiZ: targets.hiZ,
+		});
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -360,7 +362,6 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		let resources = this._resources.get(shared);
 		if (!resources) {
 			resources = {
-				hiz: new WebGPUHiZPostProcessHelper(shared),
 				module: null,
 				tracePipeline: null,
 				composePipeline: null,
@@ -374,7 +375,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			};
 			this._resources.set(shared, resources);
 		}
-		await resources.hiz.ensureResources();
+		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {
 			const shader = await loadPostProcessShaderPartComposite("ssr");
 			resources.module = await shared.compute.createShaderModule({

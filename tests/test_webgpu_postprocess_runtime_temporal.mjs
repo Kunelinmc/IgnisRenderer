@@ -117,6 +117,7 @@ async function executeSSRImplementation(
 			targets.sceneColor.width,
 			targets.sceneColor.height
 		),
+		encoder = new FakeEncoder(backend),
 	} = options;
 	const frameBinding =
 		Object.prototype.hasOwnProperty.call(options, "frameBinding") ?
@@ -126,7 +127,7 @@ async function executeSSRImplementation(
 	let motionWrites = 0;
 	const request = createSSRPassRequest(frameContext, histories, historyValid);
 	const context = {
-		encoder: new FakeEncoder(backend),
+		encoder,
 		targets,
 		shared: runtime.sharedContext,
 		frameBinding,
@@ -163,6 +164,7 @@ async function executeVolumetricImplementation(
 			targets.sceneColor.height
 		),
 		lightingState = null,
+		encoder = new FakeEncoder(backend),
 	} = options;
 	const frameBinding =
 		Object.prototype.hasOwnProperty.call(options, "frameBinding") ?
@@ -176,7 +178,7 @@ async function executeVolumetricImplementation(
 		historyValid
 	);
 	const context = {
-		encoder: new FakeEncoder(backend),
+		encoder,
 		targets,
 		shared: runtime.sharedContext,
 		frameBinding,
@@ -358,29 +360,80 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	);
 }
 
-async function testHiZMipViewsAreCachedAcrossSSRExecutions() {
+async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const frameBinding = { label: "frame-binding" };
 	const targets = createTemporalTargets(16, 8);
 	const frameContext = createPerspectiveFrameContext({});
+	const encoder = new FakeEncoder(backend);
 
 	await executeSSRImplementation(backend, runtime, {
 		targets,
 		frameContext,
 		historyValid: false,
 		frameBinding,
+		encoder,
 	});
 	const firstViewCount = backend.textureViews.length;
 	assert.equal(firstViewCount, 5);
+	const firstHiZPassCount = encoder.calls.filter(
+		(call) =>
+			call[0] === "beginComputePass" &&
+			typeof call[1] === "string" &&
+			call[1].startsWith("WebGPUHiZ")
+	).length;
+	assert.equal(firstHiZPassCount, 5);
 
 	await executeSSRImplementation(backend, runtime, {
 		targets,
 		frameContext,
 		historyValid: false,
 		frameBinding,
+		encoder,
 	});
 	assert.equal(backend.textureViews.length, firstViewCount);
+	assert.equal(
+		encoder.calls.filter(
+			(call) =>
+				call[0] === "beginComputePass" &&
+				typeof call[1] === "string" &&
+				call[1].startsWith("WebGPUHiZ")
+		).length,
+		firstHiZPassCount
+	);
+
+	await executeVolumetricImplementation(backend, runtime, {
+		targets,
+		frameContext,
+		historyValid: false,
+		frameBinding,
+		lightingState: null,
+		encoder,
+	});
+	assert.equal(backend.textureViews.length, firstViewCount);
+	assert.equal(
+		encoder.calls.filter(
+			(call) =>
+				call[0] === "beginComputePass" &&
+				typeof call[1] === "string" &&
+				call[1].startsWith("WebGPUHiZ")
+		).length,
+		firstHiZPassCount
+	);
+	assert.equal(
+		backend.shaderModules.filter((module) => module.label === "WebGPUHiZShader")
+			.length,
+		1
+	);
+	assert.equal(
+		backend.computePipelines.filter(
+			(pipeline) =>
+				pipeline.label === "WebGPUHiZInitPipeline" ||
+				pipeline.label === "WebGPUHiZReducePipeline"
+		).length,
+		2
+	);
 }
 
 async function testUnknownPassReturnsRanFalse() {
@@ -443,7 +496,7 @@ async function run() {
 	await testTAAIsOwnedByLogicalPassImplementation();
 	await testSSRAndVolumetricReportHistoryUpdates();
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
-	await testHiZMipViewsAreCachedAcrossSSRExecutions();
+	await testHiZResourcesAreSharedAcrossTemporalPasses();
 	await testUnknownPassReturnsRanFalse();
 	await testMissingSSRFrameBindingSkipsImplementation();
 	await testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources();

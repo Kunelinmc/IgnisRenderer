@@ -9,8 +9,30 @@ import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shad
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../constants";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "./PostProcessSharedContext";
+
+/**
+ * Explicit textures used to build a WebGPU Hi-Z pyramid.
+ */
+export interface WebGPUHiZBuildRequest {
+	/**
+	 * Active command encoder receiving the Hi-Z compute passes.
+	 */
+	readonly encoder: ICommandEncoder;
+	/**
+	 * Source texture containing current frame depth data.
+	 */
+	readonly depth: IRenderTexture;
+	/**
+	 * Destination texture that stores the generated Hi-Z mip chain.
+	 */
+	readonly hiZ: IRenderTexture;
+	/**
+	 * Forces command encoding even when the same encoder already built this
+	 * depth/Hi-Z pair.
+	 */
+	readonly force?: boolean;
+}
 
 /**
  * Builds a Hi-Z pyramid used by depth-aware WebGPU post-process passes.
@@ -21,6 +43,14 @@ export class WebGPUHiZPostProcessHelper {
 	private _initPipeline: IComputePipeline | null = null;
 	private _reducePipeline: IComputePipeline | null = null;
 	private _viewCache = new WeakMap<object, GPUTextureView[]>();
+	private _lastBuild:
+		| {
+			encoder: ICommandEncoder;
+			depth: IRenderTexture;
+			hiZ: IRenderTexture;
+			mips: GPUTextureView[];
+		}
+		| null = null;
 
 	constructor(shared: PostProcessSharedContext) {
 		this._shared = shared;
@@ -60,44 +90,48 @@ export class WebGPUHiZPostProcessHelper {
 	}
 
 	/**
-	 * Builds the Hi-Z pyramid from the frame motion-depth target.
+	 * Builds the Hi-Z pyramid from an explicit depth source.
 	 *
-	 * @param encoder Active command encoder.
-	 * @param targets WebGPU frame targets.
+	 * @param request Textures and encoder used for the pyramid build.
 	 * @returns Mip views for the generated pyramid, or an empty list on failure.
 	 * @sideEffects Encodes Hi-Z init and reduction compute passes.
 	 */
-	public async build(
-		encoder: ICommandEncoder,
-		targets: WebGPUFrameTargets
-	): Promise<GPUTextureView[]> {
+	public async build(request: WebGPUHiZBuildRequest): Promise<GPUTextureView[]> {
 		await this.ensureResources();
-		const hiZMips = this.getMipViews(targets.hiZ);
+		const hiZMips = this.getMipViews(request.hiZ);
 		if (!this._initPipeline || !this._reducePipeline || hiZMips.length === 0) {
 			return [];
+		}
+		if (
+			!request.force &&
+			this._lastBuild?.encoder === request.encoder &&
+			this._lastBuild.depth === request.depth &&
+			this._lastBuild.hiZ === request.hiZ
+		) {
+			return this._lastBuild.mips;
 		}
 
 		let binding = this._shared.getCachedBindGroup(
 			"hiz-init",
 			this._initPipeline,
 			[
-				{ binding: 0, resource: targets.gMotionDepth },
+				{ binding: 0, resource: request.depth },
 				{ binding: 1, resource: hiZMips[0] },
 			],
-			"WebGPUSSR_HiZInitBinding"
+			"WebGPUHiZInitBinding"
 		);
-		encoder.beginComputePass({ label: "WebGPUSSR_HiZInit" });
-		encoder.setComputePipeline(this._initPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(targets.hiZ.width, WORKGROUP_SIZE),
-			ceilDiv(targets.hiZ.height, WORKGROUP_SIZE),
+		request.encoder.beginComputePass({ label: "WebGPUHiZInit" });
+		request.encoder.setComputePipeline(this._initPipeline);
+		request.encoder.setBindingGroup(0, binding);
+		request.encoder.dispatchWorkgroups(
+			ceilDiv(request.hiZ.width, WORKGROUP_SIZE),
+			ceilDiv(request.hiZ.height, WORKGROUP_SIZE),
 			1
 		);
-		encoder.endComputePass();
+		request.encoder.endComputePass();
 
-		let srcW = targets.hiZ.width;
-		let srcH = targets.hiZ.height;
+		let srcW = request.hiZ.width;
+		let srcH = request.hiZ.height;
 		for (let mip = 1; mip < hiZMips.length; mip++) {
 			const dstW = Math.max(1, srcW >> 1);
 			const dstH = Math.max(1, srcH >> 1);
@@ -108,20 +142,26 @@ export class WebGPUHiZPostProcessHelper {
 					{ binding: 0, resource: hiZMips[mip - 1] },
 					{ binding: 1, resource: hiZMips[mip] },
 				],
-				`WebGPUSSR_HiZReduceBinding_${mip}`
+				`WebGPUHiZReduceBinding_${mip}`
 			);
-			encoder.beginComputePass({ label: `WebGPUSSR_HiZReduce_${mip}` });
-			encoder.setComputePipeline(this._reducePipeline);
-			encoder.setBindingGroup(0, binding);
-			encoder.dispatchWorkgroups(
+			request.encoder.beginComputePass({ label: `WebGPUHiZReduce_${mip}` });
+			request.encoder.setComputePipeline(this._reducePipeline);
+			request.encoder.setBindingGroup(0, binding);
+			request.encoder.dispatchWorkgroups(
 				ceilDiv(dstW, WORKGROUP_SIZE),
 				ceilDiv(dstH, WORKGROUP_SIZE),
 				1
 			);
-			encoder.endComputePass();
+			request.encoder.endComputePass();
 			srcW = dstW;
 			srcH = dstH;
 		}
+		this._lastBuild = {
+			encoder: request.encoder,
+			depth: request.depth,
+			hiZ: request.hiZ,
+			mips: hiZMips,
+		};
 		return hiZMips;
 	}
 
@@ -159,6 +199,7 @@ export class WebGPUHiZPostProcessHelper {
 	 * @sideEffects Releases managed WebGPU resources.
 	 */
 	public destroy(): void {
+		this._shared.invalidateBindingsByPrefix("hiz-");
 		this._shared.destroyManagedResource(this._initPipeline, "Hi-Z init pipeline");
 		this._shared.destroyManagedResource(
 			this._reducePipeline,
@@ -169,5 +210,6 @@ export class WebGPUHiZPostProcessHelper {
 		this._initPipeline = null;
 		this._reducePipeline = null;
 		this._viewCache = new WeakMap<object, GPUTextureView[]>();
+		this._lastBuild = null;
 	}
 }

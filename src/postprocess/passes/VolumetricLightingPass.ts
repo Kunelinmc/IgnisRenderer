@@ -19,7 +19,6 @@ import {
 } from "../../renderers/webgpu/constants";
 import { getWebGPUVolumetricLightLayout } from "../../renderers/webgpu/bufferLayouts";
 import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import { WebGPUHiZPostProcessHelper } from "../../renderers/webgpu/postprocess/HiZPostProcessHelper";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGPULightingState } from "../../renderers/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
@@ -63,7 +62,6 @@ export interface WebGPUVolumetricLightingContext {
 
 interface WebGPUVolumetricResources {
 	shared: PostProcessSharedContext;
-	hiz: WebGPUHiZPostProcessHelper;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -188,7 +186,6 @@ export class WebGPUVolumetricLightingImplementation
 
 	public destroy(): void {
 		for (const resources of this._resourceSet) {
-			resources.hiz.destroy();
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"volumetric pipeline"
@@ -255,7 +252,11 @@ export class WebGPUVolumetricLightingImplementation
 		) {
 			return false;
 		}
-		const hiZMips = await resources.hiz.build(context.encoder, context.targets);
+		const hiZMips = await context.shared.getHiZHelper().build({
+			encoder: context.encoder,
+			depth: context.targets.gMotionDepth,
+			hiZ: context.targets.hiZ,
+		});
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -509,7 +510,6 @@ export class WebGPUVolumetricLightingImplementation
 		if (!resources) {
 			resources = {
 				shared,
-				hiz: new WebGPUHiZPostProcessHelper(shared),
 				module: null,
 				pipeline: null,
 				params: null,
@@ -522,7 +522,7 @@ export class WebGPUVolumetricLightingImplementation
 			this._resources.set(shared, resources);
 			this._resourceSet.add(resources);
 		}
-		await resources.hiz.ensureResources();
+		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {
 			const shader = await loadPostProcessShaderPartComposite("volumetric");
 			resources.module = await shared.compute.createShaderModule({
