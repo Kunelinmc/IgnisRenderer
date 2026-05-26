@@ -70,16 +70,6 @@ function createExecutorHarness() {
 	executor._frameTargets = {
 		sceneColor: { id: "scene-color" },
 		sceneColorMain: { id: "scene-color-main" },
-		historyRead: { id: "initial-taa-read" },
-		historyWrite: { id: "initial-taa-write" },
-		ssrHistoryRead: { id: "initial-ssr-read" },
-		ssrHistoryWrite: { id: "initial-ssr-write" },
-		volumetricHistoryRead: { id: "initial-vol-read" },
-		volumetricHistoryWrite: { id: "initial-vol-write" },
-		volumetricReservoirHistoryRead: { id: "initial-res-read" },
-		volumetricReservoirHistoryWrite: { id: "initial-res-write" },
-		motionHistoryRead: { id: "initial-motion-read" },
-		motionHistoryWrite: { id: "initial-motion-write" },
 	};
 	executor._postRuntime = {
 		sharedContext: { id: "shared-context" },
@@ -117,10 +107,13 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	const taaContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("taa", taaRequest)
 	);
-	assert.equal(executor._frameTargets.historyRead.id, "taa-read");
-	assert.equal(executor._frameTargets.historyWrite.id, "taa-write");
-	assert.equal(taaContext.targets.motionHistoryRead.id, "motion-read");
-	assert.equal(taaContext.targets.motionHistoryWrite.id, "motion-write");
+	assert.equal("historyRead" in executor._frameTargets, false);
+	assert.equal(taaContext.historyRead.id, "taa-read");
+	assert.equal(taaContext.historyWrite.id, "taa-write");
+	assert.equal(taaContext.motionHistoryRead.id, "motion-read");
+	assert.equal(taaContext.motionHistoryWrite.id, "motion-write");
+	taaContext.writeMotionHistoryFromCurrent();
+	assert.equal(executor._motionHistoryWriteTarget.id, "motion-write");
 	assert.equal(runtimeCalls.length, 0);
 
 	const ssrRequest = createTemporalRequest();
@@ -129,12 +122,10 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	);
 	assert.equal(runtimeCalls.length, 0);
 	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
-	assert.equal(executor._frameTargets.ssrHistoryRead.id, "ssr-read");
-	assert.equal(executor._frameTargets.ssrHistoryWrite.id, "ssr-write");
-	assert.equal(ssrContext.targets.ssrHistoryRead.id, "ssr-read");
-	assert.equal(ssrContext.targets.ssrHistoryWrite.id, "ssr-write");
-	assert.equal(ssrContext.targets.motionHistoryRead.id, "motion-read");
-	assert.equal(ssrContext.targets.motionHistoryWrite.id, "motion-write");
+	assert.equal(ssrContext.historyRead.id, "ssr-read");
+	assert.equal(ssrContext.historyWrite.id, "ssr-write");
+	assert.equal(ssrContext.motionHistoryRead.id, "motion-read");
+	assert.equal(ssrContext.motionHistoryWrite.id, "motion-write");
 
 	const volumetricContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)
@@ -143,24 +134,12 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
 	assert.deepEqual(volumetricContext.lightingState, { id: "lighting-state" });
 	assert.deepEqual(volumetricContext.shared, { id: "shared-context" });
-	assert.equal(executor._frameTargets.volumetricHistoryRead.id, "vol-read");
-	assert.equal(executor._frameTargets.volumetricHistoryWrite.id, "vol-write");
-	assert.equal(
-		executor._frameTargets.volumetricReservoirHistoryRead.id,
-		"res-read"
-	);
-	assert.equal(
-		executor._frameTargets.volumetricReservoirHistoryWrite.id,
-		"res-write"
-	);
-	assert.equal(executor._frameTargets.motionHistoryRead.id, "motion-read");
-	assert.equal(executor._frameTargets.motionHistoryWrite.id, "motion-write");
-
-	const volumetricFallbackResult = await executor.executePostProcessPass(
-		"volumetric",
-		ssrRequest
-	);
-	assert.deepEqual(volumetricFallbackResult, { ran: false });
+	assert.equal(volumetricContext.historyRead.id, "vol-read");
+	assert.equal(volumetricContext.historyWrite.id, "vol-write");
+	assert.equal(volumetricContext.reservoirHistoryRead.id, "res-read");
+	assert.equal(volumetricContext.reservoirHistoryWrite.id, "res-write");
+	assert.equal(volumetricContext.motionHistoryRead.id, "motion-read");
+	assert.equal(volumetricContext.motionHistoryWrite.id, "motion-write");
 	assert.equal(runtimeCalls.length, 0);
 }
 

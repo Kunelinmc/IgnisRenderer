@@ -762,13 +762,10 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _executePostProcessPass(
-		passId: string,
-		request: PostProcessPassRequest
+		_passId: string,
+		_request: PostProcessPassRequest
 	): Promise<PostProcessPassResult> | PostProcessPassResult {
-		return (
-			this._frameExecutor?.executePostProcessPass(passId, request) ??
-			{ ran: false }
-		);
+		return { ran: false };
 	}
 
 	private _getPostProcessPassExecutionContext(

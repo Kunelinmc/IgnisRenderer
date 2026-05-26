@@ -23,13 +23,19 @@ function createTemporalTargets(width = 32, height = 16) {
 		gNormalRoughMetal: createTexture(width, height, "g-normal"),
 		gMotionDepth: createTexture(width, height, "g-motion-depth"),
 		planarReflectionMask: createTexture(width, height, "planar-reflection-mask"),
+		ssrRaw: createTexture(width, height, "ssr-raw"),
+		hiZ: createTexture(width, height, "hiz"),
+	};
+}
+
+function createTemporalHistories(width = 32, height = 16) {
+	return {
 		historyRead: createTexture(width, height, "history-read"),
 		historyWrite: createTexture(width, height, "history-write"),
 		motionHistoryRead: createTexture(width, height, "motion-history-read"),
-		ssrRaw: createTexture(width, height, "ssr-raw"),
+		motionHistoryWrite: createTexture(width, height, "motion-history-write"),
 		ssrHistoryRead: createTexture(width, height, "ssr-history-read"),
 		ssrHistoryWrite: createTexture(width, height, "ssr-history-write"),
-		hiZ: createTexture(width, height, "hiz"),
 		volumetricHistoryRead: createTexture(width, height, "vol-history-read"),
 		volumetricHistoryWrite: createTexture(width, height, "vol-history-write"),
 		volumetricReservoirHistoryRead: createTexture(
@@ -45,7 +51,7 @@ function createTemporalTargets(width = 32, height = 16) {
 	};
 }
 
-function createSSRPassRequest(frameContext, targets, historyValid = true) {
+function createSSRPassRequest(frameContext, histories, historyValid = true) {
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -53,13 +59,13 @@ function createSSRPassRequest(frameContext, targets, historyValid = true) {
 		histories: {
 			ssr: {
 				valid: historyValid,
-				read: { resource: targets.ssrHistoryRead },
-				write: { resource: targets.ssrHistoryWrite },
+				read: { resource: histories.ssrHistoryRead },
+				write: { resource: histories.ssrHistoryWrite },
 			},
 			motion: {
 				valid: historyValid,
-				read: { resource: targets.motionHistoryRead },
-				write: { resource: targets.motionHistoryWrite },
+				read: { resource: histories.motionHistoryRead },
+				write: { resource: histories.motionHistoryWrite },
 			},
 		},
 		pass: SSR_PASS,
@@ -69,7 +75,7 @@ function createSSRPassRequest(frameContext, targets, historyValid = true) {
 	};
 }
 
-function createVolumetricPassRequest(frameContext, targets, historyValid = true) {
+function createVolumetricPassRequest(frameContext, histories, historyValid = true) {
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -77,18 +83,18 @@ function createVolumetricPassRequest(frameContext, targets, historyValid = true)
 		histories: {
 			volumetric: {
 				valid: historyValid,
-				read: { resource: targets.volumetricHistoryRead },
-				write: { resource: targets.volumetricHistoryWrite },
+				read: { resource: histories.volumetricHistoryRead },
+				write: { resource: histories.volumetricHistoryWrite },
 			},
 			"volumetric-reservoir": {
 				valid: historyValid,
-				read: { resource: targets.volumetricReservoirHistoryRead },
-				write: { resource: targets.volumetricReservoirHistoryWrite },
+				read: { resource: histories.volumetricReservoirHistoryRead },
+				write: { resource: histories.volumetricReservoirHistoryWrite },
 			},
 			motion: {
 				valid: historyValid,
-				read: { resource: targets.motionHistoryRead },
-				write: { resource: targets.motionHistoryWrite },
+				read: { resource: histories.motionHistoryRead },
+				write: { resource: histories.motionHistoryWrite },
 			},
 		},
 		pass: VOLUMETRIC_PASS,
@@ -107,6 +113,10 @@ async function executeSSRImplementation(
 		targets = createTemporalTargets(),
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
+		histories = createTemporalHistories(
+			targets.sceneColor.width,
+			targets.sceneColor.height
+		),
 	} = options;
 	const frameBinding =
 		Object.prototype.hasOwnProperty.call(options, "frameBinding") ?
@@ -114,12 +124,16 @@ async function executeSSRImplementation(
 		:	{ label: "frame-binding" };
 	let published = null;
 	let motionWrites = 0;
-	const request = createSSRPassRequest(frameContext, targets, historyValid);
+	const request = createSSRPassRequest(frameContext, histories, historyValid);
 	const context = {
 		encoder: new FakeEncoder(backend),
 		targets,
 		shared: runtime.sharedContext,
 		frameBinding,
+		historyRead: histories.ssrHistoryRead,
+		historyWrite: histories.ssrHistoryWrite,
+		motionHistoryRead: histories.motionHistoryRead,
+		motionHistoryWrite: histories.motionHistoryWrite,
 		publishColorTarget: (texture) => {
 			published = texture;
 			targets.sceneColor = texture;
@@ -144,6 +158,10 @@ async function executeVolumetricImplementation(
 		targets = createTemporalTargets(),
 		frameContext = createPerspectiveFrameContext(),
 		historyValid = true,
+		histories = createTemporalHistories(
+			targets.sceneColor.width,
+			targets.sceneColor.height
+		),
 		lightingState = null,
 	} = options;
 	const frameBinding =
@@ -154,7 +172,7 @@ async function executeVolumetricImplementation(
 	let motionWrites = 0;
 	const request = createVolumetricPassRequest(
 		frameContext,
-		targets,
+		histories,
 		historyValid
 	);
 	const context = {
@@ -163,6 +181,12 @@ async function executeVolumetricImplementation(
 		shared: runtime.sharedContext,
 		frameBinding,
 		lightingState,
+		historyRead: histories.volumetricHistoryRead,
+		historyWrite: histories.volumetricHistoryWrite,
+		reservoirHistoryRead: histories.volumetricReservoirHistoryRead,
+		reservoirHistoryWrite: histories.volumetricReservoirHistoryWrite,
+		motionHistoryRead: histories.motionHistoryRead,
+		motionHistoryWrite: histories.motionHistoryWrite,
 		publishColorTarget: (texture) => {
 			published = texture;
 			targets.sceneColor = texture;

@@ -51,6 +51,12 @@ export interface WebGPUVolumetricLightingContext {
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
 	readonly lightingState?: WebGPULightingState | null;
+	readonly historyRead?: IRenderTexture | null;
+	readonly historyWrite?: IRenderTexture | null;
+	readonly reservoirHistoryRead?: IRenderTexture | null;
+	readonly reservoirHistoryWrite?: IRenderTexture | null;
+	readonly motionHistoryRead?: IRenderTexture | null;
+	readonly motionHistoryWrite?: IRenderTexture | null;
 	publishColorTarget?(texture: IRenderTexture): void;
 	writeMotionHistoryFromCurrent?(): void | Promise<void>;
 }
@@ -211,7 +217,13 @@ export class WebGPUVolumetricLightingImplementation
 			!context.shared.sampler ||
 			!resources.pipeline ||
 			!resources.params ||
-			!resources.lightBuffer
+			!resources.lightBuffer ||
+			!context.historyRead ||
+			!context.historyWrite ||
+			!context.reservoirHistoryRead ||
+			!context.reservoirHistoryWrite ||
+			!context.motionHistoryRead ||
+			!context.motionHistoryWrite
 		) {
 			return false;
 		}
@@ -352,19 +364,19 @@ export class WebGPUVolumetricLightingImplementation
 				{ binding: 0, resource: context.targets.sceneColor },
 				{ binding: 1, resource: context.targets.gMotionDepth },
 				{ binding: 2, resource: context.targets.hiZ },
-				{ binding: 3, resource: context.targets.volumetricHistoryRead },
-				{ binding: 4, resource: context.targets.motionHistoryRead },
+				{ binding: 3, resource: context.historyRead },
+				{ binding: 4, resource: context.motionHistoryRead },
 				{ binding: 5, resource: context.shared.sampler },
 				{ binding: 6, resource: resources.params },
 				{ binding: 7, resource: target },
-				{ binding: 8, resource: context.targets.volumetricHistoryWrite },
+				{ binding: 8, resource: context.historyWrite },
 				{
 					binding: 9,
-					resource: context.targets.volumetricReservoirHistoryRead,
+					resource: context.reservoirHistoryRead,
 				},
 				{
 					binding: 10,
-					resource: context.targets.volumetricReservoirHistoryWrite,
+					resource: context.reservoirHistoryWrite,
 				},
 				{ binding: 11, resource: resources.lightBuffer },
 			],

@@ -57,14 +57,4 @@ export interface WebGPUFrameTargets {
 	aoBlur: IRenderTexture;
 	ssrRaw: IRenderTexture;
 	hiZ: IRenderTexture;
-	historyRead: IRenderTexture;
-	historyWrite: IRenderTexture;
-	ssrHistoryRead: IRenderTexture;
-	ssrHistoryWrite: IRenderTexture;
-	volumetricHistoryRead: IRenderTexture;
-	volumetricHistoryWrite: IRenderTexture;
-	volumetricReservoirHistoryRead: IRenderTexture;
-	volumetricReservoirHistoryWrite: IRenderTexture;
-	motionHistoryRead: IRenderTexture;
-	motionHistoryWrite: IRenderTexture;
 }

@@ -77,6 +77,10 @@ export interface WebGPUTAAContext {
 	readonly encoder: ICommandEncoder;
 	readonly targets: WebGPUFrameTargets;
 	readonly shared: PostProcessSharedContext;
+	readonly historyRead: IRenderTexture | null;
+	readonly historyWrite: IRenderTexture | null;
+	readonly motionHistoryRead: IRenderTexture | null;
+	readonly motionHistoryWrite: IRenderTexture | null;
 	publishColorTarget(texture: IRenderTexture): void;
 	writeMotionHistoryFromCurrent(): void | Promise<void>;
 }
@@ -413,7 +417,15 @@ export class WebGPUTemporalAntiAliasingImplementation
 		context: WebGPUTAAContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		if (!context.shared.sampler || !resources.pipeline || !resources.params) {
+		if (
+			!context.shared.sampler ||
+			!resources.pipeline ||
+			!resources.params ||
+			!context.historyRead ||
+			!context.historyWrite ||
+			!context.motionHistoryRead ||
+			!context.motionHistoryWrite
+		) {
 			return false;
 		}
 
@@ -436,13 +448,13 @@ export class WebGPUTemporalAntiAliasingImplementation
 			resources.pipeline,
 			[
 				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.historyRead },
+				{ binding: 1, resource: context.historyRead },
 				{ binding: 2, resource: targets.gMotionDepth },
-				{ binding: 3, resource: targets.motionHistoryRead },
+				{ binding: 3, resource: context.motionHistoryRead },
 				{ binding: 4, resource: context.shared.sampler },
 				{ binding: 5, resource: resources.params },
 				{ binding: 6, resource: target },
-				{ binding: 7, resource: targets.historyWrite },
+				{ binding: 7, resource: context.historyWrite },
 			],
 			"WebGPUTAA_Binding"
 		);

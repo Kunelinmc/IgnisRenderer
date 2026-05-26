@@ -59,6 +59,10 @@ export interface WebGPUSSRContext {
 	readonly targets?: WebGPUFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
+	readonly historyRead?: IRenderTexture | null;
+	readonly historyWrite?: IRenderTexture | null;
+	readonly motionHistoryRead?: IRenderTexture | null;
+	readonly motionHistoryWrite?: IRenderTexture | null;
 	publishColorTarget?(texture: IRenderTexture): void;
 	writeMotionHistoryFromCurrent?(): void | Promise<void>;
 }
@@ -232,7 +236,11 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			!resources.tracePipeline ||
 			!resources.composePipeline ||
 			!resources.traceParams ||
-			!resources.composeParams
+			!resources.composeParams ||
+			!context.historyRead ||
+			!context.historyWrite ||
+			!context.motionHistoryRead ||
+			!context.motionHistoryWrite
 		) {
 			return false;
 		}
@@ -264,8 +272,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				{ binding: 1, resource: targets.gNormalRoughMetal },
 				{ binding: 2, resource: targets.gMotionDepth },
 				{ binding: 3, resource: targets.hiZ },
-				{ binding: 4, resource: targets.ssrHistoryRead },
-				{ binding: 5, resource: targets.motionHistoryRead },
+				{ binding: 4, resource: context.historyRead },
+				{ binding: 5, resource: context.motionHistoryRead },
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
 				{ binding: 8, resource: targets.ssrRaw },
@@ -288,7 +296,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			resources,
 			context.encoder,
 			targets.ssrRaw,
-			targets.ssrHistoryWrite
+			context.historyWrite
 		);
 
 		const composeTarget =

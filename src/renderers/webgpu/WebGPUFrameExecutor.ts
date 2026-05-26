@@ -10,7 +10,6 @@ import type {
 	PostProcessPass,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
-	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
@@ -60,7 +59,6 @@ import type { ShaderCompileError } from "../../shaders/runtime";
 import {
 	DEFAULT_GAMMA,
 	MIN_GAMMA,
-	POST_PROCESS_STAGES,
 } from "../constants";
 import { Logger } from "../../foundation/Logger";
 import { materialUsesTransmission } from "../../materials/transparency";
@@ -237,16 +235,6 @@ export class WebGPUFrameExecutor {
 	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 	private _targetSSRDownsample = DEFAULT_SSR_OPTIONS.downsample;
 	private _targetMSAASampleCount = 1;
-	private _taaHistoryA: IRenderTexture | null = null;
-	private _taaHistoryB: IRenderTexture | null = null;
-	private _ssrHistoryA: IRenderTexture | null = null;
-	private _ssrHistoryB: IRenderTexture | null = null;
-	private _volumetricHistoryA: IRenderTexture | null = null;
-	private _volumetricHistoryB: IRenderTexture | null = null;
-	private _volumetricReservoirHistoryA: IRenderTexture | null = null;
-	private _volumetricReservoirHistoryB: IRenderTexture | null = null;
-	private _motionHistoryA: IRenderTexture | null = null;
-	private _motionHistoryB: IRenderTexture | null = null;
 	private _hasPresentedInFrame = false;
 	private _mrtEnabled = true;
 	private _mrtSupportChecked = false;
@@ -274,7 +262,7 @@ export class WebGPUFrameExecutor {
 	private _oitHasContributors = false;
 	private _oitTransmissionPackets: DrawPacket[] = [];
 	private _oitNeedsTransmissionAfterParticles = false;
-	private _motionHistoryWriteRequested = false;
+	private _motionHistoryWriteTarget: IRenderTexture | null = null;
 	private _depthDirtyClearShaderModule: IShaderModule | null = null;
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
@@ -327,7 +315,7 @@ export class WebGPUFrameExecutor {
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
-		this._motionHistoryWriteRequested = false;
+		this._motionHistoryWriteTarget = null;
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -473,20 +461,6 @@ export class WebGPUFrameExecutor {
 		};
 	}
 
-	public async executePostProcessPass(
-		passId: string,
-		request: PostProcessPassRequest
-	): Promise<PostProcessPassResult> {
-		if (!this._encoder || !this._frameTargets) {
-			return { ran: false };
-		}
-		this._applyPipelineHistories(request);
-		switch (passId) {
-			default:
-				return { ran: false };
-		}
-	}
-
 	public getSceneTargetModeForFrame(): "gbuffer" | "mrt" | "single" {
 		if (!this._mrtEnabled) {
 			return "single";
@@ -503,7 +477,6 @@ export class WebGPUFrameExecutor {
 		if (!request.pass.builtIn) {
 			return undefined;
 		}
-		this._applyPipelineHistories(request);
 		const publishColorTarget = (texture: IRenderTexture): void => {
 			if (this._frameTargets) {
 				this._frameTargets.sceneColor = texture;
@@ -563,13 +536,34 @@ export class WebGPUFrameExecutor {
 				return context;
 			}
 			case "taa": {
+				const motionHistoryWrite = this._getPostProcessHistoryTexture(
+					request,
+					"motion",
+					"write"
+				);
 				const context: WebGPUTAAContext = {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					shared: this._postRuntime.sharedContext,
+					historyRead: this._getPostProcessHistoryTexture(
+						request,
+						"taa",
+						"read"
+					),
+					historyWrite: this._getPostProcessHistoryTexture(
+						request,
+						"taa",
+						"write"
+					),
+					motionHistoryRead: this._getPostProcessHistoryTexture(
+						request,
+						"motion",
+						"read"
+					),
+					motionHistoryWrite,
 					publishColorTarget,
 					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteRequested = true;
+						this._motionHistoryWriteTarget = motionHistoryWrite;
 					},
 				};
 				return context;
@@ -584,14 +578,35 @@ export class WebGPUFrameExecutor {
 				return context;
 			}
 			case "ssr": {
+				const motionHistoryWrite = this._getPostProcessHistoryTexture(
+					request,
+					"motion",
+					"write"
+				);
 				const context: WebGPUSSRContext = {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					shared: this._postRuntime.sharedContext,
 					frameBinding: this._resources.getFrameBinding(),
+					historyRead: this._getPostProcessHistoryTexture(
+						request,
+						"ssr",
+						"read"
+					),
+					historyWrite: this._getPostProcessHistoryTexture(
+						request,
+						"ssr",
+						"write"
+					),
+					motionHistoryRead: this._getPostProcessHistoryTexture(
+						request,
+						"motion",
+						"read"
+					),
+					motionHistoryWrite,
 					publishColorTarget,
 					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteRequested = true;
+						this._motionHistoryWriteTarget = motionHistoryWrite;
 					},
 				};
 				return context;
@@ -615,15 +630,46 @@ export class WebGPUFrameExecutor {
 				return context;
 			}
 			case "volumetric": {
+				const motionHistoryWrite = this._getPostProcessHistoryTexture(
+					request,
+					"motion",
+					"write"
+				);
 				const context: WebGPUVolumetricLightingContext = {
 					encoder: this._encoder,
 					targets: this._frameTargets,
 					shared: this._postRuntime.sharedContext,
 					frameBinding: this._resources.getFrameBinding(),
 					lightingState: this._resources.getLightingState(),
+					historyRead: this._getPostProcessHistoryTexture(
+						request,
+						"volumetric",
+						"read"
+					),
+					historyWrite: this._getPostProcessHistoryTexture(
+						request,
+						"volumetric",
+						"write"
+					),
+					reservoirHistoryRead: this._getPostProcessHistoryTexture(
+						request,
+						"volumetric-reservoir",
+						"read"
+					),
+					reservoirHistoryWrite: this._getPostProcessHistoryTexture(
+						request,
+						"volumetric-reservoir",
+						"write"
+					),
+					motionHistoryRead: this._getPostProcessHistoryTexture(
+						request,
+						"motion",
+						"read"
+					),
+					motionHistoryWrite,
 					publishColorTarget,
 					writeMotionHistoryFromCurrent: () => {
-						this._motionHistoryWriteRequested = true;
+						this._motionHistoryWriteTarget = motionHistoryWrite;
 					},
 				};
 				return context;
@@ -631,6 +677,15 @@ export class WebGPUFrameExecutor {
 			default:
 				return undefined;
 		}
+	}
+
+	private _getPostProcessHistoryTexture(
+		request: PostProcessPassRequest,
+		id: string,
+		side: "read" | "write"
+	): IRenderTexture | null {
+		const slot = request.histories[id]?.[side];
+		return (slot?.resource as IRenderTexture | null) ?? null;
 	}
 
 	private _createWebGPUScreenPostProcessContext(
@@ -916,6 +971,7 @@ export class WebGPUFrameExecutor {
 	public async endFrame(): Promise<void> {
 		if (!this._encoder) {
 			this._frameContext = null;
+			this._motionHistoryWriteTarget = null;
 			return;
 		}
 
@@ -935,13 +991,11 @@ export class WebGPUFrameExecutor {
 		this._frameContext = null;
 
 		const motionSource =
-			this._mrtEnabled && this._motionHistoryWriteRequested ?
+			this._mrtEnabled && this._motionHistoryWriteTarget ?
 				this._frameTargets?.gMotionDepth
 			:	null;
 		const motionTarget =
-			this._mrtEnabled && this._motionHistoryWriteRequested ?
-				this._frameTargets?.motionHistoryWrite
-			:	null;
+			this._mrtEnabled ? this._motionHistoryWriteTarget : null;
 		if (motionSource && motionTarget && width > 0 && height > 0) {
 			this._backend.copyTextureToTexture(
 				{ texture: motionSource },
@@ -949,7 +1003,7 @@ export class WebGPUFrameExecutor {
 				{ width, height, depthOrArrayLayers: 1 }
 			);
 		}
-		this._motionHistoryWriteRequested = false;
+		this._motionHistoryWriteTarget = null;
 	}
 
 	private _createPassHandlers(): Map<
@@ -1004,10 +1058,6 @@ export class WebGPUFrameExecutor {
 				},
 			],
 		]);
-		const runPostProcess: WebGPUFramePassHandler = async () => {};
-		for (const stage of POST_PROCESS_STAGES) {
-			handlers.set(stage, runPostProcess);
-		}
 		return handlers;
 	}
 
@@ -1425,20 +1475,6 @@ export class WebGPUFrameExecutor {
 				height,
 				TextureFormat.R8Unorm
 			);
-			const historyA = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const historyB = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
 			const ssrWidth = Math.max(1, Math.floor(width / ssrDownsample));
 			const ssrHeight = Math.max(1, Math.floor(height / ssrDownsample));
 			const ssrRaw = acquireTexture(
@@ -1446,68 +1482,6 @@ export class WebGPUFrameExecutor {
 				rgba16StoragePool,
 				ssrWidth,
 				ssrHeight,
-				TextureFormat.RGBA16Float
-			);
-			const ssrHistoryA = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				ssrWidth,
-				ssrHeight,
-				TextureFormat.RGBA16Float
-			);
-			const ssrHistoryB = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				ssrWidth,
-				ssrHeight,
-				TextureFormat.RGBA16Float
-			);
-			const volumetricHistoryA = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const volumetricHistoryB = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const volumetricReservoirHistoryA = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const volumetricReservoirHistoryB = acquireTexture(
-				"rgba16-storage",
-				rgba16StoragePool,
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const motionHistoryA = acquireTexture(
-				"motion-history",
-				{
-					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-					label: "WebGPUMotionHistory",
-				},
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const motionHistoryB = acquireTexture(
-				"motion-history",
-				{
-					usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-					label: "WebGPUMotionHistory",
-				},
-				width,
-				height,
 				TextureFormat.RGBA16Float
 			);
 			const aoRaw = acquireTexture(
@@ -1623,29 +1597,9 @@ export class WebGPUFrameExecutor {
 				aoBlur,
 				ssrRaw,
 				hiZ,
-				historyRead: historyA,
-				historyWrite: historyB,
-				ssrHistoryRead: ssrHistoryA,
-				ssrHistoryWrite: ssrHistoryB,
-				volumetricHistoryRead: volumetricHistoryA,
-				volumetricHistoryWrite: volumetricHistoryB,
-				volumetricReservoirHistoryRead: volumetricReservoirHistoryA,
-				volumetricReservoirHistoryWrite: volumetricReservoirHistoryB,
-				motionHistoryRead: motionHistoryA,
-				motionHistoryWrite: motionHistoryB,
 			};
 			this._msaaTargets = nextMSAATargets;
 			this._frameTargets = nextFrameTargets;
-			this._taaHistoryA = historyA;
-			this._taaHistoryB = historyB;
-			this._ssrHistoryA = ssrHistoryA;
-			this._ssrHistoryB = ssrHistoryB;
-			this._volumetricHistoryA = volumetricHistoryA;
-			this._volumetricHistoryB = volumetricHistoryB;
-			this._volumetricReservoirHistoryA = volumetricReservoirHistoryA;
-			this._volumetricReservoirHistoryB = volumetricReservoirHistoryB;
-			this._motionHistoryA = motionHistoryA;
-			this._motionHistoryB = motionHistoryB;
 			committed = true;
 		} catch (error) {
 			if (!committed) {
@@ -1711,44 +1665,6 @@ export class WebGPUFrameExecutor {
 		return Math.max(1, Math.floor(sampleCount));
 	}
 
-	private _applyPipelineHistories(request: PostProcessPassRequest): void {
-		if (!this._frameTargets) {
-			return;
-		}
-		const texture = (id: string, side: "read" | "write"): IRenderTexture | null =>
-			(request.histories[id]?.[side].resource as IRenderTexture | null) ?? null;
-		const taaRead = texture("taa", "read");
-		const taaWrite = texture("taa", "write");
-		if (taaRead && taaWrite) {
-			this._frameTargets.historyRead = taaRead;
-			this._frameTargets.historyWrite = taaWrite;
-		}
-		const ssrRead = texture("ssr", "read");
-		const ssrWrite = texture("ssr", "write");
-		if (ssrRead && ssrWrite) {
-			this._frameTargets.ssrHistoryRead = ssrRead;
-			this._frameTargets.ssrHistoryWrite = ssrWrite;
-		}
-		const volumetricRead = texture("volumetric", "read");
-		const volumetricWrite = texture("volumetric", "write");
-		if (volumetricRead && volumetricWrite) {
-			this._frameTargets.volumetricHistoryRead = volumetricRead;
-			this._frameTargets.volumetricHistoryWrite = volumetricWrite;
-		}
-		const reservoirRead = texture("volumetric-reservoir", "read");
-		const reservoirWrite = texture("volumetric-reservoir", "write");
-		if (reservoirRead && reservoirWrite) {
-			this._frameTargets.volumetricReservoirHistoryRead = reservoirRead;
-			this._frameTargets.volumetricReservoirHistoryWrite = reservoirWrite;
-		}
-		const motionRead = texture("motion", "read");
-		const motionWrite = texture("motion", "write");
-		if (motionRead && motionWrite) {
-			this._frameTargets.motionHistoryRead = motionRead;
-			this._frameTargets.motionHistoryWrite = motionWrite;
-		}
-	}
-
 	private _destroyFrameTargets(): void {
 		const textures = new Set<IRenderTexture>();
 		if (this._frameTargets) {
@@ -1789,16 +1705,6 @@ export class WebGPUFrameExecutor {
 			textures.add(this._frameTargets.aoBlur);
 			textures.add(this._frameTargets.ssrRaw);
 			textures.add(this._frameTargets.hiZ);
-			textures.add(this._frameTargets.historyRead);
-			textures.add(this._frameTargets.historyWrite);
-			textures.add(this._frameTargets.ssrHistoryRead);
-			textures.add(this._frameTargets.ssrHistoryWrite);
-			textures.add(this._frameTargets.volumetricHistoryRead);
-			textures.add(this._frameTargets.volumetricHistoryWrite);
-			textures.add(this._frameTargets.volumetricReservoirHistoryRead);
-			textures.add(this._frameTargets.volumetricReservoirHistoryWrite);
-			textures.add(this._frameTargets.motionHistoryRead);
-			textures.add(this._frameTargets.motionHistoryWrite);
 		}
 		if (this._msaaTargets) {
 			textures.add(this._msaaTargets.sceneColorMain);
@@ -1814,16 +1720,6 @@ export class WebGPUFrameExecutor {
 		}
 		this._frameTargets = null;
 		this._msaaTargets = null;
-		this._taaHistoryA = null;
-		this._taaHistoryB = null;
-		this._ssrHistoryA = null;
-		this._ssrHistoryB = null;
-		this._volumetricHistoryA = null;
-		this._volumetricHistoryB = null;
-		this._volumetricReservoirHistoryA = null;
-		this._volumetricReservoirHistoryB = null;
-		this._motionHistoryA = null;
-		this._motionHistoryB = null;
 		this._destroyBindingGroup(this._presentBinding);
 		this._presentBinding = null;
 		this._presentBindingSource = null;
@@ -1843,6 +1739,7 @@ export class WebGPUFrameExecutor {
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
+		this._motionHistoryWriteTarget = null;
 	}
 
 	private _resolveAttachmentDimension(value: number): number {
