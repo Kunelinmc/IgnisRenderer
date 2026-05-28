@@ -1951,6 +1951,7 @@ export class WebGPUFrameExecutor {
 			selectPacketsForRect: (candidatePackets, rect) =>
 				this._resolveTransparentSubsetForRect(context, candidatePackets, rect),
 			resolveDrawOptions: () => ({
+				sceneTargetMode: "mrt",
 				transparentPipelineMode: "oit",
 			}),
 		});
@@ -2041,6 +2042,7 @@ export class WebGPUFrameExecutor {
 			selectPacketsForRect: (candidatePackets, rect) =>
 				this._resolveTransparentSubsetForRect(context, candidatePackets, rect),
 			resolveDrawOptions: () => ({
+				sceneTargetMode: "mrt",
 				transparentPipelineMode: "transmission",
 			}),
 		});

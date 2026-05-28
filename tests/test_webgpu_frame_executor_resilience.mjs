@@ -137,6 +137,7 @@ function createOITBackend({ sampleCount = 1 } = {}) {
 function createOITSequencingResourcesStub() {
 	const state = {
 		events: [],
+		drawOptions: [],
 	};
 	const drawResource = {
 		pipeline: {},
@@ -164,6 +165,12 @@ function createOITSequencingResourcesStub() {
 			return null;
 		},
 		async getDrawResources(packet, _frameResources, options = {}) {
+			state.drawOptions.push({
+				packetId: packet.id,
+				sceneTargetMode: options.sceneTargetMode ?? null,
+				transparentPipelineMode: options.transparentPipelineMode ?? "default",
+				drawMode: options.drawMode ?? "default",
+			});
 			state.events.push(
 				`draw:${packet.id}:${options.transparentPipelineMode ?? "default"}:${options.drawMode ?? "default"}`
 			);
@@ -759,6 +766,26 @@ async function testOITTransparentAndParticleExecutionOrder() {
 			"draw:transparent-transmission:transmission:default"
 		)
 	);
+	assert.ok(resources._state.events.includes("prepare:gbuffer"));
+	assert.deepEqual(
+		resources._state.drawOptions.filter((entry) =>
+			entry.packetId.startsWith("transparent-")
+		),
+		[
+			{
+				packetId: "transparent-oit",
+				sceneTargetMode: "mrt",
+				transparentPipelineMode: "oit",
+				drawMode: "default",
+			},
+			{
+				packetId: "transparent-transmission",
+				sceneTargetMode: "mrt",
+				transparentPipelineMode: "transmission",
+				drawMode: "default",
+			},
+		]
+	);
 	assert.ok(
 		resources._state.events.some((event) =>
 			event.startsWith("particles:WebGPUParticlesOIT:oit:")
@@ -807,6 +834,26 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 		resources._state.events.includes(
 			"draw:transparent-transmission-only:transmission:default"
 		)
+	);
+	assert.ok(resources._state.events.includes("prepare:gbuffer"));
+	assert.deepEqual(
+		resources._state.drawOptions.filter((entry) =>
+			entry.packetId.startsWith("transparent-")
+		),
+		[
+			{
+				packetId: "transparent-oit-only",
+				sceneTargetMode: "mrt",
+				transparentPipelineMode: "oit",
+				drawMode: "default",
+			},
+			{
+				packetId: "transparent-transmission-only",
+				sceneTargetMode: "mrt",
+				transparentPipelineMode: "transmission",
+				drawMode: "default",
+			},
+		]
 	);
 	assert.equal(
 		resources._state.events.some((event) =>
