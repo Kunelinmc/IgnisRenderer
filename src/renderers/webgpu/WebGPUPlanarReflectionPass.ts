@@ -7,7 +7,10 @@ import type { IRenderTexture, IBindingGroup } from "../types";
 import { TextureFormat, TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import type { WebGPURenderResources } from "./WebGPURenderResources";
+import type {
+	WebGPUPreparedFrameResources,
+	WebGPURenderResources,
+} from "./WebGPURenderResources";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import {
 	submitWebGPUDraws,
@@ -43,6 +46,7 @@ export interface WebGPUPlanarReflectionMSAATargets {
 export interface WebGPUPlanarReflectionCompositeRequest {
 	encoder: ICommandEncoder;
 	context: FrameContext;
+	frameResources: WebGPUPreparedFrameResources;
 	frameTargets: WebGPUFrameTargets;
 	msaaTargets: WebGPUPlanarReflectionMSAATargets | null;
 }
@@ -68,7 +72,7 @@ export class WebGPUPlanarReflectionPass {
 	 * @param context Current frame context.
 	 * @returns Number of planes captured.
 	 * @sideEffects Submits one WebGPU command buffer for each active capture and
-	 * temporarily rewrites WebGPU frame bindings for mirrored camera rendering.
+	 * prepares capture-scoped frame bindings for mirrored camera rendering.
 	 */
 	public async capture(context: FrameContext): Promise<number> {
 		this._activeReflections = [];
@@ -103,8 +107,6 @@ export class WebGPUPlanarReflectionPass {
 			)
 		);
 		const activeKeys = new Set<string>();
-		const restoreSceneTargetMode =
-			this._backend.getFrameSceneTargetMode?.() ?? "mrt";
 		const restoreMSAASampleCount = this._backend.getMSAASampleCount?.() ?? 1;
 
 		try {
@@ -112,7 +114,6 @@ export class WebGPUPlanarReflectionPass {
 				this._backend.setMSAASampleCount?.(1);
 			}
 			for (const planeInfo of planes) {
-				activeKeys.add(planeInfo.key);
 				const targets = this._getTargets(planeInfo.key, width, height);
 				const captureContext = createPlanarCaptureContext(
 					context,
@@ -121,14 +122,21 @@ export class WebGPUPlanarReflectionPass {
 					width,
 					height
 				);
-				this._resources.setSceneTargetMode("mrt");
-				this._resources.prepareFrame(captureContext, {
+				const frameResources = this._resources.prepareFrame(captureContext, {
+					scopeKey: createPlanarReflectionScopeKey(planeInfo.key),
+					sceneTargetMode: "mrt",
 					temporalStateMode: "disabled",
 				});
 				const encoder = this._backend.createCommandEncoder();
-				await this._resources.buildClusteredLighting(encoder);
-				await this._recordCapture(encoder, captureContext, targets);
+				await this._resources.buildClusteredLighting(encoder, frameResources);
+				await this._recordCapture(
+					encoder,
+					captureContext,
+					targets,
+					frameResources
+				);
 				this._backend.submit([encoder.finish()]);
+				activeKeys.add(planeInfo.key);
 				this._activeReflections.push({
 					key: planeInfo.key,
 					plane: planeInfo.plane,
@@ -139,8 +147,6 @@ export class WebGPUPlanarReflectionPass {
 			if (restoreMSAASampleCount !== 1) {
 				this._backend.setMSAASampleCount?.(restoreMSAASampleCount);
 			}
-			this._resources.setSceneTargetMode(restoreSceneTargetMode);
-			this._resources.prepareFrame(context, { temporalStateMode: "reuse" });
 			this._releaseStaleTargets(activeKeys);
 		}
 
@@ -200,7 +206,6 @@ export class WebGPUPlanarReflectionPass {
 			sceneColorAttachment.width,
 			sceneColorAttachment.height
 		);
-		this._resources.setSceneTargetMode("mrt");
 		request.encoder.beginRenderPass({
 			label: "WebGPUPlanarReflectionComposite",
 			colorAttachments: [
@@ -230,6 +235,7 @@ export class WebGPUPlanarReflectionPass {
 		await submitWebGPUDraws({
 			encoder: request.encoder,
 			resources: this._resources,
+			frameResources: request.frameResources,
 			packets,
 			dirtyRects,
 			resolveDrawOptions: () => ({
@@ -260,8 +266,9 @@ export class WebGPUPlanarReflectionPass {
 	 * @sideEffects Destroys cached render targets and bind groups.
 	 */
 	public destroy(): void {
-		for (const targets of this._targets.values()) {
+		for (const [key, targets] of this._targets.entries()) {
 			this._destroyTargets(targets);
+			this._resources.releaseScope(createPlanarReflectionScopeKey(key));
 		}
 		this._targets.clear();
 		for (const binding of this._bindings.values()) {
@@ -274,11 +281,13 @@ export class WebGPUPlanarReflectionPass {
 	private async _recordCapture(
 		encoder: ICommandEncoder,
 		context: FrameContext,
-		targets: PlanarReflectionTargetSet
+		targets: PlanarReflectionTargetSet,
+		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
 		const drewEnvironment = await this._recordEnvironmentCapture(
 			encoder,
-			targets
+			targets,
+			frameResources
 		);
 
 		encoder.beginRenderPass({
@@ -330,6 +339,7 @@ export class WebGPUPlanarReflectionPass {
 		await submitWebGPUDraws({
 			encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
@@ -341,10 +351,11 @@ export class WebGPUPlanarReflectionPass {
 
 	private async _recordEnvironmentCapture(
 		encoder: ICommandEncoder,
-		targets: PlanarReflectionTargetSet
+		targets: PlanarReflectionTargetSet,
+		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
 		const environmentResources =
-			await this._resources.getEnvironmentResources("mrt");
+			await this._resources.getEnvironmentResources(frameResources, "mrt");
 		if (!environmentResources) {
 			return false;
 		}
@@ -401,6 +412,7 @@ export class WebGPUPlanarReflectionPass {
 			}
 			this._destroyTargets(targets);
 			this._targets.delete(key);
+			this._resources.releaseScope(createPlanarReflectionScopeKey(key));
 		}
 	}
 
@@ -630,6 +642,10 @@ function resolvePlaneKey(
 	]
 		.map((value) => value.toFixed(6))
 		.join(",");
+}
+
+function createPlanarReflectionScopeKey(planeKey: string): string {
+	return `planar-reflection:${planeKey}`;
 }
 
 function createTargets(

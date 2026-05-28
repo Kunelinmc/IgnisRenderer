@@ -667,8 +667,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._prepareFramePassPlan(context);
 		this._executedPasses.clear();
 		this._particleSimulator?.beginFrame(context);
+		this._resources.beginFrameResourceLifecycle();
 		this._frameExecutor.beginFrame(context);
-		this._resources.prepareFrame(context);
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {
@@ -2695,7 +2695,14 @@ export class WebGPUBackend implements IRenderBackend {
 						simulator?.simulate(context, deltaTimeSeconds);
 						simulator?.emitRenderBatches(context);
 					}
-					this._resources?.updateParticleShadowVolumes?.(context);
+					const frameResources =
+						this._frameExecutor?.getPreparedFrameResources();
+					if (frameResources) {
+						this._resources?.updateParticleShadowVolumes?.(
+							frameResources,
+							context
+						);
+					}
 				},
 			],
 		]);

@@ -11,7 +11,10 @@ import { DRAW_PACKET_FLAG_TRANSPARENT, PARTICLE_TRANSIENT_BATCHES_KEY, createTra
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import { ComputeRuntime } from "./ComputeRuntime";
-import type { WebGPURenderResources } from "./WebGPURenderResources";
+import type {
+	WebGPUPreparedFrameResources,
+	WebGPURenderResources,
+} from "./WebGPURenderResources";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
@@ -111,30 +114,32 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
-		const restoreSceneTargetMode =
-			this._backend.getFrameSceneTargetMode?.() ?? "single";
 		const restoreMSAASampleCount = this._backend.getMSAASampleCount();
 		const captureTargets = createCaptureRenderTargets(
 			this._backend,
 			faceSize,
 			resolvedFaceIndex
 		);
+		const scopeKey = `reflection-probe:${request.probe.id}:${resolvedFaceIndex}`;
+		let frameResources: WebGPUPreparedFrameResources | null = null;
 
 		try {
 			if (restoreMSAASampleCount !== 1) {
 				this._backend.setMSAASampleCount(1);
 			}
-			this._resources.setSceneTargetMode("mrt");
-			this._resources.prepareFrame(captureContext, {
+			frameResources = this._resources.prepareFrame(captureContext, {
+				scopeKey,
+				sceneTargetMode: "mrt",
 				temporalStateMode: "disabled",
 			});
 			const encoder = this._backend.createCommandEncoder();
-			await this._resources.buildClusteredLighting(encoder);
+			await this._resources.buildClusteredLighting(encoder, frameResources);
 			await this._recordSceneCapture(
 				encoder,
 				captureContext,
 				captureTargets,
-				request.includeEnvironment
+				request.includeEnvironment,
+				frameResources
 			);
 			if (request.includeParticles) {
 				await this._resources.renderParticles(
@@ -151,6 +156,7 @@ export class WebGPUReflectionProbeCapturePass {
 						],
 						depth: captureTargets.depth,
 					},
+					frameResources,
 					"mrt",
 					{
 						pipelineMode: "legacy",
@@ -174,10 +180,7 @@ export class WebGPUReflectionProbeCapturePass {
 			if (restoreMSAASampleCount !== 1) {
 				this._backend.setMSAASampleCount(restoreMSAASampleCount);
 			}
-			this._resources.setSceneTargetMode(restoreSceneTargetMode);
-			this._resources.prepareFrame(request.frameContext, {
-				temporalStateMode: "reuse",
-			});
+			this._resources.releaseScope(scopeKey);
 		}
 	}
 
@@ -189,10 +192,15 @@ export class WebGPUReflectionProbeCapturePass {
 		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
 		context: FrameContext,
 		targets: CaptureRenderTargets,
-		includeEnvironment: boolean
+		includeEnvironment: boolean,
+		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
 		const drewEnvironment = includeEnvironment ?
-				await this._recordEnvironmentCapturePass(encoder, targets)
+				await this._recordEnvironmentCapturePass(
+					encoder,
+					targets,
+					frameResources
+				)
 			:	false;
 
 		encoder.beginRenderPass({
@@ -244,6 +252,7 @@ export class WebGPUReflectionProbeCapturePass {
 		await submitWebGPUDraws({
 			encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
@@ -254,9 +263,11 @@ export class WebGPUReflectionProbeCapturePass {
 
 	private async _recordEnvironmentCapturePass(
 		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
-		targets: CaptureRenderTargets
+		targets: CaptureRenderTargets,
+		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
-		const environmentResources = await this._resources.getEnvironmentResources("mrt");
+		const environmentResources =
+			await this._resources.getEnvironmentResources(frameResources, "mrt");
 		if (!environmentResources) {
 			return false;
 		}

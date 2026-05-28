@@ -44,11 +44,21 @@ function createEncoder() {
 	};
 }
 
+function createFrameResources() {
+	return {
+		scopeKey: "test",
+		sceneTargetMode: "mrt",
+		frameBinding: { id: "frame" },
+		environmentBinding: { id: "environment" },
+		clusteredSceneBinding: { id: "clustered" },
+	};
+}
+
 async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 	const encoder = createEncoder();
 	const options = [];
 	const resources = {
-		async getDrawResources(packet, drawOptions) {
+		async getDrawResources(packet, _frameResources, drawOptions) {
 			options.push([packet.id, drawOptions]);
 			if (packet.id === "skip") {
 				return null;
@@ -65,6 +75,7 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 	const result = await submitWebGPUDraws({
 		encoder,
 		resources,
+		frameResources: createFrameResources(),
 		packets,
 		dirtyRects: [
 			{ x: 0, y: 0, width: 8, height: 8 },
@@ -115,6 +126,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 	await submitWebGPUDraws({
 		encoder,
 		resources,
+		frameResources: createFrameResources(),
 		packets: [{ id: "gbuffer" }],
 		resolveBindings: (draw) => [
 			...getDefaultWebGPUDrawBindings(draw),
@@ -124,6 +136,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 	await submitWebGPUDraws({
 		encoder,
 		resources,
+		frameResources: createFrameResources(),
 		packets: [{ id: "planar" }],
 		resolveBindings: (draw) => [
 			{ slot: 0, group: draw.frameBinding },

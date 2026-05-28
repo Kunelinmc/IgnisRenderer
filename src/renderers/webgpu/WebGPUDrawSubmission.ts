@@ -4,6 +4,7 @@ import type { IBindingGroup } from "../types";
 import type {
 	WebGPUDrawResourceOptions,
 	WebGPUDrawResources,
+	WebGPUPreparedFrameResources,
 } from "./WebGPURenderResources";
 
 export interface WebGPUDrawSubmissionRect {
@@ -21,6 +22,7 @@ export interface WebGPUDrawSubmissionBinding {
 export interface WebGPUDrawResourceProvider {
 	getDrawResources(
 		packet: DrawPacket,
+		frameResources: WebGPUPreparedFrameResources,
 		options?: WebGPUDrawResourceOptions
 	): Promise<WebGPUDrawResources[] | null>;
 }
@@ -28,6 +30,7 @@ export interface WebGPUDrawResourceProvider {
 export interface WebGPUDrawSubmissionRequest {
 	encoder: ICommandEncoder;
 	resources: WebGPUDrawResourceProvider;
+	frameResources: WebGPUPreparedFrameResources;
 	packets: DrawPacket[];
 	dirtyRects?: readonly WebGPUDrawSubmissionRect[] | null;
 	selectPacketsForRect?: (
@@ -74,6 +77,7 @@ export async function submitWebGPUDraws(
 		for (const packet of packets) {
 			const resourcesList = await request.resources.getDrawResources(
 				packet,
+				request.frameResources,
 				request.resolveDrawOptions?.(packet, rect) ?? {}
 			);
 			if (!resourcesList || resourcesList.length <= 0) {

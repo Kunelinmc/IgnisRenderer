@@ -9,10 +9,28 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
+function createPreparedFrameResources(options = {}) {
+	return {
+		scopeKey: options.scopeKey ?? "main",
+		sceneTargetMode: options.sceneTargetMode ?? "mrt",
+		frameBinding: { id: "frame-binding" },
+		environmentBinding: { id: "environment-binding" },
+		clusteredSceneBinding: { id: "clustered-binding" },
+		lightingState: {},
+		featureState: {},
+		environmentState: {},
+		jointMatrixMap: null,
+		morphWeightMap: null,
+	};
+}
+
 function createResourcesStub() {
 	return {
 		sceneFrameLayout: {},
 		setSceneTargetMode() {},
+		prepareFrame(_context, options = {}) {
+			return createPreparedFrameResources(options);
+		},
 		async buildClusteredLighting() {},
 		renderShadows() {},
 		async getEnvironmentResources() {
@@ -39,17 +57,22 @@ function createModeTrackingResourcesStub() {
 			state.mode = mode;
 			state.modeTransitions.push(mode);
 		},
+		prepareFrame(_context, options = {}) {
+			state.mode = options.sceneTargetMode ?? state.mode;
+			state.modeTransitions.push(state.mode);
+			return createPreparedFrameResources(options);
+		},
 		async buildClusteredLighting() {},
 		renderShadows() {},
-		async getEnvironmentResources() {
-			state.environmentModeAtRequest = state.mode;
+		async getEnvironmentResources(_frameResources, sceneTargetMode) {
+			state.environmentModeAtRequest = sceneTargetMode ?? state.mode;
 			return {
 				pipeline: {},
 				frameBinding: {},
 			};
 		},
-		async getDrawResources(_packet, options = {}) {
-			state.drawModeAtRequest = state.mode;
+		async getDrawResources(_packet, _frameResources, options = {}) {
+			state.drawModeAtRequest = options.sceneTargetMode ?? state.mode;
 			state.drawPipelineModeAtRequest = options.drawMode ?? "default";
 			return null;
 		},
@@ -129,6 +152,10 @@ function createOITSequencingResourcesStub() {
 		setSceneTargetMode(mode) {
 			state.events.push(`mode:${mode}`);
 		},
+		prepareFrame(_context, options = {}) {
+			state.events.push(`prepare:${options.sceneTargetMode ?? "default"}`);
+			return createPreparedFrameResources(options);
+		},
 		async buildClusteredLighting() {
 			state.events.push("clustered:build");
 		},
@@ -136,13 +163,20 @@ function createOITSequencingResourcesStub() {
 		async getEnvironmentResources() {
 			return null;
 		},
-		async getDrawResources(packet, options = {}) {
+		async getDrawResources(packet, _frameResources, options = {}) {
 			state.events.push(
 				`draw:${packet.id}:${options.transparentPipelineMode ?? "default"}:${options.drawMode ?? "default"}`
 			);
 			return [drawResource];
 		},
-		async renderParticles(encoder, _context, targets, _mode, options = {}) {
+		async renderParticles(
+			encoder,
+			_context,
+			targets,
+			_frameResources,
+			_mode,
+			options = {}
+		) {
 			const blendModes = options.includeBlendModes ?? [];
 			state.events.push(
 				`particles:${targets.label}:${options.pipelineMode ?? "legacy"}:${blendModes.join(",")}`
@@ -180,12 +214,15 @@ function createDeferredLightingResourcesStub() {
 	return {
 		sceneFrameLayout: {},
 		setSceneTargetMode() {},
+		prepareFrame(_context, options = {}) {
+			return createPreparedFrameResources(options);
+		},
 		async buildClusteredLighting() {},
 		renderShadows() {},
 		async getEnvironmentResources() {
 			return null;
 		},
-		async getDrawResources(packet, options = {}) {
+		async getDrawResources(packet, _frameResources, options = {}) {
 			state.events.push(
 				`draw:${packet.id}:${options.sceneTargetMode ?? "none"}:${options.drawMode ?? "default"}`
 			);
@@ -218,6 +255,7 @@ function createPlanarReflectionResourcesStub() {
 	const state = {
 		events: [],
 		prepareContexts: [],
+		throwOnClusteredBuild: false,
 	};
 	const drawResource = {
 		pipeline: { id: "draw-pipeline" },
@@ -233,20 +271,27 @@ function createPlanarReflectionResourcesStub() {
 		setSceneTargetMode(mode) {
 			state.events.push(`mode:${mode}`);
 		},
-		prepareFrame(context) {
+		prepareFrame(context, options = {}) {
 			state.prepareContexts.push(context);
 			state.events.push(
 				`prepare:reflection:${context.features.enableReflection}:ssr:${context.postProcess.isEnabled("ssr")}:opaque:${context.scene.opaquePackets.map((packet) => packet.id).join(",")}`
 			);
+			return createPreparedFrameResources(options);
 		},
-		async buildClusteredLighting() {
+		async buildClusteredLighting(_encoder, frameResources) {
 			state.events.push("clustered:build");
+			if (frameResources) {
+				state.events.push(`clustered-scope:${frameResources.scopeKey}`);
+			}
+			if (state.throwOnClusteredBuild) {
+				throw new Error("simulated planar capture failure");
+			}
 		},
 		renderShadows() {},
 		async getEnvironmentResources() {
 			return null;
 		},
-		async getDrawResources(packet, options = {}) {
+		async getDrawResources(packet, _frameResources, options = {}) {
 			state.events.push(
 				`draw:${packet.id}:${options.sceneTargetMode ?? "default"}:${options.drawMode ?? "default"}`
 			);
@@ -255,6 +300,9 @@ function createPlanarReflectionResourcesStub() {
 		async renderParticles() {},
 		getPlanarReflectionLayout() {
 			return { id: "planar-reflection-layout" };
+		},
+		releaseScope(scopeKey) {
+			state.events.push(`release:${scopeKey}`);
 		},
 		_state: state,
 	};
@@ -588,6 +636,81 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 			"WebGPUPlanarReflectionMask"
 		),
 		true
+	);
+}
+
+async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
+	const resources = createPlanarReflectionResourcesStub();
+	resources._state.throwOnClusteredBuild = true;
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const camera = new Camera();
+	camera.position.set(0, 2, 5);
+	camera.updateMatrices();
+	context.camera = camera;
+	context.features.enableReflection = true;
+	context.postProcess = createResolvedPostProcess({
+		ssr: { enabled: true },
+	});
+	context.incremental = {
+		enabled: false,
+		forceFullFrame: true,
+		dirtyRects: [{ x: 0, y: 0, width: 64, height: 64 }],
+		dirtyTileSize: 64,
+		dirtyTileColumns: 1,
+		dirtyTileRows: 1,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 1,
+		firstPass: null,
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+	const mirrorMaterial = new Material({
+		name: "mirror",
+		reflectivity: 0.75,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+	});
+	const objectMaterial = new Material({ name: "object" });
+	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const objectPacket = createPlanarPacket("object", objectMaterial, 1);
+	context.scene.opaquePackets = [mirrorPacket, objectPacket];
+	context.scene.reflectivePackets = [mirrorPacket];
+	context.scene.transparentPackets = [];
+	context.scene.meshInstances = [];
+	context.scene.lights = [];
+	context.scene.shadowMaps = new Map();
+	context.scene.environment = {
+		backgroundEnabled: false,
+		lightingEnabled: false,
+		backgroundTexture: null,
+		iblTexture: null,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+
+	executor.beginFrame(context);
+	const mainFrameResources = executor.getPreparedFrameResources();
+
+	await assert.rejects(
+		executor.executePass(
+			{ stage: "reflection", executor: "backend", enabled: true },
+			context
+		),
+		/simulated planar capture failure/
+	);
+
+	assert.strictEqual(executor.getPreparedFrameResources(), mainFrameResources);
+	assert.equal(mainFrameResources.scopeKey, "main");
+	assert.equal(mainFrameResources.sceneTargetMode, "mrt");
+	assert.ok(
+		resources._state.events.some((event) =>
+			event.startsWith("release:planar-reflection:")
+		)
 	);
 }
 
@@ -931,6 +1054,7 @@ async function run() {
 	testFrameTargetsIncludeAndReleaseOITResources();
 	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
 	await testPlanarReflectionCaptureAndCompositeSequencing();
+	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testDeferredLightingBindsUnusedGroupOnePlaceholder();

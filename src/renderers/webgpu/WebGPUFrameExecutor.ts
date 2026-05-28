@@ -27,7 +27,10 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import type { WebGPURenderResources } from "./WebGPURenderResources";
+import type {
+	WebGPUPreparedFrameResources,
+	WebGPURenderResources,
+} from "./WebGPURenderResources";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import {
@@ -192,6 +195,7 @@ export class WebGPUFrameExecutor {
 	private _resources: WebGPURenderResources;
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
+	private _frameResources: WebGPUPreparedFrameResources | null = null;
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
@@ -287,8 +291,8 @@ export class WebGPUFrameExecutor {
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
 			this._destroyFrameTargets();
-			this._resources.setSceneTargetMode("single");
 			this._frameContext = null;
+			this._frameResources = null;
 			this._encoder = null;
 			return;
 		}
@@ -303,14 +307,43 @@ export class WebGPUFrameExecutor {
 				targetHeight,
 				this._deferredEnabled
 			);
-			this._resources.setSceneTargetMode(
-				this._deferredEnabled ? "gbuffer" : "mrt"
-			);
 		} else {
 			this._destroyFrameTargets();
-			this._resources.setSceneTargetMode("single");
 		}
 		this._configureOIT(context);
+		this.prepareFrameResources(context);
+	}
+
+	/**
+	 * Prepares scoped WebGPU frame resources for the active frame.
+	 *
+	 * @param context Current frame context.
+	 * @returns Prepared main-frame resources, or `null` when the frame was
+	 * rejected before an encoder was created.
+	 * @sideEffects Writes frame uniforms and clustered lighting buffers.
+	 */
+	public prepareFrameResources(
+		context: FrameContext
+	): WebGPUPreparedFrameResources | null {
+		if (!this._frameContext || !this._encoder) {
+			this._frameResources = null;
+			return null;
+		}
+		this._frameResources = this._resources.prepareFrame(context, {
+			scopeKey: "main",
+			sceneTargetMode: this.getSceneTargetModeForFrame(),
+		});
+		return this._frameResources;
+	}
+
+	/**
+	 * Returns the resources prepared for the active main frame.
+	 *
+	 * @returns Main-frame resources, or `null` before preparation/after submit.
+	 * @sideEffects None.
+	 */
+	public getPreparedFrameResources(): WebGPUPreparedFrameResources | null {
+		return this._frameResources;
 	}
 
 	public createPostProcessResource(
@@ -420,6 +453,15 @@ export class WebGPUFrameExecutor {
 		return this._deferredEnabled ? "gbuffer" : "mrt";
 	}
 
+	private _requireFrameResources(): WebGPUPreparedFrameResources {
+		if (!this._frameResources) {
+			throw new Error(
+				"WebGPUFrameExecutor requires prepared main-frame resources."
+			);
+		}
+		return this._frameResources;
+	}
+
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
@@ -480,10 +522,10 @@ export class WebGPUFrameExecutor {
 			};
 		}
 		if (metadata.frameBinding && mode === "execute") {
-			context.frameBinding = this._resources.getFrameBinding();
+			context.frameBinding = this._requireFrameResources().frameBinding;
 		}
 		if (metadata.lightingState && mode === "execute") {
-			context.lightingState = this._resources.getLightingState();
+			context.lightingState = this._requireFrameResources().lightingState;
 		}
 		if (request && mode === "execute") {
 			for (const binding of metadata.histories ?? []) {
@@ -568,11 +610,6 @@ export class WebGPUFrameExecutor {
 		const errors: ShaderCompileError[] = [];
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
-		const sceneMode =
-			this._mrtEnabled && plan.sceneTargetMode === "mrt" ?
-				this._deferredEnabled ? "gbuffer" : "mrt"
-			:	"single";
-		this._resources.setSceneTargetMode(sceneMode);
 
 		try {
 			await this._ensurePresentResources();
@@ -749,6 +786,7 @@ export class WebGPUFrameExecutor {
 		this._backend.submit([encoder.finish()]);
 		this._encoder = null;
 		this._frameContext = null;
+		this._frameResources = null;
 
 		const motionSource =
 			this._mrtEnabled && this._motionHistoryWriteTarget ?
@@ -1877,8 +1915,8 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || !this._frameTargets || packets.length <= 0) {
 			return 0;
 		}
+		const frameResources = this._requireFrameResources();
 		const depthAttachment = this._msaaTargets?.depth ?? this._frameTargets.depth;
-		this._resources.setSceneTargetMode("mrt");
 		this._encoder.beginRenderPass({
 			label: "WebGPUOITDraw",
 			colorAttachments: [
@@ -1907,6 +1945,7 @@ export class WebGPUFrameExecutor {
 		const submission = await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -1926,12 +1965,11 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || packets.length <= 0) {
 			return;
 		}
+		const frameResources = this._requireFrameResources();
 		if (!this._mrtEnabled || !this._frameTargets) {
-			this._resources.setSceneTargetMode("single");
 			await this._recordLegacyMainPass(context, packets, false, false);
 			return;
 		}
-		this._resources.setSceneTargetMode("mrt");
 		const msaaTargets = this._msaaTargets;
 		const sceneColorAttachment =
 			msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain;
@@ -1997,6 +2035,7 @@ export class WebGPUFrameExecutor {
 		await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -2188,7 +2227,8 @@ export class WebGPUFrameExecutor {
 			);
 			return;
 		}
-		await this._resources.buildClusteredLighting(this._encoder);
+		const frameResources = this._requireFrameResources();
+		await this._resources.buildClusteredLighting(this._encoder, frameResources);
 		const { oitPackets, transmissionPackets } =
 			this._partitionTransparentPackets(context.scene.transparentPackets);
 		this._oitTransmissionPackets = transmissionPackets;
@@ -2242,6 +2282,7 @@ export class WebGPUFrameExecutor {
 				],
 				depth: depthAttachment,
 			},
+			this._requireFrameResources(),
 			"mrt",
 			{
 				includeBlendModes: [ParticleBlendMode.Alpha],
@@ -2274,6 +2315,7 @@ export class WebGPUFrameExecutor {
 				],
 				depth: depthAttachment,
 			},
+			this._requireFrameResources(),
 			"mrt",
 			{
 				includeBlendModes: [ParticleBlendMode.Additive],
@@ -2391,6 +2433,7 @@ export class WebGPUFrameExecutor {
 		await this._planarReflectionPass.composite({
 			encoder: this._encoder,
 			context,
+			frameResources: this._requireFrameResources(),
 			frameTargets: this._frameTargets,
 			msaaTargets:
 				this._msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
@@ -2468,8 +2511,8 @@ export class WebGPUFrameExecutor {
 			return;
 		}
 
-		await this._resources.buildClusteredLighting(this._encoder);
-		this._resources.setSceneTargetMode("gbuffer");
+		const frameResources = this._requireFrameResources();
+		await this._resources.buildClusteredLighting(this._encoder, frameResources);
 		const incrementalPartial = this._isIncrementalPartial(context);
 		const sceneColorAttachment = this._frameTargets.sceneColorMain;
 		const depthAttachment = this._frameTargets.depth;
@@ -2492,7 +2535,10 @@ export class WebGPUFrameExecutor {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._resources.getEnvironmentResources("gbuffer");
+				await this._resources.getEnvironmentResources(
+					frameResources,
+					"gbuffer"
+				);
 			if (environmentResources) {
 				this._encoder.beginRenderPass({
 					label: "WebGPUEnvironmentDeferred",
@@ -2609,6 +2655,7 @@ export class WebGPUFrameExecutor {
 		await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -2654,12 +2701,13 @@ export class WebGPUFrameExecutor {
 			],
 		});
 		this._encoder.setPipeline(pipeline);
-		this._encoder.setBindingGroup(0, this._resources.getFrameBinding());
+		const frameResources = this._requireFrameResources();
+		this._encoder.setBindingGroup(0, frameResources.frameBinding);
 		this._encoder.setBindingGroup(
 			1,
 			this._resources.getDeferredUnusedBinding()
 		);
-		this._encoder.setBindingGroup(2, this._resources.getClusteredSceneBinding());
+		this._encoder.setBindingGroup(2, frameResources.clusteredSceneBinding);
 		this._encoder.setBindingGroup(3, gbufferReadBinding);
 		const dirtyRects = this._resolveDirtyRects(
 			context,
@@ -2680,10 +2728,10 @@ export class WebGPUFrameExecutor {
 		allowEarlyZPrepass: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
-		await this._resources.buildClusteredLighting(this._encoder);
+		const frameResources = this._requireFrameResources();
+		await this._resources.buildClusteredLighting(this._encoder, frameResources);
 		const incrementalPartial = this._isIncrementalPartial(context);
 		if (!this._mrtEnabled || !this._frameTargets) {
-			this._resources.setSceneTargetMode("single");
 			await this._recordLegacyMainPass(
 				context,
 				packets,
@@ -2692,7 +2740,6 @@ export class WebGPUFrameExecutor {
 			);
 			return;
 		}
-		this._resources.setSceneTargetMode("mrt");
 		const msaaTargets = this._msaaTargets;
 		const sceneColorAttachment =
 			msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain;
@@ -2723,7 +2770,8 @@ export class WebGPUFrameExecutor {
 
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
-			const environmentResources = await this._resources.getEnvironmentResources();
+			const environmentResources =
+				await this._resources.getEnvironmentResources(frameResources, "mrt");
 			if (environmentResources) {
 				this._encoder.beginRenderPass({
 					label: "WebGPUEnvironmentMRT",
@@ -2836,6 +2884,7 @@ export class WebGPUFrameExecutor {
 		await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -2859,7 +2908,8 @@ export class WebGPUFrameExecutor {
 		allowEarlyZPrepass: boolean
 	): Promise<void> {
 		if (!this._encoder) return;
-		await this._resources.buildClusteredLighting(this._encoder);
+		const frameResources = this._requireFrameResources();
+		await this._resources.buildClusteredLighting(this._encoder, frameResources);
 		const incrementalPartial = this._isIncrementalPartial(context);
 		const colorTexture = this._backend.getCanvasColorTexture();
 		const depthTexture = this._backend.getCanvasDepthTexture();
@@ -2923,7 +2973,8 @@ export class WebGPUFrameExecutor {
 		});
 
 		if (shouldClearAttachments) {
-			const environmentResources = await this._resources.getEnvironmentResources();
+			const environmentResources =
+				await this._resources.getEnvironmentResources(frameResources, "single");
 			if (environmentResources) {
 				this._encoder.setPipeline(environmentResources.pipeline);
 				this._encoder.setBindingGroup(0, environmentResources.frameBinding);
@@ -2934,6 +2985,7 @@ export class WebGPUFrameExecutor {
 		await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources,
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -2980,6 +3032,7 @@ export class WebGPUFrameExecutor {
 		const submission = await submitWebGPUDraws({
 			encoder: this._encoder,
 			resources: this._resources,
+			frameResources: this._requireFrameResources(),
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
@@ -3023,6 +3076,7 @@ export class WebGPUFrameExecutor {
 
 	private async _recordParticlePass(context: FrameContext): Promise<void> {
 		if (!this._encoder) return;
+		const frameResources = this._requireFrameResources();
 
 		if (this._mrtEnabled && this._frameTargets) {
 			const msaaTargets = this._msaaTargets;
@@ -3042,9 +3096,10 @@ export class WebGPUFrameExecutor {
 							loadOp: "load",
 							storeOp: "store",
 						},
-					],
+				],
 					depth: msaaTargets?.depth ?? this._frameTargets.depth,
 				},
+				frameResources,
 				"mrt",
 				{
 					pipelineMode: "legacy",
@@ -3068,6 +3123,7 @@ export class WebGPUFrameExecutor {
 				],
 				depth: this._backend.getCanvasDepthTexture(),
 			},
+			frameResources,
 			"single",
 			{
 				pipelineMode: "legacy",

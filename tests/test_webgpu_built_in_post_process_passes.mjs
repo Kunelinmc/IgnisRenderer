@@ -88,6 +88,18 @@ function createExecutorHarness() {
 		sceneColor: { id: "scene-color" },
 		sceneColorMain: { id: "scene-color-main" },
 	};
+	executor._frameResources = {
+		scopeKey: "main",
+		sceneTargetMode: "mrt",
+		frameBinding: { id: "frame-binding" },
+		environmentBinding: null,
+		clusteredSceneBinding: null,
+		lightingState: { id: "lighting-state" },
+		featureState: {},
+		environmentState: {},
+		jointMatrixMap: new Map(),
+		morphWeightMap: new Map(),
+	};
 	executor._postRuntime = {
 		sharedContext: { id: "shared-context" },
 		executePass: async (request) => {
@@ -99,12 +111,6 @@ function createExecutorHarness() {
 		},
 	};
 	executor._resources = {
-		getFrameBinding() {
-			return { id: "frame-binding" };
-		},
-		getLightingState() {
-			return { id: "lighting-state" };
-		},
 	};
 	return { executor, runtimeCalls };
 }

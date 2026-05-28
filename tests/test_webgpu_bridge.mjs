@@ -185,6 +185,23 @@ function createFrame(packet) {
 	};
 }
 
+function createPreparedFrameResources(options = {}) {
+	const scopeKey = options.scopeKey ?? "test";
+	const sceneTargetMode = options.sceneTargetMode ?? "single";
+	return {
+		scopeKey,
+		sceneTargetMode,
+		frameBinding: { bindGroup: { label: `${scopeKey}:frame` } },
+		environmentBinding: null,
+		clusteredSceneBinding: null,
+		lightingState: {},
+		featureState: {},
+		environmentState: {},
+		jointMatrixMap: new Map(),
+		morphWeightMap: new Map(),
+	};
+}
+
 function testMatrixPackingAndDepthRemap() {
 	const matrix = new Matrix4([
 		[1, 2, 3, 4],
@@ -1181,7 +1198,7 @@ function testRenderResourcesRequestsComputeFacadeFromBackend() {
 
 	assert.equal(backend.getComputeFacadeCalls, 1);
 	assert.equal(
-		typeof resources._clusteredLighting._compute.createComputePipeline,
+		typeof resources._computeFacade.createComputePipeline,
 		"function"
 	);
 
@@ -2078,6 +2095,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 		},
 		"webgpu"
 	);
+	resources.beginFrameResourceLifecycle();
 	resources.prepareFrame(frame, features);
 
 	const texture = new Texture(
@@ -2301,7 +2319,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	}
 }
 
-async function testExplicitSceneTargetModeOverridesSharedMRTState() {
+async function testScopedSceneTargetModesUseDistinctBindings() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
 	backend.canvasDepthFormat = "depth24plus";
@@ -2342,20 +2360,43 @@ async function testExplicitSceneTargetModeOverridesSharedMRTState() {
 		"webgpu"
 	);
 
-	resources.setSceneTargetMode("mrt");
-	resources.prepareFrame(frame, features);
+	const mainFrameResources = resources.prepareFrame(frame, features, {
+		scopeKey: "main",
+		sceneTargetMode: "single",
+	});
+	const mainFrameBinding = mainFrameResources.frameBinding;
+	const captureFrameResources = resources.prepareFrame(frame, features, {
+		scopeKey: "test-capture",
+		sceneTargetMode: "mrt",
+		temporalStateMode: "disabled",
+	});
+	assert.notEqual(captureFrameResources.frameBinding, mainFrameBinding);
 
-	const environmentResources = await resources.getEnvironmentResources("single");
+	const captureDrawResources = await resources.getDrawResources(
+		packet,
+		captureFrameResources
+	);
+	assert.ok(captureDrawResources);
+	assert.equal(captureDrawResources[0].pipeline.label.endsWith("_mrt"), true);
+	assert.equal(mainFrameResources.frameBinding, mainFrameBinding);
+
+	const environmentResources =
+		await resources.getEnvironmentResources(mainFrameResources);
 	assert.ok(environmentResources);
-	assert.equal(environmentResources.pipeline.label, "WebGPUEnvironmentPipeline_single");
+	assert.equal(
+		environmentResources.pipeline.label,
+		"WebGPUEnvironmentPipeline_single"
+	);
 	assert.equal(
 		environmentResources.pipeline.desc.depthStencil.format,
 		backend.canvasDepthFormat
 	);
 
-	const drawResources = await resources.getDrawResources(packet, {
-		sceneTargetMode: "single",
-	});
+	const drawResources = await resources.getDrawResources(
+		packet,
+		mainFrameResources,
+		{ sceneTargetMode: "single" }
+	);
 	assert.ok(drawResources);
 	assert.equal(drawResources[0].pipeline.label.endsWith("_single"), true);
 	assert.equal(
@@ -2441,7 +2482,10 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	};
 	const resources = {
 		setSceneTargetMode() {},
-		prepareFrame() {},
+		prepareFrame(_context, options = {}) {
+			return createPreparedFrameResources(options);
+		},
+		releaseScope() {},
 		async buildClusteredLighting() {},
 		async getEnvironmentResources() {
 			return null;
@@ -2561,11 +2605,13 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	const preparedCameraPositions = [];
 	const resources = {
 		setSceneTargetMode() {},
-		prepareFrame(context) {
+		prepareFrame(context, options = {}) {
 			preparedCameraPositions.push(
 				context.camera.getWorldPosition({ x: 0, y: 0, z: 0 })
 			);
+			return createPreparedFrameResources(options);
 		},
+		releaseScope() {},
 		async buildClusteredLighting() {},
 		async getEnvironmentResources() {
 			return null;
@@ -3310,6 +3356,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	assert.equal(uvBuffer.destroyed, false);
 
 	for (let i = 0; i < 130; i++) {
+		resources.beginFrameResourceLifecycle();
 		resources.prepareFrame(frame, features);
 	}
 
@@ -3573,7 +3620,7 @@ async function run() {
 	await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 	await testWebGPUEnvironmentCombinationsRegression();
-	await testExplicitSceneTargetModeOverridesSharedMRTState();
+	await testScopedSceneTargetModesUseDistinctBindings();
 	await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
 	await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 	await testParticleUVLayoutAndUniformBinding();
