@@ -92,6 +92,7 @@ import type {
 } from "../pipeline/types";
 import type {
 	IRenderBackend,
+	PostProcessCapableRenderBackend,
 	RenderBackendDeviceLostInfo,
 	WarmupOptions,
 	WarmupProgress,
@@ -140,7 +141,7 @@ export type RendererFeatures = RendererFeatureFlags &
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export class Renderer extends EventEmitter<RendererEvents> {
-	public readonly backend: IRenderBackend;
+	public readonly backend: PostProcessCapableRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
@@ -173,7 +174,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _postProcessPipeline: PostProcessPipeline;
 
 	constructor(
-		backend: IRenderBackend,
+		backend: PostProcessCapableRenderBackend,
 		canvas: HTMLCanvasElement,
 		camera: Camera | null = null
 	) {

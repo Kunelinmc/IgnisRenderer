@@ -39,6 +39,10 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `fog` pass must return `false` from `shouldExecute(request)` when `request.options.application` is `"scene"`.
 - The built-in `interaction-outline` pass must return `false` from `shouldExecute(request)` when `request.frameContext` exists and no entity is selected.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
+- `IRenderBackend` must define only the core render backend lifecycle and pass execution surface.
+- `IRenderBackend` must not extend `PostProcessBackendSupport`.
+- `PostProcessCapableRenderBackend` must combine `IRenderBackend` with `PostProcessBackendSupport`.
+- `Renderer` must require `PostProcessCapableRenderBackend` for its active backend.
 - Backend support for a built-in pass must be derived from `PostProcessPassConfig.implementations`, not from a backend-owned capability map.
 - Backends must not expose `postProcessCapabilities`.
 - `IPostProcessExecutor.createResource(desc)` must allocate a concrete resource and return a `PostProcessResourceHandle`.
@@ -193,6 +197,7 @@ bun tests/test_webgpu_postprocess_runtime_temporal.mjs
 - `PostProcessPassRequest.transients` is added for transient resource access.
 - `PostProcessResourceDescriptor.mipMode` is added for single-mip and full-chain resources.
 - `PostProcessPass.shouldExecute(request)` is added for pass-owned frame-level execution predicates.
+- `IRenderBackend` no longer extends `PostProcessBackendSupport`; code that needs post-process members must use `PostProcessCapableRenderBackend` or `PostProcessBackendSupport`.
 - `PostProcessor` is removed from the public API. Software built-in post-process behavior is owned by pass implementations under `src/postprocess/passes/`.
 - `WebGPUPostProcessPassPlugin` is no longer a public extension type.
 - `WebGLPostProcessPassPlugin` is no longer a public extension type.

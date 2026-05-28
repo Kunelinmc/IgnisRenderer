@@ -79,7 +79,7 @@ export interface RendererBackendBridge {
 	pixels?: Uint8ClampedArray | null;
 }
 
-export interface IRenderBackend extends PostProcessBackendSupport {
+export interface IRenderBackend {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
 	readonly frameScheduling: FrameSchedulingMode;
@@ -110,3 +110,13 @@ export interface IRenderBackend extends PostProcessBackendSupport {
 	): Promise<WarmupReport>;
 	endFrame(): void | Promise<void>;
 }
+
+/**
+ * Render backend contract required by `Renderer`.
+ *
+ * Core backend implementations may satisfy `IRenderBackend` without exposing
+ * post-process execution, but the built-in renderer pipeline requires this
+ * combined contract for the single `postprocess` frame stage.
+ */
+export type PostProcessCapableRenderBackend =
+	IRenderBackend & PostProcessBackendSupport;
