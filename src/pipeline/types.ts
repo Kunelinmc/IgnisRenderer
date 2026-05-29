@@ -225,7 +225,6 @@ export const FRAME_PASS_DEPENDENCIES = new Map<
 	["main-opaque", ["reflection", "shadow"]],
 	["main-transparent", ["main-opaque"]],
 	["particles", ["main-transparent"]],
-	["postprocess", ["particles"]],
 ]);
 
 export interface VolumetricOptions {

@@ -738,7 +738,7 @@ function testCommandBufferOwnershipAndOneShotSubmit() {
 	);
 }
 
-function testPassDependencyValidation() {
+function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const { backend } = createBackend();
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
@@ -773,30 +773,8 @@ function testPassDependencyValidation() {
 		},
 	});
 	backend.beginFrame(context);
-	assert.ok(
-		backend._plannedPassOrder.get("particles") <
-			backend._plannedPassOrder.get("postprocess")
-	);
-
-	assert.throws(
-		() =>
-			backend.executePass(
-				{ stage: "postprocess", executor: "backend", enabled: true },
-				context
-			),
-		/dependencies: particles/
-	);
-
-	backend.executePass(
-		{ stage: "particles", executor: "backend", enabled: true },
-		context
-	);
-	assert.doesNotThrow(() =>
-		backend.executePass(
-			{ stage: "postprocess", executor: "backend", enabled: true },
-			context
-		)
-	);
+	assert.equal(backend._plannedPasses.has("postprocess"), false);
+	assert.equal(backend._plannedPassOrder.has("postprocess"), false);
 }
 
 function testPassPlanAllowsParticleStageBeforeMainOpaque() {
@@ -1022,7 +1000,7 @@ async function run() {
 	testMapBindingResourceRejectsPrimitive();
 	testCreateTextureClampsPublicDimensions();
 	testCommandBufferOwnershipAndOneShotSubmit();
-	testPassDependencyValidation();
+	testBackendPlanOmitsRendererOwnedPostProcessStage();
 	testPassPlanAllowsParticleStageBeforeMainOpaque();
 	await testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame();
 	await testEndFrameFailureStillEndsParticleFrameAndClearsPlanner();

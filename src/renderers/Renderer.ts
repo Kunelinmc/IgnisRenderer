@@ -1117,6 +1117,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					});
 					break;
 				}
+				case "postprocess": {
+					if (context) {
+						await this._executePostProcessStage(context);
+					}
+					break;
+				}
 				case "sync-out": {
 					this.scene.syncECSToNode();
 					break;
@@ -1148,23 +1154,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						this.backend.skipPass?.(skippedPass);
 						break;
 					}
-					if (stage.id === "postprocess") {
-						const pass = this._createBackendPass(stage.id);
-						await this._postProcessPipeline.execute({
-							frameContext: context,
-							executor: this.backend.postProcessExecutor,
-							gBuffer: this.backend.createPostProcessGBufferBridge(context),
-							historyFinalization: "manual",
-							warn: (key, message) =>
-								this.logger.warn(`[${key}] ${message}`, {
-									scope: "Renderer",
-									onceKey: key,
-								}),
-						});
-						await this.backend.executePass(pass, context);
-						break;
-					}
-
 					const pass = this._createBackendPass(stage.id);
 					if (pass.executor === "shared") {
 						if (!this.backend.executeSharedPass) {
@@ -1338,6 +1327,35 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		});
 	}
 
+	private async _executePostProcessStage(context: FrameContext): Promise<void> {
+		if (
+			context.incremental.enabled &&
+			!context.incremental.forceFullFrame &&
+			context.incremental.dirtyRects.length === 0
+		) {
+			return;
+		}
+		if (
+			!hasPostProcessExecutionPasses(context.postProcess, {
+				backend: this.backend.postProcessExecutor.backend,
+				frameContext: context,
+			})
+		) {
+			return;
+		}
+		await this._postProcessPipeline.execute({
+			frameContext: context,
+			executor: this.backend.postProcessExecutor,
+			gBuffer: this.backend.createPostProcessGBufferBridge(context),
+			historyFinalization: "manual",
+			warn: (key, message) =>
+				this.logger.warn(`[${key}] ${message}`, {
+					scope: "Renderer",
+					onceKey: key,
+				}),
+		});
+	}
+
 	private _getSafeAspectRatio(width: number, height: number): number {
 		return Math.max(width, 1) / Math.max(height, 1);
 	}
@@ -1435,14 +1453,6 @@ function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
 			id: "particles",
 			dependsOn: ["main-transparent"],
 			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
-		},
-		{
-			id: "postprocess",
-			dependsOn: ["particles"],
-			shouldRun: ({ postProcess, frameContext }) =>
-				hasPostProcessExecutionPasses(postProcess, {
-					frameContext,
-				}),
 		},
 	];
 }

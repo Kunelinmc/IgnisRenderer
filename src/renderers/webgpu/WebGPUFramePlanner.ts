@@ -4,7 +4,6 @@ import {
 	type FramePass,
 } from "../../pipeline/types";
 import { hasParticleShadowCasters } from "../../pipeline/ParticleShadowVolume";
-import { hasPostProcessExecutionPasses } from "../../postprocess/PostProcessPipeline";
 import type {
 	WebGPUFramePlanner,
 	WebGPUFramePlannerReporter,
@@ -37,12 +36,6 @@ export class WebGPUPassPlanner implements WebGPUFramePlanner {
 		}
 		if (hasParticleSystems) {
 			state.plannedPasses.add("particles");
-		}
-		if (hasPostProcessExecutionPasses(context.postProcess, {
-			backend: "webgpu",
-			frameContext: context,
-		})) {
-			state.plannedPasses.add("postprocess");
 		}
 		this._validatePlannedPassGraph(state);
 	}

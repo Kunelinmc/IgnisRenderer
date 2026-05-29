@@ -282,7 +282,6 @@ async function testInitAndPassRouting() {
 		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
 	);
 	backend.executePass({ stage: "particles" }, { frameId: 1 });
-	backend.executePass({ stage: "postprocess" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.executePass({ stage: "shadow" }, { frameId: 1 });
 	backend.endFrame();
@@ -293,7 +292,6 @@ async function testInitAndPassRouting() {
 		["begin", { frameId: 1 }],
 		["pass", "main-opaque", { frameId: 1 }],
 		["pass", "particles", { frameId: 1 }],
-		["pass", "postprocess", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["end"],
@@ -401,7 +399,7 @@ function createDependencyContext() {
 	};
 }
 
-function testDependencyValidationRejectsOutOfOrderPass() {
+function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const backend = new WebGLBackend();
 	const context = createDependencyContext();
 	backend._frameExecutor = {
@@ -419,10 +417,8 @@ function testDependencyValidationRejectsOutOfOrderPass() {
 	};
 
 	backend.beginFrame(context);
-	assert.throws(
-		() => backend.executePass({ stage: "postprocess" }, context),
-		/executed before dependencies: particles/
-	);
+	assert.equal(backend._plannedPasses.has("postprocess"), false);
+	assert.equal(backend._plannedPassOrder.has("postprocess"), false);
 }
 
 async function run() {
@@ -431,7 +427,7 @@ async function run() {
 	await testContextLostAndRestored();
 	await testPublicLifecycleMethods();
 	testParticleDeltaTimeIsClampedToSafeMaximum();
-	testDependencyValidationRejectsOutOfOrderPass();
+	testBackendPlanOmitsRendererOwnedPostProcessStage();
 	console.log("WebGL backend v2 tests passed");
 }
 

@@ -142,8 +142,8 @@ export interface IRenderBackend {
  * Render backend contract required by `Renderer`.
  *
  * Core backend implementations may satisfy `IRenderBackend` without exposing
- * post-process execution, but the built-in renderer pipeline requires this
- * combined contract for the single `postprocess` frame stage.
+ * post-process execution support, but `Renderer` requires this combined
+ * contract to run its renderer-owned logical `postprocess` stage.
  */
 export type PostProcessCapableRenderBackend =
 	IRenderBackend & PostProcessBackendSupport;

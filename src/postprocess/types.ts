@@ -301,7 +301,11 @@ export interface IPostProcessExecutor {
 
 export interface PostProcessBackendSupport {
 	/**
-	 * Executes logical post-process passes resolved by `PostProcessPipeline`.
+	 * Supplies backend resource allocation and pass execution helpers for the
+	 * renderer-owned logical post-process stage.
+	 *
+	 * @remarks `PostProcessPipeline` remains the cross-backend owner of pass
+	 * ordering, history, transients, and frame finalization.
 	 */
 	readonly postProcessExecutor: IPostProcessExecutor;
 	/**

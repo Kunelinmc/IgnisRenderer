@@ -22,7 +22,6 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../postprocess";
-import { hasPostProcessExecutionPasses } from "../postprocess/PostProcessPipeline";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import {
 	ShaderBackendCompileStage,
@@ -52,7 +51,6 @@ const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"main-opaque",
 	"main-transparent",
 	"particles",
-	"postprocess",
 ] as const;
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 
@@ -473,12 +471,6 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		if (hasParticleSystems) {
 			this._plannedPasses.add("particles");
-		}
-		if (hasPostProcessExecutionPasses(context.postProcess, {
-			backend: "webgl",
-			frameContext: context,
-		})) {
-			this._plannedPasses.add("postprocess");
 		}
 		this._validatePlannedPassGraph();
 	}

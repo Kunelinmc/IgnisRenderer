@@ -20,15 +20,31 @@ class RegistryBackend {
 		this.contexts = [];
 		this.executedPasses = [];
 		this.executionEvents = [];
+		this.gBufferRequests = 0;
+		this.postProcessAbortCalls = 0;
+		this.backendAbortCalls = 0;
 		installNoopPostProcessSupport(
 			this,
 			"webgpu"
 		);
+		const createPostProcessGBufferBridge =
+			this.createPostProcessGBufferBridge.bind(this);
+		this.createPostProcessGBufferBridge = (context) => {
+			this.gBufferRequests++;
+			return createPostProcessGBufferBridge(context);
+		};
 		const executePostProcessPass =
 			this.postProcessExecutor.executePass.bind(this.postProcessExecutor);
 		this.postProcessExecutor.executePass = (passId, request) => {
 			this.executionEvents.push(["postprocess", passId]);
 			return executePostProcessPass(passId, request);
+		};
+		this.postProcessExecutor.endFrame = () => {
+			this.executionEvents.push(["postprocess-frame", "end"]);
+		};
+		this.postProcessExecutor.abortFrame = () => {
+			this.postProcessAbortCalls++;
+			this.executionEvents.push(["postprocess-frame", "abort"]);
 		};
 		this.frameScheduling = "always";
 		this.passExecutors = {};
@@ -57,7 +73,14 @@ class RegistryBackend {
 		this.executionEvents.push(["backend", pass.stage]);
 	}
 
-	endFrame() {}
+	endFrame() {
+		this.executionEvents.push(["backend", "end"]);
+	}
+
+	abortFrame() {
+		this.backendAbortCalls++;
+		this.executionEvents.push(["backend", "abort"]);
+	}
 }
 
 async function run() {
@@ -126,11 +149,21 @@ async function run() {
 		assert.ok(
 			backend.postProcessExecutor.executedPasses.includes("custom-edge")
 		);
-		assert.ok(backend.executedPasses.includes("postprocess"));
-		assert.deepEqual(backend.executionEvents.at(-1), [
-			"backend",
-			"postprocess",
-		]);
+		assert.equal(backend.executedPasses.includes("postprocess"), false);
+		assert.equal(
+			backend.executionEvents.some(
+				(event) => event[0] === "backend" && event[1] === "postprocess"
+			),
+			false
+		);
+		assert.ok(
+			backend.executionEvents.findIndex(
+				(event) => event[0] === "postprocess" && event[1] === "custom-edge"
+			) <
+				backend.executionEvents.findIndex(
+					(event) => event[0] === "backend" && event[1] === "end"
+				)
+		);
 		assert.equal(
 			backend.postProcessExecutor.executedPasses.includes("gamma"),
 			false
@@ -145,6 +178,96 @@ async function run() {
 			() => renderer.postProcess.registerPass({ id: "custom-edge" }),
 			/requires a PostProcessPass/
 		);
+
+		const noopBackend = new RegistryBackend();
+		const noopRenderer = new Renderer(noopBackend, canvas, new Camera());
+		noopRenderer.features.enableShadows = false;
+		noopRenderer.features.enableReflection = false;
+		noopRenderer.features.enableEnvironment = false;
+		noopRenderer.postProcess.getPass("tonemap")?.disable();
+		noopRenderer.postProcess.getPass("gamma")?.disable();
+		await noopRenderer.renderScene(0);
+		assert.deepEqual(noopBackend.postProcessExecutor.executedPasses, []);
+		assert.equal(noopBackend.gBufferRequests, 0);
+		assert.equal(noopBackend.executedPasses.includes("postprocess"), false);
+
+		const historySnapshots = [];
+		const historyBackend = new RegistryBackend();
+		const historyRenderer = new Renderer(historyBackend, canvas, new Camera());
+		historyRenderer.setIncrementalRendering({ enabled: false });
+		historyRenderer.features.enableShadows = false;
+		historyRenderer.features.enableReflection = false;
+		historyRenderer.features.enableEnvironment = false;
+		historyRenderer.postProcess.getPass("tonemap")?.disable();
+		historyRenderer.postProcess.getPass("gamma")?.disable();
+		historyRenderer.postProcess.registerPass(
+			new (class HistoryProbePass extends PostProcessPass {
+				constructor() {
+					super({
+						id: "history-probe",
+						enabled: true,
+						implementations: {
+							webgpu: {
+								execute: (request) => {
+									const slot = request.histories.probe;
+									historySnapshots.push({
+										valid: slot.valid,
+										read: slot.read.id,
+										write: slot.write.id,
+									});
+									return { updatedHistoryIds: ["probe"] };
+								},
+							},
+						},
+					});
+				}
+
+				getHistoryDescriptors() {
+					return [{ id: "probe" }];
+				}
+			})()
+		);
+		await historyRenderer.renderScene(0);
+		await historyRenderer.renderScene(16);
+		assert.equal(historySnapshots.length, 2);
+		assert.deepEqual(historySnapshots[0], {
+			valid: false,
+			read: "probe:read",
+			write: "probe:write",
+		});
+		assert.equal(historySnapshots[1].read, "probe:write");
+		assert.equal(historySnapshots[1].write, "probe:read");
+
+		const throwingBackend = new RegistryBackend();
+		const throwingRenderer = new Renderer(throwingBackend, canvas, new Camera());
+		throwingRenderer.features.enableShadows = false;
+		throwingRenderer.features.enableReflection = false;
+		throwingRenderer.features.enableEnvironment = false;
+		throwingRenderer.postProcess.getPass("tonemap")?.disable();
+		throwingRenderer.postProcess.getPass("gamma")?.disable();
+		throwingRenderer.postProcess.registerPass(
+			new (class ThrowingPass extends PostProcessPass {
+				constructor() {
+					super({
+						id: "throwing-pass",
+						enabled: true,
+						implementations: {
+							webgpu: {
+								execute: () => {
+									throw new Error("postprocess failed");
+								},
+							},
+						},
+					});
+				}
+			})()
+		);
+		await assert.rejects(
+			() => throwingRenderer.renderScene(0),
+			/postprocess failed/
+		);
+		assert.equal(throwingBackend.postProcessAbortCalls, 1);
+		assert.equal(throwingBackend.backendAbortCalls, 1);
 
 		console.log("Renderer postprocess registry tests passed");
 	} finally {
