@@ -85,6 +85,10 @@ export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
 	pixels?: Uint8ClampedArray | null;
 	/**
+	 * Notifies the renderer that the backend observed device/context loss.
+	 */
+	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
+	/**
 	 * Notifies the renderer that backend-owned resources changed lifetime.
 	 *
 	 * @param event Backend resource event to handle.

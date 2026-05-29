@@ -178,18 +178,51 @@ async function run() {
 		};
 		const camera = new Camera();
 		const renderer = new Renderer(backend, canvas, camera);
+		const rendererEvents = [];
+		renderer.on("devicelost", (event) => {
+			rendererEvents.push([
+				"devicelost",
+				event.backend,
+				event.info?.message,
+			]);
+		});
+		renderer.on("backendresourceevent", (event) => {
+			rendererEvents.push([
+				"backendresourceevent",
+				event.backend,
+				event.resource,
+				event.action,
+			]);
+		});
 		await renderer.onDeviceLost({
 			reason: "manual-test",
 			message: "simulated loss",
 		});
 		assert.equal(backend.deviceLostInfos.length, 1);
 		assert.equal(backend.deviceLostInfos[0].message, "simulated loss");
+		assert.deepEqual(rendererEvents[0], [
+			"devicelost",
+			"stub",
+			"simulated loss",
+		]);
 
 		await renderer.restore();
 		assert.equal(backend.restoreCanvases.length, 1);
 		assert.equal(backend.restoreCanvases[0], canvas);
 
 		await testRendererPostProcessCleanupBridge(canvas);
+		renderer.onBackendResourceEvent({
+			resource: "postprocess",
+			action: "invalidate",
+			backend: "stub",
+			reason: "event-test",
+		});
+		assert.deepEqual(rendererEvents[1], [
+			"backendresourceevent",
+			"stub",
+			"postprocess",
+			"invalidate",
+		]);
 
 		const dynamicTexture = new FakeDynamicTexture(2);
 		const originalWarn = console.warn;

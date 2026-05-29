@@ -315,6 +315,9 @@ export class WebGPUBackend implements IRenderBackend {
 	private _onBackendResourceEvent:
 		| RendererBackendBridge["onBackendResourceEvent"]
 		| null = null;
+	private _onDeviceLost:
+		| RendererBackendBridge["onDeviceLost"]
+		| null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
@@ -402,6 +405,7 @@ export class WebGPUBackend implements IRenderBackend {
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
+		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -582,6 +586,7 @@ export class WebGPUBackend implements IRenderBackend {
 				return info;
 			}
 			this.onDeviceLost(info);
+			void this._onDeviceLost?.(info);
 			return info;
 		});
 

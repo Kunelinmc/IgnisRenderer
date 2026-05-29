@@ -109,6 +109,13 @@ export type { EnvironmentIBLUpdateOptions } from "../pipeline/EnvironmentIBLUpda
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
 	framestart: [{ now: number; deltaTime: number }];
+	devicelost: [
+		{
+			backend: IRenderBackend["type"];
+			info?: RenderBackendDeviceLostInfo;
+		},
+	];
+	backendresourceevent: [RendererBackendResourceEvent];
 	postanimation: [
 		{
 			now: number;
@@ -294,6 +301,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const result = this.backend.onDeviceLost?.(info);
 		this._preparedSceneCache.reset();
 		this._markFrameDirty("unknown");
+		this.emit("devicelost", {
+			backend: this.backend.type,
+			info,
+		});
 		return result;
 	}
 
@@ -319,6 +330,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 */
 	public onBackendResourceEvent(event: RendererBackendResourceEvent): void {
 		this._postProcessController.handleBackendResourceEvent(event);
+		this.emit("backendresourceevent", event);
 	}
 
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {

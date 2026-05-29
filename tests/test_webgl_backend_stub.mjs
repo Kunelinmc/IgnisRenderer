@@ -186,12 +186,13 @@ function createFakeCanvas(gl) {
 	};
 }
 
-function createRendererBridge() {
+function createRendererBridge(overrides = {}) {
 	const warnings = [];
 	return {
 		warnings,
 		bridge: {
 			canvas: { width: 1, height: 1 },
+			...overrides,
 		},
 	};
 }
@@ -307,7 +308,12 @@ async function testInitAndPassRouting() {
 
 async function testContextLostAndRestored() {
 	const backend = new WebGLBackend();
-	const { bridge } = createRendererBridge();
+	const deviceLostInfos = [];
+	const { bridge } = createRendererBridge({
+		onDeviceLost(info) {
+			deviceLostInfos.push(info);
+		},
+	});
 	backend.setRenderer(bridge);
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
 	await backend.init(canvas);
@@ -322,6 +328,8 @@ async function testContextLostAndRestored() {
 		});
 		assert.equal(prevented, true);
 		assert.equal(backend._contextLost, true);
+		assert.equal(deviceLostInfos.length, 1);
+		assert.equal(deviceLostInfos[0].reason, "context-lost");
 
 		canvas.dispatch("webglcontextrestored", {});
 		assert.equal(backend._contextLost, false);

@@ -105,6 +105,9 @@ export class WebGLBackend implements IRenderBackend {
 	private _onBackendResourceEvent:
 		| RendererBackendBridge["onBackendResourceEvent"]
 		| null = null;
+	private _onDeviceLost:
+		| RendererBackendBridge["onDeviceLost"]
+		| null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -142,6 +145,7 @@ export class WebGLBackend implements IRenderBackend {
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
+		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
 		this._ensureParticleSimulator();
 	}
 
@@ -414,10 +418,12 @@ export class WebGLBackend implements IRenderBackend {
 		this._contextLossHandler = (event: Event) => {
 			const webglEvent = event as WebGLContextEvent;
 			webglEvent.preventDefault?.();
-			this.onDeviceLost({
+			const info = {
 				reason: "context-lost",
 				message: webglEvent.statusMessage,
-			});
+			};
+			this.onDeviceLost(info);
+			void this._onDeviceLost?.(info);
 		};
 		this._contextRestoreHandler = () => {
 			Logger.warn(

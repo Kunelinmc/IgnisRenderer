@@ -32,12 +32,26 @@ restore render resources without using private backend members.
 	  the backend implements the method.
 	- Behavior contract: resets renderer prepared-scene cache and marks the next
 	  frame dirty.
+	- Behavior contract: emits `RendererEvents.devicelost` after renderer-owned
+	  device-loss bookkeeping completes.
 - `Renderer.restore()`
 	- Behavior contract: calls `renderer.backend.restore(renderer.canvas)` when
 	  implemented.
 	- Behavior contract: falls back to `renderer.backend.init(renderer.canvas)`
 	  when the backend has no `restore` method.
 	- Behavior contract: resizes the canvas and marks the next frame dirty.
+- `Renderer.onBackendResourceEvent(event)`
+	- Behavior contract: handles renderer-owned backend resource invalidation or
+	  destruction for `event`.
+	- Behavior contract: emits `RendererEvents.backendresourceevent` after
+	  renderer-owned resource handling completes.
+- `RendererEvents.devicelost`
+	- Output contract: payload `backend` must identify the active backend type.
+	- Output contract: payload `info` may contain the reported loss reason and
+	  diagnostic message.
+- `RendererEvents.backendresourceevent`
+	- Output contract: payload must be the `RendererBackendResourceEvent` handled
+	  by `Renderer.onBackendResourceEvent`.
 - `RendererBackendBridge.onBackendResourceEvent(event)`
 	- Input contract: `event.resource` must identify the backend resource family.
 	- Input contract: `event.action` must be `"invalidate"` or `"destroy"`.
@@ -45,8 +59,15 @@ restore render resources without using private backend members.
 	  invalidate or destroy renderer-owned post-process state for `event.backend`.
 	- Constraint: backends must emit `{ resource: "postprocess", action: "destroy" }`
 	  before releasing a device or graphics context that owns post-process handles.
+- `RendererBackendBridge.onDeviceLost(info?)`
+	- Behavior contract: backends should notify the renderer after automatic
+	  device/context loss is observed.
+	- Constraint: backends must mark their own lost state before notifying the
+	  renderer through this bridge callback.
 - `WebGPUBackend` must route `GPUDevice.lost` through
   `WebGPUBackend.onDeviceLost`.
+- `WebGPUBackend` must notify `RendererBackendBridge.onDeviceLost(info)` after
+  automatic `GPUDevice.lost` handling.
 - `WebGPUBackend` must call
   `RendererBackendBridge.onBackendResourceEvent({ resource: "postprocess", action: "destroy", backend: "webgpu" })`
   before rollback during automatic device-loss recovery, manual `restore()`,
@@ -54,6 +75,8 @@ restore render resources without using private backend members.
 - `WebGLBackend` must route `webglcontextlost` through
   `WebGLBackend.onDeviceLost` and `webglcontextrestored` through
   `WebGLBackend.restore`.
+- `WebGLBackend` must notify `RendererBackendBridge.onDeviceLost(info)` after
+  automatic `webglcontextlost` handling.
 
 ## Usage
 ```ts
@@ -62,6 +85,13 @@ import { Renderer, WebGPUBackend } from "../src";
 const backend = new WebGPUBackend();
 const renderer = new Renderer(backend, canvas, camera);
 await renderer.init();
+
+renderer.on("devicelost", ({ backend, info }) => {
+	console.warn(`Renderer device lost on ${backend}: ${info?.message ?? "N/A"}`);
+});
+renderer.on("backendresourceevent", (event) => {
+	console.info(`Backend resource ${event.action}: ${event.resource}`);
+});
 
 renderer.onDeviceLost({
 	reason: "manual-recovery",
@@ -94,3 +124,7 @@ use `RendererBackendBridge.onBackendResourceEvent` for renderer-owned resource
 cleanup. Backends may still omit `IRenderBackend.onDeviceLost` and
 `IRenderBackend.restore`; `Renderer.restore` must fall back to `init` for such
 backends.
+
+`RendererEvents.devicelost`, `RendererEvents.backendresourceevent`, and
+`RendererBackendBridge.onDeviceLost` are additive. Existing backends may omit the
+bridge callback when they do not observe automatic device or context loss.
