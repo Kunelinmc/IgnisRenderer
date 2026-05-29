@@ -8,7 +8,7 @@ import { AnimationClip } from "../src/animation/AnimationClip.ts";
 import { KeyframeTrack } from "../src/animation/KeyframeTrack.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -25,7 +25,7 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

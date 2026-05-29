@@ -13,12 +13,16 @@ import type {
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessBackendAdapter,
 	PostProcessPassExecutionContextRequest,
-	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
+} from "../postprocess";
+import {
+	registerPostProcessBackendAdapter,
+	unregisterPostProcessBackendAdapter,
 } from "../postprocess";
 import {
 	type FrameAttachments,
@@ -255,27 +259,16 @@ export class WebGPUBackend implements IRenderBackend {
 		endFrame: (_request) => {},
 		abortFrame: (_request) => {},
 	};
-	public readonly postProcessExecutor = this._postProcessExecutor;
+	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
+		backend: "webgpu",
+		executor: this._postProcessExecutor,
+		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
+	};
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
 	private _device: GPUDevice | null = null;
 	private _queue: GPUQueue | null = null;
-
-	/**
-	 * Creates the logical G-buffer bridge for WebGPU post-process passes.
-	 *
-	 * @param context Frame context with WebGPU render resources for the active
-	 * frame.
-	 * @returns A logical G-buffer bridge backed by WebGPU texture handles.
-	 * @remarks This method exposes only backend-owned attachments and does not
-	 * mutate the renderer-level post-process registry.
-	 */
-	public createPostProcessGBufferBridge(
-		context: FrameContext
-	): LogicalGBufferBridge {
-		return this._createPostProcessGBuffer(context);
-	}
 
 	/**
 	 * Returns the current presentation canvas.
@@ -319,9 +312,8 @@ export class WebGPUBackend implements IRenderBackend {
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
-	private _postProcessRegistry: PostProcessPassRegistry | null = null;
-	private _destroyPostProcessResources:
-		| RendererBackendBridge["destroyPostProcessResources"]
+	private _onBackendResourceEvent:
+		| RendererBackendBridge["onBackendResourceEvent"]
 		| null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
@@ -401,15 +393,15 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resourceManager = new WebGPUResourceManager(
 			this._createResourceManagerHost()
 		);
+		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
-		this._postProcessRegistry = renderer.postProcess ?? null;
-		this._destroyPostProcessResources =
-			renderer.destroyPostProcessResources?.bind(renderer) ?? null;
+		this._onBackendResourceEvent =
+			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -668,7 +660,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._recreateDepthTexture();
-		this._postProcessRegistry?.invalidatePasses("webgpu");
+		this._emitPostProcessResourceEvent("invalidate", "resize");
 		this._frameExecutor?.invalidateFrameTargets();
 	}
 
@@ -878,6 +870,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
+		unregisterPostProcessBackendAdapter(this);
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
 		this._deviceLossPromise = null;
@@ -1519,11 +1512,19 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _destroyPostProcessResourcesForReset(): void {
-		if (this._destroyPostProcessResources) {
-			this._destroyPostProcessResources("webgpu", this.postProcessExecutor);
-			return;
-		}
-		this._postProcessRegistry?.destroyPasses("webgpu");
+		this._emitPostProcessResourceEvent("destroy", "reset");
+	}
+
+	private _emitPostProcessResourceEvent(
+		action: "invalidate" | "destroy",
+		reason: string
+	): void {
+		this._onBackendResourceEvent?.({
+			resource: "postprocess",
+			action,
+			backend: "webgpu",
+			reason,
+		});
 	}
 
 	private _rollbackInitializationState(): void {
@@ -2490,7 +2491,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
-		this._postProcessRegistry?.invalidatePasses("webgpu");
+		this._emitPostProcessResourceEvent("invalidate", "msaa-sample-count");
 		this._frameExecutor?.invalidateFrameTargets();
 		this._resetCurrentCanvasTargets();
 	}
@@ -2498,7 +2499,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _onShaderRuntimeChanged(): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
-		this._postProcessRegistry?.destroyPasses("webgpu");
+		this._emitPostProcessResourceEvent("destroy", "shader-runtime-changed");
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();

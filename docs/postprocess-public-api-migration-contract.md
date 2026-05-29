@@ -26,10 +26,11 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - Snapshot consumers must not use `postProcess.enabled` or `postProcess.options` maps.
 - `PostProcessPipeline` must execute enabled snapshot passes in built-in placement order and custom placement order.
 - Built-in pass classes must expose pass-owned normalization, requirements, history descriptors, and implementations when migrated.
-- Backends used with `Renderer` must satisfy `PostProcessCapableRenderBackend`.
-- `PostProcessCapableRenderBackend` must combine `IRenderBackend` with `PostProcessBackendSupport`.
-- `IRenderBackend` must not extend `PostProcessBackendSupport`.
-- `PostProcessBackendSupport` must expose `postProcessExecutor` and `createPostProcessGBufferBridge(context)`.
+- Backends used with `Renderer` must satisfy `IRenderBackend`.
+- Backends that support post-processing must register a `PostProcessBackendAdapter` with `registerPostProcessBackendAdapter(owner, adapter)`.
+- `PostProcessBackendAdapter` must expose `backend`, `executor`, and `createGBufferBridge(context)`.
+- `Renderer` must resolve post-process execution with `resolvePostProcessBackendAdapter(backend)`.
+- `IRenderBackend` must not expose `postProcessExecutor` or `createPostProcessGBufferBridge(context)`.
 - Backends must not expose `postProcessCapabilities`.
 - Backends must not expose public post-process graph registration APIs.
 - Unsupported enabled built-in passes must be determined by missing pass-owned backend implementations and must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
@@ -102,7 +103,7 @@ bun tests/test_postprocess_public_api.mjs
 - `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already registered.
 - `"<backend>-postprocess-unsupported-<passId>"` must be emitted when an enabled built-in pass has no implementation for the active backend.
 - `postprocess-history-conflict-<historyId>` must be emitted when enabled passes request incompatible descriptors for the same history id.
-- A backend that omits `postProcessExecutor` or `createPostProcessGBufferBridge(context)` violates `PostProcessCapableRenderBackend` and must not be used with `Renderer`.
+- `"<backend>-postprocess-adapter-missing"` must be emitted once when enabled post-process work exists but the active backend has no registered adapter.
 
 ## Compatibility / Breaking Changes
 - Plain object pass descriptors are no longer accepted.
@@ -120,7 +121,8 @@ bun tests/test_postprocess_public_api.mjs
 - `renderer.postProcess.getState()` is removed.
 - Only `tonemap` and `gamma` are auto-registered.
 - `FrameContext.postProcess.enabled` and `FrameContext.postProcess.options` are removed.
-- `IRenderBackend` no longer extends `PostProcessBackendSupport`; code that needs post-process execution members must use `PostProcessCapableRenderBackend` or `PostProcessBackendSupport`.
+- `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed.
+- Public `backend.postProcessExecutor` and `backend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendAdapter(backend)` for backend-owned post-process execution internals.
 - `renderer.features.enableSSAO = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceAmbientOcclusionPass({ enabled: true }))`.
 - `renderer.features.enableSSGI = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({ enabled: true }))`.
 - `renderer.features.enableTAA = true` must migrate to `renderer.postProcess.registerPass(new TemporalAntiAliasingPass({ enabled: true }))`.

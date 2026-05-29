@@ -15,12 +15,16 @@ import type {
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessBackendAdapter,
 	PostProcessPassExecutionContextRequest,
-	PostProcessPassRegistry,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
+} from "../postprocess";
+import {
+	registerPostProcessBackendAdapter,
+	unregisterPostProcessBackendAdapter,
 } from "../postprocess";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import {
@@ -88,13 +92,19 @@ export class WebGLBackend implements IRenderBackend {
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 	};
-	public readonly postProcessExecutor = this._postProcessExecutor;
+	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
+		backend: "webgl",
+		executor: this._postProcessExecutor,
+		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
+	};
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
-	private _postProcessRegistry: PostProcessPassRegistry | null = null;
+	private _onBackendResourceEvent:
+		| RendererBackendBridge["onBackendResourceEvent"]
+		| null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -126,27 +136,13 @@ export class WebGLBackend implements IRenderBackend {
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
+		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
-		this._postProcessRegistry = renderer.postProcess ?? null;
+		this._onBackendResourceEvent =
+			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
 		this._ensureParticleSimulator();
-	}
-
-	/**
-	 * Creates the logical G-buffer bridge for WebGL post-process passes.
-	 *
-	 * @param context Frame context with WebGL frame attachments for the active
-	 * frame.
-	 * @returns A logical G-buffer bridge backed by WebGL texture handles when
-	 * the frame executor is available.
-	 * @remarks This method does not register backend graph passes or mutate
-	 * renderer-level post-process configuration.
-	 */
-	public createPostProcessGBufferBridge(
-		context: FrameContext
-	): LogicalGBufferBridge {
-		return this._createPostProcessGBuffer(context);
 	}
 
 	private _createPostProcessResource(
@@ -229,7 +225,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._width = toSafeDimension(width);
 		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
-		this._postProcessRegistry?.invalidatePasses("webgl");
+		this._emitPostProcessResourceEvent("invalidate", "resize");
 		this._frameExecutor?.resize(this._width, this._height);
 	}
 
@@ -329,11 +325,12 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._postProcessRegistry?.destroyPasses("webgl");
+		this._emitPostProcessResourceEvent("destroy", "destroy");
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
 		this._particleSimulator = null;
 		this._gl = null;
+		unregisterPostProcessBackendAdapter(this);
 
 		if (this._canvas) {
 			if (this._contextLossHandler) {
@@ -378,7 +375,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 
 		this._gl = gl;
-		this._postProcessRegistry?.destroyPasses("webgl");
+		this._emitPostProcessResourceEvent("destroy", "context-initialize");
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
@@ -388,6 +385,18 @@ export class WebGLBackend implements IRenderBackend {
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);
+	}
+
+	private _emitPostProcessResourceEvent(
+		action: "invalidate" | "destroy",
+		reason: string
+	): void {
+		this._onBackendResourceEvent?.({
+			resource: "postprocess",
+			action,
+			backend: "webgl",
+			reason,
+		});
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {

@@ -666,9 +666,10 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 	const calls = [];
 	backend.setRenderer({
 		canvas: { width: 1, height: 1 },
-		destroyPostProcessResources(kind, executor) {
-			calls.push(`postprocess:${kind}`);
-			assert.strictEqual(executor, backend.postProcessExecutor);
+		onBackendResourceEvent(event) {
+			assert.equal(event.resource, "postprocess");
+			assert.equal(event.action, "destroy");
+			calls.push(`postprocess:${event.backend}`);
 		},
 	});
 	backend._frameExecutor = {

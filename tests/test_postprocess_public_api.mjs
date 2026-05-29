@@ -10,14 +10,18 @@ import {
 	PostProcessPassRegistry,
 	PostProcessPipeline,
 	PostProcessTransientManager,
+	registerPostProcessBackendAdapter,
 	resolvePostProcessExecutionOrder,
+	resolvePostProcessBackendAdapter,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceReflectionsPass,
 	ToneMappingPass,
+	unregisterPostProcessBackendAdapter,
 	VolumetricLightingPass,
 } from "../src/index.ts";
 import {
+	createNoopPostProcessAdapter,
 	createNoopPostProcessSupport,
 	createResolvedPostProcess,
 } from "./helpers/postprocess.mjs";
@@ -926,6 +930,16 @@ function testLogicalGBufferBridgeHelperShape() {
 	assert.equal(bridge.channels.normal.handle.backend, "software");
 }
 
+function testPostProcessBackendAdapterRegistry() {
+	const owner = {};
+	const support = createNoopPostProcessAdapter("test");
+	assert.equal(resolvePostProcessBackendAdapter(owner), null);
+	registerPostProcessBackendAdapter(owner, support.adapter);
+	assert.equal(resolvePostProcessBackendAdapter(owner), support.adapter);
+	unregisterPostProcessBackendAdapter(owner);
+	assert.equal(resolvePostProcessBackendAdapter(owner), null);
+}
+
 async function run() {
 	testRegistryOnlySurfaceAndPassMutation();
 	testSnapshotNormalizationAndWarnings();
@@ -943,6 +957,7 @@ async function run() {
 	testTransientManagerReuseRecreateAndDestroy();
 	await testTransientDescriptorConflictWarnsAndKeepsFirst();
 	testLogicalGBufferBridgeHelperShape();
+	testPostProcessBackendAdapterRegistry();
 	console.log("Postprocess public API tests passed");
 }
 

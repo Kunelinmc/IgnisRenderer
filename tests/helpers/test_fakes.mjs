@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./postprocess.mjs";
 
 // --- Worker Fakes ---
@@ -379,7 +379,7 @@ export class FakeCommandEncoder {
 export class FakeWebGPUBackend {
 	constructor() {
 		this.type = "webgpu";
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"webgpu"
 		);

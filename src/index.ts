@@ -27,8 +27,8 @@ export type {
 export { Renderer } from "./renderers/Renderer";
 export type {
 	IRenderBackend,
-	PostProcessCapableRenderBackend,
 	RenderBackendDeviceLostInfo,
+	RendererBackendResourceEvent,
 } from "./renderers/IRenderBackend";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";

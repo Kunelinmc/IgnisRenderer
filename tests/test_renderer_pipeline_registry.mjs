@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
@@ -16,7 +16,7 @@ class RegistryBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"webgpu"
 		);
@@ -194,7 +194,7 @@ async function run() {
 			assert.equal(stats.firstPass, customPassId);
 			assert.equal(stats.forceFullFrame, false);
 			assert.ok(backend.skippedPasses.includes("main-opaque"));
-			assert.ok(backend.skippedPasses.includes("postprocess"));
+			assert.equal(backend.skippedPasses.includes("postprocess"), false);
 			assert.ok(backend.executedPasses.includes(customPassId));
 		} finally {
 			renderer.pipeline.unregisterDirtyReason(customReasonId);

@@ -9,6 +9,7 @@ import {
 	MotionBlurPass,
 	PostProcessPass,
 	PostProcessPassRegistry,
+	registerPostProcessBackendAdapter,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceReflectionsPass,
@@ -206,14 +207,27 @@ export function createNoopPostProcessSupport(
 	};
 }
 
-export function installNoopPostProcessSupport(
-	target,
+export function createNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessSupport(backend);
-	target.postProcessExecutor = support.executor;
-	target.createPostProcessGBufferBridge = (context) =>
-		support.createGBufferBridge(context);
+	const adapter = {
+		backend,
+		executor: support.executor,
+		createGBufferBridge: (context) => support.createGBufferBridge(context),
+	};
+	return {
+		...support,
+		adapter,
+	};
+}
+
+export function installNoopPostProcessAdapter(
+	target,
+	backend = "test"
+) {
+	const support = createNoopPostProcessAdapter(backend);
+	registerPostProcessBackendAdapter(target, support.adapter);
 	return support;
 }
 

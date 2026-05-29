@@ -8,7 +8,7 @@ import {
 	Vector3,
 } from "../src/index.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -27,7 +27,7 @@ class StubBackend {
 			fog: false,
 			bloom: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

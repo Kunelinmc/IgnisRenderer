@@ -6,7 +6,7 @@ import { Renderer } from "../src/renderers/Renderer.ts";
 
 import { FakeDynamicTexture } from "./helpers/test_fakes.mjs";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -23,7 +23,7 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		installNoopPostProcessSupport(
+		this.postProcessSupport = installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);
@@ -141,13 +141,17 @@ async function testRendererPostProcessCleanupBridge(canvas) {
 
 	await renderer._postProcessPipeline.execute({
 		frameContext,
-		executor: backend.postProcessExecutor,
-		gBuffer: backend.createPostProcessGBufferBridge(frameContext),
+		executor: backend.postProcessSupport.executor,
+		gBuffer: backend.postProcessSupport.adapter.createGBufferBridge(frameContext),
 		historyFinalization: "manual",
 	});
-	renderer.destroyPostProcessResources("stub", backend.postProcessExecutor);
+	renderer.onBackendResourceEvent({
+		resource: "postprocess",
+		action: "destroy",
+		backend: "stub",
+	});
 
-	const destroyedIds = backend.postProcessExecutor.destroyedResources.map(
+	const destroyedIds = backend.postProcessSupport.executor.destroyedResources.map(
 		(handle) => handle.id
 	);
 	assert.ok(destroyedIds.includes("cleanup-history:read"));

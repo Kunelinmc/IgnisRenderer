@@ -3,12 +3,6 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type {
-	IPostProcessExecutor,
-	PostProcessBackendKind,
-	PostProcessBackendSupport,
-} from "../postprocess";
-import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 
@@ -73,26 +67,32 @@ export interface BackendCapabilities {
 	oit: boolean;
 }
 
+export type RendererBackendResourceEventAction = "invalidate" | "destroy";
+export type RendererBackendResourceEventResource = "postprocess" | (string & {});
+
+export interface RendererBackendResourceEvent {
+	readonly resource: RendererBackendResourceEventResource;
+	readonly action: RendererBackendResourceEventAction;
+	readonly backend?: RenderBackendType;
+	readonly reason?: string;
+}
+
 /**
  * Presentation-only renderer host state exposed to backends.
  * Frame data must flow through `FrameContext`.
  */
 export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
-	readonly postProcess?: PostProcessPassRegistry;
 	pixels?: Uint8ClampedArray | null;
 	/**
-	 * Releases renderer-owned post-process resources for a backend reset.
+	 * Notifies the renderer that backend-owned resources changed lifetime.
 	 *
-	 * @param backend Backend kind whose pass implementations must be destroyed.
-	 * @param executor Executor that owns pipeline-created resource handles.
+	 * @param event Backend resource event to handle.
 	 * @returns Nothing.
-	 * @sideEffects Destroys post-process history, transient, and pass resources.
+	 * @sideEffects May invalidate or destroy renderer-owned resources that
+	 * reference backend handles.
 	 */
-	destroyPostProcessResources?(
-		backend: PostProcessBackendKind,
-		executor: IPostProcessExecutor
-	): void;
+	onBackendResourceEvent?(event: RendererBackendResourceEvent): void;
 }
 
 export interface IRenderBackend {
@@ -137,13 +137,3 @@ export interface IRenderBackend {
 	): Promise<WarmupReport>;
 	endFrame(): void | Promise<void>;
 }
-
-/**
- * Render backend contract required by `Renderer`.
- *
- * Core backend implementations may satisfy `IRenderBackend` without exposing
- * post-process execution support, but `Renderer` requires this combined
- * contract to run its renderer-owned logical `postprocess` stage.
- */
-export type PostProcessCapableRenderBackend =
-	IRenderBackend & PostProcessBackendSupport;

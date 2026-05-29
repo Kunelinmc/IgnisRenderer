@@ -299,25 +299,28 @@ export interface IPostProcessExecutor {
 	abortFrame?(request: PostProcessFrameAbortRequest): void | Promise<void>;
 }
 
-export interface PostProcessBackendSupport {
+export interface PostProcessBackendAdapter {
+	/**
+	 * Backend kind implemented by this adapter.
+	 *
+	 * @remarks This value is used for pass implementation resolution and
+	 * diagnostics. It must match the backend resources produced by `executor`.
+	 */
+	readonly backend: PostProcessBackendKind;
 	/**
 	 * Supplies backend resource allocation and pass execution helpers for the
 	 * renderer-owned logical post-process stage.
-	 *
-	 * @remarks `PostProcessPipeline` remains the cross-backend owner of pass
-	 * ordering, history, transients, and frame finalization.
 	 */
-	readonly postProcessExecutor: IPostProcessExecutor;
+	readonly executor: IPostProcessExecutor;
 	/**
 	 * Creates the logical G-buffer view consumed by cross-backend passes.
 	 *
 	 * @param context Frame context containing backend attachments for the
 	 * current render.
 	 * @returns A backend-specific bridge mapped to logical G-buffer semantics.
-	 * @remarks Implementations must not register graph passes or mutate the
-	 * public post-process registry. Resource ownership remains with the backend.
+	 * @sideEffects None. Resource ownership remains with the backend.
 	 */
-	createPostProcessGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
 }
 
 export interface PostProcessPipelineExecuteRequest {

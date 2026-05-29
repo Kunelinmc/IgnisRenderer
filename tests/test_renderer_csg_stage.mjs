@@ -6,7 +6,7 @@ import { CSGMeshInstance } from "../src/meshes/CSGMeshInstance.ts";
 import { MeshFactory } from "../src/meshes/MeshFactory.ts";
 import { Material } from "../src/materials/Material.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -23,7 +23,7 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

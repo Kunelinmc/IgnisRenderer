@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import { PostProcessPass } from "../src/postprocess/index.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class RegistryBackend {
@@ -23,26 +24,30 @@ class RegistryBackend {
 		this.gBufferRequests = 0;
 		this.postProcessAbortCalls = 0;
 		this.backendAbortCalls = 0;
-		installNoopPostProcessSupport(
+		this.postProcessSupport = installNoopPostProcessAdapter(
 			this,
 			"webgpu"
 		);
-		const createPostProcessGBufferBridge =
-			this.createPostProcessGBufferBridge.bind(this);
-		this.createPostProcessGBufferBridge = (context) => {
+		const createGBufferBridge =
+			this.postProcessSupport.adapter.createGBufferBridge.bind(
+				this.postProcessSupport.adapter
+			);
+		this.postProcessSupport.adapter.createGBufferBridge = (context) => {
 			this.gBufferRequests++;
-			return createPostProcessGBufferBridge(context);
+			return createGBufferBridge(context);
 		};
 		const executePostProcessPass =
-			this.postProcessExecutor.executePass.bind(this.postProcessExecutor);
-		this.postProcessExecutor.executePass = (passId, request) => {
+			this.postProcessSupport.executor.executePass.bind(
+				this.postProcessSupport.executor
+			);
+		this.postProcessSupport.executor.executePass = (passId, request) => {
 			this.executionEvents.push(["postprocess", passId]);
 			return executePostProcessPass(passId, request);
 		};
-		this.postProcessExecutor.endFrame = () => {
+		this.postProcessSupport.executor.endFrame = () => {
 			this.executionEvents.push(["postprocess-frame", "end"]);
 		};
-		this.postProcessExecutor.abortFrame = () => {
+		this.postProcessSupport.executor.abortFrame = () => {
 			this.postProcessAbortCalls++;
 			this.executionEvents.push(["postprocess-frame", "abort"]);
 		};
@@ -81,6 +86,48 @@ class RegistryBackend {
 		this.backendAbortCalls++;
 		this.executionEvents.push(["backend", "abort"]);
 	}
+}
+
+class NoAdapterBackend {
+	constructor() {
+		this.type = "missing";
+		this.capabilities = {
+			sh: false,
+			shadows: false,
+			reflection: false,
+			environment: false,
+			clusteredLighting: false,
+			oit: false,
+		};
+		this.contexts = [];
+		this.executedPasses = [];
+		this.frameScheduling = "always";
+		this.passExecutors = {};
+	}
+
+	async init() {}
+
+	resize() {}
+
+	getAttachments(width, height) {
+		return {
+			width,
+			height,
+			pixels: new Uint8ClampedArray(width * height * 4),
+			depthBuffer: new Float32Array(width * height),
+			normalBuffer: new Float32Array(width * height * 3),
+		};
+	}
+
+	beginFrame(context) {
+		this.contexts.push(context);
+	}
+
+	executePass(pass) {
+		this.executedPasses.push(pass.stage);
+	}
+
+	endFrame() {}
 }
 
 async function run() {
@@ -147,7 +194,7 @@ async function run() {
 			18
 		);
 		assert.ok(
-			backend.postProcessExecutor.executedPasses.includes("custom-edge")
+			backend.postProcessSupport.executor.executedPasses.includes("custom-edge")
 		);
 		assert.equal(backend.executedPasses.includes("postprocess"), false);
 		assert.equal(
@@ -165,11 +212,11 @@ async function run() {
 				)
 		);
 		assert.equal(
-			backend.postProcessExecutor.executedPasses.includes("gamma"),
+			backend.postProcessSupport.executor.executedPasses.includes("gamma"),
 			false
 		);
 		assert.equal(
-			backend.postProcessExecutor.executedPasses.includes("tonemap"),
+			backend.postProcessSupport.executor.executedPasses.includes("tonemap"),
 			false
 		);
 
@@ -187,9 +234,56 @@ async function run() {
 		noopRenderer.postProcess.getPass("tonemap")?.disable();
 		noopRenderer.postProcess.getPass("gamma")?.disable();
 		await noopRenderer.renderScene(0);
-		assert.deepEqual(noopBackend.postProcessExecutor.executedPasses, []);
+		assert.deepEqual(noopBackend.postProcessSupport.executor.executedPasses, []);
 		assert.equal(noopBackend.gBufferRequests, 0);
 		assert.equal(noopBackend.executedPasses.includes("postprocess"), false);
+
+		const missingAdapterWarnings = [];
+		Logger.configure({
+			level: "warn",
+			resetOnceKeys: true,
+			sink: {
+				warn: (...args) =>
+					missingAdapterWarnings.push(
+						args.map((arg) => String(arg)).join(" ")
+					),
+			},
+		});
+		const missingAdapterBackend = new NoAdapterBackend();
+		const missingAdapterRenderer = new Renderer(
+			missingAdapterBackend,
+			canvas,
+			new Camera()
+		);
+		missingAdapterRenderer.features.enableShadows = false;
+		missingAdapterRenderer.features.enableReflection = false;
+		missingAdapterRenderer.features.enableEnvironment = false;
+		missingAdapterRenderer.postProcess.getPass("tonemap")?.disable();
+		missingAdapterRenderer.postProcess.getPass("gamma")?.disable();
+		missingAdapterRenderer.postProcess.registerPass(
+			new (class MissingAdapterPass extends PostProcessPass {
+				constructor() {
+					super({
+						id: "missing-adapter-pass",
+						enabled: true,
+						implementations: { missing: {} },
+					});
+				}
+			})()
+		);
+		await missingAdapterRenderer.renderScene(0);
+		await missingAdapterRenderer.renderScene(16);
+		Logger.reset();
+		assert.equal(
+			missingAdapterWarnings.filter((warning) =>
+				warning.includes("[missing-postprocess-adapter-missing]")
+			).length,
+			1
+		);
+		assert.equal(
+			missingAdapterBackend.executedPasses.includes("postprocess"),
+			false
+		);
 
 		const historySnapshots = [];
 		const historyBackend = new RegistryBackend();

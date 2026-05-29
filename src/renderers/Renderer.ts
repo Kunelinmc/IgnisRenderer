@@ -22,12 +22,9 @@ import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
 	GammaPass,
-	hasPostProcessExecutionPasses,
 	PostProcessPassRegistry,
 	PostProcessPipeline,
 	ToneMappingPass,
-	type IPostProcessExecutor,
-	type PostProcessBackendKind,
 	type ResolvedPostProcessState,
 } from "../postprocess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
@@ -94,12 +91,13 @@ import type {
 } from "../pipeline/types";
 import type {
 	IRenderBackend,
-	PostProcessCapableRenderBackend,
 	RenderBackendDeviceLostInfo,
+	RendererBackendResourceEvent,
 	WarmupOptions,
 	WarmupProgress,
 	WarmupReport,
 } from "./IRenderBackend";
+import { RendererPostProcessController } from "./RendererPostProcessController";
 
 export type {
 	IncrementalFrameStats,
@@ -143,7 +141,7 @@ export type RendererFeatures = RendererFeatureFlags &
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
 export class Renderer extends EventEmitter<RendererEvents> {
-	public readonly backend: PostProcessCapableRenderBackend;
+	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
@@ -174,9 +172,10 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
 	private _postProcessPipeline: PostProcessPipeline;
+	private _postProcessController: RendererPostProcessController;
 
 	constructor(
-		backend: PostProcessCapableRenderBackend,
+		backend: IRenderBackend,
 		canvas: HTMLCanvasElement,
 		camera: Camera | null = null
 	) {
@@ -187,8 +186,19 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			stages: createDefaultRendererStages(),
 			backendPasses: createDefaultBackendPasses(),
 		});
+		this.logger = Logger;
 		this._postProcessPipeline = new PostProcessPipeline();
 		this.postProcess = new PostProcessPassRegistry();
+		this._postProcessController = new RendererPostProcessController({
+			backend: this.backend,
+			postProcess: this.postProcess,
+			pipeline: this._postProcessPipeline,
+			warn: (key, message) =>
+				this.logger.warn(`[${key}] ${message}`, {
+					scope: "Renderer",
+					onceKey: key,
+				}),
+		});
 		this.postProcess.on("change", (change) => {
 			if (change.reason === "register") {
 				const pass = this.postProcess.getPass(change.passId);
@@ -208,7 +218,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 		this.postProcess.registerPass(new GammaPass({ enabled: true }));
 		this._canvas = canvas;
-		this.logger = Logger;
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this._deltaTime = 0;
 		this._frameDirty = true;
@@ -302,20 +311,14 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	/**
-	 * Releases renderer-owned and pass-owned post-process resources for a backend.
+	 * Handles backend resource lifetime notifications.
 	 *
-	 * @param backend Backend kind whose pass implementations must be destroyed.
-	 * @param executor Active executor that owns pipeline-created resource handles.
+	 * @param event Backend resource event emitted through `RendererBackendBridge`.
 	 * @returns Nothing.
-	 * @sideEffects Destroys temporal history, transient resources, and backend
-	 * pass implementation resources without unregistering passes.
+	 * @sideEffects May invalidate or destroy renderer-owned resources.
 	 */
-	public destroyPostProcessResources(
-		backend: PostProcessBackendKind,
-		executor: IPostProcessExecutor
-	): void {
-		this._postProcessPipeline.destroy(executor);
-		this.postProcess.destroyPasses(backend);
+	public onBackendResourceEvent(event: RendererBackendResourceEvent): void {
+		this._postProcessController.handleBackendResourceEvent(event);
 	}
 
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {
@@ -343,10 +346,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		const resolvedPostProcess = this.postProcess.createSnapshot(
 			this.backend.type
 		);
-		const warmupPostProcessPasses = this._postProcessPipeline.getExecutionOrder(
-			resolvedPostProcess,
-			this.backend.postProcessExecutor
-		);
+		const warmupPostProcessPasses =
+			this._postProcessController.getExecutionOrder(resolvedPostProcess);
 		const warmupPostProcessOrder = warmupPostProcessPasses.map((pass) => pass.id);
 		transient.set(
 			WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
@@ -1177,7 +1178,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				await this.backend.endFrame();
 				frameStarted = false;
 			}
-			this._postProcessPipeline.commitFrame();
+			this._postProcessController.commitFrame();
 		} catch (error) {
 			await this._abortFailedFrame(error, frameStarted);
 			throw error;
@@ -1191,15 +1192,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		error: unknown,
 		frameStarted: boolean
 	): Promise<void> {
-		try {
-			await this._postProcessPipeline.abortFrame(error);
-		} catch (abortError) {
-			const key = "renderer-postprocess-abort-failed";
-			this.logger.warn(
-				`[${key}] Failed to abort post-process frame state: ${String(abortError)}`,
-				{ scope: "Renderer" }
-			);
-		}
+		await this._postProcessController.abortFrame(error);
 
 		if (!frameStarted || !this.backend.abortFrame) {
 			return;
@@ -1328,32 +1321,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	}
 
 	private async _executePostProcessStage(context: FrameContext): Promise<void> {
-		if (
-			context.incremental.enabled &&
-			!context.incremental.forceFullFrame &&
-			context.incremental.dirtyRects.length === 0
-		) {
-			return;
-		}
-		if (
-			!hasPostProcessExecutionPasses(context.postProcess, {
-				backend: this.backend.postProcessExecutor.backend,
-				frameContext: context,
-			})
-		) {
-			return;
-		}
-		await this._postProcessPipeline.execute({
-			frameContext: context,
-			executor: this.backend.postProcessExecutor,
-			gBuffer: this.backend.createPostProcessGBufferBridge(context),
-			historyFinalization: "manual",
-			warn: (key, message) =>
-				this.logger.warn(`[${key}] ${message}`, {
-					scope: "Renderer",
-					onceKey: key,
-				}),
-		});
+		await this._postProcessController.execute(context);
 	}
 
 	private _getSafeAspectRatio(width: number, height: number): number {

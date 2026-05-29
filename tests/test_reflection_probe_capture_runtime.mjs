@@ -8,7 +8,7 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 function createBakedEnvironment(seed = 1) {
@@ -501,7 +501,7 @@ class RendererCaptureStageBackendStub {
 			bloom: false,
 			clusteredLighting: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

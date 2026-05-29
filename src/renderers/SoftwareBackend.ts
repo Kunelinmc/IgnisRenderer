@@ -7,7 +7,11 @@ import {
 	type FramePass,
 	type TAAOptions,
 } from "../pipeline/types";
-import type { LogicalGBufferBridge } from "../postprocess";
+import type { PostProcessBackendAdapter } from "../postprocess";
+import {
+	registerPostProcessBackendAdapter,
+	unregisterPostProcessBackendAdapter,
+} from "../postprocess";
 import { Rasterizer } from "./software/Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
@@ -139,7 +143,11 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	public readonly postProcessExecutor = this._postProcessExecutor;
+	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
+		backend: "software",
+		executor: this._postProcessExecutor,
+		createGBufferBridge: (context) => createSoftwareGBufferBridge(context),
+	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
@@ -176,25 +184,11 @@ export class SoftwareBackend implements IRenderBackend {
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 		this._ensureRuntime();
+		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {
 		return this._activeRasterMode;
-	}
-
-	/**
-	 * Creates the logical G-buffer bridge for software post-process passes.
-	 *
-	 * @param context Frame context with software color, depth, and normal
-	 * buffers.
-	 * @returns A logical G-buffer bridge backed by software attachments.
-	 * @remarks This method does not allocate backend-owned graph passes or
-	 * mutate post-process pass registration.
-	 */
-	public createPostProcessGBufferBridge(
-		context: FrameContext
-	): LogicalGBufferBridge {
-		return createSoftwareGBufferBridge(context);
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {
@@ -618,7 +612,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._renderer?.postProcess?.destroyPasses("software");
+		this._emitPostProcessResourceEvent("destroy", "destroy");
 		this._mainPass?.destroy();
 		this._mainPass = null;
 		this._particlePass = null;
@@ -626,6 +620,19 @@ export class SoftwareBackend implements IRenderBackend {
 		this._reflectionPass = null;
 		this._particleSimulator = null;
 		this._rasterizer = null;
+		unregisterPostProcessBackendAdapter(this);
+	}
+
+	private _emitPostProcessResourceEvent(
+		action: "invalidate" | "destroy",
+		reason: string
+	): void {
+		this._renderer?.onBackendResourceEvent?.({
+			resource: "postprocess",
+			action,
+			backend: "software",
+			reason,
+		});
 	}
 
 	private _syncActiveRasterMode(): void {

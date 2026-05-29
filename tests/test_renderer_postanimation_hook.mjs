@@ -5,7 +5,7 @@ import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { Node } from "../src/core/Node.ts";
 import { PhysicsSystem } from "../src/physics/PhysicsSystem.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -22,7 +22,7 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

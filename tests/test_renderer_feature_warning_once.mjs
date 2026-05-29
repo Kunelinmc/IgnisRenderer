@@ -3,7 +3,7 @@ import { Camera } from "../src/cameras/Camera.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -17,7 +17,7 @@ class StubBackend {
 			clusteredLighting: false,
 			oit: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"webgpu"
 		);

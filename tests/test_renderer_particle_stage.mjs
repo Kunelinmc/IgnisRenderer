@@ -10,7 +10,7 @@ import {
 } from "../src/pipeline/types.ts";
 import { DefaultParticleSimulator } from "../src/simulation/particles/DefaultParticleSimulator.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -27,7 +27,7 @@ class StubBackend {
 			volumetric: false,
 			fog: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);

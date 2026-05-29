@@ -13,7 +13,7 @@ import {
 	PostProcessPass,
 } from "../src/postprocess/index.ts";
 import {
-	installNoopPostProcessSupport,
+	installNoopPostProcessAdapter,
 } from "./helpers/postprocess.mjs";
 
 class StubBackend {
@@ -35,7 +35,7 @@ class StubBackend {
 			bloom: false,
 			clusteredLighting: false,
 		};
-		installNoopPostProcessSupport(
+		installNoopPostProcessAdapter(
 			this,
 			"stub"
 		);
