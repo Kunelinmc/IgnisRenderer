@@ -594,12 +594,17 @@ function testCommandBufferOwnershipAndOneShotSubmit() {
 function testPassDependencyValidation() {
 	const { backend } = createBackend();
 	backend._resources = {
+		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
 	backend._frameExecutor = {
 		beginFrame() {},
 		executePass() {},
+		getPreparedFrameResources() {
+			return null;
+		},
 		endFrame() {},
+		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
@@ -650,12 +655,17 @@ function testPassDependencyValidation() {
 function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	const { backend } = createBackend();
 	backend._resources = {
+		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
 	backend._frameExecutor = {
 		beginFrame() {},
 		executePass() {},
+		getPreparedFrameResources() {
+			return null;
+		},
 		endFrame() {},
+		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
@@ -707,6 +717,114 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	);
 }
 
+async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
+	const { backend } = createBackend();
+	let executorAbortCalls = 0;
+	let executorEndCalls = 0;
+	let particleEndCalls = 0;
+	backend._resources = {
+		beginFrameResourceLifecycle() {},
+		prepareFrame() {},
+	};
+	backend._frameExecutor = {
+		beginFrame() {},
+		executePass() {},
+		getPreparedFrameResources() {
+			return null;
+		},
+		endFrame() {
+			executorEndCalls++;
+		},
+		abortFrame() {
+			executorAbortCalls++;
+		},
+		destroy() {},
+		invalidateFrameTargets() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {
+			particleEndCalls++;
+		},
+	};
+
+	const context = createFrameContext({
+		scene: {
+			particleSystems: [{}],
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			shadowTransmitterPackets: [],
+			reflectivePackets: [],
+		},
+	});
+	backend.beginFrame(context);
+	await backend.executePass(
+		{ stage: "particle-sim", executor: "backend", enabled: true },
+		context
+	);
+	assert.equal(backend._plannedPasses.size > 0, true);
+	assert.equal(backend._executedPasses.has("particle-sim"), true);
+
+	backend.abortFrame(new Error("failed frame"));
+
+	assert.equal(executorAbortCalls, 1);
+	assert.equal(executorEndCalls, 0);
+	assert.equal(particleEndCalls, 1);
+	assert.equal(backend._plannedPasses.size, 0);
+	assert.equal(backend._plannedPassOrder.size, 0);
+	assert.equal(backend._executedPasses.size, 0);
+	assert.equal(backend._frameActive, false);
+}
+
+async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
+	const { backend } = createBackend();
+	const error = new Error("executor end failed");
+	let particleEndCalls = 0;
+	backend._resources = {
+		beginFrameResourceLifecycle() {},
+		prepareFrame() {},
+	};
+	backend._frameExecutor = {
+		beginFrame() {},
+		executePass() {},
+		getPreparedFrameResources() {
+			return null;
+		},
+		endFrame() {
+			throw error;
+		},
+		abortFrame() {},
+		destroy() {},
+		invalidateFrameTargets() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {
+			particleEndCalls++;
+		},
+	};
+
+	backend.beginFrame(createFrameContext());
+	let caught = null;
+	try {
+		await backend.endFrame();
+	} catch (caughtError) {
+		caught = caughtError;
+	}
+
+	assert.strictEqual(caught, error);
+	assert.equal(particleEndCalls, 1);
+	assert.equal(backend._plannedPasses.size, 0);
+	assert.equal(backend._plannedPassOrder.size, 0);
+	assert.equal(backend._executedPasses.size, 0);
+	assert.equal(backend._frameActive, false);
+}
+
 async function testWarmupAggregatesPhases() {
 	const { backend } = createBackend();
 	backend._frameExecutor = {
@@ -756,6 +874,8 @@ async function run() {
 	testCommandBufferOwnershipAndOneShotSubmit();
 	testPassDependencyValidation();
 	testPassPlanAllowsParticleStageBeforeMainOpaque();
+	await testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame();
+	await testEndFrameFailureStillEndsParticleFrameAndClearsPlanner();
 	await testWarmupAggregatesPhases();
 	console.log("WebGPU backend cache/dependency tests passed");
 }

@@ -25,6 +25,12 @@ class RegistryBackend {
 		this.contexts = [];
 		this.executedPasses = [];
 		this.skippedPasses = [];
+		this.beginFrameCalls = 0;
+		this.endFrameCalls = 0;
+		this.abortFrameCalls = 0;
+		this.abortErrors = [];
+		this.throwInBeginFrame = null;
+		this.throwOnPass = null;
 	}
 
 	async init() {}
@@ -42,18 +48,110 @@ class RegistryBackend {
 	}
 
 	beginFrame(context) {
+		this.beginFrameCalls++;
 		this.contexts.push(context);
+		if (this.throwInBeginFrame) {
+			throw this.throwInBeginFrame;
+		}
 	}
 
 	executePass(pass) {
 		this.executedPasses.push(pass.stage);
+		if (this.throwOnPass && pass.stage === this.throwOnPass.stage) {
+			throw this.throwOnPass.error;
+		}
 	}
 
 	skipPass(pass) {
 		this.skippedPasses.push(pass.stage);
 	}
 
-	endFrame() {}
+	endFrame() {
+		this.endFrameCalls++;
+	}
+
+	abortFrame(error) {
+		this.abortFrameCalls++;
+		this.abortErrors.push(error);
+	}
+}
+
+function createRenderer(backend) {
+	const canvas = {
+		width: 320,
+		height: 180,
+		getBoundingClientRect() {
+			return { width: 320, height: 180 };
+		},
+	};
+	const renderer = new Renderer(backend, canvas, new Camera());
+	renderer.features.enableShadows = false;
+	renderer.features.enableReflection = false;
+	renderer.features.enableEnvironment = false;
+	return renderer;
+}
+
+async function testRendererAbortsBackendFrameOnPassFailure() {
+	const backend = new RegistryBackend();
+	const renderer = createRenderer(backend);
+	const error = new Error("main pass failed");
+	backend.throwOnPass = {
+		stage: "main-opaque",
+		error,
+	};
+
+	let caught = null;
+	try {
+		await renderer.renderScene(16);
+	} catch (caughtError) {
+		caught = caughtError;
+	}
+	assert.strictEqual(caught, error);
+	assert.equal(backend.beginFrameCalls, 1);
+	assert.equal(backend.endFrameCalls, 0);
+	assert.equal(backend.abortFrameCalls, 1);
+	assert.strictEqual(backend.abortErrors[0], error);
+}
+
+async function testRendererAbortsPartialBeginFrameFailure() {
+	const backend = new RegistryBackend();
+	const renderer = createRenderer(backend);
+	const error = new Error("begin frame failed");
+	backend.throwInBeginFrame = error;
+
+	let caught = null;
+	try {
+		await renderer.renderScene(16);
+	} catch (caughtError) {
+		caught = caughtError;
+	}
+	assert.strictEqual(caught, error);
+	assert.equal(backend.beginFrameCalls, 1);
+	assert.equal(backend.endFrameCalls, 0);
+	assert.equal(backend.abortFrameCalls, 1);
+	assert.strictEqual(backend.abortErrors[0], error);
+}
+
+async function testRendererSuccessfulFrameEndsAndSchedules() {
+	const backend = new RegistryBackend();
+	const renderer = createRenderer(backend);
+	let frameEndEvents = 0;
+	let scheduledFrames = 0;
+	renderer.on("frameend", () => {
+		frameEndEvents++;
+	});
+	globalThis.requestAnimationFrame = () => {
+		scheduledFrames++;
+		return scheduledFrames;
+	};
+
+	await renderer.renderScene(16);
+
+	assert.equal(backend.beginFrameCalls, 1);
+	assert.equal(backend.endFrameCalls, 1);
+	assert.equal(backend.abortFrameCalls, 0);
+	assert.equal(frameEndEvents, 1);
+	assert.equal(scheduledFrames, 1);
 }
 
 async function run() {
@@ -64,18 +162,12 @@ async function run() {
 		globalThis.window = { devicePixelRatio: 1 };
 		globalThis.requestAnimationFrame = () => 0;
 
+		await testRendererAbortsBackendFrameOnPassFailure();
+		await testRendererAbortsPartialBeginFrameFailure();
+		await testRendererSuccessfulFrameEndsAndSchedules();
+
 		const backend = new RegistryBackend();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, new Camera());
-		renderer.features.enableShadows = false;
-		renderer.features.enableReflection = false;
-		renderer.features.enableEnvironment = false;
+		const renderer = createRenderer(backend);
 
 		await renderer.renderScene(0);
 		backend.executedPasses.length = 0;

@@ -748,8 +748,7 @@ export class WebGPUFrameExecutor {
 		}
 		this._depthDirtyClearShaderModule = null;
 		this._depthDirtyClearPipelines.clear();
-		this._encoder = null;
-		this._frameContext = null;
+		this._clearActiveFrameState();
 	}
 
 	public async executePass(
@@ -767,41 +766,43 @@ export class WebGPUFrameExecutor {
 
 	public async endFrame(): Promise<void> {
 		if (!this._encoder) {
-			this._frameContext = null;
-			this._motionHistoryWriteTarget = null;
+			this._clearActiveFrameState();
 			return;
-		}
-
-		if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
-			await this._presentToCanvas(
-				this._frameTargets.sceneColor,
-				this._frameContext?.postProcess.isEnabled("gamma") !== false
-			);
 		}
 
 		const encoder = this._encoder;
 		const width = this._targetWidth;
 		const height = this._targetHeight;
-
-		this._backend.submit([encoder.finish()]);
-		this._encoder = null;
-		this._frameContext = null;
-		this._frameResources = null;
-
 		const motionSource =
 			this._mrtEnabled && this._motionHistoryWriteTarget ?
 				this._frameTargets?.gMotionDepth
 			:	null;
 		const motionTarget =
 			this._mrtEnabled ? this._motionHistoryWriteTarget : null;
-		if (motionSource && motionTarget && width > 0 && height > 0) {
-			this._backend.copyTextureToTexture(
-				{ texture: motionSource },
-				{ texture: motionTarget },
-				{ width, height, depthOrArrayLayers: 1 }
-			);
+
+		try {
+			if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
+				await this._presentToCanvas(
+					this._frameTargets.sceneColor,
+					this._frameContext?.postProcess.isEnabled("gamma") !== false
+				);
+			}
+
+			this._backend.submit([encoder.finish()]);
+			if (motionSource && motionTarget && width > 0 && height > 0) {
+				this._backend.copyTextureToTexture(
+					{ texture: motionSource },
+					{ texture: motionTarget },
+					{ width, height, depthOrArrayLayers: 1 }
+				);
+			}
+		} finally {
+			this._clearActiveFrameState();
 		}
-		this._motionHistoryWriteTarget = null;
+	}
+
+	public abortFrame(): void {
+		this._clearActiveFrameState();
 	}
 
 	private _createPassHandlers(): Map<
@@ -1483,6 +1484,18 @@ export class WebGPUFrameExecutor {
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
 		this._motionHistoryWriteTarget = null;
+	}
+
+	private _clearActiveFrameState(): void {
+		this._encoder = null;
+		this._frameContext = null;
+		this._frameResources = null;
+		this._motionHistoryWriteTarget = null;
+		this._hasPresentedInFrame = false;
+		this._oitActive = false;
+		this._oitHasContributors = false;
+		this._oitTransmissionPackets = [];
+		this._oitNeedsTransmissionAfterParticles = false;
 	}
 
 	private _resolveAttachmentDimension(value: number): number {

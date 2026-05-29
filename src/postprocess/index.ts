@@ -200,6 +200,7 @@ export type {
 	LogicalGBufferHandle,
 	LogicalGBufferSemantic,
 	PostProcessBackendKind,
+	PostProcessFrameAbortRequest,
 	PostProcessFrameEndRequest,
 	PostProcessFrameRequest,
 	PostProcessHistoryDescriptor,

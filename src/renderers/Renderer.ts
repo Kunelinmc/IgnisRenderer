@@ -920,8 +920,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			(stage) => stage.id === "animation-sim"
 		);
 
-		for (const stage of stageOrder) {
-			switch (stage.id) {
+		try {
+			for (const stage of stageOrder) {
+				switch (stage.id) {
 				case "feature-resolution": {
 					resolved = resolveFeatureState(
 						this.features,
@@ -1072,8 +1073,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						transient,
 						incrementalFrameContext
 					);
-					await this.backend.beginFrame(context);
 					frameStarted = true;
+					await this.backend.beginFrame(context);
 					break;
 				}
 				case "reflection-probe-capture": {
@@ -1134,6 +1135,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 							frameContext: context,
 							executor: this.backend.postProcessExecutor,
 							gBuffer: this.backend.createPostProcessGBufferBridge(context),
+							historyFinalization: "manual",
 							warn: (key, message) =>
 								this.logger.warn(`[${key}] ${message}`, {
 									scope: "Renderer",
@@ -1160,15 +1162,49 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					}
 					break;
 				}
+				}
 			}
-		}
 
-		if (frameStarted) {
-			await this.backend.endFrame();
+			if (frameStarted) {
+				await this.backend.endFrame();
+				frameStarted = false;
+			}
+			this._postProcessPipeline.commitFrame();
+		} catch (error) {
+			await this._abortFailedFrame(error, frameStarted);
+			throw error;
 		}
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
 		requestAnimationFrame((time) => this.renderScene(time));
+	}
+
+	private async _abortFailedFrame(
+		error: unknown,
+		frameStarted: boolean
+	): Promise<void> {
+		try {
+			await this._postProcessPipeline.abortFrame(error);
+		} catch (abortError) {
+			const key = "renderer-postprocess-abort-failed";
+			this.logger.warn(
+				`[${key}] Failed to abort post-process frame state: ${String(abortError)}`,
+				{ scope: "Renderer" }
+			);
+		}
+
+		if (!frameStarted || !this.backend.abortFrame) {
+			return;
+		}
+		try {
+			await this.backend.abortFrame(error);
+		} catch (abortError) {
+			const key = "renderer-backend-abort-failed";
+			this.logger.warn(
+				`[${key}] Failed to abort backend frame state: ${String(abortError)}`,
+				{ scope: "Renderer" }
+			);
+		}
 	}
 
 	public updateSH(): void {

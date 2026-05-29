@@ -141,6 +141,18 @@ export class PostProcessHistoryManager {
 	}
 
 	/**
+	 * Clears pending frame writes without invalidating previously valid history.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Drops only the pending update markers for the active frame.
+	 */
+	public abortFrame(): void {
+		for (const entry of this._entries.values()) {
+			entry.updated = false;
+		}
+	}
+
+	/**
 	 * Destroys all active history resources.
 	 *
 	 * @param executor Executor that owns the concrete resources.

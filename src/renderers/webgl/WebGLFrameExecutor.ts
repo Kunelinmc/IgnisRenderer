@@ -776,6 +776,19 @@ export class WebGLFrameExecutor {
 		this._activeContext = null;
 	}
 
+	public abortFrame(): void {
+		this._activeContext = null;
+		this._presentedInFrame = false;
+		this._presentSourceTexture = this._sceneColorTexture;
+		this._lightState = null;
+		this._oitPassMode = 0;
+		this._oitActive = false;
+		this._oitHasContributors = false;
+		this._oitLegacyTransparentPackets = [];
+		this._oitNeedsLegacyAfterParticles = false;
+		this._modelMatrixKeysThisFrame.clear();
+	}
+
 	public warmup(
 		context: FrameContext,
 		plan: WarmupPlan

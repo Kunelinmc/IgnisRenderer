@@ -30,6 +30,9 @@ class FakeExecutor {
 		this.executed = [];
 		this.ownedExecuted = [];
 		this.invalidatedBindings = 0;
+		this.beginFrames = [];
+		this.endFrames = [];
+		this.abortFrames = [];
 	}
 
 	createResource(desc) {
@@ -65,6 +68,18 @@ class FakeExecutor {
 
 	invalidateResourceBindings() {
 		this.invalidatedBindings++;
+	}
+
+	beginFrame(request) {
+		this.beginFrames.push(request);
+	}
+
+	endFrame(request) {
+		this.endFrames.push(request);
+	}
+
+	abortFrame(request) {
+		this.abortFrames.push(request);
 	}
 
 	getPassExecutionContext(request) {
@@ -183,6 +198,39 @@ class TransientPass extends CustomPass {
 
 	getTransientResourceDescriptors() {
 		return this._descriptors;
+	}
+}
+
+class HistoryUpdatingPass extends CustomPass {
+	constructor(id, seen, config = {}) {
+		super(id, {
+			enabled: true,
+			order: config.order,
+		});
+		this._seen = seen;
+	}
+
+	getHistoryDescriptors() {
+		return [{ id: "history", format: "rgba16float" }];
+	}
+
+	execute(request) {
+		this._seen.push(request.histories.history);
+		return { updatedHistoryIds: ["history"] };
+	}
+}
+
+class ThrowingPass extends CustomPass {
+	constructor(id, error, config = {}) {
+		super(id, {
+			enabled: true,
+			order: config.order,
+		});
+		this._error = error;
+	}
+
+	execute() {
+		throw this._error;
 	}
 }
 
@@ -568,6 +616,115 @@ async function testRanFalsePassIsExcludedFromExecutedIds() {
 	assert.deepEqual(result.executedPassIds, []);
 }
 
+async function testPipelineManualHistoryCommitAndAbort() {
+	const seen = [];
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
+	const snapshot = registry.createSnapshot("webgpu");
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+		historyFinalization: "manual",
+	});
+	assert.equal(seen[0].valid, false);
+	const firstRead = seen[0].read;
+	const firstWrite = seen[0].write;
+
+	await pipeline.abortFrame(new Error("aborted renderer frame"));
+	seen.length = 0;
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+		historyFinalization: "manual",
+	});
+	assert.equal(seen[0].valid, false);
+	assert.strictEqual(seen[0].read, firstRead);
+	assert.strictEqual(seen[0].write, firstWrite);
+
+	const secondWrite = seen[0].write;
+	pipeline.commitFrame();
+	seen.length = 0;
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+		historyFinalization: "manual",
+	});
+	assert.equal(seen[0].valid, true);
+	assert.strictEqual(seen[0].read, secondWrite);
+}
+
+async function testPipelineDefaultAutoCommitsHistory() {
+	const seen = [];
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
+	const snapshot = registry.createSnapshot("webgpu");
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+	});
+	const firstWrite = seen[0].write;
+	seen.length = 0;
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+	});
+	assert.equal(seen[0].valid, true);
+	assert.strictEqual(seen[0].read, firstWrite);
+}
+
+async function testPipelineFailureAbortsExecutorAndHistory() {
+	const seen = [];
+	const error = new Error("post-process failure");
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
+	registry.registerPass(new ThrowingPass("throwing-pass", error, { order: 1 }));
+	const snapshot = registry.createSnapshot("webgpu");
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+
+	let caught = null;
+	try {
+		await pipeline.execute({
+			frameContext: createFrameContext(snapshot),
+			executor,
+			gBuffer: createGBufferBridge(),
+			historyFinalization: "manual",
+		});
+	} catch (caughtError) {
+		caught = caughtError;
+	}
+	assert.strictEqual(caught, error);
+	assert.equal(executor.abortFrames.length, 1);
+	assert.deepEqual(executor.abortFrames[0].executedPassIds, ["history-pass"]);
+	assert.strictEqual(executor.abortFrames[0].error, error);
+
+	const firstRead = seen[0].read;
+	const firstWrite = seen[0].write;
+	const recoveryRegistry = new PostProcessPassRegistry();
+	recoveryRegistry.registerPass(new HistoryUpdatingPass("history-pass", seen));
+	seen.length = 0;
+	await pipeline.execute({
+		frameContext: createFrameContext(recoveryRegistry.createSnapshot("webgpu")),
+		executor,
+		gBuffer: createGBufferBridge(),
+		historyFinalization: "manual",
+	});
+	assert.equal(seen[0].valid, false);
+	assert.strictEqual(seen[0].read, firstRead);
+	assert.strictEqual(seen[0].write, firstWrite);
+}
+
 function testHistoryManagerInvalidationAndResize() {
 	const manager = new PostProcessHistoryManager();
 	const executor = new FakeExecutor("webgpu");
@@ -586,6 +743,20 @@ function testHistoryManagerInvalidationAndResize() {
 
 	const firstRead = slots.taa.read;
 	const firstWrite = slots.taa.write;
+	manager.markUpdated("taa");
+	manager.abortFrame();
+	slots = manager.prepare({
+		executor,
+		descriptors,
+		width: 32,
+		height: 16,
+		reset: false,
+		signature: "camera-a",
+	});
+	assert.equal(slots.taa.valid, false);
+	assert.strictEqual(slots.taa.read, firstRead);
+	assert.strictEqual(slots.taa.write, firstWrite);
+
 	manager.markUpdated("taa");
 	manager.endFrame();
 	slots = manager.prepare({
@@ -735,6 +906,9 @@ async function run() {
 	testRegistryLifecycleDelegatesToPassImplementations();
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
+	await testPipelineManualHistoryCommitAndAbort();
+	await testPipelineDefaultAutoCommitsHistory();
+	await testPipelineFailureAbortsExecutorAndHistory();
 	testHistoryManagerInvalidationAndResize();
 	testTransientManagerReuseRecreateAndDestroy();
 	await testTransientDescriptorConflictWarnsAndKeepsFirst();

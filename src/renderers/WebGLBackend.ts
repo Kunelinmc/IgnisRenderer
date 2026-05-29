@@ -294,6 +294,17 @@ export class WebGLBackend implements IRenderBackend {
 		this._particleSimulator?.endFrame();
 	}
 
+	public abortFrame(_error?: unknown): void {
+		if (this._contextLost) {
+			return;
+		}
+		this._frameExecutor?.abortFrame();
+		this._particleSimulator?.endFrame();
+		this._executedPasses.clear();
+		this._plannedPasses.clear();
+		this._plannedPassOrder.clear();
+	}
+
 	public async warmup(
 		context: FrameContext,
 		options: WarmupOptions = {}

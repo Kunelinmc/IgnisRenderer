@@ -50,6 +50,8 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `IPostProcessExecutor.invalidateResourceBindings()` may invalidate backend bind-group or descriptor caches after transient resources are recreated.
 - `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations based on `PostProcessPassImplementation.metadata.context`.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
+- `IPostProcessExecutor.abortFrame(request)` may release backend post-process frame state after a failed logical pass or failed renderer frame.
+- `IPostProcessExecutor.abortFrame(request)` must be idempotent and must not present, copy history, or commit temporal histories.
 - `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`, or `null` when the pass falls back to `IPostProcessExecutor.executePass(passId, request)`.
 - `PostProcessPassRequest.transients` must contain the current frame's transient slots keyed by transient id.
 - `PostProcessPassExecutionContextRequest` must contain the full `PostProcessPassRequest` contract and a non-null `implementation`.
@@ -67,6 +69,10 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPipeline` must recreate transient resources only when dimensions, format, usage, mip mode, or backend kind changes.
 - `PostProcessPipeline` must collect history and transient descriptors only from passes whose G-buffer requirements are satisfied.
 - `PostProcessPipeline` must keep temporal history validity separate from transient resource lifetime.
+- `PostProcessPipeline.execute()` must commit temporal history automatically unless `historyFinalization` is `"manual"`.
+- `PostProcessPipeline.commitFrame()` must swap pending updated histories after a successful renderer frame.
+- `PostProcessPipeline.abortFrame(error?)` must clear pending history updates without invalidating previously valid histories.
+- `PostProcessPipeline` must call `IPostProcessExecutor.abortFrame(request)` when a logical post-process frame fails after frame state has been prepared.
 - `PostProcessResourceDescriptor.mipMode` may be `"single"` or `"full-chain"`, and omitted values must behave as `"single"`.
 - `PostProcessTransientManager` must destroy transient resources that are not requested by the current eligible pass set.
 - The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.

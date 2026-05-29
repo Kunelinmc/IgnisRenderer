@@ -13,6 +13,7 @@ import type {
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
 	PostProcessBackendKind,
+	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequirements,
 	PostProcessPipelineExecuteRequest,
@@ -28,6 +29,12 @@ import type {
 
 const CUSTOM_ORDER_SCALE = 0.001;
 const CUSTOM_ORDER_LIMIT = 999;
+
+interface PendingPostProcessFrame {
+	readonly executor: IPostProcessExecutor;
+	readonly frameRequest: PostProcessFrameRequest;
+	readonly executedPassIds: string[];
+}
 
 export interface PostProcessExecutionOrderContext {
 	readonly backend?: PostProcessBackendKind;
@@ -88,6 +95,7 @@ export function hasPostProcessExecutionPasses(
 export class PostProcessPipeline {
 	private _history = new PostProcessHistoryManager();
 	private _transients = new PostProcessTransientManager();
+	private _pendingFrame: PendingPostProcessFrame | null = null;
 
 	/**
 	 * Destroys pipeline-owned history resources.
@@ -134,8 +142,12 @@ export class PostProcessPipeline {
 	public async execute(
 		request: PostProcessPipelineExecuteRequest
 	): Promise<PostProcessPipelineExecuteResult> {
+		if (this._pendingFrame) {
+			await this.abortFrame();
+		}
 		const warn = request.warn ?? (() => {});
 		const { frameContext, executor, gBuffer } = request;
+		const autoCommit = request.historyFinalization !== "manual";
 		const postProcess = frameContext.postProcess;
 		const orderedPasses = this.getExecutionOrder(
 			postProcess,
@@ -201,56 +213,102 @@ export class PostProcessPipeline {
 			transients: transientResult.slots,
 		};
 		const executedPassIds: string[] = [];
-
-		await executor.beginFrame?.(frameRequest);
-		for (const resolved of eligiblePasses) {
-			const pass = resolved.pass;
-			const implementation = pass.getImplementation(executor.backend);
-			const passRequest = {
-				...frameRequest,
-				pass,
-				passId: pass.id,
-				implementation,
-				options: resolved.options,
-				startPassId,
-			};
-			const executionContext =
-				implementation?.execute ?
-					executor.getPassExecutionContext?.({
-						...passRequest,
-						implementation,
-					} satisfies PostProcessPassExecutionContextRequest)
-				:	undefined;
-			const result = await pass.execute(
-				passRequest,
-				executionContext,
-				executor
-			);
-			if (result?.ran === false) {
-				continue;
-			}
-			executedPassIds.push(pass.id);
-			if (result?.updatedHistoryIds) {
-				this._history.markUpdatedMany(result.updatedHistoryIds);
-			} else if (result?.historyUpdated) {
-				this._history.markUpdatedMany(
-					this._resolvePassHistoryDescriptors(resolved, historyResolveRequest)
-						.map((history) => history.id)
-						.filter((id) => id !== "motion")
-				);
-			}
-		}
-		await executor.endFrame?.({
-			...frameRequest,
+		this._pendingFrame = {
+			executor,
+			frameRequest,
 			executedPassIds,
-		});
-		this._history.endFrame();
+		};
+
+		try {
+			await executor.beginFrame?.(frameRequest);
+			for (const resolved of eligiblePasses) {
+				const pass = resolved.pass;
+				const implementation = pass.getImplementation(executor.backend);
+				const passRequest = {
+					...frameRequest,
+					pass,
+					passId: pass.id,
+					implementation,
+					options: resolved.options,
+					startPassId,
+				};
+				const executionContext =
+					implementation?.execute ?
+						executor.getPassExecutionContext?.({
+							...passRequest,
+							implementation,
+						} satisfies PostProcessPassExecutionContextRequest)
+					:	undefined;
+				const result = await pass.execute(
+					passRequest,
+					executionContext,
+					executor
+				);
+				if (result?.ran === false) {
+					continue;
+				}
+				executedPassIds.push(pass.id);
+				if (result?.updatedHistoryIds) {
+					this._history.markUpdatedMany(result.updatedHistoryIds);
+				} else if (result?.historyUpdated) {
+					this._history.markUpdatedMany(
+						this._resolvePassHistoryDescriptors(resolved, historyResolveRequest)
+							.map((history) => history.id)
+							.filter((id) => id !== "motion")
+					);
+				}
+			}
+			await executor.endFrame?.({
+				...frameRequest,
+				executedPassIds,
+			});
+			if (autoCommit) {
+				this.commitFrame();
+			}
+		} catch (error) {
+			await this.abortFrame(error);
+			throw error;
+		}
 
 		return {
 			executedPassIds,
 			firstStage: "postprocess",
 			startPassId,
 		};
+	}
+
+	/**
+	 * Commits pending temporal post-process history after a renderer frame
+	 * succeeds.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Swaps updated history handles and clears pending frame state.
+	 */
+	public commitFrame(): void {
+		this._history.endFrame();
+		this._pendingFrame = null;
+	}
+
+	/**
+	 * Aborts pending temporal post-process history after a renderer frame fails.
+	 *
+	 * @param error Optional original frame error for backend diagnostics.
+	 * @returns Nothing.
+	 * @sideEffects Clears pending history updates and asks the executor to abort
+	 * any active post-process frame state.
+	 */
+	public async abortFrame(error?: unknown): Promise<void> {
+		const pending = this._pendingFrame;
+		this._pendingFrame = null;
+		this._history.abortFrame();
+		if (!pending) {
+			return;
+		}
+		await pending.executor.abortFrame?.({
+			...pending.frameRequest,
+			executedPassIds: pending.executedPassIds,
+			error,
+		});
 	}
 
 	private _requirementsSatisfied(

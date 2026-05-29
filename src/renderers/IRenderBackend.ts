@@ -98,6 +98,17 @@ export interface IRenderBackend {
 	destroy?(): void;
 	getAttachments(width: number, height: number): FrameAttachments;
 	beginFrame(context: FrameContext): void | Promise<void>;
+	/**
+	 * Aborts the active frame after a failed `beginFrame` or pass execution.
+	 *
+	 * @param error Optional original frame error used only for diagnostics.
+	 * @returns Nothing.
+	 * @constraints Implementations must tolerate repeated calls and calls when
+	 * no frame is active.
+	 * @sideEffects Releases per-frame state without presenting, submitting new
+	 * frame work, or committing temporal history.
+	 */
+	abortFrame?(error?: unknown): void | Promise<void>;
 	executeSharedPass?(
 		pass: FramePass,
 		context: FrameContext

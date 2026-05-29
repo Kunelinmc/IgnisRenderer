@@ -412,6 +412,11 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
+	public abortFrame(_error?: unknown): void {
+		this._particleSimulator?.endFrame();
+		this._activeContext = null;
+	}
+
 	private _prepareTAARenderState(context: FrameContext): void {
 		const taaOptions =
 			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;

@@ -247,6 +247,11 @@ export interface PostProcessFrameEndRequest extends PostProcessFrameRequest {
 	readonly executedPassIds: readonly string[];
 }
 
+export interface PostProcessFrameAbortRequest extends PostProcessFrameRequest {
+	readonly executedPassIds: readonly string[];
+	readonly error?: unknown;
+}
+
 export interface IPostProcessExecutor {
 	readonly backend: PostProcessBackendKind;
 	createResource(
@@ -280,6 +285,18 @@ export interface IPostProcessExecutor {
 		request: PostProcessPassRequest
 	): PostProcessPassResult | Promise<PostProcessPassResult>;
 	endFrame?(request: PostProcessFrameEndRequest): void | Promise<void>;
+	/**
+	 * Aborts backend post-process frame state after a failed pass or failed
+	 * renderer frame.
+	 *
+	 * @param request Current post-process frame state and original error.
+	 * @returns Nothing.
+	 * @constraints Implementations must tolerate repeated calls and calls after
+	 * `endFrame`.
+	 * @sideEffects Releases per-frame backend state without presenting, copying,
+	 * or committing temporal history.
+	 */
+	abortFrame?(request: PostProcessFrameAbortRequest): void | Promise<void>;
 }
 
 export interface PostProcessBackendSupport {
@@ -304,6 +321,7 @@ export interface PostProcessPipelineExecuteRequest {
 	readonly executor: IPostProcessExecutor;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly startPassId?: string | null;
+	readonly historyFinalization?: "auto" | "manual";
 	readonly warn?: (key: string, message: string) => void;
 }
 

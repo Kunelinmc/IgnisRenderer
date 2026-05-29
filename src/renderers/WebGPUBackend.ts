@@ -13,8 +13,6 @@ import type {
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	PostProcessFrameEndRequest,
-	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRegistry,
 	PostProcessPassRequest,
@@ -245,6 +243,7 @@ export class WebGPUBackend implements IRenderBackend {
 		executePass: (passId, request) =>
 			this._executePostProcessPass(passId, request),
 		endFrame: (_request) => {},
+		abortFrame: (_request) => {},
 	};
 	public readonly postProcessExecutor = this._postProcessExecutor;
 
@@ -335,6 +334,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
+	private _frameActive = false;
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function"
 			? new FinalizationRegistry<string>((label) => {
@@ -661,6 +661,7 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
+		this._frameActive = true;
 		this._frameSerial++;
 		this._commandScheduler.submitPendingCopyCommands();
 		this._evictStaleBindingGroups();
@@ -723,11 +724,32 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async endFrame(): Promise<void> {
-		await this._frameExecutor?.endFrame();
-		this._particleSimulator?.endFrame();
-		this._executedPasses.clear();
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
+		const wasActive = this._frameActive;
+		try {
+			await this._frameExecutor?.endFrame();
+		} finally {
+			try {
+				if (wasActive) {
+					this._particleSimulator?.endFrame();
+				}
+			} finally {
+				this._frameActive = false;
+				this._clearFramePlannerState();
+			}
+		}
+	}
+
+	public abortFrame(_error?: unknown): void {
+		const wasActive = this._frameActive;
+		try {
+			this._frameExecutor?.abortFrame();
+			if (wasActive) {
+				this._particleSimulator?.endFrame();
+			}
+		} finally {
+			this._frameActive = false;
+			this._clearFramePlannerState();
+		}
 	}
 
 	private _createPostProcessResource(
@@ -1465,9 +1487,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._nextResourceId = 1;
 		this._frameSerial = 0;
 		this._bindingGroupTouchTick = 0;
-		this._executedPasses.clear();
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
+		this._frameActive = false;
+		this._clearFramePlannerState();
 		this._msaaSelectionCache.clear();
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
 		this._msaaSampleCount = 1;
@@ -2328,8 +2349,18 @@ export class WebGPUBackend implements IRenderBackend {
 		this._framePlanner.markPassExecuted(stage, this._getFramePlannerState());
 	}
 
+	private _clearFramePlannerState(): void {
+		this._executedPasses.clear();
+		this._plannedPasses.clear();
+		this._plannedPassOrder.clear();
+	}
+
 	private _isFrameActive(): boolean {
-		return this._plannedPasses.size > 0 || this._executedPasses.size > 0;
+		return (
+			this._frameActive ||
+			this._plannedPasses.size > 0 ||
+			this._executedPasses.size > 0
+		);
 	}
 
 	private _getFramePlannerState(): WebGPUFramePlannerState {

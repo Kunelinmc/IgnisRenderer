@@ -343,6 +343,51 @@ async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 	assert.equal(executor._texturePoolOwners.size, 0);
 }
 
+function testAbortFrameClearsActiveStateWithoutSubmit() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	executor._motionHistoryWriteTarget = { id: "motion-history-write" };
+
+	executor.abortFrame();
+
+	assert.equal(backend.submits, 0);
+	assert.equal(executor._encoder, null);
+	assert.equal(executor._frameContext, null);
+	assert.equal(executor._frameResources, null);
+	assert.equal(executor._motionHistoryWriteTarget, null);
+	assert.equal(executor._hasPresentedInFrame, false);
+	assert.equal(executor._oitActive, false);
+	assert.deepEqual(executor._oitTransmissionPackets, []);
+}
+
+async function testEndFrameFailureClosesActiveState() {
+	const backend = new FakeBackend();
+	const error = new Error("submit failed");
+	backend.submit = () => {
+		throw error;
+	};
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	executor._hasPresentedInFrame = true;
+	let caught = null;
+	try {
+		await executor.endFrame();
+	} catch (caughtError) {
+		caught = caughtError;
+	}
+
+	assert.strictEqual(caught, error);
+	assert.equal(executor._encoder, null);
+	assert.equal(executor._frameContext, null);
+	assert.equal(executor._frameResources, null);
+	assert.equal(executor._motionHistoryWriteTarget, null);
+}
+
 function testFrameTargetAllocationFailureReleasesPartialResources() {
 	const backend = new FakeBackend();
 	backend.failTextureAtCall = 4;
@@ -1206,6 +1251,8 @@ function testOITRuntimeFallbackWarnsWithoutNativeEncoder() {
 
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
+	testAbortFrameClearsActiveStateWithoutSubmit();
+	await testEndFrameFailureClosesActiveState();
 	testFrameTargetAllocationFailureReleasesPartialResources();
 	testInvalidateFrameTargetsDestroysPresentBinding();
 	await testLegacyMainPassForcesSingleSceneTargetMode();
