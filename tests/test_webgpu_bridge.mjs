@@ -2405,6 +2405,84 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 	);
 }
 
+async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
+	const backend = new FakeBackend();
+	backend.canvasFormat = "bgra8unorm";
+	backend.canvasDepthFormat = "depth24plus";
+	backend.getMSAASampleCount = () => 4;
+	const renderer = { logger: { warn() {} } };
+	const model = createModel([new PBRMaterial()]);
+	const packet = createPacket(model);
+	const frame = createFrame(packet);
+	frame.environment = createEnvironmentSnapshot(
+		createTinyTexture(1),
+		createTinyTexture(1)
+	);
+	const resources = new WebGPURenderResources(renderer, backend);
+	await resources.init();
+
+	const features = resolveFeatureState(
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: false,
+			enableEnvironment: true,
+			enableClusteredLighting: true,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			environment: true,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+		"webgpu"
+	);
+	const frameResources = resources.prepareFrame(frame, features, {
+		scopeKey: "main",
+		sceneTargetMode: "mrt",
+	});
+
+	const mainDrawResources = await resources.getDrawResources(
+		packet,
+		frameResources
+	);
+	assert.ok(mainDrawResources);
+	assert.equal(mainDrawResources[0].pipeline.desc.sampleCount, 4);
+
+	const captureDrawResources = await resources.getDrawResources(
+		packet,
+		frameResources,
+		{
+			sceneTargetMode: "mrt",
+			drawMode: "reflection-capture",
+			sampleCountOverride: 1,
+		}
+	);
+	assert.ok(captureDrawResources);
+	assert.equal(captureDrawResources[0].pipeline.desc.sampleCount, 1);
+
+	const mainEnvironment =
+		await resources.getEnvironmentResources(frameResources, "mrt");
+	assert.ok(mainEnvironment);
+	assert.equal(mainEnvironment.pipeline.desc.sampleCount, 4);
+
+	const captureEnvironment =
+		await resources.getEnvironmentResources(frameResources, "mrt", {
+			sampleCountOverride: 1,
+		});
+	assert.ok(captureEnvironment);
+	assert.equal(captureEnvironment.pipeline.desc.sampleCount, 1);
+}
+
 async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
@@ -3621,6 +3699,7 @@ async function run() {
 	await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 	await testWebGPUEnvironmentCombinationsRegression();
 	await testScopedSceneTargetModesUseDistinctBindings();
+	await testSampleCountOverrideUsesSingleSampleCapturePipelines();
 	await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
 	await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 	await testParticleUVLayoutAndUniformBinding();

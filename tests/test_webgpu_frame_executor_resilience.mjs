@@ -261,6 +261,8 @@ function createDeferredLightingResourcesStub() {
 function createPlanarReflectionResourcesStub() {
 	const state = {
 		events: [],
+		drawOptions: [],
+		environmentOptions: [],
 		prepareContexts: [],
 		throwOnClusteredBuild: false,
 	};
@@ -295,10 +297,20 @@ function createPlanarReflectionResourcesStub() {
 			}
 		},
 		renderShadows() {},
-		async getEnvironmentResources() {
+		async getEnvironmentResources(_frameResources, sceneTargetMode, options = {}) {
+			state.environmentOptions.push({
+				sceneTargetMode: sceneTargetMode ?? null,
+				sampleCountOverride: options.sampleCountOverride ?? null,
+			});
 			return null;
 		},
 		async getDrawResources(packet, _frameResources, options = {}) {
+			state.drawOptions.push({
+				packetId: packet.id,
+				sceneTargetMode: options.sceneTargetMode ?? null,
+				drawMode: options.drawMode ?? "default",
+				sampleCountOverride: options.sampleCountOverride ?? null,
+			});
 			state.events.push(
 				`draw:${packet.id}:${options.sceneTargetMode ?? "default"}:${options.drawMode ?? "default"}`
 			);
@@ -644,6 +656,108 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		),
 		true
 	);
+}
+
+async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
+	let sampleCount = 4;
+	const msaaSetCalls = [];
+	let executor = null;
+	backend.getMSAASampleCount = () => sampleCount;
+	backend.setMSAASampleCount = (nextSampleCount) => {
+		msaaSetCalls.push(nextSampleCount);
+		sampleCount = nextSampleCount;
+		executor?.invalidateFrameTargets();
+	};
+	const resources = createPlanarReflectionResourcesStub();
+	executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const camera = new Camera();
+	camera.position.set(0, 2, 5);
+	camera.updateMatrices();
+	context.camera = camera;
+	context.features.enableReflection = true;
+	context.postProcess = createResolvedPostProcess({
+		ssr: { enabled: true },
+	});
+	context.incremental = {
+		enabled: false,
+		forceFullFrame: true,
+		dirtyRects: [{ x: 0, y: 0, width: 64, height: 64 }],
+		dirtyTileSize: 64,
+		dirtyTileColumns: 1,
+		dirtyTileRows: 1,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 1,
+		firstPass: null,
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+	const mirrorMaterial = new Material({
+		name: "mirror",
+		reflectivity: 0.75,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+	});
+	const objectMaterial = new Material({ name: "object" });
+	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const objectPacket = createPlanarPacket("object", objectMaterial, 1);
+	context.scene.opaquePackets = [mirrorPacket, objectPacket];
+	context.scene.reflectivePackets = [mirrorPacket];
+	context.scene.transparentPackets = [];
+	context.scene.meshInstances = [];
+	context.scene.lights = [];
+	context.scene.shadowMaps = new Map();
+	context.scene.environment = {
+		backgroundEnabled: false,
+		lightingEnabled: false,
+		backgroundTexture: null,
+		iblTexture: null,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+
+	executor.beginFrame(context);
+	const frameTargets = executor._frameTargets;
+	const msaaTargets = executor._msaaTargets;
+	assert.ok(frameTargets);
+	assert.ok(msaaTargets);
+
+	await executor.executePass(
+		{ stage: "reflection", executor: "backend", enabled: true },
+		context
+	);
+	assert.deepEqual(msaaSetCalls, []);
+	assert.strictEqual(executor._frameTargets, frameTargets);
+	assert.strictEqual(executor._msaaTargets, msaaTargets);
+
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+	assert.strictEqual(executor._frameTargets, frameTargets);
+	assert.strictEqual(executor._msaaTargets, msaaTargets);
+	const captureDrawOptions = resources._state.drawOptions.find(
+		(options) => options.drawMode === "reflection-capture"
+	);
+	assert.ok(captureDrawOptions);
+	assert.equal(captureDrawOptions.sampleCountOverride, 1);
+	const compositePass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUPlanarReflectionComposite"
+	);
+	assert.ok(compositePass);
+	assert.equal(
+		compositePass.colorAttachments[0].resolveTarget,
+		frameTargets.sceneColorMain
+	);
+	assert.equal(
+		compositePass.colorAttachments[1].resolveTarget,
+		frameTargets.planarReflectionMask
+	);
+	executor.destroy();
 }
 
 async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
@@ -1101,6 +1215,7 @@ async function run() {
 	testFrameTargetsIncludeAndReleaseOITResources();
 	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
 	await testPlanarReflectionCaptureAndCompositeSequencing();
+	await testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive();
 	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();

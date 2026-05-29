@@ -114,7 +114,6 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
-		const restoreMSAASampleCount = this._backend.getMSAASampleCount();
 		const captureTargets = createCaptureRenderTargets(
 			this._backend,
 			faceSize,
@@ -124,9 +123,6 @@ export class WebGPUReflectionProbeCapturePass {
 		let frameResources: WebGPUPreparedFrameResources | null = null;
 
 		try {
-			if (restoreMSAASampleCount !== 1) {
-				this._backend.setMSAASampleCount(1);
-			}
 			frameResources = this._resources.prepareFrame(captureContext, {
 				scopeKey,
 				sceneTargetMode: "mrt",
@@ -160,6 +156,7 @@ export class WebGPUReflectionProbeCapturePass {
 					"mrt",
 					{
 						pipelineMode: "legacy",
+						sampleCountOverride: 1,
 					}
 				);
 			}
@@ -177,9 +174,6 @@ export class WebGPUReflectionProbeCapturePass {
 			);
 		} finally {
 			destroyCaptureRenderTargets(captureTargets);
-			if (restoreMSAASampleCount !== 1) {
-				this._backend.setMSAASampleCount(restoreMSAASampleCount);
-			}
 			this._resources.releaseScope(scopeKey);
 		}
 	}
@@ -256,6 +250,7 @@ export class WebGPUReflectionProbeCapturePass {
 			packets,
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
+				sampleCountOverride: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -267,7 +262,9 @@ export class WebGPUReflectionProbeCapturePass {
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
 		const environmentResources =
-			await this._resources.getEnvironmentResources(frameResources, "mrt");
+			await this._resources.getEnvironmentResources(frameResources, "mrt", {
+				sampleCountOverride: 1,
+			});
 		if (!environmentResources) {
 			return false;
 		}

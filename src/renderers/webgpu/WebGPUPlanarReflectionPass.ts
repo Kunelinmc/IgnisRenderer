@@ -107,12 +107,8 @@ export class WebGPUPlanarReflectionPass {
 			)
 		);
 		const activeKeys = new Set<string>();
-		const restoreMSAASampleCount = this._backend.getMSAASampleCount?.() ?? 1;
 
 		try {
-			if (restoreMSAASampleCount !== 1) {
-				this._backend.setMSAASampleCount?.(1);
-			}
 			for (const planeInfo of planes) {
 				const targets = this._getTargets(planeInfo.key, width, height);
 				const captureContext = createPlanarCaptureContext(
@@ -144,9 +140,6 @@ export class WebGPUPlanarReflectionPass {
 				});
 			}
 		} finally {
-			if (restoreMSAASampleCount !== 1) {
-				this._backend.setMSAASampleCount?.(restoreMSAASampleCount);
-			}
 			this._releaseStaleTargets(activeKeys);
 		}
 
@@ -344,6 +337,7 @@ export class WebGPUPlanarReflectionPass {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				drawMode: "reflection-capture",
+				sampleCountOverride: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -355,7 +349,9 @@ export class WebGPUPlanarReflectionPass {
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
 		const environmentResources =
-			await this._resources.getEnvironmentResources(frameResources, "mrt");
+			await this._resources.getEnvironmentResources(frameResources, "mrt", {
+				sampleCountOverride: 1,
+			});
 		if (!environmentResources) {
 			return false;
 		}

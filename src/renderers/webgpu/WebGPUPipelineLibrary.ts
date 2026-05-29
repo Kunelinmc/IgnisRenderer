@@ -177,14 +177,18 @@ export class WebGPUPipelineLibrary {
 		isWireframe = false,
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
 		transparentMode: WebGPUTransparentPipelineMode = "default",
-		drawMode: WebGPUScenePipelineDrawMode = "default"
+		drawMode: WebGPUScenePipelineDrawMode = "default",
+		sampleCountOverride?: number
 	): Promise<IRenderPipeline> {
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
 			transparentMode,
 			drawMode
 		);
-		const sampleCount = this._resolveSampleCount(descriptor.sceneTargetMode);
+		const sampleCount = this._resolveSampleCount(
+			descriptor.sceneTargetMode,
+			sampleCountOverride
+		);
 		const depthFormat = this._resolveSceneDepthFormat(
 			descriptor.sceneTargetMode
 		);
@@ -215,7 +219,8 @@ export class WebGPUPipelineLibrary {
 				material,
 				descriptor,
 				isWireframe,
-				topology
+				topology,
+				sampleCountOverride
 			);
 		}
 		const finalShaderKey = this._getShaderCacheKey(material);
@@ -249,7 +254,8 @@ export class WebGPUPipelineLibrary {
 		material: Material,
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
-		topology: PrimitiveDrawTopology
+		topology: PrimitiveDrawTopology,
+		sampleCountOverride?: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
 		if (descriptor.drawMode === "planar-reflection-composite") {
@@ -257,10 +263,11 @@ export class WebGPUPipelineLibrary {
 				material,
 				descriptor,
 				isWireframe,
-				topology
+				topology,
+				sampleCountOverride
 			);
 		}
-		const sampleCount = this._resolveSampleCount(mode);
+		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
@@ -323,10 +330,11 @@ export class WebGPUPipelineLibrary {
 		material: Material,
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
-		topology: PrimitiveDrawTopology
+		topology: PrimitiveDrawTopology,
+		sampleCountOverride?: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
-		const sampleCount = this._resolveSampleCount(mode);
+		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
@@ -381,7 +389,8 @@ export class WebGPUPipelineLibrary {
 		material: Material,
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false,
-		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
+		sampleCountOverride?: number
 	): Promise<IRenderPipeline | null> {
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
@@ -395,7 +404,7 @@ export class WebGPUPipelineLibrary {
 			return null;
 		}
 		const isMask = isMaterialMask(material);
-		const sampleCount = this._resolveSampleCount(mode);
+		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
@@ -747,9 +756,10 @@ export class WebGPUPipelineLibrary {
 	}
 
 	public async getEnvironmentPipeline(
-		mode: WebGPUSceneTargetMode = "single"
+		mode: WebGPUSceneTargetMode = "single",
+		sampleCountOverride?: number
 	): Promise<IRenderPipeline> {
-		const sampleCount = this._resolveSampleCount(mode);
+		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${sampleCount}`;
 		const cached = this._environmentPipelines.get(cacheKey);
@@ -833,9 +843,15 @@ export class WebGPUPipelineLibrary {
 		return backend.canvasDepthFormat ?? TextureFormat.Depth24Plus;
 	}
 
-	private _resolveSampleCount(mode: WebGPUSceneTargetMode): number {
+	private _resolveSampleCount(
+		mode: WebGPUSceneTargetMode,
+		sampleCountOverride?: number
+	): number {
 		if (mode !== "mrt") {
 			return 1;
+		}
+		if (Number.isFinite(sampleCountOverride)) {
+			return Math.max(1, Math.floor(sampleCountOverride as number));
 		}
 		const getter = (this._backend as { getMSAASampleCount?: () => number })
 			.getMSAASampleCount;
