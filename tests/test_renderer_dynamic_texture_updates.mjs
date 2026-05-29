@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
 import { Texture } from "../src/core/Texture.ts";
+import { PostProcessPass } from "../src/postprocess/index.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 
 import { FakeDynamicTexture } from "./helpers/test_fakes.mjs";
@@ -65,6 +66,96 @@ class StubBackend {
 	endFrame() {}
 }
 
+class CleanupPostProcessPass extends PostProcessPass {
+	constructor(events) {
+		super({
+			id: "cleanup-pass",
+			enabled: true,
+			implementations: {
+				stub: {
+					destroy() {
+						events.push("pass-destroy");
+					},
+				},
+			},
+		});
+	}
+
+	getHistoryDescriptors() {
+		return [{ id: "cleanup-history" }];
+	}
+
+	getTransientResourceDescriptors() {
+		return [{ id: "cleanup-transient" }];
+	}
+}
+
+function createPostProcessFrameContext(postProcess) {
+	return {
+		camera: {
+			type: "perspective",
+			fov: 60,
+			aspectRatio: 1,
+			near: 0.1,
+			far: 100,
+		},
+		attachments: {
+			width: 8,
+			height: 8,
+			pixels: new Uint8ClampedArray(8 * 8 * 4),
+			depthBuffer: new Float32Array(8 * 8),
+			normalBuffer: new Float32Array(8 * 8 * 3),
+		},
+		features: {},
+		postProcess,
+		shadowMaps: [],
+		scene: {},
+		shCoeffs: [],
+		shAmbientCoeffs: [],
+		worldMatrix: null,
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width: 8, height: 8 }],
+			dirtyTileSize: 8,
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			postProcessStartPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: false,
+		},
+		transient: new Map(),
+	};
+}
+
+async function testRendererPostProcessCleanupBridge(canvas) {
+	const backend = new StubBackend();
+	const renderer = new Renderer(backend, canvas, new Camera());
+	const events = [];
+	renderer.postProcess.registerPass(new CleanupPostProcessPass(events));
+	const postProcess = renderer.postProcess.createSnapshot("stub");
+	const frameContext = createPostProcessFrameContext(postProcess);
+
+	await renderer._postProcessPipeline.execute({
+		frameContext,
+		executor: backend.postProcessExecutor,
+		gBuffer: backend.createPostProcessGBufferBridge(frameContext),
+		historyFinalization: "manual",
+	});
+	renderer.destroyPostProcessResources("stub", backend.postProcessExecutor);
+
+	const destroyedIds = backend.postProcessExecutor.destroyedResources.map(
+		(handle) => handle.id
+	);
+	assert.ok(destroyedIds.includes("cleanup-history:read"));
+	assert.ok(destroyedIds.includes("cleanup-history:write"));
+	assert.ok(destroyedIds.includes("cleanup-transient"));
+	assert.deepEqual(events, ["pass-destroy"]);
+}
+
 async function run() {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
@@ -93,6 +184,8 @@ async function run() {
 		await renderer.restore();
 		assert.equal(backend.restoreCanvases.length, 1);
 		assert.equal(backend.restoreCanvases[0], canvas);
+
+		await testRendererPostProcessCleanupBridge(canvas);
 
 		const dynamicTexture = new FakeDynamicTexture(2);
 		const originalWarn = console.warn;

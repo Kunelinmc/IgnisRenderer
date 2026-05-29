@@ -73,6 +73,12 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPipeline.commitFrame()` must swap pending updated histories after a successful renderer frame.
 - `PostProcessPipeline.abortFrame(error?)` must clear pending history updates without invalidating previously valid histories.
 - `PostProcessPipeline` must call `IPostProcessExecutor.abortFrame(request)` when a logical post-process frame fails after frame state has been prepared.
+- `PostProcessPipeline.destroy(executor)` must clear pending frame state, destroy
+  active temporal history handles, destroy active transient handles, and reset
+  history signatures for backend lifecycle resets.
+- Backends that release a graphics device or context must destroy
+  `PostProcessPipeline` resources before destroying the executor resources that
+  own those handles.
 - `PostProcessResourceDescriptor.mipMode` may be `"single"` or `"full-chain"`, and omitted values must behave as `"single"`.
 - `PostProcessTransientManager` must destroy transient resources that are not requested by the current eligible pass set.
 - The built-in `taa` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.

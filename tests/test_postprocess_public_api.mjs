@@ -659,6 +659,35 @@ async function testPipelineManualHistoryCommitAndAbort() {
 	assert.strictEqual(seen[0].read, secondWrite);
 }
 
+async function testPipelineDestroyClearsPendingAndDestroysResources() {
+	const seen = [];
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
+	registry.registerPass(new TransientPass("transient-pass", [
+		{ id: "scratch" },
+	]));
+	const snapshot = registry.createSnapshot("webgpu");
+	const pipeline = new PostProcessPipeline();
+	const executor = new FakeExecutor("webgpu");
+
+	await pipeline.execute({
+		frameContext: createFrameContext(snapshot),
+		executor,
+		gBuffer: createGBufferBridge(),
+		historyFinalization: "manual",
+	});
+	assert.equal(executor.destroyed.length, 0);
+
+	pipeline.destroy(executor);
+	const destroyedIds = executor.destroyed.map((handle) => handle.id);
+	assert.ok(destroyedIds.includes("history:read"));
+	assert.ok(destroyedIds.includes("history:write"));
+	assert.ok(destroyedIds.includes("scratch"));
+
+	await pipeline.abortFrame(new Error("postprocess already destroyed"));
+	assert.equal(executor.abortFrames.length, 0);
+}
+
 async function testPipelineDefaultAutoCommitsHistory() {
 	const seen = [];
 	const registry = new PostProcessPassRegistry();
@@ -907,6 +936,7 @@ async function run() {
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
 	await testPipelineManualHistoryCommitAndAbort();
+	await testPipelineDestroyClearsPendingAndDestroysResources();
 	await testPipelineDefaultAutoCommitsHistory();
 	await testPipelineFailureAbortsExecutorAndHistory();
 	testHistoryManagerInvalidationAndResize();

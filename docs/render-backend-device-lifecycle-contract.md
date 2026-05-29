@@ -19,6 +19,9 @@ restore render resources without using private backend members.
 	  unavailable.
 	- Behavior contract: implementations should release transient GPU resources
 	  that are invalid after loss.
+	- Behavior contract: implementations that own GPU-backed post-process
+	  resources must destroy backend pass resources and renderer-owned
+	  post-process history/transient resources before destroying the lost device.
 	- Constraint: implementations must tolerate repeated calls.
 - `IRenderBackend.restore(canvas?: HTMLCanvasElement)`
 	- Behavior contract: implementations must rebuild device or context resources
@@ -36,8 +39,17 @@ restore render resources without using private backend members.
 	- Behavior contract: falls back to `renderer.backend.init(renderer.canvas)`
 	  when the backend has no `restore` method.
 	- Behavior contract: resizes the canvas and marks the next frame dirty.
+- `RendererBackendBridge.destroyPostProcessResources(backend, executor)`
+	- Behavior contract: destroys `PostProcessPipeline` history/transient handles
+	  using `executor`, then destroys pass-owned implementations for `backend`.
+	- Constraint: backends must call this before releasing a device or graphics
+	  context that owns post-process resource handles.
 - `WebGPUBackend` must route `GPUDevice.lost` through
   `WebGPUBackend.onDeviceLost`.
+- `WebGPUBackend` must call
+  `RendererBackendBridge.destroyPostProcessResources("webgpu", executor)` before
+  rollback during automatic device-loss recovery, manual `restore()`, and
+  `destroy()`.
 - `WebGLBackend` must route `webglcontextlost` through
   `WebGLBackend.onDeviceLost` and `webglcontextrestored` through
   `WebGLBackend.restore`.
@@ -77,5 +89,6 @@ bun tests/test_renderer_dynamic_texture_updates.mjs
 
 ## Compatibility / Breaking Changes
 This change is additive and non-breaking. Backends may omit
-`IRenderBackend.onDeviceLost` and `IRenderBackend.restore`; `Renderer.restore`
-must fall back to `init` for such backends.
+`IRenderBackend.onDeviceLost`, `IRenderBackend.restore`, and
+`RendererBackendBridge.destroyPostProcessResources`; `Renderer.restore` must
+fall back to `init` for such backends.

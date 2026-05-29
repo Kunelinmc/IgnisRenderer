@@ -180,6 +180,27 @@ function createBackend(options = undefined) {
 	return { backend, device, queueSubmissions };
 }
 
+function createDeferred() {
+	let resolve;
+	let reject;
+	const promise = new Promise((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise;
+		reject = rejectPromise;
+	});
+	return { promise, resolve, reject };
+}
+
+async function waitForCondition(predicate, message, count = 32) {
+	for (let i = 0; i < count; i++) {
+		if (predicate()) {
+			return;
+		}
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	assert.ok(predicate(), message);
+}
+
 function createFrameContext(overrides = {}) {
 	return {
 		camera: {},
@@ -287,6 +308,94 @@ async function testShaderModuleCompilationInfoErrorThrowsMappedError() {
 			return true;
 		}
 	);
+}
+
+async function testStaleShaderModuleCreationRejectsAfterRollback() {
+	const { backend, device } = createBackend();
+	const compilationInfo = createDeferred();
+	device.createShaderModule = (desc) => {
+		device.shaderModuleDescs.push(desc);
+		return {
+			desc,
+			getCompilationInfo: () => compilationInfo.promise,
+		};
+	};
+
+	const shaderPromise = backend.createShaderModule({
+		code: "fn staleMain() -> f32 { return 1.0; }",
+		label: "StaleShader",
+	});
+	await waitForCondition(
+		() => device.shaderModuleDescs.length === 1,
+		"stale shader module creation should start"
+	);
+
+	backend._rollbackInitializationState();
+	compilationInfo.resolve({ messages: [] });
+	await assert.rejects(
+		() => shaderPromise,
+		/WebGPU shader module creation was invalidated/
+	);
+	assert.equal(backend._shaderModuleCache.size, 0);
+	assert.equal(backend._shaderModuleInFlight.size, 0);
+}
+
+async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
+	const { backend, device: oldDevice } = createBackend();
+	const oldCompilationInfo = createDeferred();
+	oldDevice.createShaderModule = (desc) => {
+		oldDevice.shaderModuleDescs.push(desc);
+		return {
+			desc,
+			getCompilationInfo: () => oldCompilationInfo.promise,
+		};
+	};
+
+	const shaderDesc = {
+		code: "fn recoveredMain() -> f32 { return 1.0; }",
+		label: "RecoveredShader",
+	};
+	const stalePromise = backend.createShaderModule(shaderDesc);
+	await waitForCondition(
+		() => oldDevice.shaderModuleDescs.length === 1,
+		"old shader module creation should start"
+	);
+
+	backend._rollbackInitializationState();
+	const newDevice = new FakeDevice();
+	const newCompilationInfo = createDeferred();
+	newDevice.createShaderModule = (desc) => {
+		newDevice.shaderModuleDescs.push(desc);
+		return {
+			desc,
+			getCompilationInfo: () => newCompilationInfo.promise,
+		};
+	};
+	backend._device = newDevice;
+	backend._queue = { submit() {} };
+
+	const recoveredPromise = backend.createShaderModule(shaderDesc);
+	await waitForCondition(
+		() => newDevice.shaderModuleDescs.length === 1,
+		"recovered shader module creation should start"
+	);
+	assert.equal(backend._shaderModuleInFlight.size, 1);
+
+	oldCompilationInfo.resolve({ messages: [] });
+	await assert.rejects(
+		() => stalePromise,
+		/WebGPU shader module creation was invalidated/
+	);
+	assert.equal(backend._shaderModuleInFlight.size, 1);
+	assert.equal(backend._shaderModuleCache.size, 0);
+
+	newCompilationInfo.resolve({ messages: [] });
+	const shader = await recoveredPromise;
+	assert.ok(shader);
+	assert.equal(backend._shaderModuleInFlight.size, 0);
+	assert.equal(backend._shaderModuleCache.size, 1);
+	const entry = backend._shaderModuleCache.values().next().value;
+	assert.strictEqual(entry.gpuResource.desc, newDevice.shaderModuleDescs[0]);
 }
 
 function testSamplerReferenceCounting() {
@@ -550,6 +659,44 @@ async function testPublicDeviceLifecycleMethods() {
 		() => backend.restore(),
 		/cannot restore before a canvas has been initialized/
 	);
+}
+
+function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
+	const { backend } = createBackend();
+	const calls = [];
+	backend.setRenderer({
+		canvas: { width: 1, height: 1 },
+		destroyPostProcessResources(kind, executor) {
+			calls.push(`postprocess:${kind}`);
+			assert.strictEqual(executor, backend.postProcessExecutor);
+		},
+	});
+	backend._frameExecutor = {
+		destroy() {
+			calls.push("frame-executor");
+		},
+	};
+	backend._resources = {
+		destroy() {
+			calls.push("resources");
+		},
+	};
+
+	Logger.configure({ level: "silent", resetOnceKeys: true });
+	try {
+		backend.onDeviceLost({
+			reason: "destroyed",
+			message: "simulated loss",
+		});
+	} finally {
+		Logger.reset();
+	}
+
+	assert.deepEqual(calls, [
+		"postprocess:webgpu",
+		"frame-executor",
+		"resources",
+	]);
 }
 
 function testMapBindingResourceRejectsPrimitive() {
@@ -859,6 +1006,8 @@ async function run() {
 	await testShaderModuleCacheUsesHashKey();
 	await testShaderModuleRetryWithinSingleRequest();
 	await testShaderModuleCompilationInfoErrorThrowsMappedError();
+	await testStaleShaderModuleCreationRejectsAfterRollback();
+	await testStaleShaderModulePromiseDoesNotClearRecoveredInFlight();
 	testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
 	await testRenderPipelineAutoLayoutCaching();
@@ -869,6 +1018,7 @@ async function run() {
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
 	await testPublicDeviceLifecycleMethods();
+	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
 	testMapBindingResourceRejectsPrimitive();
 	testCreateTextureClampsPublicDimensions();
 	testCommandBufferOwnershipAndOneShotSubmit();

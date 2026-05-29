@@ -26,6 +26,8 @@ import {
 	PostProcessPassRegistry,
 	PostProcessPipeline,
 	ToneMappingPass,
+	type IPostProcessExecutor,
+	type PostProcessBackendKind,
 	type ResolvedPostProcessState,
 } from "../postprocess";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
@@ -297,6 +299,23 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 		this._preparedSceneCache.reset();
 		this.resizeCanvas();
+	}
+
+	/**
+	 * Releases renderer-owned and pass-owned post-process resources for a backend.
+	 *
+	 * @param backend Backend kind whose pass implementations must be destroyed.
+	 * @param executor Active executor that owns pipeline-created resource handles.
+	 * @returns Nothing.
+	 * @sideEffects Destroys temporal history, transient resources, and backend
+	 * pass implementation resources without unregistering passes.
+	 */
+	public destroyPostProcessResources(
+		backend: PostProcessBackendKind,
+		executor: IPostProcessExecutor
+	): void {
+		this._postProcessPipeline.destroy(executor);
+		this.postProcess.destroyPasses(backend);
 	}
 
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {

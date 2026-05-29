@@ -185,6 +185,16 @@ interface CachedBindingGroupEntry {
 	refCount: number;
 }
 
+class WebGPUShaderModuleCreationInvalidatedError extends Error {
+	constructor(label?: string) {
+		const shaderLabel = label && label.length > 0 ? label : "unnamed";
+		super(
+			`WebGPU shader module creation was invalidated by backend lifecycle reset [${shaderLabel}].`,
+		);
+		this.name = "WebGPUShaderModuleCreationInvalidatedError";
+	}
+}
+
 type BindingResourceInput = BindingGroupDesc["entries"][number]["resource"];
 type PipelineDescLayout = PipelineDesc["layout"] | undefined;
 type ComputePipelineDescLayout = ComputePipelineDesc["layout"] | undefined;
@@ -310,6 +320,9 @@ export class WebGPUBackend implements IRenderBackend {
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
 	private _postProcessRegistry: PostProcessPassRegistry | null = null;
+	private _destroyPostProcessResources:
+		| RendererBackendBridge["destroyPostProcessResources"]
+		| null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
@@ -317,6 +330,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _shaderModuleCache = new Map<string, CachedShaderModuleEntry>();
 	private _shaderCodeHashCache = new Map<string, string>();
 	private _shaderModuleInFlight = new Map<string, Promise<CachedShaderModuleEntry>>();
+	private _shaderModuleGeneration = 0;
 	private _renderPipelineCache = new Map<string, CachedRenderPipelineEntry>();
 	private _computePipelineCache = new Map<string, CachedComputePipelineEntry>();
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
@@ -394,6 +408,8 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._postProcessRegistry = renderer.postProcess ?? null;
+		this._destroyPostProcessResources =
+			renderer.destroyPostProcessResources?.bind(renderer) ?? null;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -624,7 +640,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._deviceLost && this.queue) {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
-		this._postProcessRegistry?.destroyPasses("webgpu");
+		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
@@ -860,6 +876,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._deviceLost && this.queue) {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
+		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
@@ -905,7 +922,14 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public async createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule> {
 		this._assertDeviceOperational("create shader modules");
+		const creationDevice = this.device;
+		const creationGeneration = this._shaderModuleGeneration;
 		const processed = await this._shaderModuleCompiler.processShaderSource(desc);
+		this._assertShaderModuleCreationCurrent(
+			creationDevice,
+			creationGeneration,
+			desc,
+		);
 		if (processed.hasErrors) {
 			this._shaderModuleCompiler.reportShaderRuntimeDiagnostics(desc, processed);
 		}
@@ -929,6 +953,11 @@ export class WebGPUBackend implements IRenderBackend {
 		const inFlight = this._shaderModuleInFlight.get(cacheKey);
 		if (inFlight) {
 			const entry = await inFlight;
+			this._assertShaderModuleCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				effectiveDesc,
+			);
 			return this._acquireShaderModuleHandleAndTrim(entry);
 		}
 
@@ -936,7 +965,12 @@ export class WebGPUBackend implements IRenderBackend {
 			let lastError: unknown = null;
 			for (let attempt = 0; attempt < 2; attempt++) {
 				try {
-					const gpuModule = this.device.createShaderModule({
+					this._assertShaderModuleCreationCurrent(
+						creationDevice,
+						creationGeneration,
+						effectiveDesc,
+					);
+					const gpuModule = creationDevice.createShaderModule({
 						code: effectiveDesc.code,
 						label: effectiveDesc.label,
 					});
@@ -944,14 +978,29 @@ export class WebGPUBackend implements IRenderBackend {
 					if (typeof gpuModule.getCompilationInfo === "function") {
 						try {
 							const info = await gpuModule.getCompilationInfo();
+							this._assertShaderModuleCreationCurrent(
+								creationDevice,
+								creationGeneration,
+								effectiveDesc,
+							);
 							compileMessages = normalizeWebGPUCompilationMessages(info.messages);
 						} catch (error) {
+							this._assertShaderModuleCreationCurrent(
+								creationDevice,
+								creationGeneration,
+								effectiveDesc,
+							);
 							Logger.warn(
 								`WebGPU shader compilation info unavailable [${effectiveDesc.label ?? "unnamed"}]: ${String(error)}`,
 								{ scope: "WebGPUBackend" },
 							);
 						}
 					}
+					this._assertShaderModuleCreationCurrent(
+						creationDevice,
+						creationGeneration,
+						effectiveDesc,
+					);
 					if (compileMessages.length > 0) {
 						const mappedMessages = mapShaderCompilerMessages(
 							compileMessages,
@@ -983,6 +1032,11 @@ export class WebGPUBackend implements IRenderBackend {
 						}
 					}
 
+					this._assertShaderModuleCreationCurrent(
+						creationDevice,
+						creationGeneration,
+						effectiveDesc,
+					);
 					const entry: CachedShaderModuleEntry = {
 						key: cacheKey,
 						refCount: 0,
@@ -992,6 +1046,9 @@ export class WebGPUBackend implements IRenderBackend {
 					this._shaderModuleCache.set(cacheKey, entry);
 					return entry;
 				} catch (error) {
+					if (error instanceof WebGPUShaderModuleCreationInvalidatedError) {
+						throw error;
+					}
 					lastError = this._shaderModuleCompiler.createShaderModuleError(
 						error,
 						effectiveDesc
@@ -1006,6 +1063,11 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleInFlight.set(cacheKey, creationPromise);
 		try {
 			const entry = await creationPromise;
+			this._assertShaderModuleCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				effectiveDesc,
+			);
 			return this._acquireShaderModuleHandleAndTrim(entry);
 		} catch (error) {
 			throw error;
@@ -1364,6 +1426,7 @@ export class WebGPUBackend implements IRenderBackend {
 		Logger.error(`WebGPU device was lost${reason}: ${info.message}`, {
 			scope: "WebGPUBackend",
 		});
+		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
 		if (this._destroyRequested || info.reason === "destroyed") {
 			return;
@@ -1455,7 +1518,16 @@ export class WebGPUBackend implements IRenderBackend {
 		return targetCanvas;
 	}
 
+	private _destroyPostProcessResourcesForReset(): void {
+		if (this._destroyPostProcessResources) {
+			this._destroyPostProcessResources("webgpu", this.postProcessExecutor);
+			return;
+		}
+		this._postProcessRegistry?.destroyPasses("webgpu");
+	}
+
 	private _rollbackInitializationState(): void {
+		this._advanceShaderModuleGeneration();
 		this._commandScheduler.reset();
 		invalidateWebGPUComputeFacade(this);
 		this._reflectionProbeCapturePass?.destroy();
@@ -1526,6 +1598,20 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		if (!this.device || !this.queue) {
 			throw new Error(`WebGPU backend is not initialized; cannot ${operation}.`);
+		}
+	}
+
+	private _advanceShaderModuleGeneration(): void {
+		this._shaderModuleGeneration++;
+	}
+
+	private _assertShaderModuleCreationCurrent(
+		device: GPUDevice,
+		generation: number,
+		desc: ShaderModuleDesc,
+	): void {
+		if (this._shaderModuleGeneration !== generation || this.device !== device) {
+			throw new WebGPUShaderModuleCreationInvalidatedError(desc.label);
 		}
 	}
 
@@ -2419,6 +2505,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _invalidateShaderDependentCaches(): void {
+		this._advanceShaderModuleGeneration();
 		this._shaderModuleCache.clear();
 		this._shaderCodeHashCache.clear();
 		this._shaderModuleInFlight.clear();

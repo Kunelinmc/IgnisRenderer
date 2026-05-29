@@ -3,7 +3,11 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type { PostProcessBackendSupport } from "../postprocess";
+import type {
+	IPostProcessExecutor,
+	PostProcessBackendKind,
+	PostProcessBackendSupport,
+} from "../postprocess";
 import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
@@ -77,6 +81,18 @@ export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
 	readonly postProcess?: PostProcessPassRegistry;
 	pixels?: Uint8ClampedArray | null;
+	/**
+	 * Releases renderer-owned post-process resources for a backend reset.
+	 *
+	 * @param backend Backend kind whose pass implementations must be destroyed.
+	 * @param executor Executor that owns pipeline-created resource handles.
+	 * @returns Nothing.
+	 * @sideEffects Destroys post-process history, transient, and pass resources.
+	 */
+	destroyPostProcessResources?(
+		backend: PostProcessBackendKind,
+		executor: IPostProcessExecutor
+	): void;
 }
 
 export interface IRenderBackend {

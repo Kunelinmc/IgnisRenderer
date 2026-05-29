@@ -98,13 +98,16 @@ export class PostProcessPipeline {
 	private _pendingFrame: PendingPostProcessFrame | null = null;
 
 	/**
-	 * Destroys pipeline-owned history resources.
+	 * Destroys pipeline-owned post-process resources.
 	 *
 	 * @param executor Executor that owns concrete resources.
 	 * @returns Nothing.
-	 * @sideEffects Destroys all active history handles.
+	 * @sideEffects Clears pending frame state and destroys all active history
+	 * and transient handles.
 	 */
 	public destroy(executor: IPostProcessExecutor): void {
+		this._pendingFrame = null;
+		this._history.abortFrame();
 		this._history.destroy(executor);
 		this._transients.destroy(executor);
 	}
