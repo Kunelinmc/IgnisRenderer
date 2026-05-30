@@ -17,7 +17,7 @@ import {
 } from "../../renderers/webgpu/constants";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	type WebGPUFrameTargets,
+	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
@@ -47,7 +47,7 @@ export type ResolvedSSGIOptions = Required<
 
 export interface WebGPUSSGIContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	publishColorTarget?(texture: IRenderTexture): void;
 }

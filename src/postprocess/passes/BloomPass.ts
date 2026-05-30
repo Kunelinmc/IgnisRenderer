@@ -14,7 +14,7 @@ import {
 } from "../../renderers/types";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	type WebGPUFrameTargets,
+	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
@@ -38,7 +38,7 @@ export const BLOOM_PASS_ID = "bloom";
 
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	publishColorTarget?(texture: IRenderTexture): void;
 }

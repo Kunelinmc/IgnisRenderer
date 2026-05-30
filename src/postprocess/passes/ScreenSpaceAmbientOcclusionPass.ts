@@ -21,7 +21,7 @@ import {
 } from "../../renderers/webgpu/constants";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	type WebGPUFrameTargets,
+	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
@@ -65,7 +65,7 @@ export interface SoftwareSSAOContext {
 
 export interface WebGPUSSAOContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly aoRaw?: IRenderTexture | null;
 	readonly aoBlur?: IRenderTexture | null;

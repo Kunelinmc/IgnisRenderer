@@ -47,6 +47,7 @@ export {
 	isWebGPUPostProcessContextMetadata,
 	type WebGPUPostProcessContextKind,
 	type WebGPUPostProcessContextMetadata,
+	type WebGPUPostProcessFrameTargets,
 	type WebGPUPostProcessHistoryBindingMetadata,
 	type WebGPUPostProcessHistorySide,
 	type WebGPUPostProcessMotionHistoryCopyMetadata,

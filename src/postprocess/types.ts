@@ -271,7 +271,8 @@ export interface IPostProcessExecutor {
 	 *
 	 * @param request Current pass-owned implementation context request.
 	 * @returns Backend context object consumed by the pass implementation.
-	 * @sideEffects May synchronize backend history handles into frame targets.
+	 * @sideEffects May create a per-pass backend context and reset pending
+	 * backend pass output state.
 	 */
 	getPassExecutionContext?(
 		request: PostProcessPassExecutionContextRequest
@@ -284,6 +285,21 @@ export interface IPostProcessExecutor {
 		passId: string,
 		request: PostProcessPassRequest
 	): PostProcessPassResult | Promise<PostProcessPassResult>;
+	/**
+	 * Applies backend-owned side effects recorded while one logical pass ran.
+	 *
+	 * @param request Pass request that just completed.
+	 * @param result Result returned by the pass implementation or executor.
+	 * @returns Nothing.
+	 * @constraints Implementations must ignore unrecognized or skipped pass
+	 * results and must validate any backend-owned resources before attaching
+	 * them to frame state.
+	 * @sideEffects May publish validated pass outputs into backend frame state.
+	 */
+	completePass?(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): void | Promise<void>;
 	endFrame?(request: PostProcessFrameEndRequest): void | Promise<void>;
 	/**
 	 * Aborts backend post-process frame state after a failed pass or failed

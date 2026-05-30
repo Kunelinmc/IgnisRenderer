@@ -16,6 +16,11 @@ WebGPU post-processing is driven through `PostProcessPipeline`, `PostProcessBack
 - `PostProcessPassImplementation.metadata.context.backend` must be `"webgpu"` for WebGPU context packing.
 - `PostProcessPassImplementation.metadata.context.kind` must be `"screen"` or `"present"`.
 - `PostProcessPassImplementation.metadata.context` may request `publishColorTarget`, `frameBinding`, `lightingState`, history bindings, transient bindings, and a motion-history copy callback.
+- `WebGPUPostProcessContextMetadata.publishColorTarget` must expose a callback that records the pass color output for executor-owned completion.
+- `WebGPUPostProcessContextMetadata.publishColorTarget` must not allow a pass implementation to mutate `WebGPUFrameExecutor` frame targets directly.
+- `WebGPUPostProcessFrameTargets` must be a read-only snapshot of the active frame targets exposed to pass-owned WebGPU implementations.
+- `WebGPUFrameExecutor` must apply a recorded color output only from `IPostProcessExecutor.completePass(request, result)` after the pass completes with `result.ran !== false`.
+- `WebGPUFrameExecutor` must reject recorded color outputs that are not owned by the active frame color target set.
 - `WebGPUPostProcessContextMetadata.transients` must map context properties to `PostProcessPassRequest.transients` ids.
 - `PostProcessPassImplementation.metadata.warmupHints` may list WebGPU runtime warmup hint ids.
 - `PostProcessPassExecutionContextRequest.implementation.metadata.context` must define whether WebGPU provides low-level helpers.
@@ -71,9 +76,26 @@ class CustomWebGPUResolvePass extends PostProcessPass {
 					},
 					execute(_request, context) {
 						const webgpuContext = context as
-							| { scratch?: unknown }
+							| {
+									publishColorTarget?: (texture: unknown) => void;
+									scratch?: unknown;
+									targets?: {
+										postPing?: unknown;
+										postPong?: unknown;
+										sceneColor?: unknown;
+									};
+							  }
 							| undefined;
-						return webgpuContext?.scratch ? { ran: true } : { ran: false };
+						const output =
+							webgpuContext?.targets?.postPing ??
+							webgpuContext?.targets?.postPong ??
+							webgpuContext?.targets?.sceneColor;
+						if (webgpuContext?.scratch && output) {
+							webgpuContext.publishColorTarget?.(output);
+						}
+						return webgpuContext?.scratch && output ?
+								{ ran: true }
+							:	{ ran: false };
 					},
 				},
 			},
@@ -117,3 +139,4 @@ bun tests/test_webgpu_postprocess_runtime_screen.mjs
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must migrate to `placement` and optional `order`.
 - `WebGPUFrameTargets.aoRaw`, `WebGPUFrameTargets.aoBlur`, `WebGPUFrameTargets.ssrRaw`, and `WebGPUFrameTargets.hiZ` are removed.
 - WebGPU pass-owned implementations that need temporary textures must declare `getTransientResourceDescriptors(request)` and `metadata.context.transients`.
+- WebGPU pass-owned implementations must treat `context.targets` as read-only and must publish color output through `publishColorTarget(texture)`.

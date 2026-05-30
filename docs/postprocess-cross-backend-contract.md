@@ -57,6 +57,9 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `IPostProcessExecutor.invalidateResourceBindings()` may invalidate backend bind-group or descriptor caches after transient resources are recreated.
 - `IPostProcessExecutor.getPassExecutionContext(request)` may return backend-specific low-level helpers for pass-owned implementations based on `PostProcessPassImplementation.metadata.context`.
 - `IPostProcessExecutor.executePass(passId, request)` must execute one high-level logical pass when no pass-owned implementation handles it.
+- `IPostProcessExecutor.completePass(request, result)` may apply backend-owned side effects recorded during one logical pass.
+- `IPostProcessExecutor.completePass(request, result)` must validate backend-owned resources before publishing them into frame state.
+- `PostProcessPipeline` must call `IPostProcessExecutor.completePass(request, result)` after each pass returns, including passes that return `ran: false`.
 - `IPostProcessExecutor.abortFrame(request)` may release backend post-process frame state after a failed logical pass or failed renderer frame.
 - `IPostProcessExecutor.abortFrame(request)` must be idempotent and must not present, copy history, or commit temporal histories.
 - `PostProcessPassRequest.implementation` must contain the implementation metadata selected for `IPostProcessExecutor.backend`, or `null` when the pass falls back to `IPostProcessExecutor.executePass(passId, request)`.
@@ -210,6 +213,7 @@ bun tests/test_webgpu_postprocess_runtime_temporal.mjs
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must use `placement` and optional `order`.
 - `IPostProcessExecutor.getPassExecutionContext(request)` is added for pass-owned implementations.
 - `PostProcessPassImplementation.execute(request, context)` is added and takes precedence over backend executor dispatch.
+- `IPostProcessExecutor.completePass(request, result)` is added for backend-owned pass-boundary side effects.
 - `PostProcessPassImplementation.warmup(context)` is added for pass-owned warmup.
 - `PostProcessPassRegistry.invalidatePasses(backend)` is added for pass-owned implementation invalidation.
 - `PostProcessPassRegistry.destroyPasses(backend)` is added for pass-owned implementation destruction.

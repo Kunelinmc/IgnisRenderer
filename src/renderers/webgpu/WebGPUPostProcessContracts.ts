@@ -84,7 +84,8 @@ export interface WebGPUPostProcessContextMetadata {
 	/**
 	 * Whether the context must expose `publishColorTarget(texture)`.
 	 *
-	 * @remarks The callback updates the current frame scene color target.
+	 * @remarks The callback records the pass color output. The WebGPU executor
+	 * validates and applies the target after the pass completes successfully.
 	 * @sideEffects None.
 	 */
 	readonly publishColorTarget?: boolean;
@@ -210,3 +211,5 @@ export interface WebGPUFrameTargets {
 	oitSceneColorCopy?: IRenderTexture | null;
 	planarReflectionMask?: IRenderTexture | null;
 }
+
+export type WebGPUPostProcessFrameTargets = Readonly<WebGPUFrameTargets>;

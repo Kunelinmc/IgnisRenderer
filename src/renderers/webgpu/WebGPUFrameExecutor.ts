@@ -9,6 +9,7 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
+	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 	ResolvedPostProcessPass,
@@ -50,6 +51,7 @@ import {
 	isWebGPUPostProcessContextMetadata,
 	type WebGPUFrameTargets,
 	type WebGPUPostProcessContextMetadata,
+	type WebGPUPostProcessFrameTargets,
 } from "./WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
@@ -245,6 +247,7 @@ export class WebGPUFrameExecutor {
 	private _oitTransmissionPackets: DrawPacket[] = [];
 	private _oitNeedsTransmissionAfterParticles = false;
 	private _motionHistoryWriteTarget: IRenderTexture | null = null;
+	private _pendingPostProcessColorTarget: IRenderTexture | null = null;
 	private _depthDirtyClearShaderModule: IShaderModule | null = null;
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
@@ -298,6 +301,7 @@ export class WebGPUFrameExecutor {
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
 		this._motionHistoryWriteTarget = null;
+		this._pendingPostProcessColorTarget = null;
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -493,7 +497,41 @@ export class WebGPUFrameExecutor {
 		if (!isWebGPUPostProcessContextMetadata(metadata)) {
 			return undefined;
 		}
+		this._pendingPostProcessColorTarget = null;
 		return this._createWebGPUPostProcessContext(metadata, request, "execute");
+	}
+
+	/**
+	 * Applies backend-owned output recorded by a completed logical pass.
+	 *
+	 * @param request Logical pass request that just completed.
+	 * @param result Pass execution result.
+	 * @returns Nothing.
+	 * @sideEffects May replace the active scene color target after validating
+	 * the published texture belongs to this frame's WebGPU post-process targets.
+	 */
+	public completePostProcessPass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): void {
+		const colorTarget = this._pendingPostProcessColorTarget;
+		this._pendingPostProcessColorTarget = null;
+		if (result.ran === false || !colorTarget || !this._frameTargets) {
+			return;
+		}
+		if (!this._isOwnedPostProcessColorTarget(colorTarget)) {
+			Logger.warn(
+				`[webgpu-postprocess-color-target-unowned] ` +
+					`Post-process pass "${request.passId}" published a color target ` +
+					"that is not owned by the active WebGPU frame; ignoring it.",
+				{
+					scope: "WebGPUFrameExecutor",
+					onceKey: `webgpu-postprocess-color-target-unowned:${request.passId}`,
+				}
+			);
+			return;
+		}
+		this._frameTargets.sceneColor = colorTarget;
 	}
 
 	private _getPostProcessHistoryTexture(
@@ -513,6 +551,26 @@ export class WebGPUFrameExecutor {
 		return (slot?.handle.resource as IRenderTexture | null) ?? null;
 	}
 
+	private _createPostProcessFrameTargetsView(): WebGPUPostProcessFrameTargets | undefined {
+		const targets = this._frameTargets;
+		if (!targets) {
+			return undefined;
+		}
+		return Object.freeze({ ...targets });
+	}
+
+	private _isOwnedPostProcessColorTarget(texture: IRenderTexture): boolean {
+		const targets = this._frameTargets;
+		if (!targets) {
+			return false;
+		}
+		return (
+			texture === targets.sceneColorMain ||
+			texture === targets.postPing ||
+			texture === targets.postPong
+		);
+	}
+
 	private _createWebGPUPostProcessContext(
 		metadata: WebGPUPostProcessContextMetadata,
 		request: PostProcessPassRequest | null,
@@ -523,7 +581,7 @@ export class WebGPUFrameExecutor {
 		}
 		if (metadata.kind === "present") {
 			return {
-				targets: this._frameTargets ?? undefined,
+				targets: this._createPostProcessFrameTargetsView(),
 				presentToCanvas: (source: IRenderTexture, applyGamma: boolean) =>
 					this._presentToCanvas(source, applyGamma),
 				warmupPresent: () => this._ensurePresentResources(),
@@ -532,14 +590,12 @@ export class WebGPUFrameExecutor {
 
 		const context: Record<string, unknown> = {
 			encoder: this._encoder ?? undefined,
-			targets: this._frameTargets ?? undefined,
+			targets: this._createPostProcessFrameTargetsView(),
 			shared: this._postRuntime.sharedContext,
 		};
 		if (metadata.publishColorTarget && mode === "execute") {
 			context.publishColorTarget = (texture: IRenderTexture): void => {
-				if (this._frameTargets) {
-					this._frameTargets.sceneColor = texture;
-				}
+				this._pendingPostProcessColorTarget = texture;
 			};
 		}
 		if (metadata.frameBinding && mode === "execute") {
@@ -1726,6 +1782,7 @@ export class WebGPUFrameExecutor {
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
 		this._motionHistoryWriteTarget = null;
+		this._pendingPostProcessColorTarget = null;
 	}
 
 	private _clearActiveFrameState(): void {
@@ -1733,6 +1790,7 @@ export class WebGPUFrameExecutor {
 		this._frameContext = null;
 		this._frameResources = null;
 		this._motionHistoryWriteTarget = null;
+		this._pendingPostProcessColorTarget = null;
 		this._hasPresentedInFrame = false;
 		this._oitActive = false;
 		this._oitHasContributors = false;

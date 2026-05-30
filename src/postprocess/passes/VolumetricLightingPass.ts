@@ -18,7 +18,7 @@ import {
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
 } from "../../renderers/webgpu/constants";
 import { getWebGPUVolumetricLightLayout } from "../../renderers/webgpu/bufferLayouts";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGPULightingState } from "../../renderers/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
@@ -50,7 +50,7 @@ export interface SoftwareVolumetricLightingContext {
 
 export interface WebGPUVolumetricLightingContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
 	readonly lightingState?: WebGPULightingState | null;

@@ -247,6 +247,7 @@ export class PostProcessPipeline {
 					executionContext,
 					executor
 				);
+				await executor.completePass?.(passRequest, result ?? {});
 				if (result?.ran === false) {
 					continue;
 				}

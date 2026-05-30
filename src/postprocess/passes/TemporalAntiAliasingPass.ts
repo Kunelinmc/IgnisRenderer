@@ -17,7 +17,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { clamp } from "../../maths/Common";
@@ -75,7 +75,7 @@ export interface SoftwareTAAContext {
 
 export interface WebGPUTAAContext {
 	readonly encoder: ICommandEncoder;
-	readonly targets: WebGPUFrameTargets;
+	readonly targets: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly historyRead: IRenderTexture | null;
 	readonly historyWrite: IRenderTexture | null;

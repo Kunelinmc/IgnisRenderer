@@ -88,6 +88,8 @@ function createExecutorHarness() {
 	executor._frameTargets = {
 		sceneColor: { id: "scene-color" },
 		sceneColorMain: { id: "scene-color-main" },
+		postPing: { id: "post-ping" },
+		postPong: { id: "post-pong" },
 	};
 	executor._frameResources = {
 		scopeKey: "main",
@@ -198,11 +200,17 @@ function testCustomImplementationMetadataPacksContext() {
 	);
 
 	assert.equal(context.encoder.id, "encoder");
+	assert.equal(Object.isFrozen(context.targets), true);
 	assert.deepEqual(context.shared, { id: "shared-context" });
 	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
 	assert.equal(context.customHistoryWrite.id, "taa-write");
-	context.publishColorTarget({ id: "custom-color" });
-	assert.equal(executor._frameTargets.sceneColor.id, "custom-color");
+	context.publishColorTarget(executor._frameTargets.postPing);
+	assert.equal(executor._frameTargets.sceneColor.id, "scene-color");
+	executor.completePostProcessPass(
+		createExecutionContextRequest("custom-webgpu", request),
+		{ ran: true }
+	);
+	assert.equal(executor._frameTargets.sceneColor.id, "post-ping");
 }
 
 async function testWarmupHintsFollowPlanPostProcessPasses() {

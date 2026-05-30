@@ -6,14 +6,14 @@ import type {
 	ISampler,
 } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 import type { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
 
 interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	passId: TPassId;
 	encoder: ICommandEncoder;
-	targets: WebGPUFrameTargets;
+	targets: WebGPUPostProcessFrameTargets;
 	frameContext: FrameContext;
 	options: unknown;
 }

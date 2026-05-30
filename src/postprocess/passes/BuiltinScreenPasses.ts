@@ -31,7 +31,7 @@ import {
 import {
 	WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	type WebGPUFrameTargets,
+	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
@@ -77,7 +77,7 @@ export interface SoftwareBuiltinPostProcessContext {
 
 export interface WebGPUScreenPostProcessContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	publishColorTarget?(texture: IRenderTexture): void;
 }
@@ -85,7 +85,7 @@ export interface WebGPUScreenPostProcessContext {
 export type WebGPURuntimePostProcessContext = WebGPUScreenPostProcessContext;
 
 export interface WebGPUGammaContext {
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	presentToCanvas?(
 		source: IRenderTexture,
 		applyGamma: boolean
@@ -1857,7 +1857,9 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 	}
 }
 
-function resolveWebGPUTarget(targets: WebGPUFrameTargets): IRenderTexture {
+function resolveWebGPUTarget(
+	targets: WebGPUPostProcessFrameTargets
+): IRenderTexture {
 	return targets.sceneColor === targets.postPong ?
 			targets.postPing
 		:	targets.postPong;
@@ -1869,10 +1871,6 @@ function publishWebGPUColorTarget(
 ): void {
 	if (context.publishColorTarget) {
 		context.publishColorTarget(texture);
-		return;
-	}
-	if (context.targets) {
-		context.targets.sceneColor = texture;
 	}
 }
 

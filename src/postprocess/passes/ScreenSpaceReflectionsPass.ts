@@ -15,7 +15,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
-import type { WebGPUFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
@@ -59,7 +59,7 @@ export type ResolvedSSROptions = Required<
 
 export interface WebGPUSSRContext {
 	readonly encoder?: ICommandEncoder;
-	readonly targets?: WebGPUFrameTargets;
+	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
 	readonly ssrRaw?: IRenderTexture | null;
