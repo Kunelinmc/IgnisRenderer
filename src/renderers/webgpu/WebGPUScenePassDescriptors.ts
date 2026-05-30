@@ -1,4 +1,4 @@
-export type WebGPUSceneTargetMode = "single" | "mrt" | "gbuffer";
+export type WebGPUSceneTargetMode = "single" | "color" | "mrt" | "gbuffer";
 export type WebGPUTransparentPipelineMode =
 	| "default"
 	| "transmission"
@@ -57,7 +57,9 @@ export function resolveWebGPUScenePassDescriptor(
 	drawMode: WebGPUScenePipelineDrawMode = "default"
 ): WebGPUScenePassDescriptor {
 	const sampleCountMode =
-		sceneTargetMode === "mrt" ? "mrt-msaa" : "single-sample";
+		sceneTargetMode === "mrt" || sceneTargetMode === "color" ?
+			"mrt-msaa"
+		:	"single-sample";
 	const depthFormatMode =
 		sceneTargetMode === "single" ? "canvas" : "depth32float";
 
@@ -100,11 +102,13 @@ export function resolveWebGPUScenePassDescriptor(
 	const fragmentTargetKind =
 		sceneTargetMode === "gbuffer" ? "gbuffer"
 		: sceneTargetMode === "single" ? "single"
+		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const shaderEntryMode =
 		sceneTargetMode === "gbuffer" ? "gbuffer"
 		: sceneTargetMode === "single" ? "single"
+		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const pipelineLayoutKind =

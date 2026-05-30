@@ -542,13 +542,42 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 	]);
 }
 
-function testFrameTargetsIncludeAndReleaseOITResources() {
+function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
 	assert.ok(executor._frameTargets);
+	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+	assert.ok(executor._frameTargets.postPing);
+	assert.ok(executor._frameTargets.postPong);
+	assert.ok(executor._frameTargets.gMotionDepth);
+	assert.equal(executor._frameTargets.oitAccum, null);
+	assert.equal(executor._frameTargets.oitReveal, null);
+	assert.equal(executor._frameTargets.oitSceneColorCopy, null);
+	assert.equal(executor._frameTargets.planarReflectionMask, null);
+
+	executor.invalidateFrameTargets();
+	assert.equal(executor._frameTargets, null);
+}
+
+function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({});
+	context.features.enableOIT = true;
+	context.features.enableReflection = true;
+	context.scene.transparentPackets = [{ id: "transparent", material: {} }];
+	context.scene.reflectivePackets = [{ id: "mirror", material: {} }];
+
+	executor.beginFrame(context);
+	assert.ok(executor._frameTargets);
+	assert.equal(executor.getSceneTargetModeForFrame(), "color");
+	assert.equal(executor._frameTargets.postPing, null);
+	assert.equal(executor._frameTargets.postPong, null);
+	assert.equal(executor._frameTargets.gMotionDepth, null);
 	const {
 		oitAccum,
 		oitReveal,
@@ -570,6 +599,18 @@ function testFrameTargetsIncludeAndReleaseOITResources() {
 	assert.equal(executor._texturePoolOwners.has(oitReveal), false);
 	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), false);
 	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), false);
+}
+
+function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({});
+
+	executor.beginFrame(context);
+	assert.equal(executor._frameTargets, null);
+	assert.equal(executor.getSceneTargetModeForFrame(), "single");
+	assert.equal(executor._texturePoolOwners.size, 0);
 }
 
 async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
@@ -697,6 +738,88 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		),
 		true
 	);
+}
+
+async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
+	const resources = createPlanarReflectionResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const camera = new Camera();
+	camera.position.set(0, 2, 5);
+	camera.updateMatrices();
+	context.camera = camera;
+	context.features.enableReflection = true;
+	context.postProcess = createResolvedPostProcess({});
+	const mirrorMaterial = new Material({
+		name: "mirror",
+		reflectivity: 0.75,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+	});
+	const objectMaterial = new Material({ name: "object" });
+	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const objectPacket = createPlanarPacket("object", objectMaterial, 1);
+	context.scene.opaquePackets = [mirrorPacket, objectPacket];
+	context.scene.reflectivePackets = [mirrorPacket];
+	context.scene.transparentPackets = [];
+	context.scene.meshInstances = [];
+	context.scene.lights = [];
+	context.scene.shadowMaps = new Map();
+	context.scene.environment = {
+		backgroundEnabled: false,
+		lightingEnabled: false,
+		backgroundTexture: null,
+		iblTexture: null,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+
+	executor.beginFrame(context);
+	assert.ok(executor._frameTargets);
+	assert.equal(executor.getSceneTargetModeForFrame(), "color");
+	assert.equal(executor._frameTargets.postPing, null);
+	assert.equal(executor._frameTargets.postPong, null);
+	assert.equal(executor._frameTargets.gAlbedoAlpha, null);
+	assert.equal(executor._frameTargets.gMotionDepth, null);
+	assert.ok(executor._frameTargets.planarReflectionMask);
+
+	await executor.executePass(
+		{ stage: "reflection", executor: "backend", enabled: true },
+		context
+	);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+
+	assert.ok(
+		resources._state.drawOptions.some(
+			(entry) =>
+				entry.packetId === "object" &&
+				entry.sceneTargetMode === "color"
+		)
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:mirror:mrt:planar-reflection-composite"
+		)
+	);
+	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	assert.ok(labels.includes("WebGPUMainColor_Clear"));
+	assert.ok(labels.includes("WebGPUPlanarReflectionComposite"));
+	const compositePass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUPlanarReflectionComposite"
+	);
+	assert.equal(compositePass.colorAttachments.length, 2);
+	assert.strictEqual(
+		compositePass.colorAttachments[1].view,
+		executor._frameTargets.planarReflectionMask
+	);
+	executor.destroy();
 }
 
 async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
@@ -921,7 +1044,7 @@ async function testOITTransparentAndParticleExecutionOrder() {
 			"draw:transparent-transmission:transmission:default"
 		)
 	);
-	assert.ok(resources._state.events.includes("prepare:gbuffer"));
+	assert.ok(resources._state.events.includes("prepare:mrt"));
 	assert.deepEqual(
 		resources._state.drawOptions.filter((entry) =>
 			entry.packetId.startsWith("transparent-")
@@ -1007,7 +1130,7 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 			"draw:transparent-transmission-only:transmission:default"
 		)
 	);
-	assert.ok(resources._state.events.includes("prepare:gbuffer"));
+	assert.ok(resources._state.events.includes("prepare:mrt"));
 	assert.deepEqual(
 		resources._state.drawOptions.filter((entry) =>
 			entry.packetId.startsWith("transparent-")
@@ -1264,6 +1387,7 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
 	context.features.enableOIT = true;
+	context.scene.transparentPackets = [{ id: "transparent", material: {} }];
 	const warnings = [];
 
 	Logger.configure({
@@ -1296,9 +1420,12 @@ async function run() {
 	await testIncrementalMainPassUsesDepthPartialReuse();
 	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
-	testFrameTargetsIncludeAndReleaseOITResources();
+	testFrameTargetsSkipOptionalTargetsWhenUnused();
+	testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded();
+	testFrameTargetsSkippedWhenFrameHasNoOffscreenWork();
 	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
 	await testPlanarReflectionCaptureAndCompositeSequencing();
+	await testPlanarReflectionUsesColorTargetsWithoutPostProcess();
 	await testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive();
 	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
 	await testOITTransparentAndParticleExecutionOrder();

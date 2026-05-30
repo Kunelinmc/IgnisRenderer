@@ -191,12 +191,12 @@ export function isWebGPUBuiltinPostProcessPassId(id: string): boolean {
 export interface WebGPUFrameTargets {
 	sceneColor: IRenderTexture;
 	sceneColorMain: IRenderTexture;
-	postPing: IRenderTexture;
-	postPong: IRenderTexture;
-	gAlbedoAlpha: IRenderTexture;
-	gNormalRoughMetal: IRenderTexture;
-	gEmissiveOcclusion: IRenderTexture;
-	gMotionDepth: IRenderTexture;
+	postPing?: IRenderTexture | null;
+	postPong?: IRenderTexture | null;
+	gAlbedoAlpha?: IRenderTexture | null;
+	gNormalRoughMetal?: IRenderTexture | null;
+	gEmissiveOcclusion?: IRenderTexture | null;
+	gMotionDepth?: IRenderTexture | null;
 	gSpecular?: IRenderTexture | null;
 	gCoatSheen?: IRenderTexture | null;
 	gSheenReflectance?: IRenderTexture | null;
@@ -205,8 +205,8 @@ export interface WebGPUFrameTargets {
 	gMaterialExt2?: IRenderTexture | null;
 	gMaterialExt3?: IRenderTexture | null;
 	depth: IRenderTexture;
-	oitAccum: IRenderTexture;
-	oitReveal: IRenderTexture;
-	oitSceneColorCopy: IRenderTexture;
-	planarReflectionMask: IRenderTexture;
+	oitAccum?: IRenderTexture | null;
+	oitReveal?: IRenderTexture | null;
+	oitSceneColorCopy?: IRenderTexture | null;
+	planarReflectionMask?: IRenderTexture | null;
 }

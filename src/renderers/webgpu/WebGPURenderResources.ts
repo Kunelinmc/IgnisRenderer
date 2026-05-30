@@ -1902,11 +1902,11 @@ export class WebGPURenderResources {
 					},
 				};
 		const colorFormat =
-			mode === "mrt" ?
+			mode === "mrt" || mode === "color" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
 		const depthFormat =
-			mode === "mrt" ?
+			mode === "mrt" || mode === "color" ?
 				TextureFormat.Depth32Float
 			:	this._resolveSinglePassDepthFormat();
 		const fragmentEntryPoint =
@@ -1991,7 +1991,7 @@ export class WebGPURenderResources {
 		mode: WebGPUSceneTargetMode,
 		sampleCountOverride?: number
 	): number {
-		if (mode !== "mrt") {
+		if (mode !== "mrt" && mode !== "color") {
 			return 1;
 		}
 		if (Number.isFinite(sampleCountOverride)) {

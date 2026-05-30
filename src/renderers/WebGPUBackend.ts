@@ -850,10 +850,11 @@ export class WebGPUBackend implements IRenderBackend {
 	 * Returns the scene target mode selected for the current WebGPU frame.
 	 *
 	 * @returns `"gbuffer"` for deferred opaque lighting, `"mrt"` for legacy
-	 * MRT rendering, or `"single"` for direct canvas fallback.
+	 * MRT rendering, `"color"` for HDR color-only offscreen rendering, or
+	 * `"single"` for direct canvas fallback.
 	 * @sideEffects None.
 	 */
-	public getFrameSceneTargetMode(): "gbuffer" | "mrt" | "single" {
+	public getFrameSceneTargetMode(): "gbuffer" | "mrt" | "color" | "single" {
 		return this._frameExecutor?.getSceneTargetModeForFrame() ?? "single";
 	}
 

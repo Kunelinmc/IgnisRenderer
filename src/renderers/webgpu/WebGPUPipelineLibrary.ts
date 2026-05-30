@@ -360,7 +360,7 @@ export class WebGPUPipelineLibrary {
 				targets: [
 					{
 						format:
-							mode === "mrt" || mode === "gbuffer" ?
+							mode === "mrt" || mode === "gbuffer" || mode === "color" ?
 								TextureFormat.RGBA16Float
 							:	(this._backend.canvasFormat as any),
 						blend: PLANAR_REFLECTION_BLEND_STATE,
@@ -494,7 +494,10 @@ export class WebGPUPipelineLibrary {
 		if (fragmentTargetKind === "single") {
 			return [
 				{
-					format: this._backend.canvasFormat as any,
+					format:
+						descriptor.sceneTargetMode === "color" ?
+							TextureFormat.RGBA16Float
+						:	(this._backend.canvasFormat as any),
 					blend: colorBlend,
 				},
 			];
@@ -557,7 +560,7 @@ export class WebGPUPipelineLibrary {
 		}
 
 		try {
-			const shaderMode = mode === "gbuffer" ? "deferred" : mode;
+			const shaderMode = this._resolveShaderMaterialMode(mode);
 			const program = material.resolveWebGPUProgram(shaderMode, {
 				enableRuntimeInjects: this._supportsRuntimeInjects(),
 			});
@@ -629,7 +632,7 @@ export class WebGPUPipelineLibrary {
 		try {
 			const mode = descriptor.sceneTargetMode;
 			const shaderCacheKey = material.getWebGPUCacheKey();
-			const shaderMode = mode === "gbuffer" ? "deferred" : mode;
+			const shaderMode = this._resolveShaderMaterialMode(mode);
 			if (isMask) {
 				const depthProgram = material.resolveWebGPUDepthPrepassProgram(shaderMode, {
 					enableRuntimeInjects: this._supportsRuntimeInjects(),
@@ -769,7 +772,7 @@ export class WebGPUPipelineLibrary {
 
 		const shaderModule = await this._getEnvironmentShaderModule();
 		const targetFormat =
-			mode === "mrt" || mode === "gbuffer" ?
+			mode === "mrt" || mode === "gbuffer" || mode === "color" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
 		const pipeline = this._backend.createPipeline({
@@ -834,7 +837,7 @@ export class WebGPUPipelineLibrary {
 	}
 
 	private _resolveSceneDepthFormat(mode: WebGPUSceneTargetMode): TextureFormat {
-		if (mode === "mrt" || mode === "gbuffer") {
+		if (mode === "mrt" || mode === "gbuffer" || mode === "color") {
 			return TextureFormat.Depth32Float;
 		}
 		const backend = this._backend as {
@@ -847,7 +850,7 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode,
 		sampleCountOverride?: number
 	): number {
-		if (mode !== "mrt") {
+		if (mode !== "mrt" && mode !== "color") {
 			return 1;
 		}
 		if (Number.isFinite(sampleCountOverride)) {
@@ -863,6 +866,15 @@ export class WebGPUPipelineLibrary {
 			return 1;
 		}
 		return Math.max(1, Math.floor(sampleCount));
+	}
+
+	private _resolveShaderMaterialMode(
+		mode: WebGPUSceneTargetMode
+	): "single" | "mrt" | "deferred" {
+		if (mode === "gbuffer") {
+			return "deferred";
+		}
+		return mode === "color" ? "single" : mode;
 	}
 
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
