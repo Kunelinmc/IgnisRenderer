@@ -119,19 +119,15 @@ function createFrameContext(width, height) {
 function createOITBackend({ sampleCount = 1 } = {}) {
 	const backend = new FakeBackend();
 	backend.getMSAASampleCount = () => sampleCount;
-	const originalCreateCommandEncoder =
-		backend.createCommandEncoder.bind(backend);
-	backend.nativeCopyCalls = [];
-	backend.createCommandEncoder = () => {
-		const encoder = originalCreateCommandEncoder();
-		encoder.getNativeWebGPUCommandEncoder = () => ({
-			copyTextureToTexture: (...args) => {
-				backend.nativeCopyCalls.push(args);
-			},
-		});
-		return encoder;
-	};
 	return backend;
+}
+
+function findEncoderCallIndex(backend, predicate) {
+	const encoder = backend.commandEncoders[0];
+	if (!encoder) {
+		return -1;
+	}
+	return encoder.calls.findIndex(predicate);
 }
 
 function createOITSequencingResourcesStub() {
@@ -955,7 +951,24 @@ async function testOITTransparentAndParticleExecutionOrder() {
 			event.startsWith("particles:WebGPUParticlesMRT_Additive:legacy:")
 		)
 	);
-	assert.equal(backend.nativeCopyCalls.length >= 1, true);
+	const oitDrawIndex = findEncoderCallIndex(
+		backend,
+		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITDraw"
+	);
+	const copyIndex = findEncoderCallIndex(
+		backend,
+		(call) => call[0] === "copyTextureToTexture"
+	);
+	const resolveIndex = findEncoderCallIndex(
+		backend,
+		(call) =>
+			call[0] === "beginRenderPass" &&
+			call[1]?.label === "WebGPUOITResolvePass"
+	);
+	assert.ok(oitDrawIndex >= 0);
+	assert.ok(copyIndex > oitDrawIndex);
+	assert.ok(resolveIndex > copyIndex);
+	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
 async function testOITTransparentResolvesImmediatelyWithoutParticles() {
@@ -1020,7 +1033,24 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 		),
 		false
 	);
-	assert.equal(backend.nativeCopyCalls.length >= 1, true);
+	const oitDrawIndex = findEncoderCallIndex(
+		backend,
+		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITDraw"
+	);
+	const copyIndex = findEncoderCallIndex(
+		backend,
+		(call) => call[0] === "copyTextureToTexture"
+	);
+	const resolveIndex = findEncoderCallIndex(
+		backend,
+		(call) =>
+			call[0] === "beginRenderPass" &&
+			call[1]?.label === "WebGPUOITResolvePass"
+	);
+	assert.ok(oitDrawIndex >= 0);
+	assert.ok(copyIndex > oitDrawIndex);
+	assert.ok(resolveIndex > copyIndex);
+	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
 async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
@@ -1221,8 +1251,15 @@ async function testOITMSAAFallsBackToLegacyAndWarns() {
 	}
 }
 
-function testOITRuntimeFallbackWarnsWithoutNativeEncoder() {
+function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 	const backend = new FakeBackend();
+	const originalCreateCommandEncoder =
+		backend.createCommandEncoder.bind(backend);
+	backend.createCommandEncoder = () => {
+		const encoder = originalCreateCommandEncoder();
+		encoder.copyTextureToTexture = undefined;
+		return encoder;
+	};
 	const resources = createModeTrackingResourcesStub();
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
@@ -1271,7 +1308,7 @@ async function run() {
 	await testDeferredLightingCanBeExplicitlyDisabled();
 	testDeferredLightingWarnsWhenRequestedButMRTUnavailable();
 	await testOITMSAAFallsBackToLegacyAndWarns();
-	testOITRuntimeFallbackWarnsWithoutNativeEncoder();
+	testOITRuntimeFallbackWarnsWithoutEncoderCopy();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 

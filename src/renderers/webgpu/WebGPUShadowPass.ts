@@ -32,6 +32,7 @@ import {
 } from "./constants";
 import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
 import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
+import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import { TextureFormat } from "../types";
 import type {
 	WebGPUGeometryHandle,
@@ -904,7 +905,7 @@ export class WebGPUShadowPass {
 		submitAtEnd: boolean;
 	} {
 		const nativeCommandEncoder =
-			frameEncoder?.getNativeWebGPUCommandEncoder?.() ?? null;
+			tryGetNativeWebGPUCommandEncoder(frameEncoder);
 		if (
 			nativeCommandEncoder &&
 			typeof (nativeCommandEncoder as GPUCommandEncoder).beginRenderPass ===

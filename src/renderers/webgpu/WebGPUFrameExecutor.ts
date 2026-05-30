@@ -69,7 +69,6 @@ import {
 import { Logger } from "../../foundation/Logger";
 import { materialUsesTransmission } from "../../materials/transparency";
 import { ParticleBlendMode } from "../../particles";
-import { getWebGPUTexture } from "./WebGPUResourceAccess";
 import { materialSupportsWebGPUDeferredLighting } from "./material";
 import {
 	WebGPUPlanarReflectionPass,
@@ -998,10 +997,10 @@ export class WebGPUFrameExecutor {
 			this._oitActive = false;
 			return;
 		}
-		if (typeof this._encoder?.getNativeWebGPUCommandEncoder !== "function") {
+		if (typeof this._encoder?.copyTextureToTexture !== "function") {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT requires native command-encoder access; falling back to legacy transparent rendering."
+				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering."
 			);
 			this._oitActive = false;
 			return;
@@ -2113,31 +2112,18 @@ export class WebGPUFrameExecutor {
 		if (!this._encoder || !this._frameTargets) {
 			return false;
 		}
-		const nativeEncoder = this._encoder.getNativeWebGPUCommandEncoder?.();
-		if (
-			!nativeEncoder ||
-			typeof (nativeEncoder as GPUCommandEncoder).copyTextureToTexture !==
-				"function"
-		) {
+		if (typeof this._encoder.copyTextureToTexture !== "function") {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT requires native command-encoder texture copy support; falling back to legacy transparent rendering."
+				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering."
 			);
 			this._oitActive = false;
 			return false;
 		}
 		try {
-			const sourceTexture = getWebGPUTexture(this._frameTargets.sceneColorMain);
-			const destinationTexture = getWebGPUTexture(
-				this._frameTargets.oitSceneColorCopy
-			);
-			(nativeEncoder as GPUCommandEncoder).copyTextureToTexture(
-				{
-					texture: sourceTexture.texture,
-				},
-				{
-					texture: destinationTexture.texture,
-				},
+			this._encoder.copyTextureToTexture(
+				{ texture: this._frameTargets.sceneColorMain },
+				{ texture: this._frameTargets.oitSceneColorCopy },
 				{
 					width: Math.max(1, this._targetWidth),
 					height: Math.max(1, this._targetHeight),

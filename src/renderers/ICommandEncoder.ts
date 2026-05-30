@@ -1,4 +1,4 @@
-import {
+import type {
 	IRenderBuffer,
 	IRenderTexture,
 	IRenderPipeline,
@@ -57,10 +57,21 @@ export interface ICommandEncoder {
 	): void;
 
 	/**
-	 * Optional escape hatch for backends that expose a native WebGPU command
-	 * encoder. Used to record specialized passes into the shared frame encoder.
+	 * Copies one texture region into another texture within this command stream.
+	 *
+	 * @param source Source texture and optional region origin/aspect.
+	 * @param destination Destination texture and optional region origin/aspect.
+	 * @param copySize Region size to copy.
+	 * @constraints No render or compute pass may be active. Source and
+	 * destination textures must be owned by the encoder backend and created
+	 * with compatible copy usage flags.
+	 * @sideEffects Records a texture-copy command in encoder order.
 	 */
-	getNativeWebGPUCommandEncoder?(): unknown;
+	copyTextureToTexture?(
+		source: TextureCopyView,
+		destination: TextureCopyView,
+		copySize: TextureCopySize
+	): void;
 
 	/** End the current render pass */
 	endRenderPass(): void;
@@ -82,6 +93,26 @@ export interface ICommandBuffer {
 	readonly _backendCommandBuffer?: unknown;
 	_ownerToken?: unknown;
 	_submitted?: boolean;
+}
+
+export type TextureCopyAspect = "all" | "depth-only" | "stencil-only";
+
+export interface TextureCopyOrigin {
+	readonly x?: number;
+	readonly y?: number;
+	readonly z?: number;
+}
+
+export interface TextureCopyView {
+	readonly texture: IRenderTexture;
+	readonly origin?: TextureCopyOrigin;
+	readonly aspect?: TextureCopyAspect;
+}
+
+export interface TextureCopySize {
+	readonly width: number;
+	readonly height: number;
+	readonly depthOrArrayLayers?: number;
 }
 
 export interface RenderPassDesc {

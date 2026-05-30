@@ -350,6 +350,46 @@ export class FakeCommandEncoder {
 		});
 	}
 
+	copyTextureToTexture(src, dst, size) {
+		this.calls.push(["copyTextureToTexture", src, dst, size]);
+		if (this.backend?.encoderCopyCalls) {
+			this.backend.encoderCopyCalls.push([src, dst, size]);
+		}
+		this._ops.push(() => {
+			const source = src.texture?._gpuResource || src.texture;
+			const destination = dst.texture?._gpuResource || dst.texture;
+			if (!source?._bytes || !destination?._bytes) return;
+
+			const width = Math.max(1, Math.floor(size.width));
+			const height = Math.max(1, Math.floor(size.height));
+			const bytesPerPixel = getFakeTextureBytesPerPixel(source.format);
+			const sourceWidth = Math.max(1, Math.floor(source.width ?? width));
+			const destinationWidth = Math.max(
+				1,
+				Math.floor(destination.width ?? width)
+			);
+			const sourceX = Math.max(0, Math.floor(src.origin?.x ?? 0));
+			const sourceY = Math.max(0, Math.floor(src.origin?.y ?? 0));
+			const destinationX = Math.max(0, Math.floor(dst.origin?.x ?? 0));
+			const destinationY = Math.max(0, Math.floor(dst.origin?.y ?? 0));
+			const sourceRowBytes = sourceWidth * bytesPerPixel;
+			const destinationRowBytes = destinationWidth * bytesPerPixel;
+			const copyBytes = width * bytesPerPixel;
+
+			for (let y = 0; y < height; y++) {
+				const sourceOffset =
+					(sourceY + y) * sourceRowBytes + sourceX * bytesPerPixel;
+				const destinationOffset =
+					(destinationY + y) * destinationRowBytes +
+					destinationX * bytesPerPixel;
+				destination._bytes.set(
+					source._bytes.subarray(sourceOffset, sourceOffset + copyBytes),
+					destinationOffset
+				);
+			}
+		});
+	}
+
 	copyBufferToBuffer(src, srcOffset, dst, dstOffset, size) {
 		this.calls.push(["copyBufferToBuffer", src, srcOffset, dst, dstOffset, size]);
 		this._ops.push(() => {
@@ -414,6 +454,7 @@ export class FakeWebGPUBackend {
 		this.bufferDescs = [];
 		this.getComputeFacadeCalls = 0;
 		this.copyCalls = [];
+		this.encoderCopyCalls = [];
 		this.writeCalls = [];
 		this.writeBufferCalls = 0;
 		this.bindingGroupDestroyCalls = 0;

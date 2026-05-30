@@ -3,6 +3,8 @@ import {
 	type ICommandBuffer,
 	type ICommandEncoder,
 	type RenderPassDesc,
+	type TextureCopySize,
+	type TextureCopyView,
 } from "../ICommandEncoder";
 import type {
 	IBindingGroup,
@@ -16,9 +18,13 @@ import {
 	getWebGPUBuffer,
 	getWebGPUComputePipeline,
 	getWebGPURenderPipeline,
+	getWebGPUTexture,
 	tryGetWebGPUTexture,
 } from "./WebGPUResourceAccess";
 import type { WebGPUCommandEncoderHost } from "./WebGPUBackendContracts";
+
+const WEBGPU_NATIVE_COMMAND_ENCODERS =
+	new WeakMap<WebGPUCommandEncoder, GPUCommandEncoder>();
 
 export class WebGPUCommandEncoder implements ICommandEncoder {
 	private _encoder: GPUCommandEncoder;
@@ -37,6 +43,7 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		this._encoder = encoder;
 		this._host = host;
 		this._commandBufferOwnerToken = commandBufferOwnerToken;
+		WEBGPU_NATIVE_COMMAND_ENCODERS.set(this, encoder);
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
@@ -190,6 +197,33 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		);
 	}
 
+	public copyTextureToTexture(
+		source: TextureCopyView,
+		destination: TextureCopyView,
+		copySize: TextureCopySize
+	): void {
+		if (this._renderPass || this._computePass) {
+			throw new Error(
+				"Cannot copy textures while a render or compute pass is active."
+			);
+		}
+		const sourceTexture = getWebGPUTexture(source.texture).texture;
+		const destinationTexture = getWebGPUTexture(destination.texture).texture;
+		this._encoder.copyTextureToTexture(
+			{
+				texture: sourceTexture,
+				origin: source.origin,
+				aspect: source.aspect,
+			},
+			{
+				texture: destinationTexture,
+				origin: destination.origin,
+				aspect: destination.aspect,
+			},
+			copySize
+		);
+	}
+
 	public endRenderPass(): void {
 		this._renderPass?.end();
 		this._renderPass = null;
@@ -204,10 +238,6 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 			_ownerToken: this._commandBufferOwnerToken,
 			_submitted: false,
 		};
-	}
-
-	public getNativeWebGPUCommandEncoder(): GPUCommandEncoder {
-		return this._encoder;
 	}
 
 	private _resolveRenderPassExtent(
@@ -229,4 +259,20 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 			height: Math.max(1, Math.floor(canvasTarget.height)),
 		};
 	}
+}
+
+/**
+ * Resolves the native WebGPU command encoder for WebGPU-internal passes.
+ *
+ * @param encoder Shared command encoder facade.
+ * @returns Native encoder when the facade is the WebGPU implementation.
+ * @sideEffects None.
+ */
+export function tryGetNativeWebGPUCommandEncoder(
+	encoder?: ICommandEncoder | null
+): GPUCommandEncoder | null {
+	if (!encoder || !(encoder instanceof WebGPUCommandEncoder)) {
+		return null;
+	}
+	return WEBGPU_NATIVE_COMMAND_ENCODERS.get(encoder) ?? null;
 }
