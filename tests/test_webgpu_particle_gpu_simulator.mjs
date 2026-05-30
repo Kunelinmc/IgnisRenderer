@@ -23,6 +23,14 @@ globalThis.GPUShaderStage ??= {
 	COMPUTE: 4,
 };
 
+function createMainFrameOptions(options = {}) {
+	return {
+		scopeKey: "main",
+		sceneTargetMode: "mrt",
+		...options,
+	};
+}
+
 function createFeatures() {
 	return resolveFeatureState(
 		{
@@ -256,12 +264,11 @@ async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 
 async function testRenderResourcesPrefersGPUDrawBatches() {
 	const backend = new FakeBackend();
-	const renderer = { logger: { warn() {} } };
-	const resources = new WebGPURenderResources(renderer, backend);
+	const resources = new WebGPURenderResources(backend);
 	await resources.init();
 
 	const context = createContext([]);
-	resources.prepareFrame(context);
+	const frameResources = resources.prepareFrame(context, createMainFrameOptions());
 
 	const instanceBuffer = backend.createBuffer({
 		size: 3 * 64,
@@ -304,6 +311,7 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 			],
 			depth: renderTarget,
 		},
+		frameResources,
 		"single",
 		{
 			pipelineMode: "legacy",

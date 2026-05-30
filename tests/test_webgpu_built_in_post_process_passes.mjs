@@ -209,7 +209,6 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	const backend = new FakeBackend();
 	const resources = {
 		sceneFrameLayout: {},
-		setSceneTargetMode() {},
 	};
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const warmupHints = [];

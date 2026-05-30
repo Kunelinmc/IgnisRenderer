@@ -27,7 +27,6 @@ function createPreparedFrameResources(options = {}) {
 function createResourcesStub() {
 	return {
 		sceneFrameLayout: {},
-		setSceneTargetMode() {},
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
 		},
@@ -53,10 +52,6 @@ function createModeTrackingResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
-		setSceneTargetMode(mode) {
-			state.mode = mode;
-			state.modeTransitions.push(mode);
-		},
 		prepareFrame(_context, options = {}) {
 			state.mode = options.sceneTargetMode ?? state.mode;
 			state.modeTransitions.push(state.mode);
@@ -146,9 +141,6 @@ function createOITSequencingResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
-		setSceneTargetMode(mode) {
-			state.events.push(`mode:${mode}`);
-		},
 		prepareFrame(_context, options = {}) {
 			state.events.push(`prepare:${options.sceneTargetMode ?? "default"}`);
 			return createPreparedFrameResources(options);
@@ -216,7 +208,6 @@ function createDeferredLightingResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
-		setSceneTargetMode() {},
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
 		},
@@ -273,9 +264,6 @@ function createPlanarReflectionResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
-		setSceneTargetMode(mode) {
-			state.events.push(`mode:${mode}`);
-		},
 		prepareFrame(context, options = {}) {
 			state.prepareContexts.push(context);
 			state.events.push(

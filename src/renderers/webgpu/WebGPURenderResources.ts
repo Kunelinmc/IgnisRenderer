@@ -1,4 +1,3 @@
-import type { RendererBackendBridge } from "../IRenderBackend";
 import type { Texture } from "../../core/Texture";
 import {
 	DEFAULT_BLOOM_OPTIONS,
@@ -213,8 +212,6 @@ export class WebGPURenderResources {
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowPass: WebGPUShadowPass;
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
-	private _mainFrameResources: WebGPUPreparedFrameResources | null = null;
-	private _legacySceneTargetMode: WebGPUSceneTargetMode = "mrt";
 	private _particleShaderModule: IShaderModule | null = null;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
 	private _particleInstanceBuffer: IRenderBuffer | null = null;
@@ -230,15 +227,7 @@ export class WebGPURenderResources {
 	private _frameId = 0;
 	private _destroyed = false;
 
-	constructor(backend: WebGPUBackend);
-	constructor(_renderer: RendererBackendBridge, backend: WebGPUBackend);
-	constructor(
-		backendOrRenderer: WebGPUBackend | RendererBackendBridge,
-		backendMaybe?: WebGPUBackend
-	) {
-		const backend =
-			backendMaybe ??
-			(backendOrRenderer as WebGPUBackend);
+	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 		this._computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;
@@ -458,17 +447,6 @@ export class WebGPURenderResources {
 		this._evictParticleBindings();
 	}
 
-	/**
-	 * Legacy compatibility shim for older tests and internal experiments.
-	 *
-	 * @internal
-	 * @deprecated Production WebGPU paths must pass `sceneTargetMode` through
-	 * `prepareFrame()` options and should not depend on shared mutable state.
-	 */
-	public setSceneTargetMode(mode: WebGPUSceneTargetMode): void {
-		this._legacySceneTargetMode = mode;
-	}
-
 	public prepareFrame(
 		context: FrameContext,
 		options: WebGPUPrepareFrameOptions
@@ -641,13 +619,6 @@ export class WebGPURenderResources {
 			morphWeightMap,
 		};
 		scope.prepared = frameResources;
-		if (
-			options.scopeKey === "main" ||
-			options.scopeKey === "legacy" ||
-			!this._mainFrameResources
-		) {
-			this._mainFrameResources = frameResources;
-		}
 		return frameResources;
 	}
 
@@ -665,21 +636,24 @@ export class WebGPURenderResources {
 		scope.frameBindings.destroy();
 		scope.clusteredLighting.destroy();
 		this._frameScopes.delete(scopeKey);
-		if (this._mainFrameResources?.scopeKey === scopeKey) {
-			this._mainFrameResources = null;
-		}
 	}
 
 	public getFrameBinding(
-		frameResources: WebGPUPreparedFrameResources = this._requireDefaultFrameResources()
+		frameResources: WebGPUPreparedFrameResources
 	): IBindingGroup {
-		return frameResources.frameBinding;
+		return this._requirePreparedFrameResources(
+			frameResources,
+			"getFrameBinding"
+		).frameBinding;
 	}
 
 	public getClusteredSceneBinding(
-		frameResources: WebGPUPreparedFrameResources = this._requireDefaultFrameResources()
+		frameResources: WebGPUPreparedFrameResources
 	): IBindingGroup {
-		return frameResources.clusteredSceneBinding;
+		return this._requirePreparedFrameResources(
+			frameResources,
+			"getClusteredSceneBinding"
+		).clusteredSceneBinding;
 	}
 
 	/**
@@ -746,26 +720,22 @@ export class WebGPURenderResources {
 	}
 
 	public updateParticleShadowVolumes(
-		frameResourcesOrContext: WebGPUPreparedFrameResources | FrameContext,
-		contextArg?: FrameContext
+		frameResources: WebGPUPreparedFrameResources,
+		context: FrameContext
 	): void {
-		const frameResources =
-			this._isPreparedFrameResources(frameResourcesOrContext) ?
-				frameResourcesOrContext
-			:	this._requireDefaultFrameResources();
-		const context =
-			this._isPreparedFrameResources(frameResourcesOrContext) ?
-				contextArg
-			:	frameResourcesOrContext;
+		const prepared = this._requirePreparedFrameResources(
+			frameResources,
+			"updateParticleShadowVolumes"
+		);
 		if (!context) {
 			return;
 		}
-		const scope = this._requireFrameScope(frameResources.scopeKey);
+		const scope = this._requireFrameScope(prepared.scopeKey);
 		scope.frameBindings.updateParticleShadowVolumes(
 			context,
-			frameResources.lightingState
+			prepared.lightingState
 		);
-		frameResources.frameBinding = scope.frameBindings.getSceneBinding();
+		prepared.frameBinding = scope.frameBindings.getSceneBinding();
 	}
 
 	public async buildClusteredLighting(
@@ -777,7 +747,8 @@ export class WebGPURenderResources {
 			encoder,
 			frameResources.frameBinding
 		);
-		frameResources.clusteredSceneBinding = scope.clusteredLighting.getSceneBinding();
+		frameResources.clusteredSceneBinding =
+			scope.clusteredLighting.getSceneBinding();
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -824,14 +795,15 @@ export class WebGPURenderResources {
 		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
-		this._mainFrameResources = null;
 	}
 
 	public getLightingState(
-		frameResources: WebGPUPreparedFrameResources | null =
-			this._mainFrameResources
-	): WebGPULightingState | null {
-		return frameResources?.lightingState ?? null;
+		frameResources: WebGPUPreparedFrameResources
+	): WebGPULightingState {
+		return this._requirePreparedFrameResources(
+			frameResources,
+			"getLightingState"
+		).lightingState;
 	}
 
 	public getTextureForSlot(
@@ -866,9 +838,24 @@ export class WebGPURenderResources {
 	private _resolvePrepareFrameOptions(
 		options: WebGPUPrepareFrameOptions | undefined
 	): WebGPUPrepareFrameOptions {
+		if (!options) {
+			throw new Error(
+				"WebGPURenderResources.prepareFrame() requires explicit frame options."
+			);
+		}
+		if (typeof options.scopeKey !== "string" || options.scopeKey.trim() === "") {
+			throw new Error(
+				"WebGPURenderResources.prepareFrame() requires a non-empty scopeKey."
+			);
+		}
+		if (!options.sceneTargetMode) {
+			throw new Error(
+				"WebGPURenderResources.prepareFrame() requires sceneTargetMode."
+			);
+		}
 		return {
-			scopeKey: options?.scopeKey ?? "legacy",
-			sceneTargetMode: options?.sceneTargetMode ?? this._legacySceneTargetMode,
+			scopeKey: options.scopeKey,
+			sceneTargetMode: options.sceneTargetMode,
 			temporalStateMode: options?.temporalStateMode,
 		};
 	}
@@ -910,13 +897,16 @@ export class WebGPURenderResources {
 		return scope;
 	}
 
-	private _requireDefaultFrameResources(): WebGPUPreparedFrameResources {
-		if (!this._mainFrameResources) {
+	private _requirePreparedFrameResources(
+		frameResources: WebGPUPreparedFrameResources | undefined,
+		methodName: string
+	): WebGPUPreparedFrameResources {
+		if (!this._isPreparedFrameResources(frameResources)) {
 			throw new Error(
-				"WebGPURenderResources requires prepared frame resources."
+				`WebGPURenderResources.${methodName}() requires explicit prepared frame resources.`
 			);
 		}
-		return this._mainFrameResources;
+		return frameResources;
 	}
 
 	private _isPreparedFrameResources(
@@ -929,28 +919,6 @@ export class WebGPURenderResources {
 			"frameBinding" in value &&
 			"clusteredSceneBinding" in value
 		);
-	}
-
-	private _resolveDrawResourceInputs(
-		frameResourcesOrOptions:
-			| WebGPUPreparedFrameResources
-			| WebGPUDrawResourceOptions
-			| undefined,
-		optionsArg: WebGPUDrawResourceOptions
-	): {
-		frameResources: WebGPUPreparedFrameResources;
-		options: WebGPUDrawResourceOptions;
-	} {
-		if (this._isPreparedFrameResources(frameResourcesOrOptions)) {
-			return {
-				frameResources: frameResourcesOrOptions,
-				options: optionsArg,
-			};
-		}
-		return {
-			frameResources: this._requireDefaultFrameResources(),
-			options: frameResourcesOrOptions ?? {},
-		};
 	}
 
 	private _resolveFrameInputs(
@@ -1034,30 +1002,28 @@ export class WebGPURenderResources {
 
 	public async getDrawResources(
 		packet: DrawPacket,
-		frameResourcesOrOptions?:
-			| WebGPUPreparedFrameResources
-			| WebGPUDrawResourceOptions,
-		optionsArg: WebGPUDrawResourceOptions = {}
+		frameResources: WebGPUPreparedFrameResources,
+		options: WebGPUDrawResourceOptions = {}
 	): Promise<WebGPUDrawResources[] | null> {
-		const { frameResources, options } = this._resolveDrawResourceInputs(
-			frameResourcesOrOptions,
-			optionsArg
+		const prepared = this._requirePreparedFrameResources(
+			frameResources,
+			"getDrawResources"
 		);
 		const transparentPipelineMode =
 			options.transparentPipelineMode ?? "default";
 		const sceneTargetMode =
-			options.sceneTargetMode ?? frameResources.sceneTargetMode;
+			options.sceneTargetMode ?? prepared.sceneTargetMode;
 		const drawMode = options.drawMode ?? "default";
 		const sampleCountOverride = options.sampleCountOverride;
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
-		const frameBinding = frameResources.frameBinding;
-		const clusteredBinding = frameResources.clusteredSceneBinding;
+		const frameBinding = prepared.frameBinding;
+		const clusteredBinding = prepared.clusteredSceneBinding;
 		const animationState = this._resolveAnimationState(
 			packet,
 			geometry,
-			frameResources
+			prepared
 		);
 
 		// ----- SOLID OBJECT -----
@@ -1176,32 +1142,27 @@ export class WebGPURenderResources {
 	}
 
 	public async getEnvironmentResources(
-		frameResourcesOrSceneTargetMode?:
-			| WebGPUPreparedFrameResources
-			| WebGPUSceneTargetMode,
-		sceneTargetModeArg?: WebGPUSceneTargetMode,
-		optionsArg: WebGPUEnvironmentResourceOptions = {}
+		frameResources: WebGPUPreparedFrameResources,
+		sceneTargetMode?: WebGPUSceneTargetMode,
+		options: WebGPUEnvironmentResourceOptions = {}
 	): Promise<WebGPUEnvironmentDrawResources | null> {
-		const frameResources =
-			this._isPreparedFrameResources(frameResourcesOrSceneTargetMode) ?
-				frameResourcesOrSceneTargetMode
-			:	this._requireDefaultFrameResources();
-		const sceneTargetMode =
-			typeof frameResourcesOrSceneTargetMode === "string" ?
-				frameResourcesOrSceneTargetMode
-			:	sceneTargetModeArg ?? frameResources.sceneTargetMode;
+		const prepared = this._requirePreparedFrameResources(
+			frameResources,
+			"getEnvironmentResources"
+		);
+		const resolvedSceneTargetMode = sceneTargetMode ?? prepared.sceneTargetMode;
 		if (
-			!frameResources.featureState.enableEnvironment ||
-			!frameResources.environmentState.environmentTexture
+			!prepared.featureState.enableEnvironment ||
+			!prepared.environmentState.environmentTexture
 		) {
 			return null;
 		}
 
 		const pipeline = await this._pipelineLibrary.getEnvironmentPipeline(
-			sceneTargetMode,
-			optionsArg.sampleCountOverride
+			resolvedSceneTargetMode,
+			options.sampleCountOverride
 		);
-		const frameBinding = frameResources.environmentBinding;
+		const frameBinding = prepared.environmentBinding;
 
 		return {
 			pipeline,
@@ -1213,32 +1174,22 @@ export class WebGPURenderResources {
 		encoder: ICommandEncoder,
 		context: FrameContext,
 		targets: WebGPUParticlePassTargets,
-		frameResourcesOrMode:
-			| WebGPUPreparedFrameResources
-			| WebGPUSceneTargetMode,
+		frameResources: WebGPUPreparedFrameResources,
 		mode: WebGPUSceneTargetMode,
 		options: WebGPUParticleRenderOptions = {}
 	): Promise<number> {
-		const frameResources =
-			this._isPreparedFrameResources(frameResourcesOrMode) ?
-				frameResourcesOrMode
-			:	this._requireDefaultFrameResources();
-		const resolvedMode =
-			this._isPreparedFrameResources(frameResourcesOrMode) ?
-				mode
-			:	frameResourcesOrMode;
-		const resolvedOptions =
-			this._isPreparedFrameResources(frameResourcesOrMode) ?
-				options
-			:	(mode as unknown as WebGPUParticleRenderOptions) ?? {};
-		const includeBlendModes = resolvedOptions.includeBlendModes ?? null;
-		const pipelineMode = resolvedOptions.pipelineMode ?? "legacy";
+		const prepared = this._requirePreparedFrameResources(
+			frameResources,
+			"renderParticles"
+		);
+		const includeBlendModes = options.includeBlendModes ?? null;
+		const pipelineMode = options.pipelineMode ?? "legacy";
 		const sampleCount = this._resolveSampleCount(
-			resolvedMode,
-			resolvedOptions.sampleCountOverride
+			mode,
+			options.sampleCountOverride
 		);
 		const particlePipelineKey = this._createParticlePipelineCacheKey(
-			resolvedMode,
+			mode,
 			sampleCount
 		);
 		const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY);
@@ -1257,10 +1208,10 @@ export class WebGPURenderResources {
 					encoder,
 					context,
 					targets,
-					frameResources,
-					resolvedMode,
+					prepared,
+					mode,
 					pipelineMode,
-					resolvedOptions.sampleCountOverride,
+					options.sampleCountOverride,
 					drawBatches
 				);
 			}
@@ -1286,10 +1237,10 @@ export class WebGPURenderResources {
 		if (totalParticles <= 0) return 0;
 
 		await this._ensureParticleResources(
-			resolvedMode,
+			mode,
 			totalParticles,
 			pipelineMode,
-			resolvedOptions.sampleCountOverride
+			options.sampleCountOverride
 		);
 		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return 0;
 
@@ -1337,7 +1288,7 @@ export class WebGPURenderResources {
 		}
 
 		this._backend.writeBuffer(this._particleInstanceBuffer, instanceData);
-		const frameBinding = frameResources.frameBinding;
+		const frameBinding = prepared.frameBinding;
 		const alphaPipeline = this._particlePipelineAlpha.get(particlePipelineKey);
 		const oitAlphaPipeline =
 			this._particlePipelineOITAlpha.get(particlePipelineKey);
