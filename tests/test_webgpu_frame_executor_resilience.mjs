@@ -550,6 +550,34 @@ function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	assert.equal(executor._frameTargets, null);
 }
 
+function testGBufferBridgeReportsAllocatedWebGPUFormats() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	const bridge = executor.createGBufferBridge(context);
+
+	assert.equal(bridge.depthEncoding, "linear-view-z");
+	assert.equal(bridge.motionEncoding, "ndc-delta");
+	assert.equal(bridge.channels.depth.format, "rgba16float");
+	assert.equal(bridge.channels.depth.encoding, "motion-depth.z");
+	assert.equal(bridge.channels.motion.format, "rgba16float");
+	assert.equal(bridge.channels.motion.encoding, "motion-depth.xy");
+	assert.equal(bridge.channels.albedo.format, "rgba8unorm");
+	assert.equal(bridge.channels.albedo.encoding, "linear-rgb-alpha");
+	assert.equal(
+		bridge.channels.albedo.handle.texture,
+		executor._frameTargets.gAlbedoAlpha
+	);
+	assert.equal(
+		bridge.channels.depth.handle.texture,
+		executor._frameTargets.gMotionDepth
+	);
+
+	executor.invalidateFrameTargets();
+}
+
 function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -1409,6 +1437,7 @@ async function run() {
 	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsSkipOptionalTargetsWhenUnused();
+	testGBufferBridgeReportsAllocatedWebGPUFormats();
 	testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded();
 	testFrameTargetsSkippedWhenFrameHasNoOffscreenWork();
 	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();

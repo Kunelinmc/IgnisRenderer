@@ -413,7 +413,7 @@ export class WebGPUFrameExecutor {
 				handle: { backend: "webgpu", texture: targets.sceneColor },
 				width,
 				height,
-				format: "rgba16float",
+				format: TextureFormat.RGBA16Float,
 			};
 			if (targets.gMotionDepth) {
 				channels.depth = {
@@ -421,7 +421,7 @@ export class WebGPUFrameExecutor {
 					handle: { backend: "webgpu", texture: targets.gMotionDepth },
 					width,
 					height,
-					format: "rgba16float",
+					format: TextureFormat.RGBA16Float,
 					encoding: "motion-depth.z",
 				};
 				channels.motion = {
@@ -429,7 +429,7 @@ export class WebGPUFrameExecutor {
 					handle: { backend: "webgpu", texture: targets.gMotionDepth },
 					width,
 					height,
-					format: "rgba16float",
+					format: TextureFormat.RGBA16Float,
 					encoding: "motion-depth.xy",
 				};
 			}
@@ -442,7 +442,7 @@ export class WebGPUFrameExecutor {
 					},
 					width,
 					height,
-					format: "rgba16float",
+					format: TextureFormat.RGBA16Float,
 					encoding: "encoded-world-normal",
 				};
 			}
@@ -452,7 +452,7 @@ export class WebGPUFrameExecutor {
 					handle: { backend: "webgpu", texture: targets.gAlbedoAlpha },
 					width,
 					height,
-					format: "rgba16float",
+					format: TextureFormat.RGBA8Unorm,
 					encoding: "linear-rgb-alpha",
 				};
 			}
@@ -461,7 +461,7 @@ export class WebGPUFrameExecutor {
 			width,
 			height,
 			normalSpace: "world",
-			depthEncoding: "hardware",
+			depthEncoding: "linear-view-z",
 			motionEncoding: targets?.gMotionDepth ? "ndc-delta" : undefined,
 			channels,
 			worldPosition: {
