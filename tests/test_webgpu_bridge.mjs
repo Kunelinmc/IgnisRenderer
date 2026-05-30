@@ -1205,6 +1205,28 @@ function testRenderResourcesRequestsComputeFacadeFromBackend() {
 	resources.destroy();
 }
 
+function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
+	const backend = new FakeBackend();
+	const renderer = { logger: { warn() {} } };
+	let listenerCount = 0;
+	backend.shaderRuntime = {
+		revision: 1,
+		getMode: () => "strict",
+		onDidChange: () => {
+			listenerCount++;
+			return () => {
+				listenerCount--;
+			};
+		},
+	};
+	const resources = new WebGPURenderResources(renderer, backend);
+
+	assert.equal(listenerCount, 0);
+
+	resources.destroy();
+	assert.equal(listenerCount, 0);
+}
+
 function testFrameExecutorRequestsComputeFacadeFromBackend() {
 	const backend = new FakeBackend();
 	const resourcesStub = { sceneFrameLayout: null };
@@ -3670,6 +3692,7 @@ async function run() {
 	testMaterialAdaptation();
 	testFeatureGate();
 	testRenderResourcesRequestsComputeFacadeFromBackend();
+	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
 	testFrameExecutorRequestsComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
 	testScenePipelineLimitConstantsMatchLayout();

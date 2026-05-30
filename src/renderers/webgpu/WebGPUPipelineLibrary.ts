@@ -110,6 +110,10 @@ interface WebGPUSceneProgram {
 	fragmentEntryPoint: string;
 }
 
+interface WebGPUPipelineLibraryOptions {
+	listenToShaderRuntime?: boolean;
+}
+
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
@@ -129,11 +133,20 @@ export class WebGPUPipelineLibrary {
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
 
-	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
+	constructor(
+		backend: WebGPUBackend,
+		layouts: WebGPUPipelineLayouts,
+		options: WebGPUPipelineLibraryOptions = {}
+	) {
 		this._backend = backend;
 		this._layouts = layouts;
 		const shaderRuntime = this._getShaderRuntime();
-		if (shaderRuntime && typeof shaderRuntime.onDidChange === "function") {
+		const listenToShaderRuntime = options.listenToShaderRuntime !== false;
+		if (
+			listenToShaderRuntime &&
+			shaderRuntime &&
+			typeof shaderRuntime.onDidChange === "function"
+		) {
 			this._disposeShaderRuntimeListener = shaderRuntime.onDidChange(() =>
 				this.invalidateShaderRuntimeCaches()
 			);

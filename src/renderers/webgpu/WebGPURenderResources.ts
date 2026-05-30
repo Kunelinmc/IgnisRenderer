@@ -229,7 +229,6 @@ export class WebGPURenderResources {
 	private _deferredUnusedBinding: IBindingGroup | null = null;
 	private _frameId = 0;
 	private _destroyed = false;
-	private _disposeShaderRuntimeListener: (() => void) | null = null;
 
 	constructor(backend: WebGPUBackend);
 	constructor(_renderer: RendererBackendBridge, backend: WebGPUBackend);
@@ -252,7 +251,11 @@ export class WebGPURenderResources {
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend);
 		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
-		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts);
+		this._pipelineLibrary = new WebGPUPipelineLibrary(
+			backend,
+			this._layouts,
+			{ listenToShaderRuntime: false }
+		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
 			this._layouts
@@ -262,18 +265,6 @@ export class WebGPURenderResources {
 			this._geometryRegistry,
 			this._shadowAtlases
 		);
-		const shaderRuntime = (
-			this._backend as unknown as {
-				shaderRuntime?: {
-					onDidChange?: (listener: () => void) => () => void;
-				};
-			}
-		).shaderRuntime;
-		if (shaderRuntime && typeof shaderRuntime.onDidChange === "function") {
-			this._disposeShaderRuntimeListener = shaderRuntime.onDidChange(() =>
-				this.onShaderRuntimeChanged()
-			);
-		}
 	}
 
 	public async init(): Promise<void> {
@@ -810,8 +801,6 @@ export class WebGPURenderResources {
 			return;
 		}
 		this._destroyed = true;
-		this._disposeShaderRuntimeListener?.();
-		this._disposeShaderRuntimeListener = null;
 		this._clearParticleBindingCache();
 		this._particleShaderModule = null;
 		this._particlePipelineAlpha.clear();
