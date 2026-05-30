@@ -1958,6 +1958,10 @@ fn isClusteredLightingEnabled() -> bool {
 		clusterGrid.logScale > 0.0;
 }
 
+fn activeClusteredLightCount() -> u32 {
+	return min(clusterGrid.lightCount, arrayLength(&clusterLights.lights));
+}
+
 fn computeClusterSliceFromLinearDepth(linearDepth: f32) -> u32 {
 	let nearPlane = max(clusterGrid.near, 0.05);
 	let farPlane = max(clusterGrid.far, nearPlane + 1e-3);

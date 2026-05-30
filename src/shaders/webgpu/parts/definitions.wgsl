@@ -42,6 +42,8 @@ struct ClusterGridParams {
 	far: f32,
 	logScale: f32,
 	logBias: f32,
+	lightCount: u32,
+	reserved1: u32,
 }
 
 struct ClusterLightRecord {

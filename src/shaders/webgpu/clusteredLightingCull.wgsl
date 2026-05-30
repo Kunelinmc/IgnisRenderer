@@ -31,6 +31,8 @@ struct ClusterGridParams {
 	far: f32,
 	logScale: f32,
 	logBias: f32,
+	lightCount: u32,
+	reserved1: u32,
 }
 
 struct ClusterLightRecord {
@@ -84,6 +86,11 @@ const CLUSTER_LIGHT_INDEX_VOLUMETRIC_BIT: u32 = 1u << 27u;
 const CLUSTER_HEADER_FLAG_OVERFLOW: u32 = 1u << 0u;
 const CLUSTER_HEADER_FLAG_HAS_SHADOWED: u32 = 1u << 1u;
 const CLUSTER_HEADER_FLAG_HAS_VOLUMETRIC: u32 = 1u << 2u;
+const CLUSTERED_LIGHT_TILE_SIZE: u32 = 128u;
+
+var<workgroup> tileViewPositionRange: array<vec4<f32>, 128>;
+var<workgroup> tileDirectionOuterView: array<vec4<f32>, 128>;
+var<workgroup> tilePackedFlags: array<u32, 128>;
 
 @group(0) @binding(0) var<uniform> clusterParams: ClusterGridParams;
 @group(0) @binding(1) var<storage, read> clusterLights: ClusterLightBuffer;
@@ -96,6 +103,10 @@ fn clusteredEnabled() -> bool {
 	return frame.environmentOptionsB.w > 0.5 &&
 		clusterParams.logScale > 0.0 &&
 		clusterParams.zSlices > 0u;
+}
+
+fn activeClusterLightCount() -> u32 {
+	return min(clusterParams.lightCount, arrayLength(&clusterLights.lights));
 }
 
 fn worldToView(worldPos: vec3<f32>) -> vec3<f32> {
@@ -244,92 +255,138 @@ fn spotConeIntersectsAABB(
 }
 
 @compute @workgroup_size(128, 1, 1)
-fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
+fn csMain(
+	@builtin(global_invocation_id) globalId: vec3<u32>,
+	@builtin(local_invocation_id) localId: vec3<u32>
+) {
 	let clusterIndex = globalId.x;
-	if (clusterIndex >= clusterParams.clusterCount) {
-		return;
-	}
+	let clusterActive = clusterIndex < clusterParams.clusterCount;
+	let localIndex = localId.x;
 
 	let clusterTotal = max(clusterParams.clusterCount, 1u);
 	let maxLightsPerCluster = max(arrayLength(&clusterIndices.indices) / clusterTotal, 1u);
 	let baseOffset = clusterIndex * maxLightsPerCluster;
-	let maxLights = arrayLength(&clusterLights.lights);
-	if (!clusteredEnabled() || maxLights == 0u) {
-		clusterHeaders.headers[clusterIndex] = ClusterHeader(baseOffset, 0u, 0u, 0u);
+	let activeLightCount = activeClusterLightCount();
+	if (!clusteredEnabled() || activeLightCount == 0u) {
+		if (clusterActive) {
+			clusterHeaders.headers[clusterIndex] = ClusterHeader(baseOffset, 0u, 0u, 0u);
+		}
 		return;
 	}
 
-	// Decompose flat cluster index into 3D tile coordinates
-	let tilesPerLayer = max(clusterParams.tilesX * clusterParams.tilesY, 1u);
-	let zSlice = clusterIndex / tilesPerLayer;
-	let layerOffset = clusterIndex - zSlice * tilesPerLayer;
-	let clusterY = layerOffset / max(clusterParams.tilesX, 1u);
-	let clusterX = layerOffset - clusterY * max(clusterParams.tilesX, 1u);
+	var aabb = ClusterAABB(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+	if (clusterActive) {
+		// Decompose flat cluster index into 3D tile coordinates.
+		let tilesPerLayer = max(clusterParams.tilesX * clusterParams.tilesY, 1u);
+		let zSlice = clusterIndex / tilesPerLayer;
+		let layerOffset = clusterIndex - zSlice * tilesPerLayer;
+		let clusterY = layerOffset / max(clusterParams.tilesX, 1u);
+		let clusterX = layerOffset - clusterY * max(clusterParams.tilesX, 1u);
 
-	// Pre-compute the cluster AABB once - moves ALL projection math
-	// out of the per-light loop.
-	let tanHalfFov = max(frame.environmentBasisRight.w, 1e-6);
-	let aspect = max(frame.environmentBasisUp.w, 1e-6);
-	let aabb = buildClusterAABB(clusterX, clusterY, zSlice, tanHalfFov, aspect);
+		// Pre-compute the cluster AABB once - moves projection math out of
+		// the per-light loop.
+		let tanHalfFov = max(frame.environmentBasisRight.w, 1e-6);
+		let aspect = max(frame.environmentBasisUp.w, 1e-6);
+		aabb = buildClusterAABB(clusterX, clusterY, zSlice, tanHalfFov, aspect);
+	}
 
 	var count: u32 = 0u;
 	var flags: u32 = 0u;
-	for (var lightIndex: u32 = 0u; lightIndex < maxLights; lightIndex = lightIndex + 1u) {
-		let light = clusterLights.lights[lightIndex];
-		let lightType = light.packedFlags & CLUSTER_LIGHT_TYPE_MASK;
-		if (lightType > 1u) {
-			continue;
+	var saturated = false;
+
+	for (var tileBase: u32 = 0u; tileBase < activeLightCount; tileBase = tileBase + CLUSTERED_LIGHT_TILE_SIZE) {
+		let tileLightIndex = tileBase + localIndex;
+		if (tileLightIndex < activeLightCount) {
+			let light = clusterLights.lights[tileLightIndex];
+			let lightType = light.packedFlags & CLUSTER_LIGHT_TYPE_MASK;
+			let range = max(light.positionRange.w, 0.001);
+			let viewPos = worldToView(light.positionRange.xyz);
+			tileViewPositionRange[localIndex] = vec4<f32>(viewPos, range);
+
+			var directionOuterView = vec4<f32>(
+				0.0,
+				0.0,
+				0.0,
+				light.directionOuter.w
+			);
+			if (lightType == CLUSTER_LIGHT_TYPE_SPOT && light.directionOuter.w > -0.999) {
+				let lightDirView = dirToView(normalize(light.directionOuter.xyz));
+				directionOuterView = vec4<f32>(lightDirView, light.directionOuter.w);
+			}
+			tileDirectionOuterView[localIndex] = directionOuterView;
+			tilePackedFlags[localIndex] = light.packedFlags;
+		} else {
+			tileViewPositionRange[localIndex] = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+			tileDirectionOuterView[localIndex] = vec4<f32>(0.0, 0.0, 0.0, -2.0);
+			tilePackedFlags[localIndex] = 0xffffffffu;
 		}
+		workgroupBarrier();
 
-		let range = max(light.positionRange.w, 0.001);
-		let viewPos = worldToView(light.positionRange.xyz);
-		let lightDepth = max(viewPos.z, 0.0);
-
-		// Fast depth-range rejection (cheapest test first)
-		if (lightDepth + range < aabb.zNear || lightDepth - range > aabb.zFar) {
-			continue;
-		}
-
-		// Sphere-AABB squared-distance test (tighter than axis-separated)
-		if (!sphereIntersectsAABB(viewPos, range, aabb)) {
-			continue;
-		}
-
-		// Spot light cone culling - reject clusters outside the cone
-		if (lightType == CLUSTER_LIGHT_TYPE_SPOT) {
-			let outerCos = light.directionOuter.w;
-			if (outerCos > -0.999) {
-				let lightDirView = dirToView(
-					normalize(light.directionOuter.xyz)
-				);
-				if (!spotConeIntersectsAABB(viewPos, lightDirView, outerCos, range, aabb)) {
+		let tileCount = min(CLUSTERED_LIGHT_TILE_SIZE, activeLightCount - tileBase);
+		for (var tileOffset: u32 = 0u; tileOffset < tileCount; tileOffset = tileOffset + 1u) {
+			if (clusterActive && !saturated) {
+				let packedFlags = tilePackedFlags[tileOffset];
+				let lightType = packedFlags & CLUSTER_LIGHT_TYPE_MASK;
+				if (lightType > 1u) {
 					continue;
 				}
+
+				let lightViewRange = tileViewPositionRange[tileOffset];
+				let viewPos = lightViewRange.xyz;
+				let range = max(lightViewRange.w, 0.001);
+				let lightDepth = max(viewPos.z, 0.0);
+
+				// Fast depth-range rejection (cheapest test first).
+				if (lightDepth + range < aabb.zNear || lightDepth - range > aabb.zFar) {
+					continue;
+				}
+
+				// Sphere-AABB squared-distance test (tighter than axis-separated).
+				if (!sphereIntersectsAABB(viewPos, range, aabb)) {
+					continue;
+				}
+
+				// Spot light cone culling - reject clusters outside the cone.
+				if (lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+					let directionOuterView = tileDirectionOuterView[tileOffset];
+					let outerCos = directionOuterView.w;
+					if (outerCos > -0.999) {
+						let lightDirView = directionOuterView.xyz;
+						if (!spotConeIntersectsAABB(viewPos, lightDirView, outerCos, range, aabb)) {
+							continue;
+						}
+					}
+				}
+
+				if (count >= maxLightsPerCluster) {
+					flags = flags | CLUSTER_HEADER_FLAG_OVERFLOW;
+					saturated = true;
+					continue;
+				}
+
+				let castsShadow = (packedFlags & CLUSTER_LIGHT_FLAG_CASTS_SHADOW) != 0u;
+				let affectsVolumetric =
+					(packedFlags & CLUSTER_LIGHT_FLAG_AFFECTS_VOLUMETRIC) != 0u;
+				let lightIndex = tileBase + tileOffset;
+
+				var packedRef = (lightIndex & CLUSTER_LIGHT_INDEX_MASK) |
+					((lightType & CLUSTER_LIGHT_TYPE_MASK) << CLUSTER_LIGHT_INDEX_TYPE_SHIFT);
+				if (castsShadow) {
+					packedRef = packedRef | CLUSTER_LIGHT_INDEX_SHADOW_BIT;
+					flags = flags | CLUSTER_HEADER_FLAG_HAS_SHADOWED;
+				}
+				if (affectsVolumetric) {
+					packedRef = packedRef | CLUSTER_LIGHT_INDEX_VOLUMETRIC_BIT;
+					flags = flags | CLUSTER_HEADER_FLAG_HAS_VOLUMETRIC;
+				}
+				clusterIndices.indices[baseOffset + count] = packedRef;
+				count = count + 1u;
 			}
 		}
-
-		// Check per-cluster budget - break on overflow instead of continuing
-		if (count >= maxLightsPerCluster) {
-			flags = flags | CLUSTER_HEADER_FLAG_OVERFLOW;
-			break;
-		}
-
-		let castsShadow = (light.packedFlags & CLUSTER_LIGHT_FLAG_CASTS_SHADOW) != 0u;
-		let affectsVolumetric = (light.packedFlags & CLUSTER_LIGHT_FLAG_AFFECTS_VOLUMETRIC) != 0u;
-
-		var packedRef = (lightIndex & CLUSTER_LIGHT_INDEX_MASK) |
-			((lightType & CLUSTER_LIGHT_TYPE_MASK) << CLUSTER_LIGHT_INDEX_TYPE_SHIFT);
-		if (castsShadow) {
-			packedRef = packedRef | CLUSTER_LIGHT_INDEX_SHADOW_BIT;
-			flags = flags | CLUSTER_HEADER_FLAG_HAS_SHADOWED;
-		}
-		if (affectsVolumetric) {
-			packedRef = packedRef | CLUSTER_LIGHT_INDEX_VOLUMETRIC_BIT;
-			flags = flags | CLUSTER_HEADER_FLAG_HAS_VOLUMETRIC;
-		}
-		clusterIndices.indices[baseOffset + count] = packedRef;
-		count = count + 1u;
+		workgroupBarrier();
 	}
 
-	clusterHeaders.headers[clusterIndex] = ClusterHeader(baseOffset, count, flags, 0u);
+	if (clusterActive) {
+		clusterHeaders.headers[clusterIndex] = ClusterHeader(baseOffset, count, flags, 0u);
+	}
 }

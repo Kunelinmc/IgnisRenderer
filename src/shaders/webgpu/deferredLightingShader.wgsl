@@ -329,7 +329,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			surface.linearDepth
 		);
 		let clusterEntryCount = getClusterEntryCount(clusterHeader);
-		let clusterLightCount = u32(arrayLength(&clusterLights.lights));
+		let clusterLightCount = activeClusteredLightCount();
 		for (var entryIndex: u32 = 0u; entryIndex < clusterEntryCount; entryIndex = entryIndex + 1u) {
 			let packedRef = clusterIndices.indices[clusterHeader.offset + entryIndex];
 			let clusterRef = decodeClusteredLightRef(packedRef);
@@ -667,7 +667,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			surface.linearDepth
 		);
 		let clusterEntryCount = getClusterEntryCount(clusterHeader);
-		let clusterLightCount = u32(arrayLength(&clusterLights.lights));
+		let clusterLightCount = activeClusteredLightCount();
 		for (var entryIndex: u32 = 0u; entryIndex < clusterEntryCount; entryIndex = entryIndex + 1u) {
 			let packedRef = clusterIndices.indices[clusterHeader.offset + entryIndex];
 			let clusterRef = decodeClusteredLightRef(packedRef);

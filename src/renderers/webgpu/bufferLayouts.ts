@@ -363,7 +363,7 @@ export const WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT = new StructuredBufferLayout(
 		{ name: "far", type: F32 },
 		{ name: "logScale", type: F32 },
 		{ name: "logBias", type: F32 },
-		{ name: "reserved0", type: U32 },
+		{ name: "lightCount", type: U32 },
 		{ name: "reserved1", type: U32 },
 	]),
 	"uniform"

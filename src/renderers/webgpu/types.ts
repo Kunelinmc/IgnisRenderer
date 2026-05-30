@@ -146,6 +146,7 @@ export interface WebGPUClusterGridParams {
 	far: number;
 	logScale: number;
 	logBias: number;
+	lightCount: number;
 }
 
 export interface WebGPUClusterLightRecord {

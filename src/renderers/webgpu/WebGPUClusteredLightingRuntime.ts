@@ -263,6 +263,7 @@ export class WebGPUClusteredLightingRuntime {
 			far,
 			logScale,
 			logBias,
+			lightCount: maxLights,
 		});
 		this._compute.writeBuffer(this._clusterParamsBuffer!, params);
 
@@ -549,7 +550,7 @@ export class WebGPUClusteredLightingRuntime {
 		writer.writeF32("far", params.far);
 		writer.writeF32("logScale", params.logScale);
 		writer.writeF32("logBias", params.logBias);
-		writer.writeU32("reserved0", 0);
+		writer.writeU32("lightCount", Math.max(0, params.lightCount) >>> 0);
 		writer.writeU32("reserved1", 0);
 		return writer.toArrayBuffer();
 	}

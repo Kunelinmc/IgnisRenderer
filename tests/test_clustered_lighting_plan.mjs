@@ -3,10 +3,15 @@ import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 } from "../src/pipeline/types.ts";
 import { resolveFeatureState } from "../src/pipeline/FeatureResolver.ts";
+import { CameraType } from "../src/cameras/Camera.ts";
+import {
+	WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT,
+} from "../src/renderers/webgpu/bufferLayouts.ts";
 import {
 	packClusteredIndexRef,
 	unpackClusteredIndexRef,
 	packClusterHeaderFlags,
+	WebGPUClusteredLightingRuntime,
 } from "../src/renderers/webgpu/WebGPUClusteredLightingRuntime.ts";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,
@@ -16,7 +21,13 @@ import {
 	WEBGPU_CLUSTERED_INDEX_SHADOW_BIT,
 	WEBGPU_CLUSTERED_INDEX_TYPE_MASK,
 	WEBGPU_CLUSTERED_INDEX_VOLUMETRIC_BIT,
+	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 } from "../src/renderers/webgpu/constants.ts";
+import {
+	loadClusteredLightingCullShaderComposite,
+	loadDeferredLightingShaderComposite,
+	loadSceneShaderPartComposite,
+} from "../src/shaders/webgpu/shaderSource.ts";
 
 function createCapabilities(clusteredLighting) {
 	return {
@@ -34,6 +45,51 @@ function createCapabilities(clusteredLighting) {
 		bloom: false,
 		clusteredLighting,
 	};
+}
+
+class ClusteredComputeRecorder {
+	constructor() {
+		this.buffers = [];
+		this.writes = [];
+	}
+
+	createBuffer(desc) {
+		const buffer = {
+			id: this.buffers.length,
+			label: desc.label,
+			size: desc.size,
+			usage: desc.usage,
+			destroyed: false,
+			destroy() {
+				this.destroyed = true;
+			},
+		};
+		this.buffers.push(buffer);
+		return buffer;
+	}
+
+	writeBuffer(buffer, data, offset = 0) {
+		this.writes.push({ buffer, data, offset });
+	}
+}
+
+function createClusteredLight(index) {
+	return {
+		type: index % 2,
+		position: [index, index + 1, -index - 2],
+		range: 10,
+		direction: [0, -1, 0],
+		outerCos: -2,
+		innerCos: -2,
+		color: [1, 1, 1],
+		castsShadow: false,
+		affectsVolumetric: true,
+		shadowIndex: 0,
+	};
+}
+
+function countOccurrences(value, needle) {
+	return value.split(needle).length - 1;
 }
 
 function testClusteredDefaultsAndMerge() {
@@ -82,6 +138,75 @@ function testClusteredCapabilityGateWarning() {
 	);
 }
 
+function testClusterParamsLayoutWritesLightCount() {
+	const writer = WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT.createWriter();
+	writer.expectByteLength(
+		WEBGPU_CLUSTERED_PARAMS_FLOATS * 4,
+		"ClusterGridParams"
+	);
+	writer.writeU32("screenWidth", 640);
+	writer.writeU32("screenHeight", 360);
+	writer.writeU32("tilesX", 10);
+	writer.writeU32("tilesY", 6);
+	writer.writeU32("zSlices", 24);
+	writer.writeU32("clusterCount", 1440);
+	writer.writeF32("near", 0.1);
+	writer.writeF32("far", 100);
+	writer.writeF32("logScale", 3);
+	writer.writeF32("logBias", 1);
+	writer.writeU32("lightCount", 17);
+	writer.writeU32("reserved1", 0);
+
+	const data = new Uint32Array(writer.toArrayBuffer());
+	assert.equal(data.byteLength, WEBGPU_CLUSTERED_PARAMS_FLOATS * 4);
+	assert.equal(data[10], 17);
+}
+
+function testRuntimeWritesClampedActiveLightCount() {
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(
+		compute,
+		{},
+		{},
+		() => {}
+	);
+	runtime.prepareFrame(
+		{
+			camera: {
+				type: CameraType.Perspective,
+				near: 0.1,
+				far: 100,
+			},
+		},
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: 2,
+				maxLightsPerCluster: 64,
+				tileSizePx: 64,
+				zSlices: 24,
+			},
+		},
+		{
+			clusteredLights: [
+				createClusteredLight(0),
+				createClusteredLight(1),
+				createClusteredLight(2),
+			],
+		},
+		128,
+		128
+	);
+
+	const paramsWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredParams"
+	);
+	assert.ok(paramsWrite);
+	const params = new Uint32Array(paramsWrite.data);
+	assert.equal(params[10], 2);
+}
+
 function testClusteredIndexBitfieldPackUnpack() {
 	const packed = packClusteredIndexRef(0x00abcdef, 1, true, true);
 	const unpacked = unpackClusteredIndexRef(packed);
@@ -116,12 +241,63 @@ function testClusterHeaderFlagPack() {
 	assert.equal(onlyOverflow, WEBGPU_CLUSTERED_HEADER_FLAG_OVERFLOW);
 }
 
-function run() {
+async function testClusteredCullShaderUsesActiveCountAndTiling() {
+	const shader = (await loadClusteredLightingCullShaderComposite()).code;
+	assert.ok(shader.includes("lightCount: u32"));
+	assert.ok(shader.includes("fn activeClusterLightCount() -> u32"));
+	assert.ok(
+		shader.includes(
+			"return min(clusterParams.lightCount, arrayLength(&clusterLights.lights));"
+		)
+	);
+	assert.ok(!shader.includes("let maxLights = arrayLength(&clusterLights.lights);"));
+	assert.ok(shader.includes("var<workgroup> tileViewPositionRange"));
+	assert.ok(shader.includes("@builtin(local_invocation_id) localId"));
+	assert.ok(shader.includes("workgroupBarrier();"));
+	assert.ok(
+		shader.includes(
+			"for (var tileBase: u32 = 0u; tileBase < activeLightCount;"
+		)
+	);
+}
+
+async function testClusteredShadingUsesActiveLightCountGuards() {
+	const deferred = (await loadDeferredLightingShaderComposite()).code;
+	assert.ok(deferred.includes("fn activeClusteredLightCount() -> u32"));
+	assert.ok(
+		deferred.includes(
+			"return min(clusterGrid.lightCount, arrayLength(&clusterLights.lights));"
+		)
+	);
+	assert.equal(
+		countOccurrences(
+			deferred,
+			"let clusterLightCount = activeClusteredLightCount();"
+		),
+		2
+	);
+	assert.ok(
+		!deferred.includes(
+			"let clusterLightCount = u32(arrayLength(&clusterLights.lights));"
+		)
+	);
+
+	for (const part of ["fragmentPbrPoint", "fragmentPbrSpot", "fragmentPhong"]) {
+		const source = (await loadSceneShaderPartComposite(part)).code;
+		assert.ok(source.includes("let clusterLightCount = activeClusteredLightCount();"));
+	}
+}
+
+async function run() {
 	testClusteredDefaultsAndMerge();
 	testClusteredCapabilityGateWarning();
+	testClusterParamsLayoutWritesLightCount();
+	testRuntimeWritesClampedActiveLightCount();
 	testClusteredIndexBitfieldPackUnpack();
 	testClusterHeaderFlagPack();
+	await testClusteredCullShaderUsesActiveCountAndTiling();
+	await testClusteredShadingUsesActiveLightCountGuards();
 	console.log("Clustered lighting plan tests passed");
 }
 
-run();
+await run();
