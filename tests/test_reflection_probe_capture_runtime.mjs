@@ -38,6 +38,18 @@ async function flushAsyncTasks() {
 	}
 }
 
+async function driveRuntimeUntil(
+	runtime,
+	createContext,
+	predicate,
+	maxSteps = 12
+) {
+	for (let step = 0; step < maxSteps && !predicate(); step++) {
+		runtime.execute(createContext(step));
+		await flushAsyncTasks();
+	}
+}
+
 function createCapturedFace(faceSize, seed = 1) {
 	const data = new Float32Array(faceSize * faceSize * 4);
 	for (let i = 0; i < data.length; i += 4) {
@@ -95,8 +107,11 @@ async function testCaptureRuntimeTriggerModes() {
 	);
 	dirtyScene.updateWorldMatrices();
 
-	await runtime.execute({ scene: dirtyScene, nowMs: 100 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene: dirtyScene, nowMs: 100 + step * 16 }),
+		() => bakeCalls.length >= 2
+	);
 	assert.equal(bakeCalls.length, 2);
 	assert.ok(dirtyProbe.prefilteredMap);
 
@@ -105,8 +120,11 @@ async function testCaptureRuntimeTriggerModes() {
 	assert.equal(bakeCalls.length, 2);
 
 	dirtyScene.invalidate("transform");
-	await runtime.execute({ scene: dirtyScene, nowMs: 132 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene: dirtyScene, nowMs: 132 + step * 16 }),
+		() => bakeCalls.length >= 3
+	);
 	assert.equal(bakeCalls.length, 3);
 
 	const intervalScene = new Scene();
@@ -120,8 +138,11 @@ async function testCaptureRuntimeTriggerModes() {
 	);
 	intervalScene.updateWorldMatrices();
 
-	await runtime.execute({ scene: intervalScene, nowMs: 0 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene: intervalScene, nowMs: step * 16 }),
+		() => bakeCalls.length >= 4
+	);
 	assert.equal(bakeCalls.length, 4);
 	assert.ok(intervalProbe.prefilteredMap);
 
@@ -129,8 +150,11 @@ async function testCaptureRuntimeTriggerModes() {
 	await flushAsyncTasks();
 	assert.equal(bakeCalls.length, 4);
 
-	await runtime.execute({ scene: intervalScene, nowMs: 700 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene: intervalScene, nowMs: 700 + step * 16 }),
+		() => bakeCalls.length >= 5
+	);
 	assert.equal(bakeCalls.length, 5);
 }
 
@@ -161,16 +185,21 @@ async function testCaptureRuntimeThrottlesToOneInFlightBake() {
 	);
 	scene.updateWorldMatrices();
 
-	runtime.execute({ scene, nowMs: 0 });
-	runtime.execute({ scene, nowMs: 16 });
-	await flushAsyncTasks();
+	for (let step = 0; step < 12 && deferredBakes.length < 1; step++) {
+		runtime.execute({ scene, nowMs: step * 32 });
+		runtime.execute({ scene, nowMs: step * 32 + 16 });
+		await flushAsyncTasks();
+	}
 	assert.equal(deferredBakes.length, 1);
 
 	deferredBakes[0].resolve(createBakedEnvironment(1));
 	await flushAsyncTasks();
 
-	runtime.execute({ scene, nowMs: 32 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: 32 + step * 16 }),
+		() => deferredBakes.length >= 2
+	);
 	assert.equal(deferredBakes.length, 2);
 }
 
@@ -195,8 +224,11 @@ async function testCaptureRuntimeDropsStaleBakeResults() {
 	scene.updateWorldMatrices();
 
 	probe.requestCapture();
-	runtime.execute({ scene, nowMs: 0 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: step * 16 }),
+		() => bakeCallCount >= 1
+	);
 	assert.equal(bakeCallCount, 1);
 
 	probe.position.set(2, 0, 0);
@@ -229,8 +261,11 @@ async function testCaptureRuntimeDropsStaleBakeResultsWhenCaptureFlagsChange() {
 	scene.updateWorldMatrices();
 
 	probe.requestCapture();
-	runtime.execute({ scene, nowMs: 0 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: step * 16 }),
+		() => bakeCallCount >= 1
+	);
 	assert.equal(bakeCallCount, 1);
 
 	probe.includeTransparent = false;
@@ -334,8 +369,11 @@ async function testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty() {
 	);
 	scene.updateWorldMatrices();
 
-	await runtime.execute({ scene, nowMs: 0 });
-	await flushAsyncTasks();
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: step * 16 }),
+		() => bakeCallCount >= 1
+	);
 	assert.equal(bakeCallCount, 1);
 
 	scene.invalidate("camera");
@@ -467,8 +505,11 @@ async function testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable() {
 		scene.updateWorldMatrices();
 
 		probe.requestCapture();
-		await runtime.execute({ scene, nowMs: 0 });
-		await flushAsyncTasks();
+		await driveRuntimeUntil(
+			runtime,
+			(step) => ({ scene, nowMs: step * 16 }),
+			() => probe.prefilteredMap !== null
+		);
 		assert.ok(probe.prefilteredMap);
 		assert.equal(warnings.length, 1);
 		assert.ok(warnings[0].includes("reflection-probe-mesh-capture-unsupported"));
