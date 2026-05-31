@@ -44,7 +44,11 @@ type PostProcessShaderPart =
 	| "copy"
 	| "sobelNormal";
 
-type UtilityShaderPart = "planarReflectionComposite";
+type UtilityShaderPart =
+	| "planarReflectionComposite"
+	| "present"
+	| "depthDirtyClear"
+	| "oitResolve";
 
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
@@ -307,6 +311,9 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 
 const utilityShaderFiles: Record<UtilityShaderPart, string> = {
 	planarReflectionComposite: "./planarReflectionComposite.wgsl",
+	present: "./present.wgsl",
+	depthDirtyClear: "./depthDirtyClear.wgsl",
+	oitResolve: "./oitResolve.wgsl",
 };
 
 export function loadPostProcessShaderPart(
@@ -380,6 +387,31 @@ export function loadPlanarReflectionCompositeShaderComposite():
 				if (!loader) {
 					return Promise.reject(
 						new Error("Utility shader part not found: planarReflectionComposite")
+					);
+				}
+				return loader();
+			}
+		);
+		_compositeCache.set(key, cached);
+	}
+	return cached;
+}
+
+export function loadWebGPUUtilityShaderComposite(
+	part: UtilityShaderPart
+): Promise<CompositeShaderSource> {
+	const key = `utility-composite:${part}`;
+	let cached = _compositeCache.get(key);
+	if (!cached) {
+		cached = loadShaderCompositeFromFile(
+			key,
+			utilityShaderFiles[part],
+			() => {
+				const path = utilityShaderFiles[part];
+				const loader = utilityParts[path];
+				if (!loader) {
+					return Promise.reject(
+						new Error(`Utility shader part not found: ${part}`)
 					);
 				}
 				return loader();

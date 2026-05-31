@@ -1239,10 +1239,7 @@ function testFrameExecutorRequestsComputeFacadeFromBackend() {
 	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
 
 	assert.equal(backend.getComputeFacadeCalls, 1);
-	assert.equal(
-		typeof executor._postRuntime._shared.compute.createComputePipeline,
-		"function"
-	);
+	assert.equal(typeof executor.getFrameGraphDebugState, "function");
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {

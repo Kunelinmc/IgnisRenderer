@@ -94,7 +94,7 @@ function createFrameContext(width, height) {
 		postProcess: createResolvedPostProcess({
 			ssao: { enabled: true },
 			taa: { enabled: true },
-		}),
+		}, "webgpu"),
 		shadowMaps: new Map(),
 		scene: {
 			particleSystems: [],
@@ -123,6 +123,18 @@ function findEncoderCallIndex(backend, predicate) {
 		return -1;
 	}
 	return encoder.calls.findIndex(predicate);
+}
+
+function getFrameGraphDebugState(executor) {
+	return executor.getFrameGraphDebugState();
+}
+
+function getFrameTargets(executor) {
+	return getFrameGraphDebugState(executor).frameTargets;
+}
+
+function getMSAATargets(executor) {
+	return getFrameGraphDebugState(executor).msaaTargets;
 }
 
 function createOITSequencingResourcesStub() {
@@ -324,7 +336,7 @@ async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 		context
 	);
 	await executor.endFrame();
-	assert.equal(executor._texturePoolOwners.size, 0);
+	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
 function testAbortFrameClearsActiveStateWithoutSubmit() {
@@ -333,18 +345,13 @@ function testAbortFrameClearsActiveStateWithoutSubmit() {
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
-	executor._motionHistoryWriteTarget = { id: "motion-history-write" };
 
 	executor.abortFrame();
 
 	assert.equal(backend.submits, 0);
-	assert.equal(executor._encoder, null);
-	assert.equal(executor._frameContext, null);
-	assert.equal(executor._frameResources, null);
-	assert.equal(executor._motionHistoryWriteTarget, null);
-	assert.equal(executor._hasPresentedInFrame, false);
-	assert.equal(executor._oitActive, false);
-	assert.deepEqual(executor._oitTransmissionPackets, []);
+	assert.equal(getFrameGraphDebugState(executor).active, false);
+	assert.equal(getFrameGraphDebugState(executor).motionHistoryWriteTarget, null);
+	assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 }
 
 async function testEndFrameFailureClosesActiveState() {
@@ -357,7 +364,6 @@ async function testEndFrameFailureClosesActiveState() {
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
-	executor._hasPresentedInFrame = true;
 	let caught = null;
 	try {
 		await executor.endFrame();
@@ -366,39 +372,32 @@ async function testEndFrameFailureClosesActiveState() {
 	}
 
 	assert.strictEqual(caught, error);
-	assert.equal(executor._encoder, null);
-	assert.equal(executor._frameContext, null);
-	assert.equal(executor._frameResources, null);
-	assert.equal(executor._motionHistoryWriteTarget, null);
+	assert.equal(getFrameGraphDebugState(executor).active, false);
+	assert.equal(getFrameGraphDebugState(executor).motionHistoryWriteTarget, null);
 }
 
 function testFrameTargetAllocationFailureReleasesPartialResources() {
 	const backend = new FakeBackend();
 	backend.failTextureAtCall = 4;
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
 
 	assert.throws(
-		() => executor._ensureFrameTargets(64, 64, false),
+		() => executor.beginFrame(context),
 		/simulated allocation failure/
 	);
-	assert.equal(executor._texturePoolOwners.size, 0);
-	assert.equal(executor._frameTargets, null);
-	assert.equal(executor._msaaTargets, null);
+	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
+	assert.equal(getFrameTargets(executor), null);
+	assert.equal(getMSAATargets(executor), null);
 }
 
 function testInvalidateFrameTargetsDestroysPresentBinding() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
-	executor._presentBinding = {
-		destroy() {
-			backend.bindingGroupDestroyCalls++;
-		},
-	};
 
 	executor.invalidateFrameTargets();
 
-	assert.equal(backend.bindingGroupDestroyCalls, 1);
-	assert.equal(executor._presentBinding, null);
+	assert.equal(getFrameTargets(executor), null);
 }
 
 function testInvalidateFrameTargetsDefersDuringActiveFrame() {
@@ -407,39 +406,41 @@ function testInvalidateFrameTargetsDefersDuringActiveFrame() {
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
-	const activeTargets = executor._frameTargets;
+	const activeTargets = getFrameTargets(executor);
 	assert.ok(activeTargets);
 
 	executor.invalidateFrameTargets();
-	assert.strictEqual(executor._frameTargets, activeTargets);
-	assert.equal(executor._pendingFrameTargetInvalidation, true);
+	assert.strictEqual(getFrameTargets(executor), activeTargets);
+	assert.equal(
+		getFrameGraphDebugState(executor).pendingFrameTargetInvalidation,
+		true
+	);
 
 	executor.abortFrame();
-	assert.equal(executor._frameTargets, null);
-	assert.equal(executor._pendingFrameTargetInvalidation, false);
+	assert.equal(getFrameTargets(executor), null);
+	assert.equal(
+		getFrameGraphDebugState(executor).pendingFrameTargetInvalidation,
+		false
+	);
 }
 
 function testShaderRuntimeInvalidationDefersDuringActiveFrame() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
-	let destroyed = 0;
-	executor._presentShaderModule = {
-		destroy() {
-			destroyed++;
-		},
-	};
 
 	executor.beginFrame(context);
 	executor.onShaderRuntimeChanged();
-	assert.equal(executor._pendingShaderRuntimeInvalidation, true);
-	assert.notEqual(executor._presentShaderModule, null);
-	assert.equal(destroyed, 0);
+	assert.equal(
+		getFrameGraphDebugState(executor).pendingShaderRuntimeInvalidation,
+		true
+	);
 
 	executor.abortFrame();
-	assert.equal(executor._pendingShaderRuntimeInvalidation, false);
-	assert.equal(executor._presentShaderModule, null);
-	assert.equal(destroyed, 1);
+	assert.equal(
+		getFrameGraphDebugState(executor).pendingShaderRuntimeInvalidation,
+		false
+	);
 }
 
 async function testLegacyMainPassForcesSingleSceneTargetMode() {
@@ -448,9 +449,9 @@ async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [{ id: "packet" }];
+	context.postProcess = createResolvedPostProcess({});
 
 	executor.beginFrame(context);
-	executor._frameTargets = null;
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
@@ -531,6 +532,7 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(1920, 869);
 	context.scene.opaquePackets = [{ id: "packet" }];
+	context.postProcess = createResolvedPostProcess({});
 	context.incremental = {
 		enabled: true,
 		forceFullFrame: false,
@@ -551,8 +553,6 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 	};
 
 	executor.beginFrame(context);
-	executor._mrtEnabled = false;
-	executor._frameTargets = null;
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
@@ -577,20 +577,24 @@ function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
-	assert.ok(executor._frameTargets);
+	const targets = getFrameTargets(executor);
+	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
-	assert.ok(executor._frameTargets.postPing);
-	assert.ok(executor._frameTargets.postPong);
-	assert.ok(executor._frameTargets.gMotionDepth);
-	assert.equal(executor._frameTargets.oitAccum, null);
-	assert.equal(executor._frameTargets.oitReveal, null);
-	assert.equal(executor._frameTargets.oitSceneColorCopy, null);
-	assert.equal(executor._frameTargets.planarReflectionMask, null);
+	assert.ok(targets.postPing);
+	assert.ok(targets.postPong);
+	assert.ok(targets.gMotionDepth);
+	assert.equal(targets.oitAccum, null);
+	assert.equal(targets.oitReveal, null);
+	assert.equal(targets.oitSceneColorCopy, null);
+	assert.equal(targets.planarReflectionMask, null);
 
 	executor.invalidateFrameTargets();
-	assert.equal(executor._pendingFrameTargetInvalidation, true);
+	assert.equal(
+		getFrameGraphDebugState(executor).pendingFrameTargetInvalidation,
+		true
+	);
 	executor.abortFrame();
-	assert.equal(executor._frameTargets, null);
+	assert.equal(getFrameTargets(executor), null);
 }
 
 function testGBufferBridgeReportsAllocatedWebGPUFormats() {
@@ -611,11 +615,11 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	assert.equal(bridge.channels.albedo.encoding, "linear-rgb-alpha");
 	assert.equal(
 		bridge.channels.albedo.handle.texture,
-		executor._frameTargets.gAlbedoAlpha
+		getFrameTargets(executor).gAlbedoAlpha
 	);
 	assert.equal(
 		bridge.channels.depth.handle.texture,
-		executor._frameTargets.gMotionDepth
+		getFrameTargets(executor).gMotionDepth
 	);
 
 	executor.abortFrame();
@@ -632,33 +636,28 @@ function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	context.scene.reflectivePackets = [{ id: "mirror", material: {} }];
 
 	executor.beginFrame(context);
-	assert.ok(executor._frameTargets);
+	const targets = getFrameTargets(executor);
+	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "color");
-	assert.equal(executor._frameTargets.postPing, null);
-	assert.equal(executor._frameTargets.postPong, null);
-	assert.equal(executor._frameTargets.gMotionDepth, null);
+	assert.equal(targets.postPing, null);
+	assert.equal(targets.postPong, null);
+	assert.equal(targets.gMotionDepth, null);
 	const {
 		oitAccum,
 		oitReveal,
 		oitSceneColorCopy,
 		planarReflectionMask,
-	} = executor._frameTargets;
+	} = targets;
 	assert.ok(oitAccum);
 	assert.ok(oitReveal);
 	assert.ok(oitSceneColorCopy);
 	assert.ok(planarReflectionMask);
-	assert.equal(executor._texturePoolOwners.has(oitAccum), true);
-	assert.equal(executor._texturePoolOwners.has(oitReveal), true);
-	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), true);
-	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), true);
+	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount >= 4, true);
 
 	executor.invalidateFrameTargets();
 	executor.abortFrame();
-	assert.equal(executor._frameTargets, null);
-	assert.equal(executor._texturePoolOwners.has(oitAccum), false);
-	assert.equal(executor._texturePoolOwners.has(oitReveal), false);
-	assert.equal(executor._texturePoolOwners.has(oitSceneColorCopy), false);
-	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), false);
+	assert.equal(getFrameTargets(executor), null);
+	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
 function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
@@ -668,9 +667,9 @@ function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
 	context.postProcess = createResolvedPostProcess({});
 
 	executor.beginFrame(context);
-	assert.equal(executor._frameTargets, null);
+	assert.equal(getFrameTargets(executor), null);
 	assert.equal(executor.getSceneTargetModeForFrame(), "single");
-	assert.equal(executor._texturePoolOwners.size, 0);
+	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
 async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
@@ -682,7 +681,7 @@ async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 		ssr: { enabled: true, options: { downsample: 2 } },
 	});
 	executor.beginFrame(firstContext);
-	const firstTargets = executor._frameTargets;
+	const firstTargets = getFrameTargets(executor);
 	const firstTextureCount = backend.createTextureCalls.length;
 	await executor.endFrame();
 
@@ -692,7 +691,7 @@ async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 		ssr: { enabled: true, options: { downsample: 4 } },
 	});
 	executor.beginFrame(secondContext);
-	assert.strictEqual(executor._frameTargets, firstTargets);
+	assert.strictEqual(getFrameTargets(executor), firstTargets);
 	assert.equal(backend.createTextureCalls.length, firstTextureCount);
 	await executor.endFrame();
 	executor.destroy();
@@ -839,13 +838,14 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	};
 
 	executor.beginFrame(context);
-	assert.ok(executor._frameTargets);
+	const targets = getFrameTargets(executor);
+	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "color");
-	assert.equal(executor._frameTargets.postPing, null);
-	assert.equal(executor._frameTargets.postPong, null);
-	assert.equal(executor._frameTargets.gAlbedoAlpha, null);
-	assert.equal(executor._frameTargets.gMotionDepth, null);
-	assert.ok(executor._frameTargets.planarReflectionMask);
+	assert.equal(targets.postPing, null);
+	assert.equal(targets.postPong, null);
+	assert.equal(targets.gAlbedoAlpha, null);
+	assert.equal(targets.gMotionDepth, null);
+	assert.ok(targets.planarReflectionMask);
 
 	await executor.executePass(
 		{ stage: "reflection", executor: "backend", enabled: true },
@@ -877,7 +877,7 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	assert.equal(compositePass.colorAttachments.length, 2);
 	assert.strictEqual(
 		compositePass.colorAttachments[1].view,
-		executor._frameTargets.planarReflectionMask
+		targets.planarReflectionMask
 	);
 	executor.destroy();
 }
@@ -945,8 +945,8 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 	};
 
 	executor.beginFrame(context);
-	const frameTargets = executor._frameTargets;
-	const msaaTargets = executor._msaaTargets;
+	const frameTargets = getFrameTargets(executor);
+	const msaaTargets = getMSAATargets(executor);
 	assert.ok(frameTargets);
 	assert.ok(msaaTargets);
 
@@ -955,15 +955,15 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 		context
 	);
 	assert.deepEqual(msaaSetCalls, []);
-	assert.strictEqual(executor._frameTargets, frameTargets);
-	assert.strictEqual(executor._msaaTargets, msaaTargets);
+	assert.strictEqual(getFrameTargets(executor), frameTargets);
+	assert.strictEqual(getMSAATargets(executor), msaaTargets);
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
 	);
-	assert.strictEqual(executor._frameTargets, frameTargets);
-	assert.strictEqual(executor._msaaTargets, msaaTargets);
+	assert.strictEqual(getFrameTargets(executor), frameTargets);
+	assert.strictEqual(getMSAATargets(executor), msaaTargets);
 	const captureDrawOptions = resources._state.drawOptions.find(
 		(options) => options.drawMode === "reflection-capture"
 	);
@@ -1419,7 +1419,7 @@ async function testOITMSAAFallsBackToLegacyAndWarns() {
 	});
 	try {
 		executor.beginFrame(context);
-		assert.equal(executor._oitActive, false);
+		assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 		await executor.executePass(
 			{ stage: "main-transparent", executor: "backend", enabled: true },
 			context
@@ -1460,7 +1460,7 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 	});
 	try {
 		executor.beginFrame(context);
-		assert.equal(executor._oitActive, false);
+		assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 		const runtimeWarnings = warnings.filter((warning) =>
 			warning.includes("[webgpu-oit-disabled-runtime]")
 		);

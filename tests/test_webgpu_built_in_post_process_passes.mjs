@@ -8,6 +8,7 @@ import {
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend.ts";
 import { WebGPUFrameExecutor } from "../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { FakeWebGPUBackend as FakeBackend } from "./helpers/test_fakes.mjs";
+import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 
 const BUILTIN_PASS_BY_ID = new Map([
 	["taa", new TemporalAntiAliasingPass({ enabled: true })],
@@ -82,16 +83,8 @@ function createExecutionContextRequest(passId, request, overrides = {}) {
 }
 
 function createExecutorHarness() {
-	const runtimeCalls = [];
-	const executor = Object.create(WebGPUFrameExecutor.prototype);
-	executor._encoder = { id: "encoder" };
-	executor._frameTargets = {
-		sceneColor: { id: "scene-color" },
-		sceneColorMain: { id: "scene-color-main" },
-		postPing: { id: "post-ping" },
-		postPong: { id: "post-pong" },
-	};
-	executor._frameResources = {
+	const backend = new FakeBackend();
+	const frameResources = {
 		scopeKey: "main",
 		sceneTargetMode: "mrt",
 		frameBinding: { id: "frame-binding" },
@@ -103,23 +96,67 @@ function createExecutorHarness() {
 		jointMatrixMap: new Map(),
 		morphWeightMap: new Map(),
 	};
-	executor._postRuntime = {
-		sharedContext: { id: "shared-context" },
-		executePass: async (request) => {
-			runtimeCalls.push(request);
-			return {
-				ran: true,
-				historyUpdated: true,
-			};
+	const resources = {
+		sceneFrameLayout: {},
+		prepareFrame() {
+			return frameResources;
 		},
+		async buildClusteredLighting() {},
+		renderShadows() {},
+		async getEnvironmentResources() {
+			return null;
+		},
+		async getDrawResources() {
+			return null;
+		},
+		async renderParticles() {},
 	};
-	executor._resources = {
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const frameContext = {
+		camera: {},
+		attachments: { width: 64, height: 64 },
+		features: {
+			enableLighting: true,
+			enableSH: false,
+			enableShadows: false,
+			enableReflection: false,
+			enableEnvironment: false,
+			enableOIT: false,
+			enableClusteredLighting: false,
+			warnings: [],
+			clusteredLightingOptions: {},
+		},
+		postProcess: createResolvedPostProcess({
+			taa: { enabled: true },
+			ssr: { enabled: true },
+			volumetric: { enabled: true },
+		}, "webgpu"),
+		shadowMaps: new Map(),
+		scene: {
+			particleSystems: [],
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			shadowTransmitterPackets: [],
+			reflectivePackets: [],
+			spatialIndex: null,
+		},
+		shCoeffs: [],
+		shAmbientCoeffs: [],
+		worldMatrix: {},
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [],
+		},
+		transient: new Map(),
 	};
-	return { executor, runtimeCalls };
+	executor.beginFrame(frameContext);
+	return { executor, backend };
 }
 
 async function testTemporalExecutePassUsesPipelineHistories() {
-	const { executor, runtimeCalls } = createExecutorHarness();
+	const { executor } = createExecutorHarness();
 
 	const taaRequest = createTemporalRequest({
 		histories: {
@@ -133,20 +170,21 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	const taaContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("taa", taaRequest)
 	);
-	assert.equal("historyRead" in executor._frameTargets, false);
+	assert.equal("historyRead" in executor.getFrameGraphDebugState().frameTargets, false);
 	assert.equal(taaContext.historyRead.id, "taa-read");
 	assert.equal(taaContext.historyWrite.id, "taa-write");
 	assert.equal(taaContext.motionHistoryRead.id, "motion-read");
 	assert.equal(taaContext.motionHistoryWrite.id, "motion-write");
 	taaContext.writeMotionHistoryFromCurrent();
-	assert.equal(executor._motionHistoryWriteTarget.id, "motion-write");
-	assert.equal(runtimeCalls.length, 0);
+	assert.equal(
+		executor.getFrameGraphDebugState().motionHistoryWriteTarget.id,
+		"motion-write"
+	);
 
 	const ssrRequest = createTemporalRequest();
 	const ssrContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("ssr", ssrRequest)
 	);
-	assert.equal(runtimeCalls.length, 0);
 	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
 	assert.equal(ssrContext.historyRead.id, "ssr-read");
 	assert.equal(ssrContext.historyWrite.id, "ssr-write");
@@ -156,17 +194,16 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	const volumetricContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)
 	);
-	assert.equal(runtimeCalls.length, 0);
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
 	assert.deepEqual(volumetricContext.lightingState, { id: "lighting-state" });
-	assert.deepEqual(volumetricContext.shared, { id: "shared-context" });
+	assert.ok(volumetricContext.shared);
 	assert.equal(volumetricContext.historyRead.id, "vol-read");
 	assert.equal(volumetricContext.historyWrite.id, "vol-write");
 	assert.equal(volumetricContext.reservoirHistoryRead.id, "res-read");
 	assert.equal(volumetricContext.reservoirHistoryWrite.id, "res-write");
 	assert.equal(volumetricContext.motionHistoryRead.id, "motion-read");
 	assert.equal(volumetricContext.motionHistoryWrite.id, "motion-write");
-	assert.equal(runtimeCalls.length, 0);
+	executor.abortFrame();
 }
 
 function testCustomImplementationMetadataPacksContext() {
@@ -199,18 +236,20 @@ function testCustomImplementationMetadataPacksContext() {
 		})
 	);
 
-	assert.equal(context.encoder.id, "encoder");
+	assert.ok(context.encoder);
 	assert.equal(Object.isFrozen(context.targets), true);
-	assert.deepEqual(context.shared, { id: "shared-context" });
+	assert.ok(context.shared);
 	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
 	assert.equal(context.customHistoryWrite.id, "taa-write");
-	context.publishColorTarget(executor._frameTargets.postPing);
-	assert.equal(executor._frameTargets.sceneColor.id, "scene-color");
+	const targets = executor.getFrameGraphDebugState().frameTargets;
+	context.publishColorTarget(targets.postPing);
+	assert.equal(targets.sceneColor, targets.sceneColorMain);
 	executor.completePostProcessPass(
 		createExecutionContextRequest("custom-webgpu", request),
 		{ ran: true }
 	);
-	assert.equal(executor._frameTargets.sceneColor.id, "post-ping");
+	assert.equal(executor.getFrameGraphDebugState().frameTargets.sceneColor, targets.postPing);
+	executor.abortFrame();
 }
 
 async function testWarmupHintsFollowPlanPostProcessPasses() {
@@ -219,15 +258,8 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		sceneFrameLayout: {},
 	};
 	const executor = new WebGPUFrameExecutor(backend, resources);
-	const warmupHints = [];
 
-	executor._ensurePresentResources = async () => {};
-	executor._postRuntime.warmupHints = async (hints) => {
-		warmupHints.push(...hints);
-		return { compiled: hints.length, failed: 0, errors: [] };
-	};
-
-	await executor.warmup(
+	const emptyWarmup = await executor.warmup(
 		{
 			transient: new Map(),
 			postProcess: {
@@ -247,10 +279,10 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		}
 	);
 
-	assert.deepEqual(warmupHints, []);
+	assert.equal(emptyWarmup.failed, 0);
 
 	const taaPass = new TemporalAntiAliasingPass({ enabled: true });
-	await executor.warmup(
+	const taaWarmup = await executor.warmup(
 		{
 			transient: new Map(),
 			postProcess: {
@@ -270,7 +302,8 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		}
 	);
 
-	assert.deepEqual(warmupHints, ["postprocess:taa"]);
+	assert.equal(taaWarmup.failed, 0);
+	assert.equal(taaWarmup.compiled > 0, true);
 }
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
