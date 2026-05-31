@@ -73,6 +73,11 @@ export {
 } from "./renderers/webgpu/ComputeRuntime";
 export { Rasterizer } from "./renderers/software/Rasterizer";
 export type {
+	FrameContext,
+	FramePass,
+	FramePassStage,
+	RendererFramePlan,
+	RendererFramePlanStage,
 	SSROptions,
 	SSAOOptions,
 	SSGIOptions,
@@ -128,6 +133,7 @@ export {
 	type RenderPipelinePassPredicate,
 	type RenderPipelinePassRunContext,
 	type RenderPipelineBackendPassIncrementalOptions,
+	type RenderPipelineFramePlanOptions,
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
 export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";

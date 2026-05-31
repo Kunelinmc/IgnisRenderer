@@ -152,6 +152,19 @@ async function testRendererSuccessfulFrameEndsAndSchedules() {
 	assert.equal(backend.abortFrameCalls, 0);
 	assert.equal(frameEndEvents, 1);
 	assert.equal(scheduledFrames, 1);
+	const context = backend.contexts.at(-1);
+	assert.ok(context.framePlan);
+	assert.ok(
+		context.framePlan.backendPasses.some(
+			(pass) => pass.stage === "main-opaque"
+		)
+	);
+	assert.equal(
+		context.framePlan.backendPasses.some(
+			(pass) => pass.stage === "postprocess"
+		),
+		false
+	);
 }
 
 async function run() {
@@ -196,6 +209,19 @@ async function run() {
 			assert.ok(backend.skippedPasses.includes("main-opaque"));
 			assert.equal(backend.skippedPasses.includes("postprocess"), false);
 			assert.ok(backend.executedPasses.includes(customPassId));
+			const framePlan = backend.contexts.at(-1).framePlan;
+			assert.ok(framePlan);
+			assert.ok(
+				framePlan.backendPasses.some(
+					(pass) => pass.stage === customPassId && pass.enabled
+				)
+			);
+			assert.equal(
+				framePlan.backendPasses.find(
+					(pass) => pass.stage === "main-opaque"
+				)?.enabled,
+				false
+			);
 		} finally {
 			renderer.pipeline.unregisterDirtyReason(customReasonId);
 			renderer.pipeline.unregisterBackendPass(customPassId);

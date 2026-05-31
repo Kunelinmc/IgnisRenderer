@@ -194,6 +194,12 @@ export interface FrameContext {
 	readonly incremental: IncrementalFrameContext;
 	/** Pass-specific transient data */
 	readonly transient: TransientStore;
+	/**
+	 * Renderer-owned pass plan for this frame. Renderer-driven frames must
+	 * provide it; direct backend tests or tools may omit it, in which case
+	 * backends must skip global pass-order validation.
+	 */
+	readonly framePlan?: RendererFramePlan;
 }
 
 export const BUILTIN_FRAME_PASS_STAGES = [
@@ -215,6 +221,16 @@ export interface FramePass {
 	executor: "shared" | "backend";
 	enabled: boolean;
 	precompileHints?: string[];
+}
+
+export interface RendererFramePlanStage {
+	readonly id: string;
+	readonly dependsOn: readonly string[];
+}
+
+export interface RendererFramePlan {
+	readonly stageOrder: readonly RendererFramePlanStage[];
+	readonly backendPasses: readonly FramePass[];
 }
 
 export const FRAME_PASS_DEPENDENCIES = new Map<

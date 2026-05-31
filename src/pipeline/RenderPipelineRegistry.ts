@@ -3,6 +3,7 @@ import {
 	type FrameContext,
 	type FramePass,
 	type PreparedScene,
+	type RendererFramePlan,
 	type ResolvedFeatureState,
 	type TransientStore,
 } from "./types";
@@ -54,6 +55,18 @@ export interface RenderPipelineRegistryOptions {
 	stages?: readonly RendererStageDefinition[];
 	backendPasses?: readonly RenderPipelineBackendPassRegistration[];
 	incrementalRegistry?: IncrementalRegistry;
+}
+
+export interface RenderPipelineFramePlanOptions {
+	stageOrder: readonly RendererStageDefinition[];
+	frame: PreparedScene;
+	features: ResolvedFeatureState;
+	postProcess: ResolvedPostProcessState;
+	transient: TransientStore;
+	passExecutors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>;
+	incremental?: IncrementalFrameContext;
+	frameContext?: FrameContext;
+	incrementalStartStageIndex?: number;
 }
 
 interface RegisteredBackendPass extends RenderPipelineBackendPassRegistration {
@@ -174,6 +187,63 @@ export class RenderPipelineRegistry {
 			stage: stageId,
 			executor: passExecutors?.[stageId] ?? pass?.executor ?? "backend",
 			enabled: true,
+		};
+	}
+
+	/**
+	 * Builds the renderer-owned backend pass plan for one frame.
+	 *
+	 * @param options Current stage order, frame state, executor overrides, and
+	 * incremental context used to resolve backend pass enablement.
+	 * @returns Immutable-by-convention frame plan consumed by the renderer and
+	 * backend validators.
+	 * @constraints `stageOrder` must come from this registry's stage graph for
+	 * the same frame.
+	 * @sideEffects None.
+	 */
+	public createFramePlan(
+		options: RenderPipelineFramePlanOptions
+	): RendererFramePlan {
+		const stageIndexById = new Map<string, number>();
+		for (let index = 0; index < options.stageOrder.length; index++) {
+			stageIndexById.set(options.stageOrder[index].id, index);
+		}
+
+		const backendPasses: FramePass[] = [];
+		for (const stage of options.stageOrder) {
+			const stageId = stage.id as FramePass["stage"];
+			if (!this.isBackendPassStage(stageId)) {
+				continue;
+			}
+			const pass = this.createBackendPass(stageId, options.passExecutors);
+			const stageIndex =
+				stageIndexById.get(stage.id) ?? Number.MAX_SAFE_INTEGER;
+			const skippedByIncremental =
+				options.incrementalStartStageIndex !== undefined &&
+				options.incrementalStartStageIndex >= 0 &&
+				stageIndex < options.incrementalStartStageIndex;
+			const enabled =
+				!skippedByIncremental &&
+				this.shouldRunBackendPass(stageId, {
+					frame: options.frame,
+					features: options.features,
+					postProcess: options.postProcess,
+					transient: options.transient,
+					frameContext: options.frameContext,
+					incremental: options.incremental,
+				});
+			backendPasses.push({
+				...pass,
+				enabled,
+			});
+		}
+
+		return {
+			stageOrder: options.stageOrder.map((stage) => ({
+				id: stage.id,
+				dependsOn: Array.from(stage.dependsOn ?? []),
+			})),
+			backendPasses,
 		};
 	}
 

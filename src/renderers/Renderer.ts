@@ -38,10 +38,11 @@ import {
 	type ReflectionProbeWebGPUCaptureSource,
 } from "../pipeline/ReflectionProbeCaptureRuntime";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
+import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import {
-	RenderPipelineRegistry,
-	type RenderPipelineBackendPassRegistration,
-} from "../pipeline/RenderPipelineRegistry";
+	createDefaultBackendPasses,
+	createDefaultRendererStages,
+} from "../pipeline/defaultPipeline";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
 	DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
@@ -58,7 +59,6 @@ import {
 	isTextureReadyForEnvironment,
 } from "../pipeline/environmentMapRuntime";
 import { isLocalizedLightProbe } from "../pipeline/lightProbeRuntime";
-import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
@@ -83,8 +83,8 @@ import {
 } from "../pipeline/incremental";
 import type { WebGPUComputeFacadeSource } from "./webgpu/ComputeFacade";
 import type {
-	FramePass,
 	FrameContext,
+	FramePassStage,
 	RendererFeatureFlags,
 	RendererFeatureResolvedOptions,
 	TransientStore,
@@ -1105,6 +1105,20 @@ export class Renderer extends EventEmitter<RendererEvents> {
 						transient,
 						incrementalFrameContext
 					);
+					context = {
+						...context,
+						framePlan: this.pipeline.createFramePlan({
+							stageOrder,
+							frame,
+							features: resolved,
+							postProcess: resolvedPostProcess,
+							transient,
+							passExecutors: this.backend.passExecutors,
+							incremental: incrementalFrameContext,
+							frameContext: context,
+							incrementalStartStageIndex,
+						}),
+					};
 					frameStarted = true;
 					await this.backend.beginFrame(context);
 					break;
@@ -1143,31 +1157,18 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				default: {
 					if (!context || !frame) break;
 					if (!this._isBackendPassStage(stage.id)) break;
-					if (
-						incrementalStartStageIndex >= 0 &&
-						(stageIndexById.get(stage.id) ?? Number.MAX_SAFE_INTEGER) <
-							incrementalStartStageIndex
-					) {
-						const skippedPass = this._createBackendPass(stage.id);
-						this.backend.skipPass?.(skippedPass);
+					const pass =
+						context.framePlan?.backendPasses.find(
+							(candidate) => candidate.stage === stage.id
+						) ??
+						this.pipeline.createBackendPass(
+							stage.id as FramePassStage,
+							this.backend.passExecutors
+						);
+					if (!pass.enabled) {
+						this.backend.skipPass?.(pass);
 						break;
 					}
-					if (
-						!this._shouldRunBackendPass(
-							stage.id,
-							frame,
-							resolved,
-							resolvedPostProcess,
-							transient,
-							incrementalFrameContext,
-							context
-						)
-					) {
-						const skippedPass = this._createBackendPass(stage.id);
-						this.backend.skipPass?.(skippedPass);
-						break;
-					}
-					const pass = this._createBackendPass(stage.id);
 					if (pass.executor === "shared") {
 						if (!this.backend.executeSharedPass) {
 							const key = `${this.backend.type}-shared-pass-${pass.stage}`;
@@ -1309,29 +1310,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.pipeline.isBackendPassStage(stageId);
 	}
 
-	private _createBackendPass(stageId: string): FramePass {
-		return this.pipeline.createBackendPass(stageId, this.backend.passExecutors);
-	}
-
-	private _shouldRunBackendPass(
-		stage: string,
-		frame: ReturnType<typeof PreparedSceneBuilder.build>,
-		features: ReturnType<typeof resolveFeatureState>,
-		postProcess: ResolvedPostProcessState,
-		transient: TransientStore,
-		incremental?: IncrementalFrameContext,
-		frameContext?: FrameContext
-	): boolean {
-		return this.pipeline.shouldRunBackendPass(stage, {
-			frame,
-			features,
-			postProcess,
-			transient,
-			frameContext,
-			incremental,
-		});
-	}
-
 	private async _executePostProcessStage(context: FrameContext): Promise<void> {
 		await this._postProcessController.execute(context);
 	}
@@ -1395,84 +1373,4 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			}
 		}
 	}
-}
-
-function createDefaultBackendPasses(): RenderPipelineBackendPassRegistration[] {
-	return [
-		{
-			id: "particle-sim",
-			dependsOn: ["prepared-scene-build"],
-			enabled: (context) => context.hasParticleSystems,
-			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
-		},
-		{
-			id: "shadow",
-			dependsOn: ["prepared-scene-build", "particle-sim"],
-			shouldRun: ({ frame, features }) =>
-				features.enableShadows &&
-				(frame.shadowCasterPackets.length > 0 ||
-					frame.shadowTransmitterPackets.length > 0 ||
-					hasParticleShadowCasters(frame.particleSystems)),
-		},
-		{
-			id: "reflection",
-			dependsOn: ["prepared-scene-build", "reflection-probe-capture"],
-			shouldRun: ({ frame, features }) =>
-				features.enableReflection && frame.reflectivePackets.length > 0,
-		},
-		{
-			id: "main-opaque",
-			dependsOn: ["reflection", "shadow"],
-		},
-		{
-			id: "main-transparent",
-			dependsOn: ["main-opaque"],
-			shouldRun: ({ frame }) => frame.transparentPackets.length > 0,
-		},
-		{
-			id: "particles",
-			dependsOn: ["main-transparent"],
-			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
-		},
-	];
-}
-
-function createDefaultRendererStages(): RendererStageDefinition[] {
-	return [
-		{ id: "feature-resolution", dependsOn: [] },
-		{ id: "environment-ibl-update", dependsOn: ["feature-resolution"] },
-		{ id: "sync-in", dependsOn: ["environment-ibl-update"] },
-		{
-			id: "animation-sim",
-			dependsOn: ["sync-in"],
-			enabled: (context) => context.hasActiveAnimations,
-		},
-		{ id: "physics-sim", dependsOn: ["animation-sim", "sync-in"] },
-		{
-			id: "transform-update",
-			dependsOn: ["physics-sim", "animation-sim", "sync-in"],
-		},
-		{ id: "lod-resolve", dependsOn: ["transform-update"] },
-		{ id: "csg-resolve", dependsOn: ["lod-resolve"] },
-		{ id: "prepared-scene-build", dependsOn: ["csg-resolve"] },
-		{
-			id: "particle-sim",
-			dependsOn: ["prepared-scene-build"],
-			enabled: (context) => context.hasParticleSystems,
-		},
-		{ id: "shadow", dependsOn: ["prepared-scene-build", "particle-sim"] },
-		{
-			id: "reflection-probe-capture",
-			dependsOn: ["prepared-scene-build"],
-		},
-		{
-			id: "reflection",
-			dependsOn: ["prepared-scene-build", "reflection-probe-capture"],
-		},
-		{ id: "main-opaque", dependsOn: ["reflection", "shadow"] },
-		{ id: "main-transparent", dependsOn: ["main-opaque"] },
-		{ id: "particles", dependsOn: ["main-transparent"] },
-		{ id: "postprocess", dependsOn: ["particles"] },
-		{ id: "sync-out", dependsOn: ["postprocess"] },
-	];
 }

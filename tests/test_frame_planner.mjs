@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
+import { RenderPipelineRegistry } from "../src/pipeline/RenderPipelineRegistry.ts";
+import {
+	createDefaultBackendPasses,
+	createDefaultRendererStages,
+} from "../src/pipeline/defaultPipeline.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../src/particles/types.ts";
 
@@ -40,7 +45,7 @@ function run() {
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
 	});
-	const plan = FramePlanner.build(
+	const framePlan = FramePlanner.buildFramePlan(
 		frame,
 		{
 			...baseResolved,
@@ -57,27 +62,25 @@ function run() {
 			fxaa: { enabled: true },
 		})
 	);
+	const plan = framePlan.backendPasses;
+
+	assert.ok(framePlan.stageOrder.some((stage) => stage.id === "postprocess"));
+	assert.equal(plan.some((pass) => pass.stage === "postprocess"), false);
 
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
 		[
-			"animation-sim",
 			"particle-sim",
 			"shadow",
 			"reflection",
 			"main-opaque",
 			"main-transparent",
 			"particles",
-			"postprocess",
 		]
 	);
 	assert.equal(
 		plan.find((pass) => pass.stage === "particle-sim")?.enabled,
 		true
-	);
-	assert.equal(
-		plan.find((pass) => pass.stage === "animation-sim")?.enabled,
-		false
 	);
 	assert.equal(plan.find((pass) => pass.stage === "shadow")?.enabled, true);
 	assert.equal(plan.find((pass) => pass.stage === "reflection")?.enabled, true);
@@ -90,7 +93,7 @@ function run() {
 		true
 	);
 	assert.equal(plan.find((pass) => pass.stage === "particles")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "postprocess")?.enabled, true);
+	assert.equal(plan.find((pass) => pass.stage === "postprocess"), undefined);
 
 	const disabledPlan = FramePlanner.build(
 		createFrame(),
@@ -102,12 +105,8 @@ function run() {
 		})
 	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === "animation-sim")?.enabled,
-		false
-	);
-	assert.equal(
-		disabledPlan.find((pass) => pass.stage === "particle-sim")?.enabled,
-		false
+		disabledPlan.find((pass) => pass.stage === "particle-sim"),
+		undefined
 	);
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === "shadow")?.enabled,
@@ -124,6 +123,10 @@ function run() {
 	assert.equal(
 		disabledPlan.find((pass) => pass.stage === "particles")?.enabled,
 		false
+	);
+	assert.equal(
+		disabledPlan.find((pass) => pass.stage === "postprocess"),
+		undefined
 	);
 	assert.equal(
 		plan.find((pass) => pass.stage === "particle-sim")?.executor,
@@ -170,7 +173,7 @@ function run() {
 		false
 	);
 
-	const sceneFogPlan = FramePlanner.build(
+	const sceneFogPlan = FramePlanner.buildFramePlan(
 		createFrame(),
 		baseResolved,
 		createPostProcess({
@@ -182,9 +185,32 @@ function run() {
 			},
 		})
 	);
+	assert.ok(sceneFogPlan.stageOrder.some((stage) => stage.id === "postprocess"));
 	assert.equal(
-		sceneFogPlan.find((pass) => pass.stage === "postprocess")?.enabled,
+		sceneFogPlan.backendPasses.some((pass) => pass.stage === "postprocess"),
 		false
+	);
+
+	const registry = new RenderPipelineRegistry({
+		stages: createDefaultRendererStages(),
+		backendPasses: createDefaultBackendPasses(),
+	});
+	registry.registerBackendPass({
+		id: "custom-plan-pass",
+		dependsOn: ["main-opaque"],
+		shouldRun: () => true,
+	});
+	const customPlan = FramePlanner.buildFramePlan(
+		createFrame(),
+		baseResolved,
+		createPostProcess(),
+		{ registry }
+	);
+	const customBackendStages = customPlan.backendPasses.map((pass) => pass.stage);
+	assert.ok(customBackendStages.includes("custom-plan-pass"));
+	assert.ok(
+		customBackendStages.indexOf("custom-plan-pass") >
+			customBackendStages.indexOf("main-opaque")
 	);
 
 	console.log("Frame planner tests passed");

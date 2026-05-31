@@ -1,5 +1,4 @@
 import {
-	FRAME_PASS_DEPENDENCIES,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type FrameContext,
 	type FramePass,
@@ -48,7 +47,10 @@ import {
 	toShaderCompileError,
 } from "../pipeline/WarmupPlanner";
 import { Logger } from "../foundation/Logger";
-import { hasParticleShadowCasters } from "../pipeline/ParticleShadowVolume";
+import {
+	FramePassPlanValidator,
+	type FramePassPlanValidatorState,
+} from "../pipeline/FramePassPlanValidator";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
@@ -119,6 +121,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
+	private readonly _framePlanner = new FramePassPlanValidator("WebGL");
 	private readonly _passHandlers: Map<
 		FramePass["stage"],
 		WebGLBackendPassHandler
@@ -454,139 +457,32 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
-		if (!context?.scene || !context?.features) {
-			this._plannedPasses.add("main-opaque");
-			this._plannedPassOrder.set("main-opaque", 0);
-			return;
-		}
-
-		const hasParticleSystems = (context.scene.particleSystems?.length ?? 0) > 0;
-		if (hasParticleSystems) {
-			this._plannedPasses.add("particle-sim");
-		}
-		if (
-			context.features.enableShadows &&
-			(context.scene.shadowCasterPackets.length > 0 ||
-				context.scene.shadowTransmitterPackets.length > 0 ||
-				hasParticleShadowCasters(context.scene.particleSystems))
-		) {
-			this._plannedPasses.add("shadow");
-		}
-		if (
-			context.features.enableReflection &&
-			context.scene.reflectivePackets.length > 0
-		) {
-			this._plannedPasses.add("reflection");
-		}
-		this._plannedPasses.add("main-opaque");
-		if (context.scene.transparentPackets.length > 0) {
-			this._plannedPasses.add("main-transparent");
-		}
-		if (hasParticleSystems) {
-			this._plannedPasses.add("particles");
-		}
-		this._validatePlannedPassGraph();
+		this._framePlanner.preparePlan(context, this._getFramePlannerState());
 	}
 
 	private _validatePassDependencies(pass: FramePass): void {
-		if (this._plannedPasses.size > 0 && !this._plannedPasses.has(pass.stage)) {
-			return;
-		}
-		const plannedIndex = this._plannedPassOrder.get(pass.stage);
-		if (plannedIndex !== undefined) {
-			const violated = Array.from(this._executedPasses).some((executedStage) => {
-				const index = this._plannedPassOrder.get(executedStage);
-				return index !== undefined && index > plannedIndex;
-			});
-			if (violated) {
-				throw new Error(
-					`WebGL pass \"${pass.stage}\" execution order violates prevalidated pass plan.`
-				);
+		this._framePlanner.validatePassDependencies(
+			pass,
+			this._getFramePlannerState(),
+			{
+				reportNonFatalError: (scope, error) =>
+					Logger.warn(`[${scope}] ${String(error)}`, {
+						scope: "WebGLBackend",
+					}),
 			}
-		}
-		const dependencies = this._resolvePassDependencies(pass.stage);
-		if (dependencies.length <= 0) {
-			return;
-		}
-		const missing = dependencies.filter(
-			(dependency) =>
-				this._plannedPasses.has(dependency) &&
-				this._isDependencyApplicable(pass.stage, dependency) &&
-				!this._executedPasses.has(dependency)
 		);
-		if (missing.length <= 0) {
-			return;
-		}
-		throw new Error(
-			`WebGL pass \"${pass.stage}\" executed before dependencies: ${missing.join(", ")}`
-		);
-	}
-
-	private _validatePlannedPassGraph(): void {
-		const visiting = new Set<FramePass["stage"]>();
-		const visited = new Set<FramePass["stage"]>();
-		const order: FramePass["stage"][] = [];
-
-		const visit = (stage: FramePass["stage"]): void => {
-			if (visited.has(stage)) {
-				return;
-			}
-			if (visiting.has(stage)) {
-				throw new Error(
-					`WebGL pass plan cycle detected at \"${stage}\" during _prepareFramePassPlan.`
-				);
-			}
-			visiting.add(stage);
-			const dependencies = this._resolvePassDependencies(stage);
-			for (const dependency of dependencies) {
-				if (!this._plannedPasses.has(dependency)) {
-					continue;
-				}
-				visit(dependency);
-			}
-			visiting.delete(stage);
-			visited.add(stage);
-			order.push(stage);
-		};
-
-		for (const stage of this._plannedPasses) {
-			visit(stage);
-		}
-		for (let i = 0; i < order.length; i++) {
-			this._plannedPassOrder.set(order[i], i);
-		}
-	}
-
-	private _resolvePassDependencies(
-		stage: FramePass["stage"]
-	): FramePass["stage"][] {
-		const dependencies = FRAME_PASS_DEPENDENCIES.get(stage);
-		return dependencies ? Array.from(dependencies) : [];
-	}
-
-	private _isDependencyApplicable(
-		stage: FramePass["stage"],
-		dependency: FramePass["stage"]
-	): boolean {
-		const stageIndex = this._plannedPassOrder.get(stage);
-		const dependencyIndex = this._plannedPassOrder.get(dependency);
-		if (stageIndex === undefined || dependencyIndex === undefined) {
-			return true;
-		}
-		if (dependencyIndex < stageIndex) {
-			return true;
-		}
-		Logger.warn(
-			`Ignoring stale dependency \"${dependency}\" for \"${stage}\".`,
-			{ scope: "WebGLBackend" }
-		);
-		return false;
 	}
 
 	private _markPassExecuted(stage: FramePass["stage"]): void {
-		this._executedPasses.add(stage);
+		this._framePlanner.markPassExecuted(stage, this._getFramePlannerState());
+	}
+
+	private _getFramePlannerState(): FramePassPlanValidatorState {
+		return {
+			executedPasses: this._executedPasses,
+			plannedPasses: this._plannedPasses,
+			plannedPassOrder: this._plannedPassOrder,
+		};
 	}
 
 	private _createPassHandlers(): Map<

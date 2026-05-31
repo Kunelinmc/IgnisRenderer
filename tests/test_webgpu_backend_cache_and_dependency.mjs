@@ -235,6 +235,24 @@ function createFrameContext(overrides = {}) {
 	};
 }
 
+function createRendererFramePlan(passes) {
+	const backendPasses = passes.map((pass) =>
+		typeof pass === "string" ?
+			{ stage: pass, executor: "backend", enabled: true }
+		:	{ executor: "backend", enabled: true, ...pass }
+	);
+	return {
+		stageOrder: [
+			...backendPasses.map((pass) => ({
+				id: pass.stage,
+				dependsOn: [],
+			})),
+			{ id: "postprocess", dependsOn: ["particles"] },
+		],
+		backendPasses,
+	};
+}
+
 async function testShaderModuleCacheUsesHashKey() {
 	const { backend, device } = createBackend();
 	const shaderCode = "fn testMain() -> f32 { return 1.0; }";
@@ -897,6 +915,11 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	};
 
 	const context = createFrameContext({
+		framePlan: createRendererFramePlan([
+			"particle-sim",
+			"main-opaque",
+			"particles",
+		]),
 		scene: {
 			particleSystems: [{}],
 			opaquePackets: [],
@@ -936,6 +959,11 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	};
 
 	const context = createFrameContext({
+		framePlan: createRendererFramePlan([
+			"particle-sim",
+			"main-opaque",
+			"particles",
+		]),
 		scene: {
 			particleSystems: [{ id: "ps-0" }],
 			opaquePackets: [],
@@ -1010,6 +1038,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 	};
 
 	const context = createFrameContext({
+		framePlan: createRendererFramePlan(["particle-sim", "main-opaque"]),
 		scene: {
 			particleSystems: [{}],
 			opaquePackets: [],

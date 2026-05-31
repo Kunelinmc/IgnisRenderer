@@ -404,6 +404,19 @@ function createDependencyContext() {
 			transparentPackets: [],
 		},
 		transient: new Map(),
+		framePlan: {
+			stageOrder: [
+				{ id: "particle-sim", dependsOn: [] },
+				{ id: "main-opaque", dependsOn: [] },
+				{ id: "particles", dependsOn: ["main-opaque"] },
+				{ id: "postprocess", dependsOn: ["particles"] },
+			],
+			backendPasses: [
+				{ stage: "particle-sim", executor: "backend", enabled: true },
+				{ stage: "main-opaque", executor: "backend", enabled: true },
+				{ stage: "particles", executor: "backend", enabled: true },
+			],
+		},
 	};
 }
 
