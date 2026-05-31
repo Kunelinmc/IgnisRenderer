@@ -401,6 +401,47 @@ function testInvalidateFrameTargetsDestroysPresentBinding() {
 	assert.equal(executor._presentBinding, null);
 }
 
+function testInvalidateFrameTargetsDefersDuringActiveFrame() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	const activeTargets = executor._frameTargets;
+	assert.ok(activeTargets);
+
+	executor.invalidateFrameTargets();
+	assert.strictEqual(executor._frameTargets, activeTargets);
+	assert.equal(executor._pendingFrameTargetInvalidation, true);
+
+	executor.abortFrame();
+	assert.equal(executor._frameTargets, null);
+	assert.equal(executor._pendingFrameTargetInvalidation, false);
+}
+
+function testShaderRuntimeInvalidationDefersDuringActiveFrame() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	let destroyed = 0;
+	executor._presentShaderModule = {
+		destroy() {
+			destroyed++;
+		},
+	};
+
+	executor.beginFrame(context);
+	executor.onShaderRuntimeChanged();
+	assert.equal(executor._pendingShaderRuntimeInvalidation, true);
+	assert.notEqual(executor._presentShaderModule, null);
+	assert.equal(destroyed, 0);
+
+	executor.abortFrame();
+	assert.equal(executor._pendingShaderRuntimeInvalidation, false);
+	assert.equal(executor._presentShaderModule, null);
+	assert.equal(destroyed, 1);
+}
+
 async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	const backend = new FakeBackend();
 	const resources = createModeTrackingResourcesStub();
@@ -547,6 +588,8 @@ function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	assert.equal(executor._frameTargets.planarReflectionMask, null);
 
 	executor.invalidateFrameTargets();
+	assert.equal(executor._pendingFrameTargetInvalidation, true);
+	executor.abortFrame();
 	assert.equal(executor._frameTargets, null);
 }
 
@@ -575,7 +618,7 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 		executor._frameTargets.gMotionDepth
 	);
 
-	executor.invalidateFrameTargets();
+	executor.abortFrame();
 }
 
 function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
@@ -610,6 +653,7 @@ function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	assert.equal(executor._texturePoolOwners.has(planarReflectionMask), true);
 
 	executor.invalidateFrameTargets();
+	executor.abortFrame();
 	assert.equal(executor._frameTargets, null);
 	assert.equal(executor._texturePoolOwners.has(oitAccum), false);
 	assert.equal(executor._texturePoolOwners.has(oitReveal), false);
@@ -1432,6 +1476,8 @@ async function run() {
 	await testEndFrameFailureClosesActiveState();
 	testFrameTargetAllocationFailureReleasesPartialResources();
 	testInvalidateFrameTargetsDestroysPresentBinding();
+	testInvalidateFrameTargetsDefersDuringActiveFrame();
+	testShaderRuntimeInvalidationDefersDuringActiveFrame();
 	await testLegacyMainPassForcesSingleSceneTargetMode();
 	await testIncrementalMainPassUsesDepthPartialReuse();
 	await testMainOpaqueDisablesEarlyZWhenConfiguredOff();

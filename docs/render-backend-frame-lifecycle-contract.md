@@ -23,6 +23,19 @@ that releases active frame state without submitting partial work.
   and frame execution fails.
 - `Renderer.renderScene` must rethrow the original frame error after abort
   cleanup.
+- `WebGPUBackend` must defer resize, MSAA sample-count, and shader-runtime
+  resource invalidation work while a frame is active.
+- Deferred `WebGPUBackend` lifecycle work must run after `endFrame` or
+  `abortFrame` clears active encoder state.
+- Deferred `WebGPUBackend` resize work must use the latest queued width and
+  height when multiple resize requests occur during one active frame.
+- Deferred `WebGPUBackend` MSAA work must use the latest queued sample-count
+  request when multiple MSAA changes occur during one active frame.
+- Deferred `WebGPUBackend` shader-runtime work must invalidate WebGPU-owned
+  caches and resources at the frame boundary. The public `ShaderRuntime` state
+  may change immediately.
+- Device loss, `destroy`, and full backend rollback must remain immediate
+  recovery paths and must not wait for the deferred lifecycle queue.
 
 ## Usage
 ```ts
@@ -46,6 +59,7 @@ class Backend implements IRenderBackend {
 bun tests/test_renderer_pipeline_registry.mjs
 bun tests/test_webgpu_backend_cache_and_dependency.mjs
 bun tests/test_webgpu_frame_executor_resilience.mjs
+bun tests/test_webgpu_post_graph.mjs
 ```
 
 ## Errors & Diagnostics
@@ -55,6 +69,8 @@ bun tests/test_webgpu_frame_executor_resilience.mjs
   while preserving the original frame error.
 - Backend-specific `abortFrame` diagnostics should include the original `error`
   only for logging or telemetry.
+- WebGPU deferred lifecycle flush failures should be reported as non-fatal
+  diagnostics when preserving an earlier frame failure.
 
 ## Compatibility / Breaking Changes
 `IRenderBackend.abortFrame` is additive and optional. Backends that implement it

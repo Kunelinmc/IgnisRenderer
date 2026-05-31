@@ -346,6 +346,14 @@ export class WebGPUBackend implements IRenderBackend {
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private _frameActive = false;
+	private _pendingResize:
+		| {
+				width: number;
+				height: number;
+		  }
+		| null = null;
+	private _pendingMSAASampleCount: number | null = null;
+	private _pendingShaderRuntimeInvalidation = false;
 	private _autoDisposeRegistry: FinalizationRegistry<string> | null =
 		typeof FinalizationRegistry === "function"
 			? new FinalizationRegistry<string>((label) => {
@@ -650,12 +658,42 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this.device || !this.context || !this.canvas) {
 			return;
 		}
-		const resolvedWidth = Number.isFinite(width)
-			? Math.max(0, Math.floor(width))
-			: this.canvas.width;
-		const resolvedHeight = Number.isFinite(height)
-			? Math.max(0, Math.floor(height))
-			: this.canvas.height;
+		const { width: resolvedWidth, height: resolvedHeight } =
+			this._resolveResizeDimensions(width, height);
+		if (this._isFrameActive()) {
+			this._pendingResize = {
+				width: resolvedWidth,
+				height: resolvedHeight,
+			};
+			return;
+		}
+
+		this._applyResize(resolvedWidth, resolvedHeight);
+	}
+
+	private _resolveResizeDimensions(
+		width: number,
+		height: number
+	): { width: number; height: number } {
+		const canvas = this.canvas;
+		return {
+			width: Number.isFinite(width)
+				? Math.max(0, Math.floor(width))
+				: canvas?.width ?? 0,
+			height: Number.isFinite(height)
+				? Math.max(0, Math.floor(height))
+				: canvas?.height ?? 0,
+		};
+	}
+
+	private _applyResize(
+		resolvedWidth: number,
+		resolvedHeight: number,
+		options: { invalidateFrameTargets?: boolean } = {}
+	): boolean {
+		if (!this.device || !this.context || !this.canvas) {
+			return false;
+		}
 		if (this.canvas.width !== resolvedWidth || this.canvas.height !== resolvedHeight) {
 			this.canvas.width = resolvedWidth;
 			this.canvas.height = resolvedHeight;
@@ -668,7 +706,10 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCacheEntryCount = 0;
 		this._recreateDepthTexture();
 		this._emitPostProcessResourceEvent("invalidate", "resize");
-		this._frameExecutor?.invalidateFrameTargets();
+		if (options.invalidateFrameTargets !== false) {
+			this._frameExecutor?.invalidateFrameTargets();
+		}
+		return true;
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -740,30 +781,70 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public async endFrame(): Promise<void> {
 		const wasActive = this._frameActive;
+		let frameError: unknown = null;
 		try {
 			await this._frameExecutor?.endFrame();
-		} finally {
-			try {
-				if (wasActive) {
-					this._particleSimulator?.endFrame();
-				}
-			} finally {
-				this._frameActive = false;
-				this._clearFramePlannerState();
+		} catch (error) {
+			frameError = error;
+		}
+		try {
+			if (wasActive) {
+				this._particleSimulator?.endFrame();
 			}
+		} catch (error) {
+			if (!frameError) {
+				frameError = error;
+			} else {
+				this._reportNonFatalError("particle frame cleanup", error);
+			}
+		} finally {
+			this._frameActive = false;
+			this._clearFramePlannerState();
+		}
+
+		try {
+			this._flushDeferredLifecycleChanges();
+		} catch (error) {
+			if (!frameError) {
+				throw error;
+			}
+			this._reportNonFatalError(
+				"deferred lifecycle flush after failed frame",
+				error
+			);
+		}
+		if (frameError) {
+			throw frameError;
 		}
 	}
 
 	public abortFrame(_error?: unknown): void {
 		const wasActive = this._frameActive;
+		let abortError: unknown = null;
 		try {
 			this._frameExecutor?.abortFrame();
 			if (wasActive) {
 				this._particleSimulator?.endFrame();
 			}
+		} catch (error) {
+			abortError = error;
 		} finally {
 			this._frameActive = false;
 			this._clearFramePlannerState();
+		}
+		try {
+			this._flushDeferredLifecycleChanges();
+		} catch (error) {
+			if (!abortError) {
+				throw error;
+			}
+			this._reportNonFatalError(
+				"deferred lifecycle flush after failed abort",
+				error
+			);
+		}
+		if (abortError) {
+			throw abortError;
 		}
 	}
 
@@ -1294,9 +1375,11 @@ export class WebGPUBackend implements IRenderBackend {
 			this.setMSAASampleCount(1);
 			return;
 		}
+		const preferredSampleCount =
+			this._pendingMSAASampleCount ?? this._preferredMSAASampleCount;
 		const sampleCount =
-			this._preferredMSAASampleCount > 1
-				? this._preferredMSAASampleCount
+			preferredSampleCount > 1
+				? preferredSampleCount
 				: WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT;
 		this.setMSAASampleCount(sampleCount);
 	}
@@ -1306,13 +1389,25 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		const requested = Math.max(1, Math.floor(sampleCount));
+		if (this._isFrameActive()) {
+			this._pendingMSAASampleCount = requested;
+			return;
+		}
+		this._applyMSAASampleCount(requested);
+	}
+
+	private _applyMSAASampleCount(
+		requested: number,
+		options: { invalidateFrameTargets?: boolean } = {}
+	): boolean {
 		this._preferredMSAASampleCount = requested;
 		const resolved = this._resolveSupportedMSAASampleCount(requested);
 		if (resolved === this._msaaSampleCount) {
-			return;
+			return false;
 		}
 		this._msaaSampleCount = resolved;
-		this._onMSAASampleCountChanged();
+		this._onMSAASampleCountChanged(options);
+		return true;
 	}
 
 	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
@@ -1576,6 +1671,9 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameSerial = 0;
 		this._bindingGroupTouchTick = 0;
 		this._frameActive = false;
+		this._pendingResize = null;
+		this._pendingMSAASampleCount = null;
+		this._pendingShaderRuntimeInvalidation = false;
 		this._clearFramePlannerState();
 		this._msaaSelectionCache.clear();
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
@@ -2500,24 +2598,70 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._resolveSupportedMSAASampleCount(preferred);
 	}
 
-	private _onMSAASampleCountChanged(): void {
+	private _onMSAASampleCountChanged(
+		options: { invalidateFrameTargets?: boolean } = {}
+	): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._renderPipelineCache.clear();
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._emitPostProcessResourceEvent("invalidate", "msaa-sample-count");
-		this._frameExecutor?.invalidateFrameTargets();
+		if (options.invalidateFrameTargets !== false) {
+			this._frameExecutor?.invalidateFrameTargets();
+		}
 		this._resetCurrentCanvasTargets();
 	}
 
 	private _onShaderRuntimeChanged(): void {
+		if (this._isFrameActive()) {
+			this._pendingShaderRuntimeInvalidation = true;
+			return;
+		}
+		this._applyShaderRuntimeChanged();
+	}
+
+	private _applyShaderRuntimeChanged(): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
 		this._emitPostProcessResourceEvent("destroy", "shader-runtime-changed");
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();
+	}
+
+	private _flushDeferredLifecycleChanges(): void {
+		if (this._isFrameActive()) {
+			return;
+		}
+		const applyShaderRuntimeInvalidation =
+			this._pendingShaderRuntimeInvalidation;
+		const pendingMSAASampleCount = this._pendingMSAASampleCount;
+		const pendingResize = this._pendingResize;
+		this._pendingShaderRuntimeInvalidation = false;
+		this._pendingMSAASampleCount = null;
+		this._pendingResize = null;
+
+		if (applyShaderRuntimeInvalidation) {
+			this._applyShaderRuntimeChanged();
+		}
+
+		let needsFrameTargetInvalidation = false;
+		if (pendingMSAASampleCount !== null) {
+			needsFrameTargetInvalidation =
+				this._applyMSAASampleCount(pendingMSAASampleCount, {
+					invalidateFrameTargets: false,
+				}) || needsFrameTargetInvalidation;
+		}
+		if (pendingResize) {
+			needsFrameTargetInvalidation =
+				this._applyResize(pendingResize.width, pendingResize.height, {
+					invalidateFrameTargets: false,
+				}) || needsFrameTargetInvalidation;
+		}
+		if (needsFrameTargetInvalidation) {
+			this._frameExecutor?.invalidateFrameTargets();
+		}
 	}
 
 	private _invalidateShaderDependentCaches(): void {

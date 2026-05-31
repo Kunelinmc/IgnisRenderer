@@ -619,6 +619,8 @@ function testResizeUsesProvidedDimensions() {
 		},
 	};
 	backend._frameExecutor = {
+		endFrame() {},
+		abortFrame() {},
 		invalidateFrameTargets() {
 			invalidateCalls++;
 		},
@@ -627,6 +629,137 @@ function testResizeUsesProvidedDimensions() {
 	assert.equal(backend.canvas.width, 320);
 	assert.equal(backend.canvas.height, 240);
 	assert.equal(device.configureCalls, 1);
+	assert.equal(invalidateCalls, 1);
+}
+
+async function testResizeDuringActiveFrameDefersResourceInvalidation() {
+	const { backend, device } = createBackend();
+	let invalidateCalls = 0;
+	backend._canvas = { width: 1, height: 1 };
+	backend._context = {
+		configure(config) {
+			device.configureCalls++;
+			assert.equal(config.device, device);
+		},
+	};
+	backend._frameExecutor = {
+		endFrame() {},
+		abortFrame() {},
+		invalidateFrameTargets() {
+			invalidateCalls++;
+		},
+	};
+	backend._frameActive = true;
+
+	backend.resize(320.9, 240.2);
+	assert.equal(backend.canvas.width, 1);
+	assert.equal(backend.canvas.height, 1);
+	assert.equal(device.configureCalls, 0);
+	assert.equal(invalidateCalls, 0);
+
+	await backend.endFrame();
+	assert.equal(backend.canvas.width, 320);
+	assert.equal(backend.canvas.height, 240);
+	assert.equal(device.configureCalls, 1);
+	assert.equal(invalidateCalls, 1);
+	assert.equal(backend._pendingResize, null);
+}
+
+async function testMSAAChangeDuringActiveFrameDefersCachesAndTargets() {
+	const { backend } = createBackend();
+	let invalidationCount = 0;
+	backend._frameExecutor = {
+		endFrame() {},
+		abortFrame() {},
+		invalidateFrameTargets() {
+			invalidationCount++;
+		},
+	};
+	backend._renderPipelineCache.set("cached", {
+		key: "cached",
+		label: "cached",
+		refCount: 1,
+		gpuResource: { getBindGroupLayout() {} },
+	});
+	backend._frameActive = true;
+	const previousPreferredSampleCount = backend._preferredMSAASampleCount;
+
+	backend.setMSAASampleCount(8);
+	assert.equal(backend.getMSAASampleCount(), 1);
+	assert.equal(backend._preferredMSAASampleCount, previousPreferredSampleCount);
+	assert.equal(backend._renderPipelineCache.size, 1);
+	assert.equal(invalidationCount, 0);
+
+	await backend.endFrame();
+	assert.equal(backend.getMSAASampleCount(), 4);
+	assert.equal(backend._preferredMSAASampleCount, 8);
+	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(invalidationCount, 1);
+	assert.equal(backend._pendingMSAASampleCount, null);
+}
+
+async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
+	const { backend } = createBackend();
+	let executorInvalidations = 0;
+	let resourceInvalidations = 0;
+	backend._frameExecutor = {
+		endFrame() {},
+		abortFrame() {},
+		onShaderRuntimeChanged() {
+			executorInvalidations++;
+		},
+	};
+	backend._resources = {
+		onShaderRuntimeChanged() {
+			resourceInvalidations++;
+		},
+	};
+	backend._renderPipelineCache.set("cached", {
+		key: "cached",
+		label: "cached",
+		refCount: 1,
+		gpuResource: { getBindGroupLayout() {} },
+	});
+	backend._frameActive = true;
+
+	backend.shaderRuntime.setMode("warn");
+	assert.equal(backend.shaderRuntime.getMode(), "warn");
+	assert.equal(backend._renderPipelineCache.size, 1);
+	assert.equal(executorInvalidations, 0);
+	assert.equal(resourceInvalidations, 0);
+
+	await backend.endFrame();
+	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(executorInvalidations, 1);
+	assert.equal(resourceInvalidations, 1);
+	assert.equal(backend._pendingShaderRuntimeInvalidation, false);
+}
+
+async function testDeferredLifecycleChangesCoalesceFrameTargetInvalidation() {
+	const { backend, device } = createBackend();
+	let invalidateCalls = 0;
+	backend._canvas = { width: 1, height: 1 };
+	backend._context = {
+		configure() {
+			device.configureCalls++;
+		},
+	};
+	backend._frameExecutor = {
+		endFrame() {},
+		abortFrame() {},
+		invalidateFrameTargets() {
+			invalidateCalls++;
+		},
+	};
+	backend._frameActive = true;
+
+	backend.setMSAASampleCount(8);
+	backend.resize(10, 12);
+	await backend.abortFrame();
+
+	assert.equal(backend.getMSAASampleCount(), 4);
+	assert.equal(backend.canvas.width, 10);
+	assert.equal(backend.canvas.height, 12);
 	assert.equal(invalidateCalls, 1);
 }
 
@@ -996,6 +1129,10 @@ async function run() {
 	testExplicitMSAASwitchCanEnableAndDisable();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
+	await testResizeDuringActiveFrameDefersResourceInvalidation();
+	await testMSAAChangeDuringActiveFrameDefersCachesAndTargets();
+	await testShaderRuntimeChangeDuringActiveFrameDefersInvalidation();
+	await testDeferredLifecycleChangesCoalesceFrameTargetInvalidation();
 	await testPublicDeviceLifecycleMethods();
 	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
 	testMapBindingResourceRejectsPrimitive();

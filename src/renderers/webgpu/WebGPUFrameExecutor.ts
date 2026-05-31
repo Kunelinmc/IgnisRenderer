@@ -252,6 +252,8 @@ export class WebGPUFrameExecutor {
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
+	private _pendingFrameTargetInvalidation = false;
+	private _pendingShaderRuntimeInvalidation = false;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
 	private _planarReflectionPass: WebGPUPlanarReflectionPass;
@@ -637,6 +639,14 @@ export class WebGPUFrameExecutor {
 	 * the new dimensions.
 	 */
 	public invalidateFrameTargets(): void {
+		if (this._hasActiveFrameState()) {
+			this._pendingFrameTargetInvalidation = true;
+			return;
+		}
+		this._invalidateFrameTargetsNow();
+	}
+
+	private _invalidateFrameTargetsNow(): void {
 		this._destroyFrameTargets();
 		this._postRuntime.invalidateBindings();
 		this._planarReflectionPass.destroy();
@@ -647,6 +657,14 @@ export class WebGPUFrameExecutor {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		if (this._hasActiveFrameState()) {
+			this._pendingShaderRuntimeInvalidation = true;
+			return;
+		}
+		this._applyShaderRuntimeChangedNow();
+	}
+
+	private _applyShaderRuntimeChangedNow(): void {
 		this._destroyManagedResource(this._presentShaderModule);
 		this._destroyManagedResource(this._presentPipeline);
 		this._destroyManagedResource(this._presentSampler);
@@ -825,7 +843,9 @@ export class WebGPUFrameExecutor {
 		}
 		this._depthDirtyClearShaderModule = null;
 		this._depthDirtyClearPipelines.clear();
-		this._clearActiveFrameState();
+		this._pendingFrameTargetInvalidation = false;
+		this._pendingShaderRuntimeInvalidation = false;
+		this._clearActiveFrameState(false);
 	}
 
 	public async executePass(
@@ -1785,7 +1805,7 @@ export class WebGPUFrameExecutor {
 		this._pendingPostProcessColorTarget = null;
 	}
 
-	private _clearActiveFrameState(): void {
+	private _clearActiveFrameState(flushPendingLifecycle = true): void {
 		this._encoder = null;
 		this._frameContext = null;
 		this._frameResources = null;
@@ -1796,6 +1816,31 @@ export class WebGPUFrameExecutor {
 		this._oitHasContributors = false;
 		this._oitTransmissionPackets = [];
 		this._oitNeedsTransmissionAfterParticles = false;
+		if (flushPendingLifecycle) {
+			this._flushPendingLifecycleInvalidations();
+		}
+	}
+
+	private _flushPendingLifecycleInvalidations(): void {
+		const applyShaderRuntimeInvalidation =
+			this._pendingShaderRuntimeInvalidation;
+		const applyFrameTargetInvalidation = this._pendingFrameTargetInvalidation;
+		this._pendingShaderRuntimeInvalidation = false;
+		this._pendingFrameTargetInvalidation = false;
+		if (applyShaderRuntimeInvalidation) {
+			this._applyShaderRuntimeChangedNow();
+		}
+		if (applyFrameTargetInvalidation) {
+			this._invalidateFrameTargetsNow();
+		}
+	}
+
+	private _hasActiveFrameState(): boolean {
+		return (
+			this._encoder !== null ||
+			this._frameContext !== null ||
+			this._frameResources !== null
+		);
 	}
 
 	private _resolveAttachmentDimension(value: number): number {
