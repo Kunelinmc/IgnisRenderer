@@ -60,7 +60,6 @@ import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
 } from "../WebGPUDrawSubmission";
-import { TexturePool, type TexturePoolOptions } from "../TexturePool";
 import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
@@ -79,35 +78,27 @@ import {
 	type WebGPUPlanarReflectionMSAATargets,
 } from "../WebGPUPlanarReflectionPass";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
+import {
+	WebGPUFrameTargetManager,
+	type WebGPUFrameMSAATargets,
+	type WebGPUFrameTargetRequirements,
+} from "./WebGPUFrameTargetManager";
 import { WebGPUFrameGraphPlanner } from "./WebGPUFrameGraphPlanner";
+import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
+import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
+import { WebGPUOITPass } from "./WebGPUOITPass";
+import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
 import type {
+	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphDebugState,
 	WebGPUFrameGraphNode,
+	WebGPUFrameGraphValidationMode,
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
-
-type WebGPUFrameGraphStageHandler = (context: FrameContext) => Promise<void>;
 
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
-
-interface WebGPUFrameMSAATargets {
-	sceneColorMain: IRenderTexture;
-	gAlbedoAlpha?: IRenderTexture | null;
-	gNormalRoughMetal?: IRenderTexture | null;
-	gEmissiveOcclusion?: IRenderTexture | null;
-	gMotionDepth?: IRenderTexture | null;
-	planarReflectionMask?: IRenderTexture | null;
-	depth: IRenderTexture;
-}
-
-interface WebGPUFrameTargetRequirements {
-	sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single">;
-	needsPostProcessTargets: boolean;
-	needsOITTargets: boolean;
-	needsPlanarReflectionMask: boolean;
-}
 
 export class WebGPUFrameGraphRuntime {
 	private _backend: WebGPUBackend;
@@ -115,57 +106,38 @@ export class WebGPUFrameGraphRuntime {
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
 	private _frameResources: WebGPUPreparedFrameResources | null = null;
-	private _frameTargets: WebGPUFrameTargets | null = null;
-	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
-	private _targetWidth = 0;
-	private _targetHeight = 0;
-	private _targetMSAASampleCount = 1;
 	private _hasPresentedInFrame = false;
 	private _mrtEnabled = true;
 	private _mrtSupportChecked = false;
 	private _deferredEnabled = false;
-	private _targetSceneTargetMode: WebGPUSceneTargetMode = "single";
-	private _targetNeedsPostProcessTargets = false;
-	private _targetNeedsOITTargets = false;
-	private _targetNeedsPlanarReflectionMask = false;
 	private _postRuntime: WebGPUPostProcessRuntime;
+	private _postBridge: WebGPUPostProcessBridge;
 	private _presentShaderModule: IShaderModule | null = null;
 	private _presentPipeline: IRenderPipeline | null = null;
 	private _presentSampler: ISampler | null = null;
 	private _presentParamsBuffer: IRenderBuffer | null = null;
 	private _presentBinding: IBindingGroup | null = null;
 	private _presentBindingSource: IRenderTexture | null = null;
-	private _oitResolveShaderModule: IShaderModule | null = null;
-	private _oitResolvePipeline: IRenderPipeline | null = null;
-	private _oitResolveSampler: ISampler | null = null;
-	private _oitResolveBinding: IBindingGroup | null = null;
-	private _oitResolveBindingScene: IRenderTexture | null = null;
-	private _oitResolveBindingAccum: IRenderTexture | null = null;
-	private _oitResolveBindingReveal: IRenderTexture | null = null;
-	private _gbufferWriteBinding: IBindingGroup | null = null;
-	private _gbufferWriteBindingSources: IRenderTexture[] = [];
-	private _gbufferReadBinding: IBindingGroup | null = null;
-	private _gbufferReadBindingSources: IRenderTexture[] = [];
 	private _oitActive = false;
-	private _oitHasContributors = false;
-	private _oitTransmissionPackets: DrawPacket[] = [];
-	private _oitNeedsTransmissionAfterParticles = false;
 	private _motionHistoryWriteTarget: IRenderTexture | null = null;
 	private _pendingPostProcessColorTarget: IRenderTexture | null = null;
 	private _depthDirtyClearShaderModule: IShaderModule | null = null;
 	private _depthDirtyClearPipelines = new Map<string, IRenderPipeline>();
-	private _texturePools = new Map<string, TexturePool>();
-	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 	private _pendingFrameTargetInvalidation = false;
 	private _pendingShaderRuntimeInvalidation = false;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
 	private _planarReflectionPass: WebGPUPlanarReflectionPass;
 	private _presentPass: WebGPUPresentPass;
+	private _frameTargetManager: WebGPUFrameTargetManager;
+	private _oitPass: WebGPUOITPass;
+	private _deferredLightingPass: WebGPUDeferredLightingPass;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
+	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private _lastPlannedGraphNodes: WebGPUFrameGraphNode[] = [];
+	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
-	private readonly _passHandlers: Map<FramePass["stage"], WebGPUFrameGraphStageHandler>;
+	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
 	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
@@ -175,6 +147,8 @@ export class WebGPUFrameGraphRuntime {
 			enableEarlyZPrepass?: boolean;
 			isDeferredLightingEnabled?: () => boolean;
 			enableDeferredLighting?: boolean;
+			getFrameGraphValidationMode?: () => WebGPUFrameGraphValidationMode;
+			frameGraphValidation?: WebGPUFrameGraphValidationMode;
 		};
 		const earlyZGetter = backendOptions.isEarlyZPrepassEnabled;
 		this._enableEarlyZPrepass =
@@ -186,6 +160,11 @@ export class WebGPUFrameGraphRuntime {
 			typeof deferredLightingGetter === "function" ?
 				deferredLightingGetter.call(this._backend)
 			:	backendOptions.enableDeferredLighting !== false;
+		const validationGetter = backendOptions.getFrameGraphValidationMode;
+		this._frameGraphValidationMode =
+			typeof validationGetter === "function" ?
+				validationGetter.call(this._backend)
+			:	backendOptions.frameGraphValidation ?? "throw";
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
@@ -196,25 +175,105 @@ export class WebGPUFrameGraphRuntime {
 				}),
 			resources.sceneFrameLayout
 		);
+		this._postBridge = new WebGPUPostProcessBridge(
+			backend,
+			this._postRuntime,
+			{
+				getEncoder: () => this._encoder,
+				getFrameTargets: () => this._frameTargets,
+				requireFrameResources: () => this._requireFrameResources(),
+				presentToCanvas: (source, applyGamma) =>
+					this._presentToCanvas(source, applyGamma),
+				warmupPresent: () => this._ensurePresentResources(),
+				setMotionHistoryWriteTarget: (texture) => {
+					this._motionHistoryWriteTarget = texture;
+				},
+			}
+		);
 		this._planarReflectionPass = new WebGPUPlanarReflectionPass(
 			backend,
 			resources
 		);
 		this._presentPass = new WebGPUPresentPass(backend);
-		this._passHandlers = this._createPassHandlers();
+		this._frameTargetManager = new WebGPUFrameTargetManager(backend, {
+			resolveMSAASampleCount: () => this._resolveMSAASampleCount(),
+			configureDeferredLightingSupport: () =>
+				this._configureDeferredLightingSupport(),
+			frameHasDeferredLightingWork: (context) =>
+				this._frameHasDeferredLightingWork(context),
+			getFrameContext: () => this._frameContext,
+			isDeferredEnabled: () => this._deferredEnabled,
+			setDeferredEnabled: (enabled) => {
+				this._deferredEnabled = enabled;
+			},
+		});
+		this._oitPass = new WebGPUOITPass(backend, resources, {
+			getEncoder: () => this._encoder,
+			getFrameTargets: () => this._frameTargets,
+			getMSAATargets: () => this._msaaTargets,
+			getTargetWidth: () => this._targetWidth,
+			getTargetHeight: () => this._targetHeight,
+			getSceneTargetMode: () => this._targetSceneTargetMode,
+			requireFrameResources: () => this._requireFrameResources(),
+			resolveDirtyRects: (context, width, height) =>
+				this._resolveDirtyRects(context, width, height),
+			resolveTransparentSubsetForRect: (context, packets, rect) =>
+				this._resolveTransparentSubsetForRect(context, packets, rect),
+			recordLegacyMainPass: (context, packets, clear, earlyZ) =>
+				this._recordLegacyMainPass(context, packets, clear, earlyZ),
+			drawTransmissionFallback: (context, packets) =>
+				this._drawTransmissionPackets(context, packets),
+			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
+		});
+		this._deferredLightingPass = new WebGPUDeferredLightingPass(
+			backend,
+			resources,
+			{
+				getEncoder: () => this._encoder,
+				getFrameTargets: () => this._frameTargets,
+				requireFrameResources: () => this._requireFrameResources(),
+				resolveDirtyRects: (context, width, height) =>
+					this._resolveDirtyRects(context, width, height),
+			}
+		);
+	}
+
+	private get _frameTargets(): WebGPUFrameTargets | null {
+		return this._frameTargetManager.frameTargets;
+	}
+
+	private get _msaaTargets(): WebGPUFrameMSAATargets | null {
+		return this._frameTargetManager.msaaTargets;
+	}
+
+	private get _targetWidth(): number {
+		return this._frameTargetManager.targetWidth;
+	}
+
+	private get _targetHeight(): number {
+		return this._frameTargetManager.targetHeight;
+	}
+
+	private get _targetMSAASampleCount(): number {
+		return this._frameTargetManager.targetMSAASampleCount;
+	}
+
+	private get _targetSceneTargetMode(): WebGPUSceneTargetMode {
+		return this._frameTargetManager.targetSceneTargetMode;
 	}
 
 	public beginFrame(context: FrameContext): void {
 		this._frameContext = context;
 		this._hasPresentedInFrame = false;
 		this._oitActive = false;
-		this._oitHasContributors = false;
-		this._oitTransmissionPackets = [];
-		this._oitNeedsTransmissionAfterParticles = false;
+		this._oitPass.resetFrameState();
 		this._motionHistoryWriteTarget = null;
 		this._pendingPostProcessColorTarget = null;
+		this._postBridge.clearPendingFrameState();
 		this._lastPlannedGraphNodes = [];
+		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
+		this._graphCompiler.beginFrame([]);
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -243,6 +302,7 @@ export class WebGPUFrameGraphRuntime {
 			this._destroyFrameTargets();
 		}
 		this._configureOIT(context);
+		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
 	}
 
@@ -281,107 +341,15 @@ export class WebGPUFrameGraphRuntime {
 	public createPostProcessResource(
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle {
-		const texture = this._backend.createTexture({
-			width: desc.width,
-			height: desc.height,
-			format:
-				desc.format === "rgba8unorm" ?
-					TextureFormat.RGBA8Unorm
-				:	TextureFormat.RGBA16Float,
-			mipLevelCount:
-				desc.mipMode === "full-chain" ?
-					Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
-				:	undefined,
-			usage:
-				TextureUsage.TextureBinding |
-				TextureUsage.StorageBinding |
-				TextureUsage.RenderAttachment |
-				TextureUsage.CopyDst |
-				TextureUsage.CopySrc,
-			label: `WebGPUPostHistory_${desc.id}`,
-		});
-		return {
-			id: desc.id,
-			backend: "webgpu",
-			width: desc.width,
-			height: desc.height,
-			format: desc.format,
-			mipMode: desc.mipMode ?? "single",
-			resource: texture,
-		};
+		return this._postBridge.createResource(desc);
 	}
 
 	public destroyPostProcessResource(handle: PostProcessResourceHandle): void {
-		(handle.resource as IRenderTexture | null)?.destroy?.();
+		this._postBridge.destroyResource(handle);
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		const targets = this._frameTargets;
-		const width = Math.max(1, context.attachments.width);
-		const height = Math.max(1, context.attachments.height);
-		const channels: LogicalGBufferBridge["channels"] = {};
-		if (targets) {
-			channels.color = {
-				semantic: "color",
-				handle: { backend: "webgpu", texture: targets.sceneColor },
-				width,
-				height,
-				format: TextureFormat.RGBA16Float,
-			};
-			if (targets.gMotionDepth) {
-				channels.depth = {
-					semantic: "depth",
-					handle: { backend: "webgpu", texture: targets.gMotionDepth },
-					width,
-					height,
-					format: TextureFormat.RGBA16Float,
-					encoding: "motion-depth.z",
-				};
-				channels.motion = {
-					semantic: "motion",
-					handle: { backend: "webgpu", texture: targets.gMotionDepth },
-					width,
-					height,
-					format: TextureFormat.RGBA16Float,
-					encoding: "motion-depth.xy",
-				};
-			}
-			if (targets.gNormalRoughMetal) {
-				channels.normal = {
-					semantic: "normal",
-					handle: {
-						backend: "webgpu",
-						texture: targets.gNormalRoughMetal,
-					},
-					width,
-					height,
-					format: TextureFormat.RGBA16Float,
-					encoding: "encoded-world-normal",
-				};
-			}
-			if (targets.gAlbedoAlpha) {
-				channels.albedo = {
-					semantic: "albedo",
-					handle: { backend: "webgpu", texture: targets.gAlbedoAlpha },
-					width,
-					height,
-					format: TextureFormat.RGBA8Unorm,
-					encoding: "linear-rgb-alpha",
-				};
-			}
-		}
-		return {
-			width,
-			height,
-			normalSpace: "world",
-			depthEncoding: "linear-view-z",
-			motionEncoding: targets?.gMotionDepth ? "ndc-delta" : undefined,
-			channels,
-			worldPosition: {
-				source: "derived",
-				available: !!targets?.gMotionDepth,
-			},
-		};
+		return this._postBridge.createGBufferBridge(context);
 	}
 
 	public getSceneTargetModeForFrame(): WebGPUSceneTargetMode {
@@ -399,7 +367,7 @@ export class WebGPUFrameGraphRuntime {
 			oitActive: this._oitActive,
 			targetWidth: this._targetWidth,
 			targetHeight: this._targetHeight,
-			texturePoolOwnerCount: this._texturePoolOwners.size,
+			texturePoolOwnerCount: this._frameTargetManager.texturePoolOwnerCount,
 			frameTargets: this._frameTargets,
 			msaaTargets: this._msaaTargets,
 			motionHistoryWriteTarget: this._motionHistoryWriteTarget,
@@ -408,6 +376,11 @@ export class WebGPUFrameGraphRuntime {
 				this._pendingShaderRuntimeInvalidation,
 			lastPlannedNodeIds: this._lastPlannedGraphNodes.map((node) => node.id),
 			lastExecutedNodeIds: this._lastExecutedGraphNodeIds.slice(),
+			compiledStages: this._lastCompiledGraphStages.slice(),
+			graphResources: this._graphCompiler.getResourceDebugState(),
+			graphBarriers: this._graphCompiler.getBarriers(),
+			graphDiagnostics: this._graphCompiler.getDiagnostics(),
+			targetManager: this._frameTargetManager.getDebugState(),
 		};
 	}
 
@@ -423,15 +396,7 @@ export class WebGPUFrameGraphRuntime {
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		if (!this._encoder || !this._frameTargets) {
-			return undefined;
-		}
-		const metadata = request.implementation.metadata?.context;
-		if (!isWebGPUPostProcessContextMetadata(metadata)) {
-			return undefined;
-		}
-		this._pendingPostProcessColorTarget = null;
-		return this._createWebGPUPostProcessContext(metadata, request, "execute");
+		return this._postBridge.getPassExecutionContext(request);
 	}
 
 	/**
@@ -447,121 +412,7 @@ export class WebGPUFrameGraphRuntime {
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult
 	): void {
-		const colorTarget = this._pendingPostProcessColorTarget;
-		this._pendingPostProcessColorTarget = null;
-		if (result.ran === false || !colorTarget || !this._frameTargets) {
-			return;
-		}
-		if (!this._isOwnedPostProcessColorTarget(colorTarget)) {
-			Logger.warn(
-				`[webgpu-postprocess-color-target-unowned] ` +
-					`Post-process pass "${request.passId}" published a color target ` +
-					"that is not owned by the active WebGPU frame; ignoring it.",
-				{
-					scope: "WebGPUFrameExecutor",
-					onceKey: `webgpu-postprocess-color-target-unowned:${request.passId}`,
-				}
-			);
-			return;
-		}
-		this._frameTargets.sceneColor = colorTarget;
-	}
-
-	private _getPostProcessHistoryTexture(
-		request: PostProcessPassRequest,
-		id: string,
-		side: "read" | "write"
-	): IRenderTexture | null {
-		const slot = request.histories[id]?.[side];
-		return (slot?.resource as IRenderTexture | null) ?? null;
-	}
-
-	private _getPostProcessTransientTexture(
-		request: PostProcessPassRequest,
-		id: string
-	): IRenderTexture | null {
-		const slot = request.transients?.[id];
-		return (slot?.handle.resource as IRenderTexture | null) ?? null;
-	}
-
-	private _createPostProcessFrameTargetsView(): WebGPUPostProcessFrameTargets | undefined {
-		const targets = this._frameTargets;
-		if (!targets) {
-			return undefined;
-		}
-		return Object.freeze({ ...targets });
-	}
-
-	private _isOwnedPostProcessColorTarget(texture: IRenderTexture): boolean {
-		const targets = this._frameTargets;
-		if (!targets) {
-			return false;
-		}
-		return (
-			texture === targets.sceneColorMain ||
-			texture === targets.postPing ||
-			texture === targets.postPong
-		);
-	}
-
-	private _createWebGPUPostProcessContext(
-		metadata: WebGPUPostProcessContextMetadata,
-		request: PostProcessPassRequest | null,
-		mode: "execute" | "warmup"
-	): Record<string, unknown> | undefined {
-		if (mode === "execute" && (!this._encoder || !this._frameTargets)) {
-			return undefined;
-		}
-		if (metadata.kind === "present") {
-			return {
-				targets: this._createPostProcessFrameTargetsView(),
-				presentToCanvas: (source: IRenderTexture, applyGamma: boolean) =>
-					this._presentToCanvas(source, applyGamma),
-				warmupPresent: () => this._ensurePresentResources(),
-			};
-		}
-
-		const context: Record<string, unknown> = {
-			encoder: this._encoder ?? undefined,
-			targets: this._createPostProcessFrameTargetsView(),
-			shared: this._postRuntime.sharedContext,
-		};
-		if (metadata.publishColorTarget && mode === "execute") {
-			context.publishColorTarget = (texture: IRenderTexture): void => {
-				this._pendingPostProcessColorTarget = texture;
-			};
-		}
-		if (metadata.frameBinding && mode === "execute") {
-			context.frameBinding = this._requireFrameResources().frameBinding;
-		}
-		if (metadata.lightingState && mode === "execute") {
-			context.lightingState = this._requireFrameResources().lightingState;
-		}
-		if (request && mode === "execute") {
-			for (const binding of metadata.histories ?? []) {
-				context[binding.property] = this._getPostProcessHistoryTexture(
-					request,
-					binding.historyId,
-					binding.side
-				);
-			}
-			for (const binding of metadata.transients ?? []) {
-				context[binding.property] = this._getPostProcessTransientTexture(
-					request,
-					binding.transientId
-				);
-			}
-			const motionCopy = metadata.motionHistoryCopy;
-			if (motionCopy) {
-				const method = motionCopy.method ?? "writeMotionHistoryFromCurrent";
-				context[method] = (): void => {
-					this._motionHistoryWriteTarget =
-						(context[motionCopy.writeProperty] as IRenderTexture | null) ??
-						null;
-				};
-			}
-		}
-		return context;
+		this._postBridge.completePass(request, result);
 	}
 
 	/**
@@ -597,17 +448,7 @@ export class WebGPUFrameGraphRuntime {
 
 	private _applyShaderRuntimeChangedNow(): void {
 		this._presentPass.onShaderRuntimeChanged();
-		this._destroyManagedResource(this._oitResolveShaderModule);
-		this._destroyManagedResource(this._oitResolvePipeline);
-		this._destroyManagedResource(this._oitResolveSampler);
-		this._oitResolveShaderModule = null;
-		this._oitResolvePipeline = null;
-		this._oitResolveSampler = null;
-		this._destroyBindingGroup(this._oitResolveBinding);
-		this._oitResolveBinding = null;
-		this._oitResolveBindingScene = null;
-		this._oitResolveBindingAccum = null;
-		this._oitResolveBindingReveal = null;
+		this._oitPass.onShaderRuntimeChanged();
 		this._destroyDeferredBindings();
 		this._destroyManagedResource(this._depthDirtyClearShaderModule);
 		for (const pipeline of this._depthDirtyClearPipelines.values()) {
@@ -728,7 +569,7 @@ export class WebGPUFrameGraphRuntime {
 		if (!isWebGPUPostProcessContextMetadata(metadata)) {
 			return undefined;
 		}
-		return this._createWebGPUPostProcessContext(metadata, null, "warmup");
+		return this._postBridge.getPassWarmupExecutionContext(metadata);
 	}
 
 	/**
@@ -740,17 +581,7 @@ export class WebGPUFrameGraphRuntime {
 		this._postRuntime.destroy();
 		this._planarReflectionPass.destroy();
 		this._presentPass.destroy();
-		this._destroyManagedResource(this._oitResolveShaderModule);
-		this._destroyManagedResource(this._oitResolvePipeline);
-		this._destroyManagedResource(this._oitResolveSampler);
-		this._oitResolveShaderModule = null;
-		this._oitResolvePipeline = null;
-		this._oitResolveSampler = null;
-		this._destroyBindingGroup(this._oitResolveBinding);
-		this._oitResolveBinding = null;
-		this._oitResolveBindingScene = null;
-		this._oitResolveBindingAccum = null;
-		this._oitResolveBindingReveal = null;
+		this._oitPass.destroy();
 		this._destroyManagedResource(this._depthDirtyClearShaderModule);
 		for (const pipeline of this._depthDirtyClearPipelines.values()) {
 			this._destroyManagedResource(pipeline);
@@ -772,7 +603,15 @@ export class WebGPUFrameGraphRuntime {
 			deferredActive: this._deferredEnabled,
 			oitActive: this._oitActive,
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
+			hasFrameTargets: !!this._frameTargets,
+			hasMSAATargets: !!this._msaaTargets,
+			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
 		});
+		const compiled = this._graphCompiler.compileStage(plan);
+		this._handleGraphDiagnostics(compiled);
+		this._lastCompiledGraphStages = this._graphCompiler
+			.getCompiledStages()
+			.slice();
 		this._lastPlannedGraphNodes = [...plan.nodes];
 		for (const node of plan.nodes) {
 			await this._executeGraphNode(node, context);
@@ -858,59 +697,83 @@ export class WebGPUFrameGraphRuntime {
 		this._clearActiveFrameState();
 	}
 
-	private _createPassHandlers(): Map<
-		FramePass["stage"],
-		WebGPUFrameGraphStageHandler
-	> {
-		const handlers = new Map<FramePass["stage"], WebGPUFrameGraphStageHandler>([
-			[
-				"shadow",
-				async (context) => {
-					await this._resources.renderShadows(
-						context,
-						this._encoder ?? undefined
-					);
-				},
-			],
-			[
-				"reflection",
-				async (context) => {
-					await this._recordPlanarReflectionPass(context);
-				},
-			],
-			[
-				"main-opaque",
-				async (context) => {
-					await this._recordOpaquePass(context);
-				},
-			],
-			[
-				"main-transparent",
-				async (context) => {
-					if (this._oitActive) {
-						await this._recordOITTransparentPass(context);
-					} else {
-						await this._recordMainPass(
-							context,
-							context.scene.transparentPackets,
-							false,
-							false
-						);
-					}
-				},
-			],
-			[
-				"particles",
-				async (context) => {
-					if (this._oitActive) {
-						await this._recordOITParticlePass(context);
-					} else {
-						await this._recordParticlePass(context);
-					}
-				},
-			],
+	private _collectInitialGraphResources(): string[] {
+		const resources = new Set<string>([
+			"canvas:scene-color-main",
+			"canvas:depth",
 		]);
-		return handlers;
+		const targets = this._frameTargets;
+		if (targets) {
+			resources.add("frame:scene-color-main");
+			resources.add("frame:depth");
+			if (targets.postPing) resources.add("post:ping");
+			if (targets.postPong) resources.add("post:pong");
+			if (targets.gAlbedoAlpha) resources.add("gbuffer:albedo-alpha");
+			if (targets.gNormalRoughMetal) {
+				resources.add("gbuffer:normal-rough-metal");
+			}
+			if (targets.gEmissiveOcclusion) {
+				resources.add("gbuffer:emissive-occlusion");
+			}
+			if (targets.gMotionDepth) resources.add("gbuffer:motion-depth");
+			if (targets.gSpecular) resources.add("gbuffer:specular");
+			if (targets.gCoatSheen) resources.add("gbuffer:coat-sheen");
+			if (targets.gSheenReflectance) {
+				resources.add("gbuffer:sheen-reflectance");
+			}
+			if (targets.gMaterialExt0) resources.add("gbuffer:material-ext0");
+			if (targets.gMaterialExt1) resources.add("gbuffer:material-ext1");
+			if (targets.gMaterialExt2) resources.add("gbuffer:material-ext2");
+			if (targets.gMaterialExt3) resources.add("gbuffer:material-ext3");
+			if (targets.oitAccum) resources.add("oit:accum");
+			if (targets.oitReveal) resources.add("oit:reveal");
+			if (targets.oitSceneColorCopy) resources.add("oit:scene-color-copy");
+			if (targets.planarReflectionMask) {
+				resources.add("planar-reflection:mask");
+			}
+		}
+		if (this._msaaTargets) {
+			resources.add("msaa:scene-color-main");
+			resources.add("msaa:depth");
+			if (this._msaaTargets.gAlbedoAlpha) {
+				resources.add("msaa:gbuffer:albedo-alpha");
+			}
+			if (this._msaaTargets.gNormalRoughMetal) {
+				resources.add("msaa:gbuffer:normal-rough-metal");
+			}
+			if (this._msaaTargets.gEmissiveOcclusion) {
+				resources.add("msaa:gbuffer:emissive-occlusion");
+			}
+			if (this._msaaTargets.gMotionDepth) {
+				resources.add("msaa:gbuffer:motion-depth");
+			}
+			if (this._msaaTargets.planarReflectionMask) {
+				resources.add("msaa:planar-reflection:mask");
+			}
+		}
+		return Array.from(resources);
+	}
+
+	private _handleGraphDiagnostics(
+		compiled: WebGPUCompiledFrameGraphStage
+	): void {
+		const errors = compiled.diagnostics.filter(
+			(diagnostic) => diagnostic.severity === "error"
+		);
+		if (errors.length <= 0) {
+			return;
+		}
+		const message =
+			`WebGPU internal frame graph validation failed for ` +
+			`stage "${compiled.pass.stage}": ` +
+			errors.map((diagnostic) => diagnostic.message).join(" ");
+		if (this._frameGraphValidationMode === "throw") {
+			throw new Error(message);
+		}
+		Logger.warn(`[webgpu-frame-graph-validation] ${message}`, {
+			scope: "WebGPUFrameGraphRuntime",
+			onceKey: `webgpu-frame-graph-validation:${compiled.pass.stage}`,
+		});
 	}
 
 	private _ensureMRTSupport(): void {
@@ -1168,479 +1031,11 @@ export class WebGPUFrameGraphRuntime {
 		height: number,
 		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean
 	): void {
-		const requirements =
-			typeof requirementsOrDeferred === "boolean" ?
-				{
-					sceneTargetMode: requirementsOrDeferred ? "gbuffer" : "mrt",
-					needsPostProcessTargets: true,
-					needsOITTargets: true,
-					needsPlanarReflectionMask: true,
-				} satisfies WebGPUFrameTargetRequirements
-			:	requirementsOrDeferred;
-		const msaaSampleCount = this._resolveMSAASampleCount();
-		if (width <= 0 || height <= 0) {
-			this._destroyFrameTargets();
-			return;
-		}
-
-		if (
-			this._frameTargets &&
-			this._targetWidth === width &&
-			this._targetHeight === height &&
-			this._targetMSAASampleCount === msaaSampleCount &&
-			this._targetSceneTargetMode === requirements.sceneTargetMode &&
-			this._targetNeedsPostProcessTargets ===
-				requirements.needsPostProcessTargets &&
-			this._targetNeedsOITTargets === requirements.needsOITTargets &&
-			this._targetNeedsPlanarReflectionMask ===
-				requirements.needsPlanarReflectionMask
-		) {
-			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
-			return;
-		}
-
-		const acquiredTextures: IRenderTexture[] = [];
-		let committed = false;
-		const acquireTexture = (
-			poolId: string,
-			options: TexturePoolOptions,
-			textureWidth: number,
-			textureHeight: number,
-			format: TextureFormat
-		): IRenderTexture => {
-			const texture = this._acquirePooledTexture(
-				poolId,
-				options,
-				textureWidth,
-				textureHeight,
-				format
-			);
-			acquiredTextures.push(texture);
-			return texture;
-		};
-
-		try {
-			this._destroyFrameTargets();
-			this._targetWidth = width;
-			this._targetHeight = height;
-			this._targetMSAASampleCount = msaaSampleCount;
-			this._targetSceneTargetMode = requirements.sceneTargetMode;
-			this._targetNeedsPostProcessTargets =
-				requirements.needsPostProcessTargets;
-			this._targetNeedsOITTargets = requirements.needsOITTargets;
-			this._targetNeedsPlanarReflectionMask =
-				requirements.needsPlanarReflectionMask;
-			const needsBaseGBuffer =
-				requirements.sceneTargetMode === "mrt" ||
-				requirements.sceneTargetMode === "gbuffer";
-			const enableDeferred = requirements.sceneTargetMode === "gbuffer";
-
-			const sceneColorMain = acquireTexture(
-				"scene-color-main",
-				{
-					usage:
-						TextureUsage.RenderAttachment |
-						TextureUsage.TextureBinding |
-						TextureUsage.CopySrc |
-						TextureUsage.CopyDst,
-					label: "WebGPUSceneColorMain",
-				},
-				width,
-				height,
-				TextureFormat.RGBA16Float
-			);
-			const rgba16StoragePool: TexturePoolOptions = {
-				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-				label: "WebGPUStorageRGBA16",
-			};
-			const postPing =
-				requirements.needsPostProcessTargets ?
-					acquireTexture(
-						"rgba16-storage",
-						rgba16StoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const postPong =
-				requirements.needsPostProcessTargets ?
-					acquireTexture(
-						"rgba16-storage",
-						rgba16StoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gAlbedoAlpha =
-				needsBaseGBuffer ?
-					acquireTexture(
-						"gbuffer-albedo",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUGBuffer_AlbedoAlpha",
-						},
-						width,
-						height,
-						TextureFormat.RGBA8Unorm
-					)
-				:	null;
-			const gNormalRoughMetal =
-				needsBaseGBuffer ?
-					acquireTexture(
-						"gbuffer-rgba16",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUGBuffer_RGBA16",
-						},
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gEmissiveOcclusion =
-				needsBaseGBuffer ?
-					acquireTexture(
-						"gbuffer-rgba16",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUGBuffer_RGBA16",
-						},
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gMotionDepth =
-				needsBaseGBuffer ?
-					acquireTexture(
-						"gbuffer-motion-depth",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding |
-								TextureUsage.CopySrc,
-							label: "WebGPUGBuffer_MotionDepth",
-						},
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const deferredColorPool: TexturePoolOptions = {
-				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-				label: "WebGPUGBufferDeferredRGBA16",
-			};
-			const deferredStoragePool: TexturePoolOptions = {
-				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-				label: "WebGPUGBufferDeferredStorageRGBA16",
-			};
-			const gSpecular =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-color",
-						deferredColorPool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gCoatSheen =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-color",
-						deferredColorPool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gSheenReflectance =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-color",
-						deferredColorPool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gMaterialExt0 =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gMaterialExt1 =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gMaterialExt2 =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const gMaterialExt3 =
-				enableDeferred ?
-					acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const depth = acquireTexture(
-				"depth-sampleable",
-				{
-					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
-					label: "WebGPUDepthSampleable",
-				},
-				width,
-				height,
-				TextureFormat.Depth32Float
-			);
-			const oitAccum =
-				requirements.needsOITTargets ?
-					acquireTexture(
-						"oit-accum",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUOITAccum",
-						},
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const oitReveal =
-				requirements.needsOITTargets ?
-					acquireTexture(
-						"oit-reveal",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUOITReveal",
-						},
-						width,
-						height,
-						TextureFormat.R8Unorm
-					)
-				:	null;
-			const oitSceneColorCopy =
-				requirements.needsOITTargets ?
-					acquireTexture(
-						"oit-scene-copy",
-						{
-							usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
-							label: "WebGPUOITSceneColorCopy",
-						},
-						width,
-						height,
-						TextureFormat.RGBA16Float
-					)
-				:	null;
-			const planarReflectionMask =
-				requirements.needsPlanarReflectionMask ?
-					acquireTexture(
-						"planar-reflection-mask",
-						{
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
-							label: "WebGPUPlanarReflectionMask",
-						},
-						width,
-						height,
-						TextureFormat.R8Unorm
-					)
-				:	null;
-			const useMSAA = msaaSampleCount > 1;
-			const msaaPoolKey = `msaa-${msaaSampleCount}`;
-			const msaaPoolOptions: TexturePoolOptions = {
-				usage: TextureUsage.RenderAttachment,
-				sampleCount: msaaSampleCount,
-				label: `WebGPUMSAA_${msaaSampleCount}x`,
-			};
-			const nextMSAATargets: WebGPUFrameMSAATargets | null =
-				useMSAA ?
-					{
-						sceneColorMain: acquireTexture(
-							msaaPoolKey,
-							msaaPoolOptions,
-							width,
-							height,
-							TextureFormat.RGBA16Float
-						),
-						gAlbedoAlpha:
-							needsBaseGBuffer ?
-								acquireTexture(
-									msaaPoolKey,
-									msaaPoolOptions,
-									width,
-									height,
-									TextureFormat.RGBA8Unorm
-								)
-							:	null,
-						gNormalRoughMetal:
-							needsBaseGBuffer ?
-								acquireTexture(
-									msaaPoolKey,
-									msaaPoolOptions,
-									width,
-									height,
-									TextureFormat.RGBA16Float
-								)
-							:	null,
-						gEmissiveOcclusion:
-							needsBaseGBuffer ?
-								acquireTexture(
-									msaaPoolKey,
-									msaaPoolOptions,
-									width,
-									height,
-									TextureFormat.RGBA16Float
-								)
-							:	null,
-						gMotionDepth:
-							needsBaseGBuffer ?
-								acquireTexture(
-									msaaPoolKey,
-									msaaPoolOptions,
-									width,
-									height,
-									TextureFormat.RGBA16Float
-								)
-							:	null,
-						planarReflectionMask:
-							requirements.needsPlanarReflectionMask ?
-								acquireTexture(
-									msaaPoolKey,
-									msaaPoolOptions,
-									width,
-									height,
-									TextureFormat.R8Unorm
-								)
-							:	null,
-						depth: acquireTexture(
-							msaaPoolKey,
-							msaaPoolOptions,
-							width,
-							height,
-							TextureFormat.Depth32Float
-						),
-					}
-				:	null;
-
-			const nextFrameTargets: WebGPUFrameTargets = {
-				sceneColor: sceneColorMain,
-				sceneColorMain,
-				postPing,
-				postPong,
-				gAlbedoAlpha,
-				gNormalRoughMetal,
-				gEmissiveOcclusion,
-				gMotionDepth,
-				gSpecular,
-				gCoatSheen,
-				gSheenReflectance,
-				gMaterialExt0,
-				gMaterialExt1,
-				gMaterialExt2,
-				gMaterialExt3,
-				depth,
-				oitAccum,
-				oitReveal,
-				oitSceneColorCopy,
-				planarReflectionMask,
-			};
-			this._msaaTargets = nextMSAATargets;
-			this._frameTargets = nextFrameTargets;
-			committed = true;
-		} catch (error) {
-			if (!committed) {
-				for (const texture of new Set(acquiredTextures)) {
-					this._releasePooledTexture(texture);
-				}
-			}
-			this._destroyFrameTargets();
-			if (requirements.sceneTargetMode === "gbuffer") {
-				this._deferredEnabled = false;
-				const key = "webgpu-deferred-runtime-fallback";
-				Logger.warn(
-					`[${key}] WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path. ${String(error)}`,
-					{ scope: "WebGPUFrameExecutor", onceKey: key }
-				);
-				this._ensureFrameTargets(
-					width,
-					height,
-					{
-						...requirements,
-						sceneTargetMode:
-							requirements.sceneTargetMode === "gbuffer" ?
-								"mrt"
-							:	requirements.sceneTargetMode,
-					}
-				);
-				return;
-			}
-			if (msaaSampleCount > 1) {
-				const setter = (
-					this._backend as {
-						setMSAASampleCount?: (sampleCount: number) => void;
-					}
-				).setMSAASampleCount;
-				if (typeof setter === "function") {
-					setter.call(this._backend, 1);
-				}
-				const key = "webgpu-msaa-runtime-fallback-1x";
-				Logger.warn(
-					`[${key}] WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`,
-					{ scope: "WebGPUFrameExecutor", onceKey: key }
-				);
-				this._configureDeferredLightingSupport();
-				this._ensureFrameTargets(
-					width,
-					height,
-					{
-						...requirements,
-						sceneTargetMode:
-							this._deferredEnabled &&
-							this._frameContext &&
-							this._frameHasDeferredLightingWork(this._frameContext) ?
-								"gbuffer"
-							:	requirements.sceneTargetMode,
-					}
-				);
-				return;
-			}
-			throw error;
-		}
+		this._frameTargetManager.ensureFrameTargets(
+			width,
+			height,
+			requirementsOrDeferred
+		);
 	}
 
 	private _resolveMSAASampleCount(): number {
@@ -1657,106 +1052,15 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _destroyFrameTargets(): void {
-		const textures = new Set<IRenderTexture>();
-		if (this._frameTargets) {
-			textures.add(this._frameTargets.sceneColorMain);
-			if (this._frameTargets.postPing) {
-				textures.add(this._frameTargets.postPing);
-			}
-			if (this._frameTargets.postPong) {
-				textures.add(this._frameTargets.postPong);
-			}
-			if (this._frameTargets.gAlbedoAlpha) {
-				textures.add(this._frameTargets.gAlbedoAlpha);
-			}
-			if (this._frameTargets.gNormalRoughMetal) {
-				textures.add(this._frameTargets.gNormalRoughMetal);
-			}
-			if (this._frameTargets.gEmissiveOcclusion) {
-				textures.add(this._frameTargets.gEmissiveOcclusion);
-			}
-			if (this._frameTargets.gMotionDepth) {
-				textures.add(this._frameTargets.gMotionDepth);
-			}
-			if (this._frameTargets.gSpecular) {
-				textures.add(this._frameTargets.gSpecular);
-			}
-			if (this._frameTargets.gCoatSheen) {
-				textures.add(this._frameTargets.gCoatSheen);
-			}
-			if (this._frameTargets.gSheenReflectance) {
-				textures.add(this._frameTargets.gSheenReflectance);
-			}
-			if (this._frameTargets.gMaterialExt0) {
-				textures.add(this._frameTargets.gMaterialExt0);
-			}
-			if (this._frameTargets.gMaterialExt1) {
-				textures.add(this._frameTargets.gMaterialExt1);
-			}
-			if (this._frameTargets.gMaterialExt2) {
-				textures.add(this._frameTargets.gMaterialExt2);
-			}
-			if (this._frameTargets.gMaterialExt3) {
-				textures.add(this._frameTargets.gMaterialExt3);
-			}
-			textures.add(this._frameTargets.depth);
-			if (this._frameTargets.oitAccum) {
-				textures.add(this._frameTargets.oitAccum);
-			}
-			if (this._frameTargets.oitReveal) {
-				textures.add(this._frameTargets.oitReveal);
-			}
-			if (this._frameTargets.oitSceneColorCopy) {
-				textures.add(this._frameTargets.oitSceneColorCopy);
-			}
-			if (this._frameTargets.planarReflectionMask) {
-				textures.add(this._frameTargets.planarReflectionMask);
-			}
-		}
-		if (this._msaaTargets) {
-			textures.add(this._msaaTargets.sceneColorMain);
-			if (this._msaaTargets.gAlbedoAlpha) {
-				textures.add(this._msaaTargets.gAlbedoAlpha);
-			}
-			if (this._msaaTargets.gNormalRoughMetal) {
-				textures.add(this._msaaTargets.gNormalRoughMetal);
-			}
-			if (this._msaaTargets.gEmissiveOcclusion) {
-				textures.add(this._msaaTargets.gEmissiveOcclusion);
-			}
-			if (this._msaaTargets.gMotionDepth) {
-				textures.add(this._msaaTargets.gMotionDepth);
-			}
-			if (this._msaaTargets.planarReflectionMask) {
-				textures.add(this._msaaTargets.planarReflectionMask);
-			}
-			textures.add(this._msaaTargets.depth);
-		}
-		for (const texture of textures) {
-			this._releasePooledTexture(texture);
-		}
-		this._frameTargets = null;
-		this._msaaTargets = null;
+		this._frameTargetManager.destroyFrameTargets();
 		this._presentPass.invalidateBindings();
-		this._destroyBindingGroup(this._oitResolveBinding);
-		this._oitResolveBinding = null;
-		this._oitResolveBindingScene = null;
-		this._oitResolveBindingAccum = null;
-		this._oitResolveBindingReveal = null;
+		this._oitPass.invalidateBindings();
 		this._destroyDeferredBindings();
-		this._targetWidth = 0;
-		this._targetHeight = 0;
-		this._targetMSAASampleCount = 1;
-		this._targetSceneTargetMode = "single";
-		this._targetNeedsPostProcessTargets = false;
-		this._targetNeedsOITTargets = false;
-		this._targetNeedsPlanarReflectionMask = false;
 		this._oitActive = false;
-		this._oitHasContributors = false;
-		this._oitTransmissionPackets = [];
-		this._oitNeedsTransmissionAfterParticles = false;
+		this._oitPass.resetFrameState();
 		this._motionHistoryWriteTarget = null;
 		this._pendingPostProcessColorTarget = null;
+		this._postBridge.clearPendingFrameState();
 	}
 
 	private _clearActiveFrameState(flushPendingLifecycle = true): void {
@@ -1767,9 +1071,7 @@ export class WebGPUFrameGraphRuntime {
 		this._pendingPostProcessColorTarget = null;
 		this._hasPresentedInFrame = false;
 		this._oitActive = false;
-		this._oitHasContributors = false;
-		this._oitTransmissionPackets = [];
-		this._oitNeedsTransmissionAfterParticles = false;
+		this._oitPass.resetFrameState();
 		if (flushPendingLifecycle) {
 			this._flushPendingLifecycleInvalidations();
 		}
@@ -1804,39 +1106,8 @@ export class WebGPUFrameGraphRuntime {
 		return Math.max(0, Math.floor(value));
 	}
 
-	private _acquirePooledTexture(
-		poolId: string,
-		options: TexturePoolOptions,
-		width: number,
-		height: number,
-		format: TextureFormat
-	): IRenderTexture {
-		let pool = this._texturePools.get(poolId);
-		if (!pool) {
-			pool = new TexturePool(this._backend, options);
-			this._texturePools.set(poolId, pool);
-		}
-		const texture = pool.acquire(width, height, format);
-		this._texturePoolOwners.set(texture, pool);
-		return texture;
-	}
-
-	private _releasePooledTexture(texture: IRenderTexture): void {
-		const owner = this._texturePoolOwners.get(texture);
-		if (!owner) {
-			texture.destroy();
-			return;
-		}
-		this._texturePoolOwners.delete(texture);
-		owner.release(texture);
-	}
-
 	private _destroyTexturePools(): void {
-		this._texturePoolOwners.clear();
-		for (const pool of this._texturePools.values()) {
-			pool.destroy();
-		}
-		this._texturePools.clear();
+		this._frameTargetManager.destroyTexturePools();
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
@@ -1847,12 +1118,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _destroyDeferredBindings(): void {
-		this._destroyBindingGroup(this._gbufferWriteBinding);
-		this._gbufferWriteBinding = null;
-		this._gbufferWriteBindingSources = [];
-		this._destroyBindingGroup(this._gbufferReadBinding);
-		this._gbufferReadBinding = null;
-		this._gbufferReadBindingSources = [];
+		this._deferredLightingPass.destroyBindings();
 	}
 
 	private _destroyManagedResource(resource: unknown): void {
@@ -2077,109 +1343,6 @@ export class WebGPUFrameGraphRuntime {
 		this._hasPresentedInFrame = true;
 	}
 
-	private _partitionTransparentPackets(packets: DrawPacket[]): {
-		oitPackets: DrawPacket[];
-		transmissionPackets: DrawPacket[];
-	} {
-		const oitPackets: DrawPacket[] = [];
-		const transmissionPackets: DrawPacket[] = [];
-		for (const packet of packets) {
-			if (materialUsesTransmission(packet.material)) {
-				transmissionPackets.push(packet);
-				continue;
-			}
-			oitPackets.push(packet);
-		}
-		return {
-			oitPackets,
-			transmissionPackets,
-		};
-	}
-
-	private _clearOITTargets(): void {
-		const targets = this._frameTargets;
-		if (!this._encoder || !targets?.oitAccum || !targets.oitReveal) {
-			return;
-		}
-		this._encoder.beginRenderPass({
-			label: "WebGPUOITClear",
-			colorAttachments: [
-				{
-					view: targets.oitAccum,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-				{
-					view: targets.oitReveal,
-					clearValue: { r: 1, g: 1, b: 1, a: 1 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-			],
-		});
-		this._encoder.endRenderPass();
-	}
-
-	private async _drawOITPackets(
-		context: FrameContext,
-		packets: DrawPacket[]
-	): Promise<number> {
-		const targets = this._frameTargets;
-		if (
-			!this._encoder ||
-			!targets?.oitAccum ||
-			!targets.oitReveal ||
-			packets.length <= 0
-		) {
-			return 0;
-		}
-		const frameResources = this._requireFrameResources();
-		const depthAttachment = this._msaaTargets?.depth ?? targets.depth;
-		this._encoder.beginRenderPass({
-			label: "WebGPUOITDraw",
-			colorAttachments: [
-				{
-					view: targets.oitAccum,
-					loadOp: "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.oitReveal,
-					loadOp: "load",
-					storeOp: "store",
-				},
-			],
-			depthStencilAttachment: {
-				view: depthAttachment,
-				depthLoadOp: "load",
-				depthStoreOp: "store",
-			},
-		});
-		const dirtyRects = this._resolveDirtyRects(
-			context,
-			targets.sceneColorMain.width,
-			targets.sceneColorMain.height
-		);
-		const sceneTargetMode =
-			this._targetSceneTargetMode === "color" ? "color" : "mrt";
-		const submission = await submitWebGPUDraws({
-			encoder: this._encoder,
-			resources: this._resources,
-			frameResources,
-			packets,
-			dirtyRects,
-			selectPacketsForRect: (candidatePackets, rect) =>
-				this._resolveTransparentSubsetForRect(context, candidatePackets, rect),
-			resolveDrawOptions: () => ({
-				sceneTargetMode,
-				transparentPipelineMode: "oit",
-			}),
-		});
-		this._encoder.endRenderPass();
-		return submission.drawCount;
-	}
-
 	private async _drawTransmissionPackets(
 		context: FrameContext,
 		packets: DrawPacket[]
@@ -2316,169 +1479,6 @@ export class WebGPUFrameGraphRuntime {
 		this._encoder.endRenderPass();
 	}
 
-	private async _ensureOITResolveResources(): Promise<void> {
-		if (!this._oitResolveShaderModule) {
-			const composite = await loadWebGPUUtilityShaderComposite("oitResolve");
-			this._oitResolveShaderModule = await this._backend.createShaderModule({
-				label: "WebGPUOITResolveShader",
-				code: composite.code,
-				sourceMap: composite.sourceMap,
-				language: "wgsl",
-				stage: "unknown",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._oitResolvePipeline) {
-			this._oitResolvePipeline = this._backend.createPipeline({
-				label: "WebGPUOITResolvePipeline",
-				vertex: {
-					module: this._oitResolveShaderModule,
-					entryPoint: "vsMain",
-				},
-				fragment: {
-					module: this._oitResolveShaderModule,
-					entryPoint: "fsMain",
-					targets: [{ format: TextureFormat.RGBA16Float }],
-				},
-				primitive: {
-					topology: "triangle-list" as any,
-					cullMode: "none",
-					frontFace: "ccw",
-				},
-			} as any);
-		}
-		if (!this._oitResolveSampler) {
-			this._oitResolveSampler = this._backend.createSampler({
-				label: "WebGPUOITResolveSampler",
-				magFilter: FilterMode.Linear,
-				minFilter: FilterMode.Linear,
-				mipmapFilter: FilterMode.Linear,
-				addressModeU: AddressMode.ClampToEdge,
-				addressModeV: AddressMode.ClampToEdge,
-			});
-		}
-	}
-
-	private _copySceneColorForOITResolve(): boolean {
-		if (
-			!this._encoder ||
-			!this._frameTargets ||
-			!this._frameTargets.oitSceneColorCopy
-		) {
-			return false;
-		}
-		if (typeof this._encoder.copyTextureToTexture !== "function") {
-			this._warnOITDisabled(
-				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering."
-			);
-			this._oitActive = false;
-			return false;
-		}
-		try {
-			this._encoder.copyTextureToTexture(
-				{ texture: this._frameTargets.sceneColorMain },
-				{ texture: this._frameTargets.oitSceneColorCopy },
-				{
-					width: Math.max(1, this._targetWidth),
-					height: Math.max(1, this._targetHeight),
-					depthOrArrayLayers: 1,
-				}
-			);
-			return true;
-		} catch (error) {
-			const key = "webgpu-oit-copy-scene-color-failed";
-			Logger.warn(
-				`[${key}] WebGPU OIT scene-color copy failed; falling back to legacy transparent rendering. ${String(error)}`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
-			);
-			this._oitActive = false;
-			return false;
-		}
-	}
-
-	private async _resolveOITComposition(context: FrameContext): Promise<void> {
-		const targets = this._frameTargets;
-		if (
-			!this._encoder ||
-			!targets?.oitSceneColorCopy ||
-			!targets.oitAccum ||
-			!targets.oitReveal ||
-			!this._oitHasContributors
-		) {
-			return;
-		}
-		if (!this._copySceneColorForOITResolve()) {
-			return;
-		}
-		await this._ensureOITResolveResources();
-		if (
-			!this._oitResolvePipeline ||
-			!this._oitResolveSampler ||
-			!this._frameTargets?.oitSceneColorCopy ||
-			!this._frameTargets.oitAccum ||
-			!this._frameTargets.oitReveal
-		) {
-			return;
-		}
-		if (
-			!this._oitResolveBinding ||
-			this._oitResolveBindingScene !== this._frameTargets.oitSceneColorCopy ||
-			this._oitResolveBindingAccum !== this._frameTargets.oitAccum ||
-			this._oitResolveBindingReveal !== this._frameTargets.oitReveal
-		) {
-			this._destroyBindingGroup(this._oitResolveBinding);
-			this._oitResolveBinding = this._backend.createBindingGroup({
-				pipeline: this._oitResolvePipeline,
-				layoutIndex: 0,
-				entries: [
-					{
-						binding: 0,
-						resource: this._frameTargets.oitSceneColorCopy,
-					},
-					{
-						binding: 1,
-						resource: this._frameTargets.oitAccum,
-					},
-					{
-						binding: 2,
-						resource: this._frameTargets.oitReveal,
-					},
-					{
-						binding: 3,
-						resource: this._oitResolveSampler,
-					},
-				],
-				label: "WebGPUOITResolveBinding",
-			});
-			this._oitResolveBindingScene = this._frameTargets.oitSceneColorCopy;
-			this._oitResolveBindingAccum = this._frameTargets.oitAccum;
-			this._oitResolveBindingReveal = this._frameTargets.oitReveal;
-		}
-		this._encoder.beginRenderPass({
-			label: "WebGPUOITResolvePass",
-			colorAttachments: [
-				{
-					view: this._frameTargets.sceneColorMain,
-					loadOp: "load",
-					storeOp: "store",
-				},
-			],
-		});
-		this._encoder.setPipeline(this._oitResolvePipeline);
-		this._encoder.setBindingGroup(0, this._oitResolveBinding);
-		const dirtyRects = this._resolveDirtyRects(
-			context,
-			this._frameTargets.sceneColorMain.width,
-			this._frameTargets.sceneColorMain.height
-		);
-		for (const rect of dirtyRects) {
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			this._encoder.draw(3);
-		}
-		this._encoder.endRenderPass();
-	}
-
 	private async _recordOITTransparentPass(context: FrameContext): Promise<void> {
 		if (!this._encoder) {
 			return;
@@ -2492,27 +1492,7 @@ export class WebGPUFrameGraphRuntime {
 			);
 			return;
 		}
-		const frameResources = this._requireFrameResources();
-		await this._resources.buildClusteredLighting(this._encoder, frameResources);
-		const { oitPackets, transmissionPackets } =
-			this._partitionTransparentPackets(context.scene.transparentPackets);
-		this._oitTransmissionPackets = transmissionPackets;
-		this._oitNeedsTransmissionAfterParticles =
-			(context.scene.particleSystems?.length ?? 0) > 0;
-		this._oitHasContributors = false;
-		if (oitPackets.length > 0) {
-			this._clearOITTargets();
-			const draws = await this._drawOITPackets(context, oitPackets);
-			this._oitHasContributors = draws > 0;
-		}
-		if (!this._oitNeedsTransmissionAfterParticles) {
-			if (this._oitHasContributors) {
-				await this._resolveOITComposition(context);
-			}
-			await this._drawTransmissionPackets(context, this._oitTransmissionPackets);
-			this._oitTransmissionPackets = [];
-			this._oitHasContributors = false;
-		}
+		await this._oitPass.recordTransparentPass(context);
 	}
 
 	private async _recordOITParticlePass(context: FrameContext): Promise<void> {
@@ -2527,161 +1507,15 @@ export class WebGPUFrameGraphRuntime {
 			await this._recordParticlePass(context);
 			return;
 		}
-		const msaaTargets = this._msaaTargets;
-		const depthAttachment = msaaTargets?.depth ?? this._frameTargets.depth;
-		const sceneTargetMode =
-			this._targetSceneTargetMode === "color" ? "color" : "mrt";
-		if (!this._oitHasContributors) {
-			this._clearOITTargets();
-		}
-		const alphaParticleCount = await this._resources.renderParticles(
-			this._encoder,
-			context,
-			{
-				label: "WebGPUParticlesOIT",
-				colorAttachments: [
-					{
-						view: this._frameTargets.oitAccum,
-						loadOp: "load",
-						storeOp: "store",
-					},
-					{
-						view: this._frameTargets.oitReveal,
-						loadOp: "load",
-						storeOp: "store",
-					},
-				],
-				depth: depthAttachment,
-			},
-			this._requireFrameResources(),
-			sceneTargetMode,
-			{
-				includeBlendModes: [ParticleBlendMode.Alpha],
-				pipelineMode: "oit",
-			}
-		);
-		if (alphaParticleCount > 0) {
-			this._oitHasContributors = true;
-		}
-		if (this._oitHasContributors) {
-			await this._resolveOITComposition(context);
-		}
-		if (this._oitTransmissionPackets.length > 0) {
-			await this._drawTransmissionPackets(context, this._oitTransmissionPackets);
-		}
-		await this._resources.renderParticles(
-			this._encoder,
-			context,
-			{
-				label: "WebGPUParticlesMRT_Additive",
-				colorAttachments: [
-					{
-						view:
-							msaaTargets?.sceneColorMain ?? this._frameTargets.sceneColorMain,
-						resolveTarget:
-							msaaTargets ? this._frameTargets.sceneColorMain : undefined,
-						loadOp: "load",
-						storeOp: "store",
-					},
-				],
-				depth: depthAttachment,
-			},
-			this._requireFrameResources(),
-			sceneTargetMode,
-			{
-				includeBlendModes: [ParticleBlendMode.Additive],
-				pipelineMode: "legacy",
-			}
-		);
-		this._oitTransmissionPackets = [];
-		this._oitHasContributors = false;
-		this._oitNeedsTransmissionAfterParticles = false;
+		await this._oitPass.recordParticlePass(context);
 	}
 
 	private _getGBufferWriteBinding(): IBindingGroup {
-		if (
-			!this._frameTargets?.gMaterialExt0 ||
-			!this._frameTargets.gMaterialExt1 ||
-			!this._frameTargets.gMaterialExt2 ||
-			!this._frameTargets.gMaterialExt3
-		) {
-			throw new Error("WebGPU deferred G-buffer storage targets are unavailable.");
-		}
-		const sources = [
-			this._frameTargets.gMaterialExt0,
-			this._frameTargets.gMaterialExt1,
-			this._frameTargets.gMaterialExt2,
-			this._frameTargets.gMaterialExt3,
-		];
-		if (
-			this._gbufferWriteBinding &&
-			this._gbufferWriteBindingSources.length === sources.length &&
-			this._gbufferWriteBindingSources.every(
-				(source, index) => source === sources[index]
-			)
-		) {
-			return this._gbufferWriteBinding;
-		}
-		this._destroyBindingGroup(this._gbufferWriteBinding);
-		this._gbufferWriteBinding = this._backend.createBindingGroup({
-			layout: this._resources.getGBufferWriteLayout(),
-			entries: [
-				{ binding: 0, resource: sources[0] },
-				{ binding: 1, resource: sources[1] },
-				{ binding: 2, resource: sources[2] },
-				{ binding: 3, resource: sources[3] },
-			],
-			label: "WebGPUGBufferWriteBinding",
-		});
-		this._gbufferWriteBindingSources = sources;
-		return this._gbufferWriteBinding;
+		return this._deferredLightingPass.getGBufferWriteBinding();
 	}
 
 	private _getGBufferReadBinding(): IBindingGroup {
-		if (
-			!this._frameTargets?.gSpecular ||
-			!this._frameTargets.gCoatSheen ||
-			!this._frameTargets.gSheenReflectance ||
-			!this._frameTargets.gMaterialExt0 ||
-			!this._frameTargets.gMaterialExt1 ||
-			!this._frameTargets.gMaterialExt2 ||
-			!this._frameTargets.gMaterialExt3
-		) {
-			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
-		}
-		const sources = [
-			this._frameTargets.gAlbedoAlpha,
-			this._frameTargets.gNormalRoughMetal,
-			this._frameTargets.gEmissiveOcclusion,
-			this._frameTargets.gMotionDepth,
-			this._frameTargets.gSpecular,
-			this._frameTargets.gCoatSheen,
-			this._frameTargets.gSheenReflectance,
-			this._frameTargets.gMaterialExt0,
-			this._frameTargets.gMaterialExt1,
-			this._frameTargets.gMaterialExt2,
-			this._frameTargets.gMaterialExt3,
-		];
-		if (
-			this._gbufferReadBinding &&
-			this._gbufferReadBindingSources.length === sources.length &&
-			this._gbufferReadBindingSources.every(
-				(source, index) => source === sources[index]
-			)
-		) {
-			return this._gbufferReadBinding;
-		}
-		this._destroyBindingGroup(this._gbufferReadBinding);
-		this._gbufferReadBinding = this._backend.createBindingGroup({
-			layout: this._resources.getGBufferReadLayout(),
-			entries: sources.map((resource, binding) => ({
-				binding,
-				resource,
-			})),
-			label: "WebGPUGBufferReadBinding",
-		});
-		this._gbufferReadBindingSources = sources;
-		return this._gbufferReadBinding;
+		return this._deferredLightingPass.getGBufferReadBinding();
 	}
 
 	private async _recordPlanarReflectionPass(
@@ -2975,41 +1809,10 @@ export class WebGPUFrameGraphRuntime {
 		context: FrameContext,
 		clearSceneColor: boolean
 	): Promise<void> {
-		if (!this._encoder || !this._frameTargets) {
-			return;
-		}
-		const pipeline = await this._resources.getDeferredLightingPipeline();
-		const gbufferReadBinding = this._getGBufferReadBinding();
-		this._encoder.beginRenderPass({
-			label: "WebGPUDeferredLighting",
-			colorAttachments: [
-				{
-					view: this._frameTargets.sceneColorMain,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: clearSceneColor ? "clear" : "load",
-					storeOp: "store",
-				},
-			],
-		});
-		this._encoder.setPipeline(pipeline);
-		const frameResources = this._requireFrameResources();
-		this._encoder.setBindingGroup(0, frameResources.frameBinding);
-		this._encoder.setBindingGroup(
-			1,
-			this._resources.getDeferredUnusedBinding()
-		);
-		this._encoder.setBindingGroup(2, frameResources.clusteredSceneBinding);
-		this._encoder.setBindingGroup(3, gbufferReadBinding);
-		const dirtyRects = this._resolveDirtyRects(
+		await this._deferredLightingPass.recordLightingPass(
 			context,
-			this._frameTargets.sceneColorMain.width,
-			this._frameTargets.sceneColorMain.height
+			clearSceneColor
 		);
-		for (const rect of dirtyRects) {
-			this._encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
-			this._encoder.draw(3);
-		}
-		this._encoder.endRenderPass();
 	}
 
 	private async _recordMainPass(

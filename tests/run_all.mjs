@@ -112,6 +112,7 @@ const tests = [
 	"test_webgpu_shadow_atlas_allocator.mjs",
 	"test_webgpu_built_in_post_process_passes.mjs",
 	"test_webgpu_post_graph.mjs",
+	"test_webgpu_frame_graph_compiler.mjs",
 	"test_webgpu_frame_executor_resilience.mjs",
 	"test_renderer_stage_graph.mjs",
 	"test_webgpu_postprocess_math.mjs",

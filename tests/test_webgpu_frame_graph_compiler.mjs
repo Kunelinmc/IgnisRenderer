@@ -1,0 +1,175 @@
+import assert from "node:assert/strict";
+import { WebGPUFrameGraphCompiler } from "../src/renderers/webgpu/rendergraph/WebGPUFrameGraphCompiler.ts";
+
+function createPass(stage = "main-opaque") {
+	return { stage, executor: "backend", enabled: true };
+}
+
+function compile(nodes, initialResources = []) {
+	const compiler = new WebGPUFrameGraphCompiler();
+	compiler.beginFrame(initialResources);
+	return {
+		compiler,
+		stage: compiler.compileStage({
+			pass: createPass(),
+			nodes,
+		}),
+	};
+}
+
+function testReadBeforeCreateDiagnostic() {
+	const { stage } = compile([{
+		id: "test:read",
+		stage: "main-opaque",
+		kind: "opaque-scene",
+		label: "ReadInactive",
+		reads: [{ id: "frame:scene-color-main", usage: "texture-binding" }],
+	}]);
+
+	assert.equal(stage.diagnostics.length, 1);
+	assert.equal(stage.diagnostics[0].code, "read-before-create");
+	assert.equal(stage.diagnostics[0].resource, "frame:scene-color-main");
+}
+
+function testOptionalReadDoesNotDiagnose() {
+	const { stage } = compile([{
+		id: "test:optional-read",
+		stage: "main-transparent",
+		kind: "transparent-scene",
+		label: "OptionalRead",
+		reads: [{
+			id: "frame:depth",
+			usage: "depth-attachment",
+			optional: true,
+		}],
+	}]);
+
+	assert.equal(stage.diagnostics.length, 0);
+}
+
+function testOptionalReadDoesNotCreateResource() {
+	const { compiler } = compile([
+		{
+			id: "test:optional-read",
+			stage: "main-transparent",
+			kind: "transparent-scene",
+			label: "OptionalRead",
+			reads: [{
+				id: "shadow-atlas",
+				usage: "texture-binding",
+				optional: true,
+			}],
+		},
+		{
+			id: "test:required-read",
+			stage: "main-opaque",
+			kind: "opaque-scene",
+			label: "RequiredRead",
+			reads: [{
+				id: "shadow-atlas",
+				usage: "texture-binding",
+			}],
+		},
+	]);
+
+	const state = compiler
+		.getResourceDebugState()
+		.find((resource) => resource.id === "shadow-atlas");
+	assert.ok(state);
+	assert.equal(state.initialized, false);
+	assert.equal(state.lastAccess, "read");
+	assert.equal(compiler.getDiagnostics().length, 1);
+	assert.equal(compiler.getDiagnostics()[0].code, "read-before-create");
+}
+
+function testOptionalReadDoesNotEmitBarrierForLaterWrite() {
+	const { stage } = compile([
+		{
+			id: "test:optional-read",
+			stage: "main-transparent",
+			kind: "transparent-scene",
+			label: "OptionalRead",
+			reads: [{
+				id: "planar-reflection:capture",
+				usage: "texture-binding",
+				optional: true,
+			}],
+		},
+		{
+			id: "test:write",
+			stage: "reflection",
+			kind: "planar-reflection-capture",
+			label: "WriteReflection",
+			writes: [{
+				id: "planar-reflection:capture",
+				usage: "render-attachment",
+			}],
+		},
+	]);
+
+	assert.equal(stage.diagnostics.length, 0);
+	assert.equal(stage.barriers.length, 0);
+}
+
+function testUsageTransitionsEmitBarriers() {
+	const { compiler, stage } = compile([
+		{
+			id: "test:write",
+			stage: "main-opaque",
+			kind: "opaque-scene",
+			label: "WriteScene",
+			writes: [{
+				id: "frame:scene-color-main",
+				usage: "render-attachment",
+			}],
+		},
+		{
+			id: "test:read",
+			stage: "postprocess",
+			kind: "particles",
+			label: "ReadScene",
+			reads: [{
+				id: "frame:scene-color-main",
+				usage: "texture-binding",
+			}],
+		},
+	]);
+
+	assert.equal(stage.diagnostics.length, 0);
+	assert.equal(stage.barriers.length, 1);
+	assert.equal(stage.barriers[0].reason, "read-after-write");
+	assert.equal(stage.barriers[0].fromUsage, "render-attachment");
+	assert.equal(stage.barriers[0].toUsage, "texture-binding");
+	assert.equal(compiler.getBarriers().length, 1);
+}
+
+function testResourceDebugStateTracksLastAccess() {
+	const { compiler } = compile([{
+		id: "test:write-depth",
+		stage: "main-opaque",
+		kind: "opaque-scene",
+		label: "WriteDepth",
+		writes: [{ id: "frame:depth", usage: "depth-attachment" }],
+	}]);
+
+	const state = compiler
+		.getResourceDebugState()
+		.find((resource) => resource.id === "frame:depth");
+	assert.ok(state);
+	assert.equal(state.initialized, true);
+	assert.equal(state.lastNodeId, "test:write-depth");
+	assert.equal(state.lastAccess, "write");
+	assert.equal(state.lastUsage, "depth-attachment");
+}
+
+function run() {
+	testReadBeforeCreateDiagnostic();
+	testOptionalReadDoesNotDiagnose();
+	testOptionalReadDoesNotCreateResource();
+	testOptionalReadDoesNotEmitBarrierForLaterWrite();
+	testUsageTransitionsEmitBarriers();
+	testResourceDebugStateTracksLastAccess();
+	console.log("test_webgpu_frame_graph_compiler: ok");
+}
+
+run();

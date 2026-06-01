@@ -224,6 +224,12 @@ export interface WebGPUBackendOptions {
 	 * Defaults to `true`; set to `false` to force the legacy MRT forward path.
 	 */
 	enableDeferredLighting?: boolean;
+	/**
+	 * Controls WebGPU internal frame graph validation diagnostics.
+	 * Defaults to `"throw"` so tests and development builds fail on invalid
+	 * internal resource declarations.
+	 */
+	frameGraphValidation?: "throw" | "warn";
 }
 
 type WebGPUPassHandler = (
@@ -371,6 +377,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _msaaSampleCount = 1;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
+	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	private readonly _framePlanner = new WebGPUPassPlanner();
@@ -386,6 +393,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting =
 			options.enableDeferredLighting !== false;
+		this._frameGraphValidationMode =
+			options.frameGraphValidation === "warn" ? "warn" : "throw";
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -439,6 +448,16 @@ export class WebGPUBackend implements IRenderBackend {
 	 */
 	public isDeferredLightingEnabled(): boolean {
 		return this._enableDeferredLighting;
+	}
+
+	/**
+	 * Returns the diagnostic mode for WebGPU internal frame graph validation.
+	 *
+	 * @returns `"throw"` for strict validation or `"warn"` for non-fatal logs.
+	 * @sideEffects None.
+	 */
+	public getFrameGraphValidationMode(): "throw" | "warn" {
+		return this._frameGraphValidationMode;
 	}
 
 	public getAttachments(width: number, height: number): FrameAttachments {

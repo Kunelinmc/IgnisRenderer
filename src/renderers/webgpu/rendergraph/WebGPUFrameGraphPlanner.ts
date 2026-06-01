@@ -5,6 +5,7 @@ import type {
 import type {
 	WebGPUFrameGraphNode,
 	WebGPUFrameGraphPlannerState,
+	WebGPUFrameGraphResourceRef,
 	WebGPUFrameGraphStagePlan,
 } from "./types";
 
@@ -29,13 +30,28 @@ export class WebGPUFrameGraphPlanner {
 	): WebGPUFrameGraphNode[] {
 		switch (pass.stage) {
 			case "shadow":
-				return [this._node(pass, "shadow", "WebGPUShadow")];
+				return [
+					this._node(pass, "shadow", "WebGPUShadow", {
+						writes: [this._write("shadow-atlas", "render-attachment")],
+					}),
+				];
 			case "reflection":
 				return [
 					this._node(
 						pass,
 						"planar-reflection-capture",
-						"WebGPUPlanarReflectionCapture"
+						"WebGPUPlanarReflectionCapture",
+						{
+							reads: [
+								this._read("shadow-atlas", "texture-binding", true),
+							],
+							writes: [
+								this._write(
+									"planar-reflection:capture",
+									"render-attachment"
+								),
+							],
+						}
 					),
 				];
 			case "main-opaque":
@@ -45,20 +61,57 @@ export class WebGPUFrameGraphPlanner {
 						"opaque-scene",
 						state.deferredActive ?
 							"WebGPUOpaqueDeferred"
-						:	`WebGPUOpaque${state.sceneTargetMode}`
+						:	`WebGPUOpaque${state.sceneTargetMode}`,
+						this._createOpaqueResources(state)
 					),
 				];
 			case "main-transparent":
 				return [
 					state.oitActive ?
-						this._node(pass, "oit-transparent", "WebGPUOITTransparent")
-					:	this._node(pass, "transparent-scene", "WebGPUTransparent"),
+						this._node(
+							pass,
+							"oit-transparent",
+							"WebGPUOITTransparent",
+							{
+								reads: [
+									this._read("frame:depth", "depth-attachment", true),
+									this._read("frame:scene-color-main", "copy-src", true),
+								],
+								writes: [
+									this._write("oit:accum", "render-attachment"),
+									this._write("oit:reveal", "render-attachment"),
+									this._write("frame:scene-color-main", "render-attachment"),
+								],
+							}
+						)
+					:	this._node(
+							pass,
+							"transparent-scene",
+							"WebGPUTransparent",
+							this._createForwardResources(state, true)
+						),
 				];
 			case "particles":
 				return [
 					state.oitActive ?
-						this._node(pass, "oit-particles", "WebGPUOITParticles")
-					:	this._node(pass, "particles", "WebGPUParticles"),
+						this._node(pass, "oit-particles", "WebGPUOITParticles", {
+							reads: [
+								this._read("frame:depth", "depth-attachment", true),
+								this._read("oit:accum", "texture-binding", true),
+								this._read("oit:reveal", "texture-binding", true),
+							],
+							writes: [
+								this._write("oit:accum", "render-attachment"),
+								this._write("oit:reveal", "render-attachment"),
+								this._write("frame:scene-color-main", "render-attachment"),
+							],
+						})
+					:	this._node(
+							pass,
+							"particles",
+							"WebGPUParticles",
+							this._createForwardResources(state, true)
+						),
 				];
 			default:
 				return [];
@@ -68,13 +121,104 @@ export class WebGPUFrameGraphPlanner {
 	private _node(
 		pass: FramePass,
 		kind: WebGPUFrameGraphNode["kind"],
-		label: string
+		label: string,
+		resources: Pick<
+			WebGPUFrameGraphNode,
+			"creates" | "reads" | "writes" | "destroys"
+		> = {}
 	): WebGPUFrameGraphNode {
 		return {
 			id: `${pass.stage}:${kind}`,
 			stage: pass.stage,
 			kind,
 			label,
+			...resources,
 		};
+	}
+
+	private _createOpaqueResources(
+		state: WebGPUFrameGraphPlannerState
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		if (state.sceneTargetMode === "single") {
+			return this._createForwardResources(state, false);
+		}
+		if (state.sceneTargetMode === "color") {
+			return {
+				reads: [this._read("shadow-atlas", "texture-binding", true)],
+				writes: [
+					this._write("frame:scene-color-main", "render-attachment"),
+					this._write("frame:depth", "depth-attachment"),
+				],
+			};
+		}
+		const writes = [
+			this._write("frame:scene-color-main", "render-attachment"),
+			this._write("gbuffer:albedo-alpha", "render-attachment"),
+			this._write("gbuffer:normal-rough-metal", "render-attachment"),
+			this._write("gbuffer:emissive-occlusion", "render-attachment"),
+			this._write("gbuffer:motion-depth", "render-attachment"),
+			this._write("frame:depth", "depth-attachment"),
+		];
+		if (state.sceneTargetMode === "gbuffer") {
+			writes.push(
+				this._write("gbuffer:specular", "render-attachment"),
+				this._write("gbuffer:coat-sheen", "render-attachment"),
+				this._write("gbuffer:sheen-reflectance", "render-attachment"),
+				this._write("gbuffer:material-ext0", "storage-binding"),
+				this._write("gbuffer:material-ext1", "storage-binding"),
+				this._write("gbuffer:material-ext2", "storage-binding"),
+				this._write("gbuffer:material-ext3", "storage-binding")
+			);
+		}
+		const reads = [
+			this._read("shadow-atlas", "texture-binding", true),
+			this._read("planar-reflection:capture", "texture-binding", true),
+		];
+		if (state.needsPlanarReflectionMask) {
+			writes.push(this._write("planar-reflection:mask", "render-attachment"));
+		}
+		return { reads, writes };
+	}
+
+	private _createForwardResources(
+		state: WebGPUFrameGraphPlannerState,
+		loadExistingColor: boolean
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		const targetPrefix =
+			state.sceneTargetMode === "single" || !state.hasFrameTargets ?
+				"canvas"
+			:	"frame";
+		const sceneColor = `${targetPrefix}:scene-color-main`;
+		const depth = `${targetPrefix}:depth`;
+		const reads: WebGPUFrameGraphResourceRef[] = [
+			this._read("shadow-atlas", "texture-binding", true),
+		];
+		if (loadExistingColor) {
+			reads.push(this._read(sceneColor, "texture-binding", true));
+			reads.push(this._read(depth, "depth-attachment", true));
+		}
+		return {
+			reads,
+			writes: [
+				this._write(sceneColor, "render-attachment"),
+				this._write(depth, "depth-attachment"),
+			],
+		};
+	}
+
+	private _read(
+		id: string,
+		usage: WebGPUFrameGraphResourceRef["usage"],
+		optional = false
+	): WebGPUFrameGraphResourceRef {
+		return { id, usage, optional };
+	}
+
+	private _write(
+		id: string,
+		usage: WebGPUFrameGraphResourceRef["usage"],
+		optional = false
+	): WebGPUFrameGraphResourceRef {
+		return { id, usage, optional };
 	}
 }
