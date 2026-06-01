@@ -43,7 +43,7 @@ struct ClusterGridParams {
 	logScale: f32,
 	logBias: f32,
 	lightCount: u32,
-	reserved1: u32,
+	maxLightsPerCluster: u32,
 }
 
 struct ClusterLightRecord {

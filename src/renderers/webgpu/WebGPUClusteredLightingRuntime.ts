@@ -132,7 +132,9 @@ export class WebGPUClusteredLightingRuntime {
 		| null = null;
 
 	private _computeShaderModule: any = null;
-	private _computePipeline: IComputePipeline | null = null;
+	private _clearPipeline: IComputePipeline | null = null;
+	private _scatterPipeline: IComputePipeline | null = null;
+	private _finalizePipeline: IComputePipeline | null = null;
 	private _computeGroupLayout0: GPUBindGroupLayout | null = null;
 	private _computePipelineLayout: GPUPipelineLayout | null = null;
 	private _built = false;
@@ -150,7 +152,9 @@ export class WebGPUClusteredLightingRuntime {
 
 	public onShaderRuntimeChanged(): void {
 		this._computeShaderModule = null;
-		this._computePipeline = null;
+		this._clearPipeline = null;
+		this._scatterPipeline = null;
+		this._finalizePipeline = null;
 		this._computeGroupLayout0 = null;
 		this._computePipelineLayout = null;
 		this._destroyBindingGroup(this._computeBinding);
@@ -264,6 +268,7 @@ export class WebGPUClusteredLightingRuntime {
 			logScale,
 			logBias,
 			lightCount: maxLights,
+			maxLightsPerCluster: activeMaxLightsPerCluster,
 		});
 		this._compute.writeBuffer(this._clusterParamsBuffer!, params);
 
@@ -282,25 +287,53 @@ export class WebGPUClusteredLightingRuntime {
 			return;
 		}
 		await this._ensureComputeResources();
-		if (!this._computePipeline || !this._computeBinding) {
+		if (
+			!this._clearPipeline ||
+			!this._scatterPipeline ||
+			!this._finalizePipeline ||
+			!this._computeBinding
+		) {
 			return;
 		}
 
+		const bindings = [
+			{ index: 0, group: this._computeBinding },
+			{ index: 1, group: frameBinding },
+		];
+		const clusterDispatch = {
+			x: Math.ceil(
+				this._state.clusterCount / CLUSTERED_SHADER_WORKGROUP_SIZE
+			),
+			y: 1,
+			z: 1,
+		};
+
 		recordComputePass(
 			encoder,
-			"WebGPUClusteredLightingCull",
-			this._computePipeline,
-			[
-				{ index: 0, group: this._computeBinding },
-				{ index: 1, group: frameBinding },
-			],
+			"WebGPUClusteredLightingClear",
+			this._clearPipeline,
+			bindings,
+			clusterDispatch
+		);
+		recordComputePass(
+			encoder,
+			"WebGPUClusteredLightingScatter",
+			this._scatterPipeline,
+			bindings,
 			{
 				x: Math.ceil(
-					this._state.clusterCount / CLUSTERED_SHADER_WORKGROUP_SIZE
+					this._state.maxLights / CLUSTERED_SHADER_WORKGROUP_SIZE
 				),
 				y: 1,
 				z: 1,
 			}
+		);
+		recordComputePass(
+			encoder,
+			"WebGPUClusteredLightingFinalize",
+			this._finalizePipeline,
+			bindings,
+			clusterDispatch
 		);
 		this._built = true;
 	}
@@ -445,7 +478,11 @@ export class WebGPUClusteredLightingRuntime {
 			});
 		}
 
-		if (!this._computePipeline) {
+		if (
+			!this._clearPipeline ||
+			!this._scatterPipeline ||
+			!this._finalizePipeline
+		) {
 			this._computeGroupLayout0 = this._compute.createBindGroupLayout({
 				label: "WebGPUClusteredLighting_Group0",
 				entries: [
@@ -475,17 +512,35 @@ export class WebGPUClusteredLightingRuntime {
 				label: "WebGPUClusteredLighting_PipelineLayout",
 				bindGroupLayouts: [this._computeGroupLayout0, this._frameLayout],
 			});
-			this._computePipeline = this._compute.createComputePipeline({
-				label: "WebGPUClusteredLightingPipeline",
-				layout: this._computePipelineLayout,
-				compute: {
-					module: this._computeShaderModule,
-					entryPoint: "csMain",
-				},
-			});
+			this._clearPipeline = this._createComputePipeline(
+				"WebGPUClusteredLightingClearPipeline",
+				"csClear"
+			);
+			this._scatterPipeline = this._createComputePipeline(
+				"WebGPUClusteredLightingScatterPipeline",
+				"csScatter"
+			);
+			this._finalizePipeline = this._createComputePipeline(
+				"WebGPUClusteredLightingFinalizePipeline",
+				"csFinalize"
+			);
 		}
 
 		this._ensureComputeBinding();
+	}
+
+	private _createComputePipeline(
+		label: string,
+		entryPoint: string
+	): IComputePipeline {
+		return this._compute.createComputePipeline({
+			label,
+			layout: this._computePipelineLayout,
+			compute: {
+				module: this._computeShaderModule,
+				entryPoint,
+			},
+		});
 	}
 
 	private _ensureComputeBinding(): void {
@@ -551,7 +606,10 @@ export class WebGPUClusteredLightingRuntime {
 		writer.writeF32("logScale", params.logScale);
 		writer.writeF32("logBias", params.logBias);
 		writer.writeU32("lightCount", Math.max(0, params.lightCount) >>> 0);
-		writer.writeU32("reserved1", 0);
+		writer.writeU32(
+			"maxLightsPerCluster",
+			Math.max(1, params.maxLightsPerCluster) >>> 0
+		);
 		return writer.toArrayBuffer();
 	}
 

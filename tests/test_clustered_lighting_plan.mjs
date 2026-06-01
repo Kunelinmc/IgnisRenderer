@@ -51,6 +51,11 @@ class ClusteredComputeRecorder {
 	constructor() {
 		this.buffers = [];
 		this.writes = [];
+		this.shaderModules = [];
+		this.bindGroupLayouts = [];
+		this.pipelineLayouts = [];
+		this.computePipelines = [];
+		this.bindGroups = [];
 	}
 
 	createBuffer(desc) {
@@ -70,6 +75,62 @@ class ClusteredComputeRecorder {
 
 	writeBuffer(buffer, data, offset = 0) {
 		this.writes.push({ buffer, data, offset });
+	}
+
+	async createShaderModule(desc) {
+		const module = { label: desc.label, desc };
+		this.shaderModules.push(module);
+		return module;
+	}
+
+	createBindGroupLayout(desc) {
+		const layout = { label: desc.label, desc };
+		this.bindGroupLayouts.push(layout);
+		return layout;
+	}
+
+	createPipelineLayout(desc) {
+		const layout = { label: desc.label, desc };
+		this.pipelineLayouts.push(layout);
+		return layout;
+	}
+
+	createComputePipeline(desc) {
+		const pipeline = { label: desc.label, desc };
+		this.computePipelines.push(pipeline);
+		return pipeline;
+	}
+
+	createBindingGroup(desc) {
+		const group = { label: desc.label, desc };
+		this.bindGroups.push(group);
+		return group;
+	}
+}
+
+class ClusteredCommandEncoder {
+	constructor() {
+		this.calls = [];
+	}
+
+	beginComputePass(desc = {}) {
+		this.calls.push(["beginComputePass", desc.label ?? null]);
+	}
+
+	setComputePipeline(pipeline) {
+		this.calls.push(["setComputePipeline", pipeline.label]);
+	}
+
+	setBindingGroup(index, group) {
+		this.calls.push(["setBindingGroup", index, group.label ?? null]);
+	}
+
+	dispatchWorkgroups(x, y = 1, z = 1) {
+		this.calls.push(["dispatchWorkgroups", x, y, z]);
+	}
+
+	endComputePass() {
+		this.calls.push(["endComputePass"]);
 	}
 }
 
@@ -155,11 +216,12 @@ function testClusterParamsLayoutWritesLightCount() {
 	writer.writeF32("logScale", 3);
 	writer.writeF32("logBias", 1);
 	writer.writeU32("lightCount", 17);
-	writer.writeU32("reserved1", 0);
+	writer.writeU32("maxLightsPerCluster", 32);
 
 	const data = new Uint32Array(writer.toArrayBuffer());
 	assert.equal(data.byteLength, WEBGPU_CLUSTERED_PARAMS_FLOATS * 4);
 	assert.equal(data[10], 17);
+	assert.equal(data[11], 32);
 }
 
 function testRuntimeWritesClampedActiveLightCount() {
@@ -205,6 +267,60 @@ function testRuntimeWritesClampedActiveLightCount() {
 	assert.ok(paramsWrite);
 	const params = new Uint32Array(paramsWrite.data);
 	assert.equal(params[10], 2);
+	assert.equal(params[11], 64);
+}
+
+async function testRuntimeDispatchesLightDrivenComputePasses() {
+	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(
+		compute,
+		{ label: "scene-layout" },
+		{ label: "frame-layout" },
+		() => {}
+	);
+	runtime.prepareFrame(
+		{
+			camera: {
+				type: CameraType.Perspective,
+				near: 0.1,
+				far: 100,
+			},
+		},
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: 4,
+				maxLightsPerCluster: 8,
+				tileSizePx: 64,
+				zSlices: 4,
+			},
+		},
+		{
+			clusteredLights: [createClusteredLight(0), createClusteredLight(1)],
+		},
+		128,
+		128
+	);
+
+	const encoder = new ClusteredCommandEncoder();
+	await runtime.build(encoder, { label: "frame-binding" });
+
+	assert.deepEqual(
+		compute.computePipelines.map((pipeline) => pipeline.desc.compute.entryPoint),
+		["csClear", "csScatter", "csFinalize"]
+	);
+	assert.deepEqual(
+		encoder.calls
+			.filter((call) => call[0] === "beginComputePass")
+			.map((call) => call[1]),
+		[
+			"WebGPUClusteredLightingClear",
+			"WebGPUClusteredLightingScatter",
+			"WebGPUClusteredLightingFinalize",
+		]
+	);
 }
 
 function testClusteredIndexBitfieldPackUnpack() {
@@ -244,6 +360,7 @@ function testClusterHeaderFlagPack() {
 async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	const shader = (await loadClusteredLightingCullShaderComposite()).code;
 	assert.ok(shader.includes("lightCount: u32"));
+	assert.ok(shader.includes("maxLightsPerCluster: u32"));
 	assert.ok(shader.includes("fn activeClusterLightCount() -> u32"));
 	assert.ok(
 		shader.includes(
@@ -251,14 +368,12 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 		)
 	);
 	assert.ok(!shader.includes("let maxLights = arrayLength(&clusterLights.lights);"));
-	assert.ok(shader.includes("var<workgroup> tileViewPositionRange"));
-	assert.ok(shader.includes("@builtin(local_invocation_id) localId"));
-	assert.ok(shader.includes("workgroupBarrier();"));
-	assert.ok(
-		shader.includes(
-			"for (var tileBase: u32 = 0u; tileBase < activeLightCount;"
-		)
-	);
+	assert.ok(shader.includes("fn csClear("));
+	assert.ok(shader.includes("fn csScatter("));
+	assert.ok(shader.includes("fn csFinalize("));
+	assert.ok(shader.includes("atomicAdd(&clusterHeaders.headers[clusterIndex].count"));
+	assert.ok(shader.includes("fn resolveLightClusterRange("));
+	assert.ok(!shader.includes("for (var tileBase: u32 = 0u;"));
 }
 
 async function testClusteredShadingUsesActiveLightCountGuards() {
@@ -293,6 +408,7 @@ async function run() {
 	testClusteredCapabilityGateWarning();
 	testClusterParamsLayoutWritesLightCount();
 	testRuntimeWritesClampedActiveLightCount();
+	await testRuntimeDispatchesLightDrivenComputePasses();
 	testClusteredIndexBitfieldPackUnpack();
 	testClusterHeaderFlagPack();
 	await testClusteredCullShaderUsesActiveCountAndTiling();

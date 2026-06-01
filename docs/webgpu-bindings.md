@@ -137,7 +137,10 @@ them with `thicknessSampler`. `anisotropyTexture` uses binding `37` and is not a
 
 ### Clustered Lighting Compute
 
-`clusteredLightingCull.wgsl` uses a compute-specific layout:
+`clusteredLightingCull.wgsl` uses `csClear`, `csScatter`, and `csFinalize`
+compute entry points with a shared compute-specific layout. `ClusterGridParams`
+stores `maxLightsPerCluster` in its final `u32` slot so compute and fragment
+passes agree on the fixed index span for each cluster.
 
 | Group | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |

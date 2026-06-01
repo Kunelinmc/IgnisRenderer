@@ -2020,7 +2020,8 @@ fn getClusterEntryCount(header: ClusterHeader) -> u32 {
 	if (header.offset >= totalEntries) {
 		return 0u;
 	}
-	return min(header.count, totalEntries - header.offset);
+	let clusterCapacity = max(clusterGrid.maxLightsPerCluster, 1u);
+	return min(min(header.count, clusterCapacity), totalEntries - header.offset);
 }
 
 fn decodeClusteredLightRef(value: u32) -> ClusteredLightRef {
