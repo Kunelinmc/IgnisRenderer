@@ -6,6 +6,8 @@ import { WebGLClusteredLightingRuntime } from "../src/renderers/webgl/WebGLClust
 
 function createFakeGL() {
 	let textureId = 0;
+	let boundTexture = null;
+	const uploads = new Map();
 	return {
 		TEXTURE_2D: 0x0de1,
 		TEXTURE_MIN_FILTER: 0x2801,
@@ -21,9 +23,30 @@ function createFakeGL() {
 			return { id: `tex-${++textureId}` };
 		},
 		deleteTexture() {},
-		bindTexture() {},
+		bindTexture(_target, texture) {
+			boundTexture = texture;
+		},
 		texParameteri() {},
-		texImage2D() {},
+		texImage2D(
+			_target,
+			_level,
+			_internalFormat,
+			width,
+			height,
+			_border,
+			_format,
+			_type,
+			pixels
+		) {
+			uploads.set(boundTexture, {
+				width,
+				height,
+				pixels: new Float32Array(pixels),
+			});
+		},
+		getUpload(texture) {
+			return uploads.get(texture);
+		},
 	};
 }
 
@@ -199,10 +222,107 @@ function testLightBudgetWarning() {
 	});
 }
 
+function testClusterHeadersUseFixedClusterSpans() {
+	const gl = createFakeGL();
+	const runtime = new WebGLClusteredLightingRuntime(gl);
+	const context = createPerspectiveContext({
+		attachments: {
+			width: 128,
+			height: 64,
+		},
+		camera: {
+			type: CameraType.Perspective,
+			near: 0.1,
+			far: 200,
+			fov: 60,
+			aspectRatio: 2,
+			viewMatrix: Matrix4.identity(),
+			viewProjectionMatrix: Matrix4.perspective(60, 2, 0.1, 200),
+		},
+		features: {
+			clusteredLightingOptions: {
+				tileSizePx: 64,
+				zSlices: 1,
+				maxLights: 4,
+				maxLightsPerCluster: 2,
+			},
+		},
+	});
+
+	runtime.prepare(context, createLightState(), 4096);
+	const state = runtime.getState();
+	const headerUpload = gl.getUpload(state.headerTexture);
+
+	assert.equal(state.enabled, true);
+	assert.ok(headerUpload);
+	assert.equal(headerUpload.pixels[0], 0);
+	assert.equal(headerUpload.pixels[4], 2);
+}
+
+function testClusterOverflowClampsFixedSpanCount() {
+	const gl = createFakeGL();
+	const runtime = new WebGLClusteredLightingRuntime(gl);
+	const context = createPerspectiveContext({
+		attachments: {
+			width: 64,
+			height: 64,
+		},
+		features: {
+			clusteredLightingOptions: {
+				tileSizePx: 64,
+				zSlices: 1,
+				maxLights: 4,
+				maxLightsPerCluster: 1,
+			},
+		},
+	});
+	const lights = createLightState({
+		clusteredLights: [
+			{
+				type: 0,
+				position: [0, 0, -6],
+				range: 5,
+				direction: [0, 0, 0],
+				outerCos: -2,
+				innerCos: -2,
+				color: [1, 1, 1],
+				castsShadow: false,
+				shadowIndex: 0,
+			},
+			{
+				type: 0,
+				position: [0, 0, -6],
+				range: 5,
+				direction: [0, 0, 0],
+				outerCos: -2,
+				innerCos: -2,
+				color: [1, 0, 0],
+				castsShadow: false,
+				shadowIndex: 0,
+			},
+		],
+	});
+
+	runtime.prepare(context, lights, 4096);
+	const state = runtime.getState();
+	const headerUpload = gl.getUpload(state.headerTexture);
+	const indexUpload = gl.getUpload(state.indexTexture);
+
+	assert.equal(state.enabled, true);
+	assert.ok(headerUpload);
+	assert.ok(indexUpload);
+	assert.equal(headerUpload.pixels[0], 0);
+	assert.equal(headerUpload.pixels[1], 1);
+	assert.equal(headerUpload.pixels[2], 1);
+	assert.equal(indexUpload.pixels[0], 0);
+}
+
 function run() {
 	testPerspectiveBuildsClusterTextures();
 	testNonPerspectiveFallsBackWithWarning();
 	testLightBudgetWarning();
+	testClusterHeadersUseFixedClusterSpans();
+	testClusterOverflowClampsFixedSpanCount();
 	console.log("WebGL clustered lighting runtime tests passed");
 }
 

@@ -72,6 +72,10 @@ export class WebGLClusteredLightingRuntime {
 	private _headerTexture: WebGLTexture | null = null;
 	private _indexTexture: WebGLTexture | null = null;
 	private _lightTexture: WebGLTexture | null = null;
+	private _clusterCounts = new Uint32Array(0);
+	private _clusterFlags = new Uint8Array(0);
+	private _clusterIndices = new Float32Array(0);
+	private _headerData = new Float32Array(0);
 	private _state: WebGLClusteredLightingState = {
 		enabled: false,
 		screenWidth: 1,
@@ -174,8 +178,15 @@ export class WebGLClusteredLightingRuntime {
 			return;
 		}
 
-		const clusterLists = Array.from({ length: clusterCount }, () => [] as number[]);
-		const clusterOverflow = new Uint8Array(clusterCount);
+		this._ensureScratchBuffers(clusterCount, maxLightsPerCluster);
+		const clusterCounts = this._clusterCounts.subarray(0, clusterCount);
+		const clusterFlags = this._clusterFlags.subarray(0, clusterCount);
+		const indexCapacity = clusterCount * maxLightsPerCluster;
+		const clusterIndices = this._clusterIndices.subarray(0, indexCapacity);
+		clusterCounts.fill(0);
+		clusterFlags.fill(0);
+		clusterIndices.fill(-1);
+
 		const lightRanges: Array<ClusteredLightRange | null> = activeLights.map((light) =>
 			this._resolveLightRange(
 				context,
@@ -201,32 +212,29 @@ export class WebGLClusteredLightingRuntime {
 				for (let y = range.tileYMin; y <= range.tileYMax; y++) {
 					for (let x = range.tileXMin; x <= range.tileXMax; x++) {
 						const clusterIndex = x + y * tilesX + z * tilesX * tilesY;
-						const list = clusterLists[clusterIndex];
-						if (list.length >= maxLightsPerCluster) {
-							clusterOverflow[clusterIndex] = 1;
+						const count = clusterCounts[clusterIndex];
+						if (count >= maxLightsPerCluster) {
+							clusterFlags[clusterIndex] |= CLUSTER_FLAG_OVERFLOW;
 							continue;
 						}
-						list.push(lightIndex);
+						clusterIndices[clusterIndex * maxLightsPerCluster + count] =
+							lightIndex;
+						clusterCounts[clusterIndex] = count + 1;
 					}
 				}
 			}
 		}
 
-		const headerData = new Float32Array(clusterCount * 4);
-		const linearIndices: number[] = [];
+		const headerData = this._headerData.subarray(0, clusterCount * 4);
 		for (let i = 0; i < clusterCount; i++) {
-			const list = clusterLists[i];
-			headerData[i * 4] = linearIndices.length;
-			headerData[i * 4 + 1] = list.length;
-			headerData[i * 4 + 2] = clusterOverflow[i] ? CLUSTER_FLAG_OVERFLOW : 0;
+			headerData[i * 4] = i * maxLightsPerCluster;
+			headerData[i * 4 + 1] = clusterCounts[i];
+			headerData[i * 4 + 2] = clusterFlags[i];
 			headerData[i * 4 + 3] = 0;
-			for (const lightIndex of list) {
-				linearIndices.push(lightIndex);
-			}
 		}
 
 		const lightData = this._createLightBuffer(activeLights);
-		const indexData = this._createIndexBuffer(linearIndices);
+		const indexData = clusterIndices;
 
 		const headerShape = resolveTextureShape(clusterCount, maxTextureSize);
 		const indexShape = resolveTextureShape(indexData.length / 4, maxTextureSize);
@@ -391,6 +399,24 @@ export class WebGLClusteredLightingRuntime {
 		return fallback;
 	}
 
+	private _ensureScratchBuffers(
+		clusterCount: number,
+		maxLightsPerCluster: number
+	): void {
+		const requiredClusterCount = Math.max(1, clusterCount);
+		if (this._clusterCounts.length < requiredClusterCount) {
+			this._clusterCounts = new Uint32Array(requiredClusterCount);
+			this._clusterFlags = new Uint8Array(requiredClusterCount);
+			this._headerData = new Float32Array(requiredClusterCount * 4);
+		}
+
+		const requiredIndexCount =
+			requiredClusterCount * Math.max(1, maxLightsPerCluster);
+		if (this._clusterIndices.length < requiredIndexCount) {
+			this._clusterIndices = new Float32Array(requiredIndexCount);
+		}
+	}
+
 	private _resolveLightRange(
 		context: FrameContext,
 		light: ClusteredLightRecord,
@@ -505,15 +531,6 @@ export class WebGLClusteredLightingRuntime {
 		return data;
 	}
 
-	private _createIndexBuffer(indices: readonly number[]): Float32Array {
-		const texelCount = Math.max(1, Math.ceil(indices.length / 4));
-		const data = new Float32Array(texelCount * 4);
-		data.fill(-1);
-		for (let i = 0; i < indices.length; i++) {
-			data[i] = indices[i];
-		}
-		return data;
-	}
 }
 
 function pointToClusterRecord(point: WebGLPointLight): ClusteredLightRecord {
