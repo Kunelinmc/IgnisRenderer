@@ -147,6 +147,32 @@ export type RendererFeatures = RendererFeatureFlags &
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };
 
+type RenderSceneFrame = ReturnType<typeof PreparedSceneBuilder.build>;
+type RenderSceneFeatureState = ReturnType<typeof resolveFeatureState>;
+type RendererStageExecutor = (
+	state: RenderSceneFrameState
+) => void | Promise<void>;
+
+interface RenderSceneFrameState {
+	now: number;
+	deltaTimeSeconds: number;
+	frameDirtyReasonMask: number;
+	transient: TransientStore;
+	resolved: RenderSceneFeatureState;
+	resolvedPostProcess: ResolvedPostProcessState;
+	frame: RenderSceneFrame | null;
+	context: FrameContext | null;
+	frameStarted: boolean;
+	emittedPostAnimation: boolean;
+	stageOrder: RendererStageDefinition[];
+	stageIndexById: Map<string, number>;
+	hasAnimationStage: boolean;
+	initialFullFrameRect: ReturnType<typeof makeFullScreenRect>;
+	initialFullFrameTiles: DirtyTileCoverage;
+	incrementalFrameContext: IncrementalFrameContext;
+	incrementalStartStageIndex: number;
+}
+
 export class Renderer extends EventEmitter<RendererEvents> {
 	public readonly backend: IRenderBackend;
 	public readonly animationSystem: AnimationSystem;
@@ -180,6 +206,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _lastKnownSceneVersion: number;
 	private _postProcessPipeline: PostProcessPipeline;
 	private _postProcessController: RendererPostProcessController;
+	private _stageExecutors: Map<string, RendererStageExecutor>;
 
 	constructor(
 		backend: IRenderBackend,
@@ -193,6 +220,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			stages: createDefaultRendererStages(),
 			backendPasses: createDefaultBackendPasses(),
 		});
+		this._stageExecutors = this._createStageExecutors();
 		this.logger = Logger;
 		this._postProcessPipeline = new PostProcessPipeline();
 		this.postProcess = new PostProcessPassRegistry();
@@ -853,6 +881,347 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		};
 	}
 
+	private _createStageExecutors(): Map<string, RendererStageExecutor> {
+		return new Map<string, RendererStageExecutor>([
+			[
+				"feature-resolution",
+				(state) => this._executeFeatureResolutionStage(state),
+			],
+			[
+				"environment-ibl-update",
+				() => this._executeEnvironmentIBLUpdateStage(),
+			],
+			["sync-in", (state) => this._executeSyncInStage(state)],
+			["animation-sim", (state) => this._executeAnimationStage(state)],
+			["physics-sim", (state) => this._executePhysicsStage(state)],
+			["transform-update", () => this._executeTransformUpdateStage()],
+			["lod-resolve", () => this._resolveLODMeshes()],
+			["csg-resolve", () => this._resolveCSGMeshes()],
+			[
+				"prepared-scene-build",
+				(state) => this._executePreparedSceneBuildStage(state),
+			],
+			[
+				"reflection-probe-capture",
+				(state) => this._executeReflectionProbeCaptureStage(state),
+			],
+			["postprocess", (state) => this._executePostProcessStageIfReady(state)],
+			["sync-out", () => this.scene.syncECSToNode()],
+		]);
+	}
+
+	private _createRenderSceneFrameState(options: {
+		now: number;
+		deltaTimeSeconds: number;
+		frameDirtyReasonMask: number;
+		transient: TransientStore;
+		hasActiveAnimations: boolean;
+		hasParticleSystems: boolean;
+	}): RenderSceneFrameState {
+		const resolved = resolveFeatureState(
+			this.features,
+			this.backend.capabilities,
+			this.backend.type
+		);
+		const resolvedPostProcess = this.postProcess.createSnapshot(
+			this.backend.type
+		);
+		const {
+			fullFrameRect: initialFullFrameRect,
+			fullFrameTiles: initialFullFrameTiles,
+		} = this._createFullFrameCoverage();
+		const incrementalFrameContext = this._createInitialIncrementalFrameContext(
+			options.frameDirtyReasonMask,
+			initialFullFrameRect,
+			initialFullFrameTiles
+		);
+		const stageOrder = this.pipeline.getExecutionOrder(
+			{
+				hasActiveAnimations:
+					options.hasActiveAnimations && this.animationAutoRender,
+				hasParticleSystems: options.hasParticleSystems,
+			},
+			(key, message) =>
+				this.logger.warn(`[${key}] ${message}`, {
+					scope: "Renderer",
+					onceKey: key,
+				})
+		);
+		const stageIndexById = new Map<string, number>();
+		for (let index = 0; index < stageOrder.length; index++) {
+			stageIndexById.set(stageOrder[index].id, index);
+		}
+
+		return {
+			now: options.now,
+			deltaTimeSeconds: options.deltaTimeSeconds,
+			frameDirtyReasonMask: options.frameDirtyReasonMask,
+			transient: options.transient,
+			resolved,
+			resolvedPostProcess,
+			frame: null,
+			context: null,
+			frameStarted: false,
+			emittedPostAnimation: false,
+			stageOrder,
+			stageIndexById,
+			hasAnimationStage: stageOrder.some(
+				(stage) => stage.id === "animation-sim"
+			),
+			initialFullFrameRect,
+			initialFullFrameTiles,
+			incrementalFrameContext,
+			incrementalStartStageIndex: -1,
+		};
+	}
+
+	private async _executeRenderStage(
+		stageId: string,
+		state: RenderSceneFrameState
+	): Promise<void> {
+		const executor = this._stageExecutors.get(stageId);
+		if (executor) {
+			await executor(state);
+			return;
+		}
+		await this._executeBackendPassStage(stageId, state);
+	}
+
+	private _executeFeatureResolutionStage(
+		state: RenderSceneFrameState
+	): void {
+		state.resolved = resolveFeatureState(
+			this.features,
+			this.backend.capabilities,
+			this.backend.type
+		);
+		state.resolvedPostProcess = this.postProcess.createSnapshot(
+			this.backend.type
+		);
+		for (const warning of [
+			...state.resolved.warnings,
+			...state.resolvedPostProcess.getWarnings(),
+		]) {
+			this.logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "Renderer",
+				onceKey: warning.key,
+			});
+		}
+	}
+
+	private _executeEnvironmentIBLUpdateStage(): void {
+		const updateResult = this._environmentIBLUpdateRuntime.execute({
+			scene: this.scene,
+			requestToken: this._environmentIBLUpdateRequestToken,
+			options: this._environmentIBLUpdateOptions,
+			webgpuSource:
+				this.backend.type === "webgpu" ?
+					(this.backend as unknown as WebGPUComputeFacadeSource)
+				:	null,
+		});
+		if (updateResult.dirtyReason) {
+			this._markFrameDirty(updateResult.dirtyReason);
+		}
+	}
+
+	private _executeSyncInStage(state: RenderSceneFrameState): void {
+		this.scene.syncNodeToECS();
+		if (!state.hasAnimationStage && !state.emittedPostAnimation) {
+			this._emitPostAnimation(state);
+		}
+	}
+
+	private _executeAnimationStage(state: RenderSceneFrameState): void {
+		this._animationStage.execute(
+			{
+				scene: this.scene,
+				transient: state.transient,
+			},
+			this._deltaTime
+		);
+		if (!state.emittedPostAnimation) {
+			this._emitPostAnimation(state);
+		}
+	}
+
+	private async _executePhysicsStage(
+		state: RenderSceneFrameState
+	): Promise<void> {
+		if (this._physicsSystem) {
+			await this._physicsSystem.stepAsync(state.deltaTimeSeconds);
+		}
+	}
+
+	private _executeTransformUpdateStage(): void {
+		this.scene.updateWorldMatrices();
+		this._assertCameraInScene(this.scene, this.camera, "renderScene");
+		this.camera.updateMatrices();
+		this.refreshReflectionProbeCaches();
+	}
+
+	private async _executePreparedSceneBuildStage(
+		state: RenderSceneFrameState
+	): Promise<void> {
+		if (this.features.enableSH) {
+			this.updateSH();
+		}
+		const preparedResult = this._preparedSceneCache.build({
+			renderer: this,
+			viewportWidth: this.canvas.width,
+			viewportHeight: this.canvas.height,
+			features: state.resolved,
+			postProcess: state.resolvedPostProcess,
+			incrementalOptions: this._incrementalOptions,
+		});
+		state.frame = preparedResult.frame;
+		const incrementalPlan = IncrementalFramePlanner.plan({
+			enabled: this._incrementalOptions.enabled,
+			reasonMask: state.frameDirtyReasonMask,
+			features: state.resolved,
+			postProcess: state.resolvedPostProcess,
+			registry: this.pipeline.incremental,
+		});
+		state.incrementalFrameContext = this._buildIncrementalFrameContext(
+			incrementalPlan,
+			preparedResult,
+			state.initialFullFrameRect,
+			state.initialFullFrameTiles
+		);
+		state.incrementalStartStageIndex =
+			state.incrementalFrameContext.enabled &&
+			!state.incrementalFrameContext.forceFullFrame &&
+			state.incrementalFrameContext.firstPass ?
+				(state.stageIndexById.get(state.incrementalFrameContext.firstPass) ??
+					-1)
+			:	-1;
+		this._recordIncrementalFrameStats(state.incrementalFrameContext);
+
+		const context = this._createFrameContext(
+			state.frame,
+			state.resolved,
+			state.resolvedPostProcess,
+			state.transient,
+			state.incrementalFrameContext
+		);
+		state.context = {
+			...context,
+			framePlan: this.pipeline.createFramePlan({
+				stageOrder: state.stageOrder,
+				frame: state.frame,
+				features: state.resolved,
+				postProcess: state.resolvedPostProcess,
+				transient: state.transient,
+				passExecutors: this.backend.passExecutors,
+				incremental: state.incrementalFrameContext,
+				frameContext: context,
+				incrementalStartStageIndex: state.incrementalStartStageIndex,
+			}),
+		};
+		state.frameStarted = true;
+		await this.backend.beginFrame(state.context);
+	}
+
+	private async _executeReflectionProbeCaptureStage(
+		state: RenderSceneFrameState
+	): Promise<void> {
+		const cameraWorldPosition = this.camera.getWorldPosition(
+			_tmpRendererCameraWorldPosition
+		);
+		await this._reflectionProbeCaptureRuntime.execute({
+			scene: this.scene,
+			nowMs: state.now,
+			frameDirtyReasonMask: state.frameDirtyReasonMask,
+			frameContext: state.context,
+			cameraWorldPosition,
+			webgpuSource:
+				this.backend.type === "webgpu" ?
+					(this.backend as unknown as WebGPUComputeFacadeSource)
+				:	null,
+			webgpuCaptureSource:
+				this.backend.type === "webgpu" ?
+					(this.backend as unknown as ReflectionProbeWebGPUCaptureSource)
+				:	null,
+		});
+	}
+
+	private async _executePostProcessStageIfReady(
+		state: RenderSceneFrameState
+	): Promise<void> {
+		if (state.context) {
+			await this._executePostProcessStage(state.context);
+		}
+	}
+
+	private async _executeBackendPassStage(
+		stageId: string,
+		state: RenderSceneFrameState
+	): Promise<void> {
+		if (!state.context || !state.frame) return;
+		if (!this._isBackendPassStage(stageId)) return;
+
+		const pass =
+			state.context.framePlan?.backendPasses.find(
+				(candidate) => candidate.stage === stageId
+			) ??
+			this.pipeline.createBackendPass(
+				stageId as FramePassStage,
+				this.backend.passExecutors
+			);
+		if (!pass.enabled) {
+			this.backend.skipPass?.(pass);
+			return;
+		}
+		if (pass.executor === "shared") {
+			if (!this.backend.executeSharedPass) {
+				const key = `${this.backend.type}-shared-pass-${pass.stage}`;
+				Logger.warn(
+					`[${key}] ${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`,
+					{ scope: "Renderer" }
+				);
+				return;
+			}
+			await this.backend.executeSharedPass(pass, state.context);
+			return;
+		}
+		await this.backend.executePass(pass, state.context);
+	}
+
+	private _emitPostAnimation(state: RenderSceneFrameState): void {
+		this.emit("postanimation", {
+			now: state.now,
+			deltaTime: this._deltaTime,
+			scene: this.scene,
+			transient: state.transient,
+		});
+		state.emittedPostAnimation = true;
+	}
+
+	private _recordIncrementalFrameStats(
+		incrementalFrameContext: IncrementalFrameContext
+	): void {
+		this._lastIncrementalFrameStats = {
+			enabled: incrementalFrameContext.enabled,
+			reasonMask: incrementalFrameContext.reasonMask,
+			forceFullFrame: incrementalFrameContext.forceFullFrame,
+			temporalHistoryReset: incrementalFrameContext.temporalHistoryReset,
+			firstPass: incrementalFrameContext.firstPass,
+			postProcessStartPass: incrementalFrameContext.postProcessStartPass,
+			dirtyRectCount: incrementalFrameContext.dirtyRects.length,
+			dirtyTileCount: incrementalFrameContext.dirtyTiles.length,
+			dirtyTileSize: incrementalFrameContext.dirtyTileSize,
+			dirtyTileColumns: incrementalFrameContext.dirtyTileColumns,
+			dirtyTileRows: incrementalFrameContext.dirtyTileRows,
+			dirtyAreaRatio: incrementalFrameContext.dirtyAreaRatio,
+			dirtyRects: incrementalFrameContext.dirtyRects.map((rect) => ({
+				x: rect.x,
+				y: rect.y,
+				width: rect.width,
+				height: rect.height,
+			})),
+			dirtyTiles: incrementalFrameContext.dirtyTiles.slice(),
+		};
+	}
+
 	public async renderScene(now: number): Promise<void> {
 		this._deltaTime = now - (this._lastTime || now);
 		this._lastTime = now;
@@ -909,291 +1278,27 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				});
 			}
 		}
-		let resolved = resolveFeatureState(
-			this.features,
-			this.backend.capabilities,
-			this.backend.type
-		);
-		let resolvedPostProcess = this.postProcess.createSnapshot(
-			this.backend.type
-		);
-		let frame: ReturnType<typeof PreparedSceneBuilder.build> | null = null;
-		let preparedResult: PreparedSceneCacheBuildResult | null = null;
-		let context: FrameContext | null = null;
-		let frameStarted = false;
-		let emittedPostAnimation = false;
-		const {
-			fullFrameRect: initialFullFrameRect,
-			fullFrameTiles: initialFullFrameTiles,
-		} = this._createFullFrameCoverage();
-		let incrementalFrameContext = this._createInitialIncrementalFrameContext(
+		const state = this._createRenderSceneFrameState({
+			now,
+			deltaTimeSeconds,
 			frameDirtyReasonMask,
-			initialFullFrameRect,
-			initialFullFrameTiles
-		);
-
-		const stageOrder = this.pipeline.getExecutionOrder(
-			{
-				hasActiveAnimations: hasActiveAnimations && this.animationAutoRender,
-				hasParticleSystems,
-			},
-			(key, message) =>
-				this.logger.warn(`[${key}] ${message}`, {
-					scope: "Renderer",
-					onceKey: key,
-				})
-		);
-		const stageIndexById = new Map<string, number>();
-		for (let index = 0; index < stageOrder.length; index++) {
-			stageIndexById.set(stageOrder[index].id, index);
-		}
-		let incrementalStartStageIndex = -1;
-		const hasAnimationStage = stageOrder.some(
-			(stage) => stage.id === "animation-sim"
-		);
+			transient,
+			hasActiveAnimations,
+			hasParticleSystems,
+		});
 
 		try {
-			for (const stage of stageOrder) {
-				switch (stage.id) {
-				case "feature-resolution": {
-					resolved = resolveFeatureState(
-						this.features,
-						this.backend.capabilities,
-						this.backend.type
-					);
-					resolvedPostProcess = this.postProcess.createSnapshot(
-						this.backend.type
-					);
-					for (const warning of [
-						...resolved.warnings,
-						...resolvedPostProcess.getWarnings(),
-					]) {
-						this.logger.warn(`[${warning.key}] ${warning.message}`, {
-							scope: "Renderer",
-							onceKey: warning.key,
-						});
-					}
-					break;
-				}
-				case "environment-ibl-update": {
-					const updateResult = this._environmentIBLUpdateRuntime.execute({
-						scene: this.scene,
-						requestToken: this._environmentIBLUpdateRequestToken,
-						options: this._environmentIBLUpdateOptions,
-						webgpuSource:
-							this.backend.type === "webgpu" ?
-								(this.backend as unknown as WebGPUComputeFacadeSource)
-							:	null,
-					});
-					if (updateResult.dirtyReason) {
-						this._markFrameDirty(updateResult.dirtyReason);
-					}
-					break;
-				}
-				case "sync-in": {
-					this.scene.syncNodeToECS();
-					if (!hasAnimationStage && !emittedPostAnimation) {
-						this.emit("postanimation", {
-							now,
-							deltaTime: this._deltaTime,
-							scene: this.scene,
-							transient,
-						});
-						emittedPostAnimation = true;
-					}
-					break;
-				}
-				case "animation-sim": {
-					this._animationStage.execute(
-						{
-							scene: this.scene,
-							transient,
-						},
-						this._deltaTime
-					);
-					if (!emittedPostAnimation) {
-						this.emit("postanimation", {
-							now,
-							deltaTime: this._deltaTime,
-							scene: this.scene,
-							transient,
-						});
-						emittedPostAnimation = true;
-					}
-					break;
-				}
-				case "physics-sim": {
-					if (this._physicsSystem) {
-						await this._physicsSystem.stepAsync(deltaTimeSeconds);
-					}
-					break;
-				}
-				case "transform-update": {
-					this.scene.updateWorldMatrices();
-					this._assertCameraInScene(this.scene, this.camera, "renderScene");
-					this.camera.updateMatrices();
-					this.refreshReflectionProbeCaches();
-					break;
-				}
-				case "lod-resolve": {
-					this._resolveLODMeshes();
-					break;
-				}
-				case "csg-resolve": {
-					await this._resolveCSGMeshes();
-					break;
-				}
-				case "prepared-scene-build": {
-					if (this.features.enableSH) {
-						this.updateSH();
-					}
-					preparedResult = this._preparedSceneCache.build({
-						renderer: this,
-						viewportWidth: this.canvas.width,
-						viewportHeight: this.canvas.height,
-						features: resolved,
-						postProcess: resolvedPostProcess,
-						incrementalOptions: this._incrementalOptions,
-					});
-					frame = preparedResult.frame;
-					const incrementalPlan = IncrementalFramePlanner.plan({
-						enabled: this._incrementalOptions.enabled,
-						reasonMask: frameDirtyReasonMask,
-						features: resolved,
-						postProcess: resolvedPostProcess,
-						registry: this.pipeline.incremental,
-					});
-					incrementalFrameContext = this._buildIncrementalFrameContext(
-						incrementalPlan,
-						preparedResult,
-						initialFullFrameRect,
-						initialFullFrameTiles
-					);
-					incrementalStartStageIndex =
-						incrementalFrameContext.enabled &&
-						!incrementalFrameContext.forceFullFrame &&
-						incrementalFrameContext.firstPass ?
-							(stageIndexById.get(incrementalFrameContext.firstPass) ?? -1)
-						:	-1;
-					this._lastIncrementalFrameStats = {
-						enabled: incrementalFrameContext.enabled,
-						reasonMask: incrementalFrameContext.reasonMask,
-						forceFullFrame: incrementalFrameContext.forceFullFrame,
-						temporalHistoryReset:
-							incrementalFrameContext.temporalHistoryReset,
-						firstPass: incrementalFrameContext.firstPass,
-						postProcessStartPass:
-							incrementalFrameContext.postProcessStartPass,
-						dirtyRectCount: incrementalFrameContext.dirtyRects.length,
-						dirtyTileCount: incrementalFrameContext.dirtyTiles.length,
-						dirtyTileSize: incrementalFrameContext.dirtyTileSize,
-						dirtyTileColumns: incrementalFrameContext.dirtyTileColumns,
-						dirtyTileRows: incrementalFrameContext.dirtyTileRows,
-						dirtyAreaRatio: incrementalFrameContext.dirtyAreaRatio,
-						dirtyRects: incrementalFrameContext.dirtyRects.map((rect) => ({
-							x: rect.x,
-							y: rect.y,
-							width: rect.width,
-							height: rect.height,
-						})),
-						dirtyTiles: incrementalFrameContext.dirtyTiles.slice(),
-					};
-					context = this._createFrameContext(
-						frame,
-						resolved,
-						resolvedPostProcess,
-						transient,
-						incrementalFrameContext
-					);
-					context = {
-						...context,
-						framePlan: this.pipeline.createFramePlan({
-							stageOrder,
-							frame,
-							features: resolved,
-							postProcess: resolvedPostProcess,
-							transient,
-							passExecutors: this.backend.passExecutors,
-							incremental: incrementalFrameContext,
-							frameContext: context,
-							incrementalStartStageIndex,
-						}),
-					};
-					frameStarted = true;
-					await this.backend.beginFrame(context);
-					break;
-				}
-				case "reflection-probe-capture": {
-					const cameraWorldPosition = this.camera.getWorldPosition(
-						_tmpRendererCameraWorldPosition
-					);
-						await this._reflectionProbeCaptureRuntime.execute({
-							scene: this.scene,
-							nowMs: now,
-							frameDirtyReasonMask,
-							frameContext: context,
-							cameraWorldPosition,
-							webgpuSource:
-							this.backend.type === "webgpu" ?
-								(this.backend as unknown as WebGPUComputeFacadeSource)
-							:	null,
-						webgpuCaptureSource:
-							this.backend.type === "webgpu" ?
-								(this.backend as unknown as ReflectionProbeWebGPUCaptureSource)
-							:	null,
-					});
-					break;
-				}
-				case "postprocess": {
-					if (context) {
-						await this._executePostProcessStage(context);
-					}
-					break;
-				}
-				case "sync-out": {
-					this.scene.syncECSToNode();
-					break;
-				}
-				default: {
-					if (!context || !frame) break;
-					if (!this._isBackendPassStage(stage.id)) break;
-					const pass =
-						context.framePlan?.backendPasses.find(
-							(candidate) => candidate.stage === stage.id
-						) ??
-						this.pipeline.createBackendPass(
-							stage.id as FramePassStage,
-							this.backend.passExecutors
-						);
-					if (!pass.enabled) {
-						this.backend.skipPass?.(pass);
-						break;
-					}
-					if (pass.executor === "shared") {
-						if (!this.backend.executeSharedPass) {
-							const key = `${this.backend.type}-shared-pass-${pass.stage}`;
-							Logger.warn(
-								`[${key}] ${this.backend.type} backend declared shared pass "${pass.stage}" without executeSharedPass implementation`,
-								{ scope: "Renderer" }
-							);
-							break;
-						}
-						await this.backend.executeSharedPass(pass, context);
-					} else {
-						await this.backend.executePass(pass, context);
-					}
-					break;
-				}
-				}
+			for (const stage of state.stageOrder) {
+				await this._executeRenderStage(stage.id, state);
 			}
 
-			if (frameStarted) {
+			if (state.frameStarted) {
 				await this.backend.endFrame();
-				frameStarted = false;
+				state.frameStarted = false;
 			}
 			this._postProcessController.commitFrame();
 		} catch (error) {
-			await this._abortFailedFrame(error, frameStarted);
+			await this._abortFailedFrame(error, state.frameStarted);
 			throw error;
 		}
 
