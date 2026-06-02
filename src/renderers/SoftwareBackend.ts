@@ -126,10 +126,6 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 export class SoftwareBackend implements IRenderBackend {
 	public readonly type = "software";
 	public readonly frameScheduling = "on-demand";
-	public readonly passExecutors = {
-		"animation-sim": "shared",
-		"particle-sim": "backend",
-	} as const;
 	public readonly capabilities = {
 		sh: true,
 		shadows: true,
@@ -379,6 +375,11 @@ export class SoftwareBackend implements IRenderBackend {
 
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
+			const key = `software-pass-unsupported-${pass.stage}`;
+			Logger.warn(
+				`[${key}] Software backend does not support pass "${pass.stage}" yet; skipping`,
+				{ scope: "SoftwareBackend", onceKey: key }
+			);
 			return;
 		}
 		await handler(context);

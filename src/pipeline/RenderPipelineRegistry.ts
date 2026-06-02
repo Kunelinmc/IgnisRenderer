@@ -1,7 +1,7 @@
 import {
-	FRAME_PASS_DEPENDENCIES,
 	type FrameContext,
 	type FramePass,
+	type FramePassStage,
 	type PreparedScene,
 	type RendererFramePlan,
 	type ResolvedFeatureState,
@@ -25,7 +25,12 @@ import type {
 	ResolvedPostProcessState,
 } from "../postprocess";
 
-export interface RenderPipelinePassRunContext {
+export type RenderPipelineStageKind =
+	| "renderer"
+	| "backend-pass"
+	| "shared-pass";
+
+export interface RenderPipelineStageRunContext {
 	frame: PreparedScene;
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
@@ -34,26 +39,25 @@ export interface RenderPipelinePassRunContext {
 	incremental?: IncrementalFrameContext;
 }
 
-export type RenderPipelinePassPredicate = (
-	context: RenderPipelinePassRunContext
+export type RenderPipelineStagePredicate = (
+	context: RenderPipelineStageRunContext
 ) => boolean;
 
-export interface RenderPipelineBackendPassIncrementalOptions {
+export interface RenderPipelineStageIncrementalOptions {
 	order?: number;
 }
 
-export interface RenderPipelineBackendPassRegistration {
-	id: FramePass["stage"];
-	dependsOn?: readonly string[];
-	executor?: FramePass["executor"];
+export interface RenderPipelineStageRegistration {
+	id: FramePassStage;
+	kind: RenderPipelineStageKind;
+	dependsOn?: readonly FramePassStage[];
 	enabled?: (context: RendererStageEnableContext) => boolean;
-	shouldRun?: RenderPipelinePassPredicate;
-	incremental?: RenderPipelineBackendPassIncrementalOptions;
+	shouldRun?: RenderPipelineStagePredicate;
+	incremental?: RenderPipelineStageIncrementalOptions;
 }
 
 export interface RenderPipelineRegistryOptions {
-	stages?: readonly RendererStageDefinition[];
-	backendPasses?: readonly RenderPipelineBackendPassRegistration[];
+	stages?: readonly RenderPipelineStageRegistration[];
 	incrementalRegistry?: IncrementalRegistry;
 }
 
@@ -63,30 +67,31 @@ export interface RenderPipelineFramePlanOptions {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
-	passExecutors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>;
 	incremental?: IncrementalFrameContext;
 	frameContext?: FrameContext;
 	incrementalStartStageIndex?: number;
 }
 
-interface RegisteredBackendPass extends RenderPipelineBackendPassRegistration {
-	dependsOn: readonly string[];
+interface RegisteredPipelineStage extends RenderPipelineStageRegistration {
+	dependsOn: readonly FramePassStage[];
 	builtIn: boolean;
+}
+
+function isFramePassKind(kind: RenderPipelineStageKind): boolean {
+	return kind === "backend-pass" || kind === "shared-pass";
 }
 
 export class RenderPipelineRegistry {
 	private _stageGraph: RendererStageGraph;
-	private _backendPasses = new Map<FramePass["stage"], RegisteredBackendPass>();
+	private _stages = new Map<FramePassStage, RegisteredPipelineStage>();
 	private _incrementalRegistry: IncrementalRegistry;
 
 	constructor(options: RenderPipelineRegistryOptions = {}) {
 		this._incrementalRegistry =
 			options.incrementalRegistry ?? getDefaultIncrementalRegistry();
-		this._stageGraph = new RendererStageGraph(
-			Array.from(options.stages ?? [])
-		);
-		for (const pass of options.backendPasses ?? []) {
-			this._registerBackendPass(pass, true);
+		this._stageGraph = new RendererStageGraph();
+		for (const stage of options.stages ?? []) {
+			this._registerPipelineStage(stage, true);
 		}
 	}
 
@@ -111,16 +116,35 @@ export class RenderPipelineRegistry {
 		this._incrementalRegistry.unregisterDirtyReason(id);
 	}
 
-	public registerStage(stage: RendererStageDefinition): void {
-		this._stageGraph.registerStage(stage);
+	/**
+	 * Registers a renderer pipeline stage or backend/shared frame pass stage.
+	 *
+	 * @param stage Stage metadata used for ordering, enablement, pass planning,
+	 * and incremental first-pass ordering.
+	 * @returns Nothing.
+	 * @constraints Custom `renderer` stages are planning-only unless `Renderer`
+	 * owns an internal executor for the id.
+	 * @sideEffects Mutates the stage graph and, for pass stages, incremental
+	 * pass ordering metadata.
+	 */
+	public registerPipelineStage(stage: RenderPipelineStageRegistration): void {
+		this._registerPipelineStage(stage, false);
 	}
 
-	public unregisterStage(id: string): void {
+	public unregisterPipelineStage(id: FramePassStage): void {
+		const stage = this._stages.get(id);
+		if (!stage) {
+			return;
+		}
+		if (stage.builtIn) {
+			throw new Error(`Cannot unregister built-in pipeline stage "${id}".`);
+		}
+		this._stages.delete(id);
+		this._stageGraph.removeDependency("sync-out", id);
 		this._stageGraph.unregisterStage(id);
-	}
-
-	public setStages(stages: readonly RendererStageDefinition[]): void {
-		this._stageGraph.setStages(Array.from(stages));
+		if (isFramePassKind(stage.kind)) {
+			this._incrementalRegistry.unregisterFramePass(id);
+		}
 	}
 
 	public getExecutionOrder(
@@ -128,34 +152,6 @@ export class RenderPipelineRegistry {
 		warn: (key: string, message: string) => void
 	): RendererStageDefinition[] {
 		return this._stageGraph.getExecutionOrder(context, warn);
-	}
-
-	/**
-	 * Registers a custom backend or shared frame pass.
-	 *
-	 * @param pass Pass metadata used by Renderer for ordering, enablement,
-	 * executor selection, and incremental first-pass ordering.
-	 * @sideEffects Mutates the renderer stage graph and incremental pass order.
-	 */
-	public registerBackendPass(
-		pass: RenderPipelineBackendPassRegistration
-	): void {
-		this._registerBackendPass(pass, false);
-	}
-
-	public unregisterBackendPass(id: FramePass["stage"]): void {
-		const pass = this._backendPasses.get(id);
-		if (!pass) {
-			return;
-		}
-		if (pass.builtIn) {
-			throw new Error(`Cannot unregister built-in backend pass "${id}".`);
-		}
-		this._backendPasses.delete(id);
-		this._stageGraph.removeDependency("sync-out", id);
-		this._stageGraph.unregisterStage(id);
-		FRAME_PASS_DEPENDENCIES.delete(id);
-		this._incrementalRegistry.unregisterFramePass(id);
 	}
 
 	/**
@@ -174,27 +170,33 @@ export class RenderPipelineRegistry {
 		this._incrementalRegistry.unregisterPostProcessPass(id);
 	}
 
-	public isBackendPassStage(stageId: FramePass["stage"]): boolean {
-		return this._backendPasses.has(stageId);
+	public getStageKind(stageId: FramePassStage): RenderPipelineStageKind | null {
+		return this._stages.get(stageId)?.kind ?? null;
 	}
 
-	public createBackendPass(
-		stageId: FramePass["stage"],
-		passExecutors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>
-	): FramePass {
-		const pass = this._backendPasses.get(stageId);
+	public isFramePassStage(stageId: FramePassStage): boolean {
+		const stage = this._stages.get(stageId);
+		return stage ? isFramePassKind(stage.kind) : false;
+	}
+
+	public createFramePass(stageId: FramePassStage): FramePass {
+		const stage = this._stages.get(stageId);
+		if (!stage || !isFramePassKind(stage.kind)) {
+			throw new Error(`Pipeline stage "${stageId}" is not a frame pass.`);
+		}
 		return {
-			stage: stageId,
-			executor: passExecutors?.[stageId] ?? pass?.executor ?? "backend",
+			stage: stage.id,
+			executor: stage.kind === "shared-pass" ? "shared" : "backend",
 			enabled: true,
+			dependsOn: stage.dependsOn.slice(),
 		};
 	}
 
 	/**
 	 * Builds the renderer-owned backend pass plan for one frame.
 	 *
-	 * @param options Current stage order, frame state, executor overrides, and
-	 * incremental context used to resolve backend pass enablement.
+	 * @param options Current stage order, frame state, and incremental context
+	 * used to resolve backend/shared pass enablement.
 	 * @returns Immutable-by-convention frame plan consumed by the renderer and
 	 * backend validators.
 	 * @constraints `stageOrder` must come from this registry's stage graph for
@@ -211,11 +213,11 @@ export class RenderPipelineRegistry {
 
 		const backendPasses: FramePass[] = [];
 		for (const stage of options.stageOrder) {
-			const stageId = stage.id as FramePass["stage"];
-			if (!this.isBackendPassStage(stageId)) {
+			const stageId = stage.id as FramePassStage;
+			if (!this.isFramePassStage(stageId)) {
 				continue;
 			}
-			const pass = this.createBackendPass(stageId, options.passExecutors);
+			const pass = this.createFramePass(stageId);
 			const stageIndex =
 				stageIndexById.get(stage.id) ?? Number.MAX_SAFE_INTEGER;
 			const skippedByIncremental =
@@ -224,7 +226,7 @@ export class RenderPipelineRegistry {
 				stageIndex < options.incrementalStartStageIndex;
 			const enabled =
 				!skippedByIncremental &&
-				this.shouldRunBackendPass(stageId, {
+				this.shouldRunFramePass(stageId, {
 					frame: options.frame,
 					features: options.features,
 					postProcess: options.postProcess,
@@ -241,15 +243,18 @@ export class RenderPipelineRegistry {
 		return {
 			stageOrder: options.stageOrder.map((stage) => ({
 				id: stage.id,
+				kind:
+					this._stages.get(stage.id as FramePassStage)?.kind ??
+					"renderer",
 				dependsOn: Array.from(stage.dependsOn ?? []),
 			})),
 			backendPasses,
 		};
 	}
 
-	public shouldRunBackendPass(
-		stageId: FramePass["stage"],
-		context: RenderPipelinePassRunContext
+	public shouldRunFramePass(
+		stageId: FramePassStage,
+		context: RenderPipelineStageRunContext
 	): boolean {
 		const incremental = context.incremental;
 		if (
@@ -259,52 +264,55 @@ export class RenderPipelineRegistry {
 		) {
 			return false;
 		}
-		const pass = this._backendPasses.get(stageId);
-		if (!pass) {
+		const stage = this._stages.get(stageId);
+		if (!stage || !isFramePassKind(stage.kind)) {
 			return false;
 		}
-		return pass.shouldRun ? pass.shouldRun(context) : true;
+		return stage.shouldRun ? stage.shouldRun(context) : true;
 	}
 
-	private _registerBackendPass(
-		pass: RenderPipelineBackendPassRegistration,
+	private _registerPipelineStage(
+		stage: RenderPipelineStageRegistration,
 		builtIn: boolean
 	): void {
-		if (!pass.id) {
-			throw new Error("Renderer backend pass id is required.");
+		if (!stage.id) {
+			throw new Error("Renderer pipeline stage id is required.");
 		}
-		const current = this._backendPasses.get(pass.id);
+		const current = this._stages.get(stage.id);
 		if (current && !current.builtIn) {
-			throw new Error(`Backend pass "${pass.id}" is already registered.`);
+			throw new Error(`Pipeline stage "${stage.id}" is already registered.`);
 		}
 		if (current?.builtIn && !builtIn) {
-			throw new Error(`Cannot register built-in backend pass "${pass.id}".`);
+			throw new Error(`Cannot register built-in pipeline stage "${stage.id}".`);
 		}
-		const dependsOn = Array.from(pass.dependsOn ?? []);
-		const registered: RegisteredBackendPass = {
-			...pass,
+		const dependsOn = Array.from(stage.dependsOn ?? []);
+		const registered: RegisteredPipelineStage = {
+			...stage,
 			dependsOn,
 			builtIn,
 		};
-		this._backendPasses.set(pass.id, registered);
+		this._stages.set(stage.id, registered);
 		this._stageGraph.registerStage({
-			id: pass.id,
+			id: stage.id,
 			dependsOn,
-			enabled: pass.enabled,
+			enabled: stage.enabled,
 		});
-		if (!builtIn && this._stageGraph.hasStage("sync-out")) {
-			this._stageGraph.addDependency("sync-out", pass.id);
+		if (
+			!builtIn &&
+			isFramePassKind(stage.kind) &&
+			this._stageGraph.hasStage("sync-out")
+		) {
+			this._stageGraph.addDependency("sync-out", stage.id);
 		}
-		if (!builtIn) {
-			FRAME_PASS_DEPENDENCIES.set(pass.id, dependsOn);
+		if (isFramePassKind(stage.kind)) {
+			this._incrementalRegistry.registerFramePass(
+				{
+					id: stage.id,
+					order: stage.incremental?.order,
+				},
+				builtIn
+			);
 		}
-		this._incrementalRegistry.registerFramePass(
-			{
-				id: pass.id,
-				order: pass.incremental?.order,
-			},
-			builtIn
-		);
 	}
 }
 

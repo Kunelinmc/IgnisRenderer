@@ -39,10 +39,7 @@ import {
 } from "../pipeline/ReflectionProbeCaptureRuntime";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
-import {
-	createDefaultBackendPasses,
-	createDefaultRendererStages,
-} from "../pipeline/defaultPipeline";
+import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
 import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
 import {
 	DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
@@ -217,8 +214,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.backend = backend;
 		this.animationSystem = new AnimationSystem();
 		this.pipeline = new RenderPipelineRegistry({
-			stages: createDefaultRendererStages(),
-			backendPasses: createDefaultBackendPasses(),
+			stages: createDefaultPipelineStages(),
 		});
 		this._stageExecutors = this._createStageExecutors();
 		this.logger = Logger;
@@ -670,14 +666,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._markFrameDirty("environment-ibl");
 	}
 
-	public setStageGraph(stages: RendererStageDefinition[]): void {
-		this.pipeline.setStages(stages);
-	}
-
-	public registerStage(stage: RendererStageDefinition): void {
-		this.pipeline.registerStage(stage);
-	}
-
 	public get backendType(): IRenderBackend["type"] {
 		return this.backend.type;
 	}
@@ -984,7 +972,24 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			await executor(state);
 			return;
 		}
-		await this._executeBackendPassStage(stageId, state);
+		const stageKind = this.pipeline.getStageKind(stageId as FramePassStage);
+		if (stageKind === "backend-pass" || stageKind === "shared-pass") {
+			await this._executeFramePassStage(stageId, state);
+			return;
+		}
+		if (stageKind === "renderer") {
+			const key = `renderer-stage-executor-missing-${stageId}`;
+			this.logger.warn(
+				`[${key}] Renderer pipeline stage "${stageId}" has no internal executor; skipping stage`,
+				{ scope: "Renderer", onceKey: key }
+			);
+			return;
+		}
+		const key = `renderer-stage-kind-missing-${stageId}`;
+		this.logger.warn(
+			`[${key}] Renderer pipeline stage "${stageId}" is not registered; skipping stage`,
+			{ scope: "Renderer", onceKey: key }
+		);
 	}
 
 	private _executeFeatureResolutionStage(
@@ -1111,7 +1116,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				features: state.resolved,
 				postProcess: state.resolvedPostProcess,
 				transient: state.transient,
-				passExecutors: this.backend.passExecutors,
 				incremental: state.incrementalFrameContext,
 				frameContext: context,
 				incrementalStartStageIndex: state.incrementalStartStageIndex,
@@ -1152,21 +1156,18 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
-	private async _executeBackendPassStage(
+	private async _executeFramePassStage(
 		stageId: string,
 		state: RenderSceneFrameState
 	): Promise<void> {
 		if (!state.context || !state.frame) return;
-		if (!this._isBackendPassStage(stageId)) return;
+		if (!this._isFramePassStage(stageId)) return;
 
 		const pass =
 			state.context.framePlan?.backendPasses.find(
 				(candidate) => candidate.stage === stageId
 			) ??
-			this.pipeline.createBackendPass(
-				stageId as FramePassStage,
-				this.backend.passExecutors
-			);
+			this.pipeline.createFramePass(stageId as FramePassStage);
 		if (!pass.enabled) {
 			this.backend.skipPass?.(pass);
 			return;
@@ -1411,8 +1412,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._shCoeffs = totalSH;
 	}
 
-	private _isBackendPassStage(stageId: string): boolean {
-		return this.pipeline.isBackendPassStage(stageId);
+	private _isFramePassStage(stageId: string): boolean {
+		return this.pipeline.isFramePassStage(stageId as FramePassStage);
 	}
 
 	private async _executePostProcessStage(context: FrameContext): Promise<void> {

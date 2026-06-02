@@ -11,15 +11,11 @@ import { type ResolvedPostProcessState } from "../postprocess";
 import type { IncrementalFrameContext } from "./incremental";
 import type { RendererStageDefinition } from "./RendererStageGraph";
 import { RenderPipelineRegistry } from "./RenderPipelineRegistry";
-import {
-	createDefaultBackendPasses,
-	createDefaultRendererStages,
-} from "./defaultPipeline";
+import { createDefaultPipelineStages } from "./defaultPipeline";
 
 export interface FramePlannerBuildOptions {
 	registry?: RenderPipelineRegistry;
 	stageOrder?: readonly RendererStageDefinition[];
-	executors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>;
 	transient?: TransientStore;
 	incremental?: IncrementalFrameContext;
 	frameContext?: FrameContext;
@@ -33,19 +29,17 @@ export class FramePlanner {
 	 * @param frame Prepared scene snapshot.
 	 * @param features Resolved renderer feature flags.
 	 * @param postProcess Resolved post-process snapshot.
-	 * @param executors Optional backend executor overrides.
 	 * @returns Renderer-owned backend pass entries in execution order.
 	 * @sideEffects None.
 	 */
 	public static build(
 		frame: PreparedScene,
 		features: ResolvedFeatureState,
-		postProcess: ResolvedPostProcessState,
-		executors?: Partial<Record<FramePass["stage"], FramePass["executor"]>>
+		postProcess: ResolvedPostProcessState
 	): FramePass[] {
-		return Array.from(this.buildFramePlan(frame, features, postProcess, {
-			executors,
-		}).backendPasses);
+		return Array.from(
+			this.buildFramePlan(frame, features, postProcess).backendPasses
+		);
 	}
 
 	/**
@@ -54,8 +48,8 @@ export class FramePlanner {
 	 * @param frame Prepared scene snapshot.
 	 * @param features Resolved renderer feature flags.
 	 * @param postProcess Resolved post-process snapshot.
-	 * @param options Optional registry, stage order, executor, transient, and
-	 * incremental context overrides.
+	 * @param options Optional registry, stage order, transient, and incremental
+	 * context overrides.
 	 * @returns Stage order plus backend/shared pass entries for this frame.
 	 * @sideEffects None.
 	 */
@@ -68,8 +62,7 @@ export class FramePlanner {
 		const registry =
 			options.registry ??
 			new RenderPipelineRegistry({
-				stages: createDefaultRendererStages(),
-				backendPasses: createDefaultBackendPasses(),
+				stages: createDefaultPipelineStages(),
 			});
 		const stageOrder =
 			options.stageOrder ??
@@ -86,7 +79,6 @@ export class FramePlanner {
 			features,
 			postProcess,
 			transient: options.transient ?? createTransientStore(),
-			passExecutors: options.executors,
 			incremental: options.incremental,
 			frameContext: options.frameContext,
 			incrementalStartStageIndex: options.incrementalStartStageIndex,

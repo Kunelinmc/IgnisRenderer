@@ -22,7 +22,6 @@ class StubBackend {
 			"webgpu"
 		);
 		this.frameScheduling = "continuous";
-		this.passExecutors = {};
 	}
 
 	async init() {}

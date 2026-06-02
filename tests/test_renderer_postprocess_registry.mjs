@@ -52,7 +52,6 @@ class RegistryBackend {
 			this.executionEvents.push(["postprocess-frame", "abort"]);
 		};
 		this.frameScheduling = "always";
-		this.passExecutors = {};
 	}
 
 	async init() {}
@@ -102,7 +101,6 @@ class NoAdapterBackend {
 		this.contexts = [];
 		this.executedPasses = [];
 		this.frameScheduling = "always";
-		this.passExecutors = {};
 	}
 
 	async init() {}

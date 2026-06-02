@@ -39,9 +39,9 @@ function run() {
 	});
 	assert.equal("postProcessCapabilities" in webgl, false);
 
-	assert.equal(software.passExecutors["particle-sim"], "backend");
-	assert.equal(webgpu.passExecutors["particle-sim"], "backend");
-	assert.equal(webgl.passExecutors["particle-sim"], "backend");
+	assert.equal("passExecutors" in software, false);
+	assert.equal("passExecutors" in webgpu, false);
+	assert.equal("passExecutors" in webgl, false);
 	assert.equal(software.frameScheduling, "on-demand");
 	assert.equal(webgpu.frameScheduling, "on-demand");
 	assert.equal(webgl.frameScheduling, "on-demand");

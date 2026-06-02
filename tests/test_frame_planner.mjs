@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { FramePlanner } from "../src/pipeline/FramePlanner.ts";
 import { RenderPipelineRegistry } from "../src/pipeline/RenderPipelineRegistry.ts";
 import {
-	createDefaultBackendPasses,
-	createDefaultRendererStages,
+	createDefaultPipelineStages,
 } from "../src/pipeline/defaultPipeline.ts";
 import { createResolvedPostProcess } from "./helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../src/particles/types.ts";
@@ -132,6 +131,10 @@ function run() {
 		plan.find((pass) => pass.stage === "particle-sim")?.executor,
 		"backend"
 	);
+	assert.deepEqual(
+		plan.find((pass) => pass.stage === "main-opaque")?.dependsOn,
+		["reflection", "shadow"]
+	);
 
 	const particleCasterPlan = FramePlanner.build(
 		createFrame({
@@ -192,11 +195,11 @@ function run() {
 	);
 
 	const registry = new RenderPipelineRegistry({
-		stages: createDefaultRendererStages(),
-		backendPasses: createDefaultBackendPasses(),
+		stages: createDefaultPipelineStages(),
 	});
-	registry.registerBackendPass({
+	registry.registerPipelineStage({
 		id: "custom-plan-pass",
+		kind: "backend-pass",
 		dependsOn: ["main-opaque"],
 		shouldRun: () => true,
 	});

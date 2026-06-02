@@ -32,9 +32,6 @@ class StubBackend {
 			"stub"
 		);
 		this.frameScheduling = "always";
-		this.passExecutors = {
-			shadow: "shared",
-		};
 		this.sharedStages = [];
 		this.executedStages = [];
 		this.particleBatchCount = 0;

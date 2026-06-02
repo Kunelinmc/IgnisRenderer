@@ -240,10 +240,6 @@ type WebGPUPassHandler = (
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
-	public readonly passExecutors = {
-		"animation-sim": "shared",
-		"particle-sim": "backend",
-	} as const;
 	public readonly capabilities = {
 		sh: true,
 		shadows: true,

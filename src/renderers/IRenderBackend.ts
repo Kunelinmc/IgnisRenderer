@@ -15,10 +15,6 @@ export interface RenderBackendDeviceLostInfo {
 	message?: string;
 }
 
-export type PassExecutorMap = Partial<
-	Record<FramePass["stage"], FramePass["executor"]>
->;
-
 export interface WarmupProgress {
 	phase: string;
 	completed: number;
@@ -103,7 +99,6 @@ export interface IRenderBackend {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
 	readonly frameScheduling: FrameSchedulingMode;
-	readonly passExecutors?: PassExecutorMap;
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	/**

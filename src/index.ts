@@ -129,10 +129,11 @@ export type {
 } from "./pipeline/incremental";
 export {
 	RenderPipelineRegistry,
-	type RenderPipelineBackendPassRegistration,
-	type RenderPipelinePassPredicate,
-	type RenderPipelinePassRunContext,
-	type RenderPipelineBackendPassIncrementalOptions,
+	type RenderPipelineStageIncrementalOptions,
+	type RenderPipelineStageKind,
+	type RenderPipelineStagePredicate,
+	type RenderPipelineStageRegistration,
+	type RenderPipelineStageRunContext,
 	type RenderPipelineFramePlanOptions,
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";

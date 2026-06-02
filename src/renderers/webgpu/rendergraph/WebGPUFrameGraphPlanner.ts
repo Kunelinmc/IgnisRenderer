@@ -13,30 +13,51 @@ import type {
  * Builds WebGPU-internal frame graph nodes for renderer-level backend stages.
  */
 export class WebGPUFrameGraphPlanner {
+	private readonly _stagePlanners: Map<
+		FramePass["stage"],
+		(
+			pass: FramePass,
+			context: FrameContext,
+			state: WebGPUFrameGraphPlannerState
+		) => WebGPUFrameGraphNode[]
+	>;
+
+	public constructor() {
+		this._stagePlanners = this._createStagePlanners();
+	}
+
 	public planStage(
 		pass: FramePass,
-		_context: FrameContext,
+		context: FrameContext,
 		state: WebGPUFrameGraphPlannerState
 	): WebGPUFrameGraphStagePlan {
+		const planner = this._stagePlanners.get(pass.stage);
 		return {
 			pass,
-			nodes: this._createNodes(pass, state),
+			nodes: planner ? planner(pass, context, state) : [],
 		};
 	}
 
-	private _createNodes(
-		pass: FramePass,
-		state: WebGPUFrameGraphPlannerState
-	): WebGPUFrameGraphNode[] {
-		switch (pass.stage) {
-			case "shadow":
-				return [
+	private _createStagePlanners(): Map<
+		FramePass["stage"],
+		(
+			pass: FramePass,
+			context: FrameContext,
+			state: WebGPUFrameGraphPlannerState
+		) => WebGPUFrameGraphNode[]
+	> {
+		return new Map([
+			[
+				"shadow",
+				(pass) => [
 					this._node(pass, "shadow", "WebGPUShadow", {
 						writes: [this._write("shadow-atlas", "render-attachment")],
 					}),
-				];
-			case "reflection":
-				return [
+				],
+			],
+			[
+				"reflection",
+				(pass) => [
 					this._node(
 						pass,
 						"planar-reflection-capture",
@@ -53,9 +74,11 @@ export class WebGPUFrameGraphPlanner {
 							],
 						}
 					),
-				];
-			case "main-opaque":
-				return [
+				],
+			],
+			[
+				"main-opaque",
+				(pass, _context, state) => [
 					this._node(
 						pass,
 						"opaque-scene",
@@ -64,9 +87,11 @@ export class WebGPUFrameGraphPlanner {
 						:	`WebGPUOpaque${state.sceneTargetMode}`,
 						this._createOpaqueResources(state)
 					),
-				];
-			case "main-transparent":
-				return [
+				],
+			],
+			[
+				"main-transparent",
+				(pass, _context, state) => [
 					state.oitActive ?
 						this._node(
 							pass,
@@ -90,9 +115,11 @@ export class WebGPUFrameGraphPlanner {
 							"WebGPUTransparent",
 							this._createForwardResources(state, true)
 						),
-				];
-			case "particles":
-				return [
+				],
+			],
+			[
+				"particles",
+				(pass, _context, state) => [
 					state.oitActive ?
 						this._node(pass, "oit-particles", "WebGPUOITParticles", {
 							reads: [
@@ -112,10 +139,9 @@ export class WebGPUFrameGraphPlanner {
 							"WebGPUParticles",
 							this._createForwardResources(state, true)
 						),
-				];
-			default:
-				return [];
-		}
+				],
+			],
+		]);
 	}
 
 	private _node(

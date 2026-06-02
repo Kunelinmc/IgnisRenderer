@@ -30,10 +30,6 @@ class StubBackend {
 			"stub"
 		);
 		this.frameScheduling = "on-demand";
-		this.passExecutors = {
-			"animation-sim": "shared",
-			"particle-sim": "backend",
-		};
 		this.beginFrameCount = 0;
 		this.sharedStages = [];
 		this.executedStages = [];

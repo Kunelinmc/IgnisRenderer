@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../src/cameras/Camera.ts";
+import { Logger } from "../src/foundation/Logger.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -21,7 +22,6 @@ class RegistryBackend {
 			"webgpu"
 		);
 		this.frameScheduling = "always";
-		this.passExecutors = {};
 		this.contexts = [];
 		this.executedPasses = [];
 		this.skippedPasses = [];
@@ -160,10 +160,54 @@ async function testRendererSuccessfulFrameEndsAndSchedules() {
 		)
 	);
 	assert.equal(
+		context.framePlan.stageOrder.find(
+			(stage) => stage.id === "main-opaque"
+		)?.kind,
+		"backend-pass"
+	);
+	assert.deepEqual(
+		context.framePlan.backendPasses.find(
+			(pass) => pass.stage === "main-opaque"
+		)?.dependsOn,
+		["reflection", "shadow"]
+	);
+	assert.equal(
 		context.framePlan.backendPasses.some(
 			(pass) => pass.stage === "postprocess"
 		),
 		false
+	);
+}
+
+async function testRendererWarnsForMissingRendererStageExecutor() {
+	const backend = new RegistryBackend();
+	const renderer = createRenderer(backend);
+	const warnings = [];
+
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn: (...args) => {
+				warnings.push(args.map((arg) => String(arg)).join(" "));
+			},
+		},
+	});
+	try {
+		renderer.pipeline.registerPipelineStage({
+			id: "custom-renderer-stage",
+			kind: "renderer",
+			dependsOn: ["sync-out"],
+		});
+		await renderer.renderScene(16);
+	} finally {
+		Logger.reset();
+	}
+
+	assert.ok(
+		warnings.some((message) =>
+			message.includes("renderer-stage-executor-missing-custom-renderer-stage")
+		)
 	);
 }
 
@@ -178,6 +222,7 @@ async function run() {
 		await testRendererAbortsBackendFrameOnPassFailure();
 		await testRendererAbortsPartialBeginFrameFailure();
 		await testRendererSuccessfulFrameEndsAndSchedules();
+		await testRendererWarnsForMissingRendererStageExecutor();
 
 		const backend = new RegistryBackend();
 		const renderer = createRenderer(backend);
@@ -188,8 +233,9 @@ async function run() {
 
 		const customPassId = "custom-registry-pass";
 		const customReasonId = "custom-registry-dirty";
-		renderer.pipeline.registerBackendPass({
+		renderer.pipeline.registerPipelineStage({
 			id: customPassId,
+			kind: "backend-pass",
 			dependsOn: ["main-opaque"],
 			shouldRun: () => true,
 			incremental: { order: 4.5 },
@@ -224,7 +270,7 @@ async function run() {
 			);
 		} finally {
 			renderer.pipeline.unregisterDirtyReason(customReasonId);
-			renderer.pipeline.unregisterBackendPass(customPassId);
+			renderer.pipeline.unregisterPipelineStage(customPassId);
 		}
 
 		console.log("Renderer pipeline registry tests passed");

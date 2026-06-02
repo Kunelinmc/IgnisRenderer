@@ -11,8 +11,9 @@ Runtime scene changes to the environment did not provide a dedicated incremental
 - `Renderer.pipeline` must expose the renderer `RenderPipelineRegistry`.
 - `renderer.pipeline.registerDirtyReason(descriptor)` must register a custom dirty reason in the default incremental registry and must return the allocated mask.
 - `renderer.pipeline.unregisterDirtyReason(id)` must unregister a custom dirty reason and must not reuse its allocated mask.
-- `renderer.pipeline.registerBackendPass(pass)` must register a backend or shared pass stage and its incremental pass ordering metadata.
-- `renderer.pipeline.unregisterBackendPass(id)` must unregister a custom backend pass and must remove the corresponding incremental pass metadata.
+- `renderer.pipeline.registerPipelineStage(stage)` must register a renderer, backend-pass, or shared-pass stage descriptor.
+- Custom backend or shared pass stages must set `kind` to `"backend-pass"` or `"shared-pass"` and must include incremental pass ordering metadata when they can be selected as an incremental first pass.
+- `renderer.pipeline.unregisterPipelineStage(id)` must unregister a custom pipeline stage and must remove corresponding incremental pass metadata for backend or shared pass stages.
 - `Renderer.setEnvironmentIBLUpdateOptions(options)` must accept partial `EnvironmentIBLUpdateOptions` and must normalize values before storing them.
 - `Renderer.getEnvironmentIBLUpdateOptions()` must return a normalized snapshot.
 - `Renderer.requestEnvironmentIBLUpdate()` must enqueue a manual update request token and must mark the frame dirty.
@@ -66,6 +67,16 @@ const mask = renderer.pipeline.registerDirtyReason({
 renderer.requestRender("custom-post-update");
 ```
 
+```ts
+renderer.pipeline.registerPipelineStage({
+	id: "custom-plan-pass",
+	kind: "backend-pass",
+	dependsOn: ["main-opaque"],
+	shouldRun: () => true,
+	incremental: { order: 4.5 },
+});
+```
+
 ```bash
 bun tests/test_environment_ibl_update_runtime.mjs
 ```
@@ -76,5 +87,6 @@ bun tests/test_environment_ibl_update_runtime.mjs
 - When environment texture is unavailable or invalid, runtime update must skip scheduling and must not mutate probe data.
 
 ## Compatibility / Breaking Changes
-No breaking API changes are introduced.
-The new runtime update path is opt-in via `EnvironmentIBLUpdateOptions.enabled`.
+`renderer.pipeline.registerBackendPass(pass)` and `renderer.pipeline.unregisterBackendPass(id)` are removed.
+Consumers must use `renderer.pipeline.registerPipelineStage(stage)` and `renderer.pipeline.unregisterPipelineStage(id)`.
+The runtime environment IBL update path remains opt-in via `EnvironmentIBLUpdateOptions.enabled`.

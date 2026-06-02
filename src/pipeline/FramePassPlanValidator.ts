@@ -1,8 +1,4 @@
-import {
-	FRAME_PASS_DEPENDENCIES,
-	type FrameContext,
-	type FramePass,
-} from "./types";
+import type { FrameContext, FramePass } from "./types";
 
 export interface FramePassPlanValidatorReporter {
 	reportNonFatalError(scope: string, error: unknown): void;
@@ -19,6 +15,10 @@ export interface FramePassPlanValidatorState {
  */
 export class FramePassPlanValidator {
 	private readonly _backendLabel: string;
+	private _plannedDependencies = new Map<
+		FramePass["stage"],
+		readonly FramePass["stage"][]
+	>();
 
 	/**
 	 * Creates a validator with backend-specific diagnostic labels.
@@ -44,10 +44,15 @@ export class FramePassPlanValidator {
 	): void {
 		state.plannedPasses.clear();
 		state.plannedPassOrder.clear();
+		this._plannedDependencies.clear();
 
 		for (const pass of context.framePlan?.backendPasses ?? []) {
 			if (pass.enabled) {
 				state.plannedPasses.add(pass.stage);
+				this._plannedDependencies.set(
+					pass.stage,
+					Array.from(pass.dependsOn ?? [])
+				);
 			}
 		}
 		if (state.plannedPasses.size <= 0) {
@@ -159,7 +164,7 @@ export class FramePassPlanValidator {
 	}
 
 	private _resolvePassDependencies(stage: FramePass["stage"]): FramePass["stage"][] {
-		const dependencies = FRAME_PASS_DEPENDENCIES.get(stage);
+		const dependencies = this._plannedDependencies.get(stage);
 		return dependencies ? Array.from(dependencies) : [];
 	}
 

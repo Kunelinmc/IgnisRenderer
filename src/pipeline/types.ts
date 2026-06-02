@@ -203,14 +203,12 @@ export interface FrameContext {
 }
 
 export const BUILTIN_FRAME_PASS_STAGES = [
-	"animation-sim",
 	"particle-sim",
 	"shadow",
 	"reflection",
 	"main-opaque",
 	"main-transparent",
 	"particles",
-	"postprocess",
 ] as const;
 
 export type BuiltinFramePassStage = (typeof BUILTIN_FRAME_PASS_STAGES)[number];
@@ -220,11 +218,13 @@ export interface FramePass {
 	stage: FramePassStage;
 	executor: "shared" | "backend";
 	enabled: boolean;
+	dependsOn: readonly FramePassStage[];
 	precompileHints?: string[];
 }
 
 export interface RendererFramePlanStage {
 	readonly id: string;
+	readonly kind: string;
 	readonly dependsOn: readonly string[];
 }
 
@@ -232,16 +232,6 @@ export interface RendererFramePlan {
 	readonly stageOrder: readonly RendererFramePlanStage[];
 	readonly backendPasses: readonly FramePass[];
 }
-
-export const FRAME_PASS_DEPENDENCIES = new Map<
-	FramePass["stage"],
-	readonly FramePass["stage"][]
->([
-	["shadow", ["particle-sim"]],
-	["main-opaque", ["reflection", "shadow"]],
-	["main-transparent", ["main-opaque"]],
-	["particles", ["main-transparent"]],
-]);
 
 export interface VolumetricOptions {
 	/** Ray-march step count. Higher values reduce banding at higher GPU cost. */

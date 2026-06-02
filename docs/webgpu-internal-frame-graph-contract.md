@@ -13,7 +13,10 @@ must remain backend-internal.
 
 ## API/Contract
 - `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for one
-  renderer-level `FramePass`.
+  renderer-level `FramePass` through registered stage planners.
+- Unsupported renderer-level backend pass ids must produce an empty WebGPU
+  stage plan; `WebGPUFrameGraphRuntime` must warn once and skip execution for
+  that pass.
 - `WebGPUFrameGraphNode.reads` must list resource ids and usages sampled or
   loaded by the node.
 - `WebGPUFrameGraphNode.writes` must list resource ids and usages written by
@@ -33,6 +36,10 @@ must remain backend-internal.
   pooled texture ownership, MSAA fallback, and target debug state.
 - `WebGPUFrameGraphRuntime` must orchestrate frame lifecycle and node execution;
   it must not own texture pool allocation logic.
+- `WebGPUFrameGraphRuntime` must execute graph nodes through a node executor
+  registry keyed by `WebGPUFrameGraphNode.kind`.
+- A planned graph node with no runtime executor must throw because it indicates
+  an internal planner/runtime mismatch.
 - The internal WebGPU graph must not add global renderer-level stages for
   Software or WebGL.
 
@@ -45,6 +52,7 @@ const backend = new WebGPUBackend({
 
 ```bash
 bun tests/test_webgpu_frame_graph_compiler.mjs
+bun tests/test_webgpu_frame_graph_planner.mjs
 bun tests/test_webgpu_frame_executor_resilience.mjs
 ```
 
@@ -57,8 +65,12 @@ bun tests/test_webgpu_frame_executor_resilience.mjs
   resource.
 - `webgpu-frame-graph-validation` must be logged when validation mode is
   `"warn"` and error diagnostics exist.
+- `webgpu-pass-unsupported-{stage}` must be logged once when a renderer-level
+  backend pass has no WebGPU frame graph stage planner.
 
 ## Compatibility / Breaking Changes
 `getFrameGraphDebugState()` may expose structured internal graph diagnostics,
 barriers, resources, and target-manager state. Tests and diagnostic tooling must
 not depend on private runtime fields when equivalent graph debug data exists.
+The planner and runtime use internal registries instead of switch statements;
+this does not add public WebGPU frame graph registration APIs.

@@ -236,10 +236,7 @@ async function testInitAndPassRouting() {
 
 	assert.equal(backend.type, "webgl");
 	assert.equal(backend.frameScheduling, "on-demand");
-	assert.deepEqual(backend.passExecutors, {
-		"animation-sim": "shared",
-		"particle-sim": "backend",
-	});
+	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.capabilities, {
 		sh: true,
 		shadows: true,
@@ -406,15 +403,30 @@ function createDependencyContext() {
 		transient: new Map(),
 		framePlan: {
 			stageOrder: [
-				{ id: "particle-sim", dependsOn: [] },
-				{ id: "main-opaque", dependsOn: [] },
-				{ id: "particles", dependsOn: ["main-opaque"] },
-				{ id: "postprocess", dependsOn: ["particles"] },
+				{ id: "particle-sim", kind: "backend-pass", dependsOn: [] },
+				{ id: "main-opaque", kind: "backend-pass", dependsOn: [] },
+				{ id: "particles", kind: "backend-pass", dependsOn: ["main-opaque"] },
+				{ id: "postprocess", kind: "renderer", dependsOn: ["particles"] },
 			],
 			backendPasses: [
-				{ stage: "particle-sim", executor: "backend", enabled: true },
-				{ stage: "main-opaque", executor: "backend", enabled: true },
-				{ stage: "particles", executor: "backend", enabled: true },
+				{
+					stage: "particle-sim",
+					executor: "backend",
+					enabled: true,
+					dependsOn: [],
+				},
+				{
+					stage: "main-opaque",
+					executor: "backend",
+					enabled: true,
+					dependsOn: [],
+				},
+				{
+					stage: "particles",
+					executor: "backend",
+					enabled: true,
+					dependsOn: ["main-opaque"],
+				},
 			],
 		},
 	};

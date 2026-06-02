@@ -92,6 +92,7 @@ import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphDebugState,
 	WebGPUFrameGraphNode,
+	WebGPUFrameGraphNodeKind,
 	WebGPUFrameGraphValidationMode,
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
@@ -134,6 +135,10 @@ export class WebGPUFrameGraphRuntime {
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
+	private readonly _nodeExecutors: Map<
+		WebGPUFrameGraphNodeKind,
+		(node: WebGPUFrameGraphNode, context: FrameContext) => Promise<void>
+	>;
 	private _lastPlannedGraphNodes: WebGPUFrameGraphNode[] = [];
 	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
@@ -236,6 +241,7 @@ export class WebGPUFrameGraphRuntime {
 					this._resolveDirtyRects(context, width, height),
 			}
 		);
+		this._nodeExecutors = this._createNodeExecutors();
 	}
 
 	private get _frameTargets(): WebGPUFrameTargets | null {
@@ -607,6 +613,14 @@ export class WebGPUFrameGraphRuntime {
 			hasMSAATargets: !!this._msaaTargets,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
 		});
+		if (plan.nodes.length === 0) {
+			const key = `webgpu-pass-unsupported-${pass.stage}`;
+			Logger.warn(
+				`[${key}] WebGPU backend does not support pass "${pass.stage}" yet; skipping`,
+				{ scope: "WebGPUFrameGraphRuntime", onceKey: key }
+			);
+			return;
+		}
 		const compiled = this._graphCompiler.compileStage(plan);
 		this._handleGraphDiagnostics(compiled);
 		this._lastCompiledGraphStages = this._graphCompiler
@@ -623,37 +637,71 @@ export class WebGPUFrameGraphRuntime {
 		node: WebGPUFrameGraphNode,
 		context: FrameContext
 	): Promise<void> {
-		switch (node.kind) {
-			case "shadow":
-				await this._resources.renderShadows(
-					context,
-					this._encoder ?? undefined
-				);
-				return;
-			case "planar-reflection-capture":
-				await this._recordPlanarReflectionPass(context);
-				return;
-			case "opaque-scene":
-				await this._recordOpaquePass(context);
-				return;
-			case "oit-transparent":
-				await this._recordOITTransparentPass(context);
-				return;
-			case "transparent-scene":
-				await this._recordMainPass(
-					context,
-					context.scene.transparentPackets,
-					false,
-					false
-				);
-				return;
-			case "oit-particles":
-				await this._recordOITParticlePass(context);
-				return;
-			case "particles":
-				await this._recordParticlePass(context);
-				return;
+		const executor = this._nodeExecutors.get(node.kind);
+		if (!executor) {
+			throw new Error(
+				`WebGPU frame graph node kind "${node.kind}" has no executor.`
+			);
 		}
+		await executor(node, context);
+	}
+
+	private _createNodeExecutors(): Map<
+		WebGPUFrameGraphNodeKind,
+		(node: WebGPUFrameGraphNode, context: FrameContext) => Promise<void>
+	> {
+		return new Map([
+			[
+				"shadow",
+				async (_node, context) => {
+					await this._resources.renderShadows(
+						context,
+						this._encoder ?? undefined
+					);
+				},
+			],
+			[
+				"planar-reflection-capture",
+				async (_node, context) => {
+					await this._recordPlanarReflectionPass(context);
+				},
+			],
+			[
+				"opaque-scene",
+				async (_node, context) => {
+					await this._recordOpaquePass(context);
+				},
+			],
+			[
+				"oit-transparent",
+				async (_node, context) => {
+					await this._recordOITTransparentPass(context);
+				},
+			],
+			[
+				"transparent-scene",
+				async (_node, context) => {
+					await this._recordMainPass(
+						context,
+						context.scene.transparentPackets,
+						false,
+						false
+					);
+				},
+			],
+			[
+				"oit-particles",
+				async (_node, context) => {
+					await this._recordOITParticlePass(context);
+				},
+			],
+			[
+				"particles",
+				async (_node, context) => {
+					await this._recordParticlePass(context);
+				},
+			],
+		]);
 	}
 
 	public async endFrame(): Promise<void> {

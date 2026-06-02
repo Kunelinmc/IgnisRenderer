@@ -73,10 +73,6 @@ type WebGLBackendPassHandler = (
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
-	public readonly passExecutors = {
-		"animation-sim": "shared",
-		"particle-sim": "backend",
-	} as const;
 	public readonly capabilities = {
 		sh: true,
 		shadows: true,
@@ -269,16 +265,17 @@ export class WebGLBackend implements IRenderBackend {
 		if (this._contextLost) {
 			return;
 		}
+		this._validatePassDependencies(pass);
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
+			const key = `webgl-pass-unsupported-${pass.stage}`;
 			Logger.warn(
-				`WebGL backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGLBackend" }
+				`[${key}] WebGL backend does not support pass "${pass.stage}" yet; skipping`,
+				{ scope: "WebGLBackend", onceKey: key }
 			);
 			this._markPassExecuted(pass.stage);
 			return;
 		}
-		this._validatePassDependencies(pass);
 		handler(pass, context);
 		this._markPassExecuted(pass.stage);
 	}

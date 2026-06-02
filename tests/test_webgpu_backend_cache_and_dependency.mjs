@@ -236,18 +236,36 @@ function createFrameContext(overrides = {}) {
 }
 
 function createRendererFramePlan(passes) {
+	const dependencyByStage = new Map([
+		["shadow", ["prepared-scene-build", "particle-sim"]],
+		["reflection", ["prepared-scene-build", "reflection-probe-capture"]],
+		["main-opaque", ["reflection", "shadow"]],
+		["main-transparent", ["main-opaque"]],
+		["particles", ["main-transparent"]],
+	]);
 	const backendPasses = passes.map((pass) =>
 		typeof pass === "string" ?
-			{ stage: pass, executor: "backend", enabled: true }
-		:	{ executor: "backend", enabled: true, ...pass }
+			{
+				stage: pass,
+				executor: "backend",
+				enabled: true,
+				dependsOn: dependencyByStage.get(pass) ?? [],
+			}
+		:	{
+				executor: "backend",
+				enabled: true,
+				dependsOn: dependencyByStage.get(pass.stage) ?? [],
+				...pass,
+			}
 	);
 	return {
 		stageOrder: [
 			...backendPasses.map((pass) => ({
 				id: pass.stage,
+				kind: "backend-pass",
 				dependsOn: [],
 			})),
-			{ id: "postprocess", dependsOn: ["particles"] },
+			{ id: "postprocess", kind: "renderer", dependsOn: ["particles"] },
 		],
 		backendPasses,
 	};
