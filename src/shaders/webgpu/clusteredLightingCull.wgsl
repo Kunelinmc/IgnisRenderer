@@ -39,6 +39,9 @@ struct ClusterLightRecord {
 	positionRange: vec4<f32>,
 	directionOuter: vec4<f32>,
 	colorInner: vec4<f32>,
+	rightWidth: vec4<f32>,
+	upHeight: vec4<f32>,
+	normalAreaScale: vec4<f32>,
 	packedFlags: u32,
 	shadowIndex: u32,
 	reserved0: u32,
@@ -85,6 +88,7 @@ struct LightClusterRange {
 
 const CLUSTER_LIGHT_TYPE_POINT: u32 = 0u;
 const CLUSTER_LIGHT_TYPE_SPOT: u32 = 1u;
+const CLUSTER_LIGHT_TYPE_AREA: u32 = 2u;
 const CLUSTER_LIGHT_TYPE_MASK: u32 = 0x3u;
 const CLUSTER_LIGHT_FLAG_CASTS_SHADOW: u32 = 1u << 2u;
 const CLUSTER_LIGHT_FLAG_AFFECTS_VOLUMETRIC: u32 = 1u << 3u;
@@ -417,13 +421,19 @@ fn csScatter(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let light = clusterLights.lights[lightIndex];
 	let packedFlags = light.packedFlags;
 	let lightType = packedFlags & CLUSTER_LIGHT_TYPE_MASK;
-	if (lightType > CLUSTER_LIGHT_TYPE_SPOT) {
+	if (lightType > CLUSTER_LIGHT_TYPE_AREA) {
 		return;
 	}
 
 	let range = max(light.positionRange.w, 0.001);
+	var cullRange = range;
+	if (lightType == CLUSTER_LIGHT_TYPE_AREA) {
+		let halfWidth = max(abs(light.rightWidth.w), 0.0) * 0.5;
+		let halfHeight = max(abs(light.upHeight.w), 0.0) * 0.5;
+		cullRange = cullRange + sqrt(halfWidth * halfWidth + halfHeight * halfHeight);
+	}
 	let viewPos = worldToView(light.positionRange.xyz);
-	let clusterRange = resolveLightClusterRange(viewPos, range);
+	let clusterRange = resolveLightClusterRange(viewPos, cullRange);
 	if (!clusterRange.valid) {
 		return;
 	}
@@ -454,9 +464,9 @@ fn csScatter(@builtin(global_invocation_id) globalId: vec3<u32>) {
 				let clusterIndex = x + y * tilesX + z * tilesPerLayer;
 				if (clusterIndex < clusterParams.clusterCount) {
 					let aabb = buildClusterAABB(x, y, z, tanHalfFov, aspect);
-					if (!(viewPos.z + range < aabb.zNear ||
-						viewPos.z - range > aabb.zFar) &&
-						sphereIntersectsAABB(viewPos, range, aabb)) {
+					if (!(viewPos.z + cullRange < aabb.zNear ||
+						viewPos.z - cullRange > aabb.zFar) &&
+						sphereIntersectsAABB(viewPos, cullRange, aabb)) {
 						var intersects = true;
 						if (lightType == CLUSTER_LIGHT_TYPE_SPOT &&
 							directionOuterView.w > -0.999) {
@@ -464,7 +474,7 @@ fn csScatter(@builtin(global_invocation_id) globalId: vec3<u32>) {
 								viewPos,
 								directionOuterView.xyz,
 								directionOuterView.w,
-								range,
+								cullRange,
 								aabb
 							);
 						}

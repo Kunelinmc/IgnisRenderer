@@ -18,12 +18,16 @@ import {
 } from "../../pipeline/lightingRuntime";
 
 import {
+	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
 	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_POINT_LIGHTS,
 	WEBGPU_MAX_SPOT_LIGHTS,
 } from "./constants";
 import type {
+	WebGPUAreaLightUniform,
 	WebGPUClusteredLightUniform,
 	WebGPULightingState,
 	WebGPUShadowData,
@@ -69,7 +73,7 @@ export function collectWebGPULighting(
 				);
 				break;
 			case LightType.RectArea:
-				collectAreaLight(state, light);
+				collectAreaLight(state, light, enableClusteredLighting);
 				break;
 			case LightType.LightProbe:
 				accumulateLightProbeFallbackAmbient(state, light, enableSH);
@@ -205,6 +209,16 @@ function collectSpotLight(
 		shadowMaps?.get(light as ShadowCastingLight)
 	);
 	const shadowIndex = state.spotShadows.length;
+	const clusteredCastsShadow =
+		shadowData.enabled && shadowIndex < WEBGPU_MAX_SPOT_LIGHTS;
+	if (enableClusteredLighting && shadowData.enabled && !clusteredCastsShadow) {
+		pushWarningOnce(state, {
+			key: "webgpu-clustered-spot-shadow-budget",
+			message:
+				"WebGPU clustered lighting keeps spot lights beyond the spot " +
+				"shadow budget, but disables shadows for the extra spot lights.",
+		});
+	}
 	pushClusteredSpotLight(
 		state,
 		position,
@@ -213,7 +227,7 @@ function collectSpotLight(
 		Math.cos(outerAngle),
 		Math.cos(innerAngle),
 		color,
-		shadowData.enabled,
+		clusteredCastsShadow,
 		shadowIndex,
 		enableClusteredLighting
 	);
@@ -240,19 +254,13 @@ function collectSpotLight(
 
 function collectAreaLight(
 	state: WebGPULightingState,
-	light: AreaLight
+	light: AreaLight,
+	enableClusteredLighting: boolean
 ): void {
 	const width = Math.max(light.width, 0);
 	const height = Math.max(light.height, 0);
 	const range = Math.max(light.range, 0);
 	if (width <= 0 || height <= 0 || range <= 0) {
-		return;
-	}
-
-	if (state.areaLights.length >= WEBGPU_MAX_AREA_LIGHTS) {
-		state.warnings.push(
-			createLightLimitWarning("area", WEBGPU_MAX_AREA_LIGHTS)
-		);
 		return;
 	}
 
@@ -276,7 +284,7 @@ function collectAreaLight(
 		[0, 1, 0]
 	);
 
-	state.areaLights.push({
+	const areaLight: WebGPUAreaLightUniform = {
 		position: [matrix[0][3], matrix[1][3], matrix[2][3]],
 		range,
 		right,
@@ -286,7 +294,20 @@ function collectAreaLight(
 		normal,
 		areaScale: width * height,
 		color: toLinearLightColor(light.color, light.intensity),
-	});
+	};
+
+	pushClusteredAreaLight(state, areaLight, enableClusteredLighting);
+
+	if (state.areaLights.length >= WEBGPU_MAX_AREA_LIGHTS) {
+		if (!enableClusteredLighting) {
+			state.warnings.push(
+				createLightLimitWarning("area", WEBGPU_MAX_AREA_LIGHTS)
+			);
+		}
+		return;
+	}
+
+	state.areaLights.push(areaLight);
 }
 
 function createLightLimitWarning(
@@ -304,6 +325,16 @@ function createUnsupportedLightWarning(light: SceneLight): WebGPUWarning {
 		key: `webgpu-light-${light.type}`,
 		message: `WebGPU backend does not support ${light.type} lights yet; ignoring them for now`,
 	};
+}
+
+function pushWarningOnce(
+	state: WebGPULightingState,
+	warning: WebGPUWarning
+): void {
+	if (state.warnings.some((existing) => existing.key === warning.key)) {
+		return;
+	}
+	state.warnings.push(warning);
 }
 
 function pushVolumetricDirectionalLight(
@@ -373,12 +404,18 @@ function pushClusteredPointLight(
 		return;
 	}
 	const light: WebGPUClusteredLightUniform = {
-		type: 0,
+		type: WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
 		position: [position.x, position.y, position.z],
 		range,
 		direction: [0, 0, 0],
 		outerCos: -2,
 		innerCos: -2,
+		right: [0, 0, 0],
+		width: 0,
+		up: [0, 0, 0],
+		height: 0,
+		normal: [0, 1, 0],
+		areaScale: 0,
 		color,
 		castsShadow: false,
 		affectsVolumetric: true,
@@ -403,16 +440,51 @@ function pushClusteredSpotLight(
 		return;
 	}
 	const light: WebGPUClusteredLightUniform = {
-		type: 1,
+		type: WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
 		position: [position.x, position.y, position.z],
 		range,
 		direction: [direction.x, direction.y, direction.z],
 		outerCos,
 		innerCos,
+		right: [0, 0, 0],
+		width: 0,
+		up: [0, 0, 0],
+		height: 0,
+		normal: [0, 1, 0],
+		areaScale: 0,
 		color,
 		castsShadow,
 		affectsVolumetric: true,
 		shadowIndex: Math.max(0, shadowIndex | 0),
+	};
+	state.clusteredLights.push(light);
+}
+
+function pushClusteredAreaLight(
+	state: WebGPULightingState,
+	areaLight: WebGPUAreaLightUniform,
+	enableClusteredLighting: boolean
+): void {
+	if (!enableClusteredLighting) {
+		return;
+	}
+	const light: WebGPUClusteredLightUniform = {
+		type: WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
+		position: areaLight.position,
+		range: areaLight.range,
+		direction: [0, 0, 0],
+		outerCos: -2,
+		innerCos: -2,
+		right: areaLight.right,
+		width: areaLight.width,
+		up: areaLight.up,
+		height: areaLight.height,
+		normal: areaLight.normal,
+		areaScale: areaLight.areaScale,
+		color: areaLight.color,
+		castsShadow: false,
+		affectsVolumetric: false,
+		shadowIndex: 0,
 	};
 	state.clusteredLights.push(light);
 }

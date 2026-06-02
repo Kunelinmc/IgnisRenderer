@@ -51,7 +51,7 @@ export type WebGPUPointLight = WebGPUPointLightUniform;
 export type WebGPUSpotLight = WebGPUSpotLightUniform;
 export type WebGPUAreaLight = WebGPUAreaLightUniform;
 export type WebGPUVolumetricLightType = 0 | 1 | 2;
-export type WebGPUClusteredLightType = 0 | 1;
+export type WebGPUClusteredLightType = 0 | 1 | 2;
 
 export interface WebGPUVolumetricLightUniform extends WebGPULightUniformBase {
 	type: WebGPUVolumetricLightType;
@@ -69,6 +69,12 @@ export interface WebGPUClusteredLightUniform extends WebGPULightUniformBase {
 	direction: WebGPUVec3;
 	outerCos: number;
 	innerCos: number;
+	right: WebGPUVec3;
+	width: number;
+	up: WebGPUVec3;
+	height: number;
+	normal: WebGPUVec3;
+	areaScale: number;
 	castsShadow: boolean;
 	affectsVolumetric: boolean;
 	shadowIndex: number;
@@ -154,6 +160,9 @@ export interface WebGPUClusterLightRecord {
 	positionRange: [number, number, number, number];
 	directionOuter: [number, number, number, number];
 	colorInner: [number, number, number, number];
+	rightWidth: [number, number, number, number];
+	upHeight: [number, number, number, number];
+	normalAreaScale: [number, number, number, number];
 	packedFlags: number;
 	shadowIndex: number;
 	reserved0: number;

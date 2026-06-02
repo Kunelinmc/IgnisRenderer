@@ -21,6 +21,8 @@ import {
 	WEBGPU_CLUSTERED_INDEX_SHADOW_BIT,
 	WEBGPU_CLUSTERED_INDEX_TYPE_MASK,
 	WEBGPU_CLUSTERED_INDEX_VOLUMETRIC_BIT,
+	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 } from "../src/renderers/webgpu/constants.ts";
 import {
@@ -142,9 +144,36 @@ function createClusteredLight(index) {
 		direction: [0, -1, 0],
 		outerCos: -2,
 		innerCos: -2,
+		right: [0, 0, 0],
+		width: 0,
+		up: [0, 0, 0],
+		height: 0,
+		normal: [0, 1, 0],
+		areaScale: 0,
 		color: [1, 1, 1],
 		castsShadow: false,
 		affectsVolumetric: true,
+		shadowIndex: 0,
+	};
+}
+
+function createClusteredAreaLight() {
+	return {
+		type: WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
+		position: [1, 2, 3],
+		range: 50,
+		direction: [0, 0, 0],
+		outerCos: -2,
+		innerCos: -2,
+		right: [1, 0, 0],
+		width: 20,
+		up: [0, 0, 1],
+		height: 10,
+		normal: [0, 1, 0],
+		areaScale: 200,
+		color: [4, 5, 6],
+		castsShadow: false,
+		affectsVolumetric: false,
 		shadowIndex: 0,
 	};
 }
@@ -270,6 +299,57 @@ function testRuntimeWritesClampedActiveLightCount() {
 	assert.equal(params[11], 64);
 }
 
+function testRuntimeWritesClusteredAreaRecordData() {
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(
+		compute,
+		{},
+		{},
+		() => {}
+	);
+	runtime.prepareFrame(
+		{
+			camera: {
+				type: CameraType.Perspective,
+				near: 0.1,
+				far: 100,
+			},
+		},
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: 4,
+				maxLightsPerCluster: 8,
+				tileSizePx: 64,
+				zSlices: 4,
+			},
+		},
+		{
+			clusteredLights: [createClusteredAreaLight()],
+		},
+		128,
+		128
+	);
+
+	const lightWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredLights"
+	);
+	assert.ok(lightWrite);
+	assert.equal(
+		lightWrite.data.byteLength,
+		WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS * 4
+	);
+	const floats = new Float32Array(lightWrite.data);
+	assert.deepEqual(Array.from(floats.slice(0, 4)), [1, 2, 3, 50]);
+	assert.deepEqual(Array.from(floats.slice(8, 12)), [4, 5, 6, -2]);
+	assert.deepEqual(Array.from(floats.slice(12, 16)), [1, 0, 0, 20]);
+	assert.deepEqual(Array.from(floats.slice(16, 20)), [0, 0, 1, 10]);
+	assert.deepEqual(Array.from(floats.slice(20, 24)), [0, 1, 0, 200]);
+	const uints = new Uint32Array(lightWrite.data);
+	assert.equal(uints[24], WEBGPU_CLUSTERED_LIGHT_TYPE_AREA);
+}
+
 async function testRuntimeDispatchesLightDrivenComputePasses() {
 	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
 	const compute = new ClusteredComputeRecorder();
@@ -361,6 +441,7 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	const shader = (await loadClusteredLightingCullShaderComposite()).code;
 	assert.ok(shader.includes("lightCount: u32"));
 	assert.ok(shader.includes("maxLightsPerCluster: u32"));
+	assert.ok(shader.includes("const CLUSTER_LIGHT_TYPE_AREA: u32 = 2u;"));
 	assert.ok(shader.includes("fn activeClusterLightCount() -> u32"));
 	assert.ok(
 		shader.includes(
@@ -371,6 +452,8 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	assert.ok(shader.includes("fn csClear("));
 	assert.ok(shader.includes("fn csScatter("));
 	assert.ok(shader.includes("fn csFinalize("));
+	assert.ok(shader.includes("if (lightType == CLUSTER_LIGHT_TYPE_AREA)"));
+	assert.ok(shader.includes("let halfWidth = max(abs(light.rightWidth.w), 0.0) * 0.5;"));
 	assert.ok(shader.includes("atomicAdd(&clusterHeaders.headers[clusterIndex].count"));
 	assert.ok(shader.includes("fn resolveLightClusterRange("));
 	assert.ok(!shader.includes("for (var tileBase: u32 = 0u;"));
@@ -401,6 +484,11 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 		const source = (await loadSceneShaderPartComposite(part)).code;
 		assert.ok(source.includes("let clusterLightCount = activeClusteredLightCount();"));
 	}
+	const areaPart = (await loadSceneShaderPartComposite("fragmentPbrArea")).code;
+	assert.ok(areaPart.includes("CLUSTER_LIGHT_TYPE_AREA"));
+	assert.ok(areaPart.includes("clusteredRecordToAreaLight"));
+	assert.ok(areaPart.includes("if (isClusteredLightingEnabled())"));
+	assert.ok(areaPart.includes("} else {\n\tlet areaCount = areaLightCount();"));
 }
 
 async function run() {
@@ -408,6 +496,7 @@ async function run() {
 	testClusteredCapabilityGateWarning();
 	testClusterParamsLayoutWritesLightCount();
 	testRuntimeWritesClampedActiveLightCount();
+	testRuntimeWritesClusteredAreaRecordData();
 	await testRuntimeDispatchesLightDrivenComputePasses();
 	testClusteredIndexBitfieldPackUnpack();
 	testClusterHeaderFlagPack();

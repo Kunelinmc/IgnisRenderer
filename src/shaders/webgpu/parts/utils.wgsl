@@ -405,6 +405,16 @@ fn evaluateAreaLight(
 	return AreaLightSample(direction, light.color.xyz * attenuation, true);
 }
 
+fn clusteredRecordToAreaLight(light: ClusterLightRecord) -> AreaLightData {
+	return AreaLightData(
+		light.positionRange,
+		light.rightWidth,
+		light.upHeight,
+		light.normalAreaScale,
+		vec4<f32>(light.colorInner.xyz, 0.0)
+	);
+}
+
 fn spotAttenuation(cosTheta: f32, outerCos: f32, innerCos: f32) -> f32 {
 	if (cosTheta < outerCos) {
 		return 0.0;

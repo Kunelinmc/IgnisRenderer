@@ -20,6 +20,7 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_FLAG_AFFECTS_VOLUMETRIC,
 	WEBGPU_CLUSTERED_LIGHT_FLAG_CASTS_SHADOW,
 	WEBGPU_CLUSTERED_LIGHT_FLAG_TYPE_MASK,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
 	WEBGPU_CLUSTERED_HEADER_STRIDE_UINTS as CLUSTERED_HEADER_STRIDE_UINTS,
@@ -626,6 +627,9 @@ export class WebGPUClusteredLightingRuntime {
 		);
 		for (let i = 0; i < count; i++) {
 			const light = sourceLights[i];
+			const right = light.right ?? [0, 0, 0];
+			const up = light.up ?? [0, 0, 0];
+			const normal = light.normal ?? [0, 1, 0];
 			writer.writeVec([i, "positionRange"], [
 				light.position[0],
 				light.position[1],
@@ -644,9 +648,29 @@ export class WebGPUClusteredLightingRuntime {
 				light.color[2],
 				light.innerCos,
 			]);
+			writer.writeVec([i, "rightWidth"], [
+				right[0],
+				right[1],
+				right[2],
+				light.width ?? 0,
+			]);
+			writer.writeVec([i, "upHeight"], [
+				up[0],
+				up[1],
+				up[2],
+				light.height ?? 0,
+			]);
+			writer.writeVec([i, "normalAreaScale"], [
+				normal[0],
+				normal[1],
+				normal[2],
+				light.areaScale ?? 0,
+			]);
 
 			const lightType =
-				light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT ?
+				light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_AREA ?
+					WEBGPU_CLUSTERED_LIGHT_TYPE_AREA
+				: light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT ?
 					WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT
 				:	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT;
 			let packedFlags = lightType & WEBGPU_CLUSTERED_LIGHT_FLAG_TYPE_MASK;

@@ -32,6 +32,7 @@ import { LightProbe } from "../src/lights/LightProbe.ts";
 import { AreaLight } from "../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../src/lights/DirectionalLight.ts";
 import { PointLight } from "../src/lights/PointLight.ts";
+import { SpotLight } from "../src/lights/SpotLight.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
 import { computeHaltonJitterNDC } from "../src/maths/Misc.ts";
@@ -80,6 +81,8 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
+	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
@@ -401,8 +404,16 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let areaCount = areaLightCount();"));
 	assert.ok(
-		WEBGPU_SCENE_SHADER.includes(
-			"evaluateAreaLight(\n\t\t\tframe.areaLights[i],\n\t\t\tinput.worldPosition,\n\t\t\tsampleIndex\n\t\t)"
+		/evaluateAreaLight\(\s*frame\.areaLights\[i\],\s*input\.worldPosition,\s*sampleIndex\s*\)/.test(
+			WEBGPU_SCENE_SHADER
+		)
+	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("CLUSTER_LIGHT_TYPE_AREA"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("clusteredRecordToAreaLight"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("if (!isClusteredLightingEnabled())"));
+	assert.ok(
+		/evaluateAreaLight\(\s*areaRecord,\s*input\.worldPosition,\s*sampleIndex\s*\)/.test(
+			WEBGPU_SCENE_SHADER
 		)
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("AREA_LIGHT_SAMPLE_COUNT"));
@@ -428,8 +439,15 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
 	assert.ok(
-		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
-			"evaluateAreaLight(\n\t\t\t\tframe.areaLights[i],\n\t\t\t\tsurface.worldPosition,\n\t\t\t\tsampleIndex\n\t\t\t)"
+		/evaluateAreaLight\(\s*frame\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
+			WEBGPU_DEFERRED_LIGHTING_SHADER
+		)
+	);
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("CLUSTER_LIGHT_TYPE_AREA"));
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("clusteredRecordToAreaLight"));
+	assert.ok(
+		/evaluateAreaLight\(\s*areaRecord,\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
+			WEBGPU_DEFERRED_LIGHTING_SHADER
 		)
 	);
 	assert.ok(
@@ -1196,6 +1214,63 @@ function testWebGPUAreaLightCollection() {
 	assert.equal(overState.areaLights.length, WEBGPU_MAX_AREA_LIGHTS);
 	assert.ok(
 		overState.warnings.some((warning) => warning.key === "webgpu-area-limit")
+	);
+
+	const clusteredOverState = collectWebGPULighting(
+		overLimit,
+		true,
+		false,
+		false,
+		undefined,
+		true
+	);
+	assert.equal(clusteredOverState.areaLights.length, WEBGPU_MAX_AREA_LIGHTS);
+	assert.equal(clusteredOverState.clusteredLights.length, WEBGPU_MAX_AREA_LIGHTS + 1);
+	assert.equal(
+		clusteredOverState.clusteredLights[WEBGPU_MAX_AREA_LIGHTS].type,
+		WEBGPU_CLUSTERED_LIGHT_TYPE_AREA
+	);
+	assert.equal(
+		clusteredOverState.warnings.some(
+			(warning) => warning.key === "webgpu-area-limit"
+		),
+		false
+	);
+}
+
+function testWebGPUClusteredSpotShadowBudgetFallback() {
+	const lights = Array.from(
+		{ length: WEBGPU_MAX_SPOT_LIGHTS + 1 },
+		() => new SpotLight()
+	);
+	const shadowMaps = new Map();
+	for (const light of lights) {
+		const renderSet = createShadowRenderSet({ strategy: "single-map" });
+		renderSet.slices[0].shadowMap.viewProjectionMatrix = Matrix4.identity();
+		shadowMaps.set(light, renderSet);
+	}
+
+	const state = collectWebGPULighting(
+		lights,
+		true,
+		false,
+		true,
+		shadowMaps,
+		true
+	);
+	const clusteredSpots = state.clusteredLights.filter(
+		(light) => light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT
+	);
+	assert.equal(state.spotLights.length, WEBGPU_MAX_SPOT_LIGHTS);
+	assert.equal(state.spotShadows.length, WEBGPU_MAX_SPOT_LIGHTS);
+	assert.equal(clusteredSpots.length, WEBGPU_MAX_SPOT_LIGHTS + 1);
+	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS - 1].castsShadow, true);
+	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS].castsShadow, false);
+	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS].shadowIndex, WEBGPU_MAX_SPOT_LIGHTS);
+	assert.ok(
+		state.warnings.some(
+			(warning) => warning.key === "webgpu-clustered-spot-shadow-budget"
+		)
 	);
 }
 
@@ -3758,6 +3833,7 @@ async function run() {
 	testWebGPUShadowPCSSParams();
 	testWebGPUPointLightLimit();
 	testWebGPUAreaLightCollection();
+	testWebGPUClusteredSpotShadowBudgetFallback();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
