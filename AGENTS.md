@@ -2,6 +2,88 @@
 
 This file provides critical context and collaboration guidance for AI/code agents working in the IgnisRenderer repository.
 
+## Commit Message Guidelines
+
+### Header Format
+- Commit headers MUST use Conventional Commits style. The full shape is:
+  `type(scope)!: subject`, where `scope` and `!` are used only as described
+  below.
+- `type` is required, lowercase, and MUST match one of the approved types
+  below.
+- `scope` is optional but SHOULD be used when a change is focused on one
+  subsystem. Prefer repository terms such as `webgpu`, `webgl`, `software`,
+  `ecs`, `pipeline`, `postprocess`, `shaders`, `physics`, `animation`,
+  `docs`, `tests`, or `build`.
+- `!` is required when the commit introduces a breaking API, behavior, file
+  layout, shader contract, or backend contract change.
+- `subject` MUST be concise, written in imperative mood, and must not end with
+  a period.
+- Keep the full header at or below 72 characters whenever practical.
+
+### Approved Types
+- `feat`: Adds a user-visible feature, renderer capability, backend feature,
+  public API, shader feature, simulation feature, or supported workflow.
+- `fix`: Corrects a bug, rendering artifact, crash, invalid state transition,
+  incorrect math, race condition, resource leak, or test failure.
+- `perf`: Improves runtime performance, memory use, allocation behavior,
+  scheduling, batching, shader cost, or frame execution without changing
+  observable behavior.
+- `refactor`: Restructures implementation without changing public behavior.
+  Do not use this for behavior changes; use `feat`, `fix`, or `perf` instead.
+- `docs`: Updates documentation, examples, comments that document public API
+  behavior, migration notes, or AGENTS.md guidance.
+- `test`: Adds, updates, or removes tests, fixtures, snapshots, mocks, or test
+  infrastructure without changing production behavior.
+- `build`: Changes package scripts, bundling, TypeScript configuration,
+  dependency metadata, or generated build artifacts.
+- `ci`: Changes GitHub Actions, release automation, validation workflows, or
+  other continuous integration configuration.
+- `style`: Changes formatting, lint-only concerns, whitespace, ordering, or
+  naming that does not affect behavior.
+- `chore`: Performs repository maintenance that does not fit another type,
+  such as dependency housekeeping or non-runtime metadata updates.
+- `revert`: Reverts a previous commit. The body SHOULD name the reverted
+  commit hash and reason.
+
+### Writing Rules
+- Use English for commit messages.
+- Use the smallest accurate `type`; do not use `chore` when `feat`, `fix`,
+  `perf`, `docs`, `test`, `build`, or `ci` applies.
+- Prefer a precise scope over a broad one. For example, use `webgpu-bindings`
+  when only binding layout logic changes, and use `webgpu` when the change
+  spans multiple WebGPU modules.
+- The subject SHOULD describe the observable outcome, not the implementation
+  step. Prefer `fix(webgpu): preserve depth texture across resize` over
+  `fix(webgpu): update registry code`.
+- Include a blank line after the header before any body text.
+- Use the body when the reason, tradeoff, migration path, or verification
+  cannot be understood from the header alone.
+- Wrap body and footer lines at 100 characters or less.
+- Use footer entries for issue links, breaking changes, and co-authors.
+  `BREAKING CHANGE:` MUST be used when `!` is present.
+- Each commit SHOULD represent one logical change. Split unrelated source,
+  test, docs, and formatting changes into separate commits when practical.
+- Mention validation in the body when it matters, using exact commands such as
+  `bunx tsc --noEmit` or `bun tests/test_webgpu_bridge.mjs`.
+- Do not include generated files unless the repository expects them to be
+  committed for that change.
+
+### Examples
+```text
+feat(webgpu): add deferred resolve resource cache
+
+fix(postprocess): clamp TAA history rect before sampling
+
+perf(software): reuse tile buffers during rasterization
+
+docs(agents): document commit message conventions
+
+feat(core)!: rename frame pass registry contract
+
+BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
+`RenderPipelineRegistry.registerPass`.
+```
+
 ## Scope
 
 - **IgnisRenderer** is a high-performance 3D rendering engine built in TypeScript.
