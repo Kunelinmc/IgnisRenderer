@@ -130,6 +130,7 @@ import {
 	destroyWebGLFrameTargets,
 	ensureWebGLFrameTargets,
 	resolveWebGLPostProcessTargetTexture,
+	type WebGLFrameTargetFormat,
 	type WebGLFrameTargetLifecycleHost,
 } from "./WebGLFrameTargetLifecycle";
 import {
@@ -194,8 +195,11 @@ export class WebGLFrameExecutor {
 	private _textures: WebGLTextureRegistry;
 	private _sceneFramebuffer: WebGLFramebuffer | null = null;
 	private _sceneColorTexture: WebGLTexture | null = null;
+	private _sceneColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _sceneMotionTexture: WebGLTexture | null = null;
+	private _sceneMotionFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _sceneNormalTexture: WebGLTexture | null = null;
+	private _sceneNormalFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
 	private _oitFramebuffer: WebGLFramebuffer | null = null;
 	private _oitAccumTexture: WebGLTexture | null = null;
@@ -225,8 +229,10 @@ export class WebGLFrameExecutor {
 	private _modelMatrixKeysThisFrame = new Set<string>();
 	private _postFramebuffer: WebGLFramebuffer | null = null;
 	private _postColorTexture: WebGLTexture | null = null;
+	private _postColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _ssaoRawTexture: WebGLTexture | null = null;
 	private _ssaoBlurTexture: WebGLTexture | null = null;
+	private _ssaoColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _presentSourceTexture: WebGLTexture | null = null;
 	private _fullscreenVao: WebGLVertexArrayObject | null = null;
 	private _particleVao: WebGLVertexArrayObject | null = null;
@@ -260,6 +266,7 @@ export class WebGLFrameExecutor {
 	private _oitHasContributors = false;
 	private _oitLegacyTransparentPackets: DrawPacket[] = [];
 	private _oitNeedsLegacyAfterParticles = false;
+	private _supportsFloatColorBuffer: boolean | null = null;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 
 	constructor(
@@ -420,9 +427,18 @@ export class WebGLFrameExecutor {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		const requestedFloat = desc.format !== "rgba8unorm";
+		const actualFormat: WebGLFrameTargetFormat =
+			requestedFloat && this._supportsWebGLFloatColorBuffer() ?
+				"rgba16float"
+			:	"rgba8unorm";
+		if (requestedFloat && actualFormat === "rgba8unorm") {
+			this._warnFloatColorFallback();
+		}
 		const internalFormat =
-			desc.format === "rgba8unorm" ? gl.RGBA8 : gl.RGBA16F;
-		const type = desc.format === "rgba8unorm" ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
+			actualFormat === "rgba8unorm" ? gl.RGBA8 : gl.RGBA16F;
+		const type =
+			actualFormat === "rgba8unorm" ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
 		gl.texImage2D(
 			gl.TEXTURE_2D,
 			0,
@@ -440,7 +456,7 @@ export class WebGLFrameExecutor {
 			backend: "webgl",
 			width: desc.width,
 			height: desc.height,
-			format: desc.format,
+			format: actualFormat,
 			resource: texture,
 		};
 	}
@@ -465,7 +481,7 @@ export class WebGLFrameExecutor {
 						handle: { backend: "webgl", texture: this._sceneColorTexture },
 						width,
 						height,
-						format: "rgba16float",
+						format: this._sceneColorFormat,
 					}
 				:	undefined,
 				depth: this._sceneMotionTexture ?
@@ -474,7 +490,7 @@ export class WebGLFrameExecutor {
 						handle: { backend: "webgl", texture: this._sceneMotionTexture },
 						width,
 						height,
-						format: "rgba16float",
+						format: this._sceneMotionFormat,
 						encoding: "motion-depth.z",
 					}
 				:	undefined,
@@ -484,7 +500,7 @@ export class WebGLFrameExecutor {
 						handle: { backend: "webgl", texture: this._sceneMotionTexture },
 						width,
 						height,
-						format: "rgba16float",
+						format: this._sceneMotionFormat,
 						encoding: "motion-depth.xy",
 					}
 				:	undefined,
@@ -494,8 +510,8 @@ export class WebGLFrameExecutor {
 						handle: { backend: "webgl", texture: this._sceneNormalTexture },
 						width,
 						height,
-						format: "rgba16float",
-						encoding: "world-normal",
+						format: this._sceneNormalFormat,
+						encoding: "encoded-world-normal",
 					}
 				:	undefined,
 			},
@@ -2273,6 +2289,26 @@ export class WebGLFrameExecutor {
 			width,
 			height,
 			ssaoDownsample
+		);
+	}
+
+	private _supportsWebGLFloatColorBuffer(): boolean {
+		if (this._supportsFloatColorBuffer === null) {
+			this._supportsFloatColorBuffer = !!this._gl.getExtension(
+				"EXT_color_buffer_float"
+			);
+		}
+		return this._supportsFloatColorBuffer;
+	}
+
+	private _warnFloatColorFallback(): void {
+		const key = "webgl-hdr-float-unsupported";
+		Logger.warn(
+			`[${key}] EXT_color_buffer_float is unavailable; falling back to RGBA8 color, motion, and post-process attachments.`,
+			{
+				scope: "WebGLFrameExecutor",
+				onceKey: key,
+			}
 		);
 	}
 

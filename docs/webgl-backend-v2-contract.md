@@ -14,6 +14,8 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 - `WebGLBackend` must register a `PostProcessBackendAdapter` during construction.
 - `resolvePostProcessBackendAdapter(webGLBackend).backend` must be `"webgl"`.
 - `resolvePostProcessBackendAdapter(webGLBackend).createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
+- WebGL G-buffer bridge channels must report actual runtime attachment formats.
+- When `EXT_color_buffer_float` is unavailable, WebGL scene, motion-depth, and post-process color attachments must fall back to `rgba8unorm`.
 - `WebGLBackend` must not expose a public `postProcess` facade or backend-level post-process registration methods.
 - `WebGLBackend` must not expose public `postProcessExecutor` or `createPostProcessGBufferBridge(context)` members.
 - The backend must validate pass dependency order per frame and must treat `skipPass` as an executed stage.
@@ -61,6 +63,7 @@ bun tests/test_webgl_backend_v2.mjs
 - `webgl-clustered-texture-size-overflow`: triggered when clustered buffers cannot fit within texture capacity.
 - `webgl-sh-ambient-texture-create-failed`: triggered when SH coefficient texture allocation fails.
 - `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient texture upload fails.
+- `webgl-hdr-float-unsupported`: triggered when `EXT_color_buffer_float` is unavailable and WebGL falls back to `RGBA8` color, motion-depth, and post-process attachments.
 - `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit built-in post-process request has no WebGL implementation.
 
 ## Compatibility / Breaking Changes

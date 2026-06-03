@@ -449,18 +449,27 @@ function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 
 function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	const gl = createFrameTargetTestGL({ floatExtension: false });
+	let executor;
 	const warnings = captureWarnMessages(() => {
-		const executor = new WebGLFrameExecutor(gl);
-		executor._ensureFrameTargets(320, 180);
+		executor = new WebGLFrameExecutor(gl);
+		executor._ensureFrameTargets(320, 180, 1);
 	});
 
 	assert.equal(
 		gl.texImage2DCalls.some((call) => call.internalFormat === gl.RGBA16F),
 		false
 	);
+	const bridge = executor.createGBufferBridge({
+		attachments: { width: 320, height: 180 },
+	});
+	assert.equal(bridge.channels.color.format, "rgba8unorm");
+	assert.equal(bridge.channels.depth.format, "rgba8unorm");
+	assert.equal(bridge.channels.motion.format, "rgba8unorm");
+	assert.equal(bridge.channels.normal.format, "rgba8unorm");
+	assert.equal(bridge.channels.normal.encoding, "encoded-world-normal");
 	assert.ok(
 		warnings.some(
-			(warning) => warning.includes("[webgl-motion-float-unsupported]")
+			(warning) => warning.includes("[webgl-hdr-float-unsupported]")
 		)
 	);
 }
@@ -469,11 +478,57 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	const gl = createFrameTargetTestGL({ floatExtension: true });
 	const executor = new WebGLFrameExecutor(gl);
 
-	executor._ensureFrameTargets(320, 180);
+	executor._ensureFrameTargets(320, 180, 1);
 
 	assert.ok(executor._oitFramebuffer);
 	assert.ok(executor._oitAccumTexture);
 	assert.ok(executor._oitRevealTexture);
+	const bridge = executor.createGBufferBridge({
+		attachments: { width: 320, height: 180 },
+	});
+	assert.equal(bridge.channels.color.format, "rgba16float");
+	assert.equal(bridge.channels.depth.format, "rgba16float");
+	assert.equal(bridge.channels.motion.format, "rgba16float");
+	assert.equal(bridge.channels.normal.format, "rgba8unorm");
+}
+
+function testPostProcessResourceFormatFollowsFloatExtension() {
+	const fallbackGL = createFrameTargetTestGL({ floatExtension: false });
+	let fallbackResource;
+	const warnings = captureWarnMessages(() => {
+		const executor = new WebGLFrameExecutor(fallbackGL);
+		fallbackResource = executor.createPostProcessResource({
+			id: "hdr-history",
+			width: 16,
+			height: 8,
+			format: "rgba16float",
+			usage: ["sampled", "render-target"],
+		});
+	});
+
+	assert.equal(fallbackResource.format, "rgba8unorm");
+	assert.equal(
+		fallbackGL.texImage2DCalls.at(-1).internalFormat,
+		fallbackGL.RGBA8
+	);
+	assert.ok(
+		warnings.some((warning) =>
+			warning.includes("[webgl-hdr-float-unsupported]")
+		)
+	);
+
+	const hdrGL = createFrameTargetTestGL({ floatExtension: true });
+	const executor = new WebGLFrameExecutor(hdrGL);
+	const hdrResource = executor.createPostProcessResource({
+		id: "hdr-history",
+		width: 16,
+		height: 8,
+		format: "rgba16float",
+		usage: ["sampled", "render-target"],
+	});
+
+	assert.equal(hdrResource.format, "rgba16float");
+	assert.equal(hdrGL.texImage2DCalls.at(-1).internalFormat, hdrGL.RGBA16F);
 }
 
 function testConfigureOITWarnsWithoutRuntimeTargets() {
@@ -1141,6 +1196,7 @@ function run() {
 	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
+	testPostProcessResourceFormatFollowsFloatExtension();
 	testConfigureOITWarnsWithoutRuntimeTargets();
 	testOITTransparentAndParticleExecutionOrder();
 	testOITTransparentResolvesImmediatelyWithoutParticles();
