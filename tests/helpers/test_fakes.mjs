@@ -334,6 +334,7 @@ export class FakeCommandEncoder {
 	}
 	drawIndexed(i, instance, firstI, baseV, firstInst) { this.calls.push(["drawIndexed", i, instance, firstI, baseV, firstInst]); return this; }
 	endRenderPass() { this.calls.push(["endRenderPass"]); return this; }
+	end() { this.calls.push(["end"]); return this; }
 
 	copyTextureToBuffer(src, dst, size) {
 		this.calls.push(["copyTextureToBuffer", src, dst, size]);
@@ -525,7 +526,16 @@ export class FakeWebGPUBackend {
 				this.pipelineLayouts.push(layout);
 				return layout;
 			},
-			createShaderModule: (desc) => this.createShaderModule(desc),
+			createShaderModule: (desc) => {
+				const module = {
+					kind: "native-shader-module",
+					label: desc.label,
+					desc,
+					[Symbol.toStringTag]: "GPUShaderModule",
+				};
+				this.shaderModules.push(module);
+				return module;
+			},
 			createComputePipeline: (desc) => this.createComputePipeline(desc),
 			createRenderPipeline: (desc) => this.createRenderPipeline(desc),
 		};
@@ -596,6 +606,7 @@ export class FakeWebGPUBackend {
 			kind: "render-pipeline",
 			desc,
 			label: desc.label,
+			[Symbol.toStringTag]: "GPURenderPipeline",
 			destroyed: false,
 			destroy: () => {
 				this.destroyCalls++;
@@ -701,11 +712,18 @@ export class FakeWebGPUBackend {
 
 	createBindingGroup(desc) {
 		this.createBindingGroupCalls++;
+		const gpuBindGroup = {
+			kind: "gpu-bind-group",
+			desc,
+			label: desc.label,
+			[Symbol.toStringTag]: "GPUBindGroup"
+		};
 		const group = { 
 			kind: "binding-group",
 			desc, 
 			label: desc.label, 
 			entries: desc.entries,
+			_gpuResource: gpuBindGroup,
 			destroyed: false,
 			destroy: () => {
 				this.destroyCalls++;

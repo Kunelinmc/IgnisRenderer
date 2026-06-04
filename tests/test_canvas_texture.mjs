@@ -96,11 +96,37 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	}
 }
 
+function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
+	const { context } = createFakeContext();
+	const texture = new CanvasTexture(context);
+	texture.minFilter = "LinearMipmapLinear";
+	const backend = new FakeWebGPUBackend();
+	const registry = new WebGPUTextureRegistry(backend);
+
+	try {
+		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.equal(backend.createTextureCalls[0].mipLevelCount, 2);
+		assert.equal(backend.copyCalls.length, 1);
+		assert.equal(backend.writeCalls.length, 0);
+		assert.equal(backend.recordedRenderPasses.length, 1);
+
+		context.fillRect(0, 0, 1, 1);
+		texture.update(16);
+		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.equal(backend.copyCalls.length, 2);
+		assert.equal(backend.recordedRenderPasses.length, 2);
+	} finally {
+		texture.dispose();
+		registry.destroy();
+	}
+}
+
 function run() {
 	testCanvasTextureTracksContextMutations();
 	testCanvasTextureRespectsUpdateInterval();
 	testCanvasTextureDynamicUpdateIntegration();
 	testWebGPURegistryUsesExternalCanvasUploadPath();
+	testWebGPURegistryGeneratesMipmapsAfterCanvasUpload();
 	console.log("Canvas texture tests passed");
 }
 

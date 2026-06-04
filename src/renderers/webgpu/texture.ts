@@ -49,7 +49,9 @@ export function createTextureMipUploadLevels(
 ): WebGPUTextureUploadLevel[] {
 	const mipCount = Math.max(
 		1,
-		texture.levels.length || texture.mipmaps.length || 1
+		texture.levels.length,
+		texture.mipmaps.length,
+		1
 	);
 	const levels: WebGPUTextureUploadLevel[] = [];
 	for (let mipLevel = 0; mipLevel < mipCount; mipLevel++) {

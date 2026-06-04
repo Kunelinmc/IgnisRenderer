@@ -10,6 +10,7 @@ import {
 	type ISampler,
 } from "../types";
 import { getTextureFormatInfo } from "../TextureFormatInfo";
+import { Logger } from "../../foundation/Logger";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
@@ -17,6 +18,12 @@ import {
 	resolveWebGPUTextureUploadFormat,
 	WEBGPU_TEXTURE_SLOT,
 } from "./";
+import {
+	canGenerateWebGPUMipmaps,
+	resolveWebGPUMipmapLevelCount,
+	textureFilterRequiresMipmaps,
+	WebGPUMipmapGenerator,
+} from "./WebGPUMipmapGenerator";
 
 interface TextureCacheEntry {
 	resource: IRenderTexture;
@@ -37,6 +44,7 @@ export class WebGPUTextureRegistry {
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
 	private _ownedTextures = new Set<IRenderTexture>();
 	private _ownedSamplers = new Set<ISampler>();
+	private _mipmapGenerator: WebGPUMipmapGenerator | null = null;
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
 	private _whiteSampler: ISampler | null = null;
@@ -80,7 +88,11 @@ export class WebGPUTextureRegistry {
 				:	this.getWhiteTexture();
 		}
 
-		const mipLevelCount = Math.max(1, texture.mipmaps.length || 1);
+		const mipPolicy = resolveTextureMipPolicy(texture, uploadFormat);
+		if (mipPolicy.skipReason) {
+			this._warnAutoMipmapSkipped(texture, uploadFormat, mipPolicy.skipReason);
+		}
+		const mipLevelCount = mipPolicy.mipLevelCount;
 		const shouldRecreateTexture =
 			!cacheEntry ||
 			cacheEntry.resource.width !== texture.width ||
@@ -97,7 +109,9 @@ export class WebGPUTextureRegistry {
 			const usage =
 				TextureUsage.TextureBinding |
 				TextureUsage.CopyDst |
-				(externalImageCopyCompatible ? TextureUsage.RenderAttachment : 0);
+				(externalImageCopyCompatible || mipPolicy.autoGenerate ?
+					TextureUsage.RenderAttachment
+				:	0);
 
 			const resource = this._backend.createTexture({
 				width: texture.width,
@@ -153,6 +167,9 @@ export class WebGPUTextureRegistry {
 						}
 					);
 				}
+			}
+			if (mipPolicy.autoGenerate) {
+				this._generateMipmaps(texture, cacheEntry);
 			}
 			this._uploadedVersionCache.set(texture, texture.version);
 		}
@@ -314,6 +331,8 @@ export class WebGPUTextureRegistry {
 		this._textureCache = new WeakMap<Texture, TextureCacheEntry>();
 		this._samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 		this._uploadedVersionCache = new WeakMap<Texture, number>();
+		this._mipmapGenerator?.destroy();
+		this._mipmapGenerator = null;
 		this._whiteTexture = null;
 		this._neutralNormalTexture = null;
 		this._whiteSampler = null;
@@ -356,6 +375,49 @@ export class WebGPUTextureRegistry {
 			return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 		}
 		return new Uint8Array(data);
+	}
+
+	private _generateMipmaps(texture: Texture, cacheEntry: TextureCacheEntry): void {
+		try {
+			if (!this._mipmapGenerator) {
+				this._mipmapGenerator = new WebGPUMipmapGenerator(this._backend);
+			}
+			this._mipmapGenerator.generate(
+				cacheEntry.resource,
+				cacheEntry.format,
+				cacheEntry.mipLevelCount
+			);
+		} catch (error) {
+			const label = texture.label ?? "unnamed";
+			Logger.warn(
+				`WebGPU mipmap generation failed for texture "${label}": ` +
+					String(error),
+				{
+					scope: "WebGPUTextureRegistry",
+					onceKey:
+						`webgpu-mipmap-generation-failed-${texture.label ?? ""}-` +
+						`${texture.width}x${texture.height}-${cacheEntry.format}`,
+				}
+			);
+		}
+	}
+
+	private _warnAutoMipmapSkipped(
+		texture: Texture,
+		format: TextureFormat,
+		reason: string
+	): void {
+		const label = texture.label ?? "unnamed";
+		Logger.warn(
+			`WebGPU automatic mipmap generation skipped for texture "${label}": ` +
+				reason,
+			{
+				scope: "WebGPUTextureRegistry",
+				onceKey:
+					`webgpu-mipmap-skipped-${texture.label ?? ""}-` +
+					`${texture.width}x${texture.height}-${format}-${reason}`,
+			}
+		);
 	}
 
 	private _isTextureDimensionValid(
@@ -471,6 +533,63 @@ export class WebGPUTextureRegistry {
 			destroyFn.call(sampler);
 		}
 	}
+}
+
+interface TextureMipPolicy {
+	mipLevelCount: number;
+	autoGenerate: boolean;
+	skipReason: string | null;
+}
+
+function resolveTextureMipPolicy(
+	texture: Texture,
+	format: TextureFormat
+): TextureMipPolicy {
+	const explicitMipLevelCount = Math.max(
+		1,
+		texture.levels.length,
+		texture.mipmaps.length,
+		1
+	);
+	if (explicitMipLevelCount > 1) {
+		return {
+			mipLevelCount: explicitMipLevelCount,
+			autoGenerate: false,
+			skipReason: null,
+		};
+	}
+	if (!textureFilterRequiresMipmaps(texture.minFilter)) {
+		return {
+			mipLevelCount: 1,
+			autoGenerate: false,
+			skipReason: null,
+		};
+	}
+
+	const generatedMipLevelCount = resolveWebGPUMipmapLevelCount(
+		texture.width,
+		texture.height
+	);
+	if (generatedMipLevelCount <= 1) {
+		return {
+			mipLevelCount: 1,
+			autoGenerate: false,
+			skipReason: null,
+		};
+	}
+	if (!canGenerateWebGPUMipmaps(format)) {
+		return {
+			mipLevelCount: 1,
+			autoGenerate: false,
+			skipReason: `format "${format}" is not filterable render-attachment color data`,
+		};
+	}
+
+	return {
+		mipLevelCount: generatedMipLevelCount,
+		autoGenerate: true,
+		skipReason: null,
+	};
 }
 
 function resolveRegisteredTextureFormat(

@@ -163,10 +163,51 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 	}
 }
 
+function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
+	const { restore } = installCanvasMock((width, height, callIndex) => {
+		const data = new Uint8ClampedArray(width * height * 4);
+		data[0] = callIndex;
+		data[1] = 0;
+		data[2] = 0;
+		data[3] = 255;
+		return data;
+	});
+
+	const originalHTMLMediaElement = globalThis.HTMLMediaElement;
+	globalThis.HTMLMediaElement = { HAVE_CURRENT_DATA: 2 };
+
+	try {
+		const video = new FakeVideo({ supportsRVFC: true });
+		const texture = new VideoTexture(video);
+		texture.minFilter = "LinearMipmapLinear";
+		const backend = new FakeWebGPUBackend();
+		const registry = new WebGPUTextureRegistry(backend);
+
+		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.equal(backend.createTextureCalls[0].mipLevelCount, 2);
+		assert.equal(backend.copyCalls.length, 1);
+		assert.equal(backend.writeCalls.length, 0);
+		assert.equal(backend.recordedRenderPasses.length, 1);
+
+		video.presentFrame(1 / 24);
+		texture.update();
+		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+		assert.equal(backend.copyCalls.length, 2);
+		assert.equal(backend.recordedRenderPasses.length, 2);
+
+		texture.dispose();
+		registry.destroy();
+	} finally {
+		restore();
+		globalThis.HTMLMediaElement = originalHTMLMediaElement;
+	}
+}
+
 function run() {
 	testVideoTextureUsesRequestVideoFrameCallback();
 	testVideoTextureFallsBackWithoutRVFC();
 	testWebGPURegistryUsesExternalVideoUploadPath();
+	testWebGPURegistryGeneratesMipmapsAfterVideoUpload();
 	console.log("Video texture tests passed");
 }
 

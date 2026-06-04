@@ -103,6 +103,7 @@ const tests = [
 	"test_texture_format_contract.mjs",
 	"test_webgpu_compute_facade.mjs",
 	"test_webgpu_compute_runtime.mjs",
+	"test_webgpu_mipmap_generator.mjs",
 	"test_webgpu_particle_gpu_simulator.mjs",
 	"test_webgpu_structured_buffer_packer.mjs",
 	"test_webgpu_packing.mjs",
