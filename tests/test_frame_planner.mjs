@@ -20,6 +20,7 @@ function createFrame(overrides = {}) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
+		decalPackets: [],
 		...overrides,
 	};
 }

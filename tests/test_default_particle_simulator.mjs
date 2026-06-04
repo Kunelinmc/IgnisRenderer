@@ -47,6 +47,7 @@ function createContext(systems) {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),

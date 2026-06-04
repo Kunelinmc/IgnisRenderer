@@ -17,6 +17,7 @@ export interface NodeParams {
 	idPrefix?: string;
 	name?: string;
 	visible?: boolean;
+	renderLayers?: number;
 	position?: IVector3;
 	quaternion?: Quaternion | QuaternionLike;
 	scale?: IVector3;
@@ -35,11 +36,13 @@ export class Node {
 	public worldMatrix: Matrix4;
 	private _scene: Scene | null;
 	private _entityId: number | null;
+	private _renderLayers: number;
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
 		this.name = params.name ?? this.id;
 		this.visible = params.visible ?? true;
+		this._renderLayers = normalizeRenderLayerMask(params.renderLayers ?? 1);
 		this.parent = null;
 		this.children = [];
 		this.position = new Vector3();
@@ -61,6 +64,31 @@ export class Node {
 
 	public get scene(): Scene | null {
 		return this._scene;
+	}
+
+	/**
+	 * Bitmask selecting which renderer layers this node belongs to.
+	 *
+	 * @returns A 32-bit unsigned render-layer mask. The default is layer bit 0.
+	 * @sideEffects None.
+	 */
+	public get renderLayers(): number {
+		return this._renderLayers;
+	}
+
+	/**
+	 * Sets the renderer layer bitmask used by features such as decal receivers.
+	 *
+	 * @param value - Layer mask to store; non-finite values resolve to bit 0.
+	 * @sideEffects Marks the owning scene dirty so prepared render lists rebuild.
+	 */
+	public set renderLayers(value: number) {
+		const next = normalizeRenderLayerMask(value);
+		if (this._renderLayers === next) {
+			return;
+		}
+		this._renderLayers = next;
+		this._scene?.invalidate("unknown");
 	}
 
 	/**
@@ -252,6 +280,7 @@ export class Node {
 	protected _copyClonePropertiesTo(target: this): void {
 		target.name = this.name;
 		target.visible = this.visible;
+		target.renderLayers = this.renderLayers;
 		target.position.copy(this.position);
 		target.quaternion = createQuaternion(this.quaternion);
 		target.scale.copy(this.scale);
@@ -271,6 +300,21 @@ export class Node {
 		}
 		return false;
 	}
+}
+
+/**
+ * Normalizes a renderer layer mask into an unsigned 32-bit value.
+ *
+ * @param value - Candidate mask value.
+ * @param fallback - Mask used when `value` is not finite.
+ * @returns A non-zero unsigned mask; zero is preserved to allow opt-out nodes.
+ * @sideEffects None.
+ */
+export function normalizeRenderLayerMask(value: number, fallback = 1): number {
+	if (!Number.isFinite(value)) {
+		return fallback >>> 0;
+	}
+	return Math.max(0, Math.floor(value)) >>> 0;
 }
 
 function createQuaternion(

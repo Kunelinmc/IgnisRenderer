@@ -193,6 +193,7 @@ function createFrame(packet) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
+		decalPackets: [],
 	};
 }
 

@@ -1,4 +1,10 @@
 import type { Camera } from "../cameras/Camera";
+import type {
+	Decal,
+	DecalBlendMode,
+	DecalChannel,
+	DecalChannelBlendModes,
+} from "../decals";
 import type { SceneLight, ShadowCastingLight } from "../lights";
 import type { ParticleBlendMode, ParticleSystem } from "../particles";
 import type { Material } from "../materials/Material";
@@ -12,6 +18,7 @@ import type {
 	IPrimitive,
 	IPrimitiveGeometry,
 } from "../core/types";
+import type { Texture } from "../core/Texture";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
@@ -59,14 +66,31 @@ export interface DrawPacket {
 	passFlags: number;
 }
 
+export interface DecalPacket {
+	readonly id: string;
+	decal: Decal;
+	material: Material;
+	worldMatrix: Matrix4;
+	inverseWorldMatrix: Matrix4;
+	normalMatrix: Matrix4 | Matrix3Arr;
+	worldBounds: BoundingSphere;
+	receiverLayerMask: number;
+	priority: number;
+	opacity: number;
+	edgeFade: number;
+	channelBlendModes: DecalChannelBlendModes;
+	sceneOrder: number;
+}
+
+export type PreparedDecalBlendMode = DecalBlendMode;
+export type PreparedDecalChannel = DecalChannel;
+
 export interface PreparedSceneSpatialIndex {
 	queryOpaquePackets(rect: DirtyRect): DrawPacket[];
 	queryTransparentPackets(rect: DirtyRect): DrawPacket[];
 	queryOpaquePacketsInRects(rects: DirtyRect[]): DrawPacket[];
 	queryTransparentPacketsInRects(rects: DirtyRect[]): DrawPacket[];
 }
-
-import type { Texture } from "../core/Texture";
 
 export const PARTICLE_TRANSIENT_BATCHES_KEY =
 	defineTransientKey<ParticleRenderBatch[]>("pipeline:particle-batches");
@@ -157,6 +181,7 @@ export interface PreparedScene {
 	shadowCasterPackets: DrawPacket[];
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
+	decalPackets: DecalPacket[];
 	spatialIndex: PreparedSceneSpatialIndex | null;
 }
 

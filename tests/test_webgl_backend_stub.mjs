@@ -399,6 +399,7 @@ function createDependencyContext() {
 			shadowCasterPackets: [],
 			reflectivePackets: [],
 			transparentPackets: [],
+			decalPackets: [],
 		},
 		transient: new Map(),
 		framePlan: {

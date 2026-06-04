@@ -49,6 +49,7 @@ export interface NodeRefComponent {
 export const NODE_KIND = {
 	Node: "node",
 	MeshInstance: "meshInstance",
+	Decal: "decal",
 	Camera: "camera",
 	ParticleSystem: "particleSystem",
 	Light: "light",

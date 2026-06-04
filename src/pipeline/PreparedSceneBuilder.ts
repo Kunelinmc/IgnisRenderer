@@ -1,17 +1,20 @@
 import type { Camera } from "../cameras/Camera";
 import { AlphaMode } from "../materials/Material";
+import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Renderer } from "../renderers/Renderer";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
+import type { Decal } from "../decals";
 import { MeshInstance } from "../meshes";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
+	type DecalPacket,
 	type DrawPacket,
 	type PreparedScene,
 } from "./types";
@@ -79,6 +82,10 @@ export class PreparedSceneBuilder {
 
 		opaquePackets.sort(compareOpaquePackets);
 		transparentPackets.sort(compareTransparentPackets);
+		const decalPackets = this._buildDecalPackets(
+			renderer.scene.getDecals(),
+			opaquePackets
+		);
 		const environment = renderer.scene.environment;
 
 		return {
@@ -105,6 +112,7 @@ export class PreparedSceneBuilder {
 			shadowCasterPackets,
 			shadowTransmitterPackets,
 			reflectivePackets,
+			decalPackets,
 			spatialIndex: null,
 		};
 	}
@@ -202,6 +210,92 @@ export class PreparedSceneBuilder {
 			passFlags,
 		};
 	}
+
+	private static _buildDecalPackets(
+		decals: Decal[],
+		opaquePackets: DrawPacket[]
+	): DecalPacket[] {
+		const packets: DecalPacket[] = [];
+		let sceneOrder = 0;
+		for (const decal of decals) {
+			const packet = this._createDecalPacket(
+				decal,
+				opaquePackets,
+				sceneOrder
+			);
+			sceneOrder++;
+			if (packet) {
+				packets.push(packet);
+			}
+		}
+		packets.sort(compareDecalPackets);
+		return packets;
+	}
+
+	private static _createDecalPacket(
+		decal: Decal,
+		opaquePackets: DrawPacket[],
+		sceneOrder: number
+	): DecalPacket | null {
+		if (decal.visible === false || decal.opacity <= 0) {
+			return null;
+		}
+		const material = decal.material;
+		if (!material || material instanceof ShaderMaterial) {
+			return null;
+		}
+		const receiverLayerMask = decal.receiverLayerMask >>> 0;
+		if (receiverLayerMask === 0) {
+			return null;
+		}
+		const hasReceiver = opaquePackets.some(
+			(packet) => (packet.meshInstance.renderLayers & receiverLayerMask) !== 0
+		);
+		if (!hasReceiver) {
+			return null;
+		}
+		const inverseWorldMatrix = Matrix4.inverse(decal.worldMatrix);
+		if (!inverseWorldMatrix) {
+			return null;
+		}
+		const normalMatrix = Matrix4.normalMatrix(decal.worldMatrix) as Matrix3Arr;
+		const worldCenter = Matrix4.transformPoint(decal.worldMatrix, {
+			x: 0,
+			y: 0,
+			z: 0,
+		});
+		const elements = decal.worldMatrix.elements;
+		const halfDiagonal = Math.hypot(
+			Math.hypot(elements[0][0], elements[1][0], elements[2][0]),
+			Math.hypot(elements[0][1], elements[1][1], elements[2][1]),
+			Math.hypot(elements[0][2], elements[1][2], elements[2][2])
+		) * 0.5;
+		if (halfDiagonal <= 0) {
+			return null;
+		}
+		return {
+			id: decal.id,
+			decal,
+			material,
+			worldMatrix: decal.worldMatrix,
+			inverseWorldMatrix,
+			normalMatrix,
+			worldBounds: {
+				center: {
+					x: worldCenter.x,
+					y: worldCenter.y,
+					z: worldCenter.z,
+				},
+				radius: halfDiagonal,
+			},
+			receiverLayerMask,
+			priority: decal.priority,
+			opacity: decal.opacity,
+			edgeFade: decal.edgeFade,
+			channelBlendModes: { ...decal.channelBlendModes },
+			sceneOrder,
+		};
+	}
 }
 
 function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
@@ -227,6 +321,16 @@ function compareTransparentPackets(
 		return right.sortDepth - left.sortDepth;
 	}
 
+	return left.id.localeCompare(right.id);
+}
+
+function compareDecalPackets(left: DecalPacket, right: DecalPacket): number {
+	if (left.priority !== right.priority) {
+		return left.priority - right.priority;
+	}
+	if (left.sceneOrder !== right.sceneOrder) {
+		return left.sceneOrder - right.sceneOrder;
+	}
 	return left.id.localeCompare(right.id);
 }
 

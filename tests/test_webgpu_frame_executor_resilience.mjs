@@ -103,6 +103,7 @@ function createFrameContext(width, height) {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],

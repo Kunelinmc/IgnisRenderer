@@ -233,6 +233,112 @@ export class Matrix4 {
 		]);
 	}
 
+	/**
+	 * Computes the inverse of a 4x4 matrix.
+	 *
+	 * @param m Matrix to invert in the engine's row-major representation.
+	 * @param out Optional matrix that receives the inverse.
+	 * @returns The inverted matrix, or `null` when the matrix is singular.
+	 * @sideEffects Writes to `out` when provided.
+	 */
+	public static inverse(
+		m: Matrix4 | number[][],
+		out?: Matrix4
+	): Matrix4 | null {
+		const source = m instanceof Matrix4 ? m.elements : m;
+		const augmented = [
+			[
+				source[0][0],
+				source[0][1],
+				source[0][2],
+				source[0][3],
+				1,
+				0,
+				0,
+				0,
+			],
+			[
+				source[1][0],
+				source[1][1],
+				source[1][2],
+				source[1][3],
+				0,
+				1,
+				0,
+				0,
+			],
+			[
+				source[2][0],
+				source[2][1],
+				source[2][2],
+				source[2][3],
+				0,
+				0,
+				1,
+				0,
+			],
+			[
+				source[3][0],
+				source[3][1],
+				source[3][2],
+				source[3][3],
+				0,
+				0,
+				0,
+				1,
+			],
+		];
+
+		for (let column = 0; column < 4; column++) {
+			let pivotRow = column;
+			let pivotAbs = Math.abs(augmented[pivotRow][column]);
+			for (let row = column + 1; row < 4; row++) {
+				const candidateAbs = Math.abs(augmented[row][column]);
+				if (candidateAbs > pivotAbs) {
+					pivotAbs = candidateAbs;
+					pivotRow = row;
+				}
+			}
+
+			if (pivotAbs < 1e-10) {
+				return null;
+			}
+
+			if (pivotRow !== column) {
+				const swap = augmented[column];
+				augmented[column] = augmented[pivotRow];
+				augmented[pivotRow] = swap;
+			}
+
+			const pivot = augmented[column][column];
+			for (let offset = 0; offset < 8; offset++) {
+				augmented[column][offset] /= pivot;
+			}
+
+			for (let row = 0; row < 4; row++) {
+				if (row === column) {
+					continue;
+				}
+				const factor = augmented[row][column];
+				if (factor === 0) {
+					continue;
+				}
+				for (let offset = 0; offset < 8; offset++) {
+					augmented[row][offset] -= factor * augmented[column][offset];
+				}
+			}
+		}
+
+		const target = out ?? Matrix4.identity();
+		const te = target.elements;
+		for (let row = 0; row < 4; row++) {
+			for (let column = 0; column < 4; column++) {
+				te[row][column] = augmented[row][column + 4];
+			}
+		}
+		return target;
+	}
+
 	public static inverse3x3(m: Matrix4 | number[][]): Matrix3Arr | null {
 		const me = m instanceof Matrix4 ? m.elements : m;
 		const m00 = me[0][0],

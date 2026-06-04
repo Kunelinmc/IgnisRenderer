@@ -1707,6 +1707,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 			transparentPackets: [],
 			shadowCasterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],

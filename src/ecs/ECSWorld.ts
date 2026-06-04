@@ -1,6 +1,7 @@
 import { Camera } from "../cameras/Camera";
 import { Matrix4 } from "../maths/Matrix4";
 import { MeshInstance } from "../meshes";
+import { Decal } from "../decals";
 import { ParticleSystem } from "../particles";
 import type { Node } from "../core/Node";
 import type { SceneLight } from "../lights";
@@ -31,6 +32,7 @@ interface QueryCacheEntry {
 interface NodeKindLookupMap {
 	[NODE_KIND.Node]: Node;
 	[NODE_KIND.MeshInstance]: MeshInstance;
+	[NODE_KIND.Decal]: Decal;
 	[NODE_KIND.Camera]: Camera;
 	[NODE_KIND.ParticleSystem]: ParticleSystem;
 	[NODE_KIND.Light]: SceneLight;
@@ -310,6 +312,13 @@ export class ECSWorld {
 		);
 	}
 
+	public findDecals(): Decal[] {
+		return this._findNodesByKind(
+			NODE_KIND.Decal,
+			(node): node is Decal => node instanceof Decal
+		);
+	}
+
 	public findLights(): SceneLight[] {
 		return this._findNodesByKind(
 			NODE_KIND.Light,
@@ -371,6 +380,7 @@ export class ECSWorld {
 
 function resolveNodeKind(node: Node): NodeKind {
 	if (node instanceof MeshInstance) return NODE_KIND.MeshInstance;
+	if (node instanceof Decal) return NODE_KIND.Decal;
 	if (node instanceof Camera) return NODE_KIND.Camera;
 	if (node instanceof ParticleSystem) return NODE_KIND.ParticleSystem;
 	if (node instanceof Light) return NODE_KIND.Light;

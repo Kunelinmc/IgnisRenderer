@@ -494,6 +494,7 @@ function buildCapturePreparedScene(
 		shadowCasterPackets: baseScene.shadowCasterPackets,
 		shadowTransmitterPackets: baseScene.shadowTransmitterPackets,
 		reflectivePackets: [],
+		decalPackets: [],
 		spatialIndex: null,
 	};
 }

@@ -139,6 +139,7 @@ function createExecutorHarness() {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 			spatialIndex: null,
 		},
 		shCoeffs: [],

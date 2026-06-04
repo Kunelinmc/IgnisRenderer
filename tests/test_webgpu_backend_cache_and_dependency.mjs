@@ -226,6 +226,7 @@ function createFrameContext(overrides = {}) {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
@@ -945,6 +946,7 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 	});
 	backend.beginFrame(context);
@@ -989,6 +991,7 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 	});
 	backend.beginFrame(context);
@@ -1064,6 +1067,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 			shadowCasterPackets: [],
 			shadowTransmitterPackets: [],
 			reflectivePackets: [],
+			decalPackets: [],
 		},
 	});
 	backend.beginFrame(context);

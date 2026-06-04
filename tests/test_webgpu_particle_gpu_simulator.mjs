@@ -80,6 +80,7 @@ function createContext(particleSystems = []) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
+		decalPackets: [],
 		spatialIndex: null,
 	};
 	return {

@@ -48,10 +48,49 @@ function testNodeLocalMatrixUsesComposeContract() {
 	assert.deepEqual(node.localMatrix.elements, expected.elements);
 }
 
+function testInverseReturnsMultiplicativeIdentity() {
+	const matrix = Matrix4.multiply(
+		Matrix4.fromTranslation([2, -3, 4]),
+		Matrix4.multiply(
+			Matrix4.fromQuaternion([
+				0.10259783520851541,
+				0.20519567041703082,
+				-0.3077935056255462,
+				0.9233805168766387,
+			]),
+			Matrix4.fromScale([2, 3, 4])
+		)
+	);
+	const inverse = Matrix4.inverse(matrix);
+
+	assert.ok(inverse);
+	assertMatrixApproximatelyIdentity(Matrix4.multiply(matrix, inverse));
+	assertMatrixApproximatelyIdentity(Matrix4.multiply(inverse, matrix));
+}
+
+function testInverseReturnsNullForSingularMatrix() {
+	const matrix = Matrix4.fromScale([1, 0, 1]);
+	assert.equal(Matrix4.inverse(matrix), null);
+}
+
+function assertMatrixApproximatelyIdentity(matrix) {
+	const identity = Matrix4.identity().elements;
+	for (let row = 0; row < 4; row++) {
+		for (let col = 0; col < 4; col++) {
+			assert.ok(
+				Math.abs(matrix.elements[row][col] - identity[row][col]) < 1e-9,
+				`Expected identity at [${row}, ${col}], got ${matrix.elements[row][col]}`
+			);
+		}
+	}
+}
+
 function run() {
 	testComposeMatchesTRSMultiplication();
 	testComposeSupportsOutMatrixReuse();
 	testNodeLocalMatrixUsesComposeContract();
+	testInverseReturnsMultiplicativeIdentity();
+	testInverseReturnsNullForSingularMatrix();
 	console.log("Matrix4 compose tests passed");
 }
 

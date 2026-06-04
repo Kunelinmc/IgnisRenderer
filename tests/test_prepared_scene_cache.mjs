@@ -90,6 +90,7 @@ function createFrame(camera, packets) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
+		decalPackets: [],
 	};
 }
 

@@ -3,6 +3,7 @@ import { Environment } from "./Environment";
 import { Node } from "./Node";
 import type { BoundingSphere } from "./types";
 import { MeshInstance } from "../meshes";
+import { Decal } from "../decals";
 import type { SceneLight } from "../lights";
 import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
@@ -45,6 +46,8 @@ export class Scene {
 	private _sceneGraphDirty = false;
 	private _meshInstancesCache: MeshInstance[] = [];
 	private _meshInstancesCacheDirty = true;
+	private _decalsCache: Decal[] = [];
+	private _decalsCacheDirty = true;
 	private _boundsDirty = true;
 	private _boundsCache: BoundingSphere = {
 		center: { x: 0, y: 0, z: 0 },
@@ -122,6 +125,16 @@ export class Scene {
 			this._meshInstancesCacheDirty = false;
 		}
 		return this._meshInstancesCache;
+	}
+
+	public getDecals(): Decal[] {
+		if (this._decalsCacheDirty) {
+			this._decalsCache = this._collectByType(
+				(node): node is Decal => node instanceof Decal
+			);
+			this._decalsCacheDirty = false;
+		}
+		return this._decalsCache;
 	}
 
 	public getLights(): SceneLight[] {
@@ -268,6 +281,7 @@ export class Scene {
 		}
 		this._sceneGraphDirty = false;
 		this._meshInstancesCacheDirty = true;
+		this._decalsCacheDirty = true;
 		this._boundsDirty = true;
 	}
 
@@ -291,6 +305,7 @@ export class Scene {
 		this._setSceneRecursive(child, this);
 		this._sceneGraphDirty = true;
 		this._meshInstancesCacheDirty = true;
+		this._decalsCacheDirty = true;
 		this._boundsDirty = true;
 		this.syncNodeToECS();
 		this.invalidate();
@@ -300,6 +315,7 @@ export class Scene {
 		if (this._reparentingNodes.has(child)) {
 			this._sceneGraphDirty = true;
 			this._meshInstancesCacheDirty = true;
+			this._decalsCacheDirty = true;
 			this._boundsDirty = true;
 			this.invalidate();
 			return;
@@ -309,6 +325,7 @@ export class Scene {
 		this._setSceneRecursive(child, null);
 		this._sceneGraphDirty = true;
 		this._meshInstancesCacheDirty = true;
+		this._decalsCacheDirty = true;
 		this._boundsDirty = true;
 		this.invalidate();
 	}
