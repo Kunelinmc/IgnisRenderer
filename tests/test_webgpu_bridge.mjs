@@ -631,19 +631,37 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	assert.equal(layouts.decalPipelineLayout.desc.bindGroupLayouts.length, 4);
 	assert.equal(
 		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],
-		layouts.decalBatchBindGroupLayout
+		layouts.decalOutputBindGroupLayout
 	);
 	assert.equal(layouts.decalBatchPipelineLayout.desc.bindGroupLayouts.length, 4);
 	assert.equal(
 		layouts.decalBatchPipelineLayout.desc.bindGroupLayouts[3],
 		layouts.decalBatchBindGroupLayout
 	);
+	assert.equal(
+		layouts.decalOutputBindGroupLayout.desc.entries.length,
+		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+	);
+	assert.equal(
+		layouts.decalOutputBindGroupLayout.desc.entries.filter(
+			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
+		).length,
+		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+	);
 	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 15);
 	assert.equal(
 		layouts.decalBatchBindGroupLayout.desc.entries.filter(
 			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
 		).length,
-		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+		0
+	);
+	assert.equal(
+		layouts.decalBatchBindGroupLayout.desc.entries.filter(
+			(entry) =>
+				(entry.visibility & GPUShaderStage.COMPUTE) !== 0 &&
+				!!entry.storageTexture
+		).length,
+		WEBGPU_GBUFFER_READ_TEXTURE_COUNT
 	);
 	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
@@ -654,6 +672,53 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	assert.ok(samplerCount <= 16);
 	assert.ok(planarReflectionSamplerCount <= 16);
 	assert.equal(WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE, 56);
+}
+
+function testDecalBatchLayoutHonorsStorageTextureLimit() {
+	const device = {
+		limits: {
+			maxStorageTexturesPerShaderStage: 4,
+			maxStorageBuffersPerShaderStage: 8,
+		},
+		bindGroupLayouts: [],
+		pipelineLayouts: [],
+		createBindGroupLayout(desc) {
+			for (const visibility of [
+				GPUShaderStage.FRAGMENT,
+				GPUShaderStage.COMPUTE,
+			]) {
+				const storageTextureCount = desc.entries.filter(
+					(entry) =>
+						(entry.visibility & visibility) !== 0 &&
+						!!entry.storageTexture
+				).length;
+				assert.ok(storageTextureCount <= 4);
+			}
+			const layout = { desc };
+			this.bindGroupLayouts.push(layout);
+			return layout;
+		},
+		createPipelineLayout(desc) {
+			const layout = { desc };
+			this.pipelineLayouts.push(layout);
+			return layout;
+		},
+	};
+	const layouts = createWebGPUPipelineLayouts(device);
+
+	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 0);
+	assert.equal(
+		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.decalOutputBindGroupLayout
+	);
+	assert.equal(
+		layouts.decalBatchPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.decalBatchBindGroupLayout
+	);
+	assert.equal(
+		layouts.decalOutputBindGroupLayout.desc.entries.length,
+		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+	);
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -3850,6 +3915,7 @@ async function run() {
 	testFrameExecutorRequestsComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
 	testScenePipelineLimitConstantsMatchLayout();
+	testDecalBatchLayoutHonorsStorageTextureLimit();
 	await testParticleShaderDepthConsistency();
 	await testWebGPUShaderConstantTokenInjection();
 	testEnvironmentCollection();

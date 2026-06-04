@@ -113,6 +113,9 @@ function createResourcesStub(backend) {
 		getDecalBindGroupLayout() {
 			return { id: "decal-layout" };
 		},
+		getDecalOutputBindGroupLayout() {
+			return { id: "decal-output-layout" };
+		},
 		getDecalBatchBindGroupLayout() {
 			return { id: "decal-batch-layout" };
 		},
@@ -206,6 +209,14 @@ async function testMixedMaterialsFallBackInExactOrder() {
 		"WebGPUDeferredDecal_decal-a",
 		"WebGPUDeferredDecal_decal-b",
 	]);
+	const outputBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUDecalOutputBinding"
+	);
+	assert.equal(outputBinding.desc.layout.id, "decal-output-layout");
+	assert.deepEqual(
+		outputBinding.entries.map((entry) => entry.binding),
+		[11, 12, 13, 14]
+	);
 	assert.equal(
 		encoder.calls.some((call) => call[0] === "beginComputePass"),
 		false

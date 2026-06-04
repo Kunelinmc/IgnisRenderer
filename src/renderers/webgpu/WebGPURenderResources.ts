@@ -697,6 +697,17 @@ export class WebGPURenderResources {
 	}
 
 	/**
+	 * Returns the bind group layout used by fallback deferred decal draws to
+	 * write extended G-buffer storage payload textures.
+	 *
+	 * @returns The WebGPU bind group layout for decal storage outputs.
+	 * @sideEffects None.
+	 */
+	public getDecalOutputBindGroupLayout(): GPUBindGroupLayout {
+		return this._layouts.decalOutputBindGroupLayout;
+	}
+
+	/**
 	 * Returns the bind group layout used by WebGPU deferred decal batch data.
 	 *
 	 * @returns The WebGPU bind group layout for tile-binned decal resources.

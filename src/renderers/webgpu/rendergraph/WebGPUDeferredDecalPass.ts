@@ -137,6 +137,8 @@ export class WebGPUDeferredDecalPass {
 	private _batchTileIndicesBuffer: IRenderBuffer | null = null;
 	private _batchBinding: IBindingGroup | null = null;
 	private _batchBindingSources: unknown[] = [];
+	private _outputBinding: IBindingGroup | null = null;
+	private _outputBindingSources: unknown[] = [];
 	private _materialBindings = new WeakMap<
 		Material,
 		DecalMaterialBindingCacheEntry
@@ -159,6 +161,9 @@ export class WebGPUDeferredDecalPass {
 		this._destroyBindingGroup(this._batchBinding);
 		this._batchBinding = null;
 		this._batchBindingSources = [];
+		this._destroyBindingGroup(this._outputBinding);
+		this._outputBinding = null;
+		this._outputBindingSources = [];
 		for (const entry of this._materialBindingEntries) {
 			this._destroyBindingGroup(entry.group);
 		}
@@ -771,7 +776,28 @@ export class WebGPUDeferredDecalPass {
 	private _getGBufferWriteBinding(
 		targets: readonly DecalTargetRef[]
 	): IBindingGroup {
-		return this._getBatchBinding(targets);
+		const outputTargets = targets.slice(7, 11);
+		const sources = outputTargets.map((target) => target.texture);
+		if (
+			this._outputBinding &&
+			this._outputBindingSources.length === sources.length &&
+			this._outputBindingSources.every(
+				(source, index) => source === sources[index]
+			)
+		) {
+			return this._outputBinding;
+		}
+		this._destroyBindingGroup(this._outputBinding);
+		this._outputBinding = this._backend.createBindingGroup({
+			layout: this._resources.getDecalOutputBindGroupLayout(),
+			entries: sources.map((resource, index) => ({
+				binding: 11 + index,
+				resource,
+			})),
+			label: "WebGPUDecalOutputBinding",
+		});
+		this._outputBindingSources = sources;
+		return this._outputBinding;
 	}
 
 	private _getMaterialBinding(

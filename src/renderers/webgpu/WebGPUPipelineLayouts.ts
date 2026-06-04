@@ -14,6 +14,9 @@ import {
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
 
+const WEBGPU_DECAL_BATCH_STORAGE_TEXTURE_COUNT = WEBGPU_GBUFFER_READ_TEXTURE_COUNT;
+const WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT = 3;
+
 export interface WebGPUPipelineLayouts {
 	sceneFrameBindGroupLayout: GPUBindGroupLayout;
 	decalFrameBindGroupLayout: GPUBindGroupLayout;
@@ -21,6 +24,7 @@ export interface WebGPUPipelineLayouts {
 	gbufferWriteBindGroupLayout: GPUBindGroupLayout;
 	gbufferReadBindGroupLayout: GPUBindGroupLayout;
 	decalBindGroupLayout: GPUBindGroupLayout;
+	decalOutputBindGroupLayout: GPUBindGroupLayout;
 	decalBatchBindGroupLayout: GPUBindGroupLayout;
 	planarReflectionBindGroupLayout: GPUBindGroupLayout;
 	deferredUnusedBindGroupLayout: GPUBindGroupLayout;
@@ -248,50 +252,68 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUDecalBindGroupLayout",
 		entries: decalEntries,
 	});
-	const decalBatchEntries: GPUBindGroupLayoutEntry[] = [
-		{
-			binding: 0,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" },
-		},
-		{
-			binding: 1,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" },
-		},
-		{
-			binding: 2,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" },
-		},
-		{
-			binding: 3,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" },
-		},
-		{
-			binding: 4,
-			visibility: GPUShaderStage.COMPUTE,
-			storageTexture: {
-				access: "write-only",
-				format: "rgba8unorm",
-				viewDimension: "2d",
-			},
-		},
-	];
-	for (let binding = 5; binding <= 14; binding++) {
-		decalBatchEntries.push({
+	const decalOutputEntries: GPUBindGroupLayoutEntry[] = [];
+	for (let binding = 11; binding <= 14; binding++) {
+		decalOutputEntries.push({
 			binding,
-			visibility:
-				binding >= 11 ?
-					GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE
-				:	GPUShaderStage.COMPUTE,
+			visibility: GPUShaderStage.FRAGMENT,
 			storageTexture: {
 				access: "write-only",
 				format: "rgba16float",
 				viewDimension: "2d",
 			},
 		});
+	}
+	const decalOutputBindGroupLayout = device.createBindGroupLayout({
+		label: "WebGPUDecalOutputBindGroupLayout",
+		entries: decalOutputEntries,
+	});
+	const decalBatchEntries: GPUBindGroupLayoutEntry[] =
+		deviceSupportsDecalBatchBindGroupLayout(device) ?
+			[
+				{
+					binding: 0,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.COMPUTE,
+					storageTexture: {
+						access: "write-only",
+						format: "rgba8unorm",
+						viewDimension: "2d",
+					},
+				},
+			]
+		:	[];
+	if (decalBatchEntries.length > 0) {
+		for (let binding = 5; binding <= 14; binding++) {
+			decalBatchEntries.push({
+				binding,
+				visibility: GPUShaderStage.COMPUTE,
+				storageTexture: {
+					access: "write-only",
+					format: "rgba16float",
+					viewDimension: "2d",
+				},
+			});
+		}
 	}
 	const decalBatchBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUDecalBatchBindGroupLayout",
@@ -446,7 +468,7 @@ export function createWebGPUPipelineLayouts(
 			decalFrameBindGroupLayout,
 			gbufferReadBindGroupLayout,
 			decalBindGroupLayout,
-			decalBatchBindGroupLayout,
+			decalOutputBindGroupLayout,
 		],
 	});
 	const decalBatchPipelineLayout = device.createPipelineLayout({
@@ -474,6 +496,7 @@ export function createWebGPUPipelineLayouts(
 		gbufferWriteBindGroupLayout,
 		gbufferReadBindGroupLayout,
 		decalBindGroupLayout,
+		decalOutputBindGroupLayout,
 		decalBatchBindGroupLayout,
 		planarReflectionBindGroupLayout,
 		deferredUnusedBindGroupLayout,
@@ -490,4 +513,16 @@ export function createWebGPUPipelineLayouts(
 		environmentPipelineLayout,
 		particlePipelineLayout,
 	};
+}
+
+function deviceSupportsDecalBatchBindGroupLayout(device: GPUDevice): boolean {
+	const limits = device.limits;
+	const maxStorageTextures =
+		limits?.maxStorageTexturesPerShaderStage ?? Number.POSITIVE_INFINITY;
+	const maxStorageBuffers =
+		limits?.maxStorageBuffersPerShaderStage ?? Number.POSITIVE_INFINITY;
+	return (
+		maxStorageTextures >= WEBGPU_DECAL_BATCH_STORAGE_TEXTURE_COUNT &&
+		maxStorageBuffers >= WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT
+	);
 }
