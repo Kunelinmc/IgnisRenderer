@@ -33,6 +33,7 @@ function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 		[0, 1, 2, 3]
 	);
 	assert.equal(backend.submits, 1);
+	assert.equal(backend.bindingGroupDestroyCalls, 3);
 
 	registry.destroy();
 }
@@ -126,6 +127,7 @@ function testGeneratorCachesPipelinePerFormat() {
 	);
 	assert.equal(backend.renderPipelines.length, 1);
 	assert.equal(backend.recordedRenderPasses.length, 5);
+	assert.equal(backend.bindingGroupDestroyCalls, 5);
 
 	generator.destroy();
 }

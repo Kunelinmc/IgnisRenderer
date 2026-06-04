@@ -79,35 +79,43 @@ export class WebGPUMipmapGenerator {
 		const encoder = device.createCommandEncoder({
 			label: "WebGPUMipmapGeneratorEncoder",
 		});
-		for (let level = 1; level < levelCount; level++) {
-			const sourceView = views[level - 1];
-			const targetView = views[level];
-			const binding = this._backend.createBindingGroup({
-				layout: bindGroupLayout,
-				entries: [
-					{ binding: 0, resource: sourceView },
-					{ binding: 1, resource: sampler },
-				],
-				label: `WebGPUMipmapBinding_${level}`,
-			});
-			const pass = encoder.beginRenderPass({
-				label: `WebGPUMipmapPass_${level}`,
-				colorAttachments: [
-					{
-						view: targetView,
-						clearValue: { r: 0, g: 0, b: 0, a: 1 },
-						loadOp: "clear",
-						storeOp: "store",
-					},
-				],
-			});
-			pass.setPipeline(pipeline);
-			pass.setBindGroup(0, getNativeBindGroup(binding));
-			pass.draw(3, 1, 0, 0);
-			pass.end();
+		const transientBindings: IBindingGroup[] = [];
+		try {
+			for (let level = 1; level < levelCount; level++) {
+				const sourceView = views[level - 1];
+				const targetView = views[level];
+				const binding = this._backend.createBindingGroup({
+					layout: bindGroupLayout,
+					entries: [
+						{ binding: 0, resource: sourceView },
+						{ binding: 1, resource: sampler },
+					],
+					label: `WebGPUMipmapBinding_${level}`,
+				});
+				transientBindings.push(binding);
+				const pass = encoder.beginRenderPass({
+					label: `WebGPUMipmapPass_${level}`,
+					colorAttachments: [
+						{
+							view: targetView,
+							clearValue: { r: 0, g: 0, b: 0, a: 1 },
+							loadOp: "clear",
+							storeOp: "store",
+						},
+					],
+				});
+				pass.setPipeline(pipeline);
+				pass.setBindGroup(0, getNativeBindGroup(binding));
+				pass.draw(3, 1, 0, 0);
+				pass.end();
+			}
+			queue.submit([encoder.finish()]);
+			return true;
+		} finally {
+			for (const binding of transientBindings) {
+				this._destroyManagedResource(binding);
+			}
 		}
-		queue.submit([encoder.finish()]);
-		return true;
 	}
 
 	/**
