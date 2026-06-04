@@ -6,6 +6,11 @@ import type {
 	TextureDesc,
 } from "../types";
 import {
+	getTextureFormatFallback,
+	textureFormatRequiresFeature,
+} from "../TextureFormatInfo";
+import { Logger } from "../../foundation/Logger";
+import {
 	attachWebGPUTexture,
 	createWebGPUTexture,
 	getWebGPUBuffer,
@@ -17,6 +22,9 @@ interface InternalRenderBuffer extends IRenderBuffer {
 }
 
 interface InternalTexture extends IRenderTexture {
+	requestedFormat: TextureDesc["format"];
+	format: TextureDesc["format"];
+	formatFallbackReason?: string;
 	_gpuResource: GPUTexture;
 	_gpuTexture: GPUTexture;
 	_gpuView: GPUTextureView;
@@ -98,11 +106,15 @@ export class WebGPUResourceManager {
 			desc.depthOrArrayLayers ?? 1,
 			1
 		);
+		const formatResolution = resolveWebGPUTextureFormat(
+			desc.format,
+			device.features
+		);
 		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
 		const sampleCount =
 			dimension === "2d"
 				? this._host.resolveSupportedMSAASampleCount(requestedSampleCount, [
-						desc.format as GPUTextureFormat,
+						formatResolution.format as GPUTextureFormat,
 					])
 				: 1;
 		const size: GPUExtent3DStrict =
@@ -119,17 +131,29 @@ export class WebGPUResourceManager {
 			size,
 			dimension,
 			sampleCount,
-			format: desc.format as GPUTextureFormat,
+			format: formatResolution.format as GPUTextureFormat,
 			usage: this._host.mapTextureUsage(desc.usage),
 			mipLevelCount: Math.max(1, desc.mipLevelCount ?? 1),
-			viewFormats: desc.viewFormats as GPUTextureFormat[] | undefined,
+			viewFormats:
+				formatResolution.format === desc.format ?
+					(desc.viewFormats as GPUTextureFormat[] | undefined)
+				:	undefined,
 			label: desc.label,
 		};
+		if (formatResolution.reason) {
+			Logger.warn(`[webgpu-texture-format-fallback] ${formatResolution.reason}`, {
+				scope: "WebGPUResourceManager",
+				onceKey: `webgpu-texture-format-fallback-${desc.format}-${formatResolution.format}`,
+			});
+		}
 		const gpuTexture = device.createTexture(baseDescriptor);
 		const webgpuTexture = createWebGPUTexture(gpuTexture);
 		const texture: InternalTexture = {
 			width: resolvedWidth,
 			height: dimension === "1d" ? 1 : resolvedHeight,
+			requestedFormat: desc.format,
+			format: formatResolution.format,
+			formatFallbackReason: formatResolution.reason,
 			destroy: () => {},
 			_gpuResource: gpuTexture,
 			_gpuTexture: gpuTexture,
@@ -204,4 +228,18 @@ export class WebGPUResourceManager {
 		}
 		return queue;
 	}
+}
+
+function resolveWebGPUTextureFormat(
+	format: TextureDesc["format"],
+	features: GPUSupportedFeatures | undefined
+): { format: TextureDesc["format"]; reason?: string } {
+	if (!textureFormatRequiresFeature(format, features)) {
+		return { format };
+	}
+	const fallbackFormat = getTextureFormatFallback(format);
+	return {
+		format: fallbackFormat,
+		reason: `WebGPU texture format "${format}" requires an unavailable device feature; using "${fallbackFormat}" instead.`,
+	};
 }

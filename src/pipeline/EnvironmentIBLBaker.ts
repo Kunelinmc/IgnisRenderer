@@ -69,7 +69,7 @@ interface EnvironmentIBLWebGPUResources {
 	sampler: ISampler;
 	kernel: IComputeKernel;
 	inputTexture: IRenderTexture;
-	inputTextureFormat: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float;
+	inputTextureFormat: TextureFormat;
 }
 
 interface EnvironmentIBLMipResources {
@@ -419,11 +419,20 @@ export function buildPrefilteredTexture(
 	baseHeight: number,
 	mipData: EnvironmentIBLPrefilterMipData[]
 ): Texture {
-	const prefiltered = new Texture(null, baseWidth, baseHeight, "HDR");
 	const sorted = [...mipData].sort((left, right) => left.level - right.level);
-	prefiltered.mipmaps = sorted.map((mip) => mip.data);
-	prefiltered.data = prefiltered.mipmaps[0] ?? null;
-	return prefiltered;
+	return new Texture({
+		data: sorted[0]?.data ?? null,
+		width: baseWidth,
+		height: baseHeight,
+		format: TextureFormat.RGBA16Float,
+		colorSpace: "HDR",
+		levels: sorted.map((mip) => ({
+			data: mip.data,
+			width: mip.width,
+			height: mip.height,
+		})),
+		usageHint: "color",
+	});
 }
 
 export function prefilterEnvMapCPU(
@@ -624,7 +633,7 @@ function uploadSourceTexture(
 	runtime: IComputeRuntime,
 	inputTexture: IRenderTexture,
 	envMap: Texture,
-	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float
+	format: TextureFormat
 ): void {
 	const uploads = createTextureMipUploadLevels(envMap, format);
 	for (const upload of uploads) {

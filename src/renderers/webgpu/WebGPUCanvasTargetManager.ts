@@ -47,6 +47,7 @@ export class WebGPUCanvasTargetManager {
 	private _depthTexture: IRenderTexture | null = null;
 	private _currentCanvasTexture: GPUTexture | null = null;
 	private _currentCanvasView: GPUTextureView | null = null;
+	private _canvasFormat: TextureFormat | null = null;
 
 	public get depthTexture(): IRenderTexture | null {
 		return this._depthTexture;
@@ -58,6 +59,7 @@ export class WebGPUCanvasTargetManager {
 		format: GPUTextureFormat
 	): void {
 		this.resetCurrentCanvasTargets();
+		this._canvasFormat = format as TextureFormat;
 		context.configure({
 			device,
 			format,
@@ -108,6 +110,8 @@ export class WebGPUCanvasTargetManager {
 		const texture: InternalTexture = {
 			width: size.width,
 			height: size.height,
+			requestedFormat: this._canvasFormat ?? undefined,
+			format: this._canvasFormat ?? undefined,
 			destroy: () => {},
 			_gpuResource: current.texture,
 			_gpuTexture: current.texture,

@@ -43,6 +43,10 @@ import {
 } from "./ComputeFacade";
 import { float16BitsToFloat32 } from "../../foundation/Float16";
 import { alignTo } from "./texture";
+import {
+	getTextureFormatBytesPerRow,
+	getTextureFormatInfo,
+} from "../TextureFormatInfo";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
 
 export type {
@@ -361,8 +365,13 @@ export class ComputeRuntime implements IComputeRuntime {
 			"readTexture.height"
 		);
 		const format = options.format ?? metadata?.format ?? TextureFormat.RGBA8Unorm;
-		const bytesPerPixel = options.bytesPerPixel ?? resolveTextureBytesPerPixel(format);
-		const bytesPerRow = alignTo(width * bytesPerPixel, 256);
+		const info = getTextureFormatInfo(format);
+		const bytesPerPixel = options.bytesPerPixel ?? info.bytesPerBlock;
+		const unalignedBytesPerRow =
+			options.bytesPerPixel !== undefined ?
+				width * bytesPerPixel
+			:	getTextureFormatBytesPerRow(format, width);
+		const bytesPerRow = alignTo(unalignedBytesPerRow, 256);
 		const readbackSize = bytesPerRow * height;
 		const mipLevel = assertNonNegativeInteger(
 			options.mipLevel ?? 0,
@@ -1054,22 +1063,27 @@ function decodeTextureReadbackToRGBAFloat32(input: {
 	bytesPerRow: number;
 }): Float32Array {
 	validateTextureReadbackBytes(input);
-	switch (input.format) {
-		case TextureFormat.RGBA8Unorm:
-		case TextureFormat.BGRA8Unorm:
-			return decodeNormalizedRGBA8Readback(input);
-		case TextureFormat.RGBA16Float:
-			if (input.bytesPerPixel !== 8) {
-				throw new Error(
-					`toRGBAFloat32() requires 8-byte pixels for RGBA16Float, received ${input.bytesPerPixel}.`
-				);
-			}
-			return decodeRGBA16FloatReadback(input);
-		default:
-			throw new Error(
-				`toRGBAFloat32() does not support texture format "${input.format}".`
-			);
+	const info = getTextureFormatInfo(input.format);
+	if (
+		info.isCompressed ||
+		info.hasDepth ||
+		info.hasStencil ||
+		info.componentType === "uint" ||
+		info.componentType === "sint" ||
+		info.componentType === "ufloat" ||
+		info.componentType === "mixed"
+	) {
+		throw new Error(
+			`toRGBAFloat32() does not support texture format "${input.format}".`
+		);
 	}
+	const bytesPerComponent = info.bytesPerBlock / info.channelCount;
+	if (!Number.isInteger(bytesPerComponent)) {
+		throw new Error(
+			`toRGBAFloat32() cannot decode packed texture format "${input.format}".`
+		);
+	}
+	return decodeNumericTextureReadbackToRGBA(input, bytesPerComponent);
 }
 
 function decodeNormalizedRGBA8Readback(input: {
@@ -1080,17 +1094,15 @@ function decodeNormalizedRGBA8Readback(input: {
 	bytesPerPixel: number;
 	bytesPerRow: number;
 }): Float32Array {
-	if (
-		input.format !== TextureFormat.RGBA8Unorm &&
-		input.format !== TextureFormat.BGRA8Unorm
-	) {
+	const info = getTextureFormatInfo(input.format);
+	if (info.componentType !== "unorm" || info.bytesPerBlock !== info.channelCount) {
 		throw new Error(
-			"toNormalizedRGBA8Float32() is only supported for TextureFormat.RGBA8Unorm or TextureFormat.BGRA8Unorm readback."
+			"toNormalizedRGBA8Float32() is only supported for 8-bit unorm readback formats."
 		);
 	}
-	if (input.bytesPerPixel !== 4) {
+	if (input.bytesPerPixel !== info.bytesPerBlock) {
 		throw new Error(
-			`toNormalizedRGBA8Float32() requires 4-byte pixels, received ${input.bytesPerPixel}.`
+			`toNormalizedRGBA8Float32() requires ${info.bytesPerBlock}-byte pixels, received ${input.bytesPerPixel}.`
 		);
 	}
 	validateTextureReadbackBytes(input);
@@ -1100,7 +1112,7 @@ function decodeNormalizedRGBA8Readback(input: {
 		const srcRowOffset = y * input.bytesPerRow;
 		const dstRowOffset = y * input.width * 4;
 		for (let x = 0; x < input.width; x++) {
-			const srcOffset = srcRowOffset + x * 4;
+			const srcOffset = srcRowOffset + x * info.channelCount;
 			const dstOffset = dstRowOffset + x * 4;
 			if (isBgra) {
 				output[dstOffset] = input.bytes[srcOffset + 2] / 255;
@@ -1108,13 +1120,93 @@ function decodeNormalizedRGBA8Readback(input: {
 				output[dstOffset + 2] = input.bytes[srcOffset] / 255;
 			} else {
 				output[dstOffset] = input.bytes[srcOffset] / 255;
-				output[dstOffset + 1] = input.bytes[srcOffset + 1] / 255;
-				output[dstOffset + 2] = input.bytes[srcOffset + 2] / 255;
+				output[dstOffset + 1] =
+					info.channelCount > 1 ? input.bytes[srcOffset + 1] / 255 : 0;
+				output[dstOffset + 2] =
+					info.channelCount > 2 ? input.bytes[srcOffset + 2] / 255 : 0;
 			}
-			output[dstOffset + 3] = input.bytes[srcOffset + 3] / 255;
+			output[dstOffset + 3] =
+				info.channelCount > 3 ? input.bytes[srcOffset + 3] / 255 : 1;
 		}
 	}
 	return output;
+}
+
+function decodeNumericTextureReadbackToRGBA(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerRow: number;
+}, bytesPerComponent: number): Float32Array {
+	const info = getTextureFormatInfo(input.format);
+	const output = new Float32Array(input.width * input.height * 4);
+	const view = new DataView(
+		input.bytes.buffer,
+		input.bytes.byteOffset,
+		input.bytes.byteLength
+	);
+	const isBgra =
+		input.format === TextureFormat.BGRA8Unorm ||
+		input.format === TextureFormat.BGRA8UnormSrgb;
+	for (let y = 0; y < input.height; y++) {
+		const srcRowOffset = y * input.bytesPerRow;
+		const dstRowOffset = y * input.width * 4;
+		for (let x = 0; x < input.width; x++) {
+			const srcOffset = srcRowOffset + x * info.bytesPerBlock;
+			const dstOffset = dstRowOffset + x * 4;
+			for (let channel = 0; channel < 4; channel++) {
+				const srcChannel =
+					isBgra && channel === 0 ? 2
+					: isBgra && channel === 2 ? 0
+					: channel;
+				output[dstOffset + channel] =
+					srcChannel < info.channelCount ?
+						readNumericComponent(
+							view,
+							srcOffset + srcChannel * bytesPerComponent,
+							bytesPerComponent,
+							info.componentType
+						)
+					:	channel === 3 ? 1
+					:	0;
+			}
+		}
+	}
+	return output;
+}
+
+function readNumericComponent(
+	view: DataView,
+	offset: number,
+	bytesPerComponent: number,
+	componentType: string
+): number {
+	switch (componentType) {
+		case "unorm":
+			if (bytesPerComponent === 1) return view.getUint8(offset) / 255;
+			if (bytesPerComponent === 2) return view.getUint16(offset, true) / 65535;
+			return view.getUint32(offset, true) / 0xffffffff;
+		case "snorm":
+			if (bytesPerComponent === 1) return Math.max(-1, view.getInt8(offset) / 127);
+			if (bytesPerComponent === 2) {
+				return Math.max(-1, view.getInt16(offset, true) / 32767);
+			}
+			return Math.max(-1, view.getInt32(offset, true) / 0x7fffffff);
+		case "float":
+			if (bytesPerComponent === 2) {
+				return float16BitsToFloat32(view.getUint16(offset, true));
+			}
+			if (bytesPerComponent === 4) {
+				return view.getFloat32(offset, true);
+			}
+			break;
+		default:
+			break;
+	}
+	throw new Error(
+		`Unsupported numeric texture component layout: ${componentType}/${bytesPerComponent}.`
+	);
 }
 
 function decodeRGBA16FloatReadback(input: {
@@ -1177,17 +1269,7 @@ function bytesToFloat32Array(bytes: Uint8Array): Float32Array {
 }
 
 function resolveTextureBytesPerPixel(format: TextureFormat): number {
-	switch (format) {
-		case TextureFormat.RGBA8Unorm:
-		case TextureFormat.BGRA8Unorm:
-			return 4;
-		case TextureFormat.RGBA16Float:
-			return 8;
-		default:
-			throw new Error(
-				`ComputeRuntime.readTexture() requires bytesPerPixel for unsupported format "${format}".`
-			);
-	}
+	return getTextureFormatInfo(format).bytesPerBlock;
 }
 
 function resolveGPUBufferHandle(resource: unknown): GPUBuffer {

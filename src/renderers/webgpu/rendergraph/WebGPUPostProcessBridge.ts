@@ -14,6 +14,7 @@ import {
 	TextureUsage,
 	type IRenderTexture,
 } from "../../types";
+import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUBackend } from "../../WebGPUBackend";
 import type { WebGPUPreparedFrameResources } from "../WebGPURenderResources";
 import {
@@ -55,13 +56,12 @@ export class WebGPUPostProcessBridge {
 	public createResource(
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle {
+		const requestedFormat =
+			tryGetTextureFormatInfo(desc.format)?.format ?? TextureFormat.RGBA16Float;
 		const texture = this._backend.createTexture({
 			width: desc.width,
 			height: desc.height,
-			format:
-				desc.format === "rgba8unorm" ?
-					TextureFormat.RGBA8Unorm
-				:	TextureFormat.RGBA16Float,
+			format: requestedFormat,
 			mipLevelCount:
 				desc.mipMode === "full-chain" ?
 					Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
@@ -79,7 +79,7 @@ export class WebGPUPostProcessBridge {
 			backend: "webgpu",
 			width: desc.width,
 			height: desc.height,
-			format: desc.format,
+			format: texture.format ?? requestedFormat,
 			mipMode: desc.mipMode ?? "single",
 			resource: texture,
 		};

@@ -14,6 +14,7 @@ import type {
 	ShaderMaterialUniformType,
 } from "../../materials/ShaderMaterial";
 import type { Texture } from "../../core/Texture";
+import { isTextureFormatSRGB } from "../TextureFormatInfo";
 
 import { WEBGPU_TEXTURE_SLOT, WEBGPU_TEXTURE_SLOT_COUNT } from "./constants";
 import { createWebGPUShaderMaterialUniformLayout } from "./bufferLayouts";
@@ -449,10 +450,14 @@ function createTextureSlot(
 			normalizeTextureUVSet(uvSet),
 			forcedLinear !== null ?
 				(forcedLinear ? 1 : 0)
-			:	(map.colorSpace === "sRGB" ? 0 : 1),
+			:	resolveTextureSamplesLinear(map) ? 1 : 0,
 			0,
 		],
 	};
+}
+
+function resolveTextureSamplesLinear(map: Texture): boolean {
+	return map.colorSpace !== "sRGB" || isTextureFormatSRGB(map.format);
 }
 
 function normalizeTextureUVSet(uvSet: number): number {

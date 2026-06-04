@@ -100,6 +100,7 @@ const tests = [
 	"test_canvas_texture.mjs",
 	"test_video_texture.mjs",
 	"test_texture_loader_cache.mjs",
+	"test_texture_format_contract.mjs",
 	"test_webgpu_compute_facade.mjs",
 	"test_webgpu_compute_runtime.mjs",
 	"test_webgpu_particle_gpu_simulator.mjs",

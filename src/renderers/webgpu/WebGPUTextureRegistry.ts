@@ -9,6 +9,7 @@ import {
 	type IRenderTexture,
 	type ISampler,
 } from "../types";
+import { getTextureFormatInfo } from "../TextureFormatInfo";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
@@ -21,7 +22,7 @@ interface TextureCacheEntry {
 	resource: IRenderTexture;
 	mipLevelCount: number;
 	externalImageCopyCompatible: boolean;
-	format: TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float;
+	format: TextureFormat;
 }
 
 interface SamplerCacheEntry {
@@ -62,7 +63,7 @@ export class WebGPUTextureRegistry {
 			texture instanceof VideoTexture || texture instanceof CanvasTexture;
 		const uploadFormat =
 			externalImageCopyCompatible ?
-				TextureFormat.RGBA8Unorm
+				resolveExternalImageCopyFormat(texture)
 			:	resolveWebGPUTextureUploadFormat(texture);
 		if (
 			!cacheEntry &&
@@ -111,7 +112,7 @@ export class WebGPUTextureRegistry {
 				resource,
 				mipLevelCount,
 				externalImageCopyCompatible,
-				format: uploadFormat,
+				format: resource.format ?? uploadFormat,
 			};
 			this._ownedTextures.add(resource);
 			this._textureCache.set(texture, cacheEntry);
@@ -128,6 +129,12 @@ export class WebGPUTextureRegistry {
 				this._tryUploadCanvasFrame(texture, cacheEntry.resource);
 
 			if (!usedExternalImageFastPath && !usedCanvasFastPath) {
+				if (
+					getTextureFormatInfo(uploadFormat).isCompressed &&
+					cacheEntry.format !== uploadFormat
+				) {
+					return cacheEntry.resource;
+				}
 				const uploads = createTextureMipUploadLevels(texture, cacheEntry.format);
 				for (const upload of uploads) {
 					const uploadData = this._toArrayBufferBackedView(upload.data);
@@ -469,14 +476,22 @@ export class WebGPUTextureRegistry {
 function resolveRegisteredTextureFormat(
 	resource: IRenderTexture,
 	texture: Texture
-): TextureFormat.RGBA8Unorm | TextureFormat.RGBA16Float {
-	const resourceFormat = (resource as { desc?: { format?: TextureFormat } }).desc
-		?.format;
-	if (resourceFormat === TextureFormat.RGBA16Float) {
-		return TextureFormat.RGBA16Float;
-	}
-	if (resourceFormat === TextureFormat.RGBA8Unorm) {
-		return TextureFormat.RGBA8Unorm;
+): TextureFormat {
+	const resourceFormat =
+		resource.format ??
+		(resource as { desc?: { format?: TextureFormat } }).desc?.format;
+	if (resourceFormat) {
+		return resourceFormat;
 	}
 	return resolveWebGPUTextureUploadFormat(texture);
+}
+
+function resolveExternalImageCopyFormat(texture: Texture): TextureFormat {
+	switch (texture.format) {
+		case TextureFormat.RGBA8UnormSrgb:
+			return TextureFormat.RGBA8UnormSrgb;
+		case TextureFormat.RGBA8Unorm:
+		default:
+			return TextureFormat.RGBA8Unorm;
+	}
 }

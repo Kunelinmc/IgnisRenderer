@@ -15,6 +15,8 @@ import {
  * Mocks the browser's Web Worker API.
  */
 import { Texture } from "../../src/core/Texture";
+import { TextureFormat } from "../../src/renderers/types.ts";
+import { getTextureFormatInfo } from "../../src/renderers/TextureFormatInfo.ts";
 
 export class FakeWorker {
 	constructor(handler) {
@@ -256,19 +258,26 @@ export class FakeGPUTexture {
 }
 
 function getFakeTextureBytesPerPixel(format) {
-	return format === "rgba16float" ? 8 : 4;
+	try {
+		return getTextureFormatInfo(format).bytesPerBlock;
+	} catch {
+		return format === "rgba16float" ? 8 : 4;
+	}
 }
 
 function resolveFakeTextureUploadFormat(texture) {
+	if (texture?.format) {
+		return texture.format;
+	}
 	if (texture?.data instanceof Float32Array) {
-		return "rgba16float";
+		return TextureFormat.RGBA16Float;
 	}
 	for (const mip of texture?.mipmaps ?? []) {
 		if (mip instanceof Float32Array) {
-			return "rgba16float";
+			return TextureFormat.RGBA16Float;
 		}
 	}
-	return "rgba8unorm";
+	return TextureFormat.RGBA8Unorm;
 }
 
 /**
@@ -633,6 +642,9 @@ export class FakeWebGPUBackend {
 			kind: "texture",
 			width: desc.width,
 			height: desc.height,
+			requestedFormat: desc.format,
+			format: desc.format,
+			formatFallbackReason: undefined,
 			usage: desc.usage,
 			label: desc.label,
 			desc,
