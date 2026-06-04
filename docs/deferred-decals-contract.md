@@ -40,6 +40,15 @@ must retain scene traversal order.
 `Decal.channelBlendModes` may set per-channel blend behavior. Supported modes
 are `disabled`, `lerp`, `replace`, `multiply`, `add`, and `normal`.
 
+Incremental rendering must track `DecalPacket` additions, removals, projector
+transform changes, `Decal.material` state, `Decal.receiverLayerMask`,
+`Decal.priority`, `Decal.opacity`, `Decal.edgeFade`, and
+`Decal.channelBlendModes`.
+
+`Renderer.requestRender("decal")` and `Scene.invalidate("decal")` must plan the
+first incremental pass as `main-opaque`, must not force a full-frame render by
+reason alone, and must reset temporal history.
+
 The default channel modes must be:
 
 ```ts

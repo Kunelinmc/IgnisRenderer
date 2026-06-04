@@ -273,6 +273,19 @@ function testEnvironmentIBLCompleteResetsTemporalHistory() {
 	assert.equal(plan.postProcessStartPass, null);
 }
 
+function testDecalStartsAtMainOpaqueWithoutFullFrame() {
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("decal"),
+		features: createFeatures({ enableShadows: true }),
+		postProcess: createPostProcess(),
+	});
+	assert.equal(plan.firstPass, "main-opaque");
+	assert.equal(plan.postProcessStartPass, null);
+	assert.equal(plan.forceFullFrame, false);
+	assert.equal(plan.temporalHistoryReset, true);
+}
+
 function testCustomDirtyReasonAllocatesMaskAndPlansFirstPass() {
 	const registry = getDefaultIncrementalRegistry();
 	const passId = "custom-incremental-pass-test";
@@ -343,6 +356,7 @@ function run() {
 	testDisabledIncrementalAlwaysFullFrame();
 	testEnvironmentIBLForcesFullFrameWithoutTemporalReset();
 	testEnvironmentIBLCompleteResetsTemporalHistory();
+	testDecalStartsAtMainOpaqueWithoutFullFrame();
 	testCustomDirtyReasonAllocatesMaskAndPlansFirstPass();
 	testCustomDirtyReasonUsesGroups();
 	console.log("Incremental frame planner tests passed");

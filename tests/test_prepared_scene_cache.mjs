@@ -75,7 +75,38 @@ function createPacket(id, centerX, radius = 0.1) {
 	};
 }
 
-function createFrame(camera, packets) {
+function createDecalPacket(id, centerX, radius = 0.1, overrides = {}) {
+	const material = overrides.material ?? new Material();
+	const worldMatrix = Matrix4.fromTranslation([centerX, 0, 0]);
+	return {
+		id,
+		decal: {
+			id,
+			name: id,
+			visible: true,
+		},
+		material,
+		worldMatrix,
+		inverseWorldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+		worldBounds: {
+			center: {
+				x: centerX,
+				y: 0,
+				z: 0,
+			},
+			radius,
+		},
+		receiverLayerMask: overrides.receiverLayerMask ?? 1,
+		priority: overrides.priority ?? 0,
+		opacity: overrides.opacity ?? 1,
+		edgeFade: overrides.edgeFade ?? 0,
+		channelBlendModes: overrides.channelBlendModes ?? {},
+		sceneOrder: overrides.sceneOrder ?? 0,
+	};
+}
+
+function createFrame(camera, packets, decalPackets = []) {
 	return {
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 1 },
 		lights: [],
@@ -90,7 +121,7 @@ function createFrame(camera, packets) {
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
-		decalPackets: [],
+		decalPackets,
 	};
 }
 
@@ -158,6 +189,121 @@ function testPacketDiffLifecycle() {
 		assert.ok(fourth.dirtyRects.length > 0);
 		assert.equal(fourth.packetRects.size, 0);
 		assert.ok(fourth.dirtyTiles.length > 0);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
+function testDecalDiffLifecycle() {
+	const camera = createCamera();
+	const decalA0 = createDecalPacket("decal-A", 0.0, 0.08);
+	const decalA1 = createDecalPacket("decal-A", 0.0, 0.08);
+	const decalA2 = createDecalPacket("decal-A", 0.45, 0.08);
+	const frames = [
+		createFrame(camera, [], [decalA0]),
+		createFrame(camera, [], [decalA1]),
+		createFrame(camera, [], [decalA2]),
+		createFrame(camera, [], []),
+	];
+	let frameIndex = 0;
+
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => {
+		const resolved = frames[Math.min(frameIndex, frames.length - 1)];
+		frameIndex++;
+		return resolved;
+	};
+
+	try {
+		const buildInput = {
+			renderer: {},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+			},
+		};
+
+		const first = cache.build(buildInput);
+		assert.equal(first.forceFullFrame, true);
+		assert.equal(first.dirtyRects.length, 1);
+
+		const second = cache.build(buildInput);
+		assert.equal(second.forceFullFrame, false);
+		assert.equal(second.dirtyRects.length, 0);
+		assert.equal(second.dirtyTiles.length, 0);
+
+		const third = cache.build(buildInput);
+		assert.equal(third.forceFullFrame, false);
+		assert.ok(third.dirtyRects.length > 0);
+		assert.ok(third.dirtyTiles.length > 0);
+		assert.equal(third.packetRects.has("decal-A"), false);
+
+		const fourth = cache.build(buildInput);
+		assert.equal(fourth.forceFullFrame, false);
+		assert.ok(fourth.dirtyRects.length > 0);
+		assert.ok(fourth.dirtyTiles.length > 0);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
+function testDecalStateDiffDetectsBlendAndOpacityChanges() {
+	const camera = createCamera();
+	const decalBase = createDecalPacket("decal-state", 0.0, 0.08, {
+		opacity: 0.5,
+		channelBlendModes: {
+			baseColor: "lerp",
+		},
+	});
+	const decalChanged = createDecalPacket("decal-state", 0.0, 0.08, {
+		opacity: 0.75,
+		channelBlendModes: {
+			baseColor: "multiply",
+		},
+	});
+	const frames = [
+		createFrame(camera, [], [decalBase]),
+		createFrame(camera, [], [decalChanged]),
+	];
+	let frameIndex = 0;
+
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => {
+		const resolved = frames[Math.min(frameIndex, frames.length - 1)];
+		frameIndex++;
+		return resolved;
+	};
+
+	try {
+		const buildInput = {
+			renderer: {},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+			},
+		};
+
+		const first = cache.build(buildInput);
+		assert.equal(first.forceFullFrame, true);
+
+		const second = cache.build(buildInput);
+		assert.equal(second.forceFullFrame, false);
+		assert.ok(second.dirtyRects.length > 0);
+		assert.ok(second.dirtyTiles.length > 0);
 	} finally {
 		PreparedSceneBuilder.build = originalBuild;
 	}
@@ -350,6 +496,8 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 
 function run() {
 	testPacketDiffLifecycle();
+	testDecalDiffLifecycle();
+	testDecalStateDiffDetectsBlendAndOpacityChanges();
 	testAreaFallbackToFullFrame();
 	testMatrixDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsSmallFloatChanges();

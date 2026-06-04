@@ -29,6 +29,7 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"reflection-probe": 1 << 15,
 	"environment-ibl": 1 << 16,
 	"environment-ibl-complete": 1 << 17,
+	decal: 1 << 18,
 } as const;
 
 export type BuiltinRenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
@@ -45,7 +46,8 @@ export const RENDER_DIRTY_GROUP = {
 		RENDER_DIRTY_REASON_MASK.texture |
 		RENDER_DIRTY_REASON_MASK.lighting |
 		RENDER_DIRTY_REASON_MASK.shadow |
-		RENDER_DIRTY_REASON_MASK["reflection-probe"],
+		RENDER_DIRTY_REASON_MASK["reflection-probe"] |
+		RENDER_DIRTY_REASON_MASK.decal,
 } as const;
 
 export interface DirtyRect {
@@ -342,6 +344,12 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		forceFullFrame: true,
 		temporalHistoryReset: true,
 	},
+	{
+		id: "decal",
+		mask: RENDER_DIRTY_REASON_MASK.decal,
+		firstPass: "main-opaque",
+		temporalHistoryReset: true,
+	},
 ];
 
 const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] = [
@@ -470,7 +478,7 @@ export class IncrementalRegistry {
 	private _framePasses = new Map<FramePassStage, RegisteredFramePassDescriptor>();
 	private _postProcessPasses =
 		new Map<string, RegisteredPostProcessIncrementalMetadata>();
-	private _nextCustomDirtyReasonBit = 18;
+	private _nextCustomDirtyReasonBit = 19;
 	private _nextFramePassOrder = 0;
 	private _nextPostProcessOrder = POST_PROCESS_INCREMENTAL_SEEDS.length;
 

@@ -2,6 +2,7 @@ import type { Camera } from "../cameras/Camera";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { Material } from "../materials/Material";
 import { getMaterialTransmissionFactor } from "../materials/transparency";
+import { DECAL_CHANNELS, resolveDecalChannelBlendMode } from "../decals";
 import type { Renderer } from "../renderers/Renderer";
 import {
 	buildDirtyTileCoverage,
@@ -15,27 +16,43 @@ import {
 	type DirtyRect,
 	type IncrementalRenderingOptions,
 } from "./incremental";
-import type { DrawPacket, PreparedScene, ResolvedFeatureState } from "./types";
+import type {
+	DecalPacket,
+	DrawPacket,
+	PreparedScene,
+	ResolvedFeatureState,
+} from "./types";
 import type { ResolvedPostProcessState } from "../postprocess";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 
-interface CachedPacketState {
-	pipelineKey: string;
-	geometryVersion: number;
+interface CachedSignatureState {
 	matrixSignatureA: number;
 	matrixSignatureB: number;
 	materialSignatureA: number;
 	materialSignatureB: number;
-	primitiveVisibility: number;
-	meshVisibility: number;
 	rect: DirtyRect | null;
 }
+
+interface CachedPacketState extends CachedSignatureState {
+	pipelineKey: string;
+	geometryVersion: number;
+	primitiveVisibility: number;
+	meshVisibility: number;
+}
+
+interface CachedDecalState extends CachedSignatureState {}
 
 type PacketStateObserver = (
 	packetId: string,
 	currentState: CachedPacketState,
 	previousState: CachedPacketState | undefined
+) => void;
+
+type DecalStateObserver = (
+	packetId: string,
+	currentState: CachedDecalState,
+	previousState: CachedDecalState | undefined
 ) => void;
 
 const SIGNATURE_FLOAT64_SCRATCH = new DataView(new ArrayBuffer(8));
@@ -63,6 +80,7 @@ const MATERIAL_TEXTURE_FIELDS = [
 	"thicknessMap",
 ] as const;
 const MATERIAL_TEXTURE_FIELD_HASHES = MATERIAL_TEXTURE_FIELDS.map(hashStaticToken32);
+const DECAL_CHANNEL_HASHES = DECAL_CHANNELS.map(hashStaticToken32);
 
 export interface PreparedSceneCacheBuildInput {
 	renderer: Renderer;
@@ -87,10 +105,12 @@ export interface PreparedSceneCacheBuildResult {
 
 export class PreparedSceneCache {
 	private _packetStateById = new Map<string, CachedPacketState>();
+	private _decalStateById = new Map<string, CachedDecalState>();
 	private _frameIndex = 0;
 
 	public reset(): void {
 		this._packetStateById.clear();
+		this._decalStateById.clear();
 		this._frameIndex = 0;
 	}
 
@@ -108,7 +128,7 @@ export class PreparedSceneCache {
 		);
 
 		if (!input.incrementalOptions.enabled) {
-			this._syncPacketCacheState(frame, packetRects, width, height);
+			this._syncCacheState(frame, packetRects, width, height);
 			frame.spatialIndex = this._buildSpatialIndex(
 				frame,
 				packetRects,
@@ -130,8 +150,10 @@ export class PreparedSceneCache {
 		}
 
 		const currentPacketStateById = new Map<string, CachedPacketState>();
+		const currentDecalStateById = new Map<string, CachedDecalState>();
 		const dirtyCandidates: DirtyRect[] = [];
 		const visited = new Set<string>();
+		const visitedDecals = new Set<string>();
 
 		this._processFramePackets(
 			frame,
@@ -159,6 +181,31 @@ export class PreparedSceneCache {
 			}
 		);
 
+		this._processFrameDecals(
+			frame,
+			width,
+			height,
+			currentDecalStateById,
+			visitedDecals,
+			(_packetId, currentState, previous) => {
+				if (!previous) {
+					if (currentState.rect) {
+						dirtyCandidates.push(currentState.rect);
+					}
+					return;
+				}
+
+				if (!decalStateEquals(previous, currentState)) {
+					if (previous.rect) {
+						dirtyCandidates.push(previous.rect);
+					}
+					if (currentState.rect) {
+						dirtyCandidates.push(currentState.rect);
+					}
+				}
+			}
+		);
+
 		for (const [packetId, previous] of this._packetStateById.entries()) {
 			if (visited.has(packetId)) {
 				continue;
@@ -168,7 +215,17 @@ export class PreparedSceneCache {
 			}
 		}
 
+		for (const [packetId, previous] of this._decalStateById.entries()) {
+			if (visitedDecals.has(packetId)) {
+				continue;
+			}
+			if (previous.rect) {
+				dirtyCandidates.push(previous.rect);
+			}
+		}
+
 		this._packetStateById = currentPacketStateById;
+		this._decalStateById = currentDecalStateById;
 		this._frameIndex++;
 		frame.spatialIndex = this._buildSpatialIndex(
 			frame,
@@ -308,6 +365,27 @@ export class PreparedSceneCache {
 		);
 	}
 
+	private _processFrameDecals(
+		frame: PreparedScene,
+		width: number,
+		height: number,
+		currentDecalStateById: Map<string, CachedDecalState>,
+		visited?: Set<string>,
+		observer?: DecalStateObserver
+	): void {
+		for (const packet of frame.decalPackets) {
+			const rect = computePacketScreenRect(packet, frame.camera, width, height);
+			const currentState = createDecalState(packet, rect);
+			currentDecalStateById.set(packet.id, currentState);
+			if (visited) {
+				visited.add(packet.id);
+			}
+			if (observer) {
+				observer(packet.id, currentState, this._decalStateById.get(packet.id));
+			}
+		}
+	}
+
 	private _processPacketList(
 		packets: readonly DrawPacket[],
 		camera: Camera,
@@ -335,7 +413,7 @@ export class PreparedSceneCache {
 		}
 	}
 
-	private _syncPacketCacheState(
+	private _syncCacheState(
 		frame: PreparedScene,
 		packetRects: Map<string, DirtyRect>,
 		width: number,
@@ -343,7 +421,10 @@ export class PreparedSceneCache {
 	): void {
 		const next = new Map<string, CachedPacketState>();
 		this._processFramePackets(frame, width, height, packetRects, next);
+		const nextDecals = new Map<string, CachedDecalState>();
+		this._processFrameDecals(frame, width, height, nextDecals);
 		this._packetStateById = next;
+		this._decalStateById = nextDecals;
 		this._frameIndex++;
 	}
 
@@ -385,6 +466,28 @@ function createPacketState(
 	return state;
 }
 
+function createDecalState(
+	packet: DecalPacket,
+	rect: DirtyRect | null
+): CachedDecalState {
+	const state: CachedDecalState = {
+		matrixSignatureA: SIGNATURE_INIT_A,
+		matrixSignatureB: SIGNATURE_INIT_B,
+		materialSignatureA: SIGNATURE_INIT_A,
+		materialSignatureB: SIGNATURE_INIT_B,
+		rect,
+	};
+	writeMatrix4Signature(state, packet.worldMatrix);
+	writeMaterialSignature(state, packet.material);
+	mixMaterialUint32(state, packet.receiverLayerMask >>> 0);
+	mixMaterialFloat(state, packet.priority);
+	mixMaterialFloat(state, packet.opacity);
+	mixMaterialFloat(state, packet.edgeFade);
+	mixMaterialUint32(state, packet.sceneOrder >>> 0);
+	writeDecalChannelBlendModeSignature(state, packet);
+	return state;
+}
+
 function packetStateEquals(
 	left: CachedPacketState,
 	right: CachedPacketState
@@ -401,8 +504,20 @@ function packetStateEquals(
 	);
 }
 
+function decalStateEquals(
+	left: CachedDecalState,
+	right: CachedDecalState
+): boolean {
+	return (
+		left.matrixSignatureA === right.matrixSignatureA &&
+		left.matrixSignatureB === right.matrixSignatureB &&
+		left.materialSignatureA === right.materialSignatureA &&
+		left.materialSignatureB === right.materialSignatureB
+	);
+}
+
 function writeMatrix4Signature(
-	state: CachedPacketState,
+	state: CachedSignatureState,
 	matrix: Matrix4
 ): void {
 	const elements = matrix.elements;
@@ -425,7 +540,7 @@ function writeMatrix4Signature(
 }
 
 function writeMaterialSignature(
-	state: CachedPacketState,
+	state: CachedSignatureState,
 	material: Material
 ): void {
 	const mat = material as Material & Record<string, unknown>;
@@ -478,6 +593,20 @@ function writeMaterialSignature(
 	}
 }
 
+function writeDecalChannelBlendModeSignature(
+	state: CachedSignatureState,
+	packet: DecalPacket
+): void {
+	for (let index = 0; index < DECAL_CHANNELS.length; index++) {
+		const channel = DECAL_CHANNELS[index];
+		mixMaterialUint32(state, DECAL_CHANNEL_HASHES[index]);
+		mixMaterialString(
+			state,
+			resolveDecalChannelBlendMode(packet.channelBlendModes, channel)
+		);
+	}
+}
+
 function resolveColorChannel(value: unknown, fallback: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) {
 		return fallback;
@@ -503,7 +632,7 @@ function resolveTextureVersion(value: unknown): number {
 	return version;
 }
 
-function mixMaterialString(state: CachedPacketState, value: unknown): void {
+function mixMaterialString(state: CachedSignatureState, value: unknown): void {
 	const normalized = typeof value === "string" ? value : String(value ?? "");
 	let hashA = mixFnv32(state.materialSignatureA, normalized.length);
 	let hashB = mixFnv32(
@@ -519,7 +648,7 @@ function mixMaterialString(state: CachedPacketState, value: unknown): void {
 	state.materialSignatureB = hashB;
 }
 
-function mixMaterialUint32(state: CachedPacketState, value: number): void {
+function mixMaterialUint32(state: CachedSignatureState, value: number): void {
 	const normalized = value >>> 0;
 	state.materialSignatureA = mixFnv32(state.materialSignatureA, normalized);
 	state.materialSignatureB = mixFnv32(
@@ -528,7 +657,7 @@ function mixMaterialUint32(state: CachedPacketState, value: number): void {
 	);
 }
 
-function mixMaterialFloat(state: CachedPacketState, value: number): void {
+function mixMaterialFloat(state: CachedSignatureState, value: number): void {
 	SIGNATURE_FLOAT64_SCRATCH.setFloat64(0, value, true);
 	const lo = SIGNATURE_FLOAT64_SCRATCH.getUint32(0, true);
 	const hi = SIGNATURE_FLOAT64_SCRATCH.getUint32(4, true);
@@ -558,7 +687,7 @@ function hashStaticToken32(value: string): number {
 }
 
 function computePacketScreenRect(
-	packet: DrawPacket,
+	packet: { worldBounds: DrawPacket["worldBounds"] },
 	camera: Camera,
 	viewportWidth: number,
 	viewportHeight: number
