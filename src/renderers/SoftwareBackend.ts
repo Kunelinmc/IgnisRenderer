@@ -7,7 +7,6 @@ import {
 	type FramePass,
 	type TAAOptions,
 } from "../pipeline/types";
-import type { PostProcessBackendAdapter } from "../postprocess";
 import {
 	registerPostProcessBackendAdapter,
 	unregisterPostProcessBackendAdapter,
@@ -15,7 +14,6 @@ import {
 import { Rasterizer } from "./software/Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
-	createSoftwareGBufferBridge,
 } from "./software/SoftwarePostProcessExecutor";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
@@ -139,11 +137,6 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
-		backend: "software",
-		executor: this._postProcessExecutor,
-		createGBufferBridge: (context) => createSoftwareGBufferBridge(context),
-	};
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
@@ -180,7 +173,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 		this._ensureRuntime();
-		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
+		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {

@@ -63,7 +63,7 @@ export class RendererPostProcessController {
 		}
 		return this._pipeline.getExecutionOrder(
 			postProcess,
-			adapter.executor,
+			adapter,
 			this._warn,
 			frameContext
 		);
@@ -101,7 +101,7 @@ export class RendererPostProcessController {
 		}
 		await this._pipeline.execute({
 			frameContext: context,
-			executor: adapter.executor,
+			executor: adapter,
 			gBuffer: adapter.createGBufferBridge(context),
 			historyFinalization: "manual",
 			warn: this._warn,
@@ -168,7 +168,7 @@ export class RendererPostProcessController {
 	public destroyBackendResources(backend: PostProcessBackendKind): void {
 		const adapter = resolvePostProcessBackendAdapter(this._backend);
 		if (adapter && adapter.backend === backend) {
-			this._pipeline.destroy(adapter.executor);
+			this._pipeline.destroy(adapter);
 		}
 		this._postProcess.destroyPasses(backend);
 	}

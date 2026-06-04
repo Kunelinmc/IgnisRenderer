@@ -113,34 +113,6 @@ export function createNoopPostProcessSupport(
 		createdResources: [],
 		destroyedResources: [],
 		executedPasses: [],
-		createResource(desc) {
-			const handle = {
-				id: desc.id,
-				backend,
-				width: desc.width,
-				height: desc.height,
-				format: desc.format,
-				resource: {
-					id: desc.id,
-					width: desc.width,
-					height: desc.height,
-					format: desc.format,
-					usage: desc.usage,
-				},
-			};
-			this.createdResources.push(handle);
-			return handle;
-		},
-		destroyResource(handle) {
-			this.destroyedResources.push(handle);
-		},
-		executePass(passId) {
-			this.executedPasses.push(passId);
-			return { ran: true };
-		},
-	};
-	return {
-		executor,
 		createGBufferBridge(context) {
 			const attachments = context.attachments;
 			const width = attachments.width ?? 1;
@@ -204,6 +176,35 @@ export function createNoopPostProcessSupport(
 				},
 			};
 		},
+		createResource(desc) {
+			const handle = {
+				id: desc.id,
+				backend,
+				width: desc.width,
+				height: desc.height,
+				format: desc.format,
+				resource: {
+					id: desc.id,
+					width: desc.width,
+					height: desc.height,
+					format: desc.format,
+					usage: desc.usage,
+				},
+			};
+			this.createdResources.push(handle);
+			return handle;
+		},
+		destroyResource(handle) {
+			this.destroyedResources.push(handle);
+		},
+		executePass(passId) {
+			this.executedPasses.push(passId);
+			return { ran: true };
+		},
+	};
+	return {
+		executor,
+		createGBufferBridge: (context) => executor.createGBufferBridge(context),
 	};
 }
 
@@ -211,14 +212,9 @@ export function createNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessSupport(backend);
-	const adapter = {
-		backend,
-		executor: support.executor,
-		createGBufferBridge: (context) => support.createGBufferBridge(context),
-	};
 	return {
 		...support,
-		adapter,
+		adapter: support.executor,
 	};
 }
 
@@ -227,7 +223,7 @@ export function installNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessAdapter(backend);
-	registerPostProcessBackendAdapter(target, support.adapter);
+	registerPostProcessBackendAdapter(target, support.executor);
 	return support;
 }
 

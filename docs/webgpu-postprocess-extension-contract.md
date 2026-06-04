@@ -3,7 +3,7 @@
 This document defines the WebGPU-specific behavior behind the cross-backend post-process contract.
 
 ## Background
-WebGPU post-processing is driven through `PostProcessPipeline`, `PostProcessBackendAdapter`, and `IPostProcessExecutor`. The public extension point is `renderer.postProcess.registerPass(pass)`. WebGPU-specific runtime objects remain internal implementation details used by `WebGPUBackend` and frame delegates.
+WebGPU post-processing is driven through `PostProcessPipeline` and a registered `PostProcessBackendAdapter` executor. The public extension point is `renderer.postProcess.registerPass(pass)`. WebGPU-specific runtime objects remain internal implementation details used by `WebGPUBackend` and frame delegates.
 
 ## API/Contract
 - `renderer.postProcess.registerPass(pass)` must register a `PostProcessPass` instance.
@@ -11,8 +11,8 @@ WebGPU post-processing is driven through `PostProcessPipeline`, `PostProcessBack
 - A WebGPU custom pass should use `PostProcessPass.placement` and optional `PostProcessPass.order` to enter the fixed post-process sequence.
 - `WebGPUBackend` must register a `PostProcessBackendAdapter` during construction.
 - `resolvePostProcessBackendAdapter(webGPUBackend).backend` must be `"webgpu"`.
-- `resolvePostProcessBackendAdapter(webGPUBackend).executor.executePass(passId, request)` must dispatch backend-owned fallback post-process passes.
-- `resolvePostProcessBackendAdapter(webGPUBackend).executor.getPassExecutionContext(request)` may provide low-level helpers for pass-owned WebGPU implementations.
+- `resolvePostProcessBackendAdapter(webGPUBackend).executePass(passId, request)` must dispatch backend-owned fallback post-process passes.
+- `resolvePostProcessBackendAdapter(webGPUBackend).getPassExecutionContext(request)` may provide low-level helpers for pass-owned WebGPU implementations.
 - `PostProcessPassImplementation.metadata.context.backend` must be `"webgpu"` for WebGPU context packing.
 - `PostProcessPassImplementation.metadata.context.kind` must be `"screen"` or `"present"`.
 - `PostProcessPassImplementation.metadata.context` may request `publishColorTarget`, `frameBinding`, `lightingState`, history bindings, transient bindings, and a motion-history copy callback.
@@ -40,8 +40,8 @@ WebGPU post-processing is driven through `PostProcessPipeline`, `PostProcessBack
 - The built-in WebGPU `volumetric` pass must request the same shared `hiz` full-chain transient as `ssr`.
 - `WebGPUFrameTargets` must not contain post-process transient textures such as SSAO intermediates, SSR intermediates, or Hi-Z textures.
 - WebGPU executor resource allocation must use backend-owned texture creation and destruction APIs.
-- `resolvePostProcessBackendAdapter(webGPUBackend).executor.createResource(desc)` must create a full mip chain when `desc.mipMode` is `"full-chain"`.
-- `resolvePostProcessBackendAdapter(webGPUBackend).executor.invalidateResourceBindings()` must invalidate post-process binding caches when transient resources are recreated.
+- `resolvePostProcessBackendAdapter(webGPUBackend).createResource(desc)` must create a full mip chain when `desc.mipMode` is `"full-chain"`.
+- `resolvePostProcessBackendAdapter(webGPUBackend).invalidateResourceBindings()` must invalidate post-process binding caches when transient resources are recreated.
 - WebGPU backends must not expose a public `postProcess` facade or backend-level post-process registration methods.
 - WebGPU backends must not expose public `postProcessExecutor` or `createPostProcessGBufferBridge(context)` members.
 
@@ -134,6 +134,7 @@ bun tests/test_webgpu_postprocess_runtime_screen.mjs
 - `WebGPUPostProcessPassPlugin` is removed from the public API.
 - `WebGPUBackend.postProcess` is removed.
 - `WebGPUBackend.postProcess.registerPass(pass)` and `WebGPUBackend.postProcess.unregisterPass(id)` are removed.
+- `resolvePostProcessBackendAdapter(webGPUBackend).executor` is removed. Use the resolved adapter object as the executor.
 - `WebGPUBackend.postProcessExecutor` and `WebGPUBackend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendAdapter(webGPUBackend)` for internal backend adapter access.
 - Public custom passes must migrate to `PostProcessPass` and `renderer.postProcess.registerPass(pass)`.
 - `PostProcessPassDescriptor.dependsOn` is removed. Custom passes must migrate to `placement` and optional `order`.

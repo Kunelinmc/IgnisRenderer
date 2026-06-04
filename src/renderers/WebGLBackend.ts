@@ -11,21 +11,12 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
-import type {
-	IPostProcessExecutor,
-	LogicalGBufferBridge,
-	PostProcessBackendAdapter,
-	PostProcessPassExecutionContextRequest,
-	PostProcessPassRequest,
-	PostProcessPassResult,
-	PostProcessResourceDescriptor,
-	PostProcessResourceHandle,
-} from "../postprocess";
 import {
 	registerPostProcessBackendAdapter,
 	unregisterPostProcessBackendAdapter,
 } from "../postprocess";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
+import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
 import {
 	ShaderBackendCompileStage,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -81,20 +72,9 @@ export class WebGLBackend implements IRenderBackend {
 		clusteredLighting: true,
 		oit: true,
 	};
-	private readonly _postProcessExecutor: IPostProcessExecutor = {
-		backend: "webgl",
-		createResource: (desc) => this._createPostProcessResource(desc),
-		destroyResource: (handle) => this._destroyPostProcessResource(handle),
-		getPassExecutionContext: (request) =>
-			this._getPostProcessPassExecutionContext(request),
-		executePass: (passId, request) =>
-			this._executePostProcessPass(passId, request),
-	};
-	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
-		backend: "webgl",
-		executor: this._postProcessExecutor,
-		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
-	};
+	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
+		getFrameExecutor: () => this._frameExecutor,
+	});
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
@@ -138,7 +118,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
-		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
+		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
@@ -146,51 +126,6 @@ export class WebGLBackend implements IRenderBackend {
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
 		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
 		this._ensureParticleSimulator();
-	}
-
-	private _createPostProcessResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
-		if (!this._frameExecutor) {
-			throw new Error(
-				"WebGL frame executor is not initialized; cannot create post-process resource."
-			);
-		}
-		return this._frameExecutor.createPostProcessResource(desc);
-	}
-
-	private _destroyPostProcessResource(handle: PostProcessResourceHandle): void {
-		this._frameExecutor?.destroyPostProcessResource(handle);
-	}
-
-	private _createPostProcessGBuffer(context: FrameContext): LogicalGBufferBridge {
-		return this._frameExecutor?.createGBufferBridge(context) ?? {
-			width: Math.max(1, context.attachments.width),
-			height: Math.max(1, context.attachments.height),
-			normalSpace: "world",
-			depthEncoding: "hardware",
-			channels: {},
-			worldPosition: {
-				source: "derived",
-				available: false,
-			},
-		};
-	}
-
-	private _executePostProcessPass(
-		passId: string,
-		request: PostProcessPassRequest
-	): PostProcessPassResult {
-		return (
-			this._frameExecutor?.executePostProcessPass(passId, request) ??
-			{ ran: false }
-		);
-	}
-
-	private _getPostProcessPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
-		return this._frameExecutor?.getPassExecutionContext(request);
 	}
 
 	public async init(canvas: HTMLCanvasElement): Promise<void> {

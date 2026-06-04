@@ -934,8 +934,8 @@ function testPostProcessBackendAdapterRegistry() {
 	const owner = {};
 	const support = createNoopPostProcessAdapter("test");
 	assert.equal(resolvePostProcessBackendAdapter(owner), null);
-	registerPostProcessBackendAdapter(owner, support.adapter);
-	assert.equal(resolvePostProcessBackendAdapter(owner), support.adapter);
+	registerPostProcessBackendAdapter(owner, support.executor);
+	assert.equal(resolvePostProcessBackendAdapter(owner), support.executor);
 	unregisterPostProcessBackendAdapter(owner);
 	assert.equal(resolvePostProcessBackendAdapter(owner), null);
 }

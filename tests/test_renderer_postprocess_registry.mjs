@@ -29,10 +29,10 @@ class RegistryBackend {
 			"webgpu"
 		);
 		const createGBufferBridge =
-			this.postProcessSupport.adapter.createGBufferBridge.bind(
-				this.postProcessSupport.adapter
+			this.postProcessSupport.executor.createGBufferBridge.bind(
+				this.postProcessSupport.executor
 			);
-		this.postProcessSupport.adapter.createGBufferBridge = (context) => {
+		this.postProcessSupport.executor.createGBufferBridge = (context) => {
 			this.gBufferRequests++;
 			return createGBufferBridge(context);
 		};

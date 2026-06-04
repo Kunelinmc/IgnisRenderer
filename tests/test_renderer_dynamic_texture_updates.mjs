@@ -142,7 +142,7 @@ async function testRendererPostProcessCleanupBridge(canvas) {
 	await renderer._postProcessPipeline.execute({
 		frameContext,
 		executor: backend.postProcessSupport.executor,
-		gBuffer: backend.postProcessSupport.adapter.createGBufferBridge(frameContext),
+		gBuffer: backend.postProcessSupport.executor.createGBufferBridge(frameContext),
 		historyFinalization: "manual",
 	});
 	renderer.onBackendResourceEvent({

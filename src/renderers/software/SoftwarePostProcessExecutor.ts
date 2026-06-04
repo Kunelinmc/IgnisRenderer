@@ -1,7 +1,7 @@
 import type { FrameContext } from "../../pipeline/types";
 import type {
-	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessBackendAdapter,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -18,7 +18,7 @@ export interface SoftwarePostProcessExecutorHost {
 /**
  * Executes logical post-process passes on the software backend.
  */
-export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
+export class SoftwarePostProcessExecutor implements PostProcessBackendAdapter {
 	public readonly backend = "software";
 	private _host: SoftwarePostProcessExecutorHost;
 
@@ -55,6 +55,17 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	 * @sideEffects None; JavaScript owns typed-array memory reclamation.
 	 */
 	public destroyResource(_handle: PostProcessResourceHandle): void {}
+
+	/**
+	 * Creates a logical G-buffer bridge for the current software frame.
+	 *
+	 * @param context Current renderer frame context.
+	 * @returns Logical bridge wrapping CPU frame attachments.
+	 * @sideEffects None.
+	 */
+	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+		return createSoftwareGBufferBridge(context);
+	}
 
 	/**
 	 * Executes one logical software post-process pass.

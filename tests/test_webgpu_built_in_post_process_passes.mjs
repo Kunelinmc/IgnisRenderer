@@ -313,8 +313,9 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	const adapter = resolvePostProcessBackendAdapter(backend);
 	assert.ok(adapter);
 	assert.equal(adapter.backend, "webgpu");
-	assert.equal(typeof adapter.executor.executePass, "function");
+	assert.equal(typeof adapter.executePass, "function");
 	assert.equal(typeof adapter.createGBufferBridge, "function");
+	assert.equal("executor" in adapter, false);
 	assert.equal("postProcessExecutor" in backend, false);
 	assert.equal("createPostProcessGBufferBridge" in backend, false);
 	assert.equal("postProcess" in backend, false);

@@ -28,7 +28,7 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - Built-in pass classes must expose pass-owned normalization, requirements, history descriptors, and implementations when migrated.
 - Backends used with `Renderer` must satisfy `IRenderBackend`.
 - Backends that support post-processing must register a `PostProcessBackendAdapter` with `registerPostProcessBackendAdapter(owner, adapter)`.
-- `PostProcessBackendAdapter` must expose `backend`, `executor`, and `createGBufferBridge(context)`.
+- `PostProcessBackendAdapter` must expose the `IPostProcessExecutor` methods and `createGBufferBridge(context)`.
 - `Renderer` must resolve post-process execution with `resolvePostProcessBackendAdapter(backend)`.
 - `IRenderBackend` must not expose `postProcessExecutor` or `createPostProcessGBufferBridge(context)`.
 - Backends must not expose `postProcessCapabilities`.
@@ -122,6 +122,7 @@ bun tests/test_postprocess_public_api.mjs
 - Only `tonemap` and `gamma` are auto-registered.
 - `FrameContext.postProcess.enabled` and `FrameContext.postProcess.options` are removed.
 - `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed.
+- `PostProcessBackendAdapter.executor` is removed. Use the resolved adapter object as the executor.
 - Public `backend.postProcessExecutor` and `backend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendAdapter(backend)` for backend-owned post-process execution internals.
 - `renderer.features.enableSSAO = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceAmbientOcclusionPass({ enabled: true }))`.
 - `renderer.features.enableSSGI = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({ enabled: true }))`.

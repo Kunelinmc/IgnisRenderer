@@ -11,7 +11,7 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 - `WebGLBackend` must not expose `postProcessCapabilities`.
 - WebGL post-process support must be derived from pass-owned WebGL implementations.
 - `FogPass` must provide a WebGL implementation and must support both post-process fog and scene-mode fog.
-- `WebGLBackend` must register a `PostProcessBackendAdapter` during construction.
+- `WebGLBackend` must register a `PostProcessBackendAdapter` executor during construction.
 - `resolvePostProcessBackendAdapter(webGLBackend).backend` must be `"webgl"`.
 - `resolvePostProcessBackendAdapter(webGLBackend).createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
 - WebGL G-buffer bridge channels must report actual runtime attachment formats.
@@ -70,6 +70,7 @@ bun tests/test_webgl_backend_v2.mjs
 - Public backend type name remains `WebGLBackend`.
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to enabled.
 - Backend post-process capability fields are removed.
+- `resolvePostProcessBackendAdapter(webGLBackend).executor` is removed. Use the resolved adapter object as the executor.
 - `WebGLBackend.registerPostProcessPass(pass)` and `WebGLBackend.unregisterPostProcessPass(id)` are removed.
 - `WebGLBackend.postProcess` is removed.
 - `WebGLBackend.postProcess.registerPass(pass)` and `WebGLBackend.postProcess.unregisterPass(id)` are removed.

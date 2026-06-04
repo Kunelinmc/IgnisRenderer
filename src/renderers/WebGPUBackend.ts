@@ -10,16 +10,6 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
-import type {
-	IPostProcessExecutor,
-	LogicalGBufferBridge,
-	PostProcessBackendAdapter,
-	PostProcessPassExecutionContextRequest,
-	PostProcessPassRequest,
-	PostProcessPassResult,
-	PostProcessResourceDescriptor,
-	PostProcessResourceHandle,
-} from "../postprocess";
 import {
 	registerPostProcessBackendAdapter,
 	unregisterPostProcessBackendAdapter,
@@ -32,6 +22,7 @@ import {
 } from "../pipeline/types";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
+import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
 import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
 import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
@@ -248,26 +239,11 @@ export class WebGPUBackend implements IRenderBackend {
 		clusteredLighting: true,
 		oit: true,
 	};
-	private readonly _postProcessExecutor: IPostProcessExecutor = {
-		backend: "webgpu",
-		createResource: (desc) => this._createPostProcessResource(desc),
-		destroyResource: (handle) => this._destroyPostProcessResource(handle),
-		invalidateResourceBindings: () => this._invalidatePostProcessBindings(),
-		beginFrame: (_request) => {},
-		getPassExecutionContext: (request) =>
-			this._getPostProcessPassExecutionContext(request),
-		executePass: (passId, request) =>
-			this._executePostProcessPass(passId, request),
-		completePass: (request, result) =>
-			this._completePostProcessPass(request, result),
-		endFrame: (_request) => {},
-		abortFrame: (_request) => {},
-	};
-	private readonly _postProcessAdapter: PostProcessBackendAdapter = {
-		backend: "webgpu",
-		executor: this._postProcessExecutor,
-		createGBufferBridge: (context) => this._createPostProcessGBuffer(context),
-	};
+	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
+		getFrameExecutor: () => this._frameExecutor,
+		assertDeviceOperational: (operation) =>
+			this._assertDeviceOperational(operation),
+	});
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
@@ -411,7 +387,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resourceManager = new WebGPUResourceManager(
 			this._createResourceManagerHost()
 		);
-		registerPostProcessBackendAdapter(this, this._postProcessAdapter);
+		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
@@ -861,62 +837,6 @@ export class WebGPUBackend implements IRenderBackend {
 		if (abortError) {
 			throw abortError;
 		}
-	}
-
-	private _createPostProcessResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
-		this._assertDeviceOperational("create post-process resource");
-		if (!this._frameExecutor) {
-			throw new Error(
-				"WebGPU frame executor is not initialized; cannot create post-process resource."
-			);
-		}
-		return this._frameExecutor.createPostProcessResource(desc);
-	}
-
-	private _destroyPostProcessResource(handle: PostProcessResourceHandle): void {
-		this._frameExecutor?.destroyPostProcessResource(handle);
-	}
-
-	private _invalidatePostProcessBindings(): void {
-		this._frameExecutor?.invalidatePostProcessBindings();
-	}
-
-	private _createPostProcessGBuffer(
-		context: FrameContext
-	): LogicalGBufferBridge {
-		return this._frameExecutor?.createGBufferBridge(context) ?? {
-			width: Math.max(1, context.attachments.width),
-			height: Math.max(1, context.attachments.height),
-			normalSpace: "world",
-			depthEncoding: "hardware",
-			channels: {},
-			worldPosition: {
-				source: "derived",
-				available: false,
-			},
-		};
-	}
-
-	private _executePostProcessPass(
-		_passId: string,
-		_request: PostProcessPassRequest
-	): Promise<PostProcessPassResult> | PostProcessPassResult {
-		return { ran: false };
-	}
-
-	private _getPostProcessPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
-		return this._frameExecutor?.getPassExecutionContext(request);
-	}
-
-	private _completePostProcessPass(
-		request: PostProcessPassRequest,
-		result: PostProcessPassResult
-	): void {
-		this._frameExecutor?.completePostProcessPass(request, result);
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
