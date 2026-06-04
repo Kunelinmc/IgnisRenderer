@@ -19,6 +19,7 @@ const RUNTIME_METADATA_INJECTION_SOURCE_KINDS = new Set([
 	"postprocess",
 	"clustered",
 	"shadow",
+	"decal",
 	"particle",
 ]);
 const RUNTIME_METADATA_MARKER = "IGNIS_RUNTIME_INJECTION_ENABLED";

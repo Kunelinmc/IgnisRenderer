@@ -44,6 +44,7 @@ interface WebGPUModelUniformInput {
 	normalMatrix: Matrix3Arr | Matrix4;
 	materialData: WebGPUMaterialUniformData;
 	prevModelMatrix: Matrix4 | number[][];
+	renderLayers: number;
 }
 
 const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
@@ -396,6 +397,12 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 			(input) => input.materialData.anisotropyTexture.transformB
 		),
 		packVec4("materialFlags", (input) => input.materialData.materialFlags),
+		packVec4("nodeRenderLayers", (input) => [
+			Math.max(0, Math.floor(input.renderLayers)) >>> 0,
+			0,
+			0,
+			0,
+		]),
 		packArrayVec4("textureTransformA", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
 			input.materialData.textureSlots[i]?.transformA
 		),
@@ -448,13 +455,15 @@ export function packModelUniformData(
 	modelMatrix: Matrix4 | number[][],
 	normalMatrix: Matrix3Arr | Matrix4,
 	materialData: WebGPUMaterialUniformData,
-	prevModelMatrix: Matrix4 | number[][]
+	prevModelMatrix: Matrix4 | number[][],
+	renderLayers = 1
 ): Float32Array<ArrayBuffer> {
 	return MODEL_UNIFORM_PACKER.pack({
 		modelMatrix,
 		normalMatrix,
 		materialData,
 		prevModelMatrix,
+		renderLayers,
 	});
 }
 
@@ -480,6 +489,7 @@ export function createModelUniformWriter(): WebGPUModelUniformWriter {
  * @param normalMatrix - Current normal matrix; only its upper-left 3x3 is used.
  * @param materialData - Packed material scalar and texture transform data.
  * @param prevModelMatrix - Previous-frame model transform for motion vectors.
+ * @param renderLayers - Unsigned render-layer mask for this draw packet.
  * @returns The writer-owned `Float32Array`; callers must consume it before
  * reusing the same writer.
  */
@@ -488,13 +498,15 @@ export function writeModelUniformData(
 	modelMatrix: Matrix4 | number[][],
 	normalMatrix: Matrix3Arr | Matrix4,
 	materialData: WebGPUMaterialUniformData,
-	prevModelMatrix: Matrix4 | number[][]
+	prevModelMatrix: Matrix4 | number[][],
+	renderLayers = 1
 ): Float32Array<ArrayBuffer> {
 	return MODEL_UNIFORM_PACKER.packInto(writer, {
 		modelMatrix,
 		normalMatrix,
 		materialData,
 		prevModelMatrix,
+		renderLayers,
 	});
 }
 

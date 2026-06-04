@@ -48,6 +48,7 @@ function createModelLayout() {
 			{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
 			{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 			{ name: "materialFlags", type: VEC4_F32 },
+			{ name: "nodeRenderLayers", type: VEC4_F32 },
 			{
 				name: "textureTransformA",
 				type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
@@ -237,7 +238,8 @@ function testModelUniformPacking() {
 			[307, 308, 309],
 		],
 		createMaterialData(),
-		matrix(401)
+		matrix(401),
+		7
 	);
 
 	assert.equal(data.length * 4, WEBGPU_MODEL_UNIFORM_BYTE_SIZE);
@@ -257,6 +259,7 @@ function testModelUniformPacking() {
 	assert.deepEqual(readVec(layout, data, "anisotropyTextureTransformA", 4), [
 		49, 50, 51, 52,
 	]);
+	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 0, 0, 0]);
 	assert.deepEqual(readVec(layout, data, ["textureTransformA", 1], 4), [
 		105, 106, 107, 108,
 	]);

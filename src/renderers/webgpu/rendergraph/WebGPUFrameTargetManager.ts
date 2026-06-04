@@ -240,7 +240,9 @@ export class WebGPUFrameTargetManager {
 						{
 							usage:
 								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_AlbedoAlpha",
 						},
 						width,
@@ -255,7 +257,9 @@ export class WebGPUFrameTargetManager {
 						{
 							usage:
 								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_RGBA16",
 						},
 						width,
@@ -270,7 +274,9 @@ export class WebGPUFrameTargetManager {
 						{
 							usage:
 								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding,
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_RGBA16",
 						},
 						width,
@@ -286,7 +292,8 @@ export class WebGPUFrameTargetManager {
 							usage:
 								TextureUsage.RenderAttachment |
 								TextureUsage.TextureBinding |
-								TextureUsage.CopySrc,
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_MotionDepth",
 						},
 						width,
@@ -295,11 +302,19 @@ export class WebGPUFrameTargetManager {
 					)
 				:	null;
 			const deferredColorPool: TexturePoolOptions = {
-				usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+				usage:
+					TextureUsage.RenderAttachment |
+					TextureUsage.TextureBinding |
+					TextureUsage.CopySrc |
+					TextureUsage.CopyDst,
 				label: "WebGPUGBufferDeferredRGBA16",
 			};
 			const deferredStoragePool: TexturePoolOptions = {
-				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+				usage:
+					TextureUsage.TextureBinding |
+					TextureUsage.StorageBinding |
+					TextureUsage.CopySrc |
+					TextureUsage.CopyDst,
 				label: "WebGPUGBufferDeferredStorageRGBA16",
 			};
 			const gSpecular =

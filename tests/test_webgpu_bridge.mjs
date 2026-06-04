@@ -204,6 +204,7 @@ function createPreparedFrameResources(options = {}) {
 		scopeKey,
 		sceneTargetMode,
 		frameBinding: { bindGroup: { label: `${scopeKey}:frame` } },
+		decalFrameBinding: { bindGroup: { label: `${scopeKey}:decal-frame` } },
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: {},

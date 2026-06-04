@@ -48,6 +48,7 @@ type UtilityShaderPart =
 	| "planarReflectionComposite"
 	| "present"
 	| "depthDirtyClear"
+	| "decal"
 	| "oitResolve";
 
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
@@ -313,6 +314,7 @@ const utilityShaderFiles: Record<UtilityShaderPart, string> = {
 	planarReflectionComposite: "./planarReflectionComposite.wgsl",
 	present: "./present.wgsl",
 	depthDirtyClear: "./depthDirtyClear.wgsl",
+	decal: "./decal.wgsl",
 	oitResolve: "./oitResolve.wgsl",
 };
 

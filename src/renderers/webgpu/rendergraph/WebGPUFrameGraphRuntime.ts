@@ -88,6 +88,7 @@ import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { WebGPUOITPass } from "./WebGPUOITPass";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
+import { WebGPUDeferredDecalPass } from "./WebGPUDeferredDecalPass";
 import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphDebugState,
@@ -133,6 +134,7 @@ export class WebGPUFrameGraphRuntime {
 	private _frameTargetManager: WebGPUFrameTargetManager;
 	private _oitPass: WebGPUOITPass;
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
+	private _deferredDecalPass: WebGPUDeferredDecalPass;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _nodeExecutors: Map<
@@ -231,6 +233,17 @@ export class WebGPUFrameGraphRuntime {
 			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
 		});
 		this._deferredLightingPass = new WebGPUDeferredLightingPass(
+			backend,
+			resources,
+			{
+				getEncoder: () => this._encoder,
+				getFrameTargets: () => this._frameTargets,
+				requireFrameResources: () => this._requireFrameResources(),
+				resolveDirtyRects: (context, width, height) =>
+					this._resolveDirtyRects(context, width, height),
+			}
+		);
+		this._deferredDecalPass = new WebGPUDeferredDecalPass(
 			backend,
 			resources,
 			{
@@ -1167,6 +1180,7 @@ export class WebGPUFrameGraphRuntime {
 
 	private _destroyDeferredBindings(): void {
 		this._deferredLightingPass.destroyBindings();
+		this._deferredDecalPass.destroyBindings();
 	}
 
 	private _destroyManagedResource(resource: unknown): void {
@@ -1847,6 +1861,7 @@ export class WebGPUFrameGraphRuntime {
 		});
 
 		this._encoder.endRenderPass();
+		await this._deferredDecalPass.recordDecalPass(context);
 		await this._recordDeferredLightingPass(
 			context,
 			shouldClearAttachments && !environmentDrawn

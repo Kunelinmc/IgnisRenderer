@@ -14,6 +14,7 @@ function createPreparedFrameResources(options = {}) {
 		scopeKey: options.scopeKey ?? "main",
 		sceneTargetMode: options.sceneTargetMode ?? "mrt",
 		frameBinding: { id: "frame-binding" },
+		decalFrameBinding: { id: "decal-frame-binding" },
 		environmentBinding: { id: "environment-binding" },
 		clusteredSceneBinding: { id: "clustered-binding" },
 		lightingState: {},

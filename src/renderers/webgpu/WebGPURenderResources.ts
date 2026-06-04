@@ -28,6 +28,7 @@ import {
 	type IRenderBuffer,
 	type IRenderPipeline,
 	type IRenderTexture,
+	type ISampler,
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
@@ -86,6 +87,7 @@ import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
 import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
+import { loadWebGPUUtilityShaderComposite } from "../../shaders/webgpu/shaderSource";
 import { clamp } from "../../maths/Common";
 import {
 	WEBGPU_PARTICLE_BINDING_SAMPLER,
@@ -186,6 +188,7 @@ export interface WebGPUPreparedFrameResources {
 	readonly scopeKey: string;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	frameBinding: IBindingGroup;
+	decalFrameBinding: IBindingGroup;
 	environmentBinding: IBindingGroup;
 	clusteredSceneBinding: IBindingGroup;
 	readonly lightingState: WebGPULightingState;
@@ -213,6 +216,8 @@ export class WebGPURenderResources {
 	private _shadowPass: WebGPUShadowPass;
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _particleShaderModule: IShaderModule | null = null;
+	private _decalShaderModule: IShaderModule | null = null;
+	private _decalPipeline: IRenderPipeline | null = null;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
 	private _particleInstanceBuffer: IRenderBuffer | null = null;
 	private _particleInstanceCapacity = 0;
@@ -610,6 +615,7 @@ export class WebGPURenderResources {
 			scopeKey: options.scopeKey,
 			sceneTargetMode: options.sceneTargetMode,
 			frameBinding: scope.frameBindings.getSceneBinding(),
+			decalFrameBinding: scope.frameBindings.getDecalFrameBinding(),
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
 			clusteredSceneBinding: scope.clusteredLighting.getSceneBinding(),
 			lightingState,
@@ -679,6 +685,16 @@ export class WebGPURenderResources {
 	}
 
 	/**
+	 * Returns the bind group layout used by the WebGPU deferred decal pass.
+	 *
+	 * @returns The WebGPU bind group layout for decal material resources.
+	 * @sideEffects None.
+	 */
+	public getDecalBindGroupLayout(): GPUBindGroupLayout {
+		return this._layouts.decalBindGroupLayout;
+	}
+
+	/**
 	 * Returns the bind group layout used by planar reflection composite draws.
 	 *
 	 * @returns The WebGPU bind group layout for reflection texture sampling.
@@ -717,6 +733,58 @@ export class WebGPURenderResources {
 	 */
 	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
 		return this._pipelineLibrary.getDeferredLightingPipeline();
+	}
+
+	/**
+	 * Resolves the fullscreen deferred decal render pipeline.
+	 *
+	 * @returns A pipeline that reads G-buffer snapshots and writes updated
+	 * G-buffer channels.
+	 * @sideEffects May compile and cache the decal shader module and pipeline.
+	 */
+	public async getDecalPipeline(): Promise<IRenderPipeline> {
+		if (this._decalPipeline) {
+			return this._decalPipeline;
+		}
+		if (!this._decalShaderModule) {
+			const shader = await loadWebGPUUtilityShaderComposite("decal");
+			this._decalShaderModule = await this._backend.createShaderModule({
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				label: "WebGPUDecalShader",
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "decal",
+			});
+		}
+		this._decalPipeline = this._backend.createPipeline({
+			layout: this._layouts.decalPipelineLayout,
+			label: "WebGPUDeferredDecalPipeline",
+			vertex: {
+				module: this._decalShaderModule,
+				entryPoint: "vsMain",
+			},
+			fragment: {
+				module: this._decalShaderModule,
+				entryPoint: "fsMain",
+				targets: [
+					{ format: TextureFormat.RGBA8Unorm },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA16Float },
+				],
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			sampleCount: 1,
+		} as any);
+		return this._decalPipeline;
 	}
 
 	public updateParticleShadowVolumes(
@@ -764,6 +832,8 @@ export class WebGPURenderResources {
 		for (const scope of this._frameScopes.values()) {
 			scope.clusteredLighting.onShaderRuntimeChanged();
 		}
+		this._decalShaderModule = null;
+		this._decalPipeline = null;
 		this._shadowPass.onShaderRuntimeChanged();
 	}
 
@@ -774,6 +844,8 @@ export class WebGPURenderResources {
 		this._destroyed = true;
 		this._clearParticleBindingCache();
 		this._particleShaderModule = null;
+		this._decalShaderModule = null;
+		this._decalPipeline = null;
 		this._particlePipelineAlpha.clear();
 		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
@@ -811,6 +883,10 @@ export class WebGPURenderResources {
 		slotIndex: number
 	): IRenderTexture {
 		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
+	}
+
+	public getSamplerForTexture(texture: Texture | null): ISampler {
+		return this._textureRegistry.getSamplerForTexture(texture);
 	}
 
 	public registerExternalTexture(
@@ -917,6 +993,7 @@ export class WebGPURenderResources {
 			typeof value === "object" &&
 			typeof (value as { scopeKey?: unknown }).scopeKey === "string" &&
 			"frameBinding" in value &&
+			"decalFrameBinding" in value &&
 			"clusteredSceneBinding" in value
 		);
 	}

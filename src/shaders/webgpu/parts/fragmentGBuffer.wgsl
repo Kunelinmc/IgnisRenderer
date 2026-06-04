@@ -24,10 +24,13 @@ fn buildGBufferOutputExtended(
 	materialExt3: vec4<f32>
 ) -> GBufferFragmentOutput {
 	let coord = vec2<i32>(fragCoord);
+	var materialExt3WithLayers = materialExt3;
+	let layerMask = u32(max(0.0, floor(model.nodeRenderLayers.x + 0.5))) & 0x7ffu;
+	materialExt3WithLayers.w = f32(layerMask);
 	textureStore(gMaterialExt0Out, coord, materialExt0);
 	textureStore(gMaterialExt1Out, coord, materialExt1);
 	textureStore(gMaterialExt2Out, coord, materialExt2);
-	textureStore(gMaterialExt3Out, coord, materialExt3);
+	textureStore(gMaterialExt3Out, coord, materialExt3WithLayers);
 
 	var output: GBufferFragmentOutput;
 	output.gAlbedoAlpha = vec4<f32>(

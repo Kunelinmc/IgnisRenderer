@@ -78,6 +78,7 @@ export class WebGPUFrameBindingCache {
 	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
 	private _sceneBinding: IBindingGroup | null = null;
+	private _decalFrameBinding: IBindingGroup | null = null;
 	private _environmentBinding: IBindingGroup | null = null;
 	private _shadowAtlas: IRenderTexture | null = null;
 	private _shadowTransmittanceAtlas: IRenderTexture | null = null;
@@ -419,6 +420,26 @@ export class WebGPUFrameBindingCache {
 		return this._sceneBinding;
 	}
 
+	/**
+	 * Returns a frame binding group for decal shaders that only require frame uniforms.
+	 *
+	 * @returns A binding group compatible with `WebGPUDecalFrameBindGroupLayout`.
+	 * @sideEffects Lazily creates the binding group while reusing the shared frame uniform buffer.
+	 */
+	public getDecalFrameBinding(): IBindingGroup {
+		if (!this._decalFrameBinding) {
+			this._decalFrameBinding = this._backend.createBindingGroup({
+				label: "FrameBinding_decal",
+				layout: this._layouts.decalFrameBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: this._getFrameUniformBuffer() },
+				],
+			});
+		}
+
+		return this._decalFrameBinding;
+	}
+
 	public getEnvironmentBinding(): IBindingGroup {
 		if (!this._environmentBinding) {
 			this._environmentBinding = this._backend.createBindingGroup({
@@ -643,8 +664,10 @@ export class WebGPUFrameBindingCache {
 
 	public destroy(): void {
 		this._destroyBindingGroup(this._sceneBinding);
+		this._destroyBindingGroup(this._decalFrameBinding);
 		this._destroyBindingGroup(this._environmentBinding);
 		this._sceneBinding = null;
+		this._decalFrameBinding = null;
 		this._environmentBinding = null;
 		this._frameUniformBuffer?.destroy();
 		this._frameUniformBuffer = null;

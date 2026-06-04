@@ -10,6 +10,7 @@ export type ShaderSourceKind =
 	| "postprocess"
 	| "clustered"
 	| "shadow"
+	| "decal"
 	| "particle"
 	| "custom-material"
 	| "unknown";

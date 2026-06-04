@@ -88,6 +88,7 @@ function createExecutorHarness() {
 		scopeKey: "main",
 		sceneTargetMode: "mrt",
 		frameBinding: { id: "frame-binding" },
+		decalFrameBinding: { id: "decal-frame-binding" },
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: { id: "lighting-state" },

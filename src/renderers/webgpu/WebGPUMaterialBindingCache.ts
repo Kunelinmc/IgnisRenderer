@@ -387,7 +387,8 @@ export class WebGPUMaterialBindingCache {
 			entry.currentModelMatrix,
 			entry.normalMatrix,
 			materialData,
-			entry.previousModelMatrix
+			entry.previousModelMatrix,
+			packet.meshInstance.renderLayers
 		);
 		this._backend.writeBuffer(entry.uniformBuffer, uniformData);
 		entry.hasPackedUniform = true;

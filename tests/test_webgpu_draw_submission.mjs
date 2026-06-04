@@ -49,6 +49,7 @@ function createFrameResources() {
 		scopeKey: "test",
 		sceneTargetMode: "mrt",
 		frameBinding: { id: "frame" },
+		decalFrameBinding: { id: "decal-frame" },
 		environmentBinding: { id: "environment" },
 		clusteredSceneBinding: { id: "clustered" },
 	};

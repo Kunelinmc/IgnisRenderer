@@ -338,6 +338,7 @@ export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
 		{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 		{ name: "materialFlags", type: VEC4_F32 },
+		{ name: "nodeRenderLayers", type: VEC4_F32 },
 		{
 			name: "textureTransformA",
 			type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
