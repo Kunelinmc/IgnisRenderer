@@ -85,40 +85,132 @@ fn sampleDepthMinCross(
 	return minDepth;
 }
 
+fn loadCurrentCrossBlur(coord: vec2<i32>, size: vec2<u32>) -> vec4<f32> {
+	let left = textureLoad(
+		currentColor,
+		vec2<i32>(max(coord.x - 1, 0), coord.y),
+		0
+	);
+	let right = textureLoad(
+		currentColor,
+		vec2<i32>(min(coord.x + 1, i32(size.x) - 1), coord.y),
+		0
+	);
+	let up = textureLoad(
+		currentColor,
+		vec2<i32>(coord.x, max(coord.y - 1, 0)),
+		0
+	);
+	let down = textureLoad(
+		currentColor,
+		vec2<i32>(coord.x, min(coord.y + 1, i32(size.y) - 1)),
+		0
+	);
+	return (left + right + up + down) * 0.25;
+}
+
+fn sharpenTemporalColor(
+	temporalColor: vec4<f32>,
+	blur: vec4<f32>,
+	blend: f32
+) -> vec4<f32> {
+	let sharpenStrength = max(params.sharpen, 0.0) * (1.0 - blend * 0.5);
+	return vec4<f32>(
+		max(
+			temporalColor.rgb + (temporalColor.rgb - blur.rgb) * sharpenStrength,
+			vec3<f32>(0.0)
+		),
+		temporalColor.a
+	);
+}
+
+fn writeCurrentFrameOnly(
+	coord: vec2<i32>,
+	size: vec2<u32>,
+	curr: vec4<f32>
+) {
+	if (params.sharpen <= 0.0) {
+		textureStore(outColor, coord, curr);
+		textureStore(outHistory, coord, curr);
+		return;
+	}
+
+	let blur = loadCurrentCrossBlur(coord, size);
+	textureStore(outColor, coord, sharpenTemporalColor(curr, blur, 0.0));
+	textureStore(outHistory, coord, curr);
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outColor);
 	if (gid.x >= size.x || gid.y >= size.y) { return; }
 	let coord = vec2<i32>(gid.xy);
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize;
+	let curr = textureLoad(currentColor, coord, 0);
+
+	if (!(params.historyValid > 0.5 && params.historyWeight > 0.0)) {
+		writeCurrentFrameOnly(coord, size, curr);
+		return;
+	}
+
+	let motion = textureLoad(motionDepth, coord, 0).xy;
+	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
+	let inside =
+		prevUv.x >= 0.0 &&
+		prevUv.x <= 1.0 &&
+		prevUv.y >= 0.0 &&
+		prevUv.y <= 1.0;
+	if (!inside) {
+		writeCurrentFrameOnly(coord, size, curr);
+		return;
+	}
+
+	let motionMag = length(motion);
+	let adaptive = clamp(
+		params.historyWeight * exp(-motionMag * params.motionFactor),
+		0.0,
+		0.96
+	);
+	if (adaptive <= 0.0) {
+		writeCurrentFrameOnly(coord, size, curr);
+		return;
+	}
+
 	let safeInvSize = vec2<f32>(
 		max(params.invSize.x, 1e-6),
 		max(params.invSize.y, 1e-6)
 	);
-	let curr = textureLoad(currentColor, coord, 0);
-	let motion = textureLoad(motionDepth, coord, 0).xy;
-	let prevUv = uv - vec2<f32>(motion.x * 0.5, -motion.y * 0.5);
-	let inside = prevUv.x >= 0.0 && prevUv.x <= 1.0 && prevUv.y >= 0.0 && prevUv.y <= 1.0;
 
-	var minYCoCg = vec3<f32>(1e9, 1e9, 1e9);
-	var maxYCoCg = vec3<f32>(-1e9, -1e9, -1e9);
-	var sumYCoCg = vec3<f32>(0.0);
-	var sumSqYCoCg = vec3<f32>(0.0);
-	let offsets = array<vec2<i32>, 5>(
-		vec2<i32>(0, 0),
-		vec2<i32>(-1, 0),
-		vec2<i32>(1, 0),
-		vec2<i32>(0, -1),
-		vec2<i32>(0, 1)
+	let leftCoord = vec2<i32>(max(coord.x - 1, 0), coord.y);
+	let rightCoord = vec2<i32>(min(coord.x + 1, i32(size.x) - 1), coord.y);
+	let upCoord = vec2<i32>(coord.x, max(coord.y - 1, 0));
+	let downCoord = vec2<i32>(coord.x, min(coord.y + 1, i32(size.y) - 1));
+	let left = textureLoad(currentColor, leftCoord, 0);
+	let right = textureLoad(currentColor, rightCoord, 0);
+	let up = textureLoad(currentColor, upCoord, 0);
+	let down = textureLoad(currentColor, downCoord, 0);
+	let blur = (left + right + up + down) * 0.25;
+
+	let currYCoCg = rgbToYCoCg(curr.rgb);
+	let leftYCoCg = rgbToYCoCg(left.rgb);
+	let rightYCoCg = rgbToYCoCg(right.rgb);
+	let upYCoCg = rgbToYCoCg(up.rgb);
+	let downYCoCg = rgbToYCoCg(down.rgb);
+	let minYCoCg = min(
+		min(min(currYCoCg, leftYCoCg), min(rightYCoCg, upYCoCg)),
+		downYCoCg
 	);
-	for (var i: i32 = 0; i < 5; i = i + 1) {
-		let sampleCoord = clamp(coord + offsets[i], vec2<i32>(0, 0), vec2<i32>(i32(size.x) - 1, i32(size.y) - 1));
-		let ycocg = rgbToYCoCg(textureLoad(currentColor, sampleCoord, 0).rgb);
-		minYCoCg = min(minYCoCg, ycocg);
-		maxYCoCg = max(maxYCoCg, ycocg);
-		sumYCoCg = sumYCoCg + ycocg;
-		sumSqYCoCg = sumSqYCoCg + ycocg * ycocg;
-	}
+	let maxYCoCg = max(
+		max(max(currYCoCg, leftYCoCg), max(rightYCoCg, upYCoCg)),
+		downYCoCg
+	);
+	let sumYCoCg = currYCoCg + leftYCoCg + rightYCoCg + upYCoCg + downYCoCg;
+	let sumSqYCoCg =
+		currYCoCg * currYCoCg +
+		leftYCoCg * leftYCoCg +
+		rightYCoCg * rightYCoCg +
+		upYCoCg * upYCoCg +
+		downYCoCg * downYCoCg;
 	let meanYCoCg = sumYCoCg / 5.0;
 	let varianceYCoCg = max(sumSqYCoCg / 5.0 - meanYCoCg * meanYCoCg, vec3<f32>(0.0));
 	let sigmaYCoCg = sqrt(varianceYCoCg);
@@ -164,35 +256,14 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let lumaDiff = abs(currLuma - histLuma) / max(max(currLuma, histLuma), 1e-3);
 	let colorConfidence = 1.0 - smoothstep(0.12, 0.7, lumaDiff);
 
-	let validBase = params.historyValid > 0.5 && inside;
-	let historyConfidence = select(
+	let historyConfidence = clamp(
+		depthConfidence * reprojectionConfidence * colorConfidence,
 		0.0,
-		clamp(depthConfidence * reprojectionConfidence * colorConfidence, 0.0, 1.0),
-		validBase
-	);
-	let motionMag = length(motion);
-	let adaptive = clamp(
-		params.historyWeight * exp(-motionMag * params.motionFactor),
-		0.0,
-		0.96
+		1.0
 	);
 	let blend = clamp(adaptive * historyConfidence, 0.0, 0.96);
 	let temporalColor = mix(curr, hist, blend);
 
-	let left = textureLoad(currentColor, vec2<i32>(max(coord.x - 1, 0), coord.y), 0);
-	let right = textureLoad(currentColor, vec2<i32>(min(coord.x + 1, i32(size.x) - 1), coord.y), 0);
-	let up = textureLoad(currentColor, vec2<i32>(coord.x, max(coord.y - 1, 0)), 0);
-	let down = textureLoad(currentColor, vec2<i32>(coord.x, min(coord.y + 1, i32(size.y) - 1)), 0);
-	let blur = (left + right + up + down) * 0.25;
-	let sharpenStrength = max(params.sharpen, 0.0) * (1.0 - blend * 0.5);
-	let outC = vec4<f32>(
-		max(
-			temporalColor.rgb + (temporalColor.rgb - blur.rgb) * sharpenStrength,
-			vec3<f32>(0.0)
-		),
-		temporalColor.a
-	);
-
-	textureStore(outColor, coord, outC);
+	textureStore(outColor, coord, sharpenTemporalColor(temporalColor, blur, blend));
 	textureStore(outHistory, coord, temporalColor);
 }
