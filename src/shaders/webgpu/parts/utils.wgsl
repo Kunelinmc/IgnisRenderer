@@ -580,39 +580,6 @@ fn diffuseFresnelWeight(fresnel: vec3<f32>, iridescence: f32) -> vec3<f32> {
 	return vec3<f32>(1.0) - fresnel;
 }
 
-fn resolveTransmissionAlpha(
-	baseAlpha: f32,
-	transmission: f32,
-	nDotV: f32,
-	f0: vec3<f32>,
-	iridescence: f32,
-	iridescenceThickness: f32,
-	iridescenceIor: f32
-) -> f32 {
-	let clampedTransmission = clamp(transmission, 0.0, 1.0);
-	if (clampedTransmission <= EPSILON) {
-		return clamp(baseAlpha, 0.0, 1.0);
-	}
-
-	let fresnel = resolveIridescenceFresnel(
-		nDotV,
-		f0,
-		iridescence,
-		iridescenceThickness,
-		iridescenceIor
-	);
-	let fresnelAverage = clamp(
-		(fresnel.x + fresnel.y + fresnel.z) * (1.0 / 3.0),
-		0.0,
-		1.0
-	);
-	let floorAlpha = max(0, fresnelAverage);
-	let blended =
-		baseAlpha * (1.0 - clampedTransmission) +
-		floorAlpha * clampedTransmission;
-	return clamp(max(floorAlpha, blended), 0.0, 1.0);
-}
-
 fn distributionCharlie(nDotH: f32, roughness: f32) -> f32 {
 	let invAlpha = 1.0 / max(roughness * roughness, 1e-6);
 	let cos2h = nDotH * nDotH;
@@ -651,23 +618,6 @@ fn resolveAnisotropicReflectionDirection(
 	return reflectionDir;
 }
 
-fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResult {
-	let cosThetaI = dot(v, n);
-	let outside = cosThetaI > 0.0;
-	let eta = select(ior, 1.0 / max(ior, 1.0), outside);
-	let refractNormal = select(-n, n, outside);
-	let absCosThetaI = abs(cosThetaI);
-	let sin2ThetaT = eta * eta * (1.0 - absCosThetaI * absCosThetaI);
-
-	if (sin2ThetaT > 1.0) {
-		return RefractionResult(vec3<f32>(0.0), 0.0);
-	}
-
-	let cosThetaT = sqrt(max(1.0 - sin2ThetaT, 0.0));
-	let refraction = eta * -v + (eta * absCosThetaI - cosThetaT) * refractNormal;
-	return RefractionResult(safeNormalize(refraction, -v), 1.0);
-}
-
 fn encodeOutput(color: vec3<f32>) -> vec3<f32> {
 	return color;
 }
@@ -691,15 +641,6 @@ fn encodeOctahedralNormal(normal: vec3<f32>) -> vec2<f32> {
 		oct = octahedralWrap(oct);
 	}
 	return oct * 0.5 + vec2<f32>(0.5);
-}
-
-fn decodeOctahedralNormal(encoded: vec2<f32>) -> vec3<f32> {
-	let oct = encoded * 2.0 - vec2<f32>(1.0);
-	var n = vec3<f32>(oct.x, oct.y, 1.0 - abs(oct.x) - abs(oct.y));
-	if (n.z < 0.0) {
-		n = vec3<f32>(octahedralWrap(n.xy), n.z);
-	}
-	return safeNormalize(n, vec3<f32>(0.0, 0.0, 1.0));
 }
 
 fn encodeNormalForGBuffer(normal: vec3<f32>) -> vec2<f32> {
@@ -758,24 +699,6 @@ fn buildSceneOutput(
 		max(linearDepth, 0.0),
 		0.0
 	);
-	return output;
-}
-
-fn resolveOITWeight(alpha: f32, linearDepth: f32) -> f32 {
-	let clampedAlpha = clamp(alpha, 0.0, 1.0);
-	let normalizedDepth = clamp(linearDepth / 400.0, 0.0, 1.0);
-	let depthWeight = clamp(1.0 - normalizedDepth, 0.05, 1.0);
-	let alphaWeight = max(clampedAlpha * 8.0 + 0.01, 0.01);
-	let weight = alphaWeight * alphaWeight * alphaWeight * depthWeight;
-	return clamp(weight, 1e-2, 3e3);
-}
-
-fn buildSceneOITOutput(sceneColor: vec4<f32>, linearDepth: f32) -> SceneFragmentOITOutput {
-	let alpha = clamp(sceneColor.a, 0.0, 1.0);
-	let weight = resolveOITWeight(alpha, linearDepth);
-	var output: SceneFragmentOITOutput;
-	output.accum = vec4<f32>(sceneColor.rgb * alpha, alpha) * weight;
-	output.reveal = vec4<f32>(alpha, alpha, alpha, alpha);
 	return output;
 }
 

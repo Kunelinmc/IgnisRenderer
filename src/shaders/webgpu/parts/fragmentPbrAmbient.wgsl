@@ -159,3 +159,53 @@ return buildSceneOutput(
 	linearDepth
 );
 }
+
+fn resolveTransmissionAlpha(
+	baseAlpha: f32,
+	transmission: f32,
+	nDotV: f32,
+	f0: vec3<f32>,
+	iridescence: f32,
+	iridescenceThickness: f32,
+	iridescenceIor: f32
+) -> f32 {
+	let clampedTransmission = clamp(transmission, 0.0, 1.0);
+	if (clampedTransmission <= EPSILON) {
+		return clamp(baseAlpha, 0.0, 1.0);
+	}
+
+	let fresnel = resolveIridescenceFresnel(
+		nDotV,
+		f0,
+		iridescence,
+		iridescenceThickness,
+		iridescenceIor
+	);
+	let fresnelAverage = clamp(
+		(fresnel.x + fresnel.y + fresnel.z) * (1.0 / 3.0),
+		0.0,
+		1.0
+	);
+	let floorAlpha = max(0, fresnelAverage);
+	let blended =
+		baseAlpha * (1.0 - clampedTransmission) +
+		floorAlpha * clampedTransmission;
+	return clamp(max(floorAlpha, blended), 0.0, 1.0);
+}
+
+fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResult {
+	let cosThetaI = dot(v, n);
+	let outside = cosThetaI > 0.0;
+	let eta = select(ior, 1.0 / max(ior, 1.0), outside);
+	let refractNormal = select(-n, n, outside);
+	let absCosThetaI = abs(cosThetaI);
+	let sin2ThetaT = eta * eta * (1.0 - absCosThetaI * absCosThetaI);
+
+	if (sin2ThetaT > 1.0) {
+		return RefractionResult(vec3<f32>(0.0), 0.0);
+	}
+
+	let cosThetaT = sqrt(max(1.0 - sin2ThetaT, 0.0));
+	let refraction = eta * -v + (eta * absCosThetaI - cosThetaT) * refractNormal;
+	return RefractionResult(safeNormalize(refraction, -v), 1.0);
+}

@@ -1,3 +1,21 @@
+fn resolveOITWeight(alpha: f32, linearDepth: f32) -> f32 {
+	let clampedAlpha = clamp(alpha, 0.0, 1.0);
+	let normalizedDepth = clamp(linearDepth / 400.0, 0.0, 1.0);
+	let depthWeight = clamp(1.0 - normalizedDepth, 0.05, 1.0);
+	let alphaWeight = max(clampedAlpha * 8.0 + 0.01, 0.01);
+	let weight = alphaWeight * alphaWeight * alphaWeight * depthWeight;
+	return clamp(weight, 1e-2, 3e3);
+}
+
+fn buildSceneOITOutput(sceneColor: vec4<f32>, linearDepth: f32) -> SceneFragmentOITOutput {
+	let alpha = clamp(sceneColor.a, 0.0, 1.0);
+	let weight = resolveOITWeight(alpha, linearDepth);
+	var output: SceneFragmentOITOutput;
+	output.accum = vec4<f32>(sceneColor.rgb * alpha, alpha) * weight;
+	output.reveal = vec4<f32>(alpha, alpha, alpha, alpha);
+	return output;
+}
+
 @fragment
 fn fsMain(input: VertexOutput) -> SceneFragmentOutput {
 	return shadeScene(input);
