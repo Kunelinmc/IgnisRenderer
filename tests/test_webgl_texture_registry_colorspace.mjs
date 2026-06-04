@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Texture } from "../src/core/Texture.ts";
 import { WebGLTextureRegistry } from "../src/renderers/webgl/WebGLTextureRegistry.ts";
+import { TextureFormat } from "../src/renderers/types.ts";
 
 function createTextureRegistryTestGL(options = {}) {
 	let textureId = 0;
@@ -27,8 +28,17 @@ function createTextureRegistryTestGL(options = {}) {
 		CLAMP_TO_EDGE: 0x812f,
 		MIRRORED_REPEAT: 0x8370,
 		RGBA: 0x1908,
+		RED: 0x1903,
+		RG: 0x8227,
+		R8: 0x8229,
+		RG8: 0x822b,
+		R16F: 0x822d,
+		RG16F: 0x822f,
+		R32F: 0x822e,
+		RG32F: 0x8230,
 		RGBA16F: 0x881a,
 		RGBA32F: 0x8814,
+		SRGB8_ALPHA8: 0x8c43,
 		UNSIGNED_BYTE: 0x1401,
 		HALF_FLOAT: 0x140b,
 		FLOAT: 0x1406,
@@ -292,6 +302,43 @@ function testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor() {
 	assert.ok(gl.texImage2DCalls[1].pixels instanceof Uint16Array);
 }
 
+function testExplicitR8TextureUploadsSingleChannel() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture({
+		width: 2,
+		height: 1,
+		format: TextureFormat.R8Unorm,
+		colorSpace: "Linear",
+		data: new Uint8Array([10, 20, 30, 40, 50, 60, 70, 80]),
+	});
+
+	registry.getBaseColorTexture(texture);
+
+	assert.equal(gl.texImage2DCalls.length, 1);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.R8);
+	assert.equal(gl.texImage2DCalls[0].format, gl.RED);
+	assert.deepEqual(Array.from(gl.texImage2DCalls[0].pixels), [10, 50]);
+}
+
+function testExplicitSrgbTextureUsesHardwareDecode() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const texture = new Texture({
+		width: 1,
+		height: 1,
+		format: TextureFormat.RGBA8UnormSrgb,
+		colorSpace: "sRGB",
+		data: new Uint8Array([128, 64, 32, 255]),
+	});
+
+	const resolved = registry.getBaseColorTexture(texture);
+
+	assert.equal(resolved.isLinear, true);
+	assert.equal(gl.texImage2DCalls[0].internalFormat, gl.SRGB8_ALPHA8);
+	assert.equal(gl.texImage2DCalls[0].format, gl.RGBA);
+}
+
 function run() {
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
@@ -302,6 +349,8 @@ function run() {
 	testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F();
 	testEnvironmentSpecularFloatUploadFallsBackToRGBA32F();
 	testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor();
+	testExplicitR8TextureUploadsSingleChannel();
+	testExplicitSrgbTextureUsesHardwareDecode();
 	console.log("WebGL texture registry color-space tests passed");
 }
 

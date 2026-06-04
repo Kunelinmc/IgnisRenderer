@@ -2,6 +2,7 @@ import type { Texture } from "../../core/Texture";
 import { clamp } from "../../maths/Common";
 import { Logger } from "../../foundation/Logger";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
+import { TextureFormat } from "../types";
 
 interface TextureEntry {
 	texture: WebGLTexture;
@@ -10,6 +11,7 @@ interface TextureEntry {
 	height: number;
 	isLinear: boolean;
 	uploadKind: WebGLTextureUploadKind;
+	actualFormat: TextureFormat;
 }
 
 export interface ResolvedWebGLTexture {
@@ -17,14 +19,17 @@ export interface ResolvedWebGLTexture {
 	isLinear: boolean;
 }
 
-type WebGLTextureUploadKind = "rgba8" | "rgba16f" | "rgba32f";
+type WebGLTextureUploadKind = string;
 
 interface WebGLTextureUploadFormat {
 	kind: WebGLTextureUploadKind;
+	textureFormat: TextureFormat;
 	internalFormat: number;
 	format: number;
 	type: number;
 	isFloat: boolean;
+	hardwareSRGB: boolean;
+	channelCount: number;
 }
 
 interface WebGLTextureResolveOptions {
@@ -187,11 +192,12 @@ export class WebGLTextureRegistry {
 			cached.width === width &&
 			cached.height === height &&
 			cached.isLinear === isLinear &&
-			cached.uploadKind === uploadFormat.kind
+			cached.uploadKind === uploadFormat.kind &&
+			cached.actualFormat === uploadFormat.textureFormat
 		) {
 			return {
 				texture: cached.texture,
-				isLinear: isLinear || !srgbDefault,
+				isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
 			};
 		}
 
@@ -226,13 +232,14 @@ export class WebGLTextureRegistry {
 			height,
 			isLinear,
 			uploadKind: uploadFormat.kind,
+			actualFormat: uploadFormat.textureFormat,
 		});
 		if (!cachedEntries) {
 			this._cache.set(texture, entries);
 		}
 		return {
 			texture: glTexture,
-			isLinear: isLinear || !srgbDefault,
+			isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
 		};
 	}
 
@@ -334,6 +341,16 @@ export class WebGLTextureRegistry {
 		options: WebGLTextureResolveOptions
 	): WebGLTextureUploadFormat {
 		const gl = this._gl;
+		const requestedFormat = texture.format ?? TextureFormat.RGBA8Unorm;
+		if (texture.formatExplicit) {
+			const requestedUpload = this._resolveRequestedUploadFormat(
+				requestedFormat,
+				label
+			);
+			if (requestedUpload) {
+				return requestedUpload;
+			}
+		}
 		if (options.preferFloat && isLinear && hasFloat32PixelData(texture)) {
 			const floatFormat = this._resolveFloatUploadFormat(label);
 			if (floatFormat) {
@@ -342,11 +359,127 @@ export class WebGLTextureRegistry {
 		}
 		return {
 			kind: "rgba8",
+			textureFormat: TextureFormat.RGBA8Unorm,
 			internalFormat: gl.RGBA,
 			format: gl.RGBA,
 			type: gl.UNSIGNED_BYTE,
 			isFloat: false,
+			hardwareSRGB: false,
+			channelCount: 4,
 		};
+	}
+
+	private _resolveRequestedUploadFormat(
+		requestedFormat: TextureFormat,
+		label: string
+	): WebGLTextureUploadFormat | null {
+		const gl = this._gl as WebGL2RenderingContext & Record<string, number>;
+		switch (requestedFormat) {
+			case TextureFormat.R8Unorm:
+				return this._createSizedWebGLUploadFormat(
+					requestedFormat,
+					"r8",
+					gl.R8,
+					gl.RED,
+					gl.UNSIGNED_BYTE,
+					1,
+					label
+				);
+			case TextureFormat.RG8Unorm:
+				return this._createSizedWebGLUploadFormat(
+					requestedFormat,
+					"rg8",
+					gl.RG8,
+					gl.RG,
+					gl.UNSIGNED_BYTE,
+					2,
+					label
+				);
+			case TextureFormat.RGBA8Unorm:
+				return {
+					kind: "rgba8",
+					textureFormat: TextureFormat.RGBA8Unorm,
+					internalFormat: gl.RGBA,
+					format: gl.RGBA,
+					type: gl.UNSIGNED_BYTE,
+					isFloat: false,
+					hardwareSRGB: false,
+					channelCount: 4,
+				};
+			case TextureFormat.RGBA8UnormSrgb:
+				if (typeof gl.SRGB8_ALPHA8 === "number") {
+					return {
+						kind: "rgba8-srgb",
+						textureFormat: TextureFormat.RGBA8UnormSrgb,
+						internalFormat: gl.SRGB8_ALPHA8,
+						format: gl.RGBA,
+						type: gl.UNSIGNED_BYTE,
+						isFloat: false,
+						hardwareSRGB: true,
+						channelCount: 4,
+					};
+				}
+				this._warnFormatFallback(
+					label,
+					requestedFormat,
+					TextureFormat.RGBA8Unorm
+				);
+				return null;
+			case TextureFormat.R16Float:
+				return this._createFloatWebGLUploadFormat(
+					requestedFormat,
+					"r16f",
+					gl.R16F,
+					gl.RED,
+					1,
+					label
+				);
+			case TextureFormat.RG16Float:
+				return this._createFloatWebGLUploadFormat(
+					requestedFormat,
+					"rg16f",
+					gl.RG16F,
+					gl.RG,
+					2,
+					label
+				);
+			case TextureFormat.RGBA16Float:
+				return this._resolveFloatUploadFormat(label);
+			case TextureFormat.R32Float:
+				return this._createFloat32WebGLUploadFormat(
+					requestedFormat,
+					"r32f",
+					gl.R32F,
+					gl.RED,
+					1,
+					label
+				);
+			case TextureFormat.RG32Float:
+				return this._createFloat32WebGLUploadFormat(
+					requestedFormat,
+					"rg32f",
+					gl.RG32F,
+					gl.RG,
+					2,
+					label
+				);
+			case TextureFormat.RGBA32Float:
+				return this._createFloat32WebGLUploadFormat(
+					requestedFormat,
+					"rgba32f",
+					gl.RGBA32F,
+					gl.RGBA,
+					4,
+					label
+				);
+			default:
+				this._warnFormatFallback(
+					label,
+					requestedFormat,
+					TextureFormat.RGBA8Unorm
+				);
+				return null;
+		}
 	}
 
 	private _resolveFloatUploadFormat(
@@ -364,10 +497,13 @@ export class WebGLTextureRegistry {
 		) {
 			return {
 				kind: "rgba16f",
+				textureFormat: TextureFormat.RGBA16Float,
 				internalFormat: gl.RGBA16F,
 				format: gl.RGBA,
 				type: gl.HALF_FLOAT,
 				isFloat: true,
+				hardwareSRGB: false,
+				channelCount: 4,
 			};
 		}
 		if (
@@ -376,10 +512,13 @@ export class WebGLTextureRegistry {
 		) {
 			return {
 				kind: "rgba32f",
+				textureFormat: TextureFormat.RGBA32Float,
 				internalFormat: gl.RGBA32F,
 				format: gl.RGBA,
 				type: gl.FLOAT,
 				isFloat: true,
+				hardwareSRGB: false,
+				channelCount: 4,
 			};
 		}
 
@@ -389,6 +528,101 @@ export class WebGLTextureRegistry {
 			{ scope: "WebGLTextureRegistry", onceKey: key }
 		);
 		return null;
+	}
+
+	private _createSizedWebGLUploadFormat(
+		textureFormat: TextureFormat,
+		kind: string,
+		internalFormat: number | undefined,
+		format: number | undefined,
+		type: number,
+		channelCount: number,
+		label: string
+	): WebGLTextureUploadFormat | null {
+		if (typeof internalFormat !== "number" || typeof format !== "number") {
+			this._warnFormatFallback(label, textureFormat, TextureFormat.RGBA8Unorm);
+			return null;
+		}
+		return {
+			kind,
+			textureFormat,
+			internalFormat,
+			format,
+			type,
+			isFloat: false,
+			hardwareSRGB: false,
+			channelCount,
+		};
+	}
+
+	private _createFloatWebGLUploadFormat(
+		textureFormat: TextureFormat,
+		kind: string,
+		internalFormat: number | undefined,
+		format: number | undefined,
+		channelCount: number,
+		label: string
+	): WebGLTextureUploadFormat | null {
+		const gl = this._gl as WebGL2RenderingContext & { HALF_FLOAT?: number };
+		if (
+			typeof internalFormat !== "number" ||
+			typeof format !== "number" ||
+			typeof gl.HALF_FLOAT !== "number"
+		) {
+			this._warnFormatFallback(label, textureFormat, TextureFormat.RGBA16Float);
+			return this._resolveFloatUploadFormat(label);
+		}
+		return {
+			kind,
+			textureFormat,
+			internalFormat,
+			format,
+			type: gl.HALF_FLOAT,
+			isFloat: true,
+			hardwareSRGB: false,
+			channelCount,
+		};
+	}
+
+	private _createFloat32WebGLUploadFormat(
+		textureFormat: TextureFormat,
+		kind: string,
+		internalFormat: number | undefined,
+		format: number | undefined,
+		channelCount: number,
+		label: string
+	): WebGLTextureUploadFormat | null {
+		const gl = this._gl as WebGL2RenderingContext & { FLOAT?: number };
+		if (
+			typeof internalFormat !== "number" ||
+			typeof format !== "number" ||
+			typeof gl.FLOAT !== "number"
+		) {
+			this._warnFormatFallback(label, textureFormat, TextureFormat.RGBA16Float);
+			return this._resolveFloatUploadFormat(label);
+		}
+		return {
+			kind,
+			textureFormat,
+			internalFormat,
+			format,
+			type: gl.FLOAT,
+			isFloat: true,
+			hardwareSRGB: false,
+			channelCount,
+		};
+	}
+
+	private _warnFormatFallback(
+		label: string,
+		requestedFormat: TextureFormat,
+		actualFormat: TextureFormat
+	): void {
+		const key = `webgl-texture-format-fallback-${label}-${requestedFormat}-${actualFormat}`;
+		Logger.warn(
+			`[${key}] WebGL ${label} texture format "${requestedFormat}" is unavailable; using "${actualFormat}"`,
+			{ scope: "WebGLTextureRegistry", onceKey: key }
+		);
 	}
 
 	private _canLinearlyFilterFloatTextures(): boolean {
@@ -509,18 +743,165 @@ function createUploadData(
 	height: number,
 	format: WebGLTextureUploadFormat
 ): Uint8Array | Uint16Array | Float32Array {
-	switch (format.kind) {
-		case "rgba16f":
-			return toRGBA16FData(source, width, height);
-		case "rgba32f":
-			return toRGBA32FData(source, width, height);
-		case "rgba8":
-		default:
-			return toRGBA8Data(source, width, height);
+	if (format.isFloat) {
+		return format.kind.endsWith("32f") ?
+				toFloat32Data(source, width, height, format.channelCount)
+			:	toFloat16Data(source, width, height, format.channelCount);
 	}
+	return toUint8Data(source, width, height, format.channelCount);
+}
+
+function toUint8Data(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number,
+	channelCount: number
+): Uint8Array {
+	const expectedLength = Math.max(1, width * height * channelCount);
+	if (source instanceof Uint8Array && !(source instanceof Uint8ClampedArray)) {
+		if (source.length === expectedLength) {
+			return source;
+		}
+		if (source.length < expectedLength) {
+			const resized = new Uint8Array(expectedLength);
+			resized.set(source.subarray(0, expectedLength));
+			return resized;
+		}
+	}
+
+	const data = new Uint8Array(expectedLength);
+	const pixelCount = Math.max(1, width * height);
+	const sourceChannels = inferUploadSourceChannels(source, pixelCount, channelCount);
+	for (let pixel = 0; pixel < pixelCount; pixel++) {
+		for (let channel = 0; channel < channelCount; channel++) {
+			const srcIndex = pixel * sourceChannels + Math.min(channel, sourceChannels - 1);
+			data[pixel * channelCount + channel] = toUint8UploadValue(
+				source,
+				source[srcIndex] ?? defaultUploadChannelValue(channel)
+			);
+		}
+	}
+	return data;
+}
+
+function toFloat32Data(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number,
+	channelCount: number
+): Float32Array {
+	const expectedLength = Math.max(1, width * height * channelCount);
+	if (source instanceof Float32Array && source.length === expectedLength) {
+		return source;
+	}
+	const data = new Float32Array(expectedLength);
+	const pixelCount = Math.max(1, width * height);
+	const sourceChannels = inferUploadSourceChannels(source, pixelCount, channelCount);
+	for (let pixel = 0; pixel < pixelCount; pixel++) {
+		for (let channel = 0; channel < channelCount; channel++) {
+			const srcIndex = pixel * sourceChannels + Math.min(channel, sourceChannels - 1);
+			data[pixel * channelCount + channel] = toFloatUploadValue(
+				source,
+				srcIndex,
+				channel
+			);
+		}
+	}
+	return data;
+}
+
+function toFloat16Data(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number,
+	channelCount: number
+): Uint16Array {
+	const expectedLength = Math.max(1, width * height * channelCount);
+	const data = new Uint16Array(expectedLength);
+	const pixelCount = Math.max(1, width * height);
+	const sourceChannels = inferUploadSourceChannels(source, pixelCount, channelCount);
+	for (let pixel = 0; pixel < pixelCount; pixel++) {
+		for (let channel = 0; channel < channelCount; channel++) {
+			const srcIndex = pixel * sourceChannels + Math.min(channel, sourceChannels - 1);
+			data[pixel * channelCount + channel] = float32ToFloat16Bits(
+				toFloatUploadValue(source, srcIndex, channel)
+			);
+		}
+	}
+	return data;
+}
+
+function inferUploadSourceChannels(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	pixelCount: number,
+	targetChannels: number
+): number {
+	if (source.length >= pixelCount * 4) {
+		return 4;
+	}
+	if (source.length >= pixelCount * targetChannels) {
+		return targetChannels;
+	}
+	if (source.length >= pixelCount * 2) {
+		return 2;
+	}
+	return 1;
+}
+
+function defaultUploadChannelValue(channel: number): number {
+	return channel === 3 ? 1 : 0;
+}
+
+function toUint8UploadValue(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	value: number
+): number {
+	if (source instanceof Float32Array) {
+		return clamp(Math.round(value * 255), 0, 255);
+	}
+	if (Number.isInteger(value) && value >= 0 && value <= 255) {
+		return value;
+	}
+	return clamp(Math.round(value * 255), 0, 255);
+}
+
+function toFloatUploadValue(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	index: number,
+	channel: number
+): number {
+	const value = source[index] ?? defaultUploadChannelValue(channel);
+	if (source instanceof Float32Array) {
+		return value;
+	}
+	return value / 255;
 }
 
 function toRGBA8Data(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number
+): Uint8Array {
+	return toUint8Data(source, width, height, 4);
+}
+
+function toRGBA32FData(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number
+): Float32Array {
+	return toFloat32Data(source, width, height, 4);
+}
+
+function toRGBA16FData(
+	source: Uint8Array | Uint8ClampedArray | Float32Array,
+	width: number,
+	height: number
+): Uint16Array {
+	return toFloat16Data(source, width, height, 4);
+}
+
+function legacyToRGBA8Data(
 	source: Uint8Array | Uint8ClampedArray | Float32Array,
 	width: number,
 	height: number
@@ -544,49 +925,6 @@ function toRGBA8Data(
 	const data = new Uint8Array(expectedLength);
 	for (let i = 0; i < expectedLength; i++) {
 		data[i] = clamp(Math.round((source[i] ?? 0) * 255), 0, 255);
-	}
-	return data;
-}
-
-function toRGBA32FData(
-	source: Uint8Array | Uint8ClampedArray | Float32Array,
-	width: number,
-	height: number
-): Float32Array {
-	const expectedLength = Math.max(1, width * height * 4);
-	if (source instanceof Float32Array) {
-		if (source.length === expectedLength) {
-			return source;
-		}
-		const resized = new Float32Array(expectedLength);
-		resized.set(source.subarray(0, expectedLength));
-		return resized;
-	}
-
-	const data = new Float32Array(expectedLength);
-	for (let i = 0; i < expectedLength; i++) {
-		data[i] = (source[i] ?? 0) / 255;
-	}
-	return data;
-}
-
-function toRGBA16FData(
-	source: Uint8Array | Uint8ClampedArray | Float32Array,
-	width: number,
-	height: number
-): Uint16Array {
-	const expectedLength = Math.max(1, width * height * 4);
-	const data = new Uint16Array(expectedLength);
-	if (source instanceof Float32Array) {
-		const limit = Math.min(source.length, expectedLength);
-		for (let i = 0; i < limit; i++) {
-			data[i] = float32ToFloat16Bits(source[i] ?? 0);
-		}
-		return data;
-	}
-
-	for (let i = 0; i < expectedLength; i++) {
-		data[i] = float32ToFloat16Bits((source[i] ?? 0) / 255);
 	}
 	return data;
 }
