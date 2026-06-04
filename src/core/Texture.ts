@@ -1,6 +1,7 @@
 import type { IVector2 } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import { clamp } from "../maths/Common";
+import { TextureFormat } from "../renderers/types";
 
 export type TextureFilter =
 	| "Nearest"
@@ -20,15 +21,42 @@ export type TextureWrap = "Repeat" | "Clamp" | "MirroredRepeat";
  */
 export type TextureColorSpace = "sRGB" | "Linear" | "HDR";
 
+export type TextureData =
+	| Uint8Array
+	| Uint8ClampedArray
+	| Float32Array;
+
+export interface TextureMipLevel {
+	data: TextureData | null;
+	width: number;
+	height: number;
+	depthOrArrayLayers?: number;
+	bytesPerRow?: number;
+	rowsPerImage?: number;
+}
+
+export interface TextureDescriptor {
+	data?: TextureData | null;
+	width?: number;
+	height?: number;
+	format?: TextureFormat;
+	colorSpace?: TextureColorSpace;
+	levels?: TextureMipLevel[];
+	label?: string;
+	usageHint?: "color" | "data" | "normal" | "depth" | "compressed";
+}
+
 /**
  * Texture class to store image data and metadata for UV mapping.
  */
 export class Texture {
 	private static _dynamicTextures = new Set<Texture>();
 
-	data: Uint8ClampedArray | Float32Array | Uint8Array | null;
+	data: TextureData | null;
 	width: number;
 	height: number;
+	format: TextureFormat;
+	formatExplicit: boolean;
 	wrapS: TextureWrap;
 	wrapT: TextureWrap;
 	minFilter: TextureFilter;
@@ -46,20 +74,54 @@ export class Texture {
 	 * Mipmaps for the texture, used for pre-filtered environment maps (roughness levels).
 	 * mipmaps[0] is the base texture (same as this.data).
 	 */
-	mipmaps: (Uint8ClampedArray | Float32Array | Uint8Array)[];
+	mipmaps: TextureData[];
+	levels: TextureMipLevel[];
 	version: number;
+	label?: string;
+	usageHint?: TextureDescriptor["usageHint"];
 	private _isDynamicTexture: boolean;
 	private _isLoadErrorFallback: boolean;
 
+	constructor(descriptor?: TextureDescriptor);
 	constructor(
-		data: Uint8ClampedArray | Float32Array | Uint8Array | null = null,
+		data?: TextureData | null,
+		width?: number,
+		height?: number,
+		colorSpace?: TextureColorSpace
+	);
+	constructor(
+		dataOrDescriptor: TextureData | TextureDescriptor | null = null,
 		width: number = 0,
 		height: number = 0,
 		colorSpace: TextureColorSpace = "sRGB"
 	) {
-		this.data = data;
-		this.width = width;
-		this.height = height;
+		const descriptor =
+			isTextureDescriptor(dataOrDescriptor) ?
+				dataOrDescriptor
+			:	{
+					data: dataOrDescriptor,
+					width,
+					height,
+					colorSpace,
+				};
+		const resolvedColorSpace = descriptor.colorSpace ?? "sRGB";
+		const resolvedData = descriptor.data ?? descriptor.levels?.[0]?.data ?? null;
+		const resolvedWidth = Math.max(
+			0,
+			Math.floor(descriptor.width ?? descriptor.levels?.[0]?.width ?? width ?? 0)
+		);
+		const resolvedHeight = Math.max(
+			0,
+			Math.floor(descriptor.height ?? descriptor.levels?.[0]?.height ?? height ?? 0)
+		);
+
+		this.data = resolvedData;
+		this.width = resolvedWidth;
+		this.height = resolvedHeight;
+		this.format =
+			descriptor.format ??
+			inferDefaultTextureFormat(resolvedData, resolvedColorSpace);
+		this.formatExplicit = !!descriptor.format;
 		this.wrapS = "Repeat";
 		this.wrapT = "Repeat";
 		this.minFilter = "Linear";
@@ -67,20 +129,34 @@ export class Texture {
 		this.offset = { x: 0, y: 0 };
 		this.repeat = { x: 1, y: 1 };
 		this.rotation = 0;
-		this.colorSpace = colorSpace;
-		this.mipmaps = data ? [data] : [];
+		this.colorSpace = resolvedColorSpace;
+		this.levels = normalizeTextureLevels(
+			descriptor.levels,
+			resolvedData,
+			resolvedWidth,
+			resolvedHeight
+		);
+		this.mipmaps = this.levels
+			.map((level) => level.data)
+			.filter((levelData): levelData is TextureData => !!levelData);
 		this.version = 0;
+		this.label = descriptor.label;
+		this.usageHint = descriptor.usageHint;
 		this._isDynamicTexture = false;
 		this._isLoadErrorFallback = false;
 	}
 
 	public clone(): Texture {
-		const cloned = new Texture(
-			this.data,
-			this.width,
-			this.height,
-			this.colorSpace
-		);
+		const cloned = new Texture({
+			data: this.data,
+			width: this.width,
+			height: this.height,
+			format: this.format,
+			colorSpace: this.colorSpace,
+			levels: this.levels.map((level) => ({ ...level })),
+			label: this.label,
+			usageHint: this.usageHint,
+		});
 		cloned.wrapS = this.wrapS;
 		cloned.wrapT = this.wrapT;
 		cloned.minFilter = this.minFilter;
@@ -90,6 +166,47 @@ export class Texture {
 		cloned.rotation = this.rotation;
 		cloned._isLoadErrorFallback = this._isLoadErrorFallback;
 		return cloned;
+	}
+
+	/**
+	 * Replaces all mip levels and updates the legacy `data`/`mipmaps` mirrors.
+	 */
+	public setMipLevels(levels: TextureMipLevel[]): void {
+		this.levels = normalizeTextureLevels(levels, null, this.width, this.height);
+		this.data = this.levels[0]?.data ?? null;
+		this.width = this.levels[0]?.width ?? this.width;
+		this.height = this.levels[0]?.height ?? this.height;
+		this.mipmaps = this.levels
+			.map((level) => level.data)
+			.filter((levelData): levelData is TextureData => !!levelData);
+		this.markNeedsUpdate();
+	}
+
+	/**
+	 * Returns the effective mip-level descriptor, including legacy mutations.
+	 */
+	public getMipLevelDescriptor(level: number): TextureMipLevel | null {
+		const mipLevel = Math.max(0, Math.floor(level));
+		const explicitLevel = this.levels[mipLevel] ?? null;
+		const legacyData =
+			this.mipmaps[mipLevel] ??
+			(mipLevel === 0 ? this.data : null) ??
+			this.mipmaps[0] ??
+			null;
+		if (explicitLevel && explicitLevel.data === legacyData) {
+			return explicitLevel;
+		}
+		if (!legacyData && !explicitLevel) {
+			return null;
+		}
+		return {
+			data: legacyData,
+			width: Math.max(1, this.width >> mipLevel),
+			height: Math.max(1, this.height >> mipLevel),
+			depthOrArrayLayers: explicitLevel?.depthOrArrayLayers,
+			bytesPerRow: explicitLevel?.bytesPerRow,
+			rowsPerImage: explicitLevel?.rowsPerImage,
+		};
 	}
 
 	/**
@@ -172,7 +289,8 @@ export class Texture {
 
 		const lWidth = Math.max(1, this.width >> Math.floor(l));
 		const lHeight = Math.max(1, this.height >> Math.floor(l));
-		const data = this.mipmaps[Math.floor(l)];
+		const levelDescriptor = this.getMipLevelDescriptor(Math.floor(l));
+		const data = levelDescriptor?.data ?? null;
 
 		if (!data) return { r: 255, g: 255, b: 255, a: 255 };
 
@@ -237,4 +355,62 @@ export class Texture {
 			a: data[idx + 3],
 		};
 	}
+}
+
+function isTextureDescriptor(value: unknown): value is TextureDescriptor {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		!ArrayBuffer.isView(value) &&
+		("data" in value ||
+			"width" in value ||
+			"height" in value ||
+			"colorSpace" in value ||
+			"levels" in value ||
+			"format" in value ||
+			"usageHint" in value ||
+			"label" in value)
+	);
+}
+
+function inferDefaultTextureFormat(
+	data: TextureData | null,
+	colorSpace: TextureColorSpace
+): TextureFormat {
+	if (data instanceof Float32Array || colorSpace === "HDR") {
+		return TextureFormat.RGBA16Float;
+	}
+	return TextureFormat.RGBA8Unorm;
+}
+
+function normalizeTextureLevels(
+	levels: TextureMipLevel[] | undefined,
+	data: TextureData | null,
+	width: number,
+	height: number
+): TextureMipLevel[] {
+	if (levels && levels.length > 0) {
+		return levels.map((level, index) => ({
+			data: level.data ?? null,
+			width: Math.max(1, Math.floor(level.width ?? width >> index)),
+			height: Math.max(1, Math.floor(level.height ?? height >> index)),
+			depthOrArrayLayers: Math.max(
+				1,
+				Math.floor(level.depthOrArrayLayers ?? 1)
+			),
+			bytesPerRow: level.bytesPerRow,
+			rowsPerImage: level.rowsPerImage,
+		}));
+	}
+	if (!data) {
+		return [];
+	}
+	return [
+		{
+			data,
+			width: Math.max(1, Math.floor(width)),
+			height: Math.max(1, Math.floor(height)),
+			depthOrArrayLayers: 1,
+		},
+	];
 }
