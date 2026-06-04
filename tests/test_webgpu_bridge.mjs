@@ -71,6 +71,7 @@ import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
 	WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -607,9 +608,19 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		planarReflectionSampledTextureCount,
 		WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
+	const decalFragmentEntries = getFragmentEntries(
+		layouts.decalPipelineLayout
+	);
+	const decalSampledTextureCount = decalFragmentEntries.filter(
+		(entry) => !!entry.texture
+	).length;
+	assert.equal(
+		decalSampledTextureCount,
+		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
+	);
 	assert.equal(
 		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		planarReflectionSampledTextureCount
+		decalSampledTextureCount
 	);
 	assert.equal(
 		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],
