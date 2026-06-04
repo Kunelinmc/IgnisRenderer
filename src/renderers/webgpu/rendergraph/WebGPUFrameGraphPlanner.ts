@@ -9,6 +9,28 @@ import type {
 	WebGPUFrameGraphStagePlan,
 } from "./types";
 
+const DEFERRED_GBUFFER_RENDER_RESOURCE_IDS = [
+	"gbuffer:albedo-alpha",
+	"gbuffer:normal-rough-metal",
+	"gbuffer:emissive-occlusion",
+	"gbuffer:motion-depth",
+	"gbuffer:specular",
+	"gbuffer:coat-sheen",
+	"gbuffer:sheen-reflectance",
+] as const;
+
+const DEFERRED_GBUFFER_STORAGE_RESOURCE_IDS = [
+	"gbuffer:material-ext0",
+	"gbuffer:material-ext1",
+	"gbuffer:material-ext2",
+	"gbuffer:material-ext3",
+] as const;
+
+const DEFERRED_GBUFFER_RESOURCE_IDS = [
+	...DEFERRED_GBUFFER_RENDER_RESOURCE_IDS,
+	...DEFERRED_GBUFFER_STORAGE_RESOURCE_IDS,
+] as const;
+
 /**
  * Builds WebGPU-internal frame graph nodes for renderer-level backend stages.
  */
@@ -78,16 +100,45 @@ export class WebGPUFrameGraphPlanner {
 			],
 			[
 				"main-opaque",
-				(pass, _context, state) => [
-					this._node(
-						pass,
-						"opaque-scene",
-						state.deferredActive ?
-							"WebGPUOpaqueDeferred"
-						:	`WebGPUOpaque${state.sceneTargetMode}`,
-						this._createOpaqueResources(state)
-					),
-				],
+				(pass, context, state) => {
+					if (state.deferredActive && state.sceneTargetMode === "gbuffer") {
+						const nodes: WebGPUFrameGraphNode[] = [
+							this._node(
+								pass,
+								"opaque-scene",
+								"WebGPUGBuffer",
+								this._createOpaqueResources(state)
+							),
+						];
+						if ((context.scene?.decalPackets.length ?? 0) > 0) {
+							nodes.push(
+								this._node(
+									pass,
+									"deferred-decal",
+									"WebGPUDeferredDecal",
+									this._createDeferredDecalResources()
+								)
+							);
+						}
+						nodes.push(
+							this._node(
+								pass,
+								"deferred-lighting",
+								"WebGPUDeferredLighting",
+								this._createDeferredLightingResources()
+							)
+						);
+						return nodes;
+					}
+					return [
+						this._node(
+							pass,
+							"opaque-scene",
+							`WebGPUOpaque${state.sceneTargetMode}`,
+							this._createOpaqueResources(state)
+						),
+					];
+				},
 			],
 			[
 				"main-transparent",
@@ -204,6 +255,42 @@ export class WebGPUFrameGraphPlanner {
 			writes.push(this._write("planar-reflection:mask", "render-attachment"));
 		}
 		return { reads, writes };
+	}
+
+	private _createDeferredDecalResources(): Pick<
+		WebGPUFrameGraphNode,
+		"reads" | "writes"
+	> {
+		return {
+			reads: DEFERRED_GBUFFER_RESOURCE_IDS.map((id) =>
+				this._read(id, "copy-src")
+			),
+			writes: [
+				...DEFERRED_GBUFFER_RENDER_RESOURCE_IDS.map((id) =>
+					this._write(id, "render-attachment")
+				),
+				...DEFERRED_GBUFFER_STORAGE_RESOURCE_IDS.map((id) =>
+					this._write(id, "storage-binding")
+				),
+			],
+		};
+	}
+
+	private _createDeferredLightingResources(): Pick<
+		WebGPUFrameGraphNode,
+		"reads" | "writes"
+	> {
+		return {
+			reads: [
+				...DEFERRED_GBUFFER_RESOURCE_IDS.map((id) =>
+					this._read(id, "texture-binding")
+				),
+				this._read("shadow-atlas", "texture-binding", true),
+			],
+			writes: [
+				this._write("frame:scene-color-main", "render-attachment"),
+			],
+		};
 	}
 
 	private _createForwardResources(

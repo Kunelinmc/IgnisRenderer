@@ -162,6 +162,151 @@ function testResourceDebugStateTracksLastAccess() {
 	assert.equal(state.lastUsage, "depth-attachment");
 }
 
+function testDeferredDecalNodeRecordsGBufferTransitions() {
+	const { compiler, stage } = compile([
+		{
+			id: "main-opaque:opaque-scene",
+			stage: "main-opaque",
+			kind: "opaque-scene",
+			label: "WebGPUGBuffer",
+			writes: [
+				{
+					id: "gbuffer:albedo-alpha",
+					usage: "render-attachment",
+				},
+				{
+					id: "gbuffer:material-ext0",
+					usage: "storage-binding",
+				},
+			],
+		},
+		{
+			id: "main-opaque:deferred-decal",
+			stage: "main-opaque",
+			kind: "deferred-decal",
+			label: "WebGPUDeferredDecal",
+			reads: [
+				{
+					id: "gbuffer:albedo-alpha",
+					usage: "copy-src",
+				},
+				{
+					id: "gbuffer:material-ext0",
+					usage: "copy-src",
+				},
+			],
+			writes: [
+				{
+					id: "gbuffer:albedo-alpha",
+					usage: "render-attachment",
+				},
+				{
+					id: "gbuffer:material-ext0",
+					usage: "storage-binding",
+				},
+			],
+		},
+		{
+			id: "main-opaque:deferred-lighting",
+			stage: "main-opaque",
+			kind: "deferred-lighting",
+			label: "WebGPUDeferredLighting",
+			reads: [
+				{
+					id: "gbuffer:albedo-alpha",
+					usage: "texture-binding",
+				},
+				{
+					id: "gbuffer:material-ext0",
+					usage: "texture-binding",
+				},
+			],
+			writes: [{
+				id: "frame:scene-color-main",
+				usage: "render-attachment",
+			}],
+		},
+	]);
+
+	const albedoBarriers = stage.barriers.filter(
+		(barrier) => barrier.resource === "gbuffer:albedo-alpha"
+	);
+	assert.deepEqual(
+		albedoBarriers.map((barrier) => ({
+			beforeNodeId: barrier.beforeNodeId,
+			nodeId: barrier.nodeId,
+			reason: barrier.reason,
+			fromUsage: barrier.fromUsage,
+			toUsage: barrier.toUsage,
+		})),
+		[
+			{
+				beforeNodeId: "main-opaque:opaque-scene",
+				nodeId: "main-opaque:deferred-decal",
+				reason: "read-after-write",
+				fromUsage: "render-attachment",
+				toUsage: "copy-src",
+			},
+			{
+				beforeNodeId: "main-opaque:deferred-decal",
+				nodeId: "main-opaque:deferred-decal",
+				reason: "write-after-read",
+				fromUsage: "copy-src",
+				toUsage: "render-attachment",
+			},
+			{
+				beforeNodeId: "main-opaque:deferred-decal",
+				nodeId: "main-opaque:deferred-lighting",
+				reason: "read-after-write",
+				fromUsage: "render-attachment",
+				toUsage: "texture-binding",
+			},
+		]
+	);
+	const materialExtBarriers = stage.barriers.filter(
+		(barrier) => barrier.resource === "gbuffer:material-ext0"
+	);
+	assert.deepEqual(
+		materialExtBarriers.map((barrier) => ({
+			beforeNodeId: barrier.beforeNodeId,
+			nodeId: barrier.nodeId,
+			reason: barrier.reason,
+			fromUsage: barrier.fromUsage,
+			toUsage: barrier.toUsage,
+		})),
+		[
+			{
+				beforeNodeId: "main-opaque:opaque-scene",
+				nodeId: "main-opaque:deferred-decal",
+				reason: "read-after-write",
+				fromUsage: "storage-binding",
+				toUsage: "copy-src",
+			},
+			{
+				beforeNodeId: "main-opaque:deferred-decal",
+				nodeId: "main-opaque:deferred-decal",
+				reason: "write-after-read",
+				fromUsage: "copy-src",
+				toUsage: "storage-binding",
+			},
+			{
+				beforeNodeId: "main-opaque:deferred-decal",
+				nodeId: "main-opaque:deferred-lighting",
+				reason: "read-after-write",
+				fromUsage: "storage-binding",
+				toUsage: "texture-binding",
+			},
+		]
+	);
+	const albedoState = compiler
+		.getResourceDebugState()
+		.find((resource) => resource.id === "gbuffer:albedo-alpha");
+	assert.ok(albedoState);
+	assert.equal(albedoState.lastNodeId, "main-opaque:deferred-lighting");
+	assert.equal(albedoState.lastAccess, "read");
+	assert.equal(albedoState.lastUsage, "texture-binding");
+}
+
 function run() {
 	testReadBeforeCreateDiagnostic();
 	testOptionalReadDoesNotDiagnose();
@@ -169,6 +314,7 @@ function run() {
 	testOptionalReadDoesNotEmitBarrierForLaterWrite();
 	testUsageTransitionsEmitBarriers();
 	testResourceDebugStateTracksLastAccess();
+	testDeferredDecalNodeRecordsGBufferTransitions();
 	console.log("test_webgpu_frame_graph_compiler: ok");
 }
 

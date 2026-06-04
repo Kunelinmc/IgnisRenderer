@@ -8,6 +8,8 @@ export type WebGPUFrameGraphNodeKind =
 	| "shadow"
 	| "planar-reflection-capture"
 	| "opaque-scene"
+	| "deferred-decal"
+	| "deferred-lighting"
 	| "transparent-scene"
 	| "oit-transparent"
 	| "particles"

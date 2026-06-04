@@ -102,6 +102,12 @@ const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 
+interface WebGPUDeferredOpaqueFrameState {
+	readonly fallbackPackets: DrawPacket[];
+	readonly clearSceneColor: boolean;
+	readonly lightingEnabled: boolean;
+}
+
 export class WebGPUFrameGraphRuntime {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
@@ -135,6 +141,8 @@ export class WebGPUFrameGraphRuntime {
 	private _oitPass: WebGPUOITPass;
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
 	private _deferredDecalPass: WebGPUDeferredDecalPass;
+	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null =
+		null;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _nodeExecutors: Map<
@@ -289,6 +297,7 @@ export class WebGPUFrameGraphRuntime {
 		this._motionHistoryWriteTarget = null;
 		this._pendingPostProcessColorTarget = null;
 		this._postBridge.clearPendingFrameState();
+		this._deferredOpaqueFrameState = null;
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
@@ -683,6 +692,18 @@ export class WebGPUFrameGraphRuntime {
 				"opaque-scene",
 				async (_node, context) => {
 					await this._recordOpaquePass(context);
+				},
+			],
+			[
+				"deferred-decal",
+				async (_node, context) => {
+					await this._recordDeferredDecalNode(context);
+				},
+			],
+			[
+				"deferred-lighting",
+				async (_node, context) => {
+					await this._recordDeferredLightingNode(context);
 				},
 			],
 			[
@@ -1122,6 +1143,7 @@ export class WebGPUFrameGraphRuntime {
 		this._motionHistoryWriteTarget = null;
 		this._pendingPostProcessColorTarget = null;
 		this._postBridge.clearPendingFrameState();
+		this._deferredOpaqueFrameState = null;
 	}
 
 	private _clearActiveFrameState(flushPendingLifecycle = true): void {
@@ -1131,6 +1153,7 @@ export class WebGPUFrameGraphRuntime {
 		this._motionHistoryWriteTarget = null;
 		this._pendingPostProcessColorTarget = null;
 		this._hasPresentedInFrame = false;
+		this._deferredOpaqueFrameState = null;
 		this._oitActive = false;
 		this._oitPass.resetFrameState();
 		if (flushPendingLifecycle) {
@@ -1637,6 +1660,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private async _recordOpaquePass(context: FrameContext): Promise<void> {
+		this._deferredOpaqueFrameState = null;
 		if (!this._deferredEnabled || !this._mrtEnabled || !this._frameTargets) {
 			await this._recordMainPass(
 				context,
@@ -1664,26 +1688,27 @@ export class WebGPUFrameGraphRuntime {
 			return;
 		}
 
-		await this._recordDeferredOpaquePass(
+		const deferredResult = await this._recordDeferredGBufferPass(
 			context,
 			deferredPackets,
 			true,
 			true
 		);
-		if (fallbackPackets.length > 0) {
-			await this._recordMainPass(context, fallbackPackets, false, false);
-		}
-		await this._recordPlanarReflectionComposite(context);
+		this._deferredOpaqueFrameState = {
+			fallbackPackets,
+			clearSceneColor: deferredResult?.clearSceneColor ?? false,
+			lightingEnabled: deferredResult !== null,
+		};
 	}
 
-	private async _recordDeferredOpaquePass(
+	private async _recordDeferredGBufferPass(
 		context: FrameContext,
 		packets: DrawPacket[],
 		clearAttachments: boolean,
 		allowEarlyZPrepass: boolean
-	): Promise<void> {
+	): Promise<{ clearSceneColor: boolean } | null> {
 		if (!this._encoder || !this._frameTargets) {
-			return;
+			return null;
 		}
 		if (
 			!this._frameTargets.gSpecular ||
@@ -1695,7 +1720,7 @@ export class WebGPUFrameGraphRuntime {
 			!this._frameTargets.gMaterialExt3
 		) {
 			await this._recordMainPass(context, packets, clearAttachments, true);
-			return;
+			return null;
 		}
 
 		const frameResources = this._requireFrameResources();
@@ -1861,11 +1886,46 @@ export class WebGPUFrameGraphRuntime {
 		});
 
 		this._encoder.endRenderPass();
+		return {
+			clearSceneColor: shouldClearAttachments && !environmentDrawn,
+		};
+	}
+
+	private async _recordDeferredDecalNode(
+		context: FrameContext
+	): Promise<void> {
+		if (!this._deferredOpaqueFrameState?.lightingEnabled) {
+			return;
+		}
 		await this._deferredDecalPass.recordDecalPass(context);
-		await this._recordDeferredLightingPass(
-			context,
-			shouldClearAttachments && !environmentDrawn
-		);
+	}
+
+	private async _recordDeferredLightingNode(
+		context: FrameContext
+	): Promise<void> {
+		const state = this._deferredOpaqueFrameState;
+		if (!state) {
+			return;
+		}
+		try {
+			if (state.lightingEnabled) {
+				await this._recordDeferredLightingPass(
+					context,
+					state.clearSceneColor
+				);
+			}
+			if (state.fallbackPackets.length > 0) {
+				await this._recordMainPass(
+					context,
+					state.fallbackPackets,
+					false,
+					false
+				);
+			}
+			await this._recordPlanarReflectionComposite(context);
+		} finally {
+			this._deferredOpaqueFrameState = null;
+		}
 	}
 
 	private async _recordDeferredLightingPass(
