@@ -628,6 +628,23 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		layouts.gbufferWriteBindGroupLayout.desc.entries.length,
 		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
 	);
+	assert.equal(layouts.decalPipelineLayout.desc.bindGroupLayouts.length, 4);
+	assert.equal(
+		layouts.decalPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.decalBatchBindGroupLayout
+	);
+	assert.equal(layouts.decalBatchPipelineLayout.desc.bindGroupLayouts.length, 4);
+	assert.equal(
+		layouts.decalBatchPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.decalBatchBindGroupLayout
+	);
+	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 15);
+	assert.equal(
+		layouts.decalBatchBindGroupLayout.desc.entries.filter(
+			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
+		).length,
+		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+	);
 	assert.equal(layouts.deferredUnusedBindGroupLayout.desc.entries.length, 0);
 	assert.equal(samplerCount, WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT);
 	assert.equal(

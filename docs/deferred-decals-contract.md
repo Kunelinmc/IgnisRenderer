@@ -15,10 +15,11 @@ Decals reuse existing `Material` classes instead of introducing a dedicated
 decal material type. Decal-specific projector and blending state lives on
 `Decal`.
 
-The deferred decal pass snapshots the current G-buffer before each decal draw,
-samples that snapshot, applies the decal blend rules, then writes the updated
-G-buffer. This preserves `Decal.priority` and scene traversal order for
-overlapping decals.
+The deferred decal pass must preserve `Decal.priority` and scene traversal order
+for overlapping decals. WebGPU may group contiguous compatible decals into an
+ordered segment, snapshot the current G-buffer once for that segment, apply the
+segment decals in sorted order, then write the updated G-buffer. Decals that
+cannot be grouped must use an ordered fallback path.
 
 ## API/Contract
 
@@ -36,6 +37,11 @@ must not be relied on for WebGPU v1 decal receiver tests.
 
 `Decal.priority` must sort decals in ascending order. Decals with equal priority
 must retain scene traversal order.
+
+WebGPU batch optimization must not change the observable result of overlapping
+decals. Any device limit, material binding, texture binding, storage-texture, or
+tile/bin overflow that prevents exact ordered batching must fall back to the
+per-decal ordered path.
 
 `Decal.channelBlendModes` may set per-channel blend behavior. Supported modes
 are `disabled`, `lerp`, `replace`, `multiply`, `add`, and `normal`.

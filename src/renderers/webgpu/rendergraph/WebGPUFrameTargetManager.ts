@@ -241,6 +241,7 @@ export class WebGPUFrameTargetManager {
 							usage:
 								TextureUsage.RenderAttachment |
 								TextureUsage.TextureBinding |
+								TextureUsage.StorageBinding |
 								TextureUsage.CopySrc |
 								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_AlbedoAlpha",
@@ -258,6 +259,7 @@ export class WebGPUFrameTargetManager {
 							usage:
 								TextureUsage.RenderAttachment |
 								TextureUsage.TextureBinding |
+								TextureUsage.StorageBinding |
 								TextureUsage.CopySrc |
 								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_RGBA16",
@@ -275,6 +277,7 @@ export class WebGPUFrameTargetManager {
 							usage:
 								TextureUsage.RenderAttachment |
 								TextureUsage.TextureBinding |
+								TextureUsage.StorageBinding |
 								TextureUsage.CopySrc |
 								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_RGBA16",
@@ -292,6 +295,7 @@ export class WebGPUFrameTargetManager {
 							usage:
 								TextureUsage.RenderAttachment |
 								TextureUsage.TextureBinding |
+								TextureUsage.StorageBinding |
 								TextureUsage.CopySrc |
 								TextureUsage.CopyDst,
 							label: "WebGPUGBuffer_MotionDepth",
@@ -305,6 +309,7 @@ export class WebGPUFrameTargetManager {
 				usage:
 					TextureUsage.RenderAttachment |
 					TextureUsage.TextureBinding |
+					TextureUsage.StorageBinding |
 					TextureUsage.CopySrc |
 					TextureUsage.CopyDst,
 				label: "WebGPUGBufferDeferredRGBA16",

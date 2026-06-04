@@ -106,6 +106,7 @@ const tests = [
 	"test_webgpu_structured_buffer_packer.mjs",
 	"test_webgpu_packing.mjs",
 	"test_webgpu_draw_submission.mjs",
+	"test_webgpu_deferred_decal_pass.mjs",
 	"test_webgpu_bridge.mjs",
 	"test_webgpu_backend_cache_and_dependency.mjs",
 	"test_webgpu_material_binding_cache.mjs",

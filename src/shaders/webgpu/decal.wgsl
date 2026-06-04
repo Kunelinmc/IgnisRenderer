@@ -71,6 +71,26 @@ struct GBufferOutput {
 	@location(6) gSheenReflectance: vec4<f32>,
 }
 
+struct DecalBatchParams {
+	rect: vec4<u32>,
+	tileInfo: vec4<u32>,
+}
+
+struct DecalEvaluation {
+	applied: u32,
+	gAlbedoAlpha: vec4<f32>,
+	gNormalRoughMetal: vec4<f32>,
+	gEmissiveOcclusion: vec4<f32>,
+	gMotionDepth: vec4<f32>,
+	gSpecular: vec4<f32>,
+	gCoatSheen: vec4<f32>,
+	gSheenReflectance: vec4<f32>,
+	gMaterialExt0: vec4<f32>,
+	gMaterialExt1: vec4<f32>,
+	gMaterialExt2: vec4<f32>,
+	gMaterialExt3: vec4<f32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 
 @group(1) @binding(0) var gAlbedoAlphaIn: texture_2d<f32>;
@@ -118,10 +138,21 @@ struct GBufferOutput {
 @group(2) @binding(31) var iridescenceThicknessTexture: texture_2d<f32>;
 @group(2) @binding(37) var anisotropyTexture: texture_2d<f32>;
 
-@group(3) @binding(0) var gMaterialExt0Out: texture_storage_2d<rgba16float, write>;
-@group(3) @binding(1) var gMaterialExt1Out: texture_storage_2d<rgba16float, write>;
-@group(3) @binding(2) var gMaterialExt2Out: texture_storage_2d<rgba16float, write>;
-@group(3) @binding(3) var gMaterialExt3Out: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(0) var<uniform> batch: DecalBatchParams;
+@group(3) @binding(1) var<storage, read> batchDecals: array<DecalUniforms>;
+@group(3) @binding(2) var<storage, read> batchTileHeaders: array<vec4<u32>>;
+@group(3) @binding(3) var<storage, read> batchTileDecalIndices: array<u32>;
+@group(3) @binding(4) var gAlbedoAlphaBatchOut: texture_storage_2d<rgba8unorm, write>;
+@group(3) @binding(5) var gNormalRoughMetalBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(6) var gEmissiveOcclusionBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(7) var gMotionDepthBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(8) var gSpecularBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(9) var gCoatSheenBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(10) var gSheenReflectanceBatchOut: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(11) var gMaterialExt0Out: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(12) var gMaterialExt1Out: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(13) var gMaterialExt2Out: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(14) var gMaterialExt3Out: texture_storage_2d<rgba16float, write>;
 
 @vertex
 fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VSOut {
@@ -635,4 +666,519 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	output.gCoatSheen = coatSheen;
 	output.gSheenReflectance = sheenReflectance;
 	return output;
+}
+
+fn transformUVFrom(d: DecalUniforms, slotIndex: u32, uv: vec2<f32>) -> vec2<f32> {
+	let transformA = d.textureTransformA[slotIndex];
+	let transformB = d.textureTransformB[slotIndex];
+	var transformed = uv * transformA.zw;
+	let rotation = transformB.x;
+	if (abs(rotation) > EPSILON) {
+		let c = cos(rotation);
+		let s = sin(rotation);
+		transformed = vec2<f32>(
+			transformed.x * c - transformed.y * s,
+			transformed.x * s + transformed.y * c
+		);
+	}
+	return transformed + transformA.xy;
+}
+
+fn transformAnisotropyUVFrom(d: DecalUniforms, uv: vec2<f32>) -> vec2<f32> {
+	let transformA = d.anisotropyTextureTransformA;
+	let transformB = d.anisotropyTextureTransformB;
+	var transformed = uv * transformA.zw;
+	let rotation = transformB.x;
+	if (abs(rotation) > EPSILON) {
+		let c = cos(rotation);
+		let s = sin(rotation);
+		transformed = vec2<f32>(
+			transformed.x * c - transformed.y * s,
+			transformed.x * s + transformed.y * c
+		);
+	}
+	return transformed + transformA.xy;
+}
+
+fn sampleLinearTextureFrom(
+	d: DecalUniforms,
+	textureRef: texture_2d<f32>,
+	samplerRef: sampler,
+	slotIndex: u32,
+	uv: vec2<f32>
+) -> vec4<f32> {
+	return textureSample(textureRef, samplerRef, transformUVFrom(d, slotIndex, uv));
+}
+
+fn sampleColorTextureFrom(
+	d: DecalUniforms,
+	textureRef: texture_2d<f32>,
+	samplerRef: sampler,
+	slotIndex: u32,
+	uv: vec2<f32>
+) -> vec4<f32> {
+	let sampled = sampleLinearTextureFrom(d, textureRef, samplerRef, slotIndex, uv);
+	let isLinear = d.textureTransformB[slotIndex].z > 0.5;
+	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
+}
+
+fn transformLocalDirectionFrom(d: DecalUniforms, direction: vec3<f32>) -> vec3<f32> {
+	return safeNormalize((d.localToWorld * vec4<f32>(direction, 0.0)).xyz, direction);
+}
+
+fn getChannelModeFrom(d: DecalUniforms, index: u32) -> u32 {
+	let vectorIndex = index / 4u;
+	let componentIndex = index % 4u;
+	let values = d.channelModes[vectorIndex];
+	let value = select(
+		select(values.x, values.y, componentIndex == 1u),
+		select(values.z, values.w, componentIndex == 3u),
+		componentIndex >= 2u
+	);
+	return u32(clamp(floor(value + 0.5), 0.0, 5.0));
+}
+
+fn projectorOpacityFrom(
+	d: DecalUniforms,
+	localPosition: vec3<f32>,
+	baseAlpha: f32
+) -> f32 {
+	let halfExtent = vec3<f32>(0.5);
+	let distanceToEdge = min(
+		min(halfExtent.x - abs(localPosition.x), halfExtent.y - abs(localPosition.y)),
+		halfExtent.z - abs(localPosition.z)
+	);
+	if (distanceToEdge < 0.0) {
+		return 0.0;
+	}
+	let edgeFade = max(d.projectorParams.y, 0.0);
+	let fade = select(1.0, saturate(distanceToEdge / max(edgeFade, EPSILON)), edgeFade > 0.0);
+	return saturate(d.projectorParams.x * baseAlpha * fade);
+}
+
+fn makeDecalEvaluation(
+	applied: u32,
+	gAlbedoAlpha: vec4<f32>,
+	gNormalRoughMetal: vec4<f32>,
+	gEmissiveOcclusion: vec4<f32>,
+	gMotionDepth: vec4<f32>,
+	gSpecular: vec4<f32>,
+	gCoatSheen: vec4<f32>,
+	gSheenReflectance: vec4<f32>,
+	gMaterialExt0: vec4<f32>,
+	gMaterialExt1: vec4<f32>,
+	gMaterialExt2: vec4<f32>,
+	gMaterialExt3: vec4<f32>
+) -> DecalEvaluation {
+	var result: DecalEvaluation;
+	result.applied = applied;
+	result.gAlbedoAlpha = gAlbedoAlpha;
+	result.gNormalRoughMetal = gNormalRoughMetal;
+	result.gEmissiveOcclusion = gEmissiveOcclusion;
+	result.gMotionDepth = gMotionDepth;
+	result.gSpecular = gSpecular;
+	result.gCoatSheen = gCoatSheen;
+	result.gSheenReflectance = gSheenReflectance;
+	result.gMaterialExt0 = gMaterialExt0;
+	result.gMaterialExt1 = gMaterialExt1;
+	result.gMaterialExt2 = gMaterialExt2;
+	result.gMaterialExt3 = gMaterialExt3;
+	return result;
+}
+
+fn applyDecalToGBuffer(
+	d: DecalUniforms,
+	coord: vec2<i32>,
+	albedoAlphaOld: vec4<f32>,
+	normalRoughMetalOld: vec4<f32>,
+	emissiveOcclusionOld: vec4<f32>,
+	motionDepthOld: vec4<f32>,
+	specularOld: vec4<f32>,
+	coatSheenOld: vec4<f32>,
+	sheenReflectanceOld: vec4<f32>,
+	materialExt0Old: vec4<f32>,
+	materialExt1Old: vec4<f32>,
+	materialExt2Old: vec4<f32>,
+	materialExt3Old: vec4<f32>
+) -> DecalEvaluation {
+	if (motionDepthOld.z <= 0.0 || !layerMatches(materialExt3Old.w, d.projectorParams.z)) {
+		return makeDecalEvaluation(
+			0u,
+			albedoAlphaOld,
+			normalRoughMetalOld,
+			emissiveOcclusionOld,
+			motionDepthOld,
+			specularOld,
+			coatSheenOld,
+			sheenReflectanceOld,
+			materialExt0Old,
+			materialExt1Old,
+			materialExt2Old,
+			materialExt3Old
+		);
+	}
+
+	let dimensions = vec2<f32>(textureDimensions(gAlbedoAlphaIn, 0));
+	let screenUV = vec2<f32>(coord) / max(dimensions, vec2<f32>(1.0));
+	let worldPosition = reconstructDeferredWorldPosition(screenUV, motionDepthOld.z);
+	let localPosition = (d.worldToLocal * vec4<f32>(worldPosition, 1.0)).xyz;
+	let projectorUV = localPosition.xy + vec2<f32>(0.5);
+	let baseSample = sampleColorTextureFrom(
+		d,
+		baseColorTexture,
+		baseColorSampler,
+		TEX_BASE_COLOR,
+		projectorUV
+	);
+	let opacity = projectorOpacityFrom(d, localPosition, baseSample.a);
+	if (opacity <= 0.0) {
+		return makeDecalEvaluation(
+			0u,
+			albedoAlphaOld,
+			normalRoughMetalOld,
+			emissiveOcclusionOld,
+			motionDepthOld,
+			specularOld,
+			coatSheenOld,
+			sheenReflectanceOld,
+			materialExt0Old,
+			materialExt1Old,
+			materialExt2Old,
+			materialExt3Old
+		);
+	}
+
+	let oldNormal = decodeDeferredNormal(normalRoughMetalOld.xy);
+	let baseColor = clamp(d.baseColorFactor.rgb * baseSample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+	let mrSample = sampleLinearTextureFrom(
+		d,
+		metallicRoughnessTexture,
+		metallicRoughnessSampler,
+		TEX_METALLIC_ROUGHNESS,
+		projectorUV
+	);
+	let normalSample = sampleLinearTextureFrom(
+		d,
+		normalTexture,
+		normalSampler,
+		TEX_NORMAL,
+		projectorUV
+	).rgb;
+	let emissiveSample = sampleColorTextureFrom(
+		d,
+		emissiveTexture,
+		emissiveSampler,
+		TEX_EMISSIVE,
+		projectorUV
+	);
+	let occlusionSample = sampleLinearTextureFrom(
+		d,
+		occlusionTexture,
+		occlusionSampler,
+		TEX_OCCLUSION,
+		projectorUV
+	);
+	let specularSample = sampleLinearTextureFrom(
+		d,
+		specularTexture,
+		specularSampler,
+		TEX_SPECULAR,
+		projectorUV
+	);
+	let specularColorSample = sampleColorTextureFrom(
+		d,
+		specularColorTexture,
+		specularColorSampler,
+		TEX_SPECULAR_COLOR,
+		projectorUV
+	);
+	let clearcoatSample = sampleLinearTextureFrom(
+		d,
+		clearcoatTexture,
+		clearcoatSampler,
+		TEX_CLEARCOAT,
+		projectorUV
+	);
+	let clearcoatRoughnessSample = sampleLinearTextureFrom(
+		d,
+		clearcoatRoughnessTexture,
+		clearcoatRoughnessSampler,
+		TEX_CLEARCOAT_ROUGHNESS,
+		projectorUV
+	);
+	let clearcoatNormalSample = sampleLinearTextureFrom(
+		d,
+		clearcoatNormalTexture,
+		clearcoatNormalSampler,
+		TEX_CLEARCOAT_NORMAL,
+		projectorUV
+	).rgb;
+	let sheenColorSample = sampleColorTextureFrom(
+		d,
+		sheenColorTexture,
+		sheenColorSampler,
+		TEX_SHEEN_COLOR,
+		projectorUV
+	);
+	let sheenRoughnessSample = sampleLinearTextureFrom(
+		d,
+		sheenRoughnessTexture,
+		sheenRoughnessSampler,
+		TEX_SHEEN_ROUGHNESS,
+		projectorUV
+	);
+	let transmissionSample = sampleLinearTextureFrom(
+		d,
+		transmissionTexture,
+		transmissionSampler,
+		TEX_TRANSMISSION,
+		projectorUV
+	);
+	let thicknessSample = sampleLinearTextureFrom(
+		d,
+		thicknessTexture,
+		thicknessSampler,
+		TEX_THICKNESS,
+		projectorUV
+	);
+	let iridescenceSample = textureSample(
+		iridescenceTexture,
+		thicknessSampler,
+		transformUVFrom(d, TEX_IRIDESCENCE, projectorUV)
+	);
+	let iridescenceThicknessSample = textureSample(
+		iridescenceThicknessTexture,
+		thicknessSampler,
+		transformUVFrom(d, TEX_IRIDESCENCE_THICKNESS, projectorUV)
+	);
+
+	let decalNormalLocal = safeNormalize(
+		vec3<f32>(
+			(normalSample.rg * 2.0 - vec2<f32>(1.0)) * d.surfaceParams1.y,
+			normalSample.b * 2.0 - 1.0
+		),
+		vec3<f32>(0.0, 0.0, 1.0)
+	);
+	let decalNormal = transformLocalDirectionFrom(d, decalNormalLocal);
+	let clearcoatNormalLocal = safeNormalize(
+		vec3<f32>(
+			(clearcoatNormalSample.rg * 2.0 - vec2<f32>(1.0)) *
+				d.sheenColorClearcoatNormalScale.a,
+			clearcoatNormalSample.b * 2.0 - 1.0
+		),
+		vec3<f32>(0.0, 0.0, 1.0)
+	);
+	let clearcoatNormal = transformLocalDirectionFrom(d, clearcoatNormalLocal);
+
+	let roughness = clamp(d.surfaceParams0.x * mrSample.g, 0.04, 1.0);
+	let metalness = clamp(d.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+	let emissive = max(
+		d.emissiveFactor.rgb * emissiveSample.rgb * d.emissiveFactor.a,
+		vec3<f32>(0.0)
+	);
+	let occlusion = clamp(1.0 + d.surfaceParams1.x * (occlusionSample.r - 1.0), 0.0, 1.0);
+	let specularFactor = clamp(d.specularColorFactor.a * specularSample.a, 0.0, 1.0);
+	let specularColor = clamp(
+		d.specularColorFactor.rgb * specularColorSample.rgb,
+		vec3<f32>(0.0),
+		vec3<f32>(1.0)
+	);
+	let clearcoat = clamp(d.surfaceParams1.z * clearcoatSample.r, 0.0, 1.0);
+	let clearcoatRoughness = clamp(
+		d.surfaceParams1.w * clearcoatRoughnessSample.g,
+		0.04,
+		1.0
+	);
+	let sheenColor = clamp(
+		d.sheenColorClearcoatNormalScale.rgb * sheenColorSample.rgb,
+		vec3<f32>(0.0),
+		vec3<f32>(1.0)
+	);
+	let sheenRoughness = clamp(d.surfaceParams2.x * sheenRoughnessSample.a, 0.0, 1.0);
+	let transmission = clamp(d.surfaceParams2.y * transmissionSample.r, 0.0, 1.0);
+	let thickness = max(d.surfaceParams2.w * thicknessSample.g, 0.0);
+	let iridescence = clamp(d.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
+	let iridescenceThickness = max(
+		mix(
+			d.surfaceParams3.w,
+			d.attenuationColor.a,
+			iridescenceThicknessSample.g
+		),
+		0.0
+	);
+
+	var anisotropyDirection = vec2<f32>(1.0, 0.0);
+	var anisotropyStrength = clamp(d.anisotropyParams.x, 0.0, 1.0);
+	if (d.anisotropyTextureTransformB.w > 0.5) {
+		let anisotropySample = textureSample(
+			anisotropyTexture,
+			thicknessSampler,
+			transformAnisotropyUVFrom(d, projectorUV)
+		);
+		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
+		anisotropyStrength = clamp(anisotropyStrength * anisotropySample.b, 0.0, 1.0);
+	}
+	let anisotropyLocal = safeNormalize(
+		vec3<f32>(anisotropyDirection.x, anisotropyDirection.y, 0.0),
+		vec3<f32>(1.0, 0.0, 0.0)
+	);
+	let anisotropyTangent = transformLocalDirectionFrom(d, anisotropyLocal);
+
+	var albedoAlpha = albedoAlphaOld;
+	var normalRoughMetal = normalRoughMetalOld;
+	var emissiveOcclusion = emissiveOcclusionOld;
+	let motionDepth = motionDepthOld;
+	var specular = specularOld;
+	var coatSheen = coatSheenOld;
+	var sheenReflectance = sheenReflectanceOld;
+	var materialExt0 = materialExt0Old;
+	let materialExt1 = materialExt1Old;
+	var materialExt2 = materialExt2Old;
+	var materialExt3 = materialExt3Old;
+
+	albedoAlpha = vec4<f32>(
+		clamp(blendVec3(albedoAlpha.rgb, baseColor, getChannelModeFrom(d, 0u), opacity), vec3<f32>(0.0), vec3<f32>(1.0)),
+		albedoAlpha.a
+	);
+	let blendedNormal = blendNormal(oldNormal, decalNormal, getChannelModeFrom(d, 1u), opacity);
+	normalRoughMetal = vec4<f32>(
+		encodeNormalForGBuffer(blendedNormal),
+		clamp(blendScalar(normalRoughMetal.z, roughness, getChannelModeFrom(d, 2u), opacity), 0.04, 1.0),
+		clamp(blendScalar(normalRoughMetal.w, metalness, getChannelModeFrom(d, 3u), opacity), 0.0, 1.0)
+	);
+	emissiveOcclusion = vec4<f32>(
+		max(blendVec3(emissiveOcclusion.rgb, emissive, getChannelModeFrom(d, 4u), opacity), vec3<f32>(0.0)),
+		clamp(blendScalar(emissiveOcclusion.a, occlusion, getChannelModeFrom(d, 5u), opacity), 0.0, 1.0)
+	);
+	specular = vec4<f32>(
+		clamp(blendVec3(specular.rgb, specularColor, getChannelModeFrom(d, 7u), opacity), vec3<f32>(0.0), vec3<f32>(1.0)),
+		clamp(blendScalar(specular.a, specularFactor, getChannelModeFrom(d, 6u), opacity), 0.0, 1.0)
+	);
+	coatSheen = vec4<f32>(
+		clamp(blendScalar(coatSheen.x, clearcoat, getChannelModeFrom(d, 8u), opacity), 0.0, 1.0),
+		clamp(blendScalar(coatSheen.y, clearcoatRoughness, getChannelModeFrom(d, 9u), opacity), 0.04, 1.0),
+		clamp(blendScalar(coatSheen.z, sheenRoughness, getChannelModeFrom(d, 12u), opacity), 0.0, 1.0),
+		clamp(blendScalar(coatSheen.w, transmission, getChannelModeFrom(d, 13u), opacity), 0.0, 1.0)
+	);
+	sheenReflectance = vec4<f32>(
+		clamp(blendVec3(sheenReflectance.rgb, sheenColor, getChannelModeFrom(d, 11u), opacity), vec3<f32>(0.0), vec3<f32>(1.0)),
+		sheenReflectance.a
+	);
+	let blendedClearcoatNormal = blendNormal(
+		decodeDeferredNormal(materialExt0.xy),
+		clearcoatNormal,
+		getChannelModeFrom(d, 10u),
+		opacity
+	);
+	materialExt0 = vec4<f32>(
+		encodeNormalForGBuffer(blendedClearcoatNormal),
+		materialExt0.z,
+		max(blendScalar(materialExt0.w, thickness, getChannelModeFrom(d, 14u), opacity), 0.0)
+	);
+	materialExt2 = vec4<f32>(
+		clamp(blendScalar(materialExt2.x, iridescence, getChannelModeFrom(d, 15u), opacity), 0.0, 1.0),
+		materialExt2.y,
+		max(blendScalar(materialExt2.z, iridescenceThickness, getChannelModeFrom(d, 16u), opacity), 0.0),
+		materialExt2.w
+	);
+	let blendedAnisotropyTangent = blendNormal(
+		decodeDeferredNormal(materialExt3.xy),
+		anisotropyTangent,
+		getChannelModeFrom(d, 17u),
+		opacity
+	);
+	materialExt3 = vec4<f32>(
+		encodeNormalForGBuffer(blendedAnisotropyTangent),
+		clamp(blendScalar(materialExt3.z, anisotropyStrength, getChannelModeFrom(d, 17u), opacity), 0.0, 1.0),
+		materialExt3.w
+	);
+
+	return makeDecalEvaluation(
+		1u,
+		albedoAlpha,
+		normalRoughMetal,
+		emissiveOcclusion,
+		motionDepth,
+		specular,
+		coatSheen,
+		sheenReflectance,
+		materialExt0,
+		materialExt1,
+		materialExt2,
+		materialExt3
+	);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn csMainBatch(@builtin(global_invocation_id) globalId: vec3<u32>) {
+	if (globalId.x >= batch.rect.z || globalId.y >= batch.rect.w) {
+		return;
+	}
+
+	let coordU = batch.rect.xy + globalId.xy;
+	let coord = vec2<i32>(i32(coordU.x), i32(coordU.y));
+	let tileSize = max(batch.tileInfo.x, 1u);
+	let tileColumns = max(batch.tileInfo.y, 1u);
+	let tileX = globalId.x / tileSize;
+	let tileY = globalId.y / tileSize;
+	let tileIndex = tileY * tileColumns + tileX;
+	let tileHeader = batchTileHeaders[tileIndex];
+	let decalOffset = tileHeader.x;
+	let decalCount = tileHeader.y;
+
+	var albedoAlpha = textureLoad(gAlbedoAlphaIn, coord, 0);
+	var normalRoughMetal = textureLoad(gNormalRoughMetalIn, coord, 0);
+	var emissiveOcclusion = textureLoad(gEmissiveOcclusionIn, coord, 0);
+	var motionDepth = textureLoad(gMotionDepthIn, coord, 0);
+	var specular = textureLoad(gSpecularIn, coord, 0);
+	var coatSheen = textureLoad(gCoatSheenIn, coord, 0);
+	var sheenReflectance = textureLoad(gSheenReflectanceIn, coord, 0);
+	var materialExt0 = textureLoad(gMaterialExt0In, coord, 0);
+	var materialExt1 = textureLoad(gMaterialExt1In, coord, 0);
+	var materialExt2 = textureLoad(gMaterialExt2In, coord, 0);
+	var materialExt3 = textureLoad(gMaterialExt3In, coord, 0);
+
+	for (var i = 0u; i < decalCount; i = i + 1u) {
+		let decalIndex = batchTileDecalIndices[decalOffset + i];
+		let evaluation = applyDecalToGBuffer(
+			batchDecals[decalIndex],
+			coord,
+			albedoAlpha,
+			normalRoughMetal,
+			emissiveOcclusion,
+			motionDepth,
+			specular,
+			coatSheen,
+			sheenReflectance,
+			materialExt0,
+			materialExt1,
+			materialExt2,
+			materialExt3
+		);
+		if (evaluation.applied != 0u) {
+			albedoAlpha = evaluation.gAlbedoAlpha;
+			normalRoughMetal = evaluation.gNormalRoughMetal;
+			emissiveOcclusion = evaluation.gEmissiveOcclusion;
+			motionDepth = evaluation.gMotionDepth;
+			specular = evaluation.gSpecular;
+			coatSheen = evaluation.gCoatSheen;
+			sheenReflectance = evaluation.gSheenReflectance;
+			materialExt0 = evaluation.gMaterialExt0;
+			materialExt1 = evaluation.gMaterialExt1;
+			materialExt2 = evaluation.gMaterialExt2;
+			materialExt3 = evaluation.gMaterialExt3;
+		}
+	}
+
+	textureStore(gAlbedoAlphaBatchOut, coord, albedoAlpha);
+	textureStore(gNormalRoughMetalBatchOut, coord, normalRoughMetal);
+	textureStore(gEmissiveOcclusionBatchOut, coord, emissiveOcclusion);
+	textureStore(gMotionDepthBatchOut, coord, motionDepth);
+	textureStore(gSpecularBatchOut, coord, specular);
+	textureStore(gCoatSheenBatchOut, coord, coatSheen);
+	textureStore(gSheenReflectanceBatchOut, coord, sheenReflectance);
+	textureStore(gMaterialExt0Out, coord, materialExt0);
+	textureStore(gMaterialExt1Out, coord, materialExt1);
+	textureStore(gMaterialExt2Out, coord, materialExt2);
+	textureStore(gMaterialExt3Out, coord, materialExt3);
 }

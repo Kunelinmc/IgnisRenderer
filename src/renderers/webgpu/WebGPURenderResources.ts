@@ -25,6 +25,7 @@ import {
 	BufferUsage,
 	TextureFormat,
 	type IBindingGroup,
+	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderPipeline,
 	type IRenderTexture,
@@ -218,6 +219,7 @@ export class WebGPURenderResources {
 	private _particleShaderModule: IShaderModule | null = null;
 	private _decalShaderModule: IShaderModule | null = null;
 	private _decalPipeline: IRenderPipeline | null = null;
+	private _decalBatchPipeline: IComputePipeline | null = null;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
 	private _particleInstanceBuffer: IRenderBuffer | null = null;
 	private _particleInstanceCapacity = 0;
@@ -695,6 +697,16 @@ export class WebGPURenderResources {
 	}
 
 	/**
+	 * Returns the bind group layout used by WebGPU deferred decal batch data.
+	 *
+	 * @returns The WebGPU bind group layout for tile-binned decal resources.
+	 * @sideEffects None.
+	 */
+	public getDecalBatchBindGroupLayout(): GPUBindGroupLayout {
+		return this._layouts.decalBatchBindGroupLayout;
+	}
+
+	/**
 	 * Returns the bind group layout used by planar reflection composite draws.
 	 *
 	 * @returns The WebGPU bind group layout for reflection texture sampling.
@@ -787,6 +799,38 @@ export class WebGPURenderResources {
 		return this._decalPipeline;
 	}
 
+	/**
+	 * Resolves the tile-binned deferred decal compute pipeline.
+	 *
+	 * @returns A compute pipeline that applies compatible decal segments.
+	 * @sideEffects May compile and cache the decal shader module and pipeline.
+	 */
+	public async getDecalBatchPipeline(): Promise<IComputePipeline> {
+		if (this._decalBatchPipeline) {
+			return this._decalBatchPipeline;
+		}
+		if (!this._decalShaderModule) {
+			const shader = await loadWebGPUUtilityShaderComposite("decal");
+			this._decalShaderModule = await this._backend.createShaderModule({
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				label: "WebGPUDecalShader",
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "decal",
+			});
+		}
+		this._decalBatchPipeline = this._backend.createComputePipeline({
+			layout: this._layouts.decalBatchPipelineLayout,
+			label: "WebGPUDeferredDecalBatchPipeline",
+			compute: {
+				module: this._decalShaderModule,
+				entryPoint: "csMainBatch",
+			},
+		} as any);
+		return this._decalBatchPipeline;
+	}
+
 	public updateParticleShadowVolumes(
 		frameResources: WebGPUPreparedFrameResources,
 		context: FrameContext
@@ -834,6 +878,7 @@ export class WebGPURenderResources {
 		}
 		this._decalShaderModule = null;
 		this._decalPipeline = null;
+		this._decalBatchPipeline = null;
 		this._shadowPass.onShaderRuntimeChanged();
 	}
 
@@ -846,6 +891,7 @@ export class WebGPURenderResources {
 		this._particleShaderModule = null;
 		this._decalShaderModule = null;
 		this._decalPipeline = null;
+		this._decalBatchPipeline = null;
 		this._particlePipelineAlpha.clear();
 		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
