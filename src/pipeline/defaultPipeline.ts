@@ -60,14 +60,14 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 					hasParticleShadowCasters(frame.particleSystems)),
 		},
 		{
-			id: "reflection-probe-capture",
+			id: "probe-capture",
 			kind: "renderer",
 			dependsOn: ["prepared-scene-build"],
 		},
 		{
 			id: "reflection",
 			kind: "backend-pass",
-			dependsOn: ["prepared-scene-build", "reflection-probe-capture"],
+			dependsOn: ["prepared-scene-build", "probe-capture"],
 			shouldRun: ({ frame, features }) =>
 				features.enableReflection && frame.reflectivePackets.length > 0,
 		},

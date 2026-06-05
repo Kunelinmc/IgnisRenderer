@@ -391,9 +391,13 @@ export class EnvironmentIBLUpdateRuntime {
 	): boolean {
 		const probes: LightProbe[] = scene
 			.getLights()
-			.filter((light): light is LightProbe => light.type === LightType.LightProbe);
+			.filter(
+				(light): light is LightProbe =>
+					light.type === LightType.LightProbe &&
+					(light as LightProbe).source === "environment"
+			);
 		if (probes.length === 0) {
-			probes.push(scene.add(new LightProbe()));
+			probes.push(scene.add(new LightProbe({})));
 		}
 
 		let converged = true;

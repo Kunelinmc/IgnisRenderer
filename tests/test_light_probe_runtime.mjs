@@ -38,10 +38,14 @@ function createLocalizedProbe({
 }
 
 function testConstructorAndLocalizedClone() {
-	const probeFromSH = new LightProbe(null);
-	assert.equal(probeFromSH.shape, "global");
-	assert.equal("intensity" in probeFromSH, false);
-	assert.equal(probeFromSH.sh.length, 16);
+	assert.throws(() => new LightProbe(), /LightProbeParams object/);
+	assert.throws(() => new LightProbe(null), /LightProbeParams object/);
+	assert.throws(() => new LightProbe(SH.empty()), /LightProbeParams object/);
+
+	const emptyProbe = new LightProbe({});
+	assert.equal(emptyProbe.shape, "global");
+	assert.equal("intensity" in emptyProbe, false);
+	assert.equal(emptyProbe.sh.length, 16);
 
 	const probe = new LightProbe({
 		sh: SH.empty(),
@@ -50,6 +54,10 @@ function testConstructorAndLocalizedClone() {
 		halfExtents: { x: -2, y: 0, z: Number.NaN },
 		blendDistance: -1,
 		priority: 3.9,
+		source: "capturedScene",
+		captureUpdateMode: "manual",
+		captureResolution: { width: 32, height: 16 },
+		includeMeshes: false,
 	});
 	assert.equal(probe.shape, "box");
 	assert.equal(probe.radius, 4);
@@ -58,10 +66,18 @@ function testConstructorAndLocalizedClone() {
 	assert.ok(probe.halfExtents.z > 0);
 	assert.equal(probe.blendDistance, 0);
 	assert.equal(probe.priority, 3);
+	assert.equal(probe.source, "capturedScene");
+	assert.equal(probe.captureUpdateMode, "manual");
+	assert.equal(probe.captureResolution.width, 32);
+	assert.equal(probe.includeMeshes, false);
+	probe.requestCapture();
+	assert.equal(probe.captureRequestToken, 1);
 
 	const cloned = probe.clone(false);
 	assert.equal(cloned.shape, "box");
 	assert.equal(cloned.priority, 3);
+	assert.equal(cloned.source, "capturedScene");
+	assert.equal(cloned.captureRequestToken, 1);
 	assert.notEqual(cloned.sh, probe.sh);
 	cloned.sh[0].r = 99;
 	assert.notEqual(cloned.sh[0].r, probe.sh[0].r);
@@ -77,7 +93,7 @@ function testCopyPreservesLocalizedState() {
 	});
 	source.sh[5] = { r: 7, g: 3, b: 1 };
 
-	const target = new LightProbe(SH.empty());
+	const target = new LightProbe({ sh: SH.empty() });
 	target.copy(source);
 
 	assert.equal(target.shape, "box");
@@ -89,6 +105,7 @@ function testCopyPreservesLocalizedState() {
 	assert.equal(target.blendDistance, 0.15);
 	assert.equal(target.priority, 12);
 	assert.deepEqual(target.sh[5], { r: 7, g: 3, b: 1 });
+	assert.equal(target.source, source.source);
 }
 
 function testMetricAndBlendCurve() {
@@ -158,7 +175,7 @@ function testPrioritySelectionAndTieBreak() {
 }
 
 function testCollectionSeparatesGlobalAndLocalizedProbes() {
-	const globalProbe = new LightProbe(SH.empty());
+	const globalProbe = new LightProbe({ sh: SH.empty() });
 	globalProbe.id = "global";
 	const farLocalized = Array.from({ length: 8 }, (_, index) =>
 		createLocalizedProbe({

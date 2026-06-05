@@ -239,7 +239,7 @@ function createFrameContext(overrides = {}) {
 function createRendererFramePlan(passes) {
 	const dependencyByStage = new Map([
 		["shadow", ["prepared-scene-build", "particle-sim"]],
-		["reflection", ["prepared-scene-build", "reflection-probe-capture"]],
+		["reflection", ["prepared-scene-build", "probe-capture"]],
 		["main-opaque", ["reflection", "shadow"]],
 		["main-transparent", ["main-opaque"]],
 		["particles", ["main-transparent"]],

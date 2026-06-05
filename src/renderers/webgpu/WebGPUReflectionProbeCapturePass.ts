@@ -4,12 +4,12 @@ import { isMaterialTransparentPass } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, Matrix3Arr } from "../../maths/types";
 import type { MeshInstance } from "../../meshes";
-import type { ReflectionProbe } from "../../lights";
 import type { IPrimitive } from "../../core/types";
 import type { DrawPacket, FrameContext, ParticleRenderBatch, ParticleRenderItem, PreparedScene, ResolvedFeatureState } from "../../pipeline/types";
 import { DRAW_PACKET_FLAG_TRANSPARENT, PARTICLE_TRANSIENT_BATCHES_KEY, createTransientStore } from "../../pipeline/types";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
+import type { ProbeWebGPUCaptureFaceRequest } from "../../pipeline/ProbeCaptureRuntime";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,
@@ -37,17 +37,6 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 	{ x: 0, y: -1, z: 0 },
 ];
 
-export interface WebGPUReflectionProbeCaptureFaceRequest {
-	frameContext: FrameContext;
-	probe: ReflectionProbe;
-	faceIndex: number;
-	faceSize: number;
-	includeEnvironment: boolean;
-	includeTransparent: boolean;
-	includeParticles: boolean;
-	includeShadows: boolean;
-}
-
 export class WebGPUReflectionProbeCapturePass {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
@@ -60,7 +49,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	public async captureFace(
-		request: WebGPUReflectionProbeCaptureFaceRequest
+		request: ProbeWebGPUCaptureFaceRequest
 	): Promise<Float32Array | null> {
 		const faceSize = Math.max(1, Math.floor(request.faceSize));
 		if (faceSize <= 0) {
@@ -69,13 +58,14 @@ export class WebGPUReflectionProbeCapturePass {
 
 		const resolvedFaceIndex = clampFaceIndex(request.faceIndex);
 		const captureCamera = createCubeFaceCamera(
-			request.probe,
+			request.captureWorldPosition,
+			request.captureFar,
 			resolvedFaceIndex
 		);
 		const captureScene = buildCapturePreparedScene(
 			request.frameContext,
 			captureCamera,
-			request.probe,
+			request.includeMeshes,
 			request.includeEnvironment,
 			request.includeTransparent,
 			request.includeParticles
@@ -119,7 +109,7 @@ export class WebGPUReflectionProbeCapturePass {
 			faceSize,
 			resolvedFaceIndex
 		);
-		const scopeKey = `reflection-probe:${request.probe.id}:${resolvedFaceIndex}`;
+		const scopeKey = `probe-capture:${request.targetKind}:${request.targetId}:${resolvedFaceIndex}`;
 		let frameResources: WebGPUPreparedFrameResources | null = null;
 
 		try {
@@ -371,11 +361,14 @@ function clampFaceIndex(faceIndex: number): number {
 	return Math.max(0, Math.min(5, Math.floor(faceIndex)));
 }
 
-function createCubeFaceCamera(probe: ReflectionProbe, faceIndex: number): Camera {
-	const captureWorldPosition = probe.getRuntimeCache().captureWorldPosition;
+function createCubeFaceCamera(
+	captureWorldPosition: IVector3,
+	captureFarInput: number,
+	faceIndex: number
+): Camera {
 	const direction = CUBE_FACE_DIRECTIONS[faceIndex] ?? CUBE_FACE_DIRECTIONS[0];
 	const up = CUBE_FACE_UP_VECTORS[faceIndex] ?? CUBE_FACE_UP_VECTORS[0];
-	const captureFar = Math.max(1, probe.captureFar);
+	const captureFar = Math.max(1, captureFarInput);
 	const camera = new Camera({
 		fov: 90,
 		aspectRatio: 1,
@@ -412,7 +405,7 @@ function createCubeFaceCamera(probe: ReflectionProbe, faceIndex: number): Camera
 function buildCapturePreparedScene(
 	frameContext: FrameContext,
 	captureCamera: Camera,
-	probe: ReflectionProbe,
+	includeMeshes: boolean,
 	includeEnvironment: boolean,
 	includeTransparent: boolean,
 	includeParticles: boolean
@@ -421,7 +414,7 @@ function buildCapturePreparedScene(
 	const opaquePackets: DrawPacket[] = [];
 	const transparentPackets: DrawPacket[] = [];
 
-	if (probe.includeMeshes) {
+	if (includeMeshes) {
 		const meshInstances = baseScene.meshInstances.filter(
 			(meshInstance) => meshInstance.visible !== false
 		);

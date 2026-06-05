@@ -122,8 +122,14 @@ async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
 		renderer.scene.environment.backgroundTexture = environmentTexture;
 		renderer.scene.environment.iblTexture = environmentTexture;
 
-		const probeA = renderer.scene.add(new LightProbe(SH.empty()));
-		const probeB = renderer.scene.add(new LightProbe(SH.empty()));
+		const probeA = renderer.scene.add(new LightProbe({ sh: SH.empty() }));
+		const probeB = renderer.scene.add(new LightProbe({ sh: SH.empty() }));
+		const manualLightProbe = renderer.scene.add(
+			new LightProbe({ source: "manual", sh: SH.empty() })
+		);
+		const capturedLightProbe = renderer.scene.add(
+			new LightProbe({ source: "capturedScene", sh: SH.empty() })
+		);
 		const reflectionA = renderer.scene.add(
 			new ReflectionProbe({ shape: "box", prefilteredMap: null })
 		);
@@ -166,10 +172,14 @@ async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
 		const probes = renderer.scene
 			.getLights()
 			.filter((light) => light.type === "lightProbe");
-		assert.equal(probes.length, 2);
+		assert.equal(probes.length, 4);
 		for (const probe of probes) {
 			assert.equal(probe.sh.length, 16);
 		}
+		assert.ok(probeA.sh[0].r !== 0 || probeA.sh[0].g !== 0 || probeA.sh[0].b !== 0);
+		assert.ok(probeB.sh[0].r !== 0 || probeB.sh[0].g !== 0 || probeB.sh[0].b !== 0);
+		assert.equal(manualLightProbe.sh[0].r, 0);
+		assert.equal(capturedLightProbe.sh[0].r, 0);
 		assert.ok(reflectionA.prefilteredMap);
 		assert.ok(reflectionB.prefilteredMap);
 		assert.equal(reflectionCaptured.prefilteredMap, capturedPrefiltered);

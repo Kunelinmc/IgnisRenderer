@@ -34,9 +34,9 @@ import {
 	type PreparedSceneCacheBuildResult,
 } from "../pipeline/PreparedSceneCache";
 import {
-	ReflectionProbeCaptureRuntime,
-	type ReflectionProbeWebGPUCaptureSource,
-} from "../pipeline/ReflectionProbeCaptureRuntime";
+	ProbeCaptureRuntime,
+	type ProbeWebGPUCaptureSource,
+} from "../pipeline/ProbeCaptureRuntime";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
@@ -195,7 +195,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _incrementalOptions: IncrementalRenderingOptions;
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null;
 	private _preparedSceneCache: PreparedSceneCache;
-	private _reflectionProbeCaptureRuntime: ReflectionProbeCaptureRuntime;
+	private _probeCaptureRuntime: ProbeCaptureRuntime;
 	private _environmentIBLUpdateRuntime: EnvironmentIBLUpdateRuntime;
 	private _environmentIBLUpdateOptions: EnvironmentIBLUpdateOptions;
 	private _environmentIBLUpdateRequestToken: number;
@@ -259,8 +259,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._incrementalOptions = { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS };
 		this._lastIncrementalFrameStats = null;
 		this._preparedSceneCache = new PreparedSceneCache();
-		this._reflectionProbeCaptureRuntime =
-			new ReflectionProbeCaptureRuntime();
+		this._probeCaptureRuntime = new ProbeCaptureRuntime();
 		this._environmentIBLUpdateRuntime = new EnvironmentIBLUpdateRuntime();
 		this._environmentIBLUpdateOptions = {
 			...DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
@@ -487,11 +486,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 		const lights = this.scene.getLights();
 		const probes = lights.filter(
-			(light): light is LightProbe => light.type === LightType.LightProbe
+			(light): light is LightProbe =>
+				light.type === LightType.LightProbe &&
+				(light as LightProbe).source === "environment"
 		);
 
 		if (probes.length === 0) {
-			probes.push(this.scene.add(new LightProbe()));
+			probes.push(this.scene.add(new LightProbe({})));
 		}
 
 		for (const probe of probes) {
@@ -890,8 +891,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				(state) => this._executePreparedSceneBuildStage(state),
 			],
 			[
-				"reflection-probe-capture",
-				(state) => this._executeReflectionProbeCaptureStage(state),
+				"probe-capture",
+				(state) => this._executeProbeCaptureStage(state),
 			],
 			["postprocess", (state) => this._executePostProcessStageIfReady(state)],
 			["sync-out", () => this.scene.syncECSToNode()],
@@ -1125,13 +1126,13 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		await this.backend.beginFrame(state.context);
 	}
 
-	private async _executeReflectionProbeCaptureStage(
+	private async _executeProbeCaptureStage(
 		state: RenderSceneFrameState
 	): Promise<void> {
 		const cameraWorldPosition = this.camera.getWorldPosition(
 			_tmpRendererCameraWorldPosition
 		);
-		await this._reflectionProbeCaptureRuntime.execute({
+		await this._probeCaptureRuntime.execute({
 			scene: this.scene,
 			nowMs: state.now,
 			frameDirtyReasonMask: state.frameDirtyReasonMask,
@@ -1143,7 +1144,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				:	null,
 			webgpuCaptureSource:
 				this.backend.type === "webgpu" ?
-					(this.backend as unknown as ReflectionProbeWebGPUCaptureSource)
+					(this.backend as unknown as ProbeWebGPUCaptureSource)
 				:	null,
 		});
 	}

@@ -29,8 +29,8 @@ import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
 import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler";
 import {
 	WebGPUReflectionProbeCapturePass,
-	type WebGPUReflectionProbeCaptureFaceRequest,
 } from "./webgpu/WebGPUReflectionProbeCapturePass";
+import type { ProbeWebGPUCaptureFaceRequest } from "../pipeline/ProbeCaptureRuntime";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import { WebGPUPassPlanner } from "./webgpu/WebGPUFramePlanner";
 import type {
@@ -883,8 +883,8 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._frameExecutor?.getSceneTargetModeForFrame() ?? "single";
 	}
 
-	public async captureReflectionProbeFace(
-		request: WebGPUReflectionProbeCaptureFaceRequest,
+	public async captureProbeFace(
+		request: ProbeWebGPUCaptureFaceRequest,
 	): Promise<Float32Array | null> {
 		if (!this._reflectionProbeCapturePass) {
 			return null;

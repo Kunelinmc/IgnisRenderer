@@ -196,7 +196,7 @@ function testLightProbe() {
 	const dcVal = targetLinearIrr / (Math.PI * Y00);
 	sh[0] = { r: dcVal, g: dcVal, b: dcVal };
 
-	const probe = new LightProbe(sh);
+	const probe = new LightProbe({ sh });
 	const contribution = evaluateLightContribution(probe, {
 		position: { x: 0, y: 0, z: 0 },
 	});

@@ -5,7 +5,7 @@ import { Texture } from "../src/core/Texture.ts";
 import { Logger } from "../src/foundation/Logger.ts";
 import { ReflectionProbe } from "../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../src/maths/Matrix4.ts";
-import { ReflectionProbeCaptureRuntime } from "../src/pipeline/ReflectionProbeCaptureRuntime.ts";
+import { ProbeCaptureRuntime } from "../src/pipeline/ProbeCaptureRuntime.ts";
 import { Renderer } from "../src/renderers/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -63,7 +63,7 @@ function createCapturedFace(faceSize, seed = 1) {
 
 async function testCaptureRuntimeTriggerModes() {
 	const bakeCalls = [];
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: async () => {
 			bakeCalls.push("call");
 			return createBakedEnvironment(bakeCalls.length);
@@ -160,7 +160,7 @@ async function testCaptureRuntimeTriggerModes() {
 
 async function testCaptureRuntimeThrottlesToOneInFlightBake() {
 	const deferredBakes = [];
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: () => {
 			const deferred = createDeferred();
 			deferredBakes.push(deferred);
@@ -169,14 +169,14 @@ async function testCaptureRuntimeThrottlesToOneInFlightBake() {
 	});
 
 	const scene = new Scene();
-	scene.add(
+	const firstProbe = scene.add(
 		new ReflectionProbe({
 			source: "capturedScene",
 			captureUpdateMode: "onSceneDirty",
 			captureResolution: { width: 16, height: 8 },
 		})
 	);
-	scene.add(
+	const secondProbe = scene.add(
 		new ReflectionProbe({
 			source: "capturedScene",
 			captureUpdateMode: "onSceneDirty",
@@ -195,18 +195,15 @@ async function testCaptureRuntimeThrottlesToOneInFlightBake() {
 	deferredBakes[0].resolve(createBakedEnvironment(1));
 	await flushAsyncTasks();
 
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: 32 + step * 16 }),
-		() => deferredBakes.length >= 2
-	);
-	assert.equal(deferredBakes.length, 2);
+	assert.equal(deferredBakes.length, 1);
+	assert.ok(firstProbe.prefilteredMap);
+	assert.ok(secondProbe.prefilteredMap);
 }
 
 async function testCaptureRuntimeDropsStaleBakeResults() {
 	const deferred = createDeferred();
 	let bakeCallCount = 0;
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: () => {
 			bakeCallCount++;
 			return deferred.promise;
@@ -242,7 +239,7 @@ async function testCaptureRuntimeDropsStaleBakeResults() {
 async function testCaptureRuntimeDropsStaleBakeResultsWhenCaptureFlagsChange() {
 	const deferred = createDeferred();
 	let bakeCallCount = 0;
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: () => {
 			bakeCallCount++;
 			return deferred.promise;
@@ -276,7 +273,7 @@ async function testCaptureRuntimeDropsStaleBakeResultsWhenCaptureFlagsChange() {
 
 async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 	const captureOrder = [];
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: async () => createBakedEnvironment(1),
 	});
 	const scene = new Scene();
@@ -306,8 +303,8 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 		frameContext: {},
 		cameraWorldPosition: { x: 0, y: 0, z: 0 },
 		webgpuCaptureSource: {
-			async captureReflectionProbeFace(request) {
-				captureOrder.push(request.probe.id);
+			async captureProbeFace(request) {
+				captureOrder.push(request.targetId);
 				return createCapturedFace(request.faceSize, 1);
 			},
 		},
@@ -320,7 +317,7 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 
 async function testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes() {
 	let bakeCallCount = 0;
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: async () => createBakedEnvironment(++bakeCallCount),
 	});
 	const scene = new Scene();
@@ -345,18 +342,18 @@ async function testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes() {
 		await flushAsyncTasks();
 	}
 
-	assert.equal(bakeCallCount, 2);
+	assert.equal(bakeCallCount, 1);
 	assert.ok(firstProbe.prefilteredMap);
 	assert.ok(secondProbe.prefilteredMap);
 
 	await runtime.execute({ scene, nowMs: 96 });
 	await flushAsyncTasks();
-	assert.equal(bakeCallCount, 2);
+	assert.equal(bakeCallCount, 1);
 }
 
 async function testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty() {
 	let bakeCallCount = 0;
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: async () => createBakedEnvironment(++bakeCallCount),
 	});
 	const scene = new Scene();
@@ -385,7 +382,7 @@ async function testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty() {
 async function testCaptureRuntimeBudgetDowngradesResolution() {
 	const capturedFaceSizes = [];
 	let bakeCallCount = 0;
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		captureBudgetMs: 0.2,
 		bakeEnvironmentIBL: async () => {
 			bakeCallCount++;
@@ -410,7 +407,7 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 			nowMs: i * 16,
 			frameContext: {},
 			webgpuCaptureSource: {
-				async captureReflectionProbeFace(request) {
+				async captureProbeFace(request) {
 					capturedFaceSizes.push(request.faceSize);
 					await new Promise((resolve) => setTimeout(resolve, 1));
 					return createCapturedFace(request.faceSize, 0.8);
@@ -429,7 +426,7 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 
 async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 	const capturedFlags = [];
-	const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 		bakeEnvironmentIBL: async () => createBakedEnvironment(1),
 	});
 	const scene = new Scene();
@@ -452,7 +449,7 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 		nowMs: 0,
 		frameContext: {},
 		webgpuCaptureSource: {
-			async captureReflectionProbeFace(request) {
+			async captureProbeFace(request) {
 				capturedFlags.push({
 					includeEnvironment: request.includeEnvironment,
 					includeTransparent: request.includeTransparent,
@@ -486,7 +483,7 @@ async function testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable() {
 		},
 	});
 	try {
-		const runtime = new ReflectionProbeCaptureRuntime({
+	const runtime = new ProbeCaptureRuntime({
 			bakeEnvironmentIBL: async (envMap) => ({
 				sh: Array.from({ length: 16 }, () => ({ r: 0, g: 0, b: 0 })),
 				prefilteredMap: envMap,
@@ -512,7 +509,7 @@ async function testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable() {
 		);
 		assert.ok(probe.prefilteredMap);
 		assert.equal(warnings.length, 1);
-		assert.ok(warnings[0].includes("reflection-probe-mesh-capture-unsupported"));
+		assert.ok(warnings[0].includes("probe-mesh-capture-unsupported"));
 
 		probe.requestCapture();
 		await runtime.execute({ scene, nowMs: 16 });
@@ -602,7 +599,7 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 		capturedProbe.requestCapture();
 
 		let captureStageCalls = 0;
-		renderer._reflectionProbeCaptureRuntime = {
+		renderer._probeCaptureRuntime = {
 			execute() {
 				captureStageCalls++;
 			},

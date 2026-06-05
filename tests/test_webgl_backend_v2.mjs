@@ -432,7 +432,7 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 		new Float32Array(4 * 2 * 4),
 		new Float32Array(2 * 1 * 4),
 	];
-	const lightProbe = new LightProbe(sh);
+	const lightProbe = new LightProbe({ sh });
 	const reflectionProbe = new ReflectionProbe({
 		prefilteredMap: probeMap,
 		shape: "box",
@@ -475,7 +475,7 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 function testLightCollectorCollectsLocalizedLightProbes() {
 	const warnings = [];
 	const warn = (key, message) => warnings.push({ key, message });
-	const globalProbe = new LightProbe(SH.empty());
+	const globalProbe = new LightProbe({ sh: SH.empty() });
 
 	const localProbe = new LightProbe({
 		sh: SH.empty(),

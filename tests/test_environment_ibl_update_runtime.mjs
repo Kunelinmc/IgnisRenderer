@@ -88,7 +88,11 @@ async function testManualTriggerAndTemporalBlending() {
 	});
 	const scene = new Scene();
 	scene.environment.iblTexture = createEnvironmentTexture();
-	const probe = scene.add(new LightProbe());
+	const probe = scene.add(new LightProbe({}));
+	const manualLightProbe = scene.add(new LightProbe({ source: "manual" }));
+	const capturedLightProbe = scene.add(
+		new LightProbe({ source: "capturedScene" })
+	);
 	const initialEnvironmentMap = createPrefilteredTexture(0.05);
 	const manualMap = createPrefilteredTexture(0.8);
 	const environmentProbe = scene.add(
@@ -146,6 +150,8 @@ async function testManualTriggerAndTemporalBlending() {
 	assert.ok(probe.sh[0].r > 0);
 	assert.ok(probe.sh[0].g > 0);
 	assert.ok(probe.sh[0].b > 0);
+	assert.equal(manualLightProbe.sh[0].r, 0);
+	assert.equal(capturedLightProbe.sh[0].r, 0);
 }
 
 async function testAutoTriggerOnEnvironmentSignatureChange() {
@@ -158,7 +164,7 @@ async function testAutoTriggerOnEnvironmentSignatureChange() {
 	});
 	const scene = new Scene();
 	scene.environment.iblTexture = createEnvironmentTexture(16, 8, 1);
-	scene.add(new LightProbe());
+	scene.add(new LightProbe({}));
 
 	const options = normalizeEnvironmentIBLUpdateOptions({
 		enabled: true,

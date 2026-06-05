@@ -1118,7 +1118,7 @@ function testEnvironmentCollectionUsesParentedProbeCaptureOrigin() {
 function testLightProbeDCAmbientFallbackWhenSHDisabled() {
 	const sh = SH.empty();
 	sh[0] = { r: 120, g: 60, b: 30 };
-	const probe = new LightProbe(sh);
+	const probe = new LightProbe({ sh });
 	const withoutSH = collectWebGPULighting([probe], true, false);
 	assert.ok(withoutSH.ambientColor[0] > 0);
 	assert.ok(withoutSH.ambientColor[1] > 0);
@@ -1133,7 +1133,7 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 	const sh = SH.empty();
 	sh[0] = { r: 80, g: 40, b: 20 };
 	sh[5] = { r: 3, g: 2, b: 1 };
-	const probe = new LightProbe(sh);
+	const probe = new LightProbe({ sh });
 	const state = collectWebGPUEnvironment(
 		{
 			environment: null,
@@ -1156,7 +1156,7 @@ function testEnvironmentSynthesizesSHAmbientFromLightProbeWhenMissingFrameSH() {
 function testEnvironmentCollectsLocalizedLightProbesWithoutPollutingGlobalSH() {
 	const globalSH = SH.empty();
 	globalSH[5] = { r: 4, g: 2, b: 1 };
-	const globalProbe = new LightProbe(globalSH);
+	const globalProbe = new LightProbe({ sh: globalSH });
 
 	const localASh = SH.empty();
 	localASh[5] = { r: 90, g: 45, b: 22.5 };
@@ -2802,12 +2802,17 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		includeShadows: false,
 	});
 	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	const probeCache = probe.getRuntimeCache();
 	const result = await capturePass.captureFace({
 		frameContext,
-		probe,
+		targetId: probe.id,
+		targetKind: "reflection",
+		captureWorldPosition: probeCache.captureWorldPosition,
+		captureFar: probe.captureFar,
 		faceIndex: 0,
 		faceSize: 1,
 		includeEnvironment: false,
+		includeMeshes: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
@@ -2931,13 +2936,18 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	probe.position.set(2, 0, 0);
 	modelRoot.updateWorldMatrix();
 	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	const probeCache = probe.getRuntimeCache();
 
 	await capturePass.captureFace({
 		frameContext,
-		probe,
+		targetId: probe.id,
+		targetKind: "reflection",
+		captureWorldPosition: probeCache.captureWorldPosition,
+		captureFar: probe.captureFar,
 		faceIndex: 0,
 		faceSize: 1,
 		includeEnvironment: false,
+		includeMeshes: false,
 		includeTransparent: false,
 		includeParticles: false,
 		includeShadows: false,
