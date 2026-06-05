@@ -1,25 +1,16 @@
 import type { FrameContext } from "../../../pipeline/types";
-import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	type IBindingGroup,
 	type IRenderTexture,
 } from "../../types";
 import type { WebGPUBackend } from "../../WebGPUBackend";
 import type {
-	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUDeferredLightingPassCallbacks {
-	getEncoder(): ICommandEncoder | null;
-	getFrameTargets(): WebGPUFrameTargets | null;
-	requireFrameResources(): WebGPUPreparedFrameResources;
-	resolveDirtyRects(
-		context: FrameContext,
-		width: number,
-		height: number
-	): Array<{ x: number; y: number; width: number; height: number }>;
+	readonly recordingContext: WebGPUFrameGraphRecordingContext;
 }
 
 /**
@@ -28,7 +19,7 @@ export interface WebGPUDeferredLightingPassCallbacks {
 export class WebGPUDeferredLightingPass {
 	private readonly _backend: WebGPUBackend;
 	private readonly _resources: WebGPURenderResources;
-	private readonly _callbacks: WebGPUDeferredLightingPassCallbacks;
+	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _gbufferWriteBinding: IBindingGroup | null = null;
 	private _gbufferWriteBindingSources: IRenderTexture[] = [];
 	private _gbufferReadBinding: IBindingGroup | null = null;
@@ -41,7 +32,7 @@ export class WebGPUDeferredLightingPass {
 	) {
 		this._backend = backend;
 		this._resources = resources;
-		this._callbacks = callbacks;
+		this._recordingContext = callbacks.recordingContext;
 	}
 
 	public destroyBindings(): void {
@@ -54,7 +45,7 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public getGBufferWriteBinding(): IBindingGroup {
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._recordingContext.getFrameTargets();
 		if (
 			!targets?.gMaterialExt0 ||
 			!targets.gMaterialExt1 ||
@@ -94,7 +85,7 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public getGBufferReadBinding(): IBindingGroup {
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._recordingContext.getFrameTargets();
 		if (
 			!targets?.gSpecular ||
 			!targets.gCoatSheen ||
@@ -145,8 +136,8 @@ export class WebGPUDeferredLightingPass {
 		context: FrameContext,
 		clearSceneColor: boolean
 	): Promise<void> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets) {
 			return;
 		}
@@ -164,12 +155,12 @@ export class WebGPUDeferredLightingPass {
 			],
 		});
 		encoder.setPipeline(pipeline);
-		const frameResources = this._callbacks.requireFrameResources();
+		const frameResources = this._recordingContext.requireFrameResources();
 		encoder.setBindingGroup(0, frameResources.frameBinding);
 		encoder.setBindingGroup(1, this._resources.getDeferredUnusedBinding());
 		encoder.setBindingGroup(2, frameResources.clusteredSceneBinding);
 		encoder.setBindingGroup(3, gbufferReadBinding);
-		const dirtyRects = this._callbacks.resolveDirtyRects(
+		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height

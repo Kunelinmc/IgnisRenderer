@@ -142,13 +142,25 @@ function createPassHarness({ dirtyRects, targets, resources, backend } = {}) {
 		resolvedBackend,
 		resources ?? createResourcesStub(resolvedBackend),
 		{
-			getEncoder: () => encoder,
-			getFrameTargets: () => resolvedTargets,
-			requireFrameResources: () => ({
-				decalFrameBinding: { id: "decal-frame-binding" },
-			}),
-			resolveDirtyRects: () =>
-				dirtyRects ?? [{ x: 4, y: 6, width: 16, height: 16 }],
+			recordingContext: {
+				getEncoder: () => encoder,
+				getFrameTargets: () => resolvedTargets,
+				getMSAATargets: () => null,
+				getTargetWidth: () => resolvedTargets.gAlbedoAlpha.width,
+				getTargetHeight: () => resolvedTargets.gAlbedoAlpha.height,
+				getTargetMSAASampleCount: () => 1,
+				getSceneTargetMode: () => "gbuffer",
+				isMRTEnabled: () => true,
+				isEarlyZPrepassEnabled: () => true,
+				requireFrameResources: () => ({
+					decalFrameBinding: { id: "decal-frame-binding" },
+				}),
+				isIncrementalPartial: () => true,
+				resolveDirtyRects: () =>
+					dirtyRects ?? [{ x: 4, y: 6, width: 16, height: 16 }],
+				selectPacketsForRect: (_context, packets) => packets,
+				selectTransparentSubsetForRect: (_context, packets) => packets,
+			},
 		}
 	);
 	return { backend: resolvedBackend, encoder, pass };

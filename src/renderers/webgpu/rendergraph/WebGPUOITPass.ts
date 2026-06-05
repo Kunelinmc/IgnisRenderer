@@ -2,7 +2,6 @@ import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import { Logger } from "../../../foundation/Logger";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ParticleBlendMode } from "../../../particles";
-import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	AddressMode,
 	FilterMode,
@@ -18,32 +17,14 @@ import {
 	submitWebGPUDraws,
 } from "../WebGPUDrawSubmission";
 import type {
-	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import { loadWebGPUUtilityShaderComposite } from "../../../shaders/webgpu/shaderSource";
-import type { WebGPUFrameMSAATargets } from "./WebGPUFrameTargetManager";
+import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUOITPassCallbacks {
-	getEncoder(): ICommandEncoder | null;
-	getFrameTargets(): WebGPUFrameTargets | null;
-	getMSAATargets(): WebGPUFrameMSAATargets | null;
-	getTargetWidth(): number;
-	getTargetHeight(): number;
-	getSceneTargetMode(): WebGPUSceneTargetMode;
-	requireFrameResources(): WebGPUPreparedFrameResources;
-	resolveDirtyRects(
-		context: FrameContext,
-		width: number,
-		height: number
-	): Array<{ x: number; y: number; width: number; height: number }>;
-	resolveTransparentSubsetForRect(
-		context: FrameContext,
-		packets: DrawPacket[],
-		rect: { x: number; y: number; width: number; height: number }
-	): DrawPacket[];
+	readonly recordingContext: WebGPUFrameGraphRecordingContext;
 	recordLegacyMainPass(
 		context: FrameContext,
 		packets: DrawPacket[],
@@ -63,6 +44,7 @@ export interface WebGPUOITPassCallbacks {
 export class WebGPUOITPass {
 	private readonly _backend: WebGPUBackend;
 	private readonly _resources: WebGPURenderResources;
+	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _callbacks: WebGPUOITPassCallbacks;
 	private _resolveShaderModule: IShaderModule | null = null;
 	private _resolvePipeline: IRenderPipeline | null = null;
@@ -82,6 +64,7 @@ export class WebGPUOITPass {
 	) {
 		this._backend = backend;
 		this._resources = resources;
+		this._recordingContext = callbacks.recordingContext;
 		this._callbacks = callbacks;
 	}
 
@@ -114,8 +97,8 @@ export class WebGPUOITPass {
 	}
 
 	public async recordTransparentPass(context: FrameContext): Promise<void> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder) {
 			return;
 		}
@@ -128,7 +111,7 @@ export class WebGPUOITPass {
 			);
 			return;
 		}
-		const frameResources = this._callbacks.requireFrameResources();
+		const frameResources = this._recordingContext.requireFrameResources();
 		await this._resources.buildClusteredLighting(encoder, frameResources);
 		const { oitPackets, transmissionPackets } =
 			this._partitionTransparentPackets(context.scene.transparentPackets);
@@ -155,12 +138,12 @@ export class WebGPUOITPass {
 	}
 
 	public async recordParticlePass(context: FrameContext): Promise<void> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			return;
 		}
-		const msaaTargets = this._callbacks.getMSAATargets();
+		const msaaTargets = this._recordingContext.getMSAATargets();
 		const depthAttachment = msaaTargets?.depth ?? targets.depth;
 		const sceneTargetMode = this._resolveSceneTargetMode();
 		if (!this._hasContributors) {
@@ -185,7 +168,7 @@ export class WebGPUOITPass {
 				],
 				depth: depthAttachment,
 			},
-			this._callbacks.requireFrameResources(),
+			this._recordingContext.requireFrameResources(),
 			sceneTargetMode,
 			{
 				includeBlendModes: [ParticleBlendMode.Alpha],
@@ -219,7 +202,7 @@ export class WebGPUOITPass {
 				],
 				depth: depthAttachment,
 			},
-			this._callbacks.requireFrameResources(),
+			this._recordingContext.requireFrameResources(),
 			sceneTargetMode,
 			{
 				includeBlendModes: [ParticleBlendMode.Additive],
@@ -249,8 +232,8 @@ export class WebGPUOITPass {
 	}
 
 	private _clearTargets(): void {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			return;
 		}
@@ -278,13 +261,14 @@ export class WebGPUOITPass {
 		context: FrameContext,
 		packets: DrawPacket[]
 	): Promise<number> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal || packets.length <= 0) {
 			return 0;
 		}
-		const frameResources = this._callbacks.requireFrameResources();
-		const depthAttachment = this._callbacks.getMSAATargets()?.depth ?? targets.depth;
+		const frameResources = this._recordingContext.requireFrameResources();
+		const depthAttachment =
+			this._recordingContext.getMSAATargets()?.depth ?? targets.depth;
 		encoder.beginRenderPass({
 			label: "WebGPUOITDraw",
 			colorAttachments: [
@@ -305,7 +289,7 @@ export class WebGPUOITPass {
 				depthStoreOp: "store",
 			},
 		});
-		const dirtyRects = this._callbacks.resolveDirtyRects(
+		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height
@@ -318,7 +302,7 @@ export class WebGPUOITPass {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._callbacks.resolveTransparentSubsetForRect(
+				this._recordingContext.selectTransparentSubsetForRect(
 					context,
 					candidatePackets,
 					rect
@@ -376,8 +360,8 @@ export class WebGPUOITPass {
 	}
 
 	private _copySceneColorForResolve(): boolean {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets?.oitSceneColorCopy) {
 			return false;
 		}
@@ -393,8 +377,8 @@ export class WebGPUOITPass {
 				{ texture: targets.sceneColorMain },
 				{ texture: targets.oitSceneColorCopy },
 				{
-					width: Math.max(1, this._callbacks.getTargetWidth()),
-					height: Math.max(1, this._callbacks.getTargetHeight()),
+					width: Math.max(1, this._recordingContext.getTargetWidth()),
+					height: Math.max(1, this._recordingContext.getTargetHeight()),
 					depthOrArrayLayers: 1,
 				}
 			);
@@ -410,8 +394,8 @@ export class WebGPUOITPass {
 	}
 
 	private async _resolveComposition(context: FrameContext): Promise<void> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		if (
 			!encoder ||
 			!targets?.oitSceneColorCopy ||
@@ -462,7 +446,7 @@ export class WebGPUOITPass {
 		});
 		encoder.setPipeline(this._resolvePipeline);
 		encoder.setBindingGroup(0, this._resolveBinding);
-		const dirtyRects = this._callbacks.resolveDirtyRects(
+		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height
@@ -475,7 +459,9 @@ export class WebGPUOITPass {
 	}
 
 	private _resolveSceneTargetMode(): Exclude<WebGPUSceneTargetMode, "single"> {
-		return this._callbacks.getSceneTargetMode() === "color" ? "color" : "mrt";
+		return this._recordingContext.getSceneTargetMode() === "color" ?
+				"color"
+			:	"mrt";
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

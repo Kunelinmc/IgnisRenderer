@@ -40,16 +40,10 @@ import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUDeferredDecalPassCallbacks {
-	getEncoder(): ICommandEncoder | null;
-	getFrameTargets(): WebGPUFrameTargets | null;
-	requireFrameResources(): WebGPUPreparedFrameResources;
-	resolveDirtyRects(
-		context: FrameContext,
-		width: number,
-		height: number
-	): Array<{ x: number; y: number; width: number; height: number }>;
+	readonly recordingContext: WebGPUFrameGraphRecordingContext;
 }
 
 interface DecalTargetRef {
@@ -126,7 +120,7 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
 export class WebGPUDeferredDecalPass {
 	private readonly _backend: WebGPUBackend;
 	private readonly _resources: WebGPURenderResources;
-	private readonly _callbacks: WebGPUDeferredDecalPassCallbacks;
+	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _uniformBuffer: IRenderBuffer | null = null;
 	private _snapshotTextures: IRenderTexture[] = [];
 	private _snapshotReadBinding: IBindingGroup | null = null;
@@ -152,7 +146,7 @@ export class WebGPUDeferredDecalPass {
 	) {
 		this._backend = backend;
 		this._resources = resources;
-		this._callbacks = callbacks;
+		this._recordingContext = callbacks.recordingContext;
 	}
 
 	public destroyBindings(): void {
@@ -187,8 +181,8 @@ export class WebGPUDeferredDecalPass {
 	}
 
 	public async recordDecalPass(context: FrameContext): Promise<number> {
-		const encoder = this._callbacks.getEncoder();
-		const targets = this._callbacks.getFrameTargets();
+		const encoder = this._recordingContext.getEncoder();
+		const targets = this._recordingContext.getFrameTargets();
 		const decalPackets = context.scene.decalPackets;
 		if (
 			!encoder ||
@@ -214,8 +208,8 @@ export class WebGPUDeferredDecalPass {
 		this._ensureSnapshotTextures(targetRefs);
 		const snapshotReadBinding = this._getSnapshotReadBinding();
 		const uniformBuffer = this._getUniformBuffer();
-		const frameResources = this._callbacks.requireFrameResources();
-		const dirtyRects = this._callbacks.resolveDirtyRects(
+		const frameResources = this._recordingContext.requireFrameResources();
+		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targetRefs[0].texture.width,
 			targetRefs[0].texture.height
