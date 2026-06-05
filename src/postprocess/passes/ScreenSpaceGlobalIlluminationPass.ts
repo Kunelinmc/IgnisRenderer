@@ -53,6 +53,7 @@ export interface WebGPUSSGIContext {
 }
 
 interface WebGPUSSGIResources {
+	shared: PostProcessSharedContext;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -139,6 +140,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSGIResources>();
+	private _resourceSet = new Set<WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {
 		if (context) {
@@ -155,6 +157,35 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		}
 		const ran = await this._runSSGIKernel(request, context);
 		return ran ? { ran: true } : { ran: false };
+	}
+
+	public invalidate(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.invalidateBindingsByPrefix("ssgi-");
+		}
+	}
+
+	public destroy(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.destroyManagedResource(
+				resources.pipeline,
+				"SSGI pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.module,
+				"SSGI shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.params,
+				"SSGI params buffer"
+			);
+			resources.shared.invalidateBindingsByPrefix("ssgi-");
+			resources.module = null;
+			resources.pipeline = null;
+			resources.params = null;
+		}
+		this._resourceSet.clear();
+		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSGIResources>();
 	}
 
 	private async _runSSGIKernel(
@@ -212,8 +243,9 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	): Promise<WebGPUSSGIResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
-			resources = { module: null, pipeline: null, params: null };
+			resources = { shared, module: null, pipeline: null, params: null };
 			this._resources.set(shared, resources);
+			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

@@ -29,6 +29,12 @@ function createFrameContext(postProcessRequest = {}) {
 	};
 }
 
+function destroySnapshotPasses(snapshot) {
+	for (const resolved of snapshot.getEnabledPasses()) {
+		resolved.pass.destroy();
+	}
+}
+
 function createFXAAPassRequest(
 	frameContext,
 	pass = new FastApproximateAntiAliasingPass({ enabled: true })
@@ -284,12 +290,15 @@ async function testFXAAPassImplementationUsesDedicatedPipeline() {
 		postPing,
 		postPong,
 	};
+	const frameContext = createFrameContext();
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 
 	const result = await executeFXAAPass(
 		runtime,
 		encoder,
 		targets,
-		createFrameContext()
+		frameContext,
+		pass
 	);
 	assert.deepEqual(result, { ran: true });
 
@@ -328,6 +337,10 @@ async function testFXAAPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testToneMappingPassImplementationUsesDedicatedPipeline() {
@@ -342,12 +355,15 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 		postPing,
 		postPong,
 	};
+	const frameContext = createFrameContext();
+	const pass = new ToneMappingPass({ enabled: true });
 
-	const { result } = await executeToneMappingPass(
+	const { request, result } = await executeToneMappingPass(
 		runtime,
 		encoder,
 		targets,
-		createFrameContext()
+		frameContext,
+		pass
 	);
 	assert.deepEqual(result, { ran: true });
 
@@ -371,6 +387,10 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testBloomPassImplementationUsesDedicatedPipeline() {
@@ -385,22 +405,23 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 		postPing,
 		postPong,
 	};
+	const frameContext = createFrameContext({
+		bloom: {
+			enabled: true,
+			options: {
+				threshold: 1.2,
+				softKnee: 0.35,
+				intensity: 1.5,
+				radius: 2,
+			},
+		},
+	});
 
-	const { result } = await executeBloomPass(
+	const { request, result } = await executeBloomPass(
 		runtime,
 		encoder,
 		targets,
-		createFrameContext({
-			bloom: {
-				enabled: true,
-				options: {
-					threshold: 1.2,
-					softKnee: 0.35,
-					intensity: 1.5,
-					radius: 2,
-				},
-			},
-		})
+		frameContext
 	);
 	assert.deepEqual(result, { ran: true });
 
@@ -465,6 +486,10 @@ async function testBloomPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
@@ -494,7 +519,7 @@ async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 		},
 	});
 
-	const { result } = await executeMotionBlurPass(
+	const { request, result } = await executeMotionBlurPass(
 		runtime,
 		encoder,
 		targets,
@@ -539,6 +564,10 @@ async function testMotionBlurPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testFogPassImplementationUsesDedicatedPipeline() {
@@ -555,24 +584,25 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 		postPong,
 		gMotionDepth,
 	};
+	const frameContext = createFrameContext({
+		fog: {
+			enabled: true,
+			options: {
+				mode: "exp2",
+				color: [0.1, 0.2, 0.3],
+				start: 10,
+				end: 120,
+				density: 0.02,
+				strength: 0.75,
+			},
+		},
+	});
 
-	const { result } = await executeFogPass(
+	const { request, result } = await executeFogPass(
 		runtime,
 		encoder,
 		targets,
-		createFrameContext({
-			fog: {
-				enabled: true,
-				options: {
-					mode: "exp2",
-					color: [0.1, 0.2, 0.3],
-					start: 10,
-					end: 120,
-					density: 0.02,
-					strength: 0.75,
-				},
-			},
-		})
+		frameContext
 	);
 	assert.deepEqual(result, { ran: true });
 
@@ -610,6 +640,10 @@ async function testFogPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testDOFPassImplementationUsesDedicatedPipeline() {
@@ -643,7 +677,7 @@ async function testDOFPassImplementationUsesDedicatedPipeline() {
 		},
 	});
 
-	const { result } = await executeDepthOfFieldPass(
+	const { request, result } = await executeDepthOfFieldPass(
 		runtime,
 		encoder,
 		targets,
@@ -692,6 +726,10 @@ async function testDOFPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testColorFilterPassImplementationUsesDedicatedPipeline() {
@@ -719,7 +757,7 @@ async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 		},
 	});
 
-	const { result } = await executeColorFilterPass(
+	const { request, result } = await executeColorFilterPass(
 		runtime,
 		encoder,
 		targets,
@@ -756,6 +794,10 @@ async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testInteractionOutlinePassImplementationUsesDedicatedPipeline() {
@@ -804,7 +846,7 @@ async function testInteractionOutlinePassImplementationUsesDedicatedPipeline() {
 		},
 	});
 
-	const { result } = await executeInteractionOutlinePass(
+	const { request, result } = await executeInteractionOutlinePass(
 		runtime,
 		encoder,
 		targets,
@@ -845,6 +887,10 @@ async function testInteractionOutlinePassImplementationUsesDedicatedPipeline() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testMotionBlurSkipsRedundantParamUploads() {
@@ -890,6 +936,10 @@ async function testMotionBlurSkipsRedundantParamUploads() {
 	);
 
 	assert.equal(backend.writeBufferCalls, 1);
+
+	pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testFXAAPassImplementationPingPongsAndCachesResources() {
@@ -925,6 +975,10 @@ async function testFXAAPassImplementationPingPongsAndCachesResources() {
 		["dispatchWorkgroups", 4, 2, 1],
 		["endComputePass"],
 	]);
+
+	pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testInvalidateBindingsDestroysCachedBindingGroups() {
@@ -938,13 +992,14 @@ async function testInvalidateBindingsDestroysCachedBindingGroups() {
 		postPing,
 		postPong,
 	};
+	const frameContext = createFrameContext();
 	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
 
 	await executeFXAAPass(
 		runtime,
 		new FakeEncoder(),
 		targets,
-		createFrameContext(),
+		frameContext,
 		pass
 	);
 	assert.equal(backend.bindingGroups.length, 1);
@@ -954,6 +1009,10 @@ async function testInvalidateBindingsDestroysCachedBindingGroups() {
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 	runtime.invalidateBindings();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
+
+	pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testBindingReplacementDestroysStaleBindingGroup() {
@@ -976,6 +1035,10 @@ async function testBindingReplacementDestroysStaleBindingGroup() {
 
 	assert.equal(backend.bindingGroups.length, 3);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
+
+	pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testDestroyReleasesToneMappingImplementationResources() {
@@ -1031,6 +1094,9 @@ async function testDestroyReleasesToneMappingImplementationResources() {
 	assert.equal(backend.samplerDestroyCalls, 0);
 	assert.equal(backend.bufferDestroyCalls, 0);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testBloomImplementationLifecycleReleasesOwnedResources() {
@@ -1070,6 +1136,9 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 	assert.equal(backend.shaderModuleDestroyCalls, 5);
 	assert.equal(backend.computePipelineDestroyCalls, 5);
 	assert.equal(backend.bufferDestroyCalls, 4);
+
+	destroySnapshotPasses(request.frameContext.postProcess);
+	runtime.destroy();
 }
 
 export async function run() {

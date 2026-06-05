@@ -233,6 +233,7 @@ export class WebGPURenderResources {
 	private _deferredUnusedBinding: IBindingGroup | null = null;
 	private _frameId = 0;
 	private _destroyed = false;
+	private _fallbackPostProcess: PostProcessPassRegistry | null = null;
 
 	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
@@ -924,6 +925,10 @@ export class WebGPURenderResources {
 		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
+		if (this._fallbackPostProcess) {
+			this._fallbackPostProcess.destroyPasses(this._backend.type);
+			this._fallbackPostProcess = null;
+		}
 	}
 
 	public getLightingState(
@@ -1086,13 +1091,15 @@ export class WebGPURenderResources {
 			);
 		}
 
-		const postProcess = new PostProcessPassRegistry();
-		postProcess.registerPass(new ToneMappingPass({ enabled: true }));
-		postProcess.registerPass(new GammaPass({ enabled: true }));
+		if (!this._fallbackPostProcess) {
+			this._fallbackPostProcess = new PostProcessPassRegistry();
+			this._fallbackPostProcess.registerPass(new ToneMappingPass({ enabled: true }));
+			this._fallbackPostProcess.registerPass(new GammaPass({ enabled: true }));
+		}
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
-			postProcess: postProcess.createSnapshot(this._backend.type),
+			postProcess: this._fallbackPostProcess.createSnapshot(this._backend.type),
 			shAmbientCoeffs: null,
 			renderWidth: 1,
 			renderHeight: 1,

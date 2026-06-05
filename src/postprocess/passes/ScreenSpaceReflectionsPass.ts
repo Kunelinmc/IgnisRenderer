@@ -73,6 +73,7 @@ export interface WebGPUSSRContext {
 }
 
 interface WebGPUSSRResources {
+	shared: PostProcessSharedContext;
 	module: IShaderModule | null;
 	tracePipeline: IComputePipeline | null;
 	composePipeline: IComputePipeline | null;
@@ -225,6 +226,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		},
 	} as const;
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSRResources>();
+	private _resourceSet = new Set<WebGPUSSRResources>();
 
 	public async warmup(context: WebGPUSSRContext | undefined): Promise<void> {
 		if (context) {
@@ -252,6 +254,57 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		}
 		await context.writeMotionHistoryFromCurrent?.();
 		return { ran: true, updatedHistoryIds: ["ssr", "motion"] };
+	}
+
+	public invalidate(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.invalidateBindingsByPrefix("ssr-");
+		}
+	}
+
+	public destroy(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.destroyManagedResource(
+				resources.tracePipeline,
+				"SSR trace pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.composePipeline,
+				"SSR compose pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.copyPipeline,
+				"SSR copy pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.module,
+				"SSR shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.copyModule,
+				"SSR copy shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.traceParams,
+				"SSR trace params buffer"
+			);
+			resources.shared.destroyManagedResource(
+				resources.composeParams,
+				"SSR compose params buffer"
+			);
+			resources.shared.invalidateBindingsByPrefix("ssr-");
+			resources.module = null;
+			resources.tracePipeline = null;
+			resources.composePipeline = null;
+			resources.traceParams = null;
+			resources.composeParams = null;
+			resources.copyModule = null;
+			resources.copyPipeline = null;
+			resources.traceGroupLayout0 = null;
+			resources.tracePipelineLayout = null;
+		}
+		this._resourceSet.clear();
+		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSRResources>();
 	}
 
 	private async _runSSRKernel(
@@ -382,6 +435,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		let resources = this._resources.get(shared);
 		if (!resources) {
 			resources = {
+				shared,
 				module: null,
 				tracePipeline: null,
 				composePipeline: null,
@@ -394,6 +448,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				frameIndex: 0,
 			};
 			this._resources.set(shared, resources);
+			this._resourceSet.add(resources);
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {
@@ -488,7 +543,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			return;
 		}
 		const binding = shared.getCachedBindGroup(
-			`copy-${src === dst ? "same" : "diff"}`,
+			`ssr-copy-${src === dst ? "same" : "diff"}`,
 			resources.copyPipeline,
 			[
 				{ binding: 0, resource: src },

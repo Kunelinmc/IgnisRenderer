@@ -112,6 +112,7 @@ interface SampledColor {
 }
 
 interface WebGPUTAAResources {
+	shared: PostProcessSharedContext;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -413,6 +414,15 @@ export class WebGPUTemporalAntiAliasingImplementation
 		warmupHints: ["postprocess:taa"],
 	} as const;
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUTAAResources>();
+	private _resourceSet = new Set<WebGPUTAAResources>();
+
+	public async warmup?(
+		context: WebGPUTAAContext | undefined
+	): Promise<void> {
+		if (context) {
+			await this._ensureResources(context.shared);
+		}
+	}
 
 	public async execute(
 		request: PostProcessPassRequest,
@@ -427,6 +437,35 @@ export class WebGPUTemporalAntiAliasingImplementation
 		}
 		await context.writeMotionHistoryFromCurrent();
 		return { ran: true, updatedHistoryIds: ["taa", "motion"] };
+	}
+
+	public invalidate(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.invalidateBindingsByPrefix("taa-");
+		}
+	}
+
+	public destroy(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.destroyManagedResource(
+				resources.pipeline,
+				"TAA pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.module,
+				"TAA shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.params,
+				"TAA params buffer"
+			);
+			resources.shared.invalidateBindingsByPrefix("taa-");
+			resources.module = null;
+			resources.pipeline = null;
+			resources.params = null;
+		}
+		this._resourceSet.clear();
+		this._resources = new WeakMap<PostProcessSharedContext, WebGPUTAAResources>();
 	}
 
 	private async _runTAAKernel(
@@ -494,8 +533,9 @@ export class WebGPUTemporalAntiAliasingImplementation
 	): Promise<WebGPUTAAResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
-			resources = { module: null, pipeline: null, params: null };
+			resources = { shared, module: null, pipeline: null, params: null };
 			this._resources.set(shared, resources);
+			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

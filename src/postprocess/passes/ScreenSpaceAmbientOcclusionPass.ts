@@ -105,6 +105,7 @@ interface IncrementalDirtyRect {
 }
 
 interface WebGPUSSAOResources {
+	shared: PostProcessSharedContext;
 	module: IShaderModule | null;
 	rawPipeline: IComputePipeline | null;
 	blurPipeline: IComputePipeline | null;
@@ -507,6 +508,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		},
 	};
 	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
+	private _resourceSet = new Set<WebGPUSSAOResources>();
 
 	public async warmup(context: WebGPUSSAOContext | undefined): Promise<void> {
 		if (context) {
@@ -523,6 +525,45 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		}
 		const ran = await this._runSSAOKernel(request, context);
 		return ran ? { ran: true } : { ran: false };
+	}
+
+	public invalidate(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.invalidateBindingsByPrefix("ssao-");
+		}
+	}
+
+	public destroy(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.destroyManagedResource(
+				resources.rawPipeline,
+				"SSAO raw pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.blurPipeline,
+				"SSAO blur pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.combinePipeline,
+				"SSAO combine pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.module,
+				"SSAO shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.params,
+				"SSAO params buffer"
+			);
+			resources.shared.invalidateBindingsByPrefix("ssao-");
+			resources.module = null;
+			resources.rawPipeline = null;
+			resources.blurPipeline = null;
+			resources.combinePipeline = null;
+			resources.params = null;
+		}
+		this._resourceSet.clear();
+		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
 	}
 
 	private async _runSSAOKernel(
@@ -667,6 +708,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		let resources = this._resources.get(shared);
 		if (!resources) {
 			resources = {
+				shared,
 				module: null,
 				rawPipeline: null,
 				blurPipeline: null,
@@ -675,6 +717,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				frameIndex: 0,
 			};
 			this._resources.set(shared, resources);
+			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

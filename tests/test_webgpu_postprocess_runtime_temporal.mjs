@@ -57,6 +57,7 @@ function createTemporalHistories(width = 32, height = 16) {
 }
 
 function createSSRPassRequest(frameContext, histories, historyValid = true) {
+	const resolvedPass = frameContext.postProcess.getPass("ssr");
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -74,14 +75,15 @@ function createSSRPassRequest(frameContext, histories, historyValid = true) {
 			},
 		},
 		transients: {},
-		pass: SSR_PASS,
+		pass: resolvedPass?.pass ?? SSR_PASS,
 		passId: "ssr",
-		options: frameContext.postProcess.getOptions("ssr"),
+		options: resolvedPass?.options ?? frameContext.postProcess.getOptions("ssr"),
 		startPassId: null,
 	};
 }
 
 function createVolumetricPassRequest(frameContext, histories, historyValid = true) {
+	const resolvedPass = frameContext.postProcess.getPass("volumetric");
 	return {
 		frameContext,
 		postProcess: frameContext.postProcess,
@@ -104,9 +106,10 @@ function createVolumetricPassRequest(frameContext, histories, historyValid = tru
 			},
 		},
 		transients: {},
-		pass: VOLUMETRIC_PASS,
+		pass: resolvedPass?.pass ?? VOLUMETRIC_PASS,
 		passId: "volumetric",
-		options: frameContext.postProcess.getOptions("volumetric"),
+		options:
+			resolvedPass?.options ?? frameContext.postProcess.getOptions("volumetric"),
 		startPassId: null,
 	};
 }
@@ -235,6 +238,12 @@ function createPerspectiveFrameContext(postProcessRequest = {}) {
 	};
 }
 
+function destroySnapshotPasses(snapshot) {
+	for (const resolved of snapshot.getEnabledPasses()) {
+		resolved.pass.destroy();
+	}
+}
+
 async function captureWarnMessagesAsync(run) {
 	const warnings = [];
 	Logger.configure({
@@ -258,24 +267,28 @@ async function testTAAIsOwnedByLogicalPassImplementation() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const targets = createTemporalTargets();
+	const frameContext = createPerspectiveFrameContext({
+		taa: {
+			enabled: true,
+			options: {
+				historyWeight: 0.8,
+			},
+		},
+	});
 	const result = await runtime.executePass({
 		passId: "taa",
 		encoder: new FakeEncoder(),
 		targets,
-		frameContext: createPerspectiveFrameContext({
-			taa: {
-				enabled: true,
-				options: {
-					historyWeight: 0.8,
-				},
-			},
-		}),
+		frameContext,
 		historyValid: true,
 	});
 
 	assert.equal(result.ran, false);
 	assert.equal(result.historyUpdated, undefined);
 	assert.equal(targets.sceneColor.label, "scene");
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
@@ -284,16 +297,17 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	const frameBinding = { label: "frame-binding" };
 
 	const ssrTargets = createTemporalTargets(32, 16);
+	const ssrFrameContext = createPerspectiveFrameContext({
+		ssr: {
+			enabled: true,
+			options: {
+				maxSteps: 24,
+			},
+		},
+	});
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
 		targets: ssrTargets,
-		frameContext: createPerspectiveFrameContext({
-			ssr: {
-				enabled: true,
-				options: {
-					maxSteps: 24,
-				},
-			},
-		}),
+		frameContext: ssrFrameContext,
 		historyValid: true,
 		frameBinding,
 	});
@@ -306,16 +320,17 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.equal(ssrRun.motionWrites, 1);
 
 	const volumetricTargets = createTemporalTargets(32, 16);
+	const volumetricFrameContext = createPerspectiveFrameContext({
+		volumetric: {
+			enabled: true,
+			options: {
+				samples: 12,
+			},
+		},
+	});
 	const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
 		targets: volumetricTargets,
-		frameContext: createPerspectiveFrameContext({
-			volumetric: {
-				enabled: true,
-				options: {
-					samples: 12,
-				},
-			},
-		}),
+		frameContext: volumetricFrameContext,
 		historyValid: true,
 		frameBinding,
 		lightingState: null,
@@ -327,6 +342,10 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.strictEqual(volumetricRun.published, volumetricTargets.postPong);
 	assert.strictEqual(volumetricTargets.sceneColor, volumetricTargets.postPong);
 	assert.equal(volumetricRun.motionWrites, 1);
+
+	destroySnapshotPasses(ssrFrameContext.postProcess);
+	destroySnapshotPasses(volumetricFrameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testOrthographicTemporalPassesSkipAndReturnFalse() {
@@ -376,6 +395,9 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 		),
 		true
 	);
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testHiZResourcesAreSharedAcrossTemporalPasses() {
@@ -384,7 +406,10 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 	const frameBinding = { label: "frame-binding" };
 	const targets = createTemporalTargets(16, 8);
 	const transients = createTemporalTransients(16, 8);
-	const frameContext = createPerspectiveFrameContext({});
+	const frameContext = createPerspectiveFrameContext({
+		ssr: { enabled: true },
+		volumetric: { enabled: true },
+	});
 	const encoder = new FakeEncoder(backend);
 
 	await executeSSRImplementation(backend, runtime, {
@@ -456,33 +481,71 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		).length,
 		2
 	);
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
+}
+
+async function testSSRDestroyReleasesCachedBindings() {
+	const backend = new FakeBackend();
+	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const frameContext = createPerspectiveFrameContext({
+		ssr: { enabled: true },
+	});
+
+	await executeSSRImplementation(backend, runtime, {
+		frameContext,
+		historyValid: true,
+	});
+	assert.equal(backend.bindingGroups.length, 9);
+
+	const ssrPass = frameContext.postProcess.getEnabledPasses()
+		.find((resolved) => resolved.id === "ssr")?.pass;
+	assert.ok(ssrPass);
+	ssrPass.destroy();
+
+	assert.equal(backend.bindingGroupDestroyCalls, 3);
+	assert.equal(backend.shaderModuleDestroyCalls, 2);
+	assert.equal(backend.computePipelineDestroyCalls, 3);
+	assert.equal(backend.bufferDestroyCalls, 2);
+
+	runtime.destroy();
+	assert.equal(backend.bindingGroupDestroyCalls, 9);
 }
 
 async function testUnknownPassReturnsRanFalse() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const frameContext = createPerspectiveFrameContext();
 	const result = await runtime.executePass({
 		passId: "gamma",
 		encoder: new FakeEncoder(),
 		targets: createTemporalTargets(),
-		frameContext: createPerspectiveFrameContext(),
+		frameContext,
 	});
 	assert.deepEqual(result, { ran: false });
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testMissingSSRFrameBindingSkipsImplementation() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
 	const targets = createTemporalTargets(32, 16);
+	const frameContext = createPerspectiveFrameContext();
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
 		targets,
-		frameContext: createPerspectiveFrameContext(),
+		frameContext,
 		historyValid: true,
 		frameBinding: undefined,
 	});
 	assert.deepEqual(ssrRun.result, { ran: false });
 	assert.equal(ssrRun.motionWrites, 0);
 	assert.equal(backend.textureViews.length, 0);
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources() {
@@ -512,6 +575,8 @@ async function testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources() {
 	assert.equal(backend.bufferDestroyCalls, 0);
 	assert.equal(backend.shaderModuleDestroyCalls, 0);
 	assert.equal(backend.computePipelineDestroyCalls, 0);
+
+	runtime.destroy();
 }
 
 async function run() {
@@ -519,6 +584,7 @@ async function run() {
 	await testSSRAndVolumetricReportHistoryUpdates();
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
 	await testHiZResourcesAreSharedAcrossTemporalPasses();
+	await testSSRDestroyReleasesCachedBindings();
 	await testUnknownPassReturnsRanFalse();
 	await testMissingSSRFrameBindingSkipsImplementation();
 	await testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources();

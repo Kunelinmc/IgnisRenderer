@@ -68,6 +68,12 @@ function createRequest(frameContext) {
 	};
 }
 
+function destroySnapshotPasses(snapshot) {
+	for (const resolved of snapshot.getEnabledPasses()) {
+		resolved.pass.destroy();
+	}
+}
+
 async function testSSGIDescriptorAndWebGPUExecution() {
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
 	assert.equal(pass.id, "ssgi");
@@ -118,10 +124,12 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 			},
 		}),
 	};
-	const implementation = new ScreenSpaceGlobalIlluminationPass({
+	const executePass = new ScreenSpaceGlobalIlluminationPass({
 		enabled: true,
-	}).getImplementation("webgpu");
-	const result = await implementation.execute(createRequest(frameContext), {
+	});
+	const implementation = executePass.getImplementation("webgpu");
+	const request = createRequest(frameContext);
+	const result = await implementation.execute(request, {
 		encoder,
 		targets,
 		shared: runtime.sharedContext,
@@ -172,6 +180,12 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 		["endComputePass"],
 	]);
 	assert.equal(targets.sceneColor, postPong);
+
+	pass.destroy();
+	executePass.destroy();
+	request.pass.destroy();
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 async function testSSGIPipelineUsesWebGPUImplementation() {
@@ -251,6 +265,9 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 		["beginComputePass", "WebGPUSSGI"],
 		["setComputePipeline", "WebGPUSSGIPipeline"],
 	]);
+
+	destroySnapshotPasses(frameContext.postProcess);
+	runtime.destroy();
 }
 
 function testSSGIOptionHelpersClampAndPackParams() {
