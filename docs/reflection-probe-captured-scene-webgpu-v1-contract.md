@@ -75,9 +75,9 @@ If the probe is attached directly via `scene.add(probe)`, capture should
 originate from the probe world position, so `probe.position.set(...)` moves
 both the influence volume and capture origin together.
 
-The renderer should execute probe capture in the
-`reflection-probe-capture` stage and should pass frame context and active camera
-world position into `ReflectionProbeCaptureRuntime`.
+The renderer should execute probe capture in the `probe-capture` stage and
+should pass frame context and active camera world position into
+`ProbeCaptureRuntime`.
 
 ## Errors & Diagnostics
 - If a probe never updates in `manual` mode, verify `requestCapture()` is
@@ -104,3 +104,5 @@ world position into `ReflectionProbeCaptureRuntime`.
 - Behavior change: probes parented under non-root nodes capture and project
   from parent world position; probes attached to `scene.root` capture and
   project from probe world position.
+- Breaking stage rename: renderer pipeline stage `reflection-probe-capture` has
+  been replaced by `probe-capture`.

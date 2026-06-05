@@ -35,7 +35,7 @@ Runtime scene changes to the environment did not provide a dedicated incremental
 	- The updater must apply at most `mipsPerFrame` reflection-specular mip levels per frame.
 	- Temporal blending must be applied to both `LightProbe.sh` and environment `ReflectionProbe.prefilteredMap`.
 	- Environment IBL update must target:
-		- all `LightType.LightProbe` instances for SH coefficients
+		- only `LightProbe` instances with `source === "environment"` for SH coefficients
 		- only `ReflectionProbe` instances with `source === "environment"` for specular maps
 	- Runtime must emit dirty reason `environment-ibl` while update is in progress.
 	- Runtime must emit dirty reason `environment-ibl-complete` when one update round converges and finishes.
