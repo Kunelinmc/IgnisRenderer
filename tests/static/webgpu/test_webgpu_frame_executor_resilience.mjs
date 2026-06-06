@@ -674,6 +674,46 @@ function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
+function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess(
+		{ ssrefraction: { enabled: true } },
+		"webgpu"
+	);
+	context.scene.transparentPackets = [
+		{ id: "glass", material: { transmissionFactor: 1 } },
+	];
+
+	executor.beginFrame(context);
+	const targets = getFrameTargets(executor);
+	assert.ok(targets.transmissionSceneColorCopy);
+	assert.ok(targets.transmissionLighting);
+	assert.ok(targets.gTransmissionSurface0);
+	assert.ok(targets.gTransmissionSurface1);
+	assert.ok(targets.gTransmissionSurface2);
+	assert.ok(targets.transmissionDepth);
+	const bridge = executor.createGBufferBridge(context);
+	assert.equal(
+		bridge.channels.transmission.handle.texture,
+		targets.gTransmissionSurface0
+	);
+	executor.abortFrame();
+
+	const noWorkContext = createFrameContext(64, 64);
+	noWorkContext.postProcess = createResolvedPostProcess(
+		{ ssrefraction: { enabled: true } },
+		"webgpu"
+	);
+	noWorkContext.scene.transparentPackets = [
+		{ id: "alpha", material: { transmissionFactor: 0 } },
+	];
+	executor.beginFrame(noWorkContext);
+	assert.equal(getFrameTargets(executor), null);
+	executor.abortFrame();
+}
+
 async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -1238,6 +1278,70 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
+async function testScreenSpaceRefractionCapturesTransmissionPackets() {
+	const backend = createOITBackend();
+	const resources = createOITSequencingResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess(
+		{ ssrefraction: { enabled: true } },
+		"webgpu"
+	);
+	context.scene.transparentPackets = [
+		{
+			id: "transparent-transmission-capture",
+			material: { transmissionFactor: 1 },
+		},
+	];
+
+	executor.beginFrame(context);
+	const targets = getFrameTargets(executor);
+	assert.ok(targets);
+	await executor.executePass(
+		{ stage: "main-transparent", executor: "backend", enabled: true },
+		context
+	);
+
+	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	assert.deepEqual(labels, ["WebGPUTransmissionCapture"]);
+	assert.equal(backend.encoderCopyCalls.length, 2);
+	assert.equal(backend.encoderCopyCalls[0][0].texture, targets.sceneColorMain);
+	assert.equal(
+		backend.encoderCopyCalls[0][1].texture,
+		targets.transmissionSceneColorCopy
+	);
+	assert.equal(backend.encoderCopyCalls[1][0].texture, targets.depth);
+	assert.equal(backend.encoderCopyCalls[1][0].aspect, "depth-only");
+	assert.equal(
+		backend.encoderCopyCalls[1][1].texture,
+		targets.transmissionDepth
+	);
+	assert.equal(backend.encoderCopyCalls[1][1].aspect, "depth-only");
+	assert.equal(
+		backend.recordedRenderPasses[0].depthStencilAttachment.depthLoadOp,
+		"load"
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"draw:transparent-transmission-capture:transmission-capture:default"
+		)
+	);
+	assert.equal(
+		resources._state.events.includes(
+			"draw:transparent-transmission-capture:transmission:default"
+		),
+		false
+	);
+	assert.deepEqual(resources._state.drawOptions, [
+		{
+			packetId: "transparent-transmission-capture",
+			sceneTargetMode: "mrt",
+			transparentPipelineMode: "transmission-capture",
+			drawMode: "default",
+		},
+	]);
+}
+
 async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	const backend = new FakeBackend();
 	const resources = createDeferredLightingResourcesStub();
@@ -1488,6 +1592,7 @@ async function run() {
 	testGBufferBridgeReportsAllocatedWebGPUFormats();
 	testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded();
 	testFrameTargetsSkippedWhenFrameHasNoOffscreenWork();
+	testTransmissionTargetsAllocateOnlyWhenRefractionHasWork();
 	await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
 	await testPlanarReflectionCaptureAndCompositeSequencing();
 	await testPlanarReflectionUsesColorTargetsWithoutPostProcess();
@@ -1495,6 +1600,7 @@ async function run() {
 	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
+	await testScreenSpaceRefractionCapturesTransmissionPackets();
 	await testDeferredLightingBindsUnusedGroupOnePlaceholder();
 	await testDeferredLightingKeepsTransmissionOutOfGBuffer();
 	await testDeferredLightingCanBeExplicitlyDisabled();

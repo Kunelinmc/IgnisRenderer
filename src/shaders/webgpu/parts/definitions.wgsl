@@ -159,6 +159,13 @@ struct SceneFragmentOITOutput {
 	@location(1) reveal: vec4<f32>,
 }
 
+struct TransmissionFragmentOutput {
+	@location(0) lighting: vec4<f32>,
+	@location(1) surface0: vec4<f32>,
+	@location(2) surface1: vec4<f32>,
+	@location(3) surface2: vec4<f32>,
+}
+
 struct RefractionResult {
 	direction: vec3<f32>,
 	valid: f32,

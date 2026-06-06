@@ -300,10 +300,21 @@ export class WebGPUScenePassRecorder {
 			return;
 		}
 		const frameResources = this._recordingContext.requireFrameResources();
+		await this._resources.buildClusteredLighting(encoder, frameResources);
 		const targets = this._recordingContext.getFrameTargets();
 		if (!this._recordingContext.isMRTEnabled() || !targets) {
 			await this.recordLegacyMainPass(context, packets, false, false);
 			return;
+		}
+		if (this._hasTransmissionCaptureTargets(targets)) {
+			const captured = await this._recordTransmissionCapture(
+				context,
+				packets,
+				targets
+			);
+			if (captured) {
+				return;
+			}
 		}
 		const msaaTargets = this._recordingContext.getMSAATargets();
 		if (this._recordingContext.getSceneTargetMode() === "color") {
@@ -425,6 +436,105 @@ export class WebGPUScenePassRecorder {
 			}),
 		});
 		encoder.endRenderPass();
+	}
+
+	private _hasTransmissionCaptureTargets(
+		targets: NonNullable<ReturnType<WebGPUFrameGraphRecordingContext["getFrameTargets"]>>
+	): boolean {
+		return !!(
+			targets.transmissionSceneColorCopy &&
+			targets.transmissionLighting &&
+			targets.gTransmissionSurface0 &&
+			targets.gTransmissionSurface1 &&
+			targets.gTransmissionSurface2 &&
+			targets.transmissionDepth
+		);
+	}
+
+	private async _recordTransmissionCapture(
+		context: FrameContext,
+		packets: DrawPacket[],
+		targets: NonNullable<ReturnType<WebGPUFrameGraphRecordingContext["getFrameTargets"]>>
+	): Promise<boolean> {
+		const encoder = this._recordingContext.getEncoder();
+		if (
+			!encoder ||
+			!encoder.copyTextureToTexture ||
+			!targets.transmissionSceneColorCopy ||
+			!targets.transmissionLighting ||
+			!targets.gTransmissionSurface0 ||
+			!targets.gTransmissionSurface1 ||
+			!targets.gTransmissionSurface2 ||
+			!targets.transmissionDepth
+		) {
+			return false;
+		}
+		const frameResources = this._recordingContext.requireFrameResources();
+		encoder.copyTextureToTexture(
+			{ texture: targets.sceneColorMain },
+			{ texture: targets.transmissionSceneColorCopy },
+			{
+				width: targets.sceneColorMain.width,
+				height: targets.sceneColorMain.height,
+				depthOrArrayLayers: 1,
+			}
+		);
+		encoder.copyTextureToTexture(
+			{ texture: targets.depth, aspect: "depth-only" },
+			{ texture: targets.transmissionDepth, aspect: "depth-only" },
+			{
+				width: targets.depth.width,
+				height: targets.depth.height,
+				depthOrArrayLayers: 1,
+			}
+		);
+		encoder.beginRenderPass({
+			label: "WebGPUTransmissionCapture",
+			colorAttachments: [
+				{
+					view: targets.transmissionLighting,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gTransmissionSurface0,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gTransmissionSurface1,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+				{
+					view: targets.gTransmissionSurface2,
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: {
+				view: targets.transmissionDepth,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+		await submitWebGPUDraws({
+			encoder,
+			resources: this._resources,
+			frameResources,
+			packets,
+			resolveDrawOptions: () => ({
+				sceneTargetMode: "mrt",
+				transparentPipelineMode: "transmission-capture",
+				sampleCountOverride: 1,
+			}),
+		});
+		encoder.endRenderPass();
+		return true;
 	}
 
 	/**

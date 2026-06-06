@@ -56,7 +56,11 @@ let baseAmbientAttenuation =
 	vec3<f32>(clearcoatAmbientAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
 
 var ambientLight = diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
-if (transmission > 0.0 && refractionResult.valid > 0.5) {
+if (
+	includeTransmissionBackground &&
+	transmission > 0.0 &&
+	refractionResult.valid > 0.5
+) {
 	var transmissionRadiance = ambientColor;
 	if (hasEnvSpecular()) {
 		transmissionRadiance = sampleEnvironmentSpecular(

@@ -1,4 +1,7 @@
-fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
+fn shadeSceneWithOptions(
+	input: VertexOutput,
+	includeTransmissionBackground: bool
+) -> SceneFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;

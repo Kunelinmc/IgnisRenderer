@@ -179,6 +179,19 @@ function testScenePassDescriptorsExposePipelineStateKeyParts() {
 	assert.equal(oit.shaderEntryMode, "oit");
 	assert.equal(oit.sampleCountMode, "mrt-msaa");
 
+	const transmissionCapture = resolveWebGPUScenePassDescriptor(
+		"mrt",
+		"transmission-capture",
+		"default"
+	);
+	assert.equal(transmissionCapture.fragmentTargetKind, "transmission-capture");
+	assert.equal(transmissionCapture.shaderEntryMode, "transmission-capture");
+	assert.ok(
+		transmissionCapture.pipelineKeyPart.includes(
+			"targets:transmission-capture"
+		)
+	);
+
 	const planar = resolveWebGPUScenePassDescriptor(
 		"mrt",
 		"default",

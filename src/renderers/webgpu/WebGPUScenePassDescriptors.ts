@@ -2,6 +2,7 @@ export type WebGPUSceneTargetMode = "single" | "color" | "mrt" | "gbuffer";
 export type WebGPUTransparentPipelineMode =
 	| "default"
 	| "transmission"
+	| "transmission-capture"
 	| "oit";
 export type WebGPUScenePipelineDrawMode =
 	| "default"
@@ -20,6 +21,7 @@ export type WebGPUSceneFragmentTargetKind =
 	| "mrt"
 	| "gbuffer"
 	| "oit"
+	| "transmission-capture"
 	| "depth-only"
 	| "planar-reflection";
 export type WebGPUSceneShaderEntryMode =
@@ -27,6 +29,7 @@ export type WebGPUSceneShaderEntryMode =
 	| "mrt"
 	| "gbuffer"
 	| "oit"
+	| "transmission-capture"
 	| "early-z-prepass"
 	| "planar-reflection-composite";
 export type WebGPUSceneDepthStateMode =
@@ -100,12 +103,14 @@ export function resolveWebGPUScenePassDescriptor(
 	}
 
 	const fragmentTargetKind =
+		transparentMode === "transmission-capture" ? "transmission-capture" :
 		sceneTargetMode === "gbuffer" ? "gbuffer"
 		: sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const shaderEntryMode =
+		transparentMode === "transmission-capture" ? "transmission-capture" :
 		sceneTargetMode === "gbuffer" ? "gbuffer"
 		: sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"

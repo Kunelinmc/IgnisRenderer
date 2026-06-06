@@ -152,11 +152,13 @@ export class WebGPUFrameGraphPlanner {
 								reads: [
 									this._read("frame:depth", "depth-attachment", true),
 									this._read("frame:scene-color-main", "copy-src", true),
+									...this._createTransmissionDepthReads(state),
 								],
 								writes: [
 									this._write("oit:accum", "render-attachment"),
 									this._write("oit:reveal", "render-attachment"),
 									this._write("frame:scene-color-main", "render-attachment"),
+									...this._createTransmissionWrites(state),
 								],
 							}
 						)
@@ -164,7 +166,10 @@ export class WebGPUFrameGraphPlanner {
 							pass,
 							"transparent-scene",
 							"WebGPUTransparent",
-							this._createForwardResources(state, true)
+							this._withTransmissionCaptureResources(
+								this._createForwardResources(state, true),
+								state
+							)
 						),
 				],
 			],
@@ -291,6 +296,63 @@ export class WebGPUFrameGraphPlanner {
 				this._write("frame:scene-color-main", "render-attachment"),
 			],
 		};
+	}
+
+	private _withTransmissionCaptureResources(
+		resources: Pick<WebGPUFrameGraphNode, "reads" | "writes">,
+		state: WebGPUFrameGraphPlannerState
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		if (!state.needsTransmissionTargets) {
+			return resources;
+		}
+		return {
+			reads: [
+				...(resources.reads ?? []),
+				...this._createTransmissionReads(state),
+			],
+			writes: [
+				...(resources.writes ?? []),
+				...this._createTransmissionWrites(state),
+			],
+		};
+	}
+
+	private _createTransmissionReads(
+		state: WebGPUFrameGraphPlannerState
+	): WebGPUFrameGraphResourceRef[] {
+		if (!state.needsTransmissionTargets) {
+			return [];
+		}
+		return [
+			this._read("frame:scene-color-main", "copy-src", true),
+			this._read("frame:depth", "copy-src", true),
+		];
+	}
+
+	private _createTransmissionDepthReads(
+		state: WebGPUFrameGraphPlannerState
+	): WebGPUFrameGraphResourceRef[] {
+		if (!state.needsTransmissionTargets) {
+			return [];
+		}
+		return [this._read("frame:depth", "copy-src", true)];
+	}
+
+	private _createTransmissionWrites(
+		state: WebGPUFrameGraphPlannerState
+	): WebGPUFrameGraphResourceRef[] {
+		if (!state.needsTransmissionTargets) {
+			return [];
+		}
+		return [
+			this._write("transmission:scene-color-copy", "copy-dst"),
+			this._write("transmission:lighting", "render-attachment"),
+			this._write("transmission:surface0", "render-attachment"),
+			this._write("transmission:surface1", "render-attachment"),
+			this._write("transmission:surface2", "render-attachment"),
+			this._write("transmission:depth", "copy-dst"),
+			this._write("transmission:depth", "depth-attachment"),
+		];
 	}
 
 	private _createForwardResources(

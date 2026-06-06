@@ -29,6 +29,7 @@ export interface WebGPUFrameTargetRequirements {
 	sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single">;
 	needsPostProcessTargets: boolean;
 	needsOITTargets: boolean;
+	needsTransmissionTargets: boolean;
 	needsPlanarReflectionMask: boolean;
 }
 
@@ -49,6 +50,7 @@ export interface WebGPUFrameTargetManagerDebugState {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly needsPostProcessTargets: boolean;
 	readonly needsOITTargets: boolean;
+	readonly needsTransmissionTargets: boolean;
 	readonly needsPlanarReflectionMask: boolean;
 	readonly frameTargets: WebGPUFrameTargets | null;
 	readonly msaaTargets: WebGPUFrameMSAATargets | null;
@@ -68,6 +70,7 @@ export class WebGPUFrameTargetManager {
 	private _targetSceneTargetMode: WebGPUSceneTargetMode = "single";
 	private _targetNeedsPostProcessTargets = false;
 	private _targetNeedsOITTargets = false;
+	private _targetNeedsTransmissionTargets = false;
 	private _targetNeedsPlanarReflectionMask = false;
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
@@ -117,6 +120,7 @@ export class WebGPUFrameTargetManager {
 			sceneTargetMode: this._targetSceneTargetMode,
 			needsPostProcessTargets: this._targetNeedsPostProcessTargets,
 			needsOITTargets: this._targetNeedsOITTargets,
+			needsTransmissionTargets: this._targetNeedsTransmissionTargets,
 			needsPlanarReflectionMask: this._targetNeedsPlanarReflectionMask,
 			frameTargets: this._frameTargets,
 			msaaTargets: this._msaaTargets,
@@ -134,6 +138,7 @@ export class WebGPUFrameTargetManager {
 					sceneTargetMode: requirementsOrDeferred ? "gbuffer" : "mrt",
 					needsPostProcessTargets: true,
 					needsOITTargets: true,
+					needsTransmissionTargets: false,
 					needsPlanarReflectionMask: true,
 				} satisfies WebGPUFrameTargetRequirements
 			:	requirementsOrDeferred;
@@ -152,6 +157,8 @@ export class WebGPUFrameTargetManager {
 			this._targetNeedsPostProcessTargets ===
 				requirements.needsPostProcessTargets &&
 			this._targetNeedsOITTargets === requirements.needsOITTargets &&
+			this._targetNeedsTransmissionTargets ===
+				requirements.needsTransmissionTargets &&
 			this._targetNeedsPlanarReflectionMask ===
 				requirements.needsPlanarReflectionMask
 		) {
@@ -188,6 +195,8 @@ export class WebGPUFrameTargetManager {
 			this._targetNeedsPostProcessTargets =
 				requirements.needsPostProcessTargets;
 			this._targetNeedsOITTargets = requirements.needsOITTargets;
+			this._targetNeedsTransmissionTargets =
+				requirements.needsTransmissionTargets;
 			this._targetNeedsPlanarReflectionMask =
 				requirements.needsPlanarReflectionMask;
 			const needsBaseGBuffer =
@@ -395,7 +404,10 @@ export class WebGPUFrameTargetManager {
 			const depth = acquireTexture(
 				"depth-sampleable",
 				{
-					usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+					usage:
+						TextureUsage.RenderAttachment |
+						TextureUsage.TextureBinding |
+						TextureUsage.CopySrc,
 					label: "WebGPUDepthSampleable",
 				},
 				width,
@@ -443,6 +455,106 @@ export class WebGPUFrameTargetManager {
 						width,
 						height,
 						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const transmissionSceneColorCopy =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-scene-copy",
+						{
+							usage:
+								TextureUsage.TextureBinding |
+								TextureUsage.CopyDst |
+								TextureUsage.CopySrc,
+							label: "WebGPUTransmissionSceneColorCopy",
+						},
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const transmissionLighting =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-lighting",
+						{
+							usage:
+								TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
+							label: "WebGPUTransmissionLighting",
+						},
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gTransmissionSurface0 =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-surface",
+						{
+							usage:
+								TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
+							label: "WebGPUTransmissionSurface",
+						},
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gTransmissionSurface1 =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-surface",
+						{
+							usage:
+								TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
+							label: "WebGPUTransmissionSurface",
+						},
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const gTransmissionSurface2 =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-surface",
+						{
+							usage:
+								TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
+							label: "WebGPUTransmissionSurface",
+						},
+						width,
+						height,
+						TextureFormat.RGBA16Float
+					)
+				:	null;
+			const transmissionDepth =
+				requirements.needsTransmissionTargets ?
+					acquireTexture(
+						"transmission-depth",
+						{
+							usage:
+								TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopyDst,
+							label: "WebGPUTransmissionDepth",
+						},
+						width,
+						height,
+						TextureFormat.Depth32Float
 					)
 				:	null;
 			const planarReflectionMask =
@@ -558,6 +670,12 @@ export class WebGPUFrameTargetManager {
 				oitAccum,
 				oitReveal,
 				oitSceneColorCopy,
+				transmissionSceneColorCopy,
+				transmissionLighting,
+				gTransmissionSurface0,
+				gTransmissionSurface1,
+				gTransmissionSurface2,
+				transmissionDepth,
 				planarReflectionMask,
 			};
 			committed = true;
@@ -642,6 +760,7 @@ export class WebGPUFrameTargetManager {
 		this._targetSceneTargetMode = "single";
 		this._targetNeedsPostProcessTargets = false;
 		this._targetNeedsOITTargets = false;
+		this._targetNeedsTransmissionTargets = false;
 		this._targetNeedsPlanarReflectionMask = false;
 	}
 

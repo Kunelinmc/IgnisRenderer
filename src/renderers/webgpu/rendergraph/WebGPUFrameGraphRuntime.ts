@@ -16,6 +16,7 @@ import type {
 import {
 	GAMMA_PASS_ID,
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
+	SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	resolvePostProcessExecutionOrder,
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
@@ -52,6 +53,7 @@ import {
 } from "../../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../../shaders/runtime";
 import { Logger } from "../../../foundation/Logger";
+import { materialUsesTransmission } from "../../../materials/transparency";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import {
 	WebGPUPlanarReflectionPass,
@@ -630,6 +632,8 @@ export class WebGPUFrameGraphRuntime {
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
 			hasFrameTargets: !!this._frameTargets,
 			hasMSAATargets: !!this._msaaTargets,
+			needsTransmissionTargets:
+				!!this._frameTargets?.transmissionSceneColorCopy,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
 		});
 		if (plan.nodes.length === 0) {
@@ -719,12 +723,7 @@ export class WebGPUFrameGraphRuntime {
 			[
 				"transparent-scene",
 				async (_node, context) => {
-					await this._scenePassRecorder.recordMainPass(
-						context,
-						context.scene.transparentPackets,
-						false,
-						false
-					);
+					await this._recordTransparentScenePass(context);
 				},
 			],
 			[
@@ -814,6 +813,22 @@ export class WebGPUFrameGraphRuntime {
 			if (targets.oitAccum) resources.add("oit:accum");
 			if (targets.oitReveal) resources.add("oit:reveal");
 			if (targets.oitSceneColorCopy) resources.add("oit:scene-color-copy");
+			if (targets.transmissionSceneColorCopy) {
+				resources.add("transmission:scene-color-copy");
+			}
+			if (targets.transmissionLighting) {
+				resources.add("transmission:lighting");
+			}
+			if (targets.gTransmissionSurface0) {
+				resources.add("transmission:surface0");
+			}
+			if (targets.gTransmissionSurface1) {
+				resources.add("transmission:surface1");
+			}
+			if (targets.gTransmissionSurface2) {
+				resources.add("transmission:surface2");
+			}
+			if (targets.transmissionDepth) resources.add("transmission:depth");
 			if (targets.planarReflectionMask) {
 				resources.add("planar-reflection:mask");
 			}
@@ -1000,13 +1015,18 @@ export class WebGPUFrameGraphRuntime {
 			msaaSampleCount <= 1 &&
 			context.features.enableOIT === true &&
 			this._frameHasOITWork(context);
+		const needsTransmissionTargets =
+			postProcessPasses.some(
+				(resolved) => resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID
+			) && this._frameHasTransmissionWork(context);
 		const enableDeferred =
 			this._deferredEnabled && this._frameHasDeferredLightingWork(context);
 		if (
 			!enableDeferred &&
 			!needsPostProcessTargets &&
 			!needsPlanarReflection &&
-			!needsOITTargets
+			!needsOITTargets &&
+			!needsTransmissionTargets
 		) {
 			return null;
 		}
@@ -1018,6 +1038,7 @@ export class WebGPUFrameGraphRuntime {
 			sceneTargetMode,
 			needsPostProcessTargets,
 			needsOITTargets,
+			needsTransmissionTargets,
 			needsPlanarReflectionMask,
 		};
 	}
@@ -1053,6 +1074,12 @@ export class WebGPUFrameGraphRuntime {
 		return (
 			context.scene.transparentPackets.length > 0 ||
 			(context.scene.particleSystems?.length ?? 0) > 0
+		);
+	}
+
+	private _frameHasTransmissionWork(context: FrameContext): boolean {
+		return context.scene.transparentPackets.some((packet) =>
+			materialUsesTransmission(packet.material)
 		);
 	}
 
@@ -1221,6 +1248,36 @@ export class WebGPUFrameGraphRuntime {
 				this._recordingContext.resolveDirtyRects(context, width, height),
 		});
 		this._hasPresentedInFrame = true;
+	}
+
+	private async _recordTransparentScenePass(context: FrameContext): Promise<void> {
+		if (!this._frameTargets?.transmissionSceneColorCopy) {
+			await this._scenePassRecorder.recordMainPass(
+				context,
+				context.scene.transparentPackets,
+				false,
+				false
+			);
+			return;
+		}
+		const opaqueTransparentPackets = context.scene.transparentPackets.filter(
+			(packet) => !materialUsesTransmission(packet.material)
+		);
+		const transmissionPackets = context.scene.transparentPackets.filter((packet) =>
+			materialUsesTransmission(packet.material)
+		);
+		if (opaqueTransparentPackets.length > 0) {
+			await this._scenePassRecorder.recordMainPass(
+				context,
+				opaqueTransparentPackets,
+				false,
+				false
+			);
+		}
+		await this._scenePassRecorder.drawTransmissionPackets(
+			context,
+			transmissionPackets
+		);
 	}
 
 	private async _recordOITTransparentPass(context: FrameContext): Promise<void> {

@@ -527,6 +527,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainTransmissionCapture("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("@group(0) @binding(1)"));

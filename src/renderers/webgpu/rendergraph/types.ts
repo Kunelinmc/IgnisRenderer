@@ -21,6 +21,7 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly hasFrameTargets?: boolean;
 	readonly hasMSAATargets?: boolean;
+	readonly needsTransmissionTargets?: boolean;
 	readonly needsPlanarReflectionMask?: boolean;
 }
 

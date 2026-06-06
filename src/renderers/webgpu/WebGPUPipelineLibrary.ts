@@ -291,6 +291,8 @@ export class WebGPUPipelineLibrary {
 		);
 		const isTransparent = isMaterialTransparentPass(material);
 		const usesTransmission = materialUsesTransmission(material);
+		const isTransmissionCapture =
+			descriptor.transparentMode === "transmission-capture";
 		const fragmentTargets = this._createSceneFragmentTargets(
 			descriptor,
 			isTransparent,
@@ -332,7 +334,9 @@ export class WebGPUPipelineLibrary {
 			depthStencil: {
 				format: depthFormat,
 				depthWriteEnabled:
-					isEarlyZColor ? false : depthWrite && !isTransparent,
+					isTransmissionCapture ? true
+					: isEarlyZColor ? false
+					: depthWrite && !isTransparent,
 				depthCompare: isEarlyZColor ? "less-equal" : "less",
 			},
 			sampleCount,
@@ -529,6 +533,15 @@ export class WebGPUPipelineLibrary {
 			];
 		}
 
+		if (fragmentTargetKind === "transmission-capture") {
+			return [
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+				{ format: TextureFormat.RGBA16Float },
+			];
+		}
+
 		return [
 			{
 				format: TextureFormat.RGBA16Float,
@@ -567,6 +580,8 @@ export class WebGPUPipelineLibrary {
 				fragmentEntryPoint:
 					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
 					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
+					: descriptor.shaderEntryMode === "transmission-capture" ?
+						"fsMainTransmissionCapture"
 					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
 					:	"fsMainSingle",
 			};
@@ -616,6 +631,8 @@ export class WebGPUPipelineLibrary {
 				fragmentEntryPoint:
 					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
 					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
+					: descriptor.shaderEntryMode === "transmission-capture" ?
+						"fsMainTransmissionCapture"
 					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
 					:	"fsMainSingle",
 			};
