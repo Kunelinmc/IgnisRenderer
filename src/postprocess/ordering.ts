@@ -24,6 +24,7 @@ export const BUILTIN_POST_PROCESS_ORDER: readonly BuiltinPostProcessOrderEntry[]
 	{ id: "ssgi", placement: "spatial", order: 110 },
 	{ id: "taa", placement: "temporal", order: 200 },
 	{ id: "ssr", placement: "temporal", order: 210 },
+	{ id: "ssrefraction", placement: "temporal", order: 215 },
 	{ id: "volumetric", placement: "atmosphere", order: 300 },
 	{ id: "fog", placement: "atmosphere", order: 310 },
 	{ id: "motion-blur", placement: "camera", order: 400 },

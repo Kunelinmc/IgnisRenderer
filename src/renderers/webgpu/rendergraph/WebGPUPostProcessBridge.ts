@@ -143,6 +143,19 @@ export class WebGPUPostProcessBridge {
 					encoding: "linear-rgb-alpha",
 				};
 			}
+			if (targets.gTransmissionSurface0) {
+				channels.transmission = {
+					semantic: "transmission",
+					handle: {
+						backend: "webgpu",
+						texture: targets.gTransmissionSurface0,
+					},
+					width,
+					height,
+					format: TextureFormat.RGBA16Float,
+					encoding: "normal-depth-transmission",
+				};
+			}
 		}
 		return {
 			width,

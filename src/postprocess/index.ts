@@ -103,6 +103,19 @@ export {
 	type WebGPUSSRContext,
 } from "./passes/ScreenSpaceReflectionsPass";
 export {
+	DEFAULT_SSREFRACTION_OPTIONS,
+	SCREEN_SPACE_REFRACTIONS_PASS_ID,
+	ScreenSpaceRefractionsPass,
+	WebGPUScreenSpaceRefractionsImplementation,
+	createSSRefractionTraceParams,
+	resolveSSRefractionOptions,
+	resolveSSRefractionTransientDescriptors,
+	type ResolvedSSRefractionOptions,
+	type SSRefractionOptions,
+	type ScreenSpaceRefractionsPassConfig,
+	type WebGPUSSRefractionContext,
+} from "./passes/ScreenSpaceRefractionsPass";
+export {
 	DEFAULT_TAA_OPTIONS,
 	TEMPORAL_ANTI_ALIASING_PASS_ID,
 	TemporalAntiAliasingPass,

@@ -167,6 +167,7 @@ const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>([
 	"ssgi",
 	"taa",
 	"ssr",
+	"ssrefraction",
 	"volumetric",
 	"fog",
 	"motion-blur",
@@ -209,6 +210,12 @@ export interface WebGPUFrameTargets {
 	oitAccum?: IRenderTexture | null;
 	oitReveal?: IRenderTexture | null;
 	oitSceneColorCopy?: IRenderTexture | null;
+	transmissionSceneColorCopy?: IRenderTexture | null;
+	transmissionLighting?: IRenderTexture | null;
+	gTransmissionSurface0?: IRenderTexture | null;
+	gTransmissionSurface1?: IRenderTexture | null;
+	gTransmissionSurface2?: IRenderTexture | null;
+	transmissionDepth?: IRenderTexture | null;
 	planarReflectionMask?: IRenderTexture | null;
 }
 

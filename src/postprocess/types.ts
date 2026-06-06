@@ -20,6 +20,7 @@ export type LogicalGBufferSemantic =
 	| "motion"
 	| "world-position"
 	| "albedo"
+	| "transmission"
 	| "material"
 	| "emissive"
 	| "occlusion";

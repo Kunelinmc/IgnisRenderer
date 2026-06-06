@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	resolvePostProcessBackendAdapter,
+	ScreenSpaceRefractionsPass,
 	ScreenSpaceReflectionsPass,
 	TemporalAntiAliasingPass,
 	VolumetricLightingPass,
@@ -13,6 +14,7 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 const BUILTIN_PASS_BY_ID = new Map([
 	["taa", new TemporalAntiAliasingPass({ enabled: true })],
 	["ssr", new ScreenSpaceReflectionsPass({ enabled: true })],
+	["ssrefraction", new ScreenSpaceRefractionsPass({ enabled: true })],
 	["volumetric", new VolumetricLightingPass({ enabled: true })],
 ]);
 
@@ -192,6 +194,23 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(ssrContext.historyWrite.id, "ssr-write");
 	assert.equal(ssrContext.motionHistoryRead.id, "motion-read");
 	assert.equal(ssrContext.motionHistoryWrite.id, "motion-write");
+
+	const ssrefractionRequest = createTemporalRequest({
+		transients: {
+			"ssrefraction:raw": {
+				handle: { resource: { id: "ssrefraction-raw" } },
+			},
+			hiz: {
+				handle: { resource: { id: "hiz" } },
+			},
+		},
+	});
+	const ssrefractionContext = executor.getPassExecutionContext(
+		createExecutionContextRequest("ssrefraction", ssrefractionRequest)
+	);
+	assert.deepEqual(ssrefractionContext.frameBinding, { id: "frame-binding" });
+	assert.equal(ssrefractionContext.refractionRaw.id, "ssrefraction-raw");
+	assert.equal(ssrefractionContext.hiZ.id, "hiz");
 
 	const volumetricContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)

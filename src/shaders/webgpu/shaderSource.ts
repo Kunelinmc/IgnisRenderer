@@ -28,6 +28,7 @@ type PostProcessShaderPart =
 	| "taa"
 	| "hiz"
 	| "ssr"
+	| "screenSpaceRefractions"
 	| "volumetric"
 	| "fog"
 	| "motionBlur"
@@ -293,6 +294,7 @@ const postProcessShaderFiles: Record<PostProcessShaderPart, string> = {
 	taa: "./postprocess/taa.wgsl",
 	hiz: "./postprocess/hiz.wgsl",
 	ssr: "./postprocess/ssr.wgsl",
+	screenSpaceRefractions: "./postprocess/screenSpaceRefractions.wgsl",
 	volumetric: "./postprocess/volumetric.wgsl",
 	fog: "./postprocess/fog.wgsl",
 	motionBlur: "./postprocess/motionBlur.wgsl",
