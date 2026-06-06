@@ -36,7 +36,7 @@ await renderer.warmup({
 ```
 
 ```bash
-bun tests/test_renderer_warmup_lightprobe.mjs
+bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 ```
 
 ## Errors & Diagnostics

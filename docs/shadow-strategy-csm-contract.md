@@ -58,7 +58,7 @@ Verification commands:
 
 ```bash
 bunx tsc --noEmit
-bun tests/test_shadow_strategy_csm.mjs
+bun tests/static/lighting/test_shadow_strategy_csm.mjs
 ```
 
 ## Errors & Diagnostics

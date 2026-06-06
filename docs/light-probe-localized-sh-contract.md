@@ -68,7 +68,7 @@ fallbackProbe.shape = "global";
 ```
 
 ```bash
-bun tests/test_light_probe_runtime.mjs
+bun tests/static/lighting/test_light_probe_runtime.mjs
 ```
 
 ## Errors & Diagnostics

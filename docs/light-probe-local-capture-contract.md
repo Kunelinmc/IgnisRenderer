@@ -52,7 +52,7 @@ probe.requestCapture();
 ```
 
 ```bash
-bun tests/test_probe_capture_runtime.mjs
+bun tests/static/lighting/test_probe_capture_runtime.mjs
 ```
 
 ## Errors & Diagnostics

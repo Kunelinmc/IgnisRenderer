@@ -194,11 +194,11 @@ renderer.postProcess.registerPass(new CustomSoftGlowPass());
 ```
 
 ```bash
-bun tests/test_postprocess_public_api.mjs
-bun tests/test_screen_space_ambient_occlusion_pass.mjs
-bun tests/test_screen_space_global_illumination_pass.mjs
-bun tests/test_temporal_anti_aliasing_pass.mjs
-bun tests/test_webgpu_postprocess_runtime_temporal.mjs
+bun tests/static/postprocess/test_postprocess_public_api.mjs
+bun tests/static/postprocess/test_screen_space_ambient_occlusion_pass.mjs
+bun tests/static/postprocess/test_screen_space_global_illumination_pass.mjs
+bun tests/static/postprocess/test_temporal_anti_aliasing_pass.mjs
+bun tests/static/webgpu/test_webgpu_postprocess_runtime_temporal.mjs
 ```
 
 ## Errors & Diagnostics

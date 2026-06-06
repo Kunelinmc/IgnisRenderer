@@ -52,7 +52,7 @@ The codebase is organized into modular directories, separating core abstractions
 - **`addons/`**: Extensibility folder for community and experimental features.
 
 ### `tests/` - Testing Suite
-- Comprehensive suite of over 50 automated tests covering lighting accuracy, physics consistency, animation state blending, and backend-specific feature verification.
+- Categorized automated tests covering lighting accuracy, physics consistency, animation state blending, and backend-specific feature verification. Headless Bun tests live under `tests/static/`, real browser-runtime tests live under `tests/browser/`, and benchmarks live under `tests/benchmarks/`.
 
 ## 🏗️ Architecture Overview
 

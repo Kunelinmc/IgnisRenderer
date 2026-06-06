@@ -54,7 +54,7 @@ renderer.requestRender();
 ```
 
 ```bash
-bun tests/test_webgl_backend_v2.mjs
+bun tests/static/webgl/test_webgl_backend_v2.mjs
 ```
 
 ## Errors & Diagnostics
@@ -77,4 +77,4 @@ bun tests/test_webgl_backend_v2.mjs
 - `WebGLBackend.postProcessExecutor` and `WebGLBackend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendAdapter(webGLBackend)` for internal backend adapter access.
 - Public WebGL custom post-process passes must migrate to `PostProcessPass` instances registered through `renderer.postProcess.registerPass(pass)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the WebGPU backend budget.
-- Test entrypoint changed from `tests/test_webgl_backend_v1.mjs` to `tests/test_webgl_backend_v2.mjs`.
+- Test entrypoint is `tests/static/webgl/test_webgl_backend_v2.mjs`.

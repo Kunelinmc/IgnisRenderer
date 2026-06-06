@@ -106,9 +106,9 @@ const material = new ShaderMaterial({
 ```
 
 ```bash
-bun tests/test_shader_material.mjs
-bun tests/test_webgpu_bridge.mjs
-bun tests/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/shaders/test_shader_material.mjs
+bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
 ## Errors & Diagnostics

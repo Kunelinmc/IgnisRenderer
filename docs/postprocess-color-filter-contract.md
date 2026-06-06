@@ -38,7 +38,7 @@ colorFilter.setOptions({
 ```
 
 ```bash
-bun tests/test_incremental_postfx_grading.mjs
+bun tests/static/postprocess/test_incremental_postfx_grading.mjs
 ```
 
 ## Errors & Diagnostics

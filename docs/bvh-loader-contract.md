@@ -50,7 +50,7 @@ console.log(root.name, clip.name, clip.duration);
 ```
 
 ```bash
-bun tests/test_bvh_loader.mjs
+bun tests/static/loaders/test_bvh_loader.mjs
 ```
 
 ## Errors & Diagnostics

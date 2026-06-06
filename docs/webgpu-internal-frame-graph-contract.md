@@ -51,9 +51,9 @@ const backend = new WebGPUBackend({
 ```
 
 ```bash
-bun tests/test_webgpu_frame_graph_compiler.mjs
-bun tests/test_webgpu_frame_graph_planner.mjs
-bun tests/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
+bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
 ## Errors & Diagnostics

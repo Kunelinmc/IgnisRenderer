@@ -103,9 +103,9 @@ renderer.requestRender();
 ```
 
 ```bash
-bun tests/test_webgl_backend_stub.mjs
-bun tests/test_webgpu_backend_cache_and_dependency.mjs
-bun tests/test_renderer_dynamic_texture_updates.mjs
+bun tests/static/webgl/test_webgl_backend_stub.mjs
+bun tests/static/webgpu/test_webgpu_backend_cache_and_dependency.mjs
+bun tests/static/assets/test_renderer_dynamic_texture_updates.mjs
 ```
 
 ## Errors & Diagnostics

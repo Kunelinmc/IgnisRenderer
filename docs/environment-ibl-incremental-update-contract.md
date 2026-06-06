@@ -78,7 +78,7 @@ renderer.pipeline.registerPipelineStage({
 ```
 
 ```bash
-bun tests/test_environment_ibl_update_runtime.mjs
+bun tests/static/lighting/test_environment_ibl_update_runtime.mjs
 ```
 
 ## Errors & Diagnostics

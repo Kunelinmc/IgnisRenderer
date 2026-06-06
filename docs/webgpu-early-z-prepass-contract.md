@@ -75,8 +75,8 @@ fn fsDepthMask() {
 ```
 
 ```bash
-bun tests/test_webgpu_bridge.mjs
-bun tests/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
 ## Errors & Diagnostics

@@ -28,7 +28,7 @@ renderer.requestRender("postfx");
 ```
 
 ```bash
-bun -e "import('./tests/test_webgpu_postprocess_runtime_screen.mjs').then((m) => m.run())"
+bun -e "import('./tests/static/webgpu/test_webgpu_postprocess_runtime_screen.mjs').then((m) => m.run())"
 ```
 
 ## Errors & Diagnostics

@@ -43,7 +43,7 @@ backend.setMSAAEnabled(false);
 ```
 
 ```bash
-bun tests/test_webgpu_backend_cache_and_dependency.mjs
+bun tests/static/webgpu/test_webgpu_backend_cache_and_dependency.mjs
 ```
 
 ## Errors & Diagnostics

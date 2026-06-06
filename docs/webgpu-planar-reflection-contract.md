@@ -56,8 +56,8 @@ const mirror = new Material({
 ```
 
 ```bash
-bun tests/test_backend_capabilities.mjs
-bun tests/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/renderer/test_backend_capabilities.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
 The WebGPU frame planner should schedule the `reflection` frame pass when

@@ -117,10 +117,10 @@ renderer.postProcess.registerPass(new CustomWebGPUResolvePass());
 ```
 
 ```bash
-bun tests/test_postprocess_public_api.mjs
-bun tests/test_webgpu_postprocess_runtime_spatial.mjs
-bun tests/test_webgpu_postprocess_runtime_temporal.mjs
-bun tests/test_webgpu_postprocess_runtime_screen.mjs
+bun tests/static/postprocess/test_postprocess_public_api.mjs
+bun tests/static/webgpu/test_webgpu_postprocess_runtime_spatial.mjs
+bun tests/static/webgpu/test_webgpu_postprocess_runtime_temporal.mjs
+bun tests/static/webgpu/test_webgpu_postprocess_runtime_screen.mjs
 ```
 
 ## Errors & Diagnostics

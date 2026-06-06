@@ -79,13 +79,13 @@ class Backend implements IRenderBackend {
 ```
 
 ```bash
-bun tests/test_frame_planner.mjs
-bun tests/test_renderer_pipeline_registry.mjs
-bun tests/test_renderer_stage_graph.mjs
-bun tests/test_webgpu_backend_cache_and_dependency.mjs
-bun tests/test_webgl_backend_stub.mjs
-bun tests/test_webgpu_frame_executor_resilience.mjs
-bun tests/test_webgpu_post_graph.mjs
+bun tests/static/pipeline/test_frame_planner.mjs
+bun tests/static/renderer/test_renderer_pipeline_registry.mjs
+bun tests/static/renderer/test_renderer_stage_graph.mjs
+bun tests/static/webgpu/test_webgpu_backend_cache_and_dependency.mjs
+bun tests/static/webgl/test_webgl_backend_stub.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_post_graph.mjs
 ```
 
 ## Errors & Diagnostics

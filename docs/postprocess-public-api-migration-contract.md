@@ -95,7 +95,7 @@ renderer.postProcess.registerPass(new CustomEdgePass());
 ```
 
 ```bash
-bun tests/test_postprocess_public_api.mjs
+bun tests/static/postprocess/test_postprocess_public_api.mjs
 ```
 
 ## Errors & Diagnostics

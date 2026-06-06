@@ -64,7 +64,7 @@ This file provides critical context and collaboration guidance for AI/code agent
 - Each commit SHOULD represent one logical change. Split unrelated source,
   test, docs, and formatting changes into separate commits when practical.
 - Mention validation in the body when it matters, using exact commands such as
-  `bunx tsc --noEmit` or `bun tests/test_webgpu_bridge.mjs`.
+  `bunx tsc --noEmit` or `bun tests/static/webgpu/test_webgpu_bridge.mjs`.
 - Do not include generated files unless the repository expects them to be
   committed for that change.
 
@@ -103,16 +103,17 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 - **Dev server**: `bun run dev`
 - **Build**: `bun run build`
 - **Global Type Check**: `bunx tsc --noEmit`
-- **Run all tests**: `bun run test`
-- **Run single test**: `bun tests/<file>.mjs`
+- **Run all static tests**: `bun run test`
+- **Run browser tests**: `bun run test:browser`
+- **Run single static test**: `bun tests/static/<subsystem>/<file>.mjs`
 
 ### Specialized Test Suites
 - **Lighting**: `bun run test:lighting`, `bun run test:pointspot`, `bun run test:sh`
 - **Geometry**: `bun run test:winding`, `bun run test:sparse`
-- **Animation**: `bun tests/test_animation_core.mjs`, `bun tests/test_animation_state_blendtree.mjs`
-- **Physics**: `bun tests/test_physics_system_bindings.mjs`, `bun tests/test_physics_adapter_contract.mjs`
-- **WebGPU**: `bun tests/test_webgpu_bridge.mjs`, `bun tests/test_webgpu_post_graph.mjs`
-- **WebGL**: `bun tests/test_webgl_backend_v2.mjs`, `bun tests/test_webgl_backend_stub.mjs`
+- **Animation**: `bun tests/static/animation/test_animation_core.mjs`, `bun tests/static/animation/test_animation_state_blendtree.mjs`
+- **Physics**: `bun tests/static/physics/test_physics_system_bindings.mjs`, `bun tests/static/physics/test_physics_adapter_contract.mjs`
+- **WebGPU**: `bun tests/static/webgpu/test_webgpu_bridge.mjs`, `bun tests/static/webgpu/test_webgpu_post_graph.mjs`
+- **WebGL**: `bun tests/static/webgl/test_webgl_backend_v2.mjs`, `bun tests/static/webgl/test_webgl_backend_stub.mjs`
 
 ## Code Style Guidelines
 

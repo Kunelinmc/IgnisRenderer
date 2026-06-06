@@ -79,10 +79,10 @@ void main() {
 ```
 
 ```bash
-bun tests/test_shader_material.mjs
-bun tests/test_shader_runtime.mjs
-bun tests/test_webgpu_bridge.mjs
-bun tests/test_webgl_backend_v2.mjs
+bun tests/static/shaders/test_shader_material.mjs
+bun tests/static/shaders/test_shader_runtime.mjs
+bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgl/test_webgl_backend_v2.mjs
 ```
 
 ## Errors & Diagnostics

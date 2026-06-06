@@ -47,8 +47,8 @@ renderer.requestRender("hdr-internal");
 ```
 
 ```bash
-bun tests/test_webgpu_bridge.mjs
-bun tests/test_webgl_frame_executor_fxaa.mjs
+bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 ```
 
 ## Errors & Diagnostics

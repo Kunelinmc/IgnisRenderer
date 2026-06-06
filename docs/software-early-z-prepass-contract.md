@@ -55,7 +55,7 @@ const backend = new SoftwareBackend({
 ```
 
 ```bash
-bun tests/test_software_early_z_prepass.mjs
+bun tests/static/software/test_software_early_z_prepass.mjs
 ```
 
 ## Errors & Diagnostics

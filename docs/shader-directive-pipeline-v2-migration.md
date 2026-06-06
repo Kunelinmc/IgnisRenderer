@@ -107,8 +107,8 @@ fn vsMain() -> @builtin(position) vec4<f32> {
 ```
 
 ```bash
-bun tests/test_shader_runtime.mjs
-bun tests/test_shader_directive_pipeline_v2.mjs
+bun tests/static/shaders/test_shader_runtime.mjs
+bun tests/static/shaders/test_shader_directive_pipeline_v2.mjs
 bun run test
 ```
 
