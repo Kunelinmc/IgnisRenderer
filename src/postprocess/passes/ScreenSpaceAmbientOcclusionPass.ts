@@ -30,6 +30,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -41,6 +42,12 @@ import type {
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
+export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER =
+	defineBuiltinPostProcessOrder({
+		id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
+		placement: "spatial",
+		order: 100,
+	});
 const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 
@@ -1046,11 +1053,9 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
 		super({
 			...config,
-			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
+			...SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "SSAO",
-			placement: "spatial",
-			order: 100,
 			implementations: {
 				software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
 				webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),

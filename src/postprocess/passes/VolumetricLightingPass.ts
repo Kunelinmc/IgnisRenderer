@@ -24,6 +24,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -37,6 +38,12 @@ import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
+export const VOLUMETRIC_LIGHTING_PASS_ORDER =
+	defineBuiltinPostProcessOrder({
+		id: VOLUMETRIC_LIGHTING_PASS_ID,
+		placement: "atmosphere",
+		order: 300,
+	});
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 
@@ -715,11 +722,9 @@ export class VolumetricLightingPass extends PostProcessPass<
 	public constructor(config: VolumetricLightingPassConfig = {}) {
 		super({
 			...config,
-			id: VOLUMETRIC_LIGHTING_PASS_ID,
+			...VOLUMETRIC_LIGHTING_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "volumetric effects",
-			placement: "atmosphere",
-			order: 300,
 			implementations: {
 				software: new SoftwareVolumetricLightingImplementation(),
 				webgpu: new WebGPUVolumetricLightingImplementation(),

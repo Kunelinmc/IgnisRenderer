@@ -37,7 +37,7 @@ export const BUILTIN_POST_PROCESS_ORDER: readonly BuiltinPostProcessOrderEntry[]
 	{ id: "gamma", placement: "present", order: 900 },
 ] as const;
 
-const BUILTIN_POST_PROCESS_ORDER_BY_ID = new Map(
+const PASS_OWNED_BUILTIN_ORDER_BY_ID = new Map(
 	BUILTIN_POST_PROCESS_ORDER.map((entry) => [entry.id, entry])
 );
 
@@ -53,6 +53,42 @@ const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
 };
 
 /**
+ * Registers pass-owned ordering metadata for a built-in post-process pass.
+ *
+ * @param entry Built-in pass id, placement bucket, and absolute execution order.
+ * @returns The same metadata entry for reuse in pass constructors.
+ * @sideEffects Adds or confirms the entry in the built-in order lookup table.
+ */
+export function defineBuiltinPostProcessOrder<
+	TEntry extends BuiltinPostProcessOrderEntry,
+>(entry: TEntry): TEntry {
+	if (!entry.id) {
+		throw new Error("Built-in post-process pass id is required.");
+	}
+	if (!isPostProcessPlacement(entry.placement)) {
+		throw new Error(
+			`Built-in post-process pass "${entry.id}" has invalid placement.`
+		);
+	}
+	if (!Number.isFinite(entry.order)) {
+		throw new Error(
+			`Built-in post-process pass "${entry.id}" requires a finite order.`
+		);
+	}
+	const current = PASS_OWNED_BUILTIN_ORDER_BY_ID.get(entry.id);
+	if (
+		current &&
+		(current.placement !== entry.placement || current.order !== entry.order)
+	) {
+		throw new Error(
+			`Built-in post-process pass "${entry.id}" has conflicting order metadata.`
+		);
+	}
+	PASS_OWNED_BUILTIN_ORDER_BY_ID.set(entry.id, entry);
+	return entry;
+}
+
+/**
  * Returns static ordering metadata for a built-in post-process pass.
  *
  * @param id Candidate pass id.
@@ -62,7 +98,7 @@ const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
 export function getBuiltinPostProcessOrder(
 	id: string
 ): BuiltinPostProcessOrderEntry | null {
-	return BUILTIN_POST_PROCESS_ORDER_BY_ID.get(id) ?? null;
+	return PASS_OWNED_BUILTIN_ORDER_BY_ID.get(id) ?? null;
 }
 
 /**

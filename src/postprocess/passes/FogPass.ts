@@ -23,6 +23,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	IPostProcessExecutor,
 	PostProcessPassImplementation,
@@ -32,6 +33,11 @@ import type {
 } from "../types";
 
 export const FOG_PASS_ID = "fog";
+export const FOG_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: FOG_PASS_ID,
+	placement: "atmosphere",
+	order: 310,
+});
 
 export interface FogOptions {
 	/** Distance falloff model used to convert depth into fog opacity. */
@@ -430,11 +436,9 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 	public constructor(config: FogPassConfig = {}) {
 		super({
 			...config,
-			id: FOG_PASS_ID,
+			...FOG_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "fog",
-			placement: "atmosphere",
-			order: 310,
 			implementations: {
 				webgpu: new WebGPUFogImplementation(),
 				webgl: new WebGLFogImplementation(),

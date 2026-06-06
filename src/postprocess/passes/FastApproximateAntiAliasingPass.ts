@@ -26,6 +26,7 @@ import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -33,6 +34,12 @@ import type {
 } from "../types";
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
+export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER =
+	defineBuiltinPostProcessOrder({
+		id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
+		placement: "ldr",
+		order: 710,
+	});
 
 interface IncrementalDirtyRect {
 	minX: number;
@@ -524,11 +531,9 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 	public constructor(config: FastApproximateAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
+			...FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "FXAA",
-			placement: "ldr",
-			order: 710,
 			implementations: {
 				software: new SoftwareFastApproximateAntiAliasingImplementation(),
 				webgpu: new WebGPUFastApproximateAntiAliasingImplementation(),

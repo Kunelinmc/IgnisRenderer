@@ -26,6 +26,7 @@ import {
 } from "../../maths/Misc";
 import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -37,6 +38,12 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 export const TEMPORAL_ANTI_ALIASING_PASS_ID = "taa";
+export const TEMPORAL_ANTI_ALIASING_PASS_ORDER =
+	defineBuiltinPostProcessOrder({
+		id: TEMPORAL_ANTI_ALIASING_PASS_ID,
+		placement: "temporal",
+		order: 200,
+	});
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
@@ -781,11 +788,9 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 	public constructor(config: TemporalAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			id: TEMPORAL_ANTI_ALIASING_PASS_ID,
+			...TEMPORAL_ANTI_ALIASING_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "TAA",
-			placement: "temporal",
-			order: 200,
 			implementations: {
 				software: new SoftwareTemporalAntiAliasingImplementation(),
 				webgpu: new WebGPUTemporalAntiAliasingImplementation(),

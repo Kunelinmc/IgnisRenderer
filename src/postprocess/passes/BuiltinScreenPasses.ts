@@ -48,6 +48,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -64,6 +65,36 @@ export const TONE_MAPPING_PASS_ID = "tonemap";
 export const COLOR_FILTER_PASS_ID = "color-filter";
 export const INTERACTION_OUTLINE_PASS_ID = "interaction-outline";
 export const GAMMA_PASS_ID = "gamma";
+export const MOTION_BLUR_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: MOTION_BLUR_PASS_ID,
+	placement: "camera",
+	order: 400,
+});
+export const DEPTH_OF_FIELD_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: DEPTH_OF_FIELD_PASS_ID,
+	placement: "camera",
+	order: 410,
+});
+export const TONE_MAPPING_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: TONE_MAPPING_PASS_ID,
+	placement: "hdr",
+	order: 600,
+});
+export const COLOR_FILTER_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: COLOR_FILTER_PASS_ID,
+	placement: "ldr",
+	order: 700,
+});
+export const INTERACTION_OUTLINE_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: INTERACTION_OUTLINE_PASS_ID,
+	placement: "overlay",
+	order: 800,
+});
+export const GAMMA_PASS_ORDER = defineBuiltinPostProcessOrder({
+	id: GAMMA_PASS_ID,
+	placement: "present",
+	order: 900,
+});
 
 export interface MotionBlurOptions {
 	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */
@@ -1746,11 +1777,9 @@ export class MotionBlurPass extends PostProcessPass<
 	public constructor(config: MotionBlurPassConfig = {}) {
 		super({
 			...config,
-			id: MOTION_BLUR_PASS_ID,
+			...MOTION_BLUR_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "motion blur",
-			placement: "camera",
-			order: 400,
 			implementations: {
 				webgpu: new WebGPUMotionBlurImplementation(),
 				webgl: new WebGLMotionBlurImplementation(),
@@ -1788,11 +1817,9 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 	public constructor(config: DepthOfFieldPassConfig = {}) {
 		super({
 			...config,
-			id: DEPTH_OF_FIELD_PASS_ID,
+			...DEPTH_OF_FIELD_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "depth of field",
-			placement: "camera",
-			order: 410,
 			implementations: {
 				webgpu: new WebGPUDepthOfFieldImplementation(),
 				webgl: new WebGLDepthOfFieldImplementation(),
@@ -1829,11 +1856,9 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 	) {
 		super({
 			...config,
-			id: TONE_MAPPING_PASS_ID,
+			...TONE_MAPPING_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "tone mapping",
-			placement: "hdr",
-			order: 600,
 			implementations: {
 				software: new SoftwareToneMappingImplementation(),
 				webgpu: new WebGPUToneMappingImplementation(),
@@ -1864,11 +1889,9 @@ export class ColorFilterPass extends PostProcessPass<
 	public constructor(config: ColorFilterPassConfig = {}) {
 		super({
 			...config,
-			id: COLOR_FILTER_PASS_ID,
+			...COLOR_FILTER_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "color filter",
-			placement: "ldr",
-			order: 700,
 			implementations: {
 				software: new SoftwareColorFilterImplementation(),
 				webgpu: new WebGPUColorFilterImplementation(),
@@ -1905,11 +1928,9 @@ export class InteractionOutlinePass extends PostProcessPass<
 	) {
 		super({
 			...config,
-			id: INTERACTION_OUTLINE_PASS_ID,
+			...INTERACTION_OUTLINE_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "interaction outline",
-			placement: "overlay",
-			order: 800,
 			implementations: {
 				software: new SoftwareInteractionOutlineImplementation(),
 				webgpu: new WebGPUInteractionOutlineImplementation(),
@@ -1948,11 +1969,9 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 	) {
 		super({
 			...config,
-			id: GAMMA_PASS_ID,
+			...GAMMA_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "gamma correction",
-			placement: "present",
-			order: 900,
 			implementations: {
 				software: new SoftwareGammaImplementation(),
 				webgpu: new WebGPUGammaImplementation(),

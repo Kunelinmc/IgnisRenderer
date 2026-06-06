@@ -20,6 +20,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -29,6 +30,12 @@ import type {
 } from "../types";
 
 export const SCREEN_SPACE_REFRACTIONS_PASS_ID = "ssrefraction";
+export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER =
+	defineBuiltinPostProcessOrder({
+		id: SCREEN_SPACE_REFRACTIONS_PASS_ID,
+		placement: "temporal",
+		order: 215,
+	});
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
@@ -558,11 +565,9 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceRefractionsPassConfig = {}) {
 		super({
 			...config,
-			id: SCREEN_SPACE_REFRACTIONS_PASS_ID,
+			...SCREEN_SPACE_REFRACTIONS_PASS_ORDER,
 			builtIn: true,
 			warningLabel: "screen-space refractions",
-			placement: "temporal",
-			order: 215,
 			implementations: {
 				webgpu: new WebGPUScreenSpaceRefractionsImplementation(),
 			},
