@@ -35,7 +35,7 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - `PostProcessPassRegistry.invalidatePasses(backend)` must call `PostProcessPass.invalidate(backend)` on registered passes without changing pass enabled state, options, or ordering.
 - `PostProcessPassRegistry.destroyPasses(backend)` must call `PostProcessPass.destroy(backend)` on registered passes without changing pass enabled state, options, or ordering.
 - `PostProcessPassRegistry.unregisterPass(id)` must destroy the removed pass implementations after detaching change listeners.
-- Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
+- Built-in post-process order must be `ssao`, `ssgi`, `taa`, `ssr`, `ssrefraction`, `volumetric`, `fog`, `motion-blur`, `dof`, `bloom`, `tonemap`, `color-filter`, `fxaa`, `interaction-outline`, `gamma`.
 - The built-in `fog` pass must return `false` from `shouldExecute(request)` when `request.options.application` is `"scene"`.
 - The built-in `interaction-outline` pass must return `false` from `shouldExecute(request)` when `request.frameContext` exists and no entity is selected.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
@@ -98,6 +98,7 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `ssao` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `ssgi` pass must own its WebGPU implementation under `src/postprocess/passes/`.
 - The built-in `ssr` pass must own its WebGPU implementation under `src/postprocess/passes/`.
+- The built-in `ssrefraction` pass must own its WebGPU implementation under `src/postprocess/passes/`.
 - The built-in `volumetric` pass must own its WebGPU and Software implementations under `src/postprocess/passes/`.
 - The built-in `fog` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
 - The built-in `bloom` pass must own its WebGPU and WebGL implementations under `src/postprocess/passes/`.
@@ -108,7 +109,7 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `interaction-outline` pass must own its WebGPU, WebGL, and Software implementations under `src/postprocess/passes/`.
 - The built-in `gamma` pass must own final presentation for WebGPU and WebGL and gamma encoding for Software under `src/postprocess/passes/`.
 - Software built-in screen pass CPU runtimes must live under `src/postprocess/passes/` and must not be owned by `src/renderers/software/`.
-- Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `volumetric`, `fog`, `bloom`, `motion-blur`, `dof`, `tonemap`, `color-filter`, `interaction-outline`, or `gamma` kernel orchestration.
+- Backend executor fallback dispatch and runtime pass registration must not contain backend-private `ssao`, `ssgi`, `taa`, `fxaa`, `ssr`, `ssrefraction`, `volumetric`, `fog`, `bloom`, `motion-blur`, `dof`, `tonemap`, `color-filter`, `interaction-outline`, or `gamma` kernel orchestration.
 - The frame-level incremental planner must return `firstPass: "postprocess"` for post-process-only work and must store the internal starting pass in `postProcessStartPass`.
 
 ## Usage
@@ -197,6 +198,7 @@ renderer.postProcess.registerPass(new CustomSoftGlowPass());
 bun tests/static/postprocess/test_postprocess_public_api.mjs
 bun tests/static/postprocess/test_screen_space_ambient_occlusion_pass.mjs
 bun tests/static/postprocess/test_screen_space_global_illumination_pass.mjs
+bun tests/static/postprocess/test_screen_space_refractions_pass.mjs
 bun tests/static/postprocess/test_temporal_anti_aliasing_pass.mjs
 bun tests/static/webgpu/test_webgpu_postprocess_runtime_temporal.mjs
 ```

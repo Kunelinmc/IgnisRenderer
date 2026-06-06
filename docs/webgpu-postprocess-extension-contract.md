@@ -34,10 +34,11 @@ WebGPU post-processing is driven through `PostProcessPipeline` and a registered 
 - WebGPU temporal passes must read history resources from `request.histories`.
 - WebGPU transient resources must be read from injected context properties declared by `WebGPUPostProcessContextMetadata.transients`.
 - WebGPU temporal passes must return `updatedHistoryIds` or `historyUpdated` when they write pipeline-owned history resources.
-- The built-in `taa`, `fxaa`, `ssao`, `ssr`, and `volumetric` WebGPU kernels must be pass-owned implementations.
+- The built-in `taa`, `fxaa`, `ssao`, `ssr`, `ssrefraction`, and `volumetric` WebGPU kernels must be pass-owned implementations.
 - The built-in WebGPU `ssao` pass must request `ssao:raw` and `ssao:blur` transients sized by its resolved `downsample` option.
 - The built-in WebGPU `ssr` pass must request `ssr:raw` sized by its resolved `downsample` option and the shared `hiz` full-chain transient.
-- The built-in WebGPU `volumetric` pass must request the same shared `hiz` full-chain transient as `ssr`.
+- The built-in WebGPU `ssrefraction` pass must request `ssrefraction:raw` sized by its resolved `downsample` option and the shared `hiz` full-chain transient.
+- The built-in WebGPU `volumetric` pass must request the same shared `hiz` full-chain transient as `ssr` and `ssrefraction`.
 - `WebGPUFrameTargets` must not contain post-process transient textures such as SSAO intermediates, SSR intermediates, or Hi-Z textures.
 - WebGPU executor resource allocation must use backend-owned texture creation and destruction APIs.
 - `resolvePostProcessBackendAdapter(webGPUBackend).createResource(desc)` must create a full mip chain when `desc.mipMode` is `"full-chain"`.
