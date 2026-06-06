@@ -79,15 +79,6 @@ export type {
 	FramePassStage,
 	RendererFramePlan,
 	RendererFramePlanStage,
-	SSROptions,
-	SSAOOptions,
-	SSGIOptions,
-	TAAOptions,
-	MotionBlurOptions,
-	DOFOptions,
-	ColorFilterOptions,
-	FogOptions,
-	VolumetricOptions,
 } from "./pipeline/types";
 export {
 	getEnabledCustomPostProcessPassIds,
@@ -95,9 +86,19 @@ export {
 	isFogPostProcessEnabled,
 } from "./postprocess";
 export type {
+	BloomOptions,
+	ColorFilterOptions,
+	DOFOptions,
+	FogOptions,
+	MotionBlurOptions,
 	PostProcessCustomPassDescriptor,
 	PostProcessPassId,
 	ResolvedPostProcessState,
+	SSAOOptions,
+	SSGIOptions,
+	SSROptions,
+	TAAOptions,
+	VolumetricOptions,
 } from "./postprocess";
 export * from "./postprocess";
 export {
