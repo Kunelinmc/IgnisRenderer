@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { FakeWebGPUBackend as FakeBackend } from "./test_fakes.mjs";
+import { FakeWebGPUBackend as FakeBackend } from "./fakes.mjs";
 
 export { FakeBackend };
 

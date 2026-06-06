@@ -10,13 +10,15 @@
   "scripts": {
     "dev": "bun x vite",
     "build": "bun x vite build",
-    "test": "bun tests/run_all.mjs",
-    "test:lighting": "bun tests/test_lighting.mjs",
-    "test:pointspot": "bun tests/test_point_spot_lighting.mjs",
-    "test:sh": "bun tests/test_sh_lighting_regression.mjs",
-    "test:winding": "bun tests/test_model_factory_winding.mjs",
-    "test:sparse": "bun tests/test_sparse_accessor.mjs",
-    "bench:physics-mesh-v2": "bun tests/bench_physics_mesh_collision_v2.mjs"
+    "test": "bun run test:static",
+    "test:static": "bun tests/run_all.mjs",
+    "test:browser": "bun tests/run_browser.mjs",
+    "test:lighting": "bun tests/static/lighting/test_lighting.mjs",
+    "test:pointspot": "bun tests/static/lighting/test_point_spot_lighting.mjs",
+    "test:sh": "bun tests/static/lighting/test_sh_lighting_regression.mjs",
+    "test:winding": "bun tests/static/geometry/test_model_factory_winding.mjs",
+    "test:sparse": "bun tests/static/loaders/test_sparse_accessor.mjs",
+    "bench:physics-mesh-v2": "bun tests/benchmarks/bench_physics_mesh_collision_v2.mjs"
   },
   "keywords": [
     "renderer",
