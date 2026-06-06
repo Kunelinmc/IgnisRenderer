@@ -1,8 +1,5 @@
 import type { Texture } from "../../core/Texture";
 import {
-	DEFAULT_BLOOM_OPTIONS,
-	DEFAULT_FOG_OPTIONS,
-	DEFAULT_TAA_OPTIONS,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../../pipeline/types";
 import type {
@@ -17,6 +14,9 @@ import {
 	ToneMappingPass,
 	type ResolvedPostProcessState,
 } from "../../postprocess";
+import { DEFAULT_BLOOM_OPTIONS } from "../../postprocess/passes/BloomPass";
+import { DEFAULT_FOG_OPTIONS } from "../../postprocess/passes/FogPass";
+import { DEFAULT_TAA_OPTIONS } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { ParticleBlendMode } from "../../particles";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";

@@ -1,8 +1,4 @@
 import { CameraType } from "../../cameras/Camera";
-import {
-	DEFAULT_VOLUMETRIC_OPTIONS,
-	type VolumetricOptions,
-} from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -43,6 +39,85 @@ const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
+
+export interface VolumetricOptions {
+	/** Ray-march step count. Higher values reduce banding at higher GPU cost. */
+	samples?: number;
+	/** Software volumetric grid scale divisor. Higher values improve speed. */
+	downsample?: number;
+	/** Overall scattering contribution added to the scene color. */
+	weight?: number;
+	/** Exposure multiplier applied to the accumulated light shaft result. */
+	exposure?: number;
+	/** Participating-media density. Higher values make fog volumes thicker. */
+	airDensity?: number;
+	/**
+	 * Henyey-Greenstein phase anisotropy. Positive values emphasize forward
+	 * scattering, negative values emphasize back scattering.
+	 */
+	anisotropy?: number;
+	/** Maximum world-space ray distance sampled from the camera. */
+	maxRayDistance?: number;
+	/** Fraction of light scattered instead of absorbed, clamped to `[0, 1]`. */
+	scatteringAlbedo?: number;
+	/** Step interval for shadow lookups. Higher values reduce shadowing cost. */
+	shadowSampleInterval?: number;
+	/** Software path: whether the provided depth buffer is already linearized. */
+	isLinearDepth?: boolean;
+	/** Enables depth-adaptive ray marching to spend samples where detail changes. */
+	adaptiveSteps?: boolean;
+	/** Software path: enables bilateral upscaling for downsampled volumes. */
+	useBilateralUpscale?: boolean;
+	/** Depth tolerance for bilateral upscale; lower values preserve harder edges. */
+	bilateralDepthSigma?: number;
+	/** ReSTIR candidate count per pixel. Higher values improve light selection. */
+	restirCandidates?: number;
+	/** Temporal reservoir blend factor. Higher values stabilize but can ghost. */
+	restirTemporalWeight?: number;
+	/** Maximum ReSTIR reservoir weight scale to prevent bright outliers. */
+	restirScaleClamp?: number;
+	/** Allows backend-specific experimental volumetric options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
+	Pick<
+		VolumetricOptions,
+		| "samples"
+		| "downsample"
+		| "weight"
+		| "exposure"
+		| "airDensity"
+		| "anisotropy"
+		| "maxRayDistance"
+		| "scatteringAlbedo"
+		| "shadowSampleInterval"
+		| "isLinearDepth"
+		| "adaptiveSteps"
+		| "useBilateralUpscale"
+		| "bilateralDepthSigma"
+		| "restirCandidates"
+		| "restirTemporalWeight"
+		| "restirScaleClamp"
+	>
+> = {
+	samples: 32,
+	downsample: 1,
+	weight: 4,
+	exposure: 1,
+	airDensity: 1,
+	anisotropy: 0.2,
+	maxRayDistance: 300,
+	scatteringAlbedo: 0.9,
+	shadowSampleInterval: 2,
+	isLinearDepth: true,
+	adaptiveSteps: true,
+	useBilateralUpscale: true,
+	bilateralDepthSigma: 0.05,
+	restirCandidates: 8,
+	restirTemporalWeight: 0.8,
+	restirScaleClamp: 24,
+};
 
 export interface SoftwareVolumetricLightingContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
@@ -102,7 +177,11 @@ export class SoftwareVolumetricLightingImplementation
 		}
 		this._runtime.applyVolumetricLight(
 			request.frameContext,
-			context?.canvasContext ?? null
+			context?.canvasContext ?? null,
+			{
+				...DEFAULT_VOLUMETRIC_OPTIONS,
+				...(request.options ?? {}),
+			}
 		);
 		return { ran: true };
 	}

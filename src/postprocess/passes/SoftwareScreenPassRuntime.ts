@@ -24,15 +24,11 @@ import {
 	resolveInteractionOutlineShape,
 } from "../../interaction/outlineShape";
 import type {
-	ColorFilterOptions,
-	VolumetricOptions,
 	FrameContext,
 } from "../../pipeline/types";
-import {
-	DEFAULT_COLOR_FILTER_OPTIONS,
-	DEFAULT_VOLUMETRIC_OPTIONS,
-	INTERACTION_TRANSIENT_STATE_KEY,
-} from "../../pipeline/types";
+import { INTERACTION_TRANSIENT_STATE_KEY } from "../../pipeline/types";
+import type { ColorFilterOptions } from "./BuiltinScreenPasses";
+import type { VolumetricOptions } from "./VolumetricLightingPass";
 import {
 	DEFAULT_GAMMA,
 	FXAA_EDGE_THRESHOLD_MIN,
@@ -68,13 +64,13 @@ const VolumetricConstants = Object.freeze({
 	MAX_DOWN_SAMPLE: 8,
 	MIN_SAMPLES: 1,
 	MAX_SAMPLES: 256,
-	DEFAULT_DOWN_SAMPLE: DEFAULT_VOLUMETRIC_OPTIONS.downsample,
-	DEFAULT_SAMPLES: DEFAULT_VOLUMETRIC_OPTIONS.samples,
+	DEFAULT_DOWN_SAMPLE: 1,
+	DEFAULT_SAMPLES: 32,
 	MIN_SHADOW_SAMPLE_INTERVAL: 1,
 	MAX_SHADOW_SAMPLE_INTERVAL: 32,
 	MIN_BILATERAL_DEPTH_SIGMA: 1e-4,
 	MAX_WEIGHT: 10,
-	DEFAULT_WEIGHT: DEFAULT_VOLUMETRIC_OPTIONS.weight,
+	DEFAULT_WEIGHT: 4,
 	MAX_AIR_DENSITY: 10,
 	TRANSMITTANCE_EARLY_EXIT: 0.001,
 	GRID_SAMPLE_JITTER_STRENGTH: 0.75,
@@ -92,7 +88,8 @@ interface SoftwareScreenPassRuntimeLike {
 	): void;
 	applyVolumetricLight(
 		context: FrameContext,
-		ctx: CanvasRenderingContext2D | null
+		ctx: CanvasRenderingContext2D | null,
+		options: VolumetricOptions
 	): void;
 	applyToneMapping(context: FrameContext): void;
 	applyGamma(
@@ -100,7 +97,7 @@ interface SoftwareScreenPassRuntimeLike {
 		ctx: CanvasRenderingContext2D | null
 	): void;
 	applyInteractionOutline(context: FrameContext): void;
-	applyColorFilter(context: FrameContext): void;
+	applyColorFilter(context: FrameContext, options: ColorFilterOptions): void;
 }
 
 interface CameraBasis {
@@ -771,12 +768,11 @@ export class SoftwareScreenPassRuntime implements SoftwareScreenPassRuntimeLike 
 	 */
 	public applyVolumetricLight(
 		context: FrameContext,
-		ctx: CanvasRenderingContext2D | null
+		ctx: CanvasRenderingContext2D | null,
+		options: VolumetricOptions = {}
 	): void {
 		void ctx;
 		const depthBuffer = context.attachments.depthBuffer;
-		const options =
-			context.postProcess.getOptions<VolumetricOptions>("volumetric") || {};
 		const maxRayDistance = Math.max(
 			VolumetricConstants.MIN_RAY_DISTANCE,
 			this._toFiniteNumber(options.maxRayDistance, 500)
@@ -1520,7 +1516,10 @@ export class SoftwareScreenPassRuntime implements SoftwareScreenPassRuntimeLike 
 	 * @returns Nothing.
 	 * @sideEffects Mutates RGB channels in `context.attachments.pixels`.
 	 */
-	public applyColorFilter(context: FrameContext): void {
+	public applyColorFilter(
+		context: FrameContext,
+		options: ColorFilterOptions = {}
+	): void {
 		const pixels = context.attachments.pixels;
 		if (!pixels || pixels.length === 0) {
 			return;
@@ -1529,42 +1528,28 @@ export class SoftwareScreenPassRuntime implements SoftwareScreenPassRuntimeLike 
 		if (dirtyRects.length === 0) {
 			return;
 		}
-		const options =
-			context.postProcess.getOptions<ColorFilterOptions>("color-filter");
 		const brightness = clamp(
-			this._toFiniteNumber(
-				options?.brightness,
-				DEFAULT_COLOR_FILTER_OPTIONS.brightness
-			),
+			this._toFiniteNumber(options.brightness, 0),
 			-1,
 			1
 		);
 		const saturation = clamp(
-			this._toFiniteNumber(
-				options?.saturation,
-				DEFAULT_COLOR_FILTER_OPTIONS.saturation
-			),
+			this._toFiniteNumber(options.saturation, 1),
 			0,
 			2
 		);
 		const contrast = clamp(
-			this._toFiniteNumber(
-				options?.contrast,
-				DEFAULT_COLOR_FILTER_OPTIONS.contrast
-			),
+			this._toFiniteNumber(options.contrast, 1),
 			0,
 			2
 		);
 		const temperature = clamp(
-			this._toFiniteNumber(
-				options?.temperature,
-				DEFAULT_COLOR_FILTER_OPTIONS.temperature
-			),
+			this._toFiniteNumber(options.temperature, 0),
 			-1,
 			1
 		);
 		const tint = clamp(
-			this._toFiniteNumber(options?.tint, DEFAULT_COLOR_FILTER_OPTIONS.tint),
+			this._toFiniteNumber(options.tint, 0),
 			-1,
 			1
 		);

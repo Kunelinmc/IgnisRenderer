@@ -1,7 +1,3 @@
-import {
-	DEFAULT_FOG_OPTIONS,
-	type FogOptions,
-} from "../../pipeline/types";
 import { clamp } from "../../maths/Common";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
@@ -36,6 +32,46 @@ import type {
 } from "../types";
 
 export const FOG_PASS_ID = "fog";
+
+export interface FogOptions {
+	/** Distance falloff model used to convert depth into fog opacity. */
+	mode?: "linear" | "exp" | "exp2";
+	/** Executes fog in the post-process stack or during scene shading. */
+	application?: "postprocess" | "scene";
+	/** Linear RGB fog color mixed over the scene. */
+	color?: [number, number, number];
+	/** World/view depth where linear fog starts contributing. */
+	start?: number;
+	/** World/view depth where linear fog reaches full configured strength. */
+	end?: number;
+	/** Exponential fog density for `exp` and `exp2` modes. */
+	density?: number;
+	/** Final fog opacity multiplier. `0` disables visible fog. */
+	strength?: number;
+	/** Allows backend-specific experimental fog options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_FOG_OPTIONS: Required<
+	Pick<
+		FogOptions,
+		| "mode"
+		| "application"
+		| "color"
+		| "start"
+		| "end"
+		| "density"
+		| "strength"
+	>
+> = {
+	mode: "linear",
+	application: "postprocess",
+	color: [0.58, 0.64, 0.72],
+	start: 20,
+	end: 200,
+	density: 0.015,
+	strength: 1,
+};
 
 export interface WebGPUFogContext {
 	readonly encoder?: ICommandEncoder;

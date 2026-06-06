@@ -1,12 +1,10 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { getPrimaryShadowMap, ShadowStrategyType } from "../../lights/shadows/ShadowMapping";
-import type {
-	BloomOptions,
-	ClusteredLightingOptions,
-	FogOptions,
-	TAAOptions,
-} from "../../pipeline/types";
+import type { ClusteredLightingOptions } from "../../pipeline/types";
+import type { BloomOptions } from "../../postprocess/passes/BloomPass";
+import type { FogOptions } from "../../postprocess/passes/FogPass";
+import type { TAAOptions } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import type { Texture } from "../../core/Texture";
 
 export interface WebGPUWarning {

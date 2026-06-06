@@ -1,8 +1,6 @@
 import {
-	DEFAULT_TAA_OPTIONS,
 	defineTransientKey,
 	type FrameAttachments,
-	type TAAOptions,
 } from "../../pipeline/types";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { TemporalJitterFrameState } from "../../renderers/temporal/TemporalJitterState";
@@ -46,6 +44,42 @@ export const TAA_MOTION_FACTOR_RANGE: [number, number] = [0, 512];
 export const TAA_VARIANCE_GAMMA_RANGE: [number, number] = [0, 8];
 export const TAA_SHARPEN_RANGE: [number, number] = [0, 2];
 export const TAA_JITTER_SCALE_RANGE: [number, number] = [0, 8];
+
+export interface TAAOptions {
+	/** Sub-pixel camera jitter amplitude. `0` disables temporal jitter. */
+	jitterScale?: number;
+	/** Temporal color history blend factor. Higher values stabilize but can ghost. */
+	historyWeight?: number;
+	/** Depth delta threshold that rejects history after disocclusion. */
+	disocclusionDepthThreshold?: number;
+	/** Motion-vector sensitivity that lowers history weight on fast movement. */
+	motionFactor?: number;
+	/** Neighborhood variance clamp width. Higher values preserve detail and noise. */
+	varianceClampGamma?: number;
+	/** Post-TAA sharpening strength used to restore softened edges. */
+	sharpen?: number;
+	/** Allows backend-specific experimental TAA options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_TAA_OPTIONS: Required<
+	Pick<
+		TAAOptions,
+		| "jitterScale"
+		| "historyWeight"
+		| "disocclusionDepthThreshold"
+		| "motionFactor"
+		| "varianceClampGamma"
+		| "sharpen"
+	>
+> = {
+	jitterScale: 1,
+	historyWeight: 0.9,
+	disocclusionDepthThreshold: 0.02,
+	motionFactor: 80,
+	varianceClampGamma: 1,
+	sharpen: 0.1,
+};
 
 export type ResolvedTAAOptions = Required<
 	Pick<

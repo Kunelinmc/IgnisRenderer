@@ -18,11 +18,11 @@ import type {
 	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
+import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import {
 	DEFAULT_FOG_OPTIONS,
-	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FogOptions,
-} from "../../pipeline/types";
+} from "../../postprocess/passes/FogPass";
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";

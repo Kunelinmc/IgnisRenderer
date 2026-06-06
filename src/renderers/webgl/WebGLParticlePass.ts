@@ -2,10 +2,10 @@
 import { ParticleBlendMode } from "../../particles";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	type FogOptions,
 	type FrameContext,
 	type ParticleRenderBatch,
 } from "../../pipeline/types";
+import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { PARTICLE_QUAD_VERTICES } from "../constants";
 import { finiteOr, toColumnMajorMat4 } from "./WebGLFrameMath";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";

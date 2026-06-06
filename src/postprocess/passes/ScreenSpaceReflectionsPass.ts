@@ -1,8 +1,4 @@
 import { CameraType } from "../../cameras/Camera";
-import {
-	DEFAULT_SSR_OPTIONS,
-	type SSROptions,
-} from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -40,6 +36,58 @@ export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
 const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
+
+export interface SSROptions {
+	/** Maximum ray-march iterations per reflection ray. */
+	maxSteps?: number;
+	/** Maximum view/world-space ray distance for screen-space reflections. */
+	maxDistance?: number;
+	/** Depth thickness tolerance used when matching ray hits to surfaces. */
+	thickness?: number;
+	/** Ray step stride. Higher values improve speed but can skip thin details. */
+	stride?: number;
+	/** Reflection contribution multiplier mixed into the scene color. */
+	intensity?: number;
+	/** Temporal history blend factor. Higher values stabilize but can ghost. */
+	historyWeight?: number;
+	/** Internal trace buffer scale divisor. Higher values improve speed. */
+	downsample?: number;
+	/** Refinement iterations after a ray hit is found. */
+	binarySearchSteps?: number;
+	/** Screen-edge fade distance that hides reflections near missing data. */
+	edgeFade?: number;
+	/** Maximum material roughness that may receive SSR. */
+	maxRoughness?: number;
+	/** Allows backend-specific experimental SSR options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_SSR_OPTIONS: Required<
+	Pick<
+		SSROptions,
+		| "downsample"
+		| "maxSteps"
+		| "binarySearchSteps"
+		| "maxDistance"
+		| "thickness"
+		| "stride"
+		| "intensity"
+		| "historyWeight"
+		| "edgeFade"
+		| "maxRoughness"
+	>
+> = {
+	downsample: 2,
+	maxSteps: 64,
+	binarySearchSteps: 6,
+	maxDistance: 100,
+	thickness: 0.2,
+	stride: 1,
+	intensity: 1,
+	historyWeight: 0.85,
+	edgeFade: 0.12,
+	maxRoughness: 0.85,
+};
 
 export type ResolvedSSROptions = Required<
 	Pick<

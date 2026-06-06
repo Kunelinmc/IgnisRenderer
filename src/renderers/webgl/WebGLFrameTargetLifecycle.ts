@@ -1,4 +1,4 @@
-import { DEFAULT_SSAO_OPTIONS } from "../../pipeline/types";
+import { DEFAULT_SSAO_OPTIONS } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import { Logger } from "../../foundation/Logger";
 
 export type WebGLFrameTargetFormat = "rgba16float" | "rgba8unorm";

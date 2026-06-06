@@ -1,7 +1,3 @@
-import {
-	DEFAULT_BLOOM_OPTIONS,
-	type BloomOptions,
-} from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -35,6 +31,37 @@ import type {
 } from "../types";
 
 export const BLOOM_PASS_ID = "bloom";
+
+export interface BloomOptions {
+	/** Luminance threshold above which pixels contribute to bloom. */
+	threshold?: number;
+	/** Soft threshold width that smooths the transition into bloom. */
+	softKnee?: number;
+	/** Final bloom contribution mixed back into the HDR scene color. */
+	intensity?: number;
+	/** Single-pass blur radius used by the WebGL bloom path. */
+	radius?: number;
+	/** Number of downsample mip passes (1-8). Higher values produce wider bloom. */
+	mipPasses?: number;
+	/** Tent-filter radius used during upsample (default 1). */
+	filterRadius?: number;
+	/** Allows backend-specific experimental bloom options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_BLOOM_OPTIONS: Required<
+	Pick<
+		BloomOptions,
+		"threshold" | "softKnee" | "intensity" | "radius" | "mipPasses" | "filterRadius"
+	>
+> = {
+	threshold: 1,
+	softKnee: 0.5,
+	intensity: 0.8,
+	radius: 1,
+	mipPasses: 5,
+	filterRadius: 1,
+};
 
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;

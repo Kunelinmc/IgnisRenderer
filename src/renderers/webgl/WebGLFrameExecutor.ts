@@ -27,16 +27,10 @@ import {
 import { selectCSMDirectionalLights } from "../../pipeline/ShadowStrategyRegistry";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	DEFAULT_FOG_OPTIONS,
-	DEFAULT_SSAO_OPTIONS,
-	DEFAULT_TAA_OPTIONS,
 	type DrawPacket,
-	type FogOptions,
 	type FrameContext,
 	type FramePass,
 	type ParticleRenderBatch,
-	type SSAOOptions,
-	type TAAOptions,
 } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
@@ -48,14 +42,22 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import {
+	DEFAULT_SSAO_OPTIONS,
 	resolveSSAODownsample,
+	type SSAOOptions,
 	type WebGLSSAOContext,
 } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import type { WebGLBloomContext } from "../../postprocess/passes/BloomPass";
 import {
+	DEFAULT_FOG_OPTIONS,
 	resolveFogUniformParams,
+	type FogOptions,
 	type WebGLFogContext,
 } from "../../postprocess/passes/FogPass";
+import {
+	DEFAULT_TAA_OPTIONS,
+	type TAAOptions,
+} from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectWebGLLights,

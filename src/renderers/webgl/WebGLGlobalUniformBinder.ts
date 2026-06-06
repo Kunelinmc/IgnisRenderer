@@ -1,5 +1,6 @@
 ﻿import type { SHCoefficients } from "../../maths/types";
-import type { FogOptions, FrameContext } from "../../pipeline/types";
+import type { FrameContext } from "../../pipeline/types";
+import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import { Logger } from "../../foundation/Logger";
 import {

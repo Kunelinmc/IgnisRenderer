@@ -1,11 +1,5 @@
 import {
-	DEFAULT_COLOR_FILTER_OPTIONS,
-	DEFAULT_DOF_OPTIONS,
-	DEFAULT_MOTION_BLUR_OPTIONS,
 	INTERACTION_TRANSIENT_STATE_KEY,
-	type ColorFilterOptions,
-	type DOFOptions,
-	type MotionBlurOptions,
 } from "../../pipeline/types";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
@@ -70,6 +64,114 @@ export const TONE_MAPPING_PASS_ID = "tonemap";
 export const COLOR_FILTER_PASS_ID = "color-filter";
 export const INTERACTION_OUTLINE_PASS_ID = "interaction-outline";
 export const GAMMA_PASS_ID = "gamma";
+
+export interface MotionBlurOptions {
+	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */
+	shutterScale?: number;
+	/** Maximum samples per pixel along the motion vector. */
+	maxSamples?: number;
+	/** Maximum normalized screen velocity used for blur length. */
+	velocityClamp?: number;
+	/** Depth-difference threshold for rejecting samples across silhouettes. */
+	depthReject?: number;
+	/** Weight of the current pixel in the blur accumulation. */
+	centerWeight?: number;
+	/** Allows backend-specific experimental motion blur options. */
+	[key: string]: unknown;
+}
+
+export interface DOFOptions {
+	/** Focus plane distance in the depth units consumed by the backend. */
+	focusDistance?: number;
+	/** Depth range around the focus plane that remains sharp. */
+	focusRange?: number;
+	/** Blur strength for pixels closer than the focus plane. */
+	nearStrength?: number;
+	/** Blur strength for pixels farther than the focus plane. */
+	farStrength?: number;
+	/** Maximum circle-of-confusion blur radius in pixels. */
+	maxBlurRadius?: number;
+	/** Curve exponent for mapping depth error to blur amount. */
+	depthCurve?: number;
+	/** Luminance threshold for bokeh highlight boost. */
+	highlightThreshold?: number;
+	/** Intensity of boosted highlights inside blurred regions. */
+	highlightGain?: number;
+	/** Color-channel separation amount applied to out-of-focus samples. */
+	chromaticAberration?: number;
+	/** Allows backend-specific experimental depth-of-field options. */
+	[key: string]: unknown;
+}
+
+export interface ColorFilterOptions {
+	/** Additive brightness shift in normalized color space. */
+	brightness?: number;
+	/** Saturation multiplier. `0` is grayscale, `1` preserves source color. */
+	saturation?: number;
+	/** Contrast multiplier around mid-gray. */
+	contrast?: number;
+	/** Warm/cool color balance shift; positive values warm the image. */
+	temperature?: number;
+	/** Green/magenta tint shift; positive values bias toward magenta. */
+	tint?: number;
+	/** Allows backend-specific experimental color-filter options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_MOTION_BLUR_OPTIONS: Required<
+	Pick<
+		MotionBlurOptions,
+		| "shutterScale"
+		| "maxSamples"
+		| "velocityClamp"
+		| "depthReject"
+		| "centerWeight"
+	>
+> = {
+	shutterScale: 1,
+	maxSamples: 16,
+	velocityClamp: 0.06,
+	depthReject: 0.025,
+	centerWeight: 1,
+};
+
+export const DEFAULT_DOF_OPTIONS: Required<
+	Pick<
+		DOFOptions,
+		| "focusDistance"
+		| "focusRange"
+		| "nearStrength"
+		| "farStrength"
+		| "maxBlurRadius"
+		| "depthCurve"
+		| "highlightThreshold"
+		| "highlightGain"
+		| "chromaticAberration"
+	>
+> = {
+	focusDistance: 8,
+	focusRange: 3,
+	nearStrength: 0.85,
+	farStrength: 1,
+	maxBlurRadius: 12,
+	depthCurve: 1.25,
+	highlightThreshold: 1.2,
+	highlightGain: 0.35,
+	chromaticAberration: 0.2,
+};
+
+export const DEFAULT_COLOR_FILTER_OPTIONS: Required<
+	Pick<
+		ColorFilterOptions,
+		"brightness" | "saturation" | "contrast" | "temperature" | "tint"
+	>
+> = {
+	brightness: 0,
+	saturation: 1,
+	contrast: 1,
+	temperature: 0,
+	tint: 0,
+};
 
 export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
@@ -163,7 +265,10 @@ export class SoftwareColorFilterImplementation
 		if (!request.frameContext.attachments.pixels) {
 			return { ran: false };
 		}
-		this._runtime.applyColorFilter(request.frameContext);
+		this._runtime.applyColorFilter(request.frameContext, {
+			...DEFAULT_COLOR_FILTER_OPTIONS,
+			...((request.options as ColorFilterOptions | undefined) ?? {}),
+		});
 		return { ran: true };
 	}
 }

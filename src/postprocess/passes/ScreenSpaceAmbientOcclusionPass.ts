@@ -3,10 +3,8 @@ import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
 import type { IVector3 } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
 import {
-	DEFAULT_SSAO_OPTIONS,
 	type FrameAttachments,
 	type FrameContext,
-	type SSAOOptions,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
@@ -45,6 +43,46 @@ const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
 const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
+
+export interface SSAOOptions {
+	/** Ambient-occlusion sample count, rounded and clamped to backend limits. */
+	samples?: number;
+	/** View-space sampling radius. Larger values capture wider contact shadows. */
+	radius?: number;
+	/** Depth bias that suppresses self-occlusion acne near flat surfaces. */
+	bias?: number;
+	/** Multiplier for the darkening applied by ambient occlusion. */
+	intensity?: number;
+	/** Internal AO buffer scale divisor. Higher values improve speed. */
+	downsample?: number;
+	/** Bilateral blur radius in pixels for smoothing noisy AO. */
+	blurRadius?: number;
+	/** Depth edge sharpness for the bilateral blur. Higher values preserve edges. */
+	blurSharpness?: number;
+	/** Allows backend-specific experimental SSAO options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_SSAO_OPTIONS: Required<
+	Pick<
+		SSAOOptions,
+		| "samples"
+		| "radius"
+		| "bias"
+		| "intensity"
+		| "downsample"
+		| "blurRadius"
+		| "blurSharpness"
+	>
+> = {
+	samples: 16,
+	radius: 8,
+	bias: 0.1,
+	intensity: 1,
+	downsample: 2,
+	blurRadius: 2,
+	blurSharpness: 8,
+};
 
 export type ResolvedSSAOOptions = Required<
 	Pick<

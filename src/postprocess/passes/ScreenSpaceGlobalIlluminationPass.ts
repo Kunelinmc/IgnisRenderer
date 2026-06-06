@@ -1,9 +1,5 @@
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import {
-	DEFAULT_SSGI_OPTIONS,
-	type SSGIOptions,
-} from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,
@@ -31,6 +27,46 @@ import type {
 
 const SSGI_MAX_SAMPLES = 16;
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
+
+export interface SSGIOptions {
+	/** Indirect-light sample count, clamped to backend limits. */
+	samples?: number;
+	/** Screen-space sampling radius for bounced light. */
+	radius?: number;
+	/** Indirect diffuse lighting multiplier. */
+	intensity?: number;
+	/** Distance falloff exponent for indirect samples. */
+	falloff?: number;
+	/** Depth sensitivity for rejecting samples across geometry breaks. */
+	depthPhi?: number;
+	/** Normal sensitivity for rejecting samples from unrelated surfaces. */
+	normalPhi?: number;
+	/** Albedo multiplier used to brighten diffuse bounce color. */
+	albedoBoost?: number;
+	/** Allows backend-specific experimental SSGI options. */
+	[key: string]: unknown;
+}
+
+export const DEFAULT_SSGI_OPTIONS: Required<
+	Pick<
+		SSGIOptions,
+		| "samples"
+		| "radius"
+		| "intensity"
+		| "falloff"
+		| "depthPhi"
+		| "normalPhi"
+		| "albedoBoost"
+	>
+> = {
+	samples: 8,
+	radius: 3,
+	intensity: 0.35,
+	falloff: 1.5,
+	depthPhi: 1.25,
+	normalPhi: 2,
+	albedoBoost: 1,
+};
 
 export type ResolvedSSGIOptions = Required<
 	Pick<

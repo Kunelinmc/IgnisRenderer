@@ -1,11 +1,9 @@
 import type { IRenderBackend, RendererBackendBridge } from "./IRenderBackend";
 import {
-	DEFAULT_TAA_OPTIONS,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type DrawPacket,
 	type FrameContext,
 	type FramePass,
-	type TAAOptions,
 } from "../pipeline/types";
 import {
 	registerPostProcessBackendAdapter,
@@ -39,7 +37,9 @@ import { FrameAttachments } from "../pipeline/types";
 import { CameraType } from "../cameras/Camera";
 import { TemporalJitterState } from "./temporal/TemporalJitterState";
 import {
+	DEFAULT_TAA_OPTIONS,
 	SOFTWARE_TAA_RENDER_STATE_KEY,
+	type TAAOptions,
 } from "../postprocess/passes/TemporalAntiAliasingPass";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
