@@ -37,6 +37,7 @@ import {
 	ProbeCaptureRuntime,
 	type ProbeWebGPUCaptureSource,
 } from "../pipeline/ProbeCaptureRuntime";
+import { normalizeOcclusionCullingOptions } from "../pipeline/OcclusionCulling";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
@@ -277,6 +278,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			enableOIT: false,
 			enableClusteredLighting: false,
 			clusteredLightingOptions: {},
+			enableOcclusionCulling: false,
+			occlusionCullingOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
 
@@ -323,6 +326,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	): void | Promise<void> {
 		const result = this.backend.onDeviceLost?.(info);
 		this._preparedSceneCache.reset();
+		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
 		this._markFrameDirty("unknown");
 		this.emit("devicelost", {
 			backend: this.backend.type,
@@ -341,6 +345,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			await this.backend.init(this.canvas);
 		}
 		this._preparedSceneCache.reset();
+		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
 		this.resizeCanvas();
 	}
 
@@ -528,6 +533,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.canvas.height = rect.height * this._deviceScaleFactor;
 
 		this.backend.resize(this.canvas.width, this.canvas.height);
+		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
 		this._markFrameDirty("resize");
 
 		this.camera.aspectRatio = this._getSafeAspectRatio(
@@ -546,6 +552,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._scene = scene;
 		this._lastKnownSceneVersion = scene.version;
 		this._preparedSceneCache.reset();
+		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
 		this._environmentIBLUpdateRuntime.reset();
 		this._environmentIBLUpdateRequestToken = 0;
 		if (this._physicsSystem) {
@@ -560,6 +567,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public setCamera(camera: Camera): void {
 		this._assertCameraInScene(this.scene, camera, "setCamera");
 		this._camera = camera;
+		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
 		this._markFrameDirty("camera");
 	}
 
@@ -1078,6 +1086,15 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			features: state.resolved,
 			postProcess: state.resolvedPostProcess,
 			incrementalOptions: this._incrementalOptions,
+			occlusionVisibilityProvider:
+				state.resolved.enableOcclusionCulling ?
+					this.backend.occlusionCullingAdapter?.getVisibilityProvider(
+						normalizeOcclusionCullingOptions(
+							state.resolved.occlusionCullingOptions
+						)
+					) ?? null
+				:	null,
+			occlusionCullingOptions: state.resolved.occlusionCullingOptions,
 		});
 		state.frame = preparedResult.frame;
 		const incrementalPlan = IncrementalFramePlanner.plan({

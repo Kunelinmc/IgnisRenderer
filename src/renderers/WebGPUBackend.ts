@@ -16,6 +16,10 @@ import {
 	type FramePass,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
+import type {
+	NormalizedOcclusionCullingOptions,
+	OcclusionCullingBackendAdapter,
+} from "../pipeline/OcclusionCulling";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
@@ -229,6 +233,11 @@ export interface WebGPUBackendOptions {
 	 * internal resource declarations.
 	 */
 	frameGraphValidation?: "throw" | "warn";
+	/**
+	 * Enables WebGPU previous-frame Hi-Z occlusion culling support.
+	 * Defaults to `true`; renderer features still opt in per frame.
+	 */
+	enableOcclusionCulling?: boolean;
 }
 
 type WebGPUPassHandler = (
@@ -239,20 +248,20 @@ type WebGPUPassHandler = (
 export class WebGPUBackend implements IRenderBackend {
 	public readonly type = "webgpu";
 	public readonly frameScheduling = "on-demand";
-	public readonly capabilities = {
-		sh: true,
-		shadows: true,
-		reflection: true,
-		environment: true,
-		clusteredLighting: true,
-		oit: true,
-	};
+	public readonly capabilities: IRenderBackend["capabilities"];
 	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 		assertDeviceOperational: (operation) =>
 			this._assertDeviceOperational(operation),
 	});
 	public readonly postProcessAdapter = this._postProcessExecutor;
+	public readonly occlusionCullingAdapter: OcclusionCullingBackendAdapter = {
+		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
+			this._frameExecutor?.getOcclusionVisibilityProvider(options) ?? null,
+		resetOcclusionCulling: () => {
+			this._frameExecutor?.resetOcclusionCulling();
+		},
+	};
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
@@ -360,6 +369,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _msaaSampleCount = 1;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
+	private _enableOcclusionCulling = true;
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
@@ -376,8 +386,19 @@ export class WebGPUBackend implements IRenderBackend {
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting =
 			options.enableDeferredLighting !== false;
+		this._enableOcclusionCulling =
+			options.enableOcclusionCulling !== false;
 		this._frameGraphValidationMode =
 			options.frameGraphValidation === "warn" ? "warn" : "throw";
+		this.capabilities = {
+			sh: true,
+			shadows: true,
+			reflection: true,
+			environment: true,
+			clusteredLighting: true,
+			oit: true,
+			occlusionCulling: this._enableOcclusionCulling,
+		};
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -430,6 +451,17 @@ export class WebGPUBackend implements IRenderBackend {
 	 */
 	public isDeferredLightingEnabled(): boolean {
 		return this._enableDeferredLighting;
+	}
+
+	/**
+	 * Returns whether the backend may run WebGPU occlusion culling work.
+	 *
+	 * @returns `true` when the runtime may expose a visibility provider and
+	 * encode the internal occlusion-test node.
+	 * @sideEffects None.
+	 */
+	public isOcclusionCullingEnabled(): boolean {
+		return this._enableOcclusionCulling;
 	}
 
 	/**

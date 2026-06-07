@@ -69,6 +69,42 @@ function run() {
 		["opaque-scene", "deferred-lighting"]
 	);
 
+	const opaqueWithOcclusion = planner.planStage(
+		createPass("main-opaque"),
+		contextWithDecals,
+		createState({
+			deferredActive: true,
+			sceneTargetMode: "gbuffer",
+			needsOcclusionTest: true,
+		})
+	);
+	assert.deepEqual(
+		opaqueWithOcclusion.nodes.map((node) => node.kind),
+		[
+			"opaque-scene",
+			"deferred-decal",
+			"deferred-lighting",
+			"occlusion-test",
+		]
+	);
+	assert.equal(
+		opaqueWithOcclusion.nodes.at(-1).reads[0].id,
+		"gbuffer:motion-depth"
+	);
+
+	const forwardWithOcclusion = planner.planStage(
+		createPass("main-opaque"),
+		context,
+		createState({
+			sceneTargetMode: "mrt",
+			needsOcclusionTest: true,
+		})
+	);
+	assert.deepEqual(
+		forwardWithOcclusion.nodes.map((node) => node.kind),
+		["opaque-scene", "occlusion-test"]
+	);
+
 	const transparent = planner.planStage(
 		createPass("main-transparent"),
 		context,

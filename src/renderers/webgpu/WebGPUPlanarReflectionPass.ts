@@ -579,6 +579,7 @@ function createCaptureScene(
 		particleSystems: [],
 		reflectivePackets: [],
 		decalPackets: [],
+		occlusion: null,
 		spatialIndex: null,
 	};
 }

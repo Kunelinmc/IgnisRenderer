@@ -10,6 +10,7 @@ export type WebGPUFrameGraphNodeKind =
 	| "opaque-scene"
 	| "deferred-decal"
 	| "deferred-lighting"
+	| "occlusion-test"
 	| "transparent-scene"
 	| "oit-transparent"
 	| "particles"
@@ -23,6 +24,7 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly hasMSAATargets?: boolean;
 	readonly needsTransmissionTargets?: boolean;
 	readonly needsPlanarReflectionMask?: boolean;
+	readonly needsOcclusionTest?: boolean;
 }
 
 export type WebGPUFrameGraphResourceId = string;

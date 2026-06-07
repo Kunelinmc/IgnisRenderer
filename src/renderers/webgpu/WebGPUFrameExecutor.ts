@@ -14,6 +14,10 @@ import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
+import type {
+	NormalizedOcclusionCullingOptions,
+	OcclusionVisibilityProvider,
+} from "../../pipeline/OcclusionCulling";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type {
 	WebGPUPreparedFrameResources,
@@ -67,6 +71,16 @@ export class WebGPUFrameExecutor {
 
 	public getSceneTargetModeForFrame(): WebGPUSceneTargetMode {
 		return this._runtime.getSceneTargetModeForFrame();
+	}
+
+	public getOcclusionVisibilityProvider(
+		options: NormalizedOcclusionCullingOptions
+	): OcclusionVisibilityProvider {
+		return this._runtime.getOcclusionVisibilityProvider(options);
+	}
+
+	public resetOcclusionCulling(): void {
+		this._runtime.resetOcclusionCulling();
 	}
 
 	public getPassExecutionContext(

@@ -6,6 +6,7 @@ import { Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
+import { normalizeOcclusionCullingOptions } from "../../../src/pipeline/OcclusionCulling.ts";
 
 function createTriangleMesh(material) {
 	return MeshAsset.fromFaces([
@@ -128,6 +129,48 @@ function run() {
 	assert.equal(frame.transparentPackets[1].meshInstance.id, transmissive.id);
 	assert.equal(frame.transparentPackets[2].meshInstance.id, nearTransparent.id);
 	assert.equal(frame.reflectivePackets[0].meshInstance.id, reflective.id);
+
+	const occludedFrame = PreparedSceneBuilder.build(
+		{
+			scene,
+			camera,
+			shadowMaps: new Map(),
+			animationSystem: {
+				hasActiveActions() {
+					return false;
+				},
+			},
+		},
+		{
+			viewportWidth: 800,
+			viewportHeight: 600,
+			occlusionCullingOptions: normalizeOcclusionCullingOptions({}),
+			occlusionVisibilityProvider: {
+				sourceFrameIndex: 4,
+				isPacketVisible(candidate) {
+					return candidate.packet.meshInstance.id !== farOpaque.id;
+				},
+			},
+		}
+	);
+
+	assert.equal(occludedFrame.occlusion.enabled, true);
+	assert.equal(occludedFrame.occlusion.sourceFrameIndex, 4);
+	assert.equal(occludedFrame.occlusion.culledPacketIds.length, 1);
+	assert.equal(occludedFrame.occlusion.culledPacketIds[0].startsWith(farOpaque.id), true);
+	assert.equal(
+		occludedFrame.opaquePackets.some(
+			(packet) => packet.meshInstance.id === farOpaque.id
+		),
+		false
+	);
+	assert.equal(
+		occludedFrame.shadowCasterPackets.some(
+			(packet) => packet.meshInstance.id === farOpaque.id
+		),
+		true
+	);
+	assert.equal(occludedFrame.transparentPackets.length, 3);
 
 	console.log("Render list builder tests passed");
 }

@@ -2,7 +2,9 @@ import type { BackendCapabilities } from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
+	DEFAULT_OCCLUSION_CULLING_OPTIONS,
 } from "./types";
+import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 
 const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	sh: "feature-sh",
@@ -11,6 +13,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	environment: "feature-environment",
 	oit: "feature-oit",
 	clusteredLighting: "feature-clustered-lighting",
+	occlusionCulling: "feature-occlusion-culling",
 };
 
 const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
@@ -20,6 +23,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	environment: "environment rendering",
 	oit: "order-independent transparency",
 	clusteredLighting: "clustered lighting",
+	occlusionCulling: "occlusion culling",
 };
 
 export function resolveFeatureState(
@@ -35,6 +39,10 @@ export function resolveFeatureState(
 			...DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
 			...(request.clusteredLightingOptions ?? {}),
 		},
+		occlusionCullingOptions: normalizeOcclusionCullingOptions({
+			...DEFAULT_OCCLUSION_CULLING_OPTIONS,
+			...(request.occlusionCullingOptions ?? {}),
+		}),
 		enableSH: resolveBooleanFeature(
 			request.enableSH,
 			capabilities.sh,
@@ -74,6 +82,13 @@ export function resolveFeatureState(
 			request.enableClusteredLighting,
 			capabilities.clusteredLighting,
 			"clusteredLighting",
+			backendType,
+			warnings
+		),
+		enableOcclusionCulling: resolveBooleanFeature(
+			request.enableOcclusionCulling,
+			capabilities.occlusionCulling,
+			"occlusionCulling",
 			backendType,
 			warnings
 		),

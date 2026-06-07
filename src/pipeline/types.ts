@@ -22,6 +22,7 @@ import type { Texture } from "../core/Texture";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
+import type { OcclusionCandidate } from "./OcclusionCulling";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;
@@ -182,7 +183,17 @@ export interface PreparedScene {
 	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
 	decalPackets: DecalPacket[];
+	occlusion: PreparedSceneOcclusionState | null;
 	spatialIndex: PreparedSceneSpatialIndex | null;
+}
+
+export interface PreparedSceneOcclusionState {
+	enabled: boolean;
+	sourceFrameIndex: number;
+	candidates: OcclusionCandidate[];
+	culledPacketIds: string[];
+	visibleCandidateCount: number;
+	eligibleCandidateCount: number;
 }
 
 export interface PreparedSceneEnvironment {
@@ -266,6 +277,32 @@ export interface ClusteredLightingOptions {
 	[key: string]: unknown;
 }
 
+export interface OcclusionCullingOptions {
+	minCandidateScreenAreaPx?: number;
+	minOccluderScreenAreaPx?: number;
+	hysteresisFrames?: number;
+	maxReadbackLatencyFrames?: number;
+	debug?: boolean;
+	[key: string]: unknown;
+}
+
+export const DEFAULT_OCCLUSION_CULLING_OPTIONS: Required<
+	Pick<
+		OcclusionCullingOptions,
+		| "minCandidateScreenAreaPx"
+		| "minOccluderScreenAreaPx"
+		| "hysteresisFrames"
+		| "maxReadbackLatencyFrames"
+		| "debug"
+	>
+> = {
+	minCandidateScreenAreaPx: 64,
+	minOccluderScreenAreaPx: 256,
+	hysteresisFrames: 2,
+	maxReadbackLatencyFrames: 3,
+	debug: false,
+};
+
 export const DEFAULT_CLUSTERED_LIGHTING_OPTIONS: Required<
 	Pick<
 		ClusteredLightingOptions,
@@ -292,6 +329,8 @@ export interface RendererFeatureRequest {
 	enableOIT?: boolean;
 	enableClusteredLighting?: boolean;
 	clusteredLightingOptions?: ClusteredLightingOptions;
+	enableOcclusionCulling?: boolean;
+	occlusionCullingOptions?: OcclusionCullingOptions;
 }
 
 export type RendererFeatureFlagKey = Extract<

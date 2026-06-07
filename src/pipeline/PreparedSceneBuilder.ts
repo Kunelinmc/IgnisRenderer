@@ -10,6 +10,12 @@ import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";
 import { MeshInstance } from "../meshes";
 import {
+	buildOcclusionCandidate,
+	type NormalizedOcclusionCullingOptions,
+	type OcclusionCandidate,
+	type OcclusionVisibilityProvider,
+} from "./OcclusionCulling";
+import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
@@ -19,8 +25,18 @@ import {
 	type PreparedScene,
 } from "./types";
 
+export interface PreparedSceneBuildOptions {
+	viewportWidth?: number;
+	viewportHeight?: number;
+	occlusionCullingOptions?: NormalizedOcclusionCullingOptions;
+	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
+}
+
 export class PreparedSceneBuilder {
-	public static build(renderer: Renderer): PreparedScene {
+	public static build(
+		renderer: Renderer,
+		options: PreparedSceneBuildOptions = {}
+	): PreparedScene {
 		const opaquePackets: DrawPacket[] = [];
 		const transparentPackets: DrawPacket[] = [];
 		const shadowCasterPackets: DrawPacket[] = [];
@@ -80,6 +96,22 @@ export class PreparedSceneBuilder {
 			}
 		}
 
+		const occlusion = this._resolveOcclusionState(
+			opaquePackets,
+			renderer.camera,
+			options
+		);
+		if (occlusion) {
+			if (occlusion.culledPacketIds.length > 0) {
+				const culled = new Set(occlusion.culledPacketIds);
+				for (let index = opaquePackets.length - 1; index >= 0; index--) {
+					if (culled.has(opaquePackets[index].id)) {
+						opaquePackets.splice(index, 1);
+					}
+				}
+			}
+		}
+
 		opaquePackets.sort(compareOpaquePackets);
 		transparentPackets.sort(compareTransparentPackets);
 		const decalPackets = this._buildDecalPackets(
@@ -113,7 +145,57 @@ export class PreparedSceneBuilder {
 			shadowTransmitterPackets,
 			reflectivePackets,
 			decalPackets,
+			occlusion,
 			spatialIndex: null,
+		};
+	}
+
+	private static _resolveOcclusionState(
+		opaquePackets: DrawPacket[],
+		camera: Camera,
+		options: PreparedSceneBuildOptions
+	): PreparedScene["occlusion"] {
+		const provider = options.occlusionVisibilityProvider ?? null;
+		const cullingOptions = options.occlusionCullingOptions;
+		const width = Math.max(0, Math.floor(options.viewportWidth ?? 0));
+		const height = Math.max(0, Math.floor(options.viewportHeight ?? 0));
+		if (!provider || !cullingOptions || width <= 0 || height <= 0) {
+			return null;
+		}
+		const candidates: OcclusionCandidate[] = [];
+		const culledPacketIds: string[] = [];
+		let eligibleCandidateCount = 0;
+		let visibleCandidateCount = 0;
+		for (const packet of opaquePackets) {
+			const candidate = buildOcclusionCandidate(
+				packet,
+				camera,
+				width,
+				height,
+				cullingOptions
+			);
+			if (!candidate) {
+				continue;
+			}
+			candidates.push(candidate);
+			if (!candidate.eligible) {
+				visibleCandidateCount++;
+				continue;
+			}
+			eligibleCandidateCount++;
+			if (provider.isPacketVisible(candidate)) {
+				visibleCandidateCount++;
+			} else {
+				culledPacketIds.push(candidate.packetId);
+			}
+		}
+		return {
+			enabled: true,
+			sourceFrameIndex: provider.sourceFrameIndex,
+			candidates,
+			culledPacketIds,
+			visibleCandidateCount,
+			eligibleCandidateCount,
 		};
 	}
 

@@ -72,6 +72,7 @@ export class WebGLBackend implements IRenderBackend {
 		environment: true,
 		clusteredLighting: true,
 		oit: true,
+		occlusionCulling: false,
 	};
 	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,

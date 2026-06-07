@@ -86,6 +86,7 @@ export type WebGPUUtilityShaderPart =
 	| "depthDirtyClear"
 	| "decal"
 	| "oitResolve"
+	| "occlusionCulling"
 	| "mipmapBlit";
 
 export type WebGLShaderPart =
@@ -331,6 +332,7 @@ const webgpuUtilityShaderFiles: Record<WebGPUUtilityShaderPart, string> = {
 	depthDirtyClear: "./webgpu/depthDirtyClear.wgsl",
 	decal: "./webgpu/decal.wgsl",
 	oitResolve: "./webgpu/oitResolve.wgsl",
+	occlusionCulling: "./webgpu/occlusionCulling.wgsl",
 	mipmapBlit: "./webgpu/utility/mipmapBlit.wgsl",
 };
 

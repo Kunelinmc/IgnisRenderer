@@ -24,6 +24,9 @@ function createFeatures(overrides = {}) {
 		enableBloom: false,
 		enableFXAA: true,
 		enableClusteredLighting: false,
+		enableOcclusionCulling: false,
+		clusteredLightingOptions: {},
+		occlusionCullingOptions: {},
 		warnings: [],
 		...overrides,
 	};
@@ -122,6 +125,8 @@ function createFrame(camera, packets, decalPackets = []) {
 		shadowTransmitterPackets: [],
 		reflectivePackets: [],
 		decalPackets,
+		occlusion: null,
+		spatialIndex: null,
 	};
 }
 
@@ -353,6 +358,71 @@ function testAreaFallbackToFullFrame() {
 	}
 }
 
+function testOcclusionHideRevealDirtyRects() {
+	const camera = createCamera();
+	const packet = createPacket("O", 0.0, 0.08);
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	let visible = true;
+
+	PreparedSceneBuilder.build = (_renderer, options = {}) => {
+		const candidate = {
+			packetId: packet.id,
+			packet,
+			eligible: true,
+			signatureA: 1,
+			signatureB: 2,
+		};
+		const providerVisible =
+			options.occlusionVisibilityProvider?.isPacketVisible(candidate) ?? true;
+		const framePackets = visible && providerVisible ? [packet] : [];
+		return createFrame(camera, framePackets);
+	};
+
+	try {
+		const buildInput = {
+			renderer: {},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures({
+				enableOcclusionCulling: true,
+			}),
+			postProcess: createResolvedPostProcess({
+				fxaa: { enabled: true },
+			}),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+			},
+			occlusionVisibilityProvider: {
+				sourceFrameIndex: 0,
+				isPacketVisible() {
+					return visible;
+				},
+			},
+			occlusionCullingOptions: {},
+		};
+
+		const first = cache.build(buildInput);
+		assert.equal(first.forceFullFrame, true);
+		assert.equal(first.packetRects.has("O"), true);
+
+		visible = false;
+		const hidden = cache.build(buildInput);
+		assert.equal(hidden.forceFullFrame, false);
+		assert.ok(hidden.dirtyRects.length > 0);
+		assert.equal(hidden.packetRects.has("O"), false);
+
+		visible = true;
+		const revealed = cache.build(buildInput);
+		assert.equal(revealed.forceFullFrame, false);
+		assert.ok(revealed.dirtyRects.length > 0);
+		assert.equal(revealed.packetRects.has("O"), true);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
 function testMatrixDiffDetectsSmallFloatChanges() {
 	const camera = createCamera();
 	const packetBase = createPacket("S", 0, 0.08);
@@ -499,6 +569,7 @@ function run() {
 	testDecalDiffLifecycle();
 	testDecalStateDiffDetectsBlendAndOpacityChanges();
 	testAreaFallbackToFullFrame();
+	testOcclusionHideRevealDirtyRects();
 	testMatrixDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsDepthWriteChanges();

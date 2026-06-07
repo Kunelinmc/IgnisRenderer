@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
+	DEFAULT_OCCLUSION_CULLING_OPTIONS,
 } from "../../../src/pipeline/types.ts";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
@@ -42,6 +43,8 @@ function createCapabilities(clusteredLighting) {
 		dof: false,
 		bloom: false,
 		clusteredLighting,
+		oit: false,
+		occlusionCulling: true,
 	};
 }
 
@@ -220,6 +223,41 @@ function testClusteredCapabilityGateWarning() {
 	assert.ok(
 		resolved.warnings.some(
 			(warning) => warning.key === "webgl-feature-clustered-lighting"
+		)
+	);
+}
+
+function testOcclusionCullingDefaultsAndCapabilityGate() {
+	const resolved = resolveFeatureState(
+		{
+			enableOcclusionCulling: true,
+			occlusionCullingOptions: {
+				hysteresisFrames: 4,
+			},
+		},
+		createCapabilities(true),
+		"webgpu"
+	);
+	assert.equal(resolved.enableOcclusionCulling, true);
+	assert.deepEqual(resolved.occlusionCullingOptions, {
+		...DEFAULT_OCCLUSION_CULLING_OPTIONS,
+		hysteresisFrames: 4,
+	});
+
+	const unsupported = resolveFeatureState(
+		{
+			enableOcclusionCulling: true,
+		},
+		{
+			...createCapabilities(true),
+			occlusionCulling: false,
+		},
+		"webgl"
+	);
+	assert.equal(unsupported.enableOcclusionCulling, false);
+	assert.ok(
+		unsupported.warnings.some(
+			(warning) => warning.key === "webgl-feature-occlusion-culling"
 		)
 	);
 }
@@ -498,6 +536,7 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 async function run() {
 	testClusteredDefaultsAndMerge();
 	testClusteredCapabilityGateWarning();
+	testOcclusionCullingDefaultsAndCapabilityGate();
 	testClusterParamsLayoutWritesLightCount();
 	testRuntimeWritesClampedActiveLightCount();
 	testRuntimeWritesClusteredAreaRecordData();

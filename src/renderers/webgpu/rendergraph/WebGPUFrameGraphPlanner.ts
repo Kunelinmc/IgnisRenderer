@@ -128,16 +128,16 @@ export class WebGPUFrameGraphPlanner {
 								this._createDeferredLightingResources()
 							)
 						);
-						return nodes;
+						return this._appendOcclusionNode(pass, state, nodes);
 					}
-					return [
+					return this._appendOcclusionNode(pass, state, [
 						this._node(
 							pass,
 							"opaque-scene",
 							`WebGPUOpaque${state.sceneTargetMode}`,
 							this._createOpaqueResources(state)
 						),
-					];
+					]);
 				},
 			],
 			[
@@ -296,6 +296,23 @@ export class WebGPUFrameGraphPlanner {
 				this._write("frame:scene-color-main", "render-attachment"),
 			],
 		};
+	}
+
+	private _appendOcclusionNode(
+		pass: FramePass,
+		state: WebGPUFrameGraphPlannerState,
+		nodes: WebGPUFrameGraphNode[]
+	): WebGPUFrameGraphNode[] {
+		if (!state.needsOcclusionTest || state.sceneTargetMode === "single") {
+			return nodes;
+		}
+		nodes.push(
+			this._node(pass, "occlusion-test", "WebGPUOcclusionTest", {
+				reads: [this._read("gbuffer:motion-depth", "texture-binding")],
+				writes: [this._write("occlusion:results", "storage-binding")],
+			})
+		);
+		return nodes;
 	}
 
 	private _withTransmissionCaptureResources(

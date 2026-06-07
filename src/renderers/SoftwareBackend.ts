@@ -127,6 +127,7 @@ export class SoftwareBackend implements IRenderBackend {
 		environment: true,
 		clusteredLighting: false,
 		oit: false,
+		occlusionCulling: false,
 	};
 	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
 		{

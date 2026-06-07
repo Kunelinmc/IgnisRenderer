@@ -19,9 +19,12 @@ import {
 import type {
 	DecalPacket,
 	DrawPacket,
+	OcclusionCullingOptions,
 	PreparedScene,
 	ResolvedFeatureState,
 } from "./types";
+import type { OcclusionVisibilityProvider } from "./OcclusionCulling";
+import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 import type { ResolvedPostProcessState } from "../postprocess";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
@@ -90,6 +93,8 @@ export interface PreparedSceneCacheBuildInput {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	incrementalOptions: IncrementalRenderingOptions;
+	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
+	occlusionCullingOptions?: OcclusionCullingOptions;
 }
 
 export interface PreparedSceneCacheBuildResult {
@@ -116,7 +121,15 @@ export class PreparedSceneCache {
 	}
 
 	public build(input: PreparedSceneCacheBuildInput): PreparedSceneCacheBuildResult {
-		const frame = PreparedSceneBuilder.build(input.renderer);
+		const frame = PreparedSceneBuilder.build(input.renderer, {
+			viewportWidth: input.viewportWidth,
+			viewportHeight: input.viewportHeight,
+			occlusionVisibilityProvider: input.occlusionVisibilityProvider ?? null,
+			occlusionCullingOptions:
+				input.occlusionVisibilityProvider ?
+					normalizeOcclusionCullingOptions(input.occlusionCullingOptions)
+				:	undefined,
+		});
 		const width = Math.max(1, Math.floor(input.viewportWidth));
 		const height = Math.max(1, Math.floor(input.viewportHeight));
 		const fullScreenRect = makeFullScreenRect(width, height);

@@ -3,6 +3,7 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
+import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { PostProcessBackendAdapter } from "../postprocess/types";
 import type { ShaderCompileError } from "../shaders/runtime";
@@ -62,6 +63,7 @@ export interface BackendCapabilities {
 	environment: boolean;
 	clusteredLighting: boolean;
 	oit: boolean;
+	occlusionCulling: boolean;
 }
 
 export type RendererBackendResourceEventAction = "invalidate" | "destroy";
@@ -110,6 +112,7 @@ export interface IRenderBackend {
 	 * @sideEffects None.
 	 */
 	readonly postProcessAdapter?: PostProcessBackendAdapter;
+	readonly occlusionCullingAdapter?: OcclusionCullingBackendAdapter;
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	/**

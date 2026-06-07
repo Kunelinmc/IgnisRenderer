@@ -78,6 +78,14 @@ import {
 	WebGPUScenePassRecorder,
 	type WebGPUDeferredOpaqueFrameState,
 } from "./WebGPUScenePassRecorder";
+import {
+	WebGPUOcclusionCullingRuntime,
+} from "../WebGPUOcclusionCullingRuntime";
+import {
+	normalizeOcclusionCullingOptions,
+	type NormalizedOcclusionCullingOptions,
+	type OcclusionVisibilityProvider,
+} from "../../../pipeline/OcclusionCulling";
 import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphDebugState,
@@ -120,6 +128,7 @@ export class WebGPUFrameGraphRuntime {
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
 	private _deferredDecalPass: WebGPUDeferredDecalPass;
 	private _scenePassRecorder: WebGPUScenePassRecorder;
+	private _occlusionRuntime: WebGPUOcclusionCullingRuntime;
 	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null =
 		null;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
@@ -258,6 +267,7 @@ export class WebGPUFrameGraphRuntime {
 					this._deferredLightingPass.getGBufferWriteBinding(),
 			}
 		);
+		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(backend);
 		this._oitPass = new WebGPUOITPass(backend, resources, {
 			recordingContext: this._recordingContext,
 			recordLegacyMainPass: (context, packets, clear, earlyZ) =>
@@ -311,6 +321,7 @@ export class WebGPUFrameGraphRuntime {
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
 		this._graphCompiler.beginFrame([]);
+		this._occlusionRuntime.beginFrame(context);
 		const targetWidth = this._resolveAttachmentDimension(
 			context.attachments.width
 		);
@@ -396,6 +407,16 @@ export class WebGPUFrameGraphRuntime {
 		return this._targetSceneTargetMode;
 	}
 
+	public getOcclusionVisibilityProvider(
+		options: NormalizedOcclusionCullingOptions
+	): OcclusionVisibilityProvider {
+		return this._occlusionRuntime.getVisibilityProvider(options);
+	}
+
+	public resetOcclusionCulling(): void {
+		this._occlusionRuntime.resetVisibility();
+	}
+
 	public getDebugState(): WebGPUFrameGraphDebugState {
 		return {
 			active: this._hasActiveFrameState(),
@@ -468,6 +489,7 @@ export class WebGPUFrameGraphRuntime {
 	private _invalidateFrameTargetsNow(): void {
 		this._destroyFrameTargets();
 		this._postRuntime.invalidateBindings();
+		this._occlusionRuntime.invalidateFrameResources();
 		this._planarReflectionPass.destroy();
 	}
 
@@ -489,6 +511,7 @@ export class WebGPUFrameGraphRuntime {
 		this._destroyDeferredBindings();
 		this._depthDirtyClearPass.onShaderRuntimeChanged();
 		this._postRuntime.onShaderRuntimeChanged();
+		this._occlusionRuntime.onShaderRuntimeChanged();
 		this._planarReflectionPass.destroy();
 	}
 
@@ -611,6 +634,7 @@ export class WebGPUFrameGraphRuntime {
 		this._destroyFrameTargets();
 		this._destroyTexturePools();
 		this._postRuntime.destroy();
+		this._occlusionRuntime.destroy();
 		this._planarReflectionPass.destroy();
 		this._presentPass.destroy();
 		this._oitPass.destroy();
@@ -635,6 +659,7 @@ export class WebGPUFrameGraphRuntime {
 			needsTransmissionTargets:
 				!!this._frameTargets?.transmissionSceneColorCopy,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
+			needsOcclusionTest: this._frameNeedsOcclusionTest(context),
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
@@ -715,6 +740,12 @@ export class WebGPUFrameGraphRuntime {
 				},
 			],
 			[
+				"occlusion-test",
+				async (_node, context) => {
+					await this._recordOcclusionTestNode(context);
+				},
+			],
+			[
 				"oit-transparent",
 				async (_node, context) => {
 					await this._recordOITTransparentPass(context);
@@ -766,6 +797,7 @@ export class WebGPUFrameGraphRuntime {
 			}
 
 			this._backend.submit([encoder.finish()]);
+			this._occlusionRuntime.scheduleQueuedReadbacks();
 			if (motionSource && motionTarget && width > 0 && height > 0) {
 				this._backend.copyTextureToTexture(
 					{ texture: motionSource },
@@ -1019,6 +1051,7 @@ export class WebGPUFrameGraphRuntime {
 			postProcessPasses.some(
 				(resolved) => resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID
 			) && this._frameHasTransmissionWork(context);
+		const needsOcclusionTargets = this._frameNeedsOcclusionTest(context);
 		const enableDeferred =
 			this._deferredEnabled && this._frameHasDeferredLightingWork(context);
 		if (
@@ -1026,13 +1059,14 @@ export class WebGPUFrameGraphRuntime {
 			!needsPostProcessTargets &&
 			!needsPlanarReflection &&
 			!needsOITTargets &&
-			!needsTransmissionTargets
+			!needsTransmissionTargets &&
+			!needsOcclusionTargets
 		) {
 			return null;
 		}
 		const sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single"> =
 			enableDeferred ? "gbuffer"
-			: needsPostProcessGBuffer ? "mrt"
+			: needsPostProcessGBuffer || needsOcclusionTargets ? "mrt"
 			: "color";
 		return {
 			sceneTargetMode,
@@ -1080,6 +1114,13 @@ export class WebGPUFrameGraphRuntime {
 	private _frameHasTransmissionWork(context: FrameContext): boolean {
 		return context.scene.transparentPackets.some((packet) =>
 			materialUsesTransmission(packet.material)
+		);
+	}
+
+	private _frameNeedsOcclusionTest(context: FrameContext): boolean {
+		return (
+			context.features.enableOcclusionCulling === true &&
+			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0
 		);
 	}
 
@@ -1175,6 +1216,7 @@ export class WebGPUFrameGraphRuntime {
 		this._pendingPostProcessColorTarget = null;
 		this._postBridge.clearPendingFrameState();
 		this._deferredOpaqueFrameState = null;
+		this._occlusionRuntime.invalidateFrameResources();
 	}
 
 	private _clearActiveFrameState(flushPendingLifecycle = true): void {
@@ -1412,6 +1454,20 @@ export class WebGPUFrameGraphRuntime {
 			context,
 			clearSceneColor
 		);
+	}
+
+	private async _recordOcclusionTestNode(context: FrameContext): Promise<void> {
+		if (!this._encoder || !this._frameTargets?.gMotionDepth) {
+			return;
+		}
+		await this._occlusionRuntime.recordVisibilityPass({
+			context,
+			encoder: this._encoder,
+			depth: this._frameTargets.gMotionDepth,
+			options: normalizeOcclusionCullingOptions(
+				context.features.occlusionCullingOptions
+			),
+		});
 	}
 
 }
