@@ -34,6 +34,17 @@ function installCanvasMock(frameProvider) {
 	};
 }
 
+async function waitForCondition(predicate, message, count = 32) {
+	for (let i = 0; i < count; i++) {
+		if (predicate()) {
+			return;
+		}
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	assert.ok(predicate(), message);
+}
+
 function testVideoTextureUsesRequestVideoFrameCallback() {
 	const { contexts, restore } = installCanvasMock(
 		(width, height, callIndex) => {
@@ -163,7 +174,7 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 	}
 }
 
-function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
+async function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 	const { restore } = installCanvasMock((width, height, callIndex) => {
 		const data = new Uint8ClampedArray(width * height * 4);
 		data[0] = callIndex;
@@ -187,12 +198,20 @@ function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 		assert.equal(backend.createTextureCalls[0].mipLevelCount, 2);
 		assert.equal(backend.copyCalls.length, 1);
 		assert.equal(backend.writeCalls.length, 0);
+		await waitForCondition(
+			() => backend.recordedRenderPasses.length === 1,
+			"Expected video upload mipmap pass to be recorded"
+		);
 		assert.equal(backend.recordedRenderPasses.length, 1);
 
 		video.presentFrame(1 / 24);
 		texture.update();
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.copyCalls.length, 2);
+		await waitForCondition(
+			() => backend.recordedRenderPasses.length === 2,
+			"Expected updated video upload mipmap pass to be recorded"
+		);
 		assert.equal(backend.recordedRenderPasses.length, 2);
 
 		texture.dispose();
@@ -203,11 +222,11 @@ function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 	}
 }
 
-function run() {
+async function run() {
 	testVideoTextureUsesRequestVideoFrameCallback();
 	testVideoTextureFallsBackWithoutRVFC();
 	testWebGPURegistryUsesExternalVideoUploadPath();
-	testWebGPURegistryGeneratesMipmapsAfterVideoUpload();
+	await testWebGPURegistryGeneratesMipmapsAfterVideoUpload();
 	console.log("Video texture tests passed");
 }
 

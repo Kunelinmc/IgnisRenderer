@@ -558,7 +558,7 @@ export class WebGPUMotionBlurImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUMotionBlurPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});
@@ -754,7 +754,7 @@ export class WebGPUDepthOfFieldImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUDOFPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});
@@ -883,7 +883,7 @@ export class WebGPUToneMappingImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUToneMappingPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});
@@ -1053,7 +1053,7 @@ export class WebGPUColorFilterImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUColorFilterPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});
@@ -1257,7 +1257,7 @@ export class WebGPUInteractionOutlineImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUInteractionOutlinePipeline",
 				compute: {
 					module: resources.module,

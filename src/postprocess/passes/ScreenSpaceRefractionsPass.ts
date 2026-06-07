@@ -510,20 +510,20 @@ export class WebGPUScreenSpaceRefractionsImplementation
 						shared.frameBindGroupLayout,
 					],
 				});
-				resources.tracePipeline = shared.compute.createComputePipeline({
+				resources.tracePipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUSSRefractionTracePipeline",
 					layout: resources.tracePipelineLayout,
 					compute: { module: resources.module, entryPoint: "csTrace" },
 				});
 			} else {
-				resources.tracePipeline = shared.compute.createComputePipeline({
+				resources.tracePipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUSSRefractionTracePipeline",
 					compute: { module: resources.module, entryPoint: "csTrace" },
 				});
 			}
 		}
 		if (!resources.composePipeline) {
-			resources.composePipeline = shared.compute.createComputePipeline({
+			resources.composePipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSRefractionComposePipeline",
 				compute: { module: resources.module, entryPoint: "csCompose" },
 			});

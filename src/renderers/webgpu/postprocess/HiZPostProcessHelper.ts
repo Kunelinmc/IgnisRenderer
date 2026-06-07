@@ -76,13 +76,13 @@ export class WebGPUHiZPostProcessHelper {
 			});
 		}
 		if (!this._initPipeline) {
-			this._initPipeline = this._shared.compute.createComputePipeline({
+			this._initPipeline = await this._shared.compute.createComputePipeline({
 				label: "WebGPUHiZInitPipeline",
 				compute: { module: this._module, entryPoint: "csInit" },
 			});
 		}
 		if (!this._reducePipeline) {
-			this._reducePipeline = this._shared.compute.createComputePipeline({
+			this._reducePipeline = await this._shared.compute.createComputePipeline({
 				label: "WebGPUHiZReducePipeline",
 				compute: { module: this._module, entryPoint: "csReduce" },
 			});

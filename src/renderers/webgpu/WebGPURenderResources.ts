@@ -780,7 +780,7 @@ export class WebGPURenderResources {
 				sourceKind: "decal",
 			});
 		}
-		this._decalPipeline = this._backend.createPipeline({
+		this._decalPipeline = await this._backend.createPipeline({
 			layout: this._layouts.decalPipelineLayout,
 			label: "WebGPUDeferredDecalPipeline",
 			vertex: {
@@ -831,7 +831,7 @@ export class WebGPURenderResources {
 				sourceKind: "decal",
 			});
 		}
-		this._decalBatchPipeline = this._backend.createComputePipeline({
+		this._decalBatchPipeline = await this._backend.createComputePipeline({
 			layout: this._layouts.decalBatchPipelineLayout,
 			label: "WebGPUDeferredDecalBatchPipeline",
 			compute: {
@@ -944,6 +944,13 @@ export class WebGPURenderResources {
 		slotIndex: number
 	): IRenderTexture {
 		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
+	}
+
+	public getTextureForSlotAsync(
+		texture: Texture | null,
+		slotIndex: number
+	): Promise<IRenderTexture> {
+		return this._textureRegistry.getTextureForSlotAsync(texture, slotIndex);
 	}
 
 	public getSamplerForTexture(texture: Texture | null): ISampler {
@@ -1198,13 +1205,15 @@ export class WebGPURenderResources {
 		if (!solidPipeline) {
 			return null;
 		}
-		const solidTextures = solidMaterialData.textureSlots.map((slot, index) =>
-			this._textureRegistry.getTextureForSlot(slot.map, index)
+		const solidTextures = await Promise.all(
+			solidMaterialData.textureSlots.map((slot, index) =>
+				this._textureRegistry.getTextureForSlotAsync(slot.map, index)
+			)
 		);
 		const solidSamplers = solidMaterialData.textureSlots.map((slot) =>
 			this._textureRegistry.getSamplerForTexture(slot.map)
 		);
-		const solidAnisotropyTexture = this._textureRegistry.getTextureForSlot(
+		const solidAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
 			solidMaterialData.anisotropyTexture.map,
 			-1
 		);
@@ -1247,13 +1256,15 @@ export class WebGPURenderResources {
 				drawMode,
 				sampleCountOverride
 			);
-			const wireTextures = wireMaterialData.textureSlots.map((slot, index) =>
-				this._textureRegistry.getTextureForSlot(slot.map, index)
+			const wireTextures = await Promise.all(
+				wireMaterialData.textureSlots.map((slot, index) =>
+					this._textureRegistry.getTextureForSlotAsync(slot.map, index)
+				)
 			);
 			const wireSamplers = wireMaterialData.textureSlots.map((slot) =>
 				this._textureRegistry.getSamplerForTexture(slot.map)
 			);
-			const wireAnisotropyTexture = this._textureRegistry.getTextureForSlot(
+			const wireAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
 				wireMaterialData.anisotropyTexture.map,
 				-1
 			);
@@ -1523,7 +1534,7 @@ export class WebGPURenderResources {
 				}];
 
 		for (const range of drawRanges) {
-			const texture = this._textureRegistry.getTextureForSlot(
+			const texture = await this._textureRegistry.getTextureForSlotAsync(
 				range.batch.texture,
 				0
 			);
@@ -1662,7 +1673,10 @@ export class WebGPURenderResources {
 		const activeCacheKeys = new Set<string>();
 
 		for (const batch of drawBatches) {
-			const texture = this._textureRegistry.getTextureForSlot(batch.texture, 0);
+			const texture = await this._textureRegistry.getTextureForSlotAsync(
+				batch.texture,
+				0
+			);
 			const sampler = this._textureRegistry.getSamplerForTexture(batch.texture);
 			const cacheKey = `particle_${batch.systemId}`;
 			activeCacheKeys.add(cacheKey);
@@ -1904,10 +1918,10 @@ export class WebGPURenderResources {
 
 		this._ensureParticleInstanceBuffer(totalParticles);
 		if (pipelineMode === "oit") {
-			this._ensureParticlePipeline(mode, "oit-alpha", sampleCountOverride);
+			await this._ensureParticlePipeline(mode, "oit-alpha", sampleCountOverride);
 		} else {
-			this._ensureParticlePipeline(mode, "alpha", sampleCountOverride);
-			this._ensureParticlePipeline(mode, "additive", sampleCountOverride);
+			await this._ensureParticlePipeline(mode, "alpha", sampleCountOverride);
+			await this._ensureParticlePipeline(mode, "additive", sampleCountOverride);
 		}
 	}
 
@@ -1946,14 +1960,14 @@ export class WebGPURenderResources {
 		mode: WebGPUSceneTargetMode,
 		pipelineType: "alpha" | "additive" | "oit-alpha",
 		sampleCountOverride?: number
-	): void {
+	): Promise<void> {
 		const cache =
 			pipelineType === "additive" ? this._particlePipelineAdditive
 			: pipelineType === "oit-alpha" ? this._particlePipelineOITAlpha
 			: this._particlePipelineAlpha;
 		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const cacheKey = this._createParticlePipelineCacheKey(mode, sampleCount);
-		if (cache.has(cacheKey) || !this._particleShaderModule) return;
+		if (cache.has(cacheKey) || !this._particleShaderModule) return Promise.resolve();
 
 		const blend =
 			pipelineType === "additive" ?
@@ -2032,7 +2046,7 @@ export class WebGPURenderResources {
 					},
 				];
 
-		const pipeline = this._backend.createPipeline({
+		return this._backend.createPipeline({
 			layout: this._layouts.particlePipelineLayout,
 			label: `WebGPUParticlePipeline_${pipelineType}_${mode}`,
 			vertex: {
@@ -2056,8 +2070,9 @@ export class WebGPURenderResources {
 				depthCompare: "less",
 			},
 			sampleCount,
-		} as any);
-		cache.set(cacheKey, pipeline);
+		} as any).then((pipeline) => {
+			cache.set(cacheKey, pipeline);
+		});
 	}
 
 	private _createParticlePipelineCacheKey(

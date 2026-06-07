@@ -100,6 +100,7 @@ import {
 	createWarmupReport,
 	finalizeWarmupReport,
 	toShaderCompileError,
+	type WarmupPhaseCounters,
 } from "../pipeline/WarmupPlanner";
 import type { Texture } from "../core/Texture";
 import {
@@ -188,6 +189,16 @@ class WebGPUShaderModuleCreationInvalidatedError extends Error {
 			`WebGPU shader module creation was invalidated by backend lifecycle reset [${shaderLabel}].`,
 		);
 		this.name = "WebGPUShaderModuleCreationInvalidatedError";
+	}
+}
+
+class WebGPUPipelineCreationInvalidatedError extends Error {
+	constructor(label?: string) {
+		const pipelineLabel = label && label.length > 0 ? label : "unnamed";
+		super(
+			`WebGPU pipeline creation was invalidated by backend lifecycle reset [${pipelineLabel}].`,
+		);
+		this.name = "WebGPUPipelineCreationInvalidatedError";
 	}
 }
 
@@ -309,6 +320,8 @@ export class WebGPUBackend implements IRenderBackend {
 	private _shaderModuleGeneration = 0;
 	private _renderPipelineCache = new Map<string, CachedRenderPipelineEntry>();
 	private _computePipelineCache = new Map<string, CachedComputePipelineEntry>();
+	private _renderPipelineInFlight = new Map<string, Promise<CachedRenderPipelineEntry>>();
+	private _computePipelineInFlight = new Map<string, Promise<CachedComputePipelineEntry>>();
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
 	private _bindingGroupCacheEntryCount = 0;
 	private _pipelineBindGroupLayoutCache = new Map<string, GPUBindGroupLayout>();
@@ -755,21 +768,36 @@ export class WebGPUBackend implements IRenderBackend {
 		try {
 			const framePhase = await this._frameExecutor.warmup(context, plan);
 			addWarmupPhase(report, framePhase);
+			this._reportWarmupProgress(options, framePhase);
 			const resourcePhase = await this._resources.warmup(context, plan);
 			addWarmupPhase(report, resourcePhase);
+			this._reportWarmupProgress(options, resourcePhase);
 		} catch (error) {
-			addWarmupPhase(report, {
+			const failedPhase = {
 				phase: "webgpu-warmup",
 				total: 1,
 				compiled: 0,
 				skipped: 0,
 				failed: 1,
 				errors: [toShaderCompileError(error, this.type, "WebGPUWarmup")],
-			});
+			};
+			addWarmupPhase(report, failedPhase);
+			this._reportWarmupProgress(options, failedPhase);
 		} finally {
 			this._warmupLogCompilationInfo = false;
 		}
 		return finalizeWarmupReport(report);
+	}
+
+	private _reportWarmupProgress(
+		options: WarmupOptions,
+		phase: WarmupPhaseCounters,
+	): void {
+		options.onProgress?.({
+			phase: phase.phase,
+			completed: phase.compiled + phase.skipped + phase.failed,
+			total: phase.total,
+		});
 	}
 
 	public async endFrame(): Promise<void> {
@@ -1104,8 +1132,10 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 	}
 
-	public createPipeline(desc: PipelineDesc): IRenderPipeline {
+	public async createPipeline(desc: PipelineDesc): Promise<IRenderPipeline> {
 		this._assertDeviceOperational("create render pipelines");
+		const creationDevice = this.device;
+		const creationGeneration = this._shaderModuleGeneration;
 		const layout = this._resolveRenderPipelineLayout(desc);
 		const cacheKey = this._getRenderPipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._renderPipelineCache, cacheKey);
@@ -1113,28 +1143,70 @@ export class WebGPUBackend implements IRenderBackend {
 			return this._acquireRenderPipelineHandle(cached);
 		}
 
-		const gpuPipeline = this._runValidationScope(
-			`createRenderPipeline:${desc.label ?? "unnamed"}`,
-			() =>
-				this.device.createRenderPipeline(
-					this._createRenderPipelineDescriptor(desc, layout),
-				),
-		);
+		const inFlight = this._renderPipelineInFlight.get(cacheKey);
+		if (inFlight) {
+			const entry = await inFlight;
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			return this._acquireRenderPipelineHandle(entry);
+		}
 
-		const entry: CachedRenderPipelineEntry = {
-			key: cacheKey,
-			refCount: 0,
-			label: desc.label,
-			gpuResource: gpuPipeline,
-		};
-		this._renderPipelineCache.set(cacheKey, entry);
-		const pipeline = this._acquireRenderPipelineHandle(entry);
-		this._trimRefCountedCache(this._renderPipelineCache, WEBGPU_PIPELINE_CACHE_LIMIT);
-		return pipeline;
+		const creationPromise = (async () => {
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			const descriptor = this._createRenderPipelineDescriptor(desc, layout);
+			const gpuPipeline = await this._runValidationScopeAsync(
+				`createRenderPipeline:${desc.label ?? "unnamed"}`,
+				() => creationDevice.createRenderPipelineAsync(descriptor),
+			);
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			const existing = this._getLruCacheEntry(this._renderPipelineCache, cacheKey);
+			if (existing) {
+				return existing;
+			}
+			const entry: CachedRenderPipelineEntry = {
+				key: cacheKey,
+				refCount: 0,
+				label: desc.label,
+				gpuResource: gpuPipeline,
+			};
+			this._renderPipelineCache.set(cacheKey, entry);
+			this._trimRefCountedCache(
+				this._renderPipelineCache,
+				WEBGPU_PIPELINE_CACHE_LIMIT,
+			);
+			return entry;
+		})();
+		this._renderPipelineInFlight.set(cacheKey, creationPromise);
+		try {
+			const entry = await creationPromise;
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			return this._acquireRenderPipelineHandle(entry);
+		} finally {
+			if (this._renderPipelineInFlight.get(cacheKey) === creationPromise) {
+				this._renderPipelineInFlight.delete(cacheKey);
+			}
+		}
 	}
 
-	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
+	public async createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline> {
 		this._assertDeviceOperational("create compute pipelines");
+		const creationDevice = this.device;
+		const creationGeneration = this._shaderModuleGeneration;
 		const layout = this._resolveComputePipelineLayout(desc);
 		const cacheKey = this._getComputePipelineCacheKey(desc, layout);
 		const cached = this._getLruCacheEntry(this._computePipelineCache, cacheKey);
@@ -1142,24 +1214,64 @@ export class WebGPUBackend implements IRenderBackend {
 			return this._acquireComputePipelineHandle(cached);
 		}
 
-		const gpuPipeline = this._runValidationScope(
-			`createComputePipeline:${desc.label ?? "unnamed"}`,
-			() =>
-				this.device.createComputePipeline(
-					this._createComputePipelineDescriptor(desc, layout),
-				),
-		);
+		const inFlight = this._computePipelineInFlight.get(cacheKey);
+		if (inFlight) {
+			const entry = await inFlight;
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			return this._acquireComputePipelineHandle(entry);
+		}
 
-		const entry: CachedComputePipelineEntry = {
-			key: cacheKey,
-			refCount: 0,
-			label: desc.label,
-			gpuResource: gpuPipeline,
-		};
-		this._computePipelineCache.set(cacheKey, entry);
-		const pipeline = this._acquireComputePipelineHandle(entry);
-		this._trimRefCountedCache(this._computePipelineCache, WEBGPU_PIPELINE_CACHE_LIMIT);
-		return pipeline;
+		const creationPromise = (async () => {
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			const descriptor = this._createComputePipelineDescriptor(desc, layout);
+			const gpuPipeline = await this._runValidationScopeAsync(
+				`createComputePipeline:${desc.label ?? "unnamed"}`,
+				() => creationDevice.createComputePipelineAsync(descriptor),
+			);
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			const existing = this._getLruCacheEntry(this._computePipelineCache, cacheKey);
+			if (existing) {
+				return existing;
+			}
+			const entry: CachedComputePipelineEntry = {
+				key: cacheKey,
+				refCount: 0,
+				label: desc.label,
+				gpuResource: gpuPipeline,
+			};
+			this._computePipelineCache.set(cacheKey, entry);
+			this._trimRefCountedCache(
+				this._computePipelineCache,
+				WEBGPU_PIPELINE_CACHE_LIMIT,
+			);
+			return entry;
+		})();
+		this._computePipelineInFlight.set(cacheKey, creationPromise);
+		try {
+			const entry = await creationPromise;
+			this._assertPipelineCreationCurrent(
+				creationDevice,
+				creationGeneration,
+				desc.label,
+			);
+			return this._acquireComputePipelineHandle(entry);
+		} finally {
+			if (this._computePipelineInFlight.get(cacheKey) === creationPromise) {
+				this._computePipelineInFlight.delete(cacheKey);
+			}
+		}
 	}
 
 	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
@@ -1455,6 +1567,16 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._errorScopes.run("validation", label, operation);
 	}
 
+	private _runValidationScopeAsync<T>(
+		label: string,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		if (!this._errorScopes) {
+			return operation();
+		}
+		return this._errorScopes.runAsync("validation", label, operation);
+	}
+
 	private _handleDeviceLost(info: RenderBackendDeviceLostInfo): void {
 		if (this._deviceLost) {
 			return;
@@ -1598,6 +1720,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleInFlight.clear();
 		this._renderPipelineCache.clear();
 		this._computePipelineCache.clear();
+		this._renderPipelineInFlight.clear();
+		this._computePipelineInFlight.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._pipelineBindGroupLayoutCache.clear();
@@ -1663,6 +1787,16 @@ export class WebGPUBackend implements IRenderBackend {
 	): void {
 		if (this._shaderModuleGeneration !== generation || this.device !== device) {
 			throw new WebGPUShaderModuleCreationInvalidatedError(desc.label);
+		}
+	}
+
+	private _assertPipelineCreationCurrent(
+		device: GPUDevice,
+		generation: number,
+		label?: string,
+	): void {
+		if (this._shaderModuleGeneration !== generation || this.device !== device) {
+			throw new WebGPUPipelineCreationInvalidatedError(label);
 		}
 	}
 
@@ -2300,6 +2434,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._nextResourceId = 1;
 		this._renderPipelineCache.clear();
 		this._computePipelineCache.clear();
+		this._renderPipelineInFlight.clear();
+		this._computePipelineInFlight.clear();
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
@@ -2540,6 +2676,7 @@ export class WebGPUBackend implements IRenderBackend {
 	): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._renderPipelineCache.clear();
+		this._renderPipelineInFlight.clear();
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
@@ -2608,6 +2745,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleInFlight.clear();
 		this._renderPipelineCache.clear();
 		this._computePipelineCache.clear();
+		this._renderPipelineInFlight.clear();
+		this._computePipelineInFlight.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._pipelineBindGroupLayoutCache.clear();

@@ -273,7 +273,7 @@ export class ComputeRuntime implements IComputeRuntime {
 						descriptor.entryPoint?.trim() || DEFAULT_KERNEL_ENTRY_POINT,
 				},
 			};
-			pipeline = this._computeFacade.createComputePipeline(pipelineDesc);
+			pipeline = await this._computeFacade.createComputePipeline(pipelineDesc);
 		} catch (error) {
 			this._destroySafely(module, `${label}Module`);
 			throw error;

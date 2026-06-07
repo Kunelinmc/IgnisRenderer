@@ -56,6 +56,8 @@ class FakeDevice {
 		this.bufferDescs = [];
 		this.configureCalls = 0;
 		this.supportedSampleCounts = new Set([1, 4]);
+		this.computePipelineFailuresRemaining = 0;
+		this.renderPipelineFailuresRemaining = 0;
 	}
 
 	createSampler(desc) {
@@ -84,7 +86,15 @@ class FakeDevice {
 	}
 
 	createComputePipeline(desc) {
+		throw new Error("synchronous compute pipeline creation is forbidden");
+	}
+
+	async createComputePipelineAsync(desc) {
 		this.computePipelineDescs.push(desc);
+		if (this.computePipelineFailuresRemaining > 0) {
+			this.computePipelineFailuresRemaining--;
+			throw new Error("simulated compute pipeline failure");
+		}
 		const layout0 = this.defaultBindGroupLayout;
 		return {
 			desc,
@@ -98,7 +108,15 @@ class FakeDevice {
 	}
 
 	createRenderPipeline(desc) {
+		throw new Error("synchronous render pipeline creation is forbidden");
+	}
+
+	async createRenderPipelineAsync(desc) {
 		this.renderPipelineDescs.push(desc);
+		if (this.renderPipelineFailuresRemaining > 0) {
+			this.renderPipelineFailuresRemaining--;
+			throw new Error("simulated render pipeline failure");
+		}
 		const layout0 = this.defaultBindGroupLayout;
 		return {
 			desc,
@@ -465,11 +483,15 @@ async function testComputePipelineAutoLayoutCaching() {
 		},
 	};
 
-	const pipelineA = backend.createComputePipeline(desc);
-	const pipelineB = backend.createComputePipeline(desc);
+	const [pipelineA, pipelineB] = await Promise.all([
+		backend.createComputePipeline(desc),
+		backend.createComputePipeline(desc),
+	]);
+	const pipelineC = await backend.createComputePipeline(desc);
 
 	assert.notEqual(pipelineA, pipelineB);
 	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
+	assert.equal(pipelineC._gpuResource, pipelineA._gpuResource);
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.computePipelineDescs.length, 1);
 	assert.equal(device.computePipelineDescs[0].layout, "auto");
@@ -502,15 +524,93 @@ async function testRenderPipelineAutoLayoutCaching() {
 		sampleCount: 4,
 	};
 
-	const pipelineA = backend.createPipeline(desc);
-	const pipelineB = backend.createPipeline(desc);
+	const [pipelineA, pipelineB] = await Promise.all([
+		backend.createPipeline(desc),
+		backend.createPipeline(desc),
+	]);
+	const pipelineC = await backend.createPipeline(desc);
 
 	assert.notEqual(pipelineA, pipelineB);
 	assert.equal(pipelineA._gpuResource, pipelineB._gpuResource);
+	assert.equal(pipelineC._gpuResource, pipelineA._gpuResource);
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.renderPipelineDescs.length, 1);
 	assert.equal(device.renderPipelineDescs[0].layout, "auto");
 	assert.equal(backend._autoRenderPipelineLayoutCache.size, 0);
+}
+
+async function testComputePipelineFailureClearsInFlight() {
+	const { backend, device } = createBackend();
+	const module = await backend.createShaderModule({
+		code: "shader compute",
+		label: "ComputeShader",
+	});
+	const desc = {
+		label: "ComputePipelineRetry",
+		compute: {
+			module,
+			entryPoint: "csMain",
+		},
+	};
+
+	device.computePipelineFailuresRemaining = 1;
+	await assert.rejects(
+		() => backend.createComputePipeline(desc),
+		/simulated compute pipeline failure/
+	);
+	assert.equal(backend._computePipelineInFlight.size, 0);
+	assert.equal(backend._computePipelineCache.size, 0);
+
+	const pipeline = await backend.createComputePipeline(desc);
+	assert.ok(pipeline._gpuResource);
+	assert.equal(device.computePipelineDescs.length, 2);
+	assert.equal(backend._computePipelineCache.size, 1);
+}
+
+async function testStaleRenderPipelineCreationRejectsAfterRollback() {
+	const { backend, device } = createBackend();
+	const shader = await backend.createShaderModule({
+		code: "shader render",
+		label: "RenderShader",
+	});
+	const desc = {
+		label: "RenderPipelineStale",
+		vertex: {
+			module: shader,
+			entryPoint: "vsMain",
+			buffers: [],
+		},
+		fragment: {
+			module: shader,
+			entryPoint: "fsMain",
+			targets: [{ format: TextureFormat.RGBA8Unorm }],
+		},
+	};
+	const deferred = createDeferred();
+	device.createRenderPipelineAsync = (pipelineDesc) => {
+		device.renderPipelineDescs.push(pipelineDesc);
+		return deferred.promise;
+	};
+
+	const pipelinePromise = backend.createPipeline(desc);
+	await waitForCondition(
+		() => backend._renderPipelineInFlight.size === 1,
+		"Expected render pipeline creation to be in flight"
+	);
+	backend._rollbackInitializationState();
+	deferred.resolve({
+		desc,
+		getBindGroupLayout() {
+			return device.defaultBindGroupLayout;
+		},
+	});
+
+	await assert.rejects(
+		() => pipelinePromise,
+		/WebGPU pipeline creation was invalidated/
+	);
+	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(backend._renderPipelineInFlight.size, 0);
 }
 
 function testBindingGroupCacheUsesHashedKey() {
@@ -1174,6 +1274,8 @@ async function run() {
 	testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
 	await testRenderPipelineAutoLayoutCaching();
+	await testComputePipelineFailureClearsInFlight();
+	await testStaleRenderPipelineCreationRejectsAfterRollback();
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
 	testSetMSAASampleCountClampsAndInvalidates();

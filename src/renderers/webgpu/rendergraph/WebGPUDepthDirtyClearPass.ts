@@ -121,7 +121,7 @@ export class WebGPUDepthDirtyClearPass {
 			});
 		}
 
-		const pipeline = this._backend.createPipeline({
+		const pipeline = await this._backend.createPipeline({
 			label: `WebGPUDepthDirtyClearPipeline_${cacheKey}`,
 			vertex: {
 				module: this._shaderModule,

@@ -146,7 +146,7 @@ export class WebGPUPresentPass {
 		}
 
 		if (!this._pipeline) {
-			this._pipeline = this._backend.createPipeline({
+			this._pipeline = await this._backend.createPipeline({
 				label: "WebGPUPresentPipeline",
 				vertex: {
 					module: this._shaderModule,

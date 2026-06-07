@@ -680,13 +680,13 @@ export class WebGPUVolumetricLightingImplementation
 						shared.frameBindGroupLayout,
 					],
 				});
-				resources.pipeline = shared.compute.createComputePipeline({
+				resources.pipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUVolumetricPipeline",
 					layout: resources.pipelineLayout,
 					compute: { module: resources.module, entryPoint: "csMain" },
 				});
 			} else {
-				resources.pipeline = shared.compute.createComputePipeline({
+				resources.pipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUVolumetricPipeline",
 					compute: { module: resources.module, entryPoint: "csMain" },
 				});

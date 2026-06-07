@@ -31,15 +31,22 @@ import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
 import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
-import { getWebGPUShaderModule, getWebGPUTexture } from "./WebGPUResourceAccess";
+import {
+	getWebGPURenderPipeline,
+	getWebGPUTexture,
+} from "./WebGPUResourceAccess";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
-import { TextureFormat } from "../types";
+import {
+	PrimitiveTopology,
+	TextureFormat,
+	type IRenderPipeline,
+	type IShaderModule,
+} from "../types";
 import type {
 	WebGPUGeometryHandle,
 	WebGPUGeometryRegistry,
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
-import type { IShaderModule } from "../types";
 
 const WEBGPU_SHADOW_DEPTH_SHADER = /* wgsl */ `
 const EPSILON: f32 = 1e-6;
@@ -325,8 +332,8 @@ export class WebGPUShadowPass {
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
 	private _animationBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
-	private _pipeline: GPURenderPipeline | null = null;
-	private _transmittancePipeline: GPURenderPipeline | null = null;
+	private _pipeline: IRenderPipeline | null = null;
+	private _transmittancePipeline: IRenderPipeline | null = null;
 	private _instanceMvpBuffer: GPUBuffer | null = null;
 	private _instanceMetaBuffer: GPUBuffer | null = null;
 	private _instanceTransmittanceBuffer: GPUBuffer | null = null;
@@ -403,7 +410,7 @@ export class WebGPUShadowPass {
 			},
 		});
 
-		passEncoder.setPipeline(this._pipeline);
+		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
@@ -480,7 +487,9 @@ export class WebGPUShadowPass {
 				depthStoreOp: "store",
 			},
 		});
-		transmittancePassEncoder.setPipeline(this._transmittancePipeline);
+		transmittancePassEncoder.setPipeline(
+			getWebGPURenderPipeline(this._transmittancePipeline)
+		);
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
 			const baseOffsetX = slot.tileX * atlasTileSize;
@@ -531,6 +540,9 @@ export class WebGPUShadowPass {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		this._destroyManagedResource(this._shaderModule);
+		this._destroyManagedResource(this._pipeline);
+		this._destroyManagedResource(this._transmittancePipeline);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._pipeline = null;
@@ -542,6 +554,9 @@ export class WebGPUShadowPass {
 	}
 
 	public destroy(): void {
+		this._destroyManagedResource(this._shaderModule);
+		this._destroyManagedResource(this._pipeline);
+		this._destroyManagedResource(this._transmittancePipeline);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._bindGroupLayout = null;
@@ -1356,21 +1371,21 @@ export class WebGPUShadowPass {
 		}
 
 		if (!this._pipeline && this._shaderModule && this._pipelineLayout) {
-			this._pipeline = device.createRenderPipeline({
+			this._pipeline = await this._backend.createPipeline({
 				label: "WebGPUShadowDepthPipeline",
 				layout: this._pipelineLayout,
 				vertex: {
-					module: getWebGPUShaderModule(this._shaderModule),
+					module: this._shaderModule,
 					entryPoint: "vsMain",
 					buffers: [createWebGPUShadowVertexBufferLayout()],
 				},
 				primitive: {
-					topology: "triangle-list",
+					topology: PrimitiveTopology.TriangleList,
 					cullMode: "none",
 					frontFace: "ccw",
 				},
 				depthStencil: {
-					format: "depth32float",
+					format: TextureFormat.Depth32Float,
 					depthWriteEnabled: true,
 					depthCompare: "less",
 				},
@@ -1381,16 +1396,16 @@ export class WebGPUShadowPass {
 			this._shaderModule &&
 			this._pipelineLayout
 		) {
-			this._transmittancePipeline = device.createRenderPipeline({
+			this._transmittancePipeline = await this._backend.createPipeline({
 				label: "WebGPUShadowTransmittancePipeline",
 				layout: this._pipelineLayout,
 				vertex: {
-					module: getWebGPUShaderModule(this._shaderModule),
+					module: this._shaderModule,
 					entryPoint: "vsMain",
 					buffers: [createWebGPUShadowVertexBufferLayout()],
 				},
 				fragment: {
-					module: getWebGPUShaderModule(this._shaderModule),
+					module: this._shaderModule,
 					entryPoint: "fsTransmittance",
 					targets: [
 						{
@@ -1411,12 +1426,12 @@ export class WebGPUShadowPass {
 					],
 				},
 				primitive: {
-					topology: "triangle-list",
+					topology: PrimitiveTopology.TriangleList,
 					cullMode: "none",
 					frontFace: "ccw",
 				},
 				depthStencil: {
-					format: "depth32float",
+					format: TextureFormat.Depth32Float,
 					depthWriteEnabled: false,
 					depthCompare: "less",
 				},
@@ -1470,6 +1485,13 @@ export class WebGPUShadowPass {
 			);
 		}
 		return queue;
+	}
+
+	private _destroyManagedResource(resource: unknown): void {
+		const destroyFn = (resource as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(resource);
+		}
 	}
 
 	private _trimAnimationResources(): void {

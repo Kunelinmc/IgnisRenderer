@@ -331,7 +331,7 @@ export class WebGPUOITPass {
 			});
 		}
 		if (!this._resolvePipeline) {
-			this._resolvePipeline = this._backend.createPipeline({
+			this._resolvePipeline = await this._backend.createPipeline({
 				label: "WebGPUOITResolvePipeline",
 				vertex: {
 					module: this._resolveShaderModule,

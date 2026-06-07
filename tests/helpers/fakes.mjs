@@ -536,8 +536,14 @@ export class FakeWebGPUBackend {
 				this.shaderModules.push(module);
 				return module;
 			},
-			createComputePipeline: (desc) => this.createComputePipeline(desc),
-			createRenderPipeline: (desc) => this.createRenderPipeline(desc),
+			createComputePipeline: () => {
+				throw new Error("synchronous compute pipeline creation is forbidden");
+			},
+			createRenderPipeline: () => {
+				throw new Error("synchronous render pipeline creation is forbidden");
+			},
+			createComputePipelineAsync: (desc) => this.createComputePipeline(desc),
+			createRenderPipelineAsync: (desc) => this.createRenderPipeline(desc),
 		};
 	}
 
@@ -575,7 +581,7 @@ export class FakeWebGPUBackend {
 		return module;
 	}
 
-	createComputePipeline(desc) {
+	async createComputePipeline(desc) {
 		const pipeline = { 
 			kind: "compute-pipeline",
 			desc, 
@@ -597,16 +603,27 @@ export class FakeWebGPUBackend {
 		return pipeline;
 	}
 
-	createPipeline(desc) {
-		return this.createComputePipeline(desc);
+	async createPipeline(desc) {
+		return this.createRenderPipeline(desc);
 	}
 	
 	createRenderPipeline(desc) {
+		const nativePipeline = {
+			kind: "native-render-pipeline",
+			desc,
+			label: desc.label,
+			[Symbol.toStringTag]: "GPURenderPipeline",
+			getBindGroupLayout: () => {
+				const layout = { kind: "bind-group-layout" };
+				this.bindGroupLayouts.push(layout);
+				return layout;
+			}
+		};
 		const pipeline = {
 			kind: "render-pipeline",
 			desc,
 			label: desc.label,
-			[Symbol.toStringTag]: "GPURenderPipeline",
+			_gpuResource: nativePipeline,
 			destroyed: false,
 			destroy: () => {
 				this.destroyCalls++;

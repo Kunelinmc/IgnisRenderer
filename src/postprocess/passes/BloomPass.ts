@@ -534,23 +534,23 @@ export class WebGPUBloomImplementation
 				"WebGPUBloomCompositeShader"
 			);
 		}
-		resources.downsamplePipeline ??= shared.compute.createComputePipeline({
+		resources.downsamplePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomDownsamplePipeline",
 			compute: { module: resources.downsampleModule, entryPoint: "csMain" },
 		});
-		resources.blurHPipeline ??= shared.compute.createComputePipeline({
+		resources.blurHPipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomBlurHPipeline",
 			compute: { module: resources.blurHModule, entryPoint: "csMain" },
 		});
-		resources.blurVPipeline ??= shared.compute.createComputePipeline({
+		resources.blurVPipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomBlurVPipeline",
 			compute: { module: resources.blurVModule, entryPoint: "csMain" },
 		});
-		resources.upsamplePipeline ??= shared.compute.createComputePipeline({
+		resources.upsamplePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomUpsamplePipeline",
 			compute: { module: resources.upsampleModule, entryPoint: "csMain" },
 		});
-		resources.compositePipeline ??= shared.compute.createComputePipeline({
+		resources.compositePipeline ??= await shared.compute.createComputePipeline({
 			label: "WebGPUBloomCompositePipeline",
 			compute: { module: resources.compositeModule, entryPoint: "csMain" },
 		});

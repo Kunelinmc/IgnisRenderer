@@ -430,7 +430,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUFXAAPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});

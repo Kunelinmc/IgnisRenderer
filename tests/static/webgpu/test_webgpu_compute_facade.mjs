@@ -26,7 +26,7 @@ async function testFacadeDelegatesAndCaches() {
 	});
 	assert.equal(shader.kind, "shader-module");
 
-	const pipeline = facadeA.createComputePipeline({
+	const pipeline = await facadeA.createComputePipeline({
 		label: "pipeline",
 		compute: { module: shader, entryPoint: "csMain" },
 	});

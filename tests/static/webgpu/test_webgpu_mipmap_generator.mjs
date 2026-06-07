@@ -8,7 +8,18 @@ import { WebGPUTextureRegistry } from "../../../src/renderers/webgpu/WebGPUTextu
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
-function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
+async function waitForCondition(predicate, message, count = 32) {
+	for (let i = 0; i < count; i++) {
+		if (predicate()) {
+			return;
+		}
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	assert.ok(predicate(), message);
+}
+
+async function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
 	const texture = new Texture(
@@ -20,6 +31,10 @@ function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 	texture.minFilter = "LinearMipmapLinear";
 
 	registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
+	await waitForCondition(
+		() => backend.recordedRenderPasses.length === 3,
+		"Expected async mipmap generation to record all mip passes"
+	);
 
 	assert.equal(backend.createTextureCalls[0].mipLevelCount, 4);
 	assert.ok(
@@ -92,7 +107,7 @@ function testRegistrySkipsUnsupportedMipmapFormat() {
 	registry.destroy();
 }
 
-function testGeneratorCachesPipelinePerFormat() {
+async function testGeneratorCachesPipelinePerFormat() {
 	const backend = new FakeWebGPUBackend();
 	const generator = new WebGPUMipmapGenerator(backend);
 	const usage =
@@ -117,12 +132,12 @@ function testGeneratorCachesPipelinePerFormat() {
 	});
 
 	assert.equal(
-		generator.generate(textureA, TextureFormat.RGBA8Unorm, 4),
+		await generator.generate(textureA, TextureFormat.RGBA8Unorm, 4),
 		true
 	);
 	assert.equal(backend.renderPipelines.length, 1);
 	assert.equal(
-		generator.generate(textureB, TextureFormat.RGBA8Unorm, 3),
+		await generator.generate(textureB, TextureFormat.RGBA8Unorm, 3),
 		true
 	);
 	assert.equal(backend.renderPipelines.length, 1);
@@ -132,11 +147,50 @@ function testGeneratorCachesPipelinePerFormat() {
 	generator.destroy();
 }
 
-function run() {
-	testRegistryAutoGeneratesMipmapChainForMipmapMinFilter();
+async function testGeneratorCoalescesConcurrentPipelineCreation() {
+	const backend = new FakeWebGPUBackend();
+	const generator = new WebGPUMipmapGenerator(backend);
+	const usage =
+		TextureUsage.TextureBinding |
+		TextureUsage.CopyDst |
+		TextureUsage.RenderAttachment;
+	const textureA = backend.createTexture({
+		width: 8,
+		height: 8,
+		format: TextureFormat.RGBA8Unorm,
+		usage,
+		mipLevelCount: 4,
+		label: "ConcurrentMipA",
+	});
+	const textureB = backend.createTexture({
+		width: 4,
+		height: 4,
+		format: TextureFormat.RGBA8Unorm,
+		usage,
+		mipLevelCount: 3,
+		label: "ConcurrentMipB",
+	});
+
+	const results = await Promise.all([
+		generator.generate(textureA, TextureFormat.RGBA8Unorm, 4),
+		generator.generate(textureB, TextureFormat.RGBA8Unorm, 3),
+	]);
+
+	assert.deepEqual(results, [true, true]);
+	assert.equal(backend.shaderModules.length, 1);
+	assert.equal(backend.renderPipelines.length, 1);
+	assert.equal(backend.recordedRenderPasses.length, 5);
+	assert.equal(backend.bindingGroupDestroyCalls, 5);
+
+	generator.destroy();
+}
+
+async function run() {
+	await testRegistryAutoGeneratesMipmapChainForMipmapMinFilter();
 	testRegistryKeepsExplicitMipmapsAuthoritative();
 	testRegistrySkipsUnsupportedMipmapFormat();
-	testGeneratorCachesPipelinePerFormat();
+	await testGeneratorCachesPipelinePerFormat();
+	await testGeneratorCoalescesConcurrentPipelineCreation();
 	console.log("WebGPU mipmap generator tests passed");
 }
 

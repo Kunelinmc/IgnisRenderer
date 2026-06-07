@@ -302,7 +302,7 @@ export class WebGPUPipelineLibrary {
 		const triangleTopology =
 			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
-		return this._backend.createPipeline({
+		return await this._backend.createPipeline({
 			layout: this._resolvePipelineLayout(descriptor),
 			label:
 				descriptor.drawMode === "default" ?
@@ -356,7 +356,7 @@ export class WebGPUPipelineLibrary {
 		const triangleTopology =
 			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
-		return this._backend.createPipeline({
+		return await this._backend.createPipeline({
 			layout: this._layouts.planarReflectionPipelineLayout,
 			label: `WebGPUPlanarReflectionCompositePipeline_${pipelineKey}_${mode}`,
 			vertex: {
@@ -469,7 +469,7 @@ export class WebGPUPipelineLibrary {
 			};
 		}
 
-		const pipeline = this._backend.createPipeline(desc);
+		const pipeline = await this._backend.createPipeline(desc);
 		this._earlyZPrepassCache.set(cacheKey, pipeline);
 		return pipeline;
 	}
@@ -798,7 +798,7 @@ export class WebGPUPipelineLibrary {
 			mode === "mrt" || mode === "gbuffer" || mode === "color" ?
 				TextureFormat.RGBA16Float
 			:	(this._backend.canvasFormat as any);
-		const pipeline = this._backend.createPipeline({
+		const pipeline = await this._backend.createPipeline({
 			layout: this._layouts.environmentPipelineLayout,
 			label: `WebGPUEnvironmentPipeline_${mode}`,
 			vertex: {
@@ -837,7 +837,7 @@ export class WebGPUPipelineLibrary {
 			return this._deferredLightingPipeline;
 		}
 		const shaderModule = await this._getDeferredLightingShaderModule();
-		this._deferredLightingPipeline = this._backend.createPipeline({
+		this._deferredLightingPipeline = await this._backend.createPipeline({
 			layout: this._layouts.deferredLightingPipelineLayout,
 			label: "WebGPUDeferredLightingPipeline",
 			vertex: {

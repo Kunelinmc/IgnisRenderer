@@ -44,6 +44,7 @@ export class WebGPUTextureRegistry {
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
 	private _ownedTextures = new Set<IRenderTexture>();
 	private _ownedSamplers = new Set<ISampler>();
+	private _mipmapGenerationPromises = new WeakMap<Texture, Promise<void>>();
 	private _mipmapGenerator: WebGPUMipmapGenerator | null = null;
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
@@ -175,6 +176,17 @@ export class WebGPUTextureRegistry {
 		}
 
 		return cacheEntry.resource;
+	}
+
+	public async getTextureForSlotAsync(
+		texture: Texture | null,
+		slotIndex: number
+	): Promise<IRenderTexture> {
+		const resource = this.getTextureForSlot(texture, slotIndex);
+		if (texture) {
+			await this._mipmapGenerationPromises.get(texture);
+		}
+		return resource;
 	}
 
 	/**
@@ -378,16 +390,14 @@ export class WebGPUTextureRegistry {
 	}
 
 	private _generateMipmaps(texture: Texture, cacheEntry: TextureCacheEntry): void {
-		try {
-			if (!this._mipmapGenerator) {
-				this._mipmapGenerator = new WebGPUMipmapGenerator(this._backend);
-			}
-			this._mipmapGenerator.generate(
-				cacheEntry.resource,
-				cacheEntry.format,
-				cacheEntry.mipLevelCount
-			);
-		} catch (error) {
+		if (!this._mipmapGenerator) {
+			this._mipmapGenerator = new WebGPUMipmapGenerator(this._backend);
+		}
+		const generation = this._mipmapGenerator.generate(
+			cacheEntry.resource,
+			cacheEntry.format,
+			cacheEntry.mipLevelCount
+		).then(() => undefined).catch((error) => {
 			const label = texture.label ?? "unnamed";
 			Logger.warn(
 				`WebGPU mipmap generation failed for texture "${label}": ` +
@@ -395,11 +405,16 @@ export class WebGPUTextureRegistry {
 				{
 					scope: "WebGPUTextureRegistry",
 					onceKey:
-						`webgpu-mipmap-generation-failed-${texture.label ?? ""}-` +
+					`webgpu-mipmap-generation-failed-${texture.label ?? ""}-` +
 						`${texture.width}x${texture.height}-${cacheEntry.format}`,
 				}
 			);
-		}
+		}).finally(() => {
+			if (this._mipmapGenerationPromises.get(texture) === generation) {
+				this._mipmapGenerationPromises.delete(texture);
+			}
+		});
+		this._mipmapGenerationPromises.set(texture, generation);
 	}
 
 	private _warnAutoMipmapSkipped(

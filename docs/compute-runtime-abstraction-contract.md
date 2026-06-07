@@ -22,6 +22,9 @@ on capabilities rather than backend-specific classes.
   `createKernel`, `destroy`.
 - `IComputeRuntime` must provide readback APIs:
   `readBuffer`, `readTexture`.
+- WebGPU facade-backed `IComputeRuntime` implementations must await
+  `IWebGPUComputeFacade.createComputePipeline(desc)` before exposing a created
+  `IComputeKernel`.
 - `TextureReadbackResult` must expose raw `bytes`, dimensions, row layout,
   `toFloat32`, `toRGBAFloat32`, and `toNormalizedRGBA8Float32`.
 - `toRGBAFloat32` must decode `RGBA8Unorm`, `BGRA8Unorm`, and `RGBA16Float`
@@ -68,5 +71,9 @@ async function run(runtime: IComputeRuntime): Promise<void> {
 
 ## Compatibility / Breaking Changes
 
-This change is additive and non-breaking.
-Existing `ComputeRuntime` usage remains valid.
+`IWebGPUComputeFacade.createComputePipeline(desc)` now returns
+`Promise<IComputePipeline>`. Direct facade consumers must `await` compute
+pipeline creation before dispatching or creating pipeline-dependent bind groups.
+
+Existing `IComputeRuntime.createKernel()` usage remains valid because it already
+returns `Promise<IComputeKernel>`.

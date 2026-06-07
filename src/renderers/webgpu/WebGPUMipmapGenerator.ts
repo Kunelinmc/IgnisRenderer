@@ -4,15 +4,19 @@ import {
 	AddressMode,
 	FilterMode,
 	type IBindingGroup,
+	type IRenderPipeline,
 	type IRenderTexture,
 	type ISampler,
+	type IShaderModule,
+	PrimitiveTopology,
 	TextureFormat,
 } from "../types";
 import { getTextureFormatInfo } from "../TextureFormatInfo";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import { getWebGPURenderPipeline } from "./WebGPUResourceAccess";
 
 interface WebGPUMipmapPipelineEntry {
-	pipeline: GPURenderPipeline;
+	pipeline: IRenderPipeline;
 }
 
 const GPU_SHADER_STAGE_FRAGMENT =
@@ -24,12 +28,18 @@ const GPU_SHADER_STAGE_FRAGMENT =
  */
 export class WebGPUMipmapGenerator {
 	private _backend: WebGPUBackend;
-	private _shaderModule: GPUShaderModule | null = null;
+	private _shaderModule: IShaderModule | null = null;
+	private _shaderModulePromise: Promise<IShaderModule | null> | null = null;
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _sampler: ISampler | null = null;
 	private _pipelines = new Map<TextureFormat, WebGPUMipmapPipelineEntry>();
+	private _pipelinePromises = new Map<
+		TextureFormat,
+		Promise<IRenderPipeline | null>
+	>();
 	private _viewCache = new WeakMap<object, GPUTextureView[]>();
+	private _lifecycleGeneration = 0;
 
 	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
@@ -44,11 +54,11 @@ export class WebGPUMipmapGenerator {
 	 * @returns True when generation commands were recorded and submitted.
 	 * @sideEffects Allocates cached WebGPU pipeline resources and submits GPU work.
 	 */
-	public generate(
+	public async generate(
 		texture: IRenderTexture,
 		format: TextureFormat,
 		mipLevelCount: number
-	): boolean {
+	): Promise<boolean> {
 		const levelCount = Math.max(1, Math.floor(mipLevelCount));
 		if (levelCount <= 1 || !canGenerateWebGPUMipmaps(format)) {
 			return false;
@@ -60,7 +70,7 @@ export class WebGPUMipmapGenerator {
 			return false;
 		}
 
-		const pipeline = this._getPipeline(device, format);
+		const pipeline = await this._getPipeline(device, format);
 		const sampler = this._getSampler();
 		const views = this._getMipViews(texture, levelCount);
 		const bindGroupLayout = this._bindGroupLayout;
@@ -96,7 +106,7 @@ export class WebGPUMipmapGenerator {
 						},
 					],
 				});
-				pass.setPipeline(pipeline);
+				pass.setPipeline(getWebGPURenderPipeline(pipeline));
 				pass.setBindGroup(0, getNativeBindGroup(binding));
 				pass.draw(3, 1, 0, 0);
 				pass.end();
@@ -114,32 +124,65 @@ export class WebGPUMipmapGenerator {
 	 * Releases helper-owned resources and cached views.
 	 */
 	public destroy(): void {
+		this._lifecycleGeneration++;
+		this._destroyManagedResource(this._shaderModule);
 		this._destroyManagedResource(this._sampler);
+		for (const entry of this._pipelines.values()) {
+			this._destroyManagedResource(entry.pipeline);
+		}
 		this._sampler = null;
 		this._shaderModule = null;
+		this._shaderModulePromise = null;
 		this._bindGroupLayout = null;
 		this._pipelineLayout = null;
 		this._pipelines.clear();
+		this._pipelinePromises.clear();
 		this._viewCache = new WeakMap<object, GPUTextureView[]>();
 	}
 
-	private _getPipeline(
+	private async _getPipeline(
 		device: GPUDevice,
 		format: TextureFormat
-	): GPURenderPipeline | null {
+	): Promise<IRenderPipeline | null> {
 		const cached = this._pipelines.get(format);
 		if (cached) {
 			return cached.pipeline;
 		}
+		const pending = this._pipelinePromises.get(format);
+		if (pending) {
+			return pending;
+		}
 
-		const shaderModule = this._getShaderModule(device);
+		const generation = this._lifecycleGeneration;
+		const creationPromise = this._createPipeline(device, format, generation)
+			.finally(() => {
+				if (this._pipelinePromises.get(format) === creationPromise) {
+					this._pipelinePromises.delete(format);
+				}
+			});
+		this._pipelinePromises.set(format, creationPromise);
+		return creationPromise;
+	}
+
+	private async _createPipeline(
+		device: GPUDevice,
+		format: TextureFormat,
+		generation: number
+	): Promise<IRenderPipeline | null> {
+		if (this._lifecycleGeneration !== generation) {
+			return null;
+		}
+		const shaderModule = await this._getShaderModule(generation);
+		if (this._lifecycleGeneration !== generation || !shaderModule) {
+			return null;
+		}
 		const bindGroupLayout = this._getBindGroupLayout(device);
 		const pipelineLayout = this._getPipelineLayout(device, bindGroupLayout);
-		if (!shaderModule || !bindGroupLayout || !pipelineLayout) {
+		if (!bindGroupLayout || !pipelineLayout) {
 			return null;
 		}
 
-		const pipeline = device.createRenderPipeline({
+		const pipeline = await this._backend.createPipeline({
 			label: `WebGPUMipmapPipeline_${format}`,
 			layout: pipelineLayout,
 			vertex: {
@@ -149,26 +192,63 @@ export class WebGPUMipmapGenerator {
 			fragment: {
 				module: shaderModule,
 				entryPoint: "fsMain",
-				targets: [{ format: format as GPUTextureFormat }],
+				targets: [{ format }],
 			},
 			primitive: {
-				topology: "triangle-list",
+				topology: PrimitiveTopology.TriangleList,
 				cullMode: "none",
 				frontFace: "ccw",
 			},
 		});
+		if (this._lifecycleGeneration !== generation) {
+			this._destroyManagedResource(pipeline);
+			return null;
+		}
+		const existing = this._pipelines.get(format);
+		if (existing) {
+			this._destroyManagedResource(pipeline);
+			return existing.pipeline;
+		}
 		this._pipelines.set(format, { pipeline });
 		return pipeline;
 	}
 
-	private _getShaderModule(device: GPUDevice): GPUShaderModule | null {
-		if (!this._shaderModule) {
-			this._shaderModule = device.createShaderModule({
+	private async _getShaderModule(
+		generation: number
+	): Promise<IShaderModule | null> {
+		if (this._shaderModule) {
+			return this._shaderModule;
+		}
+		if (this._shaderModulePromise) {
+			return this._shaderModulePromise;
+		}
+		const creationPromise = this._backend
+			.createShaderModule({
 				label: "WebGPUMipmapShader",
 				code: ShaderSource.getSync("webgpu.utility.mipmapBlit.raw"),
+				language: "wgsl",
+				stage: "unknown",
+				sourceKind: "unknown",
+			})
+			.then((module) => {
+				if (this._lifecycleGeneration !== generation) {
+					this._destroyManagedResource(module);
+					return null;
+				}
+				if (this._shaderModule) {
+					this._destroyManagedResource(module);
+					return this._shaderModule;
+				}
+				this._shaderModule = module;
+				return module;
+			})
+			.finally(() => {
+				if (this._shaderModulePromise === creationPromise) {
+					this._shaderModulePromise = null;
+				}
 			});
-		}
-		return this._shaderModule;
+		this._shaderModulePromise = creationPromise;
+		return creationPromise;
 	}
 
 	private _getBindGroupLayout(device: GPUDevice): GPUBindGroupLayout {

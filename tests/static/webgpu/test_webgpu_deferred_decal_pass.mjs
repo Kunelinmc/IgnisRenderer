@@ -128,6 +128,9 @@ function createResourcesStub(backend) {
 		getTextureForSlot() {
 			return texture;
 		},
+		async getTextureForSlotAsync() {
+			return texture;
+		},
 		getSamplerForTexture() {
 			return sampler;
 		},

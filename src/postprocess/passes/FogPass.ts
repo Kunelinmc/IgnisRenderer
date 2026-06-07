@@ -316,7 +316,7 @@ export class WebGPUFogImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUFogPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});

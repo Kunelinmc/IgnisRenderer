@@ -777,19 +777,19 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			});
 		}
 		if (!resources.rawPipeline) {
-			resources.rawPipeline = shared.compute.createComputePipeline({
+			resources.rawPipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSAORawPipeline",
 				compute: { module: resources.module, entryPoint: "csRaw" },
 			});
 		}
 		if (!resources.blurPipeline) {
-			resources.blurPipeline = shared.compute.createComputePipeline({
+			resources.blurPipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSAOBlurPipeline",
 				compute: { module: resources.module, entryPoint: "csBlur" },
 			});
 		}
 		if (!resources.combinePipeline) {
-			resources.combinePipeline = shared.compute.createComputePipeline({
+			resources.combinePipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSAOCombinePipeline",
 				compute: { module: resources.module, entryPoint: "csCombine" },
 			});

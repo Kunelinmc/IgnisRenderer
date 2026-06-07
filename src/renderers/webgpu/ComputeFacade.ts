@@ -37,7 +37,9 @@ interface IWebGPUBackendLike {
 	device?: GPUDevice | null;
 	createSampler?: (desc: SamplerDesc) => ISampler;
 	createShaderModule?: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
-	createComputePipeline?: (desc: ComputePipelineDesc) => IComputePipeline;
+	createComputePipeline?: (
+		desc: ComputePipelineDesc
+	) => Promise<IComputePipeline>;
 	createBuffer?: (desc: BufferDesc) => IRenderBuffer;
 	createTexture?: (desc: TextureDesc) => IRenderTexture;
 	createBindingGroup?: (desc: BindingGroupDesc) => IBindingGroup;
@@ -83,7 +85,7 @@ export interface IWebGPUComputeFacade {
 	readonly [WEBGPU_COMPUTE_FACADE_BRAND]: true;
 	createSampler(desc: SamplerDesc): ISampler;
 	createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule>;
-	createComputePipeline(desc: ComputePipelineDesc): IComputePipeline;
+	createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline>;
 	createBuffer(desc: BufferDesc): IRenderBuffer;
 	createTexture(desc: TextureDesc): IRenderTexture;
 	createBindingGroup(desc: BindingGroupDesc): IBindingGroup;
@@ -145,7 +147,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 		return this._backend.createShaderModule(desc);
 	}
 
-	public createComputePipeline(desc: ComputePipelineDesc): IComputePipeline {
+	public createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline> {
 		this._assertAlive("create compute pipelines");
 		return this._backend.createComputePipeline(desc);
 	}
@@ -267,7 +269,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 interface AdaptedFacadeOps {
 	createSampler: (desc: SamplerDesc) => ISampler;
 	createShaderModule: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
-	createComputePipeline: (desc: ComputePipelineDesc) => IComputePipeline;
+	createComputePipeline: (desc: ComputePipelineDesc) => Promise<IComputePipeline>;
 	createBuffer: (desc: BufferDesc) => IRenderBuffer;
 	createTexture: (desc: TextureDesc) => IRenderTexture;
 	createBindingGroup: (desc: BindingGroupDesc) => IBindingGroup;
@@ -482,7 +484,7 @@ function tryCreateFacadeFromBackendLike(
 		(desc: ShaderModuleDesc) => Promise<IShaderModule>
 	>(sourceObject, "createShaderModule");
 	const createComputePipeline = bindMethod<
-		(desc: ComputePipelineDesc) => IComputePipeline
+		(desc: ComputePipelineDesc) => Promise<IComputePipeline>
 	>(sourceObject, "createComputePipeline");
 	const createBuffer = bindMethod<(desc: BufferDesc) => IRenderBuffer>(
 		sourceObject,

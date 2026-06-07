@@ -214,7 +214,7 @@ export class WebGPUDeferredDecalPass {
 			targetRefs[0].texture.width,
 			targetRefs[0].texture.height
 		);
-		const workItems = this._createWorkItems(
+		const workItems = await this._createWorkItems(
 			context,
 			activeDecals,
 			dirtyRects,
@@ -270,14 +270,14 @@ export class WebGPUDeferredDecalPass {
 		return drawCount;
 	}
 
-	private _createWorkItems(
+	private async _createWorkItems(
 		context: FrameContext,
 		packets: readonly DecalPacket[],
 		dirtyRects: readonly DirtyRect[],
 		width: number,
 		height: number,
 		uniformBuffer: IRenderBuffer
-	): DecalWorkItem[] {
+	): Promise<DecalWorkItem[]> {
 		if (dirtyRects.length <= 0) {
 			return [];
 		}
@@ -306,7 +306,7 @@ export class WebGPUDeferredDecalPass {
 			items.push({
 				packet,
 				materialData,
-				binding: this._getMaterialBinding(
+				binding: await this._getMaterialBinding(
 					packet.material,
 					materialData,
 					uniformBuffer
@@ -794,18 +794,20 @@ export class WebGPUDeferredDecalPass {
 		return this._outputBinding;
 	}
 
-	private _getMaterialBinding(
+	private async _getMaterialBinding(
 		material: Material,
 		materialData: WebGPUMaterialUniformData,
 		uniformBuffer: IRenderBuffer
-	): IBindingGroup {
-		const textures = materialData.textureSlots.map((slot, index) =>
-			this._resources.getTextureForSlot(slot.map, index)
+	): Promise<IBindingGroup> {
+		const textures = await Promise.all(
+			materialData.textureSlots.map((slot, index) =>
+				this._resources.getTextureForSlotAsync(slot.map, index)
+			)
 		);
 		const samplers = materialData.textureSlots.map((slot) =>
 			this._resources.getSamplerForTexture(slot.map)
 		);
-		const anisotropyTexture = this._resources.getTextureForSlot(
+		const anisotropyTexture = await this._resources.getTextureForSlotAsync(
 			materialData.anisotropyTexture.map,
 			-1
 		);

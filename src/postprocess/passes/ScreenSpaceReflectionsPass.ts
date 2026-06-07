@@ -548,20 +548,20 @@ export class WebGPUScreenSpaceReflectionsImplementation
 						shared.frameBindGroupLayout,
 					],
 				});
-				resources.tracePipeline = shared.compute.createComputePipeline({
+				resources.tracePipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUSSRTracePipeline",
 					layout: resources.tracePipelineLayout,
 					compute: { module: resources.module, entryPoint: "csTrace" },
 				});
 			} else {
-				resources.tracePipeline = shared.compute.createComputePipeline({
+				resources.tracePipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUSSRTracePipeline",
 					compute: { module: resources.module, entryPoint: "csTrace" },
 				});
 			}
 		}
 		if (!resources.composePipeline) {
-			resources.composePipeline = shared.compute.createComputePipeline({
+			resources.composePipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSRComposePipeline",
 				compute: { module: resources.module, entryPoint: "csCompose" },
 			});
@@ -633,7 +633,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			});
 		}
 		if (!resources.copyPipeline) {
-			resources.copyPipeline = shared.compute.createComputePipeline({
+			resources.copyPipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUCopyPipeline",
 				compute: { module: resources.copyModule, entryPoint: "csMain" },
 			});

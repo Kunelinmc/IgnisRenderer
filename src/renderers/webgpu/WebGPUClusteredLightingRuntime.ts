@@ -513,18 +513,24 @@ export class WebGPUClusteredLightingRuntime {
 				label: "WebGPUClusteredLighting_PipelineLayout",
 				bindGroupLayouts: [this._computeGroupLayout0, this._frameLayout],
 			});
-			this._clearPipeline = this._createComputePipeline(
-				"WebGPUClusteredLightingClearPipeline",
-				"csClear"
-			);
-			this._scatterPipeline = this._createComputePipeline(
-				"WebGPUClusteredLightingScatterPipeline",
-				"csScatter"
-			);
-			this._finalizePipeline = this._createComputePipeline(
-				"WebGPUClusteredLightingFinalizePipeline",
-				"csFinalize"
-			);
+			[
+				this._clearPipeline,
+				this._scatterPipeline,
+				this._finalizePipeline,
+			] = await Promise.all([
+				this._createComputePipeline(
+					"WebGPUClusteredLightingClearPipeline",
+					"csClear"
+				),
+				this._createComputePipeline(
+					"WebGPUClusteredLightingScatterPipeline",
+					"csScatter"
+				),
+				this._createComputePipeline(
+					"WebGPUClusteredLightingFinalizePipeline",
+					"csFinalize"
+				),
+			]);
 		}
 
 		this._ensureComputeBinding();
@@ -533,7 +539,7 @@ export class WebGPUClusteredLightingRuntime {
 	private _createComputePipeline(
 		label: string,
 		entryPoint: string
-	): IComputePipeline {
+	): Promise<IComputePipeline> {
 		return this._compute.createComputePipeline({
 			label,
 			layout: this._computePipelineLayout,

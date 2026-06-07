@@ -591,7 +591,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUTAAPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});

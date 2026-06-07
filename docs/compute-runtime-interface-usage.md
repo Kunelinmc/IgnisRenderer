@@ -7,6 +7,8 @@ This document describes how to use `ComputeRuntime` for WebGPU compute jobs.
 `ComputeRuntime` must be constructed from a WebGPU source. Valid sources are
 `Renderer` with `WebGPUBackend`, `WebGPUBackend`, `IWebGPUComputeFacade`, or an
 object exposing `backend` or `getComputeFacade()`.
+When a source is an `IWebGPUComputeFacade`, its
+`createComputePipeline(desc)` method must return `Promise<IComputePipeline>`.
 
 ## Background
 
@@ -20,6 +22,8 @@ through `TextureReadbackResult` helpers instead of assuming tightly packed data.
 - `createBuffer(desc)` must create an `IRenderBuffer`.
 - `createTexture(desc)` must create an `IRenderTexture`.
 - `createSampler(desc)` must create an `ISampler`.
+- WebGPU compute facade sources must implement
+  `createComputePipeline(desc): Promise<IComputePipeline>`.
 - `writeBuffer(buffer, data, offset?)` must upload buffer bytes.
 - `writeTexture(texture, data, layout, size)` must upload texture bytes and
   requires positive `layout.bytesPerRow`.
@@ -124,5 +128,10 @@ console.log(pixels[0]);
 
 ## Compatibility / Breaking Changes
 
-`toRGBAFloat32()` is additive. Existing `toNormalizedRGBA8Float32()` callers
-remain valid for `RGBA8Unorm` and `BGRA8Unorm` readbacks.
+`IWebGPUComputeFacade.createComputePipeline(desc)` now returns
+`Promise<IComputePipeline>`. Consumers that call the facade directly must
+`await` pipeline creation before creating bind groups, dispatching kernels, or
+passing the pipeline to WebGPU helper code.
+
+`toRGBAFloat32()` remains additive. Existing `toNormalizedRGBA8Float32()`
+callers remain valid for `RGBA8Unorm` and `BGRA8Unorm` readbacks.

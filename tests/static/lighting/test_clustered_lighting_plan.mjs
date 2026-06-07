@@ -93,7 +93,7 @@ class ClusteredComputeRecorder {
 		return layout;
 	}
 
-	createComputePipeline(desc) {
+	async createComputePipeline(desc) {
 		const pipeline = { label: desc.label, desc };
 		this.computePipelines.push(pipeline);
 		return pipeline;

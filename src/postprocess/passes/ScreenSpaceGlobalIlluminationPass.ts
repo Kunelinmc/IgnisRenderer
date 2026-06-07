@@ -303,7 +303,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			});
 		}
 		if (!resources.pipeline) {
-			resources.pipeline = shared.compute.createComputePipeline({
+			resources.pipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSGIPipeline",
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});

@@ -13,6 +13,17 @@ function createFakeContext(width = 2, height = 1) {
 	return { canvas, context };
 }
 
+async function waitForCondition(predicate, message, count = 32) {
+	for (let i = 0; i < count; i++) {
+		if (predicate()) {
+			return;
+		}
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	assert.ok(predicate(), message);
+}
+
 function testCanvasTextureTracksContextMutations() {
 	const { context } = createFakeContext();
 	const texture = new CanvasTexture(context);
@@ -96,7 +107,7 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	}
 }
 
-function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
+async function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 	const { context } = createFakeContext();
 	const texture = new CanvasTexture(context);
 	texture.minFilter = "LinearMipmapLinear";
@@ -108,12 +119,20 @@ function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 		assert.equal(backend.createTextureCalls[0].mipLevelCount, 2);
 		assert.equal(backend.copyCalls.length, 1);
 		assert.equal(backend.writeCalls.length, 0);
+		await waitForCondition(
+			() => backend.recordedRenderPasses.length === 1,
+			"Expected canvas upload mipmap pass to be recorded"
+		);
 		assert.equal(backend.recordedRenderPasses.length, 1);
 
 		context.fillRect(0, 0, 1, 1);
 		texture.update(16);
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.copyCalls.length, 2);
+		await waitForCondition(
+			() => backend.recordedRenderPasses.length === 2,
+			"Expected updated canvas upload mipmap pass to be recorded"
+		);
 		assert.equal(backend.recordedRenderPasses.length, 2);
 	} finally {
 		texture.dispose();
@@ -121,12 +140,12 @@ function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 	}
 }
 
-function run() {
+async function run() {
 	testCanvasTextureTracksContextMutations();
 	testCanvasTextureRespectsUpdateInterval();
 	testCanvasTextureDynamicUpdateIntegration();
 	testWebGPURegistryUsesExternalCanvasUploadPath();
-	testWebGPURegistryGeneratesMipmapsAfterCanvasUpload();
+	await testWebGPURegistryGeneratesMipmapsAfterCanvasUpload();
 	console.log("Canvas texture tests passed");
 }
 
