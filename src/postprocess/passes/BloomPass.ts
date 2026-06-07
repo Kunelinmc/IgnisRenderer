@@ -710,7 +710,10 @@ export class WebGLBloomImplementation
 		);
 
 		const gl = context.gl;
-		const bloomProgram = context.programs.getBloomProgram();
+		const bloomProgram = context.programs.tryGetBloomProgram();
+		if (!bloomProgram) {
+			return { ran: false };
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		context.bindColorTarget(targetTexture);
 		gl.viewport(0, 0, context.width, context.height);

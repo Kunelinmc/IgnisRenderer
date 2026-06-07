@@ -852,9 +852,12 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 
 		const gl = context.gl;
-		const rawProgram = context.programs.getSSAORawProgram();
-		const blurProgram = context.programs.getSSAOBlurProgram();
-		const combineProgram = context.programs.getSSAOCombineProgram();
+		const rawProgram = context.programs.tryGetSSAORawProgram();
+		const blurProgram = context.programs.tryGetSSAOBlurProgram();
+		const combineProgram = context.programs.tryGetSSAOCombineProgram();
+		if (!rawProgram || !blurProgram || !combineProgram) {
+			return { ran: false };
+		}
 		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		const aoWidth = Math.max(
 			1,

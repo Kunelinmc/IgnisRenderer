@@ -268,8 +268,11 @@ interface WebGLParallelShaderCompileExtension {
 	readonly COMPLETION_STATUS_KHR: number;
 }
 
+export type WebGLProgramCompileState = "idle" | "pending" | "ready" | "failed";
+
 export interface WebGLProgramLibraryOptions {
 	validatePrograms?: boolean;
+	onProgramCompilePending?: () => void;
 }
 
 export interface WebGLProgramWarmupHandle {
@@ -294,13 +297,17 @@ interface WebGLPendingProgramCompile {
 	readonly vertex: WebGLPendingShaderCompile;
 	readonly fragment: WebGLPendingShaderCompile;
 	readonly program: WebGLProgram;
+	readonly startedFrame: number;
 	status: "pending" | "ready" | "failed";
+	finalized: boolean;
 	error: unknown;
 }
 
 type WebGLProgramWarn = (key: string, message: string) => void;
 
 const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE = 17;
+const WEBGL_FALLBACK_READY_FRAME_DELAY = 2;
+const WEBGL_FALLBACK_FINALIZE_BUDGET_PER_FRAME = 1;
 
 function supportsShadowTransmittanceSampler(
 	gl: WebGL2RenderingContext
@@ -331,11 +338,15 @@ export class WebGLProgramLibrary {
 	private _enableShadowTransmittanceSampling: boolean;
 	private _parallelShaderCompile: WebGLParallelShaderCompileExtension | null;
 	private _validatePrograms: boolean;
+	private _onProgramCompilePending: (() => void) | null = null;
 	private _warnCallback: WebGLProgramWarn | null = null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _pendingProgramCompiles = new Map<string, WebGLPendingProgramCompile>();
 	private _precompiledPrograms = new Map<string, WebGLProgram>();
 	private _warmupHandleLog: WebGLProgramWarmupHandle[] = [];
+	private _compileFrameIndex = 0;
+	private _fallbackFinalizesThisFrame = 0;
+	private _lastPendingNotificationFrame = -1;
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _sceneProgramDirectiveTag: string = "";
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
@@ -429,6 +440,7 @@ export class WebGLProgramLibrary {
 		this._shaderRuntime = shaderRuntime;
 		this._shaderCompileStage = shaderCompileStage;
 		this._validatePrograms = options?.validatePrograms === true;
+		this._onProgramCompilePending = options?.onProgramCompilePending ?? null;
 		if (!this._shaderCompileStage && this._shaderRuntime) {
 			this._shaderCompileStage = new ShaderBackendCompileStage({
 				backend: "webgl",
@@ -442,6 +454,35 @@ export class WebGLProgramLibrary {
 				this._invalidateProgramCachesForShaderRuntime(),
 			);
 		}
+	}
+
+	/**
+	 * Advances the internal frame tick used to budget fallback shader finalization.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Resets the non-parallel compile fallback finalize budget.
+	 */
+	public beginFrame(): void {
+		this._compileFrameIndex++;
+		this._fallbackFinalizesThisFrame = 0;
+	}
+
+	/**
+	 * Returns the raw compile state for an internal WebGL program label.
+	 *
+	 * @param label Program label used by the program library.
+	 * @returns Current compile state, or `"idle"` when no compile is pending.
+	 * @sideEffects None.
+	 */
+	public getProgramCompileState(label: string): WebGLProgramCompileState {
+		const pending = this._pendingProgramCompiles.get(label);
+		if (pending) {
+			return pending.status;
+		}
+		if (this._precompiledPrograms.has(label)) {
+			return "ready";
+		}
+		return "idle";
 	}
 
 	public getSceneProgram(
@@ -1166,6 +1207,34 @@ export class WebGLProgramLibrary {
 		return this._presentProgram;
 	}
 
+	/**
+	 * Attempts to resolve the present program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized present program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetPresentProgram(): WebGLPresentProgram | null {
+		if (this._presentProgram) {
+			return this._presentProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("presentFragment"),
+			"WebGLPresentProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._presentProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				applyGamma: this._gl.getUniformLocation(program, "uApplyGamma"),
+			},
+		};
+		return this._presentProgram;
+	}
+
 	public getParticleProgram(): WebGLParticleProgram {
 		if (this._particleProgram) {
 			return this._particleProgram;
@@ -1213,6 +1282,34 @@ export class WebGLProgramLibrary {
 		return this._fxaaProgram;
 	}
 
+	/**
+	 * Attempts to resolve the FXAA program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized FXAA program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetFXAAProgram(): WebGLFXAAProgram | null {
+		if (this._fxaaProgram) {
+			return this._fxaaProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("fxaaFragment"),
+			"WebGLFXAAProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._fxaaProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+			},
+		};
+		return this._fxaaProgram;
+	}
+
 	public getToneMappingProgram(): WebGLToneMappingProgram {
 		if (this._toneMappingProgram) {
 			return this._toneMappingProgram;
@@ -1231,6 +1328,33 @@ export class WebGLProgramLibrary {
 		return this._toneMappingProgram;
 	}
 
+	/**
+	 * Attempts to resolve the tone mapping program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized tone mapping program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetToneMappingProgram(): WebGLToneMappingProgram | null {
+		if (this._toneMappingProgram) {
+			return this._toneMappingProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("toneMappingFragment"),
+			"WebGLToneMappingProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._toneMappingProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+			},
+		};
+		return this._toneMappingProgram;
+	}
+
 	public getInteractionOutlineProgram(): WebGLInteractionOutlineProgram {
 		if (this._interactionOutlineProgram) {
 			return this._interactionOutlineProgram;
@@ -1240,6 +1364,38 @@ export class WebGLProgramLibrary {
 			this._shaderSource("interactionOutlineFragment"),
 			"WebGLInteractionOutlineProgram",
 		);
+		this._interactionOutlineProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				outlineColor: this._gl.getUniformLocation(program, "uOutlineColor"),
+				outlineParams: this._gl.getUniformLocation(program, "uOutlineParams"),
+				viewportSize: this._gl.getUniformLocation(program, "uViewportSize"),
+				circleCount: this._gl.getUniformLocation(program, "uCircleCount"),
+				circles: this._gl.getUniformLocation(program, "uCircles[0]"),
+			},
+		};
+		return this._interactionOutlineProgram;
+	}
+
+	/**
+	 * Attempts to resolve the interaction outline program without blocking.
+	 *
+	 * @returns The cached/finalized outline program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetInteractionOutlineProgram(): WebGLInteractionOutlineProgram | null {
+		if (this._interactionOutlineProgram) {
+			return this._interactionOutlineProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("interactionOutlineFragment"),
+			"WebGLInteractionOutlineProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._interactionOutlineProgram = {
 			program,
 			uniforms: {
@@ -1274,6 +1430,35 @@ export class WebGLProgramLibrary {
 		return this._colorFilterProgram;
 	}
 
+	/**
+	 * Attempts to resolve the color filter program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized color filter program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetColorFilterProgram(): WebGLColorFilterProgram | null {
+		if (this._colorFilterProgram) {
+			return this._colorFilterProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("colorFilterFragment"),
+			"WebGLColorFilterProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._colorFilterProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				filterParams0: this._gl.getUniformLocation(program, "uFilterParams0"),
+				filterParams1: this._gl.getUniformLocation(program, "uFilterParams1"),
+			},
+		};
+		return this._colorFilterProgram;
+	}
+
 	public getBloomProgram(): WebGLBloomProgram {
 		if (this._bloomProgram) {
 			return this._bloomProgram;
@@ -1283,6 +1468,35 @@ export class WebGLProgramLibrary {
 			this._shaderSource("bloomFragment"),
 			"WebGLBloomProgram",
 		);
+		this._bloomProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				bloomParams: this._gl.getUniformLocation(program, "uBloomParams"),
+			},
+		};
+		return this._bloomProgram;
+	}
+
+	/**
+	 * Attempts to resolve the bloom program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized bloom program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetBloomProgram(): WebGLBloomProgram | null {
+		if (this._bloomProgram) {
+			return this._bloomProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("bloomFragment"),
+			"WebGLBloomProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._bloomProgram = {
 			program,
 			uniforms: {
@@ -1316,6 +1530,37 @@ export class WebGLProgramLibrary {
 		return this._motionBlurProgram;
 	}
 
+	/**
+	 * Attempts to resolve the motion blur program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized motion blur program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetMotionBlurProgram(): WebGLMotionBlurProgram | null {
+		if (this._motionBlurProgram) {
+			return this._motionBlurProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("motionBlurFragment"),
+			"WebGLMotionBlurProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._motionBlurProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				motionParams: this._gl.getUniformLocation(program, "uMotionParams"),
+				centerWeight: this._gl.getUniformLocation(program, "uCenterWeight"),
+			},
+		};
+		return this._motionBlurProgram;
+	}
+
 	public getDOFProgram(): WebGLDOFProgram {
 		if (this._dofProgram) {
 			return this._dofProgram;
@@ -1325,6 +1570,38 @@ export class WebGLProgramLibrary {
 			this._shaderSource("dofFragment"),
 			"WebGLDOFProgram",
 		);
+		this._dofProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				focusParams: this._gl.getUniformLocation(program, "uFocusParams"),
+				dofParams: this._gl.getUniformLocation(program, "uDOFParams"),
+				chromaticAberration: this._gl.getUniformLocation(program, "uChromaticAberration"),
+			},
+		};
+		return this._dofProgram;
+	}
+
+	/**
+	 * Attempts to resolve the depth of field program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized DoF program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetDOFProgram(): WebGLDOFProgram | null {
+		if (this._dofProgram) {
+			return this._dofProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("dofFragment"),
+			"WebGLDOFProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._dofProgram = {
 			program,
 			uniforms: {
@@ -1441,6 +1718,42 @@ export class WebGLProgramLibrary {
 		return this._ssaoRawProgram;
 	}
 
+	/**
+	 * Attempts to resolve the SSAO raw program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized SSAO raw program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetSSAORawProgram(): WebGLSSAORawProgram | null {
+		if (this._ssaoRawProgram) {
+			return this._ssaoRawProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoRawFragment"),
+			"WebGLSSAORawProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._ssaoRawProgram = {
+			program,
+			uniforms: {
+				normalMap: this._gl.getUniformLocation(program, "uNormalMap"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
+				gtao: this._gl.getUniformLocation(program, "uGTAO"),
+				blurProj: this._gl.getUniformLocation(program, "uBlurProj"),
+				pass: this._gl.getUniformLocation(program, "uPass"),
+				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
+				basisRight: this._gl.getUniformLocation(program, "uBasisRight"),
+				basisUp: this._gl.getUniformLocation(program, "uBasisUp"),
+				basisBackward: this._gl.getUniformLocation(program, "uBasisBackward"),
+			},
+		};
+		return this._ssaoRawProgram;
+	}
+
 	public getSSAOBlurProgram(): WebGLSSAOBlurProgram {
 		if (this._ssaoBlurProgram) {
 			return this._ssaoBlurProgram;
@@ -1450,6 +1763,37 @@ export class WebGLProgramLibrary {
 			this._shaderSource("ssaoBlurFragment"),
 			"WebGLSSAOBlurProgram",
 		);
+		this._ssaoBlurProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+				depthMap: this._gl.getUniformLocation(program, "uDepthMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
+				blurProj: this._gl.getUniformLocation(program, "uBlurProj"),
+				pass: this._gl.getUniformLocation(program, "uPass"),
+			},
+		};
+		return this._ssaoBlurProgram;
+	}
+
+	/**
+	 * Attempts to resolve the SSAO blur program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized SSAO blur program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetSSAOBlurProgram(): WebGLSSAOBlurProgram | null {
+		if (this._ssaoBlurProgram) {
+			return this._ssaoBlurProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoBlurFragment"),
+			"WebGLSSAOBlurProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._ssaoBlurProgram = {
 			program,
 			uniforms: {
@@ -1483,6 +1827,35 @@ export class WebGLProgramLibrary {
 		return this._ssaoCombineProgram;
 	}
 
+	/**
+	 * Attempts to resolve the SSAO combine program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized SSAO combine program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetSSAOCombineProgram(): WebGLSSAOCombineProgram | null {
+		if (this._ssaoCombineProgram) {
+			return this._ssaoCombineProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("ssaoCombineFragment"),
+			"WebGLSSAOCombineProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._ssaoCombineProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				aoMap: this._gl.getUniformLocation(program, "uAoMap"),
+				invSize: this._gl.getUniformLocation(program, "uInvSize"),
+			},
+		};
+		return this._ssaoCombineProgram;
+	}
+
 	public getTAAProgram(): WebGLTAAProgram {
 		if (this._taaProgram) {
 			return this._taaProgram;
@@ -1492,6 +1865,43 @@ export class WebGLProgramLibrary {
 			this._shaderSource("taaFragment"),
 			"WebGLTAAProgram",
 		);
+		this._taaProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				historyMap: this._gl.getUniformLocation(program, "uHistoryMap"),
+				motionMap: this._gl.getUniformLocation(program, "uMotionMap"),
+				motionHistory: this._gl.getUniformLocation(program, "uMotionHistory"),
+				texelSize: this._gl.getUniformLocation(program, "uTexelSize"),
+				historyWeight: this._gl.getUniformLocation(program, "uHistoryWeight"),
+				depthThreshold: this._gl.getUniformLocation(program, "uDepthThreshold"),
+				motionFactor: this._gl.getUniformLocation(program, "uMotionFactor"),
+				varianceClampGamma: this._gl.getUniformLocation(program, "uVarianceClampGamma"),
+				sharpen: this._gl.getUniformLocation(program, "uSharpen"),
+				historyValid: this._gl.getUniformLocation(program, "uHistoryValid"),
+			},
+		};
+		return this._taaProgram;
+	}
+
+	/**
+	 * Attempts to resolve the TAA program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized TAA program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetTAAProgram(): WebGLTAAProgram | null {
+		if (this._taaProgram) {
+			return this._taaProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("taaFragment"),
+			"WebGLTAAProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._taaProgram = {
 			program,
 			uniforms: {
@@ -1573,6 +1983,36 @@ export class WebGLProgramLibrary {
 		return this._fogProgram;
 	}
 
+	/**
+	 * Attempts to resolve the fog program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized fog program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetFogProgram(): WebGLFogProgram | null {
+		if (this._fogProgram) {
+			return this._fogProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("fogFragment"),
+			"WebGLFogProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._fogProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				motionDepthMap: this._gl.getUniformLocation(program, "uMotionDepthMap"),
+				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
+				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
+			},
+		};
+		return this._fogProgram;
+	}
+
 	private _shaderSource(part: WebGLShaderPart): string {
 		return ShaderSource.get(`webgl.part.${part}.raw`);
 	}
@@ -1608,6 +2048,34 @@ export class WebGLProgramLibrary {
 				fragmentMetadata,
 			),
 		);
+	}
+
+	private _tryCreateProgram(
+		vertexSource: string,
+		fragmentSource: string,
+		label: string,
+		vertexMetadata?: ShaderCompileMetadata,
+		fragmentMetadata?: ShaderCompileMetadata,
+	): WebGLProgram | null {
+		const precompiled = this._precompiledPrograms.get(label);
+		if (precompiled) {
+			this._precompiledPrograms.delete(label);
+			return precompiled;
+		}
+		const pending =
+			this._pendingProgramCompiles.get(label) ??
+			this._beginProgramCompile(
+				vertexSource,
+				fragmentSource,
+				label,
+				vertexMetadata,
+				fragmentMetadata,
+			);
+		const program = this._tryFinalizeProgramCompile(pending);
+		if (!program) {
+			this._notifyProgramCompilePending();
+		}
+		return program;
 	}
 
 	private _warmupProgram(
@@ -1683,6 +2151,17 @@ export class WebGLProgramLibrary {
 		return handle;
 	}
 
+	private _notifyProgramCompilePending(): void {
+		if (
+			this._lastPendingNotificationFrame === this._compileFrameIndex ||
+			!this._onProgramCompilePending
+		) {
+			return;
+		}
+		this._lastPendingNotificationFrame = this._compileFrameIndex;
+		this._onProgramCompilePending();
+	}
+
 	private _beginProgramCompile(
 		vertexSource: string,
 		fragmentSource: string,
@@ -1720,7 +2199,9 @@ export class WebGLProgramLibrary {
 				vertex: vertexShader,
 				fragment: fragmentShader,
 				program,
+				startedFrame: this._compileFrameIndex,
 				status: "pending" as const,
+				finalized: false,
 				error: null,
 			};
 			this._pendingProgramCompiles.set(label, pending);
@@ -1738,6 +2219,21 @@ export class WebGLProgramLibrary {
 			this._pendingProgramCompiles.delete(label);
 			throw error;
 		}
+	}
+
+	private _tryFinalizeProgramCompile(
+		pending: WebGLPendingProgramCompile
+	): WebGLProgram | null {
+		if (pending.status === "ready") {
+			return pending.program;
+		}
+		if (pending.status === "failed") {
+			throw pending.error;
+		}
+		if (!this._canFinalizeProgramCompile(pending)) {
+			return null;
+		}
+		return this._finalizeProgramCompile(pending);
 	}
 
 	private _finalizeProgramCompile(
@@ -1781,9 +2277,11 @@ export class WebGLProgramLibrary {
 				});
 			}
 			this._validateProgramIfRequested(pending.program, pending.label);
+			pending.finalized = true;
 			pending.status = "ready";
 			return pending.program;
 		} catch (error) {
+			pending.finalized = true;
 			pending.status = "failed";
 			pending.error = error;
 			gl.deleteProgram(pending.program);
@@ -1793,6 +2291,26 @@ export class WebGLProgramLibrary {
 			gl.deleteShader(pending.fragment.shader);
 			this._pendingProgramCompiles.delete(pending.label);
 		}
+	}
+
+	private _canFinalizeProgramCompile(
+		pending: WebGLPendingProgramCompile
+	): boolean {
+		if (this._parallelShaderCompile) {
+			return this._isProgramCompileComplete(pending);
+		}
+		const frameAge = this._compileFrameIndex - pending.startedFrame;
+		if (frameAge < WEBGL_FALLBACK_READY_FRAME_DELAY) {
+			return false;
+		}
+		if (
+			this._fallbackFinalizesThisFrame >=
+			WEBGL_FALLBACK_FINALIZE_BUDGET_PER_FRAME
+		) {
+			return false;
+		}
+		this._fallbackFinalizesThisFrame++;
+		return true;
 	}
 
 	private _isProgramCompileComplete(
@@ -2125,7 +2643,7 @@ function isWebGLProgramLibraryOptions(
 	return (
 		typeof value === "object" &&
 		value !== null &&
-		("validatePrograms" in value)
+		("validatePrograms" in value || "onProgramCompilePending" in value)
 	);
 }
 

@@ -381,7 +381,10 @@ export class WebGLFogImplementation
 			this._fogParams1
 		);
 		const gl = context.gl;
-		const fogProgram = context.programs.getFogProgram();
+		const fogProgram = context.programs.tryGetFogProgram();
+		if (!fogProgram) {
+			return { ran: false };
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		context.bindColorTarget(targetTexture);
 		gl.viewport(0, 0, context.width, context.height);

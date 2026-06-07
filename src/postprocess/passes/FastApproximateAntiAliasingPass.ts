@@ -480,7 +480,10 @@ export class WebGLFastApproximateAntiAliasingImplementation
 		}
 
 		const gl = context.gl;
-		const fxaaProgram = context.programs.getFXAAProgram();
+		const fxaaProgram = context.programs.tryGetFXAAProgram();
+		if (!fxaaProgram) {
+			return { ran: false };
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		context.bindColorTarget(targetTexture);
 		gl.viewport(0, 0, context.width, context.height);

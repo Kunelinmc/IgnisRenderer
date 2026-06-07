@@ -656,7 +656,10 @@ export class WebGLTemporalAntiAliasingImplementation
 		}
 
 		const options = resolveTAAOptions(request.options as TAAOptions);
-		const program = context.programs.getTAAProgram();
+		const program = context.programs.tryGetTAAProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, context.postFramebuffer);
 		gl.framebufferTexture2D(
 			gl.FRAMEBUFFER,

@@ -173,25 +173,30 @@ type WebGLFramePassHandler = (context: FrameContext) => void;
 
 export interface WebGLFrameExecutorOptions {
 	validatePrograms?: boolean;
+	onProgramCompilePending?: () => void;
 }
 
 const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	Record<string, readonly string[]>
 > = {
-	ssao: [],
+	ssao: [
+		"postprocess:ssao-raw",
+		"postprocess:ssao-blur",
+		"postprocess:ssao-combine",
+	],
 	ssgi: [],
 	taa: ["postprocess:taa"],
 	ssr: [],
 	volumetric: [],
-	fog: [],
-	"motion-blur": [],
-	dof: [],
-	bloom: [],
-	tonemap: [],
-	"color-filter": [],
-	fxaa: [],
-	"interaction-outline": [],
-	gamma: [],
+	fog: ["postprocess:fog"],
+	"motion-blur": ["postprocess:motion-blur"],
+	dof: ["postprocess:dof"],
+	bloom: ["postprocess:bloom"],
+	tonemap: ["postprocess:tonemap"],
+	"color-filter": ["postprocess:color-filter"],
+	fxaa: ["postprocess:fxaa"],
+	"interaction-outline": ["postprocess:interaction-outline"],
+	gamma: ["postprocess:gamma"],
 };
 
 export class WebGLFrameExecutor {
@@ -288,6 +293,7 @@ export class WebGLFrameExecutor {
 			shaderCompileStage,
 			{
 				validatePrograms: options.validatePrograms === true,
+				onProgramCompilePending: options.onProgramCompilePending,
 			},
 		);
 		this._geometry = new WebGLGeometryRegistry(gl);
@@ -307,6 +313,7 @@ export class WebGLFrameExecutor {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		(this._programs as { beginFrame?: () => void }).beginFrame?.();
 		this._activeContext = context;
 		this._presentedInFrame = false;
 		this._modelMatrixKeysThisFrame.clear();
@@ -794,7 +801,11 @@ export class WebGLFrameExecutor {
 
 	public endFrame(): void {
 		if (!this._presentedInFrame) {
-			this._present(this._activeContext?.postProcess.isEnabled("gamma") !== false);
+			this._present(
+				this._activeContext?.postProcess.isEnabled("gamma") !== false,
+				this._activeContext,
+				true
+			);
 		}
 		this._pruneModelMatrixCache();
 		this._activeContext = null;
@@ -903,6 +914,30 @@ export class WebGLFrameExecutor {
 		}
 		for (const hint of warmupHints) {
 			switch (hint) {
+				case "postprocess:ssao-raw":
+					await enqueue("WebGLSSAORawProgram", () => {
+						return this._warmupProgramHandle(
+							"warmupSSAORawProgram",
+							"getSSAORawProgram",
+						);
+					});
+					break;
+				case "postprocess:ssao-blur":
+					await enqueue("WebGLSSAOBlurProgram", () => {
+						return this._warmupProgramHandle(
+							"warmupSSAOBlurProgram",
+							"getSSAOBlurProgram",
+						);
+					});
+					break;
+				case "postprocess:ssao-combine":
+					await enqueue("WebGLSSAOCombineProgram", () => {
+						return this._warmupProgramHandle(
+							"warmupSSAOCombineProgram",
+							"getSSAOCombineProgram",
+						);
+					});
+					break;
 				case "postprocess:taa":
 					await enqueue("WebGLTAAProgram", () => {
 						return this._warmupProgramHandle(
@@ -916,6 +951,14 @@ export class WebGLFrameExecutor {
 						return this._warmupProgramHandle(
 							"warmupFXAAProgram",
 							"getFXAAProgram",
+						);
+					});
+					break;
+				case "postprocess:bloom":
+					await enqueue("WebGLBloomProgram", () => {
+						return this._warmupProgramHandle(
+							"warmupBloomProgram",
+							"getBloomProgram",
 						);
 					});
 					break;
@@ -959,6 +1002,14 @@ export class WebGLFrameExecutor {
 						);
 					});
 					break;
+				case "postprocess:fog":
+					await enqueue("WebGLFogProgram", () => {
+						return this._warmupProgramHandle(
+							"warmupFogProgram",
+							"getFogProgram",
+						);
+					});
+					break;
 				case "postprocess:gamma":
 					await enqueue("WebGLPresentProgram", () => {
 						return this._warmupProgramHandle(
@@ -977,6 +1028,9 @@ export class WebGLFrameExecutor {
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
+				continue;
+			}
+			if ((WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId]?.length ?? 0) > 0) {
 				continue;
 			}
 			const implementation = descriptorById.get(passId)?.getImplementation("webgl");
@@ -1093,7 +1147,9 @@ export class WebGLFrameExecutor {
 		failed: number;
 		errors: ShaderCompileError[];
 	}> {
-		const pending = handles.slice();
+		const pending = Array.from(
+			new Map(handles.map((handle) => [handle.label, handle])).values()
+		);
 		const errors: ShaderCompileError[] = [];
 		let compiled = 0;
 		let failed = 0;
@@ -2392,12 +2448,19 @@ export class WebGLFrameExecutor {
 
 	private _present(
 		applyGamma: boolean,
-		context: FrameContext | null = this._activeContext
-	): void {
+		context: FrameContext | null = this._activeContext,
+		nonBlocking = false
+	): boolean {
 		const sourceTexture = this._presentSourceTexture ?? this._sceneColorTexture;
-		if (!sourceTexture || !this._fullscreenVao) return;
+		if (!sourceTexture || !this._fullscreenVao) return false;
 		const gl = this._gl;
-		const presentProgram = this._programs.getPresentProgram();
+		const presentProgram =
+			nonBlocking ?
+				this._programs.tryGetPresentProgram()
+			:	this._programs.getPresentProgram();
+		if (!presentProgram) {
+			return false;
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.viewport(0, 0, this._width, this._height);
 		gl.useProgram(presentProgram.program);
@@ -2420,6 +2483,7 @@ export class WebGLFrameExecutor {
 		);
 		gl.bindVertexArray(null);
 		this._presentedInFrame = true;
+		return true;
 	}
 
 	private _resolvePostProcessTargetTexture(

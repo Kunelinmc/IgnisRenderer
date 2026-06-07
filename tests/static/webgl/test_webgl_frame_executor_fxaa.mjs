@@ -274,7 +274,7 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const fullscreenVao = { id: "fullscreen-vao" };
 
 	executor._programs = {
-		getFXAAProgram() {
+		tryGetFXAAProgram() {
 			return {
 				program: { id: "fxaa-program" },
 				uniforms: {
@@ -336,6 +336,61 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
+function testFXAAPassSkipsWhileProgramPending() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const sceneColor = { id: "scene-color" };
+	const sourceColor = { id: "source-color" };
+	const postColor = { id: "post-color" };
+	let tryCalls = 0;
+
+	executor._programs = {
+		tryGetFXAAProgram() {
+			tryCalls++;
+			return null;
+		},
+	};
+	executor._sceneColorTexture = sceneColor;
+	executor._presentSourceTexture = sourceColor;
+	executor._postColorTexture = postColor;
+	executor._postFramebuffer = { id: "post-fbo" };
+	executor._fullscreenVao = { id: "fullscreen-vao" };
+	executor._width = 1280;
+	executor._height = 720;
+
+	const frameContext = {
+		postProcess: createResolvedPostProcess(
+			{ fxaa: { enabled: true } },
+			"webgl"
+		),
+		transient: new Map(),
+	};
+	const pass = new FastApproximateAntiAliasingPass({ enabled: true });
+	const request = {
+		frameContext,
+		postProcess: frameContext.postProcess,
+		gBuffer: {},
+		histories: {},
+		pass,
+		passId: "fxaa",
+		options: frameContext.postProcess.getOptions("fxaa"),
+		startPassId: null,
+	};
+	const context = executor.getPassExecutionContext({
+		...request,
+		implementation: pass.getImplementation("webgl"),
+	});
+	const result = pass.getImplementation("webgl").execute(request, context);
+
+	assert.deepEqual(result, { ran: false });
+	assert.equal(tryCalls, 1);
+	assert.equal(executor._presentSourceTexture, sourceColor);
+	assert.equal(
+		gl.calls.some((call) => call.name === "framebufferTexture2D"),
+		false
+	);
+}
+
 function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
@@ -346,7 +401,7 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const fullscreenVao = { id: "fullscreen-vao" };
 
 	executor._programs = {
-		getToneMappingProgram() {
+		tryGetToneMappingProgram() {
 			return {
 				program: { id: "tonemap-program" },
 				uniforms: {
@@ -760,7 +815,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	executor._programs = {
-		getTAAProgram() {
+		tryGetTAAProgram() {
 			return {
 				program: { id: "taa-program" },
 				uniforms: {
@@ -885,13 +940,13 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	executor._programs = {
-		getSSAORawProgram() {
+		tryGetSSAORawProgram() {
 			return { program: { id: "ssao-raw" }, uniforms: {} };
 		},
-		getSSAOBlurProgram() {
+		tryGetSSAOBlurProgram() {
 			return { program: { id: "ssao-blur" }, uniforms: {} };
 		},
-		getSSAOCombineProgram() {
+		tryGetSSAOCombineProgram() {
 			return { program: { id: "ssao-combine" }, uniforms: {} };
 		},
 	};
@@ -1150,6 +1205,30 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 			calls.push("scene");
 			return { program: { id: "scene" }, uniforms: {} };
 		},
+		warmupSSAORawProgram() {
+			calls.push("ssao-raw");
+			return {
+				label: "ssao-raw",
+				isComplete: () => true,
+				finalize: () => {},
+			};
+		},
+		warmupSSAOBlurProgram() {
+			calls.push("ssao-blur");
+			return {
+				label: "ssao-blur",
+				isComplete: () => true,
+				finalize: () => {},
+			};
+		},
+		warmupSSAOCombineProgram() {
+			calls.push("ssao-combine");
+			return {
+				label: "ssao-combine",
+				isComplete: () => true,
+				finalize: () => {},
+			};
+		},
 		getBloomProgram() {
 			calls.push("bloom");
 			return { program: { id: "bloom" }, uniforms: {} };
@@ -1186,6 +1265,7 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 				enableOIT: false,
 			},
 			postProcess: createResolvedPostProcess({
+				ssao: { enabled: true },
 				fxaa: { enabled: true },
 				gamma: { enabled: true },
 				bloom: { enabled: true },
@@ -1198,16 +1278,25 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 			enableShadows: false,
 			enableParticles: false,
 			includePostProcess: true,
-			postProcessPasses: ["bloom", "fxaa", "custom-pass"],
+			postProcessPasses: ["ssao", "bloom", "fxaa", "custom-pass"],
 			sceneTargetMode: "mrt",
 		}
 	);
 
-	assert.deepEqual(calls, ["scene", "bloom", "fxaa", "present"]);
+	assert.deepEqual(calls, [
+		"scene",
+		"ssao-raw",
+		"ssao-blur",
+		"ssao-combine",
+		"bloom",
+		"fxaa",
+		"present",
+	]);
 }
 
 async function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
+	testFXAAPassSkipsWhileProgramPending();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
 	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();

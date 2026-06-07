@@ -358,6 +358,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 */
 	public onBackendResourceEvent(event: RendererBackendResourceEvent): void {
 		this._postProcessController.handleBackendResourceEvent(event);
+		if (
+			event.resource === "webgl-program" &&
+			event.reason === "shader-compile-pending"
+		) {
+			this._markFrameDirty("postfx");
+		}
 		this.emit("backendresourceevent", event);
 	}
 

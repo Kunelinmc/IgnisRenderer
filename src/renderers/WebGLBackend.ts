@@ -379,6 +379,7 @@ export class WebGLBackend implements IRenderBackend {
 			this._shaderCompileStage,
 			{
 				validatePrograms: this._validatePrograms,
+				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 			}
 		);
 		this._contextLost = false;
@@ -405,6 +406,15 @@ export class WebGLBackend implements IRenderBackend {
 			action,
 			backend: "webgl",
 			reason,
+		});
+	}
+
+	private _emitProgramCompilePendingEvent(): void {
+		this._onBackendResourceEvent?.({
+			resource: "webgl-program",
+			action: "invalidate",
+			backend: "webgl",
+			reason: "shader-compile-pending",
 		});
 	}
 

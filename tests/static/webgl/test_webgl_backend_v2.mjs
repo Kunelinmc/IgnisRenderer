@@ -995,6 +995,73 @@ function testProgramLibraryFallbackWarmupBatchesBeforeFinalize() {
 	);
 }
 
+function testProgramLibraryTryGetDefersFallbackFinalization() {
+	const gl = createProgramWarmupTrackingGL();
+	let pendingNotifications = 0;
+	const library = new WebGLProgramLibrary(
+		gl,
+		() => {},
+		{
+			onProgramCompilePending: () => {
+				pendingNotifications++;
+			},
+		},
+	);
+
+	library.beginFrame();
+	assert.equal(library.tryGetFXAAProgram(), null);
+	assert.equal(library.tryGetBloomProgram(), null);
+	assert.equal(pendingNotifications, 1);
+	assert.equal(gl.calls.linkProgram, 2);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.LINK_STATUS),
+		false
+	);
+	assert.equal(gl.calls.getUniformLocation.length, 0);
+
+	library.beginFrame();
+	assert.equal(library.tryGetFXAAProgram(), null);
+	assert.equal(library.tryGetBloomProgram(), null);
+	assert.equal(pendingNotifications, 2);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.LINK_STATUS),
+		false
+	);
+
+	library.beginFrame();
+	const fxaa = library.tryGetFXAAProgram();
+	const bloomPending = library.tryGetBloomProgram();
+	assert.ok(fxaa);
+	assert.equal(bloomPending, null);
+	assert.equal(pendingNotifications, 3);
+	assert.equal(gl.calls.getShaderParameter.length, 2);
+	assert.equal(
+		gl.calls.getProgramParameter.filter((parameter) => parameter === gl.LINK_STATUS)
+			.length,
+		1
+	);
+	assert.ok(gl.calls.getUniformLocation.includes("uSourceMap"));
+	assert.ok(gl.calls.getUniformLocation.includes("uTexelSize"));
+	assert.equal(
+		gl.calls.getUniformLocation.includes("uBloomParams"),
+		false
+	);
+
+	library.beginFrame();
+	const bloom = library.tryGetBloomProgram();
+	assert.ok(bloom);
+	assert.equal(pendingNotifications, 3);
+	assert.equal(gl.calls.getShaderParameter.length, 4);
+	assert.equal(
+		gl.calls.getProgramParameter.filter((parameter) => parameter === gl.LINK_STATUS)
+			.length,
+		2
+	);
+	assert.ok(gl.calls.getUniformLocation.includes("uBloomParams"));
+}
+
 function testProgramLibraryValidationIsOptIn() {
 	const gl = createProgramWarmupTrackingGL({
 		validateStatus: false,
@@ -1972,6 +2039,7 @@ async function run() {
 	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
 	testProgramLibraryParallelWarmupDefersStatusQueries();
 	testProgramLibraryFallbackWarmupBatchesBeforeFinalize();
+	testProgramLibraryTryGetDefersFallbackFinalization();
 	testProgramLibraryValidationIsOptIn();
 	testProgramLibraryValidationWarnsWhenEnabled();
 	testLightCollectorShadowBias();

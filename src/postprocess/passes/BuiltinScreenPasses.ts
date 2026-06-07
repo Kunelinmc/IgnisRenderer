@@ -1519,7 +1519,10 @@ export class WebGLMotionBlurImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.getMotionBlurProgram();
+		const program = context.programs.tryGetMotionBlurProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		bindWebGLPostTarget(context, program.program, target.texture);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
@@ -1625,7 +1628,10 @@ export class WebGLDepthOfFieldImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.getDOFProgram();
+		const program = context.programs.tryGetDOFProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		bindWebGLPostTarget(context, program.program, target.texture);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
@@ -1687,7 +1693,10 @@ export class WebGLToneMappingImplementation
 			return { ran: false };
 		}
 		const gl = context.gl;
-		const program = context.programs.getToneMappingProgram();
+		const program = context.programs.tryGetToneMappingProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		bindWebGLPostTarget(context, program.program, target.texture);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
@@ -1751,7 +1760,10 @@ export class WebGLColorFilterImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.getColorFilterProgram();
+		const program = context.programs.tryGetColorFilterProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		bindWebGLPostTarget(context, program.program, target.texture);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
@@ -1843,7 +1855,10 @@ export class WebGLInteractionOutlineImplementation
 		const shapeCode = getInteractionOutlineShapeCode(state?.outline?.shape);
 
 		const gl = context.gl;
-		const program = context.programs.getInteractionOutlineProgram();
+		const program = context.programs.tryGetInteractionOutlineProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		bindWebGLPostTarget(context, program.program, target.texture);
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
@@ -1897,7 +1912,10 @@ export class WebGLGammaImplementation
 			return { ran: false };
 		}
 		const gl = context.gl;
-		const program = context.programs.getPresentProgram();
+		const program = context.programs.tryGetPresentProgram();
+		if (!program) {
+			return { ran: false };
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.viewport(0, 0, context.width, context.height);
 		gl.useProgram(program.program);
