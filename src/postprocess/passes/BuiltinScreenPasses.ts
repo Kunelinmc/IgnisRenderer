@@ -1,14 +1,20 @@
 import {
 	INTERACTION_TRANSIENT_STATE_KEY,
+	type FrameContext,
 } from "../../pipeline/types";
-import { clamp, sRGBToLinear } from "../../maths/Common";
+import { clamp, linearToSRGB, sRGBToLinear } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import {
 	MAX_INTERACTION_OUTLINE_CIRCLES,
 	collectProjectedOutlineCircles,
 } from "../../interaction/outlineProjection";
-import { getInteractionOutlineShapeCode } from "../../interaction/outlineShape";
+import {
+	computeInteractionOutlineShapeDistance,
+	getInteractionOutlineShapeCode,
+	resolveInteractionOutlineShape,
+} from "../../interaction/outlineShape";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import { DEFAULT_GAMMA } from "../../renderers/constants";
 import {
 	BufferUsage,
 	type IComputePipeline,
@@ -55,7 +61,6 @@ import type {
 	PostProcessPassRequirements,
 	PostProcessPassResult,
 } from "../types";
-import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 
 type EmptyOptions = Record<string, never>;
 
@@ -247,20 +252,42 @@ export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 export type WebGLColorFilterContext = WebGLScreenPostProcessContext;
 export type WebGLInteractionOutlineContext = WebGLScreenPostProcessContext;
 
+interface IncrementalDirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
 export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
-	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
 		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!request.frameContext.attachments.pixels) {
+		const pixels = request.frameContext.attachments.pixels;
+		if (!pixels || pixels.length === 0) {
 			return { ran: false };
 		}
-		this._runtime.applyToneMapping(request.frameContext);
+		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const width = request.frameContext.attachments.width;
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * width;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const index = (row + x) << 2;
+					const red = applyAcesToneMap(pixels[index] / 255);
+					const green = applyAcesToneMap(pixels[index + 1] / 255);
+					const blue = applyAcesToneMap(pixels[index + 2] / 255);
+					pixels[index] = Math.round(red * 255);
+					pixels[index + 1] = Math.round(green * 255);
+					pixels[index + 2] = Math.round(blue * 255);
+				}
+			}
+		});
 		return { ran: true };
 	}
 }
@@ -269,18 +296,60 @@ export class SoftwareColorFilterImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "color-filter:software";
-	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
 		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!request.frameContext.attachments.pixels) {
+		const pixels = request.frameContext.attachments.pixels;
+		if (!pixels || pixels.length === 0) {
 			return { ran: false };
 		}
-		this._runtime.applyColorFilter(request.frameContext, {
+		const options = {
 			...DEFAULT_COLOR_FILTER_OPTIONS,
 			...((request.options as ColorFilterOptions | undefined) ?? {}),
+		};
+		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const brightness = clamp(finiteOr(options.brightness, 0), -1, 1);
+		const saturation = clamp(finiteOr(options.saturation, 1), 0, 2);
+		const contrast = clamp(finiteOr(options.contrast, 1), 0, 2);
+		const temperature = clamp(finiteOr(options.temperature, 0), -1, 1);
+		const tint = clamp(finiteOr(options.tint, 0), -1, 1);
+		const tempShiftR = temperature * 0.1 + tint * 0.05;
+		const tempShiftG = -tint * 0.1;
+		const tempShiftB = -temperature * 0.1 + tint * 0.05;
+		const width = request.frameContext.attachments.width;
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * width;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const index = (row + x) << 2;
+					let red = pixels[index] / 255;
+					let green = pixels[index + 1] / 255;
+					let blue = pixels[index + 2] / 255;
+
+					red += brightness;
+					green += brightness;
+					blue += brightness;
+
+					const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+					red = luma + (red - luma) * saturation;
+					green = luma + (green - luma) * saturation;
+					blue = luma + (blue - luma) * saturation;
+
+					red = (red - 0.5) * contrast + 0.5;
+					green = (green - 0.5) * contrast + 0.5;
+					blue = (blue - 0.5) * contrast + 0.5;
+
+					red += tempShiftR;
+					green += tempShiftG;
+					blue += tempShiftB;
+
+					pixels[index] = Math.round(clamp(red, 0, 1) * 255);
+					pixels[index + 1] = Math.round(clamp(green, 0, 1) * 255);
+					pixels[index + 2] = Math.round(clamp(blue, 0, 1) * 255);
+				}
+			}
 		});
 		return { ran: true };
 	}
@@ -290,16 +359,80 @@ export class SoftwareInteractionOutlineImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "interaction-outline:software";
-	private readonly _runtime = new SoftwareScreenPassRuntime();
 
 	public execute(
 		request: PostProcessPassRequest,
 		_context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		if (!request.frameContext.attachments.pixels) {
+		const frameContext = request.frameContext;
+		const state = frameContext.transient.get(INTERACTION_TRANSIENT_STATE_KEY);
+		const pixels = frameContext.attachments.pixels;
+		if (!pixels || pixels.length === 0) {
 			return { ran: false };
 		}
-		this._runtime.applyInteractionOutline(request.frameContext);
+		if (!state || state.selectedEntityIds.length === 0) {
+			return { ran: true };
+		}
+		const width = Math.max(1, frameContext.attachments.width);
+		const height = Math.max(1, frameContext.attachments.height);
+		const dirtyRects = resolveSoftwareDirtyRects(frameContext);
+		const outlineColor = state.outline?.color ?? { r: 255, g: 196, b: 64, a: 1 };
+		const alpha = clamp(
+			(state.outline?.opacity ?? 0.9) *
+				(typeof outlineColor.a === "number" ? outlineColor.a : 1),
+			0,
+			1
+		);
+		const thickness = Math.max(1, Math.round(state.outline?.thickness ?? 2));
+		const outlineShape = resolveInteractionOutlineShape(state.outline?.shape);
+		const circles = collectProjectedOutlineCircles(
+			frameContext,
+			state.selectedEntityIds
+		);
+		for (const circle of circles) {
+			const circleMinX = Math.max(
+				0,
+				Math.floor(circle.centerX - circle.radius - thickness)
+			);
+			const circleMinY = Math.max(
+				0,
+				Math.floor(circle.centerY - circle.radius - thickness)
+			);
+			const circleMaxX = Math.min(
+				width - 1,
+				Math.ceil(circle.centerX + circle.radius + thickness)
+			);
+			const circleMaxY = Math.min(
+				height - 1,
+				Math.ceil(circle.centerY + circle.radius + thickness)
+			);
+			if (
+				!softwareRectIntersectsDirtyRects(
+					circleMinX,
+					circleMinY,
+					circleMaxX,
+					circleMaxY,
+					dirtyRects
+				)
+			) {
+				continue;
+			}
+			drawSoftwareInteractionOutlineShape(
+				pixels,
+				width,
+				height,
+				circle.centerX,
+				circle.centerY,
+				circle.radius,
+				thickness,
+				outlineShape,
+				outlineColor.r,
+				outlineColor.g,
+				outlineColor.b,
+				alpha,
+				dirtyRects
+			);
+		}
 		return { ran: true };
 	}
 }
@@ -308,21 +441,67 @@ export class SoftwareGammaImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "gamma:software";
-	private readonly _runtime = new SoftwareScreenPassRuntime();
+	private readonly _sRGBLUT = new Uint8Array(256);
+	private _lutBuilt = false;
+	private _lastGamma = -1;
 
 	public execute(
 		request: PostProcessPassRequest,
 		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
+		const width = request.frameContext.attachments.width;
+		const height = request.frameContext.attachments.height;
 		const canvasContext = context?.canvasContext ?? null;
-		if (!request.frameContext.attachments.pixels && !canvasContext) {
+		let pixels = request.frameContext.attachments.pixels;
+		let imageData: ImageData | null = null;
+		if (!pixels) {
+			if (!canvasContext) {
+				return { ran: false };
+			}
+			imageData = canvasContext.getImageData(0, 0, width, height);
+			pixels = imageData.data;
+		}
+		if (pixels.length === 0) {
 			return { ran: false };
 		}
-		this._runtime.applyGamma(
-			request.frameContext,
-			canvasContext
-		);
+		const gamma = request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID)
+			? DEFAULT_GAMMA
+			: 1;
+		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		this._buildSRGBLUT(gamma);
+		const lut = this._sRGBLUT;
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const row = y * width;
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const i = (row + x) << 2;
+					pixels[i] = lut[pixels[i]];
+					pixels[i + 1] = lut[pixels[i + 1]];
+					pixels[i + 2] = lut[pixels[i + 2]];
+				}
+			}
+		});
+		if (imageData && canvasContext) {
+			canvasContext.putImageData(imageData, 0, 0);
+		}
 		return { ran: true };
+	}
+
+	private _buildSRGBLUT(gamma: number): void {
+		if (this._lutBuilt && this._lastGamma === gamma) {
+			return;
+		}
+		const isStandardSRGB = Math.abs(gamma - DEFAULT_GAMMA) < 0.001;
+		const invGamma = 1 / gamma;
+		for (let i = 0; i < 256; i++) {
+			const value = i / 255;
+			this._sRGBLUT[i] =
+				isStandardSRGB ?
+					Math.round(linearToSRGB(value) * 255)
+				:	Math.round(Math.pow(value, invGamma) * 255);
+		}
+		this._lutBuilt = true;
+		this._lastGamma = gamma;
 	}
 }
 
@@ -1966,6 +2145,124 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 				webgl: new WebGLGammaImplementation(),
 			},
 		});
+	}
+}
+
+function resolveSoftwareDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
+	const width = Math.max(1, context.attachments.width);
+	const height = Math.max(1, context.attachments.height);
+	const incremental = context.incremental;
+	if (
+		!incremental.enabled ||
+		incremental.forceFullFrame ||
+		incremental.dirtyRects.length === 0
+	) {
+		return [{ minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 }];
+	}
+	const dirtyRects: IncrementalDirtyRect[] = [];
+	for (const rect of incremental.dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.x));
+		const minY = Math.max(0, Math.floor(rect.y));
+		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+		if (minX > maxX || minY > maxY) {
+			continue;
+		}
+		dirtyRects.push({ minX, minY, maxX, maxY });
+	}
+	return dirtyRects;
+}
+
+function forEachSoftwareDirtyRect(
+	dirtyRects: IncrementalDirtyRect[],
+	callback: (rect: IncrementalDirtyRect) => void
+): void {
+	for (const rect of dirtyRects) {
+		if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
+			continue;
+		}
+		callback(rect);
+	}
+}
+
+function softwareRectIntersectsDirtyRects(
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+	dirtyRects: IncrementalDirtyRect[]
+): boolean {
+	for (const rect of dirtyRects) {
+		if (
+			maxX >= rect.minX &&
+			minX <= rect.maxX &&
+			maxY >= rect.minY &&
+			minY <= rect.maxY
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function applyAcesToneMap(value: number): number {
+	const a = 2.51;
+	const b = 0.03;
+	const c = 2.43;
+	const d = 0.59;
+	const e = 0.14;
+	const mapped = (value * (a * value + b)) / (value * (c * value + d) + e);
+	return clamp(mapped, 0, 1);
+}
+
+function drawSoftwareInteractionOutlineShape(
+	pixels: Uint8ClampedArray,
+	width: number,
+	height: number,
+	centerX: number,
+	centerY: number,
+	radius: number,
+	thickness: number,
+	shape: "circle" | "square" | "diamond" | "octagon",
+	red: number,
+	green: number,
+	blue: number,
+	alpha: number,
+	dirtyRects: IncrementalDirtyRect[]
+): void {
+	const minX = Math.max(0, Math.floor(centerX - radius - thickness));
+	const minY = Math.max(0, Math.floor(centerY - radius - thickness));
+	const maxX = Math.min(width - 1, Math.ceil(centerX + radius + thickness));
+	const maxY = Math.min(height - 1, Math.ceil(centerY + radius + thickness));
+	const inner = Math.max(0, radius - thickness * 0.5);
+	const outer = radius + thickness * 0.5;
+
+	for (let y = minY; y <= maxY; y++) {
+		for (let x = minX; x <= maxX; x++) {
+			if (!softwareRectIntersectsDirtyRects(x, y, x, y, dirtyRects)) {
+				continue;
+			}
+			const dx = x + 0.5 - centerX;
+			const dy = y + 0.5 - centerY;
+			const shapeDistance = computeInteractionOutlineShapeDistance(
+				dx,
+				dy,
+				shape
+			);
+			if (shapeDistance < inner || shapeDistance > outer) {
+				continue;
+			}
+			const index = (y * width + x) << 2;
+			const invAlpha = 1 - alpha;
+			pixels[index] = Math.round(pixels[index] * invAlpha + red * alpha);
+			pixels[index + 1] = Math.round(
+				pixels[index + 1] * invAlpha + green * alpha
+			);
+			pixels[index + 2] = Math.round(
+				pixels[index + 2] * invAlpha + blue * alpha
+			);
+			pixels[index + 3] = 255;
+		}
 	}
 }
 

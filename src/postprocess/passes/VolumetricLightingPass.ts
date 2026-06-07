@@ -1,5 +1,30 @@
+import { Matrix4 } from "../../maths/Matrix4";
 import { CameraType } from "../../cameras/Camera";
+import type { OrthographicCamera } from "../../cameras/OrthographicCamera";
+import {
+	type DirectionalLight,
+	type PointLight,
+	type SpotLight,
+	LightType,
+	isShadowCastingLight,
+} from "../../lights";
+import { clamp } from "../../maths/Common";
+import type { IVector3 } from "../../maths/types";
+import type { FrameContext } from "../../pipeline/types";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import {
+	createLightContribution,
+	evaluateLightContribution,
+} from "../../renderers/software/LightEvaluator";
+import {
+	createSoftwareShadowSampler,
+	getSoftwareShadowRuntimeMap,
+} from "../../renderers/software/passes/SoftwareShadowPass";
+import {
+	MAX_EXPOSURE,
+	POST_PROCESS_NOISE_REFERENCE_WIDTH,
+	VOLUMETRIC_SIGMA_T_SCALE,
+} from "../../renderers/constants";
 import {
 	BufferUsage,
 	type IBindingGroup,
@@ -33,7 +58,6 @@ import type {
 	PostProcessPassResult,
 	PostProcessTransientDescriptor,
 } from "../types";
-import { SoftwareScreenPassRuntime } from "./SoftwareScreenPassRuntime";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
@@ -42,6 +66,28 @@ export const VOLUMETRIC_LIGHTING_PASS_ORDER =
 	getRequiredBuiltinPostProcessOrderMetadata(VOLUMETRIC_LIGHTING_PASS_ID);
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
+const SOFTWARE_VOLUMETRIC_CONSTANTS = Object.freeze({
+	SIGMA_T_SCALE: VOLUMETRIC_SIGMA_T_SCALE,
+	MIN_RAY_DISTANCE: 0.1,
+	MIN_DOWN_SAMPLE: 1,
+	MAX_DOWN_SAMPLE: 8,
+	MIN_SAMPLES: 1,
+	MAX_SAMPLES: 256,
+	DEFAULT_DOWN_SAMPLE: 1,
+	DEFAULT_SAMPLES: 32,
+	MIN_SHADOW_SAMPLE_INTERVAL: 1,
+	MAX_SHADOW_SAMPLE_INTERVAL: 32,
+	MAX_WEIGHT: 10,
+	DEFAULT_WEIGHT: 4,
+	MAX_AIR_DENSITY: 10,
+	TRANSMITTANCE_EARLY_EXIT: 0.001,
+	GRID_SAMPLE_JITTER_STRENGTH: 0.75,
+	SCENE_BOUNDS_FADE_START_MULTIPLIER: 1.05,
+	SCENE_BOUNDS_FADE_END_MULTIPLIER: 1.8,
+	SCENE_DEPTH_LIMIT_MULTIPLIER: 1.6,
+	MIN_SCENE_BOUNDS_RADIUS: 1.0,
+	TEMPORAL_ACCUMULATION_FACTOR: 0.95,
+});
 
 export interface VolumetricOptions {
 	/** Ray-march step count. Higher values reduce banding at higher GPU cost. */
@@ -155,6 +201,25 @@ interface WebGPUVolumetricResources {
 	pipelineLayout: GPUPipelineLayout | null;
 }
 
+interface CameraBasis {
+	right: IVector3;
+	up: IVector3;
+	backward: IVector3;
+}
+
+interface WorldRay extends IVector3 {
+	camDirZ: number;
+}
+
+type VolumetricLight = DirectionalLight | PointLight | SpotLight;
+
+interface IncrementalDirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
 /**
  * Software implementation of volumetric lighting.
  */
@@ -166,11 +231,18 @@ export class SoftwareVolumetricLightingImplementation
 		>
 {
 	public readonly id = "volumetric:software";
-	private readonly _runtime = new SoftwareScreenPassRuntime();
+	private _prevScatterBuf: Float32Array | null = null;
+	private _frameIndex = 0;
+	private _scatterGrid: Float32Array | null = null;
+	private _visibilityCache: Float32Array | null = null;
+	private _scatterBuf: Float32Array | null = null;
+	private _lowDepthBuf: Float32Array | null = null;
+	private _prevVolumetricBuf: Float32Array | null = null;
+	private _prevViewProj: Matrix4 | null = null;
 
 	public execute(
 		request: PostProcessPassRequest<VolumetricOptions>,
-		context: SoftwareVolumetricLightingContext | undefined
+		_context: SoftwareVolumetricLightingContext | undefined
 	): PostProcessPassResult {
 		if (
 			!request.frameContext.attachments.pixels ||
@@ -178,18 +250,936 @@ export class SoftwareVolumetricLightingImplementation
 		) {
 			return { ran: false };
 		}
-		this._runtime.applyVolumetricLight(
-			request.frameContext,
-			context?.canvasContext ?? null,
-			{
-				...DEFAULT_VOLUMETRIC_OPTIONS,
-				...(request.options ?? {}),
-			}
-		);
+		this._applyVolumetricLight(request.frameContext, {
+			...DEFAULT_VOLUMETRIC_OPTIONS,
+			...(request.options ?? {}),
+		});
 		return { ran: true };
 	}
-}
 
+	private _getCameraBasis(context: FrameContext): CameraBasis {
+		const view = context.camera.viewMatrix.elements;
+		return {
+			right: { x: view[0][0], y: view[0][1], z: view[0][2] },
+			up: { x: view[1][0], y: view[1][1], z: view[1][2] },
+			backward: { x: view[2][0], y: view[2][1], z: view[2][2] },
+		};
+	}
+
+	private _getWorldRayFromPixel(
+		px: number,
+		py: number,
+		w: number,
+		h: number,
+		basis: CameraBasis,
+		context: FrameContext
+	): WorldRay {
+		const camera = context.camera;
+
+		if (camera.type === CameraType.Orthographic) {
+			// In orthographic camera, rays are constant (pointing forward)
+			// World forward is -basis.backward
+			return {
+				x: -basis.backward.x,
+				y: -basis.backward.y,
+				z: -basis.backward.z,
+				camDirZ: -1,
+			};
+		}
+
+		const fovRad = (camera.fov * Math.PI) / 180;
+		const tanHalfFov = Math.tan(fovRad * 0.5);
+		const aspect = camera.aspectRatio || w / h;
+
+		const ndcX = ((px + 0.5) / w) * 2 - 1;
+		const ndcY = 1 - ((py + 0.5) / h) * 2;
+
+		const cx = ndcX * aspect * tanHalfFov;
+		const cy = ndcY * tanHalfFov;
+		const cz = -1;
+		const invLen = 1.0 / Math.hypot(cx, cy, cz);
+		const dirCamX = cx * invLen;
+		const dirCamY = cy * invLen;
+		const dirCamZ = cz * invLen;
+
+		return {
+			x:
+				basis.right.x * dirCamX +
+				basis.up.x * dirCamY +
+				basis.backward.x * dirCamZ,
+			y:
+				basis.right.y * dirCamX +
+				basis.up.y * dirCamY +
+				basis.backward.y * dirCamZ,
+			z:
+				basis.right.z * dirCamX +
+				basis.up.z * dirCamY +
+				basis.backward.z * dirCamZ,
+			camDirZ: dirCamZ,
+		};
+	}
+
+	private _henyeyGreenstein(cosTheta: number, g: number): number {
+		const gg = g * g;
+		const denom = Math.pow(1 + gg - 2 * g * cosTheta, 1.5) || 1e-6;
+		return (1 - gg) / (4 * Math.PI * denom);
+	}
+
+	private _blueNoiseJitter(
+		px: number,
+		py: number,
+		frameIndex: number = 0
+	): number {
+		const GOLDEN_RATIO = 1.61803398875;
+		const a1 = 1.0 / GOLDEN_RATIO;
+		const n = px + py * POST_PROCESS_NOISE_REFERENCE_WIDTH + frameIndex;
+		return (0.5 + a1 * n) % 1.0;
+	}
+
+	private _linearizeDepth(
+		depth: number,
+		near: number,
+		far: number,
+		isLinearDepth: boolean = true
+	): number {
+		if (isLinearDepth || depth === Infinity) return depth;
+		return (near * far) / (far - depth * (far - near));
+	}
+
+	private _toFiniteNumber(value: unknown, fallback: number): number {
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+		return fallback;
+	}
+
+	private _resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
+		const width = Math.max(1, context.attachments.width);
+		const height = Math.max(1, context.attachments.height);
+		const incremental = context.incremental;
+		if (
+			!incremental.enabled ||
+			incremental.forceFullFrame ||
+			incremental.dirtyRects.length === 0
+		) {
+			return [{
+				minX: 0,
+				minY: 0,
+				maxX: width - 1,
+				maxY: height - 1,
+			}];
+		}
+		const dirtyRects: IncrementalDirtyRect[] = [];
+		for (const rect of incremental.dirtyRects) {
+			const minX = Math.max(0, Math.floor(rect.x));
+			const minY = Math.max(0, Math.floor(rect.y));
+			const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+			const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+			if (minX > maxX || minY > maxY) {
+				continue;
+			}
+			dirtyRects.push({
+				minX,
+				minY,
+				maxX,
+				maxY,
+			});
+		}
+		return dirtyRects;
+	}
+
+	private _forEachDirtyRect(
+		dirtyRects: IncrementalDirtyRect[],
+		callback: (rect: IncrementalDirtyRect) => void
+	): void {
+		for (const rect of dirtyRects) {
+			if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
+				continue;
+			}
+			callback(rect);
+		}
+	}
+
+	private _samplePreviousVolumetric(
+		worldPos: IVector3,
+		gridW: number,
+		gridH: number,
+		prevViewProj: Matrix4,
+		prevVolumetricBuf: Float32Array,
+		outCol: { r: number; g: number; b: number }
+	): boolean {
+		const ndc = Matrix4.transformPoint(prevViewProj, {
+			x: worldPos.x,
+			y: worldPos.y,
+			z: worldPos.z,
+			w: 1,
+		});
+		if (Math.abs(ndc.w!) < 1e-6) return false;
+
+		const invW = 1.0 / ndc.w!;
+		const nx = ndc.x! * invW;
+		const ny = ndc.y! * invW;
+		const nz = ndc.z! * invW;
+
+		if (nx < -1 || nx > 1 || ny < -1 || ny > 1 || nz < -1 || nz > 1)
+			return false;
+
+		const u = nx * 0.5 + 0.5;
+		const v = 0.5 - ny * 0.5;
+
+		const gx = clamp(u * gridW - 0.5, 0, gridW - 1);
+		const gy = clamp(v * gridH - 0.5, 0, gridH - 1);
+
+		const x1 = Math.floor(gx);
+		const y1 = Math.floor(gy);
+		const x2 = Math.min(x1 + 1, gridW - 1);
+		const y2 = Math.min(y1 + 1, gridH - 1);
+
+		const tx = gx - x1;
+		const ty = gy - y1;
+
+		const i1 = (y1 * gridW + x1) * 3;
+		const i2 = (y1 * gridW + x2) * 3;
+		const i3 = (y2 * gridW + x1) * 3;
+		const i4 = (y2 * gridW + x2) * 3;
+
+		const w1 = (1 - tx) * (1 - ty);
+		const w2 = tx * (1 - ty);
+		const w3 = (1 - tx) * ty;
+		const w4 = tx * ty;
+
+		outCol.r =
+			prevVolumetricBuf[i1] * w1 +
+			prevVolumetricBuf[i2] * w2 +
+			prevVolumetricBuf[i3] * w3 +
+			prevVolumetricBuf[i4] * w4;
+		outCol.g =
+			prevVolumetricBuf[i1 + 1] * w1 +
+			prevVolumetricBuf[i2 + 1] * w2 +
+			prevVolumetricBuf[i3 + 1] * w3 +
+			prevVolumetricBuf[i4 + 1] * w4;
+		outCol.b =
+			prevVolumetricBuf[i1 + 2] * w1 +
+			prevVolumetricBuf[i2 + 2] * w2 +
+			prevVolumetricBuf[i3 + 2] * w3 +
+			prevVolumetricBuf[i4 + 2] * w4;
+
+		return true;
+	}
+
+	private _ensureFloat32Buffer(
+		buffer: Float32Array | null,
+		size: number
+	): Float32Array {
+		if (!buffer || buffer.length !== size) {
+			return new Float32Array(size);
+		}
+		return buffer;
+	}
+
+	private _computeSceneFalloff(
+		distanceSq: number,
+		fadeStartSq: number,
+		fadeEndSq: number
+	): number {
+		if (distanceSq <= fadeStartSq) return 1.0;
+		if (distanceSq >= fadeEndSq) return 0.0;
+		const t = clamp(
+			(distanceSq - fadeStartSq) / Math.max(fadeEndSq - fadeStartSq, 1e-6),
+			0,
+			1
+		);
+		return 1.0 - t * t * (3.0 - 2.0 * t);
+	}
+
+	private _filterScatterBuffer(
+		scatterBuf: Float32Array,
+		w: number,
+		h: number
+	): void {
+		let temp = this._prevScatterBuf;
+		if (!temp || temp.length !== scatterBuf.length) {
+			temp = new Float32Array(scatterBuf.length);
+			this._prevScatterBuf = temp;
+		}
+
+		// 1D tent blur horizontally
+		for (let y = 0; y < h; y++) {
+			const row = y * w;
+			for (let x = 0; x < w; x++) {
+				const l = row + Math.max(0, x - 1);
+				const c = row + x;
+				const r = row + Math.min(w - 1, x + 1);
+
+				const outIdx = c * 3;
+				const lIdx = l * 3;
+				const cIdx = c * 3;
+				const rIdx = r * 3;
+
+				temp[outIdx] =
+					(scatterBuf[lIdx] + scatterBuf[cIdx] * 2 + scatterBuf[rIdx]) * 0.25;
+				temp[outIdx + 1] =
+					(scatterBuf[lIdx + 1] +
+						scatterBuf[cIdx + 1] * 2 +
+						scatterBuf[rIdx + 1]) *
+					0.25;
+				temp[outIdx + 2] =
+					(scatterBuf[lIdx + 2] +
+						scatterBuf[cIdx + 2] * 2 +
+						scatterBuf[rIdx + 2]) *
+					0.25;
+			}
+		}
+
+		// 1D tent blur vertically
+		for (let y = 0; y < h; y++) {
+			const tY = Math.max(0, y - 1);
+			const bY = Math.min(h - 1, y + 1);
+			for (let x = 0; x < w; x++) {
+				const tIdx = (tY * w + x) * 3;
+				const cIdx = (y * w + x) * 3;
+				const bIdx = (bY * w + x) * 3;
+
+				scatterBuf[cIdx] = (temp[tIdx] + temp[cIdx] * 2 + temp[bIdx]) * 0.25;
+				scatterBuf[cIdx + 1] =
+					(temp[tIdx + 1] + temp[cIdx + 1] * 2 + temp[bIdx + 1]) * 0.25;
+				scatterBuf[cIdx + 2] =
+					(temp[tIdx + 2] + temp[cIdx + 2] * 2 + temp[bIdx + 2]) * 0.25;
+			}
+		}
+	}
+
+	private _applyVolumetricLight(
+		context: FrameContext,
+		options: VolumetricOptions = {}
+	): void {
+		const depthBuffer = context.attachments.depthBuffer;
+		const maxRayDistance = Math.max(
+			SOFTWARE_VOLUMETRIC_CONSTANTS.MIN_RAY_DISTANCE,
+			this._toFiniteNumber(options.maxRayDistance, 500)
+		);
+
+		const { width: w, height: h } = context.attachments;
+		const pixels = context.attachments.pixels;
+		if (!pixels || !context.attachments.depthBuffer) return;
+		const dirtyRects = this._resolveDirtyRects(context);
+		if (dirtyRects.length === 0) {
+			return;
+		}
+
+		const lights = context.scene.lights || [];
+		const volLights = lights.filter(
+			(light): light is VolumetricLight =>
+				light.type === LightType.Directional ||
+				light.type === LightType.Point ||
+				light.type === LightType.Spot
+		);
+		if (volLights.length === 0) return;
+		const sampleSurface = { position: { x: 0, y: 0, z: 0 } };
+		const lightContribution = createLightContribution();
+
+		const camera = context.camera;
+		const cameraPos = camera.getWorldPosition();
+		const basis = this._getCameraBasis(context);
+		const near = camera.near || 0.1;
+		const far = Math.min(camera.far || 1000, maxRayDistance);
+
+		// Consolidate options with range protection
+		const ds = Math.round(
+			clamp(
+				this._toFiniteNumber(
+					options.downsample,
+					SOFTWARE_VOLUMETRIC_CONSTANTS.DEFAULT_DOWN_SAMPLE
+				),
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MIN_DOWN_SAMPLE,
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MAX_DOWN_SAMPLE
+			)
+		);
+		const gridW = Math.ceil(w / ds);
+		const gridH = Math.ceil(h / ds);
+		const gridD = Math.round(
+			clamp(
+				this._toFiniteNumber(
+					options.samples,
+					SOFTWARE_VOLUMETRIC_CONSTANTS.DEFAULT_SAMPLES
+				),
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MIN_SAMPLES,
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MAX_SAMPLES
+			)
+		);
+
+		const weight = clamp(
+			this._toFiniteNumber(options.weight, SOFTWARE_VOLUMETRIC_CONSTANTS.DEFAULT_WEIGHT),
+			0,
+			SOFTWARE_VOLUMETRIC_CONSTANTS.MAX_WEIGHT
+		);
+		const exposure = clamp(
+			this._toFiniteNumber(options.exposure, 1.0),
+			0,
+			MAX_EXPOSURE
+		);
+		const airDensity = clamp(
+			this._toFiniteNumber(options.airDensity, 1.0),
+			0,
+			SOFTWARE_VOLUMETRIC_CONSTANTS.MAX_AIR_DENSITY
+		);
+		const anisotropy = clamp(
+			this._toFiniteNumber(options.anisotropy, 0.4),
+			-0.99,
+			0.99
+		);
+		const scatteringAlbedo = clamp(
+			this._toFiniteNumber(options.scatteringAlbedo, 0.8),
+			0,
+			1
+		);
+
+		// ... usage continues
+
+		const sigmaT = airDensity * SOFTWARE_VOLUMETRIC_CONSTANTS.SIGMA_T_SCALE;
+		const sigmaS = sigmaT * scatteringAlbedo;
+
+		const shadowsEnabled = context.features.enableShadows;
+		const shadowSampler = createSoftwareShadowSampler(
+			context.shadowMaps,
+			getSoftwareShadowRuntimeMap(context.transient),
+			{ camera: context.camera }
+		);
+		const shadowInterval = Math.round(
+			clamp(
+				this._toFiniteNumber(options.shadowSampleInterval, 1),
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MIN_SHADOW_SAMPLE_INTERVAL,
+				SOFTWARE_VOLUMETRIC_CONSTANTS.MAX_SHADOW_SAMPLE_INTERVAL
+			)
+		);
+
+		const sceneBounds = context.scene.sceneBounds;
+		const sceneCenter = sceneBounds.center;
+		const sceneRadius = Math.max(
+			sceneBounds.radius,
+			SOFTWARE_VOLUMETRIC_CONSTANTS.MIN_SCENE_BOUNDS_RADIUS
+		);
+		const sceneFadeStart =
+			sceneRadius * SOFTWARE_VOLUMETRIC_CONSTANTS.SCENE_BOUNDS_FADE_START_MULTIPLIER;
+		const sceneFadeEnd =
+			sceneRadius * SOFTWARE_VOLUMETRIC_CONSTANTS.SCENE_BOUNDS_FADE_END_MULTIPLIER;
+		const sceneFadeStartSq = sceneFadeStart * sceneFadeStart;
+		const sceneFadeEndSq = sceneFadeEnd * sceneFadeEnd;
+
+		// ... usage continues
+
+		const camToCenter = Math.hypot(
+			cameraPos.x - sceneCenter.x,
+			cameraPos.y - sceneCenter.y,
+			cameraPos.z - sceneCenter.z
+		);
+		const infinityDepthLimit = clamp(
+			camToCenter +
+				sceneRadius * SOFTWARE_VOLUMETRIC_CONSTANTS.SCENE_DEPTH_LIMIT_MULTIPLIER,
+			near,
+			far
+		);
+
+		// 1. Light Injection Grid
+		this._scatterGrid = this._ensureFloat32Buffer(
+			this._scatterGrid,
+			gridW * gridH * gridD * 3
+		);
+		const scatterGrid = this._scatterGrid;
+
+		const lightCount = volLights.length;
+		this._visibilityCache = this._ensureFloat32Buffer(
+			this._visibilityCache,
+			gridW * gridH * lightCount
+		);
+		const visibilityCache = this._visibilityCache;
+		visibilityCache.fill(1.0);
+
+		this._frameIndex++;
+		const jitterStrength = ds * SOFTWARE_VOLUMETRIC_CONSTANTS.GRID_SAMPLE_JITTER_STRENGTH;
+		const jitterSeedOffsetX = 131;
+		const jitterSeedOffsetY = 17;
+
+		for (let z = 0; z < gridD; z++) {
+			const zSlice = (z + 0.5) / gridD;
+			// Logarithmic distribution for depth slices
+			const dist = near * Math.pow(far / near, zSlice);
+			const sliceBase = z * gridW * gridH * 3;
+
+			for (let y = 0; y < gridH; y++) {
+				const sampleYCenter = (y + 0.5) * ds - 0.5;
+				for (let x = 0; x < gridW; x++) {
+					const sampleXCenter = (x + 0.5) * ds - 0.5;
+					const jitterX =
+						(this._blueNoiseJitter(x, y, this._frameIndex) - 0.5) *
+						jitterStrength;
+					const jitterY =
+						(this._blueNoiseJitter(
+							x + jitterSeedOffsetX,
+							y + jitterSeedOffsetY,
+							this._frameIndex
+						) -
+							0.5) *
+						jitterStrength;
+					const px = Math.round(clamp(sampleXCenter + jitterX, 0, w - 1));
+					const py = Math.round(clamp(sampleYCenter + jitterY, 0, h - 1));
+					const ray = this._getWorldRayFromPixel(px, py, w, h, basis, context);
+
+					const ndcX = ((px + 0.5) / w) * 2 - 1;
+					const ndcY = 1 - ((py + 0.5) / h) * 2;
+					const posView = this._reconstructViewPos(ndcX, ndcY, dist, camera);
+
+					const samplePoint = {
+						x:
+							cameraPos.x +
+							basis.right.x * posView.x +
+							basis.up.x * posView.y +
+							basis.backward.x * posView.z,
+						y:
+							cameraPos.y +
+							basis.right.y * posView.x +
+							basis.up.y * posView.y +
+							basis.backward.y * posView.z,
+						z:
+							cameraPos.z +
+							basis.right.z * posView.x +
+							basis.up.z * posView.y +
+							basis.backward.z * posView.z,
+					};
+					sampleSurface.position.x = samplePoint.x;
+					sampleSurface.position.y = samplePoint.y;
+					sampleSurface.position.z = samplePoint.z;
+
+					const sceneDx = samplePoint.x - sceneCenter.x;
+					const sceneDy = samplePoint.y - sceneCenter.y;
+					const sceneDz = samplePoint.z - sceneCenter.z;
+					const sceneFalloff = this._computeSceneFalloff(
+						sceneDx * sceneDx + sceneDy * sceneDy + sceneDz * sceneDz,
+						sceneFadeStartSq,
+						sceneFadeEndSq
+					);
+					if (sceneFalloff <= 0) {
+						const idx = sliceBase + (y * gridW + x) * 3;
+						scatterGrid[idx] = 0;
+						scatterGrid[idx + 1] = 0;
+						scatterGrid[idx + 2] = 0;
+						continue;
+					}
+
+					let r = 0,
+						g = 0,
+						b = 0;
+					const shouldSampleShadow = z % shadowInterval === 0;
+					const cellIndex = y * gridW + x;
+
+					for (let li = 0; li < lightCount; li++) {
+						const L = volLights[li];
+						const contrib = evaluateLightContribution(
+							L,
+							sampleSurface,
+							lightContribution
+						);
+						if (!contrib || contrib.type !== "direct" || !contrib.direction)
+							continue;
+						const lightIntensity = contrib.intensity ?? 1.0;
+
+						const cacheIndex = cellIndex * lightCount + li;
+						let vis = visibilityCache[cacheIndex];
+						if (shadowsEnabled && isShadowCastingLight(L)) {
+							if (shouldSampleShadow || z === 0) {
+								// Note: Passing null as normal for volume points to use volume-specific bias
+								const shadow = shadowSampler(L, samplePoint, null);
+								vis = (shadow.r + shadow.g + shadow.b) / 3;
+								visibilityCache[cacheIndex] = vis;
+							}
+						} else {
+							vis = 1.0;
+							visibilityCache[cacheIndex] = vis;
+						}
+
+						// Fix: viewDotLight direction. ray is Cam->Point, lightDir is Point->LightSource.
+						// When looking towards light, they are aligned (dot=1).
+						const viewDotLight =
+							ray.x * contrib.direction.x +
+							ray.y * contrib.direction.y +
+							ray.z * contrib.direction.z;
+						const phase = this._henyeyGreenstein(
+							clamp(viewDotLight, -1, 1),
+							anisotropy
+						);
+						const scatter = phase * sigmaS * weight * sceneFalloff;
+
+						r += contrib.color.r * lightIntensity * vis * scatter;
+						g += contrib.color.g * lightIntensity * vis * scatter;
+						b += contrib.color.b * lightIntensity * vis * scatter;
+					}
+
+					const idx = sliceBase + (y * gridW + x) * 3;
+					scatterGrid[idx] = r;
+					scatterGrid[idx + 1] = g;
+					scatterGrid[idx + 2] = b;
+				}
+			}
+		}
+
+		// 2. Integration along rays
+		this._scatterBuf = this._ensureFloat32Buffer(
+			this._scatterBuf,
+			gridW * gridH * 3
+		);
+		this._lowDepthBuf = this._ensureFloat32Buffer(
+			this._lowDepthBuf,
+			gridW * gridH
+		);
+		const scatterBuf = this._scatterBuf;
+		const lowDepthBuf = this._lowDepthBuf;
+
+		const currentViewProj = camera.viewProjectionMatrix;
+		const prevViewProj = this._prevViewProj;
+		const prevVolBuf = this._prevVolumetricBuf;
+		const historyWeight = SOFTWARE_VOLUMETRIC_CONSTANTS.TEMPORAL_ACCUMULATION_FACTOR;
+		const tempCol = { r: 0, g: 0, b: 0 };
+
+		for (let y = 0; y < gridH; y++) {
+			for (let x = 0; x < gridW; x++) {
+				const screenPX = Math.round(clamp((x + 0.5) * ds - 0.5, 0, w - 1));
+				const screenPY = Math.round(clamp((y + 0.5) * ds - 0.5, 0, h - 1));
+				const depthRaw = depthBuffer[screenPY * w + screenPX];
+				const depth = this._linearizeDepth(
+					depthRaw,
+					near,
+					far,
+					options.isLinearDepth !== false
+				);
+				const depthLimit = depth === Infinity ? infinityDepthLimit : depth;
+
+				let accumR = 0,
+					accumG = 0,
+					accumB = 0;
+				let transmittance = 1.0;
+
+				for (let z = 0; z < gridD; z++) {
+					const zSlice = (z + 0.5) / gridD;
+					const dist = near * Math.pow(far / near, zSlice);
+					if (dist > depthLimit) break;
+
+					// Slice thickness in world space
+					const nextZSlice = (z + 1.5) / gridD;
+					const nextDist = near * Math.pow(far / near, nextZSlice);
+					const stepSize = nextDist - dist;
+
+					const idx = (z * gridW * gridH + y * gridW + x) * 3;
+					const transStep = Math.exp(-sigmaT * stepSize);
+
+					accumR += scatterGrid[idx] * transmittance * stepSize;
+					accumG += scatterGrid[idx + 1] * transmittance * stepSize;
+					accumB += scatterGrid[idx + 2] * transmittance * stepSize;
+
+					transmittance *= transStep;
+					if (transmittance < SOFTWARE_VOLUMETRIC_CONSTANTS.TRANSMITTANCE_EARLY_EXIT)
+						break;
+				}
+
+				const bIdx = (y * gridW + x) * 3;
+				let finalR = accumR * exposure;
+				let finalG = accumG * exposure;
+				let finalB = accumB * exposure;
+
+				// Temporal accumulation
+				if (
+					prevViewProj &&
+					prevVolBuf &&
+					prevVolBuf.length === scatterBuf.length
+				) {
+					const ray = this._getWorldRayFromPixel(
+						screenPX,
+						screenPY,
+						w,
+						h,
+						basis,
+						context
+					);
+					const ndcX = ((screenPX + 0.5) / w) * 2 - 1;
+					const ndcY = 1 - ((screenPY + 0.5) / h) * 2;
+					const posView = this._reconstructViewPos(
+						ndcX,
+						ndcY,
+						depthLimit,
+						camera
+					);
+
+					const worldPos = {
+						x:
+							cameraPos.x +
+							basis.right.x * posView.x +
+							basis.up.x * posView.y +
+							basis.backward.x * posView.z,
+						y:
+							cameraPos.y +
+							basis.right.y * posView.x +
+							basis.up.y * posView.y +
+							basis.backward.y * posView.z,
+						z:
+							cameraPos.z +
+							basis.right.z * posView.x +
+							basis.up.z * posView.y +
+							basis.backward.z * posView.z,
+					};
+					if (
+						this._samplePreviousVolumetric(
+							worldPos,
+							gridW,
+							gridH,
+							prevViewProj,
+							prevVolBuf,
+							tempCol
+						)
+					) {
+						finalR = finalR * (1 - historyWeight) + tempCol.r * historyWeight;
+						finalG = finalG * (1 - historyWeight) + tempCol.g * historyWeight;
+						finalB = finalB * (1 - historyWeight) + tempCol.b * historyWeight;
+					}
+				}
+
+				scatterBuf[bIdx] = finalR;
+				scatterBuf[bIdx + 1] = finalG;
+				scatterBuf[bIdx + 2] = finalB;
+				lowDepthBuf[y * gridW + x] = depthLimit;
+			}
+		}
+
+		this._filterScatterBuffer(scatterBuf, gridW, gridH);
+
+		// Store history
+		if (
+			!this._prevVolumetricBuf ||
+			this._prevVolumetricBuf.length !== scatterBuf.length
+		) {
+			this._prevVolumetricBuf = new Float32Array(scatterBuf.length);
+		}
+		this._prevVolumetricBuf.set(scatterBuf);
+		this._prevViewProj = currentViewProj.clone();
+
+		// 3. Upscale and Combine
+		if (options.useBilateralUpscale !== false) {
+			this._bilateralUpscale(
+				pixels,
+				scatterBuf,
+				depthBuffer,
+				lowDepthBuf,
+				w,
+				h,
+				gridW,
+				gridH,
+				ds,
+				this._toFiniteNumber(options.bilateralDepthSigma, 0.05),
+				near,
+				far,
+				options.isLinearDepth !== false,
+				dirtyRects
+			);
+		} else {
+			this._bilinearUpscale(
+				pixels,
+				scatterBuf,
+				w,
+				h,
+				gridW,
+				gridH,
+				ds,
+				dirtyRects
+			);
+		}
+	}
+
+	private _bilateralUpscale(
+		pixels: Uint8ClampedArray,
+		scatterBuf: Float32Array,
+		depthBuffer: Float32Array,
+		lowDepthBuf: Float32Array,
+		w: number,
+		h: number,
+		lowW: number,
+		lowH: number,
+		ds: number,
+		depthSigma: number,
+		near: number,
+		far: number,
+		isLinearDepth: boolean,
+		dirtyRects: IncrementalDirtyRect[]
+	): void {
+		const invSigmaSq2 = 1.0 / (2.0 * depthSigma * depthSigma);
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const fy = (y + 0.5) / ds - 0.5;
+				const ly0 = Math.max(0, Math.floor(fy));
+				const ly1 = Math.min(lowH - 1, ly0 + 1);
+				const ty = clamp(fy - ly0);
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const fx = (x + 0.5) / ds - 0.5;
+					const lx0 = Math.max(0, Math.floor(fx));
+					const lx1 = Math.min(lowW - 1, lx0 + 1);
+					const tx = clamp(fx - lx0);
+
+					// Fix: ensure currentDepth is also linearized for proper relative difference comparison
+					let currentDepth = depthBuffer[y * w + x];
+					if (currentDepth <= 0) continue;
+					currentDepth = this._linearizeDepth(
+						currentDepth,
+						near,
+						far,
+						isLinearDepth
+					);
+
+					const idx00 = ly0 * lowW + lx0;
+					const idx10 = ly0 * lowW + lx1;
+					const idx01 = ly1 * lowW + lx0;
+					const idx11 = ly1 * lowW + lx1;
+					const d00 = lowDepthBuf[idx00];
+					const d10 = lowDepthBuf[idx10];
+					const d01 = lowDepthBuf[idx01];
+					const d11 = lowDepthBuf[idx11];
+					const relDiff00 =
+						Math.abs(currentDepth - d00) / Math.max(currentDepth, d00, 1e-6);
+					const relDiff10 =
+						Math.abs(currentDepth - d10) / Math.max(currentDepth, d10, 1e-6);
+					const relDiff01 =
+						Math.abs(currentDepth - d01) / Math.max(currentDepth, d01, 1e-6);
+					const relDiff11 =
+						Math.abs(currentDepth - d11) / Math.max(currentDepth, d11, 1e-6);
+					const depthW00 = Math.exp(-relDiff00 * relDiff00 * invSigmaSq2);
+					const depthW10 = Math.exp(-relDiff10 * relDiff10 * invSigmaSq2);
+					const depthW01 = Math.exp(-relDiff01 * relDiff01 * invSigmaSq2);
+					const depthW11 = Math.exp(-relDiff11 * relDiff11 * invSigmaSq2);
+					const spatialW00 = (1 - tx) * (1 - ty);
+					const spatialW10 = tx * (1 - ty);
+					const spatialW01 = (1 - tx) * ty;
+					const spatialW11 = tx * ty;
+					let w00 = spatialW00 * depthW00;
+					let w10 = spatialW10 * depthW10;
+					let w01 = spatialW01 * depthW01;
+					let w11 = spatialW11 * depthW11;
+					const totalWeight = w00 + w10 + w01 + w11;
+					if (totalWeight > 1e-6) {
+						const invTotal = 1.0 / totalWeight;
+						w00 *= invTotal;
+						w10 *= invTotal;
+						w01 *= invTotal;
+						w11 *= invTotal;
+					} else {
+						w00 = spatialW00;
+						w10 = spatialW10;
+						w01 = spatialW01;
+						w11 = spatialW11;
+					}
+					const i00 = idx00 * 3;
+					const i10 = idx10 * 3;
+					const i01 = idx01 * 3;
+					const i11 = idx11 * 3;
+					const scatterR =
+						scatterBuf[i00] * w00 +
+						scatterBuf[i10] * w10 +
+						scatterBuf[i01] * w01 +
+						scatterBuf[i11] * w11;
+					const scatterG =
+						scatterBuf[i00 + 1] * w00 +
+						scatterBuf[i10 + 1] * w10 +
+						scatterBuf[i01 + 1] * w01 +
+						scatterBuf[i11 + 1] * w11;
+					const scatterB =
+						scatterBuf[i00 + 2] * w00 +
+						scatterBuf[i10 + 2] * w10 +
+						scatterBuf[i01 + 2] * w01 +
+						scatterBuf[i11 + 2] * w11;
+					const idx = (y * w + x) << 2;
+					pixels[idx] = Math.min(255, pixels[idx] + scatterR);
+					pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
+					pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
+					pixels[idx + 3] = 255;
+				}
+			}
+		});
+	}
+
+	private _reconstructViewPos(
+		ndcX: number,
+		ndcY: number,
+		zView: number,
+		camera: FrameContext["camera"]
+	): IVector3 {
+		if (camera.type === CameraType.Orthographic) {
+			const orthoCam = camera as OrthographicCamera;
+			const bounds = orthoCam.getBounds();
+			const xView =
+				((ndcX + 1) * 0.5) * (bounds.right - bounds.left) + bounds.left;
+			const yView =
+				((ndcY + 1) * 0.5) * (bounds.top - bounds.bottom) + bounds.bottom;
+
+			return { x: xView, y: yView, z: -zView };
+		}
+
+		const fovRad = (camera.fov * Math.PI) / 180;
+		const tanHalfFov = Math.tan(fovRad * 0.5);
+		const aspect = camera.aspectRatio;
+
+		const xView = ndcX * aspect * tanHalfFov * zView;
+		const yView = ndcY * tanHalfFov * zView;
+
+		return { x: xView, y: yView, z: -zView };
+	}
+
+	private _bilinearUpscale(
+		pixels: Uint8ClampedArray,
+		scatterBuf: Float32Array,
+		w: number,
+		h: number,
+		lowW: number,
+		lowH: number,
+		ds: number,
+		dirtyRects: IncrementalDirtyRect[]
+	): void {
+		this._forEachDirtyRect(dirtyRects, (rect) => {
+			for (let y = rect.minY; y <= rect.maxY; y++) {
+				const fy = (y + 0.5) / ds - 0.5;
+				const ly0 = Math.max(0, Math.floor(fy));
+				const ly1 = Math.min(lowH - 1, ly0 + 1);
+				const ty = clamp(fy - ly0);
+				for (let x = rect.minX; x <= rect.maxX; x++) {
+					const fx = (x + 0.5) / ds - 0.5;
+					const lx0 = Math.max(0, Math.floor(fx));
+					const lx1 = Math.min(lowW - 1, lx0 + 1);
+					const tx = clamp(fx - lx0);
+					const i00 = (ly0 * lowW + lx0) * 3;
+					const i10 = (ly0 * lowW + lx1) * 3;
+					const i01 = (ly1 * lowW + lx0) * 3;
+					const i11 = (ly1 * lowW + lx1) * 3;
+					const w00 = (1 - tx) * (1 - ty);
+					const w10 = tx * (1 - ty);
+					const w01 = (1 - tx) * ty;
+					const w11 = tx * ty;
+					const scatterR =
+						scatterBuf[i00] * w00 +
+						scatterBuf[i10] * w10 +
+						scatterBuf[i01] * w01 +
+						scatterBuf[i11] * w11;
+					const scatterG =
+						scatterBuf[i00 + 1] * w00 +
+						scatterBuf[i10 + 1] * w10 +
+						scatterBuf[i01 + 1] * w01 +
+						scatterBuf[i11 + 1] * w11;
+					const scatterB =
+						scatterBuf[i00 + 2] * w00 +
+						scatterBuf[i10 + 2] * w10 +
+						scatterBuf[i01 + 2] * w01 +
+						scatterBuf[i11 + 2] * w11;
+					const idx = (y * w + x) << 2;
+					pixels[idx] = Math.min(255, pixels[idx] + scatterR);
+					pixels[idx + 1] = Math.min(255, pixels[idx + 1] + scatterG);
+					pixels[idx + 2] = Math.min(255, pixels[idx + 2] + scatterB);
+					pixels[idx + 3] = 255;
+				}
+			}
+		});
+	}
+}
 /**
  * WebGPU implementation of volumetric lighting.
  */
