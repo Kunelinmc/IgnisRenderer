@@ -340,7 +340,7 @@ export class WebGLFogImplementation
 	private _fogParams1 = new Float32Array(4);
 
 	public warmup(context: WebGLFogContext | undefined): void {
-		context?.programs.getFogProgram();
+		context?.programs.warmupFogProgram();
 	}
 
 	public execute(

@@ -812,9 +812,9 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 	public readonly id = "ssao:webgl";
 
 	public warmup(context: WebGLSSAOContext | undefined): void {
-		context?.programs.getSSAORawProgram();
-		context?.programs.getSSAOBlurProgram();
-		context?.programs.getSSAOCombineProgram();
+		context?.programs.warmupSSAORawProgram();
+		context?.programs.warmupSSAOBlurProgram();
+		context?.programs.warmupSSAOCombineProgram();
 	}
 
 	public execute(

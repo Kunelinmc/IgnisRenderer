@@ -1471,7 +1471,7 @@ export class WebGLMotionBlurImplementation
 	public readonly id = "motion-blur:webgl";
 
 	public warmup(context: WebGLMotionBlurContext | undefined): void {
-		context?.programs.getMotionBlurProgram();
+		context?.programs.warmupMotionBlurProgram();
 	}
 
 	public execute(
@@ -1560,7 +1560,7 @@ export class WebGLDepthOfFieldImplementation
 	public readonly id = "dof:webgl";
 
 	public warmup(context: WebGLDepthOfFieldContext | undefined): void {
-		context?.programs.getDOFProgram();
+		context?.programs.warmupDOFProgram();
 	}
 
 	public execute(
@@ -1675,7 +1675,7 @@ export class WebGLToneMappingImplementation
 	public readonly id = "tonemap:webgl";
 
 	public warmup(context: WebGLToneMappingContext | undefined): void {
-		context?.programs.getToneMappingProgram();
+		context?.programs.warmupToneMappingProgram();
 	}
 
 	public execute(
@@ -1707,7 +1707,7 @@ export class WebGLColorFilterImplementation
 	public readonly id = "color-filter:webgl";
 
 	public warmup(context: WebGLColorFilterContext | undefined): void {
-		context?.programs.getColorFilterProgram();
+		context?.programs.warmupColorFilterProgram();
 	}
 
 	public execute(
@@ -1786,7 +1786,7 @@ export class WebGLInteractionOutlineImplementation
 	);
 
 	public warmup(context: WebGLInteractionOutlineContext | undefined): void {
-		context?.programs.getInteractionOutlineProgram();
+		context?.programs.warmupInteractionOutlineProgram();
 	}
 
 	public execute(
@@ -1885,7 +1885,7 @@ export class WebGLGammaImplementation
 	public readonly id = "gamma:webgl";
 
 	public warmup(context: WebGLGammaContext | undefined): void {
-		context?.programs.getPresentProgram();
+		context?.programs.warmupPresentProgram();
 	}
 
 	public execute(

@@ -379,6 +379,91 @@ function createSelectiveCompileFailGL(failPattern) {
 	};
 }
 
+function createProgramWarmupTrackingGL(options = {}) {
+	let programCount = 0;
+	const completionStatus = 0x91b1;
+	const completeAfterPolls = options.completeAfterPolls ?? 0;
+	const validateStatus = options.validateStatus ?? true;
+	const calls = {
+		compileShader: 0,
+		linkProgram: 0,
+		getShaderParameter: [],
+		getProgramParameter: [],
+		getUniformLocation: [],
+		validateProgram: 0,
+	};
+	const extension = options.parallel ? {
+		COMPLETION_STATUS_KHR: completionStatus,
+	} : null;
+	return {
+		VERTEX_SHADER: 0x8b31,
+		FRAGMENT_SHADER: 0x8b30,
+		COMPILE_STATUS: 0x8b81,
+		LINK_STATUS: 0x8b82,
+		VALIDATE_STATUS: 0x8b83,
+		calls,
+		get programCount() {
+			return programCount;
+		},
+		getExtension(name) {
+			return name === "KHR_parallel_shader_compile" ? extension : null;
+		},
+		createShader(type) {
+			return { type, compiled: true };
+		},
+		shaderSource(shader, source) {
+			shader.source = source;
+		},
+		compileShader() {
+			calls.compileShader++;
+		},
+		getShaderParameter(shader, parameter) {
+			calls.getShaderParameter.push(parameter);
+			if (parameter === this.COMPILE_STATUS) {
+				return shader.compiled;
+			}
+			return true;
+		},
+		getShaderInfoLog() {
+			return "";
+		},
+		deleteShader() {},
+		createProgram() {
+			programCount++;
+			return { id: programCount, polls: 0 };
+		},
+		attachShader() {},
+		linkProgram() {
+			calls.linkProgram++;
+		},
+		validateProgram() {
+			calls.validateProgram++;
+		},
+		getProgramParameter(program, parameter) {
+			calls.getProgramParameter.push(parameter);
+			if (parameter === completionStatus) {
+				program.polls++;
+				return program.polls > completeAfterPolls;
+			}
+			if (parameter === this.LINK_STATUS) {
+				return true;
+			}
+			if (parameter === this.VALIDATE_STATUS) {
+				return validateStatus;
+			}
+			return true;
+		},
+		getProgramInfoLog() {
+			return "mock program info";
+		},
+		deleteProgram() {},
+		getUniformLocation(_program, name) {
+			calls.getUniformLocation.push(name);
+			return {};
+		},
+	};
+}
+
 const CUSTOM_WEBGL_VERTEX = /* glsl */ `
 #version 300 es
 precision highp float;
@@ -848,6 +933,103 @@ function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
 	assert.ok(dofProgram.program);
 	assert.ok(oitResolveProgram.program);
 	assert.equal(gl.programCount, 3);
+}
+
+function testProgramLibraryParallelWarmupDefersStatusQueries() {
+	const gl = createProgramWarmupTrackingGL({
+		parallel: true,
+		completeAfterPolls: 2,
+	});
+	const library = createProgramLibrary(gl, () => {});
+	const handle = library.warmupFXAAProgram();
+
+	assert.equal(gl.calls.linkProgram, 1);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.LINK_STATUS),
+		false
+	);
+	assert.equal(gl.calls.getUniformLocation.length, 0);
+	assert.equal(handle.isComplete(), false);
+	assert.equal(handle.isComplete(), false);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.LINK_STATUS),
+		false
+	);
+
+	assert.equal(handle.isComplete(), true);
+	handle.finalize();
+
+	assert.deepEqual(gl.calls.getShaderParameter, [
+		gl.COMPILE_STATUS,
+		gl.COMPILE_STATUS,
+	]);
+	assert.ok(gl.calls.getProgramParameter.includes(gl.LINK_STATUS));
+	assert.ok(gl.calls.getUniformLocation.includes("uSourceMap"));
+	assert.ok(gl.calls.getUniformLocation.includes("uTexelSize"));
+}
+
+function testProgramLibraryFallbackWarmupBatchesBeforeFinalize() {
+	const gl = createProgramWarmupTrackingGL();
+	const library = createProgramLibrary(gl, () => {});
+
+	const fxaa = library.warmupFXAAProgram();
+	const present = library.warmupPresentProgram();
+
+	assert.equal(gl.calls.linkProgram, 2);
+	assert.equal(gl.calls.getShaderParameter.length, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.LINK_STATUS),
+		false
+	);
+
+	fxaa.finalize();
+	present.finalize();
+
+	assert.equal(gl.calls.getShaderParameter.length, 4);
+	assert.equal(
+		gl.calls.getProgramParameter.filter((parameter) => parameter === gl.LINK_STATUS)
+			.length,
+		2
+	);
+}
+
+function testProgramLibraryValidationIsOptIn() {
+	const gl = createProgramWarmupTrackingGL({
+		validateStatus: false,
+	});
+	const library = createProgramLibrary(gl, () => {});
+
+	library.getFXAAProgram();
+
+	assert.equal(gl.calls.validateProgram, 0);
+	assert.equal(
+		gl.calls.getProgramParameter.includes(gl.VALIDATE_STATUS),
+		false
+	);
+}
+
+function testProgramLibraryValidationWarnsWhenEnabled() {
+	const warnings = [];
+	const gl = createProgramWarmupTrackingGL({
+		validateStatus: false,
+	});
+	const library = new WebGLProgramLibrary(
+		gl,
+		(key, message) => warnings.push({ key, message }),
+		{ validatePrograms: true },
+	);
+
+	library.getFXAAProgram();
+
+	assert.equal(gl.calls.validateProgram, 1);
+	assert.ok(gl.calls.getProgramParameter.includes(gl.VALIDATE_STATUS));
+	assert.ok(
+		warnings.some((warning) =>
+			warning.key.startsWith("webgl-program-validate-WebGLFXAAProgram")
+		)
+	);
 }
 
 function testLightCollectorShadowBias() {
@@ -1788,6 +1970,10 @@ async function run() {
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
 	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
+	testProgramLibraryParallelWarmupDefersStatusQueries();
+	testProgramLibraryFallbackWarmupBatchesBeforeFinalize();
+	testProgramLibraryValidationIsOptIn();
+	testProgramLibraryValidationWarnsWhenEnabled();
 	testLightCollectorShadowBias();
 	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();

@@ -37,6 +37,7 @@ import {
 	createWarmupReport,
 	finalizeWarmupReport,
 	toShaderCompileError,
+	type WarmupPhaseCounters,
 } from "../pipeline/WarmupPlanner";
 import { Logger } from "../foundation/Logger";
 import {
@@ -55,6 +56,7 @@ const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 export interface WebGLBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
+	validatePrograms?: boolean;
 }
 
 type WebGLBackendPassHandler = (
@@ -96,6 +98,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _height = 1;
 	public readonly shaderRuntime: ShaderRuntime;
 	private _shaderCompileStage: ShaderBackendCompileStage;
+	private _validatePrograms = false;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
@@ -107,6 +110,7 @@ export class WebGLBackend implements IRenderBackend {
 
 	constructor(options: WebGLBackendOptions = {}) {
 		const shaderMode = options.shaderMode ?? "warn";
+		this._validatePrograms = options.validatePrograms === true;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -299,17 +303,20 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const plan = buildWarmupPlan(context, options);
 		try {
-			const phase = this._frameExecutor.warmup(context, plan);
+			const phase = await this._frameExecutor.warmup(context, plan);
 			addWarmupPhase(report, phase);
+			this._reportWarmupProgress(options, phase);
 		} catch (error) {
-			addWarmupPhase(report, {
+			const failedPhase = {
 				phase: "webgl-warmup",
 				total: 1,
 				compiled: 0,
 				skipped: 0,
 				failed: 1,
 				errors: [toShaderCompileError(error, this.type, "WebGLWarmup")],
-			});
+			};
+			addWarmupPhase(report, failedPhase);
+			this._reportWarmupProgress(options, failedPhase);
 		}
 		return finalizeWarmupReport(report);
 	}
@@ -369,10 +376,24 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
 			this.shaderRuntime,
-			this._shaderCompileStage
+			this._shaderCompileStage,
+			{
+				validatePrograms: this._validatePrograms,
+			}
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);
+	}
+
+	private _reportWarmupProgress(
+		options: WarmupOptions,
+		phase: WarmupPhaseCounters,
+	): void {
+		options.onProgress?.({
+			phase: phase.phase,
+			completed: phase.compiled + phase.skipped + phase.failed,
+			total: phase.total,
+		});
 	}
 
 	private _emitPostProcessResourceEvent(

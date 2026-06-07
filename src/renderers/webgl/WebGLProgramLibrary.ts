@@ -16,7 +16,6 @@ import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
 	createInlineShaderSourceMap,
-	mapShaderCompilerMessages,
 	parseWebGLShaderInfoLog,
 	ShaderCompileError,
 	type ShaderCompilerMessage,
@@ -265,6 +264,40 @@ interface ShaderCompileMetadata {
 	sourceKind?: "custom-material" | "unknown";
 }
 
+interface WebGLParallelShaderCompileExtension {
+	readonly COMPLETION_STATUS_KHR: number;
+}
+
+export interface WebGLProgramLibraryOptions {
+	validatePrograms?: boolean;
+}
+
+export interface WebGLProgramWarmupHandle {
+	readonly label: string;
+	isComplete(): boolean;
+	finalize(): void;
+}
+
+interface WebGLPendingShaderCompile {
+	readonly shader: WebGLShader;
+	readonly stage: "vertex" | "fragment";
+	readonly label: string;
+	readonly sourceKind: "custom-material" | "unknown";
+	readonly variantKey?: string;
+	readonly materialId?: string;
+	readonly code: string;
+	readonly sourceMap: ShaderSourceSegmentMap | null;
+}
+
+interface WebGLPendingProgramCompile {
+	readonly label: string;
+	readonly vertex: WebGLPendingShaderCompile;
+	readonly fragment: WebGLPendingShaderCompile;
+	readonly program: WebGLProgram;
+	status: "pending" | "ready" | "failed";
+	error: unknown;
+}
+
 type WebGLProgramWarn = (key: string, message: string) => void;
 
 const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE = 17;
@@ -296,8 +329,13 @@ export class WebGLProgramLibrary {
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _enableShadowTransmittanceSampling: boolean;
+	private _parallelShaderCompile: WebGLParallelShaderCompileExtension | null;
+	private _validatePrograms: boolean;
 	private _warnCallback: WebGLProgramWarn | null = null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
+	private _pendingProgramCompiles = new Map<string, WebGLPendingProgramCompile>();
+	private _precompiledPrograms = new Map<string, WebGLProgram>();
+	private _warmupHandleLog: WebGLProgramWarmupHandle[] = [];
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _sceneProgramDirectiveTag: string = "";
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
@@ -329,23 +367,38 @@ export class WebGLProgramLibrary {
 		warn: WebGLProgramWarn,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
+		options?: WebGLProgramLibraryOptions,
+	);
+	constructor(
+		gl: WebGL2RenderingContext,
+		warn: WebGLProgramWarn,
+		options?: WebGLProgramLibraryOptions,
 	);
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
+		options?: WebGLProgramLibraryOptions,
 	);
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntimeOrWarn?: ShaderRuntime | WebGLProgramWarn,
-		shaderCompileStageOrRuntime?: ShaderBackendCompileStage | ShaderRuntime,
-		shaderCompileStageMaybe?: ShaderBackendCompileStage,
+		shaderCompileStageOrRuntime?:
+			| ShaderBackendCompileStage
+			| ShaderRuntime
+			| WebGLProgramLibraryOptions,
+		shaderCompileStageMaybe?:
+			| ShaderBackendCompileStage
+			| WebGLProgramLibraryOptions,
+		optionsMaybe?: WebGLProgramLibraryOptions,
 	) {
 		this._gl = gl;
 		this._enableShadowTransmittanceSampling =
 			supportsShadowTransmittanceSampler(gl);
+		this._parallelShaderCompile = resolveParallelShaderCompileExtension(gl);
 		let shaderRuntime: ShaderRuntime | null = null;
 		let shaderCompileStage: ShaderBackendCompileStage | null = null;
+		let options: WebGLProgramLibraryOptions | null = null;
 		if (typeof shaderRuntimeOrWarn === "function") {
 			this._warnCallback = shaderRuntimeOrWarn;
 			shaderRuntime =
@@ -356,15 +409,26 @@ export class WebGLProgramLibrary {
 				shaderCompileStageMaybe instanceof ShaderBackendCompileStage ?
 					shaderCompileStageMaybe
 				:	null;
+			options =
+				isWebGLProgramLibraryOptions(shaderCompileStageOrRuntime) ?
+					shaderCompileStageOrRuntime
+				: isWebGLProgramLibraryOptions(shaderCompileStageMaybe) ?
+					shaderCompileStageMaybe
+				:	optionsMaybe ?? null;
 		} else {
 			shaderRuntime = shaderRuntimeOrWarn ?? null;
 			shaderCompileStage =
 				shaderCompileStageOrRuntime instanceof ShaderBackendCompileStage ?
 					shaderCompileStageOrRuntime
 				:	null;
+			options =
+				isWebGLProgramLibraryOptions(shaderCompileStageMaybe) ?
+					shaderCompileStageMaybe
+				:	null;
 		}
 		this._shaderRuntime = shaderRuntime;
 		this._shaderCompileStage = shaderCompileStage;
+		this._validatePrograms = options?.validatePrograms === true;
 		if (!this._shaderCompileStage && this._shaderRuntime) {
 			this._shaderCompileStage = new ShaderBackendCompileStage({
 				backend: "webgl",
@@ -392,6 +456,507 @@ export class WebGLProgramLibrary {
 		return custom ?? this._getBuiltinSceneProgram();
 	}
 
+	public markWarmupHandles(): number {
+		return this._warmupHandleLog.length;
+	}
+
+	public collectWarmupHandlesSince(mark: number): WebGLProgramWarmupHandle[] {
+		const start = Math.max(0, Math.min(mark, this._warmupHandleLog.length));
+		const handles = this._warmupHandleLog.slice(start);
+		this._warmupHandleLog.length = start;
+		return handles;
+	}
+
+	public warmupSceneProgram(
+		material?: Material,
+		mode: ShaderTargetMode = "single"
+	): WebGLProgramWarmupHandle {
+		if (!(material instanceof ShaderMaterial)) {
+			return this._warmupBuiltinSceneProgram();
+		}
+
+		const custom = this._warmupShaderMaterialSceneProgram(material, mode);
+		return custom ?? this._warmupBuiltinSceneProgram();
+	}
+
+	public warmupEnvironmentProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLEnvironmentProgram",
+			() => this._environmentProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("environmentVertex"),
+					this._shaderSource("environmentFragment"),
+					"WebGLEnvironmentProgram",
+				),
+			() => {
+				this.getEnvironmentProgram();
+			},
+		);
+	}
+
+	public warmupPresentProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLPresentProgram",
+			() => this._presentProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("presentFragment"),
+					"WebGLPresentProgram",
+				),
+			() => {
+				this.getPresentProgram();
+			},
+		);
+	}
+
+	public warmupParticleProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLParticleProgram",
+			() => this._particleProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("particleVertex"),
+					this._shaderSource("particleFragment"),
+					"WebGLParticleProgram",
+				),
+			() => {
+				this.getParticleProgram();
+			},
+		);
+	}
+
+	public warmupFXAAProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLFXAAProgram",
+			() => this._fxaaProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("fxaaFragment"),
+					"WebGLFXAAProgram",
+				),
+			() => {
+				this.getFXAAProgram();
+			},
+		);
+	}
+
+	public warmupToneMappingProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLToneMappingProgram",
+			() => this._toneMappingProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("toneMappingFragment"),
+					"WebGLToneMappingProgram",
+				),
+			() => {
+				this.getToneMappingProgram();
+			},
+		);
+	}
+
+	public warmupInteractionOutlineProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLInteractionOutlineProgram",
+			() => this._interactionOutlineProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("interactionOutlineFragment"),
+					"WebGLInteractionOutlineProgram",
+				),
+			() => {
+				this.getInteractionOutlineProgram();
+			},
+		);
+	}
+
+	public warmupColorFilterProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLColorFilterProgram",
+			() => this._colorFilterProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("colorFilterFragment"),
+					"WebGLColorFilterProgram",
+				),
+			() => {
+				this.getColorFilterProgram();
+			},
+		);
+	}
+
+	public warmupBloomProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLBloomProgram",
+			() => this._bloomProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("bloomFragment"),
+					"WebGLBloomProgram",
+				),
+			() => {
+				this.getBloomProgram();
+			},
+		);
+	}
+
+	public warmupMotionBlurProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLMotionBlurProgram",
+			() => this._motionBlurProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("motionBlurFragment"),
+					"WebGLMotionBlurProgram",
+				),
+			() => {
+				this.getMotionBlurProgram();
+			},
+		);
+	}
+
+	public warmupDOFProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLDOFProgram",
+			() => this._dofProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("dofFragment"),
+					"WebGLDOFProgram",
+				),
+			() => {
+				this.getDOFProgram();
+			},
+		);
+	}
+
+	public warmupShadowDepthProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLShadowDepthProgram",
+			() => this._shadowDepthProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("shadowDepthVertex"),
+					this._shaderSource("shadowDepthFragment"),
+					"WebGLShadowDepthProgram",
+				),
+			() => {
+				this.getShadowDepthProgram();
+			},
+		);
+	}
+
+	public warmupShadowTransmittanceProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLShadowTransmittanceProgram",
+			() => this._shadowTransmittanceProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("shadowDepthVertex"),
+					this._shaderSource("shadowTransmittanceFragment"),
+					"WebGLShadowTransmittanceProgram",
+				),
+			() => {
+				this.getShadowTransmittanceProgram();
+			},
+		);
+	}
+
+	public warmupCopyProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLCopyProgram",
+			() => this._copyProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("copyFragment"),
+					"WebGLCopyProgram",
+				),
+			() => {
+				this.getCopyProgram();
+			},
+		);
+	}
+
+	public warmupOITResolveProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLOITResolveProgram",
+			() => this._oitResolveProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("oitResolveFragment"),
+					"WebGLOITResolveProgram",
+				),
+			() => {
+				this.getOITResolveProgram();
+			},
+		);
+	}
+
+	public warmupSSAORawProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLSSAORawProgram",
+			() => this._ssaoRawProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("ssaoRawFragment"),
+					"WebGLSSAORawProgram",
+				),
+			() => {
+				this.getSSAORawProgram();
+			},
+		);
+	}
+
+	public warmupSSAOBlurProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLSSAOBlurProgram",
+			() => this._ssaoBlurProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("ssaoBlurFragment"),
+					"WebGLSSAOBlurProgram",
+				),
+			() => {
+				this.getSSAOBlurProgram();
+			},
+		);
+	}
+
+	public warmupSSAOCombineProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLSSAOCombineProgram",
+			() => this._ssaoCombineProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("ssaoCombineFragment"),
+					"WebGLSSAOCombineProgram",
+				),
+			() => {
+				this.getSSAOCombineProgram();
+			},
+		);
+	}
+
+	public warmupTAAProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLTAAProgram",
+			() => this._taaProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("taaFragment"),
+					"WebGLTAAProgram",
+				),
+			() => {
+				this.getTAAProgram();
+			},
+		);
+	}
+
+	public warmupSSRProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLSSRProgram",
+			() => this._ssrProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("postProcessStubFragment"),
+					"WebGLSSRProgram",
+				),
+			() => {
+				this.getSSRProgram();
+			},
+		);
+	}
+
+	public warmupVolumetricProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLVolumetricProgram",
+			() => this._volumetricProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("postProcessStubFragment"),
+					"WebGLVolumetricProgram",
+				),
+			() => {
+				this.getVolumetricProgram();
+			},
+		);
+	}
+
+	public warmupFogProgram(): WebGLProgramWarmupHandle {
+		return this._warmupProgram(
+			"WebGLFogProgram",
+			() => this._fogProgram,
+			() =>
+				this._beginProgramCompile(
+					this._shaderSource("presentVertex"),
+					this._shaderSource("fogFragment"),
+					"WebGLFogProgram",
+				),
+			() => {
+				this.getFogProgram();
+			},
+		);
+	}
+
+	private _warmupBuiltinSceneProgram(): WebGLProgramWarmupHandle {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		if (this._sceneProgram && this._sceneProgramDirectiveTag !== directiveTag) {
+			this._gl.deleteProgram(this._sceneProgram.program);
+			this._sceneProgram = null;
+		}
+		const limits = this._getSceneLightLimits();
+		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
+			limits,
+		});
+		const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
+			limits,
+		});
+		return this._warmupProgram(
+			"WebGLSceneProgram",
+			() =>
+				this._sceneProgram && this._sceneProgramDirectiveTag === directiveTag ?
+					this._sceneProgram
+				:	null,
+			() =>
+				this._beginProgramCompile(
+					sceneShaderSource.vertex,
+					sceneShaderSource.fragment,
+					"WebGLSceneProgram",
+					{
+						sourceMap: sceneCompositeSource.vertex.sourceMap,
+						sourceKind: "unknown",
+					},
+					{
+						sourceMap: sceneCompositeSource.fragment.sourceMap,
+						sourceKind: "unknown",
+					},
+				),
+			() => {
+				this._getBuiltinSceneProgram();
+			},
+		);
+	}
+
+	private _warmupShaderMaterialSceneProgram(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode
+	): WebGLProgramWarmupHandle | null {
+		const initialDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
+		const shaderKey = this._createShaderMaterialCacheKey(
+			material,
+			mode,
+			initialDirectiveTag,
+		);
+		const cached = this._customScenePrograms.get(shaderKey);
+		if (cached) {
+			return this._recordWarmupHandle(
+				this._createCompletedWarmupHandle(
+					`WebGLShaderMaterialProgram_${shaderKey}`,
+				),
+			);
+		}
+
+		let source: { vertexCode: string; fragmentCode: string };
+		try {
+			source = material.resolveWebGLProgram(mode, {
+				enableRuntimeInjects: this._supportsRuntimeInjects(),
+			});
+		} catch (error) {
+			const key = `webgl-shader-material-missing-source-${material.shaderId}`;
+			const message =
+				`ShaderMaterial ${material.name} has no WebGL GLSL source; ` +
+				`using built-in scene shader. ${String(error)}`;
+			this._warn(key, message);
+			return null;
+		}
+
+		const label = `WebGLShaderMaterialProgram_${shaderKey}`;
+		return this._warmupProgram(
+			label,
+			() => this._customScenePrograms.get(shaderKey) ?? null,
+			() =>
+				this._beginProgramCompile(
+					source.vertexCode,
+					source.fragmentCode,
+					label,
+					{
+						sourceMap: createInlineShaderSourceMap(
+							source.vertexCode,
+							`<shader-material:${shaderKey}:vertex>`,
+							"source",
+						),
+						variantKey: shaderKey,
+						materialId: String(material.shaderId),
+						sourceKind: "custom-material",
+					},
+					{
+						sourceMap: createInlineShaderSourceMap(
+							source.fragmentCode,
+							`<shader-material:${shaderKey}:fragment>`,
+							"source",
+						),
+						variantKey: shaderKey,
+						materialId: String(material.shaderId),
+						sourceKind: "custom-material",
+					},
+				),
+			() => {
+				this._getShaderMaterialSceneProgram(material, mode);
+			},
+			(error) => {
+				if (!this._isWarnMode()) {
+					throw error;
+				}
+				const key = `webgl-shader-material-compile-failed-${material.shaderId}`;
+				const message =
+					`ShaderMaterial ${material.name} custom WebGL shader compile failed; ` +
+					`using built-in scene shader. ${String(error)}`;
+				this._warn(key, message);
+				this._getBuiltinSceneProgram();
+			},
+		);
+	}
+
+	private _getSceneLightLimits(): WebGLSceneLightLimits {
+		return {
+			maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+			maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+			maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+			enableShadowTransmittance: this._enableShadowTransmittanceSampling,
+		};
+	}
+
+	private _createShaderMaterialCacheKey(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode,
+		directiveTag: string,
+	): string {
+		return (
+			`${material.getWebGLCacheKey()}` +
+			`|mode:${mode}` +
+			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
+			`|directive:${directiveTag}`
+		);
+	}
+
 	private _getBuiltinSceneProgram(): WebGLSceneProgram {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
 		if (this._sceneProgram && this._sceneProgramDirectiveTag === directiveTag) {
@@ -402,12 +967,7 @@ export class WebGLProgramLibrary {
 			this._sceneProgram = null;
 		}
 		if (!this._sceneProgram) {
-			const limits: WebGLSceneLightLimits = {
-				maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-				maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-				maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
-				enableShadowTransmittance: this._enableShadowTransmittanceSampling,
-			};
+			const limits = this._getSceneLightLimits();
 			const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
 				limits,
 			});
@@ -438,11 +998,11 @@ export class WebGLProgramLibrary {
 		mode: ShaderTargetMode
 	): WebGLSceneProgram | null {
 		const initialDirectiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
-		const shaderKey =
-			`${material.getWebGLCacheKey()}` +
-			`|mode:${mode}` +
-			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
-			`|directive:${initialDirectiveTag}`;
+		const shaderKey = this._createShaderMaterialCacheKey(
+			material,
+			mode,
+			initialDirectiveTag,
+		);
 		const cached = this._customScenePrograms.get(shaderKey);
 		if (cached) {
 			return cached;
@@ -508,11 +1068,11 @@ export class WebGLProgramLibrary {
 		}
 		const finalDirectiveTag =
 			this._shaderCompileStage?.getCacheFingerprintTag() ?? initialDirectiveTag;
-		const finalShaderKey =
-			`${material.getWebGLCacheKey()}` +
-			`|mode:${mode}` +
-			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
-			`|directive:${finalDirectiveTag}`;
+		const finalShaderKey = this._createShaderMaterialCacheKey(
+			material,
+			mode,
+			finalDirectiveTag,
+		);
 		const existingFinal = this._customScenePrograms.get(finalShaderKey);
 		if (existingFinal) {
 			this._gl.deleteProgram(sceneProgram.program);
@@ -1030,52 +1590,231 @@ export class WebGLProgramLibrary {
 		vertexMetadata?: ShaderCompileMetadata,
 		fragmentMetadata?: ShaderCompileMetadata,
 	): WebGLProgram {
-		const gl = this._gl;
-		const vertexShader = this._compileShader(
-			gl.VERTEX_SHADER,
-			vertexSource,
-			`${label}:vertex`,
-			vertexMetadata,
-		);
-		const fragmentShader = this._compileShader(
-			gl.FRAGMENT_SHADER,
-			fragmentSource,
-			`${label}:fragment`,
-			fragmentMetadata,
-		);
-		const program = gl.createProgram();
-		if (!program) {
-			gl.deleteShader(vertexShader);
-			gl.deleteShader(fragmentShader);
-			throw new Error(`Failed to create WebGL program (${label})`);
+		const precompiled = this._precompiledPrograms.get(label);
+		if (precompiled) {
+			this._precompiledPrograms.delete(label);
+			return precompiled;
 		}
-
-		gl.attachShader(program, vertexShader);
-		gl.attachShader(program, fragmentShader);
-		gl.linkProgram(program);
-		gl.deleteShader(vertexShader);
-		gl.deleteShader(fragmentShader);
-
-		const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS);
-		if (!linked) {
-			const log = gl.getProgramInfoLog(program) || "No program link log";
-			gl.deleteProgram(program);
-			const messages = parseWebGLShaderInfoLog(log);
-			throw new ShaderCompileError({
-				backend: "webgl",
-				language: "glsl",
-				stage: "unknown",
+		const pending = this._pendingProgramCompiles.get(label);
+		if (pending) {
+			return this._finalizeProgramCompile(pending);
+		}
+		return this._finalizeProgramCompile(
+			this._beginProgramCompile(
+				vertexSource,
+				fragmentSource,
 				label,
-				sourceKind: vertexMetadata?.sourceKind ?? fragmentMetadata?.sourceKind ?? "unknown",
-				variantKey: vertexMetadata?.variantKey ?? fragmentMetadata?.variantKey,
-				materialId: vertexMetadata?.materialId ?? fragmentMetadata?.materialId,
-				code: `${vertexSource}\n\n${fragmentSource}`,
-				sourceMap: null,
-				messages: messages.length > 0 ? messages : [this._toCompilerMessage(log)],
-				rawLog: log,
-			});
-		}
+				vertexMetadata,
+				fragmentMetadata,
+			),
+		);
+	}
 
+	private _warmupProgram(
+		label: string,
+		getCached: () => { program: WebGLProgram } | null,
+		beginCompile: () => WebGLPendingProgramCompile,
+		finalizeReadyProgram: () => void,
+		handleCompileError?: (error: unknown) => void,
+	): WebGLProgramWarmupHandle {
+		if (getCached()) {
+			return this._recordWarmupHandle(
+				this._createCompletedWarmupHandle(label),
+			);
+		}
+		const pending =
+			this._pendingProgramCompiles.get(label) ?? beginCompile();
+		return this._recordWarmupHandle(
+			this._createPendingWarmupHandle(
+				label,
+				pending,
+				finalizeReadyProgram,
+				handleCompileError,
+			),
+		);
+	}
+
+	private _createCompletedWarmupHandle(label: string): WebGLProgramWarmupHandle {
+		return {
+			label,
+			isComplete: () => true,
+			finalize: () => {},
+		};
+	}
+
+	private _createPendingWarmupHandle(
+		label: string,
+		pending: WebGLPendingProgramCompile,
+		finalizeReadyProgram: () => void,
+		handleCompileError?: (error: unknown) => void,
+	): WebGLProgramWarmupHandle {
+		return {
+			label,
+			isComplete: () => this._isProgramCompileComplete(pending),
+			finalize: () => {
+				if (pending.status === "failed") {
+					if (handleCompileError) {
+						handleCompileError(pending.error);
+						return;
+					}
+					throw pending.error;
+				}
+				if (pending.status !== "ready") {
+					try {
+						const program = this._finalizeProgramCompile(pending);
+						this._precompiledPrograms.set(label, program);
+					} catch (error) {
+						if (handleCompileError) {
+							handleCompileError(error);
+							return;
+						}
+						throw error;
+					}
+				}
+				finalizeReadyProgram();
+			},
+		};
+	}
+
+	private _recordWarmupHandle(
+		handle: WebGLProgramWarmupHandle
+	): WebGLProgramWarmupHandle {
+		this._warmupHandleLog.push(handle);
+		return handle;
+	}
+
+	private _beginProgramCompile(
+		vertexSource: string,
+		fragmentSource: string,
+		label: string,
+		vertexMetadata?: ShaderCompileMetadata,
+		fragmentMetadata?: ShaderCompileMetadata,
+	): WebGLPendingProgramCompile {
+		const gl = this._gl;
+		let vertexShader: WebGLPendingShaderCompile | null = null;
+		let fragmentShader: WebGLPendingShaderCompile | null = null;
+		let program: WebGLProgram | null = null;
+		try {
+			vertexShader = this._beginShaderCompile(
+				gl.VERTEX_SHADER,
+				vertexSource,
+				`${label}:vertex`,
+				vertexMetadata,
+			);
+			fragmentShader = this._beginShaderCompile(
+				gl.FRAGMENT_SHADER,
+				fragmentSource,
+				`${label}:fragment`,
+				fragmentMetadata,
+			);
+			program = gl.createProgram();
+			if (!program) {
+				throw new Error(`Failed to create WebGL program (${label})`);
+			}
+
+			gl.attachShader(program, vertexShader.shader);
+			gl.attachShader(program, fragmentShader.shader);
+			gl.linkProgram(program);
+			const pending = {
+				label,
+				vertex: vertexShader,
+				fragment: fragmentShader,
+				program,
+				status: "pending" as const,
+				error: null,
+			};
+			this._pendingProgramCompiles.set(label, pending);
+			return pending;
+		} catch (error) {
+			if (program) {
+				gl.deleteProgram(program);
+			}
+			if (vertexShader) {
+				gl.deleteShader(vertexShader.shader);
+			}
+			if (fragmentShader) {
+				gl.deleteShader(fragmentShader.shader);
+			}
+			this._pendingProgramCompiles.delete(label);
+			throw error;
+		}
+	}
+
+	private _finalizeProgramCompile(
+		pending: WebGLPendingProgramCompile
+	): WebGLProgram {
+		if (pending.status === "ready") {
+			return pending.program;
+		}
+		if (pending.status === "failed") {
+			throw pending.error;
+		}
+		const gl = this._gl;
+		try {
+			this._finalizeShaderCompile(pending.vertex);
+			this._finalizeShaderCompile(pending.fragment);
+			const linked = !!gl.getProgramParameter(
+				pending.program,
+				gl.LINK_STATUS,
+			);
+			if (!linked) {
+				const log = gl.getProgramInfoLog(pending.program) || "No program link log";
+				const messages = parseWebGLShaderInfoLog(log);
+				throw new ShaderCompileError({
+					backend: "webgl",
+					language: "glsl",
+					stage: "unknown",
+					label: pending.label,
+					sourceKind:
+						pending.vertex.sourceKind ??
+						pending.fragment.sourceKind ??
+						"unknown",
+					variantKey:
+						pending.vertex.variantKey ?? pending.fragment.variantKey,
+					materialId:
+						pending.vertex.materialId ?? pending.fragment.materialId,
+					code: `${pending.vertex.code}\n\n${pending.fragment.code}`,
+					sourceMap: null,
+					messages:
+						messages.length > 0 ? messages : [this._toCompilerMessage(log)],
+					rawLog: log,
+				});
+			}
+			this._validateProgramIfRequested(pending.program, pending.label);
+			pending.status = "ready";
+			return pending.program;
+		} catch (error) {
+			pending.status = "failed";
+			pending.error = error;
+			gl.deleteProgram(pending.program);
+			throw error;
+		} finally {
+			gl.deleteShader(pending.vertex.shader);
+			gl.deleteShader(pending.fragment.shader);
+			this._pendingProgramCompiles.delete(pending.label);
+		}
+	}
+
+	private _isProgramCompileComplete(
+		pending: WebGLPendingProgramCompile
+	): boolean {
+		if (pending.status !== "pending" || !this._parallelShaderCompile) {
+			return true;
+		}
+		return !!this._gl.getProgramParameter(
+			pending.program,
+			this._parallelShaderCompile.COMPLETION_STATUS_KHR,
+		);
+	}
+
+	private _validateProgramIfRequested(
+		program: WebGLProgram,
+		label: string
+	): void {
+		if (!this._validatePrograms) {
+			return;
+		}
+		const gl = this._gl;
 		gl.validateProgram(program);
 		const validateStatus = gl.getProgramParameter(program, gl.VALIDATE_STATUS);
 		if (validateStatus === false) {
@@ -1085,16 +1824,14 @@ export class WebGLProgramLibrary {
 				`${gl.getProgramInfoLog(program) || "no log"}`;
 			this._warn(key, message);
 		}
-
-		return program;
 	}
 
-	private _compileShader(
+	private _beginShaderCompile(
 		type: number,
 		source: string,
 		label: string,
 		metadata?: ShaderCompileMetadata,
-	): WebGLShader {
+	): WebGLPendingShaderCompile {
 		const stage = type === this._gl.VERTEX_SHADER ? "vertex" : "fragment";
 		const sourceKind =
 			metadata?.sourceKind ??
@@ -1117,26 +1854,40 @@ export class WebGLProgramLibrary {
 		}
 		gl.shaderSource(shader, processed.code);
 		gl.compileShader(shader);
-		const compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+		return {
+			shader,
+			stage,
+			label,
+			sourceKind,
+			variantKey: metadata?.variantKey,
+			materialId: metadata?.materialId,
+			code: processed.code,
+			sourceMap: processed.sourceMap,
+		};
+	}
+
+	private _finalizeShaderCompile(shader: WebGLPendingShaderCompile): void {
+		const compiled = !!this._gl.getShaderParameter(
+			shader.shader,
+			this._gl.COMPILE_STATUS,
+		);
 		if (!compiled) {
-			const log = gl.getShaderInfoLog(shader) || "No shader compile log";
-			gl.deleteShader(shader);
+			const log = this._gl.getShaderInfoLog(shader.shader) || "No shader compile log";
 			const parsed = parseWebGLShaderInfoLog(log);
 			throw new ShaderCompileError({
 				backend: "webgl",
 				language: "glsl",
-				stage,
-				label,
-				sourceKind,
-				variantKey: metadata?.variantKey,
-				materialId: metadata?.materialId,
-				code: processed.code,
-				sourceMap: processed.sourceMap,
+				stage: shader.stage,
+				label: shader.label,
+				sourceKind: shader.sourceKind,
+				variantKey: shader.variantKey,
+				materialId: shader.materialId,
+				code: shader.code,
+				sourceMap: shader.sourceMap,
 				messages: parsed.length > 0 ? parsed : [this._toCompilerMessage(log)],
 				rawLog: log,
 			});
 		}
-		return shader;
 	}
 
 	private _isWarnMode(): boolean {
@@ -1248,6 +1999,17 @@ export class WebGLProgramLibrary {
 	}
 
 	private _disposePrograms(): void {
+		for (const pending of this._pendingProgramCompiles.values()) {
+			this._gl.deleteShader(pending.vertex.shader);
+			this._gl.deleteShader(pending.fragment.shader);
+			this._gl.deleteProgram(pending.program);
+		}
+		this._pendingProgramCompiles.clear();
+		for (const program of this._precompiledPrograms.values()) {
+			this._gl.deleteProgram(program);
+		}
+		this._precompiledPrograms.clear();
+		this._warmupHandleLog.length = 0;
 		if (this._sceneProgram) {
 			this._gl.deleteProgram(this._sceneProgram.program);
 			this._sceneProgram = null;
@@ -1355,4 +2117,35 @@ function isShaderRuntime(value: unknown): value is ShaderRuntime {
 		"getMode" in value &&
 		typeof (value as { getMode?: unknown }).getMode === "function"
 	);
+}
+
+function isWebGLProgramLibraryOptions(
+	value: unknown
+): value is WebGLProgramLibraryOptions {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		("validatePrograms" in value)
+	);
+}
+
+function resolveParallelShaderCompileExtension(
+	gl: WebGL2RenderingContext
+): WebGLParallelShaderCompileExtension | null {
+	if (typeof gl.getExtension !== "function") {
+		return null;
+	}
+	try {
+		const extension = gl.getExtension("KHR_parallel_shader_compile");
+		if (
+			extension &&
+			typeof (extension as { COMPLETION_STATUS_KHR?: unknown })
+				.COMPLETION_STATUS_KHR === "number"
+		) {
+			return extension as WebGLParallelShaderCompileExtension;
+		}
+	} catch {
+		return null;
+	}
+	return null;
 }

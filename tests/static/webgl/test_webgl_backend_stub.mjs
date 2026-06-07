@@ -244,6 +244,7 @@ async function testInitAndPassRouting() {
 		environment: true,
 		clusteredLighting: true,
 		oit: true,
+		occlusionCulling: false,
 	});
 	assert.equal("postProcessCapabilities" in backend, false);
 

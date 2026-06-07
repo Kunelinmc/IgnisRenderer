@@ -453,7 +453,7 @@ export class WebGLFastApproximateAntiAliasingImplementation
 	public readonly id = "fxaa:webgl";
 
 	public warmup(context: WebGLFXAAContext | undefined): void {
-		context?.programs.getFXAAProgram();
+		context?.programs.warmupFXAAProgram();
 	}
 
 	public execute(

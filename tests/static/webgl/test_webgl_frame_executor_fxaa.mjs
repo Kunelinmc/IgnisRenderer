@@ -1140,7 +1140,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 	);
 }
 
-function testWarmupCollectsPostProcessHintsFromPlanOrder() {
+async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const calls = [];
@@ -1154,9 +1154,25 @@ function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 			calls.push("bloom");
 			return { program: { id: "bloom" }, uniforms: {} };
 		},
+		warmupBloomProgram() {
+			calls.push("bloom");
+			return {
+				label: "bloom",
+				isComplete: () => true,
+				finalize: () => {},
+			};
+		},
 		getFXAAProgram() {
 			calls.push("fxaa");
 			return { program: { id: "fxaa" }, uniforms: {} };
+		},
+		warmupFXAAProgram() {
+			calls.push("fxaa");
+			return {
+				label: "fxaa",
+				isComplete: () => true,
+				finalize: () => {},
+			};
 		},
 		getPresentProgram() {
 			calls.push("present");
@@ -1164,7 +1180,7 @@ function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 		},
 	};
 
-	executor.warmup(
+	await executor.warmup(
 		{
 			features: {
 				enableOIT: false,
@@ -1190,7 +1206,7 @@ function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	assert.deepEqual(calls, ["scene", "bloom", "fxaa", "present"]);
 }
 
-function run() {
+async function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
 	testExecutePostProcessPassLeavesFXAAToPassImplementation();
@@ -1208,8 +1224,8 @@ function run() {
 	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();
 	testGlobalUniformsBindLightProbeIBLTextures();
 	testGlobalUniformsSanitizeNonFiniteCameraAndLightValues();
-	testWarmupCollectsPostProcessHintsFromPlanOrder();
+	await testWarmupCollectsPostProcessHintsFromPlanOrder();
 	console.log("WebGL FXAA frame executor tests passed");
 }
 
-run();
+await run();

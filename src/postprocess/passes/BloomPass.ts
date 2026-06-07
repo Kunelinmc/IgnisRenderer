@@ -664,7 +664,7 @@ export class WebGLBloomImplementation
 	public readonly id = "bloom:webgl";
 
 	public warmup(context: WebGLBloomContext | undefined): void {
-		context?.programs.getBloomProgram();
+		context?.programs.warmupBloomProgram();
 	}
 
 	public execute(
