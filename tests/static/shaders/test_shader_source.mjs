@@ -29,7 +29,7 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(glslComposite.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.equal(
 		wgslComposite.sourceMap.segments[0].sourcePath,
-		"./webgpu/parts/lightData.wgsl"
+		"./webgpu/common/lightData.wgsl"
 	);
 	assert.equal(
 		glslComposite.sourceMap.segments[0].sourcePath,
