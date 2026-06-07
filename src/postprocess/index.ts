@@ -226,11 +226,6 @@ export {
 	type PostProcessPassWarmupRequest,
 	type ResolvedPostProcessPass,
 } from "./PostProcessPass";
-export {
-	registerPostProcessBackendAdapter,
-	resolvePostProcessBackendAdapter,
-	unregisterPostProcessBackendAdapter,
-} from "./PostProcessBackendAdapterRegistry";
 export type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,

@@ -4,6 +4,7 @@ import type {
 	FramePass,
 } from "../pipeline/types";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
+import type { PostProcessBackendAdapter } from "../postprocess/types";
 import type { ShaderCompileError } from "../shaders/runtime";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
@@ -99,6 +100,16 @@ export interface IRenderBackend {
 	readonly type: RenderBackendType;
 	readonly capabilities: BackendCapabilities;
 	readonly frameScheduling: FrameSchedulingMode;
+	/**
+	 * Optional executor used by `Renderer` to run logical post-process work.
+	 *
+	 * @remarks Backends that support the renderer-owned `postprocess` stage must
+	 * expose a stable adapter for the backend lifetime. Backends that omit this
+	 * property can still render normally, but enabled post-process passes are
+	 * skipped with one renderer diagnostic.
+	 * @sideEffects None.
+	 */
+	readonly postProcessAdapter?: PostProcessBackendAdapter;
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	/**

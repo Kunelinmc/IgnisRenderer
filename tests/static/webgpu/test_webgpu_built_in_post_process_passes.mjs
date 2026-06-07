@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-	resolvePostProcessBackendAdapter,
 	ScreenSpaceRefractionsPass,
 	ScreenSpaceReflectionsPass,
 	TemporalAntiAliasingPass,
@@ -329,7 +328,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	const backend = new WebGPUBackend();
-	const adapter = resolvePostProcessBackendAdapter(backend);
+	const adapter = backend.postProcessAdapter;
 	assert.ok(adapter);
 	assert.equal(adapter.backend, "webgpu");
 	assert.equal(typeof adapter.executePass, "function");

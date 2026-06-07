@@ -27,7 +27,7 @@ import {
 	PostProcessPass,
 	type PostProcessPassConfig,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -35,11 +35,8 @@ import type {
 } from "../types";
 
 export const BLOOM_PASS_ID = "bloom";
-export const BLOOM_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: BLOOM_PASS_ID,
-	placement: "hdr",
-	order: 500,
-});
+export const BLOOM_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(BLOOM_PASS_ID);
 
 export interface BloomOptions {
 	/** Luminance threshold above which pixels contribute to bloom. */

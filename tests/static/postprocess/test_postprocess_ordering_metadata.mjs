@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import {
+import * as ordering from "../../../src/postprocess/ordering.ts";
+import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessPipeline.ts";
+
+const {
 	BUILTIN_POST_PROCESS_ORDER,
 	getBuiltinPostProcessOrder,
-} from "../../../src/postprocess/ordering.ts";
-import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessPipeline.ts";
+} = ordering;
 
 function testBuiltinOrderIsAvailableFromOrderingModule() {
 	assert.deepEqual(
@@ -32,6 +34,7 @@ function testBuiltinOrderIsAvailableFromOrderingModule() {
 		order: 100,
 	});
 	assert.equal(getBuiltinPostProcessOrder("custom"), null);
+	assert.equal("defineBuiltinPostProcessOrder" in ordering, false);
 }
 
 function testPipelineStageHelperWorksWithoutPassBarrelImport() {

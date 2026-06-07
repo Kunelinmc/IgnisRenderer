@@ -26,7 +26,7 @@ import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -35,11 +35,9 @@ import type {
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
-		placement: "ldr",
-		order: 710,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(
+		FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID
+	);
 
 interface IncrementalDirtyRect {
 	minX: number;

@@ -11,10 +11,6 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import {
-	registerPostProcessBackendAdapter,
-	unregisterPostProcessBackendAdapter,
-} from "../postprocess";
-import {
 	type FrameAttachments,
 	type FrameContext,
 	type FramePass,
@@ -256,6 +252,7 @@ export class WebGPUBackend implements IRenderBackend {
 		assertDeviceOperational: (operation) =>
 			this._assertDeviceOperational(operation),
 	});
+	public readonly postProcessAdapter = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
@@ -401,7 +398,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resourceManager = new WebGPUResourceManager(
 			this._createResourceManagerHost()
 		);
-		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 		this.shaderRuntime.onDidChange(() => {
 			this._onShaderRuntimeChanged();
 		});
@@ -931,7 +927,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
-		unregisterPostProcessBackendAdapter(this);
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
 		this._deviceLossPromise = null;

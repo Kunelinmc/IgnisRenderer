@@ -2,8 +2,8 @@ import type { FrameContext } from "../pipeline/types";
 import {
 	hasPostProcessExecutionPasses,
 	PostProcessPipeline,
-	resolvePostProcessBackendAdapter,
 	type PostProcessBackendKind,
+	type PostProcessBackendAdapter,
 	type PostProcessPassRegistry,
 	type PostProcessPassRegistrySnapshot,
 	type ResolvedPostProcessPass,
@@ -56,7 +56,7 @@ export class RendererPostProcessController {
 		postProcess: PostProcessPassRegistrySnapshot,
 		frameContext?: FrameContext
 	): ResolvedPostProcessPass[] {
-		const adapter = resolvePostProcessBackendAdapter(this._backend);
+		const adapter = this._resolveAdapter();
 		if (!adapter) {
 			this._warnIfMissingAdapterHasWork(postProcess, frameContext);
 			return [];
@@ -86,7 +86,7 @@ export class RendererPostProcessController {
 			return;
 		}
 
-		const adapter = resolvePostProcessBackendAdapter(this._backend);
+		const adapter = this._resolveAdapter();
 		if (!adapter) {
 			this._warnIfMissingAdapterHasWork(context.postProcess, context);
 			return;
@@ -166,7 +166,7 @@ export class RendererPostProcessController {
 	 * @sideEffects Destroys pipeline histories, transients, and pass resources.
 	 */
 	public destroyBackendResources(backend: PostProcessBackendKind): void {
-		const adapter = resolvePostProcessBackendAdapter(this._backend);
+		const adapter = this._resolveAdapter();
 		if (adapter && adapter.backend === backend) {
 			this._pipeline.destroy(adapter);
 		}
@@ -203,15 +203,19 @@ export class RendererPostProcessController {
 		const key = `${this._backend.type}-postprocess-adapter-missing`;
 		this._warn(
 			key,
-			`Backend "${this._backend.type}" has enabled post-process passes but no registered post-process adapter; skipping post-process stage`
+			`Backend "${this._backend.type}" has enabled post-process passes but no post-process adapter; skipping post-process stage`
 		);
 	}
 
 	private _resolveEventBackend(
 		backend: RenderBackendType | undefined
 	): PostProcessBackendKind {
-		const adapter = resolvePostProcessBackendAdapter(this._backend);
+		const adapter = this._resolveAdapter();
 		return (backend ?? adapter?.backend ?? this._backend.type) as
 			PostProcessBackendKind;
+	}
+
+	private _resolveAdapter(): PostProcessBackendAdapter | null {
+		return this._backend.postProcessAdapter ?? null;
 	}
 }

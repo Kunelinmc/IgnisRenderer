@@ -30,7 +30,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -43,11 +43,9 @@ const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
-		placement: "spatial",
-		order: 100,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(
+		SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID
+	);
 const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 

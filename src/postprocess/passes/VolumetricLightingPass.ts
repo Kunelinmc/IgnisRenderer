@@ -24,7 +24,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -39,11 +39,7 @@ const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
 export const VOLUMETRIC_LIGHTING_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: VOLUMETRIC_LIGHTING_PASS_ID,
-		placement: "atmosphere",
-		order: 300,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(VOLUMETRIC_LIGHTING_PASS_ID);
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 

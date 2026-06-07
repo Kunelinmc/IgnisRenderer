@@ -9,7 +9,6 @@ import {
 	MotionBlurPass,
 	PostProcessPass,
 	PostProcessPassRegistry,
-	registerPostProcessBackendAdapter,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceRefractionsPass,
@@ -227,7 +226,10 @@ export function installNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessAdapter(backend);
-	registerPostProcessBackendAdapter(target, support.executor);
+	Object.defineProperty(target, "postProcessAdapter", {
+		configurable: true,
+		value: support.executor,
+	});
 	return support;
 }
 

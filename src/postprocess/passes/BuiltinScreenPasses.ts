@@ -48,7 +48,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -65,36 +65,18 @@ export const TONE_MAPPING_PASS_ID = "tonemap";
 export const COLOR_FILTER_PASS_ID = "color-filter";
 export const INTERACTION_OUTLINE_PASS_ID = "interaction-outline";
 export const GAMMA_PASS_ID = "gamma";
-export const MOTION_BLUR_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: MOTION_BLUR_PASS_ID,
-	placement: "camera",
-	order: 400,
-});
-export const DEPTH_OF_FIELD_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: DEPTH_OF_FIELD_PASS_ID,
-	placement: "camera",
-	order: 410,
-});
-export const TONE_MAPPING_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: TONE_MAPPING_PASS_ID,
-	placement: "hdr",
-	order: 600,
-});
-export const COLOR_FILTER_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: COLOR_FILTER_PASS_ID,
-	placement: "ldr",
-	order: 700,
-});
-export const INTERACTION_OUTLINE_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: INTERACTION_OUTLINE_PASS_ID,
-	placement: "overlay",
-	order: 800,
-});
-export const GAMMA_PASS_ORDER = defineBuiltinPostProcessOrder({
-	id: GAMMA_PASS_ID,
-	placement: "present",
-	order: 900,
-});
+export const MOTION_BLUR_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(MOTION_BLUR_PASS_ID);
+export const DEPTH_OF_FIELD_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(DEPTH_OF_FIELD_PASS_ID);
+export const TONE_MAPPING_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(TONE_MAPPING_PASS_ID);
+export const COLOR_FILTER_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(COLOR_FILTER_PASS_ID);
+export const INTERACTION_OUTLINE_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(INTERACTION_OUTLINE_PASS_ID);
+export const GAMMA_PASS_ORDER =
+	getRequiredBuiltinPostProcessOrderMetadata(GAMMA_PASS_ID);
 
 export interface MotionBlurOptions {
 	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */

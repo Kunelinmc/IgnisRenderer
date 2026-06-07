@@ -9,6 +9,7 @@ import {
 	type PostProcessPassId,
 	type ResolvedPostProcessState,
 } from "../postprocess";
+import { BUILTIN_POST_PROCESS_METADATA } from "../postprocess/builtinMetadata";
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
@@ -352,107 +353,20 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 	},
 ];
 
-const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] = [
-	{
-		id: "ssao",
-		order: 0,
-		firstPass: "ssao",
-		grade: "standard",
-		inflationRadius: 8,
-	},
-	{
-		id: "ssgi",
-		order: 1,
-		firstPass: "ssgi",
-		grade: "standard",
-		inflationRadius: 12,
-	},
-	{
-		id: "taa",
-		order: 2,
-		firstPass: "taa",
-		grade: "cinematic",
-		inflationRadius: 8,
-	},
-	{
-		id: "ssr",
-		order: 3,
-		firstPass: "ssr",
-		grade: "cinematic",
-		inflationRadius: 16,
-	},
-	{
-		id: "volumetric",
-		order: 4,
-		firstPass: "volumetric",
-		grade: "cinematic",
-		inflationRadius: 16,
-	},
-	{
-		id: "fog",
-		order: 5,
-		firstPass: "fog",
-		grade: "cinematic",
-		inflationRadius: 20,
-		isEnabled: isFogPostProcessEnabled,
-	},
-	{
-		id: "motion-blur",
-		order: 6,
-		firstPass: "motion-blur",
-		grade: "cinematic",
-		inflationRadius: 24,
-	},
-	{
-		id: "dof",
-		order: 7,
-		firstPass: "dof",
-		grade: "cinematic",
-		inflationRadius: 32,
-	},
-	{
-		id: "bloom",
-		order: 8,
-		firstPass: "bloom",
-		grade: "standard",
-		inflationRadius: 48,
-	},
-	{
-		id: "tonemap",
-		order: 9,
-		firstPass: "tonemap",
-		grade: "light",
-		inflationRadius: 0,
-	},
-	{
-		id: "color-filter",
-		order: 10,
-		firstPass: "color-filter",
-		grade: "light",
-		inflationRadius: 2,
-	},
-	{
-		id: "fxaa",
-		order: 11,
-		firstPass: "fxaa",
-		grade: "light",
-		inflationRadius: 2,
-	},
-	{
-		id: "interaction-outline",
-		order: 12,
-		firstPass: "interaction-outline",
-		grade: "light",
-		inflationRadius: 2,
-	},
-	{
-		id: "gamma",
-		order: 13,
-		firstPass: "gamma",
-		grade: "light",
-		inflationRadius: 0,
-	},
-];
+const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] =
+	BUILTIN_POST_PROCESS_METADATA.map((metadata, order) => ({
+		id: metadata.id,
+		order,
+		firstPass: metadata.incremental.firstPass,
+		grade: metadata.incremental.grade,
+		inflationRadius: metadata.incremental.inflationRadius,
+		...(metadata.incremental.fallbackScale === undefined ?
+			{}
+		:	{ fallbackScale: metadata.incremental.fallbackScale }),
+		...(metadata.incremental.enabledPredicate === "fog-postprocess" ?
+			{ isEnabled: isFogPostProcessEnabled }
+		:	{}),
+	}));
 
 const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
 	none: 0,

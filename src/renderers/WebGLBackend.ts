@@ -11,10 +11,6 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
-import {
-	registerPostProcessBackendAdapter,
-	unregisterPostProcessBackendAdapter,
-} from "../postprocess";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
 import {
@@ -80,6 +76,7 @@ export class WebGLBackend implements IRenderBackend {
 	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 	});
+	public readonly postProcessAdapter = this._postProcessExecutor;
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
@@ -121,7 +118,6 @@ export class WebGLBackend implements IRenderBackend {
 		});
 		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
-		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 	}
 
 	public setRenderer(renderer: RendererBackendBridge): void {
@@ -323,7 +319,6 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor = null;
 		this._particleSimulator = null;
 		this._gl = null;
-		unregisterPostProcessBackendAdapter(this);
 
 		if (this._canvas) {
 			if (this._contextLossHandler) {

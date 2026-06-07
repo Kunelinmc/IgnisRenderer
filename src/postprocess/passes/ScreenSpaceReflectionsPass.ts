@@ -20,7 +20,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessHistorySlots,
@@ -35,11 +35,7 @@ const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
 export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
-		placement: "temporal",
-		order: 210,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(SCREEN_SPACE_REFLECTIONS_PASS_ID);
 const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;

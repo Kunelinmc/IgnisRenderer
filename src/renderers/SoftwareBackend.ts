@@ -5,10 +5,6 @@ import {
 	type FrameContext,
 	type FramePass,
 } from "../pipeline/types";
-import {
-	registerPostProcessBackendAdapter,
-	unregisterPostProcessBackendAdapter,
-} from "../postprocess";
 import { Rasterizer } from "./software/Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
@@ -137,6 +133,7 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
+	public readonly postProcessAdapter = this._postProcessExecutor;
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
@@ -173,7 +170,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 		this._ensureRuntime();
-		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {
@@ -614,7 +610,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._reflectionPass = null;
 		this._particleSimulator = null;
 		this._rasterizer = null;
-		unregisterPostProcessBackendAdapter(this);
 	}
 
 	private _emitPostProcessResourceEvent(

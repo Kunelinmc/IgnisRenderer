@@ -26,7 +26,7 @@ import {
 } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -39,11 +39,7 @@ import type {
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 export const TEMPORAL_ANTI_ALIASING_PASS_ID = "taa";
 export const TEMPORAL_ANTI_ALIASING_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: TEMPORAL_ANTI_ALIASING_PASS_ID,
-		placement: "temporal",
-		order: 200,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(TEMPORAL_ANTI_ALIASING_PASS_ID);
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];

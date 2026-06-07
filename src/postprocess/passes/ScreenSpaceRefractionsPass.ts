@@ -20,7 +20,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -31,11 +31,7 @@ import type {
 
 export const SCREEN_SPACE_REFRACTIONS_PASS_ID = "ssrefraction";
 export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: SCREEN_SPACE_REFRACTIONS_PASS_ID,
-		placement: "temporal",
-		order: 215,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(SCREEN_SPACE_REFRACTIONS_PASS_ID);
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;

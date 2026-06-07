@@ -18,7 +18,7 @@ import {
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { defineBuiltinPostProcessOrder } from "../ordering";
+import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -29,11 +29,9 @@ import type {
 const SSGI_MAX_SAMPLES = 16;
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER =
-	defineBuiltinPostProcessOrder({
-		id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
-		placement: "spatial",
-		order: 110,
-	});
+	getRequiredBuiltinPostProcessOrderMetadata(
+		SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID
+	);
 
 export interface SSGIOptions {
 	/** Indirect-light sample count, clamped to backend limits. */

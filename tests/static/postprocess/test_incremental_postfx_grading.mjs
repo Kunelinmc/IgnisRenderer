@@ -98,6 +98,17 @@ function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 	assert.equal(cinematicRatio, 0.24);
 }
 
+function testScreenSpaceRefractionUsesBuiltinIncrementalMetadata() {
+	const registry = getDefaultIncrementalRegistry();
+	const postProcess = createPostProcess(enable("ssrefraction"));
+	assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
+	assert.equal(
+		registry.resolveFirstEnabledPostProcessStage(postProcess),
+		"ssrefraction"
+	);
+	assert.equal(computePostProcessInflationRadius(postProcess), 24);
+}
+
 function testCustomPostProcessDefaultIncrementalMetadata() {
 	const postProcess = createPostProcess(enable("custom-edge"));
 	assert.equal(resolvePostProcessGrade(postProcess), "light");
@@ -133,6 +144,7 @@ function run() {
 	testResolvePostProcessGrade();
 	testComputePostProcessInflationRadius();
 	testScaleFullFrameFallbackAreaRatioForPostProcess();
+	testScreenSpaceRefractionUsesBuiltinIncrementalMetadata();
 	testCustomPostProcessDefaultIncrementalMetadata();
 	testCustomPostProcessIncrementalMetadataOverride();
 	console.log("Incremental postfx grading tests passed");
