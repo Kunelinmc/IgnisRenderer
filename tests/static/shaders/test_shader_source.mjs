@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	ShaderSource,
 	WEBGL_SHADER_PARTS,
 } from "../../../src/shaders/ShaderSource.ts";
+import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
+
+const REPO_ROOT = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+	".."
+);
+const SHADER_ROOT = path.join(REPO_ROOT, "src", "shaders");
 
 const WEBGL_SCENE_LIMITS = {
 	maxDirectionalLights: 2,
@@ -152,6 +164,71 @@ function testSyncLoadPopulatesPreparedCache() {
 	assert.equal(ShaderSource.get("webgpu.utility.mipmapBlit.raw"), source);
 }
 
+async function testCustomAsyncLoaderOverridesBuiltInSource() {
+	ShaderSource.configure({
+		loader: async (descriptor) => {
+			assert.equal(descriptor.path, "./webgpu/common/lightData.wgsl");
+			return "struct DirectionalLightData { value: f32, };";
+		},
+		preferCustomLoader: true,
+	});
+
+	try {
+		const source = await ShaderSource.load("webgpu.scene.part.lightData.raw");
+		assert.equal(source, "struct DirectionalLightData { value: f32, };");
+	} finally {
+		ShaderSource.resetConfiguration();
+	}
+}
+
+async function testCustomLoaderFailureFallsBackToBuiltIns() {
+	ShaderSource.configure({
+		loader: async () => {
+			throw new Error("custom loader unavailable");
+		},
+	});
+
+	try {
+		const source = await ShaderSource.load("webgpu.utility.present.raw");
+		assert.ok(source.includes("fn"));
+	} finally {
+		ShaderSource.resetConfiguration();
+	}
+}
+
+function testCustomSyncLoaderOverridesBuiltInSource() {
+	ShaderSource.configure({
+		syncLoader: (descriptor) =>
+			descriptor.path === "./webgpu/utility/mipmapBlit.wgsl" ?
+				"@compute @workgroup_size(1) fn csMain() {}"
+			:	undefined,
+		preferCustomLoader: true,
+	});
+
+	try {
+		const source = ShaderSource.getSync("webgpu.utility.mipmapBlit.raw");
+		assert.equal(source, "@compute @workgroup_size(1) fn csMain() {}");
+	} finally {
+		ShaderSource.resetConfiguration();
+	}
+}
+
+function testMissingCustomSyncLoaderReportsClearError() {
+	ShaderSource.configure({
+		loader: async () => "unused",
+		preferCustomLoader: true,
+	});
+
+	try {
+		assert.throws(
+			() => ShaderSource.getSync("webgpu.utility.mipmapBlit.raw"),
+			/requires a syncLoader/
+		);
+	} finally {
+		ShaderSource.resetConfiguration();
+	}
+}
+
 function testClearCacheDoesNotTouchShaderRuntime() {
 	ShaderSource.clearCache();
 	const runtime = new ShaderRuntime({ mode: "warn" });
@@ -173,6 +250,50 @@ function testClearCacheDoesNotTouchShaderRuntime() {
 	assert.equal(before.hits, after.hits);
 }
 
+async function collectShaderFiles(relativeRoot, extension) {
+	const root = path.join(SHADER_ROOT, relativeRoot);
+	const files = [];
+
+	async function walk(directory) {
+		const entries = await readdir(directory, { withFileTypes: true });
+		for (const entry of entries) {
+			const fullPath = path.join(directory, entry.name);
+			if (entry.isDirectory()) {
+				await walk(fullPath);
+				continue;
+			}
+			if (!entry.isFile() || !entry.name.endsWith(extension)) {
+				continue;
+			}
+			const relativePath = path
+				.relative(SHADER_ROOT, fullPath)
+				.split(path.sep)
+				.join("/");
+			files.push(`./${relativePath}`);
+		}
+	}
+
+	await walk(root);
+	return files;
+}
+
+async function testEmbeddedManifestMatchesShaderFiles() {
+	const shaderPaths = [
+		...(await collectShaderFiles("webgpu", ".wgsl")),
+		...(await collectShaderFiles(path.join("webgl", "parts"), ".glsl")),
+	].sort();
+	const manifestPaths = Object.keys(embeddedShaderSources).sort();
+
+	assert.deepEqual(manifestPaths, shaderPaths);
+	for (const shaderPath of shaderPaths) {
+		const expected = await readFile(
+			path.join(SHADER_ROOT, shaderPath.slice(2)),
+			"utf8"
+		);
+		assert.equal(embeddedShaderSources[shaderPath], expected);
+	}
+}
+
 async function run() {
 	await testLoadsRawAndCompositeParts();
 	await testConcurrentLoadsShareResultCache();
@@ -181,7 +302,12 @@ async function run() {
 	await testWebGPUCompositeIncludesSharedParts();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
+	await testCustomAsyncLoaderOverridesBuiltInSource();
+	await testCustomLoaderFailureFallsBackToBuiltIns();
+	testCustomSyncLoaderOverridesBuiltInSource();
+	testMissingCustomSyncLoaderReportsClearError();
 	testClearCacheDoesNotTouchShaderRuntime();
+	await testEmbeddedManifestMatchesShaderFiles();
 	console.log("ShaderSource tests passed");
 }
 

@@ -1,4 +1,5 @@
 import { Platform } from "../foundation/Platform";
+import { embeddedSyncShaderSources } from "./generated/embeddedSyncShaderSources";
 import {
 	composeCompositeShaderSources,
 	createInlineCompositeShaderSource,
@@ -8,9 +9,12 @@ import {
 
 type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
-const browserShaderSources: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
-	? {}
-	: {
+function createBrowserShaderSources(): ImportMetaGlobLoaderMap {
+	if (Platform.isNodeRuntime()) {
+		return {};
+	}
+	try {
+		return {
 			...import.meta.glob<string>(
 				["./webgpu/**/*.wgsl", "!./webgpu/utility/mipmapBlit.wgsl"],
 				{
@@ -23,6 +27,12 @@ const browserShaderSources: ImportMetaGlobLoaderMap = Platform.isNodeRuntime()
 				import: "default",
 			}),
 		};
+	} catch {
+		return {};
+	}
+}
+
+const browserShaderSources: ImportMetaGlobLoaderMap = createBrowserShaderSources();
 
 type NodeFsModule = {
 	readFile: (
@@ -258,11 +268,36 @@ export interface ShaderSourceCacheStats {
 	inFlight: number;
 }
 
-interface ShaderFileDescriptor {
+export interface ShaderSourceFileDescriptor {
 	scope: "webgpu" | "webgl";
 	key: string;
 	path: string;
 	segmentKind?: ShaderSourceSegmentKind;
+}
+
+interface ShaderFileDescriptor extends ShaderSourceFileDescriptor {}
+
+export type ShaderSourceLoader = (
+	descriptor: ShaderSourceFileDescriptor
+) => Promise<string>;
+
+export type ShaderSourceSyncLoader = (
+	descriptor: ShaderSourceFileDescriptor
+) => string | undefined;
+
+export interface ShaderSourceConfiguration {
+	/**
+	 * Custom asynchronous loader for built-in shader files.
+	 */
+	loader?: ShaderSourceLoader;
+	/**
+	 * Optional synchronous loader used only by `ShaderSource.getSync()`.
+	 */
+	syncLoader?: ShaderSourceSyncLoader;
+	/**
+	 * When true, custom loader failures are not allowed to fall back to built-ins.
+	 */
+	preferCustomLoader?: boolean;
 }
 
 interface MutableCacheBucketStats {
@@ -368,13 +403,23 @@ const syncShaderFiles: Record<ShaderSourceSyncKey, ShaderFileDescriptor> = {
 	},
 };
 
-const browserSyncShaderSources: Record<string, string> = Platform.isNodeRuntime()
-	? {}
-	: import.meta.glob<string>("./webgpu/utility/mipmapBlit.wgsl", {
+function createBrowserSyncShaderSources(): Record<string, string> {
+	if (Platform.isNodeRuntime()) {
+		return {};
+	}
+	try {
+		return import.meta.glob<string>("./webgpu/utility/mipmapBlit.wgsl", {
 			query: "?raw",
 			import: "default",
 			eager: true,
 		});
+	} catch {
+		return {};
+	}
+}
+
+const browserSyncShaderSources: Record<string, string> =
+	createBrowserSyncShaderSources();
 
 const emptyCacheStats = (): MutableCacheBucketStats => ({
 	hits: 0,
@@ -521,10 +566,35 @@ export class ShaderSource {
 	private static _resultCache = new Map<string, Promise<AnyShaderSourceResult>>();
 	private static _inFlightResultKeys = new Set<string>();
 	private static _preparedCache = new Map<string, AnyShaderSourceResult>();
+	private static _configuration: ShaderSourceConfiguration = {};
 	private static _rawFileStats = emptyCacheStats();
 	private static _fileCompositeStats = emptyCacheStats();
 	private static _resultStats = emptyCacheStats();
 	private static _preparedStats = emptyCacheStats();
+
+	/**
+	 * Configures custom built-in shader source loading.
+	 *
+	 * @param configuration Loader callbacks and fallback policy.
+	 * @returns Nothing.
+	 * @constraints Custom loaders apply globally until `resetConfiguration()`.
+	 * @sideEffects Clears shader source caches so future reads use the new loader.
+	 */
+	public static configure(configuration: ShaderSourceConfiguration): void {
+		this._configuration = { ...configuration };
+		this.clearCache();
+	}
+
+	/**
+	 * Restores default built-in shader source loading.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Clears shader source caches and removes custom loaders.
+	 */
+	public static resetConfiguration(): void {
+		this._configuration = {};
+		this.clearCache();
+	}
 
 	/**
 	 * Asynchronously loads a built-in shader source and stores the assembled
@@ -1109,18 +1179,43 @@ export class ShaderSource {
 	private static async _readShaderSourceFile(
 		descriptor: ShaderFileDescriptor
 	): Promise<string> {
-		if (!Platform.isNodeRuntime()) {
-			const syncSource = browserSyncShaderSources[descriptor.path];
-			if (typeof syncSource === "string") {
-				return syncSource;
+		const custom = this._configuration.loader;
+		if (custom) {
+			try {
+				return await custom(this._cloneDescriptor(descriptor));
+			} catch (error) {
+				if (this._configuration.preferCustomLoader) {
+					throw error;
+				}
 			}
-			const loader = browserShaderSources[descriptor.path];
-			if (!loader) {
-				throw new Error(`Shader source not bundled: ${descriptor.path}`);
-			}
-			return loader();
 		}
 
+		if (Platform.isNodeRuntime()) {
+			try {
+				return await this._readShaderSourceFileFromNode(descriptor);
+			} catch (error) {
+				const embedded = await this._readEmbeddedShaderSource(descriptor);
+				if (embedded !== undefined) {
+					return embedded;
+				}
+				throw error;
+			}
+		}
+
+		const bundled = await this._readBrowserBundledShaderSource(descriptor);
+		if (bundled !== undefined) {
+			return bundled;
+		}
+		const embedded = await this._readEmbeddedShaderSource(descriptor);
+		if (embedded !== undefined) {
+			return embedded;
+		}
+		throw new Error(`Shader source not bundled: ${descriptor.path}`);
+	}
+
+	private static async _readShaderSourceFileFromNode(
+		descriptor: ShaderFileDescriptor
+	): Promise<string> {
 		const fsSpecifier = ["node", "fs/promises"].join(":");
 		const fsModule = (await import(/* @vite-ignore */ fsSpecifier)) as NodeFsModule;
 		return fsModule.readFile(new URL(descriptor.path, import.meta.url), "utf8");
@@ -1129,16 +1224,44 @@ export class ShaderSource {
 	private static _readShaderSourceFileSync(
 		descriptor: ShaderFileDescriptor
 	): string {
-		if (!Platform.isNodeRuntime()) {
-			const source = browserSyncShaderSources[descriptor.path];
-			if (typeof source !== "string") {
+		const custom = this._configuration.syncLoader;
+		if (custom) {
+			const source = custom(this._cloneDescriptor(descriptor));
+			if (typeof source === "string") {
+				return source;
+			}
+			if (this._configuration.preferCustomLoader) {
 				throw new Error(
-					`Shader source "${descriptor.path}" is not available for sync browser loading.`
+					`Custom ShaderSource syncLoader did not provide "${descriptor.path}".`
 				);
 			}
-			return source;
+		} else if (this._configuration.loader && this._configuration.preferCustomLoader) {
+			throw new Error(
+				`ShaderSource.getSync("${descriptor.key}.raw") requires ` +
+					"a syncLoader when preferCustomLoader is enabled."
+			);
 		}
 
+		const bundled = browserSyncShaderSources[descriptor.path];
+		if (typeof bundled === "string") {
+			return bundled;
+		}
+		const embedded = this._readEmbeddedShaderSourceSync(descriptor);
+		if (embedded !== undefined) {
+			return embedded;
+		}
+
+		if (!Platform.isNodeRuntime()) {
+			throw new Error(
+				`Shader source "${descriptor.path}" is not available for sync browser loading.`
+			);
+		}
+		return this._readShaderSourceFileSyncFromNode(descriptor);
+	}
+
+	private static _readShaderSourceFileSyncFromNode(
+		descriptor: ShaderFileDescriptor
+	): string {
 		const nodeProcess = (
 			globalThis as typeof globalThis & {
 				process?: {
@@ -1156,6 +1279,41 @@ export class ShaderSource {
 			new URL(descriptor.path, import.meta.url),
 			"utf8"
 		);
+	}
+
+	private static async _readBrowserBundledShaderSource(
+		descriptor: ShaderFileDescriptor
+	): Promise<string | undefined> {
+		const syncSource = browserSyncShaderSources[descriptor.path];
+		if (typeof syncSource === "string") {
+			return syncSource;
+		}
+		const loader = browserShaderSources[descriptor.path];
+		if (!loader) {
+			return undefined;
+		}
+		return loader();
+	}
+
+	private static async _readEmbeddedShaderSource(
+		descriptor: ShaderFileDescriptor
+	): Promise<string | undefined> {
+		const { embeddedShaderSources } = await import(
+			"./generated/embeddedShaderSources"
+		);
+		return embeddedShaderSources[descriptor.path];
+	}
+
+	private static _readEmbeddedShaderSourceSync(
+		descriptor: ShaderFileDescriptor
+	): string | undefined {
+		return embeddedSyncShaderSources[descriptor.path];
+	}
+
+	private static _cloneDescriptor(
+		descriptor: ShaderFileDescriptor
+	): ShaderSourceFileDescriptor {
+		return { ...descriptor };
 	}
 
 	private static _buildFileCacheKey(descriptor: ShaderFileDescriptor): string {
