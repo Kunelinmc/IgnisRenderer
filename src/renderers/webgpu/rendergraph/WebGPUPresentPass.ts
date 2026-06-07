@@ -13,7 +13,7 @@ import {
 	type IShaderModule,
 } from "../../types";
 import type { WebGPUBackend } from "../../WebGPUBackend";
-import { loadWebGPUUtilityShaderComposite } from "../../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../../shaders/ShaderSource";
 
 export interface WebGPUPresentDirtyRect {
 	readonly x: number;
@@ -134,7 +134,7 @@ export class WebGPUPresentPass {
 
 	private async _ensureResources(): Promise<void> {
 		if (!this._shaderModule) {
-			const composite = await loadWebGPUUtilityShaderComposite("present");
+			const composite = await ShaderSource.load("webgpu.utility.present.composite");
 			this._shaderModule = await this._backend.createShaderModule({
 				label: "WebGPUPresentShader",
 				code: composite.code,

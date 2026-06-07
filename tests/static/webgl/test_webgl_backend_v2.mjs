@@ -27,13 +27,26 @@ import {
 	WEBGL_MAX_POINT_LIGHTS,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "../../../src/renderers/webgl/constants.ts";
-import { createWebGLShaderSourceFactory } from "../../../src/shaders/webgl/WebGLShaderSourceFactory.ts";
+import {
+	ShaderSource,
+	WEBGL_SHADER_PARTS,
+} from "../../../src/shaders/ShaderSource.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
-const WEBGL_SHADER_SOURCE_FACTORY = createWebGLShaderSourceFactory();
+const TEST_SCENE_LIMITS = {
+	maxDirectionalLights: 4,
+	maxPointLights: 4,
+	maxSpotLights: 4,
+};
+
+function getTestSceneShader() {
+	return ShaderSource.get("webgl.scene.raw", {
+		limits: TEST_SCENE_LIMITS,
+	});
+}
 
 function createTinyCubeTexture(mips = 1, value = 1) {
 	const createFace = () => new Float32Array([value, value, value, 1]);
@@ -57,7 +70,6 @@ function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
 		warn,
 		shaderRuntime,
 		shaderCompileStage,
-		WEBGL_SHADER_SOURCE_FACTORY
 	);
 }
 
@@ -939,22 +951,14 @@ function testLightCollectorDirectionalCSMShadowData() {
 }
 
 function testSceneShaderBackLitShadowGuard() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	assert.ok(shader.fragment.includes("dot(normal, lightDirection) <= 0.0"));
 	assert.ok(shader.fragment.includes("uniform int uDoubleSided;"));
 	assert.ok(shader.fragment.includes("if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)"));
 }
 
 function testSceneShaderUsesDecoupledShadowNormal() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	assert.ok(shader.fragment.includes("vec3 shadowNormal = normal;"));
 	assert.ok(
 		/shadePBR\(\s*albedo,\s*normal,\s*shadowNormal,\s*viewDir,/.test(
@@ -974,11 +978,7 @@ function testSceneShaderUsesDecoupledShadowNormal() {
 }
 
 function testSceneShaderIncludesReflectionProbeUniforms() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	assert.ok(shader.fragment.includes("uniform sampler2D uEnvSpecularMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uBrdfLUT;"));
 	assert.ok(shader.fragment.includes("uReflectionProbeCount"));
@@ -999,11 +999,7 @@ function testSceneShaderIncludesReflectionProbeUniforms() {
 }
 
 function testSceneShaderIncludesLocalizedLightProbeUniforms() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	assert.ok(shader.fragment.includes("uniform int uLocalLightProbeCount;"));
 	assert.ok(shader.fragment.includes("uLocalLightProbeWorldToProbeRow0"));
 	assert.ok(shader.fragment.includes("uLocalLightProbeCoeffs"));
@@ -1013,11 +1009,7 @@ function testSceneShaderIncludesLocalizedLightProbeUniforms() {
 }
 
 function testSceneShaderFitsCommonWebGLTextureUnitLimit() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
 	assert.equal(samplerMatches.length, 16);
@@ -1030,11 +1022,7 @@ function testSceneShaderFitsCommonWebGLTextureUnitLimit() {
 }
 
 function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 	assert.ok(shader.vertex.includes("layout(location = 3) in vec2 aUv1;"));
 	assert.ok(shader.vertex.includes("out vec2 vUv1;"));
 	assert.ok(shader.fragment.includes("in vec2 vUv1;"));
@@ -1049,11 +1037,7 @@ function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 }
 
 function testSceneShaderIncludesOITPassMode() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.createSceneShaderSource({
-		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
-	});
+	const shader = getTestSceneShader();
 
 	assert.ok(shader.fragment.includes("uniform int uOITPassMode;"));
 	assert.ok(shader.fragment.includes("float resolveOITWeight("));
@@ -1062,7 +1046,7 @@ function testSceneShaderIncludesOITPassMode() {
 }
 
 function testParticleShaderIncludesOITPassMode() {
-	const shader = WEBGL_SHADER_SOURCE_FACTORY.getRawPart("particleFragment");
+	const shader = ShaderSource.get("webgl.part.particleFragment.raw");
 
 	assert.ok(shader.includes("uniform int uOITPassMode;"));
 	assert.ok(shader.includes("float resolveParticleOITWeight("));
@@ -1721,7 +1705,74 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 }
 
 async function run() {
-	await WEBGL_SHADER_SOURCE_FACTORY.prepareAll();
+	await ShaderSource.prepareMany([
+		...WEBGL_SHADER_PARTS.flatMap((part) => [
+			{ key: `webgl.part.${part}.raw` },
+			{ key: `webgl.part.${part}.composite` },
+		]),
+		{ key: "webgl.scene.raw", params: { limits: TEST_SCENE_LIMITS } },
+		{ key: "webgl.scene.composite", params: { limits: TEST_SCENE_LIMITS } },
+		{
+			key: "webgl.scene.raw",
+			params: {
+				limits: {
+					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.composite",
+			params: {
+				limits: {
+					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.raw",
+			params: {
+				limits: {
+					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					enableShadowTransmittance: true,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.composite",
+			params: {
+				limits: {
+					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					enableShadowTransmittance: true,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.raw",
+			params: {
+				limits: {
+					...TEST_SCENE_LIMITS,
+					enableShadowTransmittance: true,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.composite",
+			params: {
+				limits: {
+					...TEST_SCENE_LIMITS,
+					enableShadowTransmittance: true,
+				},
+			},
+		},
+	]);
 	testLightCollectorLimitsAndWarnings();
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
 	testLightCollectorCollectsLocalizedLightProbes();

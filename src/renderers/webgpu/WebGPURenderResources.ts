@@ -87,8 +87,7 @@ import {
 import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
 import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
-import { getWebGPUParticleShaderComposite } from "../../shaders/webgpu/particleShader";
-import { loadWebGPUUtilityShaderComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { clamp } from "../../maths/Common";
 import {
 	WEBGPU_PARTICLE_BINDING_SAMPLER,
@@ -771,7 +770,7 @@ export class WebGPURenderResources {
 			return this._decalPipeline;
 		}
 		if (!this._decalShaderModule) {
-			const shader = await loadWebGPUUtilityShaderComposite("decal");
+			const shader = await ShaderSource.load("webgpu.utility.decal.composite");
 			this._decalShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -822,7 +821,7 @@ export class WebGPURenderResources {
 			return this._decalBatchPipeline;
 		}
 		if (!this._decalShaderModule) {
-			const shader = await loadWebGPUUtilityShaderComposite("decal");
+			const shader = await ShaderSource.load("webgpu.utility.decal.composite");
 			this._decalShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -1880,7 +1879,7 @@ export class WebGPURenderResources {
 		sampleCountOverride?: number
 	): Promise<void> {
 		if (!this._particleShaderModule) {
-			const shader = await getWebGPUParticleShaderComposite();
+			const shader = await ShaderSource.load("webgpu.particle.composite");
 			this._particleShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUParticleShader",
 				code: shader.code,

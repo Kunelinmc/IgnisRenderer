@@ -93,6 +93,7 @@ import type {
 	ShaderDirectiveCompileHook,
 	ShaderRuntimeMode,
 } from "../shaders/runtime";
+import { ShaderSource } from "../shaders/ShaderSource";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -451,6 +452,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!adapter) {
 			throw new Error("No appropriate GPUAdapter found.");
 		}
+		await ShaderSource.prepare("webgpu.utility.mipmapBlit.raw");
 
 		let requestedDevice: GPUDevice;
 		try {

@@ -5,7 +5,7 @@ import type {
 	IShaderModule,
 } from "../../types";
 import { ceilDiv } from "../../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../../shaders/ShaderSource";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../constants";
@@ -65,7 +65,7 @@ export class WebGPUHiZPostProcessHelper {
 	public async ensureResources(): Promise<void> {
 		await this._shared.ensureCommonResources();
 		if (!this._module) {
-			const shader = await loadPostProcessShaderPartComposite("hiz");
+			const shader = await ShaderSource.load("webgpu.postprocess.hiz.composite");
 			this._module = await this._shared.compute.createShaderModule({
 				label: "WebGPUHiZShader",
 				code: shader.code,

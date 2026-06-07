@@ -25,10 +25,10 @@ import {
 	type ShaderRuntime,
 } from "../../shaders/runtime";
 import {
-	createWebGLShaderSourceFactory,
 	type WebGLShaderPart,
-	type WebGLShaderSourceFactory,
-} from "../../shaders/webgl/WebGLShaderSourceFactory";
+	ShaderSource,
+	type WebGLSceneLightLimits,
+} from "../../shaders/ShaderSource";
 import { Logger } from "../../foundation/Logger";
 
 export interface WebGLShadowDepthProgram {
@@ -295,7 +295,6 @@ export class WebGLProgramLibrary {
 	private _gl: WebGL2RenderingContext;
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
-	private _shaderSourceFactory: WebGLShaderSourceFactory;
 	private _enableShadowTransmittanceSampling: boolean;
 	private _warnCallback: WebGLProgramWarn | null = null;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
@@ -330,29 +329,23 @@ export class WebGLProgramLibrary {
 		warn: WebGLProgramWarn,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
-		shaderSourceFactory?: WebGLShaderSourceFactory,
 	);
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
-		shaderSourceFactory?: WebGLShaderSourceFactory,
 	);
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntimeOrWarn?: ShaderRuntime | WebGLProgramWarn,
 		shaderCompileStageOrRuntime?: ShaderBackendCompileStage | ShaderRuntime,
-		shaderSourceFactoryOrCompileStage?:
-			| WebGLShaderSourceFactory
-			| ShaderBackendCompileStage,
-		shaderSourceFactoryMaybe?: WebGLShaderSourceFactory,
+		shaderCompileStageMaybe?: ShaderBackendCompileStage,
 	) {
 		this._gl = gl;
 		this._enableShadowTransmittanceSampling =
 			supportsShadowTransmittanceSampler(gl);
 		let shaderRuntime: ShaderRuntime | null = null;
 		let shaderCompileStage: ShaderBackendCompileStage | null = null;
-		let shaderSourceFactory: WebGLShaderSourceFactory | undefined;
 		if (typeof shaderRuntimeOrWarn === "function") {
 			this._warnCallback = shaderRuntimeOrWarn;
 			shaderRuntime =
@@ -360,26 +353,18 @@ export class WebGLProgramLibrary {
 					shaderCompileStageOrRuntime
 				:	null;
 			shaderCompileStage =
-				shaderSourceFactoryOrCompileStage instanceof ShaderBackendCompileStage ?
-					shaderSourceFactoryOrCompileStage
+				shaderCompileStageMaybe instanceof ShaderBackendCompileStage ?
+					shaderCompileStageMaybe
 				:	null;
-			shaderSourceFactory = shaderSourceFactoryMaybe;
 		} else {
 			shaderRuntime = shaderRuntimeOrWarn ?? null;
 			shaderCompileStage =
 				shaderCompileStageOrRuntime instanceof ShaderBackendCompileStage ?
 					shaderCompileStageOrRuntime
 				:	null;
-			shaderSourceFactory =
-				shaderSourceFactoryOrCompileStage &&
-				!(shaderSourceFactoryOrCompileStage instanceof ShaderBackendCompileStage) ?
-					shaderSourceFactoryOrCompileStage
-				:	undefined;
 		}
 		this._shaderRuntime = shaderRuntime;
 		this._shaderCompileStage = shaderCompileStage;
-		this._shaderSourceFactory =
-			shaderSourceFactory ?? createWebGLShaderSourceFactory();
 		if (!this._shaderCompileStage && this._shaderRuntime) {
 			this._shaderCompileStage = new ShaderBackendCompileStage({
 				backend: "webgl",
@@ -417,20 +402,18 @@ export class WebGLProgramLibrary {
 			this._sceneProgram = null;
 		}
 		if (!this._sceneProgram) {
-			const sceneShaderSource = this._shaderSourceFactory.createSceneShaderSource({
+			const limits: WebGLSceneLightLimits = {
 				maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
 				maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 				maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 				enableShadowTransmittance: this._enableShadowTransmittanceSampling,
+			};
+			const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
+				limits,
 			});
-			const sceneCompositeSource = this._shaderSourceFactory.createSceneCompositeShaderSource(
-				{
-					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
-					enableShadowTransmittance: this._enableShadowTransmittanceSampling,
-				},
-			);
+			const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
+				limits,
+			});
 			this._sceneProgram = this._createSceneProgram(
 				sceneShaderSource.vertex,
 				sceneShaderSource.fragment,
@@ -1031,7 +1014,7 @@ export class WebGLProgramLibrary {
 	}
 
 	private _shaderSource(part: WebGLShaderPart): string {
-		return this._shaderSourceFactory.getRawPart(part);
+		return ShaderSource.get(`webgl.part.${part}.raw`);
 	}
 
 	public destroy(): void {

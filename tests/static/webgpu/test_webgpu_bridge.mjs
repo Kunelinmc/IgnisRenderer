@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
 import { WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPURenderResources.ts";
 import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
-import { getWebGPUParticleShader } from "../../../src/shaders/webgpu/particleShader.ts";
-import { getWebGPUSceneShader } from "../../../src/shaders/webgpu/sceneShader.ts";
-import { getWebGPUDeferredLightingShader } from "../../../src/shaders/webgpu/deferredLightingShader.ts";
-import { getWebGPUEnvironmentShader } from "../../../src/shaders/webgpu/environmentShader.ts";
-import {
-	loadClusteredLightingCullShaderComposite,
-	loadPlanarReflectionCompositeShaderComposite,
-	loadPostProcessShaderPart,
-} from "../../../src/shaders/webgpu/shaderSource.ts";
+import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
@@ -388,12 +380,22 @@ function testFeatureGate() {
 }
 
 async function testSceneShaderCoverage() {
-	const WEBGPU_SCENE_SHADER = await getWebGPUSceneShader();
-	const WEBGPU_DEFERRED_LIGHTING_SHADER = await getWebGPUDeferredLightingShader();
-	const WEBGPU_ENVIRONMENT_SHADER = await getWebGPUEnvironmentShader();
-	const WEBGPU_SSAO_SHADER = await loadPostProcessShaderPart("ssao");
-	const WEBGPU_SSGI_SHADER = await loadPostProcessShaderPart("ssgi");
-	const WEBGPU_SSR_SHADER = await loadPostProcessShaderPart("ssr");
+	const WEBGPU_SCENE_SHADER = await ShaderSource.load("webgpu.scene.raw");
+	const WEBGPU_DEFERRED_LIGHTING_SHADER = await ShaderSource.load(
+		"webgpu.deferredLighting.raw"
+	);
+	const WEBGPU_ENVIRONMENT_SHADER = await ShaderSource.load(
+		"webgpu.environment.raw"
+	);
+	const WEBGPU_SSAO_SHADER = await ShaderSource.load(
+		"webgpu.postprocess.ssao.raw"
+	);
+	const WEBGPU_SSGI_SHADER = await ShaderSource.load(
+		"webgpu.postprocess.ssgi.raw"
+	);
+	const WEBGPU_SSR_SHADER = await ShaderSource.load(
+		"webgpu.postprocess.ssr.raw"
+	);
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -734,7 +736,7 @@ function testDecalBatchLayoutHonorsStorageTextureLimit() {
 }
 
 async function testParticleShaderDepthConsistency() {
-	const WEBGPU_PARTICLE_SHADER = await getWebGPUParticleShader();
+	const WEBGPU_PARTICLE_SHADER = await ShaderSource.load("webgpu.particle.raw");
 
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -772,14 +774,18 @@ async function testParticleShaderDepthConsistency() {
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
-	const rawSceneShader = await getWebGPUSceneShader();
-	const rawEnvironmentShader = await getWebGPUEnvironmentShader();
-	const rawParticleShader = await getWebGPUParticleShader();
-	const rawSSRShader = await loadPostProcessShaderPart("ssr");
+	const rawSceneShader = await ShaderSource.load("webgpu.scene.raw");
+	const rawEnvironmentShader = await ShaderSource.load("webgpu.environment.raw");
+	const rawParticleShader = await ShaderSource.load("webgpu.particle.raw");
+	const rawSSRShader = await ShaderSource.load("webgpu.postprocess.ssr.raw");
 	const rawClusteredCullShader =
-		(await loadClusteredLightingCullShaderComposite()).code;
+		(await ShaderSource.load("webgpu.clusteredLightingCull.composite")).code;
 	const rawPlanarReflectionCompositeShader =
-		(await loadPlanarReflectionCompositeShaderComposite()).code;
+		(
+			await ShaderSource.load(
+				"webgpu.utility.planarReflectionComposite.composite"
+			)
+		).code;
 	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({

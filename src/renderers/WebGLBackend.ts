@@ -18,6 +18,11 @@ import {
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
 import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "./webgl/constants";
+import {
 	ShaderBackendCompileStage,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
@@ -27,9 +32,9 @@ import type {
 	ShaderRuntimeMode,
 } from "../shaders/runtime";
 import {
-	createWebGLShaderSourceFactory,
-	type WebGLShaderSourceFactory,
-} from "../shaders/webgl/WebGLShaderSourceFactory";
+	ShaderSource,
+	WEBGL_SHADER_PARTS,
+} from "../shaders/ShaderSource";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -93,7 +98,6 @@ export class WebGLBackend implements IRenderBackend {
 	private _height = 1;
 	public readonly shaderRuntime: ShaderRuntime;
 	private _shaderCompileStage: ShaderBackendCompileStage;
-	private _shaderSourceFactory: WebGLShaderSourceFactory;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
@@ -115,7 +119,6 @@ export class WebGLBackend implements IRenderBackend {
 			hook: options.directiveHook ?? null,
 			mode: shaderMode,
 		});
-		this._shaderSourceFactory = createWebGLShaderSourceFactory();
 		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
 		registerPostProcessBackendAdapter(this, this._postProcessExecutor);
@@ -132,7 +135,58 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
-		await this._shaderSourceFactory.prepareAll();
+		await ShaderSource.prepareMany(
+			[
+				...WEBGL_SHADER_PARTS.flatMap((part) => [
+					{ key: `webgl.part.${part}.raw` as const },
+					{ key: `webgl.part.${part}.composite` as const },
+				]),
+				{
+					key: "webgl.scene.raw" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: false,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.composite" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: false,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.raw" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: true,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.composite" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: true,
+						},
+					},
+				},
+			]
+		);
 		this._initializeGLContext(canvas);
 	}
 
@@ -319,8 +373,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
 			this.shaderRuntime,
-			this._shaderCompileStage,
-			this._shaderSourceFactory
+			this._shaderCompileStage
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);

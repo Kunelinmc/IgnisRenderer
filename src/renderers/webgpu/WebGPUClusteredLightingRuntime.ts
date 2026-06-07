@@ -32,9 +32,7 @@ import {
 	WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT as CLUSTER_GRID_PARAMS_LAYOUT,
 	getWebGPUClusteredLightLayout,
 } from "./bufferLayouts";
-import {
-	loadClusteredLightingCullShaderComposite,
-} from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import type {
 	WebGPUClusterGridParams,
 	WebGPUFeatureState,
@@ -468,7 +466,9 @@ export class WebGPUClusteredLightingRuntime {
 
 	private async _ensureComputeResources(): Promise<void> {
 		if (!this._computeShaderModule) {
-			const shader = await loadClusteredLightingCullShaderComposite();
+			const shader = await ShaderSource.load(
+				"webgpu.clusteredLightingCull.composite"
+			);
 			this._computeShaderModule = await this._compute.createShaderModule({
 				label: "WebGPUClusteredLightingCullShader",
 				code: shader.code,

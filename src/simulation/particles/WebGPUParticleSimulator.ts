@@ -24,7 +24,7 @@ import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
 } from "../../renderers/webgpu/particleTransient";
-import { getWebGPUParticleSimulationShader } from "../../shaders/webgpu/particleSimulationShader";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { DefaultParticleSimulator } from "./DefaultParticleSimulator";
 import type { IParticleSimulator } from "./IParticleSimulator";
 import { MAX_STEP_SECONDS } from "./constants";
@@ -415,7 +415,7 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		}
 
 		this._kernelPromise = (async () => {
-			const code = await getWebGPUParticleSimulationShader();
+			const code = await ShaderSource.load("webgpu.particleSimulation.raw");
 			let reset: IComputeKernel | null = null;
 			let spawn: IComputeKernel | null = null;
 			try {

@@ -1,12 +1,5 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
-import {
-	getWebGPUDeferredLightingShaderComposite,
-} from "../../shaders/webgpu/deferredLightingShader";
-import { getWebGPUSceneShaderComposite } from "../../shaders/webgpu/sceneShader";
-import { getWebGPUEnvironmentShaderComposite } from "../../shaders/webgpu/environmentShader";
-import {
-	loadPlanarReflectionCompositeShaderComposite,
-} from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { createWebGPUMaterialUniformData } from "./";
 import { createWebGPUSceneVertexBufferLayout } from "./bufferLayouts";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -916,7 +909,7 @@ export class WebGPUPipelineLibrary {
 			return this._sceneShaderModule;
 		}
 		if (!this._sceneShaderModule || this._sceneShaderDirectiveTag !== directiveTag) {
-			const shader = await getWebGPUSceneShaderComposite();
+			const shader = await ShaderSource.load("webgpu.scene.composite");
 			this._sceneShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -940,7 +933,7 @@ export class WebGPUPipelineLibrary {
 			return this._environmentShaderModule;
 		}
 		if (!this._environmentShaderModule || this._environmentShaderDirectiveTag !== directiveTag) {
-			const shader = await getWebGPUEnvironmentShaderComposite();
+			const shader = await ShaderSource.load("webgpu.environment.composite");
 			this._environmentShaderModule = await this._backend.createShaderModule({
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -967,7 +960,7 @@ export class WebGPUPipelineLibrary {
 			!this._deferredLightingShaderModule ||
 			this._deferredLightingShaderDirectiveTag !== directiveTag
 		) {
-			const shader = await getWebGPUDeferredLightingShaderComposite();
+			const shader = await ShaderSource.load("webgpu.deferredLighting.composite");
 			this._deferredLightingShaderModule =
 				await this._backend.createShaderModule({
 					code: shader.code,
@@ -997,7 +990,9 @@ export class WebGPUPipelineLibrary {
 			!this._planarReflectionCompositeShaderModule ||
 			this._planarReflectionCompositeDirectiveTag !== directiveTag
 		) {
-			const shader = await loadPlanarReflectionCompositeShaderComposite();
+			const shader = await ShaderSource.load(
+				"webgpu.utility.planarReflectionComposite.composite"
+			);
 			this._planarReflectionCompositeShaderModule =
 				await this._backend.createShaderModule({
 					code: shader.code,

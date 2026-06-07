@@ -14,7 +14,7 @@ import {
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -507,7 +507,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("ssr");
+			const shader = await ShaderSource.load("webgpu.postprocess.ssr.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSRShader",
 				code: shader.code,
@@ -622,7 +622,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		resources: WebGPUSSRResources
 	): Promise<void> {
 		if (!resources.copyModule) {
-			const shader = await loadPostProcessShaderPartComposite("copy");
+			const shader = await ShaderSource.load("webgpu.postprocess.copy.composite");
 			resources.copyModule = await shared.compute.createShaderModule({
 				label: "WebGPUCopyShader",
 				code: shader.code,

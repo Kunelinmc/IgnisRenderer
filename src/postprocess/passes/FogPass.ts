@@ -17,7 +17,7 @@ import {
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -305,7 +305,7 @@ export class WebGPUFogImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("fog");
+			const shader = await ShaderSource.load("webgpu.postprocess.fog.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUFogShader",
 				code: shader.code,

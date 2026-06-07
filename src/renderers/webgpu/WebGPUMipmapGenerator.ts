@@ -1,5 +1,5 @@
-import { Platform } from "../../foundation/Platform";
 import type { TextureFilter } from "../../core/Texture";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	AddressMode,
 	FilterMode,
@@ -18,14 +18,6 @@ interface WebGPUMipmapPipelineEntry {
 const GPU_SHADER_STAGE_FRAGMENT =
 	(globalThis as typeof globalThis & { GPUShaderStage?: { FRAGMENT?: number } })
 		.GPUShaderStage?.FRAGMENT ?? 0x2;
-
-const browserMipmapShaderSources: Record<string, string> = Platform.isNodeRuntime()
-	? {}
-	: import.meta.glob<string>("../../shaders/webgpu/utility/mipmapBlit.wgsl", {
-			query: "?raw",
-			import: "default",
-			eager: true,
-		});
 
 /**
  * Generates 2D texture mip chains by rendering each mip from the previous mip.
@@ -173,7 +165,7 @@ export class WebGPUMipmapGenerator {
 		if (!this._shaderModule) {
 			this._shaderModule = device.createShaderModule({
 				label: "WebGPUMipmapShader",
-				code: getWebGPUMipmapBlitShaderSource(),
+				code: ShaderSource.getSync("webgpu.utility.mipmapBlit.raw"),
 			});
 		}
 		return this._shaderModule;
@@ -297,39 +289,6 @@ export function canGenerateWebGPUMipmaps(format: TextureFormat): boolean {
 	} catch {
 		return false;
 	}
-}
-
-function getWebGPUMipmapBlitShaderSource(): string {
-	if (Platform.isNodeRuntime()) {
-		const nodeProcess = (
-			globalThis as typeof globalThis & {
-				process?: {
-					getBuiltinModule?: (specifier: string) => unknown;
-				};
-			}
-		).process;
-		const fs = nodeProcess?.getBuiltinModule?.("fs") as
-			| {
-					readFileSync: (path: URL, encoding: "utf8") => string;
-			  }
-			| undefined;
-		if (!fs) {
-			throw new Error("Node fs module is unavailable for WebGPU mipmap shader.");
-		}
-		return fs.readFileSync(
-			new URL("../../shaders/webgpu/utility/mipmapBlit.wgsl", import.meta.url),
-			"utf8"
-		);
-	}
-
-	const source =
-		browserMipmapShaderSources[
-			"../../shaders/webgpu/utility/mipmapBlit.wgsl"
-		];
-	if (!source) {
-		throw new Error("WebGPU mipmap shader source was not bundled.");
-	}
-	return source;
 }
 
 function getNativeBindGroup(binding: IBindingGroup): GPUBindGroup {

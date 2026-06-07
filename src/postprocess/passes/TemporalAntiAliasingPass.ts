@@ -24,7 +24,7 @@ import {
 	clampHistoryToNeighborhoodYCoCg,
 	reprojectHistoryUv,
 } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
@@ -580,7 +580,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("taa");
+			const shader = await ShaderSource.load("webgpu.postprocess.taa.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUTAAShader",
 				code: shader.code,

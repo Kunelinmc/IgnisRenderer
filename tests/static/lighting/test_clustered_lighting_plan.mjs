@@ -25,11 +25,7 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 } from "../../../src/renderers/webgpu/constants.ts";
-import {
-	loadClusteredLightingCullShaderComposite,
-	loadDeferredLightingShaderComposite,
-	loadSceneShaderPartComposite,
-} from "../../../src/shaders/webgpu/shaderSource.ts";
+import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 
 function createCapabilities(clusteredLighting) {
 	return {
@@ -438,7 +434,9 @@ function testClusterHeaderFlagPack() {
 }
 
 async function testClusteredCullShaderUsesActiveCountAndTiling() {
-	const shader = (await loadClusteredLightingCullShaderComposite()).code;
+	const shader = (await ShaderSource.load(
+		"webgpu.clusteredLightingCull.composite"
+	)).code;
 	assert.ok(shader.includes("lightCount: u32"));
 	assert.ok(shader.includes("maxLightsPerCluster: u32"));
 	assert.ok(shader.includes("const CLUSTER_LIGHT_TYPE_AREA: u32 = 2u;"));
@@ -460,7 +458,9 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 }
 
 async function testClusteredShadingUsesActiveLightCountGuards() {
-	const deferred = (await loadDeferredLightingShaderComposite()).code;
+	const deferred = (await ShaderSource.load(
+		"webgpu.deferredLighting.composite"
+	)).code;
 	assert.ok(deferred.includes("fn activeClusteredLightCount() -> u32"));
 	assert.ok(
 		deferred.includes(
@@ -481,10 +481,14 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 	);
 
 	for (const part of ["fragmentPbrPoint", "fragmentPbrSpot", "fragmentPhong"]) {
-		const source = (await loadSceneShaderPartComposite(part)).code;
+		const source = (
+			await ShaderSource.load(`webgpu.scene.part.${part}.composite`)
+		).code;
 		assert.ok(source.includes("let clusterLightCount = activeClusteredLightCount();"));
 	}
-	const areaPart = (await loadSceneShaderPartComposite("fragmentPbrArea")).code;
+	const areaPart = (
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrArea.composite")
+	).code;
 	assert.ok(areaPart.includes("CLUSTER_LIGHT_TYPE_AREA"));
 	assert.ok(areaPart.includes("clusteredRecordToAreaLight"));
 	assert.ok(areaPart.includes("if (isClusteredLightingEnabled())"));

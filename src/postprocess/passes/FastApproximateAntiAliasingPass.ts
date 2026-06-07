@@ -24,7 +24,7 @@ import type { PostProcessSharedContext } from "../../renderers/webgpu/postproces
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
@@ -419,7 +419,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("fxaa");
+			const shader = await ShaderSource.load("webgpu.postprocess.fxaa.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUFXAAShader",
 				code: shader.code,

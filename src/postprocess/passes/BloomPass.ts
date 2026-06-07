@@ -19,7 +19,10 @@ import type { PostProcessSharedContext } from "../../renderers/webgpu/postproces
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import {
+	ShaderSource,
+	type WebGPUPostProcessShaderPart,
+} from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -576,10 +579,12 @@ export class WebGPUBloomImplementation
 
 	private async _createModule(
 		shared: PostProcessSharedContext,
-		part: Parameters<typeof loadPostProcessShaderPartComposite>[0],
+		part: WebGPUPostProcessShaderPart,
 		label: string
 	): Promise<IShaderModule> {
-		const shader = await loadPostProcessShaderPartComposite(part);
+		const shader = await ShaderSource.load(
+			`webgpu.postprocess.${part}.composite`
+		);
 		return shared.compute.createShaderModule({
 			label,
 			code: shader.code,

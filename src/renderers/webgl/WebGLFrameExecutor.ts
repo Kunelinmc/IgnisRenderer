@@ -91,7 +91,6 @@ import {
 	type WebGLShadowTransmittanceProgram,
 } from "./WebGLProgramLibrary";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
-import type { WebGLShaderSourceFactory } from "../../shaders/webgl/WebGLShaderSourceFactory";
 import type {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
@@ -274,15 +273,13 @@ export class WebGLFrameExecutor {
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
-		shaderCompileStage?: ShaderBackendCompileStage,
-		shaderSourceFactory?: WebGLShaderSourceFactory
+		shaderCompileStage?: ShaderBackendCompileStage
 	) {
 		this._gl = gl;
 		this._programs = new WebGLProgramLibrary(
 			gl,
 			shaderRuntime,
 			shaderCompileStage,
-			shaderSourceFactory,
 		);
 		this._geometry = new WebGLGeometryRegistry(gl);
 		this._textures = new WebGLTextureRegistry(gl);

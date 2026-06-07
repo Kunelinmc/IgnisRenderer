@@ -28,7 +28,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../renderers/webgpu/constants";
-import { loadEnvironmentIBLPrefilterShaderSource } from "../shaders/webgpu/environmentIblPrefilterShaderSource";
+import { ShaderSource } from "../shaders/ShaderSource";
 import { globalWorkerScheduler } from "../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../workers/transports";
 import type { WorkerLike } from "../workers/types";
@@ -562,7 +562,9 @@ async function createWebGPUResources(
 ): Promise<EnvironmentIBLWebGPUResources> {
 	const runtime = new ComputeRuntime(source);
 	try {
-		const shaderCode = await loadEnvironmentIBLPrefilterShaderSource();
+		const shaderCode = await ShaderSource.load(
+			"webgpu.environmentIblPrefilter.raw"
+		);
 		const kernel = await runtime.createKernel({
 			label: "EnvironmentIBLBakePrefilter",
 			code: shaderCode,

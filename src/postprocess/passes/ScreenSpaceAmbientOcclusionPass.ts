@@ -24,7 +24,7 @@ import {
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
 import { ceilDiv } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -766,7 +766,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("ssao");
+			const shader = await ShaderSource.load("webgpu.postprocess.ssao.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSAOShader",
 				code: shader.code,

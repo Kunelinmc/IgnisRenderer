@@ -16,7 +16,7 @@ import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import { defineBuiltinPostProcessOrder } from "../ordering";
 import type {
@@ -292,7 +292,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("ssgi");
+			const shader = await ShaderSource.load("webgpu.postprocess.ssgi.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSGIShader",
 				code: shader.code,

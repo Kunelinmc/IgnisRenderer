@@ -1,6 +1,6 @@
 import { Texture } from "../core/Texture";
 import { Renderer } from "../renderers/Renderer";
-import { loadPostProcessShaderPart } from "../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../shaders/ShaderSource";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as SOBEL_WORKGROUP_SIZE,
 	WEBGPU_TEXTURE_SLOT,
@@ -194,7 +194,7 @@ export class SobelNormalMapper {
 			);
 		}
 
-		const code = await loadPostProcessShaderPart("sobelNormal");
+		const code = await ShaderSource.load("webgpu.postprocess.sobelNormal.raw");
 		let kernel: IComputeKernel;
 		try {
 			kernel = await runtime.createKernel({

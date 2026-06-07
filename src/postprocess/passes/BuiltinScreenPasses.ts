@@ -42,7 +42,7 @@ import {
 	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 } from "../../renderers/webgl/constants";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -545,7 +545,9 @@ export class WebGPUMotionBlurImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("motionBlur");
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.motionBlur.composite"
+			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUMotionBlurShader",
 				code: shader.code,
@@ -741,7 +743,7 @@ export class WebGPUDepthOfFieldImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("dof");
+			const shader = await ShaderSource.load("webgpu.postprocess.dof.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUDOFShader",
 				code: shader.code,
@@ -868,7 +870,9 @@ export class WebGPUToneMappingImplementation
 			this._resourceSet.add(resources);
 		}
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("toneMapping");
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.toneMapping.composite"
+			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUToneMappingShader",
 				code: shader.code,
@@ -1036,7 +1040,9 @@ export class WebGPUColorFilterImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("colorFilter");
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.colorFilter.composite"
+			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUColorFilterShader",
 				code: shader.code,
@@ -1238,8 +1244,8 @@ export class WebGPUInteractionOutlineImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite(
-				"interactionOutline"
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.interactionOutline.composite"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUInteractionOutlineShader",

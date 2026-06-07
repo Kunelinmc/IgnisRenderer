@@ -18,7 +18,7 @@ import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGP
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGPULightingState } from "../../renderers/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import { loadPostProcessShaderPartComposite } from "../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	PostProcessPass,
 	type PostProcessPassConfig,
@@ -622,7 +622,9 @@ export class WebGPUVolumetricLightingImplementation
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {
-			const shader = await loadPostProcessShaderPartComposite("volumetric");
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.volumetric.composite"
+			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUVolumetricShader",
 				code: shader.code,

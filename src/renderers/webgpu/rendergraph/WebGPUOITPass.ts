@@ -20,7 +20,7 @@ import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import { loadWebGPUUtilityShaderComposite } from "../../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../../shaders/ShaderSource";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUOITPassCallbacks {
@@ -318,7 +318,9 @@ export class WebGPUOITPass {
 
 	private async _ensureResolveResources(): Promise<void> {
 		if (!this._resolveShaderModule) {
-			const composite = await loadWebGPUUtilityShaderComposite("oitResolve");
+			const composite = await ShaderSource.load(
+				"webgpu.utility.oitResolve.composite"
+			);
 			this._resolveShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUOITResolveShader",
 				code: composite.code,

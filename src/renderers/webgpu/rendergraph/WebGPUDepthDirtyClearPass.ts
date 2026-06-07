@@ -2,7 +2,7 @@ import type {
 	DirtyRect,
 } from "../../../pipeline/incremental";
 import { Logger } from "../../../foundation/Logger";
-import { loadWebGPUUtilityShaderComposite } from "../../../shaders/webgpu/shaderSource";
+import { ShaderSource } from "../../../shaders/ShaderSource";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	TextureFormat,
@@ -110,7 +110,7 @@ export class WebGPUDepthDirtyClearPass {
 
 		if (!this._shaderModule) {
 			const composite =
-				await loadWebGPUUtilityShaderComposite("depthDirtyClear");
+				await ShaderSource.load("webgpu.utility.depthDirtyClear.composite");
 			this._shaderModule = await this._backend.createShaderModule({
 				label: "WebGPUDepthDirtyClearShader",
 				code: composite.code,
