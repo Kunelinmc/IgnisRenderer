@@ -8,6 +8,11 @@ import {
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
+import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/webgl/constants.ts";
 
 function createStage(options = {}) {
 	const runtime = options.runtime ?? new ShaderRuntime({ mode: "warn" });
@@ -361,6 +366,48 @@ void main() {
 	assert.equal(result.code.includes("IGNIS_LUMA_WEIGHTS_BT709"), false);
 }
 
+function testWebGLLightLimitConstantsExpandFromRuntimeProfile() {
+	const { stage } = createStage({
+		mode: "strict",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+	});
+	const result = stage.compile({
+		code: `#version 300 es
+precision highp float;
+#import <ignis/webgl/constants>
+const int MAX_DIRECTIONAL_LIGHTS = __WEBGL_MAX_DIRECTIONAL_LIGHTS__;
+const int MAX_POINT_LIGHTS = __WEBGL_MAX_POINT_LIGHTS__;
+const int MAX_SPOT_LIGHTS = __WEBGL_MAX_SPOT_LIGHTS__;
+out vec4 fragColor;
+void main() {
+	fragColor = vec4(float(MAX_DIRECTIONAL_LIGHTS + MAX_POINT_LIGHTS + MAX_SPOT_LIGHTS));
+}`,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLLightLimitConstants",
+		sourceKind: "builtin-scene",
+		directiveSourcePath: "./parts/sceneFragment.glsl",
+	});
+	assert.equal(result.hasErrors, false);
+	assert.ok(
+		result.code.includes(
+			`const int MAX_DIRECTIONAL_LIGHTS = ${WEBGL_MAX_DIRECTIONAL_LIGHTS};`
+		)
+	);
+	assert.ok(
+		result.code.includes(
+			`const int MAX_POINT_LIGHTS = ${WEBGL_MAX_POINT_LIGHTS};`
+		)
+	);
+	assert.ok(
+		result.code.includes(
+			`const int MAX_SPOT_LIGHTS = ${WEBGL_MAX_SPOT_LIGHTS};`
+		)
+	);
+	assert.equal(result.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"), false);
+}
+
 async function testCompileAsyncUsesAsyncDirectivePreprocessPath() {
 	const { stage } = createStage({
 		hook: async () => ({
@@ -421,11 +468,12 @@ async function run() {
 		testProfileCompletenessRequiresSoftwareProfile();
 		testStageABBoundaryNoDuplicateDirectiveDiagnostics();
 		testHookMissingTokenStrictWarnBehavior();
-			testHookTokenCollisionFallsBackToBasePatch();
-			testDirectiveFingerprintChangeTriggersCacheMiss();
-			testSourceMapSchemaVersionNormalization();
-			testAsyncHookFallbackByMode();
+		testHookTokenCollisionFallsBackToBasePatch();
+		testDirectiveFingerprintChangeTriggersCacheMiss();
+		testSourceMapSchemaVersionNormalization();
+		testAsyncHookFallbackByMode();
 		testLumaInjectionExpandsToConcreteWeightsForGLSL();
+		testWebGLLightLimitConstantsExpandFromRuntimeProfile();
 		await testCompileAsyncUsesAsyncDirectivePreprocessPath();
 		await testCompileAsyncUsesAsyncRuntimeProcessPath();
 		console.log("Shader directive pipeline v2 tests passed");

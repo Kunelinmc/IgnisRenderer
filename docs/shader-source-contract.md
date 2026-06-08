@@ -37,6 +37,10 @@ Callers must use `ShaderSource.load()` for asynchronous loading and
 - `webgl.scene.raw` and `webgl.scene.composite` must receive
   `params.limits` with `maxDirectionalLights`, `maxPointLights`, and
   `maxSpotLights`.
+- WebGL scene sources must leave light-count placeholders in source text using
+  `__WEBGL_MAX_DIRECTIONAL_LIGHTS__`, `__WEBGL_MAX_POINT_LIGHTS__`, and
+  `__WEBGL_MAX_SPOT_LIGHTS__`. `ShaderRuntime` directive profiles own the
+  replacement to concrete backend constants.
 - Composite results returned from `ShaderSource` must be cloned so callers cannot
   mutate cached source maps.
 
@@ -51,15 +55,15 @@ const ssr = await ShaderSource.load("webgpu.postprocess.ssr.raw");
 await ShaderSource.prepare("webgl.scene.raw", {
 	limits: {
 		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
+		maxPointLights: 16,
+		maxSpotLights: 8,
 	},
 });
 const webglScene = ShaderSource.get("webgl.scene.raw", {
 	limits: {
 		maxDirectionalLights: 4,
-		maxPointLights: 4,
-		maxSpotLights: 4,
+		maxPointLights: 16,
+		maxSpotLights: 8,
 	},
 });
 

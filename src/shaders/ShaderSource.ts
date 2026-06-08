@@ -492,14 +492,6 @@ function composeShaderParts(
 	);
 }
 
-function replaceLightLimit(
-	source: string,
-	placeholder: string,
-	value: number
-): string {
-	return source.replaceAll(placeholder, String(Math.max(0, value | 0)));
-}
-
 function replaceOptionalDefines(
 	source: string,
 	limits: WebGLSceneLightLimits
@@ -1086,22 +1078,7 @@ export class ShaderSource {
 		template: string,
 		limits: WebGLSceneLightLimits
 	): string {
-		const withOptionalDefines = replaceOptionalDefines(template, limits);
-		const withDirectional = replaceLightLimit(
-			withOptionalDefines,
-			"__MAX_DIRECTIONAL_LIGHTS__",
-			limits.maxDirectionalLights
-		);
-		const withPoint = replaceLightLimit(
-			withDirectional,
-			"__MAX_POINT_LIGHTS__",
-			limits.maxPointLights
-		);
-		return replaceLightLimit(
-			withPoint,
-			"__MAX_SPOT_LIGHTS__",
-			limits.maxSpotLights
-		);
+		return replaceOptionalDefines(template, limits);
 	}
 
 	private static _parsePartKey<T extends string>(

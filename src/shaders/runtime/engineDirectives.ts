@@ -11,6 +11,11 @@ import {
 	VOLUMETRIC_SIGMA_T_SCALE,
 } from "../../renderers/constants";
 import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "../../renderers/webgl/constants";
+import {
 	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
 	WEBGPU_MAX_AREA_LIGHTS,
 	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
@@ -25,7 +30,7 @@ import {
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 10;
+const PROFILE_REVISION = 11;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MATERIAL_SHADER_UNIFORM_BINDING = WEBGPU_MODEL_BINDING_SHADER_UNIFORMS;
 const MIGRATION_HINT =
@@ -672,6 +677,14 @@ function createWebGLProfile(): ShaderDirectiveProfile {
 		backend: "webgl",
 		revision: PROFILE_REVISION,
 		includeModules: [
+			{
+				language: "glsl",
+				id: "ignis/webgl/constants.glsl",
+				code: `#define __WEBGL_MAX_DIRECTIONAL_LIGHTS__ ${WEBGL_MAX_DIRECTIONAL_LIGHTS}
+#define __WEBGL_MAX_POINT_LIGHTS__ ${WEBGL_MAX_POINT_LIGHTS}
+#define __WEBGL_MAX_SPOT_LIGHTS__ ${WEBGL_MAX_SPOT_LIGHTS}`,
+				sourcePath: "runtime://ignis/includes/glsl/webgl/constants.glsl",
+			},
 			{
 				language: "glsl",
 				id: "ignis/color/srgb.glsl",

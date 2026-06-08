@@ -7,7 +7,16 @@ import {
 	WEBGL_SHADER_PARTS,
 } from "../../../src/shaders/ShaderSource.ts";
 import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
-import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
+import {
+	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+	ShaderBackendCompileStage,
+	ShaderRuntime,
+} from "../../../src/shaders/runtime/index.ts";
+import {
+	WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	WEBGL_MAX_POINT_LIGHTS,
+	WEBGL_MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/webgl/constants.ts";
 
 const REPO_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -18,9 +27,9 @@ const REPO_ROOT = path.resolve(
 const SHADER_ROOT = path.join(REPO_ROOT, "src", "shaders");
 
 const WEBGL_SCENE_LIMITS = {
-	maxDirectionalLights: 2,
-	maxPointLights: 3,
-	maxSpotLights: 4,
+	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
+	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
+	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 };
 
 async function testLoadsRawAndCompositeParts() {
@@ -110,9 +119,22 @@ async function testWebGLSceneVariants() {
 	});
 
 	assert.ok(raw.vertex.includes("layout(location = 0) in vec3 aPosition;"));
-	assert.ok(raw.fragment.includes("const int MAX_DIRECTIONAL_LIGHTS = 2;"));
-	assert.ok(raw.fragment.includes("const int MAX_POINT_LIGHTS = 3;"));
-	assert.ok(raw.fragment.includes("const int MAX_SPOT_LIGHTS = 4;"));
+	assert.ok(raw.fragment.includes("#import <ignis/webgl/constants>"));
+	assert.ok(
+		raw.fragment.includes(
+			"const int MAX_DIRECTIONAL_LIGHTS = __WEBGL_MAX_DIRECTIONAL_LIGHTS__;"
+		)
+	);
+	assert.ok(
+		raw.fragment.includes(
+			"const int MAX_POINT_LIGHTS = __WEBGL_MAX_POINT_LIGHTS__;"
+		)
+	);
+	assert.ok(
+		raw.fragment.includes(
+			"const int MAX_SPOT_LIGHTS = __WEBGL_MAX_SPOT_LIGHTS__;"
+		)
+	);
 	assert.ok(!raw.fragment.includes("__MAX_DIRECTIONAL_LIGHTS__"));
 	assert.ok(!raw.fragment.includes("WEBGL_SHADOW_TRANSMITTANCE 1"));
 	assert.ok(
@@ -129,6 +151,39 @@ async function testWebGLSceneVariants() {
 		composite.fragment.sourceMap.segments[0].sourcePath,
 		"./webgl/parts/sceneFragment.glsl"
 	);
+
+	const compileStage = new ShaderBackendCompileStage({
+		backend: "webgl",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		mode: "strict",
+	});
+	const compiled = compileStage.compile({
+		code: raw.fragment,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLSceneFragment",
+		sourceKind: "builtin-scene",
+		sourceMap: composite.fragment.sourceMap,
+	});
+	assert.equal(compiled.hasErrors, false);
+	assert.ok(
+		compiled.code.includes(
+			`const int MAX_DIRECTIONAL_LIGHTS = ${WEBGL_MAX_DIRECTIONAL_LIGHTS};`
+		)
+	);
+	assert.ok(
+		compiled.code.includes(
+			`const int MAX_POINT_LIGHTS = ${WEBGL_MAX_POINT_LIGHTS};`
+		)
+	);
+	assert.ok(
+		compiled.code.includes(
+			`const int MAX_SPOT_LIGHTS = ${WEBGL_MAX_SPOT_LIGHTS};`
+		)
+	);
+	assert.ok(!compiled.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"));
 }
 
 async function testWebGPUCompositeIncludesSharedParts() {
