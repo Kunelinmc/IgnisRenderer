@@ -85,6 +85,8 @@ export type WebGPUPostProcessShaderPart =
 	| "copy"
 	| "sobelNormal";
 
+export type WebGPUShadowShaderPart = "depth";
+
 export type WebGPUUtilityShaderPart =
 	| "planarReflectionComposite"
 	| "present"
@@ -218,6 +220,10 @@ type WebGPUPostProcessKey =
 	| `webgpu.postprocess.${WebGPUPostProcessShaderPart}.raw`
 	| `webgpu.postprocess.${WebGPUPostProcessShaderPart}.composite`;
 
+type WebGPUShadowKey =
+	| `webgpu.shadow.${WebGPUShadowShaderPart}.raw`
+	| `webgpu.shadow.${WebGPUShadowShaderPart}.composite`;
+
 type WebGPUUtilityKey =
 	| `webgpu.utility.${WebGPUUtilityShaderPart}.raw`
 	| `webgpu.utility.${WebGPUUtilityShaderPart}.composite`;
@@ -231,6 +237,7 @@ export type ShaderSourceKey =
 	| WebGPUCompositeFixedShaderKey
 	| WebGPUScenePartKey
 	| WebGPUPostProcessKey
+	| WebGPUShadowKey
 	| WebGPUUtilityKey
 	| WebGLPartKey
 	| "webgl.scene.raw"
@@ -354,6 +361,10 @@ const webgpuPostProcessShaderFiles: Record<WebGPUPostProcessShaderPart, string> 
 	fxaa: "./webgpu/postprocess/fxaa.wgsl",
 	copy: "./webgpu/postprocess/copy.wgsl",
 	sobelNormal: "./webgpu/postprocess/sobelNormal.wgsl",
+};
+
+const webgpuShadowShaderFiles: Record<WebGPUShadowShaderPart, string> = {
+	depth: "./webgpu/shadow/depth.wgsl",
 };
 
 const webgpuUtilityShaderFiles: Record<WebGPUUtilityShaderPart, string> = {
@@ -885,6 +896,9 @@ export class ShaderSource {
 		if (key.startsWith("webgpu.postprocess.")) {
 			return this._loadWebGPUPostProcessPart(key as WebGPUPostProcessKey);
 		}
+		if (key.startsWith("webgpu.shadow.")) {
+			return this._loadWebGPUShadowPart(key as WebGPUShadowKey);
+		}
 		if (key.startsWith("webgpu.utility.")) {
 			return this._loadWebGPUUtilityPart(key as WebGPUUtilityKey);
 		}
@@ -986,6 +1000,23 @@ export class ShaderSource {
 			);
 			return parsed.composite ? composite : composite.code;
 		}
+		return parsed.composite ?
+				this._loadFileComposite(descriptor)
+			:	this._loadFileRaw(descriptor);
+	}
+
+	private static _loadWebGPUShadowPart(
+		key: WebGPUShadowKey
+	): Promise<string | CompositeShaderSource> {
+		const parsed = this._parsePartKey<WebGPUShadowShaderPart>(
+			key,
+			"webgpu.shadow."
+		);
+		const descriptor: ShaderFileDescriptor = {
+			scope: "webgpu",
+			key: `webgpu.shadow.${parsed.part}`,
+			path: webgpuShadowShaderFiles[parsed.part],
+		};
 		return parsed.composite ?
 				this._loadFileComposite(descriptor)
 			:	this._loadFileRaw(descriptor);
