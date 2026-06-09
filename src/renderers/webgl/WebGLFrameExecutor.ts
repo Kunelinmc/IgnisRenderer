@@ -137,9 +137,11 @@ import {
 } from "./WebGLFrameTargetLifecycle";
 import {
 	bindWebGLGlobalUniforms,
+	uploadWebGLIrradianceProbeGridCoefficients,
 	uploadWebGLLocalLightProbeCoefficients,
 	uploadWebGLSHAmbientCoefficients,
 	type WebGLGlobalUniformBinderHost,
+	type WebGLIrradianceProbeGridUploadHost,
 	type WebGLLocalLightProbeUploadHost,
 	type WebGLSHAmbientUploadHost,
 } from "./WebGLGlobalUniformBinder";
@@ -259,6 +261,7 @@ export class WebGLFrameExecutor {
 	private _maxTextureSize: number;
 	private _maxRenderbufferSize: number;
 	private _maxTextureImageUnits: number;
+	private _irradianceProbeGridSamplingSupported = false;
 	private _presentedInFrame = false;
 	private _activeContext: FrameContext | null = null;
 	private _lightState: WebGLLightState | null = null;
@@ -269,6 +272,9 @@ export class WebGLFrameExecutor {
 	private _localLightProbeSHTexture: WebGLTexture | null = null;
 	private _localLightProbeSHTextureWidth = SH_COEFFICIENT_COUNT;
 	private _localLightProbeSHTextureHeight = 1;
+	private _irradianceProbeGridSHTexture: WebGLTexture | null = null;
+	private _irradianceProbeGridSHTextureWidth = SH_COEFFICIENT_COUNT;
+	private _irradianceProbeGridSHTextureHeight = 1;
 	private _ssaoFrameIndex = 0;
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
@@ -296,6 +302,8 @@ export class WebGLFrameExecutor {
 				onProgramCompilePending: options.onProgramCompilePending,
 			},
 		);
+		this._irradianceProbeGridSamplingSupported =
+			this._programs.supportsIrradianceProbeGridSampling();
 		this._geometry = new WebGLGeometryRegistry(gl);
 		this._textures = new WebGLTextureRegistry(gl);
 		this._fullscreenVao = gl.createVertexArray();
@@ -1364,6 +1372,10 @@ export class WebGLFrameExecutor {
 			this._gl.deleteTexture(this._localLightProbeSHTexture);
 			this._localLightProbeSHTexture = null;
 		}
+		if (this._irradianceProbeGridSHTexture) {
+			this._gl.deleteTexture(this._irradianceProbeGridSHTexture);
+			this._irradianceProbeGridSHTexture = null;
+		}
 		if (this._particleShadowVolumeTexture) {
 			this._gl.deleteTexture(this._particleShadowVolumeTexture);
 			this._particleShadowVolumeTexture = null;
@@ -2345,6 +2357,15 @@ export class WebGLFrameExecutor {
 		return uploadWebGLLocalLightProbeCoefficients(
 			this as unknown as WebGLLocalLightProbeUploadHost,
 			probes
+		);
+	}
+
+	private _uploadIrradianceProbeGridCoefficients(
+		grid: WebGLLightState["irradianceProbeGrid"]
+	): boolean {
+		return uploadWebGLIrradianceProbeGridCoefficients(
+			this as unknown as WebGLIrradianceProbeGridUploadHost,
+			grid
 		);
 	}
 

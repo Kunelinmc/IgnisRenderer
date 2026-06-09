@@ -7,18 +7,10 @@ if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
 var diffuseAmbient = ambientColor;
 var specularAmbientRadiance = ambientColor / PI;
 if (shAmbientEnabled) {
-	let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
-	let globalDiffuseAmbient = calculateIrradianceFromSH(pbrNormal);
-	let localDiffuseAmbient = sampleBlendedLocalLightProbeIrradiance(
-		localSelection,
-		pbrNormal
-	);
-	diffuseAmbient = mix(
-		globalDiffuseAmbient,
-		localDiffuseAmbient.rgb,
-		localDiffuseAmbient.w
-	) / 255.0;
+	diffuseAmbient =
+		sampleDiffuseProbeIrradiance(input.worldPosition, pbrNormal) / 255.0;
 
+	let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
 	let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
 	let localSpecularAmbient = sampleBlendedLocalLightProbeRadiance(
 		localSelection,

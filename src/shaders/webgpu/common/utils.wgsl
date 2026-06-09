@@ -1012,6 +1012,167 @@ fn sampleBlendedLocalLightProbeRadiance(
 	return vec4<f32>(result, coverage);
 }
 
+fn irradianceProbeGridEnabled() -> bool {
+	return frame.irradianceProbeGridDataC.x > 0.5 &&
+		frame.irradianceProbeGridDataA.w > 0.5;
+}
+
+fn worldToIrradianceProbeGridPoint(worldPosition: vec3<f32>) -> vec3<f32> {
+	let row0 = frame.irradianceProbeGridWorldToGridRow0;
+	let row1 = frame.irradianceProbeGridWorldToGridRow1;
+	let row2 = frame.irradianceProbeGridWorldToGridRow2;
+	return vec3<f32>(
+		dot(row0.xyz, worldPosition) + row0.w,
+		dot(row1.xyz, worldPosition) + row1.w,
+		dot(row2.xyz, worldPosition) + row2.w
+	);
+}
+
+fn computeIrradianceProbeGridCoverage(localPosition: vec3<f32>) -> f32 {
+	let invHalfExtents = frame.irradianceProbeGridDataB.xyz;
+	let metric = max(
+		max(abs(localPosition.x) * invHalfExtents.x, abs(localPosition.y) * invHalfExtents.y),
+		abs(localPosition.z) * invHalfExtents.z
+	);
+	let blendDistance = max(frame.irradianceProbeGridDataB.w, 1e-5);
+	let x = clamp((metric - 1.0) / blendDistance, 0.0, 1.0);
+	return 1.0 - smoothstep(0.0, 1.0, x);
+}
+
+fn resolveIrradianceProbeGridAxis(
+	localValue: f32,
+	invHalfExtent: f32,
+	dimension: u32
+) -> f32 {
+	if (dimension <= 1u) {
+		return 0.0;
+	}
+	let normalized = clamp(localValue * invHalfExtent * 0.5 + 0.5, 0.0, 1.0);
+	return normalized * f32(dimension - 1u);
+}
+
+fn irradianceProbeGridCellIndex(x: u32, y: u32, z: u32, dims: vec3<u32>) -> u32 {
+	return x + y * dims.x + z * dims.x * dims.y;
+}
+
+fn sampleIrradianceProbeGridCoeff(cellIndex: u32, coeffIndex: u32) -> vec4<f32> {
+	return textureLoad(
+		irradianceProbeGridCoeffs,
+		vec2<i32>(i32(coeffIndex), i32(cellIndex)),
+		0
+	);
+}
+
+fn sampleIrradianceProbeGridIrradiance(
+	worldPosition: vec3<f32>,
+	normal: vec3<f32>
+) -> vec4<f32> {
+	if (!irradianceProbeGridEnabled()) {
+		return vec4<f32>(0.0);
+	}
+	let dims = vec3<u32>(
+		max(u32(frame.irradianceProbeGridDataA.x + 0.5), 1u),
+		max(u32(frame.irradianceProbeGridDataA.y + 0.5), 1u),
+		max(u32(frame.irradianceProbeGridDataA.z + 0.5), 1u)
+	);
+	let cellCount = max(u32(frame.irradianceProbeGridDataA.w + 0.5), 1u);
+	let localPosition = worldToIrradianceProbeGridPoint(worldPosition);
+	let coverage = computeIrradianceProbeGridCoverage(localPosition);
+	if (coverage <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+
+	let gridX = resolveIrradianceProbeGridAxis(
+		localPosition.x,
+		frame.irradianceProbeGridDataB.x,
+		dims.x
+	);
+	let gridY = resolveIrradianceProbeGridAxis(
+		localPosition.y,
+		frame.irradianceProbeGridDataB.y,
+		dims.y
+	);
+	let gridZ = resolveIrradianceProbeGridAxis(
+		localPosition.z,
+		frame.irradianceProbeGridDataB.z,
+		dims.z
+	);
+	let x0 = min(u32(floor(gridX)), dims.x - 1u);
+	let y0 = min(u32(floor(gridY)), dims.y - 1u);
+	let z0 = min(u32(floor(gridZ)), dims.z - 1u);
+	let x1 = min(x0 + 1u, dims.x - 1u);
+	let y1 = min(y0 + 1u, dims.y - 1u);
+	let z1 = min(z0 + 1u, dims.z - 1u);
+	let tx = gridX - f32(x0);
+	let ty = gridY - f32(y0);
+	let tz = gridZ - f32(z0);
+	let basis = evalSHBasis(normal);
+	let c1 = PI;
+	let c2 = (2.0 * PI) / 3.0;
+	let c3 = PI / 4.0;
+	var result = vec3<f32>(0.0);
+	var totalWeight = 0.0;
+
+	for (var corner: u32 = 0u; corner < 8u; corner = corner + 1u) {
+		let useX1 = (corner & 1u) != 0u;
+		let useY1 = (corner & 2u) != 0u;
+		let useZ1 = (corner & 4u) != 0u;
+		let cellX = select(x0, x1, useX1);
+		let cellY = select(y0, y1, useY1);
+		let cellZ = select(z0, z1, useZ1);
+		let weightX = select(1.0 - tx, tx, useX1);
+		let weightY = select(1.0 - ty, ty, useY1);
+		let weightZ = select(1.0 - tz, tz, useZ1);
+		let weight = weightX * weightY * weightZ;
+		if (weight <= 1e-6) {
+			continue;
+		}
+		let cellIndex = irradianceProbeGridCellIndex(cellX, cellY, cellZ, dims);
+		if (cellIndex >= cellCount) {
+			continue;
+		}
+		let valid = sampleIrradianceProbeGridCoeff(cellIndex, 0u).w;
+		if (valid <= 0.5) {
+			continue;
+		}
+		for (var coeffIndex: u32 = 0u; coeffIndex < 16u; coeffIndex = coeffIndex + 1u) {
+			var factor = select(0.0, c3, coeffIndex >= 4u && coeffIndex < 9u);
+			factor = select(factor, c2, coeffIndex >= 1u && coeffIndex < 4u);
+			factor = select(factor, c1, coeffIndex == 0u);
+			let coeff = sampleIrradianceProbeGridCoeff(cellIndex, coeffIndex).xyz;
+			result += coeff * basis[coeffIndex] * factor * weight;
+		}
+		totalWeight += weight;
+	}
+
+	if (totalWeight <= 1e-6) {
+		return vec4<f32>(0.0);
+	}
+	return vec4<f32>(max(result / totalWeight, vec3<f32>(0.0)), clamp(coverage, 0.0, 1.0));
+}
+
+fn sampleDiffuseProbeIrradiance(
+	worldPosition: vec3<f32>,
+	normal: vec3<f32>
+) -> vec3<f32> {
+	let localSelection = selectTopTwoLocalLightProbes(worldPosition);
+	let globalDiffuseAmbient = calculateIrradianceFromSH(normal);
+	let localDiffuseAmbient = sampleBlendedLocalLightProbeIrradiance(
+		localSelection,
+		normal
+	);
+	let fallback = mix(
+		globalDiffuseAmbient,
+		localDiffuseAmbient.rgb,
+		localDiffuseAmbient.w
+	);
+	let gridDiffuseAmbient = sampleIrradianceProbeGridIrradiance(
+		worldPosition,
+		normal
+	);
+	return mix(fallback, gridDiffuseAmbient.rgb, gridDiffuseAmbient.w);
+}
+
 fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	let phi = atan2(direction.x, direction.z);
 	let theta = acos(clamp(direction.y, -1.0, 1.0));

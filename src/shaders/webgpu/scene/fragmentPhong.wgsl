@@ -4,17 +4,8 @@
 
 		var ambientBase = frame.ambientColor.rgb;
 		if (useSHAmbient()) {
-			let globalAmbientBase = calculateIrradianceFromSH(normal);
-			let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
-			let localAmbientBase = sampleBlendedLocalLightProbeIrradiance(
-				localSelection,
-				normal
-			);
-			ambientBase = mix(
-				globalAmbientBase,
-				localAmbientBase.rgb,
-				localAmbientBase.w
-			) / 255.0;
+			ambientBase =
+				sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
 		}
 		var ambient = ambientBase * phongAmbient;
 		var direct = vec3<f32>(0.0);

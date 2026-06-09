@@ -3,6 +3,7 @@ import { SH } from "../../maths/SH";
 import {
 	isShadowCastingLight,
 } from "../../lights";
+import { sampleActiveIrradianceProbeGrid } from "../../lights/runtime/irradianceProbeGridRuntime";
 import { sampleReflectionProbesSpecular } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	createLightContribution,
@@ -65,6 +66,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _halfDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _anisotropicBentNormal: IVector3 = { x: 0, y: 0, z: 1 };
 	private _shBasis = new Float32Array(16);
+	private _gridSHAmbient: SHCoefficients = SH.empty();
 	private _shIrradiance: RGB = { r: 0, g: 0, b: 0 };
 	private _shRadiance: RGB = { r: 0, g: 0, b: 0 };
 	private _iridescenceFresnel: RGB = { r: 0, g: 0, b: 0 };
@@ -79,7 +81,22 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	): RGB {
 		const N = normal;
 		const V = viewDir;
-		const shAmbient = context.shAmbientCoeffs;
+		const baseSHAmbient = context.shAmbientCoeffs;
+		const gridAmbient =
+			context.enableSH ?
+				sampleActiveIrradianceProbeGrid(
+					context.lights,
+					world,
+					context.cameraPos,
+					this._gridSHAmbient
+				)
+			:	null;
+		const gridCoverage = gridAmbient?.coverage ?? 0;
+		const shAmbient = this._resolveSHAmbient(
+			baseSHAmbient,
+			gridAmbient?.sh ?? null,
+			gridCoverage
+		);
 		const hasSHAmbient = this._hasNonZeroSH(shAmbient);
 		const NdotVRaw = Vector3.dot(N, V);
 		const NdotV = Math.max(NdotVRaw, PBR_MIN_NDOTV);
@@ -217,10 +234,16 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const lightIntensity = contrib.intensity ?? 1.0;
 
 			if (contrib.type === "ambient" || contrib.type === "irradiance") {
-				if (!useSHAmbient) {
-					ambientLightR += sRGBToLinear(contrib.color.r / 255) * lightIntensity;
-					ambientLightG += sRGBToLinear(contrib.color.g / 255) * lightIntensity;
-					ambientLightB += sRGBToLinear(contrib.color.b / 255) * lightIntensity;
+				const fallbackScale = this._resolveAmbientFallbackScale(
+					useSHAmbient,
+					baseSHAmbient,
+					gridCoverage
+				);
+				if (!useSHAmbient || fallbackScale > 0) {
+					const intensity = lightIntensity * fallbackScale;
+					ambientLightR += sRGBToLinear(contrib.color.r / 255) * intensity;
+					ambientLightG += sRGBToLinear(contrib.color.g / 255) * intensity;
+					ambientLightB += sRGBToLinear(contrib.color.b / 255) * intensity;
 				}
 				continue;
 			}
@@ -1258,6 +1281,35 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		}
 
 		return false;
+	}
+
+	private _resolveSHAmbient(
+		base: SHCoefficients | null,
+		grid: SHCoefficients | null,
+		gridCoverage: number
+	): SHCoefficients | null {
+		if (!grid || gridCoverage <= 0) {
+			return base;
+		}
+		if (!base || gridCoverage >= 1) {
+			return grid;
+		}
+		for (let i = 0; i < grid.length; i++) {
+			grid[i].r = base[i].r * (1 - gridCoverage) + grid[i].r * gridCoverage;
+			grid[i].g = base[i].g * (1 - gridCoverage) + grid[i].g * gridCoverage;
+			grid[i].b = base[i].b * (1 - gridCoverage) + grid[i].b * gridCoverage;
+		}
+		return grid;
+	}
+
+	private _resolveAmbientFallbackScale(
+		useSHAmbient: boolean,
+		baseSHAmbient: SHCoefficients | null,
+		gridCoverage: number
+	): number {
+		if (!useSHAmbient) return 1;
+		if (baseSHAmbient || gridCoverage <= 0 || gridCoverage >= 1) return 0;
+		return 1 - gridCoverage;
 	}
 
 	private _sampleEnvironmentSpecular(

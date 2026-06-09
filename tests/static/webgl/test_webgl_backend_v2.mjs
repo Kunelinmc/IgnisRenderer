@@ -1268,6 +1268,25 @@ function testSceneShaderFitsCommonWebGLTextureUnitLimit() {
 		)
 	);
 	assert.ok(!shader.fragment.includes("uniform sampler2D uSHAmbientCoeffs;"));
+	assert.ok(!shader.fragment.includes("uIrradianceProbeGridCoeffs"));
+	assert.ok(shader.fragment.includes("vec3 sampleDiffuseProbeIrradiance"));
+	assert.ok(!shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
+}
+
+function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
+	const shader = ShaderSource.get("webgl.scene.raw", {
+		limits: {
+			...TEST_SCENE_LIMITS,
+			enableIrradianceProbeGrid: true,
+		},
+	});
+	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
+
+	assert.equal(samplerMatches.length, 17);
+	assert.ok(shader.fragment.includes("uniform sampler2D uIrradianceProbeGridCoeffs;"));
+	assert.ok(shader.fragment.includes("uIrradianceProbeGridWorldToGridRow0"));
+	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
+	assert.ok(shader.fragment.includes("return mix(fallback, gridAmbientBase.rgb"));
 }
 
 function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
@@ -2021,6 +2040,24 @@ async function run() {
 				},
 			},
 		},
+		{
+			key: "webgl.scene.raw",
+			params: {
+				limits: {
+					...TEST_SCENE_LIMITS,
+					enableIrradianceProbeGrid: true,
+				},
+			},
+		},
+		{
+			key: "webgl.scene.composite",
+			params: {
+				limits: {
+					...TEST_SCENE_LIMITS,
+					enableIrradianceProbeGrid: true,
+				},
+			},
+		},
 	]);
 	testLightCollectorLimitsAndWarnings();
 	testLightProbeAmbientAndReflectionProbeSpecularCollection();
@@ -2050,6 +2087,7 @@ async function run() {
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesLocalizedLightProbeUniforms();
 	testSceneShaderFitsCommonWebGLTextureUnitLimit();
+	testSceneShaderIncludesIrradianceProbeGridWhenEnabled();
 	testSceneShaderIncludesPBRTextureAndUV1Pipeline();
 	testSceneShaderIncludesOITPassMode();
 	testParticleShaderIncludesOITPassMode();

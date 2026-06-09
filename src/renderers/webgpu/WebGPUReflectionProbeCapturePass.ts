@@ -24,6 +24,7 @@ import {
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import type { ProbeWebGPUCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
+import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,
@@ -82,7 +83,9 @@ export class WebGPUReflectionProbeCapturePass {
 			request.includeMeshes,
 			request.includeEnvironment,
 			request.includeTransparent,
-			request.includeParticles
+			request.includeParticles,
+			request.targetKind,
+			request.targetId
 		);
 		const captureFeatures = createCaptureFeatures(
 			request.frameContext.features,
@@ -430,11 +433,18 @@ function buildCapturePreparedScene(
 	includeMeshes: boolean,
 	includeEnvironment: boolean,
 	includeTransparent: boolean,
-	includeParticles: boolean
+	includeParticles: boolean,
+	targetKind: ProbeWebGPUCaptureFaceRequest["targetKind"],
+	targetId: string
 ): PreparedScene {
 	const baseScene = frameContext.scene;
 	const opaquePackets: DrawPacket[] = [];
 	const transparentPackets: DrawPacket[] = [];
+	const lights = filterCapturePreparedSceneLights(
+		baseScene.lights,
+		targetKind,
+		targetId
+	);
 
 	if (includeMeshes) {
 		const meshInstances = baseScene.meshInstances.filter(
@@ -491,7 +501,7 @@ function buildCapturePreparedScene(
 
 	return {
 		sceneBounds: baseScene.sceneBounds,
-		lights: baseScene.lights,
+		lights,
 		particleSystems: includeParticles ? baseScene.particleSystems : [],
 		hasActiveAnimations: baseScene.hasActiveAnimations,
 		camera: captureCamera,
@@ -513,6 +523,21 @@ function buildCapturePreparedScene(
 		occlusion: null,
 		spatialIndex: null,
 	};
+}
+
+function filterCapturePreparedSceneLights(
+	lights: PreparedScene["lights"],
+	targetKind: ProbeWebGPUCaptureFaceRequest["targetKind"],
+	targetId: string
+): PreparedScene["lights"] {
+	if (targetKind !== "grid") {
+		return lights;
+	}
+	return lights.filter(
+		(light) =>
+			light.type !== LightType.IrradianceProbeGrid ||
+			light.id !== targetId
+	);
 }
 
 function buildMeshPackets(

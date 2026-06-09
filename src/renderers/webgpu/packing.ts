@@ -305,6 +305,47 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 				return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
 			}
 		),
+		packVec4("irradianceProbeGridWorldToGridRow0", (input) =>
+			input.irradianceProbeGrid ?
+				matrixRow(input.irradianceProbeGrid.worldToGridMatrix, 0)
+			:	[1, 0, 0, 0]
+		),
+		packVec4("irradianceProbeGridWorldToGridRow1", (input) =>
+			input.irradianceProbeGrid ?
+				matrixRow(input.irradianceProbeGrid.worldToGridMatrix, 1)
+			:	[0, 1, 0, 0]
+		),
+		packVec4("irradianceProbeGridWorldToGridRow2", (input) =>
+			input.irradianceProbeGrid ?
+				matrixRow(input.irradianceProbeGrid.worldToGridMatrix, 2)
+			:	[0, 0, 1, 0]
+		),
+		packVec4("irradianceProbeGridDataA", (input) => {
+			const grid = input.irradianceProbeGrid;
+			return grid ?
+					[
+						grid.dimensions[0],
+						grid.dimensions[1],
+						grid.dimensions[2],
+						grid.cellCount,
+					]
+				:	[1, 1, 1, 0];
+		}),
+		packVec4("irradianceProbeGridDataB", (input) => {
+			const grid = input.irradianceProbeGrid;
+			return grid ?
+					[
+						grid.invHalfExtents[0],
+						grid.invHalfExtents[1],
+						grid.invHalfExtents[2],
+						grid.blendDistance,
+					]
+				:	[1, 1, 1, 0.01];
+		}),
+		packVec4("irradianceProbeGridDataC", (input) => {
+			const grid = input.irradianceProbeGrid;
+			return grid ? [1, WEBGPU_SH_COEFFICIENT_COUNT, grid.cellCount, 0] : [0, 16, 1, 0];
+		}),
 		packVec4("areaLightCounts", (input) => [
 			Math.min(input.areaLights.length, WEBGPU_MAX_AREA_LIGHTS),
 			0,

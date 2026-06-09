@@ -106,6 +106,7 @@ uniform vec4 uLocalLightProbeDataA[MAX_LOCAL_LIGHT_PROBES];
 uniform vec4 uLocalLightProbeDataB[MAX_LOCAL_LIGHT_PROBES];
 uniform sampler2D uLocalLightProbeCoeffs;
 uniform vec2 uLocalLightProbeCoeffsSize;
+__WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__
 uniform int uReflectionProbeCount;
 uniform vec4 uReflectionProbeWorldToProbeRow0[MAX_REFLECTION_PROBES];
 uniform vec4 uReflectionProbeWorldToProbeRow1[MAX_REFLECTION_PROBES];
@@ -587,6 +588,8 @@ vec4 sampleBlendedLocalLightProbeRadiance(
 	}
 	return vec4(result, coverage);
 }
+
+__WEBGL_IRRADIANCE_PROBE_GRID_FUNCTIONS__
 
 vec4 fetchClusterHeader(int clusterIndex) {
 	ivec2 texel = linearIndexToTexel(clusterIndex, uClusterHeaderTexSize);
@@ -1656,20 +1659,7 @@ float resolveTransmissionAlpha(
 vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 	vec3 ambientBase = uAmbientColor;
 	if (uEnableSH == 1) {
-		ivec2 localProbeIndices;
-		vec2 localProbeWeights;
-		selectTopTwoLocalLightProbes(vWorldPos, localProbeIndices, localProbeWeights);
-		vec3 globalAmbientBase = calculateIrradianceFromSH(n);
-		vec4 localAmbientBase = sampleBlendedLocalLightProbeIrradiance(
-			localProbeIndices,
-			localProbeWeights,
-			n
-		);
-		ambientBase = mix(
-			globalAmbientBase,
-			localAmbientBase.rgb,
-			localAmbientBase.a
-		) / 255.0;
+		ambientBase = sampleDiffuseProbeIrradiance(vWorldPos, n) / 255.0;
 	} else if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
 		ambientBase = vec3(PBR_AMBIENT_FALLBACK_LINEAR);
 	}
@@ -1956,17 +1946,8 @@ vec3 shadePBR(
 	vec3 specularAmbientBase = ambientBase;
 	if (uEnableSH == 1) {
 		selectTopTwoLocalLightProbes(vWorldPos, localProbeIndices, localProbeWeights);
-		vec3 globalAmbientBase = calculateIrradianceFromSH(pbrNormal);
-		vec4 localAmbientBase = sampleBlendedLocalLightProbeIrradiance(
-			localProbeIndices,
-			localProbeWeights,
-			pbrNormal
-		);
-		ambientBase = mix(
-			globalAmbientBase,
-			localAmbientBase.rgb,
-			localAmbientBase.a
-		) / 255.0;
+		ambientBase =
+			sampleDiffuseProbeIrradiance(vWorldPos, pbrNormal) / 255.0;
 
 		vec3 globalSpecularAmbientBase = sampleSHRadiance(reflectionDir);
 		vec4 localSpecularAmbientBase = sampleBlendedLocalLightProbeRadiance(

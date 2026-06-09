@@ -27,6 +27,12 @@ struct FrameUniforms {
 	localLightProbeDataB: array<vec4<f32>, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__>,
 	localLightProbeSHAmbientCoeffs:
 		array<vec4<f32>, __WEBGPU_LOCAL_LIGHT_PROBE_COEFFICIENT_COUNT__>,
+	irradianceProbeGridWorldToGridRow0: vec4<f32>,
+	irradianceProbeGridWorldToGridRow1: vec4<f32>,
+	irradianceProbeGridWorldToGridRow2: vec4<f32>,
+	irradianceProbeGridDataA: vec4<f32>,
+	irradianceProbeGridDataB: vec4<f32>,
+	irradianceProbeGridDataC: vec4<f32>,
 	areaLightCounts: vec4<f32>,
 	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
 }
@@ -191,6 +197,7 @@ struct ParticleShadowVolumeBuffer {
 	ParticleShadowVolumeBuffer;
 @group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
 @group(0) @binding(9) var brdfLUTTexture: texture_2d<f32>;
+@group(0) @binding(10) var irradianceProbeGridCoeffs: texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

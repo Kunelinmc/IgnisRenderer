@@ -517,17 +517,8 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	var diffuseAmbient = ambientColor;
 	var specularAmbientRadiance = ambientColor / PI;
 	if (useSHAmbient()) {
-		let localSelection = selectTopTwoLocalLightProbes(surface.worldPosition);
-		let globalDiffuseAmbient = calculateIrradianceFromSH(surface.normal);
-		let localDiffuseAmbient = sampleBlendedLocalLightProbeIrradiance(
-			localSelection,
-			surface.normal
-		);
-		diffuseAmbient = mix(
-			globalDiffuseAmbient,
-			localDiffuseAmbient.rgb,
-			localDiffuseAmbient.w
-		) / 255.0;
+		diffuseAmbient =
+			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) / 255.0;
 
 		let reflectionDir = select(
 			reflectViewDirection(surface.normal, surface.viewDir),
@@ -540,6 +531,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			),
 			surface.anisotropyStrength > EPSILON
 		);
+		let localSelection = selectTopTwoLocalLightProbes(surface.worldPosition);
 		let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
 		let localSpecularAmbient = sampleBlendedLocalLightProbeRadiance(
 			localSelection,
@@ -655,17 +647,8 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 	var ambientBase = frame.ambientColor.rgb;
 	if (useSHAmbient()) {
-		let globalAmbientBase = calculateIrradianceFromSH(surface.normal);
-		let localSelection = selectTopTwoLocalLightProbes(surface.worldPosition);
-		let localAmbientBase = sampleBlendedLocalLightProbeIrradiance(
-			localSelection,
-			surface.normal
-		);
-		ambientBase = mix(
-			globalAmbientBase,
-			localAmbientBase.rgb,
-			localAmbientBase.w
-		) / 255.0;
+		ambientBase =
+			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) / 255.0;
 	}
 	var direct = vec3<f32>(0.0);
 	let shininess = max(surface.specularFactor, 0.0);

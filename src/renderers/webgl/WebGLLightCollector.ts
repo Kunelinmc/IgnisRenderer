@@ -2,6 +2,7 @@ import { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
+	type IrradianceProbeGrid,
 	type LightProbe,
 	type ReflectionProbe,
 	type SceneLight,
@@ -15,6 +16,10 @@ import {
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import { collectActiveLocalizedLightProbes } from "../../lights/runtime/lightProbeRuntime";
+import {
+	collectIrradianceProbeGrids,
+	selectActiveIrradianceProbeGrid,
+} from "../../lights/runtime/irradianceProbeGridRuntime";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_LOCAL_LIGHT_PROBES,
@@ -90,6 +95,7 @@ export interface WebGLLightState {
 	envSpecularFallbackMap: Texture | null;
 	localLightProbeCount: number;
 	localLightProbes: WebGLLocalLightProbeUniform[];
+	irradianceProbeGrid: WebGLIrradianceProbeGridUniform | null;
 	reflectionProbeCount: number;
 	reflectionProbes: WebGLReflectionProbeUniform[];
 }
@@ -103,6 +109,18 @@ export interface WebGLLocalLightProbeUniform {
 	blendDistance: number;
 	priority: number;
 	sh: SHCoefficients;
+}
+
+export interface WebGLIrradianceProbeGridUniform {
+	id: string;
+	worldToGridMatrix: Matrix4;
+	dimensions: [number, number, number];
+	invHalfExtents: [number, number, number];
+	blendDistance: number;
+	cellCount: number;
+	textureRevision: number;
+	sh: SHCoefficients[];
+	validMask: Uint8Array;
 }
 
 export interface WebGLReflectionProbeUniform {
@@ -209,6 +227,7 @@ export function collectWebGLLights(
 		envSpecularFallbackMap: null,
 		localLightProbeCount: 0,
 		localLightProbes: [],
+		irradianceProbeGrid: null,
 		reflectionProbeCount: 0,
 		reflectionProbes: [],
 	};
@@ -335,6 +354,9 @@ export function collectWebGLLights(
 				collectLightProbe(state, light as LightProbe, enableSH);
 				break;
 			}
+			case LightType.IrradianceProbeGrid: {
+				break;
+			}
 			case LightType.ReflectionProbe: {
 				break;
 			}
@@ -356,6 +378,20 @@ export function collectWebGLLights(
 			cameraWorldPosition
 		).map((probe) => createWebGLLocalLightProbeUniform(probe));
 		state.localLightProbeCount = state.localLightProbes.length;
+		const irradianceProbeGridCount = collectIrradianceProbeGrids(lights).length;
+		if (irradianceProbeGridCount > 1) {
+			emitWarning(
+				"webgl-irradiance-probe-grid-extra-ignored",
+				"WebGL supports one active irradiance probe grid per frame; extra grids are ignored after priority selection."
+			);
+		}
+		const activeGrid = selectActiveIrradianceProbeGrid(
+			lights,
+			cameraWorldPosition
+		);
+		state.irradianceProbeGrid = activeGrid ?
+				createWebGLIrradianceProbeGridUniform(activeGrid)
+			:	null;
 	}
 
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
@@ -437,6 +473,31 @@ function createWebGLLocalLightProbeUniform(
 			g: coefficient.g,
 			b: coefficient.b,
 		})),
+	};
+}
+
+function createWebGLIrradianceProbeGridUniform(
+	grid: IrradianceProbeGrid
+): WebGLIrradianceProbeGridUniform {
+	const cache = grid.getRuntimeCache();
+	return {
+		id: grid.id,
+		worldToGridMatrix: cache.worldToGridMatrix.clone(),
+		dimensions: [
+			cache.dimensions.x,
+			cache.dimensions.y,
+			cache.dimensions.z,
+		],
+		invHalfExtents: [
+			cache.invHalfExtents.x,
+			cache.invHalfExtents.y,
+			cache.invHalfExtents.z,
+		],
+		blendDistance: cache.effectiveBlendDistance,
+		cellCount: cache.cellCount,
+		textureRevision: cache.textureRevision,
+		sh: grid.sh,
+		validMask: cache.validMask,
 	};
 }
 

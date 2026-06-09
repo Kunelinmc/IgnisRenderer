@@ -306,29 +306,44 @@ interface WebGLPendingProgramCompile {
 type WebGLProgramWarn = (key: string, message: string) => void;
 
 const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE = 17;
+const WEBGL_MIN_TEXTURE_UNITS_FOR_IRRADIANCE_PROBE_GRID = 17;
+const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_AND_IRRADIANCE_PROBE_GRID = 18;
 const WEBGL_FALLBACK_READY_FRAME_DELAY = 2;
 const WEBGL_FALLBACK_FINALIZE_BUDGET_PER_FRAME = 1;
 
-function supportsShadowTransmittanceSampler(
+function resolveMaxFragmentTextureUnits(
 	gl: WebGL2RenderingContext
-): boolean {
+): number {
 	const textureUnitParameter = gl.MAX_TEXTURE_IMAGE_UNITS;
 	if (
 		!Number.isFinite(textureUnitParameter) ||
 		typeof gl.getParameter !== "function"
 	) {
-		return false;
+		return 0;
 	}
 	try {
 		const textureUnits = gl.getParameter(textureUnitParameter);
-		return (
-			Number.isFinite(textureUnits) &&
-			Math.floor(textureUnits) >=
-				WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE
-		);
+		return Number.isFinite(textureUnits) ?
+				Math.max(0, Math.floor(textureUnits))
+			:	0;
 	} catch {
-		return false;
+		return 0;
 	}
+}
+
+function supportsShadowTransmittanceSampler(textureUnits: number): boolean {
+	return textureUnits >= WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE;
+}
+
+function supportsIrradianceProbeGridSampler(
+	textureUnits: number,
+	shadowTransmittanceEnabled: boolean
+): boolean {
+	const requiredTextureUnits =
+		shadowTransmittanceEnabled ?
+			WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_AND_IRRADIANCE_PROBE_GRID
+		:	WEBGL_MIN_TEXTURE_UNITS_FOR_IRRADIANCE_PROBE_GRID;
+	return textureUnits >= requiredTextureUnits;
 }
 
 export class WebGLProgramLibrary {
@@ -336,6 +351,7 @@ export class WebGLProgramLibrary {
 	private _shaderRuntime: ShaderRuntime | null;
 	private _shaderCompileStage: ShaderBackendCompileStage | null;
 	private _enableShadowTransmittanceSampling: boolean;
+	private _enableIrradianceProbeGridSampling: boolean;
 	private _parallelShaderCompile: WebGLParallelShaderCompileExtension | null;
 	private _validatePrograms: boolean;
 	private _onProgramCompilePending: (() => void) | null = null;
@@ -404,8 +420,14 @@ export class WebGLProgramLibrary {
 		optionsMaybe?: WebGLProgramLibraryOptions,
 	) {
 		this._gl = gl;
+		const maxFragmentTextureUnits = resolveMaxFragmentTextureUnits(gl);
 		this._enableShadowTransmittanceSampling =
-			supportsShadowTransmittanceSampler(gl);
+			supportsShadowTransmittanceSampler(maxFragmentTextureUnits);
+		this._enableIrradianceProbeGridSampling =
+			supportsIrradianceProbeGridSampler(
+				maxFragmentTextureUnits,
+				this._enableShadowTransmittanceSampling
+			);
 		this._parallelShaderCompile = resolveParallelShaderCompileExtension(gl);
 		let shaderRuntime: ShaderRuntime | null = null;
 		let shaderCompileStage: ShaderBackendCompileStage | null = null;
@@ -465,6 +487,18 @@ export class WebGLProgramLibrary {
 	public beginFrame(): void {
 		this._compileFrameIndex++;
 		this._fallbackFinalizesThisFrame = 0;
+	}
+
+	/**
+	 * Reports whether the built-in scene shader variant includes irradiance probe
+	 * grid uniforms and the grid SH sampler.
+	 *
+	 * @returns True when the active WebGL device exposes enough fragment texture
+	 * units for the optional grid sampler in the scene shader.
+	 * @sideEffects None.
+	 */
+	public supportsIrradianceProbeGridSampling(): boolean {
+		return this._enableIrradianceProbeGridSampling;
 	}
 
 	/**
@@ -982,6 +1016,7 @@ export class WebGLProgramLibrary {
 			maxPointLights: WEBGL_MAX_POINT_LIGHTS,
 			maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
 			enableShadowTransmittance: this._enableShadowTransmittanceSampling,
+			enableIrradianceProbeGrid: this._enableIrradianceProbeGridSampling,
 		};
 	}
 

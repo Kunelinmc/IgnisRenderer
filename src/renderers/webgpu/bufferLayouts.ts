@@ -305,6 +305,12 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 				WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 			),
 		},
+		{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
+		{ name: "irradianceProbeGridWorldToGridRow1", type: VEC4_F32 },
+		{ name: "irradianceProbeGridWorldToGridRow2", type: VEC4_F32 },
+		{ name: "irradianceProbeGridDataA", type: VEC4_F32 },
+		{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
+		{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
 		{ name: "areaLightCounts", type: VEC4_F32 },
 		{
 			name: "areaLights",

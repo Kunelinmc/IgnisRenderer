@@ -185,6 +185,11 @@ export interface WebGLSceneLightLimits {
 	 * on devices that only expose the WebGL2 minimum of 16 fragment texture units.
 	 */
 	enableShadowTransmittance?: boolean;
+	/**
+	 * Enables the optional irradiance probe grid sampler. Leave disabled on
+	 * devices whose fragment texture unit budget cannot fit the extra sampler.
+	 */
+	enableIrradianceProbeGrid?: boolean;
 }
 
 export interface WebGLSceneShaderSource {
@@ -406,6 +411,11 @@ const webglShaderFiles: Record<WebGLShaderPart, string> = {
 	ssaoCombineFragment: "./webgl/parts/ssaoCombineFragment.glsl",
 };
 
+const webglInternalShaderFiles = {
+	diffuseProbeFallbackFragment: "./webgl/parts/diffuseProbeFallbackFragment.glsl",
+	irradianceProbeGridFragment: "./webgl/parts/irradianceProbeGridFragment.glsl",
+} as const;
+
 const syncShaderFiles: Record<ShaderSourceSyncKey, ShaderFileDescriptor> = {
 	"webgpu.utility.mipmapBlit.raw": {
 		scope: "webgpu",
@@ -503,11 +513,29 @@ function composeShaderParts(
 	);
 }
 
+interface WebGLSceneOptionalBlocks {
+	diffuseProbeFallbackFragment: string;
+	irradianceProbeGridFragment: string;
+}
+
+const WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS = [
+	"uniform int uIrradianceProbeGridEnabled;",
+	"uniform vec4 uIrradianceProbeGridWorldToGridRow0;",
+	"uniform vec4 uIrradianceProbeGridWorldToGridRow1;",
+	"uniform vec4 uIrradianceProbeGridWorldToGridRow2;",
+	"uniform vec4 uIrradianceProbeGridDataA;",
+	"uniform vec4 uIrradianceProbeGridDataB;",
+	"uniform sampler2D uIrradianceProbeGridCoeffs;",
+	"uniform vec2 uIrradianceProbeGridCoeffsSize;",
+].join("\n");
+
 function replaceOptionalDefines(
 	source: string,
-	limits: WebGLSceneLightLimits
+	limits: WebGLSceneLightLimits,
+	optionalBlocks: WebGLSceneOptionalBlocks
 ): string {
 	const shadowTransmittanceEnabled = !!limits.enableShadowTransmittance;
+	const irradianceProbeGridEnabled = !!limits.enableIrradianceProbeGrid;
 	return source
 		.replaceAll(
 			"__WEBGL_SHADOW_TRANSMITTANCE_DEFINE__",
@@ -523,6 +551,16 @@ function replaceOptionalDefines(
 					"uniform int uShadowTransmittanceAtlasAvailable;",
 				].join("\n")
 			:	""
+		)
+		.replaceAll(
+			"__WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__",
+			irradianceProbeGridEnabled ? WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS : ""
+		)
+		.replaceAll(
+			"__WEBGL_IRRADIANCE_PROBE_GRID_FUNCTIONS__",
+			irradianceProbeGridEnabled ?
+				optionalBlocks.irradianceProbeGridFragment
+			:	optionalBlocks.diffuseProbeFallbackFragment
 		);
 }
 
@@ -544,6 +582,7 @@ function normalizeWebGLSceneLimits(
 		maxPointLights: Math.max(0, Math.floor(limits.maxPointLights ?? 0)),
 		maxSpotLights: Math.max(0, Math.floor(limits.maxSpotLights ?? 0)),
 		enableShadowTransmittance: !!limits.enableShadowTransmittance,
+		enableIrradianceProbeGrid: !!limits.enableIrradianceProbeGrid,
 	};
 }
 
@@ -1057,7 +1096,12 @@ export class ShaderSource {
 		params: ShaderSourceParams<K> | undefined
 	): Promise<WebGLSceneShaderSource> {
 		const limits = normalizeWebGLSceneLimits(params);
-		const [vertex, fragmentTemplate] = await Promise.all([
+		const [
+			vertex,
+			fragmentTemplate,
+			diffuseProbeFallbackFragment,
+			irradianceProbeGridFragment,
+		] = await Promise.all([
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
@@ -1068,10 +1112,23 @@ export class ShaderSource {
 				key: "webgl.part.sceneFragment",
 				path: webglShaderFiles.sceneFragment,
 			}),
+			this._loadFileRaw({
+				scope: "webgl",
+				key: "webgl.internal.diffuseProbeFallbackFragment",
+				path: webglInternalShaderFiles.diffuseProbeFallbackFragment,
+			}),
+			this._loadFileRaw({
+				scope: "webgl",
+				key: "webgl.internal.irradianceProbeGridFragment",
+				path: webglInternalShaderFiles.irradianceProbeGridFragment,
+			}),
 		]);
 		return {
 			vertex,
-			fragment: this._buildWebGLSceneFragment(fragmentTemplate, limits),
+			fragment: this._buildWebGLSceneFragment(fragmentTemplate, limits, {
+				diffuseProbeFallbackFragment,
+				irradianceProbeGridFragment,
+			}),
 		};
 	}
 
@@ -1079,7 +1136,12 @@ export class ShaderSource {
 		params: ShaderSourceParams<K> | undefined
 	): Promise<WebGLSceneCompositeShaderSource> {
 		const limits = normalizeWebGLSceneLimits(params);
-		const [vertex, fragmentTemplate] = await Promise.all([
+		const [
+			vertex,
+			fragmentTemplate,
+			diffuseProbeFallbackFragment,
+			irradianceProbeGridFragment,
+		] = await Promise.all([
 			this._loadFileComposite({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
@@ -1090,10 +1152,24 @@ export class ShaderSource {
 				key: "webgl.part.sceneFragment",
 				path: webglShaderFiles.sceneFragment,
 			}),
+			this._loadFileRaw({
+				scope: "webgl",
+				key: "webgl.internal.diffuseProbeFallbackFragment",
+				path: webglInternalShaderFiles.diffuseProbeFallbackFragment,
+			}),
+			this._loadFileRaw({
+				scope: "webgl",
+				key: "webgl.internal.irradianceProbeGridFragment",
+				path: webglInternalShaderFiles.irradianceProbeGridFragment,
+			}),
 		]);
 		const fragment = this._buildWebGLSceneFragment(
 			fragmentTemplate.code,
-			limits
+			limits,
+			{
+				diffuseProbeFallbackFragment,
+				irradianceProbeGridFragment,
+			}
 		);
 		return {
 			vertex,
@@ -1107,9 +1183,10 @@ export class ShaderSource {
 
 	private static _buildWebGLSceneFragment(
 		template: string,
-		limits: WebGLSceneLightLimits
+		limits: WebGLSceneLightLimits,
+		optionalBlocks: WebGLSceneOptionalBlocks
 	): string {
-		return replaceOptionalDefines(template, limits);
+		return replaceOptionalDefines(template, limits, optionalBlocks);
 	}
 
 	private static _parsePartKey<T extends string>(
@@ -1339,7 +1416,8 @@ export class ShaderSource {
 				`|dir:${limits.maxDirectionalLights}` +
 				`|point:${limits.maxPointLights}` +
 				`|spot:${limits.maxSpotLights}` +
-				`|shadow:${limits.enableShadowTransmittance ? 1 : 0}`
+				`|shadow:${limits.enableShadowTransmittance ? 1 : 0}` +
+				`|grid:${limits.enableIrradianceProbeGrid ? 1 : 0}`
 			);
 		}
 		return `${shaderSourceScope(key)}:result:${key}`;

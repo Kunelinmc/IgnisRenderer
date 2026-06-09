@@ -188,6 +188,14 @@ export class WebGLSceneEnvironmentUniforms {
 	public readonly localLightProbeDataB: WebGLSceneUniformLocation;
 	public readonly localLightProbeCoeffs: WebGLSceneUniformLocation;
 	public readonly localLightProbeCoeffsSize: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridEnabled: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridWorldToGridRow0: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridWorldToGridRow1: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridWorldToGridRow2: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridDataA: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridDataB: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridCoeffs: WebGLSceneUniformLocation;
+	public readonly irradianceProbeGridCoeffsSize: WebGLSceneUniformLocation;
 	public readonly reflectionProbeCount: WebGLSceneUniformLocation;
 	public readonly reflectionProbeWorldToProbeRow0: WebGLSceneUniformLocation;
 	public readonly reflectionProbeWorldToProbeRow1: WebGLSceneUniformLocation;
@@ -228,6 +236,22 @@ export class WebGLSceneEnvironmentUniforms {
 		this.localLightProbeDataB = get("uLocalLightProbeDataB[0]");
 		this.localLightProbeCoeffs = get("uLocalLightProbeCoeffs");
 		this.localLightProbeCoeffsSize = get("uLocalLightProbeCoeffsSize");
+		this.irradianceProbeGridEnabled = get("uIrradianceProbeGridEnabled");
+		this.irradianceProbeGridWorldToGridRow0 = get(
+			"uIrradianceProbeGridWorldToGridRow0"
+		);
+		this.irradianceProbeGridWorldToGridRow1 = get(
+			"uIrradianceProbeGridWorldToGridRow1"
+		);
+		this.irradianceProbeGridWorldToGridRow2 = get(
+			"uIrradianceProbeGridWorldToGridRow2"
+		);
+		this.irradianceProbeGridDataA = get("uIrradianceProbeGridDataA");
+		this.irradianceProbeGridDataB = get("uIrradianceProbeGridDataB");
+		this.irradianceProbeGridCoeffs = get("uIrradianceProbeGridCoeffs");
+		this.irradianceProbeGridCoeffsSize = get(
+			"uIrradianceProbeGridCoeffsSize"
+		);
 		this.reflectionProbeCount = get("uReflectionProbeCount");
 		this.reflectionProbeWorldToProbeRow0 = get(
 			"uReflectionProbeWorldToProbeRow0[0]"

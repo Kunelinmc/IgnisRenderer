@@ -1474,9 +1474,12 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 10);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 11);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
+	);
+	assert.ok(
+		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 10)
 	);
 	assert.equal(
 		firstDraw.modelBinding.desc.entries.length,
@@ -3392,10 +3395,10 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 10);
+	assert.equal(sceneLayout.desc.entries.length, 11);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
@@ -3403,6 +3406,7 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	assert.equal(sceneLayout.desc.entries[7].buffer?.type, "read-only-storage");
 	assert.equal(sceneLayout.desc.entries[8].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[9].texture?.sampleType, "float");
+	assert.equal(sceneLayout.desc.entries[10].texture?.sampleType, "float");
 
 	resources.destroy();
 }
