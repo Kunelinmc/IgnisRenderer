@@ -3,7 +3,6 @@ import { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import { LightProbe, LightType, ReflectionProbe } from "../../lights";
 import type { SHCoefficients } from "../../maths/types";
-import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
 import {
 	bakeEnvironmentIBLFromEnvironmentMap,
 	type BakedEnvironmentIBL,
@@ -21,6 +20,10 @@ const DEFAULT_MIPS_PER_FRAME = 1;
 const DEFAULT_TEMPORAL_BLEND_FACTOR = 0.2;
 const DEFAULT_TEMPORAL_BLEND_EPSILON = 1e-3;
 const ENVIRONMENT_IBL_MIN_DIMENSION = 1;
+
+type EnvironmentIBLWebGPUSource = NonNullable<
+	EnvironmentIBLBakeOptions["webgpuSource"]
+>;
 
 interface ActiveBakeTask {
 	taskId: number;
@@ -62,7 +65,7 @@ export interface EnvironmentIBLUpdateRuntimeExecuteContext {
 	scene: Scene;
 	requestToken: number;
 	options: EnvironmentIBLUpdateOptions;
-	webgpuSource?: WebGPUComputeFacadeSource | null;
+	webgpuSource?: EnvironmentIBLWebGPUSource | null;
 }
 
 export interface EnvironmentIBLUpdateRuntimeExecuteResult {
@@ -508,7 +511,7 @@ export class EnvironmentIBLUpdateRuntime {
 
 	private _resolveBakeAcceleration(
 		acceleration: EnvironmentIBLBakeAcceleration,
-		webgpuSource: WebGPUComputeFacadeSource | null
+		webgpuSource: EnvironmentIBLWebGPUSource | null
 	): EnvironmentIBLBakeAcceleration {
 		if (acceleration === "cpu" || acceleration === "worker") {
 			return "cpu";

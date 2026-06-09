@@ -28,7 +28,6 @@ import {
 	sampleEnvironmentTextureLevel,
 } from "./environmentMapRuntime";
 import { RENDER_DIRTY_REASON_MASK } from "../../pipeline/incremental";
-import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
 
 const DIRECTIONAL_LOBE_EXPONENT = 96;
 const LOCAL_LIGHT_LOBE_EXPONENT = 64;
@@ -48,6 +47,10 @@ const CAPTURE_RELEVANT_SCENE_DIRTY_MASK =
 	RENDER_DIRTY_REASON_MASK.shadow |
 	RENDER_DIRTY_REASON_MASK.physics |
 	RENDER_DIRTY_REASON_MASK.particles;
+
+type ProbeCaptureWebGPUSource = NonNullable<
+	EnvironmentIBLBakeOptions["webgpuSource"]
+>;
 
 export type ProbeCaptureTargetKind = "reflection" | "light" | "grid";
 
@@ -159,7 +162,7 @@ export interface ProbeCaptureRuntimeExecuteContext {
 	frameDirtyReasonMask?: number | null;
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
-	webgpuSource?: WebGPUComputeFacadeSource | null;
+	webgpuSource?: ProbeCaptureWebGPUSource | null;
 	webgpuCaptureSource?: ProbeWebGPUCaptureSource | null;
 }
 
@@ -498,7 +501,7 @@ export class ProbeCaptureRuntime {
 	private async _runCaptureBake(
 		task: CaptureTaskState,
 		environmentMap: Texture,
-		webgpuSource: WebGPUComputeFacadeSource | null
+		webgpuSource: ProbeCaptureWebGPUSource | null
 	): Promise<void> {
 		const needsPrefilter = task.targets.some(
 			(target) => target.kind === "reflection"
