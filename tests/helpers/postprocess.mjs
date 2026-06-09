@@ -9,6 +9,8 @@ import {
 	MotionBlurPass,
 	PostProcessPass,
 	PostProcessPassRegistry,
+	RENDERER_POST_PROCESS_EXTENSION_ID,
+	RENDERER_POST_PROCESS_INSERTION_POINT,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceRefractionsPass,
@@ -16,6 +18,7 @@ import {
 	TemporalAntiAliasingPass,
 	ToneMappingPass,
 	VolumetricLightingPass,
+	createRenderBackendExtensionRegistry,
 } from "../../src/index.ts";
 
 export const ALL_POST_PROCESS_PASS_IDS = [
@@ -226,9 +229,15 @@ export function installNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessAdapter(backend);
-	Object.defineProperty(target, "postProcessAdapter", {
+	Object.defineProperty(target, "extensions", {
 		configurable: true,
-		value: support.executor,
+		value: createRenderBackendExtensionRegistry([
+			{
+				id: RENDERER_POST_PROCESS_EXTENSION_ID,
+				insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
+				api: support.executor,
+			},
+		]),
 	});
 	return support;
 }

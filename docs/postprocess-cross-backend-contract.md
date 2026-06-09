@@ -40,14 +40,14 @@ The renderer exposes a single `postprocess` frame stage. `PostProcessPipeline` s
 - The built-in `interaction-outline` pass must return `false` from `shouldExecute(request)` when `request.frameContext` exists and no entity is selected.
 - `IPostProcessExecutor.backend` must identify the active backend kind.
 - `IRenderBackend` must define only the core render backend lifecycle and pass execution surface.
-- `IRenderBackend.postProcessAdapter` may expose the backend-owned `PostProcessBackendAdapter`.
-- Backends that support renderer-owned post-processing must expose a stable `IRenderBackend.postProcessAdapter` for the backend lifetime.
+- Backends that support renderer-owned post-processing must expose a stable `PostProcessBackendAdapter` through the `renderer.postprocess` backend extension for the backend lifetime.
 - `IRenderBackend` must not expose `postProcessExecutor` or `createPostProcessGBufferBridge(context)`.
+- `IRenderBackend` must not expose `postProcessAdapter`; code must use `resolvePostProcessBackendExtension(backend)?.api`.
 - `PostProcessBackendAdapter` must be the `IPostProcessExecutor` instance supplied to `PostProcessPipeline`.
 - `PostProcessBackendAdapter.backend` must identify the backend kind used for pass implementation resolution.
 - `IPostProcessExecutor.createGBufferBridge(context)` must create the logical G-buffer view consumed by cross-backend passes.
-- `Renderer` must accept any `IRenderBackend` and must resolve post-process execution from `backend.postProcessAdapter`.
-- Built-in Software, WebGL, and WebGPU backends must expose their post-process adapters through `postProcessAdapter`.
+- `Renderer` must accept any `IRenderBackend` and must resolve post-process execution from `resolvePostProcessBackendExtension(backend)?.api`.
+- Built-in Software, WebGL, and WebGPU backends must expose their post-process adapters through the backend extension registry.
 - When enabled post-process work exists but no adapter is exposed, `Renderer` must emit `"<backend>-postprocess-adapter-missing"` once and skip the `postprocess` stage.
 - Backend support for a built-in pass must be derived from `PostProcessPassConfig.implementations`, not from a backend-owned capability map.
 - Backends must not expose `postProcessCapabilities`.
@@ -223,7 +223,7 @@ bun tests/static/webgpu/test_webgpu_postprocess_runtime_temporal.mjs
 - `PostProcessPassRequest.transients` is added for transient resource access.
 - `PostProcessResourceDescriptor.mipMode` is added for single-mip and full-chain resources.
 - `PostProcessPass.shouldExecute(request)` is added for pass-owned frame-level execution predicates.
-- `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed. Code that needs backend post-process execution must use `IRenderBackend.postProcessAdapter`.
+- `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed. Code that needs backend post-process execution must use `resolvePostProcessBackendExtension(backend)?.api`.
 - `registerPostProcessBackendAdapter(owner, adapter)`, `resolvePostProcessBackendAdapter(owner)`, and `unregisterPostProcessBackendAdapter(owner)` are removed.
 - `PostProcessBackendAdapter.executor` is removed. The adapter itself is the executor.
 - Public `backend.postProcessExecutor` and `backend.createPostProcessGBufferBridge(context)` are removed from built-in backends.

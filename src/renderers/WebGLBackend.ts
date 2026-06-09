@@ -44,6 +44,11 @@ import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
 } from "../pipeline/FramePassPlanValidator";
+import {
+	createRenderBackendExtensionRegistry,
+	RENDERER_POST_PROCESS_EXTENSION_ID,
+	RENDERER_POST_PROCESS_INSERTION_POINT,
+} from "./BackendExtensions";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
@@ -79,7 +84,13 @@ export class WebGLBackend implements IRenderBackend {
 	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 	});
-	public readonly postProcessAdapter = this._postProcessExecutor;
+	public readonly extensions = createRenderBackendExtensionRegistry([
+		{
+			id: RENDERER_POST_PROCESS_EXTENSION_ID,
+			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
+			api: this._postProcessExecutor,
+		},
+	]);
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;

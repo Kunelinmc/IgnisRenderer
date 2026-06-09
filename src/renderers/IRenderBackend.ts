@@ -3,10 +3,9 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
-import type { PostProcessBackendAdapter } from "../postprocess/types";
 import type { ShaderCompileError } from "../shaders/runtime";
+import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
 export type RenderBackendType = KnownBackendType | (string & {});
@@ -103,16 +102,13 @@ export interface IRenderBackend {
 	readonly capabilities: BackendCapabilities;
 	readonly frameScheduling: FrameSchedulingMode;
 	/**
-	 * Optional executor used by `Renderer` to run logical post-process work.
+	 * Optional registry of backend-owned integration APIs.
 	 *
-	 * @remarks Backends that support the renderer-owned `postprocess` stage must
-	 * expose a stable adapter for the backend lifetime. Backends that omit this
-	 * property can still render normally, but enabled post-process passes are
-	 * skipped with one renderer diagnostic.
+	 * @remarks Renderer-facing optional capabilities must be exposed through this
+	 * registry instead of adding feature-specific properties to `IRenderBackend`.
 	 * @sideEffects None.
 	 */
-	readonly postProcessAdapter?: PostProcessBackendAdapter;
-	readonly occlusionCullingAdapter?: OcclusionCullingBackendAdapter;
+	readonly extensions?: RenderBackendExtensionRegistry;
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	/**

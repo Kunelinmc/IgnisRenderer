@@ -37,7 +37,6 @@ import {
 	ProbeCaptureRuntime,
 	type ProbeWebGPUCaptureSource,
 } from "../lights/runtime/ProbeCaptureRuntime";
-import { normalizeOcclusionCullingOptions } from "../pipeline/OcclusionCulling";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
@@ -96,6 +95,7 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import { RendererPostProcessController } from "./RendererPostProcessController";
+import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
 
 export type {
 	IncrementalFrameStats,
@@ -204,6 +204,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _lastKnownSceneVersion: number;
 	private _postProcessPipeline: PostProcessPipeline;
 	private _postProcessController: RendererPostProcessController;
+	private _occlusionCullingController: RendererOcclusionCullingController;
 	private _stageExecutors: Map<string, RendererStageExecutor>;
 
 	constructor(
@@ -231,6 +232,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					onceKey: key,
 				}),
 		});
+		this._occlusionCullingController =
+			new RendererOcclusionCullingController(this.backend);
 		this.postProcess.on("change", (change) => {
 			if (change.reason === "register") {
 				const pass = this.postProcess.getPass(change.passId);
@@ -326,7 +329,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	): void | Promise<void> {
 		const result = this.backend.onDeviceLost?.(info);
 		this._preparedSceneCache.reset();
-		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
+		this._occlusionCullingController.reset();
 		this._markFrameDirty("unknown");
 		this.emit("devicelost", {
 			backend: this.backend.type,
@@ -345,7 +348,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			await this.backend.init(this.canvas);
 		}
 		this._preparedSceneCache.reset();
-		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
+		this._occlusionCullingController.reset();
 		this.resizeCanvas();
 	}
 
@@ -539,7 +542,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.canvas.height = rect.height * this._deviceScaleFactor;
 
 		this.backend.resize(this.canvas.width, this.canvas.height);
-		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
+		this._occlusionCullingController.reset();
 		this._markFrameDirty("resize");
 
 		this.camera.aspectRatio = this._getSafeAspectRatio(
@@ -558,7 +561,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._scene = scene;
 		this._lastKnownSceneVersion = scene.version;
 		this._preparedSceneCache.reset();
-		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
+		this._occlusionCullingController.reset();
 		this._environmentIBLUpdateRuntime.reset();
 		this._environmentIBLUpdateRequestToken = 0;
 		if (this._physicsSystem) {
@@ -573,7 +576,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	public setCamera(camera: Camera): void {
 		this._assertCameraInScene(this.scene, camera, "setCamera");
 		this._camera = camera;
-		this.backend.occlusionCullingAdapter?.resetOcclusionCulling?.();
+		this._occlusionCullingController.reset();
 		this._markFrameDirty("camera");
 	}
 
@@ -1093,13 +1096,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			postProcess: state.resolvedPostProcess,
 			incrementalOptions: this._incrementalOptions,
 			occlusionVisibilityProvider:
-				state.resolved.enableOcclusionCulling ?
-					this.backend.occlusionCullingAdapter?.getVisibilityProvider(
-						normalizeOcclusionCullingOptions(
-							state.resolved.occlusionCullingOptions
-						)
-					) ?? null
-				:	null,
+				this._occlusionCullingController.getVisibilityProvider(
+					state.resolved
+				),
 			occlusionCullingOptions: state.resolved.occlusionCullingOptions,
 		});
 		state.frame = preparedResult.frame;

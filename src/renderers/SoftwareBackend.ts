@@ -45,6 +45,11 @@ import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 } from "../shaders/runtime";
 import { Logger } from "../foundation/Logger";
+import {
+	createRenderBackendExtensionRegistry,
+	RENDERER_POST_PROCESS_EXTENSION_ID,
+	RENDERER_POST_PROCESS_INSERTION_POINT,
+} from "./BackendExtensions";
 
 export type {
 	SoftwareBackendOptions,
@@ -134,7 +139,13 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	public readonly postProcessAdapter = this._postProcessExecutor;
+	public readonly extensions = createRenderBackendExtensionRegistry([
+		{
+			id: RENDERER_POST_PROCESS_EXTENSION_ID,
+			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
+			api: this._postProcessExecutor,
+		},
+	]);
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;

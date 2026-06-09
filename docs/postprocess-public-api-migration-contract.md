@@ -27,10 +27,11 @@ Post-process state previously lived in `renderer.postProcess` as enable and opti
 - `PostProcessPipeline` must execute enabled snapshot passes in built-in placement order and custom placement order.
 - Built-in pass classes must expose pass-owned normalization, requirements, history descriptors, and implementations when migrated.
 - Backends used with `Renderer` must satisfy `IRenderBackend`.
-- Backends that support post-processing must expose a stable `PostProcessBackendAdapter` through `IRenderBackend.postProcessAdapter`.
+- Backends that support post-processing must expose a stable `PostProcessBackendAdapter` through the `renderer.postprocess` backend extension.
 - `PostProcessBackendAdapter` must expose the `IPostProcessExecutor` methods and `createGBufferBridge(context)`.
-- `Renderer` must resolve post-process execution with `backend.postProcessAdapter`.
+- `Renderer` must resolve post-process execution with `resolvePostProcessBackendExtension(backend)?.api`.
 - `IRenderBackend` must not expose `postProcessExecutor` or `createPostProcessGBufferBridge(context)`.
+- `IRenderBackend` must not expose `postProcessAdapter`.
 - Backends must not expose `postProcessCapabilities`.
 - Backends must not expose public post-process graph registration APIs.
 - Unsupported enabled built-in passes must be determined by missing pass-owned backend implementations and must emit warning key `"<backend>-postprocess-unsupported-<passId>"`.
@@ -123,8 +124,8 @@ bun tests/static/postprocess/test_postprocess_public_api.mjs
 - `FrameContext.postProcess.enabled` and `FrameContext.postProcess.options` are removed.
 - `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed.
 - `registerPostProcessBackendAdapter(owner, adapter)`, `resolvePostProcessBackendAdapter(owner)`, and `unregisterPostProcessBackendAdapter(owner)` are removed.
-- `PostProcessBackendAdapter.executor` is removed. Use `backend.postProcessAdapter` as the executor.
-- Public `backend.postProcessExecutor` and `backend.createPostProcessGBufferBridge(context)` are removed; use `backend.postProcessAdapter` for backend-owned post-process execution internals.
+- `PostProcessBackendAdapter.executor` is removed. Use `resolvePostProcessBackendExtension(backend)?.api` as the executor.
+- Public `backend.postProcessAdapter`, `backend.postProcessExecutor`, and `backend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendExtension(backend)?.api` for backend-owned post-process execution internals.
 - `renderer.features.enableSSAO = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceAmbientOcclusionPass({ enabled: true }))`.
 - `renderer.features.enableSSGI = true` must migrate to `renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({ enabled: true }))`.
 - `renderer.features.enableTAA = true` must migrate to `renderer.postProcess.registerPass(new TemporalAntiAliasingPass({ enabled: true }))`.

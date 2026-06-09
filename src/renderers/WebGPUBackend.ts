@@ -20,6 +20,14 @@ import type {
 	NormalizedOcclusionCullingOptions,
 	OcclusionCullingBackendAdapter,
 } from "../pipeline/OcclusionCulling";
+import {
+	createRenderBackendExtensionRegistry,
+	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
+	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
+	RENDERER_POST_PROCESS_EXTENSION_ID,
+	RENDERER_POST_PROCESS_INSERTION_POINT,
+	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
+} from "./BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
@@ -254,14 +262,28 @@ export class WebGPUBackend implements IRenderBackend {
 		assertDeviceOperational: (operation) =>
 			this._assertDeviceOperational(operation),
 	});
-	public readonly postProcessAdapter = this._postProcessExecutor;
-	public readonly occlusionCullingAdapter: OcclusionCullingBackendAdapter = {
+	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
 			this._frameExecutor?.getOcclusionVisibilityProvider(options) ?? null,
 		resetOcclusionCulling: () => {
 			this._frameExecutor?.resetOcclusionCulling();
 		},
 	};
+	public readonly extensions = createRenderBackendExtensionRegistry([
+		{
+			id: RENDERER_POST_PROCESS_EXTENSION_ID,
+			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
+			api: this._postProcessExecutor,
+		},
+		{
+			id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
+			insertionPoints: [
+				RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
+				WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
+			],
+			api: this._occlusionCullingExtensionApi,
+		},
+	]);
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;

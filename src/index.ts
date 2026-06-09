@@ -32,6 +32,20 @@ export type {
 	RenderBackendDeviceLostInfo,
 	RendererBackendResourceEvent,
 } from "./renderers/IRenderBackend";
+export {
+	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
+	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
+	RENDERER_POST_PROCESS_EXTENSION_ID,
+	RENDERER_POST_PROCESS_INSERTION_POINT,
+	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
+	createRenderBackendExtensionRegistry,
+	resolveOcclusionCullingBackendExtension,
+	resolvePostProcessBackendExtension,
+	type RenderBackendExtension,
+	type RenderBackendExtensionId,
+	type RenderBackendExtensionInsertionPoint,
+	type RenderBackendExtensionRegistry,
+} from "./renderers/BackendExtensions";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
 export { SoftwareBackend } from "./renderers/SoftwareBackend";

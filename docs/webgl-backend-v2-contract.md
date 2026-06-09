@@ -11,8 +11,8 @@ The previous WebGL path provided a V1-style pass execution and feature subset. P
 - `WebGLBackend` must not expose `postProcessCapabilities`.
 - WebGL post-process support must be derived from pass-owned WebGL implementations.
 - `FogPass` must provide a WebGL implementation and must support both post-process fog and scene-mode fog.
-- `WebGLBackend.postProcessAdapter.backend` must be `"webgl"`.
-- `WebGLBackend.postProcessAdapter.createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
+- `resolvePostProcessBackendExtension(new WebGLBackend())?.api.backend` must be `"webgl"`.
+- `resolvePostProcessBackendExtension(backend)?.api.createGBufferBridge(context)` must return a `LogicalGBufferBridge` that wraps WebGL texture handles.
 - WebGL G-buffer bridge channels must report actual runtime attachment formats.
 - When `EXT_color_buffer_float` is unavailable, WebGL scene, motion-depth, and post-process color attachments must fall back to `rgba8unorm`.
 - `WebGLBackend` must not expose a public `postProcess` facade or backend-level post-process registration methods.
@@ -70,11 +70,11 @@ bun tests/static/webgl/test_webgl_backend_v2.mjs
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to enabled.
 - Backend post-process capability fields are removed.
 - `registerPostProcessBackendAdapter(owner, adapter)`, `resolvePostProcessBackendAdapter(owner)`, and `unregisterPostProcessBackendAdapter(owner)` are removed.
-- `PostProcessBackendAdapter.executor` is removed. Use `WebGLBackend.postProcessAdapter` as the executor.
+- `PostProcessBackendAdapter.executor` is removed. Use `resolvePostProcessBackendExtension(backend)?.api` as the executor.
 - `WebGLBackend.registerPostProcessPass(pass)` and `WebGLBackend.unregisterPostProcessPass(id)` are removed.
 - `WebGLBackend.postProcess` is removed.
 - `WebGLBackend.postProcess.registerPass(pass)` and `WebGLBackend.postProcess.unregisterPass(id)` are removed.
-- `WebGLBackend.postProcessExecutor` and `WebGLBackend.createPostProcessGBufferBridge(context)` are removed; use `WebGLBackend.postProcessAdapter` for internal backend adapter access.
+- `WebGLBackend.postProcessAdapter`, `WebGLBackend.postProcessExecutor`, and `WebGLBackend.createPostProcessGBufferBridge(context)` are removed; use `resolvePostProcessBackendExtension(backend)?.api` for internal backend adapter access.
 - Public WebGL custom post-process passes must migrate to `PostProcessPass` instances registered through `renderer.postProcess.registerPass(pass)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the WebGPU backend budget.
 - Test entrypoint is `tests/static/webgl/test_webgl_backend_v2.mjs`.

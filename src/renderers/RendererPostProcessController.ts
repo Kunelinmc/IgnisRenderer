@@ -13,6 +13,7 @@ import type {
 	RendererBackendResourceEvent,
 	RenderBackendType,
 } from "./IRenderBackend";
+import { resolvePostProcessBackendExtension } from "./BackendExtensions";
 
 export type RendererPostProcessWarn = (
 	key: string,
@@ -216,6 +217,6 @@ export class RendererPostProcessController {
 	}
 
 	private _resolveAdapter(): PostProcessBackendAdapter | null {
-		return this._backend.postProcessAdapter ?? null;
+		return resolvePostProcessBackendExtension(this._backend)?.api ?? null;
 	}
 }

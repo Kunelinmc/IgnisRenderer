@@ -30,6 +30,12 @@ untrusted visibility information must keep objects visible.
   `WebGPUBackendOptions.enableOcclusionCulling === false`.
 - `WebGLBackend.capabilities.occlusionCulling` must be `false` in v1.
 - `SoftwareBackend.capabilities.occlusionCulling` must be `false` in v1.
+- Backends that support occlusion culling must expose an
+  `OcclusionCullingBackendAdapter` through the `renderer.occlusion-culling`
+  backend extension.
+- `Renderer` must resolve occlusion culling integration with
+  `resolveOcclusionCullingBackendExtension(backend)?.api`.
+- `IRenderBackend` must not expose `occlusionCullingAdapter`.
 - `resolveFeatureState(...)` must disable `enableOcclusionCulling` when the
   backend capability is `false` and must emit a feature warning.
 - `PreparedScene.occlusion` may expose prepared-scene occlusion metadata,
@@ -90,6 +96,7 @@ console.assert(disabledBackend.capabilities.occlusionCulling === false);
 bunx tsc --noEmit
 bun tests/static/pipeline/test_render_list_builder.mjs
 bun tests/static/pipeline/test_prepared_scene_cache.mjs
+bun tests/static/renderer/test_backend_extensions.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
 bun tests/static/webgpu/test_webgpu_occlusion_culling_runtime.mjs
 ```
@@ -110,9 +117,11 @@ frame or snapshot. Diagnostics should use warn-once behavior where repeated
 frames would otherwise produce duplicate warnings.
 
 ## Compatibility / Breaking Changes
-No breaking API changes are introduced. Occlusion culling is opt-in and defaults
-to disabled. Unsupported backends must keep existing rendering behavior by
-disabling the resolved feature.
+Occlusion culling remains opt-in and defaults to disabled for renderer feature
+users. Backend integration APIs are breaking:
+`backend.occlusionCullingAdapter` is removed and must be replaced with
+`resolveOcclusionCullingBackendExtension(backend)?.api`. Unsupported backends
+must keep existing rendering behavior by disabling the resolved feature.
 
 WebGPU may promote an active occlusion-culling frame away from the single-target
 path so `gMotionDepth` can be sampled by the occlusion runtime. This is a
