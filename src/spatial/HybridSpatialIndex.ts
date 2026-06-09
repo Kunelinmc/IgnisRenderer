@@ -1,6 +1,6 @@
 import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
-import { BVH } from "./BVH";
+import { BVH, type BVHOptions } from "./BVH";
 import { isDynamicSpatialMeshInstance } from "./classification";
 import { LooseOctree, type LooseOctreeOptions } from "./LooseOctree";
 import type {
@@ -12,16 +12,38 @@ import type {
 } from "./types";
 
 type SpatialBucket = "static" | "dynamic";
+export type HybridDynamicBackend = "auto" | "bvh" | "octree";
+type ResolvedHybridDynamicBackend = "bvh" | "octree";
+
+interface LooseOctreeNodeSnapshot {
+	objects: MeshInstance[];
+	children: Array<LooseOctreeNodeSnapshot | null> | null;
+}
+
+interface LooseOctreeSnapshot {
+	_root: LooseOctreeNodeSnapshot | null;
+}
 
 export interface HybridSpatialIndexOptions {
 	dynamicPredicate?: (meshInstance: MeshInstance) => boolean;
 	staticBVHLeafSize?: number;
+	dynamicBackend?: HybridDynamicBackend;
+	dynamicBVH?: BVHOptions;
 	dynamicOctree?: LooseOctreeOptions;
 }
 
+const DEFAULT_DYNAMIC_BACKEND: HybridDynamicBackend = "auto";
+const AUTO_BVH_DYNAMIC_COUNT_THRESHOLD = 8192;
+const AUTO_PARENT_RESIDENT_RATIO_THRESHOLD = 0.2;
+const AUTO_LEAF_RESIDENT_RATIO_THRESHOLD = 0.05;
+
 export class HybridSpatialIndex implements SpatialIndex3D {
 	private readonly _staticBVH: BVH;
+	private readonly _dynamicBVH: BVH;
 	private readonly _dynamicOctree: LooseOctree;
+	private _dynamicIndex: SpatialIndex3D;
+	private _dynamicBackend: ResolvedHybridDynamicBackend = "bvh";
+	private readonly _dynamicBackendMode: HybridDynamicBackend;
 	private readonly _bucketByMeshInstance = new Map<MeshInstance, SpatialBucket>();
 	private readonly _dynamicPredicate: (meshInstance: MeshInstance) => boolean;
 	private readonly _meshScratch: MeshInstance[] = [];
@@ -35,7 +57,12 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		this._dynamicPredicate =
 			options.dynamicPredicate ?? isDynamicSpatialMeshInstance;
 		this._staticBVH = new BVH([], options.staticBVHLeafSize);
+		this._dynamicBVH = new BVH([], options.dynamicBVH ?? {});
 		this._dynamicOctree = new LooseOctree([], options.dynamicOctree);
+		this._dynamicIndex = this._dynamicBVH;
+		this._dynamicBackendMode = resolveDynamicBackendMode(
+			options.dynamicBackend
+		);
 		this.rebuild(meshInstances);
 	}
 
@@ -44,7 +71,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 	}
 
 	public get dirty(): boolean {
-		return this._staticBVH.dirty || this._dynamicOctree.dirty;
+		return this._staticBVH.dirty || this._dynamicIndex.dirty;
 	}
 
 	public setMeshInstances(meshInstances: MeshInstance[]): void {
@@ -54,7 +81,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 	public markDirty(meshInstance?: MeshInstance): void {
 		if (!meshInstance) {
 			this._staticBVH.markDirty();
-			this._dynamicOctree.markDirty();
+			this._dynamicIndex.markDirty();
 			return;
 		}
 
@@ -74,7 +101,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		}
 
 		if (bucket === "dynamic") {
-			this._dynamicOctree.markDirty(meshInstance);
+			this._dynamicIndex.markDirty(meshInstance);
 		} else {
 			this._staticBVH.markDirty(meshInstance);
 		}
@@ -114,7 +141,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 			}
 		}
 		this._staticBVH.rebuild(staticMeshInstances);
-		this._dynamicOctree.rebuild(dynamicMeshInstances);
+		this._rebuildDynamicIndex(dynamicMeshInstances);
 	}
 
 	public queryFrustumInto(
@@ -133,7 +160,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		this._staticBVH.queryFrustumInto(frustum, out, resolvedOptions);
 		if (out.length >= maxResults) return out;
 		this._meshScratch.length = 0;
-		this._dynamicOctree.queryFrustumInto(
+		this._dynamicIndex.queryFrustumInto(
 			frustum,
 			this._meshScratch,
 			{
@@ -168,7 +195,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		this._staticBVH.queryBoundsInto(bounds, out, resolvedOptions);
 		if (out.length >= maxResults) return out;
 		this._meshScratch.length = 0;
-		this._dynamicOctree.queryBoundsInto(
+		this._dynamicIndex.queryBoundsInto(
 			bounds,
 			this._meshScratch,
 			{
@@ -227,7 +254,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 			const staticNearest = this._staticRayScratch[0] ?? null;
 			const dynamicMaxDistance =
 				staticNearest?.distance ?? options?.maxDistance;
-			this._dynamicOctree.queryRayDetailedInto(
+			this._dynamicIndex.queryRayDetailedInto(
 				origin,
 				direction,
 				this._dynamicRayScratch,
@@ -248,7 +275,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 			return out;
 		}
 
-		this._dynamicOctree.queryRayDetailedInto(
+		this._dynamicIndex.queryRayDetailedInto(
 			origin,
 			direction,
 			this._dynamicRayScratch,
@@ -280,7 +307,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		bucket: SpatialBucket
 	): void {
 		if (bucket === "dynamic") {
-			this._dynamicOctree.upsert(meshInstance);
+			this._dynamicIndex.upsert(meshInstance);
 			return;
 		}
 		this._staticBVH.upsert(meshInstance);
@@ -291,11 +318,109 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		bucket: SpatialBucket
 	): void {
 		if (bucket === "dynamic") {
-			this._dynamicOctree.remove(meshInstance);
+			this._dynamicIndex.remove(meshInstance);
 			return;
 		}
 		this._staticBVH.remove(meshInstance);
 	}
+
+	private _rebuildDynamicIndex(dynamicMeshInstances: MeshInstance[]): void {
+		if (this._dynamicBackendMode === "bvh") {
+			this._selectDynamicBVH(dynamicMeshInstances);
+			return;
+		}
+		if (this._dynamicBackendMode === "octree") {
+			this._selectDynamicOctree(dynamicMeshInstances);
+			return;
+		}
+
+		if (shouldUseBVHForDynamicCount(dynamicMeshInstances.length)) {
+			this._selectDynamicBVH(dynamicMeshInstances);
+			return;
+		}
+
+		this._dynamicOctree.rebuild(dynamicMeshInstances);
+		const residentPressure = computeOctreeResidentPressure(
+			getLooseOctreeRoot(this._dynamicOctree),
+			dynamicMeshInstances.length
+		);
+		if (
+			residentPressure.parentRatio > AUTO_PARENT_RESIDENT_RATIO_THRESHOLD ||
+			residentPressure.leafRatio > AUTO_LEAF_RESIDENT_RATIO_THRESHOLD
+		) {
+			this._dynamicOctree.rebuild([]);
+			this._selectDynamicBVH(dynamicMeshInstances);
+			return;
+		}
+
+		this._dynamicBVH.rebuild([]);
+		this._dynamicBackend = "octree";
+		this._dynamicIndex = this._dynamicOctree;
+	}
+
+	private _selectDynamicBVH(dynamicMeshInstances: MeshInstance[]): void {
+		this._dynamicBVH.rebuild(dynamicMeshInstances);
+		this._dynamicOctree.rebuild([]);
+		this._dynamicBackend = "bvh";
+		this._dynamicIndex = this._dynamicBVH;
+	}
+
+	private _selectDynamicOctree(dynamicMeshInstances: MeshInstance[]): void {
+		this._dynamicOctree.rebuild(dynamicMeshInstances);
+		this._dynamicBVH.rebuild([]);
+		this._dynamicBackend = "octree";
+		this._dynamicIndex = this._dynamicOctree;
+	}
+}
+
+function resolveDynamicBackendMode(
+	value: HybridDynamicBackend | undefined
+): HybridDynamicBackend {
+	if (value === "bvh" || value === "octree") return value;
+	return DEFAULT_DYNAMIC_BACKEND;
+}
+
+function shouldUseBVHForDynamicCount(dynamicCount: number): boolean {
+	return dynamicCount <= AUTO_BVH_DYNAMIC_COUNT_THRESHOLD;
+}
+
+function getLooseOctreeRoot(
+	octree: LooseOctree
+): LooseOctreeNodeSnapshot | null {
+	return (octree as unknown as LooseOctreeSnapshot)._root;
+}
+
+function computeOctreeResidentPressure(
+	root: LooseOctreeNodeSnapshot | null,
+	totalCount: number
+): { parentRatio: number; leafRatio: number } {
+	if (!root || totalCount <= 0) {
+		return {
+			parentRatio: 0,
+			leafRatio: 0,
+		};
+	}
+	let maxResidentCount = 0;
+	let maxLeafCount = 0;
+	const stack: LooseOctreeNodeSnapshot[] = [root];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (!node) continue;
+		const children = node.children;
+		const hasChildren = children?.some((child) => !!child) === true;
+		if (hasChildren) {
+			maxResidentCount = Math.max(maxResidentCount, node.objects.length);
+			for (const child of children ?? []) {
+				if (child) stack.push(child);
+			}
+		} else {
+			maxLeafCount = Math.max(maxLeafCount, node.objects.length);
+		}
+	}
+	return {
+		parentRatio: maxResidentCount / totalCount,
+		leafRatio: maxLeafCount / totalCount,
+	};
 }
 
 function resolveMaxResults(value: number | undefined): number {

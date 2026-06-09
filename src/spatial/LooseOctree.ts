@@ -254,6 +254,8 @@ export class LooseOctree implements SpatialIndex3D {
 		}
 
 		const stack: LooseOctreeNode[] = [this._root];
+		const shouldBoundHits = Number.isFinite(maxResults);
+		let traversalMaxDistance = maxDistance;
 
 		while (stack.length > 0) {
 			const node = stack.pop();
@@ -269,7 +271,7 @@ export class LooseOctree implements SpatialIndex3D {
 			const nodeDistance = intersectRayAABB(
 				origin,
 				normalizedDirection,
-				maxDistance,
+				traversalMaxDistance,
 				nodeMinX,
 				nodeMinY,
 				nodeMinZ,
@@ -288,7 +290,7 @@ export class LooseOctree implements SpatialIndex3D {
 				const distance = intersectRayAABB(
 					origin,
 					normalizedDirection,
-					maxDistance,
+					traversalMaxDistance,
 					bounds.min.x,
 					bounds.min.y,
 					bounds.min.z,
@@ -301,6 +303,16 @@ export class LooseOctree implements SpatialIndex3D {
 					meshInstance,
 					distance,
 				});
+				if (shouldBoundHits && out.length >= maxResults) {
+					out.sort(compareRayHits);
+					if (out.length > maxResults) {
+						out.length = maxResults;
+					}
+					traversalMaxDistance = Math.min(
+						traversalMaxDistance,
+						out[out.length - 1].distance
+					);
+				}
 			}
 
 			if (!node.children) continue;

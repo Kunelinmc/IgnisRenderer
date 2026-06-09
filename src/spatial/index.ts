@@ -10,6 +10,7 @@ export {
 export { LooseOctree, type LooseOctreeOptions } from "./LooseOctree";
 export {
 	HybridSpatialIndex,
+	type HybridDynamicBackend,
 	type HybridSpatialIndexOptions,
 } from "./HybridSpatialIndex";
 export { isDynamicSpatialMeshInstance } from "./classification";
