@@ -8,6 +8,7 @@ export enum LightType {
 	Point = "point",
 	Spot = "spot",
 	LightProbe = "lightProbe",
+	IrradianceProbeGrid = "irradianceProbeGrid",
 	ReflectionProbe = "reflectionProbe",
 	RectArea = "rectArea",
 }

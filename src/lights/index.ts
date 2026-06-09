@@ -3,6 +3,7 @@ import { DirectionalLight } from "./DirectionalLight";
 import { PointLight } from "./PointLight";
 import { SpotLight } from "./SpotLight";
 import { LightProbe } from "./LightProbe";
+import { IrradianceProbeGrid } from "./IrradianceProbeGrid";
 import { ReflectionProbe } from "./ReflectionProbe";
 import { AreaLight } from "./AreaLight";
 
@@ -13,6 +14,7 @@ export * from "./DirectionalLight";
 export * from "./PointLight";
 export * from "./SpotLight";
 export * from "./LightProbe";
+export * from "./IrradianceProbeGrid";
 export * from "./ReflectionProbe";
 export * from "./AreaLight";
 
@@ -22,6 +24,7 @@ export type SceneLight =
 	| PointLight
 	| SpotLight
 	| LightProbe
+	| IrradianceProbeGrid
 	| ReflectionProbe
 	| AreaLight;
 

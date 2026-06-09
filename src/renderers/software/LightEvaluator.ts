@@ -10,6 +10,7 @@ import type { AreaLight } from "../../lights/AreaLight";
 import type { DirectionalLight } from "../../lights/DirectionalLight";
 import type { PointLight } from "../../lights/PointLight";
 import type { LightProbe } from "../../lights/LightProbe";
+import type { IrradianceProbeGrid } from "../../lights/IrradianceProbeGrid";
 import type { ReflectionProbe } from "../../lights/ReflectionProbe";
 import type { SpotLight } from "../../lights/SpotLight";
 
@@ -19,6 +20,7 @@ type SceneLight =
 	| PointLight
 	| SpotLight
 	| LightProbe
+	| IrradianceProbeGrid
 	| ReflectionProbe
 	| AreaLight;
 
@@ -77,6 +79,8 @@ export function evaluateLightContribution(
 			return evaluateSpotLight(light, surface, contribution);
 		case LightType.LightProbe:
 			return evaluateLightProbe(light, surface, contribution);
+		case LightType.IrradianceProbeGrid:
+			return null;
 		case LightType.ReflectionProbe:
 			return null;
 		case LightType.RectArea:
