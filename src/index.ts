@@ -156,14 +156,25 @@ export {
 	type CameraShakeImpulse,
 } from "./addons/CameraShakePlugin";
 export {
-	InteractionManager,
-	type InteractionManagerOptions,
+	InteractionController,
+	type InteractionControllerOptions,
+	type InteractionClickEvent,
+	type InteractionEntityEvent,
 	type InteractionPointerEventLike,
 	type InteractionEvents,
+	type InteractionSelectionMode,
+	type InteractionTransformEvent,
 	type GizmoMode,
 	type GizmoPivot,
 	type GizmoSpace,
-} from "./addons/InteractionManager";
+} from "./interaction/InteractionController";
+export type {
+	InteractableComponent,
+	InteractionCallback,
+	InteractionCallbackContext,
+	InteractionEventPhase,
+	InteractionPointerState,
+} from "./ecs";
 export {
 	SobelNormalMapper,
 	type SobelNormalMapperOptions,

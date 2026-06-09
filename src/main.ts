@@ -8,7 +8,7 @@ import {
 	WebGPUBackend,
 	WebGLBackend,
 	GLTFLoader,
-	InteractionManager,
+	InteractionController,
 	MeshInstance,
 	Logger,
 	DirectionalLight,
@@ -50,6 +50,12 @@ async function init() {
 	});
 	const model = await gltfLoader.load("assets/model.glb");
 	scene.add(model);
+	scene.syncNodeToECS();
+	for (const meshInstance of scene.getMeshInstances()) {
+		if (meshInstance.entityId !== null) {
+			scene.ecs.setComponent(meshInstance.entityId, "Interactable", {});
+		}
+	}
 
 	const sun = new DirectionalLight({
 		intensity: 5.0,
@@ -247,7 +253,7 @@ function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Re
  * Setup real-time click interaction
  */
 export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camera) {
-	const interaction = new InteractionManager();
+	const interaction = new InteractionController();
 	interaction.attach(renderer, scene, camera);
 
 	// Listen for selection events
