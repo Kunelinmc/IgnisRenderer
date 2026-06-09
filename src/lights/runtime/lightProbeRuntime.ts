@@ -1,10 +1,10 @@
-import { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
+import { Matrix4 } from "../../maths/Matrix4";
+import type { IVector3 } from "../../maths/types";
 import {
 	LightType,
 	type LightProbe,
 	type SceneLight,
-} from "../lights";
+} from "../../lights";
 
 export const MAX_ACTIVE_LOCAL_LIGHT_PROBES = 8;
 export const LOCAL_LIGHT_PROBE_WEIGHT_EPSILON = 1e-6;

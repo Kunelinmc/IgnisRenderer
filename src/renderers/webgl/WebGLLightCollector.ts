@@ -14,7 +14,7 @@ import {
 } from "../../lights/shadows/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import { collectActiveLocalizedLightProbes } from "../../pipeline/lightProbeRuntime";
+import { collectActiveLocalizedLightProbes } from "../../lights/runtime/lightProbeRuntime";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_LOCAL_LIGHT_PROBES,
@@ -22,17 +22,17 @@ import {
 	WEBGL_MAX_REFLECTION_PROBES,
 	WEBGL_MAX_SPOT_LIGHTS,
 } from "./constants";
-import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
+import { collectReflectionProbeEnvironment } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
-} from "../../pipeline/environmentMapRuntime";
+} from "../../lights/runtime/environmentMapRuntime";
 import {
 	accumulateAmbientLightColor,
 	accumulateLightProbeFallbackAmbientColor,
 	resolveShadowData as resolveSharedShadowData,
 	toLinearLightColor,
-} from "../../pipeline/lightingRuntime";
+} from "../../lights/runtime/lightingRuntime";
 
 export interface WebGLDirectionalLight {
 	direction: [number, number, number];

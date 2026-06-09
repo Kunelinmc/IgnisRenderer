@@ -36,7 +36,7 @@ import {
 import {
 	ProbeCaptureRuntime,
 	type ProbeWebGPUCaptureSource,
-} from "../pipeline/ProbeCaptureRuntime";
+} from "../lights/runtime/ProbeCaptureRuntime";
 import { normalizeOcclusionCullingOptions } from "../pipeline/OcclusionCulling";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
@@ -47,7 +47,7 @@ import {
 	EnvironmentIBLUpdateRuntime,
 	normalizeEnvironmentIBLUpdateOptions,
 	type EnvironmentIBLUpdateOptions,
-} from "../pipeline/EnvironmentIBLUpdateRuntime";
+} from "../lights/runtime/EnvironmentIBLUpdateRuntime";
 import {
 	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
 	WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
@@ -55,8 +55,8 @@ import {
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
-} from "../pipeline/environmentMapRuntime";
-import { isLocalizedLightProbe } from "../pipeline/lightProbeRuntime";
+} from "../lights/runtime/environmentMapRuntime";
+import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	createTransientStore,
@@ -102,7 +102,7 @@ export type {
 	IncrementalRenderingOptions,
 	RenderDirtyReason,
 } from "../pipeline/incremental";
-export type { EnvironmentIBLUpdateOptions } from "../pipeline/EnvironmentIBLUpdateRuntime";
+export type { EnvironmentIBLUpdateOptions } from "../lights/runtime/EnvironmentIBLUpdateRuntime";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];

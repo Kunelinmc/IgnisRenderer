@@ -39,7 +39,7 @@ import {
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
-import { collectActiveReflectionProbes } from "../../pipeline/reflectionProbeRuntime";
+import { collectActiveReflectionProbes } from "../../lights/runtime/reflectionProbeRuntime";
 import type { TemporalJitterFrameState } from "../temporal/TemporalJitterState";
 
 export interface RasterizerLike {

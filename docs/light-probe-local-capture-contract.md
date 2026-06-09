@@ -75,4 +75,4 @@ bun tests/static/lighting/test_probe_capture_runtime.mjs
   `probe-capture`.
 - Breaking change: `ReflectionProbeCaptureRuntime` compatibility exports have
   been removed. Code must import `ProbeCaptureRuntime` and related types from
-  `src/pipeline/ProbeCaptureRuntime`.
+  `src/lights/runtime/ProbeCaptureRuntime`.

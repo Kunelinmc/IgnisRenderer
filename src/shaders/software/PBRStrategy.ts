@@ -3,7 +3,7 @@ import { SH } from "../../maths/SH";
 import {
 	isShadowCastingLight,
 } from "../../lights";
-import { sampleReflectionProbesSpecular } from "../../pipeline/reflectionProbeRuntime";
+import { sampleReflectionProbesSpecular } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	createLightContribution,
 	evaluateLightContribution,

@@ -5,7 +5,7 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { ProbeCaptureRuntime } from "../../../src/pipeline/ProbeCaptureRuntime.ts";
+import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
 import { Renderer } from "../../../src/renderers/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,

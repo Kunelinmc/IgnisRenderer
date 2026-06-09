@@ -23,7 +23,7 @@ import {
 } from "../../pipeline/types";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
-import type { ProbeWebGPUCaptureFaceRequest } from "../../pipeline/ProbeCaptureRuntime";
+import type { ProbeWebGPUCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,

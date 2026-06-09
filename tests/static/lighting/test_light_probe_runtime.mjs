@@ -7,7 +7,7 @@ import {
 	computeLightProbeMetric,
 	computeLightProbeRawWeight,
 	selectTopTwoLocalizedLightProbes,
-} from "../../../src/pipeline/lightProbeRuntime.ts";
+} from "../../../src/lights/runtime/lightProbeRuntime.ts";
 
 function createLocalizedProbe({
 	id,

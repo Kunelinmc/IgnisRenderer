@@ -1,13 +1,13 @@
-import { Texture } from "../core/Texture";
-import { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
+import { Texture } from "../../core/Texture";
+import { Matrix4 } from "../../maths/Matrix4";
+import type { IVector3 } from "../../maths/types";
 import {
 	LightType,
 	type ReflectionProbe,
 	type ReflectionProbeParallaxMode,
 	type ReflectionProbeShape,
 	type SceneLight,
-} from "../lights";
+} from "../../lights";
 import {
 	directionToEquirectUV as directionToEquirectUVFromEnvironmentMap,
 	ensureEnvironmentTextureEquirect,

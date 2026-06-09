@@ -1,6 +1,6 @@
-import type { Scene } from "../core/Scene";
-import { Texture } from "../core/Texture";
-import { Logger } from "../foundation/Logger";
+import type { Scene } from "../../core/Scene";
+import { Texture } from "../../core/Texture";
+import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
 	type AmbientLight,
@@ -11,23 +11,23 @@ import {
 	type ReflectionProbe,
 	type SceneLight,
 	type SpotLight,
-} from "../lights";
-import { sRGBToLinear, clamp } from "../maths/Common";
-import type { IVector3, SHCoefficients } from "../maths/types";
-import { Vector3 } from "../maths/Vector3";
-import type { FrameContext } from "./types";
+} from "../../lights";
+import { sRGBToLinear, clamp } from "../../maths/Common";
+import type { IVector3, SHCoefficients } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
+import type { FrameContext } from "../../pipeline/types";
 import {
 	bakeEnvironmentIBLFromEnvironmentMap,
 	projectEquirectTextureToSH,
 	type BakedEnvironmentIBL,
 	type EnvironmentIBLBakeOptions,
-} from "./EnvironmentIBLBaker";
+} from "../../pipeline/EnvironmentIBLBaker";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevel,
 } from "./environmentMapRuntime";
-import { RENDER_DIRTY_REASON_MASK } from "./incremental";
-import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
+import { RENDER_DIRTY_REASON_MASK } from "../../pipeline/incremental";
+import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
 
 const DIRECTIONAL_LOBE_EXPONENT = 96;
 const LOCAL_LIGHT_LOBE_EXPONENT = 64;

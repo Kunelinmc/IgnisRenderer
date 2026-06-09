@@ -12,13 +12,13 @@ import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import {
 	collectActiveLocalizedLightProbes,
 	collectGlobalLightProbes,
-} from "../../pipeline/lightProbeRuntime";
-import { collectReflectionProbeEnvironment } from "../../pipeline/reflectionProbeRuntime";
+} from "../../lights/runtime/lightProbeRuntime";
+import { collectReflectionProbeEnvironment } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	ensureEnvironmentTextureEquirect,
 	getEnvironmentMipLevelCount,
 	isTextureReadyForEnvironment as isTextureReadyForEnvironmentShared,
-} from "../../pipeline/environmentMapRuntime";
+} from "../../lights/runtime/environmentMapRuntime";
 import type { PreparedScene } from "../../pipeline/types";
 
 import {

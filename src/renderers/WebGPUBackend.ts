@@ -30,7 +30,7 @@ import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler"
 import {
 	WebGPUReflectionProbeCapturePass,
 } from "./webgpu/WebGPUReflectionProbeCapturePass";
-import type { ProbeWebGPUCaptureFaceRequest } from "../pipeline/ProbeCaptureRuntime";
+import type { ProbeWebGPUCaptureFaceRequest } from "../lights/runtime/ProbeCaptureRuntime";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
 import { WebGPUPassPlanner } from "./webgpu/WebGPUFramePlanner";
 import type {

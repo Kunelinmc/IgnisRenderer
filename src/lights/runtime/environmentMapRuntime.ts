@@ -1,8 +1,8 @@
-import { Texture } from "../core/Texture";
-import { CubeTexture } from "../core/CubeTexture";
-import { clamp, sRGBToLinear } from "../maths/Common";
-import type { RGBA } from "../foundation/Color";
-import type { IVector3 } from "../maths/types";
+import { Texture } from "../../core/Texture";
+import { CubeTexture } from "../../core/CubeTexture";
+import { clamp, sRGBToLinear } from "../../maths/Common";
+import type { RGBA } from "../../foundation/Color";
+import type { IVector3 } from "../../maths/types";
 
 interface LinearRGB {
 	r: number;

@@ -4,7 +4,7 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
-import { ProbeCaptureRuntime } from "../../../src/pipeline/ProbeCaptureRuntime.ts";
+import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
 
 function createBakedEnvironment(seed = 1) {
 	return {

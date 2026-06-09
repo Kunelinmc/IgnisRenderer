@@ -1,11 +1,11 @@
-import type { RGB } from "../foundation/Color";
+import type { RGB } from "../../foundation/Color";
 import type {
 	ShadowMap,
 	ShadowRenderSet,
 	ShadowStrategyType,
-} from "../lights/shadows/ShadowMapping";
-import { clamp, sRGBToLinear } from "../maths/Common";
-import type { Matrix4 } from "../maths/Matrix4";
+} from "../../lights/shadows/ShadowMapping";
+import { clamp, sRGBToLinear } from "../../maths/Common";
+import type { Matrix4 } from "../../maths/Matrix4";
 
 type RGBLike = Partial<RGB>;
 

@@ -41,7 +41,7 @@ import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
 	sampleEnvironmentTextureLevelLinear,
-} from "./environmentMapRuntime";
+} from "../lights/runtime/environmentMapRuntime";
 
 export const ENVIRONMENT_IBL_MAX_SAMPLE_WIDTH = 128;
 export const ENVIRONMENT_IBL_MAX_SAMPLE_HEIGHT = 64;

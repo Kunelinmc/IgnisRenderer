@@ -15,7 +15,7 @@ import {
 	accumulateLightProbeFallbackAmbientColor,
 	resolveShadowData as resolveSharedShadowData,
 	toLinearLightColor,
-} from "../../pipeline/lightingRuntime";
+} from "../../lights/runtime/lightingRuntime";
 
 import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,

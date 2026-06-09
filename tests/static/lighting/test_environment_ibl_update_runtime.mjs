@@ -6,7 +6,7 @@ import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import {
 	EnvironmentIBLUpdateRuntime,
 	normalizeEnvironmentIBLUpdateOptions,
-} from "../../../src/pipeline/EnvironmentIBLUpdateRuntime.ts";
+} from "../../../src/lights/runtime/EnvironmentIBLUpdateRuntime.ts";
 
 function createEnvironmentTexture(width = 16, height = 8, seed = 1) {
 	const data = new Uint8ClampedArray(width * height * 4);

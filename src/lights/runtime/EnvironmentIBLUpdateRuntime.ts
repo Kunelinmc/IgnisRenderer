@@ -1,21 +1,21 @@
-import type { Scene } from "../core/Scene";
-import { Texture } from "../core/Texture";
-import { Logger } from "../foundation/Logger";
-import { LightProbe, LightType, ReflectionProbe } from "../lights";
-import type { SHCoefficients } from "../maths/types";
-import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
+import type { Scene } from "../../core/Scene";
+import { Texture } from "../../core/Texture";
+import { Logger } from "../../foundation/Logger";
+import { LightProbe, LightType, ReflectionProbe } from "../../lights";
+import type { SHCoefficients } from "../../maths/types";
+import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
 import {
 	bakeEnvironmentIBLFromEnvironmentMap,
 	type BakedEnvironmentIBL,
 	type EnvironmentIBLBakeAcceleration,
 	type EnvironmentIBLBakeOptions,
-} from "./EnvironmentIBLBaker";
+} from "../../pipeline/EnvironmentIBLBaker";
 import {
 	ensureEnvironmentTextureEquirect,
 	getEnvironmentMipLevelCount,
 	isTextureReadyForEnvironment,
 } from "./environmentMapRuntime";
-import type { RenderDirtyReason } from "./incremental";
+import type { RenderDirtyReason } from "../../pipeline/incremental";
 
 const DEFAULT_MIPS_PER_FRAME = 1;
 const DEFAULT_TEMPORAL_BLEND_FACTOR = 0.2;

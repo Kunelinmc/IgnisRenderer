@@ -13,7 +13,7 @@ import {
 	samplePrefilteredEquirect,
 	sampleReflectionProbesSpecular,
 	selectTopTwoReflectionProbes,
-} from "../../../src/pipeline/reflectionProbeRuntime.ts";
+} from "../../../src/lights/runtime/reflectionProbeRuntime.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 
