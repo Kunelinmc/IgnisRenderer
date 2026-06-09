@@ -12,4 +12,9 @@ export type {
 	HierarchyComponent,
 	PathBindingComponent,
 	SkeletonJointComponent,
+	InteractionPointerState,
+	InteractionEventPhase,
+	InteractionCallbackContext,
+	InteractionCallback,
+	InteractableComponent,
 } from "./components";

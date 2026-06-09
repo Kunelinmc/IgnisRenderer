@@ -46,6 +46,49 @@ export interface NodeRefComponent {
 	node: Node;
 }
 
+export interface InteractionPointerState {
+	screenX: number;
+	screenY: number;
+	viewportWidth: number;
+	viewportHeight: number;
+	button?: number;
+	shiftKey?: boolean;
+	ctrlKey?: boolean;
+	metaKey?: boolean;
+	altKey?: boolean;
+}
+
+export type InteractionEventPhase =
+	| "hover-enter"
+	| "hover-leave"
+	| "select"
+	| "deselect"
+	| "click";
+
+export interface InteractionCallbackContext {
+	entityId: EntityId;
+	node: Node;
+	phase: InteractionEventPhase;
+	selectedEntityIds: number[];
+	pointer: InteractionPointerState | null;
+}
+
+export type InteractionCallback = (
+	context: InteractionCallbackContext
+) => void;
+
+export interface InteractableComponent {
+	enabled?: boolean;
+	hoverable?: boolean;
+	selectable?: boolean;
+	priority?: number;
+	onHoverEnter?: InteractionCallback;
+	onHoverLeave?: InteractionCallback;
+	onSelect?: InteractionCallback;
+	onDeselect?: InteractionCallback;
+	onClick?: InteractionCallback;
+}
+
 export const NODE_KIND = {
 	Node: "node",
 	MeshInstance: "meshInstance",
@@ -71,6 +114,7 @@ export type ECSComponentMap = {
 	SkeletonJoint: SkeletonJointComponent;
 	NodeRef: NodeRefComponent;
 	NodeKind: NodeKindComponent;
+	Interactable: InteractableComponent;
 };
 
 export type ECSComponentName = keyof ECSComponentMap;
