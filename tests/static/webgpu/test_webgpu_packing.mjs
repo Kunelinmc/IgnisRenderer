@@ -165,6 +165,12 @@ function createFrameLayout() {
 					WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 				),
 			},
+			{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
+			{ name: "irradianceProbeGridWorldToGridRow1", type: VEC4_F32 },
+			{ name: "irradianceProbeGridWorldToGridRow2", type: VEC4_F32 },
+			{ name: "irradianceProbeGridDataA", type: VEC4_F32 },
+			{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
+			{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
 			{ name: "areaLightCounts", type: VEC4_F32 },
 			{ name: "areaLights", type: arrayOf(areaLightSchema, WEBGPU_MAX_AREA_LIGHTS) },
 		]),
@@ -299,6 +305,17 @@ function createFrameInput() {
 		shAmbientCoeffs: null,
 		localLightProbeCount: 0,
 		localLightProbes: [],
+		irradianceProbeGrid: {
+			id: "grid-0",
+			worldToGridMatrix: matrix(3000),
+			dimensions: [3, 4, 5],
+			invHalfExtents: [0.25, 0.5, 0.75],
+			blendDistance: 12,
+			cellCount: 60,
+			textureRevision: 1,
+			sh: [],
+			validMask: new Uint8Array(60),
+		},
 		directionalLights: [
 			{
 				direction: [18, 19, 20],
@@ -404,6 +421,18 @@ function testFrameUniformPacking() {
 	);
 	assert.deepEqual(readVec(layout, data, ["reflectionProbes", 1, "dataC"], 4), [
 		1, 9, 10, 11,
+	]);
+	assert.deepEqual(readVec(layout, data, "irradianceProbeGridWorldToGridRow1", 4), [
+		3004, 3005, 3006, 3007,
+	]);
+	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataA", 4), [
+		3, 4, 5, 60,
+	]);
+	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataB", 4), [
+		0.25, 0.5, 0.75, 12,
+	]);
+	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataC", 4), [
+		1, WEBGPU_SH_COEFFICIENT_COUNT, 60, 0,
 	]);
 }
 
