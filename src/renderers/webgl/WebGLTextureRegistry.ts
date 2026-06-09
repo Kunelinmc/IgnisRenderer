@@ -14,6 +14,27 @@ interface TextureEntry {
 	actualFormat: TextureFormat;
 }
 
+export interface WebGLTextureRegistryOptions {
+	/**
+	 * Controls whether eligible textures are uploaded during resolve or queued
+	 * for a later frame-budgeted upload.
+	 */
+	uploadScheduling?: "immediate" | "deferred";
+	/**
+	 * Maximum queued texture uploads processed by `processPendingUploads`.
+	 */
+	maxUploadsPerFrame?: number;
+	/**
+	 * Approximate byte budget for queued texture uploads processed by
+	 * `processPendingUploads`.
+	 */
+	maxUploadBytesPerFrame?: number;
+	/**
+	 * Called when queued uploads remain and another frame should be scheduled.
+	 */
+	onUploadPending?: () => void;
+}
+
 export interface ResolvedWebGLTexture {
 	texture: WebGLTexture;
 	isLinear: boolean;
@@ -36,21 +57,95 @@ interface WebGLTextureResolveOptions {
 	preferFloat?: boolean;
 }
 
+interface PendingTextureUpload {
+	texture: Texture;
+	label: string;
+	targetTexture: WebGLTexture;
+	uploadFormat: WebGLTextureUploadFormat;
+	cacheKey: string;
+	version: number;
+	width: number;
+	height: number;
+	isLinear: boolean;
+	estimatedBytes: number;
+	queued: boolean;
+}
+
+interface DeferredTextureUploadRequest {
+	texture: Texture;
+	label: string;
+	srgbDefault: boolean;
+	targetTexture: WebGLTexture;
+	uploadFormat: WebGLTextureUploadFormat;
+	cacheKey: string;
+	cached: TextureEntry | undefined;
+	width: number;
+	height: number;
+	isLinear: boolean;
+}
+
+const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 1;
+const DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME = 8 * 1024 * 1024;
+
 export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;
 	private _maxTextureSize: number;
 	private _cache = new WeakMap<Texture, Map<string, TextureEntry>>();
+	private _pendingUploadsByTexture = new WeakMap<
+		Texture,
+		Map<string, PendingTextureUpload>
+	>();
+	private _pendingUploadQueue: PendingTextureUpload[] = [];
 	private _owned = new Set<WebGLTexture>();
 	private _whiteTexture: WebGLTexture | null = null;
 	private _neutralNormalTexture: WebGLTexture | null = null;
 	private _supportsFloatLinearFiltering: boolean | null = null;
+	private _uploadScheduling: "immediate" | "deferred";
+	private _maxUploadsPerFrame: number;
+	private _maxUploadBytesPerFrame: number;
+	private _onUploadPending: (() => void) | null;
 
 	constructor(
 		gl: WebGL2RenderingContext,
-		_warn?: (key: string, message: string) => void
+		_warn?: (key: string, message: string) => void,
+		options: WebGLTextureRegistryOptions = {}
 	) {
 		this._gl = gl;
 		this._maxTextureSize = this._resolveMaxTextureSize(gl);
+		this._uploadScheduling = options.uploadScheduling ?? "immediate";
+		this._maxUploadsPerFrame = Math.max(
+			1,
+			Math.floor(
+				options.maxUploadsPerFrame ?? DEFAULT_DEFERRED_UPLOADS_PER_FRAME
+			)
+		);
+		this._maxUploadBytesPerFrame = Math.max(
+			1,
+			Math.floor(
+				options.maxUploadBytesPerFrame ??
+					DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME
+			)
+		);
+		this._onUploadPending = options.onUploadPending ?? null;
+	}
+
+	/**
+	 * Returns the number of queued texture uploads waiting for frame-budgeted
+	 * processing. Reading this value has no side effects.
+	 */
+	public get pendingUploadCount(): number {
+		return this._pendingUploadQueue.length;
+	}
+
+	/**
+	 * Processes deferred texture uploads at the start of a WebGL frame.
+	 *
+	 * The method respects the configured upload count and byte budgets. If queued
+	 * uploads remain after processing, `onUploadPending` is called so the renderer
+	 * can schedule another frame.
+	 */
+	public beginFrame(): void {
+		this.processPendingUploads();
 	}
 
 	public getBaseColorTexture(texture: Texture | null): ResolvedWebGLTexture {
@@ -138,6 +233,8 @@ export class WebGLTextureRegistry {
 			this._gl.deleteTexture(texture);
 		}
 		this._owned.clear();
+		this._pendingUploadQueue = [];
+		this._pendingUploadsByTexture = new WeakMap();
 		this._whiteTexture = null;
 		this._neutralNormalTexture = null;
 	}
@@ -201,7 +298,8 @@ export class WebGLTextureRegistry {
 			};
 		}
 
-		let glTexture = cached?.texture ?? null;
+		const pending = this._getPendingUpload(texture, cacheKey);
+		let glTexture = cached?.texture ?? pending?.targetTexture ?? null;
 		if (!glTexture) {
 			glTexture = this._createTexture();
 			if (!glTexture) {
@@ -213,6 +311,21 @@ export class WebGLTextureRegistry {
 				return this.getWhiteTexture();
 			}
 			this._owned.add(glTexture);
+		}
+
+		if (this._shouldDeferUpload(label)) {
+			return this._queueDeferredTextureUpload({
+				texture,
+				label,
+				srgbDefault,
+				targetTexture: glTexture,
+				uploadFormat,
+				cacheKey,
+				cached,
+				width,
+				height,
+				isLinear,
+			});
 		}
 
 		const uploadOk = this._uploadTexture(
@@ -241,6 +354,157 @@ export class WebGLTextureRegistry {
 			texture: glTexture,
 			isLinear: uploadFormat.hardwareSRGB || isLinear || !srgbDefault,
 		};
+	}
+
+	/**
+	 * Uploads queued WebGL textures within the configured frame budgets.
+	 *
+	 * Stale pending requests are discarded when the source texture version or
+	 * dimensions changed before upload. Successful uploads update the registry
+	 * cache, and remaining queued uploads trigger `onUploadPending`.
+	 */
+	public processPendingUploads(): void {
+		if (this._pendingUploadQueue.length === 0) {
+			return;
+		}
+
+		let uploads = 0;
+		let uploadedBytes = 0;
+		while (this._pendingUploadQueue.length > 0) {
+			const pending = this._pendingUploadQueue[0];
+			const wouldExceedUploadCount = uploads >= this._maxUploadsPerFrame;
+			const wouldExceedByteBudget =
+				uploadedBytes + pending.estimatedBytes >
+				this._maxUploadBytesPerFrame;
+			if (
+				uploads > 0 &&
+				(wouldExceedUploadCount || wouldExceedByteBudget)
+			) {
+				break;
+			}
+
+			this._pendingUploadQueue.shift();
+			pending.queued = false;
+			const entries = this._pendingUploadsByTexture.get(pending.texture);
+			if (entries?.get(pending.cacheKey) !== pending) {
+				continue;
+			}
+			if (
+				pending.version !== pending.texture.version ||
+				pending.width !== (pending.texture.width | 0) ||
+				pending.height !== (pending.texture.height | 0)
+			) {
+				entries.delete(pending.cacheKey);
+				continue;
+			}
+
+			const uploadOk = this._uploadTexture(
+				pending.targetTexture,
+				pending.texture,
+				pending.label,
+				pending.uploadFormat
+			);
+			entries.delete(pending.cacheKey);
+			if (uploadOk) {
+				this._commitTextureEntry(pending);
+				uploads++;
+				uploadedBytes += pending.estimatedBytes;
+			}
+		}
+
+		if (this._pendingUploadQueue.length > 0) {
+			this._notifyUploadPending();
+		}
+	}
+
+	private _queueDeferredTextureUpload(
+		request: DeferredTextureUploadRequest
+	): ResolvedWebGLTexture {
+		let pendingEntries = this._pendingUploadsByTexture.get(request.texture);
+		if (!pendingEntries) {
+			pendingEntries = new Map();
+			this._pendingUploadsByTexture.set(request.texture, pendingEntries);
+		}
+
+		let pending = pendingEntries.get(request.cacheKey);
+		const estimatedBytes = estimateTextureUploadBytes(
+			request.texture,
+			request.uploadFormat
+		);
+		if (!pending) {
+			pending = {
+				texture: request.texture,
+				label: request.label,
+				targetTexture: request.targetTexture,
+				uploadFormat: request.uploadFormat,
+				cacheKey: request.cacheKey,
+				version: request.texture.version,
+				width: request.width,
+				height: request.height,
+				isLinear: request.isLinear,
+				estimatedBytes,
+				queued: false,
+			};
+			pendingEntries.set(request.cacheKey, pending);
+		} else {
+			pending.label = request.label;
+			pending.targetTexture = request.targetTexture;
+			pending.uploadFormat = request.uploadFormat;
+			pending.version = request.texture.version;
+			pending.width = request.width;
+			pending.height = request.height;
+			pending.isLinear = request.isLinear;
+			pending.estimatedBytes = estimatedBytes;
+		}
+
+		if (!pending.queued) {
+			pending.queued = true;
+			this._pendingUploadQueue.push(pending);
+		}
+		this._notifyUploadPending();
+
+		const visibleTexture = request.cached?.texture;
+		if (visibleTexture) {
+			return {
+				texture: visibleTexture,
+				isLinear:
+					request.uploadFormat.hardwareSRGB ||
+					request.isLinear ||
+					!request.srgbDefault,
+			};
+		}
+		return this.getWhiteTexture();
+	}
+
+	private _commitTextureEntry(pending: PendingTextureUpload): void {
+		const entries = this._cache.get(pending.texture) ?? new Map();
+		entries.set(pending.cacheKey, {
+			texture: pending.targetTexture,
+			version: pending.version,
+			width: pending.width,
+			height: pending.height,
+			isLinear: pending.isLinear,
+			uploadKind: pending.uploadFormat.kind,
+			actualFormat: pending.uploadFormat.textureFormat,
+		});
+		if (!this._cache.get(pending.texture)) {
+			this._cache.set(pending.texture, entries);
+		}
+	}
+
+	private _shouldDeferUpload(label: string): boolean {
+		return this._uploadScheduling === "deferred" && label === "base-color";
+	}
+
+	private _notifyUploadPending(): void {
+		this._onUploadPending?.();
+	}
+
+	private _getPendingUpload(
+		texture: Texture,
+		cacheKey: string
+	): PendingTextureUpload | undefined {
+		return this._pendingUploadsByTexture.get(texture)?.get(cacheKey);
 	}
 
 	private _uploadTexture(
@@ -723,6 +987,33 @@ function requiresMipmaps(value: string | undefined): boolean {
 function resolveMaxMipmapLevel(width: number, height: number): number {
 	const maxDimension = Math.max(1, width | 0, height | 0);
 	return Math.max(0, Math.floor(Math.log2(maxDimension)));
+}
+
+function estimateTextureUploadBytes(
+	texture: Texture,
+	format: WebGLTextureUploadFormat
+): number {
+	const mipCount = Math.max(1, texture.mipmaps.length || 1);
+	const bytesPerChannel = resolveUploadBytesPerChannel(format);
+	let totalBytes = 0;
+	for (let level = 0; level < mipCount; level++) {
+		const width = Math.max(1, texture.width >> level);
+		const height = Math.max(1, texture.height >> level);
+		totalBytes += width * height * format.channelCount * bytesPerChannel;
+	}
+	if (!format.isFloat && mipCount <= 1 && requiresMipmaps(texture.minFilter)) {
+		totalBytes += Math.ceil(totalBytes / 3);
+	}
+	return Math.max(1, totalBytes);
+}
+
+function resolveUploadBytesPerChannel(
+	format: WebGLTextureUploadFormat
+): number {
+	if (!format.isFloat) {
+		return 1;
+	}
+	return format.kind.endsWith("32f") ? 4 : 2;
 }
 
 function hasFloat32PixelData(texture: Texture): boolean {

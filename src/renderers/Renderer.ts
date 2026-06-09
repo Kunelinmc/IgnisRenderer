@@ -372,6 +372,12 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		) {
 			this._markFrameDirty("postfx");
 		}
+		if (
+			event.resource === "webgl-texture" &&
+			event.reason === "texture-upload-pending"
+		) {
+			this._markFrameDirty("texture");
+		}
 		this.emit("backendresourceevent", event);
 	}
 

@@ -94,6 +94,9 @@ function createTextureRegistryTestGL(options = {}) {
 		},
 		textureParameterCalls,
 		texImage2DCalls,
+		get createdTextureCount() {
+			return textureId;
+		},
 		get generateMipmapCallCount() {
 			return generateMipmapCallCount;
 		},
@@ -339,6 +342,98 @@ function testExplicitSrgbTextureUsesHardwareDecode() {
 	assert.equal(gl.texImage2DCalls[0].format, gl.RGBA);
 }
 
+function testDeferredBaseColorTextureUploadsOnBeginFrame() {
+	const gl = createTextureRegistryTestGL();
+	let pendingEvents = 0;
+	const registry = new WebGLTextureRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+		onUploadPending: () => {
+			pendingEvents++;
+		},
+	});
+	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	texture.minFilter = "LinearMipmapLinear";
+
+	const firstResolved = registry.getBaseColorTexture(texture);
+
+	assert.equal(registry.pendingUploadCount, 1);
+	assert.equal(gl.texImage2DCalls.length, 1);
+	assert.equal(gl.texImage2DCalls[0].width, 1);
+	assert.equal(gl.generateMipmapCallCount, 0);
+
+	registry.beginFrame();
+
+	const uploadedBaseCall = gl.texImage2DCalls.find(
+		(call) => call.width === 4 && call.height === 4
+	);
+	assert.ok(uploadedBaseCall);
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(gl.generateMipmapCallCount, 1);
+
+	const secondResolved = registry.getBaseColorTexture(texture);
+	assert.notEqual(secondResolved.texture, firstResolved.texture);
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.ok(pendingEvents >= 1);
+}
+
+function testDeferredBaseColorTextureReusesPendingTarget() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+	});
+	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+
+	const firstResolved = registry.getBaseColorTexture(texture);
+	const createdAfterFirstResolve = gl.createdTextureCount;
+	const secondResolved = registry.getBaseColorTexture(texture);
+
+	assert.equal(registry.pendingUploadCount, 1);
+	assert.equal(gl.createdTextureCount, createdAfterFirstResolve);
+	assert.equal(secondResolved.texture, firstResolved.texture);
+
+	registry.beginFrame();
+
+	const uploadedResolved = registry.getBaseColorTexture(texture);
+	assert.notEqual(uploadedResolved.texture, firstResolved.texture);
+	assert.equal(gl.createdTextureCount, createdAfterFirstResolve);
+}
+
+function testDeferredTextureUploadBudgetUploadsOnePerFrame() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+		maxUploadsPerFrame: 1,
+		maxUploadBytesPerFrame: 1,
+	});
+	const textureA = new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB");
+	const textureB = new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB");
+
+	registry.getBaseColorTexture(textureA);
+	registry.getBaseColorTexture(textureB);
+
+	assert.equal(registry.pendingUploadCount, 2);
+	assert.equal(
+		gl.texImage2DCalls.filter((call) => call.width === 2).length,
+		0
+	);
+
+	registry.beginFrame();
+
+	assert.equal(registry.pendingUploadCount, 1);
+	assert.equal(
+		gl.texImage2DCalls.filter((call) => call.width === 2).length,
+		1
+	);
+
+	registry.beginFrame();
+
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(
+		gl.texImage2DCalls.filter((call) => call.width === 2).length,
+		2
+	);
+}
+
 function run() {
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
@@ -351,6 +446,9 @@ function run() {
 	testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor();
 	testExplicitR8TextureUploadsSingleChannel();
 	testExplicitSrgbTextureUsesHardwareDecode();
+	testDeferredBaseColorTextureUploadsOnBeginFrame();
+	testDeferredBaseColorTextureReusesPendingTarget();
+	testDeferredTextureUploadBudgetUploadsOnePerFrame();
 	console.log("WebGL texture registry color-space tests passed");
 }
 

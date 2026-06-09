@@ -402,6 +402,7 @@ export class WebGLBackend implements IRenderBackend {
 			{
 				validatePrograms: this._validatePrograms,
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
+				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 			}
 		);
 		this._contextLost = false;
@@ -437,6 +438,15 @@ export class WebGLBackend implements IRenderBackend {
 			action: "invalidate",
 			backend: "webgl",
 			reason: "shader-compile-pending",
+		});
+	}
+
+	private _emitTextureUploadPendingEvent(): void {
+		this._onBackendResourceEvent?.({
+			resource: "webgl-texture",
+			action: "invalidate",
+			backend: "webgl",
+			reason: "texture-upload-pending",
 		});
 	}
 

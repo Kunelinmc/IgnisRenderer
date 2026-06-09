@@ -176,6 +176,12 @@ type WebGLFramePassHandler = (context: FrameContext) => void;
 export interface WebGLFrameExecutorOptions {
 	validatePrograms?: boolean;
 	onProgramCompilePending?: () => void;
+	/**
+	 * Called when deferred WebGL texture uploads remain queued after the current
+	 * upload budget. The callback should mark the renderer dirty so another frame
+	 * can continue processing the queue.
+	 */
+	onTextureUploadPending?: () => void;
 }
 
 const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
@@ -305,7 +311,12 @@ export class WebGLFrameExecutor {
 		this._irradianceProbeGridSamplingSupported =
 			this._programs.supportsIrradianceProbeGridSampling();
 		this._geometry = new WebGLGeometryRegistry(gl);
-		this._textures = new WebGLTextureRegistry(gl);
+		this._textures = new WebGLTextureRegistry(gl, undefined, {
+			uploadScheduling: "deferred",
+			maxUploadsPerFrame: 1,
+			maxUploadBytesPerFrame: 8 * 1024 * 1024,
+			onUploadPending: options.onTextureUploadPending,
+		});
 		this._fullscreenVao = gl.createVertexArray();
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._maxRenderbufferSize = this._resolveLimit(
@@ -322,6 +333,7 @@ export class WebGLFrameExecutor {
 
 	public beginFrame(context: FrameContext): void {
 		(this._programs as { beginFrame?: () => void }).beginFrame?.();
+		this._textures.beginFrame();
 		this._activeContext = context;
 		this._presentedInFrame = false;
 		this._modelMatrixKeysThisFrame.clear();
