@@ -6,7 +6,7 @@ import { PointLight } from "../../../src/lights/PointLight.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { ShadowMap, createShadowRenderSet } from "../../../src/lights/shadows/ShadowMapping.ts";
-import { Material } from "../../../src/materials/Material.ts";
+import { AlphaMode, Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
@@ -21,6 +21,8 @@ import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometr
 import {
 	bindWebGLShaderMaterialUniforms,
 	drawWebGLPacket,
+	renderWebGLEarlyZPrepass,
+	renderWebGLPackets,
 } from "../../../src/renderers/webgl/WebGLScenePass.ts";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
@@ -206,11 +208,49 @@ function createScenePassCaptureGL() {
 		uniform4f: [],
 		uniformMatrix4fv: [],
 		depthMask: [],
+		depthFunc: [],
+		colorMask: [],
+		drawBuffers: [],
+		enable: [],
+		disable: [],
+		scissor: [],
+		drawElements: [],
 	};
 	return {
+		FRAMEBUFFER: 0x8d40,
+		COLOR_ATTACHMENT0: 0x8ce0,
+		COLOR_ATTACHMENT1: 0x8ce1,
+		COLOR_ATTACHMENT2: 0x8ce2,
+		NONE: 0,
 		TEXTURE0: 0x84c0,
 		TEXTURE_2D: 0x0de1,
+		TRIANGLES: 0x0004,
+		DEPTH_TEST: 0x0b71,
+		BLEND: 0x0be2,
+		SCISSOR_TEST: 0x0c11,
+		LESS: 0x0201,
+		LEQUAL: 0x0203,
 		calls,
+		bindFramebuffer() {},
+		drawBuffers(buffers) {
+			calls.drawBuffers.push([...buffers]);
+		},
+		colorMask(r, g, b, a) {
+			calls.colorMask.push([r, g, b, a]);
+		},
+		enable(cap) {
+			calls.enable.push(cap);
+		},
+		disable(cap) {
+			calls.disable.push(cap);
+		},
+		depthFunc(func) {
+			calls.depthFunc.push(func);
+		},
+		scissor(x, y, width, height) {
+			calls.scissor.push({ x, y, width, height });
+		},
+		useProgram() {},
 		activeTexture(unit) {
 			calls.activeTextures.push(unit);
 		},
@@ -271,7 +311,9 @@ function createScenePassCaptureGL() {
 		depthMask(flag) {
 			calls.depthMask.push(flag);
 		},
-		drawElements() {},
+		drawElements(mode, count, type, offset) {
+			calls.drawElements.push({ mode, count, type, offset });
+		},
 	};
 }
 
@@ -494,6 +536,134 @@ void main() {
 	outNormal = vec4(0.5, 0.5, 1.0, 1.0);
 }
 `;
+
+const CUSTOM_WEBGL_FRAGMENT_DEPTH = /* glsl */ `
+#version 300 es
+precision highp float;
+void main() {
+}
+`;
+
+function createScenePassContext(overrides = {}) {
+	return {
+		camera: {
+			viewProjectionMatrix: Matrix4.identity(),
+		},
+		incremental: {
+			enabled: false,
+			forceFullFrame: false,
+			dirtyRects: [],
+		},
+		attachments: {
+			width: 64,
+			height: 64,
+		},
+		scene: {
+			opaquePackets: [],
+			transparentPackets: [],
+			spatialIndex: null,
+		},
+		...overrides,
+	};
+}
+
+function createEarlyZScenePassHost(gl, options = {}) {
+	const colorProgram =
+		options.colorProgram ?? {
+			program: { id: "color-program" },
+			uniforms: {},
+		};
+	const depthProgram =
+		options.depthProgram ?? {
+			program: { id: "depth-program" },
+			uniforms: {
+				model: "uModel",
+				normalMatrix: null,
+				baseColor: "uBaseColor",
+				alpha: "uAlpha",
+				baseMap: "uBaseMap",
+				hasBaseMap: "uHasBaseMap",
+				baseMapUV: "uBaseMapUV",
+				baseMapTransformA: "uBaseMapTransformA",
+				baseMapTransformB: "uBaseMapTransformB",
+				doubleSided: null,
+				customSamplers: {},
+				customUniforms: {},
+			},
+		};
+	return {
+		_gl: gl,
+		_programs: {
+			getSceneProgram() {
+				return colorProgram;
+			},
+			getSceneDepthPrepassProgram() {
+				return options.depthProgramAvailable === false ? null : depthProgram;
+			},
+		},
+		_geometry: {
+			getGeometry(packet) {
+				return options.getGeometry?.(packet) ?? {
+					vao: { id: `vao-${packet.id}` },
+					topology: gl.TRIANGLES,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture(texture) {
+				return options.getBaseColorTexture?.(texture) ?? {
+					texture: texture ? { id: "base-map" } : null,
+					isLinear: false,
+				};
+			},
+		},
+		_sceneFramebuffer: { id: "scene-fbo" },
+		_sceneNormalTexture: options.sceneNormalTexture ?? null,
+		_oitPassMode: 0,
+		_width: 64,
+		_height: 64,
+		_maxTextureImageUnits: 32,
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_prevViewProjection: null,
+		_taaHistoryValid: false,
+		_isIncrementalPartial(context) {
+			return context.incremental?.enabled === true &&
+				context.incremental.forceFullFrame !== true &&
+				(context.incremental.dirtyRects?.length ?? 0) > 0;
+		},
+		_resolveDirtyRects(context) {
+			return context.incremental?.dirtyRects?.length ?
+				context.incremental.dirtyRects
+			:	[{ x: 0, y: 0, width: 64, height: 64 }];
+		},
+		_resolvePacketsForRect(context, packets, rect) {
+			return options.resolvePacketsForRect?.(context, packets, rect) ?? packets;
+		},
+		_setScissorRect(x, y, width, height) {
+			gl.scissor(x, y, width, height);
+		},
+		_bindGlobalUniforms() {},
+		_setCullMode() {},
+		_drawPacket(sceneProgram, packet, transparentPass, context, drawOptions) {
+			drawWebGLPacket(this, sceneProgram, packet, transparentPass, context, drawOptions);
+		},
+		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
+	};
+}
+
+function createEarlyZPacket(id, material = new Material()) {
+	return {
+		id,
+		meshInstance: { id: `mesh-${id}`, skeleton: null },
+		material,
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+	};
+}
 
 function testLightCollectorLimitsAndWarnings() {
 	const warnings = [];
@@ -817,6 +987,107 @@ function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
 	);
 	assert.ok(
 		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT_MRT)
+	);
+}
+
+function testProgramLibraryBuiltinDepthPrepassProgram() {
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, () => {});
+
+	const depthProgramA = library.getSceneDepthPrepassProgram(new Material());
+	const depthProgramB = library.getSceneDepthPrepassProgram(new Material());
+
+	assert.ok(depthProgramA);
+	assert.strictEqual(depthProgramA, depthProgramB);
+	assert.equal(gl.programCount, 1);
+	assert.ok(
+		gl.shaderSources.some((entry) =>
+			entry.source.includes("uBaseColor.a")
+		)
+	);
+	assert.ok(
+		gl.shaderSources.some((entry) =>
+			entry.source.includes("texture(uBaseMap")
+		)
+	);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source.includes("discard"))
+	);
+}
+
+function testProgramLibraryShaderMaterialDepthPrepassProgram() {
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, () => {});
+	const material = new ShaderMaterial({
+		name: "DepthCustomWebGLShader",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment-depth",
+				code: CUSTOM_WEBGL_FRAGMENT_DEPTH,
+			},
+		],
+	});
+
+	const depthA = library.getSceneDepthPrepassProgram(material);
+	const depthB = library.getSceneDepthPrepassProgram(material);
+
+	assert.ok(depthA);
+	assert.strictEqual(depthA, depthB);
+	assert.equal(gl.programCount, 1);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT_DEPTH)
+	);
+}
+
+function testProgramLibraryShaderMaterialDepthPrepassMissingSourceDiagnostics() {
+	const warnings = [];
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, (key, message) =>
+		warnings.push({ key, message })
+	);
+	const nonMaskMaterial = new ShaderMaterial({
+		name: "NoDepthNonMask",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+		],
+	});
+	const maskMaterial = new ShaderMaterial({
+		name: "NoDepthMask",
+		alphaMode: AlphaMode.Mask,
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+		],
+	});
+
+	assert.equal(library.getSceneDepthPrepassProgram(nonMaskMaterial), null);
+	assert.equal(warnings.length, 0);
+	assert.equal(library.getSceneDepthPrepassProgram(maskMaterial), null);
+	assert.equal(library.getSceneDepthPrepassProgram(maskMaterial), null);
+	assert.equal(
+		warnings.filter((warning) =>
+			warning.key.startsWith(
+				"webgl-shader-material-depth-prepass-missing-source-"
+			)
+		).length,
+		1
 	);
 }
 
@@ -1841,10 +2112,105 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 
 	drawWebGLPacket(host, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false]);
+	assert.deepEqual(gl.calls.depthFunc, [gl.LESS]);
 
 	material.depthWrite = true;
 	drawWebGLPacket(host, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false, true]);
+	assert.deepEqual(gl.calls.depthFunc, [gl.LESS, gl.LESS]);
+}
+
+function testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL() {
+	const gl = createScenePassCaptureGL();
+	const material = new Material();
+	const packet = createEarlyZPacket("early-z", material);
+	const context = createScenePassContext();
+	const host = createEarlyZScenePassHost(gl);
+
+	const prepassedIds = renderWebGLEarlyZPrepass(host, context, [packet]);
+
+	assert.equal(prepassedIds.has(packet.id), true);
+	assert.deepEqual(gl.calls.drawBuffers[0], [gl.NONE]);
+	assert.deepEqual(gl.calls.colorMask[0], [false, false, false, false]);
+	assert.deepEqual(
+		gl.calls.colorMask[gl.calls.colorMask.length - 1],
+		[true, true, true, true]
+	);
+	assert.deepEqual(
+		gl.calls.drawBuffers[gl.calls.drawBuffers.length - 1],
+		[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]
+	);
+	assert.ok(gl.calls.disable.includes(gl.BLEND));
+	assert.ok(gl.calls.depthMask.includes(true));
+
+	renderWebGLPackets(host, context, [packet], false, {
+		earlyZPacketIds: prepassedIds,
+	});
+
+	assert.ok(gl.calls.depthFunc.includes(gl.LEQUAL));
+	assert.equal(gl.calls.depthMask.includes(false), true);
+}
+
+function testEarlyZPrepassSkipsDepthWriteDisabledPackets() {
+	const gl = createScenePassCaptureGL();
+	const material = new Material({
+		depthWrite: false,
+	});
+	const packet = createEarlyZPacket("depth-read", material);
+	const context = createScenePassContext();
+	const host = createEarlyZScenePassHost(gl);
+
+	const prepassedIds = renderWebGLEarlyZPrepass(host, context, [packet]);
+	assert.equal(prepassedIds.size, 0);
+	assert.equal(gl.calls.drawElements.length, 0);
+
+	renderWebGLPackets(host, context, [packet], false, {
+		earlyZPacketIds: prepassedIds,
+	});
+	assert.equal(gl.calls.depthFunc.includes(gl.LEQUAL), false);
+	assert.equal(gl.calls.depthFunc.includes(gl.LESS), true);
+	assert.equal(gl.calls.depthMask.includes(false), true);
+}
+
+function testBuiltInMaskDepthPrepassShaderContract() {
+	const fragment = ShaderSource.get("webgl.part.sceneDepthPrepassFragment.raw");
+	assert.ok(fragment.includes("uBaseColor.a"));
+	assert.ok(fragment.includes("texture(uBaseMap"));
+	assert.ok(fragment.includes("uAlpha.x"));
+	assert.ok(fragment.includes("discard"));
+}
+
+function testEarlyZPrepassUsesDirtyRectPacketSelection() {
+	const gl = createScenePassCaptureGL();
+	const packetA = createEarlyZPacket("a");
+	const packetB = createEarlyZPacket("b");
+	const resolvedRects = [];
+	const context = createScenePassContext({
+		incremental: {
+			enabled: true,
+			forceFullFrame: false,
+			dirtyRects: [
+				{ x: 0, y: 0, width: 16, height: 16 },
+				{ x: 32, y: 32, width: 16, height: 16 },
+			],
+		},
+	});
+	const host = createEarlyZScenePassHost(gl, {
+		resolvePacketsForRect(_context, _packets, rect) {
+			resolvedRects.push(rect);
+			return rect.x === 0 ? [packetA] : [];
+		},
+	});
+
+	const prepassedIds = renderWebGLEarlyZPrepass(host, context, [
+		packetA,
+		packetB,
+	]);
+
+	assert.deepEqual(resolvedRects, context.incremental.dirtyRects);
+	assert.equal(prepassedIds.has(packetA.id), true);
+	assert.equal(prepassedIds.has(packetB.id), false);
+	assert.equal(gl.calls.scissor.length, 1);
 }
 
 function testShaderMaterialCustomUniformBinding() {
@@ -2070,6 +2436,9 @@ async function run() {
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();
 	testProgramLibraryShaderMaterialCachesPerSceneTargetMode();
+	testProgramLibraryBuiltinDepthPrepassProgram();
+	testProgramLibraryShaderMaterialDepthPrepassProgram();
+	testProgramLibraryShaderMaterialDepthPrepassMissingSourceDiagnostics();
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
@@ -2097,6 +2466,10 @@ async function run() {
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets();
 	testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree();
 	testDrawWebGLPacketAppliesMaterialDepthWriteState();
+	testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL();
+	testEarlyZPrepassSkipsDepthWriteDisabledPackets();
+	testBuiltInMaskDepthPrepassShaderContract();
+	testEarlyZPrepassUsesDirtyRectPacketSelection();
 	testShaderMaterialCustomUniformBinding();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();

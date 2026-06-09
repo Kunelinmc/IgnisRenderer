@@ -156,7 +156,9 @@ import {
 	bindWebGLShaderMaterialUniforms,
 	bindWebGLShaderMaterialTextures,
 	drawWebGLPacket,
+	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
+	type WebGLPacketDrawOptions,
 	type WebGLScenePassHost,
 } from "./WebGLScenePass";
 import {
@@ -175,6 +177,7 @@ type WebGLFramePassHandler = (context: FrameContext) => void;
 
 export interface WebGLFrameExecutorOptions {
 	validatePrograms?: boolean;
+	enableEarlyZPrepass?: boolean;
 	onProgramCompilePending?: () => void;
 	/**
 	 * Called when deferred WebGL texture uploads remain queued after the current
@@ -290,6 +293,7 @@ export class WebGLFrameExecutor {
 	private _oitLegacyTransparentPackets: DrawPacket[] = [];
 	private _oitNeedsLegacyAfterParticles = false;
 	private _supportsFloatColorBuffer: boolean | null = null;
+	private _enableEarlyZPrepass = true;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 
 	constructor(
@@ -299,6 +303,7 @@ export class WebGLFrameExecutor {
 		options: WebGLFrameExecutorOptions = {},
 	) {
 		this._gl = gl;
+		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._programs = new WebGLProgramLibrary(
 			gl,
 			shaderRuntime,
@@ -871,6 +876,14 @@ export class WebGLFrameExecutor {
 				"getSceneProgram",
 			);
 		});
+		if (this._enableEarlyZPrepass) {
+			await enqueue("WebGLSceneDepthPrepassProgram:builtin", () => {
+				return this._warmupProgramHandle(
+					"warmupSceneDepthPrepassProgram",
+					"getSceneDepthPrepassProgram",
+				);
+			});
+		}
 		const materialWarmupModes: ShaderTargetMode[] =
 			plan.sceneTargetMode === "mrt" ? ["mrt", "single"] : ["single"];
 		for (const material of plan.materials) {
@@ -886,6 +899,19 @@ export class WebGLFrameExecutor {
 						mode,
 					);
 				});
+				if (this._enableEarlyZPrepass) {
+					await enqueue(
+						`WebGLSceneDepthPrepassProgram:material:${material.shaderId}:${mode}`,
+						() => {
+							return this._warmupProgramHandle(
+								"warmupSceneDepthPrepassProgram",
+								"getSceneDepthPrepassProgram",
+								material,
+								mode,
+							);
+						}
+					);
+				}
 			}
 		}
 
@@ -1146,7 +1172,7 @@ export class WebGLFrameExecutor {
 		warmupMethod: string,
 		getMethod: string,
 		...args: unknown[]
-	): WebGLProgramWarmupHandle {
+	): WebGLProgramWarmupHandle | null {
 		const programs = this._programs as unknown as Record<string, unknown>;
 		const warmup = programs[warmupMethod];
 		if (typeof warmup === "function") {
@@ -1420,7 +1446,13 @@ export class WebGLFrameExecutor {
 			[
 				"main-opaque",
 				(context) => {
-					this._renderPackets(context, context.scene.opaquePackets, false);
+					const earlyZPacketIds = this._renderEarlyZPrepass(
+						context,
+						context.scene.opaquePackets
+					);
+					this._renderPackets(context, context.scene.opaquePackets, false, {
+						earlyZPacketIds,
+					});
 				},
 			],
 			[
@@ -2069,6 +2101,7 @@ export class WebGLFrameExecutor {
 			drawBuffers?: number[];
 			blendMode?: "legacy" | "oit-accum" | "oit-reveal";
 			oitPassMode?: 0 | 1 | 2;
+			earlyZPacketIds?: ReadonlySet<string>;
 		} = {}
 	): void {
 		renderWebGLPackets(
@@ -2080,18 +2113,34 @@ export class WebGLFrameExecutor {
 		);
 	}
 
+	private _renderEarlyZPrepass(
+		context: FrameContext,
+		packets: DrawPacket[]
+	): Set<string> {
+		if (!this._enableEarlyZPrepass || packets.length === 0) {
+			return new Set<string>();
+		}
+		return renderWebGLEarlyZPrepass(
+			this as unknown as WebGLScenePassHost,
+			context,
+			packets
+		);
+	}
+
 	private _drawPacket(
 		sceneProgram: WebGLSceneProgram,
 		packet: DrawPacket,
 		transparentPass: boolean,
-		context: FrameContext
+		context: FrameContext,
+		options?: WebGLPacketDrawOptions
 	): void {
 		drawWebGLPacket(
 			this as unknown as WebGLScenePassHost,
 			sceneProgram,
 			packet,
 			transparentPass,
-			context
+			context,
+			options
 		);
 	}
 

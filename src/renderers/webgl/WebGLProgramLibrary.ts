@@ -7,7 +7,10 @@ import {
 	createWebGLSceneUniforms,
 	type WebGLSceneUniforms,
 } from "./WebGLSceneProgramUniforms";
-import type { Material } from "../../materials/Material";
+import {
+	AlphaMode,
+	type Material,
+} from "../../materials/Material";
 import {
 	ShaderMaterial,
 	type ShaderTargetMode,
@@ -366,6 +369,10 @@ export class WebGLProgramLibrary {
 	private _sceneProgram: WebGLSceneProgram | null = null;
 	private _sceneProgramDirectiveTag: string = "";
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
+	private _sceneDepthPrepassProgram: WebGLSceneProgram | null = null;
+	private _sceneDepthPrepassProgramDirectiveTag: string = "";
+	private _customSceneDepthPrepassPrograms = new Map<string, WebGLSceneProgram>();
+	private _missingDepthPrepassShaderMaterialWarnings = new Set<number>();
 	private _environmentProgram: WebGLEnvironmentProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
@@ -531,6 +538,30 @@ export class WebGLProgramLibrary {
 		return custom ?? this._getBuiltinSceneProgram();
 	}
 
+	/**
+	 * Returns the backend-owned WebGL depth pre-pass program for a material.
+	 *
+	 * @internal WebGL frame execution hook. Prefer configuring
+	 * `WebGLBackendOptions.enableEarlyZPrepass` over calling this directly.
+	 *
+	 * @param material Optional material whose custom depth pre-pass shader should
+	 * be resolved.
+	 * @param mode Scene target mode used to match the color-pass variant.
+	 * @returns A compiled depth pre-pass program, or `null` when the material does
+	 * not opt into the depth pre-pass contract.
+	 * @sideEffects May compile and cache a WebGL program.
+	 */
+	public getSceneDepthPrepassProgram(
+		material?: Material,
+		mode: ShaderTargetMode = "single"
+	): WebGLSceneProgram | null {
+		if (!(material instanceof ShaderMaterial)) {
+			return this._getBuiltinSceneDepthPrepassProgram();
+		}
+
+		return this._getShaderMaterialDepthPrepassProgram(material, mode);
+	}
+
 	public markWarmupHandles(): number {
 		return this._warmupHandleLog.length;
 	}
@@ -552,6 +583,30 @@ export class WebGLProgramLibrary {
 
 		const custom = this._warmupShaderMaterialSceneProgram(material, mode);
 		return custom ?? this._warmupBuiltinSceneProgram();
+	}
+
+	/**
+	 * Queues or completes warmup for the backend-owned WebGL depth pre-pass
+	 * program.
+	 *
+	 * @internal WebGL warmup planner hook.
+	 *
+	 * @param material Optional material whose custom depth pre-pass shader should
+	 * be warmed.
+	 * @param mode Scene target mode used to match the color-pass variant.
+	 * @returns A warmup handle, or `null` when the material has no depth pre-pass
+	 * source.
+	 * @sideEffects May start asynchronous WebGL shader compilation.
+	 */
+	public warmupSceneDepthPrepassProgram(
+		material?: Material,
+		mode: ShaderTargetMode = "single"
+	): WebGLProgramWarmupHandle | null {
+		if (!(material instanceof ShaderMaterial)) {
+			return this._warmupBuiltinSceneDepthPrepassProgram();
+		}
+
+		return this._warmupShaderMaterialDepthPrepassProgram(material, mode);
 	}
 
 	public warmupEnvironmentProgram(): WebGLProgramWarmupHandle {
@@ -1010,6 +1065,127 @@ export class WebGLProgramLibrary {
 		);
 	}
 
+	private _warmupBuiltinSceneDepthPrepassProgram(): WebGLProgramWarmupHandle {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		if (
+			this._sceneDepthPrepassProgram &&
+			this._sceneDepthPrepassProgramDirectiveTag !== directiveTag
+		) {
+			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
+			this._sceneDepthPrepassProgram = null;
+		}
+		const vertexSource = this._shaderSource("sceneDepthPrepassVertex");
+		const fragmentSource = this._shaderSource("sceneDepthPrepassFragment");
+		const vertexComposite = ShaderSource.get(
+			"webgl.part.sceneDepthPrepassVertex.composite"
+		);
+		const fragmentComposite = ShaderSource.get(
+			"webgl.part.sceneDepthPrepassFragment.composite"
+		);
+		return this._warmupProgram(
+			"WebGLSceneDepthPrepassProgram",
+			() =>
+				this._sceneDepthPrepassProgram &&
+				this._sceneDepthPrepassProgramDirectiveTag === directiveTag ?
+					this._sceneDepthPrepassProgram
+				:	null,
+			() =>
+				this._beginProgramCompile(
+					vertexSource,
+					fragmentSource,
+					"WebGLSceneDepthPrepassProgram",
+					{
+						sourceMap: vertexComposite.sourceMap,
+						sourceKind: "unknown",
+					},
+					{
+						sourceMap: fragmentComposite.sourceMap,
+						sourceKind: "unknown",
+					},
+				),
+			() => {
+				this._getBuiltinSceneDepthPrepassProgram();
+			},
+		);
+	}
+
+	private _warmupShaderMaterialDepthPrepassProgram(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode
+	): WebGLProgramWarmupHandle | null {
+		const initialDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
+		const shaderKey = this._createShaderMaterialDepthPrepassCacheKey(
+			material,
+			mode,
+			initialDirectiveTag,
+		);
+		const cached = this._customSceneDepthPrepassPrograms.get(shaderKey);
+		if (cached) {
+			return this._recordWarmupHandle(
+				this._createCompletedWarmupHandle(
+					`WebGLShaderMaterialDepthPrepassProgram_${shaderKey}`,
+				),
+			);
+		}
+
+		const source = material.resolveWebGLDepthPrepassProgram(mode, {
+			enableRuntimeInjects: this._supportsRuntimeInjects(),
+		});
+		if (!source) {
+			this._warnMissingShaderMaterialDepthPrepassSource(material);
+			return null;
+		}
+
+		const label = `WebGLShaderMaterialDepthPrepassProgram_${shaderKey}`;
+		return this._warmupProgram(
+			label,
+			() => this._customSceneDepthPrepassPrograms.get(shaderKey) ?? null,
+			() =>
+				this._beginProgramCompile(
+					source.vertexCode,
+					source.fragmentCode,
+					label,
+					{
+						sourceMap: createInlineShaderSourceMap(
+							source.vertexCode,
+							`<shader-material:${shaderKey}:vertex-depth>`,
+							"source",
+						),
+						variantKey: shaderKey,
+						materialId: String(material.shaderId),
+						sourceKind: "custom-material",
+					},
+					{
+						sourceMap: createInlineShaderSourceMap(
+							source.fragmentCode,
+							`<shader-material:${shaderKey}:fragment-depth>`,
+							"source",
+						),
+						variantKey: shaderKey,
+						materialId: String(material.shaderId),
+						sourceKind: "custom-material",
+					},
+				),
+			() => {
+				this._getShaderMaterialDepthPrepassProgram(material, mode);
+			},
+			(error) => {
+				if (!this._isWarnMode()) {
+					throw error;
+				}
+				const key =
+					`webgl-shader-material-depth-prepass-compile-failed-` +
+					`${material.shaderId}`;
+				const message =
+					`ShaderMaterial ${material.name} custom WebGL depth prepass ` +
+					`shader compile failed; skipping Early Z prepass for that ` +
+					`material. ${String(error)}`;
+				this._warn(key, message);
+			},
+		);
+	}
+
 	private _getSceneLightLimits(): WebGLSceneLightLimits {
 		return {
 			maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
@@ -1031,6 +1207,14 @@ export class WebGLProgramLibrary {
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${directiveTag}`
 		);
+	}
+
+	private _createShaderMaterialDepthPrepassCacheKey(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode,
+		directiveTag: string,
+	): string {
+		return `depth|${this._createShaderMaterialCacheKey(material, mode, directiveTag)}`;
 	}
 
 	private _getBuiltinSceneProgram(): WebGLSceneProgram {
@@ -1067,6 +1251,47 @@ export class WebGLProgramLibrary {
 		this._sceneProgramDirectiveTag =
 			this._shaderCompileStage?.getCacheFingerprintTag() ?? directiveTag;
 		return this._sceneProgram;
+	}
+
+	private _getBuiltinSceneDepthPrepassProgram(): WebGLSceneProgram {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		if (
+			this._sceneDepthPrepassProgram &&
+			this._sceneDepthPrepassProgramDirectiveTag === directiveTag
+		) {
+			return this._sceneDepthPrepassProgram;
+		}
+		if (
+			this._sceneDepthPrepassProgram &&
+			this._sceneDepthPrepassProgramDirectiveTag !== directiveTag
+		) {
+			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
+			this._sceneDepthPrepassProgram = null;
+		}
+		if (!this._sceneDepthPrepassProgram) {
+			const vertexComposite = ShaderSource.get(
+				"webgl.part.sceneDepthPrepassVertex.composite"
+			);
+			const fragmentComposite = ShaderSource.get(
+				"webgl.part.sceneDepthPrepassFragment.composite"
+			);
+			this._sceneDepthPrepassProgram = this._createSceneProgram(
+				this._shaderSource("sceneDepthPrepassVertex"),
+				this._shaderSource("sceneDepthPrepassFragment"),
+				"WebGLSceneDepthPrepassProgram",
+				{
+					sourceMap: vertexComposite.sourceMap,
+					sourceKind: "unknown",
+				},
+				{
+					sourceMap: fragmentComposite.sourceMap,
+					sourceKind: "unknown",
+				},
+			);
+		}
+		this._sceneDepthPrepassProgramDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? directiveTag;
+		return this._sceneDepthPrepassProgram;
 	}
 
 	private _getShaderMaterialSceneProgram(
@@ -1159,6 +1384,113 @@ export class WebGLProgramLibrary {
 			this._customScenePrograms.delete(shaderKey);
 		}
 		return sceneProgram;
+	}
+
+	private _getShaderMaterialDepthPrepassProgram(
+		material: ShaderMaterial,
+		mode: ShaderTargetMode
+	): WebGLSceneProgram | null {
+		const initialDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? "none";
+		const shaderKey = this._createShaderMaterialDepthPrepassCacheKey(
+			material,
+			mode,
+			initialDirectiveTag,
+		);
+		const cached = this._customSceneDepthPrepassPrograms.get(shaderKey);
+		if (cached) {
+			return cached;
+		}
+
+		const source = material.resolveWebGLDepthPrepassProgram(mode, {
+			enableRuntimeInjects: this._supportsRuntimeInjects(),
+		});
+		if (!source) {
+			this._warnMissingShaderMaterialDepthPrepassSource(material);
+			return null;
+		}
+
+		let sceneProgram: WebGLSceneProgram;
+		try {
+			sceneProgram = this._createSceneProgram(
+				source.vertexCode,
+				source.fragmentCode,
+				`WebGLShaderMaterialDepthPrepassProgram_${shaderKey}`,
+				{
+					sourceMap: createInlineShaderSourceMap(
+						source.vertexCode,
+						`<shader-material:${shaderKey}:vertex-depth>`,
+						"source",
+					),
+					variantKey: shaderKey,
+					materialId: String(material.shaderId),
+					sourceKind: "custom-material",
+				},
+				{
+					sourceMap: createInlineShaderSourceMap(
+						source.fragmentCode,
+						`<shader-material:${shaderKey}:fragment-depth>`,
+						"source",
+					),
+					variantKey: shaderKey,
+					materialId: String(material.shaderId),
+					sourceKind: "custom-material",
+				},
+				this._collectCustomSamplerUniforms(material),
+				this._collectCustomUniforms(material),
+			);
+		} catch (error) {
+			if (!this._isWarnMode()) {
+				throw error;
+			}
+			const key =
+				`webgl-shader-material-depth-prepass-compile-failed-` +
+				`${material.shaderId}`;
+			const message =
+				`ShaderMaterial ${material.name} custom WebGL depth prepass ` +
+				`shader compile failed; skipping Early Z prepass for that material. ` +
+				`${String(error)}`;
+			this._warn(key, message);
+			return null;
+		}
+		const finalDirectiveTag =
+			this._shaderCompileStage?.getCacheFingerprintTag() ?? initialDirectiveTag;
+		const finalShaderKey = this._createShaderMaterialDepthPrepassCacheKey(
+			material,
+			mode,
+			finalDirectiveTag,
+		);
+		const existingFinal =
+			this._customSceneDepthPrepassPrograms.get(finalShaderKey);
+		if (existingFinal) {
+			this._gl.deleteProgram(sceneProgram.program);
+			return existingFinal;
+		}
+		this._customSceneDepthPrepassPrograms.set(finalShaderKey, sceneProgram);
+		if (finalShaderKey !== shaderKey) {
+			this._customSceneDepthPrepassPrograms.delete(shaderKey);
+		}
+		return sceneProgram;
+	}
+
+	private _warnMissingShaderMaterialDepthPrepassSource(
+		material: ShaderMaterial
+	): void {
+		if (material.alphaMode !== AlphaMode.Mask) {
+			return;
+		}
+		if (this._missingDepthPrepassShaderMaterialWarnings.has(material.shaderId)) {
+			return;
+		}
+		this._missingDepthPrepassShaderMaterialWarnings.add(material.shaderId);
+		const key =
+			`webgl-shader-material-depth-prepass-missing-source-` +
+			`${material.shaderId}`;
+		const message =
+			`ShaderMaterial ${material.name} uses AlphaMode.Mask but has no ` +
+			`WebGL fragment-depth chunk; skipping Early Z prepass for that ` +
+			`material.`;
+		this._warn(key, message);
 	}
 
 	private _createSceneProgram(
@@ -2572,6 +2904,16 @@ export class WebGLProgramLibrary {
 			this._gl.deleteProgram(sceneProgram.program);
 		}
 		this._customScenePrograms.clear();
+		if (this._sceneDepthPrepassProgram) {
+			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
+			this._sceneDepthPrepassProgram = null;
+		}
+		this._sceneDepthPrepassProgramDirectiveTag = "";
+		for (const sceneProgram of this._customSceneDepthPrepassPrograms.values()) {
+			this._gl.deleteProgram(sceneProgram.program);
+		}
+		this._customSceneDepthPrepassPrograms.clear();
+		this._missingDepthPrepassShaderMaterialWarnings.clear();
 		if (this._environmentProgram) {
 			this._gl.deleteProgram(this._environmentProgram.program);
 			this._environmentProgram = null;

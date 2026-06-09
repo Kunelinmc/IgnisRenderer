@@ -99,6 +99,8 @@ export type WebGPUUtilityShaderPart =
 export type WebGLShaderPart =
 	| "sceneVertex"
 	| "sceneFragment"
+	| "sceneDepthPrepassVertex"
+	| "sceneDepthPrepassFragment"
 	| "environmentVertex"
 	| "environmentFragment"
 	| "presentVertex"
@@ -145,6 +147,8 @@ export const WEBGPU_SCENE_SHADER_PARTS: readonly WebGPUSceneShaderPart[] = [
 export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"sceneVertex",
 	"sceneFragment",
+	"sceneDepthPrepassVertex",
+	"sceneDepthPrepassFragment",
 	"environmentVertex",
 	"environmentFragment",
 	"presentVertex",
@@ -385,6 +389,8 @@ const webgpuUtilityShaderFiles: Record<WebGPUUtilityShaderPart, string> = {
 const webglShaderFiles: Record<WebGLShaderPart, string> = {
 	sceneVertex: "./webgl/parts/sceneVertex.glsl",
 	sceneFragment: "./webgl/parts/sceneFragment.glsl",
+	sceneDepthPrepassVertex: "./webgl/parts/sceneDepthPrepassVertex.glsl",
+	sceneDepthPrepassFragment: "./webgl/parts/sceneDepthPrepassFragment.glsl",
 	environmentVertex: "./webgl/parts/environmentVertex.glsl",
 	environmentFragment: "./webgl/parts/environmentFragment.glsl",
 	presentVertex: "./webgl/parts/presentVertex.glsl",

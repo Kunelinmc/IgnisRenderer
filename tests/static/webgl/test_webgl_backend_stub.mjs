@@ -22,6 +22,7 @@ function createFakeWebGL2Context() {
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
 		COLOR_ATTACHMENT2: 0x8ce2,
+		NONE: 0,
 		DEPTH_ATTACHMENT: 0x8d00,
 		DEPTH_COMPONENT24: 0x81a6,
 		TEXTURE_2D: 0x0de1,
@@ -47,6 +48,8 @@ function createFakeWebGL2Context() {
 		BLEND: 0x0be2,
 		CULL_FACE: 0x0b44,
 		DEPTH_TEST: 0x0b71,
+		LESS: 0x0201,
+		LEQUAL: 0x0203,
 		BACK: 0x0405,
 		FRONT: 0x0404,
 		CCW: 0x0901,
@@ -138,6 +141,8 @@ function createFakeWebGL2Context() {
 		enable() {},
 		disable() {},
 		depthMask() {},
+		depthFunc() {},
+		colorMask() {},
 		frontFace() {},
 		cullFace() {},
 		blendFuncSeparate() {},
@@ -236,6 +241,8 @@ async function testInitAndPassRouting() {
 
 	assert.equal(backend.type, "webgl");
 	assert.equal(backend.frameScheduling, "on-demand");
+	assert.equal(backend.isEarlyZPrepassEnabled(), true);
+	assert.equal(backend._frameExecutor._enableEarlyZPrepass, true);
 	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.capabilities, {
 		sh: true,
@@ -302,6 +309,19 @@ async function testInitAndPassRouting() {
 		).length,
 		0
 	);
+}
+
+async function testEarlyZPrepassOptionCanDisable() {
+	const backend = new WebGLBackend({
+		enableEarlyZPrepass: false,
+	});
+	const { bridge } = createRendererBridge();
+	backend.setRenderer(bridge);
+	const canvas = createFakeCanvas(createFakeWebGL2Context());
+	await backend.init(canvas);
+
+	assert.equal(backend.isEarlyZPrepassEnabled(), false);
+	assert.equal(backend._frameExecutor._enableEarlyZPrepass, false);
 }
 
 async function testContextLostAndRestored() {
@@ -459,6 +479,7 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
+	await testEarlyZPrepassOptionCanDisable();
 	await testContextLostAndRestored();
 	await testPublicLifecycleMethods();
 	testParticleDeltaTimeIsClampedToSafeMaximum();

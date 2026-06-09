@@ -19,6 +19,7 @@ function createFXAATestGL() {
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
 		COLOR_ATTACHMENT2: 0x8ce2,
+		NONE: 0,
 		MAX_DRAW_BUFFERS: 0x8824,
 		TEXTURE_2D: 0x0de1,
 		TEXTURE0: 0x84c0,
@@ -29,6 +30,9 @@ function createFXAATestGL() {
 		CULL_FACE: 0x0b44,
 		DEPTH_TEST: 0x0b71,
 		BLEND: 0x0be2,
+		SCISSOR_TEST: 0x0c11,
+		LESS: 0x0201,
+		LEQUAL: 0x0203,
 		ZERO: 0,
 		ONE: 1,
 		SRC_ALPHA: 0x0302,
@@ -88,6 +92,12 @@ function createFXAATestGL() {
 		},
 		depthMask(flag) {
 			calls.push({ name: "depthMask", flag });
+		},
+		depthFunc(func) {
+			calls.push({ name: "depthFunc", func });
+		},
+		colorMask(r, g, b, a) {
+			calls.push({ name: "colorMask", r, g, b, a });
 		},
 		blendFuncSeparate(srcRgb, dstRgb, srcAlpha, dstAlpha) {
 			calls.push({
@@ -711,6 +721,62 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	]);
 }
 
+function testMainOpaqueRunsEarlyZPrepassBeforeColorPass() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl);
+	const events = [];
+	const packet = { id: "opaque-0", material: {} };
+	const context = {
+		scene: {
+			opaquePackets: [packet],
+		},
+	};
+
+	executor._renderEarlyZPrepass = (_context, packets) => {
+		events.push(`prepass:${packets.length}`);
+		return new Set(["opaque-0"]);
+	};
+	executor._renderPackets = (_context, packets, transparent, options = {}) => {
+		events.push(
+			`color:${packets.length}:${transparent}:${options.earlyZPacketIds?.has("opaque-0")}`
+		);
+	};
+
+	executor.executePass({ stage: "main-opaque" }, context);
+
+	assert.deepEqual(events, [
+		"prepass:1",
+		"color:1:false:true",
+	]);
+}
+
+function testMainOpaqueCanDisableEarlyZPrepass() {
+	const gl = createFXAATestGL();
+	const executor = new WebGLFrameExecutor(gl, undefined, undefined, {
+		enableEarlyZPrepass: false,
+	});
+	const events = [];
+	const packet = { id: "opaque-0", material: {} };
+	const context = {
+		scene: {
+			opaquePackets: [packet],
+		},
+	};
+
+	executor._renderPackets = (_context, packets, transparent, options = {}) => {
+		events.push(
+			`color:${packets.length}:${transparent}:${options.earlyZPacketIds?.size ?? 0}`
+		);
+	};
+
+	executor.executePass({ stage: "main-opaque" }, context);
+
+	assert.deepEqual(events, [
+		"color:1:false:0",
+	]);
+	assert.equal(executor._enableEarlyZPrepass, false);
+}
+
 function testSceneFramebufferFailureCleansAllAllocatedTargets() {
 	const gl = createFrameTargetTestGL({
 		floatExtension: true,
@@ -1305,6 +1371,8 @@ async function run() {
 	testConfigureOITWarnsWithoutRuntimeTargets();
 	testOITTransparentAndParticleExecutionOrder();
 	testOITTransparentResolvesImmediatelyWithoutParticles();
+	testMainOpaqueRunsEarlyZPrepassBeforeColorPass();
+	testMainOpaqueCanDisableEarlyZPrepass();
 	testSceneFramebufferFailureCleansAllAllocatedTargets();
 	testEndFramePrunesStaleModelMatrixCache();
 	testShadowSkinningWarningKeyIsStable();

@@ -62,6 +62,7 @@ export interface WebGLBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
 	validatePrograms?: boolean;
+	enableEarlyZPrepass?: boolean;
 }
 
 type WebGLBackendPassHandler = (
@@ -110,6 +111,7 @@ export class WebGLBackend implements IRenderBackend {
 	public readonly shaderRuntime: ShaderRuntime;
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private _validatePrograms = false;
+	private _enableEarlyZPrepass = true;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
@@ -122,6 +124,7 @@ export class WebGLBackend implements IRenderBackend {
 	constructor(options: WebGLBackendOptions = {}) {
 		const shaderMode = options.shaderMode ?? "warn";
 		this._validatePrograms = options.validatePrograms === true;
+		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -134,6 +137,16 @@ export class WebGLBackend implements IRenderBackend {
 		});
 		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
+	}
+
+	/**
+	 * Reports whether the WebGL backend will run its internal Early Z pre-pass.
+	 *
+	 * @returns `true` when opaque WebGL frames use depth pre-pass optimization.
+	 * @sideEffects None.
+	 */
+	public isEarlyZPrepassEnabled(): boolean {
+		return this._enableEarlyZPrepass;
 	}
 
 	/**
@@ -401,6 +414,7 @@ export class WebGLBackend implements IRenderBackend {
 			this._shaderCompileStage,
 			{
 				validatePrograms: this._validatePrograms,
+				enableEarlyZPrepass: this._enableEarlyZPrepass,
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 			}

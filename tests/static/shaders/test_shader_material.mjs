@@ -119,6 +119,14 @@ void main() {
 }
 `;
 
+const WEBGL_FRAGMENT_DEPTH = /* glsl */ `
+#version 300 es
+precision highp float;
+
+void main() {
+}
+`;
+
 function getChunkCode(material, selector) {
 	const chunk = material.chunks.find((entry) => {
 		const backend = entry.backend ?? "webgpu";
@@ -550,6 +558,53 @@ function testResolveWebGLProgramMissingSourceThrows() {
 	);
 }
 
+function testResolveWebGLDepthPrepassProgramContract() {
+	const material = new ShaderMaterial({
+		name: "WebGLDepthPrepassMaterial",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment-depth",
+				code: WEBGL_FRAGMENT_DEPTH,
+			},
+		],
+	});
+
+	const depthProgram = material.resolveWebGLDepthPrepassProgram("single");
+	assert.ok(depthProgram);
+	assert.equal(depthProgram.vertexCode, WEBGL_VERTEX);
+	assert.equal(depthProgram.fragmentCode, WEBGL_FRAGMENT_DEPTH);
+	assert.equal(
+		getChunkCode(material, {
+			backend: "webgl",
+			language: "glsl",
+			stage: "fragment-depth",
+			mode: "single",
+		}),
+		WEBGL_FRAGMENT_DEPTH
+	);
+
+	const missingDepth = new ShaderMaterial({
+		name: "WebGLDepthMissing",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: WEBGL_VERTEX,
+			},
+		],
+	});
+	assert.equal(missingDepth.resolveWebGLDepthPrepassProgram("single"), null);
+}
+
 function testChunkApiSupportsUnifiedShaderUpdates() {
 	const material = new ShaderMaterial({
 		name: "ChunkMaterial",
@@ -918,6 +973,7 @@ async function run() {
 	testResolveWebGLProgramMRTFallsBackToSingleFragment();
 	testResolveWebGLProgramFallsBackToWebGPUGLSL();
 	testResolveWebGLProgramMissingSourceThrows();
+	testResolveWebGLDepthPrepassProgramContract();
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingInjectDirectivesDecoratePrograms();

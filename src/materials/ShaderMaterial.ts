@@ -128,6 +128,11 @@ export interface ResolvedWebGLShaderProgram {
 	fragmentCode: string;
 }
 
+export interface ResolvedWebGLDepthPrepassProgram {
+	vertexCode: string;
+	fragmentCode: string;
+}
+
 export interface ShaderProgramResolveOptions {
 	enableRuntimeInjects?: boolean;
 }
@@ -145,7 +150,8 @@ type ShaderChunkKey =
 	| "webgpu:glsl:fragment-depth"
 	| "webgl:glsl:vertex"
 	| "webgl:glsl:fragment-single"
-	| "webgl:glsl:fragment-mrt";
+	| "webgl:glsl:fragment-mrt"
+	| "webgl:glsl:fragment-depth";
 
 interface ShaderMaterialTextureBindingRecord {
 	name: string;
@@ -185,6 +191,7 @@ const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
 	"webgl:glsl:vertex",
 	"webgl:glsl:fragment-single",
 	"webgl:glsl:fragment-mrt",
+	"webgl:glsl:fragment-depth",
 ];
 
 const SHADER_MATERIAL_TEXTURE_SLOT_COUNT = 14;
@@ -664,6 +671,58 @@ export class ShaderMaterial extends Material {
 		};
 	}
 
+	/**
+	 * Resolves the opt-in WebGL depth pre-pass program for this material.
+	 *
+	 * @param modeOrOptions Scene target mode, or resolve options when using the
+	 * default single-target mode.
+	 * @param options Optional shader source decoration options.
+	 * @returns Decorated WebGL vertex and depth fragment sources, or `null` when
+	 * the material has no WebGL-compatible depth pre-pass chunk.
+	 * @sideEffects None.
+	 */
+	public resolveWebGLDepthPrepassProgram(
+		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions = "single",
+		options?: ShaderProgramResolveOptions
+	): ResolvedWebGLDepthPrepassProgram | null {
+		const { resolveOptions } = this._resolveWebGLProgramArgs(
+			modeOrOptions,
+			options
+		);
+		const vertexCode =
+			this._chunks.get("webgl:glsl:vertex") ??
+			this._chunks.get("webgpu:glsl:vertex") ??
+			null;
+		const rawDepthCode =
+			this._chunks.get("webgl:glsl:fragment-depth") ??
+			this._chunks.get("webgpu:glsl:fragment-depth") ??
+			null;
+
+		if (
+			typeof vertexCode !== "string" ||
+			vertexCode.trim().length === 0 ||
+			typeof rawDepthCode !== "string" ||
+			rawDepthCode.trim().length === 0
+		) {
+			return null;
+		}
+
+		return {
+			vertexCode: this._decorateShaderSource(
+				vertexCode,
+				"glsl",
+				"vertex",
+				resolveOptions.enableRuntimeInjects === true
+			),
+			fragmentCode: this._decorateShaderSource(
+				rawDepthCode,
+				"glsl",
+				"fragment",
+				resolveOptions.enableRuntimeInjects === true
+			),
+		};
+	}
+
 	private _resolveWebGPUStageCode(
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
@@ -823,12 +882,19 @@ export class ShaderMaterial extends Material {
 					code,
 				};
 			case "webgl:glsl:fragment-mrt":
-			default:
 				return {
 					backend: "webgl",
 					language: "glsl",
 					stage: "fragment",
 					mode: "mrt",
+					code,
+				};
+			case "webgl:glsl:fragment-depth":
+			default:
+				return {
+					backend: "webgl",
+					language: "glsl",
+					stage: "fragment-depth",
 					code,
 				};
 		}
@@ -864,9 +930,7 @@ export class ShaderMaterial extends Material {
 				return "webgl:glsl:vertex";
 			}
 			if (stage === "fragment-depth") {
-				throw new Error(
-					"WebGL shader chunks do not support fragment-depth stage."
-				);
+				return "webgl:glsl:fragment-depth";
 			}
 			if (mode !== "single" && mode !== "mrt") {
 				throw new Error(`Unsupported shader chunk mode "${mode}".`);
