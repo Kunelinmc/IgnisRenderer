@@ -192,6 +192,11 @@ export class SoftwareBackend implements IRenderBackend {
 		this._ctx = canvas.getContext("2d");
 	}
 
+	/**
+	 * Attaches renderer-owned bridge callbacks to the software backend.
+	 *
+	 * @internal Renderer-owned lifecycle hook.
+	 */
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
 		this._ensureRuntime();

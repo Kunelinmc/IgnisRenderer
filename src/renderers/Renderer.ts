@@ -323,6 +323,9 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	/**
 	 * Forwards device/context loss notification to the active backend.
+	 *
+	 * @internal Backend lifecycle bridge. Applications should subscribe to
+	 * `devicelost` instead of calling this method directly.
 	 */
 	public onDeviceLost(
 		info?: RenderBackendDeviceLostInfo
@@ -358,6 +361,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 * @param event Backend resource event emitted through `RendererBackendBridge`.
 	 * @returns Nothing.
 	 * @sideEffects May invalidate or destroy renderer-owned resources.
+	 * @internal Backend resource lifetime bridge. Applications should subscribe
+	 * to `backendresourceevent` instead of calling this method directly.
 	 */
 	public onBackendResourceEvent(event: RendererBackendResourceEvent): void {
 		this._postProcessController.handleBackendResourceEvent(event);

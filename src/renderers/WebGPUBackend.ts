@@ -40,11 +40,11 @@ import {
 } from "./webgpu/WebGPUReflectionProbeCapturePass";
 import type { ProbeWebGPUCaptureFaceRequest } from "../lights/runtime/ProbeCaptureRuntime";
 import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
-import { WebGPUPassPlanner } from "./webgpu/WebGPUFramePlanner";
-import type {
-	WebGPUCommandSchedulerHost,
-	WebGPUFramePlannerState,
-} from "./webgpu/WebGPUBackendContracts";
+import type { WebGPUCommandSchedulerHost } from "./webgpu/WebGPUBackendContracts";
+import {
+	FramePassPlanValidator,
+	type FramePassPlanValidatorState,
+} from "../pipeline/FramePassPlanValidator";
 import {
 	getWebGPUPipeline,
 	getWebGPUShaderModule,
@@ -395,7 +395,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
-	private readonly _framePlanner = new WebGPUPassPlanner();
+	private readonly _framePlanner = new FramePassPlanValidator("WebGPU");
 	private readonly _commandScheduler: WebGPUCommandScheduler;
 	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
@@ -446,6 +446,11 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 	}
 
+	/**
+	 * Attaches renderer-owned bridge callbacks to the WebGPU backend.
+	 *
+	 * @internal Renderer-owned lifecycle hook.
+	 */
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
@@ -684,6 +689,12 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 	}
 
+	/**
+	 * Marks WebGPU device resources as lost.
+	 *
+	 * @internal Backend lifecycle hook used by `GPUDevice.lost` handling and
+	 * renderer recovery paths.
+	 */
 	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
 		this._handleDeviceLost(this._normalizeDeviceLostInfo(info));
 	}
@@ -2685,7 +2696,7 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 	}
 
-	private _getFramePlannerState(): WebGPUFramePlannerState {
+	private _getFramePlannerState(): FramePassPlanValidatorState {
 		return {
 			executedPasses: this._executedPasses,
 			plannedPasses: this._plannedPasses,

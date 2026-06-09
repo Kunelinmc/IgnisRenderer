@@ -78,12 +78,18 @@ export interface RendererBackendResourceEvent {
 /**
  * Presentation-only renderer host state exposed to backends.
  * Frame data must flow through `FrameContext`.
+ *
+ * @internal Backend-to-renderer bridge. Applications must not construct or call
+ * this interface directly.
  */
 export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
 	pixels?: Uint8ClampedArray | null;
 	/**
 	 * Notifies the renderer that the backend observed device/context loss.
+	 *
+	 * @internal Backend lifecycle callback. Applications should subscribe to
+	 * `RendererEvents.devicelost` instead.
 	 */
 	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
 	/**
@@ -93,6 +99,8 @@ export interface RendererBackendBridge {
 	 * @returns Nothing.
 	 * @sideEffects May invalidate or destroy renderer-owned resources that
 	 * reference backend handles.
+	 * @internal Backend resource lifetime callback. Applications should
+	 * subscribe to `RendererEvents.backendresourceevent` instead.
 	 */
 	onBackendResourceEvent?(event: RendererBackendResourceEvent): void;
 }
@@ -109,10 +117,20 @@ export interface IRenderBackend {
 	 * @sideEffects None.
 	 */
 	readonly extensions?: RenderBackendExtensionRegistry;
+	/**
+	 * Attaches renderer-owned bridge callbacks to the backend.
+	 *
+	 * @internal Renderer-owned lifecycle hook. Applications must not call this
+	 * directly.
+	 */
 	setRenderer?(renderer: RendererBackendBridge): void;
 	init(canvas: HTMLCanvasElement): Promise<void>;
 	/**
 	 * Marks backend device or graphics context resources as lost.
+	 *
+	 * @internal Backend lifecycle hook used by backend implementations and
+	 * renderer recovery paths. Applications should use `Renderer.restore()` and
+	 * `RendererEvents.devicelost` instead of calling this directly.
 	 */
 	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
 	/**

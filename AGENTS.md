@@ -140,6 +140,12 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 ### Documentation
 - **Comments & JSDoc**: Use JSDoc for all public methods and properties. Include clear inline comments for complex logic (e.g., matrix math, shader packing).
 - **Public API Methods**: Any newly created externally exposed public method must include explicit JSDoc describing its purpose, parameters, return value, constraints, and observable side effects. Add concise inline comments when the method contains non-obvious behavior.
+- **Internal Public Hooks**: Methods or interfaces that must remain `public` for
+  TypeScript contracts, backend bridges, tests, or renderer orchestration, but
+  are not application-facing APIs, MUST include `@internal` in their JSDoc.
+  The JSDoc SHOULD name the owning subsystem and the preferred public
+  alternative (for example, subscribe to `RendererEvents.devicelost` instead of
+  calling `Renderer.onDeviceLost`).
 
 ### Docs Writing Guidelines (`docs/`)
 - **Scope**: These rules apply only to `docs/*.md`. They do not apply to `README*.md` unless explicitly requested.

@@ -136,6 +136,11 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 	}
 
+	/**
+	 * Attaches renderer-owned bridge callbacks to the WebGL backend.
+	 *
+	 * @internal Renderer-owned lifecycle hook.
+	 */
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
@@ -202,6 +207,12 @@ export class WebGLBackend implements IRenderBackend {
 		this._initializeGLContext(canvas);
 	}
 
+	/**
+	 * Marks WebGL context resources as lost.
+	 *
+	 * @internal Backend lifecycle hook used by `webglcontextlost` handling and
+	 * renderer recovery paths.
+	 */
 	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
 		if (this._contextLost) {
 			return;

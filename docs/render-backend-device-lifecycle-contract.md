@@ -1,7 +1,8 @@
 # Render Backend Device Lifecycle Contract
 ## Scope
-This document defines the public device/context loss and restoration contract for
-`IRenderBackend` implementations and the `Renderer` facade.
+This document defines the device/context loss and restoration contract for
+`IRenderBackend` implementations, renderer-owned backend bridges, and the
+application-facing `Renderer` facade.
 
 ## Background
 GPU-backed renderers can lose their device or context at runtime. WebGPU reports
@@ -28,6 +29,7 @@ restore render resources without using private backend members.
 	- Constraint: implementations must throw a deterministic error when no canvas
 	  is available.
 - `Renderer.onDeviceLost(info?: RenderBackendDeviceLostInfo)`
+	- Internal contract: applications must not call this method directly.
 	- Behavior contract: forwards `info` to `renderer.backend.onDeviceLost` when
 	  the backend implements the method.
 	- Behavior contract: resets renderer prepared-scene cache and marks the next
@@ -41,6 +43,7 @@ restore render resources without using private backend members.
 	  when the backend has no `restore` method.
 	- Behavior contract: resizes the canvas and marks the next frame dirty.
 - `Renderer.onBackendResourceEvent(event)`
+	- Internal contract: applications must not call this method directly.
 	- Behavior contract: handles renderer-owned backend resource invalidation or
 	  destruction for `event`.
 	- Behavior contract: emits `RendererEvents.backendresourceevent` after
@@ -91,11 +94,6 @@ renderer.on("devicelost", ({ backend, info }) => {
 });
 renderer.on("backendresourceevent", (event) => {
 	console.info(`Backend resource ${event.action}: ${event.resource}`);
-});
-
-renderer.onDeviceLost({
-	reason: "manual-recovery",
-	message: "Application requested graphics device recovery.",
 });
 
 await renderer.restore();
