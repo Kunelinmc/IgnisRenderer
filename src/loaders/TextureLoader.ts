@@ -18,12 +18,7 @@ export class TextureLoader extends Loader {
 			const texture = await this._loadCached(`texture:${url}`, async () => {
 				const buffer = await this._fetchWithProgress(url);
 				const blob = new Blob([buffer]);
-				const blobUrl = URL.createObjectURL(blob);
-				try {
-					return await this._loadImage(blobUrl);
-				} finally {
-					URL.revokeObjectURL(blobUrl);
-				}
+				return this._loadBlob(blob);
 			});
 			this.emit("load", texture);
 			return texture;
@@ -44,23 +39,63 @@ export class TextureLoader extends Loader {
 			const img = new Image();
 			img.crossOrigin = "anonymous";
 			img.onload = () => {
-				const canvas = document.createElement("canvas");
-				canvas.width = img.width;
-				canvas.height = img.height;
-				const ctx = canvas.getContext("2d");
-				if (!ctx) {
-					reject(new Error("Failed to get 2D context"));
-					return;
+				try {
+					resolve(this._createTextureFromImageSource(img, img.width, img.height));
+				} catch (error) {
+					reject(error);
 				}
-				ctx.drawImage(img, 0, 0);
-
-				const imageData = ctx.getImageData(0, 0, img.width, img.height);
-				const texture = new Texture(imageData.data, img.width, img.height);
-				resolve(texture);
 			};
 			img.onerror = () => reject(new Error(`Failed to load image at ${url}`));
 			img.src = url;
 		});
+	}
+
+	private async _loadBlob(blob: Blob): Promise<Texture> {
+		const createImageBitmapFn = (globalThis as {
+			createImageBitmap?: (image: Blob) => Promise<ImageBitmap>;
+		}).createImageBitmap;
+		if (typeof createImageBitmapFn === "function") {
+			try {
+				const bitmap = await createImageBitmapFn(blob);
+				try {
+					return this._createTextureFromImageSource(
+						bitmap,
+						bitmap.width,
+						bitmap.height
+					);
+				} finally {
+					bitmap.close();
+				}
+			} catch {
+				// Fall back to HTMLImageElement for formats/browser paths that
+				// createImageBitmap cannot decode.
+			}
+		}
+
+		const blobUrl = URL.createObjectURL(blob);
+		try {
+			return await this._loadImage(blobUrl);
+		} finally {
+			URL.revokeObjectURL(blobUrl);
+		}
+	}
+
+	private _createTextureFromImageSource(
+		source: CanvasImageSource,
+		width: number,
+		height: number
+	): Texture {
+		const canvas = document.createElement("canvas");
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext("2d", { willReadFrequently: true });
+		if (!ctx) {
+			throw new Error("Failed to get 2D context");
+		}
+		ctx.drawImage(source, 0, 0);
+
+		const imageData = ctx.getImageData(0, 0, width, height);
+		return new Texture(imageData.data, width, height);
 	}
 
 	/**
@@ -84,9 +119,8 @@ export class TextureLoader extends Loader {
 	 * Creates a texture from a Blob or File.
 	 */
 	public async loadFromBlob(blob: Blob | File): Promise<Texture> {
-		const url = URL.createObjectURL(blob);
 		try {
-			const texture = await this._loadImage(url);
+			const texture = await this._loadBlob(blob);
 			this.emit("load", texture);
 			return texture;
 		} catch (error) {
@@ -95,8 +129,6 @@ export class TextureLoader extends Loader {
 				scope: "TextureLoader",
 			});
 			return this._createLoadErrorFallbackTexture();
-		} finally {
-			URL.revokeObjectURL(url);
 		}
 	}
 

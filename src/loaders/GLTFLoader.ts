@@ -87,6 +87,7 @@ const COMPONENT_BYTE_SIZE_BY_TYPE: Record<number, number> = {
 	[COMPONENT_TYPE_UNSIGNED_BYTE]: 1,
 	[COMPONENT_TYPE_BYTE]: 1,
 };
+const GLTF_IMAGE_DECODE_CONCURRENCY = 2;
 const SPARSE_INDEX_BYTE_SIZE_BY_COMPONENT_TYPE: Record<number, number> = {
 	[COMPONENT_TYPE_UNSIGNED_INT]: 4,
 	[COMPONENT_TYPE_UNSIGNED_SHORT]: 2,
@@ -925,8 +926,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		if (!json.images) return [];
 		const { TextureLoader } = await import("./TextureLoader");
 		const loader = new TextureLoader();
-		return Promise.all(
-			json.images.map(async (img: any, imageIndex: number) => {
+		return mapWithConcurrency(
+			json.images,
+			GLTF_IMAGE_DECODE_CONCURRENCY,
+			async (img: any, imageIndex: number) => {
 				if (img.bufferView !== undefined) {
 					const bv = this._resolveBufferView(
 						json,
@@ -948,7 +951,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 					return loader.load(url);
 				}
 				return null;
-			})
+			}
 		);
 	}
 
@@ -1922,6 +1925,42 @@ function applyMorphWeightOverride(
 		result[i] = Number(overrideWeights[i] ?? result[i]);
 	}
 	return result;
+}
+
+async function mapWithConcurrency<T, TResult>(
+	items: readonly T[],
+	limit: number,
+	mapper: (item: T, index: number) => Promise<TResult>
+): Promise<TResult[]> {
+	const results = new Array<TResult>(items.length);
+	const workerCount = Math.max(1, Math.min(limit | 0, items.length));
+	let nextIndex = 0;
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (true) {
+				const index = nextIndex++;
+				if (index >= items.length) {
+					return;
+				}
+				results[index] = await mapper(items[index], index);
+				await yieldToMainThread();
+			}
+		})
+	);
+	return results;
+}
+
+function yieldToMainThread(): Promise<void> {
+	return new Promise((resolve) => {
+		const requestFrame = (globalThis as {
+			requestAnimationFrame?: (callback: () => void) => unknown;
+		}).requestAnimationFrame;
+		if (typeof requestFrame === "function") {
+			requestFrame(() => resolve());
+			return;
+		}
+		setTimeout(resolve, 0);
+	});
 }
 
 function mapInterpolation(value: string | undefined) {
