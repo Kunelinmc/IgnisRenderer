@@ -3,6 +3,7 @@ import { clamp } from "../../maths/Common";
 import {
 	ParticleSpaceMode,
 	type ParticleCollider,
+	type ParticleDefinition,
 	type ParticleSubEmitterConfig,
 	type ParticleSystem,
 } from "../../particles";
@@ -13,6 +14,7 @@ import type { RuntimeParticle, SystemRuntimeState } from "./types";
 interface SpawnOverrides {
 	position?: IVector3;
 	baseVelocity?: IVector3;
+	definitionIndex?: number;
 	lifetimeRange?: [number, number];
 	speedRange?: [number, number];
 	sizeRange?: [number, number];
@@ -74,6 +76,10 @@ export class ParticleSimulationCore {
 
 		for (let i = runtime.particles.length - 1; i >= 0; i--) {
 			const particle = runtime.particles[i];
+			particle.previousPosition.x = particle.position.x;
+			particle.previousPosition.y = particle.position.y;
+			particle.previousPosition.z = particle.position.z;
+			particle.previousRotation = particle.rotation;
 			particle.age += dt;
 			if (particle.age >= particle.lifetime) {
 				if (subEmitter?.enabled !== false && subEmitter) {
@@ -190,6 +196,7 @@ export class ParticleSimulationCore {
 			lifetimeRange: subEmitter.lifetimeRange,
 			speedRange: subEmitter.speedRange,
 			sizeRange: subEmitter.sizeRange,
+			definitionIndex: parent.definitionIndex,
 		});
 	}
 
@@ -199,13 +206,16 @@ export class ParticleSimulationCore {
 		overrides: SpawnOverrides = {}
 	): RuntimeParticle {
 		const emit = system.emit;
-		const lifetimeRange = overrides.lifetimeRange ??
-			emit.lifetimeRange ?? [0.5, 1.5];
-		const speedRange = overrides.speedRange ?? emit.speedRange ?? [2, 5];
-		const sizeRange = overrides.sizeRange ?? emit.sizeRange ?? [0.5, 1.0];
-		const rotationRange = emit.rotationRange ?? [0, 0];
-		const angularVelocityRange = emit.angularVelocityRange ?? [0, 0];
-		const startColor = emit.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
+		const definitionIndex =
+			overrides.definitionIndex ??
+			this._selectDefinitionIndex(system, runtime);
+		const definition = resolveParticleDefinition(system, definitionIndex);
+		const lifetimeRange = overrides.lifetimeRange ?? definition.lifetimeRange;
+		const speedRange = overrides.speedRange ?? definition.speedRange;
+		const sizeRange = overrides.sizeRange ?? definition.sizeRange;
+		const rotationRange = definition.rotationRange ?? [0, 0];
+		const angularVelocityRange = definition.angularVelocityRange ?? [0, 0];
+		const startColor = definition.startColor;
 
 		const randomDirection = this._randomDirectionInCone(
 			runtime,
@@ -236,11 +246,20 @@ export class ParticleSimulationCore {
 			: system.space === ParticleSpaceMode.Local ? { x: 0, y: 0, z: 0 }
 			: system.getWorldPosition();
 
+		const position = {
+			x: spawnBasePosition.x + spawnOffset.x,
+			y: spawnBasePosition.y + spawnOffset.y,
+			z: spawnBasePosition.z + spawnOffset.z,
+		};
+		const rotation = this._randomRange(runtime, rotationRange[0], rotationRange[1]);
+
 		return {
-			position: {
-				x: spawnBasePosition.x + spawnOffset.x,
-				y: spawnBasePosition.y + spawnOffset.y,
-				z: spawnBasePosition.z + spawnOffset.z,
+			definitionIndex,
+			position,
+			previousPosition: {
+				x: position.x,
+				y: position.y,
+				z: position.z,
 			},
 			velocity,
 			age: 0,
@@ -258,13 +277,35 @@ export class ParticleSimulationCore {
 				b: startColor.b,
 				a: startColor.a,
 			},
-			rotation: this._randomRange(runtime, rotationRange[0], rotationRange[1]),
+			rotation,
+			previousRotation: rotation,
 			angularVelocity: this._randomRange(
 				runtime,
 				angularVelocityRange[0],
 				angularVelocityRange[1]
 			),
 		};
+	}
+
+	private _selectDefinitionIndex(
+		system: ParticleSystem,
+		runtime: SystemRuntimeState
+	): number {
+		const definitions = system.definitions;
+		if (definitions.length <= 1) return 0;
+
+		let totalWeight = 0;
+		for (const definition of definitions) {
+			totalWeight += Math.max(0, definition.weight ?? 1);
+		}
+		if (totalWeight <= 0) return 0;
+
+		let target = this._nextRandom(runtime) * totalWeight;
+		for (let i = 0; i < definitions.length; i++) {
+			target -= Math.max(0, definitions[i].weight ?? 1);
+			if (target <= 0) return i;
+		}
+		return definitions.length - 1;
 	}
 
 	private _resolveCollider(
@@ -492,4 +533,12 @@ export function cloneColor(source: RGBA): RGBA {
 		b: source.b,
 		a: source.a,
 	};
+}
+
+function resolveParticleDefinition(
+	system: ParticleSystem,
+	index: number
+): ParticleDefinition {
+	const safeIndex = Math.max(0, Math.min(system.definitions.length - 1, index));
+	return system.definitions[safeIndex];
 }

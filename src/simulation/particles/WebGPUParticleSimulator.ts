@@ -258,6 +258,13 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		if (system.blendMode !== ParticleBlendMode.Additive) {
 			return false;
 		}
+		if (system.definitions.length !== 1) {
+			return false;
+		}
+		const definition = system.definitions[0];
+		if (!definition || definition.shape.kind !== "billboard") {
+			return false;
+		}
 		if (system.lod?.enabled) {
 			return false;
 		}
@@ -267,10 +274,10 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		if (system.subEmitter && system.subEmitter.enabled !== false) {
 			return false;
 		}
-		if ((system.sizeOverLifetime?.length ?? 0) > 0) {
+		if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
 			return false;
 		}
-		if ((system.colorOverLifetime?.length ?? 0) > 0) {
+		if ((definition.colorOverLifetime?.length ?? 0) > 0) {
 			return false;
 		}
 		return true;
@@ -318,14 +325,21 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 				continue;
 			}
 
+			const definition = system.definitions[0];
+			const shape = definition?.shape;
 			this._computeDrawBatchesThisFrame.push({
 				systemId: system.id,
-				blendMode: system.blendMode,
-				texture: system.texture,
-				receiveShadows: system.receiveShadows,
+				definitionIndex: 0,
+				definitionId: definition?.id,
+				blendMode:
+					shape?.kind === "billboard" ?
+						shape.blendMode ?? ParticleBlendMode.Alpha
+					:	ParticleBlendMode.Alpha,
+				texture: shape?.kind === "billboard" ? shape.texture ?? null : null,
+				receiveShadows: definition?.receiveShadows ?? true,
 				castShadows: false,
-				shadowDensity: Math.max(0, system.shadowDensity),
-				shadowSoftness: Math.max(0, system.shadowSoftness),
+				shadowDensity: Math.max(0, definition?.shadowDensity ?? 1),
+				shadowSoftness: Math.max(0, definition?.shadowSoftness ?? 1),
 				instanceBuffer: state.instanceBuffer,
 				instanceCount: maxParticles,
 				indirectBuffer: state.indirectBuffer,
@@ -581,6 +595,8 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			this._backend.writeBuffer(state.indirectBuffer, indirectArgs);
 			drawBatches.push({
 				systemId: batch.systemId,
+				definitionIndex: batch.definitionIndex,
+				definitionId: batch.definitionId,
 				blendMode: batch.blendMode,
 				texture: batch.texture,
 				receiveShadows: batch.receiveShadows,
@@ -760,15 +776,21 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		const { system, state } = input;
 		const emit = system.emit ?? {};
 		const worldPosition = system.getWorldPosition();
-		const lifetimeRange = normalizeRange(emit.lifetimeRange ?? [0.5, 1.5]);
-		const speedRange = normalizeRange(emit.speedRange ?? [2, 5]);
-		const sizeRange = normalizeRange(emit.sizeRange ?? [0.5, 1]);
-		const rotationRange = normalizeRange(emit.rotationRange ?? [0, 0]);
+		const definition = system.definitions[0];
+		const lifetimeRange = normalizeRange(
+			definition?.lifetimeRange ?? [0.5, 1.5]
+		);
+		const speedRange = normalizeRange(definition?.speedRange ?? [2, 5]);
+		const sizeRange = normalizeRange(definition?.sizeRange ?? [0.5, 1]);
+		const rotationRange = normalizeRange(
+			definition?.rotationRange ?? [0, 0]
+		);
 		const angularVelocityRange = normalizeRange(
-			emit.angularVelocityRange ?? [0, 0]
+			definition?.angularVelocityRange ?? [0, 0]
 		);
 		const direction = emit.direction ?? { x: 0, y: 1, z: 0 };
-		const atlas = system.atlas;
+		const shape = definition?.shape;
+		const atlas = shape?.kind === "billboard" ? shape.atlas : null;
 		const buffer = new ArrayBuffer(PARTICLE_SIM_PARAMS_SIZE);
 		const view = new DataView(buffer);
 
@@ -785,7 +807,11 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			:	GPU_PARTICLE_SPACE_LOCAL,
 			true
 		);
-		view.setUint32(28, system.receiveShadows ? 1 : 0, true);
+		view.setUint32(
+			28,
+			(definition?.receiveShadows ?? true) ? 1 : 0,
+			true
+		);
 
 		writeVec4(view, 32, system.gravity.x, system.gravity.y, system.gravity.z, 0);
 		writeVec4(view, 48, worldPosition.x, worldPosition.y, worldPosition.z, 0);
@@ -837,7 +863,8 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			0,
 			0
 		);
-		const startColor = emit.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
+		const startColor =
+			definition?.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
 		writeVec4(
 			view,
 			160,

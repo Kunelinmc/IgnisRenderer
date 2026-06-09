@@ -3,6 +3,7 @@ import { isShadowCastingLight } from "../../../lights";
 import { Matrix4 } from "../../../maths/Matrix4";
 import { ParticleBlendMode } from "../../../particles";
 import {
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
 	type ParticleRenderBatch,
@@ -12,6 +13,7 @@ import { CoreConstants } from "../constants";
 import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./SoftwareShadowPass";
 import { clamp } from "../../../maths/Common";
 import type { SoftwarePassLike } from "./types";
+import { Logger } from "../../../foundation/Logger";
 
 const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
 const PARTICLE_RADIAL_FADE_START = 0.4;
@@ -23,6 +25,7 @@ const MIN_PARTICLE_WORLD_SIZE = 0.001;
 
 export class SoftwareParticlePass implements SoftwarePassLike {
 	public render(context: FrameContext): void {
+		warnSkippedMeshParticles(context);
 		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
 		if (!batches || batches.length === 0) return;
 		if (!context.attachments.pixels || !context.attachments.depthBuffer) return;
@@ -189,6 +192,23 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		}
 		return clamp(visibility);
 	}
+}
+
+function warnSkippedMeshParticles(context: FrameContext): void {
+	const meshBatches = context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY);
+	if (!meshBatches || meshBatches.length === 0) {
+		return;
+	}
+	Logger.warn(
+		[
+			"[software-particle-mesh-skipped] SoftwareBackend skips mesh particle",
+			"definitions; use WebGPUBackend to render particle meshes.",
+		].join(" "),
+		{
+			scope: "SoftwareParticlePass",
+			onceKey: "software-particle-mesh-skipped",
+		}
+	);
 }
 
 function resolveDirtyRects(

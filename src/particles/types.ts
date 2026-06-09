@@ -1,4 +1,5 @@
 import type { Texture } from "../core/Texture";
+import type { MeshAsset } from "../meshes/MeshAsset";
 import type { IVector3 } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 
@@ -34,15 +35,65 @@ export interface ParticleBurst {
 export interface ParticleEmitterParams {
 	rate?: number;
 	bursts?: ParticleBurst[];
-	lifetimeRange?: [number, number];
-	speedRange?: [number, number];
-	sizeRange?: [number, number];
 	direction?: IVector3;
 	spread?: number;
 	spawnRadius?: number;
+	/**
+	 * @deprecated Use `definitions[].lifetimeRange`.
+	 */
+	lifetimeRange?: [number, number];
+	/**
+	 * @deprecated Use `definitions[].speedRange`.
+	 */
+	speedRange?: [number, number];
+	/**
+	 * @deprecated Use `definitions[].sizeRange`.
+	 */
+	sizeRange?: [number, number];
+	/**
+	 * @deprecated Use `definitions[].startColor`.
+	 */
 	startColor?: RGBA;
+	/**
+	 * @deprecated Use `definitions[].rotationRange`.
+	 */
+	rotationRange?: [number, number];
+	/**
+	 * @deprecated Use `definitions[].angularVelocityRange`.
+	 */
+	angularVelocityRange?: [number, number];
+}
+
+export interface ParticleBillboardShape {
+	kind: "billboard";
+	texture?: Texture | null;
+	atlas?: ParticleAtlas | null;
+	blendMode?: ParticleBlendMode;
+}
+
+export interface ParticleMeshShape {
+	kind: "mesh";
+	mesh: MeshAsset;
+}
+
+export type ParticleRenderShape = ParticleBillboardShape | ParticleMeshShape;
+
+export interface ParticleDefinition {
+	id?: string;
+	weight?: number;
+	lifetimeRange: [number, number];
+	speedRange: [number, number];
+	sizeRange: [number, number];
+	startColor: RGBA;
 	rotationRange?: [number, number];
 	angularVelocityRange?: [number, number];
+	sizeOverLifetime?: ParticleGradientKey<number>[];
+	colorOverLifetime?: ParticleGradientKey<RGBA>[];
+	shape: ParticleRenderShape;
+	receiveShadows?: boolean;
+	castShadows?: boolean;
+	shadowDensity?: number;
+	shadowSoftness?: number;
 }
 
 interface ParticleColliderBase {
@@ -105,19 +156,48 @@ export interface ParticleSystemParams {
 	maxParticles?: number;
 	seed?: number;
 	space?: ParticleSpaceMode;
-	blendMode?: ParticleBlendMode;
-	texture?: Texture | null;
-	atlas?: ParticleAtlas | null;
 	position?: IVector3;
 	gravity?: IVector3;
 	emit?: ParticleEmitterParams;
-	sizeOverLifetime?: ParticleGradientKey<number>[];
-	colorOverLifetime?: ParticleGradientKey<RGBA>[];
+	definitions?: ParticleDefinition[];
 	colliders?: ParticleCollider[];
 	subEmitter?: ParticleSubEmitterConfig | null;
-	receiveShadows?: boolean;
-	castShadows?: boolean;
-	shadowDensity?: number;
-	shadowSoftness?: number;
 	lod?: ParticleLODSettings;
+
+	/**
+	 * @deprecated Use `definitions[].shape.blendMode`.
+	 */
+	blendMode?: ParticleBlendMode;
+	/**
+	 * @deprecated Use `definitions[].shape.texture`.
+	 */
+	texture?: Texture | null;
+	/**
+	 * @deprecated Use `definitions[].shape.atlas`.
+	 */
+	atlas?: ParticleAtlas | null;
+	/**
+	 * @deprecated Use `definitions[].sizeOverLifetime`.
+	 */
+	sizeOverLifetime?: ParticleGradientKey<number>[];
+	/**
+	 * @deprecated Use `definitions[].colorOverLifetime`.
+	 */
+	colorOverLifetime?: ParticleGradientKey<RGBA>[];
+	/**
+	 * @deprecated Use `definitions[].receiveShadows`.
+	 */
+	receiveShadows?: boolean;
+	/**
+	 * @deprecated Use `definitions[].castShadows`.
+	 */
+	castShadows?: boolean;
+	/**
+	 * @deprecated Use `definitions[].shadowDensity`.
+	 */
+	shadowDensity?: number;
+	/**
+	 * @deprecated Use `definitions[].shadowSoftness`.
+	 */
+	shadowSoftness?: number;
 }

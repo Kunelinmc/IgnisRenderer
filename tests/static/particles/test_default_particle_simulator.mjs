@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
-import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../../src/pipeline/types.ts";
+import {
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+} from "../../../src/pipeline/types.ts";
+import { Material } from "../../../src/materials/Material.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode, ParticleSpaceMode } from "../../../src/particles/types.ts";
 import { DefaultParticleSimulator } from "../../../src/simulation/particles/DefaultParticleSimulator.ts";
@@ -58,6 +63,44 @@ function createContext(systems) {
 
 function getBatches(context) {
 	return context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) ?? [];
+}
+
+function getMeshBatches(context) {
+	return context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY) ?? [];
+}
+
+function createTriangleMesh() {
+	return MeshAsset.fromFaces([
+		{
+			material: new Material({ name: "ParticleMeshMaterial" }),
+			vertices: [
+				{
+					x: 0,
+					y: 0,
+					z: 0,
+					u: 0,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 1,
+					y: 0,
+					z: 0,
+					u: 1,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 0,
+					y: 1,
+					z: 0,
+					u: 0,
+					v: 1,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+			],
+		},
+	]);
 }
 
 function createSimulator() {
@@ -209,6 +252,92 @@ function testGradientAndAtlas() {
 	assert.ok(Math.abs(particle.color.a - 0.75) < 1e-6);
 	assert.equal(particle.uvRect.u0, 0.5);
 	assert.equal(particle.uvRect.v0, 0);
+}
+
+function testLegacyEmitterDefinitionAliases() {
+	const system = new ParticleSystem({
+		emit: {
+			lifetimeRange: [3, 4],
+			speedRange: [5, 6],
+			sizeRange: [7, 8],
+			startColor: { r: 10, g: 20, b: 30, a: 0.4 },
+			rotationRange: [0.1, 0.2],
+			angularVelocityRange: [0.3, 0.4],
+		},
+	});
+
+	assert.deepEqual(system.emit.lifetimeRange, [3, 4]);
+	assert.deepEqual(system.emit.speedRange, [5, 6]);
+	assert.deepEqual(system.emit.sizeRange, [7, 8]);
+	assert.deepEqual(system.emit.startColor, { r: 10, g: 20, b: 30, a: 0.4 });
+	assert.deepEqual(system.emit.rotationRange, [0.1, 0.2]);
+	assert.deepEqual(system.emit.angularVelocityRange, [0.3, 0.4]);
+
+	system.emit.speedRange = [0, 0];
+	system.emit.startColor.r = 200;
+	assert.deepEqual(system.definitions[0].speedRange, [0, 0]);
+	assert.equal(system.definitions[0].startColor.r, 200);
+}
+
+function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
+	const simulator = createSimulator();
+	const mesh = createTriangleMesh();
+	const system = new ParticleSystem({
+		seed: 42,
+		maxParticles: 32,
+		emit: {
+			rate: 0,
+			bursts: [{ time: 0, count: 12 }],
+			speedRange: [0, 0],
+			spread: 0,
+		},
+		definitions: [
+			{
+				id: "spark",
+				weight: 1,
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+				startColor: { r: 255, g: 255, b: 255, a: 1 },
+				shape: {
+					kind: "billboard",
+					blendMode: ParticleBlendMode.Alpha,
+				},
+			},
+			{
+				id: "shard",
+				weight: 1,
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+				sizeRange: [2, 2],
+				startColor: { r: 128, g: 128, b: 255, a: 1 },
+				shape: {
+					kind: "mesh",
+					mesh,
+				},
+			},
+		],
+	});
+	const context = createContext([system]);
+	executeSimulator(simulator, context, 0.016);
+
+	const billboardBatch = getBatches(context).find(
+		(batch) => batch.definitionId === "spark"
+	);
+	const meshBatch = getMeshBatches(context).find(
+		(batch) => batch.definitionId === "shard"
+	);
+	assert.ok(billboardBatch);
+	assert.ok(meshBatch);
+	assert.equal(meshBatch.mesh, mesh);
+	assert.equal(meshBatch.primitive, mesh.primitives[0]);
+	assert.equal(meshBatch.material, mesh.primitives[0].material);
+	assert.ok(meshBatch.particles.length > 0);
+	assert.equal(meshBatch.particles[0].definitionIndex, 1);
+	assert.ok(
+		meshBatch.particles[0].previousPosition.y >
+			meshBatch.particles[0].position.y
+	);
 }
 
 function testLocalSpaceFollowsSystemPosition() {
@@ -416,6 +545,8 @@ function run() {
 	testRateAndBurstSpawn();
 	testShadowDefaultsAndBatchParams();
 	testGradientAndAtlas();
+	testLegacyEmitterDefinitionAliases();
+	testWeightedDefinitionsBuildBillboardAndMeshBatches();
 	testLocalSpaceFollowsSystemPosition();
 	testCollisionAndSubEmitter();
 	testLODScalesSimulationAndRenderSubset();

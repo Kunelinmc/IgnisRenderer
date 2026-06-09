@@ -1,5 +1,6 @@
 import type { ParticleLODLevel, ParticleSystem } from "../../particles";
 import {
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
 } from "../../pipeline/types";
@@ -64,6 +65,7 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		const particleSystems = context.scene.particleSystems ?? [];
 		if (particleSystems.length === 0) {
 			context.transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, []);
+			context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, []);
 			return;
 		}
 
@@ -107,27 +109,29 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		const particleSystems = context.scene.particleSystems ?? [];
 		if (particleSystems.length === 0) {
 			context.transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, []);
+			context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, []);
 			return;
 		}
 
 		const batches = [];
+		const meshBatches = [];
 		for (const system of particleSystems) {
 			if (!system.visible) continue;
 			const runtime = this._runtimeBySystemId.get(system.id);
 			if (!runtime) continue;
 			const sortRatio = runtime.activeLODLevel?.renderSortRatio ?? 1;
-			const batch = this._batchBuilder.buildBatch(
+			const built = this._batchBuilder.buildBatches(
 				system,
 				runtime,
 				context,
 				sortRatio
 			);
-			if (batch.particles.length > 0) {
-				batches.push(batch);
-			}
+			batches.push(...built.billboardBatches);
+			meshBatches.push(...built.meshBatches);
 		}
 
 		context.transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, batches);
+		context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, meshBatches);
 	}
 
 	public endFrame(): void {}
@@ -279,12 +283,18 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 	): number {
 		const emit = system.emit ?? {};
 		const spawnRadius = Math.max(0, emit.spawnRadius ?? 0);
-		const sizeRange = emit.sizeRange ?? [0.5, 1];
-		const maxStartSize = Math.max(0, sizeRange[0], sizeRange[1]);
-		const maxLifetimeScale =
-			system.sizeOverLifetime.length > 0 ?
-				Math.max(...system.sizeOverLifetime.map((key) => key.value))
-			:	1;
+		let maxStartSize = 0;
+		let maxLifetimeScale = 1;
+		for (const definition of system.definitions) {
+			const sizeRange = definition.sizeRange ?? [0.5, 1];
+			maxStartSize = Math.max(maxStartSize, sizeRange[0], sizeRange[1]);
+			if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
+				maxLifetimeScale = Math.max(
+					maxLifetimeScale,
+					...definition.sizeOverLifetime!.map((key) => key.value)
+				);
+			}
+		}
 		const estimatedRadius =
 			spawnRadius + maxStartSize + Math.max(0, maxLifetimeScale);
 

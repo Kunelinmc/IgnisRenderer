@@ -3,13 +3,16 @@ import type { IVector3 } from "../../maths/types";
 import type { RGBA } from "../../foundation/Color";
 
 export interface RuntimeParticle {
+	definitionIndex: number;
 	position: IVector3;
+	previousPosition: IVector3;
 	velocity: IVector3;
 	age: number;
 	lifetime: number;
 	startSize: number;
 	startColor: RGBA;
 	rotation: number;
+	previousRotation: number;
 	angularVelocity: number;
 }
 

@@ -60,6 +60,7 @@ export interface DrawPacket {
 	material: Material;
 	geometry: IPrimitiveGeometry;
 	worldMatrix: Matrix4;
+	previousWorldMatrix?: Matrix4;
 	normalMatrix: Matrix4 | Matrix3Arr;
 	worldBounds: BoundingSphere;
 	sortDepth: number;
@@ -95,6 +96,8 @@ export interface PreparedSceneSpatialIndex {
 
 export const PARTICLE_TRANSIENT_BATCHES_KEY =
 	defineTransientKey<ParticleRenderBatch[]>("pipeline:particle-batches");
+export const PARTICLE_MESH_TRANSIENT_BATCHES_KEY =
+	defineTransientKey<ParticleMeshRenderBatch[]>("pipeline:particle-mesh-batches");
 export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
 	defineTransientKey<number>("pipeline:particle-delta-time-seconds");
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
@@ -149,16 +152,22 @@ export interface ParticleUVRect {
 }
 
 export interface ParticleRenderItem {
+	definitionIndex?: number;
 	position: IVector3;
+	previousPosition?: IVector3;
 	size: number;
 	color: RGBA;
 	rotation: number;
+	previousRotation?: number;
 	depth: number;
 	uvRect: ParticleUVRect;
 }
 
 export interface ParticleRenderBatch {
+	kind?: "billboard";
 	systemId: string;
+	definitionIndex?: number;
+	definitionId?: string;
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
 	receiveShadows: boolean;
@@ -166,6 +175,32 @@ export interface ParticleRenderBatch {
 	shadowDensity: number;
 	shadowSoftness: number;
 	particles: ParticleRenderItem[];
+}
+
+export interface ParticleMeshRenderItem {
+	definitionIndex: number;
+	position: IVector3;
+	previousPosition: IVector3;
+	size: number;
+	color: RGBA;
+	rotation: number;
+	previousRotation: number;
+	depth: number;
+}
+
+export interface ParticleMeshRenderBatch {
+	kind: "mesh";
+	systemId: string;
+	definitionIndex: number;
+	definitionId?: string;
+	mesh: MeshAsset;
+	primitive: IPrimitive;
+	material: Material;
+	receiveShadows: boolean;
+	castShadows: boolean;
+	shadowDensity: number;
+	shadowSoftness: number;
+	particles: ParticleMeshRenderItem[];
 }
 
 export interface PreparedScene {

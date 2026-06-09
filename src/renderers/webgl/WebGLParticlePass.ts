@@ -1,6 +1,7 @@
 ﻿import { clamp } from "../../maths/Common";
 import { ParticleBlendMode } from "../../particles";
 import {
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
 	type ParticleRenderBatch,
@@ -93,6 +94,7 @@ export function renderWebGLParticles(
 	context: FrameContext,
 	options: WebGLParticleRenderOptions = {}
 ): void {
+	warnSkippedMeshParticles(context);
 	const framebuffer = options.framebuffer ?? host._sceneFramebuffer;
 	if (!framebuffer) {
 		return;
@@ -299,21 +301,31 @@ export function renderWebGLParticles(
 		}
 	} finally {
 		host._oitPassMode = previousOITPassMode;
+		gl.blendFuncSeparate(
+			gl.SRC_ALPHA,
+			gl.ONE_MINUS_SRC_ALPHA,
+			gl.ONE,
+			gl.ONE_MINUS_SRC_ALPHA
+		);
+		gl.depthMask(true);
+		gl.disable(gl.BLEND);
+		if (incrementalPartial) {
+			gl.disable(gl.SCISSOR_TEST);
+		}
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		gl.bindVertexArray(null);
 	}
+}
 
-	gl.blendFuncSeparate(
-		gl.SRC_ALPHA,
-		gl.ONE_MINUS_SRC_ALPHA,
-		gl.ONE,
-		gl.ONE_MINUS_SRC_ALPHA
-	);
-	gl.depthMask(true);
-	gl.disable(gl.BLEND);
-	if (incrementalPartial) {
-		gl.disable(gl.SCISSOR_TEST);
+function warnSkippedMeshParticles(context: FrameContext): void {
+	const meshBatches = context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY);
+	if (!meshBatches || meshBatches.length === 0) {
+		return;
 	}
-	gl.bindBuffer(gl.ARRAY_BUFFER, null);
-	gl.bindVertexArray(null);
+	logWebGLParticlePassWarning(
+		"webgl-particle-mesh-skipped",
+		"WebGLBackend skips mesh particle definitions; use WebGPUBackend to render particle meshes."
+	);
 }
 
 export function writeWebGLParticleInstances(

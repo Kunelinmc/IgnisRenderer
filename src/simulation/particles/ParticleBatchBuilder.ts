@@ -3,13 +3,15 @@ import { clamp } from "../../maths/Common";
 import {
 	ParticleBlendMode,
 	ParticleSpaceMode,
+	type ParticleDefinition,
 	type ParticleGradientKey,
 	type ParticleSystem,
 } from "../../particles";
 import type {
 	FrameContext,
+	ParticleMeshRenderBatch,
+	ParticleMeshRenderItem,
 	ParticleRenderBatch,
-	ParticleRenderItem,
 	ParticleUVRect,
 } from "../../pipeline/types";
 import type { RGBA } from "../../foundation/Color";
@@ -18,30 +20,36 @@ import type { RuntimeParticle, SystemRuntimeState } from "./types";
 
 const FULL_UV_RECT: ParticleUVRect = { u0: 0, v0: 0, u1: 1, v1: 1 };
 
+export interface ParticleBuildResult {
+	billboardBatches: ParticleRenderBatch[];
+	meshBatches: ParticleMeshRenderBatch[];
+}
+
 export class ParticleBatchBuilder {
-	public buildBatch(
+	public buildBatches(
 		system: ParticleSystem,
 		runtime: SystemRuntimeState,
 		context: FrameContext,
 		renderSortRatio: number
-	): ParticleRenderBatch {
-		const particles: ParticleRenderItem[] = [];
+	): ParticleBuildResult {
+		const billboardBatches = new Map<number, ParticleRenderBatch>();
+		const meshBatches = new Map<string, ParticleMeshRenderBatch>();
 		const cameraView = context.camera.viewMatrix;
 		const systemPosition = system.getWorldPosition();
 
 		for (const particle of runtime.particles) {
-			const worldPosition =
-				system.space === ParticleSpaceMode.Local ?
-					{
-						x: particle.position.x + systemPosition.x,
-						y: particle.position.y + systemPosition.y,
-						z: particle.position.z + systemPosition.z,
-					}
-				:	{
-						x: particle.position.x,
-						y: particle.position.y,
-						z: particle.position.z,
-					};
+			const definition = system.definitions[particle.definitionIndex];
+			if (!definition) continue;
+			const worldPosition = this._resolveWorldPosition(
+				system,
+				systemPosition,
+				particle.position
+			);
+			const previousWorldPosition = this._resolveWorldPosition(
+				system,
+				systemPosition,
+				particle.previousPosition
+			);
 
 			const cameraSpace = Matrix4.transformPoint(cameraView, worldPosition);
 			const depth = -cameraSpace.z;
@@ -49,56 +57,201 @@ export class ParticleBatchBuilder {
 
 			const lifeT = clamp(particle.age / particle.lifetime);
 			const sizeMultiplier = this._sampleNumberGradient(
-				system.sizeOverLifetime,
+				definition.sizeOverLifetime,
 				lifeT,
 				1
 			);
 			const size = particle.startSize * Math.max(0, sizeMultiplier);
 			const color = this._sampleColorGradient(
-				system.colorOverLifetime,
+				definition.colorOverLifetime,
 				lifeT,
 				particle.startColor
 			);
 
 			if (size <= 0 || color.a <= 0) continue;
 
-			particles.push({
+			if (definition.shape.kind === "mesh") {
+				this._pushMeshParticle(
+					meshBatches,
+					system,
+					definition,
+					particle.definitionIndex,
+					{
+						definitionIndex: particle.definitionIndex,
+						position: worldPosition,
+						previousPosition: previousWorldPosition,
+						size,
+						color,
+						rotation: particle.rotation,
+						previousRotation: particle.previousRotation,
+						depth,
+					}
+				);
+				continue;
+			}
+
+			const batch = this._getOrCreateBillboardBatch(
+				billboardBatches,
+				system,
+				definition,
+				particle.definitionIndex
+			);
+			batch.particles.push({
+				definitionIndex: particle.definitionIndex,
 				position: worldPosition,
+				previousPosition: previousWorldPosition,
 				size,
 				color,
 				rotation: particle.rotation,
+				previousRotation: particle.previousRotation,
 				depth,
-				uvRect: this._resolveAtlasUVRect(system, particle),
+				uvRect: this._resolveAtlasUVRect(definition, particle),
 			});
 		}
 
-		particles.sort((left, right) => right.depth - left.depth);
 		const ratio = clamp(renderSortRatio);
+		const billboardResults = Array.from(billboardBatches.values());
+		for (const batch of billboardResults) {
+			this._sortAndTrim(batch.particles, ratio);
+		}
+
+		const meshResults = Array.from(meshBatches.values());
+		for (const batch of meshResults) {
+			this._sortAndTrim(batch.particles, ratio);
+		}
+
+		return {
+			billboardBatches: billboardResults.filter(
+				(batch) => batch.particles.length > 0
+			),
+			meshBatches: meshResults.filter((batch) => batch.particles.length > 0),
+		};
+	}
+
+	public buildBatch(
+		system: ParticleSystem,
+		runtime: SystemRuntimeState,
+		context: FrameContext,
+		renderSortRatio: number
+	): ParticleRenderBatch {
+		const result = this.buildBatches(system, runtime, context, renderSortRatio);
+		return result.billboardBatches[0] ?? {
+			kind: "billboard",
+			systemId: system.id,
+			definitionIndex: 0,
+			definitionId: system.definitions[0]?.id,
+			blendMode: ParticleBlendMode.Alpha,
+			texture: null,
+			receiveShadows: true,
+			castShadows: true,
+			shadowDensity: 1,
+			shadowSoftness: 1,
+			particles: [],
+		};
+	}
+
+	private _resolveWorldPosition(
+		system: ParticleSystem,
+		systemPosition: { x: number; y: number; z: number },
+		position: { x: number; y: number; z: number }
+	): { x: number; y: number; z: number } {
+		return system.space === ParticleSpaceMode.Local ?
+				{
+					x: position.x + systemPosition.x,
+					y: position.y + systemPosition.y,
+					z: position.z + systemPosition.z,
+				}
+			:	{
+					x: position.x,
+					y: position.y,
+					z: position.z,
+				};
+	}
+
+	private _getOrCreateBillboardBatch(
+		batches: Map<number, ParticleRenderBatch>,
+		system: ParticleSystem,
+		definition: ParticleDefinition,
+		definitionIndex: number
+	): ParticleRenderBatch {
+		let batch = batches.get(definitionIndex);
+		if (batch) return batch;
+		const shape = definition.shape.kind === "billboard" ? definition.shape : null;
+		const blendMode = shape?.blendMode ?? ParticleBlendMode.Alpha;
+		batch = {
+			kind: "billboard",
+			systemId: system.id,
+			definitionIndex,
+			definitionId: definition.id,
+			blendMode,
+			texture: shape?.texture ?? null,
+			receiveShadows: definition.receiveShadows ?? true,
+			castShadows:
+				(definition.castShadows ?? true) &&
+				blendMode !== ParticleBlendMode.Additive,
+			shadowDensity: Math.max(0, definition.shadowDensity ?? 1),
+			shadowSoftness: Math.max(0, definition.shadowSoftness ?? 1),
+			particles: [],
+		};
+		batches.set(definitionIndex, batch);
+		return batch;
+	}
+
+	private _pushMeshParticle(
+		batches: Map<string, ParticleMeshRenderBatch>,
+		system: ParticleSystem,
+		definition: ParticleDefinition,
+		definitionIndex: number,
+		item: ParticleMeshRenderItem
+	): void {
+		if (definition.shape.kind !== "mesh") return;
+		const mesh = definition.shape.mesh;
+		for (const primitive of mesh.primitives) {
+			if (primitive.visible === false) continue;
+			const key = `${definitionIndex}:${primitive.id}:${primitive.material.name}`;
+			let batch = batches.get(key);
+			if (!batch) {
+				batch = {
+					kind: "mesh",
+					systemId: system.id,
+					definitionIndex,
+					definitionId: definition.id,
+					mesh,
+					primitive,
+					material: primitive.material,
+					receiveShadows: definition.receiveShadows ?? true,
+					castShadows:
+						(definition.castShadows ?? true) &&
+						primitive.castShadows !== false,
+					shadowDensity: Math.max(0, definition.shadowDensity ?? 1),
+					shadowSoftness: Math.max(0, definition.shadowSoftness ?? 1),
+					particles: [],
+				};
+				batches.set(key, batch);
+			}
+			batch.particles.push(item);
+		}
+	}
+
+	private _sortAndTrim<T extends { depth: number }>(
+		particles: T[],
+		ratio: number
+	): void {
+		particles.sort((left, right) => right.depth - left.depth);
 		if (ratio <= 0) {
 			particles.length = 0;
 		} else if (ratio < 1 && particles.length > 0) {
 			const visibleCount = Math.max(1, Math.floor(particles.length * ratio));
 			particles.length = Math.min(particles.length, visibleCount);
 		}
-
-		return {
-			systemId: system.id,
-			blendMode: system.blendMode,
-			texture: system.texture,
-			receiveShadows: system.receiveShadows,
-			castShadows:
-				system.castShadows && system.blendMode !== ParticleBlendMode.Additive,
-			shadowDensity: Math.max(0, system.shadowDensity),
-			shadowSoftness: Math.max(0, system.shadowSoftness),
-			particles,
-		};
 	}
 
 	private _resolveAtlasUVRect(
-		system: ParticleSystem,
+		definition: ParticleDefinition,
 		particle: RuntimeParticle
 	): ParticleUVRect {
-		const atlas = system.atlas;
+		const atlas =
+			definition.shape.kind === "billboard" ? definition.shape.atlas : null;
 		if (!atlas) return FULL_UV_RECT;
 
 		const rows = Math.max(1, atlas.rows | 0);
