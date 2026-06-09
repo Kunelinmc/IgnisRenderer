@@ -128,6 +128,34 @@ function testEarlyExitMaxResults() {
 	);
 }
 
+function testIntoQueriesReuseOutputArrays() {
+	const camera = createCamera();
+	const mesh = createTriangleMesh(new Material({ name: "IntoQueries" }));
+	const first = createMeshInstance(mesh, -0.5, 0, -2);
+	const second = createMeshInstance(mesh, 0.5, 0, -2);
+	const bvh = new BVH([first, second], 1);
+
+	const frustumOut = [second];
+	const frustumHits = bvh.queryFrustumInto(camera.frustum, frustumOut, {
+		maxResults: 1,
+	});
+	assert.equal(frustumHits, frustumOut);
+	assert.equal(frustumHits.length, 1);
+
+	const boundsOut = [first];
+	const boundsHits = bvh.queryBoundsInto(
+		{
+			min: { x: -2, y: -2, z: -4 },
+			max: { x: 2, y: 2, z: 0 },
+		},
+		boundsOut
+	);
+	assert.equal(boundsHits, boundsOut);
+	assert.equal(boundsHits.length, 2);
+	assert.equal(boundsHits.includes(first), true);
+	assert.equal(boundsHits.includes(second), true);
+}
+
 function testDegenerateSplitDoesNotBreak() {
 	const camera = createCamera();
 	const mesh = createTriangleMesh(new Material({ name: "Degenerate" }));
@@ -144,12 +172,37 @@ function testDegenerateSplitDoesNotBreak() {
 	assert.equal(hits.length, 32);
 }
 
+function testSAHBuildStrategyMatchesMedianResults() {
+	const camera = createCamera();
+	const mesh = createTriangleMesh(new Material({ name: "SAH" }));
+	const instances = [];
+	for (let index = 0; index < 24; index++) {
+		instances.push(
+			createMeshInstance(
+				mesh,
+				(index % 6) - 3,
+				Math.floor(index / 6) * 0.2,
+				-2 - index * 0.05
+			)
+		);
+	}
+
+	const medianHits = new Set(new BVH(instances, 2).queryFrustum(camera.frustum));
+	const sahHits = new Set(
+		new BVH(instances, { leafSize: 2, buildStrategy: "sah" })
+			.queryFrustum(camera.frustum)
+	);
+	assert.deepEqual(sahHits, medianHits);
+}
+
 function run() {
 	testLeafQueryDoesNotRecomputeBounds();
 	testVisibilityFiltering();
 	testDynamicUpdates();
 	testEarlyExitMaxResults();
+	testIntoQueriesReuseOutputArrays();
 	testDegenerateSplitDoesNotBreak();
+	testSAHBuildStrategyMatchesMedianResults();
 	console.log("Spatial BVH advanced tests passed");
 }
 

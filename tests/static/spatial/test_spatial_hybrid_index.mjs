@@ -98,6 +98,17 @@ function testRayOrderingAcrossBuckets() {
 	assert.equal(hits[0].meshInstance, nearStatic);
 	assert.equal(hits[1].meshInstance, farDynamic);
 	assert.ok(hits[0].distance < hits[1].distance);
+
+	const nearestOut = [];
+	const nearestHits = index.queryRayDetailedInto(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: -1 },
+		nearestOut,
+		{ maxDistance: 100, maxResults: 1 }
+	);
+	assert.equal(nearestHits, nearestOut);
+	assert.equal(nearestHits.length, 1);
+	assert.equal(nearestHits[0].meshInstance, nearStatic);
 }
 
 function testBucketMigrationViaMarkDirty() {

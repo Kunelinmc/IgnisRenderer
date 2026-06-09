@@ -63,6 +63,7 @@ export class Scene {
 	private _spatialSeenEpochByMeshInstance = new Map<MeshInstance, number>();
 	private _spatialSeenEpoch = 0;
 	private _spatialIndexMode: SpatialIndexMode;
+	private _spatialQueryScratch: MeshInstance[] = [];
 
 	constructor() {
 		this.root = new Node({
@@ -243,8 +244,30 @@ export class Scene {
 		camera: Camera,
 		meshInstances: MeshInstance[],
 	): MeshInstance[] {
+		this.queryMeshInstancesInFrustumInto(
+			camera,
+			meshInstances,
+			this._spatialQueryScratch,
+		);
+		return this._spatialQueryScratch.slice();
+	}
+
+	/**
+	 * Writes mesh instances whose world-space bounds overlap `camera.frustum`.
+	 *
+	 * @param camera - Camera providing the frustum used for culling.
+	 * @param meshInstances - Candidate mesh instances to synchronize into the scene spatial index.
+	 * @param out - Output array cleared and filled with visible candidates.
+	 * @returns The same `out` array for call chaining.
+	 * @sideEffects Lazily rebuilds or updates `this.spatial` to match `meshInstances`.
+	 */
+	public queryMeshInstancesInFrustumInto(
+		camera: Camera,
+		meshInstances: MeshInstance[],
+		out: MeshInstance[],
+	): MeshInstance[] {
 		const spatial = this.rebuildSpatialIndex(meshInstances);
-		return spatial.queryFrustum(camera.frustum);
+		return spatial.queryFrustumInto(camera.frustum, out);
 	}
 
 	public updateWorldMatrices(): void {

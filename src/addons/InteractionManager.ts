@@ -11,6 +11,7 @@ import type {
 import { INTERACTION_TRANSIENT_STATE_KEY } from "../pipeline/types";
 import type { PhysicsQueryHit } from "../physics/types";
 import type { PhysicsSystem } from "../physics/PhysicsSystem";
+import type { SpatialRayHit } from "../spatial";
 import { Quaternion } from "../maths/Quaternion";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
@@ -112,6 +113,7 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 	private _gizmoSpace: GizmoSpace = "world";
 	private _gizmoPivot: GizmoPivot = "object-origin";
 	private _lastPointer = { x: 0, y: 0, width: 1, height: 1 };
+	private _bvhRayScratch: SpatialRayHit[] = [];
 	private _transientContributor: FrameTransientContributor;
 
 	constructor(options: InteractionManagerOptions = {}) {
@@ -677,11 +679,16 @@ export class InteractionManager extends EventEmitter<InteractionEvents> {
 		if (meshInstances.length === 0) return null;
 
 		const spatial = this._scene.rebuildSpatialIndex(meshInstances);
-		const candidates = spatial.queryRayDetailed(origin, direction, {
-			includeInvisible: false,
-			maxDistance: this._maxRayDistance,
-			maxResults: 64,
-		});
+		const candidates = spatial.queryRayDetailedInto(
+			origin,
+			direction,
+			this._bvhRayScratch,
+			{
+				includeInvisible: false,
+				maxDistance: this._maxRayDistance,
+				maxResults: 64,
+			}
+		);
 		if (candidates.length === 0) return null;
 
 		let best: HitResult | null = null;

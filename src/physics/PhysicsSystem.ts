@@ -57,6 +57,7 @@ import {
 	DEFAULT_BROADPHASE_BODY_RADIUS,
 	TRANSFORM_EPSILON,
 } from "./constants";
+import type { SpatialRayHit } from "../spatial";
 
 export interface PhysicsSystemOptions {
 	adapter?: IPhysicsEngineAdapter;
@@ -177,6 +178,8 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _meshInstanceByColliderId = new Map<string, MeshInstance>();
 	private _nonMeshColliderIdsByWorld = new Map<string, Set<string>>();
 	private _warnedTrimeshCookDeprecation = false;
+	private _spatialMeshScratch: MeshInstance[] = [];
+	private _spatialRayScratch: SpatialRayHit[] = [];
 	private _entityNodeResolver:
 		| ((entityId: PhysicsEntityId) => Node | null)
 		| null = null;
@@ -2003,11 +2006,16 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		}
 		const spatial = this._resolveSceneSpatialIndex(meshInstances);
 		if (!spatial) return null;
-		const rayHits = spatial.queryRayDetailed(origin, direction, {
-			includeInvisible: true,
-			maxDistance: resolveQueryDistance(maxDistance),
-			maxResults: Infinity,
-		});
+		const rayHits = spatial.queryRayDetailedInto(
+			origin,
+			direction,
+			this._spatialRayScratch,
+			{
+				includeInvisible: true,
+				maxDistance: resolveQueryDistance(maxDistance),
+				maxResults: Infinity,
+			}
+		);
 		const candidates = new Set<string>();
 		for (const hit of rayHits) {
 			const colliderIds = this._meshColliderIdsByMeshInstance.get(hit.meshInstance);
@@ -2036,10 +2044,14 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		}
 		const spatial = this._resolveSceneSpatialIndex(meshInstances);
 		if (!spatial) return null;
-		const meshHits = spatial.queryBounds(bounds, {
-			includeInvisible: true,
-			maxResults: Infinity,
-		});
+		const meshHits = spatial.queryBoundsInto(
+			bounds,
+			this._spatialMeshScratch,
+			{
+				includeInvisible: true,
+				maxResults: Infinity,
+			}
+		);
 		const candidates = new Set<string>();
 		for (const mesh of meshHits) {
 			const colliderIds = this._meshColliderIdsByMeshInstance.get(mesh);

@@ -36,12 +36,33 @@ function run() {
 	assert.equal(hits[1].meshInstance, farBox);
 	assert.ok(hits[0].distance < hits[1].distance);
 
+	const out = [{ meshInstance: farBox, distance: 999 }];
+	const nearestHits = bvh.queryRayDetailedInto(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: -1 },
+		out,
+		{ maxDistance: 100, maxResults: 1 }
+	);
+	assert.equal(nearestHits, out);
+	assert.equal(nearestHits.length, 1);
+	assert.equal(nearestHits[0].meshInstance, nearBox);
+
 	const clampedHits = bvh.queryRayDetailed(
 		{ x: 0, y: 0, z: 0 },
 		{ x: 0, y: 0, z: -1 },
 		{ maxDistance: 3 }
 	);
 	assert.equal(clampedHits.length, 0);
+
+	assert.throws(
+		() =>
+			new BVH([]).queryRayDetailedInto(
+				{ x: 0, y: 0, z: 0 },
+				{ x: 0, y: 0, z: 0 },
+				[]
+			),
+		/direction must be non-zero/
+	);
 
 	console.log("BVH ray query tests passed");
 }

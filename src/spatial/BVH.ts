@@ -3,6 +3,7 @@ import type { Frustum } from "../maths/Frustum";
 import type { MeshInstance } from "../meshes";
 import type {
 	SpatialIndex3D,
+	SpatialBounds3D,
 	SpatialQueryOptions,
 	SpatialRayHit,
 	SpatialRayQueryOptions,
@@ -19,6 +20,14 @@ export interface SpatialNode {
 export type BVHQueryOptions = SpatialQueryOptions;
 export type BVHRayQueryOptions = SpatialRayQueryOptions;
 export type BVHRayHit = SpatialRayHit;
+export type BVHBuildStrategy = "median" | "sah";
+
+export interface BVHOptions {
+	leafSize?: number;
+	buildStrategy?: BVHBuildStrategy;
+	rebuildDirtyRatio?: number;
+	rebuildSurfaceAreaInflation?: number;
+}
 
 interface SpatialBuildEntry {
 	meshInstance: MeshInstance;
@@ -28,7 +37,39 @@ interface SpatialBuildEntry {
 	centroidZ: number;
 }
 
+interface SpatialRangeStats {
+	bounds: BoundingBox;
+	centroidMinX: number;
+	centroidMinY: number;
+	centroidMinZ: number;
+	centroidMaxX: number;
+	centroidMaxY: number;
+	centroidMaxZ: number;
+	centroidExtentX: number;
+	centroidExtentY: number;
+	centroidExtentZ: number;
+}
+
+interface BinnedSAHSplit {
+	axis: "x" | "y" | "z";
+	threshold: number;
+}
+
+interface SAHBucket {
+	count: number;
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+}
+
 const DEFAULT_LEAF_SIZE = 8;
+const DEFAULT_BUILD_STRATEGY: BVHBuildStrategy = "median";
+const DEFAULT_REBUILD_DIRTY_RATIO = 0.15;
+const DEFAULT_REBUILD_SURFACE_AREA_INFLATION = 2;
+const SAH_BUCKET_COUNT = 8;
 const DEGENERATE_AXIS_EPSILON = 1e-6;
 const FRUSTUM_OUTSIDE = -1;
 const FRUSTUM_INTERSECT = 0;
@@ -37,6 +78,9 @@ const FRUSTUM_INSIDE = 1;
 export class BVH implements SpatialIndex3D {
 	private _root: SpatialNode | null;
 	private readonly _leafSize: number;
+	private readonly _buildStrategy: BVHBuildStrategy;
+	private readonly _rebuildDirtyRatio: number;
+	private readonly _rebuildSurfaceAreaInflation: number;
 	private _entries: SpatialBuildEntry[];
 	private _meshInstances: MeshInstance[];
 	private _meshInstanceSet: Set<MeshInstance>;
@@ -47,10 +91,15 @@ export class BVH implements SpatialIndex3D {
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
-		leafSize: number = DEFAULT_LEAF_SIZE
+		options: number | BVHOptions = DEFAULT_LEAF_SIZE
 	) {
+		const resolvedOptions = resolveBVHOptions(options);
 		this._root = null;
-		this._leafSize = BVH._resolveLeafSize(leafSize);
+		this._leafSize = BVH._resolveLeafSize(resolvedOptions.leafSize);
+		this._buildStrategy = resolvedOptions.buildStrategy;
+		this._rebuildDirtyRatio = resolvedOptions.rebuildDirtyRatio;
+		this._rebuildSurfaceAreaInflation =
+			resolvedOptions.rebuildSurfaceAreaInflation;
 		this._entries = [];
 		this._meshInstances = [];
 		this._meshInstanceSet = new Set();
@@ -168,44 +217,58 @@ export class BVH implements SpatialIndex3D {
 	/**
 	 * Returns mesh instances whose bounds overlap the given frustum.
 	 */
+	public queryFrustumInto(
+		frustum: Frustum,
+		out: MeshInstance[],
+		options?: BVHQueryOptions
+	): MeshInstance[] {
+		out.length = 0;
+		this._ensureFresh();
+		if (!this._root) return out;
+
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return out;
+		const includeInvisible = options?.includeInvisible === true;
+
+		this._queryNode(this._root, frustum, includeInvisible, maxResults, out);
+
+		return out;
+	}
+
 	public queryFrustum(
 		frustum: Frustum,
 		options?: BVHQueryOptions
 	): MeshInstance[] {
-		this._ensureFresh();
-		if (!this._root) return [];
-
-		const maxResults = resolveMaxResults(options?.maxResults);
-		const includeInvisible = options?.includeInvisible === true;
-		const result: MeshInstance[] = [];
-
-		this._queryNode(this._root, frustum, includeInvisible, maxResults, result);
-
-		return result;
+		return this.queryFrustumInto(frustum, [], options);
 	}
 
-	public queryBounds(
-		bounds: {
-			min: { x: number; y: number; z: number };
-			max: { x: number; y: number; z: number };
-		},
+	public queryBoundsInto(
+		bounds: SpatialBounds3D,
+		out: MeshInstance[],
 		options?: BVHQueryOptions
 	): MeshInstance[] {
+		out.length = 0;
 		this._ensureFresh();
-		if (!this._root) return [];
+		if (!this._root) return out;
 
 		const maxResults = resolveMaxResults(options?.maxResults);
-		if (maxResults <= 0) return [];
+		if (maxResults <= 0) return out;
 		const includeInvisible = options?.includeInvisible === true;
-		const result: MeshInstance[] = [];
 		this._queryNodeBounds(
 			this._root,
 			bounds,
 			includeInvisible,
 			maxResults,
-			result
+			out
 		);
-		return result;
+		return out;
+	}
+
+	public queryBounds(
+		bounds: SpatialBounds3D,
+		options?: BVHQueryOptions
+	): MeshInstance[] {
+		return this.queryBoundsInto(bounds, [], options);
 	}
 
 	public queryRay(
@@ -213,40 +276,50 @@ export class BVH implements SpatialIndex3D {
 		direction: { x: number; y: number; z: number },
 		options?: BVHRayQueryOptions
 	): MeshInstance[] {
-		return this.queryRayDetailed(origin, direction, options).map(
-			(hit) => hit.meshInstance
-		);
+		const hits = this.queryRayDetailed(origin, direction, options);
+		const result = new Array<MeshInstance>(hits.length);
+		for (let i = 0; i < hits.length; i++) {
+			result[i] = hits[i].meshInstance;
+		}
+		return result;
 	}
 
-	public queryRayDetailed(
+	public queryRayDetailedInto(
 		origin: { x: number; y: number; z: number },
 		direction: { x: number; y: number; z: number },
+		out: BVHRayHit[],
 		options?: BVHRayQueryOptions
 	): BVHRayHit[] {
+		out.length = 0;
+		const normalizedDirection = normalizeRayDirection(
+			direction,
+			"BVH.queryRayDetailedInto"
+		);
 		this._ensureFresh();
-		if (!this._root) return [];
+		if (!this._root) return out;
 
 		const maxResults = resolveMaxResults(options?.maxResults);
-		if (maxResults <= 0) return [];
+		if (maxResults <= 0) return out;
 
 		const maxDistance = resolveMaxDistance(options?.maxDistance);
-		if (maxDistance <= 0) return [];
+		if (maxDistance <= 0) return out;
 
 		const includeInvisible = options?.includeInvisible === true;
-		const directionLength = Math.hypot(direction.x, direction.y, direction.z);
-		if (!(directionLength > 1e-8)) {
-			throw new Error("BVH.queryRay direction must be non-zero");
+		if (maxResults === 1) {
+			const hit = this._queryNearestRayHit(
+				this._root,
+				origin,
+				normalizedDirection,
+				maxDistance,
+				includeInvisible
+			);
+			if (hit) {
+				out.push(hit);
+			}
+			return out;
 		}
 
-		const invDirectionLength = 1 / directionLength;
-		const normalizedDirection = {
-			x: direction.x * invDirectionLength,
-			y: direction.y * invDirectionLength,
-			z: direction.z * invDirectionLength,
-		};
-
 		const stack: SpatialNode[] = [this._root];
-		const hits: BVHRayHit[] = [];
 
 		while (stack.length > 0) {
 			const node = stack.pop();
@@ -275,7 +348,7 @@ export class BVH implements SpatialIndex3D {
 						objectBounds.max
 					);
 					if (distance === null) continue;
-					hits.push({
+					out.push({
 						meshInstance,
 						distance,
 					});
@@ -287,27 +360,114 @@ export class BVH implements SpatialIndex3D {
 			if (node.right) stack.push(node.right);
 		}
 
-		if (hits.length === 0) {
-			return [];
+		if (out.length === 0) {
+			return out;
 		}
 
-		hits.sort((left, right) => {
-			if (left.distance !== right.distance) {
-				return left.distance - right.distance;
-			}
-			const leftEntity = left.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
-			const rightEntity =
-				right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
-			if (leftEntity !== rightEntity) {
-				return leftEntity - rightEntity;
-			}
-			return left.meshInstance.id.localeCompare(right.meshInstance.id);
-		});
+		out.sort(compareRayHits);
 
-		if (hits.length > maxResults) {
-			return hits.slice(0, maxResults);
+		if (out.length > maxResults) {
+			out.length = maxResults;
 		}
-		return hits;
+		return out;
+	}
+
+	public queryRayDetailed(
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		options?: BVHRayQueryOptions
+	): BVHRayHit[] {
+		return this.queryRayDetailedInto(origin, direction, [], options);
+	}
+
+	private _queryNearestRayHit(
+		root: SpatialNode,
+		origin: { x: number; y: number; z: number },
+		normalizedDirection: { x: number; y: number; z: number },
+		maxDistance: number,
+		includeInvisible: boolean
+	): BVHRayHit | null {
+		const stack: Array<{ node: SpatialNode; distance: number }> = [];
+		const rootDistance = intersectRayAABB(
+			origin,
+			normalizedDirection,
+			maxDistance,
+			root.bounds.min,
+			root.bounds.max
+		);
+		if (rootDistance === null) return null;
+		stack.push({ node: root, distance: rootDistance });
+
+		let best: BVHRayHit | null = null;
+		let bestDistance = maxDistance;
+		while (stack.length > 0) {
+			const current = stack.pop();
+			if (!current || current.distance > bestDistance) continue;
+			const node = current.node;
+
+			if (node.objects && node.objectBounds) {
+				for (let index = 0; index < node.objects.length; index++) {
+					const meshInstance = node.objects[index];
+					if (!includeInvisible && meshInstance.visible === false) {
+						continue;
+					}
+					const objectBounds = node.objectBounds[index];
+					const distance = intersectRayAABB(
+						origin,
+						normalizedDirection,
+						bestDistance,
+						objectBounds.min,
+						objectBounds.max
+					);
+					if (distance === null) continue;
+					const candidate = { meshInstance, distance };
+					if (!best || compareRayHits(candidate, best) < 0) {
+						best = candidate;
+						bestDistance = distance;
+					}
+				}
+				continue;
+			}
+
+			let leftDistance: number | null = null;
+			let rightDistance: number | null = null;
+			if (node.left) {
+				leftDistance = intersectRayAABB(
+					origin,
+					normalizedDirection,
+					bestDistance,
+					node.left.bounds.min,
+					node.left.bounds.max
+				);
+			}
+			if (node.right) {
+				rightDistance = intersectRayAABB(
+					origin,
+					normalizedDirection,
+					bestDistance,
+					node.right.bounds.min,
+					node.right.bounds.max
+				);
+			}
+
+			if (node.left && node.right && leftDistance !== null && rightDistance !== null) {
+				if (leftDistance < rightDistance) {
+					stack.push({ node: node.right, distance: rightDistance });
+					stack.push({ node: node.left, distance: leftDistance });
+				} else {
+					stack.push({ node: node.left, distance: leftDistance });
+					stack.push({ node: node.right, distance: rightDistance });
+				}
+				continue;
+			}
+			if (node.left && leftDistance !== null) {
+				stack.push({ node: node.left, distance: leftDistance });
+			}
+			if (node.right && rightDistance !== null) {
+				stack.push({ node: node.right, distance: rightDistance });
+			}
+		}
+		return best;
 	}
 
 	private _ensureFresh(): void {
@@ -324,7 +484,16 @@ export class BVH implements SpatialIndex3D {
 			this._boundsDirtyMeshInstances.clear();
 			return;
 		}
+		if (
+			this._entries.length > this._leafSize * 2 &&
+			this._boundsDirtyMeshInstances.size / this._entries.length >=
+			this._rebuildDirtyRatio
+		) {
+			this.rebuild();
+			return;
+		}
 
+		const previousRootArea = computeBoundingBoxSurfaceArea(this._root.bounds);
 		for (const meshInstance of this._boundsDirtyMeshInstances) {
 			const entryIndex = this._entryIndexByMeshInstance.get(meshInstance);
 			if (entryIndex === undefined) continue;
@@ -337,6 +506,14 @@ export class BVH implements SpatialIndex3D {
 		}
 
 		this._refitNode(this._root);
+		const nextRootArea = computeBoundingBoxSurfaceArea(this._root.bounds);
+		if (
+			previousRootArea > 0 &&
+			nextRootArea / previousRootArea >= this._rebuildSurfaceAreaInflation
+		) {
+			this.rebuild();
+			return;
+		}
 		this._boundsDirtyMeshInstances.clear();
 	}
 
@@ -374,6 +551,31 @@ export class BVH implements SpatialIndex3D {
 		const stats = computeRangeStats(this._entries, start, end);
 		if (count <= this._leafSize) {
 			return this._createLeafNode(start, end, stats.bounds);
+		}
+
+		const sahSplit =
+			this._buildStrategy === "sah" ?
+				resolveBinnedSAHSplit(this._entries, start, end, stats)
+			:	null;
+		if (sahSplit) {
+			const middle = partitionEntriesByAxisThreshold(
+				this._entries,
+				start,
+				end,
+				sahSplit.axis,
+				sahSplit.threshold
+			);
+			if (middle > start && middle < end) {
+				const left = this._buildRange(start, middle);
+				const right = this._buildRange(middle, end);
+				return this._createInnerNode(
+					stats.bounds,
+					left,
+					right,
+					start,
+					end
+				);
+			}
 		}
 
 		const axis = resolveSplitAxisFromExtents(
@@ -679,6 +881,46 @@ export class BVH implements SpatialIndex3D {
 	}
 }
 
+function resolveBVHOptions(options: number | BVHOptions): Required<BVHOptions> {
+	const source =
+		typeof options === "number" ?
+			{ leafSize: options }
+		:	options;
+	return {
+		leafSize: source.leafSize ?? DEFAULT_LEAF_SIZE,
+		buildStrategy:
+			source.buildStrategy === "sah" ? "sah" : DEFAULT_BUILD_STRATEGY,
+		rebuildDirtyRatio: resolvePositiveRatio(
+			source.rebuildDirtyRatio,
+			DEFAULT_REBUILD_DIRTY_RATIO
+		),
+		rebuildSurfaceAreaInflation: resolvePositiveNumber(
+			source.rebuildSurfaceAreaInflation,
+			DEFAULT_REBUILD_SURFACE_AREA_INFLATION
+		),
+	};
+}
+
+function resolvePositiveRatio(
+	value: number | undefined,
+	fallback: number
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		return fallback;
+	}
+	return Math.min(1, value);
+}
+
+function resolvePositiveNumber(
+	value: number | undefined,
+	fallback: number
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		return fallback;
+	}
+	return value;
+}
+
 function resolveMaxResults(value: number | undefined): number {
 	if (value === undefined) return Infinity;
 	if (!Number.isFinite(value)) return Infinity;
@@ -779,16 +1021,109 @@ function quickSelectByAxis(
 	}
 }
 
+function resolveBinnedSAHSplit(
+	entries: SpatialBuildEntry[],
+	start: number,
+	end: number,
+	stats: SpatialRangeStats
+): BinnedSAHSplit | null {
+	let best: BinnedSAHSplit | null = null;
+	let bestCost = Infinity;
+	const axes: Array<"x" | "y" | "z"> = ["x", "y", "z"];
+	for (const axis of axes) {
+		const centroidMin = getStatsCentroidMin(stats, axis);
+		const centroidExtent = getStatsCentroidExtent(stats, axis);
+		if (!(centroidExtent > DEGENERATE_AXIS_EPSILON)) continue;
+
+		const buckets = createSAHBuckets();
+		for (let index = start; index < end; index++) {
+			const entry = entries[index];
+			const bucketIndex = Math.max(
+				0,
+				Math.min(
+					SAH_BUCKET_COUNT - 1,
+					Math.floor(
+						((getEntryCentroid(entry, axis) - centroidMin) /
+							centroidExtent) *
+							SAH_BUCKET_COUNT
+					)
+				)
+			);
+			expandSAHBucket(buckets[bucketIndex], entry.bounds);
+		}
+
+		const prefix = createSAHBuckets();
+		const suffix = createSAHBuckets();
+		for (let i = 0; i < SAH_BUCKET_COUNT; i++) {
+			copySAHBucket(prefix[i], buckets[i]);
+			if (i > 0) {
+				mergeSAHBucket(prefix[i], prefix[i - 1]);
+			}
+		}
+		for (let i = SAH_BUCKET_COUNT - 1; i >= 0; i--) {
+			copySAHBucket(suffix[i], buckets[i]);
+			if (i < SAH_BUCKET_COUNT - 1) {
+				mergeSAHBucket(suffix[i], suffix[i + 1]);
+			}
+		}
+
+		for (let split = 0; split < SAH_BUCKET_COUNT - 1; split++) {
+			const left = prefix[split];
+			const right = suffix[split + 1];
+			if (left.count === 0 || right.count === 0) continue;
+			const cost =
+				left.count * computeSAHBucketSurfaceArea(left) +
+				right.count * computeSAHBucketSurfaceArea(right);
+			if (cost < bestCost) {
+				bestCost = cost;
+				best = {
+					axis,
+					threshold:
+						centroidMin +
+						centroidExtent * ((split + 1) / SAH_BUCKET_COUNT),
+				};
+			}
+		}
+	}
+	return best;
+}
+
+function partitionEntriesByAxisThreshold(
+	entries: SpatialBuildEntry[],
+	start: number,
+	end: number,
+	axis: "x" | "y" | "z",
+	threshold: number
+): number {
+	let left = start;
+	let right = end - 1;
+	while (left <= right) {
+		while (
+			left <= right &&
+			getEntryCentroid(entries[left], axis) <= threshold
+		) {
+			left++;
+		}
+		while (
+			left <= right &&
+			getEntryCentroid(entries[right], axis) > threshold
+		) {
+			right--;
+		}
+		if (left <= right) {
+			swapEntries(entries, left, right);
+			left++;
+			right--;
+		}
+	}
+	return left;
+}
+
 function computeRangeStats(
 	entries: SpatialBuildEntry[],
 	start: number,
 	end: number
-): {
-	bounds: BoundingBox;
-	centroidExtentX: number;
-	centroidExtentY: number;
-	centroidExtentZ: number;
-} {
+): SpatialRangeStats {
 	let minX = Infinity;
 	let minY = Infinity;
 	let minZ = Infinity;
@@ -826,10 +1161,101 @@ function computeRangeStats(
 			min: { x: minX, y: minY, z: minZ },
 			max: { x: maxX, y: maxY, z: maxZ },
 		},
+		centroidMinX,
+		centroidMinY,
+		centroidMinZ,
+		centroidMaxX,
+		centroidMaxY,
+		centroidMaxZ,
 		centroidExtentX: centroidMaxX - centroidMinX,
 		centroidExtentY: centroidMaxY - centroidMinY,
 		centroidExtentZ: centroidMaxZ - centroidMinZ,
 	};
+}
+
+function getStatsCentroidMin(
+	stats: SpatialRangeStats,
+	axis: "x" | "y" | "z"
+): number {
+	if (axis === "x") return stats.centroidMinX;
+	if (axis === "y") return stats.centroidMinY;
+	return stats.centroidMinZ;
+}
+
+function getStatsCentroidExtent(
+	stats: SpatialRangeStats,
+	axis: "x" | "y" | "z"
+): number {
+	if (axis === "x") return stats.centroidExtentX;
+	if (axis === "y") return stats.centroidExtentY;
+	return stats.centroidExtentZ;
+}
+
+function createSAHBuckets(): SAHBucket[] {
+	const buckets = new Array<SAHBucket>(SAH_BUCKET_COUNT);
+	for (let i = 0; i < SAH_BUCKET_COUNT; i++) {
+		buckets[i] = createSAHBucket();
+	}
+	return buckets;
+}
+
+function createSAHBucket(): SAHBucket {
+	return {
+		count: 0,
+		minX: Infinity,
+		minY: Infinity,
+		minZ: Infinity,
+		maxX: -Infinity,
+		maxY: -Infinity,
+		maxZ: -Infinity,
+	};
+}
+
+function expandSAHBucket(bucket: SAHBucket, bounds: BoundingBox): void {
+	bucket.count++;
+	if (bounds.min.x < bucket.minX) bucket.minX = bounds.min.x;
+	if (bounds.min.y < bucket.minY) bucket.minY = bounds.min.y;
+	if (bounds.min.z < bucket.minZ) bucket.minZ = bounds.min.z;
+	if (bounds.max.x > bucket.maxX) bucket.maxX = bounds.max.x;
+	if (bounds.max.y > bucket.maxY) bucket.maxY = bounds.max.y;
+	if (bounds.max.z > bucket.maxZ) bucket.maxZ = bounds.max.z;
+}
+
+function copySAHBucket(target: SAHBucket, source: SAHBucket): void {
+	target.count = source.count;
+	target.minX = source.minX;
+	target.minY = source.minY;
+	target.minZ = source.minZ;
+	target.maxX = source.maxX;
+	target.maxY = source.maxY;
+	target.maxZ = source.maxZ;
+}
+
+function mergeSAHBucket(target: SAHBucket, source: SAHBucket): void {
+	if (source.count === 0) return;
+	if (target.count === 0) {
+		copySAHBucket(target, source);
+		return;
+	}
+	target.count += source.count;
+	if (source.minX < target.minX) target.minX = source.minX;
+	if (source.minY < target.minY) target.minY = source.minY;
+	if (source.minZ < target.minZ) target.minZ = source.minZ;
+	if (source.maxX > target.maxX) target.maxX = source.maxX;
+	if (source.maxY > target.maxY) target.maxY = source.maxY;
+	if (source.maxZ > target.maxZ) target.maxZ = source.maxZ;
+}
+
+function computeSAHBucketSurfaceArea(bucket: SAHBucket): number {
+	if (bucket.count === 0) return 0;
+	return computeBoxSurfaceAreaValues(
+		bucket.minX,
+		bucket.minY,
+		bucket.minZ,
+		bucket.maxX,
+		bucket.maxY,
+		bucket.maxZ
+	);
 }
 
 function createBoundingBox(): BoundingBox {
@@ -859,6 +1285,31 @@ function mergeBoundingBoxes(
 	target.max.x = Math.max(left.max.x, right.max.x);
 	target.max.y = Math.max(left.max.y, right.max.y);
 	target.max.z = Math.max(left.max.z, right.max.z);
+}
+
+function computeBoundingBoxSurfaceArea(bounds: BoundingBox): number {
+	return computeBoxSurfaceAreaValues(
+		bounds.min.x,
+		bounds.min.y,
+		bounds.min.z,
+		bounds.max.x,
+		bounds.max.y,
+		bounds.max.z
+	);
+}
+
+function computeBoxSurfaceAreaValues(
+	minX: number,
+	minY: number,
+	minZ: number,
+	maxX: number,
+	maxY: number,
+	maxZ: number
+): number {
+	const sizeX = Math.max(0, maxX - minX);
+	const sizeY = Math.max(0, maxY - minY);
+	const sizeZ = Math.max(0, maxZ - minZ);
+	return 2 * (sizeX * sizeY + sizeX * sizeZ + sizeY * sizeZ);
 }
 
 function unionBoundingBoxes(target: BoundingBox, bounds: BoundingBox[]): void {
@@ -916,6 +1367,34 @@ function classifyAABBFrustum(
 	}
 
 	return fullyInside ? FRUSTUM_INSIDE : FRUSTUM_INTERSECT;
+}
+
+function normalizeRayDirection(
+	direction: { x: number; y: number; z: number },
+	label: string
+): { x: number; y: number; z: number } {
+	const directionLength = Math.hypot(direction.x, direction.y, direction.z);
+	if (!(directionLength > 1e-8)) {
+		throw new Error(`${label} direction must be non-zero`);
+	}
+	const invDirectionLength = 1 / directionLength;
+	return {
+		x: direction.x * invDirectionLength,
+		y: direction.y * invDirectionLength,
+		z: direction.z * invDirectionLength,
+	};
+}
+
+function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {
+	if (left.distance !== right.distance) {
+		return left.distance - right.distance;
+	}
+	const leftEntity = left.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	if (leftEntity !== rightEntity) {
+		return leftEntity - rightEntity;
+	}
+	return left.meshInstance.id.localeCompare(right.meshInstance.id);
 }
 
 function intersectRayAABB(

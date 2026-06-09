@@ -5,6 +5,7 @@ import { isDynamicSpatialMeshInstance } from "./classification";
 import { LooseOctree, type LooseOctreeOptions } from "./LooseOctree";
 import type {
 	SpatialIndex3D,
+	SpatialBounds3D,
 	SpatialQueryOptions,
 	SpatialRayHit,
 	SpatialRayQueryOptions,
@@ -23,6 +24,9 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 	private readonly _dynamicOctree: LooseOctree;
 	private readonly _bucketByMeshInstance = new Map<MeshInstance, SpatialBucket>();
 	private readonly _dynamicPredicate: (meshInstance: MeshInstance) => boolean;
+	private readonly _meshScratch: MeshInstance[] = [];
+	private readonly _staticRayScratch: SpatialRayHit[] = [];
+	private readonly _dynamicRayScratch: SpatialRayHit[] = [];
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -113,69 +117,74 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		this._dynamicOctree.rebuild(dynamicMeshInstances);
 	}
 
+	public queryFrustumInto(
+		frustum: Frustum,
+		out: MeshInstance[],
+		options?: SpatialQueryOptions
+	): MeshInstance[] {
+		out.length = 0;
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return out;
+		const resolvedOptions: SpatialQueryOptions = {
+			includeInvisible: options?.includeInvisible,
+			maxResults,
+		};
+
+		this._staticBVH.queryFrustumInto(frustum, out, resolvedOptions);
+		if (out.length >= maxResults) return out;
+		this._meshScratch.length = 0;
+		this._dynamicOctree.queryFrustumInto(
+			frustum,
+			this._meshScratch,
+			{
+				includeInvisible: options?.includeInvisible,
+				maxResults: maxResults - out.length,
+			}
+		);
+		appendMeshInstances(this._meshScratch, maxResults, out);
+		return out;
+	}
+
 	public queryFrustum(
 		frustum: Frustum,
 		options?: SpatialQueryOptions
 	): MeshInstance[] {
+		return this.queryFrustumInto(frustum, [], options);
+	}
+
+	public queryBoundsInto(
+		bounds: SpatialBounds3D,
+		out: MeshInstance[],
+		options?: SpatialQueryOptions
+	): MeshInstance[] {
+		out.length = 0;
 		const maxResults = resolveMaxResults(options?.maxResults);
-		if (maxResults <= 0) return [];
+		if (maxResults <= 0) return out;
 		const resolvedOptions: SpatialQueryOptions = {
 			includeInvisible: options?.includeInvisible,
+			maxResults,
 		};
 
-		const staticHits = this._staticBVH.queryFrustum(frustum, resolvedOptions);
-		const dynamicHits = this._dynamicOctree.queryFrustum(frustum, resolvedOptions);
-		if (dynamicHits.length === 0) {
-			return staticHits.length > maxResults ?
-					staticHits.slice(0, maxResults)
-				:	staticHits;
-		}
-		if (staticHits.length === 0) {
-			return dynamicHits.length > maxResults ?
-					dynamicHits.slice(0, maxResults)
-				:	dynamicHits;
-		}
-
-		const result: MeshInstance[] = [];
-		const seen = new Set<MeshInstance>();
-		appendUniqueMeshInstances(staticHits, seen, maxResults, result);
-		if (result.length >= maxResults) return result;
-		appendUniqueMeshInstances(dynamicHits, seen, maxResults, result);
-		return result;
+		this._staticBVH.queryBoundsInto(bounds, out, resolvedOptions);
+		if (out.length >= maxResults) return out;
+		this._meshScratch.length = 0;
+		this._dynamicOctree.queryBoundsInto(
+			bounds,
+			this._meshScratch,
+			{
+				includeInvisible: options?.includeInvisible,
+				maxResults: maxResults - out.length,
+			}
+		);
+		appendMeshInstances(this._meshScratch, maxResults, out);
+		return out;
 	}
 
 	public queryBounds(
-		bounds: {
-			min: { x: number; y: number; z: number };
-			max: { x: number; y: number; z: number };
-		},
+		bounds: SpatialBounds3D,
 		options?: SpatialQueryOptions
 	): MeshInstance[] {
-		const maxResults = resolveMaxResults(options?.maxResults);
-		if (maxResults <= 0) return [];
-		const resolvedOptions: SpatialQueryOptions = {
-			includeInvisible: options?.includeInvisible,
-		};
-
-		const staticHits = this._staticBVH.queryBounds(bounds, resolvedOptions);
-		const dynamicHits = this._dynamicOctree.queryBounds(bounds, resolvedOptions);
-		if (dynamicHits.length === 0) {
-			return staticHits.length > maxResults ?
-					staticHits.slice(0, maxResults)
-				:	staticHits;
-		}
-		if (staticHits.length === 0) {
-			return dynamicHits.length > maxResults ?
-					dynamicHits.slice(0, maxResults)
-				:	dynamicHits;
-		}
-
-		const result: MeshInstance[] = [];
-		const seen = new Set<MeshInstance>();
-		appendUniqueMeshInstances(staticHits, seen, maxResults, result);
-		if (result.length >= maxResults) return result;
-		appendUniqueMeshInstances(dynamicHits, seen, maxResults, result);
-		return result;
+		return this.queryBoundsInto(bounds, [], options);
 	}
 
 	public queryRay(
@@ -183,9 +192,75 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		direction: { x: number; y: number; z: number },
 		options?: SpatialRayQueryOptions
 	): MeshInstance[] {
-		return this.queryRayDetailed(origin, direction, options).map(
-			(hit) => hit.meshInstance
+		const hits = this.queryRayDetailed(origin, direction, options);
+		const result = new Array<MeshInstance>(hits.length);
+		for (let i = 0; i < hits.length; i++) {
+			result[i] = hits[i].meshInstance;
+		}
+		return result;
+	}
+
+	public queryRayDetailedInto(
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		out: SpatialRayHit[],
+		options?: SpatialRayQueryOptions
+	): SpatialRayHit[] {
+		out.length = 0;
+		const maxResults = resolveMaxResults(options?.maxResults);
+		if (maxResults <= 0) return out;
+		const baseOptions: SpatialRayQueryOptions = {
+			includeInvisible: options?.includeInvisible,
+			maxDistance: options?.maxDistance,
+			maxResults,
+		};
+
+		this._staticRayScratch.length = 0;
+		this._dynamicRayScratch.length = 0;
+		this._staticBVH.queryRayDetailedInto(
+			origin,
+			direction,
+			this._staticRayScratch,
+			baseOptions
 		);
+		if (maxResults === 1) {
+			const staticNearest = this._staticRayScratch[0] ?? null;
+			const dynamicMaxDistance =
+				staticNearest?.distance ?? options?.maxDistance;
+			this._dynamicOctree.queryRayDetailedInto(
+				origin,
+				direction,
+				this._dynamicRayScratch,
+				{
+					includeInvisible: options?.includeInvisible,
+					maxDistance: dynamicMaxDistance,
+					maxResults: 1,
+				}
+			);
+			const dynamicNearest = this._dynamicRayScratch[0] ?? null;
+			const best =
+				!staticNearest ? dynamicNearest
+				: !dynamicNearest ? staticNearest
+				: compareRayHits(staticNearest, dynamicNearest) <= 0 ?
+					staticNearest
+				:	dynamicNearest;
+			if (best) out.push(best);
+			return out;
+		}
+
+		this._dynamicOctree.queryRayDetailedInto(
+			origin,
+			direction,
+			this._dynamicRayScratch,
+			baseOptions
+		);
+		mergeSortedRayHits(
+			this._staticRayScratch,
+			this._dynamicRayScratch,
+			maxResults,
+			out
+		);
+		return out;
 	}
 
 	public queryRayDetailed(
@@ -193,52 +268,7 @@ export class HybridSpatialIndex implements SpatialIndex3D {
 		direction: { x: number; y: number; z: number },
 		options?: SpatialRayQueryOptions
 	): SpatialRayHit[] {
-		const maxResults = resolveMaxResults(options?.maxResults);
-		if (maxResults <= 0) return [];
-		const resolvedOptions: SpatialRayQueryOptions = {
-			includeInvisible: options?.includeInvisible,
-			maxDistance: options?.maxDistance,
-		};
-
-		const staticHits = this._staticBVH.queryRayDetailed(
-			origin,
-			direction,
-			resolvedOptions
-		);
-		const dynamicHits = this._dynamicOctree.queryRayDetailed(
-			origin,
-			direction,
-			resolvedOptions
-		);
-		if (dynamicHits.length === 0) {
-			return staticHits.length > maxResults ?
-					staticHits.slice(0, maxResults)
-				:	staticHits;
-		}
-		if (staticHits.length === 0) {
-			return dynamicHits.length > maxResults ?
-					dynamicHits.slice(0, maxResults)
-				:	dynamicHits;
-		}
-
-		const hitByMeshInstance = new Map<MeshInstance, SpatialRayHit>();
-		for (const hit of staticHits) {
-			hitByMeshInstance.set(hit.meshInstance, hit);
-		}
-		for (const hit of dynamicHits) {
-			const previous = hitByMeshInstance.get(hit.meshInstance);
-			if (!previous || hit.distance < previous.distance) {
-				hitByMeshInstance.set(hit.meshInstance, hit);
-			}
-		}
-
-		const result = Array.from(hitByMeshInstance.values());
-		if (result.length === 0) return [];
-		result.sort(compareRayHits);
-		if (result.length > maxResults) {
-			return result.slice(0, maxResults);
-		}
-		return result;
+		return this.queryRayDetailedInto(origin, direction, [], options);
 	}
 
 	private _resolveBucket(meshInstance: MeshInstance): SpatialBucket {
@@ -274,17 +304,42 @@ function resolveMaxResults(value: number | undefined): number {
 	return Math.max(0, Math.floor(value));
 }
 
-function appendUniqueMeshInstances(
+function appendMeshInstances(
 	source: MeshInstance[],
-	seen: Set<MeshInstance>,
 	maxResults: number,
 	result: MeshInstance[]
 ): void {
 	for (const meshInstance of source) {
 		if (result.length >= maxResults) return;
-		if (seen.has(meshInstance)) continue;
-		seen.add(meshInstance);
 		result.push(meshInstance);
+	}
+}
+
+function mergeSortedRayHits(
+	left: SpatialRayHit[],
+	right: SpatialRayHit[],
+	maxResults: number,
+	result: SpatialRayHit[]
+): void {
+	let leftIndex = 0;
+	let rightIndex = 0;
+	while (
+		result.length < maxResults &&
+		(leftIndex < left.length || rightIndex < right.length)
+	) {
+		if (leftIndex >= left.length) {
+			result.push(right[rightIndex++]);
+			continue;
+		}
+		if (rightIndex >= right.length) {
+			result.push(left[leftIndex++]);
+			continue;
+		}
+		if (compareRayHits(left[leftIndex], right[rightIndex]) <= 0) {
+			result.push(left[leftIndex++]);
+		} else {
+			result.push(right[rightIndex++]);
+		}
 	}
 }
 
