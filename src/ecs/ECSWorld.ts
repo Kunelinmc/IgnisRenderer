@@ -13,7 +13,6 @@ import {
 	type ECSComponentName,
 	type EntityId,
 	type HierarchyComponent,
-	type InteractableComponent,
 	type LocalTransformComponent,
 	type NameComponent,
 	type NodeKind,
@@ -49,7 +48,6 @@ const COMPONENT_NAMES: ECSComponentName[] = [
 	"SkeletonJoint",
 	"NodeRef",
 	"NodeKind",
-	"Interactable",
 ];
 
 export class ECSWorld {
@@ -76,7 +74,6 @@ export class ECSWorld {
 			SkeletonJoint: new ComponentStore<SkeletonJointComponent>(),
 			NodeRef: new ComponentStore<NodeRefComponent>(),
 			NodeKind: new ComponentStore<NodeKindComponent>(),
-			Interactable: new ComponentStore<InteractableComponent>(),
 		};
 	}
 

@@ -1,7 +1,6 @@
 import type { Camera } from "../cameras/Camera";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Scene } from "../core/Scene";
-import type { InteractionPointerState } from "../ecs";
 import type {
 	InteractionOutlineStyle,
 	InteractionTransientState,
@@ -13,6 +12,10 @@ import type {
 	FrameTransientContributorContext,
 	Renderer,
 } from "../renderers/Renderer";
+import {
+	InteractableRegistry,
+	type InteractionPointerState,
+} from "./Interactable";
 import { InteractionPicker } from "./InteractionPicker";
 import { InteractionSelectionState } from "./InteractionSelectionState";
 import { TransformGizmoController } from "./TransformGizmoController";
@@ -33,6 +36,11 @@ import {
 } from "./types";
 
 export class InteractionController extends EventEmitter<InteractionEvents> {
+	/**
+	 * Registry used by this controller to map scene nodes to interaction
+	 * behavior for picking, callbacks, and selection filtering.
+	 */
+	public readonly interactables: InteractableRegistry;
 	private _renderer: Renderer | null = null;
 	private _scene: Scene | null = null;
 	private _camera: Camera | null = null;
@@ -52,14 +60,17 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	private _transientContributor: FrameTransientContributor;
 
 	/**
-	 * Creates a controller for ECS-backed scene interaction.
+	 * Creates a controller for registry-backed scene interaction.
 	 *
-	 * @param options - Interaction limits, outline style, and selection mode.
+	 * @param options - Interaction registry, limits, outline style, and
+	 * selection mode.
 	 * @returns A detached controller. Call `attach()` before sending input.
-	 * @sideEffects None.
+	 * @sideEffects Creates a default interactable registry when one is not
+	 * supplied.
 	 */
 	public constructor(options: InteractionControllerOptions = {}) {
 		super();
+		this.interactables = options.interactables ?? new InteractableRegistry();
 		const maxRayDistance = Number.isFinite(options.maxRayDistance)
 			? Math.max(1, Number(options.maxRayDistance))
 			: DEFAULT_MAX_RAY_DISTANCE;
@@ -68,10 +79,11 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			...(options.outline ?? {}),
 		};
 		this._selectionMode = options.selectionMode ?? "single";
-		this._picker = new InteractionPicker(maxRayDistance);
+		this._picker = new InteractionPicker(maxRayDistance, this.interactables);
 		this._selection = new InteractionSelectionState(
 			this._selectionMode,
-			(event, ...args) => this.emit(event, ...args)
+			(event, ...args) => this.emit(event, ...args),
+			this.interactables
 		);
 		this._gizmo = new TransformGizmoController();
 		this._transientContributor = (context) => {
@@ -83,7 +95,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 * Attaches the controller to renderer frame state and scene picking data.
 	 *
 	 * @param renderer - Renderer that receives transient interaction state.
-	 * @param scene - Scene whose ECS entities are queried for `Interactable`.
+	 * @param scene - Scene whose nodes are resolved against `interactables`.
 	 * @param camera - Camera used to convert pointer coordinates into rays.
 	 * @param physicsSystem - Optional physics system used before BVH picking.
 	 * @returns This controller for chaining.
@@ -225,7 +237,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 *
 	 * @param event - Pointer/key event data in viewport pixel coordinates.
 	 * @returns Nothing.
-	 * @sideEffects May update ECS-backed interaction state, callbacks, and render dirtiness.
+	 * @sideEffects May update registry-backed interaction state, callbacks, and render dirtiness.
 	 */
 	public updatePointer(event: InteractionPointerEventLike): void {
 		if (!this._scene || !this._camera) return;

@@ -1,11 +1,11 @@
 import type { Camera } from "../cameras/Camera";
 import type { Node } from "../core/Node";
 import type { Scene } from "../core/Scene";
-import type { InteractionPointerState } from "../ecs";
 import { Quaternion } from "../maths/Quaternion";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import type { InteractionGizmoState } from "../pipeline/types";
+import type { InteractionPointerState } from "./Interactable";
 import { screenToWorldRay } from "./screenToWorldRay";
 import type {
 	GizmoMode,

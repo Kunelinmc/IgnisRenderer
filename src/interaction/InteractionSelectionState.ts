@@ -1,11 +1,12 @@
 import type { Node } from "../core/Node";
 import type { Scene } from "../core/Scene";
 import type {
+	Interactable,
+	InteractableRegistry,
 	InteractionCallback,
 	InteractionCallbackContext,
 	InteractionPointerState,
-	InteractableComponent,
-} from "../ecs";
+} from "./Interactable";
 import type {
 	InteractionClickEvent,
 	InteractionEntityEvent,
@@ -24,13 +25,16 @@ export class InteractionSelectionState {
 	private _selectedEntityIds: number[] = [];
 	private _selectionMode: InteractionSelectionMode;
 	private _emit: InteractionEmitter;
+	private _interactables: InteractableRegistry;
 
 	public constructor(
 		selectionMode: InteractionSelectionMode,
-		emit: InteractionEmitter
+		emit: InteractionEmitter,
+		interactables: InteractableRegistry
 	) {
 		this._selectionMode = selectionMode;
 		this._emit = emit;
+		this._interactables = interactables;
 	}
 
 	public setScene(scene: Scene | null): void {
@@ -182,11 +186,13 @@ export class InteractionSelectionState {
 		return !!component && component.selectable !== false;
 	}
 
-	private _getInteractable(entityId: number): InteractableComponent | null {
+	private _getInteractable(entityId: number): Interactable | null {
 		if (!this._scene || !this._scene.ecs.hasEntity(entityId)) return null;
-		const component = this._scene.ecs.getComponent(entityId, "Interactable");
-		if (!component || component.enabled === false) return null;
-		return component;
+		const node = this._scene.ecs.getNodeByEntity(entityId);
+		if (!node) return null;
+		const interactable = this._interactables.get(node);
+		if (!interactable || interactable.enabled === false) return null;
+		return interactable;
 	}
 
 	private _invokeCallback(
@@ -233,7 +239,7 @@ export class InteractionSelectionState {
 }
 
 function resolveCallback(
-	component: InteractableComponent,
+	component: Interactable,
 	phase: InteractionCallbackContext["phase"]
 ): InteractionCallback | undefined {
 	switch (phase) {

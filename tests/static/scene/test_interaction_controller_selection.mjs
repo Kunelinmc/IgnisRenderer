@@ -87,14 +87,14 @@ function runDefaultAndCallbackTests() {
 	controller.updatePointer(pointer("up", 99.5, 99.5, { button: 0 }));
 	assert.equal(controller.getSelection(), null);
 
-	scene.ecs.setComponent(box.entityId, "Interactable", {
+	controller.interactables.set(box, {
 		selectable: false,
 	});
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
 	controller.updatePointer(pointer("up", 99.5, 99.5, { button: 0 }));
 	assert.equal(controller.getSelection(), null);
 
-	scene.ecs.setComponent(box.entityId, "Interactable", {
+	controller.interactables.set(box, {
 		enabled: false,
 	});
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
@@ -102,7 +102,7 @@ function runDefaultAndCallbackTests() {
 	assert.equal(controller.getSelection(), null);
 
 	const callbacks = [];
-	scene.ecs.setComponent(box.entityId, "Interactable", {
+	controller.interactables.set(box, {
 		onHoverEnter: (context) => callbacks.push(context.phase),
 		onHoverLeave: (context) => callbacks.push(context.phase),
 		onSelect: (context) => callbacks.push(context.phase),
@@ -164,11 +164,11 @@ function runPriorityTest() {
 	scene.add(low);
 	scene.add(high);
 	sync(scene, camera);
-	scene.ecs.setComponent(low.entityId, "Interactable", { priority: 0 });
-	scene.ecs.setComponent(high.entityId, "Interactable", { priority: 10 });
 
 	const { renderer } = createFakeRenderer(scene, camera);
 	const controller = new InteractionController();
+	controller.interactables.set(low, { priority: 0 });
+	controller.interactables.set(high, { priority: 10 });
 	controller.attach(renderer, scene, camera, null);
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
 	assert.equal(controller.getSelection(), high.entityId);
@@ -193,11 +193,11 @@ function runMultipleSelectionTest() {
 	scene.add(left);
 	scene.add(right);
 	sync(scene, camera);
-	scene.ecs.setComponent(left.entityId, "Interactable", {});
-	scene.ecs.setComponent(right.entityId, "Interactable", {});
 
 	const { renderer } = createFakeRenderer(scene, camera);
 	const controller = new InteractionController({ selectionMode: "multiple" });
+	controller.interactables.set(left, {});
+	controller.interactables.set(right, {});
 	controller.attach(renderer, scene, camera, null);
 	controller.updatePointer(pointer("down", 0, 0, { button: 0 }));
 	controller.updatePointer(pointer("move", 199, 199));

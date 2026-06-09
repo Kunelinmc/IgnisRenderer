@@ -1,12 +1,12 @@
 import type { Camera } from "../cameras/Camera";
 import type { Node } from "../core/Node";
 import type { Scene } from "../core/Scene";
-import type { InteractableComponent } from "../ecs";
 import { MeshInstance } from "../meshes";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import type { PhysicsSystem } from "../physics/PhysicsSystem";
 import type { SpatialRayHit } from "../spatial";
+import type { Interactable, InteractableRegistry } from "./Interactable";
 import { screenToWorldRay } from "./screenToWorldRay";
 import type {
 	InteractionDragRectState,
@@ -22,9 +22,14 @@ export class InteractionPicker {
 	private _physics: PhysicsSystem | null = null;
 	private _maxRayDistance: number;
 	private _bvhRayScratch: SpatialRayHit[] = [];
+	private _interactables: InteractableRegistry;
 
-	public constructor(maxRayDistance: number) {
+	public constructor(
+		maxRayDistance: number,
+		interactables: InteractableRegistry
+	) {
 		this._maxRayDistance = maxRayDistance;
+		this._interactables = interactables;
 	}
 
 	public attach(
@@ -89,7 +94,7 @@ export class InteractionPicker {
 			if (meshInstance.visible === false) continue;
 			const entityId = meshInstance.entityId;
 			if (typeof entityId !== "number") continue;
-			const interactable = this._resolveInteractable(entityId, "select");
+			const interactable = this._resolveInteractable(meshInstance, "select");
 			if (!interactable) continue;
 			const sphere = meshInstance.getWorldBoundingSphere();
 			const clip = screenProject(
@@ -123,7 +128,8 @@ export class InteractionPicker {
 	}
 
 	public isEntitySelectable(entityId: number): boolean {
-		return this._resolveInteractable(entityId, "select") !== null;
+		const node = this._scene?.ecs.getNodeByEntity(entityId);
+		return !!node && this._resolveInteractable(node, "select") !== null;
 	}
 
 	private _pickPhysicsHit(
@@ -151,7 +157,7 @@ export class InteractionPicker {
 					node.entityId
 				: this._physics.resolveHitEntityId(hit);
 			if (typeof entityId !== "number") continue;
-			const interactable = this._resolveInteractable(entityId, intent);
+			const interactable = this._resolveInteractable(node, intent);
 			if (!interactable) continue;
 			const candidate: InteractionHitResult = {
 				node,
@@ -194,7 +200,7 @@ export class InteractionPicker {
 			const meshInstance = candidate.meshInstance;
 			const entityId = meshInstance.entityId;
 			if (typeof entityId !== "number") continue;
-			const interactable = this._resolveInteractable(entityId, intent);
+			const interactable = this._resolveInteractable(meshInstance, intent);
 			if (!interactable) continue;
 			let distance = candidate.distance;
 
@@ -232,15 +238,14 @@ export class InteractionPicker {
 	}
 
 	private _resolveInteractable(
-		entityId: number,
+		node: Node,
 		intent: InteractionPickIntent
-	): InteractableComponent | null {
-		if (!this._scene) return null;
-		const component = this._scene.ecs.getComponent(entityId, "Interactable");
-		if (!component || component.enabled === false) return null;
-		if (intent === "hover" && component.hoverable === false) return null;
-		if (intent === "select" && component.selectable === false) return null;
-		return component;
+	): Interactable | null {
+		const interactable = this._interactables.get(node);
+		if (!interactable || interactable.enabled === false) return null;
+		if (intent === "hover" && interactable.hoverable === false) return null;
+		if (intent === "select" && interactable.selectable === false) return null;
+		return interactable;
 	}
 }
 

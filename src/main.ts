@@ -51,11 +51,6 @@ async function init() {
 	const model = await gltfLoader.load("assets/model.glb");
 	scene.add(model);
 	scene.syncNodeToECS();
-	for (const meshInstance of scene.getMeshInstances()) {
-		if (meshInstance.entityId !== null) {
-			scene.ecs.setComponent(meshInstance.entityId, "Interactable", {});
-		}
-	}
 
 	const sun = new DirectionalLight({
 		intensity: 5.0,
@@ -254,6 +249,9 @@ function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Re
  */
 export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camera) {
 	const interaction = new InteractionController();
+	for (const meshInstance of scene.getMeshInstances()) {
+		interaction.interactables.set(meshInstance, {});
+	}
 	interaction.attach(renderer, scene, camera);
 
 	// Listen for selection events

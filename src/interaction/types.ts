@@ -1,6 +1,9 @@
 import type { Node } from "../core/Node";
 import type { InteractionOutlineStyle } from "../pipeline/types";
-import type { InteractionPointerState } from "../ecs";
+import type {
+	InteractableRegistry,
+	InteractionPointerState,
+} from "./Interactable";
 
 export type GizmoMode = "translate" | "rotate" | "scale";
 export type GizmoSpace = "world" | "local";
@@ -8,6 +11,7 @@ export type GizmoPivot = "object-origin" | "bounds-center";
 export type InteractionSelectionMode = "single" | "multiple";
 
 export interface InteractionControllerOptions {
+	interactables?: InteractableRegistry;
 	maxRayDistance?: number;
 	outline?: Partial<InteractionOutlineStyle>;
 	selectionMode?: InteractionSelectionMode;

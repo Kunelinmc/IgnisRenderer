@@ -169,12 +169,14 @@ export {
 	type GizmoSpace,
 } from "./interaction/InteractionController";
 export type {
+	Interactable,
 	InteractableComponent,
 	InteractionCallback,
 	InteractionCallbackContext,
 	InteractionEventPhase,
 	InteractionPointerState,
-} from "./ecs";
+} from "./interaction/Interactable";
+export { InteractableRegistry } from "./interaction/Interactable";
 export {
 	SobelNormalMapper,
 	type SobelNormalMapperOptions,
