@@ -13,7 +13,6 @@ import {
 	Logger,
 	DirectionalLight,
 	FastApproximateAntiAliasingPass,
-	ScreenSpaceGlobalIlluminationPass,
 } from "./index";
 
 async function init() {
@@ -107,7 +106,15 @@ async function createRenderer(
 	let renderer: Renderer;
 
 	if (Platform.hasWebGPU()) {
-		renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+		renderer = new Renderer(
+			new WebGPUBackend({
+				enableDeferredLighting: true,
+				enableEarlyZPrepass: true,
+				enableOcclusionCulling: true,
+			}),
+			canvas,
+			camera,
+		);
 		renderer.setScene(scene);
 		renderer.postProcess.registerPass(
 			new FastApproximateAntiAliasingPass({ enabled: true })
@@ -132,9 +139,6 @@ async function createRenderer(
 		renderer.postProcess.registerPass(
 			new FastApproximateAntiAliasingPass({ enabled: true })
 		);
-		renderer.postProcess.registerPass(
-			new ScreenSpaceGlobalIlluminationPass({ enabled: true })
-		);
 		renderer.features.enableOIT = true;
 
 		await renderer.init();
@@ -150,6 +154,7 @@ async function createRenderer(
 	renderer = new Renderer(
 		new SoftwareBackend({
 			rasterMode: "tile",
+			enableEarlyZPrepass: true,
 		}),
 		canvas,
 		camera,
