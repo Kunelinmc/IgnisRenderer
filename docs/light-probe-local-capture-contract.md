@@ -73,5 +73,6 @@ bun tests/static/lighting/test_probe_capture_runtime.mjs
   `new LightProbe({})`.
 - Renderer pipeline stage `reflection-probe-capture` has been replaced by
   `probe-capture`.
-- `ReflectionProbeCaptureRuntime` remains as a compatibility export alias for
-  `ProbeCaptureRuntime`.
+- Breaking change: `ReflectionProbeCaptureRuntime` compatibility exports have
+  been removed. Code must import `ProbeCaptureRuntime` and related types from
+  `src/pipeline/ProbeCaptureRuntime`.
