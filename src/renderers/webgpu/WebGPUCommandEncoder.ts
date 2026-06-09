@@ -164,6 +164,10 @@ export class WebGPUCommandEncoder implements ICommandEncoder {
 		this._renderPass?.drawIndirect(getWebGPUBuffer(buffer), offset);
 	}
 
+	public drawIndexedIndirect(buffer: IRenderBuffer, offset: number = 0): void {
+		this._renderPass?.drawIndexedIndirect(getWebGPUBuffer(buffer), offset);
+	}
+
 	public setScissorRect(
 		x: number,
 		y: number,

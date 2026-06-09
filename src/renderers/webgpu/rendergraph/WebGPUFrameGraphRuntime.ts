@@ -1,4 +1,5 @@
 import type {
+	DrawPacket,
 	FrameContext,
 	FramePass,
 } from "../../../pipeline/types";
@@ -1099,7 +1100,14 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _frameHasDeferredLightingWork(context: FrameContext): boolean {
-		return context.scene.opaquePackets.some((packet) =>
+		const opaquePackets = [
+			...context.scene.opaquePackets,
+			...this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: true,
+				includeTransparent: false,
+			}),
+		];
+		return opaquePackets.some((packet) =>
 			materialSupportsWebGPUDeferredLighting(packet.material)
 		);
 	}
@@ -1112,7 +1120,14 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _frameHasTransmissionWork(context: FrameContext): boolean {
-		return context.scene.transparentPackets.some((packet) =>
+		const transparentPackets = [
+			...context.scene.transparentPackets,
+			...this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: true,
+			}),
+		];
+		return transparentPackets.some((packet) =>
 			materialUsesTransmission(packet.material)
 		);
 	}
@@ -1293,19 +1308,26 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private async _recordTransparentScenePass(context: FrameContext): Promise<void> {
+		const transparentPackets = [
+			...context.scene.transparentPackets,
+			...this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: true,
+			}),
+		];
 		if (!this._frameTargets?.transmissionSceneColorCopy) {
 			await this._scenePassRecorder.recordMainPass(
 				context,
-				context.scene.transparentPackets,
+				transparentPackets,
 				false,
 				false
 			);
 			return;
 		}
-		const opaqueTransparentPackets = context.scene.transparentPackets.filter(
+		const opaqueTransparentPackets = transparentPackets.filter(
 			(packet) => !materialUsesTransmission(packet.material)
 		);
-		const transmissionPackets = context.scene.transparentPackets.filter((packet) =>
+		const transmissionPackets = transparentPackets.filter((packet) =>
 			materialUsesTransmission(packet.material)
 		);
 		if (opaqueTransparentPackets.length > 0) {
@@ -1326,16 +1348,23 @@ export class WebGPUFrameGraphRuntime {
 		if (!this._encoder) {
 			return;
 		}
+		const transparentPackets = [
+			...context.scene.transparentPackets,
+			...this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: true,
+			}),
+		];
 		if (!this._mrtEnabled || !this._frameTargets) {
 			await this._scenePassRecorder.recordMainPass(
 				context,
-				context.scene.transparentPackets,
+				transparentPackets,
 				false,
 				false
 			);
 			return;
 		}
-		await this._oitPass.recordTransparentPass(context);
+		await this._oitPass.recordTransparentPass(context, transparentPackets);
 	}
 
 	private async _recordOITParticlePass(context: FrameContext): Promise<void> {
@@ -1351,6 +1380,25 @@ export class WebGPUFrameGraphRuntime {
 			return;
 		}
 		await this._oitPass.recordParticlePass(context);
+	}
+
+	private _buildParticleMeshDrawPackets(
+		context: FrameContext,
+		options: {
+			includeOpaque?: boolean;
+			includeTransparent?: boolean;
+		}
+	): DrawPacket[] {
+		const resources = this._resources as WebGPURenderResources & {
+			buildParticleMeshDrawPackets?: (
+				context: FrameContext,
+				options: {
+					includeOpaque?: boolean;
+					includeTransparent?: boolean;
+				}
+			) => DrawPacket[];
+		};
+		return resources.buildParticleMeshDrawPackets?.(context, options) ?? [];
 	}
 
 	private async _recordPlanarReflectionPass(

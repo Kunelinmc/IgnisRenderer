@@ -350,9 +350,17 @@ export class WebGPUMaterialBindingCache {
 		materialData: WebGPUMaterialUniformData
 	): void {
 		let uniformDirty = !entry.hasPackedUniform;
+		const explicitPreviousMatrix = packet.previousWorldMatrix ?? null;
 
 		if (entry.modelFrame !== this._currentFrame) {
-			if (!entry.hasModelSnapshot) {
+			if (explicitPreviousMatrix) {
+				uniformDirty =
+					copyMatrixToRows(
+						explicitPreviousMatrix,
+						entry.previousModelMatrix
+					) || uniformDirty;
+				entry.hasModelSnapshot = true;
+			} else if (!entry.hasModelSnapshot) {
 				copyMatrixToRows(packet.worldMatrix, entry.currentModelMatrix);
 				copyRows(entry.currentModelMatrix, entry.previousModelMatrix);
 				entry.hasModelSnapshot = true;

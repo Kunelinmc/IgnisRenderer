@@ -5,8 +5,22 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, Matrix3Arr } from "../../maths/types";
 import type { MeshInstance } from "../../meshes";
 import type { IPrimitive } from "../../core/types";
-import type { DrawPacket, FrameContext, ParticleRenderBatch, ParticleRenderItem, PreparedScene, ResolvedFeatureState } from "../../pipeline/types";
-import { DRAW_PACKET_FLAG_TRANSPARENT, PARTICLE_TRANSIENT_BATCHES_KEY, createTransientStore } from "../../pipeline/types";
+import type {
+	DrawPacket,
+	FrameContext,
+	ParticleMeshRenderBatch,
+	ParticleMeshRenderItem,
+	ParticleRenderBatch,
+	ParticleRenderItem,
+	PreparedScene,
+	ResolvedFeatureState,
+} from "../../pipeline/types";
+import {
+	DRAW_PACKET_FLAG_TRANSPARENT,
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+	createTransientStore,
+} from "../../pipeline/types";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import type { ProbeWebGPUCaptureFaceRequest } from "../../pipeline/ProbeCaptureRuntime";
@@ -232,6 +246,7 @@ export class WebGPUReflectionProbeCapturePass {
 		const packets = [
 			...context.scene.opaquePackets,
 			...context.scene.transparentPackets,
+			...this._buildParticleMeshDrawPackets(context),
 		];
 		await submitWebGPUDraws({
 			encoder,
@@ -244,6 +259,13 @@ export class WebGPUReflectionProbeCapturePass {
 			}),
 		});
 		encoder.endRenderPass();
+	}
+
+	private _buildParticleMeshDrawPackets(context: FrameContext): DrawPacket[] {
+		const resources = this._resources as WebGPURenderResources & {
+			buildParticleMeshDrawPackets?: (context: FrameContext) => DrawPacket[];
+		};
+		return resources.buildParticleMeshDrawPackets?.(context) ?? [];
 	}
 
 	private async _recordEnvironmentCapturePass(
@@ -665,6 +687,54 @@ function populateParticleBatchesForCapture(
 		});
 	}
 	captureTransient.set(PARTICLE_TRANSIENT_BATCHES_KEY, rebasedBatches);
+
+	const sourceMeshBatches =
+		frameContext.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY) ?? [];
+	const rebasedMeshBatches: ParticleMeshRenderBatch[] = [];
+	for (const batch of sourceMeshBatches) {
+		const particles: ParticleMeshRenderItem[] = [];
+		for (const particle of batch.particles) {
+			const cameraSpace = Matrix4.transformPoint(
+				captureCamera.viewMatrix,
+				particle.position
+			);
+			const depth = -cameraSpace.z;
+			if (depth <= 0) continue;
+			particles.push({
+				definitionIndex: particle.definitionIndex,
+				position: {
+					x: particle.position.x,
+					y: particle.position.y,
+					z: particle.position.z,
+				},
+				previousPosition: {
+					x: particle.previousPosition.x,
+					y: particle.previousPosition.y,
+					z: particle.previousPosition.z,
+				},
+				size: particle.size,
+				color: {
+					r: particle.color.r,
+					g: particle.color.g,
+					b: particle.color.b,
+					a: particle.color.a,
+				},
+				rotation: particle.rotation,
+				previousRotation: particle.previousRotation,
+				depth,
+			});
+		}
+		particles.sort((left, right) => right.depth - left.depth);
+		if (particles.length <= 0) continue;
+		rebasedMeshBatches.push({
+			...batch,
+			particles,
+		});
+	}
+	captureTransient.set(
+		PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
+		rebasedMeshBatches
+	);
 }
 
 function createCaptureFeatures(

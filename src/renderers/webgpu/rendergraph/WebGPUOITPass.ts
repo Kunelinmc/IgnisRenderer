@@ -96,7 +96,10 @@ export class WebGPUOITPass {
 		this.onShaderRuntimeChanged();
 	}
 
-	public async recordTransparentPass(context: FrameContext): Promise<void> {
+	public async recordTransparentPass(
+		context: FrameContext,
+		packets: DrawPacket[] = context.scene.transparentPackets
+	): Promise<void> {
 		const encoder = this._recordingContext.getEncoder();
 		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder) {
@@ -105,7 +108,7 @@ export class WebGPUOITPass {
 		if (!targets) {
 			await this._callbacks.recordLegacyMainPass(
 				context,
-				context.scene.transparentPackets,
+				packets,
 				false,
 				false
 			);
@@ -114,7 +117,7 @@ export class WebGPUOITPass {
 		const frameResources = this._recordingContext.requireFrameResources();
 		await this._resources.buildClusteredLighting(encoder, frameResources);
 		const { oitPackets, transmissionPackets } =
-			this._partitionTransparentPackets(context.scene.transparentPackets);
+			this._partitionTransparentPackets(packets);
 		this._transmissionPackets = transmissionPackets;
 		this._needsTransmissionAfterParticles =
 			(context.scene.particleSystems?.length ?? 0) > 0;

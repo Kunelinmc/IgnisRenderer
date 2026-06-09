@@ -1,10 +1,17 @@
 import type { Texture } from "../../core/Texture";
 import {
+	DRAW_PACKET_FLAG_REFLECTIVE,
+	DRAW_PACKET_FLAG_SHADOW_CASTER,
+	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
+	DRAW_PACKET_FLAG_TRANSPARENT,
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 } from "../../pipeline/types";
 import type {
 	DrawPacket,
 	FrameContext,
+	ParticleMeshRenderBatch,
+	ParticleMeshRenderItem,
 	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
@@ -18,6 +25,8 @@ import { DEFAULT_BLOOM_OPTIONS } from "../../postprocess/passes/BloomPass";
 import { DEFAULT_FOG_OPTIONS } from "../../postprocess/passes/FogPass";
 import { DEFAULT_TAA_OPTIONS } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { ParticleBlendMode } from "../../particles";
+import { AlphaMode } from "../../materials/Material";
+import { isMaterialTransparentPass } from "../../materials/transparency";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ResolvedFeatureState } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
@@ -89,6 +98,10 @@ import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { clamp } from "../../maths/Common";
+import { Matrix4 } from "../../maths/Matrix4";
+import { Quaternion } from "../../maths/Quaternion";
+import type { Matrix3Arr } from "../../maths/types";
+import type { MeshInstance } from "../../meshes";
 import {
 	WEBGPU_PARTICLE_BINDING_SAMPLER,
 	WEBGPU_PARTICLE_BINDING_TEXTURE,
@@ -176,6 +189,14 @@ interface WebGPUParticleRenderOptions {
 	includeBlendModes?: readonly ParticleBlendMode[];
 	pipelineMode?: "legacy" | "oit";
 	sampleCountOverride?: number;
+}
+
+export interface WebGPUParticleMeshPacketOptions {
+	includeOpaque?: boolean;
+	includeTransparent?: boolean;
+	includeShadowCasters?: boolean;
+	includeShadowTransmitters?: boolean;
+	includeReflective?: boolean;
 }
 
 export interface WebGPUPrepareFrameOptions {
@@ -439,7 +460,40 @@ export class WebGPURenderResources {
 		context: FrameContext,
 		encoder?: ICommandEncoder | null
 	): Promise<void> {
-		await this._shadowPass.render(context, encoder);
+		const shadowPackets = this.buildParticleMeshDrawPackets(context, {
+			includeOpaque: false,
+			includeTransparent: false,
+			includeShadowCasters: true,
+			includeShadowTransmitters: true,
+		});
+		if (shadowPackets.length <= 0) {
+			await this._shadowPass.render(context, encoder);
+			return;
+		}
+		const particleShadowCasters = shadowPackets.filter(
+			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0
+		);
+		const particleShadowTransmitters = shadowPackets.filter(
+			(packet) =>
+				(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0
+		);
+		await this._shadowPass.render(
+			{
+				...context,
+				scene: {
+					...context.scene,
+					shadowCasterPackets: [
+						...context.scene.shadowCasterPackets,
+						...particleShadowCasters,
+					],
+					shadowTransmitterPackets: [
+						...context.scene.shadowTransmitterPackets,
+						...particleShadowTransmitters,
+					],
+				},
+			},
+			encoder
+		);
 	}
 
 	/**
@@ -499,6 +553,22 @@ export class WebGPURenderResources {
 			renderHeight,
 			temporalHistoryReset,
 		} = this._resolveFrameInputs(contextOrScene, featuresArg);
+		const particleMeshShadowPackets =
+			isFrameContext ?
+				this.buildParticleMeshDrawPackets(contextOrScene, {
+					includeOpaque: false,
+					includeTransparent: false,
+					includeShadowCasters: true,
+					includeShadowTransmitters: true,
+				})
+			:	[];
+		const shadowCasterPackets = [
+			...scene.shadowCasterPackets,
+			...particleMeshShadowPackets.filter(
+				(packet) =>
+					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0
+			),
+		];
 		const temporalStateMode =
 			options?.temporalStateMode ?? (isFrameContext ? "advance" : "disabled");
 		const featureState: WebGPUFeatureState = {
@@ -528,7 +598,7 @@ export class WebGPURenderResources {
 		const shadowLights = scene.lights.filter(isShadowCastingLight);
 		syncShadowMapRegistry(scene.shadowMaps, shadowLights);
 		const shadowCasterBounds = resolveShadowCasterBounds(
-			scene.shadowCasterPackets,
+			shadowCasterPackets,
 			scene.sceneBounds
 		);
 		const combinedShadowCasterBounds = mergeParticleShadowBounds(
@@ -1321,6 +1391,64 @@ export class WebGPURenderResources {
 		};
 	}
 
+	/**
+	 * Converts simulated mesh-particle batches into transient draw packets that
+	 * reuse the regular WebGPU mesh material pipeline.
+	 *
+	 * @param context Current frame context containing particle mesh transients.
+	 * @param options Pass filters controlling which packet classes are returned.
+	 * @returns New draw packets for the requested particle mesh passes.
+	 * @constraints This does not mutate the scene graph or ECS; packets are valid
+	 * only for the current frame.
+	 * @sideEffects None.
+	 */
+	public buildParticleMeshDrawPackets(
+		context: FrameContext,
+		options: WebGPUParticleMeshPacketOptions = {}
+	): DrawPacket[] {
+		const batches = context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY);
+		if (!batches || batches.length === 0) {
+			return [];
+		}
+		const includeOpaque = options.includeOpaque ?? true;
+		const includeTransparent = options.includeTransparent ?? true;
+		const includeShadowCasters = options.includeShadowCasters ?? false;
+		const includeShadowTransmitters =
+			options.includeShadowTransmitters ?? false;
+		const includeReflective = options.includeReflective ?? false;
+		const packets: DrawPacket[] = [];
+
+		for (const batch of batches) {
+			for (let particleIndex = 0; particleIndex < batch.particles.length; particleIndex++) {
+				const packet = this._createParticleMeshPacket(
+					batch,
+					batch.particles[particleIndex],
+					particleIndex
+				);
+				const flags = packet.passFlags;
+				const isTransparent =
+					(flags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+				const matchesMain =
+					(isTransparent && includeTransparent) ||
+					(!isTransparent && includeOpaque);
+				const matchesShadow =
+					(includeShadowCasters &&
+						(flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) ||
+					(includeShadowTransmitters &&
+						(flags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0);
+				const matchesReflective =
+					includeReflective &&
+					(flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0;
+				if (matchesMain || matchesShadow || matchesReflective) {
+					packets.push(packet);
+				}
+			}
+		}
+
+		packets.sort(compareParticleMeshPackets);
+		return packets;
+	}
+
 	public async renderParticles(
 		encoder: ICommandEncoder,
 		context: FrameContext,
@@ -1611,6 +1739,90 @@ export class WebGPURenderResources {
 		encoder.endRenderPass();
 		this._evictParticleBindings(activeCacheKeys);
 		return totalParticles;
+	}
+
+	private _createParticleMeshPacket(
+		batch: ParticleMeshRenderBatch,
+		particle: ParticleMeshRenderItem,
+		particleIndex: number
+	): DrawPacket {
+		const material = batch.material;
+		const isTransparent = isMaterialTransparentPass(material);
+		const isReflective =
+			material.reflectivity > 0 && material.mirrorPlane !== null;
+		const supportsShadowCasting =
+			(batch.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
+			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+		const currentWorldMatrix = createParticleMeshWorldMatrix(
+			particle.position,
+			particle.rotation,
+			particle.size
+		);
+		const previousWorldMatrix = createParticleMeshWorldMatrix(
+			particle.previousPosition,
+			particle.previousRotation,
+			particle.size
+		);
+		const normalMatrix = Matrix4.normalMatrix(
+			currentWorldMatrix
+		) as Matrix3Arr;
+		const worldCenter = Matrix4.transformPoint(
+			currentWorldMatrix,
+			batch.primitive.boundingSphere.center
+		);
+		const meshInstance = createParticleMeshInstance(
+			batch,
+			currentWorldMatrix
+		);
+
+		let passFlags = 0;
+		if (isTransparent) {
+			passFlags |= DRAW_PACKET_FLAG_TRANSPARENT;
+			if (batch.castShadows && supportsShadowCasting) {
+				passFlags |= DRAW_PACKET_FLAG_SHADOW_TRANSMITTER;
+			}
+		} else if (batch.castShadows && supportsShadowCasting) {
+			passFlags |= DRAW_PACKET_FLAG_SHADOW_CASTER;
+		}
+		if (isReflective) {
+			passFlags |= DRAW_PACKET_FLAG_REFLECTIVE;
+		}
+
+		return {
+			id: [
+				"particleMesh",
+				batch.systemId,
+				batch.definitionIndex,
+				batch.primitive.id,
+				particleIndex,
+			].join(":"),
+			meshInstance,
+			mesh: batch.mesh,
+			primitive: batch.primitive,
+			material,
+			geometry: batch.primitive.geometry,
+			worldMatrix: currentWorldMatrix,
+			previousWorldMatrix,
+			normalMatrix,
+			worldBounds: {
+				center: {
+					x: worldCenter.x,
+					y: worldCenter.y,
+					z: worldCenter.z,
+				},
+				radius: batch.primitive.boundingSphere.radius *
+					Math.max(0.001, particle.size),
+			},
+			sortDepth: particle.depth,
+			pipelineKey: [
+				material.type,
+				material.shading,
+				material.alphaMode ?? AlphaMode.Opaque,
+				material.doubleSided ? "double" : "single",
+				material.depthWrite ? "depth-write" : "depth-read",
+			].join(":"),
+			passFlags,
+		};
 	}
 
 	private async _renderParticlesFromGPUBatches(
@@ -2187,4 +2399,52 @@ export class WebGPURenderResources {
 			morphNormalBuffer: geometry.morphNormalBuffer,
 		};
 	}
+}
+
+function createParticleMeshWorldMatrix(
+	position: { x: number; y: number; z: number },
+	rotation: number,
+	size: number
+): Matrix4 {
+	const scale = Math.max(0.001, size);
+	return Matrix4.compose(
+		position,
+		Quaternion.fromEuler(0, 0, rotation),
+		{ x: scale, y: scale, z: scale }
+	);
+}
+
+function createParticleMeshInstance(
+	batch: ParticleMeshRenderBatch,
+	worldMatrix: Matrix4
+): MeshInstance {
+	return {
+		id: `particleMeshInstance:${batch.systemId}:${batch.definitionIndex}`,
+		mesh: batch.mesh,
+		skeleton: null,
+		morphWeights: batch.mesh.defaultMorphWeights,
+		renderLayers: 1,
+		worldMatrix,
+	} as MeshInstance;
+}
+
+function compareParticleMeshPackets(left: DrawPacket, right: DrawPacket): number {
+	const leftTransparent =
+		(left.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+	const rightTransparent =
+		(right.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+	if (leftTransparent !== rightTransparent) {
+		return leftTransparent ? 1 : -1;
+	}
+	if (leftTransparent && left.sortDepth !== right.sortDepth) {
+		return right.sortDepth - left.sortDepth;
+	}
+	if (!leftTransparent) {
+		const keyCompare = left.pipelineKey.localeCompare(right.pipelineKey);
+		if (keyCompare !== 0) return keyCompare;
+		if (left.material !== right.material) {
+			return left.material.name.localeCompare(right.material.name);
+		}
+	}
+	return left.id.localeCompare(right.id);
 }

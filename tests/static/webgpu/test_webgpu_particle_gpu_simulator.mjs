@@ -4,7 +4,14 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
-import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../../src/pipeline/types.ts";
+import {
+	DRAW_PACKET_FLAG_SHADOW_CASTER,
+	DRAW_PACKET_FLAG_TRANSPARENT,
+	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
+	PARTICLE_TRANSIENT_BATCHES_KEY,
+} from "../../../src/pipeline/types.ts";
+import { Material, AlphaMode } from "../../../src/materials/Material.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { BufferUsage } from "../../../src/renderers/types.ts";
@@ -111,6 +118,40 @@ function createContext(particleSystems = []) {
 		},
 		transient: new Map(),
 	};
+}
+
+function createTriangleMesh(material = new Material({ name: "ParticleMesh" })) {
+	return MeshAsset.fromFaces([
+		{
+			material,
+			vertices: [
+				{
+					x: 0,
+					y: 0,
+					z: 0,
+					u: 0,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 1,
+					y: 0,
+					z: 0,
+					u: 1,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 0,
+					y: 1,
+					z: 0,
+					u: 0,
+					v: 1,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+			],
+		},
+	]);
 }
 
 function testWebGPUParticleSimulatorPublishesDrawBatches() {
@@ -323,11 +364,110 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 	assert.ok(encoder.calls.some((call) => call[0] === "drawIndirect"));
 }
 
+function testRenderResourcesBuildsParticleMeshDrawPackets() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(backend);
+	const opaqueMaterial = new Material({ name: "particle-opaque" });
+	const transparentMaterial = new Material({
+		name: "particle-transparent",
+		alphaMode: AlphaMode.Blend,
+		opacity: 0.5,
+	});
+	const opaqueMesh = createTriangleMesh(opaqueMaterial);
+	const transparentMesh = createTriangleMesh(transparentMaterial);
+	const context = createContext([]);
+	context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, [
+		{
+			kind: "mesh",
+			systemId: "particleSystem-mesh",
+			definitionIndex: 0,
+			definitionId: "opaque-shard",
+			mesh: opaqueMesh,
+			primitive: opaqueMesh.primitives[0],
+			material: opaqueMaterial,
+			receiveShadows: true,
+			castShadows: true,
+			shadowDensity: 1,
+			shadowSoftness: 1,
+			particles: [
+				{
+					definitionIndex: 0,
+					position: { x: 1, y: 2, z: 3 },
+					previousPosition: { x: 0, y: 2, z: 3 },
+					size: 2,
+					color: { r: 255, g: 255, b: 255, a: 1 },
+					rotation: 0.25,
+					previousRotation: 0,
+					depth: 4,
+				},
+			],
+		},
+		{
+			kind: "mesh",
+			systemId: "particleSystem-mesh",
+			definitionIndex: 1,
+			definitionId: "transparent-shard",
+			mesh: transparentMesh,
+			primitive: transparentMesh.primitives[0],
+			material: transparentMaterial,
+			receiveShadows: true,
+			castShadows: true,
+			shadowDensity: 1,
+			shadowSoftness: 1,
+			particles: [
+				{
+					definitionIndex: 1,
+					position: { x: 0, y: 0, z: 0 },
+					previousPosition: { x: 0, y: 0, z: 0 },
+					size: 1,
+					color: { r: 255, g: 255, b: 255, a: 1 },
+					rotation: 0,
+					previousRotation: 0,
+					depth: 2,
+				},
+			],
+		},
+	]);
+
+	const opaquePackets = resources.buildParticleMeshDrawPackets(context, {
+		includeOpaque: true,
+		includeTransparent: false,
+	});
+	const transparentPackets = resources.buildParticleMeshDrawPackets(context, {
+		includeOpaque: false,
+		includeTransparent: true,
+	});
+	const shadowPackets = resources.buildParticleMeshDrawPackets(context, {
+		includeOpaque: false,
+		includeTransparent: false,
+		includeShadowCasters: true,
+	});
+
+	assert.equal(opaquePackets.length, 1);
+	assert.equal(opaquePackets[0].material, opaqueMaterial);
+	assert.equal(
+		opaquePackets[0].worldBounds.radius,
+		opaqueMesh.primitives[0].boundingSphere.radius * 2
+	);
+	assert.ok(opaquePackets[0].previousWorldMatrix instanceof Matrix4);
+	assert.equal(
+		opaquePackets[0].passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER,
+		DRAW_PACKET_FLAG_SHADOW_CASTER
+	);
+	assert.equal(transparentPackets.length, 1);
+	assert.equal(
+		transparentPackets[0].passFlags & DRAW_PACKET_FLAG_TRANSPARENT,
+		DRAW_PACKET_FLAG_TRANSPARENT
+	);
+	assert.equal(shadowPackets.length, 1);
+}
+
 async function run() {
 	testWebGPUParticleSimulatorPublishesDrawBatches();
 	await testWebGPUParticleSimulatorDispatchesComputeSimulation();
 	await testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches();
 	await testRenderResourcesPrefersGPUDrawBatches();
+	testRenderResourcesBuildsParticleMeshDrawPackets();
 	console.log("WebGPU particle GPU simulator tests passed");
 }
 

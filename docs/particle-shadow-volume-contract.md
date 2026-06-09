@@ -4,22 +4,27 @@ This document defines the v1 contract for particle shadow casting through the
 existing `ShadowMap` and `ShadowRenderSet` runtime.
 
 ## Background
-Particle systems previously supported `receiveShadows` only. Particle shadow
-casting now uses light-space volume density that is associated with active
-shadow slices, so `CSMShadowMap` and `SingleShadowMap` metadata can be reused
-without coupling shadow strategy code to particle rendering.
+Particle systems previously supported `receiveShadows` only. Billboard particle
+shadow casting now uses light-space volume density that is associated with
+active shadow slices, so `CSMShadowMap` and `SingleShadowMap` metadata can be
+reused without coupling shadow strategy code to particle rendering.
 
 ## API/Contract
-- `ParticleSystemParams.castShadows` must control whether an alpha particle
-  system contributes to particle shadow volume density.
-- `ParticleSystemParams.shadowDensity` must scale the injected particle density.
-- `ParticleSystemParams.shadowSoftness` must control the spherical density
-  falloff used by the v1 particle kernel.
-- `ParticleSystem.castShadows` must default to `true`.
-- `ParticleSystem.shadowDensity` must default to `1`.
-- `ParticleSystem.shadowSoftness` must default to `1`.
-- `ParticleBlendMode.Additive` particles must not cast particle volume shadows
-  in v1, even when `castShadows` is `true`.
+- `ParticleDefinition.castShadows` must control whether an alpha billboard
+  definition contributes to particle shadow volume density.
+- `ParticleDefinition.shadowDensity` must scale the injected billboard density.
+- `ParticleDefinition.shadowSoftness` must control the spherical density falloff
+  used by the v1 billboard particle kernel.
+- `ParticleSystem.castShadows`, `ParticleSystem.shadowDensity`, and
+  `ParticleSystem.shadowSoftness` must proxy the first definition for legacy
+  callers.
+- `ParticleDefinition.castShadows` must default to `true`.
+- `ParticleDefinition.shadowDensity` must default to `1`.
+- `ParticleDefinition.shadowSoftness` must default to `1`.
+- `ParticleBlendMode.Additive` billboard particles must not cast particle
+  volume shadows in v1, even when `castShadows` is `true`.
+- Mesh particle definitions must use regular mesh shadow caster/transmitter
+  draw packets on WebGPU instead of billboard particle shadow volume density.
 - Particle shadow volume sampling must multiply the existing shadow visibility.
 - Missing or inactive particle volume resources must return transmittance `1`.
 - Backends may reduce particle shadow volume resolution when device limits are
@@ -37,11 +42,22 @@ without coupling shadow strategy code to particle rendering.
 import { ParticleSystem, ParticleBlendMode } from "../src/index";
 
 const smoke = new ParticleSystem({
-	blendMode: ParticleBlendMode.Alpha,
-	castShadows: true,
-	receiveShadows: true,
-	shadowDensity: 0.75,
-	shadowSoftness: 1.5,
+	definitions: [
+		{
+			lifetimeRange: [1, 3],
+			speedRange: [0.5, 2],
+			sizeRange: [1, 3],
+			startColor: { r: 180, g: 180, b: 180, a: 0.7 },
+			shape: {
+				kind: "billboard",
+				blendMode: ParticleBlendMode.Alpha,
+			},
+			castShadows: true,
+			receiveShadows: true,
+			shadowDensity: 0.75,
+			shadowSoftness: 1.5,
+		},
+	],
 });
 ```
 
@@ -66,3 +82,5 @@ bunx tsc --noEmit
 - Existing particle systems will default to `castShadows: true`.
 - Additive particle systems remain visually compatible because v1 excludes them
   from particle shadow volume injection.
+- Legacy `ParticleSystemParams.castShadows`, `shadowDensity`, and
+  `shadowSoftness` remain accepted as first-definition aliases.

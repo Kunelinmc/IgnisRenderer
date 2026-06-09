@@ -72,6 +72,13 @@ export class WebGPUScenePassRecorder {
 		deferredEnabled: boolean
 	): Promise<WebGPUDeferredOpaqueFrameState | null> {
 		const targets = this._recordingContext.getFrameTargets();
+		const opaquePackets = [
+			...context.scene.opaquePackets,
+			...this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: true,
+				includeTransparent: false,
+			}),
+		];
 		if (
 			!deferredEnabled ||
 			!this._recordingContext.isMRTEnabled() ||
@@ -79,7 +86,7 @@ export class WebGPUScenePassRecorder {
 		) {
 			await this.recordMainPass(
 				context,
-				context.scene.opaquePackets,
+				opaquePackets,
 				true,
 				true
 			);
@@ -88,7 +95,7 @@ export class WebGPUScenePassRecorder {
 
 		const deferredPackets: DrawPacket[] = [];
 		const fallbackPackets: DrawPacket[] = [];
-		for (const packet of context.scene.opaquePackets) {
+		for (const packet of opaquePackets) {
 			if (materialSupportsWebGPUDeferredLighting(packet.material)) {
 				deferredPackets.push(packet);
 			} else {
@@ -163,6 +170,25 @@ export class WebGPUScenePassRecorder {
 			allowEarlyZPrepass,
 			frameResources
 		);
+	}
+
+	private _buildParticleMeshDrawPackets(
+		context: FrameContext,
+		options: {
+			includeOpaque?: boolean;
+			includeTransparent?: boolean;
+		}
+	): DrawPacket[] {
+		const resources = this._resources as WebGPURenderResources & {
+			buildParticleMeshDrawPackets?: (
+				context: FrameContext,
+				options: {
+					includeOpaque?: boolean;
+					includeTransparent?: boolean;
+				}
+			) => DrawPacket[];
+		};
+		return resources.buildParticleMeshDrawPackets?.(context, options) ?? [];
 	}
 
 	/**

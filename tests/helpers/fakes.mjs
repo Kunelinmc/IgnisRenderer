@@ -332,6 +332,10 @@ export class FakeCommandEncoder {
 		this.calls.push(["drawIndirect", buffer, offset]);
 		return this;
 	}
+	drawIndexedIndirect(buffer, offset = 0) {
+		this.calls.push(["drawIndexedIndirect", buffer, offset]);
+		return this;
+	}
 	drawIndexed(i, instance, firstI, baseV, firstInst) { this.calls.push(["drawIndexed", i, instance, firstI, baseV, firstInst]); return this; }
 	endRenderPass() { this.calls.push(["endRenderPass"]); return this; }
 	end() { this.calls.push(["end"]); return this; }

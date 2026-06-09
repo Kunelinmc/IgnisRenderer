@@ -1,4 +1,8 @@
-import { ParticleBlendMode, type ParticleSystem } from "../particles";
+import {
+	ParticleBlendMode,
+	type ParticleDefinition,
+	type ParticleSystem,
+} from "../particles";
 import type { ShadowMap } from "../lights/shadows/ShadowMapping";
 import type { IVector3 } from "../maths/types";
 import { Matrix4 } from "../maths/Matrix4";
@@ -72,9 +76,7 @@ export function hasParticleShadowCasters(
 	return systems.some(
 		(system) =>
 			system.visible !== false &&
-			system.castShadows === true &&
-			system.blendMode !== ParticleBlendMode.Additive &&
-			system.shadowDensity > MIN_PARTICLE_SHADOW_DENSITY
+			hasParticleSystemShadowCaster(system)
 	);
 }
 
@@ -95,9 +97,7 @@ export function resolveParticleShadowCasterBounds(
 	for (const system of systems) {
 		if (
 			system.visible === false ||
-			system.castShadows !== true ||
-			system.blendMode === ParticleBlendMode.Additive ||
-			system.shadowDensity <= MIN_PARTICLE_SHADOW_DENSITY
+			!hasParticleSystemShadowCaster(system)
 		) {
 			continue;
 		}
@@ -308,20 +308,72 @@ export function sampleParticleShadowVolumeTransmittance(
 function estimateParticleSystemShadowRadius(system: ParticleSystem): number {
 	const emit = system.emit ?? {};
 	const spawnRadius = Math.max(0, emit.spawnRadius ?? 0);
-	const lifetimeRange = emit.lifetimeRange ?? [0.5, 1.5];
-	const speedRange = emit.speedRange ?? [2, 5];
-	const sizeRange = emit.sizeRange ?? [0.5, 1];
-	const lifetime = Math.max(0, lifetimeRange[0], lifetimeRange[1]);
-	const speed = Math.max(0, speedRange[0], speedRange[1]);
-	const startSize = Math.max(0, sizeRange[0], sizeRange[1]);
-	const sizeScale =
-		system.sizeOverLifetime.length > 0 ?
-			Math.max(0, ...system.sizeOverLifetime.map((key) => key.value))
-		:	1;
+	let lifetime = 0;
+	let speed = 0;
+	let startSize = 0;
+	let sizeScale = 1;
+
+	if (Array.isArray(system.definitions)) {
+		for (const definition of system.definitions) {
+			if (definition.shape.kind !== "billboard") continue;
+			lifetime = Math.max(
+				lifetime,
+				definition.lifetimeRange[0],
+				definition.lifetimeRange[1]
+			);
+			speed = Math.max(speed, definition.speedRange[0], definition.speedRange[1]);
+			startSize = Math.max(
+				startSize,
+				definition.sizeRange[0],
+				definition.sizeRange[1]
+			);
+			if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
+				sizeScale = Math.max(
+					sizeScale,
+					...definition.sizeOverLifetime!.map((key) => key.value)
+				);
+			}
+		}
+	} else {
+		const lifetimeRange = emit.lifetimeRange ?? [0.5, 1.5];
+		const speedRange = emit.speedRange ?? [2, 5];
+		const sizeRange = emit.sizeRange ?? [0.5, 1];
+		lifetime = Math.max(0, lifetimeRange[0], lifetimeRange[1]);
+		speed = Math.max(0, speedRange[0], speedRange[1]);
+		startSize = Math.max(0, sizeRange[0], sizeRange[1]);
+		const sizeOverLifetime = system.sizeOverLifetime ?? [];
+		sizeScale =
+			sizeOverLifetime.length > 0 ?
+				Math.max(0, ...sizeOverLifetime.map((key) => key.value))
+			:	1;
+	}
 	const gravity = system.gravity ?? { x: 0, y: 0, z: 0 };
 	const gravityDistance =
 		0.5 * Math.hypot(gravity.x, gravity.y, gravity.z) * lifetime * lifetime;
 	return spawnRadius + speed * lifetime + gravityDistance + startSize * sizeScale;
+}
+
+function hasParticleSystemShadowCaster(system: ParticleSystem): boolean {
+	if (Array.isArray(system.definitions)) {
+		return system.definitions.some(isParticleDefinitionShadowCaster);
+	}
+	return (
+		system.castShadows === true &&
+		system.blendMode !== ParticleBlendMode.Additive &&
+		system.shadowDensity > MIN_PARTICLE_SHADOW_DENSITY
+	);
+}
+
+function isParticleDefinitionShadowCaster(
+	definition: ParticleDefinition
+): boolean {
+	return (
+		definition.shape.kind === "billboard" &&
+		(definition.castShadows ?? true) === true &&
+		(definition.shape.blendMode ?? ParticleBlendMode.Alpha) !==
+			ParticleBlendMode.Additive &&
+		(definition.shadowDensity ?? 1) > MIN_PARTICLE_SHADOW_DENSITY
+	);
 }
 
 function estimateParticleRadiusNDC(
