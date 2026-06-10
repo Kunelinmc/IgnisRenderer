@@ -12,11 +12,17 @@ import type { IncrementalFrameContext } from "./incremental";
 import type { RendererStageDefinition } from "./RendererStageGraph";
 import { RenderPipelineRegistry } from "./RenderPipelineRegistry";
 import { createDefaultPipelineStages } from "./defaultPipeline";
+import type {
+	BackendCapabilities,
+	RenderBackendType,
+} from "../renderers/IRenderBackend";
 
 export interface FramePlannerBuildOptions {
 	registry?: RenderPipelineRegistry;
 	stageOrder?: readonly RendererStageDefinition[];
 	transient?: TransientStore;
+	backendType?: RenderBackendType;
+	backendCapabilities?: BackendCapabilities;
 	incremental?: IncrementalFrameContext;
 	frameContext?: FrameContext;
 	incrementalStartStageIndex?: number;
@@ -79,6 +85,8 @@ export class FramePlanner {
 			features,
 			postProcess,
 			transient: options.transient ?? createTransientStore(),
+			backendType: options.backendType,
+			backendCapabilities: options.backendCapabilities,
 			incremental: options.incremental,
 			frameContext: options.frameContext,
 			incrementalStartStageIndex: options.incrementalStartStageIndex,

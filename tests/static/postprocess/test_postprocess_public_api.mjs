@@ -8,7 +8,6 @@ import {
 	PostProcessHistoryManager,
 	PostProcessPass,
 	PostProcessPassRegistry,
-	PostProcessPipeline,
 	PostProcessTransientManager,
 	resolvePostProcessExecutionOrder,
 	ScreenSpaceAmbientOcclusionPass,
@@ -17,6 +16,7 @@ import {
 	ToneMappingPass,
 	VolumetricLightingPass,
 } from "../../../src/index.ts";
+import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import {
 	createNoopPostProcessSupport,
 	createResolvedPostProcess,

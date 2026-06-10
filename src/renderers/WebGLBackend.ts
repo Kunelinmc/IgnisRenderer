@@ -13,6 +13,7 @@ import type {
 } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
+import { BackendPostProcessRuntime } from "./BackendPostProcessRuntime";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,
@@ -38,6 +39,7 @@ import {
 	finalizeWarmupReport,
 	toShaderCompileError,
 	type WarmupPhaseCounters,
+	type WarmupPostProcessPlan,
 } from "../pipeline/WarmupPlanner";
 import { Logger } from "../foundation/Logger";
 import {
@@ -46,15 +48,15 @@ import {
 } from "../pipeline/FramePassPlanValidator";
 import {
 	createRenderBackendExtensionRegistry,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 } from "./BackendExtensions";
+import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
 	"main-opaque",
 	"main-transparent",
 	"particles",
+	"postprocess",
 ] as const;
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 
@@ -68,7 +70,7 @@ export interface WebGLBackendOptions {
 type WebGLBackendPassHandler = (
 	pass: FramePass,
 	context: FrameContext
-) => void;
+) => void | Promise<void>;
 
 export class WebGLBackend implements IRenderBackend {
 	public readonly type = "webgl";
@@ -78,6 +80,7 @@ export class WebGLBackend implements IRenderBackend {
 		shadows: true,
 		reflection: false,
 		environment: true,
+		postProcess: true,
 		clusteredLighting: true,
 		oit: true,
 		occlusionCulling: false,
@@ -85,13 +88,16 @@ export class WebGLBackend implements IRenderBackend {
 	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 	});
-	public readonly extensions = createRenderBackendExtensionRegistry([
-		{
-			id: RENDERER_POST_PROCESS_EXTENSION_ID,
-			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
-			api: this._postProcessExecutor,
-		},
-	]);
+	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
+		executor: this._postProcessExecutor,
+		getPassRegistry: () => this._postProcessRegistry,
+		warn: (key, message) =>
+			Logger.warn(`[${key}] ${message}`, {
+				scope: "WebGLBackend",
+				onceKey: key,
+			}),
+	});
+	public readonly extensions = createRenderBackendExtensionRegistry([]);
 
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
@@ -100,6 +106,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _onBackendResourceEvent:
 		| RendererBackendBridge["onBackendResourceEvent"]
 		| null = null;
+	private _postProcessRegistry: PostProcessPassRegistry | null = null;
 	private _onDeviceLost:
 		| RendererBackendBridge["onDeviceLost"]
 		| null = null;
@@ -158,6 +165,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
 		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
+		this._postProcessRegistry = renderer.postProcess ?? null;
 		this._ensureParticleSimulator();
 	}
 
@@ -253,7 +261,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._width = toSafeDimension(width);
 		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
-		this._emitPostProcessResourceEvent("invalidate", "resize");
+		this._postProcessRuntime.invalidateFrameSized();
 		this._frameExecutor?.resize(this._width, this._height);
 	}
 
@@ -283,7 +291,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor.beginFrame(context);
 	}
 
-	public executePass(pass: FramePass, context: FrameContext): void {
+	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
 		if (!this._frameExecutor) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
@@ -301,8 +309,14 @@ export class WebGLBackend implements IRenderBackend {
 			this._markPassExecuted(pass.stage);
 			return;
 		}
-		handler(pass, context);
+		const result = handler(pass, context);
+		if (result && typeof (result as Promise<void>).then === "function") {
+			return (result as Promise<void>).then(() => {
+				this._markPassExecuted(pass.stage);
+			});
+		}
 		this._markPassExecuted(pass.stage);
+		return result;
 	}
 
 	public skipPass(pass: FramePass): void {
@@ -315,12 +329,14 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._frameExecutor.endFrame();
 		this._particleSimulator?.endFrame();
+		this._postProcessRuntime.commitFrame();
 	}
 
-	public abortFrame(_error?: unknown): void {
+	public async abortFrame(_error?: unknown): Promise<void> {
 		if (this._contextLost) {
 			return;
 		}
+		await this._postProcessRuntime.abortFrame(_error);
 		this._frameExecutor?.abortFrame();
 		this._particleSimulator?.endFrame();
 		this._executedPasses.clear();
@@ -336,7 +352,15 @@ export class WebGLBackend implements IRenderBackend {
 		if (!this._frameExecutor) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
-		const plan = buildWarmupPlan(context, options);
+		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
+		if (options.includePostProcess !== false) {
+			const graph = this._postProcessRuntime.compileWarmupGraph(context);
+			warmupPostProcessPlan = {
+				passIds: graph.orderedPasses.map((pass) => pass.id),
+				descriptors: graph.orderedPasses.map((pass) => pass.pass),
+			};
+		}
+		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		try {
 			const phase = await this._frameExecutor.warmup(context, plan);
 			addWarmupPhase(report, phase);
@@ -357,7 +381,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._emitPostProcessResourceEvent("destroy", "destroy");
+		this._postProcessRuntime.destroy();
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
 		this._particleSimulator = null;
@@ -406,7 +430,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 
 		this._gl = gl;
-		this._emitPostProcessResourceEvent("destroy", "context-initialize");
+		this._postProcessRuntime.destroy();
 		this._frameExecutor?.destroy();
 		this._frameExecutor = new WebGLFrameExecutor(
 			gl,
@@ -431,18 +455,6 @@ export class WebGLBackend implements IRenderBackend {
 			phase: phase.phase,
 			completed: phase.compiled + phase.skipped + phase.failed,
 			total: phase.total,
-		});
-	}
-
-	private _emitPostProcessResourceEvent(
-		action: "invalidate" | "destroy",
-		reason: string
-	): void {
-		this._onBackendResourceEvent?.({
-			resource: "postprocess",
-			action,
-			backend: "webgl",
-			reason,
 		});
 	}
 
@@ -557,6 +569,9 @@ export class WebGLBackend implements IRenderBackend {
 		});
 		for (const stage of SUPPORTED_WEBGL_STAGES) {
 			handlers.set(stage, (pass, context) => {
+				if (pass.stage === "postprocess") {
+					return this._postProcessRuntime.execute(context);
+				}
 				this._frameExecutor?.executePass(pass, context);
 			});
 		}

@@ -23,7 +23,6 @@ import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
 	GammaPass,
 	PostProcessPassRegistry,
-	PostProcessPipeline,
 	ToneMappingPass,
 	type ResolvedPostProcessState,
 } from "../postprocess";
@@ -47,10 +46,6 @@ import {
 	normalizeEnvironmentIBLUpdateOptions,
 	type EnvironmentIBLUpdateOptions,
 } from "../lights/runtime/EnvironmentIBLUpdateRuntime";
-import {
-	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
-	WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
-} from "../pipeline/WarmupPlanner";
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
@@ -94,7 +89,6 @@ import type {
 	WarmupProgress,
 	WarmupReport,
 } from "./IRenderBackend";
-import { RendererPostProcessController } from "./RendererPostProcessController";
 import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
 
 export type {
@@ -202,8 +196,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _environmentIBLUpdateRequestToken: number;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
-	private _postProcessPipeline: PostProcessPipeline;
-	private _postProcessController: RendererPostProcessController;
 	private _occlusionCullingController: RendererOcclusionCullingController;
 	private _stageExecutors: Map<string, RendererStageExecutor>;
 
@@ -220,18 +212,7 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		});
 		this._stageExecutors = this._createStageExecutors();
 		this.logger = Logger;
-		this._postProcessPipeline = new PostProcessPipeline();
 		this.postProcess = new PostProcessPassRegistry();
-		this._postProcessController = new RendererPostProcessController({
-			backend: this.backend,
-			postProcess: this.postProcess,
-			pipeline: this._postProcessPipeline,
-			warn: (key, message) =>
-				this.logger.warn(`[${key}] ${message}`, {
-					scope: "Renderer",
-					onceKey: key,
-				}),
-		});
 		this._occlusionCullingController =
 			new RendererOcclusionCullingController(this.backend);
 		this.postProcess.on("change", (change) => {
@@ -365,7 +346,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	 * to `backendresourceevent` instead of calling this method directly.
 	 */
 	public onBackendResourceEvent(event: RendererBackendResourceEvent): void {
-		this._postProcessController.handleBackendResourceEvent(event);
 		if (
 			event.resource === "webgl-program" &&
 			event.reason === "shader-compile-pending"
@@ -405,17 +385,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		);
 		const resolvedPostProcess = this.postProcess.createSnapshot(
 			this.backend.type
-		);
-		const warmupPostProcessPasses =
-			this._postProcessController.getExecutionOrder(resolvedPostProcess);
-		const warmupPostProcessOrder = warmupPostProcessPasses.map((pass) => pass.id);
-		transient.set(
-			WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY,
-			warmupPostProcessOrder
-		);
-		transient.set(
-			WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
-			warmupPostProcessPasses.map((pass) => pass.pass)
 		);
 		for (const warning of [
 			...resolved.warnings,
@@ -922,7 +891,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				"probe-capture",
 				(state) => this._executeProbeCaptureStage(state),
 			],
-			["postprocess", (state) => this._executePostProcessStageIfReady(state)],
 			["sync-out", () => this.scene.syncECSToNode()],
 		]);
 	}
@@ -1150,6 +1118,8 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				features: state.resolved,
 				postProcess: state.resolvedPostProcess,
 				transient: state.transient,
+				backendType: this.backend.type,
+				backendCapabilities: this.backend.capabilities,
 				incremental: state.incrementalFrameContext,
 				frameContext: context,
 				incrementalStartStageIndex: state.incrementalStartStageIndex,
@@ -1180,14 +1150,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 					(this.backend as unknown as ProbeWebGPUCaptureSource)
 				:	null,
 		});
-	}
-
-	private async _executePostProcessStageIfReady(
-		state: RenderSceneFrameState
-	): Promise<void> {
-		if (state.context) {
-			await this._executePostProcessStage(state.context);
-		}
 	}
 
 	private async _executeFramePassStage(
@@ -1331,7 +1293,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				await this.backend.endFrame();
 				state.frameStarted = false;
 			}
-			this._postProcessController.commitFrame();
 		} catch (error) {
 			await this._abortFailedFrame(error, state.frameStarted);
 			throw error;
@@ -1345,8 +1306,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		error: unknown,
 		frameStarted: boolean
 	): Promise<void> {
-		await this._postProcessController.abortFrame(error);
-
 		if (!frameStarted || !this.backend.abortFrame) {
 			return;
 		}
@@ -1448,10 +1407,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 
 	private _isFramePassStage(stageId: string): boolean {
 		return this.pipeline.isFramePassStage(stageId as FramePassStage);
-	}
-
-	private async _executePostProcessStage(context: FrameContext): Promise<void> {
-		await this._postProcessController.execute(context);
 	}
 
 	private _getSafeAspectRatio(width: number, height: number): number {

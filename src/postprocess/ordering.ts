@@ -59,7 +59,7 @@ export function getBuiltinPostProcessOrder(
  * Returns the stable insertion order for custom passes in a placement bucket.
  *
  * @param placement Placement bucket requested by a custom pass.
- * @returns Numeric base order used by `PostProcessPipeline`.
+ * @returns Numeric base order used by post-process graph compilation.
  * @sideEffects None.
  */
 export function getCustomPostProcessPlacementOrder(

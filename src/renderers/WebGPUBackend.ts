@@ -24,13 +24,12 @@ import {
 	createRenderBackendExtensionRegistry,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 } from "./BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
 import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
+import { BackendPostProcessRuntime } from "./BackendPostProcessRuntime";
 import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
 import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
@@ -109,6 +108,7 @@ import {
 	finalizeWarmupReport,
 	toShaderCompileError,
 	type WarmupPhaseCounters,
+	type WarmupPostProcessPlan,
 } from "../pipeline/WarmupPlanner";
 import type { Texture } from "../core/Texture";
 import {
@@ -117,6 +117,7 @@ import {
 	type IWebGPUComputeFacade,
 } from "./webgpu/ComputeFacade";
 import { Logger } from "../foundation/Logger";
+import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 interface InternalSampler extends ISampler {
 	destroy(): void;
@@ -262,6 +263,15 @@ export class WebGPUBackend implements IRenderBackend {
 		assertDeviceOperational: (operation) =>
 			this._assertDeviceOperational(operation),
 	});
+	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
+		executor: this._postProcessExecutor,
+		getPassRegistry: () => this._postProcessRegistry,
+		warn: (key, message) =>
+			Logger.warn(`[${key}] ${message}`, {
+				scope: "WebGPUBackend",
+				onceKey: key,
+			}),
+	});
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
 			this._frameExecutor?.getOcclusionVisibilityProvider(options) ?? null,
@@ -270,11 +280,6 @@ export class WebGPUBackend implements IRenderBackend {
 		},
 	};
 	public readonly extensions = createRenderBackendExtensionRegistry([
-		{
-			id: RENDERER_POST_PROCESS_EXTENSION_ID,
-			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
-			api: this._postProcessExecutor,
-		},
 		{
 			id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 			insertionPoints: [
@@ -335,6 +340,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _onBackendResourceEvent:
 		| RendererBackendBridge["onBackendResourceEvent"]
 		| null = null;
+	private _postProcessRegistry: PostProcessPassRegistry | null = null;
 	private _onDeviceLost:
 		| RendererBackendBridge["onDeviceLost"]
 		| null = null;
@@ -417,6 +423,7 @@ export class WebGPUBackend implements IRenderBackend {
 			shadows: true,
 			reflection: true,
 			environment: true,
+			postProcess: true,
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: this._enableOcclusionCulling,
@@ -455,6 +462,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._onBackendResourceEvent =
 			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
 		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
+		this._postProcessRegistry = renderer.postProcess ?? null;
 	}
 
 	public getComputeFacade(): IWebGPUComputeFacade {
@@ -772,7 +780,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._recreateDepthTexture();
-		this._emitPostProcessResourceEvent("invalidate", "resize");
+		this._postProcessRuntime.invalidateFrameSized();
 		if (options.invalidateFrameTargets !== false) {
 			this._frameExecutor?.invalidateFrameTargets();
 		}
@@ -824,7 +832,15 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
-		const plan = buildWarmupPlan(context, options);
+		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
+		if (options.includePostProcess !== false) {
+			const graph = this._postProcessRuntime.compileWarmupGraph(context);
+			warmupPostProcessPlan = {
+				passIds: graph.orderedPasses.map((pass) => pass.id),
+				descriptors: graph.orderedPasses.map((pass) => pass.pass),
+			};
+		}
+		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		this._warmupLogCompilationInfo = options.logCompilationInfo === true;
 		try {
 			const framePhase = await this._frameExecutor.warmup(context, plan);
@@ -898,12 +914,14 @@ export class WebGPUBackend implements IRenderBackend {
 		if (frameError) {
 			throw frameError;
 		}
+		this._postProcessRuntime.commitFrame();
 	}
 
-	public abortFrame(_error?: unknown): void {
+	public async abortFrame(_error?: unknown): Promise<void> {
 		const wasActive = this._frameActive;
 		let abortError: unknown = null;
 		try {
+			await this._postProcessRuntime.abortFrame(_error);
 			this._frameExecutor?.abortFrame();
 			if (wasActive) {
 				this._particleSimulator?.endFrame();
@@ -1741,19 +1759,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _destroyPostProcessResourcesForReset(): void {
-		this._emitPostProcessResourceEvent("destroy", "reset");
-	}
-
-	private _emitPostProcessResourceEvent(
-		action: "invalidate" | "destroy",
-		reason: string
-	): void {
-		this._onBackendResourceEvent?.({
-			resource: "postprocess",
-			action,
-			backend: "webgpu",
-			reason,
-		});
+		this._postProcessRuntime.destroy();
 	}
 
 	private _rollbackInitializationState(): void {
@@ -2740,7 +2746,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupCache.clear();
 		this._bindingGroupCacheEntryCount = 0;
-		this._emitPostProcessResourceEvent("invalidate", "msaa-sample-count");
+		this._postProcessRuntime.invalidateFrameSized();
 		if (options.invalidateFrameTargets !== false) {
 			this._frameExecutor?.invalidateFrameTargets();
 		}
@@ -2758,7 +2764,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _applyShaderRuntimeChanged(): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
-		this._emitPostProcessResourceEvent("destroy", "shader-runtime-changed");
+		this._postProcessRuntime.destroy();
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();
@@ -3117,6 +3123,12 @@ export class WebGPUBackend implements IRenderBackend {
 							context
 						);
 					}
+				},
+			],
+			[
+				"postprocess",
+				async (_pass, context) => {
+					await this._postProcessRuntime.execute(context);
 				},
 			],
 		]);

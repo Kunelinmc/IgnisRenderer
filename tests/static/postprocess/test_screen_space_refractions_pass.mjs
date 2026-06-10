@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 
 import {
-	PostProcessPipeline,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	ScreenSpaceRefractionsPass,
 	createSSRefractionTraceParams,
 	resolveSSRefractionOptions,
 } from "../../../src/postprocess/index.ts";
+import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createFrameContext(transmissionFactor = 1) {

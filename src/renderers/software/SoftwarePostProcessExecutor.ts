@@ -1,7 +1,7 @@
 import type { FrameContext } from "../../pipeline/types";
 import type {
+	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	PostProcessBackendAdapter,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -18,7 +18,7 @@ export interface SoftwarePostProcessExecutorHost {
 /**
  * Executes logical post-process passes on the software backend.
  */
-export class SoftwarePostProcessExecutor implements PostProcessBackendAdapter {
+export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
 	private _host: SoftwarePostProcessExecutorHost;
 
@@ -29,7 +29,7 @@ export class SoftwarePostProcessExecutor implements PostProcessBackendAdapter {
 	/**
 	 * Allocates a CPU-backed post-process resource.
 	 *
-	 * @param desc Resource descriptor from `PostProcessPipeline`.
+	 * @param desc Resource descriptor from the backend post-process resource pool.
 	 * @returns Software resource handle wrapping a `Float32Array`.
 	 * @sideEffects Allocates typed-array storage.
 	 */

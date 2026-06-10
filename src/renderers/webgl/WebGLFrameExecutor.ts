@@ -101,10 +101,7 @@ import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
-import {
-	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
-	toShaderCompileError,
-} from "../../pipeline/WarmupPlanner";
+import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
 	isFiniteMatrix,
@@ -1070,7 +1067,7 @@ export class WebGLFrameExecutor {
 			}
 		}
 
-		const descriptorById = this._getWarmupPostProcessDescriptorMap(context);
+		const descriptorById = this._getWarmupPostProcessDescriptorMap(context, plan);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
@@ -1245,10 +1242,11 @@ export class WebGLFrameExecutor {
 	}
 
 	private _getWarmupPostProcessDescriptorMap(
-		context: FrameContext
+		context: FrameContext,
+		plan: WarmupPlan
 	): Map<string, PostProcessPass> {
 		const descriptors =
-			context.transient?.get(WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY) ??
+			plan.postProcessDescriptors ??
 			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
 	}

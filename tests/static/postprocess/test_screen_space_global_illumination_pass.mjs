@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 
 import {
-	PostProcessPipeline,
 	ScreenSpaceGlobalIlluminationPass,
 	createSSGIKernelParams,
 	resolveSSGIOptions,
 } from "../../../src/postprocess/index.ts";
+import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGPUPostProcessRuntime } from "../../../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {

@@ -17,11 +17,10 @@ class StubBackend {
 			shadows: false,
 			reflection: false,
 			environment: false,
-			ssao: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
+			clusteredLighting: false,
+			oit: false,
+			occlusionCulling: false,
+			postProcess: false,
 		};
 		this.postProcessSupport = installNoopPostProcessAdapter(
 			this,
@@ -35,6 +34,10 @@ class StubBackend {
 
 	async init(canvas) {
 		this.initCanvas = canvas;
+	}
+
+	setRenderer(renderer) {
+		this.renderer = renderer;
 	}
 
 	onDeviceLost(info) {
@@ -139,17 +142,8 @@ async function testRendererPostProcessCleanupBridge(canvas) {
 	const postProcess = renderer.postProcess.createSnapshot("stub");
 	const frameContext = createPostProcessFrameContext(postProcess);
 
-	await renderer._postProcessPipeline.execute({
-		frameContext,
-		executor: backend.postProcessSupport.executor,
-		gBuffer: backend.postProcessSupport.executor.createGBufferBridge(frameContext),
-		historyFinalization: "manual",
-	});
-	renderer.onBackendResourceEvent({
-		resource: "postprocess",
-		action: "destroy",
-		backend: "stub",
-	});
+	await backend.postProcessSupport.runtime.execute(frameContext);
+	backend.postProcessSupport.runtime.destroy();
 
 	const destroyedIds = backend.postProcessSupport.executor.destroyedResources.map(
 		(handle) => handle.id

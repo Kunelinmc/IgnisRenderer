@@ -1,6 +1,6 @@
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import type { Material } from "../materials/Material";
-import { defineTransientKey, type FrameContext } from "./types";
+import type { FrameContext } from "./types";
 import { ShaderCompileError } from "../shaders/runtime";
 import type { ShaderCompilerBackend } from "../shaders/runtime/errorMapping";
 import type {
@@ -10,7 +10,7 @@ import type {
 	WarmupReport,
 } from "../renderers/IRenderBackend";
 import type { PostProcessPass } from "../postprocess/PostProcessPass";
-import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessPipeline";
+import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessGraphCompiler";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 
@@ -22,24 +22,23 @@ export interface WarmupPlan {
 	enableParticles: boolean;
 	includePostProcess: boolean;
 	postProcessPasses: string[];
+	postProcessDescriptors: readonly PostProcessPass[];
 	sceneTargetMode: WarmupSceneTargetMode;
 }
-
-export const WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY =
-	"pipeline:warmup-postprocess-order";
-
-export const WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY =
-	defineTransientKey<readonly PostProcessPass[]>(
-		"pipeline:warmup-postprocess-descriptors"
-	);
 
 export interface WarmupPhaseCounters extends WarmupPhaseReport {
 	errors: ShaderCompileError[];
 }
 
+export interface WarmupPostProcessPlan {
+	readonly passIds: readonly string[];
+	readonly descriptors: readonly PostProcessPass[];
+}
+
 export function buildWarmupPlan(
 	context: FrameContext,
-	options: WarmupOptions = {}
+	options: WarmupOptions = {},
+	postProcessPlan?: WarmupPostProcessPlan
 ): WarmupPlan {
 	const includeCore = options.includeCorePasses !== false;
 	const includeShadow = options.includeShadowPass !== false;
@@ -51,7 +50,9 @@ export function buildWarmupPlan(
 		(material): material is ShaderMaterial => material instanceof ShaderMaterial
 	);
 	const postProcessPasses =
-		includePost ? resolveEnabledPostProcessPasses(context) : [];
+		includePost ? resolveEnabledPostProcessPasses(context, postProcessPlan) : [];
+	const postProcessDescriptors =
+		includePost ? resolvePostProcessDescriptors(context, postProcessPlan) : [];
 	const useMRT = postProcessPasses.length > 0;
 
 	return {
@@ -71,6 +72,7 @@ export function buildWarmupPlan(
 			(context.scene.particleSystems?.length ?? 0) > 0,
 		includePostProcess: includePost,
 		postProcessPasses,
+		postProcessDescriptors,
 		sceneTargetMode: useMRT ? "mrt" : "single",
 	};
 }
@@ -162,18 +164,25 @@ function collectUniqueMaterials(context: FrameContext): Material[] {
 	return Array.from(unique);
 }
 
-function resolveEnabledPostProcessPasses(context: FrameContext): string[] {
-	const orderedPasses = context.transient.get(
-		WARMUP_POST_PROCESS_ORDER_TRANSIENT_KEY
-	);
-	if (
-		Array.isArray(orderedPasses) &&
-		orderedPasses.every((passId) => typeof passId === "string")
-	) {
-		return orderedPasses.slice();
+function resolveEnabledPostProcessPasses(
+	context: FrameContext,
+	postProcessPlan?: WarmupPostProcessPlan
+): string[] {
+	if (postProcessPlan) {
+		return postProcessPlan.passIds.slice();
 	}
 
 	return resolvePostProcessExecutionOrder(context.postProcess).map(
 		(pass) => pass.id
 	);
+}
+
+function resolvePostProcessDescriptors(
+	context: FrameContext,
+	postProcessPlan?: WarmupPostProcessPlan
+): readonly PostProcessPass[] {
+	if (postProcessPlan) {
+		return postProcessPlan.descriptors.slice();
+	}
+	return context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 }

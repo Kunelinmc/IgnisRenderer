@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 
 import {
-	PostProcessPipeline,
 	TemporalAntiAliasingPass,
 } from "../../../src/postprocess/index.ts";
+import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import {
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";

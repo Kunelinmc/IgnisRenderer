@@ -2,6 +2,7 @@ import type {
 	RenderPipelineStageRegistration,
 } from "./RenderPipelineRegistry";
 import { hasParticleShadowCasters } from "./ParticleShadowVolume";
+import { hasPostProcessExecutionPasses } from "../postprocess";
 
 /**
  * Creates the built-in renderer pipeline stage registrations shared by
@@ -88,7 +89,22 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 			dependsOn: ["main-transparent"],
 			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
 		},
-		{ id: "postprocess", kind: "renderer", dependsOn: ["particles"] },
+		{
+			id: "postprocess",
+			kind: "backend-pass",
+			dependsOn: ["particles"],
+			shouldRun: ({
+				backendCapabilities,
+				backendType,
+				frameContext,
+				postProcess,
+			}) =>
+				backendCapabilities?.postProcess === true &&
+				hasPostProcessExecutionPasses(postProcess, {
+					backend: backendType,
+					frameContext,
+				}),
+		},
 		{ id: "sync-out", kind: "renderer", dependsOn: ["postprocess"] },
 	];
 }

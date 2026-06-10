@@ -17,6 +17,7 @@ class RegistryBackend {
 			environment: false,
 			clusteredLighting: false,
 			oit: false,
+			postProcess: false,
 		};
 		this.contexts = [];
 		this.executedPasses = [];
@@ -97,6 +98,7 @@ class NoAdapterBackend {
 			environment: false,
 			clusteredLighting: false,
 			oit: false,
+			postProcess: false,
 		};
 		this.contexts = [];
 		this.executedPasses = [];
@@ -194,12 +196,20 @@ async function run() {
 		assert.ok(
 			backend.postProcessSupport.executor.executedPasses.includes("custom-edge")
 		);
-		assert.equal(backend.executedPasses.includes("postprocess"), false);
+		assert.equal(backend.executedPasses.includes("postprocess"), true);
 		assert.equal(
 			backend.executionEvents.some(
 				(event) => event[0] === "backend" && event[1] === "postprocess"
 			),
-			false
+			true
+		);
+		assert.ok(
+			backend.executionEvents.findIndex(
+				(event) => event[0] === "backend" && event[1] === "postprocess"
+			) <
+				backend.executionEvents.findIndex(
+					(event) => event[0] === "postprocess" && event[1] === "custom-edge"
+				)
 		);
 		assert.ok(
 			backend.executionEvents.findIndex(
@@ -236,13 +246,13 @@ async function run() {
 		assert.equal(noopBackend.gBufferRequests, 0);
 		assert.equal(noopBackend.executedPasses.includes("postprocess"), false);
 
-		const missingAdapterWarnings = [];
+		const unsupportedWarnings = [];
 		Logger.configure({
 			level: "warn",
 			resetOnceKeys: true,
 			sink: {
 				warn: (...args) =>
-					missingAdapterWarnings.push(
+					unsupportedWarnings.push(
 						args.map((arg) => String(arg)).join(" ")
 					),
 			},
@@ -273,10 +283,10 @@ async function run() {
 		await missingAdapterRenderer.renderScene(16);
 		Logger.reset();
 		assert.equal(
-			missingAdapterWarnings.filter((warning) =>
-				warning.includes("[missing-postprocess-adapter-missing]")
+			unsupportedWarnings.filter((warning) =>
+				warning.includes("postprocess")
 			).length,
-			1
+			0
 		);
 		assert.equal(
 			missingAdapterBackend.executedPasses.includes("postprocess"),

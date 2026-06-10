@@ -9,8 +9,6 @@ import {
 	MotionBlurPass,
 	PostProcessPass,
 	PostProcessPassRegistry,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceRefractionsPass,
@@ -20,6 +18,7 @@ import {
 	VolumetricLightingPass,
 	createRenderBackendExtensionRegistry,
 } from "../../src/index.ts";
+import { BackendPostProcessRuntime } from "../../src/renderers/BackendPostProcessRuntime.ts";
 
 export const ALL_POST_PROCESS_PASS_IDS = [
 	"ssao",
@@ -229,15 +228,42 @@ export function installNoopPostProcessAdapter(
 	backend = "test"
 ) {
 	const support = createNoopPostProcessAdapter(backend);
+	const runtime = new BackendPostProcessRuntime({
+		executor: support.executor,
+		getPassRegistry: () => target.renderer?.postProcess ?? null,
+	});
+	support.runtime = runtime;
+	if (target.capabilities && typeof target.capabilities === "object") {
+		target.capabilities.postProcess = true;
+	}
+	const originalExecutePass = target.executePass?.bind(target);
+	const originalEndFrame = target.endFrame?.bind(target);
+	const originalAbortFrame = target.abortFrame?.bind(target);
+	target.executePass = async (pass, context) => {
+		if (pass.stage === "postprocess") {
+			if (Array.isArray(target.executedPasses)) {
+				target.executedPasses.push(pass.stage);
+			}
+			if (Array.isArray(target.executionEvents)) {
+				target.executionEvents.push(["backend", pass.stage]);
+			}
+			await runtime.execute(context);
+			return;
+		}
+		return originalExecutePass?.(pass, context);
+	};
+	target.endFrame = async () => {
+		const result = await originalEndFrame?.();
+		runtime.commitFrame();
+		return result;
+	};
+	target.abortFrame = async (error) => {
+		await runtime.abortFrame(error);
+		return originalAbortFrame?.(error);
+	};
 	Object.defineProperty(target, "extensions", {
 		configurable: true,
-		value: createRenderBackendExtensionRegistry([
-			{
-				id: RENDERER_POST_PROCESS_EXTENSION_ID,
-				insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
-				api: support.executor,
-			},
-		]),
+		value: createRenderBackendExtensionRegistry([]),
 	});
 	return support;
 }

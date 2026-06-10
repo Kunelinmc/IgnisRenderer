@@ -170,7 +170,7 @@ export interface PostProcessPassImplementation<
 	/**
 	 * Executes the logical pass through pass-owned backend implementation logic.
 	 *
-	 * @param request Current pass request produced by `PostProcessPipeline`.
+	 * @param request Current pass request produced by backend post-process runtime.
 	 * @param context Backend-provided low-level execution helpers.
 	 * @returns Pass execution result used for scheduling and history tracking.
 	 * @sideEffects May mutate backend render targets or post-process histories.
@@ -228,7 +228,7 @@ export interface PostProcessPassRequest<TOptions = unknown>
 /**
  * Backend context request for a pass-owned post-process implementation.
  *
- * `PostProcessPipeline` creates this only when the selected backend
+ * Backend post-process runtime creates this only when the selected backend
  * implementation exposes `execute()`. Backend executors must use `pass` and
  * `implementation` from this request as the contract source instead of
  * reclassifying passes from string ids alone.
@@ -324,8 +324,6 @@ export interface IPostProcessExecutor {
 	 */
 	abortFrame?(request: PostProcessFrameAbortRequest): void | Promise<void>;
 }
-
-export interface PostProcessBackendAdapter extends IPostProcessExecutor {}
 
 export interface PostProcessPipelineExecuteRequest {
 	readonly frameContext: FrameContext;

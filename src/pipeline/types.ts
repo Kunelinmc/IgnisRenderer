@@ -280,6 +280,7 @@ export const BUILTIN_FRAME_PASS_STAGES = [
 	"main-opaque",
 	"main-transparent",
 	"particles",
+	"postprocess",
 ] as const;
 
 export type BuiltinFramePassStage = (typeof BUILTIN_FRAME_PASS_STAGES)[number];

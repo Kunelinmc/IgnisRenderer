@@ -934,14 +934,11 @@ async function testPublicDeviceLifecycleMethods() {
 function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 	const { backend } = createBackend();
 	const calls = [];
-	backend.setRenderer({
-		canvas: { width: 1, height: 1 },
-		onBackendResourceEvent(event) {
-			assert.equal(event.resource, "postprocess");
-			assert.equal(event.action, "destroy");
-			calls.push(`postprocess:${event.backend}`);
+	backend._postProcessRuntime = {
+		destroy() {
+			calls.push("postprocess-runtime");
 		},
-	});
+	};
 	backend._frameExecutor = {
 		destroy() {
 			calls.push("frame-executor");
@@ -964,7 +961,7 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 	}
 
 	assert.deepEqual(calls, [
-		"postprocess:webgpu",
+		"postprocess-runtime",
 		"frame-executor",
 		"resources",
 	]);
@@ -1178,7 +1175,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 	assert.equal(backend._plannedPasses.size > 0, true);
 	assert.equal(backend._executedPasses.has("particle-sim"), true);
 
-	backend.abortFrame(new Error("failed frame"));
+	await backend.abortFrame(new Error("failed frame"));
 
 	assert.equal(executorAbortCalls, 1);
 	assert.equal(executorEndCalls, 0);

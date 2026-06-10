@@ -9,6 +9,7 @@ import { Rasterizer } from "./software/Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
 } from "./software/SoftwarePostProcessExecutor";
+import { BackendPostProcessRuntime } from "./BackendPostProcessRuntime";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
@@ -47,9 +48,8 @@ import {
 import { Logger } from "../foundation/Logger";
 import {
 	createRenderBackendExtensionRegistry,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 } from "./BackendExtensions";
+import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 export type {
 	SoftwareBackendOptions,
@@ -130,6 +130,7 @@ export class SoftwareBackend implements IRenderBackend {
 		shadows: true,
 		reflection: true,
 		environment: true,
+		postProcess: true,
 		clusteredLighting: false,
 		oit: false,
 		occlusionCulling: false,
@@ -139,16 +140,20 @@ export class SoftwareBackend implements IRenderBackend {
 			getCanvasContext: () => this._ctx,
 		}
 	);
-	public readonly extensions = createRenderBackendExtensionRegistry([
-		{
-			id: RENDERER_POST_PROCESS_EXTENSION_ID,
-			insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
-			api: this._postProcessExecutor,
-		},
-	]);
+	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
+		executor: this._postProcessExecutor,
+		getPassRegistry: () => this._postProcessRegistry,
+		warn: (key, message) =>
+			Logger.warn(`[${key}] ${message}`, {
+				scope: "SoftwareBackend",
+				onceKey: key,
+			}),
+	});
+	public readonly extensions = createRenderBackendExtensionRegistry([]);
 	public readonly requestedRasterMode: SoftwareRasterMode;
 
 	private _renderer: RendererBackendBridge | null = null;
+	private _postProcessRegistry: PostProcessPassRegistry | null = null;
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
@@ -199,6 +204,7 @@ export class SoftwareBackend implements IRenderBackend {
 	 */
 	public setRenderer(renderer: RendererBackendBridge): void {
 		this._renderer = renderer;
+		this._postProcessRegistry = renderer.postProcess ?? null;
 		this._ensureRuntime();
 	}
 
@@ -259,6 +265,7 @@ export class SoftwareBackend implements IRenderBackend {
 			this._offscreenCanvas.width = width;
 			this._offscreenCanvas.height = height;
 		}
+		this._postProcessRuntime.invalidateFrameSized();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -400,7 +407,10 @@ export class SoftwareBackend implements IRenderBackend {
 		this._commitTAARenderState();
 		this._activeContext = null;
 
-		if (!this._renderer || !this._ctx) return;
+		if (!this._renderer || !this._ctx) {
+			this._postProcessRuntime.commitFrame();
+			return;
+		}
 
 		const imageData = this._getFrameImageData(this._renderer);
 		if (this._offscreenCtx && this._offscreenCanvas) {
@@ -411,9 +421,11 @@ export class SoftwareBackend implements IRenderBackend {
 		} else {
 			this._ctx.putImageData(imageData, 0, 0);
 		}
+		this._postProcessRuntime.commitFrame();
 	}
 
-	public abortFrame(_error?: unknown): void {
+	public async abortFrame(_error?: unknown): Promise<void> {
+		await this._postProcessRuntime.abortFrame(_error);
 		this._particleSimulator?.endFrame();
 		this._activeContext = null;
 	}
@@ -619,7 +631,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._emitPostProcessResourceEvent("destroy", "destroy");
+		this._postProcessRuntime.destroy();
 		this._mainPass?.destroy();
 		this._mainPass = null;
 		this._particlePass = null;
@@ -627,18 +639,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._reflectionPass = null;
 		this._particleSimulator = null;
 		this._rasterizer = null;
-	}
-
-	private _emitPostProcessResourceEvent(
-		action: "invalidate" | "destroy",
-		reason: string
-	): void {
-		this._renderer?.onBackendResourceEvent?.({
-			resource: "postprocess",
-			action,
-			backend: "software",
-			reason,
-		});
 	}
 
 	private _syncActiveRasterMode(): void {
@@ -703,6 +703,12 @@ export class SoftwareBackend implements IRenderBackend {
 				"particles",
 				(context) => {
 					this._particlePass?.render(context);
+				},
+			],
+			[
+				"postprocess",
+				async (context) => {
+					await this._postProcessRuntime.execute(context);
 				},
 			],
 			["ssao", () => {}],

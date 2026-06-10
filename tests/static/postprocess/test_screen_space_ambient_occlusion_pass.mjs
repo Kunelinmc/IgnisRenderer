@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 
 import {
-	PostProcessPipeline,
 	ScreenSpaceAmbientOcclusionPass,
 	SoftwareScreenSpaceAmbientOcclusionImplementation,
 	createSSAOKernelParams,
 	resolveSSAODownsample,
 	resolveSSAOOptions,
 } from "../../../src/postprocess/index.ts";
+import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import {
 	createResolvedPostProcess,

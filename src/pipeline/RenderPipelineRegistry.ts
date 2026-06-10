@@ -24,6 +24,10 @@ import type {
 	PostProcessPass,
 	ResolvedPostProcessState,
 } from "../postprocess";
+import type {
+	BackendCapabilities,
+	RenderBackendType,
+} from "../renderers/IRenderBackend";
 
 export type RenderPipelineStageKind =
 	| "renderer"
@@ -35,6 +39,8 @@ export interface RenderPipelineStageRunContext {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
+	backendType?: RenderBackendType;
+	backendCapabilities?: BackendCapabilities;
 	frameContext?: FrameContext;
 	incremental?: IncrementalFrameContext;
 }
@@ -67,6 +73,8 @@ export interface RenderPipelineFramePlanOptions {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
+	backendType?: RenderBackendType;
+	backendCapabilities?: BackendCapabilities;
 	incremental?: IncrementalFrameContext;
 	frameContext?: FrameContext;
 	incrementalStartStageIndex?: number;
@@ -231,6 +239,8 @@ export class RenderPipelineRegistry {
 					features: options.features,
 					postProcess: options.postProcess,
 					transient: options.transient,
+					backendType: options.backendType,
+					backendCapabilities: options.backendCapabilities,
 					frameContext: options.frameContext,
 					incremental: options.incremental,
 				});

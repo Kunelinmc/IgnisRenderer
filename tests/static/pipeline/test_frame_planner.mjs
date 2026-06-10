@@ -38,6 +38,15 @@ function run() {
 	};
 	const createPostProcess = (overrides = {}) =>
 		createResolvedPostProcess(overrides, "test");
+	const backendCapabilities = {
+		sh: false,
+		shadows: true,
+		reflection: true,
+		environment: false,
+		clusteredLighting: false,
+		oit: false,
+		postProcess: true,
+	};
 
 	const frame = createFrame({
 		particleSystems: [{}],
@@ -60,12 +69,16 @@ function run() {
 			fog: { enabled: true },
 			bloom: { enabled: true },
 			fxaa: { enabled: true },
-		})
+		}),
+		{
+			backendType: "test",
+			backendCapabilities,
+		}
 	);
 	const plan = framePlan.backendPasses;
 
 	assert.ok(framePlan.stageOrder.some((stage) => stage.id === "postprocess"));
-	assert.equal(plan.some((pass) => pass.stage === "postprocess"), false);
+	assert.equal(plan.some((pass) => pass.stage === "postprocess"), true);
 
 	assert.deepEqual(
 		plan.map((pass) => pass.stage),
@@ -76,6 +89,7 @@ function run() {
 			"main-opaque",
 			"main-transparent",
 			"particles",
+			"postprocess",
 		]
 	);
 	assert.equal(
@@ -93,7 +107,19 @@ function run() {
 		true
 	);
 	assert.equal(plan.find((pass) => pass.stage === "particles")?.enabled, true);
-	assert.equal(plan.find((pass) => pass.stage === "postprocess"), undefined);
+	assert.equal(plan.find((pass) => pass.stage === "postprocess")?.enabled, true);
+	assert.deepEqual(
+		plan.find((pass) => pass.stage === "postprocess")?.dependsOn,
+		["particles"]
+	);
+	assert.ok(
+		framePlan.stageOrder.findIndex((stage) => stage.id === "particles") <
+			framePlan.stageOrder.findIndex((stage) => stage.id === "postprocess")
+	);
+	assert.ok(
+		framePlan.stageOrder.findIndex((stage) => stage.id === "postprocess") <
+			framePlan.stageOrder.findIndex((stage) => stage.id === "sync-out")
+	);
 
 	const disabledPlan = FramePlanner.build(
 		createFrame(),
@@ -125,8 +151,8 @@ function run() {
 		false
 	);
 	assert.equal(
-		disabledPlan.find((pass) => pass.stage === "postprocess"),
-		undefined
+		disabledPlan.find((pass) => pass.stage === "postprocess")?.enabled,
+		false
 	);
 	assert.equal(
 		plan.find((pass) => pass.stage === "particle-sim")?.executor,
@@ -191,7 +217,8 @@ function run() {
 	);
 	assert.ok(sceneFogPlan.stageOrder.some((stage) => stage.id === "postprocess"));
 	assert.equal(
-		sceneFogPlan.backendPasses.some((pass) => pass.stage === "postprocess"),
+		sceneFogPlan.backendPasses.find((pass) => pass.stage === "postprocess")
+			?.enabled,
 		false
 	);
 

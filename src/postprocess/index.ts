@@ -44,13 +44,21 @@ export {
 	type PostProcessPlacement,
 } from "./ordering";
 export {
-	PostProcessPipeline,
+	PostProcessGraphCompiler,
 	getPostProcessRequirementChannels,
 	hasPostProcessExecutionPasses,
 	isPostProcessPassStage,
 	resolvePostProcessExecutionOrder,
+	type CompiledPostProcessGraph,
+	type CompiledPostProcessPass,
 	type PostProcessExecutionOrderContext,
-} from "./PostProcessPipeline";
+	type PostProcessGraphCompileRequest,
+} from "./PostProcessGraphCompiler";
+export {
+	PostProcessResourcePool,
+	type PostProcessResourcePoolPrepareRequest,
+	type PostProcessResourcePoolPrepareResult,
+} from "./PostProcessResourcePool";
 export {
 	FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
 	FastApproximateAntiAliasingPass,
@@ -246,9 +254,6 @@ export type {
 	PostProcessPassRequest,
 	PostProcessPassRequirements,
 	PostProcessPassResult,
-	PostProcessBackendAdapter,
-	PostProcessPipelineExecuteRequest,
-	PostProcessPipelineExecuteResult,
 	PostProcessResourceMipMode,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,

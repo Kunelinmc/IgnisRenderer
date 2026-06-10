@@ -17,6 +17,7 @@ function run() {
 		clusteredLighting: false,
 		oit: false,
 		occlusionCulling: false,
+		postProcess: true,
 	});
 	assert.equal("postProcessCapabilities" in software, false);
 
@@ -28,6 +29,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 		occlusionCulling: true,
+		postProcess: true,
 	});
 	assert.equal(
 		new WebGPUBackend({ enableOcclusionCulling: false }).capabilities
@@ -44,6 +46,7 @@ function run() {
 		clusteredLighting: true,
 		oit: true,
 		occlusionCulling: false,
+		postProcess: true,
 	});
 	assert.equal("postProcessCapabilities" in webgl, false);
 

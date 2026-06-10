@@ -1,7 +1,7 @@
 import type { FrameContext } from "../../pipeline/types";
 import type {
+	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	PostProcessBackendAdapter,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -31,7 +31,7 @@ export interface WebGPUPostProcessExecutorHost {
 /**
  * Supplies WebGPU post-process resources, G-buffer metadata, and pass helpers.
  */
-export class WebGPUPostProcessExecutor implements PostProcessBackendAdapter {
+export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	/**
 	 * Backend kind used for pass implementation resolution.
 	 */
@@ -45,7 +45,7 @@ export class WebGPUPostProcessExecutor implements PostProcessBackendAdapter {
 	/**
 	 * Allocates a WebGPU post-process texture resource.
 	 *
-	 * @param desc Resource descriptor from `PostProcessPipeline`.
+	 * @param desc Resource descriptor from the backend post-process resource pool.
 	 * @returns Resource handle wrapping a backend texture.
 	 * @sideEffects Allocates a GPU texture through the active frame executor.
 	 */

@@ -1,24 +1,19 @@
 import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
-import type { PostProcessBackendAdapter } from "../postprocess/types";
 import type { IRenderBackend } from "./IRenderBackend";
 
-export const RENDERER_POST_PROCESS_EXTENSION_ID = "renderer.postprocess";
 export const RENDERER_OCCLUSION_CULLING_EXTENSION_ID =
 	"renderer.occlusion-culling";
 
-export const RENDERER_POST_PROCESS_INSERTION_POINT = "renderer:postprocess";
 export const RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT =
 	"renderer:prepared-scene:occlusion-visibility";
 export const WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT =
 	"backend:webgpu:frame-graph:after-depth";
 
 export type RenderBackendExtensionId =
-	| typeof RENDERER_POST_PROCESS_EXTENSION_ID
 	| typeof RENDERER_OCCLUSION_CULLING_EXTENSION_ID
 	| (string & {});
 
 export type RenderBackendExtensionInsertionPoint =
-	| typeof RENDERER_POST_PROCESS_INSERTION_POINT
 	| typeof RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT
 	| typeof WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT
 	| (string & {});
@@ -69,23 +64,6 @@ export function createRenderBackendExtensionRegistry(
 			return snapshot;
 		},
 	};
-}
-
-/**
- * Resolves the backend post-process extension.
- *
- * @param backend Backend that may expose renderer-owned post-process support.
- * @returns Typed post-process extension descriptor, or `null` when absent.
- * @sideEffects None.
- */
-export function resolvePostProcessBackendExtension(
-	backend: IRenderBackend
-): RenderBackendExtension<PostProcessBackendAdapter> | null {
-	return (
-		backend.extensions?.getExtension<PostProcessBackendAdapter>(
-			RENDERER_POST_PROCESS_EXTENSION_ID
-		) ?? null
-	);
 }
 
 /**

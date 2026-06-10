@@ -16,6 +16,7 @@ class RegistryBackend {
 			environment: false,
 			clusteredLighting: false,
 			oit: false,
+			postProcess: false,
 		};
 		installNoopPostProcessAdapter(
 			this,
@@ -175,7 +176,19 @@ async function testRendererSuccessfulFrameEndsAndSchedules() {
 		context.framePlan.backendPasses.some(
 			(pass) => pass.stage === "postprocess"
 		),
-		false
+		true
+	);
+	assert.equal(
+		context.framePlan.stageOrder.find(
+			(stage) => stage.id === "postprocess"
+		)?.kind,
+		"backend-pass"
+	);
+	assert.deepEqual(
+		context.framePlan.backendPasses.find(
+			(pass) => pass.stage === "postprocess"
+		)?.dependsOn,
+		["particles"]
 	);
 }
 
@@ -253,7 +266,7 @@ async function run() {
 			assert.equal(stats.firstPass, customPassId);
 			assert.equal(stats.forceFullFrame, false);
 			assert.ok(backend.skippedPasses.includes("main-opaque"));
-			assert.equal(backend.skippedPasses.includes("postprocess"), false);
+			assert.equal(backend.skippedPasses.includes("postprocess"), true);
 			assert.ok(backend.executedPasses.includes(customPassId));
 			const framePlan = backend.contexts.at(-1).framePlan;
 			assert.ok(framePlan);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import * as ordering from "../../../src/postprocess/ordering.ts";
-import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessPipeline.ts";
+import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessGraphCompiler.ts";
 
 const {
 	BUILTIN_POST_PROCESS_ORDER,

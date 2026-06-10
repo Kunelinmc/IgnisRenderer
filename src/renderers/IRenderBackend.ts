@@ -6,6 +6,7 @@ import type {
 import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
+import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
 export type RenderBackendType = KnownBackendType | (string & {});
@@ -60,13 +61,14 @@ export interface BackendCapabilities {
 	shadows: boolean;
 	reflection: boolean;
 	environment: boolean;
+	postProcess: boolean;
 	clusteredLighting: boolean;
 	oit: boolean;
 	occlusionCulling: boolean;
 }
 
 export type RendererBackendResourceEventAction = "invalidate" | "destroy";
-export type RendererBackendResourceEventResource = "postprocess" | (string & {});
+export type RendererBackendResourceEventResource = string & {};
 
 export interface RendererBackendResourceEvent {
 	readonly resource: RendererBackendResourceEventResource;
@@ -84,6 +86,7 @@ export interface RendererBackendResourceEvent {
  */
 export interface RendererBackendBridge {
 	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
+	readonly postProcess?: PostProcessPassRegistry;
 	pixels?: Uint8ClampedArray | null;
 	/**
 	 * Notifies the renderer that the backend observed device/context loss.

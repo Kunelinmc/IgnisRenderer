@@ -48,10 +48,7 @@ import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
 } from "../../../pipeline/WarmupPlanner";
-import {
-	WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY,
-	toShaderCompileError,
-} from "../../../pipeline/WarmupPlanner";
+import { toShaderCompileError } from "../../../pipeline/WarmupPlanner";
 import type { ShaderCompileError } from "../../../shaders/runtime";
 import { Logger } from "../../../foundation/Logger";
 import { materialUsesTransmission } from "../../../materials/transparency";
@@ -535,7 +532,7 @@ export class WebGPUFrameGraphRuntime {
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPresentWarmup"));
 		}
 
-		const descriptorById = this._getWarmupPostProcessDescriptorMap(context);
+		const descriptorById = this._getWarmupPostProcessDescriptorMap(context, plan);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
 			for (const passId of plan.postProcessPasses) {
@@ -610,10 +607,11 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _getWarmupPostProcessDescriptorMap(
-		context: FrameContext
+		context: FrameContext,
+		plan: WarmupPlan
 	): Map<string, PostProcessPass> {
 		const descriptors =
-			context.transient?.get(WARMUP_POST_PROCESS_DESCRIPTORS_TRANSIENT_KEY) ??
+			plan.postProcessDescriptors ??
 			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
 	}

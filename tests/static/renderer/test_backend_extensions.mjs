@@ -3,12 +3,9 @@ import assert from "node:assert/strict";
 import {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 	createRenderBackendExtensionRegistry,
 	resolveOcclusionCullingBackendExtension,
-	resolvePostProcessBackendExtension,
 } from "../../../src/renderers/BackendExtensions.ts";
 import { RendererOcclusionCullingController } from "../../../src/renderers/RendererOcclusionCullingController.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
@@ -33,7 +30,6 @@ function testRegistryRejectsDuplicateIds() {
 }
 
 function testTypedResolversUseExtensionRegistry() {
-	const postApi = { backend: "test" };
 	const occlusionApi = {
 		getVisibilityProvider: () => ({
 			sourceFrameIndex: 1,
@@ -44,11 +40,6 @@ function testTypedResolversUseExtensionRegistry() {
 		type: "test",
 		extensions: createRenderBackendExtensionRegistry([
 			{
-				id: RENDERER_POST_PROCESS_EXTENSION_ID,
-				insertionPoints: [RENDERER_POST_PROCESS_INSERTION_POINT],
-				api: postApi,
-			},
-			{
 				id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 				insertionPoints: [RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT],
 				api: occlusionApi,
@@ -56,7 +47,6 @@ function testTypedResolversUseExtensionRegistry() {
 		]),
 	};
 
-	assert.equal(resolvePostProcessBackendExtension(backend).api, postApi);
 	assert.equal(resolveOcclusionCullingBackendExtension(backend).api, occlusionApi);
 }
 
@@ -111,11 +101,7 @@ function testOcclusionControllerUsesExtensionApi() {
 function testWebGPURegistersExpectedExtensions() {
 	const backend = new WebGPUBackend();
 	const extensions = backend.extensions.listExtensions();
-	assert.equal(extensions.length, 2);
-	assert.deepEqual(
-		resolvePostProcessBackendExtension(backend).insertionPoints,
-		[RENDERER_POST_PROCESS_INSERTION_POINT]
-	);
+	assert.equal(extensions.length, 1);
 	assert.deepEqual(
 		resolveOcclusionCullingBackendExtension(backend).insertionPoints,
 		[

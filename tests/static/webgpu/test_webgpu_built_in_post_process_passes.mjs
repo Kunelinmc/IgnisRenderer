@@ -9,10 +9,7 @@ import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
-	RENDERER_POST_PROCESS_EXTENSION_ID,
-	RENDERER_POST_PROCESS_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
-	resolvePostProcessBackendExtension,
 } from "../../../src/renderers/BackendExtensions.ts";
 import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
@@ -336,18 +333,13 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	const backend = new WebGPUBackend();
-	const extension = resolvePostProcessBackendExtension(backend);
-	const adapter = extension?.api;
-	assert.ok(extension);
-	assert.ok(adapter);
-	assert.equal(extension.id, RENDERER_POST_PROCESS_EXTENSION_ID);
-	assert.deepEqual(extension.insertionPoints, [
-		RENDERER_POST_PROCESS_INSERTION_POINT,
-	]);
-	assert.equal(adapter.backend, "webgpu");
-	assert.equal(typeof adapter.executePass, "function");
-	assert.equal(typeof adapter.createGBufferBridge, "function");
-	assert.equal("executor" in adapter, false);
+	assert.equal(backend.capabilities.postProcess, true);
+	assert.equal(
+		backend.extensions
+			.listExtensions()
+			.some((extension) => extension.id === "renderer.postprocess"),
+		false
+	);
 	assert.equal("postProcessAdapter" in backend, false);
 	assert.equal("postProcessExecutor" in backend, false);
 	assert.equal("createPostProcessGBufferBridge" in backend, false);
