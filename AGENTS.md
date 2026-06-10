@@ -192,7 +192,7 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 
 ### Advanced Rendering Features
 - **WebGPU Deferred Lighting**: `main-opaque` may internally split into background, G-buffer, deferred lighting resolve, and forward fallback GPU passes. This is WebGPU-internal and must not add global renderer frame-pass stages for Software/WebGL.
-- **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, dependency ordering, G-buffer semantic contracts, temporal history validity, and pass-owned implementations when a built-in pass requires cross-backend orchestration (for example TAA). Backends expose `IPostProcessExecutor.executePass(passId, request)` fallback, optional `IPostProcessExecutor.getPassExecutionContext(request)` low-level helpers, and `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs or hardcode pass kernel orchestration that belongs in `src/postprocess/passes/`.
+- **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer semantic contracts, history/transient resource policies, and pass-owned implementations when a built-in pass requires cross-backend orchestration (for example TAA). `Renderer` owns only the public `renderer.postProcess` registry. Post-processing is a backend-owned `"postprocess"` `backend-pass`; Software, WebGL, and WebGPU hold a `BackendPostProcessRuntime` and execute it from `IRenderBackend.executePass({ stage: "postprocess" })`. Backends expose `IPostProcessExecutor.executePass(passId, request)` fallback, optional `IPostProcessExecutor.getPassExecutionContext(request)` low-level helpers, and `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs, `renderer.postprocess` backend extensions, or hardcode pass kernel orchestration that belongs in `src/postprocess/passes/`.
 - **Built-In Post-Processing Passes**: Cross-backend logical pass system supporting:
     - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
     - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.
@@ -210,7 +210,7 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 	4. **Simulation**: Animation, Physics.
 	5. **Transform Update**: Updates world matrices for the scene.
 	6. **Prepared Scene Building**: Collects draw packets indexed by `MeshInstance`.
-	7. **Backend Dispatch**: Software rasterization, GPU command encoding, WebGL batching, and the single renderer-level `postprocess` stage.
+	7. **Backend Dispatch**: Software rasterization, GPU command encoding, WebGL batching, and backend-owned passes including `"postprocess"` when `BackendCapabilities.postProcess` is `true`.
 	8. **Sync Out**: Syncs ECS results back to `Node`.
 
 ### Shader Management
