@@ -261,3 +261,6 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 3. **Refactoring Policy**: Avoid large-scale refactorings unless explicitly requested. Prioritize stability.
 4. When changing public APIs/behavior, update relevant `docs/` first, then add or update tests in the same PR.
 5. Update `AGENTS.md` if core architectural patterns change.
+6. When architecture changes, audit and update stale descriptions in
+   `AGENTS.md`, `docs/`, `README*.md`, and relevant code comments so
+   architectural guidance remains consistent with the implementation.
